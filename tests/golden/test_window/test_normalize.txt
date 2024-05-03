@@ -20,11 +20,17 @@
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) && !defined(__cplusplus)
+#define exo_restrict restrict
+#else
+#define exo_restrict
+#endif
+
 
 #ifndef EXO_WIN_1F32C
 #define EXO_WIN_1F32C
 struct exo_win_1f32c{
-    const float * const data;
+    const float *exo_restrict const data;
     const int_fast32_t strides[1];
 };
 #endif
@@ -34,7 +40,7 @@ struct exo_win_1f32c{
 //     x : f32[n, m] @DRAM,
 //     y : f32[m, n] @DRAM
 // )
-void proj( void *ctxt, int_fast32_t n, int_fast32_t m, const float* x, const float* y );
+void proj( void *exo_restrict ctxt, int_fast32_t n, int_fast32_t m, const float*exo_restrict x, const float*exo_restrict y );
 
 
 #include <stdio.h>
@@ -46,7 +52,7 @@ void proj( void *ctxt, int_fast32_t n, int_fast32_t m, const float* x, const flo
 //     y : [f32][m] @DRAM,
 //     r : f32 @DRAM
 // )
-static void dot( void *ctxt, int_fast32_t m, struct exo_win_1f32c x, struct exo_win_1f32c y, float* r );
+static void dot( void *exo_restrict ctxt, int_fast32_t m, struct exo_win_1f32c x, struct exo_win_1f32c y, float*exo_restrict r );
 
 // dot(
 //     m : size,
@@ -54,7 +60,7 @@ static void dot( void *ctxt, int_fast32_t m, struct exo_win_1f32c x, struct exo_
 //     y : [f32][m] @DRAM,
 //     r : f32 @DRAM
 // )
-static void dot( void *ctxt, int_fast32_t m, struct exo_win_1f32c x, struct exo_win_1f32c y, float* r ) {
+static void dot( void *exo_restrict ctxt, int_fast32_t m, struct exo_win_1f32c x, struct exo_win_1f32c y, float*exo_restrict r ) {
 *r = 0.0f;
 for (int_fast32_t i = 0; i < m; i++) {
   *r += x.data[i * x.strides[0]] * y.data[i * y.strides[0]];
@@ -67,7 +73,7 @@ for (int_fast32_t i = 0; i < m; i++) {
 //     x : f32[n, m] @DRAM,
 //     y : f32[m, n] @DRAM
 // )
-void proj( void *ctxt, int_fast32_t n, int_fast32_t m, const float* x, const float* y ) {
+void proj( void *exo_restrict ctxt, int_fast32_t n, int_fast32_t m, const float*exo_restrict x, const float*exo_restrict y ) {
 EXO_ASSUME(n > 4);
 EXO_ASSUME(m > 4);
 float xy;

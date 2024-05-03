@@ -29,32 +29,38 @@ extern "C" {
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) && !defined(__cplusplus)
+#define exo_restrict restrict
+#else
+#define exo_restrict
+#endif
+
 
 #ifndef EXO_WIN_1F32
 #define EXO_WIN_1F32
 struct exo_win_1f32{
-    float * const data;
+    float *exo_restrict const data;
     const int_fast32_t strides[1];
 };
 #endif
 #ifndef EXO_WIN_1F32C
 #define EXO_WIN_1F32C
 struct exo_win_1f32c{
-    const float * const data;
+    const float *exo_restrict const data;
     const int_fast32_t strides[1];
 };
 #endif
 #ifndef EXO_WIN_2F32
 #define EXO_WIN_2F32
 struct exo_win_2f32{
-    float * const data;
+    float *exo_restrict const data;
     const int_fast32_t strides[2];
 };
 #endif
 #ifndef EXO_WIN_2F32C
 #define EXO_WIN_2F32C
 struct exo_win_2f32c{
-    const float * const data;
+    const float *exo_restrict const data;
     const int_fast32_t strides[2];
 };
 #endif
@@ -66,7 +72,7 @@ struct exo_win_2f32c{
 //     B : f32[K, N] @DRAM,
 //     C : f32[M, N] @DRAM
 // )
-void sgemm_exo( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, const float* A, const float* B, float* C );
+void sgemm_exo( void *exo_restrict ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, const float*exo_restrict A, const float*exo_restrict B, float*exo_restrict C );
 
 
 
@@ -90,7 +96,7 @@ void sgemm_exo( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, cons
 //     B : [f32][K, 64] @DRAM,
 //     C : [f32][1, 64] @DRAM
 // )
-static void basic_kernel_1x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
+static void basic_kernel_1x4( void *exo_restrict ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
 // basic_kernel_2x4(
 //     K : size,
@@ -98,7 +104,7 @@ static void basic_kernel_1x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A
 //     B : [f32][K, 64] @DRAM,
 //     C : [f32][2, 64] @DRAM
 // )
-static void basic_kernel_2x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
+static void basic_kernel_2x4( void *exo_restrict ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
 // basic_kernel_3x4(
 //     K : size,
@@ -106,7 +112,7 @@ static void basic_kernel_2x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A
 //     B : [f32][K, 64] @DRAM,
 //     C : [f32][3, 64] @DRAM
 // )
-static void basic_kernel_3x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
+static void basic_kernel_3x4( void *exo_restrict ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
 // basic_kernel_4x4(
 //     K : size,
@@ -114,7 +120,7 @@ static void basic_kernel_3x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A
 //     B : [f32][K, 64] @DRAM,
 //     C : [f32][4, 64] @DRAM
 // )
-static void basic_kernel_4x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
+static void basic_kernel_4x4( void *exo_restrict ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
 // basic_kernel_5x4(
 //     K : size,
@@ -122,7 +128,7 @@ static void basic_kernel_4x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A
 //     B : [f32][K, 64] @DRAM,
 //     C : [f32][5, 64] @DRAM
 // )
-static void basic_kernel_5x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
+static void basic_kernel_5x4( void *exo_restrict ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
 // basic_kernel_6x4(
 //     K : size,
@@ -130,7 +136,7 @@ static void basic_kernel_5x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A
 //     B : [f32][K, 64] @DRAM,
 //     C : [f32][6, 64] @DRAM
 // )
-static void basic_kernel_6x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
+static void basic_kernel_6x4( void *exo_restrict ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
 // bottom_panel_kernel_scheduled(
 //     M : size,
@@ -139,7 +145,7 @@ static void basic_kernel_6x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A
 //     B : [f32][K, 64] @DRAM,
 //     C : [f32][M, 64] @DRAM
 // )
-static void bottom_panel_kernel_scheduled( void *ctxt, int_fast32_t M, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
+static void bottom_panel_kernel_scheduled( void *exo_restrict ctxt, int_fast32_t M, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
 // right_panel_kernel0(
 //     N : size,
@@ -148,7 +154,7 @@ static void bottom_panel_kernel_scheduled( void *ctxt, int_fast32_t M, int_fast3
 //     B : [f32][K, N] @DRAM,
 //     C : [f32][6, N] @DRAM
 // )
-static void right_panel_kernel0( void *ctxt, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
+static void right_panel_kernel0( void *exo_restrict ctxt, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
 // right_panel_kernel1(
 //     N : size,
@@ -157,7 +163,7 @@ static void right_panel_kernel0( void *ctxt, int_fast32_t N, int_fast32_t K, str
 //     B : [f32][K, N] @DRAM,
 //     C : [f32][6, N] @DRAM
 // )
-static void right_panel_kernel1( void *ctxt, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
+static void right_panel_kernel1( void *exo_restrict ctxt, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
 // right_panel_kernel2(
 //     N : size,
@@ -166,7 +172,7 @@ static void right_panel_kernel1( void *ctxt, int_fast32_t N, int_fast32_t K, str
 //     B : [f32][K, N] @DRAM,
 //     C : [f32][6, N] @DRAM
 // )
-static void right_panel_kernel2( void *ctxt, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
+static void right_panel_kernel2( void *exo_restrict ctxt, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
 // right_panel_kernel3(
 //     N : size,
@@ -175,7 +181,7 @@ static void right_panel_kernel2( void *ctxt, int_fast32_t N, int_fast32_t K, str
 //     B : [f32][K, N] @DRAM,
 //     C : [f32][6, N] @DRAM
 // )
-static void right_panel_kernel3( void *ctxt, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
+static void right_panel_kernel3( void *exo_restrict ctxt, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
 // right_panel_kernel_scheduled(
 //     N : size,
@@ -184,7 +190,7 @@ static void right_panel_kernel3( void *ctxt, int_fast32_t N, int_fast32_t K, str
 //     B : [f32][K, N] @DRAM,
 //     C : [f32][6, N] @DRAM
 // )
-static void right_panel_kernel_scheduled( void *ctxt, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
+static void right_panel_kernel_scheduled( void *exo_restrict ctxt, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
 // sgemm_above_kernel(
 //     M : size,
@@ -194,7 +200,7 @@ static void right_panel_kernel_scheduled( void *ctxt, int_fast32_t N, int_fast32
 //     B : [f32][K, N] @DRAM,
 //     C : [f32][M, N] @DRAM
 // )
-static void sgemm_above_kernel( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
+static void sgemm_above_kernel( void *exo_restrict ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
 // basic_kernel_1x4(
 //     K : size,
@@ -202,7 +208,7 @@ static void sgemm_above_kernel( void *ctxt, int_fast32_t M, int_fast32_t N, int_
 //     B : [f32][K, 64] @DRAM,
 //     C : [f32][1, 64] @DRAM
 // )
-static void basic_kernel_1x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
+static void basic_kernel_1x4( void *exo_restrict ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
@@ -246,7 +252,7 @@ for (int_fast32_t i0 = 0; i0 < 1; i0++) {
 //     B : [f32][K, 64] @DRAM,
 //     C : [f32][2, 64] @DRAM
 // )
-static void basic_kernel_2x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
+static void basic_kernel_2x4( void *exo_restrict ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
@@ -290,7 +296,7 @@ for (int_fast32_t i0 = 0; i0 < 2; i0++) {
 //     B : [f32][K, 64] @DRAM,
 //     C : [f32][3, 64] @DRAM
 // )
-static void basic_kernel_3x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
+static void basic_kernel_3x4( void *exo_restrict ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
@@ -334,7 +340,7 @@ for (int_fast32_t i0 = 0; i0 < 3; i0++) {
 //     B : [f32][K, 64] @DRAM,
 //     C : [f32][4, 64] @DRAM
 // )
-static void basic_kernel_4x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
+static void basic_kernel_4x4( void *exo_restrict ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
@@ -378,7 +384,7 @@ for (int_fast32_t i0 = 0; i0 < 4; i0++) {
 //     B : [f32][K, 64] @DRAM,
 //     C : [f32][5, 64] @DRAM
 // )
-static void basic_kernel_5x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
+static void basic_kernel_5x4( void *exo_restrict ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
@@ -422,7 +428,7 @@ for (int_fast32_t i0 = 0; i0 < 5; i0++) {
 //     B : [f32][K, 64] @DRAM,
 //     C : [f32][6, 64] @DRAM
 // )
-static void basic_kernel_6x4( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
+static void basic_kernel_6x4( void *exo_restrict ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
@@ -467,7 +473,7 @@ for (int_fast32_t i0 = 0; i0 < 6; i0++) {
 //     B : [f32][K, 64] @DRAM,
 //     C : [f32][M, 64] @DRAM
 // )
-static void bottom_panel_kernel_scheduled( void *ctxt, int_fast32_t M, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
+static void bottom_panel_kernel_scheduled( void *exo_restrict ctxt, int_fast32_t M, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(M >= 1);
 EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
@@ -540,7 +546,7 @@ _mm512_storeu_ps(&{dst_data}, {src_data});
 //     B : [f32][K, N] @DRAM,
 //     C : [f32][6, N] @DRAM
 // )
-static void right_panel_kernel0( void *ctxt, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
+static void right_panel_kernel0( void *exo_restrict ctxt, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(N >= 1);
 EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
@@ -573,7 +579,7 @@ for (int_fast32_t i0 = 0; i0 < 6; i0++) {
 //     B : [f32][K, N] @DRAM,
 //     C : [f32][6, N] @DRAM
 // )
-static void right_panel_kernel1( void *ctxt, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
+static void right_panel_kernel1( void *exo_restrict ctxt, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(N >= 1);
 EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
@@ -613,7 +619,7 @@ for (int_fast32_t i0 = 0; i0 < 6; i0++) {
 //     B : [f32][K, N] @DRAM,
 //     C : [f32][6, N] @DRAM
 // )
-static void right_panel_kernel2( void *ctxt, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
+static void right_panel_kernel2( void *exo_restrict ctxt, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(N >= 1);
 EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
@@ -660,7 +666,7 @@ for (int_fast32_t i0 = 0; i0 < 6; i0++) {
 //     B : [f32][K, N] @DRAM,
 //     C : [f32][6, N] @DRAM
 // )
-static void right_panel_kernel3( void *ctxt, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
+static void right_panel_kernel3( void *exo_restrict ctxt, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(N >= 1);
 EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
@@ -714,7 +720,7 @@ for (int_fast32_t i0 = 0; i0 < 6; i0++) {
 //     B : [f32][K, N] @DRAM,
 //     C : [f32][6, N] @DRAM
 // )
-static void right_panel_kernel_scheduled( void *ctxt, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
+static void right_panel_kernel_scheduled( void *exo_restrict ctxt, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(N >= 1);
 EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
@@ -744,7 +750,7 @@ if (((N + 15) / (16)) == 1) {
 //     B : [f32][K, N] @DRAM,
 //     C : [f32][M, N] @DRAM
 // )
-static void sgemm_above_kernel( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
+static void sgemm_above_kernel( void *exo_restrict ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(M >= 1);
 EXO_ASSUME(N >= 1);
 EXO_ASSUME(K >= 1);
@@ -785,7 +791,7 @@ if (M % 6 > 0) {
 //     B : f32[K, N] @DRAM,
 //     C : f32[M, N] @DRAM
 // )
-void sgemm_exo( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, const float* A, const float* B, float* C ) {
+void sgemm_exo( void *exo_restrict ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, const float*exo_restrict A, const float*exo_restrict B, float*exo_restrict C ) {
 EXO_ASSUME(M >= 1);
 EXO_ASSUME(N >= 1);
 EXO_ASSUME(K >= 1);

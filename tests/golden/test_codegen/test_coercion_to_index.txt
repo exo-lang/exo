@@ -3,7 +3,7 @@
 // foo(
 
 // )
-void foo( void *ctxt ) {
+void foo( void *exo_restrict ctxt ) {
 for (int_fast32_t x = 0; x < 6; x++) {
   ; // NO-OP
 }

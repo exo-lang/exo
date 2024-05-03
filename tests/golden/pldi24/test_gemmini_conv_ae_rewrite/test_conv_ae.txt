@@ -20,6 +20,12 @@
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) && !defined(__cplusplus)
+#define exo_restrict restrict
+#else
+#define exo_restrict
+#endif
+
 typedef struct c_code_str_Context { 
 
     struct ConfigLoadAcc {
@@ -48,35 +54,35 @@ typedef struct c_code_str_Context {
 #ifndef EXO_WIN_2I32
 #define EXO_WIN_2I32
 struct exo_win_2i32{
-    int32_t * const data;
+    int32_t *exo_restrict const data;
     const int_fast32_t strides[2];
 };
 #endif
 #ifndef EXO_WIN_2I32C
 #define EXO_WIN_2I32C
 struct exo_win_2i32c{
-    const int32_t * const data;
+    const int32_t *exo_restrict const data;
     const int_fast32_t strides[2];
 };
 #endif
 #ifndef EXO_WIN_2I8
 #define EXO_WIN_2I8
 struct exo_win_2i8{
-    int8_t * const data;
+    int8_t *exo_restrict const data;
     const int_fast32_t strides[2];
 };
 #endif
 #ifndef EXO_WIN_2I8C
 #define EXO_WIN_2I8C
 struct exo_win_2i8c{
-    const int8_t * const data;
+    const int8_t *exo_restrict const data;
     const int_fast32_t strides[2];
 };
 #endif
 #ifndef EXO_WIN_3I8
 #define EXO_WIN_3I8
 struct exo_win_3i8{
-    int8_t * const data;
+    int8_t *exo_restrict const data;
     const int_fast32_t strides[3];
 };
 #endif
@@ -88,7 +94,7 @@ struct exo_win_3i8{
 //     act : bool,
 //     scale : f32 @DRAM
 // )
-void conv_on_gemmini( c_code_str_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale );
+void conv_on_gemmini( c_code_str_Context *exo_restrict ctxt, int8_t*exo_restrict output, const int32_t*exo_restrict bias, const int8_t*exo_restrict inp, const int8_t*exo_restrict weights, bool act, const float*exo_restrict scale );
 
 
 #include <stdio.h>
@@ -141,7 +147,7 @@ gemmini_extended_config_st({dst_stride}, {act}, {scale}[0]);
 //     act : bool,
 //     scale : f32 @DRAM
 // )
-void conv_on_gemmini( c_code_str_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale ) {
+void conv_on_gemmini( c_code_str_Context *exo_restrict ctxt, int8_t*exo_restrict output, const int32_t*exo_restrict bias, const int8_t*exo_restrict inp, const int8_t*exo_restrict weights, bool act, const float*exo_restrict scale ) {
 int8_t *inp_tmp = (int8_t*) ((uint64_t)gemm_malloc (16 * 8 * 4 * 3 * 30 * sizeof(int8_t)));
 int8_t *weights_tmp = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 3 * 3 * sizeof(int8_t)));
 int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 8 * 4 * 2 * sizeof(int32_t)));

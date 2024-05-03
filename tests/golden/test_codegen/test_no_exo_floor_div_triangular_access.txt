@@ -29,13 +29,19 @@ extern "C" {
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) && !defined(__cplusplus)
+#define exo_restrict restrict
+#else
+#define exo_restrict
+#endif
+
 
 
 // foo(
 //     N : size,
 //     x : f32[N, N] @DRAM
 // )
-void foo( void *ctxt, int_fast32_t N, float* x );
+void foo( void *exo_restrict ctxt, int_fast32_t N, float*exo_restrict x );
 
 
 
@@ -53,7 +59,7 @@ void foo( void *ctxt, int_fast32_t N, float* x );
 //     N : size,
 //     x : f32[N, N] @DRAM
 // )
-void foo( void *ctxt, int_fast32_t N, float* x ) {
+void foo( void *exo_restrict ctxt, int_fast32_t N, float*exo_restrict x ) {
 for (int_fast32_t ii = 0; ii < N % 4; ii++) {
   for (int_fast32_t joo = 0; joo < ((ii + ((N) / (4)) * 4) / (16)); joo++) {
     x[ii * N + joo] = 0.0f;

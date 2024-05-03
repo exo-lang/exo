@@ -6,7 +6,7 @@
 // foo(
 
 // )
-void foo( void *ctxt ) {
+void foo( void *exo_restrict ctxt ) {
 _Float16 a;
 a = a + ((_Float16) 3);
 }

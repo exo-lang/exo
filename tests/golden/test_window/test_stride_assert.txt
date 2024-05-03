@@ -20,18 +20,24 @@
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) && !defined(__cplusplus)
+#define exo_restrict restrict
+#else
+#define exo_restrict
+#endif
+
 
 #ifndef EXO_WIN_2I8
 #define EXO_WIN_2I8
 struct exo_win_2i8{
-    int8_t * const data;
+    int8_t *exo_restrict const data;
     const int_fast32_t strides[2];
 };
 #endif
 #ifndef EXO_WIN_2I8C
 #define EXO_WIN_2I8C
 struct exo_win_2i8c{
-    const int8_t * const data;
+    const int8_t *exo_restrict const data;
     const int_fast32_t strides[2];
 };
 #endif
@@ -41,7 +47,7 @@ struct exo_win_2i8c{
 //     src : [i8][n, m] @DRAM,
 //     dst : [i8][n, 16] @DRAM
 // )
-void stride_assert( void *ctxt, int_fast32_t n, int_fast32_t m, struct exo_win_2i8c src, struct exo_win_2i8 dst );
+void stride_assert( void *exo_restrict ctxt, int_fast32_t n, int_fast32_t m, struct exo_win_2i8c src, struct exo_win_2i8 dst );
 
 
 #include <stdio.h>
@@ -53,7 +59,7 @@ void stride_assert( void *ctxt, int_fast32_t n, int_fast32_t m, struct exo_win_2
 //     src : [i8][n, m] @DRAM,
 //     dst : [i8][n, 16] @DRAM
 // )
-void stride_assert( void *ctxt, int_fast32_t n, int_fast32_t m, struct exo_win_2i8c src, struct exo_win_2i8 dst ) {
+void stride_assert( void *exo_restrict ctxt, int_fast32_t n, int_fast32_t m, struct exo_win_2i8c src, struct exo_win_2i8 dst ) {
 EXO_ASSUME(n <= 16);
 EXO_ASSUME(m <= 16);
 // assert stride(src, 1) == 1

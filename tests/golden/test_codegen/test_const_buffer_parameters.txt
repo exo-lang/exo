@@ -29,18 +29,24 @@ extern "C" {
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) && !defined(__cplusplus)
+#define exo_restrict restrict
+#else
+#define exo_restrict
+#endif
+
 
 #ifndef EXO_WIN_1F32
 #define EXO_WIN_1F32
 struct exo_win_1f32{
-    float * const data;
+    float *exo_restrict const data;
     const int_fast32_t strides[1];
 };
 #endif
 #ifndef EXO_WIN_1F32C
 #define EXO_WIN_1F32C
 struct exo_win_1f32c{
-    const float * const data;
+    const float *exo_restrict const data;
     const int_fast32_t strides[1];
 };
 #endif
@@ -49,21 +55,21 @@ struct exo_win_1f32c{
 //     A : f32[N] @DRAM,
 //     B : f32[N] @DRAM
 // )
-void memcpy( void *ctxt, int_fast32_t N, float* A, const float* B );
+void memcpy( void *exo_restrict ctxt, int_fast32_t N, float*exo_restrict A, const float*exo_restrict B );
 
 // memcpy_ab(
 //     N : size,
 //     A : [f32][N] @DRAM,
 //     B : [f32][N] @DRAM
 // )
-void memcpy_ab( void *ctxt, int_fast32_t N, struct exo_win_1f32 A, struct exo_win_1f32c B );
+void memcpy_ab( void *exo_restrict ctxt, int_fast32_t N, struct exo_win_1f32 A, struct exo_win_1f32c B );
 
 // memcpy_b(
 //     N : size,
 //     A : f32[N] @DRAM,
 //     B : [f32][N] @DRAM
 // )
-void memcpy_b( void *ctxt, int_fast32_t N, float* A, struct exo_win_1f32c B );
+void memcpy_b( void *exo_restrict ctxt, int_fast32_t N, float*exo_restrict A, struct exo_win_1f32c B );
 
 
 
@@ -82,7 +88,7 @@ void memcpy_b( void *ctxt, int_fast32_t N, float* A, struct exo_win_1f32c B );
 //     A : f32[N] @DRAM,
 //     B : f32[N] @DRAM
 // )
-void memcpy( void *ctxt, int_fast32_t N, float* A, const float* B ) {
+void memcpy( void *exo_restrict ctxt, int_fast32_t N, float*exo_restrict A, const float*exo_restrict B ) {
 for (int_fast32_t i = 0; i < N; i++) {
   A[i] = B[i];
 }
@@ -93,7 +99,7 @@ for (int_fast32_t i = 0; i < N; i++) {
 //     A : [f32][N] @DRAM,
 //     B : [f32][N] @DRAM
 // )
-void memcpy_ab( void *ctxt, int_fast32_t N, struct exo_win_1f32 A, struct exo_win_1f32c B ) {
+void memcpy_ab( void *exo_restrict ctxt, int_fast32_t N, struct exo_win_1f32 A, struct exo_win_1f32c B ) {
 for (int_fast32_t i = 0; i < N; i++) {
   A.data[i * A.strides[0]] = B.data[i * B.strides[0]];
 }
@@ -104,7 +110,7 @@ for (int_fast32_t i = 0; i < N; i++) {
 //     A : f32[N] @DRAM,
 //     B : [f32][N] @DRAM
 // )
-void memcpy_b( void *ctxt, int_fast32_t N, float* A, struct exo_win_1f32c B ) {
+void memcpy_b( void *exo_restrict ctxt, int_fast32_t N, float*exo_restrict A, struct exo_win_1f32c B ) {
 for (int_fast32_t i = 0; i < N; i++) {
   A[i] = B.data[i * B.strides[0]];
 }

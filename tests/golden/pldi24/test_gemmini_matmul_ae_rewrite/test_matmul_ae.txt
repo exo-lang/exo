@@ -20,6 +20,12 @@
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) && !defined(__cplusplus)
+#define exo_restrict restrict
+#else
+#define exo_restrict
+#endif
+
 typedef struct c_code_str_Context { 
 
     struct ConfigLoad {
@@ -48,35 +54,35 @@ typedef struct c_code_str_Context {
 #ifndef EXO_WIN_2I32
 #define EXO_WIN_2I32
 struct exo_win_2i32{
-    int32_t * const data;
+    int32_t *exo_restrict const data;
     const int_fast32_t strides[2];
 };
 #endif
 #ifndef EXO_WIN_2I32C
 #define EXO_WIN_2I32C
 struct exo_win_2i32c{
-    const int32_t * const data;
+    const int32_t *exo_restrict const data;
     const int_fast32_t strides[2];
 };
 #endif
 #ifndef EXO_WIN_2I8
 #define EXO_WIN_2I8
 struct exo_win_2i8{
-    int8_t * const data;
+    int8_t *exo_restrict const data;
     const int_fast32_t strides[2];
 };
 #endif
 #ifndef EXO_WIN_2I8C
 #define EXO_WIN_2I8C
 struct exo_win_2i8c{
-    const int8_t * const data;
+    const int8_t *exo_restrict const data;
     const int_fast32_t strides[2];
 };
 #endif
 #ifndef EXO_WIN_3I8
 #define EXO_WIN_3I8
 struct exo_win_3i8{
-    int8_t * const data;
+    int8_t *exo_restrict const data;
     const int_fast32_t strides[3];
 };
 #endif
@@ -87,7 +93,7 @@ struct exo_win_3i8{
 //     B : i8[512, 512] @DRAM,
 //     C : i8[512, 512] @DRAM
 // )
-void matmul_on_gemmini( c_code_str_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void matmul_on_gemmini( c_code_str_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C );
 
 
 #include <stdio.h>
@@ -165,7 +171,7 @@ gemmini_extended_mvin( 0, ((uint64_t) &{dst_data}),{m}, {n} );
 //     B : i8[512, 512] @DRAM,
 //     C : i8[512, 512] @DRAM
 // )
-void matmul_on_gemmini( c_code_str_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+void matmul_on_gemmini( c_code_str_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C ) {
 gemmini_extended_config_st((512), (act), (scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
