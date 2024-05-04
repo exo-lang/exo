@@ -425,7 +425,7 @@ def DoShiftLoop(loop_c, new_lo):
         fwd12,
         loop_c,
         loop_iter,
-        lambda *_: new_iter,
+        lambda _: new_iter,
         only_replace_attrs=False,
     )
 
@@ -467,8 +467,8 @@ def DoProductLoop(outer_loop_c, new_name):
 
     # TODO: indexes are inside expression blocks... need a more
     #   uniform way to treat this.
-    mk_outer_expr = lambda *_: outer_expr
-    mk_inner_expr = lambda *_: inner_expr
+    mk_outer_expr = lambda _: outer_expr
+    mk_inner_expr = lambda _: inner_expr
 
     # Initial state of editing transaction
     ir, fwd = outer_loop_c.get_root(), lambda x: x
@@ -684,7 +684,7 @@ def DoDivideWithRecompute(
     fwd = _compose(fwd_wrap, fwd)
 
     # replace the iteration variable in the body
-    def mk_iter(*_):
+    def mk_iter(_):
         return szop("+", szop("*", rd(sym_o), x), rd(sym_i))
 
     ir, fwd = _replace_reads(
@@ -3938,12 +3938,16 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
         p = idx.get_root()
         return Check_Access_In_Window(p, idx, w_exprs, block_cursor)
 
+    actualR = actualW = False
+
     def mk_read(c, block_cursor):
+        nonlocal actualR
         rd = c._node
 
         if isinstance(rd, LoopIR.Read):
             if idx_contained_by_window(c, block_cursor):
                 _idx = rewrite_idx(rd.idx)
+                actualR = True
                 return {"name": new_name, "idx": _idx}
         elif isinstance(rd, LoopIR.WindowExpr):
             if any(
@@ -3957,52 +3961,30 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
             if idx_contained_by_window(c, block_cursor):
                 _idx = rewrite_win(rd.idx)
                 _typ = T.Window(new_typ, rd.type.as_tensor, new_name, _idx)
+                actualR = True
                 return {"name": new_name, "idx": _idx, "type": _typ}
 
     def mk_write(c, block_cursor):
+        nonlocal actualR
+        nonlocal actualW
         s = c._node
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if idx_contained_by_window(c, block_cursor):
+                actualW = True
+                if isinstance(s, LoopIR.Reduce):
+                    actualR = True
                 return {"name": new_name, "idx": rewrite_idx(s.idx)}
 
-    actualR = actualW = writeShadow = False
-
     for c in block_cursor:
-        read_ir, fwd = _replace_reads(
+        ir, fwd = _replace_reads(
             ir, fwd, c, buf_name, partial(mk_read, block_cursor=fwd(block_cursor))
         )
 
-        write_ir, fwd = _replace_writes(
-            read_ir,
-            fwd,
-            c,
-            buf_name,
-            partial(mk_write, block_cursor=fwd(block_cursor)),
-            match_reduce=False,
-        )
-        reduce_ir, fwd = _replace_writes(
-            write_ir,
-            fwd,
-            c,
-            buf_name,
-            partial(mk_write, block_cursor=fwd(block_cursor)),
-            match_assign=False,
+        ir, fwd = _replace_writes(
+            ir, fwd, c, buf_name, partial(mk_write, block_cursor=fwd(block_cursor))
         )
 
-        actualR = actualR | (read_ir != ir)
-        actualW = actualW | (write_ir != read_ir)
-        actualR = actualR | (reduce_ir != write_ir)
-        actualW = actualW | (reduce_ir != write_ir)
-
-        # If write shadows read, no need to initialize the new buffer with load
-        # TODO: this seems wrong... you could write before you read and still
-        # need to initialize the new buffer if those write/reads are disjoint
-        if actualW and (not actualR):
-            writeShadow = True
-
-        ir = reduce_ir
-
-    if actualR and (not writeShadow):
+    if actualR:
         load_iter = [Sym(f"i{i}") for i, _ in enumerate(shape)]
         load_widx = [LoopIR.Read(s, [], T.index, srcinfo) for s in load_iter]
         if use_accum_zero:
@@ -4086,7 +4068,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
 
     # new alloc, load_nest + new_body + store_nest
     new_block_c = fwd(block_cursor[0]).as_block().expand(0, len(block_cursor) - 1)
-    if actualR and (not writeShadow):
+    if actualR:
         new_block_c = new_block_c.expand(1, 0)
     if actualW:
         new_block_c = new_block_c.expand(0, 1)
