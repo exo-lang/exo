@@ -26,6 +26,7 @@ from .new_eff import (
     Check_ExprEqvInContext,
     Check_BufferReduceOnly,
     Check_Bounds,
+    Check_Access_In_Window,
     Check_IsDeadAfter,
     Check_IsIdempotent,
     Check_ExprBound,
@@ -40,6 +41,8 @@ import exo.internal_cursors as ic
 import exo.API as api
 from .pattern_match import match_pattern
 from .memory import DRAM
+
+from functools import partial
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -195,25 +198,31 @@ def _replace_pats(ir, fwd, c, pat, repl, only_replace_attrs=True, use_sym_id=Tru
     # TODO: consider the implications of composing O(n) forwarding functions.
     #   will we need a special data structure? A chunkier operation for
     #   multi-way replacement?
-    cur_fwd = lambda x: x
     c = fwd(c)
+    todos = []
     for rd in match_pattern(c, pat, use_sym_id=use_sym_id):
+        if c_repl := repl(rd):
+            todos.append((rd, c_repl))
+
+    cur_fwd = lambda x: x
+    for (rd, c_repl) in todos:
         rd = cur_fwd(rd)
-        if not (c_repl := repl(rd, ir)):
-            continue
         ir, fwd_rd = _replace_helper(rd, c_repl, only_replace_attrs)
         cur_fwd = _compose(fwd_rd, cur_fwd)
     return ir, _compose(cur_fwd, fwd)
 
 
 def _replace_reads(ir, fwd, c, sym, repl, only_replace_attrs=True):
-    cur_fwd = lambda x: x
     c = fwd(c)
+    todos = []
     for rd in match_pattern(c, f"{repr(sym)}[_]", use_sym_id=True):
         # Need [_] to pattern match against window expressions
+        if c_repl := repl(rd):
+            todos.append((rd, c_repl))
+
+    cur_fwd = lambda x: x
+    for (rd, c_repl) in todos:
         rd = cur_fwd(rd)
-        if not (c_repl := repl(rd, ir)):
-            continue
         ir, fwd_rd = _replace_helper(rd, c_repl, only_replace_attrs)
         cur_fwd = _compose(fwd_rd, cur_fwd)
     return ir, _compose(cur_fwd, fwd)
@@ -222,7 +231,6 @@ def _replace_reads(ir, fwd, c, sym, repl, only_replace_attrs=True):
 def _replace_writes(
     ir, fwd, c, sym, repl, only_replace_attrs=True, match_assign=True, match_reduce=True
 ):
-    cur_fwd = lambda x: x
     c = fwd(c)
 
     # TODO: Consider optimizing to just one call of [match_pattern]
@@ -232,13 +240,19 @@ def _replace_writes(
     if match_reduce:
         matches = matches + match_pattern(c, f"{repr(sym)} += _", use_sym_id=True)
 
+    todos = []
     for block in matches:
         assert len(block) == 1  # match_pattern on stmts return blocks
-        s = cur_fwd(block[0])
-        if not (c_repl := repl(s, ir)):
-            continue
+        s = block[0]
+        if c_repl := repl(s):
+            todos.append((s, c_repl))
+
+    cur_fwd = lambda x: x
+    for (s, c_repl) in todos:
+        s = cur_fwd(s)
         ir, fwd_s = _replace_helper(s, c_repl, only_replace_attrs)
         cur_fwd = _compose(fwd_s, cur_fwd)
+
     return ir, _compose(cur_fwd, fwd)
 
 
@@ -579,7 +593,7 @@ def DoInlineAssign(c1):
     s1 = c1._node
     assert isinstance(s1, LoopIR.Assign)
 
-    def mk_inline_expr(e, _):
+    def mk_inline_expr(e):
         return s1.rhs
 
     after_assign = get_rest_of_block(c1, inclusive=False)
@@ -786,7 +800,7 @@ def DoDivideLoop(
     fwd = _compose(fwd_wrap, fwd)
 
     # replace the iteration variable in the body
-    def mk_main_iter(c, _):
+    def mk_main_iter(c):
         return substitute(c._node.srcinfo)
 
     ir, fwd = _replace_reads(
@@ -950,7 +964,7 @@ def DoSetTypAndMem(cursor, basetyp=None, win=None, mem=None):
         else:
             assert False, "bad case"
 
-        def update_typ(c, _):
+        def update_typ(c):
             s = c._node
             typ = s.type
             if isinstance(typ, T.Tensor):
@@ -1066,7 +1080,7 @@ def DoInlineWindow(window_cursor):
                 return new_dim
             new_dim += 1
 
-    def mk_read(c, _):
+    def mk_read(c):
         rd = c._node
         buf_name = window_s.rhs.name
 
@@ -1083,13 +1097,13 @@ def DoInlineWindow(window_cursor):
                 assert isinstance(c.parent()._node, LoopIR.Call)
                 return window_s.rhs
 
-    def mk_stride_expr(c, _):
+    def mk_stride_expr(c):
         e = c._node
         dim = calc_dim(e.dim)
         buf_name = window_s.rhs.name
         return {"name": buf_name, "dim": dim}
 
-    def mk_write(c, _):
+    def mk_write(c):
         s = c._node
         idxs = calc_idx(s.idx)
         return {"name": window_s.rhs.name, "idx": idxs}
@@ -1549,7 +1563,7 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
 
     ir, fwd = alloc_cursor._child_node("type")._replace(new_typ)
 
-    def mk_read(c, _):
+    def mk_read(c):
         rd = c._node
 
         # TODO: do I need to worry about Builtins too?
@@ -1568,7 +1582,7 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
                 f"Did not implement {type(rd)}. This may be a bug."
             )
 
-    def mk_write(c, _):
+    def mk_write(c):
         s = c._node
         return {"idx": [indexing] + s.idx}
 
@@ -1594,7 +1608,7 @@ def DoResizeDim(alloc_cursor, dim_idx: int, size: LoopIR.expr, offset: LoopIR.ex
         alloc_cursor._child_node("type")._child_block("hi")[dim_idx]._replace([size])
     )
 
-    def mk_read(c, _):
+    def mk_read(c):
         rd = c._node
 
         def mk_binop(e):
@@ -1623,7 +1637,7 @@ def DoResizeDim(alloc_cursor, dim_idx: int, size: LoopIR.expr, offset: LoopIR.ex
                 f"Did not implement {type(rd)}. This may be a bug."
             )
 
-    def mk_write(c, _):
+    def mk_write(c):
         s = c._node
         new_idx = s.idx.copy()
         new_idx[dim_idx] = LoopIR.BinOp(
@@ -1671,7 +1685,7 @@ def DoRearrangeDim(decl_cursor, permute_vector):
     new_type = LoopIR.Tensor(new_hi, decl_s.type.is_window, decl_s.type.type)
     ir, fwd = decl_cursor._child_node("type")._replace(new_type)
 
-    def mk_read(c, _):
+    def mk_read(c):
         rd = c._node
         if isinstance(c.parent()._node, LoopIR.Call):
             raise SchedulingError(
@@ -1693,13 +1707,13 @@ def DoRearrangeDim(decl_cursor, permute_vector):
             )
         return {"idx": permute(rd.name, rd.idx)}
 
-    def mk_write(c, _):
+    def mk_write(c):
         s = c._node
         if s.name in all_permute:
             new_idx = permute(s.name, s.idx)
             return {"idx": new_idx}
 
-    def mk_stride_expr(c, _):
+    def mk_stride_expr(c):
         e = c._node
         if e.name in all_permute:
             new_dim = all_permute[e.name].index(e.dim)
@@ -1758,7 +1772,7 @@ def DoDivideDim(alloc_cursor, dim_idx, quotient):
         lo = LoopIR.BinOp("%", orig_i, quot, orig_i.type, srcinfo)
         return idx[:dim_idx] + [hi, lo] + idx[dim_idx + 1 :]
 
-    def mk_read(c, _):
+    def mk_read(c):
         rd = c._node
 
         if isinstance(rd, LoopIR.Read) and not rd.idx:
@@ -1772,7 +1786,7 @@ def DoDivideDim(alloc_cursor, dim_idx, quotient):
 
         return {"idx": remap_idx(rd.idx)}
 
-    def mk_write(c, _):
+    def mk_write(c):
         s = c._node
         return {"idx": remap_idx(s.idx)}
 
@@ -1821,7 +1835,7 @@ def DoMultiplyDim(alloc_cursor, hi_idx, lo_idx):
         del idx[lo_idx]
         return idx
 
-    def mk_read(c, _):
+    def mk_read(c):
         rd = c._node
 
         if isinstance(rd, LoopIR.Read) and not rd.idx:
@@ -1838,7 +1852,7 @@ def DoMultiplyDim(alloc_cursor, hi_idx, lo_idx):
 
         return {"idx": remap_idx(rd.idx)}
 
-    def mk_write(c, _):
+    def mk_write(c):
         s = c._node
         return {"idx": remap_idx(s.idx)}
 
@@ -2600,7 +2614,7 @@ def DoFuseLoop(f_cursor, s_cursor, unsafe_disable_check=False):
     loop2 = s_cursor._node
     Check_ExprEqvInContext(proc, loop1.hi, [loop1], loop2.hi, [loop2])
 
-    def mk_read(e, _):
+    def mk_read(e):
         return LoopIR.Read(loop1.iter, [], T.index, loop1.srcinfo)
 
     ir, fwd = proc, lambda x: x
@@ -3585,10 +3599,10 @@ def DoReuseBuffer(buf_cursor, rep_cursor):
 
     ir, fwd = rep_cursor._delete()
 
-    def mk_read(c, _):
+    def mk_read(c):
         return {"name": buf_name}
 
-    def mk_write(c, _):
+    def mk_write(c):
         nonlocal first_assn
         if first_assn:
             first_assn = False
@@ -3751,7 +3765,7 @@ def DoFoldBuffer(alloc_cursor, dim_idx, new_size):
     def make_index_mod(e):
         return LoopIR.BinOp("%", e, size_expr, T.index, e.srcinfo)
 
-    def mk_read(c, _):
+    def mk_read(c):
         rd = c._node
         new_idx = rd.idx.copy()
         if isinstance(rd, LoopIR.Read):
@@ -3776,7 +3790,7 @@ def DoFoldBuffer(alloc_cursor, dim_idx, new_size):
         else:
             raise NotImplementedError(f"Did not implement {type(rd)}.")
 
-    def mk_write(c, _):
+    def mk_write(c):
         s = c._node
         new_idx = s.idx.copy()
         new_idx[dim_idx] = make_index_mod(s.idx[dim_idx])
@@ -3794,7 +3808,6 @@ def DoFoldBuffer(alloc_cursor, dim_idx, new_size):
 
 
 def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
-    proc = block_cursor.get_root()
     new_name = Sym(new_name)
 
     def get_typ_mem():
@@ -3824,93 +3837,6 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
     else:
         new_typ = T.Tensor(shape, False, buf_typ.basetype())
 
-    def check_idx(idx, c, p):
-        assert len(idx) == len(w_exprs)
-        s = get_enclosing_stmt_cursor(c)._node
-        for i, w in zip(idx, w_exprs):
-            # check win.lo <= e.pt < win.hi
-            if isinstance(w, tuple):
-                w_lo, w_hi = w
-                try:
-                    Check_CompareExprs(p, [s], w_lo, "<=", i)
-                    Check_CompareExprs(p, [s], i, "<", w_hi)
-                except:
-                    return False
-            else:
-                try:
-                    Check_CompareExprs(p, [s], w, "==", i)
-                except:
-                    return False
-
-        return True
-
-    def check_win(idx, c, p):
-        assert len(idx) == len(w_exprs)
-        s = get_enclosing_stmt_cursor(c)._node
-        flag = False
-
-        for i, w in zip(idx, w_exprs):
-            if isinstance(i, LoopIR.Point) and isinstance(w, tuple):
-                # Check win.lo <= i and i < win.hi
-                try:
-                    Check_CompareExprs(p, [s], w[0], "<=", i)
-                    Check_CompareExprs(p, [s], i, "<", w[1])
-                except:
-                    return False
-
-            elif isinstance(i, LoopIR.Point) and not isinstance(w, tuple):
-                # Check that those points are equal
-                try:
-                    Check_CompareExprs(p, [s], w, "==", i)
-                except:
-                    return False
-
-            elif isinstance(i, LoopIR.Interval) and isinstance(w, tuple):
-                # if win.lo <= i.lo and i.hi <= win.hi:
-                #   replace!
-                # elif win.lo <= i.lo or i.hi <= win.hi:
-                #   error, cannot partially stage window
-                # else:
-                #   don't replace
-                w_lo, w_hi = w
-                try:
-                    Check_CompareExprs(p, [s], w_lo, ">", i.lo)
-                    Check_CompareExprs(p, [s], i.hi, ">", w_hi)
-                    return False  # don't replace
-                except:
-                    # there's an intersection
-                    try:
-                        Check_CompareExprs(p, [s], w_lo, "<=", i.lo)
-                        Check_CompareExprs(p, [s], i.hi, "<=", w_hi)
-                    except:
-                        flag = True
-
-                    if flag:
-                        raise SchedulingError(
-                            f"Cannot partially stage the window of '{buf_name}'"
-                        )
-
-            elif isinstance(i, LoopIR.Interval) and not isinstance(w, tuple):
-                # if i.lo <= w < i.hi
-                #   error, because we cannot replace window with points
-                # else:
-                #   don't replace
-                try:
-                    Check_CompareExprs(p, [s], i.lo, "<=", w)
-                    Check_CompareExprs(p, [s], w, "<", i.hi)
-                    flag = True
-                except:
-                    return False  # don't replace
-
-                if flag:
-                    raise SchedulingError(
-                        f"Cannot replace the window of '{buf_name}' with points '{w}'"
-                    )
-            else:
-                assert False, "bad case"
-
-        return True
-
     def rewrite_idx(idx):
         assert len(idx) == len(w_exprs)
         return [
@@ -3932,7 +3858,9 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
                 pt = LoopIR.BinOp("-", w.pt, off, T.index, w.srcinfo)
                 return LoopIR.Point(pt, w.srcinfo)
 
-        return [off_w(w_i, w_e[0]) for w_i, w_e in zip(w_idx, w_exprs)]
+        w_los = [w_e[0] if isinstance(w_e, tuple) else w_e for w_e in w_exprs]
+
+        return [off_w(w_i, w_e) for w_i, w_e in zip(w_idx, w_los)]
 
     ir = block_cursor.get_root()
     block = [s._node for s in block_cursor]
@@ -4001,39 +3929,64 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
 
         return ir, fwd
 
-    def mk_read(c, p):
+    def idx_contained_by_window(idx, block_cursor):
+        """
+        Returns True if idx always lies in staged window range.
+        Returns False if idx never lies in staged window range.
+        Otherwise, will raise a SchedulingError.
+        """
+        p = idx.get_root()
+        return Check_Access_In_Window(p, idx, w_exprs, block_cursor)
+
+    def mk_read(c, block_cursor):
         rd = c._node
-        _name = rd.name
-        _idx = rd.idx
-        _typ = rd.type
 
-        if isinstance(rd, LoopIR.Read) and check_idx(rd.idx, c, p):
-            _name = new_name
-            _idx = rewrite_idx(rd.idx)
-        elif isinstance(rd, LoopIR.WindowExpr) and check_win(rd.idx, c, p):
-            _name = new_name
-            _idx = rewrite_win(rd.idx)
-            _typ = T.Window(new_typ, rd.type.as_tensor, new_name, _idx)
+        if isinstance(rd, LoopIR.Read):
+            if idx_contained_by_window(c, block_cursor):
+                _idx = rewrite_idx(rd.idx)
+                return {"name": new_name, "idx": _idx}
+        elif isinstance(rd, LoopIR.WindowExpr):
+            if any(
+                isinstance(w, LoopIR.Interval) and not isinstance(w_e, tuple)
+                for w, w_e in zip(rd.idx, w_exprs)
+            ):
+                raise SchedulingError(
+                    f"Existing WindowExpr {rd} has a widnowed dimension which is not windowed in the new staged window."
+                )
 
-        return {"name": _name, "idx": _idx, "type": _typ}
+            if idx_contained_by_window(c, block_cursor):
+                _idx = rewrite_win(rd.idx)
+                _typ = T.Window(new_typ, rd.type.as_tensor, new_name, _idx)
+                return {"name": new_name, "idx": _idx, "type": _typ}
 
-    def mk_write(c, p):
+    def mk_write(c, block_cursor):
         s = c._node
-        if check_idx(s.idx, c, p):
-            return {"name": new_name, "idx": rewrite_idx(s.idx)}
-
-        return {"name": s.name, "idx": s.idx}
+        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            if idx_contained_by_window(c, block_cursor):
+                return {"name": new_name, "idx": rewrite_idx(s.idx)}
 
     actualR = actualW = writeShadow = False
 
     for c in block_cursor:
-        read_ir, fwd = _replace_reads(ir, fwd, c, buf_name, mk_read)
+        read_ir, fwd = _replace_reads(
+            ir, fwd, c, buf_name, partial(mk_read, block_cursor=fwd(block_cursor))
+        )
 
         write_ir, fwd = _replace_writes(
-            read_ir, fwd, c, buf_name, mk_write, match_reduce=False
+            read_ir,
+            fwd,
+            c,
+            buf_name,
+            partial(mk_write, block_cursor=fwd(block_cursor)),
+            match_reduce=False,
         )
         reduce_ir, fwd = _replace_writes(
-            write_ir, fwd, c, buf_name, mk_write, match_assign=False
+            write_ir,
+            fwd,
+            c,
+            buf_name,
+            partial(mk_write, block_cursor=fwd(block_cursor)),
+            match_assign=False,
         )
 
         actualR = actualR | (read_ir != ir)
@@ -4042,6 +3995,8 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
         actualW = actualW | (reduce_ir != write_ir)
 
         # If write shadows read, no need to initialize the new buffer with load
+        # TODO: this seems wrong... you could write before you read and still
+        # need to initialize the new buffer if those write/reads are disjoint
         if actualW and (not actualR):
             writeShadow = True
 
@@ -4165,7 +4120,7 @@ def DoUnrollBuffer(alloc_cursor, dim):
         new_name = str(alloc_stmt.name) + "_" + str(i)
         buf_syms.append(Sym(new_name))
 
-    def mk_read(c, _):
+    def mk_read(c):
         nonlocal used_allocs
         e = c._node
         if isinstance(e, LoopIR.Read):
@@ -4200,7 +4155,7 @@ def DoUnrollBuffer(alloc_cursor, dim):
 
             return {"name": sym, "idx": new_access}
 
-    def mk_write(c, _):
+    def mk_write(c):
         s = c._node
         if not isinstance(s.idx[dim], LoopIR.Const):
             raise SchedulingError(

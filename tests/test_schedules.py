@@ -2791,7 +2791,7 @@ def test_stage_mem_point(golden):
     assert str(simplify(matmul)) == golden
 
 
-def test_fail_stage_mem(golden):
+def test_fail_stage_mem():
     # This test fails to stage the buffer B
     # because it's not just being read in a single way
     # therefore the bounds check will fail
@@ -2809,10 +2809,11 @@ def test_fail_stage_mem(golden):
                                     * B[4 * k + kk, 4 * j + jj]
                                 )
 
-    sqmat = stage_mem(sqmat, "for ii in _: _", "B[4*i:4*i+4, 4*k:4*k+4]", "Btile")
-    # Because stage_mem is checking the indivisual buffer accesess and window expression bounds,
-    # this example will succeed by staging only the first B
-    assert str(simplify(sqmat)) == golden
+    with pytest.raises(
+        SchedulingError,
+        match="Buffer has accesses which are neither fully within nor disjoint from the window",
+    ):
+        sqmat = stage_mem(sqmat, "for ii in _: _", "B[4*i:4*i+4, 4*k:4*k+4]", "Btile")
 
 
 def test_stage_mem_recursive(golden):
@@ -4388,7 +4389,7 @@ def test_stage_mem_should_fail():
         for i in seq(0, 10):
             x[i, i, i] = 1.0
 
-    with pytest.raises(SchedulingError, match="Cannot stage"):
+    with pytest.raises(SchedulingError, match="Buffer has accesses"):
         foo = stage_mem(foo, foo.find_loop("i"), "x[0:10, 0:2, 0:10]", "x_tmp")
 
 
@@ -4399,7 +4400,7 @@ def test_stage_mem_should_fail2():
         for i in seq(0, 10):
             y = x[i, i, i]
 
-    with pytest.raises(SchedulingError, match="Cannot stage"):
+    with pytest.raises(SchedulingError, match="Buffer has accesses"):
         foo = stage_mem(foo, foo.find_loop("i"), "x[0:10, 0, 0:10]", "x_tmp")
 
 
@@ -4418,20 +4419,10 @@ def test_stage_mem_okay(golden):
     def foo(x: i8[10, 10, 10]):
         y: i8
         for i in seq(0, 10):
-            x[i, i, i] = 1.0
+            x[i, 0, i] = 1.0
             y = x[2, 0, 3]
 
     foo = stage_mem(foo, foo.find_loop("i"), "x[0:10, 0, 0:10]", "x_tmp")
-    assert str(simplify(foo)) == golden
-
-
-def test_stage_mem_okay2(golden):
-    @proc
-    def foo(x: f32[4]):
-        for i in seq(0, 4):
-            x[i] = 1.0
-
-    foo = stage_mem(foo, foo.find_loop("i"), "x[0:6]", "xNew")
     assert str(simplify(foo)) == golden
 
 
@@ -4446,7 +4437,7 @@ def test_stage_mem_should_fail4():
                     y = A[i : i + 1, 4 * jo + ji]
                     sum_ += y[0]
 
-    with pytest.raises(SchedulingError, match="Cannot replace the window of"):
+    with pytest.raises(SchedulingError, match="Existing WindowExpr"):
         foo = stage_mem(foo, "for ji in _:_", "A[i, 4*jo:4*jo+4]", "tile")
 
 
@@ -4459,7 +4450,7 @@ def test_stage_mem_should_fail5():
                     A[i, 4 * jo + ji] = 0.0
                     y = A[i : i + 4, 4 * jo + ji]
 
-    with pytest.raises(SchedulingError, match="Cannot partially stage the window of"):
+    with pytest.raises(SchedulingError, match="Buffer has accesses"):
         foo = stage_mem(foo, "for ji in _:_", "A[i-1:i+1, 4*jo:4*jo+4]", "tile")
 
 

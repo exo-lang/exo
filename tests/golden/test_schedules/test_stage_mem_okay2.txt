@@ -1,7 +1,0 @@
-def foo(x: f32[4] @ DRAM):
-    xNew: f32[6] @ DRAM
-    for i in seq(0, 4):
-        xNew[i] = 1.0
-    for i0 in seq(0, 6):
-        if i0 < 4:
-            x[i0] = xNew[i0]

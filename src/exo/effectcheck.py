@@ -1018,7 +1018,7 @@ class CheckEffects:
 
                 body_eff = eff_concat(stmt.eff, body_eff)
 
-            if isinstance(stmt, LoopIR.If):
+            elif isinstance(stmt, LoopIR.If):
                 # first, do the if-branch
                 self.push()
                 self.solver.add_assertion(self.expr_to_smt(lift_expr(stmt.cond)))
