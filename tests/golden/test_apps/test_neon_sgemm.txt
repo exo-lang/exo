@@ -77,13 +77,10 @@ void sgemm_exo( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, cons
 
 #include "test_case.h"
 
-
-
 #include <stdio.h>
 #include <stdlib.h>
 
 #include <arm_neon.h>
-
 // neon_microkernel(
 //     K : size,
 //     A : [f32][4, K] @DRAM,

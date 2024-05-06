@@ -379,6 +379,7 @@ def compile_to_strings(lib_name, proc_list):
     builtin_code = _compile_builtins(find_all_builtins(proc_list))
     private_fwd_decls = []
     proc_bodies = []
+    instrs_global = []
 
     needed_helpers = set()
 
@@ -397,10 +398,12 @@ def compile_to_strings(lib_name, proc_list):
                     "",
                     '/* relying on the following instruction..."',
                     f"{p.name}({argstr})",
-                    p.instr,
+                    p.instr.c_instr,
                     "*/",
                 ]
             )
+            if p.instr.c_global:
+                instrs_global.append(p.instr.c_global)
         else:
             is_public_decl = id(p) in orig_procs
 
@@ -452,15 +455,18 @@ def compile_to_strings(lib_name, proc_list):
 """
 
     helper_code = [_static_helpers[v] for v in needed_helpers]
-
-    body_contents = f"""
-{from_lines(helper_code)}
-{from_lines(memory_code)}
-{from_lines(builtin_code)}
-{from_lines(private_fwd_decls)}
-{from_lines(proc_bodies)}
-"""
-
+    body_contents = [
+        helper_code,
+        instrs_global,
+        memory_code,
+        builtin_code,
+        private_fwd_decls,
+        proc_bodies,
+    ]
+    body_contents = list(filter(lambda x: x, body_contents))  # filter empty lines
+    body_contents = map(from_lines, body_contents)
+    body_contents = from_lines(body_contents)
+    body_contents += "\n"  # New line at end of file
     return header_contents, body_contents
 
 
@@ -933,7 +939,7 @@ class Compiler:
                     else:
                         d[f"{arg_name}_data"] = f"({args[i]})"
 
-                self.add_line(f"{s.f.instr.format(**d)}")
+                self.add_line(f"{s.f.instr.c_instr.format(**d)}")
             else:
                 fname = s.f.name
                 args = ["ctxt"] + args

@@ -127,6 +127,9 @@ def halide_schedule(p):
     p = halide_compute_and_store_at(p, "gray", "output", "y")
     p = halide_compute_at(p, "gray", "output", "yi", divide_with_recompute=False)
 
+    # Circular buffer optimization
+    p = resize_dim(p, p.find("gray: _"), 0, 8, 0, fold=True)
+
     p = simplify(p)  # for deterministic codegen
     print("Before vectorization:\n")
     print(p)

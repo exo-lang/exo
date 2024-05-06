@@ -77,15 +77,12 @@ void sgemm_exo( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, cons
 
 #include "test_case.h"
 
-
-
 #include <immintrin.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 #include <stdio.h>
 #include <stdlib.h>
-
 
 // basic_kernel_1x4(
 //     K : size,

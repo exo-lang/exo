@@ -808,18 +808,22 @@ def rename(proc, name):
     )
 
 
-@sched_op([InstrStrA])
-def make_instr(proc, instr):
+@sched_op([InstrStrA, InstrStrA])
+def make_instr(proc, c_instr, c_global=""):
     """
     Turn this procedure into an "instruction" using the provided macro-string
 
     args:
-        name    - string representing an instruction macro
+        c_instr  - string representing an instruction macro
+        c_global - string representing global C code necessary for this instruction e.g. includes
     """
     ir = proc._loopir_proc
+    instr = LoopIR.instr(c_instr=c_instr, c_global=c_global)
     ir = ir.update(instr=instr)
     return Procedure(
-        ir, _provenance_eq_Procedure=proc, _forward=ic.forward_identity(ir)
+        ir,
+        _provenance_eq_Procedure=proc,
+        _forward=ic.forward_identity(ir),
     )
 
 
@@ -1356,9 +1360,6 @@ def divide_dim(proc, alloc_cursor, dim_idx, quotient):
     and lower-order dimensions, where the lower-order dimension is given
     by the constant integer `quotient`.
 
-    This limited implementation of `divide_dim` requires that the dimension
-    being divided is constant itself.
-
     args:
         alloc_cursor    - cursor to the allocation to divide a dimension of
         dim_idx         - the index of the dimension to divide
@@ -1372,8 +1373,6 @@ def divide_dim(proc, alloc_cursor, dim_idx, quotient):
         `x : R[n, 3, 4, m]`
         `x[i, j / 4, j % 4, k] = ...`
     """
-    if quotient == 1:
-        raise ValueError("why are you trying to divide by 1?")
     stmt = alloc_cursor._impl
     if not (0 <= dim_idx < len(stmt._node.type.shape())):
         raise ValueError(f"Cannot divide out-of-bounds dimension index {dim_idx}")

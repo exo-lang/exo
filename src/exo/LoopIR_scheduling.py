@@ -282,6 +282,24 @@ def Check_CompareExprs(proc, stmts, lhs, op, rhs):
     Check_ExprBound(proc, stmts, expr, op, 0)
 
 
+def Check_IsDivisible(proc, stmts, expr, quot):
+    failed = False
+    if not isinstance(expr, LoopIR.Const):
+        try:
+            quot = LoopIR.Const(quot, T.int, null_srcinfo())
+            expr_mod_quot = LoopIR.BinOp("%", expr, quot, T.index, null_srcinfo())
+            zero = LoopIR.Const(0, T.int, null_srcinfo())
+            Check_CompareExprs(proc, stmts, expr_mod_quot, "==", zero)
+        except SchedulingError:
+            failed = True
+    else:
+        # Fast path
+        failed = expr.val % quot != 0
+
+    if failed:
+        raise SchedulingError(f"cannot perfectly divide '{expr}' by {quot}")
+
+
 def extract_env(c: ic.Cursor) -> List[Tuple[Sym, ic.Cursor]]:
     """
     Extract the environment of live variables at `c`.
@@ -319,6 +337,28 @@ def move_back(c):
         return c.parent()
     else:
         return c.prev()
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# IR Building Helpers
+
+
+def divide_expr(e, quot):
+    assert isinstance(e, LoopIR.expr)
+    if isinstance(quot, int):
+        quot_int = quot
+        quot_ir = LoopIR.Const(quot, e.type, e.srcinfo)
+    elif isinstance(quot, LoopIR.Const):
+        quot_int = quot.val
+        quot_ir = quot
+    else:
+        assert False, f"Bad case {type(quot)}"
+    if isinstance(e, LoopIR.Const) and e.val % quot == 0:
+        div = LoopIR.Const(e.val // quot_int, e.type, e.srcinfo)
+    else:
+        div = LoopIR.BinOp("/", e, quot_ir, e.type, e.srcinfo)
+    return div
 
 
 # --------------------------------------------------------------------------- #
@@ -746,25 +786,10 @@ def DoDivideLoop(
     elif tail_strategy in ["cut", "cut_and_guard"]:
         outer_hi = szop("/", N, inner_hi)  # floor div
     elif tail_strategy == "perfect":
-        if not isinstance(N, LoopIR.Const):
-            hi_mod_quot = boolop("%", N, cnst(quot), T.index)
-            try:
-                ir = loop_cursor.get_root()
-                loop = loop_cursor._node
-                Check_CompareExprs(ir, [loop], hi_mod_quot, "==", cnst(0))
-            except SchedulingError:
-                raise SchedulingError(
-                    f"cannot perfectly split the '{loop.iter}' loop " f"by {quot}"
-                )
-            outer_hi = boolop("/", N, cnst(quot), T.index)
-        else:
-            if N.val % quot != 0:
-                raise SchedulingError(
-                    f"cannot perfectly split the '{loop.iter}' loop "
-                    f"because {quot} does not evenly divide "
-                    f"{N.val}"
-                )
-            outer_hi = cnst(N.val // quot)
+        ir = loop_cursor.get_root()
+        loop = loop_cursor._node
+        Check_IsDivisible(ir, [loop], N, quot)
+        outer_hi = divide_expr(N, quot)
     else:
         assert False, f"bad tail strategy: {tail_strategy}"
 
@@ -1509,6 +1534,13 @@ def DoLiftConstant(assign_c, loop_c):
 
     constant = relevant_reduces[0]._node.rhs.lhs
     if isinstance(constant, LoopIR.Read):
+        live_vars = extract_env(loop_c)
+        live_vars = set(sym for sym, _, _ in live_vars)
+        for name, _ in get_reads_of_expr(constant):
+            if name not in live_vars:
+                raise SchedulingError(
+                    f"{constant} depends on the variable {name} which is defined within the loop"
+                )
         for name, typ in get_writes_of_stmts(loop.body):
             if constant.name == name and constant.type == typ:
                 raise SchedulingError(
@@ -1746,17 +1778,13 @@ def DoDivideDim(alloc_cursor, dim_idx, quotient):
     old_typ = alloc_s.type
     old_shp = old_typ.shape()
     dim = old_shp[dim_idx]
-    if not isinstance(dim, LoopIR.Const):
-        raise SchedulingError(f"Cannot divide non-literal dimension: {dim}")
-    if not dim.val % quotient == 0:
-        raise SchedulingError(f"Cannot divide {dim.val} evenly by {quotient}")
-    denom = quotient
-    numer = dim.val // denom
+    Check_IsDivisible(alloc_cursor.get_root(), [alloc_s], dim, quotient)
+    numer = divide_expr(dim, quotient)
     new_shp = (
         old_shp[:dim_idx]
         + [
-            LoopIR.Const(numer, T.int, dim.srcinfo),
-            LoopIR.Const(denom, T.int, dim.srcinfo),
+            numer,
+            LoopIR.Const(quotient, T.int, dim.srcinfo),
         ]
         + old_shp[dim_idx + 1 :]
     )
