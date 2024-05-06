@@ -3939,6 +3939,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
         return Check_Access_In_Window(p, idx, w_exprs, block_cursor)
 
     actualR = actualW = False
+    WShadow = False
 
     def mk_read(c, block_cursor):
         nonlocal actualR
@@ -3984,7 +3985,10 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
             ir, fwd, c, buf_name, partial(mk_write, block_cursor=fwd(block_cursor))
         )
 
-    if actualR:
+        if actualR and not actualW and len(w_exprs) == 0:
+            WShadow = True
+
+    if actualR and not WShadow:
         load_iter = [Sym(f"i{i}") for i, _ in enumerate(shape)]
         load_widx = [LoopIR.Read(s, [], T.index, srcinfo) for s in load_iter]
         if use_accum_zero:
@@ -4068,7 +4072,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
 
     # new alloc, load_nest + new_body + store_nest
     new_block_c = fwd(block_cursor[0]).as_block().expand(0, len(block_cursor) - 1)
-    if actualR:
+    if actualR and not WShadow:
         new_block_c = new_block_c.expand(1, 0)
     if actualW:
         new_block_c = new_block_c.expand(0, 1)
