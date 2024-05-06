@@ -210,6 +210,9 @@ class Block(Cursor):
     def parent(self) -> Node:
         return self._anchor
 
+    def depth(self) -> int:
+        return self._anchor.depth()
+
     def before(self) -> Gap:
         return self[0].before()
 
@@ -611,6 +614,9 @@ class Node(Cursor):
             raise InvalidCursorError("cursor does not have a parent")
         return Node(self._root, self._path[:-1])
 
+    def depth(self) -> int:
+        return len(self._path)
+
     def before(self) -> Gap:
         return Gap(self._root, self, GapType.Before)
 
@@ -771,6 +777,9 @@ class Gap(Cursor):
         if self.is_edge():
             return self._anchor
         return self._anchor.parent()
+
+    def depth(self) -> int:
+        return self._anchor.depth()
 
     def anchor(self) -> Node:
         return self._anchor
