@@ -1,6 +1,5 @@
 def foo(x: f32[30] @ DRAM, result: f32 @ DRAM):
     tmp: f32 @ DRAM
-    tmp = result
     tmp = 0.0
     for i in seq(0, 30):
         x[i] = tmp
