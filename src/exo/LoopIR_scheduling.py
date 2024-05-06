@@ -3940,6 +3940,8 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
 
     actualR = actualW = False
     WShadow = False
+    # Conservatively, shadowing logic only works for single element staging windows.
+    w_is_pt = all(not isinstance(w, tuple) for w in w_exprs)
 
     def mk_read(c, block_cursor):
         nonlocal actualR
@@ -3973,10 +3975,10 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if idx_contained_by_window(c, block_cursor):
                 actualW = True
-                if not actualR and len(w_exprs) == 0:
-                    WShadow = True
                 if isinstance(s, LoopIR.Reduce):
                     actualR = True
+                if not actualR and w_is_pt:
+                    WShadow = True
                 return {"name": new_name, "idx": rewrite_idx(s.idx)}
 
     for c in block_cursor:
@@ -3987,9 +3989,6 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
         ir, fwd = _replace_writes(
             ir, fwd, c, buf_name, partial(mk_write, block_cursor=fwd(block_cursor))
         )
-
-        if actualR and not actualW and len(w_exprs) == 0:
-            WShadow = True
 
     if actualR and not WShadow:
         load_iter = [Sym(f"i{i}") for i, _ in enumerate(shape)]
