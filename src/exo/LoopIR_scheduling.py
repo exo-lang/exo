@@ -3968,10 +3968,13 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
     def mk_write(c, block_cursor):
         nonlocal actualR
         nonlocal actualW
+        nonlocal WShadow
         s = c._node
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if idx_contained_by_window(c, block_cursor):
                 actualW = True
+                if not actualR and len(w_exprs) == 0:
+                    WShadow = True
                 if isinstance(s, LoopIR.Reduce):
                     actualR = True
                 return {"name": new_name, "idx": rewrite_idx(s.idx)}
