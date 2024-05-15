@@ -171,6 +171,24 @@ def pattern(s, filename=None, lineno=None, srclocals=None, srcglobals=None):
     return parser.result()
 
 
+QUOTE_CALLBACK_PREFIX = "__quote_callback"
+QUOTE_BLOCK_PLACEHOLDER_PREFIX = "__quote_block"
+OUTER_SCOPE_HELPER = "__outer_scope"
+NESTED_SCOPE_HELPER = "__nested_scope"
+UNQUOTE_RETURN_HELPER = "__unquote_val"
+UNQUOTE_BLOCK_KEYWORD = "meta"
+
+
+@dataclass
+class ExoExpression:
+    _inner: Any  # note: strict typing is not possible as long as PAST/UAST grammar definition is not static
+
+
+@dataclass
+class ExoStatementList:
+    _inner: tuple[Any, ...]
+
+
 class QuoteReplacer(pyast.NodeTransformer):
     def __init__(
         self,
@@ -185,52 +203,72 @@ class QuoteReplacer(pyast.NodeTransformer):
     def visit_With(self, node: pyast.With) -> pyast.Any:
         if (
             len(node.items) == 1
-            and isinstance(node.items[0].context_expr, pyast.Name)
-            and node.items[0].context_expr.id == "quote"
-            and isinstance(node.items[0].context_expr.ctx, pyast.Load)
+            and isinstance(node.items[0].context_expr, pyast.UnaryOp)
+            and isinstance(node.items[0].context_expr.op, pyast.Invert)
+            and isinstance(node.items[0].context_expr.operand, pyast.Name)
+            and node.items[0].context_expr.operand.id == UNQUOTE_BLOCK_KEYWORD
+            and isinstance(node.items[0].context_expr.operand.ctx, pyast.Load)
+            and (
+                isinstance(node.items[0].optional_vars, pyast.Name)
+                or node.items[0].optional_vars is None
+            )
         ):
             assert (
                 self.stmt_collector != None
             ), "Reached quote block with no buffer to place quoted statements"
+            should_append = node.items[0].optional_vars is None
 
             def quote_callback():
-                self.stmt_collector.extend(
-                    Parser(
-                        node.body,
-                        self.parser_parent.src_info,
-                        parent_scope=get_parent_scope(depth=2),
-                        is_quote_stmt=True,
-                        parent_exo_locals=self.parser_parent.exo_locals,
-                    ).result()
-                )
+                stmts = Parser(
+                    node.body,
+                    self.parser_parent.src_info,
+                    parent_scope=get_parent_scope(depth=2),
+                    is_quote_stmt=True,
+                    parent_exo_locals=self.parser_parent.exo_locals,
+                ).result()
+                if should_append:
+                    self.stmt_collector.extend(stmts)
+                else:
+                    return ExoStatementList(tuple(stmts))
 
             callback_name = self.unquote_env.register_quote_callback(quote_callback)
-            return pyast.Expr(
-                value=pyast.Call(
-                    func=pyast.Name(id=callback_name, ctx=pyast.Load()),
-                    args=[],
-                    keywords=[],
+            if should_append:
+                return pyast.Expr(
+                    value=pyast.Call(
+                        func=pyast.Name(id=callback_name, ctx=pyast.Load()),
+                        args=[],
+                        keywords=[],
+                    )
                 )
-            )
+            else:
+                return pyast.Assign(
+                    targets=[node.items[0].optional_vars],
+                    value=pyast.Call(
+                        func=pyast.Name(id=callback_name, ctx=pyast.Load()),
+                        args=[],
+                        keywords=[],
+                    ),
+                )
         else:
             return super().generic_visit(node)
 
-    def visit_Call(self, node: pyast.Call) -> Any:
+    def visit_UnaryOp(self, node: pyast.UnaryOp) -> Any:
         if (
-            isinstance(node.func, pyast.Name)
-            and node.func.id == "quote"
-            and len(node.keywords) == 0
-            and len(node.args) == 1
+            isinstance(node.op, pyast.Invert)
+            and isinstance(node.operand, pyast.Set)
+            and len(node.operand.elts) == 1
         ):
 
             def quote_callback():
-                return Parser(
-                    node.args[0],
-                    self.parser_parent.src_info,
-                    parent_scope=get_parent_scope(depth=2),
-                    is_quote_expr=True,
-                    parent_exo_locals=self.parser_parent.exo_locals,
-                ).result()
+                return ExoExpression(
+                    Parser(
+                        node.operand.elts[0],
+                        self.parser_parent.src_info,
+                        parent_scope=get_parent_scope(depth=2),
+                        is_quote_expr=True,
+                        parent_exo_locals=self.parser_parent.exo_locals,
+                    ).result()
+                )
 
             callback_name = self.unquote_env.register_quote_callback(quote_callback)
             return pyast.Call(
@@ -242,17 +280,11 @@ class QuoteReplacer(pyast.NodeTransformer):
             return super().generic_visit(node)
 
 
-QUOTE_CALLBACK_PREFIX = "__quote_callback"
-QUOTE_BLOCK_PLACEHOLDER_PREFIX = "__quote_block"
-OUTER_SCOPE_HELPER = "__outer_scope"
-NESTED_SCOPE_HELPER = "__nested_scope"
-UNQUOTE_RETURN_HELPER = "__unquote_val"
-
-
 @dataclass
 class UnquoteEnv:
     parent_globals: dict[str, Any]
     parent_locals: dict[str, Local]
+    exo_local_vars: dict[str, Any]
 
     def mangle_name(self, prefix: str) -> str:
         index = 0
@@ -277,6 +309,12 @@ class UnquoteEnv:
         unbound_names = {
             name for name, val in self.parent_locals.items() if val is None
         }
+        quote_locals = {
+            name: ExoExpression(val)
+            for name, val in self.exo_local_vars.items()
+            if name not in self.parent_locals
+        }
+        env_locals = {**quote_locals, **bound_locals}
         exec(
             compile(
                 pyast.fix_missing_locations(
@@ -287,7 +325,9 @@ class UnquoteEnv:
                                 args=pyast.arguments(
                                     posonlyargs=[],
                                     args=[
-                                        pyast.arg(arg=arg) for arg in self.parent_locals
+                                        *[pyast.arg(arg=arg) for arg in bound_locals],
+                                        *[pyast.arg(arg=arg) for arg in unbound_names],
+                                        *[pyast.arg(arg=arg) for arg in quote_locals],
                                     ],
                                     kwonlyargs=[],
                                     kw_defaults=[],
@@ -330,10 +370,20 @@ class UnquoteEnv:
                                                     ),
                                                     body=pyast.Tuple(
                                                         elts=[
-                                                            pyast.Name(
-                                                                id=arg, ctx=pyast.Load()
-                                                            )
-                                                            for arg in self.parent_locals
+                                                            *[
+                                                                pyast.Name(
+                                                                    id=arg,
+                                                                    ctx=pyast.Load(),
+                                                                )
+                                                                for arg in bound_locals
+                                                            ],
+                                                            *[
+                                                                pyast.Name(
+                                                                    id=arg,
+                                                                    ctx=pyast.Load(),
+                                                                )
+                                                                for arg in unbound_names
+                                                            ],
                                                         ],
                                                         ctx=pyast.Load(),
                                                     ),
@@ -368,12 +418,18 @@ class UnquoteEnv:
                                         ctx=pyast.Load(),
                                     ),
                                     args=[
-                                        (
+                                        *[
+                                            pyast.Name(id=name, ctx=pyast.Load())
+                                            for name in bound_locals
+                                        ],
+                                        *[
                                             pyast.Constant(value=None)
-                                            if val is None
-                                            else pyast.Name(id=name, ctx=pyast.Load())
-                                        )
-                                        for name, val in self.parent_locals.items()
+                                            for _ in unbound_names
+                                        ],
+                                        *[
+                                            pyast.Name(id=name, ctx=pyast.Load())
+                                            for name in quote_locals
+                                        ],
                                     ],
                                     keywords=[],
                                 ),
@@ -386,9 +442,9 @@ class UnquoteEnv:
                 "exec",
             ),
             self.parent_globals,
-            bound_locals,
+            env_locals,
         )
-        return bound_locals[UNQUOTE_RETURN_HELPER]
+        return env_locals[UNQUOTE_RETURN_HELPER]
 
     def interpret_quote_expr(self, expr: pyast.expr):
         return self.interpret_quote_block([pyast.Return(value=expr)])
@@ -495,6 +551,51 @@ class Parser:
     def err(self, node, errstr, origin=None):
         raise ParseError(f"{self.getsrcinfo(node)}: {errstr}") from origin
 
+    def make_exo_var_asts(self, srcinfo):
+        return {
+            name: self.AST.Read(val, [], srcinfo)
+            for name, val in self.exo_locals.items()
+            if isinstance(val, Sym)
+        }
+
+    def try_eval_unquote(
+        self, unquote_node: pyast.expr
+    ) -> Union[tuple[()], tuple[Any]]:
+        if isinstance(unquote_node, pyast.Set):
+            if len(unquote_node.elts) != 1:
+                self.err(unquote_node, "Unquote must take 1 argument")
+            else:
+                unquote_env = UnquoteEnv(
+                    self.parent_scope.get_globals(),
+                    self.parent_scope.read_locals(),
+                    self.make_exo_var_asts(self.getsrcinfo(unquote_node)),
+                )
+                quote_replacer = QuoteReplacer(self, unquote_env)
+                unquoted = unquote_env.interpret_quote_expr(
+                    quote_replacer.visit(copy.deepcopy(unquote_node.elts[0]))
+                )
+                return (unquoted,)
+        elif (
+            isinstance(unquote_node, pyast.Name)
+            and isinstance(unquote_node.ctx, pyast.Load)
+            and unquote_node.id not in self.exo_locals
+        ):
+            cur_globals = self.parent_scope.get_globals()
+            cur_locals = self.parent_scope.read_locals()
+            return (
+                (
+                    UnquoteEnv(
+                        cur_globals,
+                        cur_locals,
+                        self.make_exo_var_asts(self.getsrcinfo(unquote_node)),
+                    ).interpret_quote_expr(unquote_node),
+                )
+                if unquote_node.id in cur_locals or unquote_node.id in cur_globals
+                else tuple()
+            )
+        else:
+            return tuple()
+
     def eval_expr(self, expr):
         assert isinstance(expr, pyast.expr)
         return UnquoteEnv(
@@ -503,6 +604,7 @@ class Parser:
                 **self.parent_scope.read_locals(),
                 **{k: BoundLocal(v) for k, v in self.exo_locals.items()},
             },
+            self.make_exo_var_asts(self.getsrcinfo(expr)),
         ).interpret_quote_expr(expr)
 
     # - # - # - # - # - # - # - # - # - # - # - # - # - # - # - #
@@ -760,27 +862,6 @@ class Parser:
 
         elif isinstance(node, pyast.Name) and node.id in Parser._prim_types:
             return Parser._prim_types[node.id]
-        elif (
-            isinstance(node, pyast.Call)
-            and isinstance(node.func, pyast.Name)
-            and node.func.id == "unquote"
-        ):
-            if len(node.keywords) != 0:
-                self.err(node, "Unquote must take non-keyword argument")
-            elif len(node.args) != 1:
-                self.err(node, "Unquote must take 1 argument")
-            else:
-                unquote_env = UnquoteEnv(
-                    self.parent_scope.get_globals(), self.parent_scope.read_locals()
-                )
-                quote_replacer = QuoteReplacer(self, unquote_env)
-                unquoted = unquote_env.interpret_quote_expr(
-                    quote_replacer.visit(copy.deepcopy(node.args[0]))
-                )
-                if isinstance(unquoted, str) and unquoted in Parser._prim_types:
-                    return Parser._prim_types[unquoted]
-                else:
-                    self.err(node, "Unquote computation did not yield valid type")
         elif isinstance(node, pyast.Name) and (
             _is_size(node) or _is_stride(node) or _is_index(node) or _is_bool(node)
         ):
@@ -788,7 +869,13 @@ class Parser:
                 node, f"Cannot allocate an intermediate value of type {node.id}"
             )
         else:
-            self.err(node, "unrecognized type: " + pyast.dump(node))
+            unquote_eval_result = self.try_eval_unquote(node)
+            if len(unquote_eval_result) == 1:
+                unquoted = unquote_eval_result[0]
+                if isinstance(unquoted, str) and unquoted in Parser._prim_types:
+                    return Parser._prim_types[unquoted]
+                else:
+                    self.err(node, "Unquote computation did not yield valid type")
 
     def parse_stmt_block(self, stmts):
         assert isinstance(stmts, list)
@@ -800,11 +887,14 @@ class Parser:
                 if (
                     len(s.items) == 1
                     and isinstance(s.items[0].context_expr, pyast.Name)
-                    and s.items[0].context_expr.id == "unquote"
+                    and s.items[0].context_expr.id == UNQUOTE_BLOCK_KEYWORD
                     and isinstance(s.items[0].context_expr.ctx, pyast.Load)
+                    and s.items[0].optional_vars is None
                 ):
                     unquote_env = UnquoteEnv(
-                        self.parent_scope.get_globals(), self.parent_scope.read_locals()
+                        self.parent_scope.get_globals(),
+                        self.parent_scope.read_locals(),
+                        self.make_exo_var_asts(self.getsrcinfo(s)),
                     )
                     quoted_stmts = []
                     quote_stmt_replacer = QuoteReplacer(self, unquote_env, quoted_stmts)
@@ -816,7 +906,28 @@ class Parser:
                     )
                     rstmts.extend(quoted_stmts)
                 else:
-                    self.err(s.id, "Expected unquote")
+                    self.err(s, "Expected unquote")
+            elif isinstance(s, pyast.Expr) and isinstance(s.value, pyast.Set):
+                if len(s.value.elts) != 1:
+                    self.err(s, "Unquote must take 1 argument")
+                else:
+                    unquoted = self.try_eval_unquote(s.value)[0]
+                    if (
+                        isinstance(unquoted, ExoStatementList)
+                        and isinstance(unquoted._inner, tuple)
+                        and all(
+                            map(
+                                lambda inner_s: isinstance(inner_s, self.AST.stmt),
+                                unquoted._inner,
+                            )
+                        )
+                    ):
+                        rstmts.extend(unquoted._inner)
+                    else:
+                        self.err(
+                            s,
+                            "Statement-level unquote expression must return Exo statements",
+                        )
             # ----- Assginment, Reduction, Var Declaration/Allocation parsing
             elif isinstance(s, (pyast.Assign, pyast.AnnAssign, pyast.AugAssign)):
                 # parse the rhs first, if it's present
@@ -1147,12 +1258,75 @@ class Parser:
             if not isinstance(node.value, pyast.Name):
                 self.err(node, "expected access to have form 'x' or 'x[...]'")
 
-            is_window = any(isinstance(e, pyast.Slice) for e in dims)
-            idxs = [
-                (self.parse_slice(e, node) if is_window else self.parse_expr(e))
-                for e in dims
-            ]
+            def unquote_to_index(unquoted, ref_node, srcinfo, top_level):
+                if isinstance(unquoted, (int, float)):
+                    return self.AST.Const(unquoted, self.getsrcinfo(e))
+                elif isinstance(unquoted, ExoExpression) and isinstance(
+                    unquoted._inner, self.AST.expr
+                ):
+                    return unquoted._inner
+                elif isinstance(unquoted, slice) and top_level:
+                    if unquoted.step is None:
+                        return UAST.Interval(
+                            (
+                                None
+                                if unquoted.start is None
+                                else unquote_to_index(unquoted.start, False)
+                            ),
+                            (
+                                None
+                                if unquoted.stop is None
+                                else unquote_to_index(unquoted.stop, False)
+                            ),
+                            srcinfo,
+                        )
+                    else:
+                        self.err(ref_node, "Unquote returned slice index with step")
+                else:
+                    self.err(
+                        ref_node, "Unquote received input that couldn't be unquoted"
+                    )
 
+            idxs = []
+            srcinfo_for_idxs = []
+            for e in dims:
+                if sys.version_info[:3] >= (3, 9):
+                    srcinfo = self.getsrcinfo(e)
+                else:
+                    if isinstance(e, pyast.Index):
+                        e = e.value
+                        srcinfo = self.getsrcinfo(e)
+                    else:
+                        srcinfo = self.getsrcinfo(node)
+                if isinstance(e, pyast.Slice):
+                    idxs.append(self.parse_slice(e, node))
+                    srcinfo_for_idxs.append(srcinfo)
+                    unquote_eval_result = self.try_eval_unquote(e)
+                    if len(unquote_eval_result) == 1:
+                        unquoted = unquote_eval_result[0]
+
+                else:
+                    unquote_eval_result = self.try_eval_unquote(e)
+                    if len(unquote_eval_result) == 1:
+                        unquoted = unquote_eval_result[0]
+                        if isinstance(unquoted, tuple):
+                            for unquoted_val in unquoted:
+                                idxs.append(
+                                    unquote_to_index(unquoted_val, e, srcinfo, True)
+                                )
+                                srcinfo_for_idxs.append(srcinfo)
+                        else:
+                            idxs.append(unquote_to_index(unquoted, e, srcinfo, True))
+                            srcinfo_for_idxs.append(srcinfo)
+                    else:
+                        idxs.append(self.parse_expr(e))
+                        srcinfo_for_idxs.append(srcinfo)
+
+            is_window = any(map(lambda idx: isinstance(idx, UAST.Interval), idxs))
+            if is_window:
+                for i in range(len(idxs)):
+                    if not isinstance(idxs[i], UAST.Interval):
+                        idxs[i] = UAST.Point(idxs[i], srcinfo_for_idxs[i])
             return node.value, idxs, is_window
         else:
             assert False, "bad case"
@@ -1185,7 +1359,18 @@ class Parser:
 
     # parse expressions, including values, indices, and booleans
     def parse_expr(self, e):
-        if isinstance(e, (pyast.Name, pyast.Subscript)):
+        unquote_eval_result = self.try_eval_unquote(e)
+        if len(unquote_eval_result) == 1:
+            unquoted = unquote_eval_result[0]
+            if isinstance(unquoted, (int, float)):
+                return self.AST.Const(unquoted, self.getsrcinfo(e))
+            elif isinstance(unquoted, ExoExpression) and isinstance(
+                unquoted._inner, self.AST.expr
+            ):
+                return unquoted._inner
+            else:
+                self.err(e, "Unquote received input that couldn't be unquoted")
+        elif isinstance(e, (pyast.Name, pyast.Subscript)):
             nm_node, idxs, is_window = self.parse_array_indexing(e)
 
             if self.is_fragment:
@@ -1366,27 +1551,8 @@ class Parser:
             return res
 
         elif isinstance(e, pyast.Call):
-            if isinstance(e.func, pyast.Name) and e.func.id == "unquote":
-                if len(e.keywords) != 0:
-                    self.err(e, "Unquote must take non-keyword argument")
-                elif len(e.args) != 1:
-                    self.err(e, "Unquote must take 1 argument")
-                else:
-                    unquote_env = UnquoteEnv(
-                        self.parent_scope.get_globals(), self.parent_scope.read_locals()
-                    )
-                    quote_replacer = QuoteReplacer(self, unquote_env)
-                    unquoted = unquote_env.interpret_quote_expr(
-                        quote_replacer.visit(copy.deepcopy(e.args[0]))
-                    )
-                    if isinstance(unquoted, (int, float)):
-                        return self.AST.Const(unquoted, self.getsrcinfo(e))
-                    elif isinstance(unquoted, self.AST.expr):
-                        return unquoted
-                    else:
-                        self.err(e, "Unquote received input that couldn't be unquoted")
             # handle stride expression
-            elif isinstance(e.func, pyast.Name) and e.func.id == "stride":
+            if isinstance(e.func, pyast.Name) and e.func.id == "stride":
                 if (
                     len(e.keywords) > 0
                     or len(e.args) != 2
