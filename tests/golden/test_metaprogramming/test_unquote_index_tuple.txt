@@ -1,0 +1,26 @@
+#include "test.h"
+
+
+
+#include <stdio.h>
+#include <stdlib.h>
+
+
+
+// bar(
+//     a : i8[10, 10, 10] @DRAM
+// )
+void bar( void *ctxt, int8_t* a ) {
+for (int_fast32_t i = 0; i < 7; i++) {
+  foo(ctxt,(struct exo_win_2i8){ &a[(i) * (100) + (i) * (10) + i + 1], { 10, 1 } });
+}
+}
+
+// foo(
+//     a : [i8][2, 2] @DRAM
+// )
+void foo( void *ctxt, struct exo_win_2i8 a ) {
+a.data[0] += a.data[a.strides[1]];
+a.data[a.strides[0]] += a.data[a.strides[0] + a.strides[1]];
+}
+
