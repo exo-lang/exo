@@ -1260,7 +1260,7 @@ class Parser:
 
             def unquote_to_index(unquoted, ref_node, srcinfo, top_level):
                 if isinstance(unquoted, (int, float)):
-                    return self.AST.Const(unquoted, self.getsrcinfo(e))
+                    return self.AST.Const(unquoted, srcinfo)
                 elif isinstance(unquoted, ExoExpression) and isinstance(
                     unquoted._inner, self.AST.expr
                 ):
@@ -1271,12 +1271,16 @@ class Parser:
                             (
                                 None
                                 if unquoted.start is None
-                                else unquote_to_index(unquoted.start, False)
+                                else unquote_to_index(
+                                    unquoted.start, ref_node, srcinfo, False
+                                )
                             ),
                             (
                                 None
                                 if unquoted.stop is None
-                                else unquote_to_index(unquoted.stop, False)
+                                else unquote_to_index(
+                                    unquoted.stop, ref_node, srcinfo, False
+                                )
                             ),
                             srcinfo,
                         )
