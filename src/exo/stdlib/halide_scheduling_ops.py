@@ -10,30 +10,33 @@ from .inspection import *
 
 # Assumptions made by Halide scheduling ops:
 # - unique buffer names
+# - loop nests are top-level
 # - each consumer uses a contiguous region of producer values
 # - each loop corresponds to a single buffer dimension, e.g. no arr[x, x]
 # - for each dimension of a buffer, the loops which access along that
 # dimension are always nested in decreasing stride size order.
 
 
-# Some potential considerations for extending this to more general cases:
-# - If we do compute_at at a loop level which has a prologue loop, how
-# do we handle that?
+# For better generality, this code should think about how to handle prologue loops and tail
+# cases, which we currently only have very limited support for. I think user-written annotations
+# attached to LoopIR could be very helpful for this, since part of the current bottleneck is that
+# we need to either hard-code what each loopnest represents, or re-identify it via complex inspection.
 
 
 def _get_reads_of_expr(expr: ExprCursor) -> list[str]:
     return [name.name() for (name, _) in get_reads_of_expr(expr._impl._node)]
 
 
-def get_affected_dim(proc: Procedure, buffer_name: str, iter: str) -> list[int]:
+def get_affected_write_dim(
+    proc: Procedure, buffer_name: str, loop: ForCursor
+) -> list[int]:
     """
     Return which dimension of buffer are affected by [iter_sym]. Raises
     an error if there are multiple.
-
-    TODO: this should probably take a loop instead of an iter: str to scope the operation
     """
     dims = set()
-    # TODO: this only matches against writes
+    iter = loop.name()
+    # TODO: we should scope this to [loop], but currently .find() can only be called on procs
     for c in proc.find(f"{buffer_name} = _", many=True):
         for idx, idx_expr in enumerate(c.idx()):
             idx_vars = _get_reads_of_expr(idx_expr)
@@ -60,6 +63,22 @@ def _divide_with_recompute(
     if is_literal(temp_proc, temp_proc.forward(loop_cursor).body()[0].hi(), 1):
         return proc
     return temp_proc
+
+
+def _simplify_with_preds(proc):
+    # TODO: Try to simplify the expressions without needing this.
+    # This would also remove the need for the LoopIR import.
+    for pred in proc._loopir_proc.preds:
+        if (
+            isinstance(pred, LoopIR.BinOp)
+            and pred.op == "=="
+            and isinstance(pred.rhs, LoopIR.Const)
+        ):
+            try:
+                proc = rewrite_expr(proc, f"{pred.lhs}", pred.rhs.val)
+            except:
+                pass
+    return simplify(proc)
 
 
 # -------------------------------------------------------------#
@@ -99,7 +118,6 @@ def compute_at(proc: Procedure, producer_assign: AssignCursor, target_loop: ForC
                     for ji in _:
                         consumer[_] = ...
     """
-
     producer_assign = proc.forward(producer_assign)
     target_loop = proc.forward(target_loop)
 
@@ -114,7 +132,7 @@ def compute_at(proc: Procedure, producer_assign: AssignCursor, target_loop: ForC
         c_loop = proc.forward(c_loop)
 
         # Infer bounds of producer that the are consumed to determine cut-factor
-        buffer_dim = get_affected_dim(proc, producer, c_loop.name())
+        buffer_dim = get_affected_write_dim(proc, producer, c_loop)
         bounds = bounds_inference(proc, c_loop, producer, buffer_dim, include=["R"])
         N_c = c_loop.hi()._impl._node  # TODO: remove this ._impl._node
         w_c = bounds.get_stride_of(c_loop._impl._node.iter)
@@ -140,21 +158,9 @@ def compute_at(proc: Procedure, producer_assign: AssignCursor, target_loop: ForC
         proc = _divide_with_recompute(proc, p_loop, f"{N_c}", w_c, new_iters)
         proc = fuse(proc, p_loop, c_loop, unsafe_disable_check=True)
 
-        # TODO: Try to simplify the expressions without needing this.
-        # This would also remove the need for the LoopIR import.
-        for pred in proc._loopir_proc.preds:
-            if (
-                isinstance(pred, LoopIR.BinOp)
-                and pred.op == "=="
-                and isinstance(pred.rhs, LoopIR.Const)
-            ):
-                try:
-                    proc = rewrite_expr(proc, f"{pred.lhs}", pred.rhs.val)
-                except:
-                    pass
-        proc = simplify(proc)
+        proc = _simplify_with_preds(proc)
 
-    return simplify(proc)
+    return proc
 
 
 def compute_at_with_prologue(
@@ -195,7 +201,7 @@ def compute_at_with_prologue(
         c_loop = proc.forward(c_loop)
 
     # bounds inference
-    buffer_dim = get_affected_dim(proc, producer, c_loop.name())
+    buffer_dim = get_affected_write_dim(proc, producer, c_loop)
     bounds = bounds_inference(proc, c_loop, producer, buffer_dim, include=["R"])
     w_p = bounds.get_size()
 
@@ -245,7 +251,7 @@ def store_at(proc: Procedure, producer_alloc: AllocCursor, target_loop: ForCurso
         loop = proc.forward(loop)
         producer_alloc = proc.forward(producer_alloc)
 
-        buffer_dim = get_affected_dim(proc, producer, loop.name())
+        buffer_dim = get_affected_write_dim(proc, producer, loop)
 
         bounds = bounds_inference(proc, loop, producer, buffer_dim)
         lo, _ = bounds.get_bounds()
