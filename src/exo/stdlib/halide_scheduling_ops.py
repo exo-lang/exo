@@ -8,6 +8,23 @@ from .scheduling import *
 from .inspection import *
 
 
+# Assumptions made by Halide scheduling ops:
+# - unique buffer names
+# - each consumer uses a contiguous region of producer values
+# - each loop corresponds to a single buffer dimension, e.g. no arr[x, x]
+# - for each dimension of a buffer, the loops which access along that
+# dimension are always nested in decreasing stride size order.
+
+
+# Some potential considerations for extending this to more general cases:
+# - If we do compute_at at a loop level which has a prologue loop, how
+# do we handle that?
+
+
+def _get_reads_of_expr(expr: ExprCursor) -> list[str]:
+    return [name.name() for (name, _) in get_reads_of_expr(expr._impl._node)]
+
+
 def get_affected_dim(proc: Procedure, buffer_name: str, iter: str) -> list[int]:
     """
     Return which dimension of buffer are affected by [iter_sym]. Raises
@@ -19,9 +36,7 @@ def get_affected_dim(proc: Procedure, buffer_name: str, iter: str) -> list[int]:
     # TODO: this only matches against writes
     for c in proc.find(f"{buffer_name} = _", many=True):
         for idx, idx_expr in enumerate(c.idx()):
-            idx_vars = [
-                name.name() for (name, _) in get_reads_of_expr(idx_expr._impl._node)
-            ]
+            idx_vars = _get_reads_of_expr(idx_expr)
             if iter in idx_vars:
                 dims.add(idx)
 
@@ -59,7 +74,7 @@ def compute_at(proc: Procedure, producer_assign: AssignCursor, target_loop: ForC
     in the consumer loop nest by fusing the two loop nests.
 
     NOTE: This implementation assumes that both loop nests are at the top-level, but
-    it is easy to extend if we replace `get_toplevel_stmt` with an LCA function of
+    it is easy to extend if we replace `get_top_level_stmt` with an LCA function of
     producer_assign and target_loop.
 
     NOTE: This implementation assumes that consumer[i] uses a contiguous range of values,
@@ -95,12 +110,22 @@ def compute_at(proc: Procedure, producer_assign: AssignCursor, target_loop: ForC
     assert p_loop.next() == c_loops[-1], "loop nests must be consecutive"
 
     for c_loop in reversed(c_loops):
+        producer_assign = proc.forward(producer_assign)
         c_loop = proc.forward(c_loop)
-        p_loop = get_enclosing_loop_by_name(
-            proc, proc.forward(producer_assign), c_loop.name()
-        )
 
-        # Reorder producer loop up to consumer loop level and adjacent
+        # Infer bounds of producer that the are consumed to determine cut-factor
+        buffer_dim = get_affected_dim(proc, producer, c_loop.name())
+        bounds = bounds_inference(proc, c_loop, producer, buffer_dim, include=["R"])
+        N_c = c_loop.hi()._impl._node  # TODO: remove this ._impl._node
+        w_c = bounds.get_stride_of(c_loop._impl._node.iter)
+
+        # Identify the producer loop corresponding to the consumer loop based on dimension affected
+        dim_vars = _get_reads_of_expr(producer_assign.idx()[buffer_dim])
+        p_loop = match_depth(producer_assign, c_loop)
+        while p_loop.name() not in dim_vars:
+            p_loop = p_loop.body()[0]
+
+        # Reorder producer loop to be directly before consumer loop level
         while p_loop.parent() != c_loop.parent():
             proc = reorder_loops(proc, p_loop.parent())
             p_loop = proc.forward(p_loop)
@@ -110,15 +135,8 @@ def compute_at(proc: Procedure, producer_assign: AssignCursor, target_loop: ForC
             p_loop = proc.forward(p_loop)
             c_loop = proc.forward(c_loop)
 
-        # Infer bounds of producer that the are consumed to determine cut-factor
-        N_c = c_loop.hi()._impl._node  # TODO: remove this ._impl._node
-        buffer_dim = get_affected_dim(proc, producer, c_loop.name())
-        bounds = bounds_inference(proc, c_loop, producer, buffer_dim, include=["R"])
-        w_c = bounds.get_stride_of(c_loop._impl._node.iter)
-
-        p_iter = p_loop.name()
         # TODO: think about this hard-coded naming convention
-        new_iters = [f"{p_iter}", f"{p_iter}i"]
+        new_iters = [f"{c_loop.name()}", f"{c_loop.name()}i"]
         proc = _divide_with_recompute(proc, p_loop, f"{N_c}", w_c, new_iters)
         proc = fuse(proc, p_loop, c_loop, unsafe_disable_check=True)
 
@@ -177,7 +195,6 @@ def compute_at_with_prologue(
         c_loop = proc.forward(c_loop)
 
     # bounds inference
-    N_c = c_loop.hi()._impl._node
     buffer_dim = get_affected_dim(proc, producer, c_loop.name())
     bounds = bounds_inference(proc, c_loop, producer, buffer_dim, include=["R"])
     w_p = bounds.get_size()
@@ -193,7 +210,6 @@ def compute_at_with_prologue(
     proc = fuse(proc, main_loop, main_loop.next())
 
     # fuse prologue loop
-    # TODO: some bug with vectorize when nested loops have same Sym name
     # proc = add_loop(proc, prologue_loop, "y_i", str(N_c), guard=True)
     # prologue_loop = proc.forward(prologue_loop).parent()
     # proc = fuse(proc, prologue_loop, prologue_loop.next())
@@ -214,6 +230,7 @@ def store_at(proc: Procedure, producer_alloc: AllocCursor, target_loop: ForCurso
     def loops_between(producer_alloc, target_loop):
         """
         producer_alloc
+        ...
         for i in _:
             for j in _:
                 for k in _: <- target_loop
