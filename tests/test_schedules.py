@@ -544,10 +544,22 @@ def test_resize_dim_4(golden):
         for i in seq(3, 6):
             bar(x[i, i : i + 3])
 
-    foo1 = resize_dim(foo1, "x", 0, 5, "2")
+    foo1 = resize_dim(foo1, "x", 0, 6, "2")
     foo2 = resize_dim(foo2, "x", 0, 15, "2")
 
     assert str(foo1) + "\n" + str(foo2) == golden
+
+
+def test_resize_dim_5(golden):
+    @proc
+    def foo():
+        x: i8[8]
+        for i in seq(1, 8):
+            x[i] = 1.0
+
+    assert str(resize_dim(foo, "x", 0, 10, -1)) == golden
+    with pytest.raises(SchedulingError, match="The buffer x is accessed out-of-bounds"):
+        foo = resize_dim(foo, "x", 0, 7, 0)
 
 
 def test_rearrange_dim(golden):
@@ -1000,6 +1012,34 @@ def test_divide_dim_1(golden):
     assert str(foo) == golden
 
 
+def test_divide_dim_2(golden):
+    @proc
+    def foo(n: size, m: size, A: R[n + m + 12]):
+        x: R[n, 12 * m, m]
+        for i in seq(0, n):
+            for j in seq(0, 12):
+                for k in seq(0, m):
+                    x[i, j, k] = A[i + j + k]
+
+    foo = simplify(divide_dim(foo, "x", 1, 4))
+    assert str(foo) == golden
+
+
+def test_divide_dim_3(golden):
+    @proc
+    def foo(n: size, m: size):
+        x: R[n, ((m + 7) / 8) * 8, m]
+        for i in seq(0, n):
+            for j in seq(0, m):
+                for k in seq(0, m):
+                    x[i, j, k] = 2.0
+
+    for i in range(2, -1, -1):
+        foo = divide_dim(foo, "x", i, 1)
+    foo = simplify(divide_dim(foo, "x", 2, 8))
+    assert str(foo) == golden
+
+
 def test_divide_dim_fail_1():
     @proc
     def foo(n: size, m: size, A: R[n + m + 12]):
@@ -1012,8 +1052,18 @@ def test_divide_dim_fail_1():
     with pytest.raises(ValueError, match="out-of-bounds"):
         divide_dim(foo, "x", 3, 4)
 
-    with pytest.raises(SchedulingError, match="Cannot divide 12 evenly"):
+    with pytest.raises(SchedulingError, match="cannot perfectly divide"):
         divide_dim(foo, "x", 1, 5)
+
+
+def test_divide_dim_fail_2():
+    @proc
+    def foo(n: size, m: size):
+        x: R[n, 3 * m, m]
+
+    with pytest.raises(SchedulingError, match="cannot perfectly divide"):
+        for i in range(3):
+            divide_dim(foo, "x", i, 15)
 
 
 def test_mult_dim_1(golden):
@@ -1118,6 +1168,192 @@ def test_reuse_buffer_loop_fail():
         SchedulingError, match="The variable bb can potentially be used after"
     ):
         foo = reuse_buffer(foo, "bb:_", "c:_")
+
+
+def test_fold_buffer_loop_simple(golden):
+    @proc
+    def foo(N: size):
+        assert N > 4
+        x: i8[N]
+        for i in seq(0, N - 4):
+            for j in seq(i, i + 4):
+                x[j] = 1.0
+
+    with pytest.raises(
+        SchedulingError,
+        match="Buffer folding failed because access window of iteration",
+    ):
+        foo = resize_dim(foo, foo.find("x: _"), 0, 2, 0, fold=True)
+
+    foo = resize_dim(foo, foo.find("x: _"), 0, 3, 0, fold=True)
+    foo = simplify(foo)
+    assert str(foo) == golden
+
+
+# TODO: In general, the current fold buffer analysis cannot handle non-constant width windows.
+# There are some limited situations where it works (e.g. if the non-constant loop is the only
+# statement in the body). However, if there's any context around it, the check will fail
+# conservatively. For example, the following example's buffer should theoretically be foldable.
+# If we want to support such transformations, we need index analysis which leverages SMT solvers
+# for index comparisons.
+
+#     @proc
+#     def foo(N: size):
+#         x: i8[N]
+#         x[0] = 1.0
+#         for i in seq(0, N):
+#             x[i] = 0.0
+
+
+def test_fold_buffer_sequential_stmts(golden):
+    @proc
+    def foo():
+        x: i8[10]
+        x[0] = 0.0
+        x[2] = 0.0
+        x[3] = 0.0
+        x[2] = 0.0
+        x[7] = 0.0
+        x[5] = 0.0
+
+    with pytest.raises(
+        SchedulingError, match="Buffer folding failed because access window of x\[5\]"
+    ):
+        foo = resize_dim(foo, foo.find("x: _"), 0, 2, 0, fold=True)
+
+    foo = resize_dim(foo, foo.find("x: _"), 0, 3, 0, fold=True)
+    assert str(simplify(foo)) == golden
+
+
+def test_fold_buffer_within_stmt(golden):
+    @proc
+    def foo():
+        x: i8[10]
+        x[1] = x[3] + x[0]
+
+    with pytest.raises(SchedulingError, match="Buffer folding failed because RHS"):
+        foo = resize_dim(foo, foo.find("x: _"), 0, 3, 0, fold=True)
+
+    foo = resize_dim(foo, foo.find("x: _"), 0, 4, 0, fold=True)
+    assert str(simplify(foo)) == golden
+
+
+def test_fold_buffer_if_stmt(golden):
+    @proc
+    def foo(condition: bool):
+        x: i8[10]
+        x[2] = 0.0
+        if condition:
+            x[1] = 0.0
+            x[5] = 0.0
+        else:
+            for i in seq(2, 5):
+                x[i] = 1.0
+                x[i - 1] = 2.0
+                x[i - 2] = 2.0
+        x[3] = 0.0
+
+    with pytest.raises(
+        SchedulingError,
+        match="Buffer folding failed because access window of x\[i \- 2\]",
+    ):
+        foo = resize_dim(foo, foo.find("x: _"), 0, 2, 0, fold=True)
+
+    foo = resize_dim(foo, foo.find("x: _"), 0, 3, 0, fold=True)
+    assert str(simplify(foo)) == golden
+
+
+def test_fold_buffer_blur(golden):
+    @proc
+    def blur(H: size, W: size, inp: i8[H + 2, W], out: i8[H, W]):
+        assert H % 32 == 0
+        assert W > 32
+        for io in seq(0, H / 32):
+            blur_x: i8[34, W]
+            for ii in seq(0, 2):
+                for j in seq(0, W - 2):
+                    blur_x[ii, j] = (
+                        inp[io * 32 + ii, j]
+                        + inp[io * 32 + ii, j + 1]
+                        + inp[io * 32 + ii, j + 2]
+                    )
+            for ii in seq(0, 32):
+                for j in seq(0, W - 2):
+                    blur_x[ii + 2, j] = (
+                        inp[io * 32 + ii, j]
+                        + inp[io * 32 + ii, j + 1]
+                        + inp[io * 32 + ii, j + 2]
+                    )
+                for j in seq(0, W - 2):
+                    out[32 * io + ii, j] = (
+                        blur_x[ii, j] + blur_x[ii + 1, j] + blur_x[ii + 2, j]
+                    )
+
+    blur = resize_dim(blur, blur.find("blur_x: _"), 0, 3, 0, fold=True)
+    assert str(simplify(blur)) == golden
+
+
+def test_fold_buffer_unsharp(golden):
+    @proc
+    def exo_unsharp_base(
+        W: size,
+        H: size,
+        output: f32[3, H, W] @ DRAM,
+        input: f32[3, H + 6, W + 6] @ DRAM,
+    ):
+        assert H % 32 == 0
+        for y in par(0, H / 32):
+            gray: f32[38, 6 + W] @ DRAM
+            ratio: f32[1, W] @ DRAM
+            blur_y: f32[1, 6 + W] @ DRAM
+            for yi in seq(0, 6):
+                for x in seq(0, 6 + W):
+                    gray[yi, x] = (
+                        input[0, yi + 32 * y, x]
+                        + input[1, yi + 32 * y, x]
+                        + input[2, yi + 32 * y, x]
+                    )
+            for y_i in seq(0, 32):
+                for x in seq(0, 6 + W):
+                    gray[6 + y_i, x] = (
+                        input[0, 6 + y_i + 32 * y, x]
+                        + input[1, 6 + y_i + 32 * y, x]
+                        + input[2, 6 + y_i + 32 * y, x]
+                    )
+                for x in seq(0, 6 + W):
+                    blur_y[0, x] = (
+                        gray[3 + y_i, x]
+                        + gray[2 + y_i, x]
+                        + gray[4 + y_i, x]
+                        + gray[1 + y_i, x]
+                        + gray[5 + y_i, x]
+                        + gray[y_i, x]
+                        + gray[6 + y_i, x]
+                    )
+                for x in seq(0, W):
+                    ratio[0, x] = (
+                        gray[3 + y_i, 3 + x]
+                        - (
+                            blur_y[0, 3 + x]
+                            + blur_y[0, 2 + x]
+                            + blur_y[0, 4 + x]
+                            + blur_y[0, 1 + x]
+                            + blur_y[0, 5 + x]
+                            + blur_y[0, x]
+                            + blur_y[0, 6 + x]
+                        )
+                    ) / gray[3 + y_i, 3 + x]
+                for c in seq(0, 3):
+                    for x in seq(0, W):
+                        output[c, y_i + 32 * y, x] = (
+                            ratio[0, x] * input[c, 3 + y_i + 32 * y, 3 + x]
+                        )
+
+    foo = resize_dim(
+        exo_unsharp_base, exo_unsharp_base.find("gray: _"), 0, 8, 0, fold=True
+    )
+
+    assert str(simplify(foo)) == golden
 
 
 def test_fuse_loop(golden):
@@ -1318,7 +1554,7 @@ def test_divide_loop_perfect_fail():
         for i in seq(0, n):
             A[i] = 1.0
 
-    with pytest.raises(SchedulingError, match="cannot perfectly split"):
+    with pytest.raises(SchedulingError, match="cannot perfectly divide"):
         foo = divide_loop(foo, "i", 4, ["io", "ii"], perfect=True)
 
 
@@ -1553,6 +1789,47 @@ def test_merge_writes_different_lhs_arrays_error():
         SchedulingError, match="expected the left hand side's indices to be the same."
     ):
         bar = merge_writes(bar, "z[i, 1] = y; z[i+1, 1] += y")
+
+
+def test_split_write(golden):
+    @proc
+    def bar(x: i8):
+        x = 1 + 2
+        x += 3 + 4
+
+    bar = split_write(bar, bar.body()[0])
+    bar = split_write(bar, bar.body()[2])
+    assert str(bar) == golden
+
+
+def test_split_write_then_merge():
+    @proc
+    def bar(x: i8):
+        x = 1 + 2
+        x += 3 + 4
+
+    start_bar = bar
+    assign = bar.body()[0]
+    reduce = bar.body()[1]
+    bar = split_write(bar, assign)
+    bar = split_write(bar, reduce)
+    bar = merge_writes(bar, assign.as_block())
+    bar = merge_writes(bar, reduce.as_block())
+    assert str(bar) == str(start_bar)
+
+
+def test_split_write_fail():
+    @proc
+    def bar(x: i8):
+        x = 1 * 2
+        x += 4
+
+    for s in bar.body():
+        with pytest.raises(
+            SchedulingError,
+            match="Expected the rhs of the statement to be an addition.",
+        ):
+            bar = split_write(bar, s)
 
 
 def test_fold_into_reduce_1(golden):
@@ -2301,7 +2578,6 @@ def test_lift_if_second_statement_in_then_error():
         SchedulingError, match="expected if statement to be directly nested in parent"
     ):
         foo = lift_if(foo, "if i < 10: _")
-        print(foo)
 
 
 def test_lift_if_second_statement_in_else_error():
@@ -2319,7 +2595,6 @@ def test_lift_if_second_statement_in_else_error():
         SchedulingError, match="expected if statement to be directly nested in parent"
     ):
         foo = lift_if(foo, "if i < 10: _")
-        print(foo)
 
 
 def test_lift_if_second_statement_in_for_error():
@@ -2334,7 +2609,6 @@ def test_lift_if_second_statement_in_for_error():
         SchedulingError, match="expected if statement to be directly nested in parent"
     ):
         foo = lift_if(foo, "if m > 12: _")
-        print(foo)
 
 
 def test_lift_if_too_high_error():
@@ -2348,7 +2622,6 @@ def test_lift_if_too_high_error():
         SchedulingError, match=r"Cannot lift scope of top-level statement"
     ):
         foo = lift_if(foo, "if j < 10: _", n_lifts=2)
-        print(foo)
 
 
 def test_lift_if_dependency_error():
@@ -2362,7 +2635,6 @@ def test_lift_if_dependency_error():
         SchedulingError, match=r"if statement depends on iteration variable"
     ):
         foo = lift_if(foo, "if i < 10: _")
-        print(foo)
 
 
 def test_lift_if_past_if(golden):
@@ -2590,8 +2862,53 @@ def test_fail_stage_mem():
                                     * B[4 * k + kk, 4 * j + jj]
                                 )
 
-    with pytest.raises(SchedulingError, match="accessed out-of-bounds"):
+    with pytest.raises(
+        SchedulingError,
+        match="Buffer has accesses which are neither fully within nor disjoint from the window",
+    ):
         sqmat = stage_mem(sqmat, "for ii in _: _", "B[4*i:4*i+4, 4*k:4*k+4]", "Btile")
+
+
+def test_stage_mem_recursive(golden):
+    @proc
+    def recursive(n: size, y: R[n] @ DRAM, x: R[n] @ DRAM):
+        assert n > 2
+        assert (-2 + n) % 4 == 0
+        for io in seq(0, (-2 + n) / 4):
+            y[2 + 4 * io] = y[1 + 4 * io] + y[4 * io] + x[4 * io]
+            y[3 + 4 * io] = (
+                y[1 + 4 * io] + y[4 * io] + x[4 * io] + y[1 + 4 * io] + x[1 + 4 * io]
+            )
+            y[4 + 4 * io] = (
+                y[1 + 4 * io]
+                + y[4 * io]
+                + x[4 * io]
+                + y[1 + 4 * io]
+                + x[1 + 4 * io]
+                + (y[1 + 4 * io] + y[4 * io] + x[4 * io])
+                + x[2 + 4 * io]
+            )
+            y[5 + 4 * io] = (
+                y[1 + 4 * io]
+                + y[4 * io]
+                + x[4 * io]
+                + y[1 + 4 * io]
+                + x[1 + 4 * io]
+                + (y[1 + 4 * io] + y[4 * io] + x[4 * io])
+                + x[2 + 4 * io]
+                + (
+                    y[1 + 4 * io]
+                    + y[4 * io]
+                    + x[4 * io]
+                    + y[1 + 4 * io]
+                    + x[1 + 4 * io]
+                )
+                + x[3 + 4 * io]
+            )
+
+    block = recursive.find_loop("io").body()
+    recursive = stage_mem(recursive, block, "y[2+4*io : 6+4*io]", "y_tmp")
+    assert str(simplify(recursive)) == golden
 
 
 def test_stage_mem_twice(golden):
@@ -3820,6 +4137,53 @@ def test_lift_reduce_constant_bad_8():
         lift_reduce_constant(foo, "x = 0.0; _")
 
 
+def test_lift_reduce_constant_bad_9():
+    @proc
+    def dot(n: size, x: f32[n], y: f32[n]):
+        dot: R
+        dot = 0.0
+        for i in seq(0, n):
+            dot += y[i] * x[i]
+
+    with pytest.raises(
+        SchedulingError,
+        match="y\[i\] depends on the variable i which is defined within the loop",
+    ):
+        dot = lift_reduce_constant(dot, dot.find_loop("i").expand(1, 0))
+
+
+def test_lift_reduce_constant_bad_10():
+    @proc
+    def dot(n: size, x: f32[n], y: f32[n]):
+        dot: R
+        dot = 0.0
+        for i in seq(0, n):
+            for j in seq(0, n):
+                dot += y[j] * x[i]
+
+    with pytest.raises(
+        SchedulingError,
+        match="y\[j\] depends on the variable j which is defined within the loop",
+    ):
+        dot = lift_reduce_constant(dot, dot.find_loop("i").expand(1, 0))
+
+
+def test_lift_reduce_constant_bad_11():
+    @proc
+    def dot(n: size, x: f32[n], y: f32[n]):
+        dot: R
+        dot = 0.0
+        for i in seq(0, n):
+            a: f32
+            dot += a * (y[i] * x[i])
+
+    with pytest.raises(
+        SchedulingError,
+        match="a depends on the variable a which is defined within the loop",
+    ):
+        dot = lift_reduce_constant(dot, dot.find_loop("i").expand(1, 0))
+
+
 def test_specialize(golden):
     @proc
     def foo(x: f32[4] @ DRAM):
@@ -4117,3 +4481,130 @@ def test_parallelize_loop(golden):
 
     foo = parallelize_loop(foo, foo.find_loop("i"))
     assert str(foo) == golden
+
+
+def test_stage_mem_should_fail():
+    @proc
+    def foo(x: i8[10, 10, 10]):
+        for i in seq(0, 10):
+            x[i, i, i] = 1.0
+
+    with pytest.raises(SchedulingError, match="Buffer has accesses"):
+        foo = stage_mem(foo, foo.find_loop("i"), "x[0:10, 0:2, 0:10]", "x_tmp")
+
+
+def test_stage_mem_should_fail2():
+    @proc
+    def foo(x: i8[10, 10, 10]):
+        y: i8
+        for i in seq(0, 10):
+            y = x[i, i, i]
+
+    with pytest.raises(SchedulingError, match="Buffer has accesses"):
+        foo = stage_mem(foo, foo.find_loop("i"), "x[0:10, 0, 0:10]", "x_tmp")
+
+
+def test_stage_mem_should_fail3():
+    @proc
+    def foo(x: i8[10, 10, 10], y: i8[10]):
+        for i in seq(0, 10):
+            x[i, i, i] = 0.0
+
+    with pytest.raises(SchedulingError, match="Cannot stage"):
+        foo = stage_mem(foo, foo.find_loop("i"), "y[0:10]", "y_tmp")
+
+
+def test_stage_mem_okay(golden):
+    @proc
+    def foo(x: i8[10, 10, 10]):
+        y: i8
+        for i in seq(0, 10):
+            x[i, 0, i] = 1.0
+            y = x[2, 0, 3]
+
+    foo = stage_mem(foo, foo.find_loop("i"), "x[0:10, 0, 0:10]", "x_tmp")
+    assert str(simplify(foo)) == golden
+
+
+def test_stage_mem_should_fail4():
+    @proc
+    def foo(N: size, A: i8[N, N]):
+        sum_: i8
+        for i in seq(0, N):
+            for jo in seq(0, N / 4):
+                for ji in seq(0, 4):
+                    A[i, 4 * jo + ji] = 0.0
+                    y = A[i : i + 1, 4 * jo + ji]
+                    sum_ += y[0]
+
+    with pytest.raises(SchedulingError, match="Existing WindowExpr"):
+        foo = stage_mem(foo, "for ji in _:_", "A[i, 4*jo:4*jo+4]", "tile")
+
+
+def test_stage_mem_should_fail5():
+    @proc
+    def foo(N: size, A: i8[N, N]):
+        for i in seq(0, N):
+            for jo in seq(0, N / 4):
+                for ji in seq(0, 4):
+                    A[i, 4 * jo + ji] = 0.0
+                    y = A[i : i + 4, 4 * jo + ji]
+
+    with pytest.raises(SchedulingError, match="Buffer has accesses"):
+        foo = stage_mem(foo, "for ji in _:_", "A[i-1:i+1, 4*jo:4*jo+4]", "tile")
+
+
+def test_stage_mem_asum(golden):
+    @proc
+    def asum(n: size, x: [f32][n] @ DRAM, result: f32 @ DRAM):
+        result = 0.0
+        for i in seq(0, n):
+            result += select(0.0, x[i], x[i], -x[i])
+
+    asum = stage_mem(asum, "result += _", "x[i]", "tile")
+    assert str(simplify(asum)) == golden
+
+
+def test_stage_mem_reduce(golden):
+    @proc
+    def foo(n: size, x: [f32][n] @ DRAM, result: f32 @ DRAM):
+        result = 0.0
+        for i in seq(0, n):
+            result += x[i] + x[i]
+
+    foo = stage_mem(foo, "result += _", "x[i]", "tile")
+    assert str(simplify(foo)) == golden
+
+
+def test_stage_mem_assign(golden):
+    @proc
+    def foo(n: size, x: [f32][n] @ DRAM, result: f32 @ DRAM):
+        result = 0.0
+        for i in seq(0, n):
+            result = x[i] + x[i]
+
+    foo = stage_mem(foo, "result = _ #1", "x[i]", "tile")
+    assert str(simplify(foo)) == golden
+
+
+def test_stage_mem_assign2(golden):
+    @proc
+    def foo(n: size, x: [f32][n] @ DRAM, result: f32 @ DRAM):
+        result = 0.0
+        for i in seq(0, n):
+            result = x[i]
+            result = x[i]
+
+    foo = stage_mem(foo, foo.find("result = _ #1").expand(0, 1), "x[i]", "tile")
+    assert str(simplify(foo)) == golden
+
+
+def test_stage_mem_reduce2(golden):
+    @proc
+    def foo(x: f32[30], result: f32):
+        result = 0.0
+        for i in seq(0, 30):
+            x[i] = result
+
+    foo = stage_mem(foo, foo.body(), "result", "tmp")
+    assert str(simplify(foo)) == golden

@@ -74,12 +74,8 @@ void memcpy_b( void *ctxt, int_fast32_t N, float* A, struct exo_win_1f32c B );
 
 #include "test.h"
 
-
-
 #include <stdio.h>
 #include <stdlib.h>
-
-
 
 // memcpy(
 //     N : size,

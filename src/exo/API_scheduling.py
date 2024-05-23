@@ -808,18 +808,22 @@ def rename(proc, name):
     )
 
 
-@sched_op([InstrStrA])
-def make_instr(proc, instr):
+@sched_op([InstrStrA, InstrStrA])
+def make_instr(proc, c_instr, c_global=""):
     """
     Turn this procedure into an "instruction" using the provided macro-string
 
     args:
-        name    - string representing an instruction macro
+        c_instr  - string representing an instruction macro
+        c_global - string representing global C code necessary for this instruction e.g. includes
     """
     ir = proc._loopir_proc
+    instr = LoopIR.instr(c_instr=c_instr, c_global=c_global)
     ir = ir.update(instr=instr)
     return Procedure(
-        ir, _provenance_eq_Procedure=proc, _forward=ic.forward_identity(ir)
+        ir,
+        _provenance_eq_Procedure=proc,
+        _forward=ic.forward_identity(ir),
     )
 
 
@@ -1243,11 +1247,14 @@ def write_config(proc, gap_cursor, config, field, rhs):
 # Memory and Windowing-oriented Operations
 
 
-@sched_op([AllocCursorA, IntA, NewExprA("buf_cursor"), NewExprA("buf_cursor")])
-def resize_dim(proc, buf_cursor, dim_idx, size, offset):
+@sched_op([AllocCursorA, IntA, NewExprA("buf_cursor"), NewExprA("buf_cursor"), BoolA])
+def resize_dim(proc, buf_cursor, dim_idx, size, offset, fold: bool = False):
     """
     Resizes the [dim_idx]-th dimension of buffer [buf_cursor] to [size]. The [offset]
     specifies how to adjust the indices relative to the old buffer.
+
+    If [fold] is True, we will try to perform a circular buffer optimization, which
+    ignores the offset argument.
 
     Fails if there are any accesses to the [dim_idx]-th dimension outside of the
     (offset, offset + size) range.
@@ -1262,13 +1269,30 @@ def resize_dim(proc, buf_cursor, dim_idx, size, offset):
         `x : T[n, ...] ; s`
           ->
         `x : T[size, ...] ; s[ x[idx, ...] -> x[idx - offset, ...] ]`
+
+    rewrite (if fold = True):
+        `x : T ; s`
+          ->
+        `x : T ; s[ x[i] -> x[i % size] ]`
+
     checks:
         The provided dimension size is checked for positivity and the
         provided indexing expression is checked to make sure it is in-bounds
     """
     stmt_c = buf_cursor._impl
-    ir, fwd = scheduling.DoResizeDim(stmt_c, dim_idx, size, offset)
-    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+    assert dim_idx >= 0, "Dimension index must be non-negative"
+
+    if fold:
+        # Circular buffer folding
+        assert isinstance(size, LoopIR.Const) and size.val > 0
+        size = size.val
+        buf_s = buf_cursor._impl
+        ir, fwd = scheduling.DoFoldBuffer(buf_s, dim_idx, size)
+        return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+    else:
+        # Normal resize operation
+        ir, fwd = scheduling.DoResizeDim(stmt_c, dim_idx, size, offset)
+        return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([AllocCursorA, NewExprA("buf_cursor"), NewExprA("buf_cursor")])
@@ -1336,9 +1360,6 @@ def divide_dim(proc, alloc_cursor, dim_idx, quotient):
     and lower-order dimensions, where the lower-order dimension is given
     by the constant integer `quotient`.
 
-    This limited implementation of `divide_dim` requires that the dimension
-    being divided is constant itself.
-
     args:
         alloc_cursor    - cursor to the allocation to divide a dimension of
         dim_idx         - the index of the dimension to divide
@@ -1352,8 +1373,6 @@ def divide_dim(proc, alloc_cursor, dim_idx, quotient):
         `x : R[n, 3, 4, m]`
         `x[i, j / 4, j % 4, k] = ...`
     """
-    if quotient == 1:
-        raise ValueError("why are you trying to divide by 1?")
     stmt = alloc_cursor._impl
     if not (0 <= dim_idx < len(stmt._node.type.shape())):
         raise ValueError(f"Cannot divide out-of-bounds dimension index {dim_idx}")
@@ -1518,8 +1537,6 @@ def reuse_buffer(proc, buf_cursor, replace_cursor):
     reuse existing buffer (`buf_cursor`) instead of
     allocating a new buffer (`replace_cursor`).
 
-    Old Name: data_reuse
-
     args:
         buf_cursor      - cursor pointing to the Alloc to reuse
         replace_cursor  - cursor pointing to the Alloc to eliminate
@@ -1534,7 +1551,7 @@ def reuse_buffer(proc, buf_cursor, replace_cursor):
     """
     buf_s = buf_cursor._impl
     rep_s = replace_cursor._impl
-    ir, fwd = scheduling.DoDataReuse(buf_s, rep_s)
+    ir, fwd = scheduling.DoReuseBuffer(buf_s, rep_s)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1881,6 +1898,37 @@ def merge_writes(proc, block_cursor):
         )
 
     ir, fwd = scheduling.DoMergeWrites(block_cursor[0]._impl, block_cursor[1]._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([AssignOrReduceCursorA])
+def split_write(proc, stmt):
+    """
+    Split a reduce or assign statement with an addition on the RHS into two
+    writes.
+
+    This operation is the opposite of the last two cases of `merge_writes`.
+
+    args:
+        stmt    - cursor pointing to the assign/reduce statement.
+
+    rewrite:
+        `a = b + c`
+            ->
+        `a = b`
+        `a += c`
+        ----------------------
+        `a += b + c`
+            ->
+        `a += b`
+        `a += c`
+        ----------------------
+
+    forwarding:
+        - cursors to the statement and any cursors within the statement gets invalidated.
+        - blocks containing the statement will forward to a new block containing the resulting block.
+    """
+    ir, fwd = scheduling.DoSplitWrite(stmt._impl)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 

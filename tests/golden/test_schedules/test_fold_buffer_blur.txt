@@ -1,0 +1,19 @@
+def blur(H: size, W: size, inp: i8[H + 2, W] @ DRAM, out: i8[H, W] @ DRAM):
+    assert H % 32 == 0
+    assert W > 32
+    for io in seq(0, H / 32):
+        blur_x: i8[3, W] @ DRAM
+        for ii in seq(0, 2):
+            for j in seq(0, -2 + W):
+                blur_x[ii, j] = inp[ii + 32 * io,
+                                    j] + inp[ii + 32 * io,
+                                             1 + j] + inp[ii + 32 * io, 2 + j]
+        for ii in seq(0, 32):
+            for j in seq(0, -2 + W):
+                blur_x[(2 + ii) % 3,
+                       j] = inp[ii + 32 * io,
+                                j] + inp[ii + 32 * io,
+                                         1 + j] + inp[ii + 32 * io, 2 + j]
+            for j in seq(0, -2 + W):
+                out[ii + 32 * io, j] = blur_x[ii % 3, j] + blur_x[
+                    (1 + ii) % 3, j] + blur_x[(2 + ii) % 3, j]

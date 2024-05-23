@@ -7,7 +7,6 @@ import sys
 import textwrap
 from collections import ChainMap
 
-import astor
 from asdl_adt.validators import ValidationError
 
 from .API_types import ProcedureBase
@@ -273,6 +272,8 @@ class Parser:
             a = a.test
             preds.append(self.parse_expr(a))
 
+        if instr:
+            instr = UAST.instr(*instr)
         # parse the procedure body
         body = self.parse_stmt_block(pyast_body)
         return UAST.proc(
@@ -483,7 +484,7 @@ class Parser:
         elif isinstance(node, pyast.Name) and node.id in Parser._prim_types:
             return Parser._prim_types[node.id]
         else:
-            self.err(node, "unrecognized type: " + astor.dump_tree(node))
+            self.err(node, "unrecognized type: " + ast.dump(node))
 
     def parse_stmt_block(self, stmts):
         assert isinstance(stmts, list)

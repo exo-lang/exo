@@ -61,8 +61,6 @@ void conv_specialized( void *ctxt, const float* inp, float* output, const float*
 
 #include "test_case.h"
 
-
-
 #include <immintrin.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -71,7 +69,6 @@ double _relu_(double x) {
     if (x > 0.0) return x;
     else return 0.0;
 }
-
 
 // conv_specialized(
 //     inp : f32[5, 82, 102, 128] @DRAM,
