@@ -726,3 +726,39 @@ def test_cursor_find_loop():
     if_stmt = foo.find("if _: _ ")
     i_loop_alternative = if_stmt.find("for i in _: _")
     assert i_loop2 == i_loop_alternative
+
+
+def test_cursor_find_assign():
+    @proc
+    def bar(i: index, j: index):
+        pass
+
+    @proc
+    def foo(n: size):
+        x: i8[n, 2]
+        y: i8[n, 2]
+        for i in seq(0, n):
+            x[i, 0] = y[i, 0]
+            bar(i, 0)
+            x[i, 1] = select(0.0, 1.0, 2.0, 3.0)
+
+    with pytest.raises(SchedulingError, match="failed to find matches"):
+        foo.find("x[i] = _")
+
+    with pytest.raises(SchedulingError, match="failed to find matches"):
+        foo.find("y[i]")
+
+    with pytest.raises(SchedulingError, match="failed to find matches"):
+        foo.find("bar(i)")
+
+    with pytest.raises(SchedulingError, match="failed to find matches"):
+        foo.find("select(0.0)")
+
+    with pytest.raises(SchedulingError, match="failed to find matches"):
+        foo.find("x: i8[n]")
+
+    foo.find("x[_] = _")
+    foo.find("y[_]")
+    foo.find("bar(_)")
+    foo.find("select(_)")
+    foo.find("x: i8[_]")
