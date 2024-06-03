@@ -2847,8 +2847,53 @@ def test_fail_stage_mem():
                                     * B[4 * k + kk, 4 * j + jj]
                                 )
 
-    with pytest.raises(SchedulingError, match="accessed out-of-bounds"):
+    with pytest.raises(
+        SchedulingError,
+        match="Buffer has accesses which are neither fully within nor disjoint from the window",
+    ):
         sqmat = stage_mem(sqmat, "for ii in _: _", "B[4*i:4*i+4, 4*k:4*k+4]", "Btile")
+
+
+def test_stage_mem_recursive(golden):
+    @proc
+    def recursive(n: size, y: R[n] @ DRAM, x: R[n] @ DRAM):
+        assert n > 2
+        assert (-2 + n) % 4 == 0
+        for io in seq(0, (-2 + n) / 4):
+            y[2 + 4 * io] = y[1 + 4 * io] + y[4 * io] + x[4 * io]
+            y[3 + 4 * io] = (
+                y[1 + 4 * io] + y[4 * io] + x[4 * io] + y[1 + 4 * io] + x[1 + 4 * io]
+            )
+            y[4 + 4 * io] = (
+                y[1 + 4 * io]
+                + y[4 * io]
+                + x[4 * io]
+                + y[1 + 4 * io]
+                + x[1 + 4 * io]
+                + (y[1 + 4 * io] + y[4 * io] + x[4 * io])
+                + x[2 + 4 * io]
+            )
+            y[5 + 4 * io] = (
+                y[1 + 4 * io]
+                + y[4 * io]
+                + x[4 * io]
+                + y[1 + 4 * io]
+                + x[1 + 4 * io]
+                + (y[1 + 4 * io] + y[4 * io] + x[4 * io])
+                + x[2 + 4 * io]
+                + (
+                    y[1 + 4 * io]
+                    + y[4 * io]
+                    + x[4 * io]
+                    + y[1 + 4 * io]
+                    + x[1 + 4 * io]
+                )
+                + x[3 + 4 * io]
+            )
+
+    block = recursive.find_loop("io").body()
+    recursive = stage_mem(recursive, block, "y[2+4*io : 6+4*io]", "y_tmp")
+    assert str(simplify(recursive)) == golden
 
 
 def test_stage_mem_twice(golden):
@@ -4421,3 +4466,130 @@ def test_parallelize_loop(golden):
 
     foo = parallelize_loop(foo, foo.find_loop("i"))
     assert str(foo) == golden
+
+
+def test_stage_mem_should_fail():
+    @proc
+    def foo(x: i8[10, 10, 10]):
+        for i in seq(0, 10):
+            x[i, i, i] = 1.0
+
+    with pytest.raises(SchedulingError, match="Buffer has accesses"):
+        foo = stage_mem(foo, foo.find_loop("i"), "x[0:10, 0:2, 0:10]", "x_tmp")
+
+
+def test_stage_mem_should_fail2():
+    @proc
+    def foo(x: i8[10, 10, 10]):
+        y: i8
+        for i in seq(0, 10):
+            y = x[i, i, i]
+
+    with pytest.raises(SchedulingError, match="Buffer has accesses"):
+        foo = stage_mem(foo, foo.find_loop("i"), "x[0:10, 0, 0:10]", "x_tmp")
+
+
+def test_stage_mem_should_fail3():
+    @proc
+    def foo(x: i8[10, 10, 10], y: i8[10]):
+        for i in seq(0, 10):
+            x[i, i, i] = 0.0
+
+    with pytest.raises(SchedulingError, match="Cannot stage"):
+        foo = stage_mem(foo, foo.find_loop("i"), "y[0:10]", "y_tmp")
+
+
+def test_stage_mem_okay(golden):
+    @proc
+    def foo(x: i8[10, 10, 10]):
+        y: i8
+        for i in seq(0, 10):
+            x[i, 0, i] = 1.0
+            y = x[2, 0, 3]
+
+    foo = stage_mem(foo, foo.find_loop("i"), "x[0:10, 0, 0:10]", "x_tmp")
+    assert str(simplify(foo)) == golden
+
+
+def test_stage_mem_should_fail4():
+    @proc
+    def foo(N: size, A: i8[N, N]):
+        sum_: i8
+        for i in seq(0, N):
+            for jo in seq(0, N / 4):
+                for ji in seq(0, 4):
+                    A[i, 4 * jo + ji] = 0.0
+                    y = A[i : i + 1, 4 * jo + ji]
+                    sum_ += y[0]
+
+    with pytest.raises(SchedulingError, match="Existing WindowExpr"):
+        foo = stage_mem(foo, "for ji in _:_", "A[i, 4*jo:4*jo+4]", "tile")
+
+
+def test_stage_mem_should_fail5():
+    @proc
+    def foo(N: size, A: i8[N, N]):
+        for i in seq(0, N):
+            for jo in seq(0, N / 4):
+                for ji in seq(0, 4):
+                    A[i, 4 * jo + ji] = 0.0
+                    y = A[i : i + 4, 4 * jo + ji]
+
+    with pytest.raises(SchedulingError, match="Buffer has accesses"):
+        foo = stage_mem(foo, "for ji in _:_", "A[i-1:i+1, 4*jo:4*jo+4]", "tile")
+
+
+def test_stage_mem_asum(golden):
+    @proc
+    def asum(n: size, x: [f32][n] @ DRAM, result: f32 @ DRAM):
+        result = 0.0
+        for i in seq(0, n):
+            result += select(0.0, x[i], x[i], -x[i])
+
+    asum = stage_mem(asum, "result += _", "x[i]", "tile")
+    assert str(simplify(asum)) == golden
+
+
+def test_stage_mem_reduce(golden):
+    @proc
+    def foo(n: size, x: [f32][n] @ DRAM, result: f32 @ DRAM):
+        result = 0.0
+        for i in seq(0, n):
+            result += x[i] + x[i]
+
+    foo = stage_mem(foo, "result += _", "x[i]", "tile")
+    assert str(simplify(foo)) == golden
+
+
+def test_stage_mem_assign(golden):
+    @proc
+    def foo(n: size, x: [f32][n] @ DRAM, result: f32 @ DRAM):
+        result = 0.0
+        for i in seq(0, n):
+            result = x[i] + x[i]
+
+    foo = stage_mem(foo, "result = _ #1", "x[i]", "tile")
+    assert str(simplify(foo)) == golden
+
+
+def test_stage_mem_assign2(golden):
+    @proc
+    def foo(n: size, x: [f32][n] @ DRAM, result: f32 @ DRAM):
+        result = 0.0
+        for i in seq(0, n):
+            result = x[i]
+            result = x[i]
+
+    foo = stage_mem(foo, foo.find("result = _ #1").expand(0, 1), "x[i]", "tile")
+    assert str(simplify(foo)) == golden
+
+
+def test_stage_mem_reduce2(golden):
+    @proc
+    def foo(x: f32[30], result: f32):
+        result = 0.0
+        for i in seq(0, 30):
+            x[i] = result
+
+    foo = stage_mem(foo, foo.body(), "result", "tmp")
+    assert str(simplify(foo)) == golden
