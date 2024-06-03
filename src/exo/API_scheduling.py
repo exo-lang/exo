@@ -2121,8 +2121,8 @@ def fuse(proc, stmt1, stmt2, unsafe_disable_check=False):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([ForCursorA])
-def remove_loop(proc, loop_cursor):
+@sched_op([ForCursorA, BoolA])
+def remove_loop(proc, loop_cursor, unsafe_disable_check=False):
     """
     Remove the loop around some block of statements.
     This operation is allowable when the block of statements in question
@@ -2137,7 +2137,7 @@ def remove_loop(proc, loop_cursor):
             ->
         `s`
     """
-    ir, fwd = scheduling.DoRemoveLoop(loop_cursor._impl)
+    ir, fwd = scheduling.DoRemoveLoop(loop_cursor._impl, unsafe_disable_check)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 

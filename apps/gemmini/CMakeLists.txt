@@ -37,7 +37,7 @@ include(FetchContent)
 FetchContent_Declare(
   gemmini-rocc-tests
   GIT_REPOSITORY https://github.com/exo-lang/gemmini-rocc-tests.git
-  GIT_TAG        exo-v2
+  GIT_TAG        exo-v3
 )
 
 FetchContent_MakeAvailable(gemmini-rocc-tests)
