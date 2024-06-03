@@ -29,6 +29,12 @@ extern "C" {
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) && !defined(__cplusplus)
+#define exo_restrict restrict
+#else
+#define exo_restrict
+#endif
+
 typedef struct test_case_Context { 
 
     struct ConfigLoad {
@@ -57,35 +63,35 @@ typedef struct test_case_Context {
 #ifndef EXO_WIN_2I32
 #define EXO_WIN_2I32
 struct exo_win_2i32{
-    int32_t * const data;
+    int32_t *exo_restrict const data;
     const int_fast32_t strides[2];
 };
 #endif
 #ifndef EXO_WIN_2I32C
 #define EXO_WIN_2I32C
 struct exo_win_2i32c{
-    const int32_t * const data;
+    const int32_t *exo_restrict const data;
     const int_fast32_t strides[2];
 };
 #endif
 #ifndef EXO_WIN_2I8
 #define EXO_WIN_2I8
 struct exo_win_2i8{
-    int8_t * const data;
+    int8_t *exo_restrict const data;
     const int_fast32_t strides[2];
 };
 #endif
 #ifndef EXO_WIN_2I8C
 #define EXO_WIN_2I8C
 struct exo_win_2i8c{
-    const int8_t * const data;
+    const int8_t *exo_restrict const data;
     const int_fast32_t strides[2];
 };
 #endif
 #ifndef EXO_WIN_3I8
 #define EXO_WIN_3I8
 struct exo_win_3i8{
-    int8_t * const data;
+    int8_t *exo_restrict const data;
     const int_fast32_t strides[3];
 };
 #endif
@@ -96,7 +102,7 @@ struct exo_win_3i8{
 //     B : i8[128, 512] @DRAM,
 //     C : i8[3136, 512] @DRAM
 // )
-void cpu_matmul_14( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void cpu_matmul_14( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C );
 
 // cpu_matmul_16(
 //     scale : f32 @DRAM,
@@ -105,7 +111,7 @@ void cpu_matmul_14( test_case_Context *ctxt, const float* scale, bool act, const
 //     B : i8[512, 128] @DRAM,
 //     C : i8[3136, 128] @DRAM
 // )
-void cpu_matmul_16( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void cpu_matmul_16( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C );
 
 // cpu_matmul_27(
 //     scale : f32 @DRAM,
@@ -114,7 +120,7 @@ void cpu_matmul_16( test_case_Context *ctxt, const float* scale, bool act, const
 //     B : i8[256, 1024] @DRAM,
 //     C : i8[784, 1024] @DRAM
 // )
-void cpu_matmul_27( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void cpu_matmul_27( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C );
 
 // cpu_matmul_4(
 //     scale : f32 @DRAM,
@@ -123,7 +129,7 @@ void cpu_matmul_27( test_case_Context *ctxt, const float* scale, bool act, const
 //     B : i8[64, 256] @DRAM,
 //     C : i8[12544, 256] @DRAM
 // )
-void cpu_matmul_4( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void cpu_matmul_4( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C );
 
 // cpu_matmul_512x512x512(
 //     scale : f32 @DRAM,
@@ -132,7 +138,7 @@ void cpu_matmul_4( test_case_Context *ctxt, const float* scale, bool act, const 
 //     B : i8[512, 512] @DRAM,
 //     C : i8[512, 512] @DRAM
 // )
-void cpu_matmul_512x512x512( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void cpu_matmul_512x512x512( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C );
 
 // cpu_matmul_6(
 //     scale : f32 @DRAM,
@@ -141,7 +147,7 @@ void cpu_matmul_512x512x512( test_case_Context *ctxt, const float* scale, bool a
 //     B : i8[256, 64] @DRAM,
 //     C : i8[12544, 64] @DRAM
 // )
-void cpu_matmul_6( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void cpu_matmul_6( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C );
 
 // matmul_14(
 //     scale : f32 @DRAM,
@@ -150,7 +156,7 @@ void cpu_matmul_6( test_case_Context *ctxt, const float* scale, bool act, const 
 //     B : i8[128, 512] @DRAM,
 //     C : i8[3136, 512] @DRAM
 // )
-void matmul_14( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void matmul_14( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C );
 
 // matmul_16(
 //     scale : f32 @DRAM,
@@ -159,7 +165,7 @@ void matmul_14( test_case_Context *ctxt, const float* scale, bool act, const int
 //     B : i8[512, 128] @DRAM,
 //     C : i8[3136, 128] @DRAM
 // )
-void matmul_16( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void matmul_16( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C );
 
 // matmul_27(
 //     scale : f32 @DRAM,
@@ -168,7 +174,7 @@ void matmul_16( test_case_Context *ctxt, const float* scale, bool act, const int
 //     B : i8[256, 1024] @DRAM,
 //     C : i8[784, 1024] @DRAM
 // )
-void matmul_27( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void matmul_27( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C );
 
 // matmul_4(
 //     scale : f32 @DRAM,
@@ -177,7 +183,7 @@ void matmul_27( test_case_Context *ctxt, const float* scale, bool act, const int
 //     B : i8[64, 256] @DRAM,
 //     C : i8[12544, 256] @DRAM
 // )
-void matmul_4( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void matmul_4( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C );
 
 // matmul_512x512x512(
 //     scale : f32 @DRAM,
@@ -186,7 +192,7 @@ void matmul_4( test_case_Context *ctxt, const float* scale, bool act, const int8
 //     B : i8[512, 512] @DRAM,
 //     C : i8[512, 512] @DRAM
 // )
-void matmul_512x512x512( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void matmul_512x512x512( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C );
 
 // matmul_6(
 //     scale : f32 @DRAM,
@@ -195,7 +201,7 @@ void matmul_512x512x512( test_case_Context *ctxt, const float* scale, bool act, 
 //     B : i8[256, 64] @DRAM,
 //     C : i8[12544, 64] @DRAM
 // )
-void matmul_6( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void matmul_6( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C );
 
 
 
@@ -227,7 +233,7 @@ double _select_(double x, double v, double y, double z) {
 //     src : f32 @DRAM,
 //     dst : i8 @DRAM
 // )
-static void clamp( test_case_Context *ctxt, const float* src, int8_t* dst );
+static void clamp( test_case_Context *exo_restrict ctxt, const float*exo_restrict src, int8_t*exo_restrict dst );
 
 
 /* relying on the following instruction..."
@@ -238,7 +244,7 @@ acc_scale(src,dst,scale)
 //     src : f32 @DRAM,
 //     dst : i8 @DRAM
 // )
-static void clamp( test_case_Context *ctxt, const float* src, int8_t* dst ) {
+static void clamp( test_case_Context *exo_restrict ctxt, const float*exo_restrict src, int8_t*exo_restrict dst ) {
 float l;
 float h;
 l = -128.0f;
@@ -284,7 +290,7 @@ gemmini_extended3_config_ld(0, 1.0f, 0, 0);
 //     B : i8[128, 512] @DRAM,
 //     C : i8[3136, 512] @DRAM
 // )
-void cpu_matmul_14( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+void cpu_matmul_14( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C ) {
 for (int_fast32_t i = 0; i < 3136; i++) {
   for (int_fast32_t j = 0; j < 512; j++) {
     int32_t res;
@@ -321,7 +327,7 @@ for (int_fast32_t i = 0; i < 3136; i++) {
 //     B : i8[512, 128] @DRAM,
 //     C : i8[3136, 128] @DRAM
 // )
-void cpu_matmul_16( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+void cpu_matmul_16( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C ) {
 for (int_fast32_t i = 0; i < 3136; i++) {
   for (int_fast32_t j = 0; j < 128; j++) {
     int32_t res;
@@ -358,7 +364,7 @@ for (int_fast32_t i = 0; i < 3136; i++) {
 //     B : i8[256, 1024] @DRAM,
 //     C : i8[784, 1024] @DRAM
 // )
-void cpu_matmul_27( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+void cpu_matmul_27( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C ) {
 for (int_fast32_t i = 0; i < 784; i++) {
   for (int_fast32_t j = 0; j < 1024; j++) {
     int32_t res;
@@ -395,7 +401,7 @@ for (int_fast32_t i = 0; i < 784; i++) {
 //     B : i8[64, 256] @DRAM,
 //     C : i8[12544, 256] @DRAM
 // )
-void cpu_matmul_4( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+void cpu_matmul_4( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C ) {
 for (int_fast32_t i = 0; i < 12544; i++) {
   for (int_fast32_t j = 0; j < 256; j++) {
     int32_t res;
@@ -432,7 +438,7 @@ for (int_fast32_t i = 0; i < 12544; i++) {
 //     B : i8[512, 512] @DRAM,
 //     C : i8[512, 512] @DRAM
 // )
-void cpu_matmul_512x512x512( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+void cpu_matmul_512x512x512( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C ) {
 for (int_fast32_t i = 0; i < 512; i++) {
   for (int_fast32_t j = 0; j < 512; j++) {
     int32_t res;
@@ -469,7 +475,7 @@ for (int_fast32_t i = 0; i < 512; i++) {
 //     B : i8[256, 64] @DRAM,
 //     C : i8[12544, 64] @DRAM
 // )
-void cpu_matmul_6( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+void cpu_matmul_6( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C ) {
 for (int_fast32_t i = 0; i < 12544; i++) {
   for (int_fast32_t j = 0; j < 64; j++) {
     int32_t res;
@@ -532,7 +538,7 @@ gemmini_extended_mvin( 0, ((uint64_t) &{dst_data}),{m}, {n} );
 //     B : i8[128, 512] @DRAM,
 //     C : i8[3136, 512] @DRAM
 // )
-void matmul_14( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+void matmul_14( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C ) {
 gemmini_extended_config_st((512), (act), (scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
@@ -629,7 +635,7 @@ gemm_acc_free((uint32_t)(res));
 //     B : i8[512, 128] @DRAM,
 //     C : i8[3136, 128] @DRAM
 // )
-void matmul_16( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+void matmul_16( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C ) {
 gemmini_extended_config_st((128), (act), (scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
@@ -726,7 +732,7 @@ gemm_acc_free((uint32_t)(res));
 //     B : i8[256, 1024] @DRAM,
 //     C : i8[784, 1024] @DRAM
 // )
-void matmul_27( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+void matmul_27( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C ) {
 gemmini_extended_config_st((1024), (act), (scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
@@ -819,7 +825,7 @@ gemm_acc_free((uint32_t)(res));
 //     B : i8[64, 256] @DRAM,
 //     C : i8[12544, 256] @DRAM
 // )
-void matmul_4( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+void matmul_4( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C ) {
 gemmini_extended_config_st((256), (act), (scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
@@ -914,7 +920,7 @@ gemm_free((uint64_t)(a));
 //     B : i8[512, 512] @DRAM,
 //     C : i8[512, 512] @DRAM
 // )
-void matmul_512x512x512( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+void matmul_512x512x512( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C ) {
 gemmini_extended_config_st((512), (act), (scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
@@ -1017,7 +1023,7 @@ gemm_free((uint64_t)(a));
 //     B : i8[256, 64] @DRAM,
 //     C : i8[12544, 64] @DRAM
 // )
-void matmul_6( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+void matmul_6( test_case_Context *exo_restrict ctxt, const float*exo_restrict scale, bool act, const int8_t*exo_restrict A, const int8_t*exo_restrict B, int8_t*exo_restrict C ) {
 gemmini_extended_config_st((64), (act), (scale)[0]);
 
 gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);

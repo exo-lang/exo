@@ -29,18 +29,24 @@ extern "C" {
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) && !defined(__cplusplus)
+#define exo_restrict restrict
+#else
+#define exo_restrict
+#endif
+
 
 #ifndef EXO_WIN_1F32
 #define EXO_WIN_1F32
 struct exo_win_1f32{
-    float * const data;
+    float *exo_restrict const data;
     const int_fast32_t strides[1];
 };
 #endif
 #ifndef EXO_WIN_1F32C
 #define EXO_WIN_1F32C
 struct exo_win_1f32c{
-    const float * const data;
+    const float *exo_restrict const data;
     const int_fast32_t strides[1];
 };
 #endif
@@ -50,7 +56,7 @@ struct exo_win_1f32c{
 //     weights : f32[128, 3, 3, 128] @DRAM,
 //     bias : f32[128] @DRAM
 // )
-void conv_specialized( void *ctxt, const float* inp, float* output, const float* weights, const float* bias );
+void conv_specialized( void *exo_restrict ctxt, const float*exo_restrict inp, float*exo_restrict output, const float*exo_restrict weights, const float*exo_restrict bias );
 
 
 
@@ -76,7 +82,7 @@ double _relu_(double x) {
 //     weights : f32[128, 3, 3, 128] @DRAM,
 //     bias : f32[128] @DRAM
 // )
-void conv_specialized( void *ctxt, const float* inp, float* output, const float* weights, const float* bias ) {
+void conv_specialized( void *exo_restrict ctxt, const float*exo_restrict inp, float*exo_restrict output, const float*exo_restrict weights, const float*exo_restrict bias ) {
 for (int_fast32_t oc_o = 0; oc_o < 2; oc_o++) {
   for (int_fast32_t n = 0; n < 5; n++) {
     for (int_fast32_t oy = 0; oy < 80; oy++) {

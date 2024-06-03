@@ -281,7 +281,7 @@ def _window_struct(typename, ctype, n_dims, is_const) -> WindowStruct:
     sname = f"exo_win_{n_dims}{typename}{const_suffix}"
     sdef = (
         f"struct {sname}{{\n"
-        f"    {const_kwd}{ctype} * const data;\n"
+        f"    {const_kwd}{ctype} *exo_restrict const data;\n"
         f"    const int_fast32_t strides[{n_dims}];\n"
         f"}};"
     )
@@ -449,6 +449,12 @@ def compile_to_strings(lib_name, proc_list):
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) && !defined(__cplusplus)
+#define exo_restrict restrict
+#else
+#define exo_restrict
+#endif
+
 {from_lines(ctxt_def)}
 {from_lines(struct_defns)}
 {from_lines(public_fwd_decls)}
@@ -542,7 +548,7 @@ class Compiler:
 
         # reserve the first "ctxt" argument
         self.new_varname(Sym("ctxt"), None)
-        arg_strs.append(f"{ctxt_name} *ctxt")
+        arg_strs.append(f"{ctxt_name} *exo_restrict ctxt")
 
         self.non_const = set(e for e, _ in get_writes_of_stmts(self.proc.body))
 
@@ -564,7 +570,7 @@ class Compiler:
                 else:
                     const_kwd = "const " if a.name not in self.non_const else ""
                     ctyp = a.type.basetype().ctype()
-                    arg_strs.append(f"{const_kwd}{ctyp}* {name_arg}")
+                    arg_strs.append(f"{const_kwd}{ctyp}*exo_restrict {name_arg}")
                 mem = f" @{a.mem.name()}" if a.mem else ""
                 comment_str = f"{name_arg} : {a.type}{mem}"
                 typ_comments.append(comment_str)

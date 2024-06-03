@@ -29,18 +29,24 @@ extern "C" {
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) && !defined(__cplusplus)
+#define exo_restrict restrict
+#else
+#define exo_restrict
+#endif
+
 
 #ifndef EXO_WIN_1UI16
 #define EXO_WIN_1UI16
 struct exo_win_1ui16{
-    uint16_t * const data;
+    uint16_t *exo_restrict const data;
     const int_fast32_t strides[1];
 };
 #endif
 #ifndef EXO_WIN_1UI16C
 #define EXO_WIN_1UI16C
 struct exo_win_1ui16c{
-    const uint16_t * const data;
+    const uint16_t *exo_restrict const data;
     const int_fast32_t strides[1];
 };
 #endif
@@ -50,7 +56,7 @@ struct exo_win_1ui16c{
 //     blur_y : ui16[H, W] @DRAM,
 //     inp : ui16[H + 2, W + 2] @DRAM
 // )
-void exo_base_blur( void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t* blur_y, const uint16_t* inp );
+void exo_base_blur( void *exo_restrict ctxt, int_fast32_t W, int_fast32_t H, uint16_t*exo_restrict blur_y, const uint16_t*exo_restrict inp );
 
 // exo_blur_halide(
 //     W : size,
@@ -58,7 +64,7 @@ void exo_base_blur( void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t* blur_y
 //     blur_y : ui16[H, W] @DRAM,
 //     inp : ui16[H + 2, W + 2] @DRAM
 // )
-void exo_blur_halide( void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t* blur_y, const uint16_t* inp );
+void exo_blur_halide( void *exo_restrict ctxt, int_fast32_t W, int_fast32_t H, uint16_t*exo_restrict blur_y, const uint16_t*exo_restrict inp );
 
 
 
@@ -92,7 +98,7 @@ avx2_ui16_divide_by_3(out,x)
 //     blur_y : ui16[H, W] @DRAM,
 //     inp : ui16[H + 2, W + 2] @DRAM
 // )
-void exo_base_blur( void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t* blur_y, const uint16_t* inp ) {
+void exo_base_blur( void *exo_restrict ctxt, int_fast32_t W, int_fast32_t H, uint16_t*exo_restrict blur_y, const uint16_t*exo_restrict inp ) {
 EXO_ASSUME(H % 32 == 0);
 EXO_ASSUME(W % 256 == 0);
 uint16_t *blur_x = (uint16_t*) malloc((H + 2) * W * sizeof(*blur_x));
@@ -115,7 +121,7 @@ free(blur_x);
 //     blur_y : ui16[H, W] @DRAM,
 //     inp : ui16[H + 2, W + 2] @DRAM
 // )
-void exo_blur_halide( void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t* blur_y, const uint16_t* inp ) {
+void exo_blur_halide( void *exo_restrict ctxt, int_fast32_t W, int_fast32_t H, uint16_t*exo_restrict blur_y, const uint16_t*exo_restrict inp ) {
 EXO_ASSUME(H % 32 == 0);
 EXO_ASSUME(W % 256 == 0);
 #pragma omp parallel for

@@ -29,32 +29,38 @@ extern "C" {
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) && !defined(__cplusplus)
+#define exo_restrict restrict
+#else
+#define exo_restrict
+#endif
+
 
 #ifndef EXO_WIN_1F32
 #define EXO_WIN_1F32
 struct exo_win_1f32{
-    float * const data;
+    float *exo_restrict const data;
     const int_fast32_t strides[1];
 };
 #endif
 #ifndef EXO_WIN_1F32C
 #define EXO_WIN_1F32C
 struct exo_win_1f32c{
-    const float * const data;
+    const float *exo_restrict const data;
     const int_fast32_t strides[1];
 };
 #endif
 #ifndef EXO_WIN_2F32
 #define EXO_WIN_2F32
 struct exo_win_2f32{
-    float * const data;
+    float *exo_restrict const data;
     const int_fast32_t strides[2];
 };
 #endif
 #ifndef EXO_WIN_2F32C
 #define EXO_WIN_2F32C
 struct exo_win_2f32c{
-    const float * const data;
+    const float *exo_restrict const data;
     const int_fast32_t strides[2];
 };
 #endif
@@ -66,7 +72,7 @@ struct exo_win_2f32c{
 //     B : f32[K, N] @DRAM,
 //     C : f32[M, N] @DRAM
 // )
-void sgemm_exo( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, const float* A, const float* B, float* C );
+void sgemm_exo( void *exo_restrict ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, const float*exo_restrict A, const float*exo_restrict B, float*exo_restrict C );
 
 
 
@@ -87,7 +93,7 @@ void sgemm_exo( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, cons
 //     B : [f32][K, 16] @DRAM,
 //     C : [f32][4, 16] @DRAM
 // )
-static void neon_microkernel( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
+static void neon_microkernel( void *exo_restrict ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C );
 
 
 /* relying on the following instruction..."
@@ -100,7 +106,7 @@ neon_broadcast_4xf32(dst,src)
 //     B : [f32][K, 16] @DRAM,
 //     C : [f32][4, 16] @DRAM
 // )
-static void neon_microkernel( void *ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
+static void neon_microkernel( void *exo_restrict ctxt, int_fast32_t K, struct exo_win_2f32c A, struct exo_win_2f32c B, struct exo_win_2f32 C ) {
 EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
@@ -156,7 +162,7 @@ vst1q_f32(&{dst_data}, {src_data});
 //     B : f32[K, N] @DRAM,
 //     C : f32[M, N] @DRAM
 // )
-void sgemm_exo( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, const float* A, const float* B, float* C ) {
+void sgemm_exo( void *exo_restrict ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, const float*exo_restrict A, const float*exo_restrict B, float*exo_restrict C ) {
 EXO_ASSUME(M >= 1);
 EXO_ASSUME(N >= 1);
 EXO_ASSUME(K >= 1);

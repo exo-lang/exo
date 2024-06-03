@@ -20,6 +20,12 @@
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) && !defined(__cplusplus)
+#define exo_restrict restrict
+#else
+#define exo_restrict
+#endif
+
 
 
 // hoge(
@@ -27,7 +33,7 @@
 //     x : ui8[n] @DRAM,
 //     y : ui8 @DRAM
 // )
-void hoge( void *ctxt, int_fast32_t n, uint8_t* x, const uint8_t* y );
+void hoge( void *exo_restrict ctxt, int_fast32_t n, uint8_t*exo_restrict x, const uint8_t*exo_restrict y );
 
 
 #include <stdio.h>
@@ -38,7 +44,7 @@ void hoge( void *ctxt, int_fast32_t n, uint8_t* x, const uint8_t* y );
 //     x : ui8[n] @DRAM,
 //     y : ui8 @DRAM
 // )
-void hoge( void *ctxt, int_fast32_t n, uint8_t* x, const uint8_t* y ) {
+void hoge( void *exo_restrict ctxt, int_fast32_t n, uint8_t*exo_restrict x, const uint8_t*exo_restrict y ) {
 for (int_fast32_t i = 0; i < n; i++) {
   x[i] = *y;
 }

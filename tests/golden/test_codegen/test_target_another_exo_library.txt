@@ -29,13 +29,19 @@ extern "C" {
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) && !defined(__cplusplus)
+#define exo_restrict restrict
+#else
+#define exo_restrict
+#endif
+
 
 
 // foo(
 //     n : size,
 //     x : f32[n] @DRAM
 // )
-void foo( void *ctxt, int_fast32_t n, float* x );
+void foo( void *exo_restrict ctxt, int_fast32_t n, float*exo_restrict x );
 
 
 
@@ -53,7 +59,7 @@ void foo( void *ctxt, int_fast32_t n, float* x );
 //     n : size,
 //     x : f32[n] @DRAM
 // )
-void foo( void *ctxt, int_fast32_t n, float* x ) {
+void foo( void *exo_restrict ctxt, int_fast32_t n, float*exo_restrict x ) {
 for (int_fast32_t io = 0; io < ((n) / (4)); io++) {
   for (int_fast32_t ii = 0; ii < 4; ii++) {
     x[4 * io + ii] = 1.0f;
@@ -96,13 +102,19 @@ extern "C" {
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) && !defined(__cplusplus)
+#define exo_restrict restrict
+#else
+#define exo_restrict
+#endif
+
 
 
 // bar(
 //     n : size,
 //     y : f32[n] @DRAM
 // )
-void bar( void *ctxt, int_fast32_t n, float* y );
+void bar( void *exo_restrict ctxt, int_fast32_t n, float*exo_restrict y );
 
 
 
@@ -121,7 +133,7 @@ void bar( void *ctxt, int_fast32_t n, float* y );
 //     n : size,
 //     y : f32[n] @DRAM
 // )
-void bar( void *ctxt, int_fast32_t n, float* y ) {
+void bar( void *exo_restrict ctxt, int_fast32_t n, float*exo_restrict y ) {
 foo(NULL, (n + 0), (y));
 }
 

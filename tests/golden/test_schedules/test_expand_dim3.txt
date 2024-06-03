@@ -20,6 +20,12 @@
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) && !defined(__cplusplus)
+#define exo_restrict restrict
+#else
+#define exo_restrict
+#endif
+
 
 
 // foo(
@@ -27,7 +33,7 @@
 //     m : size,
 //     x : i8 @DRAM
 // )
-void foo( void *ctxt, int_fast32_t n, int_fast32_t m, int8_t* x );
+void foo( void *exo_restrict ctxt, int_fast32_t n, int_fast32_t m, int8_t*exo_restrict x );
 
 
 #include <stdio.h>
@@ -38,7 +44,7 @@ void foo( void *ctxt, int_fast32_t n, int_fast32_t m, int8_t* x );
 //     m : size,
 //     x : i8 @DRAM
 // )
-void foo( void *ctxt, int_fast32_t n, int_fast32_t m, int8_t* x ) {
+void foo( void *exo_restrict ctxt, int_fast32_t n, int_fast32_t m, int8_t*exo_restrict x ) {
 for (int_fast32_t i = 0; i < n; i++) {
   for (int_fast32_t j = 0; j < m; j++) {
     ; // NO-OP

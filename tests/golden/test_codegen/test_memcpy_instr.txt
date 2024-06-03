@@ -9,7 +9,7 @@
 //     dst : f32[n] @DRAM,
 //     src : f32[n] @DRAM
 // )
-void bar( void *ctxt, int_fast32_t n, float* dst, const float* src ) {
+void bar( void *exo_restrict ctxt, int_fast32_t n, float*exo_restrict dst, const float*exo_restrict src ) {
 memcpy((dst), (src), (n + 0) * sizeof(float));
 }
 
@@ -50,6 +50,12 @@ extern "C" {
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) && !defined(__cplusplus)
+#define exo_restrict restrict
+#else
+#define exo_restrict
+#endif
+
 
 
 // bar(
@@ -57,7 +63,7 @@ extern "C" {
 //     dst : f32[n] @DRAM,
 //     src : f32[n] @DRAM
 // )
-void bar( void *ctxt, int_fast32_t n, float* dst, const float* src );
+void bar( void *exo_restrict ctxt, int_fast32_t n, float*exo_restrict dst, const float*exo_restrict src );
 
 
 

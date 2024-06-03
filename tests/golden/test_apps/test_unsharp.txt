@@ -29,18 +29,24 @@ extern "C" {
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 199901L) && !defined(__cplusplus)
+#define exo_restrict restrict
+#else
+#define exo_restrict
+#endif
+
 
 #ifndef EXO_WIN_1F32
 #define EXO_WIN_1F32
 struct exo_win_1f32{
-    float * const data;
+    float *exo_restrict const data;
     const int_fast32_t strides[1];
 };
 #endif
 #ifndef EXO_WIN_1F32C
 #define EXO_WIN_1F32C
 struct exo_win_1f32c{
-    const float * const data;
+    const float *exo_restrict const data;
     const int_fast32_t strides[1];
 };
 #endif
@@ -50,7 +56,7 @@ struct exo_win_1f32c{
 //     output : f32[3, H, W] @DRAM,
 //     input : f32[3, H + 6, W + 6] @DRAM
 // )
-void exo_unsharp( void *ctxt, int_fast32_t W, int_fast32_t H, float* output, const float* input );
+void exo_unsharp( void *exo_restrict ctxt, int_fast32_t W, int_fast32_t H, float*exo_restrict output, const float*exo_restrict input );
 
 // exo_unsharp_base(
 //     W : size,
@@ -58,7 +64,7 @@ void exo_unsharp( void *ctxt, int_fast32_t W, int_fast32_t H, float* output, con
 //     output : f32[3, H, W] @DRAM,
 //     input : f32[3, H + 6, W + 6] @DRAM
 // )
-void exo_unsharp_base( void *ctxt, int_fast32_t W, int_fast32_t H, float* output, const float* input );
+void exo_unsharp_base( void *exo_restrict ctxt, int_fast32_t W, int_fast32_t H, float*exo_restrict output, const float*exo_restrict input );
 
 // exo_unsharp_vectorized(
 //     W : size,
@@ -66,7 +72,7 @@ void exo_unsharp_base( void *ctxt, int_fast32_t W, int_fast32_t H, float* output
 //     output : f32[3, H, W] @DRAM,
 //     input : f32[3, H + 6, W + 6] @DRAM
 // )
-void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* output, const float* input );
+void exo_unsharp_vectorized( void *exo_restrict ctxt, int_fast32_t W, int_fast32_t H, float*exo_restrict output, const float*exo_restrict input );
 
 
 
@@ -87,7 +93,7 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
 //     output : f32[3, H, W] @DRAM,
 //     input : f32[3, H + 6, W + 6] @DRAM
 // )
-void exo_unsharp( void *ctxt, int_fast32_t W, int_fast32_t H, float* output, const float* input ) {
+void exo_unsharp( void *exo_restrict ctxt, int_fast32_t W, int_fast32_t H, float*exo_restrict output, const float*exo_restrict input ) {
 EXO_ASSUME(H % 32 == 0);
 float *rgb_to_gray = (float*) malloc(3 * sizeof(*rgb_to_gray));
 rgb_to_gray[0] = 0.299f;
@@ -141,7 +147,7 @@ free(rgb_to_gray);
 //     output : f32[3, H, W] @DRAM,
 //     input : f32[3, H + 6, W + 6] @DRAM
 // )
-void exo_unsharp_base( void *ctxt, int_fast32_t W, int_fast32_t H, float* output, const float* input ) {
+void exo_unsharp_base( void *exo_restrict ctxt, int_fast32_t W, int_fast32_t H, float*exo_restrict output, const float*exo_restrict input ) {
 EXO_ASSUME(H % 32 == 0);
 float *rgb_to_gray = (float*) malloc(3 * sizeof(*rgb_to_gray));
 rgb_to_gray[0] = 0.299f;
@@ -207,7 +213,7 @@ free(ratio);
 //     output : f32[3, H, W] @DRAM,
 //     input : f32[3, H + 6, W + 6] @DRAM
 // )
-void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* output, const float* input ) {
+void exo_unsharp_vectorized( void *exo_restrict ctxt, int_fast32_t W, int_fast32_t H, float*exo_restrict output, const float*exo_restrict input ) {
 EXO_ASSUME(H % 32 == 0);
 float *rgb_to_gray = (float*) malloc(3 * sizeof(*rgb_to_gray));
 rgb_to_gray[0] = 0.299f;

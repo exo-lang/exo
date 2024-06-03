@@ -6,7 +6,7 @@
 // foo(
 
 // )
-void foo( void *ctxt ) {
+void foo( void *exo_restrict ctxt ) {
 int32_t a;
 a = a + ((int32_t) 3);
 }
