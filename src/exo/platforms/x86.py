@@ -9,6 +9,13 @@ from ..libs.memories import AVX2, AVX512
 # --------------------------------------------------------------------------- #
 
 
+@instr("_mm_prefetch(&{A_data}, {locality_hint})")
+def prefetch(A: [R][1] @ DRAM, locality_hint: size):
+    assert 0 <= locality_hint
+    assert locality_hint < 8
+    pass
+
+
 @instr("{dst_data} = _mm256_setzero_ps();")
 def mm256_setzero_ps(dst: [f32][8] @ AVX2):
     assert stride(dst, 0) == 1
