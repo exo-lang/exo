@@ -1,0 +1,7 @@
+def foo(x: i8[4] @ DRAM):
+    # BLOCK START
+    x[0] = 0.0
+    x[1] = 0.0
+    x[2] = 0.0
+    x[3] = 0.0
+    # BLOCK END

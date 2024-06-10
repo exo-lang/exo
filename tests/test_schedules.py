@@ -246,9 +246,9 @@ def test_add_loop3(golden):
     @proc
     def foo(n: size, m: size):
         x: R
-        x = 0.0
+        x += 0.0
 
-    assert str(add_loop(foo, "x = _", "i", "n+m", guard=True)) == golden
+    assert str(add_loop(foo, "x += _", "i", "n+m", guard=True)) == golden
 
 
 def test_add_loop4_fail():

@@ -145,8 +145,15 @@ class Cursor(ABC):
         depth = len(edit_path)
 
         def forward(cursor: Cursor) -> Cursor:
-            if cursor._root is not orig_root:
-                raise InvalidCursorError("cannot forward from unknown root")
+            if isinstance(cursor, Node):
+                if cursor._root is not orig_root:
+                    raise InvalidCursorError("cannot forward from unknown root")
+            elif isinstance(cursor, (Gap, Block)):
+                if cursor._anchor._root is not orig_root:
+                    raise InvalidCursorError("cannot forward from unknown root")
+            else:
+                print(type(cursor))
+                raise NotImplementedError()
 
             if isinstance(cursor, Gap):
                 return Gap(new_root, forward(cursor.anchor()), cursor.type())

@@ -5,6 +5,7 @@ import re
 
 # import types
 from dataclasses import dataclass, make_dataclass, field
+import dataclasses
 from typing import Any, List, Tuple
 
 from .API import Procedure
@@ -88,6 +89,7 @@ class AtomicSchedulingOp:
         # pop implicit arguments
         rc_arg = self._pop_implicit_rc_arg(kwargs)
 
+        print(rc_arg)
         # capture the arguments according to the provided signature
         bound_args = self.sig.bind(*args, **kwargs)
 
@@ -125,6 +127,10 @@ class AtomicSchedulingOp:
         else:
             # Supress the relevant cursors
             return ret_val[0]
+
+
+def lift_return_cursors(proc, cursors):
+    return {k: PC.lift_cursor(v, proc) for k, v in cursors.items()}
 
 
 # decorator for building Atomic Scheduling Operations in the
@@ -806,20 +812,23 @@ class CustomWindowExprA(NewExprA):
 class CursorsSet:
     pass
 
+    def __iter__(self):
+        for field in dataclasses.fields(self):
+            yield getattr(self, field.name)
+
 
 def make_cursors_set(sched_op, fields):
     assert is_atomic_scheduling_op(sched_op)
-
-    name = f"{sched_op.__name__}CursorsSet"
-    invalid_cursor_default = field(default=PC.InvalidCursor)
+    name = f"{sched_op.__name__}_CursorsSet"
 
     for i, fld in enumerate(fields):
         if isinstance(fld, str):
-            fields[i] = (fld, PC.Cursor, invalid_cursor_default)
+            fields[i] = (fld, PC.Cursor, field(default=PC.InvalidCursor))
         elif isinstance(fld, tuple) and len(fld) == 2:
-            fields[i] = fld + (invalid_cursor_default,)
+            fields[i] = fld + (field(default=PC.InvalidCursor),)
 
-    globals()[name] = make_dataclass(name, fields, bases=(CursorsSet,))
+    dc = make_dataclass(name, fields, bases=(CursorsSet,))
+    globals()[name] = dc
 
 
 # --------------------------------------------------------------------------- #
@@ -855,7 +864,7 @@ def simplify(proc):
         No cursors are returned.
     """
     # TODO: remove provenance handling from simplifier implementation
-    return scheduling.DoSimplify(proc).result(), simplifyCursorsSet()
+    return scheduling.DoSimplify(proc).result(), simplify_CursorsSet()
 
 
 make_cursors_set(simplify, [])
@@ -2476,7 +2485,6 @@ def add_loop(
     relevant_cursors:
         loop            - a cursor to the new loop
         block           - a cursor to the block of statements that was wrapped inside the loop
-        ?guard          - a cursor to the guard around the loop body
 
     rewrite:
         `s`  <--- block_cursor
@@ -2492,7 +2500,17 @@ def add_loop(
     ir, fwd = scheduling.DoAddLoop(
         stmt_c, iter_name, hi_expr, guard, unsafe_disable_check
     )
-    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+    new_proc = Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+    new_block = fwd(block_cursor._impl)
+    cursors = {
+        "loop": new_block.parent() if not guard else new_block.parent().parent(),
+        "block": new_block,
+    }
+    return new_proc, add_loop_CursorsSet(**lift_return_cursors(new_proc, cursors))
+
+
+make_cursors_set(add_loop, [("block", BlockCursorA), ("loop", ForCursorA)])
 
 
 @sched_op([ForCursorA])
@@ -2516,8 +2534,12 @@ def unroll_loop(proc, loop_cursor):
         `s[ i -> 2 ]`
     """
     ir, fwd = scheduling.DoUnroll(loop_cursor._impl)
-    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+    new_proc = Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+    cursors = {"block": fwd(loop_cursor._impl.as_block())}
+    return new_proc, unroll_loop_CursorsSet(**lift_return_cursors(new_proc, cursors))
 
+
+make_cursors_set(unroll_loop, [("block", BlockCursorA)])
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

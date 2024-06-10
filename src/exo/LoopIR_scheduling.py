@@ -2700,18 +2700,13 @@ def DoAddLoop(stmt_cursor, var, hi, guard, unsafe_disable_check):
     s = stmt_cursor._node
 
     if not unsafe_disable_check:
-        Check_IsIdempotent(proc, [s])
+        if not guard:
+            Check_IsIdempotent(proc, [s])
         Check_IsPositiveExpr(proc, [s], hi)
 
     sym = Sym(var)
 
-    def wrapper(body):
-        if guard:
-            rdsym = LoopIR.Read(sym, [], T.index, s.srcinfo)
-            zero = LoopIR.Const(0, T.int, s.srcinfo)
-            cond = LoopIR.BinOp("==", rdsym, zero, T.bool, s.srcinfo)
-            body = [LoopIR.If(cond, body, [], None, s.srcinfo)]
-
+    def for_wrapper(body):
         return LoopIR.For(
             sym,
             LoopIR.Const(0, T.index, s.srcinfo),
@@ -2722,7 +2717,18 @@ def DoAddLoop(stmt_cursor, var, hi, guard, unsafe_disable_check):
             s.srcinfo,
         )
 
-    ir, fwd = stmt_cursor.as_block()._wrap(wrapper, "body")
+    ir, fwd = stmt_cursor.as_block()._wrap(for_wrapper, "body")
+
+    def if_wrapper(body):
+        rdsym = LoopIR.Read(sym, [], T.index, s.srcinfo)
+        zero = LoopIR.Const(0, T.int, s.srcinfo)
+        cond = LoopIR.BinOp("==", rdsym, zero, T.bool, s.srcinfo)
+        return LoopIR.If(cond, body, [], None, s.srcinfo)
+
+    if guard:
+        ir, fwd_if = fwd(stmt_cursor).as_block()._wrap(if_wrapper, "body")
+        fwd = _compose(fwd_if, fwd)
+
     return ir, fwd
 
 

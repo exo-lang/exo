@@ -144,7 +144,7 @@ def add_guard(p, c):
             child = p.forward(c).body()[0]
             p = remove_loop(p, c)
             p = add_loop(p, child, name, hi, guard=True)
-            if_cursor = p.forward(child).parent().body()[0]
+            if_cursor = p.forward(child).parent()
             p = sink_if(p, if_cursor)
         except:
             continue
