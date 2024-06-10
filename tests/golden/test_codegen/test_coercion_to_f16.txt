@@ -1,0 +1,13 @@
+#include "test.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+// foo(
+
+// )
+void foo( void *ctxt ) {
+_Float16 a;
+a = a + ((_Float16) 3);
+}
+

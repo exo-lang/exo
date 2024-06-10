@@ -62,25 +62,28 @@ module LoopIR {
              fnarg*  args,
              expr*   preds,
              stmt*   body,
-             string? instr,
+             instr?  instr,
              effect? eff,
              srcinfo srcinfo )
+
+    instr  = ( string c_instr,
+               string c_global )
 
     fnarg  = ( sym     name,
                type    type,
                mem?    mem,
                srcinfo srcinfo )
 
-    stmt = Assign( sym name, type type, string? cast, expr* idx, expr rhs )
-         | Reduce( sym name, type type, string? cast, expr* idx, expr rhs )
+    stmt = Assign( sym name, type type, expr* idx, expr rhs )
+         | Reduce( sym name, type type, expr* idx, expr rhs )
          | WriteConfig( config config, string field, expr rhs )
          | Pass()
          | If( expr cond, stmt* body, stmt* orelse )
          | For( sym iter, expr lo, expr hi, stmt* body, loop_mode loop_mode )
-         | Alloc( sym name, type type, mem? mem )
-         | Free( sym name, type type, mem? mem )
+         | Alloc( sym name, type type, mem mem )
+         | Free( sym name, type type, mem mem )
          | Call( proc f, expr* args )
-         | WindowStmt( sym lhs, expr rhs )
+         | WindowStmt( sym name, expr rhs )
          attributes( effect? eff, srcinfo srcinfo )
 
     loop_mode = Seq()
@@ -140,9 +143,10 @@ module LoopIR {
         "F32",
         "F64",
         "INT8",
-        "UINT16",
         "UINT8",
-        "INT32" "Bool",
+        "UINT16",
+        "INT32",
+        "Bool",
         "Int",
         "Index",
         "Size",
@@ -162,8 +166,11 @@ module UAST {
                 fnarg*          args,
                 expr*           preds,
                 stmt*           body,
-                string?         instr,
+                instr?          instr,
                 srcinfo         srcinfo )
+
+    instr   = ( string          c_instr,
+                string          c_global )
 
     fnarg   = ( sym             name,
                 type            type,
@@ -584,6 +591,7 @@ from . import LoopIR_pprint
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 
+
 # convert from LoopIR.expr to E.expr
 def lift_to_eff_expr(e):
     if isinstance(e, LoopIR.Read):
@@ -968,7 +976,7 @@ class LoopIR_Compare:
                 self.match_e(a1, a2) for a1, a2 in zip(s1.args, s2.args)
             )
         elif isinstance(s1, LoopIR.WindowStmt):
-            return self.match_name(s1.lhs, s2.lhs) and self.match_e(s1.rhs, s2.rhs)
+            return self.match_name(s1.name, s2.name) and self.match_e(s1.rhs, s2.rhs)
         else:
             assert False, f"bad case: {type(s1)}"
 
@@ -1037,7 +1045,7 @@ class GetReads(LoopIR_Do):
         self.reads = []
 
     def do_e(self, e):
-        if isinstance(e, LoopIR.Read):
+        if hasattr(e, "name"):
             self.reads.append((e.name, e.type))
         super().do_e(e)
 
@@ -1117,7 +1125,7 @@ class FreeVars(LoopIR_Do):
             if s.name not in self.env:
                 self.fv.add(s.name)
         elif styp is LoopIR.WindowStmt:
-            self.env[s.lhs] = True
+            self.env[s.name] = True
         elif styp is LoopIR.If:
             self.do_e(s.cond)
             self.push()
@@ -1204,9 +1212,9 @@ class Alpha_Rename(LoopIR_Rewrite):
             return [((s2 and s2[0]) or s).update(name=new_name)]
         elif isinstance(s, LoopIR.WindowStmt):
             rhs = self.map_e(s.rhs) or s.rhs
-            lhs = s.lhs.copy()
-            self.env[s.lhs] = lhs
-            return [s.update(lhs=lhs, rhs=rhs)]
+            name = s.name.copy()
+            self.env[s.name] = name
+            return [s.update(name=name, rhs=rhs)]
         elif isinstance(s, LoopIR.If):
             self.push()
             stmts = super().map_s(s)

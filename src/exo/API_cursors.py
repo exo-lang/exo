@@ -3,10 +3,10 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from typing import Optional, List, Any
+from typing import List, Any
 
 from . import API  # TODO: remove this circular import
-from .API_types import ExoType
+from .API_types import ExoType, loopir_type_to_exotype
 from .LoopIR import LoopIR
 from .configs import Config
 from .memory import Memory
@@ -199,12 +199,14 @@ class ArgCursor(Cursor):
 
         return self._impl._node.name.name()
 
-    def mem(self) -> Optional[Memory]:
+    def mem(self) -> Memory:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.fnarg)
         assert not self._impl._node.type.is_indexable()
 
-        return self._impl._node.mem
+        mem = self._impl._node.mem
+        assert issubclass(mem, Memory)
+        return mem
 
     def is_tensor(self) -> bool:
         assert isinstance(self._impl, C.Node)
@@ -224,7 +226,6 @@ class ArgCursor(Cursor):
     def type(self) -> API.ExoType:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.fnarg)
-
         return loopir_type_to_exotype(self._impl._node.type.basetype())
 
 
@@ -299,6 +300,15 @@ class StmtCursor(StmtCursorPrototype):
     def expand(self, delta_lo=None, delta_hi=None):
         """Shorthand for stmt_cursor.as_block().expand(...)"""
         return self.as_block().expand(delta_lo, delta_hi)
+
+    def is_ancestor_of(self, other):
+        """
+        Returns True if this cursor is an ancestor of the other cursor.
+        """
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl, C.Node)
+
+        return self._impl.is_ancestor_of(other._impl)
 
 
 class BlockCursor(StmtCursorPrototype, ListCursorPrototype):
@@ -572,29 +582,6 @@ class ForCursor(StmtCursor):
         return BlockCursor(self._impl._child_block("body"), self._proc)
 
 
-def loopir_type_to_exotype(typ: LoopIR.Type) -> API.ExoType:
-    if isinstance(typ, LoopIR.Num):
-        return API.ExoType.R
-    elif isinstance(typ, LoopIR.F32):
-        return API.ExoType.F32
-    elif isinstance(typ, LoopIR.F64):
-        return API.ExoType.F64
-    elif isinstance(typ, LoopIR.INT8):
-        return API.ExoType.I8
-    elif isinstance(typ, LoopIR.INT32):
-        return API.ExoType.I32
-    elif isinstance(typ, LoopIR.Bool):
-        return API.ExoType.Bool
-    elif isinstance(typ, LoopIR.Size):
-        return API.ExoType.Size
-    elif isinstance(typ, LoopIR.Index):
-        return API.ExoType.Index
-    elif isinstance(typ, LoopIR.Int):
-        return API.ExoType.Int
-    else:
-        raise NotImplementedError(f"Unsupported {typ}")
-
-
 class AllocCursor(StmtCursor):
     """
     Cursor pointing to a buffer definition statement:
@@ -609,11 +596,14 @@ class AllocCursor(StmtCursor):
 
         return self._impl._node.name.name()
 
-    def mem(self) -> Optional[Memory]:
+    def mem(self) -> Memory:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.Alloc)
+        assert not self._impl._node.type.is_indexable()
 
-        return self._impl._node.mem
+        mem = self._impl._node.mem
+        assert issubclass(mem, Memory)
+        return mem
 
     def is_tensor(self) -> bool:
         assert isinstance(self._impl, C.Node)
@@ -863,77 +853,6 @@ class StrideExprCursor(ExprCursor):
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
-# High-level cursor navigation functions
-
-
-class CursorNavigationError(Exception):
-    pass
-
-
-def validate_cursors(c1, c2):
-    """
-    Checks that [c1] and [c2] are both valid cursors, and that they originate from the
-    same proc.
-    """
-    assert not isinstance(c1, InvalidCursor), "first cursor was an InvalidCursor"
-    assert not isinstance(c2, InvalidCursor), "second cursor was an InvalidCursor"
-    assert c1.proc() == c2.proc(), "cursors originate from different procs"
-
-
-def match_level(cursor, cursor_to_match):
-    """
-    Lifts [cursor] through the AST until [cursor] and [cursor_to_match] are at
-    the same level, e.g. have the same parent. Returns an InvalidCursorError if
-    [cursor_to_match]'s parent is not an ancestor of [cursor].
-    """
-    validate_cursors(cursor, cursor_to_match)
-
-    while cursor.parent() != cursor_to_match.parent():
-        cursor = cursor.parent()
-        if isinstance(cursor, InvalidCursor):
-            raise CursorNavigationError(
-                "cursor_to_match's parent is not an ancestor of cursor"
-            )
-
-    return cursor
-
-
-def get_stmt_within_scope(cursor, scope):
-    """
-    Gets the statement containing [cursor] that is directly in the provided [scope]
-    """
-    validate_cursors(cursor, scope)
-    assert isinstance(
-        scope, (ForCursor, IfCursor)
-    ), "scope was not an for loop or if statement"
-
-    try:
-        return match_level(cursor, scope.body()[0])
-    except CursorNavigationError:
-        raise CursorNavigationError("scope is not an ancestor of cursor")
-
-
-def get_enclosing_loop(cursor, loop_iter=None):
-    """
-    Gets the enclosing loop with the given [loop_iter]. If [loop_iter] is None,
-    returns the innermost loop enclosing [cursor].
-    """
-    assert not isinstance(cursor, InvalidCursor), "first cursor was an InvalidCursor"
-
-    match_iter = (
-        lambda x: x.name() == loop_iter if loop_iter is not None else lambda x: True
-    )
-
-    while not (isinstance(cursor, ForCursor) and match_iter(cursor)):
-        cursor = cursor.parent()
-        if isinstance(cursor, InvalidCursor):
-            raise CursorNavigationError("no enclosing loop found")
-
-    return cursor
-
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
 # Internal Functions; Not for Exposure to Users
 
 # helper function to dispatch to constructors
@@ -1081,9 +1000,4 @@ __all__ = [
     "StrideExprCursor",
     #
     "InvalidCursorError",
-    #
-    "CursorNavigationError",
-    "match_level",
-    "get_stmt_within_scope",
-    "get_enclosing_loop",
 ]

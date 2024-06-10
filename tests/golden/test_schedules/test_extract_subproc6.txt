@@ -1,0 +1,9 @@
+def foo(x: [f32][8] @ DRAM, y: [f32][8] @ DRAM):
+    assert stride(x, 0) == 1
+    assert stride(y, 0) == 1
+    reg: f32[8] @ AVX2
+    fooooo(x, reg)
+def fooooo(x: [f32][8] @ DRAM, reg: f32[8] @ AVX2):
+    assert stride(x, 0) == 1
+    for i in seq(0, 8):
+        reg[i] = x[i]

@@ -1,5 +1,6 @@
-[![CI](https://github.com/ChezJrk/exo/actions/workflows/main.yml/badge.svg)](https://github.com/ChezJrk/exo/actions/workflows/main.yml)
-[![codecov](https://codecov.io/gh/ChezJrk/exo/branch/master/graph/badge.svg?token=BFIZ0WKP4I)](https://codecov.io/gh/ChezJrk/exo)
+[![CI](https://github.com/exo-lang/exo/actions/workflows/main.yml/badge.svg)](https://github.com/exo-lang/exo/actions/workflows/main.yml)
+![GitHub last commit](https://img.shields.io/github/last-commit/exo-lang/exo)
+[![codecov](https://codecov.io/gh/exo-lang/exo/branch/master/graph/badge.svg?token=BFIZ0WKP4I)](https://codecov.io/gh/exo-lang/exo)
 
 # Install Exo
 
@@ -71,7 +72,7 @@ Take a look at `exo/examples` for scheduling examples.
 
 | Operation                                                   | Description                                                                                                                                                                                                                                                                   |
 |-------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `.data_reuse(buf1, buf2)`                                   | Reuses a buffer `buf1` in the use site of `buf2` and removes the allocation of `buf2`.                                                                                                                                                                                        |
+| `.reuse_buffer(buf1, buf2)`                                   | Reuses a buffer `buf1` in the use site of `buf2` and removes the allocation of `buf2`.                                                                                                                                                                                        |
 | `.inline_window(win_stmt)`                                  | Removes the window statement `win_stmt`, which is an alias to the window, and inlines the windowing in its use site.                                                                                                                                                          |
 | `.expand_dim(stmt, alloc_dim, indexing)`                    | Expands the dimension of the allocation statement `stmt` with dimension `alloc_dim` of indexing `indexing`.                                                                                                                                                                   |
 | `.bind_expr(new_name, expr)`                                | Binds the right hand side expression `expr` to a newly allocated buffer named `new_name`                                                                                                                                                                                      |
@@ -144,38 +145,6 @@ In this repository, folders are structured as follows:
 5. `tests/` contains the Exo test suite.
 
 # Build Exo from source
-
-## Self-contained install with Python
-
-If you don't want to use your system version of python (e.g. if it's too old),
-you can install Exo and a compatible version of Python with Nix.
-
-First, install Nix (if you don't have it) using either the
-[systemwide installer](https://nixos.org/download.html) or the portable install
-(no root required for portable):
-
-```
-$ wget https://github.com/DavHau/nix-portable/releases/download/v009/nix-portable
-$ chmod +x nix-portable
-```
-
-Then launch a shell which includes Exo and a compatible version of Python:
-
-```
-$ git clone git@github.com:exo-lang/exo.git
-$ cd exo/
-
-# with a systemwide nix installation
-$ nix --experimental-features 'nix-command flakes' develop
-
-# or with a portable nix installation
-$ PATH_TO_NIX_PORTABLE/nix-portable nix develop
-```
-
-This is a virtualenv-like environment that you will need to enter each time you
-wish to use Exo.
-
-## Manual install
 
 We make active use of newer Python 3.x features, so please use the same version
 of Python as our CI if you're getting errors about unsupported features.

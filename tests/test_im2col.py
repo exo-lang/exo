@@ -57,8 +57,8 @@ def test_im2col(golden):
 
     # Now, in order to expose these two parts of the computation as
     # re-usable sub-procedures, we want a way to factor them out.
-    im2col_conv, im2col = extract_subproc(im2col_conv, "im2col", "for c in _: _")
-    im2col_conv, matmul = extract_subproc(im2col_conv, "matmul", "for k in _: _")
+    im2col_conv, im2col = extract_subproc(im2col_conv, "for c in _: _", "im2col")
+    im2col_conv, matmul = extract_subproc(im2col_conv, "for k in _: _", "matmul")
 
     # Given this factoring, we can then proceed
     # to schedule these sub-procedures themselves.

@@ -286,6 +286,12 @@ def _window_struct(typename, ctype, n_dims, is_const) -> WindowStruct:
         f"}};"
     )
 
+    sdef_guard = sname.upper()
+    sdef = f"""#ifndef {sdef_guard}
+#define {sdef_guard}
+{sdef}
+#endif"""
+
     return WindowStruct(sname, sdef)
 
 
@@ -373,6 +379,7 @@ def compile_to_strings(lib_name, proc_list):
     builtin_code = _compile_builtins(find_all_builtins(proc_list))
     private_fwd_decls = []
     proc_bodies = []
+    instrs_global = []
 
     needed_helpers = set()
 
@@ -391,10 +398,12 @@ def compile_to_strings(lib_name, proc_list):
                     "",
                     '/* relying on the following instruction..."',
                     f"{p.name}({argstr})",
-                    p.instr,
+                    p.instr.c_instr,
                     "*/",
                 ]
             )
+            if p.instr.c_global:
+                instrs_global.append(p.instr.c_global)
         else:
             is_public_decl = id(p) in orig_procs
 
@@ -446,15 +455,18 @@ def compile_to_strings(lib_name, proc_list):
 """
 
     helper_code = [_static_helpers[v] for v in needed_helpers]
-
-    body_contents = f"""
-{from_lines(helper_code)}
-{from_lines(memory_code)}
-{from_lines(builtin_code)}
-{from_lines(private_fwd_decls)}
-{from_lines(proc_bodies)}
-"""
-
+    body_contents = [
+        helper_code,
+        instrs_global,
+        memory_code,
+        builtin_code,
+        private_fwd_decls,
+        proc_bodies,
+    ]
+    body_contents = list(filter(lambda x: x, body_contents))  # filter empty lines
+    body_contents = map(from_lines, body_contents)
+    body_contents = from_lines(body_contents)
+    body_contents += "\n"  # New line at end of file
     return header_contents, body_contents
 
 
@@ -606,7 +618,8 @@ class Compiler:
             check = False
             for s in stmts:
                 if isinstance(s, LoopIR.Alloc):
-                    mem = s.mem if s.mem else DRAM
+                    mem = s.mem
+                    assert issubclass(mem, Memory)
                     check |= issubclass(mem, StaticMemory)
                 elif isinstance(s, LoopIR.For):
                     check |= allocates_static_memory(s.body)
@@ -857,8 +870,8 @@ class Compiler:
             rhs = self.comp_e(s.rhs)
             assert isinstance(s.rhs, LoopIR.WindowExpr)
             mem = self.mems[s.rhs.name]
-            lhs = self.new_varname(s.lhs, typ=s.rhs.type, mem=mem)
-            self.add_line(f"struct {win_struct} {lhs} = {rhs};")
+            name = self.new_varname(s.name, typ=s.rhs.type, mem=mem)
+            self.add_line(f"struct {win_struct} {name} = {rhs};")
         elif isinstance(s, LoopIR.If):
             cond = self.comp_e(s.cond)
             self.add_line(f"if ({cond}) {{")
@@ -926,7 +939,7 @@ class Compiler:
                     else:
                         d[f"{arg_name}_data"] = f"({args[i]})"
 
-                self.add_line(f"{s.f.instr.format(**d)}")
+                self.add_line(f"{s.f.instr.c_instr.format(**d)}")
             else:
                 fname = s.f.name
                 args = ["ctxt"] + args
@@ -994,7 +1007,14 @@ class Compiler:
         elif isinstance(e, LoopIR.Const):
             if isinstance(e.val, bool):
                 return "true" if e.val else "false"
-            return str(e.val)
+            elif e.type.is_indexable():
+                return f"{int(e.val)}"
+            elif e.type == T.f64:
+                return f"{float(e.val)}"
+            elif e.type == T.f32:
+                return f"{float(e.val)}f"
+            else:
+                return f"(({e.type.ctype()}) {str(e.val)})"
 
         elif isinstance(e, LoopIR.BinOp):
             local_prec = op_prec[e.op]

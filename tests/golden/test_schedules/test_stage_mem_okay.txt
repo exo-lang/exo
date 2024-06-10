@@ -1,0 +1,12 @@
+def foo(x: i8[10, 10, 10] @ DRAM):
+    y: i8 @ DRAM
+    x_tmp: i8[10, 10] @ DRAM
+    for i0 in seq(0, 10):
+        for i1 in seq(0, 10):
+            x_tmp[i0, i1] = x[i0, 0, i1]
+    for i in seq(0, 10):
+        x_tmp[i, i] = 1.0
+        y = x_tmp[2, 3]
+    for i0 in seq(0, 10):
+        for i1 in seq(0, 10):
+            x[i0, 0, i1] = x_tmp[i0, i1]

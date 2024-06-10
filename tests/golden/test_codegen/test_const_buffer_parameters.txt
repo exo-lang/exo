@@ -30,14 +30,20 @@ extern "C" {
 #endif
 
 
+#ifndef EXO_WIN_1F32
+#define EXO_WIN_1F32
 struct exo_win_1f32{
     float * const data;
     const int_fast32_t strides[1];
 };
+#endif
+#ifndef EXO_WIN_1F32C
+#define EXO_WIN_1F32C
 struct exo_win_1f32c{
     const float * const data;
     const int_fast32_t strides[1];
 };
+#endif
 // memcpy(
 //     N : size,
 //     A : f32[N] @DRAM,
@@ -68,12 +74,8 @@ void memcpy_b( void *ctxt, int_fast32_t N, float* A, struct exo_win_1f32c B );
 
 #include "test.h"
 
-
-
 #include <stdio.h>
 #include <stdlib.h>
-
-
 
 // memcpy(
 //     N : size,

@@ -1,4 +1,5 @@
 from enum import Enum, auto
+from .LoopIR import LoopIR, T
 
 
 class ProcedureBase:
@@ -18,9 +19,10 @@ class ExoType(Enum):
     Bool = auto()
     Size = auto()
     Int = auto()
+    Stride = auto()
 
     def is_indexable(self):
-        return self in [ExoType.Index, ExoType.Size, ExoType.Int]
+        return self in [ExoType.Index, ExoType.Size, ExoType.Int, ExoType.Stride]
 
     def is_numeric(self):
         return self in [
@@ -36,3 +38,25 @@ class ExoType(Enum):
 
     def is_bool(self):
         return self == ExoType.Bool
+
+
+def loopir_type_to_exotype(typ: T) -> ExoType:
+    mapping = {
+        LoopIR.F16: ExoType.F16,
+        LoopIR.F32: ExoType.F32,
+        LoopIR.F64: ExoType.F64,
+        LoopIR.UINT8: ExoType.UI8,
+        LoopIR.INT8: ExoType.I8,
+        LoopIR.UINT16: ExoType.UI16,
+        LoopIR.INT32: ExoType.I32,
+        LoopIR.Num: ExoType.R,
+        LoopIR.Index: ExoType.Index,
+        LoopIR.Bool: ExoType.Bool,
+        LoopIR.Size: ExoType.Size,
+        LoopIR.Int: ExoType.Int,
+        LoopIR.Stride: ExoType.Stride,
+    }
+    for key, val in mapping.items():
+        if isinstance(typ, key):
+            return val
+    assert False, f"Type {typ} not found"

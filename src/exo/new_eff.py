@@ -429,7 +429,7 @@ def possible_config_writes(stmts):
                 # accumulate windowing expressions
                 awin = lift_e(s.rhs)
                 assert isinstance(awin, AWin)
-                aenv = self.windows[-1] + AEnv(s.lhs, awin, addnames=False)
+                aenv = self.windows[-1] + AEnv(s.name, awin, addnames=False)
                 self.windows[-1] = aenv
 
             elif isinstance(s, LoopIR.Call):
@@ -467,7 +467,7 @@ def globenv(stmts):
             aenvs.append(AEnv(globname, rhs, addnames=True))
         elif isinstance(s, LoopIR.WindowStmt):
             win = lift_e(s.rhs)
-            aenvs.append(AEnv(s.lhs, win))
+            aenvs.append(AEnv(s.name, win))
         elif isinstance(s, LoopIR.Alloc):
             win = AWinAlloc(s.name, s.type.shape())
             aenvs.append(AEnv(s.name, win))
@@ -731,7 +731,6 @@ def _lsstr(ls, prec=0):
         typ = f":{ls.type}" if ls.type else ""
         return f"{{({ls.name},{coords}{typ})}}"
     elif isinstance(ls, LS.WholeBuf):
-        coords = ",".join([str(a) for a in ls.coords])
         return f"{{{ls.name}|{ls.ndim}}}"
     elif isinstance(ls, (LS.Union, LS.Isct, LS.Diff)):
         if isinstance(ls, LS.Union):
@@ -1104,6 +1103,27 @@ def get_changing_globset(env):
 # Extraction of Effects from programs
 
 
+def window_effs(e):
+    eff_access = []
+    syms = {}
+    for i, w in enumerate(e.idx):
+        if isinstance(w, LoopIR.Interval):
+            syms[i] = Sym(f"EXO_EFFECTS_WINDOW_TEMP_INDEX_{i}")
+            eff_access.append(lift_e(syms[i]))
+        else:
+            eff_access.append(lift_e(w.pt))
+
+    eff = [E.Read(e.name, [idx for idx in eff_access])]
+
+    for i, w in enumerate(e.idx):
+        if isinstance(w, LoopIR.Interval):
+            sym = syms[i]
+            bds = AAnd(lift_e(w.lo) <= AInt(sym), AInt(sym) < lift_e(w.hi))
+            eff = E.Loop(syms[i][E.Guard(bds, eff)])
+
+    return eff
+
+
 def expr_effs(e):
     if isinstance(e, LoopIR.Read):
         if e.type.is_numeric():
@@ -1254,7 +1274,7 @@ def get_changing_scalars(stmts, changeset=None, aliases=None):
             for nm in pchgs:
                 add_name(nm)
         elif isinstance(s, LoopIR.WindowStmt):
-            aliases[s.lhs] = s.rhs.name
+            aliases[s.name] = s.rhs.name
         else:
             pass
 
@@ -1963,30 +1983,6 @@ def Check_ExprEqvInContext(proc, expr0, stmts0, expr1, stmts1=None):
         raise SchedulingError(f"Expressions are not equivalent:\n{expr0}\nvs.\n{expr1}")
 
 
-def Check_BufferRW(proc, stmts, buf, ndim):
-    assert len(stmts) > 0
-    ctxt = ContextExtraction(proc, stmts)
-
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
-
-    slv = SMTSolver(verbose=False)
-    slv.push()
-    slv.assume(AMay(p))
-
-    wholebuf = LS.WholeBuf(buf, ndim)
-    a = G(stmts_effs(stmts))
-    Mod, Rd, Red = getsets([ES.MODIFY, ES.READ_H, ES.REDUCE], a)
-    write = LIsct(wholebuf, Mod)
-    read = LIsct(wholebuf, LUnion(Rd, Red))
-
-    no_read = slv.verify(ADef(is_empty(read)))
-    no_write = slv.verify(ADef(is_empty(write)))
-    slv.pop()
-
-    return (not no_read), (not no_write)
-
-
 def Check_BufferReduceOnly(proc, stmts, buf, ndim):
     assert len(stmts) > 0
     ctxt = ContextExtraction(proc, stmts)
@@ -2010,6 +2006,91 @@ def Check_BufferReduceOnly(proc, stmts, buf, ndim):
             f"The buffer {buf} is accessed in a way other than "
             f"simply reducing into it"
         )
+
+
+# TODO: I think idxs should be passed as either a read, window, or write (assign/reduce)
+def Check_Access_In_Window(proc, access_cursor, w_exprs, block_cursor):
+    """
+    Returns True if idxs always lies within w_exprs
+    Returns False if idxs never lies within w_exprs
+    Raises a SchedulingError otherwise
+
+    block_cursor is the context in which to interpret the access in.
+    """
+
+    access = access_cursor._node
+    block = [x._node for x in block_cursor]
+    idxs = access.idx
+    assert len(idxs) == len(w_exprs)
+
+    ctxt = ContextExtraction(proc, block)
+    p = ctxt.get_control_predicate()
+
+    slv = SMTSolver(verbose=False)
+    slv.push()
+    slv.assume(AMay(p))
+
+    # build a location set describing the allocated region of the buffer
+    name = access.name
+
+    def get_locset(w_idxs):
+        coords = [Sym(f"i{i}") for i, _ in enumerate(w_idxs)]
+        bounds = []
+        for i, w_access in zip(coords, w_idxs):
+            # Need four cases because accesses and w_exprs have different representations
+            if isinstance(w_access, tuple):
+                (w_lo, w_hi) = w_access
+                bounds.append(AAnd(lift_e(w_lo) <= AInt(i), AInt(i) < lift_e(w_hi)))
+            elif isinstance(w_access, LoopIR.Interval):
+                w_lo = w_access.lo
+                w_hi = w_access.hi
+                bounds.append(AAnd(lift_e(w_lo) <= AInt(i), AInt(i) < lift_e(w_hi)))
+            elif isinstance(w_access, LoopIR.Point):
+                bounds.append(AEq(AInt(i), lift_e(w_access.pt)))
+            else:
+                bounds.append(AEq(AInt(i), lift_e(w_access)))
+        bounds = AAnd(*bounds)
+
+        pt = LS.Point(name, [AInt(i) for i in coords], T.index)
+        locset = LFilter(bounds, pt)
+        for i in reversed(coords):
+            locset = LBigUnion(i, locset)
+        return locset
+
+    window_locset = get_locset(w_exprs)
+
+    access_locset = get_locset(idxs)
+
+    # Surround access_locset with the appropriate bounds based on the context block_cursor.
+    cursor = access_cursor
+    while cursor.depth() != block_cursor.depth():
+        if isinstance(cursor._node, LoopIR.For):
+            loop = cursor._node
+            bounds = AAnd(
+                lift_e(loop.lo) <= AInt(loop.iter), AInt(loop.iter) < lift_e(loop.hi)
+            )
+            access_locset = LFilter(bounds, access_locset)
+        elif isinstance(cursor._node, LoopIR.If):
+            cond = lift_e(cursor._node.cond)
+            if cursor._path[-1][0] == "orelse":
+                cond = ANot(lift_e(cursor._node.cond))
+            access_locset = LFilter(cond, access_locset)
+
+        cursor = cursor.parent()
+
+    if slv.verify(ADef(is_empty(LIsct(access_locset, window_locset)))):
+        # access_locset is disjoint from window_set
+        slv.pop()
+        return False
+
+    if slv.verify(ADef(is_empty(LDiff(access_locset, window_locset)))):
+        # access_locset is a subset of window_set
+        slv.pop()
+        return True
+
+    raise SchedulingError(
+        f"Buffer has accesses which are neither fully within nor disjoint from the window"
+    )
 
 
 def Check_Bounds(proc, alloc_stmt, block):
@@ -2271,7 +2352,7 @@ class _OverApproxEffects(LoopIR_Do):
                 self.add_name(name)
             return  # don't call do_e on all of the arguments
         elif isinstance(s, LoopIR.WindowStmt):
-            self._aliases[s.lhs] = s.rhs.name
+            self._aliases[s.name] = s.rhs.name
 
         super().do_s(s)
 
@@ -2344,7 +2425,7 @@ class _Check_Aliasing_Helper(LoopIR_Do):
             name = s.rhs.name
             while name in self._aliases:
                 name = self._aliases[name]
-            self._aliases[s.lhs] = name
+            self._aliases[s.name] = name
         else:
             super().do_s(s)
 

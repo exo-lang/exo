@@ -1,0 +1,13 @@
+#include "test.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+// foo(
+
+// )
+void foo( void *ctxt ) {
+int32_t a;
+a = a + ((int32_t) 3);
+}
+

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from exo import proc, Procedure, DRAM, compile_procs_to_strings
+from exo import proc, instr, Procedure, DRAM, compile_procs_to_strings
 from exo.libs.memories import MDRAM, MemGenError, StaticMemory, DRAM_STACK
 from exo.stdlib.scheduling import *
 
@@ -530,3 +530,174 @@ def test_pragma_parallel_loop(golden):
     c_file, _ = compile_procs_to_strings([foo], "test.h")
 
     assert c_file == golden
+
+
+def test_const_type_coercion(compiler):
+    # 16777216 = 1 << 24 = integer precision limit for f32
+    @proc
+    def foo(x: f64[1], y: f32[1]):
+        x[0] = (16777216.0 + 1.0) + y[0]
+
+    # all consts should coerce to f32
+    # so, 16777216 + 1 should yield 16777216 again
+    x = np.array([3.0], dtype=np.float64)
+    y = np.array([1.0], dtype=np.float32)
+    fn = compiler.compile(foo)
+    fn(None, x, y)
+    assert x[0] == 16777216
+
+
+def test_coercion_to_i8(golden):
+    @proc
+    def foo():
+        a: i8
+        a = a + 3
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden
+
+
+def test_coercion_to_ui8(golden):
+    @proc
+    def foo():
+        a: ui8
+        a = a + 3
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden
+
+
+def test_coercion_to_ui16(golden):
+    @proc
+    def foo():
+        a: ui16
+        a = a + 3
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden
+
+
+def test_coercion_to_i32(golden):
+    @proc
+    def foo():
+        a: i32
+        a = a + 3
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden
+
+
+def test_coercion_to_f16(golden):
+    @proc
+    def foo():
+        a: f16
+        a = a + 3
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden
+
+
+def test_coercion_to_f32(golden):
+    @proc
+    def foo():
+        a: f32
+        a = a + 3
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden
+
+
+def test_coercion_to_f64(golden):
+    @proc
+    def foo():
+        a: f64
+        a = a + 3
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden
+
+
+def test_coercion_to_index(golden):
+    @proc
+    def foo():
+        for x in seq(0, 6):
+            pass
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+
+    assert c_file == golden
+
+
+def test_target_another_exo_library(compiler, tmp_path, golden):
+    @proc
+    def foo(n: size, x: f32[n]):
+        for i in seq(0, n):
+            x[i] = 1.0
+
+    foo_sched = divide_loop(foo, foo.body()[0], 4, ("io", "ii"), tail="cut")
+    foo_compile = foo_sched.compile_c(tmp_path, "foo")
+
+    @proc
+    def bar(n: size, y: f32[n]):
+        for i in seq(0, n):
+            y[i] = 1.0
+
+    def using_make_instr():
+        foo_instr = make_instr(foo, "foo(NULL, {n}, {x_data});", '#include "foo.h"')
+        return replace(bar, bar.find_loop("i"), foo_instr)
+
+    def using_instr_dec():
+        @instr("foo(NULL, {n}, {x_data});", '#include "foo.h"')
+        def foo(n: size, x: f32[n]):
+            for i in seq(0, n):
+                x[i] = 1.0
+
+        return replace(bar, bar.find_loop("i"), foo)
+
+    for func in using_make_instr, using_instr_dec:
+        optimized_bar = func()
+
+        foo_c, foo_h = compile_procs_to_strings([foo_sched], "foo.h")
+        bar_c, bar_h = compile_procs_to_strings([optimized_bar], "bar.h")
+
+        assert f"{foo_h}\n{foo_c}\n{bar_h}\n{bar_c}" == golden
+
+        compiler.compile(optimized_bar, additional_file="foo.c")
+
+
+def test_memcpy_instr(compiler, golden):
+    @instr("memcpy({dst}, {src}, {n} * sizeof(float));", "#include <string.h>")
+    def memcpy(n: size, dst: f32[n], src: f32[n]):
+        for i in seq(0, n):
+            dst[i] = src[i]
+
+    @proc
+    def bar(n: size, dst: f32[n], src: f32[n]):
+        for i in seq(0, n):
+            dst[i] = src[i]
+
+    optimized_bar = replace(bar, bar.body()[0], memcpy)
+
+    bar_c, bar_h = compile_procs_to_strings([optimized_bar], "bar.h")
+
+    assert f"{bar_c}\n{bar_h}" == golden
+
+    fn = compiler.compile(optimized_bar)
+
+    n_size = 5
+    src = np.array([float(i) for i in range(n_size)], dtype=np.float32)
+    dst = np.zeros(shape=n_size, dtype=np.float32)
+
+    fn(None, n_size, dst, src)
+
+    expected = np.array([float(i) for i in range(n_size)], dtype=np.float32)
+
+    np.testing.assert_almost_equal(dst, expected)
+    np.testing.assert_almost_equal(src, expected)

@@ -21,10 +21,13 @@
 #endif
 
 
+#ifndef EXO_WIN_1F32C
+#define EXO_WIN_1F32C
 struct exo_win_1f32c{
     const float * const data;
     const int_fast32_t strides[1];
 };
+#endif
 // window_stmt(
 //     n : size,
 //     m : size,
@@ -33,12 +36,8 @@ struct exo_win_1f32c{
 void window_stmt( void *ctxt, int_fast32_t n, int_fast32_t m, const float* x );
 
 
-
-
 #include <stdio.h>
 #include <stdlib.h>
-
-
 
 // window_stmt(
 //     n : size,

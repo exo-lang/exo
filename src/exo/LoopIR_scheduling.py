@@ -1,5 +1,6 @@
 import re
 from collections import ChainMap
+from typing import List, Tuple, Optional
 
 from .LoopIR import (
     LoopIR,
@@ -23,21 +24,25 @@ from .new_eff import (
     Check_DeleteConfigWrite,
     Check_ExtendEqv,
     Check_ExprEqvInContext,
-    Check_BufferRW,
     Check_BufferReduceOnly,
     Check_Bounds,
+    Check_Access_In_Window,
     Check_IsDeadAfter,
     Check_IsIdempotent,
     Check_ExprBound,
     Check_Aliasing,
 )
-from .range_analysis import IndexRangeEnvironment
+
+from .range_analysis import IndexRangeEnvironment, IndexRange, index_range_analysis
+
 from .prelude import *
 from .proc_eqv import get_strictest_eqv_proc
 import exo.internal_cursors as ic
 import exo.API as api
 from .pattern_match import match_pattern
+from .memory import DRAM
 
+from functools import partial
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -193,45 +198,61 @@ def _replace_pats(ir, fwd, c, pat, repl, only_replace_attrs=True, use_sym_id=Tru
     # TODO: consider the implications of composing O(n) forwarding functions.
     #   will we need a special data structure? A chunkier operation for
     #   multi-way replacement?
-    cur_fwd = lambda x: x
     c = fwd(c)
+    todos = []
     for rd in match_pattern(c, pat, use_sym_id=use_sym_id):
+        if c_repl := repl(rd):
+            todos.append((rd, c_repl))
+
+    cur_fwd = lambda x: x
+    for (rd, c_repl) in todos:
         rd = cur_fwd(rd)
-        if not (c_repl := repl(rd)):
-            continue
         ir, fwd_rd = _replace_helper(rd, c_repl, only_replace_attrs)
         cur_fwd = _compose(fwd_rd, cur_fwd)
     return ir, _compose(cur_fwd, fwd)
 
 
 def _replace_reads(ir, fwd, c, sym, repl, only_replace_attrs=True):
-    cur_fwd = lambda x: x
     c = fwd(c)
+    todos = []
     for rd in match_pattern(c, f"{repr(sym)}[_]", use_sym_id=True):
         # Need [_] to pattern match against window expressions
+        if c_repl := repl(rd):
+            todos.append((rd, c_repl))
+
+    cur_fwd = lambda x: x
+    for (rd, c_repl) in todos:
         rd = cur_fwd(rd)
-        if not (c_repl := repl(rd)):
-            continue
         ir, fwd_rd = _replace_helper(rd, c_repl, only_replace_attrs)
         cur_fwd = _compose(fwd_rd, cur_fwd)
     return ir, _compose(cur_fwd, fwd)
 
 
-def _replace_writes(ir, fwd, c, sym, repl, only_replace_attrs=True):
-    cur_fwd = lambda x: x
+def _replace_writes(
+    ir, fwd, c, sym, repl, only_replace_attrs=True, match_assign=True, match_reduce=True
+):
     c = fwd(c)
 
     # TODO: Consider optimizing to just one call of [match_pattern]
-    matches = match_pattern(c, f"{repr(sym)} = _", use_sym_id=True) + match_pattern(
-        c, f"{repr(sym)} += _", use_sym_id=True
-    )
+    matches = []
+    if match_assign:
+        matches = match_pattern(c, f"{repr(sym)} = _", use_sym_id=True)
+    if match_reduce:
+        matches = matches + match_pattern(c, f"{repr(sym)} += _", use_sym_id=True)
+
+    todos = []
     for block in matches:
         assert len(block) == 1  # match_pattern on stmts return blocks
-        s = cur_fwd(block[0])
-        if not (c_repl := repl(s)):
-            continue
+        s = block[0]
+        if c_repl := repl(s):
+            todos.append((s, c_repl))
+
+    cur_fwd = lambda x: x
+    for (s, c_repl) in todos:
+        s = cur_fwd(s)
         ir, fwd_s = _replace_helper(s, c_repl, only_replace_attrs)
         cur_fwd = _compose(fwd_s, cur_fwd)
+
     return ir, _compose(cur_fwd, fwd)
 
 
@@ -259,6 +280,85 @@ def Check_IsNonNegativeExpr(proc, stmts, expr):
 def Check_CompareExprs(proc, stmts, lhs, op, rhs):
     expr = LoopIR.BinOp("-", lhs, rhs, T.index, null_srcinfo())
     Check_ExprBound(proc, stmts, expr, op, 0)
+
+
+def Check_IsDivisible(proc, stmts, expr, quot):
+    failed = False
+    if not isinstance(expr, LoopIR.Const):
+        try:
+            quot = LoopIR.Const(quot, T.int, null_srcinfo())
+            expr_mod_quot = LoopIR.BinOp("%", expr, quot, T.index, null_srcinfo())
+            zero = LoopIR.Const(0, T.int, null_srcinfo())
+            Check_CompareExprs(proc, stmts, expr_mod_quot, "==", zero)
+        except SchedulingError:
+            failed = True
+    else:
+        # Fast path
+        failed = expr.val % quot != 0
+
+    if failed:
+        raise SchedulingError(f"cannot perfectly divide '{expr}' by {quot}")
+
+
+def extract_env(c: ic.Cursor) -> List[Tuple[Sym, ic.Cursor]]:
+    """
+    Extract the environment of live variables at `c`.
+
+    Returns a list of pairs of the symbol and the corresponding
+    alloc/arg cursor. The list is ordered by distance from the input
+    cursor `c`.
+    """
+
+    syms_env = []
+
+    cur_c = move_back(c)
+    while not isinstance(cur_c._node, LoopIR.proc):
+        s = cur_c._node
+        if isinstance(s, LoopIR.For) and cur_c.is_ancestor_of(c):
+            syms_env.append((s.iter, T.index, None))
+        elif isinstance(s, LoopIR.Alloc):
+            syms_env.append((s.name, s.type, s.mem))
+        cur_c = move_back(cur_c)
+
+    proc = c.get_root()
+    for a in proc.args[::-1]:
+        syms_env.append((a.name, a.type, a.mem))
+
+    return syms_env
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Traversal Helpers
+
+
+def move_back(c):
+    if c.get_index() == 0:
+        return c.parent()
+    else:
+        return c.prev()
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# IR Building Helpers
+
+
+def divide_expr(e, quot):
+    assert isinstance(e, LoopIR.expr)
+    if isinstance(quot, int):
+        quot_int = quot
+        quot_ir = LoopIR.Const(quot, e.type, e.srcinfo)
+    elif isinstance(quot, LoopIR.Const):
+        quot_int = quot.val
+        quot_ir = quot
+    else:
+        assert False, f"Bad case {type(quot)}"
+    if isinstance(e, LoopIR.Const) and e.val % quot == 0:
+        div = LoopIR.Const(e.val // quot_int, e.type, e.srcinfo)
+    else:
+        div = LoopIR.BinOp("/", e, quot_ir, e.type, e.srcinfo)
+    return div
 
 
 # --------------------------------------------------------------------------- #
@@ -490,6 +590,18 @@ def DoMergeWrites(c1, c2):
     return ir, fwd
 
 
+def DoSplitWrite(sc):
+    s = sc._node
+
+    if not isinstance(s.rhs, LoopIR.BinOp) or s.rhs.op != "+":
+        raise SchedulingError("Expected the rhs of the statement to be an addition.")
+
+    s0 = s.update(rhs=s.rhs.lhs)
+    s1 = LoopIR.Reduce(s.name, s.type, s.idx, s.rhs.rhs, None, s.srcinfo)
+    ir, fwd = sc._replace([s0, s1])
+    return ir, fwd
+
+
 def DoFoldIntoReduce(assign):
     def access_to_str(node):
         idx = f"[{','.join([str(idx) for idx in node.idx])}]" if node.idx else ""
@@ -509,7 +621,6 @@ def DoFoldIntoReduce(assign):
     reduce_stmt = LoopIR.Reduce(
         assign_s.name,
         assign_s.type,
-        assign_s.cast,
         assign_s.idx,
         assign_s.rhs.rhs,
         None,
@@ -613,7 +724,7 @@ def DoDivideWithRecompute(
     fwd = _compose(fwd_wrap, fwd)
 
     # replace the iteration variable in the body
-    def mk_iter(c):
+    def mk_iter(_):
         return szop("+", szop("*", rd(sym_o), x), rd(sym_i))
 
     ir, fwd = _replace_reads(
@@ -675,25 +786,10 @@ def DoDivideLoop(
     elif tail_strategy in ["cut", "cut_and_guard"]:
         outer_hi = szop("/", N, inner_hi)  # floor div
     elif tail_strategy == "perfect":
-        if not isinstance(N, LoopIR.Const):
-            hi_mod_quot = boolop("%", N, cnst(quot), T.index)
-            try:
-                ir = loop_cursor.get_root()
-                loop = loop_cursor._node
-                Check_CompareExprs(ir, [loop], hi_mod_quot, "==", cnst(0))
-            except SchedulingError:
-                raise SchedulingError(
-                    f"cannot perfectly split the '{loop.iter}' loop " f"by {quot}"
-                )
-            outer_hi = boolop("/", N, cnst(quot), T.index)
-        else:
-            if N.val % quot != 0:
-                raise SchedulingError(
-                    f"cannot perfectly split the '{loop.iter}' loop "
-                    f"because {quot} does not evenly divide "
-                    f"{N.val}"
-                )
-            outer_hi = cnst(N.val // quot)
+        ir = loop_cursor.get_root()
+        loop = loop_cursor._node
+        Check_IsDivisible(ir, [loop], N, quot)
+        outer_hi = divide_expr(N, quot)
     else:
         assert False, f"bad tail strategy: {tail_strategy}"
 
@@ -1017,10 +1113,14 @@ def DoInlineWindow(window_cursor):
             new_idxs = calc_idx(rd.idx)
             old_typ = window_s.rhs.type
             new_typ = old_typ.update(src_buf=buf_name, idx=new_idxs)
-            return {"name": buf_name, "idx": new_idxs, "type": new_typ}
+            return rd.update(name=buf_name, idx=new_idxs, type=new_typ)
         elif isinstance(rd, LoopIR.Read):
-            new_idxs = calc_idx(rd.idx)
-            return {"name": buf_name, "idx": new_idxs}
+            if rd.idx:
+                new_idxs = calc_idx(rd.idx)
+                return rd.update(name=buf_name, idx=new_idxs)
+            else:
+                assert isinstance(c.parent()._node, LoopIR.Call)
+                return window_s.rhs
 
     def mk_stride_expr(c):
         e = c._node
@@ -1034,11 +1134,13 @@ def DoInlineWindow(window_cursor):
         return {"name": window_s.rhs.name, "idx": idxs}
 
     for c in get_rest_of_block(window_cursor):
-        ir, fwd = _replace_reads(ir, fwd, c, window_s.lhs, mk_read)
-        ir, fwd = _replace_pats(
-            ir, fwd, c, f"stride({repr(window_s.lhs)}, _)", mk_stride_expr
+        ir, fwd = _replace_reads(
+            ir, fwd, c, window_s.name, mk_read, only_replace_attrs=False
         )
-        ir, fwd = _replace_writes(ir, fwd, c, window_s.lhs, mk_write)
+        ir, fwd = _replace_pats(
+            ir, fwd, c, f"stride({repr(window_s.name)}, _)", mk_stride_expr
+        )
+        ir, fwd = _replace_writes(ir, fwd, c, window_s.name, mk_write)
 
     return ir, fwd
 
@@ -1150,9 +1252,9 @@ def DoBindExpr(new_name, expr_cursors):
     init_c = get_enclosing_stmt_cursor(expr_cursors[0])
 
     new_name = Sym(new_name)
-    alloc_s = LoopIR.Alloc(new_name, expr.type.basetype(), None, None, expr.srcinfo)
+    alloc_s = LoopIR.Alloc(new_name, expr.type.basetype(), DRAM, None, expr.srcinfo)
     assign_s = LoopIR.Assign(
-        new_name, expr.type.basetype(), None, [], expr, None, expr.srcinfo
+        new_name, expr.type.basetype(), [], expr, None, expr.srcinfo
     )
     ir, fwd = init_c.before()._insert([alloc_s, assign_s])
 
@@ -1351,7 +1453,7 @@ def DoLiftConstant(assign_c, loop_c):
     assign_s = assign_c._node
     loop = loop_c._node
 
-    for (name, typ) in get_reads_of_stmts(loop.body):
+    for name, typ in get_reads_of_stmts(loop.body):
         if assign_s.name == name and assign_s.type == typ:
             raise SchedulingError(
                 "cannot lift constant because the buffer is read in the loop body"
@@ -1432,7 +1534,14 @@ def DoLiftConstant(assign_c, loop_c):
 
     constant = relevant_reduces[0]._node.rhs.lhs
     if isinstance(constant, LoopIR.Read):
-        for (name, typ) in get_writes_of_stmts(loop.body):
+        live_vars = extract_env(loop_c)
+        live_vars = set(sym for sym, _, _ in live_vars)
+        for name, _ in get_reads_of_expr(constant):
+            if name not in live_vars:
+                raise SchedulingError(
+                    f"{constant} depends on the variable {name} which is defined within the loop"
+                )
+        for name, typ in get_writes_of_stmts(loop.body):
             if constant.name == name and constant.type == typ:
                 raise SchedulingError(
                     "cannot lift constant because it is a buffer that is written in the loop body"
@@ -1521,6 +1630,7 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
 
 def DoResizeDim(alloc_cursor, dim_idx: int, size: LoopIR.expr, offset: LoopIR.expr):
     alloc_s = alloc_cursor._node
+    alloc_name = alloc_s.name
     assert isinstance(alloc_s, LoopIR.Alloc)
     assert isinstance(alloc_s.type, T.Tensor)
 
@@ -1568,11 +1678,12 @@ def DoResizeDim(alloc_cursor, dim_idx: int, size: LoopIR.expr, offset: LoopIR.ex
         return {"idx": new_idx}
 
     for c in get_rest_of_block(alloc_cursor):
-        ir, fwd = _replace_reads(ir, fwd, c, alloc_s.name, mk_read)
-        ir, fwd = _replace_writes(ir, fwd, c, alloc_s.name, mk_write)
+        ir, fwd = _replace_reads(ir, fwd, c, alloc_name, mk_read)
+        ir, fwd = _replace_writes(ir, fwd, c, alloc_name, mk_write)
 
-    after_alloc = [c._node for c in get_rest_of_block(fwd(alloc_cursor))]
-    Check_Bounds(ir, alloc_s, after_alloc)
+    alloc_cursor = fwd(alloc_cursor)
+    after_alloc = [c._node for c in get_rest_of_block(alloc_cursor)]
+    Check_Bounds(ir, alloc_cursor._node, after_alloc)
 
     return ir, fwd
 
@@ -1667,17 +1778,13 @@ def DoDivideDim(alloc_cursor, dim_idx, quotient):
     old_typ = alloc_s.type
     old_shp = old_typ.shape()
     dim = old_shp[dim_idx]
-    if not isinstance(dim, LoopIR.Const):
-        raise SchedulingError(f"Cannot divide non-literal dimension: {dim}")
-    if not dim.val % quotient == 0:
-        raise SchedulingError(f"Cannot divide {dim.val} evenly by {quotient}")
-    denom = quotient
-    numer = dim.val // denom
+    Check_IsDivisible(alloc_cursor.get_root(), [alloc_s], dim, quotient)
+    numer = divide_expr(dim, quotient)
     new_shp = (
         old_shp[:dim_idx]
         + [
-            LoopIR.Const(numer, T.int, dim.srcinfo),
-            LoopIR.Const(denom, T.int, dim.srcinfo),
+            numer,
+            LoopIR.Const(quotient, T.int, dim.srcinfo),
         ]
         + old_shp[dim_idx + 1 :]
     )
@@ -1788,6 +1895,7 @@ def DoMultiplyDim(alloc_cursor, hi_idx, lo_idx):
 # --------------------------------------------------------------------------- #
 # Lifting and sinking an allocation
 
+
 # TODO: the primitive should probably just be lifting once, and then we can expose
 # a higher-level API that lifts multiple times
 def DoLiftAllocSimple(alloc_cursor, n_lifts):
@@ -1858,6 +1966,7 @@ def DoSinkAlloc(alloc_cursor, scope_cursor):
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Lift Allocation scheduling directive
+
 
 # TODO: Implement autolift_alloc's logic using high-level scheduling metaprogramming and
 #       delete this code
@@ -2479,9 +2588,8 @@ class DoAddUnsafeGuard(Cursor_Rewrite):
         return super().map_s(sc)
 
 
-def DoSpecialize(stmt_cursor, conds):
+def DoSpecialize(block_c, conds):
     assert conds, "Must add at least one condition"
-    s = stmt_cursor._node
 
     def is_valid_condition(e):
         assert isinstance(e, LoopIR.BinOp)
@@ -2492,50 +2600,33 @@ def DoSpecialize(stmt_cursor, conds):
         else:
             return False
 
-    else_br = Alpha_Rename([s]).result()
+    def are_allocs_used_after_block():
+        allocs = filter(lambda c: isinstance(c._node, LoopIR.Alloc), block_c)
+        allocs = set(a._node.name for a in allocs)
+        rest_of_block = get_rest_of_block(block_c[-1])
+        rest_of_block = [s._node for s in rest_of_block]
+        reads = get_reads_of_stmts(rest_of_block)
+        writes = get_writes_of_stmts(rest_of_block)
+        accesses = set(sym for sym, _ in reads + writes)
+        return accesses & allocs
+
+    if s := are_allocs_used_after_block():
+        names = tuple(a.name() for a in s)
+        raise SchedulingError(
+            f"Block contains allocations {names} which are used outside the block."
+        )
+
+    block = [c._node for c in block_c]
+    else_br = Alpha_Rename(block).result()
     for cond in reversed(conds):
         if not is_valid_condition(cond):
-            raise SchedulingError("Invalid specialization condition. ")
+            raise SchedulingError("Invalid specialization condition.")
 
-        then_br = Alpha_Rename([s]).result()
-        else_br = [LoopIR.If(cond, then_br, else_br, None, s.srcinfo)]
+        then_br = Alpha_Rename(block).result()
+        else_br = [LoopIR.If(cond, then_br, else_br, None, block[0].srcinfo)]
 
-    ir, fwd = stmt_cursor._replace(else_br)
+    ir, fwd = block_c._replace(else_br)
     return ir, fwd
-
-
-def _get_constant_bound(e):
-    if isinstance(e, LoopIR.BinOp) and e.op == "%":
-        return e.rhs
-    raise SchedulingError(f"Could not derive constant bound on {e}")
-
-
-class DoBoundAndGuard(Cursor_Rewrite):
-    def __init__(self, proc_cursor, loop_cursor):
-        self.loop = loop_cursor._node
-        super().__init__(proc_cursor)
-
-    def map_s(self, sc):
-        s = sc._node
-        if s == self.loop:
-            assert isinstance(s, LoopIR.For)
-            bound = _get_constant_bound(s.hi)
-            guard = LoopIR.If(
-                LoopIR.BinOp(
-                    "<",
-                    LoopIR.Read(s.iter, [], T.index, s.srcinfo),
-                    s.hi,
-                    T.bool,
-                    s.srcinfo,
-                ),
-                s.body,
-                [],
-                None,
-                s.srcinfo,
-            )
-            return [s.update(hi=bound, body=[guard])]
-
-        return super().map_s(sc)
 
 
 def DoFuseLoop(f_cursor, s_cursor, unsafe_disable_check=False):
@@ -2640,68 +2731,6 @@ def DoAddLoop(stmt_cursor, var, hi, guard, unsafe_disable_check):
 #   Factor out a sub-statement as a Procedure scheduling directive
 
 
-def _make_closure(name, stmts, var_types, order):
-    FVs = list(sorted(_FV(stmts)))
-    info = stmts[0].srcinfo
-
-    # work out the calling arguments (args) and sub-proc args (fnargs)
-    args = []
-    fnargs = []
-
-    # first, scan over all the arguments and convert them.
-    # accumulate all size symbols separately
-    sizes = set()
-    for v in FVs:
-        typ = var_types[v]
-        if typ is T.size:
-            sizes.add(v)
-        elif typ is T.index:
-            args.append(LoopIR.Read(v, [], typ, info))
-            fnargs.append(LoopIR.fnarg(v, typ, None, info))
-        else:
-            # add sizes (that this arg depends on) to the signature
-            def add_size(sz):
-                if isinstance(sz, LoopIR.Read):
-                    sizes.add(sz.name)
-                elif isinstance(sz, LoopIR.BinOp):
-                    add_size(sz.lhs)
-                    add_size(sz.rhs)
-                elif isinstance(sz, LoopIR.USub):
-                    add_size(sz.arg)
-
-            for sz in typ.shape():
-                add_size(sz)
-            args.append(LoopIR.Read(v, [], typ, info))
-            fnargs.append(LoopIR.fnarg(v, typ, None, info))
-
-    # now prepend all sizes to the argument list
-    sizes = list(sorted(sizes))
-    args = [LoopIR.Read(sz, [], T.size, info) for sz in sizes] + args
-    fnargs = [LoopIR.fnarg(sz, T.size, None, info) for sz in sizes] + fnargs
-
-    def shuffle(arg_list):
-        if sorted(order.values()) != [i for i in range(0, len(arg_list))]:
-            raise SchedulingError(f"expected to provide full ordering of arguments")
-
-        new_args = [0 for a in arg_list]
-        for key in order:
-            for i in range(len(arg_list)):
-                if arg_list[i].name.name() == key:
-                    new_args[order[key]] = arg_list[i]
-
-        return new_args
-
-    if order:
-        args = shuffle(args)
-        fnargs = shuffle(fnargs)
-
-    eff = None
-    # TODO: raise NotImplementedError("need to figure out effect of new closure")
-    closure = LoopIR.proc(name, fnargs, [], stmts, None, eff, info)
-
-    return closure, args
-
-
 def DoInsertPass(gap):
     srcinfo = gap.parent()._node.srcinfo
     ir, fwd = gap._insert([LoopIR.Pass(None, srcinfo=srcinfo)])
@@ -2714,91 +2743,98 @@ def DoDeleteConfig(proc_cursor, config_cursor):
     return p, fwd, eq_mod_config
 
 
-class DoDeletePass(Cursor_Rewrite):
-    def __init__(self, proc_cursor):
-        super().__init__(proc_cursor)
+def DoDeletePass(proc):
+    ir = proc._loopir_proc
+    fwd = lambda x: x
 
-    def map_s(self, sc):
-        s = sc._node
-        if isinstance(s, LoopIR.Pass):
-            return []
+    for block in match_pattern(proc._root(), "pass"):
+        assert len(block) == 1
+        c = block[0]
+        c = fwd(c)
+        while isinstance(c.parent()._node, LoopIR.For) and len(c.parent().body()) == 1:
+            c = c.parent()
+        ir, fwd_d = c._delete()
+        fwd = _compose(fwd_d, fwd)
 
-        elif isinstance(s, LoopIR.For):
-            body = self.map_stmts(sc.body())
-            if body is None:
-                return None
-            elif not body:
-                return []
-            else:
-                return [s.update(body=body)]
-
-        return super().map_s(sc)
+    return ir, fwd
 
 
-class DoExtractMethod(Cursor_Rewrite):
-    def __init__(self, proc, name, stmt_cursor, order):
-        self.match_stmt = stmt_cursor._node
-        assert isinstance(self.match_stmt, LoopIR.stmt)
-        self.sub_proc_name = name
-        self.new_subproc = None
-        self.orig_proc = proc._loopir_proc
-        self.order = order
+def DoExtractSubproc(block, subproc_name, include_asserts):
+    proc = block.get_root()
+    Check_Aliasing(proc)
 
-        self.var_types = ChainMap()
+    def get_env_preds(stmt_c):
+        preds = proc.preds.copy()
 
-        for a in self.orig_proc.args:
-            self.var_types[a.name] = a.type
+        prev_c = stmt_c
+        c = move_back(stmt_c)
+        while not isinstance(c._node, LoopIR.proc):
+            s = c._node
+            if isinstance(s, LoopIR.For) and c.is_ancestor_of(stmt_c):
+                iter_read = LoopIR.Read(s.iter, [], T.index, s.srcinfo)
+                preds.append(LoopIR.BinOp("<=", s.lo, iter_read, T.bool, s.srcinfo))
+                preds.append(LoopIR.BinOp("<", iter_read, s.hi, T.bool, s.srcinfo))
+            elif isinstance(s, LoopIR.If):
+                branch_taken = LoopIR.Const(prev_c in c.body(), T.bool, s.srcinfo)
+                preds.append(
+                    LoopIR.BinOp("==", s.cond, branch_taken, T.bool, s.srcinfo)
+                )
+            prev_c = c
+            c = move_back(c)
 
-        super().__init__(proc)
-        Check_Aliasing(self.proc)
+        return preds
 
-    def subproc(self):
-        return api.Procedure(self.new_subproc)
+    sym_env = extract_env(block[0])[::-1]
+    preds = get_env_preds(block[0])
 
-    def push(self):
-        self.var_types = self.var_types.new_child()
+    def make_closure():
+        body = [s._node for s in block]
+        info = body[0].srcinfo
 
-    def pop(self):
-        self.var_types = self.var_types.parents
+        # Get all symbols used in the body
+        body_symbols = set()
+        reads = get_reads_of_stmts(body)
+        writes = get_writes_of_stmts(body)
+        for sym, _ in reads + writes:
+            body_symbols.add(sym)
 
-    def map_s(self, sc):
-        s = sc._node
-        if s is self.match_stmt:
-            subproc, args = _make_closure(
-                self.sub_proc_name, [s], self.var_types, self.order
-            )
-            self.new_subproc = subproc
-            return [LoopIR.Call(subproc, args, None, s.srcinfo)]
-        elif isinstance(s, LoopIR.Alloc):
-            self.var_types[s.name] = s.type
-            return None
-        elif isinstance(s, LoopIR.For):
-            self.push()
-            self.var_types[s.iter] = T.index
-            body = self.map_stmts(sc.body())
-            self.pop()
+        # Get all the symbols used by the shapes of the buffers used in the body
+        for sym, typ, _ in sym_env:
+            if sym in body_symbols and isinstance(typ, LoopIR.Tensor):
+                for dim in typ.shape():
+                    for sym, _ in get_reads_of_expr(dim):
+                        body_symbols.add(sym)
 
-            if body:
-                return [s.update(body=body)]
+        # Construct the parameters and arguments
+        args = []
+        fnargs = []
+        for sym, typ, mem in sym_env:
+            if sym in body_symbols:
+                args.append(LoopIR.Read(sym, [], typ, info))
+                fnargs.append(LoopIR.fnarg(sym, typ, mem, info))
 
-            return None
-        elif isinstance(s, LoopIR.If):
-            self.push()
-            body = self.map_stmts(sc.body())
-            self.pop()
-            self.push()
-            orelse = self.map_stmts(sc.orelse())
-            self.pop()
+        # Filter the predicates we have for ones that use the symbols of the subproc
+        def check_pred(pred):
+            reads = {sym for sym, _ in get_reads_of_expr(pred)}
+            return reads <= body_symbols
 
-            if body or orelse:
-                return [s.update(body=body or s.body, orelse=orelse or s.orelse)]
+        subproc_preds = list(filter(check_pred, preds))
 
-            return None
+        if not include_asserts:
+            subproc_preds = []
 
-        return super().map_s(sc)
+        eff = None
+        # TODO: raise NotImplementedError("need to figure out effect of new closure")
+        subproc_ir = LoopIR.proc(
+            subproc_name, fnargs, subproc_preds, body, None, eff, info
+        )
+        call = LoopIR.Call(subproc_ir, args, None, info)
+        return subproc_ir, call
 
-    def map_e(self, e):
-        return None
+    subproc_ir, call = make_closure()
+    ir, fwd = block._replace([call])
+
+    return ir, fwd, subproc_ir
 
 
 class _DoNormalize(Cursor_Rewrite):
@@ -2857,7 +2893,7 @@ class _DoNormalize(Cursor_Rewrite):
                 assert len(lhs) == 1 and self.C in lhs
                 return {key: rhs[key] * lhs[self.C] for key in rhs}
         else:
-            assert False, "bad case"
+            assert False, f"bad case {op}"
 
     def normalize_e(self, e):
         assert e.type.is_indexable(), f"{e} is not indexable!"
@@ -3216,8 +3252,7 @@ class DoSimplify(Cursor_Rewrite):
         super().__init__(proc)
 
         # might need to update IR with predicate changes
-        new_preds = self.map_exprs(self.ir.preds)
-        if new_preds:
+        if new_preds := self.map_exprs(self.ir.preds):
             self.ir, fwd = (
                 ic.Cursor.create(self.ir)._child_block("preds")._replace(new_preds)
             )
@@ -3312,6 +3347,9 @@ class DoSimplify(Cursor_Rewrite):
         if isinstance(lhs, LoopIR.Const) and isinstance(rhs, LoopIR.Const):
             return LoopIR.Const(self.cfold(e.op, lhs, rhs), lhs.type, lhs.srcinfo)
 
+        def is_const_val(e, val):
+            return isinstance(e, LoopIR.Const) and e.val == val
+
         if e.op == "+":
             if is_const_zero(lhs):
                 return rhs
@@ -3334,16 +3372,28 @@ class DoSimplify(Cursor_Rewrite):
         elif e.op == "*":
             if is_const_zero(lhs) or is_const_zero(rhs):
                 return LoopIR.Const(0, lhs.type, lhs.srcinfo)
-            if isinstance(lhs, LoopIR.Const) and lhs.val == 1:
+            if is_const_val(lhs, 1):
                 return rhs
-            if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
+            if is_const_val(rhs, 1):
                 return lhs
         elif e.op == "/":
-            if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
+            if is_const_val(rhs, 1):
                 return lhs
         elif e.op == "%":
-            if isinstance(rhs, LoopIR.Const) and rhs.val == 1:
+            if is_const_val(rhs, 1):
                 return LoopIR.Const(0, lhs.type, lhs.srcinfo)
+        elif e.op == "and":
+            for l, r in (lhs, rhs), (rhs, lhs):
+                if is_const_val(l, False):
+                    return LoopIR.Const(False, T.bool, e.srcinfo)
+                if is_const_val(l, True):
+                    return r
+        elif e.op == "or":
+            for l, r in (lhs, rhs), (rhs, lhs):
+                if is_const_val(l, False):
+                    return r
+                if is_const_val(l, True):
+                    return LoopIR.Const(True, T.bool, e.srcinfo)
 
         return LoopIR.BinOp(e.op, lhs, rhs, e.type, e.srcinfo)
 
@@ -3565,7 +3615,7 @@ def DoDeleteBuffer(buf_cursor):
     return buf_cursor._delete()
 
 
-def DoDataReuse(buf_cursor, rep_cursor):
+def DoReuseBuffer(buf_cursor, rep_cursor):
     assert isinstance(buf_cursor._node, LoopIR.Alloc)
     assert isinstance(rep_cursor._node, LoopIR.Alloc)
     assert buf_cursor._node.type == rep_cursor._node.type
@@ -3594,77 +3644,208 @@ def DoDataReuse(buf_cursor, rep_cursor):
     return ir, fwd
 
 
-# TODO: This can probably be re-factored into a generic
-# "Live Variables" analysis w.r.t. a context/stmt separation?
-class _DoStageMem_FindBufData(LoopIR_Do):
-    def __init__(self, proc, buf_name, stmt_start):
-        self.buf_str = buf_name
-        self.buf_sym = None
-        self.buf_typ = None
-        self.buf_mem = None
-        self.stmt_start = stmt_start
-        self.buf_map = ChainMap()
-        self.orig_proc = proc
+def index_range_analysis_wrapper(expr: LoopIR.expr) -> IndexRange:
+    range_or_int = index_range_analysis(expr)
+    if isinstance(range_or_int, int):
+        return IndexRange.create_int(range_or_int)
+    else:
+        assert isinstance(range_or_int, IndexRange)
+        return range_or_int
 
-        for fa in self.orig_proc.args:
-            if fa.type.is_numeric():
-                self.buf_map[str(fa.name)] = (fa.name, fa.type, fa.mem)
 
-        super().__init__(proc)
+def merge_index_ranges(
+    x: Optional[IndexRange], y: Optional[IndexRange]
+) -> Optional[IndexRange]:
+    if x is None:
+        return y
+    if y is None:
+        return x
+    assert isinstance(x, IndexRange) and isinstance(y, IndexRange)
+    return x | y
 
-    def result(self):
-        return self.buf_sym, self.buf_typ, self.buf_mem
 
-    def push(self):
-        self.buf_map = self.buf_map.new_child()
+class CheckFoldBuffer(LoopIR_Do):
+    def __init__(self, buffer_name, buffer_dim, size):
+        self.access_window_per_scope = []
+        self.name = buffer_name
+        self.dim = buffer_dim
+        self.size = size
 
-    def pop(self):
-        self.buf_map = self.buf_map.parents
+    def enter_scope(self):
+        self.access_window_per_scope.append(None)
+
+    def exit_scope(self) -> Optional[IndexRange]:
+        return self.access_window_per_scope.pop()
+
+    def update_access_window(self, s, bounds: IndexRange):
+        if self.access_window_per_scope[-1] is None:
+            self.access_window_per_scope[-1] = bounds
+        else:
+            if bounds.lo is None or self.access_window_per_scope[-1].hi is None:
+                raise SchedulingError(
+                    "Buffer folding failed because the current analysis cannot handle variable width access windows."
+                )
+            elif bounds.lo <= self.access_window_per_scope[-1].hi - self.size:
+                raise SchedulingError(
+                    f"Buffer folding failed because access window of {s} accesses more than {self.size} before the largest access of previous statements."
+                )
+            self.access_window_per_scope[-1] |= bounds
+
+    def do_stmts(self, stmts):
+        self.enter_scope()
+        super().do_stmts(stmts)
+        return self.exit_scope()
 
     def do_s(self, s):
-        if s is self.stmt_start:
-            if self.buf_str not in self.buf_map:
-                raise SchedulingError(
-                    f"no buffer or window "
-                    f"named {self.buf_str} was live "
-                    f"in the indicated statement block"
-                )
-            nm, typ, mem = self.buf_map[self.buf_str]
-            self.buf_sym = nm
-            self.buf_typ = typ
-            self.buf_mem = mem
+        bounds = None
+        if isinstance(s, LoopIR.For):
+            bounds = self.do_stmts(s.body)
+            lo_rng = index_range_analysis_wrapper(s.lo)
+            hi_rng = index_range_analysis_wrapper(s.hi) - 1
+            iter_rng = lo_rng | hi_rng
 
-        if isinstance(s, LoopIR.Alloc):
-            self.buf_map[str(s.name)] = (s.name, s.type, s.mem)
-        if isinstance(s, LoopIR.WindowStmt):
-            nm, typ, mem = self.buf_map[s.rhs.name]
-            self.buf_map[str(s.name)] = (s.name, s.rhs.type, mem)
+            if bounds is not None:
+                # Checking between iteration i and i + 1
+                c = bounds.get_stride_of(s.iter)
+                if bounds.hi is None or bounds.lo is None:
+                    raise SchedulingError(
+                        "Buffer folding failed because the current analysis cannot handle variable width access windows."
+                    )
+                elif bounds.lo + c <= bounds.hi - self.size:
+                    raise SchedulingError(
+                        f"Buffer folding failed because access window of iteration i + 1 in {s} goes more than {self.size} before the largest access of iteration i"
+                    )
+
+                bounds = bounds.partial_eval_with_range(s.iter, iter_rng)
         elif isinstance(s, LoopIR.If):
-            self.push()
-            self.do_stmts(s.body)
-            self.pop()
-            self.push()
-            self.do_stmts(s.orelse)
-            self.pop()
-        elif isinstance(s, LoopIR.For):
-            self.push()
-            self.do_stmts(s.body)
-            self.pop()
-        else:
-            super().do_s(s)
+            if_bounds = self.do_stmts(s.body)
+            orelse_bounds = self.do_stmts(s.orelse)
+            bounds = merge_index_ranges(if_bounds, orelse_bounds)
+        elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            # For Assign and Reduces, we are assuming that the RHS is computed before storing the
+            # result into the LHS, so we perform the checks in that order.
 
-    # short-circuit
+            # First, the RHS
+            self.access_window_within_s = None
+            super().do_e(s.rhs)
+            bounds = self.access_window_within_s
+
+            if bounds is not None:
+                # We make no assumptions about the order of execution of the RHS, so if window
+                # is too large, it fails. Below, None means non-constant size
+                rhs_window_size = bounds.get_size()
+                if rhs_window_size is None or rhs_window_size > self.size:
+                    raise SchedulingError(
+                        f"Buffer folding failed because RHS access window's width in stmt {s} exceeded folded size {self.size}."
+                    )
+
+                self.update_access_window(s.rhs, bounds)
+
+            # Second, the LHS
+            if self.name == s.name:
+                lhs_bounds = index_range_analysis_wrapper(s.idx[self.dim])
+                bounds = merge_index_ranges(bounds, lhs_bounds)
+        else:
+            self.access_window_within_s = None
+            super().do_s(s)
+            bounds = self.access_window_within_s
+
+        if bounds is not None:
+            self.update_access_window(s, bounds)
+
+    def update_access_window_within_s(self, new_bounds: IndexRange):
+        if self.access_window_within_s is None:
+            self.access_window_within_s = new_bounds
+        else:
+            self.access_window_within_s |= new_bounds
+
     def do_e(self, e):
-        pass
+        if isinstance(e, LoopIR.Read) and e.name == self.name:
+            index_rng = index_range_analysis_wrapper(e.idx[self.dim])
+            self.update_access_window_within_s(index_rng)
+        elif isinstance(e, LoopIR.WindowExpr) and e.name == self.name:
+            w_access = e.idx[self.dim]
+            if isinstance(w_access, LoopIR.Interval):
+                lo_rng = index_range_analysis_wrapper(w_access.lo)
+                hi_rng = index_range_analysis_wrapper(w_access.hi)
+                self.update_access_window_within_s(lo_rng | hi_rng)
+            else:
+                assert isinstance(w_access, LoopIR.Point)
+                index_rng = index_range_analysis_wrapper(w_access.pt)
+                self.update_access_window_within_s(index_rng)
+        else:
+            super().do_e(e)
+
+
+def DoFoldBuffer(alloc_cursor, dim_idx, new_size):
+    alloc_name = alloc_cursor._node.name
+
+    buffer_check = CheckFoldBuffer(alloc_name, dim_idx, new_size)
+    buffer_check.do_stmts([c._node for c in get_rest_of_block(alloc_cursor)])
+
+    size_expr = LoopIR.Const(new_size, T.index, alloc_cursor._node.srcinfo)
+    ir, fwd = (
+        alloc_cursor._child_node("type")
+        ._child_block("hi")[dim_idx]
+        ._replace([size_expr])
+    )
+
+    def make_index_mod(e):
+        return LoopIR.BinOp("%", e, size_expr, T.index, e.srcinfo)
+
+    def mk_read(c):
+        rd = c._node
+        new_idx = rd.idx.copy()
+        if isinstance(rd, LoopIR.Read):
+            new_idx[dim_idx] = make_index_mod(rd.idx[dim_idx])
+            return {"idx": new_idx}
+
+        elif isinstance(rd, LoopIR.WindowExpr):
+            if isinstance(rd.idx[dim_idx], LoopIR.Point):
+                new_idx[dim_idx] = LoopIR.Point(
+                    make_index_mod(rd.idx[dim_idx].pt), rd.srcinfo
+                )
+            else:
+                # TODO: see if check_bounds catches the case where lo, hi spans a multiple
+                # of size, which would break the buffer folding
+                new_idx[dim_idx] = LoopIR.Interval(
+                    make_index_mod(rd.idx[dim_idx].lo),
+                    make_index_mod(rd.idx[dim_idx].hi),
+                    rd.srcinfo,
+                )
+
+            return {"idx": new_idx}
+        else:
+            raise NotImplementedError(f"Did not implement {type(rd)}.")
+
+    def mk_write(c):
+        s = c._node
+        new_idx = s.idx.copy()
+        new_idx[dim_idx] = make_index_mod(s.idx[dim_idx])
+        return {"idx": new_idx}
+
+    for c in get_rest_of_block(alloc_cursor):
+        ir, fwd = _replace_reads(ir, fwd, c, alloc_name, mk_read)
+        ir, fwd = _replace_writes(ir, fwd, c, alloc_name, mk_write)
+
+    alloc_cursor = fwd(alloc_cursor)
+    after_alloc = [c._node for c in get_rest_of_block(alloc_cursor)]
+    Check_Bounds(ir, alloc_cursor._node, after_alloc)
+
+    return ir, fwd
 
 
 def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
-    proc = block_cursor.get_root()
     new_name = Sym(new_name)
 
-    buf_name, buf_typ, mem = _DoStageMem_FindBufData(
-        proc, buf_name, block_cursor[0]._node
-    ).result()
+    def get_typ_mem():
+        syms_env = extract_env(block_cursor[0])
+        for name, typ, mem in syms_env:
+            if str(name) == buf_name:
+                return name, typ, mem
+        assert False, "Must find the symbol in env"
+
+    buf_name, buf_typ, mem = get_typ_mem()
     buf_typ = buf_typ if not isinstance(buf_typ, T.Window) else buf_typ.as_tensor
 
     if len(w_exprs) != len(buf_typ.shape()):
@@ -3705,7 +3886,9 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
                 pt = LoopIR.BinOp("-", w.pt, off, T.index, w.srcinfo)
                 return LoopIR.Point(pt, w.srcinfo)
 
-        return [off_w(w_i, w_e[0]) for w_i, w_e in zip(w_idx, w_exprs)]
+        w_los = [w_e[0] if isinstance(w_e, tuple) else w_e for w_e in w_exprs]
+
+        return [off_w(w_i, w_e) for w_i, w_e in zip(w_idx, w_los)]
 
     ir = block_cursor.get_root()
     block = [s._node for s in block_cursor]
@@ -3774,8 +3957,68 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
 
         return ir, fwd
 
-    isR, isW = Check_BufferRW(ir, block, buf_name, n_dims)
-    if isR:
+    def idx_contained_by_window(idx, block_cursor):
+        """
+        Returns True if idx always lies in staged window range.
+        Returns False if idx never lies in staged window range.
+        Otherwise, will raise a SchedulingError.
+        """
+        p = idx.get_root()
+        return Check_Access_In_Window(p, idx, w_exprs, block_cursor)
+
+    actualR = actualW = False
+    WShadow = False
+    # Conservatively, shadowing logic only works for single element staging windows.
+    w_is_pt = all(not isinstance(w, tuple) for w in w_exprs)
+
+    def mk_read(c, block_cursor):
+        nonlocal actualR
+        rd = c._node
+
+        if isinstance(rd, LoopIR.Read):
+            if idx_contained_by_window(c, block_cursor):
+                _idx = rewrite_idx(rd.idx)
+                actualR = True
+                return {"name": new_name, "idx": _idx}
+        elif isinstance(rd, LoopIR.WindowExpr):
+            if any(
+                isinstance(w, LoopIR.Interval) and not isinstance(w_e, tuple)
+                for w, w_e in zip(rd.idx, w_exprs)
+            ):
+                raise SchedulingError(
+                    f"Existing WindowExpr {rd} has a widnowed dimension which is not windowed in the new staged window."
+                )
+
+            if idx_contained_by_window(c, block_cursor):
+                _idx = rewrite_win(rd.idx)
+                _typ = T.Window(new_typ, rd.type.as_tensor, new_name, _idx)
+                actualR = True
+                return {"name": new_name, "idx": _idx, "type": _typ}
+
+    def mk_write(c, block_cursor):
+        nonlocal actualR
+        nonlocal actualW
+        nonlocal WShadow
+        s = c._node
+        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            if idx_contained_by_window(c, block_cursor):
+                actualW = True
+                if isinstance(s, LoopIR.Reduce):
+                    actualR = True
+                if not actualR and w_is_pt:
+                    WShadow = True
+                return {"name": new_name, "idx": rewrite_idx(s.idx)}
+
+    for c in block_cursor:
+        ir, fwd = _replace_reads(
+            ir, fwd, c, buf_name, partial(mk_read, block_cursor=fwd(block_cursor))
+        )
+
+        ir, fwd = _replace_writes(
+            ir, fwd, c, buf_name, partial(mk_write, block_cursor=fwd(block_cursor))
+        )
+
+    if actualR and not WShadow:
         load_iter = [Sym(f"i{i}") for i, _ in enumerate(shape)]
         load_widx = [LoopIR.Read(s, [], T.index, srcinfo) for s in load_iter]
         if use_accum_zero:
@@ -3793,7 +4036,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
             load_rhs = LoopIR.Read(buf_name, load_ridx, basetyp, srcinfo)
 
         load_nest = [
-            LoopIR.Assign(new_name, basetyp, None, load_widx, load_rhs, None, srcinfo)
+            LoopIR.Assign(new_name, basetyp, load_widx, load_rhs, None, srcinfo)
         ]
 
         for i, n in reversed(list(zip(load_iter, shape))):
@@ -3816,7 +4059,8 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
             ir, fwd = insert_safety_guards(
                 ir, fwd, get_inner_stmt(load_nest_c), load_rhs, buf_typ
             )
-    if isW:
+
+    if actualW:
         store_iter = [Sym(f"i{i}") for i, _ in enumerate(shape)]
         store_ridx = [LoopIR.Read(s, [], T.index, srcinfo) for s in store_iter]
         cp_store_ridx = store_ridx.copy()
@@ -3832,7 +4076,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
         store_rhs = LoopIR.Read(new_name, store_ridx, basetyp, srcinfo)
         store_stmt = LoopIR.Reduce if use_accum_zero else LoopIR.Assign
         store_nest = [
-            store_stmt(buf_name, basetyp, None, store_widx, store_rhs, None, srcinfo)
+            store_stmt(buf_name, basetyp, store_widx, store_rhs, None, srcinfo)
         ]
 
         for i, n in reversed(list(zip(store_iter, shape))):
@@ -3856,174 +4100,20 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
             ir, fwd, store_stmt_c, store_stmt_c._node, buf_typ
         )
 
-    def mk_read(c):
-        rd = c._node
-        if isinstance(rd, LoopIR.Read):
-            return {
-                "name": new_name,
-                "idx": rewrite_idx(rd.idx),
-                "type": rd.type,  # non-ideal, but easiest for now
-            }
-        elif isinstance(rd, LoopIR.WindowExpr):
-            w_idx = rewrite_win(rd.idx)
-            return {
-                "name": new_name,
-                "idx": w_idx,
-                "type": T.Window(new_typ, rd.type.as_tensor, new_name, w_idx),
-            }
-
-    def mk_write(c):
-        s = c._node
-        return {"name": new_name, "idx": rewrite_idx(s.idx)}
-
-    for c in block_cursor:
-        ir, fwd = _replace_reads(ir, fwd, c, buf_name, mk_read)
-        ir, fwd = _replace_writes(ir, fwd, c, buf_name, mk_write)
-
     # new alloc, load_nest + new_body + store_nest
     new_block_c = fwd(block_cursor[0]).as_block().expand(0, len(block_cursor) - 1)
-    if isR:
+    if actualR and not WShadow:
         new_block_c = new_block_c.expand(1, 0)
-    if isW:
+    if actualW:
         new_block_c = new_block_c.expand(0, 1)
-    alloc_c = new_block_c[0].prev()
-    Check_Bounds(ir, alloc_c._node, [c._node for c in new_block_c])
+    if not actualR and not actualW:
+        raise SchedulingError(
+            f"Cannot stage '{buf_name}' with the given window shape. Wrong window shape, or '{buf_name}' not accessed in the given scope?"
+        )
+
+    Check_Bounds(ir, new_alloc[0], [c._node for c in new_block_c])
+
     return ir, fwd
-
-
-class DoStageWindow(Cursor_Rewrite):
-    def __init__(self, proc_cursor, new_name, memory, expr):
-        # Inputs
-        self.new_name = Sym(new_name)
-        self.memory = memory
-        self.target_expr = expr._node
-
-        # Visitor state
-        self._found_expr = False
-        self._complete = False
-        self._copy_code = None
-
-        super().__init__(proc_cursor)
-        Check_Aliasing(self.proc)
-
-    def _make_staged_alloc(self):
-        """
-        proc(Win[0:10, N, lo:hi])
-        =>
-        Staged : ty[10, hi - lo]
-        for i0 in par(0, 10):
-          for i1 in par(0, hi - lo):
-            Staged[i0, i1] = Buf[0 + i0, N, lo + i1]
-        proc(Staged[0:10, 0:(hi - lo)])
-        """
-
-        staged_extents = []  # e.g. 10, hi - lo
-        staged_vars = []  # e.g. i0, i1
-        staged_var_reads = []  # reads of staged_vars
-
-        buf_points = []  # e.g. 0 + i0, N, lo + i1
-
-        for idx in self.target_expr.idx:
-            assert isinstance(idx, (LoopIR.Interval, LoopIR.Point))
-
-            if isinstance(idx, LoopIR.Interval):
-                assert isinstance(idx.hi.type, (T.Index, T.Size)), f"{idx.hi.type}"
-
-                sym_i = Sym(f"i{len(staged_vars)}")
-                staged_vars.append(sym_i)
-                staged_extents.append(
-                    LoopIR.BinOp("-", idx.hi, idx.lo, T.index, idx.srcinfo)
-                )
-                offset = LoopIR.Read(sym_i, [], T.index, idx.lo.srcinfo)
-                buf_points.append(
-                    LoopIR.BinOp("+", idx.lo, offset, T.index, idx.srcinfo)
-                )
-                staged_var_reads.append(LoopIR.Read(sym_i, [], T.index, idx.lo.srcinfo))
-            elif isinstance(idx, LoopIR.Point):
-                # TODO: test me!
-                buf_points.append(idx.pt)
-
-        assert staged_vars, "Window expression had no intervals"
-        assert len(staged_vars) == len(staged_extents)
-
-        # Staged : ty[10, hi - lo]
-        srcinfo = self.target_expr.srcinfo
-        data_type = self.target_expr.type.src_type.type
-        alloc_type = T.Tensor(staged_extents, False, data_type)
-        alloc = LoopIR.Alloc(self.new_name, alloc_type, self.memory, None, srcinfo)
-
-        # Staged[i0, i1] = Buf[0 + i0, N, lo + i1]
-        copy_stmt = LoopIR.Assign(
-            self.new_name,
-            data_type,
-            None,
-            staged_var_reads,
-            LoopIR.Read(self.target_expr.name, buf_points, data_type, srcinfo),
-            None,
-            srcinfo,
-        )
-
-        # for i0 in par(0, 10):
-        #     for i1 in par(0, hi - lo):
-        for sym_i, extent_i in reversed(list(zip(staged_vars, staged_extents))):
-            copy_stmt = LoopIR.For(
-                sym_i,
-                LoopIR.Const(0, T.index, srcinfo),
-                extent_i,
-                [copy_stmt],
-                LoopIR.Seq(),
-                None,
-                srcinfo,
-            )
-
-        # Staged[0:10, 0:(hi - lo)]
-        w_extents = [
-            LoopIR.Interval(LoopIR.Const(0, T.index, srcinfo), hi, srcinfo)
-            for hi in staged_extents
-        ]
-        new_window = LoopIR.WindowExpr(
-            self.new_name,
-            w_extents,
-            T.Window(data_type, alloc_type, self.new_name, w_extents),
-            srcinfo,
-        )
-
-        return [alloc, copy_stmt], new_window
-
-    def map_stmts(self, stmts):
-        result = []
-
-        if self.target_expr.name in [
-            name for name, _ in get_writes_of_stmts([s._node for s in stmts])
-        ]:
-            raise NotImplementedError("StageWindow does not handle writes yet.")
-
-        for s in stmts:
-            # TODO: be smarter about None here
-            s = self.apply_s(s)
-
-            if self._found_expr and not self._complete:
-                assert len(s) == 1
-                assert self._copy_code
-                s = s[0]
-
-                s = self._copy_code + [s]
-                self._complete = True
-
-            result.extend(s)
-
-        return result
-
-    def map_e(self, e):
-        if self._found_expr:
-            return None
-
-        if e is self.target_expr:
-            self._found_expr = True
-            self._copy_code, new_window = self._make_staged_alloc()
-            return new_window
-
-        return super().map_e(e)
 
 
 def DoUnrollBuffer(alloc_cursor, dim):
@@ -4153,13 +4243,15 @@ __all__ = [
     "DoLiftScope",
     "DoFissionAfterSimple",
     "DoMergeWrites",
+    "DoSplitWrite",
     "DoFoldIntoReduce",
     "DoFuseIf",
     "DoFuseLoop",
     "DoBindExpr",
     "DoRewriteExpr",
     "DoStageMem",
-    "DoDataReuse",
+    "DoReuseBuffer",
+    "DoFoldBuffer",
     "DoInlineWindow",
     "DoDivideDim",
     "DoExpandDim",
@@ -4172,14 +4264,12 @@ __all__ = [
     "DoConfigWrite",
     "DoDeleteConfig",
     "DoUnrollBuffer",
+    "DoEliminateDeadCode",
+    "DoDeletePass",
+    "DoExtractSubproc",
     ### END Scheduling Ops with Cursor Forwarding ###
     "DoPartialEval",
-    "DoExtractMethod",
     "DoLiftAlloc",
     "DoFissionLoops",
-    "DoBoundAndGuard",
-    "DoDeletePass",
-    "DoEliminateDeadCode",
     "DoAddUnsafeGuard",
-    "DoStageWindow",
 ]

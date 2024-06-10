@@ -1,0 +1,13 @@
+#include "test.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+// foo(
+
+// )
+void foo( void *ctxt ) {
+int8_t a;
+a = a + ((int8_t) 3);
+}
+

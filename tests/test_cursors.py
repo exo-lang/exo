@@ -3,9 +3,11 @@ from __future__ import annotations
 import pytest
 
 from exo import proc, ExoType
-from exo.stdlib.scheduling import *
 from exo.libs.memories import *
 from exo.API_cursors import *
+
+from exo.stdlib.inspection import *
+from exo.stdlib.scheduling import *
 
 
 @pytest.fixture(scope="session")
@@ -258,6 +260,32 @@ def test_reorder_loops_forwarding(golden):
     assert str(foo) == golden
 
 
+def test_split_write_forwarding(golden):
+    @proc
+    def foo(x: i32):
+        x += 1 + 2
+        x = 3 + 4
+
+    stmt0 = foo.body()[0]
+    stmt1 = foo.body()[1]
+    body = foo.body()
+
+    foo = split_write(foo, stmt0)
+    with pytest.raises(InvalidCursorError, match=""):
+        foo.forward(stmt0)
+    assert foo.body()[:2] == foo.forward(stmt0.as_block())
+    assert foo.body()[2] == foo.forward(stmt1)
+    assert foo.body() == foo.forward(body)
+
+    foo = split_write(foo, stmt1)
+    with pytest.raises(InvalidCursorError, match=""):
+        foo.forward(stmt0.rhs())
+
+    assert foo.body()[:2] == foo.forward(stmt0.as_block())
+    assert foo.body()[2:] == foo.forward(stmt1.as_block())
+    assert foo.body() == foo.forward(body)
+
+
 def test_vectorize_forwarding(golden):
     @proc
     def scal(n: size, alpha: R, x: [R][n]):
@@ -305,6 +333,43 @@ def test_forwarding_for_procs_with_identical_code():
     foo.forward(loop_cursor)
 
 
+def test_delete_pass_forwarding():
+    @proc
+    def foo(x: R):
+        for i in seq(0, 16):
+            x = 1.0
+            pass
+            for j in seq(0, 2):
+                pass
+                pass
+            pass
+        x = 0.0
+
+    i_loop = foo.body()[0]
+    assign_1 = i_loop.body()[0]
+    assign_0 = foo.body()[1]
+
+    foo = delete_pass(foo)
+    assert isinstance(foo.forward(i_loop), ForCursor)
+    assert isinstance(foo.forward(assign_1), AssignCursor)
+    assert isinstance(foo.forward(assign_0), AssignCursor)
+
+
+def test_extract_subproc_forwarding():
+    @proc
+    def foo(N: size, M: size, K: size, x: R[N, K + M]):
+        assert N >= 8
+        x[0, 0] = 0.0
+        for i in seq(0, 8):
+            x[i, 0] += 2.0
+
+    block = foo.body()
+    foo, new = extract_subproc(foo, block, "fooooo")
+    block = foo.forward(block)
+    assert len(block) == 1
+    assert isinstance(block[0], CallCursor)
+
+
 def test_arg_cursor(golden):
     @proc
     def scal(n: size, alpha: R, x: [R][n, n]):
@@ -321,7 +386,6 @@ def test_arg_cursor(golden):
                 output += f", {dim._impl._node}"
         output += "\n"
 
-    print(output)
     assert output == golden
 
 
@@ -540,7 +604,18 @@ def test_eliminate_dead_code_forwarding5():
         foo.forward(else_loop_alloc)
 
 
-def test_match_level(golden):
+def test_specialize_forwarding():
+    @proc
+    def foo(n: size, a: f32):
+        a = 1.0
+        a = 2.0
+
+    body = foo.body()
+    foo = specialize(foo, body, ["n > 0"])
+    assert foo.forward(body) == foo.body()
+
+
+def test_match_depth(golden):
     @proc
     def foo(x: i8):
         for i in seq(0, 8):
@@ -550,11 +625,11 @@ def test_match_level(golden):
         for i in seq(0, 2):
             x = 1.0
 
-    c = match_level(foo.find("x = 1.0"), foo.find_loop("i"))
+    c = match_depth(foo.find("x = 1.0"), foo.find_loop("i"))
     assert str(c) == golden
 
 
-def test_match_level_fail():
+def test_match_depth_fail():
     @proc
     def foo(x: i8):
         for i in seq(0, 8):
@@ -570,39 +645,13 @@ def test_match_level_fail():
         CursorNavigationError,
         match="cursor_to_match's parent is not an ancestor of cursor",
     ):
-        c = match_level(foo.find("x = _ #0"), foo.find("x = _ #1"))
+        match_depth(foo.find("x = _ #0"), foo.find("x = _ #1"))
 
     with pytest.raises(AssertionError, match="cursors originate from different procs"):
-        c = match_level(foo.find("x = _"), bar.find("pass"))
+        match_depth(foo.find("x = _"), bar.find("pass"))
 
 
-def test_get_stmt_within_scope(golden):
-    @proc
-    def foo(x: i8):
-        for i in seq(0, 8):
-            if i + 3 < -1:
-                x = 0.0
-                pass
-
-    c = get_stmt_within_scope(foo.find("pass"), foo.find_loop("i"))
-    assert str(c) == golden
-
-
-def test_get_stmt_within_scope_fail():
-    @proc
-    def foo(x: i8):
-        for i in seq(0, 8):
-            x = 1.0
-        for j in seq(0, 2):
-            x = 2.0
-
-    with pytest.raises(
-        CursorNavigationError, match="scope is not an ancestor of cursor"
-    ):
-        c = get_stmt_within_scope(foo.find("x = _"), foo.find_loop("j"))
-
-
-def test_get_enclosing_loop(golden):
+def test_get_enclosing_loop_by_name(golden):
     @proc
     def foo(x: i8):
         for i in seq(0, 5):
@@ -610,13 +659,13 @@ def test_get_enclosing_loop(golden):
                 if i == 0:
                     x = 1.0
 
-    c1 = get_enclosing_loop(foo.find("x = _"))
-    c2 = get_enclosing_loop(foo.find("x = _"), "i")
+    c1 = get_enclosing_loop(foo, foo.find("x = _"))
+    c2 = get_enclosing_loop_by_name(foo, foo.find("x = _"), "i")
 
     assert "\n\n".join([str(c) for c in [c1, c2]]) == golden
 
 
-def test_get_enclosing_loop_fail():
+def test_get_enclosing_loop_by_name_fail():
     @proc
     def foo(x: i8):
         for i in seq(0, 8):
@@ -625,10 +674,43 @@ def test_get_enclosing_loop_fail():
             x = 2.0
         x = 3.0
 
-    with pytest.raises(
-        CursorNavigationError, match="scope is not an ancestor of cursor"
-    ):
-        c = get_stmt_within_scope(foo.find("x = _"), foo.find_loop("j"))
+    with pytest.raises(CursorNavigationError, match="no enclosing loop found"):
+        get_enclosing_loop_by_name(foo, foo.find("x = _"), foo.find_loop("j"))
+
+
+def test_is_ancestor_of_and_lca():
+    @proc
+    def foo():
+        for i in seq(0, 10):
+            for j in seq(0, 10):
+                pass
+            x: i8
+
+    i_loop = foo.find_loop("i")
+    j_loop = foo.find_loop("j")
+    x_alloc = foo.find("x:_")
+    pass_stmt = foo.find("pass")
+
+    assert i_loop.is_ancestor_of(i_loop)
+
+    assert i_loop.is_ancestor_of(j_loop)
+    assert i_loop.is_ancestor_of(pass_stmt)
+    assert i_loop.is_ancestor_of(x_alloc)
+
+    assert not j_loop.is_ancestor_of(i_loop)
+    assert j_loop.is_ancestor_of(pass_stmt)
+    assert not j_loop.is_ancestor_of(x_alloc)
+
+    assert not pass_stmt.is_ancestor_of(i_loop)
+    assert not pass_stmt.is_ancestor_of(j_loop)
+
+    assert not x_alloc.is_ancestor_of(i_loop)
+    assert not x_alloc.is_ancestor_of(j_loop)
+
+    assert get_lca(foo, x_alloc, pass_stmt) == i_loop
+    assert get_lca(foo, pass_stmt, x_alloc) == i_loop
+    assert get_lca(foo, i_loop, x_alloc) == i_loop
+    assert get_lca(foo, x_alloc, i_loop) == i_loop
 
 
 def test_cursor_find_loop():

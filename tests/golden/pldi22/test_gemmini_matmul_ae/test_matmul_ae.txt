@@ -45,26 +45,41 @@ typedef struct c_code_str_Context {
     } ConfigStore;
 
 } c_code_str_Context;
+#ifndef EXO_WIN_2I32
+#define EXO_WIN_2I32
 struct exo_win_2i32{
     int32_t * const data;
     const int_fast32_t strides[2];
 };
+#endif
+#ifndef EXO_WIN_2I32C
+#define EXO_WIN_2I32C
 struct exo_win_2i32c{
     const int32_t * const data;
     const int_fast32_t strides[2];
 };
+#endif
+#ifndef EXO_WIN_2I8
+#define EXO_WIN_2I8
 struct exo_win_2i8{
     int8_t * const data;
     const int_fast32_t strides[2];
 };
+#endif
+#ifndef EXO_WIN_2I8C
+#define EXO_WIN_2I8C
 struct exo_win_2i8c{
     const int8_t * const data;
     const int_fast32_t strides[2];
 };
+#endif
+#ifndef EXO_WIN_3I8
+#define EXO_WIN_3I8
 struct exo_win_3i8{
     int8_t * const data;
     const int_fast32_t strides[3];
 };
+#endif
 // matmul_on_gemmini(
 //     scale : f32 @DRAM,
 //     act : bool,
@@ -73,8 +88,6 @@ struct exo_win_3i8{
 //     C : i8[512, 512] @DRAM
 // )
 void matmul_on_gemmini( c_code_str_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
-
-
 
 
 #include <stdio.h>
@@ -88,7 +101,6 @@ double _relu_(double x) {
     if (x > 0.0) return x;
     else return 0.0;
 }
-
 
 
 /* relying on the following instruction..."

@@ -1,0 +1,13 @@
+#include "test.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+// foo(
+
+// )
+void foo( void *ctxt ) {
+double a;
+a = a + 3.0;
+}
+
