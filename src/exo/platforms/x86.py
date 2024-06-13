@@ -3,9 +3,8 @@ from __future__ import annotations
 from .. import instr, DRAM
 from ..libs.memories import AVX2, AVX512
 
-
 # --------------------------------------------------------------------------- #
-#   AVX2 intrinsics
+#   Prefetching
 # --------------------------------------------------------------------------- #
 
 
@@ -14,6 +13,11 @@ def prefetch(A: [R][1] @ DRAM, locality_hint: size):
     assert 0 <= locality_hint
     assert locality_hint < 8
     pass
+
+
+# --------------------------------------------------------------------------- #
+#   AVX2 intrinsics
+# --------------------------------------------------------------------------- #
 
 
 @instr("{dst_data} = _mm256_setzero_ps();")
@@ -134,7 +138,7 @@ def mm256_broadcast_sd_scalar(out: [f64][4] @ AVX2, val: f64):
         out[i] = val
 
 
-@instr("{dst_data} = _mm512_fmadd_ps({dst_data}, {lhs_data}, {rhs_data});")
+@instr("{dst_data} = _mm256_fmadd_ps({dst_data}, {lhs_data}, {rhs_data});")
 def mm256_fmadd_ps_broadcast(
     dst: [f32][8] @ AVX2, lhs: [f32][8] @ AVX2, rhs: [f32][1] @ DRAM
 ):
@@ -256,6 +260,39 @@ def mm256_add_epi16(out: [ui16][16] @ AVX2, x: [ui16][16] @ AVX2, y: [ui16][16] 
 # --------------------------------------------------------------------------- #
 #   AVX512 intrinsics
 # --------------------------------------------------------------------------- #
+
+
+@instr("{dst_data} = _mm512_setzero_ps();")
+def mm512_setzero_ps(dst: [f32][16] @ AVX512):
+    assert stride(dst, 0) == 1
+
+    for i in seq(0, 16):
+        dst[i] = 0.0
+
+
+@instr("{out_data} = _mm512_add_ps({x_data}, {y_data});")
+def mm512_add_ps(out: [f32][16] @ AVX512, x: [f32][16] @ AVX512, y: [f32][16] @ AVX512):
+    assert stride(out, 0) == 1
+    assert stride(x, 0) == 1
+    assert stride(y, 0) == 1
+
+    for i in seq(0, 16):
+        out[i] = x[i] + y[i]
+
+
+@instr(
+    "{out_data} = _mm512_mask_add_ps({out_data}, ((1 << {N}) - 1), {x_data}, {y_data});"
+)
+def mm512_mask_add_ps(
+    N: size, out: [f32][16] @ AVX512, x: [f32][16] @ AVX512, y: [f32][16] @ AVX512
+):
+    assert stride(out, 0) == 1
+    assert stride(x, 0) == 1
+    assert stride(y, 0) == 1
+
+    for i in seq(0, 16):
+        if i < N:
+            out[i] = x[i] + y[i]
 
 
 @instr("{dst_data} = _mm512_loadu_ps(&{src_data});")
