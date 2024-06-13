@@ -207,10 +207,10 @@ EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
 // assert stride(C, 1) == 1
-_mm_prefetch(&C.data[0], (3))
-_mm_prefetch(&C.data[16], (3))
-_mm_prefetch(&C.data[32], (3))
-_mm_prefetch(&C.data[48], (3))
+_mm_prefetch(&C.data[0], (3));
+_mm_prefetch(&C.data[16], (3));
+_mm_prefetch(&C.data[32], (3));
+_mm_prefetch(&C.data[48], (3));
 __m512 C_reg[1][4];
 for (int_fast32_t i0 = 0; i0 < 1; i0++) {
   C_reg[i0][0] = _mm512_setzero_ps();
@@ -271,14 +271,14 @@ EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
 // assert stride(C, 1) == 1
-_mm_prefetch(&C.data[0], (3))
-_mm_prefetch(&C.data[16], (3))
-_mm_prefetch(&C.data[32], (3))
-_mm_prefetch(&C.data[48], (3))
-_mm_prefetch(&C.data[C.strides[0]], (3))
-_mm_prefetch(&C.data[C.strides[0] + 16], (3))
-_mm_prefetch(&C.data[C.strides[0] + 32], (3))
-_mm_prefetch(&C.data[C.strides[0] + 48], (3))
+_mm_prefetch(&C.data[0], (3));
+_mm_prefetch(&C.data[16], (3));
+_mm_prefetch(&C.data[32], (3));
+_mm_prefetch(&C.data[48], (3));
+_mm_prefetch(&C.data[C.strides[0]], (3));
+_mm_prefetch(&C.data[C.strides[0] + 16], (3));
+_mm_prefetch(&C.data[C.strides[0] + 32], (3));
+_mm_prefetch(&C.data[C.strides[0] + 48], (3));
 __m512 C_reg[2][4];
 for (int_fast32_t i0 = 0; i0 < 2; i0++) {
   C_reg[i0][0] = _mm512_setzero_ps();
@@ -339,18 +339,18 @@ EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
 // assert stride(C, 1) == 1
-_mm_prefetch(&C.data[0], (3))
-_mm_prefetch(&C.data[16], (3))
-_mm_prefetch(&C.data[32], (3))
-_mm_prefetch(&C.data[48], (3))
-_mm_prefetch(&C.data[C.strides[0]], (3))
-_mm_prefetch(&C.data[C.strides[0] + 16], (3))
-_mm_prefetch(&C.data[C.strides[0] + 32], (3))
-_mm_prefetch(&C.data[C.strides[0] + 48], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 16], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 32], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 48], (3))
+_mm_prefetch(&C.data[0], (3));
+_mm_prefetch(&C.data[16], (3));
+_mm_prefetch(&C.data[32], (3));
+_mm_prefetch(&C.data[48], (3));
+_mm_prefetch(&C.data[C.strides[0]], (3));
+_mm_prefetch(&C.data[C.strides[0] + 16], (3));
+_mm_prefetch(&C.data[C.strides[0] + 32], (3));
+_mm_prefetch(&C.data[C.strides[0] + 48], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0]) + 16], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0]) + 32], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0]) + 48], (3));
 __m512 C_reg[3][4];
 for (int_fast32_t i0 = 0; i0 < 3; i0++) {
   C_reg[i0][0] = _mm512_setzero_ps();
@@ -411,22 +411,22 @@ EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
 // assert stride(C, 1) == 1
-_mm_prefetch(&C.data[0], (3))
-_mm_prefetch(&C.data[16], (3))
-_mm_prefetch(&C.data[32], (3))
-_mm_prefetch(&C.data[48], (3))
-_mm_prefetch(&C.data[C.strides[0]], (3))
-_mm_prefetch(&C.data[C.strides[0] + 16], (3))
-_mm_prefetch(&C.data[C.strides[0] + 32], (3))
-_mm_prefetch(&C.data[C.strides[0] + 48], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 16], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 32], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 48], (3))
-_mm_prefetch(&C.data[(3) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 16], (3))
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 32], (3))
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 48], (3))
+_mm_prefetch(&C.data[0], (3));
+_mm_prefetch(&C.data[16], (3));
+_mm_prefetch(&C.data[32], (3));
+_mm_prefetch(&C.data[48], (3));
+_mm_prefetch(&C.data[C.strides[0]], (3));
+_mm_prefetch(&C.data[C.strides[0] + 16], (3));
+_mm_prefetch(&C.data[C.strides[0] + 32], (3));
+_mm_prefetch(&C.data[C.strides[0] + 48], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0]) + 16], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0]) + 32], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0]) + 48], (3));
+_mm_prefetch(&C.data[(3) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(3) * (C.strides[0]) + 16], (3));
+_mm_prefetch(&C.data[(3) * (C.strides[0]) + 32], (3));
+_mm_prefetch(&C.data[(3) * (C.strides[0]) + 48], (3));
 __m512 C_reg[4][4];
 for (int_fast32_t i0 = 0; i0 < 4; i0++) {
   C_reg[i0][0] = _mm512_setzero_ps();
@@ -487,26 +487,26 @@ EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
 // assert stride(C, 1) == 1
-_mm_prefetch(&C.data[0], (3))
-_mm_prefetch(&C.data[16], (3))
-_mm_prefetch(&C.data[32], (3))
-_mm_prefetch(&C.data[48], (3))
-_mm_prefetch(&C.data[C.strides[0]], (3))
-_mm_prefetch(&C.data[C.strides[0] + 16], (3))
-_mm_prefetch(&C.data[C.strides[0] + 32], (3))
-_mm_prefetch(&C.data[C.strides[0] + 48], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 16], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 32], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 48], (3))
-_mm_prefetch(&C.data[(3) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 16], (3))
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 32], (3))
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 48], (3))
-_mm_prefetch(&C.data[(4) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 16], (3))
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 32], (3))
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 48], (3))
+_mm_prefetch(&C.data[0], (3));
+_mm_prefetch(&C.data[16], (3));
+_mm_prefetch(&C.data[32], (3));
+_mm_prefetch(&C.data[48], (3));
+_mm_prefetch(&C.data[C.strides[0]], (3));
+_mm_prefetch(&C.data[C.strides[0] + 16], (3));
+_mm_prefetch(&C.data[C.strides[0] + 32], (3));
+_mm_prefetch(&C.data[C.strides[0] + 48], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0]) + 16], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0]) + 32], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0]) + 48], (3));
+_mm_prefetch(&C.data[(3) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(3) * (C.strides[0]) + 16], (3));
+_mm_prefetch(&C.data[(3) * (C.strides[0]) + 32], (3));
+_mm_prefetch(&C.data[(3) * (C.strides[0]) + 48], (3));
+_mm_prefetch(&C.data[(4) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(4) * (C.strides[0]) + 16], (3));
+_mm_prefetch(&C.data[(4) * (C.strides[0]) + 32], (3));
+_mm_prefetch(&C.data[(4) * (C.strides[0]) + 48], (3));
 __m512 C_reg[5][4];
 for (int_fast32_t i0 = 0; i0 < 5; i0++) {
   C_reg[i0][0] = _mm512_setzero_ps();
@@ -567,30 +567,30 @@ EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
 // assert stride(C, 1) == 1
-_mm_prefetch(&C.data[0], (3))
-_mm_prefetch(&C.data[16], (3))
-_mm_prefetch(&C.data[32], (3))
-_mm_prefetch(&C.data[48], (3))
-_mm_prefetch(&C.data[C.strides[0]], (3))
-_mm_prefetch(&C.data[C.strides[0] + 16], (3))
-_mm_prefetch(&C.data[C.strides[0] + 32], (3))
-_mm_prefetch(&C.data[C.strides[0] + 48], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 16], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 32], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 48], (3))
-_mm_prefetch(&C.data[(3) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 16], (3))
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 32], (3))
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 48], (3))
-_mm_prefetch(&C.data[(4) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 16], (3))
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 32], (3))
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 48], (3))
-_mm_prefetch(&C.data[(5) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(5) * (C.strides[0]) + 16], (3))
-_mm_prefetch(&C.data[(5) * (C.strides[0]) + 32], (3))
-_mm_prefetch(&C.data[(5) * (C.strides[0]) + 48], (3))
+_mm_prefetch(&C.data[0], (3));
+_mm_prefetch(&C.data[16], (3));
+_mm_prefetch(&C.data[32], (3));
+_mm_prefetch(&C.data[48], (3));
+_mm_prefetch(&C.data[C.strides[0]], (3));
+_mm_prefetch(&C.data[C.strides[0] + 16], (3));
+_mm_prefetch(&C.data[C.strides[0] + 32], (3));
+_mm_prefetch(&C.data[C.strides[0] + 48], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0]) + 16], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0]) + 32], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0]) + 48], (3));
+_mm_prefetch(&C.data[(3) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(3) * (C.strides[0]) + 16], (3));
+_mm_prefetch(&C.data[(3) * (C.strides[0]) + 32], (3));
+_mm_prefetch(&C.data[(3) * (C.strides[0]) + 48], (3));
+_mm_prefetch(&C.data[(4) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(4) * (C.strides[0]) + 16], (3));
+_mm_prefetch(&C.data[(4) * (C.strides[0]) + 32], (3));
+_mm_prefetch(&C.data[(4) * (C.strides[0]) + 48], (3));
+_mm_prefetch(&C.data[(5) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(5) * (C.strides[0]) + 16], (3));
+_mm_prefetch(&C.data[(5) * (C.strides[0]) + 32], (3));
+_mm_prefetch(&C.data[(5) * (C.strides[0]) + 48], (3));
 __m512 C_reg[6][4];
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
   C_reg[i0][0] = _mm512_setzero_ps();
@@ -731,7 +731,7 @@ _mm512_storeu_ps(&{dst_data}, {src_data});
 
 /* relying on the following instruction..."
 prefetch(A,locality_hint)
-_mm_prefetch(&{A_data}, {locality_hint})
+_mm_prefetch(&{A_data}, {locality_hint});
 */
 // right_panel_kernel0(
 //     N : size,
@@ -748,12 +748,12 @@ EXO_ASSUME(K >= 1);
 // assert stride(C, 1) == 1
 EXO_ASSUME(N < 64);
 EXO_ASSUME(((15 + N) / (16)) == 1);
-_mm_prefetch(&C.data[0], (3))
-_mm_prefetch(&C.data[C.strides[0]], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(3) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(4) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(5) * (C.strides[0])], (3))
+_mm_prefetch(&C.data[0], (3));
+_mm_prefetch(&C.data[C.strides[0]], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(3) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(4) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(5) * (C.strides[0])], (3));
 __m512 C_reg[6][1];
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
   C_reg[i0][0] = _mm512_setzero_ps();
@@ -791,18 +791,18 @@ EXO_ASSUME(K >= 1);
 // assert stride(C, 1) == 1
 EXO_ASSUME(N < 64);
 EXO_ASSUME(((15 + N) / (16)) == 2);
-_mm_prefetch(&C.data[0], (3))
-_mm_prefetch(&C.data[16], (3))
-_mm_prefetch(&C.data[C.strides[0]], (3))
-_mm_prefetch(&C.data[C.strides[0] + 16], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 16], (3))
-_mm_prefetch(&C.data[(3) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 16], (3))
-_mm_prefetch(&C.data[(4) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 16], (3))
-_mm_prefetch(&C.data[(5) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(5) * (C.strides[0]) + 16], (3))
+_mm_prefetch(&C.data[0], (3));
+_mm_prefetch(&C.data[16], (3));
+_mm_prefetch(&C.data[C.strides[0]], (3));
+_mm_prefetch(&C.data[C.strides[0] + 16], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0]) + 16], (3));
+_mm_prefetch(&C.data[(3) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(3) * (C.strides[0]) + 16], (3));
+_mm_prefetch(&C.data[(4) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(4) * (C.strides[0]) + 16], (3));
+_mm_prefetch(&C.data[(5) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(5) * (C.strides[0]) + 16], (3));
 __m512 C_reg[6][2];
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
   C_reg[i0][0] = _mm512_setzero_ps();
@@ -851,24 +851,24 @@ EXO_ASSUME(K >= 1);
 // assert stride(C, 1) == 1
 EXO_ASSUME(N < 64);
 EXO_ASSUME(((15 + N) / (16)) == 3);
-_mm_prefetch(&C.data[0], (3))
-_mm_prefetch(&C.data[16], (3))
-_mm_prefetch(&C.data[32], (3))
-_mm_prefetch(&C.data[C.strides[0]], (3))
-_mm_prefetch(&C.data[C.strides[0] + 16], (3))
-_mm_prefetch(&C.data[C.strides[0] + 32], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 16], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 32], (3))
-_mm_prefetch(&C.data[(3) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 16], (3))
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 32], (3))
-_mm_prefetch(&C.data[(4) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 16], (3))
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 32], (3))
-_mm_prefetch(&C.data[(5) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(5) * (C.strides[0]) + 16], (3))
-_mm_prefetch(&C.data[(5) * (C.strides[0]) + 32], (3))
+_mm_prefetch(&C.data[0], (3));
+_mm_prefetch(&C.data[16], (3));
+_mm_prefetch(&C.data[32], (3));
+_mm_prefetch(&C.data[C.strides[0]], (3));
+_mm_prefetch(&C.data[C.strides[0] + 16], (3));
+_mm_prefetch(&C.data[C.strides[0] + 32], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0]) + 16], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0]) + 32], (3));
+_mm_prefetch(&C.data[(3) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(3) * (C.strides[0]) + 16], (3));
+_mm_prefetch(&C.data[(3) * (C.strides[0]) + 32], (3));
+_mm_prefetch(&C.data[(4) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(4) * (C.strides[0]) + 16], (3));
+_mm_prefetch(&C.data[(4) * (C.strides[0]) + 32], (3));
+_mm_prefetch(&C.data[(5) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(5) * (C.strides[0]) + 16], (3));
+_mm_prefetch(&C.data[(5) * (C.strides[0]) + 32], (3));
 __m512 C_reg[6][3];
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
   C_reg[i0][0] = _mm512_setzero_ps();
@@ -928,30 +928,30 @@ EXO_ASSUME(K >= 1);
 // assert stride(C, 1) == 1
 EXO_ASSUME(N < 64);
 EXO_ASSUME(((15 + N) / (16)) == 4);
-_mm_prefetch(&C.data[0], (3))
-_mm_prefetch(&C.data[16], (3))
-_mm_prefetch(&C.data[32], (3))
-_mm_prefetch(&C.data[48], (3))
-_mm_prefetch(&C.data[C.strides[0]], (3))
-_mm_prefetch(&C.data[C.strides[0] + 16], (3))
-_mm_prefetch(&C.data[C.strides[0] + 32], (3))
-_mm_prefetch(&C.data[C.strides[0] + 48], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 16], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 32], (3))
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 48], (3))
-_mm_prefetch(&C.data[(3) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 16], (3))
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 32], (3))
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 48], (3))
-_mm_prefetch(&C.data[(4) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 16], (3))
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 32], (3))
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 48], (3))
-_mm_prefetch(&C.data[(5) * (C.strides[0])], (3))
-_mm_prefetch(&C.data[(5) * (C.strides[0]) + 16], (3))
-_mm_prefetch(&C.data[(5) * (C.strides[0]) + 32], (3))
-_mm_prefetch(&C.data[(5) * (C.strides[0]) + 48], (3))
+_mm_prefetch(&C.data[0], (3));
+_mm_prefetch(&C.data[16], (3));
+_mm_prefetch(&C.data[32], (3));
+_mm_prefetch(&C.data[48], (3));
+_mm_prefetch(&C.data[C.strides[0]], (3));
+_mm_prefetch(&C.data[C.strides[0] + 16], (3));
+_mm_prefetch(&C.data[C.strides[0] + 32], (3));
+_mm_prefetch(&C.data[C.strides[0] + 48], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0]) + 16], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0]) + 32], (3));
+_mm_prefetch(&C.data[(2) * (C.strides[0]) + 48], (3));
+_mm_prefetch(&C.data[(3) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(3) * (C.strides[0]) + 16], (3));
+_mm_prefetch(&C.data[(3) * (C.strides[0]) + 32], (3));
+_mm_prefetch(&C.data[(3) * (C.strides[0]) + 48], (3));
+_mm_prefetch(&C.data[(4) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(4) * (C.strides[0]) + 16], (3));
+_mm_prefetch(&C.data[(4) * (C.strides[0]) + 32], (3));
+_mm_prefetch(&C.data[(4) * (C.strides[0]) + 48], (3));
+_mm_prefetch(&C.data[(5) * (C.strides[0])], (3));
+_mm_prefetch(&C.data[(5) * (C.strides[0]) + 16], (3));
+_mm_prefetch(&C.data[(5) * (C.strides[0]) + 32], (3));
+_mm_prefetch(&C.data[(5) * (C.strides[0]) + 48], (3));
 __m512 C_reg[6][4];
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
   C_reg[i0][0] = _mm512_setzero_ps();

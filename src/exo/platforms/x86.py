@@ -8,7 +8,7 @@ from ..libs.memories import AVX2, AVX512
 # --------------------------------------------------------------------------- #
 
 
-@instr("_mm_prefetch(&{A_data}, {locality_hint})")
+@instr("_mm_prefetch(&{A_data}, {locality_hint});")
 def prefetch(A: [R][1] @ DRAM, locality_hint: size):
     assert 0 <= locality_hint
     assert locality_hint < 8
