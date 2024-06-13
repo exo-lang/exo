@@ -38,14 +38,31 @@ def test_mult_loop():
         for i in seq(0, 10):
             for j in seq(0, 30):
                 pass
-                pass
 
     i_loop = foo.find_loop("i")
     j_loop = foo.find_loop("j")
-    body = j_loop.body()
+    stmt = j_loop.body()[0]
     foo = mult_loops(foo, "i j", "ij")
+    assert foo.forward(i_loop) == foo.forward(j_loop) == foo.forward(stmt).parent()
 
-    assert foo.forward(body) == foo.find_loop("ij").body()
+
+def test_join_loops():
+    @proc
+    def foo(x: i32[20]):
+        for i in seq(0, 10):
+            x[i] = 1.0
+        for i in seq(10, 20):
+            x[i] = 1.0
+
+    loop1 = foo.find_loop("i")
+    stmt1 = loop1.body()[0]
+    loop2 = foo.find_loop("i #1")
+    stmt2 = loop2.body()[0]
+
+    foo = join_loops(foo, loop1, loop2)
+
+    assert foo.forward(loop1) == foo.forward(loop2)
+    assert foo.forward(stmt1) == foo.forward(stmt2)
 
 
 def test_fuse_loops():
@@ -66,6 +83,9 @@ def test_fuse_loops():
     both_loops = loop1.expand(0, 1)
 
     foo = fuse(foo, loop1, loop2)
+
+    # The two loops forward to the newly fused loop
+    assert foo.forward(loop1) == foo.forward(loop2)
 
     # Loop bodies are consecutive
     assert foo.forward(body1)[-1].next() == foo.forward(body2)[0]

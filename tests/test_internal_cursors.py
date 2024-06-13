@@ -963,3 +963,34 @@ def test_move_forwarding_for_blocks_gap_after(proc_baz, golden):
         output.append(_print_cursor(fwd(b_with_endpoint_in_moved_block)))
 
     assert "\n\n".join(output) == golden
+
+
+def test_merge_forwarding(golden):
+    @proc
+    def foo(n: size):
+        x: i8
+        for i in seq(0, 4):
+            x = 0.0
+        for i in seq(0, n):
+            x = 0.0
+
+    loop1 = _find_stmt(foo, "for i in _:_ #0")
+    body1 = loop1.body()
+    four = _find_cursors(foo, "4")[0]
+
+    loop2 = _find_stmt(foo, "for i in _:_ #1")
+    body2 = loop2.body()
+    n_var = _find_cursors(foo, "n")[0]
+
+    blk = loop1.as_block().expand(0, 1)
+
+    _, fwd = blk._merge()
+
+    assert fwd(loop1) == fwd(loop2)
+    assert fwd(body1) == fwd(body2)
+    assert fwd(four) == fwd(n_var)
+
+    output = []
+    output.append(_print_cursor(fwd(loop1)))
+    output.append(_print_cursor(fwd(body1)))
+    assert "\n\n".join(output) == golden
