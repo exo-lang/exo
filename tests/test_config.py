@@ -4,6 +4,7 @@ import pytest
 
 from exo import proc, DRAM, config, instr
 from exo.libs.memories import GEMM_SCRATCH
+from exo.libs.externs import *
 from exo.stdlib.scheduling import *
 
 

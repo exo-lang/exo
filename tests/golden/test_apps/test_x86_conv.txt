@@ -65,7 +65,7 @@ void conv_specialized( void *ctxt, const float* inp, float* output, const float*
 #include <stdio.h>
 #include <stdlib.h>
 
-double _relu_(double x) {
+float _relu_float(float x) {
     if (x > 0.0) return x;
     else return 0.0;
 }

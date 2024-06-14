@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from exo import proc, instr, DRAM, config, QAST
 from exo.libs.memories import GEMM_SCRATCH, GEMM_ACCUM
+from exo.libs.externs import select, relu
 from exo.stdlib.scheduling import *
 
 
@@ -239,7 +240,7 @@ class QAST_Do:
         elif type(e) is QAST.BinOp:
             self.do_e(e.lhs)
             self.do_e(e.rhs)
-        elif type(e) is QAST.BuiltIn:
+        elif type(e) is QAST.Extern:
             [self.do_e(ei) for ei in e.args]
         elif type(e) is QAST.WindowExpr:
             [self.do_w_access(w) for w in e.idx]

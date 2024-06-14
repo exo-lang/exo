@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import re
 from typing import Optional, Iterable
+from collections import ChainMap
 
 import exo.pyparser as pyparser
 from exo.LoopIR import LoopIR, PAST
@@ -59,7 +60,7 @@ def get_match_no(pattern_str: str) -> Optional[int]:
 def match_pattern(
     context: Cursor,
     pattern_str: str,
-    call_depth=0,
+    call_depth=1,
     default_match_no=None,
     use_sym_id=False,
 ):
@@ -78,12 +79,19 @@ def match_pattern(
     else:
         match_no = default_match_no  # None means match-all
 
+    stack_frames: [inspect.FrameInfo] = inspect.stack()
     # get source location where this is getting called from
-    caller = inspect.getframeinfo(inspect.stack()[call_depth + 1][0])
+    caller = inspect.getframeinfo(stack_frames[call_depth][0])
+    func_locals = ChainMap(stack_frames[call_depth].frame.f_locals)
+    func_globals = ChainMap(stack_frames[call_depth].frame.f_globals)
 
     # parse the pattern we're going to use to match
     p_ast = pyparser.pattern(
-        pattern_str, filename=caller.filename, lineno=caller.lineno
+        pattern_str,
+        filename=caller.filename,
+        lineno=caller.lineno,
+        srclocals=func_locals,
+        srcglobals=func_globals,
     )
 
     # do the pattern match, to find the nodes in ast
@@ -109,7 +117,7 @@ _PAST_to_LoopIR = {
     PAST.Const: [LoopIR.Const],
     PAST.USub: [LoopIR.USub],
     PAST.BinOp: [LoopIR.BinOp],
-    PAST.BuiltIn: [LoopIR.BuiltIn],
+    PAST.Extern: [LoopIR.Extern],
     PAST.ReadConfig: [LoopIR.ReadConfig],
     PAST.E_Hole: None,
 }
@@ -324,8 +332,8 @@ class PatternMatch:
             )
         elif isinstance(e, LoopIR.USub):
             return self.match_e(pat.arg, e.arg)
-        elif isinstance(e, LoopIR.BuiltIn):
-            return pat.f is e.f and all(
+        elif isinstance(e, LoopIR.Extern):
+            return self.match_name(pat.f, e.f.name()) and all(
                 self.match_e(pa, sa) for pa, sa in zip(pat.args, e.args)
             )
         elif isinstance(e, LoopIR.ReadConfig):
@@ -383,7 +391,7 @@ def _children(cur) -> Iterable[Node]:
         yield from _children_from_attrs(cur, n, "arg")
     elif isinstance(n, LoopIR.BinOp):
         yield from _children_from_attrs(cur, n, "lhs", "rhs")
-    elif isinstance(n, LoopIR.BuiltIn):
+    elif isinstance(n, LoopIR.Extern):
         yield from _children_from_attrs(cur, n, "args")
     else:
         assert False, f"case {type(n)} unsupported"

@@ -187,7 +187,7 @@ class Interpreter:
             elif e.op == "or":
                 return lhs or rhs
 
-        elif etyp is LoopIR.BuiltIn:
+        elif etyp is LoopIR.Extern:
             args = [self.eval_e(a) for a in e.args]
             return e.f.interpret(args)
 

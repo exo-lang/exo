@@ -1,0 +1,21 @@
+#include "test.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+float _relu_float(float x) {
+    if (x > 0.0) return x;
+    else return 0.0;
+}
+
+// foo(
+//     x : f32[16] @DRAM,
+//     y : f32[16] @DRAM,
+//     z : f32[16] @DRAM
+// )
+void foo( void *ctxt, const float* x, const float* y, float* z ) {
+for (int_fast32_t i = 0; i < 16; i++) {
+  z[i] = _relu_float((float)x[i] + y[i]);
+}
+}
+

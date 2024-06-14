@@ -20,13 +20,23 @@ class ParseFragmentError(Exception):
 
 
 def parse_fragment(
-    proc, fragment, ctx_stmt, call_depth=0, configs=[], scope="before", expr_holes=None
+    proc, fragment, ctx_stmt, call_depth=1, configs=[], scope="before", expr_holes=None
 ):
+    stack_frames: [inspect.FrameInfo] = inspect.stack()
     # get source location where this is getting called from
-    caller = inspect.getframeinfo(inspect.stack()[call_depth + 1][0])
+    caller = inspect.getframeinfo(stack_frames[call_depth][0])
+    func_locals = ChainMap(stack_frames[call_depth].frame.f_locals)
+    func_globals = ChainMap(stack_frames[call_depth].frame.f_globals)
 
     # parse the pattern we're going to use to match
-    p_ast = pyparser.pattern(fragment, filename=caller.filename, lineno=caller.lineno)
+    p_ast = pyparser.pattern(
+        fragment,
+        filename=caller.filename,
+        lineno=caller.lineno,
+        srclocals=func_locals,
+        srcglobals=func_globals,
+    )
+
     if isinstance(p_ast, PAST.expr):
         return ParseFragment(
             p_ast, proc, ctx_stmt, configs, scope, expr_holes
@@ -47,7 +57,7 @@ _PAST_to_LoopIR = {
     PAST.USub: LoopIR.USub,
     PAST.BinOp: LoopIR.BinOp,
     PAST.StrideExpr: LoopIR.StrideExpr,
-    PAST.BuiltIn: LoopIR.BuiltIn,
+    PAST.Extern: LoopIR.Extern,
     PAST.ReadConfig: LoopIR.ReadConfig,
 }
 
@@ -234,14 +244,14 @@ class ParseFragment:
             typ = {float: T.R, bool: T.bool, int: T.int}.get(type(pat.val))
             assert typ is not None, "bad type!"
             return LoopIR.Const(pat.val, typ, self.srcinfo)
-        elif isinstance(pat, PAST.BuiltIn):
+        elif isinstance(pat, PAST.Extern):
             args = [self.parse_e(a) for a in pat.args]
             try:
                 typ = pat.f.typecheck(args)
-            except BuiltIn_Typecheck_Error as err:
+            except Extern_Typecheck_Error as err:
                 raise ParseFragmentError(err)
 
-            return LoopIR.BuiltIn(pat.f, args, typ, self.srcinfo)
+            return LoopIR.Extern(pat.f, args, typ, self.srcinfo)
         elif isinstance(pat, PAST.ReadConfig):
             if pat.config not in self.configs:
                 raise ParseFragmentError(
@@ -304,12 +314,12 @@ class ParseFragment:
                 rhs=self.rebuild_ast(loopIR_expr.rhs),
                 srcinfo=self.srcinfo,
             )
-        elif isinstance(loopIR_expr, LoopIR.BuiltIn):
+        elif isinstance(loopIR_expr, LoopIR.Extern):
             args = [self.rebuild_ast(a) for a in loopIR_expr.args]
 
             try:
                 typ = loopIR_expr.f.typecheck(args)
-            except BuiltIn_Typecheck_Error as err:
+            except Extern_Typecheck_Error as err:
                 raise ParseFragmentError(err)
 
             if typ != loopIR_expr.typ:

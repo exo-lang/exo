@@ -203,8 +203,8 @@ class LoopIR_to_QAST:
             return QAST.BinOp(
                 e.op, self.map_expr(e.lhs), self.map_expr(e.rhs), self.map_type(e.type)
             )
-        elif etyp is LoopIR.BuiltIn:
-            return QAST.BuiltIn(
+        elif etyp is LoopIR.Extern:
+            return QAST.Extern(
                 e.f.name(), [self.map_expr(a) for a in e.args], self.map_type(e.type)
             )
         elif etyp is LoopIR.WindowExpr:

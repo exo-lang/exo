@@ -97,7 +97,7 @@ void matmul_on_gemmini( c_code_str_Context *ctxt, const float* scale, bool act, 
 #include "gemm_acc_malloc.h"
 #include <include/gemmini.h>
 #include "gemm_malloc.h"
-double _relu_(double x) {
+int8_t _relu_int8_t(int8_t x) {
     if (x > 0.0) return x;
     else return 0.0;
 }
