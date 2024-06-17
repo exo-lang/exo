@@ -27,11 +27,25 @@ $ python -m pip install -U pip setuptools wheel
 $ python -m pip install -r requirements.txt
 $ pre-commit install
 ```
+- [ ] _TODO: Should this change from `requirements.txt` to `dev-requirements.txt`?  Additionally, should the dependency on NumPy in the interpreter (deprecated?) be removed?_
 
 This will make sure you have the submodules checked out and that the pre-commit
 scripts (that run an autoformatter, maybe other tools in the future) run.
 
-If you're feeling ambitious, you can also [install Exo from source](#build-exo-from-source).
+- [ ] _TODO: Incorporate Z3 installation into these instructions; move instructions from the immediately following and expand on them._
+
+- [ ] _TODO: Incorporate dependencies into these instructions.  Notably, we need something about installing Ninja_
+
+If you additionally want to be able to build Exo for distribution as a `pip` package, see [Build Exo for Distribution](#build-exo-for-distribution).
+
+### PySMT
+
+Depending on your setup, getting PySMT to work correctly may be difficult. You
+need to independently install a solver such as Z3 or CVC4, and even then getting
+the PySMT library to correctly locate that solver may be difficult. We have
+included the `z3-solver` package as a requirement, which will hopefully avoid
+this issue, but you can also install z3 (or your choice of solver)
+independently.
 
 # Examples
 
@@ -144,13 +158,14 @@ In this repository, folders are structured as follows:
    ignored.
 5. `tests/` contains the Exo test suite.
 
-# Build Exo from source
+# Build Exo for Distribution
 
 We make active use of newer Python 3.x features, so please use the same version
 of Python as our CI if you're getting errors about unsupported features.
 
-Setting up Exo for development is like any other Python project. We
-_strongly_ recommend you use a virtual environment.
+Setting up Exo for distribution is more or less the same as setting it up for development.
+
+- [ ] _TODO: Do we want to delete this?_
 
 ```
 $ git clone git@github.com:exo-lang/exo.git
@@ -160,18 +175,22 @@ $ python -m venv ~/.venv/exo
 $ source ~/.venv/exo/bin/activate
 (exo) $ python -m pip install -U pip setuptools wheel
 (exo) $ python -m pip install -r requirements.txt
+```
+
+The following command will build Exo for distribution
+
+```
 (exo) $ python -m build
+```
+
+And this command will install exo as a local pip package for testing
+
+```
 (exo) $ pip install dist/*.whl
 ```
 
-## PySMT
+Please familiarize yourself with Python wheels and developing packages in order to proceed further down this path.
 
-Depending on your setup, getting PySMT to work correctly may be difficult. You
-need to independently install a solver such as Z3 or CVC4, and even then getting
-the PySMT library to correctly locate that solver may be difficult. We have
-included the `z3-solver` package as a requirement, which will hopefully avoid
-this issue, but you can also install z3 (or your choice of solver)
-independently.
 
 # Notes for Testing
 
