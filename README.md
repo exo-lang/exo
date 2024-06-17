@@ -36,6 +36,8 @@ scripts (that run an autoformatter, maybe other tools in the future) run.
 
 - [ ] _TODO: Incorporate dependencies into these instructions.  Notably, we need something about installing Ninja_
 
+- [x] _TODO: Check if felix can push
+
 If you additionally want to be able to build Exo for distribution as a `pip` package, see [Build Exo for Distribution](#build-exo-for-distribution).
 
 ### PySMT
