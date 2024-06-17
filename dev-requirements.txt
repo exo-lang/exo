@@ -1,3 +1,4 @@
+-r requirements.txt
 black==24.4.2
 coverage==7.5.3
 pre-commit==3.7.1
