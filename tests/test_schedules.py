@@ -84,7 +84,7 @@ def test_left_reassociate_expr_fail_1():
     def foo(a: f32, b: f32, c: f32):
         b = a - (b + c)
 
-    with pytest.raises(TypeError, match="got -"):
+    with pytest.raises(TypeError, match="got \\-"):
         foo = left_reassociate_expr(foo, "_ - _")
 
 
@@ -283,7 +283,7 @@ def test_add_loop6_runs_fail():
 
     with pytest.raises(
         SchedulingError,
-        match="The expression 0 is not " "guaranteed to be greater than 0",
+        match="The expression 0 is not guaranteed to be greater than 0",
     ):
         add_loop(foo, "x = 2.0", "i", 0)
 
@@ -1217,7 +1217,7 @@ def test_fold_buffer_sequential_stmts(golden):
         x[5] = 0.0
 
     with pytest.raises(
-        SchedulingError, match="Buffer folding failed because access window of x\[5\]"
+        SchedulingError, match="Buffer folding failed because access window of x\\[5\\]"
     ):
         foo = resize_dim(foo, foo.find("x: _"), 0, 2, 0, fold=True)
 
@@ -1255,7 +1255,7 @@ def test_fold_buffer_if_stmt(golden):
 
     with pytest.raises(
         SchedulingError,
-        match="Buffer folding failed because access window of x\[i \- 2\]",
+        match="Buffer folding failed because access window of x\\[i \\- 2\\]",
     ):
         foo = resize_dim(foo, foo.find("x: _"), 0, 2, 0, fold=True)
 
@@ -1493,7 +1493,7 @@ def test_divide_with_recompute_fail_outer_hi_too_big():
             A[i] = 1.0
 
     with pytest.raises(
-        SchedulingError, match=r"outer_hi \* outer_stride exceeds loop's hi n \+ 3"
+        SchedulingError, match="outer_hi \\* outer_stride exceeds loop's hi n \\+ 3"
     ):
         foo = divide_with_recompute(
             foo, foo.find_loop("i"), "(n + 4) / 4", 4, ["io", "ii"]
@@ -3439,14 +3439,15 @@ def test_simplify_div_mod_staging(golden):
     assert str(bar) == golden
 
 
-def test_simplify_with_window_stmts():
+def test_simplify_with_window_stmts(golden):
     @proc
     def foo(n: size):
         x: i8[1]
         x_window = x[0 + 0 : 1 + 0]
         x_window[0] = 0.0
 
-    return simplify(foo)
+    foo = simplify(foo)
+    assert str(foo) == golden
 
 
 def test_simplify_logical(golden):
@@ -3736,7 +3737,7 @@ def test_join_loops_fail_equal_bounds():
 
     with pytest.raises(
         SchedulingError,
-        match=r"expected the first loop upper bound n to be the same as the second loop lower bound n \+ 1",
+        match="expected the first loop upper bound n to be the same as the second loop lower bound n \\+ 1",
     ):
         foo = join_loops(foo, foo.find_loop("i"), foo.find_loop("i #1"))
 
@@ -4132,7 +4133,7 @@ def test_lift_reduce_constant_bad_9():
 
     with pytest.raises(
         SchedulingError,
-        match="y\[i\] depends on the variable i which is defined within the loop",
+        match="y\\[i\\] depends on the variable i which is defined within the loop",
     ):
         dot = lift_reduce_constant(dot, dot.find_loop("i").expand(1, 0))
 
@@ -4148,7 +4149,7 @@ def test_lift_reduce_constant_bad_10():
 
     with pytest.raises(
         SchedulingError,
-        match="y\[j\] depends on the variable j which is defined within the loop",
+        match="y\\[j\\] depends on the variable j which is defined within the loop",
     ):
         dot = lift_reduce_constant(dot, dot.find_loop("i").expand(1, 0))
 
