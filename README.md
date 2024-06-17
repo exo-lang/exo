@@ -38,6 +38,8 @@ scripts (that run an autoformatter, maybe other tools in the future) run.
 
 - [ ] _TODO: Should running basic tests be listed as a step here?_
 
+- [x] _TODO: Check if felix can push_
+
 If you additionally want to be able to build Exo for distribution as a `pip` package, see [Build Exo for Distribution](#build-exo-for-distribution).
 
 ### PySMT
