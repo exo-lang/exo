@@ -23,7 +23,7 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get remove -y cmake
-          apt-get install -y ninja-build
+          apt-get install -y ninja-build openssl libssl-dev
           python -m pip install -r requirements.txt
           python -m pip install -r dev-requirements.txt
           python -m pip install cmake build
