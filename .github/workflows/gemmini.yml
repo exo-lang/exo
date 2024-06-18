@@ -16,9 +16,12 @@ jobs:
 
     steps:
       - name: source chipyard
+        shell: bash
         run : |
           source $(conda info --base)/etc/profile.d/conda.sh
           source env.sh
+          pwd
+          ls
         working-directory: /root/chipyard
           
       - uses: actions/checkout@v4
