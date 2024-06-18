@@ -15,6 +15,13 @@ jobs:
         password: ${{ secrets.github_token }}
 
     steps:
+      - name: source chipyard
+        run : |
+          pwd
+          cd chipyard
+          ls
+          ls ..
+          
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
         with:
