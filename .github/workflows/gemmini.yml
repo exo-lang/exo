@@ -15,15 +15,6 @@ jobs:
         password: ${{ secrets.github_token }}
 
     steps:
-      - name: source chipyard
-        shell: bash
-        run : |
-          source $(conda info --base)/etc/profile.d/conda.sh
-          source env.sh
-          pwd
-          ls
-        working-directory: /root/chipyard
-          
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
         with:
@@ -43,7 +34,13 @@ jobs:
           python -m pip install dist/*.whl
 
       - name: Configure GEMMINI tests
-        run: cmake -G Ninja -S apps/gemmini -B build -DCMAKE_BUILD_TYPE=Release
+        shell: bash
+        run : |
+          cd /root/chipyard
+          source $(conda info --base)/etc/profile.d/conda.sh
+          source env.sh
+          cd -
+          cmake -G Ninja -S apps/gemmini -B build -DCMAKE_BUILD_TYPE=Release
 
       - name: Build GEMMINI tests
         run: cmake --build build --verbose
