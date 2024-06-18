@@ -6,7 +6,7 @@ on:
   pull_request:
 jobs:
   gemmini:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
 
     container:
       image: ghcr.io/exo-lang/gemmini:latest
@@ -22,7 +22,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          apt-get remove -y cmake
+          apt-get update
           apt-get install -y ninja-build
           python -m pip install -r requirements.txt
           python -m pip install -r dev-requirements.txt
@@ -33,12 +33,14 @@ jobs:
           python -m build
           python -m pip install dist/*.whl
 
-      - name: Configure GEMMINI tests
-        run: cmake -G Ninja -S apps/gemmini -B build -DCMAKE_BUILD_TYPE=Release
-
-      - name: Build GEMMINI tests
-        run: cmake --build build --verbose
-
-      - name: Run GEMMINI tests
-        run: ctest -V
-        working-directory: build
+      - name: Configure, build, and run GEMMINI tests
+        shell: bash
+        run: |
+          cd /root/chipyard
+          source $(conda info --base)/etc/profile.d/conda.sh
+          source env.sh
+          cd -
+          cmake -G Ninja -S apps/gemmini -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --verbose
+          cd build
+          ctest -V
