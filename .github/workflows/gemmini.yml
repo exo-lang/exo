@@ -17,10 +17,9 @@ jobs:
     steps:
       - name: source chipyard
         run : |
-          pwd
-          cd chipyard
-          ls
-          ls ..
+          source $(conda info --base)/etc/profile.d/conda.sh
+          source env.sh
+        working-directory: /root/chipyard
           
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
