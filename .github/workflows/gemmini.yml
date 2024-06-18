@@ -33,9 +33,9 @@ jobs:
           python -m build
           python -m pip install dist/*.whl
 
-      - name: Configure GEMMINI tests
+      - name: Configure, build, and run GEMMINI tests
         shell: bash
-        run : |
+        run: |
           cd /root/chipyard
           source $(conda info --base)/etc/profile.d/conda.sh
           source env.sh
