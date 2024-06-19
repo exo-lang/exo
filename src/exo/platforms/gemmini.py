@@ -11,13 +11,6 @@ def set_prec_mem(p, bufname, precision, memory):
     return p
 
 
-def check_eqv(p_new, p_old):
-    if str(p_new) != str(p_old):
-        print(p_old)
-        print(p_new)
-        raise ValueError("Mismatch between old and new versions")
-
-
 old_split = repeat(divide_loop)
 old_reorder = repeat(reorder_loops)
 old_unroll = repeat(unroll_loop)
@@ -163,6 +156,47 @@ def fission_inner_blocks(gemmini):
     gemmini = old_reorder(gemmini, "j_in_o ki")
     gemmini = old_reorder(gemmini, "j_in_i i_in")
     return gemmini
+
+
+def inline_div_part(conv):
+    conv = inline_vector(conv)
+    conv = lift_config(conv, "config_ld_acc_i32_vector(_)")
+    conv = inline_ld_id1(conv)
+    conv = lift_config(conv, "config_ld_i8_id1(_)")
+    conv = inline_matmul(conv)
+    conv = lift_config(conv, "config_matmul(_)")
+    conv = inline_st(conv)
+    conv = lift_config(conv, "config_st_acc_i8(_)")
+
+    return conv
+
+
+def inline_mod_part(conv):
+    conv = inline_vector(conv)
+    conv = inline_ld_id1(conv)
+    conv = inline_matmul(conv)
+    conv = inline_st(conv)
+    conv = delete_config(conv, "config_ld_acc_i32_vector(_) #1")
+    conv = delete_config(conv, "config_ld_i8_id1(_) #1")
+    conv = delete_config(conv, "config_matmul(_) #1")
+    conv = delete_config(conv, "config_st_acc_i8(_) #1")
+    conv = simplify(conv)
+
+    return conv
+
+
+def set_gemm_memories(conv):
+    conv = set_memory(conv, "res", GEMM_ACCUM)
+    conv = set_memory(conv, "i_s", GEMM_SCRATCH)
+    conv = set_memory(conv, "w_s", GEMM_SCRATCH)
+    try:
+        conv = set_memory(conv, "res #1", GEMM_ACCUM)
+        conv = set_memory(conv, "i_s #1", GEMM_SCRATCH)
+        conv = set_memory(conv, "w_s #1", GEMM_SCRATCH)
+    except:
+        pass
+
+    return conv
 
 
 def fission_outer_blocks(gemmini):
@@ -1222,7 +1256,7 @@ def new_config_matmul():
 
 ConfigMatmul = new_config_matmul()
 
-_gemm_config_matmul = "gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);\n"
+_gemm_config_matmul = "gemmini_extended_config_ex(WS, 0, 0, 1, 0, 0);\n"
 
 
 @instr(_gemm_config_matmul)

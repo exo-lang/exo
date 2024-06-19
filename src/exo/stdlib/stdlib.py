@@ -553,7 +553,7 @@ def vectorize(
     return proc, vectorize_cursors(outer)
 
 
-def tile_loops_top_down(proc, loop_tile_pairs):
+def tile_loops(proc, loop_tile_pairs, perfect=False):
 
     loop_tile_pairs = [(proc.forward(i[0]), i[1]) for i in loop_tile_pairs]
 
@@ -562,8 +562,9 @@ def tile_loops_top_down(proc, loop_tile_pairs):
         outer_loop = loop_tile_pairs[i][0]
         tile_size = loop_tile_pairs[i][1]
         new_names = (outer_loop.name() + "o", outer_loop.name() + "i")
-        if isinstance(outer_loop.hi(), LiteralCursor) and (
-            outer_loop.hi().value() % tile_size == 0
+        if perfect or (
+            isinstance(outer_loop.hi(), LiteralCursor)
+            and (outer_loop.hi().value() % tile_size == 0)
         ):
             proc = divide_loop(proc, outer_loop, tile_size, new_names, perfect=True)
         else:
