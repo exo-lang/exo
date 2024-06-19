@@ -139,10 +139,10 @@ def add_guard(p, c):
         if not isinstance(c, pc.ForCursor):
             break
         try:
-            hi = c.hi().value()
+            hi = expr_to_string(c.hi())
             name = c.name()
             child = p.forward(c).body()[0]
-            p = remove_loop(p, c)
+            p = remove_loop(p, c, unsafe_disable_check=True)
             p = add_loop(p, child, name, hi, guard=True)
             if_cursor = p.forward(child).parent().body()[0]
             p = sink_if(p, if_cursor)
@@ -231,7 +231,9 @@ def fuse_two_loops(p, c):
         return p, False
 
     if isinstance(c, pc.ForCursor) and isinstance(next_c, pc.ForCursor):
-        if c.name() == next_c.name() and c.hi().value() == next_c.hi().value():
+        if c.name() == next_c.name() and expr_to_string(c.hi()) == expr_to_string(
+            next_c.hi()
+        ):
             p = fuse(p, c, next_c, unsafe_disable_check=True)
             return p, True
         else:
@@ -286,7 +288,10 @@ def autolift_alloc(p, alloc_c, dep_set=None, max_size=0, lift=True):
             if not isinstance(loop_c, pc.ForCursor):
                 break
             if dep_set == None or loop_c.name() in dep_set:
-                if accum_size * loop_c.hi().value() <= max_size:
+                if (
+                    isinstance(loop_c.hi(), LiteralCursor)
+                    and accum_size * loop_c.hi().value() <= max_size
+                ):
                     p = expand_dim(p, alloc_c, loop_c.hi().value(), loop_c.name())
                     accum_size = accum_size * loop_c.hi().value()
             if lift:

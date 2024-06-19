@@ -210,7 +210,7 @@ gemmini_extended3_config_ld({src_stride}, 1.0f, 0, 1);
 
 /* relying on the following instruction..."
 config_matmul()
-gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
+gemmini_extended_config_ex(WS, 0, 0, 1, 0, 0);
 
 */
 
@@ -230,7 +230,7 @@ gemmini_extended_config_st({dst_stride}, {act}, {scale}[0]);
 void conv_17( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale ) {
 gemmini_extended_config_st((128), (act), (scale)[0]);
 
-gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
+gemmini_extended_config_ex(WS, 0, 0, 1, 0, 0);
 
 gemmini_extended3_config_ld((128), 1.0f, 0, 1);
 
@@ -1356,7 +1356,7 @@ for (int_fast32_t b = 0; b < 4; b++) {
 void conv_3( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale ) {
 gemmini_extended_config_st((64), (act), (scale)[0]);
 
-gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
+gemmini_extended_config_ex(WS, 0, 0, 1, 0, 0);
 
 gemmini_extended3_config_ld((64), 1.0f, 0, 1);
 
@@ -1475,7 +1475,7 @@ gemm_free((uint64_t)(i_s));
 void conv_30( test_case_Context *ctxt, int8_t* output, const int32_t* bias, const int8_t* inp, const int8_t* weights, bool act, const float* scale ) {
 gemmini_extended_config_st((256), (act), (scale)[0]);
 
-gemmini_extended_config_ex(WS, 0, 0, 0, 1, 0, 0);
+gemmini_extended_config_ex(WS, 0, 0, 1, 0, 0);
 
 gemmini_extended3_config_ld((256), 1.0f, 0, 1);
 

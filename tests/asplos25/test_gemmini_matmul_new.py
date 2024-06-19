@@ -65,17 +65,15 @@ def matmul_algorithm():
     return matmul
 
 
-# Matmul test for artifact evaluation. The same algorithm and schedule
-# was used for Table 2 (512x521x512) and Table 3 (code size)
-def test_matmul_ae(golden):
-    NN = 512
-    MM = 512
+def test_matmul(golden):
     KK = 512
 
     cpu = rename(
         matmul_algorithm(), "matmul_on_cpu"
     )  # Rename "matmul" to "matmul_on_cpu"
-    cpu = cpu.partial_eval(NN, MM, KK)
+    cpu = cpu.partial_eval(K=KK)
+    cpu = cpu.add_assertion("N % 256 == 0")
+    cpu = cpu.add_assertion("M % 256 == 0")
 
     # Rename the procedure to "matmul_on_gemmini"
     gemmini = rename(cpu, "matmul_on_gemmini")
@@ -85,8 +83,6 @@ def test_matmul_ae(golden):
     print(gemmini)
     print("===== THIS IS THE ORIGINAL MATMUL ALGORITHM BEFORE SCHEDULING ====")
     print("")
-
-    # Schedule starts here. Below sets buffer to use GEMMINI memories.
 
     # Parameters
     accum_size = 16 * 1024
@@ -101,10 +97,14 @@ def test_matmul_ae(golden):
     b_assign = gemmini.find("b2 = B[_]")
     res_alloc = res_load.prev()
 
+    # Schedule starts here!!
+
     # Tile loops for a scratchpad and an accumulator
-    gemmini, _ = tile_loops_top_down(gemmini, [(i_loop, 16), (j_loop, 16)])
-    gemmini, [_, j_outer] = tile_loops_top_down(gemmini, [(i_loop, 16), (j_loop, 16)])
-    gemmini, _ = tile_loops_top_down(gemmini, [(k_loop, 16)])
+    gemmini, _ = tile_loops(gemmini, [(i_loop, 16), (j_loop, 16)], perfect=True)
+    gemmini, [_, j_outer] = tile_loops(
+        gemmini, [(i_loop, 16), (j_loop, 16)], perfect=True
+    )
+    gemmini, _ = tile_loops(gemmini, [(k_loop, 16)])
 
     # Bind and lift scrathpad & accumulator memories
     gemmini = autolift_alloc(gemmini, res_alloc, max_size=accum_size)
@@ -116,8 +116,8 @@ def test_matmul_ae(golden):
     )
 
     # Divide by 4 to use load_blocks
-    gemmini, _ = tile_loops_top_down(gemmini, [(k_loop, 4)])
-    gemmini, [j_imost] = tile_loops_top_down(gemmini, [(j_outer, 4)])
+    gemmini, _ = tile_loops(gemmini, [(k_loop, 4)])
+    gemmini, [j_imost] = tile_loops(gemmini, [(j_outer, 4)], perfect=True)
 
     # Fission all the loops
     gemmini = fission_as_much_as_possible(gemmini, res_load)
@@ -148,8 +148,6 @@ def test_matmul_ae(golden):
     for t in tuples:
         gemmini = simplify(replace_and_inline(gemmini, t))
 
-    gemmini = reorder_stmts(gemmini, gemmini.find("config_ld_i8_id1(_)").expand(1, 0))
-
     # Add a guard to redundant loads
     gemmini = add_guard(gemmini, gemmini.find("do_ld_i8_block_id1(_)"))
     gemmini = add_guard(gemmini, gemmini.find("do_ld_i8_block_id2(_)"))
@@ -158,7 +156,8 @@ def test_matmul_ae(golden):
     gemmini = fuse_all_loops(gemmini, gemmini.body()[0])
     gemmini = unroll_all(gemmini, gemmini.find_loop(j_imost.name(), many=True))
 
-    # Schedule ends here
+    # Schedule ends here!!
+    # 29 lines excluding comments and newlines
 
     gemmini = simplify(gemmini)
 

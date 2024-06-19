@@ -2305,7 +2305,7 @@ def _is_idempotent(stmts):
     return all(_stmt(s) for s in stmts)
 
 
-def DoRemoveLoop(loop):
+def DoRemoveLoop(loop, unsafe_disable_check):
     s = loop._node
 
     # Check if we can remove the loop. Conditions are:
@@ -2316,7 +2316,8 @@ def DoRemoveLoop(loop):
         )
 
     # 2. Body is idempotent
-    Check_IsIdempotent(loop.get_root(), [s])
+    if not unsafe_disable_check:
+        Check_IsIdempotent(loop.get_root(), [s])
 
     # 3. The loop runs at least once;
     #    If not, then place a guard around the statement
