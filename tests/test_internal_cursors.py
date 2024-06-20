@@ -820,6 +820,7 @@ def test_block_replace_forwarding_for_blocks(proc_baz, golden):
     b_before = b_edit[:1]
     b_after = b_edit[4:]
     b_with_endpoint_in_replace = b_edit[:2]
+    b_inside = b_edit[2:4]
 
     # replace 1:4 with two pass stmts
     pass_ir = LoopIR.Pass(None, c[0]._node.srcinfo)
@@ -835,9 +836,13 @@ def test_block_replace_forwarding_for_blocks(proc_baz, golden):
     output.append(_print_cursor(fwd(b_edit)))
     output.append(_print_cursor(fwd(c)))
 
-    # Blocks partially containing the replace block have undefined behavior.
+    # Blocks partially containing the replace block are invalidated.
     with pytest.raises(InvalidCursorError, match=r"block no longer exists"):
         fwd(b_with_endpoint_in_replace)
+
+    # Blocks entirely within the replace block are invalidated
+    with pytest.raises(InvalidCursorError, match=r"block no longer exists"):
+        fwd(b_inside)
 
     assert "\n\n".join(output) == golden
 
