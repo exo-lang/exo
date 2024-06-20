@@ -322,7 +322,7 @@ class Block(Cursor):
             return [(attr, idx_update(i))]
 
         def fwd_block(attr, rng):
-            if _intersects_partially(rng, del_range):
+            if _intersects_partially(rng, del_range) or _is_sub_range(rng, del_range):
                 raise InvalidCursorError("block no longer exists")
 
             return [(attr, range(idx_update(rng.start), idx_update(rng.stop)))]
