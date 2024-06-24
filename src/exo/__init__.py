@@ -11,7 +11,6 @@ from .LoopIR_scheduling import SchedulingError
 from .parse_fragment import ParseFragmentError
 from .configs import Config
 from .memory import Memory, DRAM
-from . import query_asts as QAST
 
 from . import stdlib
 
@@ -27,7 +26,6 @@ __all__ = [
     "Config",
     "Memory",
     "DRAM",
-    "QAST",
     "SchedulingError",
     "ParseFragmentError",
     #

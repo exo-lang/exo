@@ -23,7 +23,6 @@ from .new_eff import Check_Aliasing
 # Moved to new file
 from .proc_eqv import decl_new_proc, derive_proc, assert_eqv_proc, check_eqv_proc
 from .pyparser import get_ast_from_python, Parser, get_src_locals
-from .reflection import LoopIR_to_QAST
 from .typecheck import TypeChecker
 
 from . import API_cursors as C
@@ -311,22 +310,6 @@ class Procedure(ProcedureBase):
 
     def find_all(self, pattern):
         return self.find(pattern, many=True)
-
-    def get_ast(self, pattern=None):
-        if pattern is None:
-            return LoopIR_to_QAST(self._loopir_proc).result()
-
-        # do pattern matching
-        match = match_pattern(self._root(), pattern, call_depth=1)
-
-        # convert matched sub-trees to QAST
-        assert isinstance(match, list)
-        if not match:
-            return None
-
-        return [
-            LoopIR_to_QAST(node._node).result() for block in match for node in block
-        ]
 
     # ---------------------------------------------- #
     #     execution / compilation operations
