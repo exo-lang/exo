@@ -11,7 +11,6 @@ from exo.LoopIR_scheduling import SchedulingError
 from .API_types import ProcedureBase, ExoType
 from . import LoopIR as LoopIR
 from .LoopIR_compiler import run_compile, compile_to_strings
-from .LoopIR_interpreter import run_interpreter
 from .LoopIR_unification import DoReplace, UnificationError
 from .configs import Config
 from .effectcheck import InferEffects, CheckEffects
@@ -330,7 +329,7 @@ class Procedure(ProcedureBase):
         ]
 
     # ---------------------------------------------- #
-    #     execution / interpretation operations
+    #     execution / compilation operations
     # ---------------------------------------------- #
 
     def show_c_code(self):
@@ -342,9 +341,6 @@ class Procedure(ProcedureBase):
 
     def compile_c(self, directory: Path, filename: str):
         compile_procs([self], directory, f"{filename}.c", f"{filename}.h")
-
-    def interpret(self, **kwargs):
-        run_interpreter(self._loopir_proc, kwargs)
 
     # ------------------------------- #
     #     scheduling operations
