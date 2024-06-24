@@ -1,0 +1,5 @@
+def foo(n: size, x: i8[n] @ DRAM, locality_hint: size):
+    assert locality_hint >= 0
+    assert locality_hint < 8
+    prefetch(x[1:2], locality_hint)
+    pass

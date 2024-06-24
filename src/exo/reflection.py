@@ -174,7 +174,7 @@ class LoopIR_to_QAST:
                 self.map_expr(s.lo),
                 self.map_expr(s.hi),
                 self.map_stmts(s.body),
-                False,
+                isinstance(s.loop_mode, LoopIR.Par),
             )
         elif styp is LoopIR.Alloc:
             name = self.bindname(s.name)
