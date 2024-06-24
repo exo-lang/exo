@@ -1,6 +1,3 @@
-import math
-
-
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # BuiltIn superclass
@@ -30,9 +27,6 @@ class BuiltIn:
     def typecheck(self, args):
         raise NotImplementedError()
 
-    def interpret(self, args):
-        raise NotImplementedError()
-
     def compile(self, args):
         raise NotImplementedError()
 
@@ -55,9 +49,6 @@ class _Sin(BuiltIn):
 
     def globl(self):
         return "#include <math.h>"
-
-    def interpret(self, args):
-        return math.sin(args[0])
 
     def compile(self, args):
         return f"sin((double)*{args[0]})"
@@ -90,12 +81,6 @@ class _Relu(BuiltIn):
             "}\n"
         )
         return s
-
-    def interpret(self, args):
-        if args[0] > 0:
-            return args[0]
-        else:
-            return 0
 
     def compile(self, args):
         return f"_relu_((double)*{args[0]})"
@@ -149,16 +134,6 @@ class _Select(BuiltIn):
             "}\n"
         )
         return s
-
-    def interpret(self, args):
-        x = args[0]
-        v = args[1]
-        y = args[2]
-        z = args[3]
-        if x < v:
-            return y
-        else:
-            return z
 
     def compile(self, args):
         return f"_select_((double)*{args[0]}, (double)*{args[1]}, (double)*{args[2]}, (double)*{args[3]})"
