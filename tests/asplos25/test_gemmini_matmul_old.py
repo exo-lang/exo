@@ -86,7 +86,6 @@ def test_matmul(golden):
     # tile
     gemmini = matmul_tile(gemmini)
 
-    print(gemmini)
     gemmini = old_lift_alloc(gemmini, "res : _", n_lifts=1)
     gemmini = old_lift_alloc(gemmini, "a : _", n_lifts=4)
     gemmini = old_lift_alloc(gemmini, "b : _", n_lifts=3)
@@ -120,7 +119,6 @@ def test_matmul(golden):
     gemmini = old_reorder(gemmini, "ko jo")
     gemmini = old_reorder(gemmini, "i jo")
     gemmini = old_reorder(gemmini, "io jo")
-    print(gemmini)
     gemmini = fuse(gemmini, "for jo in _:_ #0", "for jo in _:_ #1")
     gemmini = fuse(gemmini, "for jo in _:_ #0", "for jo in _:_ #1")
     gemmini = fuse(
