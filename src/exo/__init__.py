@@ -15,7 +15,7 @@ from . import query_asts as QAST
 
 from . import stdlib
 
-__version__ = "0.1.3"
+__version__ = "0.2.0"
 
 __all__ = [
     "Procedure",
