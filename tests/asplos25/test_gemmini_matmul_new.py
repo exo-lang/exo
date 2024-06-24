@@ -86,7 +86,7 @@ def test_matmul(golden):
 
     # Parameters
     accum_size = 16 * 1024
-    sc_size = 128 * 1024
+    sc_size = 256 * 1024
 
     # Grab cursors
     i_loop = gemmini.find_loop("i")
