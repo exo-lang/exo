@@ -1,8 +1,26 @@
 from __future__ import annotations
 
-from exo import proc, instr, DRAM, config, QAST
+from exo import proc, instr, DRAM, config
 from exo.libs.memories import GEMM_SCRATCH, GEMM_ACCUM
 from exo.stdlib.scheduling import *
+
+
+def lift_config(p, config_str):
+    config = p.find(config_str)
+    while True:
+        try:
+            try:
+                while True:
+                    try:
+                        p = reorder_stmts(p, p.forward(config).expand(1, 0))
+                    except:
+                        raise Exception("Reordered to the top of the scope")
+            except:
+                p = fission(p, p.forward(config).after(), unsafe_disable_checks=True)
+                p = remove_loop(p, p.forward(config).parent())
+        except:
+            break
+    return p
 
 
 def set_prec_mem(p, bufname, precision, memory):
@@ -217,148 +235,6 @@ def tile_outer_loops(gemmini):
     gemmini = old_reorder(gemmini, "j_in_o j_in_i")
 
     return gemmini
-
-
-class QAST_Do:
-    def __init__(self, proc):
-        self.proc = proc
-
-        # [ self.do_fnarg(a) for a in self.proc.args ]
-        [self.do_e(p) for p in self.proc.assertions]
-        self.do_stmts(self.proc.body)
-
-    def do_stmts(self, stmts):
-        [self.do_s(b) for b in stmts]
-
-    def do_s(self, s):
-        if type(s) is QAST.Assign or type(s) is QAST.Reduce:
-            [self.do_e(e) for e in s.idx]
-            self.do_e(s.rhs)
-        elif type(s) is QAST.WriteConfig:
-            self.do_e(s.rhs)
-        elif type(s) is QAST.For:
-            self.do_e(s.lo)
-            self.do_e(s.hi)
-            self.do_stmts(s.body)
-        elif type(s) is QAST.If:
-            self.do_e(s.cond)
-            self.do_stmts(s.body)
-            if len(s.orelse) > 0:
-                self.do_stmts(s.orelse)
-        elif type(s) is QAST.Pass:
-            pass
-        elif type(s) is QAST.Alloc:
-            pass
-        elif type(s) is QAST.Call:
-            [self.do_e(e) for e in s.args]
-        elif type(s) is QAST.WindowStmt:
-            self.do_e(s.rhs)
-        else:
-            assert False, "bad case"
-
-    def do_w_access(self, w):
-        if type(w) is QAST.Interval:
-            self.do_e(w.lo)
-            self.do_e(w.hi)
-        elif type(w) is QAST.Point:
-            self.do_e(w.pt)
-
-    def do_e(self, e):
-        if type(e) is QAST.Read:
-            [self.do_e(ei) for ei in e.idx]
-        elif type(e) is QAST.Const:
-            pass
-        elif type(e) is QAST.USub:
-            self.do_e(e.arg)
-        elif type(e) is QAST.BinOp:
-            self.do_e(e.lhs)
-            self.do_e(e.rhs)
-        elif type(e) is QAST.BuiltIn:
-            [self.do_e(ei) for ei in e.args]
-        elif type(e) is QAST.WindowExpr:
-            [self.do_w_access(w) for w in e.idx]
-        elif type(e) is QAST.StrideExpr:
-            pass
-        elif type(e) is QAST.ReadConfig:
-            pass
-        else:
-            assert False, "bad case"
-
-
-class CanFissionLoop(QAST_Do):
-    def __init__(self, proc, stmt):
-        self.stmt = stmt
-        self.result = False
-        super().__init__(proc)
-
-    def result(self):
-        return self.result
-
-    def do_s(self, s):
-        if type(s) is QAST.For:
-            assert len(s.body) > 0
-            if s.body[0] == self.stmt:
-                self.result = True
-
-        super().do_s(s)
-
-
-class CanFissionIf(QAST_Do):
-    def __init__(self, proc, stmt):
-        self.stmt = stmt
-        self.result = None
-        super().__init__(proc)
-
-    def result(self):
-        return self.result
-
-    def do_s(self, s):
-        if type(s) is QAST.If:
-            assert len(s.body) > 0
-            if s.body[0] == self.stmt:
-                self.result = str(s)
-            elif len(s.orelse) > 0 and s.orelse[0] == self.stmt:
-                self.result = str(s)
-
-        super().do_s(s)
-
-
-class CanReorder(QAST_Do):
-    def __init__(self, proc, stmt):
-        self.stmt = stmt
-        self.result = None
-        super().__init__(proc)
-
-    def result(self):
-        return self.result
-
-    def do_stmts(self, stmts):
-        prev = None
-        for b in stmts:
-            if b == self.stmt and prev is not None:
-                self.result = str(prev)
-            else:
-                self.do_s(b)
-                prev = b
-
-
-def lift_config(conv, string, nth=0):
-    stmt = conv.get_ast(string)
-    stmt = stmt[nth]  # Get the match
-
-    while True:
-        proc = conv.get_ast()
-        fission_loop = CanFissionLoop(proc, stmt).result
-        reorder = CanReorder(proc, stmt).result
-        if fission_loop:
-            conv = old_fission_after(conv, string)
-        elif reorder is not None:
-            conv = reorder_stmts(conv, conv.find(string).expand(1, 0))
-            # conv = conv.reorder_before(string)
-        else:
-            break
-
-    return conv
 
 
 def inline_vector(conv):

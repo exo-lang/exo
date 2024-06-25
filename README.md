@@ -60,11 +60,10 @@ Take a look at `exo/examples` for scheduling examples.
 - `.get_ast()` returns a `QAST`, which is an AST representation suitable for
   introspection.
 
-**Execution / interpretation operations**
+**Execution / compilation operations**
 
 - `.compile_c(directory, filename)` compiles the procedure into C and stores
   in `filename` in the `directory`.
-- `.interpret(**args)` runs Exo interpreter on the procedure.
 
 ## Scheduling operations on Procedure objects
 

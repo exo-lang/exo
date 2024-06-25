@@ -12,7 +12,6 @@ from exo.LoopIR_scheduling import SchedulingError
 from .API_types import ProcedureBase, ExoType
 from . import LoopIR as LoopIR
 from .LoopIR_compiler import run_compile, compile_to_strings
-from .LoopIR_interpreter import run_interpreter
 from .LoopIR_unification import DoReplace, UnificationError
 from .configs import Config
 from .effectcheck import InferEffects, CheckEffects
@@ -25,7 +24,6 @@ from .new_eff import Check_Aliasing
 # Moved to new file
 from .proc_eqv import decl_new_proc, derive_proc, assert_eqv_proc, check_eqv_proc
 from .pyparser import get_ast_from_python, Parser, get_src_locals
-from .reflection import LoopIR_to_QAST
 from .typecheck import TypeChecker
 
 from . import API_cursors as C
@@ -341,24 +339,8 @@ class Procedure(ProcedureBase):
     def find_all(self, pattern):
         return self.find(pattern, many=True)
 
-    def get_ast(self, pattern=None):
-        if pattern is None:
-            return LoopIR_to_QAST(self._loopir_proc).result()
-
-        # do pattern matching
-        match = match_pattern(self._root(), pattern, call_depth=1)
-
-        # convert matched sub-trees to QAST
-        assert isinstance(match, list)
-        if not match:
-            return None
-
-        return [
-            LoopIR_to_QAST(node._node).result() for block in match for node in block
-        ]
-
     # ---------------------------------------------- #
-    #     execution / interpretation operations
+    #     execution / compilation operations
     # ---------------------------------------------- #
 
     def show_c_code(self):
@@ -370,9 +352,6 @@ class Procedure(ProcedureBase):
 
     def compile_c(self, directory: Path, filename: str):
         compile_procs([self], directory, f"{filename}.c", f"{filename}.h")
-
-    def interpret(self, **kwargs):
-        run_interpreter(self._loopir_proc, kwargs)
 
     # ------------------------------- #
     #     scheduling operations
