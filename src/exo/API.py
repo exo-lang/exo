@@ -2,6 +2,7 @@ import ast as pyast
 import inspect
 import re
 import types
+import traceback
 from pathlib import Path
 from typing import Optional, Union, List
 
@@ -36,16 +37,30 @@ from . import internal_cursors as IC
 
 
 def proc(f, _instr=None) -> "Procedure":
-    if not isinstance(f, types.FunctionType):
+    if not isinstance(f, types.FunctionType) and not isinstance(f, pyast.FunctionDef):
         raise TypeError("@proc decorator must be applied to a function")
 
-    body, getsrcinfo = get_ast_from_python(f)
-    assert isinstance(body, pyast.FunctionDef)
+    body = f
 
+    def emptySrcInfo(*args):
+        return SrcInfo(
+            filename="",
+            lineno=0,
+            col_offset=0,
+            end_lineno=None,
+            end_col_offset=None,
+        )
+
+    getsrcinfo = emptySrcInfo
+    f_globals = None
+    if isinstance(f, types.FunctionType):
+        body, getsrcinfo = get_ast_from_python(f)
+        assert isinstance(body, pyast.FunctionDef)
+        f_globals == f.__globals__
     parser = Parser(
         body,
         getsrcinfo,
-        func_globals=f.__globals__,
+        func_globals=f_globals,
         srclocals=get_src_locals(depth=3 if _instr else 2),
         instr=_instr,
         as_func=True,
@@ -196,6 +211,19 @@ class Procedure(ProcedureBase):
         self._loopir_proc = proc
         self._provenance_eq_Procedure = _provenance_eq_Procedure
         self._forward = _forward
+        allFrames = inspect.getouterframes(inspect.currentframe())
+
+        print_proc = False
+        for frame in allFrames:
+            if frame.filename[-13:] == "ExoExample.py":
+                print_proc = True
+                print(frame.lineno)
+                print("COMMAND")
+                break
+
+        if print_proc:
+            print(self)
+            print("SPLIT")
 
     def forward(self, cur: C.Cursor):
         p = self
