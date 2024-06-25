@@ -1,4 +1,6 @@
 def foo(n: size, A: i8[n] @ DRAM):
     a: i8 @ DRAM
+    a = 4.0
     for i in seq(0, n):
-        a = 3.0
+        a += A[i]
+        a = 0.0

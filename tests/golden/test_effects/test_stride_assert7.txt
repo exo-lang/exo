@@ -1,0 +1,3 @@
+def bar(n: size, m: size, x: i8[n, m] @ DRAM):
+    assert stride(x, 0) == 10
+    pass

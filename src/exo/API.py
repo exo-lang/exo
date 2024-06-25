@@ -13,7 +13,7 @@ from . import LoopIR as LoopIR
 from .LoopIR_compiler import run_compile, compile_to_strings
 from .LoopIR_unification import DoReplace, UnificationError
 from .configs import Config
-from .effectcheck import InferEffects, CheckEffects
+from .boundscheck import CheckBounds
 from .memory import Memory
 from .parse_fragment import parse_fragment
 from .pattern_match import match_pattern
@@ -170,8 +170,7 @@ class Procedure(ProcedureBase):
 
         if isinstance(proc, LoopIR.UAST.proc):
             proc = TypeChecker(proc).get_loopir()
-            proc = InferEffects(proc).result()
-            CheckEffects(proc)
+            CheckBounds(proc)
             Check_Aliasing(proc)
 
         assert isinstance(proc, LoopIR.LoopIR.proc)
@@ -226,26 +225,8 @@ class Procedure(ProcedureBase):
     #     introspection operations
     # -------------------------------- #
 
-    def check_effects(self):
-        self._loopir_proc = InferEffects(self._loopir_proc).result()
-        CheckEffects(self._loopir_proc)
-        return self
-
     def name(self):
         return self._loopir_proc.name
-
-    def show_effects(self):
-        self._loopir_proc = InferEffects(self._loopir_proc).result()
-        return str(self._loopir_proc.eff)
-
-    def show_effect(self, stmt_pattern):
-        self._loopir_proc = InferEffects(self._loopir_proc).result()
-        if match := match_pattern(
-            self._root(), stmt_pattern, call_depth=1, default_match_no=0
-        ):
-            assert len(match[0]) == 1, "Must match single statements"
-            return str(match[0][0]._node.eff)
-        raise SchedulingError("failed to find statement", pattern=stmt_pattern)
 
     def is_instr(self):
         return self._loopir_proc.instr is not None
@@ -381,7 +362,7 @@ class Procedure(ProcedureBase):
         p = self._loopir_proc
         assertion = parse_fragment(p, assertion, p.body[0], configs=configs)
         p = LoopIR.LoopIR.proc(
-            p.name, p.args, p.preds + [assertion], p.body, p.instr, p.eff, p.srcinfo
+            p.name, p.args, p.preds + [assertion], p.body, p.instr, p.srcinfo
         )
         return Procedure(p, _provenance_eq_Procedure=None)
 

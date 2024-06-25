@@ -1,3 +1,4 @@
-Writes:
-    { A : (i,j) for (i,j) in Z if
-    0 <= i and i < 10 and (0 <= j and j < 20) }
+def foo(A: f32[10, 20] @ DRAM):
+    for i in seq(0, 10):
+        for j in seq(0, 20):
+            A[i, j] = 0.0

@@ -113,19 +113,19 @@ def test_gap_insert_pass(proc_foo, golden):
     c = _find_stmt(proc_foo, "x = 0.0")
     assn = c._node
     g = c.after()
-    foo2, _ = g._insert([LoopIR.Pass(None, assn.srcinfo)])
+    foo2, _ = g._insert([LoopIR.Pass(assn.srcinfo)])
     assert str(foo2) == golden
 
 
 def test_insert_root_front(proc_foo, golden):
     c = proc_foo._root()
-    foo2, _ = c.body().before()._insert([LoopIR.Pass(None, c._node.srcinfo)])
+    foo2, _ = c.body().before()._insert([LoopIR.Pass(c._node.srcinfo)])
     assert str(foo2) == golden
 
 
 def test_insert_root_end(proc_foo, golden):
     c = proc_foo._root()
-    foo2, _ = c.body().after()._insert([LoopIR.Pass(None, c._node.srcinfo)])
+    foo2, _ = c.body().after()._insert([LoopIR.Pass(c._node.srcinfo)])
     assert str(foo2) == golden
 
 
@@ -170,7 +170,7 @@ def test_block_replace(proc_bar, golden):
     c = _find_stmt(proc_bar, "for j in _: _")
     stmts = c.body()[1:4]
 
-    bar2, _ = stmts._replace([LoopIR.Pass(None, c._node.srcinfo)])
+    bar2, _ = stmts._replace([LoopIR.Pass(c._node.srcinfo)])
     assert str(bar2) == golden
 
 
@@ -184,7 +184,7 @@ def test_node_replace(proc_bar, golden):
     c = _find_stmt(proc_bar, "x = 3.0")
     assert isinstance(c, Node)
 
-    bar2, _ = c._replace([LoopIR.Pass(None, c._node.srcinfo)])
+    bar2, _ = c._replace([LoopIR.Pass(c._node.srcinfo)])
     assert str(bar2) == golden
 
 
@@ -355,7 +355,7 @@ def test_insert_forward_orelse():
     x2_old = _find_stmt(example_old, "x = 2.0")
     gap = x1_old.after()
 
-    stmt = [LoopIR.Pass(None, x1_old._node.srcinfo)]
+    stmt = [LoopIR.Pass(x1_old._node.srcinfo)]
 
     example_new, fwd = gap._insert(stmt)
     x2_new = _find_stmt(example_new, "x = 2.0")
@@ -438,8 +438,8 @@ def test_block_replace_forward_node(proc_bar, old, new):
     for_j = _find_stmt(proc_bar, "for j in _: _").body()
     bar_new, fwd = for_j[1:4]._replace(
         [
-            LoopIR.Pass(None, for_j.parent()._node.srcinfo),
-            LoopIR.Pass(None, for_j.parent()._node.srcinfo),
+            LoopIR.Pass(for_j.parent()._node.srcinfo),
+            LoopIR.Pass(for_j.parent()._node.srcinfo),
         ]
     )
 
@@ -629,7 +629,7 @@ def test_wrap_block(proc_bar, golden):
         src = body[0].srcinfo
         zero = LoopIR.Const(0, T.index, src)
         eight = LoopIR.Const(8, T.index, src)
-        return LoopIR.For(k, zero, eight, body, LoopIR.Seq(), None, src)
+        return LoopIR.For(k, zero, eight, body, LoopIR.Seq(), src)
 
     procs = []
     for i in range(0, 6):
@@ -654,7 +654,7 @@ def test_wrap_block_forward(proc_bar):
     def wrapper(orelse):
         src = orelse[0].srcinfo
         true = LoopIR.Const(True, T.bool, src)
-        return LoopIR.If(true, [LoopIR.Pass(None, src)], orelse, None, src)
+        return LoopIR.If(true, [LoopIR.Pass(src)], orelse, src)
 
     for i in range(0, 6):
         for j in range(i + 1, 6):
@@ -747,7 +747,7 @@ def test_insert_forwarding_for_blocks(proc_baz, golden):
     b_before = b_edit[:2]
     b_after = b_edit[2:]
 
-    _, fwd = c.after()._insert([LoopIR.Pass(None, c._node.srcinfo)])
+    _, fwd = c.after()._insert([LoopIR.Pass(c._node.srcinfo)])
 
     output = []
     output.append(_print_cursor(fwd(b_above)))  # above edit level
@@ -823,7 +823,7 @@ def test_block_replace_forwarding_for_blocks(proc_baz, golden):
     b_inside = b_edit[2:4]
 
     # replace 1:4 with two pass stmts
-    pass_ir = LoopIR.Pass(None, c[0]._node.srcinfo)
+    pass_ir = LoopIR.Pass(c[0]._node.srcinfo)
     _, fwd = c._replace([pass_ir, pass_ir])
 
     output = []
@@ -855,7 +855,7 @@ def test_node_replace_forwarding(proc_baz):
 
 def test_block_replace_forwarding_stmt_to_stmt(proc_baz):
     c = _find_stmt(proc_baz, "x = 0")
-    _, fwd = c._replace(LoopIR.Pass(None, c._node.srcinfo))
+    _, fwd = c._replace(LoopIR.Pass(c._node.srcinfo))
     assert isinstance(fwd(c)._node, LoopIR.Pass)
 
 
@@ -877,7 +877,7 @@ def test_wrap_forwarding_for_blocks(proc_baz, golden):
         src = body[0].srcinfo
         zero = LoopIR.Const(0, T.index, src)
         eight = LoopIR.Const(8, T.index, src)
-        return LoopIR.For(k, zero, eight, body, LoopIR.Seq(), None, src)
+        return LoopIR.For(k, zero, eight, body, LoopIR.Seq(), src)
 
     _, fwd = c._wrap(wrapper, "body")
 

@@ -1,0 +1,4 @@
+def bar(n: size, A: i8[n] @ DRAM):
+    scale: f32 @ DRAM
+    scale = 0.0
+    foo(stride(A, 0), scale)

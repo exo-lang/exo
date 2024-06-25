@@ -9,13 +9,13 @@ from .LoopIR import (
     LoopIR_Do,
     LoopIR_Compare,
     SubstArgs,
+    LoopIR_Dependencies,
     T,
     get_reads_of_expr,
     get_reads_of_stmts,
     get_writes_of_stmts,
     is_const_zero,
 )
-from .LoopIR_dataflow import LoopIR_Dependencies
 from .new_eff import (
     SchedulingError,
     Check_ReorderStmts,
@@ -597,7 +597,7 @@ def DoSplitWrite(sc):
         raise SchedulingError("Expected the rhs of the statement to be an addition.")
 
     s0 = s.update(rhs=s.rhs.lhs)
-    s1 = LoopIR.Reduce(s.name, s.type, s.idx, s.rhs.rhs, None, s.srcinfo)
+    s1 = LoopIR.Reduce(s.name, s.type, s.idx, s.rhs.rhs, s.srcinfo)
     ir, fwd = sc._replace([s0, s1])
     return ir, fwd
 
@@ -623,7 +623,6 @@ def DoFoldIntoReduce(assign):
         assign_s.type,
         assign_s.idx,
         assign_s.rhs.rhs,
-        None,
         assign_s.srcinfo,
     )
     return assign._replace([reduce_stmt])
@@ -716,7 +715,6 @@ def DoDivideWithRecompute(
             hi_i,
             body,
             LoopIR.Seq(),
-            None,
             srcinfo,
         )
 
@@ -804,7 +802,7 @@ def DoDivideLoop(
 
         def guard_wrapper(body):
             cond = boolop("<", idx_sub, N, T.bool)
-            return LoopIR.If(cond, body, [], None, srcinfo)
+            return LoopIR.If(cond, body, [], srcinfo)
 
         ir, fwd_wrap = fwd(loop_cursor).body()._wrap(guard_wrapper, "body")
         fwd = _compose(fwd_wrap, fwd)
@@ -817,7 +815,6 @@ def DoDivideLoop(
             inner_hi,
             body,
             loop.loop_mode,
-            None,
             srcinfo,
         )
 
@@ -856,12 +853,11 @@ def DoDivideLoop(
             Ntail,
             cut_body,
             loop.loop_mode,
-            None,
             srcinfo,
         )
         if tail_strategy == "cut_and_guard":
             cond = boolop(">", Ntail, LoopIR.Const(0, T.int, srcinfo), T.bool)
-            cut_s = LoopIR.If(cond, [cut_s], [], None, srcinfo)
+            cut_s = LoopIR.If(cond, [cut_s], [], srcinfo)
 
         ir, fwd_ins = fwd(loop_cursor).after()._insert([cut_s])
         fwd = _compose(fwd_ins, fwd)
@@ -904,7 +900,7 @@ def DoInline(call):
 
     def map_bind(nm, a):
         if isinstance(a, LoopIR.WindowExpr):
-            stmt = LoopIR.WindowStmt(nm, a, None, a.srcinfo)
+            stmt = LoopIR.WindowStmt(nm, a, a.srcinfo)
             win_binds.append(stmt)
             return LoopIR.Read(nm, [], a.type, a.srcinfo)
         return a
@@ -1149,7 +1145,7 @@ def DoConfigWrite(stmt_cursor, config, field, expr, before=False):
     assert isinstance(expr, (LoopIR.Read, LoopIR.StrideExpr, LoopIR.Const))
     s = stmt_cursor._node
 
-    cw_s = LoopIR.WriteConfig(config, field, expr, None, s.srcinfo)
+    cw_s = LoopIR.WriteConfig(config, field, expr, s.srcinfo)
 
     if before:
         ir, fwd = stmt_cursor.before()._insert([cw_s])
@@ -1174,7 +1170,7 @@ def DoBindConfig(config, field, expr_cursor):
     while not isinstance(c._node, LoopIR.stmt):
         c = c.parent()
 
-    cfg_write_s = LoopIR.WriteConfig(config, field, e, None, e.srcinfo)
+    cfg_write_s = LoopIR.WriteConfig(config, field, e, e.srcinfo)
     ir, fwd = c.before()._insert([cfg_write_s])
 
     mod_cfg = Check_DeleteConfigWrite(ir, [cfg_write_s])
@@ -1252,10 +1248,8 @@ def DoBindExpr(new_name, expr_cursors):
     init_c = get_enclosing_stmt_cursor(expr_cursors[0])
 
     new_name = Sym(new_name)
-    alloc_s = LoopIR.Alloc(new_name, expr.type.basetype(), DRAM, None, expr.srcinfo)
-    assign_s = LoopIR.Assign(
-        new_name, expr.type.basetype(), [], expr, None, expr.srcinfo
-    )
+    alloc_s = LoopIR.Alloc(new_name, expr.type.basetype(), DRAM, expr.srcinfo)
+    assign_s = LoopIR.Assign(new_name, expr.type.basetype(), [], expr, expr.srcinfo)
     ir, fwd = init_c.before()._insert([alloc_s, assign_s])
 
     new_read = LoopIR.Read(new_name, [], expr.type, expr.srcinfo)
@@ -1317,13 +1311,13 @@ def DoLiftScope(inner_c):
         def if_wrapper(body, insert_orelse=False):
             src = outer_s.srcinfo
             # this is needed because _replace expects a non-zero length block
-            orelse = [LoopIR.Pass(None, src)] if insert_orelse else []
-            return LoopIR.If(outer_s.cond, body, orelse, None, src)
+            orelse = [LoopIR.Pass(src)] if insert_orelse else []
+            return LoopIR.If(outer_s.cond, body, orelse, src)
 
         def orelse_wrapper(orelse):
             src = outer_s.srcinfo
-            body = [LoopIR.Pass(None, src)]
-            return LoopIR.If(outer_s.cond, body, orelse, None, src)
+            body = [LoopIR.Pass(src)]
+            return LoopIR.If(outer_s.cond, body, orelse, src)
 
         if isinstance(inner_s, LoopIR.If):
             if inner_s in outer_s.body:
@@ -2054,7 +2048,7 @@ class DoLiftAlloc(Cursor_Rewrite):
                 new_typ = T.Tensor(new_rngs, False, new_typ)
 
             # effect remains null
-            self.lifted_stmt = LoopIR.Alloc(s.name, new_typ, s.mem, None, s.srcinfo)
+            self.lifted_stmt = LoopIR.Alloc(s.name, new_typ, s.mem, s.srcinfo)
             self.access_idxs = idxs
             self.alloc_type = new_typ
 
@@ -2327,7 +2321,7 @@ def DoRemoveLoop(loop, unsafe_disable_check):
         cond = LoopIR.BinOp(">", s.hi, s.lo, T.bool, s.srcinfo)
 
         def wrapper(body):
-            return LoopIR.If(cond, body, [], None, s.srcinfo)
+            return LoopIR.If(cond, body, [], s.srcinfo)
 
         ir, fwd = loop.body()._wrap(wrapper, "body")
 
@@ -2464,7 +2458,6 @@ class DoFissionLoops:
             preds=self.orig_proc.preds,
             body=pre_body + post_body,
             instr=None,
-            eff=self.orig_proc.eff,
             srcinfo=self.orig_proc.srcinfo,
         )
 
@@ -2509,8 +2502,8 @@ class DoFissionLoops:
             if fission_body:
                 self.n_lifts -= 1
                 self.alloc_check(pre, post)
-                pre = LoopIR.If(s.cond, pre, [], None, s.srcinfo)
-                post = LoopIR.If(s.cond, post, s.orelse, None, s.srcinfo)
+                pre = LoopIR.If(s.cond, pre, [], s.srcinfo)
+                post = LoopIR.If(s.cond, post, s.orelse, s.srcinfo)
                 return [pre], [post]
 
             body = pre + post
@@ -2521,17 +2514,15 @@ class DoFissionLoops:
             if fission_orelse:
                 self.n_lifts -= 1
                 self.alloc_check(pre, post)
-                pre = LoopIR.If(s.cond, body, pre, None, s.srcinfo)
-                post = LoopIR.If(
-                    s.cond, [LoopIR.Pass(None, s.srcinfo)], post, None, s.srcinfo
-                )
+                pre = LoopIR.If(s.cond, body, pre, s.srcinfo)
+                post = LoopIR.If(s.cond, [LoopIR.Pass(s.srcinfo)], post, s.srcinfo)
                 return [pre], [post]
 
             orelse = pre + post
 
             # if we neither split the body nor the or-else,
             # then we need to gather together the pre and post.
-            single_stmt = LoopIR.If(s.cond, body, orelse, None, s.srcinfo)
+            single_stmt = LoopIR.If(s.cond, body, orelse, s.srcinfo)
 
         # TODO: may need to fix to support lo for backwards compatability
         elif isinstance(s, LoopIR.For):
@@ -2584,7 +2575,7 @@ class DoAddUnsafeGuard(Cursor_Rewrite):
             #                       self.cond, [s],
             #                       LoopIR.Const(True, T.bool, s.srcinfo))
             s1 = Alpha_Rename([s]).result()
-            return [LoopIR.If(self.cond, s1, [], None, s.srcinfo)]
+            return [LoopIR.If(self.cond, s1, [], s.srcinfo)]
 
         return super().map_s(sc)
 
@@ -2624,7 +2615,7 @@ def DoSpecialize(block_c, conds):
             raise SchedulingError("Invalid specialization condition.")
 
         then_br = Alpha_Rename(block).result()
-        else_br = [LoopIR.If(cond, then_br, else_br, None, block[0].srcinfo)]
+        else_br = [LoopIR.If(cond, then_br, else_br, block[0].srcinfo)]
 
     ir, fwd = block_c._replace(else_br)
     return ir, fwd
@@ -2682,7 +2673,7 @@ def DoFuseIf(f_cursor, s_cursor):
     body2 = if2.body
     orelse1 = if1.orelse
     orelse2 = if2.orelse
-    ifstmt = LoopIR.If(cond, body1 + body2, orelse1 + orelse2, None, if1.srcinfo)
+    ifstmt = LoopIR.If(cond, body1 + body2, orelse1 + orelse2, if1.srcinfo)
 
     ir, fwd = s_cursor.body()._move(f_cursor.body()[-1].after())
     if f_cursor.orelse():
@@ -2711,7 +2702,7 @@ def DoAddLoop(stmt_cursor, var, hi, guard, unsafe_disable_check):
             rdsym = LoopIR.Read(sym, [], T.index, s.srcinfo)
             zero = LoopIR.Const(0, T.int, s.srcinfo)
             cond = LoopIR.BinOp("==", rdsym, zero, T.bool, s.srcinfo)
-            body = [LoopIR.If(cond, body, [], None, s.srcinfo)]
+            body = [LoopIR.If(cond, body, [], s.srcinfo)]
 
         return LoopIR.For(
             sym,
@@ -2719,7 +2710,6 @@ def DoAddLoop(stmt_cursor, var, hi, guard, unsafe_disable_check):
             hi,
             body,
             LoopIR.Seq(),
-            None,
             s.srcinfo,
         )
 
@@ -2734,7 +2724,7 @@ def DoAddLoop(stmt_cursor, var, hi, guard, unsafe_disable_check):
 
 def DoInsertPass(gap):
     srcinfo = gap.parent()._node.srcinfo
-    ir, fwd = gap._insert([LoopIR.Pass(None, srcinfo=srcinfo)])
+    ir, fwd = gap._insert([LoopIR.Pass(srcinfo=srcinfo)])
     return ir, fwd
 
 
@@ -2826,10 +2816,8 @@ def DoExtractSubproc(block, subproc_name, include_asserts):
 
         eff = None
         # TODO: raise NotImplementedError("need to figure out effect of new closure")
-        subproc_ir = LoopIR.proc(
-            subproc_name, fnargs, subproc_preds, body, None, eff, info
-        )
-        call = LoopIR.Call(subproc_ir, args, None, info)
+        subproc_ir = LoopIR.proc(subproc_name, fnargs, subproc_preds, body, eff, info)
+        call = LoopIR.Call(subproc_ir, args, info)
         return subproc_ir, call
 
     subproc_ir, call = make_closure()
@@ -3906,7 +3894,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
     basetyp = new_typ.basetype() if isinstance(new_typ, T.Tensor) else new_typ
     srcinfo = block[0].srcinfo
 
-    new_alloc = [LoopIR.Alloc(new_name, new_typ, mem, None, srcinfo)]
+    new_alloc = [LoopIR.Alloc(new_name, new_typ, mem, srcinfo)]
     ir, fwd = block_cursor[0].before()._insert(new_alloc)
 
     def get_inner_stmt(loop_nest_c):
@@ -3947,7 +3935,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
 
         # Construct the If statement and wrap the context statement
         def guard_wrapper(body):
-            return LoopIR.If(cond, body, [], None, srcinfo)
+            return LoopIR.If(cond, body, [], srcinfo)
 
         # You want to forward `ctxt_stmt_c` instead of relying on passing
         # the forwarded version. However, in all the current callees, the
@@ -4036,9 +4024,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
                     load_ridx.append(w)
             load_rhs = LoopIR.Read(buf_name, load_ridx, basetyp, srcinfo)
 
-        load_nest = [
-            LoopIR.Assign(new_name, basetyp, load_widx, load_rhs, None, srcinfo)
-        ]
+        load_nest = [LoopIR.Assign(new_name, basetyp, load_widx, load_rhs, srcinfo)]
 
         for i, n in reversed(list(zip(load_iter, shape))):
             loop = LoopIR.For(
@@ -4047,7 +4033,6 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
                 n,
                 load_nest,
                 LoopIR.Seq(),
-                None,
                 srcinfo,
             )
             load_nest = [loop]
@@ -4076,9 +4061,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
 
         store_rhs = LoopIR.Read(new_name, store_ridx, basetyp, srcinfo)
         store_stmt = LoopIR.Reduce if use_accum_zero else LoopIR.Assign
-        store_nest = [
-            store_stmt(buf_name, basetyp, store_widx, store_rhs, None, srcinfo)
-        ]
+        store_nest = [store_stmt(buf_name, basetyp, store_widx, store_rhs, srcinfo)]
 
         for i, n in reversed(list(zip(store_iter, shape))):
             loop = LoopIR.For(
@@ -4087,7 +4070,6 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
                 n,
                 store_nest,
                 LoopIR.Seq(),
-                None,
                 srcinfo,
             )
             store_nest = [loop]
@@ -4206,7 +4188,6 @@ def DoUnrollBuffer(alloc_cursor, dim):
             buf_syms[itr],
             new_type,
             alloc_stmt.mem,
-            None,
             alloc_stmt.srcinfo,
         )
         new_allocs.append(alloc)

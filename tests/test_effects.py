@@ -17,7 +17,7 @@ def test_seq_write1(golden):
         for i in seq(0, n):
             a = A[i]
 
-    assert foo.show_effects() == golden
+    assert str(foo) == golden
 
 
 def test_new_stride1(golden):
@@ -32,7 +32,7 @@ def test_new_stride1(golden):
         scale = 0.0
         foo(stride(A, 0), scale)
 
-    assert bar.show_effects() == golden
+    assert str(bar) == golden
 
 
 def test_write_write3(golden):
@@ -42,7 +42,7 @@ def test_write_write3(golden):
         for i in seq(0, n):
             a = 3.0
 
-    assert foo.show_effects() == golden
+    assert str(foo) == golden
 
 
 def test_different_id(golden):
@@ -56,12 +56,11 @@ def test_different_id(golden):
             b: i8 @ DRAM
             b = 0.0
 
-    assert foo.show_effects() == golden
+    assert str(foo) == golden
 
 
 # This is fine
-@pytest.mark.skip()
-def test_reduce_write1():
+def test_reduce_write1(golden):
     @proc
     def foo(n: size, A: i8[n]):
         a: i8
@@ -70,10 +69,11 @@ def test_reduce_write1():
             a += A[i]
             a = 0.0
 
+    assert str(foo) == golden
+
 
 # This is fine
-@pytest.mark.skip()
-def test_reduce_write2():
+def test_reduce_write2(golden):
     @proc
     def foo(n: size, A: i8[n]):
         a: i8
@@ -81,12 +81,12 @@ def test_reduce_write2():
         for i in seq(0, n):
             a = 0.0
             a += A[i]
+
+    assert str(foo) == golden
 
 
 def test_index1():
-    with pytest.raises(
-        TypeError, match="expected expression to always be non-negative"
-    ):
+    with pytest.raises(TypeError, match="to always be non-negative"):
 
         @proc
         def foo(n: index, m: index, A: i8[n, m]):
@@ -117,13 +117,11 @@ def test_index3(golden):
             a: i8
             a = 0.0
 
-    assert foo.show_effects() == golden
+    assert str(foo) == golden
 
 
 def test_index4():
-    with pytest.raises(
-        TypeError, match="expected expression to always be non-negative"
-    ):
+    with pytest.raises(TypeError, match="to always be non-negative"):
 
         @proc
         def foo(n: index):
@@ -143,7 +141,7 @@ def test_good_bound1(golden):
                 for j in seq(0, n - 8 * i):
                     dst[8 * i + j] = src[8 * i + j]
 
-    assert good_bound1.show_effects() == golden
+    assert str(good_bound1) == golden
 
 
 def test_bad_bound1():
@@ -273,7 +271,7 @@ def test_race2(golden):
             if i + 1 < n:
                 x[i, i] = x[i + 1, i]
 
-    assert foo.show_effects() == golden
+    assert str(foo) == golden
 
 
 # Data Race? No
@@ -285,7 +283,7 @@ def test_race3(golden):
             if i + 1 < n:
                 x[i, i] = y[i, i]
 
-    assert foo.show_effects() == golden
+    assert str(foo) == golden
 
 
 # one big issue is aliasing in sub-procedure arguments
@@ -313,7 +311,7 @@ def test_div1(golden):
     def bar():
         foo(10 / 3)
 
-    assert bar.show_effects() == golden
+    assert str(bar) == golden
 
 
 def test_mod1(golden):
@@ -326,7 +324,7 @@ def test_mod1(golden):
     def bar():
         foo(10 % 3)
 
-    assert bar.show_effects() == golden
+    assert str(bar) == golden
 
 
 # Callee has a window but caller has a tensor case
@@ -347,7 +345,7 @@ def test_stride_assert1(golden):
     def bar(x: i8[30, 10] @ DRAM, y: i8[30, 16] @ GEMM_SCRATCH):
         foo(30, 10, x, y)
 
-    assert bar.show_effects() == golden
+    assert str(bar) == golden
 
 
 # Both callee and caller has a window case
@@ -391,7 +389,7 @@ def test_stride_assert3(golden):
         assert stride(y, 1) == 1
         foo(30, 10, x, y)
 
-    assert bar.show_effects() == golden
+    assert str(bar) == golden
 
 
 # callee is Tensor case and caller is a window case.
@@ -433,7 +431,7 @@ def test_stride_assert6(golden):
         assert stride(x, 1) == 1
         pass
 
-    assert bar.show_effects() == golden
+    assert str(bar) == golden
 
 
 # Test Tensor having insufficient information (sizes)
@@ -446,7 +444,7 @@ def test_stride_assert7(golden):
         assert stride(x, 0) == 10
         pass
 
-    assert bar.show_effects() == golden
+    assert str(bar) == golden
 
 
 # Test Windowstmt
@@ -470,7 +468,7 @@ def test_stride_assert8(golden):
 
         foo(30, 10, xx, yy)
 
-    assert bar.show_effects() == golden
+    assert str(bar) == golden
 
 
 # Test Windowexpr within call arg
@@ -491,7 +489,7 @@ def test_stride_assert9(golden):
     def bar(x: i8[8, 30, 10] @ DRAM, y: i8[50, 4, 100, 16] @ GEMM_SCRATCH):
         foo(30, 10, x[0, :, :], y[3, 1, 3:33, :])
 
-    assert bar.show_effects() == golden
+    assert str(bar) == golden
 
 
 # Test Alloc
@@ -515,7 +513,7 @@ def test_stride_assert10(golden):
 
         foo(30, 10, x[0, :, :], y[3, 1, 3:33, :])
 
-    assert bar.show_effects() == golden
+    assert str(bar) == golden
 
 
 # Test stride arguments
@@ -541,7 +539,7 @@ def test_stride_assert11(golden):
 
         foo(30, 10, stride(x, 1), x[0, :, :], y[3, 1, 3:33, :])
 
-    assert bar.show_effects() == golden
+    assert str(bar) == golden
 
 
 def test_infereffects(golden):
@@ -557,7 +555,7 @@ def test_infereffects(golden):
     def bar(A: f32[10, 20]):
         foo(A)
 
-    assert bar.show_effects() == golden
+    assert str(bar) == golden
 
 
 def test_infereffects2(golden):
@@ -568,7 +566,7 @@ def test_infereffects2(golden):
                 A[i, j] = 0.0
 
     foo = foo.partial_eval(10, 20)
-    assert foo.show_effects() == golden
+    assert str(foo) == golden
 
 
 # are we testing a case of an else branch?
