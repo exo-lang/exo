@@ -70,8 +70,8 @@ module AExpr {
             | Const( object val )
             | BinOp( binop op, expr lhs, expr rhs )
             | Stride( sym name, int dim )
-            | Select( expr lhs, expr rhs ) -- !!uninterpreted function for array access, different from Select Below
 
+            -- | Select( expr lhs, expr rhs ) -- !!uninterpreted function for array access, different from Select Below
             -- | Tuple( expr* args )
             -- | ConstSym( sym name ) -- represents a named, opaque value
             -- | LetStrides( sym name, expr* strides, expr body )

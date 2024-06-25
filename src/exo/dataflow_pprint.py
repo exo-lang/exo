@@ -1,5 +1,5 @@
 from .dataflow import DataflowIR
-from .LoopIR_pprint import format_code, PrintEnv, _print_type, op_prec
+from .LoopIR_pprint import PrintEnv, _print_type, op_prec
 from .LoopIR import T
 from .prelude import Sym, SrcInfo, extclass
 
