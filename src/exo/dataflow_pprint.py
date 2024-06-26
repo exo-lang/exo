@@ -95,7 +95,7 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
 
     elif isinstance(stmt, DataflowIR.Alloc):
         ty = _print_type(stmt.type, env)
-        return [f"{indent}{env.get_name(stmt.name)}"]
+        return [f"{indent}{env.get_name(stmt.name)} : {ty}"]
 
     elif isinstance(stmt, DataflowIR.If):
         cond = _print_expr(stmt.cond, env)

@@ -384,12 +384,16 @@ class AbstractInterpretation(ABC):
     def fix_stmt(self, pre_env, stmt: DataflowIR.stmt, post_env):
         if isinstance(stmt, (DataflowIR.Assign, DataflowIR.Reduce)):
             # Ignore buffers with len(idx) > 0
-            if stmt.idx == 0:
+            if len(stmt.idx) == 0:
                 # if reducing, then expand to x = x + rhs
                 rhs_e = stmt.rhs
                 if isinstance(stmt, DataflowIR.Reduce):
-                    read_buf = DataflowIR.Read(stmt.name, stmt.idx)
-                    rhs_e = DataflowIR.BinOp("+", read_buf, rhs_e)
+                    read_buf = DataflowIR.Read(
+                        stmt.name, stmt.idx, stmt.type, stmt.srcinfo
+                    )
+                    rhs_e = DataflowIR.BinOp(
+                        "+", read_buf, rhs_e, rhs_e.type, rhs_e.srcinfo
+                    )
                 # now we can handle both cases uniformly
                 rval = self.fix_expr(pre_env, rhs_e)
                 post_env[stmt.name] = rval
@@ -492,7 +496,7 @@ class AbstractInterpretation(ABC):
     def fix_expr(self, pre_env: A, expr: DataflowIR.expr) -> A:
         if isinstance(expr, DataflowIR.Read):
             if len(expr.idx) > 0:
-                assert False, "shouldn't be here"
+                return A.Unk(T.index, null_srcinfo())
 
             return pre_env[expr.name]
         elif isinstance(expr, DataflowIR.Const):
