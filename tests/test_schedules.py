@@ -4602,11 +4602,14 @@ def test_old_lift_alloc_config(golden):
 
     @proc
     def bar(n: size, A: i8[n]):
+        assert n > 4
+
         CFG.cfg = A[0]
+        win_stmt = A[0:4]
         for i in seq(0, n):
             tmp_a: i8
             tmp_a = A[i]
         A[0] = CFG.cfg
 
-    bar = autolift_alloc(bar, "tmp_a : _")
+    bar = autolift_alloc(bar, "tmp_a : _", keep_dims=True)
     assert str(bar) == golden
