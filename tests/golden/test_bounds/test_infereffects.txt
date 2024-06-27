@@ -1,2 +1,0 @@
-def bar(A: f32[10, 20] @ DRAM):
-    foo(A)

@@ -2814,9 +2814,7 @@ def DoExtractSubproc(block, subproc_name, include_asserts):
         if not include_asserts:
             subproc_preds = []
 
-        eff = None
-        # TODO: raise NotImplementedError("need to figure out effect of new closure")
-        subproc_ir = LoopIR.proc(subproc_name, fnargs, subproc_preds, body, eff, info)
+        subproc_ir = LoopIR.proc(subproc_name, fnargs, subproc_preds, body, None, info)
         call = LoopIR.Call(subproc_ir, args, info)
         return subproc_ir, call
 

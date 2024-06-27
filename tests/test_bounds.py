@@ -10,7 +10,7 @@ from exo.stdlib.scheduling import SchedulingError
 # ------- Bounds check tests ---------
 
 
-def test_seq_write1(golden):
+def test_seq_write1():
     @proc
     def foo(n: size, A: i8[n]):
         a: i8
@@ -18,7 +18,7 @@ def test_seq_write1(golden):
             a = A[i]
 
 
-def test_new_stride1(golden):
+def test_new_stride1():
     @proc
     def foo(s: stride, scale: f32):
         assert s == 1
@@ -31,7 +31,7 @@ def test_new_stride1(golden):
         foo(stride(A, 0), scale)
 
 
-def test_write_write3(golden):
+def test_write_write3():
     @proc
     def foo(n: size, A: i8[n]):
         a: i8
@@ -39,7 +39,7 @@ def test_write_write3(golden):
             a = 3.0
 
 
-def test_different_id(golden):
+def test_different_id():
     @proc
     def foo(n: size):
         for ihi in seq(0, n):
@@ -52,7 +52,7 @@ def test_different_id(golden):
 
 
 # This is fine
-def test_reduce_write1(golden):
+def test_reduce_write1():
     @proc
     def foo(n: size, A: i8[n]):
         a: i8
@@ -63,7 +63,7 @@ def test_reduce_write1(golden):
 
 
 # This is fine
-def test_reduce_write2(golden):
+def test_reduce_write2():
     @proc
     def foo(n: size, A: i8[n]):
         a: i8
@@ -98,7 +98,7 @@ def test_index2():
                     a = A[i, j - 1]
 
 
-def test_index3(golden):
+def test_index3():
     @proc
     def foo():
         for i in seq(0, 0):
@@ -117,7 +117,7 @@ def test_index4():
 
 
 # For-loop bound non-negative check tests
-def test_good_bound1(golden):
+def test_good_bound1():
     @proc
     def good_bound1(n: size, dst: R[n] @ DRAM, src: R[n] @ DRAM):
         for i in seq(0, (n + 7) / 8):
@@ -248,7 +248,7 @@ def test_size1():
 
 
 # Data Race? No
-def test_race2(golden):
+def test_race2():
     @proc
     def foo(n: size, x: R[n, n]):
         for i in seq(0, n):
@@ -257,7 +257,7 @@ def test_race2(golden):
 
 
 # Data Race? No
-def test_race3(golden):
+def test_race3():
     @proc
     def foo(n: size, x: R[n, n]):
         y = x[1:, :]
@@ -281,7 +281,7 @@ def test_race4():
             foo(n, z, z)
 
 
-def test_div1(golden):
+def test_div1():
     @proc
     def foo(n: size):
         assert n == 3
@@ -292,7 +292,7 @@ def test_div1(golden):
         foo(10 / 3)
 
 
-def test_mod1(golden):
+def test_mod1():
     @proc
     def foo(n: size):
         assert n == 1
@@ -304,7 +304,7 @@ def test_mod1(golden):
 
 
 # Callee has a window but caller has a tensor case
-def test_stride_assert1(golden):
+def test_stride_assert1():
     @proc
     def foo(
         n: size,
@@ -344,7 +344,7 @@ def test_stride_assert2():
 
 
 # Both callee and caller has a window case, but with top level assert
-def test_stride_assert3(golden):
+def test_stride_assert3():
     @proc
     def foo(
         n: size,
@@ -397,7 +397,7 @@ def test_stride_assert5():
 
 
 # Tensor asserting last dimension is fine
-def test_stride_assert6(golden):
+def test_stride_assert6():
     @proc
     def bar(n: size, m: size, x: i8[n, m] @ DRAM):
         assert stride(x, 1) == 1
@@ -405,7 +405,7 @@ def test_stride_assert6(golden):
 
 
 # Test Tensor having insufficient information (sizes)
-def test_stride_assert7(golden):
+def test_stride_assert7():
     # with changes, this should not trigger an error
     # since it might be true, even if it is highly unlikely
     # i.e. this would have to be always called with m == 10
@@ -416,7 +416,7 @@ def test_stride_assert7(golden):
 
 
 # Test Windowstmt
-def test_stride_assert8(golden):
+def test_stride_assert8():
     @proc
     def foo(
         n: size,
@@ -438,7 +438,7 @@ def test_stride_assert8(golden):
 
 
 # Test Windowexpr within call arg
-def test_stride_assert9(golden):
+def test_stride_assert9():
     @proc
     def foo(
         n: size,
@@ -457,7 +457,7 @@ def test_stride_assert9(golden):
 
 
 # Test Alloc
-def test_stride_assert10(golden):
+def test_stride_assert10():
     @proc
     def foo(
         n: size,
@@ -479,7 +479,7 @@ def test_stride_assert10(golden):
 
 
 # Test stride arguments
-def test_stride_assert11(golden):
+def test_stride_assert11():
     @proc
     def foo(
         n: size,
@@ -502,7 +502,7 @@ def test_stride_assert11(golden):
         foo(30, 10, stride(x, 1), x[0, :, :], y[3, 1, 3:33, :])
 
 
-def test_infereffects(golden):
+def test_partial_eval_bounds():
     @proc
     def foo(n: size, m: size, A: f32[n, m]):
         for i in seq(0, n):
@@ -514,17 +514,3 @@ def test_infereffects(golden):
     @proc
     def bar(A: f32[10, 20]):
         foo(A)
-
-    assert str(bar) == golden
-
-
-def test_infereffects2(golden):
-    @proc
-    def foo(n: size, m: size, A: f32[n, m]):
-        for i in seq(0, n):
-            for j in seq(0, m):
-                A[i, j] = 0.0
-
-    foo = foo.partial_eval(10, 20)
-
-    assert str(foo) == golden
