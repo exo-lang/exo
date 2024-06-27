@@ -81,7 +81,7 @@ def lift_expr(e):
         return E.Stride(e.name, e.dim, e.type, e.srcinfo)
 
     elif isinstance(e, LoopIR.ReadConfig):
-        cfg_val = e.config.lookup(e.field)[1]
+        cfg_val = e.config.lookup_type(e.field)
         return E.ConfigField(e.config, e.field, cfg_val, e.srcinfo)
 
     assert False, f"bad case, e is {type(e)}"
@@ -352,8 +352,8 @@ def eff_concat(e1, e2, srcinfo=None):
             if w2.pred is None:
                 return w2
             else:
-                typ = w1.config.lookup(w1.field)[1]
-                assert typ == w2.config.lookup(w2.field)[1]
+                typ = w1.config.lookup_type(w1.field)
+                assert typ == w2.config.lookup_type(w2.field)
 
                 pred = _or_preds(w1.pred, w2.pred)
                 val = E.Select(w2.pred, w2.value, w1.value, typ, w2.srcinfo)

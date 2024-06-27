@@ -257,7 +257,7 @@ class ParseFragment:
                     f"named '{pat.field}'"
                 )
 
-            typ = cfg.lookup(pat.field)[1]
+            typ = cfg.lookup_type(pat.field)
             return LoopIR.ReadConfig(cfg, pat.field, typ, self.srcinfo)
         elif isinstance(pat, PAST.E_Hole):
             if self.expr_holes == None:
@@ -342,7 +342,7 @@ class ParseFragment:
                     f"named '{loopIR_expr.field}'"
                 )
 
-            typ = cfg.lookup(loopIR_expr.field)[1]
+            typ = cfg.lookup_type(loopIR_expr.field)
             if typ != loopIR_expr.typ:
                 raise ParseFragmentError(
                     f"Type of field '{loopIR_expr.field}' in Config named '{config_name}' is different"

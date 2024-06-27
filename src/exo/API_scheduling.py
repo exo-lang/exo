@@ -1187,7 +1187,7 @@ def bind_config(proc, var_cursor, config, field):
         `s[ e ]    ->    config.field = e ; s[ config.field ]`
     """
     e = var_cursor._impl._node
-    cfg_f_type = config.lookup(field)[1]
+    cfg_f_type = config.lookup_type(field)
     if not isinstance(e, LoopIR.Read):
         raise ValueError("expected a cursor to a single variable Read")
     elif e.type != cfg_f_type:

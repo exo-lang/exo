@@ -10,63 +10,12 @@ from exo.stdlib.scheduling import *
 # ------- Configuration tests ---------
 
 
-@pytest.mark.skip()
-def test_config_size():
-    def new_config_ld():
+def test_config_typecheck():
+    with pytest.raises(Exception, match="expected one of the following types"):
+
         @config
         class ConfigLoad:
-            size: size
-
-        return ConfigLoad
-
-    ConfigLoad = new_config_ld()
-
-    @proc
-    def do_ld_i8(n: size):
-        assert n == ConfigLoad.size
-        pass
-
-    # @proc
-    # def config_ld_i8(
-    #    config_n : size
-    # ):
-    #    ConfigLoad.size = config_n
-
-    @proc
-    def foo(N: size):
-        # config_ld_i8(N)
-        ConfigLoad.size = N
-        do_ld_i8(N)
-
-    print(foo)
-
-
-@pytest.mark.skip()
-def test_config_stride():
-    def new_config_ld():
-        @config
-        class ConfigLoad:
-            src_stride: stride
-
-        return ConfigLoad
-
-    ConfigLoad = new_config_ld()
-
-    @proc
-    def do_ld_i8(n: size, src: [i8][n] @ DRAM):
-        assert stride(src, 0) == ConfigLoad.src_stride
-        pass
-
-    @proc
-    def config_ld_i8(src_stride: stride):
-        ConfigLoad.src_stride = src_stride
-
-    @proc
-    def foo(N: size, A: i8[N]):
-        config_ld_i8(stride(A, 0))
-        do_ld_i8()
-
-    print(foo)
+            num: f32[n]
 
 
 def new_config_f32():
@@ -122,10 +71,9 @@ def test_write_loop_builtin(golden):
 
 
 # Config loop dependency tests
-@pytest.mark.skip()
 def test_write_loop_varying():
     ConfigAB = new_config_f32()
-    with pytest.raises(TypeError, match="The value written to config variable"):
+    with pytest.raises(TypeError, match="does not depend on loop iterations"):
 
         @proc
         def foo(n: size, A: f32[n]):
@@ -133,10 +81,9 @@ def test_write_loop_varying():
                 ConfigAB.a = A[i]
 
 
-@pytest.mark.skip()
 def test_write_loop_varying_indirect():
     ConfigAB = new_config_f32()
-    with pytest.raises(TypeError, match="The value written to config variable"):
+    with pytest.raises(TypeError, match="does not depend on loop iterations"):
 
         @proc
         def foo(n: size, A: f32[n]):
@@ -257,6 +204,39 @@ def test_config_write(golden):
     assert str(bar) == golden
 
 
+def test_config_write2():
+    @config
+    class Config:
+        tmp: f32
+
+    @proc
+    def foo(A: f32[10]):
+        a: f32
+        a = 0.0
+
+    with pytest.raises(
+        Exception, match="cannot write non-real-scalar non-boolean value"
+    ):
+        write_config(foo, foo.find("a = _").after(), Config, "tmp", "A[0]")
+
+
+def test_config_write3():
+    @config
+    class Config:
+        tmp: index
+
+    @proc
+    def foo():
+        for i in seq(0, 10):
+            a: f32
+            a = 0.0
+
+    with pytest.raises(
+        Exception, match="cannot write non-real-scalar non-boolean value"
+    ):
+        write_config(foo, foo.find("a = _").after(), Config, "tmp", "i")
+
+
 def test_config_bind(golden):
     ConfigLoad = new_config_ld()
 
@@ -270,6 +250,49 @@ def test_config_bind(golden):
     foo = bind_config(foo, "scale", ConfigLoad, "scale")
 
     assert str(foo) == golden
+
+
+def test_config_bind2():
+    ConfigLoad = new_config_ld()
+
+    @proc
+    def foo(A: f32[10]):
+        for i in seq(0, 10):
+            tmp: f32
+            tmp = A[i]
+
+    with pytest.raises(
+        Exception, match="cannot bind non-real-scalar non-boolean value"
+    ):
+        bind_config(foo, "A[i]", ConfigLoad, "scale")
+
+
+def test_config_bind3():
+    cfg = new_control_config()
+
+    @proc
+    def foo(A: f32[10]):
+        for i in seq(0, 10):
+            tmp: f32
+            tmp = A[i]
+
+    with pytest.raises(
+        Exception, match="cannot bind non-real-scalar non-boolean value"
+    ):
+        bind_config(foo, "i", cfg, "i")
+
+
+def test_config_bind4():
+    cfg = new_control_config()
+
+    @proc
+    def foo(A: f32[10]):
+        for i in seq(0, 10):
+            tmp: f32
+            A[i] = tmp
+
+    with pytest.raises(Exception, match="expected type of expression to bind "):
+        bind_config(foo, "tmp", cfg, "i")
 
 
 def test_config_fission(golden):
