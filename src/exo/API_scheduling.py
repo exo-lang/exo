@@ -15,7 +15,6 @@ from .API_types import ExoType
 
 from .LoopIR_unification import DoReplace, UnificationError
 from .configs import Config
-from .effectcheck import CheckEffects
 from .memory import Memory
 from .parse_fragment import parse_fragment
 from .prelude import *

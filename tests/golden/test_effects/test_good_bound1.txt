@@ -1,6 +1,0 @@
-Reads:
-  { src : (8 * i + j) for (i,j) in Z if
-    0 <= i and i < (n + 7) / 8 and (n - 8 * i < 8 and (0 <= j and j < n - 8 * i)) }
-Writes:
-    { dst : (8 * i + j) for (i,j) in Z if
-    0 <= i and i < (n + 7) / 8 and (n - 8 * i < 8 and (0 <= j and j < n - 8 * i)) }

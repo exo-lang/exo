@@ -64,7 +64,6 @@ class TypeChecker:
             preds=preds,
             body=body,
             instr=instr,
-            eff=None,
             srcinfo=proc.srcinfo,
         )
 
@@ -150,7 +149,7 @@ class TypeChecker:
             elif isinstance(rhs.type, T.Window):
                 assert isinstance(rhs, LoopIR.WindowExpr)
                 self.env[stmt.name] = rhs.type
-                return [LoopIR.WindowStmt(stmt.name, rhs, None, stmt.srcinfo)]
+                return [LoopIR.WindowStmt(stmt.name, rhs, stmt.srcinfo)]
             else:
                 self.err(
                     stmt,
@@ -169,7 +168,7 @@ class TypeChecker:
             assert typ.is_real_scalar() or typ is T.err
 
             IRnode = LoopIR.Assign if isinstance(stmt, UAST.Assign) else LoopIR.Reduce
-            return [IRnode(stmt.name, typ, idx, rhs, None, stmt.srcinfo)]
+            return [IRnode(stmt.name, typ, idx, rhs, stmt.srcinfo)]
 
         elif isinstance(stmt, UAST.WriteConfig):
             # Check that field is in config
@@ -217,11 +216,9 @@ class TypeChecker:
                 else:
                     assert False, "bad case"
 
-            return [
-                LoopIR.WriteConfig(stmt.config, stmt.field, rhs, None, stmt.srcinfo)
-            ]
+            return [LoopIR.WriteConfig(stmt.config, stmt.field, rhs, stmt.srcinfo)]
         elif isinstance(stmt, UAST.Pass):
-            return [LoopIR.Pass(None, stmt.srcinfo)]
+            return [LoopIR.Pass(stmt.srcinfo)]
 
         elif isinstance(stmt, UAST.If):
             cond = self.check_e(stmt.cond, is_index=True)
@@ -231,7 +228,7 @@ class TypeChecker:
             ebody = []
             if len(stmt.orelse) > 0:
                 ebody = self.check_stmts(stmt.orelse)
-            return [LoopIR.If(cond, body, ebody, None, stmt.srcinfo)]
+            return [LoopIR.If(cond, body, ebody, stmt.srcinfo)]
 
         elif isinstance(stmt, UAST.For):
             self.env[stmt.iter] = T.index
@@ -255,17 +252,9 @@ class TypeChecker:
 
             body = self.check_stmts(stmt.body)
             if isinstance(stmt.cond, UAST.SeqRange):
-                return [
-                    LoopIR.For(
-                        stmt.iter, lo, hi, body, LoopIR.Seq(), None, stmt.srcinfo
-                    )
-                ]
+                return [LoopIR.For(stmt.iter, lo, hi, body, LoopIR.Seq(), stmt.srcinfo)]
             elif isinstance(stmt.cond, UAST.ParRange):
-                return [
-                    LoopIR.For(
-                        stmt.iter, lo, hi, body, LoopIR.Par(), None, stmt.srcinfo
-                    )
-                ]
+                return [LoopIR.For(stmt.iter, lo, hi, body, LoopIR.Par(), stmt.srcinfo)]
             else:
                 assert False, "bad case"
 
@@ -275,7 +264,7 @@ class TypeChecker:
             mem = stmt.mem
             if mem is None:
                 mem = DRAM
-            return [LoopIR.Alloc(stmt.name, typ, mem, None, stmt.srcinfo)]
+            return [LoopIR.Alloc(stmt.name, typ, mem, stmt.srcinfo)]
 
         elif isinstance(stmt, UAST.Call):
             args = [
@@ -336,7 +325,7 @@ class TypeChecker:
                 else:
                     assert False, "bad argument type case"
 
-            return [LoopIR.Call(stmt.f, args, None, stmt.srcinfo)]
+            return [LoopIR.Call(stmt.f, args, stmt.srcinfo)]
         else:
             assert False, "not a loopir in check_stmts"
 

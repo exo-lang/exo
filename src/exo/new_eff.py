@@ -452,9 +452,6 @@ def possible_config_writes(stmts):
         def do_t(self, t):
             pass
 
-        def do_eff(self, eff):
-            pass
-
     return Find_RHS(stmts).result()
 
 
@@ -1416,7 +1413,6 @@ class ContextExtraction:
                     LoopIR.Read(bds_sym, [], T.bool, s.srcinfo),
                     s.body,
                     [],
-                    None,
                     s.srcinfo,
                 )
                 G_body = globenv([guard_body])
@@ -1434,9 +1430,7 @@ class ContextExtraction:
         old_i = LoopIR.Read(s.iter, [], T.index, s.srcinfo)
         new_i = LoopIR.Read(s.iter.copy(), [], T.index, s.srcinfo)
         pre_body = SubstArgs(s.body, {s.iter: new_i}).result()
-        pre_loop = LoopIR.For(
-            new_i.name, s.lo, old_i, pre_body, s.loop_mode, None, s.srcinfo
-        )
+        pre_loop = LoopIR.For(new_i.name, s.lo, old_i, pre_body, s.loop_mode, s.srcinfo)
         return globenv([pre_loop])
 
     def loop_posteff(self, s, hi):
@@ -1452,7 +1446,7 @@ class ContextExtraction:
         )
         post_body = SubstArgs(s.body, {s.iter: new_i}).result()
         post_loop = LoopIR.For(
-            new_i.name, old_plus1, hi, post_body, s.loop_mode, None, s.srcinfo
+            new_i.name, old_plus1, hi, post_body, s.loop_mode, s.srcinfo
         )
         return stmts_effs([post_loop])
 
@@ -1612,7 +1606,7 @@ def loop_globenv(i, lo_expr, hi_expr, body):
     assert isinstance(lo_expr, LoopIR.expr)
     assert isinstance(hi_expr, LoopIR.expr)
 
-    loop = [LoopIR.For(i, lo_expr, hi_expr, body, LoopIR.Seq(), None, null_srcinfo())]
+    loop = [LoopIR.For(i, lo_expr, hi_expr, body, LoopIR.Seq(), null_srcinfo())]
     return globenv(loop)
 
 

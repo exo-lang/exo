@@ -4593,3 +4593,23 @@ def test_stage_mem_reduce2(golden):
 
     foo = stage_mem(foo, foo.body(), "result", "tmp")
     assert str(simplify(foo)) == golden
+
+
+def test_old_lift_alloc_config(golden):
+    @config
+    class CFG:
+        cfg: i8
+
+    @proc
+    def bar(n: size, A: i8[n]):
+        assert n > 4
+
+        CFG.cfg = A[0]
+        win_stmt = A[0:4]
+        for i in seq(0, n):
+            tmp_a: i8
+            tmp_a = A[i]
+        A[0] = CFG.cfg
+
+    bar = autolift_alloc(bar, "tmp_a : _", keep_dims=True)
+    assert str(bar) == golden

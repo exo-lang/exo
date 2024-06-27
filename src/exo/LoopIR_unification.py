@@ -7,8 +7,15 @@ import pysmt
 from asdl_adt import ADT
 from pysmt import shortcuts as SMT
 
-from .LoopIR import LoopIR, T, LoopIR_Do, FreeVars, Alpha_Rename, comparision_ops
-from .LoopIR_dataflow import LoopIR_Dependencies
+from .LoopIR import (
+    LoopIR,
+    T,
+    LoopIR_Do,
+    FreeVars,
+    Alpha_Rename,
+    comparision_ops,
+    LoopIR_Dependencies,
+)
 from .LoopIR_scheduling import SchedulingError
 from .prelude import *
 from .new_eff import Check_Aliasing
@@ -83,7 +90,7 @@ def DoReplace(subproc, block_cursor):
     new_args = Unification(temp_subproc, stmts, live_vars).result()
 
     # but don't use a different LoopIR.proc for the callsite itself
-    new_call = LoopIR.Call(subproc, new_args, None, stmts[0].srcinfo)
+    new_call = LoopIR.Call(subproc, new_args, stmts[0].srcinfo)
 
     ir, fwd = block_cursor._replace([new_call])
     Check_Aliasing(ir)
@@ -459,9 +466,6 @@ class _Find_Mod_Div_Symbols(LoopIR_Do):
             return self.tuple_memo(e.op, self.tupleify(e.lhs), self.tupleify(e.rhs))
         else:
             assert False, "Bad case tupleify"
-
-    def do_eff(self, eff):
-        return
 
 
 class BufVar:

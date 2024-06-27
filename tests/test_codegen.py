@@ -274,9 +274,7 @@ def test_alloc_nest(compiler, tmp_path):
                 res[i, j] = rloc[j]
 
     # Write effect printing to a file
-    (tmp_path / f"{alloc_nest.name()}_effect.atl").write_text(
-        str(alloc_nest.show_effects())
-    )
+    (tmp_path / f"{alloc_nest.name()}_effect.atl").write_text(str(alloc_nest))
 
     x = np.array([[1.0, 2.0, 3.0], [3.2, 4.0, 5.3]], dtype=np.float32)
     y = np.array([[2.6, 3.7, 8.9], [1.3, 2.3, 6.7]], dtype=np.float32)

@@ -231,6 +231,3 @@ class PrecisionAnalysis(LoopIR_Rewrite):
     # most of the sub-trees
     def map_t(self, t):
         return None
-
-    def map_eff(self, eff):
-        return None
