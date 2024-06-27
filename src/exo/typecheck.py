@@ -1,4 +1,11 @@
-from .LoopIR import T, UAST, LoopIR
+from .LoopIR import (
+    T,
+    UAST,
+    LoopIR,
+    LoopIR_Dependencies,
+    get_writeconfigs,
+    get_loop_iters,
+)
 from .builtins import BuiltIn_Typecheck_Error
 from .memory import *
 
@@ -53,6 +60,15 @@ class TypeChecker:
 
         if not proc.name:
             self.err(proc, "expected all procedures to be named")
+
+        loop_iters = set(get_loop_iters(body))
+        for name in get_writeconfigs(body):
+            deps = LoopIR_Dependencies(name, body).result()
+            if loop_iters & deps != set():
+                self.err(
+                    proc,
+                    f"expected writes to configuration {name[0].name()}.{name[1]} does not depend on loop iterations",
+                )
 
         instr = proc.instr
         if instr:
@@ -179,7 +195,7 @@ class TypeChecker:
                     f"in config '{stmt.config.name()}'",
                 )
 
-            ftyp = stmt.config.lookup(stmt.field)[1]
+            ftyp = stmt.config.lookup_type(stmt.field)
             rhs = self.check_e(
                 stmt.rhs,
                 is_index=ftyp.is_indexable() or ftyp.is_stridable() or ftyp == T.bool,
@@ -574,7 +590,7 @@ class TypeChecker:
                     f"'{e.field}' has to be a field in config '{e.config.name()}'",
                 )
 
-            ftyp = e.config.lookup(e.field)[1]
+            ftyp = e.config.lookup_type(e.field)
             return LoopIR.ReadConfig(e.config, e.field, ftyp, e.srcinfo)
         else:
             assert False, "not a LoopIR in check_e"
