@@ -1,2 +1,0 @@
-def bar(x: i8[30, 10] @ DRAM, y: i8[30, 16] @ GEMM_SCRATCH):
-    foo(30, 10, x, y)

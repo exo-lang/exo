@@ -1,8 +1,0 @@
-def foo(n: size):
-    for ihi in seq(0, n):
-        a: i8 @ DRAM
-        for ilo in seq(0, 16):
-            a = 0.0
-    if False:
-        b: i8 @ DRAM
-        b = 0.0

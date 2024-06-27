@@ -1,4 +1,0 @@
-def foo(n: size, A: i8[n] @ DRAM):
-    a: i8 @ DRAM
-    for i in seq(0, n):
-        a = A[i]

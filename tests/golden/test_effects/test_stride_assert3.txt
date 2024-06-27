@@ -1,4 +1,0 @@
-def bar(x: i8[30, 10] @ DRAM, y: [i8][30, 16] @ GEMM_SCRATCH):
-    assert stride(y, 0) == 16
-    assert stride(y, 1) == 1
-    foo(30, 10, x, y)
