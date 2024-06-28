@@ -296,9 +296,6 @@ class Procedure(ProcedureBase):
     #     execution / compilation operations
     # ---------------------------------------------- #
 
-    def show_c_code(self):
-        return MarkDownBlob("```c\n" + self.c_code_str() + "\n```")
-
     def c_code_str(self):
         decls, defns = compile_to_strings("c_code_str", [self._loopir_proc])
         return decls + "\n" + defns
