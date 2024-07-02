@@ -20,10 +20,9 @@ def main():
         "-o",
         "--outdir",
         metavar="OUTDIR",
-        required=True,
         help="output directory for build artifacts",
     )
-    parser.add_argument("--stem", required=True, help="base name for .c and .h files")
+    parser.add_argument("--stem", help="base name for .c and .h files")
     parser.add_argument("source", type=str, nargs="+", help="source file to compile")
     parser.add_argument(
         "--version",
@@ -33,9 +32,25 @@ def main():
     )
 
     args = parser.parse_args()
+    srcname = Path(args.source[0]).stem
 
-    outdir = Path(args.outdir)
+    if not args.outdir:
+        if len(args.source) == 1:
+            outdir = Path(srcname)
+        else:
+            parser.error("Must provide -o when processing multiple source files.")
+    else:
+        outdir = Path(args.outdir)
+
     outdir.mkdir(parents=True, exist_ok=True)
+
+    if not args.stem:
+        if len(args.source) == 1:
+            stem = srcname
+        else:
+            parser.error("Must provide --stem when processing multiple source files.")
+    else:
+        stem = args.stem
 
     library = [
         proc
@@ -43,8 +58,8 @@ def main():
         for proc in get_procs_from_module(load_user_code(mod))
     ]
 
-    exo.compile_procs(library, outdir, f"{args.stem}.c", f"{args.stem}.h")
-    write_depfile(outdir, args.stem)
+    exo.compile_procs(library, outdir, f"{stem}.c", f"{stem}.h")
+    write_depfile(outdir, stem)
 
 
 def write_depfile(outdir, stem):
