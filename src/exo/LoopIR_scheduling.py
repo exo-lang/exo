@@ -1143,6 +1143,7 @@ def DoInlineWindow(window_cursor):
 
 def DoConfigWrite(stmt_cursor, config, field, expr, before=False):
     assert isinstance(expr, (LoopIR.Read, LoopIR.StrideExpr, LoopIR.Const))
+
     s = stmt_cursor._node
 
     cw_s = LoopIR.WriteConfig(config, field, expr, s.srcinfo)
@@ -1175,7 +1176,8 @@ def DoBindConfig(config, field, expr_cursor):
 
     mod_cfg = Check_DeleteConfigWrite(ir, [cfg_write_s])
 
-    cfg_read_e = LoopIR.ReadConfig(config, field, e.type, e.srcinfo)
+    cfg_f_type = config.lookup_type(field)
+    cfg_read_e = LoopIR.ReadConfig(config, field, cfg_f_type, e.srcinfo)
     if isinstance(expr_cursor.parent()._node, LoopIR.Call):
         cfg_read_e = [cfg_read_e]
     ir, fwd_repl = fwd(expr_cursor)._replace(cfg_read_e)

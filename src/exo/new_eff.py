@@ -1148,7 +1148,7 @@ def expr_effs(e):
         return []
     elif isinstance(e, LoopIR.ReadConfig):
         globname = e.config._INTERNAL_sym(e.field)
-        return [E.GlobalRead(globname, e.config.lookup(e.field)[1])]
+        return [E.GlobalRead(globname, e.config.lookup_type(e.field))]
     else:
         assert False, f"bad case: {type(e)}"
 
@@ -1169,7 +1169,7 @@ def stmts_effs(stmts):
             effs += expr_effs(s.rhs)
             globname = s.config._INTERNAL_sym(s.field)
             effs.append(
-                E.GlobalWrite(globname, s.config.lookup(s.field)[1], lift_e(s.rhs))
+                E.GlobalWrite(globname, s.config.lookup_type(s.field), lift_e(s.rhs))
             )
         elif isinstance(s, LoopIR.If):
             effs += expr_effs(s.cond)
@@ -1924,7 +1924,7 @@ def Check_ExtendEqv(proc, stmts0, stmts1, cfg_mod):
     # changed are being observed.
     def make_point(key):
         cfg, fld = reverse_config_lookup(key)
-        typ = cfg.lookup(fld)[1]
+        typ = cfg.lookup_type(fld)
         return APoint(key, [], typ)
 
     cfg_mod_pts = [make_point(key) for key in cfg_mod]

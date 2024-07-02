@@ -1048,6 +1048,26 @@ def get_writeconfigs(stmts):
     return gw.writeconfigs
 
 
+class GetLoopIters(LoopIR_Do):
+    def __init__(self):
+        self.loop_iters = []
+
+    def do_s(self, s):
+        if isinstance(s, LoopIR.For):
+            self.loop_iters.append(s.iter)
+        super().do_s(s)
+
+    # early exit
+    def do_e(self, e):
+        return
+
+
+def get_loop_iters(stmts):
+    gw = GetLoopIters()
+    gw.do_stmts(stmts)
+    return gw.loop_iters
+
+
 def is_const_zero(e):
     return isinstance(e, LoopIR.Const) and e.val == 0
 
