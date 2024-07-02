@@ -1188,10 +1188,17 @@ def bind_config(proc, var_cursor, config, field):
     """
     e = var_cursor._impl._node
     cfg_f_type = config.lookup_type(field)
+
     if not isinstance(e, LoopIR.Read):
-        raise ValueError("expected a cursor to a single variable Read")
-    elif e.type != cfg_f_type:
-        raise ValueError(
+        raise TypeError("expected a cursor to a single variable Read")
+
+    if not (e.type.is_real_scalar() and len(e.idx) == 0) and not e.type.is_bool():
+        raise TypeError(
+            f"cannot bind non-real-scalar non-boolean value {e} to configuration states, since index and size expressions may depend on loop iteration"
+        )
+
+    if e.type != cfg_f_type:
+        raise TypeError(
             f"expected type of expression to bind ({e.type}) "
             f"to match type of Config variable ({cfg_f_type})"
         )
@@ -1235,6 +1242,18 @@ def write_config(proc, gap_cursor, config, field, rhs):
     # TODO: just have scheduling pass take a gap cursor directly
     stmtc = gap_cursor.anchor()
     before = gap_cursor.type() == ic.GapType.Before
+
+    if not isinstance(rhs, (LoopIR.Read, LoopIR.StrideExpr, LoopIR.Const)):
+        raise TypeError("expected the rhs to be read, stride expression, or constant")
+
+    if isinstance(rhs, LoopIR.Read):
+        if (
+            not (rhs.type.is_real_scalar() and len(rhs.idx) == 0)
+            and not rhs.type.is_bool()
+        ):
+            raise TypeError(
+                f"cannot write non-real-scalar non-boolean value {rhs} to configuration states, since index and size expressions may depend on loop iteration"
+            )
 
     stmt = stmtc._impl
     ir, fwd, cfg = scheduling.DoConfigWrite(stmt, config, field, rhs, before=before)

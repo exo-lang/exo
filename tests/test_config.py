@@ -213,6 +213,8 @@ def test_config_write2():
     def foo(A: f32[10]):
         a: f32
         a = 0.0
+        a = A[0]
+        a = 1.0
 
     with pytest.raises(
         Exception, match="cannot write non-real-scalar non-boolean value"
@@ -235,6 +237,24 @@ def test_config_write3():
         Exception, match="cannot write non-real-scalar non-boolean value"
     ):
         write_config(foo, foo.find("a = _").after(), Config, "tmp", "i")
+
+
+def test_config_write4():
+    @config
+    class Config:
+        tmp: f32
+
+    @proc
+    def foo(A: f32[10]):
+        a: f32
+        a = 0.0
+        a = A[0]
+        a = 1.0
+
+    with pytest.raises(
+        TypeError, match="expected the rhs to be read, stride expression, or constant"
+    ):
+        write_config(foo, foo.find("a = _").after(), Config, "tmp", "A[0] * A[1]")
 
 
 def test_config_bind(golden):
