@@ -18,7 +18,7 @@ from ..core.LoopIR import (
 )
 from .new_eff import (
     SchedulingError,
-    Check_ReorderStmts,
+    # Check_ReorderStmts,
     Check_ReorderLoops,
     Check_FissionLoop,
     Check_DeleteConfigWrite,
@@ -31,6 +31,9 @@ from .new_eff import (
     Check_IsIdempotent,
     Check_ExprBound,
     Check_Aliasing,
+)
+from .new_new_eff import (
+    Check_ReorderStmts,
 )
 
 from .range_analysis import IndexRangeEnvironment, IndexRange, index_range_analysis

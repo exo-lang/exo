@@ -90,8 +90,11 @@ from . import dataflow_pprint
 
 
 class LoopIR_to_DataflowIR:
-    def __init__(self, proc):
+    def __init__(self, proc, stmts):
         self.loopir_proc = proc
+        self.stmts = []
+        for s in stmts:
+            self.stmts.append([s])
         self.config_env = ChainMap()
         self.dataflow_proc = self.map_proc(self.loopir_proc)
 
@@ -108,7 +111,7 @@ class LoopIR_to_DataflowIR:
         return self.config_env[c]
 
     def result(self):
-        return self.dataflow_proc
+        return self.dataflow_proc, [ls for s, ls in self.stmts]
 
     def init_block(self, body):
         dic = []
@@ -214,22 +217,28 @@ class LoopIR_to_DataflowIR:
         else:
             raise NotImplementedError(f"bad case {type(e)}")
 
-    @staticmethod
-    def _map_list(fn, nodes):
-        return [fn(n) for n in nodes]
+    def _map_list(self, fn, nodes):
+        res = []
+        for n in nodes:
+            d_ir = fn(n)
+            for s in self.stmts:
+                if n == s[0]:
+                    s.append(d_ir)
+            res.append(d_ir)
+        return res
 
 
-def dataflow_analysis(proc: LoopIR.proc) -> DataflowIR.proc:
+def dataflow_analysis(proc: LoopIR.proc, loopir_stmts: list) -> DataflowIR.proc:
     # step 1 - convert LoopIR to DataflowIR with empty contexts (i.e. AbsEnvs)
     # TODO: inline functioncall -> inline windowstmt -> lowering
     # FIXME: new_proc = inline_func(proc)
     # FIXME: new_proc = inline_windowstmt(proc)
-    datair = LoopIR_to_DataflowIR(proc).result()
+    datair, stmts = LoopIR_to_DataflowIR(proc, loopir_stmts).result()
 
     # step 2 - run abstract interpretation algorithm to populate contexts with abs values
     ScalarPropagation(datair)
 
-    return datair
+    return datair, stmts
 
 
 # --------------------------------------------------------------------------- #

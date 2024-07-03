@@ -29,6 +29,37 @@ def test_simple2():
     print()
 
 
+def test_simple_stmts():
+    @proc
+    def foo(z: R, x: R[3]):
+        z = 4.2
+        z = 2.0
+
+    print()
+    d_ir, stmts = foo.dataflow(foo.find("z = _ ; z = _"))
+    print(d_ir)
+    for s in stmts:
+        print(s)
+    print()
+
+
+def test_simple_stmts2():
+    @proc
+    def foo(z: R, n: size, x: R[3]):
+        z = 4.2
+        x[0] = 2.0
+        if n < 3:
+            x[n] = 3.0
+        pass
+
+    print()
+    d_ir, stmts = foo.dataflow(foo.find("if n < 3: _"))
+    print(d_ir)
+    for s in stmts:
+        print(s)
+    print()
+
+
 def test_simple3():
     @proc
     def foo(z: R, n: size, x: R[3]):
