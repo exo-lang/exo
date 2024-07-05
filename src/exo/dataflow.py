@@ -33,6 +33,7 @@ def validateAbsEnv(obj):
     return obj
 
 
+# TODO: This is getting to basically a copy of LoopIR. Probably makes sense to merge them at some point...
 DataflowIR = ADT(
     """
 module DataflowIR {
@@ -55,7 +56,8 @@ module DataflowIR {
          | If( expr cond, block body, block orelse )
          | For( sym iter, expr lo, expr hi, block body )
          | Alloc( sym name, type type )
-         | InlinedCall( proc f, block body ) -- f is only there for comments
+         | Call( proc f, expr* args )
+         | WindowStmt( sym name, expr rhs )
          attributes( srcinfo srcinfo )
 
     expr = Read( sym name, expr* idx )
@@ -63,10 +65,10 @@ module DataflowIR {
          | USub( expr arg )  -- i.e.  -(...)
          | BinOp( binop op, expr lhs, expr rhs )
          | BuiltIn( builtin f, expr* args )
+         | WindowExpr( sym name, w_access* idx )
          | StrideExpr( sym name, int dim )
-         | ReadConfig( sym config_field )
+         | ReadConfig( config config, string field )
          attributes( type type, srcinfo srcinfo )
-
 }""",
     ext_types={
         "name": validators.instance_of(Identifier, convert=True),
@@ -75,6 +77,7 @@ module DataflowIR {
         "config": Config,
         "binop": validators.instance_of(Operator, convert=True),
         "type": LoopIR.type,
+        "w_access": LoopIR.w_access,
         "absenv": validateAbsEnv,
         "srcinfo": SrcInfo,
     },
@@ -137,12 +140,15 @@ class LoopIR_to_DataflowIR:
         return self._map_list(self.map_e, exprs)
 
     def map_s(self, s):
-        if isinstance(s, (LoopIR.Call, LoopIR.WindowStmt)):
-            raise NotImplementedError(
-                "LoopIR.Call and LoopIR.WindowStmt should be inlined when we reach here!"
-            )
+        if isinstance(s, LoopIR.Call):
+            datair_subproc = self.map_proc(s.f)
+            args = self.map_exprs(s.args)
+            return DataflowIR.Call(datair_subproc, args, s.srcinfo)
 
-        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+        elif isinstance(s, LoopIR.WindowStmt):
+            return DataflowIR.WindowStmt(s.name, self.map_e(s.rhs), s.srcinfo)
+
+        elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             df_idx = self.map_exprs(s.idx)
             df_rhs = self.map_e(s.rhs)
             if isinstance(s, LoopIR.Assign):
@@ -202,7 +208,8 @@ class LoopIR_to_DataflowIR:
             return DataflowIR.USub(df_arg, e.type, e.srcinfo)
 
         elif isinstance(e, LoopIR.WindowExpr):
-            raise TypeError("WindowExpr should not appear here!")
+            # Doesn't matter for now, not used
+            return DataflowIR.WindowExpr(e.name, e.idx, e.type, e.srcinfo)
 
         elif isinstance(e, LoopIR.ReadConfig):
             df_config = self.config_lookup(e.config, e.field)
@@ -230,9 +237,6 @@ class LoopIR_to_DataflowIR:
 
 def dataflow_analysis(proc: LoopIR.proc, loopir_stmts: list) -> DataflowIR.proc:
     # step 1 - convert LoopIR to DataflowIR with empty contexts (i.e. AbsEnvs)
-    # TODO: inline functioncall -> inline windowstmt -> lowering
-    # FIXME: new_proc = inline_func(proc)
-    # FIXME: new_proc = inline_windowstmt(proc)
     datair, stmts = LoopIR_to_DataflowIR(proc, loopir_stmts).result()
 
     # step 2 - run abstract interpretation algorithm to populate contexts with abs values
@@ -250,12 +254,15 @@ class DataflowIR_Do:
     def __init__(self, proc, *args, **kwargs):
         self.proc = proc
 
-        for a in self.proc.args:
+        self.do_proc(self.proc)
+
+    def do_proc(self, p):
+        for a in p.args:
             self.do_t(a.type)
-        for p in self.proc.preds:
+        for p in p.preds:
             self.do_e(p)
 
-        self.do_stmts(self.proc.body.stmts)
+        self.do_stmts(p.body.stmts)
 
     def do_stmts(self, stmts):
         for s in stmts:
@@ -278,8 +285,12 @@ class DataflowIR_Do:
             self.do_e(s.lo)
             self.do_e(s.hi)
             self.do_stmts(s.body.stmts)
-        elif styp is DataflowIR.InlinedCall:
-            self.do_stmts(s.body.stmts)
+        elif styp is DataflowIR.Call:
+            self.do_proc(s.f)
+            for e in s.args:
+                self.do_e(e)
+        elif styp is DataflowIR.WindowStmt:
+            self.do_e(s.rhs)
         elif styp is DataflowIR.Alloc:
             self.do_t(s.type)
         else:
@@ -310,8 +321,6 @@ class DataflowIR_Do:
         elif isinstance(t, T.Window):
             self.do_t(t.src_type)
             self.do_t(t.as_tensor)
-            for w in t.idx:
-                self.do_w_access(w)
         else:
             pass
 
@@ -425,7 +434,7 @@ class AbstractInterpretation(ABC):
                 if nm != stmt.config_field:
                     post_env[nm] = pre_env[nm]
 
-        elif isinstance(stmt, DataflowIR.Pass):
+        elif isinstance(stmt, (DataflowIR.Pass, DataflowIR.WindowStmt)):
             # propagate un-touched variables
             for nm in pre_env:
                 post_env[nm] = pre_env[nm]
@@ -488,17 +497,9 @@ class AbstractInterpretation(ABC):
                 loop_val = stmt.body.ctxts[-1][nm]
                 post_env[nm] = self.abs_join(pre_val, loop_val)
 
-        elif isinstance(stmt, DataflowIR.InlinedCall):
-            # TODO: Decide how Inlined Calls work
-            pre_body, post_body = stmt.body.ctxts[0], stmt.body.ctxts[-1]
-            pre_else, post_else = stmt.orelse.ctxts[0], stmt.orelse.ctxts[-1]
-
-            for nm, val in pre_env.items():
-                stmt.body.ctxts[0][nm] = val
-
-            self.fix_block(stmt.body)
-
-            # Left Off: Oh No, do we preserve variable names when inlining?
+        elif isinstance(stmt, DataflowIR.Call):
+            # ?????
+            self.fix_block(stmt.f.body)
         else:
             assert False, f"bad case: {type(stmt)}"
 
@@ -527,6 +528,8 @@ class AbstractInterpretation(ABC):
             return self.abs_builtin(expr.f, args)
         elif isinstance(expr, DataflowIR.StrideExpr):
             return self.abs_stride_expr(expr.name, expr.dim)
+        elif isinstance(expr, DataflowIR.WindowExpr):
+            raise NotImplementedError("windowexpr??")
         else:
             assert False, f"bad case {type(expr)}"
 
@@ -710,6 +713,13 @@ class GetControlPredicates(DataflowIR_Do):
     def __init__(self, datair, stmts):
         self.datair = datair
         self.stmts = stmts
+
+    def do_stmts(self):
+
+        # TODO
+        # for s in stmts:
+        #    self.do_s(s)
+        return True
 
     def result(self):
         return A.Const(True, T.bool, null_srcinfo())

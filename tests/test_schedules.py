@@ -1682,6 +1682,17 @@ def test_reorder_stmts(golden):
     assert str(bar) == golden
 
 
+def test_reorder_stmts2():
+    @proc
+    def bar(f: R[100], g: R[100]):
+        for i in seq(0, 100):
+            f[i] = 1.0
+            g[i] = 3.0
+
+    bar = reorder_stmts(bar, bar.find("f[_] = _").expand(0, 1))
+    print(str(bar))
+
+
 def test_merge_writes_all_4_cases(golden):
     @proc
     def bar(x: R[4], y: R[4]):

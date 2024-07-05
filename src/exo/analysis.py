@@ -1634,6 +1634,8 @@ def Check_ReorderStmts(proc, s1, s2):
     a1 = stmts_effs([s1])
     a2 = stmts_effs([s2])
 
+    print(a1)
+
     pred = AAnd(Commutes(a1, a2), AllocCommutes(a1, a2)).simplify()
     is_ok = slv.verify(pred)
     slv.pop()

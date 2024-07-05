@@ -370,7 +370,7 @@ class Procedure(ProcedureBase):
     def _root(self):
         return IC.Cursor.create(self._loopir_proc)
 
-    def dataflow(self, s):
+    def dataflow(self, s=[]):
         stmts = [s] if isinstance(s, C.StmtCursor) else s
         loopir_stmts = []
         for s in stmts:

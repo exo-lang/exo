@@ -114,6 +114,14 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
         lines.extend(_print_block(stmt.body, body_env, indent + "  "))
         return lines
 
+    elif isinstance(stmt, DataflowIR.WindowStmt):
+        rhs = _print_expr(stmt.rhs, env)
+        return [f"{indent}{env.get_name(stmt.name)} = {rhs}"]
+
+    elif isinstance(stmt, DataflowIR.Call):
+        args = [_print_expr(a, env) for a in stmt.args]
+        return [f"{indent}{stmt.f.name}({', '.join(args)})"]
+
     assert False, f"unrecognized stmt: {type(stmt)}"
 
 

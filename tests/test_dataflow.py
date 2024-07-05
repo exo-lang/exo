@@ -314,3 +314,31 @@ def test_config_4():
 
 
 # Below are function inlining tests
+
+
+def test_function():
+    @proc
+    def bar():
+        for i in seq(0, 10):
+            A: i8
+            A = 0.3
+
+    @proc
+    def foo(n: size, src: [i8][n]):
+        bar()
+
+    print(foo)
+    print(foo.dataflow()[0])
+    print()
+
+
+def test_window_stmt():
+    @proc
+    def foo(n: size, src: [i8][20]):
+        tmp = src[0:10]
+        for i in seq(0, 10):
+            tmp[i] = 1.0
+
+    print(foo)
+    print(foo.dataflow()[0])
+    print()
