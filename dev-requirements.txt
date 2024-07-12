@@ -1,5 +1,5 @@
 black==24.4.2
-coverage==7.5.4
+coverage==7.6.0
 pre-commit==3.7.1
 pytest-cov==5.0.0
 pytest-xdist==3.6.1
