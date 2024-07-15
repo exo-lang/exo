@@ -27,17 +27,14 @@ def _get_reads_of_expr(expr: ExprCursor) -> list[str]:
     return [name.name() for (name, _) in get_reads_of_expr(expr._impl._node)]
 
 
-def get_affected_write_dim(
-    proc: Procedure, buffer_name: str, loop: ForCursor
-) -> list[int]:
+def get_affected_read_dim(buffer_name: str, loop: ForCursor) -> list[int]:
     """
     Return which dimension of buffer are affected by [iter_sym]. Raises
     an error if there are multiple.
     """
     dims = set()
     iter = loop.name()
-    # TODO: we should scope this to [loop], but currently .find() can only be called on procs
-    for c in proc.find(f"{buffer_name} = _", many=True):
+    for c in loop.find(f"{buffer_name}", many=True):
         for idx, idx_expr in enumerate(c.idx()):
             idx_vars = _get_reads_of_expr(idx_expr)
             if iter in idx_vars:
@@ -122,8 +119,9 @@ def compute_at(proc: Procedure, producer_assign: AssignCursor, target_loop: ForC
     target_loop = proc.forward(target_loop)
 
     producer = producer_assign.name()
-    p_loop = get_top_level_stmt(proc, producer_assign)
-    c_loops = [target_loop] + list(get_parents(proc, target_loop, up_to=None))
+
+    p_loop, c_loop = match_parent(producer_assign, target_loop)
+    c_loops = [target_loop] + list(get_parents(proc, target_loop, up_to=c_loop))
 
     assert p_loop.next() == c_loops[-1], "loop nests must be consecutive"
 
@@ -132,22 +130,24 @@ def compute_at(proc: Procedure, producer_assign: AssignCursor, target_loop: ForC
         c_loop = proc.forward(c_loop)
 
         # Infer bounds of producer that the are consumed to determine cut-factor
-        buffer_dim = get_affected_write_dim(proc, producer, c_loop)
-        bounds = bounds_inference(proc, c_loop, producer, buffer_dim, include=["R"])
+        buffer_dim = get_affected_read_dim(producer, c_loop)
+        bounds = bounds_inference(c_loop, producer, buffer_dim, include=["R"])
         N_c = c_loop.hi()._impl._node  # TODO: remove this ._impl._node
         w_c = bounds.get_stride_of(c_loop._impl._node.iter)
 
         # Identify the producer loop corresponding to the consumer loop based on dimension affected
         dim_vars = _get_reads_of_expr(producer_assign.idx()[buffer_dim])
-        p_loop = match_depth(producer_assign, c_loop)
+        p_loop, _ = match_parent(producer_assign, c_loop)
         while p_loop.name() not in dim_vars:
             p_loop = p_loop.body()[0]
 
-        # Reorder producer loop to be directly before consumer loop level
+        # Surface the relevant producer loop level
         while p_loop.parent() != c_loop.parent():
             proc = reorder_loops(proc, p_loop.parent())
             p_loop = proc.forward(p_loop)
             c_loop = proc.forward(c_loop)
+
+        # Reorder producer loop nest to be directly before consumer loop nest
         while p_loop.next() != c_loop:
             proc = reorder_stmts(proc, p_loop.expand(0, 1))
             p_loop = proc.forward(p_loop)
@@ -201,8 +201,8 @@ def compute_at_with_prologue(
         c_loop = proc.forward(c_loop)
 
     # bounds inference
-    buffer_dim = get_affected_write_dim(proc, producer, c_loop)
-    bounds = bounds_inference(proc, c_loop, producer, buffer_dim, include=["R"])
+    buffer_dim = get_affected_read_dim(producer, c_loop)
+    bounds = bounds_inference(c_loop, producer, buffer_dim, include=["R"])
     w_p = bounds.get_size()
 
     # separate out prologue
@@ -214,11 +214,6 @@ def compute_at_with_prologue(
     proc = shift_loop(proc, main_loop, 0)
     proc = simplify(proc)
     proc = fuse(proc, main_loop, main_loop.next())
-
-    # fuse prologue loop
-    # proc = add_loop(proc, prologue_loop, "y_i", str(N_c), guard=True)
-    # prologue_loop = proc.forward(prologue_loop).parent()
-    # proc = fuse(proc, prologue_loop, prologue_loop.next())
 
     return proc
 
@@ -242,7 +237,7 @@ def store_at(proc: Procedure, producer_alloc: AllocCursor, target_loop: ForCurso
                 for k in _: <- target_loop
         loops_between(producer_alloc, target_loop) -> [i, j, k]
         """
-        top_loop = match_depth(target_loop, producer_alloc)
+        top_loop, _ = match_parent(target_loop, producer_alloc)
         return reversed(
             [target_loop] + list(get_parents(proc, target_loop, up_to=top_loop))
         )
@@ -251,9 +246,9 @@ def store_at(proc: Procedure, producer_alloc: AllocCursor, target_loop: ForCurso
         loop = proc.forward(loop)
         producer_alloc = proc.forward(producer_alloc)
 
-        buffer_dim = get_affected_write_dim(proc, producer, loop)
+        buffer_dim = get_affected_read_dim(producer, loop)
 
-        bounds = bounds_inference(proc, loop, producer, buffer_dim)
+        bounds = bounds_inference(loop, producer, buffer_dim)
         lo, _ = bounds.get_bounds()
         size = bounds.get_size()
 

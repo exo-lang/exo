@@ -151,6 +151,7 @@ def test_schedule_tiled_blur2d(golden):
     procs.append(p)
 
     p = p_tiled
+    print(p)
     p = compute_at(p, producer_assign, p.find_loop("ji"))
     p = rename(p, "blur2d_tiled_compute_at_ji")
     procs.append(p)

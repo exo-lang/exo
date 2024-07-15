@@ -489,18 +489,18 @@ def test_bounds_inference_tiled_blur2d():
 
     loop = blur2d_tiled.find_loop("io")
     io_sym = loop._impl._node.iter
-    bound = bounds_inference(blur2d_tiled, loop, "producer", 0, include=["R"])
+    bound = bounds_inference(loop, "producer", 0, include=["R"])
     assert str(bound) == "(io * 4, 0, 4)"
 
     loop = blur2d_tiled.find_loop("jo")
     jo_sym = loop._impl._node.iter
-    bound = bounds_inference(blur2d_tiled, loop, "producer", 1, include=["R"])
+    bound = bounds_inference(loop, "producer", 1, include=["R"])
     assert str(bound) == "(jo * 4, 0, 4)"
 
-    bound = bounds_inference(blur2d_tiled, loop, "producer", 0, include=["R"])
+    bound = bounds_inference(loop, "producer", 0, include=["R"])
     assert str(bound) == "(io * 4, 0, 4)"
     assert bound.get_stride_of(io_sym) == 4
-    bound = bounds_inference(blur2d_tiled, loop, "producer", 1, include=["R"])
+    bound = bounds_inference(loop, "producer", 1, include=["R"])
     assert str(bound) == "(jo * 4, 0, 4)"
     assert bound.get_stride_of(jo_sym) == 4
 
@@ -514,5 +514,5 @@ def test_bounds_inference_fail():
                 x[j] = 1.0
 
     loop = foo.find_loop("j")
-    bound = bounds_inference(foo, loop, "x", 0, include=["W"])
+    bound = bounds_inference(loop, "x", 0, include=["W"])
     assert str(bound) == "(0, -inf, inf)"

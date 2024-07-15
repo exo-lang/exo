@@ -615,7 +615,7 @@ def test_specialize_forwarding():
     assert foo.forward(body) == foo.body()
 
 
-def test_match_depth(golden):
+def test_match_parent(golden):
     @proc
     def foo(x: i8):
         for i in seq(0, 8):
@@ -625,11 +625,11 @@ def test_match_depth(golden):
         for i in seq(0, 2):
             x = 1.0
 
-    c = match_depth(foo.find("x = 1.0"), foo.find_loop("i"))
-    assert str(c) == golden
+    c1, c2 = match_parent(foo.find("x = 1.0"), foo.find_loop("i"))
+    assert "\n\n".join([str(c) for c in [c1, c2]]) == golden
 
 
-def test_match_depth_fail():
+def test_match_parent_2(golden):
     @proc
     def foo(x: i8):
         for i in seq(0, 8):
@@ -637,18 +637,21 @@ def test_match_depth_fail():
         for j in seq(0, 2):
             x = 2.0
 
+    c1, c2 = match_parent(foo.find("x = _ #0"), foo.find("x = _ #1"))
+    assert "\n\n".join([str(c) for c in [c1, c2]]) == golden
+
+
+def test_match_parent_fail():
+    @proc
+    def foo():
+        pass
+
     @proc
     def bar():
         pass
 
-    with pytest.raises(
-        CursorNavigationError,
-        match="cursor_to_match's parent is not an ancestor of cursor",
-    ):
-        match_depth(foo.find("x = _ #0"), foo.find("x = _ #1"))
-
     with pytest.raises(AssertionError, match="cursors originate from different procs"):
-        match_depth(foo.find("x = _"), bar.find("pass"))
+        match_parent(foo.find("pass"), bar.find("pass"))
 
 
 def test_get_enclosing_loop_by_name(golden):
