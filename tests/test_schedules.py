@@ -1440,29 +1440,6 @@ def test_fuse_if_fail():
         fuse(foo, "if a==b:_", "if _==0: _")
 
 
-def test_bind_lhs(golden):
-    @proc
-    def myfunc_cpu(inp: i32[1, 1, 16] @ DRAM, out: i32[1, 1, 16] @ DRAM):
-        for ii in seq(0, 1):
-            for jj in seq(0, 1):
-                for kk in seq(0, 16):
-                    out[ii, jj, kk] += out[ii, jj, kk] + inp[ii, jj, kk]
-                    out[ii, jj, kk] = out[ii, jj, kk] * inp[ii, jj, kk]
-
-    myfunc_cpu = bind_expr(myfunc_cpu, myfunc_cpu.find("inp[_]", many=True), "inp_ram")
-    myfunc_cpu = bind_expr(myfunc_cpu, myfunc_cpu.find("out[_]", many=True), "out_ram")
-    assert str(myfunc_cpu) == golden
-
-
-def test_bind_cursor_arg(golden):
-    @proc
-    def foo(a: R):
-        a = 1.0
-
-    foo = bind_expr(foo, foo.find("1.0"), "const")
-    assert str(foo) == golden
-
-
 def test_divide_with_recompute(golden):
     @proc
     def foo(n: size, A: i8[n + 3]):
@@ -2179,8 +2156,66 @@ def test_bind_expr_diff_indices(golden):
             x[i] = y[i]
             w[i] = x[i] + y[i] + 1.0
 
-    bar = bind_expr(bar, bar.find("x[i]+y[i]+1.0", many=True), "tmp")
+    bar = bind_expr(bar, bar.find("x[i]+y[i]+1.0"), "tmp")
     assert str(bar) == golden
+
+
+def test_bind_lhs(golden):
+    @proc
+    def myfunc_cpu(inp: i32[1, 1, 16] @ DRAM, out: i32[1, 1, 16] @ DRAM):
+        for ii in seq(0, 1):
+            for jj in seq(0, 1):
+                for kk in seq(0, 16):
+                    out[ii, jj, kk] += out[ii, jj, kk] + inp[ii, jj, kk]
+                    out[ii, jj, kk] = out[ii, jj, kk] * inp[ii, jj, kk]
+
+    myfunc_cpu = bind_expr(myfunc_cpu, myfunc_cpu.find("inp[_]", many=True), "inp_ram")
+
+    with pytest.raises(SchedulingError, match="Unsafe to bind all"):
+        myfunc_cpu = bind_expr(
+            myfunc_cpu, myfunc_cpu.find("out[_]", many=True), "out_ram"
+        )
+
+    myfunc_cpu = bind_expr(myfunc_cpu, myfunc_cpu.find("out[_]"), "out_ram")
+    assert str(myfunc_cpu) == golden
+
+
+def test_bind_cursor_arg(golden):
+    @proc
+    def foo(a: R):
+        a = 1.0
+
+    foo = bind_expr(foo, foo.find("1.0"), "const")
+    assert str(foo) == golden
+
+
+def test_bind_expr_cse(golden):
+    @proc
+    def foo(a: i8, b: i8, c: i8):
+        b = 2.0 * a
+        for i in seq(0, 5):
+            c += 2.0 * a
+            a = 2.0 * a
+
+    with pytest.raises(SchedulingError, match="Unsafe to bind"):
+        foo = bind_expr(foo, foo.find("2.0 * a", many=True), "two_times_a")
+        print(foo)
+
+    # Safe to just bind the one outside the loop
+    foo = bind_expr(foo, foo.find("2.0 * a"), "two_times_a")
+    assert str(foo) == golden
+
+
+def test_bind_expr_cse_2(golden):
+    @proc
+    def foo(x: i8[5], y: i8[5]):
+        for i in seq(0, 5):
+            x[i] = 2.0
+        for i in seq(0, 5):
+            y[i] = 2.0
+
+    foo = bind_expr(foo, foo.find("2.0", many=True), "two")
+    assert str(foo) == golden
 
 
 def test_simple_lift_alloc(golden):
