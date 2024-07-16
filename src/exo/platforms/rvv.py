@@ -29,10 +29,12 @@ class RVV(Memory):
     def alloc(cls, new_name, prim_type, shape, srcinfo):
         if not shape:
             raise MemGenError(f"{srcinfo}: RVV vectors are not scalar values")
-
+        factor = 1
+        if int(os.environ['RVV_BITS']) == 256:
+            factor = 2
         vec_types = {
-            "float": (4, "vfloat32m1_t"), "double": (2, "vfloat64m1_t"), "_Float16" : (8, "vfloat16m1_t")}
-
+            "float": (4*factor, "vfloat32m1_t"), "double": (2*factor, "vfloat64m1_t"), "_Float16" : (8*factor, "vfloat16m1_t")}
+        
         if not prim_type in vec_types.keys():
             raise MemGenError(f"{srcinfo}: RVV vectors must be floats (for now)")
 
@@ -90,6 +92,16 @@ def rvv_vld_4xf32(dst: [f32][4] @ RVV, src: [f32][4] @ DRAM, vl: size):
     for i in seq(0, vl):
         dst[i] = src[i]
 
+
+@instr("{dst_data} = __riscv_vle32_v_f32m1(&{src_data},{vl});")
+def rvv_vld_8xf32(dst: [f32][8] @ RVV, src: [f32][8] @ DRAM, vl: size):
+    assert stride(src, 0) == 1
+    assert stride(dst, 0) == 1
+    assert vl >= 0
+    assert vl <= 8
+
+    for i in seq(0, vl):
+        dst[i] = src[i]
 
 @instr("__riscv_vse32_v_f32m1(&{dst_data}, {src_data},{vl});")
 def rvv_vst_4xf32(dst: [f32][4] @ DRAM, src: [f32][4] @ RVV, vl: size):
