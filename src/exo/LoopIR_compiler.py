@@ -285,7 +285,7 @@ def _window_struct(typename, ctype, n_dims, is_const) -> WindowStruct:
         f"    const int_fast32_t strides[{n_dims}];\n"
         f"}};"
     )
-
+    #sdef = ("") #ADRIAN
     return WindowStruct(sname, sdef)
 
 
@@ -297,6 +297,7 @@ def window_struct(base_type, n_dims, is_const) -> WindowStruct:
         T.f32: "f32",
         T.f64: "f64",
         T.i8: "i8",
+        T.i16: "i16",
         T.ui8: "ui8",
         T.ui16: "ui16",
         T.i32: "i32",
@@ -740,6 +741,7 @@ class Compiler:
         if not type.is_win():
             return f"{buf}[{idx_expr_s}]"
         else:
+            #return f"{buf}[{idx_expr_s}]"
             return f"{buf}.data[{idx_expr_s}]"
 
     def shape_strs(self, shape, prec=100) -> str:
@@ -962,6 +964,7 @@ class Compiler:
             win_struct = self.get_window_type(e.type, is_const)
             data, strides = self.window_struct_fields(e)
             return f"(struct {win_struct}){{ &{data}, {{ {strides} }} }}"
+            #return f"&{data}, {strides}"
         else:
             return self.comp_e(e, prec)
 
@@ -990,6 +993,7 @@ class Compiler:
             win_struct = self.get_window_type(e.type)
             data, strides = self.window_struct_fields(e)
             return f"(struct {win_struct}){{ &{data}, {{ {strides} }} }}"
+            #return f"&{data}, {strides}"
 
         elif isinstance(e, LoopIR.Const):
             if isinstance(e.val, bool):

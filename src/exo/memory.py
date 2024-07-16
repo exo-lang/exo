@@ -109,6 +109,7 @@ class Memory(ABC):
 
         if basetyp.is_win():
             baseptr = f"{baseptr}.data"
+            #baseptr = f"{baseptr}"
 
         return f"{baseptr}[{offset}]"
 

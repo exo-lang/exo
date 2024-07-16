@@ -315,6 +315,7 @@ class TypeAbbrevA(ArgumentProcessor):
         "f32": T.f32,
         "f64": T.f64,
         "i8": T.int8,
+        "i16": T.int16,
         "ui8": T.uint8,
         "ui16": T.uint16,
         "i32": T.int32,

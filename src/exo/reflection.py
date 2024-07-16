@@ -238,6 +238,8 @@ class LoopIR_to_QAST:
             return QAST.f64()
         elif typ == T.i8:
             return QAST.i8()
+        elif typ == T.i16:
+            return QAST.i16()
         elif typ == T.i32:
             return QAST.i32()
         elif typ == T.bool:

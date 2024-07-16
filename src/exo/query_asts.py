@@ -42,6 +42,7 @@ QueryAST
     f32()
     f64()
     i8()
+    i16()
     i32()
     bool()
     int()
@@ -117,6 +118,9 @@ class f64(Type):
 class i8(Type):
     pass
 
+@_dataclass
+class i16(Type):
+    pass
 
 @_dataclass
 class i32(Type):
