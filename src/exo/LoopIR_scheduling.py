@@ -1219,17 +1219,6 @@ def get_enclosing_stmt_cursor(c):
     return c
 
 
-def less(c1, c2):
-    assert c1._root == c2._root
-    p1, p2 = c1._path, c2._path
-    for i in range(min(len(p1), len(p2))):
-        if p1[i] < p2[i]:
-            return True
-        elif p1[i] > p2[i]:
-            return False
-    return len(p1) < len(p2)
-
-
 def match_parent(c1, c2):
     assert c1._root == c2._root
     root = c1._root
@@ -1276,21 +1265,11 @@ def DoBindExpr(new_name, expr_cursors):
     new_read = LoopIR.Read(new_name, [], expr.type, expr.srcinfo)
     first_write_c = None
     for c in get_rest_of_block(init_s, inclusive=True):
-        for block in match_pattern(c, "_ = _"):
+        for block in match_pattern(c, "_ = _") + match_pattern(c, "_ += _"):
             assert len(block) == 1
             sc = block[0]
             if sc._node.name in expr_reads:
                 first_write_c = sc
-                break
-        for block in match_pattern(c, "_ += _"):
-            assert len(block) == 1
-            sc = block[0]
-            if sc._node.name in expr_reads:
-                if first_write_c:
-                    if less(sc, first_write_c):
-                        first_write_c = sc
-                else:
-                    first_write_c = sc
                 break
 
         if first_write_c and isinstance(c._node, (LoopIR.For, LoopIR.If)):
