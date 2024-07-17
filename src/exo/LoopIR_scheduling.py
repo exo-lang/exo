@@ -1219,14 +1219,19 @@ def get_enclosing_stmt_cursor(c):
     return c
 
 
-def less(c1, c2):
+def match_parent(c1, c2):
+    assert c1._root == c2._root
+    root = c1._root
+
     p1, p2 = c1._path, c2._path
-    for i in range(min(len(p1), len(p2))):
-        if p1[i] < p2[i]:
-            return True
-        elif p1[i] > p2[i]:
-            return False
-    return len(p1) < len(p2)
+
+    i = 0
+    while i < min(len(p1), len(p2)) and p1[i] == p2[i]:
+        i += 1
+
+    c1 = ic.Node(root, p1[: i + 1])
+    c2 = ic.Node(root, p2[: i + 1])
+    return c1, c2
 
 
 def DoRewriteExpr(expr_cursor, new_expr):
@@ -1247,50 +1252,42 @@ def DoBindExpr(new_name, expr_cursors):
     # TODO: dirty hack. need real CSE-equality (i.e. modulo srcinfo)
     expr_cursors = [c for c in expr_cursors if str(c._node) == str(expr)]
 
-    init_c = get_enclosing_stmt_cursor(expr_cursors[0])
+    init_s = get_enclosing_stmt_cursor(expr_cursors[0])
+    if len(expr_cursors) > 1:
+        # TODO: Currently assume expr cursors is sorted in order
+        init_s, _ = match_parent(init_s, expr_cursors[-1])
 
     new_name = Sym(new_name)
     alloc_s = LoopIR.Alloc(new_name, expr.type.basetype(), DRAM, expr.srcinfo)
     assign_s = LoopIR.Assign(new_name, expr.type.basetype(), [], expr, expr.srcinfo)
-    ir, fwd = init_c.before()._insert([alloc_s, assign_s])
+    ir, fwd = init_s.before()._insert([alloc_s, assign_s])
 
     new_read = LoopIR.Read(new_name, [], expr.type, expr.srcinfo)
     first_write_c = None
-    for c in get_rest_of_block(init_c, inclusive=True):
-        for block in match_pattern(c, "_ = _"):
+    for c in get_rest_of_block(init_s, inclusive=True):
+        for block in match_pattern(c, "_ = _") + match_pattern(c, "_ += _"):
             assert len(block) == 1
             sc = block[0]
             if sc._node.name in expr_reads:
                 first_write_c = sc
                 break
-        for block in match_pattern(c, "_ += _"):
-            assert len(block) == 1
-            sc = block[0]
-            if sc._node.name in expr_reads:
-                if first_write_c:
-                    if less(sc, first_write_c):
-                        first_write_c = sc
-                else:
-                    first_write_c = sc
-                break
-        if first_write_c:
-            while expr_cursors and (
-                less(expr_cursors[0], first_write_c)
-                or first_write_c.is_ancestor_of(expr_cursors[0])
-            ):
-                ir, fwd_repl = _replace_helper(
-                    fwd(expr_cursors[0]), new_read, only_replace_attrs=False
-                )
-                fwd = _compose(fwd_repl, fwd)
-                expr_cursors.pop(0)
+
+        if first_write_c and isinstance(c._node, (LoopIR.For, LoopIR.If)):
+            # Potentially unsafe to partially bind, err on side of caution for now
             break
-        else:
-            while expr_cursors and c.is_ancestor_of(expr_cursors[0]):
-                ir, fwd_repl = _replace_helper(
-                    fwd(expr_cursors[0]), new_read, only_replace_attrs=False
-                )
-                fwd = _compose(fwd_repl, fwd)
-                expr_cursors.pop(0)
+
+        while expr_cursors and c.is_ancestor_of(expr_cursors[0]):
+            ir, fwd_repl = _replace_helper(
+                fwd(expr_cursors[0]), new_read, only_replace_attrs=False
+            )
+            fwd = _compose(fwd_repl, fwd)
+            expr_cursors.pop(0)
+
+        if first_write_c:
+            break
+
+    if len(expr_cursors) > 0:
+        raise SchedulingError("Unsafe to bind all of the provided exprs.")
 
     Check_Aliasing(ir)
     return ir, fwd
