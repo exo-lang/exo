@@ -123,8 +123,6 @@ def compute_at(proc: Procedure, producer_assign: AssignCursor, target_loop: ForC
     p_loop, c_loop = match_parent(producer_assign, target_loop)
     c_loops = [target_loop] + list(get_parents(proc, target_loop, up_to=c_loop))
 
-    assert p_loop.next() == c_loops[-1], "loop nests must be consecutive"
-
     for c_loop in reversed(c_loops):
         producer_assign = proc.forward(producer_assign)
         c_loop = proc.forward(c_loop)

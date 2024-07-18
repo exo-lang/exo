@@ -102,8 +102,6 @@ def bounds_inference(loop, buffer_name: str, buffer_dim: int, include=["W"]):
     matches = []
     # TODO: also probably want reduces... for both read and write
     if "R" in include:
-        # TODO: proc.find doesn't take a scope. Either write a variant or add that as an optional arg
-        # Also, proc.find fails if no matches are found...but we really just want it to return []
         matches += loop.find(f"{buffer_name}[_]", many=True)
     if "W" in include:
         matches += loop.find(f"{buffer_name}[_] = _", many=True)
