@@ -1,0 +1,7 @@
+def foo(x: i8[5] @ DRAM, y: i8[5] @ DRAM):
+    two: R @ DRAM
+    two = 2.0
+    for i in seq(0, 5):
+        x[i] = two
+    for i in seq(0, 5):
+        y[i] = two

@@ -971,10 +971,9 @@ def rewrite_expr(proc, expr_cursor, new_expr):
 def bind_expr(proc, expr_cursors, new_name):
     """
     Bind some numeric/data-value type expression(s) into a new intermediate,
-    scalar-sized buffer. Attempts to perform common sub-expression
-    elimination while binding. It will stop upon encountering a read of any
-    buffer that the expression depends on. The precision of the new allocation
-    is that of the bound expression.
+    scalar-sized buffer. It will fail if not all of the provided expressions
+    can be bound safely. The precision of the new allocation is that of the
+    bound expression.
 
     args:
         expr_cursors    - a list of cursors to multiple instances of the
