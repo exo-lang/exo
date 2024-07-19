@@ -1,0 +1,7 @@
+def foo(a: i8 @ DRAM, b: i8 @ DRAM, c: i8 @ DRAM):
+    two_times_a: R @ DRAM
+    two_times_a = 2.0 * a
+    b = two_times_a
+    for i in seq(0, 5):
+        c += 2.0 * a
+        a = 2.0 * a
