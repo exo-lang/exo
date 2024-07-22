@@ -237,6 +237,10 @@ class PatternMatch:
 
         # then handle each constructor as a structural case
         if isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
+            if len(pat.idx) != len(stmt.idx):
+                # Special case if the idx pattern is a hole
+                return len(pat.idx) == 1 and isinstance(pat.idx[0], PAST.E_Hole)
+
             return (
                 self.match_name(pat.name, stmt.name)
                 and all(self.match_e(pi, si) for pi, si in zip(pat.idx, stmt.idx))
@@ -268,12 +272,20 @@ class PatternMatch:
             )
         elif isinstance(stmt, LoopIR.Alloc):
             if isinstance(stmt.type, LoopIR.Tensor):
+                if len(pat.sizes) != len(stmt.type.hi):
+                    # Special case if the idx pattern is a hole
+                    return len(pat.sizes) == 1 and isinstance(pat.sizes[0], PAST.E_Hole)
+
                 return all(
                     self.match_e(pi, si) for pi, si in zip(pat.sizes, stmt.type.hi)
                 ) and self.match_name(pat.name, stmt.name)
             else:  # scalar
                 return self.match_name(pat.name, stmt.name)
         elif isinstance(stmt, LoopIR.Call):
+            if len(pat.args) != len(stmt.args):
+                # Special case if the idx pattern is a hole
+                return len(pat.args) == 1 and isinstance(pat.args[0], PAST.E_Hole)
+
             return self.match_name(pat.f, stmt.f.name)
         elif isinstance(stmt, LoopIR.WriteConfig):
             return self.match_name(stmt.config.name(), pat.config) and self.match_name(
@@ -302,6 +314,10 @@ class PatternMatch:
             return False
 
         if isinstance(e, LoopIR.Read):
+            if len(pat.idx) != len(e.idx):
+                # Special case if the idx pattern is a hole
+                return len(pat.idx) == 1 and isinstance(pat.idx[0], PAST.E_Hole)
+
             return self.match_name(pat.name, e.name) and all(
                 self.match_e(pi, si) for pi, si in zip(pat.idx, e.idx)
             )
@@ -325,6 +341,10 @@ class PatternMatch:
         elif isinstance(e, LoopIR.USub):
             return self.match_e(pat.arg, e.arg)
         elif isinstance(e, LoopIR.BuiltIn):
+            if len(pat.args) != len(e.args):
+                # Special case if the idx pattern is a hole
+                return len(pat.args) == 1 and isinstance(pat.args[0], PAST.E_Hole)
+
             return pat.f is e.f and all(
                 self.match_e(pa, sa) for pa, sa in zip(pat.args, e.args)
             )
