@@ -265,7 +265,7 @@ def test_config_1():
         x = ConfigAB.a
         ConfigAB.b = ConfigAB.a
 
-    print(foo.dataflow())
+    print(foo.dataflow()[0])
     print()
 
 
@@ -281,7 +281,7 @@ def test_config_2():
             ConfigAB.b = ConfigAB.a
         ConfigAB.a = 2.0
 
-    print(foo.dataflow())
+    print(foo.dataflow()[0])
     print()
 
 
@@ -296,7 +296,7 @@ def test_config_3():
             if n == n - 1:
                 CTRL.i = 3
 
-    print(foo.dataflow())
+    print(foo.dataflow()[0])
     print()
 
 
@@ -309,7 +309,7 @@ def test_config_4():
         pass
 
     print(foo)
-    print(foo.dataflow())
+    print(foo.dataflow()[0])
     print()
 
 

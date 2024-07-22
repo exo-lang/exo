@@ -67,7 +67,7 @@ module DataflowIR {
          | BuiltIn( builtin f, expr* args )
          | WindowExpr( sym name, w_access* idx )
          | StrideExpr( sym name, int dim )
-         | ReadConfig( config config, string field )
+         | ReadConfig( sym config_field )
          attributes( type type, srcinfo srcinfo )
 }""",
     ext_types={
@@ -489,8 +489,9 @@ class AbstractInterpretation(ABC):
                 # the pre-values, by joining them together
                 for nm, prev_val in pre_body.items():
                     next_val = stmt.body.ctxts[-1][nm]
-                    at_fixed_point = at_fixed_point and prev_val == next_val
-                    pre_body[nm] = next_val
+                    # SANITY-CHECK: Is this correct?
+                    at_fixed_point = at_fixed_point and greater_than(prev_val, next_val)
+                    pre_body[nm] = self.abs_join(prev_val, next_val)
 
             # determine the post-env as join of pre-env and loop results
             for nm, pre_val in pre_env.items():
@@ -570,15 +571,23 @@ class AbstractInterpretation(ABC):
         """Implement transfer function abstraction for built-ins"""
 
 
-def does_exist(bexpr, val):
-    assert isinstance(bexpr, A.BinOp)
+def greater_than(bexpr, val):
+    if bexpr == val:
+        return True
+
+    # Bottom is always Bottom
+    if isinstance(val, A.Unk):
+        return True
+
+    if not isinstance(bexpr, A.BinOp):
+        return False
 
     exists = False
     if bexpr.op == "or":
         if isinstance(bexpr.rhs, A.BinOp):
-            exists |= does_exist(bexpr.rhs, val)
+            exists |= greater_than(bexpr.rhs, val)
         if isinstance(bexpr.lhs, A.BinOp):
-            exists |= does_exist(bexpr.lhs, val)
+            exists |= greater_than(bexpr.lhs, val)
         if bexpr.rhs == val or bexpr.lhs == val:
             return True
 
@@ -617,10 +626,10 @@ class ScalarPropagation(AbstractInterpretation):
             if lval.val == rval.val:
                 return lval
         elif isinstance(lval, A.BinOp):
-            if does_exist(lval, rval):
+            if greater_than(lval, rval):
                 return lval
         elif isinstance(rval, A.BinOp):
-            if does_exist(rval, lval):
+            if greater_than(rval, lval):
                 return rval
 
         return AOr(lval, rval)
