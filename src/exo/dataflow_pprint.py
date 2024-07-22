@@ -1,5 +1,5 @@
 from .dataflow import DataflowIR
-from .LoopIR_pprint import PrintEnv, _print_type, op_prec
+from .LoopIR_pprint import PrintEnv, _print_type, op_prec, _print_w_access
 from .LoopIR import T
 from .prelude import Sym, SrcInfo, extclass
 
@@ -169,5 +169,9 @@ def _print_expr(e, env: PrintEnv, prec: int = 0) -> str:
     elif isinstance(e, DataflowIR.ReadConfig):
         name = env.get_name(e.config_field)
         return f"{name}"
+
+    elif isinstance(e, DataflowIR.WindowExpr):
+        name = env.get_name(e.name)
+        return f"{name}[{', '.join([_print_w_access(w, env) for w in e.idx])}]"
 
     assert False, f"unrecognized expr: {type(e)}"
