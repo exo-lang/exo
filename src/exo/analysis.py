@@ -2181,20 +2181,21 @@ def Check_IsDeadAfter(proc, stmts, bufname, ndim):
         )
 
 
-# FIXME: Update
 def Check_IsIdempotent(proc, stmts):
     assert len(stmts) > 0
-    ctxt = ContextExtraction(proc, stmts)
 
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
-    ap = ctxt.get_posteffs()
-    a = G(stmts_effs(stmts))
+    datair, d_stmts = LoopIR_to_DataflowIR(proc, stmts).result()
+    ScalarPropagation(datair)
+
+    p = GetControlPredicates(datair, d_stmts).result()
+    v = GetControlAbsVal(datair, d_stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
+    slv.assume(AMay(v))
 
+    a = stmts_effs(stmts)
     is_idempotent = slv.verify(ADef(Shadows(a, a)))
     slv.pop()
     if not is_idempotent:
