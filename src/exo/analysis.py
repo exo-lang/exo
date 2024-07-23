@@ -1976,24 +1976,27 @@ def Check_ExtendEqv(proc, stmts0, stmts1, cfg_mod):
     return cfg_mod_visible
 
 
-# FIXME: Update
 def Check_ExprEqvInContext(proc, expr0, stmts0, expr1, stmts1=None):
     assert len(stmts0) > 0
     stmts1 = stmts1 or stmts0
-    ctxt0 = ContextExtraction(proc, stmts0)
-    ctxt1 = ContextExtraction(proc, stmts1)
 
-    p0 = ctxt0.get_control_predicate()
-    G0 = ctxt0.get_pre_globenv()
-    p1 = ctxt1.get_control_predicate()
-    G1 = ctxt1.get_pre_globenv()
+    len_0 = len(stmts0)
+    datair, d_stmts = LoopIR_to_DataflowIR(proc, stmts0 + stmts1).result()
+    d_stmts0 = d_stmts[0:len_0]
+    d_stmts1 = d_stmts[len_0:]
+    ScalarPropagation(datair)
+    p0 = GetControlPredicates(datair, d_stmts0).result()
+    p1 = GetControlPredicates(datair, d_stmts1).result()
+    v0 = GetControlAbsVal(datair, d_stmts0).result()
+    v1 = GetControlAbsVal(datair, d_stmts1).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(AAnd(p0, p1)))
+    slv.assume(AMay(AAnd(v0, v1)))
 
-    e0 = G0(lift_e(expr0))
-    e1 = G1(lift_e(expr1))
+    e0 = lift_e(expr0)
+    e1 = lift_e(expr1)
 
     test = AEq(e0, e1)
     is_ok = slv.verify(test)
