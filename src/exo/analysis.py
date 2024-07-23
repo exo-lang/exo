@@ -2114,18 +2114,20 @@ def Check_Access_In_Window(proc, access_cursor, w_exprs, block_cursor):
     )
 
 
-# FIXME: Update
 def Check_Bounds(proc, alloc_stmt, block):
     if len(block) == 0:
         return
-    ctxt = ContextExtraction(proc, block)
 
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
+    datair, stmts = LoopIR_to_DataflowIR(proc, block).result()
+    ScalarPropagation(datair)
+
+    p = GetControlPredicates(datair, stmts).result()
+    v = GetControlAbsVal(datair, stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
+    slv.assume(AMay(v))
 
     # build a location set describing
     # the allocated region of the buffer
@@ -2147,7 +2149,7 @@ def Check_Bounds(proc, alloc_stmt, block):
         for i in reversed(coords):
             alloc_set = LBigUnion(i, alloc_set)
 
-    a = G(stmts_effs(block))
+    a = stmts_effs(block)
     All = getsets([ES.ALL], a)[0]
     All_inbuf = LIsct(All, LS.WholeBuf(alloc_stmt.name, len(shape)))
     is_ok = slv.verify(ADef(is_empty(LDiff(All_inbuf, alloc_set))))

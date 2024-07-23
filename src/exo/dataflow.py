@@ -740,20 +740,79 @@ class ScalarPropagation(AbstractInterpretation):
         return A.Const(builtin.interpret(vargs), args[0].typ)
 
 
+def lift_e(e):
+    if e.type.is_indexable() or e.type.is_stridable() or e.type == T.bool:
+        if isinstance(e, DataflowIR.Read):
+            assert len(e.idx) == 0
+            return A.Var(e.name, e.type, e.srcinfo)
+        elif isinstance(e, DataflowIR.Const):
+            return A.Const(e.val, e.type, e.srcinfo)
+        elif isinstance(e, DataflowIR.BinOp):
+            return A.BinOp(e.op, lift_e(e.lhs), lift_e(e.rhs), e.type, e.srcinfo)
+        elif isinstance(e, DataflowIR.USub):
+            return A.USub(lift_e(e.arg), e.type, e.srcinfo)
+        elif isinstance(e, DataflowIR.StrideExpr):
+            return A.Stride(e.name, e.dim, e.type, e.srcinfo)
+        elif isinstance(e, DataflowIR.ReadConfig):
+            return A.Var(e.config_field, e.type, e.srcinfo)
+        else:
+            f"bad case: {type(e)}"
+    else:
+        assert e.type.is_numeric()
+        if e.type.is_real_scalar():
+            if isinstance(e, DataflowIR.Const):
+                return A.Const(e.val, e.type, e.srcinfo)
+            elif isinstance(e, DataflowIR.Read):
+                return A.ConstSym(e.name, e.type, e.srcinfo)
+            elif isinstance(e, DataflowIR.ReadConfig):
+                return A.Var(e.config_field, e.type, e.srcinfo)
+
+        return A.Unk(T.err, e.srcinfo)
+
+
 class GetControlPredicates(DataflowIR_Do):
     def __init__(self, datair, stmts):
         self.datair = datair
         self.stmts = stmts
+        self.preds = None
+        self.done = False
+        self.cur_preds = [A.Const(True, T.bool, null_srcinfo())]
 
-    def do_stmts(self):
+        super().__init__(datair)
 
-        # TODO
-        # for s in stmts:
-        #    self.do_s(s)
-        return True
+    def do_s(self, s):
+        if self.done:
+            return
+
+        if s == self.stmts[0]:
+            self.preds = A.Const(True, T.bool, null_srcinfo())
+            for pred in self.cur_preds:
+                self.preds = A.BinOp("and", pred, self.preds, T.bool, null_srcinfo())
+            self.done = True
+
+        styp = type(s)
+        if styp is DataflowIR.If:
+            self.cur_preds.append(lift_e(s.cond))
+            self.do_stmts(s.body.stmts)
+            self.cur_preds.pop()
+
+            self.cur_preds.append(A.Not(lift_e(s.cond), T.int, null_srcinfo()))
+            self.do_stmts(s.orelse.stmts)
+            self.cur_preds.pop()
+
+        elif styp is DataflowIR.For:
+            a_iter = A.Var(s.iter, T.int, s.srcinfo)
+            b1 = A.BinOp("<=", lift_e(s.lo), a_iter, T.bool, null_srcinfo())
+            b2 = A.BinOp("<", a_iter, lift_e(s.hi), T.bool, null_srcinfo())
+            cond = A.BinOp("and", b1, b2, T.bool, null_srcinfo())
+            self.cur_preds.append(cond)
+            self.do_stmts(s.body.stmts)
+            self.cur_preds.pop()
+
+        super().do_s(s)
 
     def result(self):
-        return A.Const(True, T.bool, null_srcinfo())
+        return self.preds.simplify()
 
 
 class GetControlAbsVal(DataflowIR_Do):
