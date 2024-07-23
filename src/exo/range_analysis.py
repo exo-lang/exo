@@ -67,7 +67,7 @@ class IndexRange:
         def get_coeff(e):
             """
             This implementation assumes that self.base is a linear combination of index
-            variables WITHOUT a constant term, e.g. ax + by + cz where a, b, c are constants
+            variables WITHOUT a constant term, e.g. ax - by + cz where a, b, c are constants
             and x, y, z are index expression. This holds because constant terms are always
             folded into self.lo and self.hi
             """
