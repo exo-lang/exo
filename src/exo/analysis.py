@@ -2202,20 +2202,22 @@ def Check_IsIdempotent(proc, stmts):
         raise SchedulingError(f"The statement at {stmts[0].srcinfo} is not idempotent.")
 
 
-# FIXME: Update
 def Check_ExprBound(proc, stmts, expr, op, value, exception=True):
     assert len(stmts) > 0
 
-    ctxt = ContextExtraction(proc, stmts)
+    datair, d_stmts = LoopIR_to_DataflowIR(proc, stmts).result()
+    p = GetControlPredicates(datair, d_stmts).result()
 
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
+    # TODO: Check_ExprBound does not depend on configuration states so this can be skipped, but more fundamentally running abstract interpretation this many times is simply too slow.
+    # ScalarPropagation(datair)
+    # v = GetControlAbsVal(datair, d_stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
+    # slv.assume(AMay(v))
 
-    e = G(lift_e(expr))
+    e = lift_e(expr)
 
     if op == ">=":
         query = ADef(e >= AInt(value))

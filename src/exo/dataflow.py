@@ -58,6 +58,7 @@ module DataflowIR {
          | Alloc( sym name, type type )
          | Call( proc f, expr* args )
          | WindowStmt( sym name, expr rhs )
+         | Free( sym name, type type )
          attributes( srcinfo srcinfo )
 
     expr = Read( sym name, expr* idx )
@@ -185,6 +186,9 @@ class LoopIR_to_DataflowIR:
 
         elif isinstance(s, LoopIR.Pass):
             return DataflowIR.Pass(s.srcinfo)
+
+        elif isinstance(s, LoopIR.Free):
+            return DataflowIR.Free(s.name, s.type, s.srcinfo)
 
         else:
             raise NotImplementedError(f"bad case {type(s)}")
@@ -442,6 +446,13 @@ class AbstractInterpretation(ABC):
         elif isinstance(stmt, (DataflowIR.Pass, DataflowIR.WindowStmt)):
             # propagate un-touched variables
             for nm in pre_env:
+                post_env[nm] = pre_env[nm]
+
+        elif isinstance(stmt, DataflowIR.Free):
+            # propagate un-touched variables
+            for nm in pre_env:
+                if nm == stmt.name:
+                    continue
                 post_env[nm] = pre_env[nm]
 
         elif isinstance(stmt, DataflowIR.Alloc):
@@ -776,18 +787,32 @@ class GetControlPredicates(DataflowIR_Do):
         self.stmts = stmts
         self.preds = None
         self.done = False
-        self.cur_preds = [A.Const(True, T.bool, null_srcinfo())]
+        self.cur_preds = []
 
-        super().__init__(datair)
+        for a in self.datair.args:
+            if isinstance(a.type, T.Size):
+                size_pred = A.BinOp(
+                    "<",
+                    A.Const(0, T.int, null_srcinfo()),
+                    A.Var(a.name, T.size, a.srcinfo),
+                    T.bool,
+                    null_srcinfo(),
+                )
+                self.cur_preds.append(size_pred)
+            self.do_t(a.type)
+
+        for pred in self.datair.preds:
+            self.cur_preds.append(lift_e(pred))
+            self.do_e(pred)
+
+        self.do_stmts(self.datair.body.stmts)
 
     def do_s(self, s):
         if self.done:
             return
 
         if s == self.stmts[0]:
-            self.preds = A.Const(True, T.bool, null_srcinfo())
-            for pred in self.cur_preds:
-                self.preds = A.BinOp("and", pred, self.preds, T.bool, null_srcinfo())
+            self.preds = AAnd(*self.cur_preds)
             self.done = True
 
         styp = type(s)
