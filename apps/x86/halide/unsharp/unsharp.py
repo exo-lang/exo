@@ -119,30 +119,24 @@ def halide_schedule(p):
         p = repeat(lift_alloc)(p, alloc)
 
         assign = p.find(f"{name} = _")
-        if not isinstance(assign.parent(), InvalidCursor):
-            p = fission(p, assign.after(), 2)
-            for i in range(2):
-                p = remove_loop(p, assign.parent())
-                assign = p.forward(assign)
+        while not isinstance(assign.parent(), InvalidCursor):
+            p = fission(p, assign.after())
+            assign = p.forward(assign)
+            p = remove_loop(p, assign.parent())
+            assign = p.forward(assign)
 
     p = halide_split(p, "output", "y", "y", "yi", 32, tail="perfect")
     p = halide_parallel(p, "y")
 
-    p = halide_compute_and_store_at(p, "ratio", "output", "yi")
-    p = lift_alloc(p, "ratio")
-
+    p = halide_compute_and_store_at(p, "ratio", "output", "yi", "y")
     p = halide_fully_inline(p, "sharpen", "ratio")
     p = halide_fully_inline(p, "blur_x", "ratio")
-
-    p = halide_compute_and_store_at(p, "blur_y", "output", "yi")
-    p = lift_alloc(p, "blur_y")
-
-    # NOTE: when compute_at is at a higher loop level than store_at, we actually want to
-    # divide and front load some work with a guard instead of divide_with_recompute.
-    p = halide_compute_and_store_at(p, "gray", "output", "y")
-    p = halide_compute_at(p, "gray", "output", "yi", divide_with_recompute=False)
+    p = halide_compute_and_store_at(p, "blur_y", "output", "yi", "y")
+    p = halide_compute_and_store_at(p, "gray", "output", "yi", "y")
 
     # Circular buffer optimization
+    p = resize_dim(p, p.find("ratio: _"), 0, 1, 0, fold=True)
+    p = resize_dim(p, p.find("blur_y: _"), 0, 1, 0, fold=True)
     p = resize_dim(p, p.find("gray: _"), 0, 8, 0, fold=True)
 
     p = simplify(p)  # for deterministic codegen

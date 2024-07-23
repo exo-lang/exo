@@ -236,16 +236,13 @@ def store_at(proc: Procedure, producer_alloc: AllocCursor, target_loop: ForCurso
         loops_between(producer_alloc, target_loop) -> [i, j, k]
         """
         top_loop, _ = match_parent(target_loop, producer_alloc)
-        return reversed(
-            [target_loop] + list(get_parents(proc, target_loop, up_to=top_loop))
-        )
+        return list(get_parents(proc, target_loop, up_to=top_loop))[::-1]
 
-    for loop in loops_between(producer_alloc, target_loop):
+    for loop in loops_between(producer_alloc, target_loop) + [target_loop]:
         loop = proc.forward(loop)
         producer_alloc = proc.forward(producer_alloc)
 
         buffer_dim = get_affected_read_dim(producer, loop)
-
         bounds = bounds_inference(loop, producer, buffer_dim)
         lo, _ = bounds.get_bounds()
         size = bounds.get_size()
@@ -361,9 +358,20 @@ def halide_store_at(p, producer: str, consumer: str, loop: str):
     return store_at(p, producer_alloc, target_loop)
 
 
-def halide_compute_and_store_at(p, producer: str, consumer: str, loop: str):
+def halide_compute_and_store_at_same(p, producer: str, consumer: str, loop: str):
     target_loop = get_enclosing_loop_by_name(p, p.find(f"{consumer} = _"), loop)
     return compute_and_store_at(p, producer, target_loop)
+
+
+def halide_compute_and_store_at(
+    p, producer: str, consumer: str, compute_loop: str, store_loop: str
+):
+    p = halide_compute_and_store_at_same(p, producer, consumer, store_loop)
+    producer_assign = p.find(f"{producer} = _")
+    compute_loop = get_enclosing_loop_by_name(
+        p, p.find(f"{consumer} = _"), compute_loop
+    )
+    return compute_at_with_prologue(p, producer_assign, compute_loop)
 
 
 def halide_fully_inline(p, producer: str, consumer: str):
@@ -392,6 +400,7 @@ __all__ = [
     "halide_split",
     "halide_compute_at",
     "halide_store_at",
+    "halide_compute_and_store_at_same",
     "halide_compute_and_store_at",
     "halide_fully_inline",
     "halide_parallel",

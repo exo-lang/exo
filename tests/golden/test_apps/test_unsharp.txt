@@ -111,8 +111,8 @@ two[0] = 2.0f;
 #pragma omp parallel for
 for (int_fast32_t y = 0; y < ((H) / (32)); y++) {
   float *gray = (float*) malloc(8 * (6 + W) * sizeof(*gray));
-  float *ratio = (float*) malloc(1 * W * sizeof(*ratio));
   float *blur_y = (float*) malloc(1 * (6 + W) * sizeof(*blur_y));
+  float *ratio = (float*) malloc(1 * W * sizeof(*ratio));
   for (int_fast32_t yi = 0; yi < 6; yi++) {
     for (int_fast32_t x = 0; x < 6 + W; x++) {
       gray[yi * (6 + W) + x] = r_to_gray[0] * input[(yi + 32 * y) * (W + 6) + x] + g_to_gray[0] * input[(H + 6) * (W + 6) + (yi + 32 * y) * (W + 6) + x] + b_to_gray[0] * input[2 * (H + 6) * (W + 6) + (yi + 32 * y) * (W + 6) + x];
@@ -134,8 +134,8 @@ for (int_fast32_t y = 0; y < ((H) / (32)); y++) {
       }
     }
   }
-  free(blur_y);
   free(ratio);
+  free(blur_y);
   free(gray);
 }
 }
@@ -219,8 +219,8 @@ two[0] = 2.0f;
 #pragma omp parallel for
 for (int_fast32_t y = 0; y < ((H) / (32)); y++) {
   float *gray = (float*) malloc(8 * (6 + W) * sizeof(*gray));
-  float *ratio = (float*) malloc(1 * W * sizeof(*ratio));
   float *blur_y = (float*) malloc(1 * (6 + W) * sizeof(*blur_y));
+  float *ratio = (float*) malloc(1 * W * sizeof(*ratio));
   for (int_fast32_t yi = 0; yi < 6; yi++) {
     for (int_fast32_t xo = 0; xo < ((13 + W) / (8)) - 1; xo++) {
       __m256 var0;
@@ -1144,8 +1144,8 @@ _mm256_maskstore_ps(&output[(c) * (H * W) + (yi + 32 * y) * W + 8 * xo], cmp, va
       }
     }
   }
-  free(blur_y);
   free(ratio);
+  free(blur_y);
   free(gray);
 }
 }
