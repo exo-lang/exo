@@ -2031,7 +2031,6 @@ def Check_BufferReduceOnly(proc, stmts, buf, ndim):
 
 
 # TODO: I think idxs should be passed as either a read, window, or write (assign/reduce)
-# FIXME: Update
 def Check_Access_In_Window(proc, access_cursor, w_exprs, block_cursor):
     """
     Returns True if idxs always lies within w_exprs
@@ -2046,8 +2045,8 @@ def Check_Access_In_Window(proc, access_cursor, w_exprs, block_cursor):
     idxs = access.idx
     assert len(idxs) == len(w_exprs)
 
-    ctxt = ContextExtraction(proc, block)
-    p = ctxt.get_control_predicate()
+    datair, d_stmts = LoopIR_to_DataflowIR(proc, block).result()
+    p = GetControlPredicates(datair, d_stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
