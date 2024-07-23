@@ -2002,20 +2002,22 @@ def Check_ExprEqvInContext(proc, expr0, stmts0, expr1, stmts1=None):
         raise SchedulingError(f"Expressions are not equivalent:\n{expr0}\nvs.\n{expr1}")
 
 
-# FIXME: Update
 def Check_BufferReduceOnly(proc, stmts, buf, ndim):
     assert len(stmts) > 0
-    ctxt = ContextExtraction(proc, stmts)
 
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
+    datair, d_stmts = LoopIR_to_DataflowIR(proc, stmts).result()
+    ScalarPropagation(datair)
+
+    p = GetControlPredicates(datair, d_stmts).result()
+    v = GetControlAbsVal(datair, d_stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
+    slv.assume(AMay(v))
 
     wholebuf = LS.WholeBuf(buf, ndim)
-    a = G(stmts_effs(stmts))
+    a = stmts_effs(stmts)
     RW = getsets([ES.READ_WRITE], a)[0]
     readwrite = LIsct(wholebuf, RW)
 
