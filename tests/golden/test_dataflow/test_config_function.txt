@@ -1,0 +1,8 @@
+def foo(x : f32):
+  ----------------------- {x : x, ConfigAB_a : ConfigAB_a, ConfigAB_b : ConfigAB_b}
+  ConfigAB_a = 1.0
+  ----------------------- {ConfigAB_a : 1.0, x : x, ConfigAB_b : ConfigAB_b}
+  bar(x)
+  ----------------------- {ConfigAB_a : 1.0 ∨ 2.0, x : x ∨ 3.0, ConfigAB_b : ConfigAB_b}
+  ConfigAB_b = x
+  ----------------------- {ConfigAB_b : x ∨ 3.0, ConfigAB_a : 1.0 ∨ 2.0, x : x ∨ 3.0}
