@@ -1,0 +1,3 @@
+def bar():
+    CFG.cfg2 = 2.0
+    CFG.cfg1 = 3.0

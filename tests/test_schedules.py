@@ -1682,7 +1682,7 @@ def test_reorder_stmts(golden):
     assert str(bar) == golden
 
 
-def test_reorder_stmts2():
+def test_reorder_stmts2(golden):
     @proc
     def bar(f: R[100], g: R[100]):
         for i in seq(0, 100):
@@ -1690,7 +1690,30 @@ def test_reorder_stmts2():
             g[i] = 3.0
 
     bar = reorder_stmts(bar, bar.find("f[_] = _").expand(0, 1))
-    print(str(bar))
+    assert str(bar) == golden
+
+
+def test_reorder_stmts3(golden):
+    @config
+    class CFG:
+        cfg1: i8
+        cfg2: i8
+
+    @proc
+    def bar():
+        CFG.cfg1 = 3.0
+        CFG.cfg1 = 3.0
+
+    with pytest.raises(SchedulingError, match="do not commute"):
+        bar = reorder_stmts(bar, bar.find("CFG.cfg1 = _").expand(0, 1))
+
+    @proc
+    def bar():
+        CFG.cfg1 = 3.0
+        CFG.cfg2 = 2.0
+
+    bar = reorder_stmts(bar, bar.find("CFG.cfg1 = _").expand(0, 1))
+    assert str(bar) == golden
 
 
 def test_merge_writes_all_4_cases(golden):

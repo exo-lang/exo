@@ -1717,15 +1717,15 @@ def Check_ReorderStmts(proc, s1, s2):
 
     assert len(stmts) == 2
 
-    ScalarPropagation(datair)
+    # ScalarPropagation(datair)
 
     p = GetControlPredicates(datair, stmts).result()
-    v = GetControlAbsVal(datair, stmts).result()
+    # v = GetControlAbsVal(datair, stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
-    slv.assume(AMay(v))
+    # slv.assume(AMay(v))
 
     a1 = stmts_effs([s1])
     a2 = stmts_effs([s2])
@@ -1744,15 +1744,15 @@ def Check_ReorderLoops(proc, s):
 
     assert len(stmts) == 1
 
-    ScalarPropagation(datair)
+    # ScalarPropagation(datair)
 
     p = GetControlPredicates(datair, stmts).result()
-    v = GetControlAbsVal(datair, stmts).result()
+    # v = GetControlAbsVal(datair, stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
-    slv.assume(AMay(v))
+    # slv.assume(AMay(v))
 
     assert len(s.body) == 1
     assert isinstance(s.body[0], LoopIR.For)
@@ -1826,15 +1826,15 @@ def Check_ParallelizeLoop(proc, s):
 
     assert len(stmts) == 1
 
-    ScalarPropagation(datair)
+    # ScalarPropagation(datair)
 
     p = GetControlPredicates(datair, stmts).result()
-    v = GetControlAbsVal(datair, stmts).result()
+    # v = GetControlAbsVal(datair, stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
-    slv.assume(AMay(v))
+    # slv.assume(AMay(v))
 
     lo = s.lo
     hi = s.hi
@@ -1880,17 +1880,18 @@ def Check_ParallelizeLoop(proc, s):
 #   /\ ( forall i,i'. May(InBound(i,i',e) /\ i < i')  =>
 #                     Commutes(a1', a2) /\ AllocCommutes(a1, a2) )
 #
-# FIXME: Update
 def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
-    ctxt = ContextExtraction(proc, [loop])
-    chgG = get_changing_scalars(proc.body)
 
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
+    datair, d_loop = LoopIR_to_DataflowIR(proc, [loop]).result()
+    # ScalarPropagation(datair)
+
+    p = GetControlPredicates(datair, d_loop).result()
+    # v = GetControlAbsVal(datair, d_loop).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
+    # slv.assume(AMay(v))
 
     assert isinstance(loop, LoopIR.For)
     i = loop.iter
@@ -1906,8 +1907,6 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
         LoopIR.Read(j, [], T.index, null_srcinfo()),
         stmts1,
     )
-    # print("GLOOP")
-    # print(Gloop)
 
     a_bd = expr_effs(lo) + expr_effs(hi)
     a1 = stmts_effs(stmts1)
@@ -1935,8 +1934,9 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
         ),
     )
 
-    pred = filter_reals(G(AAnd(no_bound_change, stmts_commute)), chgG)
-    # pred    = G(AAnd(no_bound_change, stmts_commute))
+    chgG = get_changing_scalars(proc.body)
+    pred = filter_reals(AAnd(no_bound_change, stmts_commute), chgG)
+
     is_ok = slv.verify(pred)
     slv.pop()
     if not is_ok:
@@ -2080,16 +2080,16 @@ def Check_ExprEqvInContext(proc, expr0, stmts0, expr1, stmts1=None):
     datair, d_stmts = LoopIR_to_DataflowIR(proc, stmts0 + stmts1).result()
     d_stmts0 = d_stmts[0:len_0]
     d_stmts1 = d_stmts[len_0:]
-    ScalarPropagation(datair)
+    # ScalarPropagation(datair)
     p0 = GetControlPredicates(datair, d_stmts0).result()
     p1 = GetControlPredicates(datair, d_stmts1).result()
-    v0 = GetControlAbsVal(datair, d_stmts0).result()
-    v1 = GetControlAbsVal(datair, d_stmts1).result()
+    # v0 = GetControlAbsVal(datair, d_stmts0).result()
+    # v1 = GetControlAbsVal(datair, d_stmts1).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(AAnd(p0, p1)))
-    slv.assume(AMay(AAnd(v0, v1)))
+    # slv.assume(AMay(AAnd(v0, v1)))
 
     e0 = lift_e(expr0)
     e1 = lift_e(expr1)
@@ -2105,15 +2105,15 @@ def Check_BufferReduceOnly(proc, stmts, buf, ndim):
     assert len(stmts) > 0
 
     datair, d_stmts = LoopIR_to_DataflowIR(proc, stmts).result()
-    ScalarPropagation(datair)
+    # ScalarPropagation(datair)
 
     p = GetControlPredicates(datair, d_stmts).result()
-    v = GetControlAbsVal(datair, d_stmts).result()
+    # v = GetControlAbsVal(datair, d_stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
-    slv.assume(AMay(v))
+    # slv.assume(AMay(v))
 
     wholebuf = LS.WholeBuf(buf, ndim)
     a = stmts_effs(stmts)
@@ -2219,15 +2219,15 @@ def Check_Bounds(proc, alloc_stmt, block):
         return
 
     datair, stmts = LoopIR_to_DataflowIR(proc, block).result()
-    ScalarPropagation(datair)
+    # ScalarPropagation(datair)
 
     p = GetControlPredicates(datair, stmts).result()
-    v = GetControlAbsVal(datair, stmts).result()
+    # v = GetControlAbsVal(datair, stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
-    slv.assume(AMay(v))
+    # slv.assume(AMay(v))
 
     # build a location set describing
     # the allocated region of the buffer
@@ -2283,15 +2283,15 @@ def Check_IsIdempotent(proc, stmts):
     assert len(stmts) > 0
 
     datair, d_stmts = LoopIR_to_DataflowIR(proc, stmts).result()
-    ScalarPropagation(datair)
+    # ScalarPropagation(datair)
 
     p = GetControlPredicates(datair, d_stmts).result()
-    v = GetControlAbsVal(datair, d_stmts).result()
+    # v = GetControlAbsVal(datair, d_stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
-    slv.assume(AMay(v))
+    # slv.assume(AMay(v))
 
     a = stmts_effs(stmts)
     is_idempotent = slv.verify(ADef(Shadows(a, a)))
@@ -2395,14 +2395,14 @@ def Check_CodeIsDead(proc, stmts):
     mod_unread_outside = ADef(is_empty(LIsct(LDiff(Modp, W_ap), Outside)))
 
     datair, d_stmts = LoopIR_to_DataflowIR(proc, stmts).result()
-    ScalarPropagation(datair)
+    # ScalarPropagation(datair)
     p = GetControlPredicates(datair, d_stmts).result()
-    v = GetControlAbsVal(datair, d_stmts).result()
+    # v = GetControlAbsVal(datair, d_stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
-    slv.assume(AMay(v))
+    # slv.assume(AMay(v))
 
     mod_unread_in_proc = slv.verify(mod_unread_in_proc)
     mod_unread_outside = slv.verify(mod_unread_outside)
