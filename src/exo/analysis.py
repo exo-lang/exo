@@ -1457,6 +1457,102 @@ class ContextExtraction:
         return stmts_effs([post_loop])
 
 
+class PostEnv:
+    def __init__(self, proc, stmts):
+        self.proc = proc
+        self.stmts = stmts
+
+    def get_posteffs(self):
+        a = self.posteff_stmts(self.proc.body)
+        if len(self.proc.preds) > 0:
+            assumed = AAnd(*[lift_e(p) for p in self.proc.preds])
+            a = [E.Guard(assumed, a)]
+        return a
+
+    def posteff_stmts(self, stmts):
+        for i, s in enumerate(stmts):
+            if s is self.stmts[0]:
+                effs = [E.BindEnv(globenv(self.stmts))]
+                post_stmts = stmts[i + len(self.stmts) :]
+            else:
+                effs = self.posteff_s(s)
+                post_stmts = stmts[i + 1 :]
+
+            if effs is not None:  # found the focused sub-tree
+                preG = globenv(stmts[0:i])
+                return [E.BindEnv(preG)] + effs + stmts_effs(post_stmts)
+        return None
+
+    def posteff_s(self, s):
+        if isinstance(s, LoopIR.If):
+            effs = self.posteff_stmts(s.body)
+            if effs is not None:
+                return [E.Guard(lift_e(s.cond), effs)]
+            effs = self.posteff_stmts(s.orelse)
+            if effs is not None:
+                return [E.Guard(ANot(lift_e(s.cond)), effs)]
+            return None
+        elif isinstance(s, LoopIR.For):
+            body = self.posteff_stmts(s.body)
+            if body is None:
+                return None
+            else:
+                orig_lo = lift_e(s.lo)
+                lo_sym = Sym("lo_tmp")
+                lo_env = AEnv(lo_sym, orig_lo)
+
+                orig_hi = lift_e(s.hi)
+                hi_sym = Sym("hi_tmp")
+                hi_env = AEnv(hi_sym, orig_hi)
+
+                bds = AAnd(AInt(lo_sym) <= AInt(s.iter), AInt(s.iter) < AInt(hi_sym))
+                bds_sym = Sym("bds_tmp")
+                bds_env = lo_env + hi_env + AEnv(bds_sym, bds)
+
+                G = self.loop_preenv(s)
+
+                guard_body = LoopIR.If(
+                    LoopIR.Read(bds_sym, [], T.bool, s.srcinfo),
+                    s.body,
+                    [],
+                    s.srcinfo,
+                )
+                G_body = globenv([guard_body])
+                return [
+                    E.BindEnv(bds_env),
+                    E.BindEnv(G),
+                    E.Guard(ABool(bds_sym), body),
+                    E.BindEnv(G_body),
+                ] + self.loop_posteff(s, LoopIR.Read(hi_sym, [], T.index, s.srcinfo))
+        else:
+            return None
+
+    def loop_preenv(self, s):
+        assert isinstance(s, LoopIR.For)
+        old_i = LoopIR.Read(s.iter, [], T.index, s.srcinfo)
+        new_i = LoopIR.Read(s.iter.copy(), [], T.index, s.srcinfo)
+        pre_body = SubstArgs(s.body, {s.iter: new_i}).result()
+        pre_loop = LoopIR.For(new_i.name, s.lo, old_i, pre_body, s.loop_mode, s.srcinfo)
+        return globenv([pre_loop])
+
+    def loop_posteff(self, s, hi):
+        # want to generate a loop
+        #   for x' in seq(x+1, hi): s
+        # but instead generate
+        #   for x' in seq(0, hi-(x+1)): [x' -> x' + (x+1)]s
+        assert isinstance(s, LoopIR.For)
+        old_i = LoopIR.Read(s.iter, [], T.index, s.srcinfo)
+        new_i = LoopIR.Read(s.iter.copy(), [], T.index, s.srcinfo)
+        old_plus1 = LoopIR.BinOp(
+            "+", old_i, LoopIR.Const(1, T.int, s.srcinfo), T.index, s.srcinfo
+        )
+        post_body = SubstArgs(s.body, {s.iter: new_i}).result()
+        post_loop = LoopIR.For(
+            new_i.name, old_plus1, hi, post_body, s.loop_mode, s.srcinfo
+        )
+        return stmts_effs([post_loop])
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Common Predicates
@@ -2162,12 +2258,10 @@ def Check_Bounds(proc, alloc_stmt, block):
         raise SchedulingError(f"The buffer {alloc_stmt.name} is accessed out-of-bounds")
 
 
-# FIXME: Update
 def Check_IsDeadAfter(proc, stmts, bufname, ndim):
     assert len(stmts) > 0
-    ctxt = ContextExtraction(proc, stmts)
 
-    ap = ctxt.get_posteffs()
+    ap = PostEnv(proc, stmts).get_posteffs()
 
     slv = SMTSolver(verbose=False)
     slv.push()
