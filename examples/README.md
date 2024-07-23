@@ -4,20 +4,21 @@ Please [install Exo](https://github.com/exo-lang/exo#install-exo) before proceed
 This tutorial assumes some familiarity with SIMD instructions.
 
 Exo provides *scheduling operators* to transform program and rewrite them to make use of complex hardware instructions.
-We'll show you how to take a matrix multiplication kernel and transform it into an implementation that can make use of [AVX2](https://en.wikipedia.org/wiki/Advanced_Vector_Extensions) vector instructions.
+We'll show you how to take a simple matrix multiplication kernel and transform it into an implementation that can make use of [AVX2](https://en.wikipedia.org/wiki/Advanced_Vector_Extensions) vector instructions.
 
-> The complete code, with the scheduling operations commented out, can be found in `exo/examples/x86_matmul.py`.
+The complete code with scheduling operations can be found in `exo/examples/x86_matmul.py`, and running `make` will compile the Exo code and generate an executable `avx2_matmul`.
 
 ## Basic Implementation
 
-To start off, let's implement a basic matrix multiplication kernel in Exo:
+To start off, let's implement a basic matrix multiplication kernel in Exo object code:
 ```py
 from __future__ import annotation
 from exo import *
 
 @proc
-def rank_k_reduce_6x16(K: size, C: f32[6, 16] @ DRAM, A: f32[6, K] @ DRAM,
-                       B: f32[K, 16] @ DRAM):
+def rank_k_reduce_6x16(
+    K: size, A: f32[6, K] @ DRAM, B: f32[K, 16] @ DRAM, C: f32[6, 16] @ DRAM
+):
     for i in seq(0, 6):
         for j in seq(0, 16):
             for k in seq(0, K):
@@ -26,7 +27,7 @@ def rank_k_reduce_6x16(K: size, C: f32[6, 16] @ DRAM, A: f32[6, K] @ DRAM,
 print(rank_k_reduce_6x16)
 ```
 
-However, these microkernels function as the inner loops of highly optimized linear algebra computations. For example, [BLIS][] (an open-source [BLAS][] library) is architected around re-implementing such microkernels for each new target architecture that they support. The goal of Exo is to make this specialization process dramatically easier.
+These microkernels usually function as the inner loops of highly optimized linear algebra computations. For example, [BLIS][] (an open-source [BLAS][] library) is architected around re-implementing such microkernels for each new target architecture that they support. The goal of Exo is to make this specialization process dramatically easier.
 
 For our example, we want to specialize the kernel to use the AVX2 instructions; it is likely the case that a vectorizing compiler cannot automatically transform this kernel.
 
@@ -50,7 +51,7 @@ The first step is reordering the loops in our program so that the streaming natu
 We can do this using the `reorder_loops`.
 Also, just to keep things easy to follow, we're going to rename our kernel to `rank_k_reduce_6x16_scheduled`:
 
-First, let's import the scheduling primitives at the top of the file:
+First, let's import the scheduling operations at the top of the file:
 ```py
 from exo.stdlib.scheduling import *
 ```
@@ -179,7 +180,6 @@ The definition implements the semantics of the instruction using plain old pytho
 ### Take a Breather
 
 Congratulations on getting through a whirlwind tour of Exo's capabilities. To review, we've seen a couple of concepts that work in tandem to make enable productive performance engineering:
-- *Cursors* provide a way to talk about a particular program fragment.
 - *Scheduling operators* allow you to rewrite programs.
 - *Instruction mapping* uses user-level instruction definitions to rewrite program fragments to backend instructions.
 
@@ -258,3 +258,11 @@ This will print out the results of running kernel with and without the AVX instr
 
 [blas]: https://www.netlib.org/blas/
 [blis]: https://github.com/flame/blis
+
+## Stay tuned for more automation!
+
+Congratulations on completing this example!
+You might have felt that the scheduling operations in this example were very low-level and might be laborious to write.
+We felt the same! We have a pre-release version of Exo that provides scheduling automation _external_ to the compiler implementation.
+By sharing the repeated pattern of schedules and using our novel reference mechanism called Cursors, we achieve fewer lines of code than what we've shown here in the upcoming release. Please contact Exo developers at exo@mit.edu if you want to learn more or wish to collaborate!
+
