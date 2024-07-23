@@ -2350,16 +2350,10 @@ def Check_ExprBound(proc, stmts, expr, op, value, exception=True):
         )
 
 
-# FIXME: Update
 def Check_CodeIsDead(proc, stmts):
     assert len(stmts) > 0
-    ctxt = ContextExtraction(proc, stmts)
 
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
-    ap = ctxt.get_posteffs()
-    a = G(stmts_effs(stmts))
-
+    a = stmts_effs(stmts)
     # apply control predicate
     a = [E.Guard(AMay(p), a)]
 
@@ -2380,6 +2374,7 @@ def Check_CodeIsDead(proc, stmts):
     # as dead when it is not.
 
     Modp, WGp = getsets([ES.MODIFY, ES.WRITE_G], G(a))
+    ap = PostEnv(proc, stmts).get_posteffs()
     R_ap, Red_ap, W_ap = getsets([ES.READ_ALL, ES.REDUCE, ES.WRITE_ALL], ap)
 
     # get a set of globals and function arguments that
@@ -2399,8 +2394,16 @@ def Check_CodeIsDead(proc, stmts):
     # second condition
     mod_unread_outside = ADef(is_empty(LIsct(LDiff(Modp, W_ap), Outside)))
 
+    datair, d_stmts = LoopIR_to_DataflowIR(proc, stmts).result()
+    ScalarPropagation(datair)
+    p = GetControlPredicates(datair, d_stmts).result()
+    v = GetControlAbsVal(datair, d_stmts).result()
+
     slv = SMTSolver(verbose=False)
     slv.push()
+    slv.assume(AMay(p))
+    slv.assume(AMay(v))
+
     mod_unread_in_proc = slv.verify(mod_unread_in_proc)
     mod_unread_outside = slv.verify(mod_unread_outside)
     slv.pop()
