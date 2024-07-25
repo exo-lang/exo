@@ -1042,12 +1042,12 @@ def DoCallSwap(call_cursor, new_subproc):
 
     s_new = call_s.update(f=new_subproc)
     ir = call_cursor.get_root()
-    mod_cfg = Check_ExtendEqv(ir, [call_s], [s_new], configkeys)
-    ir, fwd = call_cursor._child_node("f")._replace(new_subproc)
+    new_ir, fwd = call_cursor._child_node("f")._replace(new_subproc)
+    mod_cfg = Check_ExtendEqv(ir, new_ir, [call_s], [s_new])
 
-    Check_Aliasing(ir)
+    Check_Aliasing(new_ir)
 
-    return ir, fwd, mod_cfg
+    return new_ir, fwd, mod_cfg
 
 
 def DoInlineWindow(window_cursor):

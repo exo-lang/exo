@@ -796,7 +796,7 @@ def greater_than(bexpr, val):
         return False
 
     exists = False
-    if bexpr.op == "or":
+    if bexpr.op == "and":
         if isinstance(bexpr.rhs, A.BinOp):
             exists |= greater_than(bexpr.rhs, val)
         if isinstance(bexpr.lhs, A.BinOp):
@@ -805,6 +805,9 @@ def greater_than(bexpr, val):
             return True
 
     return exists
+
+
+const_dict = dict()
 
 
 class ScalarPropagation(AbstractInterpretation):
@@ -825,7 +828,15 @@ class ScalarPropagation(AbstractInterpretation):
         return A.Stride(name, dim, T.stride, null_srcinfo())
 
     def abs_const(self, val, typ) -> A:
-        return A.Const(val, typ, null_srcinfo())
+        if val in const_dict:
+            return const_dict[val]
+        else:
+            var = A.Var(
+                Sym("Const" + str(val).replace(".", "_")), T.bool, null_srcinfo()
+            )
+            const_dict[val] = var
+            return var
+        # return A.Var(Sym("const_sym"), T.bool, null_srcinfo())
 
     def abs_join(self, lval: A, rval: A):
 
@@ -845,7 +856,7 @@ class ScalarPropagation(AbstractInterpretation):
             if greater_than(rval, lval):
                 return rval
 
-        return AOr(lval, rval)
+        return AAnd(lval, rval)
 
     def abs_binop(self, op, lval: A, rval: A) -> A:
 

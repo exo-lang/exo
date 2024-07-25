@@ -4750,3 +4750,26 @@ def test_old_lift_alloc_config(golden):
 
     bar = autolift_alloc(bar, "tmp_a : _", keep_dims=True)
     assert str(bar) == golden
+
+
+def test_call_eqv():
+    @config
+    class CFG:
+        cfg: i8
+
+    @proc
+    def foo1():
+        a: i8
+        a = 3.0
+        pass
+
+    foo2 = write_config(foo1, foo1.find("a = _").after(), CFG, "cfg", "2.0")
+
+    @proc
+    def bar(x: i8):
+        CFG.cfg = 3.0
+        foo1()
+        x = CFG.cfg
+
+    with pytest.raises(SchedulingError, match="Cannot rewrite at"):
+        bar = call_eqv(bar, "foo1(_)", foo2)

@@ -2003,54 +2003,42 @@ def Check_DeleteConfigWrite(proc, stmts):
 # is equivalent modulo the keys in `cfg_mod`, so
 # the only thing we want to check is whether that can be
 # extended, and if so, modulo what set of output globals?
-# FIXME: Update
-def Check_ExtendEqv(proc, stmts0, stmts1, cfg_mod):
-    assert len(stmts0) > 0
+def Check_ExtendEqv(proc1, proc2, stmts1, stmts2):
     assert len(stmts1) > 0
-    ctxt = ContextExtraction(proc, stmts0)
-
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
-    ap = ctxt.get_posteffs()
-    # a       = G(stmts_effs(stmts))
-    sG0 = globenv(stmts0)
-    sG1 = globenv(stmts1)
+    assert len(stmts2) > 0
 
     slv = SMTSolver(verbose=False)
     slv.push()
-    # slv.assume(AMay(p))
 
-    # extract effects
-    # WrG, Mod    = getsets([ES.WRITE_G, ES.MODIFY], a)
-    WrGp, RdGp = getsets([ES.WRITE_G, ES.READ_G], ap)
+    ir1, d_stmts1 = LoopIR_to_DataflowIR(proc1, stmts1).result()
+    ir2, d_stmts2 = LoopIR_to_DataflowIR(proc2, stmts2).result()
 
-    # check that none of the configuration variables which might have
-    # changed are being observed.
-    def make_point(key):
-        cfg, fld = reverse_config_lookup(key)
-        typ = cfg.lookup_type(fld)
-        return APoint(key, [], typ)
+    ScalarPropagation(ir1)
+    ScalarPropagation(ir2)
 
-    cfg_mod_pts = [make_point(key) for key in cfg_mod]
-    cfg_mod_visible = set()
-    for pt in cfg_mod_pts:
-        pt_e = ABool(pt.name) if pt.typ == T.bool else AInt(pt.name)
-        is_unchanged = AImplies(p, G(AEq(sG0(pt_e), sG1(pt_e))))
-        is_read_post = is_elem(pt, RdGp)
-        is_overwritten = is_elem(pt, WrGp)
+    config1_vals = get_values_before_readconfigs_after_stmt(ir1, d_stmts1)
+    config2_vals = get_values_before_readconfigs_after_stmt(ir2, d_stmts2)
 
-        safe_write = AImplies(AMay(is_read_post), ADef(is_unchanged))
-        if not slv.verify(safe_write):
-            slv.pop()
-            raise SchedulingError(
-                f"Cannot rewrite at {stmts0[0].srcinfo} because the "
-                f"configuration field {pt.name} might be read "
-                f"subsequently"
-            )
+    if not len(config1_vals) == len(config2_vals):
+        slv.pop()
+        raise SchedulingError("Uhh length dones't match lol")
 
-        shadowed = ADef(is_overwritten)
-        if not slv.verify(shadowed):
-            cfg_mod_visible.add(pt.name)
+    for dic1, dic2 in zip(config1_vals, config2_vals):
+        for key, val2 in dic2.items():
+            if key not in dic1:
+                raise SchedulingError("uhh...")
+
+            val1 = dic1[key]
+
+            eq = ADef(AEq(val1, val2))
+            if not slv.verify(eq):
+                slv.pop()
+                raise SchedulingError(
+                    f"Cannot rewrite at {stmts1[0].srcinfo} because the "
+                    f"configuration field {key} might be read subsequently."
+                )
+
+    cfg_mod_visible = [w for w, _ in get_writeconfigs(d_stmts1)]
 
     slv.pop()
     return cfg_mod_visible
