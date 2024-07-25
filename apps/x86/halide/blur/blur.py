@@ -64,7 +64,7 @@ def exo_base_blur(W: size, H: size, blur_y: ui16[H, W], inp: ui16[H + 2, W + 2])
 
 def halide_schedule(p):
     p = halide_tile(p, "blur_y", "y", "x", "yi", "xi", 32, 256)
-    p = halide_compute_and_store_at(p, "blur_x", "blur_y", "x")
+    p = halide_compute_and_store_at_same(p, "blur_x", "blur_y", "x")
     p = halide_parallel(p, "y")
     p = halide_vectorize(p, "blur_x", "xi", 16)
     p = halide_vectorize(p, "blur_y", "xi", 16)

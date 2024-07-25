@@ -162,3 +162,26 @@ def test_schedule_tiled_blur2d(golden):
     procs.append(p)
 
     assert "\n\n".join([str(p) for p in procs]) == golden
+
+
+def test_compute_at_with_prologue(golden):
+    @proc
+    def foo():
+        producer: i8[11, 11]
+        for y in seq(0, 11):
+            for x in seq(0, 11):
+                producer[y, x] = 1.0
+        consumer: i8[10, 10]
+        for y in seq(0, 10):
+            for x in seq(0, 10):
+                consumer[y, x] = (
+                    producer[y, x]
+                    + producer[y, x + 1]
+                    + producer[y + 1, x]
+                    + producer[y + 1, x + 1]
+                )
+
+    producer_assign = foo.find("producer = _")
+    target_loop = foo.find_loop("x #1")
+    foo = compute_at(foo, producer_assign, target_loop, with_prologue=True)
+    assert str(foo) == golden

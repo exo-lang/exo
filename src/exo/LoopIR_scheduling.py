@@ -1143,7 +1143,6 @@ def DoInlineWindow(window_cursor):
 
 def DoConfigWrite(stmt_cursor, config, field, expr, before=False):
     assert isinstance(expr, (LoopIR.Read, LoopIR.StrideExpr, LoopIR.Const))
-
     s = stmt_cursor._node
 
     cw_s = LoopIR.WriteConfig(config, field, expr, s.srcinfo)
@@ -1424,10 +1423,11 @@ def DoLiftScope(inner_c):
                 )
 
             Check_ReorderLoops(inner_c.get_root(), outer_s)
+            body = inner_c.body()
             ir, fwd = inner_c._move(outer_c.after())
-            ir, fwd_move = fwd(outer_c)._move(fwd(inner_c).body()[0].before())
+            ir, fwd_move = fwd(outer_c)._move(fwd(body).before())
             fwd = _compose(fwd_move, fwd)
-            ir, fwd_move = fwd(inner_c).body()[1:]._move(fwd(outer_c).body()[0].after())
+            ir, fwd_move = fwd(body)._move(fwd(outer_c).body().after())
             fwd = _compose(fwd_move, fwd)
             ir, fwd_del = fwd(outer_c).body()[0]._delete()
             fwd = _compose(fwd_del, fwd)

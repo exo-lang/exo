@@ -38,8 +38,10 @@ def halide_vectorize(p, buffer: str, loop: str, width: int):
 from math import exp, pi, sqrt
 
 sigma = 1.5
-kernel = [exp(-x * x / (2 * sigma * sigma)) / (sqrt(2 * pi) * sigma) for x in range(4)]
-k0, k1, k2, k3 = kernel
+k0, k1, k2, k3 = [
+    exp(-x * x / (2 * sigma**2)) / (sqrt(2 * pi) * sigma) for x in range(4)
+]
+r_to_gray, g_to_gray, b_to_gray = 0.299, 0.587, 0.114
 
 
 @proc
@@ -48,55 +50,40 @@ def exo_unsharp_base(
 ):
     # TODO: remove the H % 32 constraint and handle tail cases in the y direction
     assert H % 32 == 0
-    # constants
-    rgb_to_gray: f32[3]
-    rgb_to_gray[0] = 0.299
-    rgb_to_gray[1] = 0.587
-    rgb_to_gray[2] = 0.114
-
-    kernel: f32[4]
-    kernel[0] = k0
-    kernel[1] = k1
-    kernel[2] = k2
-    kernel[3] = k3
-
-    # TODO: this is kind of silly
-    two: f32[1]
-    two[0] = 2
 
     gray: f32[H + 6, W + 6]
     for y in seq(0, H + 6):
         for x in seq(0, W + 6):
             gray[y, x] = (
-                rgb_to_gray[0] * input[0, y, x]
-                + rgb_to_gray[1] * input[1, y, x]
-                + rgb_to_gray[2] * input[2, y, x]
+                r_to_gray * input[0, y, x]
+                + g_to_gray * input[1, y, x]
+                + b_to_gray * input[2, y, x]
             )
 
     blur_y: f32[H, W + 6]
     for y in seq(0, H):
         for x in seq(0, W + 6):
             blur_y[y, x] = (
-                kernel[0] * gray[y + 3, x]
-                + kernel[1] * (gray[y + 2, x] + gray[y + 4, x])
-                + kernel[2] * (gray[y + 1, x] + gray[y + 5, x])
-                + kernel[3] * (gray[y + 0, x] + gray[y + 6, x])
+                k0 * gray[y + 3, x]
+                + k1 * (gray[y + 2, x] + gray[y + 4, x])
+                + k2 * (gray[y + 1, x] + gray[y + 5, x])
+                + k3 * (gray[y + 0, x] + gray[y + 6, x])
             )
 
     blur_x: f32[H, W]
     for y in seq(0, H):
         for x in seq(0, W):
             blur_x[y, x] = (
-                kernel[0] * blur_y[y, x + 3]
-                + kernel[1] * (blur_y[y, x + 2] + blur_y[y, x + 4])
-                + kernel[2] * (blur_y[y, x + 1] + blur_y[y, x + 5])
-                + kernel[3] * (blur_y[y, x + 0] + blur_y[y, x + 6])
+                k0 * blur_y[y, x + 3]
+                + k1 * (blur_y[y, x + 2] + blur_y[y, x + 4])
+                + k2 * (blur_y[y, x + 1] + blur_y[y, x + 5])
+                + k3 * (blur_y[y, x + 0] + blur_y[y, x + 6])
             )
 
     sharpen: f32[H, W]
     for y in seq(0, H):
         for x in seq(0, W):
-            sharpen[y, x] = two[0] * gray[y + 3, x + 3] - blur_x[y, x]
+            sharpen[y, x] = 2.0 * gray[y + 3, x + 3] - blur_x[y, x]
 
     ratio: f32[H, W]
     for y in seq(0, H):
@@ -110,24 +97,46 @@ def exo_unsharp_base(
 
 
 def halide_schedule(p):
+    consts = {
+        "r_to_gray": r_to_gray,
+        "g_to_gray": g_to_gray,
+        "b_to_gray": b_to_gray,
+        "k0": k0,
+        "k1": k1,
+        "k2": k2,
+        "k3": k3,
+    }
+    for name, c in consts.items():
+        consts[name] = p.find(str(c), many=True)
+    consts["two"] = p.find("sharpen[_] = _").rhs().lhs().lhs()
+
+    for name, cursors in consts.items():
+        p = bind_expr(p, cursors, name)
+        alloc = p.find(f"{name}: _")
+        p = expand_dim(p, alloc, 1, 0)
+        p = set_precision(p, alloc, "f32")
+        p = set_memory(p, alloc, DRAM_STACK)
+        p = repeat(lift_alloc)(p, alloc)
+
+        assign = p.find(f"{name} = _")
+        while not isinstance(assign.parent(), InvalidCursor):
+            p = fission(p, assign.after())
+            assign = p.forward(assign)
+            p = remove_loop(p, assign.parent())
+            assign = p.forward(assign)
+
     p = halide_split(p, "output", "y", "y", "yi", 32, tail="perfect")
     p = halide_parallel(p, "y")
 
-    p = halide_compute_and_store_at(p, "ratio", "output", "yi")
-    p = lift_alloc(p, "ratio")
-
+    p = halide_compute_and_store_at(p, "ratio", "output", "yi", "y")
     p = halide_fully_inline(p, "sharpen", "ratio")
     p = halide_fully_inline(p, "blur_x", "ratio")
-
-    p = halide_compute_and_store_at(p, "blur_y", "output", "yi")
-    p = lift_alloc(p, "blur_y")
-
-    # NOTE: when compute_at is at a higher loop level than store_at, we actually want to
-    # divide and front load some work with a guard instead of divide_with_recompute.
-    p = halide_compute_and_store_at(p, "gray", "output", "y")
-    p = halide_compute_at(p, "gray", "output", "yi", divide_with_recompute=False)
+    p = halide_compute_and_store_at(p, "blur_y", "output", "yi", "y")
+    p = halide_compute_and_store_at(p, "gray", "output", "yi", "y")
 
     # Circular buffer optimization
+    p = resize_dim(p, p.find("ratio: _"), 0, 1, 0, fold=True)
+    p = resize_dim(p, p.find("blur_y: _"), 0, 1, 0, fold=True)
     p = resize_dim(p, p.find("gray: _"), 0, 8, 0, fold=True)
 
     p = simplify(p)  # for deterministic codegen
