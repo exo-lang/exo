@@ -64,7 +64,8 @@ A = ADT(
     """
 module AExpr {
     expr    = Var( sym name )
-            | Unk() -- unknown
+            | Bot() -- unknown
+            | Top()
             | Not( expr arg )
             | USub( expr arg )
             | Const( object val )
@@ -77,7 +78,7 @@ module AExpr {
             | Maybe( expr arg )
             | Tuple( expr* args )
             | ConstSym( sym name ) -- represents a named, opaque value
-            | Select( expr lhs, expr rhs ) -- !!uninterpreted function for array access, different from Select Below
+           -- | Select( expr lhs, expr rhs ) -- !!uninterpreted function for array access, different from Select Below
             | LetStrides( sym name, expr* strides, expr body )
             | Select( expr cond, expr tcase, expr fcase )
             | ForAll( sym name, expr arg )
@@ -292,8 +293,10 @@ binop_print = {
 def _estr(e, prec=0, tab=""):
     if isinstance(e, A.Var):
         return str(e.name)
-    elif isinstance(e, A.Unk):
+    elif isinstance(e, A.Bot):
         return "⊥"
+    elif isinstance(e, A.Top):
+        return "⊤"
     elif isinstance(e, A.Not):
         return f"¬{_estr(e.arg,op_prec['unary'],tab=tab)}"
     elif isinstance(e, A.USub):
@@ -399,7 +402,7 @@ def aeFV(e, env=None):
             return {e.name: e.type}
         else:
             return dict()
-    elif isinstance(e, (A.Unk, A.Const)):
+    elif isinstance(e, (A.Bot, A.Top, A.Const)):
         return dict()
     elif isinstance(e, (A.Not, A.USub, A.Definitely, A.Maybe)):
         return aeFV(e.arg, env)
@@ -496,7 +499,7 @@ def aeNegPos(e, pos, env=None, res=None):
             old_pos = env[e.name]
             if pos != old_pos:
                 env[e.name] = "0"
-    elif isinstance(e, (A.Unk, A.Const, A.Stride, A.ConstSym)):
+    elif isinstance(e, (A.Bot, A.Top, A.Const, A.Stride, A.ConstSym)):
         pass
     elif isinstance(e, A.Not):
         negpos = "-" if pos == "+" else "+" if pos == "-" else "0"
@@ -934,13 +937,20 @@ class SMTSolver:
             return self._getvar(self._get_const_sym(e.name))
         elif isinstance(e, A.Var):
             return self._getvar(e.name, e.type)
-        elif isinstance(e, A.Unk):
+        elif isinstance(e, A.Bot):
             if self.Z3_MODE:
                 val = Z3.BoolVal(False) if e.type == T.bool else Z3.IntVal(0)
                 return TernVal(val, Z3.BoolVal(False))
             else:
                 val = SMT.Bool(False) if e.type == T.bool else SMT.Int(0)
                 return TernVal(val, SMT.Bool(False))
+        elif isinstance(e, A.Top):
+            if self.Z3_MODE:
+                val = Z3.BoolVal(True) if e.type == T.bool else Z3.IntVal(1)
+                return TernVal(val, Z3.BoolVal(True))
+            else:
+                val = SMT.Bool(True) if e.type == T.bool else SMT.Int(1)
+                return TernVal(val, SMT.Bool(True))
         elif isinstance(e, A.Not):
             assert e.arg.type == T.bool
             a = self._lower(e.arg)
@@ -1121,15 +1131,8 @@ class SMTSolver:
             elif e.op == "==":
                 if e.lhs.type == T.bool and e.rhs.type == T.bool:
                     val = (lhs == rhs) if self.Z3_MODE else SMT.Iff(lhs, rhs)
-                elif e.lhs.type.is_indexable() and e.rhs.type.is_indexable():
-                    val = (lhs == rhs) if self.Z3_MODE else SMT.Equals(lhs, rhs)
-                elif e.lhs.type.is_stridable() and e.rhs.type.is_stridable():
-                    val = (lhs == rhs) if self.Z3_MODE else SMT.Equals(lhs, rhs)
-                elif e.lhs.type == e.rhs.type:
-                    assert e.lhs.type.is_real_scalar()
-                    val = (lhs == rhs) if self.Z3_MODE else SMT.Equals(lhs, rhs)
                 else:
-                    assert False, "bad case"
+                    val = (lhs == rhs) if self.Z3_MODE else SMT.Equals(lhs, rhs)
             elif e.op == "and":
                 val = AND(lhs, rhs)
                 if tern:

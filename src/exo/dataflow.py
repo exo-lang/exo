@@ -99,23 +99,13 @@ class LoopIR_to_DataflowIR:
         self.stmts = []
         for s in stmts:
             self.stmts.append([s])
-        self.config_env = ChainMap()
         self.dataflow_proc = self.map_proc(self.loopir_proc)
 
-    def push(self):
-        self.config_env = self.config_env.new_child()
-
-    def pop(self):
-        self.config_env = self.config_env.parents
-
-    def config_lookup(self, config, field):
-        c = (config, field)
-        if c not in self.config_env:
-            self.config_env[c] = Sym(f"{config.name()}_{field}")
-        return self.config_env[c]
-
     def result(self):
-        return self.dataflow_proc, [ls for s, ls in self.stmts]
+        res = []
+        for l in self.stmts:
+            res.extend(l[1:])
+        return self.dataflow_proc, res
 
     def init_block(self, body):
         dic = []
@@ -158,7 +148,7 @@ class LoopIR_to_DataflowIR:
                 return DataflowIR.Reduce(s.name, s.type, df_idx, df_rhs, s.srcinfo)
 
         elif isinstance(s, LoopIR.WriteConfig):
-            df_config = self.config_lookup(s.config, s.field)
+            df_config = s.config._INTERNAL_sym(s.field)
             df_rhs = self.map_e(s.rhs)
 
             return DataflowIR.WriteConfig(df_config, df_rhs, s.srcinfo)
@@ -216,7 +206,7 @@ class LoopIR_to_DataflowIR:
             return DataflowIR.WindowExpr(e.name, e.idx, e.type, e.srcinfo)
 
         elif isinstance(e, LoopIR.ReadConfig):
-            df_config = self.config_lookup(e.config, e.field)
+            df_config = e.config._INTERNAL_sym(e.field)
             return DataflowIR.ReadConfig(df_config, e.type, e.srcinfo)
 
         elif isinstance(e, LoopIR.Const):
@@ -266,7 +256,18 @@ class DataflowIR_Do:
         for pred in p.preds:
             self.do_e(pred)
 
-        self.do_stmts(p.body.stmts)
+        self.do_block(p.body)
+
+    def do_block(self, block):
+        self.do_stmts(block.stmts)
+        self.do_ctxts(block.ctxts)
+
+    def do_ctxts(self, ctxts):
+        for c in ctxts:
+            self.do_c(c)
+
+    def do_c(self, c):
+        pass
 
     def do_stmts(self, stmts):
         for s in stmts:
@@ -283,12 +284,12 @@ class DataflowIR_Do:
             self.do_e(s.rhs)
         elif styp is DataflowIR.If:
             self.do_e(s.cond)
-            self.do_stmts(s.body.stmts)
-            self.do_stmts(s.orelse.stmts)
+            self.do_block(s.body)
+            self.do_block(s.orelse)
         elif styp is DataflowIR.For:
             self.do_e(s.lo)
             self.do_e(s.hi)
-            self.do_stmts(s.body.stmts)
+            self.do_block(s.body)
         elif styp is DataflowIR.Call:
             self.do_proc(s.f)
             for e in s.args:
@@ -366,6 +367,186 @@ def get_writeconfigs(stmts):
     gw = GetWriteConfigs()
     gw.do_stmts(stmts)
     return gw.writeconfigs
+
+
+class DataflowIR_Rewrite:
+    def __init__(self, proc, *args, **kwargs):
+        self.proc = proc
+
+    def result(self):
+        return self.map_proc(self.proc)
+
+    def map_proc(self, p):
+        new_preds = self.map_exprs(p.preds)
+        new_body = self.map_block(p.body)
+
+        return DataflowIR.proc(p.name, p.args, new_preds, new_body, p.srcinfo)
+
+    def map_stmts(self, stmts):
+        return self._map_list(self.map_s, stmts)
+
+    def map_block(self, block):
+        new_stmts = self.map_stmts(block.stmts)
+        dic = []
+        for i in range(len(new_stmts) + 1):
+            dic.append(dict())
+        return DataflowIR.block(new_stmts, dic)
+
+    def map_exprs(self, exprs):
+        return self._map_list(self.map_e, exprs)
+
+    def map_s(self, s):
+        if isinstance(s, (DataflowIR.Assign, DataflowIR.Reduce)):
+            new_idx = self.map_exprs(s.idx)
+            new_rhs = self.map_e(s.rhs)
+            return [type(s)(s.name, s.type, new_idx, new_rhs, s.srcinfo)]
+        elif isinstance(s, (DataflowIR.WriteConfig, DataflowIR.WindowStmt)):
+            new_rhs = self.map_e(s.rhs)
+            if isinstance(s, DataflowIR.WriteConfig):
+                return [DataflowIR.WriteConfig(s.config_field, new_rhs, s.srcinfo)]
+            else:
+                return [DataflowIR.WindowStmt(s.name, new_rhs, s.srcinfo)]
+        elif isinstance(s, DataflowIR.If):
+            new_cond = self.map_e(s.cond)
+            new_body = self.map_block(s.body)
+            new_orelse = self.map_block(s.orelse)
+            return [DataflowIR.If(new_cond, new_body, new_orelse, s.srcinfo)]
+        elif isinstance(s, DataflowIR.For):
+            new_lo = self.map_e(s.lo)
+            new_hi = self.map_e(s.hi)
+            new_body = self.map_block(s.body)
+            return [DataflowIR.For(s.iter, new_lo, new_hi, new_body, s.srcinfo)]
+        elif isinstance(s, DataflowIR.Call):
+            new_args = self.map_exprs(s.args)
+            return [DataflowIR.Call(s.f, new_args, s.srcinfo)]
+        elif isinstance(s, (DataflowIR.Pass, DataflowIR.Alloc)):
+            return [s]
+        else:
+            raise NotImplementedError(f"bad case {type(s)}")
+
+    def map_e(self, e):
+        if isinstance(e, DataflowIR.Read):
+            new_idx = self.map_exprs(e.idx)
+            return DataflowIR.Read(e.name, new_idx, e.type, e.srcinfo)
+        elif isinstance(e, DataflowIR.BinOp):
+            new_lhs = self.map_e(e.lhs)
+            new_rhs = self.map_e(e.rhs)
+            return DataflowIR.BinOp(e.op, new_lhs, new_rhs, e.type, e.srcinfo)
+        elif isinstance(e, DataflowIR.BuiltIn):
+            new_args = self.map_exprs(e.args)
+            return DataflowIR.BuiltIn(e.f, new_args, e.type, e.srcinfo)
+        elif isinstance(e, DataflowIR.USub):
+            new_arg = self.map_e(e.arg)
+            return DataflowIR.USub(new_arg, e.type, e.srcinfo)
+        elif isinstance(
+            e,
+            (
+                DataflowIR.WindowExpr,
+                DataflowIR.ReadConfig,
+                DataflowIR.Const,
+                DataflowIR.StrideExpr,
+            ),
+        ):
+            return e
+        else:
+            raise NotImplementedError(f"bad case {type(e)}")
+
+    @staticmethod
+    def _map_list(fn, nodes):
+        new_stmts = []
+
+        for s in nodes:
+            s2 = fn(s)
+            if isinstance(s2, list):
+                new_stmts.extend(s2)
+            else:
+                new_stmts.append(s2)
+
+        return new_stmts
+
+
+class DeleteStmts(DataflowIR_Rewrite):
+    def __init__(self, proc, stmts):
+        self.stmts = stmts
+        self.next_stmt = None
+        super().__init__(proc)
+
+    def result(self):
+        return self.map_proc(self.proc), self.next_stmt
+
+    def map_stmts(self, stmts):
+        new_stmts = []
+        for i, s in enumerate(stmts):
+            if s == self.stmts[-1]:
+                next_stmts = []
+                for s2 in stmts[i + 1 :]:
+                    next_stmts.extend(self.map_s(s2))
+                self.next_stmt = next_stmts[0] if len(next_stmts) > 0 else None
+                return new_stmts + next_stmts
+
+            if s in self.stmts:
+                continue
+
+            s2 = self.map_s(s)
+            new_stmts.extend(s2)
+
+        return new_stmts
+
+
+def delete_stmts(proc, stmts):
+    return DeleteStmts(proc, stmts).result()
+
+
+class GetValuesBeforeReadConfigsAfterStmts:
+    def __init__(self, proc, stmts):
+        self.proc = proc
+        self.stmts = stmts
+        self.values = []
+        self.is_after_stmts = False
+        self.do_block(self.proc.body)
+
+    def result(self):
+        return self.values
+
+    def do_block(self, block):
+        for i, s in enumerate(block.stmts):
+            if self.do_s(s):
+                self.values.append(block.ctxts[i])
+
+    def do_s(self, s):
+        if self.stmts[-1] == s:
+            self.is_after_stmts = True
+
+        if isinstance(s, (DataflowIR.Assign, DataflowIR.Reduce)):
+            return self.do_e(s.rhs) or any([self.do_e(e) for e in s.idx])
+        elif isinstance(s, DataflowIR.WriteConfig):
+            return self.do_e(s.rhs)
+        elif isinstance(s, DataflowIR.If):
+            return self.do_e(s.cond) or self.do_block(s.body) or self.do_block(s.orelse)
+        elif isinstance(s, DataflowIR.For):
+            return self.do_e(s.lo) or self.do_e(s.hi) or self.do_block(s.body)
+        elif isinstance(s, DataflowIR.Call):
+            return any([self.do_e(e) for e in s.args]) or self.do_block(s.f.body)
+        elif isinstance(s, DataflowIR.WindowStmt):
+            return self.do_e(s.rhs)
+        else:
+            return False
+
+    def do_e(self, e):
+        if isinstance(e, DataflowIR.ReadConfig) and self.is_after_stmts:
+            return True
+        elif isinstance(e, DataflowIR.BinOp):
+            return self.do_e(e.lhs) or self.do_e(e.rhs)
+        elif isinstance(e, DataflowIR.BuiltIn):
+            return any([self.do_e(a) for a in e.args])
+        elif isinstance(e, DataflowIR.USub):
+            return self.do_e(e.arg)
+        else:
+            return False
+
+
+def get_values_before_readconfigs_after_stmt(ir1, d_stmts):
+    return GetValuesBeforeReadConfigsAfterStmts(ir1, d_stmts).result()
 
 
 # --------------------------------------------------------------------------- #
@@ -540,7 +721,7 @@ class AbstractInterpretation(ABC):
     def fix_expr(self, pre_env: A, expr: DataflowIR.expr) -> A:
         if isinstance(expr, DataflowIR.Read):
             if len(expr.idx) > 0:
-                return A.Unk(T.index, null_srcinfo())
+                return A.Top(T.index, null_srcinfo())
 
             return pre_env[expr.name]
         elif isinstance(expr, DataflowIR.Const):
@@ -608,8 +789,7 @@ def greater_than(bexpr, val):
     if bexpr == val:
         return True
 
-    # Bottom is always Bottom
-    if isinstance(val, A.Unk):
+    if isinstance(val, A.Top):
         return True
 
     if not isinstance(bexpr, A.BinOp):
@@ -629,10 +809,10 @@ def greater_than(bexpr, val):
 
 class ScalarPropagation(AbstractInterpretation):
     def abs_init_val(self, name, typ):
-        return A.Var(name, typ, null_srcinfo())
+        return A.Var(name, T.bool, null_srcinfo())
 
     def abs_alloc_val(self, name, typ):
-        return A.Var(name, typ, null_srcinfo())
+        return A.Var(name, T.bool, null_srcinfo())
 
     def abs_iter_val(self, name, lo, hi):
         # TODO: shouldn't we be able to range the iteration range/
@@ -649,9 +829,9 @@ class ScalarPropagation(AbstractInterpretation):
 
     def abs_join(self, lval: A, rval: A):
 
-        if isinstance(lval, A.Unk):
+        if isinstance(lval, A.Top):
             return rval
-        elif isinstance(rval, A.Unk):
+        elif isinstance(rval, A.Top):
             return lval
         elif lval == rval:
             return lval
@@ -669,8 +849,8 @@ class ScalarPropagation(AbstractInterpretation):
 
     def abs_binop(self, op, lval: A, rval: A) -> A:
 
-        if isinstance(lval, A.Unk) or isinstance(rval, A.Unk):
-            return A.Unk(T.int, null_srcinfo())
+        if isinstance(lval, A.Top) or isinstance(rval, A.Top):
+            return A.Top(T.int, null_srcinfo())
 
         # front_ops = {"+", "-", "*", "/", "%",
         #              "<", ">", "<=", ">=", "==", "and", "or"}
@@ -733,7 +913,7 @@ class ScalarPropagation(AbstractInterpretation):
         #            = abs({ x + 0 | x in anything })
         #            = abs({ x | x in anything })
         #            = TOP
-        return A.Unk(T.int, null_srcinfo())
+        return A.Top(T.int, null_srcinfo())
 
     def abs_usub(self, arg: A) -> A:
         if isinstance(arg, A.Const):
@@ -744,7 +924,7 @@ class ScalarPropagation(AbstractInterpretation):
     def abs_builtin(self, builtin, args):
         # TODO: Fix
         if any([not isinstance(a, A.Const) for a in args]):
-            return A.Unk(T.int, null_srcinfo())
+            return A.Top(T.int, null_srcinfo())
         vargs = [a.val for a in args]
 
         # TODO: write a short circuit for select builtin
@@ -778,7 +958,7 @@ def lift_e(e):
             elif isinstance(e, DataflowIR.ReadConfig):
                 return A.Var(e.config_field, e.type, e.srcinfo)
 
-        return A.Unk(T.err, e.srcinfo)
+        return A.Top(T.err, e.srcinfo)
 
 
 class GetControlPredicates(DataflowIR_Do):
@@ -838,12 +1018,3 @@ class GetControlPredicates(DataflowIR_Do):
 
     def result(self):
         return self.preds.simplify()
-
-
-class GetControlAbsVal(DataflowIR_Do):
-    def __init__(self, datair, stmts):
-        self.datair = datair
-        self.stmts = stmts
-
-    def result(self):
-        return A.Const(True, T.bool, null_srcinfo())

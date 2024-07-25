@@ -10,7 +10,10 @@ from .dataflow import (
     LoopIR_to_DataflowIR,
     ScalarPropagation,
     GetControlPredicates,
-    GetControlAbsVal,
+    get_readconfigs,
+    get_writeconfigs,
+    delete_stmts,
+    get_values_before_readconfigs_after_stmt,
 )
 
 # --------------------------------------------------------------------------- #
@@ -302,7 +305,7 @@ def filter_reals(e, changeset):
     def rec(e):
         if isinstance(e, A.ConstSym):
             if e.name in changeset:
-                return A.Unk(e.type, e.srcinfo)
+                return A.Bot(e.type, e.srcinfo)
             else:
                 return e
         elif isinstance(e, (A.Not, A.USub, A.ForAll, A.Exists, A.Definitely, A.Maybe)):
@@ -368,7 +371,7 @@ def lift_e(e):
                     globname = e.config._INTERNAL_sym(e.field)
                     return A.Var(globname, e.type, e.srcinfo)
 
-            return A.Unk(T.err, e.srcinfo)
+            return A.Bot(T.err, e.srcinfo)
 
 
 def lift_es(es):
@@ -565,21 +568,11 @@ def globenv(stmts):
                 val = A.Select(
                     fix(oldvar, bvar),
                     oldvar,
-                    A.Unk(oldvar.type, s.srcinfo),
+                    A.Bot(oldvar.type, s.srcinfo),
                     oldvar.type,
                     s.srcinfo,
                 )
 
-                # j_bvar  = j_bvarmap[nm]
-                # oldvar  = A.Var(nm, bvar.type, s.srcinfo)
-                # val     = A.Select(fix(oldvar, bvar),
-                #                   oldvar,
-                #                   A.Unk(oldvar.type, s.srcinfo),
-                #                   #A.Select(same_after(bvar, j_bvar),
-                #                   #         bvar,
-                #                   #         A.Unk(oldvar.type, s.srcinfo),
-                #                   #         oldvar.type, s.srcinfo),
-                #                   oldvar.type, s.srcinfo)
                 newbinds[nm] = val
             aenvs.append(AEnvPar(newbinds, addnames=True))
 
@@ -1720,7 +1713,6 @@ def Check_ReorderStmts(proc, s1, s2):
     # ScalarPropagation(datair)
 
     p = GetControlPredicates(datair, stmts).result()
-    # v = GetControlAbsVal(datair, stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
@@ -1747,7 +1739,6 @@ def Check_ReorderLoops(proc, s):
     # ScalarPropagation(datair)
 
     p = GetControlPredicates(datair, stmts).result()
-    # v = GetControlAbsVal(datair, stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
@@ -1829,7 +1820,6 @@ def Check_ParallelizeLoop(proc, s):
     # ScalarPropagation(datair)
 
     p = GetControlPredicates(datair, stmts).result()
-    # v = GetControlAbsVal(datair, stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
@@ -1886,7 +1876,6 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
     # ScalarPropagation(datair)
 
     p = GetControlPredicates(datair, d_loop).result()
-    # v = GetControlAbsVal(datair, d_loop).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
@@ -1943,20 +1932,20 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
         raise SchedulingError(f"Cannot fission loop over {i} at {loop.srcinfo}.")
 
 
-# FIXME: Update
 def Check_DeleteConfigWrite(proc, stmts):
     assert len(stmts) > 0
-    ctxt = ContextExtraction(proc, stmts)
 
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
-    ap = ctxt.get_posteffs()
-    a = G(stmts_effs(stmts))
-    stmtsG = globenv(stmts)
+    ir1, d_stmts = LoopIR_to_DataflowIR(proc, stmts).result()
+    p = GetControlPredicates(ir1, d_stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
-    a = [E.Guard(AMay(p), a)]
+    slv.assume(AMay(p))
+
+    # Remain the existing pre-checking
+    ap = PostEnv(proc, stmts).get_posteffs()
+    stmtsG = globenv(stmts)
+    a = [E.Guard(AMay(p), stmts_effs(stmts))]
 
     # extract effects
     WrG, Mod = getsets([ES.WRITE_G, ES.MODIFY], a)
@@ -1972,43 +1961,38 @@ def Check_DeleteConfigWrite(proc, stmts):
             f"because they may modify non-configuration data"
         )
 
-    # get the set of config variables potentially modified by
-    # the statement block being focused on.  Filter out any
-    # such configuration variables whose values are definitely unchanged
-    def is_cfg_unmod_by_stmts(pt):
-        pt_e = A.Var(pt.name, pt.typ, null_srcinfo())
-        # cfg_unwritten = ADef( ANot(is_elem(pt, WrG)) )
-        cfg_unchanged = ADef(G(AEq(pt_e, stmtsG(pt_e))))
-        return slv.verify(cfg_unchanged)
+    # Below are the actual checks
 
-    cfg_mod = {
-        pt.name: pt for pt in get_point_exprs(WrG) if not is_cfg_unmod_by_stmts(pt)
-    }
+    # Make a new ir2 and run scalar propagation on it
+    ir2, next_stmt = delete_stmts(ir1, d_stmts)
 
-    # consider every global that might be modified
-    cfg_mod_visible = set()
-    for _, pt in cfg_mod.items():
-        pt_e = A.Var(pt.name, pt.typ, null_srcinfo())
-        is_written = is_elem(pt, WrG)
-        is_unchanged = G(AEq(pt_e, stmtsG(pt_e)))
-        is_read_post = is_elem(pt, RdGp)
-        is_overwritten = is_elem(pt, WrGp)
+    ScalarPropagation(ir1)
+    ScalarPropagation(ir2)
 
-        # if the value of the global might be read,
-        # then it must not have been changed.
-        safe_write = AImplies(AMay(is_read_post), ADef(is_unchanged))
-        if not slv.verify(safe_write):
-            slv.pop()
-            raise SchedulingError(
-                f"Cannot change configuration value of {pt.name} "
-                f"at {stmts[0].srcinfo}; the new (and different) "
-                f"values might be read later in this procedure"
-            )
-        # the write is invisible if its definitely unchanged or definitely
-        # overwritten
-        invisible = ADef(AOr(is_unchanged, is_overwritten))
-        if not slv.verify(invisible):
-            cfg_mod_visible.add(pt.name)
+    config1_vals = get_values_before_readconfigs_after_stmt(ir1, d_stmts)
+    config2_vals = get_values_before_readconfigs_after_stmt(ir2, [next_stmt])
+
+    if not len(config1_vals) == len(config2_vals):
+        slv.pop()
+        raise SchedulingError("Uhh length dones't match lol")
+
+    for dic1, dic2 in zip(config1_vals, config2_vals):
+        for key, val2 in dic2.items():
+            if key not in dic1:
+                raise SchedulingError("uhh...")
+
+            val1 = dic1[key]
+
+            eq = ADef(AEq(val1, val2))
+            if not slv.verify(eq):
+                slv.pop()
+                raise SchedulingError(
+                    f"Cannot change configuration value of {key} "
+                    f"at {stmts[0].srcinfo}; the new (and different) "
+                    f"values might be read later in this procedure"
+                )
+
+    cfg_mod_visible = [w for w, _ in get_writeconfigs(d_stmts)]
 
     slv.pop()
     return cfg_mod_visible
@@ -2083,8 +2067,6 @@ def Check_ExprEqvInContext(proc, expr0, stmts0, expr1, stmts1=None):
     # ScalarPropagation(datair)
     p0 = GetControlPredicates(datair, d_stmts0).result()
     p1 = GetControlPredicates(datair, d_stmts1).result()
-    # v0 = GetControlAbsVal(datair, d_stmts0).result()
-    # v1 = GetControlAbsVal(datair, d_stmts1).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
@@ -2108,7 +2090,6 @@ def Check_BufferReduceOnly(proc, stmts, buf, ndim):
     # ScalarPropagation(datair)
 
     p = GetControlPredicates(datair, d_stmts).result()
-    # v = GetControlAbsVal(datair, d_stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
@@ -2222,7 +2203,6 @@ def Check_Bounds(proc, alloc_stmt, block):
     # ScalarPropagation(datair)
 
     p = GetControlPredicates(datair, stmts).result()
-    # v = GetControlAbsVal(datair, stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
@@ -2286,7 +2266,6 @@ def Check_IsIdempotent(proc, stmts):
     # ScalarPropagation(datair)
 
     p = GetControlPredicates(datair, d_stmts).result()
-    # v = GetControlAbsVal(datair, d_stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
@@ -2308,7 +2287,6 @@ def Check_ExprBound(proc, stmts, expr, op, value, exception=True):
 
     # TODO: Check_ExprBound does not depend on configuration states so this can be skipped, but more fundamentally running abstract interpretation this many times is simply too slow.
     # ScalarPropagation(datair)
-    # v = GetControlAbsVal(datair, d_stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
