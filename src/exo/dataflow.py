@@ -832,7 +832,9 @@ class ScalarPropagation(AbstractInterpretation):
             return const_dict[val]
         else:
             var = A.Var(
-                Sym("Const" + str(val).replace(".", "_")), T.bool, null_srcinfo()
+                Sym("Const" + str(val).replace("-", "n").replace(".", "_")),
+                T.bool,
+                null_srcinfo(),
             )
             const_dict[val] = var
             return var
@@ -846,6 +848,9 @@ class ScalarPropagation(AbstractInterpretation):
             return lval
         elif lval == rval:
             return lval
+        elif isinstance(lval, A.Var) and isinstance(rval, A.Var):
+            if lval.name == rval.name:
+                return lval
         elif isinstance(lval, A.Const) and isinstance(rval, A.Const):
             if lval.val == rval.val:
                 return lval

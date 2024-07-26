@@ -2004,6 +2004,7 @@ def Check_DeleteConfigWrite(proc, stmts):
 # the only thing we want to check is whether that can be
 # extended, and if so, modulo what set of output globals?
 def Check_ExtendEqv(proc1, proc2, stmts1, stmts2):
+    assert isinstance(stmts1, list) and isinstance(stmts2, list)
     assert len(stmts1) > 0
     assert len(stmts2) > 0
 
@@ -2016,8 +2017,8 @@ def Check_ExtendEqv(proc1, proc2, stmts1, stmts2):
     ScalarPropagation(ir1)
     ScalarPropagation(ir2)
 
-    config1_vals = get_values_before_readconfigs_after_stmt(ir1, d_stmts1)
     config2_vals = get_values_before_readconfigs_after_stmt(ir2, d_stmts2)
+    config1_vals = get_values_before_readconfigs_after_stmt(ir1, d_stmts1)
 
     if not len(config1_vals) == len(config2_vals):
         slv.pop()

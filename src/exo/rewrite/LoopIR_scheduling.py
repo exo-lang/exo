@@ -1029,6 +1029,17 @@ def DoSetTypAndMem(cursor, basetyp=None, win=None, mem=None):
 # Call Swap scheduling directive
 
 
+def get_next_stmt(c):
+    while True:
+        try:
+            n = c.next()
+            return n._node
+        except:
+            c = c.parent()
+            if c.is_root():
+                return None
+
+
 def DoCallSwap(call_cursor, new_subproc):
     call_s = call_cursor._node
     assert isinstance(call_s, LoopIR.Call)
@@ -1043,7 +1054,14 @@ def DoCallSwap(call_cursor, new_subproc):
     s_new = call_s.update(f=new_subproc)
     ir = call_cursor.get_root()
     new_ir, fwd = call_cursor._child_node("f")._replace(new_subproc)
-    mod_cfg = Check_ExtendEqv(ir, new_ir, [call_s], [s_new])
+
+    mod_cfg = set()
+    n_1 = get_next_stmt(call_cursor)
+    n_2 = get_next_stmt(fwd(call_cursor))
+    if n_1 is None and n_2 is None:
+        pass
+    else:
+        mod_cfg = Check_ExtendEqv(ir, new_ir, [n_1], [n_2])
 
     Check_Aliasing(new_ir)
 

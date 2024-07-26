@@ -609,6 +609,9 @@ class Node(Cursor):
     # Navigation (implementation)
     # ------------------------------------------------------------------------ #
 
+    def is_root(self) -> bool:
+        return self.depth() == 0
+
     def parent(self) -> Node:
         if not self._path:
             raise InvalidCursorError("cursor does not have a parent")
