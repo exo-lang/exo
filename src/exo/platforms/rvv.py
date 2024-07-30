@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from exo import Memory, DRAM, instr
-
+import os
 
 def _is_const_size(sz, c):
     return sz.isdecimal() and int(sz) == c
