@@ -1,65 +1,10 @@
 from collections import OrderedDict, ChainMap
 
-# from weakref import WeakKeyDictionary
-# from enum import Enum
-# from itertools import chain
-
-# from .LoopIR import Alpha_Rename, SubstArgs, LoopIR_Do
-# from .configs import reverse_config_lookup, Config
-from .new_analysis_core import *
-
-# from .proc_eqv import get_repr_proc
+from .internal_analysis import *
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Simplification Pass to Clean up Analysis Expressions
-"""
-_fv_cache = WeakKeyDictionary()
-
-def _FV(a):
-    fvs = _fv_cache.get(id(a))
-    if fvs is not None:
-        return fvs
-    # otherwise...
-    fvs = _A_Free_Vars(a)
-    _fv_cache[id(a)] = fvs
-    return fvs
-
-def _union_FV(gen):
-    fv = set()
-    for e in gen:
-        fv |= _FV(e)
-    return fv
-
-def _A_Free_Vars(a):
-    if isinstance(a, A.Var):
-        return { a.name }
-    elif isinstance(a, (A.Unk,A.Const,A.ConstSym)):
-        return set()
-    elif isinstance(a, (A.Not,A.USub,A.Definitely,A.Maybe)):
-        return _FV(a.arg)
-    elif isinstance(a, A.BinOp):
-        return _FV(a.lhs) | _FV(a.rhs)
-    elif isinstance(a, A.Stride):
-        return { (a.name,a.dim) }
-    elif isinstance(a, A.LetStrides):
-        bound_names = { (a.name,i) for i,_ in enumerate(a.strides) }
-        return _union_FV(a.strides) | (_FV(a.body) - bound_names)
-    elif isinstance(a, A.Select):
-        return _FV(a.cond) | _FV(a.tcase) | _FV(a.fcase)
-    elif isinstance(a, (A.ForAll,A.Exists)):
-        return _FV(a.arg) - { a.name }
-    elif isinstance(a, A.Tuple):
-        return _union_FV(a.args)
-    elif isinstance(a, A.LetTuple):
-        bound_names = set(a.names)
-        return _FV(a.rhs) | (_FV(a.body) - bound_names)
-    elif isinstance(a, A.Let):
-        bound_names = set(a.names)
-        return _union_FV(a.rhs) | (_FV(a.body) - bound_names)
-    else:
-        assert False, f"Bad Case: {type(a)}"
-"""
 
 
 @extclass(A.expr)
@@ -96,7 +41,7 @@ class ASimplify:
         self._const_vals = self._const_vals.parents
 
     def is_simple(self, a):
-        return isinstance(a, (A.Var, A.Unk, A.Const, A.ConstSym, A.Stride))
+        return isinstance(a, (A.Var, A.Top, A.Bot, A.Const, A.ConstSym, A.Stride))
 
     def is_simple_tuple(self, a):
         return isinstance(a, (A.Tuple)) and all(self.is_simple(e) for e in a.args)
@@ -113,14 +58,14 @@ class ASimplify:
             val = self._const_vals.get(a.name)
             return val if val is not None else a
 
-        elif isinstance(a, (A.Unk, A.Const, A.ConstSym)):
+        elif isinstance(a, (A.Top, A.Bot, A.Const, A.ConstSym)):
             return a
 
         elif isinstance(a, A.Not):
             arg = self.cprop(a.arg)
             if isinstance(arg, A.Const):
                 return ABool(not arg.val)
-            elif isinstance(arg, A.Unk):
+            elif isinstance(arg, (A.Top, A.Bot)):
                 return arg
             else:
                 return type(a)(arg, a.type, a.srcinfo)
@@ -129,7 +74,7 @@ class ASimplify:
             arg = self.cprop(a.arg)
             if isinstance(arg, A.Const):
                 return A.Const(-arg.val, arg.type, arg.srcinfo)
-            elif isinstance(arg, A.Unk):
+            elif isinstance(arg, (A.Top, A.Bot)):
                 return arg
             else:
                 return type(a)(arg, a.type, a.srcinfo)
@@ -138,15 +83,18 @@ class ASimplify:
             arg = self.cprop(a.arg)
             if isinstance(arg, A.Const):
                 return arg
-            elif isinstance(arg, A.Unk):
+            elif isinstance(arg, A.Bot):
                 return ABool(False if isinstance(a, A.Definitely) else True)
+            elif isinstance(arg, A.Top):
+                return ABool(True if isinstance(a, A.Definitely) else False)
             else:
                 return type(a)(arg, a.type, a.srcinfo)
 
         elif isinstance(a, A.BinOp):
             lhs = self.cprop(a.lhs)
             rhs = self.cprop(a.rhs)
-            lunk, runk = isinstance(lhs, A.Unk), isinstance(rhs, A.Unk)
+            lunk, runk = isinstance(lhs, A.Bot), isinstance(rhs, A.Bot)
+            ltop, rtop = isinstance(lhs, A.Top), isinstance(rhs, A.Top)
             lconst, rconst = isinstance(lhs, A.Const), isinstance(rhs, A.Const)
 
             # first, operators resulting in a boolean
@@ -183,7 +131,9 @@ class ASimplify:
                             else (lhs.val == rhs.val)
                         )
                     elif lunk or runk:
-                        return A.Unk(T.bool, a.srcinfo)
+                        return A.Bot(T.bool, a.srcinfo)
+                    elif ltop or rtop:
+                        return A.Top(T.bool, a.srcinfo)
                     # fall-through
                 else:
                     assert False, f"bad case: {a.op}"
@@ -225,6 +175,8 @@ class ASimplify:
                     # fall through
                 elif lunk or runk:
                     return A.Unk(a.type, a.srcinfo)
+                elif ltop or rtop:
+                    return A.Top(a.type, a.srcinfo)
                 # fall through
 
             # finally check for a number of other equality tests
@@ -275,7 +227,7 @@ class ASimplify:
             self._const_vals[a.name] = None
             arg = self.cprop(a.arg)
             self.pop_cprop()
-            if isinstance(arg, (A.Const, A.Unk)):
+            if isinstance(arg, (A.Const, A.Bot, A.Top)):
                 return arg
             else:
                 return type(a)(a.name, arg, a.type, a.srcinfo)
@@ -327,7 +279,7 @@ class ASimplify:
         return self.dcode_helper(a)
 
     def dcode_helper(self, a):
-        if isinstance(a, (A.Var, A.Unk, A.Const, A.ConstSym, A.Stride)):
+        if isinstance(a, (A.Var, A.Bot, A.Top, A.Const, A.ConstSym, A.Stride)):
             return a
         elif isinstance(a, (A.Not, A.USub, A.Definitely, A.Maybe)):
             arg = self.dcode(a.arg)
@@ -403,7 +355,7 @@ class ASimplify:
     def _A_Free_Vars(self, a):
         if isinstance(a, A.Var):
             return {a.name}
-        elif isinstance(a, (A.Unk, A.Const, A.ConstSym)):
+        elif isinstance(a, (A.Top, A.Bot, A.Const, A.ConstSym)):
             return set()
         elif isinstance(a, (A.Not, A.USub, A.Definitely, A.Maybe)):
             return self._FV(a.arg)

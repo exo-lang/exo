@@ -4,8 +4,17 @@ from itertools import chain
 
 from .LoopIR import Alpha_Rename, SubstArgs, LoopIR_Do
 from .configs import reverse_config_lookup, Config
-from .new_analysis_core import *
+from .internal_analysis import *
 from .proc_eqv import get_repr_proc
+from .dataflow import (
+    LoopIR_to_DataflowIR,
+    ScalarPropagation,
+    GetControlPredicates,
+    get_readconfigs,
+    get_writeconfigs,
+    delete_stmts,
+    get_values_before_readconfigs_after_stmt,
+)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -296,7 +305,7 @@ def filter_reals(e, changeset):
     def rec(e):
         if isinstance(e, A.ConstSym):
             if e.name in changeset:
-                return A.Unk(e.type, e.srcinfo)
+                return A.Bot(e.type, e.srcinfo)
             else:
                 return e
         elif isinstance(e, (A.Not, A.USub, A.ForAll, A.Exists, A.Definitely, A.Maybe)):
@@ -362,7 +371,7 @@ def lift_e(e):
                     globname = e.config._INTERNAL_sym(e.field)
                     return A.Var(globname, e.type, e.srcinfo)
 
-            return A.Unk(T.err, e.srcinfo)
+            return A.Bot(T.err, e.srcinfo)
 
 
 def lift_es(es):
@@ -559,21 +568,11 @@ def globenv(stmts):
                 val = A.Select(
                     fix(oldvar, bvar),
                     oldvar,
-                    A.Unk(oldvar.type, s.srcinfo),
+                    A.Bot(oldvar.type, s.srcinfo),
                     oldvar.type,
                     s.srcinfo,
                 )
 
-                # j_bvar  = j_bvarmap[nm]
-                # oldvar  = A.Var(nm, bvar.type, s.srcinfo)
-                # val     = A.Select(fix(oldvar, bvar),
-                #                   oldvar,
-                #                   A.Unk(oldvar.type, s.srcinfo),
-                #                   #A.Select(same_after(bvar, j_bvar),
-                #                   #         bvar,
-                #                   #         A.Unk(oldvar.type, s.srcinfo),
-                #                   #         oldvar.type, s.srcinfo),
-                #                   oldvar.type, s.srcinfo)
                 newbinds[nm] = val
             aenvs.append(AEnvPar(newbinds, addnames=True))
 
@@ -1451,6 +1450,102 @@ class ContextExtraction:
         return stmts_effs([post_loop])
 
 
+class PostEnv:
+    def __init__(self, proc, stmts):
+        self.proc = proc
+        self.stmts = stmts
+
+    def get_posteffs(self):
+        a = self.posteff_stmts(self.proc.body)
+        if len(self.proc.preds) > 0:
+            assumed = AAnd(*[lift_e(p) for p in self.proc.preds])
+            a = [E.Guard(assumed, a)]
+        return a
+
+    def posteff_stmts(self, stmts):
+        for i, s in enumerate(stmts):
+            if s is self.stmts[0]:
+                effs = [E.BindEnv(globenv(self.stmts))]
+                post_stmts = stmts[i + len(self.stmts) :]
+            else:
+                effs = self.posteff_s(s)
+                post_stmts = stmts[i + 1 :]
+
+            if effs is not None:  # found the focused sub-tree
+                preG = globenv(stmts[0:i])
+                return [E.BindEnv(preG)] + effs + stmts_effs(post_stmts)
+        return None
+
+    def posteff_s(self, s):
+        if isinstance(s, LoopIR.If):
+            effs = self.posteff_stmts(s.body)
+            if effs is not None:
+                return [E.Guard(lift_e(s.cond), effs)]
+            effs = self.posteff_stmts(s.orelse)
+            if effs is not None:
+                return [E.Guard(ANot(lift_e(s.cond)), effs)]
+            return None
+        elif isinstance(s, LoopIR.For):
+            body = self.posteff_stmts(s.body)
+            if body is None:
+                return None
+            else:
+                orig_lo = lift_e(s.lo)
+                lo_sym = Sym("lo_tmp")
+                lo_env = AEnv(lo_sym, orig_lo)
+
+                orig_hi = lift_e(s.hi)
+                hi_sym = Sym("hi_tmp")
+                hi_env = AEnv(hi_sym, orig_hi)
+
+                bds = AAnd(AInt(lo_sym) <= AInt(s.iter), AInt(s.iter) < AInt(hi_sym))
+                bds_sym = Sym("bds_tmp")
+                bds_env = lo_env + hi_env + AEnv(bds_sym, bds)
+
+                G = self.loop_preenv(s)
+
+                guard_body = LoopIR.If(
+                    LoopIR.Read(bds_sym, [], T.bool, s.srcinfo),
+                    s.body,
+                    [],
+                    s.srcinfo,
+                )
+                G_body = globenv([guard_body])
+                return [
+                    E.BindEnv(bds_env),
+                    E.BindEnv(G),
+                    E.Guard(ABool(bds_sym), body),
+                    E.BindEnv(G_body),
+                ] + self.loop_posteff(s, LoopIR.Read(hi_sym, [], T.index, s.srcinfo))
+        else:
+            return None
+
+    def loop_preenv(self, s):
+        assert isinstance(s, LoopIR.For)
+        old_i = LoopIR.Read(s.iter, [], T.index, s.srcinfo)
+        new_i = LoopIR.Read(s.iter.copy(), [], T.index, s.srcinfo)
+        pre_body = SubstArgs(s.body, {s.iter: new_i}).result()
+        pre_loop = LoopIR.For(new_i.name, s.lo, old_i, pre_body, s.loop_mode, s.srcinfo)
+        return globenv([pre_loop])
+
+    def loop_posteff(self, s, hi):
+        # want to generate a loop
+        #   for x' in seq(x+1, hi): s
+        # but instead generate
+        #   for x' in seq(0, hi-(x+1)): [x' -> x' + (x+1)]s
+        assert isinstance(s, LoopIR.For)
+        old_i = LoopIR.Read(s.iter, [], T.index, s.srcinfo)
+        new_i = LoopIR.Read(s.iter.copy(), [], T.index, s.srcinfo)
+        old_plus1 = LoopIR.BinOp(
+            "+", old_i, LoopIR.Const(1, T.int, s.srcinfo), T.index, s.srcinfo
+        )
+        post_body = SubstArgs(s.body, {s.iter: new_i}).result()
+        post_loop = LoopIR.For(
+            new_i.name, old_plus1, hi, post_body, s.loop_mode, s.srcinfo
+        )
+        return stmts_effs([post_loop])
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Common Predicates
@@ -1611,19 +1706,23 @@ def loop_globenv(i, lo_expr, hi_expr, body):
 
 
 def Check_ReorderStmts(proc, s1, s2):
-    ctxt = ContextExtraction(proc, [s1, s2])
+    datair, stmts = LoopIR_to_DataflowIR(proc, [s1, s2]).result()
 
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
+    assert len(stmts) == 2
+
+    # ScalarPropagation(datair)
+
+    p = GetControlPredicates(datair, stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
+    # slv.assume(AMay(v))
 
     a1 = stmts_effs([s1])
     a2 = stmts_effs([s2])
 
-    pred = G(AAnd(Commutes(a1, a2), AllocCommutes(a1, a2)))
+    pred = AAnd(Commutes(a1, a2), AllocCommutes(a1, a2)).simplify()
     is_ok = slv.verify(pred)
     slv.pop()
     if not is_ok:
@@ -1633,14 +1732,18 @@ def Check_ReorderStmts(proc, s1, s2):
 
 
 def Check_ReorderLoops(proc, s):
-    ctxt = ContextExtraction(proc, [s])
+    datair, stmts = LoopIR_to_DataflowIR(proc, [s]).result()
 
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
+    assert len(stmts) == 1
+
+    # ScalarPropagation(datair)
+
+    p = GetControlPredicates(datair, stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
+    # slv.assume(AMay(v))
 
     assert len(s.body) == 1
     assert isinstance(s.body[0], LoopIR.For)
@@ -1694,7 +1797,7 @@ def Check_ReorderLoops(proc, s):
         ),
     )
 
-    pred = G(reorder_is_safe)
+    pred = reorder_is_safe.simplify()
     is_ok = slv.verify(pred)
     slv.pop()
     if not is_ok:
@@ -1710,14 +1813,18 @@ def Check_ReorderLoops(proc, s):
 #   /\ ( forall i,i'. May(InBound(i,i',e) /\ i < i') => Commutes(a1', a1) )
 #
 def Check_ParallelizeLoop(proc, s):
-    ctxt = ContextExtraction(proc, [s])
+    datair, stmts = LoopIR_to_DataflowIR(proc, [s]).result()
 
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
+    assert len(stmts) == 1
+
+    # ScalarPropagation(datair)
+
+    p = GetControlPredicates(datair, stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
+    # slv.assume(AMay(v))
 
     lo = s.lo
     hi = s.hi
@@ -1747,7 +1854,7 @@ def Check_ParallelizeLoop(proc, s):
         ),
     )
 
-    pred = G(AAnd(no_bound_change, bodies_commute))
+    pred = AAnd(no_bound_change, bodies_commute).simplify()
     is_ok = slv.verify(pred)
     slv.pop()
     if not is_ok:
@@ -1764,15 +1871,16 @@ def Check_ParallelizeLoop(proc, s):
 #                     Commutes(a1', a2) /\ AllocCommutes(a1, a2) )
 #
 def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
-    ctxt = ContextExtraction(proc, [loop])
-    chgG = get_changing_scalars(proc.body)
 
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
+    datair, d_loop = LoopIR_to_DataflowIR(proc, [loop]).result()
+    # ScalarPropagation(datair)
+
+    p = GetControlPredicates(datair, d_loop).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
+    # slv.assume(AMay(v))
 
     assert isinstance(loop, LoopIR.For)
     i = loop.iter
@@ -1788,8 +1896,6 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
         LoopIR.Read(j, [], T.index, null_srcinfo()),
         stmts1,
     )
-    # print("GLOOP")
-    # print(Gloop)
 
     a_bd = expr_effs(lo) + expr_effs(hi)
     a1 = stmts_effs(stmts1)
@@ -1817,8 +1923,9 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
         ),
     )
 
-    pred = filter_reals(G(AAnd(no_bound_change, stmts_commute)), chgG)
-    # pred    = G(AAnd(no_bound_change, stmts_commute))
+    chgG = get_changing_scalars(proc.body)
+    pred = filter_reals(AAnd(no_bound_change, stmts_commute), chgG)
+
     is_ok = slv.verify(pred)
     slv.pop()
     if not is_ok:
@@ -1827,17 +1934,18 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
 
 def Check_DeleteConfigWrite(proc, stmts):
     assert len(stmts) > 0
-    ctxt = ContextExtraction(proc, stmts)
 
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
-    ap = ctxt.get_posteffs()
-    a = G(stmts_effs(stmts))
-    stmtsG = globenv(stmts)
+    ir1, d_stmts = LoopIR_to_DataflowIR(proc, stmts).result()
+    p = GetControlPredicates(ir1, d_stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
-    a = [E.Guard(AMay(p), a)]
+    slv.assume(AMay(p))
+
+    # Remain the existing pre-checking
+    ap = PostEnv(proc, stmts).get_posteffs()
+    stmtsG = globenv(stmts)
+    a = [E.Guard(AMay(p), stmts_effs(stmts))]
 
     # extract effects
     WrG, Mod = getsets([ES.WRITE_G, ES.MODIFY], a)
@@ -1853,43 +1961,38 @@ def Check_DeleteConfigWrite(proc, stmts):
             f"because they may modify non-configuration data"
         )
 
-    # get the set of config variables potentially modified by
-    # the statement block being focused on.  Filter out any
-    # such configuration variables whose values are definitely unchanged
-    def is_cfg_unmod_by_stmts(pt):
-        pt_e = A.Var(pt.name, pt.typ, null_srcinfo())
-        # cfg_unwritten = ADef( ANot(is_elem(pt, WrG)) )
-        cfg_unchanged = ADef(G(AEq(pt_e, stmtsG(pt_e))))
-        return slv.verify(cfg_unchanged)
+    # Below are the actual checks
 
-    cfg_mod = {
-        pt.name: pt for pt in get_point_exprs(WrG) if not is_cfg_unmod_by_stmts(pt)
-    }
+    # Make a new ir2 and run scalar propagation on it
+    ir2, next_stmt = delete_stmts(ir1, d_stmts)
 
-    # consider every global that might be modified
-    cfg_mod_visible = set()
-    for _, pt in cfg_mod.items():
-        pt_e = A.Var(pt.name, pt.typ, null_srcinfo())
-        is_written = is_elem(pt, WrG)
-        is_unchanged = G(AEq(pt_e, stmtsG(pt_e)))
-        is_read_post = is_elem(pt, RdGp)
-        is_overwritten = is_elem(pt, WrGp)
+    ScalarPropagation(ir1)
+    ScalarPropagation(ir2)
 
-        # if the value of the global might be read,
-        # then it must not have been changed.
-        safe_write = AImplies(AMay(is_read_post), ADef(is_unchanged))
-        if not slv.verify(safe_write):
-            slv.pop()
-            raise SchedulingError(
-                f"Cannot change configuration value of {pt.name} "
-                f"at {stmts[0].srcinfo}; the new (and different) "
-                f"values might be read later in this procedure"
-            )
-        # the write is invisible if its definitely unchanged or definitely
-        # overwritten
-        invisible = ADef(AOr(is_unchanged, is_overwritten))
-        if not slv.verify(invisible):
-            cfg_mod_visible.add(pt.name)
+    config1_vals = get_values_before_readconfigs_after_stmt(ir1, d_stmts)
+    config2_vals = get_values_before_readconfigs_after_stmt(ir2, [next_stmt])
+
+    if not len(config1_vals) == len(config2_vals):
+        slv.pop()
+        raise SchedulingError("Uhh length dones't match lol")
+
+    for dic1, dic2 in zip(config1_vals, config2_vals):
+        for key, val2 in dic2.items():
+            if key not in dic1:
+                raise SchedulingError("uhh...")
+
+            val1 = dic1[key]
+
+            eq = ADef(AEq(val1, val2))
+            if not slv.verify(eq):
+                slv.pop()
+                raise SchedulingError(
+                    f"Cannot change configuration value of {key} "
+                    f"at {stmts[0].srcinfo}; the new (and different) "
+                    f"values might be read later in this procedure"
+                )
+
+    cfg_mod_visible = [w for w, _ in get_writeconfigs(d_stmts)]
 
     slv.pop()
     return cfg_mod_visible
@@ -1900,53 +2003,43 @@ def Check_DeleteConfigWrite(proc, stmts):
 # is equivalent modulo the keys in `cfg_mod`, so
 # the only thing we want to check is whether that can be
 # extended, and if so, modulo what set of output globals?
-def Check_ExtendEqv(proc, stmts0, stmts1, cfg_mod):
-    assert len(stmts0) > 0
+def Check_ExtendEqv(proc1, proc2, stmts1, stmts2):
+    assert isinstance(stmts1, list) and isinstance(stmts2, list)
     assert len(stmts1) > 0
-    ctxt = ContextExtraction(proc, stmts0)
-
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
-    ap = ctxt.get_posteffs()
-    # a       = G(stmts_effs(stmts))
-    sG0 = globenv(stmts0)
-    sG1 = globenv(stmts1)
+    assert len(stmts2) > 0
 
     slv = SMTSolver(verbose=False)
     slv.push()
-    # slv.assume(AMay(p))
 
-    # extract effects
-    # WrG, Mod    = getsets([ES.WRITE_G, ES.MODIFY], a)
-    WrGp, RdGp = getsets([ES.WRITE_G, ES.READ_G], ap)
+    ir1, d_stmts1 = LoopIR_to_DataflowIR(proc1, stmts1).result()
+    ir2, d_stmts2 = LoopIR_to_DataflowIR(proc2, stmts2).result()
 
-    # check that none of the configuration variables which might have
-    # changed are being observed.
-    def make_point(key):
-        cfg, fld = reverse_config_lookup(key)
-        typ = cfg.lookup_type(fld)
-        return APoint(key, [], typ)
+    ScalarPropagation(ir1)
+    ScalarPropagation(ir2)
 
-    cfg_mod_pts = [make_point(key) for key in cfg_mod]
-    cfg_mod_visible = set()
-    for pt in cfg_mod_pts:
-        pt_e = ABool(pt.name) if pt.typ == T.bool else AInt(pt.name)
-        is_unchanged = AImplies(p, G(AEq(sG0(pt_e), sG1(pt_e))))
-        is_read_post = is_elem(pt, RdGp)
-        is_overwritten = is_elem(pt, WrGp)
+    config2_vals = get_values_before_readconfigs_after_stmt(ir2, d_stmts2)
+    config1_vals = get_values_before_readconfigs_after_stmt(ir1, d_stmts1)
 
-        safe_write = AImplies(AMay(is_read_post), ADef(is_unchanged))
-        if not slv.verify(safe_write):
-            slv.pop()
-            raise SchedulingError(
-                f"Cannot rewrite at {stmts0[0].srcinfo} because the "
-                f"configuration field {pt.name} might be read "
-                f"subsequently"
-            )
+    if not len(config1_vals) == len(config2_vals):
+        slv.pop()
+        raise SchedulingError("Uhh length dones't match lol")
 
-        shadowed = ADef(is_overwritten)
-        if not slv.verify(shadowed):
-            cfg_mod_visible.add(pt.name)
+    for dic1, dic2 in zip(config1_vals, config2_vals):
+        for key, val2 in dic2.items():
+            if key not in dic1:
+                raise SchedulingError("uhh...")
+
+            val1 = dic1[key]
+
+            eq = ADef(AEq(val1, val2))
+            if not slv.verify(eq):
+                slv.pop()
+                raise SchedulingError(
+                    f"Cannot rewrite at {stmts1[0].srcinfo} because the "
+                    f"configuration field {key} might be read subsequently."
+                )
+
+    cfg_mod_visible = [w for w, _ in get_writeconfigs(d_stmts1)]
 
     slv.pop()
     return cfg_mod_visible
@@ -1955,20 +2048,22 @@ def Check_ExtendEqv(proc, stmts0, stmts1, cfg_mod):
 def Check_ExprEqvInContext(proc, expr0, stmts0, expr1, stmts1=None):
     assert len(stmts0) > 0
     stmts1 = stmts1 or stmts0
-    ctxt0 = ContextExtraction(proc, stmts0)
-    ctxt1 = ContextExtraction(proc, stmts1)
 
-    p0 = ctxt0.get_control_predicate()
-    G0 = ctxt0.get_pre_globenv()
-    p1 = ctxt1.get_control_predicate()
-    G1 = ctxt1.get_pre_globenv()
+    len_0 = len(stmts0)
+    datair, d_stmts = LoopIR_to_DataflowIR(proc, stmts0 + stmts1).result()
+    d_stmts0 = d_stmts[0:len_0]
+    d_stmts1 = d_stmts[len_0:]
+    # ScalarPropagation(datair)
+    p0 = GetControlPredicates(datair, d_stmts0).result()
+    p1 = GetControlPredicates(datair, d_stmts1).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(AAnd(p0, p1)))
+    # slv.assume(AMay(AAnd(v0, v1)))
 
-    e0 = G0(lift_e(expr0))
-    e1 = G1(lift_e(expr1))
+    e0 = lift_e(expr0)
+    e1 = lift_e(expr1)
 
     test = AEq(e0, e1)
     is_ok = slv.verify(test)
@@ -1979,17 +2074,19 @@ def Check_ExprEqvInContext(proc, expr0, stmts0, expr1, stmts1=None):
 
 def Check_BufferReduceOnly(proc, stmts, buf, ndim):
     assert len(stmts) > 0
-    ctxt = ContextExtraction(proc, stmts)
 
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
+    datair, d_stmts = LoopIR_to_DataflowIR(proc, stmts).result()
+    # ScalarPropagation(datair)
+
+    p = GetControlPredicates(datair, d_stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
+    # slv.assume(AMay(v))
 
     wholebuf = LS.WholeBuf(buf, ndim)
-    a = G(stmts_effs(stmts))
+    a = stmts_effs(stmts)
     RW = getsets([ES.READ_WRITE], a)[0]
     readwrite = LIsct(wholebuf, RW)
 
@@ -2017,8 +2114,8 @@ def Check_Access_In_Window(proc, access_cursor, w_exprs, block_cursor):
     idxs = access.idx
     assert len(idxs) == len(w_exprs)
 
-    ctxt = ContextExtraction(proc, block)
-    p = ctxt.get_control_predicate()
+    datair, d_stmts = LoopIR_to_DataflowIR(proc, block).result()
+    p = GetControlPredicates(datair, d_stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
@@ -2090,14 +2187,16 @@ def Check_Access_In_Window(proc, access_cursor, w_exprs, block_cursor):
 def Check_Bounds(proc, alloc_stmt, block):
     if len(block) == 0:
         return
-    ctxt = ContextExtraction(proc, block)
 
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
+    datair, stmts = LoopIR_to_DataflowIR(proc, block).result()
+    # ScalarPropagation(datair)
+
+    p = GetControlPredicates(datair, stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
+    # slv.assume(AMay(v))
 
     # build a location set describing
     # the allocated region of the buffer
@@ -2119,7 +2218,7 @@ def Check_Bounds(proc, alloc_stmt, block):
         for i in reversed(coords):
             alloc_set = LBigUnion(i, alloc_set)
 
-    a = G(stmts_effs(block))
+    a = stmts_effs(block)
     All = getsets([ES.ALL], a)[0]
     All_inbuf = LIsct(All, LS.WholeBuf(alloc_stmt.name, len(shape)))
     is_ok = slv.verify(ADef(is_empty(LDiff(All_inbuf, alloc_set))))
@@ -2130,9 +2229,8 @@ def Check_Bounds(proc, alloc_stmt, block):
 
 def Check_IsDeadAfter(proc, stmts, bufname, ndim):
     assert len(stmts) > 0
-    ctxt = ContextExtraction(proc, stmts)
 
-    ap = ctxt.get_posteffs()
+    ap = PostEnv(proc, stmts).get_posteffs()
 
     slv = SMTSolver(verbose=False)
     slv.push()
@@ -2152,17 +2250,18 @@ def Check_IsDeadAfter(proc, stmts, bufname, ndim):
 
 def Check_IsIdempotent(proc, stmts):
     assert len(stmts) > 0
-    ctxt = ContextExtraction(proc, stmts)
 
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
-    ap = ctxt.get_posteffs()
-    a = G(stmts_effs(stmts))
+    datair, d_stmts = LoopIR_to_DataflowIR(proc, stmts).result()
+    # ScalarPropagation(datair)
+
+    p = GetControlPredicates(datair, d_stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
+    # slv.assume(AMay(v))
 
+    a = stmts_effs(stmts)
     is_idempotent = slv.verify(ADef(Shadows(a, a)))
     slv.pop()
     if not is_idempotent:
@@ -2172,16 +2271,18 @@ def Check_IsIdempotent(proc, stmts):
 def Check_ExprBound(proc, stmts, expr, op, value, exception=True):
     assert len(stmts) > 0
 
-    ctxt = ContextExtraction(proc, stmts)
+    datair, d_stmts = LoopIR_to_DataflowIR(proc, stmts).result()
+    p = GetControlPredicates(datair, d_stmts).result()
 
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
+    # TODO: Check_ExprBound does not depend on configuration states so this can be skipped, but more fundamentally running abstract interpretation this many times is simply too slow.
+    # ScalarPropagation(datair)
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
+    # slv.assume(AMay(v))
 
-    e = G(lift_e(expr))
+    e = lift_e(expr)
 
     if op == ">=":
         query = ADef(e >= AInt(value))
@@ -2213,71 +2314,6 @@ def Check_ExprBound(proc, stmts, expr, op, value, exception=True):
             estr = estr[:-1]
         raise SchedulingError(
             f"The expression {estr} is not guaranteed to be {err_msg}."
-        )
-
-
-def Check_CodeIsDead(proc, stmts):
-    assert len(stmts) > 0
-    ctxt = ContextExtraction(proc, stmts)
-
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
-    ap = ctxt.get_posteffs()
-    a = G(stmts_effs(stmts))
-
-    # apply control predicate
-    a = [E.Guard(AMay(p), a)]
-
-    # The basic question for dead code is to ask:
-    #       Is there any way that any memory modified by `stmts`
-    #       could possibly affect any other code that runs later?
-    #
-    # Let X be some memory location modified by `stmts`.
-    # If any code running after `stmts` reads/reduces/depends-on X,
-    #   then `stmts` is not dead.
-    # Otherwise if X is allocated local to `proc`, then `stmts`
-    #   is dead w.r.t. X
-    # Otherwise X is a global or an argument buffer;
-    #   If X is not definitely overwritten before exiting `proc`,
-    #   then `stmts` is not dead.
-    #
-    # The preceding analysis should never erroneously report code
-    # as dead when it is not.
-
-    Modp, WGp = getsets([ES.MODIFY, ES.WRITE_G], G(a))
-    R_ap, Red_ap, W_ap = getsets([ES.READ_ALL, ES.REDUCE, ES.WRITE_ALL], ap)
-
-    # get a set of globals and function arguments that
-    # overapproximates the set of locations that might have been written
-    # and are all memory locations visible after the lifetime of `proc`
-    globs = {pt.name: pt.typ for pt in get_point_exprs(WGp)}
-    args = {fa.name: len(fa.type.shape()) for fa in proc.args if fa.type.is_numeric()}
-    # now we'll construct a location set out of these
-    Outside = LS.Empty()
-    for gnm, typ in globs.items():
-        Outside = LUnion(Outside, LS.Point(gnm, [], typ))
-    for nm, ndim in globs.items():
-        Outside = LUnion(Outside, LS.WholeBuf(nm, ndim))
-
-    # first condition
-    mod_unread_in_proc = ADef(is_empty(LIsct(Modp, LUnion(R_ap, Red_ap))))
-    # second condition
-    mod_unread_outside = ADef(is_empty(LIsct(LDiff(Modp, W_ap), Outside)))
-
-    slv = SMTSolver(verbose=False)
-    slv.push()
-    mod_unread_in_proc = slv.verify(mod_unread_in_proc)
-    mod_unread_outside = slv.verify(mod_unread_outside)
-    slv.pop()
-    if not mod_unread_in_proc:
-        raise SchedulingError(
-            f"Code is not dead, because values modified might be "
-            f"read later in this proc"
-        )
-    if not mod_unread_outside:
-        raise SchedulingError(
-            f"Code is not dead, because values modified might be "
-            f"read later outside this proc"
         )
 
 

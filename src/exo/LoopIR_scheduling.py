@@ -16,7 +16,7 @@ from .LoopIR import (
     get_writes_of_stmts,
     is_const_zero,
 )
-from .new_eff import (
+from .analysis import (
     SchedulingError,
     Check_ReorderStmts,
     Check_ReorderLoops,
@@ -1028,6 +1028,17 @@ def DoSetTypAndMem(cursor, basetyp=None, win=None, mem=None):
 # Call Swap scheduling directive
 
 
+def get_next_stmt(c):
+    while True:
+        try:
+            n = c.next()
+            return n._node
+        except:
+            c = c.parent()
+            if c.is_root():
+                return None
+
+
 def DoCallSwap(call_cursor, new_subproc):
     call_s = call_cursor._node
     assert isinstance(call_s, LoopIR.Call)
@@ -1041,12 +1052,19 @@ def DoCallSwap(call_cursor, new_subproc):
 
     s_new = call_s.update(f=new_subproc)
     ir = call_cursor.get_root()
-    mod_cfg = Check_ExtendEqv(ir, [call_s], [s_new], configkeys)
-    ir, fwd = call_cursor._child_node("f")._replace(new_subproc)
+    new_ir, fwd = call_cursor._child_node("f")._replace(new_subproc)
 
-    Check_Aliasing(ir)
+    mod_cfg = set()
+    n_1 = get_next_stmt(call_cursor)
+    n_2 = get_next_stmt(fwd(call_cursor))
+    if n_1 is None and n_2 is None:
+        pass
+    else:
+        mod_cfg = Check_ExtendEqv(ir, new_ir, [n_1], [n_2])
 
-    return ir, fwd, mod_cfg
+    Check_Aliasing(new_ir)
+
+    return new_ir, fwd, mod_cfg
 
 
 def DoInlineWindow(window_cursor):

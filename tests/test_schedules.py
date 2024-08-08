@@ -1641,6 +1641,40 @@ def test_reorder_stmts(golden):
     assert str(bar) == golden
 
 
+def test_reorder_stmts2(golden):
+    @proc
+    def bar(f: R[100], g: R[100]):
+        for i in seq(0, 100):
+            f[i] = 1.0
+            g[i] = 3.0
+
+    bar = reorder_stmts(bar, bar.find("f[_] = _").expand(0, 1))
+    assert str(bar) == golden
+
+
+def test_reorder_stmts3(golden):
+    @config
+    class CFG:
+        cfg1: i8
+        cfg2: i8
+
+    @proc
+    def bar():
+        CFG.cfg1 = 3.0
+        CFG.cfg1 = 3.0
+
+    with pytest.raises(SchedulingError, match="do not commute"):
+        bar = reorder_stmts(bar, bar.find("CFG.cfg1 = _").expand(0, 1))
+
+    @proc
+    def bar():
+        CFG.cfg1 = 3.0
+        CFG.cfg2 = 2.0
+
+    bar = reorder_stmts(bar, bar.find("CFG.cfg1 = _").expand(0, 1))
+    assert str(bar) == golden
+
+
 def test_merge_writes_all_4_cases(golden):
     @proc
     def bar(x: R[4], y: R[4]):
@@ -4648,3 +4682,26 @@ def test_old_lift_alloc_config(golden):
 
     bar = autolift_alloc(bar, "tmp_a : _", keep_dims=True)
     assert str(bar) == golden
+
+
+def test_call_eqv():
+    @config
+    class CFG:
+        cfg: i8
+
+    @proc
+    def foo1():
+        a: i8
+        a = 3.0
+        pass
+
+    foo2 = write_config(foo1, foo1.find("a = _").after(), CFG, "cfg", "2.0")
+
+    @proc
+    def bar(x: i8):
+        CFG.cfg = 3.0
+        foo1()
+        x = CFG.cfg
+
+    with pytest.raises(SchedulingError, match="Cannot rewrite at"):
+        bar = call_eqv(bar, "foo1(_)", foo2)
