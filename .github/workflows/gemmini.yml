@@ -6,15 +6,15 @@ on:
   pull_request:
 jobs:
   gemmini:
-    runs-on: ubuntu-22.04-2core
-
-    container:
-      image: ghcr.io/exo-lang/gemmini:latest
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.github_token }}
+    runs-on: ubuntu-22.04
 
     steps:
+      - name: Delete huge unnecessary tools folder
+        run: rm -rf /opt/hostedtoolcache
+
+      - name: My first step
+        uses: docker://ghcr.io/exo-lang/gemmini:latest
+
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v4
         with:
