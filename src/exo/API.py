@@ -99,6 +99,38 @@ def instr(c_instr, c_global=""):
     return inner
 
 
+def instr_editor(
+    f,
+    c_instr,
+    filename_,
+    lineno_,
+    col_offset_,
+    end_lineno_,
+    end_col_offset_,
+    f_globals,
+    c_global="",
+):
+    if not isinstance(c_instr, str):
+        raise TypeError("@instr decorator must be @instr(<your instuction>)")
+
+    def inner(f):
+        if not isinstance(f, pyast.FunctionDef):
+            raise TypeError("@instr decorator must be applied to a function")
+
+        return proc_editor(
+            f,
+            filename_,
+            lineno_,
+            col_offset_,
+            end_lineno_,
+            end_col_offset_,
+            f_globals,
+            _instr=(c_instr, c_global),
+        )
+
+    return inner(f)
+
+
 def config(_cls=None, *, readwrite=True):
     def parse_config(cls):
         if not inspect.isclass(cls):

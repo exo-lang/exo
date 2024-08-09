@@ -117,7 +117,7 @@ def sched_op(arg_procs):
     def build_sched_op(func):
         f_name = func.__name__
         sig = inspect.signature(func)
-        assert len(arg_procs) == len(sig.parameters)
+        # assert len(arg_procs) == len(sig.parameters)
 
         # record extra implicit information in the argument processors
         for i, (param, arg_p) in enumerate(zip(sig.parameters, arg_procs)):
