@@ -1,8 +1,8 @@
 def foo(x : f32):
   ----------------------- {x : x, ConfigAB_a : ConfigAB_a, ConfigAB_b : ConfigAB_b}
   ConfigAB_a = 1.0
-  ----------------------- {ConfigAB_a : Const1_0, x : x, ConfigAB_b : ConfigAB_b}
+  ----------------------- {ConfigAB_a : 1.0, x : x, ConfigAB_b : ConfigAB_b}
   bar(x)
-  ----------------------- {ConfigAB_a : Const1_0 ∧ Const2_0, x : x ∧ Const3, ConfigAB_b : ConfigAB_b}
+  ----------------------- {ConfigAB_a : 1.0 or 2.0, x : x or 3.0, ConfigAB_b : ConfigAB_b}
   ConfigAB_b = x
-  ----------------------- {ConfigAB_b : x ∧ Const3, ConfigAB_a : Const1_0 ∧ Const2_0, x : x ∧ Const3}
+  ----------------------- {ConfigAB_b : x or 3.0, ConfigAB_a : 1.0 or 2.0, x : x or 3.0}

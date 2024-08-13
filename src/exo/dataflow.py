@@ -11,13 +11,49 @@ from .prelude import Sym, SrcInfo, extclass
 from .LoopIR import LoopIR, Alpha_Rename, SubstArgs, LoopIR_Do, Operator, T, Identifier
 from .internal_analysis import *
 
+
 # --------------------------------------------------------------------------- #
 # Abstract Domain definition
 # --------------------------------------------------------------------------- #
 
-# Only support scalar abstract domains for now!
-# Abstract values are Aexprs. It does not handle arrays.
-# D = A.expr (almost)
+AbstractDomains = ADT(
+    """
+module AbstractDomains {
+    dexpr = Top()
+          | Var( sym name, type type )
+          | Const( object val, type type )
+          | BinOp( binop op, dexpr lhs, dexpr rhs, type type )
+          | USub( dexpr arg, type type )
+}
+""",
+    ext_types={
+        "type": LoopIR.type,
+        "sym": Sym,
+        "binop": validators.instance_of(Operator, convert=True),
+    },
+    memoize={},
+)
+D = AbstractDomains
+
+
+@extclass(AbstractDomains.dexpr)
+def __str__(self):
+    if isinstance(self, D.Top):
+        return "⊤"
+    elif isinstance(self, D.Const):
+        return str(self.val)
+    elif isinstance(self, D.Var):
+        return str(self.name)
+    elif isinstance(self, D.BinOp):
+        return str(self.lhs) + " " + str(self.op) + " " + str(self.rhs)
+    elif isinstance(self, D.USub):
+        return "-" + str(self.arg)
+
+    assert False, "bad case"
+
+
+del __str__
+
 
 # --------------------------------------------------------------------------- #
 # DataflowIR definition
@@ -549,6 +585,95 @@ def get_values_before_readconfigs_after_stmt(ir1, d_stmts):
     return GetValuesBeforeReadConfigsAfterStmts(ir1, d_stmts).result()
 
 
+def lift_e(e):
+    if e.type.is_indexable() or e.type.is_stridable() or e.type == T.bool:
+        if isinstance(e, DataflowIR.Read):
+            assert len(e.idx) == 0
+            return A.Var(e.name, e.type, e.srcinfo)
+        elif isinstance(e, DataflowIR.Const):
+            return A.Const(e.val, e.type, e.srcinfo)
+        elif isinstance(e, DataflowIR.BinOp):
+            return A.BinOp(e.op, lift_e(e.lhs), lift_e(e.rhs), e.type, e.srcinfo)
+        elif isinstance(e, DataflowIR.USub):
+            return A.USub(lift_e(e.arg), e.type, e.srcinfo)
+        elif isinstance(e, DataflowIR.StrideExpr):
+            return A.Stride(e.name, e.dim, e.type, e.srcinfo)
+        elif isinstance(e, DataflowIR.ReadConfig):
+            return A.Var(e.config_field, e.type, e.srcinfo)
+        else:
+            f"bad case: {type(e)}"
+    else:
+        assert e.type.is_numeric()
+        if e.type.is_real_scalar():
+            if isinstance(e, DataflowIR.Const):
+                return A.Const(e.val, e.type, e.srcinfo)
+            elif isinstance(e, DataflowIR.Read):
+                return A.ConstSym(e.name, e.type, e.srcinfo)
+            elif isinstance(e, DataflowIR.ReadConfig):
+                return A.Var(e.config_field, e.type, e.srcinfo)
+
+        return A.Top(T.err, e.srcinfo)
+
+
+class GetControlPredicates(DataflowIR_Do):
+    def __init__(self, datair, stmts):
+        self.datair = datair
+        self.stmts = stmts
+        self.preds = None
+        self.done = False
+        self.cur_preds = []
+
+        for a in self.datair.args:
+            if isinstance(a.type, T.Size):
+                size_pred = A.BinOp(
+                    "<",
+                    A.Const(0, T.int, null_srcinfo()),
+                    A.Var(a.name, T.size, a.srcinfo),
+                    T.bool,
+                    null_srcinfo(),
+                )
+                self.cur_preds.append(size_pred)
+            self.do_t(a.type)
+
+        for pred in self.datair.preds:
+            self.cur_preds.append(lift_e(pred))
+            self.do_e(pred)
+
+        self.do_stmts(self.datair.body.stmts)
+
+    def do_s(self, s):
+        if self.done:
+            return
+
+        if s == self.stmts[0]:
+            self.preds = AAnd(*self.cur_preds)
+            self.done = True
+
+        styp = type(s)
+        if styp is DataflowIR.If:
+            self.cur_preds.append(lift_e(s.cond))
+            self.do_stmts(s.body.stmts)
+            self.cur_preds.pop()
+
+            self.cur_preds.append(A.Not(lift_e(s.cond), T.int, null_srcinfo()))
+            self.do_stmts(s.orelse.stmts)
+            self.cur_preds.pop()
+
+        elif styp is DataflowIR.For:
+            a_iter = A.Var(s.iter, T.int, s.srcinfo)
+            b1 = A.BinOp("<=", lift_e(s.lo), a_iter, T.bool, null_srcinfo())
+            b2 = A.BinOp("<", a_iter, lift_e(s.hi), T.bool, null_srcinfo())
+            cond = A.BinOp("and", b1, b2, T.bool, null_srcinfo())
+            self.cur_preds.append(cond)
+            self.do_stmts(s.body.stmts)
+            self.cur_preds.pop()
+
+        super().do_s(s)
+
+    def result(self):
+        return self.preds.simplify()
+
+
 # --------------------------------------------------------------------------- #
 # Abstract Interpretation on DataflowIR
 # --------------------------------------------------------------------------- #
@@ -718,10 +843,10 @@ class AbstractInterpretation(ABC):
         else:
             assert False, f"bad case: {type(stmt)}"
 
-    def fix_expr(self, pre_env: A, expr: DataflowIR.expr) -> A:
+    def fix_expr(self, pre_env: D, expr: DataflowIR.expr) -> D:
         if isinstance(expr, DataflowIR.Read):
             if len(expr.idx) > 0:
-                return A.Top(T.index, null_srcinfo())
+                return D.Top()
 
             return pre_env[expr.name]
         elif isinstance(expr, DataflowIR.Const):
@@ -789,17 +914,17 @@ def greater_than(bexpr, val):
     if bexpr == val:
         return True
 
-    if isinstance(val, A.Top):
+    if isinstance(val, D.Top):
         return True
 
-    if not isinstance(bexpr, A.BinOp):
+    if not isinstance(bexpr, D.BinOp):
         return False
 
     exists = False
-    if bexpr.op == "and":
-        if isinstance(bexpr.rhs, A.BinOp):
+    if bexpr.op == "or":
+        if isinstance(bexpr.rhs, D.BinOp):
             exists |= greater_than(bexpr.rhs, val)
-        if isinstance(bexpr.lhs, A.BinOp):
+        if isinstance(bexpr.lhs, D.BinOp):
             exists |= greater_than(bexpr.lhs, val)
         if bexpr.rhs == val or bexpr.lhs == val:
             return True
@@ -807,70 +932,67 @@ def greater_than(bexpr, val):
     return exists
 
 
-const_dict = dict()
-
-
 class ScalarPropagation(AbstractInterpretation):
     def abs_init_val(self, name, typ):
-        return A.Var(name, T.bool, null_srcinfo())
+        return D.Var(name, typ)
 
     def abs_alloc_val(self, name, typ):
-        return A.Var(name, T.bool, null_srcinfo())
+        return D.Var(name, typ)
 
     def abs_iter_val(self, name, lo, hi):
         # TODO: shouldn't we be able to range the iteration range/
         # lo_cons = A.BinOp("<=", lo, name, T.index, null_srcinfo())
         # hi_cons = A.BinOp("<", name, hi, T.index, null_srcinfo())
         # return AAnd(lo_cons, hi_cons)
-        return A.Var(name, T.index, null_srcinfo())
+        return D.Var(name, T.index)
 
     def abs_stride_expr(self, name, dim):
-        return A.Stride(name, dim, T.stride, null_srcinfo())
+        raise NotImplementedError
+        # return A.Stride(name, dim, T.stride, null_srcinfo())
 
-    def abs_const(self, val, typ) -> A:
-        if val in const_dict:
-            return const_dict[val]
-        else:
-            var = A.Var(
-                Sym("Const" + str(val).replace("-", "n").replace(".", "_")),
-                T.bool,
-                null_srcinfo(),
-            )
-            const_dict[val] = var
-            return var
-        # return A.Var(Sym("const_sym"), T.bool, null_srcinfo())
+    def abs_const(self, val, typ) -> D:
+        return D.Const(val, typ)
 
-    def abs_join(self, lval: A, rval: A):
+    def abs_join(self, lval: D, rval: D):
 
-        if isinstance(lval, A.Top):
+        if isinstance(lval, D.Top):
             return rval
-        elif isinstance(rval, A.Top):
+        elif isinstance(rval, D.Top):
             return lval
         elif lval == rval:
             return lval
-        elif isinstance(lval, A.Var) and isinstance(rval, A.Var):
+        elif isinstance(lval, D.Var) and isinstance(rval, D.Var):
             if lval.name == rval.name:
                 return lval
-        elif isinstance(lval, A.Const) and isinstance(rval, A.Const):
+        elif isinstance(lval, D.Const) and isinstance(rval, D.Const):
             if lval.val == rval.val:
                 return lval
-        elif isinstance(lval, A.BinOp):
+        elif isinstance(lval, D.BinOp):
             if greater_than(lval, rval):
                 return lval
-        elif isinstance(rval, A.BinOp):
+        elif isinstance(rval, D.BinOp):
             if greater_than(rval, lval):
                 return rval
 
-        return AAnd(lval, rval)
+        typ = lval.type
+        if lval.type != rval.type:
+            if lval.type.is_real_scalar() and rval.type.is_real_scalar():
+                typ = T.R
+            else:
+                assert (
+                    False
+                ), f"type should be the same to join? {lval.type} and {rval.type}"
 
-    def abs_binop(self, op, lval: A, rval: A) -> A:
+        return D.BinOp("or", lval, rval, typ)
 
-        if isinstance(lval, A.Top) or isinstance(rval, A.Top):
-            return A.Top(T.int, null_srcinfo())
+    def abs_binop(self, op, lval: D, rval: D) -> D:
+
+        if isinstance(lval, D.Top) or isinstance(rval, D.Top):
+            return D.Top()
 
         # front_ops = {"+", "-", "*", "/", "%",
         #              "<", ">", "<=", ">=", "==", "and", "or"}
-        if isinstance(lval, A.Const) and isinstance(rval, A.Const):
+        if isinstance(lval, D.Const) and isinstance(rval, D.Const):
             typ = lval.type
             if op == "+":
                 val = lval + rval
@@ -901,7 +1023,7 @@ class ScalarPropagation(AbstractInterpretation):
                 else:
                     assert False, f"Bad Case Operator: {op}"
 
-            return A.Const(val, typ, lval.srcinfo)
+            return D.Const(val, typ)
 
         # TODO: and, or short circuiting here
 
@@ -909,18 +1031,18 @@ class ScalarPropagation(AbstractInterpretation):
             # NOTE: THIS doesn't work right for integer division...
             # c1 / c2
             # 0 / x == 0
-            if isinstance(lval, A.Const) and lval.val == 0:
+            if isinstance(lval, D.Const) and lval.val == 0:
                 return lval
 
         if op == "%":
-            if isinstance(rval, A.Const) and rval.val == 1:
-                return A.Const(0, lval.type, lval.srcinfo)
+            if isinstance(rval, D.Const) and rval.val == 1:
+                return D.Const(0, lval.type)
 
         if op == "*":
             # x * 0 == 0
-            if isinstance(lval, A.Const) and lval.val == 0:
+            if isinstance(lval, D.Const) and lval.val == 0:
                 return lval
-            elif isinstance(rval, A.Const) and rval.val == 0:
+            elif isinstance(rval, D.Const) and rval.val == 0:
                 return rval
 
         # memo
@@ -929,108 +1051,16 @@ class ScalarPropagation(AbstractInterpretation):
         #            = abs({ x + 0 | x in anything })
         #            = abs({ x | x in anything })
         #            = TOP
-        return A.Top(T.int, null_srcinfo())
+        return D.Top()
 
-    def abs_usub(self, arg: A) -> A:
-        if isinstance(arg, A.Const):
-            return A.Const(-arg.val, arg.typ, arg.srcinfo)
-
-        return arg
+    def abs_usub(self, arg: D) -> D:
+        return D.USub(arg, arg.typ)
 
     def abs_builtin(self, builtin, args):
         # TODO: Fix
-        if any([not isinstance(a, A.Const) for a in args]):
-            return A.Top(T.int, null_srcinfo())
+        if any([not isinstance(a, D.Const) for a in args]):
+            return D.Top()
         vargs = [a.val for a in args]
 
         # TODO: write a short circuit for select builtin
-        return A.Const(builtin.interpret(vargs), args[0].typ)
-
-
-def lift_e(e):
-    if e.type.is_indexable() or e.type.is_stridable() or e.type == T.bool:
-        if isinstance(e, DataflowIR.Read):
-            assert len(e.idx) == 0
-            return A.Var(e.name, e.type, e.srcinfo)
-        elif isinstance(e, DataflowIR.Const):
-            return A.Const(e.val, e.type, e.srcinfo)
-        elif isinstance(e, DataflowIR.BinOp):
-            return A.BinOp(e.op, lift_e(e.lhs), lift_e(e.rhs), e.type, e.srcinfo)
-        elif isinstance(e, DataflowIR.USub):
-            return A.USub(lift_e(e.arg), e.type, e.srcinfo)
-        elif isinstance(e, DataflowIR.StrideExpr):
-            return A.Stride(e.name, e.dim, e.type, e.srcinfo)
-        elif isinstance(e, DataflowIR.ReadConfig):
-            return A.Var(e.config_field, e.type, e.srcinfo)
-        else:
-            f"bad case: {type(e)}"
-    else:
-        assert e.type.is_numeric()
-        if e.type.is_real_scalar():
-            if isinstance(e, DataflowIR.Const):
-                return A.Const(e.val, e.type, e.srcinfo)
-            elif isinstance(e, DataflowIR.Read):
-                return A.ConstSym(e.name, e.type, e.srcinfo)
-            elif isinstance(e, DataflowIR.ReadConfig):
-                return A.Var(e.config_field, e.type, e.srcinfo)
-
-        return A.Top(T.err, e.srcinfo)
-
-
-class GetControlPredicates(DataflowIR_Do):
-    def __init__(self, datair, stmts):
-        self.datair = datair
-        self.stmts = stmts
-        self.preds = None
-        self.done = False
-        self.cur_preds = []
-
-        for a in self.datair.args:
-            if isinstance(a.type, T.Size):
-                size_pred = A.BinOp(
-                    "<",
-                    A.Const(0, T.int, null_srcinfo()),
-                    A.Var(a.name, T.size, a.srcinfo),
-                    T.bool,
-                    null_srcinfo(),
-                )
-                self.cur_preds.append(size_pred)
-            self.do_t(a.type)
-
-        for pred in self.datair.preds:
-            self.cur_preds.append(lift_e(pred))
-            self.do_e(pred)
-
-        self.do_stmts(self.datair.body.stmts)
-
-    def do_s(self, s):
-        if self.done:
-            return
-
-        if s == self.stmts[0]:
-            self.preds = AAnd(*self.cur_preds)
-            self.done = True
-
-        styp = type(s)
-        if styp is DataflowIR.If:
-            self.cur_preds.append(lift_e(s.cond))
-            self.do_stmts(s.body.stmts)
-            self.cur_preds.pop()
-
-            self.cur_preds.append(A.Not(lift_e(s.cond), T.int, null_srcinfo()))
-            self.do_stmts(s.orelse.stmts)
-            self.cur_preds.pop()
-
-        elif styp is DataflowIR.For:
-            a_iter = A.Var(s.iter, T.int, s.srcinfo)
-            b1 = A.BinOp("<=", lift_e(s.lo), a_iter, T.bool, null_srcinfo())
-            b2 = A.BinOp("<", a_iter, lift_e(s.hi), T.bool, null_srcinfo())
-            cond = A.BinOp("and", b1, b2, T.bool, null_srcinfo())
-            self.cur_preds.append(cond)
-            self.do_stmts(s.body.stmts)
-            self.cur_preds.pop()
-
-        super().do_s(s)
-
-    def result(self):
-        return self.preds.simplify()
+        return D.Const(builtin.interpret(vargs), args[0].typ)

@@ -1,15 +1,15 @@
 def foo(x : f32, y : f32):
   ----------------------- {x : x, y : y, ConfigAB_a : ConfigAB_a, ConfigAB_b : ConfigAB_b}
   ConfigAB_a = 1.0
-  ----------------------- {ConfigAB_a : Const1_0, x : x, y : y, ConfigAB_b : ConfigAB_b}
+  ----------------------- {ConfigAB_a : 1.0, x : x, y : y, ConfigAB_b : ConfigAB_b}
   ConfigAB_b = 3.0
-  ----------------------- {ConfigAB_b : Const3, ConfigAB_a : Const1_0, x : x, y : y}
+  ----------------------- {ConfigAB_b : 3.0, ConfigAB_a : 1.0, x : x, y : y}
   for i in seq(0, 10):
-    --------------------- {ConfigAB_b : Const3 ∧ Const1_0, ConfigAB_a : Const1_0, x : x ∧ Const1_0, y : y, i : i}
+    --------------------- {ConfigAB_b : 3.0 or 1.0, ConfigAB_a : 1.0, x : x or 1.0, y : y, i : i}
     x = ConfigAB_a
-    --------------------- {x : Const1_0, ConfigAB_b : Const3 ∧ Const1_0, ConfigAB_a : Const1_0, y : y, i : i}
+    --------------------- {x : 1.0, ConfigAB_b : 3.0 or 1.0, ConfigAB_a : 1.0, y : y, i : i}
     ConfigAB_b = ConfigAB_a
-    --------------------- {ConfigAB_b : Const1_0, x : Const1_0, ConfigAB_a : Const1_0, y : y, i : i}
-  ----------------------- {ConfigAB_b : Const3 ∧ Const1_0, ConfigAB_a : Const1_0, x : x ∧ Const1_0, y : y}
+    --------------------- {ConfigAB_b : 1.0, x : 1.0, ConfigAB_a : 1.0, y : y, i : i}
+  ----------------------- {ConfigAB_b : 3.0 or 1.0, ConfigAB_a : 1.0, x : x or 1.0, y : y}
   ConfigAB_a = 2.0
-  ----------------------- {ConfigAB_a : Const2_0, ConfigAB_b : Const3 ∧ Const1_0, x : x ∧ Const1_0, y : y}
+  ----------------------- {ConfigAB_a : 2.0, ConfigAB_b : 3.0 or 1.0, x : x or 1.0, y : y}
