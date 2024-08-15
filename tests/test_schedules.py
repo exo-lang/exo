@@ -4752,10 +4752,11 @@ def test_old_lift_alloc_config(golden):
     assert str(bar) == golden
 
 
-def test_call_eqv():
+def test_call_eqv(golden):
     @config
     class CFG:
         cfg: i8
+        cfg2: i8
 
     @proc
     def foo1():
@@ -4773,3 +4774,7 @@ def test_call_eqv():
 
     with pytest.raises(SchedulingError, match="Cannot rewrite at"):
         bar = call_eqv(bar, "foo1(_)", foo2)
+
+    foo3 = write_config(foo1, foo1.find("a = _").after(), CFG, "cfg2", "3.0")
+    bar = call_eqv(bar, "foo1(_)", foo3)
+    assert str(bar) == golden

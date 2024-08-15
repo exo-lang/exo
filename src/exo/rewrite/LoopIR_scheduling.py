@@ -1056,12 +1056,9 @@ def DoCallSwap(call_cursor, new_subproc):
     new_ir, fwd = call_cursor._child_node("f")._replace(new_subproc)
 
     mod_cfg = set()
-    n_1 = get_next_stmt(call_cursor)
-    n_2 = get_next_stmt(fwd(call_cursor))
-    if n_1 is None and n_2 is None:
-        pass
-    else:
-        mod_cfg = Check_ExtendEqv(ir, new_ir, [n_1], [n_2], configkeys)
+    mod_cfg = Check_ExtendEqv(
+        ir, new_ir, [call_cursor._node], [fwd(call_cursor)._node], configkeys
+    )
 
     Check_Aliasing(new_ir)
 

@@ -10,10 +10,6 @@ from .dataflow import (
     LoopIR_to_DataflowIR,
     ScalarPropagation,
     GetControlPredicates,
-    get_readconfigs,
-    get_writeconfigs,
-    # delete_stmts,
-    # get_values_before_readconfigs_after_stmt,
     get_values_before_stmt,
     get_values_after_stmt,
     D,
@@ -1995,64 +1991,26 @@ def Check_DeleteConfigWrite(proc, stmts):
 
     # Below are the actual checks
 
-    # Make a new ir2 and run scalar propagation on it
-    # ir2, next_stmt = delete_stmts(ir1, d_stmts)
-
     ScalarPropagation(ir1)
-    # ScalarPropagation(ir2)
 
-    # config1_vals = get_values_before_readconfigs_after_stmt(ir1, d_stmts)
-    # config2_vals = get_values_before_readconfigs_after_stmt(ir2, [next_stmt])
     config1_vals = get_values_before_stmt(ir1, d_stmts)
     config2_vals = get_values_after_stmt(ir1, d_stmts)
-    print(config1_vals)
-    print(config2_vals)
 
     if not len(config1_vals) == len(config2_vals):
         slv.pop()
         raise SchedulingError("Uhh length dones't match lol")
-
-    # for dic1, dic2 in zip(config1_vals, config2_vals):
-    #    for key, val2 in dic2.items():
-    #        if key not in dic1:
-    #            raise SchedulingError("uhh...")
-    #
-    #            val1 = dic1[key]
-
-    #            akey = A.Var(key.copy(), T.int, null_srcinfo())  # type and srcinfo not sure
-    #            aval1 = lift_dexpr(val1, key=akey)
-    #            aval2 = lift_dexpr(val2, key=akey)
-
-    #            eq = AAnd(AImplies(aval1, aval2), AImplies(aval2, aval1))
-
-    #            if not slv.verify(eq):
-    #                slv.pop()
-    #                raise SchedulingError(
-    #                    f"Cannot change configuration value of {key} "
-    #                    f"at {stmts[0].srcinfo}; the new (and different) "
-    #                    f"values might be read later in this procedure"
-    #                )
-
-    # cfg_mod_visible = [w for w, _ in get_writeconfigs(d_stmts)]
 
     # get the set of config variables potentially modified by
     # the statement block being focused on.  Filter out any
     # such configuration variables whose values are definitely unchanged
     def is_cfg_unmod_by_stmts(pt):
         pt_e = A.Var(pt.name, pt.typ, null_srcinfo())
-        # cfg_unwritten = ADef( ANot(is_elem(pt, WrG)) )
-        # cfg_unchanged = ADef(G(AEq(pt_e, stmtsG(pt_e))))
 
         akey = A.Var(pt.name.copy(), T.int, null_srcinfo())  # type and srcinfo not sure
         aval1 = lift_dexpr(config1_vals[pt.name], key=akey)
-        print(akey)
-        print(config1_vals, aval1)
         aval2 = lift_dexpr(config2_vals[pt.name], key=akey)
-        print(config2_vals, aval2)
-        print()
 
         cfg_unchanged = AAnd(AImplies(aval1, aval2), AImplies(aval2, aval1))
-        print(cfg_unchanged)
 
         return slv.verify(cfg_unchanged)
 
@@ -2074,7 +2032,6 @@ def Check_DeleteConfigWrite(proc, stmts):
         aval2 = lift_dexpr(config2_vals[pt.name], key=akey)
 
         is_unchanged = AAnd(AImplies(aval1, aval2), AImplies(aval2, aval1))
-        print(is_unchanged)
 
         # if the value of the global might be read,
         # then it must not have been changed.
@@ -2103,8 +2060,8 @@ def Check_DeleteConfigWrite(proc, stmts):
 # extended, and if so, modulo what set of output globals?
 def Check_ExtendEqv(proc1, proc2, stmts1, stmts2, cfg_mod):
     assert isinstance(stmts1, list) and isinstance(stmts2, list)
-    assert len(stmts1) > 0
-    assert len(stmts2) > 0
+    assert len(stmts1) == 1
+    assert len(stmts2) == 1
 
     slv = SMTSolver(verbose=False)
     slv.push()
@@ -2115,20 +2072,12 @@ def Check_ExtendEqv(proc1, proc2, stmts1, stmts2, cfg_mod):
     ScalarPropagation(ir1)
     ScalarPropagation(ir2)
 
-    config2_vals = get_values_after_stmt(ir2, d_stmts2)
     config1_vals = get_values_after_stmt(ir1, d_stmts1)
-
-    if not len(config1_vals) == len(config2_vals):
-        slv.pop()
-        raise SchedulingError("Uhh length dones't match lol")
+    config2_vals = get_values_after_stmt(ir2, d_stmts2)
 
     # extract effects
-    # WrG, Mod    = getsets([ES.WRITE_G, ES.MODIFY], a)
-    # ctxt = ContextExtraction(proc1, stmts1)
-    # ap = ctxt.get_posteffs()
     ap = PostEnv(proc1, stmts1).get_posteffs()
     WrGp, RdGp = getsets([ES.WRITE_G, ES.READ_G], ap)
-    print(RdGp)
 
     # check that none of the configuration variables which might have
     # changed are being observed.
@@ -2146,21 +2095,20 @@ def Check_ExtendEqv(proc1, proc2, stmts1, stmts2, cfg_mod):
         is_overwritten = is_elem(pt, WrGp)
 
         akey = A.Var(pt.name.copy(), T.int, null_srcinfo())  # type and srcinfo not sure
+        if pt.name not in config1_vals or pt.name not in config2_vals:
+            cfg_mod_visible.add(pt.name)
+            continue
+
         aval1 = lift_dexpr(config1_vals[pt.name], key=akey)
         aval2 = lift_dexpr(config2_vals[pt.name], key=akey)
 
         is_unchanged = AAnd(AImplies(aval1, aval2), AImplies(aval2, aval1))
-        print()
-        print(pt)
-        print(is_unchanged)
-        print(is_read_post)
-        print()
 
         safe_write = AImplies(AMay(is_read_post), ADef(is_unchanged))
         if not slv.verify(safe_write):
             slv.pop()
             raise SchedulingError(
-                f"Cannot rewrite at {stmts0[0].srcinfo} because the "
+                f"Cannot rewrite at {stmts1[0].srcinfo} because the "
                 f"configuration field {pt.name} might be read "
                 f"subsequently"
             )
@@ -2168,28 +2116,6 @@ def Check_ExtendEqv(proc1, proc2, stmts1, stmts2, cfg_mod):
         shadowed = ADef(is_overwritten)
         if not slv.verify(shadowed):
             cfg_mod_visible.add(pt.name)
-
-    #   for dic1, dic2 in zip(config1_vals, config2_vals):
-    #       for key, val2 in dic2.items():
-    #           if key not in dic1:
-    #               raise SchedulingError("uhh...")
-
-    #           val1 = dic1[key]
-
-    #           akey = A.Var(key.copy(), T.int, null_srcinfo())  # type and srcinfo not sure
-    #           aval1 = lift_dexpr(val1, key=akey)
-    #           aval2 = lift_dexpr(val2, key=akey)
-
-    #           eq = AAnd(AImplies(aval1, aval2), AImplies(aval2, aval1))
-
-    #           if not slv.verify(eq):
-    #               slv.pop()
-    #               raise SchedulingError(
-    #                   f"Cannot rewrite at {stmts1[0].srcinfo} because the "
-    #                   f"configuration field {key} might be read subsequently."
-    #               )
-
-    #    cfg_mod_visible = [w for w, _ in get_writeconfigs(d_stmts1)]
 
     slv.pop()
     return cfg_mod_visible
