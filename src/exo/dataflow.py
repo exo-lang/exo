@@ -22,7 +22,7 @@ module AbstractDomains {
     dexpr = Top()
           | Var( sym name, type type )
           | Const( object val, type type )
-          | BinOp( binop op, dexpr lhs, dexpr rhs, type type )
+          | Or( dexpr lhs, dexpr rhs, type type )
           | USub( dexpr arg, type type )
 }
 """,
@@ -44,8 +44,8 @@ def __str__(self):
         return str(self.val)
     elif isinstance(self, D.Var):
         return str(self.name)
-    elif isinstance(self, D.BinOp):
-        return str(self.lhs) + " " + str(self.op) + " " + str(self.rhs)
+    elif isinstance(self, D.Or):
+        return str(self.lhs) + " ∨ " + str(self.rhs)
     elif isinstance(self, D.USub):
         return "-" + str(self.arg)
 
@@ -917,17 +917,16 @@ def greater_than(bexpr, val):
     if isinstance(val, D.Top):
         return True
 
-    if not isinstance(bexpr, D.BinOp):
+    if not isinstance(bexpr, D.Or):
         return False
 
     exists = False
-    if bexpr.op == "or":
-        if isinstance(bexpr.rhs, D.BinOp):
-            exists |= greater_than(bexpr.rhs, val)
-        if isinstance(bexpr.lhs, D.BinOp):
-            exists |= greater_than(bexpr.lhs, val)
-        if bexpr.rhs == val or bexpr.lhs == val:
-            return True
+    if isinstance(bexpr.rhs, D.Or):
+        exists |= greater_than(bexpr.rhs, val)
+    if isinstance(bexpr.lhs, D.Or):
+        exists |= greater_than(bexpr.lhs, val)
+    if bexpr.rhs == val or bexpr.lhs == val:
+        return True
 
     return exists
 
@@ -947,8 +946,7 @@ class ScalarPropagation(AbstractInterpretation):
         return D.Var(name, T.index)
 
     def abs_stride_expr(self, name, dim):
-        raise NotImplementedError
-        # return A.Stride(name, dim, T.stride, null_srcinfo())
+        return D.Var(Sym(name.name() + str(dim)), T.stride)
 
     def abs_const(self, val, typ) -> D:
         return D.Const(val, typ)
@@ -967,10 +965,10 @@ class ScalarPropagation(AbstractInterpretation):
         elif isinstance(lval, D.Const) and isinstance(rval, D.Const):
             if lval.val == rval.val:
                 return lval
-        elif isinstance(lval, D.BinOp):
+        elif isinstance(lval, D.Or):
             if greater_than(lval, rval):
                 return lval
-        elif isinstance(rval, D.BinOp):
+        elif isinstance(rval, D.Or):
             if greater_than(rval, lval):
                 return rval
 
@@ -979,11 +977,13 @@ class ScalarPropagation(AbstractInterpretation):
             if lval.type.is_real_scalar() and rval.type.is_real_scalar():
                 typ = T.R
             else:
-                assert (
-                    False
-                ), f"type should be the same to join? {lval.type} and {rval.type}"
+                # TODO: Decide whether or not to typecheck here
+                typ = T.R
+                # assert (
+                #    False
+                # ), f"type should be the same to join? {lval.type} and {rval.type}"
 
-        return D.BinOp("or", lval, rval, typ)
+        return D.Or(lval, rval, typ)
 
     def abs_binop(self, op, lval: D, rval: D) -> D:
 

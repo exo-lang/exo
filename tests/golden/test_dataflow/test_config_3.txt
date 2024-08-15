@@ -1,19 +1,19 @@
 def foo(n : size):
   ----------------------- {n : n, ConfigControl_i : ConfigControl_i}
   for i in seq(0, n):
-    --------------------- {n : n, ConfigControl_i : 3 or 4 or ConfigControl_i, i : i}
+    --------------------- {n : n, ConfigControl_i : 3 ∨ 4 ∨ ConfigControl_i, i : i}
     if ConfigControl_i == 2:
-      ------------------- {n : n, ConfigControl_i : 3 or 4 or ConfigControl_i, i : i}
+      ------------------- {n : n, ConfigControl_i : 3 ∨ 4 ∨ ConfigControl_i, i : i}
       ConfigControl_i = 4
       ------------------- {ConfigControl_i : 4, n : n, i : i}
     else:
-      ------------------- {n : n, ConfigControl_i : 3 or 4 or ConfigControl_i, i : i}
-    --------------------- {n : n, ConfigControl_i : 3 or 4 or ConfigControl_i, i : i}
+      ------------------- {n : n, ConfigControl_i : 3 ∨ 4 ∨ ConfigControl_i, i : i}
+    --------------------- {n : n, ConfigControl_i : 3 ∨ 4 ∨ ConfigControl_i, i : i}
     if n == n - 1:
-      ------------------- {n : n, ConfigControl_i : 3 or 4 or ConfigControl_i, i : i}
+      ------------------- {n : n, ConfigControl_i : 3 ∨ 4 ∨ ConfigControl_i, i : i}
       ConfigControl_i = 3
       ------------------- {ConfigControl_i : 3, n : n, i : i}
     else:
-      ------------------- {n : n, ConfigControl_i : 3 or 4 or ConfigControl_i, i : i}
-    --------------------- {n : n, ConfigControl_i : 3 or 4 or ConfigControl_i, i : i}
-  ----------------------- {n : n, ConfigControl_i : 3 or 4 or ConfigControl_i}
+      ------------------- {n : n, ConfigControl_i : 3 ∨ 4 ∨ ConfigControl_i, i : i}
+    --------------------- {n : n, ConfigControl_i : 3 ∨ 4 ∨ ConfigControl_i, i : i}
+  ----------------------- {n : n, ConfigControl_i : 3 ∨ 4 ∨ ConfigControl_i}

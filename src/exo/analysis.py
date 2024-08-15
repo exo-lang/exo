@@ -14,6 +14,7 @@ from .dataflow import (
     get_writeconfigs,
     delete_stmts,
     get_values_before_readconfigs_after_stmt,
+    D,
 )
 
 # --------------------------------------------------------------------------- #
@@ -1932,6 +1933,35 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
         raise SchedulingError(f"Cannot fission loop over {i} at {loop.srcinfo}.")
 
 
+def AEq(lhs, rhs):
+    return A.BinOp("==", lhs, rhs, T.bool, null_srcinfo())
+
+
+def lift_dexpr(e, key=None):
+    if isinstance(e, D.Var):
+        op = A.Var(e.name, e.type, null_srcinfo())
+    elif isinstance(e, D.Const):
+        op = A.Const(e.val, e.type, null_srcinfo())
+    elif isinstance(e, D.Or):
+        return A.BinOp(
+            "or",
+            lift_dexpr(e.lhs, key=key),
+            lift_dexpr(e.rhs, key=key),
+            e.type,
+            null_srcinfo(),
+        )
+    elif isinstance(e, D.USub):
+        op = A.USub(lift_dexpr(e.arg), e.type, null_srcinfo())
+    else:
+        # assert False, "why top??"
+        op = A.Const(True, T.bool, null_srcinfo())
+
+    if key:
+        return AEq(key, op)
+    else:
+        return op
+
+
 def Check_DeleteConfigWrite(proc, stmts):
     assert len(stmts) > 0
 
@@ -1983,7 +2013,12 @@ def Check_DeleteConfigWrite(proc, stmts):
 
             val1 = dic1[key]
 
-            eq = ADef(AEq(val1, val2))
+            akey = A.Var(key.copy(), T.int, null_srcinfo())  # type and srcinfo not sure
+            aval1 = lift_dexpr(val1, key=akey)
+            aval2 = lift_dexpr(val2, key=akey)
+
+            eq = AAnd(AImplies(aval1, aval2), AImplies(aval2, aval1))
+
             if not slv.verify(eq):
                 slv.pop()
                 raise SchedulingError(
@@ -2031,7 +2066,12 @@ def Check_ExtendEqv(proc1, proc2, stmts1, stmts2):
 
             val1 = dic1[key]
 
-            eq = ADef(AEq(val1, val2))
+            akey = A.Var(key.copy(), T.int, null_srcinfo())  # type and srcinfo not sure
+            aval1 = lift_dexpr(val1, key=akey)
+            aval2 = lift_dexpr(val2, key=akey)
+
+            eq = AAnd(AImplies(aval1, aval2), AImplies(aval2, aval1))
+
             if not slv.verify(eq):
                 slv.pop()
                 raise SchedulingError(
