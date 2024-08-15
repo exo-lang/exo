@@ -533,12 +533,11 @@ def delete_stmts(proc, stmts):
     return DeleteStmts(proc, stmts).result()
 
 
-class GetValuesBeforeReadConfigsAfterStmts:
+class GetValuesAfter:
     def __init__(self, proc, stmts):
         self.proc = proc
         self.stmts = stmts
-        self.values = []
-        self.is_after_stmts = False
+        self.values = None
         self.do_block(self.proc.body)
 
     def result(self):
@@ -546,43 +545,54 @@ class GetValuesBeforeReadConfigsAfterStmts:
 
     def do_block(self, block):
         for i, s in enumerate(block.stmts):
-            if self.do_s(s):
-                self.values.append(block.ctxts[i])
+            if s == self.stmts[-1]:
+                self.values = block.ctxts[i + 1]
+            self.do_s(s)
 
     def do_s(self, s):
-        if self.stmts[-1] == s:
-            self.is_after_stmts = True
-
-        if isinstance(s, (DataflowIR.Assign, DataflowIR.Reduce)):
-            return self.do_e(s.rhs) or any([self.do_e(e) for e in s.idx])
-        elif isinstance(s, DataflowIR.WriteConfig):
-            return self.do_e(s.rhs)
-        elif isinstance(s, DataflowIR.If):
-            return self.do_e(s.cond) or self.do_block(s.body) or self.do_block(s.orelse)
+        if isinstance(s, DataflowIR.If):
+            return self.do_block(s.body) or self.do_block(s.orelse)
         elif isinstance(s, DataflowIR.For):
-            return self.do_e(s.lo) or self.do_e(s.hi) or self.do_block(s.body)
+            return self.do_block(s.body)
         elif isinstance(s, DataflowIR.Call):
-            return any([self.do_e(e) for e in s.args]) or self.do_block(s.f.body)
-        elif isinstance(s, DataflowIR.WindowStmt):
-            return self.do_e(s.rhs)
+            return self.do_block(s.f.body)
         else:
-            return False
+            pass
 
-    def do_e(self, e):
-        if isinstance(e, DataflowIR.ReadConfig) and self.is_after_stmts:
-            return True
-        elif isinstance(e, DataflowIR.BinOp):
-            return self.do_e(e.lhs) or self.do_e(e.rhs)
-        elif isinstance(e, DataflowIR.BuiltIn):
-            return any([self.do_e(a) for a in e.args])
-        elif isinstance(e, DataflowIR.USub):
-            return self.do_e(e.arg)
+
+class GetValuesBefore:
+    def __init__(self, proc, stmts):
+        self.proc = proc
+        self.stmts = stmts
+        self.values = None
+        self.do_block(self.proc.body)
+
+    def result(self):
+        return self.values
+
+    def do_block(self, block):
+        for i, s in enumerate(block.stmts):
+            if s == self.stmts[0]:
+                self.values = block.ctxts[i]
+            self.do_s(s)
+
+    def do_s(self, s):
+        if isinstance(s, DataflowIR.If):
+            return self.do_block(s.body) or self.do_block(s.orelse)
+        elif isinstance(s, DataflowIR.For):
+            return self.do_block(s.body)
+        elif isinstance(s, DataflowIR.Call):
+            return self.do_block(s.f.body)
         else:
-            return False
+            pass
 
 
-def get_values_before_readconfigs_after_stmt(ir1, d_stmts):
-    return GetValuesBeforeReadConfigsAfterStmts(ir1, d_stmts).result()
+def get_values_before_stmt(ir1, d_stmts):
+    return GetValuesBefore(ir1, d_stmts).result()
+
+
+def get_values_after_stmt(ir1, d_stmts):
+    return GetValuesAfter(ir1, d_stmts).result()
 
 
 def lift_e(e):

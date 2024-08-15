@@ -1061,7 +1061,7 @@ def DoCallSwap(call_cursor, new_subproc):
     if n_1 is None and n_2 is None:
         pass
     else:
-        mod_cfg = Check_ExtendEqv(ir, new_ir, [n_1], [n_2])
+        mod_cfg = Check_ExtendEqv(ir, new_ir, [n_1], [n_2], configkeys)
 
     Check_Aliasing(new_ir)
 
