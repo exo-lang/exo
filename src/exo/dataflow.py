@@ -994,6 +994,8 @@ class ScalarPropagation(AbstractInterpretation):
         #              "<", ">", "<=", ">=", "==", "and", "or"}
         if isinstance(lval, D.Const) and isinstance(rval, D.Const):
             typ = lval.type
+            lval = lval.val
+            rval = rval.val
             if op == "+":
                 val = lval + rval
             elif op == "-":
@@ -1054,7 +1056,9 @@ class ScalarPropagation(AbstractInterpretation):
         return D.Top()
 
     def abs_usub(self, arg: D) -> D:
-        return D.USub(arg, arg.typ)
+        if isinstance(arg, D.Top):
+            return D.Top()
+        return D.USub(arg, arg.type)
 
     def abs_builtin(self, builtin, args):
         # TODO: Fix
