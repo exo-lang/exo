@@ -494,7 +494,7 @@ def lift_e(e):
             elif isinstance(e, DataflowIR.ReadConfig):
                 return A.Var(e.config_field, e.type, e.srcinfo)
 
-        return A.Top(T.err, e.srcinfo)
+        return A.Unk(T.err, e.srcinfo)
 
 
 class GetControlPredicates(DataflowIR_Do):

@@ -304,7 +304,7 @@ def filter_reals(e, changeset):
     def rec(e):
         if isinstance(e, A.ConstSym):
             if e.name in changeset:
-                return A.Bot(e.type, e.srcinfo)
+                return A.Unk(e.type, e.srcinfo)
             else:
                 return e
         elif isinstance(e, (A.Not, A.USub, A.ForAll, A.Exists, A.Definitely, A.Maybe)):
@@ -370,7 +370,7 @@ def lift_e(e):
                     globname = e.config._INTERNAL_sym(e.field)
                     return A.Var(globname, e.type, e.srcinfo)
 
-            return A.Bot(T.err, e.srcinfo)
+            return A.Unk(T.err, e.srcinfo)
 
 
 def lift_es(es):
@@ -567,7 +567,7 @@ def globenv(stmts):
                 val = A.Select(
                     fix(oldvar, bvar),
                     oldvar,
-                    A.Bot(oldvar.type, s.srcinfo),
+                    A.Unk(oldvar.type, s.srcinfo),
                     oldvar.type,
                     s.srcinfo,
                 )
