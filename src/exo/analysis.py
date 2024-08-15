@@ -10,8 +10,7 @@ from .dataflow import (
     LoopIR_to_DataflowIR,
     ScalarPropagation,
     GetControlPredicates,
-    get_values_before_stmt,
-    get_values_after_stmt,
+    GetValues,
     D,
 )
 
@@ -1276,179 +1275,6 @@ def get_changing_scalars(stmts, changeset=None, aliases=None):
     return changeset
 
 
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-# Context Processing
-
-
-class ContextExtraction:
-    def __init__(self, proc, stmts):
-        self.proc = proc
-        self.stmts = stmts
-
-    def get_control_predicate(self):
-        assumed = AAnd(*[lift_e(p) for p in self.proc.preds])
-        # collect assumptions that size arguments are positive
-        pos_sizes = AAnd(
-            *[AInt(a.name) > AInt(0) for a in self.proc.args if a.type == T.size]
-        )
-        ctrlp = self.ctrlp_stmts(self.proc.body)
-        return AAnd(assumed, pos_sizes, ctrlp)
-
-    def get_pre_globenv(self):
-        return self.preenv_stmts(self.proc.body)
-
-    def get_posteffs(self):
-        a = self.posteff_stmts(self.proc.body)
-        if len(self.proc.preds) > 0:
-            assumed = AAnd(*[lift_e(p) for p in self.proc.preds])
-            a = [E.Guard(assumed, a)]
-        return a
-
-    def ctrlp_stmts(self, stmts):
-        for i, s in enumerate(stmts):
-            if s is self.stmts[0]:
-                return ABool(True)
-            else:
-                p = self.ctrlp_s(s)
-                if p is not None:  # found the focused sub-tree
-                    G = globenv(stmts[0:i])
-                    return G(p)
-        return None
-
-    def ctrlp_s(self, s):
-        if isinstance(s, LoopIR.If):
-            p = self.ctrlp_stmts(s.body)
-            if p is not None:
-                return AAnd(lift_e(s.cond), p)
-            p = self.ctrlp_stmts(s.orelse)
-            if p is not None:
-                return AAnd(ANot(lift_e(s.cond)), p)
-            return None
-        elif isinstance(s, LoopIR.For):
-            p = self.ctrlp_stmts(s.body)
-            if p is not None:
-                G = self.loop_preenv(s)
-                bds = AAnd(lift_e(s.lo) <= AInt(s.iter), AInt(s.iter) < lift_e(s.hi))
-                return AAnd(bds, G(p))
-            return None
-        else:
-            return None
-
-    def preenv_stmts(self, stmts):
-        for i, s in enumerate(stmts):
-            if s is self.stmts[0]:
-                preG = AEnv()
-            else:
-                preG = self.preenv_s(s)
-
-            if preG is not None:  # found the focused sub-tree
-                G = globenv(stmts[0:i])
-                return G + preG
-        return None
-
-    def preenv_s(self, s):
-        if isinstance(s, LoopIR.If):
-            preG = self.preenv_stmts(s.body)
-            if preG is not None:
-                return preG
-            preG = self.preenv_stmts(s.orelse)
-            if preG is not None:
-                return preG
-            return None
-        elif isinstance(s, LoopIR.For):
-            preG = self.preenv_stmts(s.body)
-            if preG is not None:
-                G = self.loop_preenv(s)
-                return G + preG
-            return None
-        else:
-            return None
-
-    def posteff_stmts(self, stmts):
-        for i, s in enumerate(stmts):
-            if s is self.stmts[0]:
-                effs = [E.BindEnv(globenv(self.stmts))]
-                post_stmts = stmts[i + len(self.stmts) :]
-            else:
-                effs = self.posteff_s(s)
-                post_stmts = stmts[i + 1 :]
-
-            if effs is not None:  # found the focused sub-tree
-                preG = globenv(stmts[0:i])
-                return [E.BindEnv(preG)] + effs + stmts_effs(post_stmts)
-        return None
-
-    def posteff_s(self, s):
-        if isinstance(s, LoopIR.If):
-            effs = self.posteff_stmts(s.body)
-            if effs is not None:
-                return [E.Guard(lift_e(s.cond), effs)]
-            effs = self.posteff_stmts(s.orelse)
-            if effs is not None:
-                return [E.Guard(ANot(lift_e(s.cond)), effs)]
-            return None
-        elif isinstance(s, LoopIR.For):
-            body = self.posteff_stmts(s.body)
-            if body is None:
-                return None
-            else:
-                orig_lo = lift_e(s.lo)
-                lo_sym = Sym("lo_tmp")
-                lo_env = AEnv(lo_sym, orig_lo)
-
-                orig_hi = lift_e(s.hi)
-                hi_sym = Sym("hi_tmp")
-                hi_env = AEnv(hi_sym, orig_hi)
-
-                bds = AAnd(AInt(lo_sym) <= AInt(s.iter), AInt(s.iter) < AInt(hi_sym))
-                bds_sym = Sym("bds_tmp")
-                bds_env = lo_env + hi_env + AEnv(bds_sym, bds)
-
-                G = self.loop_preenv(s)
-
-                guard_body = LoopIR.If(
-                    LoopIR.Read(bds_sym, [], T.bool, s.srcinfo),
-                    s.body,
-                    [],
-                    s.srcinfo,
-                )
-                G_body = globenv([guard_body])
-                return [
-                    E.BindEnv(bds_env),
-                    E.BindEnv(G),
-                    E.Guard(ABool(bds_sym), body),
-                    E.BindEnv(G_body),
-                ] + self.loop_posteff(s, LoopIR.Read(hi_sym, [], T.index, s.srcinfo))
-        else:
-            return None
-
-    def loop_preenv(self, s):
-        assert isinstance(s, LoopIR.For)
-        old_i = LoopIR.Read(s.iter, [], T.index, s.srcinfo)
-        new_i = LoopIR.Read(s.iter.copy(), [], T.index, s.srcinfo)
-        pre_body = SubstArgs(s.body, {s.iter: new_i}).result()
-        pre_loop = LoopIR.For(new_i.name, s.lo, old_i, pre_body, s.loop_mode, s.srcinfo)
-        return globenv([pre_loop])
-
-    def loop_posteff(self, s, hi):
-        # want to generate a loop
-        #   for x' in seq(x+1, hi): s
-        # but instead generate
-        #   for x' in seq(0, hi-(x+1)): [x' -> x' + (x+1)]s
-        assert isinstance(s, LoopIR.For)
-        old_i = LoopIR.Read(s.iter, [], T.index, s.srcinfo)
-        new_i = LoopIR.Read(s.iter.copy(), [], T.index, s.srcinfo)
-        old_plus1 = LoopIR.BinOp(
-            "+", old_i, LoopIR.Const(1, T.int, s.srcinfo), T.index, s.srcinfo
-        )
-        post_body = SubstArgs(s.body, {s.iter: new_i}).result()
-        post_loop = LoopIR.For(
-            new_i.name, old_plus1, hi, post_body, s.loop_mode, s.srcinfo
-        )
-        return stmts_effs([post_loop])
-
-
 class PostEnv:
     def __init__(self, proc, stmts):
         self.proc = proc
@@ -1709,14 +1535,11 @@ def Check_ReorderStmts(proc, s1, s2):
 
     assert len(stmts) == 2
 
-    # ScalarPropagation(datair)
-
     p = GetControlPredicates(datair, stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
-    # slv.assume(AMay(v))
 
     a1 = stmts_effs([s1])
     a2 = stmts_effs([s2])
@@ -1735,14 +1558,11 @@ def Check_ReorderLoops(proc, s):
 
     assert len(stmts) == 1
 
-    # ScalarPropagation(datair)
-
     p = GetControlPredicates(datair, stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
-    # slv.assume(AMay(v))
 
     assert len(s.body) == 1
     assert isinstance(s.body[0], LoopIR.For)
@@ -1816,14 +1636,11 @@ def Check_ParallelizeLoop(proc, s):
 
     assert len(stmts) == 1
 
-    # ScalarPropagation(datair)
-
     p = GetControlPredicates(datair, stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
-    # slv.assume(AMay(v))
 
     lo = s.lo
     hi = s.hi
@@ -1872,14 +1689,12 @@ def Check_ParallelizeLoop(proc, s):
 def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
 
     datair, d_loop = LoopIR_to_DataflowIR(proc, [loop]).result()
-    # ScalarPropagation(datair)
 
     p = GetControlPredicates(datair, d_loop).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
-    # slv.assume(AMay(v))
 
     assert isinstance(loop, LoopIR.For)
     i = loop.iter
@@ -1993,8 +1808,7 @@ def Check_DeleteConfigWrite(proc, stmts):
 
     ScalarPropagation(ir1)
 
-    config1_vals = get_values_before_stmt(ir1, d_stmts)
-    config2_vals = get_values_after_stmt(ir1, d_stmts)
+    config1_vals, config2_vals = GetValues(ir1, d_stmts).result()
 
     if not len(config1_vals) == len(config2_vals):
         slv.pop()
@@ -2072,8 +1886,8 @@ def Check_ExtendEqv(proc1, proc2, stmts1, stmts2, cfg_mod):
     ScalarPropagation(ir1)
     ScalarPropagation(ir2)
 
-    config1_vals = get_values_after_stmt(ir1, d_stmts1)
-    config2_vals = get_values_after_stmt(ir2, d_stmts2)
+    _, config1_vals = GetValues(ir1, d_stmts1).result()
+    _, config2_vals = GetValues(ir2, d_stmts2).result()
 
     # extract effects
     ap = PostEnv(proc1, stmts1).get_posteffs()
@@ -2129,14 +1943,13 @@ def Check_ExprEqvInContext(proc, expr0, stmts0, expr1, stmts1=None):
     datair, d_stmts = LoopIR_to_DataflowIR(proc, stmts0 + stmts1).result()
     d_stmts0 = d_stmts[0:len_0]
     d_stmts1 = d_stmts[len_0:]
-    # ScalarPropagation(datair)
+
     p0 = GetControlPredicates(datair, d_stmts0).result()
     p1 = GetControlPredicates(datair, d_stmts1).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(AAnd(p0, p1)))
-    # slv.assume(AMay(AAnd(v0, v1)))
 
     e0 = lift_e(expr0)
     e1 = lift_e(expr1)
@@ -2152,14 +1965,12 @@ def Check_BufferReduceOnly(proc, stmts, buf, ndim):
     assert len(stmts) > 0
 
     datair, d_stmts = LoopIR_to_DataflowIR(proc, stmts).result()
-    # ScalarPropagation(datair)
 
     p = GetControlPredicates(datair, d_stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
-    # slv.assume(AMay(v))
 
     wholebuf = LS.WholeBuf(buf, ndim)
     a = stmts_effs(stmts)
@@ -2265,14 +2076,12 @@ def Check_Bounds(proc, alloc_stmt, block):
         return
 
     datair, stmts = LoopIR_to_DataflowIR(proc, block).result()
-    # ScalarPropagation(datair)
 
     p = GetControlPredicates(datair, stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
-    # slv.assume(AMay(v))
 
     # build a location set describing
     # the allocated region of the buffer
@@ -2328,14 +2137,12 @@ def Check_IsIdempotent(proc, stmts):
     assert len(stmts) > 0
 
     datair, d_stmts = LoopIR_to_DataflowIR(proc, stmts).result()
-    # ScalarPropagation(datair)
 
     p = GetControlPredicates(datair, d_stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
-    # slv.assume(AMay(v))
 
     a = stmts_effs(stmts)
     is_idempotent = slv.verify(ADef(Shadows(a, a)))
@@ -2356,7 +2163,6 @@ def Check_ExprBound(proc, stmts, expr, op, value, exception=True):
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
-    # slv.assume(AMay(v))
 
     e = lift_e(expr)
 

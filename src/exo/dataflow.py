@@ -405,47 +405,23 @@ def get_writeconfigs(stmts):
     return gw.writeconfigs
 
 
-class GetValuesAfter:
+class GetValues:
     def __init__(self, proc, stmts):
         self.proc = proc
         self.stmts = stmts
-        self.values = None
+        self.before = None
+        self.after = None
         self.do_block(self.proc.body)
 
     def result(self):
-        return self.values
-
-    def do_block(self, block):
-        for i, s in enumerate(block.stmts):
-            if s == self.stmts[-1]:
-                self.values = block.ctxts[i + 1]
-            self.do_s(s)
-
-    def do_s(self, s):
-        if isinstance(s, DataflowIR.If):
-            return self.do_block(s.body) or self.do_block(s.orelse)
-        elif isinstance(s, DataflowIR.For):
-            return self.do_block(s.body)
-        elif isinstance(s, DataflowIR.Call):
-            return self.do_block(s.f.body)
-        else:
-            pass
-
-
-class GetValuesBefore:
-    def __init__(self, proc, stmts):
-        self.proc = proc
-        self.stmts = stmts
-        self.values = None
-        self.do_block(self.proc.body)
-
-    def result(self):
-        return self.values
+        return self.before, self.after
 
     def do_block(self, block):
         for i, s in enumerate(block.stmts):
             if s == self.stmts[0]:
-                self.values = block.ctxts[i]
+                self.before = block.ctxts[i]
+            if s == self.stmts[-1]:
+                self.after = block.ctxts[i + 1]
             self.do_s(s)
 
     def do_s(self, s):
@@ -457,103 +433,6 @@ class GetValuesBefore:
             return self.do_block(s.f.body)
         else:
             pass
-
-
-def get_values_before_stmt(ir1, d_stmts):
-    return GetValuesBefore(ir1, d_stmts).result()
-
-
-def get_values_after_stmt(ir1, d_stmts):
-    return GetValuesAfter(ir1, d_stmts).result()
-
-
-def lift_e(e):
-    if e.type.is_indexable() or e.type.is_stridable() or e.type == T.bool:
-        if isinstance(e, DataflowIR.Read):
-            assert len(e.idx) == 0
-            return A.Var(e.name, e.type, e.srcinfo)
-        elif isinstance(e, DataflowIR.Const):
-            return A.Const(e.val, e.type, e.srcinfo)
-        elif isinstance(e, DataflowIR.BinOp):
-            return A.BinOp(e.op, lift_e(e.lhs), lift_e(e.rhs), e.type, e.srcinfo)
-        elif isinstance(e, DataflowIR.USub):
-            return A.USub(lift_e(e.arg), e.type, e.srcinfo)
-        elif isinstance(e, DataflowIR.StrideExpr):
-            return A.Stride(e.name, e.dim, e.type, e.srcinfo)
-        elif isinstance(e, DataflowIR.ReadConfig):
-            return A.Var(e.config_field, e.type, e.srcinfo)
-        else:
-            f"bad case: {type(e)}"
-    else:
-        assert e.type.is_numeric()
-        if e.type.is_real_scalar():
-            if isinstance(e, DataflowIR.Const):
-                return A.Const(e.val, e.type, e.srcinfo)
-            elif isinstance(e, DataflowIR.Read):
-                return A.ConstSym(e.name, e.type, e.srcinfo)
-            elif isinstance(e, DataflowIR.ReadConfig):
-                return A.Var(e.config_field, e.type, e.srcinfo)
-
-        return A.Unk(T.err, e.srcinfo)
-
-
-class GetControlPredicates(DataflowIR_Do):
-    def __init__(self, datair, stmts):
-        self.datair = datair
-        self.stmts = stmts
-        self.preds = None
-        self.done = False
-        self.cur_preds = []
-
-        for a in self.datair.args:
-            if isinstance(a.type, T.Size):
-                size_pred = A.BinOp(
-                    "<",
-                    A.Const(0, T.int, null_srcinfo()),
-                    A.Var(a.name, T.size, a.srcinfo),
-                    T.bool,
-                    null_srcinfo(),
-                )
-                self.cur_preds.append(size_pred)
-            self.do_t(a.type)
-
-        for pred in self.datair.preds:
-            self.cur_preds.append(lift_e(pred))
-            self.do_e(pred)
-
-        self.do_stmts(self.datair.body.stmts)
-
-    def do_s(self, s):
-        if self.done:
-            return
-
-        if s == self.stmts[0]:
-            self.preds = AAnd(*self.cur_preds)
-            self.done = True
-
-        styp = type(s)
-        if styp is DataflowIR.If:
-            self.cur_preds.append(lift_e(s.cond))
-            self.do_stmts(s.body.stmts)
-            self.cur_preds.pop()
-
-            self.cur_preds.append(A.Not(lift_e(s.cond), T.int, null_srcinfo()))
-            self.do_stmts(s.orelse.stmts)
-            self.cur_preds.pop()
-
-        elif styp is DataflowIR.For:
-            a_iter = A.Var(s.iter, T.int, s.srcinfo)
-            b1 = A.BinOp("<=", lift_e(s.lo), a_iter, T.bool, null_srcinfo())
-            b2 = A.BinOp("<", a_iter, lift_e(s.hi), T.bool, null_srcinfo())
-            cond = A.BinOp("and", b1, b2, T.bool, null_srcinfo())
-            self.cur_preds.append(cond)
-            self.do_stmts(s.body.stmts)
-            self.cur_preds.pop()
-
-        super().do_s(s)
-
-    def result(self):
-        return self.preds.simplify()
 
 
 # --------------------------------------------------------------------------- #
@@ -950,3 +829,100 @@ class ScalarPropagation(AbstractInterpretation):
 
         # TODO: write a short circuit for select builtin
         return D.Const(builtin.interpret(vargs), args[0].typ)
+
+
+# --------------------------------------------------------------------------- #
+# Getting control flow on DataflowIR. Will be unnecessary when we
+# integrate control flow into abstract values.
+# --------------------------------------------------------------------------- #
+
+
+def lift_dataflow(e):
+    if e.type.is_indexable() or e.type.is_stridable() or e.type == T.bool:
+        if isinstance(e, DataflowIR.Read):
+            assert len(e.idx) == 0
+            return A.Var(e.name, e.type, e.srcinfo)
+        elif isinstance(e, DataflowIR.Const):
+            return A.Const(e.val, e.type, e.srcinfo)
+        elif isinstance(e, DataflowIR.BinOp):
+            return A.BinOp(
+                e.op, lift_dataflow(e.lhs), lift_dataflow(e.rhs), e.type, e.srcinfo
+            )
+        elif isinstance(e, DataflowIR.USub):
+            return A.USub(lift_dataflow(e.arg), e.type, e.srcinfo)
+        elif isinstance(e, DataflowIR.StrideExpr):
+            return A.Stride(e.name, e.dim, e.type, e.srcinfo)
+        elif isinstance(e, DataflowIR.ReadConfig):
+            return A.Var(e.config_field, e.type, e.srcinfo)
+        else:
+            f"bad case: {type(e)}"
+    else:
+        assert e.type.is_numeric()
+        if e.type.is_real_scalar():
+            if isinstance(e, DataflowIR.Const):
+                return A.Const(e.val, e.type, e.srcinfo)
+            elif isinstance(e, DataflowIR.Read):
+                return A.ConstSym(e.name, e.type, e.srcinfo)
+            elif isinstance(e, DataflowIR.ReadConfig):
+                return A.Var(e.config_field, e.type, e.srcinfo)
+
+        return A.Unk(T.err, e.srcinfo)
+
+
+class GetControlPredicates(DataflowIR_Do):
+    def __init__(self, datair, stmts):
+        self.datair = datair
+        self.stmts = stmts
+        self.preds = None
+        self.done = False
+        self.cur_preds = []
+
+        for a in self.datair.args:
+            if isinstance(a.type, T.Size):
+                size_pred = A.BinOp(
+                    "<",
+                    A.Const(0, T.int, null_srcinfo()),
+                    A.Var(a.name, T.size, a.srcinfo),
+                    T.bool,
+                    null_srcinfo(),
+                )
+                self.cur_preds.append(size_pred)
+            self.do_t(a.type)
+
+        for pred in self.datair.preds:
+            self.cur_preds.append(lift_dataflow(pred))
+            self.do_e(pred)
+
+        self.do_stmts(self.datair.body.stmts)
+
+    def do_s(self, s):
+        if self.done:
+            return
+
+        if s == self.stmts[0]:
+            self.preds = AAnd(*self.cur_preds)
+            self.done = True
+
+        styp = type(s)
+        if styp is DataflowIR.If:
+            self.cur_preds.append(lift_dataflow(s.cond))
+            self.do_stmts(s.body.stmts)
+            self.cur_preds.pop()
+
+            self.cur_preds.append(A.Not(lift_dataflow(s.cond), T.int, null_srcinfo()))
+            self.do_stmts(s.orelse.stmts)
+            self.cur_preds.pop()
+
+        elif styp is DataflowIR.For:
+            a_iter = A.Var(s.iter, T.int, s.srcinfo)
+            b1 = A.BinOp("<=", lift_dataflow(s.lo), a_iter, T.bool, null_srcinfo())
+            b2 = A.BinOp("<", a_iter, lift_dataflow(s.hi), T.bool, null_srcinfo())
+            cond = A.BinOp("and", b1, b2, T.bool, null_srcinfo())
+            self.cur_preds.append(cond)
+            self.do_stmts(s.body.stmts)
+            self.cur_preds.pop()
+
+        super().do_s(s)
+
+    def result(self):
+        return self.preds.simplify()
