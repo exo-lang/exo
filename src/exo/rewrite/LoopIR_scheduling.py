@@ -1239,6 +1239,13 @@ def match_parent(c1, c2):
 
 def DoRewriteExpr(expr_cursor, new_expr):
     proc = expr_cursor.get_root()
+
+    if (
+        not expr_cursor._node.type.is_indexable()
+        and not expr_cursor._node.type.is_bool()
+    ):
+        raise SchedulingError("Cannot rewrite non-index expressions")
+
     s = get_enclosing_stmt_cursor(expr_cursor)._node
     Check_ExprEqvInContext(proc, expr_cursor._node, [s], new_expr, [s])
     return expr_cursor._replace(new_expr)

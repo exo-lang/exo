@@ -2201,6 +2201,20 @@ def test_rewrite_expr_2(golden):
     assert str(simplify(bar)) == golden
 
 
+def test_rewrite_expr_3(golden):
+    @proc
+    def foo(n: size):
+        x: R
+        for i in seq(0, n - n):
+            x = x - x
+
+    bar = rewrite_expr(foo, "n - n", "0")
+    assert str(simplify(bar)) == golden
+
+    with pytest.raises(SchedulingError, match="Cannot rewrite non-index expressions"):
+        bar = rewrite_expr(foo, "x - x", "0.0")
+
+
 def test_rewrite_expr_fail():
     @proc
     def foo(n: size):

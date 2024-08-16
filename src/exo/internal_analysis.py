@@ -756,7 +756,7 @@ class SMTSolver:
         self._add_free_vars(e)
         self.negative_pos = aeNegPos(e, "+")
         smt_e = self._lower(e)
-        assert not is_ternary(smt_e), "formulas must be classical"
+        assert not is_ternary(smt_e), f"formulas must be classical, got {type(smt_e)}"
         if self.verbose:
             print("*******\n*******\n*******")
             print(self.debug_str(smt=False))
