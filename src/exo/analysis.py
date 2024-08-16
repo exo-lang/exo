@@ -1746,10 +1746,6 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
         raise SchedulingError(f"Cannot fission loop over {i} at {loop.srcinfo}.")
 
 
-def AEq(lhs, rhs):
-    return A.BinOp("==", lhs, rhs, T.bool, null_srcinfo())
-
-
 def lift_dexpr(e, key=None):
     if isinstance(e, D.Var):
         op = A.Var(e.name, e.type, null_srcinfo())
@@ -1770,7 +1766,7 @@ def lift_dexpr(e, key=None):
         op = A.Const(True, T.bool, null_srcinfo())
 
     if key:
-        return AEq(key, op)
+        return A.BinOp("==", key, op, T.bool, null_srcinfo())
     else:
         return op
 
@@ -1809,10 +1805,6 @@ def Check_DeleteConfigWrite(proc, stmts):
     ScalarPropagation(ir1)
 
     config1_vals, config2_vals = GetValues(ir1, d_stmts).result()
-
-    if not len(config1_vals) == len(config2_vals):
-        slv.pop()
-        raise SchedulingError("Uhh length dones't match lol")
 
     # get the set of config variables potentially modified by
     # the statement block being focused on.  Filter out any

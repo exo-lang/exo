@@ -318,3 +318,14 @@ def test_config_function(golden):
         ConfigAB.b = x
 
     assert str(foo.dataflow()[0]) == golden
+
+
+def test_usub(golden):
+    @proc
+    def foo(n: size, tmp: R[n]):
+        x: R
+        for i in seq(0, n - n + (n / 1)):
+            x = -1.0
+            tmp[i] = -x
+
+    assert str(foo.dataflow()[0]) == golden
