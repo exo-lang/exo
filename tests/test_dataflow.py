@@ -346,3 +346,21 @@ def test_usub2(golden):
             x[i] = x[CFG.a] + 1.0
 
     assert str(foo.dataflow()[0]) == golden
+
+
+def test_builtin(golden):
+    @config
+    class CFG:
+        a: f32
+
+    @proc
+    def foo(n: index, x: f32):
+        CFG.a = sin(x)
+        CFG.a = sin(3.0)
+        CFG.a = -sin(4.0)
+        CFG.a = 3.0 * 2.0
+        CFG.a = 3.0 - 2.0
+        CFG.a = 3.0 / 2.0
+        CFG.a = 3.0
+
+    assert str(foo.dataflow()[0]) == golden

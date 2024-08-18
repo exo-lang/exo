@@ -811,10 +811,5 @@ class ScalarPropagation(AbstractInterpretation):
         return D.USub(arg, arg.type)
 
     def abs_builtin(self, builtin, args):
-        # TODO: Fix
-        if any([not isinstance(a, D.Const) for a in args]):
-            return D.Top()
-        vargs = [a.val for a in args]
-
-        # TODO: write a short circuit for select builtin
-        return D.Const(builtin.interpret(vargs), args[0].typ)
+        # TODO: We should not attempt to do precise analysis on builtins
+        return D.Top()
