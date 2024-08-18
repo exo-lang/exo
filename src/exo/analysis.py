@@ -440,92 +440,6 @@ class GetControlPredicates(LoopIR_Do):
         return self.preds
 
 
-# Produce a set of AExprs which occur as right-hand-sides
-# of config writes.
-def possible_config_writes(stmts):
-    class Find_RHS(LoopIR_Do):
-        def __init__(self, stmts):
-            # to collect the results in
-            self.writes = dict()
-            self.windows = [AEnv()]
-
-            self.do_stmts(stmts)
-
-        def add_write(self, config, field, rhs):
-            rhs = lift_e(rhs)
-            rhs = self.windows[-1](rhs).simplify()
-            key = config._INTERNAL_sym(field)
-            if key not in self.writes:
-                self.writes[key] = set()
-            self.writes[key].add(rhs)
-
-        def result(self):
-            return self.writes
-
-        # remove any candidate expressions that use the given name
-        def filter(self, name):
-            for key in self.writes:
-                exprs = self.writes[key]
-                exprs = {e for e in exprs if name not in aeFV(e)}
-                if len(exprs) == 0:
-                    del self.writes[key]
-                else:
-                    self.writes[key] = exprs
-
-        def push(self):
-            self.windows.append(self.windows[-1])
-
-        def pop(self):
-            self.windows.pop()
-
-        def do_s(self, s):
-            if isinstance(s, LoopIR.WriteConfig):
-                self.add_write(s.config, s.field, s.rhs)
-
-            elif isinstance(s, LoopIR.If):
-                self.push()
-                self.do_stmts(s.body)
-                self.pop()
-                self.push()
-                self.do_stmts(s.orelse)
-                self.pop()
-
-            elif isinstance(s, LoopIR.For):
-                self.push()
-                self.do_stmts(s.body)
-                self.filter(s.iter)
-                self.pop()
-
-            elif isinstance(s, LoopIR.WindowStmt):
-                # accumulate windowing expressions
-                awin = lift_e(s.rhs)
-                assert isinstance(awin, AWin)
-                aenv = self.windows[-1] + AEnv(s.name, awin, addnames=False)
-                self.windows[-1] = aenv
-
-            elif isinstance(s, LoopIR.Call):
-                call_env = call_bindings(s.args, s.f.args)
-                sub_writes = Find_RHS(s.f.body).result()
-                win_env = self.windows[-1]
-                for key in sub_writes:
-                    if key not in self.writes:
-                        self.writes[key] = set()
-                    for rhs in sub_writes[key]:
-                        rhs = win_env(call_env(rhs)).simplify()
-                        self.writes[key].add(rhs)
-
-            super().do_s(s)
-
-        # short-circuiting for efficiency
-        def do_e(self, e):
-            pass
-
-        def do_t(self, t):
-            pass
-
-    return Find_RHS(stmts).result()
-
-
 def globenv(stmts):
     aenvs = []
     for s in stmts:
@@ -583,44 +497,6 @@ def globenv(stmts):
                 bds = AAnd(lift_e(s.lo) <= AInt(i), AInt(i) < lift_e(s.hi))
                 no_change = AImplies(bds, AEq(body_x, x))
                 return A.ForAll(i, no_change, T.bool, s.srcinfo)
-
-            # extract possible RHS values for config-fields
-            # cfg_writes = possible_config_writes([s])
-            # for cfgfld in cfg_writes:
-            #     pass
-
-            # def fix_cfg(x, rhs, body_x, lower=0):
-            #     bds = AAnd(AInt(lower) <= AInt(i), AInt(i) < lift_e(s.hi))
-            #     is_assigned = A.Exists(
-            #         i, AAnd(bds, AEq(body_x, rhs)), T.bool, s.srcinfo
-            #     )
-            #     no_change_or_assign = AOr(AEq(body_x, rhs), AEq(body_x, x))
-            #     AImplies
-
-            #     no_change = 23
-            #     # A.Exists(i, is_assigned, T.bool, s.srcinfo)
-            #     no_change = A
-            #     no_change = AImplies(bds, AEq(body_x, x))
-            #     return A.ForAll(i, no_change, T.bool, s.srcinfo)
-
-            # define the value of variables due to the first iteration alone
-            # def iter0(x,body_x):
-            #    non_empty   = AInt(0) < lift_e(s.hi)
-            #    is_iter0    = AEq(AInt(i), AInt(0))
-
-            # optional attempt to have tricky conditions
-            # body_j_env  = AEnv(i, AInt(j)) + body_env
-            # j_bvarmap, j_benv = body_j_env.bind_to_copies()
-            # aenvs.append(j_benv)
-            # bds_j       = AAnd(AInt(0) <= AInt(j),
-            #                   AInt(j) < lift_e(s.hi))
-            # def same_after(body_x,body_j_x):
-            #    consistent =  A.ForAll(i, AImplies(bds,
-            #                    A.ForAll(j, AImplies(bds_j,
-            #                                AEq(body_x, body_j_x)),
-            #                             T.bool, s.srcinfo)),
-            #                    T.bool, s.srcinfo)
-            #    return AAnd(non_empty, consistent)
 
             # Now construct an environment that defines the new
             # value for variables `x` based on fixed-point conditions
@@ -1159,27 +1035,6 @@ def get_changing_globset(env):
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Extraction of Effects from programs
-
-
-def window_effs(e):
-    eff_access = []
-    syms = {}
-    for i, w in enumerate(e.idx):
-        if isinstance(w, LoopIR.Interval):
-            syms[i] = Sym(f"EXO_EFFECTS_WINDOW_TEMP_INDEX_{i}")
-            eff_access.append(lift_e(syms[i]))
-        else:
-            eff_access.append(lift_e(w.pt))
-
-    eff = [E.Read(e.name, [idx for idx in eff_access])]
-
-    for i, w in enumerate(e.idx):
-        if isinstance(w, LoopIR.Interval):
-            sym = syms[i]
-            bds = AAnd(lift_e(w.lo) <= AInt(sym), AInt(sym) < lift_e(w.hi))
-            eff = E.Loop(syms[i][E.Guard(bds, eff)])
-
-    return eff
 
 
 def expr_effs(e):
