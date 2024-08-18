@@ -1595,10 +1595,6 @@ def loop_globenv(i, lo_expr, hi_expr, body):
 
 
 def Check_ReorderStmts(proc, s1, s2):
-    # datair, stmts = LoopIR_to_DataflowIR(proc, [s1, s2]).result()
-
-    # print("here in ReorderStmts")
-
     assert isinstance(s1, LoopIR.stmt) and isinstance(s2, LoopIR.stmt)
 
     p = GetControlPredicates(proc, [s1, s2]).result()
@@ -1620,10 +1616,6 @@ def Check_ReorderStmts(proc, s1, s2):
 
 
 def Check_ReorderLoops(proc, s):
-    # datair, stmts = LoopIR_to_DataflowIR(proc, [s]).result()
-
-    # print("here in ReorderLoops")
-
     assert isinstance(s, LoopIR.For)
 
     p = GetControlPredicates(proc, [s]).result()
@@ -1700,10 +1692,6 @@ def Check_ReorderLoops(proc, s):
 #   /\ ( forall i,i'. May(InBound(i,i',e) /\ i < i') => Commutes(a1', a1) )
 #
 def Check_ParallelizeLoop(proc, s):
-    # datair, stmts = LoopIR_to_DataflowIR(proc, [s]).result()
-
-    # print("Check_ParallelizeLoop")
-
     assert isinstance(s, LoopIR.For)
 
     p = GetControlPredicates(proc, [s]).result()
@@ -1757,10 +1745,6 @@ def Check_ParallelizeLoop(proc, s):
 #                     Commutes(a1', a2) /\ AllocCommutes(a1, a2) )
 #
 def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
-
-    # print("Check_FissionLoop")
-
-    # datair, d_loop = LoopIR_to_DataflowIR(proc, [loop]).result()
 
     p = GetControlPredicates(proc, [loop]).result()
 
@@ -1834,7 +1818,7 @@ def lift_dexpr(e, key=None):
     elif isinstance(e, D.USub):
         op = A.USub(lift_dexpr(e.arg), e.type, null_srcinfo())
     else:
-        # assert False, "why top??"
+        assert isinstance(e, D.Top)
         op = A.Const(True, T.bool, null_srcinfo())
 
     if key:
@@ -1845,8 +1829,6 @@ def lift_dexpr(e, key=None):
 
 def Check_DeleteConfigWrite(proc, stmts):
     assert len(stmts) > 0
-
-    # print("here in DeleteConfigWrite")
 
     p = GetControlPredicates(proc, stmts).result()
     slv = SMTSolver(verbose=False)
@@ -1942,8 +1924,6 @@ def Check_ExtendEqv(proc1, proc2, stmts1, stmts2, cfg_mod):
     assert len(stmts1) == 1
     assert len(stmts2) == 1
 
-    # print("here in Check_ExtendEqv")
-
     slv = SMTSolver(verbose=False)
     slv.push()
 
@@ -2003,15 +1983,8 @@ def Check_ExtendEqv(proc1, proc2, stmts1, stmts2, cfg_mod):
 
 
 def Check_ExprEqvInContext(proc, expr0, stmts0, expr1, stmts1=None):
-
-    # print("Check_ExprEqvInContext")
     assert len(stmts0) > 0
     stmts1 = stmts1 or stmts0
-
-    # len_0 = len(stmts0)
-    # datair, d_stmts = LoopIR_to_DataflowIR(proc, stmts0 + stmts1).result()
-    # d_stmts0 = d_stmts[0:len_0]
-    # d_stmts1 = d_stmts[len_0:]
 
     p0 = GetControlPredicates(proc, stmts0).result()
     p1 = GetControlPredicates(proc, stmts1).result()
@@ -2031,11 +2004,7 @@ def Check_ExprEqvInContext(proc, expr0, stmts0, expr1, stmts1=None):
 
 
 def Check_BufferReduceOnly(proc, stmts, buf, ndim):
-
-    # print("Check_BufferReduceOnly")
     assert len(stmts) > 0
-
-    # datair, d_stmts = LoopIR_to_DataflowIR(proc, stmts).result()
 
     p = GetControlPredicates(proc, stmts).result()
 
@@ -2067,14 +2036,11 @@ def Check_Access_In_Window(proc, access_cursor, w_exprs, block_cursor):
     block_cursor is the context in which to interpret the access in.
     """
 
-    # print("Check_Access_In_Window")
-
     access = access_cursor._node
     block = [x._node for x in block_cursor]
     idxs = access.idx
     assert len(idxs) == len(w_exprs)
 
-    # datair, d_stmts = LoopIR_to_DataflowIR(proc, block).result()
     p = GetControlPredicates(proc, block).result()
 
     slv = SMTSolver(verbose=False)
@@ -2148,9 +2114,6 @@ def Check_Bounds(proc, alloc_stmt, block):
     if len(block) == 0:
         return
 
-    # print("Check_Bounds")
-    # datair, stmts = LoopIR_to_DataflowIR(proc, block).result()
-
     p = GetControlPredicates(proc, block).result()
 
     slv = SMTSolver(verbose=False)
@@ -2187,8 +2150,6 @@ def Check_Bounds(proc, alloc_stmt, block):
 
 
 def Check_IsDeadAfter(proc, stmts, bufname, ndim):
-
-    # print("Check_IsDeadAfter")
     assert len(stmts) > 0
 
     ap = PostEnv(proc, stmts).get_posteffs()
@@ -2210,11 +2171,7 @@ def Check_IsDeadAfter(proc, stmts, bufname, ndim):
 
 
 def Check_IsIdempotent(proc, stmts):
-
-    # print("Check_IsIdempotent")
     assert len(stmts) > 0
-
-    # datair, d_stmts = LoopIR_to_DataflowIR(proc, stmts).result()
 
     p = GetControlPredicates(proc, stmts).result()
 
@@ -2230,14 +2187,9 @@ def Check_IsIdempotent(proc, stmts):
 
 
 def Check_ExprBound(proc, stmts, expr, op, value, exception=True):
-    # print("Check_ExprBound")
     assert len(stmts) > 0
 
-    # datair, d_stmts = LoopIR_to_DataflowIR(proc, stmts).result()
     p = GetControlPredicates(proc, stmts).result()
-
-    # TODO: Check_ExprBound does not depend on configuration states so this can be skipped, but more fundamentally running abstract interpretation this many times is simply too slow.
-    # ScalarPropagation(datair)
 
     slv = SMTSolver(verbose=False)
     slv.push()
@@ -2422,6 +2374,5 @@ class _Check_Aliasing_Helper(LoopIR_Do):
 
 
 def Check_Aliasing(proc):
-    # print("Check_Aliasing")
     helper = _Check_Aliasing_Helper(proc)
     # that's it

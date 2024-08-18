@@ -13,9 +13,9 @@ def __str__(self):
     return "\n".join(_print_proc(self, PrintEnv(), ""))
 
 
-@extclass(DataflowIR.fnarg)
-def __str__(self):
-    return _print_fnarg(self, PrintEnv())
+# @extclass(DataflowIR.fnarg)
+# def __str__(self):
+#    return _print_fnarg(self, PrintEnv())
 
 
 @extclass(DataflowIR.stmt)
@@ -23,9 +23,9 @@ def __str__(self):
     return "\n".join(_print_stmt(self, PrintEnv(), ""))
 
 
-@extclass(DataflowIR.expr)
-def __str__(self):
-    return _print_expr(self, PrintEnv())
+# @extclass(DataflowIR.expr)
+# def __str__(self):
+#    return _print_expr(self, PrintEnv())
 
 
 @extclass(DataflowIR.block)

@@ -196,6 +196,23 @@ def test_delete_last_config(golden):
     assert str(foo) == golden
 
 
+def test_delete_config_usub(golden):
+    @config
+    class CFG:
+        a: index
+
+    @proc
+    def foo(N: size, x: R[N]):
+        CFG.a = N - 1
+        CFG.a = -N
+        CFG.a = -1 + N
+        for i in seq(0, N):
+            x[i] = x[CFG.a] + 1.0
+
+    foo = delete_config(foo, "CFG.a = _ #1")
+    assert str(foo) == golden
+
+
 def test_delete_config_subproc_basic(golden):
     @config
     class CFG:

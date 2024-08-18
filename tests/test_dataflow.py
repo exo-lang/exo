@@ -329,3 +329,20 @@ def test_usub(golden):
             tmp[i] = -x
 
     assert str(foo.dataflow()[0]) == golden
+
+
+def test_usub2(golden):
+    @config
+    class CFG:
+        a: index
+
+    @proc
+    def foo(N: size, x: R[N]):
+        CFG.a = N - 1
+        CFG.a = -N
+        CFG.a = (3 % 1) + 0
+        CFG.a = -1 + N
+        for i in seq(0, N):
+            x[i] = x[CFG.a] + 1.0
+
+    assert str(foo.dataflow()[0]) == golden

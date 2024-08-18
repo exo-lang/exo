@@ -94,7 +94,6 @@ module DataflowIR {
          | Alloc( sym name, type type )
          | Call( proc f, expr* args )
          | WindowStmt( sym name, expr rhs )
-         | Free( sym name, type type )
          attributes( srcinfo srcinfo )
 
     expr = Read( sym name, expr* idx )
@@ -212,9 +211,6 @@ class LoopIR_to_DataflowIR:
 
         elif isinstance(s, LoopIR.Pass):
             return DataflowIR.Pass(s.srcinfo)
-
-        elif isinstance(s, LoopIR.Free):
-            return DataflowIR.Free(s.name, s.type, s.srcinfo)
 
         else:
             raise NotImplementedError(f"bad case {type(s)}")
@@ -513,13 +509,6 @@ class AbstractInterpretation(ABC):
         elif isinstance(stmt, (DataflowIR.Pass, DataflowIR.WindowStmt)):
             # propagate un-touched variables
             for nm in pre_env:
-                post_env[nm] = pre_env[nm]
-
-        elif isinstance(stmt, DataflowIR.Free):
-            # propagate un-touched variables
-            for nm in pre_env:
-                if nm == stmt.name:
-                    continue
                 post_env[nm] = pre_env[nm]
 
         elif isinstance(stmt, DataflowIR.Alloc):

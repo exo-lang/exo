@@ -1,0 +1,5 @@
+def foo(N: size, x: R[N] @ DRAM):
+    CFG.a = N - 1
+    CFG.a = -1 + N
+    for i in seq(0, N):
+        x[i] = x[CFG.a] + 1.0
