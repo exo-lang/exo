@@ -1044,13 +1044,14 @@ def DoCallSwap(call_cursor, new_subproc):
     ir = call_cursor.get_root()
     new_ir, fwd = call_cursor._child_node("f")._replace(new_subproc)
 
-    mod_cfg = Check_ExtendEqv(
-        ir, new_ir, [call_cursor._node], [fwd(call_cursor)._node], configkeys
-    )
+    if len(configkeys) != 0:
+        configkeys = Check_ExtendEqv(
+            ir, new_ir, [call_cursor._node], [fwd(call_cursor)._node], configkeys
+        )
 
     Check_Aliasing(new_ir)
 
-    return new_ir, fwd, mod_cfg
+    return new_ir, fwd, configkeys
 
 
 def DoInlineWindow(window_cursor):
