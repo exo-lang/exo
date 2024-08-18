@@ -437,7 +437,7 @@ class GetControlPredicates(LoopIR_Do):
         super().do_s(s)
 
     def result(self):
-        return self.preds.simplify()
+        return self.preds
 
 
 # Produce a set of AExprs which occur as right-hand-sides
@@ -1610,7 +1610,7 @@ def Check_ReorderStmts(proc, s1, s2):
     a1 = stmts_effs([s1])
     a2 = stmts_effs([s2])
 
-    pred = AAnd(Commutes(a1, a2), AllocCommutes(a1, a2)).simplify()
+    pred = AAnd(Commutes(a1, a2), AllocCommutes(a1, a2))
     is_ok = slv.verify(pred)
     slv.pop()
     if not is_ok:
@@ -1684,7 +1684,7 @@ def Check_ReorderLoops(proc, s):
         ),
     )
 
-    pred = reorder_is_safe.simplify()
+    pred = reorder_is_safe
     is_ok = slv.verify(pred)
     slv.pop()
     if not is_ok:
@@ -1740,7 +1740,7 @@ def Check_ParallelizeLoop(proc, s):
         ),
     )
 
-    pred = AAnd(no_bound_change, bodies_commute).simplify()
+    pred = AAnd(no_bound_change, bodies_commute)
     is_ok = slv.verify(pred)
     slv.pop()
     if not is_ok:
