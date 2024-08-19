@@ -40,13 +40,25 @@ def correct_schedule(p):
     xo_loop = p.find_loop("xo")
     producer_alloc = p.find("blur_x : _")
 
+    # each output depends on 3 rows of blur_x, so computing a 32x256 subarray
+    # of output requires a 34x256 subarray of blur_x.
+    tile_size = [32, 256]
+    blur_x_tile_size = [34, 256]
+
     loops_to_lower_allocation_into = get_loops_at_or_above(xo_loop)
-    for loop in loops_to_lower_allocation_into:
+    for i, loop in enumerate(loops_to_lower_allocation_into):
         # Forward cursors before using
         loop = p.forward(loop)
         producer_alloc = p.forward(producer_alloc)
 
+        # Sink the blur_x allocation into the next for loop
         p = sink_alloc(p, producer_alloc)
+
+        # Shrink blur_x size accordingly
+        offset_expr = f"{tile_size[i]} * {loop.name()}"
+        p = resize_dim(p, producer_alloc, i, blur_x_tile_size[i], offset_expr)
+
+    p = lift_alloc(p, producer_alloc, 2)
 
     return p
 
@@ -67,13 +79,25 @@ def wrong_schedule(p):
     xo_loop = p.find_loop("xo")
     producer_alloc = p.find("blur_x : _")
 
+    # each output depends on 3 rows of blur_x, so computing a 32x256 subarray
+    # of output requires a 34x256 subarray of blur_x.
+    tile_size = [32, 256]
+    blur_x_tile_size = [34, 256]
+
     loops_to_lower_allocation_into = get_loops_at_or_above(xo_loop)
-    for loop in loops_to_lower_allocation_into:
+    for i, loop in enumerate(loops_to_lower_allocation_into):
         # Forward cursors before using
         loop = p.forward(loop)
         producer_alloc = p.forward(producer_alloc)
 
+        # Sink the blur_x allocation into the next for loop
         p = sink_alloc(p, producer_alloc)
+
+        # Shrink blur_x size accordingly
+        offset_expr = f"{tile_size[i]} * {loop.name()}"
+        p = resize_dim(p, producer_alloc, i, blur_x_tile_size[i], offset_expr)
+
+    p = lift_alloc(p, producer_alloc, 1)
 
     return p
 
