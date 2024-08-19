@@ -65,7 +65,7 @@ def wrong_schedule(p):
 
     stage_exprs(p.find("c[_] = _"))
 
-    for i in range(num_vectors):
+    for i in reversed(range(num_vectors)):
         vector_reg = p.find(f"vec: _ #{i}")
         p = set_memory(p, vector_reg, AVX2)
         p = expand_dim(p, vector_reg, 8, "ii")
