@@ -9,10 +9,6 @@ from exo.stdlib.scheduling import *
 from exo.platforms.x86 import *
 
 
-print()
-print("Dev Tests for new_eff.py")
-
-
 def test_debug_let_and_mod():
     N = AInt(Sym("N"))
     j = AInt(Sym("j"))
@@ -368,3 +364,50 @@ def test_alias_check():
         @proc
         def bar(N: size, x: [f32][N]):
             foo(N, x, x)
+
+
+def test_config_assert(golden):
+    @config
+    class CFG:
+        a: index
+
+    @proc
+    def foo(N: size, x: f32[N]):
+        assert CFG.a < N
+        for i in seq(0, N):
+            if CFG.a == 3:
+                CFG.a = 2
+                for j in seq(0, CFG.a):
+                    x[j] = 2.0
+
+    # raises error correctly without assertion
+    with pytest.raises(SchedulingError, match="do not commute"):
+        reorder_stmts(foo, "CFG.a = _ ; _")
+    with pytest.raises(
+        SchedulingError, match="Cannot change configuration value of CFG_a at"
+    ):
+        delete_config(foo, "CFG.a = _")
+
+    # does not raise error when the assertion is added
+    foo = foo.add_assertion("CFG.a == 4", configs={CFG})
+    foo1 = reorder_stmts(foo, "CFG.a = _ ; _")
+    foo2 = delete_config(foo, "CFG.a = _")
+
+    assert str(foo1) + str(foo2) == golden
+
+
+def test_builtin_true(golden):
+    @config
+    class CFG:
+        a: f32
+
+    @proc
+    def foo(x: f32):
+        CFG.a = sin(3.0)
+        CFG.a = -CFG.a
+        x = CFG.a
+
+    # FIXME!!
+    # Even though the value of CFG.a is obviously different, this is being permitted by the current analysis...
+    foo = delete_config(foo, "CFG.a = _ #1")
+    assert str(foo) == golden

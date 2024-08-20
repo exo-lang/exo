@@ -383,3 +383,17 @@ def test_bool(golden):
         CFG.a = 3 == 3 and 2 == 1
 
     assert str(foo.dataflow()[0]) == golden
+
+
+def test_builtin_true(golden):
+    @config
+    class CFG:
+        a: f32
+
+    @proc
+    def foo(x: f32):
+        CFG.a = sin(3.0)
+        CFG.a = -CFG.a
+        x = CFG.a
+
+    assert str(foo.dataflow()[0]) == golden
