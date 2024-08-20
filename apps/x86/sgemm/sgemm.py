@@ -46,9 +46,6 @@ AVX512F_instructions = [
     mm512_storeu_ps,
     mm512_fmadd_ps,
     mm512_set1_ps,
-    mm512_setzero_ps,
-    mm512_add_ps,
-    mm512_mask_add_ps,
     mm512_maskz_loadu_ps,
     mm512_mask_storeu_ps,
     mm512_mask_fmadd_ps,
@@ -56,13 +53,13 @@ AVX512F_instructions = [
 ]
 
 
-def schedule_kernel(p, cond, M, N):
+def schedule_kernel(p, cond):
     og_p = p.add_assertion(cond)
     p = round_loop(og_p, og_p.find_loop("j"), VEC_W)
     p = simplify(specialize(p, p.find_loop("k"), cond))
     p = dce(p)
 
-    p = simplify(auto_stage_mem(p, p.find_loop("k"), "C", "C_reg", accum=True))
+    p = simplify(auto_stage_mem(p, p.find_loop("k"), "C", "C_reg"))
     p = simplify(divide_dim(p, "C_reg", 1, VEC_W))
     p = set_memory(p, "C_reg", AVX512)
 
@@ -77,15 +74,6 @@ def schedule_kernel(p, cond, M, N):
 
     p = simplify(dce(p))
     p = replace_all(p, AVX512F_instructions)
-
-    _MM_HINT_T0 = 3
-    gap = p.body()[0].before()
-    for m in range(M):
-        for n in range(N):
-            p = insert_noop_call(
-                p, gap, prefetch, [f"C[{m}, 16*{n}:16*{n}+1]", _MM_HINT_T0]
-            )
-
     return og_p, simplify(p)
 
 
@@ -100,7 +88,7 @@ for M in range(1, M_REG_BLK + 1):
         return p
 
     p = make_basic(SGEMM_WINDOW)
-    p, p_sched = schedule_kernel(p, "0 == 0", M, 4)
+    p, p_sched = schedule_kernel(p, "0 == 0")
     basic_kernel_Mx4[M] = p
     sgemm_kernel_avx512_Mx4[M] = p_sched
 
@@ -150,7 +138,7 @@ def make_right_panel_kernel_opt(p=right_panel_kernel):
     p = specialize(p, p.body()[0], conds)
     p = dce(p)
     for i, cond in enumerate(conds):
-        case, case_sched = schedule_kernel(right_panel_kernel, cond, 6, i + 1)
+        case, case_sched = schedule_kernel(right_panel_kernel, cond)
         case_sched = rename(case_sched, f"{case_sched.name()}{i}")
         p = replace(p, p.find_loop("k"), case)
         p = call_eqv(p, case, case_sched)

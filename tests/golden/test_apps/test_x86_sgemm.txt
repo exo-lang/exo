@@ -207,16 +207,12 @@ EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
 // assert stride(C, 1) == 1
-_mm_prefetch(&C.data[0], (3));
-_mm_prefetch(&C.data[16], (3));
-_mm_prefetch(&C.data[32], (3));
-_mm_prefetch(&C.data[48], (3));
 __m512 C_reg[1][4];
 for (int_fast32_t i0 = 0; i0 < 1; i0++) {
-  C_reg[i0][0] = _mm512_setzero_ps();
-  C_reg[i0][1] = _mm512_setzero_ps();
-  C_reg[i0][2] = _mm512_setzero_ps();
-  C_reg[i0][3] = _mm512_setzero_ps();
+  C_reg[i0][0] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
+  C_reg[i0][1] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
+  C_reg[i0][2] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
+  C_reg[i0][3] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
 }
 for (int_fast32_t k = 0; k < K; k++) {
   for (int_fast32_t i = 0; i < 1; i++) {
@@ -237,26 +233,10 @@ for (int_fast32_t k = 0; k < K; k++) {
   }
 }
 for (int_fast32_t i0 = 0; i0 < 1; i0++) {
-  __m512 var2;
-  __m512 var3;
-  var3 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
-  var2 = _mm512_add_ps(var3, C_reg[i0][0]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], var2);
-  __m512 var2_1;
-  __m512 var3_1;
-  var3_1 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
-  var2_1 = _mm512_add_ps(var3_1, C_reg[i0][1]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], var2_1);
-  __m512 var2_2;
-  __m512 var3_2;
-  var3_2 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
-  var2_2 = _mm512_add_ps(var3_2, C_reg[i0][2]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], var2_2);
-  __m512 var2_3;
-  __m512 var3_3;
-  var3_3 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
-  var2_3 = _mm512_add_ps(var3_3, C_reg[i0][3]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], var2_3);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[i0][0]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[i0][1]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], C_reg[i0][2]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], C_reg[i0][3]);
 }
 }
 
@@ -271,20 +251,12 @@ EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
 // assert stride(C, 1) == 1
-_mm_prefetch(&C.data[0], (3));
-_mm_prefetch(&C.data[16], (3));
-_mm_prefetch(&C.data[32], (3));
-_mm_prefetch(&C.data[48], (3));
-_mm_prefetch(&C.data[C.strides[0]], (3));
-_mm_prefetch(&C.data[C.strides[0] + 16], (3));
-_mm_prefetch(&C.data[C.strides[0] + 32], (3));
-_mm_prefetch(&C.data[C.strides[0] + 48], (3));
 __m512 C_reg[2][4];
 for (int_fast32_t i0 = 0; i0 < 2; i0++) {
-  C_reg[i0][0] = _mm512_setzero_ps();
-  C_reg[i0][1] = _mm512_setzero_ps();
-  C_reg[i0][2] = _mm512_setzero_ps();
-  C_reg[i0][3] = _mm512_setzero_ps();
+  C_reg[i0][0] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
+  C_reg[i0][1] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
+  C_reg[i0][2] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
+  C_reg[i0][3] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
 }
 for (int_fast32_t k = 0; k < K; k++) {
   for (int_fast32_t i = 0; i < 2; i++) {
@@ -305,26 +277,10 @@ for (int_fast32_t k = 0; k < K; k++) {
   }
 }
 for (int_fast32_t i0 = 0; i0 < 2; i0++) {
-  __m512 var2;
-  __m512 var3;
-  var3 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
-  var2 = _mm512_add_ps(var3, C_reg[i0][0]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], var2);
-  __m512 var2_1;
-  __m512 var3_1;
-  var3_1 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
-  var2_1 = _mm512_add_ps(var3_1, C_reg[i0][1]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], var2_1);
-  __m512 var2_2;
-  __m512 var3_2;
-  var3_2 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
-  var2_2 = _mm512_add_ps(var3_2, C_reg[i0][2]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], var2_2);
-  __m512 var2_3;
-  __m512 var3_3;
-  var3_3 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
-  var2_3 = _mm512_add_ps(var3_3, C_reg[i0][3]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], var2_3);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[i0][0]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[i0][1]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], C_reg[i0][2]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], C_reg[i0][3]);
 }
 }
 
@@ -339,24 +295,12 @@ EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
 // assert stride(C, 1) == 1
-_mm_prefetch(&C.data[0], (3));
-_mm_prefetch(&C.data[16], (3));
-_mm_prefetch(&C.data[32], (3));
-_mm_prefetch(&C.data[48], (3));
-_mm_prefetch(&C.data[C.strides[0]], (3));
-_mm_prefetch(&C.data[C.strides[0] + 16], (3));
-_mm_prefetch(&C.data[C.strides[0] + 32], (3));
-_mm_prefetch(&C.data[C.strides[0] + 48], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 16], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 32], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 48], (3));
 __m512 C_reg[3][4];
 for (int_fast32_t i0 = 0; i0 < 3; i0++) {
-  C_reg[i0][0] = _mm512_setzero_ps();
-  C_reg[i0][1] = _mm512_setzero_ps();
-  C_reg[i0][2] = _mm512_setzero_ps();
-  C_reg[i0][3] = _mm512_setzero_ps();
+  C_reg[i0][0] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
+  C_reg[i0][1] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
+  C_reg[i0][2] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
+  C_reg[i0][3] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
 }
 for (int_fast32_t k = 0; k < K; k++) {
   for (int_fast32_t i = 0; i < 3; i++) {
@@ -377,26 +321,10 @@ for (int_fast32_t k = 0; k < K; k++) {
   }
 }
 for (int_fast32_t i0 = 0; i0 < 3; i0++) {
-  __m512 var2;
-  __m512 var3;
-  var3 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
-  var2 = _mm512_add_ps(var3, C_reg[i0][0]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], var2);
-  __m512 var2_1;
-  __m512 var3_1;
-  var3_1 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
-  var2_1 = _mm512_add_ps(var3_1, C_reg[i0][1]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], var2_1);
-  __m512 var2_2;
-  __m512 var3_2;
-  var3_2 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
-  var2_2 = _mm512_add_ps(var3_2, C_reg[i0][2]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], var2_2);
-  __m512 var2_3;
-  __m512 var3_3;
-  var3_3 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
-  var2_3 = _mm512_add_ps(var3_3, C_reg[i0][3]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], var2_3);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[i0][0]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[i0][1]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], C_reg[i0][2]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], C_reg[i0][3]);
 }
 }
 
@@ -411,28 +339,12 @@ EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
 // assert stride(C, 1) == 1
-_mm_prefetch(&C.data[0], (3));
-_mm_prefetch(&C.data[16], (3));
-_mm_prefetch(&C.data[32], (3));
-_mm_prefetch(&C.data[48], (3));
-_mm_prefetch(&C.data[C.strides[0]], (3));
-_mm_prefetch(&C.data[C.strides[0] + 16], (3));
-_mm_prefetch(&C.data[C.strides[0] + 32], (3));
-_mm_prefetch(&C.data[C.strides[0] + 48], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 16], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 32], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 48], (3));
-_mm_prefetch(&C.data[(3) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 16], (3));
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 32], (3));
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 48], (3));
 __m512 C_reg[4][4];
 for (int_fast32_t i0 = 0; i0 < 4; i0++) {
-  C_reg[i0][0] = _mm512_setzero_ps();
-  C_reg[i0][1] = _mm512_setzero_ps();
-  C_reg[i0][2] = _mm512_setzero_ps();
-  C_reg[i0][3] = _mm512_setzero_ps();
+  C_reg[i0][0] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
+  C_reg[i0][1] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
+  C_reg[i0][2] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
+  C_reg[i0][3] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
 }
 for (int_fast32_t k = 0; k < K; k++) {
   for (int_fast32_t i = 0; i < 4; i++) {
@@ -453,26 +365,10 @@ for (int_fast32_t k = 0; k < K; k++) {
   }
 }
 for (int_fast32_t i0 = 0; i0 < 4; i0++) {
-  __m512 var2;
-  __m512 var3;
-  var3 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
-  var2 = _mm512_add_ps(var3, C_reg[i0][0]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], var2);
-  __m512 var2_1;
-  __m512 var3_1;
-  var3_1 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
-  var2_1 = _mm512_add_ps(var3_1, C_reg[i0][1]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], var2_1);
-  __m512 var2_2;
-  __m512 var3_2;
-  var3_2 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
-  var2_2 = _mm512_add_ps(var3_2, C_reg[i0][2]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], var2_2);
-  __m512 var2_3;
-  __m512 var3_3;
-  var3_3 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
-  var2_3 = _mm512_add_ps(var3_3, C_reg[i0][3]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], var2_3);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[i0][0]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[i0][1]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], C_reg[i0][2]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], C_reg[i0][3]);
 }
 }
 
@@ -487,32 +383,12 @@ EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
 // assert stride(C, 1) == 1
-_mm_prefetch(&C.data[0], (3));
-_mm_prefetch(&C.data[16], (3));
-_mm_prefetch(&C.data[32], (3));
-_mm_prefetch(&C.data[48], (3));
-_mm_prefetch(&C.data[C.strides[0]], (3));
-_mm_prefetch(&C.data[C.strides[0] + 16], (3));
-_mm_prefetch(&C.data[C.strides[0] + 32], (3));
-_mm_prefetch(&C.data[C.strides[0] + 48], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 16], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 32], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 48], (3));
-_mm_prefetch(&C.data[(3) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 16], (3));
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 32], (3));
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 48], (3));
-_mm_prefetch(&C.data[(4) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 16], (3));
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 32], (3));
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 48], (3));
 __m512 C_reg[5][4];
 for (int_fast32_t i0 = 0; i0 < 5; i0++) {
-  C_reg[i0][0] = _mm512_setzero_ps();
-  C_reg[i0][1] = _mm512_setzero_ps();
-  C_reg[i0][2] = _mm512_setzero_ps();
-  C_reg[i0][3] = _mm512_setzero_ps();
+  C_reg[i0][0] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
+  C_reg[i0][1] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
+  C_reg[i0][2] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
+  C_reg[i0][3] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
 }
 for (int_fast32_t k = 0; k < K; k++) {
   for (int_fast32_t i = 0; i < 5; i++) {
@@ -533,26 +409,10 @@ for (int_fast32_t k = 0; k < K; k++) {
   }
 }
 for (int_fast32_t i0 = 0; i0 < 5; i0++) {
-  __m512 var2;
-  __m512 var3;
-  var3 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
-  var2 = _mm512_add_ps(var3, C_reg[i0][0]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], var2);
-  __m512 var2_1;
-  __m512 var3_1;
-  var3_1 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
-  var2_1 = _mm512_add_ps(var3_1, C_reg[i0][1]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], var2_1);
-  __m512 var2_2;
-  __m512 var3_2;
-  var3_2 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
-  var2_2 = _mm512_add_ps(var3_2, C_reg[i0][2]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], var2_2);
-  __m512 var2_3;
-  __m512 var3_3;
-  var3_3 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
-  var2_3 = _mm512_add_ps(var3_3, C_reg[i0][3]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], var2_3);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[i0][0]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[i0][1]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], C_reg[i0][2]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], C_reg[i0][3]);
 }
 }
 
@@ -567,36 +427,12 @@ EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
 // assert stride(C, 1) == 1
-_mm_prefetch(&C.data[0], (3));
-_mm_prefetch(&C.data[16], (3));
-_mm_prefetch(&C.data[32], (3));
-_mm_prefetch(&C.data[48], (3));
-_mm_prefetch(&C.data[C.strides[0]], (3));
-_mm_prefetch(&C.data[C.strides[0] + 16], (3));
-_mm_prefetch(&C.data[C.strides[0] + 32], (3));
-_mm_prefetch(&C.data[C.strides[0] + 48], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 16], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 32], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 48], (3));
-_mm_prefetch(&C.data[(3) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 16], (3));
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 32], (3));
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 48], (3));
-_mm_prefetch(&C.data[(4) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 16], (3));
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 32], (3));
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 48], (3));
-_mm_prefetch(&C.data[(5) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(5) * (C.strides[0]) + 16], (3));
-_mm_prefetch(&C.data[(5) * (C.strides[0]) + 32], (3));
-_mm_prefetch(&C.data[(5) * (C.strides[0]) + 48], (3));
 __m512 C_reg[6][4];
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
-  C_reg[i0][0] = _mm512_setzero_ps();
-  C_reg[i0][1] = _mm512_setzero_ps();
-  C_reg[i0][2] = _mm512_setzero_ps();
-  C_reg[i0][3] = _mm512_setzero_ps();
+  C_reg[i0][0] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
+  C_reg[i0][1] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
+  C_reg[i0][2] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
+  C_reg[i0][3] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
 }
 for (int_fast32_t k = 0; k < K; k++) {
   for (int_fast32_t i = 0; i < 6; i++) {
@@ -617,26 +453,10 @@ for (int_fast32_t k = 0; k < K; k++) {
   }
 }
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
-  __m512 var2;
-  __m512 var3;
-  var3 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
-  var2 = _mm512_add_ps(var3, C_reg[i0][0]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], var2);
-  __m512 var2_1;
-  __m512 var3_1;
-  var3_1 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
-  var2_1 = _mm512_add_ps(var3_1, C_reg[i0][1]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], var2_1);
-  __m512 var2_2;
-  __m512 var3_2;
-  var3_2 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
-  var2_2 = _mm512_add_ps(var3_2, C_reg[i0][2]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], var2_2);
-  __m512 var2_3;
-  __m512 var3_3;
-  var3_3 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
-  var2_3 = _mm512_add_ps(var3_3, C_reg[i0][3]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], var2_3);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[i0][0]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[i0][1]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], C_reg[i0][2]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], C_reg[i0][3]);
 }
 }
 
@@ -675,11 +495,6 @@ if (M == 1) {
 
 
 /* relying on the following instruction..."
-mm512_add_ps(out,x,y)
-{out_data} = _mm512_add_ps({x_data}, {y_data});
-*/
-
-/* relying on the following instruction..."
 mm512_fmadd_ps(A,B,C)
 {C_data} = _mm512_fmadd_ps({A_data}, {B_data}, {C_data});
 */
@@ -687,11 +502,6 @@ mm512_fmadd_ps(A,B,C)
 /* relying on the following instruction..."
 mm512_loadu_ps(dst,src)
 {dst_data} = _mm512_loadu_ps(&{src_data});
-*/
-
-/* relying on the following instruction..."
-mm512_mask_add_ps(N,out,x,y)
-{out_data} = _mm512_mask_add_ps({out_data}, ((1 << {N}) - 1), {x_data}, {y_data});
 */
 
 /* relying on the following instruction..."
@@ -720,18 +530,8 @@ mm512_set1_ps(dst,src)
 */
 
 /* relying on the following instruction..."
-mm512_setzero_ps(dst)
-{dst_data} = _mm512_setzero_ps();
-*/
-
-/* relying on the following instruction..."
 mm512_storeu_ps(dst,src)
 _mm512_storeu_ps(&{dst_data}, {src_data});
-*/
-
-/* relying on the following instruction..."
-prefetch(A,locality_hint)
-_mm_prefetch(&{A_data}, {locality_hint});
 */
 // right_panel_kernel0(
 //     N : size,
@@ -748,15 +548,9 @@ EXO_ASSUME(K >= 1);
 // assert stride(C, 1) == 1
 EXO_ASSUME(N < 64);
 EXO_ASSUME(((15 + N) / (16)) == 1);
-_mm_prefetch(&C.data[0], (3));
-_mm_prefetch(&C.data[C.strides[0]], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(3) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(4) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(5) * (C.strides[0])], (3));
 __m512 C_reg[6][1];
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
-  C_reg[i0][0] = _mm512_setzero_ps();
+  C_reg[i0][0] = _mm512_maskz_loadu_ps(((1 << (N)) - 1), &C.data[(i0) * (C.strides[0])]);
 }
 for (int_fast32_t k = 0; k < K; k++) {
   for (int_fast32_t i = 0; i < 6; i++) {
@@ -768,11 +562,7 @@ for (int_fast32_t k = 0; k < K; k++) {
   }
 }
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
-  __m512 var2;
-  __m512 var3;
-  var3 = _mm512_maskz_loadu_ps(((1 << (N)) - 1), &C.data[(i0) * (C.strides[0])]);
-  var2 = _mm512_mask_add_ps(var2, ((1 << (N)) - 1), var3, C_reg[i0][0]);
-  _mm512_mask_storeu_ps(&C.data[(i0) * (C.strides[0])], ((1 << (N)) - 1), var2);
+  _mm512_mask_storeu_ps(&C.data[(i0) * (C.strides[0])], ((1 << (N)) - 1), C_reg[i0][0]);
 }
 }
 
@@ -791,22 +581,10 @@ EXO_ASSUME(K >= 1);
 // assert stride(C, 1) == 1
 EXO_ASSUME(N < 64);
 EXO_ASSUME(((15 + N) / (16)) == 2);
-_mm_prefetch(&C.data[0], (3));
-_mm_prefetch(&C.data[16], (3));
-_mm_prefetch(&C.data[C.strides[0]], (3));
-_mm_prefetch(&C.data[C.strides[0] + 16], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 16], (3));
-_mm_prefetch(&C.data[(3) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 16], (3));
-_mm_prefetch(&C.data[(4) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 16], (3));
-_mm_prefetch(&C.data[(5) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(5) * (C.strides[0]) + 16], (3));
 __m512 C_reg[6][2];
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
-  C_reg[i0][0] = _mm512_setzero_ps();
-  C_reg[i0][1] = _mm512_setzero_ps();
+  C_reg[i0][0] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
+  C_reg[i0][1] = _mm512_maskz_loadu_ps(((1 << (-16 + N)) - 1), &C.data[(i0) * (C.strides[0]) + 16]);
 }
 for (int_fast32_t k = 0; k < K; k++) {
   for (int_fast32_t i = 0; i < 6; i++) {
@@ -823,16 +601,8 @@ for (int_fast32_t k = 0; k < K; k++) {
   }
 }
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
-  __m512 var2;
-  __m512 var3;
-  var3 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
-  var2 = _mm512_add_ps(var3, C_reg[i0][0]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], var2);
-  __m512 var2_1;
-  __m512 var3_1;
-  var3_1 = _mm512_maskz_loadu_ps(((1 << (-16 + N)) - 1), &C.data[(i0) * (C.strides[0]) + 16]);
-  var2_1 = _mm512_mask_add_ps(var2_1, ((1 << (-16 + N)) - 1), var3_1, C_reg[i0][1]);
-  _mm512_mask_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], ((1 << (-16 + N)) - 1), var2_1);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[i0][0]);
+  _mm512_mask_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], ((1 << (-16 + N)) - 1), C_reg[i0][1]);
 }
 }
 
@@ -851,29 +621,11 @@ EXO_ASSUME(K >= 1);
 // assert stride(C, 1) == 1
 EXO_ASSUME(N < 64);
 EXO_ASSUME(((15 + N) / (16)) == 3);
-_mm_prefetch(&C.data[0], (3));
-_mm_prefetch(&C.data[16], (3));
-_mm_prefetch(&C.data[32], (3));
-_mm_prefetch(&C.data[C.strides[0]], (3));
-_mm_prefetch(&C.data[C.strides[0] + 16], (3));
-_mm_prefetch(&C.data[C.strides[0] + 32], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 16], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 32], (3));
-_mm_prefetch(&C.data[(3) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 16], (3));
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 32], (3));
-_mm_prefetch(&C.data[(4) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 16], (3));
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 32], (3));
-_mm_prefetch(&C.data[(5) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(5) * (C.strides[0]) + 16], (3));
-_mm_prefetch(&C.data[(5) * (C.strides[0]) + 32], (3));
 __m512 C_reg[6][3];
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
-  C_reg[i0][0] = _mm512_setzero_ps();
-  C_reg[i0][1] = _mm512_setzero_ps();
-  C_reg[i0][2] = _mm512_setzero_ps();
+  C_reg[i0][0] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
+  C_reg[i0][1] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
+  C_reg[i0][2] = _mm512_maskz_loadu_ps(((1 << (-32 + N)) - 1), &C.data[(i0) * (C.strides[0]) + 32]);
 }
 for (int_fast32_t k = 0; k < K; k++) {
   for (int_fast32_t i = 0; i < 6; i++) {
@@ -895,21 +647,9 @@ for (int_fast32_t k = 0; k < K; k++) {
   }
 }
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
-  __m512 var2;
-  __m512 var3;
-  var3 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
-  var2 = _mm512_add_ps(var3, C_reg[i0][0]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], var2);
-  __m512 var2_1;
-  __m512 var3_1;
-  var3_1 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
-  var2_1 = _mm512_add_ps(var3_1, C_reg[i0][1]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], var2_1);
-  __m512 var2_2;
-  __m512 var3_2;
-  var3_2 = _mm512_maskz_loadu_ps(((1 << (-32 + N)) - 1), &C.data[(i0) * (C.strides[0]) + 32]);
-  var2_2 = _mm512_mask_add_ps(var2_2, ((1 << (-32 + N)) - 1), var3_2, C_reg[i0][2]);
-  _mm512_mask_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], ((1 << (-32 + N)) - 1), var2_2);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[i0][0]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[i0][1]);
+  _mm512_mask_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], ((1 << (-32 + N)) - 1), C_reg[i0][2]);
 }
 }
 
@@ -928,36 +668,12 @@ EXO_ASSUME(K >= 1);
 // assert stride(C, 1) == 1
 EXO_ASSUME(N < 64);
 EXO_ASSUME(((15 + N) / (16)) == 4);
-_mm_prefetch(&C.data[0], (3));
-_mm_prefetch(&C.data[16], (3));
-_mm_prefetch(&C.data[32], (3));
-_mm_prefetch(&C.data[48], (3));
-_mm_prefetch(&C.data[C.strides[0]], (3));
-_mm_prefetch(&C.data[C.strides[0] + 16], (3));
-_mm_prefetch(&C.data[C.strides[0] + 32], (3));
-_mm_prefetch(&C.data[C.strides[0] + 48], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 16], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 32], (3));
-_mm_prefetch(&C.data[(2) * (C.strides[0]) + 48], (3));
-_mm_prefetch(&C.data[(3) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 16], (3));
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 32], (3));
-_mm_prefetch(&C.data[(3) * (C.strides[0]) + 48], (3));
-_mm_prefetch(&C.data[(4) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 16], (3));
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 32], (3));
-_mm_prefetch(&C.data[(4) * (C.strides[0]) + 48], (3));
-_mm_prefetch(&C.data[(5) * (C.strides[0])], (3));
-_mm_prefetch(&C.data[(5) * (C.strides[0]) + 16], (3));
-_mm_prefetch(&C.data[(5) * (C.strides[0]) + 32], (3));
-_mm_prefetch(&C.data[(5) * (C.strides[0]) + 48], (3));
 __m512 C_reg[6][4];
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
-  C_reg[i0][0] = _mm512_setzero_ps();
-  C_reg[i0][1] = _mm512_setzero_ps();
-  C_reg[i0][2] = _mm512_setzero_ps();
-  C_reg[i0][3] = _mm512_setzero_ps();
+  C_reg[i0][0] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
+  C_reg[i0][1] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
+  C_reg[i0][2] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
+  C_reg[i0][3] = _mm512_maskz_loadu_ps(((1 << (-48 + N)) - 1), &C.data[(i0) * (C.strides[0]) + 48]);
 }
 for (int_fast32_t k = 0; k < K; k++) {
   for (int_fast32_t i = 0; i < 6; i++) {
@@ -984,26 +700,10 @@ for (int_fast32_t k = 0; k < K; k++) {
   }
 }
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
-  __m512 var2;
-  __m512 var3;
-  var3 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
-  var2 = _mm512_add_ps(var3, C_reg[i0][0]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], var2);
-  __m512 var2_1;
-  __m512 var3_1;
-  var3_1 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
-  var2_1 = _mm512_add_ps(var3_1, C_reg[i0][1]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], var2_1);
-  __m512 var2_2;
-  __m512 var3_2;
-  var3_2 = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
-  var2_2 = _mm512_add_ps(var3_2, C_reg[i0][2]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], var2_2);
-  __m512 var2_3;
-  __m512 var3_3;
-  var3_3 = _mm512_maskz_loadu_ps(((1 << (-48 + N)) - 1), &C.data[(i0) * (C.strides[0]) + 48]);
-  var2_3 = _mm512_mask_add_ps(var2_3, ((1 << (-48 + N)) - 1), var3_3, C_reg[i0][3]);
-  _mm512_mask_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], ((1 << (-48 + N)) - 1), var2_3);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[i0][0]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[i0][1]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], C_reg[i0][2]);
+  _mm512_mask_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], ((1 << (-48 + N)) - 1), C_reg[i0][3]);
 }
 }
 
