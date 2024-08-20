@@ -11,6 +11,7 @@ from .dataflow import (
     ScalarPropagation,
     GetValues,
     D,
+    lift_dexpr,
 )
 
 # --------------------------------------------------------------------------- #
@@ -1657,33 +1658,8 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
         raise SchedulingError(f"Cannot fission loop over {i} at {loop.srcinfo}.")
 
 
-def lift_dexpr(e, key=None):
-    if isinstance(e, D.Var):
-        op = A.Var(e.name, e.type, null_srcinfo())
-    elif isinstance(e, D.Const):
-        op = A.Const(e.val, e.type, null_srcinfo())
-    elif isinstance(e, D.Or):
-        return A.BinOp(
-            "or",
-            lift_dexpr(e.lhs, key=key),
-            lift_dexpr(e.rhs, key=key),
-            e.type,
-            null_srcinfo(),
-        )
-    elif isinstance(e, D.USub):
-        op = A.USub(lift_dexpr(e.arg), e.type, null_srcinfo())
-    else:
-        assert isinstance(e, D.Top)
-        op = A.Const(True, T.bool, null_srcinfo())
-
-    if key:
-        return A.BinOp("==", key, op, T.bool, null_srcinfo())
-    else:
-        return op
-
-
 def Check_DeleteConfigWrite(proc, stmts):
-    assert len(stmts) > 0
+    assert len(stmts) == 1
 
     p = GetControlPredicates(proc, stmts).result()
     slv = SMTSolver(verbose=False)
@@ -1692,7 +1668,6 @@ def Check_DeleteConfigWrite(proc, stmts):
 
     # Remain the existing pre-checking
     ap = PostEnv(proc, stmts).get_posteffs()
-    stmtsG = globenv(stmts)
     a = [E.Guard(AMay(p), stmts_effs(stmts))]
 
     # extract effects
@@ -1711,29 +1686,9 @@ def Check_DeleteConfigWrite(proc, stmts):
 
     # Below are the actual checks
     ir1, d_stmts = LoopIR_to_DataflowIR(proc, stmts).result()
-
     ScalarPropagation(ir1)
-
     config1_vals, config2_vals = GetValues(ir1, d_stmts).result()
-
-    # get the set of config variables potentially modified by
-    # the statement block being focused on.  Filter out any
-    # such configuration variables whose values are definitely unchanged
-    def is_cfg_unmod_by_stmts(pt):
-        pt_e = A.Var(pt.name, pt.typ, null_srcinfo())
-
-        akey = A.Var(pt.name.copy(), T.int, null_srcinfo())  # type and srcinfo not sure
-        aval1 = lift_dexpr(config1_vals[pt.name], key=akey)
-        aval2 = lift_dexpr(config2_vals[pt.name], key=akey)
-
-        cfg_unchanged = AAnd(AImplies(aval1, aval2), AImplies(aval2, aval1))
-
-        return slv.verify(cfg_unchanged)
-
-    cfg_mod = {
-        pt.name: pt for pt in get_point_exprs(WrG) if not is_cfg_unmod_by_stmts(pt)
-    }
-    # Below are the actual checks
+    cfg_mod = {pt.name: pt for pt in get_point_exprs(WrG)}
 
     # consider every global that might be modified
     cfg_mod_visible = set()

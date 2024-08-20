@@ -55,6 +55,31 @@ def __str__(self):
 del __str__
 
 
+def lift_dexpr(e, key=None):
+    if isinstance(e, D.Var):
+        op = A.Var(e.name, e.type, null_srcinfo())
+    elif isinstance(e, D.Const):
+        op = A.Const(e.val, e.type, null_srcinfo())
+    elif isinstance(e, D.Or):
+        return A.BinOp(
+            "or",
+            lift_dexpr(e.lhs, key=key),
+            lift_dexpr(e.rhs, key=key),
+            e.type,
+            null_srcinfo(),
+        )
+    elif isinstance(e, D.USub):
+        op = A.USub(lift_dexpr(e.arg), e.type, null_srcinfo())
+    else:
+        assert isinstance(e, D.Top)
+        op = A.Const(True, T.bool, null_srcinfo())
+
+    if key:
+        return A.BinOp("==", key, op, T.bool, null_srcinfo())
+    else:
+        return op
+
+
 # --------------------------------------------------------------------------- #
 # DataflowIR definition
 # --------------------------------------------------------------------------- #
