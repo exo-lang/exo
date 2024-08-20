@@ -1722,16 +1722,11 @@ def Check_DeleteConfigWrite(proc, stmts):
     def is_cfg_unmod_by_stmts(pt):
         pt_e = A.Var(pt.name, pt.typ, null_srcinfo())
 
-        akey1 = A.Var(
-            pt.name.copy(), T.int, null_srcinfo()
-        )  # type and srcinfo not sure
-        akey2 = A.Var(
-            pt.name.copy(), T.int, null_srcinfo()
-        )  # type and srcinfo not sure
-        aval1 = lift_dexpr(config1_vals[pt.name], key=akey1)
-        aval2 = lift_dexpr(config2_vals[pt.name], key=akey2)
+        akey = A.Var(pt.name.copy(), T.int, null_srcinfo())  # type and srcinfo not sure
+        aval1 = lift_dexpr(config1_vals[pt.name], key=akey)
+        aval2 = lift_dexpr(config2_vals[pt.name], key=akey)
 
-        cfg_unchanged = AImplies(AAnd(aval1, aval2), AEq(akey1, akey2))
+        cfg_unchanged = AAnd(AImplies(aval1, aval2), AImplies(aval2, aval1))
 
         return slv.verify(cfg_unchanged)
 
@@ -1748,16 +1743,11 @@ def Check_DeleteConfigWrite(proc, stmts):
         is_read_post = is_elem(pt, RdGp)
         is_overwritten = is_elem(pt, WrGp)
 
-        akey1 = A.Var(
-            pt.name.copy(), T.int, null_srcinfo()
-        )  # type and srcinfo not sure
-        akey2 = A.Var(
-            pt.name.copy(), T.int, null_srcinfo()
-        )  # type and srcinfo not sure
-        aval1 = lift_dexpr(config1_vals[pt.name], key=akey1)
-        aval2 = lift_dexpr(config2_vals[pt.name], key=akey2)
+        akey = A.Var(pt.name.copy(), T.int, null_srcinfo())  # type and srcinfo not sure
+        aval1 = lift_dexpr(config1_vals[pt.name], key=akey)
+        aval2 = lift_dexpr(config2_vals[pt.name], key=akey)
 
-        is_unchanged = AImplies(AAnd(aval1, aval2), AEq(akey1, akey2))
+        is_unchanged = AAnd(AImplies(aval1, aval2), AImplies(aval2, aval1))
 
         # if the value of the global might be read,
         # then it must not have been changed.
@@ -1820,20 +1810,15 @@ def Check_ExtendEqv(proc1, proc2, stmts1, stmts2, cfg_mod):
         is_read_post = is_elem(pt, RdGp)
         is_overwritten = is_elem(pt, WrGp)
 
+        akey = A.Var(pt.name.copy(), T.int, null_srcinfo())  # type and srcinfo not sure
         if pt.name not in config1_vals or pt.name not in config2_vals:
             cfg_mod_visible.add(pt.name)
             continue
 
-        akey1 = A.Var(
-            pt.name.copy(), T.int, null_srcinfo()
-        )  # type and srcinfo not sure
-        akey2 = A.Var(
-            pt.name.copy(), T.int, null_srcinfo()
-        )  # type and srcinfo not sure
-        aval1 = lift_dexpr(config1_vals[pt.name], key=akey1)
-        aval2 = lift_dexpr(config2_vals[pt.name], key=akey2)
+        aval1 = lift_dexpr(config1_vals[pt.name], key=akey)
+        aval2 = lift_dexpr(config2_vals[pt.name], key=akey)
 
-        is_unchanged = AImplies(AAnd(aval1, aval2), AEq(akey1, akey2))
+        is_unchanged = AAnd(AImplies(aval1, aval2), AImplies(aval2, aval1))
 
         safe_write = AImplies(AMay(is_read_post), ADef(is_unchanged))
         if not slv.verify(safe_write):
