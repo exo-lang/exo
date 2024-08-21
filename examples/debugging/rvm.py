@@ -159,13 +159,13 @@ def fuse_two_loops(p, c):
         if c.name() == next_c.name() and expr_to_string(c.hi()) == expr_to_string(
             next_c.hi()
         ):
-            p = fuse(p, c, next_c, unsafe_disable_check=False)
+            p = fuse(p, c, next_c)
             return p, True
         else:
             tgt_c, count = find_child_loop(next_c, c.name())
             if tgt_c:
                 p = lift_scope_n(p, tgt_c, n_lifts=count)
-                p = fuse(p, c, tgt_c, unsafe_disable_check=False)
+                p = fuse(p, c, tgt_c)
                 return p, True
 
     return p, False
@@ -193,11 +193,11 @@ def fuse_all_loops(p, cursor):
     return p
 
 
-def autolift_alloc(p, alloc_c, dep_set=None, max_size=0, lift=True):
+def autolift_alloc(p, alloc_c, max_size=0):
     """
     for i in seq(0, 10):
         for j in seq(0, 20):
-            a : R          <- alloc_c, dep_set = {'i'}
+            a : R          <- alloc_c
             a[i] = ...
     ---->
     a : R[10]              <- if size is less than max_size
@@ -212,15 +212,13 @@ def autolift_alloc(p, alloc_c, dep_set=None, max_size=0, lift=True):
         try:
             if not isinstance(loop_c, pc.ForCursor):
                 break
-            if dep_set == None or loop_c.name() in dep_set:
-                if (
-                    isinstance(loop_c.hi(), LiteralCursor)
-                    and accum_size * loop_c.hi().value() <= max_size
-                ):
-                    p = expand_dim(p, alloc_c, loop_c.hi().value(), loop_c.name())
-                    accum_size = accum_size * loop_c.hi().value()
-                    if lift:
-                        p = lift_alloc(p, alloc_c)
+            if (
+                isinstance(loop_c.hi(), LiteralCursor)
+                and accum_size * loop_c.hi().value() <= max_size
+            ):
+                p = expand_dim(p, alloc_c, loop_c.hi().value(), loop_c.name())
+                accum_size = accum_size * loop_c.hi().value()
+                p = lift_alloc(p, alloc_c)
             loop_c = loop_c.parent()
         except:
             break
@@ -298,7 +296,7 @@ def lift_scope_n(p, c, n_lifts=1):
     return p
 
 
-def remove_redundant_loops(p, c, num=0):
+def remove_redundant_loops_correct(p, c):
     """
     for i in ...:
         for j in ...:
@@ -308,19 +306,32 @@ def remove_redundant_loops(p, c, num=0):
         s1[j]          <- c
     """
     c = p.forward(c)
-    cur_depth = 0
     while True:
         c = c.parent()
         if not isinstance(c, pc.ForCursor):
             break
         try:
-            if cur_depth >= num:
-                break
-            hi = c.hi().value()
-            name = c.name()
-            child = p.forward(c).body()[0]
             p = remove_loop(p, c)
-            cur_depth += 1
+        except:
+            continue
+    return p
+
+
+def remove_redundant_loops_wrong(p, c):
+    """
+    for i in ...:
+        for j in ...:
+            s1[j]      <- c
+    --->
+    for j in ...:
+        s1[j]          <- c
+    """
+    c = p.forward(c)
+    while True:
+        if not isinstance(c, pc.ForCursor):
+            break
+        try:
+            p = remove_loop(p, c)
         except:
             continue
     return p
@@ -359,7 +370,9 @@ def optimize_conv(p):
 
     # Fission the initialization loop and remove redundant loops
     p = fission_as_much_as_possible(p, y_assign.parent())
-    p = remove_redundant_loops(p, y_assign.parent(), num=2)
+
+    # p = remove_redundant_loops_correct(p, y_assign.parent())
+    p = remove_redundant_loops_wrong(p, y_assign.parent())
 
     # Stage kernels to kernel_tile and y to data_tile
     ki_loop = p.forward(c_loop).body()[2].body()[0]
@@ -401,3 +414,110 @@ def make_routine():
 
 
 exo_conv1d_tile_lt_kw = make_routine()
+
+
+# Correct output:
+"""
+def exo_conv1d_tile_lt_kw(data: i32[4, 16] @ DRAM,
+                          kernels: i32[16, 4, 4] @ DRAM,
+                          out: i32[16, 16] @ DRAM):
+    for io in seq(0, 4):
+        out_tile: i32[4, 4, 4] @ RVM_TILE
+        rvm_mzero(out_tile[0, 0:4, 0:4])
+        rvm_mzero(out_tile[1, 0:4, 0:4])
+        rvm_mzero(out_tile[2, 0:4, 0:4])
+        rvm_mzero(out_tile[3, 0:4, 0:4])
+        for c in seq(0, 4):
+            y: i32[4, 4] @ DRAM_STATIC
+            for ii in seq(0, 4):
+                for r in seq(0, 4):
+                    if ii + r + 4 * io < 16:
+                        y[ii, r] = data[c, ii + r + 4 * io]
+                    else:
+                        y[ii, r] = 0
+            kernel_tile_0: i32[4, 4] @ RVM_TILE
+            kernel_tile_1: i32[4, 4] @ RVM_TILE
+            kernel_tile_2: i32[4, 4] @ RVM_TILE
+            data_tile: i32[4, 4] @ RVM_TILE
+            rvm_mld(data_tile[0:4, 0:4], y[0:4, 0:4])
+            rvm_mld(kernel_tile_0[0:4, 0:4], kernels[0:4, c, 0:4])
+            rvm_mmasa(out_tile[0, 0:4, 0:4], data_tile[0:4, 0:4],
+                      kernel_tile_0[0:4, 0:4])
+            rvm_mld(kernel_tile_1[0:4, 0:4], kernels[4:8, c, 0:4])
+            rvm_mmasa(out_tile[1, 0:4, 0:4], data_tile[0:4, 0:4],
+                      kernel_tile_1[0:4, 0:4])
+            rvm_mld(kernel_tile_2[0:4, 0:4], kernels[8:12, c, 0:4])
+            rvm_mmasa(out_tile[2, 0:4, 0:4], data_tile[0:4, 0:4],
+                      kernel_tile_2[0:4, 0:4])
+            rvm_mld(kernel_tile_0[0:4, 0:4], kernels[12:16, c, 0:4])
+            rvm_mmasa(out_tile[3, 0:4, 0:4], data_tile[0:4, 0:4],
+                      kernel_tile_0[0:4, 0:4])
+        rvm_mst(out_tile[0, 0:4, 0:4], out[0:4, 4 * io:4 + 4 * io])
+        rvm_mst(out_tile[1, 0:4, 0:4], out[4:8, 4 * io:4 + 4 * io])
+        rvm_mst(out_tile[2, 0:4, 0:4], out[8:12, 4 * io:4 + 4 * io])
+        rvm_mst(out_tile[3, 0:4, 0:4], out[12:16, 4 * io:4 + 4 * io])
+"""
+
+
+# Wrong output:
+"""
+def exo_conv1d_tile_lt_kw(data: i32[4, 16] @ DRAM,
+                          kernels: i32[16, 4, 4] @ DRAM,
+                          out: i32[16, 16] @ DRAM):
+    for io in seq(0, 4):
+        out_tile: i32[4, 4, 4] @ RVM_TILE
+        rvm_mzero(out_tile[0, 0:4, 0:4])
+        rvm_mzero(out_tile[1, 0:4, 0:4])
+        rvm_mzero(out_tile[2, 0:4, 0:4])
+        rvm_mzero(out_tile[3, 0:4, 0:4])
+        for c in seq(0, 4):
+            y: i32[4, 4] @ DRAM_STATIC
+            for ki in seq(0, 4):
+                for ii in seq(0, 4):
+                    for r in seq(0, 4):
+                        if ii + r + 4 * io < 16:
+                            y[ii, r] = data[c, ii + r + 4 * io]
+                        else:
+                            y[ii, r] = 0
+            for ki in seq(0, 4):
+                for ii in seq(0, 4):
+                    for r in seq(0, 4):
+                        if ii + r + 4 * io < 16:
+                            y[ii, r] = data[c, ii + r + 4 * io]
+                        else:
+                            y[ii, r] = 0
+            for ki in seq(0, 4):
+                for ii in seq(0, 4):
+                    for r in seq(0, 4):
+                        if ii + r + 4 * io < 16:
+                            y[ii, r] = data[c, ii + r + 4 * io]
+                        else:
+                            y[ii, r] = 0
+            for ki in seq(0, 4):
+                for ii in seq(0, 4):
+                    for r in seq(0, 4):
+                        if ii + r + 4 * io < 16:
+                            y[ii, r] = data[c, ii + r + 4 * io]
+                        else:
+                            y[ii, r] = 0
+            kernel_tile_0: i32[4, 4] @ RVM_TILE
+            kernel_tile_1: i32[4, 4] @ RVM_TILE
+            kernel_tile_2: i32[4, 4] @ RVM_TILE
+            data_tile: i32[4, 4] @ RVM_TILE
+            rvm_mld(data_tile[0:4, 0:4], y[0:4, 0:4])
+            rvm_mld(kernel_tile_0[0:4, 0:4], kernels[0:4, c, 0:4])
+            rvm_mmasa(out_tile[0, 0:4, 0:4], data_tile[0:4, 0:4],
+                      kernel_tile_0[0:4, 0:4])
+            rvm_mld(kernel_tile_1[0:4, 0:4], kernels[4:8, c, 0:4])
+            rvm_mmasa(out_tile[1, 0:4, 0:4], data_tile[0:4, 0:4],
+                      kernel_tile_1[0:4, 0:4])
+            rvm_mld(kernel_tile_2[0:4, 0:4], kernels[8:12, c, 0:4])
+            rvm_mmasa(out_tile[2, 0:4, 0:4], data_tile[0:4, 0:4],
+                      kernel_tile_2[0:4, 0:4])
+            rvm_mld(kernel_tile_0[0:4, 0:4], kernels[12:16, c, 0:4])
+            rvm_mmasa(out_tile[3, 0:4, 0:4], data_tile[0:4, 0:4],
+                      kernel_tile_0[0:4, 0:4])
+        for ko in seq(0, 4):
+            rvm_mst(out_tile[ko, 0:4, 0:4], out[4 * ko:4 + 4 * ko,
+                                                4 * io:4 + 4 * io])
+"""
