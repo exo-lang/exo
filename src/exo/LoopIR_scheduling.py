@@ -41,6 +41,7 @@ import exo.internal_cursors as ic
 import exo.API as api
 from .pattern_match import match_pattern
 from .memory import DRAM
+from .typecheck import check_call_types
 
 from functools import partial
 
@@ -2724,6 +2725,54 @@ def DoAddLoop(stmt_cursor, var, hi, guard, unsafe_disable_check):
 def DoInsertPass(gap):
     srcinfo = gap.parent()._node.srcinfo
     ir, fwd = gap._insert([LoopIR.Pass(srcinfo=srcinfo)])
+    return ir, fwd
+
+
+def DoInsertNoopCall(gap, proc, args):
+    srcinfo = gap.parent()._node.srcinfo
+
+    body = proc.body
+    if not (len(body) == 1 and isinstance(body[0], LoopIR.Pass)):
+        # TODO: We should allow for a more general case, e.g. loops of passes
+        raise SchedulingError("Cannot insert a proc whose body is not pass")
+
+    syms_env = extract_env(gap.anchor())
+
+    def get_typ_mem(buf_name):
+        for name, typ, mem in syms_env:
+            if str(name) == buf_name:
+                return name, typ, mem
+
+    def process_slice(idx):
+        if not isinstance(idx, tuple):
+            return idx
+
+        buf_name, w_exprs = idx
+        name, typ, _ = get_typ_mem(buf_name)
+
+        idxs = []
+        win_shape = []
+        for w_e in w_exprs:
+            if isinstance(w_e, tuple):
+                lo, hi = w_e
+                win_shape.append(LoopIR.BinOp("-", hi, lo, hi.type, srcinfo))
+                idxs.append(LoopIR.Interval(lo, hi, srcinfo))
+            else:
+                idxs.append(LoopIR.Point(w_e, srcinfo))
+
+        as_tensor = T.Tensor(win_shape, True, typ.basetype())
+        w_typ = T.Window(typ, as_tensor, name, idxs)
+        return LoopIR.WindowExpr(name, idxs, w_typ, srcinfo)
+
+    args = [process_slice(arg) for arg in args]
+    call_stmt = LoopIR.Call(proc, args, srcinfo)
+    ir, fwd = gap._insert([call_stmt])
+
+    def err_handler(_, msg):
+        raise SchedulingError(f"Function argument type mismatch:" + msg)
+
+    check_call_types(err_handler, args, proc.args)
+
     return ir, fwd
 
 

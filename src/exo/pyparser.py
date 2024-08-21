@@ -484,7 +484,7 @@ class Parser:
         elif isinstance(node, pyast.Name) and node.id in Parser._prim_types:
             return Parser._prim_types[node.id]
         else:
-            self.err(node, "unrecognized type: " + ast.dump(node))
+            self.err(node, "unrecognized type: " + pyast.dump(node))
 
     def parse_stmt_block(self, stmts):
         assert isinstance(stmts, list)

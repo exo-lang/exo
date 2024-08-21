@@ -765,6 +765,14 @@ class CustomWindowExprA(NewExprA):
         return buf_name, args
 
 
+class NewExprOrCustomWindowExprA(NewExprA):
+    def __call__(self, expr_str, all_args):
+        try:
+            return NewExprA(self.cursor_arg, self.before)(expr_str, all_args)
+        except:
+            return CustomWindowExprA(self.cursor_arg, self.before)(expr_str, all_args)
+
+
 # --------------------------------------------------------------------------- #
 #  - * - * - * - * - * - * - * - * - * - * - * - * - * - * - * - * - * - * -
 # --------------------------------------------------------------------------- #
@@ -845,6 +853,15 @@ def insert_pass(proc, gap_cursor):
         `s1 ; pass ; s2`
     """
     ir, fwd = scheduling.DoInsertPass(gap_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([GapCursorA, ProcA, ListA(NewExprOrCustomWindowExprA("gap_cursor"))])
+def insert_noop_call(proc, gap_cursor, instr, args):
+    if len(args) != len(instr._loopir_proc.args):
+        raise TypeError("Function argument count mismatch")
+
+    ir, fwd = scheduling.DoInsertNoopCall(gap_cursor._impl, instr._loopir_proc, args)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1080,7 +1097,7 @@ def replace(proc, block_cursor, subproc, quiet=False):
     except UnificationError:
         if quiet:
             raise
-        print(f"Failed to unify the following:\nSubproc:\n{subproc}Statements:\n")
+        print(f"Failed to unify the following:\nSubproc:\n{subproc}\nStatements:")
         [print(sc._impl._node) for sc in block_cursor]
         raise
 

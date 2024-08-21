@@ -11,7 +11,6 @@ from exo.LoopIR_scheduling import SchedulingError
 from .API_types import ProcedureBase, ExoType
 from . import LoopIR as LoopIR
 from .LoopIR_compiler import run_compile, compile_to_strings
-from .LoopIR_unification import DoReplace, UnificationError
 from .configs import Config
 from .boundscheck import CheckBounds
 from .memory import Memory

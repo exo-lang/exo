@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from exo import ParseFragmentError
-from exo import proc, DRAM, Procedure, config
+from exo import ParseFragmentError, proc, DRAM, Procedure, config
 from exo.libs.memories import GEMM_SCRATCH
 from exo.stdlib.scheduling import *
 from exo.platforms.x86 import *
@@ -4628,6 +4627,33 @@ def test_stage_mem_reduce2(golden):
 
     foo = stage_mem(foo, foo.body(), "result", "tmp")
     assert str(simplify(foo)) == golden
+
+
+def test_insert_noop_call(golden):
+    @proc
+    def foo(n: size, x: i8[n], locality_hint: size):
+        assert locality_hint >= 0
+        assert locality_hint < 8
+        pass
+
+    foo = insert_noop_call(
+        foo, foo.find("pass").before(), prefetch, ["x[1:2]", "locality_hint"]
+    )
+    assert str(foo) == golden
+
+
+def test_insert_noop_call_bad_args():
+    @proc
+    def foo(n: size, x: i8[n], locality_hint: size):
+        pass
+
+    with pytest.raises(TypeError, match="Function argument count mismatch"):
+        insert_noop_call(foo, foo.find("pass").before(), prefetch, [])
+
+    with pytest.raises(SchedulingError, match="Function argument type mismatch"):
+        insert_noop_call(
+            foo, foo.find("pass").before(), prefetch, ["n", "locality_hint"]
+        )
 
 
 def test_old_lift_alloc_config(golden):

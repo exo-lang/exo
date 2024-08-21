@@ -34,6 +34,63 @@ from .memory import *
 # The typechecker
 
 
+def check_call_types(err_handler, args, call_args):
+    for call_a, sig_a in zip(args, call_args):
+        if call_a.type == T.err:
+            pass
+        elif sig_a.type is T.size or sig_a.type is T.index:
+            if not call_a.type.is_indexable():
+                err_handler(
+                    call_a,
+                    "expected size or index type "
+                    "expression, "
+                    f"but got type {call_a.type}",
+                )
+
+        elif sig_a.type is T.bool:
+            if not call_a.type is T.bool:
+                err_handler(
+                    call_a,
+                    "expected bool-type variable, " f"but got type {call_a.type}",
+                )
+
+        elif sig_a.type is T.stride:
+            if not call_a.type.is_stridable():
+                err_handler(
+                    call_a,
+                    "expected stride-type variable, " f"but got type {call_a.type}",
+                )
+
+        elif sig_a.type.is_numeric():
+            if call_a.type.is_numeric():
+                if len(call_a.type.shape()) != len(sig_a.type.shape()):
+                    err_handler(
+                        call_a,
+                        f"expected argument of type '{sig_a.type}', "
+                        f"but got type '{call_a.type}'",
+                    )
+
+                # ensure scalars are simply variable names
+                elif (
+                    call_a.type.is_real_scalar()
+                    and not isinstance(call_a, LoopIR.ReadConfig)
+                    and not (isinstance(call_a, LoopIR.Read) and len(call_a.idx) == 0)
+                ):
+                    err_handler(
+                        call_a,
+                        "expected scalar arguments "
+                        "to be simply variable names "
+                        "for now",
+                    )
+            else:
+                err_handler(
+                    call_a,
+                    "expected numeric type expression, " f"but got type {call_a.type}",
+                )
+        else:
+            assert False, "bad argument type case"
+
+
 class TypeChecker:
     def __init__(self, proc):
         self.uast_proc = proc
@@ -235,7 +292,6 @@ class TypeChecker:
             return [LoopIR.WriteConfig(stmt.config, stmt.field, rhs, stmt.srcinfo)]
         elif isinstance(stmt, UAST.Pass):
             return [LoopIR.Pass(stmt.srcinfo)]
-
         elif isinstance(stmt, UAST.If):
             cond = self.check_e(stmt.cond, is_index=True)
             if cond.type != T.err and cond.type != T.bool:
@@ -290,60 +346,11 @@ class TypeChecker:
                 for call_a, sig_a in zip(stmt.args, stmt.f.args)
             ]
 
-            for call_a, sig_a in zip(args, stmt.f.args):
-                if call_a.type == T.err:
-                    pass
-                elif sig_a.type is T.size or sig_a.type is T.index:
-                    if not call_a.type.is_indexable():
-                        self.err(
-                            call_a,
-                            "expected size or index type "
-                            "expression, "
-                            f"but got type {call_a.type}",
-                        )
-
-                elif sig_a.type is T.bool:
-                    if not call_a.type is T.bool:
-                        self.err(
-                            call_a,
-                            "expected bool-type variable, "
-                            f"but got type {call_a.type}",
-                        )
-
-                elif sig_a.type is T.stride:
-                    if not call_a.type.is_stridable():
-                        self.err(
-                            call_a,
-                            "expected stride-type variable, "
-                            f"but got type {call_a.type}",
-                        )
-
-                elif sig_a.type.is_numeric():
-                    if len(call_a.type.shape()) != len(sig_a.type.shape()):
-                        self.err(
-                            call_a,
-                            f"expected argument of type '{sig_a.type}', "
-                            f"but got '{call_a.type}'",
-                        )
-
-                    # ensure scalars are simply variable names
-                    elif call_a.type.is_real_scalar():
-                        if not isinstance(call_a, LoopIR.ReadConfig) and not (
-                            isinstance(call_a, LoopIR.Read) and len(call_a.idx) == 0
-                        ):
-                            self.err(
-                                call_a,
-                                "expected scalar arguments "
-                                "to be simply variable names "
-                                "for now",
-                            )
-
-                else:
-                    assert False, "bad argument type case"
+            check_call_types(self.err, args, stmt.f.args)
 
             return [LoopIR.Call(stmt.f, args, stmt.srcinfo)]
         else:
-            assert False, "not a loopir in check_stmts"
+            assert False, f"not a loopir in check_stmts {type(stmt)}"
 
     def check_w_access(self, e, orig_hi):
         if isinstance(e, UAST.Point):
