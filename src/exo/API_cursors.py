@@ -17,7 +17,7 @@ from .prelude import Sym
 
 # expose this particular exception as part of the API
 from .internal_cursors import InvalidCursorError
-from .LoopIR_pprint import _print_cursor
+from .LoopIR_pprint import _print_cursor, _print_cursor_no_abbreviation
 from .LoopIR_scheduling import SchedulingError
 
 

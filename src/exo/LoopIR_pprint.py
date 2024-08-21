@@ -580,6 +580,18 @@ def _print_w_access(node, env: PrintEnv) -> str:
     assert False, "bad case"
 
 
+def _print_cursor_no_abbreviation(cur):
+    if isinstance(cur, Node) and not isinstance(cur._node, (LoopIR.proc, LoopIR.stmt)):
+        raise NotImplementedError(
+            "Cursor printing is only implemented for procs and statements"
+        )
+    root_cur = cur.root()
+    lines = _print_cursor_proc_no_abbreviation(root_cur, cur, PrintEnv(), "")
+    print(lines)
+    code = _format_code("\n".join(lines))
+    return code
+
+
 def _print_cursor(cur):
     if isinstance(cur, Node) and not isinstance(cur._node, (LoopIR.proc, LoopIR.stmt)):
         raise NotImplementedError(
@@ -587,11 +599,38 @@ def _print_cursor(cur):
         )
 
     root_cur = cur.root()
+
     lines = _print_cursor_proc(root_cur, cur, PrintEnv(), "")
     code = _format_code("\n".join(lines))
     # need to use "..." for Python parsing, but unquoted ellipses are prettier
     code = code.replace('"..."', "...")
     return code
+
+
+def _print_cursor_proc_no_abbreviation(
+    cur: Node, target: Cursor, env: PrintEnv, indent: str
+) -> list[str]:
+    p = cur._node
+
+    assert isinstance(p, LoopIR.proc)
+    match_comment = "  # <--NODE" if cur == target else ""
+
+    args = [_print_fnarg(a, env) for a in p.args]
+    lines = [f"{indent}def {p.name}({','.join(args)}):{match_comment}"]
+
+    indent = indent + "  "
+
+    if cur == target:
+        if p.instr:
+            for i, line in enumerate(p.instr.c_instr.split("\n")):
+                if i == 0:
+                    lines.append(f"{indent}# @instr {line}")
+                else:
+                    lines.append(f"{indent}#        {line}")
+            for pred in p.preds:
+                lines.append(f"{indent}assert {_print_expr(pred, env)}")
+    lines.extend(_print_cursor_block_no_abbreviation(cur.body(), target, env, indent))
+    return lines
 
 
 def _print_cursor_proc(
@@ -620,6 +659,70 @@ def _print_cursor_proc(
 
     lines.extend(_print_cursor_block(cur.body(), target, env, indent))
     return lines
+
+
+def _print_cursor_block_no_abbreviation(
+    cur: Block, target: Cursor, env: PrintEnv, indent: str
+) -> list[str]:
+    def if_cursor(c, move, k):
+        try:
+            return k(move(c))
+        except InvalidCursorError:
+            return []
+
+    def more_stmts(_):
+        retval = []
+        try:
+            retval = _print_stmt(_, env, indent)
+        except:
+            pass
+        finally:
+            return retval
+
+    def local_stmt(c):
+        return _print_cursor_stmt_no_abbreviation(c, target, env, indent)
+
+    if isinstance(target, Gap) and target in cur:
+        print("GAP TYPE")
+        if target._type == GapType.Before:
+            return [
+                *if_cursor(target, lambda g: g.anchor().prev(2), more_stmts),
+                *if_cursor(target, lambda g: g.anchor().prev(), local_stmt),
+                f"{indent}[GAP - Before]",
+                *if_cursor(target, lambda g: g.anchor(), local_stmt),
+                *if_cursor(target, lambda g: g.anchor().next(), more_stmts),
+            ]
+        else:
+            assert target._type == GapType.After
+            return [
+                *if_cursor(target, lambda g: g.anchor().prev(), more_stmts),
+                *if_cursor(target, lambda g: g.anchor(), local_stmt),
+                f"{indent}[GAP - After]",
+                *if_cursor(target, lambda g: g.anchor().next(), local_stmt),
+                *if_cursor(target, lambda g: g.anchor().next(2), more_stmts),
+            ]
+
+    elif isinstance(target, Block) and target in cur:
+        block = [f"{indent}# BLOCK START"]
+        for stmt in target:
+            block.extend(local_stmt(stmt))
+        block.append(f"{indent}# BLOCK END")
+        return [
+            *if_cursor(target, lambda g: g[0].prev(), more_stmts),
+            *block,
+            *if_cursor(target, lambda g: g[-1].next(), more_stmts),
+        ]
+
+    else:
+        stmt = next(filter(lambda s: True, cur), None)
+        if stmt is None:
+            return [f'{indent}"..."']
+
+        return [
+            *if_cursor(stmt, lambda g: g.prev().before(), more_stmts),
+            *local_stmt(stmt),
+            *if_cursor(stmt, lambda g: g.next().after(), more_stmts),
+        ]
 
 
 def _print_cursor_block(
@@ -677,6 +780,47 @@ def _print_cursor_block(
             *local_stmt(stmt),
             *if_cursor(stmt, lambda g: g.next().after(), more_stmts),
         ]
+
+
+def _print_cursor_stmt_no_abbreviation(
+    cur: Node, target: Cursor, env: PrintEnv, indent: str
+) -> list[str]:
+    stmt = cur._node
+
+    if isinstance(stmt, LoopIR.If):
+        cond = _print_expr(stmt.cond, env)
+        lines = [f"{indent}if {cond}:"]
+        lines.extend(
+            _print_cursor_block_no_abbreviation(
+                cur.body(), target, env.push(), indent + "  "
+            )
+        )
+        if stmt.orelse:
+            lines.append(f"{indent}else:")
+            lines.extend(
+                _print_cursor_block_no_abbreviation(
+                    cur.orelse(), target, env.push(), indent + "  "
+                )
+            )
+
+    elif isinstance(stmt, LoopIR.For):
+        lo = _print_expr(stmt.lo, env)
+        hi = _print_expr(stmt.hi, env)
+        body_env = env.push()
+        loop_type = "par" if isinstance(stmt.loop_mode, LoopIR.Par) else "seq"
+        lines = [
+            f"{indent}for {body_env.get_name(stmt.iter)} in {loop_type}({lo}, {hi}):",
+            *_print_cursor_block_no_abbreviation(
+                cur.body(), target, body_env, indent + "  "
+            ),
+        ]
+
+    else:
+        lines = _print_stmt(stmt, env, indent)
+    if cur == target:
+        lines[0] = f"{lines[0]}  # <-- NODE"
+
+    return lines
 
 
 def _print_cursor_stmt(
