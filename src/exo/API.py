@@ -11,9 +11,8 @@ from exo.LoopIR_scheduling import SchedulingError
 from .API_types import ProcedureBase, ExoType
 from . import LoopIR as LoopIR
 from .LoopIR_compiler import run_compile, compile_to_strings
-from .LoopIR_interpreter import run_interpreter
 from .configs import Config
-from .effectcheck import InferEffects, CheckEffects
+from .boundscheck import CheckBounds
 from .memory import Memory
 from .parse_fragment import parse_fragment
 from .pattern_match import match_pattern
@@ -23,7 +22,6 @@ from .new_eff import Check_Aliasing
 # Moved to new file
 from .proc_eqv import decl_new_proc, derive_proc, assert_eqv_proc, check_eqv_proc
 from .pyparser import get_ast_from_python, Parser, get_src_locals
-from .reflection import LoopIR_to_QAST
 from .typecheck import TypeChecker
 
 from . import API_cursors as C
@@ -171,8 +169,7 @@ class Procedure(ProcedureBase):
 
         if isinstance(proc, LoopIR.UAST.proc):
             proc = TypeChecker(proc).get_loopir()
-            proc = InferEffects(proc).result()
-            CheckEffects(proc)
+            CheckBounds(proc)
             Check_Aliasing(proc)
 
         assert isinstance(proc, LoopIR.LoopIR.proc)
@@ -227,26 +224,8 @@ class Procedure(ProcedureBase):
     #     introspection operations
     # -------------------------------- #
 
-    def check_effects(self):
-        self._loopir_proc = InferEffects(self._loopir_proc).result()
-        CheckEffects(self._loopir_proc)
-        return self
-
     def name(self):
         return self._loopir_proc.name
-
-    def show_effects(self):
-        self._loopir_proc = InferEffects(self._loopir_proc).result()
-        return str(self._loopir_proc.eff)
-
-    def show_effect(self, stmt_pattern):
-        self._loopir_proc = InferEffects(self._loopir_proc).result()
-        if match := match_pattern(
-            self._root(), stmt_pattern, call_depth=1, default_match_no=0
-        ):
-            assert len(match[0]) == 1, "Must match single statements"
-            return str(match[0][0]._node.eff)
-        raise SchedulingError("failed to find statement", pattern=stmt_pattern)
 
     def is_instr(self):
         return self._loopir_proc.instr is not None
@@ -312,28 +291,9 @@ class Procedure(ProcedureBase):
     def find_all(self, pattern):
         return self.find(pattern, many=True)
 
-    def get_ast(self, pattern=None):
-        if pattern is None:
-            return LoopIR_to_QAST(self._loopir_proc).result()
-
-        # do pattern matching
-        match = match_pattern(self._root(), pattern, call_depth=1)
-
-        # convert matched sub-trees to QAST
-        assert isinstance(match, list)
-        if not match:
-            return None
-
-        return [
-            LoopIR_to_QAST(node._node).result() for block in match for node in block
-        ]
-
     # ---------------------------------------------- #
-    #     execution / interpretation operations
+    #     execution / compilation operations
     # ---------------------------------------------- #
-
-    def show_c_code(self):
-        return MarkDownBlob("```c\n" + self.c_code_str() + "\n```")
 
     def c_code_str(self):
         decls, defns = compile_to_strings("c_code_str", [self._loopir_proc])
@@ -341,9 +301,6 @@ class Procedure(ProcedureBase):
 
     def compile_c(self, directory: Path, filename: str):
         compile_procs([self], directory, f"{filename}.c", f"{filename}.h")
-
-    def interpret(self, **kwargs):
-        run_interpreter(self._loopir_proc, kwargs)
 
     # ------------------------------- #
     #     scheduling operations
@@ -401,7 +358,7 @@ class Procedure(ProcedureBase):
         p = self._loopir_proc
         assertion = parse_fragment(p, assertion, p.body[0], configs=configs)
         p = LoopIR.LoopIR.proc(
-            p.name, p.args, p.preds + [assertion], p.body, p.instr, p.eff, p.srcinfo
+            p.name, p.args, p.preds + [assertion], p.body, p.instr, p.srcinfo
         )
         return Procedure(p, _provenance_eq_Procedure=None)
 

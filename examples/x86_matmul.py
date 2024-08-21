@@ -15,10 +15,7 @@ if __name__ != "__main__" and hasattr(os, "devnull"):
 # Algorithm definition
 @proc
 def rank_k_reduce_6x16(
-    K: size,
-    A: f32[6, K] @ DRAM,
-    C: f32[6, 16] @ DRAM,
-    B: f32[K, 16] @ DRAM,
+    K: size, A: f32[6, K] @ DRAM, B: f32[K, 16] @ DRAM, C: f32[6, 16] @ DRAM
 ):
     for i in seq(0, 6):
         for j in seq(0, 16):
@@ -26,11 +23,10 @@ def rank_k_reduce_6x16(
                 C[i, j] += A[i, k] * B[k, j]
 
 
-# print("=============Original algorithm==============")
-# print(rank_k_reduce_6x16)
+print("=============Original Matmul==============")
+print(rank_k_reduce_6x16)
 
-# The first step is thinking about the output memory.
-# In this ex, we want the computation to be "output stationary", which means,
+# In this example, we want the computation to be "output stationary", which means,
 # we want to preallocate all the output registers at the start.
 avx = rename(rank_k_reduce_6x16, "rank_k_reduce_6x16_scheduled")
 avx = reorder_loops(avx, "j k")
@@ -65,9 +61,7 @@ avx = simplify(avx)
 avx = replace_all(avx, mm256_loadu_ps)
 avx = simplify(avx)
 
-# Now we've used up two more vector registers.
-# The final part is staging A
-# avx = stage_mem(avx, 'for jo in _:_', 'A[i, k]', 'A_reg')
+# The final part is staging A. We will be using up two more vector registers.
 avx = bind_expr(avx, "A[i, k]", "A_reg")
 avx = expand_dim(avx, "A_reg", 8, "ji")
 avx = lift_alloc(avx, "A_reg", n_lifts=2)
@@ -76,9 +70,9 @@ avx = remove_loop(avx, "for jo in _: _")
 avx = set_memory(avx, "A_reg:_", AVX2)
 avx = replace_all(avx, mm256_broadcast_ss)
 
-# DO THE COMPUTE!!!
+# Replace the FMA instructions to AVX2 instructions
 avx = replace_all(avx, mm256_fmadd_ps)
 avx = simplify(avx)
 
-print("============= Rewritten ==============")
+print("=============Optimized Matmul==============")
 print(avx)

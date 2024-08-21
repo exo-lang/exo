@@ -15,7 +15,6 @@ from .API_types import ExoType
 
 from .LoopIR_unification import DoReplace, UnificationError
 from .configs import Config
-from .effectcheck import CheckEffects
 from .memory import Memory
 from .parse_fragment import parse_fragment
 from .prelude import *
@@ -989,10 +988,9 @@ def rewrite_expr(proc, expr_cursor, new_expr):
 def bind_expr(proc, expr_cursors, new_name):
     """
     Bind some numeric/data-value type expression(s) into a new intermediate,
-    scalar-sized buffer. Attempts to perform common sub-expression
-    elimination while binding. It will stop upon encountering a read of any
-    buffer that the expression depends on. The precision of the new allocation
-    is that of the bound expression.
+    scalar-sized buffer. It will fail if not all of the provided expressions
+    can be bound safely. The precision of the new allocation is that of the
+    bound expression.
 
     args:
         expr_cursors    - a list of cursors to multiple instances of the
@@ -1205,11 +1203,18 @@ def bind_config(proc, var_cursor, config, field):
         `s[ e ]    ->    config.field = e ; s[ config.field ]`
     """
     e = var_cursor._impl._node
-    cfg_f_type = config.lookup(field)[1]
+    cfg_f_type = config.lookup_type(field)
+
     if not isinstance(e, LoopIR.Read):
-        raise ValueError("expected a cursor to a single variable Read")
-    elif e.type != cfg_f_type:
-        raise ValueError(
+        raise TypeError("expected a cursor to a single variable Read")
+
+    if not (e.type.is_real_scalar() and len(e.idx) == 0) and not e.type.is_bool():
+        raise TypeError(
+            f"cannot bind non-real-scalar non-boolean value {e} to configuration states, since index and size expressions may depend on loop iteration"
+        )
+
+    if e.type != cfg_f_type:
+        raise TypeError(
             f"expected type of expression to bind ({e.type}) "
             f"to match type of Config variable ({cfg_f_type})"
         )
@@ -1253,6 +1258,18 @@ def write_config(proc, gap_cursor, config, field, rhs):
     # TODO: just have scheduling pass take a gap cursor directly
     stmtc = gap_cursor.anchor()
     before = gap_cursor.type() == ic.GapType.Before
+
+    if not isinstance(rhs, (LoopIR.Read, LoopIR.StrideExpr, LoopIR.Const)):
+        raise TypeError("expected the rhs to be read, stride expression, or constant")
+
+    if isinstance(rhs, LoopIR.Read):
+        if (
+            not (rhs.type.is_real_scalar() and len(rhs.idx) == 0)
+            and not rhs.type.is_bool()
+        ):
+            raise TypeError(
+                f"cannot write non-real-scalar non-boolean value {rhs} to configuration states, since index and size expressions may depend on loop iteration"
+            )
 
     stmt = stmtc._impl
     ir, fwd, cfg = scheduling.DoConfigWrite(stmt, config, field, rhs, before=before)

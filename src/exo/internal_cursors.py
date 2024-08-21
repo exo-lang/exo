@@ -339,7 +339,7 @@ class Block(Cursor):
         # TODO: refactor this; LoopIR should not be imported here
         from exo.LoopIR import LoopIR
 
-        pass_stmt = [LoopIR.Pass(None, self.parent()._node.srcinfo)]
+        pass_stmt = [LoopIR.Pass(self.parent()._node.srcinfo)]
         return self._replace([], empty_default=pass_stmt)
 
     def resolve_all(self):

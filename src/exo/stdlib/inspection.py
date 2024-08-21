@@ -211,24 +211,25 @@ class CursorNavigationError(Exception):
     pass
 
 
-def match_depth(cursor, cursor_to_match):
+def match_parent(cursor1, cursor2):
     """
-    Lifts [cursor] through the AST until [cursor] and [cursor_to_match] are at
-    the same level, e.g. have the same parent. Returns an InvalidCursorError if
-    [cursor_to_match]'s parent is not an ancestor of [cursor].
+    Lifts [cursor1] and [cursor2] through the AST until they have the same parent.
     """
-    assert (
-        cursor.proc() == cursor_to_match.proc()
-    ), "cursors originate from different procs"
+    proc = cursor1.proc()
+    assert proc == cursor2.proc(), "cursors originate from different procs"
 
-    while cursor.parent() != cursor_to_match.parent():
-        cursor = cursor.parent()
-        if isinstance(cursor, InvalidCursor):
-            raise CursorNavigationError(
-                "cursor_to_match's parent is not an ancestor of cursor"
-            )
+    depth_diff = get_depth(proc, cursor1) - get_depth(proc, cursor2)
+    for _ in range(abs(depth_diff)):
+        if depth_diff > 0:
+            cursor1 = cursor1.parent()
+        else:
+            cursor2 = cursor2.parent()
 
-    return cursor
+    while cursor1.parent() != cursor2.parent():
+        cursor1 = cursor1.parent()
+        cursor2 = cursor2.parent()
+
+    return cursor1, cursor2
 
 
 def get_top_level_stmt(proc, c):
