@@ -128,6 +128,24 @@ def pattern(s, filename=None, lineno=None):
 # Parser Pass object
 
 
+# detect which sort of type we have here
+_is_size = lambda x: isinstance(x, pyast.Name) and x.id == "size"
+_is_index = lambda x: isinstance(x, pyast.Name) and x.id == "index"
+_is_bool = lambda x: isinstance(x, pyast.Name) and x.id == "bool"
+_is_stride = lambda x: isinstance(x, pyast.Name) and x.id == "stride"
+
+_prim_types = {
+    "R": UAST.Num(),
+    "f16": UAST.F16(),
+    "f32": UAST.F32(),
+    "f64": UAST.F64(),
+    "i8": UAST.INT8(),
+    "ui8": UAST.UINT8(),
+    "ui16": UAST.UINT16(),
+    "i32": UAST.INT32(),
+}
+
+
 class Parser:
     def __init__(
         self,
@@ -312,8 +330,8 @@ class Parser:
                 "index": UAST.Index(),
                 "stride": UAST.Stride(),
             }
-            for k in Parser._prim_types:
-                typ_list[k] = Parser._prim_types[k]
+            for k in _prim_types:
+                typ_list[k] = _prim_types[k]
             del typ_list["R"]
 
             if (
@@ -348,35 +366,29 @@ class Parser:
             typ_node = node
             mem_node = None
 
-        # detect which sort of type we have here
-        is_size = lambda x: isinstance(x, pyast.Name) and x.id == "size"
-        is_index = lambda x: isinstance(x, pyast.Name) and x.id == "index"
-        is_bool = lambda x: isinstance(x, pyast.Name) and x.id == "bool"
-        is_stride = lambda x: isinstance(x, pyast.Name) and x.id == "stride"
-
         # parse each kind of type here
-        if is_size(typ_node):
+        if _is_size(typ_node):
             if mem_node is not None:
                 self.err(
                     node, "size types should not be annotated with " "memory locations"
                 )
             return UAST.Size(), None
 
-        elif is_index(typ_node):
+        elif _is_index(typ_node):
             if mem_node is not None:
                 self.err(
                     node, "size types should not be annotated with " "memory locations"
                 )
             return UAST.Index(), None
 
-        elif is_bool(typ_node):
+        elif _is_bool(typ_node):
             if mem_node is not None:
                 self.err(
                     node, "size types should not be annotated with " "memory locations"
                 )
             return UAST.Bool(), None
 
-        elif is_stride(typ_node):
+        elif _is_stride(typ_node):
             if mem_node is not None:
                 self.err(
                     node,
@@ -403,16 +415,6 @@ class Parser:
         typ = self.parse_num_type(node)
         return typ, mem
 
-    _prim_types = {
-        "R": UAST.Num(),
-        "f16": UAST.F16(),
-        "f32": UAST.F32(),
-        "f64": UAST.F64(),
-        "i8": UAST.INT8(),
-        "ui8": UAST.UINT8(),
-        "ui16": UAST.UINT16(),
-        "i32": UAST.INT32(),
-    }
 
     def parse_num_type(self, node, is_arg=False):
         if isinstance(node, pyast.Subscript):
@@ -433,7 +435,7 @@ class Parser:
                 base = node.value.elts[0]
                 if (
                     not isinstance(base, pyast.Name)
-                    or base.id not in Parser._prim_types
+                    or base.id not in _prim_types
                 ):
                     self.err(
                         node,
@@ -441,13 +443,13 @@ class Parser:
                         "the form '[R][...]', '[f32][...]', etc.",
                     )
 
-                typ = Parser._prim_types[base.id]
+                typ = _prim_types[base.id]
                 is_window = True
             elif (
                 isinstance(node.value, pyast.Name)
-                and node.value.id in Parser._prim_types
+                and node.value.id in _prim_types
             ):
-                typ = Parser._prim_types[node.value.id]
+                typ = _prim_types[node.value.id]
                 is_window = False
             else:
                 self.err(
@@ -481,8 +483,10 @@ class Parser:
 
             return typ
 
-        elif isinstance(node, pyast.Name) and node.id in Parser._prim_types:
-            return Parser._prim_types[node.id]
+        elif isinstance(node, pyast.Name) and node.id in _prim_types:
+            return _prim_types[node.id]
+        elif isinstance(node, pyast.Name) and (_is_size(node) or _is_stride(node) or _is_index(node) or _is_bool(node)):
+            raise ParseError(node, f"Cannot allocate an intermediate value of type {node.id}")
         else:
             self.err(node, "unrecognized type: " + pyast.dump(node))
 
