@@ -415,7 +415,6 @@ class Parser:
         typ = self.parse_num_type(node)
         return typ, mem
 
-
     def parse_num_type(self, node, is_arg=False):
         if isinstance(node, pyast.Subscript):
             if isinstance(node.value, pyast.List):
@@ -433,10 +432,7 @@ class Parser:
                     )
 
                 base = node.value.elts[0]
-                if (
-                    not isinstance(base, pyast.Name)
-                    or base.id not in _prim_types
-                ):
+                if not isinstance(base, pyast.Name) or base.id not in _prim_types:
                     self.err(
                         node,
                         "expected window type to be of "
@@ -445,10 +441,7 @@ class Parser:
 
                 typ = _prim_types[base.id]
                 is_window = True
-            elif (
-                isinstance(node.value, pyast.Name)
-                and node.value.id in _prim_types
-            ):
+            elif isinstance(node.value, pyast.Name) and node.value.id in _prim_types:
                 typ = _prim_types[node.value.id]
                 is_window = False
             else:
@@ -485,8 +478,12 @@ class Parser:
 
         elif isinstance(node, pyast.Name) and node.id in _prim_types:
             return _prim_types[node.id]
-        elif isinstance(node, pyast.Name) and (_is_size(node) or _is_stride(node) or _is_index(node) or _is_bool(node)):
-            raise ParseError(node, f"Cannot allocate an intermediate value of type {node.id}")
+        elif isinstance(node, pyast.Name) and (
+            _is_size(node) or _is_stride(node) or _is_index(node) or _is_bool(node)
+        ):
+            raise ParseError(
+                node, f"Cannot allocate an intermediate value of type {node.id}"
+            )
         else:
             self.err(node, "unrecognized type: " + pyast.dump(node))
 

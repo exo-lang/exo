@@ -18,12 +18,17 @@ def new_config_ld():
 
     return ConfigLoad
 
+
 def test_size0():
-    with pytest.raises(ParseError, match="Cannot allocate an intermediate value of type"):
+    with pytest.raises(
+        ParseError, match="Cannot allocate an intermediate value of type"
+    ):
+
         @proc
         def foo(x: size):
             size: size
             pass
+
 
 def test_stride1():
     ConfigLoad = new_config_ld()
