@@ -22,6 +22,7 @@ def rank_k_reduce_6x16(
             for k in seq(0, K):
                 C[i, j] += A[i, k] * B[k, j]
 
+
 print("=============Original Matmul==============")
 print(rank_k_reduce_6x16)
 
@@ -48,7 +49,9 @@ neon = simplify(neon)
 
 # Reshape C_reg so we can map it into vector registers
 neon = divide_dim(neon, "C_reg:_", 1, vec_reg_width)
-neon = repeat(divide_loop)(neon, "for i1 in _: _", vec_reg_width, ["i2", "i3"], perfect=True)
+neon = repeat(divide_loop)(
+    neon, "for i1 in _: _", vec_reg_width, ["i2", "i3"], perfect=True
+)
 neon = simplify(neon)
 
 # Map C_reg operations to vector instructions
@@ -94,4 +97,3 @@ neon = simplify(neon)
 
 print("============= Rewritten ==============")
 print(neon)
-
