@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from enum import Enum
+from collections import ChainMap
 from itertools import chain
 from typing import Mapping, Any
 from asdl_adt import ADT, validators
@@ -8,9 +9,17 @@ from .builtins import BuiltIn
 from .configs import Config
 from .memory import Memory
 from .prelude import Sym, SrcInfo, extclass
-from .LoopIR import LoopIR, Alpha_Rename, SubstArgs, LoopIR_Do, Operator, T, Identifier
+from .LoopIR import (
+    LoopIR,
+    Alpha_Rename,
+    SubstArgs,
+    LoopIR_Do,
+    Operator,
+    T,
+    Identifier,
+    LoopIR_Rewrite,
+)
 from .internal_analysis import *
-
 
 # --------------------------------------------------------------------------- #
 # Abstract Domain definition
@@ -94,7 +103,6 @@ def validateAbsEnv(obj):
     return obj
 
 
-# TODO: This is getting to basically a copy of LoopIR. Probably makes sense to merge them at some point...
 DataflowIR = ADT(
     """
 module DataflowIR {
@@ -105,20 +113,18 @@ module DataflowIR {
              srcinfo srcinfo )
 
     fnarg  = ( sym     name,
+               expr*   hi,
                type    type,
                srcinfo srcinfo )
 
     block = ( stmt* stmts, absenv* ctxts ) -- len(stmts) + 1 == len(ctxts)
 
-    stmt = Assign( sym name, type type, expr* idx, expr rhs )
-         | Reduce( sym name, type type, expr* idx, expr rhs )
-         | WriteConfig( sym config_field, expr rhs )
+    stmt = Assign( sym lhs, sym* dims, expr cond, expr body, expr orelse )
+         | Reduce( sym lhs, sym* dims, expr cond, expr body, expr orelse )
+         | Alloc( sym name, expr* hi, type type )
          | Pass()
          | If( expr cond, block body, block orelse )
          | For( sym iter, expr lo, expr hi, block body )
-         | Alloc( sym name, type type )
-         | Call( proc f, expr* args )
-         | WindowStmt( sym name, expr rhs )
          attributes( srcinfo srcinfo )
 
     expr = Read( sym name, expr* idx )
@@ -126,23 +132,46 @@ module DataflowIR {
          | USub( expr arg )  -- i.e.  -(...)
          | BinOp( binop op, expr lhs, expr rhs )
          | BuiltIn( builtin f, expr* args )
-         | WindowExpr( sym name, w_access* idx )
          | StrideExpr( sym name, int dim )
-         | ReadConfig( sym config_field )
          attributes( type type, srcinfo srcinfo )
+
+    type = Num()
+         | F16()
+         | F32()
+         | F64()
+         | INT8()
+         | UINT8()
+         | UINT16()
+         | INT32()
+         | Bool()
+         | Int()
+         | Index()
+         | Size()
+         | Stride()
 }""",
     ext_types={
         "name": validators.instance_of(Identifier, convert=True),
         "sym": Sym,
         "builtin": BuiltIn,
-        "config": Config,
         "binop": validators.instance_of(Operator, convert=True),
-        "type": LoopIR.type,
-        "w_access": LoopIR.w_access,
         "absenv": validateAbsEnv,
         "srcinfo": SrcInfo,
     },
-    memoize={},
+    memoize={
+        "Num",
+        "F16",
+        "F32",
+        "F64",
+        "INT8",
+        "UINT8",
+        "UINT16",
+        "INT32",
+        "Bool",
+        "Int",
+        "Index",
+        "Size",
+        "Stride",
+    },
 )
 
 from . import dataflow_pprint
@@ -153,13 +182,25 @@ from . import dataflow_pprint
 # --------------------------------------------------------------------------- #
 
 
+def mk_const(val):
+    return DataflowIR.Const(val, DataflowIR.Int(), null_srcinfo())
+
+
+# There should be no function call or windowing at this point
 class LoopIR_to_DataflowIR:
     def __init__(self, proc, stmts):
         self.loopir_proc = proc
         self.stmts = []
+        self.env = ChainMap()
         for s in stmts:
             self.stmts.append([s])
         self.dataflow_proc = self.map_proc(self.loopir_proc)
+
+    def push(self):
+        self.env = self.env.new_child()
+
+    def pop(self):
+        self.env = self.env.parents
 
     def result(self):
         res = []
@@ -181,8 +222,28 @@ class LoopIR_to_DataflowIR:
 
         return DataflowIR.proc(p.name, df_args, df_preds, block, p.srcinfo)
 
+    def tensor_to_dims(self, tensor):
+        # | Tensor( expr* hi, bool is_window, type type )
+        assert isinstance(tensor, T.Tensor)
+        assert tensor.is_window == False
+        assert not tensor.type.is_tensor_or_window()
+
+        return [self.map_e(hi) for hi in tensor.hi], self.map_t(tensor.type)
+
     def map_fnarg(self, a):
-        return DataflowIR.fnarg(a.name, a.type, a.srcinfo)
+        if a.type.is_indexable() or a.type.is_bool():
+            return DataflowIR.fnarg(a.name, [], self.map_t(a.type), a.srcinfo)
+        else:
+            # data values so renaming is necessary
+            name = a.name.copy()
+            dims = []
+            dsyms = []
+            if isinstance(a.type, T.Tensor):
+                dims, _ = self.tensor_to_dims(a.type)
+                dsyms = [Sym("d" + str(d)) for d in range(len(a.type.hi))]
+            typ = self.map_t(a.type.basetype())
+            self.env[a.name] = (name, dsyms, typ)
+            return DataflowIR.fnarg(name, dims, typ, a.srcinfo)
 
     def map_stmts(self, stmts):
         return self._map_list(self.map_s, stmts)
@@ -190,90 +251,286 @@ class LoopIR_to_DataflowIR:
     def map_exprs(self, exprs):
         return self._map_list(self.map_e, exprs)
 
+    def sym_to_read(self, syms, typ):
+        return [DataflowIR.Read(s, [], typ, null_srcinfo()) for s in syms]
+
     def map_s(self, s):
         if isinstance(s, LoopIR.Call):
-            datair_subproc = self.map_proc(s.f)
-            args = self.map_exprs(s.args)
-            return DataflowIR.Call(datair_subproc, args, s.srcinfo)
+            assert False, "Call statement should have been got rid of at this point"
 
         elif isinstance(s, LoopIR.WindowStmt):
-            return DataflowIR.WindowStmt(s.name, self.map_e(s.rhs), s.srcinfo)
+            assert False, "Window statement should have been got rid of at this point"
 
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
-            df_idx = self.map_exprs(s.idx)
-            df_rhs = self.map_e(s.rhs)
+            new_name = s.name.copy()
+            dims = self.env[s.name][1]
+            cond = DataflowIR.Const(True, DataflowIR.Bool(), null_srcinfo())
+            for d, e in zip(reversed(dims), s.idx):
+                typ = self.map_t(e.type)
+                c = DataflowIR.BinOp(
+                    "==",
+                    DataflowIR.Read(d, [], typ, null_srcinfo()),
+                    self.map_e(e),
+                    DataflowIR.Bool(),
+                    null_srcinfo(),
+                )
+                cond = DataflowIR.BinOp(
+                    "and", c, cond, DataflowIR.Bool(), null_srcinfo()
+                )
+
+            body = self.map_e(s.rhs)
+            orelse = DataflowIR.Read(
+                self.env[s.name][0],
+                self.sym_to_read(self.env[s.name][1], self.env[s.name][2]),
+                self.env[s.name][2],
+                null_srcinfo(),
+            )
+            self.env[s.name] = (new_name, dims, self.env[s.name][2])
+
             if isinstance(s, LoopIR.Assign):
-                return DataflowIR.Assign(s.name, s.type, df_idx, df_rhs, s.srcinfo)
+                return [
+                    DataflowIR.Assign(new_name, dims, cond, body, orelse, s.srcinfo)
+                ]
             else:
-                return DataflowIR.Reduce(s.name, s.type, df_idx, df_rhs, s.srcinfo)
+                return [
+                    DataflowIR.Reduce(new_name, dims, cond, body, orelse, s.srcinfo)
+                ]
 
         elif isinstance(s, LoopIR.WriteConfig):
-            df_config = s.config._INTERNAL_sym(s.field)
+            ir_config = s.config._INTERNAL_sym(s.field)
+            df_config = ir_config.copy()
             df_rhs = self.map_e(s.rhs)
+            self.env[ir_config] = (df_config, [], df_rhs.type)
 
-            return DataflowIR.WriteConfig(df_config, df_rhs, s.srcinfo)
+            return [
+                DataflowIR.Assign(
+                    df_config,
+                    [],
+                    DataflowIR.Const(True, DataflowIR.Bool(), null_srcinfo()),
+                    df_rhs,
+                    df_rhs,
+                    s.srcinfo,
+                )
+            ]
 
         elif isinstance(s, LoopIR.If):
-            df_cond = self.map_e(s.cond)
-            df_body = self.map_stmts(s.body)
-            df_orelse = self.map_stmts(s.orelse)
+            # | If( expr cond, block body, block orelse )
 
-            return DataflowIR.If(
-                df_cond, self.init_block(df_body), self.init_block(df_orelse), s.srcinfo
-            )
+            cond = self.map_e(s.cond)
+
+            self.push()
+            body = self.map_stmts(s.body)
+            bvals = {}
+            for key, vals in self.env.items():
+                bvals[key] = vals
+            self.pop()
+
+            self.push()
+            orelse = self.map_stmts(s.orelse)
+            ovals = {}
+            for key, vals in self.env.items():
+                ovals[key] = vals
+            self.pop()
+
+            # Create a merge node
+            post_if = []
+            for key, vals in self.env.items():
+                bval = bvals[key]
+                oval = ovals[key]
+
+                post_name = vals[0].copy()
+                bbody = DataflowIR.Read(
+                    bval[0], self.sym_to_read(bval[1], bval[2]), bval[2], null_srcinfo()
+                )
+                # TODO: not quite right, because orelse branch might not exist and/or value might not be updated. In that case we need to pull values from before the if.
+                obody = DataflowIR.Read(
+                    oval[0], self.sym_to_read(oval[1], oval[2]), oval[2], null_srcinfo()
+                )
+                stmt = DataflowIR.Assign(
+                    post_name, vals[1], cond, bbody, obody, null_srcinfo()
+                )
+                post_if.append(stmt)
+
+                # update env
+                self.env[key] = (post_name, vals[1], vals[2])
+
+            return [
+                DataflowIR.If(
+                    cond, self.init_block(body), self.init_block(orelse), s.srcinfo
+                )
+            ] + post_if
 
         elif isinstance(s, LoopIR.For):
-            df_lo = self.map_e(s.lo)
-            df_hi = self.map_e(s.hi)
-            df_body = self.map_stmts(s.body)
+            # loopir :  For( sym iter, expr lo, expr hi, stmt* body, loop_mode loop_mode )
+            # datair : For( sym iter, expr lo, expr hi, block body )
 
-            return DataflowIR.For(
-                s.iter, df_lo, df_hi, self.init_block(df_body), s.srcinfo
-            )
+            # We first need the merge node before the body, but the problem is that we don't know what the last node is until doing the body
+            # We can be safe and merge every values in the environment
+
+            # Update self.env and prev
+            prev = {}
+            pre_sym = {}
+            for key, vals in self.env.items():
+                self.env[key] = (vals[0].copy(), [s.iter] + vals[1], vals[2])
+                pre_sym[key] = self.env[key]
+                prev[key] = vals
+
+            # Body
+            body = self.map_stmts(s.body)
+
+            # Construct merge nodes for both pre and post loop merges
+            pre_loop = []
+            post_loop = []
+            iter_read = DataflowIR.Read(s.iter, [], DataflowIR.Index(), null_srcinfo())
+            for key, llast in self.env.items():
+                ltop = pre_sym[key]
+                lbefore = prev[key]
+
+                # Pre loop
+                pre_cond = DataflowIR.BinOp(
+                    "==", iter_read, mk_const(0), DataflowIR.Bool(), null_srcinfo()
+                )
+                pre_body = DataflowIR.Read(
+                    lbefore[0],
+                    self.sym_to_read(lbefore[1], lbefore[2]),
+                    lbefore[2],
+                    null_srcinfo(),
+                )
+                last_idx = [
+                    DataflowIR.BinOp(
+                        "-", iter_read, mk_const(1), DataflowIR.Bool(), null_srcinfo()
+                    )
+                ]
+                pre_orelse = DataflowIR.Read(
+                    llast[0],
+                    last_idx + self.sym_to_read(llast[1][1:], llast[2]),
+                    llast[2],
+                    null_srcinfo(),
+                )
+                pre_stmt = DataflowIR.Assign(
+                    ltop[0], ltop[1], pre_cond, pre_body, pre_orelse, null_srcinfo()
+                )
+                pre_loop.append(pre_stmt)
+
+                # Post loop
+                post_name = llast[0].copy()
+                post_cond = DataflowIR.BinOp(
+                    ">", iter_read, self.map_e(s.lo), DataflowIR.Bool(), null_srcinfo()
+                )
+                post_idxs = [
+                    DataflowIR.BinOp(
+                        "-",
+                        self.map_e(s.hi),
+                        mk_const(1),
+                        DataflowIR.Index(),
+                        null_srcinfo(),
+                    )
+                ]
+                post_body = DataflowIR.Read(
+                    llast[0],
+                    post_idxs + self.sym_to_read(llast[1][1:], llast[2]),
+                    llast[2],
+                    null_srcinfo(),
+                )
+                post_orelse = DataflowIR.Read(
+                    lbefore[0],
+                    self.sym_to_read(lbefore[1], lbefore[2]),
+                    lbefore[2],
+                    null_srcinfo(),
+                )
+                post_stmt = DataflowIR.Assign(
+                    post_name,
+                    llast[1][1:],
+                    post_cond,
+                    post_body,
+                    post_orelse,
+                    null_srcinfo(),
+                )
+                post_loop.append(post_stmt)
+
+                # update env
+                self.env[key] = (post_name, llast[1][1:], llast[2])
+
+            return [
+                DataflowIR.For(
+                    s.iter,
+                    self.map_e(s.lo),
+                    self.map_e(s.hi),
+                    self.init_block(pre_loop + body),
+                    s.srcinfo,
+                )
+            ] + post_loop
 
         elif isinstance(s, LoopIR.Alloc):
-            return DataflowIR.Alloc(s.name, s.type, s.srcinfo)
+            assert isinstance(s.type, T.Tensor)
+            assert s.type.is_window == False
+            assert s.type.type.is_real_scalar()
+            # loopir: Alloc( sym name, type type, mem mem )
+            # datair: Alloc( sym name, expr* hi, type type )
+
+            name = s.name.copy()
+            his, _ = self.tensor_to_dims(s.type)
+            dsyms = [Sym("d" + str(d)) for d in range(len(s.type.hi))]
+            typ = self.map_t(s.type.basetype())
+            self.env[s.name] = (name, dsyms, typ)
+
+            return DataflowIR.Alloc(name, his, typ, s.srcinfo)
 
         elif isinstance(s, LoopIR.Pass):
-            return DataflowIR.Pass(s.srcinfo)
+            return [DataflowIR.Pass(s.srcinfo)]
 
         else:
             raise NotImplementedError(f"bad case {type(s)}")
 
     def map_e(self, e):
         if isinstance(e, LoopIR.Read):
-            df_idx = self.map_exprs(e.idx)
-            return DataflowIR.Read(e.name, df_idx, e.type, e.srcinfo)
+            if e.type.is_indexable() or e.type.is_bool():
+                return DataflowIR.Read(e.name, [], self.map_t(e.type), e.srcinfo)
+            else:
+                assert e.name in self.env
+                ee = self.env[e.name]
+                diff = len(ee[1]) - len(e.idx)
+                df_idx = self.sym_to_read(ee[1][:diff], ee[2]) + self.map_exprs(e.idx)
+                assert len(ee[1]) == len(df_idx)
+
+                return DataflowIR.Read(ee[0], df_idx, self.map_t(e.type), e.srcinfo)
+
+        elif isinstance(e, LoopIR.ReadConfig):
+            df_config = e.config._INTERNAL_sym(e.field)
+            assert df_config in self.env
+            ee = self.env[df_config]
+            idx = self.sym_to_read(ee[1][: len(ee[1])], ee[2])
+            return DataflowIR.Read(ee[0], idx, self.map_t(e.type), e.srcinfo)
 
         elif isinstance(e, LoopIR.BinOp):
             df_lhs = self.map_e(e.lhs)
             df_rhs = self.map_e(e.rhs)
-            return DataflowIR.BinOp(e.op, df_lhs, df_rhs, e.type, e.srcinfo)
+            return DataflowIR.BinOp(e.op, df_lhs, df_rhs, self.map_t(e.type), e.srcinfo)
 
         elif isinstance(e, LoopIR.BuiltIn):
             df_args = self.map_exprs(e.args)
-            return DataflowIR.BuiltIn(e.f, df_args, e.type, e.srcinfo)
+            return DataflowIR.BuiltIn(e.f, df_args, self.map_t(e.type), e.srcinfo)
 
         elif isinstance(e, LoopIR.USub):
             df_arg = self.map_e(e.arg)
-            return DataflowIR.USub(df_arg, e.type, e.srcinfo)
-
-        elif isinstance(e, LoopIR.WindowExpr):
-            # Doesn't matter for now, not used
-            return DataflowIR.WindowExpr(e.name, e.idx, e.type, e.srcinfo)
-
-        elif isinstance(e, LoopIR.ReadConfig):
-            df_config = e.config._INTERNAL_sym(e.field)
-            return DataflowIR.ReadConfig(df_config, e.type, e.srcinfo)
+            return DataflowIR.USub(df_arg, self.map_t(e.type), e.srcinfo)
 
         elif isinstance(e, LoopIR.Const):
-            return DataflowIR.Const(e.val, e.type, e.srcinfo)
+            return DataflowIR.Const(e.val, self.map_t(e.type), e.srcinfo)
 
         elif isinstance(e, LoopIR.StrideExpr):
-            return DataflowIR.StrideExpr(e.name, e.dim, e.type, e.srcinfo)
+            assert e.name in self.env
+            return DataflowIR.StrideExpr(
+                self.env[e.name], e.dim, self.map_t(e.type), e.srcinfo
+            )
+
+        elif isinstance(e, LoopIR.WindowExpr):
+            assert (
+                False
+            ), "Shouldn't be here! WindowExpr should be handled in the Call or WindowStmt cases"
 
         else:
-            raise NotImplementedError(f"bad case {type(e)}")
+            assert False, f"LoopIR type {type(e)} does not exist. WTF?"
 
     def _map_list(self, fn, nodes):
         res = []
@@ -282,16 +539,236 @@ class LoopIR_to_DataflowIR:
             for s in self.stmts:
                 if n == s[0]:
                     s.append(d_ir)
-            res.append(d_ir)
+
+            if isinstance(d_ir, list):
+                res.extend(d_ir)
+            else:
+                res.append(d_ir)
+
         return res
+
+    def map_t(self, t):
+        if isinstance(t, T.Tensor):
+            assert False
+        elif isinstance(t, T.Window):
+            assert False
+        elif isinstance(t, T.F32):
+            return DataflowIR.F32()
+        elif isinstance(t, T.Num):
+            return DataflowIR.Num()
+        elif isinstance(t, T.F16):
+            return DataflowIR.F16()
+        elif isinstance(t, T.F64):
+            return DataflowIR.F64()
+        elif isinstance(t, T.INT8):
+            return DataflowIR.INT8()
+        elif isinstance(t, T.UINT8):
+            return DataflowIR.UINT8()
+        elif isinstance(t, T.UINT16):
+            return DataflowIR.UINT16()
+        elif isinstance(t, T.INT32):
+            return DataflowIR.INT32()
+        elif isinstance(t, T.Bool):
+            return DataflowIR.Bool()
+        elif isinstance(t, T.Int):
+            return DataflowIR.Int()
+        elif isinstance(t, T.Index):
+            return DataflowIR.Index()
+        elif isinstance(t, T.Size):
+            return DataflowIR.Size()
+        elif isinstance(t, T.Stride):
+            return DataflowIR.Stride()
+        else:
+            assert False, f"no such type {type(t)}"
+
+
+class LoopIR_Replace(LoopIR_Rewrite):
+    def __init__(self, proc: LoopIR.proc, old: LoopIR.stmt, new: list):
+        self.old = old
+        self.new = new
+        self.proc = super().apply_proc(proc)
+
+    def result(self):
+        return self.proc
+
+    def map_s(self, s):
+        if s == self.old:
+            return self.new
+        else:
+            return super().map_s(s)
+
+
+class FindStmt(LoopIR_Do):
+    def __init__(self, proc, fun):
+        self.stmt = None
+        self.fun = fun
+        super().__init__(proc)
+
+    def result(self):
+        return self.stmt
+
+    def do_s(self, s):
+        if self.stmt != None:
+            return  # short circit
+
+        if self.fun(s):
+            self.stmt = s
+
+        super().do_s(s)
+
+
+def inline_calls(proc):
+    while True:
+        call_s = FindStmt(proc, lambda s: isinstance(s, LoopIR.Call)).result()
+        if call_s == None:
+            break
+
+        win_binds = []
+
+        def map_bind(nm, a):
+            if isinstance(a, LoopIR.WindowExpr):
+                stmt = LoopIR.WindowStmt(nm, a, a.srcinfo)
+                win_binds.append(stmt)
+                return LoopIR.Read(nm, [], a.type, a.srcinfo)
+            return a
+
+        call_bind = {
+            xd.name: map_bind(xd.name, a) for xd, a in zip(call_s.f.args, call_s.args)
+        }
+        body = SubstArgs(call_s.f.body, call_bind).result()
+        new_body = Alpha_Rename(win_binds + body).result()
+
+        proc = LoopIR_Replace(proc, call_s, new_body).result()
+
+    return proc
+
+
+def inline_windows(proc):
+    while True:
+        window_s = FindStmt(proc, lambda s: isinstance(s, LoopIR.WindowStmt)).result()
+        if window_s == None:
+            break
+
+        proc = DoInlineWindow(proc, window_s).result()
+
+    return proc
+
+
+# This is basically a duplication of DoInlineWindow in LoopIR_scheduling.py... but we need to change the interface to Cursor if want to merge them...
+class DoInlineWindow(LoopIR_Rewrite):
+    def __init__(self, proc, window):
+        self.win_stmt = window
+        assert isinstance(self.win_stmt, LoopIR.WindowStmt)
+        self.proc = super().apply_proc(proc)
+
+    def result(self):
+        return self.proc
+
+    def calc_idx(self, idxs):
+        assert len(
+            [w for w in self.win_stmt.rhs.idx if isinstance(w, LoopIR.Interval)]
+        ) == len(idxs)
+
+        new_idxs = []
+        win_idx = self.win_stmt.rhs.idx
+        idxs = idxs.copy()  # make function non-destructive to input
+        assert len(idxs) == sum([isinstance(w, LoopIR.Interval) for w in win_idx])
+
+        def add(x, y):
+            return LoopIR.BinOp("+", x, y, T.index, x.srcinfo)
+
+        if len(idxs) > 0 and isinstance(idxs[0], LoopIR.w_access):
+
+            def map_w(w):
+                if isinstance(w, LoopIR.Point):
+                    return w
+                # i is from the windowing expression we're substituting into
+                i = idxs.pop(0)
+                if isinstance(i, LoopIR.Point):
+                    return LoopIR.Point(add(i.pt, w.lo), i.srcinfo)
+                else:
+                    return LoopIR.Interval(add(i.lo, w.lo), add(i.hi, w.lo), i.srcinfo)
+
+        else:
+
+            def map_w(w):
+                return w.pt if isinstance(w, LoopIR.Point) else add(idxs.pop(0), w.lo)
+
+        return [map_w(w) for w in win_idx]
+
+    # used to offset the stride in order to account for
+    # dimensions hidden due to window-point accesses
+    def calc_dim(self, dim):
+        assert dim < len(
+            [w for w in self.win_stmt.rhs.idx if isinstance(w, LoopIR.Interval)]
+        )
+
+        # Because our goal here is to offset `dim` in the original
+        # call argument to the point indexing to the windowing expression,
+        # new_dim should essencially be:
+        # `dim` + "number of LoopIR.Points in the windowing expression before the `dim` number of LoopIR.Interval"
+        new_dim = 0
+        for w in self.win_stmt.rhs.idx:
+            if isinstance(w, LoopIR.Interval):
+                dim -= 1
+            if dim == -1:
+                return new_dim
+            new_dim += 1
+
+    def map_s(self, s):
+        # remove the windowing statement
+        if s is self.win_stmt:
+            return []
+
+        # substitute the indexing at assignment and reduction statements
+        if (
+            isinstance(s, (LoopIR.Assign, LoopIR.Reduce))
+            and self.win_stmt.name == s.name
+        ):
+            idxs = self.calc_idx(s.idx)
+            return [type(s)(self.win_stmt.rhs.name, s.type, idxs, s.rhs, s.srcinfo)]
+
+        return super().map_s(s)
+
+    def map_e(self, e):
+        # etyp    = type(e)
+        win_name = self.win_stmt.name
+        buf_name = self.win_stmt.rhs.name
+        win_idx = self.win_stmt.rhs.idx
+
+        if isinstance(e, LoopIR.WindowExpr) and win_name == e.name:
+            new_idxs = self.calc_idx(e.idx)
+
+            # repair window type..
+            old_typ = self.win_stmt.rhs.type
+            new_type = LoopIR.WindowType(
+                old_typ.src_type, old_typ.as_tensor, buf_name, new_idxs
+            )
+
+            return LoopIR.WindowExpr(
+                self.win_stmt.rhs.name, new_idxs, new_type, e.srcinfo
+            )
+
+        elif isinstance(e, LoopIR.Read) and win_name == e.name:
+            new_idxs = self.calc_idx(e.idx)
+            return LoopIR.Read(buf_name, new_idxs, e.type, e.srcinfo)
+
+        elif isinstance(e, LoopIR.StrideExpr) and win_name == e.name:
+            dim = self.calc_dim(e.dim)
+            return LoopIR.StrideExpr(buf_name, dim, e.type, e.srcinfo)
+
+        return super().map_e(e)
 
 
 def dataflow_analysis(proc: LoopIR.proc, loopir_stmts: list) -> DataflowIR.proc:
+    proc = inline_calls(proc)
+    proc = inline_windows(proc)
+
     # step 1 - convert LoopIR to DataflowIR with empty contexts (i.e. AbsEnvs)
     datair, stmts = LoopIR_to_DataflowIR(proc, loopir_stmts).result()
 
     # step 2 - run abstract interpretation algorithm to populate contexts with abs values
-    ScalarPropagation(datair)
+    # ScalarPropagation(datair)
 
     return datair, stmts
 

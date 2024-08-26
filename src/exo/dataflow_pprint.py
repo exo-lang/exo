@@ -1,7 +1,8 @@
 from .dataflow import DataflowIR
-from .LoopIR_pprint import PrintEnv, _print_type, op_prec, _print_w_access
-from .LoopIR import T
+from .LoopIR_pprint import op_prec
 from .prelude import Sym, SrcInfo, extclass
+from collections import ChainMap
+from dataclasses import dataclass, field
 
 # --------------------------------------------------------------------------- #
 # DataflowIR pretty printing
@@ -34,6 +35,26 @@ def __str__(self):
 
 
 del __str__
+
+
+@dataclass
+class PrintEnv:
+    env: ChainMap[Sym, str] = field(default_factory=ChainMap)
+    names: ChainMap[str, int] = field(default_factory=ChainMap)
+
+    def get_name(self, nm):
+        if resolved := self.env.get(nm):
+            return resolved
+
+        candidate = str(nm)
+        num = self.names.get(candidate, 1)
+        while candidate in self.names:
+            candidate = f"{nm}_{num}"
+            num += 1
+
+        self.env[nm] = candidate
+        self.names[str(nm)] = num
+        return candidate
 
 
 def _print_proc(p, env: PrintEnv, indent: str) -> list[str]:
@@ -77,21 +98,16 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
         return [f"{indent}pass"]
 
     elif isinstance(stmt, (DataflowIR.Assign, DataflowIR.Reduce)):
+        # Assign( sym lhs, sym* dims, expr cond, expr body, expr orelse )
         op = "=" if isinstance(stmt, DataflowIR.Assign) else "+="
+        lhs = env.get_name(stmt.lhs)
+        dims = ["\\" + env.get_name(d) for d in stmt.dims]
 
-        lhs = env.get_name(stmt.name)
+        cond = _print_expr(stmt.cond, env)
+        body = _print_expr(stmt.body, env)
+        orelse = _print_expr(stmt.orelse, env)
 
-        idx = [_print_expr(e, env) for e in stmt.idx]
-        idx = f"[{', '.join(idx)}]" if idx else ""
-
-        rhs = _print_expr(stmt.rhs, env)
-
-        return [f"{indent}{lhs}{idx} {op} {rhs}"]
-
-    elif isinstance(stmt, DataflowIR.WriteConfig):
-        cname = env.get_name(stmt.config_field)
-        rhs = _print_expr(stmt.rhs, env)
-        return [f"{indent}{cname} = {rhs}"]
+        return [f"{indent}{lhs} {op}{' '.join(dims)} \phi({cond} ? {body} : {orelse})"]
 
     elif isinstance(stmt, DataflowIR.Alloc):
         ty = _print_type(stmt.type, env)
@@ -100,35 +116,26 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
     elif isinstance(stmt, DataflowIR.If):
         cond = _print_expr(stmt.cond, env)
         lines = [f"{indent}if {cond}:"]
-        lines.extend(_print_block(stmt.body, env.push(), indent + "  "))
+        lines.extend(_print_block(stmt.body, env, indent + "  "))
         if stmt.orelse:
             lines.append(f"{indent}else:")
-            lines.extend(_print_block(stmt.orelse, env.push(), indent + "  "))
+            lines.extend(_print_block(stmt.orelse, env, indent + "  "))
         return lines
 
     elif isinstance(stmt, DataflowIR.For):
         lo = _print_expr(stmt.lo, env)
         hi = _print_expr(stmt.hi, env)
-        body_env = env.push()
-        lines = [f"{indent}for {body_env.get_name(stmt.iter)} in seq({lo}, {hi}):"]
-        lines.extend(_print_block(stmt.body, body_env, indent + "  "))
+        lines = [f"{indent}for {env.get_name(stmt.iter)} in seq({lo}, {hi}):"]
+        lines.extend(_print_block(stmt.body, env, indent + "  "))
         return lines
-
-    elif isinstance(stmt, DataflowIR.WindowStmt):
-        rhs = _print_expr(stmt.rhs, env)
-        return [f"{indent}{env.get_name(stmt.name)} = {rhs}"]
-
-    elif isinstance(stmt, DataflowIR.Call):
-        args = [_print_expr(a, env) for a in stmt.args]
-        return [f"{indent}{stmt.f.name}({', '.join(args)})"]
 
     assert False, f"unrecognized stmt: {type(stmt)}"
 
 
 def _print_fnarg(a, env: PrintEnv) -> str:
-    if a.type == T.size:
+    if a.type == DataflowIR.Size:
         return f"{env.get_name(a.name)} : size"
-    elif a.type == T.index:
+    elif a.type == DataflowIR.Index:
         return f"{env.get_name(a.name)} : index"
     else:
         ty = _print_type(a.type, env)
@@ -166,12 +173,35 @@ def _print_expr(e, env: PrintEnv, prec: int = 0) -> str:
         args = [_print_expr(a, env) for a in e.args]
         return f"{pname}({', '.join(args)})"
 
-    elif isinstance(e, DataflowIR.ReadConfig):
-        name = env.get_name(e.config_field)
-        return f"{name}"
-
-    elif isinstance(e, DataflowIR.WindowExpr):
-        name = env.get_name(e.name)
-        return f"{name}[{', '.join([_print_w_access(w, env) for w in e.idx])}]"
-
     assert False, f"unrecognized expr: {type(e)}"
+
+
+def _print_type(t, env: PrintEnv) -> str:
+    if isinstance(t, DataflowIR.Num):
+        return "R"
+    elif isinstance(t, DataflowIR.F16):
+        return "f16"
+    elif isinstance(t, DataflowIR.F32):
+        return "f32"
+    elif isinstance(t, DataflowIR.F64):
+        return "f64"
+    elif isinstance(t, DataflowIR.INT8):
+        return "i8"
+    elif isinstance(t, DataflowIR.UINT8):
+        return "ui8"
+    elif isinstance(t, DataflowIR.UINT16):
+        return "ui16"
+    elif isinstance(t, DataflowIR.INT32):
+        return "i32"
+    elif isinstance(t, DataflowIR.Bool):
+        return "bool"
+    elif isinstance(t, DataflowIR.Int):
+        return "int"
+    elif isinstance(t, DataflowIR.Index):
+        return "index"
+    elif isinstance(t, DataflowIR.Size):
+        return "size"
+    elif isinstance(t, DataflowIR.Stride):
+        return "stride"
+
+    assert False, f"impossible type {type(t)}"

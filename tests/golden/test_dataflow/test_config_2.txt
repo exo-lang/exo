@@ -1,15 +1,31 @@
 def foo(x : f32, y : f32):
-  ----------------------- {x : x, y : y, ConfigAB_a : ConfigAB_a, ConfigAB_b : ConfigAB_b}
-  ConfigAB_a = 1.0
-  ----------------------- {ConfigAB_a : 1.0, x : x, y : y, ConfigAB_b : ConfigAB_b}
-  ConfigAB_b = 3.0
-  ----------------------- {ConfigAB_b : 3.0, ConfigAB_a : 1.0, x : x, y : y}
+  ----------------------- {}
+  ConfigAB_a = \phi(True ? 1.0 : 1.0)
+  ----------------------- {}
+  ConfigAB_b = \phi(True ? 3.0 : 3.0)
+  ----------------------- {}
   for i in seq(0, 10):
-    --------------------- {ConfigAB_b : 3.0 ∨ 1.0, ConfigAB_a : 1.0, x : x ∨ 1.0, y : y, i : i}
-    x = ConfigAB_a
-    --------------------- {x : 1.0, ConfigAB_b : 3.0 ∨ 1.0, ConfigAB_a : 1.0, y : y, i : i}
-    ConfigAB_b = ConfigAB_a
-    --------------------- {ConfigAB_b : 1.0, x : 1.0, ConfigAB_a : 1.0, y : y, i : i}
-  ----------------------- {ConfigAB_b : 3.0 ∨ 1.0, ConfigAB_a : 1.0, x : x ∨ 1.0, y : y}
-  ConfigAB_a = 2.0
-  ----------------------- {ConfigAB_a : 2.0, ConfigAB_b : 3.0 ∨ 1.0, x : x ∨ 1.0, y : y}
+    --------------------- {}
+    x_1 =\i \phi(i == 0 ? x : x_2[i - 1])
+    --------------------- {}
+    y_1 =\i \phi(i == 0 ? y : y_1[i - 1])
+    --------------------- {}
+    ConfigAB_a_1 =\i \phi(i == 0 ? ConfigAB_a : ConfigAB_a_1[i - 1])
+    --------------------- {}
+    ConfigAB_b_1 =\i \phi(i == 0 ? ConfigAB_b : ConfigAB_b_2[i - 1])
+    --------------------- {}
+    x_2 =\i \phi(True ? ConfigAB_a_1[i] : x_1[i])
+    --------------------- {}
+    ConfigAB_b_2 = \phi(True ? ConfigAB_a_1[i] : ConfigAB_a_1[i])
+    --------------------- {}
+  ----------------------- {}
+  x_3 = \phi(i > 0 ? x_2[10 - 1] : x)
+  ----------------------- {}
+  y_2 = \phi(i > 0 ? y_1[10 - 1] : y)
+  ----------------------- {}
+  ConfigAB_a_2 = \phi(i > 0 ? ConfigAB_a_1[10 - 1] : ConfigAB_a)
+  ----------------------- {}
+  ConfigAB_b_3 = \phi(i > 0 ? ConfigAB_b_2[10 - 1] : ConfigAB_b)
+  ----------------------- {}
+  ConfigAB_a_3 = \phi(True ? 2.0 : 2.0)
+  ----------------------- {}

@@ -397,3 +397,141 @@ def test_builtin_true(golden):
         x = CFG.a
 
     assert str(foo.dataflow()[0]) == golden
+
+
+def test_simple_call(golden):
+    @proc
+    def barbar(z: f32):
+        z = 0.2
+
+    @proc
+    def bar(z: f32):
+        z = 1.2
+        barbar(z)
+
+    @proc
+    def foo(z: R):
+        z = 4.2
+        bar(z)
+        z = 2.0
+        barbar(z)
+
+    assert str(foo.dataflow()[0]) == golden
+
+
+def test_simple_call_window(golden):
+    @proc
+    def barbar(z: f32[2]):
+        z[0] = 0.2
+
+    @proc
+    def bar(z: f32[5]):
+        z[0] = 1.2
+        barbar(z[2:4])
+
+    @proc
+    def foo(z: f32[10]):
+        z[0] = 4.2
+        bar(z[1:6])
+        z[2] = 2.0
+        barbar(z[8:10])
+
+    assert str(foo.dataflow(foo.find("z = _ #0"))[0]) == golden
+
+
+def test_simple_scalar(golden):
+    @proc
+    def foo(N: size, x: i8, src: i8[N]):
+        x = 3.0
+        for k in seq(0, N):
+            x = x * x
+            if k == 0:
+                x = 0.0
+            else:
+                x = src[k]
+
+    assert str(foo.dataflow()[0]) == golden
+
+
+def test_arrays(golden):
+    @proc
+    def foo(n: size, m: size, dst: i8[n + m] @ DRAM, src: i8[n + m] @ DRAM):
+        for i in seq(0, n):
+            for j in seq(0, m):
+                if i == 0 or j == m - 1:
+                    dst[i + j] = src[i + j]
+                    dst[0] = 2.0
+                    dst[i] = 1.0
+
+    print(foo.dataflow()[0])
+    assert str(foo.dataflow()[0]) == golden
+
+
+def test_arrays2(golden):
+    @proc
+    def foo(n: size, m: size, dst: i8[n + m] @ DRAM, src: i8[n + m] @ DRAM):
+        for i in seq(0, n):
+            for j in seq(0, m):
+                dst[i + j] = src[i + j]
+
+    assert str(foo.dataflow()[0]) == golden
+
+
+def test_config_5(golden):
+    @config
+    class CFG:
+        a: index
+
+    @proc
+    def foo(x: f32[10]):
+        CFG.a = 0
+        for i in seq(0, 10):
+            CFG.a = i
+            CFG.a = i + 1  # THIS
+            x[CFG.a] = 0.2
+
+    assert str(foo.dataflow()[0]) == golden
+
+
+def test_function_1(golden):
+    @proc
+    def bar(dst: f32[8]):
+        for i in seq(0, 8):
+            dst[i] += 2.0
+
+    @proc
+    def foo(n: size, x: f32[n]):
+        assert n > 10
+        tmp: f32[11]
+        tmp[10] = 3.0
+        bar(tmp[0:8])
+        for i in seq(0, n):
+            if i < 11:
+                x[i] = tmp[i]
+            x[i] += 1.0
+
+    assert str(foo.dataflow()[0]) == golden
+
+
+def test_reduc_1(golden):
+    @proc
+    def foo(N: size, dst: f32[N], src: f32[N]):
+        dst[0] = 1.0
+        for i in seq(0, N - 1):
+            if i == 1:
+                dst[i] = dst[i - 1] - src[i]
+            dst[i] += src[i]
+            dst[i + 1] = 3.0
+
+    assert str(foo.dataflow()[0]) == golden
+
+
+def test_reduc_2(golden):
+    @proc
+    def foo(K: size, x: f32, dst: f32[K]):
+        x = 3.0
+        for k in seq(0, K):
+            x += dst[k]
+        x = x + 1.0
+
+    assert str(foo.dataflow()[0]) == golden
