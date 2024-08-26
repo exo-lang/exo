@@ -1,4 +1,4 @@
-def foo(K : size, x : f32, dst : f32):
+def foo(K : size, x : f32, dst : f32[K]):
   ----------------------- {}
   x_1 = \phi(True ? 3.0 : x)
   ----------------------- {}

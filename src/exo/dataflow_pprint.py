@@ -111,7 +111,8 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
 
     elif isinstance(stmt, DataflowIR.Alloc):
         ty = _print_type(stmt.type, env)
-        return [f"{indent}{env.get_name(stmt.name)} : {ty}"]
+        his = f"[{', '.join(_print_expr(i, env) for i in stmt.hi)}]" if stmt.hi else ""
+        return [f"{indent}{env.get_name(stmt.name)} : {ty}{his}"]
 
     elif isinstance(stmt, DataflowIR.If):
         cond = _print_expr(stmt.cond, env)
@@ -138,8 +139,9 @@ def _print_fnarg(a, env: PrintEnv) -> str:
     elif a.type == DataflowIR.Index:
         return f"{env.get_name(a.name)} : index"
     else:
+        his = f"[{', '.join(_print_expr(i, env) for i in a.hi)}]" if a.hi else ""
         ty = _print_type(a.type, env)
-        return f"{env.get_name(a.name)} : {ty}"
+        return f"{env.get_name(a.name)} : {ty}{his}"
 
 
 def _print_expr(e, env: PrintEnv, prec: int = 0) -> str:

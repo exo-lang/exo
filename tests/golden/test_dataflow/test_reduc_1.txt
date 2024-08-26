@@ -1,4 +1,4 @@
-def foo(N : size, dst : f32, src : f32):
+def foo(N : size, dst : f32[N], src : f32[N]):
   ----------------------- {}
   dst_1 =\d0 \phi(d0 == 0 and True ? 1.0 : dst[d0])
   ----------------------- {}

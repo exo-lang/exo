@@ -1,4 +1,4 @@
-def foo(n : size, src : i8):
+def foo(n : size, src : i8[20]):
   ----------------------- {}
   for i in seq(0, 10):
     --------------------- {}

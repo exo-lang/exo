@@ -1,4 +1,4 @@
-def foo(N : size, x : i8, src : i8):
+def foo(N : size, x : i8, src : i8[N]):
   ----------------------- {}
   x_1 = \phi(True ? 3.0 : x)
   ----------------------- {}

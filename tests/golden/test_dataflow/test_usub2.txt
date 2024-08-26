@@ -1,4 +1,4 @@
-def foo(N : size, x : R):
+def foo(N : size, x : R[N]):
   ----------------------- {}
   CFG_a = \phi(True ? N - 1 : N - 1)
   ----------------------- {}
