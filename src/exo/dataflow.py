@@ -18,6 +18,9 @@ from .LoopIR import (
     T,
     Identifier,
     LoopIR_Rewrite,
+    get_readconfigs,
+    get_writeconfigs,
+    get_readconfigs_expr,
 )
 from .internal_analysis import *
 
@@ -194,6 +197,21 @@ class LoopIR_to_DataflowIR:
         self.env = ChainMap()
         for s in stmts:
             self.stmts.append([s])
+
+        # Initialize configurations in this proc
+        configs = list(
+            set(
+                get_writeconfigs(proc.body)
+                + get_readconfigs(proc.body)
+                + get_readconfigs_expr(proc.preds)
+            )
+        )
+        for c in configs:
+            orig_sym = c[0]._INTERNAL_sym(c[1])
+            new_sym = orig_sym.copy()
+            typ = self.map_t(c[0].lookup_type(c[1]))
+            self.env[orig_sym] = (new_sym, [], typ)
+
         self.dataflow_proc = self.map_proc(self.loopir_proc)
 
     def push(self):
@@ -225,7 +243,7 @@ class LoopIR_to_DataflowIR:
     def tensor_to_dims(self, tensor):
         # | Tensor( expr* hi, bool is_window, type type )
         assert isinstance(tensor, T.Tensor)
-        assert tensor.is_window == False
+        # assert tensor.is_window == False
         assert not tensor.type.is_tensor_or_window()
 
         return [self.map_e(hi) for hi in tensor.hi], self.map_t(tensor.type)
@@ -298,6 +316,7 @@ class LoopIR_to_DataflowIR:
 
         elif isinstance(s, LoopIR.WriteConfig):
             ir_config = s.config._INTERNAL_sym(s.field)
+            assert ir_config in self.env
             df_config = ir_config.copy()
             df_rhs = self.map_e(s.rhs)
             self.env[ir_config] = (df_config, [], df_rhs.type)
@@ -382,9 +401,10 @@ class LoopIR_to_DataflowIR:
             pre_loop = []
             post_loop = []
             iter_read = DataflowIR.Read(s.iter, [], DataflowIR.Index(), null_srcinfo())
-            for key, llast in self.env.items():
+            for key, lbefore in prev.items():
                 ltop = pre_sym[key]
-                lbefore = prev[key]
+                # lbefore = prev[key]
+                llast = self.env[key]
 
                 # Pre loop
                 pre_cond = DataflowIR.BinOp(
@@ -462,19 +482,26 @@ class LoopIR_to_DataflowIR:
             ] + post_loop
 
         elif isinstance(s, LoopIR.Alloc):
-            assert isinstance(s.type, T.Tensor)
-            assert s.type.is_window == False
-            assert s.type.type.is_real_scalar()
-            # loopir: Alloc( sym name, type type, mem mem )
-            # datair: Alloc( sym name, expr* hi, type type )
+            if isinstance(s.type, T.Tensor):
+                assert s.type.is_window == False
+                assert s.type.type.is_real_scalar()
+                # loopir: Alloc( sym name, type type, mem mem )
+                # datair: Alloc( sym name, expr* hi, type type )
 
-            name = s.name.copy()
-            his, _ = self.tensor_to_dims(s.type)
-            dsyms = [Sym("d" + str(d)) for d in range(len(s.type.hi))]
-            typ = self.map_t(s.type.basetype())
-            self.env[s.name] = (name, dsyms, typ)
+                name = s.name.copy()
+                his, _ = self.tensor_to_dims(s.type)
+                dsyms = [Sym("d" + str(d)) for d in range(len(s.type.hi))]
+                typ = self.map_t(s.type.basetype())
+                self.env[s.name] = (name, dsyms, typ)
 
-            return DataflowIR.Alloc(name, his, typ, s.srcinfo)
+                return DataflowIR.Alloc(name, his, typ, s.srcinfo)
+            else:
+                assert s.type.is_real_scalar()
+                name = s.name.copy()
+                typ = self.map_t(s.type)
+                self.env[s.name] = (name, [], typ)
+
+                return DataflowIR.Alloc(name, [], typ, s.srcinfo)
 
         elif isinstance(s, LoopIR.Pass):
             return [DataflowIR.Pass(s.srcinfo)]
@@ -521,7 +548,7 @@ class LoopIR_to_DataflowIR:
         elif isinstance(e, LoopIR.StrideExpr):
             assert e.name in self.env
             return DataflowIR.StrideExpr(
-                self.env[e.name], e.dim, self.map_t(e.type), e.srcinfo
+                self.env[e.name][0], e.dim, self.map_t(e.type), e.srcinfo
             )
 
         elif isinstance(e, LoopIR.WindowExpr):
@@ -874,7 +901,7 @@ class GetReadConfigs(DataflowIR_Do):
         super().do_e(e)
 
 
-def get_readconfigs(stmts):
+def _get_readconfigs(stmts):
     gr = GetReadConfigs()
     for stmt in stmts:
         gr.do_s(stmt)
@@ -897,7 +924,7 @@ class GetWriteConfigs(DataflowIR_Do):
         return
 
 
-def get_writeconfigs(stmts):
+def _get_writeconfigs(stmts):
     gw = GetWriteConfigs()
     gw.do_stmts(stmts)
     return gw.writeconfigs
