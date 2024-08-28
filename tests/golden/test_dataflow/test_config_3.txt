@@ -23,5 +23,5 @@ def foo(n : size):
     ConfigControl_i_2 =\i \phi(n == n - 1 ? ConfigControl_i_5 : ConfigControl_i_4[i])
     --------------------- {}
   ----------------------- {}
-  ConfigControl_i_6 = \phi(i > 0 ? ConfigControl_i_2[n - 1] : ConfigControl_i_1)
+  ConfigControl_i_6 = \phi(n > 0 ? ConfigControl_i_2[n - 1] : ConfigControl_i_1)
   ----------------------- {}

@@ -19,13 +19,13 @@ def foo(x : f32, y : f32):
     ConfigAB_b_2 = \phi(True ? ConfigAB_a_1[i] : ConfigAB_a_1[i])
     --------------------- {}
   ----------------------- {}
-  ConfigAB_a_2 = \phi(i > 0 ? ConfigAB_a_1[10 - 1] : ConfigAB_a)
+  ConfigAB_a_2 = \phi(10 > 0 ? ConfigAB_a_1[10 - 1] : ConfigAB_a)
   ----------------------- {}
-  ConfigAB_b_3 = \phi(i > 0 ? ConfigAB_b_2[10 - 1] : ConfigAB_b)
+  ConfigAB_b_3 = \phi(10 > 0 ? ConfigAB_b_2[10 - 1] : ConfigAB_b)
   ----------------------- {}
-  x_3 = \phi(i > 0 ? x_2[10 - 1] : x)
+  x_3 = \phi(10 > 0 ? x_2[10 - 1] : x)
   ----------------------- {}
-  y_2 = \phi(i > 0 ? y_1[10 - 1] : y)
+  y_2 = \phi(10 > 0 ? y_1[10 - 1] : y)
   ----------------------- {}
   ConfigAB_a_3 = \phi(True ? 2.0 : 2.0)
   ----------------------- {}

@@ -435,7 +435,11 @@ class LoopIR_to_DataflowIR:
                 # Post loop
                 post_name = llast[0].copy()
                 post_cond = DataflowIR.BinOp(
-                    ">", iter_read, self.map_e(s.lo), DataflowIR.Bool(), null_srcinfo()
+                    ">",
+                    self.map_e(s.hi),
+                    self.map_e(s.lo),
+                    DataflowIR.Bool(),
+                    null_srcinfo(),
                 )
                 post_idxs = [
                     DataflowIR.BinOp(
