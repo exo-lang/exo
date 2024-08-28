@@ -4,6 +4,7 @@ import pytest
 
 from exo import proc, config
 from exo.libs.memories import GEMM_SCRATCH
+from exo.pyparser import ParseError
 
 
 # --- Typechecking tests ---
@@ -16,6 +17,17 @@ def new_config_ld():
         src_stride: stride
 
     return ConfigLoad
+
+
+def test_size0():
+    with pytest.raises(
+        ParseError, match="Cannot allocate an intermediate value of type"
+    ):
+
+        @proc
+        def foo(x: size):
+            size: size
+            pass
 
 
 def test_stride1():
