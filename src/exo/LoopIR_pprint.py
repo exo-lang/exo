@@ -625,14 +625,14 @@ def _print_cursor_proc(
 def _print_cursor_block(
     cur: Block, target: Cursor, env: PrintEnv, indent: str
 ) -> list[str]:
-    def if_cursor(c, move, k):
-        try:
-            return k(move(c))
-        except InvalidCursorError:
-            return []
-
-    def more_stmts(_):
-        return [f'{indent}"..."']
+    def while_cursor(c, move, k):
+        s = []
+        while True:
+            try:
+                c = move(c)
+                s.expand(k(c))
+            except:
+                return s
 
     def local_stmt(c):
         return _print_cursor_stmt(c, target, env, indent)
@@ -640,20 +640,16 @@ def _print_cursor_block(
     if isinstance(target, Gap) and target in cur:
         if target._type == GapType.Before:
             return [
-                *if_cursor(target, lambda g: g.anchor().prev(2), more_stmts),
-                *if_cursor(target, lambda g: g.anchor().prev(), local_stmt),
+                *while_cursor(target.anchor(), lambda g: g.prev(), local_stmt),
                 f"{indent}[GAP - Before]",
-                *if_cursor(target, lambda g: g.anchor(), local_stmt),
-                *if_cursor(target, lambda g: g.anchor().next(), more_stmts),
+                *while_cursor(target.anchor(), lambda g: g.next(), local_stmt),
             ]
         else:
             assert target._type == GapType.After
             return [
-                *if_cursor(target, lambda g: g.anchor().prev(), more_stmts),
-                *if_cursor(target, lambda g: g.anchor(), local_stmt),
+                *while_cursor(target.anchor(), lambda g: g.prev(), local_stmt),
                 f"{indent}[GAP - After]",
-                *if_cursor(target, lambda g: g.anchor().next(), local_stmt),
-                *if_cursor(target, lambda g: g.anchor().next(2), more_stmts),
+                *while_cursor(target.anchor(), lambda g: g.next(), local_stmt),
             ]
 
     elif isinstance(target, Block) and target in cur:
@@ -662,21 +658,16 @@ def _print_cursor_block(
             block.extend(local_stmt(stmt))
         block.append(f"{indent}# BLOCK END")
         return [
-            *if_cursor(target, lambda g: g[0].prev(), more_stmts),
+            *while_cursor(target[0], lambda g: g.prev(), local_stmt),
             *block,
-            *if_cursor(target, lambda g: g[-1].next(), more_stmts),
+            *while_cursor(target[-1], lambda g: g.next(), local_stmt),
         ]
 
     else:
-        stmt = next(filter(lambda s: s.is_ancestor_of(target), cur), None)
-        if stmt is None:
-            return [f'{indent}"..."']
-
-        return [
-            *if_cursor(stmt, lambda g: g.prev().before(), more_stmts),
-            *local_stmt(stmt),
-            *if_cursor(stmt, lambda g: g.next().after(), more_stmts),
-        ]
+        block = []
+        for stmt in cur:
+            block.extend(local_stmt(stmt))
+        return block
 
 
 def _print_cursor_stmt(

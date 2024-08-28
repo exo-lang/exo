@@ -2,5 +2,15 @@ def filter1D(ow: size, kw: size, x: f32[ow + kw - 1] @ DRAM, y: f32[ow] @ DRAM,
              w: f32[kw] @ DRAM):
     for outXo in seq(0, ow / 4):
         sum: f32[4] @ DRAM  # <-- NODE
-        ...
-    ...
+        for outXi in seq(0, 4):
+            sum[outXi] = 0.0
+            for k in seq(0, kw):
+                sum[outXi] += x[4 * outXo + outXi + k] * w[k]
+            y[4 * outXo + outXi] = sum[outXi]
+    if ow % 4 > 0:
+        for outXi in seq(0, ow % 4):
+            sum: f32 @ DRAM
+            sum = 0.0
+            for k in seq(0, kw):
+                sum += x[outXi + ow / 4 * 4 + k] * w[k]
+            y[outXi + ow / 4 * 4] = sum
