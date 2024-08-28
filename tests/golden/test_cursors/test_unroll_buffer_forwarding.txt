@@ -1,11 +1,15 @@
 def foo():
-    ...
+    src_0: i32 @ DRAM
+    src_1: i32 @ DRAM
     src_0 = 1.0  # <-- NODE
-    ...
+    src_1 = 1.0
 def foo():
-    ...
+    src_0: i32 @ DRAM
+    src_1: i32 @ DRAM
+    src_0 = 1.0
     src_1 = 1.0  # <-- NODE
 def foo():
-    ...
+    src_0: i32 @ DRAM
+    src_1: i32 @ DRAM
     src_0 = 1.0  # <-- NODE
-    ...
+    src_1 = 1.0
