@@ -137,6 +137,11 @@ class Cursor(ABC):
     def _child_block(self, *args, **kwargs):
         return lift_cursor(self._impl._child_block(*args, **kwargs), self._proc)
 
+    def _reroute_through(self, new_ancestor):
+        new_path_prefix = new_ancestor._impl._path
+        new_path = new_path_prefix + self._impl._path[len(new_path_prefix) :]
+        return lift_cursor(C.Node(self._impl._root, new_path), self._proc)
+
 
 class InvalidCursor(Cursor):
     # noinspection PyMissingConstructor

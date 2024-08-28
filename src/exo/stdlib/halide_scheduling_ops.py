@@ -27,17 +27,14 @@ def _get_reads_of_expr(expr: ExprCursor) -> list[str]:
     return [name.name() for (name, _) in get_reads_of_expr(expr._impl._node)]
 
 
-def get_affected_write_dim(
-    proc: Procedure, buffer_name: str, loop: ForCursor
-) -> list[int]:
+def get_affected_read_dim(buffer_name: str, loop: ForCursor) -> list[int]:
     """
     Return which dimension of buffer are affected by [iter_sym]. Raises
     an error if there are multiple.
     """
     dims = set()
     iter = loop.name()
-    # TODO: we should scope this to [loop], but currently .find() can only be called on procs
-    for c in proc.find(f"{buffer_name} = _", many=True):
+    for c in loop.find(f"{buffer_name}", many=True):
         for idx, idx_expr in enumerate(c.idx()):
             idx_vars = _get_reads_of_expr(idx_expr)
             if iter in idx_vars:
@@ -87,7 +84,12 @@ def _simplify_with_preds(proc):
 # TODO: add returning relevant cursors to all the scheduling ops
 
 
-def compute_at(proc: Procedure, producer_assign: AssignCursor, target_loop: ForCursor):
+def compute_at(
+    proc: Procedure,
+    producer_assign: AssignCursor,
+    target_loop: ForCursor,
+    with_prologue: bool = False,
+):
     """
     Computes the necessary values of producer at the level of [target_loop]
     in the consumer loop nest by fusing the two loop nests.
@@ -122,103 +124,85 @@ def compute_at(proc: Procedure, producer_assign: AssignCursor, target_loop: ForC
     target_loop = proc.forward(target_loop)
 
     producer = producer_assign.name()
-    p_loop = get_top_level_stmt(proc, producer_assign)
-    c_loops = [target_loop] + list(get_parents(proc, target_loop, up_to=None))
 
-    assert p_loop.next() == c_loops[-1], "loop nests must be consecutive"
+    p_loop, c_loop = match_parent(producer_assign, target_loop)
+    c_loops = [target_loop] + list(get_parents(proc, target_loop, up_to=c_loop))
 
     for c_loop in reversed(c_loops):
         producer_assign = proc.forward(producer_assign)
         c_loop = proc.forward(c_loop)
 
         # Infer bounds of producer that the are consumed to determine cut-factor
-        buffer_dim = get_affected_write_dim(proc, producer, c_loop)
-        bounds = bounds_inference(proc, c_loop, producer, buffer_dim, include=["R"])
+        buffer_dim = get_affected_read_dim(producer, c_loop)
+        bounds = bounds_inference(c_loop, producer, buffer_dim, include=["R"])
         N_c = c_loop.hi()._impl._node  # TODO: remove this ._impl._node
-        w_c = bounds.get_stride_of(c_loop._impl._node.iter)
 
         # Identify the producer loop corresponding to the consumer loop based on dimension affected
         dim_vars = _get_reads_of_expr(producer_assign.idx()[buffer_dim])
-        p_loop = match_depth(producer_assign, c_loop)
+        p_loop, _ = match_parent(producer_assign, c_loop)
         while p_loop.name() not in dim_vars:
             p_loop = p_loop.body()[0]
 
-        # Reorder producer loop to be directly before consumer loop level
+        # Surface the relevant producer loop level
         while p_loop.parent() != c_loop.parent():
             proc = reorder_loops(proc, p_loop.parent())
             p_loop = proc.forward(p_loop)
             c_loop = proc.forward(c_loop)
+
+        # Reorder producer loop nest to be directly before consumer loop nest
         while p_loop.next() != c_loop:
             proc = reorder_stmts(proc, p_loop.expand(0, 1))
             p_loop = proc.forward(p_loop)
             c_loop = proc.forward(c_loop)
 
         # TODO: think about this hard-coded naming convention
-        new_iters = [f"{c_loop.name()}", f"{c_loop.name()}i"]
-        proc = _divide_with_recompute(proc, p_loop, f"{N_c}", w_c, new_iters)
-        proc = fuse(proc, p_loop, c_loop, unsafe_disable_check=True)
 
-        proc = _simplify_with_preds(proc)
-
-    return proc
-
-
-def compute_at_with_prologue(
-    proc: Procedure, producer_assign: AssignCursor, target_loop: ForCursor
-):
-    """
-    Computes the necessary values of producer at the level of [target_loop]
-    in the consumer loop nest by fusing the two loop nests.
-
-    TODO: make it work for multiple levels of consumer loops
-
-    Example transformation:
-        for i in _:
-            producer[_] = ... # producer_assign
-        for i in _:
-            consumer[_] = ... # uses producer[i:i+k]
-    ->
-        for i in _:
-            if i == 0: # prologue
+        if not with_prologue:
+            w_c = bounds.get_stride_of(c_loop._impl._node.iter)
+            new_iters = [f"{c_loop.name()}", f"{c_loop.name()}i"]
+            proc = _divide_with_recompute(proc, p_loop, f"{N_c}", w_c, new_iters)
+            proc = fuse(proc, p_loop, c_loop, unsafe_disable_check=True)
+        else:
+            """
+            Example transformation:
+                for i in _: # p_loop
+                    producer[_] = ...
+                for i in _:
+                    consumer[_] = avg(producer[i:i+k])
+            ->
                 for ii in seq(0, k):
                     producer[_] = ...
-            producer[i + k] = ...
-            consumer[i] = ...
-    """
-    producer_assign = proc.forward(producer_assign)
-    c_loop = proc.forward(target_loop)
-    p_loop = get_enclosing_loop_by_name(proc, producer_assign, c_loop.name())
-    producer = producer_assign.name()
+                for i in _:
+                    producer[i + k] = ...
+                    consumer[i] = ...
 
-    # Reorder producer loop up to consumer loop level and adjacent
-    while p_loop.parent() != c_loop.parent():
-        proc = reorder_loops(proc, p_loop.parent())
-        p_loop = proc.forward(p_loop)
-        c_loop = proc.forward(c_loop)
-    while p_loop.next() != c_loop:
-        proc = reorder_stmts(proc, p_loop.expand(0, 1))
-        p_loop = proc.forward(p_loop)
-        c_loop = proc.forward(c_loop)
+            TODO: Ideally, we would actually yield the following code, but we currently don't
+            a safe way to add the if statement circular buffer logic except via unsafely
+            inserting the guard. But it's far better for future scheduling if we can guarantee
+            that there is only one assignment for each buffer.
+            ->
+                for i in _:
+                    for ii in seq(0, k):
+                        if i == 0 or ii == k - 1:
+                            producer[_] = ...
+                    consumer[i] = ...
+            """
 
-    # bounds inference
-    buffer_dim = get_affected_write_dim(proc, producer, c_loop)
-    bounds = bounds_inference(proc, c_loop, producer, buffer_dim, include=["R"])
-    w_p = bounds.get_size()
+            w_p = bounds.get_size()
 
-    # separate out prologue
-    proc = cut_loop(proc, p_loop, w_p - 1)
-    prologue_loop = proc.forward(p_loop)
-    main_loop = prologue_loop.next()
+            # separate out prologue
+            proc = cut_loop(proc, p_loop, w_p - 1)
 
-    # fuse main loop
-    proc = shift_loop(proc, main_loop, 0)
-    proc = simplify(proc)
-    proc = fuse(proc, main_loop, main_loop.next())
+            # Current cursor forwarding policy specific logic
+            prologue_loop = proc.forward(p_loop)
+            main_loop = prologue_loop.next()
+            producer_assign = proc.forward(producer_assign)._reroute_through(main_loop)
 
-    # fuse prologue loop
-    # proc = add_loop(proc, prologue_loop, "y_i", str(N_c), guard=True)
-    # prologue_loop = proc.forward(prologue_loop).parent()
-    # proc = fuse(proc, prologue_loop, prologue_loop.next())
+            # fuse main loop
+            proc = shift_loop(proc, main_loop, 0)
+            proc = fuse(proc, main_loop, main_loop.next())
+
+        proc = _simplify_with_preds(proc)
 
     return proc
 
@@ -242,18 +226,15 @@ def store_at(proc: Procedure, producer_alloc: AllocCursor, target_loop: ForCurso
                 for k in _: <- target_loop
         loops_between(producer_alloc, target_loop) -> [i, j, k]
         """
-        top_loop = match_depth(target_loop, producer_alloc)
-        return reversed(
-            [target_loop] + list(get_parents(proc, target_loop, up_to=top_loop))
-        )
+        top_loop, _ = match_parent(target_loop, producer_alloc)
+        return list(get_parents(proc, target_loop, up_to=top_loop))[::-1]
 
-    for loop in loops_between(producer_alloc, target_loop):
+    for loop in loops_between(producer_alloc, target_loop) + [target_loop]:
         loop = proc.forward(loop)
         producer_alloc = proc.forward(producer_alloc)
 
-        buffer_dim = get_affected_write_dim(proc, producer, loop)
-
-        bounds = bounds_inference(proc, loop, producer, buffer_dim)
+        buffer_dim = get_affected_read_dim(producer, loop)
+        bounds = bounds_inference(loop, producer, buffer_dim)
         lo, _ = bounds.get_bounds()
         size = bounds.get_size()
 
@@ -352,14 +333,14 @@ def halide_split(
 
 
 def halide_compute_at(
-    p, producer: str, consumer: str, loop: str, divide_with_recompute: bool = True
+    p, producer: str, consumer: str, loop: str, with_prologue: bool = True
 ):
     producer_assign = p.find(f"{producer} = _")
     target_loop = get_enclosing_loop_by_name(p, p.find(f"{consumer} = _"), loop)
-    if divide_with_recompute:
+    if not with_prologue:
         return compute_at(p, producer_assign, target_loop)
     else:
-        return compute_at_with_prologue(p, producer_assign, target_loop)
+        return compute_at(p, producer_assign, target_loop, with_prologue=True)
 
 
 def halide_store_at(p, producer: str, consumer: str, loop: str):
@@ -368,9 +349,20 @@ def halide_store_at(p, producer: str, consumer: str, loop: str):
     return store_at(p, producer_alloc, target_loop)
 
 
-def halide_compute_and_store_at(p, producer: str, consumer: str, loop: str):
+def halide_compute_and_store_at_same(p, producer: str, consumer: str, loop: str):
     target_loop = get_enclosing_loop_by_name(p, p.find(f"{consumer} = _"), loop)
     return compute_and_store_at(p, producer, target_loop)
+
+
+def halide_compute_and_store_at(
+    p, producer: str, consumer: str, compute_loop: str, store_loop: str
+):
+    p = halide_compute_and_store_at_same(p, producer, consumer, store_loop)
+    producer_assign = p.find(f"{producer} = _")
+    compute_loop = get_enclosing_loop_by_name(
+        p, p.find(f"{consumer} = _"), compute_loop
+    )
+    return compute_at(p, producer_assign, compute_loop, with_prologue=True)
 
 
 def halide_fully_inline(p, producer: str, consumer: str):
@@ -390,7 +382,6 @@ def halide_parallel(p, loop: str):
 
 __all__ = [
     "compute_at",
-    "compute_at_with_prologue",
     "store_at",
     "compute_and_store_at",
     "tile",
@@ -399,6 +390,7 @@ __all__ = [
     "halide_split",
     "halide_compute_at",
     "halide_store_at",
+    "halide_compute_and_store_at_same",
     "halide_compute_and_store_at",
     "halide_fully_inline",
     "halide_parallel",

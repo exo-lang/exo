@@ -497,3 +497,15 @@ def test_proj_bad():
         @proc
         def proj(n: size, x: R[100, 10, 1], y: R[10, n]):
             dot(n, x[1], y[0])
+
+
+def test_numeric_type_mismatch():
+    with pytest.raises(TypeError, match="but got type size"):
+
+        @proc
+        def bar(n: R):
+            pass
+
+        @proc
+        def foo(n: size):
+            bar(n)

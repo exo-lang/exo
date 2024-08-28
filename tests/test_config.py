@@ -10,63 +10,12 @@ from exo.stdlib.scheduling import *
 # ------- Configuration tests ---------
 
 
-@pytest.mark.skip()
-def test_config_size():
-    def new_config_ld():
+def test_config_typecheck():
+    with pytest.raises(Exception, match="expected one of the following types"):
+
         @config
         class ConfigLoad:
-            size: size
-
-        return ConfigLoad
-
-    ConfigLoad = new_config_ld()
-
-    @proc
-    def do_ld_i8(n: size):
-        assert n == ConfigLoad.size
-        pass
-
-    # @proc
-    # def config_ld_i8(
-    #    config_n : size
-    # ):
-    #    ConfigLoad.size = config_n
-
-    @proc
-    def foo(N: size):
-        # config_ld_i8(N)
-        ConfigLoad.size = N
-        do_ld_i8(N)
-
-    print(foo)
-
-
-@pytest.mark.skip()
-def test_config_stride():
-    def new_config_ld():
-        @config
-        class ConfigLoad:
-            src_stride: stride
-
-        return ConfigLoad
-
-    ConfigLoad = new_config_ld()
-
-    @proc
-    def do_ld_i8(n: size, src: [i8][n] @ DRAM):
-        assert stride(src, 0) == ConfigLoad.src_stride
-        pass
-
-    @proc
-    def config_ld_i8(src_stride: stride):
-        ConfigLoad.src_stride = src_stride
-
-    @proc
-    def foo(N: size, A: i8[N]):
-        config_ld_i8(stride(A, 0))
-        do_ld_i8()
-
-    print(foo)
+            num: f32[n]
 
 
 def new_config_f32():
@@ -122,10 +71,9 @@ def test_write_loop_builtin(golden):
 
 
 # Config loop dependency tests
-@pytest.mark.skip()
 def test_write_loop_varying():
     ConfigAB = new_config_f32()
-    with pytest.raises(TypeError, match="The value written to config variable"):
+    with pytest.raises(TypeError, match="does not depend on loop iterations"):
 
         @proc
         def foo(n: size, A: f32[n]):
@@ -133,10 +81,9 @@ def test_write_loop_varying():
                 ConfigAB.a = A[i]
 
 
-@pytest.mark.skip()
 def test_write_loop_varying_indirect():
     ConfigAB = new_config_f32()
-    with pytest.raises(TypeError, match="The value written to config variable"):
+    with pytest.raises(TypeError, match="does not depend on loop iterations"):
 
         @proc
         def foo(n: size, A: f32[n]):
@@ -257,6 +204,59 @@ def test_config_write(golden):
     assert str(bar) == golden
 
 
+def test_config_write2():
+    @config
+    class Config:
+        tmp: f32
+
+    @proc
+    def foo(A: f32[10]):
+        a: f32
+        a = 0.0
+        a = A[0]
+        a = 1.0
+
+    with pytest.raises(
+        Exception, match="cannot write non-real-scalar non-boolean value"
+    ):
+        write_config(foo, foo.find("a = _").after(), Config, "tmp", "A[0]")
+
+
+def test_config_write3():
+    @config
+    class Config:
+        tmp: index
+
+    @proc
+    def foo():
+        for i in seq(0, 10):
+            a: f32
+            a = 0.0
+
+    with pytest.raises(
+        Exception, match="cannot write non-real-scalar non-boolean value"
+    ):
+        write_config(foo, foo.find("a = _").after(), Config, "tmp", "i")
+
+
+def test_config_write4():
+    @config
+    class Config:
+        tmp: f32
+
+    @proc
+    def foo(A: f32[10]):
+        a: f32
+        a = 0.0
+        a = A[0]
+        a = 1.0
+
+    with pytest.raises(
+        TypeError, match="expected the rhs to be read, stride expression, or constant"
+    ):
+        write_config(foo, foo.find("a = _").after(), Config, "tmp", "A[0] * A[1]")
+
+
 def test_config_bind(golden):
     ConfigLoad = new_config_ld()
 
@@ -270,6 +270,49 @@ def test_config_bind(golden):
     foo = bind_config(foo, "scale", ConfigLoad, "scale")
 
     assert str(foo) == golden
+
+
+def test_config_bind2():
+    ConfigLoad = new_config_ld()
+
+    @proc
+    def foo(A: f32[10]):
+        for i in seq(0, 10):
+            tmp: f32
+            tmp = A[i]
+
+    with pytest.raises(
+        Exception, match="cannot bind non-real-scalar non-boolean value"
+    ):
+        bind_config(foo, "A[i]", ConfigLoad, "scale")
+
+
+def test_config_bind3():
+    cfg = new_control_config()
+
+    @proc
+    def foo(A: f32[10]):
+        for i in seq(0, 10):
+            tmp: f32
+            tmp = A[i]
+
+    with pytest.raises(
+        Exception, match="cannot bind non-real-scalar non-boolean value"
+    ):
+        bind_config(foo, "i", cfg, "i")
+
+
+def test_config_bind4():
+    cfg = new_control_config()
+
+    @proc
+    def foo(A: f32[10]):
+        for i in seq(0, 10):
+            tmp: f32
+            A[i] = tmp
+
+    with pytest.raises(Exception, match="expected type of expression to bind "):
+        bind_config(foo, "tmp", cfg, "i")
 
 
 def test_config_fission(golden):
@@ -371,120 +414,3 @@ def test_ld(golden):
     )
 
     assert f"{config_ld_i8}\n{ld_i8}" == golden
-
-
-"""
-
-    @proc
-    def ld_i8_v1_5(
-        n     : size,
-        m     : size,
-        scale : f32,
-        src   : [i8][n, m] @ DRAM,
-        dst   : [i8][n, 16] @ GEMM_SCRATCH,
-    ):
-        assert n <= 16
-        assert m <= 16
-        assert stride(src, 1) == 1
-        assert stride(dst, 0) == 16
-        assert stride(dst, 1) == 1
-        assert stride(src, 0) == ConfigLoad.src_stride
-
-        ConfigLoad.scale = scale
-        ConfigLoad.src_stride = stride(src, 0)
-
-        for i in seq(0, n):
-            for j in seq(0, m):
-                tmp : f32
-                tmp      = src[i,j]
-                tmp      = tmp * ConfigLoad.scale
-                dst[i,j] = tmp
-
-    @proc
-    def ld_i8_v2(
-        n     : size,
-        m     : size,
-        scale : f32,
-        src   : [i8][n, m] @ DRAM,
-        dst   : [i8][n, 16] @ GEMM_SCRATCH,
-    ):
-        assert n <= 16
-        assert m <= 16
-        assert stride(src, 1) == 1
-        assert stride(dst, 0) == 16
-        assert stride(dst, 1) == 1
-        assert stride(src, 0) == ConfigLoad.src_stride
-
-        config_ld_i8(scale, stride(src, 0))
-        do_ld_i8(n, m, src, dst)
-
-
-    new = (ld_i8.rename("new")
-                .replace(ld_i8, "for i in _:_")
-                .call_eqv(ld_i8_v2, "ld_i8(_, _, _, _, _)"))
-    print(new)
-
-
-
-
-def test_config_write3():
-    ConfigAB = new_config_f32()
-    @proc
-    def foo(n : size):
-        for i in seq(0, n):
-            ConfigAB.a = 3.0
-            ConfigAB.b = ConfigAB.a
-
-
-
-# This is fine
-def test_read_write2():
-    @proc
-    def foo(n : size, A : i8[n]):
-        a : i8
-        a = 4.0
-        for i in seq(0, n):
-            a    = 0.0
-            A[i] = a
-
-    foo.check_effects()
-
-
-
-def new_CONFIG_2f32():
-
-
-
-@proc
-def test_make_config(n: size, dst: R[n] @ DRAM, src: R[n] @ DRAM):
-    for i in seq(0, (n + 7) / 8):
-        if n - 8 * i >= 8:
-            pass
-        else:
-            for j in seq(0, n - 8 * i):
-                dst[8 * i + j] = src[8 * i + j]
-
-
-
-@instr("write_config({a}, {b})")
-def set_real_config( a : f32, b : f32):
-    REAL_CONFIG.a = a
-    REAL_CONFIG.b = b
-
-# st_config_ex
-@proc
-def set_config_a( a : f32 ):
-    DUMMY_CONFIG.a = a
-    set_real_config(DUMMY_CONFIG.a, DUMMY_CONFIG.b )
-
-# matmul_config_ex
-@proc
-def set_config_b( b : f32 ):
-    DUMMY_CONFIG.b = b
-    set_real_config(DUMMY_CONFIG.a, DUMMY_CONFIG.b )
-
-@instr("mvin...")
-def st_i8_v2( ..., stride : stride, ...)
-    set_config_a(stride)
-    do_st_i8(...)
-"""

@@ -1,8 +1,11 @@
 def foo(x: i8 @ DRAM):
     for i in seq(0, 5):
         for j in seq(0, 5):  # <-- NODE
-            ...
+            if i == 0:
+                x = 1.0
 
 def foo(x: i8 @ DRAM):
     for i in seq(0, 5):  # <-- NODE
-        ...
+        for j in seq(0, 5):
+            if i == 0:
+                x = 1.0

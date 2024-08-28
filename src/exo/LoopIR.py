@@ -1,5 +1,5 @@
 import re
-from collections import ChainMap
+from collections import ChainMap, defaultdict
 from typing import Type
 
 from asdl_adt import ADT, validators
@@ -63,7 +63,6 @@ module LoopIR {
              expr*   preds,
              stmt*   body,
              instr?  instr,
-             effect? eff,
              srcinfo srcinfo )
 
     instr  = ( string c_instr,
@@ -84,7 +83,7 @@ module LoopIR {
          | Free( sym name, type type, mem mem )
          | Call( proc f, expr* args )
          | WindowStmt( sym name, expr rhs )
-         attributes( effect? eff, srcinfo srcinfo )
+         attributes( srcinfo srcinfo )
 
     loop_mode = Seq()
                 | Par()
@@ -130,7 +129,6 @@ module LoopIR {
     ext_types={
         "name": validators.instance_of(Identifier, convert=True),
         "sym": Sym,
-        "effect": (lambda x: validators.instance_of(Effects.effect)(x)),
         "mem": Type[Memory],
         "builtin": BuiltIn,
         "config": Config,
@@ -306,55 +304,6 @@ module CIR {
         "int": int,
         "sym": Sym,
         "op": validators.instance_of(Operator, convert=True),
-    },
-)
-
-
-# --------------------------------------------------------------------------- #
-# Effects
-# --------------------------------------------------------------------------- #
-
-Effects = ADT(
-    """
-module Effects {
-    effect      = ( effset*     reads,
-                    effset*     writes,
-                    effset*     reduces,
-                    config_eff* config_reads,
-                    config_eff* config_writes,
-                    srcinfo     srcinfo )
-
-    -- JRK: the notation of this comprehension is confusing -
-    ---     maybe just use math:
-    -- this corresponds to `{ buffer : loc for *names in int if pred }`
-    effset      = ( sym         buffer,
-                    expr*       loc,    -- e.g. reading at (i+1,j+1)
-                    sym*        names,
-                    expr?       pred,
-                    srcinfo     srcinfo )
-
-    config_eff  = ( config      config, -- blah
-                    string      field,
-                    expr?       value, -- need not be supplied for reads
-                    expr?       pred,
-                    srcinfo     srcinfo )
-
-    expr        = Var( sym name )
-                | Not( expr arg )
-                | Const( object val )
-                | BinOp( binop op, expr lhs, expr rhs )
-                | Stride( sym name, int dim )
-                | Select( expr cond, expr tcase, expr fcase )
-                | ConfigField( config config, string field )
-                attributes( type type, srcinfo srcinfo )
-
-} """,
-    {
-        "sym": Sym,
-        "type": LoopIR.type,
-        "binop": validators.instance_of(Operator, convert=True),
-        "config": Config,
-        "srcinfo": SrcInfo,
     },
 )
 
@@ -586,39 +535,6 @@ del basetype
 # TODO: FIX THIS!!!
 # noinspection PyUnresolvedReferences
 from . import LoopIR_pprint
-
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
-
-
-# convert from LoopIR.expr to E.expr
-def lift_to_eff_expr(e):
-    if isinstance(e, LoopIR.Read):
-        assert len(e.idx) == 0
-        return Effects.Var(e.name, e.type, e.srcinfo)
-
-    elif isinstance(e, LoopIR.Const):
-        return Effects.Const(e.val, e.type, e.srcinfo)
-
-    elif isinstance(e, LoopIR.BinOp):
-        lhs = lift_to_eff_expr(e.lhs)
-        rhs = lift_to_eff_expr(e.rhs)
-        return Effects.BinOp(e.op, lhs, rhs, e.type, e.srcinfo)
-
-    elif isinstance(e, LoopIR.USub):
-        zero = Effects.Const(0, e.type, e.srcinfo)
-        arg = lift_to_eff_expr(e.arg)
-        return Effects.BinOp("-", zero, arg, e.type, e.srcinfo)
-
-    elif isinstance(e, LoopIR.StrideExpr):
-        return Effects.Stride(e.name, e.dim, e.type, e.srcinfo)
-
-    elif isinstance(e, LoopIR.ReadConfig):
-        cfg_val = e.config.lookup(e.field)[1]
-        return Effects.ConfigField(e.config, e.field, cfg_val, e.srcinfo)
-
-    assert False, f"bad case, e is {type(e)}"
 
 
 # --------------------------------------------------------------------------- #
@@ -1050,6 +966,16 @@ class GetReads(LoopIR_Do):
         super().do_e(e)
 
 
+class GetReadConfigs(LoopIR_Do):
+    def __init__(self):
+        self.readconfigs = []
+
+    def do_e(self, e):
+        if isinstance(e, LoopIR.ReadConfig):
+            self.readconfigs.append((e.config, e.field))
+        super().do_e(e)
+
+
 def get_reads_of_expr(e):
     gr = GetReads()
     gr.do_e(e)
@@ -1061,6 +987,13 @@ def get_reads_of_stmts(stmts):
     for stmt in stmts:
         gr.do_s(stmt)
     return gr.reads
+
+
+def get_readconfigs(stmts):
+    gr = GetReadConfigs()
+    for stmt in stmts:
+        gr.do_s(stmt)
+    return gr.readconfigs
 
 
 class GetWrites(LoopIR_Do):
@@ -1090,6 +1023,49 @@ def get_writes_of_stmts(stmts):
     gw = GetWrites()
     gw.do_stmts(stmts)
     return gw.writes
+
+
+class GetWriteConfigs(LoopIR_Do):
+    def __init__(self):
+        self.writeconfigs = []
+
+    def do_s(self, s):
+        if isinstance(s, LoopIR.WriteConfig):
+            self.writeconfigs.append((s.config, s.field))
+        elif isinstance(s, LoopIR.Call):
+            self.writeconfigs += get_writeconfigs(s.f.body)
+
+        super().do_s(s)
+
+    # early exit
+    def do_e(self, e):
+        return
+
+
+def get_writeconfigs(stmts):
+    gw = GetWriteConfigs()
+    gw.do_stmts(stmts)
+    return gw.writeconfigs
+
+
+class GetLoopIters(LoopIR_Do):
+    def __init__(self):
+        self.loop_iters = []
+
+    def do_s(self, s):
+        if isinstance(s, LoopIR.For):
+            self.loop_iters.append(s.iter)
+        super().do_s(s)
+
+    # early exit
+    def do_e(self, e):
+        return
+
+
+def get_loop_iters(stmts):
+    gw = GetLoopIters()
+    gw.do_stmts(stmts)
+    return gw.loop_iters
 
 
 def is_const_zero(e):
@@ -1322,3 +1298,215 @@ class SubstArgs(LoopIR_Rewrite):
                 return (t2 or t).update(src_buf=src_buf.name)
 
         return t2
+
+
+# Data-flow dependencies between variable names
+# TODO: Refactor this using new AI based analysis
+
+# So, what is dependency analysis?
+# Or to put it another way, what extensional property(s)
+# does dependency analysis guarantee?
+#
+# Let B be a block of statements,
+#     s be a store, and
+#     x, y, … be names/symbols.
+# Let FV(B) be the set of names that are free in B
+#
+# Then, first observe that the "meaning" of B is
+#
+#   Exec[[B]] : (FV(B) -> Value) -> Store -> Store
+#
+# (note that (FV(B) -> Value) is a valuation/mapping specifying the values
+#       of all free variables)
+# (further note that Store = (Name -> Maybe Value) is a valuation/mapping
+#       of variables that models the heap/store)
+#
+# Then, (not x DependsOn y in B) for some y in FV(B) implies that
+#
+#   (Exec[[B]] (env[ y := v1 ]) s)[x] =
+#   (Exec[[B]] (env[ y := v2 ]) s)[x]
+#
+# for all v1, v2
+#
+# Or in other words, the meaning of B
+# w.r.t. its effect on x
+# is invariant to the value of y
+# when x does not depend on y in B
+
+
+class LoopIR_Dependencies(LoopIR_Do):
+    def __init__(self, buf_sym, stmts):
+        self._buf_sym = buf_sym
+        self._lhs = None
+        self._depends = defaultdict(set)
+        self._alias = dict()
+
+        # If `lhs` is not None, then `lhs` will become dependent
+        # on anything read.
+        self._lhs = None
+
+        # variables that affect whether or not the
+        # currently examined code is even running
+        self._context = set()
+
+        # If `control` is True, then anything read will be added
+        # to `context`.
+        self._control = False
+
+        self.do_stmts(stmts)
+
+    def result(self):
+        depends = self._depends[self._buf_sym]
+        new = list(depends)
+        done = []
+        while True:
+            if len(new) == 0:
+                break
+            sym = new.pop()
+            done.append(sym)
+            d = self._depends[sym]
+            depends.update(d)
+            new.extend(s for s in d if s not in done)
+
+        return depends
+
+    def do_s(self, s):
+        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            lhs = self._alias.get(s.name, s.name)
+            self._lhs = lhs
+            self._depends[lhs].add(lhs)
+            self._depends[lhs].update(self._context)
+            for i in s.idx:
+                self.do_e(i)
+            self.do_e(s.rhs)
+            self._lhs = None
+        elif isinstance(s, LoopIR.WriteConfig):
+            lhs = (s.config, s.field)
+            self._lhs = lhs
+            self._depends[lhs].add(lhs)
+            self._depends[lhs].update(self._context)
+            self.do_e(s.rhs)
+            self._lhs = None
+        elif isinstance(s, LoopIR.WindowStmt):
+            rhs_buf = self._alias.get(s.rhs.name, s.rhs.name)
+            self._alias[s.name] = rhs_buf
+            self._lhs = rhs_buf
+            self._depends[rhs_buf].add(rhs_buf)
+            self.do_e(s.rhs)
+            self._lhs = None
+
+        elif isinstance(s, LoopIR.If):
+            old_context = self._context
+            self._context = old_context.copy()
+
+            self._control = True
+            self.do_e(s.cond)
+            self._control = False
+
+            self.do_stmts(s.body)
+            self.do_stmts(s.orelse)
+
+            self._context = old_context
+
+        elif isinstance(s, LoopIR.For):
+            old_context = self._context
+            self._context = old_context.copy()
+
+            self._control = True
+            self._lhs = s.iter
+            self._depends[s.iter].add(s.iter)
+            self.do_e(s.lo)
+            self.do_e(s.hi)
+            self._lhs = None
+            self._control = False
+
+            self.do_stmts(s.body)
+
+            self._context = old_context
+
+        elif isinstance(s, LoopIR.Call):
+
+            def process_reads():
+                # now handle dependencies on buffers that might
+                # be read from in the sub-procedure
+                # and dependencies on other arguments
+                for faa, aa in zip(s.f.args, s.args):
+                    if faa.type.is_numeric():
+                        maybe_read = any(
+                            t[0] == faa.name for t in get_reads_of_stmts(s.f.body)
+                        )
+                    else:
+                        maybe_read = True
+
+                    if maybe_read:
+                        self.do_e(aa)
+
+                # additionally, we need to handle dependencies
+                # on configuration fields
+                for name in get_readconfigs(s.f.body):
+                    if self._lhs:
+                        self._depends[self._lhs].add(name)
+
+            # for every argument that represents a buffer being
+            # written to
+            for fa, a in zip(s.f.args, s.args):
+                maybe_write = fa.type.is_numeric() and any(
+                    t[0] == fa.name for t in get_writes_of_stmts(s.f.body)
+                )
+                if maybe_write:
+                    name = self._alias.get(a.name, a.name)
+                    self._lhs = name
+                    self._depends[name].add(name)
+                    self._depends[name].update(self._context)
+                    process_reads()
+                    self._lhs = None
+
+            # secondly, for every configuration field being written to
+            # by this sub-procedure, we need to determine dependencies
+            for name in get_writeconfigs(s.f.body):
+                self._lhs = name
+                self._depends[name].add(name)
+                self._depends[name].update(self._context)
+                process_reads()
+                self._lhs = None
+
+        elif isinstance(s, (LoopIR.Pass, LoopIR.Alloc)):
+            pass
+        else:
+            assert False, "bad case"
+
+    def do_e(self, e):
+        if isinstance(e, (LoopIR.Read, LoopIR.WindowExpr)):
+
+            def visit_idx(e):
+                if isinstance(e, LoopIR.Read):
+                    for i in e.idx:
+                        self.do_e(i)
+                else:
+                    for w in e.idx:
+                        if isinstance(w, LoopIR.Interval):
+                            self.do_e(w.lo)
+                            self.do_e(w.hi)
+                        else:
+                            self.do_e(w.pt)
+
+            name = self._alias.get(e.name, e.name)
+            if self._lhs:
+                self._depends[self._lhs].add(name)
+            if self._control:
+                self._context.add(name)
+
+            visit_idx(e)
+
+        elif isinstance(e, LoopIR.ReadConfig):
+            name = (e.config, e.field)
+            if self._lhs:
+                self._depends[self._lhs].add(name)
+            if self._control:
+                self._context.add(name)
+
+        else:
+            super().do_e(e)
+
+    def do_t(self, t):
+        pass

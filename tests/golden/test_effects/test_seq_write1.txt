@@ -1,3 +1,0 @@
-Reads:
-  { A : (i) for (i) in Z if
-    0 <= i and i < n }

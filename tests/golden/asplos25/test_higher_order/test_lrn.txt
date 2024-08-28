@@ -2,28 +2,41 @@ def bar(n: size, A: i8[n] @ DRAM):
     for i in seq(0, n):
         for j in seq(0, n):
             tmp_a: i8[n] @ DRAM  # <-- NODE
-            ...
+            tmp_b: i8[n] @ DRAM
+            tmp_a[i] = A[i]
+            tmp_b[i] = A[i]
 def bar(n: size, A: i8[n] @ DRAM):
     for i in seq(0, n):
         for j in seq(0, n):
-            ...
+            tmp_a: i8[n] @ DRAM
             tmp_b: i8[n] @ DRAM  # <-- NODE
-            ...
+            tmp_a[i] = A[i]
+            tmp_b[i] = A[i]
 def bar(n: size, A: i8[n] @ DRAM):
     for i in seq(0, n):
         for j in seq(0, n):
-            ...
+            tmp_a: i8[n] @ DRAM
+            tmp_b: i8[n] @ DRAM
             tmp_a[i] = A[i]  # <-- NODE
-            ...
+            tmp_b[i] = A[i]
 def bar(n: size, A: i8[n] @ DRAM):
     for i in seq(0, n):
         for j in seq(0, n):
-            ...
+            tmp_a: i8[n] @ DRAM
+            tmp_b: i8[n] @ DRAM
+            tmp_a[i] = A[i]
             tmp_b[i] = A[i]  # <-- NODE
 def bar(n: size, A: i8[n] @ DRAM):
     for i in seq(0, n):
         for j in seq(0, n):  # <-- NODE
-            ...
+            tmp_a: i8[n] @ DRAM
+            tmp_b: i8[n] @ DRAM
+            tmp_a[i] = A[i]
+            tmp_b[i] = A[i]
 def bar(n: size, A: i8[n] @ DRAM):
     for i in seq(0, n):  # <-- NODE
-        ...
+        for j in seq(0, n):
+            tmp_a: i8[n] @ DRAM
+            tmp_b: i8[n] @ DRAM
+            tmp_a[i] = A[i]
+            tmp_b[i] = A[i]

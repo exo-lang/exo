@@ -38,7 +38,7 @@ class WindowAnalysis(LoopIR_Rewrite):
 
             args = [promote_arg(a, sa) for a, sa in zip(args, s.f.args)]
 
-            return [LoopIR.Call(s.f, args, s.eff, s.srcinfo)]
+            return [LoopIR.Call(s.f, args, s.srcinfo)]
 
         return super().map_s(s)
 
@@ -49,6 +49,3 @@ class WindowAnalysis(LoopIR_Rewrite):
 
     def map_t(self, t):
         return t
-
-    def map_eff(self, eff):
-        return eff

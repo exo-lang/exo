@@ -122,7 +122,7 @@ class PrecisionAnalysis(LoopIR_Rewrite):
 
         elif isinstance(s, LoopIR.WriteConfig):
             rtyp = result[0].rhs.type
-            ltyp = s.config.lookup(s.field)[1]
+            ltyp = s.config.lookup_type(s.field)
             assert ltyp != T.err and ltyp != T.R
 
             # potentially coerce the entire right-hand-side
@@ -230,7 +230,4 @@ class PrecisionAnalysis(LoopIR_Rewrite):
     # make this more efficient by not rewriting
     # most of the sub-trees
     def map_t(self, t):
-        return None
-
-    def map_eff(self, eff):
         return None

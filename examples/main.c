@@ -34,7 +34,7 @@ int main() {
   // Calling original matmul
   start = clock();
   for (int i = 0; i < 1000; i++)
-    rank_k_reduce_6x16(NULL, K, C, A, B);
+    rank_k_reduce_6x16(NULL, K, A, B, C);
   end = clock();
 
   msec = (end - start) * 1000 / CLOCKS_PER_SEC;
@@ -44,7 +44,7 @@ int main() {
   // Calling scheduled matmul
   start = clock();
   for (int i = 0; i < 1000; i++)
-    rank_k_reduce_6x16_scheduled(NULL, K, C, A, B);
+    rank_k_reduce_6x16_scheduled(NULL, K, A, B, C);
   end = clock();
 
   msec = (end - start) * 1000 / CLOCKS_PER_SEC;

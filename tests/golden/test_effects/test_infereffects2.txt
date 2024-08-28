@@ -1,3 +1,0 @@
-Writes:
-    { A : (i,j) for (i,j) in Z if
-    0 <= i and i < 10 and (0 <= j and j < 20) }

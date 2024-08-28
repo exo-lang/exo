@@ -37,7 +37,6 @@ class MemoryAnalysis:
             proc.preds,
             body,
             proc.instr,
-            proc.eff,
             proc.srcinfo,
         )
 
@@ -110,7 +109,7 @@ class MemoryAnalysis:
                 if nm in used:
                     rm += [(nm, typ, mem)]
             for (nm, typ, mem) in rm:
-                body += [LoopIR.Free(nm, typ, mem, None, b.srcinfo)]
+                body += [LoopIR.Free(nm, typ, mem, b.srcinfo)]
                 self.tofree[-1].remove((nm, typ, mem))
             body += [b]
 
@@ -161,7 +160,7 @@ class MemoryAnalysis:
             self.push()
             ebody = self.mem_stmts(s.orelse)
             self.pop()
-            return LoopIR.If(s.cond, body, ebody, None, s.srcinfo)
+            return LoopIR.If(s.cond, body, ebody, s.srcinfo)
         elif styp is LoopIR.For:
             self.push()
             body = self.mem_stmts(s.body)
