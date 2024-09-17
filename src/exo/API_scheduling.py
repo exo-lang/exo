@@ -785,6 +785,8 @@ class NewExprOrCustomWindowExprA(NewExprA):
 # --------------------------------------------------------------------------- #
 # Basic Operations
 
+count = 0
+
 
 @sched_op([])
 def simplify(proc):
@@ -794,6 +796,9 @@ def simplify(proc):
     conditions to simplify expressions inside the branches.
     """
     # TODO: remove provenance handling from simplifier implementation
+    global count
+    count += 1
+    print(count)
     return scheduling.DoSimplify(proc).result()
 
 
@@ -805,6 +810,9 @@ def rename(proc, name):
     args:
         name    - string
     """
+    global count
+    count += 1
+    print(count)
     ir = proc._loopir_proc
     ir = ir.update(name=name)
     return Procedure(
@@ -821,6 +829,9 @@ def make_instr(proc, c_instr, c_global=""):
         c_instr  - string representing an instruction macro
         c_global - string representing global C code necessary for this instruction e.g. includes
     """
+    global count
+    count += 1
+    print(count)
     ir = proc._loopir_proc
     instr = LoopIR.instr(c_instr=c_instr, c_global=c_global)
     ir = ir.update(instr=instr)
@@ -850,6 +861,9 @@ def insert_pass(proc, gap_cursor):
         `s1 ; pass ; s2`
     """
     ir, fwd = scheduling.DoInsertPass(gap_cursor._impl)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -859,6 +873,9 @@ def insert_noop_call(proc, gap_cursor, instr, args):
         raise TypeError("Function argument count mismatch")
 
     ir, fwd = scheduling.DoInsertNoopCall(gap_cursor._impl, instr._loopir_proc, args)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -870,6 +887,9 @@ def delete_pass(proc):
     Delete all `pass` statements in the procedure.
     """
     ir, fwd = scheduling.DoDeletePass(proc)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -890,6 +910,9 @@ def reorder_stmts(proc, block_cursor):
     s2 = block_cursor[1]._impl
 
     ir, fwd = scheduling.DoReorderStmt(s1, s2)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -898,6 +921,9 @@ def parallelize_loop(proc, loop_cursor):
     loop = loop_cursor._impl
 
     ir, fwd = scheduling.DoParallelizeLoop(loop)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -934,6 +960,9 @@ def commute_expr(proc, expr_cursors):
         )
 
     ir, fwd = scheduling.DoCommuteExpr(exprs)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -963,6 +992,9 @@ def left_reassociate_expr(proc, expr):
             f"The rhs of the expression must be the same binary operation as the expression ({expr._node.op})"
         )
     ir, fwd = scheduling.DoLeftReassociateExpr(expr)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -978,6 +1010,9 @@ def rewrite_expr(proc, expr_cursor, new_expr):
         `s[ expr_cursor -> new_expr]`
     """
     ir, fwd = scheduling.DoRewriteExpr(expr_cursor._impl, new_expr)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1010,6 +1045,9 @@ def bind_expr(proc, expr_cursors, new_name):
         )
 
     ir, fwd = scheduling.DoBindExpr(new_name, exprs)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1058,6 +1096,9 @@ def extract_subproc(proc, block, subproc_name, include_asserts=True):
     )
     proc = Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
     subproc = Procedure(subproc_ir)
+    global count
+    count += 1
+    print(count)
     return proc, subproc
 
 
@@ -1071,6 +1112,9 @@ def inline(proc, call_cursor):
                           whose body we want to inline
     """
     ir, fwd = scheduling.DoInline(call_cursor._impl)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1090,6 +1134,9 @@ def replace(proc, block_cursor, subproc, quiet=False):
     """
     try:
         ir, fwd = DoReplace(subproc._loopir_proc, block_cursor._impl)
+        global count
+        count += 1
+        print(count)
         return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
     except UnificationError:
         if quiet:
@@ -1119,6 +1166,9 @@ def call_eqv(proc, call_cursor, eqv_proc):
     new_loopir = eqv_proc._loopir_proc
 
     ir, fwd, cfg = scheduling.DoCallSwap(call_stmt, new_loopir)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd, _mod_config=cfg)
 
 
@@ -1141,6 +1191,9 @@ def set_precision(proc, cursor, typ):
         `name : _[...]    ->    name : typ[...]`
     """
     ir, fwd = scheduling.DoSetTypAndMem(cursor._impl, basetyp=typ)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1158,6 +1211,9 @@ def set_window(proc, cursor, is_window=True):
         `name : R[...]    ->    name : [R][...]`
     """
     ir, fwd = scheduling.DoSetTypAndMem(cursor._impl, win=is_window)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1174,6 +1230,9 @@ def set_memory(proc, cursor, memory_type):
         `name : _ @ _    ->    name : _ @ mem`
     """
     ir, fwd = scheduling.DoSetTypAndMem(cursor._impl, mem=memory_type)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1217,6 +1276,9 @@ def bind_config(proc, var_cursor, config, field):
         )
 
     ir, fwd, cfg = scheduling.DoBindConfig(config, field, var_cursor._impl)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd, _mod_config=cfg)
 
 
@@ -1233,6 +1295,9 @@ def delete_config(proc, stmt_cursor):
         `s1 ; config.field = _ ; s3    ->    s1 ; s3`
     """
     ir, fwd, cfg = scheduling.DoDeleteConfig(proc._root(), stmt_cursor._impl)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd, _mod_config=cfg)
 
 
@@ -1270,6 +1335,9 @@ def write_config(proc, gap_cursor, config, field, rhs):
 
     stmt = stmtc._impl
     ir, fwd, cfg = scheduling.DoConfigWrite(stmt, config, field, rhs, before=before)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd, _mod_config=cfg)
 
 
@@ -1319,11 +1387,14 @@ def resize_dim(proc, buf_cursor, dim_idx, size, offset, fold: bool = False):
         size = size.val
         buf_s = buf_cursor._impl
         ir, fwd = scheduling.DoFoldBuffer(buf_s, dim_idx, size)
-        return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
     else:
         # Normal resize operation
         ir, fwd = scheduling.DoResizeDim(stmt_c, dim_idx, size, offset)
-        return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+    global count
+    count += 1
+    print(count)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([AllocCursorA, NewExprA("buf_cursor"), NewExprA("buf_cursor")])
@@ -1353,6 +1424,9 @@ def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr):
     """
     stmt_c = buf_cursor._impl
     ir, fwd = scheduling.DoExpandDim(stmt_c, alloc_dim, indexing_expr)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1381,6 +1455,9 @@ def rearrange_dim(proc, buf_cursor, permute_vector):
         )
 
     ir, fwd = scheduling.DoRearrangeDim(stmt, permute_vector)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1409,6 +1486,9 @@ def divide_dim(proc, alloc_cursor, dim_idx, quotient):
         raise ValueError(f"Cannot divide out-of-bounds dimension index {dim_idx}")
 
     ir, fwd = scheduling.DoDivideDim(stmt, dim_idx, quotient)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1441,6 +1521,9 @@ def mult_dim(proc, alloc_cursor, hi_dim_idx, lo_dim_idx):
         raise ValueError(f"Cannot multiply dimension {hi_dim_idx} by itself")
 
     ir, fwd = scheduling.DoMultiplyDim(stmt, hi_dim_idx, lo_dim_idx)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1463,6 +1546,9 @@ def unroll_buffer(proc, alloc_cursor, dimension):
     """
 
     ir, fwd = scheduling.DoUnrollBuffer(alloc_cursor._impl, dimension)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1487,6 +1573,9 @@ def lift_alloc(proc, alloc_cursor, n_lifts=1):
     stmt = alloc_cursor._impl
 
     ir, fwd = scheduling.DoLiftAllocSimple(stmt, n_lifts)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1517,6 +1606,9 @@ def sink_alloc(proc, alloc_cursor):
         )
 
     ir, fwd = scheduling.DoSinkAlloc(alloc_cursor._impl, scope_cursor._impl)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1548,8 +1640,12 @@ def autolift_alloc(
         `    ...`
     """
     stmt = alloc_cursor._impl
+    res = scheduling.DoLiftAlloc(proc, stmt, n_lifts, mode, size, keep_dims).result()
+    global count
+    count += 1
+    print(count)
 
-    return scheduling.DoLiftAlloc(proc, stmt, n_lifts, mode, size, keep_dims).result()
+    return res
 
 
 @sched_op([AllocCursorA])
@@ -1559,6 +1655,9 @@ def delete_buffer(proc, buf_cursor):
     """
     buf_s = buf_cursor._impl
     ir, fwd = scheduling.DoDeleteBuffer(buf_s)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1583,6 +1682,9 @@ def reuse_buffer(proc, buf_cursor, replace_cursor):
     buf_s = buf_cursor._impl
     rep_s = replace_cursor._impl
     ir, fwd = scheduling.DoReuseBuffer(buf_s, rep_s)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1600,6 +1702,9 @@ def inline_window(proc, winstmt_cursor):
     """
     stmt = winstmt_cursor._impl
     ir, fwd = scheduling.DoInlineWindow(stmt)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1655,6 +1760,9 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
     ir, fwd = scheduling.DoStageMem(
         block_cursor._impl, buf_name, w_exprs, new_buf_name, use_accum_zero=accum
     )
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1681,6 +1789,9 @@ def divide_with_recompute(proc, loop_cursor, outer_hi, outer_stride, new_iters):
     ir, fwd = scheduling.DoDivideWithRecompute(
         loop_cursor._impl, outer_hi, outer_stride, new_iters[0], new_iters[1]
     )
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1739,6 +1850,9 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
         tail=tail,
         perfect=perfect,
     )
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1763,6 +1877,9 @@ def mult_loops(proc, nested_loops, new_iter_name):
         `    s[ i -> k/c, j -> k%c ]`
     """
     ir, fwd = scheduling.DoProductLoop(nested_loops._impl, new_iter_name)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1786,6 +1903,9 @@ def join_loops(proc, loop1_cursor, loop2_cursor):
         `    s`
     """
     ir, fwd = scheduling.DoJoinLoops(loop1_cursor._impl, loop2_cursor._impl)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1814,6 +1934,9 @@ def cut_loop(proc, loop_cursor, cut_point):
         `    s`
     """
     ir, fwd = scheduling.DoCutLoop(loop_cursor._impl, cut_point)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1837,6 +1960,9 @@ def shift_loop(proc, loop_cursor, new_lo):
         `    s(i + (m - new_lo))`
     """
     ir, fwd = scheduling.DoShiftLoop(loop_cursor._impl, new_lo)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1872,6 +1998,9 @@ def reorder_loops(proc, nested_loops):
         raise ValueError(f"expected loop directly inside of {stmt_c._node.iter} loop")
 
     ir, fwd = scheduling.DoLiftScope(stmt_c.body()[0])
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1929,6 +2058,9 @@ def merge_writes(proc, block_cursor):
         )
 
     ir, fwd = scheduling.DoMergeWrites(block_cursor[0]._impl, block_cursor[1]._impl)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1960,6 +2092,9 @@ def split_write(proc, stmt):
         - blocks containing the statement will forward to a new block containing the resulting block.
     """
     ir, fwd = scheduling.DoSplitWrite(stmt._impl)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1978,6 +2113,9 @@ def fold_into_reduce(proc, assign):
         a += expr
     """
     ir, fwd = scheduling.DoFoldIntoReduce(assign._impl)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -2000,6 +2138,9 @@ def inline_assign(proc, alloc_cursor):
         )
 
     ir, fwd = scheduling.DoInlineAssign(s)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -2025,6 +2166,9 @@ def lift_reduce_constant(proc, block_cursor):
     loop_c = block_cursor[1]._impl
 
     ir, fwd = scheduling.DoLiftConstant(stmt_c, loop_c)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -2066,6 +2210,9 @@ def fission(proc, gap_cursor, n_lifts=1, unsafe_disable_checks=False):
     ir, fwd = scheduling.DoFissionAfterSimple(
         stmt._impl, n_lifts, unsafe_disable_checks
     )
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -2104,8 +2251,11 @@ def autofission(proc, gap_cursor, n_lifts=1):
         raise ValueError(
             "expected cursor to point to a gap between statements, not at an edge"
         )
-
-    return scheduling.DoFissionLoops(proc, stmt._impl, n_lifts).result()
+    res = scheduling.DoFissionLoops(proc, stmt._impl, n_lifts).result()
+    global count
+    count += 1
+    print(count)
+    return res
 
 
 # TODO: Debug scheduling error in fuse
@@ -2149,6 +2299,9 @@ def fuse(proc, stmt1, stmt2, unsafe_disable_check=False):
         ir, fwd = scheduling.DoFuseIf(s1, s2)
     else:
         ir, fwd = scheduling.DoFuseLoop(s1, s2, unsafe_disable_check)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -2169,6 +2322,9 @@ def remove_loop(proc, loop_cursor, unsafe_disable_check=False):
         `s`
     """
     ir, fwd = scheduling.DoRemoveLoop(loop_cursor._impl, unsafe_disable_check)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -2205,6 +2361,9 @@ def add_loop(
     ir, fwd = scheduling.DoAddLoop(
         stmt_c, iter_name, hi_expr, guard, unsafe_disable_check
     )
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -2225,6 +2384,9 @@ def unroll_loop(proc, loop_cursor):
         `s[ i -> 2 ]`
     """
     ir, fwd = scheduling.DoUnroll(loop_cursor._impl)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -2258,6 +2420,9 @@ def lift_scope(proc, scope_cursor):
     stmt_c = scope_cursor._impl
 
     ir, fwd = scheduling.DoLiftScope(stmt_c)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -2280,6 +2445,9 @@ def eliminate_dead_code(proc, stmt_cursor):
     """
 
     ir, fwd = scheduling.DoEliminateDeadCode(stmt_cursor._impl)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -2312,6 +2480,9 @@ def specialize(proc, block, conds):
     """
 
     ir, fwd = scheduling.DoSpecialize(block._impl, conds)
+    global count
+    count += 1
+    print(count)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -2328,4 +2499,8 @@ def add_unsafe_guard(proc, block_cursor, var_expr):
     """
     stmt = block_cursor._impl[0]
 
-    return scheduling.DoAddUnsafeGuard(proc, stmt, var_expr).result()
+    res = scheduling.DoAddUnsafeGuard(proc, stmt, var_expr).result()
+    global count
+    count += 1
+    print(count)
+    return res
