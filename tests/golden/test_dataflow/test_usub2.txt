@@ -10,14 +10,14 @@ def foo(N : size, x : R[N]):
   ----------------------- {}
   for i in seq(0, N):
     --------------------- {}
-    CFG_a_4 =\i \phi(i == 0 ? CFG_a_3 : CFG_a_4[i - 1])
+    CFG_a_4 =\i \phi(i == 0 ? CFG_a_3 : CFG_a_4[i - 1]) # LoopStart
     --------------------- {}
-    x_1 =\i \d0 \phi(i == 0 ? x[d0] : x_2[i - 1, d0])
+    x_1 =\i \d0 \phi(i == 0 ? x[d0] : x_2[i - 1, d0]) # LoopStart
     --------------------- {}
     x_2 =\i \d0 \phi(d0 == i and True ? x_1[i, CFG_a_4[i]] + 1.0 : x_1[i, d0])
     --------------------- {}
   ----------------------- {}
-  CFG_a_5 = \phi(N > 0 ? CFG_a_4[N - 1] : CFG_a_3)
+  CFG_a_5 = \phi(N > 0 ? CFG_a_4[N - 1] : CFG_a_3) # LoopExit
   ----------------------- {}
-  x_3 =\d0 \phi(N > 0 ? x_2[N - 1, d0] : x[d0])
+  x_3 =\d0 \phi(N > 0 ? x_2[N - 1, d0] : x[d0]) # LoopExit
   ----------------------- {}

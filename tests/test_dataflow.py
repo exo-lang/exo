@@ -248,6 +248,7 @@ def test_config_2(golden):
             ConfigAB.b = ConfigAB.a
         ConfigAB.a = 2.0
 
+    print(foo.dataflow()[0])
     assert str(foo.dataflow()[0]) == golden
 
 
@@ -537,3 +538,45 @@ def test_reduc_2(golden):
         x = x + 1.0
 
     assert str(foo.dataflow()[0]) == golden
+
+
+def test_config_assert(golden):
+    @config
+    class CFG:
+        a: index
+
+    @proc
+    def foo(N: size, x: f32[N]):
+        assert CFG.a < N
+        for i in seq(0, N):
+            if CFG.a == 3:
+                CFG.a = 2
+                for j in seq(0, CFG.a):
+                    x[j] = 2.0
+
+    print(foo.dataflow()[0])
+    assert str(foo.dataflow()[0]) == golden
+
+
+def test_sliding(golden):
+    @proc
+    def blur(g: R[100] @ DRAM, inp: R[102] @ DRAM):
+        f: R[101] @ DRAM
+        for i in seq(0, 100):
+            for j in seq(0, 101):
+                f[j] = inp[j] + inp[j + 1]
+            g[i] = f[i] + f[i + 1]
+
+    print(blur.dataflow()[0])
+
+
+def test_sliding2(golden):
+    @proc
+    def blur(N: size, y: R[N]):
+        x: R[N + 1]
+        for i in seq(0, N):
+            x[i + 1] = y[i]
+        for i in seq(0, N):
+            x[i] = y[i]
+
+    print(blur.dataflow()[0])

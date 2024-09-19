@@ -4,9 +4,9 @@ def foo(N : size, x : i8, src : i8[N]):
   ----------------------- {}
   for k in seq(0, N):
     --------------------- {}
-    x_2 =\k \phi(k == 0 ? x_1 : x_3[k - 1])
+    x_2 =\k \phi(k == 0 ? x_1 : x_3[k - 1]) # LoopStart
     --------------------- {}
-    src_1 =\k \d0 \phi(k == 0 ? src[d0] : src_2[k - 1, d0])
+    src_1 =\k \d0 \phi(k == 0 ? src[d0] : src_2[k - 1, d0]) # LoopStart
     --------------------- {}
     x_4 =\k \phi(True ? x_2[k] * x_2[k] : x_2[k])
     --------------------- {}
@@ -19,12 +19,12 @@ def foo(N : size, x : i8, src : i8[N]):
       x_6 =\k \phi(True ? src_1[k, k] : x_4[k])
       ------------------- {}
     --------------------- {}
-    x_3 =\k \phi(k == 0 ? x_5[k] : x_6[k])
+    x_3 =\k \phi(k == 0 ? x_5[k] : x_6[k]) # IfJoin
     --------------------- {}
-    src_2 =\k \d0 \phi(k == 0 ? src_1[k, d0] : src_1[k, d0])
+    src_2 =\k \d0 \phi(k == 0 ? src_1[k, d0] : src_1[k, d0]) # IfJoin
     --------------------- {}
   ----------------------- {}
-  x_7 = \phi(N > 0 ? x_3[N - 1] : x_1)
+  x_7 = \phi(N > 0 ? x_3[N - 1] : x_1) # LoopExit
   ----------------------- {}
-  src_3 =\d0 \phi(N > 0 ? src_2[N - 1, d0] : src[d0])
+  src_3 =\d0 \phi(N > 0 ? src_2[N - 1, d0] : src[d0]) # LoopExit
   ----------------------- {}

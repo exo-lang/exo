@@ -97,17 +97,36 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
     if isinstance(stmt, DataflowIR.Pass):
         return [f"{indent}pass"]
 
-    elif isinstance(stmt, (DataflowIR.Assign, DataflowIR.Reduce)):
+    elif isinstance(
+        stmt,
+        (
+            DataflowIR.Assign,
+            DataflowIR.Reduce,
+            DataflowIR.LoopStart,
+            DataflowIR.LoopExit,
+            DataflowIR.IfJoin,
+        ),
+    ):
         # Assign( sym lhs, sym* dims, expr cond, expr body, expr orelse )
-        op = "=" if isinstance(stmt, DataflowIR.Assign) else "+="
+        op = "+=" if isinstance(stmt, DataflowIR.Reduce) else "="
         lhs = env.get_name(stmt.lhs)
-        dims = ["\\" + env.get_name(d) for d in stmt.dims]
+        dims = ["\\" + env.get_name(d) for d in stmt.iters + stmt.dims]
 
         cond = _print_expr(stmt.cond, env)
         body = _print_expr(stmt.body, env)
         orelse = _print_expr(stmt.orelse, env)
 
-        return [f"{indent}{lhs} {op}{' '.join(dims)} \phi({cond} ? {body} : {orelse})"]
+        comment = ""
+        if isinstance(stmt, DataflowIR.LoopStart):
+            comment = " # LoopStart"
+        elif isinstance(stmt, DataflowIR.LoopExit):
+            comment = " # LoopExit"
+        elif isinstance(stmt, DataflowIR.IfJoin):
+            comment = " # IfJoin"
+
+        return [
+            f"{indent}{lhs} {op}{' '.join(dims)} \phi({cond} ? {body} : {orelse}){comment}"
+        ]
 
     elif isinstance(stmt, DataflowIR.Alloc):
         ty = _print_type(stmt.type, env)
