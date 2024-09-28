@@ -304,11 +304,14 @@ def _print_ae(ae, env: PrintEnv):
     elif isinstance(ae, D.Var):
         return env.get_name(ae.name)
     elif isinstance(ae, D.Add):
+        # clean printing for sanity
+        if isinstance(ae.rhs, D.Mult) and ae.rhs.coeff == -1:
+            return f"({_print_ae(ae.lhs, env)}-{_print_ae(ae.rhs.ae, env)})"
+        elif isinstance(ae.rhs, D.Mult) and ae.rhs.coeff <= -1:
+            return f"({_print_ae(ae.lhs, env)}{_print_ae(ae.rhs, env)})"
         return f"({_print_ae(ae.lhs, env)}+{_print_ae(ae.rhs, env)})"
-    elif isinstance(ae, D.Minus):
-        return f"({_print_ae(ae.lhs, env)}-{_print_ae(ae.rhs, env)})"
     elif isinstance(ae, D.Mult):
-        return f"{str(self.coeff)}*{_print_ae(ae.ae, env)}"
+        return f"{str(ae.coeff)}*{_print_ae(ae.ae, env)}"
     assert False, "bad case"
 
 

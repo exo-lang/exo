@@ -2,8 +2,39 @@ from __future__ import annotations
 import pytest
 from exo import proc, DRAM, Procedure, config
 from exo.stdlib.scheduling import *
-from exo.dataflow import D, substitute, sub_aexpr, widening
+from exo.dataflow import D, substitute, sub_aexpr, widening, V
 from exo.prelude import Sym
+
+
+def test_widening2():
+    i = Sym("i")
+    d = Sym("d")
+    N = Sym("N")
+    vi = D.Var(i)
+    vd = D.Var(d)
+    vN = D.Var(N)
+
+    sx_1 = Sym("x_1")
+    sx = Sym("x")
+    x_1 = D.ArrayConst(sx_1, [D.Add(vi, D.Mult(-1, D.Const(1))), vd])
+    x = D.ArrayConst(sx, [vd])
+    eq2 = D.Add(D.Add(vi, D.Mult(-1, D.Const(1))), D.Mult(-1, vd))
+    bot = D.Leaf(D.SubVal(V.Bot()))
+    eq3 = D.Add(D.Add(D.Add(vi, D.Mult(-1, D.Const(1))), vd), D.Mult(-1, vN))
+    tree_eq3 = D.AffineSplit(
+        eq3, D.Leaf(x_1), D.Leaf(D.SubVal(V.ValConst(3.0))), D.Leaf(x_1)
+    )
+    x_1_tree = D.AffineSplit(
+        vi,
+        bot,
+        D.Leaf(x),
+        D.AffineSplit(eq2, tree_eq3, D.Leaf(D.SubVal(V.ValConst(1.0))), tree_eq3),
+    )
+    x_1_abs = D.abs([i, N, d], x_1_tree)
+
+    print(x_1_abs)
+    widened_x_1 = widening(sx_1, x_1_abs)
+    print(widened_x_1)
 
 
 def test_widening():

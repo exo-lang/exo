@@ -791,7 +791,6 @@ module ArrayDomain {
     aexpr = Const(int val)
           | Var(sym name)
           | Add(aexpr lhs, aexpr rhs)
-          | Minus(aexpr lhs, aexpr rhs)
           | Mult(int coeff, aexpr ae)  
 }
 """,
@@ -808,7 +807,7 @@ D = ArrayDomain
 from . import dataflow_pprint
 
 
-def _lift_aexpr(e):
+def _lift_aexpr(e: D.aexpr) -> A:
     typ = T.Int()
     if isinstance(e, D.Var):
         return A.Var(e.name, typ, null_srcinfo())
@@ -816,8 +815,6 @@ def _lift_aexpr(e):
         return A.Const(e.val, typ, null_srcinfo())
     elif isinstance(e, D.Add):
         return A.BinOp("+", _lift_aexpr(e.lhs), _lift_aexpr(e.rhs), typ, null_srcinfo())
-    elif isinstance(e, D.Minus):
-        return A.BinOp("-", _lift_aexpr(e.lhs), _lift_aexpr(e.rhs), typ, null_srcinfo())
     elif isinstance(e, D.Mult):
         return A.BinOp(
             "*",
@@ -828,6 +825,12 @@ def _lift_aexpr(e):
         )
     else:
         assert False, "bad case!"
+
+
+def mk_aexpr(op, pred):
+    return A.BinOp(
+        op, pred, A.Const(0, T.Int(), null_srcinfo()), T.Bool(), null_srcinfo()
+    )
 
 
 # simplify
@@ -843,11 +846,6 @@ def abs_simplify(src: D.abs) -> D.abs:
                 T.Bool(),
                 null_srcinfo(),
             )
-        )
-
-    def mk_aexpr(op, pred):
-        return A.BinOp(
-            op, pred, A.Const(0, T.Int(), null_srcinfo()), T.Bool(), null_srcinfo()
         )
 
     def map_tree(tree: D.node):
@@ -916,7 +914,7 @@ def abs_simplify(src: D.abs) -> D.abs:
 
 
 # src[var -> term]
-def substitute(var: D.ArrayConst, term: D.node, src: D.abs):
+def substitute(var: D.ArrayConst, term: D.node, src: D.abs) -> D.abs:
     def a_comp(x: D.aexpr, y: D.aexpr):
         if type(x) != type(y):
             return False
@@ -924,7 +922,7 @@ def substitute(var: D.ArrayConst, term: D.node, src: D.abs):
             return x.val == y.val
         elif isinstance(x, D.Var):
             return x.name == y.name
-        elif isinstance(x, (D.Add, D.Minus)):
+        elif isinstance(x, D.Add):
             return a_comp(x.lhs, y.lhs) and a_comp(x.rhs, y.rhs)
         elif isinstance(x, D.Mult):
             return x.coeff == y.coeff and a_comp(x.ae, y.ae)
@@ -956,8 +954,8 @@ def substitute(var: D.ArrayConst, term: D.node, src: D.abs):
     return D.abs(src.iterators, map_tree(src.tree))
 
 
-# e.g. i -> i-1 in src
-def sub_aexpr(var: D.aexpr, term: D.aexpr, src: D.abs):
+# src[var -> term]
+def sub_aexpr(var: D.aexpr, term: D.aexpr, src: D.abs) -> D.abs:
     def a_comp(x: D.aexpr, y: D.aexpr):
         if type(x) != type(y):
             return False
@@ -965,7 +963,7 @@ def sub_aexpr(var: D.aexpr, term: D.aexpr, src: D.abs):
             return x.val == y.val
         elif isinstance(x, D.Var):
             return x.name == y.name
-        elif isinstance(x, (D.Add, D.Minus)):
+        elif isinstance(x, D.Add):
             return a_comp(x.lhs, y.lhs) and a_comp(x.rhs, y.rhs)
         elif isinstance(x, D.Mult):
             return x.coeff == y.coeff and a_comp(x.ae, y.ae)
@@ -975,7 +973,7 @@ def sub_aexpr(var: D.aexpr, term: D.aexpr, src: D.abs):
     def map_aexpr(ae: D.aexpr):
         if a_comp(ae, var):
             return term
-        elif isinstance(ae, (D.Add, D.Minus)):
+        elif isinstance(ae, D.Add):
             return type(ae)(map_aexpr(ae.lhs), map_aexpr(ae.rhs))
         elif isinstance(ae, D.Mult):
             return D.Mult(ae.coeff, map_aexpr(ae.ae))
@@ -1044,15 +1042,32 @@ def find_intersections(dims: list, eqs: set) -> set:
             rhs = cvt_eq(eq.rhs)
             common = {key: (lhs[key] + rhs[key]) for key in lhs if key in rhs}
             return lhs | rhs | common
-        elif isinstance(eq, D.Minus):
-            lhs = cvt_eq(eq.lhs)
-            rhs = cvt_eq(eq.rhs)
-            common = {key: (lhs[key] - rhs[key]) for key in lhs if key in rhs}
-            neg_rhs = {key: -rhs[key] for key in rhs}
-            return lhs | neg_rhs | common
         elif isinstance(eq, D.Mult):
             arg = cvt_eq(eq.ae)
             return {key: arg[key] * eq.coeff for key in arg}
+
+    def cvt_back(dic: dict) -> D.aexpr:
+        varr = []
+        for key, val in dic.items():
+            if val == 0:
+                continue
+            if key == const_rep:
+                varr.append(D.Const(val))
+                continue
+
+            var = D.Var(key)
+            if val != 1:
+                var = D.Mult(val, var)
+            varr.append(var)
+
+        if len(varr) > 1:
+            ae = D.Add(varr[0], varr[1])
+            for var in varr[2:]:
+                ae = D.Add(ae, var)
+        else:
+            ae = varr[0]
+
+        return ae
 
     target = dims[0]
     intersections = []
@@ -1078,19 +1093,88 @@ def find_intersections(dims: list, eqs: set) -> set:
             cur[d] = a_n * b_i - b_n * a_i
         intersections.append(cur)
 
-    return intersections
+    return [cvt_back(eq) for eq in intersections]
+
+
+def merge_tree(name: Sym, tree: D.node, intersections: list) -> D.node:
+    slv = SMTSolver(verbose=False)
+
+    def map_tree(tree: D.node, flag=True):
+        if isinstance(tree, D.Leaf):
+            if isinstance(tree.v, D.ArrayConst):
+                # TODO: probably should check index too
+                if tree.v.name == name:
+                    for p in intersections:
+                        pred = _lift_aexpr(p)
+                        q = mk_aexpr("==", pred)
+                        if slv.satisfy(q):
+                            tree = map_tree(
+                                D.AffineSplit(p, tree, tree, tree), flag=False
+                            )
+                            break
+
+            return tree
+
+        elif isinstance(tree, D.AffineSplit):
+            pred = _lift_aexpr(tree.ae)
+            # check if anything is simplifiable
+            ltz_eq = mk_aexpr("<", pred)
+            eqz_eq = mk_aexpr("==", pred)
+            gtz_eq = mk_aexpr(">", pred)
+
+            # ltz
+            slv.push()
+            slv.assume(ltz_eq)
+            ltz = map_tree(tree.ltz)
+            slv.pop()
+
+            # eqz
+            eqz = tree.eqz
+            if flag:
+                slv.push()
+                slv.assume(eqz_eq)
+                eqz = map_tree(tree.eqz)
+                slv.pop()
+
+            # gtz
+            slv.push()
+            slv.assume(gtz_eq)
+            gtz = map_tree(tree.gtz)
+            slv.pop()
+
+            return D.AffineSplit(tree.ae, ltz, eqz, gtz)
+
+        elif isinstance(tree, D.ModSplit):
+            pred = _lift_aexpr(tree.ae)
+            eqz_eq = mk_aexpr("==", pred)
+            neqz_eq = A.Not(eqz_eq, T.Bool(), null_srcinfo())
+
+            # eqz
+            slv.push()
+            slv.assume(eqz_eq)
+            eqz = map_tree(tree.eqz)
+            slv.pop()
+
+            # neqz
+            slv.push()
+            slv.assume(neqz_eq)
+            neqz = map_tree(tree.neqz)
+            slv.pop()
+
+            return D.ModSplit(tree.ae, tree.m, neqz, eqz)
+        else:
+            assert False, "bad case"
+
+    return map_tree(tree)
 
 
 def widening(name: Sym, src: D.abs) -> D.abs:
     eqs = get_equations(src.tree, set())
     itss = find_intersections(src.iterators, eqs)
-    print(src)
-    print(itss)
-    quit()
-    tree = merge_tree(src.tree, itss)
+    tree = merge_tree(name, src.tree, itss)
     # Unclear how to do this..
-    # tree = propagate_val(tree)
-    return D.abs(src.iterators, tree)
+    # tree = propagate_val(name, tree)
+    return abs_simplify(D.abs(src.iterators, tree))
 
 
 # --------------------------------------------------------------------------- #
@@ -1182,9 +1266,9 @@ class AbstractInterpretation(ABC):
             )
             lname = stmt.body.stmts[-1].lhs
 
-            # new_abs = widening(lname, stmt.body.ctxt[lname])
-            # pre_body[lname] = new_abs
-            # self.fix_block(stmt.body)
+            new_abs = widening(lname, stmt.body.ctxt[lname])
+            pre_body[lname] = new_abs
+            self.fix_block(stmt.body)
 
             for nm, post_val in stmt.body.ctxt.items():
                 env[nm] = post_val
@@ -1254,7 +1338,7 @@ class ScalarPropagation(AbstractInterpretation):
             return D.Const(e.val)
         elif isinstance(e, DataflowIR.USub):
             if arg := self.dir_to_aexpr(e.arg):
-                return D.Minus(D.Const(0), arg)
+                return D.Mult(-1, arg)
         elif isinstance(e, DataflowIR.BinOp):
             lhs = self.dir_to_aexpr(e.lhs)
             rhs = self.dir_to_aexpr(e.rhs)
@@ -1271,9 +1355,9 @@ class ScalarPropagation(AbstractInterpretation):
                 else:
                     assert False, "bad!"
             elif e.op == "-":
-                return D.Minus(lhs, rhs)
+                return D.Add(lhs, D.Mult(-1, rhs))
             else:
-                pass
+                assert False, "bad!"
 
         return None
 
