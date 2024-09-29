@@ -2,7 +2,7 @@ from __future__ import annotations
 import pytest
 from exo import proc, DRAM, Procedure, config
 from exo.stdlib.scheduling import *
-from exo.dataflow import D, substitute, sub_aexpr, widening, V
+from exo.dataflow import D, substitute, sub_aexpr, partition, V, abs_simplify, widening
 from exo.prelude import Sym
 
 
@@ -16,9 +16,9 @@ def test_widening2():
 
     sx_1 = Sym("x_1")
     sx = Sym("x")
-    x_1 = D.ArrayConst(sx_1, [D.Add(vi, D.Mult(-1, D.Const(1))), vd])
+    x_1 = D.ArrayConst(sx_1, [D.Add(vi, D.Const(-1)), vd])
     x = D.ArrayConst(sx, [vd])
-    eq2 = D.Add(D.Add(vi, D.Mult(-1, D.Const(1))), D.Mult(-1, vd))
+    eq2 = D.Add(D.Add(vi, D.Const(-1)), D.Mult(-1, vd))
     bot = D.Leaf(D.SubVal(V.Bot()))
     eq3 = D.Add(D.Add(D.Add(vi, D.Mult(-1, D.Const(1))), vd), D.Mult(-1, vN))
     tree_eq3 = D.AffineSplit(
@@ -35,6 +35,16 @@ def test_widening2():
     print(x_1_abs)
     widened_x_1 = widening(sx_1, x_1_abs)
     print(widened_x_1)
+
+    i_minus = D.Add(vi, D.Const(-1))
+    x_1_i_1 = abs_simplify(sub_aexpr(vi, i_minus, widened_x_1))
+    print(x_1_i_1)
+
+    after = substitute(x_1, x_1_i_1.tree, widened_x_1)
+    after = abs_simplify(after)
+    after = abs_simplify(value_collapse(sx_1, after))
+    after = abs_simplify(after)
+    print(after)
 
 
 def test_widening():

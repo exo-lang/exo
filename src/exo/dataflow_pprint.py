@@ -307,7 +307,9 @@ def _print_ae(ae, env: PrintEnv):
         # clean printing for sanity
         if isinstance(ae.rhs, D.Mult) and ae.rhs.coeff == -1:
             return f"({_print_ae(ae.lhs, env)}-{_print_ae(ae.rhs.ae, env)})"
-        elif isinstance(ae.rhs, D.Mult) and ae.rhs.coeff <= -1:
+        elif (isinstance(ae.rhs, D.Mult) and ae.rhs.coeff <= -1) or (
+            isinstance(ae.rhs, D.Const) and ae.rhs.val <= -1
+        ):
             return f"({_print_ae(ae.lhs, env)}{_print_ae(ae.rhs, env)})"
         return f"({_print_ae(ae.lhs, env)}+{_print_ae(ae.rhs, env)})"
     elif isinstance(ae, D.Mult):
