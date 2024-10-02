@@ -6,6 +6,7 @@ ASFLAGS = -march=rv32imc_xtheadmatrix0p1 -menable-experimental-extensions
 CFLAGS = -O2 -g3 $(ASFLAGS) 
 
 default: sim
+exo_comp: exo/conv1d_exo.c
 
 $(OUT)/$(PROG).elf: $(OUT)/$(PROG).o $(OUT)/conv1d_exo.o
 	$(CC) $(LDFLAGS) -o $@ $^
