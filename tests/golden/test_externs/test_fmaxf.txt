@@ -1,0 +1,16 @@
+#include "test.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <math.h>
+// foo(
+//     x : f32[16] @DRAM,
+//     y : f32[16] @DRAM
+// )
+void foo( void *ctxt, const float* x, float* y ) {
+for (int_fast32_t i = 0; i < 16; i++) {
+  y[i] = fmaxf((float)(x[i]), (float)(y[i] * 2.0f));
+}
+}
+

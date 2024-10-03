@@ -1,0 +1,19 @@
+#include "test.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+int8_t _relu_int8_t(int8_t x) {
+    if (x > 0.0) return x;
+    else return 0.0;
+}
+
+// foo(
+//     x : i8[16] @DRAM
+// )
+void foo( void *ctxt, int8_t* x ) {
+for (int_fast32_t i = 0; i < 16; i++) {
+  x[i] = _relu_int8_t((int8_t)((int8_t) 3.0));
+}
+}
+

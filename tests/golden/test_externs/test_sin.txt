@@ -1,0 +1,15 @@
+#include "test.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <math.h>
+// foo(
+//     x : i8[16] @DRAM
+// )
+void foo( void *ctxt, int8_t* x ) {
+for (int_fast32_t i = 0; i < 16; i++) {
+  x[i] = sin((int8_t)x[i] * ((int8_t) 2));
+}
+}
+

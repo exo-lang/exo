@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from exo import proc, instr, DRAM, config
 from exo.libs.memories import GEMM_SCRATCH, GEMM_ACCUM
+from exo.libs.externs import select, relu
 from exo.stdlib.scheduling import *
 
 

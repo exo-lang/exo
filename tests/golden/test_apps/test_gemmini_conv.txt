@@ -161,12 +161,17 @@ void conv_3_cpu( test_case_Context *ctxt, int8_t* output, const int32_t* bias, c
 #include "gemm_acc_malloc.h"
 #include <include/gemmini.h>
 #include "gemm_malloc.h"
-double _relu_(double x) {
+int8_t _relu_int8_t(int8_t x) {
     if (x > 0.0) return x;
     else return 0.0;
 }
 
-double _select_(double x, double v, double y, double z) {
+float _select_float(float x,float v,float y,float z) {
+    if (x < v) return y;
+    else return z;
+}
+
+int8_t _select_int8_t(int8_t x,int8_t v,int8_t y,int8_t z) {
     if (x < v) return y;
     else return z;
 }
@@ -191,8 +196,8 @@ float l;
 float h;
 l = -128.0f;
 h = 127.0f;
-*dst = (int8_t)(_select_((double)*&h, (double)*src, (double)*&h, (double)*src));
-*dst = _select_((double)*src, (double)*&l, (double)*&l, (double)*dst);
+*dst = (int8_t)(_select_float((float)h, (float)*src, (float)h, (float)*src));
+*dst = _select_int8_t((int8_t)*src, (int8_t)l, (int8_t)l, (int8_t)*dst);
 }
 
 
@@ -1336,7 +1341,7 @@ for (int_fast32_t b = 0; b < 4; b++) {
         int8_t tmp_res2;
         clamp(ctxt,&tmp_res1,&tmp_res2);
         if (act == true) {
-          tmp_res2 = _relu_((double)*&tmp_res2);
+          tmp_res2 = _relu_int8_t((int8_t)tmp_res2);
         }
         output[b * 100352 + orow * 3584 + ocol * 128 + och] = tmp_res2;
       }
@@ -1570,7 +1575,7 @@ for (int_fast32_t b = 0; b < 4; b++) {
         int8_t tmp_res2;
         clamp(ctxt,&tmp_res1,&tmp_res2);
         if (act == true) {
-          tmp_res2 = _relu_((double)*&tmp_res2);
+          tmp_res2 = _relu_int8_t((int8_t)tmp_res2);
         }
         output[b * 50176 + orow * 3584 + ocol * 256 + och] = tmp_res2;
       }
@@ -1617,7 +1622,7 @@ for (int_fast32_t b = 0; b < 4; b++) {
         int8_t tmp_res2;
         clamp(ctxt,&tmp_res1,&tmp_res2);
         if (act == true) {
-          tmp_res2 = _relu_((double)*&tmp_res2);
+          tmp_res2 = _relu_int8_t((int8_t)tmp_res2);
         }
         output[b * 200704 + orow * 3584 + ocol * 64 + och] = tmp_res2;
       }
