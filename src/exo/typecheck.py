@@ -6,7 +6,6 @@ from .LoopIR import (
     get_writeconfigs,
     get_loop_iters,
 )
-from .builtins import BuiltIn_Typecheck_Error
 from .extern import Extern_Typecheck_Error
 from .memory import *
 
