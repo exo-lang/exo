@@ -167,7 +167,14 @@ class Parser:
 
         self.push()
 
-        builtins = {"sin": sin, "relu": relu, "select": select}
+        builtins = {
+            "sin": sin,
+            "sqrt": sqrt,
+            "relu": relu,
+            "select": select,
+            "min": min,
+            "max": max,
+        }
         if is_fragment:
             self.AST = PAST
         else:

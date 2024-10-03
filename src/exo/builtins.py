@@ -89,6 +89,32 @@ class _Relu(BuiltIn):
 relu = _Relu()
 
 
+class _Sqrt(BuiltIn):
+    def __init__(self):
+        super().__init__("sqrt")
+
+    def typecheck(self, args):
+        if len(args) != 1:
+            raise _BErr(f"expected 1 argument, got {len(args)}")
+
+        atyp = args[0].type
+        if not atyp.is_real_scalar():
+            raise _BErr(
+                f"expected argument 1 to be a real scalar value, but "
+                f"got type {atyp}"
+            )
+        return atyp
+
+    def globl(self):
+        return "#include <math.h>"
+
+    def compile(self, args):
+        return f"sqrt((double)*{args[0]})"
+
+
+sqrt = _Sqrt()
+
+
 class _Select(BuiltIn):
     def __init__(self):
         super().__init__("select")
@@ -128,7 +154,7 @@ class _Select(BuiltIn):
 
     def globl(self):
         s = (
-            "double _select_(double x, double v, double y, double z) {\n"
+            "static double _exo_select_(double x, double v, double y, double z) {\n"
             "    if (x < v) return y;\n"
             "    else return z;\n"
             "}\n"
@@ -136,7 +162,83 @@ class _Select(BuiltIn):
         return s
 
     def compile(self, args):
-        return f"_select_((double)*{args[0]}, (double)*{args[1]}, (double)*{args[2]}, (double)*{args[3]})"
+        return f"_exo_select_((double)*{args[0]}, (double)*{args[1]}, (double)*{args[2]}, (double)*{args[3]})"
 
 
 select = _Select()
+
+
+class _Min(BuiltIn):
+    def __init__(self):
+        super().__init__("min")
+
+    def typecheck(self, args):
+        if len(args) != 2:
+            raise _BErr(f"expected 2 arguments, got {len(args)}")
+
+        atyp = args[0].type
+        if not atyp.is_real_scalar():
+            raise _BErr(
+                f"expected argument 1 to be a real scalar value, but "
+                f"got type {atyp}"
+            )
+
+        atyp = args[1].type
+        if not atyp.is_real_scalar():
+            raise _BErr(
+                f"expected argument 2 to be a real scalar value, but "
+                f"got type {atyp}"
+            )
+        return atyp
+
+    def globl(self):
+        s = (
+            "static double _exo_min_(double x, double y) {\n"
+            "    return x < y ? x : y;\n"
+            "}\n"
+        )
+        return s
+
+    def compile(self, args):
+        return f"_exo_min_((double)*{args[0]}, (double)*{args[1]})"
+
+
+min = _Min()
+
+
+class _Max(BuiltIn):
+    def __init__(self):
+        super().__init__("max")
+
+    def typecheck(self, args):
+        if len(args) != 2:
+            raise _BErr(f"expected 2 arguments, got {len(args)}")
+
+        atyp = args[0].type
+        if not atyp.is_real_scalar():
+            raise _BErr(
+                f"expected argument 1 to be a real scalar value, but "
+                f"got type {atyp}"
+            )
+
+        atyp = args[1].type
+        if not atyp.is_real_scalar():
+            raise _BErr(
+                f"expected argument 2 to be a real scalar value, but "
+                f"got type {atyp}"
+            )
+        return atyp
+
+    def globl(self):
+        s = (
+            "static double _exo_max_(double x, double y) {\n"
+            "    return x > y ? x : y;\n"
+            "}\n"
+        )
+        return s
+
+    def compile(self, args):
+        return f"_exo_max_((double)*{args[0]}, (double)*{args[1]})"
+
+
+max = _Max()
