@@ -18,7 +18,7 @@ from .LoopIR import (
 )
 from .LoopIR_scheduling import SchedulingError
 from .prelude import *
-from .new_eff import Check_Aliasing
+from .analysis import Check_Aliasing
 import exo.internal_cursors as ic
 
 

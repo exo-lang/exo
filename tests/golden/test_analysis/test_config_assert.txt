@@ -1,0 +1,14 @@
+def foo(N: size, x: f32[N] @ DRAM):
+    assert CFG.a < N
+    assert CFG.a == 4
+    for i in seq(0, N):
+        if CFG.a == 3:
+            for j in seq(0, CFG.a):
+                x[j] = 2.0
+            CFG.a = 2def foo(N: size, x: f32[N] @ DRAM):
+    assert CFG.a < N
+    assert CFG.a == 4
+    for i in seq(0, N):
+        if CFG.a == 3:
+            for j in seq(0, CFG.a):
+                x[j] = 2.0

@@ -247,10 +247,11 @@ class TypeChecker:
             # Check that field is in config
             if not stmt.config.has_field(stmt.field):
                 self.err(
-                    stmt.field,
-                    f"expected '{stmt.field}'  to be a field "
+                    stmt,
+                    f"expected '{stmt.field}' to be a field "
                     f"in config '{stmt.config.name()}'",
                 )
+                return []
 
             ftyp = stmt.config.lookup_type(stmt.field)
             rhs = self.check_e(
@@ -593,11 +594,13 @@ class TypeChecker:
         elif isinstance(e, UAST.ReadConfig):
             if not e.config.has_field(e.field):
                 self.err(
-                    e.field,
+                    e,
                     f"'{e.field}' has to be a field in config '{e.config.name()}'",
                 )
+                ftyp = T.err
+            else:
+                ftyp = e.config.lookup_type(e.field)
 
-            ftyp = e.config.lookup_type(e.field)
             return LoopIR.ReadConfig(e.config, e.field, ftyp, e.srcinfo)
         else:
             assert False, "not a LoopIR in check_e"

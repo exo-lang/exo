@@ -71,15 +71,16 @@ module AExpr {
             | ConstSym( sym name ) -- represents a named, opaque value
             | BinOp( binop op, expr lhs, expr rhs )
             | Stride( sym name, int dim )
+            | Definitely( expr arg )
+            | Maybe( expr arg )
+            | Tuple( expr* args )
             | LetStrides( sym name, expr* strides, expr body )
             | Select( expr cond, expr tcase, expr fcase )
             | ForAll( sym name, expr arg )
             | Exists( sym name, expr arg )
-            | Definitely( expr arg )
-            | Maybe( expr arg )
-            | Tuple( expr* args )
             | LetTuple( sym* names, expr rhs, expr body )
             | Let( sym* names, expr* rhs, expr body )
+
             attributes( type type, srcinfo srcinfo )
 } """,
     {
@@ -286,7 +287,7 @@ binop_print = {
 
 def _estr(e, prec=0, tab=""):
     if isinstance(e, A.Var):
-        return str(e.name)
+        return repr(e.name)
     elif isinstance(e, A.Unk):
         return "⊥"
     elif isinstance(e, A.Not):
@@ -755,7 +756,7 @@ class SMTSolver:
         self._add_free_vars(e)
         self.negative_pos = aeNegPos(e, "+")
         smt_e = self._lower(e)
-        assert not is_ternary(smt_e), "formulas must be classical"
+        assert not is_ternary(smt_e), f"formulas must be classical, got {type(smt_e)}"
         if self.verbose:
             print("*******\n*******\n*******")
             print(self.debug_str(smt=False))
@@ -1116,15 +1117,8 @@ class SMTSolver:
             elif e.op == "==":
                 if e.lhs.type == T.bool and e.rhs.type == T.bool:
                     val = (lhs == rhs) if self.Z3_MODE else SMT.Iff(lhs, rhs)
-                elif e.lhs.type.is_indexable() and e.rhs.type.is_indexable():
-                    val = (lhs == rhs) if self.Z3_MODE else SMT.Equals(lhs, rhs)
-                elif e.lhs.type.is_stridable() and e.rhs.type.is_stridable():
-                    val = (lhs == rhs) if self.Z3_MODE else SMT.Equals(lhs, rhs)
-                elif e.lhs.type == e.rhs.type:
-                    assert e.lhs.type.is_real_scalar()
-                    val = (lhs == rhs) if self.Z3_MODE else SMT.Equals(lhs, rhs)
                 else:
-                    assert False, "bad case"
+                    val = (lhs == rhs) if self.Z3_MODE else SMT.Equals(lhs, rhs)
             elif e.op == "and":
                 val = AND(lhs, rhs)
                 if tern:

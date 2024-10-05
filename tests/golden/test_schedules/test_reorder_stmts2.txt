@@ -1,0 +1,4 @@
+def bar(f: R[100] @ DRAM, g: R[100] @ DRAM):
+    for i in seq(0, 100):
+        g[i] = 3.0
+        f[i] = 1.0
