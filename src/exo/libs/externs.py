@@ -207,7 +207,12 @@ class _Sigmoid(Extern):
         return atyp
 
     def globl(self, prim_type):
-        return "#include <math.h>"
+        return f"""
+#include <math.h>
+{prim_type} sigmoid({prim_type} x) {{
+    return 1 / (1 + exp(-x));
+}}
+"""
 
     def interpret(self, args):
         return math.sigmoid(args[0])
