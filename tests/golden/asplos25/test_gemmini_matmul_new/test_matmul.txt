@@ -99,11 +99,6 @@ void matmul_on_gemmini( c_code_str_Context *ctxt, int_fast32_t N, int_fast32_t M
 #include "gemm_acc_malloc.h"
 #include <include/gemmini.h>
 #include "gemm_malloc.h"
-int8_t _relu_int8_t(int8_t x) {
-    if (x > 0.0) return x;
-    else return 0.0;
-}
-
 
 /* relying on the following instruction..."
 config_ld_i8_id1(src_stride)
