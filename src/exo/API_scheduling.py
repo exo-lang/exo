@@ -381,8 +381,7 @@ class ExprCursorA(CursorArgumentProcessor):
                 self.err("expected an ExprCursor or pattern string")
 
         proc = all_args["proc"]
-        # TODO: Remove all need for `call_depth`
-        matches = proc.find(expr_pattern, many=self.match_many)
+        matches = proc.find(expr_pattern, many=self.match_many, call_depth=1)
 
         if self.match_many:
             for m in matches:
@@ -411,8 +410,7 @@ class StmtCursorA(CursorArgumentProcessor):
             self.err("expected a StmtCursor or pattern string")
 
         proc = all_args["proc"]
-        # TODO: Remove all need for `call_depth`
-        matches = proc.find(stmt_pattern, many=self.match_many)
+        matches = proc.find(stmt_pattern, many=self.match_many, call_depth=1)
 
         match = matches[0] if self.match_many else matches
         if not isinstance(match, PC.StmtCursor):
@@ -441,8 +439,7 @@ class BlockCursorA(CursorArgumentProcessor):
                 self.err("expected a Cursor or pattern string")
 
             proc = all_args["proc"]
-            # TODO: Remove all need for `call_depth`
-            matches = proc.find(block_pattern, many=self.match_many)
+            matches = proc.find(block_pattern, many=self.match_many, call_depth=1)
 
             match = matches[0] if self.match_many else matches
             if isinstance(match, PC.StmtCursor):
@@ -540,7 +537,7 @@ class ArgOrAllocCursorA(CursorArgumentProcessor):
         if not isinstance(cursor, (PC.AllocCursor, PC.ArgCursor)):
             proc = all_args["proc"]
             try:
-                cursor = proc.find(alloc_pattern)
+                cursor = proc.find(alloc_pattern, call_depth=1)
             except:
                 for arg in proc.args():
                     if arg.name() == name:

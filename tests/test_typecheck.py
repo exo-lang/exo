@@ -5,6 +5,7 @@ import pytest
 from exo import proc, config
 from exo.libs.memories import GEMM_SCRATCH
 from exo.pyparser import ParseError
+from exo.libs.externs import *
 
 
 # --- Typechecking tests ---

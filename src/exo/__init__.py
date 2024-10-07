@@ -11,6 +11,7 @@ from .LoopIR_scheduling import SchedulingError
 from .parse_fragment import ParseFragmentError
 from .configs import Config
 from .memory import Memory, DRAM
+from .extern import Extern
 
 from . import stdlib
 
@@ -25,6 +26,7 @@ __all__ = [
     "config",
     "Config",
     "Memory",
+    "Extern",
     "DRAM",
     "SchedulingError",
     "ParseFragmentError",

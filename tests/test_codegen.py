@@ -8,6 +8,7 @@ from PIL import Image
 
 from exo import proc, instr, Procedure, DRAM, compile_procs_to_strings
 from exo.libs.memories import MDRAM, MemGenError, StaticMemory, DRAM_STACK
+from exo.libs.externs import *
 from exo.stdlib.scheduling import *
 
 mock_registers = 0

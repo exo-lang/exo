@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .. import instr, DRAM
 from ..libs.memories import AVX2, AVX512
+from ..libs.externs import relu, select
 
 # --------------------------------------------------------------------------- #
 #   Prefetching

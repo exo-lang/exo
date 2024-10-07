@@ -224,6 +224,11 @@ class PrecisionAnalysis(LoopIR_Rewrite):
             assert rhs.type == btyp
 
             return LoopIR.BinOp(e.op, lhs, rhs, btyp, e.srcinfo)
+        elif isinstance(e, LoopIR.Extern):
+            assert e.type == T.R
+            return LoopIR.Extern(
+                e.f, [self.coerce_e(a, btyp) for a in e.args], btyp, e.srcinfo
+            )
         else:
             assert False, f"Should not be coercing a {type(e)} Node"
 

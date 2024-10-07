@@ -1133,7 +1133,7 @@ def expr_effs(e):
         return expr_effs(e.arg)
     elif isinstance(e, LoopIR.BinOp):
         return expr_effs(e.lhs) + expr_effs(e.rhs)
-    elif isinstance(e, LoopIR.BuiltIn):
+    elif isinstance(e, LoopIR.Extern):
         return list_expr_effs(e.args)
     elif isinstance(e, LoopIR.WindowExpr):
 

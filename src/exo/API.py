@@ -245,7 +245,7 @@ class Procedure(ProcedureBase):
         block = self._root()._child_block("body")
         return C.lift_cursor(block, self)
 
-    def find(self, pattern, many=False):
+    def find(self, pattern, many=False, call_depth=1):
         """
         Find the most specific possible cursor for the given pattern.
         For example, a pattern matching a single assignment statement
@@ -256,7 +256,7 @@ class Procedure(ProcedureBase):
 
         In any event, if no matches are found, a SchedulingError is raised
         """
-        return C.find(self._root(), self, pattern, many)
+        return C.find(self._root(), self, pattern, many, call_depth=call_depth + 1)
 
     def find_loop(self, pattern, many=False):
         """
@@ -273,7 +273,7 @@ class Procedure(ProcedureBase):
             name, count = results[1], (results[2] if results[2] else "")
             pattern = f"for {name} in _: _{count}"
 
-        return self.find(pattern, many)
+        return self.find(pattern, many, call_depth=1)
 
     def find_alloc_or_arg(self, pattern):
         _name_count_re = r"^([a-zA-Z_]\w*)\s*(\#\s*[0-9]+)?$"
@@ -286,10 +286,10 @@ class Procedure(ProcedureBase):
 
             pattern = f"{name}: _{count}"
 
-        return self.find(pattern)
+        return self.find(pattern, call_depth=1)
 
     def find_all(self, pattern):
-        return self.find(pattern, many=True)
+        return self.find(pattern, many=True, call_depth=1)
 
     # ---------------------------------------------- #
     #     execution / compilation operations

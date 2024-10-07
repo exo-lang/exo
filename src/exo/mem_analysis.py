@@ -69,7 +69,7 @@ class MemoryAnalysis:
             elif isinstance(e, LoopIR.BinOp):
                 res += used_e(e.lhs)
                 res += used_e(e.rhs)
-            elif isinstance(e, LoopIR.BuiltIn):
+            elif isinstance(e, LoopIR.Extern):
                 for ei in e.args:
                     res += used_e(ei)
             elif isinstance(e, (LoopIR.WindowExpr, LoopIR.StrideExpr)):

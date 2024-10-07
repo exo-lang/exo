@@ -4,7 +4,7 @@ from typing import Type
 
 from asdl_adt import ADT, validators
 
-from .builtins import BuiltIn
+from .extern import Extern
 from .configs import Config
 from .memory import Memory
 from .prelude import Sym, SrcInfo, extclass
@@ -92,7 +92,7 @@ module LoopIR {
          | Const( object val )
          | USub( expr arg )  -- i.e.  -(...)
          | BinOp( binop op, expr lhs, expr rhs )
-         | BuiltIn( builtin f, expr* args )
+         | Extern( extern f, expr* args )
          | WindowExpr( sym name, w_access* idx )
          | StrideExpr( sym name, int dim )
          | ReadConfig( config config, string field )
@@ -130,7 +130,7 @@ module LoopIR {
         "name": validators.instance_of(Identifier, convert=True),
         "sym": Sym,
         "mem": Type[Memory],
-        "builtin": BuiltIn,
+        "extern": Extern,
         "config": Config,
         "binop": validators.instance_of(Operator, convert=True),
         "srcinfo": SrcInfo,
@@ -190,7 +190,7 @@ module UAST {
             | Const   ( object val )
             | USub    ( expr arg ) -- i.e.  -(...)
             | BinOp   ( op op, expr lhs, expr rhs )
-            | BuiltIn( builtin f, expr* args )
+            | Extern( extern f, expr* args )
             | WindowExpr( sym name, w_access* idx )
             | StrideExpr( sym name, int dim )
             | ParRange( expr lo, expr hi ) -- only use for loop cond
@@ -221,7 +221,7 @@ module UAST {
         "name": validators.instance_of(Identifier, convert=True),
         "sym": Sym,
         "mem": Type[Memory],
-        "builtin": BuiltIn,
+        "extern": Extern,
         "config": Config,
         "loopir_proc": LoopIR.proc,
         "op": validators.instance_of(Operator, convert=True),
@@ -270,14 +270,13 @@ module PAST {
             | Const   ( object val )
             | USub    ( expr arg ) -- i.e.  -(...)
             | BinOp   ( op op, expr lhs, expr rhs )
-            | BuiltIn ( builtin f, expr* args )
+            | Extern ( name f, expr* args )
             | ReadConfig( string config, string field )
             attributes( srcinfo srcinfo )
 
 } """,
     ext_types={
         "name": validators.instance_of(IdentifierOrHole, convert=True),
-        "builtin": BuiltIn,
         "op": validators.instance_of(Operator, convert=True),
         "srcinfo": SrcInfo,
     },
@@ -673,7 +672,7 @@ class LoopIR_Rewrite:
                     rhs=new_rhs or e.rhs,
                     type=new_type or e.type,
                 )
-        elif isinstance(e, LoopIR.BuiltIn):
+        elif isinstance(e, LoopIR.Extern):
             new_type = self.map_t(e.type)
             new_args = self.map_exprs(e.args)
             if any((new_type, new_args is not None)):
@@ -810,7 +809,7 @@ class LoopIR_Do:
         elif etyp is LoopIR.BinOp:
             self.do_e(e.lhs)
             self.do_e(e.rhs)
-        elif etyp is LoopIR.BuiltIn:
+        elif etyp is LoopIR.Extern:
             for a in e.args:
                 self.do_e(a)
         elif etyp is LoopIR.USub:
@@ -914,7 +913,7 @@ class LoopIR_Compare:
                 and self.match_e(e1.lhs, e2.lhs)
                 and self.match_e(e1.rhs, e2.rhs)
             )
-        elif isinstance(e1, LoopIR.BuiltIn):
+        elif isinstance(e1, LoopIR.Extern):
             # TODO: check f equality
             return e1.f is e2.f and all(
                 self.match_e(a1, a2) for a1, a2 in zip(e1.args, e2.args)

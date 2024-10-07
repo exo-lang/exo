@@ -797,7 +797,7 @@ class Unification:
             return self.all_bound_e(be.arg)
         elif isinstance(be, LoopIR.BinOp):
             return self.all_bound_e(be.lhs) and self.all_bound_e(be.rhs)
-        elif isinstance(be, LoopIR.BuiltIn):
+        elif isinstance(be, LoopIR.Extern):
             return all(self.all_bound_e(a) for a in be.args)
         else:
             assert False, "unsupported case"
@@ -819,7 +819,7 @@ class Unification:
                 and self.is_exact_e(e0.lhs, e1.lhs)
                 and self.is_exact_e(e0.rhs, e1.rhs)
             )
-        elif isinstance(e0, LoopIR.BuiltIn):
+        elif isinstance(e0, LoopIR.Extern):
             return e0.f == e1.f and all(
                 self.is_exact_e(a0, a1) for a0, a1 in zip(e0.args, e1.args)
             )
@@ -1165,7 +1165,7 @@ class Unification:
                 )
             self.unify_e(pe.lhs, be.lhs)
             self.unify_e(pe.rhs, be.rhs)
-        elif isinstance(pe, LoopIR.BuiltIn):
+        elif isinstance(pe, LoopIR.Extern):
             if pe.f != be.f:
                 raise UnificationError(
                     f"cannot unify builtin '{pe.f.name()}' (@{pe.srcinfo}) "
