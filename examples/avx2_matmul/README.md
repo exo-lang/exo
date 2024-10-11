@@ -6,7 +6,7 @@ This tutorial assumes some familiarity with SIMD instructions.
 Exo provides *scheduling operators* to transform program and rewrite them to make use of complex hardware instructions.
 We'll show you how to take a simple matrix multiplication kernel and transform it into an implementation that can make use of [AVX2](https://en.wikipedia.org/wiki/Advanced_Vector_Extensions) vector instructions.
 
-The complete code with scheduling operations can be found in `exo/examples/x86_matmul.py`, and running `make` will compile the Exo code and generate an executable `avx2_matmul`.
+The complete code with scheduling operations can be found in `exo/examples/avx2_matmul/x86_matmul.py`, and running `make` will compile the Exo code and generate an executable `avx2_matmul`.
 
 ## Basic Implementation
 
