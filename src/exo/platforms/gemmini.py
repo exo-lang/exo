@@ -801,8 +801,10 @@ def clamp(src: f32, dst: i8):
     h: f32
     l = -128.0
     h = 127.0
-    dst = select(h, src, h, src)
-    dst = select(src, l, l, dst)
+    tmp: f32
+    tmp = select(h, src, h, src)
+    tmp = select(src, l, l, tmp)
+    dst = tmp
 
 
 def new_config_st():

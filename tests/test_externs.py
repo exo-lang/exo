@@ -4,6 +4,7 @@ import pytest
 
 from exo import proc, DRAM, Procedure, config, compile_procs_to_strings
 from exo.libs.externs import *
+from exo.stdlib.scheduling import SchedulingError
 
 
 def test_relu(golden, compiler):
@@ -270,3 +271,22 @@ def test_select_fine():
             z[i] = select(0.0, y[i], z[i], -x[i])
 
     c_file, h_file = compile_procs_to_strings([foo], "test.h")
+
+
+def test_two():
+    c = 2
+
+    @proc
+    def foo(a: f32):
+        a = a + c
+
+    with pytest.raises(SchedulingError, match="find: failed to find matches"):
+        foo.find("a + c").parent()
+
+
+def test_extern_find(golden):
+    @proc
+    def foo(a: f32):
+        a = sin(a)
+
+    assert golden == str(foo.find("sin(a)").parent())

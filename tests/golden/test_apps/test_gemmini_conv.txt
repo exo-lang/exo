@@ -171,11 +171,6 @@ float _select_float(float x,float v,float y,float z) {
     else return z;
 }
 
-int8_t _select_int8_t(int8_t x,int8_t v,int8_t y,int8_t z) {
-    if (x < v) return y;
-    else return z;
-}
-
 // clamp(
 //     src : f32 @DRAM,
 //     dst : i8 @DRAM
@@ -196,8 +191,10 @@ float l;
 float h;
 l = -128.0f;
 h = 127.0f;
-*dst = (int8_t)(_select_float((float)h, (float)*src, (float)h, (float)*src));
-*dst = _select_int8_t((int8_t)*src, (int8_t)l, (int8_t)l, (int8_t)*dst);
+float tmp;
+tmp = _select_float((float)h, (float)*src, (float)h, (float)*src);
+tmp = _select_float((float)*src, (float)l, (float)l, (float)tmp);
+*dst = (int8_t)(tmp);
 }
 
 
