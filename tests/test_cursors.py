@@ -729,3 +729,34 @@ def test_cursor_find_loop():
     if_stmt = foo.find("if _: _ ")
     i_loop_alternative = if_stmt.find("for i in _: _")
     assert i_loop2 == i_loop_alternative
+
+
+def test_cursor_print(golden):
+    @proc
+    def foo(n: size, x: i8[n]):
+        for j in seq(0, n - 1):
+            x[j] = 2.0
+        for i in seq(0, n):
+            pass
+        if n > 1:
+            for i in seq(0, n):
+                x[i] = 0.0
+        for j in seq(0, n - 1):
+            x[j] = 3.0
+
+    i_loop2 = foo.find("for i in _:_ #1")
+    i_loop1 = foo.find("for i in _:_ #0")
+
+    res = str(i_loop2) + str(i_loop2.before()) + str(i_loop2.after())
+    res += (
+        str(i_loop1)
+        + str(i_loop1.before())
+        + str(i_loop1.after())
+        + str(i_loop1.expand(1, 0))
+        + str(i_loop1.expand(0, 1))
+    )
+
+    assert res == golden
+
+    with pytest.raises(InvalidCursorError, match="Trying to print the Invalid Cursor!"):
+        print(i_loop1.parent())

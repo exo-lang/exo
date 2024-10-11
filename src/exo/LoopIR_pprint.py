@@ -581,6 +581,9 @@ def _print_w_access(node, env: PrintEnv) -> str:
 
 
 def _print_cursor(cur):
+    if cur == None:
+        raise InvalidCursorError("Trying to print the Invalid Cursor!")
+
     if isinstance(cur, Node) and not isinstance(cur._node, (LoopIR.proc, LoopIR.stmt)):
         raise NotImplementedError(
             "Cursor printing is only implemented for procs and statements"
@@ -630,9 +633,15 @@ def _print_cursor_block(
         while True:
             try:
                 c = move(c)
-                s.expand(k(c))
+                s.extend(k(c))
             except:
                 return s
+
+    def if_cursor(c, move, k):
+        try:
+            return k(move(c))
+        except InvalidCursorError:
+            return []
 
     def local_stmt(c):
         return _print_cursor_stmt(c, target, env, indent)
@@ -642,12 +651,14 @@ def _print_cursor_block(
             return [
                 *while_cursor(target.anchor(), lambda g: g.prev(), local_stmt),
                 f"{indent}[GAP - Before]",
+                *if_cursor(target, lambda g: g.anchor(), local_stmt),
                 *while_cursor(target.anchor(), lambda g: g.next(), local_stmt),
             ]
         else:
             assert target._type == GapType.After
             return [
                 *while_cursor(target.anchor(), lambda g: g.prev(), local_stmt),
+                *if_cursor(target, lambda g: g.anchor(), local_stmt),
                 f"{indent}[GAP - After]",
                 *while_cursor(target.anchor(), lambda g: g.next(), local_stmt),
             ]
