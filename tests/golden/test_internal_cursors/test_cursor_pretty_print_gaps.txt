@@ -50,8 +50,8 @@ def bar(n: size, m: size):
     x: f32 @ DRAM
     for i in seq(0, n):
         for j in seq(0, m):
-            x = 1.0
             x = 0.0
+            x = 1.0
             [GAP - Before]
             x = 2.0
             x = 3.0
@@ -62,10 +62,10 @@ def bar(n: size, m: size):
     x: f32 @ DRAM
     for i in seq(0, n):
         for j in seq(0, m):
-            x = 4.0
-            x = 3.0
-            x = 2.0
-            x = 1.0
             x = 0.0
+            x = 1.0
+            x = 2.0
+            x = 3.0
+            x = 4.0
             x = 5.0
             [GAP - After]

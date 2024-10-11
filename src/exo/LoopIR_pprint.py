@@ -628,20 +628,24 @@ def _print_cursor_proc(
 def _print_cursor_block(
     cur: Block, target: Cursor, env: PrintEnv, indent: str
 ) -> list[str]:
-    def while_cursor(c, move, k):
+    def while_next(c):
         s = []
         while True:
             try:
-                c = move(c)
-                s.extend(k(c))
+                c = c.next()
+                s.extend(local_stmt(c))
             except:
                 return s
 
-    def if_cursor(c, move, k):
-        try:
-            return k(move(c))
-        except InvalidCursorError:
-            return []
+    def while_prev(c):
+        s = []
+        while True:
+            try:
+                c = c.prev()
+                s.append(local_stmt(c))
+            except:
+                s.reverse()
+                return [x for xs in s for x in xs]
 
     def local_stmt(c):
         return _print_cursor_stmt(c, target, env, indent)
@@ -649,18 +653,18 @@ def _print_cursor_block(
     if isinstance(target, Gap) and target in cur:
         if target._type == GapType.Before:
             return [
-                *while_cursor(target.anchor(), lambda g: g.prev(), local_stmt),
+                *while_prev(target.anchor()),
                 f"{indent}[GAP - Before]",
-                *if_cursor(target, lambda g: g.anchor(), local_stmt),
-                *while_cursor(target.anchor(), lambda g: g.next(), local_stmt),
+                *local_stmt(target.anchor()),
+                *while_next(target.anchor()),
             ]
         else:
             assert target._type == GapType.After
             return [
-                *while_cursor(target.anchor(), lambda g: g.prev(), local_stmt),
-                *if_cursor(target, lambda g: g.anchor(), local_stmt),
+                *while_prev(target.anchor()),
+                *local_stmt(target.anchor()),
                 f"{indent}[GAP - After]",
-                *while_cursor(target.anchor(), lambda g: g.next(), local_stmt),
+                *while_next(target.anchor()),
             ]
 
     elif isinstance(target, Block) and target in cur:
@@ -669,9 +673,9 @@ def _print_cursor_block(
             block.extend(local_stmt(stmt))
         block.append(f"{indent}# BLOCK END")
         return [
-            *while_cursor(target[0], lambda g: g.prev(), local_stmt),
+            *while_prev(target[0]),
             *block,
-            *while_cursor(target[-1], lambda g: g.next(), local_stmt),
+            *while_next(target[-1]),
         ]
 
     else:

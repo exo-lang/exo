@@ -35,9 +35,9 @@ def baz(n: size, m: size):
 def baz(n: size, m: size):
     for i in seq(0, n):
         for j in seq(0, m):
-            pass
-            pass
             x: f32 @ DRAM
+            pass
+            pass
             # BLOCK START
             for k in seq(0, n):
                 pass

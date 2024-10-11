@@ -41,11 +41,11 @@ def baz(n: size, m: size):
 def baz(n: size, m: size):
     for i in seq(0, n):
         for j in seq(0, m):
+            x: f32 @ DRAM
+            x = 0.0
             for k in seq(0, 8):
                 y: f32 @ DRAM
                 y = 1.1
-            x = 0.0
-            x: f32 @ DRAM
             # BLOCK START
             for k in seq(0, n):
                 pass
