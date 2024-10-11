@@ -202,12 +202,15 @@ class PrecisionAnalysis(LoopIR_Rewrite):
         elif isinstance(e, LoopIR.Extern):
             args = [self.apply_e(a) for a in e.args]
             typ = e.type
-            for a in args:
+            for i, a in enumerate(args):
                 if typ != a.type:
-                    self.err(
-                        e,
-                        f"all extern arguments must have a same type, got {typ} and {a.type}",
-                    )
+                    if typ != T.R and a.type == T.R:
+                        args[i] = self.coerce_e(a, typ)
+                    else:
+                        self.err(
+                            e,
+                            f"all extern arguments must have a same type, got {typ} and {a.type}",
+                        )
 
             return LoopIR.Extern(e.f, args, typ, e.srcinfo)
 

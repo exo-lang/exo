@@ -261,3 +261,12 @@ def test_type_error():
         def foo(x: i8[16], y: f32[16], z: f64[16]):
             for i in seq(0, 16):
                 z[i] = select(i * 2, y[i], z[i])
+
+
+def test_select_fine():
+    @proc
+    def foo(x: i8[16], y: i8[16], z: i8[16]):
+        for i in seq(0, 16):
+            z[i] = select(0.0, y[i], z[i], -x[i])
+
+    c_file, h_file = compile_procs_to_strings([foo], "test.h")
