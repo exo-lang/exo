@@ -20,8 +20,8 @@ class _Sin(Extern):
     def globl(self, prim_type):
         return "#include <math.h>"
 
-    def interpret(self, args):
-        return math.sin(args[0])
+    #    def interpret(self, args):
+    #        return math.sin(args[0])
 
     def compile(self, args, prim_type):
         return f"sin(({prim_type}){args[0]})"
@@ -55,11 +55,11 @@ class _Relu(Extern):
         )
         return s
 
-    def interpret(self, args):
-        if args[0] > 0:
-            return args[0]
-        else:
-            return 0
+    #    def interpret(self, args):
+    #        if args[0] > 0:
+    #            return args[0]
+    #        else:
+    #            return 0
 
     def compile(self, args, prim_type):
         return f"_relu_{prim_type}(({prim_type}){args[0]})"
@@ -76,33 +76,13 @@ class _Select(Extern):
         if len(args) != 4:
             raise _EErr(f"expected 4 arguments, got {len(args)}")
 
-        atyp = args[0].type
-        if not atyp.is_real_scalar():
-            raise _EErr(
-                f"expected argument 1 to be a real scalar value, but "
-                f"got type {atyp}"
-            )
-
-        atyp = args[1].type
-        if not atyp.is_real_scalar():
-            raise _EErr(
-                f"expected argument 2 to be a real scalar value, but "
-                f"got type {atyp}"
-            )
-
-        atyp = args[2].type
-        if not atyp.is_real_scalar():
-            raise _EErr(
-                f"expected argument 3 to be a real scalar value, but "
-                f"got type {atyp}"
-            )
-
-        atyp = args[3].type
-        if not atyp.is_real_scalar():
-            raise _EErr(
-                f"expected argument 4 to be a real scalar value, but "
-                f"got type {atyp}"
-            )
+        for i in range(len(args)):
+            atyp = args[i].type
+            if not atyp.is_real_scalar():
+                raise _EErr(
+                    f"expected argument {i+1} to be a real scalar value, but "
+                    f"got type {atyp}"
+                )
         return atyp
 
     def globl(self, prim_type):
@@ -115,15 +95,15 @@ class _Select(Extern):
         )
         return s
 
-    def interpret(self, args):
-        x = args[0]
-        v = args[1]
-        y = args[2]
-        z = args[3]
-        if x < v:
-            return y
-        else:
-            return z
+    #    def interpret(self, args):
+    #        x = args[0]
+    #        v = args[1]
+    #        y = args[2]
+    #        z = args[3]
+    #        if x < v:
+    #            return y
+    #        else:
+    #            return z
 
     def compile(self, args, prim_type):
         return f"_select_{prim_type}(({prim_type}){args[0]}, ({prim_type}){args[1]}, ({prim_type}){args[2]}, ({prim_type}){args[3]})"
@@ -151,8 +131,8 @@ class _Expf(Extern):
     def globl(self, prim_type):
         return "#include <math.h>"
 
-    def interpret(self, args):
-        return math.expf(args[0])
+    #    def interpret(self, args):
+    #        return math.expf(args[0])
 
     def compile(self, args, prim_type):
         return f"expf(({prim_type})({args[0]}))"
@@ -169,19 +149,20 @@ class _FmaxF(Extern):
         if len(args) != 2:
             raise _EErr(f"expected 2 argument, got {len(args)}")
 
-        atyp = args[0].type
-        if not atyp.is_real_scalar():
-            raise _EErr(
-                f"expected argument 2 to be a real scalar value, but "
-                f"got type {atyp}"
-            )
+        for i in range(len(args)):
+            atyp = args[i].type
+            if not atyp.is_real_scalar():
+                raise _EErr(
+                    f"expected argument {i+1} to be a real scalar value, but "
+                    f"got type {atyp}"
+                )
         return atyp
 
     def globl(self, prim_type):
         return "#include <math.h>"
 
-    def interpret(self, args):
-        return math.fmaxf(args[0], args[1])
+    #    def interpret(self, args):
+    #        return math.fmaxf(args[0], args[1])
 
     def compile(self, args, prim_type):
         return f"fmaxf(({prim_type})({args[0]}), ({prim_type})({args[1]}))"
@@ -214,8 +195,8 @@ class _Sigmoid(Extern):
 }}
 """
 
-    def interpret(self, args):
-        return math.sigmoid(args[0])
+    #    def interpret(self, args):
+    #        return math.sigmoid(args[0])
 
     def compile(self, args, prim_type):
         return f"sigmoid(({prim_type})({args[0]}))"
@@ -243,8 +224,8 @@ class _Sqrt(Extern):
     def globl(self, prim_type):
         return "#include <math.h>"
 
-    def interpret(self, args):
-        return math.sqrt(args[0])
+    #    def interpret(self, args):
+    #        return math.sqrt(args[0])
 
     def compile(self, args, prim_type):
         return f"sqrt(({prim_type})({args[0]}))"

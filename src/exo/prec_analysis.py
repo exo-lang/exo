@@ -199,6 +199,18 @@ class PrecisionAnalysis(LoopIR_Rewrite):
                 typ = lhs.type
             return LoopIR.BinOp(e.op, lhs, rhs, typ, e.srcinfo)
 
+        elif isinstance(e, LoopIR.Extern):
+            args = [self.apply_e(a) for a in e.args]
+            typ = e.type
+            for a in args:
+                if typ != a.type:
+                    self.err(
+                        e,
+                        f"all extern arguments must have a same type, got {typ} and {a.type}",
+                    )
+
+            return LoopIR.Extern(e.f, args, typ, e.srcinfo)
+
         return super().map_e(e)
 
     # this routine allows for us to retro-actively
