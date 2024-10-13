@@ -8,17 +8,17 @@
 
 ## Procedure Object Methods
 
+The following are methods on Exo Procedures (functions decorated with `@proc` or `@instr`).
+
 ### Inspection Operations
 
 - `.name()`: Returns the procedure name.
 - `.is_instr()`: Returns `True` if the procedure has a hardware instruction string.
 - `.get_instr()`: Returns the hardware instruction string.
-- `.args()`: Returns cursors to procedure arguments.
-- `.body()`: Returns a BlockCursor selecting the entire body of the Procedure.
-- `.find(pattern, many=False)`: Finds a cursor for the given pattern. If `many=True`, returns a list of all cursors matching the pattern.
-- `.find_loop(loop_pattern, many=False)`: Finds a cursor pointing to a loop. Similar to `proc.find(...)`, but if the supplied pattern is of the form 'name' or 'name #n', it will be auto-expanded to `for name in _:_`.
-- `.find_alloc_or_arg(pattern)`: Finds an allocation or argument cursor.
-- `.find_all(pattern)`: Finds a list of all cursors matching the pattern.
+
+### Obtaining Cursors
+
+Cursors can be obtained by querying pattern on a procedure. All the Cursor related documentations are in [Cursors.md](Cursors.md).
 
 ### Compilation Operations
 
