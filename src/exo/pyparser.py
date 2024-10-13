@@ -10,10 +10,10 @@ from collections import ChainMap
 from asdl_adt.validators import ValidationError
 
 from .API_types import ProcedureBase
-from .builtins import *
 from .configs import Config
 from .LoopIR import UAST, PAST, front_ops
 from .prelude import *
+from .extern import Extern
 
 
 # --------------------------------------------------------------------------- #
@@ -90,7 +90,7 @@ def get_src_locals(*, depth):
 # Pattern-Parser top-level, invoked on strings rather than as a decorator
 
 
-def pattern(s, filename=None, lineno=None):
+def pattern(s, filename=None, lineno=None, srclocals=None, srcglobals=None):
     assert isinstance(s, str)
 
     src = s
@@ -119,7 +119,13 @@ def pattern(s, filename=None, lineno=None):
             ),
         )
 
-    parser = Parser(module.body, getsrcinfo, is_fragment=True)
+    parser = Parser(
+        module.body,
+        getsrcinfo,
+        is_fragment=True,
+        func_globals=srcglobals,
+        srclocals=srclocals,
+    )
     return parser.result()
 
 
@@ -166,15 +172,18 @@ class Parser:
         self.is_fragment = is_fragment
 
         self.push()
+        special_cases = ["stride"]
+        for key, val in self.globals.items():
+            if isinstance(val, Extern):
+                special_cases.append(key)
+        for key, val in self.locals.items():
+            if isinstance(val, Extern):
+                special_cases.append(key)
 
-        builtins = {"sin": sin, "relu": relu, "select": select}
         if is_fragment:
             self.AST = PAST
         else:
             self.AST = UAST
-            # add builtins
-            for key, val in builtins.items():
-                self.locals[key] = val
 
         if as_func:
             self._cached_result = self.parse_fdef(module_ast, instr=instr)
@@ -184,7 +193,6 @@ class Parser:
             is_expr = False
             if len(module_ast) == 1:
                 s = module_ast[0]
-                special_cases = list(builtins.keys()) + ["stride"]
                 if isinstance(s, pyast.Expr) and (
                     not isinstance(s.value, pyast.Call)
                     or s.value.func.id in special_cases
@@ -1064,21 +1072,30 @@ class Parser:
 
             # handle built-in functions
             else:
-                f = self.eval_expr(e.func)
                 fname = e.func.id
+                if self.is_fragment:
+                    if len(e.keywords) > 0:
+                        self.err(
+                            f, "cannot call a extern function " "with keyword arguments"
+                        )
+                    args = [self.parse_expr(a) for a in e.args]
 
-                if not isinstance(f, BuiltIn):
-                    self.err(
-                        e.func, f"expected called object " "to be a builtin function"
-                    )
+                    return self.AST.Extern(fname, args, self.getsrcinfo(e))
+                else:
+                    f = self.eval_expr(e.func)
 
-                if len(e.keywords) > 0:
-                    self.err(
-                        f, "cannot call a builtin function " "with keyword arguments"
-                    )
-                args = [self.parse_expr(a) for a in e.args]
+                    if not isinstance(f, Extern):
+                        self.err(
+                            e.func, f"expected called object " "to be a extern function"
+                        )
 
-                return self.AST.BuiltIn(f, args, self.getsrcinfo(e))
+                    if len(e.keywords) > 0:
+                        self.err(
+                            f, "cannot call a extern function " "with keyword arguments"
+                        )
+                    args = [self.parse_expr(a) for a in e.args]
+
+                    return self.AST.Extern(f, args, self.getsrcinfo(e))
 
         else:
             self.err(e, "unsupported form of expression")
