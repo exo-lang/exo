@@ -4,6 +4,7 @@ import pytest
 
 from exo import proc, ExoType
 from exo.libs.memories import *
+from exo.libs.externs import *
 from exo.API_cursors import *
 
 from exo.stdlib.inspection import *
