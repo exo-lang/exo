@@ -31,7 +31,7 @@ You can use optional arguments to customize the output:
 
 # Examples
 
-Take a look at [examples](examples/README.md) for scheduling examples, and [API documentation](docs/API.md) for complete scheduling interface documentation.
+Take a look at [examples](examples/avx2_matmul/README.md) for scheduling examples, and [API documentation](docs/API.md) for scheduling interface documentation.
 
 
 # Build Exo from source
@@ -126,7 +126,7 @@ In this repository, folders are structured as follows:
     - **APIs.** Documentation for the APIs can be found in the [API documentation](docs/API.md).
       - `API.py` defines a stable API for top-level decorators (`proc`, `instr`, and `config`).
       - `API_scheduling.py` defines a API for scheduling primitives.
-      - `API_cursors.py` defines a API for scheduling primitives.  
+      - `API_cursors.py` defines a API for Cursors.
     - **Standard libraries.** These could be user-defined, but we provide them for convenience.
       - `libs/` contains some common memory definitions (`memories.py`) and custom malloc implementations. 
       - `platforms/` contains instruction definitions that are part of the release.
@@ -141,7 +141,7 @@ In this repository, folders are structured as follows:
 
 # Contact
 
-Please contact [exo@mit.edu](mailto:exo@mit.edu) if you have any questions.
+Please contact [exo@mit.edu](mailto:exo@mit.edu) or [yuka@csail.mit.edu](mailto:yuka@csail.mit.edu) if you have any questions.
 
 
 # Publication
