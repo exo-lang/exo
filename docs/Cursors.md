@@ -1,168 +1,126 @@
 # Cursors
 
-Throughout this document, we use `p` for Exo procedures and `c` for Exo Cursors.
+This documentation covers how to use cursors to navigate, point-to, and apply forwarding on procedures.
+Throughout this document:
+- `p` refers to an Exo `Procedure` object 
+- `c` refers to an Exo `Cursor` object
 
-## Pattern match to obtain a Cursor
+## Obtaining Cursors
 
-### On Exo Procedures
+### From Procedures
+An Exo `Procedure` provides methods to obtain `Cursor`s:
 
-- `p.args()`: Returns cursors to procedure arguments.
-- `p.body()`: Returns a BlockCursor selecting the entire body of the Procedure.
+- `p.args()`: Returns cursors to the procedure's arguments.
+- `p.body()`: Returns a `BlockCursor` selecting the entire body of the procedure.
+- `p.find(pattern, many=False)`: Finds cursor(s) matching the given `pattern` string:
+   - If `many=False` (default), returns the first matching cursor. 
+   - If `many=True`, returns a list of all matching cursors.
+- `p.find_loop(loop_pattern, many=False)`: Finds cursor(s) to a loop, expanding shorthand patterns:
+   - `"name"` or `"name #n"` are expanded to `for name in _:_`
+   - Works like `p.find()`, returning the first match by default unless `many=True`
+- `p.find_alloc_or_arg(buf_name)`: Finds an allocation or argument cursor, expanding the name to `buf_name: _`.
+- `p.find_all(pattern)`: Shorthand for `p.find(pattern, many=True)`, returning all matching cursors.
 
-- `p.find(pattern, many=False)`: Finds a cursor for the given pattern. If `many=True`, returns a list of all cursors matching the pattern.
-- `p.find_loop(loop_pattern, many=False)`: Finds a cursor pointing to a loop. Similar to `p.find(...)`, but if the supplied pattern is of the form 'name' or 'name #n', it will be expanded to `for name in _:_`. (e.g., `p.find_loop("i")` will find a loop `i`)
-- `p.find_alloc_or_arg(buf_name)`: Finds an allocation or argument cursor. will get expanded to `buf_name: _`.
-- `p.find_all(pattern)`: Finds a list of all cursors matching the pattern. Shorthand for `p.find(pattern, many=True)`.
+### From Cursors
+A `Cursor` provides a similar method to find sub-cursors within its sub-AST:
 
-### On Cursors
+- `c.find(pattern, many=False)`: Finds cursor(s) matching the `pattern` within the cursor's sub-AST.
+  - Like `p.find()`, returns the first match by default unless `many=True`.
 
-- `c.find(pattern, many=False)`: Similar to `p.find(...)`, finds a cursor for the given pattern, inside the Cursor `c` to restrict the pattern matching to the sub-AST.
+### Pattern Language
+The `pattern` argument is a string using the following special syntax:
 
-### Pattern language
+- `_` is a wildcard matching any statement or expression
+- `#n` at the end selects the `n+1`th match instead of the first 
+  - Ex. `"for i in _:_ #2"` matches the 3rd `i` loop
+- `;` is a sequence of statements
 
-Pattern language is an argument to `p.find(...)`. `_` denotes wildcard and will match against any statements.
-Supported patterns include:
-- `"for i in _:_"` will match on the loop `i`
-- `"if i == 0:_"` or `"if _:_"` will match on the if statements with respective conditions
-- `"a : i8"` or `"a : _"` will match on the allocation for a buffer `a`
-- `"a = 3.0"` or `"a = _"` will match on the assignment for `a`
-- `"a += 3.0"` or `"a += _"` will match on the reduction for `a`
-- `"a = 3.0 ; b = 2.0"` will match against a block of size two
+Example patterns:
+- `"for i in _:_"` matches a `for i in _:_` loop
+- `"if i == 0:_"` or `"if _:_"` match `if` statements 
+- `"a : i8"` or `"a : _"` match an allocation of buffer `a`
+- `"a = 3.0"` or `"a = _"` match an assignment to `a`
+- `"a += 3.0"` or `"a += _"` match a reduction on `a`
+- `"a = 3.0 ; b = 2.0"` matches a block with those two statements
 
-If unspecified and `many=False`, `p.find(...)` will return the first match of the pattern.
-Putting `# <num>` at the end of the pattern will let you pattern match for the `<num>+1`th match.
-For example, `"for i in _:_ #2"` will match against the third `i` loop in the procedure (or a cursor).
+## Cursor Types
 
+Exo defines the following `Cursor` types:
 
-## Types of Cursors
-- Stmt Cursors: cursors pointing to statements
-- Gap Cursors: cursors pointing to gaps (between statements). Gap cursors are attached to the anchor statement cursor.
-- Block Cursors
+- `StmtCursor`: Cursor to a specific Exo IR statement
+- `GapCursor`: Cursor to the space between statements, anchored to a statement
+- `BlockCursor`: Cursor to a block (sequence) of statements
+- `ArgCursor`: Cursor to a procedure argument (no navigation)
+- `InvalidCursor`: Special cursor type for invalid cursors
 
-- Arg Cursors: arg cursors don't have navigation, and can be only obtained by `p.args()`
+## Common Cursor Methods
 
-- Invalid Cursors: Invalid cursors are invalid!
+All `Cursor` types provide these common methods:
 
-## Methods on all types of cursors
+- `c.parents()`: Returns cursor to parent node in Exo IR
+  - Raises `InvalidCursorError` if at the root with no parent
+- `c.proc()`: Returns the `Procedure` this cursor is associated with
+- `c.find(pattern, many=False)`: Finds matches within cursor's sub-AST
 
-- `c.parents()`
-        Get a Cursor to the parent node in the syntax tree.
+## Statement Cursor Navigation
 
-        Raises InvalidCursorError if no parent exists
-- `c.proc()`
-        Get the Procedure object that this Cursor points into
+A `StmtCursor` (pointing to one IR statement) provides these navigation methods:
 
-- `c.find(pattern, many=False)`: As noted above
+- `c.next()`: Returns cursor to next statement 
+- `c.prev()`: Returns cursor to previous statement
+- `c.before()`: Returns `GapCursor` to space immediately before this statement
+- `c.after()`: Returns `GapCursor` to space immediately after this statement 
+- `c.as_block()`: Returns a `BlockCursor` containing only this one statement
 
+`c.next()` / `c.prev()` return an `InvalidCursor` when there is no next/previous statement.  
+`c.before()` / `c.after()` return anchored `GapCursor`s that move with their anchor statements.
 
-## Stmt Cursor navigation
-
-#### `c.next()` (returns a _node_ cursor):
-Return a statement cursor to the next statement in the
-block (or dist-many next)
-
-Returns InvalidCursor() if there is no such cursor to point to.
+Examples:
 ```
 s1 <- c
 s2 <- c.next()
-```
 
-#### `c.prev()` (returns a _node_ cursor):
-Return a statement cursor to the previous statement in the
-block (or dist-many previous)
-
-Returns InvalidCursor() if there is no such cursor to point to.
-```
-s1 <- c.prev()
+s1 <- c.prev()  
 s2 <- c
-```
 
-#### `c.before()` (returns a _gap_ cursor):
-Get a cursor pointing to the gap immediately before this statement.
-Gaps are anchored to the statement they were created from. This
-means that if you move the statement, the gap will move with it
-when the cursor is forwarded.
-```
 s1
    <- c.before()
-s2 <- c
-```
+s2 <- c  
 
-#### `c.after()` (returns a _gap_ cursor):
-Get a cursor pointing to the gap immediately after this statement.
-
-Gaps are anchored to the statement they were created from. This
-means that if you move the statement, the gap will move with it
-when the cursor is forwarded.
-```
 s1
 s2 <- c
    <- c.after()
 ```
 
-#### `c.as_block()` (returns a _block_ cursor):
-Return a Block containing only this one statement
+## Other Cursor Navigation
 
-## Gap Cursor navigation
+- `GapCursor.anchor()`: Returns cursor to the statement this gap is anchored to
 
-#### `c.anchor()`
-Get a cursor pointing to the node to which this gap is anchored.
-
-## Block Cursor navigation
-
-#### `c.expand(delta_lo=None, delta_hi=None)` (returns a _block_ cursor):
-Expand the block cursor.
-
-When `delta_lo (delta_hi)` is not None, it is interpreted as a
-number of statements to add to the lower (upper) bound of the
-block.  When `delta_lo (delta_hi)` is None, the corresponding
-bound is expanded as far as possible.
-
-Both arguments must be non-negative if they are defined.
-
-
-For example, when `s1; s2; s3`, and a block cursor `c` is pointing to a block `s1; s2`, `c.expand(0, 1)` will return a block cursor pointing to `s1; s2; s3`.
-
-
-#### `c.before()` (return a _gap_ cursor):
-Get a cursor pointing to the gap before the first statement in
-this block.
-
-Gaps are anchored to the statement they were created from. This
-means that if you move the statement, the gap will move with it
-when the cursor is forwarded.
-
-
-#### `c.after()` (returns a _gap_ cursor):
-Get a cursor pointing to the gap after the last statement in
-this block.
-
-Gaps are anchored to the statement they were created from. This
-means that if you move the statement, the gap will move with it
-when the cursor is forwarded.
-
-
-
+- `BlockCursor.expand(delta_lo=None, delta_hi=None)`: Returns an expanded block cursor 
+   - `delta_lo`/`delta_hi` specify statements to add at start/end; `None` means expand fully
+   - Ex. in `s1; s2; s3`, if `c` is a `BlockCursor` pointing `s1; s2`, then `c.expand(0, 1)` returns a new `BlockCursor` pointing `s1; s2; s3`
+- `BlockCursor.before()`: Returns `GapCursor` before block's first statement
+- `BlockCursor.after()`: Returns `GapCursor` after block's last statement
 
 ## Cursor inspection
 
-Stmt Cursors act as a wrapper to Exo's IR, and users can inspect the object 
-
-Not sure if we should expand on all the possible Cursor types here...
-`isinstance(c, PC.AlloCursor)`
-
+- `StmtCursor`s wrap the underlying IR object which can be inspected
+   - Ex. check cursor type with `isinstance(c, PC.AlloCursor)`
 
 ## Cursor forwarding
 
-`p.forward(...)` provide some examples
+- `Procedure.forward(cursor)` applies forwarding to resolve a cursor from a previous procedure
+   - Each pass returns a fwd function mapping old IR to new IR
+   - `p.forward(c)` composes fwd functions from `c` to `p`
 
+`p.forward(...)` provides some examples.
 
 Each scheduling primitive returns a forwarding function.
-Procedure objects has a pointer to the previous procedure, and the forwarding function from the previous procedure to the current procedure.
-When `p.forward(...)` is called, all the forwarding function up until the Cursor's procedure will get applied.
+Procedure objects have a pointer to the previous procedure, and the forwarding function from the previous procedure to the current procedure.
+When `p.forward(...)` is called, all the forwarding functions up until the Cursor's procedure will get applied.
 
 Literally the code in src/exo/API.py
-```
+```python
     def forward(self, cur: C.Cursor):
         p = self
         fwds = []
@@ -176,5 +134,3 @@ Literally the code in src/exo/API.py
 
         return C.lift_cursor(ir, self)
 ```
-
-
