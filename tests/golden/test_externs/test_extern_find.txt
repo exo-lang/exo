@@ -1,0 +1,2 @@
+def foo(a: f32 @ DRAM):
+    a = sin(a)  # <-- NODE

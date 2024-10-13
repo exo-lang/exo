@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from exo import *
-from exo.builtins import *
+from exo.libs.externs import *
 from exo.platforms.x86 import *
 from exo.syntax import *
 from exo.stdlib.scheduling import *
