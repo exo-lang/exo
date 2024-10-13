@@ -271,7 +271,7 @@ class UAST_PPrinter:
             return f"{self.get_name(e.name)}[{', '.join([pacc(w) for w in e.idx])}]"
         elif isinstance(e, UAST.StrideExpr):
             return f"stride({self.get_name(e.name)}, {e.dim})"
-        elif isinstance(e, UAST.BuiltIn):
+        elif isinstance(e, UAST.Extern):
             pname = e.f.name() or "_anon_"
             args = [self.pexpr(a) for a in e.args]
             return f"{pname}({','.join(args)})"
@@ -507,7 +507,7 @@ def _print_expr(e, env: PrintEnv, prec: int = 0) -> str:
     elif isinstance(e, LoopIR.StrideExpr):
         return f"stride({env.get_name(e.name)}, {e.dim})"
 
-    elif isinstance(e, LoopIR.BuiltIn):
+    elif isinstance(e, LoopIR.Extern):
         pname = e.f.name() or "_anon_"
         args = [_print_expr(a, env) for a in e.args]
         return f"{pname}({', '.join(args)})"
