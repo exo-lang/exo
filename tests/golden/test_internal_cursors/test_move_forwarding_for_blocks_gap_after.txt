@@ -41,7 +41,9 @@ def baz(n: size, m: size):
             x: f32 @ DRAM
             x = 0.0
             for k in seq(0, n):
+                pass
                 # BLOCK START
                 y: f32 @ DRAM
                 y = 1.1
                 # BLOCK END
+                pass
