@@ -199,6 +199,28 @@ class PrecisionAnalysis(LoopIR_Rewrite):
                 typ = lhs.type
             return LoopIR.BinOp(e.op, lhs, rhs, typ, e.srcinfo)
 
+        elif isinstance(e, LoopIR.Extern):
+            typ = T.R
+            for a in e.args:
+                if a.type != T.R:
+                    typ = a.type
+
+            new_args = []
+            for a in e.args:
+                a = self.apply_e(a)
+                if typ != a.type:
+                    # coerce if const and real
+                    if a.type == T.R:
+                        a = self.coerce_e(a, typ)
+                    else:
+                        self.err(
+                            e,
+                            f"all extern arguments must have a same type, got {typ} and {a.type}",
+                        )
+                new_args.append(a)
+
+            return LoopIR.Extern(e.f, new_args, typ, e.srcinfo)
+
         return super().map_e(e)
 
     # this routine allows for us to retro-actively
@@ -224,6 +246,18 @@ class PrecisionAnalysis(LoopIR_Rewrite):
             assert rhs.type == btyp
 
             return LoopIR.BinOp(e.op, lhs, rhs, btyp, e.srcinfo)
+        elif isinstance(e, LoopIR.Extern):
+            assert e.type == T.R
+            # coerce if T.R
+            args = []
+            for a in e.args:
+                if a.type == T.R:
+                    args.append(self.coerce_e(a, btyp))
+                else:
+                    assert a.type == btyp
+                    args.append(a)
+            return LoopIR.Extern(e.f, args, btyp, e.srcinfo)
+
         else:
             assert False, f"Should not be coercing a {type(e)} Node"
 
