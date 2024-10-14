@@ -18,6 +18,8 @@ IC = 4
 W = 4
 OC = 16
 TILE = 4
+
+
 def gen_conv1d():
     @proc
     def generic_conv1d(
@@ -38,11 +40,14 @@ def gen_conv1d():
                         else:
                             y = 0
                         out[i, j] += kernels[i, c, r] * y
+
     return generic_conv1d
+
 
 ##############
 # HW LIBRARY #
 ##############
+
 
 class RVM_TILE(StaticMemory):
     NUM_RVM_TILES = 8
@@ -125,9 +130,11 @@ def rvm_mmasa(
             for k in seq(0, 4):
                 md[i, j] += ms2[i, k] * ms1[j, k]
 
+
 ##########################
 # CUSTOM REWRITING RULES #
 ##########################
+
 
 def fuse_two_loops(p, c):
     """
@@ -186,6 +193,7 @@ def fuse_all_loops(p, cursor):
 
     return p
 
+
 def autolift_alloc(p, alloc_c, dep_set=None, max_size=0, lift=True):
     """
     for i in seq(0, 10):
@@ -218,6 +226,7 @@ def autolift_alloc(p, alloc_c, dep_set=None, max_size=0, lift=True):
         except:
             break
     return p
+
 
 def reorder_top(p, c):
     """
@@ -317,9 +326,11 @@ def remove_redundant_loops(p, c, num=0):
             continue
     return p
 
+
 ##############
 # SCHEDULING #
 ##############
+
 
 def optimize_conv(p):
     p = rename(p, "exo_conv1d_tile_lt_kw")
@@ -341,7 +352,7 @@ def optimize_conv(p):
     p, (out_alloc, out_tile, body, _) = auto_stage_mem(
         p, p.find_loop("c").expand(1, 0), "out", "out_tile", rc=True
     )
-    p = autolift_alloc(p, out_tile, max_size=4 * 4 * 4, dep_set=["ioi","ii","ji"])
+    p = autolift_alloc(p, out_tile, max_size=4 * 4 * 4, dep_set=["ioi", "ii", "ji"])
 
     # Block the zero initialization and store blocks
     p = fission_as_much_as_possible(p, body)
@@ -351,13 +362,13 @@ def optimize_conv(p):
     p = lift_scope_n(p, c_loop, 3)
 
     # Stage y
-    p = autolift_alloc(p, y_alloc, max_size=4 * 4, dep_set=["r","ji"])
+    p = autolift_alloc(p, y_alloc, max_size=4 * 4, dep_set=["r", "ji"])
     p = lift_alloc(p, y_alloc, n_lifts=2)
 
     # Fission the initialization loop and remove redundant loops
     p = fission_as_much_as_possible(p, y_assign.parent())
     p = remove_redundant_loops(p, y_assign.parent(), num=2)
-    
+
     # Stage kernels to kernel_tile and y to data_tile
     ii_loop = p.forward(c_loop).body()[2].body()[0]
     p, (kernel_alloc, _, _, _) = auto_stage_mem(
@@ -386,7 +397,7 @@ def optimize_conv(p):
     p = unroll_buffer(p, kernel_alloc, 0)
     p = reuse_buffer(p, "kernel_tile_0: _", "kernel_tile_3: _")
     p = unroll_buffer(p, "out_tile", 0)
-    
+
     return p
 
 
