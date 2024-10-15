@@ -9,6 +9,7 @@ import exo.rewrite.LoopIR_scheduling as scheduling
 from exo.rewrite.LoopIR_scheduling import SchedulingError
 
 from .API_types import ProcedureBase, ExoType
+
 from .core import LoopIR as LoopIR
 from .backend.LoopIR_compiler import run_compile, compile_to_strings
 from .core.configs import Config
@@ -18,6 +19,7 @@ from .frontend.parse_fragment import parse_fragment
 from .frontend.pattern_match import match_pattern
 from .core.prelude import *
 from .rewrite.new_eff import Check_Aliasing
+from .LoopIR_interpreter import run_interpreter
 
 # Moved to new file
 from .core.proc_eqv import decl_new_proc, derive_proc, assert_eqv_proc, check_eqv_proc
@@ -301,6 +303,9 @@ class Procedure(ProcedureBase):
 
     def compile_c(self, directory: Path, filename: str):
         compile_procs([self], directory, f"{filename}.c", f"{filename}.h")
+
+    def interpret(self, **kwargs):
+        run_interpreter(self._loopir_proc, kwargs)
 
     # ------------------------------- #
     #     scheduling operations
