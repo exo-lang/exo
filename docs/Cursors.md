@@ -267,7 +267,7 @@ The `ExoType` enumeration represents user-facing various data and control types.
 
 The `ExoType` provides the following utility methods:
 
-### `is_indexable()`
+#### `is_indexable()`
 
 Returns `True` if the `ExoType` is one of the indexable types, which include:
 - `ExoType.Index`
@@ -275,7 +275,7 @@ Returns `True` if the `ExoType` is one of the indexable types, which include:
 - `ExoType.Int`
 - `ExoType.Stride`
 
-### `is_numeric()`
+#### `is_numeric()`
 
 Returns `True` if the `ExoType` is one of the numeric types, which include:
 - `ExoType.F16`
@@ -287,7 +287,7 @@ Returns `True` if the `ExoType` is one of the numeric types, which include:
 - `ExoType.I32`
 - `ExoType.R`
 
-### `is_bool()`
+#### `is_bool()`
 
 Returns `True` if the `ExoType` is the boolean type (`ExoType.Bool`).
 
