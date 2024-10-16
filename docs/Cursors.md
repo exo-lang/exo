@@ -247,6 +247,51 @@ Methods:
 - `winexpr() -> ExprCursor`: Returns a cursor to the window expression.
 
 
+## ExoType
+
+The `ExoType` enumeration represents user-facing various data and control types. It is a wrapper around Exo IR types.
+
+- `F16`: Represents a 16-bit floating-point type.
+- `F32`: Represents a 32-bit floating-point type.
+- `F64`: Represents a 64-bit floating-point type.
+- `UI8`: Represents an 8-bit unsigned integer type.
+- `I8`: Represents an 8-bit signed integer type.
+- `UI16`: Represents a 16-bit unsigned integer type.
+- `I32`: Represents a 32-bit signed integer type.
+- `R`: Represents a generic numeric type.
+- `Index`: Represents an index type.
+- `Bool`: Represents a boolean type.
+- `Size`: Represents a size type.
+- `Int`: Represents a generic integer type.
+- `Stride`: Represents a stride type.
+
+The `ExoType` provides the following utility methods:
+
+### `is_indexable()`
+
+Returns `True` if the `ExoType` is one of the indexable types, which include:
+- `ExoType.Index`
+- `ExoType.Size`
+- `ExoType.Int`
+- `ExoType.Stride`
+
+### `is_numeric()`
+
+Returns `True` if the `ExoType` is one of the numeric types, which include:
+- `ExoType.F16`
+- `ExoType.F32`
+- `ExoType.F64`
+- `ExoType.I8`
+- `ExoType.UI8`
+- `ExoType.UI16`
+- `ExoType.I32`
+- `ExoType.R`
+
+### `is_bool()`
+
+Returns `True` if the `ExoType` is the boolean type (`ExoType.Bool`).
+
+
 ## Cursor Forwarding
 
 When a procedure `p1` is transformed into a new procedure `p2` by applying scheduling primitives, any cursors pointing into `p1` need to be updated to point to the corresponding locations in `p2`. This process is called *cursor forwarding*.
