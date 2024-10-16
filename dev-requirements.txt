@@ -6,4 +6,4 @@ pytest-xdist==3.6.1
 pytest==8.3.3
 tox==4.22.0
 numpy==2.1.2
-Pillow==10.4.0
+Pillow==11.0.0
