@@ -191,7 +191,7 @@ else:
 Methods:
 - `cond() -> ExprCursor`: Returns a cursor to the if condition expression.
 - `body() -> BlockCursor`: Returns a cursor to the if body block.
-- `orelse() -> BlockCursor | InvalidCurso`: Returns a cursor to the else block if present, otherwise returns an invalid cursor.
+- `orelse() -> BlockCursor | InvalidCursor`: Returns a cursor to the else block if present, otherwise returns an invalid cursor.
 
 #### `ForCursor`
 
