@@ -36,9 +36,9 @@ The `pattern` argument is a string using the following special syntax:
 - `;` is a sequence of statements
 
 Example patterns:
-- `"for i in _:_"` matches a `for i in _:_` loop
+- `"for i in _:_"` matches a `for i in seq(0, n):...` loop
 - `"if i == 0:_"` or `"if _:_"` match `if` statements 
-- `"a : i8"` or `"a : _"` match an allocation of buffer `a`
+- `"a : i8"` or `"a : _"` match an allocation of a buffer `a`
 - `"a = 3.0"` or `"a = _"` match an assignment to `a`
 - `"a += 3.0"` or `"a += _"` match a reduction on `a`
 - `"a = 3.0 ; b = 2.0"` matches a block with those two statements
@@ -48,7 +48,7 @@ Example patterns:
 Exo defines the following `Cursor` types:
 
 - `StmtCursor`: Cursor to a specific Exo IR statement
-- `GapCursor`: Cursor to the space between statements, anchored to a statement
+- `GapCursor`: Cursor to the space between statements, anchored to (before or after) a statement
 - `BlockCursor`: Cursor to a block (sequence) of statements
 - `ArgCursor`: Cursor to a procedure argument (no navigation)
 - `InvalidCursor`: Special cursor type for invalid cursors
@@ -57,20 +57,23 @@ Exo defines the following `Cursor` types:
 
 All `Cursor` types provide these common methods:
 
-- `c.parents()`: Returns cursor to parent node in Exo IR
+- `c.parent()`: Returns `StmtCursor` to the parent node in Exo IR
   - Raises `InvalidCursorError` if at the root with no parent
-- `c.proc()`: Returns the `Procedure` this cursor is associated with
-- `c.find(pattern, many=False)`: Finds matches within cursor's sub-AST
+- `c.proc()`: Returns the `Procedure` this cursor is pointing to
+- `c.find(pattern, many=False)`: Finds cursors by pattern-match within `c`s sub-AST
 
 ## Statement Cursor Navigation
 
-A `StmtCursor` (pointing to one IR statement) provides these navigation methods:
+A `StmtCursor` (pointing to one IR statement) provides these navigation methods.
 
-- `c.next()`: Returns cursor to next statement 
-- `c.prev()`: Returns cursor to previous statement
+- `c.next()`: Returns `StmtCursor` to next statement 
+- `c.prev()`: Returns `StmtCursor` to previous statement
 - `c.before()`: Returns `GapCursor` to space immediately before this statement
 - `c.after()`: Returns `GapCursor` to space immediately after this statement 
 - `c.as_block()`: Returns a `BlockCursor` containing only this one statement
+- `c.expand()`: Shorthand for `stmt_cursor.as_block().expand(...)`
+- `c.body()`: Returns a `BlockCursor` to the body. Only works on `ForCursor` and `IfCursor`.
+- `c.orelse()`: Returns a `BlockCursor` to the orelse branch. Works only on `IfCursor`.
 
 `c.next()` / `c.prev()` return an `InvalidCursor` when there is no next/previous statement.  
 `c.before()` / `c.after()` return anchored `GapCursor`s that move with their anchor statements.
@@ -94,13 +97,15 @@ s2 <- c
 
 ## Other Cursor Navigation
 
-- `GapCursor.anchor()`: Returns cursor to the statement this gap is anchored to
+- `GapCursor.anchor()`: Returns `StmtCursor` to the statement this gap is anchored to
 
 - `BlockCursor.expand(delta_lo=None, delta_hi=None)`: Returns an expanded block cursor 
    - `delta_lo`/`delta_hi` specify statements to add at start/end; `None` means expand fully
    - Ex. in `s1; s2; s3`, if `c` is a `BlockCursor` pointing `s1; s2`, then `c.expand(0, 1)` returns a new `BlockCursor` pointing `s1; s2; s3`
 - `BlockCursor.before()`: Returns `GapCursor` before block's first statement
 - `BlockCursor.after()`: Returns `GapCursor` after block's last statement
+- `BlockCursor[pt]`: Returns a `pt+1`th `StmtCursor` within the BlockCursor (e.g. `c[0]` returns `s1` when `c` is pointing to `s1;s2;...`)
+- `BlockCursor[lo:hi]`: Returns a slice of `BlockCursor` from `lo` to `hi-1`. (e.g. `c[0:2]` returns `s1;s2` when `c` is pointing to `s2;s2;...`)
 
 ## Cursor inspection
 
@@ -182,12 +187,11 @@ if condition:
 else:
     orelse
 ```
-Returns an invalid cursor if `orelse` isn't present.
 
 Methods:
 - `cond() -> ExprCursor`: Returns a cursor to the if condition expression.
 - `body() -> BlockCursor`: Returns a cursor to the if body block.
-- `orelse() -> Cursor`: Returns a cursor to the else block (if present).
+- `orelse() -> BlockCursor | InvalidCurso`: Returns a cursor to the else block if present, otherwise returns an invalid cursor.
 
 #### `ForCursor`
 
@@ -245,20 +249,20 @@ Methods:
 
 ## Cursor Forwarding
 
-When a procedure `p` is transformed into a new procedure `p'` by applying scheduling primitives, any cursors pointing into `p` need to be updated to point to the corresponding locations in `p'`. This process is called *cursor forwarding*.
+When a procedure `p1` is transformed into a new procedure `p2` by applying scheduling primitives, any cursors pointing into `p1` need to be updated to point to the corresponding locations in `p2`. This process is called *cursor forwarding*.
 
-To forward a cursor `c` from `p` to `p'`, you can use the `forward` method on the new procedure:
+To forward a cursor `c1` from `p1` to `p2`, you can use the `forward` method on the new procedure:
 ```python
-c' = p'.forward(c)
+c2 = p2.forward(c1)
 ```
 
 ### How Forwarding Works
 
-Internally, each scheduling primitive returns a *forwarding function* that maps locations in the input procedure to locations in the output procedure.
+Internally, each scheduling primitive returns a *forwarding function* that maps AST locations in the input procedure to locations in the output procedure.
 
-When you call `p'.forward(c)`, Exo composes the forwarding functions for all the scheduling steps between `c.proc()` (the procedure `c` points into, in this case `p`) and `p'` (the final procedure). This composition produces a single function that can map `c` from its original procedure to the corresponding location in `p'`.
+When you call `p2.forward(c1)`, Exo composes the forwarding functions for all the scheduling steps between `c1.proc()` (the procedure `c1` points into, in this case `p1`) and `p2` (the final procedure). This composition produces a single function that can map `c1` from its original procedure to the corresponding location in `p2`.
 
-Here's the actual implementation of forwarding in `src/exo/API.py`:
+Here's the actual implementation of the forwarding in `src/exo/API.py`:
 
 ```python
 def forward(self, cur: C.Cursor):
@@ -284,4 +288,40 @@ The key steps are:
 
 So in summary, `p.forward(c)` computes and applies the composite forwarding function to map cursor `c` from its original procedure to the corresponding location in procedure `p`.
 
+Note that a forwarding function can return an invalid cursor, and that is expected. For example, when a statement cease to exist by a rewrite, cursors pointing to the statement will be forwarded to an invalid cursor.
+
+### Implicit and Explicit Cursor Forwarding in Scheduling Primitives
+
+Scheduling primitives, such as `lift_alloc` and `expand_dim`, operate on a target procedure, which is passed as the first argument. When passing cursors to these primitives, the cursors should be forwarded to point to the target procedure.
+
+Consider the following example:
+```python
+c = p0.find("x : _")
+p1 = lift_alloc(p0, c)
+p2 = expand_dim(p1, p1.forward(c), ...)
+```
+
+In the call to `expand_dim`, the cursor `c` is explicitly forwarded to `p1` using `p1.forward(c)`. This is necessary because `c` was originally obtained from `p0`, and it needs to be adjusted to point to the correct location in `p1`.
+
+However, the scheduling primitives support *implicit forwarding* of cursors. This means that all the cursors passed to these primitives will be automatically forwarded to point to the first argument procedure. The above code can be simplified as follows:
+
+```python
+c = p0.find("x : _")
+p1 = lift_alloc(p0, c)
+p2 = expand_dim(p1, c, ...) # implicit forwarding!
+```
+
+In this case, `c` is implicitly forwarded to `p1` within the `expand_dim` primitive, eliminating the need for explicit forwarding.
+
+#### Limitations of Implicit Forwarding
+
+It is important to note that implicit forwarding does not work when navigation is applied to a forwarded cursor. Consider the following example:
+
+```python
+c = p0.find("x : _")
+p1 = lift_alloc(p0, c)
+p2 = reorder_scope(p1, p1.forward(c).next(), ...)
+```
+
+In this code, the navigation `.next()` is applied to the forwarded cursor `p1.forward(c)`. Attempting to change `p1.forward(c).next()` to `p1.forward(c.next())` will result in incorrect behavior. This is because navigation and forwarding are *not commutative*.
 

@@ -18,7 +18,7 @@ The following are methods on Exo Procedures (functions decorated with `@proc` or
 
 ### Obtaining Cursors
 
-Cursors can be obtained by querying pattern on a procedure. All the Cursor related documentations are in [Cursors.md](Cursors.md).
+Cursors can be obtained by querying patterns on a procedure. All the Cursor related documentations are in [Cursors.md](Cursors.md).
 
 ### Compilation Operations
 
