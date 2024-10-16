@@ -28,6 +28,7 @@ class Interpreter:
         self.env = ChainMap()
         self.use_randomization = use_randomization
 
+        # type check args
         for a in proc.args:
             if not str(a.name) in kwargs:
                 raise TypeError(f"expected argument '{a.name}' to be supplied")
@@ -39,7 +40,7 @@ class Interpreter:
                     )
                 self.env[a.name] = kwargs[str(a.name)]
             elif a.type is T.index:
-                if type(kwargs[str(a.name)]) is not T.index:
+                if type(kwargs[str(a.name)]) is not int:
                     raise TypeError(
                         f"expected index variable '{a.name}' to be an integer"
                     )
@@ -48,21 +49,35 @@ class Interpreter:
                 if type(kwargs[str(a.name)]) is not bool:
                     raise TypeError(f"expected bool variable '{a.name}' to be a bool")
                 self.env[a.name] = kwargs[str(a.name)]
+            elif a.type is T.stride:
+                if type(kwargs[str(a.name)]) is not int:
+                    raise TypeError(f"expected stride variable '{a.name}' to be an integer")
+                self.env[a.name] = kwargs[str(a.name)]
             else:
                 assert a.type.is_numeric()
+                assert a.type.basetype() != T.R # what is T.R?
                 self.simple_typecheck_buffer(a, kwargs)
                 self.env[a.name] = kwargs[str(a.name)]
 
-        self.env.new_child()
-        self.eval_stmts(proc.body)
-        self.env.parents
+        # evaluate preconditions
+        for pred in proc.preds:
+            if isinstance(pred, LoopIR.Const):
+                continue
+            else:
+                assert(eval_e(pred.lhs) == eval_e(pred.rhs))
 
+        # eval statements
+        self.env = self.env.new_child()
+        self.eval_stmts(proc.body)
+        self.env = self.env.parents
+
+    # input buffers should be numpy arrays with floating-point values
     def simple_typecheck_buffer(self, fnarg, kwargs):
         typ = fnarg.type
         buf = kwargs[str(fnarg.name)]
         nm = fnarg.name
-        # raise TypeError(f"type of argument '{a.name}' "
-        #                 f"value mismatches")
+
+        # check data type
         pre = f"bad argument '{nm}'"
         if not isinstance(buf, np.ndarray):
             raise TypeError(f"{pre}: expected numpy.ndarray")
@@ -71,9 +86,8 @@ class Interpreter:
                 f"{pre}: expected buffer of floating-point values; "
                 f"had '{buf.dtype}' values"
             )
-            # raise TypeError(f"type of argument '{name}' "
-            #                f"value mismatches")
 
+        # check shape
         if typ.is_real_scalar():
             if tuple(buf.shape) != (1,):
                 raise TypeError(
@@ -87,17 +101,15 @@ class Interpreter:
                     f"{pre}: expected buffer of shape {shape}, "
                     f"but got shape {tuple(buf.shape)}"
                 )
-
+    
     def eval_stmts(self, stmts):
         for s in stmts:
             self.eval_s(s)
 
     def eval_s(self, s):
-        styp = type(s)
-
-        if styp is LoopIR.Pass:
+        if isinstance(s, LoopIR.Pass):
             pass
-        elif styp is LoopIR.Assign or styp is LoopIR.Reduce:
+        elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             # lbuf[a0,a1,...] = rhs
             lbuf = self.env[s.name]
             if len(s.idx) == 0:
@@ -105,59 +117,74 @@ class Interpreter:
             else:
                 idx = tuple(self.eval_e(a) for a in s.idx)
             rhs = self.eval_e(s.rhs)
-            if styp is LoopIR.Assign:
+            if isinstance(s, LoopIR.Assign):
                 lbuf[idx] = rhs
             else:
                 lbuf[idx] += rhs
-        elif styp is LoopIR.If:
+        
+        elif isinstance(s, LoopIR.WriteConfig):
+            assert False, "TODO: impl LoopIR.WriteConfig"
+        
+        elif isinstance(s, LoopIR.WindowStmt):
+            assert False, "TODO: impl LoopIR.WindowStmt"
+        
+        elif isinstance(s, LoopIR.If):
             cond = self.eval_e(s.cond)
             if cond:
-                self.env.new_child()
+                self.env = self.env.new_child()
                 self.eval_stmts(s.body)
-                self.env.parents
+                self.env = self.env.parents
             if s.orelse and not cond:
-                self.env.new_child()
+                self.env = self.env.new_child()
                 self.eval_stmts(s.orelse)
-                self.env.parents
-        elif styp is LoopIR.Seq:
+                self.env = self.env.parents
+        
+        elif isinstance(s, LoopIR.For):
             lo = self.eval_e(s.lo)
             hi = self.eval_e(s.hi)
             assert self.use_randomization is False, "TODO: Implement Rand"
-            self.env.new_child()
+            self.env = self.env.new_child()
             for itr in range(lo, hi):
                 self.env[s.iter] = itr
                 self.eval_stmts(s.body)
-            self.env.parents
-        elif styp is LoopIR.Alloc:
+            self.env = self.env.parents
+
+        elif isinstance(s, LoopIR.Alloc):
             if s.type.is_real_scalar():
                 self.env[s.name] = np.empty([1])
             else:
                 size = self.eval_shape(s.type)
                 # TODO: Maybe randomize?
                 self.env[s.name] = np.empty(size)
-        elif styp is LoopIR.Call:
+        
+        elif isinstance(s, LoopIR.Free):
+            assert False, "TODO: impl LoopIR.Free"
+
+        elif isinstance(s, LoopIR.Call):
             argvals = [self.eval_e(a, call_arg=True) for a in s.args]
             argnames = [str(a.name) for a in s.f.args]
             kwargs = {nm: val for nm, val in zip(argnames, argvals)}
             Interpreter(s.f, kwargs, use_randomization=self.use_randomization)
+        
         else:
             assert False, "bad case"
 
     def eval_e(self, e, call_arg=False):
-        etyp = type(e)
-
-        if etyp is LoopIR.Read:
+        if isinstance(e, LoopIR.Read):
             buf = self.env[e.name]
             if call_arg or isinstance(buf, (int, bool)):
                 return buf
             else:
                 idx = (0,) if len(e.idx) == 0 else tuple(self.eval_e(a) for a in e.idx)
                 return buf[idx]
-        elif etyp is LoopIR.Const:
+        
+        elif isinstance(e, LoopIR.WindowExpr):
+            assert False, "TODO: impl LoopIR.WindowExpr"
+        
+        elif isinstance(e, LoopIR.Const):
             return e.val
-        elif etyp is LoopIR.USub:
-            return -self.eval_e(e.arg)
-        elif etyp is LoopIR.BinOp:
+        
+        elif isinstance(e, LoopIR.BinOp):
             lhs, rhs = self.eval_e(e.lhs), self.eval_e(e.rhs)
             if e.op == "+":
                 return lhs + rhs
@@ -187,12 +214,21 @@ class Interpreter:
             elif e.op == "or":
                 return lhs or rhs
 
-        elif etyp is LoopIR.BuiltIn:
+        elif isinstance(e, LoopIR.USub):
+            return -self.eval_e(e.arg)
+        
+        elif isinstance(e, LoopIR.BuiltIn):
             args = [self.eval_e(a) for a in e.args]
             return e.f.interpret(args)
 
+        elif isinstance(e, LoopIR.StrideExpr):
+            assert False, "TODO: impl LoopIR.StrideExpr"
+        
+        elif isinstance(e, LoopIR.ReadConfig):
+            assert False, "TODO: impl LoopIR.StrideExpr"
+        
         else:
             assert False, "bad case"
-
+    
     def eval_shape(self, typ):
         return tuple(self.eval_e(s) for s in typ.shape())
