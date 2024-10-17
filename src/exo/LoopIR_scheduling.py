@@ -2410,7 +2410,7 @@ def DoFissionAfterSimple(stmt_cursor, n_lifts, unsafe_disable_checks):
             if cur_c._node in par_s.body:
 
                 def wrapper(body):
-                    return par_s.update(body=body)
+                    return par_s.update(body=body, orelse=[])
 
                 ir, fwd_wrap = pre_c._wrap(wrapper, "body")
                 fwd = _compose(fwd_wrap, fwd)
@@ -2424,7 +2424,9 @@ def DoFissionAfterSimple(stmt_cursor, n_lifts, unsafe_disable_checks):
                 assert cur_c._node in par_s.orelse
 
                 def wrapper(orelse):
-                    return par_s.update(body=None, orelse=orelse)
+                    return par_s.update(
+                        body=[LoopIR.Pass(par_s.srcinfo)], orelse=orelse
+                    )
 
                 ir, fwd_wrap = post_c._wrap(wrapper, "orelse")
                 fwd = _compose(fwd_wrap, fwd)
