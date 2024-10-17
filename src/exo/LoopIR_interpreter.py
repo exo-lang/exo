@@ -6,7 +6,6 @@ from .LoopIR import LoopIR
 from .LoopIR import T
 from .prelude import *
 
-
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Loop IR Interpreter
@@ -26,6 +25,10 @@ class Interpreter:
 
         self.proc = proc
         self.env = ChainMap()
+        # dependency analysis not relevant? 
+        # context struct (configs) not relevant?
+        # range_env not relevant? 
+        # what are strides? 
         self.use_randomization = use_randomization
 
         # type check args
@@ -64,7 +67,7 @@ class Interpreter:
             if isinstance(pred, LoopIR.Const):
                 continue
             else:
-                assert(eval_e(pred.lhs) == eval_e(pred.rhs))
+                assert(self.eval_e(pred.lhs) == self.eval_e(pred.rhs))
 
         # eval statements
         self.env = self.env.new_child()
@@ -109,12 +112,14 @@ class Interpreter:
     def eval_s(self, s):
         if isinstance(s, LoopIR.Pass):
             pass
+        
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
-            # lbuf[a0,a1,...] = rhs
             lbuf = self.env[s.name]
             if len(s.idx) == 0:
+                #lbuf = rhs
                 idx = (0,)
             else:
+                # lbuf[a0,a1,...] = rhs
                 idx = tuple(self.eval_e(a) for a in s.idx)
             rhs = self.eval_e(s.rhs)
             if isinstance(s, LoopIR.Assign):
@@ -170,17 +175,30 @@ class Interpreter:
             assert False, "bad case"
 
     def eval_e(self, e, call_arg=False):
+        
         if isinstance(e, LoopIR.Read):
             buf = self.env[e.name]
             if call_arg or isinstance(buf, (int, bool)):
+                # read without indices
                 return buf
             else:
                 idx = (0,) if len(e.idx) == 0 else tuple(self.eval_e(a) for a in e.idx)
                 return buf[idx]
         
         elif isinstance(e, LoopIR.WindowExpr):
-            assert False, "TODO: impl LoopIR.WindowExpr"
-        
+            buf = self.env[e.name]
+
+            def case_eval(e):
+                if isinstance(e, LoopIR.Interval):
+                    return f"{e.lo}:{e.hi}"
+                else:
+                    self.eval_e(e)
+            
+            # hack to handle interval indexes: LoopIR.Interval returns a string representing the interval
+            idx = ('0',) if len(e.idx) == 0 else tuple(str(case_eval(a)) for a in e.idx)
+            res = eval(f"buf[{','.join(idx)}]")
+            return res
+
         elif isinstance(e, LoopIR.Const):
             return e.val
         
