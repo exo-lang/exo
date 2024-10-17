@@ -481,6 +481,48 @@ def test_fission_after_simple_fail():
         fission(foo, foo.find("x = 0.0").after(), n_lifts=2)
 
 
+def test_if_fission():
+    @proc
+    def before(x: size, y: f32):
+        if x < 10:
+            y += 1
+            y += 2
+        else:
+            y += 3
+            y += 4
+
+    @proc
+    def fission_if(x: size, y: f32):
+        if x < 10:
+            y += 1
+        if x < 10:
+            y += 2
+        else:
+            y += 3
+            y += 4
+
+    @proc
+    def fission_else(x: size, y: f32):
+        if x < 10:
+            y += 1
+            y += 2
+        else:
+            y += 3
+        if x < 10:
+            pass
+        else:
+            y += 4
+
+    test_fission_if = rename(before, "fission_if")
+    test_fission_if = fission(test_fission_if, test_fission_if.find("y += 1").after())
+    assert str(fission_if) == str(test_fission_if)
+    test_fission_else = rename(before, "fission_else")
+    test_fission_else = fission(
+        test_fission_else, test_fission_else.find("y += 3").after()
+    )
+    assert str(fission_else) == str(test_fission_else)
+
+
 def test_resize_dim(golden):
     @proc
     def foo():
