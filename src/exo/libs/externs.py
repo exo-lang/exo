@@ -1,4 +1,4 @@
-from ..extern import Extern, _EErr
+from exo.core.extern import Extern, _EErr
 
 
 class _Sin(Extern):

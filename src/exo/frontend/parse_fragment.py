@@ -2,7 +2,7 @@ import inspect
 from collections import ChainMap
 
 from . import pyparser
-from .LoopIR import T, LoopIR_Do, LoopIR, PAST
+from ..core.LoopIR import T, LoopIR_Do, LoopIR, PAST
 
 
 # --------------------------------------------------------------------------- #

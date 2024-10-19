@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Tuple
 
 from exo.API_cursors import *
-from exo.range_analysis import IndexRange
+from exo.rewrite.range_analysis import IndexRange
 
 from .inspection import get_parents
 

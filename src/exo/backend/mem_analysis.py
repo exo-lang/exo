@@ -1,7 +1,7 @@
 from collections import ChainMap
-from .LoopIR import LoopIR
+from ..core.LoopIR import LoopIR
 
-from .memory import Memory
+from ..core.memory import Memory
 
 
 # --------------------------------------------------------------------------- #

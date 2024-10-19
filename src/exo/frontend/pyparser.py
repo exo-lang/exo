@@ -9,11 +9,11 @@ from collections import ChainMap
 
 from asdl_adt.validators import ValidationError
 
-from .API_types import ProcedureBase
-from .configs import Config
-from .LoopIR import UAST, PAST, front_ops
-from .prelude import *
-from .extern import Extern
+from ..API_types import ProcedureBase
+from ..core.configs import Config
+from ..core.LoopIR import UAST, PAST, front_ops
+from ..core.prelude import *
+from ..core.extern import Extern
 
 
 # --------------------------------------------------------------------------- #
