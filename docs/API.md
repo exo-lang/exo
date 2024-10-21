@@ -37,9 +37,9 @@ Cursors can be obtained by querying patterns on a procedure. All the Cursor rela
 
 We have classified scheduling primitives into six categories. Here are the links to each:
 
-- [Buffer Transformations](buffer_ops.md)
-- [Loop and Scope Transformations](loop_ops.md)
-- [Configuration States](config_ops.md)
-- [Subprocedure Operations](subproc_ops.md)
-- [Memory, Precision, and Parallelism Transformations](backend_ops.md)
-- [Other Operations](other_ops.md)
+- [Buffer Transformations](primitives/buffer_ops.md)
+- [Loop and Scope Transformations](primitives/loop_ops.md)
+- [Configuration States](primitives/config_ops.md)
+- [Subprocedure Operations](primitives/subproc_ops.md)
+- [Memory, Precision, and Parallelism Transformations](primitives/backend_ops.md)
+- [Other Operations](primitives/other_ops.md)
