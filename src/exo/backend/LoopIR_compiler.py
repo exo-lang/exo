@@ -6,15 +6,15 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from .LoopIR import LoopIR, LoopIR_Do, get_writes_of_stmts, T, CIR
-from .configs import ConfigError
+from ..core.LoopIR import LoopIR, LoopIR_Do, get_writes_of_stmts, T, CIR
+from ..core.configs import ConfigError
 from .mem_analysis import MemoryAnalysis
-from .memory import MemGenError, Memory, DRAM, StaticMemory
+from ..core.memory import MemGenError, Memory, DRAM, StaticMemory
 from .parallel_analysis import ParallelAnalysis
 from .prec_analysis import PrecisionAnalysis
-from .prelude import *
+from ..core.prelude import *
 from .win_analysis import WindowAnalysis
-from .range_analysis import IndexRangeEnvironment
+from ..rewrite.range_analysis import IndexRangeEnvironment
 
 
 def sanitize_str(s):

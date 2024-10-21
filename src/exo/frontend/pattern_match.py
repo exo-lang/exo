@@ -5,13 +5,13 @@ import re
 from typing import Optional, Iterable
 from collections import ChainMap
 
-import exo.pyparser as pyparser
-from exo.LoopIR import LoopIR, PAST
+import exo.frontend.pyparser as pyparser
+from exo.core.LoopIR import LoopIR, PAST
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Pattern Matching Errors
-from exo.internal_cursors import Cursor, Node, Block
+from exo.core.internal_cursors import Cursor, Node, Block
 
 
 class PatternMatchError(Exception):

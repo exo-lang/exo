@@ -7,7 +7,7 @@ import pysmt
 from asdl_adt import ADT
 from pysmt import shortcuts as SMT
 
-from .LoopIR import (
+from ..core.LoopIR import (
     LoopIR,
     T,
     LoopIR_Do,
@@ -17,9 +17,9 @@ from .LoopIR import (
     LoopIR_Dependencies,
 )
 from .LoopIR_scheduling import SchedulingError
-from .prelude import *
+from ..core.prelude import *
 from .new_eff import Check_Aliasing
-import exo.internal_cursors as ic
+import exo.core.internal_cursors as ic
 
 
 def _get_smt_solver():

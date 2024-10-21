@@ -2,7 +2,7 @@ import re
 from collections import ChainMap
 from typing import List, Tuple, Optional
 
-from .LoopIR import (
+from ..core.LoopIR import (
     LoopIR,
     LoopIR_Rewrite,
     Alpha_Rename,
@@ -35,13 +35,13 @@ from .new_eff import (
 
 from .range_analysis import IndexRangeEnvironment, IndexRange, index_range_analysis
 
-from .prelude import *
-from .proc_eqv import get_strictest_eqv_proc
-import exo.internal_cursors as ic
+from ..core.prelude import *
+from ..core.proc_eqv import get_strictest_eqv_proc
+import exo.core.internal_cursors as ic
 import exo.API as api
-from .pattern_match import match_pattern
-from .memory import DRAM
-from .typecheck import check_call_types
+from ..frontend.pattern_match import match_pattern
+from ..core.memory import DRAM
+from ..frontend.typecheck import check_call_types
 
 from functools import partial
 

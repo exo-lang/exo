@@ -9,7 +9,7 @@ import pytest
 from exo import proc
 from exo.platforms.neon import *
 from exo.stdlib.scheduling import *
-from exo.memory import MemGenError
+from exo.core.memory import MemGenError
 
 import numpy as np
 

@@ -1,5 +1,5 @@
 from enum import Enum, auto
-from .LoopIR import LoopIR, T
+from .core.LoopIR import LoopIR, T
 
 
 class ProcedureBase:

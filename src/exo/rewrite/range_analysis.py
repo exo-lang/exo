@@ -3,9 +3,9 @@ from collections import ChainMap
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
-from .LoopIR import LoopIR, T, LoopIR_Compare
+from ..core.LoopIR import LoopIR, T, LoopIR_Compare
 from .new_eff import Check_ExprBound
-from .prelude import Sym, _null_srcinfo_obj
+from ..core.prelude import Sym, _null_srcinfo_obj
 
 
 # TODO: we should implement a more general index analysis which
