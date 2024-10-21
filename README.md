@@ -11,6 +11,7 @@ If you're just using Exo, install it using `pip`:
 ```sh
 $ pip install exo-lang
 ```
+In case of `ModuleNotFoundError: No module named 'attrs'` please upgrade your attrs module by `pip install --upgrade attrs`.
 
 ## Compile Exo
 
