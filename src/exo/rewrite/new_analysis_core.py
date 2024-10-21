@@ -11,8 +11,8 @@ from pysmt import shortcuts as SMT
 
 from asdl_adt import ADT, validators
 from asdl_adt.validators import ValidationError
-from .LoopIR import T, LoopIR
-from .prelude import *
+from ..core.LoopIR import T, LoopIR
+from ..core.prelude import *
 
 _first_run = True
 

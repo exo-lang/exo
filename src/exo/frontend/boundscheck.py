@@ -4,8 +4,8 @@ from asdl_adt import ADT, validators
 import pysmt
 from pysmt import shortcuts as SMT
 
-from .LoopIR import LoopIR, T, Operator, Config
-from .prelude import *
+from ..core.LoopIR import LoopIR, T, Operator, Config
+from ..core.prelude import *
 
 
 # --------------------------------------------------------------------------- #

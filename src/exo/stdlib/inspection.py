@@ -4,7 +4,7 @@ from exo import *
 from exo.libs.memories import *
 from exo.platforms.x86 import *
 from exo.platforms.neon import *
-from exo.syntax import *
+from exo.frontend.syntax import *
 from exo.API_cursors import *
 from exo.stdlib.analysis import *
 

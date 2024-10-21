@@ -337,7 +337,7 @@ class Block(Cursor):
         internal classes and modules, but not from end-user code.
         """
         # TODO: refactor this; LoopIR should not be imported here
-        from exo.LoopIR import LoopIR
+        from exo.core.LoopIR import LoopIR
 
         pass_stmt = [LoopIR.Pass(self.parent()._node.srcinfo)]
         return self._replace([], empty_default=pass_stmt)

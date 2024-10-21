@@ -5,27 +5,27 @@ import types
 from pathlib import Path
 from typing import Optional, Union, List
 
-import exo.LoopIR_scheduling as scheduling
-from exo.LoopIR_scheduling import SchedulingError
+import exo.rewrite.LoopIR_scheduling as scheduling
+from exo.rewrite.LoopIR_scheduling import SchedulingError
 
 from .API_types import ProcedureBase, ExoType
-from . import LoopIR as LoopIR
-from .LoopIR_compiler import run_compile, compile_to_strings
-from .configs import Config
-from .boundscheck import CheckBounds
-from .memory import Memory
-from .parse_fragment import parse_fragment
-from .pattern_match import match_pattern
-from .prelude import *
-from .new_eff import Check_Aliasing
+from .core import LoopIR as LoopIR
+from .backend.LoopIR_compiler import run_compile, compile_to_strings
+from .core.configs import Config
+from .frontend.boundscheck import CheckBounds
+from .core.memory import Memory
+from .frontend.parse_fragment import parse_fragment
+from .frontend.pattern_match import match_pattern
+from .core.prelude import *
+from .rewrite.new_eff import Check_Aliasing
 
 # Moved to new file
-from .proc_eqv import decl_new_proc, derive_proc, assert_eqv_proc, check_eqv_proc
-from .pyparser import get_ast_from_python, Parser, get_src_locals
-from .typecheck import TypeChecker
+from .core.proc_eqv import decl_new_proc, derive_proc, assert_eqv_proc, check_eqv_proc
+from .frontend.pyparser import get_ast_from_python, Parser, get_src_locals
+from .frontend.typecheck import TypeChecker
 
 from . import API_cursors as C
-from . import internal_cursors as IC
+from .core import internal_cursors as IC
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

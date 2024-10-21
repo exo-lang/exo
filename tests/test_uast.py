@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from exo import DRAM
-from exo.pyparser import Parser, get_src_locals, get_ast_from_python
+from exo.frontend.pyparser import Parser, get_src_locals, get_ast_from_python
 
 
 def to_uast(f):

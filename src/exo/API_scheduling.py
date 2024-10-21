@@ -9,16 +9,16 @@ from typing import Any, List, Tuple
 
 from .API import Procedure
 import exo.API_cursors as PC
-from .LoopIR import LoopIR, T
-import exo.LoopIR_scheduling as scheduling
+from .core.LoopIR import LoopIR, T
+import exo.rewrite.LoopIR_scheduling as scheduling
 from .API_types import ExoType
 
-from .LoopIR_unification import DoReplace, UnificationError
-from .configs import Config
-from .memory import Memory
-from .parse_fragment import parse_fragment
-from .prelude import *
-from . import internal_cursors as ic
+from .rewrite.LoopIR_unification import DoReplace, UnificationError
+from .core.configs import Config
+from .core.memory import Memory
+from .frontend.parse_fragment import parse_fragment
+from .core.prelude import *
+from .core import internal_cursors as ic
 
 
 def is_subclass_obj(x, cls):

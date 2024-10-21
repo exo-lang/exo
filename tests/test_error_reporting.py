@@ -6,7 +6,7 @@ import pytest
 
 from exo import SchedulingError
 from exo import proc
-from exo.syntax import *
+from exo.frontend.syntax import *
 from exo.stdlib.scheduling import *
 
 # skipping because the API has changed to invalidate this particular

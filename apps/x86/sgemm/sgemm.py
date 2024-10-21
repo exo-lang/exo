@@ -3,7 +3,7 @@ from __future__ import annotations
 from exo import *
 from exo.libs.memories import DRAM_STATIC
 from exo.platforms.x86 import *
-from exo.syntax import *
+from exo.frontend.syntax import *
 from exo.stdlib.scheduling import *
 from exo.stdlib.stdlib import *
 

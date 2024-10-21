@@ -1,4 +1,4 @@
-from .LoopIR import (
+from ..core.LoopIR import (
     T,
     UAST,
     LoopIR,
@@ -6,8 +6,8 @@ from .LoopIR import (
     get_writeconfigs,
     get_loop_iters,
 )
-from .extern import Extern_Typecheck_Error
-from .memory import *
+from ..core.extern import Extern_Typecheck_Error
+from ..core.memory import *
 
 
 # --------------------------------------------------------------------------- #

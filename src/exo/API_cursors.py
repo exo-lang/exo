@@ -7,18 +7,18 @@ from typing import List, Any
 
 from . import API  # TODO: remove this circular import
 from .API_types import ExoType, loopir_type_to_exotype
-from .LoopIR import LoopIR
-from .configs import Config
-from .memory import Memory
+from .core.LoopIR import LoopIR
+from .core.configs import Config
+from .core.memory import Memory
 
-from . import internal_cursors as C
-from .pattern_match import match_pattern
-from .prelude import Sym
+from .core import internal_cursors as C
+from .frontend.pattern_match import match_pattern
+from .core.prelude import Sym
 
 # expose this particular exception as part of the API
-from .internal_cursors import InvalidCursorError
-from .LoopIR_pprint import _print_cursor
-from .LoopIR_scheduling import SchedulingError
+from .core.internal_cursors import InvalidCursorError
+from .core.LoopIR_pprint import _print_cursor
+from .rewrite.LoopIR_scheduling import SchedulingError
 
 
 # --------------------------------------------------------------------------- #

@@ -1,6 +1,6 @@
-from .LoopIR import LoopIR, LoopIR_Rewrite
+from ..core.LoopIR import LoopIR, LoopIR_Rewrite
 
-from .new_eff import Check_ParallelizeLoop
+from ..rewrite.new_eff import Check_ParallelizeLoop
 
 
 class ParallelAnalysis(LoopIR_Rewrite):
