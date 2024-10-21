@@ -370,3 +370,7 @@ p2 = reorder_scope(p1, p1.forward(c).next(), ...)
 
 In this code, the navigation `.next()` is applied to the forwarded cursor `p1.forward(c)`. Attempting to change `p1.forward(c).next()` to `p1.forward(c.next())` will result in incorrect behavior. This is because navigation and forwarding are *not commutative*.
 
+## further
+More details can be found in our ASPLOS '25 paper or Kevin Qian's master thesis
+
+
