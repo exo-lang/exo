@@ -9,6 +9,7 @@ from yapf.yapflib.yapf_api import FormatCode
 
 from .LoopIR import T
 from .LoopIR import UAST, LoopIR
+from .loop_mode import format_loop_cond
 from .internal_cursors import Node, Gap, Block, Cursor, InvalidCursorError, GapType
 from .prelude import *
 
@@ -252,10 +253,8 @@ class UAST_PPrinter:
             return s
         elif isinstance(e, UAST.USub):
             return f"-{self.pexpr(e.arg, prec=op_prec['~'])}"
-        elif isinstance(e, UAST.ParRange):
-            return f"par({self.pexpr(e.lo)},{self.pexpr(e.hi)})"
-        elif isinstance(e, UAST.SeqRange):
-            return f"seq({self.pexpr(e.lo)},{self.pexpr(e.hi)})"
+        elif isinstance(e, UAST.LoopRange):
+            return format_loop_cond(self.pexpr(e.lo), self.pexpr(e.hi), e.loop_mode)
         elif isinstance(e, UAST.WindowExpr):
 
             def pacc(w):
@@ -455,11 +454,9 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
     elif isinstance(stmt, LoopIR.For):
         lo = _print_expr(stmt.lo, env)
         hi = _print_expr(stmt.hi, env)
+        loop_cond = format_loop_cond(lo, hi, stmt.loop_mode)
         body_env = env.push()
-        loop_type = "par" if isinstance(stmt.loop_mode, LoopIR.Par) else "seq"
-        lines = [
-            f"{indent}for {body_env.get_name(stmt.iter)} in {loop_type}({lo}, {hi}):"
-        ]
+        lines = [f"{indent}for {body_env.get_name(stmt.iter)} in {loop_cond}:"]
         lines.extend(_print_block(stmt.body, body_env, indent + "  "))
         return lines
 
@@ -703,10 +700,10 @@ def _print_cursor_stmt(
     elif isinstance(stmt, LoopIR.For):
         lo = _print_expr(stmt.lo, env)
         hi = _print_expr(stmt.hi, env)
+        loop_cond = format_loop_cond(lo, hi, stmt.loop_mode)
         body_env = env.push()
-        loop_type = "par" if isinstance(stmt.loop_mode, LoopIR.Par) else "seq"
         lines = [
-            f"{indent}for {body_env.get_name(stmt.iter)} in {loop_type}({lo}, {hi}):",
+            f"{indent}for {body_env.get_name(stmt.iter)} in {loop_cond}:",
             *_print_cursor_block(cur.body(), target, body_env, indent + "  "),
         ]
 

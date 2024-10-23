@@ -1,6 +1,9 @@
 from ..core.LoopIR import LoopIR, LoopIR_Rewrite
+from ..core.loop_mode import LoopMode, Seq, Par
 
-from ..rewrite.new_eff import Check_ParallelizeLoop
+from ..rewrite.new_eff import Check_ParallelizeLoop, SchedulingError
+
+import warnings
 
 
 class ParallelAnalysis(LoopIR_Rewrite):
@@ -20,10 +23,15 @@ class ParallelAnalysis(LoopIR_Rewrite):
         self._errors.append(f"{node.srcinfo}: {msg}")
 
     def map_s(self, s):
-        if isinstance(s, LoopIR.For) and isinstance(s.loop_mode, LoopIR.Par):
+        if isinstance(s, LoopIR.For) and not isinstance(s.loop_mode, Seq):
             try:
-                Check_ParallelizeLoop(self.proc, s)
-            except:
+                if isinstance(s.loop_mode, Par):
+                    Check_ParallelizeLoop(self.proc, s)
+                else:
+                    warnings.warn(
+                        f"Not implemented: data race check for {type(s.loop_mode)}"
+                    )
+            except SchedulingError:
                 self.err(
                     s,
                     "parallel loop's body is not parallelizable because of potential data races",

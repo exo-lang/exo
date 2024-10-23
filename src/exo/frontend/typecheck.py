@@ -305,14 +305,14 @@ class TypeChecker:
         elif isinstance(stmt, UAST.For):
             self.env[stmt.iter] = T.index
 
-            # handle standard ParRanges
+            # handle standard LoopRanges
             parerr = (
                 "currently supporting for-loops of the form:\n"
                 "  'for _ in par(affine_expression, affine_expression):' and "
                 "'for _ in seq(affine_expression, affine_expression):'"
             )
 
-            if not isinstance(stmt.cond, (UAST.ParRange, UAST.SeqRange)):
+            if not isinstance(stmt.cond, UAST.LoopRange):
                 self.err(stmt.cond, parerr)
 
             lo = self.check_e(stmt.cond.lo, is_index=True)
@@ -323,10 +323,12 @@ class TypeChecker:
                 self.err(hi, "expected loop bound to be indexable.")
 
             body = self.check_stmts(stmt.body)
-            if isinstance(stmt.cond, UAST.SeqRange):
-                return [LoopIR.For(stmt.iter, lo, hi, body, LoopIR.Seq(), stmt.srcinfo)]
-            elif isinstance(stmt.cond, UAST.ParRange):
-                return [LoopIR.For(stmt.iter, lo, hi, body, LoopIR.Par(), stmt.srcinfo)]
+            if isinstance(stmt.cond, UAST.LoopRange):
+                return [
+                    LoopIR.For(
+                        stmt.iter, lo, hi, body, stmt.cond.loop_mode, stmt.srcinfo
+                    )
+                ]
             else:
                 assert False, "bad case"
 
@@ -585,9 +587,9 @@ class TypeChecker:
 
             return LoopIR.StrideExpr(e.name, e.dim, T.stride, e.srcinfo)
 
-        elif isinstance(e, UAST.ParRange):
+        elif isinstance(e, UAST.LoopRange):
             assert False, (
-                "parser should not place ParRange anywhere "
+                "parser should not place LoopRange anywhere "
                 "outside of a for-loop condition"
             )
         elif isinstance(e, UAST.ReadConfig):

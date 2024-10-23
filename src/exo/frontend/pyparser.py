@@ -14,6 +14,7 @@ from ..core.configs import Config
 from ..core.LoopIR import UAST, PAST, front_ops
 from ..core.prelude import *
 from ..core.extern import Extern
+from ..core.loop_mode import LoopMode, loop_mode_dict
 
 
 # --------------------------------------------------------------------------- #
@@ -770,28 +771,29 @@ class Parser:
 
     def parse_loop_cond(self, cond):
         if isinstance(cond, pyast.Call):
-            if isinstance(cond.func, pyast.Name) and cond.func.id in ("par", "seq"):
-                if len(cond.keywords) > 0:
+            if isinstance(cond.func, pyast.Name) and cond.func.id in loop_mode_dict:
+                loop_mode_kwargs = {
+                    kw.arg: self.parse_expr(kw.value) for kw in cond.keywords
+                }
+                if len(cond.args) != 2:
                     self.err(
-                        cond, "par() and seq() does not support" " named arguments"
+                        cond,
+                        f"{cond.func.id}() expects exactly 2 positional arguments: lo, hi",
                     )
-                elif len(cond.args) != 2:
-                    self.err(cond, "par() and seq() expects exactly" " 2 arguments")
                 lo = self.parse_expr(cond.args[0])
                 hi = self.parse_expr(cond.args[1])
 
                 if self.is_fragment:
                     return lo, hi
                 else:
-                    if cond.func.id == "par":
-                        return UAST.ParRange(lo, hi, self.getsrcinfo(cond))
-                    else:
-                        return UAST.SeqRange(lo, hi, self.getsrcinfo(cond))
+                    loop_mode_type = loop_mode_dict[cond.func.id]
+                    loop_mode = loop_mode_type(**loop_mode_kwargs)
+                    return UAST.LoopRange(lo, hi, loop_mode, self.getsrcinfo(cond))
             else:
                 self.err(
                     cond,
                     "expected for loop condition to be in the form "
-                    "'par(...,...)' or 'seq(...,...)'",
+                    "'par(...,...)' or 'seq(...,...)' or 'cuda_*(...,...)'",
                 )
         else:
             e_hole = PAST.E_Hole(self.getsrcinfo(cond))

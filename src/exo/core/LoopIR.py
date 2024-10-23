@@ -8,7 +8,7 @@ from .extern import Extern
 from .configs import Config
 from .memory import Memory
 from .prelude import Sym, SrcInfo, extclass
-
+from .loop_mode import LoopMode
 
 # --------------------------------------------------------------------------- #
 # Validated string subtypes
@@ -85,9 +85,6 @@ module LoopIR {
          | WindowStmt( sym name, expr rhs )
          attributes( srcinfo srcinfo )
 
-    loop_mode = Seq()
-                | Par()
-
     expr = Read( sym name, expr* idx )
          | Const( object val )
          | USub( expr arg )  -- i.e.  -(...)
@@ -134,6 +131,7 @@ module LoopIR {
         "config": Config,
         "binop": validators.instance_of(Operator, convert=True),
         "srcinfo": SrcInfo,
+        "loop_mode": LoopMode,
     },
     memoize={
         "Num",
@@ -193,8 +191,7 @@ module UAST {
             | Extern( extern f, expr* args )
             | WindowExpr( sym name, w_access* idx )
             | StrideExpr( sym name, int dim )
-            | ParRange( expr lo, expr hi ) -- only use for loop cond
-            | SeqRange( expr lo, expr hi ) -- only use for loop cond
+            | LoopRange( expr lo, expr hi, loop_mode loop_mode ) -- only use for loop cond
             | ReadConfig( config config, string field )
             attributes( srcinfo srcinfo )
 
@@ -226,6 +223,7 @@ module UAST {
         "loopir_proc": LoopIR.proc,
         "op": validators.instance_of(Operator, convert=True),
         "srcinfo": SrcInfo,
+        "loop_mode": LoopMode,
     },
     memoize={
         "Num",

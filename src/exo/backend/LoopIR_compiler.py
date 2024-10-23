@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..core.LoopIR import LoopIR, LoopIR_Do, get_writes_of_stmts, T, CIR
+from ..core.loop_mode import LoopMode, Seq, Par
 from ..core.configs import ConfigError
 from .mem_analysis import MemoryAnalysis
 from ..core.memory import MemGenError, Memory, DRAM, StaticMemory
@@ -899,8 +900,10 @@ class Compiler:
                 s.lo,
                 s.hi,
             )
-            if isinstance(s.loop_mode, LoopIR.Par):
+            if isinstance(s.loop_mode, Par):
                 self.add_line(f"#pragma omp parallel for")
+            elif not isinstance(s.loop_mode, Seq):
+                raise NotImplemented("TODO CUDA codegen")
             self.add_line(f"for (int_fast32_t {itr} = {lo}; {itr} < {hi}; {itr}++) {{")
             self.push(only="tab")
             self.comp_stmts(s.body)

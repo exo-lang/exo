@@ -40,6 +40,7 @@ from ..core.proc_eqv import get_strictest_eqv_proc
 import exo.core.internal_cursors as ic
 import exo.API as api
 from ..frontend.pattern_match import match_pattern
+from ..core.loop_mode import LoopMode, seq, par
 from ..core.memory import DRAM
 from ..frontend.typecheck import check_call_types
 
@@ -380,8 +381,8 @@ def DoReorderStmt(f_cursor, s_cursor):
     return ir, fwd
 
 
-def DoParallelizeLoop(loop_cursor):
-    return loop_cursor._child_node("loop_mode")._replace(LoopIR.Par())
+def DoSetLoopMode(loop_cursor, loop_mode: LoopMode):
+    return loop_cursor._child_node("loop_mode")._replace(loop_mode)
 
 
 def DoJoinLoops(loop1_c, loop2_c):
@@ -715,7 +716,7 @@ def DoDivideWithRecompute(
             LoopIR.Const(0, T.index, srcinfo),
             hi_i,
             body,
-            LoopIR.Seq(),
+            seq,
             srcinfo,
         )
 
@@ -2711,7 +2712,7 @@ def DoAddLoop(stmt_cursor, var, hi, guard, unsafe_disable_check):
             LoopIR.Const(0, T.index, s.srcinfo),
             hi,
             body,
-            LoopIR.Seq(),
+            seq,
             s.srcinfo,
         )
 
@@ -4080,7 +4081,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
                 LoopIR.Const(0, T.index, srcinfo),
                 n,
                 load_nest,
-                LoopIR.Seq(),
+                seq,
                 srcinfo,
             )
             load_nest = [loop]
@@ -4117,7 +4118,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
                 LoopIR.Const(0, T.index, srcinfo),
                 n,
                 store_nest,
-                LoopIR.Seq(),
+                seq,
                 srcinfo,
             )
             store_nest = [loop]

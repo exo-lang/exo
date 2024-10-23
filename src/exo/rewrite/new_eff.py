@@ -3,6 +3,7 @@ from enum import Enum
 from itertools import chain
 
 from ..core.LoopIR import Alpha_Rename, SubstArgs, LoopIR_Do
+from ..core.loop_mode import LoopMode, seq
 from ..core.configs import reverse_config_lookup, Config
 from .new_analysis_core import *
 from ..core.proc_eqv import get_repr_proc
@@ -1606,7 +1607,7 @@ def loop_globenv(i, lo_expr, hi_expr, body):
     assert isinstance(lo_expr, LoopIR.expr)
     assert isinstance(hi_expr, LoopIR.expr)
 
-    loop = [LoopIR.For(i, lo_expr, hi_expr, body, LoopIR.Seq(), null_srcinfo())]
+    loop = [LoopIR.For(i, lo_expr, hi_expr, body, seq, null_srcinfo())]
     return globenv(loop)
 
 

@@ -14,6 +14,7 @@ from .core.memory import Memory, DRAM
 from .core.extern import Extern
 
 from . import stdlib
+from .core import loop_mode
 
 __version__ = "0.2.1"
 
@@ -33,4 +34,5 @@ __all__ = [
     #
     "stdlib",
     "ExoType",
+    "loop_mode",
 ]
