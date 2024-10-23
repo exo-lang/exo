@@ -883,8 +883,8 @@ class Parser:
                     nm = self.locals[nm_node.id]
                 elif nm_node.id in self.globals:
                     nm = self.globals[nm_node.id]
-                else:
-                    nm = None
+                else:  # could not resolve name to anything
+                    self.err(nm_node, f"variable '{nm_node.id}' undefined")
 
                 if isinstance(nm, SizeStub):
                     nm = nm.nm
@@ -899,8 +899,11 @@ class Parser:
                         )
                     else:
                         return UAST.Const(nm, self.getsrcinfo(e))
-                else:  # could not resolve name to anything
-                    self.err(nm_node, f"variable '{nm_node.id}' undefined")
+                else:
+                    self.err(
+                        nm_node,
+                        f"variable '{nm_node.id}' has unsupported type {type(nm)}",
+                    )
 
                 if is_window:
                     return UAST.WindowExpr(nm, idxs, self.getsrcinfo(e))
