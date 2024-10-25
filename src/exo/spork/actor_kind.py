@@ -19,7 +19,7 @@ class ActorKind(object):
         return parent is self or parent is self.allowed_parent
 
     def __repr__(self):
-        return f"<exo.core.actor_kind.ActorKind {self.name}>"
+        return f"<exo.spork.actor_kind.ActorKind {self.name}>"
 
     def __str__(self):
         return self.name
