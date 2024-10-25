@@ -3,6 +3,7 @@ from typing import Optional
 from ..core.prelude import SrcInfo
 from . import actor_kind
 from .actor_kind import ActorKind
+from . import lane_units
 
 
 class LoopMode(object):
@@ -13,10 +14,13 @@ class LoopMode(object):
     cuda_nesting: Optional[int]
 
     def loop_mode_name(self):
-        raise NotImplemented
+        raise NotImplementedError()
 
     def new_actor_kind(self, old_actor_kind: ActorKind):
-        raise NotImplemented
+        raise NotImplementedError()
+
+    def lane_unit(self):
+        raise NotImplementedError()
 
     def cuda_can_nest_in(self, other):
         assert self.cuda_nesting is not None
@@ -60,6 +64,9 @@ class Par(LoopMode):
     def new_actor_kind(self, old_actor_kind: ActorKind):
         return actor_kind.cpu
 
+    def lane_unit(self):
+        return lane_units.cpu_threads
+
 
 par = Par()
 
@@ -77,6 +84,9 @@ class CudaClusters(LoopMode):
     def new_actor_kind(self, old_actor_kind: ActorKind):
         return actor_kind.cuda_generic
 
+    def lane_unit(self):
+        return lane_units.cuda_clusters
+
 
 class CudaBlocks(LoopMode):
     cuda_nesting = 3
@@ -90,6 +100,9 @@ class CudaBlocks(LoopMode):
 
     def new_actor_kind(self, old_actor_kind: ActorKind):
         return actor_kind.cuda_generic
+
+    def lane_unit(self):
+        return lane_units.cuda_blocks
 
 
 cuda_blocks = CudaBlocks()
@@ -107,6 +120,9 @@ class CudaWarpgroups(LoopMode):
     def new_actor_kind(self, old_actor_kind: ActorKind):
         return actor_kind.cuda_generic
 
+    def lane_unit(self):
+        return lane_units.cuda_warpgroups
+
 
 cuda_warpgroups = CudaWarpgroups()
 
@@ -123,6 +139,9 @@ class CudaWarps(LoopMode):
     def new_actor_kind(self, old_actor_kind: ActorKind):
         return actor_kind.cuda_generic
 
+    def lane_unit(self):
+        return lane_units.cuda_warps
+
 
 cuda_warps = CudaWarps()
 
@@ -138,6 +157,9 @@ class CudaThreads(LoopMode):
 
     def new_actor_kind(self, old_actor_kind: ActorKind):
         return actor_kind.cuda_generic
+
+    def lane_unit(self):
+        return lane_units.cuda_threads
 
 
 cuda_threads = CudaThreads()

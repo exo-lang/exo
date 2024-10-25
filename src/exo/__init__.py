@@ -16,6 +16,7 @@ from .core.extern import Extern
 from . import stdlib
 from .spork import actor_kind
 from .spork import loop_mode
+from .spork import lane_units
 
 __version__ = "0.2.1"
 
@@ -37,4 +38,5 @@ __all__ = [
     "ExoType",
     "actor_kind",
     "loop_mode",
+    "lane_units",
 ]
