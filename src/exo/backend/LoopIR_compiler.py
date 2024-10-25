@@ -828,6 +828,9 @@ class Compiler:
         self.window_defns.add(win)
         return win.name
 
+    def get_actor_kind(self):
+        return self.spork.get_actor_kind() if self.spork else actor_kind.cpu
+
     def comp_s(self, s):
         if isinstance(s, LoopIR.Pass):
             self.add_line("; // NO-OP")
@@ -907,9 +910,7 @@ class Compiler:
             )
 
             loop_mode = s.loop_mode
-            old_actor_kind = (
-                self.spork.get_actor_kind() if self.spork else actor_kind.cpu
-            )
+            old_actor_kind = self.get_actor_kind()
             new_actor_kind = loop_mode.new_actor_kind(old_actor_kind)
             starting_cuda_kernel = (
                 not self.spork and new_actor_kind is not actor_kind.cpu
