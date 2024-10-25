@@ -786,8 +786,11 @@ class Parser:
                 if self.is_fragment:
                     return lo, hi
                 else:
-                    loop_mode_type = loop_mode_dict[cond.func.id]
-                    loop_mode = loop_mode_type(**loop_mode_kwargs)
+                    try:
+                        loop_mode_type = loop_mode_dict[cond.func.id]
+                        loop_mode = loop_mode_type(**loop_mode_kwargs)
+                    except Exception as e:
+                        self.err(cond, "invalid loop mode", e)
                     return UAST.LoopRange(lo, hi, loop_mode, self.getsrcinfo(cond))
             else:
                 self.err(
