@@ -24,6 +24,8 @@ class LoopMode(object):
 
 
 class Seq(LoopMode):
+    cuda_nesting = None
+
     def __init__(self):
         self.cuda_nesting = None
 
@@ -39,6 +41,8 @@ seq = Seq()
 
 
 class Par(LoopMode):
+    cuda_nesting = None
+
     def __init__(self):
         self.cuda_nesting = None
 
@@ -53,10 +57,10 @@ par = Par()
 
 
 class CudaClusters(LoopMode):
+    cuda_nesting = 2
     blocks: int
 
     def __init__(self, blocks):
-        self.cuda_nesting = 2
         self.blocks = int(blocks)
         if self.blocks != blocks or blocks <= 0:
             raise ValueError("block count must be positive integer")
@@ -69,10 +73,10 @@ class CudaClusters(LoopMode):
 
 
 class CudaBlocks(LoopMode):
+    cuda_nesting = 3
     warps: int
 
     def __init__(self, warps=1):
-        self.cuda_nesting = 3
         self.warps = int(warps)
         if self.warps != warps or warps <= 0:
             raise ValueError("warp count must be positive integer")
@@ -88,8 +92,10 @@ cuda_blocks = CudaBlocks()
 
 
 class CudaWarpgroups(LoopMode):
+    cuda_nesting = 4
+
     def __init__(self):
-        self.cuda_nesting = 4
+        pass
 
     def loop_mode_name(self):
         return "cuda_warpgroups"
@@ -102,8 +108,10 @@ cuda_warpgroups = CudaWarpgroups()
 
 
 class CudaWarps(LoopMode):
+    cuda_nesting = 5
+
     def __init__(self):
-        self.cuda_nesting = 5
+        pass
 
     def loop_mode_name(self):
         return "cuda_warps"
@@ -116,8 +124,10 @@ cuda_warps = CudaWarps()
 
 
 class CudaThreads(LoopMode):
+    cuda_nesting = 6
+
     def __init__(self):
-        self.cuda_nesting = 6
+        pass
 
     def loop_mode_name(self):
         return "cuda_threads"
