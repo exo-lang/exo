@@ -8,7 +8,7 @@ from .extern import Extern
 from .configs import Config
 from .memory import Memory
 from .prelude import Sym, SrcInfo, extclass
-from .loop_mode import LoopMode
+from ..spork.loop_mode import LoopMode
 
 # --------------------------------------------------------------------------- #
 # Validated string subtypes

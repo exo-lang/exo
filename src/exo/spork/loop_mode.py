@@ -1,6 +1,6 @@
 from typing import Optional
 
-from .prelude import SrcInfo
+from ..core.prelude import SrcInfo
 from . import actor_kind
 from .actor_kind import ActorKind
 
@@ -21,6 +21,14 @@ class LoopMode(object):
     def cuda_can_nest_in(self, other):
         assert self.cuda_nesting is not None
         return other.cuda_nesting is not None and self.cuda_nesting > other.cuda_nesting
+
+    def _unpack_positive_int(self, value, name):
+        if hasattr(value, "val"):
+            value = value.val
+        int_value = int(value)
+        if int_value != value or int_value <= 0:
+            raise ValueError(f"{name} must be positive integer")
+        return int_value
 
 
 class Seq(LoopMode):
@@ -61,9 +69,7 @@ class CudaClusters(LoopMode):
     blocks: int
 
     def __init__(self, blocks):
-        self.blocks = int(blocks)
-        if self.blocks != blocks or blocks <= 0:
-            raise ValueError("block count must be positive integer")
+        self.blocks = self._unpack_positive_int(blocks, "block count")
 
     def loop_mode_name(self):
         return "cuda_clusters"
@@ -77,9 +83,7 @@ class CudaBlocks(LoopMode):
     warps: int
 
     def __init__(self, warps=1):
-        self.warps = int(warps)
-        if self.warps != warps or warps <= 0:
-            raise ValueError("warp count must be positive integer")
+        self.warps = self._unpack_positive_int(warps, "warp count")
 
     def loop_mode_name(self):
         return "cuda_blocks"
@@ -172,6 +176,7 @@ loop_mode_dict = {
 def format_loop_cond(lo_str: str, hi_str: str, loop_mode: LoopMode):
     strings = [loop_mode.loop_mode_name(), "(", lo_str, ",", hi_str]
     for attr in loop_mode.__dict__:
-        strings.append(f",{attr}={getattr(loop_mode, attr)}")
+        if attr != "cuda_nesting":
+            strings.append(f",{attr}={getattr(loop_mode, attr)}")
     strings.append(")")
     return "".join(strings)

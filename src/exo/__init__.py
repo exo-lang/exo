@@ -14,8 +14,8 @@ from .core.memory import Memory, DRAM
 from .core.extern import Extern
 
 from . import stdlib
-from .core import actor_kind
-from .core import loop_mode
+from .spork import actor_kind
+from .spork import loop_mode
 
 __version__ = "0.2.1"
 

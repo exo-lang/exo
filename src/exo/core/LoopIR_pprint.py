@@ -9,7 +9,7 @@ from yapf.yapflib.yapf_api import FormatCode
 
 from .LoopIR import T
 from .LoopIR import UAST, LoopIR
-from .loop_mode import format_loop_cond
+from ..spork.loop_mode import format_loop_cond
 from .internal_cursors import Node, Gap, Block, Cursor, InvalidCursorError, GapType
 from .prelude import *
 

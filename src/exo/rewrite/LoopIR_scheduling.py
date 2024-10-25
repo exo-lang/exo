@@ -40,9 +40,9 @@ from ..core.proc_eqv import get_strictest_eqv_proc
 import exo.core.internal_cursors as ic
 import exo.API as api
 from ..frontend.pattern_match import match_pattern
-from ..core.loop_mode import LoopMode, seq, par
 from ..core.memory import DRAM
 from ..frontend.typecheck import check_call_types
+from ..spork.loop_mode import LoopMode, seq, par
 
 from functools import partial
 

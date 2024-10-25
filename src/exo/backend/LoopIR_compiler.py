@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..core.LoopIR import LoopIR, LoopIR_Do, get_writes_of_stmts, T, CIR
-from ..core.loop_mode import LoopMode, Seq, Par
 from ..core.configs import ConfigError
 from .mem_analysis import MemoryAnalysis
 from ..core.memory import MemGenError, Memory, DRAM, StaticMemory
@@ -16,6 +15,9 @@ from .prec_analysis import PrecisionAnalysis
 from ..core.prelude import *
 from .win_analysis import WindowAnalysis
 from ..rewrite.range_analysis import IndexRangeEnvironment
+from ..spork.loop_mode import LoopMode, Seq, Par
+from ..spork.spork_env import SporkEnv
+from ..spork import actor_kind
 
 
 def sanitize_str(s):
@@ -532,6 +534,9 @@ class Compiler:
         self.range_env = IndexRangeEnvironment(proc, fast=False)
         self.names = ChainMap()
         self.envtyp = dict()
+        self.spork = (
+            None  # Set to SporkEnv only when compiling GPU kernel code, else None
+        )
         self.mems = dict()
         self._tab = ""
         self._lines = []
@@ -895,20 +900,44 @@ class Compiler:
             hi = self.comp_e(s.hi)
             self.push(only="env")
             itr = self.new_varname(s.iter, typ=T.index)  # allocate a new string
-            self.range_env.add_loop_iter(
+            sym_range = self.range_env.add_loop_iter(
                 s.iter,
                 s.lo,
                 s.hi,
             )
-            if isinstance(s.loop_mode, Par):
+
+            loop_mode = s.loop_mode
+            old_actor_kind = (
+                self.spork.get_actor_kind() if self.spork else actor_kind.cpu
+            )
+            new_actor_kind = loop_mode.new_actor_kind(old_actor_kind)
+            starting_cuda_kernel = (
+                not self.spork and new_actor_kind is not actor_kind.cpu
+            )
+            if not new_actor_kind.allows_parent(old_actor_kind):
+                raise TypeError(
+                    f"{s.srcinfo}: cannot nest loop with actor kind {new_actor_kind} in {old_actor_kind} scope"
+                )
+
+            if isinstance(loop_mode, Par):
                 self.add_line(f"#pragma omp parallel for")
-            elif not isinstance(s.loop_mode, Seq):
-                raise NotImplemented("TODO CUDA codegen")
-            self.add_line(f"for (int_fast32_t {itr} = {lo}; {itr} < {hi}; {itr}++) {{")
-            self.push(only="tab")
+
+            if loop_mode.cuda_nesting is None:
+                self.add_line(
+                    f"for (int_fast32_t {itr} = {lo}; {itr} < {hi}; {itr}++) {{"
+                )
+                self.push(only="tab")
+            else:
+                raise NotImplementedError("TODO implement CUDA codegen")
+
             self.comp_stmts(s.body)
-            self.pop()
-            self.add_line("}")
+
+            if starting_cuda_kernel:
+                self.spork = None
+
+            if loop_mode.cuda_nesting is None:
+                self.pop()
+                self.add_line("}")
 
         elif isinstance(s, LoopIR.Alloc):
             name = self.new_varname(s.name, typ=s.type, mem=s.mem)

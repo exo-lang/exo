@@ -14,7 +14,7 @@ from ..core.configs import Config
 from ..core.LoopIR import UAST, PAST, front_ops
 from ..core.prelude import *
 from ..core.extern import Extern
-from ..core.loop_mode import LoopMode, loop_mode_dict
+from ..spork.loop_mode import LoopMode, loop_mode_dict
 
 
 # --------------------------------------------------------------------------- #
