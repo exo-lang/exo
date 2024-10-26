@@ -6,6 +6,24 @@ This document provides an overview of the Exo compilation process, as illustrate
 
 The Exo compiler consists of a frontend and a backend, with user schedules applied in between. The input to the compiler is a set of Exo source files (`*.py`), and the output is generated C code (`*.c`).
 
+In this repository, folders are structured as follows:
+
+1. `src/exo` is where the core Exo implementation resides.
+    - **APIs.** Documentation for the APIs can be found in the [API documentation](docs/API.md).
+      - `API.py` defines a stable API for top-level decorators (`proc`, `instr`, and `config`).
+      - `API_scheduling.py` defines a API for scheduling primitives.
+      - `API_cursors.py` defines a API for Cursors.
+    - **Standard libraries.** These could be user-defined, but we provide them for convenience.
+      - `libs/` contains some common memory definitions (`memories.py`) and custom malloc implementations. 
+      - `platforms/` contains instruction definitions that are part of the release.
+      - `stdlib/` contains user-level scheduling functions such as `vectorize`.
+    - Other files are implementation details of Exo (e.g., `typecheck.py` implements typecheck), are not exposed to users.
+2. `apps/` contains some sample applications written in Exo.
+3. `dependencies/` contains submodules that Exo's apps and testing depends on.
+4. `examples/` contains a step-by-step example of scheduling basic matrix multiplication on AVX2.
+5. `tests/` contains the Exo test suite.
+6. `docs/` contains additional Exo documentation.
+
 ---
 
 ## Core

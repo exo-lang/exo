@@ -30,11 +30,6 @@ You can use optional arguments to customize the output:
 - The `--stem` argument allows you to specify custom names for the C file and header file.
 
 
-# Examples
-
-Take a look at [examples](examples/avx2_matmul/README.md) for scheduling examples, and [API documentation](docs/API.md) for scheduling interface documentation.
-
-
 # Build Exo from source
 
 We make active use of newer Python 3.x features. Please use Python 3.9 or 3.10 if you're getting errors about unsupported features.
@@ -62,7 +57,6 @@ Finally, you can build and install Exo.
 (exo) $ python -m build .
 (exo) $ pip install dist/*.whl
 ```
-
 
 ## PySMT
 
@@ -119,25 +113,9 @@ pytest --cov=./ --cov-report=html
 Then, if you want to see annotated source files, open `./htmlcov/index.html`.
 
 
-# Repository structure
+# Learn about Exo
 
-In this repository, folders are structured as follows:
-
-1. `src/exo` is where the core Exo implementation resides.
-    - **APIs.** Documentation for the APIs can be found in the [API documentation](docs/API.md).
-      - `API.py` defines a stable API for top-level decorators (`proc`, `instr`, and `config`).
-      - `API_scheduling.py` defines a API for scheduling primitives.
-      - `API_cursors.py` defines a API for Cursors.
-    - **Standard libraries.** These could be user-defined, but we provide them for convenience.
-      - `libs/` contains some common memory definitions (`memories.py`) and custom malloc implementations. 
-      - `platforms/` contains instruction definitions that are part of the release.
-      - `stdlib/` contains user-level scheduling functions such as `vectorize`.
-    - Other files are implementation details of Exo (e.g., `typecheck.py` implements typecheck), are not exposed to users.
-2. `apps/` contains some sample applications written in Exo.
-3. `dependencies/` contains submodules that Exo's apps and testing depends on.
-4. `examples/` contains a step-by-step example of scheduling basic matrix multiplication on AVX2.
-5. `tests/` contains the Exo test suite.
-6. `docs/` contains additional Exo documentation.
+Take a look at [examples](examples/README.md) for scheduling examples, and [documentation](docs/README.md) for various documentation about Exo.
 
 
 # Contact
