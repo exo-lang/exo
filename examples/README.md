@@ -7,4 +7,4 @@ If you are new to Exo, we recommend going through the examples in the following 
 
 2. [Cursor](./cursors/README.md): This example shows how to use Cursors to efficiently write schedules and define a new scheduling operator.
 
-3. [RVM](./rvm_conv1d/README.md): This example illustrates how to use Exo to optimize a new hardware accelerator completely in the user code.
+3. [RVM](./rvm_conv1d/README.md): This example illustrates how to use Exo to define and target a new hardware accelerator entirely in the user code.

@@ -115,7 +115,7 @@ Then, if you want to see annotated source files, open `./htmlcov/index.html`.
 
 # Learn about Exo
 
-Take a look at [examples](examples/README.md) for scheduling examples, and [documentation](docs/README.md) for various documentation about Exo.
+Take a look at the [examples](examples/README.md) directory for scheduling examples and the [documentation](docs/README.md) directory for various documentation about Exo.
 
 
 # Contact
