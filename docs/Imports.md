@@ -15,7 +15,6 @@ This document provides an overview of the imports used when writing Exo.
 7. [External Interfaces](#7-external-interfaces)
 8. [API Cursors](#8-api-cursors)
 
----
 
 ## 1. Standard Python Future Import
 
@@ -26,7 +25,6 @@ from __future__ import annotations
 - **Purpose**: Enables postponed evaluation of type annotations, allowing you to use forward references in type hints without causing issues during runtime. This is necessary to support Exo's `x : f32` syntax.
 - **Context**: This is a standard Python feature that improves compatibility and performance when using type hints in your code.
 
----
 
 ## 2. Core Exo Module
 
@@ -37,7 +35,6 @@ from exo import *
 - **Purpose**: Imports all core functionalities from the Exo language.
 - **Includes**: Fundamental classes and functions necessary for defining and manipulating high-performance computational kernels, such as `proc`, `instr`, `config`, `Memory`, `Extern`, `DRAM`, and `SchedulingError`.
 
----
 
 ## 3. Memory Libraries
 
@@ -49,27 +46,15 @@ from exo.libs.memories import DRAM_STATIC, AVX2, AVX512
 
 For example, you can import `DRAM_STATIC`, `AVX2`, or `AVX512` as shown above.
 
----
 
 ## 4. Instruction Libraries
 
 Similar to memories, we provide some hardware instruction definitions as a library.
 
 ```python
-from exo.platforms.x86 import *
+from exo.platforms.x86 import mm256_loadu_ps, mm256_setzero_ps, mm256_broadcast_ss
 ```
 
-- **Purpose**: Imports optimizations and definitions specific to x86 architectures.
-- **Usage**: Enables the generation of optimized code tailored for x86 CPUs, including SIMD instructions and cache management.
-
-```python
-from exo.platforms.neon import *
-```
-
-- **Purpose**: Provides ARM NEON-specific functionalities.
-- **Usage**: Allows for optimization of code on ARM architectures that support NEON instructions, enhancing performance on mobile and embedded devices.
-
----
 
 ## 5. Frontend Syntax Utilities
 
@@ -77,48 +62,36 @@ from exo.platforms.neon import *
 from exo.frontend.syntax import *
 ```
 
-- **Purpose**: Imports utilities for parsing and manipulating Exo's frontend syntax.
-- **Usage**: Used when extending or customizing the language's syntax for domain-specific applications.
+This module defines special symbols that are used inside Exo code. You may
+import this module via `from exo.syntax import *` to suppress warnings and
+see documentation inside an IDE (like PyCharm).
 
----
 
-## 6. Standard Library Modules
+## 6. Standard Library Scheduling Functions
 
-### 6.1 Scheduling Utilities
-
-```python
-from exo.stdlib.scheduling import *
-```
-
-- **Purpose**: Provides functions for scheduling and transforming computational kernels.
-- **Includes**: Loop transformations, tiling, unrolling, and other optimization techniques.
-
-### 6.2 Standard Library Functions
 
 ```python
-from exo.stdlib.stdlib import *
+from exo.stdlib.scheduling import repeat, replace_all
+from exo.stdlib.stdlib import vectorize, tile_loops
 ```
 
-- **Purpose**: Imports standard library functions and classes.
-- **Usage**: Offers a collection of common utilities and helpers used across various Exo programs.
 
----
+
 
 ## 7. External Interfaces
 
 ```python
-from exo.libs.externs import *
+from exo.libs.externs import sin, relu
 ```
 
 - **Purpose**: Facilitates interaction with external libraries and functions not defined within Exo.
 - **Usage**: Allows for the integration of external code, such as C functions or hardware-specific routines, into Exo programs.
 
----
 
 ## 8. API Cursors
 
 ```python
-from exo.API_cursors import *
+from exo.API_cursors import ForCursor, AssignCursor, InvalidCursor
 ```
 
 - **Purpose**: Provides cursor-based APIs for navigating and modifying code structures.
