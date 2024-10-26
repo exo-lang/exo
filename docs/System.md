@@ -1,62 +1,70 @@
-# System overview
+# System Overview
 
 This document provides an overview of the Exo compilation process, as illustrated in Figure 1 of the PLDI'22 paper.
 
 ![System overview](images/system-overview.png)
 
-## Compilation Process
+The Exo compiler consists of a frontend and a backend, with user schedules applied in between. The input to the compiler is a set of Exo source files (`*.py`), and the output is generated C code (`*.c`).
 
-The Exo compiler consists of a frontend and a backend, with user schedules applied in between. The input to the compiler is a set of Exo source files (`*.exo`), and the output is generated C code (`*.c`).
+---
 
-### Frontend
+## Core
 
-The frontend performs the following tasks:
+`src/exo/core` defines IRs used in Exo and other core implementations.
+- `LoopIR.py` is the main file that defines IRs (LoopIR, UAST, PAST), and their visitor functions (LoopIR_Do, LoopIR_Rewrite). 
+- `LoopIR_pprint.py` implements a printing procedure for the IRs defined in `LoopIR.py`.
+- `prelude.py` defines `Sym` and `Srcinfo` used in `LoopIR` and everywhere.
 
-1. **Type Checking**: Ensures that the program is well-typed according to Exo's type system.
-2. **Bounds Checking**: Verifies that array accesses are within the specified bounds.
-3. **Assert Checking**: Checks that any `assert` statements in the code are satisfied.
+User-defined features like config, externs, and Memory's parent class implementations are in `configs.py`, `extern.py`, and `memory.py`, respectively.
 
-If any of these checks fail, the compiler reports an error and halts the compilation process.
+`internal_cursors` defines cursor movements that are used internally by `LoopIR_scheduling` implementations of scheduling primitives.
+`proc_eqv.py` defines a union-find tree which we use to track the equivalence of procedures.
 
-### User Schedules
+---
 
-After the frontend checks, user-defined schedules are applied to optimize the program for the target hardware. Schedules are written as a sequence of rewrite rules, which transform the program while preserving its semantics.
+## Frontend
 
-Exo provides a set of primitive scheduling operators, such as:
+`API.py` provides various user-facing entry points to Exo.
+There are three types of parsing passes in the frontend. All the frontend code is in `src/exo/frontend`.
 
-- `split`: Splits a loop into two nested loops.
-- `reorder`: Reorders two nested loops.
-- `unroll`: Unrolls a loop by a specified factor.
-- `inline`: Inlines a function call.
-- `replace`: Replaces a code fragment with a semantically equivalent implementation, often used for mapping to custom instructions.
+### Procedures
 
-Users can compose these primitives to define higher-level scheduling operations using Python code. The Exo compiler applies the user-defined schedules to transform the program.
+`@proc` and `@instr` decorators are defined here, which call into `Pyparser`.
+The frontend works like: API -> Parser -> TypeCheck -> BoundsCheck/AssertCheck
 
-### Backend
+`frontend/pyparser.py` defines a parser from Python AST to UAST/PAST. We don't implement our own lexer, but rely on the Python lexer to build a Python AST, and hijack it to translate it to Exo's internal ASTs. UAST is an "untyped AST" which is an untyped version of LoopIR (LoopIR is the "Exo IR" in the paper terminology). UAST is used when parsing the full procedure definitions (`@proc` or `@instr`). PAST is a pattern AST with holes, which is used to parse fragments from the user code not in the procedure, to parse arguments to the scheduling primitives (e.g., `n + m`).
 
-After the user schedules are applied, the backend performs the following tasks:
+`typecheck.py` literally typechecks but also converts UAST to LoopIR.
+`boundscheck.py` checks any out-of-bounds errors in the frontend code. It also checks that all assertions in the code are satisfiable. It invokes an SMT solver.
 
-1. **Memory/Precision Checking**: Verifies that the program correctly uses the memories and data types specified in the hardware library.
-2. **Code Generation**: Generates C code from the transformed Exo program.
+### New LoopIR Expressions
 
-The backend checks are performed after scheduling to allow the schedules to modify the memory and precision annotations in the program.
+Some scheduling primitives (such as `expand_dim`, all primitives that take `NewExprA` type as an argument) require the construction of new LoopIR expressions.
+`parse_fragment.py` implements this pass. It calls into `pyparser.pattern` which invokes the parser with `is_fragment=True`.
+It's not possible to use holes `_` when parsing new expressions. Holes are for pattern matching for reference.
 
-## Hardware Libraries
+### Pattern Match for Reference
 
-An essential part of the Exo system is the ability to define hardware targets as user libraries. These libraries specify the details of the target accelerator, such as:
+Cursors can be obtained by pattern matching. The pattern gets parsed into PAST and then matched against the LoopIR to obtain a reference.
+`frontend/pattern_match.py` implements this functionality.
 
-- Custom memories
-- Custom instructions
-- Configuration state
+---
 
-By defining these hardware details in libraries, Exo allows targeting new accelerators without modifying the core compiler. The schedules can then use these hardware-specific features to optimize the program for the target accelerator.
+## Rewrites (User-Scheduling)
 
-## Source Code
+After the frontend pass, we obtain LoopIR. Files in `src/exo/rewrite` implement Exo's rewrite-based user-scheduling process.
+- `LoopIR_scheduling.py` is the main file that implements all the scheduling primitives. Many implementations of primitives call into `Check_...` functions, which are the safety checks implemented in `new_eff.py`.
+- How we handle analysis to preserve functional equivalence of rewrites is a whole other topic we don't go into details here. `new_eff.py`, `new_analysis_core.py`, and `analysis_simplify.py` are all files related to the analysis.
+- `LoopIR_unification.py` implements a unification process for supporting the `replace(p, ...)` rewrite primitive.
 
-The source code for the Exo compiler is available on GitHub: [https://github.com/exo-lang/exo](https://github.com/exo-lang/exo)
+---
 
-The repository contains the implementation of the Exo language, the compiler, and a set of hardware libraries for different accelerators.
+## Backend
 
-## Conclusion
+The backend is responsible for lowering LoopIR to C code and performs backend checks like precision analysis, window analysis, and parallelism analysis.
 
-The Exo system provides a productive environment for developing high-performance kernel libraries targeting specialized hardware accelerators. By combining a flexible scheduling language with the ability to define hardware targets in libraries, Exo enables achieving state-of-the-art performance with significantly less engineering effort compared to traditional approaches.
+- `LoopIR_compiler.py` is the main file in the backend, which compiles LoopIR to C code.
+- `mem_analysis.py` implements a memory consistency check. For example, if a callee expects an `AVX2` annotation but the caller passes `DRAM` memory, it raises an error.
+- `parallel_analysis.py` implements a parallel analysis. 
+- `prec_analysis.py` implements a precision consistency check, but also coerces the precision where possible.
+- `win_analysis.py` implements a window analysis to check if callee and caller window annotations (tensor or window) match with each other.

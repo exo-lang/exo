@@ -7,9 +7,11 @@ This document provides an overview of the imports used when writing Exo.
 1. [Standard Python Future Import](#1-standard-python-future-import)
 2. [Core Exo Module](#2-core-exo-module)
 3. [Memory Libraries](#3-memory-libraries)
-4. [Platform-Specific Modules](#4-platform-specific-modules)
+4. [Instruction Libraries](#4-instruction-libraries)
 5. [Frontend Syntax Utilities](#5-frontend-syntax-utilities)
 6. [Standard Library Modules](#6-standard-library-modules)
+   - [6.1 Scheduling Utilities](#61-scheduling-utilities)
+   - [6.2 Standard Library Functions](#62-standard-library-functions)
 7. [External Interfaces](#7-external-interfaces)
 8. [API Cursors](#8-api-cursors)
 
@@ -33,40 +35,25 @@ from exo import *
 ```
 
 - **Purpose**: Imports all core functionalities from the Exo language.
-- **Includes**: Fundamental classes and functions necessary for defining and manipulating high-performance computational kernels, such as `proc`, `instr`, `config`, `Memory`, `Extern`, `DRAM`, `SchedulingError`.
+- **Includes**: Fundamental classes and functions necessary for defining and manipulating high-performance computational kernels, such as `proc`, `instr`, `config`, `Memory`, `Extern`, `DRAM`, and `SchedulingError`.
 
 ---
 
-## 3. Frontend Syntax Utilities
+## 3. Memory Libraries
 
-```python
-from exo.frontend.syntax import *
-```
-
-- **Purpose**: Imports utilities for parsing and manipulating Exo's frontend syntax.
-- **Usage**: Used when extending or customizing the language's syntax for domain-specific applications.
-
----
-
-
-## 4. Memory Libraries
-
-
-Even though users can define memory definitions externally to the compiler in the user code (see [./memories.md]), we provide memory definitions for some architectures as examples.
-What we support can be found by looking into src/exo/libs/memories.py.
+Even though users can define memory definitions externally to the compiler in the user code (see [./memories.md]), we provide memory definitions for some architectures as examples. The supported memories can be found by looking into `src/exo/libs/memories.py`.
 
 ```python
 from exo.libs.memories import DRAM_STATIC, AVX2, AVX512
 ```
 
-For example, you can import `DRAM_STATIC` like so. Similary you can import AVX2, AVX512
-
+For example, you can import `DRAM_STATIC`, `AVX2`, or `AVX512` as shown above.
 
 ---
 
-## 5. Instruction Libraries
+## 4. Instruction Libraries
 
-Similary to memories, we provide some hardware instruction definitions as a library.
+Similar to memories, we provide some hardware instruction definitions as a library.
 
 ```python
 from exo.platforms.x86 import *
@@ -75,13 +62,23 @@ from exo.platforms.x86 import *
 - **Purpose**: Imports optimizations and definitions specific to x86 architectures.
 - **Usage**: Enables the generation of optimized code tailored for x86 CPUs, including SIMD instructions and cache management.
 
-
 ```python
 from exo.platforms.neon import *
 ```
 
 - **Purpose**: Provides ARM NEON-specific functionalities.
 - **Usage**: Allows for optimization of code on ARM architectures that support NEON instructions, enhancing performance on mobile and embedded devices.
+
+---
+
+## 5. Frontend Syntax Utilities
+
+```python
+from exo.frontend.syntax import *
+```
+
+- **Purpose**: Imports utilities for parsing and manipulating Exo's frontend syntax.
+- **Usage**: Used when extending or customizing the language's syntax for domain-specific applications.
 
 ---
 
