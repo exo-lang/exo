@@ -664,6 +664,8 @@ class CheckBounds:
                 return SMT.Bool(expr.val)
             elif expr.type.is_indexable():
                 return SMT.Int(expr.val)
+            elif expr.type == T.lane_specialization:
+                return SMT.Bool(True)  # S-machine semantics
             else:
                 assert False, f"unrecognized const type: {type(expr.val)}"
         elif isinstance(expr, E.Var):

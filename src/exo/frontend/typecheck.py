@@ -8,6 +8,7 @@ from ..core.LoopIR import (
 )
 from ..core.extern import Extern_Typecheck_Error
 from ..core.memory import *
+from ..spork.lane_units import LaneSpecialization
 
 
 # --------------------------------------------------------------------------- #
@@ -294,7 +295,11 @@ class TypeChecker:
             return [LoopIR.Pass(stmt.srcinfo)]
         elif isinstance(stmt, UAST.If):
             cond = self.check_e(stmt.cond, is_index=True)
-            if cond.type != T.err and cond.type != T.bool:
+            if (
+                cond.type != T.err
+                and cond.type != T.bool
+                and cond.type != T.lane_specialization
+            ):
                 self.err(cond, f"expected a bool expression")
             body = self.check_stmts(stmt.body)
             ebody = []
@@ -437,9 +442,12 @@ class TypeChecker:
             return LoopIR.WindowExpr(e.name, idx, w_typ, e.srcinfo)
 
         elif isinstance(e, UAST.Const):
-            ty = {float: T.R, bool: T.bool, int: T.int if is_index else T.R}.get(
-                type(e.val)
-            )
+            ty = {
+                LaneSpecialization: T.lane_specialization,
+                float: T.R,
+                bool: T.bool,
+                int: T.int if is_index else T.R,
+            }.get(type(e.val))
             if not ty:
                 self.err(
                     e,

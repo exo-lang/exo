@@ -8,6 +8,7 @@ from .extern import Extern
 from .configs import Config
 from .memory import Memory
 from .prelude import Sym, SrcInfo, extclass
+from ..spork.lane_units import LaneSpecialization
 from ..spork.loop_mode import LoopMode
 
 # --------------------------------------------------------------------------- #
@@ -121,6 +122,7 @@ module LoopIR {
          -- window    - the expression that created this window
          | WindowType( type src_type, type as_tensor,
                        sym src_buf, w_access *idx )
+         | LaneSpecialization()
 
 }""",
     ext_types={
@@ -213,6 +215,7 @@ module UAST {
             | Index ()
             | Stride()
             | Tensor( expr *hi, bool is_window, type type )
+            | LaneSpecialization
 } """,
     ext_types={
         "name": validators.instance_of(Identifier, convert=True),
@@ -368,6 +371,7 @@ class T:
     Error = LoopIR.Error
     Tensor = LoopIR.Tensor
     Window = LoopIR.WindowType
+    LaneSpecializationT = LoopIR.LaneSpecialization
     type = LoopIR.type
     R = Num()
     f16 = F16()
@@ -387,6 +391,7 @@ class T:
     size = Size()
     stride = Stride()
     err = Error()
+    lane_specialization = LaneSpecializationT()
 
 
 # --------------------------------------------------------------------------- #

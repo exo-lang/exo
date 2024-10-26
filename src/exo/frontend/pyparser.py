@@ -14,6 +14,7 @@ from ..core.configs import Config
 from ..core.LoopIR import UAST, PAST, front_ops
 from ..core.prelude import *
 from ..core.extern import Extern
+from ..spork.lane_units import LaneSpecialization, lane_unit_dict
 from ..spork.loop_mode import LoopMode, loop_mode_dict
 
 
@@ -676,14 +677,15 @@ class Parser:
 
             # ----- If statement parsing
             elif isinstance(s, pyast.If):
-                cond = self.parse_expr(s.test)
-
                 self.push()
                 body = self.parse_stmt_block(s.body)
                 self.pop()
                 self.push()
                 orelse = self.parse_stmt_block(s.orelse)
                 self.pop()
+
+                # Must be no orelse to allow lane specialization.
+                cond = self.parse_expr(s.test, allow_lane_specialization=not orelse)
 
                 rstmts.append(self.AST.If(cond, body, orelse, self.getsrcinfo(s)))
 
@@ -765,7 +767,7 @@ class Parser:
                     "predicate assert should happen at the beginning " "of a function",
                 )
             else:
-                self.err(s, "unsupported type of statement")
+                self.err(s, f"unsupported type of statement {s}")
 
         return rstmts
 
@@ -873,7 +875,7 @@ class Parser:
             return UAST.Point(self.parse_expr(e), srcinfo)
 
     # parse expressions, including values, indices, and booleans
-    def parse_expr(self, e):
+    def parse_expr(self, e, allow_lane_specialization=False):
         if isinstance(e, (pyast.Name, pyast.Subscript)):
             nm_node, idxs, is_window = self.parse_array_indexing(e)
 
@@ -1006,6 +1008,9 @@ class Parser:
         elif isinstance(e, pyast.Compare):
             assert len(e.ops) == len(e.comparators)
 
+            if len(e.ops) == 1 and isinstance(e.ops[0], pyast.In):
+                return self.parse_lane_specialization(e, allow_lane_specialization)
+
             vals = [self.parse_expr(e.left)] + [
                 self.parse_expr(v) for v in e.comparators
             ]
@@ -1030,7 +1035,7 @@ class Parser:
                 elif isinstance(opnode, pyast.IsNot):
                     op = "is not"
                 elif isinstance(opnode, pyast.In):
-                    op = "in"
+                    assert False, "should have been parsed as LaneSpecialization"
                 elif isinstance(opnode, pyast.NotIn):
                     op = "not in"
                 else:
@@ -1107,3 +1112,43 @@ class Parser:
 
         else:
             self.err(e, "unsupported form of expression")
+
+    # Parse special "lane_unit in (lo, hi)" syntax
+    def parse_lane_specialization(self, e, allow_lane_specialization):
+        assert isinstance(e, pyast.Compare)
+        assert len(e.ops) == 1 and isinstance(e.ops[0], pyast.In)
+
+        lhs_ast = e.left
+        rhs_ast = e.comparators[0]
+
+        if (
+            not isinstance(lhs_ast, pyast.Name)
+            or not isinstance(rhs_ast, pyast.Tuple)
+            or len(rhs_ast.elts) != 2
+        ):
+            self.err(e, "expected 'lane_unit in (lo, hi)'")
+
+        unit_name = lhs_ast.id
+        unit = lane_unit_dict.get(unit_name)
+        if not unit:
+            self.err(e, f"unknown lane specialization unit: {repr(unit_name)}")
+
+        lo = self.parse_expr(rhs_ast.elts[0])
+        hi = self.parse_expr(rhs_ast.elts[1])
+
+        def unbox(e):
+            if not isinstance(e, self.AST.Const):
+                self.err(e, "must have constant bounds for lane specialization")
+            n = e.val
+            if not isinstance(n, int):
+                self.err(e, "must have int bounds for lane specialization")
+            return n
+
+        lane_specialization = LaneSpecialization(unit, unbox(lo), unbox(hi))
+
+        if not allow_lane_specialization:
+            self.err(
+                e,
+                f"lane specialization '{lane_specialization}' only allowed inside if statements with no else",
+            )
+        return self.AST.Const(lane_specialization, self.getsrcinfo(e))

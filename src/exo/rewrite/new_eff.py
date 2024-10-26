@@ -335,7 +335,12 @@ def lift_e(e):
         strides = [A.Stride(e.name, i, T.stride, e.srcinfo) for i in range(len(e.idx))]
         return AWin(e.name, [lift_w(w) for w in e.idx], strides)
     else:
-        if e.type.is_indexable() or e.type.is_stridable() or e.type == T.bool:
+        if (
+            e.type.is_indexable()
+            or e.type.is_stridable()
+            or e.type == T.bool
+            or e.type == T.lane_specialization
+        ):
             if isinstance(e, LoopIR.Read):
                 assert len(e.idx) == 0
                 return A.Var(e.name, e.type, e.srcinfo)
