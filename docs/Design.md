@@ -1,12 +1,13 @@
 # Design document for Exo
 
-Here is a summary of the key design decisions of the Exo language in github markdown format:
+Exo is a domain-specific language designed to enable productive development of high-performance kernel libraries that target specialized hardware accelerators.
 
-# Exo: A Language for Hardware-Accelerated Kernel Libraries
+The key design principles of Exo are:
+- Performance transparity: We do not do "magic optimization" that are surprising and opaque to users.
+- WYSWYG: Exo IR closely models C-style code and will be trivially lowered to C code.
+- Give the performance control back to users
 
-Exo is a domain-specific language designed to enable productive development of high-performance kernel libraries that target specialized hardware accelerators. The key design principles of Exo are:
-
-## Exocompilation: Externalizing Hardware Targets
+# Exocompilation: Externalizing Hardware Targets
 
 One of the main ideas behind Exo is **exocompilation**, which allows users to define hardware targets externally to the compiler in user-level libraries. This has several advantages:
 
@@ -15,6 +16,8 @@ One of the main ideas behind Exo is **exocompilation**, which allows users to de
 - Proprietary details of hardware can be protected
 
 Users can model custom memories, instructions, and configuration state in libraries to target a specific accelerator. These hardware abstractions can then be used to write hand-optimized code or as building blocks for higher-level scheduling transformations.
+
+More info can be found in the [PLDI paper](https://people.csail.mit.edu/yuka/pdf/exo_pldi2022_full.pdf) and [./instructions.md] and [./memories.md].
 
 ## Fine-Grained Primitives for Performance Control
 
@@ -25,16 +28,27 @@ Exo offers a set of fine-grained scheduling primitives that give users low-level
 - `replace` for mapping code fragments to custom instructions
 
 Having explicit control over these low-level details enables Exo to achieve performance competitive with highly-tuned vendor libraries and hand-optimized assembly code.
+Primitives can be found in [./primitives/].
 
-## User-Defined Scheduling Operations
+## Rewrite-based Scheduling Language
+
+Unlike previos popular frameworks like Halide and TVM which uses _lowering based_ compilation process, Exo uses _rewrite based_ compilation process.
+
+This has a few advantages:
+- Less magic
+- Easy to print in the middle of scheduling process and see what is going on.
+
+# User-Defined Scheduling Operations
 
 While the flexibility of fine-grained primitives is necessary for achieving peak performance, directly using them can be verbose and laborious. To address this, Exo allows users to define new higher-level scheduling operations by composing the core primitives.
 
 These user-defined scheduling operations can encapsulate common optimization patterns and hardware-specific transformations, greatly improving productivity. They can be put together in reusable libraries, further enabling modularity and portability.
 
-## The AIR Abstraction: Action, Inspection, Reference
+More info can be found in the ASPLOS paper and Cursor.md.
 
-To enable user-defined scheduling operations, Exo introduces a powerful abstraction called AIR, which stands for Action, Inspection, and Reference.
+## The AIR Framework: Action, Inspection, Reference
+
+We identified that Action, Inspection, and Reference are the key scheduling language design mechanisms that enable user-defined scheduling operations.
 
 - **Actions** are the scheduling primitives that transform the code (e.g., `split`, `reorder`).
 - **Inspection** queries properties of the code (e.g., loop bounds, memory access patterns).
@@ -49,7 +63,3 @@ A novel feature in Exo's design is the concept of cursors, which serve as relati
 Cursors support navigation operations such as `next`, `prev`, `parent`, enabling powerful code transformations using relative positions. Multiple cursors can coexist, allowing different parts of the code to be referenced and modified simultaneously.
 
 Using cursors, complex scheduling operations can be built using simple navigation and rewrite rules, with the cursor abstracting away the details of manual AST manipulation.
-
-## Evaluation
-
-The effectiveness of Exo's design is demonstrated through case studies targeting specialized accelerators like Gemmini and x86 CPUs with AVX-512 extensions. With Exo, state-of-the-art performance is achieved on key computational kernels like matrix multiplication and convolution, using an order of magnitude fewer lines of code compared to handwritten libraries.

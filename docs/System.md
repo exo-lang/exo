@@ -1,10 +1,8 @@
 # System overview
 
-Talk about compilation process.
+This document provides an overview of the Exo compilation process, as illustrated in Figure 1 of the PLDI'22 paper.
 
-# Exo System Overview
-
-Exo is a programming language and compiler designed for productive development of high-performance kernel libraries targeting specialized hardware accelerators. This document provides an overview of the Exo compilation process, as illustrated in Figure 1 of the PLDI'22 paper.
+![System overview](images/system-overview.png)
 
 ## Compilation Process
 

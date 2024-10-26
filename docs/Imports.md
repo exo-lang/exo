@@ -1,10 +1,6 @@
-Document about how to import different modules
+# Imports in Exo
 
-# Explanation of Imports in Exo Language Script
-
-This document provides an overview of the import statements used in an Exo language script. [Exo](https://github.com/exo-lang/exo) is a programming system that facilitates the development of high-performance code, particularly for hardware accelerators and specialized computing platforms.
-
----
+This document provides an overview of the imports used when writing Exo.
 
 ## Table of Contents
 
@@ -25,7 +21,7 @@ This document provides an overview of the import statements used in an Exo langu
 from __future__ import annotations
 ```
 
-- **Purpose**: Enables postponed evaluation of type annotations, allowing you to use forward references in type hints without causing issues during runtime.
+- **Purpose**: Enables postponed evaluation of type annotations, allowing you to use forward references in type hints without causing issues during runtime. This is necessary to support Exo's `x : f32` syntax.
 - **Context**: This is a standard Python feature that improves compatibility and performance when using type hints in your code.
 
 ---
@@ -37,39 +33,40 @@ from exo import *
 ```
 
 - **Purpose**: Imports all core functionalities from the Exo language.
-- **Includes**: Fundamental classes and functions necessary for defining and manipulating high-performance computational kernels.
+- **Includes**: Fundamental classes and functions necessary for defining and manipulating high-performance computational kernels, such as `proc`, `instr`, `config`, `Memory`, `Extern`, `DRAM`, `SchedulingError`.
 
 ---
 
-## 3. Memory Libraries
-
-### 3.1 Importing `DRAM_STATIC`
+## 3. Frontend Syntax Utilities
 
 ```python
-from exo.libs.memories import DRAM_STATIC
+from exo.frontend.syntax import *
 ```
 
-- **Purpose**: Provides access to a static DRAM memory model.
-- **Usage**: Used for declaring and managing statically allocated memory regions in DRAM.
-
-### 3.2 Importing Multiple Memory Classes and Errors
-
-```python
-from exo.libs.memories import MDRAM, MemGenError, StaticMemory, DRAM_STACK
-```
-
-- **Components**:
-  - `MDRAM`: Multi-dimensional DRAM memory abstraction.
-  - `MemGenError`: Exception class for memory generation errors.
-  - `StaticMemory`: Base class for statically allocated memory types.
-  - `DRAM_STACK`: Represents a stack allocated in DRAM.
-- **Usage**: Facilitates advanced memory management and error handling in performance-critical code.
+- **Purpose**: Imports utilities for parsing and manipulating Exo's frontend syntax.
+- **Usage**: Used when extending or customizing the language's syntax for domain-specific applications.
 
 ---
 
-## 4. Platform-Specific Modules
 
-### 4.1 x86 Platform Optimizations
+## 4. Memory Libraries
+
+
+Even though users can define memory definitions externally to the compiler in the user code (see [./memories.md]), we provide memory definitions for some architectures as examples.
+What we support can be found by looking into src/exo/libs/memories.py.
+
+```python
+from exo.libs.memories import DRAM_STATIC, AVX2, AVX512
+```
+
+For example, you can import `DRAM_STATIC` like so. Similary you can import AVX2, AVX512
+
+
+---
+
+## 5. Instruction Libraries
+
+Similary to memories, we provide some hardware instruction definitions as a library.
 
 ```python
 from exo.platforms.x86 import *
@@ -78,7 +75,6 @@ from exo.platforms.x86 import *
 - **Purpose**: Imports optimizations and definitions specific to x86 architectures.
 - **Usage**: Enables the generation of optimized code tailored for x86 CPUs, including SIMD instructions and cache management.
 
-### 4.2 ARM NEON Platform Optimizations
 
 ```python
 from exo.platforms.neon import *
@@ -86,17 +82,6 @@ from exo.platforms.neon import *
 
 - **Purpose**: Provides ARM NEON-specific functionalities.
 - **Usage**: Allows for optimization of code on ARM architectures that support NEON instructions, enhancing performance on mobile and embedded devices.
-
----
-
-## 5. Frontend Syntax Utilities
-
-```python
-from exo.frontend.syntax import *
-```
-
-- **Purpose**: Imports utilities for parsing and manipulating Exo's frontend syntax.
-- **Usage**: Used when extending or customizing the language's syntax for domain-specific applications.
 
 ---
 
@@ -141,27 +126,3 @@ from exo.API_cursors import *
 
 - **Purpose**: Provides cursor-based APIs for navigating and modifying code structures.
 - **Usage**: Enables advanced code introspection and manipulation, useful for metaprogramming and automated optimizations.
-
----
-
-# Conclusion
-
-The imports listed are essential for setting up an Exo environment tailored for high-performance computing. They collectively provide:
-
-- Core language functionalities.
-- Advanced memory management.
-- Platform-specific optimizations for x86 and ARM NEON architectures.
-- Utilities for syntax manipulation and code scheduling.
-- Integration capabilities with external codebases.
-- Advanced APIs for code transformation.
-
-Understanding each import helps in leveraging Exo's full potential for developing optimized computational kernels and applications.
-
----
-
-# References
-
-- [Exo Language Repository](https://github.com/exo-lang/exo)
-- [Python `__future__` Module Documentation](https://docs.python.org/3/library/__future__.html)
-- [Exo Documentation (if available)](https://github.com/exo-lang/exo/wiki)
-
