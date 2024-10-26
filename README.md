@@ -112,6 +112,7 @@ pytest --cov=./ --cov-report=html
 
 Then, if you want to see annotated source files, open `./htmlcov/index.html`.
 
+---
 
 # Learn about Exo
 
