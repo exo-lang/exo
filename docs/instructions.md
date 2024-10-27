@@ -1,47 +1,40 @@
 # External Instruction Definitions
 
-Exo allows users to define custom hardware instructions within their code using the `@proc` annotation. These user-defined instructions can be leveraged during the scheduling process to replace specific code fragments with calls to hardware-optimized instructions. This feature enables fine-grained control over code optimization and hardware acceleration, making it easier to target specific architectures like SIMD units or custom accelerators.
+Exo allows users to define custom hardware instructions within their code using the `@instr` annotation.
+These user-defined instructions can be leveraged during the scheduling process to replace specific code fragments with calls to hardware-optimized instructions.
+This feature enables fine-grained control over code optimization, making it easier to target specific architectures like SIMD units or custom accelerators.
 
 ## Overview
 
-- **Custom Instructions**: Define hardware-specific instructions as procedures using the `@proc` decorator.
-- **Replacement**: Use the `replace` primitive to substitute code fragments with calls to these instructions.
-- **Pattern Matching**: Exo uses pattern matching to unify code fragments with instruction definitions.
+- **Custom Instructions**: Define hardware-specific instructions as procedures using the `@instr` decorator.
+- **Replace**: Use the `replace` primitive to substitute code fragments with calls to these instructions.
 - **Code Generation**: Custom instructions can emit arbitrary C code, including inline assembly, with placeholders for arguments.
 
 ## Defining Custom Instructions
 
-Custom instructions are defined as procedures annotated with `@proc` and further decorated with `@instr`. The `@instr` decorator allows you to specify the C code to be emitted when the instruction is called, including placeholders for arguments.
+Custom instructions are defined as procedures annotated with `@instr`.
+The `@instr` decorator allows you to specify the C code to be emitted when the instruction is called.
 
 ### Syntax
 
 ```python
-@instr("C code with placeholders")
-@proc
+@instr("C code")
 def instruction_name(args):
     # Specification of the instruction's behavior
 ```
-
-- **`@instr`**: Decorator that specifies the C code to emit.
-- **`@proc`**: Indicates that the function is an Exo procedure.
+- **`@instr`**: Decorator that specifies the C code to emit. In the string provided to `@instr`, you can include placeholders wrapped in `{}`. These placeholders will be replaced with the names of the arguments when the code is compiled.
 - **`instruction_name`**: The name of your custom instruction.
 - **`args`**: Arguments to the instruction.
-- **Specification**: A high-level description of what the instruction does, used for pattern matching.
+- **semantics**: Semantics of the hardware instruction, written as Exo object code.
 
-### Placeholders in C Code
+### Example: Defining a Neon Load Instruction
 
-In the string provided to `@instr`, you can include placeholders wrapped in `{}`. These placeholders will be replaced with the names of the arguments when the code is compiled.
-
-### Example: Defining a NEON Load Instruction
-
-Below is an example of defining a NEON load instruction that loads four `f32` values into NEON memory.
+Below is an example of defining a NEON load instruction that loads four `f32` values into Neon memory.
 
 ```python
 from exo import *
-from exo.core.proc import instr
 
 @instr("{dst_data} = vld1q_f32(&{src_data});")
-@proc
 def neon_vld_4xf32(dst: [f32][4] @ Neon, src: [f32][4] @ DRAM):
     assert stride(src, 0) == 1
     assert stride(dst, 0) == 1
@@ -50,10 +43,8 @@ def neon_vld_4xf32(dst: [f32][4] @ Neon, src: [f32][4] @ DRAM):
         dst[i] = src[i]
 ```
 
-#### Explanation
-
 - **`@instr("{dst_data} = vld1q_f32(&{src_data});")`**: Specifies the C code to emit when this instruction is called.
-  - `{dst_data}` and `{src_data}` are placeholders that will be replaced with the actual argument names.
+  - `{dst_data}` and `{src_data}` are format strings that will be replaced with the actual arguments during codegen.
 - **`dst: [f32][4] @ Neon`**: Declares `dst` as a 4-element array of `f32` in `Neon` memory.
 - **`src: [f32][4] @ DRAM`**: Declares `src` as a 4-element array of `f32` in `DRAM`.
 - **Assertions**: Ensure that the strides of `src` and `dst` are 1 for correct memory access.
@@ -92,25 +83,20 @@ def foo(src: [f32][4] @ DRAM, dst: [f32][4] @ Neon):
 Use the `replace` primitive to substitute the loop with the custom instruction.
 
 ```python
-# Instantiate the procedure
-p = foo
-
 # Replace the loop with the custom instruction
-p = replace(p, "for i in _:_", neon_vld_4xf32)
+foo = replace(foo, "for i in _:_", neon_vld_4xf32)
 ```
 
 #### Explanation
 
-- **`replace(p, "for i in _:_", neon_vld_4xf32)`**:
-  - **`p`**: The procedure in which to perform the replacement.
+- **`replace(foo, "for i in _:_", neon_vld_4xf32)`**:
+  - **`foo`**: The procedure in which to perform the replacement.
   - **`"for i in _:_"`**: A cursor pointing to the loop to replace.
   - **`neon_vld_4xf32`**: The instruction to replace the loop with.
 
 ### How `replace` Works
 
-- **Pattern Matching**: Exo attempts to unify the code fragment (the loop) with the body of `neon_vld_4xf32`.
-- **Automatic Argument Determination**: If successful, Exo replaces the fragment with a call to `neon_vld_4xf32`, automatically determining the correct arguments.
-- **Semantics Preservation**: The specification in the instruction's body ensures that the replacement is semantically correct.
+Unification...
 
 ### Step 3: Compile and Generate Code
 
@@ -162,7 +148,6 @@ The `replace` primitive is documented in [primitives/subproc_ops.md](primitives/
 
 ```python
 @instr("{dst} = asm_rvm_macc({src_a}, {src_b}, {dst});")
-@proc
 def rvm_macc(dst: f32 @ RVM, src_a: f32 @ RVM, src_b: f32 @ RVM):
     dst += src_a * src_b
 ```

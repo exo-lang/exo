@@ -86,18 +86,6 @@ def globl(self, prim_type):
 
 - Includes necessary headers required for the external function (e.g., `<math.h>` for mathematical functions).
 
-##### `interpret(self, args)` (Optional)
-
-Define how the function behaves during interpretation (useful for testing or interactive sessions).
-
-```python
-def interpret(self, args):
-    import math
-    return math.sin(args[0])
-```
-
-- Allows the extern function to be executed in environments that support interpretation.
-
 #### 4. Instantiate the Extern Function
 
 Create an instance of your extern class to make it usable in your code.
