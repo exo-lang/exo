@@ -19,26 +19,25 @@ One of the main ideas behind Exo is **exocompilation**, which allows users to de
 
 Users can model custom memories, instructions, and configuration state in libraries to target a specific accelerator. These hardware abstractions can then be used to write hand-optimized code or as building blocks for higher-level scheduling transformations.
 
-More info can be found in the [PLDI paper](https://people.csail.mit.edu/yuka/pdf/exo_pldi2022_full.pdf) and [./instructions.md](./instructions.md) and [./memories.md](./memories.md).
+More info can be found in the [PLDI paper](https://people.csail.mit.edu/yuka/pdf/exo_pldi2022_full.pdf) and [instructions.md](./instructions.md) and [memories.md](./memories.md).
 
 ## Fine-Grained Primitives for Performance Control
 
-Exo offers a set of fine-grained scheduling primitives that give users low-level control over performance-critical details. These primitives can be composed to build complex transformation schedules. Some examples of these primitives include:
+Exo provides a set of fine-grained scheduling primitives that offer users low-level control over performance-critical aspects. These primitives can be combined to create complex transformation schedules. Some examples of these primitives include:
 
-- `split` and `reorder` for loop transformations
-- `stage_mem` for explicit data movement between memories
-- `replace` for mapping code fragments to custom instructions
+- `replace`: Maps code fragments to custom instructions
+- `delete_config`: Removes redundant configuration statements
 
-Having explicit control over these low-level details enables Exo to achieve performance competitive with highly-tuned vendor libraries and hand-optimized assembly code.
-Primitives can be found in [./primitives/](./primitives/).
+The key research contributions of Exo were supporting `replace` through unification and the ability to reason about configuration states. Explicit control over these low-level details allows Exo to achieve performance comparable to highly-tuned vendor libraries and hand-optimized assembly code. All the primitives can be found in the [primitives/](./primitives/) directory.
 
 ## Rewrite-based Scheduling Language
 
-Unlike previous popular frameworks like Halide and TVM which use a _lowering-based_ compilation process, Exo uses a _rewrite-based_ compilation process.
+Exo employs a *rewrite-based* compilation process, which differs from the *lowering-based* approach used by popular frameworks like Halide and TVM.
 
-This has a few advantages:
-- Less magic
-- Easy to print in the middle of the scheduling process and see what is going on.
+The rewrite-based approach offers several advantages:
+
+- Reduced complexity and less "magic" involved
+- Easier to print and inspect the state of the scheduling process at any point
 
 ---
 
@@ -48,22 +47,23 @@ While the flexibility of fine-grained primitives is necessary for achieving peak
 
 These user-defined scheduling operations can encapsulate common optimization patterns and hardware-specific transformations, greatly improving productivity. They can be put together in reusable libraries, further enabling modularity and portability.
 
-More info can be found in the ASPLOS paper and [./Cursor.md](./Cursor.md).
+More infomation can be found in the [ASPLOS paper](.) and [Cursor.md](./Cursor.md).
 
 ## The AIR Framework: Action, Inspection, Reference
 
 We identified that Action, Inspection, and Reference are the key scheduling language design mechanisms that enable user-defined scheduling operations.
 
-- **Actions** are the scheduling primitives that transform the code (e.g., `split`, `reorder`).
+- **Actions** are the scheduling primitives that transform the code (e.g., `divide_loop`, `reorder`).
 - **Inspections** query properties of the code (e.g., loop bounds, memory access patterns).
 - **References** point to specific parts of the code to apply actions to.
 
-Together, AIR allows scheduling operations to be defined as composable rewrites on the code. The language implementation guarantees the correctness of these rewrites with a set of effect analyses.
+Together, AIR allows scheduling operations to be defined as composable rewrites on the code. The language implementation guarantees the correctness of these primitive rewrites with a set of effect analyses.
 
 ## Cursors: Enabling Relative References
 
-A novel feature in Exo's design is the concept of cursors, which serve as relative references into the code. Similar to a text editing cursor, an Exo cursor identifies a specific location in the program AST, such as a statement, loop nest, or even the gap between statements.
+A novel feature in Exo's design is the concept of cursors, which serve as relative references into the code. Similar to a text editing cursor, an Exo cursor can refer to a specific location in the program AST, such as a statement, loop nest, or even the gap between statements.
 
-Cursors support navigation operations such as `next`, `prev`, `parent`, enabling powerful code transformations using relative positions. Multiple cursors can coexist, allowing different parts of the code to be referenced and modified simultaneously.
+Cursors support navigation operations such as `next`, `prev`, `parent`, enabling powerful code transformations using relative positions.
+Furthermore, Cursor _forwarding_ let users reuse the cursor from the previous procedure in the current procedure.
+Multiple cursors can coexist, allowing different parts of the code to be referenced and modified simultaneously.
 
-Using cursors, complex scheduling operations can be built using simple navigation and rewrite rules, with the cursor abstracting away the details of manual AST manipulation.

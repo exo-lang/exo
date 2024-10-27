@@ -1,11 +1,11 @@
 # Documentation
 
-This directory provides detailed documentation about the Exo interface and internal system.
+This directory provides detailed documentation about Exo's interface and internal systems.
 
 - To learn about the design principles of Exo, read [Design.md](Design.md).
 - To understand how the Exo system is implemented, read [System.md](System.md).
 - For information on writing Exo object code, APIs, and imports, refer to [Procedures.md](Procedures.md), [object_code.md](object_code.md), and [Imports.md](Imports.md).
-- To learn how to define memory, instructions, and externs externally to the compiler in the user code, explore [externs.md](externs.md), [instructions.md](instructions.md), and [memories.md](memories.md).
+- To learn how to define memory, instructions, and externs externally to the compiler in the user code, refer to [externs.md](externs.md), [instructions.md](instructions.md), and [memories.md](memories.md).
 - To understand the available scheduling primitives and how to use them, look into the primitives/ directory.
 
 The scheduling primitives are classified into six categories:
@@ -26,4 +26,4 @@ The following papers provide a high-level and holistic view of Exo as a project:
 - [Kevin Qian's MEng thesis](https://dspace.mit.edu/handle/1721.1/157187)
 - [Samir Droubi's MEng thesis](https://dspace.mit.edu/handle/1721.1/156752)
 
-For more documentation and actual Exo code, refer to the [Examples](../examples/README.md) directory.
+For more documentation with running Exo code, refer to the [Examples](../examples/README.md) directory.

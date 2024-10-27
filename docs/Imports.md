@@ -22,8 +22,7 @@ This document provides an overview of the imports used when writing Exo.
 from __future__ import annotations
 ```
 
-- **Purpose**: Enables postponed evaluation of type annotations, allowing you to use forward references in type hints without causing issues during runtime. This is necessary to support Exo's `x : f32` syntax.
-- **Context**: This is a standard Python feature that improves compatibility and performance when using type hints in your code.
+Enables postponed evaluation of type annotations, allowing you to use forward references in type hints without causing issues during runtime. This is necessary to support Exo's `x : f32` syntax.
 
 
 ## 2. Core Exo Module
@@ -32,13 +31,13 @@ from __future__ import annotations
 from exo import *
 ```
 
-- **Purpose**: Imports all core functionalities from the Exo language.
-- **Includes**: Fundamental classes and functions necessary for defining and manipulating high-performance computational kernels, such as `proc`, `instr`, `config`, `Memory`, `Extern`, `DRAM`, and `SchedulingError`.
+Imports basic classes and functions necessary for defining and manipulating high-performance computational kernels, such as `proc`, `instr`, `config`, `Memory`, `Extern`, `DRAM`, and `SchedulingError`.
 
 
 ## 3. Memory Libraries
 
-Even though users can define memory definitions externally to the compiler in the user code (see [./memories.md]), we provide memory definitions for some architectures as examples. The supported memories can be found by looking into `src/exo/libs/memories.py`.
+Even though users can define memory definitions externally to the compiler in the user code (see [memories.md](./memories.md)), we provide memory definitions for some architectures for convinience.
+The supported memory definitions can be found by looking into `src/exo/libs/memories.py`.
 
 ```python
 from exo.libs.memories import DRAM_STATIC, AVX2, AVX512
@@ -49,50 +48,49 @@ For example, you can import `DRAM_STATIC`, `AVX2`, or `AVX512` as shown above.
 
 ## 4. Instruction Libraries
 
-Similar to memories, we provide some hardware instruction definitions as a library.
+Similar to memories, we provide some hardware instruction definitions for convinience (see [instructions.md](./instructions.md) to learn how to define your own accelerator instructions).
 
 ```python
 from exo.platforms.x86 import mm256_loadu_ps, mm256_setzero_ps, mm256_broadcast_ss
 ```
 
+## 5. Extern Libraries
 
-## 5. Frontend Syntax Utilities
+Similary, convinience extern libraries can be imported as follows. See [externs.md](./externs.md) to learn how to define your own externs.
+
+```python
+from exo.libs.externs import sin, relu
+```
+
+
+## 6. Frontend Syntax Utilities
 
 ```python
 from exo.frontend.syntax import *
 ```
 
-This module defines special symbols that are used inside Exo code. You may
-import this module via `from exo.syntax import *` to suppress warnings and
-see documentation inside an IDE (like PyCharm).
+This module defines special symbols that are used inside Exo code.
+Importing this can suppress warnings inside an IDE (like PyCharm).
 
 
-## 6. Standard Library Scheduling Functions
+## 7. Standard Library Scheduling Functions
 
+Exo provides users with the ability to define new scheduling operations using Cursors. For convenience, we have implemented scheduling libraries (standard library) that contain common scheduling operations users may want to use, such as vectorization and tiling. Users can import the standard library as follows:
 
 ```python
 from exo.stdlib.scheduling import repeat, replace_all
 from exo.stdlib.stdlib import vectorize, tile_loops
 ```
 
-
-
-
-## 7. External Interfaces
-
-```python
-from exo.libs.externs import sin, relu
-```
-
-- **Purpose**: Facilitates interaction with external libraries and functions not defined within Exo.
-- **Usage**: Allows for the integration of external code, such as C functions or hardware-specific routines, into Exo programs.
-
+Alternatively, users can define their own scheduling operations by composing scheduling primitives directly in their code.
 
 ## 8. API Cursors
+
+Cursors (see [Cursors.md](./Cursors.md)) are Exo's reference mechanism that allows users to navigate and inspect object code. When users define new scheduling operators using Cursors, they may wish to write their own inspection pass. API Cursors define types that will be useful for user inspection.
 
 ```python
 from exo.API_cursors import ForCursor, AssignCursor, InvalidCursor
 ```
 
-- **Purpose**: Provides cursor-based APIs for navigating and modifying code structures.
-- **Usage**: Enables advanced code introspection and manipulation, useful for metaprogramming and automated optimizations.
+These API Cursors provide specific types, such as `ForCursor` for for-loops, `AssignCursor` for assignments, and `InvalidCursor` for invalid cursors. Users can leverage these types when inspecting and manipulating code using Cursors.
+
