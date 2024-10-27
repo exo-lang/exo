@@ -1,3 +1,6 @@
+from typing import Optional
+
+
 class LaneUnit(object):
     """Unit type of a "parallel lane" (parlane).
 
@@ -85,4 +88,48 @@ class LaneSpecialization(object):
         return f"{self.unit} in ({self.lo}, {self.hi})"
 
     def __eq__(self, other):
+        if isinstance(other, LaneSpecializationPattern):
+            return other == self
         return self.unit == other.unit and self.lo == other.lo and self.hi == other.hi
+
+
+class LaneSpecializationPattern(object):
+    """Helper for pattern matching LaneSpecialization.
+
+    Any None attributes are assumed holes"""
+
+    __slots__ = ["unit", "lo", "hi"]
+
+    def __init__(self, unit: Optional[LaneUnit], lo: Optional[int], hi: Optional[int]):
+        assert unit is None or isinstance(unit, LaneUnit)
+        self.unit = unit
+        self.lo = lo
+        self.hi = hi
+
+    def __repr__(self):
+        return f"exo.spork.lane_units.LaneSpecializationPattern({self.unit}, {self.lo}, {self.hi})"
+
+    def strattr(self, name):
+        value = getattr(self, name)
+        return "_" if value is None else str(value)
+
+    def __str__(self):
+        return f"{self.strattr('unit')} in ({self.strattr('lo')}, {self.strattr('hi')})"
+
+    def matchattr(self, other, name):
+        x = getattr(self, name)
+        y = getattr(other, name)
+        return x is None or y is None or x == y
+
+    def __eq__(self, other):
+        """Pattern match. Non-transitive, so we are abusing the meaning of =="""
+        if isinstance(other, LaneSpecialization) or isinstance(
+            other, LaneSpecializationPattern
+        ):
+            return (
+                self.matchattr(other, "unit")
+                and self.matchattr(other, "lo")
+                and self.matchattr(other, "hi")
+            )
+        else:
+            return False

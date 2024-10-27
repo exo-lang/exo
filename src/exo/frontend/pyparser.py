@@ -14,7 +14,11 @@ from ..core.configs import Config
 from ..core.LoopIR import UAST, PAST, front_ops
 from ..core.prelude import *
 from ..core.extern import Extern
-from ..spork.lane_units import LaneSpecialization, lane_unit_dict
+from ..spork.lane_units import (
+    LaneSpecialization,
+    LaneSpecializationPattern,
+    lane_unit_dict,
+)
 from ..spork.loop_mode import LoopMode, loop_mode_dict
 
 
@@ -202,7 +206,9 @@ class Parser:
                     is_expr = True
 
             if is_expr:
-                self._cached_result = self.parse_expr(s.value)
+                self._cached_result = self.parse_expr(
+                    s.value, allow_lane_specialization=True
+                )
             else:
                 self._cached_result = self.parse_stmt_block(module_ast)
         else:
@@ -1129,22 +1135,31 @@ class Parser:
             self.err(e, "expected 'lane_unit in (lo, hi)'")
 
         unit_name = lhs_ast.id
-        unit = lane_unit_dict.get(unit_name)
-        if not unit:
-            self.err(e, f"unknown lane specialization unit: {repr(unit_name)}")
 
         lo = self.parse_expr(rhs_ast.elts[0])
         hi = self.parse_expr(rhs_ast.elts[1])
 
-        def unbox(e):
-            if not isinstance(e, self.AST.Const):
+        def unbox(e_const):
+            if isinstance(e_const, PAST.E_Hole):
+                return None
+            if not isinstance(e_const, self.AST.Const):
                 self.err(e, "must have constant bounds for lane specialization")
-            n = e.val
+            n = e_const.val
             if not isinstance(n, int):
-                self.err(e, "must have int bounds for lane specialization")
+                self.err(e_const, "must have int bounds for lane specialization")
             return n
 
-        lane_specialization = LaneSpecialization(unit, unbox(lo), unbox(hi))
+        if self.is_fragment and unit_name == "_":
+            unit = None
+        else:
+            unit = lane_unit_dict.get(unit_name)
+            if not unit:
+                self.err(e, f"unknown lane specialization unit: {repr(unit_name)}")
+
+        if self.is_fragment:
+            lane_specialization = LaneSpecializationPattern(unit, unbox(lo), unbox(hi))
+        else:
+            lane_specialization = LaneSpecialization(unit, unbox(lo), unbox(hi))
 
         if not allow_lane_specialization:
             self.err(
