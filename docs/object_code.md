@@ -1,6 +1,6 @@
 # Exo Object Code Syntax
 
-Exo is a programming language designed for performance-critical code, providing fine-grained control over code generation and optimization. In Exo, object code can be defined using Python-like syntax with specific annotations and constructs to model low-level programming concepts.
+In Exo, object code can be defined using Python-like syntax with specific annotations and constructs to model low-level programming concepts.
 
 This documentation explains Exo's object code syntax using the following example of a 1D convolution operation:
 
@@ -45,7 +45,7 @@ def generic_conv1d(
 
 ### `@proc` Decorator
 
-The `@proc` decorator is used to define an Exo procedure (analogous to a function in other programming languages). It indicates that the following function definition should be treated as Exo object code, which can be further optimized and transformed.
+The `@proc` decorator is used to define an Exo procedure (analogous to a function in other programming languages). It indicates that the following function definition should be treated as Exo object code (not Python), which can be further optimized and transformed.
 
 ```python
 @proc
@@ -55,7 +55,7 @@ def function_name(arguments):
 
 ### Type and Memory Annotations
 
-In Exo, types and memory spaces are explicitly annotated to provide precise control over data representation and placement. The syntax for annotations is:
+In Exo, types and memory spaces are explicitly annotated. The syntax is:
 
 ```python
 name: type[size] @ memory
@@ -66,7 +66,7 @@ name: type[size] @ memory
 - **`[size]`**: The dimensions of the array (optional for scalars).
 - **`@ memory`**: The memory space where the variable resides.
 
-## Procedure Arguments
+#### Procedure Arguments
 
 Procedure arguments are declared with their types, sizes, and memory spaces. They can have dependent sizes based on other arguments.
 
@@ -81,9 +81,9 @@ data: i32[IC, N] @ DRAM
 - **`[IC, N]`**: A 2D array with dimensions `IC` and `N`.
 - **`@ DRAM`**: Specifies that `data` resides in DRAM memory.
 
-## Variable Declarations
+#### Allocations
 
-Variables within the procedure are declared similarly to arguments but without the `@` annotation if they reside in default memory.
+Variables within the procedure are declared similarly to arguments.
 
 Example:
 
@@ -93,26 +93,13 @@ y: i32
 
 - **`y`**: The variable name.
 - **`i32`**: The data type (32-bit integer).
-- **No memory annotation**: Defaults to a standard memory space (e.g., registers).
+- **No memory annotation**: Defaults to `DRAM` if memory is unspecified.
 
-## Memory Spaces
+#### Memories
 
-Memory spaces in Exo are used to model different hardware memory regions, such as DRAM, caches, or specialized memories. The `@` symbol is used to specify the memory space.
-
-Common memory spaces:
-
-- **`@ DRAM`**: Main memory.
-- **`@ SRAM`**: Static RAM or cache.
-- **`@ Registers`**: CPU registers.
-
-Example:
-
-```python
-out: i32[OC, N] @ DRAM
-```
-
-- **`out`**: Output array.
-- **Resides in DRAM memory.**
+Memory annotations in Exo are used to model different hardware memory regions, such as DRAM, caches, or specialized memories. The `@` symbol is used to specify the memory space, for example: `@DRAM`, `@AVX2`, or `@Neon`.
+Memory annotations for your custom hardware accelerators can be defined externally to Exo and can be used as annotations in the same way.
+While Exo provides default memory (`DRAM`) and some library memory definitions for convenience (`AVX2`, `AVX512`, `Neon`, `GEMM_SCRATCH`, etc.), it is recommended and encouraged that users define their own memory annotations for their specific hardware. For more information on defining custom memory annotations, refer to [memories.md](./memories.md).
 
 ## Loops
 
@@ -126,7 +113,7 @@ for loop_variable in seq(start, end):
 ```
 
 - **`loop_variable`**: The loop counter variable.
-- **`seq(start, end)`**: Generates a sequence from `start` to `end - 1`.
+- **`seq(start, end)`**: Iterates from `start` to `end - 1`.
 
 Example from the code:
 
@@ -160,7 +147,7 @@ else:
 - Checks if `j + r` is less than `N`.
 - Assigns `y` accordingly.
 
-## Operations and Assignments
+## Assignments
 
 - **Assignment (`=`)**: Assigns a value to a variable.
 
@@ -168,7 +155,7 @@ else:
   y = data[c, j + r]
   ```
 
-- **In-place Addition (`+=`)**: Adds a value to a variable and stores the result back.
+- **Reduction (`+=`)**: Adds a value to a variable and stores the result back.
 
   ```python
   out[i, j] += kernels[i, c, r] * y
@@ -179,6 +166,30 @@ else:
   ```python
   data[c, j + r]
   ```
+
+## Limitations
+
+Exo has a few limitations that users should be aware of:
+
+1. **Non-affine indexing**: Exo does not support non-affine indexing. This means that any indexing operation must be a linear combination of loop variables and constants. For example, the following expressions are not allowed:
+   
+   ```python
+   data[i * j + r] = 0.0  # i * j is non-affine
+   if n * m < 30:         # n * m is non-affine
+     pass
+   ```
+
+   To work around this limitation, you may need to restructure your code or use additional variables to represent the non-affine expressions.
+
+2. **Value-dependent control flow**: Exo separates control values from buffer values, which means that it is not possible to write value-dependent control flow. For instance, the following code is not allowed:
+   
+   ```python
+   if data[i] < 3.0:
+     pass
+   ```
+
+   If you need to express such operations, consider using externs (see [externs documentation](./externs.md)).
+
 
 ## Understanding the Example
 
@@ -259,21 +270,3 @@ out[i, j] += kernels[i, c, r] * y
 - **Operation**: Accumulates the product of the kernel weight and the input data into the output.
 - **`kernels[i, c, r]`**: Kernel weight for output channel `i`, input channel `c`, at position `r`.
 - **`y`**: The input data value or zero.
-
-## Conclusion
-
-This example demonstrates how Exo's object code syntax allows for precise and expressive definitions of computations, particularly for performance-critical operations like convolutions. By understanding the annotations, loops, and operations, you can write efficient Exo procedures that can be further optimized and transformed for specific hardware targets.
-
-### Key Points
-
-- **Annotations**: Use `name: type[size] @ memory` to declare variables with explicit types and memory spaces.
-- **Loops**: Utilize `for` loops with `seq(start, end)` for controlled iteration.
-- **Conditionals**: Implement boundary checks and other logic using `if` and `else`.
-- **Operations**: Perform computations using standard arithmetic operators, with support for in-place updates.
-
-### Further Reading
-
-- **Exo Documentation**: Explore more about Exo's syntax and capabilities in the official documentation.
-- **Optimizations**: Learn how to apply scheduling primitives and transformations to optimize Exo procedures.
-
-By leveraging Exo's powerful syntax and features, you can develop high-performance code tailored to specific hardware architectures, enabling efficient execution of complex algorithms.
