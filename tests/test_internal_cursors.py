@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from exo import proc, SchedulingError, Procedure
-from exo.core.loop_mode import seq
+from exo.spork.loop_mode import seq
 from exo.core.LoopIR import LoopIR, T
 from exo.core.LoopIR_pprint import _print_cursor
 from exo.core.internal_cursors import (
