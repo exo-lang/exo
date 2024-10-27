@@ -13,10 +13,11 @@ statements, and code blocks. They also support spatial navigation within a proce
 to proximate locations.
 
 Key concepts covered:
-- Finding cursors using patterns
-- Navigating using cursors
-- Applying scheduling primitives with cursors
-- Forwarding cursors after transformations
+- Finding Cursors with pattern-matching
+- Cursor navigation
+- Applying scheduling primitives using cursors
+- Cursor forwarding after code transformations
+- Defining a new scheduling operation
 """
 
 

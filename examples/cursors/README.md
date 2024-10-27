@@ -4,18 +4,19 @@ This tutorial demonstrates a simple application of Cursors using the tile2D exam
 
 ## Overview
 
-Learn how to use Cursors to navigate and transform Exo object code. Cursors are powerful tools that allow you to:
+Learn how to use Cursors to navigate and transform Exo object code. Cursors allow you to:
 - Select and reference specific code elements (expressions, statements, blocks)
 - Navigate spatially within procedures
-- Apply transformations to your code
+- Apply optimization
 
 ## Key Concepts
 
-This tutorial covers:
-- Pattern-based cursor identification
-- Cursor navigation techniques
+This example covers the key concepts presented in the paper:
+- Finding Cursors with pattern-matching
+- Cursor navigation
 - Applying scheduling primitives using cursors
 - Cursor forwarding after code transformations
+- Defining a new scheduling operation
 
 ## Getting Started
 
@@ -23,7 +24,6 @@ To run this example:
 ```bash
 exocc cursors.py
 ```
+Running `exocc` on `cursors.py` will generate the C code in the `cursors/cursors.c` file.
+It will also print out the intermediate steps of the example.
 
-Notes:
-- The tutorial uses the tile2D example for demonstration
-- Focus is placed on fundamental cursor operations
