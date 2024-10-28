@@ -1,15 +1,18 @@
 # External Memory Definitions
 
-Exo allows users to define custom memory types external to the compiler. This feature enables modeling of specialized memory systems, such as vector machines and hardware accelerator memories, directly within your Exo code. By defining custom memories, you can optimize your programs for specific hardware architectures and achieve better performance.
+Exo allows users to define custom memory types external to the compiler.
+This feature enables modeling of specialized memory systems, such as vector machines and hardware accelerator memories, directly within your Exo code.
+By defining custom memories, you can optimize your programs to target specific hardware architectures.
 
 ## Overview
 
 - **Custom Memories**: Define your own memory types by subclassing the `Memory` class.
-- **Usage**: Use custom memories as annotations in your Exo code or apply them during scheduling.
+- **Usage**: Use custom memories as annotations in your Exo code or set them during scheduling.
 
 ## Defining Custom Memories
 
-To define a custom memory, you need to create a class that inherits from `Memory` and implement the required methods. Below is an example of defining an `AVX512` memory, which models the AVX-512 vector registers.
+To define a custom memory, you need to create a class that inherits from `Memory` and implement the required methods.
+Below is an example of defining an `AVX512` memory, which models the AVX-512 vector registers.
 
 ### Example: Defining AVX512 Memory
 
@@ -144,7 +147,7 @@ def foo(x: f32[16] @ AVX512):
 
 Use the `set_memory` primitive to change the memory annotation of a variable during scheduling.
 - **`set_memory(p, "C", AVX512)`**: Changes the memory of variable `C` in procedure `p` to `AVX512`.
-- This is common when optimizing existing code for specific hardware.
+- This is common when optimizing simple object code (e.g., GEMM) for specific hardware.
 
 #### Documentation for `set_memory`
 

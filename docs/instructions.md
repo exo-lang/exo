@@ -2,7 +2,6 @@
 
 Exo allows users to define custom hardware instructions within their code using the `@instr` annotation.
 These user-defined instructions can be leveraged during the scheduling process to replace specific code fragments with calls to hardware-optimized instructions.
-This feature enables fine-grained control over code optimization, making it easier to target specific architectures like SIMD units or custom accelerators.
 
 ## Overview
 
@@ -67,54 +66,88 @@ class Neon(Memory):
 
 Once you've defined a custom instruction, you can use it to replace code fragments in your procedures.
 
-### Step 1: Define Your Procedure
+### Define Your Procedure
 
 Define your Exo procedure as usual.
 
 ```python
 @proc
 def foo(src: [f32][4] @ DRAM, dst: [f32][4] @ Neon):
-    for i in seq(0, 4):
-        dst[i] = src[i]
+    ...
+    for i in seq(0, ...):
+        ...
+        for j in seq(0, 4):
+            dst[j] = src[j]
+    ...
 ```
 
-### Step 2: Use `replace` to Substitute the Instruction
+### Use `replace` to Substitute the Instruction
 
 Use the `replace` primitive to substitute the loop with the custom instruction.
 
 ```python
 # Replace the loop with the custom instruction
-foo = replace(foo, "for i in _:_", neon_vld_4xf32)
+foo = replace(foo, "for j in _:_", neon_vld_4xf32)
 ```
-
-#### Explanation
 
 - **`replace(foo, "for i in _:_", neon_vld_4xf32)`**:
   - **`foo`**: The procedure in which to perform the replacement.
   - **`"for i in _:_"`**: A cursor pointing to the loop to replace.
   - **`neon_vld_4xf32`**: The instruction to replace the loop with.
 
-### How `replace` Works
+After `replace`, the procedure `foo` will look like:
+```python
+@proc
+def foo(M: size, src: [f32][4] @ DRAM, dst: [f32][4] @ Neon):
+    ...
+    for i in seq(0, M/4):
+        ...
+        neon_vld_4xf32(dst, src)
+    ...
+```
 
-Unification...
+#### How `replace` Works
 
-### Step 3: Compile and Generate Code
-
-Compile your procedure to generate the optimized C code.
+The `replace` primitive is used to substitute a fragment of code within a procedure with a call to another procedure (e.g., a custom instruction). The syntax for `replace` is as follows:
 
 ```python
-print(p)
+replace(proc, cursor_path, subproc)
 ```
+
+- **`proc`**: The procedure containing the code to be replaced.
+- **`cursor`**: A cursor pointing to the code fragment to be replaced.
+- **`subproc`**: The procedure whose body will replace the code fragment.
+
+The `replace` primitive works by performing an unification modulo linear equalities. The process can be broken down into two main steps:
+
+1. **Pattern Matching**: The body of the sub-procedure `subproc` is unified (pattern matched) with the designated statement block `s` in the original procedure `proc`. During this process:
+   - The arguments of `subproc` are treated as unknowns.
+   - The free variables of `s` are treated as known symbols.
+   - Any symbols introduced or bound within the body of `subproc` or within `s` are unified.
+
+   The ASTs (Abstract Syntax Trees) of `subproc` and `s` are required to match exactly with respect to statements and all expressions that are not simply integer-typed control.
+
+2. **Solving Linear Equations**: Any equivalences between integer-typed control expressions are recorded as a system of linear equations. These equations are then solved to determine the values of the unknowns and ensure a consistent substitution.
+
+By following this process, the `replace` primitive effectively replaces the designated code fragment with a call to the sub-procedure, while ensuring that the substitution is valid and consistent.
+
 
 ### Generated C Code
 
+`exocc` can be used to compile Exo code into C.
+
 ```c
 void foo(float src[4], float32x4_t dst) {
-    dst = vld1q_f32(&src[0]);
+    ...
+    for (int_fast32_t i = 0; i < ...; i++) {
+        ...
+        dst = vld1q_f32(&src[0]);
+    }
+    ...
 }
 ```
 
-- **`dst = vld1q_f32(&src[0]);`**: The custom instruction is emitted as specified in the `@instr` decorator, with placeholders replaced.
+- **`dst = vld1q_f32(&src[0]);`**: The custom instruction is emitted as specified in the `@instr` decorator, with arguments replaced.
 
 ## Understanding the Magic
 
@@ -124,77 +157,6 @@ By defining the behavior of hardware instructions in Python using Exo procedures
 - **Semantics Encoding**: The instruction's body acts as a specification, encoding its semantics for Exo's pattern matching.
 - **Flexible and Extensible**: Users can define any instruction and specify how it should be matched and replaced.
 
-## The `replace` Primitive
-
-The `replace` primitive is used to substitute a fragment of code within a procedure with a call to another procedure (e.g., a custom instruction).
-
-### Syntax
-
-```python
-replace(proc, cursor_path, subproc)
-```
-
-- **`proc`**: The procedure containing the code to be replaced.
-- **`cursor_path`**: A string or cursor pointing to the code fragment.
-- **`subproc`**: The procedure whose body will replace the code fragment.
-
-### Documentation
-
-The `replace` primitive is documented in [primitives/subproc_ops.md](primitives/subproc_ops.md).
-
-## Practical Example: RISC-V Matrix Multiply
-
-### Step 1: Define the Instruction
-
-```python
-@instr("{dst} = asm_rvm_macc({src_a}, {src_b}, {dst});")
-def rvm_macc(dst: f32 @ RVM, src_a: f32 @ RVM, src_b: f32 @ RVM):
-    dst += src_a * src_b
-```
-
-- **`asm_rvm_macc`**: Hypothetical assembly function for RISC-V multiply-accumulate.
-- **Specification**: The procedure specifies that `dst += src_a * src_b`.
-
-### Step 2: Use the Instruction in a Procedure
-
-```python
-@proc
-def matmul_rvm(A: f32[M, K], B: f32[K, N], C: f32[M, N]):
-    for i in seq(0, M):
-        for j in seq(0, N):
-            for k in seq(0, K):
-                C[i, j] += A[i, k] * B[k, j]
-```
-
-### Step 3: Optimize Using `replace`
-
-```python
-p = matmul_rvm
-
-# Apply transformations to expose the computation pattern
-...
-
-# Replace the innermost loop with the custom instruction
-p = replace(p, "for k in _:_", rvm_macc)
-```
-
-### Step 4: Compile and Generate Code
-
-```python
-print(p)
-```
-
-### Generated C Code
-
-```c
-void matmul_rvm(float A[M][K], float B[K][N], float C[M][N]) {
-    for (int i = 0; i < M; i++) {
-        for (int j = 0; j < N; j++) {
-            C[i][j] = asm_rvm_macc(A[i][k], B[k][j], C[i][j]);
-        }
-    }
-}
-```
 
 ## Further Reading and Examples
 
