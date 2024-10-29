@@ -263,7 +263,7 @@ class Interpreter:
             buf = self.env[e.name]
             assert e.dim < len(buf.strides), "invalid dim in stride expression"
             # grammar guarantees int (not an expression)
-            return buf.strides[e.dim] / buf.dtype.itemsize
+            return int(buf.strides[e.dim] / buf.dtype.itemsize)
 
         elif isinstance(e, LoopIR.ReadConfig):
             assert False, "TODO: impl LoopIR.ReadConfig"

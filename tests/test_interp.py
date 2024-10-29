@@ -17,12 +17,12 @@ def test_reduce_add(compiler):
         for i in seq(0, N):
             acc += A[i]
 
+    fn = compiler.compile(acc)
+
     n = 3
     A = np.arange(n, dtype=np.float32)
     a1 = np.zeros(1, dtype=np.float32)
-    a2 = np.zeros(1, dtype=np.float32)
-    
-    fn = compiler.compile(acc)
+    a2 = np.zeros(1, dtype=np.float32)    
     fn(None, n, A, a1)
     acc.interpret(N=n, A=A, acc=a2)
 
@@ -38,10 +38,10 @@ def test_scope1(compiler):
             a = 2
         res = a
 
+    fn = compiler.compile(foo)
+
     x = np.zeros(1, dtype=np.float32)
     y = np.zeros(1, dtype=np.float32)
-
-    fn = compiler.compile(foo)
     fn(None, x)
     foo.interpret(res=y)
 
@@ -56,10 +56,10 @@ def test_scope2(compiler):
             a = 2
         res = a
 
+    fn = compiler.compile(foo)
+
     x = np.zeros(1, dtype=np.float32)
     y = np.zeros(1, dtype=np.float32)
-
-    fn = compiler.compile(foo)
     fn(None, x)
     foo.interpret(res=y)
 
@@ -71,10 +71,10 @@ def test_empty_seq(compiler):
         for i in seq(0, 0):
             res = 1
 
+    fn = compiler.compile(foo)
+
     x = np.zeros(1, dtype=np.float32)
     y = np.zeros(1, dtype=np.float32)
-
-    fn = compiler.compile(foo)
     fn(None, x)
     foo.interpret(res=y)
 
@@ -88,10 +88,10 @@ def test_cond(compiler):
         else:
             res = 2
 
+    fn = compiler.compile(foo)
+
     x = np.zeros(1, dtype=np.float32)
     y = np.zeros(1, dtype=np.float32)
-
-    fn = compiler.compile(foo)
     fn(None, x, False)
     foo.interpret(res=y, p=False)
 
@@ -108,10 +108,10 @@ def test_call(compiler):
         bar(res)
         res += 1
 
+    fn = compiler.compile(foo)
+
     x = np.zeros(1, dtype=np.float32)
     y = np.zeros(1, dtype=np.float32)
-
-    fn = compiler.compile(foo)
     fn(None, x)
     foo.interpret(res=y)
 
@@ -125,37 +125,75 @@ def test_window(compiler):
     def foo(A: f32[8], res: f32):
         bar(A[0:4], res)
 
+    fn = compiler.compile(foo)
+
     A = np.arange(8, dtype=np.float32)
     res1 = np.zeros(1, dtype=np.float32)
     res2 = np.zeros(1, dtype=np.float32)
-
-    fn = compiler.compile(foo)
     fn(None, A, res1)
     foo.interpret(A=A, res=res2)
 
     assert(res1 == res2)
 
-def test_stride1(compiler):
+def test_stride_simple1(compiler):
     @proc
-    def bar(s0: stride, s1: stride, s2: stride, B: [i8][2,2,2]):
+    def bar(s0: stride, s1: stride, B: [i8][3,4]):
         assert stride(B,0) == s0
         assert stride(B,1) == s1
-        assert stride(B,2) == s2
         pass
-
     @proc
-    def foo(M: size, N: size, O: size, A: i8[M,N,O]):
-        assert M > 1 and N > 1 and O > 1
-        bar(stride(A, 0), stride(A, 1), stride(A, 2), A[0:2,0:2,0:2])
-    
-    M = 3
-    N = 4
-    O = 5
-    A = np.arange(M*N*O, dtype=float).reshape((M,N,O))
+    def foo(A: i8[3,4]):
+        bar(stride(A, 0), stride(A, 1), A[:,:])
     
     fn = compiler.compile(foo)
-    fn(None, M, N, O, A)
-    foo.interpret(M=M, N=N, O=O, A=A)
+
+    A = np.arange(3*4, dtype=float).reshape((3,4))
+    fn(None, A)
+    foo.interpret(A=A)
+
+def test_stride_simple2(compiler):
+    @proc
+    def bar(s0: stride, s1: stride, B: [i8][1,1]):
+        assert stride(B,0) == s0
+        assert stride(B,1) == s1
+        pass
+    @proc
+    def foo(A: [i8][3,4]):
+        bar(stride(A, 0), stride(A, 1), A[0:1,1:2])
+    
+    fn = compiler.compile(foo)
+
+    A = np.arange(6*8, dtype=float).reshape((6,8))
+    fn(None, A[::2,::2])
+    foo.interpret(A=A[::2,::2])
+
+def test_stride1(compiler):
+    @proc
+    def foo(A: [i8][3,2,3]):
+        assert stride(A,0) == 20
+        assert stride(A,1) == 5 * 2
+        assert stride(A,2) == 1 * 2
+        pass
+    
+    fn = compiler.compile(foo)
+
+    A = np.arange(3*4*5, dtype=float).reshape((3,4,5))
+    fn(None, A[::1,::2,::2])
+    foo.interpret(A=A[::1,::2,::2])
+
+def test_stride2(compiler):
+    @proc
+    def foo(A: [i8][2,4,2]):
+        assert stride(A,0) == 20 * 2
+        assert stride(A,1) == 5 * 1
+        assert stride(A,2) == 1 * 3
+        pass
+
+    fn = compiler.compile(foo)
+
+    A = np.arange(3*4*5, dtype=float).reshape((3,4,5))
+    fn(None, A[::2,::1,::3])
+    foo.interpret(A=A[::2,::1,::3])
 
 def test_branch_stride1(compiler):
     @proc
