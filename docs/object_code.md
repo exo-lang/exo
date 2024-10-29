@@ -62,13 +62,14 @@ name: type[size] @ memory
 ```
 
 - **`name`**: The variable name.
-- **`type`**: The data type (e.g., `i32`, `f32`).
+- **`type`**: The data type. Supported precision types are: `f16`, `f32`, `f64`, `i8`, `i32`, `ui8`, and `ui16`.
 - **`[size]`**: The dimensions of the array (optional for scalars).
 - **`@ memory`**: The memory space where the variable resides.
 
+
 #### Procedure Arguments
 
-Procedure arguments are declared with their types, sizes, and memory spaces. They can have dependent sizes based on other arguments.
+Procedure arguments are declared with their types, sizes, and memory spaces. They can have sizes that depend on other arguments.
 
 Example from the code:
 
@@ -80,6 +81,59 @@ data: i32[IC, N] @ DRAM
 - **`i32`**: The data type (32-bit integer).
 - **`[IC, N]`**: A 2D array with dimensions `IC` and `N`.
 - **`@ DRAM`**: Specifies that `data` resides in DRAM memory.
+
+The `data` buffer above represents **tensor** types, which means the stride of the innermost dimension is 1, and the strides of other dimensions are simple multiples of the shapes of the inner dimensions.
+
+Exo allows **window expressions** as well, which are similar to array slicing in Python. Instead of accessing the buffer point-wise (e.g., `x[i]`), users can *window* the array as `x[i:i+2]`. This will create a windowed array of size 2.
+Exo procedures take tensor expressions when annotated with `x:f32[3]` syntax and take window expressions when annotated with `x:[f32][3]`, with square brackets around the types.
+
+```python
+@proc
+def foo(x: [f32][3]):
+    for i in seq(0, 3):
+        x[i] = 0.0
+
+@proc
+def bar(y: f32[10], z: f32[20, 20]):
+    foo(y[2:5])
+    foo(z[1, 10:13])
+```
+
+In this example, `foo` takes a window array of size 3, and `bar` calls `foo` by slicing `y` and `z`, respectively. Running `exocc` on this will generate the following C code:
+
+```c
+#include "tmp.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+// bar(
+//     y : f32[10] @DRAM,
+//     z : f32[20, 20] @DRAM
+// )
+void bar(void *ctxt, float* y, float* z) {
+    foo(ctxt, (struct exo_win_1f32){ &y[2], { 1 } });
+    foo(ctxt, (struct exo_win_1f32){ &z[20 + 10], { 1 } });
+}
+
+// foo(
+//     x : [f32][3] @DRAM
+// )
+void foo(void *ctxt, struct exo_win_1f32 x) {
+    for (int_fast32_t i = 0; i < 3; i++) {
+        x.data[i * x.strides[0]] = 0.0f;
+    }
+}
+```
+
+Moreover, Exo checks the consistency of tensor and window bounds in the frontend. If you modify `foo(y[2:5])` to `foo(y[2:6])` in the code above, the bounds check will fail and emit the following error:
+
+```
+TypeError: Errors occurred during effect checking:
+/private/tmp/tmp.py:12:8: type-shape of calling argument may not equal the required type-shape: [Effects.BinOp(op='-', lhs=Effects.Const(val=6, type=LoopIR.Int(), srcinfo=<exo.core.prelude.SrcInfo object at 0x106318920>), rhs=Effects.Const(val=2, type=LoopIR.Int(), srcinfo=<exo.core.prelude.SrcInfo object at 0x1063188c0>), type=LoopIR.Index(), srcinfo=<exo.core.prelude.SrcInfo object at 0x106318920>)] vs. [Effects.Const(val=3, type=LoopIR.Int(), srcinfo=<exo.core.prelude.SrcInfo object at 0x105111610>)]. It could be non equal when:
+   y_stride_0 = 1, z_stride_0 = 20, z_stride_1 = 1
+```
+
 
 #### Allocations
 
@@ -167,6 +221,11 @@ else:
   data[c, j + r]
   ```
 
+- **Window Statements**: Creates a slice (in other words, _window_) of the buffer and assign a new name.
+  ```python
+  y = x[0:3]
+  ```
+
 ## Limitations
 
 Exo has a few limitations that users should be aware of:
@@ -178,6 +237,8 @@ Exo has a few limitations that users should be aware of:
    if n * m < 30:         # n * m is non-affine
      pass
    ```
+
+   Exo allows quasi-affine indexing by division (e.g., `i/3`) and modulo (e.g., `i%3`) by constants.
 
    To work around this limitation, you may need to restructure your code or use additional variables to represent the non-affine expressions.
 

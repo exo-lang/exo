@@ -89,7 +89,7 @@ Alternatively, users can define their own scheduling operations by composing sch
 
 ## 8. API Cursors
 
-Cursors (see [Cursors.md](./Cursors.md)) are Exo's reference mechanism that allows users to navigate and inspect object code. When users define new scheduling operators using Cursors, they may wish to write their own inspection pass. API Cursors define types that will be useful for user inspection.
+Cursors (see [Cursors.md](./Cursors.md)) are Exo's reference mechanism that allows users to navigate and inspect object code. When users define new scheduling operators using Cursors, they may wish to write their own inspection pass (see [inspection.md](./inspection.md). API Cursors define types that will be useful for user inspection.
 
 ```python
 from exo.API_cursors import ForCursor, AssignCursor, InvalidCursor
