@@ -72,13 +72,21 @@ class AVX512(Memory):
       return False
   ```
 
-- **`alloc(cls, new_name, prim_type, shape, srcinfo)`**: Defines how memory allocation is handled. For `AVX512`, it ensures that the allocated memory represents 16-wide vectors of `float` type.
+- **`alloc(cls, new_name, prim_type, shape, srcinfo)`**: Defines how to lower `LoopIR.Alloc` into C code.
+  Allocation in Exo is expressed as `x : f32[N, M]`.
+  - `new_name`: A C string representing the allocated variable name. In this example, it would be `"x"`.
+  - `prim_type`: A C string representing the primitive data type. In this example, it would be `"float"`. The mapping from LoopIR types to C types is as follows:
+    - `f16` -> `"_Float16"`
+    - `f32` -> `"float"`
+    - `f64` -> `"double"`
+    - `i8`  -> `"int8_t"`
+    - `ui8` -> `"uint8_t"`
+    - `ui16`-> `"uint16_t"`
+    - `i32` -> `"int32_t"`
+  - `shape`: A list of C strings representing the shape of each dimension. In the example above, it would be `["N", "M"]`.
 
-  ```python
-  @classmethod
-  def alloc(cls, new_name, prim_type, shape, srcinfo):
-      # Validation checks and allocation code
-  ```
+  For `AVX512` memory, the `alloc` method ensures that the allocated memory represents 16-wide vectors of the `float` type.
+
 
 - **`free(cls, new_name, prim_type, shape, srcinfo)`**: Handles memory deallocation. For `AVX512`, no action is needed.
 
@@ -88,13 +96,43 @@ class AVX512(Memory):
       return ""
   ```
 
-- **`window(cls, basetyp, baseptr, indices, strides, srcinfo)`**: Defines how to access elements in the memory.
+- **`window(cls, basetyp, baseptr, indices, strides, srcinfo)`**: Defines how array accesses are lowered into C code.
+  
+  Usually, you cannot access your specialized hardware accelerator memory from C code, and you will need to use your accelerator instructions to access it, like the following:
+  
+  ```python
+  x : f32[16,16] @ your_memory
+  your_instr(x[0, 0:16])
+  ```
+  
+  The `window` member defines how `x[0, 0:16]` should be lowered to C code, as different accelerator instructions and memory have different addressing schemes.
+  
+  For example, the Gemmini accelerator's scratchpad memory is 2D and has a fixed column width of 16. The Gemmini instruction expects accessing the scratchpad by *number of rows* only, and accessing columns is not permitted. Therefore, the window definition will look like:
 
   ```python
   @classmethod
   def window(cls, basetyp, baseptr, indices, strides, srcinfo):
-      # Windowing logic for memory access
+      # Assume that strides[-1] == 1
+      #    and that strides[-2] == 16 (if there is a strides[-2])
+      assert len(indices) == len(strides) and len(strides) >= 2
+      prim_type = basetyp.basetype().ctype()
+      offset = generate_offset(indices, strides)
+      return (
+          f"*({prim_type}*)((uint64_t)( "
+          f"((uint32_t)((uint64_t){baseptr})) + "
+          f"({offset})/16))"
+      )
   ```
+
+  Explanation of arguments:
+  - `basetyp`: type of the buffer in `LoopIR.type`
+  - `baseptr`: C pointer string to the buffer (e.g., `x`)
+  - `indices`: List of C strings for index accesses for each dimension
+  - `strides`: List of C strings for strides for each dimension
+  - `srcinfo`: Source location information, Can be used for error messages
+
+  Both tensor and window expressions will be resolved to vanilla indices and strides.
+
 
 ## Understanding `can_read`
 
