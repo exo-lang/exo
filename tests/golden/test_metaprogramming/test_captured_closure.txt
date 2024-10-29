@@ -1,11 +1,7 @@
 #include "test.h"
 
-
-
 #include <stdio.h>
 #include <stdlib.h>
-
-
 
 // bar(
 //     a : i32 @DRAM
