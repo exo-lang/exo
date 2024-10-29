@@ -197,39 +197,43 @@ def test_stride2(compiler):
 
 def test_branch_stride1(compiler):
     @proc
-    def bar(B: [i8][2,2], res: f32):
+    def bar(B: [i8][3,4], res: f32):
         a: f32
-        if (stride(B,0) == 1):
+        if (stride(B, 0) == 8):
             a = 1
+        res = a
     @proc
-    def foo(M: size, N: size, A: i8[M,N], res: f32):
-        assert M > 1 and N > 1
-        bar(A[0:2,0:2], res)
+    def foo(A: i8[3,4], res: f32):
+        bar(A[:,:], res)
+    
+    fn = compiler.compile(foo)
 
+    A = np.arange(3*4, dtype=float).reshape((3,4))
+    x1 = np.zeros(1)
+    x2 = np.zeros(1)
+    fn(None, A, x1)
+    foo.interpret(A=A, res=x2)
+
+# TODO: discuss
+# updating param within stride conditional triggers validation error
 def test_branch_stride2(compiler):
     @proc
-    def bar(B: [i8][2,2], res: f32):
-        a: f32
-        if (stride(B,0) == 1):
+    def bar(B: [i8][3,4], res: f32):
+        if (stride(B, 0) == 8):
             res = 1
     @proc
-    def foo(M: size, N: size, A: i8[M,N], res: f32):
-        assert M > 1 and N > 1
-        bar(A[0:2,0:2], res)
-
-    # M = 2
-    # N = 8
-    # A = np.arange(M*N, dtype=float).reshape((M,N))
-    # res1 = np.zeros(1, dtype=float)
-    # res2 = np.zeros(1, dtype=float)
+    def foo(A: i8[3,4], res: f32):
+        bar(A[:,:], res)
     
-    # fn = compiler.compile(foo)
-    # fn(None, M, N, A, res1)
-    # foo.interpret(M=M, N=N, A=A, res=res2)
+    fn = compiler.compile(foo)
 
-    # assert(res1 == res2)
+    A = np.arange(3*4, dtype=float).reshape((3,4))
+    x1 = np.zeros(1)
+    x2 = np.zeros(1)
+    fn(None, A, x1)
+    foo.interpret(A=A, res=x2)
 
-def test_bounds_err():
+def test_bounds_err_interp():
     with pytest.raises(TypeError):
 
         @proc
@@ -243,13 +247,12 @@ def test_bounds_err():
 
         foo.interpret(N=N, A=A, res=x)
 
-def test_precond():
+def test_precond_interp_simple():
     with pytest.raises(AssertionError):
 
         @proc
         def foo(N: size, A:f32[N], res: f32):
             assert N == 4
-            a: f32
             res = A[3]
 
         N = 2
@@ -258,3 +261,41 @@ def test_precond():
 
         foo.interpret(N=N, A=A, res=x)
 
+# TODO: discuss
+# shouldn't this raise a runtime error? 
+def test_precond_comp_simple(compiler):
+    @proc
+    def foo(N: size, A:f32[N], res: f32):
+        assert N == 4
+        res = A[3]
+
+    N = 2
+    A = np.arange(N, dtype=np.float32)
+    x = np.zeros(1, dtype=np.float32)
+
+    fn = compiler.compile(foo)
+    fn(None, N, A, x)
+
+def test_precond_interp_stride():
+    with pytest.raises(AssertionError):
+
+        @proc
+        def foo(A:f32[1,8]):
+            assert stride(A, 0) == 8
+            pass
+
+        A = np.arange(16, dtype=np.float32).reshape((1,16))
+        foo.interpret(A=A[:,::2])
+
+# TODO: discuss
+# does not raise an error, but (incorrectly) informs the compiler about the stride
+def test_precond_comp_stride(compiler):
+    @proc
+    def foo(A:f32[1,8]):
+        assert stride(A, 0) == 8
+        pass
+
+    fn = compiler.compile(foo)
+
+    A = np.arange(16, dtype=np.float32).reshape((1,16))
+    fn(None, A[:,::2])
