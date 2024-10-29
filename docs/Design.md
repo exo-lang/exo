@@ -17,9 +17,9 @@ One of the main ideas behind Exo is **exocompilation**, which allows users to de
 - The cost of adding support for new hardware is significantly reduced.
 - Proprietary details of hardware can be protected.
 
-Users can model custom memories, instructions, and configuration state in libraries to target a specific accelerator. These hardware abstractions can then be used to write hand-optimized code or as building blocks for higher-level scheduling transformations.
+Users can model custom [memories](./memories.md), [instructions](./instructions.md), and configuration state in libraries to target a specific accelerator. These hardware abstractions can then be used to write hand-optimized code or as building blocks for higher-level scheduling transformations.
 
-More info can be found in the [PLDI paper](https://people.csail.mit.edu/yuka/pdf/exo_pldi2022_full.pdf) and [instructions.md](./instructions.md) and [memories.md](./memories.md).
+More info can be found in the [PLDI paper](https://people.csail.mit.edu/yuka/pdf/exo_pldi2022_full.pdf), [instructions.md](./instructions.md), and [memories.md](./memories.md).
 
 ## Fine-Grained Primitives for Performance Control
 
@@ -45,7 +45,8 @@ The rewrite-based approach offers several advantages:
 
 While the flexibility of fine-grained primitives is necessary for achieving peak performance, directly using them can be verbose and laborious. To address this, Exo allows users to define new higher-level scheduling operations by composing the core primitives.
 
-These user-defined scheduling operations can encapsulate common optimization patterns and hardware-specific transformations, greatly improving productivity. They can be put together in reusable libraries, further enabling modularity and portability.
+These user-defined scheduling operations can encapsulate common optimization patterns and hardware-specific transformations such as auto-vectorize, tiling, and even simulate scheduling operations from other USLs (like Halide's `compute_at`).
+They can be put together in reusable libraries, further enabling modularity and portability.
 
 More infomation can be found in the [ASPLOS paper](.) and [Cursor.md](./Cursor.md).
 
@@ -53,8 +54,8 @@ More infomation can be found in the [ASPLOS paper](.) and [Cursor.md](./Cursor.m
 
 We identified that Action, Inspection, and Reference are the key scheduling language design mechanisms that enable user-defined scheduling operations.
 
-- **Actions** are the scheduling primitives that transform the code (e.g., `divide_loop`, `reorder`).
-- **Inspections** query properties of the code (e.g., loop bounds, memory access patterns).
+- **[Actions](./primitives)** are scheduling operations that transform the code. This could be compiler-provided *primitive actions* (e.g., `divide_loop`, `reorder`), or *user-defined* (e.g., tile2D in the ASPLOS paper).
+- **[Inspections](./inspection.md)** query properties of the code (e.g., loop bounds, memory access patterns).
 - **References** point to specific parts of the code to apply actions to.
 
 Together, AIR allows scheduling operations to be defined as composable rewrites on the code. The language implementation guarantees the correctness of these primitive rewrites with a set of effect analyses.

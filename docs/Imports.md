@@ -2,6 +2,9 @@
 
 This document provides an overview of the imports used when writing Exo.
 
+Exo's parser only resolves names in the local and global namespaces, and Exo reserves the attribute syntax (foo.bar) for configurations.
+Therefore, if users wish to utilize Exo constructs, they must import them into their local namespace.
+
 ## Table of Contents
 
 1. [Standard Python Future Import](#1-standard-python-future-import)
