@@ -1,7 +1,7 @@
 from __future__ import annotations
 from exo import proc, compile_procs_to_strings
 from exo.API_scheduling import rename
-from exo.pyparser import ParseError
+from exo.frontend.pyparser import ParseError
 import pytest
 
 
@@ -338,3 +338,20 @@ def test_statement_assignment(golden):
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
     assert c_file == golden
+
+
+def test_statement_in_expr():
+    with pytest.raises(ParseError):
+
+        @proc
+        def foo(a: i32):
+            with meta:
+
+                def bar():
+                    with ~meta:
+                        a += 1
+                    return 2
+
+                with ~meta:
+                    a += {bar()}
+                    a += {bar()}

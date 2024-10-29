@@ -165,7 +165,14 @@ def pattern(s, filename=None, lineno=None, srclocals=None, srcglobals=None):
         SourceInfo(
             src_file=srcfilename, src_line_offset=srclineno, src_col_offset=n_dedent
         ),
-        parent_scope=DummyScope({}, {}),  # add globals from enclosing scope
+        parent_scope=DummyScope(
+            srcglobals if srcglobals is not None else {},
+            (
+                {k: BoundLocal(v) for k, v in srclocals.items()}
+                if srclocals is not None
+                else {}
+            ),
+        ),  # add globals from enclosing scope
         is_fragment=True,
     )
     return parser.result()
@@ -495,10 +502,10 @@ class Parser:
 
         self.push()
         special_cases = ["stride"]
-        for key, val in self.globals.items():
+        for key, val in parent_scope.get_globals().items():
             if isinstance(val, Extern):
                 special_cases.append(key)
-        for key, val in self.locals.items():
+        for key, val in parent_scope.read_locals().items():
             if isinstance(val, Extern):
                 special_cases.append(key)
 
@@ -579,6 +586,7 @@ class Parser:
             isinstance(unquote_node, pyast.Name)
             and isinstance(unquote_node.ctx, pyast.Load)
             and unquote_node.id not in self.exo_locals
+            and not self.is_fragment
         ):
             cur_globals = self.parent_scope.get_globals()
             cur_locals = self.parent_scope.read_locals()
@@ -860,8 +868,8 @@ class Parser:
 
             return typ
 
-        elif isinstance(node, pyast.Name) and node.id in Parser._prim_types:
-            return Parser._prim_types[node.id]
+        elif isinstance(node, pyast.Name) and node.id in _prim_types:
+            return _prim_types[node.id]
         elif isinstance(node, pyast.Name) and (
             _is_size(node) or _is_stride(node) or _is_index(node) or _is_bool(node)
         ):
@@ -872,8 +880,8 @@ class Parser:
             unquote_eval_result = self.try_eval_unquote(node)
             if len(unquote_eval_result) == 1:
                 unquoted = unquote_eval_result[0]
-                if isinstance(unquoted, str) and unquoted in Parser._prim_types:
-                    return Parser._prim_types[unquoted]
+                if isinstance(unquoted, str) and unquoted in _prim_types:
+                    return _prim_types[unquoted]
                 else:
                     self.err(node, "Unquote computation did not yield valid type")
 
