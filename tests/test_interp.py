@@ -10,6 +10,31 @@ from exo.stdlib.scheduling import SchedulingError
 
 # ------- Interpreter tests ---------
 
+def test_mat_mul(compiler):
+    @proc
+    def foo(
+        K: size,
+        A: f32[6, K] @ DRAM,
+        B: f32[K, 16] @ DRAM,
+        C: f32[6, 16] @ DRAM,
+    ):
+        for i in seq(0, 6):
+            for j in seq(0, 16):
+                for k in seq(0, K):
+                    C[i, j] += A[i, k] * B[k, j]
+    
+    fn = compiler.compile(foo)
+
+    K = 8
+    A = np.arange(6*K, dtype=np.float32).reshape((6,K))
+    B = np.arange(K*16, dtype=np.float32).reshape((K,16))
+    C1 = np.zeros(6*16, dtype=np.float32).reshape((6,16))
+    C2 = np.zeros(6*16, dtype=np.float32).reshape((6,16))
+
+    fn(None, K, A, B, C1)
+    foo.interpret(K=K, A=A, B=B, C=C2)
+    assert((C1 == C2).all())
+
 def test_reduce_add(compiler):
     @proc
     def acc(N: size, A: f32[N], acc: f32):
@@ -21,12 +46,12 @@ def test_reduce_add(compiler):
 
     n = 3
     A = np.arange(n, dtype=np.float32)
-    a1 = np.zeros(1, dtype=np.float32)
-    a2 = np.zeros(1, dtype=np.float32)    
-    fn(None, n, A, a1)
-    acc.interpret(N=n, A=A, acc=a2)
+    x = np.zeros(1, dtype=np.float32)
+    y = np.zeros(1, dtype=np.float32)
 
-    assert(a1 == a2)
+    fn(None, n, A, x)
+    acc.interpret(N=n, A=A, acc=y)
+    assert(x == y)
 
 def test_scope1(compiler):
     @proc
@@ -42,9 +67,9 @@ def test_scope1(compiler):
 
     x = np.zeros(1, dtype=np.float32)
     y = np.zeros(1, dtype=np.float32)
+
     fn(None, x)
     foo.interpret(res=y)
-
     assert(x == y)
 
 def test_scope2(compiler):
@@ -60,9 +85,9 @@ def test_scope2(compiler):
 
     x = np.zeros(1, dtype=np.float32)
     y = np.zeros(1, dtype=np.float32)
+
     fn(None, x)
     foo.interpret(res=y)
-
     assert(x == y)
 
 def test_empty_seq(compiler):
@@ -75,9 +100,9 @@ def test_empty_seq(compiler):
 
     x = np.zeros(1, dtype=np.float32)
     y = np.zeros(1, dtype=np.float32)
+
     fn(None, x)
     foo.interpret(res=y)
-
     assert(x == y)
     
 def test_cond(compiler):
@@ -92,9 +117,9 @@ def test_cond(compiler):
 
     x = np.zeros(1, dtype=np.float32)
     y = np.zeros(1, dtype=np.float32)
+
     fn(None, x, False)
     foo.interpret(res=y, p=False)
-
     assert(x == y)
 
 def test_call(compiler):
@@ -112,9 +137,9 @@ def test_call(compiler):
 
     x = np.zeros(1, dtype=np.float32)
     y = np.zeros(1, dtype=np.float32)
+
     fn(None, x)
     foo.interpret(res=y)
-
     assert(x == y)
 
 def test_window(compiler):
@@ -128,12 +153,52 @@ def test_window(compiler):
     fn = compiler.compile(foo)
 
     A = np.arange(8, dtype=np.float32)
-    res1 = np.zeros(1, dtype=np.float32)
-    res2 = np.zeros(1, dtype=np.float32)
-    fn(None, A, res1)
-    foo.interpret(A=A, res=res2)
+    x = np.zeros(1, dtype=np.float32)
+    y = np.zeros(1, dtype=np.float32)
 
-    assert(res1 == res2)
+    fn(None, A, x)
+    foo.interpret(A=A, res=y)
+    assert(x == y)
+
+def test_window_stmt1(compiler):
+    @proc
+    def foo(A: f32[8], res: f32):
+        B = A[4:]
+        res = B[0]
+
+    fn = compiler.compile(foo)
+
+    A = np.arange(8, dtype=np.float32)
+    x = np.zeros(1, dtype=np.float32)
+    y = np.zeros(1, dtype=np.float32)
+
+    fn(None, A, x)
+    foo.interpret(A=A, res=y)
+    assert(x[0] == 4 and x == y)
+
+# TODO: discuss
+# WindowType has attr src_type, not type
+def test_window_stmt2(compiler):
+    @proc
+    def foo(A: f32[8], C: [f32][4]):
+        B = A[4:]
+        C = B[:]
+
+# TODO: discuss
+# why can't we assign/reduce a WindowType value, but we can fresh assign one? 
+def test_window_stmt3(compiler):
+    @proc
+    def foo(A: f32[8], C: [f32][4]):
+        B = A[4:]
+        C = B
+
+# TODO: discuss
+# why can't we declare a variable of a window type, but we can fresh assign one? 
+def test_window_stmt4(compiler):
+    @proc
+    def foo(A: f32[8]):
+        B: [f32][4]
+        B = A[4:]
 
 def test_stride_simple1(compiler):
     @proc
@@ -148,6 +213,7 @@ def test_stride_simple1(compiler):
     fn = compiler.compile(foo)
 
     A = np.arange(3*4, dtype=float).reshape((3,4))
+
     fn(None, A)
     foo.interpret(A=A)
 
@@ -164,6 +230,7 @@ def test_stride_simple2(compiler):
     fn = compiler.compile(foo)
 
     A = np.arange(6*8, dtype=float).reshape((6,8))
+
     fn(None, A[::2,::2])
     foo.interpret(A=A[::2,::2])
 
@@ -178,6 +245,7 @@ def test_stride1(compiler):
     fn = compiler.compile(foo)
 
     A = np.arange(3*4*5, dtype=float).reshape((3,4,5))
+
     fn(None, A[::1,::2,::2])
     foo.interpret(A=A[::1,::2,::2])
 
@@ -192,31 +260,13 @@ def test_stride2(compiler):
     fn = compiler.compile(foo)
 
     A = np.arange(3*4*5, dtype=float).reshape((3,4,5))
+
     fn(None, A[::2,::1,::3])
     foo.interpret(A=A[::2,::1,::3])
 
-def test_branch_stride1(compiler):
-    @proc
-    def bar(B: [i8][3,4], res: f32):
-        a: f32
-        if (stride(B, 0) == 8):
-            a = 1
-        res = a
-    @proc
-    def foo(A: i8[3,4], res: f32):
-        bar(A[:,:], res)
-    
-    fn = compiler.compile(foo)
-
-    A = np.arange(3*4, dtype=float).reshape((3,4))
-    x1 = np.zeros(1)
-    x2 = np.zeros(1)
-    fn(None, A, x1)
-    foo.interpret(A=A, res=x2)
-
 # TODO: discuss
 # updating param within stride conditional triggers validation error
-def test_branch_stride2(compiler):
+def test_branch_stride1(compiler):
     @proc
     def bar(B: [i8][3,4], res: f32):
         if (stride(B, 0) == 8):
@@ -224,14 +274,49 @@ def test_branch_stride2(compiler):
     @proc
     def foo(A: i8[3,4], res: f32):
         bar(A[:,:], res)
+
+# but this is okay:
+def test_branch_stride2(compiler):
+    @proc
+    def bar(B: [i8][3,4], res: f32):
+        if (stride(B, 0) == 8):
+            res = 1
+    @proc
+    def foo(A: i8[3,4], res: f32):
+        bar(A, res)
     
     fn = compiler.compile(foo)
 
-    A = np.arange(3*4, dtype=float).reshape((3,4))
-    x1 = np.zeros(1)
-    x2 = np.zeros(1)
-    fn(None, A, x1)
-    foo.interpret(A=A, res=x2)
+    A = np.arange(3*4, dtype=np.float32).reshape((3,4))
+    x = np.zeros(1, dtype=np.float32)
+    y = np.zeros(1, dtype=np.float32)
+
+    fn(None, A, x)
+    foo.interpret(A=A, res=y)
+    assert(x == y)
+
+# so is this
+def test_branch_stride3(compiler):
+    @proc
+    def bar(B: [i8][3,4], res: f32):
+        a: f32
+        a = 0
+        if (stride(B, 0) == 8):
+            a = 1
+        res = a
+    @proc
+    def foo(A: i8[3,4], res: f32):
+        bar(A[:,:], res)
+
+    fn = compiler.compile(foo)
+
+    A = np.arange(3*4, dtype=np.float32).reshape((3,4))
+    x = np.zeros(1, dtype=np.float32)
+    y = np.zeros(1, dtype=np.float32)
+
+    fn(None, A, x)
+    foo.interpret(A=A, res=y)
+    assert(x == y)
 
 def test_bounds_err_interp():
     with pytest.raises(TypeError):

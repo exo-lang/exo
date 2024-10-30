@@ -36,10 +36,8 @@ class Interpreter:
 
         self.proc = proc
         self.env = ChainMap()
-        # dependency analysis not relevant?
         # context struct (configs) not relevant?
         # range_env not relevant?
-        # what are strides?
         self.use_randomization = use_randomization
 
         # type check args
@@ -70,8 +68,8 @@ class Interpreter:
                     )
                 self.env[a.name] = kwargs[str(a.name)]
             else:
-                assert a.type.is_numeric()
-                assert a.type.basetype() != T.R  # R => real
+                assert a.type.is_numeric(), "arg {a.name} is not a numeric type"
+                assert a.type.basetype() != T.R, "arg basetype {a.name} should not be T.R"
                 self.simple_typecheck_buffer(a, kwargs)
                 self.env[a.name] = kwargs[str(a.name)]
 
@@ -80,7 +78,7 @@ class Interpreter:
             if isinstance(pred, LoopIR.Const):
                 continue
             else:
-                assert self.eval_e(pred.lhs) == self.eval_e(pred.rhs)
+                assert self.eval_e(pred.lhs) == self.eval_e(pred.rhs), "precondition not satisfied"
 
         # eval statements
         self.env = self.env.new_child()
@@ -131,6 +129,7 @@ class Interpreter:
     def eval_s(self, s):
         if isinstance(s, LoopIR.Pass):
             pass
+        
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             lbuf = self.env[s.name]
             if len(s.idx) == 0:
@@ -149,7 +148,10 @@ class Interpreter:
             assert False, "TODO: impl LoopIR.WriteConfig"
 
         elif isinstance(s, LoopIR.WindowStmt):
-            assert False, "TODO: impl LoopIR.WindowStmt"
+            # nm = rbuf[...]
+            assert s.name not in self.env, "WindowStmt should be a fresh assignment"
+            assert isinstance(s.rhs, LoopIR.WindowExpr), "WindowStmt rhs should be WindowExpr"
+            self.env[s.name] = self.eval_e(s.rhs)
 
         elif isinstance(s, LoopIR.If):
             cond = self.eval_e(s.cond)
@@ -192,7 +194,7 @@ class Interpreter:
             Interpreter(s.f, kwargs, use_randomization=self.use_randomization)
 
         else:
-            assert False, "bad case"
+            assert False, "bad statement case"
 
     def eval_e(self, e, call_arg=False):
 
@@ -269,7 +271,7 @@ class Interpreter:
             assert False, "TODO: impl LoopIR.ReadConfig"
 
         else:
-            assert False, "bad case"
+            assert False, "bad expression case"
 
     def eval_shape(self, typ):
         return tuple(self.eval_e(s) for s in typ.shape())
