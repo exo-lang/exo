@@ -2,7 +2,7 @@ from typing import Optional
 
 from ..core.prelude import SrcInfo
 from . import actor_kind
-from .actor_kind import ActorKind, actor_kind_dict
+from .actor_kind import ActorKind, actor_kind_dict, cpu, cuda_sync
 from . import lane_units
 
 
@@ -62,8 +62,7 @@ class Par(LoopMode):
         return "par"
 
     def new_actor_kind(self, old_actor_kind: ActorKind):
-        print(actor_kind)
-        return actor_kind.cpu
+        return cpu
 
     def lane_unit(self):
         return lane_units.cpu_threads
@@ -83,7 +82,7 @@ class CudaClusters(LoopMode):
         return "cuda_clusters"
 
     def new_actor_kind(self, old_actor_kind: ActorKind):
-        return actor_kind.cuda_generic
+        return cuda_sync
 
     def lane_unit(self):
         return lane_units.cuda_clusters
@@ -100,7 +99,7 @@ class CudaBlocks(LoopMode):
         return "cuda_blocks"
 
     def new_actor_kind(self, old_actor_kind: ActorKind):
-        return actor_kind.cuda_generic
+        return cuda_sync
 
     def lane_unit(self):
         return lane_units.cuda_blocks
@@ -119,7 +118,7 @@ class CudaWarpgroups(LoopMode):
         return "cuda_warpgroups"
 
     def new_actor_kind(self, old_actor_kind: ActorKind):
-        return actor_kind.cuda_generic
+        return cuda_sync
 
     def lane_unit(self):
         return lane_units.cuda_warpgroups
@@ -138,7 +137,7 @@ class CudaWarps(LoopMode):
         return "cuda_warps"
 
     def new_actor_kind(self, old_actor_kind: ActorKind):
-        return actor_kind.cuda_generic
+        return cuda_sync
 
     def lane_unit(self):
         return lane_units.cuda_warps
@@ -157,7 +156,7 @@ class CudaThreads(LoopMode):
         return "cuda_threads"
 
     def new_actor_kind(self, old_actor_kind: ActorKind):
-        return actor_kind.cuda_generic
+        return cuda_sync
 
     def lane_unit(self):
         return lane_units.cuda_threads

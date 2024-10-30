@@ -837,7 +837,7 @@ class Compiler:
             self.add_line("; // NO-OP")
         elif isinstance(s, LoopIR.SyncStmt):
             warnings.warn("Not implemented: compiling LoopIR.SyncStmt")
-            self.add_line(f"// TODO LoopIR.SyncStmt {s.before} | {s.after}")
+            self.add_line(f"// TODO LoopIR.SyncStmt {s.A} // {s.B}")
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if s.name in self._scalar_refs:
                 lhs = f"*{self.env[s.name]}"
@@ -920,7 +920,8 @@ class Compiler:
                 not self.spork and new_actor_kind is not actor_kind.cpu
             )
             if not new_actor_kind.allows_parent(old_actor_kind):
-                raise TypeError(
+                # Will become an error when actor kind tracking is implemented
+                warnings.warn(
                     f"{s.srcinfo}: cannot nest loop with actor kind {new_actor_kind} in {old_actor_kind} scope"
                 )
 
@@ -933,7 +934,8 @@ class Compiler:
                 )
                 self.push(only="tab")
             else:
-                raise NotImplementedError("TODO implement CUDA codegen")
+                self.add_line(f"// TODO parallel-for {type(loop_mode)}")
+                warnings.warn("TODO implement CUDA codegen")
 
             self.comp_stmts(s.body)
 
@@ -1054,6 +1056,9 @@ class Compiler:
                 return f"{float(e.val)}"
             elif e.type == T.f32:
                 return f"{float(e.val)}f"
+            elif e.type == T.lane_specialization:
+                warnings.warn("TODO lane specialization")
+                return "true  /* TODO LaneSpecialization */"
             else:
                 return f"(({e.type.ctype()}) {str(e.val)})"
 
