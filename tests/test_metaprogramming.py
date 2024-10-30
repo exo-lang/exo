@@ -341,7 +341,9 @@ def test_statement_assignment(golden):
 
 
 def test_statement_in_expr():
-    with pytest.raises(ParseError):
+    with pytest.raises(
+        TypeError, match="Cannot unquote Exo statements in this context."
+    ):
 
         @proc
         def foo(a: i32):
@@ -355,3 +357,22 @@ def test_statement_in_expr():
                 with ~meta:
                     a += {bar()}
                     a += {bar()}
+
+
+def test_nonlocal_disallowed():
+    with pytest.raises(ParseError, match="nonlocal is not supported"):
+        x = 0
+
+        @proc
+        def foo(a: i32):
+            with meta:
+                nonlocal x
+
+
+def test_outer_return_disallowed():
+    with pytest.raises(ParseError, match="cannot return from metalanguage fragment"):
+
+        @proc
+        def foo(a: i32):
+            with meta:
+                return

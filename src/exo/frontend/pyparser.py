@@ -179,10 +179,10 @@ def pattern(s, filename=None, lineno=None, srclocals=None, srcglobals=None):
 
 
 QUOTE_CALLBACK_PREFIX = "__quote_callback"
-QUOTE_BLOCK_PLACEHOLDER_PREFIX = "__quote_block"
 OUTER_SCOPE_HELPER = "__outer_scope"
 NESTED_SCOPE_HELPER = "__nested_scope"
 UNQUOTE_RETURN_HELPER = "__unquote_val"
+QUOTE_STMT_PROCESSOR = "__process_quote_stmt"
 UNQUOTE_BLOCK_KEYWORD = "meta"
 
 
@@ -196,16 +196,12 @@ class ExoStatementList:
     _inner: tuple[Any, ...]
 
 
+@dataclass
 class QuoteReplacer(pyast.NodeTransformer):
-    def __init__(
-        self,
-        parser_parent: "Parser",
-        unquote_env: "UnquoteEnv",
-        stmt_collector: Optional[list[pyast.stmt]] = None,
-    ):
-        self.stmt_collector = stmt_collector
-        self.unquote_env = unquote_env
-        self.parser_parent = parser_parent
+    src_info: SourceInfo
+    exo_locals: dict[str, Any]
+    unquote_env: "UnquoteEnv"
+    inside_function: bool = False
 
     def visit_With(self, node: pyast.With) -> pyast.Any:
         if (
@@ -220,36 +216,43 @@ class QuoteReplacer(pyast.NodeTransformer):
                 or node.items[0].optional_vars is None
             )
         ):
-            assert (
-                self.stmt_collector != None
-            ), "Reached quote block with no buffer to place quoted statements"
-            should_append = node.items[0].optional_vars is None
+            stmt_destination = node.items[0].optional_vars
 
-            def quote_callback():
-                stmts = Parser(
+            def parse_quote_block():
+                return Parser(
                     node.body,
-                    self.parser_parent.src_info,
-                    parent_scope=get_parent_scope(depth=2),
+                    self.src_info,
+                    parent_scope=get_parent_scope(depth=3),
                     is_quote_stmt=True,
-                    parent_exo_locals=self.parser_parent.exo_locals,
+                    parent_exo_locals=self.exo_locals,
                 ).result()
-                if should_append:
-                    self.stmt_collector.extend(stmts)
-                else:
-                    return ExoStatementList(tuple(stmts))
 
-            callback_name = self.unquote_env.register_quote_callback(quote_callback)
-            if should_append:
+            if stmt_destination is None:
+
+                def quote_callback(
+                    quote_stmt_processor: Optional[Callable[[Any], None]]
+                ):
+                    if quote_stmt_processor is None:
+                        raise TypeError(
+                            "Cannot unquote Exo statements in this context. You are likely trying to unquote Exo statements while inside an Exo expression."
+                        )
+                    quote_stmt_processor(parse_quote_block())
+
+                callback_name = self.unquote_env.register_quote_callback(quote_callback)
+
                 return pyast.Expr(
                     value=pyast.Call(
                         func=pyast.Name(id=callback_name, ctx=pyast.Load()),
-                        args=[],
+                        args=[pyast.Name(id=QUOTE_STMT_PROCESSOR, ctx=pyast.Load())],
                         keywords=[],
                     )
                 )
             else:
+                callback_name = self.unquote_env.register_quote_callback(
+                    lambda: ExoStatementList(tuple(parse_quote_block()))
+                )
                 return pyast.Assign(
-                    targets=[node.items[0].optional_vars],
+                    targets=[stmt_destination],
                     value=pyast.Call(
                         func=pyast.Name(id=callback_name, ctx=pyast.Load()),
                         args=[],
@@ -270,10 +273,10 @@ class QuoteReplacer(pyast.NodeTransformer):
                 return ExoExpression(
                     Parser(
                         node.operand.elts[0],
-                        self.parser_parent.src_info,
+                        self.src_info,
                         parent_scope=get_parent_scope(depth=2),
                         is_quote_expr=True,
-                        parent_exo_locals=self.parser_parent.exo_locals,
+                        parent_exo_locals=self.exo_locals,
                     ).result()
                 )
 
@@ -285,6 +288,33 @@ class QuoteReplacer(pyast.NodeTransformer):
             )
         else:
             return super().generic_visit(node)
+
+    def visit_Nonlocal(self, node: pyast.Nonlocal) -> Any:
+        raise ParseError(
+            f"{self.src_info.get_src_info(node)}: nonlocal is not supported in metalanguage"
+        )
+
+    def visit_FunctionDef(self, node: pyast.FunctionDef):
+        was_inside_function = self.inside_function
+        self.inside_function = True
+        result = super().generic_visit(node)
+        self.inside_function = was_inside_function
+        return result
+
+    def visit_AsyncFunctionDef(self, node):
+        was_inside_function = self.inside_function
+        self.inside_function = True
+        result = super().generic_visit(node)
+        self.inside_function = was_inside_function
+        return result
+
+    def visit_Return(self, node):
+        if not self.inside_function:
+            raise ParseError(
+                f"{self.src_info.get_src_info(node)}: cannot return from metalanguage fragment"
+            )
+
+        return super().generic_visit(node)
 
 
 @dataclass
@@ -304,12 +334,16 @@ class UnquoteEnv:
                 return mangled_name
             index += 1
 
-    def register_quote_callback(self, quote_callback: Callable[[], None]) -> str:
+    def register_quote_callback(self, quote_callback: Callable[..., Any]) -> str:
         mangled_name = self.mangle_name(QUOTE_CALLBACK_PREFIX)
         self.parent_locals[mangled_name] = BoundLocal(quote_callback)
         return mangled_name
 
-    def interpret_quote_block(self, stmts: list[pyast.stmt]) -> Any:
+    def interpret_unquote_block(
+        self,
+        stmts: list[pyast.stmt],
+        quote_stmt_processor: Optional[Callable[[Any], None]],
+    ) -> Any:
         bound_locals = {
             name: val.val for name, val in self.parent_locals.items() if val is not None
         }
@@ -322,6 +356,7 @@ class UnquoteEnv:
             if name not in self.parent_locals
         }
         env_locals = {**quote_locals, **bound_locals}
+        self.parent_globals[QUOTE_STMT_PROCESSOR] = quote_stmt_processor
         exec(
             compile(
                 pyast.fix_missing_locations(
@@ -453,8 +488,8 @@ class UnquoteEnv:
         )
         return env_locals[UNQUOTE_RETURN_HELPER]
 
-    def interpret_quote_expr(self, expr: pyast.expr):
-        return self.interpret_quote_block([pyast.Return(value=expr)])
+    def interpret_unquote_expr(self, expr: pyast.expr):
+        return self.interpret_unquote_block([pyast.Return(value=expr)], None)
 
 
 # --------------------------------------------------------------------------- #
@@ -577,8 +612,10 @@ class Parser:
                     self.parent_scope.read_locals(),
                     self.make_exo_var_asts(self.getsrcinfo(unquote_node)),
                 )
-                quote_replacer = QuoteReplacer(self, unquote_env)
-                unquoted = unquote_env.interpret_quote_expr(
+                quote_replacer = QuoteReplacer(
+                    self.src_info, self.exo_locals, unquote_env
+                )
+                unquoted = unquote_env.interpret_unquote_expr(
                     quote_replacer.visit(copy.deepcopy(unquote_node.elts[0]))
                 )
                 return (unquoted,)
@@ -596,7 +633,7 @@ class Parser:
                         cur_globals,
                         cur_locals,
                         self.make_exo_var_asts(self.getsrcinfo(unquote_node)),
-                    ).interpret_quote_expr(unquote_node),
+                    ).interpret_unquote_expr(unquote_node),
                 )
                 if unquote_node.id in cur_locals or unquote_node.id in cur_globals
                 else tuple()
@@ -613,7 +650,7 @@ class Parser:
                 **{k: BoundLocal(v) for k, v in self.exo_locals.items()},
             },
             self.make_exo_var_asts(self.getsrcinfo(expr)),
-        ).interpret_quote_expr(expr)
+        ).interpret_unquote_expr(expr)
 
     # - # - # - # - # - # - # - # - # - # - # - # - # - # - # - #
     # structural parsing rules...
@@ -904,15 +941,18 @@ class Parser:
                         self.parent_scope.read_locals(),
                         self.make_exo_var_asts(self.getsrcinfo(s)),
                     )
-                    quoted_stmts = []
-                    quote_stmt_replacer = QuoteReplacer(self, unquote_env, quoted_stmts)
-                    unquote_env.interpret_quote_block(
+                    quote_stmt_replacer = QuoteReplacer(
+                        self.src_info,
+                        self.exo_locals,
+                        unquote_env,
+                    )
+                    unquote_env.interpret_unquote_block(
                         [
                             quote_stmt_replacer.visit(copy.deepcopy(python_s))
                             for python_s in s.body
                         ],
+                        lambda stmts: rstmts.extend(stmts),
                     )
-                    rstmts.extend(quoted_stmts)
                 else:
                     self.err(s, "Expected unquote")
             elif isinstance(s, pyast.Expr) and isinstance(s.value, pyast.Set):
