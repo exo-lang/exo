@@ -68,9 +68,7 @@ class Interpreter:
                     )
                 self.env[a.name] = kwargs[str(a.name)]
             else:
-                assert a.type.is_numeric(), "arg {a.name} is not a numeric type"
-                assert a.type.basetype() != T.R, "arg basetype {a.name} should not be T.R"
-                self.simple_typecheck_buffer(a, kwargs)
+                self.typecheck_input_buffer(a, kwargs)
                 self.env[a.name] = kwargs[str(a.name)]
 
         # evaluate preconditions
@@ -91,31 +89,54 @@ class Interpreter:
     def _del_scope(self):
         self.env = self.env.parents
 
-    # input buffers should be numpy arrays with floating-point values
-    def simple_typecheck_buffer(self, fnarg, kwargs):
-        typ = fnarg.type
-        buf = kwargs[str(fnarg.name)]
-        nm = fnarg.name
+    def typecheck_input_buffer(self, proc_arg, kwargs):
+        nm = proc_arg.name
+        if not proc_arg.type.is_numeric():
+            raise TypeError(f"arg {nm} is expected to be numeric")
 
-        # check data type
+        basetype = proc_arg.type.basetype()
+        buf = kwargs[str(proc_arg.name)]
+
         pre = f"bad argument '{nm}'"
         if not isinstance(buf, np.ndarray):
             raise TypeError(f"{pre}: expected numpy.ndarray")
-        elif buf.dtype != float and buf.dtype != np.float32 and buf.dtype != np.float16:
-            raise TypeError(
-                f"{pre}: expected buffer of floating-point values; "
-                f"had '{buf.dtype}' values"
-            )
 
-        # check shape
-        if typ.is_real_scalar():
+        if isinstance(basetype, T.F32):
+            if buf.dtype != np.float32:
+                raise TypeError(f"{pre}: received {buf.dtype} values")
+
+        if isinstance(basetype, T.F16):
+            if buf.dtype != np.float16:
+                raise TypeError(f"{pre}: received {buf.dtype} values")
+
+        if isinstance(basetype, (T.F64, T.Num)):
+            if buf.dtype != np.float64:
+                raise TypeError(f"{pre}: received {buf.dtype} values")
+
+        if isinstance(basetype, T.INT8):
+            if buf.dtype != np.int8:
+                raise TypeError(f"{pre}: received {buf.dtype} values")
+
+        if isinstance(basetype, T.INT32):
+            if buf.dtype != np.int32:
+                raise TypeError(f"{pre}: received {buf.dtype} values")
+
+        if isinstance(basetype, T.UINT8):
+            if buf.dtype != np.uint8:
+                raise TypeError(f"{pre}: received {buf.dtype} values")
+
+        if isinstance(basetype, T.UINT16):
+            if buf.dtype != np.uint16:
+                raise TypeError(f"{pre}: received {buf.dtype} values")
+
+        if proc_arg.type.is_real_scalar():
             if tuple(buf.shape) != (1,):
                 raise TypeError(
                     f"{pre}: expected buffer of shape (1,), "
                     f"but got shape {tuple(buf.shape)}"
                 )
         else:
-            shape = self.eval_shape(typ)
+            shape = self.eval_shape(proc_arg.type)
             if shape != tuple(buf.shape):
                 raise TypeError(
                     f"{pre}: expected buffer of shape {shape}, "
@@ -182,7 +203,6 @@ class Interpreter:
                 # TODO: Maybe randomize?
                 self.env[s.name] = np.empty(size)
 
-        # TODO (andrew) figure out a way to test this, no explicit frees that I can find
         elif isinstance(s, LoopIR.Free):
             # use extension to chain map from python docs
             del self.env[s.name]
