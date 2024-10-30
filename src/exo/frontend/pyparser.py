@@ -145,6 +145,7 @@ _is_size = lambda x: isinstance(x, pyast.Name) and x.id == "size"
 _is_index = lambda x: isinstance(x, pyast.Name) and x.id == "index"
 _is_bool = lambda x: isinstance(x, pyast.Name) and x.id == "bool"
 _is_stride = lambda x: isinstance(x, pyast.Name) and x.id == "stride"
+_is_barrier = lambda x: isinstance(x, pyast.Name) and x.id == "barrier"
 
 _prim_types = {
     "R": UAST.Num(),
@@ -204,6 +205,13 @@ class Parser:
                     or s.value.func.id in special_cases
                 ):
                     is_expr = True
+                if (
+                    is_expr
+                    and isinstance(s.value, pyast.BinOp)
+                    and isinstance(s.value.op, pyast.FloorDiv)
+                ):
+                    # SyncStmt `before // after`
+                    is_expr = False
 
             if is_expr:
                 self._cached_result = self.parse_expr(
@@ -412,6 +420,9 @@ class Parser:
                 )
             return UAST.Stride(), None
 
+        elif _is_barrier(typ_node):
+            self.err(node, "Cannot pass barrier as argument")
+
         else:
             typ = self.parse_num_type(typ_node, is_arg=True)
 
@@ -432,6 +443,7 @@ class Parser:
         return typ, mem
 
     def parse_num_type(self, node, is_arg=False):
+        # TODO we can't parse allocating barriers right now
         if isinstance(node, pyast.Subscript):
             if isinstance(node.value, pyast.List):
                 if is_arg is not True:
@@ -759,6 +771,26 @@ class Parser:
             elif isinstance(s, pyast.Pass):
                 rstmts.append(self.AST.Pass(self.getsrcinfo(s)))
 
+            # ----- SyncStmt parsing
+            elif (
+                isinstance(s, pyast.Expr)
+                and isinstance(s.value, pyast.BinOp)
+                and isinstance(s.value.op, pyast.FloorDiv)
+            ):
+                binop = s.value
+                if not isinstance(binop.left, pyast.Name) or not isinstance(
+                    binop.right, pyast.Name
+                ):
+                    self.err(s, "expected names on both sides of '|' (SyncStmt)")
+                srcinfo = self.getsrcinfo(s)
+                if self.is_fragment:
+                    sync = PAST.SyncStmt(binop.left.id, binop.right.id, srcinfo)
+                else:
+                    sync = UAST.SyncStmt(
+                        Sym(binop.left.id), Sym(binop.right.id), srcinfo
+                    )
+                rstmts.append(sync)
+
             # ----- Stmt Hole parsing
             elif (
                 isinstance(s, pyast.Expr)
@@ -970,7 +1002,7 @@ class Parser:
             elif isinstance(e.op, pyast.Div):
                 op = "/"
             elif isinstance(e.op, pyast.FloorDiv):
-                op = "//"
+                op = "//"  # Note: parsed elsewhere as SyncStmt
             elif isinstance(e.op, pyast.Mod):
                 op = "%"
             elif isinstance(e.op, pyast.Pow):

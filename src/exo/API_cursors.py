@@ -20,6 +20,7 @@ from .core.internal_cursors import InvalidCursorError
 from .core.LoopIR_pprint import _print_cursor
 from .rewrite.LoopIR_scheduling import SchedulingError
 
+from .spork.actor_kind import actor_kind_dict
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -515,6 +516,27 @@ class PassCursor(StmtCursor):
     """
 
 
+class SyncCursor(StmtCursor):
+    """
+    Cursor pointing to a synchronization statement:
+        before | after
+    """
+
+    def A(self):
+        """Returns the "before" side of the barrier, either the name of a barrier variable or an ActorKind"""
+        return self._get("A")
+
+    def B(self):
+        """Returns the "after" side of the barrier, either the name of a barrier variable or an ActorKind"""
+        return self._get("B")
+
+    def _get(self, name):
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.SyncStmt)
+        attr = getattr(self._impl._node, name)
+        return actor_kind_dict.get(attr, attr)
+
+
 class IfCursor(StmtCursor):
     """
     Cursor pointing to an if statement:
@@ -900,6 +922,8 @@ def lift_cursor(impl, proc):
             return AssignConfigCursor(impl, proc)
         elif isinstance(n, LoopIR.Pass):
             return PassCursor(impl, proc)
+        elif isinstance(n, LoopIR.SyncStmt):
+            return SyncCursor(impl, proc)
         elif isinstance(n, LoopIR.If):
             return IfCursor(impl, proc)
         elif isinstance(n, LoopIR.For):

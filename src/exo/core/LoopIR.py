@@ -47,7 +47,7 @@ class Operator(str):
     def __new__(cls, op):
         op = str(op)
         if op in front_ops:
-            return super().__new__(cls, op)
+            return super().__new__(cls, op)  #
         raise ValueError(f"invalid operator: {op}")
 
 
@@ -78,6 +78,7 @@ module LoopIR {
          | Reduce( sym name, type type, expr* idx, expr rhs )
          | WriteConfig( config config, string field, expr rhs )
          | Pass()
+         | SyncStmt( sym A, sym B ) -- sym = actor_kind or barrier var
          | If( expr cond, stmt* body, stmt* orelse )
          | For( sym iter, expr lo, expr hi, stmt* body, loop_mode loop_mode )
          | Alloc( sym name, type type, mem mem )
@@ -114,6 +115,7 @@ module LoopIR {
          | Index()
          | Size()
          | Stride()
+         | Barrier()
          | Error()
          | Tensor( expr* hi, bool is_window, type type )
          -- src       - type of the tensor from which the window was created
@@ -149,6 +151,7 @@ module LoopIR {
         "Index",
         "Size",
         "Stride",
+        "Barrier",
         "Error",
     },
 )
@@ -180,6 +183,7 @@ module UAST {
             | WriteConfig ( config config, string field, expr rhs )
             | FreshAssign( sym name, expr rhs )
             | Pass    ()
+            | SyncStmt( sym A, sym B )
             | If      ( expr cond, stmt* body,  stmt* orelse )
             | For     ( sym iter,  expr cond,   stmt* body )
             | Alloc   ( sym name, type type, mem? mem )
@@ -214,6 +218,7 @@ module UAST {
             | Size  ()
             | Index ()
             | Stride()
+            | Barrier()
             | Tensor( expr *hi, bool is_window, type type )
             | LaneSpecialization
 } """,
@@ -242,6 +247,7 @@ module UAST {
         "Size",
         "Index",
         "Stride",
+        "Barrier",
     },
 )
 
@@ -257,6 +263,7 @@ module PAST {
     stmt    = Assign  ( name name, expr* idx, expr rhs )
             | Reduce  ( name name, expr* idx, expr rhs )
             | Pass    ()
+            | SyncStmt( name A, name B )
             | If      ( expr cond, stmt* body, stmt* orelse )
             | For     ( name iter, expr lo, expr hi, stmt* body )
             | Alloc   ( name name, expr* sizes ) -- may want to add mem back in?
@@ -368,6 +375,7 @@ class T:
     Index = LoopIR.Index
     Size = LoopIR.Size
     Stride = LoopIR.Stride
+    Barrier = LoopIR.Barrier
     Error = LoopIR.Error
     Tensor = LoopIR.Tensor
     Window = LoopIR.WindowType
@@ -650,7 +658,7 @@ class LoopIR_Rewrite:
             new_type = self.map_t(s.type)
             if new_type:
                 return [s.update(type=new_type or s.type)]
-        elif isinstance(s, LoopIR.Pass):
+        elif isinstance(s, (LoopIR.Pass, LoopIR.SyncStmt)):
             return None
         else:
             raise NotImplementedError(f"bad case {type(s)}")
@@ -874,6 +882,10 @@ class LoopIR_Compare:
             )
         elif isinstance(s1, LoopIR.Pass):
             return True
+        elif isinstance(s1, LoopIR.SyncStmt):
+            return self.match_name(s1.before, s2.before) and self.match_name(
+                s1.after, s2.after
+            )
         elif isinstance(s1, LoopIR.If):
             return (
                 self.match_e(s1.cond, s2.cond)
@@ -1472,7 +1484,7 @@ class LoopIR_Dependencies(LoopIR_Do):
                 process_reads()
                 self._lhs = None
 
-        elif isinstance(s, (LoopIR.Pass, LoopIR.Alloc)):
+        elif isinstance(s, (LoopIR.Pass, LoopIR.Alloc, LoopIR.SyncStmt)):
             pass
         else:
             assert False, "bad case"

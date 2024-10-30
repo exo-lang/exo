@@ -260,8 +260,8 @@ They are valid only for synchronization statements (later), and represent subset
 \texttt{tma\_to\_shared\_async: } & \text{Hopper TMA \lighttt{cp.bulk.async} to shared memory}\\
 \texttt{tma\_to\_global\_async: } & \text{Hopper TMA \lighttt{cp\{.reduce\}.bulk.async} to global memory}\\
 \texttt{wgmma\_async: } & \text{wgmma instructions}\\
-\graytt{wgmma\_reg\_async: } & \text{actions on wgmma register tiles by wgmma instructions}\\
-\graytt{wgmma\_mem\_async: } & \text{actions on shared memory by wgmma instructions}\\
+\graytt{wgmma\_async\_reg: } & \text{actions on wgmma register tiles by wgmma instructions}\\
+\graytt{wgmma\_async\_mem: } & \text{actions on shared memory by wgmma instructions}\\
 \graytt{wgmma\_reg: } & \text{actions on wgmma register tiles, by wgmma or synchronous instructions}
 \end{align*}
 
@@ -280,6 +280,24 @@ The iteration variable is an \textbf{async-temporal loop index}.
 I expect in the typical case, this feature is a natural extension of loop tiling.
 For example, I may divide and re-order loops (y,x) to (yo,xo,yi,xi) so that the inner loops can be replaced with a custom accelerator instruction.
 If I'm using wgmma, I just have to additionally tag the inner loops as \lighttt{wgmma\_async}.)
+
+\filbreak
+Example:
+{\color{lightttColor}
+\begin{verbatim}
+    # Actor kind is cpu here
+    for blockIdx in cuda_blocks(0, _, warps = 8): # Parallel-for (blocks)
+        # Actor kind is now cuda_sync
+        for wgIdx in cuda_warpgroups(0, 2):       # Parallel-for (warpgroups)
+            for yo in seq(0, _):                  # Sequential-for
+                for xo in seq(0, _):              # Sequential-for
+                    for yi in wgmma_async(0, _):  # Async-for
+                        # Actor kind is now wgmma_async
+                        for xi in seq(0, _):    # Implicitly async-for due to above
+                            for m in seq(0, _): # Implicitly async-for due to above
+                                D[...] += A[...] * B[...]
+\end{verbatim}
+}
 
 \filbreak
 \myKey{Sequential-for:} for loops other than as described above are sequential-for loops.
@@ -303,13 +321,13 @@ I'm probably going to put off this feature until much later.
 \myKey{Synchronization Statement:} We need to support arrive, await, and non-split barriers (e.g. plain old \lighttt{\_\_syncthreads}), which act as a combined arrive-await statement.
 These define a synchronization relation between all GPU threads of the executing parlane.
 
-I'm proposing using the syntax ``\lighttt{x | y}'' for a synchronization statement, and that we allow declaring variables of \lighttt{barrier} type. \lighttt{x} and \lighttt{y} are the names of either actor kinds or barrier variables.
+I'm proposing using the syntax ``\lighttt{A // B}'' for a synchronization statement, and that we allow declaring variables of \lighttt{barrier} type. \lighttt{A} and \lighttt{B} are the names of either actor kinds or barrier variables.
 
-\lighttt{x : actor-kind | y : actor-kind}: non-split barrier; instructions with actor kind \lighttt{y} issued after the barrier see the actions with actor kind \lighttt{x} performed before the barrier.
+\lighttt{A : actor-kind // B : actor-kind}: non-split barrier; instructions with actor kind \lighttt{B} issued after the barrier see the actions with actor kind \lighttt{A} performed before the barrier.
 
-\lighttt{x : actor-kind | y : barrier}: arrive
+\lighttt{A : actor-kind // B : barrier}: arrive
 
-\lighttt{y : barrier | z : actor-kind}: await; instructions with actor kind \lighttt{z} issued after the await see the actions with actor kind \lighttt{x} performed before the corresponding arrive.
+\lighttt{A' : barrier // B' : actor-kind}: await; instructions with actor kind \lighttt{B'} issued after the await see the actions with actor kind \lighttt{A} performed before the corresponding arrive.
 
 \filbreak
 Example:
@@ -320,11 +338,11 @@ Example:
 for blockIdx in cuda_blocks(lo, hi, warps = 8):
     for threadIdx in cuda_threads(0, 256):
         ...
-    cuda_sync | cuda_sync  # __syncthreads() as the executing parlane here is a full block
+    cuda_sync // cuda_sync  # __syncthreads() as the executing parlane here is a full block
     for warpIdx in cuda_warps(0, 8):
         for threadIdx in cuda_threads(32*warpIdx, 32*(warpIdx + 1)):
             ...
-        cuda_sync | cuda_sync  # __syncwarp() as the executing parlane here is a warp
+        cuda_sync // cuda_sync  # __syncwarp() as the executing parlane here is a warp
         for threadIdx in cuda_threads(32*warpIdx, 32*(warpIdx + 1)):
             ...
 \end{verbatim}
@@ -333,7 +351,7 @@ for blockIdx in cuda_blocks(lo, hi, warps = 8):
 By requiring synchronization statements to be lifted to block or warp level, we trivially enforce convergence requirements.
 
 \filbreak
-I'm not sure this is really the right approach to take, but my gut feeling is it's best to expose a higher-level synchronization interface and compile to the appropriate CUDA synchronization primitive depending on the actor kinds (e.g. a ring buffer of \mbarrier), rather than expose the complexity of basic synchronization primitives and having to analyze that they are used correctly. Not all combinations of \lighttt{x} and \lighttt{y} are valid; we only support combinations that map to real CUDA constructs (e.g. \lighttt{wgmma\_reg | wgmma\_reg\_async} is \lighttt{wgmma.fence}).
+I'm not sure this is really the right approach to take, but my gut feeling is it's best to expose a higher-level synchronization interface and compile to the appropriate CUDA synchronization primitive depending on the actor kinds (e.g. a ring buffer of \mbarrier), rather than expose the complexity of basic synchronization primitives and having to analyze that they are used correctly. Not all combinations of \lighttt{x} and \lighttt{y} are valid; we only support combinations that map to real CUDA constructs (e.g. \lighttt{wgmma\_reg // wgmma\_reg\_async} is \lighttt{wgmma.fence}).
 
 \filbreak
 \hook{Hook:} For the analysis and codegen to be feasible, I'm expecting language restrictions that make it possible to statically verify that for each split barrier constructed, we issue matching pairs of arrive and await, with the same parlane used for all arrives and the same parlane used for all awaits.
@@ -354,7 +372,7 @@ for blockIdx in cuda_blocks(lo, hi, warps = 8):
     for threadIdx in cuda_threads(0, 256):
         x : f32 @ CUDA_REGISTER
         x = foo()
-    cuda_sync | cuda_sync  # __syncthreads() executed convergently by 1 block
+    cuda_sync // cuda_sync  # __syncthreads() executed convergently by 1 block
     for threadIdx in cuda_threads(0, 256):
         y : f32 @ CUDA_REGISTER
         y = doSth(x)  # uh oh, x was freed above
@@ -369,7 +387,7 @@ for blockIdx in cuda_blocks(lo, hi, warps = 8):
     x : f32[256] @ CUDA_REGISTER
     for threadIdx in cuda_threads(0, 256):
         x[threadIdx] = foo()
-    cuda_sync | cuda_sync  # __syncthreads() executed convergently by 1 block
+    cuda_sync // cuda_sync  # __syncthreads() executed convergently by 1 block
     for threadIdx in cuda_threads(0, 256):
         y : f32 @ CUDA_REGISTER
         y = doSth(x[threadIdx])
@@ -574,8 +592,13 @@ For pattern matching, we'd have to do some extra work to implement holes.
 This reasoning is suspect, but the reason I'm proposing to extend \lighttt{LoopIR.Const} for this is that I don't anticipate allowing specializing based on runtime arguments, and under S-semantics (which is what the safety checks care about), a lane specialization statement is equivalent to \lighttt{if True}.
 
 \filbreak
-\myKey{SyncStmt:} I'm not sure if there's a not-too-hacky way to avoid this, but for now I think we should add a new node type to LoopIR/UAST/PAST for representing synchronization statements \lighttt{x | y} (pair of symbols; either the name of a barrier variable or the name of an actor kind).
+\myKey{SyncStmt:} I'm not sure if there's a not-too-hacky way to avoid this, but for now I think we should add a new node type to LoopIR/UAST/PAST for representing synchronization statements \lighttt{A // B} (pair of symbols; either the name of a barrier variable or the name of an actor kind).
 For scheduling and safety checks, they should be treated the same as a \lighttt{pass} statement (except don't remove them in \lighttt{simplify}, \lighttt{remove\_pass}, etc.).
+
+\filbreak
+\myKey{Types:} Need to add types \lighttt{Barrier} and \lighttt{LaneSpecialization}.
+The barrier may be used for allocation, but we forbid names that conflict with the names of actor kinds.
+The lane specialization is only allowed as the ``const'' condition of an if statement.
 
 \filbreak
 \mySub{Spork Compiler Env}

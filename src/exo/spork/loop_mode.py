@@ -2,7 +2,7 @@ from typing import Optional
 
 from ..core.prelude import SrcInfo
 from . import actor_kind
-from .actor_kind import ActorKind
+from .actor_kind import ActorKind, actor_kind_dict
 from . import lane_units
 
 
@@ -62,6 +62,7 @@ class Par(LoopMode):
         return "par"
 
     def new_actor_kind(self, old_actor_kind: ActorKind):
+        print(actor_kind)
         return actor_kind.cpu
 
     def lane_unit(self):
@@ -165,34 +166,40 @@ class CudaThreads(LoopMode):
 cuda_threads = CudaThreads()
 
 
-class CudaAsync(LoopMode):
-    actor_kind: ActorKind
+def loop_mode_for_actor_kind(actor_kind):
+    class _AsyncLoopMode(LoopMode):
+        def __init__(self):
+            self.cuda_nesting = None
 
-    def __init__(self, actor_kind):
-        self.cuda_nesting = None
-        self.actor_kind = actor_kind
-        if not isinstance(actor_kind, ActorKind):
-            raise TypeError("Must paramaterize cuda_async loop with ActorKind")
-        if not actor_kind.is_cuda_async:
-            raise TypeError("ActorKind must be cuda async")
+        def loop_mode_name(self):
+            return actor_kind.name
 
-    def loop_mode_name(self):
-        return "cuda_async"
+        def new_actor_kind(self, old_actor_kind: ActorKind):
+            return actor_kind
 
-    def new_actor_kind(self, old_actor_kind: ActorKind):
-        return self.actor_kind
+    return _AsyncLoopMode
 
 
-loop_mode_dict = {
-    "seq": Seq,
-    "par": Par,
-    "cuda_clusters": CudaClusters,
-    "cuda_blocks": CudaBlocks,
-    "cuda_warpgroups": CudaWarpgroups,
-    "cuda_warps": CudaWarps,
-    "cuda_threads": CudaThreads,
-    "cuda_async": CudaAsync,
-}
+def make_loop_mode_dict():
+    loop_mode_dict = {
+        "seq": Seq,
+        "par": Par,
+        "cuda_clusters": CudaClusters,
+        "cuda_blocks": CudaBlocks,
+        "cuda_warpgroups": CudaWarpgroups,
+        "cuda_warps": CudaWarps,
+        "cuda_threads": CudaThreads,
+    }
+
+    # Allow use of names of async actor kinds as loop modes
+    for name, actor_kind in actor_kind_dict.items():
+        assert name == actor_kind.name
+        if not actor_kind.is_synthetic() and actor_kind.is_async():
+            loop_mode_dict[name] = loop_mode_for_actor_kind(actor_kind)
+    return loop_mode_dict
+
+
+loop_mode_dict = make_loop_mode_dict()
 
 
 def format_loop_cond(lo_str: str, hi_str: str, loop_mode: LoopMode):

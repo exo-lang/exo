@@ -10,7 +10,8 @@ from typing import Any, List, Tuple
 from .API import Procedure
 import exo.API_cursors as PC
 from .core.LoopIR import LoopIR, T
-from .spork.loop_mode import LoopMode, seq, par
+from .spork.actor_kind import ActorKind
+from .spork.loop_mode import LoopMode, seq, par, loop_mode_dict
 import exo.rewrite.LoopIR_scheduling as scheduling
 from .API_types import ExoType
 
@@ -350,8 +351,21 @@ class TypeAbbrevA(ArgumentProcessor):
             )
 
 
+# Allow loop mode or actor kind (implicitly translated to async-for loop)
 class LoopModeA(ArgumentProcessor):
     def __call__(self, val, all_args):
+        if isinstance(val, ActorKind):
+            if val.is_synthetic():
+                self.err("cannot use synthetic ActorKind")
+            elif not val.is_async():
+                self.err("ActorKind must be async")
+            else:
+                val = loop_mode_dict.get(val.name)
+                if val:
+                    val = val()
+                assert isinstance(
+                    val, LoopMode
+                ), "internal error, expected LoopMode instantiated for async ActorKind"
         if not isinstance(val, LoopMode):
             self.err("expected a LoopMode")
         return val

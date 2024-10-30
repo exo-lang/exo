@@ -183,6 +183,8 @@ class UAST_PPrinter:
         for stmt in body:
             if isinstance(stmt, UAST.Pass):
                 self.addline("pass")
+            elif isinstance(stmt, UAST.SyncStmt):
+                self.addline(f"{stmt.before} // {stmt.after}")
             elif isinstance(stmt, UAST.Assign) or isinstance(stmt, UAST.Reduce):
                 op = "=" if isinstance(stmt, UAST.Assign) else "+="
 
@@ -407,6 +409,9 @@ def _print_block(blk, env: PrintEnv, indent: str) -> list[str]:
 def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
     if isinstance(stmt, LoopIR.Pass):
         return [f"{indent}pass"]
+
+    elif isinstance(stmt, LoopIR.SyncStmt):
+        return [f"{indent}{stmt.A} // {stmt.B}"]
 
     elif isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
         op = "=" if isinstance(stmt, LoopIR.Assign) else "+="

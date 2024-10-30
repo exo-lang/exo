@@ -1,6 +1,7 @@
 import functools
 import re
 import textwrap
+import warnings
 from collections import ChainMap
 from collections import defaultdict
 from dataclasses import dataclass
@@ -834,6 +835,9 @@ class Compiler:
     def comp_s(self, s):
         if isinstance(s, LoopIR.Pass):
             self.add_line("; // NO-OP")
+        elif isinstance(s, LoopIR.SyncStmt):
+            warnings.warn("Not implemented: compiling LoopIR.SyncStmt")
+            self.add_line(f"// TODO LoopIR.SyncStmt {s.before} | {s.after}")
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if s.name in self._scalar_refs:
                 lhs = f"*{self.env[s.name]}"

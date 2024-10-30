@@ -105,6 +105,7 @@ _PAST_to_LoopIR = {
     PAST.Assign: [LoopIR.Assign],
     PAST.Reduce: [LoopIR.Reduce],
     PAST.Pass: [LoopIR.Pass],
+    PAST.SyncStmt: [LoopIR.SyncStmt],
     PAST.If: [LoopIR.If],
     PAST.For: [LoopIR.For],
     PAST.Alloc: [LoopIR.Alloc],
@@ -261,6 +262,8 @@ class PatternMatch:
                 return False
         elif isinstance(stmt, LoopIR.Pass):
             return True
+        elif isinstance(stmt, LoopIR.SyncStmt):
+            return self.match_name(pat.A, stmt.A) and self.match_name(pat.B, stmt.B)
         elif isinstance(stmt, LoopIR.If):
             return (
                 self.match_e(pat.cond, stmt.cond)
@@ -361,7 +364,7 @@ def _children(cur) -> Iterable[Node]:
         yield from _children_from_attrs(cur, n, "idx", "rhs")
     elif isinstance(n, (LoopIR.WriteConfig, LoopIR.WindowStmt)):
         yield from _children_from_attrs(cur, n, "rhs")
-    elif isinstance(n, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free)):
+    elif isinstance(n, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free, LoopIR.SyncStmt)):
         yield from []
     elif isinstance(n, LoopIR.If):
         yield from _children_from_attrs(cur, n, "cond", "body", "orelse")

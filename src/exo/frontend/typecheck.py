@@ -8,8 +8,8 @@ from ..core.LoopIR import (
 )
 from ..core.extern import Extern_Typecheck_Error
 from ..core.memory import *
+from ..spork.actor_kind import actor_kind_dict
 from ..spork.lane_units import LaneSpecialization
-
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -293,6 +293,14 @@ class TypeChecker:
             return [LoopIR.WriteConfig(stmt.config, stmt.field, rhs, stmt.srcinfo)]
         elif isinstance(stmt, UAST.Pass):
             return [LoopIR.Pass(stmt.srcinfo)]
+        elif isinstance(stmt, UAST.SyncStmt):
+            # TODO barrier variables instead of actor kinds
+            # (i.e. support split barrier)
+            if stmt.A.name() not in actor_kind_dict:
+                self.err(stmt, f"Unknown actor_kind {stmt.A}")
+            if stmt.B.name() not in actor_kind_dict:
+                self.err(stmt, f"Unknown actor_kind {stmt.B}")
+            return [LoopIR.SyncStmt(stmt.A, stmt.B, stmt.srcinfo)]
         elif isinstance(stmt, UAST.If):
             cond = self.check_e(stmt.cond, is_index=True)
             if (

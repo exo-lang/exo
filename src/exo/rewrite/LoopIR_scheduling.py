@@ -158,7 +158,7 @@ class Cursor_Rewrite(LoopIR_Rewrite):
             new_type = self.map_t(s.type)
             if new_type:
                 return [s.update(type=new_type or s.type)]
-        elif isinstance(s, LoopIR.Pass):
+        elif isinstance(s, (LoopIR.Pass, LoopIR.SyncStmt)):
             return None
         else:
             raise NotImplementedError(f"bad case {type(s)}")
@@ -1487,7 +1487,9 @@ def DoLiftConstant(assign_c, loop_c):
                 raise NotImplementedError(
                     f"unsupported stmt type in loop body: {type(s)}"
                 )
-            elif isinstance(s, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free)):
+            elif isinstance(
+                s, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free, LoopIR.SyncStmt)
+            ):
                 pass
             else:
                 raise NotImplementedError(f"unknown stmt type {type(s)}")
@@ -3270,7 +3272,7 @@ class _DoNormalize(Cursor_Rewrite):
             if new_type:
                 self.ir, fwd_repl = self.fwd(sc)._child_node("type")._replace(new_type)
                 self.fwd = _compose(fwd_repl, self.fwd)
-        elif isinstance(s, LoopIR.Pass):
+        elif isinstance(s, (LoopIR.Pass, LoopIR.SyncStmt)):
             pass
         else:
             raise NotImplementedError(f"bad case {type(s)}")
@@ -3582,7 +3584,7 @@ class DoSimplify(Cursor_Rewrite):
             if new_type:
                 self.ir, fwd_repl = self.fwd(sc)._child_node("type")._replace(new_type)
                 self.fwd = _compose(fwd_repl, self.fwd)
-        elif isinstance(s, LoopIR.Pass):
+        elif isinstance(s, (LoopIR.Pass, LoopIR.SyncStmt)):
             return None
         else:
             raise NotImplementedError(f"bad case {type(s)}")

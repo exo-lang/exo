@@ -1215,7 +1215,7 @@ def stmts_effs(stmts):
             effs += [E.Alloc(s.name, len(s.type.shape()))]
         elif isinstance(s, LoopIR.WindowStmt):
             effs += expr_effs(s.rhs)
-        elif isinstance(s, (LoopIR.Free, LoopIR.Pass)):
+        elif isinstance(s, (LoopIR.Free, LoopIR.Pass, LoopIR.SyncStmt)):
             pass
         else:
             assert False, f"bad case: {type(s)}"
