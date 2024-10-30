@@ -67,6 +67,15 @@ def typecheck(self, args):
 ##### `compile(self, args, prim_type)`
 
 Define how the function is compiled into target code.
+- `args`: list of arguments as C strings
+- `prim_type`: A C string representing the primitive data type. It could be one of the following C strings, mapping from LoopIR types to C strings:
+  - `f16` -> `"_Float16"`
+  - `f32` -> `"float"`
+  - `f64` -> `"double"`
+  - `i8`  -> `"int8_t"`
+  - `ui8` -> `"uint8_t"`
+  - `ui16`-> `"uint16_t"`
+  - `i32` -> `"int32_t"`
 
 ```python
 def compile(self, args, prim_type):
@@ -99,6 +108,8 @@ sin = _Sin()
 ## Using Externs as Expressions
 
 Externs can be used as expressions on the RHS of assignment and reduction statements. This allows you to incorporate external functions seamlessly into your Exo computations.
+
+Note that externs (and Exo procedures) do not allow aliasing in their arguments. This restriction is in place to prevent externs from having side effects on the input arguments.
 
 ### Example: Using `sin` in an Expression
 

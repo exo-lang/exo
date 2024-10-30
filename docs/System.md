@@ -4,7 +4,13 @@ This document provides an overview of the Exo compilation process, as illustrate
 
 ![System overview](images/system-overview.png)
 
-The Exo compiler consists of a frontend and a backend, with user schedules applied in between. The input to the compiler is a set of Exo source files (`*.py`), and the output is generated C code (`*.c`).
+The Exo compiler's frontend starts by parsing the Python AST and constructing the Untyped Exo AST (UAST).
+It then runs various frontend checks before converting the UAST into LoopIR, which serves as Exo's primary IR.
+Exo supports rewrite-based user-scheduling, where scheduling primitives take a LoopIR and returns another (transformed) LoopIR.
+These primitives take the immutable LoopIR and rewrite it into a new LoopIR.
+Finally, in the backend, the optimized LoopIR is code-generated into C code.
+
+The input to the compiler is a set of Exo source files (`*.py`), and the output is generated C code (`*.c`).
 
 In this repository, folders are structured as follows:
 
@@ -35,7 +41,7 @@ In this repository, folders are structured as follows:
 
 User-defined features like config, externs, and Memory's parent class implementations are in `configs.py`, `extern.py`, and `memory.py`, respectively.
 
-`internal_cursors` defines cursor movements that are used internally by `LoopIR_scheduling` implementations of scheduling primitives.
+`internal_cursors` defines primitive cursor movements (see Section 5.2 "Cursor implementation" of our ASPLOS paper) that are used internally by `LoopIR_scheduling` implementations of scheduling primitives.
 `proc_eqv.py` defines a union-find tree which we use to track the equivalence of procedures.
 
 ---

@@ -134,6 +134,16 @@ TypeError: Errors occurred during effect checking:
    y_stride_0 = 1, z_stride_0 = 20, z_stride_1 = 1
 ```
 
+#### Aliasing Limitations
+
+When passing buffers to procedure arguments, aliasing is not allowed. Concretely, you cannot write something like:
+
+```python
+foo(y, y)
+foo(y[0:5], y[2:7])
+```
+
+This limitation exists because the analysis would be imprecise if we allowed such aliasing. This is similar to how C++ compilers can perform more optimization when you use the `__restrict__` keyword to explicitly indicate that you're not aliasing your buffers.
 
 #### Allocations
 
