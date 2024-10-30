@@ -1,10 +1,15 @@
-from collections import ChainMap
+from collections import ChainMap, defaultdict
 
 import numpy as np
 
 from .LoopIR import LoopIR
 from .LoopIR import T
 from .prelude import *
+
+from .parallel_analysis import ParallelAnalysis
+from .prec_analysis import PrecisionAnalysis
+from .win_analysis import WindowAnalysis
+from .mem_analysis import MemoryAnalysis
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -30,14 +35,20 @@ def run_interpreter(proc, kwargs):
     Interpreter(proc, kwargs)
 
 
+# context is global
+ctxt = defaultdict(dict)
+
 class Interpreter:
     def __init__(self, proc, kwargs, use_randomization=False):
         assert isinstance(proc, LoopIR.proc)
 
+        proc = ParallelAnalysis().run(proc)
+        proc = PrecisionAnalysis().run(proc) # TODO: need this?
+        proc = WindowAnalysis().apply_proc(proc)
+        proc = MemoryAnalysis().run(proc) # TODO: need this?
+
         self.proc = proc
         self.env = ChainMap()
-        # context struct (configs) not relevant?
-        # range_env not relevant?
         self.use_randomization = use_randomization
 
         # type check args
@@ -78,7 +89,7 @@ class Interpreter:
             if isinstance(pred, LoopIR.Const):
                 continue
             else:
-                assert self.eval_e(pred.lhs) == self.eval_e(pred.rhs), "precondition not satisfied"
+                assert self.eval_e(pred), "precondition not satisfied"
 
         # eval statements
         self.env = self.env.new_child()
@@ -145,7 +156,9 @@ class Interpreter:
                 lbuf[idx] += rhs
 
         elif isinstance(s, LoopIR.WriteConfig):
-            assert False, "TODO: impl LoopIR.WriteConfig"
+            nm = s.config.name()
+            rhs = self.eval_e(s.rhs)
+            ctxt[nm][s.field] = rhs
 
         elif isinstance(s, LoopIR.WindowStmt):
             # nm = rbuf[...]
@@ -165,6 +178,7 @@ class Interpreter:
                 self._del_scope()
 
         elif isinstance(s, LoopIR.For):
+            # future TODO: handle loop_mode
             lo = self.eval_e(s.lo)
             hi = self.eval_e(s.hi)
             assert self.use_randomization is False, "TODO: Implement Rand"
@@ -210,17 +224,19 @@ class Interpreter:
         elif isinstance(e, LoopIR.WindowExpr):
             buf = self.env[e.name]
 
-            def case_eval(e):
-                if isinstance(e, LoopIR.Interval):
-                    return f"{e.lo}:{e.hi}"
+            def stringify_w_access(a):
+                if isinstance(a, LoopIR.Interval):
+                    return f"{self.eval_e(a.lo)}:{self.eval_e(a.hi)}"
+                elif isinstance(a, LoopIR.Point):
+                    return f"{self.eval_e(a.pt)}"
                 else:
-                    self.eval_e(e)
+                    assert False, "bad w_access case"
 
             # hack to handle interval indexes: LoopIR.Interval returns a string representing the interval
-            idx = ("0",) if len(e.idx) == 0 else tuple(str(case_eval(a)) for a in e.idx)
+            idx = ("0",) if len(e.idx) == 0 else tuple(stringify_w_access(a) for a in e.idx)
             res = eval(f"buf[{','.join(idx)}]")
             return res
-
+        
         elif isinstance(e, LoopIR.Const):
             return e.val
 
@@ -268,9 +284,11 @@ class Interpreter:
             return int(buf.strides[e.dim] / buf.dtype.itemsize)
 
         elif isinstance(e, LoopIR.ReadConfig):
-            assert False, "TODO: impl LoopIR.ReadConfig"
+            nm = e.config.name()
+            return ctxt[nm][e.field]
 
         else:
+            print(e)
             assert False, "bad expression case"
 
     def eval_shape(self, typ):
