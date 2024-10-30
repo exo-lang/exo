@@ -4,7 +4,7 @@ import pytest
 
 import numpy as np
 
-from exo import proc, DRAM
+from exo import proc, config
 from exo.libs.memories import GEMM_SCRATCH
 from exo.stdlib.scheduling import SchedulingError
 
@@ -12,7 +12,7 @@ from exo.stdlib.scheduling import SchedulingError
 
 def test_mat_mul(compiler):
     @proc
-    def foo(
+    def rank_k_reduce(
         K: size,
         A: f32[6, K] @ DRAM,
         B: f32[K, 16] @ DRAM,
@@ -23,7 +23,7 @@ def test_mat_mul(compiler):
                 for k in seq(0, K):
                     C[i, j] += A[i, k] * B[k, j]
     
-    fn = compiler.compile(foo)
+    fn = compiler.compile(rank_k_reduce)
 
     K = 8
     A = np.arange(6*K, dtype=np.float32).reshape((6,K))
@@ -32,7 +32,7 @@ def test_mat_mul(compiler):
     C2 = np.zeros(6*16, dtype=np.float32).reshape((6,16))
 
     fn(None, K, A, B, C1)
-    foo.interpret(K=K, A=A, B=B, C=C2)
+    rank_k_reduce.interpret(K=K, A=A, B=B, C=C2)
     assert((C1 == C2).all())
 
 def test_reduce_add(compiler):
@@ -142,25 +142,69 @@ def test_call(compiler):
     foo.interpret(res=y)
     assert(x == y)
 
-def test_window(compiler):
+def test_window_assert(compiler):
     @proc
-    def bar(B: [f32][4], res: f32):
-        res = B[2]
-    @proc
-    def foo(A: f32[8], res: f32):
-        bar(A[0:4], res)
+    def foo(
+        n: size,
+        m: size,
+        src: [f32][n, m],
+        dst: [f32][n, 16],
+    ):
+        assert n <= 16
+        assert m <= 16
 
-    fn = compiler.compile(foo)
+        for i in seq(0, n):
+            for j in seq(0, m):
+                dst[i, j] = src[i, j]
 
-    A = np.arange(8, dtype=np.float32)
-    x = np.zeros(1, dtype=np.float32)
-    y = np.zeros(1, dtype=np.float32)
+    n = 6
+    m = 8
+    src = np.arange(n*m, dtype=np.float32).reshape((n,m))
+    dst = np.zeros(n*16, dtype=np.float32).reshape((n,16))
 
-    fn(None, A, x)
-    foo.interpret(A=A, res=y)
-    assert(x == y)
+    foo.interpret(n=n, m=m, src=src, dst=dst)
+    assert((dst[:,:8] == src).all())
 
 def test_window_stmt1(compiler):
+    @proc
+    def foo(n: size, A: f32[n, 16], C: f32[n]):
+        B = A[:, 0]
+        for i in seq(0, n):
+            C[i] = B[i]
+    
+    fn = compiler.compile(foo)
+
+    n = 6
+    A = np.arange(n*16, dtype=np.float32).reshape((n,16))
+    C1 = np.arange(n, dtype=np.float32)
+    C2 = np.arange(n, dtype=np.float32)
+
+    fn(None, n, A, C1)
+    foo.interpret(n=n, A=A, C=C2)
+
+    assert (C1 == C2).all()
+
+def test_window_stmt2(compiler):
+    @proc
+    def foo(n: size, A: f32[n], B: f32[n], C: f32[2*n]):
+        for i in seq(0, n):
+            C[i] = A[i]
+        for i in seq(n, 2*n):
+            C[i] = B[i-n]
+    
+    fn = compiler.compile(foo)
+
+    n = 6
+    A = np.arange(n, dtype=np.float32)
+    B = np.arange(n, dtype=np.float32)
+    C1 = np.zeros(2*n, dtype=np.float32)
+    C2 = np.zeros(2*n, dtype=np.float32)
+
+    fn(None, n, A, B, C1)
+    foo.interpret(n=n, A=A, B=B, C=C2)
+    assert (C1 == C2).all()
+
+def test_window_stmt3(compiler):
     @proc
     def foo(A: f32[8], res: f32):
         B = A[4:]
@@ -177,28 +221,12 @@ def test_window_stmt1(compiler):
     assert(x[0] == 4 and x == y)
 
 # TODO: discuss
-# WindowType has attr src_type, not type
-def test_window_stmt2(compiler):
+# error can be better here
+def test_window_stmt4(compiler):
     @proc
     def foo(A: f32[8], C: [f32][4]):
         B = A[4:]
         C = B[:]
-
-# TODO: discuss
-# why can't we assign/reduce a WindowType value, but we can fresh assign one? 
-def test_window_stmt3(compiler):
-    @proc
-    def foo(A: f32[8], C: [f32][4]):
-        B = A[4:]
-        C = B
-
-# TODO: discuss
-# why can't we declare a variable of a window type, but we can fresh assign one? 
-def test_window_stmt4(compiler):
-    @proc
-    def foo(A: f32[8]):
-        B: [f32][4]
-        B = A[4:]
 
 def test_stride_simple1(compiler):
     @proc
@@ -360,6 +388,8 @@ def test_precond_comp_simple(compiler):
 
     fn = compiler.compile(foo)
     fn(None, N, A, x)
+    print(x)
+    assert 1 == 0
 
 def test_precond_interp_stride():
     with pytest.raises(AssertionError):
@@ -373,7 +403,7 @@ def test_precond_interp_stride():
         foo.interpret(A=A[:,::2])
 
 # TODO: discuss
-# does not raise an error, but (incorrectly) informs the compiler about the stride
+# incorrectly informs the compiler about the stride
 def test_precond_comp_stride(compiler):
     @proc
     def foo(A:f32[1,8]):
@@ -384,3 +414,69 @@ def test_precond_comp_stride(compiler):
 
     A = np.arange(16, dtype=np.float32).reshape((1,16))
     fn(None, A[:,::2])
+
+def new_config():
+    @config
+    class Config:
+        a: f32
+        b: f32
+
+    return Config
+
+def test_config(compiler):
+    Config = new_config()
+
+    @proc
+    def foo(x: f32):
+        Config.a = 32.0
+        x = Config.a
+
+    fn = compiler.compile(foo)
+
+    x = np.zeros(1, dtype=np.float32)
+    foo.interpret(x=x)
+    assert x == 32.0
+
+def test_config_nested(compiler):
+    Config = new_config()
+    
+    @proc
+    def bar(x: f32):
+        x = Config.a + Config.b
+    @proc
+    def foo(x: f32):
+        Config.a = 32.0
+        Config.b = 16.0
+        bar(x)
+
+    fn = compiler.compile(foo)
+
+    x = np.zeros(1, dtype=np.float32)
+    foo.interpret(x=x)
+    assert x == 48.0
+
+def test_par_bad():
+    with pytest.raises(TypeError):
+
+        @proc
+        def foo(x: f32[10], acc: f32):
+            for i in par(0, 10):
+                acc += x[i]
+        
+        x = np.arange(10, dtype=np.float32)
+        a = np.zeros(1, dtype=np.float32)
+
+        foo.interpret(x=x, acc=a)
+
+def test_par_good():
+    @proc
+    def foo(x: f32[10]):
+        for i in par(0, 10):
+            x[i] = 1
+
+    x = np.zeros(10, dtype=np.float32)
+
+    foo.interpret(x=x)
+    assert (x == np.ones(10, dtype=np.float32)).all()
+
+# TODO: test builtin
