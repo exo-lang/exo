@@ -10,9 +10,9 @@ def test_unrolling(golden):
     def foo(a: i8):
         b: i8
         b = 0
-        with meta:
+        with python:
             for _ in range(10):
-                with ~meta:
+                with exo:
                     b += a
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
@@ -25,12 +25,12 @@ def test_conditional(golden):
         @proc
         def bar(a: i8):
             b: i8
-            with meta:
+            with python:
                 if cond:
-                    with ~meta:
+                    with exo:
                         b = 0
                 else:
-                    with ~meta:
+                    with exo:
                         b += 1
 
         return bar
@@ -57,9 +57,9 @@ def test_scope_nesting(golden):
 
     @proc
     def foo(a: i8, b: i8):
-        with meta:
+        with python:
             y = 2
-            with ~meta:
+            with exo:
                 a = {~{b} if x == 3 and y == 2 else ~{a}}
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
@@ -72,9 +72,9 @@ def test_global_scope():
     @proc
     def foo(a: i8):
         a = 0
-        with meta:
-            with ~meta:
-                with meta:
+        with python:
+            with exo:
+                with python:
                     global dict
                     cell[0] = dict
             dict = None
@@ -120,10 +120,10 @@ def test_captured_closure(golden):
 
     @proc
     def bar(a: i32):
-        with meta:
+        with python:
             for _ in range(10):
                 foo()
-                with ~meta:
+                with exo:
                     a += {cell[0]}
 
     c_file, _ = compile_procs_to_strings([bar], "test.h")
@@ -135,9 +135,9 @@ def test_capture_nested_quote(golden):
 
     @proc
     def foo(a: i32):
-        with meta:
+        with python:
             for _ in range(3):
-                with ~meta:
+                with exo:
                     a = {a}
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
@@ -147,12 +147,12 @@ def test_capture_nested_quote(golden):
 def test_quote_elision(golden):
     @proc
     def foo(a: i32, b: i32):
-        with meta:
+        with python:
 
             def bar():
                 return a
 
-            with ~meta:
+            with exo:
                 b = {bar()}
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
@@ -162,9 +162,9 @@ def test_quote_elision(golden):
 def test_unquote_elision(golden):
     @proc
     def foo(a: i32):
-        with meta:
+        with python:
             x = 2
-            with ~meta:
+            with exo:
                 a = a * x
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
@@ -174,14 +174,14 @@ def test_unquote_elision(golden):
 def test_scope_collision1(golden):
     @proc
     def foo(a: i32):
-        with meta:
+        with python:
             b = 1
-            with ~meta:
+            with exo:
                 b: i32
                 b = 2
-                with meta:
+                with python:
                     c = b
-                    with ~meta:
+                    with exo:
                         a = c
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
@@ -191,9 +191,9 @@ def test_scope_collision1(golden):
 def test_scope_collision2(golden):
     @proc
     def foo(a: i32, b: i32):
-        with meta:
+        with python:
             a = 1
-            with ~meta:
+            with exo:
                 b = a
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
@@ -208,8 +208,8 @@ def test_scope_collision3():
 
         @proc
         def foo(a: i32, b: i32):
-            with meta:
-                with ~meta:
+            with python:
+                with exo:
                     a = b * x
                 x = 1
 
@@ -233,9 +233,9 @@ def test_unquote_in_slice(golden):
 
     @proc
     def bar(a: i8[10, 10]):
-        with meta:
+        with python:
             x = 2
-            with ~meta:
+            with exo:
                 for i in seq(0, 5):
                     foo(a[i, {x} : {2 * x}])
 
@@ -250,9 +250,9 @@ def test_unquote_slice_object1(golden):
 
     @proc
     def bar(a: i8[10, 10]):
-        with meta:
+        with python:
             for s in [slice(1, 3), slice(5, 7), slice(2, 4)]:
-                with ~meta:
+                with exo:
                     for i in seq(0, 10):
                         foo(a[i, s])
 
@@ -267,9 +267,9 @@ def test_unquote_slice_object2():
 
         @proc
         def foo(a: i8[10, 10]):
-            with meta:
+            with python:
                 for s in [slice(1, 3), slice(5, 7), slice(2, 4)]:
-                    with ~meta:
+                    with exo:
                         for i in seq(0, 10):
                             a[i, s] = 2
 
@@ -282,12 +282,12 @@ def test_unquote_index_tuple(golden):
 
     @proc
     def bar(a: i8[10, 10, 10]):
-        with meta:
+        with python:
 
             def get_index(i):
                 return slice(i, ~{i + 2}), slice(~{i + 1}, ~{i + 3})
 
-            with ~meta:
+            with exo:
                 for i in seq(0, 7):
                     foo(a[i, {get_index(i)}])
 
@@ -309,12 +309,12 @@ def test_unquote_err():
 def test_quote_complex_expr(golden):
     @proc
     def foo(a: i32):
-        with meta:
+        with python:
 
             def bar(x):
                 return ~{x + 1}
 
-            with ~meta:
+            with exo:
                 a = {bar(~{a + 1})}
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
@@ -324,15 +324,15 @@ def test_quote_complex_expr(golden):
 def test_statement_assignment(golden):
     @proc
     def foo(a: i32):
-        with meta:
-            with ~meta as s1:
+        with python:
+            with exo as s1:
                 a += 1
                 a += 2
-            with ~meta as s2:
+            with exo as s2:
                 a += 3
                 a += 4
             s = s1 if True else s2
-            with ~meta:
+            with exo:
                 {s}
                 {s}
 
@@ -347,14 +347,14 @@ def test_statement_in_expr():
 
         @proc
         def foo(a: i32):
-            with meta:
+            with python:
 
                 def bar():
-                    with ~meta:
+                    with exo:
                         a += 1
                     return 2
 
-                with ~meta:
+                with exo:
                     a += {bar()}
                     a += {bar()}
 
@@ -365,7 +365,7 @@ def test_nonlocal_disallowed():
 
         @proc
         def foo(a: i32):
-            with meta:
+            with python:
                 nonlocal x
 
 
@@ -374,5 +374,5 @@ def test_outer_return_disallowed():
 
         @proc
         def foo(a: i32):
-            with meta:
+            with python:
                 return

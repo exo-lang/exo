@@ -183,7 +183,8 @@ OUTER_SCOPE_HELPER = "__outer_scope"
 NESTED_SCOPE_HELPER = "__nested_scope"
 UNQUOTE_RETURN_HELPER = "__unquote_val"
 QUOTE_STMT_PROCESSOR = "__process_quote_stmt"
-UNQUOTE_BLOCK_KEYWORD = "meta"
+QUOTE_BLOCK_KEYWORD = "exo"
+UNQUOTE_BLOCK_KEYWORD = "python"
 
 
 @dataclass
@@ -206,15 +207,9 @@ class QuoteReplacer(pyast.NodeTransformer):
     def visit_With(self, node: pyast.With) -> pyast.Any:
         if (
             len(node.items) == 1
-            and isinstance(node.items[0].context_expr, pyast.UnaryOp)
-            and isinstance(node.items[0].context_expr.op, pyast.Invert)
-            and isinstance(node.items[0].context_expr.operand, pyast.Name)
-            and node.items[0].context_expr.operand.id == UNQUOTE_BLOCK_KEYWORD
-            and isinstance(node.items[0].context_expr.operand.ctx, pyast.Load)
-            and (
-                isinstance(node.items[0].optional_vars, pyast.Name)
-                or node.items[0].optional_vars is None
-            )
+            and isinstance(node.items[0].context_expr, pyast.Name)
+            and node.items[0].context_expr.id == QUOTE_BLOCK_KEYWORD
+            and isinstance(node.items[0].context_expr.ctx, pyast.Load)
         ):
             stmt_destination = node.items[0].optional_vars
 
@@ -356,6 +351,11 @@ class UnquoteEnv:
             if name not in self.parent_locals
         }
         env_locals = {**quote_locals, **bound_locals}
+        old_stmt_processor = (
+            self.parent_globals[QUOTE_STMT_PROCESSOR]
+            if QUOTE_STMT_PROCESSOR in self.parent_globals
+            else None
+        )
         self.parent_globals[QUOTE_STMT_PROCESSOR] = quote_stmt_processor
         exec(
             compile(
@@ -486,6 +486,7 @@ class UnquoteEnv:
             self.parent_globals,
             env_locals,
         )
+        self.parent_globals[QUOTE_STMT_PROCESSOR] = old_stmt_processor
         return env_locals[UNQUOTE_RETURN_HELPER]
 
     def interpret_unquote_expr(self, expr: pyast.expr):
