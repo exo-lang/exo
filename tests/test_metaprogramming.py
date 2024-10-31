@@ -4,7 +4,7 @@ from exo.API_scheduling import rename
 from exo.frontend.pyparser import ParseError
 import pytest
 import warnings
-from exo.core.extern import Extern, _EErr
+from exo.libs.externs import *
 
 
 def test_unrolling(golden):
@@ -418,33 +418,11 @@ def test_return_in_async():
 
 
 def test_local_externs(golden):
-    class _Log(Extern):
-        def __init__(self):
-            super().__init__("log")
-
-        def typecheck(self, args):
-            if len(args) != 1:
-                raise _EErr(f"expected 1 argument, got {len(args)}")
-
-            atyp = args[0].type
-            if not atyp.is_real_scalar():
-                raise _EErr(
-                    f"expected argument 1 to be a real scalar value, but "
-                    f"got type {atyp}"
-                )
-            return atyp
-
-        def globl(self, prim_type):
-            return "#include <math.h>"
-
-        def compile(self, args, prim_type):
-            return f"log(({prim_type}){args[0]})"
-
-    log = _Log()
+    my_sin = sin
 
     @proc
     def foo(a: f64):
-        a = log(a)
+        a = my_sin(a)
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
     assert c_file == golden
