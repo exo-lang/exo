@@ -8,6 +8,6 @@
 //     a : f64 @DRAM
 // )
 void foo( void *ctxt, double* a ) {
-*a = log((double)*a);
+*a = sin((double)*a);
 }
 
