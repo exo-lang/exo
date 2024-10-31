@@ -398,6 +398,7 @@ class T:
     index = Index()
     size = Size()
     stride = Stride()
+    barrier = Barrier()
     err = Error()
     lane_specialization = LaneSpecializationT()
 

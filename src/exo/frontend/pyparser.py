@@ -19,6 +19,7 @@ from ..spork.lane_units import (
     LaneSpecializationPattern,
     lane_unit_dict,
 )
+from ..spork.actor_kinds import actor_kind_dict
 from ..spork.loop_modes import LoopMode, loop_mode_dict
 
 
@@ -786,8 +787,25 @@ class Parser:
                 if self.is_fragment:
                     sync = PAST.SyncStmt(binop.left.id, binop.right.id, srcinfo)
                 else:
+
+                    def to_sym(name):
+                        actor_kind = actor_kind_dict.get(name)
+                        if actor_kind:
+                            return actor_kind.sym
+                        else:
+                            sym = self.locals.get(name)
+                            if not isinstance(sym, Sym):
+                                if isinstance(sym, SizeStub):
+                                    raise ParseError(
+                                        f"{self.getsrcinfo(s)}: size {sym.nm} unexpected in SyncStmt"
+                                    )
+                                raise ParseError(
+                                    f"{self.getsrcinfo(s)}: unknown actor kind or variable {name}"
+                                )
+                            return nm
+
                     sync = UAST.SyncStmt(
-                        Sym(binop.left.id), Sym(binop.right.id), srcinfo
+                        to_sym(binop.left.id), to_sym(binop.right.id), srcinfo
                     )
                 rstmts.append(sync)
 

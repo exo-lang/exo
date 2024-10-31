@@ -294,12 +294,39 @@ class TypeChecker:
         elif isinstance(stmt, UAST.Pass):
             return [LoopIR.Pass(stmt.srcinfo)]
         elif isinstance(stmt, UAST.SyncStmt):
-            # TODO barrier variables instead of actor kinds
-            # (i.e. support split barrier)
-            if stmt.A.name() not in actor_kind_dict:
-                self.err(stmt, f"Unknown actor_kind {stmt.A}")
-            if stmt.B.name() not in actor_kind_dict:
-                self.err(stmt, f"Unknown actor_kind {stmt.B}")
+            has_arrive = stmt.A.name() in actor_kind_dict
+            has_await = stmt.B.name() in actor_kind_dict
+
+            barrier_sym = None
+            if has_arrive:
+                assert stmt.A == actor_kind_dict[stmt.A.name()].sym
+
+                if has_await:
+                    # Non-split barrier: actor_kind // actor_kind
+                    assert stmt.B == actor_kind_dict[stmt.B.name()].sym
+                    barrier_sym = None
+                else:
+                    # Split barrier arrive: actor_kind // barrier
+                    barrier_sym = stmt.B
+            else:
+                if has_await:
+                    # Split barrier await: barrier // actor_kind
+                    assert stmt.B == actor_kind_dict[stmt.B.name()].sym
+                    barrier_sym = stmt.A
+                else:
+                    # Invalid: barrier // barrier
+                    self.err(
+                        stmt,
+                        f"expected at least one side of the SyncStmt to be an actor kind (e.g. cuda_sync)",
+                    )
+
+            if barrier_sym is not None:
+                _, typ = self.check_access(stmt, barrier_sym, (), lvalue=False)
+                self.err(
+                    stmt,
+                    f"{stmt.srcinfo}: expected {barrier_sym} to be barrier, not {typ}",
+                )
+
             return [LoopIR.SyncStmt(stmt.A, stmt.B, stmt.srcinfo)]
         elif isinstance(stmt, UAST.If):
             cond = self.check_e(stmt.cond, is_index=True)
@@ -634,6 +661,7 @@ class TypeChecker:
         UAST.Size: T.size,
         UAST.Index: T.index,
         UAST.Stride: T.stride,
+        UAST.Barrier: T.barrier,
     }
 
     def check_t(self, typ):

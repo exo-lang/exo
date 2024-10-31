@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from ..core.prelude import Sym
 from enum import Enum
 from typing import Optional, Set
 
@@ -15,12 +16,14 @@ class ActorKind(object):
     category: ActorKindCategory
     subkinds: Set[ActorKind]
     allowed_parent: Optional[ActorKind]
+    sym: Sym  # Questionable
 
     def __init__(self, name, category, subkinds, allowed_parent=None):
         self.name = name
         self.category = category
         self.subkinds = subkinds
         self.allowed_parent = allowed_parent
+        self.sym = Sym(name)
         assert (category == ActorKindCategory.ASYNC) == name.endswith(
             "_async"
         ), "naming convention: names of async actor kinds must end with _async"
@@ -45,6 +48,9 @@ class ActorKind(object):
     def __str__(self):
         return self.name
 
+
+"""No instructions; internal use only"""
+_null_actor = ActorKind("_null_actor", ActorKindCategory.SYNTHETIC, set())
 
 """Host CPU instructions"""
 cpu = ActorKind("cpu", ActorKindCategory.SYNC, set())
@@ -110,6 +116,7 @@ cuda_all = ActorKind(
     },
 )
 
+# _null_actor excluded
 actor_kind_dict = {
     actor_kind.name: actor_kind
     for actor_kind in [
