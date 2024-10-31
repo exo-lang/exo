@@ -3,6 +3,8 @@ from exo import proc, compile_procs_to_strings
 from exo.API_scheduling import rename
 from exo.frontend.pyparser import ParseError
 import pytest
+import warnings
+from exo.core.extern import Extern, _EErr
 
 
 def test_unrolling(golden):
@@ -376,3 +378,145 @@ def test_outer_return_disallowed():
         def foo(a: i32):
             with python:
                 return
+
+
+def test_with_block():
+    @proc
+    def foo(a: i32):
+        with python:
+
+            def issue_warning():
+                warnings.warn("deprecated", DeprecationWarning)
+
+            with warnings.catch_warnings(record=True) as recorded_warnings:
+                issue_warning()
+                assert len(recorded_warnings) == 1
+        pass
+
+
+def test_unary_ops(golden):
+    @proc
+    def foo(a: i32):
+        with python:
+            x = ~1
+            with exo:
+                a = x
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+    assert c_file == golden
+
+
+def test_return_in_async():
+    @proc
+    def foo(a: i32):
+        with python:
+
+            async def bar():
+                return 1
+
+        pass
+
+
+def test_local_externs(golden):
+    class _Log(Extern):
+        def __init__(self):
+            super().__init__("log")
+
+        def typecheck(self, args):
+            if len(args) != 1:
+                raise _EErr(f"expected 1 argument, got {len(args)}")
+
+            atyp = args[0].type
+            if not atyp.is_real_scalar():
+                raise _EErr(
+                    f"expected argument 1 to be a real scalar value, but "
+                    f"got type {atyp}"
+                )
+            return atyp
+
+        def globl(self, prim_type):
+            return "#include <math.h>"
+
+        def compile(self, args, prim_type):
+            return f"log(({prim_type}){args[0]})"
+
+    log = _Log()
+
+    @proc
+    def foo(a: f64):
+        a = log(a)
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+    assert c_file == golden
+
+
+def test_unquote_multiple_exprs():
+    with pytest.raises(ParseError, match="Unquote must take 1 argument"):
+        x = 0
+
+        @proc
+        def foo(a: i32):
+            a = {x, x}
+
+
+def test_disallow_with_in_exo():
+    with pytest.raises(ParseError, match="Expected unquote"):
+
+        @proc
+        def foo(a: i32):
+            with a:
+                pass
+
+
+def test_unquote_multiple_stmts():
+    with pytest.raises(ParseError, match="Unquote must take 1 argument"):
+
+        @proc
+        def foo(a: i32):
+            with python:
+                with exo as s:
+                    a += 1
+                with exo:
+                    {s, s}
+
+
+def test_unquote_non_statement():
+    with pytest.raises(
+        ParseError,
+        match="Statement-level unquote expression must return Exo statements",
+    ):
+
+        @proc
+        def foo(a: i32):
+            with python:
+                x = ~{a}
+                with exo:
+                    {x}
+
+
+def test_unquote_slice_with_step():
+    with pytest.raises(ParseError, match="Unquote returned slice index with step"):
+
+        @proc
+        def bar(a: [i32][10]):
+            a[0] = 0
+
+        @proc
+        def foo(a: i32[20]):
+            with python:
+                x = slice(0, 20, 2)
+                with exo:
+                    bar(a[x])
+
+
+def test_typecheck_unquote_index():
+    with pytest.raises(
+        ParseError, match="Unquote received input that couldn't be unquoted"
+    ):
+
+        @proc
+        def foo(a: i32[20]):
+            with python:
+                x = "0"
+                with exo:
+                    a[x] = 0

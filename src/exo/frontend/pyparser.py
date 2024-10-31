@@ -34,10 +34,6 @@ class SizeStub:
         self.nm = nm
 
 
-def str_to_mem(name):
-    return getattr(sys.modules[__name__], name)
-
-
 @dataclass
 class SourceInfo:
     src_file: str
@@ -1354,10 +1350,6 @@ class Parser:
                 if isinstance(e, pyast.Slice):
                     idxs.append(self.parse_slice(e, node))
                     srcinfo_for_idxs.append(srcinfo)
-                    unquote_eval_result = self.try_eval_unquote(e)
-                    if len(unquote_eval_result) == 1:
-                        unquoted = unquote_eval_result[0]
-
                 else:
                     unquote_eval_result = self.try_eval_unquote(e)
                     if len(unquote_eval_result) == 1:
@@ -1396,19 +1388,16 @@ class Parser:
             else:
                 srcinfo = self.getsrcinfo(node)
 
-        if isinstance(e, pyast.Slice):
-            lo = None if e.lower is None else self.parse_expr(e.lower)
-            hi = None if e.upper is None else self.parse_expr(e.upper)
-            if e.step is not None:
-                self.err(
-                    e,
-                    "expected windowing to have the form x[:], "
-                    "x[i:], x[:j], or x[i:j], but not x[i:j:k]",
-                )
+        lo = None if e.lower is None else self.parse_expr(e.lower)
+        hi = None if e.upper is None else self.parse_expr(e.upper)
+        if e.step is not None:
+            self.err(
+                e,
+                "expected windowing to have the form x[:], "
+                "x[i:], x[:j], or x[i:j], but not x[i:j:k]",
+            )
 
-            return UAST.Interval(lo, hi, srcinfo)
-        else:
-            return UAST.Point(self.parse_expr(e), srcinfo)
+        return UAST.Interval(lo, hi, srcinfo)
 
     # parse expressions, including values, indices, and booleans
     def parse_expr(self, e):
@@ -1433,17 +1422,8 @@ class Parser:
                 else:
                     return PAST.Read(nm, idxs, self.getsrcinfo(e))
             else:
-                parent_globals = self.parent_scope.get_globals()
-                parent_locals = self.parent_scope.read_locals()
                 if nm_node.id in self.exo_locals:
                     nm = self.exo_locals[nm_node.id]
-                elif (
-                    nm_node.id in parent_locals
-                    and parent_locals[nm_node.id] is not None
-                ):
-                    nm = parent_locals[nm_node.id].val
-                elif nm_node.id in parent_globals:
-                    nm = parent_globals[nm_node.id]
                 else:
                     self.err(nm_node, f"variable '{nm_node.id}' undefined")
 
