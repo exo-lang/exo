@@ -658,7 +658,10 @@ class Compiler:
 
     def add_line(self, line):
         if line:
-            self._lines.append(self._tab + line)
+            if self.spork:
+                self.spork.kernel_lines.append(self._tab + line)
+            else:
+                self._lines.append(self._tab + line)
 
     def comp_stmts(self, stmts):
         for b in stmts:
@@ -833,6 +836,9 @@ class Compiler:
         return self.spork.get_actor_kind() if self.spork else actor_kinds.cpu
 
     def comp_s(self, s):
+        if self.spork:
+            self.spork.on_comp_s(s)
+
         if isinstance(s, LoopIR.Pass):
             self.add_line("; // NO-OP")
         elif isinstance(s, LoopIR.SyncStmt):
@@ -890,7 +896,19 @@ class Compiler:
             name = self.new_varname(s.name, typ=s.rhs.type, mem=mem)
             self.add_line(f"struct {win_struct} {name} = {rhs};")
         elif isinstance(s, LoopIR.If):
-            cond = self.comp_e(s.cond)
+            is_lane_specialization = (
+                isinstance(s.cond, LoopIR.Const)
+                and s.cond.type == T.lane_specialization
+            )
+            if is_lane_specialization:
+                if not self.spork:
+                    raise ValueError(
+                        f"{s.srcinfo}: lane specialization outside GPU scope"
+                    )
+                cond = self.spork.push_lane_specialization(s.cond.val)
+            else:
+                cond = self.comp_e(s.cond)
+
             self.add_line(f"if ({cond}) {{")
             self.push()
             self.comp_stmts(s.body)
@@ -901,6 +919,9 @@ class Compiler:
                 self.comp_stmts(s.orelse)
                 self.pop()
             self.add_line("}")
+
+            if is_lane_specialization:
+                self.spork.pop_lane_specialization()
 
         elif isinstance(s, LoopIR.For):
             lo = self.comp_e(s.lo)
@@ -916,6 +937,7 @@ class Compiler:
             loop_mode = s.loop_mode
             old_actor_kind = self.get_actor_kind()
             new_actor_kind = loop_mode.new_actor_kind(old_actor_kind)
+            emit_loop = True
             starting_cuda_kernel = (
                 not self.spork and new_actor_kind is not actor_kinds.cpu
             )
@@ -924,25 +946,33 @@ class Compiler:
                 warnings.warn(
                     f"{s.srcinfo}: cannot nest loop with actor kind {new_actor_kind} in {old_actor_kind} scope"
                 )
+            if starting_cuda_kernel:
+                self.spork = SporkEnv(
+                    f"{self.proc.name}EXOcu_{s.srcinfo.lineno:04d}{itr}"
+                )
+            if self.spork:
+                emit_loop = self.spork.push_for(new_actor_kind, loop_mode)
 
             if isinstance(loop_mode, Par):
+                assert emit_loop
                 self.add_line(f"#pragma omp parallel for")
 
-            if loop_mode.cuda_nesting is None:
+            if emit_loop:
                 self.add_line(
                     f"for (int_fast32_t {itr} = {lo}; {itr} < {hi}; {itr}++) {{"
                 )
                 self.push(only="tab")
-            else:
-                self.add_line(f"// TODO parallel-for {type(loop_mode)}")
-                warnings.warn("TODO implement CUDA codegen")
 
             self.comp_stmts(s.body)
 
+            if self.spork:
+                self.spork.pop_for()
             if starting_cuda_kernel:
+                # TODO compile kernel_lines into separate device function
+                self._lines.extend(self.spork.kernel_lines)
                 self.spork = None
 
-            if loop_mode.cuda_nesting is None:
+            if emit_loop:
                 self.pop()
                 self.add_line("}")
 
@@ -1057,8 +1087,7 @@ class Compiler:
             elif e.type == T.f32:
                 return f"{float(e.val)}f"
             elif e.type == T.lane_specialization:
-                warnings.warn("TODO lane specialization")
-                return "true  /* TODO LaneSpecialization */"
+                assert False, "should be handled when compiling LoopIR.If"
             else:
                 return f"(({e.type.ctype()}) {str(e.val)})"
 

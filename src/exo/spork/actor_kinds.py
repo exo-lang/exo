@@ -65,12 +65,12 @@ cuda_generic = ActorKind(
 
 """cp.async.bulk instructions with cluster/block shared memory as destination"""
 tma_to_shared_async = ActorKind(
-    "tma_to_shared_async", ActorKindCategory.ASYNC, set(), cuda_generic
+    "tma_to_shared_async", ActorKindCategory.ASYNC, set(), cuda_sync
 )
 
 """cp{.reduce}.bulk.async instructions with global memory as destination"""
 tma_to_global_async = ActorKind(
-    "tma_to_global_async", ActorKindCategory.ASYNC, set(), cuda_generic
+    "tma_to_global_async", ActorKindCategory.ASYNC, set(), cuda_sync
 )
 
 """wgmma instructions' actions on registers"""
@@ -84,7 +84,7 @@ wgmma_async = ActorKind(
     "wgmma_async",
     ActorKindCategory.ASYNC,
     {wgmma_async_reg, wgmma_async_mem},
-    cuda_generic,
+    cuda_sync,
 )
 
 """actions on wgmma matrix tile registers, either by wgmma.async

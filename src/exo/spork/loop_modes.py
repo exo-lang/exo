@@ -6,11 +6,8 @@ from . import lane_units
 
 
 class LoopMode(object):
-    # None if the loop mode doesn't correspond to cuda.
-    # Otherwise, this is the "index" of how nested this loop type
-    # should be in the cuda programming model.
-    # (e.g. thread's cuda_nesting > block's cuda_nesting)
-    cuda_nesting: Optional[int]
+    is_par = False
+    is_async = False
 
     def loop_mode_name(self):
         raise NotImplementedError()
@@ -20,10 +17,6 @@ class LoopMode(object):
 
     def lane_unit(self):
         raise NotImplementedError()
-
-    def cuda_can_nest_in(self, other):
-        assert self.cuda_nesting is not None
-        return other.cuda_nesting is not None and self.cuda_nesting > other.cuda_nesting
 
     def _unpack_positive_int(self, value, name):
         if hasattr(value, "val"):
@@ -35,10 +28,11 @@ class LoopMode(object):
 
 
 class Seq(LoopMode):
-    cuda_nesting = None
+    is_par = False
+    is_async = False
 
     def __init__(self):
-        self.cuda_nesting = None
+        pass
 
     def loop_mode_name(self):
         return "seq"
@@ -52,10 +46,11 @@ seq = Seq()
 
 
 class Par(LoopMode):
-    cuda_nesting = None
+    is_par = True
+    is_async = False
 
     def __init__(self):
-        self.cuda_nesting = None
+        pass
 
     def loop_mode_name(self):
         return "par"
@@ -71,7 +66,9 @@ par = Par()
 
 
 class CudaClusters(LoopMode):
-    cuda_nesting = 2
+    is_par = True
+    is_async = False
+
     blocks: int
 
     def __init__(self, blocks):
@@ -88,7 +85,9 @@ class CudaClusters(LoopMode):
 
 
 class CudaBlocks(LoopMode):
-    cuda_nesting = 3
+    is_par = True
+    is_async = False
+
     warps: int
 
     def __init__(self, warps=1):
@@ -108,7 +107,8 @@ cuda_blocks = CudaBlocks()
 
 
 class CudaWarpgroups(LoopMode):
-    cuda_nesting = 4
+    is_par = True
+    is_async = False
 
     def __init__(self):
         pass
@@ -127,7 +127,8 @@ cuda_warpgroups = CudaWarpgroups()
 
 
 class CudaWarps(LoopMode):
-    cuda_nesting = 5
+    is_par = True
+    is_async = False
 
     def __init__(self):
         pass
@@ -146,7 +147,8 @@ cuda_warps = CudaWarps()
 
 
 class CudaThreads(LoopMode):
-    cuda_nesting = 6
+    is_par = True
+    is_async = False
 
     def __init__(self):
         pass
@@ -164,16 +166,24 @@ class CudaThreads(LoopMode):
 cuda_threads = CudaThreads()
 
 
-def loop_mode_for_actor_kind(actor_kind):
+def loop_mode_for_async_actor_kind(actor_kind):
+    assert actor_kind.is_async()
+
     class _AsyncLoopMode(LoopMode):
+        is_par = False
+        is_async = True
+
         def __init__(self):
-            self.cuda_nesting = None
+            pass
 
         def loop_mode_name(self):
             return actor_kind.name
 
         def new_actor_kind(self, old_actor_kind: ActorKind):
             return actor_kind
+
+        def __repr__(self):
+            return f"loop_mode_for_async_actor_kind({actor_kind})()"
 
     return _AsyncLoopMode
 
@@ -193,7 +203,7 @@ def make_loop_mode_dict():
     for name, actor_kind in actor_kind_dict.items():
         assert name == actor_kind.name
         if not actor_kind.is_synthetic() and actor_kind.is_async():
-            loop_mode_dict[name] = loop_mode_for_actor_kind(actor_kind)
+            loop_mode_dict[name] = loop_mode_for_async_actor_kind(actor_kind)
     return loop_mode_dict
 
 

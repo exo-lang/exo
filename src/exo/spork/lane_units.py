@@ -9,8 +9,9 @@ class LaneUnit(object):
 
     """
 
-    def __init__(self, name):
+    def __init__(self, name, parent):
         self.name = name
+        self.parent = parent
 
     def __repr__(self):
         return f"<exo.spork.lane_unit.LaneUnit {self.name}>"
@@ -18,13 +19,22 @@ class LaneUnit(object):
     def __str__(self):
         return self.name
 
+    def contains(self, child):
+        """Evaluate nesting relationship
 
-cpu_thread = LaneUnit("cpu_thread")
-cuda_cluster = LaneUnit("cuda_cluster")
-cuda_block = LaneUnit("cuda_block")
-cuda_warpgroup = LaneUnit("cuda_warpgroup")
-cuda_warp = LaneUnit("cuda_warp")
-cuda_thread = LaneUnit("cuda_thread")
+        e.g. cuda_block.contains(cuda_thread) -> True"""
+        if self == child.parent:
+            return True
+        else:
+            return child.parent is not None and self.contains(child.parent)
+
+
+cpu_thread = LaneUnit("cpu_thread", None)
+cuda_cluster = LaneUnit("cuda_cluster", None)
+cuda_block = LaneUnit("cuda_block", cuda_cluster)
+cuda_warpgroup = LaneUnit("cuda_warpgroup", cuda_block)
+cuda_warp = LaneUnit("cuda_warp", cuda_warpgroup)
+cuda_thread = LaneUnit("cuda_thread", cuda_warp)
 
 lane_unit_dict = {
     unit.name: unit
