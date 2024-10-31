@@ -322,10 +322,11 @@ class TypeChecker:
 
             if barrier_sym is not None:
                 _, typ = self.check_access(stmt, barrier_sym, (), lvalue=False)
-                self.err(
-                    stmt,
-                    f"{stmt.srcinfo}: expected {barrier_sym} to be barrier, not {typ}",
-                )
+                if typ != T.barrier:
+                    self.err(
+                        stmt,
+                        f"{stmt.srcinfo}: expected {barrier_sym} to be barrier, not {typ}",
+                    )
 
             return [LoopIR.SyncStmt(stmt.A, stmt.B, stmt.srcinfo)]
         elif isinstance(stmt, UAST.If):

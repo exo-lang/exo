@@ -307,6 +307,8 @@ class UAST_PPrinter:
             return "index"
         elif isinstance(t, UAST.Size):
             return "size"
+        elif isinstance(t, UAST.Barrier):
+            return "barrier"
         elif isinstance(t, UAST.Tensor):
             base = str(t.basetype())
             if t.is_window:
@@ -566,6 +568,8 @@ def _print_type(t, env: PrintEnv) -> str:
         )
     elif isinstance(t, T.Stride):
         return "stride"
+    elif isinstance(t, T.Barrier):
+        return "barrier"
 
     assert False, f"impossible type {type(t)}"
 
