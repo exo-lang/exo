@@ -10,8 +10,8 @@ from typing import Any, List, Tuple
 from .API import Procedure
 import exo.API_cursors as PC
 from .core.LoopIR import LoopIR, T
-from .spork.actor_kind import ActorKind
-from .spork.loop_mode import LoopMode, seq, par, loop_mode_dict
+from .spork.actor_kinds import ActorKind
+from .spork.loop_modes import LoopMode, seq, par, loop_mode_dict
 import exo.rewrite.LoopIR_scheduling as scheduling
 from .API_types import ExoType
 

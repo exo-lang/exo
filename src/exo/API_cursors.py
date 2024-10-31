@@ -20,7 +20,7 @@ from .core.internal_cursors import InvalidCursorError
 from .core.LoopIR_pprint import _print_cursor
 from .rewrite.LoopIR_scheduling import SchedulingError
 
-from .spork.actor_kind import actor_kind_dict
+from .spork.actor_kinds import actor_kind_dict
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

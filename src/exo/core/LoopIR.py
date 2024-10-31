@@ -9,7 +9,7 @@ from .configs import Config
 from .memory import Memory
 from .prelude import Sym, SrcInfo, extclass
 from ..spork.lane_units import LaneSpecialization
-from ..spork.loop_mode import LoopMode
+from ..spork.loop_modes import LoopMode
 
 # --------------------------------------------------------------------------- #
 # Validated string subtypes

@@ -8,7 +8,7 @@ from ..core.LoopIR import (
 )
 from ..core.extern import Extern_Typecheck_Error
 from ..core.memory import *
-from ..spork.actor_kind import actor_kind_dict
+from ..spork.actor_kinds import actor_kind_dict
 from ..spork.lane_units import LaneSpecialization
 
 # --------------------------------------------------------------------------- #

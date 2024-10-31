@@ -42,7 +42,7 @@ import exo.API as api
 from ..frontend.pattern_match import match_pattern
 from ..core.memory import DRAM
 from ..frontend.typecheck import check_call_types
-from ..spork.loop_mode import LoopMode, seq, par
+from ..spork.loop_modes import LoopMode, seq, par
 
 from functools import partial
 

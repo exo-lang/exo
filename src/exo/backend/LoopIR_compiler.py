@@ -16,9 +16,9 @@ from .prec_analysis import PrecisionAnalysis
 from ..core.prelude import *
 from .win_analysis import WindowAnalysis
 from ..rewrite.range_analysis import IndexRangeEnvironment
-from ..spork.loop_mode import LoopMode, Seq, Par
+from ..spork.loop_modes import LoopMode, Seq, Par
 from ..spork.spork_env import SporkEnv
-from ..spork import actor_kind
+from ..spork import actor_kinds
 
 
 def sanitize_str(s):
@@ -830,7 +830,7 @@ class Compiler:
         return win.name
 
     def get_actor_kind(self):
-        return self.spork.get_actor_kind() if self.spork else actor_kind.cpu
+        return self.spork.get_actor_kind() if self.spork else actor_kinds.cpu
 
     def comp_s(self, s):
         if isinstance(s, LoopIR.Pass):
@@ -917,7 +917,7 @@ class Compiler:
             old_actor_kind = self.get_actor_kind()
             new_actor_kind = loop_mode.new_actor_kind(old_actor_kind)
             starting_cuda_kernel = (
-                not self.spork and new_actor_kind is not actor_kind.cpu
+                not self.spork and new_actor_kind is not actor_kinds.cpu
             )
             if not new_actor_kind.allows_parent(old_actor_kind):
                 # Will become an error when actor kind tracking is implemented

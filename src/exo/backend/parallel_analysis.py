@@ -1,5 +1,5 @@
 from ..core.LoopIR import LoopIR, LoopIR_Rewrite
-from ..spork.loop_mode import LoopMode, Seq, Par
+from ..spork.loop_modes import LoopMode, Seq, Par
 
 from ..rewrite.new_eff import Check_ParallelizeLoop, SchedulingError
 

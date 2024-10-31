@@ -1,8 +1,7 @@
 from typing import Optional
 
 from ..core.prelude import SrcInfo
-from . import actor_kind
-from .actor_kind import ActorKind, actor_kind_dict, cpu, cuda_sync
+from .actor_kinds import ActorKind, actor_kind_dict, cpu, cuda_sync
 from . import lane_units
 
 

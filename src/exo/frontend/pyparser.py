@@ -19,7 +19,7 @@ from ..spork.lane_units import (
     LaneSpecializationPattern,
     lane_unit_dict,
 )
-from ..spork.loop_mode import LoopMode, loop_mode_dict
+from ..spork.loop_modes import LoopMode, loop_mode_dict
 
 
 # --------------------------------------------------------------------------- #

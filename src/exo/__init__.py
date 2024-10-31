@@ -14,8 +14,8 @@ from .core.memory import Memory, DRAM
 from .core.extern import Extern
 
 from . import stdlib
-from .spork import actor_kind
-from .spork import loop_mode
+from .spork import actor_kinds
+from .spork import loop_modes
 from .spork import lane_units
 
 __version__ = "0.2.1"
@@ -36,7 +36,7 @@ __all__ = [
     #
     "stdlib",
     "ExoType",
-    "actor_kind",
-    "loop_mode",
+    "actor_kinds",
+    "loop_modes",
     "lane_units",
 ]

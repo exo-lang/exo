@@ -4,7 +4,7 @@ from itertools import chain
 
 from ..core.LoopIR import Alpha_Rename, SubstArgs, LoopIR_Do
 from ..core.configs import reverse_config_lookup, Config
-from ..spork.loop_mode import LoopMode, seq
+from ..spork.loop_modes import LoopMode, seq
 from .new_analysis_core import *
 from ..core.proc_eqv import get_repr_proc
 
