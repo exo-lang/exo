@@ -38,19 +38,24 @@ class SporkEnv(object):
         assert self._actor_kind_stack
         return self._actor_kind_stack[-1]
 
-    def push_for(self, actor_kind: ActorKind, loop_mode: LoopMode) -> bool:
-        assert isinstance(actor_kind, ActorKind)
-        assert isinstance(loop_mode, LoopMode)
-
+    def push_actor_kind(self, actor_kind: ActorKind):
         if self._actor_kind_stack:
             assert actor_kind.allows_parent(self._actor_kind_stack[-1])
+
         self._actor_kind_stack.append(actor_kind)
-        self.kernel_lines.append(f"// TODO parallel-for {loop_mode}")
+
+    def pop_actor_kind(self):
+        self._actor_kind_stack.pop()
+
+    def push_parallel_for(self, s: LoopIR.For) -> bool:
+        assert isinstance(s, LoopIR.For)
+        assert s.loop_mode.is_par
+
+        self.kernel_lines.append(f"// TODO parallel-for {s.loop_mode}")
         return True
 
-    def pop_for(self):
-        assert self._actor_kind_stack
-        self._actor_kind_stack.pop()
+    def pop_parallel_for(self):
+        pass
 
     def push_lane_specialization(self, lane_specialization: LaneSpecialization) -> str:
         assert isinstance(lane_specialization, LaneSpecialization)

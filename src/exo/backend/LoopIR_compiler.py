@@ -942,8 +942,7 @@ class Compiler:
                 not self.spork and new_actor_kind is not actor_kinds.cpu
             )
             if not new_actor_kind.allows_parent(old_actor_kind):
-                # Will become an error when actor kind tracking is implemented
-                warnings.warn(
+                raise TypeError(
                     f"{s.srcinfo}: cannot nest loop with actor kind {new_actor_kind} in {old_actor_kind} scope"
                 )
             if starting_cuda_kernel:
@@ -951,7 +950,9 @@ class Compiler:
                     f"{self.proc.name}EXOcu_{s.srcinfo.lineno:04d}{itr}"
                 )
             if self.spork:
-                emit_loop = self.spork.push_for(new_actor_kind, loop_mode)
+                self.spork.push_actor_kind(new_actor_kind)
+                if loop_mode.is_par:
+                    emit_loop = self.spork.push_parallel_for(s)
 
             if isinstance(loop_mode, Par):
                 assert emit_loop
@@ -961,12 +962,15 @@ class Compiler:
                 self.add_line(
                     f"for (int_fast32_t {itr} = {lo}; {itr} < {hi}; {itr}++) {{"
                 )
-                self.push(only="tab")
 
+            self.push(only="tab")
             self.comp_stmts(s.body)
 
             if self.spork:
-                self.spork.pop_for()
+                self.spork.pop_actor_kind()
+                if loop_mode.is_par:
+                    self.spork.pop_parallel_for()
+
             if starting_cuda_kernel:
                 # TODO compile kernel_lines into separate device function
                 self._lines.extend(self.spork.kernel_lines)
