@@ -20,7 +20,7 @@ from .core.internal_cursors import InvalidCursorError
 from .core.LoopIR_pprint import _print_cursor
 from .rewrite.LoopIR_scheduling import SchedulingError
 
-from .spork.actor_kinds import actor_kind_dict
+from .spork.actor_kinds import actor_kind_dict, ActorKind
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -519,22 +519,31 @@ class PassCursor(StmtCursor):
 class SyncCursor(StmtCursor):
     """
     Cursor pointing to a synchronization statement:
-        before | after
+        A // B
     """
 
     def A(self):
-        """Returns the "before" side of the barrier, either the name of a barrier variable or an ActorKind"""
+        """Returns the "before" side of the barrier.
+
+        Return type is either str (name of a barrier variable) or an ActorKind"""
         return self._get("A")
 
     def B(self):
-        """Returns the "after" side of the barrier, either the name of a barrier variable or an ActorKind"""
+        """Returns the "after" side of the barrier.
+
+        Return type is either str (name of a barrier variable) or an ActorKind"""
         return self._get("B")
 
     def _get(self, name):
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.SyncStmt)
-        attr = getattr(self._impl._node, name)
-        return actor_kind_dict.get(attr, attr)
+        sym = getattr(self._impl._node, name)
+        val = actor_kind_dict.get(sym.name(), sym)
+        if isinstance(val, ActorKind):
+            assert val.sym == sym
+        else:
+            assert isinstance(val, str)
+        return val
 
 
 class IfCursor(StmtCursor):
