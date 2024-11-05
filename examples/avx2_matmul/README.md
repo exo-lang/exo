@@ -259,10 +259,9 @@ This will print out the results of running kernel with and without the AVX instr
 [blas]: https://www.netlib.org/blas/
 [blis]: https://github.com/flame/blis
 
-## Stay tuned for more automation!
+## More Automation?
 
 Congratulations on completing this example!
-You might have felt that the scheduling operations in this example were very low-level and might be laborious to write.
-We felt the same! We have a pre-release version of Exo that provides scheduling automation _external_ to the compiler implementation.
-By sharing the repeated pattern of schedules and using our novel reference mechanism called Cursors, we achieve fewer lines of code than what we've shown here in the upcoming release. Please contact Exo developers at exo@mit.edu if you want to learn more or wish to collaborate!
-
+You might have felt that the scheduling operations in this example were very low-level and could be laborious to write.
+We felt the same! We implemented a new feature called Cursors that provides scheduling automation *external* to the compiler implementation.
+To learn more, please take a look at the [cursors example](cursors/README.md) and our ASPLOS '25 paper.
