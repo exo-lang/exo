@@ -11,11 +11,9 @@ Therefore, if users wish to utilize Exo constructs, they must import them into t
 2. [Core Exo Module](#2-core-exo-module)
 3. [Memory Libraries](#3-memory-libraries)
 4. [Instruction Libraries](#4-instruction-libraries)
-5. [Frontend Syntax Utilities](#5-frontend-syntax-utilities)
-6. [Standard Library Modules](#6-standard-library-modules)
-   - [6.1 Scheduling Utilities](#61-scheduling-utilities)
-   - [6.2 Standard Library Functions](#62-standard-library-functions)
-7. [External Interfaces](#7-external-interfaces)
+5. [Extern Libraries](#5-extern-libraries)
+6. [Frontend Syntax Utilities](#6-frontend-syntax-utilities)
+7. [Standard Library Scheduling Functions](#7-standard-library-scheduling-functions)
 8. [API Cursors](#8-api-cursors)
 
 
@@ -89,7 +87,7 @@ Alternatively, users can define their own scheduling operations by composing sch
 
 ## 8. API Cursors
 
-Cursors (see [Cursors.md](./Cursors.md)) are Exo's reference mechanism that allows users to navigate and inspect object code. When users define new scheduling operators using Cursors, they may wish to write their own inspection pass (see [inspection.md](./inspection.md). API Cursors define types that will be useful for user inspection.
+Cursors (see [Cursors.md](./Cursors.md)) are Exo's reference mechanism that allows users to navigate and inspect object code. When users define new scheduling operators using Cursors, they may wish to write their own inspection pass (see [inspection.md](./inspection.md)). API Cursors define types that will be useful for user inspection.
 
 ```python
 from exo.API_cursors import ForCursor, AssignCursor, InvalidCursor

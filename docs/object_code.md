@@ -31,15 +31,14 @@ def generic_conv1d(
 - [Annotations and Decorators](#annotations-and-decorators)
   - [`@proc` Decorator](#proc-decorator)
   - [Type and Memory Annotations](#type-and-memory-annotations)
-- [Procedure Arguments](#procedure-arguments)
-- [Variable Declarations](#variable-declarations)
-- [Memory Spaces](#memory-spaces)
+  - [Procedure Arguments](#procedure-arguments)
+  - [Allocations](#allocations)
+  - [Memories](#memories)
 - [Loops](#loops)
   - [`for` Loop Syntax](#for-loop-syntax)
 - [Conditional Statements](#conditional-statements)
-- [Operations and Assignments](#operations-and-assignments)
+- [Assignments](#assignments)
 - [Understanding the Example](#understanding-the-example)
-- [Conclusion](#conclusion)
 
 ## Annotations and Decorators
 
@@ -67,7 +66,7 @@ name: type[size] @ memory
 - **`@ memory`**: The memory space where the variable resides.
 
 
-#### Procedure Arguments
+### Procedure Arguments
 
 Procedure arguments are declared with their types, sizes, and memory spaces. They can have sizes that depend on other arguments.
 
@@ -145,7 +144,30 @@ foo(y[0:5], y[2:7])
 
 This limitation exists because the analysis would be imprecise if we allowed such aliasing. This is similar to how C++ compilers can perform more optimization when you use the `__restrict__` keyword to explicitly indicate that you're not aliasing your buffers.
 
-#### Allocations
+
+#### Passing Tensor Window Slices to Functions Expecting Non-Window Tensors
+
+It is not allowed to pass _window_ to a function that expects a non-window tensor as an argument. Consider the following example:
+
+```python
+@proc
+def callee(x: f32[10]):
+    pass
+
+@proc
+def caller(x: f32[2, 10]):
+    callee(x[0])     # Error: Passing a window slice to a function expecting a non-window tensor
+    callee(x[1, :])  # Error: Passing a window slice to a function expecting a non-window tensor
+```
+
+In this code snippet, the `callee` function expects a non-window tensor `x` of shape `f32[10]`. However, in the `caller` function, we attempt to pass slices of the `x` tensor (`x[0]` and `x[1]`) to the `callee` function. These slices are windows of the original tensor, and passing them to a function expecting a non-window tensor is not allowed.
+
+To resolve this issue, you can either:
+1. Modify the `callee` function to accept a window tensor as an argument, or
+2. Create a new non-window tensor from the slice before passing it to the `callee` function.
+
+
+### Allocations
 
 Variables within the procedure are declared similarly to arguments.
 
@@ -159,11 +181,13 @@ y: i32
 - **`i32`**: The data type (32-bit integer).
 - **No memory annotation**: Defaults to `DRAM` if memory is unspecified.
 
-#### Memories
+### Memories
 
 Memory annotations in Exo are used to model different hardware memory regions, such as DRAM, caches, or specialized memories. The `@` symbol is used to specify the memory space, for example: `@DRAM`, `@AVX2`, or `@Neon`.
 Memory annotations for your custom hardware accelerators can be defined externally to Exo and can be used as annotations in the same way.
 While Exo provides default memory (`DRAM`) and some library memory definitions for convenience (`AVX2`, `AVX512`, `Neon`, `GEMM_SCRATCH`, etc.), it is recommended and encouraged that users define their own memory annotations for their specific hardware. For more information on defining custom memory annotations, refer to [memories.md](./memories.md).
+
+
 
 ## Loops
 
