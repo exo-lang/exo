@@ -41,7 +41,7 @@ def __init__(self):
     super().__init__("sin")
 ```
 
-- `"sin"`: The name of the external function as it will appear in the Exo object code.
+- `"sin"`: The name of the external function as it will appear in the printed Exo object code.
 
 ##### `typecheck(self, args)`
 
