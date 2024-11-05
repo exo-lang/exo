@@ -42,12 +42,13 @@ def neon_vld_4xf32(dst: [f32][4] @ Neon, src: [f32][4] @ DRAM):
         dst[i] = src[i]
 ```
 
-- **`@instr("{dst_data} = vld1q_f32(&{src_data});")`**: Specifies the C code to emit when this instruction is called.
-  - `{dst_data}` and `{src_data}` are format strings that will be replaced with the actual arguments during codegen.
+- **`@instr` decorators**: Specifies the semantics of the hardware instruction and the C code to emit.
+  - `{dst_data}` and `{src_data}` are format strings that will be replaced with the actual arguments during codegen. You can put `_data` after the function argument names and surround them with curly braces (`{dst_data}`).
+  - `"{dst_data} = vld1q_f32(&{src_data});"`: The argument to `@instr` decorators specifies the C code to emit for this instruction.
 - **`dst: [f32][4] @ Neon`**: Declares `dst` as a 4-element array of `f32` in `Neon` memory.
 - **`src: [f32][4] @ DRAM`**: Declares `src` as a 4-element array of `f32` in `DRAM`.
 - **Assertions**: Ensure that the strides of `src` and `dst` are 1 for correct memory access.
-- **Loop**: The loop specifies the semantics of the instruction, copying elements from `src` to `dst`.
+- **Body**: The function body specifies the semantics of the instruction (written in Exo object code), copying elements from `src` to `dst`.
 
 ### Defining the Memory Annotation `Neon`
 
