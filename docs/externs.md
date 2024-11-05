@@ -41,7 +41,7 @@ def __init__(self):
     super().__init__("sin")
 ```
 
-- `"sin"`: The name of the external function as it will appear in the generated code.
+- `"sin"`: The name of the external function as it will appear in the Exo object code.
 
 ##### `typecheck(self, args)`
 
@@ -94,6 +94,7 @@ def globl(self, prim_type):
 ```
 
 - Includes necessary headers required for the external function (e.g., `<math.h>` for mathematical functions).
+- `globl` is called and is instantiated for every `prim_type`s.
 
 #### 4. Instantiate the Extern Function
 
@@ -109,7 +110,8 @@ sin = _Sin()
 
 Externs can be used as expressions on the RHS of assignment and reduction statements. This allows you to incorporate external functions seamlessly into your Exo computations.
 
-Note that externs (and Exo procedures) do not allow aliasing in their arguments. This restriction is in place to prevent externs from having side effects on the input arguments.
+Unlike Exo procedures that do not allow aliasing in their arguments, you _can_ pass the same buffer to external arguments (e.g., `select(xi, xi, xi, xi)`).
+This is because there is no concern about aliasing since all external arguments are read-only, as opposed to Exo procedure arguments which can have write effects on the input arguments.
 
 ### Example: Using `sin` in an Expression
 

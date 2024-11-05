@@ -42,7 +42,7 @@ def neon_vld_4xf32(dst: [f32][4] @ Neon, src: [f32][4] @ DRAM):
         dst[i] = src[i]
 ```
 
-- **`@instr` decorators**: Specifies the semantics of the hardware instruction and the C code to emit.
+- **`@instr(...)`**: Specifies the semantics of the hardware instruction and the C code to emit.
   - `{dst_data}` and `{src_data}` are format strings that will be replaced with the actual arguments during codegen. You can put `_data` after the function argument names and surround them with curly braces (`{dst_data}`).
   - `"{dst_data} = vld1q_f32(&{src_data});"`: The argument to `@instr` decorators specifies the C code to emit for this instruction.
 - **`dst: [f32][4] @ Neon`**: Declares `dst` as a 4-element array of `f32` in `Neon` memory.
