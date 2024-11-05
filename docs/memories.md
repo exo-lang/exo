@@ -32,7 +32,7 @@ class AVX512(Memory):
             raise MemGenError(f"{srcinfo}: AVX512 vectors are not scalar values")
         if not prim_type == "float":
             raise MemGenError(f"{srcinfo}: AVX512 vectors must be f32 (for now)")
-        if not _is_const_size(shape[-1], 16):
+        if not shape[-1].isdecimal() and int(shape[-1]) == 16:
             raise MemGenError(f"{srcinfo}: AVX512 vectors must be 16-wide")
         shape = shape[:-1]
         if shape:
@@ -85,7 +85,7 @@ class AVX512(Memory):
     - `i32` -> `"int32_t"`
   - `shape`: A list of C strings representing the shape of each dimension. In the example above, it would be `["N", "M"]`.
 
-  For `AVX512` memory, the `alloc` method ensures that the allocated memory represents 16-wide vectors of the `float` type.
+  For `AVX512` memory, the `alloc` method ensures that the allocated memory represents 16-wide vectors (`shape[-1].isdecimal() and int(shape[-1]) == 16`) of the `float` type (`prim_type == "float"`).
 
 
 - **`free(cls, new_name, prim_type, shape, srcinfo)`**: Handles memory deallocation. For `AVX512`, no action is needed.
@@ -156,7 +156,7 @@ To interact with the memory, you must use specific instructions or operations de
 x: f32[16] @ AVX512
 mm512_loadu_ps(x, inp[16*i : 16*i+16])
 ```
-- **Instructions Documentation**: [instructions.md](instructions.md)
+To learn more about how to define and use instructions in Exo, see [instructions.md](./instructions.md).
 
 ## Using Custom Memories
 

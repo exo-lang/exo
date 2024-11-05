@@ -147,7 +147,7 @@ This limitation exists because the analysis would be imprecise if we allowed suc
 
 #### Passing Tensor Window Slices to Functions Expecting Non-Window Tensors
 
-It is not allowed to pass _window_ to a function that expects a non-window tensor as an argument. Consider the following example:
+It is not allowed to pass a _window_ to a function that expects a non-window tensor as an argument. Consider the following example:
 
 ```python
 @proc
