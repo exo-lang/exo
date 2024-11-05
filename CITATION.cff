@@ -28,8 +28,8 @@ license: MIT
 # These fields should point to the latest release and be updated as soon as a
 # new release is tagged.
 commit: 09e666ee0690797a6c56103b65f5d83abd79c60e
-version: 0.2.1
-date-released: 2024-08-28
+version: 1.0.0
+date-released: 2024-11-05
 
 # This is the citation for the PLDI 2022 paper.
 preferred-citation:
