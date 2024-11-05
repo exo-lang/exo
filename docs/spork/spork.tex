@@ -332,7 +332,6 @@ I'm proposing using the syntax ``\lighttt{A // B}'' for a synchronization statem
 \filbreak
 Example:
 
-\filbreak
 {\color{lightttColor}
 \begin{verbatim}
 for blockIdx in cuda_blocks(lo, hi, warps = 8):
@@ -351,7 +350,10 @@ for blockIdx in cuda_blocks(lo, hi, warps = 8):
 By requiring synchronization statements to be lifted to block or warp level, we trivially enforce convergence requirements.
 
 \filbreak
-I'm not sure this is really the right approach to take, but my gut feeling is it's best to expose a higher-level synchronization interface and compile to the appropriate CUDA synchronization primitive depending on the actor kinds (e.g. a ring buffer of \mbarrier), rather than expose the complexity of basic synchronization primitives and having to analyze that they are used correctly. Not all combinations of \lighttt{x} and \lighttt{y} are valid; we only support combinations that map to real CUDA constructs (e.g. \lighttt{wgmma\_reg // wgmma\_reg\_async} is \lighttt{wgmma.fence}).
+I'm not sure this is really the right approach to take, but my gut feeling is it's best to expose a higher-level synchronization interface and compile to the appropriate CUDA synchronization primitive depending on the actor kinds (e.g. a ring buffer of \mbarrier), rather than expose the complexity of basic synchronization primitives and having to analyze that they are used correctly.
+
+\filbreak
+TODO the \lighttt{//} syntax is too obscure, we should just consider \lighttt{arrive} and \lighttt{await} special functions, and non-split barrier special functions for ``syncthreads''-like barriers (\lighttt{cuda\_sync // cuda\_generic}), stream-sync (\lighttt{cuda\_all // cpu}), and wgmma fence (\lighttt{wgmma\_reg // wgmma\_async\_reg}).
 
 \filbreak
 \hook{Hook:} For the analysis and codegen to be feasible, I'm expecting language restrictions that make it possible to statically verify that for each split barrier constructed, we issue matching pairs of arrive and await, with the same parlane used for all arrives and the same parlane used for all awaits.
@@ -457,7 +459,7 @@ Nevertheless I'll keep the notes I wrote about static verification here for now 
 {\color{lightttColor}
 \begin{verbatim}
 # The parlane that executes this loop is the parent parlane
-with cuda_{unit type}s(lo, hi):  # Optional resource specialization
+if cuda_{unit type} in (lo, hi):  # Optional resource specialization
     # Partial parscope defined here (shape not yet defined)
     for _ in cuda_{unit type}s(lo, hi):
         # Invalid parscope (between dimensions)
@@ -592,8 +594,10 @@ For pattern matching, we'd have to do some extra work to implement holes.
 This reasoning is suspect, but the reason I'm proposing to extend \lighttt{LoopIR.Const} for this is that I don't anticipate allowing specializing based on runtime arguments, and under S-semantics (which is what the safety checks care about), a lane specialization statement is equivalent to \lighttt{if True}.
 
 \filbreak
-\myKey{SyncStmt:} I'm not sure if there's a not-too-hacky way to avoid this, but for now I think we should add a new node type to LoopIR/UAST/PAST for representing synchronization statements \lighttt{A // B} (pair of symbols; either the name of a barrier variable or the name of an actor kind).
+\myKey{SyncStmt:} Would need to consist of a barrier type enum (arrive, await, syncthreads, stream sync, wgmma fence); for arrive and awaits, we need the sym of a barrier variable and an actor kind.
 For scheduling and safety checks, they should be treated the same as a \lighttt{pass} statement (except don't remove them in \lighttt{simplify}, \lighttt{remove\_pass}, etc.).
+
+TODO remove old code based on \lighttt{A // B} sync statements.
 
 \filbreak
 \myKey{Types:} Need to add types \lighttt{Barrier} and \lighttt{LaneSpecialization}.
