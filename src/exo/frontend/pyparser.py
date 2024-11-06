@@ -36,11 +36,18 @@ class SizeStub:
 
 @dataclass
 class SourceInfo:
+    """
+    Source code locations that are needed to compute the location of AST nodes.
+    """
+
     src_file: str
     src_line_offset: int
     src_col_offset: int
 
     def get_src_info(self, node: pyast.AST):
+        """
+        Computes the location of the given AST node based on line and column offsets.
+        """
         return SrcInfo(
             filename=self.src_file,
             lineno=node.lineno + self.src_line_offset,
@@ -85,20 +92,37 @@ def get_ast_from_python(f: Callable[..., Any]) -> tuple[pyast.stmt, SourceInfo]:
 
 @dataclass
 class BoundLocal:
+    """
+    Wrapper class that represents locals that have been assigned a value.
+    """
+
     val: Any
 
 
-Local = Optional[BoundLocal]
+Local = Optional[BoundLocal]  # Locals that are unassigned will be represesnted as None
 
 
 @dataclass
 class FrameScope:
+    """
+    Wrapper around frame object to read local and global variables.
+    """
+
     frame: inspect.frame
 
     def get_globals(self) -> dict[str, Any]:
+        """
+        Get globals dictionary for the frame. The globals dictionary is not a copy. If the
+        returned dictionary is modified, the globals of the scope will be changed.
+        """
         return self.frame.f_globals
 
     def read_locals(self) -> dict[str, Local]:
+        """
+        Return a copy of the local variables held by the scope. In contrast to globals, it is
+        not possible to add new local variables or modify the local variables by modifying
+        the returned dictionary.
+        """
         return {
             var: (
                 BoundLocal(self.frame.f_locals[var])
@@ -113,6 +137,11 @@ class FrameScope:
 
 @dataclass
 class DummyScope:
+    """
+    Wrapper for emulating a scope with a set of global and local variables.
+    Used for parsing patterns, which should not be able to capture local variables from the enclosing scope.
+    """
+
     global_dict: dict[str, Any]
     local_dict: dict[str, Any]
 
@@ -123,7 +152,9 @@ class DummyScope:
         return self.local_dict.copy()
 
 
-Scope = Union[DummyScope, FrameScope]
+Scope = Union[
+    DummyScope, FrameScope
+]  # Type to represent scopes, which have an API for getting global and local variables.
 
 
 def get_parent_scope(*, depth) -> Scope:
@@ -174,33 +205,53 @@ def pattern(s, filename=None, lineno=None, srclocals=None, srcglobals=None):
     return parser.result()
 
 
+# These constants are used to name helper variables that allow the metalanguage to be parsed and evaluated.
+# All of them start with two underscores, so there is not collision in names if the user avoids using names
+# with two underscores.
 QUOTE_CALLBACK_PREFIX = "__quote_callback"
 OUTER_SCOPE_HELPER = "__outer_scope"
 NESTED_SCOPE_HELPER = "__nested_scope"
 UNQUOTE_RETURN_HELPER = "__unquote_val"
 QUOTE_STMT_PROCESSOR = "__process_quote_stmt"
+
 QUOTE_BLOCK_KEYWORD = "exo"
 UNQUOTE_BLOCK_KEYWORD = "python"
 
 
 @dataclass
 class ExoExpression:
+    """
+    Opaque wrapper class for representing expressions in object code. Can be unquoted.
+    """
+
     _inner: Any  # note: strict typing is not possible as long as PAST/UAST grammar definition is not static
 
 
 @dataclass
 class ExoStatementList:
+    """
+    Opaque wrapper class for representing a list of statements in object code. Can be unquoted.
+    """
+
     _inner: tuple[Any, ...]
 
 
 @dataclass
 class QuoteReplacer(pyast.NodeTransformer):
+    """
+    Replace quotes (Exo object code statements/expressions) in the metalanguage with calls to
+    helper functions that will parse and return the quoted code.
+    """
+
     src_info: SourceInfo
     exo_locals: dict[str, Any]
     unquote_env: "UnquoteEnv"
     inside_function: bool = False
 
     def visit_With(self, node: pyast.With) -> pyast.Any:
+        """
+        Replace quoted statements. These will begin with "with exo:".
+        """
         if (
             len(node.items) == 1
             and isinstance(node.items[0].context_expr, pyast.Name)
@@ -254,6 +305,9 @@ class QuoteReplacer(pyast.NodeTransformer):
             return super().generic_visit(node)
 
     def visit_UnaryOp(self, node: pyast.UnaryOp) -> Any:
+        """
+        Replace quoted expressions. These will look like "~{...}".
+        """
         if (
             isinstance(node.op, pyast.Invert)
             and isinstance(node.operand, pyast.Set)
@@ -286,6 +340,10 @@ class QuoteReplacer(pyast.NodeTransformer):
         )
 
     def visit_FunctionDef(self, node: pyast.FunctionDef):
+        """
+        Record whether we are inside a function definition in the metalanguage, so that we can
+        prevent return statements that occur outside a function.
+        """
         was_inside_function = self.inside_function
         self.inside_function = True
         result = super().generic_visit(node)
@@ -310,11 +368,21 @@ class QuoteReplacer(pyast.NodeTransformer):
 
 @dataclass
 class UnquoteEnv:
+    """
+    Record of all the context needed to interpret a block of metalanguage code.
+    This includes the local and global variables of the scope that the metalanguage code will be evaluated in
+    and the Exo variables of the surrounding object code.
+    """
+
     parent_globals: dict[str, Any]
     parent_locals: dict[str, Local]
     exo_local_vars: dict[str, Any]
 
     def mangle_name(self, prefix: str) -> str:
+        """
+        Create unique names for helper functions that are used to parse object code
+        (see QuoteReplacer).
+        """
         index = 0
         while True:
             mangled_name = f"{prefix}{index}"
@@ -326,6 +394,10 @@ class UnquoteEnv:
             index += 1
 
     def register_quote_callback(self, quote_callback: Callable[..., Any]) -> str:
+        """
+        Store helper functions that are used to parse object code so that they may be referenced
+        when we interpret the metalanguage code.
+        """
         mangled_name = self.mangle_name(QUOTE_CALLBACK_PREFIX)
         self.parent_locals[mangled_name] = BoundLocal(quote_callback)
         return mangled_name
@@ -335,6 +407,14 @@ class UnquoteEnv:
         stmts: list[pyast.stmt],
         quote_stmt_processor: Optional[Callable[[Any], None]],
     ) -> Any:
+        """
+        Interpret a metalanguage block of code. This is done by pasting the AST of the metalanguage code
+        into a helper function that sets up the local variables that need to be referenced in the metalanguage code,
+        and then calling that helper function.
+
+        This function is also used to parse metalanguage expressions by representing the expressions as return statements
+        and saving the output returned by the helper function.
+        """
         bound_locals = {
             name: val.val for name, val in self.parent_locals.items() if val is not None
         }
@@ -486,6 +566,9 @@ class UnquoteEnv:
         return env_locals[UNQUOTE_RETURN_HELPER]
 
     def interpret_unquote_expr(self, expr: pyast.expr):
+        """
+        Parse a metalanguage expression using the machinery provided by interpret_unquote_block.
+        """
         return self.interpret_unquote_block([pyast.Return(value=expr)], None)
 
 
