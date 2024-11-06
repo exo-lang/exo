@@ -1,3 +1,7 @@
+EXO IR:
+def foo(a: f64 @ DRAM):
+    a = sin(a)
+C:
 #include "test.h"
 
 #include <stdio.h>

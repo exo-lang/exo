@@ -1,3 +1,8 @@
+EXO IR:
+def foo(a: i8 @ DRAM, x: i8[2] @ DRAM):
+    a += x[0]
+    a += x[1]
+C:
 #include "test.h"
 
 #include <stdio.h>

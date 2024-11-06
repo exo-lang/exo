@@ -1,3 +1,7 @@
+EXO IR:
+def foo(a: i8 @ DRAM, b: i8 @ DRAM):
+    a = b
+C:
 #include "test.h"
 
 #include <stdio.h>

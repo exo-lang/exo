@@ -1,3 +1,11 @@
+EXO IR:
+def foo(a: [i8][2, 2] @ DRAM):
+    a[0, 0] += a[0, 1]
+    a[1, 0] += a[1, 1]
+def bar(a: i8[10, 10, 10] @ DRAM):
+    for i in seq(0, 7):
+        foo(a[i, i:i + 2, i + 1:i + 3])
+C:
 #include "test.h"
 
 #include <stdio.h>
