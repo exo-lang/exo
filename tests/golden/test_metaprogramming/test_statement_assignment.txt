@@ -1,3 +1,10 @@
+EXO IR:
+def foo(a: i32 @ DRAM):
+    a += 1
+    a += 2
+    a += 1
+    a += 2
+C:
 #include "test.h"
 
 #include <stdio.h>

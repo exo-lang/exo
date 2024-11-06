@@ -19,7 +19,7 @@ def test_unrolling(golden):
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
 
-    assert c_file == golden
+    assert f"EXO IR:\n{str(foo)}\nC:\n{c_file}" == golden
 
 
 def test_conditional(golden):
@@ -37,10 +37,11 @@ def test_conditional(golden):
 
         return bar
 
-    c_file, _ = compile_procs_to_strings(
-        [rename(foo(False), "bar1"), rename(foo(True), "bar2")], "test.h"
-    )
-    assert c_file == golden
+    bar1 = rename(foo(False), "bar1")
+    bar2 = rename(foo(True), "bar2")
+
+    c_file, _ = compile_procs_to_strings([bar1, bar2], "test.h")
+    assert f"EXO IR:\n{str(bar1)}\n{str(bar2)}\nC:\n{c_file}" == golden
 
 
 def test_scoping(golden):
@@ -51,7 +52,7 @@ def test_scoping(golden):
         a = {a}
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
-    assert c_file == golden
+    assert f"EXO IR:\n{str(foo)}\nC:\n{c_file}" == golden
 
 
 def test_scope_nesting(golden):
@@ -65,7 +66,7 @@ def test_scope_nesting(golden):
                 a = {~{b} if x == 3 and y == 2 else ~{a}}
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
-    assert c_file == golden
+    assert f"EXO IR:\n{str(foo)}\nC:\n{c_file}" == golden
 
 
 def test_global_scope():
@@ -92,7 +93,7 @@ def test_constant_lifting(golden):
         a = {(x**x + x) / x}
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
-    assert c_file == golden
+    assert f"EXO IR:\n{str(foo)}\nC:\n{c_file}" == golden
 
 
 def test_type_params(golden):
@@ -108,10 +109,11 @@ def test_type_params(golden):
 
         return bar
 
-    c_file, _ = compile_procs_to_strings(
-        [rename(foo("i32", "i8"), "bar1"), rename(foo("f64", "f64"), "bar2")], "test.h"
-    )
-    assert c_file == golden
+    bar1 = rename(foo("i32", "i8"), "bar1")
+    bar2 = rename(foo("f64", "f64"), "bar2")
+
+    c_file, _ = compile_procs_to_strings([bar1, bar2], "test.h")
+    assert f"EXO IR:\n{str(bar1)}\n{str(bar2)}\nC:\n{c_file}" == golden
 
 
 def test_captured_closure(golden):
@@ -129,7 +131,7 @@ def test_captured_closure(golden):
                     a += {cell[0]}
 
     c_file, _ = compile_procs_to_strings([bar], "test.h")
-    assert c_file == golden
+    assert f"EXO IR:\n{str(bar)}\nC:\n{c_file}" == golden
 
 
 def test_capture_nested_quote(golden):
@@ -143,7 +145,7 @@ def test_capture_nested_quote(golden):
                     a = {a}
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
-    assert c_file == golden
+    assert f"EXO IR:\n{str(foo)}\nC:\n{c_file}" == golden
 
 
 def test_quote_elision(golden):
@@ -158,7 +160,7 @@ def test_quote_elision(golden):
                 b = {bar()}
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
-    assert c_file == golden
+    assert f"EXO IR:\n{str(foo)}\nC:\n{c_file}" == golden
 
 
 def test_unquote_elision(golden):
@@ -170,7 +172,7 @@ def test_unquote_elision(golden):
                 a = a * x
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
-    assert c_file == golden
+    assert f"EXO IR:\n{str(foo)}\nC:\n{c_file}" == golden
 
 
 def test_scope_collision1(golden):
@@ -187,7 +189,7 @@ def test_scope_collision1(golden):
                         a = c
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
-    assert c_file == golden
+    assert f"EXO IR:\n{str(foo)}\nC:\n{c_file}" == golden
 
 
 def test_scope_collision2(golden):
@@ -199,7 +201,7 @@ def test_scope_collision2(golden):
                 b = a
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
-    assert c_file == golden
+    assert f"EXO IR:\n{str(foo)}\nC:\n{c_file}" == golden
 
 
 def test_scope_collision3():
@@ -225,7 +227,7 @@ def test_type_quote_elision(golden):
         a += x[1]
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
-    assert c_file == golden
+    assert f"EXO IR:\n{str(foo)}\nC:\n{c_file}" == golden
 
 
 def test_unquote_in_slice(golden):
@@ -242,7 +244,7 @@ def test_unquote_in_slice(golden):
                     foo(a[i, {x} : {2 * x}])
 
     c_file, _ = compile_procs_to_strings([foo, bar], "test.h")
-    assert c_file == golden
+    assert f"EXO IR:\n{str(foo)}\n{str(bar)}\nC:\n{c_file}" == golden
 
 
 def test_unquote_slice_object1(golden):
@@ -259,7 +261,7 @@ def test_unquote_slice_object1(golden):
                         foo(a[i, s])
 
     c_file, _ = compile_procs_to_strings([foo, bar], "test.h")
-    assert c_file == golden
+    assert f"EXO IR:\n{str(foo)}\n{str(bar)}\nC:\n{c_file}" == golden
 
 
 def test_unquote_slice_object2():
@@ -294,7 +296,7 @@ def test_unquote_index_tuple(golden):
                     foo(a[i, {get_index(i)}])
 
     c_file, _ = compile_procs_to_strings([foo, bar], "test.h")
-    assert c_file == golden
+    assert f"EXO IR:\n{str(foo)}\n{str(bar)}\nC:\n{c_file}" == golden
 
 
 def test_unquote_err():
@@ -320,7 +322,7 @@ def test_quote_complex_expr(golden):
                 a = {bar(~{a + 1})}
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
-    assert c_file == golden
+    assert f"EXO IR:\n{str(foo)}\nC:\n{c_file}" == golden
 
 
 def test_statement_assignment(golden):
@@ -339,7 +341,7 @@ def test_statement_assignment(golden):
                 {s}
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
-    assert c_file == golden
+    assert f"EXO IR:\n{str(foo)}\nC:\n{c_file}" == golden
 
 
 def test_statement_in_expr():
@@ -403,7 +405,7 @@ def test_unary_ops(golden):
                 a = x
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
-    assert c_file == golden
+    assert f"EXO IR:\n{str(foo)}\nC:\n{c_file}" == golden
 
 
 def test_return_in_async():
@@ -425,7 +427,7 @@ def test_local_externs(golden):
         a = my_sin(a)
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
-    assert c_file == golden
+    assert f"EXO IR:\n{str(foo)}\nC:\n{c_file}" == golden
 
 
 def test_unquote_multiple_exprs():
@@ -498,3 +500,16 @@ def test_typecheck_unquote_index():
                 x = "0"
                 with exo:
                     a[x] = 0
+
+
+def test_proc_shadowing(golden):
+    @proc
+    def sin(a: f32):
+        a = 0
+
+    @proc
+    def foo(a: f32):
+        sin(a)
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+    assert f"EXO IR:\n{str(foo)}\nC:\n{c_file}" == golden
