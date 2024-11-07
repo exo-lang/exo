@@ -1,12 +1,7 @@
-#include <stdint.h>
 #include <stdio.h>
 #include <time.h>
 
-// generated from exo
-void rank_k_reduce_6x16(
-    void *ctxt, int_fast32_t K, const float *A, const float *B, float *C);
-void rank_k_reduce_6x16_scheduled(
-    void *ctxt, int_fast32_t K, const float *A, const float *B, float *C);
+#include "avx2_matmul.h"
 
 #define K 2048
 static float A[6 * K];
@@ -35,8 +30,6 @@ void initialize() {
 int main() {
   clock_t start, end;
   int msec;
-
-  initialize();
 
   // Calling original matmul
   start = clock();
