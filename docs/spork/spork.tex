@@ -235,42 +235,59 @@ if cuda_thread in (128, 256):
 }
 
 \filbreak
-\myKey{Actor Kind:} In Exo currently, we assume all code is executed on the CPU, or with accelerator functions that operate \textit{synchronously} with the CPU.
+\myKey{Actor Kind, Actor Signature:} In Exo currently, we assume all code is executed on the CPU, or with accelerator functions that operate \textit{synchronously} with the CPU.
 In other words, there's no concept of memory availability or visibility: A happens-before B is enough to ensure B sees the effects of A's action.
 With Exo-GPU, we have to keep track of ``who'' is executing a certain instruction and take into account memory visibility.
 At a minimum, this ``who'' is either the host CPU or the CUDA device; furthermore, we need specialized ``whos'' that represent different categories of asynchronous CUDA operations (async memcpy, wgmma).
-For now I'm proposing that we use the term ``actor kind'' for this, since in a dynamic trace of a program, we're labeling each \textit{action} with the kind of \textit{actor} that executed it.
+For now I'm proposing that we use the term ``actor kind'' for this, since in a dynamic trace of a program, we're ``signing'' each \textit{action} with the kind of \textit{actor} that executed it.
 
 \filbreak
 The default CPU and CUDA actor kinds are sequential; all others are asynchronous actor kinds.
+Each read or write is performed with a specific ``actor signature''.
+An ``actor kind'' is formally a set of actor signatures; the actor kinds are used to annotate blocks of code (see async for), \lighttt{@instr} procs, and synchronizaton statements.
+For async for and \lighttt{@instr}, the actor kind specifies the allowed set of actor signatures for reads and writes performed.
+For synchronization statements, the actor kind acts as a filter of the reads/writes that the statement is capable of synchronizing (filter by matching actor signature).
+%% Need synchronization environment semantics!
 
-Note, this was formerly something I called ``execution model'' (xmodel).
-
+\filbreak
 \hook{Hook:} Will need to be able to identify the actor kind for any LoopIR node (traverse root to node), account for this in LoopIR simplification and accelerator instructions, and account for this when checking if a memory type can be read/written/reduced.
+
+\filbreak
+\myKey{List of actor signatures:} The separate actor kinds for the two types of wgmma register accesses are needed in order to handle the special implicit synchronization for back-to-back wgmma writes to accumulators.
+\begin{align*}
+\lighttt{sig\_cpu: } & \text{Default CPU}\\
+\lighttt{sig\_cuda\_sync: } & \text{Default CUDA (synchronous CUDA instructions)}\\
+\lighttt{sig\_non\_bulk\_cp\_async: } & \text{Ampere \lighttt{cp.async} (async memcpy in generic proxy)}\\
+\lighttt{sig\_tma\_to\_shared: } & \text{Hopper TMA \lighttt{cp.bulk.async} to shared memory}\\
+\lighttt{sig\_tma\_to\_global: } & \text{Hopper TMA \lighttt{cp\{.reduce\}.bulk.async} to global memory}\\
+\lighttt{sig\_wgmma\_reg\_a: } & \text{wgmma access to `A' parameter when stored in registers}\\
+\lighttt{sig\_wgmma\_reg\_d: } & \text{wgmma access to `D' parameter (accumulator) when stored in registers}\\
+\lighttt{sig\_wgmma\_mem: } & \text{wgmma access to shared memory (either `A' or `B' parameter)}
+\end{align*}
 
 \filbreak
 \myKey{List of actor kinds:} Greyed-out actor kinds are ``synthetic'' and cannot be used to label actual code or \lighttt{instr}s.
 They are valid only for synchronization statements (later), and represent subsets or supersets of other actor kinds.
 \begin{align*}
-\texttt{cpu: } & \text{Default CPU}\\
-\graytt{cuda\_all: } & \text{All actions on a CUDA device}\\
-\texttt{cuda\_sync: } & \text{Default CUDA (synchronous CUDA instructions)}\\
-\texttt{non\_bulk\_cp\_async: } & \text{Ampere \lighttt{cp.async}, (async memcpy in generic proxy)}\\
-\graytt{cuda\_generic: } & \text{Generic proxy; \lighttt{cuda\_sync} $\cup$ \lighttt{non\_bulk\_cp\_async}}\\
-\texttt{tma\_to\_shared\_async: } & \text{Hopper TMA \lighttt{cp.bulk.async} to shared memory}\\
-\texttt{tma\_to\_global\_async: } & \text{Hopper TMA \lighttt{cp\{.reduce\}.bulk.async} to global memory}\\
-\texttt{wgmma\_async: } & \text{wgmma instructions}\\
-\graytt{wgmma\_async\_reg: } & \text{actions on wgmma register tiles by wgmma instructions}\\
-\graytt{wgmma\_async\_mem: } & \text{actions on shared memory by wgmma instructions}\\
-\graytt{wgmma\_reg: } & \text{actions on wgmma register tiles, by wgmma or synchronous instructions}
+\texttt{cpu: } & \{\lighttt{sig\_cpu}\}\\
+\graytt{cuda\_all: } & \text{All actor signatures except \lighttt{sig\_cpu}}\\
+\texttt{cuda\_sync: } & \text{Default CUDA; \{\lighttt{sig\_cuda\_sync}\}}\\
+\texttt{non\_bulk\_cp\_async: } & \{\lighttt{sig\_non\_bulk\_cp\_async}\}\\
+\graytt{cuda\_generic: } & \text{Generic proxy; \{\lighttt{sig\_cuda\_sync}, \lighttt{sig\_non\_bulk\_cp\_async}\}}\\
+\texttt{tma\_to\_shared\_async: } & \text{\{\lighttt{sig\_tma\_to\_shared}\}}\\
+\texttt{tma\_to\_global\_async: } & \text{\{\lighttt{sig\_tma\_to\_global}\}}\\
+\texttt{wgmma\_async: } & \text{wgmma instructions; \{\lighttt{sig\_wgmma\_*}\}}\\
+\graytt{wgmma\_async\_reg: } & \text{actions on wgmma register tiles by wgmma instructions; \{\lighttt{sig\_wgmma\_reg\_*}\}}\\
+\graytt{wgmma\_async\_mem: } & \text{actions on shared memory by wgmma instructions; \{\lighttt{sig\_wgmma\_mem}\}}\\
+\graytt{wgmma\_reg: } & \text{\{\lighttt{sig\_cuda\_sync}, \lighttt{sig\_wgmma\_reg\_*}\}}
 \end{align*}
 
 \filbreak
 \myKey{Async-for:} We will introduce a new ``async-for'' loop construct, with tentative syntax \lighttt{for \_ in \{actor\_kind\}(lo, hi)}.
 This labels child code as being executed with a different actor kind (i.e. eligible for substitution with asynchronous CUDA accelerator instructions).
-\lighttt{@instr} will have to accept an optional actor kind parameter as well (defaults to CPU).
+\lighttt{@instr} will have to accept actor signature annotations on parameters as well (defaults to \lighttt{sig\_cpu}).
 
-If an async actor kind is given, then child statements are considered to execute with an asynchronous actor kind, marking them as eligible for replacement with asynchronous CUDA constructs.
+If an async actor kind is given, then child statements are considered to execute with an asynchronous actor kind, marking them as eligible for replacement with asynchronous CUDA constructs (more specifically, with instructions whose actor signatures are a subset of the signature set defining the actor kind).
 The for loop and all child for loops are considered async-for loops in this case.
 Child for loops must not be parallel-for loops, and must not specify a different actor kind.
 The iteration variable is an \textbf{async-temporal loop index}.
@@ -302,6 +319,7 @@ Example:
 \filbreak
 \myKey{Sequential-for:} for loops other than as described above are sequential-for loops.
 The iteration variable is a \textbf{sync-temporal loop index}.
+(Note, maybe the sync-temporal vs async-temporal distinction is not so important, but I think spatial vs temporal clearly is).
 
 \hook{Hook:} Need to teach Exo that parallel-for and async-for loops are to be treated as ordinary for loops under S-semantics.
 
