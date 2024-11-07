@@ -239,7 +239,8 @@ if cuda_thread in (128, 256):
 In other words, there's no concept of memory availability or visibility: A happens-before B is enough to ensure B sees the effects of A's action.
 With Exo-GPU, we have to keep track of ``who'' is executing a certain instruction and take into account memory visibility.
 At a minimum, this ``who'' is either the host CPU or the CUDA device; furthermore, we need specialized ``whos'' that represent different categories of asynchronous CUDA operations (async memcpy, wgmma).
-For now I'm proposing that we use the term ``actor kind'' for this, since in a dynamic trace of a program, we're ``signing'' each \textit{action} with the kind of \textit{actor} that executed it.
+Furthermore, it may matter ``how'' the value was accessed by a particular accelerator (e.g. wgmma has different handling for accumulators, input-only registers, and shared memory).
+For now I'm proposing that we use the term ``actor kind'' for the ``who'' and ``actor sigature'' for the ``how'', since in a dynamic trace of a program, we're ``signing'' each \textit{action} with the kind of \textit{actor} that executed it.
 
 \filbreak
 The default CPU and CUDA actor kinds are sequential; all others are asynchronous actor kinds.
