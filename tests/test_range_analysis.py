@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from exo.stdlib.scheduling import *
 from exo import proc
-from exo.range_analysis import (
+from exo.rewrite.range_analysis import (
     constant_bound,
     arg_range_analysis,
     IndexRangeEnvironment,
@@ -11,7 +11,7 @@ from exo.stdlib.range_analysis import (
     infer_range,
     bounds_inference,
 )
-from exo.LoopIR import LoopIR, T
+from exo.core.LoopIR import LoopIR, T
 
 
 def test_affine_index_range():

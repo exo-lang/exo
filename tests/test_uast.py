@@ -1,7 +1,14 @@
 from __future__ import annotations
 
+import pytest
+
 from exo import DRAM
-from exo.pyparser import Parser, get_src_locals, get_ast_from_python
+from exo.frontend.pyparser import (
+    Parser,
+    get_src_locals,
+    get_ast_from_python,
+    ParseError,
+)
 
 
 def to_uast(f):
@@ -10,7 +17,7 @@ def to_uast(f):
         body,
         getsrcinfo,
         func_globals=f.__globals__,
-        srclocals=get_src_locals(depth=3),
+        srclocals=get_src_locals(depth=2),
         instr=("TEST", ""),
         as_func=True,
     )
@@ -57,3 +64,58 @@ def test_alloc_nest(golden):
                 res[i, j] = rloc[j]
 
     assert str(to_uast(alloc_nest)) == golden
+
+
+global_str = "What is 6 times 9?"
+global_num = 42
+
+
+def test_variable_lookup_positive():
+    def func(f: f32):
+        for i in seq(0, 42):
+            f += 1
+
+    reference = to_uast(func)
+
+    def func(f: f32):
+        for i in seq(0, global_num):
+            f += 1
+
+    test_global = to_uast(func)
+    assert str(test_global) == str(reference)
+
+    local_num = 42
+
+    def func(f: f32):
+        for i in seq(0, local_num):
+            f += 1
+
+    test_local = to_uast(func)
+    assert str(test_local) == str(reference)
+
+
+def test_variable_lookup_type_error():
+    def func(f: f32):
+        for i in seq(0, global_str):
+            f += 1
+
+    with pytest.raises(ParseError, match="type <class 'str'>"):
+        to_uast(func)
+
+    local_str = "xyzzy"
+
+    def func(f: f32):
+        for i in seq(0, local_str):
+            f += 1
+
+    with pytest.raises(ParseError, match="type <class 'str'>"):
+        to_uast(func)
+
+
+def test_variable_lookup_name_error():
+    def func(f: f32):
+        for i in seq(0, xyzzy):
+            f += 1
+
+    with pytest.raises(ParseError, match="'xyzzy' undefined"):
+        to_uast(func)

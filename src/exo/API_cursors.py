@@ -7,18 +7,18 @@ from typing import List, Any
 
 from . import API  # TODO: remove this circular import
 from .API_types import ExoType, loopir_type_to_exotype
-from .LoopIR import LoopIR
-from .configs import Config
-from .memory import Memory
+from .core.LoopIR import LoopIR
+from .core.configs import Config
+from .core.memory import Memory
 
-from . import internal_cursors as C
-from .pattern_match import match_pattern
-from .prelude import Sym
+from .core import internal_cursors as C
+from .frontend.pattern_match import match_pattern
+from .core.prelude import Sym
 
 # expose this particular exception as part of the API
-from .internal_cursors import InvalidCursorError
-from .LoopIR_pprint import _print_cursor
-from .LoopIR_scheduling import SchedulingError
+from .core.internal_cursors import InvalidCursorError
+from .core.LoopIR_pprint import _print_cursor
+from .rewrite.LoopIR_scheduling import SchedulingError
 
 
 # --------------------------------------------------------------------------- #
@@ -72,9 +72,8 @@ class Cursor(ABC):
                | Literal( value : bool, int, or float )
                | UnaryMinus( arg : Expr )
                | BinaryOp( op : str, lhs : Expr, rhs : Expr )
-               | BuiltIn( name : str, args : ExprList )
+               | Extern( name : str, args : ExprList )
                | WindowExpr( name : str, idx : *(see below) )
-               | BuiltIn( name : str, args : ExprList )
 
         The `idx` argument of `WindowExpr` is a list containing either
         `Expr` or `(Expr,Expr)` (a pair of expressions) at each position.
@@ -128,8 +127,8 @@ class Cursor(ABC):
             return InvalidCursor()
         return lift_cursor(impl_parent, self._proc)
 
-    def find(self, pattern, many=False):
-        return find(self._impl, self._proc, pattern, many)
+    def find(self, pattern, many=False, call_depth=1):
+        return find(self._impl, self._proc, pattern, many, call_depth=call_depth + 1)
 
     def _child_node(self, *args, **kwargs):
         return lift_cursor(self._impl._child_node(*args, **kwargs), self._proc)
@@ -783,7 +782,7 @@ class BinaryOpCursor(ExprCursor):
         return self._child_node("rhs")
 
 
-class BuiltInFunctionCursor(ExprCursor):
+class ExternFunctionCursor(ExprCursor):
     """
     Cursor pointing to the call to some built-in function
         `name ( args )`
@@ -791,13 +790,13 @@ class BuiltInFunctionCursor(ExprCursor):
 
     def name(self) -> str:
         assert isinstance(self._impl, C.Node)
-        assert isinstance(self._impl._node, LoopIR.BuiltIn)
+        assert isinstance(self._impl._node, LoopIR.Extern)
 
         return self._impl._node.f.name()
 
     def args(self) -> ExprListCursor:
         assert isinstance(self._impl, C.Node)
-        assert isinstance(self._impl._node, LoopIR.BuiltIn)
+        assert isinstance(self._impl._node, LoopIR.Extern)
 
         return ExprListCursor(self._impl._child_block("args"), self._proc)
 
@@ -923,8 +922,8 @@ def lift_cursor(impl, proc):
             return UnaryMinusCursor(impl, proc)
         elif isinstance(n, LoopIR.BinOp):
             return BinaryOpCursor(impl, proc)
-        elif isinstance(n, LoopIR.BuiltIn):
-            return BuiltInFunctionCursor(impl, proc)
+        elif isinstance(n, LoopIR.Extern):
+            return ExternFunctionCursor(impl, proc)
         elif isinstance(n, LoopIR.WindowExpr):
             return WindowExprCursor(impl, proc)
         elif isinstance(n, LoopIR.StrideExpr):
@@ -937,7 +936,7 @@ def lift_cursor(impl, proc):
         assert False, f"bad case: {type(impl)}"
 
 
-def find(scope: C, proc: API.Procedure, pattern: str, many: bool):
+def find(scope: C, proc: API.Procedure, pattern: str, many: bool, call_depth=1):
     """
     Find the most specific possible cursor for the given pattern in
     the given scope of the proc. For example, a pattern matching a
@@ -953,7 +952,7 @@ def find(scope: C, proc: API.Procedure, pattern: str, many: bool):
         raise TypeError("expected a pattern string")
     default_match_no = None if many else 0
     raw_cursors = match_pattern(
-        scope, pattern, call_depth=1, default_match_no=default_match_no
+        scope, pattern, call_depth=call_depth + 1, default_match_no=default_match_no
     )
     assert isinstance(raw_cursors, list)
     cursors = []
@@ -1000,7 +999,7 @@ __all__ = [
     "LiteralCursor",
     "UnaryMinusCursor",
     "BinaryOpCursor",
-    "BuiltInFunctionCursor",
+    "ExternFunctionCursor",
     "WindowExprCursor",
     "StrideExprCursor",
     #

@@ -7,7 +7,7 @@ from exo import proc
 from exo.stdlib.scheduling import *
 from .amx import *
 from .harness_amx import AMXTestBuilder
-from exo.memory import MemGenError
+from exo.core.memory import MemGenError
 
 
 def reorder_back(proc, pattern):

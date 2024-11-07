@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from exo.API_cursors import *
-from exo.LoopIR import get_reads_of_expr, LoopIR  # TODO: get rid of this
+from exo.core.LoopIR import get_reads_of_expr, LoopIR  # TODO: get rid of this
 
 from .range_analysis import bounds_inference
 from .scheduling import *
