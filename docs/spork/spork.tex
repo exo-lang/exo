@@ -452,24 +452,15 @@ To be honest the more I think about it, the more questionable it seems to try to
 \newpage
 \myTitle{Proposed Model \& Vocabulary}
 
-The point of this for now is to try to frame our thinking and set up some vocabulary to further discuss the problem -- this is ``non-constructive'' in that I will have to learn more about formal program analysis and Exo's solver to figure out how to implement this.
-
 The goal is to prove equivalence between single-threaded semantics and multi-threaded semantics.
 I'll refer to them as ``S-semantics'' and ``M-semantics''.
 Furthermore the prefix S- and M- will mean ``under single-threaded semantics'' or ``under multi-threaded semantics'' respectively, e.g., ``write X is S-prior to read Y means ``write X is prior to read Y under single-threaded semantics''.
 
-\filbreak
-\mySub{Concepts}
-
-For illustration, imagine that the Exo program is being simulated sequentially by an ``S-machine'', which builds a graph of execution nodes (xnodes) and execution edges (xedges).
-Statements executed are grouped into xnodes, tagged with the parlane and actor kind used to execute them.
-The (directed) xedges connecting xnodes represent synchronization.
-We then analyze this graph to ensure the xedges generated are sufficient to ensure the same results had the program been simulated on an M-machine.
-
-\filbreak
-Originally my hope was to implement this with static formal program analysis i.e. without actually doing this simulation.
+Originally my hope was to implement safety with static formal program analysis.
 Talking to William and Jonathan, I've come to see that it's best to forget this for now and focus on (a) getting the CUDA backend for Exo written at all and (b) doing dynamic correctness verification first.
-Nevertheless I'll keep the notes I wrote about static verification here for now (in particular the parview feature).
+
+\filbreak
+\mySub{Program Concepts}
 
 \filbreak
 \myKey{Parscope:} Each parscope is defined by its \textit{resources}, \textit{lane unit type}, \textit{shape}, and its parent parlane (except the top-level parscope, representing the main CPU thread, has no parent). Two parscopes are the same when all these values match. A parscope is created when executing parallel-for loops of the form
@@ -504,11 +495,15 @@ Two parlanes are equal when they come from the same parscope and correspond to t
 \myKey{Temporal/Spatial Loop Index:} Loop index variables are ``spatial'' if they correspond to a parallel-for loop and ``temporal'' otherwise, with temporal loop indices further distinguished as ``sync-temporal'' for sequential-for loops and ``async-temporal'' for async-for loops.
 
 \filbreak
-\myKey{Actor kind:}
-The actor kind is an attribute of each memory read or write performed, as defined by the async-loop construct.
+\myKey{Actor signature:}
+The actor signature is an attribute of each memory read or write performed, which may vary based on which accelerator performed it.
 
 \filbreak
-\myKey{Hazard Eligibility:} In the context of analyzing a write operation, a read operation or another write operation is considered to be \textit{hazard-ineligible} if any of the following:
+\myKey{Actor Kind:}
+Set of actor signatures.
+
+\filbreak
+\myKey{Hazard Eligibility:} (Abandoned boilerplate related to static safety checks) In the context of analyzing a write operation, a read operation or another write operation is considered to be \textit{hazard-ineligible} if any of the following apply:
 
 \begin{enumerate}
   \item The operations are not using the same variable.
@@ -519,57 +514,7 @@ The actor kind is an attribute of each memory read or write performed, as define
 If none of these apply, the operation in question is \textit{hazard-eligible}.
 
 \filbreak
-\myKey{Execution Node (xnode):}
-Vertices of the graph being built for analysis.
-The S-machine records reads and writes performed as xnodes, with each xnode tracking the access set (reads and writes), the parlane used, and the actor kind used.
-
-When simulating code under the sequential actor kind, the S-machine may group the effects of a block of sequential statements into one xnode, as long as the executing parlane has not changed and no synchronization statement occurs in the block. When simulating code under an async actor kind, each statement must become its own xnode.
-
-Note that there is a total ordering of the xnodes under S-semantics.
-
-\filbreak
-\myKey{Access Sets:} Each xnode has a write set and a read set, tracking which variables were written to / read from, and optionally the parview used.
-Note array indices are not tracked.
-
-\hook{Hook:} Building these access sets will require some non-trivial introspection.
-It looks like the solver already has some notion of access sets, which would need to be extended to track parviews (I'm not sure if this will cause too much change to the core code for this experimental, possibly temporary project).
-The lack of index information should greatly simplify this.
-
-\filbreak
-\myKey{Execution Edge (xedge):} Directed edge connecting two xnodes.
-The S-machine generates explicit xedges between xnodes related by a synchronization operation.
-The S-machine generates implicit xedges between xnodes that are executed sequentially by the same parlane.
-To model all the async proxy complexity, we will have to store a \textit{lot} of info for each xedge, but at a minimum, each explicit xedge records the actor kind used for the arrive operation and the await operation (implicitly \lighttt{sequential} for \lighttt{barrier}, and implicitly \lighttt{sequential}-arrive, \lighttt{wgmma}-await for \lighttt{wgmma\_fence}).
-
-\filbreak
-\myKey{Execution Edge Admissibility:} Not all synchronization points can be used to handle all dependencies.
-A pair of writes, or a read and a write, are \textit{admissible} to an xedge if the underlying synchronization primitive is documented to protect the kind of memory operation done. For example, only non-async instructions' reads and writes are admissible to the xedges defined by a \lighttt{\_\_syncthreads}.
-
-\filbreak
-The most important restriction for an explicit xedge is that the actor kind used for the prior memory operation and the actor kind used for the subsequent memory operation must match, respectively, the actor kind used for the arrive and await.
-
-\filbreak
-Implicit xedges (defined between subsequent xnodes executed with the same parlane) admit only reads and writes with a sequential actor kind, except for the special ``same matrix format'' exception for \lighttt{wgmma} accumulators.
-
-\filbreak
-An xedge may further restrict the types of memory types for admissible memory operations, e.g., the xedges defined by the \lighttt{wgmma.fence} further restrict admissibility to register reads and writes.
-
-\filbreak
-\mySub{Safety Checking}
-
-The hypothetical model I'm imagining is that we simulate an S-machine that executes the program under S-semantics, constructing the graph of xnodes and xedges. Then, for each xnode $n_1$, and for each write $w_1$ recorded (variable-parview tuple) in the \textbf{write set} of the xnode $n_1$:
-\begin{enumerate}
-  \item Search backwards in S-order for the previous xnode $n_0$ that has a hazard-eligible write $w_0$.
-  \item Check that there exists a directed path of xedges from $n_0$ to $n_1$ that admit the pair of writes $(w_0, w_1)$ (WAW hazard check).
-  \item For each xnode $n_2$ in between $n_0$ and $n_1$ in S-order, if the read set of $n_2$ contains a hazard-eligible read,
-  \begin{enumerate}
-    \item Check that there exists a directed path of xedges from $n_0$ to $n_2$ that admit the write/read pair $(w_0, r)$ (RAW hazard check).
-    \item Check that there exists a directed path of xedges from $n_2$ to $n_1$ that admit the read/write pair $(r, w_1)$ (WAR hazard check).
-  \end{enumerate}
-\end{enumerate}
-This ensures that the program is both race free and that each read executed under M-semantics matches what would have been read in the equivalent program under S-semantics.
-
-Finally, we check that there exist no xedge cycles (deadlock freedom).
+\mySub{Synchronization Environment Semantics}
 
 \filbreak
 \mySub{Unanswered Questions}
