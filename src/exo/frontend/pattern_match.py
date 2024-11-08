@@ -265,7 +265,7 @@ class PatternMatch:
         elif isinstance(stmt, LoopIR.SyncStmt):
             if pat.sync_type == stmt.sync_type:
                 if stmt.sync_type.is_split():
-                    return self.match_name(pat.bar, stmt.bar)
+                    return self.match_e(pat.bar, stmt.bar)
                 else:
                     return True
             return False

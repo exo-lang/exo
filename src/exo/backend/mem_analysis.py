@@ -83,6 +83,9 @@ class MemoryAnalysis:
                 res += used_e(s.rhs)
             elif isinstance(s, LoopIR.WriteConfig):
                 res += used_e(s.rhs)
+            elif isinstance(s, LoopIR.SyncStmt):
+                if s.sync_type.is_split():
+                    res += used_e(s.bar)
             elif isinstance(s, LoopIR.If):
                 res += used_e(s.cond)
                 for b in s.body:

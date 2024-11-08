@@ -79,7 +79,7 @@ module LoopIR {
          | Reduce( sym name, type type, expr* idx, expr rhs )
          | WriteConfig( config config, string field, expr rhs )
          | Pass()
-         | SyncStmt( sync_type sync_type, sym? bar )  -- `bar` for arrive/await
+         | SyncStmt( sync_type sync_type, expr? bar )  -- `bar` for arrive/await
          | If( expr cond, stmt* body, stmt* orelse )
          | For( sym iter, expr lo, expr hi, stmt* body, loop_mode loop_mode )
          | Alloc( sym name, type type, mem mem )
@@ -185,7 +185,7 @@ module UAST {
             | WriteConfig ( config config, string field, expr rhs )
             | FreshAssign( sym name, expr rhs )
             | Pass    ()
-            | SyncStmt( sync_type sync_type, sym? bar )  -- `bar` for arrive/await
+            | SyncStmt( sync_type sync_type, expr? bar )  -- `bar` for arrive/await
             | If      ( expr cond, stmt* body,  stmt* orelse )
             | For     ( sym iter,  expr cond,   stmt* body )
             | Alloc   ( sym name, type type, mem? mem )
@@ -266,7 +266,7 @@ module PAST {
     stmt    = Assign  ( name name, expr* idx, expr rhs )
             | Reduce  ( name name, expr* idx, expr rhs )
             | Pass    ()
-            | SyncStmt( sync_type sync_type, name? bar )
+            | SyncStmt( sync_type sync_type, expr? bar )
             | If      ( expr cond, stmt* body, stmt* orelse )
             | For     ( name iter, expr lo, expr hi, stmt* body )
             | Alloc   ( name name, expr* sizes ) -- may want to add mem back in?
@@ -333,6 +333,7 @@ module CIR {
 @extclass(UAST.UINT8)
 @extclass(UAST.UINT16)
 @extclass(UAST.INT32)
+@extclass(UAST.Barrier)
 def shape(t):
     shp = t.hi if isinstance(t, UAST.Tensor) else []
     return shp
@@ -421,6 +422,7 @@ class T:
 @extclass(T.UINT8)
 @extclass(T.UINT16)
 @extclass(T.INT32)
+@extclass(T.Barrier)
 def shape(t):
     if isinstance(t, T.Window):
         return t.as_tensor.shape()

@@ -294,20 +294,20 @@ class TypeChecker:
         elif isinstance(stmt, UAST.Pass):
             return [LoopIR.Pass(stmt.srcinfo)]
         elif isinstance(stmt, UAST.SyncStmt):
-            barrier_sym = None
+            bar = None
 
             if stmt.sync_type.is_split():
-                barrier_sym = stmt.bar
-
-            if barrier_sym is not None:
-                _, typ = self.check_access(stmt, barrier_sym, (), lvalue=False)
-                if typ != T.barrier:
+                bar = self.check_e(stmt.bar)
+                if not isinstance(bar, LoopIR.Read):
+                    self.err(bar, "expected name of a barrier variable")
+                elif bar.idx:
+                    self.err(bar, "unexpected indexing of barrier variable")
+                elif bar.type != T.barrier:
                     self.err(
-                        stmt,
-                        f"{stmt.srcinfo}: expected {barrier_sym} to be barrier, not {typ}",
+                        bar, f"expected {bar.name} to be barrier type, not {bar.type}"
                     )
 
-            return [LoopIR.SyncStmt(stmt.sync_type, stmt.bar, stmt.srcinfo)]
+            return [LoopIR.SyncStmt(stmt.sync_type, bar, stmt.srcinfo)]
 
         elif isinstance(stmt, UAST.If):
             cond = self.check_e(stmt.cond, is_index=True)

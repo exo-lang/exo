@@ -982,20 +982,27 @@ class Compiler:
 
         elif isinstance(s, LoopIR.Alloc):
             name = self.new_varname(s.name, typ=s.type, mem=s.mem)
-            assert s.type.basetype().is_real_scalar()
-            assert s.type.basetype() != T.R
-            ctype = s.type.basetype().ctype()
-            mem = s.mem or DRAM
-            line = mem.alloc(name, ctype, self.shape_strs(s.type.shape()), s.srcinfo)
-
-            self.add_line(line)
+            if isinstance(s.type, T.Barrier):
+                self.add_line("// TODO implement barrier alloc")
+            else:
+                assert s.type.basetype().is_real_scalar()
+                assert s.type.basetype() != T.R
+                ctype = s.type.basetype().ctype()
+                mem = s.mem or DRAM
+                line = mem.alloc(
+                    name, ctype, self.shape_strs(s.type.shape()), s.srcinfo
+                )
+                self.add_line(line)
         elif isinstance(s, LoopIR.Free):
             name = self.env[s.name]
-            assert s.type.basetype().is_real_scalar()
-            ctype = s.type.basetype().ctype()
-            mem = s.mem or DRAM
-            line = mem.free(name, ctype, self.shape_strs(s.type.shape()), s.srcinfo)
-            self.add_line(line)
+            if isinstance(s.type, T.Barrier):
+                self.add_line("// TODO implement barrier free")
+            else:
+                assert s.type.basetype().is_real_scalar()
+                ctype = s.type.basetype().ctype()
+                mem = s.mem or DRAM
+                line = mem.free(name, ctype, self.shape_strs(s.type.shape()), s.srcinfo)
+                self.add_line(line)
         elif isinstance(s, LoopIR.Call):
             assert all(
                 a.type.is_win() == fna.type.is_win() for a, fna in zip(s.args, s.f.args)

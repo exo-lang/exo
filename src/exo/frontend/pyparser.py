@@ -419,7 +419,7 @@ class Parser:
             self.err(node, "Cannot pass barrier as argument")
 
         else:
-            typ = self.parse_num_type(typ_node, is_arg=True)
+            typ = self.parse_alloc_type(typ_node, is_arg=True)
 
             mem = self.eval_expr(mem_node) if mem_node else None
 
@@ -434,11 +434,11 @@ class Parser:
             node = node.left
         else:
             mem = None
-        typ = self.parse_num_type(node)
+        typ = self.parse_alloc_type(node)
         return typ, mem
 
-    def parse_num_type(self, node, is_arg=False):
-        # TODO we can't parse allocating barriers right now
+    def parse_alloc_type(self, node, is_arg=False):
+        """Parse numeric type or special barrier type"""
         if isinstance(node, pyast.Subscript):
             if isinstance(node.value, pyast.List):
                 if is_arg is not True:
@@ -499,6 +499,8 @@ class Parser:
 
             return typ
 
+        elif isinstance(node, pyast.Name) and node.id == "barrier":
+            return UAST.Barrier()
         elif isinstance(node, pyast.Name) and node.id in _prim_types:
             return _prim_types[node.id]
         elif isinstance(node, pyast.Name) and (
@@ -1193,17 +1195,6 @@ class Parser:
                 self.err(ast_name, f"Expected name of actor kind, not {ast_name.id}")
             return actor_kind
 
-        def parse_bar(ast_arg):
-            e = self.parse_expr(ast_arg)
-            if isinstance(e, PAST.E_Hole):
-                return "_"
-            elif isinstance(e, self.AST.Read):
-                if len(e.idx) > 0:
-                    self.err(ast_arg, "Unexpected indexing of barrier")
-                return e.name
-            else:
-                self.err(ast_arg, "Expected name for barrier")
-
         if len(ast_call.args) != 2 or ast_call.keywords:
             self.err(ast_call, f"{func_id} expects 2 arguments and no keywords")
 
@@ -1215,10 +1206,10 @@ class Parser:
 
         elif func_id == "Arrive":
             sync_type = arrive_type(parse_actor_kind(ast_call.args[0]))
-            bar = parse_bar(ast_call.args[1])
+            bar = self.parse_expr(ast_call.args[1])
 
         elif func_id == "Await":
-            bar = parse_bar(ast_call.args[0])
+            bar = self.parse_expr(ast_call.args[0])
             sync_type = await_type(parse_actor_kind(ast_call.args[1]))
 
         else:
