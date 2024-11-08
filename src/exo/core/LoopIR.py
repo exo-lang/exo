@@ -10,6 +10,7 @@ from .memory import Memory
 from .prelude import Sym, SrcInfo, extclass
 from ..spork.lane_units import LaneSpecialization
 from ..spork.loop_modes import LoopMode
+from ..spork.sync_types import SyncType
 
 # --------------------------------------------------------------------------- #
 # Validated string subtypes
@@ -78,7 +79,7 @@ module LoopIR {
          | Reduce( sym name, type type, expr* idx, expr rhs )
          | WriteConfig( config config, string field, expr rhs )
          | Pass()
-         | SyncStmt( sym A, sym B ) -- sym = actor_kind or barrier var
+         | SyncStmt( sync_type sync_type, sym? bar )  -- `bar` for arrive/await
          | If( expr cond, stmt* body, stmt* orelse )
          | For( sym iter, expr lo, expr hi, stmt* body, loop_mode loop_mode )
          | Alloc( sym name, type type, mem mem )
@@ -136,6 +137,7 @@ module LoopIR {
         "binop": validators.instance_of(Operator, convert=True),
         "srcinfo": SrcInfo,
         "loop_mode": LoopMode,
+        "sync_type": SyncType,
     },
     memoize={
         "Num",
@@ -183,7 +185,7 @@ module UAST {
             | WriteConfig ( config config, string field, expr rhs )
             | FreshAssign( sym name, expr rhs )
             | Pass    ()
-            | SyncStmt( sym A, sym B )
+            | SyncStmt( sync_type sync_type, sym? bar )  -- `bar` for arrive/await
             | If      ( expr cond, stmt* body,  stmt* orelse )
             | For     ( sym iter,  expr cond,   stmt* body )
             | Alloc   ( sym name, type type, mem? mem )
@@ -232,6 +234,7 @@ module UAST {
         "op": validators.instance_of(Operator, convert=True),
         "srcinfo": SrcInfo,
         "loop_mode": LoopMode,
+        "sync_type": SyncType,
     },
     memoize={
         "Num",
@@ -263,7 +266,7 @@ module PAST {
     stmt    = Assign  ( name name, expr* idx, expr rhs )
             | Reduce  ( name name, expr* idx, expr rhs )
             | Pass    ()
-            | SyncStmt( name A, name B )
+            | SyncStmt( sync_type sync_type, name? bar )
             | If      ( expr cond, stmt* body, stmt* orelse )
             | For     ( name iter, expr lo, expr hi, stmt* body )
             | Alloc   ( name name, expr* sizes ) -- may want to add mem back in?
@@ -287,6 +290,7 @@ module PAST {
         "name": validators.instance_of(IdentifierOrHole, convert=True),
         "op": validators.instance_of(Operator, convert=True),
         "srcinfo": SrcInfo,
+        "sync_type": SyncType,
     },
 )
 

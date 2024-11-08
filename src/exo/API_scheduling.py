@@ -351,7 +351,7 @@ class TypeAbbrevA(ArgumentProcessor):
             )
 
 
-# Allow loop mode or actor kind (implicitly translated to async-for loop)
+# Allow loop mode or async actor kind (implicitly translated to async-for loop)
 class LoopModeA(ArgumentProcessor):
     def __call__(self, val, all_args):
         if isinstance(val, ActorKind):

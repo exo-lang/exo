@@ -9,6 +9,7 @@
 \newcommand{\hopperBlog}{\webText{NVIDIA Hopper Architecture In-Depth}{https://developer.nvidia.com/blog/nvidia-hopper-architecture-in-depth/}}
 \newcommand{\expectTxOperation}{\webText{expect-tx operation}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#parallel-synchronization-and-communication-instructions-mbarrier-expect-tx-operation}}
 \newcommand{\completeTxOperation}{\webText{complete-tx operation}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#parallel-synchronization-and-communication-instructions-mbarrier-complete-tx-operation}}
+\newcommand{\wgmmaFence}{\webText{wgmma.fence}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#asynchronous-warpgroup-level-matrix-instructions-wgmma-fence}}
 
 \begin{document}
 \myTitle{Project Spork: EXO GPU}
@@ -64,7 +65,7 @@ Other details like swizzling etc. (except sparsity?) should be modellable with e
 \filbreak
 \mySub{Synchronization Summary}
 
-CUDA has two different notions of ``async'': asynchronous instructions (simple enough), and the more complicated \webText{async proxy}{https://docs.nvidia.com/cuda/archive/12.3.2/parallel-thread-execution/index.html\#proxies}. An instruction being async implies control continues to the next instruction without waiting for completion. If an async instruction further documents that it operates on the async proxy, the user (in addition to synchronizing execution order) must further include \fenceProxyAsync\ (and also maybe \webText{wgmma.fence}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#asynchronous-warpgroup-level-matrix-instructions-wgmma-fence}) to ensure visibility between the async proxy and the ``generic proxy'', which is what most CUDA instructions operate on. Essentially, this is exporting the responsibility for memory coherence to the user.
+CUDA has two different notions of ``async'': asynchronous instructions (simple enough), and the more complicated \webText{async proxy}{https://docs.nvidia.com/cuda/archive/12.3.2/parallel-thread-execution/index.html\#proxies}. An instruction being async implies control continues to the next instruction without waiting for completion. If an async instruction further documents that it operates on the async proxy, the user (in addition to synchronizing execution order) must further include \fenceProxyAsync\ (and also maybe \wgmmaFence) to ensure visibility between the async proxy and the ``generic proxy'', which is what most CUDA instructions operate on. Essentially, this is exporting the responsibility for memory coherence to the user.
 
 Note in the case of mbarrier that this incoherence includes observing the mbarrier object (in shared memory) itself: ``To make the initialized barrier visible to subsequent bulk-asynchronous copies, the fence.proxy.async.shared::cta instruction is used. This instruction ensures that subsequent bulk-asynchronous copy operations operate on the initialized barrier'' (\webText{source}{https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html\#tensor-memory-access}).
 
@@ -185,7 +186,7 @@ Supposedly this is not needed for inputs loaded by bulk async copy (TMA) accordi
 However, it appears in this case that \flagged{we still need to synchronize the execution order between bulk async copies and wgmma operations} ... only the memory visibility given by fence.proxy.async is not needed in this case.
 
 \filbreak
-\myKey{Register Fence:} The confusingly-similar-sounding \webText{wgmma.fence}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#asynchronous-warpgroup-level-matrix-instructions-wgmma-fence} instruction must be issued before the first wgmma.mma\_async instruction, and issued whenever we must make prior register writes to $A$ and $D$ visible to a subsequent wgmma.mma\_async instruction. This includes between two wgmma.mma\_async instructions, with the \textbf{notable, common exception} of two wgmma.mma\_async instructions using the same registers for the accumulator $D$ where $D$ is using the same matrix fragment format. After the wgmma.mma\_async instruction is issued and prior to its completion, the registers holding $A$ and/or $D$ can be read or modified asynchronously by the wgmma hardware.
+\myKey{Register Fence:} The confusingly-similar-sounding \wgmmaFence instruction must be issued before the first wgmma.mma\_async instruction, and issued whenever we must make prior register writes to $A$ and $D$ visible to a subsequent wgmma.mma\_async instruction. This includes between two wgmma.mma\_async instructions, with the \textbf{notable, common exception} of two wgmma.mma\_async instructions using the same registers for the accumulator $D$ where $D$ is using the same matrix fragment format. After the wgmma.mma\_async instruction is issued and prior to its completion, the registers holding $A$ and/or $D$ can be read or modified asynchronously by the wgmma hardware.
 
 \filbreak
 In both cases, I don't see it explicitly stated, but it appears based on Nvidia's expected usage pattern that the wgmma.mma\_async instruction following either kind of fence \flagged{observes changes made by all four warps of the warpgroup} issuing the wgmma.mma\_async instruction, so there is some sort of weak execution order guarantee as well.
@@ -339,14 +340,12 @@ I'm probably going to put off this feature until much later.
 \myKey{Synchronization Statement:} We need to support arrive, await, and non-split barriers (e.g. plain old \lighttt{\_\_syncthreads}), which act as a combined arrive-await statement.
 These define a synchronization relation between all GPU threads of the executing parlane.
 
-I'm proposing using the syntax ``\lighttt{A // B}'' for a synchronization statement, and that we allow declaring variables of \lighttt{barrier} type. \lighttt{A} and \lighttt{B} are the names of either actor kinds or barrier variables.
+\lighttt{Sync(A1, A2)}: non-split barrier parameterized with a ``first actor kind'' \lighttt{A1} and a ``second actor kind'' \lighttt{A2}; instructions with actor kind \lighttt{A2} issued after the barrier see the actions with actor kind \lighttt{A1} performed before the barrier.
 
-\lighttt{A : actor-kind // B : actor-kind}: non-split barrier; instructions with actor kind \lighttt{B} issued after the barrier see the actions with actor kind \lighttt{A} performed before the barrier.
+\lighttt{Arrive(A1 : ActorKind, B : barrier)}: arrive
 
-\lighttt{A : actor-kind // B : barrier}: arrive
-
-\lighttt{A' : barrier // B' : actor-kind}: await; instructions with actor kind \lighttt{B'} issued after the await see the actions with actor kind \lighttt{A} performed before the matched arrive.
-(The Nth arrive performed on a given barrier variable is matched with the Nth arrive for the same variable).
+\lighttt{Await(B : barrier, A2 : ActorKind}: await; instructions with the second actor kind (\lighttt{A2}) issued after the await see the actions with first actor kind (\lighttt{A1}) performed before the matched arrive.
+(The Nth arrive performed on a given barrier variable is matched with the Nth await for the same barrier).
 
 \filbreak
 Example:
@@ -356,11 +355,14 @@ Example:
 for blockIdx in cuda_blocks(lo, hi, warps = 8):
     for threadIdx in cuda_threads(0, 256):
         ...
-    cuda_sync // cuda_sync  # __syncthreads() as the executing parlane here is a full block
+    # __syncthreads() as the executing parlane here is a full block
+    Sync(cuda_sync, cuda_generic)
+
     for warpIdx in cuda_warps(0, 8):
         for threadIdx in cuda_threads(32*warpIdx, 32*(warpIdx + 1)):
             ...
-        cuda_sync // cuda_sync  # __syncwarp() as the executing parlane here is a warp
+        # __syncwarp() as the executing parlane here is a warp
+        Sync(cuda_sync, cuda_generic)
         for threadIdx in cuda_threads(32*warpIdx, 32*(warpIdx + 1)):
             ...
 \end{verbatim}
@@ -372,7 +374,24 @@ By requiring synchronization statements to be lifted to block or warp level, we 
 I'm not sure this is really the right approach to take, but my gut feeling is it's best to expose a higher-level synchronization interface and compile to the appropriate CUDA synchronization primitive depending on the actor kinds (e.g. a ring buffer of \mbarrier), rather than expose the complexity of basic synchronization primitives and having to analyze that they are used correctly.
 
 \filbreak
-TODO the \lighttt{//} syntax is too obscure, we should just consider \lighttt{arrive} and \lighttt{await} special functions, and non-split barrier special functions for ``syncthreads''-like barriers (\lighttt{cuda\_sync // cuda\_generic}), stream-sync (\lighttt{cuda\_all // cpu}), and wgmma fence (\lighttt{wgmma\_reg // wgmma\_async\_reg}).
+Not all combinations of first and second actor kinds are supported.
+For split barriers, I'm expecting mostly that we will support \lighttt{cuda\_all} to \lighttt{cpu} barriers, and asynchronous CUDA to \lighttt{cuda\_sync} barriers.
+
+\filbreak
+For non-split barriers, we support the following:
+
+\texttt{Sync(cuda\_sync, cuda\_generic)}: \lighttt{\_\_syncthreads()} and similar barriers
+
+\texttt{Sync(wgmma\_reg, wgmma\_async\_reg)}: PTX \wgmmaFence
+
+\texttt{Sync(cuda\_sync, wgmma\_async\_mem)}: \fenceProxyAsync\ at warpgroup scope
+
+\texttt{Sync(cuda\_sync, tma\_to\_global\_async)}: \fenceProxyAsync\ at thread scope\footnote{Not sure about this one ... the underlying instruction is the same as the previous but \cpAsyncBulk\ instructions are issued per-thread, not per-warpgroup, so the interaction between cooperative CUDA synchronous code and TMA is quite different compared to wgmma.}
+
+\texttt{Sync(cuda\_all, cpu)}: \lighttt{cudaStreamSynchronize()} (CPU waits for CUDA kernels)
+
+\filbreak
+Note the first two GPU barriers have non-equal first and second actor kinds to account for the fact that the barriers can synchronize prior synchronous instructions with subsequent asynchronous instructions, but not the reverse.
 
 \filbreak
 \hook{Hook:} For the analysis and codegen to be feasible, I'm expecting language restrictions that make it possible to statically verify that for each split barrier constructed, we issue matching pairs of arrive and await, with the same parlane used for all arrives and the same parlane used for all awaits.
@@ -393,7 +412,7 @@ for blockIdx in cuda_blocks(lo, hi, warps = 8):
     for threadIdx in cuda_threads(0, 256):
         x : f32 @ CUDA_REGISTER
         x = foo()
-    cuda_sync // cuda_sync  # __syncthreads() executed convergently by 1 block
+    Sync(cuda_sync, cuda_generic)  # __syncthreads() executed convergently by 1 block
     for threadIdx in cuda_threads(0, 256):
         y : f32 @ CUDA_REGISTER
         y = doSth(x)  # uh oh, x was freed above
@@ -408,7 +427,7 @@ for blockIdx in cuda_blocks(lo, hi, warps = 8):
     x : f32[256] @ CUDA_REGISTER
     for threadIdx in cuda_threads(0, 256):
         x[threadIdx] = foo()
-    cuda_sync // cuda_sync  # __syncthreads() executed convergently by 1 block
+    Sync(cuda_sync, cuda_generic)  # __syncthreads() executed convergently by 1 block
     for threadIdx in cuda_threads(0, 256):
         y : f32 @ CUDA_REGISTER
         y = doSth(x[threadIdx])
@@ -488,7 +507,7 @@ There must not be more parlanes than that supported by the available resources, 
 
 \filbreak
 \myKey{Parlane:} A single unit of a parscope, which is assigned to execute one iteration of the parscope's defining parallel-for loop.
-Only parlanes with lane unit type cpu-thread or cuda-thread can execute ``ordinary'' arithmetic, read, or write instructions. 
+Only parlanes with lane unit type cpu-thread or cuda-thread can execute ``ordinary'' arithmetic, read, or write instructions.
 The expectation is that after scheduling, all code at cluster, block, warpgroup, or warp scope is either synchronization, control flow, or custom procedures.
 Two parlanes are equal when they come from the same parscope and correspond to the same index.
 
@@ -660,8 +679,6 @@ This reasoning is suspect, but the reason I'm proposing to extend \lighttt{LoopI
 \filbreak
 \myKey{SyncStmt:} Would need to consist of a barrier type enum (arrive, await, syncthreads, stream sync, wgmma fence); for arrive and awaits, we need the sym of a barrier variable and an actor kind.
 For scheduling and safety checks, they should be treated the same as a \lighttt{pass} statement (except don't remove them in \lighttt{simplify}, \lighttt{remove\_pass}, etc.).
-
-TODO remove old code based on \lighttt{A // B} sync statements.
 
 \filbreak
 \myKey{Types:} Need to add types \lighttt{Barrier} and \lighttt{LaneSpecialization}.

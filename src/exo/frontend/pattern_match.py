@@ -263,7 +263,12 @@ class PatternMatch:
         elif isinstance(stmt, LoopIR.Pass):
             return True
         elif isinstance(stmt, LoopIR.SyncStmt):
-            return self.match_name(pat.A, stmt.A) and self.match_name(pat.B, stmt.B)
+            if pat.sync_type == stmt.sync_type:
+                if stmt.sync_type.is_split():
+                    return self.match_name(pat.bar, stmt.bar)
+                else:
+                    return True
+            return False
         elif isinstance(stmt, LoopIR.If):
             return (
                 self.match_e(pat.cond, stmt.cond)

@@ -21,6 +21,7 @@ from ..spork.lane_units import (
 )
 from ..spork.actor_kinds import actor_kind_dict
 from ..spork.loop_modes import LoopMode, loop_mode_dict
+from ..spork.sync_types import SyncType, arrive_type, await_type
 
 
 # --------------------------------------------------------------------------- #
@@ -206,13 +207,6 @@ class Parser:
                     or s.value.func.id in special_cases
                 ):
                     is_expr = True
-                if (
-                    is_expr
-                    and isinstance(s.value, pyast.BinOp)
-                    and isinstance(s.value.op, pyast.FloorDiv)
-                ):
-                    # SyncStmt `before // after`
-                    is_expr = False
 
             if is_expr:
                 self._cached_result = self.parse_expr(
@@ -708,13 +702,18 @@ class Parser:
 
                 rstmts.append(self.AST.If(cond, body, orelse, self.getsrcinfo(s)))
 
-            # ----- Sub-routine call parsing
+            # ----- SyncStmt or Sub-routine call parsing
             elif (
                 isinstance(s, pyast.Expr)
                 and isinstance(s.value, pyast.Call)
                 and isinstance(s.value.func, pyast.Name)
             ):
-                if self.is_fragment:
+                # Parsing special sync statement
+                if s.value.func.id in ("Sync", "Arrive", "Await"):
+                    rstmts.append(self.parse_SyncStmt_call(s.value))
+
+                # Parsing ordinary sub-routine
+                elif self.is_fragment:
                     # handle stride expression
                     if s.value.func.id == "stride":
                         if (
@@ -771,43 +770,6 @@ class Parser:
             # ----- Pass no-op parsing
             elif isinstance(s, pyast.Pass):
                 rstmts.append(self.AST.Pass(self.getsrcinfo(s)))
-
-            # ----- SyncStmt parsing
-            elif (
-                isinstance(s, pyast.Expr)
-                and isinstance(s.value, pyast.BinOp)
-                and isinstance(s.value.op, pyast.FloorDiv)
-            ):
-                binop = s.value
-                if not isinstance(binop.left, pyast.Name) or not isinstance(
-                    binop.right, pyast.Name
-                ):
-                    self.err(s, "expected names on both sides of '|' (SyncStmt)")
-                srcinfo = self.getsrcinfo(s)
-                if self.is_fragment:
-                    sync = PAST.SyncStmt(binop.left.id, binop.right.id, srcinfo)
-                else:
-
-                    def to_sym(name):
-                        actor_kind = actor_kind_dict.get(name)
-                        if actor_kind:
-                            return actor_kind.sym
-                        else:
-                            sym = self.locals.get(name)
-                            if not isinstance(sym, Sym):
-                                if isinstance(sym, SizeStub):
-                                    raise ParseError(
-                                        f"{self.getsrcinfo(s)}: size {sym.nm} unexpected in SyncStmt"
-                                    )
-                                raise ParseError(
-                                    f"{self.getsrcinfo(s)}: unknown actor kind or variable {name}"
-                                )
-                            return nm
-
-                    sync = UAST.SyncStmt(
-                        to_sym(binop.left.id), to_sym(binop.right.id), srcinfo
-                    )
-                rstmts.append(sync)
 
             # ----- Stmt Hole parsing
             elif (
@@ -1020,7 +982,7 @@ class Parser:
             elif isinstance(e.op, pyast.Div):
                 op = "/"
             elif isinstance(e.op, pyast.FloorDiv):
-                op = "//"  # Note: parsed elsewhere as SyncStmt
+                op = "//"
             elif isinstance(e.op, pyast.Mod):
                 op = "%"
             elif isinstance(e.op, pyast.Pow):
@@ -1217,3 +1179,49 @@ class Parser:
                 f"lane specialization '{lane_specialization}' only allowed inside if statements with no else",
             )
         return self.AST.Const(lane_specialization, self.getsrcinfo(e))
+
+    # Parse SyncStmt
+    def parse_SyncStmt_call(self, ast_call: pyast.Call):
+        assert isinstance(ast_call.func, pyast.Name)
+        func_id = ast_call.func.id
+
+        def parse_actor_kind(ast_name):
+            if not isinstance(ast_name, pyast.Name):
+                self.err(ast_name, "Expected name of actor kind")
+            actor_kind = actor_kind_dict.get(ast_name.id)
+            if actor_kind is None:
+                self.err(ast_name, f"Expected name of actor kind, not {ast_name.id}")
+            return actor_kind
+
+        def parse_bar(ast_arg):
+            e = self.parse_expr(ast_arg)
+            if isinstance(e, PAST.E_Hole):
+                return "_"
+            elif isinstance(e, self.AST.Read):
+                if len(e.idx) > 0:
+                    self.err(ast_arg, "Unexpected indexing of barrier")
+                return e.name
+            else:
+                self.err(ast_arg, "Expected name for barrier")
+
+        if len(ast_call.args) != 2 or ast_call.keywords:
+            self.err(ast_call, f"{func_id} expects 2 arguments and no keywords")
+
+        if func_id == "Sync":
+            sync_type = SyncType(
+                parse_actor_kind(ast_call.args[0]), parse_actor_kind(ast_call.args[1])
+            )
+            bar = None
+
+        elif func_id == "Arrive":
+            sync_type = arrive_type(parse_actor_kind(ast_call.args[0]))
+            bar = parse_bar(ast_call.args[1])
+
+        elif func_id == "Await":
+            bar = parse_bar(ast_call.args[0])
+            sync_type = await_type(parse_actor_kind(ast_call.args[1]))
+
+        else:
+            assert 0
+
+        return self.AST.SyncStmt(sync_type, bar, self.getsrcinfo(ast_call))

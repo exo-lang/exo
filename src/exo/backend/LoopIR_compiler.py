@@ -843,7 +843,7 @@ class Compiler:
             self.add_line("; // NO-OP")
         elif isinstance(s, LoopIR.SyncStmt):
             warnings.warn("Not implemented: compiling LoopIR.SyncStmt")
-            self.add_line(f"// TODO LoopIR.SyncStmt {s.A} // {s.B}")
+            self.add_line(f"// TODO LoopIR.SyncStmt {s.sync_type.format_stmt(s.bar)}")
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if s.name in self._scalar_refs:
                 lhs = f"*{self.env[s.name]}"
