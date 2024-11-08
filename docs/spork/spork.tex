@@ -344,7 +344,7 @@ These define a synchronization relation between all GPU threads of the executing
 
 \lighttt{Arrive(A1 : ActorKind, B : barrier)}: arrive
 
-\lighttt{Await(B : barrier, A2 : ActorKind}: await; instructions with the second actor kind (\lighttt{A2}) issued after the await see the actions with first actor kind (\lighttt{A1}) performed before the matched arrive.
+\lighttt{Await(B : barrier, A2 : ActorKind)}: await; instructions with the second actor kind (\lighttt{A2}) issued after the await see the actions with first actor kind (\lighttt{A1}) performed before the matched arrive.
 (The Nth arrive performed on a given barrier variable is matched with the Nth await for the same barrier).
 
 \filbreak
@@ -686,7 +686,7 @@ The barrier may be used for allocation, but we forbid names that conflict with t
 The lane specialization is only allowed as the ``const'' condition of an if statement.
 
 \filbreak
-\myKey{Read/Write/Reduce:} These will not have to change in LoopIR, but the compilation of these will have to substantially modified in order to handle actor kinds and distributed memory (GPU registers).
+\myKey{Read/Write/Reduce:} These will not have to change in LoopIR, but the compilation of these will have to be substantially modified in order to handle actor kinds and distributed memory (GPU registers).
 
 \filbreak
 \mySub{Spork Compiler Env}
