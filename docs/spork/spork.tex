@@ -214,7 +214,7 @@ for _ in cuda_threads(lo, hi):
 }
 
 \filbreak
-Different levels of the hiererchy need to be strictly nested, except that as a convenience, immediately-nested parallel for loops of the same level may be used to define a multidimensional shape for the parallel iteration space.
+Different levels of the hierarchy need to be strictly nested, except that as a convenience, immediately-nested parallel for loops of the same level may be used to define a multidimensional shape for the parallel iteration space.
 Skipping the cluster, warpgroup, or warp level is acceptable.
 Each level of parallel-for defines a new ``parscope'' (parallelization scope), with each iteration executed by its own ``parlane'' (parallelization lane); both will be detailed in the concepts section.
 Each parlane is indexed by the parallel-for loop index and comprises all the GPU threads of the loop level's GPU unit (e.g. each parlane of a \lighttt{cuda\_warps} loop consists of 32 threads).
