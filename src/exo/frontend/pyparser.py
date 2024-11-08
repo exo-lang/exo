@@ -709,7 +709,7 @@ class Parser:
                 and isinstance(s.value.func, pyast.Name)
             ):
                 # Parsing special sync statement
-                if s.value.func.id in ("Sync", "Arrive", "Await"):
+                if s.value.func.id in ("Fence", "Arrive", "Await"):
                     rstmts.append(self.parse_SyncStmt_call(s.value))
 
                 # Parsing ordinary sub-routine
@@ -1207,7 +1207,7 @@ class Parser:
         if len(ast_call.args) != 2 or ast_call.keywords:
             self.err(ast_call, f"{func_id} expects 2 arguments and no keywords")
 
-        if func_id == "Sync":
+        if func_id == "Fence":
             sync_type = SyncType(
                 parse_actor_kind(ast_call.args[0]), parse_actor_kind(ast_call.args[1])
             )

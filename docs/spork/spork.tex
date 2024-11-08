@@ -340,7 +340,7 @@ I'm probably going to put off this feature until much later.
 \myKey{Synchronization Statement:} We need to support arrive, await, and non-split barriers (e.g. plain old \lighttt{\_\_syncthreads}), which act as a combined arrive-await statement.
 These define a synchronization relation between all GPU threads of the executing parlane.
 
-\lighttt{Sync(A1, A2)}: non-split barrier parameterized with a ``first actor kind'' \lighttt{A1} and a ``second actor kind'' \lighttt{A2}; instructions with actor kind \lighttt{A2} issued after the barrier see the actions with actor kind \lighttt{A1} performed before the barrier.
+\lighttt{Fence(A1, A2)}: non-split barrier parameterized with a ``first actor kind'' \lighttt{A1} and a ``second actor kind'' \lighttt{A2}; instructions with actor kind \lighttt{A2} issued after the barrier see the actions with actor kind \lighttt{A1} performed before the barrier.
 
 \lighttt{Arrive(A1 : ActorKind, B : barrier)}: arrive
 
@@ -356,13 +356,13 @@ for blockIdx in cuda_blocks(lo, hi, warps = 8):
     for threadIdx in cuda_threads(0, 256):
         ...
     # __syncthreads() as the executing parlane here is a full block
-    Sync(cuda_sync, cuda_generic)
+    Fence(cuda_sync, cuda_generic)
 
     for warpIdx in cuda_warps(0, 8):
         for threadIdx in cuda_threads(32*warpIdx, 32*(warpIdx + 1)):
             ...
         # __syncwarp() as the executing parlane here is a warp
-        Sync(cuda_sync, cuda_generic)
+        Fence(cuda_sync, cuda_generic)
         for threadIdx in cuda_threads(32*warpIdx, 32*(warpIdx + 1)):
             ...
 \end{verbatim}
@@ -380,15 +380,15 @@ For split barriers, I'm expecting mostly that we will support \lighttt{cuda\_all
 \filbreak
 For non-split barriers, we support the following:
 
-\texttt{Sync(cuda\_sync, cuda\_generic)}: \lighttt{\_\_syncthreads()} and similar barriers
+\texttt{Fence(cuda\_sync, cuda\_generic)}: \lighttt{\_\_syncthreads()} and similar barriers
 
-\texttt{Sync(wgmma\_reg, wgmma\_async\_reg)}: PTX \wgmmaFence
+\texttt{Fence(wgmma\_reg, wgmma\_async\_reg)}: PTX \wgmmaFence
 
-\texttt{Sync(cuda\_sync, wgmma\_async\_mem)}: \fenceProxyAsync\ at warpgroup scope
+\texttt{Fence(cuda\_sync, wgmma\_async\_mem)}: \fenceProxyAsync\ at warpgroup scope
 
-\texttt{Sync(cuda\_sync, tma\_to\_global\_async)}: \fenceProxyAsync\ at thread scope\footnote{Not sure about this one ... the underlying instruction is the same as the previous but \cpAsyncBulk\ instructions are issued per-thread, not per-warpgroup, so the interaction between cooperative CUDA synchronous code and TMA is quite different compared to wgmma.}
+\texttt{Fence(cuda\_sync, tma\_to\_global\_async)}: \fenceProxyAsync\ at thread scope\footnote{Not sure about this one ... the underlying instruction is the same as the previous but \cpAsyncBulk\ instructions are issued per-thread, not per-warpgroup, so the interaction between cooperative CUDA synchronous code and TMA is quite different compared to wgmma.}
 
-\texttt{Sync(cuda\_all, cpu)}: \lighttt{cudaStreamSynchronize()} (CPU waits for CUDA kernels)
+\texttt{Fence(cuda\_all, cpu)}: \lighttt{cudaStreamSynchronize()} (CPU waits for CUDA kernels)
 
 \filbreak
 Note the first two GPU barriers have non-equal first and second actor kinds to account for the fact that the barriers can synchronize prior synchronous instructions with subsequent asynchronous instructions, but not the reverse.
@@ -412,7 +412,7 @@ for blockIdx in cuda_blocks(lo, hi, warps = 8):
     for threadIdx in cuda_threads(0, 256):
         x : f32 @ CUDA_REGISTER
         x = foo()
-    Sync(cuda_sync, cuda_generic)  # __syncthreads() executed convergently by 1 block
+    Fence(cuda_sync, cuda_generic)  # __syncthreads() executed convergently by 1 block
     for threadIdx in cuda_threads(0, 256):
         y : f32 @ CUDA_REGISTER
         y = doSth(x)  # uh oh, x was freed above
@@ -427,7 +427,7 @@ for blockIdx in cuda_blocks(lo, hi, warps = 8):
     x : f32[256] @ CUDA_REGISTER
     for threadIdx in cuda_threads(0, 256):
         x[threadIdx] = foo()
-    Sync(cuda_sync, cuda_generic)  # __syncthreads() executed convergently by 1 block
+    Fence(cuda_sync, cuda_generic)  # __syncthreads() executed convergently by 1 block
     for threadIdx in cuda_threads(0, 256):
         y : f32 @ CUDA_REGISTER
         y = doSth(x[threadIdx])

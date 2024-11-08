@@ -61,7 +61,7 @@ class SyncType(object):
         elif self.is_await():
             return f"Await({bar}, {self.second_actor_kind})"
         else:
-            return f"Sync({self.first_actor_kind}, {self.second_actor_kind})"
+            return f"Fence({self.first_actor_kind}, {self.second_actor_kind})"
 
 
 def arrive_type(first_actor_kind: ActorKind):
