@@ -21,6 +21,7 @@ from .core.LoopIR_pprint import _print_cursor
 from .rewrite.LoopIR_scheduling import SchedulingError
 
 from .spork.actor_kinds import actor_kind_dict, ActorKind
+from .spork.sync_types import SyncType
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -519,31 +520,28 @@ class PassCursor(StmtCursor):
 class SyncCursor(StmtCursor):
     """
     Cursor pointing to a synchronization statement:
-        A // B
+        Fence(ActorKind, ActorKind)
+        Arrive(ActorKind, barrier)
+        Await(barrier, ActorKind)
     """
 
-    def A(self):
-        """Returns the "before" side of the barrier.
-
-        Return type is either str (name of a barrier variable) or an ActorKind"""
-        return self._get("A")
-
-    def B(self):
-        """Returns the "after" side of the barrier.
-
-        Return type is either str (name of a barrier variable) or an ActorKind"""
-        return self._get("B")
-
-    def _get(self, name):
+    def sync_type(self) -> SyncType:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.SyncStmt)
-        sym = getattr(self._impl._node, name)
-        val = actor_kind_dict.get(sym.name(), sym)
-        if isinstance(val, ActorKind):
-            assert val.sym == sym
-        else:
-            assert isinstance(val, str)
-        return val
+        return self._impl._node.sync_type
+
+    def first_actor_kind(self) -> ActorKind:
+        return self.sync_type().first_actor_kind
+
+    def second_actor_kind(self) -> ActorKind:
+        return self.sync_type().second_actor_kind
+
+    def bar(self):
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.SyncStmt)
+        bar = self._impl._node.bar
+        assert bar is not None, "Must be arrive or await"
+        return bar.name()
 
 
 class IfCursor(StmtCursor):
