@@ -346,7 +346,8 @@ I'm proposing using the syntax ``\lighttt{A // B}'' for a synchronization statem
 
 \lighttt{A : actor-kind // B : barrier}: arrive
 
-\lighttt{A' : barrier // B' : actor-kind}: await; instructions with actor kind \lighttt{B'} issued after the await see the actions with actor kind \lighttt{A} performed before the corresponding arrive.
+\lighttt{A' : barrier // B' : actor-kind}: await; instructions with actor kind \lighttt{B'} issued after the await see the actions with actor kind \lighttt{A} performed before the matched arrive.
+(The Nth arrive performed on a given barrier variable is matched with the Nth arrive for the same variable).
 
 \filbreak
 Example:
@@ -517,16 +518,116 @@ If none of these apply, the operation in question is \textit{hazard-eligible}.
 \filbreak
 \mySub{Synchronization Environment Semantics}
 
+As mentioned, for now the plan is to set up some dynamic checking.
+The mental model I'm accepting is that we'll compile the Exo program to an S-program (single-threaded CPU program) that simulates how the program would behave had it been compiled to an M-program.
+We will track in the ``synchronization environment'' additional information for each read and write performed.
+We'll need to prove that the M-program would produce the same results, i.e., that
+\begin{enumerate}
+  \item For each read, there exists sufficient synchronization between it and the S-prior write to the same variable (generalized RAW hazard avoidance)
+  \item For each write, there exists sufficient synchronization between it and the S-next write to the same variable (WAW hazard avoidance)
+  \item For each read, there exists sufficient synchronization between it and the S-next write to the same variable (WAR hazard avoidance)
+\end{enumerate}
+
+\filbreak
+Note this is a strictly stronger condition than race freedom: the M-program must be race-free to be equivalent to the (trivially deterministic) S-program, but moreover, the reordering caused by parallelization must not cause any read to pick up the ``wrong'' previous write, i.e., one that does not match the immediately previous write performed under S-semantics.
+
+\filbreak
+\myKey{Synchronization Environment (SyncEnv):} Each variable in the environment has an associated ``assignment record'' in the SyncEnv.
+Each time a variable is assigned to, it is associated with a completely new assignment record in the SyncEnv.
+
+\filbreak
+\myKey{Sigthread:} Pair of (thread index, actor signature); this is a conceptual ``sub-thread'' of the given thread that executes only actions with the given actor signature.
+
+\filbreak
+\myKey{Accessor Set:}
+The set of sigthreads $\{(t_0, A), (t_1, A), ... (t_{n-1}, A)\}$ performing a given read/write, where $t_0, t_1, ... ,t_{n-1}$ is the range of threads performing the access and $A$ is the actor signature.
+Note there could be multiple threads due to convergent code at warp/warpgroup scope.
+
+\filbreak
+\myKey{Visibility Record:} A visibility record consists of
+\begin{enumerate}
+  \item $V_P$: pending visibility set (set of sigthreads)
+  \item $V_C$: current visibility set (set of sigthreads)
+  \item pending barrier awaits: set of (barrier variable, counter) pairs.
+\end{enumerate}
+
+\filbreak
+\myKey{Assignment Record:} The full assignment record for a variable consists of
+\begin{enumerate}
+  \item a single write visibility record;
+  \item a list of read visibility records (could be compressed into a duplicate-free set in a real implementation).
+\end{enumerate}
+
+\filbreak
+Conceptually, the write visibility record's $V_C$ stores the set of sigthreads that can safely observe the written value of the variable at the current program point (safely means to deterministically read or overwrite the prior written value).
+If we number each read starting from the first one S-after the S-last write (and ignore all S-prior reads), then the Nth read visibility record's $V_C$ stores the set of sigthreads that ``observed'' the Nth read, in the sense that performing a write will not cause a WAR hazard with said read.
+
+\filbreak
+The pending visibility set ($V_P$) of the visibility record is needed to model asynchronous instructions that have \textit{some} effect on the S-program's environment, but cannot actually be deterministically observed in the equivalent M-program by any sigthread (including the sigthread that issued the asynchronous instruction) until future synchronization.
+
+\filbreak
+\myKey{Write State Tracking:} When a variable is written to, we discard the assignment record (safety checking to be described later) and associate a new assignment record.
+The new assignment record has no read access records, no pending barrier awaits, and has a write record with
+
+\filbreak
+\begin{enumerate}
+  \item $V_P$ set to the write's accessor set if the instruction is asynchronous\footnote{Special behavior for wgmma needed, where sigthreads for actor signature \lighttt{sig\_wgmma\_reg\_d} go into $V_C$ despite wgmma otherwise having asynchronous semantics.}, empty otherwise;
+  \item $V_C$ set to the write's accessor set if the instruction is synchronous, empty otherwise;
+  \item an empty pending barrier awaits
+\end{enumerate}
+
+\filbreak
+\myKey{Read State Tracking:} When a variable is read, we add a new read visibility record to the variable's assignment record, initialized from the accessor set in the same manner as a write visibility record is.
+This may be tricky to implement efficiently, but it really is needed to check for WAR hazards.
+
+\filbreak
+\myKey{Synchronization Statement Tracking:} Each non-split barrier, and each matched pair of arrive and await statements, defines a first visibility set and a second visibility set ($V_1$ and $V_2$); informally, this describes the sigthreads ``before'' and the sigthreads ``after'' the synchronization, respectively.
+The visibility sets are defined by the set of sigthreads $V_i = T_i \times A_i$ where $T_i$ is a set of threads and $A_i$ is an actor kind (set of actor signatures).
+Specifically,
+
+\filbreak
+\begin{enumerate}
+  \item The actor kind and set of executing threads for an arrive statement defines $A_1$ and $T_1$.
+  \item The actor kind and set of executing threads for an await statement defines $A_2$ and $T_2$.
+  \item A non-split barrier statically defines both $A_1$ and $A_2$, with the set of executing threads defining both $T_1$ and $T_2$.
+\end{enumerate}
+
+\filbreak
+A visibility record synchronizes-with an arrive or a non-split synchronization statement when ${(V_P \cup V_C) \cap V_1}$ is non-empty.
+(The consideration of $V_P$ represents that synchronization statements can synchronize with pending asynchronous instructions, when the appropriate actor kind is used).
+A synchronization statement augments a visibility record by setting ${V_C \leftarrow V_C \cup V_2}$.
+This represents that a read or write operation is visible to more sigthreads thanks to the synchronization.
+
+\filbreak
+When a non-split barrier is executed, it augments all visibility records of all variables that synchronize-with the synchronization statement.
+
+\filbreak
+When an arrive statement is executed, it adds itself to the pending barrier awaits of all visibility records that synchronize-with the arrive statement.
+
+\filbreak
+When an await statement is executed, it augments all visibility records that have the correct (barrier, counter) pair in its pending barrier awaits.
+Note, because of how write state tracking clears the pending variable awaits for a variable upon assignment, this prevents a matched pair of arrive/await from synchronizing a write that occured subsequent to the arrive.
+
+\filbreak
+\myKey{Access Safety Checking:} We can finally define safety for a read or write access.
+Let $A$ be the accessor set for the access.
+We say that a visibility record is visible-to $A$ when ${V_C \cap A}$ is non-empty; note we don't consider $V_P$ (the pending visibility set).
+
+A write access to the variable is safe when the variable's assignment record
+\begin{enumerate}
+  \item has its write visibility record visible-to $A$ (WAW check);
+  \item has all its read visibility records visible-to $A$ (WAR check).
+\end{enumerate}
+A read access to the variable is safe when the variable's write visibility record is visible-to $A$ (RAW check).
+
 \filbreak
 \mySub{Unanswered Questions}
 
-Primarily, I need to learn about formal program verification and figure out how to compile this simulation-based safety model into something that is statically verifiable.
-
-Further unanswered questions:
 \begin{enumerate}
   \item Compiling arrive and await statements into real CUDA synchronization constructs.
     In particular, there's the difficulty of proving 1:1 correspondence between arrive and await operations.
     Need to analyze the loop iteration space.
+  \item Learn about formal program verification and figure out how to compile this simulation-based safety model into something that is statically verifiable.
   \item Extensions to the parview concept needed to express common safe patterns such as deep pipelining and ring-buffer optimization (statically partitioning an array into disjoint subsets that are uniquely assigned to loop iterations, rather than uniquely assigned to parlanes).
   \item Modeling sparse tensor operations. This would require data-dependent indexing so probably this won't happen ... or will it? (vsauce music plays)
 \end{enumerate}
@@ -597,7 +698,7 @@ This is because we can't mix host and device code in one function (so a single e
 \mySub{Backend Target}
 
 As mentioned, we're probably going to put static analysis on the backburner.
-For now I'm envisioning that we can target either compiling for the M-machine (CUDA code), or compiling for the S-machine (CPU code that implements the dynamic checking described earlier).
-So we compile the Exo code to CPU C code, and successfully running the C code on a certain input shape validates that the M-machine CUDA code with the same inputs will generate the equivalent output.
+For now I'm envisioning that we can target either compiling to an M-program (CUDA code), or compiling to an S-program (CPU code that implements the dynamic checking described earlier).
+So we compile the Exo code to CPU C code, and successfully running the C code on a certain input shape validates that the M-program CUDA code with the same inputs will generate the equivalent output.
 
 \end{document}
