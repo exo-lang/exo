@@ -240,10 +240,9 @@ In other words, there's no concept of memory availability or visibility: A happe
 With Exo-GPU, we have to keep track of ``who'' is executing a certain instruction and take into account memory visibility.
 At a minimum, this ``who'' is either the host CPU or the CUDA device; furthermore, we need specialized ``whos'' that represent different categories of asynchronous CUDA operations (async memcpy, wgmma).
 Furthermore, it may matter ``how'' the value was accessed by a particular accelerator (e.g. wgmma has different handling for accumulators, input-only registers, and shared memory).
-For now I'm proposing that we use the term ``actor kind'' for the ``who'' and ``actor sigature'' for the ``how'', since in a dynamic trace of a program, we're ``signing'' each \textit{action} with the kind of \textit{actor} that executed it.
+For now I'm proposing that we use the term ``actor kind'' for the ``who'' and ``actor signature'' for the ``how'', since in a dynamic trace of a program, we're ``signing'' each \textit{action} with the kind of \textit{actor} that executed it.
 
 \filbreak
-The default CPU and CUDA actor kinds are sequential; all others are asynchronous actor kinds.
 Each read or write is performed with a specific ``actor signature''.
 An ``actor kind'' is formally a set of actor signatures; the actor kinds are used to annotate blocks of code (see async for), \lighttt{@instr} procs, and synchronizaton statements.
 For async for and \lighttt{@instr}, the actor kind specifies the allowed set of actor signatures for reads and writes performed.
