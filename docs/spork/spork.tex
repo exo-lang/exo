@@ -254,7 +254,7 @@ For synchronization statements, the actor kind acts as a filter of the reads/wri
 \hook{Hook:} Will need to be able to identify the actor kind for any LoopIR node (traverse root to node), account for this in LoopIR simplification and accelerator instructions, and account for this when checking if a memory type can be read/written/reduced.
 
 \filbreak
-\myKey{List of actor signatures:} The separate actor kinds for the two types of wgmma register accesses are needed in order to handle the special implicit synchronization for back-to-back wgmma writes to accumulators.
+\myKey{List of actor signatures:} The separate actor signatures for the two types of wgmma register accesses are needed in order to handle the special implicit synchronization for back-to-back wgmma writes to accumulators.
 \begin{align*}
 \lighttt{sig\_cpu: } & \text{Default CPU}\\
 \lighttt{sig\_cuda\_sync: } & \text{Default CUDA (synchronous CUDA instructions)}\\
