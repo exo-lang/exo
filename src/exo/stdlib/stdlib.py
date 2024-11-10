@@ -2,8 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from exo import *
-from exo.syntax import *
-from exo.API_cursors import *
+from exo.frontend.syntax import *
 
 from .scheduling import *
 from .inspection import *

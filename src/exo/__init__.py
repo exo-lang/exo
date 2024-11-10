@@ -7,14 +7,15 @@ from .API import (
     config,
     ExoType,
 )
-from .LoopIR_scheduling import SchedulingError
-from .parse_fragment import ParseFragmentError
-from .configs import Config
-from .memory import Memory, DRAM
+from .rewrite.LoopIR_scheduling import SchedulingError
+from .frontend.parse_fragment import ParseFragmentError
+from .core.configs import Config
+from .core.memory import Memory, DRAM
+from .core.extern import Extern
 
 from . import stdlib
 
-__version__ = "0.2.0"
+__version__ = "1.0.0"
 
 __all__ = [
     "Procedure",
@@ -25,6 +26,7 @@ __all__ = [
     "config",
     "Config",
     "Memory",
+    "Extern",
     "DRAM",
     "SchedulingError",
     "ParseFragmentError",

@@ -1,12 +1,21 @@
 def baz(n: size, m: size):
     for i in seq(0, n):
         for j in seq(0, m):  # <-- NODE
-            ...
+            x: f32 @ DRAM
+            y: f32 @ DRAM
+            y = 1.1
+            x = 0.0
+            for k in seq(0, n):
+                pass
+                pass
 
 def baz(n: size, m: size):
     for i in seq(0, n):
         for j in seq(0, m):
-            ...
+            x: f32 @ DRAM
+            y: f32 @ DRAM
+            y = 1.1
+            x = 0.0
             for k in seq(0, n):
                 # BLOCK START
                 pass
@@ -22,15 +31,21 @@ def baz(n: size, m: size):
             y = 1.1
             x = 0.0
             # BLOCK END
-            ...
+            for k in seq(0, n):
+                pass
+                pass
 
 def baz(n: size, m: size):
     for i in seq(0, n):
         for j in seq(0, m):
-            ...
+            x: f32 @ DRAM
+            y: f32 @ DRAM
+            y = 1.1
+            x = 0.0
             # BLOCK START
             for k in seq(0, n):
-                ...
+                pass
+                pass
             # BLOCK END
 
 def baz(n: size, m: size):
@@ -42,15 +57,19 @@ def baz(n: size, m: size):
             y = 1.1
             x = 0.0
             for k in seq(0, n):
-                ...
+                pass
+                pass
             # BLOCK END
 
 def baz(n: size, m: size):
     for i in seq(0, n):
         for j in seq(0, m):
-            ...
+            x: f32 @ DRAM
             # BLOCK START
             y: f32 @ DRAM
             y = 1.1
             # BLOCK END
-            ...
+            x = 0.0
+            for k in seq(0, n):
+                pass
+                pass

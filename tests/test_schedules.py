@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from exo import ParseFragmentError
-from exo import proc, DRAM, Procedure, config
+from exo import ParseFragmentError, proc, DRAM, Procedure, config
 from exo.libs.memories import GEMM_SCRATCH
 from exo.stdlib.scheduling import *
 from exo.platforms.x86 import *
@@ -480,6 +479,48 @@ def test_fission_after_simple_fail():
 
     with pytest.raises(SchedulingError, match="Can only lift past a for loop"):
         fission(foo, foo.find("x = 0.0").after(), n_lifts=2)
+
+
+def test_if_fission():
+    @proc
+    def before(x: size, y: f32):
+        if x < 10:
+            y += 1
+            y += 2
+        else:
+            y += 3
+            y += 4
+
+    @proc
+    def fission_if(x: size, y: f32):
+        if x < 10:
+            y += 1
+        if x < 10:
+            y += 2
+        else:
+            y += 3
+            y += 4
+
+    @proc
+    def fission_else(x: size, y: f32):
+        if x < 10:
+            y += 1
+            y += 2
+        else:
+            y += 3
+        if x < 10:
+            pass
+        else:
+            y += 4
+
+    test_fission_if = rename(before, "fission_if")
+    test_fission_if = fission(test_fission_if, test_fission_if.find("y += 1").after())
+    assert str(fission_if) == str(test_fission_if)
+    test_fission_else = rename(before, "fission_else")
+    test_fission_else = fission(
+        test_fission_else, test_fission_else.find("y += 3").after()
+    )
+    assert str(fission_else) == str(test_fission_else)
 
 
 def test_resize_dim(golden):
@@ -4628,6 +4669,33 @@ def test_stage_mem_reduce2(golden):
 
     foo = stage_mem(foo, foo.body(), "result", "tmp")
     assert str(simplify(foo)) == golden
+
+
+def test_insert_noop_call(golden):
+    @proc
+    def foo(n: size, x: i8[n], locality_hint: size):
+        assert locality_hint >= 0
+        assert locality_hint < 8
+        pass
+
+    foo = insert_noop_call(
+        foo, foo.find("pass").before(), prefetch, ["x[1:2]", "locality_hint"]
+    )
+    assert str(foo) == golden
+
+
+def test_insert_noop_call_bad_args():
+    @proc
+    def foo(n: size, x: i8[n], locality_hint: size):
+        pass
+
+    with pytest.raises(TypeError, match="Function argument count mismatch"):
+        insert_noop_call(foo, foo.find("pass").before(), prefetch, [])
+
+    with pytest.raises(SchedulingError, match="Function argument type mismatch"):
+        insert_noop_call(
+            foo, foo.find("pass").before(), prefetch, ["n", "locality_hint"]
+        )
 
 
 def test_old_lift_alloc_config(golden):

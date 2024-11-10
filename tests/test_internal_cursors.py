@@ -3,17 +3,17 @@ from __future__ import annotations
 import pytest
 
 from exo import proc, SchedulingError, Procedure
-from exo.LoopIR import LoopIR, T
-from exo.LoopIR_pprint import _print_cursor
-from exo.internal_cursors import (
+from exo.core.LoopIR import LoopIR, T
+from exo.core.LoopIR_pprint import _print_cursor
+from exo.core.internal_cursors import (
     Cursor,
     Block,
     InvalidCursorError,
     Node,
 )
-from exo.pattern_match import match_pattern
-from exo.prelude import Sym
-from exo.syntax import size, f32
+from exo.frontend.pattern_match import match_pattern
+from exo.core.prelude import Sym
+from exo.frontend.syntax import size, f32
 
 
 def _find_cursors(ctx, pattern):

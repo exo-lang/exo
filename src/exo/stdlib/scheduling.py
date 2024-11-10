@@ -35,6 +35,7 @@ from ..API_scheduling import (
     inline,
     replace,
     call_eqv,
+    insert_noop_call,
     #
     # precision, memory, and window annotation setting
     set_precision,
@@ -95,7 +96,7 @@ from ..API_scheduling import (
 
 from .analysis import check_call_mem_types
 from ..API_cursors import *
-from ..LoopIR_unification import UnificationError as _UnificationError
+from ..rewrite.LoopIR_unification import UnificationError as _UnificationError
 
 
 # --------------------------------------------------------------------------- #
