@@ -54,3 +54,8 @@ def tile_and_fused_blur(W: size, H: size, blur_y: ui16[H, W] @ DRAM,
                                xi + 256 * xo]) / 3.0
 ```
 
+---
+
+## Solution
+Change `loops = []` to `loops = [cursor]`.
+

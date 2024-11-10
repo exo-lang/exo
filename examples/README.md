@@ -9,4 +9,4 @@ If you are new to Exo, we recommend going through the examples in the following 
 
 3. [RVM](./rvm_conv1d/README.md): This example illustrates how to use Exo to define and target a new hardware accelerator entirely in the user code.
 
-4. Quizzes ([quiz1](./quiz1/README.md), [quiz2](./quiz2/README.md), [quiz3](./quiz3/README.md)) contains common scheduling mistakes in Exo and wrong schedules. You are invited to solve the quiz.
+4. Quizzes ([quiz1](./quiz1/README.md), [quiz2](./quiz2/README.md), [quiz3](./quiz3/README.md)) contain common scheduling mistakes in Exo and solutions to fix them. The best way to learn a programming language is to debug it.
