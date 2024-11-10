@@ -4,7 +4,7 @@ This quiz is about loop fission bugs and debugging via printing cursors.
 
 ## Incorrect output (compiler error)
 As written, the schedule has a bug which attempts to incorrectly fission a loop.
-```
+```bash
 Traceback (most recent call last):
   File "/home/yuka/.local/bin/exocc", line 8, in <module>
     sys.exit(main())
@@ -33,7 +33,7 @@ exo.rewrite.new_eff.SchedulingError: <<<unknown directive>>>: Will not fission h
 
 ## Correct Output
 The correct output will divide the computation into individual, vectorizable loops.
-```
+```python
 def scaled_add_scheduled(N: size, a: f32[N] @ DRAM, b: f32[N] @ DRAM,
                          c: f32[N] @ DRAM):
     assert N % 8 == 0
@@ -64,57 +64,13 @@ def scaled_add_scheduled(N: size, a: f32[N] @ DRAM, b: f32[N] @ DRAM,
 
 ## Solution
 
-To understand the bug, let's first try printing right before the error.
-Put `print(vector_assign.after())` after line 37.
-```
-    for io in seq(0, N / 8):
-        vec: R[8] @ DRAM
-        for ii in seq(0, 8):
-            vec_1: R @ DRAM
-            vec_1 = 2
-            [GAP - After]
-            ...
-```
-This is showing the code is trying to fission at `[GAP - After]` location, which is unsafe because the `vec_1: R` allocation is in the `ii` loop and before the fissioning point, which means if `vec_1` is used after the fission point that'll be an error.
-
-Change
-```python
-    for i in range(num_vectors):
-        vector_reg = p.find(f"vec: _ #{i}")
-        p = expand_dim(p, vector_reg, 8, "ii")
-        p = lift_alloc(p, vector_reg)
-
-        vector_assign = p.find(f"vec = _ #{i}")
-        p = fission(p, vector_assign.after())
-```
-
-to
-```python
-    for i in range(num_vectors):
-        vector_reg = p.find(f"vec: _ #{i}")
-        p = expand_dim(p, vector_reg, 8, "ii")
-        p = lift_alloc(p, vector_reg)
-
-    for i in range(num_vectors):
-        vector_assign = p.find(f"vec = _ #{i}")
-        p = fission(p, vector_assign.after())
-```
-
-So that you lift all the allocations out of the loop before fissioning.
-
-Here is the rewritten version with improved clarity and GitHub Markdown syntax:
-
-## Solution
-
 To understand the bug, let's first try printing right before the error. Add the following line after line 37:
-
 ```python
 print(vector_assign.after())
 ```
 
 This will output:
-
-```
+```python
     for io in seq(0, N / 8):
         vec: R[8] @ DRAM
         for ii in seq(0, 8):
