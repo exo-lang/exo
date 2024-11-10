@@ -46,7 +46,7 @@ def double(N: size, inp: f32[N] @ DRAM, out: f32[N] @ DRAM):
 
 ## Solution
 
-Before calling `replace_all(p, avx_instrs)`, you need to set the buffer memory types to AVX2, because `replace_all` is memory-aware and will only replace code chunks with instructions that have matching memory annotations.
+Before calling `replace_all(p, avx_instrs)`, you need to set buffer memory annotations to AVX2, because `replace_all` is memory-aware and will only replace code chunks with instructions that have matching memory annotations.
 
 Add the following code before the call to `replace_all`:
 
@@ -56,4 +56,4 @@ Add the following code before the call to `replace_all`:
         p = set_memory(p, f"{name}_vec", AVX2)
 ```
 
-This will ensure that the memory types are correctly set to AVX2 before replacing the code with vector intrinsics.
+This will ensure that the memory annotations are correctly set to AVX2 before replacing the code with vector intrinsics.
