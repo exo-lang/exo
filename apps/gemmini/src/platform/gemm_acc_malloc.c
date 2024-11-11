@@ -46,8 +46,9 @@ uint32_t gemm_acc_malloc(long unsigned int size) {
   if (i > 0) {
     loc = ACC_BLOCKS[i - 1].loc + ACC_BLOCKS[i - 1].size;
   }
+
   ACC_BLOCKS[i].size = size;
-  ACC_BLOCKS[i].loc = 0;
+  ACC_BLOCKS[i].loc = loc;
   ACC_BLOCKS[i].is_used = 1;
   gemm_acc_free_block = i + 1;
 
