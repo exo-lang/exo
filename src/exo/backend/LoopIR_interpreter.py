@@ -2,9 +2,9 @@ from collections import ChainMap, defaultdict
 
 import numpy as np
 
-from .LoopIR import LoopIR
-from .LoopIR import T
-from .prelude import *
+from ..core.LoopIR import LoopIR
+from ..core.LoopIR import T
+from ..core.prelude import *
 
 from .parallel_analysis import ParallelAnalysis
 from .prec_analysis import PrecisionAnalysis
@@ -303,10 +303,10 @@ class Interpreter:
 
         # BuiltIns don't go to the interpreter, they are just called (via call) like a proc
         # TODO Discuss to make sure
-        elif isinstance(e, LoopIR.BuiltIn):
-            assert False, "Not implemented"
-            # args = [self.eval_e(a) for a in e.args]
-            # return e.f.interpret(args)
+        # elif isinstance(e, LoopIR.BuiltIn):
+        #     assert False, "Not implemented"
+        # args = [self.eval_e(a) for a in e.args]
+        # return e.f.interpret(args)
 
         elif isinstance(e, LoopIR.StrideExpr):
             buf = self.env[e.name]

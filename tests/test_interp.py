@@ -4,7 +4,7 @@ import pytest
 
 import numpy as np
 
-from exo import proc, config
+from exo import proc, config, instr
 from exo.libs.memories import GEMM_SCRATCH
 from exo.stdlib.scheduling import SchedulingError
 
@@ -15,9 +15,9 @@ def test_mat_mul(compiler):
     @proc
     def rank_k_reduce(
         K: size,
-        A: f32[6, K] @ DRAM,
-        B: f32[K, 16] @ DRAM,
-        C: f32[6, 16] @ DRAM,
+        A: f32[6, K],
+        B: f32[K, 16],
+        C: f32[6, 16],
     ):
         for i in seq(0, 6):
             for j in seq(0, 16):
@@ -254,7 +254,7 @@ def test_stride_simple1(compiler):
 
     fn = compiler.compile(foo)
 
-    A = np.arange(3 * 4, dtype=float).reshape((3, 4))
+    A = np.arange(3 * 4, dtype=np.int8).reshape((3, 4))
 
     fn(None, A)
     foo.interpret(A=A)
@@ -273,7 +273,7 @@ def test_stride_simple2(compiler):
 
     fn = compiler.compile(foo)
 
-    A = np.arange(6 * 8, dtype=float).reshape((6, 8))
+    A = np.arange(6 * 8, dtype=np.int8).reshape((6, 8))
 
     fn(None, A[::2, ::2])
     foo.interpret(A=A[::2, ::2])
@@ -289,7 +289,7 @@ def test_stride1(compiler):
 
     fn = compiler.compile(foo)
 
-    A = np.arange(3 * 4 * 5, dtype=float).reshape((3, 4, 5))
+    A = np.arange(3 * 4 * 5, dtype=np.int8).reshape((3, 4, 5))
 
     fn(None, A[::1, ::2, ::2])
     foo.interpret(A=A[::1, ::2, ::2])
@@ -305,7 +305,7 @@ def test_stride2(compiler):
 
     fn = compiler.compile(foo)
 
-    A = np.arange(3 * 4 * 5, dtype=float).reshape((3, 4, 5))
+    A = np.arange(3 * 4 * 5, dtype=np.int8).reshape((3, 4, 5))
 
     fn(None, A[::2, ::1, ::3])
     foo.interpret(A=A[::2, ::1, ::3])
