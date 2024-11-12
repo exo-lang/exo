@@ -126,56 +126,12 @@ Please contact [exo@mit.edu](mailto:exo@mit.edu) or [yuka@csail.mit.edu](mailto:
 
 # Publication
 
-The first paper on Exo was published at PLDI '22. You can download the
-paper [from ACM Digital Library](https://dl.acm.org/doi/abs/10.1145/3519939.3523446).
-If you use Exo, please cite both the compiler and the paper!
+- [Exocompilation for Productive Programming of Hardware Accelerators](https://dl.acm.org/doi/abs/10.1145/3519939.3523446)
+  Yuka Ikarashi\*, Gilbert Louis Bernstein\*, Alex Reinking, Hasan Genc, Jonathan Ragan-Kelley
+  PLDI 2022
+- [Exo 2: Growing a Scheduling Language](https://arxiv.org/abs/2411.07211)
+  Yuka Ikarashi, Kevin Qian, Samir Droubi, Alex Reinking, Gilbert Bernstein, Jonathan Ragan-Kelley
+  ASPLOS 2025
 
-```
-@inproceedings{pldi22:exo,
-  title        = {Exocompilation for Productive Programming of Hardware Accelerators},
-  author       = {
-    Ikarashi, Yuka and Bernstein, Gilbert Louis and Reinking, Alex and Genc,
-    Hasan and Ragan-Kelley, Jonathan
-  },
-  year         = 2022,
-  booktitle    = {
-    Proceedings of the 43rd ACM SIGPLAN International Conference on Programming
-    Language Design and Implementation
-  },
-  location     = {San Diego, CA, USA},
-  publisher    = {Association for Computing Machinery},
-  address      = {New York, NY, USA},
-  series       = {PLDI 2022},
-  pages        = {703–718},
-  doi          = {10.1145/3519939.3523446},
-  isbn         = 9781450392655,
-  url          = {https://doi.org/10.1145/3519939.3523446},
-  abstract     = {
-    High-performance kernel libraries are critical to exploiting accelerators
-    and specialized instructions in many applications. Because compilers are
-    difficult to extend to support diverse and rapidly-evolving hardware
-    targets, and automatic optimization is often insufficient to guarantee
-    state-of-the-art performance, these libraries are commonly still coded and
-    optimized by hand, at great expense, in low-level C and assembly. To better
-    support development of high-performance libraries for specialized hardware,
-    we propose a new programming language, Exo, based on the principle of
-    exocompilation: externalizing target-specific code generation support and
-    optimization policies to user-level code. Exo allows custom hardware
-    instructions, specialized memories, and accelerator configuration state to
-    be defined in user libraries. It builds on the idea of user scheduling to
-    externalize hardware mapping and optimization decisions. Schedules are
-    defined as composable rewrites within the language, and we develop a set of
-    effect analyses which guarantee program equivalence and memory safety
-    through these transformations. We show that Exo enables rapid development
-    of state-of-the-art matrix-matrix multiply and convolutional neural network
-    kernels, for both an embedded neural accelerator and x86 with AVX-512
-    extensions, in a few dozen lines of code each.
-  },
-  numpages     = 16,
-  keywords     = {
-    program optimization, user-schedulable languages, user-extensible backend
-    &amp; scheduling, instruction abstraction, scheduling, hardware
-    accelerators
-  }
-}
-```
+If you use Exo, please cite both the compiler and the papers!
+
