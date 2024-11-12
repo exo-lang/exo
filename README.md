@@ -126,11 +126,11 @@ Please contact [exo@mit.edu](mailto:exo@mit.edu) or [yuka@csail.mit.edu](mailto:
 
 # Publication
 
-- [Exocompilation for Productive Programming of Hardware Accelerators](https://dl.acm.org/doi/abs/10.1145/3519939.3523446)
-  Yuka Ikarashi\*, Gilbert Louis Bernstein\*, Alex Reinking, Hasan Genc, Jonathan Ragan-Kelley
+- [Exocompilation for Productive Programming of Hardware Accelerators](https://dl.acm.org/doi/abs/10.1145/3519939.3523446)\
+  Yuka Ikarashi\*, Gilbert Louis Bernstein\*, Alex Reinking, Hasan Genc, Jonathan Ragan-Kelley\
   PLDI 2022
-- [Exo 2: Growing a Scheduling Language](https://arxiv.org/abs/2411.07211)
-  Yuka Ikarashi, Kevin Qian, Samir Droubi, Alex Reinking, Gilbert Bernstein, Jonathan Ragan-Kelley
+- [Exo 2: Growing a Scheduling Language](https://arxiv.org/abs/2411.07211)\
+  Yuka Ikarashi, Kevin Qian, Samir Droubi, Alex Reinking, Gilbert Bernstein, Jonathan Ragan-Kelley\
   ASPLOS 2025
 
 If you use Exo, please cite both the compiler and the papers!
