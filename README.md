@@ -126,6 +126,9 @@ Please contact [exo@mit.edu](mailto:exo@mit.edu) or [yuka@csail.mit.edu](mailto:
 
 # Publication
 
+Exo's major contributions and ideas are published in the following two papers.
+The gist of its design principles and features is summarized in [Design.md](./docs/Design.md).
+
 - [Exocompilation for Productive Programming of Hardware Accelerators](https://dl.acm.org/doi/abs/10.1145/3519939.3523446)\
   Yuka Ikarashi\*, Gilbert Louis Bernstein\*, Alex Reinking, Hasan Genc, Jonathan Ragan-Kelley\
   PLDI 2022
