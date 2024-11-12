@@ -131,10 +131,12 @@ The gist of its design principles and features is summarized in [Design.md](./do
 
 - [Exocompilation for Productive Programming of Hardware Accelerators](https://dl.acm.org/doi/abs/10.1145/3519939.3523446)\
   Yuka Ikarashi\*, Gilbert Louis Bernstein\*, Alex Reinking, Hasan Genc, Jonathan Ragan-Kelley\
-  PLDI 2022
+  PLDI 2022\
+  Full version with appendices can be found [here](https://people.csail.mit.edu/yuka/pdf/exo_pldi2022_full.pdf)
 - [Exo 2: Growing a Scheduling Language](https://arxiv.org/abs/2411.07211)\
   Yuka Ikarashi, Kevin Qian, Samir Droubi, Alex Reinking, Gilbert Bernstein, Jonathan Ragan-Kelley\
-  ASPLOS 2025
+  ASPLOS 2025\
+  Full version with appendices can be found [here](https://arxiv.org/abs/2411.07211)
 
 If you use Exo, please cite both the compiler and the papers!
 
