@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from exo.new_eff import *
+from exo.rewrite.new_eff import *
 
 from exo import proc, config, DRAM, SchedulingError
 from exo.stdlib.scheduling import *

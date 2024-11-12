@@ -1,0 +1,81 @@
+def foo(n: size, x: i8[n] @ DRAM):
+    for j in seq(0, n - 1):
+        x[j] = 2.0
+    for i in seq(0, n):
+        pass
+    if n > 1:
+        for i in seq(0, n):  # <-- NODE
+            x[i] = 0.0
+    for j in seq(0, n - 1):
+        x[j] = 3.0def foo(n: size, x: i8[n] @ DRAM):
+    for j in seq(0, n - 1):
+        x[j] = 2.0
+    for i in seq(0, n):
+        pass
+    if n > 1:
+        [GAP - Before]
+        for i in seq(0, n):
+            x[i] = 0.0
+    for j in seq(0, n - 1):
+        x[j] = 3.0def foo(n: size, x: i8[n] @ DRAM):
+    for j in seq(0, n - 1):
+        x[j] = 2.0
+    for i in seq(0, n):
+        pass
+    if n > 1:
+        for i in seq(0, n):
+            x[i] = 0.0
+        [GAP - After]
+    for j in seq(0, n - 1):
+        x[j] = 3.0def foo(n: size, x: i8[n] @ DRAM):
+    for j in seq(0, n - 1):
+        x[j] = 2.0
+    for i in seq(0, n):  # <-- NODE
+        pass
+    if n > 1:
+        for i in seq(0, n):
+            x[i] = 0.0
+    for j in seq(0, n - 1):
+        x[j] = 3.0def foo(n: size, x: i8[n] @ DRAM):
+    for j in seq(0, n - 1):
+        x[j] = 2.0
+    [GAP - Before]
+    for i in seq(0, n):
+        pass
+    if n > 1:
+        for i in seq(0, n):
+            x[i] = 0.0
+    for j in seq(0, n - 1):
+        x[j] = 3.0def foo(n: size, x: i8[n] @ DRAM):
+    for j in seq(0, n - 1):
+        x[j] = 2.0
+    for i in seq(0, n):
+        pass
+    [GAP - After]
+    if n > 1:
+        for i in seq(0, n):
+            x[i] = 0.0
+    for j in seq(0, n - 1):
+        x[j] = 3.0def foo(n: size, x: i8[n] @ DRAM):
+    # BLOCK START
+    for j in seq(0, n - 1):
+        x[j] = 2.0
+    for i in seq(0, n):
+        pass
+    # BLOCK END
+    if n > 1:
+        for i in seq(0, n):
+            x[i] = 0.0
+    for j in seq(0, n - 1):
+        x[j] = 3.0def foo(n: size, x: i8[n] @ DRAM):
+    for j in seq(0, n - 1):
+        x[j] = 2.0
+    # BLOCK START
+    for i in seq(0, n):
+        pass
+    if n > 1:
+        for i in seq(0, n):
+            x[i] = 0.0
+    # BLOCK END
+    for j in seq(0, n - 1):
+        x[j] = 3.0

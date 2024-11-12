@@ -24,10 +24,15 @@ def baz(n: size, m: size):
             # BLOCK START
             x: f32 @ DRAM
             # BLOCK END
+            y = 1.1
+            for k in seq(0, n):
+                pass
+                pass
 
 def baz(n: size, m: size):
     for i in seq(0, n):
         for j in seq(0, m):
+            x: f32 @ DRAM
             # BLOCK START
             y = 1.1
             for k in seq(0, n):
@@ -49,6 +54,7 @@ def baz(n: size, m: size):
 def baz(n: size, m: size):
     for i in seq(0, n):
         for j in seq(0, m):
+            x: f32 @ DRAM
             # BLOCK START
             y = 1.1
             for k in seq(0, n):
@@ -62,3 +68,7 @@ def baz(n: size, m: size):
             # BLOCK START
             x: f32 @ DRAM
             # BLOCK END
+            y = 1.1
+            for k in seq(0, n):
+                pass
+                pass

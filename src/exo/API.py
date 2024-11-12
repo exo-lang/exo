@@ -5,28 +5,28 @@ import types
 from pathlib import Path
 from typing import Optional, Union, List
 
-import exo.LoopIR_scheduling as scheduling
-from exo.LoopIR_scheduling import SchedulingError
+import exo.rewrite.LoopIR_scheduling as scheduling
+from exo.rewrite.LoopIR_scheduling import SchedulingError
 
 from .API_types import ProcedureBase, ExoType
-from . import LoopIR as LoopIR
-from .LoopIR_compiler import run_compile, compile_to_strings
+from .core import LoopIR as LoopIR
+from .backend.LoopIR_compiler import run_compile, compile_to_strings
+from .core.configs import Config
+from .frontend.boundscheck import CheckBounds
+from .core.memory import Memory
+from .frontend.parse_fragment import parse_fragment
+from .frontend.pattern_match import match_pattern
+from .core.prelude import *
+from .rewrite.new_eff import Check_Aliasing
 from .LoopIR_interpreter import run_interpreter
-from .configs import Config
-from .boundscheck import CheckBounds
-from .memory import Memory
-from .parse_fragment import parse_fragment
-from .pattern_match import match_pattern
-from .prelude import *
-from .new_eff import Check_Aliasing
 
 # Moved to new file
-from .proc_eqv import decl_new_proc, derive_proc, assert_eqv_proc, check_eqv_proc
-from .pyparser import get_ast_from_python, Parser, get_src_locals
-from .typecheck import TypeChecker
+from .core.proc_eqv import decl_new_proc, derive_proc, assert_eqv_proc, check_eqv_proc
+from .frontend.pyparser import get_ast_from_python, Parser, get_src_locals
+from .frontend.typecheck import TypeChecker
 
 from . import API_cursors as C
-from . import internal_cursors as IC
+from .core import internal_cursors as IC
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -246,7 +246,7 @@ class Procedure(ProcedureBase):
         block = self._root()._child_block("body")
         return C.lift_cursor(block, self)
 
-    def find(self, pattern, many=False):
+    def find(self, pattern, many=False, call_depth=1):
         """
         Find the most specific possible cursor for the given pattern.
         For example, a pattern matching a single assignment statement
@@ -257,7 +257,7 @@ class Procedure(ProcedureBase):
 
         In any event, if no matches are found, a SchedulingError is raised
         """
-        return C.find(self._root(), self, pattern, many)
+        return C.find(self._root(), self, pattern, many, call_depth=call_depth + 1)
 
     def find_loop(self, pattern, many=False):
         """
@@ -274,7 +274,7 @@ class Procedure(ProcedureBase):
             name, count = results[1], (results[2] if results[2] else "")
             pattern = f"for {name} in _: _{count}"
 
-        return self.find(pattern, many)
+        return self.find(pattern, many, call_depth=1)
 
     def find_alloc_or_arg(self, pattern):
         _name_count_re = r"^([a-zA-Z_]\w*)\s*(\#\s*[0-9]+)?$"
@@ -287,10 +287,10 @@ class Procedure(ProcedureBase):
 
             pattern = f"{name}: _{count}"
 
-        return self.find(pattern)
+        return self.find(pattern, call_depth=1)
 
     def find_all(self, pattern):
-        return self.find(pattern, many=True)
+        return self.find(pattern, many=True, call_depth=1)
 
     # ---------------------------------------------- #
     #     execution / compilation operations
