@@ -264,4 +264,4 @@ This will print out the results of running kernel with and without the AVX instr
 Congratulations on completing this example!
 You might have felt that the scheduling operations in this example were very low-level and could be laborious to write.
 We felt the same! We implemented a new feature called Cursors that provides scheduling automation *external* to the compiler implementation.
-To learn more, please take a look at the [cursors example](cursors/README.md) and our ASPLOS '25 paper.
+To learn more, please take a look at the [cursors example](cursors/README.md) and our [ASPLOS '25](https://arxiv.org/abs/2411.07211) paper.

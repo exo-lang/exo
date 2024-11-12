@@ -23,7 +23,7 @@ The scheduling primitives are classified into six categories:
 The following papers provide a high-level and holistic view of Exo as a project:
 
 - [PLDI '22 paper](https://people.csail.mit.edu/yuka/pdf/exo_pldi2022_full.pdf)
-- [ASPLOS '25 paper](.)
+- [ASPLOS '25 paper](https://arxiv.org/abs/2411.07211)
 - [Kevin Qian's MEng thesis](https://dspace.mit.edu/handle/1721.1/157187)
 - [Samir Droubi's MEng thesis](https://dspace.mit.edu/handle/1721.1/156752)
 
