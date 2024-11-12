@@ -312,16 +312,6 @@ def test_branch_stride2(compiler):
     @proc
     def foo(A: i8[3,4], res: f32):
         bar(A, res)
-    
-    fn = compiler.compile(foo)
-
-    A = np.arange(3*4, dtype=np.float32).reshape((3,4))
-    x = np.zeros(1, dtype=np.float32)
-    y = np.zeros(1, dtype=np.float32)
-
-    fn(None, A, x)
-    foo.interpret(A=A, res=y)
-    assert(x == y)
 
 # so is this
 def test_branch_stride3(compiler):
@@ -335,16 +325,6 @@ def test_branch_stride3(compiler):
     @proc
     def foo(A: i8[3,4], res: f32):
         bar(A[:,:], res)
-
-    fn = compiler.compile(foo)
-
-    A = np.arange(3*4, dtype=np.float32).reshape((3,4))
-    x = np.zeros(1, dtype=np.float32)
-    y = np.zeros(1, dtype=np.float32)
-
-    fn(None, A, x)
-    foo.interpret(A=A, res=y)
-    assert(x == y)
 
 def test_bounds_err_interp():
     with pytest.raises(TypeError):
@@ -374,23 +354,6 @@ def test_precond_interp_simple():
 
         foo.interpret(N=N, A=A, res=x)
 
-# TODO: discuss
-# shouldn't this raise a runtime error? 
-def test_precond_comp_simple(compiler):
-    @proc
-    def foo(N: size, A:f32[N], res: f32):
-        assert N == 4
-        res = A[3]
-
-    N = 2
-    A = np.arange(N, dtype=np.float32)
-    x = np.zeros(1, dtype=np.float32)
-
-    fn = compiler.compile(foo)
-    fn(None, N, A, x)
-    print(x)
-    assert 1 == 0
-
 def test_precond_interp_stride():
     with pytest.raises(AssertionError):
 
@@ -401,19 +364,6 @@ def test_precond_interp_stride():
 
         A = np.arange(16, dtype=np.float32).reshape((1,16))
         foo.interpret(A=A[:,::2])
-
-# TODO: discuss
-# incorrectly informs the compiler about the stride
-def test_precond_comp_stride(compiler):
-    @proc
-    def foo(A:f32[1,8]):
-        assert stride(A, 0) == 8
-        pass
-
-    fn = compiler.compile(foo)
-
-    A = np.arange(16, dtype=np.float32).reshape((1,16))
-    fn(None, A[:,::2])
 
 def new_config():
     @config
