@@ -41,7 +41,7 @@ In this repository, folders are structured as follows:
 
 User-defined features like config, externs, and Memory's parent class implementations are in `configs.py`, `extern.py`, and `memory.py`, respectively.
 
-`internal_cursors` defines primitive cursor movements (see Section 5.2 "Cursor implementation" of our ASPLOS paper) that are used internally by `LoopIR_scheduling` implementations of scheduling primitives.
+`internal_cursors` defines primitive cursor movements (see Section 5.2 "Cursor implementation" of [our ASPLOS paper](https://arxiv.org/abs/2411.07211)) that are used internally by `LoopIR_scheduling` implementations of scheduling primitives.
 `proc_eqv.py` defines a union-find tree which we use to track the equivalence of procedures.
 
 ---

@@ -1,6 +1,6 @@
 # Cursor Step-by-Step Tutorial
 
-This example demonstrates Cursors using the tile2D example (as shown in our ASPLOS '25 paper).
+This example demonstrates Cursors using the tile2D example (as shown in our [ASPLOS '25 paper](https://arxiv.org/abs/2411.07211)).
 
 ## Overview
 
