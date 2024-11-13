@@ -375,7 +375,7 @@ I'm not sure this is really the right approach to take, but my gut feeling is it
 
 \filbreak
 Not all combinations of first and second actor kinds are supported.
-For split barriers, I'm expecting mostly that we will support \lighttt{cuda\_all} to \lighttt{cpu} barriers, and asynchronous CUDA to \lighttt{cuda\_sync} barriers.
+For split barriers, I'm expecting mostly that we will support \lighttt{cuda\_all} to \lighttt{cpu} barriers, asynchronous CUDA to \lighttt{cuda\_sync} barriers, and \lighttt{tma\_*} to/from \lighttt{wgmma} split barriers.
 
 \filbreak
 For non-split barriers, we support the following:
@@ -396,6 +396,11 @@ Note the first two GPU barriers have non-equal first and second actor kinds to a
 \filbreak
 \hook{Hook:} For the analysis and codegen to be feasible, I'm expecting language restrictions that make it possible to statically verify that for each split barrier constructed, we issue matching pairs of arrive and await, with the same parlane used for all arrives and the same parlane used for all awaits.
 We need to verify that the iteration spaces for the arrive and awaits are the same.
+
+\filbreak
+\textbf{TODO:} expand on transitivity (see synchronization environment).
+This is not a choice the user makes; likely, all barriers with first actor kind \lighttt{cpu} or \lighttt{cuda\_sync} are transitive and all others are not.
+This will probably be sound but not complete.
 
 \filbreak
 \myKey{Kernel parameters:} CUDA code (i.e. code with \lighttt{cuda\_all} actor kind) can read but not write scalar CPU variables ... these are implicitly understood to be kernel parameters passed to the grid launch.
@@ -515,7 +520,7 @@ Two parlanes are equal when they come from the same parscope and correspond to t
 \myKey{Temporal/Spatial Loop Index:} Loop index variables are ``spatial'' if they correspond to a parallel-for loop and ``temporal'' otherwise, with temporal loop indices further distinguished as ``sync-temporal'' for sequential-for loops and ``async-temporal'' for async-for loops.
 
 \filbreak
-\myKey{Actor signature:}
+\myKey{Actor Signature:}
 The actor signature is an attribute of each memory read or write performed, which may vary based on which accelerator performed it.
 
 \filbreak
@@ -558,16 +563,19 @@ Each time a variable is assigned to, it is associated with a completely new assi
 
 \filbreak
 \myKey{Accessor Set:}
-The set of sigthreads $\{(t_0, A), (t_1, A), ... (t_{n-1}, A)\}$ performing a given read/write, where $t_0, t_1, ... ,t_{n-1}$ is the range of threads performing the access and $A$ is the actor signature.
+The set of sigthreads $\{(t_0, A_S), (t_1, A_S), ... (t_{n-1}, A_S)\}$ performing a given read/write, where $t_0, t_1, ... ,t_{n-1}$ is the range of threads performing the access and $A_S$ is the actor signature.
 Note there could be multiple threads due to convergent code at warp/warpgroup scope.
 
 \filbreak
 \myKey{Visibility Record:} A visibility record consists of
 \begin{enumerate}
-  \item $V_P$: pending visibility set (set of sigthreads)
-  \item $V_C$: current visibility set (set of sigthreads)
+  \item $V_A$: async visibility set (set of sigthreads)
+  \item $V_S$: sync visibility set (set of sigthreads)
   \item pending barrier awaits: set of (barrier variable, counter) pairs.
+  \item $A_O$: original actor signature
 \end{enumerate}
+
+\textbf{Invariant:} $V_S \subseteq V_A$.
 
 \filbreak
 \myKey{Assignment Record:} The full assignment record for a variable consists of
@@ -577,11 +585,14 @@ Note there could be multiple threads due to convergent code at warp/warpgroup sc
 \end{enumerate}
 
 \filbreak
-Conceptually, the write visibility record's $V_C$ stores the set of sigthreads that can safely observe the written value of the variable at the current program point (safely means to deterministically read or overwrite the prior written value).
-If we number each read starting from the first one S-after the S-last write (and ignore all S-prior reads), then the Nth read visibility record's $V_C$ stores the set of sigthreads that ``observed'' the Nth read, in the sense that performing a write will not cause a WAR hazard with said read.
+Conceptually, the write visibility record's $V_S$ stores the set of sigthreads that can safely observe the written value of the variable at the current program point (safely means to deterministically read or overwrite the prior written value).
+If we number each read starting from the first one S-after the S-last write (and ignore all S-prior reads), then the Nth read visibility record's $V_S$ stores the set of sigthreads that ``observed'' the Nth read, in the sense that performing a write will not cause a WAR hazard with said read.
 
 \filbreak
-The pending visibility set ($V_P$) of the visibility record is needed to model asynchronous instructions that have \textit{some} effect on the S-program's environment, but cannot actually be deterministically observed in the equivalent M-program by any sigthread (including the sigthread that issued the asynchronous instruction) until future synchronization.
+The async visibility set ($V_A$) of the visibility record is needed to model asynchronous instructions that have \textit{some} effect on the S-program's environment, but cannot actually be deterministically observed in the equivalent M-program by any sigthread (including the sigthread that issued the asynchronous instruction) until future synchronization.
+
+\filbreak
+The original actor signature ($A_O$) effectively encodes the ``category'' of instruction that performed the read or write, and will be needed to model non-transitivity for specialized barrier types.
 
 \filbreak
 \myKey{Write State Tracking:} When a variable is written to, we discard the assignment record (safety checking to be described later) and associate a new assignment record.
@@ -589,9 +600,10 @@ The new assignment record has no read access records, no pending barrier awaits,
 
 \filbreak
 \begin{enumerate}
-  \item $V_P$ set to the write's accessor set if the instruction is asynchronous\footnote{Special behavior for wgmma needed, where sigthreads for actor signature \lighttt{sig\_wgmma\_reg\_d} go into $V_C$ despite wgmma otherwise having asynchronous semantics.}, empty otherwise;
-  \item $V_C$ set to the write's accessor set if the instruction is synchronous, empty otherwise;
+  \item $V_A$ set to the write's accessor set (both for synchronous and asynchronous instructions);
+  \item $V_S$ set to the write's accessor set if the instruction is synchronous, empty otherwise;
   \item an empty pending barrier awaits
+  \item $A_O$ set to the actor signature of the accessor set.
 \end{enumerate}
 
 \filbreak
@@ -611,9 +623,13 @@ Specifically,
 \end{enumerate}
 
 \filbreak
-A visibility record synchronizes-with an arrive or a non-split synchronization statement when ${(V_P \cup V_C) \cap V_1}$ is non-empty.
-(The consideration of $V_P$ represents that synchronization statements can synchronize with pending asynchronous instructions, when the appropriate actor kind is used).
-A synchronization statement augments a visibility record by setting ${V_C \leftarrow V_C \cup V_2}$.
+A barrier my be transitive or non-transitive.
+If transitive, a visibility record synchronizes-with an arrive or a non-split synchronization statement when ${V_A \cap V_1}$ is non-empty.
+(The consideration of $V_A$ represents that synchronization statements can synchronize with pending asynchronous instructions, when the appropriate actor kind is used).
+If non-transitive, we substitute $V_A$ with $(V_A \cap (\mathbb{N} \times \{A_O\}))$ where $A_O$ is the original actor kind of the visibility record; this effectively models that the barrier only has effect on reads and writes performed by the instruction kinds targetted by the barrier.
+
+\filbreak
+A synchronization statement augments a visibility record by setting ${V_A \leftarrow V_A \cup V_2}$ and ${V_S \leftarrow V_S \cup V_2}$.
 This represents that a read or write operation is visible to more sigthreads thanks to the synchronization.
 
 \filbreak
@@ -629,7 +645,7 @@ Note, because of how write state tracking clears the pending variable awaits for
 \filbreak
 \myKey{Access Safety Checking:} We can finally define safety for a read or write access.
 Let $A$ be the accessor set for the access.
-We say that a visibility record is visible-to $A$ when ${V_C \cap A}$ is non-empty; note we don't consider $V_P$ (the pending visibility set).
+We say that a visibility record is visible-to $A$ when ${V_S \cap A}$ is non-empty; note we don't consider $V_A$ (the async visibility set).
 
 A write access to the variable is safe when the variable's assignment record
 \begin{enumerate}
