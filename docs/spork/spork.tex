@@ -793,4 +793,26 @@ As mentioned, we're probably going to put static analysis on the backburner.
 For now I'm envisioning that we can target either compiling to an M-program (CUDA code), or compiling to an S-program (CPU code that implements the dynamic checking described earlier).
 So we compile the Exo code to CPU C code, and successfully running the C code on a certain input shape validates that the M-program CUDA code with the same inputs will generate the equivalent output.
 
+\filbreak
+\mySub{Other Complications}
+
+Things I'm not sure how to handle best yet:
+
+\begin{enumerate}
+  \item The specifics of how parameters are passed from host code to device functions.
+  We need to be able to cuda-memcpy stuff (model as an \lighttt{instr} most likely) and pass kernel parameters (not sure how to best do this).
+  \filbreak
+  \item Taking a ``census'' of variables used in both CPU and CUDA code (body of a \lighttt{for cuda\_clusters} or \lighttt{for cuda\_blocks} loop) and passing them as kernel parameters.
+  Not sure how to best model this either. For index/value parameters we can just pass them directly, but for numeric types it's less clear; maybe we'll allow the GPU to read (but not write) scalar values in CPU DRAM and implement this with an implicit copy ... this feels hacky though.
+  \filbreak
+  \item How to best modify memory types to handle the new GPU environment (can\_read must consider the current actor kind; distributed memory like GPU registers).
+  \filbreak
+  \item I need to generate both CPU simulator code (dynamic checking) and GPU code.
+  Need to think through the details of how to expose this to the user.
+  This also greatly complicates custom \lighttt{instr}s since CUDA accelerators won't work on the CPU simulator ... could walk the AST of the \lighttt{instr}'s proc and generate CPU code from that?
+  \filbreak
+  \item Warp shuffles, as discussed previously (stretch goal)
+  \item Sparse tensors (interacts with Kenneth Moon's project ... so I may put this off)
+\end{enumerate}
+
 \end{document}
