@@ -581,12 +581,14 @@ Note there could be multiple threads due to convergent code at warp/warpgroup sc
 \myKey{Assignment Record:} The full assignment record for a variable consists of
 \begin{enumerate}
   \item a single write visibility record;
-  \item a list of read visibility records (could be compressed into a duplicate-free set in a real implementation).
+  \item a list of any number of read visibility records
 \end{enumerate}
 
 \filbreak
 Conceptually, the write visibility record's $V_S$ stores the set of sigthreads that can safely observe the written value of the variable at the current program point (safely means to deterministically read or overwrite the prior written value).
-If we number each read starting from the first one S-after the S-last write (and ignore all S-prior reads), then the Nth read visibility record's $V_S$ stores the set of sigthreads that ``observed'' the Nth read, in the sense that performing a write will not cause a WAR hazard with said read.
+
+\filbreak
+Supposing that there have been $N$ reads since the last write (in S-order), then there will be $N$-many read visibility records, and the $i^{th}$ read visibility record's $V_S$ stores the set of sigthreads that ``observed'' the $i^{th}$ such read, in the sense that performing a write will not cause a WAR hazard with said read.
 
 \filbreak
 The async visibility set ($V_A$) of the visibility record is needed to model asynchronous instructions that have \textit{some} effect on the S-program's environment, but cannot actually be deterministically observed in the equivalent M-program by any sigthread (including the sigthread that issued the asynchronous instruction) until future synchronization.
@@ -601,8 +603,8 @@ The new assignment record has no read access records, no pending barrier awaits,
 \filbreak
 \begin{enumerate}
   \item $V_A$ set to the write's accessor set (both for synchronous and asynchronous instructions);
-  \item $V_S$ set to the write's accessor set if the instruction is synchronous, empty otherwise;
-  \item an empty pending barrier awaits
+  \item $V_S$ set to the write's accessor set if the instruction is synchronous, empty otherwise\footnote{Special treatment needed for wgmma registers; accesses with actor signature \lighttt{wgmma\_reg\_d} (accumulator) go in $V_S$ despite wgmma instructions otherwise being asynchronous.};
+  \item an empty pending barrier awaits;
   \item $A_O$ set to the actor signature of the accessor set.
 \end{enumerate}
 
@@ -631,6 +633,11 @@ If non-transitive, we substitute $V_A$ with $(V_A \cap (\mathbb{N} \times \{A_O\
 \filbreak
 A synchronization statement augments a visibility record by setting ${V_A \leftarrow V_A \cup V_2}$ and ${V_S \leftarrow V_S \cup V_2}$.
 This represents that a read or write operation is visible to more sigthreads thanks to the synchronization.
+Notes:
+\begin{enumerate}
+  \item In this way a sigthread may ``graduate'' from $V_A$ to $V_S$.
+  \item The augmenting of $V_A$ is needed to uphold the invariant $V_S \subseteq V_A$; this is mainly for implementation purposes (see memoization).
+\end{enumerate}
 
 \filbreak
 When a non-split barrier is executed, it augments all visibility records of all variables that synchronize-with the synchronization statement.
@@ -653,6 +660,56 @@ A write access to the variable is safe when the variable's assignment record
   \item has all its read visibility records visible-to $A$ (WAR check).
 \end{enumerate}
 A read access to the variable is safe when the variable's write visibility record is visible-to $A$ (RAW check).
+
+
+
+\filbreak
+\mySub{Synchronization Environment Implementation Notes}
+
+\myKey{Memoization:} As described, this model would be very expensive to implement literally, as we model synchronization statements as transformations applied over the visibility records of \textit{all} variables in the synchronization environment, and furthermore, each variable can be associated with an unbounded number of visibility records (due to the list of read visibility records).
+
+\filbreak
+This is a bit of an abuse of terminology, but we can use ``memoization'' to combat this.
+Observe that the effect of a synchronization statement (non-split, arrive, await) is a pure function of the modified visibility record.
+Therefore, if the same visibility record value appears multiple times in the synchronization environment, we can have all the users reference one physical ``visibility record'' object that's modified only once upon applying the effects of a synchronization statement.
+
+\filbreak
+In my current prototype implementation, I reference count \lighttt{VisibilityRecord} objects, which are stored (by weak reference) in a global\footnote{thread-local} memoization table.
+Each live, unique visibility record is stored exactly once in the memoization table and given a unique ID (based on address).
+Each synchronization statement is conceptually applied to all visibility records in the memoization table, although I optimize this by storing visibility records in a hierarchical thread-index-based data structure, so that we can skip visibility records corresponding to thread ranges that are guaranteed not to intersect the synchronization statement's first visibility set ($V_1$).
+
+\filbreak
+Often, duplicates only occur due to the effects of synchronization (e.g. if threads in a thread block each write to \lighttt{arr[threadIdx.x]}, then each \lighttt{arr[i]} has a distinct write visibility set ${\{(i, A_O)\}}$; after a \lighttt{\_\_syncthreads()} though, all the write visibility sets will be equal to ${\{(0, A_O), (1, A_0), ... ,(\lighttt{blockDim.x}-1, A_O)\}}$).
+This is handled by ``forwarding'': if a duplicate is detected due to the effects of a synchronization statement, we can set the visibility record to a forwarding state and forward to (strongly reference) the duplicated visibility record.
+
+\filbreak
+Chains of forwarding could be formed due to the effects of multiple synchronization statements.
+This breaks the assumption that visibility records can be compared for equality based on unique ID, but we can fix this by ``resolving'' the chain of forwarded visibility records and recovering the ID of the base visibility record referenced.
+
+\filbreak
+\myKey{Read Visibility Set Optimization:} As mentioned, the unbounded list of read visibility records could be a serious time sink.
+For now I'm handling this by removing duplicate visibility records in the list, which we can quickly-ish recognize based on ID comparison.
+I'm not at all happy with this solution (this isn't so much making the algorithm run fast as it is making it not completely intractible) but so far as I can tell, it's not trivial to do better.
+
+\filbreak
+Ignoring the complexity of wgmma and co. for now, the core asymmetry is that the ``set of [sig] threads allowed to write'' can easily be tracked as a single set, since there's only one prior write to worry about, wheras the ``set of threads allowed to read'' more-or-less has to be modelled as a conjunction of disjunctions, to handle possibly separate synchronization paths protecting each prior read.
+
+\filbreak
+Observe, for example, that if each thread of a block reads a variable, then the set of threads that are allowed to write that variable is \textit{empty} (assuming at least 2 threads per block).
+This is because thread 0's read restricts the valid writer thread set to $\{0\}$, thread 1's read restricts the valid writer thread set to $\{1\}$, and so on; and the conjunction of all those sets is empty.\footnote{Specifically, this conjunction corresponds to the step in ``access safety checking'' where all read visibility sets must be visible-to the write's accessor set.}
+
+\filbreak
+In the current model I'm proposing, an empty visibility set by itself can never expand, since it'll never intersect any synchronization statement's $V_1$.
+This is why I have to track each read's visibility set separately; in this case, after a \lighttt{\_\_syncthreads()}, all of the ``valid writer thread'' sets will now be ${\{0, 1, ..., \lighttt{blockIdx.x} - 1}\}$, and the conjunction of all those identical sets is now non-empty.
+
+\filbreak
+If we \textit{stop} ignoring the complexity of wgmma and co., the situation becomes even more difficult to easily optimize, as we can't rely on simple zero/one/many-threads-accessed\footnote{\web{https://xkcd.com/764/}} state flags or such, in the manner of \webText{HiRace}{https://arxiv.org/pdf/2401.04701}.
+
+\filbreak
+A conjunction of disjunctions is in some sense maximally simplified and impossible to improve on (assuming that my proposed union-based ``augment visibility sets'' model is really the way to go to model real-world synchronization patterns, which could be wrong).
+This makes me not too hopeful for finding a dramatically better implementation.
+However, ideally, there would be smarter ways to ``compress'' the read visibility state, at least for common access patterns.
+
 
 \filbreak
 \mySub{Unanswered Questions}
