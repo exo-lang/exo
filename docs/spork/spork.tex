@@ -721,9 +721,35 @@ However, ideally, there would be smarter ways to ``compress'' the read visibilit
   \item Compiling arrive and await statements into real CUDA synchronization constructs.
     In particular, there's the difficulty of proving 1:1 correspondence between arrive and await operations.
     Need to analyze the loop iteration space.
+  \filbreak
+  \item How to best express producer-consumer warp specialization.
+    We have a start with lane specialization statements, \lighttt{arrive} (producer), and \lighttt{await} (consumer); however, we will still need to model pipeline depth and ring buffering; also, we have to model the synchronization in the other direction, ensuring the producer doesn't overwrite a ring buffer entry before the consumer is done with it.
+  \filbreak
   \item Learn about formal program verification and figure out how to compile this simulation-based safety model into something that is statically verifiable.
+  \filbreak
   \item Extensions to the parview concept needed to express common safe patterns such as deep pipelining and ring-buffer optimization (statically partitioning an array into disjoint subsets that are uniquely assigned to loop iterations, rather than uniquely assigned to parlanes).
+  \filbreak
   \item Modeling sparse tensor operations. This would require data-dependent indexing so probably this won't happen ... or will it? (vsauce music plays)
+  \filbreak
+  \item How to handle swizzling shared memory for optimizing away bank conflicts.
+    Separate memory types for each swizzle pattern, with the swizzling done by customizing the read/write/window syntax generated?
+  \filbreak
+  \item Controlling the order that thread blocks are executed.
+  This can have an impact on L2 cache rate.
+  In a sense, it's good that I decouple the concept of physical execution units (lane units) from the abstract parallel iteration space, to give us this flexibility. e.g. if we compile the following
+  \filbreak
+{
+\color{lightttColor}
+\begin{verbatim}
+  for y in cuda_blocks(0, y_hi):
+      for x in cuda_blocks(0, x_hi):
+          # Code for blocks
+          for w in cuda_warps(...): ...
+\end{verbatim}
+}
+  \filbreak
+  and implement it literally, we will process blocks in row-major order, which won't give optimal L2 cache usage compared to something tiled.
+  (I guess in principle we can address this by splitting into inner/outer loops).
 \end{enumerate}
 
 \newpage
