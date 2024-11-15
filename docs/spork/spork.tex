@@ -828,10 +828,13 @@ Things I'm not sure how to handle best yet:
   \item The specifics of how parameters are passed from host code to device functions.
   We need to be able to cuda-memcpy stuff (model as an \lighttt{instr} most likely) and pass kernel parameters (not sure how to best do this).
   \filbreak
-  \item Taking a ``census'' of variables used in both CPU and CUDA code (body of a \lighttt{for cuda\_clusters} or \lighttt{for cuda\_blocks} loop) and passing them as kernel parameters.
-  Not sure how to best model this either. For index/value parameters we can just pass them directly, but for numeric types it's less clear; maybe we'll allow the GPU to read (but not write) scalar values in CPU DRAM and implement this with an implicit copy ... this feels hacky though.
+  \item We will modify the LoopIR compiler to separate CPU code (top level) and CUDA code (body of a \lighttt{cuda\_clusters} or \lighttt{cuda\_blocks} parallel-for loop) and compile the latter as a separate CUDA device function.
+  We need to take a ``census'' of variables used in both CPU and CUDA code and pass them as kernel parameters\footnote{Actually, this can be avoided by using the recent ``anonymous device lambda'' feature in CUDA C++, but the capture rules for even plain CPU C++ lambdas are confusing enough as is, and I am leery of relying on this feature if it would be relatively simple to implement this ourselves, especially if we expect the output code to be inspected by non-C++ experts. OTOH if this turns out to be hard to implement, it may be justifiable to rely on this advanced feature.}.
+  Not sure how to best model this either. For index/value parameters we can just pass them directly, but for numeric types it's less clear; maybe we'll allow the GPU to read (but not write) scalar values\footnote{Or more generally, statically-sized arrays?} in CPU DRAM and implement this by implicitly passing the CPU scalar as a CUDA kernel parameter ... this feels hacky though.
+  Another possibility is to add a new ``cuda grid constant'' memory type.
+  Both solutions have the issue that the value will appear not as normal GPU memory to Exo, despite basically being the same as an ordinary CUDA variable from the CUDA programming model's perspective, so, this could unfairly limit \lighttt{instr}s from being used.
   \filbreak
-  \item How to best modify memory types to handle the new GPU environment (can\_read must consider the current actor kind; distributed memory like GPU registers).
+  \item How to best modify memory types to handle the new GPU environment (can\_read must consider the current actor kind, and we need to model distributed memory like GPU registers).
   \filbreak
   \item I need to generate both CPU simulator code (dynamic checking) and GPU code.
   Need to think through the details of how to expose this to the user.
