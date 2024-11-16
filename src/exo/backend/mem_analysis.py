@@ -126,6 +126,7 @@ class MemoryAnalysis:
 
         if (
             styp is LoopIR.Pass
+            or styp is LoopIR.SyncStmt
             or styp is LoopIR.Assign
             or styp is LoopIR.Reduce
             or styp is LoopIR.WriteConfig

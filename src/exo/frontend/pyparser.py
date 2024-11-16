@@ -14,6 +14,13 @@ from ..core.configs import Config
 from ..core.LoopIR import UAST, PAST, front_ops
 from ..core.prelude import *
 from ..core.extern import Extern
+from ..spork.lane_units import (
+    LaneSpecialization,
+    LaneSpecializationPattern,
+    lane_unit_dict,
+)
+from ..spork.actor_kinds import actor_kind_dict
+from ..spork.loop_modes import LoopMode, loop_mode_dict
 
 
 # --------------------------------------------------------------------------- #
@@ -139,6 +146,7 @@ _is_size = lambda x: isinstance(x, pyast.Name) and x.id == "size"
 _is_index = lambda x: isinstance(x, pyast.Name) and x.id == "index"
 _is_bool = lambda x: isinstance(x, pyast.Name) and x.id == "bool"
 _is_stride = lambda x: isinstance(x, pyast.Name) and x.id == "stride"
+_is_barrier = lambda x: isinstance(x, pyast.Name) and x.id == "barrier"
 
 _prim_types = {
     "R": UAST.Num(),
@@ -198,9 +206,18 @@ class Parser:
                     or s.value.func.id in special_cases
                 ):
                     is_expr = True
+                if (
+                    is_expr
+                    and isinstance(s.value, pyast.BinOp)
+                    and isinstance(s.value.op, pyast.FloorDiv)
+                ):
+                    # SyncStmt `before // after`
+                    is_expr = False
 
             if is_expr:
-                self._cached_result = self.parse_expr(s.value)
+                self._cached_result = self.parse_expr(
+                    s.value, allow_lane_specialization=True
+                )
             else:
                 self._cached_result = self.parse_stmt_block(module_ast)
         else:
@@ -404,6 +421,9 @@ class Parser:
                 )
             return UAST.Stride(), None
 
+        elif _is_barrier(typ_node):
+            self.err(node, "Cannot pass barrier as argument")
+
         else:
             typ = self.parse_num_type(typ_node, is_arg=True)
 
@@ -424,6 +444,7 @@ class Parser:
         return typ, mem
 
     def parse_num_type(self, node, is_arg=False):
+        # TODO we can't parse allocating barriers right now
         if isinstance(node, pyast.Subscript):
             if isinstance(node.value, pyast.List):
                 if is_arg is not True:
@@ -675,14 +696,15 @@ class Parser:
 
             # ----- If statement parsing
             elif isinstance(s, pyast.If):
-                cond = self.parse_expr(s.test)
-
                 self.push()
                 body = self.parse_stmt_block(s.body)
                 self.pop()
                 self.push()
                 orelse = self.parse_stmt_block(s.orelse)
                 self.pop()
+
+                # Must be no orelse to allow lane specialization.
+                cond = self.parse_expr(s.test, allow_lane_specialization=not orelse)
 
                 rstmts.append(self.AST.If(cond, body, orelse, self.getsrcinfo(s)))
 
@@ -750,6 +772,43 @@ class Parser:
             elif isinstance(s, pyast.Pass):
                 rstmts.append(self.AST.Pass(self.getsrcinfo(s)))
 
+            # ----- SyncStmt parsing
+            elif (
+                isinstance(s, pyast.Expr)
+                and isinstance(s.value, pyast.BinOp)
+                and isinstance(s.value.op, pyast.FloorDiv)
+            ):
+                binop = s.value
+                if not isinstance(binop.left, pyast.Name) or not isinstance(
+                    binop.right, pyast.Name
+                ):
+                    self.err(s, "expected names on both sides of '|' (SyncStmt)")
+                srcinfo = self.getsrcinfo(s)
+                if self.is_fragment:
+                    sync = PAST.SyncStmt(binop.left.id, binop.right.id, srcinfo)
+                else:
+
+                    def to_sym(name):
+                        actor_kind = actor_kind_dict.get(name)
+                        if actor_kind:
+                            return actor_kind.sym
+                        else:
+                            sym = self.locals.get(name)
+                            if not isinstance(sym, Sym):
+                                if isinstance(sym, SizeStub):
+                                    raise ParseError(
+                                        f"{self.getsrcinfo(s)}: size {sym.nm} unexpected in SyncStmt"
+                                    )
+                                raise ParseError(
+                                    f"{self.getsrcinfo(s)}: unknown actor kind or variable {name}"
+                                )
+                            return nm
+
+                    sync = UAST.SyncStmt(
+                        to_sym(binop.left.id), to_sym(binop.right.id), srcinfo
+                    )
+                rstmts.append(sync)
+
             # ----- Stmt Hole parsing
             elif (
                 isinstance(s, pyast.Expr)
@@ -764,34 +823,38 @@ class Parser:
                     "predicate assert should happen at the beginning " "of a function",
                 )
             else:
-                self.err(s, "unsupported type of statement")
+                self.err(s, f"unsupported type of statement {s}")
 
         return rstmts
 
     def parse_loop_cond(self, cond):
         if isinstance(cond, pyast.Call):
-            if isinstance(cond.func, pyast.Name) and cond.func.id in ("par", "seq"):
-                if len(cond.keywords) > 0:
+            if isinstance(cond.func, pyast.Name) and cond.func.id in loop_mode_dict:
+                loop_mode_kwargs = {
+                    kw.arg: self.parse_expr(kw.value) for kw in cond.keywords
+                }
+                if len(cond.args) != 2:
                     self.err(
-                        cond, "par() and seq() does not support" " named arguments"
+                        cond,
+                        f"{cond.func.id}() expects exactly 2 positional arguments: lo, hi",
                     )
-                elif len(cond.args) != 2:
-                    self.err(cond, "par() and seq() expects exactly" " 2 arguments")
                 lo = self.parse_expr(cond.args[0])
                 hi = self.parse_expr(cond.args[1])
 
                 if self.is_fragment:
                     return lo, hi
                 else:
-                    if cond.func.id == "par":
-                        return UAST.ParRange(lo, hi, self.getsrcinfo(cond))
-                    else:
-                        return UAST.SeqRange(lo, hi, self.getsrcinfo(cond))
+                    try:
+                        loop_mode_type = loop_mode_dict[cond.func.id]
+                        loop_mode = loop_mode_type(**loop_mode_kwargs)
+                    except Exception as e:
+                        self.err(cond, "invalid loop mode", e)
+                    return UAST.LoopRange(lo, hi, loop_mode, self.getsrcinfo(cond))
             else:
                 self.err(
                     cond,
                     "expected for loop condition to be in the form "
-                    "'par(...,...)' or 'seq(...,...)'",
+                    "'par(...,...)' or 'seq(...,...)' or 'cuda_*(...,...)'",
                 )
         else:
             e_hole = PAST.E_Hole(self.getsrcinfo(cond))
@@ -868,7 +931,7 @@ class Parser:
             return UAST.Point(self.parse_expr(e), srcinfo)
 
     # parse expressions, including values, indices, and booleans
-    def parse_expr(self, e):
+    def parse_expr(self, e, allow_lane_specialization=False):
         if isinstance(e, (pyast.Name, pyast.Subscript)):
             nm_node, idxs, is_window = self.parse_array_indexing(e)
 
@@ -957,7 +1020,7 @@ class Parser:
             elif isinstance(e.op, pyast.Div):
                 op = "/"
             elif isinstance(e.op, pyast.FloorDiv):
-                op = "//"
+                op = "//"  # Note: parsed elsewhere as SyncStmt
             elif isinstance(e.op, pyast.Mod):
                 op = "%"
             elif isinstance(e.op, pyast.Pow):
@@ -1001,6 +1064,9 @@ class Parser:
         elif isinstance(e, pyast.Compare):
             assert len(e.ops) == len(e.comparators)
 
+            if len(e.ops) == 1 and isinstance(e.ops[0], pyast.In):
+                return self.parse_lane_specialization(e, allow_lane_specialization)
+
             vals = [self.parse_expr(e.left)] + [
                 self.parse_expr(v) for v in e.comparators
             ]
@@ -1025,7 +1091,7 @@ class Parser:
                 elif isinstance(opnode, pyast.IsNot):
                     op = "is not"
                 elif isinstance(opnode, pyast.In):
-                    op = "in"
+                    assert False, "should have been parsed as LaneSpecialization"
                 elif isinstance(opnode, pyast.NotIn):
                     op = "not in"
                 else:
@@ -1102,3 +1168,52 @@ class Parser:
 
         else:
             self.err(e, "unsupported form of expression")
+
+    # Parse special "lane_unit in (lo, hi)" syntax
+    def parse_lane_specialization(self, e, allow_lane_specialization):
+        assert isinstance(e, pyast.Compare)
+        assert len(e.ops) == 1 and isinstance(e.ops[0], pyast.In)
+
+        lhs_ast = e.left
+        rhs_ast = e.comparators[0]
+
+        if (
+            not isinstance(lhs_ast, pyast.Name)
+            or not isinstance(rhs_ast, pyast.Tuple)
+            or len(rhs_ast.elts) != 2
+        ):
+            self.err(e, "expected 'lane_unit in (lo, hi)'")
+
+        unit_name = lhs_ast.id
+
+        lo = self.parse_expr(rhs_ast.elts[0])
+        hi = self.parse_expr(rhs_ast.elts[1])
+
+        def unbox(e_const):
+            if isinstance(e_const, PAST.E_Hole):
+                return None
+            if not isinstance(e_const, self.AST.Const):
+                self.err(e, "must have constant bounds for lane specialization")
+            n = e_const.val
+            if not isinstance(n, int):
+                self.err(e_const, "must have int bounds for lane specialization")
+            return n
+
+        if self.is_fragment and unit_name == "_":
+            unit = None
+        else:
+            unit = lane_unit_dict.get(unit_name)
+            if not unit:
+                self.err(e, f"unknown lane specialization unit: {repr(unit_name)}")
+
+        if self.is_fragment:
+            lane_specialization = LaneSpecializationPattern(unit, unbox(lo), unbox(hi))
+        else:
+            lane_specialization = LaneSpecialization(unit, unbox(lo), unbox(hi))
+
+        if not allow_lane_specialization:
+            self.err(
+                e,
+                f"lane specialization '{lane_specialization}' only allowed inside if statements with no else",
+            )
+        return self.AST.Const(lane_specialization, self.getsrcinfo(e))

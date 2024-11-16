@@ -1,6 +1,7 @@
 import functools
 import re
 import textwrap
+import warnings
 from collections import ChainMap
 from collections import defaultdict
 from dataclasses import dataclass
@@ -15,6 +16,9 @@ from .prec_analysis import PrecisionAnalysis
 from ..core.prelude import *
 from .win_analysis import WindowAnalysis
 from ..rewrite.range_analysis import IndexRangeEnvironment
+from ..spork.loop_modes import LoopMode, Seq, Par
+from ..spork.spork_env import SporkEnv
+from ..spork import actor_kinds
 
 
 def sanitize_str(s):
@@ -531,6 +535,9 @@ class Compiler:
         self.range_env = IndexRangeEnvironment(proc, fast=False)
         self.names = ChainMap()
         self.envtyp = dict()
+        self.spork = (
+            None  # Set to SporkEnv only when compiling GPU kernel code, else None
+        )
         self.mems = dict()
         self._tab = ""
         self._lines = []
@@ -651,7 +658,10 @@ class Compiler:
 
     def add_line(self, line):
         if line:
-            self._lines.append(self._tab + line)
+            if self.spork:
+                self.spork.kernel_lines.append(self._tab + line)
+            else:
+                self._lines.append(self._tab + line)
 
     def comp_stmts(self, stmts):
         for b in stmts:
@@ -822,9 +832,18 @@ class Compiler:
         self.window_defns.add(win)
         return win.name
 
+    def get_actor_kind(self):
+        return self.spork.get_actor_kind() if self.spork else actor_kinds.cpu
+
     def comp_s(self, s):
+        if self.spork:
+            self.spork.on_comp_s(s)
+
         if isinstance(s, LoopIR.Pass):
             self.add_line("; // NO-OP")
+        elif isinstance(s, LoopIR.SyncStmt):
+            warnings.warn("Not implemented: compiling LoopIR.SyncStmt")
+            self.add_line(f"// TODO LoopIR.SyncStmt {s.A} // {s.B}")
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if s.name in self._scalar_refs:
                 lhs = f"*{self.env[s.name]}"
@@ -877,7 +896,19 @@ class Compiler:
             name = self.new_varname(s.name, typ=s.rhs.type, mem=mem)
             self.add_line(f"struct {win_struct} {name} = {rhs};")
         elif isinstance(s, LoopIR.If):
-            cond = self.comp_e(s.cond)
+            is_lane_specialization = (
+                isinstance(s.cond, LoopIR.Const)
+                and s.cond.type == T.lane_specialization
+            )
+            if is_lane_specialization:
+                if not self.spork:
+                    raise ValueError(
+                        f"{s.srcinfo}: lane specialization outside GPU scope"
+                    )
+                cond = self.spork.push_lane_specialization(s.cond.val)
+            else:
+                cond = self.comp_e(s.cond)
+
             self.add_line(f"if ({cond}) {{")
             self.push()
             self.comp_stmts(s.body)
@@ -889,23 +920,65 @@ class Compiler:
                 self.pop()
             self.add_line("}")
 
+            if is_lane_specialization:
+                self.spork.pop_lane_specialization()
+
         elif isinstance(s, LoopIR.For):
             lo = self.comp_e(s.lo)
             hi = self.comp_e(s.hi)
             self.push(only="env")
             itr = self.new_varname(s.iter, typ=T.index)  # allocate a new string
-            self.range_env.add_loop_iter(
+            sym_range = self.range_env.add_loop_iter(
                 s.iter,
                 s.lo,
                 s.hi,
             )
-            if isinstance(s.loop_mode, LoopIR.Par):
+
+            loop_mode = s.loop_mode
+            old_actor_kind = self.get_actor_kind()
+            new_actor_kind = loop_mode.new_actor_kind(old_actor_kind)
+            emit_loop = True
+            starting_cuda_kernel = (
+                not self.spork and new_actor_kind is not actor_kinds.cpu
+            )
+            if not new_actor_kind.allows_parent(old_actor_kind):
+                raise TypeError(
+                    f"{s.srcinfo}: cannot nest loop with actor kind {new_actor_kind} in {old_actor_kind} scope"
+                )
+            if starting_cuda_kernel:
+                self.spork = SporkEnv(
+                    f"{self.proc.name}EXOcu_{s.srcinfo.lineno:04d}{itr}"
+                )
+            if self.spork:
+                self.spork.push_actor_kind(new_actor_kind)
+                if loop_mode.is_par:
+                    emit_loop = self.spork.push_parallel_for(s)
+
+            if isinstance(loop_mode, Par):
+                assert emit_loop
                 self.add_line(f"#pragma omp parallel for")
-            self.add_line(f"for (int_fast32_t {itr} = {lo}; {itr} < {hi}; {itr}++) {{")
+
+            if emit_loop:
+                self.add_line(
+                    f"for (int_fast32_t {itr} = {lo}; {itr} < {hi}; {itr}++) {{"
+                )
+
             self.push(only="tab")
             self.comp_stmts(s.body)
-            self.pop()
-            self.add_line("}")
+
+            if self.spork:
+                self.spork.pop_actor_kind()
+                if loop_mode.is_par:
+                    self.spork.pop_parallel_for()
+
+            if starting_cuda_kernel:
+                # TODO compile kernel_lines into separate device function
+                self._lines.extend(self.spork.kernel_lines)
+                self.spork = None
+
+            if emit_loop:
+                self.pop()
+                self.add_line("}")
 
         elif isinstance(s, LoopIR.Alloc):
             name = self.new_varname(s.name, typ=s.type, mem=s.mem)
@@ -1017,6 +1090,8 @@ class Compiler:
                 return f"{float(e.val)}"
             elif e.type == T.f32:
                 return f"{float(e.val)}f"
+            elif e.type == T.lane_specialization:
+                assert False, "should be handled when compiling LoopIR.If"
             else:
                 return f"(({e.type.ctype()}) {str(e.val)})"
 

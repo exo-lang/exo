@@ -1,0 +1,57 @@
+\documentclass[11pt]{article}
+
+\usepackage[letterpaper, portrait, margin=2.54cm]{geometry}
+\usepackage{enumitem}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsfonts}
+\usepackage{placeins}
+\usepackage{graphicx}
+\usepackage{listings}
+\usepackage{caption}
+\usepackage{colortbl}
+\usepackage[parfill]{parskip}
+\usepackage[mathscr]{euscript}
+\usepackage[usenames,dvipsnames,svgnames,table,hyperref]{xcolor}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fontspec}
+
+\setsansfont{FreeSans}
+\setmonofont{Ubuntu Mono}
+
+\hyphenation{WebGL}
+
+%\definecolor{webColor}{RGB}{0, 124, 204}
+\definecolor{webColor}{RGB}{0, 108, 174}
+\newcommand{\web}[1]{{\color{webColor} \small \url{#1}}}
+\newcommand{\webText}[2]{{\color{webColor} \href{#2}{#1}}}
+\newcommand{\email}[2]{{\small \color{webColor} \textsf{\href{mailto:#1@#2}{#1[at]#2}}}}
+\definecolor{titleColor}{RGB}{0, 0, 0}
+\ifdefined\RESUME
+\newcommand{\myTitle}[1]{{\large \color{titleColor} \hspace{-12mm} \textbf{\textsf{#1}}}}
+\else
+\newcommand{\myTitle}[1]{{ \vspace{2mm} \large \color{titleColor} \hspace{-12mm} \textbf{\textsf{#1}} \vspace{2mm}}}
+\fi
+%\definecolor{subColor}{RGB}{97, 153, 0}
+\definecolor{subColor}{RGB}{170, 149, 0}
+\newcommand{\mySub}[1]{{\color{subColor}\hspace{-9mm} \textsf{#1}}}
+%\definecolor{keyColor}{RGB}{170, 149, 0}
+\definecolor{keyColor}{RGB}{118, 185, 0}
+\newcommand{\myKey}[1]{{\color{keyColor}\textbf{#1}}}
+
+\definecolor{hookColor}{RGB}{204, 0, 255}
+\newcommand{\hook}[1]{{\color{hookColor}\textbf{#1}}}
+\definecolor{flaggedBoxColor}{RGB}{255, 204, 204}
+\newcommand{\flagged}[1]{{\color{black}\colorbox{flaggedBoxColor}{#1}}}
+
+\definecolor{lightttColor}{RGB}{69, 69, 80}
+\newcommand{\lighttt}[1]{{\color{lightttColor}\texttt{#1}}}
+\newcommand{\graytt}[1]{{\color{gray}\texttt{#1}}}
+
+\renewcommand*{\theenumi}{\alph{enumi}}
+\renewcommand*\labelenumi{(\theenumi)}
+\renewcommand*{\theenumii}{\roman{enumii}}
+\renewcommand*\labelenumii{\theenumii.}
+
+\sloppy
+\newcommand{\abs}[1]{\left \vert #1 \right\vert}

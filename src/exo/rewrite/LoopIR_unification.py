@@ -894,7 +894,7 @@ class Unification:
                     f"with Writeconfig '{be.config.name()}.{be.field}'"
                 )
             self.unify_e(ps.rhs, bs.rhs)
-        elif isinstance(ps, LoopIR.Pass):
+        elif isinstance(ps, (LoopIR.Pass, LoopIR.SyncStmt)):
             pass
         elif isinstance(ps, LoopIR.If):
             self.unify_e(ps.cond, bs.cond)

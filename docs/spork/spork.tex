@@ -1,0 +1,639 @@
+% xelatex </dev/null spork.tex
+\input{common.tex}
+
+\newcommand{\mbarrier}{\webText{mbarrier}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#parallel-synchronization-and-communication-instructions-mbarrier}}
+\newcommand{\cpAsync}{\webText{cp.async}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#data-movement-and-conversion-instructions-cp-async}}
+\newcommand{\cpAsyncBulk}{\webText{cp.async.bulk}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#data-movement-and-conversion-instructions-cp-async-bulk}}
+\newcommand{\fenceProxyAsync}{\webText{fence.proxy.async}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#asynchronous-warpgroup-level-matrix-async-proxy}}
+\newcommand{\wgmma}{\webText{wgmma}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#asynchronous-warpgroup-level-matrix-instructions}}
+\newcommand{\hopperBlog}{\webText{NVIDIA Hopper Architecture In-Depth}{https://developer.nvidia.com/blog/nvidia-hopper-architecture-in-depth/}}
+\newcommand{\expectTxOperation}{\webText{expect-tx operation}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#parallel-synchronization-and-communication-instructions-mbarrier-expect-tx-operation}}
+\newcommand{\completeTxOperation}{\webText{complete-tx operation}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#parallel-synchronization-and-communication-instructions-mbarrier-complete-tx-operation}}
+
+\begin{document}
+\myTitle{Project Spork: EXO GPU}
+
+Prototyping for how to extend Exo to safely support GPU accelerators (specifically what CUDA offers), including features like \lighttt{memcpy\_async} and wgmma, which I've argued are impossible to model using a fork/join approach while preserving maximum throughput. We will still be taking the approach of proving equivalence between ``sequential (single-threaded) semantics'' and ``parallel (multi-threaded) semantics'', where parallel-for loops and barriers are modelled as sequential-for loops and no-ops respectively under sequential semantics.
+
+\mySub{Goals}
+
+\myKey{Supported CUDA Features:} Hierarchical parallel-for over clusters, CTAs (blocks), warpgroups, warps, and threads; support simple barriers (e.g. \lighttt{\_\_syncthreads}); split barriers (\mbarrier); \lighttt{memcpy\_async} (a.k.a. \webText{cp.async and cp.async.bulk}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#data-movement-and-conversion-instructions-asynchronous-copy}); \webText{wmma}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#warp-level-matrix-instructions} (warp matrix instructions); \wgmma\ (async warpgroup matrix instructions).
+
+\filbreak
+\myKey{Minimize synchronization overhead:} As pointed out by Hazy Research (and others), it's absolutely critical that the tensor cores are fed each cycle; you cannot later compensate for the performance lost for each missed cycle. Therefore for maximum performance, the new split barriers \textit{must} be used. You can't afford the bubble caused by \lighttt{\_\_syncthreads}. This eliminates fork-join as a viable model for maximally performance accelerators.
+
+\filbreak
+\myKey{Safety:} We need to prove race freedom, but moreover prove that each read gets the \textit{expected} previously-written value (or the initial input value). This is beyond what \textit{Descend} handles, which is only race freedom, i.e. in some code like
+
+{\color{lightttColor}
+\begin{verbatim}
+Thread 0: x = 3;             x = 5;
+Thread 1:         y = 10*x;
+\end{verbatim}
+}
+
+the \textit{Descend} borrow-checking model only requires proving that thread 1's read of \lighttt{x} does not overlap with either of thread 0's assignments to \lighttt{x}, and so \lighttt{y = 10*}$x_0$, \lighttt{y = 30}, and \lighttt{y = 50} are all possible outcomes depending on how the user synchronized the two threads. Wheras for Exo we will check that the user's synchronization will guarantee the single outcome that matches that given by the equivalent code under single-threaded semantics.
+
+\filbreak
+\myKey{Ring Buffer:} We need to support ring buffer optimization under multi-threaded semantics as well.
+
+\filbreak
+\myKey{Array Race Analysis:} We may need a mechanism similar to the ``view'' concept in \textit{Descend} to make more complicated array access patterns tractible to analyze. i.e. we need to allow the user to prove that two threads' parallel writes to the same array won't cause a hazard by showing the access pattern leads to disjoint arary indices used for each thread.
+
+\filbreak
+\myKey{Other Features:} I am thinking less about these features as they are not as relevant to the AI-centric use case for Hopper, but nevertheless in the background we should think about \webText{grid group synchronization}{https://docs.nvidia.com/cuda/cuda-c-programming-guide/\#grid-group} (pre-Hopper method for synchronizing across all threads in an entire grid), associative atomic reductions (add, min, max), and maybe modelling the extremely powerful \webText{cub prefix sum}{https://nvidia.github.io/cccl/cub/api/structcub_1_1DeviceScan.html} functions.
+
+\filbreak
+\mySub{Project Scope}
+
+For the most part it seems like this work will be an add-on just prior to code generation, where we check sequential and parallel equivalence. I hope there's relatively few \hook{``hooks''} needed in the rest of Exo for this work. I say this because for now to make this project feasible, imo it's best to bake-in assumptions about CUDA's synchronization model, and not try to generalize that, the way we might for modeling shared memory (as a memory type) or specific accelerator functions. So ideally it would not be too much of a maintenence burden to remove the initial Exo GPU code if it turns out not to be the best approach long term.
+
+\filbreak
+For the more complicated synchronization, a more ``declarative'' model (where the user specifies what blocks of code they intend to synchronize, rather than working at the level of individual fence/barrier instructions) may be better for making proving correctness feasible.
+
+\newpage
+\myTitle{Background on GPU Features}
+
+TODO: verify \flagged{flagged} claims.
+
+The primary point of this is to take a census of the synchronization patterns we would have to model and how they interact with async copies \& wgmma.
+Other details like swizzling etc. (except sparsity?) should be modellable with enough work using Exo's existing features.
+
+\myKey{WARNING:} The links I have should take you to the correct subsection of the giant PTX documentation, but there is a bug where sometimes the Nvidia website warps you back to the top of the page. Select the address bar and press enter to fix this.
+
+\filbreak
+\mySub{Synchronization Summary}
+
+CUDA has two different notions of ``async'': asynchronous instructions (simple enough), and the more complicated \webText{async proxy}{https://docs.nvidia.com/cuda/archive/12.3.2/parallel-thread-execution/index.html\#proxies}. An instruction being async implies control continues to the next instruction without waiting for completion. If an async instruction further documents that it operates on the async proxy, the user (in addition to synchronizing execution order) must further include \fenceProxyAsync\ (and also maybe \webText{wgmma.fence}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#asynchronous-warpgroup-level-matrix-instructions-wgmma-fence}) to ensure visibility between the async proxy and the ``generic proxy'', which is what most CUDA instructions operate on. Essentially, this is exporting the responsibility for memory coherence to the user.
+
+Note in the case of mbarrier that this incoherence includes observing the mbarrier object (in shared memory) itself: ``To make the initialized barrier visible to subsequent bulk-asynchronous copies, the fence.proxy.async.shared::cta instruction is used. This instruction ensures that subsequent bulk-asynchronous copy operations operate on the initialized barrier'' (\webText{source}{https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html\#tensor-memory-access}).
+
+\filbreak
+Of the new instructions we want to model,
+
+\begin{enumerate}
+  \item non-bulk async copy (\cpAsync) are asynchronous instructions operating on the generic proxy;
+  \item bulk async copy (\cpAsyncBulk; Hopper TMA) are asynchronous instructions operating on the async proxy;
+  \item pre-Hopper tensor cores (\webText{wmma}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#warp-level-matrix-instructions-wmma-mma}) are not async at all;
+  \item Hopper tensor cores (\wgmma) are asynchronous instructions operating on the async proxy.
+\end{enumerate}
+
+\filbreak
+For the most part there seem to be four categories of synchronization primitives:
+
+\filbreak
+\myKey{All-to-all:} Like \lighttt{\_\_syncthreads} and cooperative group syncs; useful in the common case but these do nothing for asynchronous instructions.
+
+\filbreak
+\myKey{mbarrier:} Split barrier where consumer threads wait for a certain number of producer threads to arrive.
+This may be used to synchronize ordinary non-async instructions, synchronize non-bulk \cpAsync\ (Ampere), and to Hopper \cpAsyncBulk\ (TMA) instructions that copy to shared memory.
+The \mbarrier\ must be constructed in shared memory.
+The \mbarrier\ can only be used to wait for the current (incomplete) set of arrives or the immediately prior complete set of arrives; thus, a ring-buffer of \mbarrier\ objects would be needed to implement pipelining.
+
+\filbreak
+\myKey{Async-group:} Supported with separate instructions for \webText{non-bulk async copy}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#data-movement-and-conversion-instructions-asynchronous-copy-completion-mechanisms}, bulk async copies to global memory, and for \webText{wgmma}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#asynchronous-warpgroup-level-matrix-instructions-wgmma-commit-group}.
+These don't require constructing state like mbarrier.
+Each wgmma or async copy instruction is initially uncommitted, and is commited to a new async-group with a commit\_group instruction.
+You may then wait for the Nth previous async-group of the same thread to finish with a wait\_group instruction.
+This may implement deep pipelining but \flagged{cannot be used} to implement separate producer/consumer threads.
+
+\filbreak
+\myKey{Fences:} The previous primitives only synchronize execution order, and as mentioned, for the async proxy, a fence is needed in addition to this to ensure visibility.
+wgmma and bulk copy instructions include an implicit fence afterwards, so only execution order synchronization is needed to see the outputs; the reverse is not true (i.e. generic proxy code generating inputs for async proxy instructions requires a fence).
+wgmma also requires fences for \textit{registers}, to be described in the dedicated wgmma subsection.
+
+\flagged{Question:} Unclear if \webText{cp.async.bulk.\textbf{tensor}}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#data-movement-and-conversion-instructions-cp-async-bulk-tensor} methods include the implicit fence; the \webText{async proxy documentation}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#async-proxy} states ``The completion of a \lighttt{cp\{.reduce\}.async.bulk} operation is followed by an implicit generic-async proxy fence.'' which I'm unsure if it intends to exclude the tensor variants.
+
+\filbreak
+\mySub{Asynchronous Memory Copy}
+
+According to William, it's best to use inline PTX instead of the CUDA C++ \lighttt{cuda::memcpy\_async} function, as the C++ function is too prone to silently decaying to a regular memory copy. Async copies can be non-bulk (requires sm\_80 a.k.a. Ampere or higher) or bulk (sm\_90; Hopper).
+
+\filbreak
+\myKey{Ampere / Non-bulk:} We use the \cpAsync\ instruction to issue a single asynchronous copy of 4, 8, or 16 aligned bytes from global memory to shared memory. This is the only source+destination memory type supported. Presumably the CUDA C++ async copy functions for Ampere are implemented by \flagged{distributing the copy over the participating threads}.
+
+All cp.async instructions issued are not implicitly ordered with each other, not even in the same thread, so write-after-write hazards are possible if two cp.async instructions share the same destination address. Since these operate on the generic proxy, we still do need synchronization after the \cpAsync\ instruction, but synchronization isn't needed for \cpAsync\ to see global memory writes issued by non-async instructions earlier in program order, as they also run in the generic proxy and ``asynchronous operations are ordered after prior instructions in the same thread'' (\webText{Asynchronous Operations}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#program-order-async-operations}).
+
+\filbreak
+\myKey{Hopper TMA / Bulk:} \cpAsyncBulk\ instructions allow you to instead specify a range of 16-byte-aligned memory to copy, and supports these src/dst memory types: global to cluster-shared, cluster-shared to CTA-shared, and CTA-shared to global. The memory types determine whether commit\_group or mbarrier must be used (completion mechanism). Unlike non-bulk async copy, the expected usage is to nominate just one thread to issue the instruction: ``...the TMA programming model is single-threaded, where a single thread in a warp is elected to issue an asynchronous TMA operation'' (\hopperBlog). As a reminder, this operates on the async proxy.
+
+\filbreak
+Copies \textit{to} global memory allow for an optional \lighttt{.reduce} op parameter (e.g. add, max, bitwise or).
+If supplied, instead of each input \lighttt{src[i]} overwriting \lighttt{dst[i]}, we instead execute a parallel component-wise reduction \lighttt{dst[i] = reduceOp(dst[i], src[i])}.
+I suspect this is used to implement some form of near-data processing.
+
+\filbreak
+TODO Look into tensor copy versions of these instructions, which seem really complicated.
+
+% https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#tensor-memory-access
+
+\filbreak
+\myKey{commit\_group:} The commit\_group mechanism has a per-thread scope for bulk and non-bulk async copies. So it's rather unclear to me how this mechanism is useful in the common case where we cache stuff in shared memory for all the threads to read from. (Contrast with wgmma async-groups, which have per-warpgroup scope). I'll discuss the more complicated mbarrier in the next section.
+
+Fortunately, non-bulk \cpAsync\ allows for \mbarrier\ as an alternative, and for TMA, the common case of copying \textit{to} shared memory is also handled by \mbarrier\ (copying from shared to global requires commit\_group).
+
+\filbreak
+\mySub{mbarrier}
+
+\myKey{Split Barrier:} The \mbarrier\ may be used to implement split barriers. This opaque object is initialized in shared memory with an ``expected arrival count'' $n$, then, each \webText{``phase''}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#parallel-synchronization-and-communication-instructions-mbarrier-phase}=0,1,2,... of the mbarrier consists of
+
+\begin{enumerate}
+  \item $n$-many threads calling \webText{mbarrier.arrive}{https://docs.nvidia.com/cuda/archive/12.3.2/parallel-thread-execution/index.html\#parallel-synchronization-and-communication-instructions-mbarrier-arrive} on the mbarrier.
+  \item \textit{one} thread successfully calling \webText{mbarrier.test\_await}{https://docs.nvidia.com/cuda/archive/12.3.2/parallel-thread-execution/index.html\#parallel-synchronization-and-communication-instructions-mbarrier-test-wait-try-wait} or similar instruction on the barrier. This makes the mbarrier ready for the next phase.
+\end{enumerate}
+
+\filbreak
+Instructions performed in the \textit{generic proxy} following the await operation observe changes made in the generic proxy by \textit{non-async} instructions in the arriving threads, prior to their arrival.
+
+The ``one thread'' condition for advancing the phase complicates implementing multiple threads waiting on an mbarrier. The mechanism for \webText{this sort of  wait}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#parallel-synchronization-and-communication-instructions-mbarrier-test-wait-try-wait} is either to pass the \lighttt{state} operand (from mbarrier.arrive) or specify the parity of the phase to wait for with the \lighttt{phaseParity} operand; either way, this allows the wait instruction to know whether to immediately return due to the previous phase being complete, or block waiting for the current phase.
+
+It's required that no ``arrive'' operation for phase $n+1$ occurs until an ``await'' operation for phase $n$ is successful.
+This requirement is easily met for self-synchronizing $n$-many threads (with useful work possible between the alternating arrives and waits), but is harder if implementing a producer/consumer threads model.
+It's also not allowed to wait for phase $n-2$ or older (in constrast to async-group).
+Hence my comment about ring-buffers of mbarriers.
+
+\filbreak
+\myKey{Non-bulk Async Copy mbarrier:} The \webText{cp.async.mbarrier.arrive}{https://docs.nvidia.com/cuda/archive/12.3.2/parallel-thread-execution/index.html\#parallel-synchronization-and-communication-instructions-cp-async-mbarrier-arrive} instruction takes the place of mbarrier.arrive in the above description, causing the awaiting threads to observe changes performed by non-bulk \cpAsync\ instructions issued by the arriving threads, \textit{instead} of changes by non-async instructions issued.
+
+Question: what use cases \lighttt{.noinc} has here.
+
+\filbreak
+\myKey{Bulk Async Copy mbarrier:} Since the expected model for bulk async copies is to nominate just one thread to issue the copy, the expected usage is to set expected arrival count $n = 1$, and use the additional tx-count feature: execute an \expectTxOperation\ (\webText{mbarrier.expect\_tx}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#parallel-synchronization-and-communication-instructions-mbarrier-expect-tx}) with the number of bytes expected to be copied, then use the \completeTxOperation\ built into \cpAsyncBulk\ to signal completion. (\webText{example code}{https://research.colfax-intl.com/tutorial-hopper-tma/})
+
+\filbreak
+\mySub{wmma}
+
+Documentation: \webText{Warp-level matrix-multiply-accumulate}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#warp-level-matrix-instructions-wmma-mma}
+
+These don't seem so bad at all. We are just distributing the storage for a ``matrix fragment'' (matrix tile) across the registers of 32 threads in a warp, with a wide variety of supported row-major and column-major formats, and computing multiply-add entirely in registers. There seem to be no synchronization requirements. TODO investigate sparse operations.
+
+\filbreak
+\mySub{wgmma}
+
+Documentation: \webText{Asynchronous Warpgroup Level Matrix Multiply-Accumulate Instructions}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#asynchronous-warpgroup-level-matrix-instructions}
+
+These \webText{wgmma.mma\_async}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#asynchronous-warpgroup-level-matrix-operation-wgmma-mma-async} instructions support $D = AB + D$ or $D = AB$ operations on matrix fragments. Unlike wmma, the work is distributed across warpgroups of 128 aligned threads; there are very complicated synchronization requirements; and fragment storage may be in shared memory or distributed across 128 threads' registers, with $A$ in either, $B$ in shared memory only, and the accumulator $D$ in registers only.
+
+\filbreak
+As mentioned, the execution order is handled by the fairly straightforward pipelined async-group mechanism: \webText{wgmma.commit\_group}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#asynchronous-multiply-and-accumulate-instruction-wgmma-commit-group} and \webText{wgmma.wait\_group}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#asynchronous-multiply-and-accumulate-instruction-wgmma-wait-group}. Furthermore, the new $D$ value (in registers) is immediately visible to the generic proxy after the wait due to the \webText{implicit proxy fence}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#asynchronous-warpgroup-level-matrix-async-proxy} for wgmma.mma\_async. In constrast to bulk async copy, register matrix values themselves may be modified asynchronously; hence, it's forbidden to modify registers holding $A$, or use any registers holding $D$, prior to the completion of the instruction (registers holding pointers, control codes, etc., don't exhibit this asynchronous behavior).
+
+\filbreak
+It's another story though for fencing the inputs, with separate mechanisms for shared memory and for matrix fragment registers.
+
+\myKey{Shared Memory Fence:} The \webText{fence.proxy.async}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#asynchronous-warpgroup-level-matrix-async-proxy} instruction must be used to make prior shared memory writes in the generic proxy to visible to subsequent wgmma.mma\_async instructions issued by the same warpgroup.
+Supposedly this is not needed for inputs loaded by bulk async copy (TMA) according to \webText{this source}{https://research.colfax-intl.com/cutlass-tutorial-wgmma-hopper/}, as TMA also operates in the async proxy: ``Since we use TMA load, we don’t need fence.proxy.async in our example, and indeed it doesn’t appear in the WGMMA tutorial code or in the mainloop of CUTLASS Hopper GEMM kernels''.
+However, it appears in this case that \flagged{we still need to synchronize the execution order between bulk async copies and wgmma operations} ... only the memory visibility given by fence.proxy.async is not needed in this case.
+
+\filbreak
+\myKey{Register Fence:} The confusingly-similar-sounding \webText{wgmma.fence}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#asynchronous-warpgroup-level-matrix-instructions-wgmma-fence} instruction must be issued before the first wgmma.mma\_async instruction, and issued whenever we must make prior register writes to $A$ and $D$ visible to a subsequent wgmma.mma\_async instruction. This includes between two wgmma.mma\_async instructions, with the \textbf{notable, common exception} of two wgmma.mma\_async instructions using the same registers for the accumulator $D$ where $D$ is using the same matrix fragment format. After the wgmma.mma\_async instruction is issued and prior to its completion, the registers holding $A$ and/or $D$ can be read or modified asynchronously by the wgmma hardware.
+
+\filbreak
+In both cases, I don't see it explicitly stated, but it appears based on Nvidia's expected usage pattern that the wgmma.mma\_async instruction following either kind of fence \flagged{observes changes made by all four warps of the warpgroup} issuing the wgmma.mma\_async instruction, so there is some sort of weak execution order guarantee as well.
+
+TODO investigate sparse operations.
+
+\filbreak
+\mySub{Common Theme}
+
+The common theme of all of this is that we will need to model waits that \textbf{only carry certain kinds of dependencies}: register only, shared memory only, registers with a common matrix format (for the two wgmma.mma\_async case), or special dependecies that only carry specific memory, e.g. the non-transitive \completeTxOperation: ``The implicit mbarrier complete-tx operation that is part of all variants of cp.async.bulk and cp.reduce.async.bulk instructions is ordered only with respect to the memory operations performed by the same asynchronous instruction, and in particular it does not transitively establish ordering with respect to prior instructions from the issuing thread.'' (\webText{Documentation}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#program-order-async-operations})
+
+\newpage
+\myTitle{Sketch of New Language Features}
+
+\myKey{Parallel-for:} Allow replacing ``\lighttt{for \_ in seq(lo, hi):}'' with a hierarchy of parallel for loops for each GPU unit (cluster, block, warpgroup, warp, thread).
+
+\filbreak
+{\color{lightttColor}
+\begin{verbatim}
+for _ in cuda_clusters(lo, hi, blocks = _):  # Defines number of blocks per cluster
+for _ in cuda_blocks(lo, hi, warps = _):     # Defines number of warps per block
+for _ in cuda_warpgroups(lo, hi):
+for _ in cuda_warps(lo, hi):
+for _ in cuda_threads(lo, hi):
+\end{verbatim}
+}
+
+\filbreak
+Different levels of the hiererchy need to be strictly nested, except that as a convenience, immediately-nested parallel for loops of the same level may be used to define a multidimensional shape for the parallel iteration space.
+Skipping the cluster, warpgroup, or warp level is acceptable.
+Each level of parallel-for defines a new ``parscope'' (parallelization scope), with each iteration executed by its own ``parlane'' (parallelization lane); both will be detailed in the concepts section.
+Each parlane is indexed by the parallel-for loop index and comprises all the GPU threads of the loop level's GPU unit (e.g. each parlane of a \lighttt{cuda\_warps} loop consists of 32 threads).
+The iteration variable of a parallel-for loop is a \textbf{spatial loop index} (is there conventional vocabulary for this?)
+
+\filbreak
+\myKey{Specialization Statement:} We need to provide a mechanism for warp specialization, i.e., scheduling a parallel-for loop over only a subset of available resources.
+Some syntax like \lighttt{if cuda\_\{unit\} in (lo, hi):} could work; I call this a ``specialization statement'' (subcategory of if statements).
+For example, the following means to schedule a $16 \times 8$ parallel-for loop over warps 4, 5, 6, and 7 (128 threads):
+
+{\color{lightttColor}
+\begin{verbatim}
+if cuda_thread in (128, 256):
+    for yi in cuda_threads(0, 8):
+        for xi in cuda_threads(0, 16):
+            ...
+\end{verbatim}
+}
+
+\filbreak
+\myKey{Actor Kind:} In Exo currently, we assume all code is executed on the CPU, or with accelerator functions that operate \textit{synchronously} with the CPU.
+In other words, there's no concept of memory availability or visibility: A happens-before B is enough to ensure B sees the effects of A's action.
+With Exo-GPU, we have to keep track of ``who'' is executing a certain instruction and take into account memory visibility.
+At a minimum, this ``who'' is either the host CPU or the CUDA device; furthermore, we need specialized ``whos'' that represent different categories of asynchronous CUDA operations (async memcpy, wgmma).
+For now I'm proposing that we use the term ``actor kind'' for this, since in a dynamic trace of a program, we're labeling each \textit{action} with the kind of \textit{actor} that executed it.
+
+\filbreak
+The default CPU and CUDA actor kinds are sequential; all others are asynchronous actor kinds.
+
+Note, this was formerly something I called ``execution model'' (xmodel).
+
+\hook{Hook:} Will need to be able to identify the actor kind for any LoopIR node (traverse root to node), account for this in LoopIR simplification and accelerator instructions, and account for this when checking if a memory type can be read/written/reduced.
+
+\filbreak
+\myKey{List of actor kinds:} Greyed-out actor kinds are ``synthetic'' and cannot be used to label actual code or \lighttt{instr}s.
+They are valid only for synchronization statements (later), and represent subsets or supersets of other actor kinds.
+\begin{align*}
+\texttt{cpu: } & \text{Default CPU}\\
+\graytt{cuda\_all: } & \text{All actions on a CUDA device}\\
+\texttt{cuda\_sync: } & \text{Default CUDA (synchronous CUDA instructions)}\\
+\texttt{non\_bulk\_cp\_async: } & \text{Ampere \lighttt{cp.async}, (async memcpy in generic proxy)}\\
+\graytt{cuda\_generic: } & \text{Generic proxy; \lighttt{cuda\_sync} $\cup$ \lighttt{non\_bulk\_cp\_async}}\\
+\texttt{tma\_to\_shared\_async: } & \text{Hopper TMA \lighttt{cp.bulk.async} to shared memory}\\
+\texttt{tma\_to\_global\_async: } & \text{Hopper TMA \lighttt{cp\{.reduce\}.bulk.async} to global memory}\\
+\texttt{wgmma\_async: } & \text{wgmma instructions}\\
+\graytt{wgmma\_async\_reg: } & \text{actions on wgmma register tiles by wgmma instructions}\\
+\graytt{wgmma\_async\_mem: } & \text{actions on shared memory by wgmma instructions}\\
+\graytt{wgmma\_reg: } & \text{actions on wgmma register tiles, by wgmma or synchronous instructions}
+\end{align*}
+
+\filbreak
+\myKey{Async-for:} We will introduce a new ``async-for'' loop construct, with tentative syntax \lighttt{for \_ in \{actor\_kind\}(lo, hi)}.
+This labels child code as being executed with a different actor kind (i.e. eligible for substitution with asynchronous CUDA accelerator instructions).
+\lighttt{@instr} will have to accept an optional actor kind parameter as well (defaults to CPU).
+
+If an async actor kind is given, then child statements are considered to execute with an asynchronous actor kind, marking them as eligible for replacement with asynchronous CUDA constructs.
+The for loop and all child for loops are considered async-for loops in this case.
+Child for loops must not be parallel-for loops, and must not specify a different actor kind.
+The iteration variable is an \textbf{async-temporal loop index}.
+
+\filbreak
+(Rationale: jrk asked why I proposed extending for loops for this feature.
+I expect in the typical case, this feature is a natural extension of loop tiling.
+For example, I may divide and re-order loops (y,x) to (yo,xo,yi,xi) so that the inner loops can be replaced with a custom accelerator instruction.
+If I'm using wgmma, I just have to additionally tag the inner loops as \lighttt{wgmma\_async}.)
+
+\filbreak
+Example:
+{\color{lightttColor}
+\begin{verbatim}
+    # Actor kind is cpu here
+    for blockIdx in cuda_blocks(0, _, warps = 8): # Parallel-for (blocks)
+        # Actor kind is now cuda_sync
+        for wgIdx in cuda_warpgroups(0, 2):       # Parallel-for (warpgroups)
+            for yo in seq(0, _):                  # Sequential-for
+                for xo in seq(0, _):              # Sequential-for
+                    for yi in wgmma_async(0, _):  # Async-for
+                        # Actor kind is now wgmma_async
+                        for xi in seq(0, _):    # Implicitly async-for due to above
+                            for m in seq(0, _): # Implicitly async-for due to above
+                                D[...] += A[...] * B[...]
+\end{verbatim}
+}
+
+\filbreak
+\myKey{Sequential-for:} for loops other than as described above are sequential-for loops.
+The iteration variable is a \textbf{sync-temporal loop index}.
+
+\hook{Hook:} Need to teach Exo that parallel-for and async-for loops are to be treated as ordinary for loops under S-semantics.
+
+\filbreak
+\myKey{Parallel View (parview):} Borrowing a concept from \textit{Descend}.
+A parview consists of an array variable and a mapping function $f$ mapping array indices to parlane indices.
+If an array is accessed through a parview at index $i$, it is a promise that the access is being performed by the parlane with index $f(i)$.
+Simple patterns (e.g. striping) may be statically checked as in \textit{Descend}, but note it would not be too difficult to defer checking to runtime by compiling the given mapping function to an \lighttt{assert} statement.
+
+I haven't figured this out yet, but we probably need to extend this to handle asserting that reads and writes won't conflict ``temporally'' i.e. proving that different loop iterations only use disjoint subsets of some array.
+This would be needed for ring buffer optimization to work for deep pipelining.
+
+\hook{Hook:} Need to teach Exo to statically verify the promise, or pass through the mapping function to codegen in order to generate the assert.
+I'm probably going to put off this feature until much later.
+
+\filbreak
+\myKey{Synchronization Statement:} We need to support arrive, await, and non-split barriers (e.g. plain old \lighttt{\_\_syncthreads}), which act as a combined arrive-await statement.
+These define a synchronization relation between all GPU threads of the executing parlane.
+
+I'm proposing using the syntax ``\lighttt{A // B}'' for a synchronization statement, and that we allow declaring variables of \lighttt{barrier} type. \lighttt{A} and \lighttt{B} are the names of either actor kinds or barrier variables.
+
+\lighttt{A : actor-kind // B : actor-kind}: non-split barrier; instructions with actor kind \lighttt{B} issued after the barrier see the actions with actor kind \lighttt{A} performed before the barrier.
+
+\lighttt{A : actor-kind // B : barrier}: arrive
+
+\lighttt{A' : barrier // B' : actor-kind}: await; instructions with actor kind \lighttt{B'} issued after the await see the actions with actor kind \lighttt{A} performed before the corresponding arrive.
+
+\filbreak
+Example:
+
+{\color{lightttColor}
+\begin{verbatim}
+for blockIdx in cuda_blocks(lo, hi, warps = 8):
+    for threadIdx in cuda_threads(0, 256):
+        ...
+    cuda_sync // cuda_sync  # __syncthreads() as the executing parlane here is a full block
+    for warpIdx in cuda_warps(0, 8):
+        for threadIdx in cuda_threads(32*warpIdx, 32*(warpIdx + 1)):
+            ...
+        cuda_sync // cuda_sync  # __syncwarp() as the executing parlane here is a warp
+        for threadIdx in cuda_threads(32*warpIdx, 32*(warpIdx + 1)):
+            ...
+\end{verbatim}
+}
+
+By requiring synchronization statements to be lifted to block or warp level, we trivially enforce convergence requirements.
+
+\filbreak
+I'm not sure this is really the right approach to take, but my gut feeling is it's best to expose a higher-level synchronization interface and compile to the appropriate CUDA synchronization primitive depending on the actor kinds (e.g. a ring buffer of \mbarrier), rather than expose the complexity of basic synchronization primitives and having to analyze that they are used correctly.
+
+\filbreak
+TODO the \lighttt{//} syntax is too obscure, we should just consider \lighttt{arrive} and \lighttt{await} special functions, and non-split barrier special functions for ``syncthreads''-like barriers (\lighttt{cuda\_sync // cuda\_generic}), stream-sync (\lighttt{cuda\_all // cpu}), and wgmma fence (\lighttt{wgmma\_reg // wgmma\_async\_reg}).
+
+\filbreak
+\hook{Hook:} For the analysis and codegen to be feasible, I'm expecting language restrictions that make it possible to statically verify that for each split barrier constructed, we issue matching pairs of arrive and await, with the same parlane used for all arrives and the same parlane used for all awaits.
+We need to verify that the iteration spaces for the arrive and awaits are the same.
+
+\filbreak
+\myKey{Kernel parameters:} CUDA code (i.e. code with \lighttt{cuda\_all} actor kind) can read but not write scalar CPU variables ... these are implicitly understood to be kernel parameters passed to the grid launch.
+We can take a census of the kernel parameters needed similar to how we determine whether pointers are const or non-const.
+
+\filbreak
+\myKey{Distributed Memory (GPU Registers):} CUDA registers need to be modelled as ``distributed memory'', where we understand the storage for an array as being distributed across lanes (i.e. threads; wmma and wgmma registers may instead be distributed across warps/warpgroups) and such that the $n^{th}$ array entry can (mostly) only be accessed by the $n^{th}$ lane.
+The reason for this is the barrier lifting requirement, so we cannot declare cuda register variables at thread-scope if we want them to survive across synchronization statements, e.g. something like the following won't work:
+
+\filbreak
+{\color{lightttColor}
+\begin{verbatim}
+for blockIdx in cuda_blocks(lo, hi, warps = 8):
+    for threadIdx in cuda_threads(0, 256):
+        x : f32 @ CUDA_REGISTER
+        x = foo()
+    cuda_sync // cuda_sync  # __syncthreads() executed convergently by 1 block
+    for threadIdx in cuda_threads(0, 256):
+        y : f32 @ CUDA_REGISTER
+        y = doSth(x)  # uh oh, x was freed above
+\end{verbatim}
+}
+
+\filbreak
+Instead we need this:
+{\color{lightttColor}
+\begin{verbatim}
+for blockIdx in cuda_blocks(lo, hi, warps = 8):
+    x : f32[256] @ CUDA_REGISTER
+    for threadIdx in cuda_threads(0, 256):
+        x[threadIdx] = foo()
+    cuda_sync // cuda_sync  # __syncthreads() executed convergently by 1 block
+    for threadIdx in cuda_threads(0, 256):
+        y : f32 @ CUDA_REGISTER
+        y = doSth(x[threadIdx])
+\end{verbatim}
+}
+
+I say ``mostly'' earlier because we may want to model warp shuffles, where threads can access registers for another thread in the same warp.
+We can externalize this as some sort of accelerator function, or bake this into the compiler.
+Both have pros and cons; the former sounds attractive, but has hidden complications.
+For example, if we externalize the shuffle, the shuffle has to be able to comprehend translating multi-dimensional parallelism to a literal thread index, e.g. in the following:
+
+\filbreak
+{\color{lightttColor}
+\begin{verbatim}
+for blockIdx in cuda_blocks(lo, hi, warps = 8):
+    home_value : f32[8,2,4,2,2] @ CUDA_REGISTER
+    xor_x_value : f32[8,2,4,2,2] @ CUDA_REGISTER
+    xor_y_value : f32[8,2,4,2,2] @ CUDA_REGISTER
+    xor_xy_value : f32[8,2,4,2,2] @ CUDA_REGISTER
+    for w in cuda_warps(0, 8):
+        # Map 2 x 4 x 2 x 2 iteration space to the 32 threads of a warp
+        for yo in cuda_threads(0, 2):
+            for xo in cuda_threads(0, 4):
+                for yi in cuda_threads(0, 2):
+                    for xi in cuda_threads(0, 2):
+                        home_value[w,yo,xo,yi,xi] = ...
+                        # Exchange horizontally, vertically, diagonally in 2x2 tiles
+                        # (side note, need to fission here for S/M equivalence ...
+                        # also xor isn't affine but this is just to illustrate)
+                        xor_x_value[w,yo,xo,yi,xi] = home_value[w,yo,xo,yi,xi ^ 1]
+                        xor_y_value[w,yo,xo,yi,xi] = home_value[w,yo,xo,yi ^ 1,xi]
+                        xor_xy_value[w,yo,xo,yi,xi] = home_value[w,yo,xo,yi ^ 1,xi ^ 1]
+\end{verbatim}
+}
+(This isn't a made-up situation ... this really corresponds conceptually to some high performance code I wrote in the \webText{vk\_compute\_mipmaps sample}{https://github.com/nvpro-samples/vk\_compute\_mipmaps}).
+
+\filbreak
+\hook{Hook:} Two options I see, we can either add a ``distributed'' flag to \lighttt{Memory} types, which has the effect of suppressing generating array-index syntax, and requiring that we check valid access patterns (each lane only accesses its own lane's value). Or we can somehow externalize this by augmenting the member functions of \lighttt{Memory}.
+
+To be honest the more I think about it, the more questionable it seems to try to externalize this as whether memory is ``distributed'' or not may have a lot of effects throughout the compiler ... it would probably make more sense to discuss this further in person though.
+
+\newpage
+\myTitle{Proposed Model \& Vocabulary}
+
+The point of this for now is to try to frame our thinking and set up some vocabulary to further discuss the problem -- this is ``non-constructive'' in that I will have to learn more about formal program analysis and Exo's solver to figure out how to implement this.
+
+The goal is to prove equivalence between single-threaded semantics and multi-threaded semantics.
+I'll refer to them as ``S-semantics'' and ``M-semantics''.
+Furthermore the prefix S- and M- will mean ``under single-threaded semantics'' or ``under multi-threaded semantics'' respectively, e.g., ``write X is S-prior to read Y means ``write X is prior to read Y under single-threaded semantics''.
+
+\filbreak
+\mySub{Concepts}
+
+For illustration, imagine that the Exo program is being simulated sequentially by an ``S-machine'', which builds a graph of execution nodes (xnodes) and execution edges (xedges).
+Statements executed are grouped into xnodes, tagged with the parlane and actor kind used to execute them.
+The (directed) xedges connecting xnodes represent synchronization.
+We then analyze this graph to ensure the xedges generated are sufficient to ensure the same results had the program been simulated on an M-machine.
+
+\filbreak
+Originally my hope was to implement this with static formal program analysis i.e. without actually doing this simulation.
+Talking to William and Jonathan, I've come to see that it's best to forget this for now and focus on (a) getting the CUDA backend for Exo written at all and (b) doing dynamic correctness verification first.
+Nevertheless I'll keep the notes I wrote about static verification here for now (in particular the parview feature).
+
+\filbreak
+\myKey{Parscope:} Each parscope is defined by its \textit{resources}, \textit{lane unit type}, \textit{shape}, and its parent parlane (except the top-level parscope, representing the main CPU thread, has no parent). Two parscopes are the same when all these values match. A parscope is created when executing parallel-for loops of the form
+
+{\color{lightttColor}
+\begin{verbatim}
+# The parlane that executes this loop is the parent parlane
+if cuda_{unit type} in (lo, hi):  # Optional resource specialization
+    # Partial parscope defined here (shape not yet defined)
+    for _ in cuda_{unit type}s(lo, hi):
+        # Invalid parscope (between dimensions)
+        for _ in cuda_{unit type}s(lo, hi):  # Optional multidimensional for loop
+            # The N-dimensional iteration space is the shape
+            # Here we say that we are in {unit type}-scope (e.g. block-scope)
+\end{verbatim}
+}
+
+Only control flow and synchronization statements may appear where the parscope is partially defined (synchronization operates over the subset of resources specified by the resource specialization).
+No code at all can appear where the parscope is invalid.
+The parscope contains one parlane of the given unit type for each point (index) in the shape.
+
+The resources of a parlane are a subset of its parent parlane (except for the case of a CPU thread launching a CUDA grid, where the resources are defined by the grid size); the resources are defined by the shape and the optional resource specialization.
+There must not be more parlanes than that supported by the available resources, but there may be fewer.
+
+\filbreak
+\myKey{Parlane:} A single unit of a parscope, which is assigned to execute one iteration of the parscope's defining parallel-for loop.
+Only parlanes with lane unit type cpu-thread or cuda-thread can execute ``ordinary'' arithmetic, read, or write instructions. 
+The expectation is that after scheduling, all code at cluster, block, warpgroup, or warp scope is either synchronization, control flow, or custom procedures.
+Two parlanes are equal when they come from the same parscope and correspond to the same index.
+
+\filbreak
+\myKey{Temporal/Spatial Loop Index:} Loop index variables are ``spatial'' if they correspond to a parallel-for loop and ``temporal'' otherwise, with temporal loop indices further distinguished as ``sync-temporal'' for sequential-for loops and ``async-temporal'' for async-for loops.
+
+\filbreak
+\myKey{Actor kind:}
+The actor kind is an attribute of each memory read or write performed, as defined by the async-loop construct.
+
+\filbreak
+\myKey{Hazard Eligibility:} In the context of analyzing a write operation, a read operation or another write operation is considered to be \textit{hazard-ineligible} if any of the following:
+
+\begin{enumerate}
+  \item The operations are not using the same variable.
+  \item The operations are done using the same parview, and are performed by parlanes from the same parscope; if either actor kind is not sequential, the two parlanes must be distinct.
+  \item (Future work) The two operations are both atomic operations of the same type (e.g. both \lighttt{atomicAdd}), and the return value of the atomic is not used.
+\end{enumerate}
+
+If none of these apply, the operation in question is \textit{hazard-eligible}.
+
+\filbreak
+\myKey{Execution Node (xnode):}
+Vertices of the graph being built for analysis.
+The S-machine records reads and writes performed as xnodes, with each xnode tracking the access set (reads and writes), the parlane used, and the actor kind used.
+
+When simulating code under the sequential actor kind, the S-machine may group the effects of a block of sequential statements into one xnode, as long as the executing parlane has not changed and no synchronization statement occurs in the block. When simulating code under an async actor kind, each statement must become its own xnode.
+
+Note that there is a total ordering of the xnodes under S-semantics.
+
+\filbreak
+\myKey{Access Sets:} Each xnode has a write set and a read set, tracking which variables were written to / read from, and optionally the parview used.
+Note array indices are not tracked.
+
+\hook{Hook:} Building these access sets will require some non-trivial introspection.
+It looks like the solver already has some notion of access sets, which would need to be extended to track parviews (I'm not sure if this will cause too much change to the core code for this experimental, possibly temporary project).
+The lack of index information should greatly simplify this.
+
+\filbreak
+\myKey{Execution Edge (xedge):} Directed edge connecting two xnodes.
+The S-machine generates explicit xedges between xnodes related by a synchronization operation.
+The S-machine generates implicit xedges between xnodes that are executed sequentially by the same parlane.
+To model all the async proxy complexity, we will have to store a \textit{lot} of info for each xedge, but at a minimum, each explicit xedge records the actor kind used for the arrive operation and the await operation (implicitly \lighttt{sequential} for \lighttt{barrier}, and implicitly \lighttt{sequential}-arrive, \lighttt{wgmma}-await for \lighttt{wgmma\_fence}).
+
+\filbreak
+\myKey{Execution Edge Admissibility:} Not all synchronization points can be used to handle all dependencies.
+A pair of writes, or a read and a write, are \textit{admissible} to an xedge if the underlying synchronization primitive is documented to protect the kind of memory operation done. For example, only non-async instructions' reads and writes are admissible to the xedges defined by a \lighttt{\_\_syncthreads}.
+
+\filbreak
+The most important restriction for an explicit xedge is that the actor kind used for the prior memory operation and the actor kind used for the subsequent memory operation must match, respectively, the actor kind used for the arrive and await.
+
+\filbreak
+Implicit xedges (defined between subsequent xnodes executed with the same parlane) admit only reads and writes with a sequential actor kind, except for the special ``same matrix format'' exception for \lighttt{wgmma} accumulators.
+
+\filbreak
+An xedge may further restrict the types of memory types for admissible memory operations, e.g., the xedges defined by the \lighttt{wgmma.fence} further restrict admissibility to register reads and writes.
+
+\filbreak
+\mySub{Safety Checking}
+
+The hypothetical model I'm imagining is that we simulate an S-machine that executes the program under S-semantics, constructing the graph of xnodes and xedges. Then, for each xnode $n_1$, and for each write $w_1$ recorded (variable-parview tuple) in the \textbf{write set} of the xnode $n_1$:
+\begin{enumerate}
+  \item Search backwards in S-order for the previous xnode $n_0$ that has a hazard-eligible write $w_0$.
+  \item Check that there exists a directed path of xedges from $n_0$ to $n_1$ that admit the pair of writes $(w_0, w_1)$ (WAW hazard check).
+  \item For each xnode $n_2$ in between $n_0$ and $n_1$ in S-order, if the read set of $n_2$ contains a hazard-eligible read,
+  \begin{enumerate}
+    \item Check that there exists a directed path of xedges from $n_0$ to $n_2$ that admit the write/read pair $(w_0, r)$ (RAW hazard check).
+    \item Check that there exists a directed path of xedges from $n_2$ to $n_1$ that admit the read/write pair $(r, w_1)$ (WAR hazard check).
+  \end{enumerate}
+\end{enumerate}
+This ensures that the program is both race free and that each read executed under M-semantics matches what would have been read in the equivalent program under S-semantics.
+
+Finally, we check that there exist no xedge cycles (deadlock freedom).
+
+\filbreak
+\mySub{Unanswered Questions}
+
+Primarily, I need to learn about formal program verification and figure out how to compile this simulation-based safety model into something that is statically verifiable.
+
+Further unanswered questions:
+\begin{enumerate}
+  \item Compiling arrive and await statements into real CUDA synchronization constructs.
+    In particular, there's the difficulty of proving 1:1 correspondence between arrive and await operations.
+    Need to analyze the loop iteration space.
+  \item Extensions to the parview concept needed to express common safe patterns such as deep pipelining and ring-buffer optimization (statically partitioning an array into disjoint subsets that are uniquely assigned to loop iterations, rather than uniquely assigned to parlanes).
+  \item Modeling sparse tensor operations. This would require data-dependent indexing so probably this won't happen ... or will it? (vsauce music plays)
+\end{enumerate}
+
+\newpage
+\myTitle{Sketch of Implementation Changes}
+
+I'm sensitive to the fact that LoopIR is difficult to change, but I feel there is too much value in re-using LoopIR to justify creating a new IR specialized for the GPU backend.
+%% In particular
+%% \begin{enumerate}
+%%   \item Since user scheduling is done with LoopIR, implementing the GPU features outside of LoopIR is a user-visible limitation (GPU scheduling will not be orthogonal to other scheduling operations).
+%%   \item I need to rely on some analysis already provided in the LoopIR compiler, e.g. loop index bounds analysis.
+%%   \item LoopIR unification is needed for this project, since substituting CUDA accelerator functions context on how the code is mapped to the GPU (e.g. the actor kind for the code and whether it's at lane/warp/block scope).
+%% \end{enumerate}
+I'm hoping it's possible to find a really minimal amount of changes to LoopIR that provides enough for expressing CUDA concepts.
+
+\filbreak
+\mySub{LoopIR Additions}
+
+\myKey{For statements:} The binary \lighttt{seq} or \lighttt{par} values for \lighttt{loop\_mode} are generalized to the \lighttt{LoopMode} class.
+Similar to \lighttt{seq}/\lighttt{par}, the choice of loop mode should be ignored for all scheduling operations -- only the backend checks, if any, care.
+
+\filbreak
+\myKey{If/Const:} If statements with no or-else can take a \lighttt{cond} expression that is a \lighttt{LaneSpecialization} value wrapped in a \lighttt{LoopIR.Const} node.
+This corresponds to the lane parallelization construct (\lighttt{if cuda\_{unit} in (\{lo\}, \{hi\})}); note that \lighttt{LaneSpecialization} has three attributes: unit, lo, hi.
+For pattern matching, we'd have to do some extra work to implement holes.
+
+\filbreak
+This reasoning is suspect, but the reason I'm proposing to extend \lighttt{LoopIR.Const} for this is that I don't anticipate allowing specializing based on runtime arguments, and under S-semantics (which is what the safety checks care about), a lane specialization statement is equivalent to \lighttt{if True}.
+
+\filbreak
+\myKey{SyncStmt:} Would need to consist of a barrier type enum (arrive, await, syncthreads, stream sync, wgmma fence); for arrive and awaits, we need the sym of a barrier variable and an actor kind.
+For scheduling and safety checks, they should be treated the same as a \lighttt{pass} statement (except don't remove them in \lighttt{simplify}, \lighttt{remove\_pass}, etc.).
+
+TODO remove old code based on \lighttt{A // B} sync statements.
+
+\filbreak
+\myKey{Types:} Need to add types \lighttt{Barrier} and \lighttt{LaneSpecialization}.
+The barrier may be used for allocation, but we forbid names that conflict with the names of actor kinds.
+The lane specialization is only allowed as the ``const'' condition of an if statement.
+
+\filbreak
+\myKey{Read/Write/Reduce:} These will not have to change in LoopIR, but the compilation of these will have to substantially modified in order to handle actor kinds and distributed memory (GPU registers).
+
+\filbreak
+\mySub{Spork Compiler Env}
+
+I'll put most of the implementation for CUDA codegen into \lighttt{SporkEnv}, which the main LoopIR compiler will call into at a few critical points.
+The \lighttt{SporkEnv} will track
+\begin{enumerate}
+  \item the parscope and parlane (including the current lane unit)
+  \item actor kind
+  \item access patterns for distributed memory (arrays of CUDA registers)
+  \item that externs and proc calls have compatible lane units and actor kinds (logical extension of memory type checking)
+  \item that memory reads/reduces/writes are valid for the current lane unit, actor kind, and distributed memory bit
+  \item needed CUDA kernel parameters and kernel launches
+  \item compiling SyncStmt to physical CUDA code
+\end{enumerate}
+
+\filbreak
+For the most part, we need to call into \lighttt{SporkEnv} when compiling for statements, if statements, sync statements, and memory reads/writes (the last one is probably the hardest).
+
+\filbreak
+Also, it's a good thing there's an \lighttt{add\_line} helper, because when compiling CUDA code, we'll have to reset the indentation and put all code into a separate stream.
+This is because we can't mix host and device code in one function (so a single exo proc will need to be compiled to one CPU function that launches any number of CUDA kernels, each compiled as separate device functions).
+
+\filbreak
+\mySub{Backend Target}
+
+As mentioned, we're probably going to put static analysis on the backburner.
+For now I'm envisioning that we can target either compiling for the M-machine (CUDA code), or compiling for the S-machine (CPU code that implements the dynamic checking described earlier).
+So we compile the Exo code to CPU C code, and successfully running the C code on a certain input shape validates that the M-machine CUDA code with the same inputs will generate the equivalent output.
+
+\end{document}

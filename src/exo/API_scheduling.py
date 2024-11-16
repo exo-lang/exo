@@ -10,6 +10,8 @@ from typing import Any, List, Tuple
 from .API import Procedure
 import exo.API_cursors as PC
 from .core.LoopIR import LoopIR, T
+from .spork.actor_kinds import ActorKind
+from .spork.loop_modes import LoopMode, seq, par, loop_mode_dict
 import exo.rewrite.LoopIR_scheduling as scheduling
 from .API_types import ExoType
 
@@ -347,6 +349,26 @@ class TypeAbbrevA(ArgumentProcessor):
                 f"precision: {precisions}",
                 ValueError,
             )
+
+
+# Allow loop mode or actor kind (implicitly translated to async-for loop)
+class LoopModeA(ArgumentProcessor):
+    def __call__(self, val, all_args):
+        if isinstance(val, ActorKind):
+            if val.is_synthetic():
+                self.err("cannot use synthetic ActorKind")
+            elif not val.is_async():
+                self.err("ActorKind must be async")
+            else:
+                val = loop_mode_dict.get(val.name)
+                if val:
+                    val = val()
+                assert isinstance(
+                    val, LoopMode
+                ), "internal error, expected LoopMode instantiated for async ActorKind"
+        if not isinstance(val, LoopMode):
+            self.err("expected a LoopMode")
+        return val
 
 
 # --------------------------------------------------------------------------- #
@@ -897,7 +919,15 @@ def reorder_stmts(proc, block_cursor):
 def parallelize_loop(proc, loop_cursor):
     loop = loop_cursor._impl
 
-    ir, fwd = scheduling.DoParallelizeLoop(loop)
+    ir, fwd = scheduling.DoSetLoopMode(loop, par)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([ForCursorA, LoopModeA])
+def set_loop_mode(proc, loop_cursor, loop_mode):
+    loop = loop_cursor._impl
+
+    ir, fwd = scheduling.DoSetLoopMode(loop, loop_mode)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
