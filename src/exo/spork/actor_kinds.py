@@ -4,19 +4,27 @@ from enum import Enum
 from typing import Optional, Set
 
 
-"""Actor signatures
+class ActorSignature(object):
+    __slots__ = ["name"]
+    name: str
 
-Unusually for Python, we just use a bitfield for this.
-This is to match with my planned underlying dynamic checker.
-"""
-sig_cpu = 1
-sig_cuda_sync = 2
-sig_non_bulk_cp_async = 4
-sig_tma_to_shared = 8
-sig_tma_to_global = 16
-sig_wgmma_reg_a = 32
-sig_wgmma_reg_d = 64
-sig_wgmma_mem = 128
+    def __init__(self, name: str):
+        self.name = name
+
+    def __repr__(self):
+        return f"<exo.spork.ActorSignature {self.name}>"
+
+    # Use default hash and equality (id-equality) from object.
+
+
+sig_cpu = ActorSignature("sig_cpu")
+sig_cuda_sync = ActorSignature("sig_cuda_sync")
+sig_non_bulk_cp_async = ActorSignature("sig_non_bulk_cp_async")
+sig_tma_to_shared = ActorSignature("sig_tma_to_shared")
+sig_tma_to_global = ActorSignature("sig_tma_to_global")
+sig_wgmma_reg_a = ActorSignature("sig_wgmma_reg_a")
+sig_wgmma_reg_d = ActorSignature("sig_wgmma_reg_d")
+sig_wgmma_mem = ActorSignature("sig_wgmma_mem")
 
 
 class ActorKindCategory(Enum):
@@ -28,14 +36,20 @@ class ActorKindCategory(Enum):
 class ActorKind(object):
     name: str
     category: ActorKindCategory
-    sigbits: int
+    signatures: Set[ActorSignature]
     allowed_parent: Optional[ActorKind]
 
-    def __init__(self, name, category, sigbits, allowed_parent=None):
+    __slots__ = ["name", "category", "signatures", "allowed_parent"]
+
+    def __init__(
+        self, name, category, signatures: Set[ActorSignature], allowed_parent=None
+    ):
         self.name = name
         self.category = category
-        self.sigbits = sigbits
+        self.signatures = signatures
         self.allowed_parent = allowed_parent
+        assert isinstance(signatures, set)
+        assert all(isinstance(s, ActorSignature) for s in signatures)
         assert (category == ActorKindCategory.ASYNC) == name.endswith(
             "_async"
         ), "naming convention: names of async actor kinds must end with _async"
@@ -51,6 +65,9 @@ class ActorKind(object):
     def allows_parent(self, parent: ActorKind):
         return parent is self or parent is self.allowed_parent
 
+    def subset_of(self, other):
+        return self.signatures.issubset(other.signatures)
+
     def __repr__(self):
         return f"<exo.spork.actor_kind.ActorKind {self.name}>"
 
@@ -58,68 +75,70 @@ class ActorKind(object):
         return self.name
 
     def __bool__(self):
-        return self.sigbits != 0
+        return bool(self.signatures)
 
 
 """No instructions; internal use only"""
-_null_actor = ActorKind("_null_actor", ActorKindCategory.SYNTHETIC, 0)
+_null_actor = ActorKind("_null_actor", ActorKindCategory.SYNTHETIC, set())
 
 """Host CPU instructions"""
-cpu = ActorKind("cpu", ActorKindCategory.SYNC, sig_cpu)
+cpu = ActorKind("cpu", ActorKindCategory.SYNC, {sig_cpu})
 
 """All actions on the CUDA device"""
 cuda_all = ActorKind(
     "cuda_all",
     ActorKindCategory.SYNTHETIC,
-    sig_cuda_sync
-    | sig_non_bulk_cp_async
-    | sig_tma_to_shared
-    | sig_tma_to_global
-    | sig_wgmma_reg_a
-    | sig_wgmma_reg_d
-    | sig_wgmma_mem,
+    {
+        sig_cuda_sync,
+        sig_non_bulk_cp_async,
+        sig_tma_to_shared,
+        sig_tma_to_global,
+        sig_wgmma_reg_a,
+        sig_wgmma_reg_d,
+        sig_wgmma_mem,
+    },
 )
 
 """Typical CUDA instructions that operate on the generic proxy
 and follow the typical per-thread in-order execution abstraction"""
-cuda_sync = ActorKind("cuda_sync", ActorKindCategory.SYNC, sig_cuda_sync, cpu)
+cuda_sync = ActorKind("cuda_sync", ActorKindCategory.SYNC, {sig_cuda_sync}, cpu)
 
 """Ampere cp.async instructions"""
 non_bulk_cp_async = ActorKind(
-    "non_bulk_cp_async", ActorKindCategory.ASYNC, sig_non_bulk_cp_async, cuda_sync
+    "non_bulk_cp_async", ActorKindCategory.ASYNC, {sig_non_bulk_cp_async}, cuda_sync
 )
 
 """CUDA generic proxy (sync and async instructions)"""
 cuda_generic = ActorKind(
-    "cuda_generic", ActorKindCategory.SYNTHETIC, sig_cuda_sync | sig_non_bulk_cp_async
+    "cuda_generic", ActorKindCategory.SYNTHETIC, {sig_cuda_sync, sig_non_bulk_cp_async}
 )
 
 """cp.async.bulk instructions with cluster/block shared memory as destination"""
 tma_to_shared_async = ActorKind(
-    "tma_to_shared_async", ActorKindCategory.ASYNC, sig_tma_to_shared, cuda_sync
+    "tma_to_shared_async", ActorKindCategory.ASYNC, {sig_tma_to_shared}, cuda_sync
 )
 
 """cp{.reduce}.bulk.async instructions with global memory as destination"""
 tma_to_global_async = ActorKind(
-    "tma_to_global_async", ActorKindCategory.ASYNC, sig_tma_to_global, cuda_sync
+    "tma_to_global_async", ActorKindCategory.ASYNC, {sig_tma_to_global}, cuda_sync
 )
 
 """wgmma instructions"""
 wgmma_async = ActorKind(
     "wgmma_async",
     ActorKindCategory.ASYNC,
-    sig_wgmma_reg_a | sig_wgmma_reg_d | sig_wgmma_mem,
+    {sig_wgmma_reg_a, sig_wgmma_reg_d, sig_wgmma_mem},
     cuda_sync,
 )
 
 """wgmma instructions' actions on registers"""
 wgmma_async_reg = ActorKind(
-    "wgmma_async_reg", ActorKindCategory.SYNTHETIC, sig_wgmma_reg_a | sig_wgmma_reg_d
+    "wgmma_async_reg", ActorKindCategory.SYNTHETIC, {sig_wgmma_reg_a, sig_wgmma_reg_d}
 )
 
 """wgmma instructions' actions on shared memory"""
 wgmma_async_mem = ActorKind(
-    "wgmma_async_mem", ActorKindCategory.SYNTHETIC, sig_wgmma_mem
+    "wgmma_async_mem", ActorKindCategory.SYNTHETIC, {sig_wgmma_mem}
 )
 
 """actions on wgmma matrix tile registers, either by wgmma.async
@@ -127,7 +146,7 @@ instructions or by ordinary cuda synchronous instructions"""
 wgmma_reg = ActorKind(
     "wgmma_reg",
     ActorKindCategory.SYNTHETIC,
-    sig_cuda_sync | sig_wgmma_reg_a | sig_wgmma_reg_d,
+    {sig_cuda_sync, sig_wgmma_reg_a, sig_wgmma_reg_d},
 )
 
 
