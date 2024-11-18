@@ -631,7 +631,7 @@ Specifically,
 A barrier my be transitive or non-transitive.
 If transitive, a visibility record synchronizes-with an arrive or a non-split synchronization statement when ${V_A \cap V_1}$ is non-empty.
 (The consideration of $V_A$ represents that synchronization statements can synchronize with pending asynchronous instructions, when the appropriate actor kind is used).
-If non-transitive, we substitute $V_A$ with $(V_A \cap (\mathbb{N} \times \{A_O\}))$ where $A_O$ is the original actor kind of the visibility record; this effectively models that the barrier only has effect on reads and writes performed by the instruction kinds targetted by the barrier.
+If non-transitive, we substitute $V_A$ with ${\{ (t, a) \in V_A \mid a = A_O \}}$ where $A_O$ is the original actor kind of the visibility record; this effectively models that the barrier only has effect on reads and writes performed by the instruction kinds targetted by the barrier.
 
 \filbreak
 A synchronization statement augments a visibility record by setting ${V_A \leftarrow V_A \cup V_2}$ and ${V_S \leftarrow V_S \cup V_2}$.
