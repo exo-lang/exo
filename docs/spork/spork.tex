@@ -39,7 +39,7 @@ the \textit{Descend} borrow-checking model only requires proving that thread 1's
 \myKey{Ring Buffer:} We need to support ring buffer optimization under multi-threaded semantics as well.
 
 \filbreak
-\myKey{Array Race Analysis:} We may need a mechanism similar to the ``view'' concept in \textit{Descend} to make more complicated array access patterns tractible to analyze. i.e. we need to allow the user to prove that two threads' parallel writes to the same array won't cause a hazard by showing the access pattern leads to disjoint arary indices used for each thread.
+\myKey{Array Race Analysis:} We may need a mechanism similar to the ``view'' concept in \textit{Descend} to make more complicated array access patterns tractible to analyze. i.e. we need to allow the user to prove that two threads' parallel writes to the same array won't cause a hazard by showing the access pattern leads to disjoint array indices used for each thread.
 
 \filbreak
 \myKey{Other Features:} I am thinking less about these features as they are not as relevant to the AI-centric use case for Hopper, but nevertheless in the background we should think about \webText{grid group synchronization}{https://docs.nvidia.com/cuda/cuda-c-programming-guide/\#grid-group} (pre-Hopper method for synchronizing across all threads in an entire grid), associative atomic reductions (add, min, max), and maybe modelling the extremely powerful \webText{cub prefix sum}{https://nvidia.github.io/cccl/cub/api/structcub_1_1DeviceScan.html} functions.
