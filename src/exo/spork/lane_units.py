@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Optional
 
 
@@ -9,9 +11,14 @@ class LaneUnit(object):
 
     """
 
-    def __init__(self, name, parent):
+    name: str
+    parent: LaneUnit
+    thread_count: Optional[int]
+
+    def __init__(self, name, parent, thread_count):
         self.name = name
         self.parent = parent
+        self.thread_count = thread_count
 
     def __repr__(self):
         return f"<exo.spork.lane_unit.LaneUnit {self.name}>"
@@ -29,12 +36,12 @@ class LaneUnit(object):
             return child.parent is not None and self.contains(child.parent)
 
 
-cpu_thread = LaneUnit("cpu_thread", None)
-cuda_cluster = LaneUnit("cuda_cluster", None)
-cuda_block = LaneUnit("cuda_block", cuda_cluster)
-cuda_warpgroup = LaneUnit("cuda_warpgroup", cuda_block)
-cuda_warp = LaneUnit("cuda_warp", cuda_warpgroup)
-cuda_thread = LaneUnit("cuda_thread", cuda_warp)
+cpu_thread = LaneUnit("cpu_thread", None, 1)
+cuda_cluster = LaneUnit("cuda_cluster", None, None)
+cuda_block = LaneUnit("cuda_block", cuda_cluster, None)
+cuda_warpgroup = LaneUnit("cuda_warpgroup", cuda_block, 128)
+cuda_warp = LaneUnit("cuda_warp", cuda_warpgroup, 32)
+cuda_thread = LaneUnit("cuda_thread", cuda_warp, 1)
 
 lane_unit_dict = {
     unit.name: unit

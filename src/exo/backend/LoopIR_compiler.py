@@ -7,7 +7,14 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..core.LoopIR import LoopIR, LoopIR_Do, get_writes_of_stmts, T, CIR
+from ..core.LoopIR import (
+    LoopIR,
+    LoopIR_Do,
+    get_reads_of_stmts,
+    get_writes_of_stmts,
+    T,
+    CIR,
+)
 from ..core.configs import ConfigError
 from .mem_analysis import MemoryAnalysis
 from ..core.memory import MemGenError, Memory, DRAM, StaticMemory
@@ -659,7 +666,7 @@ class Compiler:
     def add_line(self, line):
         if line:
             if self.spork:
-                self.spork.kernel_lines.append(self._tab + line)
+                self.spork.add_line(self._tab + line)
             else:
                 self._lines.append(self._tab + line)
 
@@ -836,9 +843,6 @@ class Compiler:
         return self.spork.get_actor_kind() if self.spork else actor_kinds.cpu
 
     def comp_s(self, s):
-        if self.spork:
-            self.spork.on_comp_s(s)
-
         if isinstance(s, LoopIR.Pass):
             self.add_line("; // NO-OP")
         elif isinstance(s, LoopIR.SyncStmt):
@@ -905,7 +909,11 @@ class Compiler:
                     raise ValueError(
                         f"{s.srcinfo}: lane specialization outside GPU scope"
                     )
-                cond = self.spork.push_lane_specialization(s.cond.val)
+                if len(s.orelse) > 0:
+                    raise ValueError(
+                        f"{s.srcinfo}: orelse not allowed for lane specialization"
+                    )
+                cond = self.spork.push_lane_specialization(s)
             else:
                 cond = self.comp_e(s.cond)
 
@@ -921,7 +929,7 @@ class Compiler:
             self.add_line("}")
 
             if is_lane_specialization:
-                self.spork.pop_lane_specialization()
+                self.spork.pop_lane_specialization(s)
 
         elif isinstance(s, LoopIR.For):
             lo = self.comp_e(s.lo)
@@ -934,6 +942,10 @@ class Compiler:
                 s.hi,
             )
 
+            # This logic ideally would go into SporkEnv, but currently
+            # it can't due to SporkEnv not existing when CPU code is
+            # being compiled, and interaction with OpenMP-based
+            # parallel for (which Spork doesn't handle).
             loop_mode = s.loop_mode
             old_actor_kind = self.get_actor_kind()
             new_actor_kind = loop_mode.new_actor_kind(old_actor_kind)
@@ -947,12 +959,12 @@ class Compiler:
                 )
             if starting_cuda_kernel:
                 self.spork = SporkEnv(
-                    f"{self.proc.name}EXOcu_{s.srcinfo.lineno:04d}{itr}"
+                    f"{self.proc.name}EXO_{s.srcinfo.lineno:04d}{itr}", s
                 )
             if self.spork:
-                self.spork.push_actor_kind(new_actor_kind)
-                if loop_mode.is_par:
-                    emit_loop = self.spork.push_parallel_for(s)
+                emit_loop = self.spork.push_for(
+                    s, new_actor_kind, itr, (lo, hi), sym_range, self._tab
+                )
 
             if isinstance(loop_mode, Par):
                 assert emit_loop
@@ -967,13 +979,12 @@ class Compiler:
             self.comp_stmts(s.body)
 
             if self.spork:
-                self.spork.pop_actor_kind()
-                if loop_mode.is_par:
-                    self.spork.pop_parallel_for()
+                self.spork.pop_for(s)
 
             if starting_cuda_kernel:
                 # TODO compile kernel_lines into separate device function
-                self._lines.extend(self.spork.kernel_lines)
+                self.add_line("// " + str(get_writes_of_stmts(s.body)))
+                self._lines.extend(self.spork.get_lines())
                 self.spork = None
 
             if emit_loop:

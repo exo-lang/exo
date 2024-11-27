@@ -59,7 +59,7 @@ class Par(LoopMode):
         return cpu
 
     def lane_unit(self):
-        return lane_units.cpu_threads
+        return lane_units.cpu_thread
 
 
 par = Par()
@@ -70,9 +70,11 @@ class CudaClusters(LoopMode):
     is_async = False
 
     blocks: int
+    blockDim: int
 
-    def __init__(self, blocks):
+    def __init__(self, blocks, blockDim):
         self.blocks = self._unpack_positive_int(blocks, "block count")
+        self.blockDim = self._unpack_positive_int(blockDim, "blockDim")
 
     def loop_mode_name(self):
         return "cuda_clusters"
@@ -81,17 +83,22 @@ class CudaClusters(LoopMode):
         return cuda_sync
 
     def lane_unit(self):
-        return lane_units.cuda_clusters
+        return lane_units.cuda_cluster
 
 
 class CudaBlocks(LoopMode):
     is_par = True
     is_async = False
 
-    warps: int
+    # Must be None if the for-blocks loops is a child of a for-clusters loop.
+    # Otherwise this must be an integer.
+    blockDim: Optional[int]
 
-    def __init__(self, warps=1):
-        self.warps = self._unpack_positive_int(warps, "warp count")
+    def __init__(self, blockDim=None):
+        if blockDim is None:
+            self.blockDim = None
+        else:
+            self.blockDim = self._unpack_positive_int(blockDim, "blockDim")
 
     def loop_mode_name(self):
         return "cuda_blocks"
@@ -100,7 +107,7 @@ class CudaBlocks(LoopMode):
         return cuda_sync
 
     def lane_unit(self):
-        return lane_units.cuda_blocks
+        return lane_units.cuda_block
 
 
 cuda_blocks = CudaBlocks()
@@ -120,7 +127,7 @@ class CudaWarpgroups(LoopMode):
         return cuda_sync
 
     def lane_unit(self):
-        return lane_units.cuda_warpgroups
+        return lane_units.cuda_warpgroup
 
 
 cuda_warpgroups = CudaWarpgroups()
@@ -140,7 +147,7 @@ class CudaWarps(LoopMode):
         return cuda_sync
 
     def lane_unit(self):
-        return lane_units.cuda_warps
+        return lane_units.cuda_warp
 
 
 cuda_warps = CudaWarps()
@@ -160,7 +167,7 @@ class CudaThreads(LoopMode):
         return cuda_sync
 
     def lane_unit(self):
-        return lane_units.cuda_threads
+        return lane_units.cuda_thread
 
 
 cuda_threads = CudaThreads()
@@ -213,7 +220,6 @@ loop_mode_dict = make_loop_mode_dict()
 def format_loop_cond(lo_str: str, hi_str: str, loop_mode: LoopMode):
     strings = [loop_mode.loop_mode_name(), "(", lo_str, ",", hi_str]
     for attr in loop_mode.__dict__:
-        if attr != "cuda_nesting":
-            strings.append(f",{attr}={getattr(loop_mode, attr)}")
+        strings.append(f",{attr}={getattr(loop_mode, attr)}")
     strings.append(")")
     return "".join(strings)
