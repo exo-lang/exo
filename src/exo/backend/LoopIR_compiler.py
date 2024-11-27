@@ -7,14 +7,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..core.LoopIR import (
-    LoopIR,
-    LoopIR_Do,
-    get_reads_of_stmts,
-    get_writes_of_stmts,
-    T,
-    CIR,
-)
+from ..core.LoopIR import LoopIR, LoopIR_Do, get_writes_of_stmts, T, CIR
 from ..core.configs import ConfigError
 from .mem_analysis import MemoryAnalysis
 from ..core.memory import MemGenError, Memory, DRAM, StaticMemory
@@ -24,7 +17,7 @@ from ..core.prelude import *
 from .win_analysis import WindowAnalysis
 from ..rewrite.range_analysis import IndexRangeEnvironment
 from ..spork.loop_modes import LoopMode, Seq, Par
-from ..spork.spork_env import SporkEnv
+from ..spork.spork_env import SporkEnv, KernelArgsScanner
 from ..spork import actor_kinds
 
 
@@ -424,16 +417,22 @@ def compile_to_strings(lib_name, proc_list):
             p = MemoryAnalysis().run(p)
 
             comp = Compiler(p, ctxt_name, is_public_decl=is_public_decl)
-            d, b = comp.comp_top()
+            cpu_d, cpu_b = comp.comp_top()
             struct_defns |= comp.struct_defns()
             needed_helpers |= comp.needed_helpers()
 
             if is_public_decl:
-                public_fwd_decls.append(d)
+                public_fwd_decls.append(cpu_d)
             else:
-                private_fwd_decls.append(d)
+                private_fwd_decls.append(cpu_d)
+            for gpu_d in comp.spork_decls:
+                private_fwd_decls.append(gpu_d)
 
-            proc_bodies.append(b)
+            proc_bodies.append(cpu_b)
+            for gpu_b in comp.spork_defs:
+                proc_bodies.append("namespace {")
+                proc_bodies.append(gpu_b)
+                proc_bodies.append("}")
 
             analyzed_proc_list.append(p)
 
@@ -545,6 +544,8 @@ class Compiler:
         self.spork = (
             None  # Set to SporkEnv only when compiling GPU kernel code, else None
         )
+        self.spork_decls = []  # Fwd declaration of kernels compiled by spork
+        self.spork_defs = []  # Definitions of kernels compiled by spork
         self.mems = dict()
         self._tab = ""
         self._lines = []
@@ -565,27 +566,16 @@ class Compiler:
         self.non_const = set(e for e, _ in get_writes_of_stmts(self.proc.body))
 
         for a in proc.args:
-            mem = a.mem if a.type.is_numeric() else None
-            name_arg = self.new_varname(a.name, typ=a.type, mem=mem)
-            if a.type in (T.size, T.index, T.bool, T.stride):
-                arg_strs.append(f"{a.type.ctype()} {name_arg}")
-                typ_comments.append(f"{name_arg} : {a.type}")
-            # setup, arguments
-            else:
-                assert a.type.is_numeric()
-                assert a.type.basetype() != T.R
-                if a.type.is_real_scalar():
-                    self._scalar_refs.add(a.name)
-                if a.type.is_win():
-                    wintyp = self.get_window_type(a)
-                    arg_strs.append(f"struct {wintyp} {name_arg}")
-                else:
-                    const_kwd = "const " if a.name not in self.non_const else ""
-                    ctyp = a.type.basetype().ctype()
-                    arg_strs.append(f"{const_kwd}{ctyp}* {name_arg}")
-                mem = f" @{a.mem.name()}" if a.mem else ""
-                comment_str = f"{name_arg} : {a.type}{mem}"
-                typ_comments.append(comment_str)
+            typ = a.type
+            mem = a.mem if typ.is_numeric() else None
+            name_arg = self.new_varname(a.name, typ=typ, mem=mem)
+            non_const = typ.is_numeric() and a.name in self.non_const
+            if typ.is_real_scalar():
+                self._scalar_refs.add(a.name)
+
+            mem_comment = f" @{mem.name()}" if mem else ""
+            arg_strs.append(f"{self.format_arg_ctype(typ, non_const)} {name_arg}")
+            typ_comments.append(f"{name_arg} : {typ}{mem_comment}")
 
         for pred in proc.preds:
             if isinstance(pred, LoopIR.Const):
@@ -630,6 +620,21 @@ class Compiler:
 
         self.proc_decl = proc_decl
         self.proc_def = proc_def
+
+    def format_arg_ctype(self, typ, non_const):
+        if typ in (T.size, T.index, T.bool, T.stride):
+            return typ.ctype()
+        # setup, arguments
+        else:
+            assert typ.is_numeric()
+            assert typ.basetype() != T.R
+            if typ.is_win():
+                wintyp = self.get_window_type(a)
+                return f"struct {wintyp}"
+            else:
+                const_kwd = "const " if not non_const else ""
+                ctyp = typ.basetype().ctype()
+                return f"{const_kwd}{ctyp}*"
 
     def static_memory_check(self, proc):
         def allocates_static_memory(stmts):
@@ -958,8 +963,10 @@ class Compiler:
                     f"{s.srcinfo}: cannot nest loop with actor kind {new_actor_kind} in {old_actor_kind} scope"
                 )
             if starting_cuda_kernel:
+                old_tabs = self._tab
+                self._tab = "  "
                 self.spork = SporkEnv(
-                    f"{self.proc.name}EXO_{s.srcinfo.lineno:04d}{itr}", s
+                    f"{self.proc.name}_{s.srcinfo.lineno:04d}{itr}_EXO", s
                 )
             if self.spork:
                 emit_loop = self.spork.push_for(
@@ -981,15 +988,24 @@ class Compiler:
             if self.spork:
                 self.spork.pop_for(s)
 
-            if starting_cuda_kernel:
-                # TODO compile kernel_lines into separate device function
-                self.add_line("// " + str(get_writes_of_stmts(s.body)))
-                self._lines.extend(self.spork.get_lines())
-                self.spork = None
+            self.pop()
+            self.add_line("}")
 
-            if emit_loop:
-                self.pop()
-                self.add_line("}")
+            if starting_cuda_kernel:
+                # Divert gpu code into separate lists
+                # Insert cpu code for kernel launch
+                proto, launch = self.spork.get_kernel_prototype_launch(
+                    s, lo, hi, self.env, self.envtyp, self.format_arg_ctype
+                )
+                kernel_body = self.spork.get_kernel_body()
+
+                # Must clear SporkEnv now so add_line works and restore tabs
+                self.spork = None
+                self._tab = old_tabs
+
+                self.spork_decls.append("namespace{" + proto + ";}")
+                self.spork_defs.append(proto + "\n" + kernel_body)
+                self.add_line(launch)
 
         elif isinstance(s, LoopIR.Alloc):
             name = self.new_varname(s.name, typ=s.type, mem=s.mem)

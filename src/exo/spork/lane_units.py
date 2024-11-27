@@ -13,7 +13,7 @@ class LaneUnit(object):
 
     name: str
     parent: LaneUnit
-    thread_count: Optional[int]
+    thread_count: Optional[int]  # None if runtime sized (e.g. CTA)
 
     def __init__(self, name, parent, thread_count):
         self.name = name
@@ -94,6 +94,10 @@ class LaneSpecialization(object):
         self.unit = unit
         self.lo = int(lo)
         self.hi = int(hi)
+        if lo < 0:
+            raise ValueError("LaneSpecialization.lo must be non-negative")
+        if hi <= lo:
+            raise ValueError("LaneSpecialization [lo, hi) must be non-empty")
 
     def __repr__(self):
         return f"exo.spork.lane_units.LaneSpecialization({self.unit}, {self.lo}, {self.hi})"

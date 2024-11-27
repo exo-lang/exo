@@ -981,9 +981,15 @@ class GetReads(LoopIR_Do):
     def __init__(self):
         self.reads = []
 
-    def do_e(self, e):
+    @staticmethod
+    def scan_e(e):
         if hasattr(e, "name"):
-            self.reads.append((e.name, e.type))
+            return (e.name, e.type)
+        return None
+
+    def do_e(self, e):
+        if read_info := self.scan_e(e):
+            self.reads.append(read_info)
         super().do_e(e)
 
 
@@ -1021,9 +1027,10 @@ class GetWrites(LoopIR_Do):
     def __init__(self):
         self.writes = []
 
-    def do_s(self, s):
+    @staticmethod
+    def scan_s(s):
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
-            self.writes.append((s.name, s.type))
+            return (s.name, s.type)
         elif isinstance(s, LoopIR.Call):
             writes_in_subproc = [a for a, _ in get_writes_of_stmts(s.f.body)]
             for arg, call_arg in zip(s.args, s.f.args):
@@ -1031,8 +1038,12 @@ class GetWrites(LoopIR_Do):
                     if isinstance(
                         arg, (LoopIR.Read, LoopIR.WindowExpr, LoopIR.StrideExpr)
                     ):
-                        self.writes.append((arg.name, arg.type))
+                        return (arg.name, arg.type)
+        return None
 
+    def do_s(self, s):
+        if write_info := self.scan_s(s):
+            self.writes.append(write_info)
         super().do_s(s)
 
     # early exit

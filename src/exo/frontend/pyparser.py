@@ -1154,13 +1154,16 @@ class Parser:
         hi = self.parse_expr(rhs_ast.elts[1])
 
         def unbox(e_const):
+            err_msg = (
+                "must have literal non-negative int bounds for lane specialization"
+            )
             if isinstance(e_const, PAST.E_Hole):
                 return None
             if not isinstance(e_const, self.AST.Const):
-                self.err(e, "must have constant bounds for lane specialization")
+                self.err(e, err_msg)
             n = e_const.val
-            if not isinstance(n, int):
-                self.err(e_const, "must have int bounds for lane specialization")
+            if not isinstance(n, int) or n < 0:
+                self.err(e, err_msg)
             return n
 
         if self.is_fragment and unit_name == "_":
