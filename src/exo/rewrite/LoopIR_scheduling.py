@@ -2733,6 +2733,15 @@ def DoInsertPass(gap):
     return ir, fwd
 
 
+def DoInsertFence(gap, sync_type):
+    # Note, no checking is needed here as synchronization/race
+    # checking is performed as part of the lowering pass.
+    assert not sync_type.is_split()
+    srcinfo = gap.parent()._node.srcinfo
+    ir, fwd = gap._insert([LoopIR.SyncStmt(sync_type, srcinfo=srcinfo, bar=None)])
+    return ir, fwd
+
+
 def DoInsertNoopCall(gap, proc, args):
     srcinfo = gap.parent()._node.srcinfo
 

@@ -12,6 +12,7 @@ import exo.API_cursors as PC
 from .core.LoopIR import LoopIR, T
 from .spork.actor_kinds import ActorKind
 from .spork.loop_modes import LoopMode, seq, par, loop_mode_dict
+from .spork.sync_types import SyncType
 import exo.rewrite.LoopIR_scheduling as scheduling
 from .API_types import ExoType
 
@@ -367,7 +368,19 @@ class LoopModeA(ArgumentProcessor):
                     val, LoopMode
                 ), "internal error, expected LoopMode instantiated for async ActorKind"
         if not isinstance(val, LoopMode):
-            self.err("expected a LoopMode")
+            if isinstance(val, type):
+                self.err(
+                    f"expected a LoopMode, not type (did you mean `{val.__name__}()`)?"
+                )
+            else:
+                self.err(f"expected a LoopMode, not {type(val)}")
+        return val
+
+
+class SyncTypeA(ArgumentProcessor):
+    def __call__(self, val, all_args):
+        if not isinstance(val, SyncType):
+            self.err(f"expected a SyncType, not {type(val)}")
         return val
 
 
@@ -872,6 +885,24 @@ def insert_pass(proc, gap_cursor):
         `s1 ; pass ; s2`
     """
     ir, fwd = scheduling.DoInsertPass(gap_cursor._impl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([GapCursorA, SyncTypeA])
+def insert_fence(proc, gap_cursor, sync_type):
+    """
+    Insert a Fence of the given type at the indicated position.
+    For example sync_type = cuda_syncthreads inserts a __syncthreads().
+
+    args:
+        gap_cursor  - where to insert the new SyncStmt
+
+    rewrite:
+        `s1 ; s2` <--- gap_cursor pointed at the semi-colon
+        -->
+        `s1 ; Fence(...) ; s2`
+    """
+    ir, fwd = scheduling.DoInsertFence(gap_cursor._impl, sync_type)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 

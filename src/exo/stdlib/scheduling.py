@@ -23,6 +23,7 @@ from ..API_scheduling import (
     #
     # general statement and expression operations
     insert_pass,
+    insert_fence,
     delete_pass,
     reorder_stmts,
     rewrite_expr,

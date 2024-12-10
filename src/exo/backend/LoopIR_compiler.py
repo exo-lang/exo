@@ -20,6 +20,9 @@ from ..spork.loop_modes import LoopMode, Seq, Par
 from ..spork.spork_env import SporkEnv, KernelArgsScanner
 from ..spork import actor_kinds
 
+# XXX used for backdoor
+from ..spork.cuda_memory import CudaRegisters
+
 
 def sanitize_str(s):
     return re.sub(r"\W", "_", s)
@@ -851,8 +854,10 @@ class Compiler:
         if isinstance(s, LoopIR.Pass):
             self.add_line("; // NO-OP")
         elif isinstance(s, LoopIR.SyncStmt):
-            warnings.warn("Not implemented: compiling LoopIR.SyncStmt")
-            self.add_line(f"// TODO LoopIR.SyncStmt {s.sync_type.format_stmt(s.bar)}")
+            warnings.warn(
+                "Not implemented: LoopIR.SyncStmt that isn't a __syncthreads()"
+            )
+            self.add_line(f"__syncthreads();")
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if s.name in self._scalar_refs:
                 lhs = f"*{self.env[s.name]}"
@@ -1096,6 +1101,10 @@ class Compiler:
                 return self.env[e.name]
 
             mem: Memory = self.mems[e.name]
+
+            if mem is CudaRegisters:  # BACKDOOR
+                warnings.warn("Backdoor for reading CudaRegisters")
+                return self.env[e.name]
 
             if not mem.can_read():
                 raise MemGenError(
