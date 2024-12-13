@@ -96,14 +96,12 @@ The \mbarrier\ can only be used to wait for the current (incomplete) set of arri
 These don't require constructing state like mbarrier.
 Each wgmma or async copy instruction is initially uncommitted, and is commited to a new async-group with a commit\_group instruction.
 You may then wait for the Nth previous async-group of the same thread to finish with a wait\_group instruction.
-This may implement deep pipelining but \flagged{cannot be used} to implement separate producer/consumer threads.
+This may implement deep pipelining but cannot be used to implement separate producer/consumer threads.
 
 \filbreak
 \myKey{Fences:} The previous primitives only synchronize execution order, and as mentioned, for the async proxy, a fence is needed in addition to this to ensure visibility.
 wgmma and bulk copy instructions include an implicit fence afterwards, so only execution order synchronization is needed to see the outputs; the reverse is not true (i.e. generic proxy code generating inputs for async proxy instructions requires a fence).
 wgmma also requires fences for \textit{registers}, to be described in the dedicated wgmma subsection.
-
-\flagged{Question:} Unclear if \webText{cp.async.bulk.\textbf{tensor}}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#data-movement-and-conversion-instructions-cp-async-bulk-tensor} methods include the implicit fence; the \webText{async proxy documentation}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#async-proxy} states ``The completion of a \lighttt{cp\{.reduce\}.async.bulk} operation is followed by an implicit generic-async proxy fence.'' which I'm unsure if it intends to exclude the tensor variants.
 
 \filbreak
 \mySub{Asynchronous Memory Copy}
@@ -111,7 +109,7 @@ wgmma also requires fences for \textit{registers}, to be described in the dedica
 According to William, it's best to use inline PTX instead of the CUDA C++ \lighttt{cuda::memcpy\_async} function, as the C++ function is too prone to silently decaying to a regular memory copy. Async copies can be non-bulk (requires sm\_80 a.k.a. Ampere or higher) or bulk (sm\_90; Hopper).
 
 \filbreak
-\myKey{Ampere / Non-bulk:} We use the \cpAsync\ instruction to issue a single asynchronous copy of 4, 8, or 16 aligned bytes from global memory to shared memory. This is the only source+destination memory type supported. Presumably the CUDA C++ async copy functions for Ampere are implemented by \flagged{distributing the copy over the participating threads}.
+\myKey{Ampere / Non-bulk:} We use the \cpAsync\ instruction to issue a single asynchronous copy of 4, 8, or 16 aligned bytes from global memory to shared memory. This is the only source+destination memory type supported. Presumably the CUDA C++ async copy functions for Ampere are implemented by distributing the copy over the participating threads.
 
 All cp.async instructions issued are not implicitly ordered with each other, not even in the same thread, so write-after-write hazards are possible if two cp.async instructions share the same destination address. Since these operate on the generic proxy, we still do need synchronization after the \cpAsync\ instruction, but synchronization isn't needed for \cpAsync\ to see global memory writes issued by non-async instructions earlier in program order, as they also run in the generic proxy and ``asynchronous operations are ordered after prior instructions in the same thread'' (\webText{Asynchronous Operations}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#program-order-async-operations}).
 
@@ -184,7 +182,7 @@ It's another story though for fencing the inputs, with separate mechanisms for s
 
 \myKey{Shared Memory Fence:} The \webText{fence.proxy.async}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#asynchronous-warpgroup-level-matrix-async-proxy} instruction must be used to make prior shared memory writes in the generic proxy to visible to subsequent wgmma.mma\_async instructions issued by the same warpgroup.
 Supposedly this is not needed for inputs loaded by bulk async copy (TMA) according to \webText{this source}{https://research.colfax-intl.com/cutlass-tutorial-wgmma-hopper/}, as TMA also operates in the async proxy: ``Since we use TMA load, we don’t need fence.proxy.async in our example, and indeed it doesn’t appear in the WGMMA tutorial code or in the mainloop of CUTLASS Hopper GEMM kernels''.
-However, it appears in this case that \flagged{we still need to synchronize the execution order between bulk async copies and wgmma operations} ... only the memory visibility given by fence.proxy.async is not needed in this case.
+However, it appears in this case that we still need to synchronize the execution order between bulk async copies and wgmma operations ... only the memory visibility given by fence.proxy.async is not needed in this case.
 
 \filbreak
 \myKey{Register Fence:} The confusingly-similar-sounding \wgmmaFence\ instruction must be issued before the first wgmma.mma\_async instruction, and issued whenever we must make prior register writes to $A$ and $D$ visible to a subsequent wgmma.mma\_async instruction.
