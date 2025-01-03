@@ -55,7 +55,7 @@ jobs:
 
       - name: Install Clang 15 (macOS)
         if: runner.os == 'macOS'
-        run: brew install llvm@13
+        run: brew install llvm@15
 
       - name: Run tox
         run: tox
