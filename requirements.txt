@@ -2,5 +2,5 @@ PySMT==0.9.6
 asdl-adt==0.1.0
 asdl==0.1.5
 build==1.2.2.post1
-z3-solver==4.13.3.0
+z3-solver==4.13.4.0
 yapf==0.43.0
