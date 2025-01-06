@@ -342,3 +342,21 @@ def test_window_stmt():
     print(foo)
     print(foo.dataflow()[0])
     print()
+
+
+def test_config_function():
+    ConfigAB = new_config_f32()
+
+    @proc
+    def bar(z: f32):
+        z = 3.0
+        ConfigAB.a = 2.0
+
+    @proc
+    def foo(x: f32):
+        ConfigAB.a = 1.0
+        bar(x)
+        ConfigAB.b = x
+
+    print(foo.dataflow()[0])
+    print()

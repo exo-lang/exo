@@ -259,8 +259,8 @@ class DataflowIR_Do:
     def do_proc(self, p):
         for a in p.args:
             self.do_t(a.type)
-        for p in p.preds:
-            self.do_e(p)
+        for pred in p.preds:
+            self.do_e(pred)
 
         self.do_stmts(p.body.stmts)
 
@@ -373,12 +373,17 @@ class AbstractInterpretation(ABC):
     def __init__(self, proc: DataflowIR.proc):
         self.proc = proc
 
+        self.fix_proc(self.proc)
+
+    def fix_proc(self, proc: DataflowIR.proc):
+        assert isinstance(proc, DataflowIR.proc)
+
         # TODO: Do we need to use precondition assertions?
         # Like assertion checks??
         # I guess that depends on how we're using assertions in the downstream new_eff.py. leave it for now.
 
         # setup initial values
-        init_env = self.proc.body.ctxts[0]
+        init_env = proc.body.ctxts[0]
         for a in proc.args:
             if not a.type.is_tensor_or_window():
                 init_env[a.name] = self.abs_init_val(a.name, a.type)
@@ -390,7 +395,7 @@ class AbstractInterpretation(ABC):
         for c, typ in configs:
             init_env[c] = self.abs_init_val(c, typ)
 
-        self.fix_block(self.proc.body)
+        self.fix_block(proc.body)
 
     def fix_block(self, body: DataflowIR.block):
         """Assumes any inputs have already been set in body.ctxts[0]"""
@@ -499,8 +504,25 @@ class AbstractInterpretation(ABC):
                 post_env[nm] = self.abs_join(pre_val, loop_val)
 
         elif isinstance(stmt, DataflowIR.Call):
-            # ?????
-            self.fix_block(stmt.f.body)
+            subst = dict()
+            for sig, arg in zip(stmt.f.args, stmt.args):
+                if isinstance(arg, DataflowIR.ReadConfig):
+                    subst[arg.config_field] = sig.name
+                elif isinstance(arg, DataflowIR.Read):
+                    subst[arg.name] = sig.name
+
+            # Run fixpoint on this subprocedure call
+            self.fix_proc(stmt.f)
+
+            # abs_join the values in the callee _if_ the name is binded to the sub-procedure call
+            for nm, pre_val in pre_env.items():
+                subproc_nm = subst[nm] if nm in subst else nm
+                if not subproc_nm in stmt.f.body.ctxts[-1]:
+                    post_env[nm] = pre_val
+                else:
+                    subproc_val = stmt.f.body.ctxts[-1][subproc_nm]
+                    post_env[nm] = self.abs_join(pre_val, subproc_val)
+
         else:
             assert False, f"bad case: {type(stmt)}"
 
@@ -609,7 +631,7 @@ class ScalarPropagation(AbstractInterpretation):
         return A.Var(name, T.index, null_srcinfo())
 
     def abs_stride_expr(self, name, dim):
-        assert False, "unimplemented"
+        return A.Stride(name, dim, T.stride, null_srcinfo())
 
     def abs_const(self, val, typ) -> A:
         return A.Const(val, typ, null_srcinfo())
@@ -711,7 +733,7 @@ class ScalarPropagation(AbstractInterpretation):
     def abs_builtin(self, builtin, args):
         # TODO: Fix
         if any([not isinstance(a, A.Const) for a in args]):
-            return A.Unk(null_srcinfo())
+            return A.Unk(T.int, null_srcinfo())
         vargs = [a.val for a in args]
 
         # TODO: write a short circuit for select builtin
