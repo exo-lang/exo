@@ -46,11 +46,12 @@ class PrintEnv:
         if resolved := self.env.get(nm):
             return resolved
 
-        candidate = str(nm)
+        candidate = repr(nm)
+        # candidate = str(nm)
         num = self.names.get(candidate, 1)
-        while candidate in self.names:
-            candidate = f"{nm}_{num}"
-            num += 1
+        # while candidate in self.names:
+        #    candidate = f"{nm}_{num}"
+        #    num += 1
 
         self.env[nm] = candidate
         self.names[str(nm)] = num

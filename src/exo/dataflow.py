@@ -226,16 +226,25 @@ class LoopIR_to_DataflowIR:
             old_name = self.env[s.name][0]
             iters, dims = self.env[s.name][1]
             old_typ = self.env[s.name][2]
-            cond = DataflowIR.Const(True, DataflowIR.Bool(), null_srcinfo())
+            conds = []
             for d, e in zip(reversed(dims), s.idx):
                 typ = self.map_t(e.type)
-                c = DataflowIR.BinOp(
-                    "==",
-                    DataflowIR.Read(d, [], typ, null_srcinfo()),
-                    self.map_e(e),
-                    DataflowIR.Bool(),
-                    null_srcinfo(),
+                conds.append(
+                    DataflowIR.BinOp(
+                        "==",
+                        self.map_e(e),
+                        DataflowIR.Read(d, [], typ, null_srcinfo()),
+                        DataflowIR.Bool(),
+                        null_srcinfo(),
+                    )
                 )
+
+            cond = (
+                conds[0]
+                if len(conds) > 0
+                else DataflowIR.Const(True, DataflowIR.Bool(), null_srcinfo())
+            )
+            for c in conds[1:]:
                 cond = DataflowIR.BinOp(
                     "and", c, cond, DataflowIR.Bool(), null_srcinfo()
                 )
@@ -884,83 +893,312 @@ class GetValues:
 AbstractDomains = ADT(
     """
 module AbstractDomains {
-    dexpr = Top()
-          | Fun( sym* args, dexpr body )
-          | App( dexpr fun, sym* args )
-          | Var( sym name, type type )
-          | Const( object val, type type )
-          | BinOp( binop op, dexpr lhs, dexpr rhs, type type )
-          | USub( dexpr arg, type type )
-          | Select( dexpr cond, dexpr body, dexpr orelse )
+    abs = (sym* iterators, node tree)
+
+    node   = Leaf(val v)
+           | AffineSplit(aexpr ae,
+               node  ltz, -- ae < 0 case
+               node  eqz, -- ae == 0
+               node  gtz  -- ae > 0
+             )
+           | ModSplit(aexpr ae, int m
+               node neqz, -- pred % m != 0
+               node  eqz, -- pred % m == 0 case
+             )
+
+    val   = ValConst(object val) -- real number
+          | Top()
+          | Bot()
+          | ArrayConst(sym name, aexpr* idx)
+
+    aexpr = Const(int val)
+          | Var(sym name)
+          | Add(aexpr lhs, aexpr rhs)
+          | Minus(aexpr lhs, aexpr rhs)
+          | Mult(int coeff, aexpr ae)  
 }
 """,
     ext_types={
         "type": DataflowIR.type,
         "sym": Sym,
-        "binop": validators.instance_of(Operator, convert=True),
     },
     memoize={},
 )
 D = AbstractDomains
 
 
-@extclass(AbstractDomains.dexpr)
+@extclass(AbstractDomains.abs)
+def __str__(self):
+    iter_strs = ". ".join(["\\" + str(i) for i in self.iterators])
+    return iter_strs + str(self.tree)
+
+
+@extclass(AbstractDomains.node)
+def __str__(self, indent=""):
+    if isinstance(self, D.Leaf):
+        return f"{indent}- {str(self.v)}"
+    elif isinstance(self, D.AffineSplit):
+        nstr = str(self.ae)
+        newdent = indent + " " * (len(nstr) + 1)
+        indent = indent + "- "
+        return f"""
+{indent}{nstr}
+{self.ltz.__str__(newdent)}
+{self.eqz.__str__(newdent)}
+{self.gtz.__str__(newdent)}
+"""
+    elif isinstance(self, D.ModSplit):
+        nstr = str(self.ae) + f"%{self.m}"
+        newdent = indent + " " * (len(nstr) + 1)
+        indent = indent + "- "
+        return f"""
+{indent}{nstr}
+{self.neqz.__str__(newdent)}
+{self.eqz.__str__(newdent)}
+"""
+    else:
+        assert False, "bad case"
+
+
+@extclass(AbstractDomains.val)
 def __str__(self):
     if isinstance(self, D.Top):
         return "⊤"
-    elif isinstance(self, D.Const):
+    elif isinstance(self, D.Bot):
+        return "⊥"
+    elif isinstance(self, D.ValConst):
+        return str(self.val)
+    elif isinstance(self, D.ArrayConst):
+        idxs = (
+            "[" + ",".join([str(i) for i in self.idx]) + "]"
+            if len(self.idx) > 0
+            else ""
+        )
+        return f"{repr(self.name)}{idxs}"
+    assert False, "bad case"
+
+
+@extclass(AbstractDomains.aexpr)
+def __str__(self):
+    if isinstance(self, D.Const):
         return str(self.val)
     elif isinstance(self, D.Var):
-        return str(self.name)
-    elif isinstance(self, D.BinOp):
-        return f"{self.lhs} {self.op} {self.rhs}"
-    elif isinstance(self, D.Select):
-        dims = ",".join(self.dims)
-        return f"∀{dims} {self.cond} ? {self.body} : {self.body}"
-    elif isinstance(self, D.USub):
-        return "-" + str(self.arg)
-
+        return repr(self.name)
+    elif isinstance(self, D.Add):
+        return f"({str(self.lhs)}+{str(self.rhs)})"
+    elif isinstance(self, D.Minus):
+        return f"({str(self.lhs)}-{str(self.rhs)})"
+    elif isinstance(self, D.Mult):
+        return f"{str(self.coeff)}*{str(self.ae)}"
     assert False, "bad case"
 
 
 del __str__
 
 
-# FIXME! Do something with type... Maybe I should have just used the LoopIR type?
-def lift_dexpr(e, key=None):
-    typ = T.Num()
+def _lift_aexpr(e):
+    typ = T.Int()
     if isinstance(e, D.Var):
-        op = A.Var(e.name, typ, null_srcinfo())
+        return A.Var(e.name, typ, null_srcinfo())
     elif isinstance(e, D.Const):
-        op = A.Const(e.val, typ, null_srcinfo())
-    elif isinstance(e, D.BinOp):
+        return A.Const(e.val, typ, null_srcinfo())
+    elif isinstance(e, D.Add):
+        return A.BinOp("+", _lift_aexpr(e.lhs), _lift_aexpr(e.rhs), typ, null_srcinfo())
+    elif isinstance(e, D.Minus):
+        return A.BinOp("-", _lift_aexpr(e.lhs), _lift_aexpr(e.rhs), typ, null_srcinfo())
+    elif isinstance(e, D.Mult):
         return A.BinOp(
-            e.op,
-            lift_dexpr(e.lhs, key=key),
-            lift_dexpr(e.rhs, key=key),
+            "*",
+            A.Const(e.coeff, typ, null_srcinfo()),
+            _lift_aexpr(e.ae),
             typ,
             null_srcinfo(),
         )
-    elif isinstance(e, D.Select):
-        s = A.Select(
-            lift_dexpr(e.cond),
-            lift_dexpr(e.body),
-            lift_dexpr(e.orelse),
-            typ,
-            null_srcinfo(),
+    else:
+        assert False, "bad case!"
+
+
+# src[var -> term] with simplification
+def substitute(var: D.ArrayConst, term: D.node, src: D.abs):
+    def a_comp(x: D.aexpr, y: D.aexpr):
+        if type(x) != type(y):
+            return False
+        if isinstance(x, D.Const):
+            return x.val == y.val
+        elif isinstance(x, D.Var):
+            return x.name == y.name
+        elif isinstance(x, (D.Add, D.Minus)):
+            return a_comp(x.lhs, y.lhs) and a_comp(x.rhs, y.rhs)
+        elif isinstance(x, D.Mult):
+            return x.coeff == y.coeff and a_comp(x.ae, y.ae)
+        else:
+            assert False, "bad case"
+
+    def arr_comp(x: D.ArrayConst, y: D.ArrayConst):
+        if x.name == y.name and len(x.idx) == len(y.idx):
+            if all([a_comp(xi, yi) for xi, yi in zip(x.idx, y.idx)]):
+                return True
+        return False
+
+    slv = SMTSolver(verbose=False)
+    for itr in src.iterators:
+        slv.assume(
+            A.BinOp(
+                ">=",
+                A.Var(itr, T.Int(), null_srcinfo()),
+                A.Const(0, T.Int(), null_srcinfo()),
+                T.Bool(),
+                null_srcinfo(),
+            )
         )
-        return AForAll(e.dims, s, typ, null_srcinfo())
 
-    elif isinstance(e, D.USub):
-        op = A.USub(lift_dexpr(e.arg), typ, null_srcinfo())
-    else:
-        assert isinstance(e, D.Top)
-        op = A.Const(True, T.bool, null_srcinfo())
+    def mk_aexpr(op, pred):
+        return A.BinOp(
+            op, pred, A.Const(0, T.Int(), null_srcinfo()), T.Bool(), null_srcinfo()
+        )
 
-    if key:
-        return A.BinOp("==", key, op, T.bool, null_srcinfo())
+    def map_tree(tree: D.node):
+        if isinstance(tree, D.Leaf):
+            if isinstance(tree.v, D.ArrayConst) and arr_comp(tree.v, var):
+                if isinstance(term, D.AffineSplit):
+                    pred = _lift_aexpr(term.ae)
+                    ltz_eq = mk_aexpr("<", pred)
+                    gtz_eq = mk_aexpr(">", pred)
+                    eqz_eq = mk_aexpr("==", pred)
+                    if slv.verify(ltz_eq):
+                        return term.ltz
+                    elif slv.verify(gtz_eq):
+                        return term.gtz
+                    elif slv.verify(eqz_eq):
+                        return term.eqz
+                    return term
+                elif isinstance(term, D.ModSplit):
+                    pred = _lift_aexpr(term.ae)
+                    eqz_eq = mk_aexpr("==", pred)
+                    if slv.verify(eqz_eq):
+                        return term.eqz
+                    elif slv.verify(A.Not(eqz_eq, T.Bool(), null_srcinfo())):
+                        return term.neqz
+                    return term
+                else:
+                    return term
+            return tree
+
+        elif isinstance(tree, D.AffineSplit):
+            pred = _lift_aexpr(tree.ae)
+            # ltz
+            slv.push()
+            ltz_eq = mk_aexpr("<", pred)
+            slv.assume(ltz_eq)
+            ltz = map_tree(tree.ltz)
+            slv.pop()
+
+            # eqz
+            slv.push()
+            eqz_eq = mk_aexpr("==", pred)
+            slv.assume(eqz_eq)
+            eqz = map_tree(tree.eqz)
+            slv.pop()
+
+            # gtz
+            slv.push()
+            gtz_eq = mk_aexpr(">", pred)
+            slv.assume(gtz_eq)
+            gtz = map_tree(tree.gtz)
+            slv.pop()
+
+            return D.AffineSplit(tree.ae, ltz, eqz, gtz)
+
+        elif isinstance(tree, D.ModSplit):
+            pred = _lift_aexpr(tree.ae)
+            # eqz
+            slv.push()
+            eqz_eq = mk_aexpr("==", pred)
+            slv.assume(eqz_eq)
+            eqz = map_tree(tree.eqz)
+            slv.pop()
+
+            # neqz
+            slv.push()
+            slv.assume(A.Not(eqz_eq, T.Bool(), null_srcinfo()))
+            neqz = map_tree(tree.neqz)
+            slv.pop()
+
+            return D.ModSplit(tree.ae, tree.m, neqz, eqz)
+        else:
+            assert False, "bad case"
+
+    return D.abs(src.iterators, map_tree(src.tree))
+
+
+# e.g. i -> i-1 in src
+def sub_aexpr(var: D.aexpr, term: D.aexpr, src: D.abs):
+    def a_comp(x: D.aexpr, y: D.aexpr):
+        if type(x) != type(y):
+            return False
+        if isinstance(x, D.Const):
+            return x.val == y.val
+        elif isinstance(x, D.Var):
+            return x.name == y.name
+        elif isinstance(x, (D.Add, D.Minus)):
+            return a_comp(x.lhs, y.lhs) and a_comp(x.rhs, y.rhs)
+        elif isinstance(x, D.Mult):
+            return x.coeff == y.coeff and a_comp(x.ae, y.ae)
+        else:
+            assert False, "bad case"
+
+    def map_aexpr(ae: D.aexpr):
+        if a_comp(ae, var):
+            return term
+        elif isinstance(ae, (D.Add, D.Minus)):
+            return type(ae)(map_aexpr(ae.lhs), map_aexpr(ae.rhs))
+        elif isinstance(ae, D.Mult):
+            return D.Mult(ae.coeff, map_aexpr(ae.ae))
+        return ae
+
+    def map_tree(tree: D.node):
+        if isinstance(tree, D.AffineSplit):
+            return D.AffineSplit(
+                map_aexpr(tree.ae),
+                map_tree(tree.ltz),
+                map_tree(tree.eqz),
+                map_tree(tree.gtz),
+            )
+        elif isinstance(tree, D.ModSplit):
+            return D.ModSplit(
+                map_aexpr(tree.ae), tree.m, map_tree(tree.neqz), map_tree(tree.eqz)
+            )
+        else:
+            if isinstance(tree.v, D.ArrayConst):
+                return D.Leaf(
+                    D.ArrayConst(tree.v.name, [map_aexpr(i) for i in tree.v.idx])
+                )
+            return tree
+
+    return D.abs(src.iterators, map_tree(src.tree))
+
+
+def wid_helper(name: Sym, tree: D.node, lastVisitedValue: D.val) -> (D.node, D.val):
+    if isinstance(tree, D.Leaf):
+        if isinstance(tree.v, D.ArrayConst) and tree.v.name == name:
+            tree = D.Leaf(lastVisitedValue)
+
+        return tree, tree.v
+    elif isinstance(tree, D.ModSplit):
+        neqz, lastVisitedValue = wid_helper(name, tree.neqz, lastVisitedValue)
+        eqz, lastVisitedValue = wid_helper(name, tree.eqz, lastVisitedValue)
+        return D.ModSplit(tree.ae, tree.m, neqz, eqz), lastVisitedValue
     else:
-        return op
+        ltz, lastVisitedValue = wid_helper(name, tree.ltz, lastVisitedValue)
+        eqz, lastVisitedValue = wid_helper(name, tree.eqz, lastVisitedValue)
+        gtz, lastVisitedValue = wid_helper(name, tree.gtz, lastVisitedValue)
+        return D.AffineSplit(tree.ae, ltz, eqz, gtz), lastVisitedValue
+
+
+def widening(name: Sym, src: D.abs) -> D.abs:
+    # TODO: somehow check that src doesn't have crossings
+    tree, _ = wid_helper(name, src.tree, D.Bot())
+    return D.abs(src.iterators, tree)
 
 
 # --------------------------------------------------------------------------- #
@@ -968,7 +1206,7 @@ def lift_dexpr(e, key=None):
 # --------------------------------------------------------------------------- #
 
 
-class AbstractInterpretation(ABC):
+class ScalarPropagation:
     def __init__(self, proc: DataflowIR.proc):
         self.proc = proc
         self.fix_proc(self.proc)
@@ -976,19 +1214,12 @@ class AbstractInterpretation(ABC):
     def fix_proc(self, proc: DataflowIR.proc):
         assert isinstance(proc, DataflowIR.proc)
 
-        # fix args
-        for a in proc.args:
-            if val := self.abs_init_val(a.name, a.hi, a.type):
-                proc.body.ctxts[0][a.name] = val
-
         # TODO: FIXME: Do we need to use precondition assertions?
-        # I guess it's possible to update the values based on the assertions..
-        # Do we want to assign this to something? What does assertion mean? Maybe we should have just initialized buffer values with predicates when converting it to SSA form?
 
         self.fix_block(proc.body)
 
     def fix_block(self, body: DataflowIR.block):
-        """Assumes any inputs have already been set in body.ctxts[0]"""
+        # Assumes any inputs have already been set in body.ctxts[0]
         assert len(body.stmts) + 1 == len(body.ctxts)
 
         for i in range(len(body.stmts)):
@@ -1014,18 +1245,261 @@ class AbstractInterpretation(ABC):
             if isinstance(stmt, DataflowIR.Reduce):
                 body = DataflowIR.BinOp("+", body, stmt.orelse, body.type, stmt.srcinfo)
 
-            # Skip statements
-            if len(stmt.dims) > 0:
+            def get_eq(cstmt, body, orelse):
+                assert isinstance(cstmt, DataflowIR.BinOp)
+                if isinstance(cstmt.rhs, DataflowIR.Const) and (cstmt.rhs.val == 0):
+                    eq = cstmt.lhs
+                elif isinstance(cstmt.lhs, DataflowIR.Const) and (cstmt.lhs.val == 0):
+                    eq = cstmt.rhs
+                else:
+                    eq = DataflowIR.BinOp(
+                        "-", cstmt.lhs, cstmt.rhs, DataflowIR.Int(), null_srcinfo()
+                    )
+
+                if isinstance(eq, DataflowIR.BinOp) and eq.op == "%":
+                    assert isinstance(eq.rhs, DataflowIR.Const) and isinstance(
+                        eq.rhs.val, int
+                    )
+                    modeq = self.dir_to_aexpr(eq.lhs)
+                    if modeq:  # If it was a valid aexpr
+                        tree = D.ModSplit(modeq, eq.rhs.val, orelse, body)
+
+                eq = self.dir_to_aexpr(eq)
+
+                if eq:  # If it was a valid aexpr
+                    if cstmt.op == "==":
+                        tree = D.AffineSplit(eq, orelse, body, orelse)
+                    elif cstmt.op == ">":
+                        tree = D.AffineSplit(eq, orelse, orelse, body)
+                    elif cstmt.op == "<":
+                        tree = D.AffineSplit(eq, body, orelse, orelse)
+                    else:
+                        pass
+
+                return tree
+
+            # If the condition is always True or False, just return the leaf as a tree
+            orig_body = D.Leaf(self.fix_val(stmt.body))
+            orig_orelse = D.Leaf(self.fix_val(stmt.orelse))
+            body = orig_body
+            orelse = orig_orelse
+            tree = D.Leaf(D.Top())
+            if isinstance(stmt.cond, DataflowIR.Const) and (stmt.cond.val == True):
+                tree = body
+            elif isinstance(stmt.cond, DataflowIR.Const) and (stmt.cond.val == False):
+                tree = orelse
+            else:
+                assert isinstance(stmt.cond, DataflowIR.BinOp)
+
+                # preprocess "and"
+                # this might be brittle to tree structure
+                cstmt = stmt.cond
+                cop = cstmt.op
+                while cop == "and":
+                    assert isinstance(cstmt, DataflowIR.BinOp)
+                    r_tree = get_eq(cstmt.rhs, body, orelse)
+                    body = r_tree
+                    cstmt = cstmt.lhs
+                    cop = cstmt.op
+
+                tree = get_eq(cstmt, body, orelse)
+
+            abs_domain = D.abs(stmt.iters + stmt.dims, tree)
+
+            # Do the substitution!
+            if isinstance(orig_body.v, D.ArrayConst):
+                if orig_body.v.name in pre_env:
+                    # check the index of orig_body.v
+                    tree = pre_env[orig_body.v.name]
+                    for aidx, vidx in zip(tree.iterators, orig_body.v.idx):
+                        if not isinstance(vidx, D.Var) or aidx != vidx.name:
+                            tree = sub_aexpr(D.Var(aidx), vidx, tree)
+                    abs_domain = substitute(orig_body.v, tree.tree, abs_domain)
+
+            if isinstance(orig_orelse.v, D.ArrayConst):
+                if orig_orelse.v.name in pre_env:
+                    # check the index of orig_body.v
+                    tree = pre_env[orig_orelse.v.name]
+                    for aidx, vidx in zip(tree.iterators, orig_orelse.v.idx):
+                        if not isinstance(vidx, D.Var) or aidx != vidx.name:
+                            tree = sub_aexpr(D.Var(aidx), vidx, tree)
+                    abs_domain = substitute(orig_orelse.v, tree.tree, abs_domain)
+
+            post_env[stmt.lhs] = abs_domain
+
+        elif isinstance(stmt, DataflowIR.Pass):
+            pass  # pass pass, lol
+
+        elif isinstance(stmt, DataflowIR.Alloc):
+            pass
+            # if val := self.abs_init_val(stmt.name, stmt.hi, stmt.type):
+            #     post_env[stmt.name] = val
+
+        elif isinstance(stmt, DataflowIR.If):
+            # set up the loop body for fixed-point iteration
+            pre_body = stmt.body.ctxts[0]
+            pre_orelse = stmt.orelse.ctxts[0]
+            for nm, val in pre_env.items():
+                pre_body[nm] = val
+                pre_orelse[nm] = val
+
+            self.fix_block(stmt.body)
+            self.fix_block(stmt.orelse)
+
+            for nm, post_val in stmt.body.ctxts[-1].items():
+                post_env[nm] = post_val
+
+            for nm, post_val in stmt.orelse.ctxts[-1].items():
+                post_env[nm] = post_val
+
+        elif isinstance(stmt, DataflowIR.For):
+            # set up the loop body for fixed-point iteration
+            pre_body = stmt.body.ctxts[0]
+            for nm, val in pre_env.items():
+                pre_body[nm] = val
+
+            self.fix_block(stmt.body)
+
+            assert isinstance(
+                stmt.body.stmts[-1],
+                (
+                    DataflowIR.Assign,
+                    DataflowIR.Reduce,
+                    DataflowIR.LoopStart,
+                    DataflowIR.LoopExit,
+                    DataflowIR.IfJoin,
+                ),
+            )
+            lname = stmt.body.stmts[-1].lhs
+
+            new_abs = widening(lname, stmt.body.ctxts[-1][lname])
+            pre_body[lname] = new_abs
+            self.fix_block(stmt.body)
+
+            #            # run this loop until we reach a fixed-point
+            #            at_fixed_point = False
+            #            while not at_fixed_point:
+            #            # propagate in the loop
+            #                self.fix_block(stmt.body)
+            #                at_fixed_point = True
+            #                # copy the post-values for the loop back around to
+            #                # the pre-values, by joining them together
+            ##                for nm, prev_val in pre_body.items():
+            #                    next_val = stmt.body.ctxts[-1][nm]
+            # SANITY-CHECK: Is this correct?
+            #                    at_fixed_point = at_fixed_point and greater_than(prev_val, next_val)
+            #                    pre_body[nm] = self.abs_join(prev_val, next_val)
+
+            for nm, post_val in stmt.body.ctxts[-1].items():
+                post_env[nm] = post_val
+
+        else:
+            assert False, f"bad case: {type(stmt)}"
+
+    def dir_to_aexpr(self, e):
+        if isinstance(e, DataflowIR.Read):
+            if len(e.idx) == 0:
+                return D.Var(e.name)
+        elif isinstance(e, DataflowIR.Const):
+            assert isinstance(e.val, int)
+            return D.Const(e.val)
+        elif isinstance(e, DataflowIR.USub):
+            if arg := self.dir_to_aexpr(e.arg):
+                return D.Minus(D.Const(0), arg)
+        elif isinstance(e, DataflowIR.BinOp):
+            lhs = self.dir_to_aexpr(e.lhs)
+            rhs = self.dir_to_aexpr(e.rhs)
+            if not lhs or not rhs:
+                return None
+
+            if e.op == "+":
+                return D.Add(lhs, rhs)
+            elif e.op == "*":
+                if isinstance(lhs, D.Const):
+                    return D.Mult(lhs.val, rhs)
+                elif isinstance(rhs, D.Const):
+                    return D.Mult(rhs.val, lhs)
+                else:
+                    assert False, "bad!"
+            elif e.op == "-":
+                return D.Minus(lhs, rhs)
+            else:
                 pass
 
-            if val := self.abs_phi(
+        return None
+
+    def fix_val(self, e: DataflowIR.expr) -> D.val:
+        if isinstance(e, DataflowIR.Read):
+            idxs = [self.dir_to_aexpr(i) for i in e.idx]
+            return D.ArrayConst(e.name, idxs)
+        elif isinstance(e, DataflowIR.Const):
+            return D.ValConst(e.val)
+        elif isinstance(e, DataflowIR.USub):
+            return D.Top()
+        elif isinstance(e, DataflowIR.BinOp):
+            return D.Top()
+        elif isinstance(e, DataflowIR.BuiltIn):
+            return D.Top()
+        elif isinstance(e, DataflowIR.StrideExpr):
+            return D.Top()
+        else:
+            assert False, f"bad case {type(expr)}"
+
+
+"""
+class AbstractInterpretation(ABC):
+    def __init__(self, proc: DataflowIR.proc):
+        self.proc = proc
+        self.fix_proc(self.proc)
+
+    def fix_proc(self, proc: DataflowIR.proc):
+        assert isinstance(proc, DataflowIR.proc)
+
+        # fix args
+        for a in proc.args:
+            if val := self.abs_init_val(a.name, a.hi, a.type):
+                proc.body.ctxts[0][a.name] = val
+
+        # TODO: FIXME: Do we need to use precondition assertions?
+        # I guess it's possible to update the values based on the assertions..
+        # Do we want to assign this to something? What does assertion mean? Maybe we should have just initialized buffer values with predicates when converting it to SSA form?
+
+        self.fix_block(proc.body)
+
+    def fix_block(self, body: DataflowIR.block):
+        # Assumes any inputs have already been set in body.ctxts[0]
+        assert len(body.stmts) + 1 == len(body.ctxts)
+
+        for i in range(len(body.stmts)):
+            self.fix_stmt(body.ctxts[i], body.stmts[i], body.ctxts[i + 1])
+
+    def fix_stmt(self, pre_env, stmt: DataflowIR.stmt, post_env):
+        # Always propagate values bc SSA
+        for nm in pre_env:
+            post_env[nm] = pre_env[nm]
+
+        if isinstance(
+            stmt,
+            (
+                DataflowIR.Assign,
+                DataflowIR.Reduce,
+                DataflowIR.LoopStart,
+                DataflowIR.LoopExit,
+                DataflowIR.IfJoin,
+            ),
+        ):
+            body = stmt.body
+            # if reducing, then expand to x = x + rhs now we can handle both cases uniformly
+            if isinstance(stmt, DataflowIR.Reduce):
+                body = DataflowIR.BinOp("+", body, stmt.orelse, body.type, stmt.srcinfo)
+
+            post_env[stmt.lhs] = self.abs_phi(
                 stmt.iters,
                 stmt.dims,
                 self.fix_expr(pre_env, stmt.cond),
                 self.fix_expr(pre_env, stmt.body),
-                self.fix_expr(pre_env, stmt.orelse),
-            ):
-                post_env[stmt.lhs] = val
+                self.fix_expr(pre_env, stmt.orelse)
+            )
 
         elif isinstance(stmt, DataflowIR.Pass):
             pass  # pass pass, lol
@@ -1040,6 +1514,7 @@ class AbstractInterpretation(ABC):
             self.fix_block(stmt.orelse)
 
         elif isinstance(stmt, DataflowIR.For):
+            raise NotImplementedError
             self.fix_block(stmt.body)
 
         #            # set up the loop body for fixed-point iteration
@@ -1097,35 +1572,35 @@ class AbstractInterpretation(ABC):
 
     @abstractmethod
     def abs_read(self, expr):
-        """Define Read"""
+        # Define Read
 
     @abstractmethod
     def abs_phi(self, dims, cond, body, orelse):
-        """Define phi node/values"""
+        # Define phi node/values
 
     @abstractmethod
     def abs_init_val(self, name, his, typ):
-        """Define initial argument values"""
+        # Define initial argument values
 
     @abstractmethod
     def abs_stride_expr(self, name, dim):
-        """Define abstraction of a specific stride expression"""
+        # Define abstraction of a specific stride expression
 
     @abstractmethod
     def abs_const(self, val, typ):
-        """Define abstraction of a specific constant value"""
+        # Define abstraction of a specific constant value
 
     @abstractmethod
     def abs_binop(self, op, lval, rval):
-        """Implement transfer function abstraction for binary operations"""
+        # Implement transfer function abstraction for binary operations
 
     @abstractmethod
     def abs_usub(self, arg):
-        """Implement transfer function abstraction for unary subtraction"""
+        # Implement transfer function abstraction for unary subtraction
 
     @abstractmethod
     def abs_builtin(self, builtin, args):
-        """Implement transfer function abstraction for built-ins"""
+        # Implement transfer function abstraction for built-ins
 
 
 def greater_than(bexpr, val):
@@ -1184,7 +1659,7 @@ class ScalarPropagation(AbstractInterpretation):
         return D.Var(Sym(name.name() + str(dim)), DataflowIR.stride)
 
     def abs_const(self, val, typ) -> D:
-        return D.Const(val, typ)
+        return D.ValConst(val)
 
     def abs_binop(self, op, lval: D, rval: D) -> D:
 
@@ -1258,3 +1733,4 @@ class ScalarPropagation(AbstractInterpretation):
     def abs_builtin(self, builtin, args):
         # TODO: We should not attempt to do precise analysis on builtins
         return D.Top()
+"""

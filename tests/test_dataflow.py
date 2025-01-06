@@ -2,6 +2,155 @@ from __future__ import annotations
 import pytest
 from exo import proc, DRAM, Procedure, config
 from exo.stdlib.scheduling import *
+from exo.dataflow import D, substitute, sub_aexpr, widening
+from exo.prelude import Sym
+
+
+def test_widening():
+    i = Sym("i")
+    d = Sym("d")
+    vi = D.Var(i)
+    vd = D.Var(d)
+
+    sx_2 = Sym("x_2")
+    x_2_ = D.ArrayConst(sx_2, [D.Minus(vi, D.Const(1)), vd])
+    y = D.ArrayConst(Sym("y"), [vi, vi])
+    x_3_tree = D.AffineSplit(
+        D.Add(D.Minus(vi, vd), D.Const(1)), D.Leaf(x_2_), D.Leaf(y), D.Leaf(x_2_)
+    )
+    print()
+    print(x_3_tree)
+
+    x_3 = D.ArrayConst(Sym("x_3"), [vi, vd])
+    x_2_tree = D.AffineSplit(D.Minus(vi, vd), D.Leaf(x_3), D.Leaf(y), D.Leaf(x_3))
+    x_2_abs = D.abs([i, d], x_2_tree)
+    print(x_2_abs)
+
+    new_x_2 = substitute(x_3, x_3_tree, x_2_abs)
+    print(new_x_2)
+
+    widened_x_2 = widening(sx_2, new_x_2)
+    print(widened_x_2)
+
+
+def test_substitute_mod():
+    i = Sym("i")
+    d = Sym("d")
+    vi = D.Var(i)
+    vd = D.Var(d)
+    x_3 = D.ArrayConst(Sym("x_3"), [vi, vd])
+    x_4 = D.ArrayConst(Sym("x_4"), [vi, vd])
+    x_1 = D.ArrayConst(Sym("x_1"), [vi, vd])
+    x_2_tree = D.ModSplit(vi, 3, D.Leaf(x_3), D.Leaf(x_4))
+    x_2_abs = D.abs([i, d], x_2_tree)
+    x_4_tree = D.AffineSplit(
+        D.Minus(vi, D.Add(vd, D.Const(1))),
+        D.Leaf(x_3),
+        D.Leaf(D.ValConst(2.0)),
+        D.Leaf(x_3),
+    )
+    new_x_2 = substitute(x_4, x_4_tree, x_2_abs)
+    x_3_tree = D.AffineSplit(
+        D.Minus(vi, vd), D.Leaf(x_1), D.Leaf(D.ValConst(1.0)), D.Leaf(x_1)
+    )
+
+    new_new_x_2 = substitute(x_3, x_3_tree, new_x_2)
+    print(x_2_tree)
+    print(x_4_tree)
+    print(x_3_tree)
+    print(new_x_2)
+    print(new_new_x_2)
+
+    i_minus = D.Minus(vi, D.Const(1))
+    final_x2 = sub_aexpr(vi, i_minus, new_new_x_2)
+    print(final_x2)
+
+    x = D.ArrayConst(Sym("x"), [vd])
+    x_2_minus = D.ArrayConst(Sym("x_2"), [i_minus, vd])
+    x_1_tree = D.AffineSplit(vi, D.Leaf(D.Bot()), D.Leaf(x), D.Leaf(x_2_minus))
+    x_1_abs = D.abs([i, d], x_1_tree)
+    print(x_1_tree)
+    final_x_1 = substitute(x_2_minus, final_x2.tree, x_1_abs)
+    print(final_x_1)
+
+
+def test_substitute():
+    i = Sym("i")
+    d = Sym("d")
+    vi = D.Var(i)
+    vd = D.Var(d)
+
+    x_1 = D.ArrayConst(Sym("x_1"), [vi, vd])
+    y = D.ArrayConst(Sym("y"), [vi, vi])
+    x_3_tree = D.AffineSplit(
+        D.Add(D.Minus(vi, vd), D.Const(1)), D.Leaf(x_1), D.Leaf(y), D.Leaf(x_1)
+    )
+    print()
+    print(x_3_tree)
+
+    x_3 = D.ArrayConst(Sym("x_3"), [vi, vd])
+    x_2_tree = D.AffineSplit(D.Minus(vi, vd), D.Leaf(x_3), D.Leaf(y), D.Leaf(x_3))
+    x_2_abs = D.abs([i, d], x_2_tree)
+    print(x_2_abs)
+
+    new_x_2 = substitute(x_3, x_3_tree, x_2_abs)
+    print(new_x_2)
+
+
+def test_abs_pprint():
+    x = Sym("x")
+    y = Sym("y")
+    vx = D.Var(x)
+    vy = D.Var(y)
+    one = D.Const(1)
+    print(one)
+    print(vx)
+    add = D.Add(vx, vy)
+    mul = D.Mult(2, vx)
+    addmul = D.Add(vx, D.Mult(4, vx))
+    print(add)
+    print(mul)
+    print(addmul)
+
+    print(D.Top())
+    print(D.Bot())
+    print(D.ValConst(4.0))
+    print(D.ArrayConst(Sym("a"), [vx, vy]))
+    print(D.ArrayConst(Sym("b"), []))
+
+    i = D.Var(Sym("i"))
+    d = D.Var(Sym("d"))
+    p1 = D.Minus(i, d)
+
+    four = D.ValConst(4.0)
+    leaf = D.Leaf(four)
+    print(leaf)
+    print(D.AffineSplit(p1, leaf, leaf, leaf))
+
+    p2 = D.Add(p1, D.Const(1))
+    a1 = D.ArrayConst(Sym("y"), [i, i])
+    a2 = D.ArrayConst(Sym("x"), [i, d])
+    n = D.AffineSplit(
+        p1,
+        D.AffineSplit(p2, D.Leaf(a2), D.Leaf(a1), D.Leaf(a2)),
+        D.Leaf(a1),
+        D.Leaf(a2),
+    )
+    print(n)
+
+    mod = D.ModSplit(p1, 3, n, leaf)
+    print(mod)
+
+    a = D.abs([x, y], mod, True)
+    print(a)
+
+    # def substitute(var : D.ArrayConst, term : D.node, src : D.abs):
+    print("--- try substitute ---")
+    print("var: ", a1)
+    print("term: ", n)
+    print("src: ", a)
+    new_tree = substitute(a1, n, a)
+    print(new_tree)
 
 
 def test_simple(golden):
@@ -60,6 +209,7 @@ def test_simple3(golden):
         x[2] = 5.0
         x[0] = 12.0
 
+    print(foo.dataflow()[0])
     assert str(foo.dataflow()[0]) == golden
 
 
@@ -70,6 +220,18 @@ def test_print(golden):
         z = 4.2
         z = 2.0
 
+    assert str(foo.dataflow()[0]) == golden
+
+
+def test_print_0(golden):
+    @proc
+    def foo(z: R[3]):
+        z[0] = 1.0
+        for i in seq(0, 3):
+            z[i] = 3.0
+        z[2] = 2.0
+
+    print(foo.dataflow()[0])
     assert str(foo.dataflow()[0]) == golden
 
 
@@ -130,6 +292,26 @@ def test_print_5(golden):
         z = 2.0
 
     assert str(foo.dataflow()[0]) == golden
+
+
+def test_sliding_window_print():
+    @proc
+    def foo(n: size, m: size, dst: i8[n + m]):
+        for i in seq(0, n):
+            for j in seq(0, m):
+                dst[i + j] = 2.0
+
+    print(foo.dataflow()[0])
+
+
+def test_multi_dim_print():
+    @proc
+    def foo(n: size, dst: i8[n, n]):
+        for i in seq(0, n):
+            for j in seq(1, n):
+                dst[i, n - j] = 2.0
+
+    print(foo.dataflow()[0])
 
 
 # TODO: Currently add_unsafe_guard lacks analysis, but we should be able to analyze this
@@ -580,3 +762,24 @@ def test_sliding2(golden):
             x[i] = y[i]
 
     print(blur.dataflow()[0])
+
+
+def test_reverse():
+    @proc
+    def foo(N: size, x: R[N]):
+        for i in seq(1, N):
+            x[N - i] = 3.0
+            x[i] = 1.0
+
+    print(foo.dataflow()[0])
+
+
+def test_mod():
+    @proc
+    def foo(N: size, x: R[N]):
+        for i in seq(1, N):
+            x[i] = 1.0
+            if i % 3 == 0:
+                x[i - 1] = 2.0
+
+    print(foo.dataflow()[0])

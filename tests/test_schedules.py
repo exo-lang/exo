@@ -523,6 +523,17 @@ def test_if_fission():
     assert str(fission_else) == str(test_fission_else)
 
 
+def test_fission_disjoint(golden):
+    @proc
+    def foo(N: size, x: R[2 * N]):
+        for i in seq(0, N):
+            x[2 * i] = 2.0
+            x[2 * i + 1] = 1.0
+
+    foo = fission(foo, foo.find("x[2*i] = 2.0").after())
+    assert golden == str(foo)
+
+
 def test_resize_dim(golden):
     @proc
     def foo():

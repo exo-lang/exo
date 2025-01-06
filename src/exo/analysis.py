@@ -6,13 +6,12 @@ from ..core.LoopIR import Alpha_Rename, SubstArgs, LoopIR_Do
 from ..core.configs import reverse_config_lookup, Config
 from .new_analysis_core import *
 from ..core.proc_eqv import get_repr_proc
-from .dataflow import (
-    LoopIR_to_DataflowIR,
-    ScalarPropagation,
-    GetValues,
-    D,
-    lift_dexpr,
-)
+from .dataflow import LoopIR_to_DataflowIR, ScalarPropagation, GetValues, D
+
+
+def lift_dexpr():
+    raise NotImplementedError
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
