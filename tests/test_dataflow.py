@@ -200,3 +200,86 @@ def test_absval_init():
 
     print()
     print(foo.dataflow())
+
+
+# Below are Configuration sanity checking tests
+
+
+def new_config_f32():
+    @config
+    class ConfigAB:
+        a: f32
+        b: f32
+
+    return ConfigAB
+
+
+def new_control_config():
+    @config
+    class ConfigControl:
+        i: index
+        s: stride
+        b: bool
+
+    return ConfigControl
+
+
+def test_config_1():
+    ConfigAB = new_config_f32()
+
+    @proc
+    def foo(x: f32, y: f32):
+        ConfigAB.a = 1.0
+        ConfigAB.b = 3.0
+        x = ConfigAB.a
+        ConfigAB.b = ConfigAB.a
+
+    print(foo.dataflow())
+    print()
+
+
+def test_config_2():
+    ConfigAB = new_config_f32()
+
+    @proc
+    def foo(x: f32, y: f32):
+        ConfigAB.a = 1.0
+        ConfigAB.b = 3.0
+        for i in seq(0, 10):
+            x = ConfigAB.a
+            ConfigAB.b = ConfigAB.a
+        ConfigAB.a = 2.0
+
+    print(foo.dataflow())
+    print()
+
+
+def test_config_3():
+    CTRL = new_control_config()
+
+    @proc
+    def foo(n: size):
+        for i in seq(0, n):
+            if CTRL.i == 2:
+                CTRL.i = 4
+            if n == n - 1:
+                CTRL.i = 3
+
+    print(foo.dataflow())
+    print()
+
+
+def test_config_4():
+    CTRL = new_control_config()
+
+    @proc
+    def foo(n: size, src: [i8][n]):
+        assert stride(src, 0) == CTRL.s
+        pass
+
+    print(foo)
+    print(foo.dataflow())
+    print()
+
+
+# Below are function inlining tests

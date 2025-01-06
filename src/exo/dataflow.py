@@ -88,14 +88,24 @@ from . import dataflow_pprint
 # Top Level Call to Dataflow analysis
 # --------------------------------------------------------------------------- #
 
-aexpr_false = A.Const(False, T.bool, null_srcinfo())
-aexpr_true = A.Const(True, T.bool, null_srcinfo())
-
 
 class LoopIR_to_DataflowIR:
     def __init__(self, proc):
         self.loopir_proc = proc
+        self.config_env = ChainMap()
         self.dataflow_proc = self.map_proc(self.loopir_proc)
+
+    def push(self):
+        self.config_env = self.config_env.new_child()
+
+    def pop(self):
+        self.config_env = self.config_env.parents
+
+    def config_lookup(self, config, field):
+        c = (config, field)
+        if c not in self.config_env:
+            self.config_env[c] = Sym(f"{config.name()}_{field}")
+        return self.config_env[c]
 
     def result(self):
         return self.dataflow_proc
@@ -138,11 +148,10 @@ class LoopIR_to_DataflowIR:
                 return DataflowIR.Reduce(s.name, s.type, df_idx, df_rhs, s.srcinfo)
 
         elif isinstance(s, LoopIR.WriteConfig):
-            # TODO: Confirm with Gilbert!
-            df_config_sym = Sym(f"{config.name}_{field}")
+            df_config = self.config_lookup(s.config, s.field)
             df_rhs = self.map_e(s.rhs)
 
-            return DataflowIR_WriteConfig(df_config_sym, df_rhs, s.srcinfo)
+            return DataflowIR.WriteConfig(df_config, df_rhs, s.srcinfo)
 
         elif isinstance(s, LoopIR.If):
             df_cond = self.map_e(s.cond)
@@ -190,11 +199,11 @@ class LoopIR_to_DataflowIR:
             return DataflowIR.USub(df_arg, e.type, e.srcinfo)
 
         elif isinstance(e, LoopIR.WindowExpr):
-            raise NotImplementedError("WindowExpr should not appear here!")
+            raise TypeError("WindowExpr should not appear here!")
 
         elif isinstance(e, LoopIR.ReadConfig):
-            # TODO: This needs to coodinate with Writeconfig
-            raise NotImplementedError("Implement ReadConfig")
+            df_config = self.config_lookup(e.config, e.field)
+            return DataflowIR.ReadConfig(df_config, e.type, e.srcinfo)
 
         elif isinstance(e, LoopIR.Const):
             return DataflowIR.Const(e.val, e.type, e.srcinfo)
@@ -224,6 +233,120 @@ def dataflow_analysis(proc: LoopIR.proc) -> DataflowIR.proc:
 
 
 # --------------------------------------------------------------------------- #
+# Helper functions
+# --------------------------------------------------------------------------- #
+
+
+class DataflowIR_Do:
+    def __init__(self, proc, *args, **kwargs):
+        self.proc = proc
+
+        for a in self.proc.args:
+            self.do_t(a.type)
+        for p in self.proc.preds:
+            self.do_e(p)
+
+        self.do_stmts(self.proc.body.stmts)
+
+    def do_stmts(self, stmts):
+        for s in stmts:
+            self.do_s(s)
+
+    def do_s(self, s):
+        styp = type(s)
+        if styp is DataflowIR.Assign or styp is DataflowIR.Reduce:
+            for e in s.idx:
+                self.do_e(e)
+            self.do_e(s.rhs)
+            self.do_t(s.type)
+        elif styp is DataflowIR.WriteConfig:
+            self.do_e(s.rhs)
+        elif styp is DataflowIR.If:
+            self.do_e(s.cond)
+            self.do_stmts(s.body.stmts)
+            self.do_stmts(s.orelse.stmts)
+        elif styp is DataflowIR.For:
+            self.do_e(s.lo)
+            self.do_e(s.hi)
+            self.do_stmts(s.body.stmts)
+        elif styp is DataflowIR.InlinedCall:
+            self.do_stmts(s.body.stmts)
+        elif styp is DataflowIR.Alloc:
+            self.do_t(s.type)
+        else:
+            pass
+
+    def do_e(self, e):
+        etyp = type(e)
+        if etyp is DataflowIR.Read:
+            for e in e.idx:
+                self.do_e(e)
+        elif etyp is DataflowIR.BinOp:
+            self.do_e(e.lhs)
+            self.do_e(e.rhs)
+        elif etyp is DataflowIR.BuiltIn:
+            for a in e.args:
+                self.do_e(a)
+        elif etyp is DataflowIR.USub:
+            self.do_e(e.arg)
+        else:
+            pass
+
+        self.do_t(e.type)
+
+    def do_t(self, t):
+        if isinstance(t, T.Tensor):
+            for i in t.hi:
+                self.do_e(i)
+        elif isinstance(t, T.Window):
+            self.do_t(t.src_type)
+            self.do_t(t.as_tensor)
+            for w in t.idx:
+                self.do_w_access(w)
+        else:
+            pass
+
+
+class GetReadConfigs(DataflowIR_Do):
+    def __init__(self):
+        self.readconfigs = []
+
+    def do_e(self, e):
+        if isinstance(e, DataflowIR.ReadConfig):
+            self.readconfigs.append((e.config_field, e.type))
+        super().do_e(e)
+
+
+def get_readconfigs(stmts):
+    gr = GetReadConfigs()
+    for stmt in stmts:
+        gr.do_s(stmt)
+    return gr.readconfigs
+
+
+class GetWriteConfigs(DataflowIR_Do):
+    def __init__(self):
+        self.writeconfigs = []
+
+    def do_s(self, s):
+        if isinstance(s, DataflowIR.WriteConfig):
+            # FIXME!!! Propagate a proper type after adding type to writeconfig
+            self.writeconfigs.append((s.config_field, T.int))
+
+        super().do_s(s)
+
+    # early exit
+    def do_e(self, e):
+        return
+
+
+def get_writeconfigs(stmts):
+    gw = GetWriteConfigs()
+    gw.do_stmts(stmts)
+    return gw.writeconfigs
+
+
+# --------------------------------------------------------------------------- #
 # Abstract Interpretation on DataflowIR
 # --------------------------------------------------------------------------- #
 
@@ -232,13 +355,22 @@ class AbstractInterpretation(ABC):
     def __init__(self, proc: DataflowIR.proc):
         self.proc = proc
 
+        # TODO: Do we need to use precondition assertions?
+        # Like assertion checks??
+        # I guess that depends on how we're using assertions in the downstream new_eff.py. leave it for now.
+
         # setup initial values
         init_env = self.proc.body.ctxts[0]
         for a in proc.args:
             if not a.type.is_tensor_or_window():
                 init_env[a.name] = self.abs_init_val(a.name, a.type)
 
-        # TODO: Do we need to use precondition assertions?
+        # Initialize all the configuration states used in this proc
+        configs = get_readconfigs(self.proc.body.stmts) + get_writeconfigs(
+            self.proc.body.stmts
+        )
+        for c, typ in configs:
+            init_env[c] = self.abs_init_val(c, typ)
 
         self.fix_block(self.proc.body)
 
@@ -273,8 +405,7 @@ class AbstractInterpretation(ABC):
 
         elif isinstance(stmt, DataflowIR.WriteConfig):
             rval = self.fix_expr(pre_env, stmt.rhs)
-
-            post_env[stmt.config_field] = update(pre_env[stmt.config_field], rval)
+            post_env[stmt.config_field] = rval
 
             # propagate un-touched variables
             for nm in pre_env:
@@ -336,9 +467,8 @@ class AbstractInterpretation(ABC):
                 # the pre-values, by joining them together
                 for nm, prev_val in pre_body.items():
                     next_val = stmt.body.ctxts[-1][nm]
-                    val = self.abs_join(prev_val, next_val)
-                    at_fixed_point = at_fixed_point and prev_val == val
-                    pre_body[nm] = val
+                    at_fixed_point = at_fixed_point and prev_val == next_val
+                    pre_body[nm] = next_val
 
             # determine the post-env as join of pre-env and loop results
             for nm, pre_val in pre_env.items():
@@ -375,14 +505,15 @@ class AbstractInterpretation(ABC):
             rhs = self.fix_expr(pre_env, expr.rhs)
             return self.abs_binop(expr.op, lhs, rhs)
 
+        elif isinstance(expr, DataflowIR.ReadConfig):
+            return pre_env[expr.config_field]
+
         # TODO: Fix them
         elif isinstance(expr, DataflowIR.BuiltIn):
             args = [self.fix_expr(pre_env, a) for a in expr.args]
             return self.abs_builtin(expr.f, args)
         elif isinstance(expr, DataflowIR.StrideExpr):
             return self.abs_stride_expr(expr.name, expr.dim)
-        elif isinstance(expr, DataflowIR.ReadConfig):
-            return pre_env[expr.name]
         else:
             assert False, f"bad case {type(expr)}"
 
@@ -423,19 +554,34 @@ class AbstractInterpretation(ABC):
         """Implement transfer function abstraction for built-ins"""
 
 
+def does_exist(bexpr, val):
+    assert isinstance(bexpr, A.BinOp)
+
+    exists = False
+    if bexpr.op == "or":
+        if isinstance(bexpr.rhs, A.BinOp):
+            exists |= does_exist(bexpr.rhs, val)
+        if isinstance(bexpr.lhs, A.BinOp):
+            exists |= does_exist(bexpr.lhs, val)
+        if bexpr.rhs == val or bexpr.lhs == val:
+            return True
+
+    return exists
+
+
 class ScalarPropagation(AbstractInterpretation):
     def abs_init_val(self, name, typ):
-        return A.Unk(T.int, null_srcinfo())
+        return A.Var(name, typ, null_srcinfo())
 
     def abs_alloc_val(self, name, typ):
-        return A.Unk(T.int, null_srcinfo())
+        return A.Var(name, typ, null_srcinfo())
 
     def abs_iter_val(self, name, lo, hi):
         # TODO: shouldn't we be able to range the iteration range/
         # lo_cons = A.BinOp("<=", lo, name, T.index, null_srcinfo())
         # hi_cons = A.BinOp("<", name, hi, T.index, null_srcinfo())
         # return AAnd(lo_cons, hi_cons)
-        return A.Unk(T.index, null_srcinfo())
+        return A.Var(name, T.index, null_srcinfo())
 
     def abs_stride_expr(self, name, dim):
         assert False, "unimplemented"
@@ -444,15 +590,24 @@ class ScalarPropagation(AbstractInterpretation):
         return A.Const(val, typ, null_srcinfo())
 
     def abs_join(self, lval: A, rval: A):
+
         if isinstance(lval, A.Unk):
             return rval
         elif isinstance(rval, A.Unk):
             return lval
+        elif lval == rval:
+            return lval
         elif isinstance(lval, A.Const) and isinstance(rval, A.Const):
             if lval.val == rval.val:
                 return lval
-        else:
-            return AAnd(lval, rval)
+        elif isinstance(lval, A.BinOp):
+            if does_exist(lval, rval):
+                return lval
+        elif isinstance(rval, A.BinOp):
+            if does_exist(rval, lval):
+                return rval
+
+        return AOr(lval, rval)
 
     def abs_binop(self, op, lval: A, rval: A) -> A:
 

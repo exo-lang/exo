@@ -89,7 +89,7 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
         return [f"{indent}{lhs}{idx} {op} {rhs}"]
 
     elif isinstance(stmt, DataflowIR.WriteConfig):
-        cname = stmt.config_field.name
+        cname = env.get_name(stmt.config_field)
         rhs = _print_expr(stmt.rhs, env)
         return [f"{indent}{cname} = {rhs}"]
 
@@ -150,10 +150,6 @@ def _print_expr(e, env: PrintEnv, prec: int = 0) -> str:
             s = f"({s})"
         return s
 
-    elif isinstance(e, DataflowIR.WindowExpr):
-        name = env.get_name(e.name)
-        return f"{name}[{', '.join([_print_w_access(w, env) for w in e.idx])}]"
-
     elif isinstance(e, DataflowIR.StrideExpr):
         return f"stride({env.get_name(e.name)}, {e.dim})"
 
@@ -163,7 +159,7 @@ def _print_expr(e, env: PrintEnv, prec: int = 0) -> str:
         return f"{pname}({', '.join(args)})"
 
     elif isinstance(e, DataflowIR.ReadConfig):
-        cname = e.config.name()
-        return f"{cname}.{e.field}"
+        name = env.get_name(e.config_field)
+        return f"{name}"
 
     assert False, f"unrecognized expr: {type(e)}"

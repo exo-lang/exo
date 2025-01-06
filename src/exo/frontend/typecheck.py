@@ -593,11 +593,15 @@ class TypeChecker:
         elif isinstance(e, UAST.ReadConfig):
             if not e.config.has_field(e.field):
                 self.err(
-                    e.field,
+                    e,
                     f"'{e.field}' has to be a field in config '{e.config.name()}'",
                 )
+                ftyp = T.err
+            else:
+                ftyp = e.config.lookup(e.field)[1]
 
             ftyp = e.config.lookup_type(e.field)
+
             return LoopIR.ReadConfig(e.config, e.field, ftyp, e.srcinfo)
         else:
             assert False, "not a LoopIR in check_e"
