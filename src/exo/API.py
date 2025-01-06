@@ -18,6 +18,7 @@ from .frontend.parse_fragment import parse_fragment
 from .frontend.pattern_match import match_pattern
 from .core.prelude import *
 from .rewrite.new_eff import Check_Aliasing
+from .dataflow import dataflow_analysis
 
 # Moved to new file
 from .core.proc_eqv import decl_new_proc, derive_proc, assert_eqv_proc, check_eqv_proc
@@ -368,3 +369,6 @@ class Procedure(ProcedureBase):
 
     def _root(self):
         return IC.Cursor.create(self._loopir_proc)
+
+    def dataflow(self):
+        return dataflow_analysis(self._loopir_proc)

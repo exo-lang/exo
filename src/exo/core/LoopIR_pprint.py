@@ -321,33 +321,33 @@ class UAST_PPrinter:
 # LoopIR Pretty Printing
 
 
-def _format_code(code):
+def format_code(code):
     return FormatCode(code)[0].rstrip("\n")
 
 
 @extclass(LoopIR.proc)
 def __str__(self):
-    return _format_code("\n".join(_print_proc(self, PrintEnv(), "")))
+    return format_code("\n".join(_print_proc(self, PrintEnv(), "")))
 
 
 @extclass(LoopIR.fnarg)
 def __str__(self):
-    return _format_code(_print_fnarg(self, PrintEnv()))
+    return format_code(_print_fnarg(self, PrintEnv()))
 
 
 @extclass(LoopIR.stmt)
 def __str__(self):
-    return _format_code("\n".join(_print_stmt(self, PrintEnv(), "")))
+    return format_code("\n".join(_print_stmt(self, PrintEnv(), "")))
 
 
 @extclass(LoopIR.expr)
 def __str__(self):
-    return _format_code(_print_expr(self, PrintEnv()))
+    return format_code(_print_expr(self, PrintEnv()))
 
 
 @extclass(LoopIR.type)
 def __str__(self):
-    return _format_code(_print_type(self, PrintEnv()))
+    return format_code(_print_type(self, PrintEnv()))
 
 
 del __str__
@@ -591,7 +591,7 @@ def _print_cursor(cur):
 
     root_cur = cur.root()
     lines = _print_cursor_proc(root_cur, cur, PrintEnv(), "")
-    code = _format_code("\n".join(lines))
+    code = format_code("\n".join(lines))
     # need to use "..." for Python parsing, but unquoted ellipses are prettier
     code = code.replace('"..."', "...")
     return code
