@@ -1,4 +1,4 @@
-from .dataflow import DataflowIR
+from .dataflow import DataflowIR, D, V
 from .LoopIR_pprint import op_prec
 from .prelude import Sym, SrcInfo, extclass
 from collections import ChainMap
@@ -34,9 +34,6 @@ def __str__(self):
 #     return "\n".join(_print_block(self, PrintEnv(), ""))
 
 
-del __str__
-
-
 @dataclass
 class PrintEnv:
     env: ChainMap[Sym, str] = field(default_factory=ChainMap)
@@ -46,12 +43,11 @@ class PrintEnv:
         if resolved := self.env.get(nm):
             return resolved
 
-        candidate = repr(nm)
-        # candidate = str(nm)
+        candidate = str(nm)
         num = self.names.get(candidate, 1)
-        # while candidate in self.names:
-        #    candidate = f"{nm}_{num}"
-        #    num += 1
+        while candidate in self.names:
+            candidate = f"{nm}_{num}"
+            num += 1
 
         self.env[nm] = candidate
         self.names[str(nm)] = num
@@ -75,23 +71,26 @@ def _print_proc(p, env: PrintEnv, indent: str) -> list[str]:
 
 def _print_block(blk, env: PrintEnv, indent: str) -> list[str]:
     lines = []
-    for stmt, absenv in zip(blk.stmts, blk.ctxts[:-1]):
-        lines.extend(_print_absenv(absenv, env, indent))
+    for stmt in blk.stmts:
         lines.extend(_print_stmt(stmt, env, indent))
-    lines.extend(_print_absenv(blk.ctxts[-1], env, indent))
+    lines.extend(_print_absenv(blk.ctxt, env))
 
     return lines
 
 
-def _print_absenv(absenv, env: PrintEnv, indent: str) -> list[str]:
+def _print_absenv(absenv, env: PrintEnv) -> list[str]:
     # Using indent actually makes it less readable
     p_res = ""
+    indent = " " * 25
     for key, val in absenv.items():
         assert isinstance(key, Sym)
-        p_res = p_res + ", " + f"{env.get_name(key)} : {val}"
-    p_res = "{" + p_res[2:] + "}"
+        p_res = (
+            p_res
+            + "\n"
+            + f"{indent}{env.get_name(key)} : {_print_absdom(val, env, indent)}"
+        )
 
-    return [f"{indent}" + f"{'-'*(25-len(indent))} {p_res}"]
+    return [f"{'-'*(len(indent)-1)} {p_res[len(indent)+1:]}"]
 
 
 def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
@@ -227,3 +226,100 @@ def _print_type(t, env: PrintEnv) -> str:
         return "stride"
 
     assert False, f"impossible type {type(t)}"
+
+
+# --------------------------------------------------------------------------- #
+# Abstact domain pretty printing
+# --------------------------------------------------------------------------- #
+
+
+@extclass(D.abs)
+def __str__(self):
+    return _print_absdom(self, PrintEnv(), "")
+
+
+@extclass(D.node)
+def __str__(self):
+    return _print_tree(self, PrintEnv(), "")
+
+
+@extclass(D.val)
+def __str__(self):
+    return _print_val(self, PrintEnv())
+
+
+@extclass(D.aexpr)
+def __str__(self):
+    return _print_ae(self, PrintEnv())
+
+
+@extclass(V.vabs)
+def __str__(self):
+    return _print_vabs(self, PrintEnv())
+
+
+def _print_absdom(absdom, env: PrintEnv, indent: str):
+    iter_strs = ". ".join(["\\" + env.get_name(i) for i in absdom.iterators])
+    return iter_strs + "\n" + _print_tree(absdom.tree, env, indent + "    ")
+
+
+def _print_tree(tree, env: PrintEnv, indent: str):
+    if isinstance(tree, D.Leaf):
+        return f"{indent}- {_print_val(tree.v, env)}"
+    elif isinstance(tree, D.AffineSplit):
+        nstr = _print_ae(tree.ae, env)
+        newdent = indent + " " * (len(nstr) + 1)
+        indent = indent + "- "
+        return f"""{indent}{nstr}
+{_print_tree(tree.ltz, env, newdent)}
+{_print_tree(tree.eqz, env, newdent)}
+{_print_tree(tree.gtz, env, newdent)}"""
+    elif isinstance(tree, D.ModSplit):
+        nstr = _print_ae(tree.ae, env) + f"%{tree.m}"
+        newdent = indent + " " * (len(nstr) + 1)
+        indent = indent + "- "
+        return f"""{indent}{nstr}
+{_print_tree(tree.neqz, env, newdent)}
+{_print_tree(tree.eqz, env, newdent)}"""
+    else:
+        assert False, "bad case"
+
+
+def _print_val(val, env: PrintEnv):
+    if isinstance(val, D.SubVal):
+        return _print_vabs(val.av, env)
+    elif isinstance(val, D.ArrayConst):
+        idxs = (
+            "[" + ",".join([_print_ae(i, env) for i in val.idx]) + "]"
+            if len(val.idx) > 0
+            else ""
+        )
+        return f"{env.get_name(val.name)}{idxs}"
+    assert False, "bad case"
+
+
+def _print_ae(ae, env: PrintEnv):
+    if isinstance(ae, D.Const):
+        return str(ae.val)
+    elif isinstance(ae, D.Var):
+        return env.get_name(ae.name)
+    elif isinstance(ae, D.Add):
+        return f"({_print_ae(ae.lhs, env)}+{_print_ae(ae.rhs, env)})"
+    elif isinstance(ae, D.Minus):
+        return f"({_print_ae(ae.lhs, env)}-{_print_ae(ae.rhs, env)})"
+    elif isinstance(ae, D.Mult):
+        return f"{str(self.coeff)}*{_print_ae(ae.ae, env)}"
+    assert False, "bad case"
+
+
+def _print_vabs(val, env: PrintEnv):
+    if isinstance(val, V.Top):
+        return "⊤"
+    elif isinstance(val, V.Bot):
+        return "⊥"
+    elif isinstance(val, V.ValConst):
+        return str(val.val)
+    assert False, "bad case"
+
+
+del __str__
