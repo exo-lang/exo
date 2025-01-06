@@ -287,7 +287,7 @@ binop_print = {
 
 def _estr(e, prec=0, tab=""):
     if isinstance(e, A.Var):
-        return str(e.name)
+        return repr(e.name)
     elif isinstance(e, A.Unk):
         return "⊥"
     elif isinstance(e, A.Not):

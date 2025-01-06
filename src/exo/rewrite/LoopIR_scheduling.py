@@ -2790,9 +2790,19 @@ def DoInsertNoopCall(gap, proc, args):
 
 
 def DoDeleteConfig(proc_cursor, config_cursor):
+    eq_mod_config = Check_DeleteConfigWrite(
+        proc_cursor._node, [config_cursor.prev()._node, config_cursor._node]
+    )
+    p, fwd = config_cursor._delete()
+    return p, fwd, eq_mod_config
+
+
+"""
+def DoDeleteConfig(proc_cursor, config_cursor):
     eq_mod_config = Check_DeleteConfigWrite(proc_cursor._node, [config_cursor._node])
     p, fwd = config_cursor._delete()
     return p, fwd, eq_mod_config
+"""
 
 
 def DoDeletePass(proc):

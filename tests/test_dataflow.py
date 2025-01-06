@@ -2,8 +2,38 @@ from __future__ import annotations
 import pytest
 from exo import proc, DRAM, Procedure, config
 from exo.stdlib.scheduling import *
-from exo.dataflow import D, substitute, sub_aexpr, partition, V, abs_simplify, widening
+from exo.dataflow import (
+    D,
+    substitute,
+    sub_aexpr,
+    partition,
+    V,
+    abs_simplify,
+    widening,
+    cvt_vdom,
+    cvt_val,
+    adom_to_aexpr,
+)
 from exo.prelude import Sym
+
+
+def test_cvt():
+    t = cvt_vdom(V.ValConst(3.0))
+
+    i = Sym("i")
+    d = Sym("d")
+    N = Sym("N")
+    vi = D.Var(i)
+    vd = D.Var(d)
+    vN = D.Var(N)
+
+    sx_1 = Sym("x_1")
+    sx = Sym("x")
+    x_1 = D.ArrayConst(sx_1, [D.Add(vi, D.Const(-1)), vd])
+    x_2 = D.ArrayConst(sx_1, [D.Add(vi, D.Const(3)), vd])
+
+    print(cvt_val(x_1))
+    print(cvt_val(x_2))
 
 
 def test_widening2():
@@ -33,7 +63,7 @@ def test_widening2():
     x_1_abs = D.abs([i, N, d], x_1_tree)
 
     print(x_1_abs)
-    widened_x_1 = widening(sx_1, x_1_abs)
+    widened_x_1 = partition(sx_1, x_1_abs)
     print(widened_x_1)
 
     i_minus = D.Add(vi, D.Const(-1))
@@ -42,9 +72,10 @@ def test_widening2():
 
     after = substitute(x_1, x_1_i_1.tree, widened_x_1)
     after = abs_simplify(after)
-    after = abs_simplify(value_collapse(sx_1, after))
+    after = abs_simplify(widening(sx_1, after))
     after = abs_simplify(after)
     print(after)
+    print(adom_to_aexpr(sx_1, after))
 
 
 def test_widening():
@@ -276,6 +307,15 @@ def test_print_0(golden):
     assert str(foo.dataflow()[0]) == golden
 
 
+def test_print_new(golden):
+    @proc
+    def foo(z: R[3]):
+        for i in seq(0, 3):
+            z[i] = 3.0
+
+    print(foo.dataflow()[0])
+
+
 def test_print_1(golden):
     @proc
     def foo(x: R[3], y: R[3], z: R[3]):
@@ -333,6 +373,26 @@ def test_print_5(golden):
         z = 2.0
 
     assert str(foo.dataflow()[0]) == golden
+
+
+def test_sliding_window_debug():
+    @proc
+    def foo(dst: i8[30]):
+        for i in seq(0, 10):
+            for j in seq(0, 20):
+                dst[i] = 2.0
+
+    print(foo.dataflow()[0])
+
+
+def test_sliding_window_debug2():
+    @proc
+    def foo(dst: i8[30]):
+        for i in seq(0, 10):
+            for j in seq(0, 20):
+                dst[j] = 2.0
+
+    print(foo.dataflow()[0])
 
 
 def test_sliding_window_print():
@@ -620,6 +680,7 @@ def test_builtin_true(golden):
         CFG.a = -CFG.a
         x = CFG.a
 
+    print(foo.dataflow()[0])
     assert str(foo.dataflow()[0]) == golden
 
 

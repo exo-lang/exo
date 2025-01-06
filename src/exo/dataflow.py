@@ -811,6 +811,49 @@ from . import dataflow_pprint
 # Tree conversion helpers
 # --------------------------------------------------------------------------- #
 
+
+def mk_aexpr(op, pred):
+    return A.BinOp(
+        op, pred, A.Const(0, T.Int(), null_srcinfo()), T.Bool(), null_srcinfo()
+    )
+
+
+cvt_dict = dict()
+
+# convert vdom to Aexpr boolean
+def cvt_vdom(aname: A.Var, v: V.vabs):
+    if isinstance(v, V.ValConst):
+        c = A.Const(v.val, T.R, null_srcinfo())
+        return AEq(aname, c)
+    elif isinstance(v, V.Top):
+        return A.Const(True, T.bool, null_srcinfo())
+    elif isinstance(v, V.Bot):
+        return A.Const(False, T.bool, null_srcinfo())
+
+
+def cvt_val(aname: A.Var, e: D.val):
+    if isinstance(e, D.SubVal):
+        return cvt_vdom(aname, e.av)
+    else:
+        key = tuple([e.name] + e.idx)
+        if key in cvt_dict:
+            vname = cvt_dict[key]
+        else:
+            istr = [
+                str(i)
+                .replace("(", "")
+                .replace(")", "")
+                .replace("-", "_")
+                .replace("+", "p")
+                .replace("*", "m")
+                for i in e.idx
+            ]
+            sym = Sym("const_array_" + str(e.name) + "_".join(istr))
+            vname = A.Var(sym, T.R, null_srcinfo())
+            cvt_dict[key] = vname
+        return AEq(aname, vname)
+
+
 # convert D.aexpr to the AExpr
 def _lift_aexpr(e: D.aexpr) -> A:
     assert isinstance(e, D.aexpr)
@@ -831,6 +874,37 @@ def _lift_aexpr(e: D.aexpr) -> A:
         )
     else:
         assert False, "bad case!"
+
+
+def adom_to_aexpr(name: Sym, src: D.abs):
+    aname = A.Var(name, T.R, null_srcinfo())
+
+    def map_tree(tree):
+        if isinstance(tree, D.Leaf):
+            return cvt_val(aname, tree.v)
+        elif isinstance(tree, D.AffineSplit):
+            # | Select( expr cond, expr tcase, expr fcase )
+            pred = _lift_aexpr(tree.ae)
+            ltz_eq = mk_aexpr("<", pred)
+            eqz_eq = mk_aexpr("==", pred)
+            return A.Select(
+                ltz_eq,
+                map_tree(tree.ltz),
+                A.Select(
+                    eqz_eq,
+                    map_tree(tree.eqz),
+                    map_tree(tree.gtz),
+                    T.bool,
+                    null_srcinfo(),
+                ),
+                T.bool,
+                null_srcinfo(),
+            )
+        elif isinstance(tree, D.ModSplit):
+            pred = _lift_aexpr(tree.ae)
+            raise NotImplementedError
+
+    return map_tree(src.tree)
 
 
 # convert dataflow ir to D.aexpr
@@ -940,12 +1014,6 @@ def assign_to_tree(
 # --------------------------------------------------------------------------- #
 
 
-def mk_aexpr(op, pred):
-    return A.BinOp(
-        op, pred, A.Const(0, T.Int(), null_srcinfo()), T.Bool(), null_srcinfo()
-    )
-
-
 # simplify
 def abs_simplify(src: D.abs) -> D.abs:
     assert isinstance(src, D.abs)
@@ -1015,6 +1083,7 @@ def abs_simplify(src: D.abs) -> D.abs:
             return D.AffineSplit(tree.ae, ltz, eqz, gtz)
 
         elif isinstance(tree, D.ModSplit):
+            # FIXME: This is incorrect bc it's not using m!
             pred = _lift_aexpr(tree.ae)
             eqz_eq = mk_aexpr("==", pred)
             neqz_eq = A.Not(eqz_eq, T.Bool(), null_srcinfo())
@@ -1142,42 +1211,44 @@ def sub_aexpr(var: D.aexpr, term: D.aexpr, src: D.abs) -> D.abs:
     return D.abs(src.iterators, map_tree(src.tree))
 
 
-def substitute_all(src: D.abs, env: dict) -> D.abs:
+def substitute_all(src: D.abs, env: dict, flag=False) -> D.abs:
     assert isinstance(src, D.abs)
     assert isinstance(env, dict)
 
-    sub_vars = []
-
-    def map_tree(tree: D.node):
+    def map_tree(tree: D.node, vs: list):
         if isinstance(tree, D.AffineSplit):
-            return D.AffineSplit(
-                tree.ae,
-                map_tree(tree.ltz),
-                map_tree(tree.eqz),
-                map_tree(tree.gtz),
+            return (
+                map_tree(tree.ltz, vs) + map_tree(tree.eqz, vs) + map_tree(tree.gtz, vs)
             )
         elif isinstance(tree, D.ModSplit):
-            return D.ModSplit(tree.ae, tree.m, map_tree(tree.neqz), map_tree(tree.eqz))
+            return map_tree(tree.neqz, vs) + map_tree(tree.eqz, vs)
         else:
             if isinstance(tree.v, D.ArrayConst):
                 if tree.v.name in env:
-                    for var, _ in sub_vars:
+                    for var, _ in vs:
                         if var == tree.v:
-                            return tree
+                            return vs
 
                     # check the index of tree.v
                     env_dom = env[tree.v.name]
                     for aidx, vidx in zip(env_dom.iterators, tree.v.idx):
                         if not isinstance(vidx, D.Var) or aidx != vidx.name:
                             env_dom = sub_aexpr(D.Var(aidx), vidx, env_dom)
-                    sub_vars.append((tree.v, env_dom.tree))
+                    vs.append((tree.v, env_dom.tree))
 
-            return tree
+            return vs
 
-    map_tree(src.tree)
-
-    for var, tree in sub_vars:
-        src = substitute(var, tree, src)
+    if flag:
+        while True:
+            vs = map_tree(src.tree, [])
+            if vs == []:
+                break
+            for var, tree in vs:
+                src = substitute(var, tree, src)
+    else:
+        vs = map_tree(src.tree, [])
+        for var, tree in vs:
+            src = substitute(var, tree, src)
     return src
 
 
@@ -1332,6 +1403,7 @@ def merge_tree(name: Sym, tree: D.node, intersections: list) -> D.node:
             return D.AffineSplit(tree.ae, ltz, eqz, gtz)
 
         elif isinstance(tree, D.ModSplit):
+            # FIXME: this is incorrect, not using m
             pred = _lift_aexpr(tree.ae)
             eqz_eq = mk_aexpr("==", pred)
             neqz_eq = A.Not(eqz_eq, T.Bool(), null_srcinfo())
@@ -1434,6 +1506,7 @@ class AbstractInterpretation(ABC):
         # simplify
         for key, val in body.ctxt.items():
             val = self.abs_simplify(val)
+            val = self.abs_simplify(val)
             body.ctxt[key] = val
 
     def fix_stmt(self, stmt: DataflowIR.stmt, env):
@@ -1447,8 +1520,12 @@ class AbstractInterpretation(ABC):
                 DataflowIR.IfJoin,
             ),
         ):
+            # stmt_abs = self.abs_assign(stmt)
+            # env[stmt.lhs] = self.abs_join(stmt_abs, env)
+
+            new_dict = {k: v for k, v in env.items() if k != stmt.lhs}
             stmt_abs = self.abs_assign(stmt)
-            env[stmt.lhs] = self.abs_fix(stmt_abs, env)
+            env[stmt.lhs] = substitute_all(stmt_abs, new_dict, flag=True)
 
         elif isinstance(stmt, DataflowIR.Pass):
             pass  # pass pass, lol
@@ -1473,10 +1550,6 @@ class AbstractInterpretation(ABC):
                 env[nm] = post_val
 
         elif isinstance(stmt, DataflowIR.For):
-            pre_body = stmt.body.ctxt
-            for nm, val in env.items():
-                pre_body[nm] = val
-
             # traverse the body in the reverse order
             for i in range(len(stmt.body.stmts) - 1, -1, -1):
                 self.fix_stmt(stmt.body.stmts[i], stmt.body.ctxt)
@@ -1485,18 +1558,40 @@ class AbstractInterpretation(ABC):
             assert isinstance(stmt.body.stmts[0], DataflowIR.LoopStart)
             phi = stmt.body.stmts[0].lhs
 
+            # We need to substitute the hell out of stmt.body.ctxt[phi] at this point. Substitute until there is no
+            new_dict = {k: v for k, v in stmt.body.ctxt.items() if k != phi}
+            before_before = substitute_all(stmt.body.ctxt[phi], new_dict, flag=True)
+            stmt.body.ctxt[phi] = before_before
+
             # "before" and "after" running the fixpoint
             before = self.abs_partition(phi, stmt.body.ctxt[phi])
-            pre_body[phi] = before
-            after = self.abs_simplify(self.abs_fix(before, pre_body))
+            stmt.body.ctxt[phi] = before
+            after = self.abs_simplify(self.abs_join(before, stmt.body.ctxt))
+            stmt.body.ctxt[phi] = after
 
             # widening by value propagation
             fixed = self.abs_widening(phi, after)
 
             # substitute other statements that depend on phi no
-            pre_body[phi] = self.abs_simplify(self.abs_simplify(fixed))
-            for i in range(len(stmt.body.stmts) - 1):
-                self.fix_stmt(stmt.body.stmts[i + 1], pre_body)
+            stmt.body.ctxt[phi] = self.abs_simplify(self.abs_simplify(fixed))
+
+            for i in range(1, len(stmt.body.stmts)):
+                if isinstance(
+                    stmt.body.stmts[i],
+                    (
+                        DataflowIR.Assign,
+                        DataflowIR.Reduce,
+                        DataflowIR.LoopStart,
+                        DataflowIR.LoopExit,
+                        DataflowIR.IfJoin,
+                    ),
+                ):
+
+                    nm = stmt.body.stmts[i].lhs
+                    val = self.abs_join(stmt.body.ctxt[nm], stmt.body.ctxt)
+                    val = self.abs_simplify(val)
+                    val = self.abs_simplify(val)
+                    stmt.body.ctxt[nm] = val
 
             for nm, post_val in stmt.body.ctxt.items():
                 env[nm] = post_val
@@ -1541,7 +1636,7 @@ class AbstractInterpretation(ABC):
         pass
 
     @abstractmethod
-    def abs_fix(self, adom, env):
+    def abs_join(self, adom, env):
         # Define Fixpoint on Abstract domain
         pass
 
@@ -1598,7 +1693,7 @@ class ScalarPropagation(AbstractInterpretation):
             assign_to_tree(stmt, self.fix_expr(body), self.fix_expr(stmt.orelse)),
         )
 
-    def abs_fix(self, src: D.abs, env: dict) -> D.abs:
+    def abs_join(self, src: D.abs, env: dict) -> D.abs:
         assert isinstance(src, D.abs)
         assert isinstance(env, dict)
 

@@ -403,11 +403,95 @@ def test_builtin_true(golden):
 
     @proc
     def foo(x: f32):
+        CFG.a = 3.0
+        CFG.a = 3.0
+        x = CFG.a + 2.0
+
+    foo = delete_config(foo, "CFG.a = _ #1")
+    # assert str(foo) == golden
+
+    @proc
+    def foo(x: f32):
         CFG.a = sin(3.0)
         CFG.a = -CFG.a
-        x = CFG.a
+        x = CFG.a + 2.0
 
-    # FIXME!!
-    # Even though the value of CFG.a is obviously different, this is being permitted by the current analysis...
-    foo = delete_config(foo, "CFG.a = _ #1")
-    assert str(foo) == golden
+    with pytest.raises(
+        SchedulingError, match="Cannot change configuration value of CFG_a at"
+    ):
+        delete_config(foo, "CFG.a = _ #1")
+
+
+def test_scalar_true(golden):
+    @proc
+    def foo(x: f32):
+        y: f32
+        y = 3.0
+        y = 3.0
+        x = y + 2.0
+
+    foo = delete_config(foo, "y = _ #1")
+    # assert str(foo) == golden
+
+    @proc
+    def foo(x: f32):
+        y: f32
+        y = sin(3.0)
+        y = -y
+        x = y + 2.0
+
+    with pytest.raises(
+        SchedulingError, match="Cannot change configuration value of y at"
+    ):
+        delete_config(foo, "y = _ #1")
+
+
+def test_array_true():
+    @proc
+    def foo(x: f32):
+        y: f32[10]
+        y[0] = 3.0
+        y[0] = 3.0
+        x = y[0] + 2.0
+
+    foo = delete_config(foo, "y = _ #1")
+    print(foo)
+    # assert str(foo) == golden
+
+    @proc
+    def foo(x: f32):
+        y: f32[10]
+        y[0] = sin(3.0)
+        y[0] = -y[0]
+        x = y[0] + 2.0
+
+    with pytest.raises(
+        SchedulingError, match="Cannot change configuration value of y at"
+    ):
+        delete_config(foo, "y = _ #1")
+
+
+def test_loop_true():
+    @proc
+    def foo(x: f32[10]):
+        for i in seq(0, 10):
+            x[i] = 0.0
+        for i in seq(0, 10):
+            x[i] = 0.0
+
+    foo = delete_config(foo, "for i in _:_ #1")
+    print(foo)
+    # assert str(foo) == golden
+
+    @proc
+    def foo(x: f32[10]):
+        for i in seq(0, 10):
+            x[i] = sin(3.0)
+        for i in seq(0, 10):
+            x[i] = sin(3.0)
+
+    with pytest.raises(
+        SchedulingError, match="Cannot change configuration value of y at"
+    ):
+        foo = delete_config(foo, "for i in _:_ #1")
+        print(foo)
