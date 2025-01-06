@@ -599,9 +599,7 @@ class TypeChecker:
                 )
                 ftyp = T.err
             else:
-                ftyp = e.config.lookup(e.field)[1]
-
-            ftyp = e.config.lookup_type(e.field)
+                ftyp = e.config.lookup_type(e.field)
 
             return LoopIR.ReadConfig(e.config, e.field, ftyp, e.srcinfo)
         else:
