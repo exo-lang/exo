@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 from ..core.LoopIR import LoopIR, T, LoopIR_Compare
-from .new_eff import Check_ExprBound
+from .analysis import Check_ExprBound
 from ..core.prelude import Sym, _null_srcinfo_obj
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 import pytest
 from exo import proc, DRAM, Procedure, config
 from exo.stdlib.scheduling import *
-from exo.dataflow import (
+from exo.rewrite.dataflow import (
     D,
     substitute,
     sub_aexpr,
@@ -14,7 +14,7 @@ from exo.dataflow import (
     cvt_val,
     adom_to_aexpr,
 )
-from exo.prelude import Sym
+from exo.core.prelude import Sym
 
 
 def test_cvt():

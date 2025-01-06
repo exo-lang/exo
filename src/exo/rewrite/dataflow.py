@@ -5,11 +5,11 @@ from itertools import chain
 from typing import Mapping, Any
 from asdl_adt import ADT, validators
 
-from .builtins import BuiltIn
-from .configs import Config
-from .memory import Memory
-from .prelude import Sym, SrcInfo, extclass
-from .LoopIR import (
+from ..core.extern import Extern
+from ..core.configs import Config
+from ..core.memory import Memory
+from ..core.prelude import Sym, SrcInfo, extclass
+from ..core.LoopIR import (
     LoopIR,
     Alpha_Rename,
     SubstArgs,
@@ -70,7 +70,7 @@ module DataflowIR {
          | Const( object val )
          | USub( expr arg )  -- i.e.  -(...)
          | BinOp( binop op, expr lhs, expr rhs )
-         | BuiltIn( builtin f, expr* args )
+         | Extern( extern f, expr* args )
          | StrideExpr( sym name, int dim )
          attributes( type type, srcinfo srcinfo )
 
@@ -91,7 +91,7 @@ module DataflowIR {
     ext_types={
         "name": validators.instance_of(Identifier, convert=True),
         "sym": Sym,
-        "builtin": BuiltIn,
+        "extern": Extern,
         "binop": validators.instance_of(Operator, convert=True),
         "absenv": validateAbsEnv,
         "srcinfo": SrcInfo,
@@ -481,9 +481,9 @@ class LoopIR_to_DataflowIR:
             df_rhs = self.map_e(e.rhs)
             return DataflowIR.BinOp(e.op, df_lhs, df_rhs, self.map_t(e.type), e.srcinfo)
 
-        elif isinstance(e, LoopIR.BuiltIn):
+        elif isinstance(e, LoopIR.Extern):
             df_args = self.map_exprs(e.args)
-            return DataflowIR.BuiltIn(e.f, df_args, self.map_t(e.type), e.srcinfo)
+            return DataflowIR.Extern(e.f, df_args, self.map_t(e.type), e.srcinfo)
 
         elif isinstance(e, LoopIR.USub):
             df_arg = self.map_e(e.arg)
@@ -1608,8 +1608,8 @@ class AbstractInterpretation(ABC):
             return self.abs_usub(e)
         elif isinstance(e, DataflowIR.BinOp):
             return self.abs_binop(e)
-        elif isinstance(e, DataflowIR.BuiltIn):
-            return self.abs_builtin(e)
+        elif isinstance(e, DataflowIR.Extern):
+            return self.abs_extern(e)
         elif isinstance(e, DataflowIR.StrideExpr):
             return self.abs_stride_expr(e)
         else:
@@ -1666,7 +1666,7 @@ class AbstractInterpretation(ABC):
         pass
 
     @abstractmethod
-    def abs_builtin(self, e):
+    def abs_extern(self, e):
         # Implement transfer function abstraction for built-ins
         pass
 
@@ -1718,5 +1718,5 @@ class ScalarPropagation(AbstractInterpretation):
     def abs_usub(self, e) -> D:
         return D.SubVal(V.Top())
 
-    def abs_builtin(self, e):
+    def abs_extern(self, e):
         return D.SubVal(V.Top())

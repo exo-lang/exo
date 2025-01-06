@@ -1,6 +1,6 @@
 from .dataflow import DataflowIR, D, V
-from .LoopIR_pprint import op_prec
-from .prelude import Sym, SrcInfo, extclass
+from ..core.LoopIR_pprint import op_prec
+from ..core.prelude import Sym, SrcInfo, extclass
 from collections import ChainMap
 from dataclasses import dataclass, field
 
