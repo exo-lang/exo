@@ -11,8 +11,8 @@ from pysmt import shortcuts as SMT
 
 from asdl_adt import ADT, validators
 from asdl_adt.validators import ValidationError
-from .LoopIR import T, LoopIR
-from .prelude import *
+from ..core.LoopIR import T, LoopIR
+from ..core.prelude import *
 
 _first_run = True
 
@@ -71,17 +71,19 @@ module AExpr {
             | BinOp( binop op, expr lhs, expr rhs )
             | Stride( sym name, int dim )
 
-            -- | Select( expr lhs, expr rhs ) -- !!uninterpreted function for array access, different from Select Below
-            -- | Tuple( expr* args )
-            -- | ConstSym( sym name ) -- represents a named, opaque value
-            -- | LetStrides( sym name, expr* strides, expr body )
-            -- | Select( expr cond, expr tcase, expr fcase )
-            -- | ForAll( sym name, expr arg )
-            -- | Exists( sym name, expr arg )
-            -- | Definitely( expr arg )
-            -- | Maybe( expr arg )
-            -- | LetTuple( sym* names, expr rhs, expr body )
-            -- | Let( sym* names, expr* rhs, expr body )
+
+            -- following might not be necessary at some point
+            | Definitely( expr arg )
+            | Maybe( expr arg )
+            | Tuple( expr* args )
+            | ConstSym( sym name ) -- represents a named, opaque value
+            | Select( expr lhs, expr rhs ) -- !!uninterpreted function for array access, different from Select Below
+            | LetStrides( sym name, expr* strides, expr body )
+            | Select( expr cond, expr tcase, expr fcase )
+            | ForAll( sym name, expr arg )
+            | Exists( sym name, expr arg )
+            | LetTuple( sym* names, expr rhs, expr body )
+            | Let( sym* names, expr* rhs, expr body )
 
             attributes( type type, srcinfo srcinfo )
 } """,

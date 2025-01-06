@@ -16,9 +16,9 @@ from ..core.LoopIR import (
     get_writes_of_stmts,
     is_const_zero,
 )
-from .new_eff import (
+from .analysis import (
     SchedulingError,
-    # Check_ReorderStmts,
+    Check_ReorderStmts,
     Check_ReorderLoops,
     Check_FissionLoop,
     Check_DeleteConfigWrite,
@@ -31,9 +31,6 @@ from .new_eff import (
     Check_IsIdempotent,
     Check_ExprBound,
     Check_Aliasing,
-)
-from .new_new_eff import (
-    Check_ReorderStmts,
 )
 
 from .range_analysis import IndexRangeEnvironment, IndexRange, index_range_analysis

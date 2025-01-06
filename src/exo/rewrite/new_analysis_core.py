@@ -68,18 +68,23 @@ module AExpr {
             | Not( expr arg )
             | USub( expr arg )
             | Const( object val )
-            | ConstSym( sym name ) -- represents a named, opaque value
             | BinOp( binop op, expr lhs, expr rhs )
             | Stride( sym name, int dim )
+
+
+            -- following might not be necessary at some point
+            | Definitely( expr arg )
+            | Maybe( expr arg )
+            | Tuple( expr* args )
+            | ConstSym( sym name ) -- represents a named, opaque value
+            | Select( expr lhs, expr rhs ) -- !!uninterpreted function for array access, different from Select Below
             | LetStrides( sym name, expr* strides, expr body )
             | Select( expr cond, expr tcase, expr fcase )
             | ForAll( sym name, expr arg )
             | Exists( sym name, expr arg )
-            | Definitely( expr arg )
-            | Maybe( expr arg )
-            | Tuple( expr* args )
             | LetTuple( sym* names, expr rhs, expr body )
             | Let( sym* names, expr* rhs, expr body )
+
             attributes( type type, srcinfo srcinfo )
 } """,
     {

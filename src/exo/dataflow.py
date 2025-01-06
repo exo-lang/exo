@@ -9,7 +9,7 @@ from .configs import Config
 from .memory import Memory
 from .prelude import Sym, SrcInfo, extclass
 from .LoopIR import LoopIR, Alpha_Rename, SubstArgs, LoopIR_Do, Operator, T, Identifier
-from .new_dataflow_core import *
+from .internal_analysis import *
 
 # --------------------------------------------------------------------------- #
 # Abstract Domain definition
@@ -704,3 +704,21 @@ class ScalarPropagation(AbstractInterpretation):
 
         # TODO: write a short circuit for select builtin
         return A.Const(builtin.interpret(vargs), args[0].typ)
+
+
+class GetControlPredicates(DataflowIR_Do):
+    def __init__(self, datair, stmts):
+        self.datair = datair
+        self.stmts = stmts
+
+    def result(self):
+        return A.Const(True, T.bool, null_srcinfo())
+
+
+class GetControlAbsVal(DataflowIR_Do):
+    def __init__(self, datair, stmts):
+        self.datair = datair
+        self.stmts = stmts
+
+    def result(self):
+        return A.Const(True, T.bool, null_srcinfo())

@@ -6,6 +6,12 @@ from ..core.LoopIR import Alpha_Rename, SubstArgs, LoopIR_Do
 from ..core.configs import reverse_config_lookup, Config
 from .new_analysis_core import *
 from ..core.proc_eqv import get_repr_proc
+from .dataflow import (
+    LoopIR_to_DataflowIR,
+    ScalarPropagation,
+    GetControlPredicates,
+    GetControlAbsVal,
+)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -1611,19 +1617,24 @@ def loop_globenv(i, lo_expr, hi_expr, body):
 
 
 def Check_ReorderStmts(proc, s1, s2):
-    ctxt = ContextExtraction(proc, [s1, s2])
+    datair, stmts = LoopIR_to_DataflowIR(proc, [s1, s2]).result()
 
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
+    assert len(stmts) == 2
+
+    ScalarPropagation(datair)
+
+    p = GetControlPredicates(datair, stmts).result()
+    v = GetControlAbsVal(datair, stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
+    slv.assume(AMay(v))
 
     a1 = stmts_effs([s1])
     a2 = stmts_effs([s2])
 
-    pred = G(AAnd(Commutes(a1, a2), AllocCommutes(a1, a2)))
+    pred = AAnd(Commutes(a1, a2), AllocCommutes(a1, a2)).simplify()
     is_ok = slv.verify(pred)
     slv.pop()
     if not is_ok:
@@ -1633,14 +1644,19 @@ def Check_ReorderStmts(proc, s1, s2):
 
 
 def Check_ReorderLoops(proc, s):
-    ctxt = ContextExtraction(proc, [s])
+    datair, stmts = LoopIR_to_DataflowIR(proc, [s]).result()
 
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
+    assert len(stmts) == 1
+
+    ScalarPropagation(datair)
+
+    p = GetControlPredicates(datair, stmts).result()
+    v = GetControlAbsVal(datair, stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
+    slv.assume(AMay(v))
 
     assert len(s.body) == 1
     assert isinstance(s.body[0], LoopIR.For)
@@ -1694,7 +1710,7 @@ def Check_ReorderLoops(proc, s):
         ),
     )
 
-    pred = G(reorder_is_safe)
+    pred = reorder_is_safe.simplify()
     is_ok = slv.verify(pred)
     slv.pop()
     if not is_ok:
@@ -1710,14 +1726,19 @@ def Check_ReorderLoops(proc, s):
 #   /\ ( forall i,i'. May(InBound(i,i',e) /\ i < i') => Commutes(a1', a1) )
 #
 def Check_ParallelizeLoop(proc, s):
-    ctxt = ContextExtraction(proc, [s])
+    datair, stmts = LoopIR_to_DataflowIR(proc, [s]).result()
 
-    p = ctxt.get_control_predicate()
-    G = ctxt.get_pre_globenv()
+    assert len(stmts) == 1
+
+    ScalarPropagation(datair)
+
+    p = GetControlPredicates(datair, stmts).result()
+    v = GetControlAbsVal(datair, stmts).result()
 
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
+    slv.assume(AMay(v))
 
     lo = s.lo
     hi = s.hi
@@ -1747,7 +1768,7 @@ def Check_ParallelizeLoop(proc, s):
         ),
     )
 
-    pred = G(AAnd(no_bound_change, bodies_commute))
+    pred = AAnd(no_bound_change, bodies_commute).simplify()
     is_ok = slv.verify(pred)
     slv.pop()
     if not is_ok:
@@ -1763,6 +1784,7 @@ def Check_ParallelizeLoop(proc, s):
 #   /\ ( forall i,i'. May(InBound(i,i',e) /\ i < i')  =>
 #                     Commutes(a1', a2) /\ AllocCommutes(a1, a2) )
 #
+# FIXME: Update
 def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
     ctxt = ContextExtraction(proc, [loop])
     chgG = get_changing_scalars(proc.body)
@@ -1825,6 +1847,7 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
         raise SchedulingError(f"Cannot fission loop over {i} at {loop.srcinfo}.")
 
 
+# FIXME: Update
 def Check_DeleteConfigWrite(proc, stmts):
     assert len(stmts) > 0
     ctxt = ContextExtraction(proc, stmts)
@@ -1900,6 +1923,7 @@ def Check_DeleteConfigWrite(proc, stmts):
 # is equivalent modulo the keys in `cfg_mod`, so
 # the only thing we want to check is whether that can be
 # extended, and if so, modulo what set of output globals?
+# FIXME: Update
 def Check_ExtendEqv(proc, stmts0, stmts1, cfg_mod):
     assert len(stmts0) > 0
     assert len(stmts1) > 0
@@ -1952,6 +1976,7 @@ def Check_ExtendEqv(proc, stmts0, stmts1, cfg_mod):
     return cfg_mod_visible
 
 
+# FIXME: Update
 def Check_ExprEqvInContext(proc, expr0, stmts0, expr1, stmts1=None):
     assert len(stmts0) > 0
     stmts1 = stmts1 or stmts0
@@ -1977,6 +2002,7 @@ def Check_ExprEqvInContext(proc, expr0, stmts0, expr1, stmts1=None):
         raise SchedulingError(f"Expressions are not equivalent:\n{expr0}\nvs.\n{expr1}")
 
 
+# FIXME: Update
 def Check_BufferReduceOnly(proc, stmts, buf, ndim):
     assert len(stmts) > 0
     ctxt = ContextExtraction(proc, stmts)
@@ -2003,6 +2029,7 @@ def Check_BufferReduceOnly(proc, stmts, buf, ndim):
 
 
 # TODO: I think idxs should be passed as either a read, window, or write (assign/reduce)
+# FIXME: Update
 def Check_Access_In_Window(proc, access_cursor, w_exprs, block_cursor):
     """
     Returns True if idxs always lies within w_exprs
@@ -2087,6 +2114,7 @@ def Check_Access_In_Window(proc, access_cursor, w_exprs, block_cursor):
     )
 
 
+# FIXME: Update
 def Check_Bounds(proc, alloc_stmt, block):
     if len(block) == 0:
         return
@@ -2128,6 +2156,7 @@ def Check_Bounds(proc, alloc_stmt, block):
         raise SchedulingError(f"The buffer {alloc_stmt.name} is accessed out-of-bounds")
 
 
+# FIXME: Update
 def Check_IsDeadAfter(proc, stmts, bufname, ndim):
     assert len(stmts) > 0
     ctxt = ContextExtraction(proc, stmts)
@@ -2150,6 +2179,7 @@ def Check_IsDeadAfter(proc, stmts, bufname, ndim):
         )
 
 
+# FIXME: Update
 def Check_IsIdempotent(proc, stmts):
     assert len(stmts) > 0
     ctxt = ContextExtraction(proc, stmts)
@@ -2169,6 +2199,7 @@ def Check_IsIdempotent(proc, stmts):
         raise SchedulingError(f"The statement at {stmts[0].srcinfo} is not idempotent.")
 
 
+# FIXME: Update
 def Check_ExprBound(proc, stmts, expr, op, value, exception=True):
     assert len(stmts) > 0
 
@@ -2216,6 +2247,7 @@ def Check_ExprBound(proc, stmts, expr, op, value, exception=True):
         )
 
 
+# FIXME: Update
 def Check_CodeIsDead(proc, stmts):
     assert len(stmts) > 0
     ctxt = ContextExtraction(proc, stmts)
