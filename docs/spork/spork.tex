@@ -122,6 +122,11 @@ If supplied, instead of each input \lighttt{src[i]} overwriting \lighttt{dst[i]}
 I suspect this is used to implement some form of near-data processing.
 
 \filbreak
+This reduction (in global memory) is done \textbf{atomically}, with \lighttt{relaxed.gpu} semantics.
+This is an incredible feature for split-$k$ and such, so we will need to model atomic operations.
+Note for floating point numbers, this is non-deterministic, due to non-associativity, but the Exo rewrite model already ignores this so this should be OK.
+
+\filbreak
 TODO Look into tensor copy versions of these instructions, which seem really complicated.
 
 % https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#tensor-memory-access
@@ -198,6 +203,27 @@ TODO investigate sparse operations.
 \mySub{Common Theme}
 
 The common theme of all of this is that we will need to model waits that \textbf{only carry certain kinds of dependencies}: register only, shared memory only, registers with a common matrix format (for the two wgmma.mma\_async case), or special dependecies that only carry specific memory, e.g. the non-transitive \completeTxOperation: ``The implicit mbarrier complete-tx operation that is part of all variants of cp.async.bulk and cp.reduce.async.bulk instructions is ordered only with respect to the memory operations performed by the same asynchronous instruction, and in particular it does not transitively establish ordering with respect to prior instructions from the issuing thread.'' (\webText{Documentation}{https://docs.nvidia.com/cuda/parallel-thread-execution/\#program-order-async-operations})
+
+\filbreak
+The non-transitivity (and to some extent, relaxed atomics, if/when we model this) is probably not behavior something like concurrent separation logic can reason about (at least this was Amanda's impression based on my brief description of the following contrieved example).
+
+{
+\color{lightttColor}
+\begin{verbatim}
+threads A do:
+    Fill memory W
+    Fill memory X = f(W)  // force causality
+    fence.proxy.async
+    TMA copy X -> Y, signal <barrier> when done
+
+threads B do:
+    Wait for <barrier>
+    Read Y
+    if someProperty(Y):  // force causality
+        Read W  // WRONG, despite that W preceded X.
+                // Even if W is part of the causality chain that caused X to be filled!!!
+\end{verbatim}
+}
 
 \newpage
 \myTitle{Sketch of New Language Features}
