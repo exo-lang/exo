@@ -8,7 +8,8 @@ from .extern import Extern
 from .configs import Config
 from .memory import Memory
 from .prelude import Sym, SrcInfo, extclass
-
+from ..spork.lane_units import LaneSpecialization
+from ..spork.loop_modes import LoopMode
 
 # --------------------------------------------------------------------------- #
 # Validated string subtypes
@@ -46,7 +47,7 @@ class Operator(str):
     def __new__(cls, op):
         op = str(op)
         if op in front_ops:
-            return super().__new__(cls, op)
+            return super().__new__(cls, op)  #
         raise ValueError(f"invalid operator: {op}")
 
 
@@ -77,6 +78,7 @@ module LoopIR {
          | Reduce( sym name, type type, expr* idx, expr rhs )
          | WriteConfig( config config, string field, expr rhs )
          | Pass()
+         | SyncStmt( sym A, sym B ) -- sym = actor_kind or barrier var
          | If( expr cond, stmt* body, stmt* orelse )
          | For( sym iter, expr lo, expr hi, stmt* body, loop_mode loop_mode )
          | Alloc( sym name, type type, mem mem )
@@ -84,9 +86,6 @@ module LoopIR {
          | Call( proc f, expr* args )
          | WindowStmt( sym name, expr rhs )
          attributes( srcinfo srcinfo )
-
-    loop_mode = Seq()
-                | Par()
 
     expr = Read( sym name, expr* idx )
          | Const( object val )
@@ -116,6 +115,7 @@ module LoopIR {
          | Index()
          | Size()
          | Stride()
+         | Barrier()
          | Error()
          | Tensor( expr* hi, bool is_window, type type )
          -- src       - type of the tensor from which the window was created
@@ -124,6 +124,7 @@ module LoopIR {
          -- window    - the expression that created this window
          | WindowType( type src_type, type as_tensor,
                        sym src_buf, w_access *idx )
+         | LaneSpecialization()
 
 }""",
     ext_types={
@@ -134,6 +135,7 @@ module LoopIR {
         "config": Config,
         "binop": validators.instance_of(Operator, convert=True),
         "srcinfo": SrcInfo,
+        "loop_mode": LoopMode,
     },
     memoize={
         "Num",
@@ -149,6 +151,7 @@ module LoopIR {
         "Index",
         "Size",
         "Stride",
+        "Barrier",
         "Error",
     },
 )
@@ -180,6 +183,7 @@ module UAST {
             | WriteConfig ( config config, string field, expr rhs )
             | FreshAssign( sym name, expr rhs )
             | Pass    ()
+            | SyncStmt( sym A, sym B )
             | If      ( expr cond, stmt* body,  stmt* orelse )
             | For     ( sym iter,  expr cond,   stmt* body )
             | Alloc   ( sym name, type type, mem? mem )
@@ -193,8 +197,7 @@ module UAST {
             | Extern( extern f, expr* args )
             | WindowExpr( sym name, w_access* idx )
             | StrideExpr( sym name, int dim )
-            | ParRange( expr lo, expr hi ) -- only use for loop cond
-            | SeqRange( expr lo, expr hi ) -- only use for loop cond
+            | LoopRange( expr lo, expr hi, loop_mode loop_mode ) -- only use for loop cond
             | ReadConfig( config config, string field )
             attributes( srcinfo srcinfo )
 
@@ -215,7 +218,9 @@ module UAST {
             | Size  ()
             | Index ()
             | Stride()
+            | Barrier()
             | Tensor( expr *hi, bool is_window, type type )
+            | LaneSpecialization
 } """,
     ext_types={
         "name": validators.instance_of(Identifier, convert=True),
@@ -226,6 +231,7 @@ module UAST {
         "loopir_proc": LoopIR.proc,
         "op": validators.instance_of(Operator, convert=True),
         "srcinfo": SrcInfo,
+        "loop_mode": LoopMode,
     },
     memoize={
         "Num",
@@ -241,6 +247,7 @@ module UAST {
         "Size",
         "Index",
         "Stride",
+        "Barrier",
     },
 )
 
@@ -256,6 +263,7 @@ module PAST {
     stmt    = Assign  ( name name, expr* idx, expr rhs )
             | Reduce  ( name name, expr* idx, expr rhs )
             | Pass    ()
+            | SyncStmt( name A, name B )
             | If      ( expr cond, stmt* body, stmt* orelse )
             | For     ( name iter, expr lo, expr hi, stmt* body )
             | Alloc   ( name name, expr* sizes ) -- may want to add mem back in?
@@ -367,9 +375,11 @@ class T:
     Index = LoopIR.Index
     Size = LoopIR.Size
     Stride = LoopIR.Stride
+    Barrier = LoopIR.Barrier
     Error = LoopIR.Error
     Tensor = LoopIR.Tensor
     Window = LoopIR.WindowType
+    LaneSpecializationT = LoopIR.LaneSpecialization
     type = LoopIR.type
     R = Num()
     f16 = F16()
@@ -388,7 +398,9 @@ class T:
     index = Index()
     size = Size()
     stride = Stride()
+    barrier = Barrier()
     err = Error()
+    lane_specialization = LaneSpecializationT()
 
 
 # --------------------------------------------------------------------------- #
@@ -647,7 +659,7 @@ class LoopIR_Rewrite:
             new_type = self.map_t(s.type)
             if new_type:
                 return [s.update(type=new_type or s.type)]
-        elif isinstance(s, LoopIR.Pass):
+        elif isinstance(s, (LoopIR.Pass, LoopIR.SyncStmt)):
             return None
         else:
             raise NotImplementedError(f"bad case {type(s)}")
@@ -871,6 +883,10 @@ class LoopIR_Compare:
             )
         elif isinstance(s1, LoopIR.Pass):
             return True
+        elif isinstance(s1, LoopIR.SyncStmt):
+            return self.match_name(s1.before, s2.before) and self.match_name(
+                s1.after, s2.after
+            )
         elif isinstance(s1, LoopIR.If):
             return (
                 self.match_e(s1.cond, s2.cond)
@@ -1469,7 +1485,7 @@ class LoopIR_Dependencies(LoopIR_Do):
                 process_reads()
                 self._lhs = None
 
-        elif isinstance(s, (LoopIR.Pass, LoopIR.Alloc)):
+        elif isinstance(s, (LoopIR.Pass, LoopIR.Alloc, LoopIR.SyncStmt)):
             pass
         else:
             assert False, "bad case"

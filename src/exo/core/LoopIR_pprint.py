@@ -9,6 +9,7 @@ from yapf.yapflib.yapf_api import FormatCode
 
 from .LoopIR import T
 from .LoopIR import UAST, LoopIR
+from ..spork.loop_modes import format_loop_cond
 from .internal_cursors import Node, Gap, Block, Cursor, InvalidCursorError, GapType
 from .prelude import *
 
@@ -182,6 +183,8 @@ class UAST_PPrinter:
         for stmt in body:
             if isinstance(stmt, UAST.Pass):
                 self.addline("pass")
+            elif isinstance(stmt, UAST.SyncStmt):
+                self.addline(f"{stmt.before} // {stmt.after}")
             elif isinstance(stmt, UAST.Assign) or isinstance(stmt, UAST.Reduce):
                 op = "=" if isinstance(stmt, UAST.Assign) else "+="
 
@@ -252,10 +255,8 @@ class UAST_PPrinter:
             return s
         elif isinstance(e, UAST.USub):
             return f"-{self.pexpr(e.arg, prec=op_prec['~'])}"
-        elif isinstance(e, UAST.ParRange):
-            return f"par({self.pexpr(e.lo)},{self.pexpr(e.hi)})"
-        elif isinstance(e, UAST.SeqRange):
-            return f"seq({self.pexpr(e.lo)},{self.pexpr(e.hi)})"
+        elif isinstance(e, UAST.LoopRange):
+            return format_loop_cond(self.pexpr(e.lo), self.pexpr(e.hi), e.loop_mode)
         elif isinstance(e, UAST.WindowExpr):
 
             def pacc(w):
@@ -306,6 +307,8 @@ class UAST_PPrinter:
             return "index"
         elif isinstance(t, UAST.Size):
             return "size"
+        elif isinstance(t, UAST.Barrier):
+            return "barrier"
         elif isinstance(t, UAST.Tensor):
             base = str(t.basetype())
             if t.is_window:
@@ -409,6 +412,9 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
     if isinstance(stmt, LoopIR.Pass):
         return [f"{indent}pass"]
 
+    elif isinstance(stmt, LoopIR.SyncStmt):
+        return [f"{indent}{stmt.A} // {stmt.B}"]
+
     elif isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
         op = "=" if isinstance(stmt, LoopIR.Assign) else "+="
 
@@ -455,11 +461,9 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
     elif isinstance(stmt, LoopIR.For):
         lo = _print_expr(stmt.lo, env)
         hi = _print_expr(stmt.hi, env)
+        loop_cond = format_loop_cond(lo, hi, stmt.loop_mode)
         body_env = env.push()
-        loop_type = "par" if isinstance(stmt.loop_mode, LoopIR.Par) else "seq"
-        lines = [
-            f"{indent}for {body_env.get_name(stmt.iter)} in {loop_type}({lo}, {hi}):"
-        ]
+        lines = [f"{indent}for {body_env.get_name(stmt.iter)} in {loop_cond}:"]
         lines.extend(_print_block(stmt.body, body_env, indent + "  "))
         return lines
 
@@ -564,6 +568,8 @@ def _print_type(t, env: PrintEnv) -> str:
         )
     elif isinstance(t, T.Stride):
         return "stride"
+    elif isinstance(t, T.Barrier):
+        return "barrier"
 
     assert False, f"impossible type {type(t)}"
 
@@ -703,10 +709,10 @@ def _print_cursor_stmt(
     elif isinstance(stmt, LoopIR.For):
         lo = _print_expr(stmt.lo, env)
         hi = _print_expr(stmt.hi, env)
+        loop_cond = format_loop_cond(lo, hi, stmt.loop_mode)
         body_env = env.push()
-        loop_type = "par" if isinstance(stmt.loop_mode, LoopIR.Par) else "seq"
         lines = [
-            f"{indent}for {body_env.get_name(stmt.iter)} in {loop_type}({lo}, {hi}):",
+            f"{indent}for {body_env.get_name(stmt.iter)} in {loop_cond}:",
             *_print_cursor_block(cur.body(), target, body_env, indent + "  "),
         ]
 

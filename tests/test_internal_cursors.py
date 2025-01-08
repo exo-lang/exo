@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from exo import proc, SchedulingError, Procedure
+from exo import proc, SchedulingError, Procedure, loop_modes
 from exo.core.LoopIR import LoopIR, T
 from exo.core.LoopIR_pprint import _print_cursor
 from exo.core.internal_cursors import (
@@ -629,7 +629,7 @@ def test_wrap_block(proc_bar, golden):
         src = body[0].srcinfo
         zero = LoopIR.Const(0, T.index, src)
         eight = LoopIR.Const(8, T.index, src)
-        return LoopIR.For(k, zero, eight, body, LoopIR.Seq(), src)
+        return LoopIR.For(k, zero, eight, body, loop_modes.seq, src)
 
     procs = []
     for i in range(0, 6):
@@ -877,7 +877,7 @@ def test_wrap_forwarding_for_blocks(proc_baz, golden):
         src = body[0].srcinfo
         zero = LoopIR.Const(0, T.index, src)
         eight = LoopIR.Const(8, T.index, src)
-        return LoopIR.For(k, zero, eight, body, LoopIR.Seq(), src)
+        return LoopIR.For(k, zero, eight, body, loop_modes.seq, src)
 
     _, fwd = c._wrap(wrapper, "body")
 
