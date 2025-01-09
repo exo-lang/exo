@@ -321,7 +321,11 @@ Child for loops must not be parallel-for loops, and must not specify a different
 The iteration variable is an \textbf{async-temporal loop index}.
 
 \filbreak
-(Rationale: jrk asked why I proposed extending for loops for this feature.
+\flagged{TODO} it may be time for me to admit this is probably not a good idea.
+We may want to define async-blocks using Python \lighttt{with} syntax instead.
+
+\filbreak
+(Old rationale: jrk asked why I proposed extending for loops for this feature.
 I expect in the typical case, this feature is a natural extension of loop tiling.
 For example, I may divide and re-order loops (y,x) to (yo,xo,yi,xi) so that the inner loops can be replaced with a custom accelerator instruction.
 If I'm using wgmma, I just have to additionally tag the inner loops as \lighttt{wgmma\_async}.)
@@ -347,7 +351,7 @@ Example:
 \filbreak
 \myKey{Sequential-for:} for loops other than as described above are sequential-for loops.
 The iteration variable is a \textbf{sync-temporal loop index}.
-(Note, maybe the sync-temporal vs async-temporal distinction is not so important, but I think spatial vs temporal clearly is).
+(Note, maybe the sync-temporal vs async-temporal distinction is not so important, but I think spatial vs temporal clearly is, and anyway the \flagged{async for} loop is going away).
 
 \hook{Hook:} Need to teach Exo that parallel-for and async-for loops are to be treated as ordinary for loops under S-semantics.
 
@@ -362,6 +366,8 @@ This would be needed for ring buffer optimization to work for deep pipelining.
 
 \hook{Hook:} Need to teach Exo to statically verify the promise, or pass through the mapping function to codegen in order to generate the assert.
 I'm probably going to put off this feature until much later.
+
+\flagged{TODO} could be an extension of ``collective assignment''.
 
 \filbreak
 \myKey{Synchronization Statement:} We need to support arrive, await, and non-split barriers (e.g. plain old \lighttt{\_\_syncthreads}), which act as a combined arrive-await statement.
@@ -433,6 +439,10 @@ This will probably be sound but not complete.
 \myKey{Kernel parameters:} CUDA code (i.e. code with \lighttt{cuda\_all} actor kind) can read but not write scalar CPU variables ... these are implicitly understood to be kernel parameters passed to the grid launch.
 We can take a census of the kernel parameters needed similar to how we determine whether pointers are const or non-const.
 
+\flagged{TODO} fat pointers e.g. tensorMap.
+Need to be prepared on the CPU prior to kernel launch and passed to the kernel.
+So we need to take a ``census'' of fat pointers needed on the kernel and generate CPU code to prepare them.
+
 \filbreak
 \myKey{Distributed Memory (GPU Registers):} CUDA registers need to be modelled as ``distributed memory'', where we understand the storage for an array as being distributed across lanes (i.e. threads; wmma and wgmma registers may instead be distributed across warps/warpgroups) and such that the $n^{th}$ array entry can (mostly) only be accessed by the $n^{th}$ lane.
 The reason for this is the barrier lifting requirement, so we cannot declare cuda register variables at thread-scope if we want them to survive across synchronization statements, e.g. something like the following won't work:
@@ -470,6 +480,8 @@ I say ``mostly'' earlier because we may want to model warp shuffles, where threa
 We can externalize this as some sort of accelerator function, or bake this into the compiler.
 Both have pros and cons; the former sounds attractive, but has hidden complications.
 For example, if we externalize the shuffle, the shuffle has to be able to comprehend translating multi-dimensional parallelism to a literal thread index, e.g. in the following:
+
+\flagged{TODO} this also applies to distributed shared memory.
 
 \filbreak
 {\color{lightttColor}
@@ -537,11 +549,19 @@ The parscope contains one parlane of the given unit type for each point (index) 
 The resources of a parlane are a subset of its parent parlane (except for the case of a CPU thread launching a CUDA grid, where the resources are defined by the grid size); the resources are defined by the shape and the optional resource specialization.
 There must not be more parlanes than that supported by the available resources, but there may be fewer.
 
+\flagged{TODO} maybe this is not a good restriction.
+We may want to allow a larger iteration space than the number of parlanes/collectives available, and schedule temporally based on a certain ``collective assignment''.
+This is particularly needed at the top-level (CTAs or clusters) where we may want to map in some non-trivial way all the ``work units'' to a fixed-size number of clusters/CTAs that depends on the hardware resources available.
+However, this will pose difficulties for distributed memory.
+
 \filbreak
 \myKey{Parlane:} A single unit of a parscope, which is assigned to execute one iteration of the parscope's defining parallel-for loop.
 Only parlanes with lane unit type cpu-thread or cuda-thread can execute ``ordinary'' arithmetic, read, or write instructions.
 The expectation is that after scheduling, all code at cluster, block, warpgroup, or warp scope is either synchronization, control flow, or custom procedures.
 Two parlanes are equal when they come from the same parscope and correspond to the same index.
+
+\flagged{TODO} ``lane'' name is not good.
+Consider maybe ``collective'' and ``collective unit'' (copying cutlass a bit here).
 
 \filbreak
 \myKey{Temporal/Spatial Loop Index:} Loop index variables are ``spatial'' if they correspond to a parallel-for loop and ``temporal'' otherwise, with temporal loop indices further distinguished as ``sync-temporal'' for sequential-for loops and ``async-temporal'' for async-for loops.
