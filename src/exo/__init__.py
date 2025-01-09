@@ -18,6 +18,7 @@ from .spork import actor_kinds
 from .spork import loop_modes
 from .spork import lane_units
 from .spork import sync_types
+from .spork.async_config import BaseAsyncConfig, CudaDeviceFunction, CudaAsync
 
 __version__ = "0.2.1"
 
@@ -37,8 +38,13 @@ __all__ = [
     #
     "stdlib",
     "ExoType",
+    #
     "actor_kinds",
     "loop_modes",
     "lane_units",
     "sync_types",
+    #
+    "BaseAsyncConfig",
+    "CudaDeviceFunction",
+    "CudaAsync",
 ]

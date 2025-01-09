@@ -137,6 +137,9 @@ class SporkEnv(object):
     def __bool__(self):
         return True
 
+    def device_name(self):
+        return "cuda"
+
     def add_line(self, line: str):
         assert isinstance(line, str)
         self._future_lines.append(line)
