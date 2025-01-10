@@ -19,7 +19,7 @@ from ..rewrite.range_analysis import IndexRangeEnvironment
 
 from ..spork.async_config import BaseAsyncConfig
 from ..spork.base_with_context import BaseWithContext, is_if_holding_with
-from ..spork.lane_units import LaneSpecialization
+from ..spork.collectives import SpecializeCollective
 from ..spork.loop_modes import LoopMode, Seq, Par
 from ..spork.spork_env import SporkEnv, KernelArgsScanner
 from ..spork import actor_kinds
@@ -983,12 +983,12 @@ class Compiler:
                 else:
                     self.spork.pop_async()
 
-            elif isinstance(ctx, LaneSpecialization):
+            elif isinstance(ctx, SpecializeCollective):
                 if not self.spork:
                     raise ValueError(
-                        f"{s.srcinfo}: LaneSpecialization outside async block"
+                        f"{s.srcinfo}: SpecializeCollective outside async block"
                     )
-                cond = self.spork.push_lane_specialization(s)
+                cond = self.spork.push_specialize_collective(s)
 
                 self.add_line(f"if ({cond}) {{")
                 self.push()
@@ -997,7 +997,7 @@ class Compiler:
                 assert len(s.orelse) == 0
                 self.add_line("}")
 
-                self.spork.pop_lane_specialization(s)
+                self.spork.pop_specialize_collective(s)
             else:
                 raise TypeError(f"Unknown with stmt context type {type(ctx)}")
 
@@ -1179,7 +1179,7 @@ class Compiler:
                 return f"{float(e.val)}"
             elif e.type == T.f32:
                 return f"{float(e.val)}f"
-            elif e.type == T.lane_specialization:
+            elif e.type == T.with_context:
                 assert False, "should be handled when compiling LoopIR.If"
             else:
                 return f"(({e.type.ctype()}) {str(e.val)})"

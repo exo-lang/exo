@@ -14,10 +14,6 @@ from ..core.configs import Config
 from ..core.LoopIR import UAST, PAST, front_ops
 from ..core.prelude import *
 from ..core.extern import Extern
-from ..spork.lane_units import (
-    LaneSpecialization,
-    lane_unit_dict,
-)
 from ..spork.actor_kinds import actor_kind_dict
 from ..spork.base_with_context import BaseWithContext, is_if_holding_with
 from ..spork.loop_modes import LoopMode, loop_mode_dict
@@ -1080,8 +1076,6 @@ class Parser:
                     op = "is"
                 elif isinstance(opnode, pyast.IsNot):
                     op = "is not"
-                elif isinstance(opnode, pyast.In):
-                    assert False, "should have been parsed as LaneSpecialization"
                 elif isinstance(opnode, pyast.NotIn):
                     op = "not in"
                 else:

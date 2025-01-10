@@ -1,7 +1,7 @@
 from typing import Optional, Set
 
 from ..core.prelude import SrcInfo
-from . import lane_units
+from . import collectives
 from . import actor_kinds
 
 
@@ -13,7 +13,7 @@ class LoopMode(object):
     def loop_mode_name(self):
         raise NotImplementedError()
 
-    def lane_unit(self):
+    def collective_unit(self):
         raise NotImplementedError()
 
 
@@ -43,8 +43,8 @@ class Par(LoopMode):
     def loop_mode_name(self):
         return "par"
 
-    def lane_unit(self):
-        return lane_units.cpu_thread
+    def collective_unit(self):
+        return collectives.cpu_thread
 
 
 par = Par()
@@ -61,8 +61,8 @@ class CudaClusters(LoopMode):
     def loop_mode_name(self):
         return "cuda_clusters"
 
-    def lane_unit(self):
-        return lane_units.cuda_cluster
+    def collective_unit(self):
+        return collectives.cuda_cluster
 
 
 cuda_clusters = CudaClusters()
@@ -79,8 +79,8 @@ class CudaBlocks(LoopMode):
     def loop_mode_name(self):
         return "cuda_blocks"
 
-    def lane_unit(self):
-        return lane_units.cuda_block
+    def collective_unit(self):
+        return collectives.cuda_block
 
 
 cuda_blocks = CudaBlocks()
@@ -97,8 +97,8 @@ class CudaWarpgroups(LoopMode):
     def loop_mode_name(self):
         return "cuda_warpgroups"
 
-    def lane_unit(self):
-        return lane_units.cuda_warpgroup
+    def collective_unit(self):
+        return collectives.cuda_warpgroup
 
 
 cuda_warpgroups = CudaWarpgroups()
@@ -115,8 +115,8 @@ class CudaWarps(LoopMode):
     def loop_mode_name(self):
         return "cuda_warps"
 
-    def lane_unit(self):
-        return lane_units.cuda_warp
+    def collective_unit(self):
+        return collectives.cuda_warp
 
 
 cuda_warps = CudaWarps()
@@ -133,8 +133,8 @@ class CudaThreads(LoopMode):
     def loop_mode_name(self):
         return "cuda_threads"
 
-    def lane_unit(self):
-        return lane_units.cuda_thread
+    def collective_unit(self):
+        return collectives.cuda_thread
 
 
 cuda_threads = CudaThreads()
