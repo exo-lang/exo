@@ -4,7 +4,7 @@ from ..core.memory import Memory
 # These generate the correct code in specific circumstances but otherwise will break.
 
 
-class CudaRegisters(Memory):
+class CudaRmem(Memory):
     # XXX this only works due to a compiler backdoor for now.
     # We strip all indexing information.
     # This should be replaced by the "distributed memory" idea later.
@@ -34,7 +34,7 @@ class CudaRegisters(Memory):
         return lhs.split("[")[0]
 
 
-class CudaShared(Memory):
+class CudaSmem(Memory):
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
         # Should check shape is constexpr

@@ -77,7 +77,7 @@ def await_type(second_actor_kind: ActorKind):
 
 
 cuda_syncthreads = SyncType(actor_kinds.cuda_sync, actor_kinds.cuda_generic)
-wgmma_fence = SyncType(actor_kinds.wgmma_reg, actor_kinds.wgmma_async_reg)
-fence_proxy_wgmma = SyncType(actor_kinds.cuda_sync, actor_kinds.wgmma_async_mem)
+wgmma_fence = SyncType(actor_kinds.wgmma_rmem, actor_kinds.wgmma_async_rmem)
+fence_proxy_wgmma = SyncType(actor_kinds.cuda_sync, actor_kinds.wgmma_async_smem)
 fence_proxy_tma = SyncType(actor_kinds.cuda_sync, actor_kinds.tma_to_global_async)
 cuda_stream_synchronize = SyncType(actor_kinds.cuda_all, actor_kinds.cpu)

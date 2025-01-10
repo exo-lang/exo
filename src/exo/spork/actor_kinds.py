@@ -22,9 +22,9 @@ sig_cuda_sync = ActorSignature("sig_cuda_sync")
 sig_non_bulk_cp_async = ActorSignature("sig_non_bulk_cp_async")
 sig_tma_to_shared = ActorSignature("sig_tma_to_shared")
 sig_tma_to_global = ActorSignature("sig_tma_to_global")
-sig_wgmma_reg_a = ActorSignature("sig_wgmma_reg_a")
-sig_wgmma_reg_d = ActorSignature("sig_wgmma_reg_d")
-sig_wgmma_mem = ActorSignature("sig_wgmma_mem")
+sig_wgmma_rmem_a = ActorSignature("sig_wgmma_rmem_a")
+sig_wgmma_rmem_d = ActorSignature("sig_wgmma_rmem_d")
+sig_wgmma_smem = ActorSignature("sig_wgmma_smem")
 
 
 class ActorKindCategory(Enum):
@@ -85,9 +85,9 @@ cuda_all = ActorKind(
         sig_non_bulk_cp_async,
         sig_tma_to_shared,
         sig_tma_to_global,
-        sig_wgmma_reg_a,
-        sig_wgmma_reg_d,
-        sig_wgmma_mem,
+        sig_wgmma_rmem_a,
+        sig_wgmma_rmem_d,
+        sig_wgmma_smem,
     },
 )
 
@@ -119,25 +119,27 @@ tma_to_global_async = ActorKind(
 wgmma_async = ActorKind(
     "wgmma_async",
     ActorKindCategory.ASYNC,
-    {sig_wgmma_reg_a, sig_wgmma_reg_d, sig_wgmma_mem},
+    {sig_wgmma_rmem_a, sig_wgmma_rmem_d, sig_wgmma_smem},
 )
 
 """wgmma instructions' actions on registers"""
-wgmma_async_reg = ActorKind(
-    "wgmma_async_reg", ActorKindCategory.SYNTHETIC, {sig_wgmma_reg_a, sig_wgmma_reg_d}
+wgmma_async_rmem = ActorKind(
+    "wgmma_async_rmem",
+    ActorKindCategory.SYNTHETIC,
+    {sig_wgmma_rmem_a, sig_wgmma_rmem_d},
 )
 
 """wgmma instructions' actions on shared memory"""
-wgmma_async_mem = ActorKind(
-    "wgmma_async_mem", ActorKindCategory.SYNTHETIC, {sig_wgmma_mem}
+wgmma_async_smem = ActorKind(
+    "wgmma_async_smem", ActorKindCategory.SYNTHETIC, {sig_wgmma_smem}
 )
 
 """actions on wgmma matrix tile registers, either by wgmma.async
 instructions or by ordinary cuda synchronous instructions"""
-wgmma_reg = ActorKind(
-    "wgmma_reg",
+wgmma_rmem = ActorKind(
+    "wgmma_rmem",
     ActorKindCategory.SYNTHETIC,
-    {sig_cuda_sync, sig_wgmma_reg_a, sig_wgmma_reg_d},
+    {sig_cuda_sync, sig_wgmma_rmem_a, sig_wgmma_rmem_d},
 )
 
 
@@ -153,9 +155,9 @@ actor_kind_dict = {
         tma_to_shared_async,
         tma_to_global_async,
         wgmma_async,
-        wgmma_async_reg,
-        wgmma_async_mem,
-        wgmma_reg,
+        wgmma_async_rmem,
+        wgmma_async_smem,
+        wgmma_rmem,
     ]
 }
 

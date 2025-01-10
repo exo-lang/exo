@@ -288,9 +288,9 @@ For synchronization statements, the actor kind acts as a filter of the reads/wri
 \lighttt{sig\_non\_bulk\_cp\_async: } & \text{Ampere \lighttt{cp.async} (async memcpy in generic proxy)}\\
 \lighttt{sig\_tma\_to\_shared: } & \text{Hopper TMA \lighttt{cp.bulk.async} to shared memory}\\
 \lighttt{sig\_tma\_to\_global: } & \text{Hopper TMA \lighttt{cp\{.reduce\}.bulk.async} to global memory}\\
-\lighttt{sig\_wgmma\_reg\_a: } & \text{wgmma access to `A' parameter when stored in registers}\\
-\lighttt{sig\_wgmma\_reg\_d: } & \text{wgmma access to `D' parameter (accumulator) when stored in registers}\\
-\lighttt{sig\_wgmma\_mem: } & \text{wgmma access to shared memory (either `A' or `B' parameter)}
+\lighttt{sig\_wgmma\_rmem\_a: } & \text{wgmma access to `A' parameter when stored in registers}\\
+\lighttt{sig\_wgmma\_rmem\_d: } & \text{wgmma access to `D' parameter (accumulator) when stored in registers}\\
+\lighttt{sig\_wgmma\_smem: } & \text{wgmma access to shared memory (either `A' or `B' parameter)}
 \end{align*}
 
 \filbreak
@@ -305,9 +305,9 @@ They are valid only for synchronization statements (later), and represent subset
 \texttt{tma\_to\_shared\_async: } & \text{\{\lighttt{sig\_tma\_to\_shared}\}}\\
 \texttt{tma\_to\_global\_async: } & \text{\{\lighttt{sig\_tma\_to\_global}\}}\\
 \texttt{wgmma\_async: } & \text{wgmma instructions; \{\lighttt{sig\_wgmma\_*}\}}\\
-\graytt{wgmma\_async\_reg: } & \text{actions on wgmma register tiles by wgmma instructions; \{\lighttt{sig\_wgmma\_reg\_*}\}}\\
-\graytt{wgmma\_async\_mem: } & \text{actions on shared memory by wgmma instructions; \{\lighttt{sig\_wgmma\_mem}\}}\\
-\graytt{wgmma\_reg: } & \text{\{\lighttt{sig\_cuda\_sync}, \lighttt{sig\_wgmma\_reg\_*}\}}
+\graytt{wgmma\_async\_rmem: } & \text{actions on wgmma register tiles by wgmma instructions; \{\lighttt{sig\_wgmma\_rmem\_*}\}}\\
+\graytt{wgmma\_async\_smem: } & \text{actions on shared memory by wgmma instructions; \{\lighttt{sig\_wgmma\_smem}\}}\\
+\graytt{wgmma\_rmem: } & \text{\{\lighttt{sig\_cuda\_sync}, \lighttt{sig\_wgmma\_rmem\_*}\}}
 \end{align*}
 
 \filbreak
@@ -415,9 +415,9 @@ For non-split barriers, we support the following:
 
 \texttt{Fence(cuda\_sync, cuda\_generic)}: \lighttt{\_\_syncthreads()} and similar barriers
 
-\texttt{Fence(wgmma\_reg, wgmma\_async\_reg)}: PTX \wgmmaFence
+\texttt{Fence(wgmma\_rmem, wgmma\_async\_rmem)}: PTX \wgmmaFence
 
-\texttt{Fence(cuda\_sync, wgmma\_async\_mem)}: \fenceProxyAsync\ at warpgroup scope
+\texttt{Fence(cuda\_sync, wgmma\_async\_smem)}: \fenceProxyAsync\ at warpgroup scope
 
 \texttt{Fence(cuda\_sync, tma\_to\_global\_async)}: \fenceProxyAsync\ at thread scope\footnote{Not sure about this one ... the underlying instruction is the same as the previous but \cpAsyncBulk\ instructions are issued per-thread, not per-warpgroup, so the interaction between cooperative CUDA synchronous code and TMA is quite different compared to wgmma.}
 
@@ -452,11 +452,11 @@ The reason for this is the barrier lifting requirement, so we cannot declare cud
 \begin{verbatim}
 for blockIdx in cuda_blocks(lo, hi, warps = 8):
     for threadIdx in cuda_threads(0, 256):
-        x : f32 @ CUDA_REGISTER
+        x : f32 @ CudaRmem
         x = foo()
     Fence(cuda_sync, cuda_generic)  # __syncthreads() executed convergently by 1 block
     for threadIdx in cuda_threads(0, 256):
-        y : f32 @ CUDA_REGISTER
+        y : f32 @ CudaRmem
         y = doSth(x)  # uh oh, x was freed above
 \end{verbatim}
 }
@@ -466,12 +466,12 @@ Instead we need this:
 {\color{lightttColor}
 \begin{verbatim}
 for blockIdx in cuda_blocks(lo, hi, warps = 8):
-    x : f32[256] @ CUDA_REGISTER
+    x : f32[256] @ CudaRmem
     for threadIdx in cuda_threads(0, 256):
         x[threadIdx] = foo()
     Fence(cuda_sync, cuda_generic)  # __syncthreads() executed convergently by 1 block
     for threadIdx in cuda_threads(0, 256):
-        y : f32 @ CUDA_REGISTER
+        y : f32 @ CudaRmem
         y = doSth(x[threadIdx])
 \end{verbatim}
 }
@@ -487,10 +487,10 @@ For example, if we externalize the shuffle, the shuffle has to be able to compre
 {\color{lightttColor}
 \begin{verbatim}
 for blockIdx in cuda_blocks(lo, hi, warps = 8):
-    home_value : f32[8,2,4,2,2] @ CUDA_REGISTER
-    xor_x_value : f32[8,2,4,2,2] @ CUDA_REGISTER
-    xor_y_value : f32[8,2,4,2,2] @ CUDA_REGISTER
-    xor_xy_value : f32[8,2,4,2,2] @ CUDA_REGISTER
+    home_value : f32[8,2,4,2,2] @ CudaRmem
+    xor_x_value : f32[8,2,4,2,2] @ CudaRmem
+    xor_y_value : f32[8,2,4,2,2] @ CudaRmem
+    xor_xy_value : f32[8,2,4,2,2] @ CudaRmem
     for w in cuda_warps(0, 8):
         # Map 2 x 4 x 2 x 2 iteration space to the 32 threads of a warp
         for yo in cuda_threads(0, 2):
@@ -650,7 +650,7 @@ The new assignment record has no read access records, no pending barrier awaits,
 \filbreak
 \begin{enumerate}
   \item $V_A$ set to the write's accessor set (both for synchronous and asynchronous instructions);
-  \item $V_S$ set to the write's accessor set if the instruction is synchronous, empty otherwise\footnote{Special treatment needed for wgmma registers; accesses with actor signature \lighttt{wgmma\_reg\_d} (accumulator) go in $V_S$ despite wgmma instructions otherwise being asynchronous.};
+  \item $V_S$ set to the write's accessor set if the instruction is synchronous, empty otherwise\footnote{Special treatment needed for wgmma registers; accesses with actor signature \lighttt{wgmma\_rmem\_d} (accumulator) go in $V_S$ despite wgmma instructions otherwise being asynchronous.};
   \item an empty pending barrier awaits;
   \item $A_O$ set to the actor signature of the accessor set.
 \end{enumerate}

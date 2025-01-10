@@ -25,7 +25,7 @@ from ..spork.spork_env import SporkEnv, KernelArgsScanner
 from ..spork import actor_kinds
 
 # XXX used for backdoor
-from ..spork.cuda_memory import CudaRegisters
+from ..spork.cuda_memory import CudaRmem
 
 
 def sanitize_str(s):
@@ -1148,8 +1148,8 @@ class Compiler:
 
             mem: Memory = self.mems[e.name]
 
-            if mem is CudaRegisters:  # BACKDOOR
-                warnings.warn("Backdoor for reading CudaRegisters")
+            if mem is CudaRmem:  # BACKDOOR
+                warnings.warn("Backdoor for reading CudaRmem")
                 return self.env[e.name]
 
             if not mem.can_read():
