@@ -65,6 +65,7 @@ from ..API_scheduling import (
     # loop rewriting
     parallelize_loop,
     set_loop_mode,
+    tmp_add_with,
     divide_with_recompute,
     divide_loop,
     mult_loops,

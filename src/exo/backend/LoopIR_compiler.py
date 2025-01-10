@@ -853,7 +853,11 @@ class Compiler:
         return win.name
 
     def get_actor_kind(self):
-        return self.spork.get_actor_kind() if self.spork else actor_kinds.cpu
+        return (
+            self.spork.get_async_config().get_actor_kind()
+            if self.spork
+            else actor_kinds.cpu
+        )
 
     def comp_s(self, s):
         if isinstance(s, LoopIR.Pass):
@@ -918,8 +922,31 @@ class Compiler:
         elif is_if_holding_with(s, LoopIR):  # must be before .If case
             ctx = s.cond.val
             if isinstance(ctx, BaseAsyncConfig):
-                # TODO check valid nesting
                 starting_kernel = not self.spork
+
+                # Check async block is valid here
+                expected_async_type = ctx.parent_async_type()
+                parent_async_config = (
+                    self.spork.get_async_config() if self.spork else "<no async block>"
+                )
+                expected_str = (
+                    expected_async_type.__name__
+                    if expected_async_type
+                    else "<no async block>"
+                )
+
+                if (
+                    self.spork
+                    and expected_async_type
+                    and isinstance(parent_async_config, expected_async_type)
+                ):
+                    pass
+                elif not self.spork and not expected_async_type:
+                    pass
+                else:
+                    raise TypeError(
+                        f"Async block {ctx} must be nested in {expected_str}, not {parent_async_config}"
+                    )
 
                 if starting_kernel:
                     old_tabs = self._tab
@@ -1001,9 +1028,7 @@ class Compiler:
             )
 
             loop_mode = s.loop_mode
-            actor_kind = (
-                actor_kinds.cpu if not self.spork else self.spork.get_actor_kind()
-            )
+            actor_kind = self.get_actor_kind()
             if actor_kind not in loop_mode.allowed_actor_kinds:
                 # Users will definitely comprehend this error message
                 raise TypeError(

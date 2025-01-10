@@ -11,6 +11,7 @@ from .API import Procedure
 import exo.API_cursors as PC
 from .core.LoopIR import LoopIR, T
 from .spork.actor_kinds import ActorKind
+from .spork.base_with_context import BaseWithContext
 from .spork.loop_modes import LoopMode, seq, par, loop_mode_dict
 from .spork.sync_types import SyncType
 import exo.rewrite.LoopIR_scheduling as scheduling
@@ -358,10 +359,22 @@ class LoopModeA(ArgumentProcessor):
         if not isinstance(val, LoopMode):
             if isinstance(val, type):
                 self.err(
-                    f"expected a LoopMode, not type (did you mean `{val.__name__}()`)?"
+                    f"expected a LoopMode instance, not type (did you mean `{val.__name__}()`)?"
                 )
             else:
                 self.err(f"expected a LoopMode, not {type(val)}")
+        return val
+
+
+class TmpWithContextA(ArgumentProcessor):
+    def __call__(self, val, all_args):
+        if not isinstance(val, BaseWithContext):
+            if isinstance(val, type):
+                self.err(
+                    f"expected a BaseWithContext instance, not type (did you mean `{val.__name__}()`)?"
+                )
+            else:
+                self.err(f"expected a BaseWithContext, not {type(val)}")
         return val
 
 
@@ -947,6 +960,12 @@ def set_loop_mode(proc, loop_cursor, loop_mode):
     loop = loop_cursor._impl
 
     ir, fwd = scheduling.DoSetLoopMode(loop, loop_mode)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([BlockCursorA, TmpWithContextA])
+def tmp_add_with(proc, block_cursor, with_context):
+    ir, fwd = scheduling.DoTmpAddWith(block_cursor._impl, with_context)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 

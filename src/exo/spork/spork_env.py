@@ -91,7 +91,7 @@ class SporkEnv(object):
     _base_kernel_name: str
     _future_lines: List
     _parallel_for_stack: Optional[ParallelForRecord]
-    _actor_kind_stack: List[ActorKind]
+    _async_config_stack: List[BaseAsyncConfig]
     _parscope: ParscopeEnv
     _cluster_size: Optional[int]
     _blockDim: int
@@ -101,7 +101,7 @@ class SporkEnv(object):
         "_base_kernel_name": "Prefix of name of the CUDA kernel being generated",
         "_future_lines": "List of str lines, or objects that can be converted to str TODO",
         "_parallel_for_stack": "Info pushed for each parallel for",
-        "_actor_kind_stack": "Info pushed for each ActorKind change",
+        "_async_config_stack": "Info pushed for each async block",
         "_parscope": "Current Parscope information",
         "_clusterDim": "Cuda blocks per cuda cluster",
         "_blockDim": "Cuda threads per cuda block",
@@ -109,17 +109,16 @@ class SporkEnv(object):
     }
 
     def __init__(self, base_kernel_name: str, async_stmt: LoopIR.If):
-        self._base_kernel_name = base_kernel_name
-        self._future_lines = []
-        self._parallel_for_stack = []
-        self._actor_kind_stack = [cuda_sync]
-        self._parscope = None
-
         assert isinstance(async_stmt, LoopIR.If)
         assert isinstance(async_stmt.cond, LoopIR.Const)
         assert isinstance(async_stmt.cond.val, CudaDeviceFunction)
-
         config = async_stmt.cond.val
+
+        self._base_kernel_name = base_kernel_name
+        self._future_lines = []
+        self._parallel_for_stack = []
+        self._async_config_stack = [config]
+        self._parscope = None
         self._clusterDim = config.clusterDim
         self._blockDim = config.blockDim
 
@@ -151,18 +150,18 @@ class SporkEnv(object):
         assert isinstance(line, str)
         self._future_lines.append(line)
 
-    def get_actor_kind(self):
-        assert self._actor_kind_stack
-        return self._actor_kind_stack[-1]
+    def get_async_config(self):
+        assert self._async_config_stack
+        return self._async_config_stack[-1]
 
     def push_async(self, config: BaseAsyncConfig):
         assert isinstance(
             config, CudaAsync
         ), "compiler error: incorrect async_config should have been detected earlier"
-        self._actor_kind_stack.append(config.get_actor_kind())
+        self._async_config_stack.append(config)
 
     def pop_async(self):
-        self._actor_kind_stack.pop()
+        self._async_config_stack.pop()
 
     def push_for(
         self,
@@ -404,7 +403,7 @@ class SporkEnv(object):
         # Error message helper
         def kvetch(reason):
             parts = []
-            parts.append("{parscope.root_node.srcinfo}:")
+            parts.append(f"{parscope.root_node.srcinfo}:")
             parts.append(f"invalid parallel {parscope.lane_unit} loop:")
             parts.append(reason)
             parts.append("\nITERATION VARS:")

@@ -2723,6 +2723,20 @@ def DoAddLoop(stmt_cursor, var, hi, guard, unsafe_disable_check):
     return ir, fwd
 
 
+def DoTmpAddWith(block_cursor, with_context):
+    assert len(block_cursor) > 0, "can't wrap empty block"
+
+    def wrapper(body):
+        srcinfo = block_cursor[0]._node.srcinfo
+        cond = LoopIR.Const(with_context, T.with_context, srcinfo)
+        _if = LoopIR.If(cond, body, [], srcinfo)
+        assert is_if_holding_with(_if, LoopIR)
+        return _if
+
+    ir, fwd = block_cursor._wrap(wrapper, "body")
+    return ir, fwd
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 #   Factor out a sub-statement as a Procedure scheduling directive
