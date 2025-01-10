@@ -16,10 +16,10 @@ from ..core.prelude import *
 from ..core.extern import Extern
 from ..spork.lane_units import (
     LaneSpecialization,
-    LaneSpecializationPattern,
     lane_unit_dict,
 )
 from ..spork.actor_kinds import actor_kind_dict
+from ..spork.base_with_context import BaseWithContext, is_if_holding_with
 from ..spork.loop_modes import LoopMode, loop_mode_dict
 from ..spork.sync_types import SyncType, arrive_type, await_type
 
@@ -209,9 +209,7 @@ class Parser:
                     is_expr = True
 
             if is_expr:
-                self._cached_result = self.parse_expr(
-                    s.value, allow_lane_specialization=True
-                )
+                self._cached_result = self.parse_expr(s.value)
             else:
                 self._cached_result = self.parse_stmt_block(module_ast)
         else:
@@ -699,10 +697,40 @@ class Parser:
                 orelse = self.parse_stmt_block(s.orelse)
                 self.pop()
 
-                # Must be no orelse to allow lane specialization.
-                cond = self.parse_expr(s.test, allow_lane_specialization=not orelse)
+                cond = self.parse_expr(s.test)
 
                 rstmts.append(self.AST.If(cond, body, orelse, self.getsrcinfo(s)))
+
+            # ----- With statement parsing
+            elif isinstance(s, pyast.With):
+                self.push()
+                body = self.parse_stmt_block(s.body)
+                self.pop()
+
+                if len(s.items) != 1:
+                    self.err(s, "expected only 1 withitem")
+                context_pyast = s.items[0].context_expr
+                if (
+                    self.is_fragment
+                    and isinstance(context_pyast, pyast.Name)
+                    and context_pyast.id == "_"
+                ):
+                    ctx = BaseWithContext()  # """hole"""
+                else:
+                    # TODO this doesn't work when self.is_fragment is true.
+                    assert not self.is_fragment
+                    ctx = self.eval_expr(context_pyast)
+                if isinstance(ctx, BaseWithContext):
+                    # XXX With statement disguised as If statement temporarily
+                    cond = self.AST.Const(ctx, self.getsrcinfo(s))
+                    new_stmt = self.AST.If(cond, body, [], self.getsrcinfo(s))
+                    assert is_if_holding_with(new_stmt, self.AST)
+                    rstmts.append(new_stmt)
+                else:
+                    self.err(
+                        s.items[0].context_expr,
+                        "Unsupported context type for with: {type(ctx)}",
+                    )
 
             # ----- SyncStmt or Sub-routine call parsing
             elif (
@@ -794,8 +822,9 @@ class Parser:
     def parse_loop_cond(self, cond):
         if isinstance(cond, pyast.Call):
             if isinstance(cond.func, pyast.Name) and cond.func.id in loop_mode_dict:
+                # TODO may change my mind about kwargs entirely?
                 loop_mode_kwargs = {
-                    kw.arg: self.parse_expr(kw.value) for kw in cond.keywords
+                    kw.arg: self.eval_expr(kw.value) for kw in cond.keywords
                 }
                 if len(cond.args) != 2:
                     self.err(
@@ -895,7 +924,7 @@ class Parser:
             return UAST.Point(self.parse_expr(e), srcinfo)
 
     # parse expressions, including values, indices, and booleans
-    def parse_expr(self, e, allow_lane_specialization=False):
+    def parse_expr(self, e):
         if isinstance(e, (pyast.Name, pyast.Subscript)):
             nm_node, idxs, is_window = self.parse_array_indexing(e)
 
@@ -1028,9 +1057,6 @@ class Parser:
         elif isinstance(e, pyast.Compare):
             assert len(e.ops) == len(e.comparators)
 
-            if len(e.ops) == 1 and isinstance(e.ops[0], pyast.In):
-                return self.parse_lane_specialization(e, allow_lane_specialization)
-
             vals = [self.parse_expr(e.left)] + [
                 self.parse_expr(v) for v in e.comparators
             ]
@@ -1132,58 +1158,6 @@ class Parser:
 
         else:
             self.err(e, "unsupported form of expression")
-
-    # Parse special "lane_unit in (lo, hi)" syntax
-    def parse_lane_specialization(self, e, allow_lane_specialization):
-        assert isinstance(e, pyast.Compare)
-        assert len(e.ops) == 1 and isinstance(e.ops[0], pyast.In)
-
-        lhs_ast = e.left
-        rhs_ast = e.comparators[0]
-
-        if (
-            not isinstance(lhs_ast, pyast.Name)
-            or not isinstance(rhs_ast, pyast.Tuple)
-            or len(rhs_ast.elts) != 2
-        ):
-            self.err(e, "expected 'lane_unit in (lo, hi)'")
-
-        unit_name = lhs_ast.id
-
-        lo = self.parse_expr(rhs_ast.elts[0])
-        hi = self.parse_expr(rhs_ast.elts[1])
-
-        def unbox(e_const):
-            err_msg = (
-                "must have literal non-negative int bounds for lane specialization"
-            )
-            if isinstance(e_const, PAST.E_Hole):
-                return None
-            if not isinstance(e_const, self.AST.Const):
-                self.err(e, err_msg)
-            n = e_const.val
-            if not isinstance(n, int) or n < 0:
-                self.err(e, err_msg)
-            return n
-
-        if self.is_fragment and unit_name == "_":
-            unit = None
-        else:
-            unit = lane_unit_dict.get(unit_name)
-            if not unit:
-                self.err(e, f"unknown lane specialization unit: {repr(unit_name)}")
-
-        if self.is_fragment:
-            lane_specialization = LaneSpecializationPattern(unit, unbox(lo), unbox(hi))
-        else:
-            lane_specialization = LaneSpecialization(unit, unbox(lo), unbox(hi))
-
-        if not allow_lane_specialization:
-            self.err(
-                e,
-                f"lane specialization '{lane_specialization}' only allowed inside if statements with no else",
-            )
-        return self.AST.Const(lane_specialization, self.getsrcinfo(e))
 
     # Parse SyncStmt
     def parse_SyncStmt_call(self, ast_call: pyast.Call):

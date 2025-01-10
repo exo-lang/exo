@@ -1,9 +1,10 @@
 from typing import Optional
 from .actor_kinds import ActorKind
 from . import actor_kinds
+from .base_with_context import BaseWithContext
 
 
-class BaseAsyncConfig(object):
+class BaseAsyncConfig(BaseWithContext):
     """Base class for a configuration of an async block.
 
     For example, the derived CudaDeviceFunction configures a block of code to be interpreted as code lowered to a CUDA device function.
@@ -13,10 +14,10 @@ class BaseAsyncConfig(object):
 
     __slots__ = []
 
-    def actor_kind(self):
+    def get_actor_kind(self):
         raise NotImplementedError()
 
-    def device_name(self):
+    def get_device_name(self):
         raise NotImplementedError()
 
     def parent_async_type(self) -> Optional[type]:
@@ -29,41 +30,50 @@ class BaseAsyncConfig(object):
 
 
 class CudaDeviceFunction(BaseAsyncConfig):
-    __slots__ = ["block_size", "cluster_size"]
+    __slots__ = ["blockDim", "clusterDim"]
 
-    def __init__(self, block_size : int, cluster_size : int = 1):
-        assert isinstance(block_size, int) and block_size > 0
-        assert isinstance(cluster_size, int) and cluster_size > 0
-        self.block_size = block_size
-        self.cluster_size = cluster_size
+    def __init__(self, blockDim: int, clusterDim: int = 1):
+        assert isinstance(blockDim, int) and blockDim > 0
+        assert isinstance(clusterDim, int) and clusterDim > 0
+        self.blockDim = blockDim
+        self.clusterDim = clusterDim
 
-    def actor_kind(self):
+    def get_actor_kind(self):
         return actor_kinds.cuda_sync  # Synchronous (non-async) CUDA instr
 
-    def device_name(self):
+    def get_device_name(self):
         return "cuda"
 
     def parent_async_type(self):
         return None
 
     def __repr__(self):
-        return f"CudaDeviceFunction({self.block_size}, {self.cluster_size})"
+        return f"CudaDeviceFunction({self.blockDim}, {self.clusterDim})"
 
     def __eq__(self, other):
-        return type(other) == CudaDeviceFunction and self.block_size == other.block_size and self.cluster_size == other.cluster_size
+        return (
+            type(other) == CudaDeviceFunction
+            and self.blockDim == other.blockDim
+            and self.clusterDim == other.clusterDim
+        )
 
 
 class CudaAsync(BaseAsyncConfig):
     __slots__ = ["_actor_kind"]
 
     def __init__(self, actor_kind):
-        assert actor_kind in [actor_kinds.non_bulk_cp_async, actor_kinds.tma_to_shared_async, actor_kinds.tma_to_global_async, actor_kinds.wgmma_async]
+        assert actor_kind in [
+            actor_kinds.non_bulk_cp_async,
+            actor_kinds.tma_to_shared_async,
+            actor_kinds.tma_to_global_async,
+            actor_kinds.wgmma_async,
+        ]
         self._actor_kind = actor_kind
 
-    def actor_kind(self):
+    def get_actor_kind(self):
         return self._actor_kind
 
-    def device_name(self):
+    def get_device_name(self):
         return "cuda"
 
     def parent_async_type(self):
@@ -71,7 +81,6 @@ class CudaAsync(BaseAsyncConfig):
 
     def __repr__(self):
         return f"CudaAsync({self._actor_kind})"
-    
+
     def __eq__(self, other):
         return type(other) == CudaAsync and self._actor_kind == other._actor_kind
-

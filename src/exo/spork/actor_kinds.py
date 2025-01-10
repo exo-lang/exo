@@ -37,23 +37,18 @@ class ActorKind(object):
     name: str
     category: ActorKindCategory
     signatures: Set[ActorSignature]
-    allowed_parent: Optional[ActorKind]
 
-    __slots__ = ["name", "category", "signatures", "allowed_parent"]
+    __slots__ = ["name", "category", "signatures"]
 
-    def __init__(
-        self, name, category, signatures: Set[ActorSignature], allowed_parent=None
-    ):
+    def __init__(self, name, category, signatures: Set[ActorSignature]):
         self.name = name
         self.category = category
         self.signatures = signatures
-        self.allowed_parent = allowed_parent
         assert isinstance(signatures, set)
         assert all(isinstance(s, ActorSignature) for s in signatures)
         assert (category == ActorKindCategory.ASYNC) == name.endswith(
             "_async"
         ), "naming convention: names of async actor kinds must end with _async"
-        assert category != ActorKindCategory.SYNTHETIC or allowed_parent is None
 
     def is_synthetic(self):
         return self.category == ActorKindCategory.SYNTHETIC
@@ -61,9 +56,6 @@ class ActorKind(object):
     def is_async(self):
         assert self.category != ActorKindCategory.SYNTHETIC
         return self.category == ActorKindCategory.ASYNC
-
-    def allows_parent(self, parent: ActorKind):
-        return parent is self or parent is self.allowed_parent
 
     def subset_of(self, other):
         return self.signatures.issubset(other.signatures)
@@ -101,11 +93,11 @@ cuda_all = ActorKind(
 
 """Typical CUDA instructions that operate on the generic proxy
 and follow the typical per-thread in-order execution abstraction"""
-cuda_sync = ActorKind("cuda_sync", ActorKindCategory.SYNC, {sig_cuda_sync}, cpu)
+cuda_sync = ActorKind("cuda_sync", ActorKindCategory.SYNC, {sig_cuda_sync})
 
 """Ampere cp.async instructions"""
 non_bulk_cp_async = ActorKind(
-    "non_bulk_cp_async", ActorKindCategory.ASYNC, {sig_non_bulk_cp_async}, cuda_sync
+    "non_bulk_cp_async", ActorKindCategory.ASYNC, {sig_non_bulk_cp_async}
 )
 
 """CUDA generic proxy (sync and async instructions)"""
@@ -115,12 +107,12 @@ cuda_generic = ActorKind(
 
 """cp.async.bulk instructions with cluster/block shared memory as destination"""
 tma_to_shared_async = ActorKind(
-    "tma_to_shared_async", ActorKindCategory.ASYNC, {sig_tma_to_shared}, cuda_sync
+    "tma_to_shared_async", ActorKindCategory.ASYNC, {sig_tma_to_shared}
 )
 
 """cp{.reduce}.bulk.async instructions with global memory as destination"""
 tma_to_global_async = ActorKind(
-    "tma_to_global_async", ActorKindCategory.ASYNC, {sig_tma_to_global}, cuda_sync
+    "tma_to_global_async", ActorKindCategory.ASYNC, {sig_tma_to_global}
 )
 
 """wgmma instructions"""
@@ -128,7 +120,6 @@ wgmma_async = ActorKind(
     "wgmma_async",
     ActorKindCategory.ASYNC,
     {sig_wgmma_reg_a, sig_wgmma_reg_d, sig_wgmma_mem},
-    cuda_sync,
 )
 
 """wgmma instructions' actions on registers"""
@@ -167,3 +158,14 @@ actor_kind_dict = {
         wgmma_reg,
     ]
 }
+
+
+class AnyActorKind(object):
+    def __repr__(self):
+        return "any_actor_kind"
+
+    def __contains__(self, actor_kind):
+        return isinstance(actor_kind, ActorKind)
+
+
+any_actor_kind = AnyActorKind()

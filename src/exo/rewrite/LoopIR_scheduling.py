@@ -43,6 +43,7 @@ from ..frontend.pattern_match import match_pattern
 from ..core.memory import DRAM
 from ..frontend.typecheck import check_call_types
 from ..spork.loop_modes import LoopMode, seq, par
+from ..spork.base_with_context import is_if_holding_with
 
 from functools import partial
 
@@ -3500,7 +3501,12 @@ class DoSimplify(Cursor_Rewrite):
 
     def map_s(self, sc):
         s = sc._node
-        if isinstance(s, LoopIR.If):
+
+        if is_if_holding_with(s, LoopIR):  # must be before .If case
+            # Simplify the body
+            self.map_stmts(sc.body())
+
+        elif isinstance(s, LoopIR.If):
             cond = self.map_e(s.cond)
             safe_cond = cond or s.cond
 

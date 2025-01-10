@@ -16,6 +16,10 @@ from .prec_analysis import PrecisionAnalysis
 from ..core.prelude import *
 from .win_analysis import WindowAnalysis
 from ..rewrite.range_analysis import IndexRangeEnvironment
+
+from ..spork.async_config import BaseAsyncConfig
+from ..spork.base_with_context import BaseWithContext, is_if_holding_with
+from ..spork.lane_units import LaneSpecialization
 from ..spork.loop_modes import LoopMode, Seq, Par
 from ..spork.spork_env import SporkEnv, KernelArgsScanner
 from ..spork import actor_kinds
@@ -544,6 +548,7 @@ class Compiler:
         self.range_env = IndexRangeEnvironment(proc, fast=False)
         self.names = ChainMap()
         self.envtyp = dict()
+        self.async_config_stack = []
         self.spork = (
             None  # Set to SporkEnv only when compiling GPU kernel code, else None
         )
@@ -909,24 +914,70 @@ class Compiler:
             mem = self.mems[s.rhs.name]
             name = self.new_varname(s.name, typ=s.rhs.type, mem=mem)
             self.add_line(f"struct {win_struct} {name} = {rhs};")
-        elif isinstance(s, LoopIR.If):
-            is_lane_specialization = (
-                isinstance(s.cond, LoopIR.Const)
-                and s.cond.type == T.lane_specialization
-            )
-            if is_lane_specialization:
+
+        elif is_if_holding_with(s, LoopIR):  # must be before .If case
+            ctx = s.cond.val
+            if isinstance(ctx, BaseAsyncConfig):
+                # TODO check valid nesting
+                starting_kernel = not self.spork
+
+                if starting_kernel:
+                    old_tabs = self._tab
+                    self._tab = "  "
+                    device_name = ctx.get_device_name()
+                    assert (
+                        device_name == "cuda"
+                    ), "Future: subtypes of SporkEnv for non-cuda?"
+                    self.spork = SporkEnv(
+                        f"{self.proc.name}_{s.srcinfo.lineno:04d}_EXO", s
+                    )
+                else:
+                    self.spork.push_async(ctx)
+
+                self.push()
+                self.comp_stmts(s.body)
+                self.pop()
+
+                if starting_kernel:
+                    # Divert gpu code into separate lists
+                    # Insert cpu code for kernel launch
+                    proto, launch = self.spork.get_kernel_prototype_launch(
+                        s, self.env, self.envtyp, self.format_arg_ctype
+                    )
+                    kernel_body = self.spork.get_kernel_body()
+
+                    # Must clear SporkEnv now so add_line works and restore tabs
+                    self.spork = None
+                    self._tab = old_tabs
+
+                    self.spork_decls.append("namespace{" + proto + ";}")
+                    self.spork_defs.append(proto + "\n" + kernel_body)
+                    self.add_line(launch)
+                else:
+                    self.spork.pop_async()
+
+            elif isinstance(ctx, LaneSpecialization):
                 if not self.spork:
                     raise ValueError(
-                        f"{s.srcinfo}: lane specialization outside GPU scope"
-                    )
-                if len(s.orelse) > 0:
-                    raise ValueError(
-                        f"{s.srcinfo}: orelse not allowed for lane specialization"
+                        f"{s.srcinfo}: LaneSpecialization outside async block"
                     )
                 cond = self.spork.push_lane_specialization(s)
-            else:
-                cond = self.comp_e(s.cond)
 
+                self.add_line(f"if ({cond}) {{")
+                self.push()
+                self.comp_stmts(s.body)
+                self.pop()
+                assert len(s.orelse) == 0
+                self.add_line("}")
+
+                self.spork.pop_lane_specialization(s)
+            else:
+                raise TypeError(f"Unknown with stmt context type {type(ctx)}")
+
+        # If statement that is not disguising a with statement
+        # (remove note when this hack is fixed)
+        elif isinstance(s, LoopIR.If):
+            cond = self.comp_e(s.cond)
             self.add_line(f"if ({cond}) {{")
             self.push()
             self.comp_stmts(s.body)
@@ -937,9 +988,6 @@ class Compiler:
                 self.comp_stmts(s.orelse)
                 self.pop()
             self.add_line("}")
-
-            if is_lane_specialization:
-                self.spork.pop_lane_specialization(s)
 
         elif isinstance(s, LoopIR.For):
             lo = self.comp_e(s.lo)
@@ -952,31 +1000,20 @@ class Compiler:
                 s.hi,
             )
 
-            # This logic ideally would go into SporkEnv, but currently
-            # it can't due to SporkEnv not existing when CPU code is
-            # being compiled, and interaction with OpenMP-based
-            # parallel for (which Spork doesn't handle).
             loop_mode = s.loop_mode
-            old_actor_kind = self.get_actor_kind()
-            new_actor_kind = loop_mode.new_actor_kind(old_actor_kind)
-            emit_loop = True
-            starting_cuda_kernel = (
-                not self.spork and new_actor_kind is not actor_kinds.cpu
+            actor_kind = (
+                actor_kinds.cpu if not self.spork else self.spork.get_actor_kind()
             )
-            if not new_actor_kind.allows_parent(old_actor_kind):
+            if actor_kind not in loop_mode.allowed_actor_kinds:
+                # Users will definitely comprehend this error message
                 raise TypeError(
-                    f"{s.srcinfo}: cannot nest loop with actor kind {new_actor_kind} in {old_actor_kind} scope"
+                    f"{s.srcinfo}: LoopMode {type(loop_mode)} cannot be executed with actor kind {actor_kind}.\nSupported: {loop_mode.allowed_actor_kinds}"
                 )
-            if starting_cuda_kernel:
-                old_tabs = self._tab
-                self._tab = "  "
-                self.spork = SporkEnv(
-                    f"{self.proc.name}_{s.srcinfo.lineno:04d}{itr}_EXO", s
-                )
+
             if self.spork:
-                emit_loop = self.spork.push_for(
-                    s, new_actor_kind, itr, (lo, hi), sym_range, self._tab
-                )
+                emit_loop = self.spork.push_for(s, itr, (lo, hi), sym_range, self._tab)
+            else:
+                emit_loop = True
 
             if isinstance(loop_mode, Par):
                 assert emit_loop
@@ -995,22 +1032,6 @@ class Compiler:
 
             self.pop()
             self.add_line("}")
-
-            if starting_cuda_kernel:
-                # Divert gpu code into separate lists
-                # Insert cpu code for kernel launch
-                proto, launch = self.spork.get_kernel_prototype_launch(
-                    s, lo, hi, self.env, self.envtyp, self.format_arg_ctype
-                )
-                kernel_body = self.spork.get_kernel_body()
-
-                # Must clear SporkEnv now so add_line works and restore tabs
-                self.spork = None
-                self._tab = old_tabs
-
-                self.spork_decls.append("namespace{" + proto + ";}")
-                self.spork_defs.append(proto + "\n" + kernel_body)
-                self.add_line(launch)
 
         elif isinstance(s, LoopIR.Alloc):
             name = self.new_varname(s.name, typ=s.type, mem=s.mem)

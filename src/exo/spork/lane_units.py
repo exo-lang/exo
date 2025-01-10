@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Optional
 
+from .base_with_context import BaseWithContext
+
 
 class LaneUnit(object):
     """Unit type of a "parallel lane" (parlane).
@@ -56,8 +58,8 @@ lane_unit_dict = {
 }
 
 
-class LaneSpecialization(object):
-    """Valid only as the condition of an if statement with no orelse
+class LaneSpecialization(BaseWithContext):
+    """Valid as the context of an Exo with statement.
 
     This instructs the backend compiler, when targetting multi-threaded
     semantics, to distribute the child for loops over only the named
@@ -65,18 +67,18 @@ class LaneSpecialization(object):
 
     Example:
 
-    for blk_id in cuda_blocks(0, x, warps = 4):  # x blocks of 4*32 threads
-        if cuda_thread in (0, 64):
+    for blk_id in cuda_blocks(0, x):
+        with LaneSpecialization(cuda_thread, 0, 64):
             for y in cuda_threads(0, 16):
                 for x in cuda_threads(0, 16):
                     # Code for threads [0, 63] of the block
-        if cuda_thread in (64, 128):
+        with LaneSpecialization(cuda_thread, 64, 128):
             for y in cuda_threads(0, 16):
                 for x in cuda_threads(0, 16):
                     # Code for threads [64, 127] of the block
 
         for warp_id in cuda_warps(0, 4):
-            if cuda_thread in (0, 16):
+            with LaneSpecialization(cuda_thread, 0, 16):
                 for y in cuda_threads(0, 4):
                     for x in cuda_threads(0, 4):
                         # Code for threads [0, 15] of each _warp_
@@ -84,6 +86,9 @@ class LaneSpecialization(object):
     When interpreting exo code under single-threaded semantics, this
     should be treated as unconditionally true, since all child for
     loops are interpreted as serially executed by the one thread.
+
+    NOTE: legacy syntax `if <lane_unit> in (<lo>, <hi>)`
+    may appear in old documents from 2024.
 
     """
 
@@ -100,57 +105,12 @@ class LaneSpecialization(object):
             raise ValueError("LaneSpecialization [lo, hi) must be non-empty")
 
     def __repr__(self):
-        return f"exo.spork.lane_units.LaneSpecialization({self.unit}, {self.lo}, {self.hi})"
-
-    def __str__(self):
-        """Syntax of the lane specialization as it appears in Exo code.
-
-        The backend compiler needs to implement valid C/cuda code generation itself."""
-        return f"{self.unit} in ({self.lo}, {self.hi})"
+        return f"LaneSpecialization({self.unit}, {self.lo}, {self.hi})"
 
     def __eq__(self, other):
-        if isinstance(other, LaneSpecializationPattern):
-            return other == self
-        return self.unit == other.unit and self.lo == other.lo and self.hi == other.hi
-
-
-class LaneSpecializationPattern(object):
-    """Helper for pattern matching LaneSpecialization.
-
-    Any None attributes are assumed holes"""
-
-    __slots__ = ["unit", "lo", "hi"]
-
-    def __init__(self, unit: Optional[LaneUnit], lo: Optional[int], hi: Optional[int]):
-        assert unit is None or isinstance(unit, LaneUnit)
-        self.unit = unit
-        self.lo = lo
-        self.hi = hi
-
-    def __repr__(self):
-        return f"exo.spork.lane_units.LaneSpecializationPattern({self.unit}, {self.lo}, {self.hi})"
-
-    def strattr(self, name):
-        value = getattr(self, name)
-        return "_" if value is None else str(value)
-
-    def __str__(self):
-        return f"{self.strattr('unit')} in ({self.strattr('lo')}, {self.strattr('hi')})"
-
-    def matchattr(self, other, name):
-        x = getattr(self, name)
-        y = getattr(other, name)
-        return x is None or y is None or x == y
-
-    def __eq__(self, other):
-        """Pattern match. Non-transitive, so we are abusing the meaning of =="""
-        if isinstance(other, LaneSpecialization) or isinstance(
-            other, LaneSpecializationPattern
-        ):
-            return (
-                self.matchattr(other, "unit")
-                and self.matchattr(other, "lo")
-                and self.matchattr(other, "hi")
-            )
-        else:
-            return False
+        return (
+            isinstance(other, LaneSpecialization)
+            and self.unit == other.unit
+            and self.lo == other.lo
+            and self.hi == other.hi
+        )

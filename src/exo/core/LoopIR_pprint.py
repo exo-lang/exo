@@ -12,6 +12,7 @@ from .LoopIR import UAST, LoopIR
 from ..spork.loop_modes import format_loop_cond
 from .internal_cursors import Node, Gap, Block, Cursor, InvalidCursorError, GapType
 from .prelude import *
+from ..spork.base_with_context import is_if_holding_with
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -213,6 +214,12 @@ class UAST_PPrinter:
                 pname = stmt.f.name or "_anon_"
                 args = [self.pexpr(a) for a in stmt.args]
                 self.addline(f"{pname}({','.join(args)})")
+            elif is_if_holding_with(stmt, UAST):  # must be before .If case
+                ctx = self.pexpr(stmt.cond)
+                self.addline(f"with {ctx}:")
+                self.push()
+                self.pstmts(stmt.body)
+                self.pop()
             elif isinstance(stmt, UAST.If):
                 cond = self.pexpr(stmt.cond)
                 self.addline(f"if {cond}:")
@@ -448,6 +455,12 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
     elif isinstance(stmt, LoopIR.Call):
         args = [_print_expr(a, env) for a in stmt.args]
         return [f"{indent}{stmt.f.name}({', '.join(args)})"]
+
+    elif is_if_holding_with(stmt, LoopIR):  # must be before .If case
+        ctx = _print_expr(stmt.cond, env)
+        lines = [f"{indent}with {ctx}:"]
+        lines.extend(_print_block(stmt.body, env.push(), indent + "  "))
+        return lines
 
     elif isinstance(stmt, LoopIR.If):
         cond = _print_expr(stmt.cond, env)
@@ -696,7 +709,12 @@ def _print_cursor_stmt(
 ) -> list[str]:
     stmt = cur._node
 
-    if isinstance(stmt, LoopIR.If):
+    if is_if_holding_with(stmt, LoopIR):  # must be before .If case
+        ctx = _print_expr(stmt.cond, env)
+        lines = [f"{indent}with {ctx}:"]
+        lines.extend(_print_cursor_block(cur.body(), target, env.push(), indent + "  "))
+
+    elif isinstance(stmt, LoopIR.If):
         cond = _print_expr(stmt.cond, env)
         lines = [f"{indent}if {cond}:"]
         lines.extend(_print_cursor_block(cur.body(), target, env.push(), indent + "  "))

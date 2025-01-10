@@ -352,21 +352,9 @@ class TypeAbbrevA(ArgumentProcessor):
             )
 
 
-# Allow loop mode or async actor kind (implicitly translated to async-for loop)
+# Allow loop mode
 class LoopModeA(ArgumentProcessor):
     def __call__(self, val, all_args):
-        if isinstance(val, ActorKind):
-            if val.is_synthetic():
-                self.err("cannot use synthetic ActorKind")
-            elif not val.is_async():
-                self.err("ActorKind must be async")
-            else:
-                val = loop_mode_dict.get(val.name)
-                if val:
-                    val = val()
-                assert isinstance(
-                    val, LoopMode
-                ), "internal error, expected LoopMode instantiated for async ActorKind"
         if not isinstance(val, LoopMode):
             if isinstance(val, type):
                 self.err(

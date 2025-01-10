@@ -7,7 +7,8 @@ from ..core.prelude import Sym, SrcInfo, extclass
 
 from .lane_units import LaneUnit, LaneSpecialization, cuda_cluster, cuda_block
 from .loop_modes import LoopMode, CudaClusters, CudaBlocks
-from .actor_kinds import ActorKind, cpu
+from .actor_kinds import ActorKind, cpu, cuda_sync
+from .async_config import BaseAsyncConfig, CudaDeviceFunction, CudaAsync
 
 from ..core.LoopIR import LoopIR, LoopIR_Do, GetReads, GetWrites
 
@@ -33,17 +34,15 @@ class ParallelForRecord(object):
 
 
 class ForRecord(object):
-    __slots__ = ["actor_kind", "loop_mode"]
+    __slots__ = ["loop_mode"]
 
-    actor_kind: ActorKind
     loop_mode: LoopMode
 
-    def __init__(self, actor_kind, loop_mode):
-        self.actor_kind = actor_kind
+    def __init__(self, loop_mode):
         self.loop_mode = loop_mode
 
     def __repr__(self):
-        return f"ForRecord(actor_kind={self.actor_kind}, loop_mode={self.loop_mode})"
+        return f"ForRecord({self.loop_mode})"
 
 
 class ParscopeEnv(object):
@@ -92,7 +91,7 @@ class SporkEnv(object):
     _base_kernel_name: str
     _future_lines: List
     _parallel_for_stack: Optional[ParallelForRecord]
-    _for_stack: List[ForRecord]
+    _actor_kind_stack: List[ActorKind]
     _parscope: ParscopeEnv
     _cluster_size: Optional[int]
     _blockDim: int
@@ -102,42 +101,50 @@ class SporkEnv(object):
         "_base_kernel_name": "Prefix of name of the CUDA kernel being generated",
         "_future_lines": "List of str lines, or objects that can be converted to str TODO",
         "_parallel_for_stack": "Info pushed for each parallel for",
-        "_for_stack": "Info pushed for each parallel or temporal for loop",
+        "_actor_kind_stack": "Info pushed for each ActorKind change",
         "_parscope": "Current Parscope information",
-        "_cluster_size": "Cuda blocks per cuda cluster (None if feature unused)",
+        "_clusterDim": "Cuda blocks per cuda cluster",
         "_blockDim": "Cuda threads per cuda block",
         "_grid_str": "Compiled expression for grid size",
     }
 
-    def __init__(self, base_kernel_name: str, for_stmt: LoopIR.For):
+    def __init__(self, base_kernel_name: str, async_stmt: LoopIR.If):
         self._base_kernel_name = base_kernel_name
         self._future_lines = []
         self._parallel_for_stack = []
-        self._for_stack = []
+        self._actor_kind_stack = [cuda_sync]
         self._parscope = None
 
-        assert isinstance(for_stmt, LoopIR.For)
+        assert isinstance(async_stmt, LoopIR.If)
+        assert isinstance(async_stmt.cond, LoopIR.Const)
+        assert isinstance(async_stmt.cond.val, CudaDeviceFunction)
+
+        config = async_stmt.cond.val
+        self._clusterDim = config.clusterDim
+        self._blockDim = config.blockDim
+
+        if len(async_stmt.body) == 1 and isinstance(async_stmt.body[0], LoopIR.For):
+            for_stmt = async_stmt.body[0]
+        else:
+            # TODO fix arbitrary restriction
+            raise ValueError(
+                "{async_stmt.srcinfo}: must have a single parallel for as body"
+            )
+
         loop_mode = for_stmt.loop_mode
-        assert loop_mode.is_par
         if isinstance(loop_mode, CudaClusters):
-            self._cluster_size = loop_mode.blocks
-            self._blockDim = loop_mode.blockDim
+            pass
         elif isinstance(loop_mode, CudaBlocks):
-            self._cluster_size = None
-            if loop_mode.blockDim is None:
-                raise ValueError(
-                    f"{for_stmt.srcinfo}: CudaBlocks object of {for_stmt.iter} loop must have explicit blockDim"
-                )
-            self._blockDim = loop_mode.blockDim
+            pass
         else:
             raise ValueError(
-                f"{for_stmt:srcinfo}: CUDA kernel must be defined by a `for cuda_clusters` or `for cuda_blocks` loop"
+                f"{for_stmt.srcinfo}: CUDA kernel must be defined by a `for cuda_clusters` or `for cuda_blocks` loop"
             )
 
     def __bool__(self):
         return True
 
-    def device_name(self):
+    def get_device_name(self):
         return "cuda"
 
     def add_line(self, line: str):
@@ -145,20 +152,27 @@ class SporkEnv(object):
         self._future_lines.append(line)
 
     def get_actor_kind(self):
-        assert self._for_stack
-        return self._for_stack[-1].actor_kind
+        assert self._actor_kind_stack
+        return self._actor_kind_stack[-1]
+
+    def push_async(self, config: BaseAsyncConfig):
+        assert isinstance(
+            config, CudaAsync
+        ), "compiler error: incorrect async_config should have been detected earlier"
+        self._actor_kind_stack.append(config.get_actor_kind())
+
+    def pop_async(self):
+        self._actor_kind_stack.pop()
 
     def push_for(
         self,
         s: LoopIR.For,
-        new_actor_kind: ActorKind,
         c_iter: str,
         c_range,
         sym_range,
         tabs,
     ) -> bool:
         emit_loop = True
-        self._for_stack.append(ForRecord(new_actor_kind, s.loop_mode))
         if s.loop_mode.is_par:
             static_range = (
                 sym_range[0],
@@ -175,8 +189,6 @@ class SporkEnv(object):
         return emit_loop
 
     def pop_for(self, s: LoopIR.For):
-        assert self._for_stack
-        self._for_stack.pop()
         if s.loop_mode.is_par:
             assert self._parallel_for_stack
             self._parallel_for_stack.pop()
@@ -220,7 +232,7 @@ class SporkEnv(object):
         return "\n".join(["{"] + self._future_lines + ["}"])
 
     def get_kernel_prototype_launch(
-        self, s: LoopIR.For, lo_str, hi_str, cpu_varname_env, cpu_envtyp, format_ctype
+        self, s: LoopIR.For, cpu_varname_env, cpu_envtyp, format_ctype
     ):
         scanner = KernelArgsScanner(cpu_varname_env, cpu_envtyp)
         scanner.do_s(s)
@@ -428,7 +440,7 @@ class SporkEnv(object):
         assert lo_tid % lane_threads == 0
         lane_offset_str = "" if lo_tid == 0 else f" - {lo_tid // lane_threads}u"
         if lane_unit == cuda_cluster:
-            lane_index = f"(blockIdx.x / {self._cluster_size}u{lane_offset_str})"
+            lane_index = f"(blockIdx.x / {self._clusterDim}u{lane_offset_str})"
         elif lane_unit == cuda_block:
             if lane_offset_str:
                 lane_index = f"(blockIdx.x{lane_offset_str})"
@@ -484,7 +496,7 @@ class SporkEnv(object):
                 dim_size_in_parens(record) for record in parscope.loop_records
             )
             if lane_unit == cuda_cluster:
-                self._grid_str = f"self._cluster_size * {self._grid_str}"
+                self._grid_str = f"self._clusterDim * {self._grid_str}"
             else:
                 assert lane_unit == cuda_block
 
@@ -494,7 +506,7 @@ class SporkEnv(object):
         elif lane_unit == cuda_cluster:
             # We check and return 0 on invalid use of cuda_clusters to not
             # interfere with higher quality error messages defined elsewhere.
-            blocks = self._cluster_size
+            blocks = self._clusterDim
             return self._blockDim * (0 if blocks is None else blocks)
         elif lane_unit == cuda_block:
             return self._blockDim

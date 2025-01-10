@@ -7,6 +7,7 @@ from collections import ChainMap
 
 import exo.frontend.pyparser as pyparser
 from exo.core.LoopIR import LoopIR, PAST
+from ..spork.base_with_context import BaseWithContext
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -271,7 +272,7 @@ class PatternMatch:
             return False
         elif isinstance(stmt, LoopIR.If):
             return (
-                self.match_e(pat.cond, stmt.cond)
+                self.match_if_cond(pat.cond, stmt.cond)
                 and self.match_stmts(pat.body, cur.body()) is not None
                 and self.match_stmts(pat.orelse, cur.orelse()) is not None
             )
@@ -352,6 +353,22 @@ class PatternMatch:
             )
         else:
             assert False, "bad case"
+
+    def match_if_cond(self, pat, e):
+        # This is a "temporary" hack until with statement handling in LoopIR
+        # is fixed (i.e. not smuggling them as if statements).
+        if self.match_e(pat, e):
+            return True
+        elif not isinstance(
+            e, (LoopIR.WindowExpr,) + tuple(_PAST_to_LoopIR[type(pat)])
+        ):
+            return False
+        elif isinstance(e, LoopIR.Const):
+            # BaseWithContext() is a fake "hole" that indicates the "if"
+            # statement is really a smuggled "with _:" statement.
+            if type(pat.val) is BaseWithContext:
+                return isinstance(e.val, BaseWithContext)
+        return False
 
     def match_name(self, pat_nm, ir_sym):
         # We use repr(sym) as a way of checking both the Sym name and id

@@ -339,7 +339,7 @@ def lift_e(e):
             e.type.is_indexable()
             or e.type.is_stridable()
             or e.type == T.bool
-            or e.type == T.lane_specialization
+            or e.type == T.with_context
         ):
             if isinstance(e, LoopIR.Read):
                 assert len(e.idx) == 0
