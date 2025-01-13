@@ -64,8 +64,8 @@ class CudaAsync(BaseAsyncConfig):
     def __init__(self, actor_kind):
         assert actor_kind in [
             actor_kinds.non_bulk_cp_async,
-            actor_kinds.tma_to_shared_async,
-            actor_kinds.tma_to_global_async,
+            actor_kinds.tma_to_smem_async,
+            actor_kinds.tma_to_gmem_async,
             actor_kinds.wgmma_async,
         ]
         self._actor_kind = actor_kind

@@ -20,8 +20,8 @@ class ActorSignature(object):
 sig_cpu = ActorSignature("sig_cpu")
 sig_cuda_sync = ActorSignature("sig_cuda_sync")
 sig_non_bulk_cp_async = ActorSignature("sig_non_bulk_cp_async")
-sig_tma_to_shared = ActorSignature("sig_tma_to_shared")
-sig_tma_to_global = ActorSignature("sig_tma_to_global")
+sig_tma_to_smem = ActorSignature("sig_tma_to_smem")
+sig_tma_to_gmem = ActorSignature("sig_tma_to_gmem")
 sig_wgmma_rmem_a = ActorSignature("sig_wgmma_rmem_a")
 sig_wgmma_rmem_d = ActorSignature("sig_wgmma_rmem_d")
 sig_wgmma_smem = ActorSignature("sig_wgmma_smem")
@@ -83,8 +83,8 @@ cuda_all = ActorKind(
     {
         sig_cuda_sync,
         sig_non_bulk_cp_async,
-        sig_tma_to_shared,
-        sig_tma_to_global,
+        sig_tma_to_smem,
+        sig_tma_to_gmem,
         sig_wgmma_rmem_a,
         sig_wgmma_rmem_d,
         sig_wgmma_smem,
@@ -106,13 +106,13 @@ cuda_generic = ActorKind(
 )
 
 """cp.async.bulk instructions with cluster/block shared memory as destination"""
-tma_to_shared_async = ActorKind(
-    "tma_to_shared_async", ActorKindCategory.ASYNC, {sig_tma_to_shared}
+tma_to_smem_async = ActorKind(
+    "tma_to_smem_async", ActorKindCategory.ASYNC, {sig_tma_to_smem}
 )
 
 """cp{.reduce}.bulk.async instructions with global memory as destination"""
-tma_to_global_async = ActorKind(
-    "tma_to_global_async", ActorKindCategory.ASYNC, {sig_tma_to_global}
+tma_to_gmem_async = ActorKind(
+    "tma_to_gmem_async", ActorKindCategory.ASYNC, {sig_tma_to_gmem}
 )
 
 """wgmma instructions"""
@@ -152,8 +152,8 @@ actor_kind_dict = {
         cuda_sync,
         non_bulk_cp_async,
         cuda_generic,
-        tma_to_shared_async,
-        tma_to_global_async,
+        tma_to_smem_async,
+        tma_to_gmem_async,
         wgmma_async,
         wgmma_async_rmem,
         wgmma_async_smem,
