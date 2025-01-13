@@ -7,9 +7,13 @@ from .base_with_context import BaseWithContext
 class BaseAsyncConfig(BaseWithContext):
     """Base class for a configuration of an async block.
 
-    For example, the derived CudaDeviceFunction configures a block of code to be interpreted as code lowered to a CUDA device function.
+    For example, the derived CudaDeviceFunction configures a block of
+    code to be interpreted as code lowered to a CUDA device function.
 
-    At a minimum, the derived class must specify the ActorKind that the child statements execute with, the name of the device (compiler backend), and parent_async_type.
+    At a minimum, the derived class must specify the ActorKind that
+    the child statements execute with, the name of the device
+    (compiler backend), and parent_async_type.
+
     """
 
     __slots__ = []
@@ -23,8 +27,12 @@ class BaseAsyncConfig(BaseWithContext):
     def parent_async_type(self) -> Optional[type]:
         """Dictates allowed nesting of async blocks in other async blocks.
 
-        If None, we require that the async block is not nested inside another (i.e. must be the child of top-level CPU code).
-        Otherwise, parent_async_type must return a type object, and we require the parent async block have a configuration of that type.
+        If None, we require that the async block is not nested inside
+        another (i.e. must be the child of top-level CPU code).
+        Otherwise, parent_async_type must return a type object, and we
+        require the parent async block have a configuration of that
+        type.
+
         """
         raise NotImplementedError()
 
