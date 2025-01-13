@@ -286,8 +286,8 @@ For synchronization statements, the actor kind acts as a filter of the reads/wri
 \lighttt{sig\_cpu: } & \text{Default CPU}\\
 \lighttt{sig\_cuda\_sync: } & \text{Default CUDA (synchronous CUDA instructions)}\\
 \lighttt{sig\_non\_bulk\_cp\_async: } & \text{Ampere \lighttt{cp.async} (async memcpy in generic proxy)}\\
-\lighttt{sig\_tma\_to\_shared: } & \text{Hopper TMA \lighttt{cp.bulk.async} to shared memory}\\
-\lighttt{sig\_tma\_to\_global: } & \text{Hopper TMA \lighttt{cp\{.reduce\}.bulk.async} to global memory}\\
+\lighttt{sig\_tma\_to\_smem: } & \text{Hopper TMA \lighttt{cp.bulk.async} to shared memory}\\
+\lighttt{sig\_tma\_to\_gmem: } & \text{Hopper TMA \lighttt{cp\{.reduce\}.bulk.async} to global memory}\\
 \lighttt{sig\_wgmma\_rmem\_a: } & \text{wgmma access to `A' parameter when stored in registers}\\
 \lighttt{sig\_wgmma\_rmem\_d: } & \text{wgmma access to `D' parameter (accumulator) when stored in registers}\\
 \lighttt{sig\_wgmma\_smem: } & \text{wgmma access to shared memory (either `A' or `B' parameter)}
@@ -302,8 +302,9 @@ They are valid only for synchronization statements (later), and represent subset
 \texttt{cuda\_sync: } & \text{Default CUDA; \{\lighttt{sig\_cuda\_sync}\}}\\
 \texttt{non\_bulk\_cp\_async: } & \{\lighttt{sig\_non\_bulk\_cp\_async}\}\\
 \graytt{cuda\_generic: } & \text{Generic proxy; \{\lighttt{sig\_cuda\_sync}, \lighttt{sig\_non\_bulk\_cp\_async}\}}\\
-\texttt{tma\_to\_shared\_async: } & \text{\{\lighttt{sig\_tma\_to\_shared}\}}\\
-\texttt{tma\_to\_global\_async: } & \text{\{\lighttt{sig\_tma\_to\_global}\}}\\
+\graytt{cuda\_async\_proxy: } & \text{Async proxy; \{\lighttt{sig\_tma\_*}, \lighttt{sig\_wgmma\_smem}\}}\\
+\texttt{tma\_to\_smem\_async: } & \text{\{\lighttt{sig\_tma\_to\_smem}\}}\\
+\texttt{tma\_to\_gmem\_async: } & \text{\{\lighttt{sig\_tma\_to\_gmem}\}}\\
 \texttt{wgmma\_async: } & \text{wgmma instructions; \{\lighttt{sig\_wgmma\_*}\}}\\
 \graytt{wgmma\_async\_rmem: } & \text{actions on wgmma register tiles by wgmma instructions; \{\lighttt{sig\_wgmma\_rmem\_*}\}}\\
 \graytt{wgmma\_async\_smem: } & \text{actions on shared memory by wgmma instructions; \{\lighttt{sig\_wgmma\_smem}\}}\\
@@ -419,7 +420,7 @@ For non-split barriers, we support the following:
 
 \texttt{Fence(cuda\_sync, wgmma\_async\_smem)}: \fenceProxyAsync\ at warpgroup scope
 
-\texttt{Fence(cuda\_sync, tma\_to\_global\_async)}: \fenceProxyAsync\ at thread scope\footnote{Not sure about this one ... the underlying instruction is the same as the previous but \cpAsyncBulk\ instructions are issued per-thread, not per-warpgroup, so the interaction between cooperative CUDA synchronous code and TMA is quite different compared to wgmma.}
+\texttt{Fence(cuda\_sync, tma\_to\_gmem\_async)}: \fenceProxyAsync\ at thread scope\footnote{Not sure about this one ... the underlying instruction is the same as the previous but \cpAsyncBulk\ instructions are issued per-thread, not per-warpgroup, so the interaction between cooperative CUDA synchronous code and TMA is quite different compared to wgmma.}
 
 \texttt{Fence(cuda\_all, cpu)}: \lighttt{cudaStreamSynchronize()} (CPU waits for CUDA kernels)
 
