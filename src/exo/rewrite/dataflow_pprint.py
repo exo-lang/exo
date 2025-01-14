@@ -43,7 +43,7 @@ class PrintEnv:
         if resolved := self.env.get(nm):
             return resolved
 
-        candidate = repr(nm)
+        candidate = str(nm)
         num = self.names.get(candidate, 1)
         while candidate in self.names:
             candidate = f"{nm}_{num}"

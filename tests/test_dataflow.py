@@ -10,16 +10,50 @@ from exo.rewrite.dataflow import (
     V,
     abs_simplify,
     widening,
-    cvt_vdom,
-    cvt_val,
     adom_to_aexpr,
 )
 from exo.core.prelude import Sym
 
 
-def test_cvt():
-    t = cvt_vdom(V.ValConst(3.0))
+def test_widening(golden):
+    i = Sym("i")
+    d = Sym("d")
+    vi = D.Var(i)
+    vd = D.Var(d)
 
+    sx_2 = Sym("x2")
+    x_2_ = D.ArrayConst(sx_2, [D.Add(vi, D.Const(-1)), vd])
+    y = D.ArrayConst(Sym("y"), [vi, vi])
+    x_3_tree = D.AffineSplit(
+        D.Add(D.Add(vi, D.Mult(-1, vd)), D.Const(1)),
+        D.Leaf(x_2_),
+        D.Leaf(y),
+        D.Leaf(x_2_),
+    )
+
+    x_3 = D.ArrayConst(Sym("x3"), [vi, vd])
+    x_2_tree = D.AffineSplit(
+        D.Add(vi, D.Mult(-1, vd)), D.Leaf(x_3), D.Leaf(y), D.Leaf(x_3)
+    )
+    x_2_abs = D.abs([i, d], x_2_tree)
+
+    new_x_2 = substitute(x_3, x_3_tree, x_2_abs)
+
+    widened_x_2 = widening(sx_2, new_x_2)
+
+    assert (
+        str(x_3_tree)
+        + "\n"
+        + str(x_2_abs)
+        + "\n"
+        + str(new_x_2)
+        + "\n"
+        + str(widened_x_2)
+        == golden
+    )
+
+
+def test_widening2(golden):
     i = Sym("i")
     d = Sym("d")
     N = Sym("N")
@@ -27,24 +61,7 @@ def test_cvt():
     vd = D.Var(d)
     vN = D.Var(N)
 
-    sx_1 = Sym("x_1")
-    sx = Sym("x")
-    x_1 = D.ArrayConst(sx_1, [D.Add(vi, D.Const(-1)), vd])
-    x_2 = D.ArrayConst(sx_1, [D.Add(vi, D.Const(3)), vd])
-
-    print(cvt_val(x_1))
-    print(cvt_val(x_2))
-
-
-def test_widening2():
-    i = Sym("i")
-    d = Sym("d")
-    N = Sym("N")
-    vi = D.Var(i)
-    vd = D.Var(d)
-    vN = D.Var(N)
-
-    sx_1 = Sym("x_1")
+    sx_1 = Sym("x1")
     sx = Sym("x")
     x_1 = D.ArrayConst(sx_1, [D.Add(vi, D.Const(-1)), vd])
     x = D.ArrayConst(sx, [vd])
@@ -62,91 +79,71 @@ def test_widening2():
     )
     x_1_abs = D.abs([i, N, d], x_1_tree)
 
-    print(x_1_abs)
     widened_x_1 = partition(sx_1, x_1_abs)
-    print(widened_x_1)
 
     i_minus = D.Add(vi, D.Const(-1))
     x_1_i_1 = abs_simplify(sub_aexpr(vi, i_minus, widened_x_1))
-    print(x_1_i_1)
 
     after = substitute(x_1, x_1_i_1.tree, widened_x_1)
     after = abs_simplify(after)
     after = abs_simplify(widening(sx_1, after))
     after = abs_simplify(after)
-    print(after)
-    print(adom_to_aexpr(sx_1, after))
 
-
-def test_widening():
-    i = Sym("i")
-    d = Sym("d")
-    vi = D.Var(i)
-    vd = D.Var(d)
-
-    sx_2 = Sym("x_2")
-    x_2_ = D.ArrayConst(sx_2, [D.Minus(vi, D.Const(1)), vd])
-    y = D.ArrayConst(Sym("y"), [vi, vi])
-    x_3_tree = D.AffineSplit(
-        D.Add(D.Minus(vi, vd), D.Const(1)), D.Leaf(x_2_), D.Leaf(y), D.Leaf(x_2_)
+    assert (
+        str(x_1_abs)
+        + "\n"
+        + str(widened_x_1)
+        + "\n"
+        + str(x_1_i_1)
+        + "\n"
+        + str(after)
+        + "\n"
+        + str(adom_to_aexpr(sx_1, after))
+        == golden
     )
-    print()
-    print(x_3_tree)
-
-    x_3 = D.ArrayConst(Sym("x_3"), [vi, vd])
-    x_2_tree = D.AffineSplit(D.Minus(vi, vd), D.Leaf(x_3), D.Leaf(y), D.Leaf(x_3))
-    x_2_abs = D.abs([i, d], x_2_tree)
-    print(x_2_abs)
-
-    new_x_2 = substitute(x_3, x_3_tree, x_2_abs)
-    print(new_x_2)
-
-    widened_x_2 = widening(sx_2, new_x_2)
-    print(widened_x_2)
 
 
-def test_substitute_mod():
+def test_substitute_mod(golden):
     i = Sym("i")
     d = Sym("d")
     vi = D.Var(i)
     vd = D.Var(d)
-    x_3 = D.ArrayConst(Sym("x_3"), [vi, vd])
-    x_4 = D.ArrayConst(Sym("x_4"), [vi, vd])
-    x_1 = D.ArrayConst(Sym("x_1"), [vi, vd])
+    x_3 = D.ArrayConst(Sym("x3"), [vi, vd])
+    x_4 = D.ArrayConst(Sym("x4"), [vi, vd])
+    x_1 = D.ArrayConst(Sym("x1"), [vi, vd])
     x_2_tree = D.ModSplit(vi, 3, D.Leaf(x_3), D.Leaf(x_4))
     x_2_abs = D.abs([i, d], x_2_tree)
     x_4_tree = D.AffineSplit(
-        D.Minus(vi, D.Add(vd, D.Const(1))),
+        D.Add(vi, D.Mult(-1, D.Add(vd, D.Const(1)))),
         D.Leaf(x_3),
-        D.Leaf(D.ValConst(2.0)),
+        D.Leaf(D.SubVal(V.ValConst(2.0))),
         D.Leaf(x_3),
     )
     new_x_2 = substitute(x_4, x_4_tree, x_2_abs)
     x_3_tree = D.AffineSplit(
-        D.Minus(vi, vd), D.Leaf(x_1), D.Leaf(D.ValConst(1.0)), D.Leaf(x_1)
+        D.Add(vi, D.Mult(-1, vd)),
+        D.Leaf(x_1),
+        D.Leaf(D.SubVal(V.ValConst(1.0))),
+        D.Leaf(x_1),
     )
 
     new_new_x_2 = substitute(x_3, x_3_tree, new_x_2)
-    print(x_2_tree)
-    print(x_4_tree)
-    print(x_3_tree)
-    print(new_x_2)
-    print(new_new_x_2)
 
-    i_minus = D.Minus(vi, D.Const(1))
+    i_minus = D.Add(vi, D.Const(-1))
     final_x2 = sub_aexpr(vi, i_minus, new_new_x_2)
-    print(final_x2)
 
     x = D.ArrayConst(Sym("x"), [vd])
-    x_2_minus = D.ArrayConst(Sym("x_2"), [i_minus, vd])
-    x_1_tree = D.AffineSplit(vi, D.Leaf(D.Bot()), D.Leaf(x), D.Leaf(x_2_minus))
+    x_2_minus = D.ArrayConst(Sym("x2"), [i_minus, vd])
+    x_1_tree = D.AffineSplit(
+        vi, D.Leaf(D.SubVal(V.Bot())), D.Leaf(x), D.Leaf(x_2_minus)
+    )
     x_1_abs = D.abs([i, d], x_1_tree)
-    print(x_1_tree)
     final_x_1 = substitute(x_2_minus, final_x2.tree, x_1_abs)
-    print(final_x_1)
+
+    assert str(final_x2) + "\n" + str(x_1_tree) + "\n" + str(final_x_1) == golden
 
 
-def test_substitute():
+def test_substitute(golden):
     i = Sym("i")
     d = Sym("d")
     vi = D.Var(i)
@@ -155,49 +152,39 @@ def test_substitute():
     x_1 = D.ArrayConst(Sym("x_1"), [vi, vd])
     y = D.ArrayConst(Sym("y"), [vi, vi])
     x_3_tree = D.AffineSplit(
-        D.Add(D.Minus(vi, vd), D.Const(1)), D.Leaf(x_1), D.Leaf(y), D.Leaf(x_1)
+        D.Add(D.Add(vi, D.Mult(-1, vd)), D.Const(1)),
+        D.Leaf(x_1),
+        D.Leaf(y),
+        D.Leaf(x_1),
     )
-    print()
-    print(x_3_tree)
 
     x_3 = D.ArrayConst(Sym("x_3"), [vi, vd])
-    x_2_tree = D.AffineSplit(D.Minus(vi, vd), D.Leaf(x_3), D.Leaf(y), D.Leaf(x_3))
+    x_2_tree = D.AffineSplit(
+        D.Add(vi, D.Mult(-1, vd)), D.Leaf(x_3), D.Leaf(y), D.Leaf(x_3)
+    )
     x_2_abs = D.abs([i, d], x_2_tree)
-    print(x_2_abs)
 
     new_x_2 = substitute(x_3, x_3_tree, x_2_abs)
-    print(new_x_2)
+
+    assert str(new_x_2) + "\n" + str(x_2_abs) + "\n" + str(x_3_tree) == golden
 
 
-def test_abs_pprint():
+def test_abs_pprint(golden):
     x = Sym("x")
     y = Sym("y")
     vx = D.Var(x)
     vy = D.Var(y)
     one = D.Const(1)
-    print(one)
-    print(vx)
     add = D.Add(vx, vy)
     mul = D.Mult(2, vx)
     addmul = D.Add(vx, D.Mult(4, vx))
-    print(add)
-    print(mul)
-    print(addmul)
-
-    print(D.Top())
-    print(D.Bot())
-    print(D.ValConst(4.0))
-    print(D.ArrayConst(Sym("a"), [vx, vy]))
-    print(D.ArrayConst(Sym("b"), []))
 
     i = D.Var(Sym("i"))
     d = D.Var(Sym("d"))
-    p1 = D.Minus(i, d)
+    p1 = D.Add(i, D.Mult(-1, d))
 
-    four = D.ValConst(4.0)
+    four = D.SubVal(V.ValConst(4.0))
     leaf = D.Leaf(four)
-    print(leaf)
-    print(D.AffineSplit(p1, leaf, leaf, leaf))
 
     p2 = D.Add(p1, D.Const(1))
     a1 = D.ArrayConst(Sym("y"), [i, i])
@@ -208,21 +195,28 @@ def test_abs_pprint():
         D.Leaf(a1),
         D.Leaf(a2),
     )
-    print(n)
 
     mod = D.ModSplit(p1, 3, n, leaf)
-    print(mod)
 
-    a = D.abs([x, y], mod, True)
-    print(a)
+    a = D.abs([x, y], mod)
 
     # def substitute(var : D.ArrayConst, term : D.node, src : D.abs):
-    print("--- try substitute ---")
-    print("var: ", a1)
-    print("term: ", n)
-    print("src: ", a)
     new_tree = substitute(a1, n, a)
-    print(new_tree)
+
+    assert (
+        "var: "
+        + str(a1)
+        + "\n"
+        + "term: "
+        + str(n)
+        + "\n"
+        + "src: "
+        + str(a)
+        + "\n"
+        + "new tree: "
+        + str(new_tree)
+        + "\n"
+    ) == golden
 
 
 def test_simple(golden):
@@ -254,7 +248,7 @@ def test_simple_stmts(golden):
 
     d_ir, stmts = foo.dataflow(foo.find("z = _ ; z = _"))
 
-    assert str(d_ir) + "".join([str(s) for s in stmts]) == golden
+    assert str(d_ir) + "\n\n" + "\n".join([str(s[0]) for s in stmts]) == golden
 
 
 def test_simple_stmts2(golden):
@@ -268,7 +262,7 @@ def test_simple_stmts2(golden):
 
     d_ir, stmts = foo.dataflow(foo.find("if n < 3: _"))
 
-    assert str(d_ir) + "".join([str(s) for s in stmts]) == golden
+    assert str(d_ir) + "\n\n" + "\n".join([str(s[0]) for s in stmts]) == golden
 
 
 def test_simple3(golden):

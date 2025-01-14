@@ -1,19 +1,85 @@
 def foo(z : R, n : size, x : R[3]):
-  ----------------------- {}
   z_1 = \phi(True ? 4.2 : z)
-  ----------------------- {}
-  x_1 =\d0 \phi(d0 == 0 and True ? 2.0 : x[d0])
-  ----------------------- {}
+  x_1 =\d0 \phi(0 == d0 ? 2.0 : x[d0])
   if n < 3:
-    --------------------- {}
-    x_2 =\d0 \phi(d0 == n and True ? 3.0 : x_1[d0])
-    --------------------- {}
+    x_2 =\d0 \phi(n == d0 ? 3.0 : x_1[d0])
+------------------------ z_1 : \n
+                             - 4.2
+                         x_1 : \n. \d0
+                             - d0
+                                - x[d0]
+                                - 2.0
+                                - x[d0]
+                         x_2 : \n. \d0
+                             - (n-d0)
+                                    - x[d0]
+                                    - 3.0
+                                    - d0
+                                       - x[d0]
+                                       - 2.0
+                                       - x[d0]
   else:
-    --------------------- {}
-  ----------------------- {}
+------------------------ z_1 : \n
+                             - 4.2
+                         x_1 : \n. \d0
+                             - d0
+                                - x[d0]
+                                - 2.0
+                                - x[d0]
   z_2 = \phi(n < 3 ? z_1 : z_1) # IfJoin
-  ----------------------- {}
   x_3 =\d0 \phi(n < 3 ? x_2[d0] : x_1[d0]) # IfJoin
-  ----------------------- {}
   pass
-  ----------------------- {}[DataflowIR.If(cond=DataflowIR.BinOp(op='<', lhs=DataflowIR.Read(name=n_29, idx=[], type=DataflowIR.Size(), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c875c64c0>), rhs=DataflowIR.Const(val=3, type=DataflowIR.Int(), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c875c6580>), type=DataflowIR.Bool(), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c875c6fa0>), body=DataflowIR.block(stmts=[DataflowIR.Assign(lhs=x_37, iters=[], dims=[d0_34], cond=DataflowIR.BinOp(op='and', lhs=DataflowIR.BinOp(op='==', lhs=DataflowIR.Read(name=d0_34, idx=[], type=DataflowIR.Size(), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c89ce85e0>), rhs=DataflowIR.Read(name=n_29, idx=[], type=DataflowIR.Size(), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c874ccd90>), type=DataflowIR.Bool(), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c89ce85e0>), rhs=DataflowIR.Const(val=True, type=DataflowIR.Bool(), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c89ce85e0>), type=DataflowIR.Bool(), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c89ce85e0>), body=DataflowIR.Const(val=3.0, type=DataflowIR.Num(), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c875c66a0>), orelse=DataflowIR.Read(name=x_36, idx=[DataflowIR.Read(name=d0_34, idx=[], type=DataflowIR.Num(), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c89ce85e0>)], type=DataflowIR.Num(), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c89ce85e0>), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c875c6550>)], ctxts=[{}, {}]), orelse=DataflowIR.block(stmts=[], ctxts=[{}]), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c875c6f70>), DataflowIR.IfJoin(lhs=z_38, iters=[], dims=[], cond=DataflowIR.BinOp(op='<', lhs=DataflowIR.Read(name=n_29, idx=[], type=DataflowIR.Size(), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c875c64c0>), rhs=DataflowIR.Const(val=3, type=DataflowIR.Int(), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c875c6580>), type=DataflowIR.Bool(), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c875c6fa0>), body=DataflowIR.Read(name=z_35, idx=[], type=DataflowIR.Num(), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c89ce85e0>), orelse=DataflowIR.Read(name=z_35, idx=[], type=DataflowIR.Num(), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c89ce85e0>), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c89ce85e0>), DataflowIR.IfJoin(lhs=x_39, iters=[], dims=[d0_34], cond=DataflowIR.BinOp(op='<', lhs=DataflowIR.Read(name=n_29, idx=[], type=DataflowIR.Size(), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c875c64c0>), rhs=DataflowIR.Const(val=3, type=DataflowIR.Int(), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c875c6580>), type=DataflowIR.Bool(), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c875c6fa0>), body=DataflowIR.Read(name=x_37, idx=[DataflowIR.Read(name=d0_34, idx=[], type=DataflowIR.Num(), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c89ce85e0>)], type=DataflowIR.Num(), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c89ce85e0>), orelse=DataflowIR.Read(name=x_36, idx=[DataflowIR.Read(name=d0_34, idx=[], type=DataflowIR.Num(), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c89ce85e0>)], type=DataflowIR.Num(), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c89ce85e0>), srcinfo=<exo.prelude.SrcInfo object at 0x7f4c89ce85e0>)]
+------------------------ z_1 : \n
+                             - 4.2
+                         x_1 : \n. \d0
+                             - d0
+                                - x[d0]
+                                - 2.0
+                                - x[d0]
+                         x_2 : \n. \d0
+                             - (n-d0)
+                                    - x[d0]
+                                    - 3.0
+                                    - d0
+                                       - x[d0]
+                                       - 2.0
+                                       - x[d0]
+                         z_2 : \n
+                             - 4.2
+                         x_3 : \n. \d0
+                             - (n-3)
+                                   - 3.0
+                                   - d0
+                                      - x[d0]
+                                      - 2.0
+                                      - x[d0]
+                                   - d0
+                                      - x[d0]
+                                      - 2.0
+                                      - x[d0]
+
+if n < 3:
+  x =\d0 \phi(n == d0 ? 3.0 : x_1[d0])
+------------------------ z : \n
+                             - 4.2
+                         x_1 : \n. \d0
+                             - d0
+                                - x_2[d0]
+                                - 2.0
+                                - x_2[d0]
+                         x : \n. \d0
+                             - (n-d0)
+                                    - x_2[d0]
+                                    - 3.0
+                                    - d0
+                                       - x_2[d0]
+                                       - 2.0
+                                       - x_2[d0]
+else:
+------------------------ z : \n
+                             - 4.2
+                         x_1 : \n. \d0
+                             - d0
+                                - x_2[d0]
+                                - 2.0
+                                - x_2[d0]
