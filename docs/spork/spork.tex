@@ -868,9 +868,8 @@ I just have to recognize this hacky backdoor in the LoopIR pretty printer, the s
 For scheduling and safety checks, they should be treated the same as a \lighttt{pass} statement (except don't remove them in \lighttt{simplify}, \lighttt{remove\_pass}, etc.).
 
 \filbreak
-\myKey{Types:} Need to add types \lighttt{Barrier} and \lighttt{LaneSpecialization}.
-The barrier may be used for allocation, but we forbid names that conflict with the names of actor kinds.
-The lane specialization is only allowed as the ``const'' condition of an if statement.
+\myKey{Types:} Need to add the \lighttt{Barrier} type.
+The barrier may be used for allocating variables.
 
 \filbreak
 \myKey{Read/Write/Reduce:} These will not have to change in LoopIR, but the compilation of these will have to be substantially modified in order to handle actor kinds and distributed memory (GPU registers).
