@@ -399,7 +399,7 @@ Example:
 
 {\color{lightttColor}
 \begin{verbatim}
-for blockIdx in cuda_blocks(lo, hi, warps = 8):
+for blockIdx in cuda_blocks(lo, hi):
     for threadIdx in cuda_threads(0, 256):
         ...
     # __syncthreads() as the executing collective lane here is a full block
@@ -469,7 +469,7 @@ The reason for this is the barrier lifting requirement, so we cannot declare cud
 \filbreak
 {\color{lightttColor}
 \begin{verbatim}
-for blockIdx in cuda_blocks(lo, hi, warps = 8):
+for blockIdx in cuda_blocks(lo, hi):
     for threadIdx in cuda_threads(0, 256):
         x : f32 @ CudaRmem
         x = foo()
@@ -484,7 +484,7 @@ for blockIdx in cuda_blocks(lo, hi, warps = 8):
 Instead we need this:
 {\color{lightttColor}
 \begin{verbatim}
-for blockIdx in cuda_blocks(lo, hi, warps = 8):
+for blockIdx in cuda_blocks(lo, hi):
     x : f32[256] @ CudaRmem
     for threadIdx in cuda_threads(0, 256):
         x[threadIdx] = foo()
@@ -522,7 +522,7 @@ For example, if we externalize the shuffle, the shuffle has to be able to compre
 
 {\color{lightttColor}
 \begin{verbatim}
-for blockIdx in cuda_blocks(lo, hi, warps = 8):
+for blockIdx in cuda_blocks(lo, hi):
     home_value : f32[8,2,4,2,2] @ CudaRmem
     xor_x_value : f32[8,2,4,2,2] @ CudaRmem
     xor_y_value : f32[8,2,4,2,2] @ CudaRmem
