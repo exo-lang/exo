@@ -281,8 +281,8 @@ def some_proc(...):
 \filbreak
 {\color{lightttColor}
 \begin{verbatim}
-for _ in cuda_clusters(lo, hi, blocks = _):  # Defines number of blocks per cluster
-for _ in cuda_blocks(lo, hi, warps = _):     # Defines number of warps per block
+for _ in cuda_clusters(lo, hi):
+for _ in cuda_blocks(lo, hi):
 for _ in cuda_warpgroups(lo, hi):
 for _ in cuda_warps(lo, hi):
 for _ in cuda_threads(lo, hi):
@@ -602,7 +602,7 @@ Only control flow and synchronization statements may appear where the collective
 No code at all can appear where the collective scope is invalid (between dimensions).
 The collective scope contains one collective lane of the given collective unit type for each point (index) in the shape.
 
-The resources of a collective scope are a subset of its parent collective lane (e.g. subset of warps within parent block), except for the case of CPU code launching a cuda grid (\texttt{CudaDeviceFunction}).
+The resources of a collective scope are a subset of its parent collective lane (e.g. subset of warps within parent block), except for the case of CPU code launching a cuda grid (\lighttt{CudaDeviceFunction}).
 
 the resources are defined by the shape and the optional collective specialization.
 
@@ -613,7 +613,7 @@ However, this will pose difficulties for distributed memory.
 
 \filbreak
 \myKey{Collective Lane:} A single unit of a collective scope, which is assigned to execute one iteration of the parallel-for loop (which defined the collective scope).
-Only collective lanes with lane unit type cpu-thread or cuda-thread can execute ``ordinary'' arithmetic, read, or write instructions.
+Only collective lanes with collective unit type cpu-thread or cuda-thread can execute ``ordinary'' arithmetic, read, or write instructions.
 The expectation is that after scheduling, all code at cluster, block, warpgroup, or warp scope is either synchronization, control flow, or custom procedures.
 Two collective lanes are equal when they come from the same collective scope and correspond to the same index.
 
@@ -782,7 +782,7 @@ For now I'm handling this by removing duplicate visibility records in the list, 
 I'm not at all happy with this solution (this isn't so much making the algorithm run fast as it is making it not completely intractible) but so far as I can tell, it's not trivial to do better.
 
 \filbreak
-Ignoring the complexity of wgmma and co. for now, the core asymmetry is that the ``set of [sig] threads allowed to write'' can easily be tracked as a single set, since there's only one prior write to worry about, wheras the ``set of threads allowed to read'' more-or-less has to be modelled as a conjunction of disjunctions, to handle possibly separate synchronization paths protecting each prior read.
+Ignoring the complexity of wgmma and co. for now, the core asymmetry is that the ``set of [sig] threads allowed to read'' can easily be tracked as a single set, since there's only one prior write to worry about, wheras the ``set of threads allowed to write'' more-or-less has to be modelled as a conjunction of disjunctions, to handle possibly separate synchronization paths protecting each prior read (WAR hazard checking).
 
 \filbreak
 Observe, for example, that if each thread of a block reads a variable, then the set of threads that are allowed to write that variable is \textit{empty} (assuming at least 2 threads per block).
@@ -812,7 +812,7 @@ However, ideally, there would be smarter ways to ``compress'' the read visibilit
     Need to analyze the loop iteration space.
   \filbreak
   \item How to best express producer-consumer warp specialization.
-    We have a start with lane specialization statements, \lighttt{Arrive} (producer), and \lighttt{Await} (consumer); however, we will still need to model pipeline depth and ring buffering; also, we have to model the synchronization in the other direction, ensuring the producer doesn't overwrite a ring buffer entry before the consumer is done with it.
+    We have a start with collective specialization statements, \lighttt{Arrive} (producer), and \lighttt{Await} (consumer); however, we will still need to model pipeline depth and ring buffering; also, we have to model the synchronization in the other direction, ensuring the producer doesn't overwrite a ring buffer entry before the consumer is done with it.
   \filbreak
   \item Learn about formal program verification and figure out how to compile this simulation-based safety model into something that is statically verifiable.
   \filbreak
@@ -825,7 +825,7 @@ However, ideally, there would be smarter ways to ``compress'' the read visibilit
   \filbreak
   \item Controlling the order that thread blocks are executed.
   This can have an impact on L2 cache rate.
-  In a sense, it's good that I decouple the concept of physical execution units (lane units) from the abstract parallel iteration space, to give us this flexibility. e.g. if we compile the following
+  In a sense, it's good that I decouple the concept of physical execution units (collective units) from the abstract parallel iteration space, to give us this flexibility. e.g. if we compile the following
   \filbreak
 {
 \color{lightttColor}
