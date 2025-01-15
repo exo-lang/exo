@@ -5,6 +5,7 @@ from exo.frontend.pyparser import ParseError
 import pytest
 import warnings
 from exo.libs.externs import *
+from exo.platforms.x86 import DRAM
 
 
 def test_unrolling(golden):
@@ -510,6 +511,17 @@ def test_proc_shadowing(golden):
     @proc
     def foo(a: f32):
         sin(a)
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+    assert f"EXO IR:\n{str(foo)}\nC:\n{c_file}" == golden
+
+
+def test_eval_expr_in_mem(golden):
+    mems = [DRAM]
+
+    @proc
+    def foo(a: f32 @ mems[0]):
+        pass
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
     assert f"EXO IR:\n{str(foo)}\nC:\n{c_file}" == golden
