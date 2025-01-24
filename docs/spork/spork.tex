@@ -331,7 +331,7 @@ For now I'm proposing that we use the term ``actor kind'' for the ``who'' and ``
 
 \filbreak
 Each read or write is performed with a specific ``actor signature''.
-An ``actor kind'' is formally a set of actor signatures; the actor kinds are used to annotate blocks of code (see async block), \lighttt{@instr} procs, and synchronization statements.
+An ``actor kind'' is formally a set of actor signatures and a $V_1$-transitive flag (see SyncEnv); the actor kinds are used to annotate blocks of code (see async block), \lighttt{@instr} procs, and synchronization statements.
 For async blocks and \lighttt{@instr}, the actor kind specifies the allowed set of actor signatures for reads and writes performed.
 For synchronization statements, the actor kind acts as a filter of the reads/writes that the statement is capable of synchronizing (filter by matching actor signature).
 
@@ -364,9 +364,9 @@ They are valid only for synchronization statements (later), and represent subset
 \texttt{tma\_to\_smem\_async: } & \text{\{\lighttt{sig\_tma\_to\_smem}\}}\\
 \texttt{tma\_to\_gmem\_async: } & \text{\{\lighttt{sig\_tma\_to\_gmem}\}}\\
 \texttt{wgmma\_async: } & \text{wgmma instructions; \{\lighttt{sig\_wgmma\_*}\}}\\
-\graytt{wgmma\_async\_rmem: } & \text{actions on wgmma register tiles by wgmma instructions; \{\lighttt{sig\_wgmma\_rmem\_*}\}}\\
 \graytt{wgmma\_async\_smem: } & \text{actions on shared memory by wgmma instructions; \{\lighttt{sig\_wgmma\_smem}\}}\\
-\graytt{wgmma\_rmem: } & \text{\{\lighttt{sig\_cuda\_sync}, \lighttt{sig\_wgmma\_rmem\_*}\}}
+\graytt{wgmma\_fence\_1: } & \text{\{\lighttt{sig\_cuda\_sync}, \lighttt{sig\_wgmma\_rmem\_*}\}}\\
+\graytt{wgmma\_fence\_2: } & \text{actions on wgmma register tiles by wgmma instructions; \{\lighttt{sig\_wgmma\_rmem\_*}\}}\\
 \end{align*}
 
 \filbreak
@@ -429,7 +429,7 @@ For non-split barriers, we support the following:
 
 \texttt{Fence(cuda\_sync, cuda\_generic)}: \lighttt{\_\_syncthreads()} and similar barriers
 
-\texttt{Fence(wgmma\_rmem, wgmma\_async\_rmem)}: PTX \wgmmaFence
+\texttt{Fence(wgmma\_fence\_1, wgmma\_fence\_2)}: PTX \wgmmaFence
 
 \texttt{Fence(cuda\_sync, wgmma\_async\_smem)}: \fenceProxyAsync\ at warpgroup scope
 
@@ -443,11 +443,6 @@ Note the first two GPU barriers have non-equal first and second actor kinds to a
 \filbreak
 \hook{Hook:} For the analysis and codegen to be feasible, I'm expecting language restrictions that make it possible to statically verify that for each split barrier constructed, we issue matching pairs of arrive and await, with the same collective lane used for all arrives and the same collective lane used for all awaits.
 We need to verify that the iteration spaces for the arrive and awaits are the same.
-
-\filbreak
-\textbf{TODO:} expand on transitivity (see synchronization environment).
-This is not a choice the user makes; likely, all barriers with first actor kind \lighttt{cpu} or \lighttt{cuda\_sync} are transitive and all others are not.
-This will probably be sound but not complete.
 
 \filbreak
 \myKey{Kernel parameters:} We need to take a census of the kernel parameters needed similar to how we determine whether pointers are const or non-const.
@@ -626,7 +621,7 @@ The actor signature is an attribute of each memory read or write performed, whic
 
 \filbreak
 \myKey{Actor Kind:}
-Set of actor signatures.
+Set of actor signatures, plus a $V_1$-transitive flag (see SyncEnv).
 
 \filbreak
 \mySub{Synchronization Environment Semantics}
@@ -715,8 +710,8 @@ Specifically,
 \end{enumerate}
 
 \filbreak
-A barrier my be transitive or non-transitive.
-If transitive, a visibility record synchronizes-with an arrive or a non-split synchronization statement when ${V_A \cap V_1}$ is non-empty.
+A barrier may be transitive or non-transitive.
+It is transitive whenever the $V_1$-transitive flag of $A_1$ is true; if so, a visibility record synchronizes-with an arrive or a non-split synchronization statement when ${V_A \cap V_1}$ is non-empty.
 (The consideration of $V_A$ represents that synchronization statements can synchronize with pending asynchronous instructions, when the appropriate actor kind is used).
 If non-transitive, we substitute $V_A$ with ${\{ (t, a) \in V_A \mid a = A_O \}}$ where $A_O$ is the original actor kind of the visibility record; this effectively models that the barrier only has effect on reads and writes performed by the instruction kinds targetted by the barrier.
 

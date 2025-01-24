@@ -7,7 +7,6 @@ from . import actor_kinds
 
 class LoopMode(object):
     is_par = False
-    is_async = False
     allowed_actor_kinds = set()
 
     def loop_mode_name(self):
@@ -19,7 +18,6 @@ class LoopMode(object):
 
 class Seq(LoopMode):
     is_par = False
-    is_async = False
     allowed_actor_kinds = actor_kinds.any_actor_kind
 
     def __init__(self):
@@ -34,7 +32,6 @@ seq = Seq()
 
 class Par(LoopMode):
     is_par = True
-    is_async = False
     allowed_actor_kinds = {actor_kinds.cpu}
 
     def __init__(self):
@@ -52,7 +49,6 @@ par = Par()
 
 class CudaClusters(LoopMode):
     is_par = True
-    is_async = False
     allowed_actor_kinds = {actor_kinds.cuda_sync}
 
     def __init__(self):
@@ -70,7 +66,6 @@ cuda_clusters = CudaClusters()
 
 class CudaBlocks(LoopMode):
     is_par = True
-    is_async = False
     allowed_actor_kinds = {actor_kinds.cuda_sync}
 
     def __init__(self):
@@ -88,7 +83,6 @@ cuda_blocks = CudaBlocks()
 
 class CudaWarpgroups(LoopMode):
     is_par = True
-    is_async = False
     allowed_actor_kinds = {actor_kinds.cuda_sync}
 
     def __init__(self):
@@ -106,7 +100,6 @@ cuda_warpgroups = CudaWarpgroups()
 
 class CudaWarps(LoopMode):
     is_par = True
-    is_async = False
     allowed_actor_kinds = {actor_kinds.cuda_sync}
 
     def __init__(self):
@@ -124,7 +117,6 @@ cuda_warps = CudaWarps()
 
 class CudaThreads(LoopMode):
     is_par = True
-    is_async = False
     allowed_actor_kinds = {actor_kinds.cuda_sync}
 
     def __init__(self):

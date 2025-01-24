@@ -27,38 +27,37 @@ sig_wgmma_rmem_d = ActorSignature("sig_wgmma_rmem_d")
 sig_wgmma_smem = ActorSignature("sig_wgmma_smem")
 
 
-class ActorKindCategory(Enum):
-    SYNTHETIC = 0
-    SYNC = 1
-    ASYNC = 2
-
-
 class ActorKind(object):
     name: str
-    category: ActorKindCategory
+    # A barrier is transitive iff its first actor kind is V1_transitive
+    V1_transitive: bool
     signatures: Set[ActorSignature]
 
-    __slots__ = ["name", "category", "signatures"]
+    __slots__ = ["name", "V1_transitive", "signatures"]
 
-    def __init__(self, name, category, signatures: Set[ActorSignature]):
+    def __init__(self, name, V1_transitive, signatures: Set[ActorSignature]):
         self.name = name
-        self.category = category
+        self.V1_transitive = V1_transitive
         self.signatures = signatures
         assert isinstance(signatures, set)
         assert all(isinstance(s, ActorSignature) for s in signatures)
-        assert (category == ActorKindCategory.ASYNC) == name.endswith(
-            "_async"
-        ), "naming convention: names of async actor kinds must end with _async"
 
-    def is_synthetic(self):
-        return self.category == ActorKindCategory.SYNTHETIC
+    def implements(self, other):
+        """True when other is "less-featureful" than self (or equal)
 
-    def is_async(self):
-        assert self.category != ActorKindCategory.SYNTHETIC
-        return self.category == ActorKindCategory.ASYNC
+        Return whether the `other` actor kind is "implementable" with the
+        `self` actor kind, i.e. that a hardware barrier implementing
+        Fence(A1, A2) can be used to implement Fence(A1', A2')
+        where A1 and A2 implements A1' and A2' respectively.
 
-    def subset_of(self, other):
-        return self.signatures.issubset(other.signatures)
+        This is the case when A1' has a set of actor signatures that is a
+        subset of that of A1, and A1' does not require a V1-transitivity
+        promise A1 does not implement.
+        """
+        assert isinstance(other, ActorKind)
+        return other.signatures.issubset(self.signatures) and (
+            self.V1_transitive or not other.V1_transitive
+        )
 
     def __repr__(self):
         return f"<exo.spork.actor_kind.ActorKind {self.name}>"
@@ -71,15 +70,15 @@ class ActorKind(object):
 
 
 """No instructions; internal use only"""
-_null_actor = ActorKind("_null_actor", ActorKindCategory.SYNTHETIC, set())
+_null_actor = ActorKind("_null_actor", False, set())
 
 """Host CPU instructions"""
-cpu = ActorKind("cpu", ActorKindCategory.SYNC, {sig_cpu})
+cpu = ActorKind("cpu", True, {sig_cpu})
 
 """All actions on the CUDA device"""
 cuda_all = ActorKind(
     "cuda_all",
-    ActorKindCategory.SYNTHETIC,
+    True,
     {
         sig_cuda_sync,
         sig_non_bulk_cp_async,
@@ -93,62 +92,53 @@ cuda_all = ActorKind(
 
 """Typical CUDA instructions that operate on the generic proxy
 and follow the typical per-thread in-order execution abstraction"""
-cuda_sync = ActorKind("cuda_sync", ActorKindCategory.SYNC, {sig_cuda_sync})
+cuda_sync = ActorKind("cuda_sync", True, {sig_cuda_sync})
 
 """Ampere cp.async instructions"""
-non_bulk_cp_async = ActorKind(
-    "non_bulk_cp_async", ActorKindCategory.ASYNC, {sig_non_bulk_cp_async}
-)
+non_bulk_cp_async = ActorKind("non_bulk_cp_async", False, {sig_non_bulk_cp_async})
 
 """CUDA generic proxy (sync and async instructions)"""
-cuda_generic = ActorKind(
-    "cuda_generic", ActorKindCategory.SYNTHETIC, {sig_cuda_sync, sig_non_bulk_cp_async}
-)
+cuda_generic = ActorKind("cuda_generic", False, {sig_cuda_sync, sig_non_bulk_cp_async})
 
 """CUDA async proxy (TMA and wgmma, excluding register access)"""
 cuda_async_proxy = ActorKind(
     "cuda_async_proxy",
-    ActorKindCategory.SYNTHETIC,
+    False,
     {sig_tma_to_smem, sig_tma_to_gmem, sig_wgmma_smem},
 )
 
 """cp.async.bulk instructions with cluster/block shared memory as destination"""
-tma_to_smem_async = ActorKind(
-    "tma_to_smem_async", ActorKindCategory.ASYNC, {sig_tma_to_smem}
-)
+tma_to_smem_async = ActorKind("tma_to_smem_async", False, {sig_tma_to_smem})
 
 """cp{.reduce}.bulk.async instructions with global memory as destination"""
-tma_to_gmem_async = ActorKind(
-    "tma_to_gmem_async", ActorKindCategory.ASYNC, {sig_tma_to_gmem}
-)
+tma_to_gmem_async = ActorKind("tma_to_gmem_async", False, {sig_tma_to_gmem})
 
 """wgmma instructions"""
 wgmma_async = ActorKind(
     "wgmma_async",
-    ActorKindCategory.ASYNC,
+    False,
     {sig_wgmma_rmem_a, sig_wgmma_rmem_d, sig_wgmma_smem},
 )
 
-"""wgmma instructions' actions on registers"""
-wgmma_async_rmem = ActorKind(
-    "wgmma_async_rmem",
-    ActorKindCategory.SYNTHETIC,
-    {sig_wgmma_rmem_a, sig_wgmma_rmem_d},
-)
-
 """wgmma instructions' actions on shared memory"""
-wgmma_async_smem = ActorKind(
-    "wgmma_async_smem", ActorKindCategory.SYNTHETIC, {sig_wgmma_smem}
-)
+wgmma_async_smem = ActorKind("wgmma_async_smem", False, {sig_wgmma_smem})
 
 """actions on wgmma matrix tile registers, either by wgmma.async
-instructions or by ordinary cuda synchronous instructions"""
-wgmma_rmem = ActorKind(
-    "wgmma_rmem",
-    ActorKindCategory.SYNTHETIC,
+instructions or by ordinary cuda synchronous instructions;
+this is the first actor kind of wgmma.fence"""
+wgmma_fence_1 = ActorKind(
+    "wgmma_fence_1",
+    False,
     {sig_cuda_sync, sig_wgmma_rmem_a, sig_wgmma_rmem_d},
 )
 
+"""wgmma instructions' actions on registers;
+this is the second actor kind of wgmma.fence"""
+wgmma_fence_2 = ActorKind(
+    "wgmma_fence_2",
+    False,
+    {sig_wgmma_rmem_a, sig_wgmma_rmem_d},
+)
 
 # _null_actor excluded
 actor_kind_dict = {
@@ -162,9 +152,9 @@ actor_kind_dict = {
         tma_to_smem_async,
         tma_to_gmem_async,
         wgmma_async,
-        wgmma_async_rmem,
         wgmma_async_smem,
-        wgmma_rmem,
+        wgmma_fence_1,
+        wgmma_fence_2,
     ]
 }
 
