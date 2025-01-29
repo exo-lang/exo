@@ -288,13 +288,17 @@ def _print_tree(tree, env: PrintEnv, indent: str):
 def _print_val(val, env: PrintEnv):
     if isinstance(val, D.SubVal):
         return _print_vabs(val.av, env)
-    elif isinstance(val, D.ArrayConst):
+    elif isinstance(val, D.ArrayVar):
         idxs = (
             "[" + ",".join([_print_ae(i, env) for i in val.idx]) + "]"
             if len(val.idx) > 0
             else ""
         )
         return f"{env.get_name(val.name)}{idxs}"
+    elif isinstance(val, D.ArrayTmp):
+        assert (
+            False
+        ), "ArrayTmp should be substituted out and should not reach here. might change this for debugging"
     assert False, "bad case"
 
 

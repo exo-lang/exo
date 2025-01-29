@@ -10,7 +10,7 @@ from .dataflow import (
     LoopIR_to_DataflowIR,
     ScalarPropagation,
     D,
-    adom_to_aexpr,
+    lift_to_smt_n,
     DataflowIR,
 )
 
@@ -1705,8 +1705,8 @@ def Check_DeleteConfigWrite(proc, stmts):
     else:
         prev_nm = d_stmts[0][0].lhs
         post_nm = d_stmts[1][0].lhs
-    prev_val = adom_to_aexpr(prev_nm, ir1.body.ctxt[prev_nm])
-    post_val = adom_to_aexpr(post_nm, ir1.body.ctxt[post_nm])
+    prev_val = lift_to_smt_n(prev_nm, ir1.body.ctxt[prev_nm].tree)
+    post_val = lift_to_smt_n(post_nm, ir1.body.ctxt[post_nm].tree)
     cfg_mod = {pt.name: pt for pt in get_point_exprs(WrA)}
 
     # consider every global that might be modified
@@ -1776,8 +1776,8 @@ def Check_DeleteConfigWrite(proc, stmts):
     ScalarPropagation(ir1)
     prev_nm = d_stmts[0][0].lhs
     post_nm = d_stmts[1][0].lhs
-    prev_val = adom_to_aexpr(prev_nm, ir1.body.ctxt[prev_nm])
-    post_val = adom_to_aexpr(post_nm, ir1.body.ctxt[post_nm])
+    prev_val = lift_to_smt_n(prev_nm, ir1.body.ctxt[prev_nm].tree)
+    post_val = lift_to_smt_n(post_nm, ir1.body.ctxt[post_nm].tree)
     cfg_mod = {pt.name: pt for pt in get_point_exprs(WrG)}
 
     # consider every global that might be modified

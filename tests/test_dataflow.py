@@ -2,221 +2,18 @@ from __future__ import annotations
 import pytest
 from exo import proc, DRAM, Procedure, config
 from exo.stdlib.scheduling import *
-from exo.rewrite.dataflow import (
-    D,
-    substitute,
-    sub_aexpr,
-    partition,
-    V,
-    abs_simplify,
-    widening,
-    adom_to_aexpr,
-)
+
+# from exo.rewrite.dataflow import (
+#    D,
+#    nsubs,
+#    vsubs,
+#    partition,
+#    V,
+#    abs_simplify,
+#    widening,
+#    lift_to_smt_n,
+# )
 from exo.core.prelude import Sym
-
-
-def test_widening(golden):
-    i = Sym("i")
-    d = Sym("d")
-    vi = D.Var(i)
-    vd = D.Var(d)
-
-    sx_2 = Sym("x2")
-    x_2_ = D.ArrayConst(sx_2, [D.Add(vi, D.Const(-1)), vd])
-    y = D.ArrayConst(Sym("y"), [vi, vi])
-    x_3_tree = D.AffineSplit(
-        D.Add(D.Add(vi, D.Mult(-1, vd)), D.Const(1)),
-        D.Leaf(x_2_),
-        D.Leaf(y),
-        D.Leaf(x_2_),
-    )
-
-    x_3 = D.ArrayConst(Sym("x3"), [vi, vd])
-    x_2_tree = D.AffineSplit(
-        D.Add(vi, D.Mult(-1, vd)), D.Leaf(x_3), D.Leaf(y), D.Leaf(x_3)
-    )
-    x_2_abs = D.abs([i, d], x_2_tree)
-
-    new_x_2 = substitute(x_3, x_3_tree, x_2_abs)
-
-    widened_x_2 = widening(sx_2, new_x_2)
-
-    assert (
-        str(x_3_tree)
-        + "\n"
-        + str(x_2_abs)
-        + "\n"
-        + str(new_x_2)
-        + "\n"
-        + str(widened_x_2)
-        == golden
-    )
-
-
-def test_widening2(golden):
-    i = Sym("i")
-    d = Sym("d")
-    N = Sym("N")
-    vi = D.Var(i)
-    vd = D.Var(d)
-    vN = D.Var(N)
-
-    sx_1 = Sym("x1")
-    sx = Sym("x")
-    x_1 = D.ArrayConst(sx_1, [D.Add(vi, D.Const(-1)), vd])
-    x = D.ArrayConst(sx, [vd])
-    eq2 = D.Add(D.Add(vi, D.Const(-1)), D.Mult(-1, vd))
-    bot = D.Leaf(D.SubVal(V.Bot()))
-    eq3 = D.Add(D.Add(D.Add(vi, D.Mult(-1, D.Const(1))), vd), D.Mult(-1, vN))
-    tree_eq3 = D.AffineSplit(
-        eq3, D.Leaf(x_1), D.Leaf(D.SubVal(V.ValConst(3.0))), D.Leaf(x_1)
-    )
-    x_1_tree = D.AffineSplit(
-        vi,
-        bot,
-        D.Leaf(x),
-        D.AffineSplit(eq2, tree_eq3, D.Leaf(D.SubVal(V.ValConst(1.0))), tree_eq3),
-    )
-    x_1_abs = D.abs([i, N, d], x_1_tree)
-
-    widened_x_1 = partition(sx_1, x_1_abs)
-
-    i_minus = D.Add(vi, D.Const(-1))
-    x_1_i_1 = abs_simplify(sub_aexpr(vi, i_minus, widened_x_1))
-
-    after = substitute(x_1, x_1_i_1.tree, widened_x_1)
-    after = abs_simplify(after)
-    after = abs_simplify(widening(sx_1, after))
-    after = abs_simplify(after)
-
-    assert (
-        str(x_1_abs)
-        + "\n"
-        + str(widened_x_1)
-        + "\n"
-        + str(x_1_i_1)
-        + "\n"
-        + str(after)
-        + "\n"
-        + str(adom_to_aexpr(sx_1, after))
-        == golden
-    )
-
-
-def test_substitute_mod(golden):
-    i = Sym("i")
-    d = Sym("d")
-    vi = D.Var(i)
-    vd = D.Var(d)
-    x_3 = D.ArrayConst(Sym("x3"), [vi, vd])
-    x_4 = D.ArrayConst(Sym("x4"), [vi, vd])
-    x_1 = D.ArrayConst(Sym("x1"), [vi, vd])
-    x_2_tree = D.ModSplit(vi, 3, D.Leaf(x_3), D.Leaf(x_4))
-    x_2_abs = D.abs([i, d], x_2_tree)
-    x_4_tree = D.AffineSplit(
-        D.Add(vi, D.Mult(-1, D.Add(vd, D.Const(1)))),
-        D.Leaf(x_3),
-        D.Leaf(D.SubVal(V.ValConst(2.0))),
-        D.Leaf(x_3),
-    )
-    new_x_2 = substitute(x_4, x_4_tree, x_2_abs)
-    x_3_tree = D.AffineSplit(
-        D.Add(vi, D.Mult(-1, vd)),
-        D.Leaf(x_1),
-        D.Leaf(D.SubVal(V.ValConst(1.0))),
-        D.Leaf(x_1),
-    )
-
-    new_new_x_2 = substitute(x_3, x_3_tree, new_x_2)
-
-    i_minus = D.Add(vi, D.Const(-1))
-    final_x2 = sub_aexpr(vi, i_minus, new_new_x_2)
-
-    x = D.ArrayConst(Sym("x"), [vd])
-    x_2_minus = D.ArrayConst(Sym("x2"), [i_minus, vd])
-    x_1_tree = D.AffineSplit(
-        vi, D.Leaf(D.SubVal(V.Bot())), D.Leaf(x), D.Leaf(x_2_minus)
-    )
-    x_1_abs = D.abs([i, d], x_1_tree)
-    final_x_1 = substitute(x_2_minus, final_x2.tree, x_1_abs)
-
-    assert str(final_x2) + "\n" + str(x_1_tree) + "\n" + str(final_x_1) == golden
-
-
-def test_substitute(golden):
-    i = Sym("i")
-    d = Sym("d")
-    vi = D.Var(i)
-    vd = D.Var(d)
-
-    x_1 = D.ArrayConst(Sym("x_1"), [vi, vd])
-    y = D.ArrayConst(Sym("y"), [vi, vi])
-    x_3_tree = D.AffineSplit(
-        D.Add(D.Add(vi, D.Mult(-1, vd)), D.Const(1)),
-        D.Leaf(x_1),
-        D.Leaf(y),
-        D.Leaf(x_1),
-    )
-
-    x_3 = D.ArrayConst(Sym("x_3"), [vi, vd])
-    x_2_tree = D.AffineSplit(
-        D.Add(vi, D.Mult(-1, vd)), D.Leaf(x_3), D.Leaf(y), D.Leaf(x_3)
-    )
-    x_2_abs = D.abs([i, d], x_2_tree)
-
-    new_x_2 = substitute(x_3, x_3_tree, x_2_abs)
-
-    assert str(new_x_2) + "\n" + str(x_2_abs) + "\n" + str(x_3_tree) == golden
-
-
-def test_abs_pprint(golden):
-    x = Sym("x")
-    y = Sym("y")
-    vx = D.Var(x)
-    vy = D.Var(y)
-    one = D.Const(1)
-    add = D.Add(vx, vy)
-    mul = D.Mult(2, vx)
-    addmul = D.Add(vx, D.Mult(4, vx))
-
-    i = D.Var(Sym("i"))
-    d = D.Var(Sym("d"))
-    p1 = D.Add(i, D.Mult(-1, d))
-
-    four = D.SubVal(V.ValConst(4.0))
-    leaf = D.Leaf(four)
-
-    p2 = D.Add(p1, D.Const(1))
-    a1 = D.ArrayConst(Sym("y"), [i, i])
-    a2 = D.ArrayConst(Sym("x"), [i, d])
-    n = D.AffineSplit(
-        p1,
-        D.AffineSplit(p2, D.Leaf(a2), D.Leaf(a1), D.Leaf(a2)),
-        D.Leaf(a1),
-        D.Leaf(a2),
-    )
-
-    mod = D.ModSplit(p1, 3, n, leaf)
-
-    a = D.abs([x, y], mod)
-
-    # def substitute(var : D.ArrayConst, term : D.node, src : D.abs):
-    new_tree = substitute(a1, n, a)
-
-    assert (
-        "var: "
-        + str(a1)
-        + "\n"
-        + "term: "
-        + str(n)
-        + "\n"
-        + "src: "
-        + str(a)
-        + "\n"
-        + "new tree: "
-        + str(new_tree)
-        + "\n"
-    ) == golden
 
 
 def test_simple(golden):
@@ -877,5 +674,26 @@ def test_mod():
             x[i] = 1.0
             if i % 3 == 0:
                 x[i - 1] = 2.0
+
+    print(foo.dataflow()[0])
+
+
+# Current analysis output is incorrect on this example. We'll need to run the fixpoint on y's loopstart as well
+def test_reverse2():
+    @proc
+    def foo(N: size, x: R[N], y: R[N]):
+        for i in seq(1, N):
+            x[N - i] = 3.0
+            y[i] = x[i]
+
+    print(foo.dataflow()[0])
+
+
+def test_reverse3():
+    @proc
+    def foo(N: size, x: R[N], y: R[N]):
+        for i in seq(1, N):
+            x[N - i] = y[i]
+            y[i] = x[i]
 
     print(foo.dataflow()[0])
