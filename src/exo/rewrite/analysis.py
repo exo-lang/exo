@@ -8,7 +8,7 @@ from .new_analysis_core import *
 from ..core.proc_eqv import get_repr_proc
 from .dataflow import (
     LoopIR_to_DataflowIR,
-    ScalarPropagation,
+    AbstractInterpretation,
     D,
     lift_to_smt_n,
     DataflowIR,
@@ -1697,7 +1697,7 @@ def Check_DeleteConfigWrite(proc, stmts):
 
     # Below are the actual checks
     ir1, d_stmts = LoopIR_to_DataflowIR(proc, stmts).result()
-    ScalarPropagation(ir1)
+    AbstractInterpretation(ir1)
     print(ir1)
     if isinstance(d_stmts[0][0], DataflowIR.For):
         prev_nm = d_stmts[0][-1].lhs
@@ -1773,7 +1773,7 @@ def Check_DeleteConfigWrite(proc, stmts):
 
     # Below are the actual checks
     ir1, d_stmts = LoopIR_to_DataflowIR(proc, stmts).result()
-    ScalarPropagation(ir1)
+    AbstractInterpretation(ir1)
     prev_nm = d_stmts[0][0].lhs
     post_nm = d_stmts[1][0].lhs
     prev_val = lift_to_smt_n(prev_nm, ir1.body.ctxt[prev_nm].tree)
@@ -1836,8 +1836,8 @@ def Check_ExtendEqv(proc1, proc2, stmts1, stmts2, cfg_mod):
     ir1, d_stmts1 = LoopIR_to_DataflowIR(proc1, stmts1).result()
     ir2, d_stmts2 = LoopIR_to_DataflowIR(proc2, stmts2).result()
 
-    ScalarPropagation(ir1)
-    ScalarPropagation(ir2)
+    AbstractInterpretation(ir1)
+    AbstractInterpretation(ir2)
 
     _, config1_vals = GetValues(ir1, d_stmts1).result()
     _, config2_vals = GetValues(ir2, d_stmts2).result()

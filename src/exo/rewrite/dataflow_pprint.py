@@ -295,10 +295,6 @@ def _print_val(val, env: PrintEnv):
             else ""
         )
         return f"{env.get_name(val.name)}{idxs}"
-    elif isinstance(val, D.ArrayTmp):
-        assert (
-            False
-        ), "ArrayTmp should be substituted out and should not reach here. might change this for debugging"
     assert False, "bad case"
 
 

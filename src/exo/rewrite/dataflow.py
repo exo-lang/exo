@@ -749,7 +749,7 @@ def dataflow_analysis(proc: LoopIR.proc, loopir_stmts: list) -> DataflowIR.proc:
     datair, stmts = LoopIR_to_DataflowIR(proc, loopir_stmts).result()
 
     # step 2 - run abstract interpretation algorithm to populate contexts with abs values
-    ScalarPropagation(datair)
+    AbstractInterpretation(datair)
 
     return datair, stmts
 
@@ -793,7 +793,6 @@ module ArrayDomain {
              )
 
     val   = SubVal(vabs av)
-          | ArrayTmp(sym name, aexpr* idx)
           | ArrayVar(sym name, aexpr* idx)
 
     aexpr = Const(int val)
@@ -982,8 +981,8 @@ def lift_to_abs_a(e: DataflowIR.expr) -> D.aexpr:
 # Corresponds to \delta in the paper draft
 def delta(cond: DataflowIR.expr, body: D.node, orelse: D.node) -> D.node:
     assert isinstance(cond, DataflowIR.expr)
-    assert isinstance(body, D.Leaf)
-    assert isinstance(orelse, D.Leaf)
+    assert isinstance(body, D.node)
+    assert isinstance(orelse, D.node)
 
     # If the condition is always True or False, just return the leaf as a tree
     tree = D.Leaf(D.SubVal(V.Top()))
@@ -1001,7 +1000,7 @@ def delta(cond: DataflowIR.expr, body: D.node, orelse: D.node) -> D.node:
         elif cond.op == "or":
             return delta(cond.lhs, body, delta(cond.rhs, body, orelse))
 
-        # FIXME: Modular inequalities are generally not supported.
+        # FIXME: Support modular inequalities for constant cases.
         is_lhs_mod = isinstance(cond.lhs, DataflowIR.BinOp) and cond.lhs.op == "%"
         is_rhs_mod = isinstance(cond.rhs, DataflowIR.BinOp) and cond.rhs.op == "%"
         if is_lhs_mod or is_rhs_mod:
@@ -1189,8 +1188,6 @@ class Abs_Rewrite:
         if isinstance(val, D.SubVal):
             # TODO: May want to recurse into VABS?
             return val
-        elif isinstance(val, D.ArrayTmp):
-            return D.ArrayTmp(val.name, [self.map_aexpr(i) for i in val.idx])
         elif isinstance(val, D.ArrayVar):
             return D.ArrayVar(val.name, [self.map_aexpr(i) for i in val.idx])
         else:
@@ -1222,47 +1219,6 @@ class ASubs(Abs_Rewrite):
                 return self.dict[a.name]
 
         return super().map_aexpr(a)
-
-
-# vsubs : val -> \Sigma^\# -> node in the paper
-def vsubs(val: D.val, env: dict) -> D.node:
-    assert isinstance(val, D.val)
-    assert isinstance(env, dict)
-
-    if isinstance(val, D.ArrayVar):
-        return D.Leaf(val)
-    elif isinstance(val, D.SubVal):
-        return D.Leaf(val)
-    elif isinstance(val, D.ArrayTmp):
-        if not val.name in env:
-            return D.Leaf(val)
-
-        exprs = val.idx
-        itrs = env[val.name].iterators
-        itr_map = dict()
-
-        for i1, i2 in zip(itrs, exprs):
-            itr_map[i1] = i2
-
-        return ASubs(env[val.name].tree, itr_map).result()
-
-    else:
-        assert False, "bad case"
-
-
-# nsubs : node -> \Sigma^\# -> node in the paper
-def nsubs(node: D.node, env: dict) -> D.node:
-    assert isinstance(node, D.node)
-    assert isinstance(env, dict)
-
-    if isinstance(node, D.AffineSplit):
-        return D.AffineSplit(
-            node.ae, nsubs(node.ltz, env), nsubs(node.eqz, env), nsubs(node.gtz, env)
-        )
-    elif isinstance(node, D.ModSplit):
-        return D.ModSplit(node.ae, node.m, nsubs(node.neqz, env), nsubs(node.eqz, env))
-    else:
-        return vsubs(node.v, env)
 
 
 # --------------------------------------------------------------------------- #
@@ -1494,7 +1450,7 @@ def widening(name: Sym, src: D.abs) -> D.abs:
 class AbstractInterpretation(ABC):
     def __init__(self, proc: DataflowIR.proc):
         self.proc = proc
-        # set of "original" arrays of proc arguments. We need this to distinguish ArrayVars from ArrayTmp.
+        # set of "original" arrays of proc arguments. We need this to distinguish ArrayVars from Top
         self.avars = set()
         self.fix_proc(self.proc)
 
@@ -1529,9 +1485,19 @@ class AbstractInterpretation(ABC):
                 DataflowIR.IfJoin,
             ),
         ):
-            new_dict = {k: v for k, v in env.items() if k != stmt.lhs}
-            a = self.abs_assign(stmt)
-            env[stmt.lhs] = D.abs(a.iterators, nsubs(a.tree, new_dict))
+            body = stmt.body
+            # if reducing, then expand to x = x + rhs now we can handle both cases uniformly
+            if isinstance(stmt, DataflowIR.Reduce):
+                body = DataflowIR.BinOp("+", body, stmt.orelse, body.type, stmt.srcinfo)
+
+            env[stmt.lhs] = D.abs(
+                stmt.iters + stmt.dims,
+                delta(
+                    stmt.cond,
+                    self.fix_expr(body, env),
+                    self.fix_expr(stmt.orelse, env),
+                ),
+            )
 
         elif isinstance(stmt, DataflowIR.Pass):
             pass  # pass pass, lol
@@ -1608,80 +1574,42 @@ class AbstractInterpretation(ABC):
         else:
             assert False, f"bad case: {type(stmt)}"
 
-    # Corresponds to $E^\# : \Expr \to val$ in the paper
-    def fix_expr(self, e: DataflowIR.expr) -> D.val:
+    # Corresponds to E^\# : \Expr \to \Sigma^\# \to val in the paper
+    def fix_expr(self, e: DataflowIR.expr, env) -> D.val:
         if isinstance(e, DataflowIR.Read):
-            return self.abs_read(e)
+            idxs = [lift_to_abs_a(i) for i in e.idx]
+            if e.name in self.avars:
+                return D.Leaf(D.ArrayVar(e.name, idxs))
+            else:
+                # top if not found in env, substitute the array access if it does
+                if e.name in env:
+                    itr_map = dict()
+                    for i1, i2 in zip(env[e.name].iterators, idxs):
+                        itr_map[i1] = i2
+
+                    return ASubs(env[e.name].tree, itr_map).result()
+
+                else:
+                    return D.Leaf(D.SubVal(V.Top()))
+
         elif isinstance(e, DataflowIR.Const):
-            return self.abs_const(e)
+            return D.Leaf(D.SubVal(V.ValConst(e.val)))
+
         elif isinstance(e, DataflowIR.USub):
-            return self.abs_usub(e)
+            return D.Leaf(D.SubVal(V.Top()))
+
         elif isinstance(e, DataflowIR.BinOp):
-            return self.abs_binop(e)
+            return D.Leaf(D.SubVal(V.Top()))
+
         elif isinstance(e, DataflowIR.Extern):
-            return self.abs_extern(e)
+            raise NotImplementedError("extern is not supported yet. Shouldn't be here!")
+
         elif isinstance(e, DataflowIR.StrideExpr):
-            return self.abs_stride_expr(e)
+            raise NotImplementedError("stride is not supported yet. Shouldn't be here!")
+
         else:
             assert False, f"bad case {type(expr)}"
 
-    @abstractmethod
-    def abs_partition(self, name, adom):
-        # Define Partitioning
-        pass
-
-    @abstractmethod
-    def abs_widening(self, name, adom):
-        # Define Widening
-        pass
-
-    @abstractmethod
-    def abs_assign(self, stmt):
-        # Define Assign
-        pass
-
-    @abstractmethod
-    def abs_simplify(self, adom):
-        # Define Simplify
-        pass
-
-    @abstractmethod
-    def abs_join(self, adom, env):
-        # Define Fixpoint on Abstract domain
-        pass
-
-    @abstractmethod
-    def abs_read(self, e):
-        # Define Read
-        pass
-
-    @abstractmethod
-    def abs_stride_expr(self, e):
-        # Define abstraction of a specific stride expression
-        pass
-
-    @abstractmethod
-    def abs_const(self, e):
-        # Define abstraction of a specific constant value
-        pass
-
-    @abstractmethod
-    def abs_binop(self, e):
-        # Implement transfer function abstraction for binary operations
-        pass
-
-    @abstractmethod
-    def abs_usub(self, e):
-        # Implement transfer function abstraction for unary subtraction
-        pass
-
-    @abstractmethod
-    def abs_extern(self, e):
-        # Implement transfer function abstraction for built-ins
-        pass
-
-
-class ScalarPropagation(AbstractInterpretation):
     def abs_partition(self, name: Sym, src: D.abs) -> D.abs:
         assert isinstance(name, Sym)
         assert isinstance(src, D.abs)
@@ -1691,21 +1619,6 @@ class ScalarPropagation(AbstractInterpretation):
         assert isinstance(name, Sym)
         assert isinstance(src, D.abs)
         return widening(name, src)
-
-    def abs_assign(self, stmt):
-        body = stmt.body
-        # if reducing, then expand to x = x + rhs now we can handle both cases uniformly
-        if isinstance(stmt, DataflowIR.Reduce):
-            body = DataflowIR.BinOp("+", body, stmt.orelse, body.type, stmt.srcinfo)
-
-        return D.abs(
-            stmt.iters + stmt.dims,
-            delta(
-                stmt.cond,
-                D.Leaf(self.fix_expr(body)),
-                D.Leaf(self.fix_expr(stmt.orelse)),
-            ),
-        )
 
     def abs_join(self, src: D.abs, env: dict) -> D.abs:
         raise NotImplementedError("not worrying about fixpoing for now")
@@ -1717,27 +1630,3 @@ class ScalarPropagation(AbstractInterpretation):
 
     def abs_simplify(self, src: D.abs) -> D.abs:
         return abs_simplify(src)
-
-    def abs_read(self, e):
-        idxs = [lift_to_abs_a(i) for i in e.idx]
-        if e.name in self.avars:
-            return D.ArrayVar(e.name, idxs)
-        else:
-            return D.ArrayTmp(e.name, idxs)
-
-    def abs_const(self, e) -> D.val:
-        return D.SubVal(V.ValConst(e.val))
-
-    def abs_stride_expr(self, e):
-        raise NotImplementedError("stride is not supported yet. Shouldn't be here!")
-        return D.SubVal(V.Top())
-
-    def abs_binop(self, e) -> D:
-        return D.SubVal(V.Top())
-
-    def abs_usub(self, e) -> D:
-        return D.SubVal(V.Top())
-
-    def abs_extern(self, e):
-        raise NotImplementedError("extern is not supported yet. Shouldn't be here!")
-        return D.SubVal(V.Top())
