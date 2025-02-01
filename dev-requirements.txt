@@ -1,6 +1,6 @@
 black==24.10.0
 coverage==7.6.10
-pre-commit==4.0.1
+pre-commit==4.1.0
 pytest-cov==6.0.0
 pytest-xdist==3.6.1
 pytest==8.3.4
