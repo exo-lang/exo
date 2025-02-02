@@ -176,12 +176,23 @@ def test_sliding_window_debug():
     print(foo.dataflow()[0])
 
 
-def test_sliding_window_debug2():
+def test_sliding_window_const():
     @proc
     def foo(dst: i8[30]):
         for i in seq(0, 10):
             for j in seq(0, 20):
-                dst[j] = 2.0
+                dst[i + j] = 2.0
+
+    print(foo.dataflow()[0])
+
+
+def test_sliding_window_const_guard():
+    @proc
+    def foo(dst: i8[30]):
+        for i in seq(0, 10):
+            for j in seq(0, 20):
+                if i == 0 or j == 19:
+                    dst[i + j] = 2.0
 
     print(foo.dataflow()[0])
 
@@ -667,6 +678,16 @@ def test_reverse():
     print(foo.dataflow()[0])
 
 
+def test_reverse_x_2():
+    @proc
+    def foo(x: R[10]):
+        for i in seq(1, 10):
+            x[10 - i] = 3.0
+            x[i] = 1.0
+
+    print(foo.dataflow()[0])
+
+
 def test_mod():
     @proc
     def foo(N: size, x: R[N]):
@@ -674,6 +695,18 @@ def test_mod():
             x[i] = 1.0
             if i % 3 == 0:
                 x[i - 1] = 2.0
+
+    print(foo.dataflow()[0])
+
+
+# Incorrect due to the lack of partitioning
+# FIXME: There's a bug in the ssa translation, x[i, i] should be x[i, d0].
+def test_reverse_const():
+    @proc
+    def foo(x: R[10], y: R[10]):
+        for i in seq(1, 10):
+            x[10 - i] = 3.0
+            y[i] = x[i]
 
     print(foo.dataflow()[0])
 

@@ -1074,8 +1074,10 @@ def abs_simplify(src: D.abs) -> D.abs:
             # we can collapse the tree when all values are the same
             if (
                 isinstance(tree.ltz, D.Leaf)
-                and tree.ltz == tree.eqz == tree.gtz
-                and isinstance(tree.ltz.v, D.SubVal)
+                and isinstance(tree.eqz, D.Leaf)
+                and isinstance(tree.gtz, D.Leaf)
+                and (type(tree.ltz) == type(tree.eqz) == type(tree.gtz))
+                and (tree.ltz.v == tree.eqz.v == tree.gtz.v)
             ):
                 return tree.ltz
 
@@ -1225,221 +1227,576 @@ class ASubs(Abs_Rewrite):
 # Widening related operations
 # --------------------------------------------------------------------------- #
 
+import numpy as np
+from scipy.optimize import linprog
 
-def get_equations(tree: D.node, eqs: set) -> D.node:
-    assert isinstance(tree, D.node)
-    assert isinstance(eqs, set)
-    if isinstance(tree, D.AffineSplit):
-        eqs.add(tree.ae)
-        get_equations(tree.ltz, eqs)
-        get_equations(tree.eqz, eqs)
-        get_equations(tree.gtz, eqs)
-    elif isinstance(tree, D.ModSplit):
-        get_equations(tree.neqz, eqs)
-        get_equations(tree.eqz, eqs)
-        eqs.add(tree.ae)
-    return eqs
+# =============================================================================
+# Linearization and halfspace conversion
+# =============================================================================
 
 
-def find_intersections(dims: list, eqs: set) -> set:
-    # Recursive function to generate combinations
-    def get_combinations(elements, combination_length):
-        if combination_length == 0:
-            return [[]]
-        if len(elements) < combination_length:
-            return []
-        else:
-            # Include the first element
-            with_first = get_combinations(elements[1:], combination_length - 1)
-            with_first = [[elements[0]] + combo for combo in with_first]
-            # Exclude the first element
-            without_first = get_combinations(elements[1:], combination_length)
-            # Combine both
-            return with_first + without_first
+def linearize_aexpr(aexpr, variables):
+    """
+    Convert an aexpr into (coeff, const) where:
+      - coeff is a dict mapping variable names to coefficients,
+      - const is the constant.
+    aexpr is one of: Const(val), Var(name), Add(lhs, rhs), Mult(coeff, ae)
+    """
+    if isinstance(aexpr, D.Const):
+        return ({var: 0 for var in variables}, aexpr.val)
+    elif isinstance(aexpr, D.Var):
+        coeff = {var: 0 for var in variables}
+        coeff[aexpr.name] = 1
+        return (coeff, 0)
+    elif isinstance(aexpr, D.Add):
+        coeff1, const1 = linearize_aexpr(aexpr.lhs, variables)
+        coeff2, const2 = linearize_aexpr(aexpr.rhs, variables)
+        coeff = {var: coeff1.get(var, 0) + coeff2.get(var, 0) for var in variables}
+        return (coeff, const1 + const2)
+    elif isinstance(aexpr, D.Mult):
+        coeff_inner, const_inner = linearize_aexpr(aexpr.ae, variables)
+        coeff = {var: aexpr.coeff * coeff_inner.get(var, 0) for var in variables}
+        return (coeff, aexpr.coeff * const_inner)
+    else:
+        raise ValueError(f"Unknown aexpr: {aexpr}")
 
-    const_rep = Sym("C")
 
-    def cvt_eq(eq: D.aexpr) -> dict:
-        if isinstance(eq, D.Const):
-            return {const_rep: eq.val}
-        elif isinstance(eq, D.Var):
-            return {eq.name: 1}
-        elif isinstance(eq, D.Add):
-            lhs = cvt_eq(eq.lhs)
-            rhs = cvt_eq(eq.rhs)
-            common = {key: (lhs[key] + rhs[key]) for key in lhs if key in rhs}
-            return lhs | rhs | common
-        elif isinstance(eq, D.Mult):
-            arg = cvt_eq(eq.ae)
-            return {key: arg[key] * eq.coeff for key in arg}
+def coeffs_to_array(coeff, variables):
+    """Return a numpy array of coefficients in the order given by variables."""
+    return np.array([coeff.get(var, 0) for var in variables], dtype=float)
 
-    def cvt_back(dic: dict) -> D.aexpr:
-        varr = []
-        for key, val in dic.items():
-            if val == 0:
-                continue
-            if key == const_rep:
-                varr.append(D.Const(val))
-                continue
 
-            var = D.Var(key)
-            if val != 1:
-                var = D.Mult(val, var)
-            varr.append(var)
+def get_halfspaces_for_aexpr(aexpr, branch, variables, eps=1e-6):
+    """
+    Given an aexpr and a branch type ("ltz", "eqz", or "gtz"),
+    return a list of halfspaces (each is an array [a0, a1, ..., a_{n-1}, b])
+    representing a0*x0 + ... + a_{n-1}*x_{n-1} + b <= 0.
+    For eqz we return two inequalities.
+    """
+    coeff, const = linearize_aexpr(aexpr, variables)
+    A = coeffs_to_array(coeff, variables)
+    if branch == "ltz":
+        return [np.append(A, const + eps)]
+    elif branch == "gtz":
+        return [np.append(-A, -const + eps)]
+    elif branch == "eqz":
+        hs1 = np.append(A, const - eps)
+        hs2 = np.append(-A, -const - eps)
+        return [hs1, hs2]
+    else:
+        raise ValueError(f"Unknown branch type: {branch}")
 
-        if len(varr) > 1:
-            ae = D.Add(varr[0], varr[1])
-            for var in varr[2:]:
-                ae = D.Add(ae, var)
-        else:
-            ae = varr[0]
 
-        return ae
+# =============================================================================
+# Region Extraction
+# =============================================================================
 
-    target = dims[0]
+
+def extract_regions(node, iterators, halfspaces=None, candidates=None, path=None):
+    """
+    Recursively traverse the abstract domain tree to collect regions (cells).
+    For each leaf, record:
+      - "halfspaces": list of halfspace arrays defining the cell,
+      - "candidates": list of candidate markers (from eqz branches),
+      - "path": list of (aexpr, branch) tuples representing decisions,
+      - "leaf_value": the cell's marking.
+    """
+    if halfspaces is None:
+        halfspaces = []
+    if candidates is None:
+        candidates = []
+    if path is None:
+        path = []
+
+    regions = []
+    if isinstance(node, D.Leaf):
+        regions.append(
+            {
+                "halfspaces": list(halfspaces),
+                "candidates": list(candidates),
+                "path": list(path),
+                "leaf_value": node.v,
+            }
+        )
+    elif isinstance(node, D.AffineSplit):
+        hs_ltz = get_halfspaces_for_aexpr(node.ae, "ltz", iterators)
+        hs_eqz = get_halfspaces_for_aexpr(node.ae, "eqz", iterators)
+        hs_gtz = get_halfspaces_for_aexpr(node.ae, "gtz", iterators)
+
+        new_candidate = None
+        if isinstance(node.eqz, D.Leaf):
+            new_candidate = (node.ae, node.eqz.v)
+
+        for branch, hs_list, child in [
+            ("ltz", hs_ltz, node.ltz),
+            ("eqz", hs_eqz, node.eqz),
+            ("gtz", hs_gtz, node.gtz),
+        ]:
+            for hs in hs_list:
+                halfspaces.append(hs)
+            path.append((node.ae, branch))
+            if new_candidate is not None:
+                candidates.append(new_candidate)
+            regions.extend(
+                extract_regions(child, iterators, halfspaces, candidates, path)
+            )
+            if new_candidate is not None:
+                candidates.pop()
+            path.pop()
+            for _ in hs_list:
+                halfspaces.pop()
+    else:
+        raise ValueError("Unknown node type encountered during extraction.")
+    return regions
+
+
+# =============================================================================
+# "Find Intersection" without sympy
+# =============================================================================
+
+# We use a constant symbol represented by the string "C".
+const_rep = Sym("C")
+
+
+def get_combinations(elements, combination_length):
+    """Return all combinations (as lists) of the given length from elements."""
+    if combination_length == 0:
+        return [[]]
+    if len(elements) < combination_length:
+        return []
+    else:
+        with_first = get_combinations(elements[1:], combination_length - 1)
+        with_first = [[elements[0]] + combo for combo in with_first]
+        without_first = get_combinations(elements[1:], combination_length)
+        return with_first + without_first
+
+
+def cvt_eq(eq: D.aexpr) -> dict:
+    if isinstance(eq, D.Const):
+        return {const_rep: eq.val}
+    elif isinstance(eq, D.Var):
+        return {eq.name: 1}
+    elif isinstance(eq, D.Add):
+        lhs = cvt_eq(eq.lhs)
+        rhs = cvt_eq(eq.rhs)
+        common = {key: (lhs[key] + rhs[key]) for key in lhs if key in rhs}
+        return lhs | rhs | common
+    elif isinstance(eq, D.Mult):
+        arg = cvt_eq(eq.ae)
+        return {key: arg[key] * eq.coeff for key in arg}
+
+
+def cvt_back(dic: dict) -> D.aexpr:
+    varr = []
+    for key, val in dic.items():
+        if val == 0:
+            continue
+        if key == const_rep:
+            varr.append(D.Const(val))
+            continue
+
+        var = D.Var(key)
+        if val != 1:
+            var = D.Mult(val, var)
+        varr.append(var)
+
+    if len(varr) > 1:
+        ae = D.Add(varr[0], varr[1])
+        for var in varr[2:]:
+            ae = D.Add(ae, var)
+    else:
+        ae = varr[0]
+
+    return ae
+
+
+def find_intersections(dims, eqs):
+    """
+    Given a list of dimension names (e.g. ["i", "d0"]) and a set of equations (D.aexpr),
+    produce a list of candidate intersection equations that do not depend on dims[0].
+    The algorithm:
+      1. For each eq in eqs, convert it to a dictionary.
+      2. If the target (dims[0]) is not in the dictionary, add it directly.
+      3. Otherwise, collect equations that contain dims[0] and then, for every
+         pair, eliminate dims[0] by forming the combination:
+             a_n * b_i - b_n * a_i
+         for each remaining dimension.
+      4. Convert each resulting dictionary back to a D.aexpr.
+    """
+    assert len(dims) == 2, "support more dimensions!!"
+
     intersections = []
     cvted_eqs = []
     for eq in list(eqs):
-        new_eq = cvt_eq(eq)
-        if target not in new_eq:
-            intersections.append(new_eq)
+        d = cvt_eq(eq)
+        if dims[0] not in d:
+            intersections.append(d)
         else:
-            cvted_eqs.append(cvt_eq(eq))
+            cvted_eqs.append(d)
 
-    # Generate all possible combinations of the specified length
+    # For two equations, eliminate dims[0] using all combinations of 2.
     all_combinations = get_combinations(cvted_eqs, 2)
-
     new_dims = dims[1:] + [const_rep]
     for feq, seq in all_combinations:
-        cur = dict()
-        a_n = feq[target]
-        b_n = seq[target]
+        a_n = feq.get(dims[0], 0)
+        b_n = seq.get(dims[0], 0)
+        cur = {}
         for d in new_dims:
-            a_i = feq[d] if d in feq else 0
-            b_i = seq[d] if d in seq else 0
+            a_i = feq.get(d, 0)
+            b_i = seq.get(d, 0)
             cur[d] = a_n * b_i - b_n * a_i
+
+        # Skip if two equations are parallel
+        if all(cur.get(d, 0) == 0 for d in dims[1:]):
+            continue
+
+        # Make the coefficient for dims[1] positive.
+        if cur.get(dims[1], 0) < 0:
+            for k in cur:
+                cur[k] = -cur[k]
         intersections.append(cur)
 
-    return [cvt_back(eq) for eq in intersections]
+    # Convert all dictionary representations back to D.aexpr.
+    return [cvt_back(dic) for dic in intersections]
 
 
-def merge_tree(name: Sym, tree: D.node, intersections: list) -> D.node:
-    slv = SMTSolver(verbose=False)
-
-    def map_tree(tree: D.node, flag=True):
-        if isinstance(tree, D.Leaf):
-            if isinstance(tree.v, D.ArrayConst):
-                # TODO: probably should check index too
-                if tree.v.name == name:
-                    for p in intersections:
-                        pred = lift_to_smt_a(p)
-                        q = mk_aexpr("==", pred)
-                        if slv.satisfy(q):
-                            tree = map_tree(
-                                D.AffineSplit(p, tree, tree, tree), flag=False
-                            )
-                            break
-
-            return tree
-
-        elif isinstance(tree, D.AffineSplit):
-            pred = lift_to_smt_a(tree.ae)
-            # check if anything is simplifiable
-            ltz_eq = mk_aexpr("<", pred)
-            eqz_eq = mk_aexpr("==", pred)
-            gtz_eq = mk_aexpr(">", pred)
-
-            # ltz
-            slv.push()
-            slv.assume(ltz_eq)
-            ltz = map_tree(tree.ltz)
-            slv.pop()
-
-            # eqz
-            eqz = tree.eqz
-            if flag:
-                slv.push()
-                slv.assume(eqz_eq)
-                eqz = map_tree(tree.eqz)
-                slv.pop()
-
-            # gtz
-            slv.push()
-            slv.assume(gtz_eq)
-            gtz = map_tree(tree.gtz)
-            slv.pop()
-
-            return D.AffineSplit(tree.ae, ltz, eqz, gtz)
-
-        elif isinstance(tree, D.ModSplit):
-            # FIXME: this is incorrect, not using m
-            pred = lift_to_smt_a(tree.ae)
-            eqz_eq = mk_aexpr("==", pred)
-            neqz_eq = A.Not(eqz_eq, T.Bool(), null_srcinfo())
-
-            # eqz
-            slv.push()
-            slv.assume(eqz_eq)
-            eqz = map_tree(tree.eqz)
-            slv.pop()
-
-            # neqz
-            slv.push()
-            slv.assume(neqz_eq)
-            neqz = map_tree(tree.neqz)
-            slv.pop()
-
-            return D.ModSplit(tree.ae, tree.m, neqz, eqz)
-        else:
-            assert False, "bad case"
-
-    return map_tree(tree)
+def get_eqs_from_path(path):
+    """
+    Given a region path (list of (aexpr, branch) tuples), return the set
+    of eqz equations (the aexprs from eqz branches).
+    """
+    eqs = set()
+    for aexpr, branch in path:
+        eqs.add(aexpr)
+    return eqs
 
 
-def partition(name: Sym, src: D.abs) -> D.abs:
-    assert isinstance(name, Sym)
-    assert isinstance(src, D.abs)
-    eqs = get_equations(src.tree, set())
-    itss = find_intersections(src.iterators, eqs)
-    tree = merge_tree(name, src.tree, itss)
-
-    # FIXME: is this correct?
-    # TODO: make it more generic? Like mark bottom when predicates are never satisfiable
-    if isinstance(tree, D.AffineSplit):
-        tree = D.AffineSplit(tree.ae, D.Leaf(D.SubVal(V.Bot())), tree.eqz, tree.gtz)
-
-    return abs_simplify(D.abs(src.iterators, tree))
+# =============================================================================
+# Revised Region Refinement (using find_intersections)
+# =============================================================================
 
 
-def widening(name: Sym, src: D.abs) -> D.abs:
-    assert isinstance(src, D.abs)
+def refine_region(region, variables):
+    """
+    This version uses the equations from eqz branches (via find_intersections)
+    to partition the cell along one chosen dimension (here we use variables[1]).
+    If find_intersections returns n candidate equations, we solve each candidate
+    for the chosen dimension to get candidate values. Then we sort these candidate
+    values and produce n+1 regions:
+      - Region 0: x₁ ≤ candidate_value₀
+      - Region i (1 ≤ i < n): candidate_value₍i-1₎ < x₁ ≤ candidate_value₍i₎
+      - Region n: x₁ > candidate_value₍n-1₎
+    """
+    print()
+    print(f"Original Region:")
+    print("  Path:", [(str(a), br) for a, br in region["path"]])
+    print("  Leaf value:", region["leaf_value"])
+    print("  Halfspaces:")
+    for hs in region["halfspaces"]:
+        print("   ", hs)
 
-    def map_tree(tree: D.node):
-        if isinstance(tree, D.AffineSplit):
-            ltz = tree.ltz
-            eqz = tree.eqz
-            gtz = tree.gtz
+    eqs = get_eqs_from_path(region["path"])
+    if not eqs:
+        return [region]
 
-            if isinstance(tree.ltz, D.Leaf) and isinstance(tree.ltz.v, D.ArrayConst):
-                if tree.ltz.v.name == name:
-                    ltz = eqz
+    candidates = find_intersections(variables, eqs)
+    if not candidates:
+        return [region]
 
-            if isinstance(tree.gtz, D.Leaf) and isinstance(tree.gtz.v, D.ArrayConst):
-                if tree.gtz.v.name == name:
-                    gtz = eqz
+    print("  Candidates: ", [str(c) for c in candidates])
+    # We partition along dimension variables[1].
+    candidate_pairs = []
+    for candidate in candidates:
+        coeff, const = linearize_aexpr(candidate, variables)
+        if abs(coeff.get(variables[1], 0)) < 1e-9:
+            continue
+        candidate_val = -const / coeff[variables[1]]
+        candidate_pairs.append((candidate_val, candidate))
 
-            return D.AffineSplit(
-                tree.ae,
-                map_tree(ltz),
-                map_tree(eqz),
-                map_tree(gtz),
+    if not candidate_pairs:
+        return [region]
+
+    # Sort the candidate pairs by candidate value.
+    candidate_pairs.sort(key=lambda pair: pair[0])
+    dim = len(variables)
+
+    half_spaces = []
+    # Inequalities
+    half_spaces.append(
+        (
+            get_halfspaces_for_aexpr(candidate_pairs[0][1], "ltz", variables),
+            [(candidate_pairs[0][1], "ltz")],
+        )
+    )
+    half_spaces.append(
+        (
+            get_halfspaces_for_aexpr(candidate_pairs[0][1], "eqz", variables),
+            [(candidate_pairs[0][1], "eqz")],
+        )
+    )
+    tmp_spaces = []
+    tmp_paths = []
+    for i in range(1, len(candidate_pairs)):
+        tmp_spaces.extend(
+            get_halfspaces_for_aexpr(candidate_pairs[i - 1][1], "gtz", variables)
+        )
+        tmp_paths.append((candidate_pairs[i - 1][1], "gtz"))
+        half_spaces.append(
+            (
+                tmp_spaces
+                + get_halfspaces_for_aexpr(candidate_pairs[i][1], "ltz", variables),
+                tmp_paths + [(candidate_pairs[i][1], "ltz")],
             )
-        elif isinstance(tree, D.ModSplit):
-            return D.ModSplit(tree.ae, tree.m, map_tree(tree.neqz), map_tree(tree.eqz))
-        else:
-            return tree
+        )
+        half_spaces.append(
+            (
+                tmp_spaces
+                + get_halfspaces_for_aexpr(candidate_pairs[i][1], "eqz", variables),
+                tmp_paths + [(candidate_pairs[i][1], "eqz")],
+            )
+        )
+    half_spaces.append(
+        (
+            tmp_spaces
+            + get_halfspaces_for_aexpr(candidate_pairs[-1][1], "gtz", variables),
+            tmp_paths + [(candidate_pairs[-1][1], "gtz")],
+        )
+    )
 
-    return D.abs(src.iterators, map_tree(src.tree))
+    print("\nRegions after Refinement:")
+    res = []
+    for i, hs in enumerate(half_spaces):
+        region_i = {
+            "halfspaces": list(region["halfspaces"]) + hs[0],
+            "candidates": list(region["candidates"]),
+            "path": list(region["path"]) + hs[1],
+            "leaf_value": region["leaf_value"],
+        }
+        rep = find_feasible_point(region_i["halfspaces"], len(variables))
+        if rep is None:
+            continue
+
+        print(f"Region {i}:")
+        print("  Path:", [(str(a), br) for a, br in region_i["path"]])
+        print("  Leaf value:", region_i["leaf_value"])
+        print("  Halfspaces:")
+        for hs in region_i["halfspaces"]:
+            print("   ", hs)
+        print("  Representative point:", rep)
+        print("  Color candidates:")
+        for f, s in region_i["candidates"]:
+            print("    ", f, " : ", s)
+        color = compute_candidate_color(rep, region_i["candidates"], variables)
+        print("  Candidate color:", color)
+        if (
+            isinstance(region_i["leaf_value"], D.SubVal)
+            and isinstance(region_i["leaf_value"].av, V.Bot)
+            and color is not None
+        ):
+            region_i["leaf_value"] = color
+            print("  colored")
+        else:
+            print("  orig_value: ", region_i["leaf_value"])
+        print()
+
+        res.append(region_i)
+
+    return res
+
+
+# =============================================================================
+# Candidate Color Computation (as before)
+# =============================================================================
+
+
+def compute_candidate_color(rep_point, candidates, variables):
+    """
+    Given a representative point rep_point and a list of candidate hyperplanes
+    (each as (aexpr, color)), select the candidate that intersects the vertical line
+    (in the target direction) at the highest coordinate below rep_point.
+    """
+    best_i = float("-inf")
+    best_color = None
+    print()
+    print("  compute_candidate_color:")
+    print("  rep_point[0]: ", rep_point[0])
+    for aexpr, color in candidates:
+        coeff, const = linearize_aexpr(aexpr, variables)
+        c_target = coeff.get(variables[0], 0)
+        if abs(c_target) < 1e-9:
+            continue
+        print("    aexpr: ", aexpr)
+        sum_other = sum(
+            coeff.get(var, 0) * rep_point[j]
+            for j, var in enumerate(variables[1:], start=1)
+        )
+        candidate_i = -(sum_other + const) / c_target
+        print("    candidate_i: ", candidate_i)
+        if candidate_i < rep_point[0] and candidate_i > best_i:
+            best_i = candidate_i
+            best_color = color
+    return best_color
+
+
+# =============================================================================
+# Reconstruction of the Abstract Tree
+# =============================================================================
+
+
+def insert_region_path(dict_tree, path, leaf_value):
+    """
+    Insert a region (represented by its path and leaf_value) into dict_tree.
+    Instead of using a plain string, we wrap the aexpr in an AexprKey so that the
+    original aexpr is preserved.
+    The key is of the form (AexprKey(aexpr), branch).
+    """
+    current = dict_tree
+    for aexpr, branch in path:
+        key = (aexpr, branch)
+        if key not in current:
+            current[key] = {}
+        current = current[key]
+    current["leaf"] = leaf_value
+
+
+def build_dict_tree(regions):
+    dict_tree = {}
+    print("build_dict_tree")
+    for reg in regions:
+        print(
+            "  Path:",
+            [(str(a), br) for a, br in reg["path"]],
+            ", value:",
+            reg["leaf_value"],
+        )
+        insert_region_path(dict_tree, reg["path"], reg["leaf_value"])
+    print()
+    return dict_tree
+
+
+def dict_tree_to_node(dict_tree):
+    """
+    Reconstruct an abstract domain tree from dict_tree.
+    At each node, the keys (other than "leaf") are of the form (AexprKey(aexpr), branch).
+    We group by the common splitting expression.
+    Missing branches are filled with a default bottom node.
+    """
+    if "leaf" in dict_tree and len(dict_tree) == 1:
+        return D.Leaf(dict_tree["leaf"])
+
+    # Group keys by the AexprKey (splitting expression)
+    grouping = {}
+    for key in dict_tree.keys():
+        if key == "leaf":
+            continue
+        aexpr, branch = key
+        grouping.setdefault(aexpr, {})[branch] = dict_tree[key]
+
+    # For this node, assume there is only one splitting expression.
+    # (If there are more, you'll need to decide how to merge them.)
+    aexpr = next(iter(grouping.keys()))
+    subtrees = grouping[aexpr]
+    # Retrieve subtrees for the three branches; if missing, use a default bottom.
+    ltz_subtree = subtrees.get("ltz", {"leaf": D.SubVal(V.Bot())})
+    eqz_subtree = subtrees.get("eqz", {"leaf": D.SubVal(V.Bot())})
+    gtz_subtree = subtrees.get("gtz", {"leaf": D.SubVal(V.Bot())})
+
+    node_ltz = dict_tree_to_node(ltz_subtree)
+    node_eqz = dict_tree_to_node(eqz_subtree)
+    node_gtz = dict_tree_to_node(gtz_subtree)
+
+    # Use the original aexpr from the key
+    return D.AffineSplit(aexpr, node_ltz, node_eqz, node_gtz)
+
+
+# =============================================================================
+# Feasible Point Helpers (using scipy)
+# =============================================================================
+
+
+def find_feasible_point(halfspaces, dim):
+    """
+    Given a list of halfspaces (each as [a0,...,a_{dim}, b] representing
+    a0*x0+...+a_{dim-1}*x_{dim-1}+b <= 0), use linprog to find a feasible point.
+    """
+    A_ub = []
+    b_ub = []
+    for hs in halfspaces:
+        A_ub.append(hs[:dim])
+        b_ub.append(-hs[dim])
+    A_ub = np.array(A_ub)
+    b_ub = np.array(b_ub)
+    c = np.zeros(dim)
+    res = linprog(c, A_ub=A_ub, b_ub=b_ub, bounds=[(-1000, 1000)] * dim, method="highs")
+    if res.success:
+        return res.x
+    else:
+        return None
+
+
+def get_interior_point(halfspaces, dim, delta=1e-3, max_iter=100):
+    """
+    Compute a strictly interior point for the region defined by halfspaces.
+    If the LP solution is too close to any boundary, nudge it inward.
+    """
+    rep = find_feasible_point(halfspaces, dim)
+    if rep is None:
+        return None
+    rep = rep.copy()
+    iter_count = 0
+    while iter_count < max_iter:
+        adjusted = False
+        for hs in halfspaces:
+            a = hs[:dim]
+            b = hs[dim]
+            margin = np.dot(a, rep) + b
+            if margin > -delta:
+                norm_a = np.linalg.norm(a)
+                if norm_a < 1e-12:
+                    continue
+                rep = rep - ((margin + delta) / norm_a) * (a / norm_a)
+                adjusted = True
+        if not adjusted:
+            break
+        iter_count += 1
+    for hs in halfspaces:
+        a = hs[:dim]
+        b = hs[dim]
+        if np.dot(a, rep) + b > -delta:
+            return None
+    return rep
+
+
+# =============================================================================
+# The Widening Operator
+# =============================================================================
+
+
+def widening(a1: D.abs, a2: D.abs) -> D.abs:
+    """
+    Perform widening on abstract domain a2 using a1 as the previous value.
+    The process:
+      1. Extract regions (cells) from a2's tree.
+      2. Refine each region by partitioning it using equations derived
+         from the eqz branch decisions (using find_intersections).
+      3. For each refined region, compute a candidate color and update the marking.
+      4. Reconstruct a new abstract domain tree from the refined regions.
+    """
+    regions = extract_regions(a2.tree, a2.iterators)
+
+    refined_regions = []
+    for reg in regions:
+        sub_regs = refine_region(reg, a2.iterators)
+        refined_regions.extend(sub_regs)
+
+    dict_tree = build_dict_tree(refined_regions)
+    reconstructed_tree = dict_tree_to_node(dict_tree)
+
+    print("\nReconstructed Abstract Domain Tree:")
+    print(reconstructed_tree)
+    a = D.abs(a2.iterators, reconstructed_tree)
+
+    return abs_simplify(a)
 
 
 # --------------------------------------------------------------------------- #
@@ -1470,8 +1827,8 @@ class AbstractInterpretation(ABC):
 
         # simplify
         for key, val in body.ctxt.items():
-            val = self.abs_simplify(val)
-            val = self.abs_simplify(val)
+            val = abs_simplify(val)
+            val = abs_simplify(val)
             body.ctxt[key] = val
 
     def fix_stmt(self, stmt: DataflowIR.stmt, env):
@@ -1506,70 +1863,33 @@ class AbstractInterpretation(ABC):
             pass  # no need to do anything
 
         elif isinstance(stmt, DataflowIR.If):
-            pre_body = stmt.body.ctxt
-            pre_orelse = stmt.orelse.ctxt
+            # Initialize
             for nm, val in env.items():
-                pre_body[nm] = val
-                pre_orelse[nm] = val
+                stmt.body.ctxt[nm] = val
+                stmt.orelse.ctxt[nm] = val
 
             self.fix_block(stmt.body)
             self.fix_block(stmt.orelse)
 
+            # Write back
             for nm, post_val in stmt.body.ctxt.items():
                 env[nm] = post_val
-
             for nm, post_val in stmt.orelse.ctxt.items():
                 env[nm] = post_val
 
         elif isinstance(stmt, DataflowIR.For):
-            raise NotImplementedError("not worrying about fixpoing for now")
+            for nm, val in env.items():
+                stmt.body.ctxt[nm] = val
 
-            # traverse the body in the reverse order
-            for i in range(len(stmt.body.stmts) - 1, -1, -1):
-                self.fix_stmt(stmt.body.stmts[i], stmt.body.ctxt)
+            # For( sym iter, expr lo, expr hi, block body )
+            self.fix_block(stmt.body)
+            pre_env = dict()
+            for nm, val in stmt.body.ctxt.items():
+                pre_env[nm] = val
 
-            # Get the phi node
-            assert isinstance(stmt.body.stmts[0], DataflowIR.LoopStart)
-            phi = stmt.body.stmts[0].lhs
-
-            # We need to substitute the hell out of stmt.body.ctxt[phi] at this point. Substitute until there is no
-            new_dict = {k: v for k, v in stmt.body.ctxt.items() if k != phi}
-            # FIXME: TODO: Change to call to nsubs
-            before_before = substitute_all(stmt.body.ctxt[phi], new_dict)
-            stmt.body.ctxt[phi] = before_before
-
-            # "before" and "after" running the fixpoint
-            before = self.abs_partition(phi, stmt.body.ctxt[phi])
-            stmt.body.ctxt[phi] = before
-            after = self.abs_simplify(self.abs_join(before, stmt.body.ctxt))
-            stmt.body.ctxt[phi] = after
-
-            # widening by value propagation
-            fixed = self.abs_widening(phi, after)
-
-            # substitute other statements that depend on phi no
-            stmt.body.ctxt[phi] = self.abs_simplify(self.abs_simplify(fixed))
-
-            for i in range(1, len(stmt.body.stmts)):
-                if isinstance(
-                    stmt.body.stmts[i],
-                    (
-                        DataflowIR.Assign,
-                        DataflowIR.Reduce,
-                        DataflowIR.LoopStart,
-                        DataflowIR.LoopExit,
-                        DataflowIR.IfJoin,
-                    ),
-                ):
-
-                    nm = stmt.body.stmts[i].lhs
-                    val = self.abs_join(stmt.body.ctxt[nm], stmt.body.ctxt)
-                    val = self.abs_simplify(val)
-                    val = self.abs_simplify(val)
-                    stmt.body.ctxt[nm] = val
-
-            for nm, post_val in stmt.body.ctxt.items():
-                env[nm] = post_val
+            self.fix_block(stmt.body)
+            for nm, val in stmt.body.ctxt.items():
+                env[nm] = widening(pre_env[nm], val)
 
         else:
             assert False, f"bad case: {type(stmt)}"
@@ -1581,7 +1901,7 @@ class AbstractInterpretation(ABC):
             if e.name in self.avars:
                 return D.Leaf(D.ArrayVar(e.name, idxs))
             else:
-                # top if not found in env, substitute the array access if it does
+                # bot if not found in env, substitute the array access if it does
                 if e.name in env:
                     itr_map = dict()
                     for i1, i2 in zip(env[e.name].iterators, idxs):
@@ -1590,7 +1910,7 @@ class AbstractInterpretation(ABC):
                     return ASubs(env[e.name].tree, itr_map).result()
 
                 else:
-                    return D.Leaf(D.SubVal(V.Top()))
+                    return D.Leaf(D.SubVal(V.Bot()))
 
         elif isinstance(e, DataflowIR.Const):
             return D.Leaf(D.SubVal(V.ValConst(e.val)))
@@ -1609,24 +1929,3 @@ class AbstractInterpretation(ABC):
 
         else:
             assert False, f"bad case {type(expr)}"
-
-    def abs_partition(self, name: Sym, src: D.abs) -> D.abs:
-        assert isinstance(name, Sym)
-        assert isinstance(src, D.abs)
-        return partition(name, src)
-
-    def abs_widening(self, name: Sym, src: D.abs) -> D.abs:
-        assert isinstance(name, Sym)
-        assert isinstance(src, D.abs)
-        return widening(name, src)
-
-    def abs_join(self, src: D.abs, env: dict) -> D.abs:
-        raise NotImplementedError("not worrying about fixpoing for now")
-        assert isinstance(src, D.abs)
-        assert isinstance(env, dict)
-
-        # FIXME: TODO: Change to call to nsubs
-        return substitute_all(src, env)
-
-    def abs_simplify(self, src: D.abs) -> D.abs:
-        return abs_simplify(src)
