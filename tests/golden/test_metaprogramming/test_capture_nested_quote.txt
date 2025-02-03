@@ -1,8 +1,8 @@
 EXO IR:
 def foo(a: i32 @ DRAM):
-    a = 2
-    a = 2
-    a = 2
+    a = a
+    a = a
+    a = a
 C:
 #include "test.h"
 
@@ -13,8 +13,8 @@ C:
 //     a : i32 @DRAM
 // )
 void foo( void *ctxt, int32_t* a ) {
-*a = ((int32_t) 2);
-*a = ((int32_t) 2);
-*a = ((int32_t) 2);
+*a = *a;
+*a = *a;
+*a = *a;
 }
 

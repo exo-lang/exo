@@ -1,6 +1,6 @@
 EXO IR:
 def foo(a: i8 @ DRAM):
-    a = 3
+    a = a
 C:
 #include "test.h"
 
@@ -11,6 +11,6 @@ C:
 //     a : i8 @DRAM
 // )
 void foo( void *ctxt, int8_t* a ) {
-*a = ((int8_t) 3);
+*a = *a;
 }
 

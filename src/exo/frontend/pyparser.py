@@ -219,6 +219,16 @@ UNQUOTE_BLOCK_KEYWORD = "python"
 
 
 @dataclass
+class ExoSymbol:
+    """
+    Opaque wrapper class for representing symbols in object code. Can be unquoted in both expressions and
+    implicitly on left-hand side of statements.
+    """
+
+    _inner: Sym
+
+
+@dataclass
 class ExoExpression:
     """
     Opaque wrapper class for representing expressions in object code. Can be unquoted.
@@ -244,7 +254,6 @@ class QuoteReplacer(pyast.NodeTransformer):
     """
 
     src_info: SourceInfo
-    exo_locals: dict[str, Any]
     unquote_env: "UnquoteEnv"
     inside_function: bool = False
 
@@ -266,7 +275,6 @@ class QuoteReplacer(pyast.NodeTransformer):
                     self.src_info,
                     parent_scope=get_parent_scope(depth=3),
                     is_quote_stmt=True,
-                    parent_exo_locals=self.exo_locals,
                 ).result()
 
             if stmt_destination is None:
@@ -321,7 +329,6 @@ class QuoteReplacer(pyast.NodeTransformer):
                         self.src_info,
                         parent_scope=get_parent_scope(depth=2),
                         is_quote_expr=True,
-                        parent_exo_locals=self.exo_locals,
                     ).result()
                 )
 
@@ -376,7 +383,7 @@ class UnquoteEnv:
 
     parent_globals: dict[str, Any]
     parent_locals: dict[str, Local]
-    exo_local_vars: dict[str, Any]
+    exo_locals: dict[str, Any]
 
     def mangle_name(self, prefix: str) -> str:
         """
@@ -415,18 +422,22 @@ class UnquoteEnv:
         This function is also used to parse metalanguage expressions by representing the expressions as return statements
         and saving the output returned by the helper function.
         """
-        bound_locals = {
-            name: val.val for name, val in self.parent_locals.items() if val is not None
+        quote_locals = {
+            name: ExoSymbol(val)
+            for name, val in self.exo_locals.items()
+            if isinstance(val, Sym)
         }
         unbound_names = {
-            name for name, val in self.parent_locals.items() if val is None
+            name
+            for name, val in self.parent_locals.items()
+            if val is None and name not in quote_locals
         }
-        quote_locals = {
-            name: ExoExpression(val)
-            for name, val in self.exo_local_vars.items()
-            if name not in self.parent_locals
+        bound_locals = {
+            name: val.val
+            for name, val in self.parent_locals.items()
+            if val is not None and name not in quote_locals
         }
-        env_locals = {**quote_locals, **bound_locals}
+        env_locals = {**bound_locals, **quote_locals}
         old_stmt_processor = (
             self.parent_globals[QUOTE_STMT_PROCESSOR]
             if QUOTE_STMT_PROCESSOR in self.parent_globals
@@ -501,6 +512,13 @@ class UnquoteEnv:
                                                                     ctx=pyast.Load(),
                                                                 )
                                                                 for arg in unbound_names
+                                                            ],
+                                                            *[
+                                                                pyast.Name(
+                                                                    id=arg,
+                                                                    ctx=pyast.Load(),
+                                                                )
+                                                                for arg in quote_locals
                                                             ],
                                                         ],
                                                         ctx=pyast.Load(),
@@ -607,11 +625,10 @@ class Parser:
         instr=None,
         is_quote_stmt=False,
         is_quote_expr=False,
-        parent_exo_locals=None,
     ):
         self.module_ast = module_ast
         self.parent_scope = parent_scope
-        self.exo_locals = ChainMap() if parent_exo_locals is None else parent_exo_locals
+        self.exo_locals = ChainMap()
         self.src_info = src_info
         self.is_fragment = is_fragment
 
@@ -673,13 +690,6 @@ class Parser:
     def err(self, node, errstr, origin=None):
         raise ParseError(f"{self.getsrcinfo(node)}: {errstr}") from origin
 
-    def make_exo_var_asts(self, srcinfo):
-        return {
-            name: self.AST.Read(val, [], srcinfo)
-            for name, val in self.exo_locals.items()
-            if isinstance(val, Sym)
-        }
-
     def try_eval_unquote(
         self, unquote_node: pyast.expr
     ) -> Union[tuple[()], tuple[Any]]:
@@ -690,11 +700,9 @@ class Parser:
                 unquote_env = UnquoteEnv(
                     self.parent_scope.get_globals(),
                     self.parent_scope.read_locals(),
-                    self.make_exo_var_asts(self.getsrcinfo(unquote_node)),
+                    self.exo_locals,
                 )
-                quote_replacer = QuoteReplacer(
-                    self.src_info, self.exo_locals, unquote_env
-                )
+                quote_replacer = QuoteReplacer(self.src_info, unquote_env)
                 unquoted = unquote_env.interpret_unquote_expr(
                     quote_replacer.visit(copy.deepcopy(unquote_node.elts[0]))
                 )
@@ -712,7 +720,7 @@ class Parser:
                     UnquoteEnv(
                         cur_globals,
                         cur_locals,
-                        self.make_exo_var_asts(self.getsrcinfo(unquote_node)),
+                        self.exo_locals,
                     ).interpret_unquote_expr(unquote_node),
                 )
                 if unquote_node.id in cur_locals or unquote_node.id in cur_globals
@@ -729,7 +737,7 @@ class Parser:
                 **self.parent_scope.read_locals(),
                 **{k: BoundLocal(v) for k, v in self.exo_locals.items()},
             },
-            self.make_exo_var_asts(self.getsrcinfo(expr)),
+            self.exo_locals,
         ).interpret_unquote_expr(expr)
 
     # - # - # - # - # - # - # - # - # - # - # - # - # - # - # - #
@@ -1019,11 +1027,10 @@ class Parser:
                     unquote_env = UnquoteEnv(
                         self.parent_scope.get_globals(),
                         self.parent_scope.read_locals(),
-                        self.make_exo_var_asts(self.getsrcinfo(s)),
+                        self.exo_locals,
                     )
                     quote_stmt_replacer = QuoteReplacer(
                         self.src_info,
-                        self.exo_locals,
                         unquote_env,
                     )
                     unquote_env.interpret_unquote_block(
@@ -1160,25 +1167,31 @@ class Parser:
                         typ, mem = self.parse_alloc_typmem(s.annotation)
                         rstmts.append(UAST.Alloc(nm, typ, mem, self.getsrcinfo(s)))
 
-                    # handle cases of ambiguous assignment to undefined
-                    # variables
-                    if (
-                        isinstance(s, pyast.Assign)
-                        and len(idxs) == 0
-                        and name_node.id not in self.exo_locals
-                    ):
-                        nm = Sym(name_node.id)
-                        self.exo_locals[name_node.id] = nm
-                        do_fresh_assignment = True
-                    else:
-                        do_fresh_assignment = False
+                    do_fresh_assignment = False
 
                     # get the symbol corresponding to the name on the
                     # left-hand-side
                     if isinstance(s, (pyast.Assign, pyast.AugAssign)):
                         if name_node.id not in self.exo_locals:
-                            self.err(name_node, f"variable '{name_node.id}' undefined")
-                        nm = self.exo_locals[name_node.id]
+                            unquote_eval_result = self.try_eval_unquote(
+                                pyast.Name(id=name_node.id, ctx=pyast.Load())
+                            )
+                            if len(unquote_eval_result) == 1 and isinstance(
+                                unquote_eval_result[0], ExoSymbol
+                            ):
+                                nm = unquote_eval_result[0]._inner
+                            elif len(idxs) == 0 and name_node.id not in self.exo_locals:
+                                # handle cases of ambiguous assignment to undefined
+                                # variables
+                                nm = Sym(name_node.id)
+                                self.exo_locals[name_node.id] = nm
+                                do_fresh_assignment = True
+                            else:
+                                self.err(
+                                    name_node, f"variable '{name_node.id}' undefined"
+                                )
+                        else:
+                            nm = self.exo_locals[name_node.id]
                         if isinstance(nm, SizeStub):
                             self.err(
                                 name_node,
@@ -1393,6 +1406,8 @@ class Parser:
                     unquoted._inner, self.AST.expr
                 ):
                     return unquoted._inner
+                elif isinstance(unquoted, ExoSymbol):
+                    return self.AST.Read(unquoted._inner, [], srcinfo)
                 elif isinstance(unquoted, slice) and top_level:
                     if unquoted.step is None:
                         return UAST.Interval(
@@ -1493,6 +1508,8 @@ class Parser:
                 unquoted._inner, self.AST.expr
             ):
                 return unquoted._inner
+            elif isinstance(unquoted, ExoSymbol):
+                return self.AST.Read(unquoted._inner, [], self.getsrcinfo(e))
             else:
                 self.err(e, "Unquote received input that couldn't be unquoted")
         elif isinstance(e, (pyast.Name, pyast.Subscript)):
@@ -1508,7 +1525,15 @@ class Parser:
                 if nm_node.id in self.exo_locals:
                     nm = self.exo_locals[nm_node.id]
                 else:
-                    self.err(nm_node, f"variable '{nm_node.id}' undefined")
+                    unquote_eval_result = self.try_eval_unquote(
+                        pyast.Name(id=nm_node.id, ctx=pyast.Load())
+                    )
+                    if len(unquote_eval_result) == 1 and isinstance(
+                        unquote_eval_result[0], ExoSymbol
+                    ):
+                        nm = unquote_eval_result[0]._inner
+                    else:
+                        self.err(nm_node, f"variable '{nm_node.id}' undefined")
 
                 if isinstance(nm, SizeStub):
                     nm = nm.nm

@@ -14,6 +14,7 @@ An unquote statement will only read a quoted fragment when its corresponding `wi
 ```python
 @proc
 def foo(a: i32):
+    pass
     with python:
         if False:
             with exo:
@@ -47,7 +48,7 @@ def foo(a: i32, b: i32):
 
 ### Implicit Quotes and Unquotes
 
-As we can see from the example, it is often the case that quote and unquote expressions will consist of a single variable. For convenience, if a variable name would otherwise be an invalid reference, the parser will try unquoting or quoting it before throwing an error. So, the following code is equivalent to the previous example:
+As we can see from the example, it is often the case that quote and unquote expressions will consist of a single variable. For convenience, if a variable name would otherwise be an invalid reference in the current scope (within the current `with ...:` block), the parser will search up progressively larger scopes before throwing an error, while implicitly unquoting or quoting if necessary. So, the following code is equivalent to the previous example:
 ```python
 @proc
 def foo(a: i32, b: i32):
@@ -56,6 +57,17 @@ def foo(a: i32, b: i32):
         for expr in exprs:
             with exo:
                 a += expr
+```
+
+An implicit unquote may occur on the left-hand side of an assignment if and only if it references an implicit quote. Thus, the following code adds 1 to `a` and `b` by implicitly unquoting `sym` on the left-hand side:
+```python
+@proc
+def foo(a: i32, b: i32):
+    with python:
+        syms = [a, b]
+        for sym in syms:
+            with exo:
+                sym += 1
 ```
 
 ### Unquoting Numbers
@@ -72,33 +84,43 @@ def foo(a: i32):
 
 ### Unquoting Types
 
-When an unquote expression occurs in the place that a type would normally be used in Exo, for instance in the declaration of function arguments, the unquote expression will read the Python object as a string and parse it as the corresponding type. The following example will take an argument whose type depends on the first statement:
+When an unquote expression occurs in the place that a primitive type would normally be used in Exo, for instance in the declaration of function arguments, the unquote expression will read the Python object as a string and parse it as the corresponding type. More complicated types such as arrays cannot be directly unquoted. The following example will take an argument whose type depends on the first statement:
 ```python
 T = "i32"
 
 @proc
-def foo(a: {T}, b: {T}):
-    a += b
+def foo(a: {T}[5], b: {T}):
+    a[0] += b
 ```
 
 ### Unquoting Indices
 
-Unquote expressions can also be used to index into a buffer. The Python object that gets unquoted may be a single Exo expression, a number, or a slice object. 
+Unquote expressions can also be used to index into a buffer. The Python object that gets unquoted may be a single Exo expression, a number, or a slice object where the bounds are numbers or Exo expressions. The following example will execute `foo` on a variety of slices in `a`:
+```python
+@proc
+def bar(n: size, a: R[n]):
+    assert n > 2
+    with python:
+        slices = [slice(1, ~{n - 1}), slice(0, 1), slice(0, ~{n})]
+        for s in slices:
+            with exo:
+                foo({s.stop} - {s.start}, a[{s}])
+```
 
 ### Unquoting Memories
 
-Memory objects can also be unquoted. Note that memories in Exo correspond to Python objects in the base language anyway, so the process of unquoting an object representing a type of memory in Exo is relatively straightforward. For instance, the memory used to pass in the arguments to this function are determined by the first line:
+Memory objects are always unquoted without the `{...}` notation, since memories in Exo correspond to Python objects in the base language anyway. For instance, the memory used to pass in the arguments to this function are determined by the first line:
 ```python
-mem = DRAM
+mems = [DRAM]
 
 @proc
-def foo(a: i32 @ {mem}, b: i32 @ {mem}):
+def foo(a: i32 @ mems[0], b: i32 @ mems[0]):
     a += b
 ```
 
 ## Binding Quoted Statements to Variables
 
-A quoted Exo statement does not have to be executed immediately in the place that it is declared. Instead, the quote may be stored in a Python variable using the syntax `with exo as ...:`. It can then be unquoted with the `{...}` operator if it appears as a statement.
+A quoted Exo statement does not have to be executed immediately in the place that it is declared. Instead, the quote may be stored in a Python variable using the syntax `with exo as ...:`. It can then be unquoted with the `{...}` operator if it appears as a statement in an Exo scope.
 
 The following example is equivalent to `a += b; a += b`:
 ```python
@@ -107,8 +129,9 @@ def foo(a: i32, b: i32):
     with python:
         with exo as stmt:
             a += b
-        {stmt}
-        {stmt}
+        with exo:
+            {stmt}
+            {stmt}
 ```
 
 ## Limitations

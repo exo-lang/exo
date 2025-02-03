@@ -525,3 +525,16 @@ def test_eval_expr_in_mem(golden):
 
     c_file, _ = compile_procs_to_strings([foo], "test.h")
     assert f"EXO IR:\n{str(foo)}\nC:\n{c_file}" == golden
+
+
+def test_implicit_lhs_unquote(golden):
+    @proc
+    def foo(a: i32, b: i32):
+        with python:
+            syms = [a, b]
+            for sym in syms:
+                with exo:
+                    sym += 1
+
+    c_file, _ = compile_procs_to_strings([foo], "test.h")
+    assert f"EXO IR:\n{str(foo)}\nC:\n{c_file}" == golden
