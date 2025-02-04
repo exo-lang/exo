@@ -357,7 +357,7 @@ class LoopIR_to_DataflowIR:
 
                 # Pre loop
                 pre_cond = DataflowIR.BinOp(
-                    "==", iter_read, mk_const(0), DataflowIR.Bool(), null_srcinfo()
+                    "==", iter_read, self.map_e(s.lo), DataflowIR.Bool(), null_srcinfo()
                 )
                 pre_body = self.to_read(lbefore[0], lbefore[1], lbefore[2])
                 last_idx = [

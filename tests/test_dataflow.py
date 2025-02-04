@@ -708,8 +708,7 @@ def test_reverse_x_10(golden):
     assert str(foo.dataflow()[0]) == golden
 
 
-# This is incorrect, fix it by adding lo case to loop join!
-def test_reverse_x_10_lo():
+def test_reverse_x_10_lo(golden):
     @proc
     def foo(x: R[11]):
         for i in seq(3, 9):
@@ -722,6 +721,7 @@ def test_reverse_x_10_lo():
     # 5 - 8 : 1.0
     # 9 -10 : x[d0]
     print(foo.dataflow()[0])
+    assert str(foo.dataflow()[0]) == golden
 
 
 def test_mod():
