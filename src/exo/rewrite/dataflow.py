@@ -1423,7 +1423,7 @@ def find_intersections(dims, eqs):
          for each remaining dimension.
       4. Convert each resulting dictionary back to a D.aexpr.
     """
-    assert len(dims) == 2, "support more dimensions!!"
+    assert len(dims) == 2, f"got {len(dims)} dimensions!"
 
     intersections = []
     cvted_eqs = []
@@ -1500,8 +1500,6 @@ def refine_region(region, variables):
         return [region]
 
     candidates = find_intersections(variables, eqs)
-    if not candidates:
-        return [region]
 
     print("  Candidates: ", [str(c) for c in candidates])
     # We partition along dimension variables[1].
@@ -1513,63 +1511,49 @@ def refine_region(region, variables):
         candidate_val = -const / coeff[variables[1]]
         candidate_pairs.append((candidate_val, candidate))
 
-    if not candidate_pairs:
-        return [region]
-
     # Sort the candidate pairs by candidate value.
     candidate_pairs.sort(key=lambda pair: pair[0])
     dim = len(variables)
 
     half_spaces = []
-    # Inequalities
-    half_spaces.append(
-        (
-            get_halfspaces_for_aexpr(candidate_pairs[0][1], "ltz", variables),
-            [(candidate_pairs[0][1], "ltz")],
-        )
-    )
-    half_spaces.append(
-        (
-            get_halfspaces_for_aexpr(candidate_pairs[0][1], "eqz", variables),
-            [(candidate_pairs[0][1], "eqz")],
-        )
-    )
-    tmp_spaces = []
-    tmp_paths = []
-    for i in range(1, len(candidate_pairs)):
-        tmp_spaces.extend(
-            get_halfspaces_for_aexpr(candidate_pairs[i - 1][1], "gtz", variables)
-        )
-        tmp_paths.append((candidate_pairs[i - 1][1], "gtz"))
+
+    def append_hspaces(pre_h, pre_p, p, e):
         half_spaces.append(
-            (
-                tmp_spaces
-                + get_halfspaces_for_aexpr(candidate_pairs[i][1], "ltz", variables),
-                tmp_paths + [(candidate_pairs[i][1], "ltz")],
+            (pre_h + get_halfspaces_for_aexpr(p, e, variables), pre_p + [(p, e)])
+        )
+
+    orig_h = list(region["halfspaces"])
+    orig_p = list(region["path"])
+
+    if candidate_pairs:
+        append_hspaces(orig_h, orig_p, candidate_pairs[0][1], "ltz")
+        append_hspaces(orig_h, orig_p, candidate_pairs[0][1], "eqz")
+        tmp_spaces = []
+        tmp_paths = []
+        for i in range(1, len(candidate_pairs)):
+            tmp_spaces.extend(
+                get_halfspaces_for_aexpr(candidate_pairs[i - 1][1], "gtz", variables)
             )
-        )
-        half_spaces.append(
-            (
-                tmp_spaces
-                + get_halfspaces_for_aexpr(candidate_pairs[i][1], "eqz", variables),
-                tmp_paths + [(candidate_pairs[i][1], "eqz")],
+            tmp_paths.append((candidate_pairs[i - 1][1], "gtz"))
+            append_hspaces(
+                orig_h + tmp_spaces, orig_p + tmp_paths, candidate_pairs[i][1], "ltz"
             )
+            append_hspaces(
+                orig_h + tmp_spaces, orig_p + tmp_paths, candidate_pairs[i][1], "eqz"
+            )
+        append_hspaces(
+            orig_h + tmp_spaces, orig_p + tmp_paths, candidate_pairs[-1][1], "gtz"
         )
-    half_spaces.append(
-        (
-            tmp_spaces
-            + get_halfspaces_for_aexpr(candidate_pairs[-1][1], "gtz", variables),
-            tmp_paths + [(candidate_pairs[-1][1], "gtz")],
-        )
-    )
+    else:
+        half_spaces = [(orig_h, orig_p)]
 
     print("\nRegions after Refinement:")
     res = []
     for i, hs in enumerate(half_spaces):
         region_i = {
-            "halfspaces": list(region["halfspaces"]) + hs[0],
+            "halfspaces": hs[0],
             "candidates": list(region["candidates"]),
-            "path": list(region["path"]) + hs[1],
+            "path": hs[1],
             "leaf_value": region["leaf_value"],
         }
         rep = find_feasible_point(region_i["halfspaces"], len(variables))
@@ -1889,9 +1873,11 @@ class AbstractInterpretation(ABC):
 
             self.fix_block(stmt.body)
             for nm, val in stmt.body.ctxt.items():
-                w_res = widening(pre_env[nm], val)
-                stmt.body.ctxt[nm] = w_res
-                env[nm] = w_res
+                # Don't widen if it does not depend on this loop
+                if stmt.iter in val.iterators:
+                    w_res = widening(pre_env[nm], val)
+                    stmt.body.ctxt[nm] = w_res
+                    env[nm] = w_res
 
         else:
             assert False, f"bad case: {type(stmt)}"

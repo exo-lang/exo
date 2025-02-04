@@ -7,6 +7,7 @@ from exo.rewrite.analysis import *
 from exo import proc, config, DRAM, SchedulingError
 from exo.stdlib.scheduling import *
 from exo.platforms.x86 import *
+from exo.libs.externs import *
 
 
 def test_debug_let_and_mod():
@@ -492,6 +493,79 @@ def test_loop_true():
 
     with pytest.raises(
         SchedulingError, match="Cannot change configuration value of y at"
+    ):
+        foo = delete_config(foo, "for i in _:_ #1")
+        print(foo)
+
+
+def test_scalar_simple(golden):
+    @proc
+    def foo(x: f32):
+        y: f32
+        y = 3.0
+        y = 3.0
+        x = y + 2.0
+
+    foo = delete_config(foo, "y = _ #1")
+    assert str(foo) == golden
+
+    @proc
+    def foo(x: f32):
+        y: f32
+        y = x + 2.0
+        y = -y
+        x = y + 2.0
+
+    with pytest.raises(
+        SchedulingError, match="Cannot change configuration value of y at"
+    ):
+        delete_config(foo, "y = _ #1")
+
+
+def test_array_simple(golden):
+    @proc
+    def foo(x: f32):
+        y: f32[10]
+        y[0] = 3.0
+        y[0] = 3.0
+        x = y[0] + 2.0
+
+    foo = delete_config(foo, "y = _ #1")
+    assert str(foo) == golden
+
+    @proc
+    def foo(x: f32):
+        y: f32[10]
+        y[0] = y[2] + y[3]
+        y[0] = -y[0]
+        x = y[0] + 2.0
+
+    with pytest.raises(
+        SchedulingError, match="Cannot change configuration value of y at"
+    ):
+        delete_config(foo, "y = _ #1")
+
+
+def test_loop_simple(golden):
+    @proc
+    def foo(x: f32[10]):
+        for i in seq(0, 10):
+            x[i] = 0.0
+        for i in seq(0, 10):
+            x[i] = 0.0
+
+    foo = delete_config(foo, "for i in _:_ #1")
+    assert str(foo) == golden
+
+    @proc
+    def foo(x: f32[10]):
+        for i in seq(0, 10):
+            x[i] = -x[i]
+        for i in seq(0, 10):
+            x[i] = x[i] + 2.0
+
+    with pytest.raises(
+        SchedulingError, match="Cannot change configuration value of x at"
     ):
         foo = delete_config(foo, "for i in _:_ #1")
         print(foo)

@@ -678,6 +678,7 @@ def test_reverse():
     print(foo.dataflow()[0])
 
 
+# sanity checked 02/04/2025
 def test_reverse_x_11(golden):
     @proc
     def foo(x: R[11]):
@@ -693,6 +694,7 @@ def test_reverse_x_11(golden):
     assert str(res) == golden
 
 
+# sanity checked 02/04/2025
 def test_reverse_x_10(golden):
     @proc
     def foo(x: R[11]):
@@ -710,6 +712,7 @@ def test_reverse_x_10(golden):
     assert str(res) == golden
 
 
+# sanity checked 02/04/2025
 def test_reverse_x_10_lo(golden):
     @proc
     def foo(x: R[11]):
@@ -727,19 +730,37 @@ def test_reverse_x_10_lo(golden):
     assert str(res) == golden
 
 
-def test_mod():
+# sanity checked 02/04/2025
+def test_two_loops(golden):
     @proc
-    def foo(N: size, x: R[N]):
-        for i in seq(1, N):
-            x[i] = 1.0
-            if i % 3 == 0:
-                x[i - 1] = 2.0
+    def foo(x: f32[10]):
+        for i in seq(0, 10):
+            x[i] = 0.0
+        for i in seq(0, 10):
+            x[i] = 0.0
 
-    print(foo.dataflow()[0])
+    res = foo.dataflow()[0]
+    print(res)
+    assert str(res) == golden
 
-    # FIXME: This is sound but currently imprecise. This is a limtitation of the current design. We might need to color the hyyperplanes as well as the cells.
+
+# sanity checked 02/04/2025
+def test_super_simple(golden):
+    @proc
+    def foo(x: f32[5]):
+        for i in seq(0, 5):
+            x[i] = 0.0
+
+    res = foo.dataflow()[0]
+    print(res)
+    assert str(res) == golden
 
 
+# ---------------------------------
+# Various failing examples below
+# ---------------------------------
+
+# FIXME: This is sound but currently imprecise. This is a limtitation of the current design. We might need to color the hyyperplanes as well as the cells.
 def test_orig_array():
     @proc
     def foo(x: R[10]):
@@ -778,5 +799,16 @@ def test_reverse3():
         for i in seq(1, N):
             x[N - i] = y[i]
             y[i] = x[i]
+
+    print(foo.dataflow()[0])
+
+
+def test_mod():
+    @proc
+    def foo(N: size, x: R[N]):
+        for i in seq(1, N):
+            x[i] = 1.0
+            if i % 3 == 0:
+                x[i - 1] = 2.0
 
     print(foo.dataflow()[0])
