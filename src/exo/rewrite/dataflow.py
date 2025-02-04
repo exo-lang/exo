@@ -1697,9 +1697,9 @@ def dict_tree_to_node(dict_tree):
     aexpr = next(iter(grouping.keys()))
     subtrees = grouping[aexpr]
     # Retrieve subtrees for the three branches; if missing, use a default bottom.
-    ltz_subtree = subtrees.get("ltz", {"leaf": D.SubVal(V.Bot())})
-    eqz_subtree = subtrees.get("eqz", {"leaf": D.SubVal(V.Bot())})
-    gtz_subtree = subtrees.get("gtz", {"leaf": D.SubVal(V.Bot())})
+    ltz_subtree = subtrees.get("ltz", {"leaf": D.SubVal(V.Top())})
+    eqz_subtree = subtrees.get("eqz", {"leaf": D.SubVal(V.Top())})
+    gtz_subtree = subtrees.get("gtz", {"leaf": D.SubVal(V.Top())})
 
     node_ltz = dict_tree_to_node(ltz_subtree)
     node_eqz = dict_tree_to_node(eqz_subtree)
@@ -1793,10 +1793,10 @@ def widening(a1: D.abs, a2: D.abs) -> D.abs:
     reconstructed_tree = dict_tree_to_node(dict_tree)
 
     print("\nReconstructed Abstract Domain Tree:")
-    a = D.abs(a2.iterators, reconstructed_tree)
-    print(abs_simplify(abs_simplify(a)))
+    a = abs_simplify(abs_simplify(D.abs(a2.iterators, reconstructed_tree)))
+    print(a)
 
-    return abs_simplify(a)
+    return a
 
 
 # --------------------------------------------------------------------------- #

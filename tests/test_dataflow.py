@@ -688,8 +688,9 @@ def test_reverse_x_11(golden):
     # should be:
     # 0 - 4 : 3.0
     # 5 - 10 : 1.0
-    print(foo.dataflow()[0])
-    assert str(foo.dataflow()[0]) == golden
+    res = foo.dataflow()[0]
+    print(res)
+    assert str(res) == golden
 
 
 def test_reverse_x_10(golden):
@@ -704,8 +705,9 @@ def test_reverse_x_10(golden):
     # 1 - 4 : 3.0
     # 5 - 9 : 1.0
     # 10 : 3.0
-    print(foo.dataflow()[0])
-    assert str(foo.dataflow()[0]) == golden
+    res = foo.dataflow()[0]
+    print(res)
+    assert str(res) == golden
 
 
 def test_reverse_x_10_lo(golden):
@@ -720,8 +722,9 @@ def test_reverse_x_10_lo(golden):
     # 2 - 4 : 3.0
     # 5 - 8 : 1.0
     # 9 -10 : x[d0]
-    print(foo.dataflow()[0])
-    assert str(foo.dataflow()[0]) == golden
+    res = foo.dataflow()[0]
+    print(res)
+    assert str(res) == golden
 
 
 def test_mod():
@@ -731,6 +734,17 @@ def test_mod():
             x[i] = 1.0
             if i % 3 == 0:
                 x[i - 1] = 2.0
+
+    print(foo.dataflow()[0])
+
+    # FIXME: This is sound but currently imprecise. This is a limtitation of the current design. We might need to color the hyyperplanes as well as the cells.
+
+
+def test_orig_array():
+    @proc
+    def foo(x: R[10]):
+        for i in seq(0, 10):
+            x[i] = x[i]
 
     print(foo.dataflow()[0])
 
