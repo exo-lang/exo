@@ -16,6 +16,7 @@ from .core.extern import Extern
 from . import stdlib
 from .spork import actor_kinds
 from .spork import loop_modes
+from .spork import coll_algebra
 from .spork import collectives
 from .spork import sync_types
 from .spork.async_config import BaseAsyncConfig, CudaDeviceFunction, CudaAsync
@@ -41,6 +42,7 @@ __all__ = [
     #
     "actor_kinds",
     "loop_modes",
+    "coll_algebra",  # TODO internal?
     "collectives",
     "sync_types",
     #
