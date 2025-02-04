@@ -854,6 +854,7 @@ module EffectsNew {
     },
 )
 
+
 # pretty printing
 def _effstr(eff, tab=""):
     if isinstance(eff, E.Empty):
@@ -875,9 +876,7 @@ def _effstr(eff, tab=""):
         nm = (
             "Read"
             if isinstance(eff, E.Read)
-            else "Write"
-            if isinstance(eff, E.Write)
-            else "Reduce"
+            else "Write" if isinstance(eff, E.Write) else "Reduce"
         )
         coords = ",".join([str(a) for a in eff.coords])
         return f"{tab}{nm}({eff.name},{coords})"
@@ -1473,8 +1472,8 @@ def Check_ReorderStmts(proc, s1, s2):
     slv.push()
     slv.assume(AMay(p))
 
-    a1 = stmts_effs([s1])
-    a2 = stmts_effs([s2])
+    a1 = G(stmts_effs([s1]))
+    a2 = G(stmts_effs([s2]))
 
     pred = AAnd(Commutes(a1, a2), AllocCommutes(a1, a2))
     is_ok = slv.verify(pred)
@@ -1517,8 +1516,8 @@ def Check_ReorderLoops(proc, s):
         + expr_effs(y_loop.lo)
         + expr_effs(y_loop.hi)
     )
-    a = stmts_effs(body)
-    a2 = stmts_effs(body2)
+    a = G(stmts_effs(body))
+    a2 = G(stmts_effs(body2))
 
     def bds(x, lo, hi):
         return AAnd(lift_e(lo) <= AInt(x), AInt(x) < lift_e(hi))
@@ -1586,8 +1585,8 @@ def Check_ParallelizeLoop(proc, s):
     body2 = SubstArgs(body, subenv).result()
 
     a_bd = expr_effs(s.lo) + expr_effs(s.hi)
-    a = stmts_effs(body)
-    a2 = stmts_effs(body2)
+    a = G(stmts_effs(body))
+    a2 = G(stmts_effs(body2))
 
     def bds(x, lo, hi):
         return AAnd(lift_e(lo) <= AInt(x), AInt(x) < lift_e(hi))
@@ -1647,9 +1646,9 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
     )
 
     a_bd = expr_effs(lo) + expr_effs(hi)
-    a1 = stmts_effs(stmts1)
-    a1_j = stmts_effs(stmts1_j)
-    a2 = stmts_effs(stmts2)
+    a1 = G(stmts_effs(stmts1))
+    a1_j = G(stmts_effs(stmts1_j))
+    a2 = G(stmts_effs(stmts2))
 
     def bds(x, lo, hi):
         return AAnd(lift_e(lo) <= AInt(x), AInt(x) < lift_e(hi))

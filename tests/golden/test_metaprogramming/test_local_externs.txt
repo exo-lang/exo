@@ -1,0 +1,17 @@
+EXO IR:
+def foo(a: f64 @ DRAM):
+    a = sin(a)
+C:
+#include "test.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <math.h>
+// foo(
+//     a : f64 @DRAM
+// )
+void foo( void *ctxt, double* a ) {
+*a = sin((double)*a);
+}
+

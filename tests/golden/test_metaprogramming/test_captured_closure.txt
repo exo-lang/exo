@@ -1,0 +1,34 @@
+EXO IR:
+def bar(a: i32 @ DRAM):
+    a += 1
+    a += 2
+    a += 3
+    a += 4
+    a += 5
+    a += 6
+    a += 7
+    a += 8
+    a += 9
+    a += 10
+C:
+#include "test.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+// bar(
+//     a : i32 @DRAM
+// )
+void bar( void *ctxt, int32_t* a ) {
+*a += ((int32_t) 1);
+*a += ((int32_t) 2);
+*a += ((int32_t) 3);
+*a += ((int32_t) 4);
+*a += ((int32_t) 5);
+*a += ((int32_t) 6);
+*a += ((int32_t) 7);
+*a += ((int32_t) 8);
+*a += ((int32_t) 9);
+*a += ((int32_t) 10);
+}
+

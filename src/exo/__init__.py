@@ -5,6 +5,8 @@ from .API import (
     proc,
     instr,
     config,
+    chexo,
+    chexo_debug,
     ExoType,
 )
 from .rewrite.LoopIR_scheduling import SchedulingError
