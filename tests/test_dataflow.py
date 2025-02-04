@@ -678,13 +678,49 @@ def test_reverse():
     print(foo.dataflow()[0])
 
 
-def test_reverse_x_2():
+def test_reverse_x_11(golden):
     @proc
-    def foo(x: R[10]):
-        for i in seq(1, 10):
+    def foo(x: R[11]):
+        for i in seq(0, 11):
             x[10 - i] = 3.0
             x[i] = 1.0
 
+    # should be:
+    # 0 - 4 : 3.0
+    # 5 - 10 : 1.0
+    print(foo.dataflow()[0])
+    assert str(foo.dataflow()[0]) == golden
+
+
+def test_reverse_x_10(golden):
+    @proc
+    def foo(x: R[11]):
+        for i in seq(0, 10):
+            x[10 - i] = 3.0
+            x[i] = 1.0
+
+    # should be:
+    # 0 : 1.0
+    # 1 - 4 : 3.0
+    # 5 - 9 : 1.0
+    # 10 : 3.0
+    print(foo.dataflow()[0])
+    assert str(foo.dataflow()[0]) == golden
+
+
+# This is incorrect, fix it by adding lo case to loop join!
+def test_reverse_x_10_lo():
+    @proc
+    def foo(x: R[11]):
+        for i in seq(3, 9):
+            x[10 - i] = 3.0
+            x[i] = 1.0
+
+    # should be:
+    # 0 - 1 : x[d0]
+    # 2 - 4 : 3.0
+    # 5 - 8 : 1.0
+    # 9 -10 : x[d0]
     print(foo.dataflow()[0])
 
 

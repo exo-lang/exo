@@ -1280,8 +1280,8 @@ def get_halfspaces_for_aexpr(aexpr, branch, variables, eps=1e-6):
     elif branch == "gtz":
         return [np.append(-A, -const + eps)]
     elif branch == "eqz":
-        hs1 = np.append(A, const - eps)
-        hs2 = np.append(-A, -const - eps)
+        hs1 = np.append(A, const)
+        hs2 = np.append(-A, -const)
         return [hs1, hs2]
     else:
         raise ValueError(f"Unknown branch type: {branch}")
@@ -1793,8 +1793,8 @@ def widening(a1: D.abs, a2: D.abs) -> D.abs:
     reconstructed_tree = dict_tree_to_node(dict_tree)
 
     print("\nReconstructed Abstract Domain Tree:")
-    print(reconstructed_tree)
     a = D.abs(a2.iterators, reconstructed_tree)
+    print(abs_simplify(abs_simplify(a)))
 
     return abs_simplify(a)
 
@@ -1889,7 +1889,9 @@ class AbstractInterpretation(ABC):
 
             self.fix_block(stmt.body)
             for nm, val in stmt.body.ctxt.items():
-                env[nm] = widening(pre_env[nm], val)
+                w_res = widening(pre_env[nm], val)
+                stmt.body.ctxt[nm] = w_res
+                env[nm] = w_res
 
         else:
             assert False, f"bad case: {type(stmt)}"
