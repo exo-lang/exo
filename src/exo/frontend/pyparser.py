@@ -15,6 +15,9 @@ from ..core.LoopIR import UAST, PAST, front_ops
 from ..core.prelude import *
 from ..core.extern import Extern
 
+from typing import Any, Callable, Union, NoReturn, Optional
+import copy
+from dataclasses import dataclass
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -31,8 +34,35 @@ class SizeStub:
         self.nm = nm
 
 
-def str_to_mem(name):
-    return getattr(sys.modules[__name__], name)
+@dataclass
+class SourceInfo:
+    """
+    Source code locations that are needed to compute the location of AST nodes.
+    """
+
+    src_file: str
+    src_line_offset: int
+    src_col_offset: int
+
+    def get_src_info(self, node: pyast.AST):
+        """
+        Computes the location of the given AST node based on line and column offsets.
+        """
+        return SrcInfo(
+            filename=self.src_file,
+            lineno=node.lineno + self.src_line_offset,
+            col_offset=node.col_offset + self.src_col_offset,
+            end_lineno=(
+                None
+                if node.end_lineno is None
+                else node.end_lineno + self.src_line_offset
+            ),
+            end_col_offset=(
+                None
+                if node.end_col_offset is None
+                else node.end_col_offset + self.src_col_offset
+            ),
+        )
 
 
 # --------------------------------------------------------------------------- #
@@ -40,49 +70,101 @@ def str_to_mem(name):
 # Top-level decorator
 
 
-def get_ast_from_python(f):
+def get_ast_from_python(f: Callable[..., Any]) -> tuple[pyast.stmt, SourceInfo]:
     # note that we must dedent in case the function is defined
     # inside of a local scope
-
     rawsrc = inspect.getsource(f)
     src = textwrap.dedent(rawsrc)
     n_dedent = len(re.match("^(.*)", rawsrc).group()) - len(
         re.match("^(.*)", src).group()
     )
-    srcfilename = inspect.getsourcefile(f)
-    _, srclineno = inspect.getsourcelines(f)
-    srclineno -= 1  # adjust for decorator line
-
-    # create way to query for src-code information
-    def getsrcinfo(node):
-        return SrcInfo(
-            filename=srcfilename,
-            lineno=node.lineno + srclineno,
-            col_offset=node.col_offset + n_dedent,
-            end_lineno=(
-                None if node.end_lineno is None else node.end_lineno + srclineno
-            ),
-            end_col_offset=(
-                None if node.end_col_offset is None else node.end_col_offset + n_dedent
-            ),
-        )
 
     # convert into AST nodes; which should be a module with a single node
     module = pyast.parse(src)
     assert len(module.body) == 1
 
-    return module.body[0], getsrcinfo
+    return module.body[0], SourceInfo(
+        src_file=inspect.getsourcefile(f),
+        src_line_offset=inspect.getsourcelines(f)[1] - 1,
+        src_col_offset=n_dedent,
+    )
 
 
-def get_src_locals(*, depth):
+@dataclass
+class BoundLocal:
+    """
+    Wrapper class that represents locals that have been assigned a value.
+    """
+
+    val: Any
+
+
+Local = Optional[BoundLocal]  # Locals that are unassigned will be represesnted as None
+
+
+@dataclass
+class FrameScope:
+    """
+    Wrapper around frame object to read local and global variables.
+    """
+
+    frame: inspect.frame
+
+    def get_globals(self) -> dict[str, Any]:
+        """
+        Get globals dictionary for the frame. The globals dictionary is not a copy. If the
+        returned dictionary is modified, the globals of the scope will be changed.
+        """
+        return self.frame.f_globals
+
+    def read_locals(self) -> dict[str, Local]:
+        """
+        Return a copy of the local variables held by the scope. In contrast to globals, it is
+        not possible to add new local variables or modify the local variables by modifying
+        the returned dictionary.
+        """
+        return {
+            var: (
+                BoundLocal(self.frame.f_locals[var])
+                if var in self.frame.f_locals
+                else None
+            )
+            for var in self.frame.f_code.co_varnames
+            + self.frame.f_code.co_cellvars
+            + self.frame.f_code.co_freevars
+        }
+
+
+@dataclass
+class DummyScope:
+    """
+    Wrapper for emulating a scope with a set of global and local variables.
+    Used for parsing patterns, which should not be able to capture local variables from the enclosing scope.
+    """
+
+    global_dict: dict[str, Any]
+    local_dict: dict[str, Any]
+
+    def get_globals(self) -> dict[str, Any]:
+        return self.global_dict
+
+    def read_locals(self) -> dict[str, Any]:
+        return self.local_dict.copy()
+
+
+Scope = Union[
+    DummyScope, FrameScope
+]  # Type to represent scopes, which have an API for getting global and local variables.
+
+
+def get_parent_scope(*, depth) -> Scope:
     """
     Get global and local environments for context capture purposes
     """
-    stack_frames: [inspect.FrameInfo] = inspect.stack()
+    stack_frames = inspect.stack()
     assert len(stack_frames) >= depth
-    func_locals = stack_frames[depth].frame.f_locals
-    assert isinstance(func_locals, dict)
-    return ChainMap(func_locals)
+    frame = stack_frames[depth].frame
+    return FrameScope(frame)
 
 
 # --------------------------------------------------------------------------- #
@@ -105,28 +187,407 @@ def pattern(s, filename=None, lineno=None, srclocals=None, srcglobals=None):
     module = pyast.parse(src)
     assert isinstance(module, pyast.Module)
 
-    # create way to query for src-code information
-    def getsrcinfo(node):
-        return SrcInfo(
-            filename=srcfilename,
-            lineno=node.lineno + srclineno,
-            col_offset=node.col_offset + n_dedent,
-            end_lineno=(
-                None if node.end_lineno is None else node.end_lineno + srclineno
-            ),
-            end_col_offset=(
-                None if node.end_col_offset is None else node.end_col_offset + n_dedent
-            ),
-        )
-
     parser = Parser(
         module.body,
-        getsrcinfo,
+        SourceInfo(
+            src_file=srcfilename, src_line_offset=srclineno, src_col_offset=n_dedent
+        ),
+        parent_scope=DummyScope(
+            srcglobals if srcglobals is not None else {},
+            (
+                {k: BoundLocal(v) for k, v in srclocals.items()}
+                if srclocals is not None
+                else {}
+            ),
+        ),  # add globals from enclosing scope
         is_fragment=True,
-        func_globals=srcglobals,
-        srclocals=srclocals,
     )
     return parser.result()
+
+
+# These constants are used to name helper variables that allow the metalanguage to be parsed and evaluated.
+# All of them start with two underscores, so there is not collision in names if the user avoids using names
+# with two underscores.
+QUOTE_CALLBACK_PREFIX = "__quote_callback"
+OUTER_SCOPE_HELPER = "__outer_scope"
+NESTED_SCOPE_HELPER = "__nested_scope"
+UNQUOTE_RETURN_HELPER = "__unquote_val"
+QUOTE_STMT_PROCESSOR = "__process_quote_stmt"
+
+QUOTE_BLOCK_KEYWORD = "exo"
+UNQUOTE_BLOCK_KEYWORD = "python"
+
+
+@dataclass
+class ExoSymbol:
+    """
+    Opaque wrapper class for representing symbols in object code. Can be unquoted in both expressions and
+    implicitly on left-hand side of statements.
+    """
+
+    _inner: Sym
+
+
+@dataclass
+class ExoExpression:
+    """
+    Opaque wrapper class for representing expressions in object code. Can be unquoted.
+    """
+
+    _inner: Any  # note: strict typing is not possible as long as PAST/UAST grammar definition is not static
+
+
+@dataclass
+class ExoStatementList:
+    """
+    Opaque wrapper class for representing a list of statements in object code. Can be unquoted.
+    """
+
+    _inner: tuple[Any, ...]
+
+
+@dataclass
+class QuoteReplacer(pyast.NodeTransformer):
+    """
+    Replace quotes (Exo object code statements/expressions) in the metalanguage with calls to
+    helper functions that will parse and return the quoted code.
+    """
+
+    src_info: SourceInfo
+    unquote_env: "UnquoteEnv"
+    inside_function: bool = False
+
+    def visit_With(self, node: pyast.With) -> pyast.Any:
+        """
+        Replace quoted statements. These will begin with "with exo:".
+        """
+        if (
+            len(node.items) == 1
+            and isinstance(node.items[0].context_expr, pyast.Name)
+            and node.items[0].context_expr.id == QUOTE_BLOCK_KEYWORD
+            and isinstance(node.items[0].context_expr.ctx, pyast.Load)
+        ):
+            stmt_destination = node.items[0].optional_vars
+
+            def parse_quote_block():
+                return Parser(
+                    node.body,
+                    self.src_info,
+                    parent_scope=get_parent_scope(depth=3),
+                    is_quote_stmt=True,
+                ).result()
+
+            if stmt_destination is None:
+
+                def quote_callback(
+                    quote_stmt_processor: Optional[Callable[[Any], None]]
+                ):
+                    if quote_stmt_processor is None:
+                        raise TypeError(
+                            "Cannot unquote Exo statements in this context. You are likely trying to unquote Exo statements while inside an Exo expression."
+                        )
+                    quote_stmt_processor(parse_quote_block())
+
+                callback_name = self.unquote_env.register_quote_callback(quote_callback)
+
+                return pyast.Expr(
+                    value=pyast.Call(
+                        func=pyast.Name(id=callback_name, ctx=pyast.Load()),
+                        args=[pyast.Name(id=QUOTE_STMT_PROCESSOR, ctx=pyast.Load())],
+                        keywords=[],
+                    )
+                )
+            else:
+                callback_name = self.unquote_env.register_quote_callback(
+                    lambda: ExoStatementList(tuple(parse_quote_block()))
+                )
+                return pyast.Assign(
+                    targets=[stmt_destination],
+                    value=pyast.Call(
+                        func=pyast.Name(id=callback_name, ctx=pyast.Load()),
+                        args=[],
+                        keywords=[],
+                    ),
+                )
+        else:
+            return super().generic_visit(node)
+
+    def visit_UnaryOp(self, node: pyast.UnaryOp) -> Any:
+        """
+        Replace quoted expressions. These will look like "~{...}".
+        """
+        if (
+            isinstance(node.op, pyast.Invert)
+            and isinstance(node.operand, pyast.Set)
+            and len(node.operand.elts) == 1
+        ):
+
+            def quote_callback():
+                return ExoExpression(
+                    Parser(
+                        node.operand.elts[0],
+                        self.src_info,
+                        parent_scope=get_parent_scope(depth=2),
+                        is_quote_expr=True,
+                    ).result()
+                )
+
+            callback_name = self.unquote_env.register_quote_callback(quote_callback)
+            return pyast.Call(
+                func=pyast.Name(id=callback_name, ctx=pyast.Load()),
+                args=[],
+                keywords=[],
+            )
+        else:
+            return super().generic_visit(node)
+
+    def visit_Nonlocal(self, node: pyast.Nonlocal) -> Any:
+        raise ParseError(
+            f"{self.src_info.get_src_info(node)}: nonlocal is not supported in metalanguage"
+        )
+
+    def visit_FunctionDef(self, node: pyast.FunctionDef):
+        """
+        Record whether we are inside a function definition in the metalanguage, so that we can
+        prevent return statements that occur outside a function.
+        """
+        was_inside_function = self.inside_function
+        self.inside_function = True
+        result = super().generic_visit(node)
+        self.inside_function = was_inside_function
+        return result
+
+    def visit_AsyncFunctionDef(self, node):
+        was_inside_function = self.inside_function
+        self.inside_function = True
+        result = super().generic_visit(node)
+        self.inside_function = was_inside_function
+        return result
+
+    def visit_Return(self, node):
+        if not self.inside_function:
+            raise ParseError(
+                f"{self.src_info.get_src_info(node)}: cannot return from metalanguage fragment"
+            )
+
+        return super().generic_visit(node)
+
+
+@dataclass
+class UnquoteEnv:
+    """
+    Record of all the context needed to interpret a block of metalanguage code.
+    This includes the local and global variables of the scope that the metalanguage code will be evaluated in
+    and the Exo variables of the surrounding object code.
+    """
+
+    parent_globals: dict[str, Any]
+    parent_locals: dict[str, Local]
+    exo_locals: dict[str, Any]
+
+    def mangle_name(self, prefix: str) -> str:
+        """
+        Create unique names for helper functions that are used to parse object code
+        (see QuoteReplacer).
+        """
+        index = 0
+        while True:
+            mangled_name = f"{prefix}{index}"
+            if (
+                mangled_name not in self.parent_locals
+                and mangled_name not in self.parent_globals
+            ):
+                return mangled_name
+            index += 1
+
+    def register_quote_callback(self, quote_callback: Callable[..., Any]) -> str:
+        """
+        Store helper functions that are used to parse object code so that they may be referenced
+        when we interpret the metalanguage code.
+        """
+        mangled_name = self.mangle_name(QUOTE_CALLBACK_PREFIX)
+        self.parent_locals[mangled_name] = BoundLocal(quote_callback)
+        return mangled_name
+
+    def interpret_unquote_block(
+        self,
+        stmts: list[pyast.stmt],
+        quote_stmt_processor: Optional[Callable[[Any], None]],
+    ) -> Any:
+        """
+        Interpret a metalanguage block of code. This is done by pasting the AST of the metalanguage code
+        into a helper function that sets up the local variables that need to be referenced in the metalanguage code,
+        and then calling that helper function.
+
+        This function is also used to parse metalanguage expressions by representing the expressions as return statements
+        and saving the output returned by the helper function.
+        """
+        quote_locals = {
+            name: ExoSymbol(val)
+            for name, val in self.exo_locals.items()
+            if isinstance(val, Sym)
+        }
+        unbound_names = {
+            name
+            for name, val in self.parent_locals.items()
+            if val is None and name not in quote_locals
+        }
+        bound_locals = {
+            name: val.val
+            for name, val in self.parent_locals.items()
+            if val is not None and name not in quote_locals
+        }
+        env_locals = {**bound_locals, **quote_locals}
+        old_stmt_processor = (
+            self.parent_globals[QUOTE_STMT_PROCESSOR]
+            if QUOTE_STMT_PROCESSOR in self.parent_globals
+            else None
+        )
+        self.parent_globals[QUOTE_STMT_PROCESSOR] = quote_stmt_processor
+        exec(
+            compile(
+                pyast.fix_missing_locations(
+                    pyast.Module(
+                        body=[
+                            pyast.FunctionDef(
+                                name=OUTER_SCOPE_HELPER,
+                                args=pyast.arguments(
+                                    posonlyargs=[],
+                                    args=[
+                                        *[pyast.arg(arg=arg) for arg in bound_locals],
+                                        *[pyast.arg(arg=arg) for arg in unbound_names],
+                                        *[pyast.arg(arg=arg) for arg in quote_locals],
+                                    ],
+                                    kwonlyargs=[],
+                                    kw_defaults=[],
+                                    defaults=[],
+                                ),
+                                body=[
+                                    *(
+                                        [
+                                            pyast.Delete(
+                                                targets=[
+                                                    pyast.Name(
+                                                        id=name,
+                                                        ctx=pyast.Del(),
+                                                    )
+                                                    for name in unbound_names
+                                                ]
+                                            )
+                                        ]
+                                        if len(unbound_names) != 0
+                                        else []
+                                    ),
+                                    pyast.FunctionDef(
+                                        name=NESTED_SCOPE_HELPER,
+                                        args=pyast.arguments(
+                                            posonlyargs=[],
+                                            args=[],
+                                            kwonlyargs=[],
+                                            kw_defaults=[],
+                                            defaults=[],
+                                        ),
+                                        body=[
+                                            pyast.Expr(
+                                                value=pyast.Lambda(
+                                                    args=pyast.arguments(
+                                                        posonlyargs=[],
+                                                        args=[],
+                                                        kwonlyargs=[],
+                                                        kw_defaults=[],
+                                                        defaults=[],
+                                                    ),
+                                                    body=pyast.Tuple(
+                                                        elts=[
+                                                            *[
+                                                                pyast.Name(
+                                                                    id=arg,
+                                                                    ctx=pyast.Load(),
+                                                                )
+                                                                for arg in bound_locals
+                                                            ],
+                                                            *[
+                                                                pyast.Name(
+                                                                    id=arg,
+                                                                    ctx=pyast.Load(),
+                                                                )
+                                                                for arg in unbound_names
+                                                            ],
+                                                            *[
+                                                                pyast.Name(
+                                                                    id=arg,
+                                                                    ctx=pyast.Load(),
+                                                                )
+                                                                for arg in quote_locals
+                                                            ],
+                                                        ],
+                                                        ctx=pyast.Load(),
+                                                    ),
+                                                )
+                                            ),
+                                            *stmts,
+                                        ],
+                                        decorator_list=[],
+                                    ),
+                                    pyast.Return(
+                                        value=pyast.Call(
+                                            func=pyast.Name(
+                                                id=NESTED_SCOPE_HELPER,
+                                                ctx=pyast.Load(),
+                                            ),
+                                            args=[],
+                                            keywords=[],
+                                        )
+                                    ),
+                                ],
+                                decorator_list=[],
+                            ),
+                            pyast.Assign(
+                                targets=[
+                                    pyast.Name(
+                                        id=UNQUOTE_RETURN_HELPER, ctx=pyast.Store()
+                                    )
+                                ],
+                                value=pyast.Call(
+                                    func=pyast.Name(
+                                        id=OUTER_SCOPE_HELPER,
+                                        ctx=pyast.Load(),
+                                    ),
+                                    args=[
+                                        *[
+                                            pyast.Name(id=name, ctx=pyast.Load())
+                                            for name in bound_locals
+                                        ],
+                                        *[
+                                            pyast.Constant(value=None)
+                                            for _ in unbound_names
+                                        ],
+                                        *[
+                                            pyast.Name(id=name, ctx=pyast.Load())
+                                            for name in quote_locals
+                                        ],
+                                    ],
+                                    keywords=[],
+                                ),
+                            ),
+                        ],
+                        type_ignores=[],
+                    )
+                ),
+                "",
+                "exec",
+            ),
+            self.parent_globals,
+            env_locals,
+        )
+        self.parent_globals[QUOTE_STMT_PROCESSOR] = old_stmt_processor
+        return env_locals[UNQUOTE_RETURN_HELPER]
+
+    def interpret_unquote_expr(self, expr: pyast.expr):
+        """
+        Parse a metalanguage expression using the machinery provided by interpret_unquote_block.
+        """
+        return self.interpret_unquote_block([pyast.Return(value=expr)], None)
 
 
 # --------------------------------------------------------------------------- #
@@ -156,27 +617,27 @@ class Parser:
     def __init__(
         self,
         module_ast,
-        getsrcinfo,
+        src_info,
+        parent_scope=None,
         is_fragment=False,
-        func_globals=None,
-        srclocals=None,
         as_func=False,
         as_config=False,
         instr=None,
+        is_quote_stmt=False,
+        is_quote_expr=False,
     ):
-
         self.module_ast = module_ast
-        self.globals = func_globals
-        self.locals = srclocals or ChainMap()
-        self.getsrcinfo = getsrcinfo
+        self.parent_scope = parent_scope
+        self.exo_locals = ChainMap()
+        self.src_info = src_info
         self.is_fragment = is_fragment
 
         self.push()
         special_cases = ["stride"]
-        for key, val in self.globals.items():
+        for key, val in parent_scope.get_globals().items():
             if isinstance(val, Extern):
                 special_cases.append(key)
-        for key, val in self.locals.items():
+        for key, val in parent_scope.read_locals().items():
             if isinstance(val, Extern):
                 special_cases.append(key)
 
@@ -203,18 +664,25 @@ class Parser:
                 self._cached_result = self.parse_expr(s.value)
             else:
                 self._cached_result = self.parse_stmt_block(module_ast)
+        elif is_quote_expr:
+            self._cached_result = self.parse_expr(module_ast)
+        elif is_quote_stmt:
+            self._cached_result = self.parse_stmt_block(module_ast)
         else:
             assert False, "parser mode configuration unsupported"
         self.pop()
+
+    def getsrcinfo(self, ast):
+        return self.src_info.get_src_info(ast)
 
     def result(self):
         return self._cached_result
 
     def push(self):
-        self.locals = self.locals.new_child()
+        self.exo_locals = self.exo_locals.new_child()
 
     def pop(self):
-        self.locals = self.locals.parents
+        self.exo_locals = self.exo_locals.parents
 
     # - # - # - # - # - # - # - # - # - # - # - # - # - # - # - #
     # parser helper routines
@@ -222,11 +690,55 @@ class Parser:
     def err(self, node, errstr, origin=None):
         raise ParseError(f"{self.getsrcinfo(node)}: {errstr}") from origin
 
+    def try_eval_unquote(
+        self, unquote_node: pyast.expr
+    ) -> Union[tuple[()], tuple[Any]]:
+        if isinstance(unquote_node, pyast.Set):
+            if len(unquote_node.elts) != 1:
+                self.err(unquote_node, "Unquote must take 1 argument")
+            else:
+                unquote_env = UnquoteEnv(
+                    self.parent_scope.get_globals(),
+                    self.parent_scope.read_locals(),
+                    self.exo_locals,
+                )
+                quote_replacer = QuoteReplacer(self.src_info, unquote_env)
+                unquoted = unquote_env.interpret_unquote_expr(
+                    quote_replacer.visit(copy.deepcopy(unquote_node.elts[0]))
+                )
+                return (unquoted,)
+        elif (
+            isinstance(unquote_node, pyast.Name)
+            and isinstance(unquote_node.ctx, pyast.Load)
+            and unquote_node.id not in self.exo_locals
+            and not self.is_fragment
+        ):
+            cur_globals = self.parent_scope.get_globals()
+            cur_locals = self.parent_scope.read_locals()
+            return (
+                (
+                    UnquoteEnv(
+                        cur_globals,
+                        cur_locals,
+                        self.exo_locals,
+                    ).interpret_unquote_expr(unquote_node),
+                )
+                if unquote_node.id in cur_locals or unquote_node.id in cur_globals
+                else tuple()
+            )
+        else:
+            return tuple()
+
     def eval_expr(self, expr):
         assert isinstance(expr, pyast.expr)
-        code = compile(pyast.Expression(expr), "", "eval")
-        e_obj = eval(code, self.globals, self.locals)
-        return e_obj
+        return UnquoteEnv(
+            self.parent_scope.get_globals(),
+            {
+                **self.parent_scope.read_locals(),
+                **{k: BoundLocal(v) for k, v in self.exo_locals.items()},
+            },
+            self.exo_locals,
+        ).interpret_unquote_expr(expr)
 
     # - # - # - # - # - # - # - # - # - # - # - # - # - # - # - #
     # structural parsing rules...
@@ -268,10 +780,10 @@ class Parser:
             names.add(a.arg)
             nm = Sym(a.arg)
             if isinstance(typ, UAST.Size):
-                self.locals[a.arg] = SizeStub(nm)
+                self.exo_locals[a.arg] = SizeStub(nm)
             else:
                 # note we don't need to stub the index variables
-                self.locals[a.arg] = nm
+                self.exo_locals[a.arg] = nm
             args.append(UAST.fnarg(nm, typ, mem, self.getsrcinfo(a)))
 
         # return types are non-sensical for Exo, b/c it models procedures
@@ -453,11 +965,8 @@ class Parser:
                 typ = _prim_types[node.value.id]
                 is_window = False
             else:
-                self.err(
-                    node,
-                    "expected tensor type to be "
-                    "of the form 'R[...]', 'f32[...]', etc.",
-                )
+                typ = self.parse_num_type(node.value)
+                is_window = False
 
             if sys.version_info[:3] >= (3, 9):
                 # unpack single or multi-arg indexing to list of slices/indices
@@ -493,7 +1002,13 @@ class Parser:
                 node, f"Cannot allocate an intermediate value of type {node.id}"
             )
         else:
-            self.err(node, "unrecognized type: " + pyast.dump(node))
+            unquote_eval_result = self.try_eval_unquote(node)
+            if len(unquote_eval_result) == 1:
+                unquoted = unquote_eval_result[0]
+                if isinstance(unquoted, str) and unquoted in _prim_types:
+                    return _prim_types[unquoted]
+                else:
+                    self.err(node, "Unquote computation did not yield valid type")
 
     def parse_stmt_block(self, stmts):
         assert isinstance(stmts, list)
@@ -501,8 +1016,55 @@ class Parser:
         rstmts = []
 
         for s in stmts:
+            if isinstance(s, pyast.With):
+                if (
+                    len(s.items) == 1
+                    and isinstance(s.items[0].context_expr, pyast.Name)
+                    and s.items[0].context_expr.id == UNQUOTE_BLOCK_KEYWORD
+                    and isinstance(s.items[0].context_expr.ctx, pyast.Load)
+                    and s.items[0].optional_vars is None
+                ):
+                    unquote_env = UnquoteEnv(
+                        self.parent_scope.get_globals(),
+                        self.parent_scope.read_locals(),
+                        self.exo_locals,
+                    )
+                    quote_stmt_replacer = QuoteReplacer(
+                        self.src_info,
+                        unquote_env,
+                    )
+                    unquote_env.interpret_unquote_block(
+                        [
+                            quote_stmt_replacer.visit(copy.deepcopy(python_s))
+                            for python_s in s.body
+                        ],
+                        lambda stmts: rstmts.extend(stmts),
+                    )
+                else:
+                    self.err(s, "Expected unquote")
+            elif isinstance(s, pyast.Expr) and isinstance(s.value, pyast.Set):
+                if len(s.value.elts) != 1:
+                    self.err(s, "Unquote must take 1 argument")
+                else:
+                    unquoted = self.try_eval_unquote(s.value)[0]
+                    if (
+                        isinstance(unquoted, ExoStatementList)
+                        and isinstance(unquoted._inner, tuple)
+                        and all(
+                            map(
+                                lambda inner_s: isinstance(inner_s, self.AST.stmt),
+                                unquoted._inner,
+                            )
+                        )
+                    ):
+                        rstmts.extend(unquoted._inner)
+                    else:
+                        self.err(
+                            s,
+                            "Statement-level unquote expression must return Exo statements",
+                        )
             # ----- Assginment, Reduction, Var Declaration/Allocation parsing
-            if isinstance(s, (pyast.Assign, pyast.AnnAssign, pyast.AugAssign)):
+            elif isinstance(s, (pyast.Assign, pyast.AnnAssign, pyast.AugAssign)):
                 # parse the rhs first, if it's present
                 rhs = None
                 if isinstance(s, pyast.AnnAssign):
@@ -601,29 +1163,35 @@ class Parser:
                     # insert any needed Allocs
                     if isinstance(s, pyast.AnnAssign):
                         nm = Sym(name_node.id)
-                        self.locals[name_node.id] = nm
+                        self.exo_locals[name_node.id] = nm
                         typ, mem = self.parse_alloc_typmem(s.annotation)
                         rstmts.append(UAST.Alloc(nm, typ, mem, self.getsrcinfo(s)))
 
-                    # handle cases of ambiguous assignment to undefined
-                    # variables
-                    if (
-                        isinstance(s, pyast.Assign)
-                        and len(idxs) == 0
-                        and name_node.id not in self.locals
-                    ):
-                        nm = Sym(name_node.id)
-                        self.locals[name_node.id] = nm
-                        do_fresh_assignment = True
-                    else:
-                        do_fresh_assignment = False
+                    do_fresh_assignment = False
 
                     # get the symbol corresponding to the name on the
                     # left-hand-side
                     if isinstance(s, (pyast.Assign, pyast.AugAssign)):
-                        if name_node.id not in self.locals:
-                            self.err(name_node, f"variable '{name_node.id}' undefined")
-                        nm = self.locals[name_node.id]
+                        if name_node.id not in self.exo_locals:
+                            unquote_eval_result = self.try_eval_unquote(
+                                pyast.Name(id=name_node.id, ctx=pyast.Load())
+                            )
+                            if len(unquote_eval_result) == 1 and isinstance(
+                                unquote_eval_result[0], ExoSymbol
+                            ):
+                                nm = unquote_eval_result[0]._inner
+                            elif len(idxs) == 0 and name_node.id not in self.exo_locals:
+                                # handle cases of ambiguous assignment to undefined
+                                # variables
+                                nm = Sym(name_node.id)
+                                self.exo_locals[name_node.id] = nm
+                                do_fresh_assignment = True
+                            else:
+                                self.err(
+                                    name_node, f"variable '{name_node.id}' undefined"
+                                )
+                        else:
+                            nm = self.exo_locals[name_node.id]
                         if isinstance(nm, SizeStub):
                             self.err(
                                 name_node,
@@ -660,7 +1228,7 @@ class Parser:
                     itr = s.target.id
                 else:
                     itr = Sym(s.target.id)
-                    self.locals[s.target.id] = itr
+                    self.exo_locals[s.target.id] = itr
 
                 cond = self.parse_loop_cond(s.iter)
                 body = self.parse_stmt_block(s.body)
@@ -831,12 +1399,77 @@ class Parser:
             if not isinstance(node.value, pyast.Name):
                 self.err(node, "expected access to have form 'x' or 'x[...]'")
 
-            is_window = any(isinstance(e, pyast.Slice) for e in dims)
-            idxs = [
-                (self.parse_slice(e, node) if is_window else self.parse_expr(e))
-                for e in dims
-            ]
+            def unquote_to_index(unquoted, ref_node, srcinfo, top_level):
+                if isinstance(unquoted, (int, float)):
+                    return self.AST.Const(unquoted, srcinfo)
+                elif isinstance(unquoted, ExoExpression) and isinstance(
+                    unquoted._inner, self.AST.expr
+                ):
+                    return unquoted._inner
+                elif isinstance(unquoted, ExoSymbol):
+                    return self.AST.Read(unquoted._inner, [], srcinfo)
+                elif isinstance(unquoted, slice) and top_level:
+                    if unquoted.step is None:
+                        return UAST.Interval(
+                            (
+                                None
+                                if unquoted.start is None
+                                else unquote_to_index(
+                                    unquoted.start, ref_node, srcinfo, False
+                                )
+                            ),
+                            (
+                                None
+                                if unquoted.stop is None
+                                else unquote_to_index(
+                                    unquoted.stop, ref_node, srcinfo, False
+                                )
+                            ),
+                            srcinfo,
+                        )
+                    else:
+                        self.err(ref_node, "Unquote returned slice index with step")
+                else:
+                    self.err(
+                        ref_node, "Unquote received input that couldn't be unquoted"
+                    )
 
+            idxs = []
+            srcinfo_for_idxs = []
+            for e in dims:
+                if sys.version_info[:3] >= (3, 9):
+                    srcinfo = self.getsrcinfo(e)
+                else:
+                    if isinstance(e, pyast.Index):
+                        e = e.value
+                        srcinfo = self.getsrcinfo(e)
+                    else:
+                        srcinfo = self.getsrcinfo(node)
+                if isinstance(e, pyast.Slice):
+                    idxs.append(self.parse_slice(e, node))
+                    srcinfo_for_idxs.append(srcinfo)
+                else:
+                    unquote_eval_result = self.try_eval_unquote(e)
+                    if len(unquote_eval_result) == 1:
+                        unquoted = unquote_eval_result[0]
+                        if isinstance(unquoted, tuple):
+                            for unquoted_val in unquoted:
+                                idxs.append(
+                                    unquote_to_index(unquoted_val, e, srcinfo, True)
+                                )
+                                srcinfo_for_idxs.append(srcinfo)
+                        else:
+                            idxs.append(unquote_to_index(unquoted, e, srcinfo, True))
+                            srcinfo_for_idxs.append(srcinfo)
+                    else:
+                        idxs.append(self.parse_expr(e))
+                        srcinfo_for_idxs.append(srcinfo)
+
+            is_window = any(map(lambda idx: isinstance(idx, UAST.Interval), idxs))
+            if is_window:
+                for i in range(len(idxs)):
+                    if not isinstance(idxs[i], UAST.Interval):
+                        idxs[i] = UAST.Point(idxs[i], srcinfo_for_idxs[i])
             return node.value, idxs, is_window
         else:
             assert False, "bad case"
@@ -853,23 +1486,33 @@ class Parser:
             else:
                 srcinfo = self.getsrcinfo(node)
 
-        if isinstance(e, pyast.Slice):
-            lo = None if e.lower is None else self.parse_expr(e.lower)
-            hi = None if e.upper is None else self.parse_expr(e.upper)
-            if e.step is not None:
-                self.err(
-                    e,
-                    "expected windowing to have the form x[:], "
-                    "x[i:], x[:j], or x[i:j], but not x[i:j:k]",
-                )
+        lo = None if e.lower is None else self.parse_expr(e.lower)
+        hi = None if e.upper is None else self.parse_expr(e.upper)
+        if e.step is not None:
+            self.err(
+                e,
+                "expected windowing to have the form x[:], "
+                "x[i:], x[:j], or x[i:j], but not x[i:j:k]",
+            )
 
-            return UAST.Interval(lo, hi, srcinfo)
-        else:
-            return UAST.Point(self.parse_expr(e), srcinfo)
+        return UAST.Interval(lo, hi, srcinfo)
 
     # parse expressions, including values, indices, and booleans
     def parse_expr(self, e):
-        if isinstance(e, (pyast.Name, pyast.Subscript)):
+        unquote_eval_result = self.try_eval_unquote(e)
+        if len(unquote_eval_result) == 1:
+            unquoted = unquote_eval_result[0]
+            if isinstance(unquoted, (int, float)):
+                return self.AST.Const(unquoted, self.getsrcinfo(e))
+            elif isinstance(unquoted, ExoExpression) and isinstance(
+                unquoted._inner, self.AST.expr
+            ):
+                return unquoted._inner
+            elif isinstance(unquoted, ExoSymbol):
+                return self.AST.Read(unquoted._inner, [], self.getsrcinfo(e))
+            else:
+                self.err(e, "Unquote received input that couldn't be unquoted")
+        elif isinstance(e, (pyast.Name, pyast.Subscript)):
             nm_node, idxs, is_window = self.parse_array_indexing(e)
 
             if self.is_fragment:
@@ -879,12 +1522,18 @@ class Parser:
                 else:
                     return PAST.Read(nm, idxs, self.getsrcinfo(e))
             else:
-                if nm_node.id in self.locals:
-                    nm = self.locals[nm_node.id]
-                elif nm_node.id in self.globals:
-                    nm = self.globals[nm_node.id]
-                else:  # could not resolve name to anything
-                    self.err(nm_node, f"variable '{nm_node.id}' undefined")
+                if nm_node.id in self.exo_locals:
+                    nm = self.exo_locals[nm_node.id]
+                else:
+                    unquote_eval_result = self.try_eval_unquote(
+                        pyast.Name(id=nm_node.id, ctx=pyast.Load())
+                    )
+                    if len(unquote_eval_result) == 1 and isinstance(
+                        unquote_eval_result[0], ExoSymbol
+                    ):
+                        nm = unquote_eval_result[0]._inner
+                    else:
+                        self.err(nm_node, f"variable '{nm_node.id}' undefined")
 
                 if isinstance(nm, SizeStub):
                     nm = nm.nm
@@ -937,11 +1586,15 @@ class Parser:
                 opnm = (
                     "+"
                     if isinstance(e.op, pyast.UAdd)
-                    else "not"
-                    if isinstance(e.op, pyast.Not)
-                    else "~"
-                    if isinstance(e.op, pyast.Invert)
-                    else "ERROR-BAD-OP-CASE"
+                    else (
+                        "not"
+                        if isinstance(e.op, pyast.Not)
+                        else (
+                            "~"
+                            if isinstance(e.op, pyast.Invert)
+                            else "ERROR-BAD-OP-CASE"
+                        )
+                    )
                 )
                 self.err(e, f"unsupported unary operator: {opnm}")
 
@@ -1067,9 +1720,9 @@ class Parser:
 
                 dim = int(e.args[1].value)
                 if not self.is_fragment:
-                    if name not in self.locals:
+                    if name not in self.exo_locals:
                         self.err(e.args[0], f"variable '{name}' undefined")
-                    name = self.locals[name]
+                    name = self.exo_locals[name]
 
                 return self.AST.StrideExpr(name, dim, self.getsrcinfo(e))
 

@@ -21,7 +21,7 @@ from .rewrite.new_eff import Check_Aliasing
 
 # Moved to new file
 from .core.proc_eqv import decl_new_proc, derive_proc, assert_eqv_proc, check_eqv_proc
-from .frontend.pyparser import get_ast_from_python, Parser, get_src_locals
+from .frontend.pyparser import get_ast_from_python, Parser, get_parent_scope
 from .frontend.typecheck import TypeChecker
 
 from . import API_cursors as C
@@ -36,14 +36,13 @@ def proc(f, _instr=None) -> "Procedure":
     if not isinstance(f, types.FunctionType):
         raise TypeError("@proc decorator must be applied to a function")
 
-    body, getsrcinfo = get_ast_from_python(f)
+    body, src_info = get_ast_from_python(f)
     assert isinstance(body, pyast.FunctionDef)
 
     parser = Parser(
         body,
-        getsrcinfo,
-        func_globals=f.__globals__,
-        srclocals=get_src_locals(depth=3 if _instr else 2),
+        src_info,
+        parent_scope=get_parent_scope(depth=3 if _instr else 2),
         instr=_instr,
         as_func=True,
     )
@@ -68,14 +67,13 @@ def config(_cls=None, *, readwrite=True):
         if not inspect.isclass(cls):
             raise TypeError("@config decorator must be applied to a class")
 
-        body, getsrcinfo = get_ast_from_python(cls)
+        body, src_info = get_ast_from_python(cls)
         assert isinstance(body, pyast.ClassDef)
 
         parser = Parser(
             body,
-            getsrcinfo,
-            func_globals={},
-            srclocals=get_src_locals(depth=2),
+            src_info,
+            parent_scope=get_parent_scope(depth=2),
             as_config=True,
         )
         return Config(*parser.result(), not readwrite)

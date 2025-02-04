@@ -80,14 +80,14 @@ def test_fresh2():
 
 def test_sin1():
     @proc
-    def sin(x: f32):
+    def sin_proc(x: f32):
         y: f32
         y = sin(x)
 
 
 def test_sin2():
     @proc
-    def sin(x: f32):
+    def sin_proc(x: f32):
         y: f32
         if False:
             y = sin(x)
