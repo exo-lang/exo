@@ -63,6 +63,11 @@ clusterDim_param = CollParam("clusterDim")
 clusterDim = CollSizeExpr(1, (clusterDim_param,))
 
 
+# TODO
+def int_tuple(tup, env: Dict[CollParam, int]):
+    return tuple(n if isinstance(n, int) else n(env) for n in tup)
+
+
 class CollUnit(object):
     __slots__ = ["partial_domain", "tile"]
 
@@ -70,12 +75,18 @@ class CollUnit(object):
     tile: Tuple[CollSizeExpr | int]
 
     def __init__(self, partial_domain, tile):
-        assert len(partial_domain) + 1 == len(tile)
+        assert len(partial_domain) == len(tile)
         self.partial_domain = partial_domain
         self.tile = tile
 
     def __repr__(self):
         return f"CollUnit({self.partial_domain}, {self.tile})"
+
+    def int_partial_domain(self, env: Dict[CollParam, int]):
+        return int_tuple(self.partial_domain, env)
+
+    def int_tile(self, env: Dict[CollParam, int]):
+        return int_tuple(self.tile, env)
 
 
 class CollSpecialize(object):
@@ -86,8 +97,8 @@ class CollSpecialize(object):
     box: Tuple[CollSizeExpr | int]
 
     def __init__(self, partial_domain, offset, box):
-        assert len(partial_domain) + 1 == len(offset)
-        assert len(partial_domain) + 1 == len(box)
+        assert len(partial_domain) == len(offset)
+        assert len(partial_domain) == len(box)
         self.partial_domain = partial_domain
         self.offset = offset
         self.box = box
@@ -95,15 +106,33 @@ class CollSpecialize(object):
     def __repr__(self):
         return f"CollSpecialize({self.partial_domain}, {self.offset}, {self.box})"
 
+    def int_partial_domain(self, env: Dict[CollParam, int]):
+        return int_tuple(self.partial_domain, env)
+
+    def int_offset(self, env: Dict[CollParam, int]):
+        return int_tuple(self.offset, env)
+
+    def int_box(self, env: Dict[CollParam, int]):
+        return int_tuple(self.box, env)
+
 
 class CollIndexExpr(object):
     __slots__ = ["base_expr", "ops", "hash"]
 
-    base_expr: str  # Target language (e.g. C) expression, e.g. "threadIdx"
-    ops: Tuple[str, int]  # Sequence of (operator, int) pairs to apply
+    # Target language (e.g. C) expression, e.g. "threadIdx" as str
+    # or constant value as int
+    base_expr: str | int
+    # Sequence of (operator, int) pairs to apply.
+    # Only allowed if the base_expr is a str.
+    ops: Tuple[str, int]
+    # Pre-computed hash
     hash: int
 
     def __init__(self, base_expr, ops=()):
+        if isinstance(base_expr, int):
+            assert not ops
+        else:
+            assert isinstance(base_expr, str)
         self.base_expr = base_expr
         self.ops = ops
         self.hash = hash((base_expr, ops))
@@ -124,16 +153,26 @@ class CollIndexExpr(object):
 
     def __sub__(self, v: int):
         assert isinstance(v, int)
-        if self.ops and self.ops[-1][0] == "-":
+
+        if isinstance(self.base_expr, int):
+            return CollIndexExpr(self.base_expr - v)
+        elif v == 0:
+            return self
+        elif self.ops and self.ops[-1][0] == "-":
             # Merge with the prior subtract op if possible
             new_ops = self.ops[:-1] + (("-", self.ops[-1][1] + v),)
         else:
             new_ops = self.ops + (("-", v),)
-        return CollIndexExpr(self.base_expr, new_ops)
+
+        result = CollIndexExpr(self.base_expr, new_ops)
 
     def __truediv__(self, v: int):
         assert isinstance(v, int)
-        if self.ops and self.ops[-1][0] == "/":
+        if isinstance(self.base_expr, int):
+            return CollIndexExpr(self.base_expr // v)
+        elif v == 1:
+            return self
+        elif self.ops and self.ops[-1][0] == "/":
             # Merge with the prior divide op if possible
             new_ops = self.ops[:-1] + (("/", self.ops[-1][1] * v),)
         else:
@@ -145,7 +184,11 @@ class CollIndexExpr(object):
 
     def __mod__(self, v: int):
         assert isinstance(v, int)
-        if self.ops and self.ops[-1][0] == "%":
+        if isinstance(self.base_expr, int):
+            return CollIndexExpr(self.base_expr % v)
+        elif v == 1:
+            return CollIndexExpr(0)
+        elif self.ops and self.ops[-1][0] == "%":
             # Merge with the prior modulo op if possible
             # If a divides b, then x % a % b => x % a
             u = self.ops[-1][1]
@@ -157,7 +200,7 @@ class CollIndexExpr(object):
 
     def codegen(self):
         """Assuming C for now. Should be usable downstream without further parenthesization"""
-        need_parens = not self.base_expr.isalnum()
+        need_parens = isinstance(self.base_expr, str) and not self.base_expr.isalnum()
         expr = self._codegen_impl(self.base_expr, need_parens)
 
         # Wrap final expression in parens if not trivial
@@ -166,6 +209,7 @@ class CollIndexExpr(object):
         return expr
 
     def _codegen_impl(self, expr, need_parens):
+        expr = str(expr)
         for op, value in self.ops:
             if need_parens:
                 expr = f"({expr})"
@@ -219,7 +263,7 @@ class CollTiling(object):
         return f"CollTiling({self.parent}, {self.domain}, {self.tile}, {self.offset}, {self.box}, {self.intra_box_exprs})"
 
     def __eq__(self, other: CollTiling):
-        return (
+        return self is other or (
             type(other) is CollTiling
             and self.parent is other.parent
             and self.domain == other.domain
@@ -231,18 +275,90 @@ class CollTiling(object):
     def __hash__(self):
         return self.hash
 
+    def tiled(self, unit: CollUnit, env: Dict[CollParam, int]):
+        unit_partial_domain = unit.int_partial_domain(env)
+        unit_tile = unit.int_tile(env)
+
+        unit_completion = DomainCompletionOp(
+            unit_partial_domain, self.domain, allow_partial_source=True
+        )
+        self_completion = DomainCompletionOp(
+            self.domain, unit_partial_domain, allow_partial_source=False
+        )
+        assert unit_completion.domain == self_completion.domain
+
+        # Translate ourself to new domain
+        old_exprs = self_completion.new_intra_box_exprs(self.intra_box_exprs)
+        old_box = self_completion.new_size(self.box)
+
+        new_parent = self
+        new_domain = unit_completion.domain
+        new_offset = (0,) * len(new_domain)
+
+        # Tiling will be the same as the box dimension of the parent
+        # except along the dimension being tiled.
+        tmp_tile = list(old_box)
+        tmp_exprs = list(old_exprs)
+
+        # Count tiles and update tmp_tile size
+        # Must only have change (tiling) on up to one dimension
+        tiled_dim_idx = None
+        tile_count = 1
+        tile_remainder = 0
+        for dim_idx, tile_coord in enumerate(unit_completion.new_size(unit_tile)):
+            domain_coord = new_domain[dim_idx]
+            box_coord = old_box[dim_idx]
+            if (
+                tile_coord is not None
+                and tile_coord != domain_coord
+                and tile_coord != box_coord
+            ):
+                assert tile_coord < box_coord  # TODO message
+                assert tiled_dim_idx is None  # TODO message
+                tiled_dim_idx = dim_idx
+                tile_count = box_coord // tile_coord
+                tile_remainder = box_coord % tile_coord
+                tmp_tile[dim_idx] = tile_coord
+                tmp_exprs[dim_idx] = tmp_exprs[dim_idx] % tile_coord
+
+        new_tile = tuple(tmp_tile)
+        new_box = new_tile
+
+        return CollTiling(
+            new_parent,
+            new_domain,
+            new_tile,
+            new_offset,
+            new_box,
+            tuple(tmp_exprs),
+        )
+
+    def specialized(self, spec: CollSpecialize):
+        spec_partial_domain = spec.int_partial_domain(env)
+        spec_offset = spec.int_offset(env)
+        spec_box = spec.int_box(env)
+
+        spec_completion = DomainCompletionOp(
+            spec_partial_domain, self.domain, allow_partial_source=True
+        )
+        self_completion = DomainCompletionOp(
+            self.domain, spec_partial_domain, allow_partial_source=False
+        )
+        assert spec_completion.domain == self_completion.domain
+
 
 class DomainCompletionOp(object):
-    __slots__ = ["idx_factors", "input_dim", "domain"]
+    __slots__ = ["idx_factors", "input_dim", "domain", "source_partial"]
     idx_factors: Tuple[int, int]
     input_dim: int
     domain: Tuple[int]
+    source_partial: bool
 
     def __init__(
         self,
         source_domain: Tuple[int],
         target_domain: Tuple[int],
-        source_is_partial: bool,
+        allow_partial_source: bool,
     ):
         def cumulative_thread_counts(domain):
             tmp = [1]
@@ -253,12 +369,14 @@ class DomainCompletionOp(object):
 
         cumulative_s = cumulative_thread_counts(source_domain)
         cumulative_t = cumulative_thread_counts(target_domain)
-        if source_is_partial:
+        if allow_partial_source and cumulative_s[0] != cumulative_t[0]:
             assert cumulative_t[0] % cumulative_s[0] == 0  # TODO message
             source_domain = (cumulative_t[0] // cumulative_s[0],) + source_domain
             cumulative_s = [cumulative_t[0]] + cumulative_s
+            self.source_partial = True
         else:
             assert cumulative_s[0] % cumulative_t[0] == 0  # TODO message
+            self.source_partial = False
 
         idx_factors = []
 
@@ -277,25 +395,65 @@ class DomainCompletionOp(object):
 
         self.idx_factors = idx_factors
         self.input_dim = len(source_domain)
-        self.domain = self.new_size(source_domain)
+        self.domain = self._new_coords(
+            source_domain,
+            None,
+            lambda c, factor: c // factor,
+            lambda c, factor: factor,
+            allow_prefix=False,
+        )
 
-    def new_size(self, size: Tuple):
-        return self._new_coords(size, lambda c, factor: factor)
+    def new_size(self, size: Tuple, defaults=None):
+        def outer_op(c, factor):
+            if c < factor:
+                return 1
+            else:
+                assert c % factor == 0
+                return c // factor
 
-    def new_offset(self, offset: Tuple):
-        return self._new_coords(offset, lambda c, factor: 0)
+        def inner_op(c, factor):
+            return min(c, factor)
 
-    def new_intra_box_exprs(self, coords: Tuple):
-        return self._new_coords(coords, lambda c, factor: c % factor)
+        return self._new_coords(size, defaults, outer_op, inner_op)
 
-    def _new_coords(self, coords: Tuple, inner_op):
-        coords = list(coords)
+    def new_offset(self, offset: Tuple, defaults=None):
+        def outer_op(c, factor):
+            return c // factor
+
+        def inner_op(c, factor):
+            assert c % factor == 0  # TODO message
+            return 0
+
+        return self._new_coords(offset, defaults, outer_op, inner_op)
+
+    def new_intra_box_exprs(self, coords: Tuple, defaults=None):
+        def outer_op(c, factor):
+            return c // factor
+
+        def inner_op(c, factor):
+            return c % factor
+
+        return self._new_coords(coords, defaults, outer_op, inner_op)
+
+    def _new_coords(
+        self, coords: Tuple, defaults, outer_op, inner_op, allow_prefix=True
+    ):
+        if allow_prefix and self.source_partial:
+            coords = [None] + list(coords)
+        else:
+            coords = list(coords)
         assert len(coords) == self.input_dim
         for idx, factor in self.idx_factors:
             assert idx >= 0
             assert idx < self.input_dim
             c = coords[idx]
-            if isinstance(c, int):
-                assert c % factor == 0  # TODO message
-            coords[idx : idx + 1] = [c // factor, inner_op(c, factor)]
+            if c is None:
+                coords[idx : idx + 1] = [None, None]
+            else:
+                coords[idx : idx + 1] = [outer_op(c, factor), inner_op(c, factor)]
+        if defaults is not None:
+            assert len(defaults) == len(coords)
+            for i, c in enumerate(coords):
+                if c is None:
+                    coords[i] = defaults[i]
         return tuple(coords)
