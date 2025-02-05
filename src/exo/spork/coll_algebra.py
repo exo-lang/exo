@@ -63,57 +63,40 @@ clusterDim_param = CollParam("clusterDim")
 clusterDim = CollSizeExpr(1, (clusterDim_param,))
 
 
-# TODO
-def int_tuple(tup, env: Dict[CollParam, int]):
-    return tuple(n if isinstance(n, int) else n(env) for n in tup)
+def coll_size_tuple(tup):
+    result = []
+    for n in tup:
+        if isinstance(n, int):
+            result.append(CollSizeExpr(n, ()))
+        else:
+            assert isinstance(n, CollSizeExpr)
+            result.append(n)
+    return tuple(result)
+
+
+def int_size_tuple(tup: Tuple[CollSizeExpr], env: Dict[CollParam, int]):
+    return tuple(n(env) for n in tup)
 
 
 class CollUnit(object):
     __slots__ = ["partial_domain", "tile"]
 
-    partial_domain: Tuple[CollSizeExpr | int]
-    tile: Tuple[CollSizeExpr | int]
+    partial_domain: Tuple[CollSizeExpr]
+    tile: Tuple[CollSizeExpr]
 
     def __init__(self, partial_domain, tile):
         assert len(partial_domain) == len(tile)
-        self.partial_domain = partial_domain
-        self.tile = tile
+        self.partial_domain = coll_size_tuple(partial_domain)
+        self.tile = coll_size_tuple(tile)
 
     def __repr__(self):
         return f"CollUnit({self.partial_domain}, {self.tile})"
 
     def int_partial_domain(self, env: Dict[CollParam, int]):
-        return int_tuple(self.partial_domain, env)
+        return int_size_tuple(self.partial_domain, env)
 
     def int_tile(self, env: Dict[CollParam, int]):
-        return int_tuple(self.tile, env)
-
-
-class CollSpecialize(object):
-    __slots__ = ["partial_domain", "offset", "box"]
-
-    partial_domain: Tuple[CollSizeExpr | int]
-    offset: Tuple[CollSizeExpr | int]
-    box: Tuple[CollSizeExpr | int]
-
-    def __init__(self, partial_domain, offset, box):
-        assert len(partial_domain) == len(offset)
-        assert len(partial_domain) == len(box)
-        self.partial_domain = partial_domain
-        self.offset = offset
-        self.box = box
-
-    def __repr__(self):
-        return f"CollSpecialize({self.partial_domain}, {self.offset}, {self.box})"
-
-    def int_partial_domain(self, env: Dict[CollParam, int]):
-        return int_tuple(self.partial_domain, env)
-
-    def int_offset(self, env: Dict[CollParam, int]):
-        return int_tuple(self.offset, env)
-
-    def int_box(self, env: Dict[CollParam, int]):
-        return int_tuple(self.box, env)
+        return int_size_tuple(self.tile, env)
 
 
 class CollIndexExpr(object):
@@ -164,7 +147,7 @@ class CollIndexExpr(object):
         else:
             new_ops = self.ops + (("-", v),)
 
-        result = CollIndexExpr(self.base_expr, new_ops)
+        return CollIndexExpr(self.base_expr, new_ops)
 
     def __truediv__(self, v: int):
         assert isinstance(v, int)
@@ -241,23 +224,28 @@ class CollTiling(object):
     def __init__(self, parent, domain, tile, offset, box, intra_box_exprs):
         assert parent is None or isinstance(parent, CollTiling)
         self.parent = parent
-        self.domain = domain
-        self.tile = tile
-        self.offset = offset
-        self.box = box
+        self.domain = tuple(domain)
+        self.tile = tuple(tile)
+        self.offset = tuple(offset)
+        self.box = tuple(box)
         for tup in (domain, tile, offset, box):
-            assert (
-                isinstance(tup, tuple)
-                and all(isinstance(c, int) for c in tup)
-                and len(tup) == len(domain)
-            )
+            assert all(isinstance(c, int) for c in tup)
+            assert len(tup) == len(domain)
 
-        self.intra_box_exprs = intra_box_exprs
-        assert isinstance(intra_box_exprs, tuple)
+        self.intra_box_exprs = tuple(intra_box_exprs)
         assert all(isinstance(c, CollIndexExpr) for c in intra_box_exprs)
         assert len(intra_box_exprs) == len(box)
 
-        self.hash = hash((parent, domain, tile, offset, box, intra_box_exprs))
+        self.hash = hash(
+            (
+                self.parent,
+                self.domain,
+                self.tile,
+                self.offset,
+                self.box,
+                self.intra_box_exprs,
+            )
+        )
 
     def __repr__(self):
         return f"CollTiling({self.parent}, {self.domain}, {self.tile}, {self.offset}, {self.box}, {self.intra_box_exprs})"
@@ -276,75 +264,124 @@ class CollTiling(object):
         return self.hash
 
     def tiled(self, unit: CollUnit, env: Dict[CollParam, int]):
+        # Translate unit domain and tiling to concrete integers
         unit_partial_domain = unit.int_partial_domain(env)
         unit_tile = unit.int_tile(env)
 
+        # Determine the common domain between us and the given unit
         unit_completion = DomainCompletionOp(
             unit_partial_domain, self.domain, allow_partial_source=True
         )
         self_completion = DomainCompletionOp(
             self.domain, unit_partial_domain, allow_partial_source=False
         )
+        common_domain = unit_completion.domain
         assert unit_completion.domain == self_completion.domain
 
-        # Translate ourself to new domain
-        old_exprs = self_completion.new_intra_box_exprs(self.intra_box_exprs)
-        old_box = self_completion.new_size(self.box)
-
-        new_parent = self
-        new_domain = unit_completion.domain
-        new_offset = (0,) * len(new_domain)
+        # Translate ourself to common domain
+        new_exprs = self_completion.new_intra_box_exprs(self.intra_box_exprs)
+        new_tile = self_completion.new_size(self.box)  # May be modified later
+        old_box = tuple(new_tile)  # Constant
 
         # Tiling will be the same as the box dimension of the parent
         # except along the dimension being tiled.
-        tmp_tile = list(old_box)
-        tmp_exprs = list(old_exprs)
-
         # Count tiles and update tmp_tile size
         # Must only have change (tiling) on up to one dimension
         tiled_dim_idx = None
         tile_count = 1
         tile_remainder = 0
-        for dim_idx, tile_coord in enumerate(unit_completion.new_size(unit_tile)):
-            domain_coord = new_domain[dim_idx]
+        for dim_idx, unit_tile_coord in enumerate(unit_completion.new_size(unit_tile)):
+            domain_coord = common_domain[dim_idx]
             box_coord = old_box[dim_idx]
             if (
-                tile_coord is not None
-                and tile_coord != domain_coord
-                and tile_coord != box_coord
+                unit_tile_coord is not None
+                and unit_tile_coord != domain_coord
+                and unit_tile_coord != box_coord
             ):
-                assert tile_coord < box_coord  # TODO message
+                assert unit_tile_coord < box_coord  # TODO message
                 assert tiled_dim_idx is None  # TODO message
                 tiled_dim_idx = dim_idx
-                tile_count = box_coord // tile_coord
-                tile_remainder = box_coord % tile_coord
-                tmp_tile[dim_idx] = tile_coord
-                tmp_exprs[dim_idx] = tmp_exprs[dim_idx] % tile_coord
+                tile_count = box_coord // unit_tile_coord
+                tile_remainder = box_coord % unit_tile_coord
+                new_tile[dim_idx] = unit_tile_coord
+                new_exprs[dim_idx] = new_exprs[dim_idx] % unit_tile_coord
 
-        new_tile = tuple(tmp_tile)
+        new_parent = self
+        new_offset = (0,) * len(common_domain)
+        new_tile = tuple(new_tile)
         new_box = new_tile
 
         return CollTiling(
             new_parent,
-            new_domain,
+            common_domain,
             new_tile,
             new_offset,
             new_box,
-            tuple(tmp_exprs),
+            new_exprs,
         )
 
-    def specialized(self, spec: CollSpecialize):
-        spec_partial_domain = spec.int_partial_domain(env)
-        spec_offset = spec.int_offset(env)
-        spec_box = spec.int_box(env)
+    def specialized(self, unit: CollUnit, lo: int, hi: int, env: Dict[CollParam, int]):
+        # Translate unit domain and tiling to concrete integers
+        unit_partial_domain = unit.int_partial_domain(env)
+        unit_tile = unit.int_tile(env)
 
-        spec_completion = DomainCompletionOp(
-            spec_partial_domain, self.domain, allow_partial_source=True
+        # Determine the common domain between us and the given unit
+        unit_completion = DomainCompletionOp(
+            unit_partial_domain, self.domain, allow_partial_source=True
         )
         self_completion = DomainCompletionOp(
-            self.domain, spec_partial_domain, allow_partial_source=False
+            self.domain, unit_partial_domain, allow_partial_source=False
         )
-        assert spec_completion.domain == self_completion.domain
+        common_domain = unit_completion.domain
+        assert unit_completion.domain == self_completion.domain
+
+        # Translate ourself to common domain
+        # These may be modified to get the derived CollTiling
+        new_exprs = self_completion.new_intra_box_exprs(self.intra_box_exprs)
+        new_offset = self_completion.new_offset(self.offset)
+        new_box = self_completion.new_size(self.box)
+
+        common_tile = tuple(self_completion.new_size(self.tile))
+
+        # Count tiles when tiled by unit
+        # Must only have change (tiling) on up to one dimension
+        tiled_dim_idx = None
+        stride = None
+        tile_count = 1
+        for dim_idx, unit_tile_coord in enumerate(unit_completion.new_size(unit_tile)):
+            domain_coord = common_domain[dim_idx]
+            common_tile_coord = common_tile[dim_idx]
+            if (
+                unit_tile_coord is not None
+                and unit_tile_coord != domain_coord
+                and unit_tile_coord != common_tile_coord
+            ):
+                tile_count = common_tile_coord // unit_tile_coord
+
+                # TODO messages
+                assert tiled_dim_idx is None
+                assert hi - lo <= tile_count
+                assert new_box[dim_idx] == common_tile[dim_idx]
+
+                tiled_dim_idx = dim_idx
+                stride = unit_tile_coord
+                new_exprs[dim_idx] -= lo * stride
+                new_offset[dim_idx] = lo * stride
+                new_box[dim_idx] = (hi - lo) * stride
+
+        if tiled_dim_idx is None:
+            assert (lo, hi) == (0, 1)  # TODO message
+
+        new_parent = self.parent
+
+        return CollTiling(
+            new_parent,
+            common_domain,
+            common_tile,
+            new_offset,
+            new_box,
+            new_exprs,
+        )
 
 
 class DomainCompletionOp(object):
@@ -456,4 +493,4 @@ class DomainCompletionOp(object):
             for i, c in enumerate(coords):
                 if c is None:
                     coords[i] = defaults[i]
-        return tuple(coords)
+        return coords
