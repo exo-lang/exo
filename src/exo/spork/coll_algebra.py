@@ -434,13 +434,12 @@ class DomainCompletionOp(object):
         self.input_dim = len(source_domain)
         self.domain = self._new_coords(
             source_domain,
-            None,
             lambda c, factor: c // factor,
             lambda c, factor: factor,
             allow_prefix=False,
         )
 
-    def new_size(self, size: Tuple, defaults=None):
+    def new_size(self, size: Tuple):
         def outer_op(c, factor):
             if c < factor:
                 return 1
@@ -451,9 +450,9 @@ class DomainCompletionOp(object):
         def inner_op(c, factor):
             return min(c, factor)
 
-        return self._new_coords(size, defaults, outer_op, inner_op)
+        return self._new_coords(size, outer_op, inner_op)
 
-    def new_offset(self, offset: Tuple, defaults=None):
+    def new_offset(self, offset: Tuple):
         def outer_op(c, factor):
             return c // factor
 
@@ -461,20 +460,18 @@ class DomainCompletionOp(object):
             assert c % factor == 0  # TODO message
             return 0
 
-        return self._new_coords(offset, defaults, outer_op, inner_op)
+        return self._new_coords(offset, outer_op, inner_op)
 
-    def new_intra_box_exprs(self, coords: Tuple, defaults=None):
+    def new_intra_box_exprs(self, coords: Tuple):
         def outer_op(c, factor):
             return c // factor
 
         def inner_op(c, factor):
             return c % factor
 
-        return self._new_coords(coords, defaults, outer_op, inner_op)
+        return self._new_coords(coords, outer_op, inner_op)
 
-    def _new_coords(
-        self, coords: Tuple, defaults, outer_op, inner_op, allow_prefix=True
-    ):
+    def _new_coords(self, coords: Tuple, outer_op, inner_op, allow_prefix=True):
         if allow_prefix and self.source_partial:
             coords = [None] + list(coords)
         else:
@@ -488,9 +485,4 @@ class DomainCompletionOp(object):
                 coords[idx : idx + 1] = [None, None]
             else:
                 coords[idx : idx + 1] = [outer_op(c, factor), inner_op(c, factor)]
-        if defaults is not None:
-            assert len(defaults) == len(coords)
-            for i, c in enumerate(coords):
-                if c is None:
-                    coords[i] = defaults[i]
         return coords
