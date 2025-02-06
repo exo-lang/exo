@@ -1086,12 +1086,17 @@ def abs_simplify(src: D.abs) -> D.abs:
             ltz_eq = mk_aexpr("<", pred)
             eqz_eq = mk_aexpr("==", pred)
             gtz_eq = mk_aexpr(">", pred)
-            if slv.verify(ltz_eq):
-                return map_tree(tree.ltz)
+
+            # When assumptions are unsatisfiable, this is a cell without integer points. We can Bottom such cases.
+            if not slv.satisfy((A.Const(True, T.bool, null_srcinfo()))):
+                return D.Leaf(D.SubVal(V.Bot()))
+
+            if slv.verify(eqz_eq):
+                return map_tree(tree.eqz)
             elif slv.verify(gtz_eq):
                 return map_tree(tree.gtz)
-            elif slv.verify(eqz_eq):
-                return map_tree(tree.eqz)
+            elif slv.verify(ltz_eq):
+                return map_tree(tree.ltz)
 
             # ltz
             slv.push()
@@ -1315,7 +1320,7 @@ def extract_regions(node, iterators, halfspaces=None, candidates=None, path=None
                 "halfspaces": list(halfspaces),
                 "candidates": list(candidates),
                 "path": list(path),
-                "leaf_value": node.v,
+                "leaf_value": node,
             }
         )
     elif isinstance(node, D.AffineSplit):
@@ -1323,9 +1328,7 @@ def extract_regions(node, iterators, halfspaces=None, candidates=None, path=None
         hs_eqz = get_halfspaces_for_aexpr(node.ae, "eqz", iterators)
         hs_gtz = get_halfspaces_for_aexpr(node.ae, "gtz", iterators)
 
-        new_candidate = None
-        if isinstance(node.eqz, D.Leaf):
-            new_candidate = (node.ae, node.eqz.v)
+        new_candidate = (node.ae, node.eqz)
 
         for branch, hs_list, child in [
             ("ltz", hs_ltz, node.ltz),
@@ -1573,8 +1576,9 @@ def refine_region(region, variables):
         color = compute_candidate_color(rep, region_i["candidates"], variables)
         print("  Candidate color:", color)
         if (
-            isinstance(region_i["leaf_value"], D.SubVal)
-            and isinstance(region_i["leaf_value"].av, V.Bot)
+            isinstance(region_i["leaf_value"], D.Leaf)
+            and isinstance(region_i["leaf_value"].v, D.SubVal)
+            and isinstance(region_i["leaf_value"].v.av, V.Bot)
             and color is not None
         ):
             region_i["leaf_value"] = color
@@ -1666,7 +1670,7 @@ def dict_tree_to_node(dict_tree):
     Missing branches are filled with a default bottom node.
     """
     if "leaf" in dict_tree and len(dict_tree) == 1:
-        return D.Leaf(dict_tree["leaf"])
+        return dict_tree["leaf"]
 
     # Group keys by the AexprKey (splitting expression)
     grouping = {}
@@ -1681,9 +1685,9 @@ def dict_tree_to_node(dict_tree):
     aexpr = next(iter(grouping.keys()))
     subtrees = grouping[aexpr]
     # Retrieve subtrees for the three branches; if missing, use a default bottom.
-    ltz_subtree = subtrees.get("ltz", {"leaf": D.SubVal(V.Top())})
-    eqz_subtree = subtrees.get("eqz", {"leaf": D.SubVal(V.Top())})
-    gtz_subtree = subtrees.get("gtz", {"leaf": D.SubVal(V.Top())})
+    ltz_subtree = subtrees.get("ltz", {"leaf": D.Leaf(D.SubVal(V.Top()))})
+    eqz_subtree = subtrees.get("eqz", {"leaf": D.Leaf(D.SubVal(V.Top()))})
+    gtz_subtree = subtrees.get("gtz", {"leaf": D.Leaf(D.SubVal(V.Top()))})
 
     node_ltz = dict_tree_to_node(ltz_subtree)
     node_eqz = dict_tree_to_node(eqz_subtree)

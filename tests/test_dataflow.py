@@ -770,6 +770,15 @@ def test_orig_array():
     print(foo.dataflow()[0])
 
 
+def test_array_rhs():
+    @proc
+    def foo(x: R[10]):
+        for i in seq(0, 10):
+            x[i] = 3.0 + 2.0
+
+    print(foo.dataflow()[0])
+
+
 # Incorrect due to the lack of partitioning
 # FIXME: There's a bug in the ssa translation, x[i, i] should be x[i, d0].
 def test_reverse_const():
