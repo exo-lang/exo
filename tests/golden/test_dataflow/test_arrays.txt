@@ -1,0 +1,39 @@
+def foo(n : size, m : size, dst : i8[n + m], src : i8[n + m]):
+  ----------------------- {}
+  for i in seq(0, n):
+    --------------------- {}
+    dst_1 =\i \d0 \phi(i == 0 ? dst[d0] : dst_2[i - 1, d0]) # LoopStart
+    --------------------- {}
+    src_1 =\i \d0_1 \phi(i == 0 ? src[d0_1] : src_2[i - 1, d0_1]) # LoopStart
+    --------------------- {}
+    for j in seq(0, m):
+      ------------------- {}
+      dst_3 =\j \i \d0 \phi(j == 0 ? dst_1[i, d0] : dst_4[j - 1, i, d0]) # LoopStart
+      ------------------- {}
+      src_3 =\j \i \d0_1 \phi(j == 0 ? src_1[i, d0_1] : src_4[j - 1, i, d0_1]) # LoopStart
+      ------------------- {}
+      if i == 0 or j == m - 1:
+        ----------------- {}
+        dst_5 =\j \i \d0 \phi(d0 == i + j and True ? src_3[j, i, i + j] : dst_3[j, i, d0])
+        ----------------- {}
+        dst_6 =\j \i \d0 \phi(d0 == 0 and True ? 2.0 : dst_5[j, i, d0])
+        ----------------- {}
+        dst_7 =\j \i \d0 \phi(d0 == i and True ? 1.0 : dst_6[j, i, d0])
+        ----------------- {}
+      else:
+        ----------------- {}
+      ------------------- {}
+      dst_4 =\j \i \d0 \phi(i == 0 or j == m - 1 ? dst_7[j, i, d0] : dst_3[j, i, d0]) # IfJoin
+      ------------------- {}
+      src_4 =\j \i \d0_1 \phi(i == 0 or j == m - 1 ? src_3[j, i, d0_1] : src_3[j, i, d0_1]) # IfJoin
+      ------------------- {}
+    --------------------- {}
+    dst_2 =\i \d0 \phi(m > 0 ? dst_4[m - 1, i, d0] : dst_1[i, d0]) # LoopExit
+    --------------------- {}
+    src_2 =\i \d0_1 \phi(m > 0 ? src_4[m - 1, i, d0_1] : src_1[i, d0_1]) # LoopExit
+    --------------------- {}
+  ----------------------- {}
+  dst_8 =\d0 \phi(n > 0 ? dst_2[n - 1, d0] : dst[d0]) # LoopExit
+  ----------------------- {}
+  src_5 =\d0_1 \phi(n > 0 ? src_2[n - 1, d0_1] : src[d0_1]) # LoopExit
+  ----------------------- {}

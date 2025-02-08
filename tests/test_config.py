@@ -415,3 +415,27 @@ def test_ld(golden):
     )
 
     assert f"{config_ld_i8}\n{ld_i8}" == golden
+
+
+def test_config_err():
+    @config
+    class Config:
+        tmp: f32
+
+    with pytest.raises(TypeError, match="expected 'foo' to be a field in config"):
+
+        @proc
+        def foo(A: f32[10]):
+            Config.foo = 3.0
+
+
+def test_config_err2():
+    @config
+    class Config:
+        tmp: f32
+
+    with pytest.raises(TypeError, match="'foo' has to be a field in config"):
+
+        @proc
+        def foo(A: f32[10]):
+            A[0] = Config.foo

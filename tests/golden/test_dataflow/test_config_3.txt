@@ -1,0 +1,27 @@
+def foo(n : size):
+  ----------------------- {}
+  for i in seq(0, n):
+    --------------------- {}
+    ConfigControl_i =\i \phi(i == 0 ? ConfigControl_i_1 : ConfigControl_i_2[i - 1]) # LoopStart
+    --------------------- {}
+    if ConfigControl_i[i] == 2:
+      ------------------- {}
+      ConfigControl_i_3 =\i \phi(True ? 4 : 4)
+      ------------------- {}
+    else:
+      ------------------- {}
+    --------------------- {}
+    ConfigControl_i_4 =\i \phi(ConfigControl_i[i] == 2 ? ConfigControl_i_3[i] : ConfigControl_i[i]) # IfJoin
+    --------------------- {}
+    if n == n - 1:
+      ------------------- {}
+      ConfigControl_i_5 =\i \phi(True ? 3 : 3)
+      ------------------- {}
+    else:
+      ------------------- {}
+    --------------------- {}
+    ConfigControl_i_2 =\i \phi(n == n - 1 ? ConfigControl_i_5[i] : ConfigControl_i_4[i]) # IfJoin
+    --------------------- {}
+  ----------------------- {}
+  ConfigControl_i_6 = \phi(n > 0 ? ConfigControl_i_2[n - 1] : ConfigControl_i_1) # LoopExit
+  ----------------------- {}

@@ -1,0 +1,16 @@
+def foo(n : size, src : i8[n]):
+  for i in seq(0, 10):
+    src_1 =\i \d0 \phi(i == 0 ? src[d0] : src_1[i - 1, d0]) # LoopStart
+    A : i8
+    A_1 = \phi(True ? 0.3 : A)
+------------------------ A_1 : \n
+                             - 0.3
+                         src_1 : \i. \n. \d0
+                             - src[d0]
+  src_2 =\d0 \phi(10 > 0 ? src_1[10 - 1, d0] : src[d0]) # LoopExit
+------------------------ A_1 : \n
+                             - 0.3
+                         src_1 : \i. \n. \d0
+                             - src[d0]
+                         src_2 : \n. \d0
+                             - src[d0]

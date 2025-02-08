@@ -1,0 +1,4 @@
+def foo(n : size, src : i8[n]):
+  assert stride(src, 0) == ConfigControl_s
+  pass
+------------------------ 

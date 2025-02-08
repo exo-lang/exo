@@ -1,0 +1,4 @@
+def foo(x: f32 @ DRAM):
+    y: f32[10] @ DRAM
+    y[0] = 3.0
+    x = y[0] + 2.0

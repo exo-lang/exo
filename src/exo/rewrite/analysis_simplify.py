@@ -1,65 +1,10 @@
 from collections import OrderedDict, ChainMap
 
-# from weakref import WeakKeyDictionary
-# from enum import Enum
-# from itertools import chain
-
-# from .LoopIR import Alpha_Rename, SubstArgs, LoopIR_Do
-# from .configs import reverse_config_lookup, Config
-from .new_analysis_core import *
-
-# from .proc_eqv import get_repr_proc
+from .internal_analysis import *
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Simplification Pass to Clean up Analysis Expressions
-"""
-_fv_cache = WeakKeyDictionary()
-
-def _FV(a):
-    fvs = _fv_cache.get(id(a))
-    if fvs is not None:
-        return fvs
-    # otherwise...
-    fvs = _A_Free_Vars(a)
-    _fv_cache[id(a)] = fvs
-    return fvs
-
-def _union_FV(gen):
-    fv = set()
-    for e in gen:
-        fv |= _FV(e)
-    return fv
-
-def _A_Free_Vars(a):
-    if isinstance(a, A.Var):
-        return { a.name }
-    elif isinstance(a, (A.Unk,A.Const,A.ConstSym)):
-        return set()
-    elif isinstance(a, (A.Not,A.USub,A.Definitely,A.Maybe)):
-        return _FV(a.arg)
-    elif isinstance(a, A.BinOp):
-        return _FV(a.lhs) | _FV(a.rhs)
-    elif isinstance(a, A.Stride):
-        return { (a.name,a.dim) }
-    elif isinstance(a, A.LetStrides):
-        bound_names = { (a.name,i) for i,_ in enumerate(a.strides) }
-        return _union_FV(a.strides) | (_FV(a.body) - bound_names)
-    elif isinstance(a, A.Select):
-        return _FV(a.cond) | _FV(a.tcase) | _FV(a.fcase)
-    elif isinstance(a, (A.ForAll,A.Exists)):
-        return _FV(a.arg) - { a.name }
-    elif isinstance(a, A.Tuple):
-        return _union_FV(a.args)
-    elif isinstance(a, A.LetTuple):
-        bound_names = set(a.names)
-        return _FV(a.rhs) | (_FV(a.body) - bound_names)
-    elif isinstance(a, A.Let):
-        bound_names = set(a.names)
-        return _union_FV(a.rhs) | (_FV(a.body) - bound_names)
-    else:
-        assert False, f"Bad Case: {type(a)}"
-"""
 
 
 @extclass(A.expr)

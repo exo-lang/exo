@@ -988,6 +988,13 @@ def get_reads_of_stmts(stmts):
     return gr.reads
 
 
+def get_readconfigs_expr(exprs):
+    gr = GetReadConfigs()
+    for e in exprs:
+        gr.do_e(e)
+    return gr.readconfigs
+
+
 def get_readconfigs(stmts):
     gr = GetReadConfigs()
     for stmt in stmts:

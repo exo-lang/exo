@@ -2,15 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from exo.rewrite.new_eff import *
+from exo.rewrite.analysis import *
 
 from exo import proc, config, DRAM, SchedulingError
 from exo.stdlib.scheduling import *
 from exo.platforms.x86 import *
-
-
-print()
-print("Dev Tests for new_eff.py")
+from exo.libs.externs import *
 
 
 def test_debug_let_and_mod():
@@ -181,6 +178,38 @@ def test_delete_config_basic(golden):
     assert str(foo) == golden
 
 
+def test_delete_last_config(golden):
+    @config
+    class CFG:
+        a: index
+
+    @proc
+    def foo(N: size, x: R[N]):
+        for i in seq(0, N):
+            x[i] = x[i] + 1.0
+        CFG.a = 3
+
+    foo = delete_config(foo, "CFG.a = _")
+    assert str(foo) == golden
+
+
+def test_delete_config_usub(golden):
+    @config
+    class CFG:
+        a: index
+
+    @proc
+    def foo(N: size, x: R[N]):
+        CFG.a = N - 1
+        CFG.a = -N
+        CFG.a = -1 + N
+        for i in seq(0, N):
+            x[i] = x[CFG.a] + 1.0
+
+    foo = delete_config(foo, "CFG.a = _ #1")
+    assert str(foo) == golden
+
+
 def test_delete_config_subproc_basic(golden):
     @config
     class CFG:
@@ -336,3 +365,207 @@ def test_alias_check():
         @proc
         def bar(N: size, x: [f32][N]):
             foo(N, x, x)
+
+
+def test_config_assert(golden):
+    @config
+    class CFG:
+        a: index
+
+    @proc
+    def foo(N: size, x: f32[N]):
+        assert CFG.a < N
+        for i in seq(0, N):
+            if CFG.a == 3:
+                CFG.a = 2
+                for j in seq(0, CFG.a):
+                    x[j] = 2.0
+
+    # raises error correctly without assertion
+    with pytest.raises(SchedulingError, match="do not commute"):
+        reorder_stmts(foo, "CFG.a = _ ; _")
+    with pytest.raises(
+        SchedulingError, match="Cannot change configuration value of CFG_a at"
+    ):
+        delete_config(foo, "CFG.a = _")
+
+    # does not raise error when the assertion is added
+    foo = foo.add_assertion("CFG.a == 4", configs={CFG})
+    foo1 = reorder_stmts(foo, "CFG.a = _ ; _")
+    foo2 = delete_config(foo, "CFG.a = _")
+
+    assert str(foo1) + str(foo2) == golden
+
+
+def test_builtin_true(golden):
+    @config
+    class CFG:
+        a: f32
+
+    @proc
+    def foo(x: f32):
+        CFG.a = 3.0
+        CFG.a = 3.0
+        x = CFG.a + 2.0
+
+    foo = delete_config(foo, "CFG.a = _ #1")
+    # assert str(foo) == golden
+
+    @proc
+    def foo(x: f32):
+        CFG.a = sin(3.0)
+        CFG.a = -CFG.a
+        x = CFG.a + 2.0
+
+    with pytest.raises(
+        SchedulingError, match="Cannot change configuration value of CFG_a at"
+    ):
+        delete_config(foo, "CFG.a = _ #1")
+
+
+def test_scalar_true(golden):
+    @proc
+    def foo(x: f32):
+        y: f32
+        y = 3.0
+        y = 3.0
+        x = y + 2.0
+
+    foo = delete_config(foo, "y = _ #1")
+    # assert str(foo) == golden
+
+    @proc
+    def foo(x: f32):
+        y: f32
+        y = sin(3.0)
+        y = -y
+        x = y + 2.0
+
+    with pytest.raises(
+        SchedulingError, match="Cannot change configuration value of y at"
+    ):
+        delete_config(foo, "y = _ #1")
+
+
+def test_array_true():
+    @proc
+    def foo(x: f32):
+        y: f32[10]
+        y[0] = 3.0
+        y[0] = 3.0
+        x = y[0] + 2.0
+
+    foo = delete_config(foo, "y = _ #1")
+    print(foo)
+    # assert str(foo) == golden
+
+    @proc
+    def foo(x: f32):
+        y: f32[10]
+        y[0] = sin(3.0)
+        y[0] = -y[0]
+        x = y[0] + 2.0
+
+    with pytest.raises(
+        SchedulingError, match="Cannot change configuration value of y at"
+    ):
+        delete_config(foo, "y = _ #1")
+
+
+def test_loop_true():
+    @proc
+    def foo(x: f32[10]):
+        for i in seq(0, 10):
+            x[i] = 0.0
+        for i in seq(0, 10):
+            x[i] = 0.0
+
+    foo = delete_config(foo, "for i in _:_ #1")
+    print(foo)
+    # assert str(foo) == golden
+
+    @proc
+    def foo(x: f32[10]):
+        for i in seq(0, 10):
+            x[i] = sin(3.0)
+        for i in seq(0, 10):
+            x[i] = sin(3.0)
+
+    with pytest.raises(
+        SchedulingError, match="Cannot change configuration value of y at"
+    ):
+        foo = delete_config(foo, "for i in _:_ #1")
+        print(foo)
+
+
+def test_scalar_simple(golden):
+    @proc
+    def foo(x: f32):
+        y: f32
+        y = 3.0
+        y = 3.0
+        x = y + 2.0
+
+    foo = delete_config(foo, "y = _ #1")
+    assert str(foo) == golden
+
+    @proc
+    def foo(x: f32):
+        y: f32
+        y = x + 2.0
+        y = -y
+        x = y + 2.0
+
+    with pytest.raises(
+        SchedulingError, match="Cannot change configuration value of y at"
+    ):
+        delete_config(foo, "y = _ #1")
+
+
+def test_array_simple(golden):
+    @proc
+    def foo(x: f32):
+        y: f32[10]
+        y[0] = 3.0
+        y[0] = 3.0
+        x = y[0] + 2.0
+
+    foo = delete_config(foo, "y = _ #1")
+    assert str(foo) == golden
+
+    @proc
+    def foo(x: f32):
+        y: f32[10]
+        y[0] = y[2] + y[3]
+        y[0] = -y[0]
+        x = y[0] + 2.0
+
+    with pytest.raises(
+        SchedulingError, match="Cannot change configuration value of y at"
+    ):
+        delete_config(foo, "y = _ #1")
+
+
+def test_loop_simple(golden):
+    @proc
+    def foo(x: f32[10]):
+        for i in seq(0, 10):
+            x[i] = 0.0
+        for i in seq(0, 10):
+            x[i] = 0.0
+
+    foo = delete_config(foo, "for i in _:_ #1")
+    assert str(foo) == golden
+
+    @proc
+    def foo(x: f32[10]):
+        for i in seq(0, 10):
+            x[i] = -x[i]
+        for i in seq(0, 10):
+            x[i] = x[i] + 2.0
+
+    with pytest.raises(
+        SchedulingError, match="Cannot change configuration value of x at"
+    ):
+        foo = delete_config(foo, "for i in _:_ #1")
+        print(foo)

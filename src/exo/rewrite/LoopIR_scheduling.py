@@ -16,7 +16,7 @@ from ..core.LoopIR import (
     get_writes_of_stmts,
     is_const_zero,
 )
-from .new_eff import (
+from .analysis import (
     SchedulingError,
     Check_ReorderStmts,
     Check_ReorderLoops,
@@ -1042,12 +1042,16 @@ def DoCallSwap(call_cursor, new_subproc):
 
     s_new = call_s.update(f=new_subproc)
     ir = call_cursor.get_root()
-    mod_cfg = Check_ExtendEqv(ir, [call_s], [s_new], configkeys)
-    ir, fwd = call_cursor._child_node("f")._replace(new_subproc)
+    new_ir, fwd = call_cursor._child_node("f")._replace(new_subproc)
 
-    Check_Aliasing(ir)
+    if len(configkeys) != 0:
+        configkeys = Check_ExtendEqv(
+            ir, new_ir, [call_cursor._node], [fwd(call_cursor)._node], configkeys
+        )
 
-    return ir, fwd, mod_cfg
+    Check_Aliasing(new_ir)
+
+    return new_ir, fwd, configkeys
 
 
 def DoInlineWindow(window_cursor):
@@ -1236,6 +1240,13 @@ def match_parent(c1, c2):
 
 def DoRewriteExpr(expr_cursor, new_expr):
     proc = expr_cursor.get_root()
+
+    if (
+        not expr_cursor._node.type.is_indexable()
+        and not expr_cursor._node.type.is_bool()
+    ):
+        raise SchedulingError("Cannot rewrite non-index expressions")
+
     s = get_enclosing_stmt_cursor(expr_cursor)._node
     Check_ExprEqvInContext(proc, expr_cursor._node, [s], new_expr, [s])
     return expr_cursor._replace(new_expr)
@@ -2779,9 +2790,19 @@ def DoInsertNoopCall(gap, proc, args):
 
 
 def DoDeleteConfig(proc_cursor, config_cursor):
+    eq_mod_config = Check_DeleteConfigWrite(
+        proc_cursor._node, [config_cursor.prev()._node, config_cursor._node]
+    )
+    p, fwd = config_cursor._delete()
+    return p, fwd, eq_mod_config
+
+
+"""
+def DoDeleteConfig(proc_cursor, config_cursor):
     eq_mod_config = Check_DeleteConfigWrite(proc_cursor._node, [config_cursor._node])
     p, fwd = config_cursor._delete()
     return p, fwd, eq_mod_config
+"""
 
 
 def DoDeletePass(proc):

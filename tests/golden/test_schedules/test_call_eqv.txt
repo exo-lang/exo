@@ -1,0 +1,4 @@
+def bar(x: i8 @ DRAM):
+    CFG.cfg = 3.0
+    foo1()
+    x = CFG.cfg

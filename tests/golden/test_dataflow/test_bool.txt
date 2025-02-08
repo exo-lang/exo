@@ -1,0 +1,25 @@
+def foo(n : index, x : f32):
+  CFG_a = \phi(True ? 3 > 2 : 3 > 2)
+  CFG_a_1 = \phi(True ? 3 < 2 : 3 < 2)
+  CFG_a_2 = \phi(True ? 3 >= 2 : 3 >= 2)
+  CFG_a_3 = \phi(True ? 3 <= 2 : 3 <= 2)
+  CFG_a_4 = \phi(True ? 3 == 2 : 3 == 2)
+  CFG_a_5 = \phi(True ? 3 == 3 : 3 == 3)
+  CFG_a_6 = \phi(True ? 3 == 3 or 2 == 1 : 3 == 3 or 2 == 1)
+  CFG_a_7 = \phi(True ? 3 == 3 and 2 == 1 : 3 == 3 and 2 == 1)
+------------------------ CFG_a : 
+                             - ⊤
+                         CFG_a_1 : 
+                             - ⊤
+                         CFG_a_2 : 
+                             - ⊤
+                         CFG_a_3 : 
+                             - ⊤
+                         CFG_a_4 : 
+                             - ⊤
+                         CFG_a_5 : 
+                             - ⊤
+                         CFG_a_6 : 
+                             - ⊤
+                         CFG_a_7 : 
+                             - ⊤
