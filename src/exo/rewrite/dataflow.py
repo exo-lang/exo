@@ -1071,6 +1071,10 @@ def abs_simplify(src: D.abs) -> D.abs:
             return tree
 
         elif isinstance(tree, D.AffineSplit):
+            # When assumptions are unsatisfiable, this is a cell without integer points. We Bottom such cases.
+            if not slv.satisfy((A.Const(True, T.bool, null_srcinfo()))):
+                return D.Leaf(D.SubVal(V.Bot()))
+
             # we can collapse the tree when all values are the same
             if (
                 isinstance(tree.ltz, D.Leaf)
@@ -1082,14 +1086,31 @@ def abs_simplify(src: D.abs) -> D.abs:
                 return tree.ltz
 
             pred = lift_to_smt_a(tree.ae)
+
+            # If ltz branch is unsatisfiable and the values for eqz and gtz branches are equivalent, we can collapse this node.
+            if (
+                isinstance(tree.eqz, D.Leaf)
+                and isinstance(tree.gtz, D.Leaf)
+                and (type(tree.eqz) == type(tree.gtz))
+                and (tree.eqz.v == tree.gtz.v)
+            ):
+                if not slv.satisfy(mk_aexpr("<", pred)):
+                    return tree.eqz
+
+            # If gtz branch is unsatisfiable and the values for eqz and ltz branches are equivalent, we can collapse this node.
+            if (
+                isinstance(tree.eqz, D.Leaf)
+                and isinstance(tree.ltz, D.Leaf)
+                and (type(tree.eqz) == type(tree.ltz))
+                and (tree.eqz.v == tree.ltz.v)
+            ):
+                if not slv.satisfy(mk_aexpr(">", pred)):
+                    return tree.eqz
+
             # check if anything is simplifiable
             ltz_eq = mk_aexpr("<", pred)
             eqz_eq = mk_aexpr("==", pred)
             gtz_eq = mk_aexpr(">", pred)
-
-            # When assumptions are unsatisfiable, this is a cell without integer points. We can Bottom such cases.
-            if not slv.satisfy((A.Const(True, T.bool, null_srcinfo()))):
-                return D.Leaf(D.SubVal(V.Bot()))
 
             if slv.verify(eqz_eq):
                 return map_tree(tree.eqz)
@@ -1781,7 +1802,9 @@ def widening(a1: D.abs, a2: D.abs) -> D.abs:
     reconstructed_tree = dict_tree_to_node(dict_tree)
 
     print("\nReconstructed Abstract Domain Tree:")
-    a = abs_simplify(abs_simplify(D.abs(a2.iterators, reconstructed_tree)))
+    a = abs_simplify(
+        abs_simplify(abs_simplify(D.abs(a2.iterators, reconstructed_tree)))
+    )
     print(a)
 
     return a
