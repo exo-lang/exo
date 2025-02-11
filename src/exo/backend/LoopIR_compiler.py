@@ -24,7 +24,7 @@ from ..spork.base_with_context import (
     ExtWithContext,
 )
 from ..spork.collectives import SpecializeCollective
-from ..spork.loop_modes import LoopMode, Seq, Par
+from ..spork.loop_modes import LoopMode, Seq, Par, _CodegenPar
 from ..spork.spork_env import SporkEnv, KernelArgsScanner
 from ..spork import actor_kinds
 
@@ -1108,21 +1108,29 @@ class Compiler:
             )
 
             loop_mode = s.loop_mode
-            actor_kind = self.get_actor_kind()
-            if actor_kind not in loop_mode.allowed_actor_kinds:
-                # Users will definitely comprehend this error message
-                raise TypeError(
-                    f"{s.srcinfo}: LoopMode {type(loop_mode)} cannot be executed with actor kind {actor_kind}.\nSupported: {loop_mode.allowed_actor_kinds}"
-                )
-
-            if self.spork:
-                emit_loop = self.spork.push_for(s, itr, (lo, hi), sym_range, self._tab)
-            else:
-                emit_loop = True
+            emit_loop = True
 
             if isinstance(loop_mode, Par):
-                assert emit_loop
                 self.add_line(f"#pragma omp parallel for")
+            elif isinstance(loop_mode, Seq):
+                pass  # common case
+            elif isinstance(loop_mode, _CodegenPar):
+                # This is not valid C; if we add non-cuda backends we may have
+                # to add config options to _CodegenPar to tweak lowering syntax.
+                conds = []
+                if bdd := loop_mode.static_bounds[0] is not None:
+                    conds.append(f"{itr} >= {bdd}")
+                if bdd := loop_mode.static_bounds[1] is not None:
+                    conds.append(f"{itr} < {bdd}")
+                cond = "1" if not conds else " && ".join(conds)
+                self.add_line(
+                    f"if ([[mabye_unused]] int {itr} = ({loop_mode.c_index}); {cond}) {{"
+                )
+                emit_loop = False
+            else:
+                raise TypeError(
+                    f"{s.srcinfo}: unexpected loop mode {loop_mode.loop_mode_name()}"
+                )
 
             if emit_loop:
                 self.add_line(
@@ -1131,9 +1139,6 @@ class Compiler:
 
             self.push(only="tab")
             self.comp_stmts(s.body)
-
-            if self.spork:
-                self.spork.pop_for(s)
 
             self.pop()
             self.add_line("}")
