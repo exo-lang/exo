@@ -1,5 +1,7 @@
 from .API import (
     Procedure,
+    ext_compile_procs,
+    ext_compile_procs_to_strings,
     compile_procs,
     compile_procs_to_strings,
     proc,
@@ -21,10 +23,14 @@ from .spork import collectives
 from .spork import sync_types
 from .spork.async_config import BaseAsyncConfig, CudaDeviceFunction, CudaAsync
 
+from .spork.base_with_context import ExtWithContext  # INTERNAL, FIXME
+
 __version__ = "0.2.1"
 
 __all__ = [
     "Procedure",
+    "ext_compile_procs",
+    "ext_compile_procs_to_strings",
     "compile_procs",
     "compile_procs_to_strings",
     "proc",
@@ -49,4 +55,5 @@ __all__ = [
     "BaseAsyncConfig",
     "CudaDeviceFunction",
     "CudaAsync",
+    "ExtWithContext",  # INTERNAL, FIXME
 ]

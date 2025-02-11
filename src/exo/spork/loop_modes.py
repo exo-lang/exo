@@ -41,12 +41,25 @@ class Par(LoopMode):
         return "par"
 
     def collective_unit(self):
+        # TODO remove
         return collectives.cpu_thread
 
 
 par = Par()
 
 
+class CudaTasks(LoopMode):
+    is_par = True
+    allowed_actor_kinds = {actor_kinds.cuda_sync}
+
+    def __init__(self):
+        pass
+
+    def loop_mode_name(self):
+        return "cuda_tasks"
+
+
+# TODO remove
 class CudaClusters(LoopMode):
     is_par = True
     allowed_actor_kinds = {actor_kinds.cuda_sync}
@@ -64,6 +77,7 @@ class CudaClusters(LoopMode):
 cuda_clusters = CudaClusters()
 
 
+# TODO remove
 class CudaBlocks(LoopMode):
     is_par = True
     allowed_actor_kinds = {actor_kinds.cuda_sync}
@@ -75,12 +89,14 @@ class CudaBlocks(LoopMode):
         return "cuda_blocks"
 
     def collective_unit(self):
+        # TODO remove
         return collectives.cuda_block
 
 
 cuda_blocks = CudaBlocks()
 
 
+# TODO remove
 class CudaWarpgroups(LoopMode):
     is_par = True
     allowed_actor_kinds = {actor_kinds.cuda_sync}
@@ -92,12 +108,14 @@ class CudaWarpgroups(LoopMode):
         return "cuda_warpgroups"
 
     def collective_unit(self):
+        # TODO remove
         return collectives.cuda_warpgroup
 
 
 cuda_warpgroups = CudaWarpgroups()
 
 
+# TODO remove
 class CudaWarps(LoopMode):
     is_par = True
     allowed_actor_kinds = {actor_kinds.cuda_sync}
@@ -109,6 +127,7 @@ class CudaWarps(LoopMode):
         return "cuda_warps"
 
     def collective_unit(self):
+        # TODO remove
         return collectives.cuda_warp
 
 
@@ -126,6 +145,7 @@ class CudaThreads(LoopMode):
         return "cuda_threads"
 
     def collective_unit(self):
+        # TODO remove
         return collectives.cuda_thread
 
 
@@ -148,7 +168,6 @@ def make_loop_mode_dict():
 loop_mode_dict = make_loop_mode_dict()
 
 
-# NOTE, the kwargs are not really used right now 2025-01-09
 def format_loop_cond(lo_str: str, hi_str: str, loop_mode: LoopMode):
     strings = [loop_mode.loop_mode_name(), "(", lo_str, ",", hi_str]
     for attr in loop_mode.__dict__:

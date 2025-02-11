@@ -307,7 +307,7 @@ class TypeChecker:
                         bar, f"expected {bar.name} to be barrier type, not {bar.type}"
                     )
 
-            return [LoopIR.SyncStmt(stmt.sync_type, bar, stmt.srcinfo)]
+            return [LoopIR.SyncStmt(stmt.sync_type, bar, stmt.codegen, stmt.srcinfo)]
 
         elif isinstance(stmt, UAST.If):
             cond = self.check_e(stmt.cond, is_index=True)

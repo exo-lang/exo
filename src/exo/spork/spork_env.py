@@ -241,7 +241,7 @@ class SporkEnv(object):
     ):
         scanner = KernelArgsScanner(cpu_varname_env, cpu_envtyp)
         scanner.do_s(s)
-        ctypes_varnames = scanner.get_ctypes_varnames(format_ctype)
+        ctypes_varnames = scanner.get_ctypes_varnames(format_ctype, s.srcinfo)
         name = self._base_kernel_name + "CU"
         prototype = (
             f"__global__ void {name}("
@@ -586,11 +586,14 @@ class KernelArgsScanner(LoopIR_Do):
             for e in typ.hi:
                 self.do_e(e)
 
-    def get_ctypes_varnames(self, format_ctype):
+    def get_ctypes_varnames(self, format_fnarg_ctype, srcinfo):
         sym_mut = sorted(self.cpu_to_gpu_mut.items(), key=lambda tup: tup[0]._id)
         return [
             (
-                format_ctype(self.cpu_envtyp[sym], self.cpu_to_gpu_mut[sym]),
+                format_fnarg_ctype(
+                    LoopIR.fnarg(sym, self.cpu_envtyp[sym], None, srcinfo),
+                    not self.cpu_to_gpu_mut[sym],
+                ),
                 self.cpu_varname_env[sym],
             )
             for sym, _ in sym_mut

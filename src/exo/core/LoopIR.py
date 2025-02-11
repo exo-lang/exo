@@ -79,7 +79,9 @@ module LoopIR {
          | Reduce( sym name, type type, expr* idx, expr rhs )
          | WriteConfig( config config, string field, expr rhs )
          | Pass()
-         | SyncStmt( sync_type sync_type, expr? bar )  -- `bar` for arrive/await
+           -- `bar` for arrive/await
+           -- `_codegen` intended for lowering pass
+         | SyncStmt( sync_type sync_type, expr? bar, string? codegen )
          | If( expr cond, stmt* body, stmt* orelse )
          | For( sym iter, expr lo, expr hi, stmt* body, loop_mode loop_mode )
          | Alloc( sym name, type type, mem mem )
@@ -119,6 +121,9 @@ module LoopIR {
          | Barrier()
          | Error()
          | Tensor( expr* hi, bool is_window, type type )
+         -- for use in lowering pass of distributed memory
+         -- not an expected case for most LoopIR code
+         | SporkTensor( type tensor_type, int distributed_dims )
          -- src       - type of the tensor from which the window was created
          -- as_tensor - tensor type as if this window were simply a tensor 
          --             itself
@@ -185,7 +190,7 @@ module UAST {
             | WriteConfig ( config config, string field, expr rhs )
             | FreshAssign( sym name, expr rhs )
             | Pass    ()
-            | SyncStmt( sync_type sync_type, expr? bar )  -- `bar` for arrive/await
+            | SyncStmt( sync_type sync_type, expr? bar , string? codegen )
             | If      ( expr cond, stmt* body,  stmt* orelse )
             | For     ( sym iter,  expr cond,   stmt* body )
             | Alloc   ( sym name, type type, mem? mem )
@@ -412,8 +417,25 @@ class T:
 # type helper functions
 
 
-@extclass(T.Tensor)
 @extclass(T.Window)
+def shape(t):
+    return t.as_tensor.shape()
+
+
+@extclass(LoopIR.SporkTensor)
+def shape(t):
+    assert isinstance(
+        t.tensor_type, T.Tensor
+    ), "internal error, expected tensor in SporkTensor"
+    return t.tensor_type.shape()
+
+
+@extclass(T.Tensor)
+def shape(t):
+    assert not isinstance(t.type, T.Tensor), "expect no nesting"
+    return t.hi
+
+
 @extclass(T.Num)
 @extclass(T.F16)
 @extclass(T.F32)
@@ -424,13 +446,7 @@ class T:
 @extclass(T.INT32)
 @extclass(T.Barrier)
 def shape(t):
-    if isinstance(t, T.Window):
-        return t.as_tensor.shape()
-    elif isinstance(t, T.Tensor):
-        assert not isinstance(t.type, T.Tensor), "expect no nesting"
-        return t.hi
-    else:
-        return []
+    return []
 
 
 del shape
@@ -487,7 +503,7 @@ del is_real_scalar
 
 @extclass(LoopIR.type)
 def is_tensor_or_window(t):
-    return isinstance(t, (T.Tensor, T.Window))
+    return isinstance(t, (LoopIR.SporkTensor, T.Tensor, T.Window))
 
 
 del is_tensor_or_window
@@ -503,7 +519,7 @@ del is_win
 
 @extclass(LoopIR.type)
 def is_numeric(t):
-    return t.is_real_scalar() or isinstance(t, (T.Tensor, T.Window))
+    return t.is_real_scalar() or isinstance(t, (LoopIR.SporkTensor, T.Tensor, T.Window))
 
 
 del is_numeric
@@ -537,6 +553,8 @@ def basetype(t):
     elif isinstance(t, T.Tensor):
         assert not t.type.is_tensor_or_window()
         return t.type
+    elif isinstance(t, LoopIR.SporkTensor):
+        return t.tensor_type.type
     else:
         return t
 
@@ -753,6 +771,9 @@ class LoopIR_Rewrite:
                     as_tensor=new_as_tensor or t.as_tensor,
                     idx=new_idx or t.idx,
                 )
+        assert not isinstance(
+            t, LoopIR.SporkTensor
+        ), "internal SporkTensor not expected here"
         return None
 
     @staticmethod
@@ -858,6 +879,9 @@ class LoopIR_Do:
             self.do_t(t.as_tensor)
             for w in t.idx:
                 self.do_w_access(w)
+        elif isinstance(t, LoopIR.SporkTensor):
+            for i in t.tensor_type.hi:
+                self.do_e(i)
         else:
             pass
 
@@ -974,6 +998,9 @@ class LoopIR_Compare:
                 and all(self.match_e(i1, i2) for i1, i2 in zip(t1.hi, t2.hi))
             )
         else:  # scalar
+            assert not isinstance(
+                t, LoopIR.SporkTensor
+            ), "internal SporkTensor not expected here"
             return type(t1) == type(t2)
 
 

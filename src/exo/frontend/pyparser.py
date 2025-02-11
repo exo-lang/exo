@@ -1166,8 +1166,19 @@ class Parser:
                 self.err(ast_name, f"Expected name of actor kind, not {ast_name.id}")
             return actor_kind
 
-        if len(ast_call.args) != 2 or ast_call.keywords:
-            self.err(ast_call, f"{func_id} expects 2 arguments and no keywords")
+        codegen = None
+
+        if len(ast_call.args) != 2:
+            self.err(ast_call, f"{func_id} expects 2 arguments")
+
+        for kw in ast_call.keywords:
+            name, eval_me = kw.arg, kw.value
+            if name == "codegen":
+                codegen = self.eval_expr(eval_me)
+                if not isinstance(codegen, str):
+                    raise ParseError(f"codegen attribute for {func_id}() must be str")
+            else:
+                raise ParseError(f"Unknown keyword '{name}' for {func_id}()")
 
         if func_id == "Fence":
             sync_type = SyncType(
@@ -1186,4 +1197,4 @@ class Parser:
         else:
             assert 0
 
-        return self.AST.SyncStmt(sync_type, bar, self.getsrcinfo(ast_call))
+        return self.AST.SyncStmt(sync_type, bar, codegen, self.getsrcinfo(ast_call))

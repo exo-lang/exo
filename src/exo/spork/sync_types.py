@@ -55,13 +55,14 @@ class SyncType(object):
     def is_await(self):
         return not self.first_actor_kind
 
-    def format_stmt(self, bar):
+    def format_stmt(self, bar, codegen):
+        codegen_suffix = "" if codegen is None else f", codegen={codegen!r}"
         if self.is_arrive():
-            return f"Arrive({self.first_actor_kind}, {bar})"
+            return f"Arrive({self.first_actor_kind}, {bar}{codegen_suffix})"
         elif self.is_await():
-            return f"Await({bar}, {self.second_actor_kind})"
+            return f"Await({bar}, {self.second_actor_kind}{codegen_suffix})"
         else:
-            return f"Fence({self.first_actor_kind}, {self.second_actor_kind})"
+            return f"Fence({self.first_actor_kind}, {self.second_actor_kind}{codegen_suffix})"
 
 
 def arrive_type(first_actor_kind: ActorKind):

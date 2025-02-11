@@ -18,7 +18,11 @@ from .win_analysis import WindowAnalysis
 from ..rewrite.range_analysis import IndexRangeEnvironment
 
 from ..spork.async_config import BaseAsyncConfig
-from ..spork.base_with_context import BaseWithContext, is_if_holding_with
+from ..spork.base_with_context import (
+    BaseWithContext,
+    is_if_holding_with,
+    ExtWithContext,
+)
 from ..spork.collectives import SpecializeCollective
 from ..spork.loop_modes import LoopMode, Seq, Par
 from ..spork.spork_env import SporkEnv, KernelArgsScanner
@@ -331,12 +335,19 @@ def window_struct(base_type, n_dims, is_const) -> WindowStruct:
 # top level compiler function called by tests!
 
 
-def run_compile(proc_list, h_file_name: str):
-    file_stem = str(Path(h_file_name).stem)
+def run_compile(proc_list, file_stem: str):
     lib_name = sanitize_str(file_stem)
-    fwd_decls, body = compile_to_strings(lib_name, proc_list)
+    fwd_decls, body, ext_lines = compile_to_strings(lib_name, proc_list)
 
-    source = f'#include "{h_file_name}"\n\n{body}'
+    def join_ext_lines(ext):
+        if lines := ext_lines.get(ext):
+            return "\n".join(["\n"] + lines + ["\n"])
+        else:
+            return ""
+
+    source = f"""#include "{file_stem}.h"
+{join_ext_lines("c")}
+{body}"""
 
     header_guard = f"{lib_name}_H".upper()
     header = f"""
@@ -347,7 +358,7 @@ def run_compile(proc_list, h_file_name: str):
 #ifdef __cplusplus
 extern "C" {{
 #endif
-
+{join_ext_lines("h")}
 {fwd_decls}
 
 #ifdef __cplusplus
@@ -356,7 +367,22 @@ extern "C" {{
 #endif  // {header_guard}
 """
 
-    return source, header
+    ext_snippets = {"c": source, "h": header}
+
+    # Gather any non .c, .h files
+    for ext, lines in ext_lines.items():
+        if ext == "c" or ext == "h":
+            continue
+        elif ext == "cuh":
+            text = f'#pragma once\n#include "{file_stem}.h"\n{join_ext_lines("cuh")}'
+        elif ext == "cu":
+            text = f'#include "{file_stem}.cuh"\n{join_ext_lines("cu")}'
+        else:
+            # A bit crappy we have per-file-extension logic here.
+            assert "Add case for file extension"
+        ext_snippets[ext] = text
+
+    return ext_snippets
 
 
 _static_helpers = {
@@ -432,10 +458,14 @@ def compile_to_strings(lib_name, proc_list):
                 public_fwd_decls.append(cpu_d)
             else:
                 private_fwd_decls.append(cpu_d)
+
+            # TODO remove
             for gpu_d in comp.spork_decls:
                 private_fwd_decls.append(gpu_d)
 
             proc_bodies.append(cpu_b)
+
+            # TODO remove
             for gpu_b in comp.spork_defs:
                 proc_bodies.append("namespace {")
                 proc_bodies.append(gpu_b)
@@ -488,7 +518,7 @@ def compile_to_strings(lib_name, proc_list):
     body_contents = map(from_lines, body_contents)
     body_contents = from_lines(body_contents)
     body_contents += "\n"  # New line at end of file
-    return header_contents, body_contents
+    return header_contents, body_contents, comp.ext_lines()
 
 
 def _compile_externs(externs):
@@ -549,11 +579,20 @@ class Compiler:
         self.names = ChainMap()
         self.envtyp = dict()
         self.async_config_stack = []
+
+        # TODO remove these
         self.spork = (
             None  # Set to SporkEnv only when compiling GPU kernel code, else None
         )
         self.spork_decls = []  # Fwd declaration of kernels compiled by spork
         self.spork_defs = []  # Definitions of kernels compiled by spork
+
+        # Additional lines for each file extension
+        # Since Exo was originally written for only .c and .h files,
+        # we have a lot of special treatment for these files,
+        # handled separately from this (see comp_top).
+        self._ext_lines = {}
+
         self.mems = dict()
         self._tab = ""
         self._lines = []
@@ -577,12 +616,12 @@ class Compiler:
             typ = a.type
             mem = a.mem if typ.is_numeric() else None
             name_arg = self.new_varname(a.name, typ=typ, mem=mem)
-            non_const = typ.is_numeric() and a.name in self.non_const
+            is_const = not (typ.is_numeric() and a.name in self.non_const)
             if typ.is_real_scalar():
                 self._scalar_refs.add(a.name)
 
             mem_comment = f" @{mem.name()}" if mem else ""
-            arg_strs.append(f"{self.format_arg_ctype(typ, non_const)} {name_arg}")
+            arg_strs.append(f"{self.format_fnarg_ctype(a, is_const)} {name_arg}")
             typ_comments.append(f"{name_arg} : {typ}{mem_comment}")
 
         for pred in proc.preds:
@@ -629,7 +668,8 @@ class Compiler:
         self.proc_decl = proc_decl
         self.proc_def = proc_def
 
-    def format_arg_ctype(self, typ, non_const):
+    def format_fnarg_ctype(self, a, is_const):
+        typ = a.type
         if typ in (T.size, T.index, T.bool, T.stride):
             return typ.ctype()
         # setup, arguments
@@ -637,10 +677,10 @@ class Compiler:
             assert typ.is_numeric()
             assert typ.basetype() != T.R
             if typ.is_win():
-                wintyp = self.get_window_type(a)
+                wintyp = self.get_window_type(a, is_const)
                 return f"struct {wintyp}"
             else:
-                const_kwd = "const " if not non_const else ""
+                const_kwd = "const " if is_const else ""
                 ctyp = typ.basetype().ctype()
                 return f"{const_kwd}{ctyp}*"
 
@@ -689,6 +729,9 @@ class Compiler:
 
     def comp_top(self):
         return self.proc_decl, self.proc_def
+
+    def ext_lines(self):
+        return self._ext_lines
 
     def struct_defns(self):
         return self.window_defns
@@ -863,10 +906,12 @@ class Compiler:
         if isinstance(s, LoopIR.Pass):
             self.add_line("; // NO-OP")
         elif isinstance(s, LoopIR.SyncStmt):
-            warnings.warn(
-                "Not implemented: LoopIR.SyncStmt that isn't a __syncthreads()"
-            )
-            self.add_line(f"__syncthreads();")
+            if s.codegen is None:
+                raise TypeError(
+                    f"{s.srcinfo}: SyncStmt not allowed here "
+                    "(or internal compiler error -- missing codegen)"
+                )
+            self.add_line(s.codegen)
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if s.name in self._scalar_refs:
                 lhs = f"*{self.env[s.name]}"
@@ -921,7 +966,35 @@ class Compiler:
 
         elif is_if_holding_with(s, LoopIR):  # must be before .If case
             ctx = s.cond.val
-            if isinstance(ctx, BaseAsyncConfig):
+            if isinstance(ctx, ExtWithContext):
+                # Reset indentation and direct text lines for compiled subtree
+                # to new location (per-file-extension lines dict).
+                old_lines = self._lines
+                old_tab = self._tab
+                self._lines = self._ext_lines.setdefault(ctx.body_ext, [])
+                self._tab = ""
+
+                # Add code snippets
+                for ext, snippet in ctx.ext_snippets.items():
+                    self._ext_lines.setdefault(ext, []).append(snippet)
+
+                # Compile body, with prefix and suffix.
+                # Note ordering after snippets are added, as promised in ExtWithContext.
+                self.add_line(ctx.body_prefix)  # Might not really be just 1 line...
+                self._tab += "  "
+                self.comp_stmts(s.body)
+                self._tab = ""
+                self.add_line(ctx.body_suffix)
+
+                # Restore old lines list and indentation
+                self._tab = old_tab
+                self._lines = old_lines
+
+                # Add kernel launch syntax
+                self.add_line(ctx.launch)
+
+            elif isinstance(ctx, BaseAsyncConfig):
+                # TODO change all of this!!!
                 starting_kernel = not self.spork
 
                 # Check async block is valid here
@@ -969,7 +1042,7 @@ class Compiler:
                     # Divert gpu code into separate lists
                     # Insert cpu code for kernel launch
                     proto, launch = self.spork.get_kernel_prototype_launch(
-                        s, self.env, self.envtyp, self.format_arg_ctype
+                        s, self.env, self.envtyp, self.format_fnarg_ctype
                     )
                     kernel_body = self.spork.get_kernel_body()
 
@@ -1061,7 +1134,7 @@ class Compiler:
         elif isinstance(s, LoopIR.Alloc):
             name = self.new_varname(s.name, typ=s.type, mem=s.mem)
             if isinstance(s.type, T.Barrier):
-                self.add_line("// TODO implement barrier alloc")
+                self.add_line(f"// Scope of named barrier {s.name}")
             else:
                 assert s.type.basetype().is_real_scalar()
                 assert s.type.basetype() != T.R
@@ -1074,7 +1147,7 @@ class Compiler:
         elif isinstance(s, LoopIR.Free):
             name = self.env[s.name]
             if isinstance(s.type, T.Barrier):
-                self.add_line("// TODO implement barrier free")
+                pass
             else:
                 assert s.type.basetype().is_real_scalar()
                 ctype = s.type.basetype().ctype()
