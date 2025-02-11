@@ -337,7 +337,7 @@ def window_struct(base_type, n_dims, is_const) -> WindowStruct:
 
 def run_compile(proc_list, file_stem: str):
     lib_name = sanitize_str(file_stem)
-    fwd_decls, body, ext_lines = compile_to_strings(lib_name, proc_list)
+    fwd_decls, body, ext_lines = ext_compile_to_strings(lib_name, proc_list)
 
     def join_ext_lines(ext):
         if lines := ext_lines.get(ext):
@@ -398,6 +398,13 @@ _static_helpers = {
 
 
 def compile_to_strings(lib_name, proc_list):
+    """Legacy wrapper, for procs that don't generate extension files"""
+    header, body, ext = ext_compile_to_strings(lib_name, proc_list)
+    assert not ext
+    return header, body
+
+
+def ext_compile_to_strings(lib_name, proc_list):
     # Get transitive closure of call-graph
     orig_procs = [id(p) for p in proc_list]
 

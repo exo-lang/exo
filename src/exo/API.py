@@ -10,7 +10,11 @@ from exo.rewrite.LoopIR_scheduling import SchedulingError
 
 from .API_types import ProcedureBase, ExoType
 from .core import LoopIR as LoopIR
-from .backend.LoopIR_compiler import run_compile, compile_to_strings
+from .backend.LoopIR_compiler import (
+    run_compile,
+    compile_to_strings,
+    ext_compile_to_strings,
+)
 from .core.configs import Config
 from .frontend.boundscheck import CheckBounds
 from .core.memory import Memory

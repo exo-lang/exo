@@ -999,7 +999,7 @@ class LoopIR_Compare:
             )
         else:  # scalar
             assert not isinstance(
-                t, LoopIR.SporkTensor
+                t1, LoopIR.SporkTensor
             ), "internal SporkTensor not expected here"
             return type(t1) == type(t2)
 
