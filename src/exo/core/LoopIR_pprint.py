@@ -571,6 +571,9 @@ def _print_type(t, env: PrintEnv) -> str:
         ranges = ", ".join([_print_expr(r, env) for r in t.shape()])
         return f"{base}[{ranges}]"
 
+    elif isinstance(t, LoopIR.SporkTensor):
+        return f"{_print_type(t.tensor_type, env)}**{t.distributed_dims}"
+
     elif isinstance(t, T.Window):
         # Below, we print idx='[x:y]' with single quotes because yapf can't
         # parse the colon in idx=[0:n] since it thinks its assignment.

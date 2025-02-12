@@ -227,6 +227,8 @@ module UAST {
             | Stride()
             | Barrier()
             | Tensor( expr *hi, bool is_window, type type )
+            -- may be removed later
+            | SporkTensor( type tensor_type, int distributed_dims )
             | WithContext
 } """,
     ext_types={
@@ -418,20 +420,24 @@ class T:
 
 
 @extclass(T.Window)
-def shape(t):
+def shape(t, skip_distributed=False):
     return t.as_tensor.shape()
 
 
 @extclass(LoopIR.SporkTensor)
-def shape(t):
+def shape(t, skip_distributed=False):
+    assert skip_distributed is not None
     assert isinstance(
         t.tensor_type, T.Tensor
     ), "internal error, expected tensor in SporkTensor"
-    return t.tensor_type.shape()
+    if skip_distributed:
+        return t.tensor_type.shape()[t.distributed_dims :]
+    else:
+        return t.tensor_type.shape()
 
 
 @extclass(T.Tensor)
-def shape(t):
+def shape(t, skip_distributed=False):
     assert not isinstance(t.type, T.Tensor), "expect no nesting"
     return t.hi
 
@@ -445,7 +451,7 @@ def shape(t):
 @extclass(T.UINT16)
 @extclass(T.INT32)
 @extclass(T.Barrier)
-def shape(t):
+def shape(t, skip_distributed=False):
     return []
 
 

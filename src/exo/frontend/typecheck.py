@@ -359,6 +359,9 @@ class TypeChecker:
             mem = stmt.mem
             if mem is None:
                 mem = DRAM
+            if isinstance(stmt.type, UAST.SporkTensor):
+                # semi-temporary backdoor
+                typ = LoopIR.SporkTensor(typ, stmt.type.distributed_dims)
             return [LoopIR.Alloc(stmt.name, typ, mem, stmt.srcinfo)]
 
         elif isinstance(stmt, UAST.Call):
@@ -662,5 +665,8 @@ class TypeChecker:
                         "to have type 'size' or type 'index'",
                     )
             return T.Tensor(hi, typ.is_window, sub_typ)
+        elif isinstance(typ, UAST.SporkTensor):
+            # semi-temporary, may remove this backdoor later
+            return self.check_t(typ.tensor_type)
         else:
             assert False, "bad case"

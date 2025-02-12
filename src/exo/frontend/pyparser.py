@@ -5,6 +5,7 @@ import inspect
 import re
 import sys
 import textwrap
+import warnings
 from collections import ChainMap
 
 from asdl_adt.validators import ValidationError
@@ -503,6 +504,14 @@ class Parser:
             raise ParseError(
                 node, f"Cannot allocate an intermediate value of type {node.id}"
             )
+        elif isinstance(node, pyast.BinOp) and isinstance(node.op, pyast.Pow):
+            # semi-temporary, allow encoding internal SporkTensor type for now
+            warnings.warn("Using SporkTensor ** syntax not officially supported")
+            tensor_type = self.parse_alloc_type(node.left, is_arg)
+            assert isinstance(tensor_type, UAST.Tensor)
+            distributed_dims = self.eval_expr(node.right)
+            assert isinstance(distributed_dims, int)
+            return UAST.SporkTensor(tensor_type, distributed_dims)
         else:
             self.err(node, "unrecognized type: " + pyast.dump(node))
 

@@ -28,9 +28,6 @@ from ..spork.loop_modes import LoopMode, Seq, Par, _CodegenPar
 from ..spork.spork_env import SporkEnv, KernelArgsScanner
 from ..spork import actor_kinds
 
-# XXX used for backdoor
-from ..spork.cuda_memory import CudaRmem
-
 
 def sanitize_str(s):
     return re.sub(r"\W", "_", s)
@@ -466,17 +463,7 @@ def ext_compile_to_strings(lib_name, proc_list):
             else:
                 private_fwd_decls.append(cpu_d)
 
-            # TODO remove
-            for gpu_d in comp.spork_decls:
-                private_fwd_decls.append(gpu_d)
-
             proc_bodies.append(cpu_b)
-
-            # TODO remove
-            for gpu_b in comp.spork_defs:
-                proc_bodies.append("namespace {")
-                proc_bodies.append(gpu_b)
-                proc_bodies.append("}")
 
             analyzed_proc_list.append(p)
 
@@ -586,13 +573,6 @@ class Compiler:
         self.names = ChainMap()
         self.envtyp = dict()
         self.async_config_stack = []
-
-        # TODO remove these
-        self.spork = (
-            None  # Set to SporkEnv only when compiling GPU kernel code, else None
-        )
-        self.spork_decls = []  # Fwd declaration of kernels compiled by spork
-        self.spork_defs = []  # Definitions of kernels compiled by spork
 
         # Additional lines for each file extension
         # Since Exo was originally written for only .c and .h files,
@@ -725,10 +705,7 @@ class Compiler:
 
     def add_line(self, line):
         if line:
-            if self.spork:
-                self.spork.add_line(self._tab + line)
-            else:
-                self._lines.append(self._tab + line)
+            self._lines.append(self._tab + line)
 
     def comp_stmts(self, stmts):
         for b in stmts:
@@ -829,12 +806,16 @@ class Compiler:
             assert False, "bad case!"
 
     def access_str(self, nm, idx_list) -> str:
+        buf = self.env[nm]
+        if nm in self._scalar_refs:
+            return f"*{buf}"
+        elif not idx_list:
+            return buf
         type = self.envtyp[nm]
         cirs = [lift_to_cir(i, self.range_env) for i in idx_list]
         idx_expr = self.get_idx_offset(nm, type, cirs)
         idx_expr_s = self.comp_cir(simplify_cir(idx_expr), self.env, prec=0)
-        buf = self.env[nm]
-        if not type.is_win():
+        if type.is_win():
             return f"{buf}[{idx_expr_s}]"
         else:
             return f"{buf}.data[{idx_expr_s}]"
@@ -862,7 +843,7 @@ class Compiler:
     def get_strides(self, name: Sym, typ) -> CIR:
         if typ.is_win():
             res = []
-            for i in range(len(typ.shape())):
+            for i in range(len(typ.shape(True))):
                 if stride := self._known_strides.get((name, i)):
                     res.append(stride)
                 else:
@@ -870,7 +851,7 @@ class Compiler:
 
             return res
         else:
-            return self.tensor_strides(typ.shape())
+            return self.tensor_strides(typ.shape(True))
 
     def get_idx_offset(self, name: Sym, typ, idx) -> CIR:
         strides = self.get_strides(name, typ)
@@ -889,12 +870,12 @@ class Compiler:
 
         if isinstance(typ, T.Window):
             base = typ.as_tensor.basetype()
-            n_dims = len(typ.as_tensor.shape())
+            n_dims = len(typ.as_tensor.shape(True))
             if is_const is None:
                 is_const = typ.src_buf not in self.non_const
         else:
             base = typ.type.basetype()
-            n_dims = len(typ.type.shape())
+            n_dims = len(typ.type.shape(True))
             if is_const is None:
                 is_const = typ.name not in self.non_const
 
@@ -920,12 +901,14 @@ class Compiler:
                 )
             self.add_line(s.codegen)
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
-            if s.name in self._scalar_refs:
-                lhs = f"*{self.env[s.name]}"
-            elif self.envtyp[s.name].is_real_scalar():
-                lhs = self.env[s.name]
-            else:
-                lhs = self.access_str(s.name, s.idx)
+            typ = self.envtyp[s.name]
+            idx = []
+            if not typ.is_real_scalar():
+                if isinstance(typ, LoopIR.SporkTensor):
+                    idx = s.idx[typ.distributed_dims :]
+                else:
+                    idx = s.idx
+            lhs = self.access_str(s.name, idx)
             rhs = self.comp_e(s.rhs)
 
             # possibly cast!
@@ -974,7 +957,7 @@ class Compiler:
         elif is_if_holding_with(s, LoopIR):  # must be before .If case
             ctx = s.cond.val
             if isinstance(ctx, ExtWithContext):
-                # Reset indentation and direct text lines for compiled subtree
+                # Reset indentation and redirect text lines for compiled subtree
                 # to new location (per-file-extension lines dict).
                 old_lines = self._lines
                 old_tab = self._tab
@@ -1001,9 +984,6 @@ class Compiler:
                 self.add_line(ctx.launch)
 
             elif isinstance(ctx, BaseAsyncConfig):
-                # TODO change all of this!!!
-                starting_kernel = not self.spork
-
                 # Check async block is valid here
                 expected_async_type = ctx.parent_async_type()
                 parent_async_config = (
@@ -1014,54 +994,6 @@ class Compiler:
                     if expected_async_type
                     else "<no async block>"
                 )
-
-                if (
-                    self.spork
-                    and expected_async_type
-                    and isinstance(parent_async_config, expected_async_type)
-                ):
-                    pass
-                elif not self.spork and not expected_async_type:
-                    pass
-                else:
-                    raise TypeError(
-                        f"Async block {ctx} must be nested in {expected_str}, not {parent_async_config}"
-                    )
-
-                if starting_kernel:
-                    old_tabs = self._tab
-                    self._tab = "  "
-                    device_name = ctx.get_device_name()
-                    assert (
-                        device_name == "cuda"
-                    ), "Future: subtypes of SporkEnv for non-cuda?"
-                    self.spork = SporkEnv(
-                        f"{self.proc.name}_{s.srcinfo.lineno:04d}_EXO", s
-                    )
-                else:
-                    self.spork.push_async(ctx)
-
-                self.push()
-                self.comp_stmts(s.body)
-                self.pop()
-
-                if starting_kernel:
-                    # Divert gpu code into separate lists
-                    # Insert cpu code for kernel launch
-                    proto, launch = self.spork.get_kernel_prototype_launch(
-                        s, self.env, self.envtyp, self.format_fnarg_ctype
-                    )
-                    kernel_body = self.spork.get_kernel_body()
-
-                    # Must clear SporkEnv now so add_line works and restore tabs
-                    self.spork = None
-                    self._tab = old_tabs
-
-                    self.spork_decls.append("namespace{" + proto + ";}")
-                    self.spork_defs.append(proto + "\n" + kernel_body)
-                    self.add_line(launch)
-                else:
-                    self.spork.pop_async()
 
             elif isinstance(ctx, SpecializeCollective):
                 if not self.spork:
@@ -1153,7 +1085,7 @@ class Compiler:
                 ctype = s.type.basetype().ctype()
                 mem = s.mem or DRAM
                 line = mem.alloc(
-                    name, ctype, self.shape_strs(s.type.shape()), s.srcinfo
+                    name, ctype, self.shape_strs(s.type.shape(True)), s.srcinfo
                 )
                 self.add_line(line)
         elif isinstance(s, LoopIR.Free):
@@ -1164,7 +1096,9 @@ class Compiler:
                 assert s.type.basetype().is_real_scalar()
                 ctype = s.type.basetype().ctype()
                 mem = s.mem or DRAM
-                line = mem.free(name, ctype, self.shape_strs(s.type.shape()), s.srcinfo)
+                line = mem.free(
+                    name, ctype, self.shape_strs(s.type.shape(True)), s.srcinfo
+                )
                 self.add_line(line)
         elif isinstance(s, LoopIR.Call):
             assert all(
@@ -1233,20 +1167,14 @@ class Compiler:
 
             mem: Memory = self.mems[e.name]
 
-            if mem is CudaRmem:  # BACKDOOR
-                warnings.warn("Backdoor for reading CudaRmem")
-                return self.env[e.name]
-
             if not mem.can_read():
                 raise MemGenError(
                     f"{e.srcinfo}: cannot read from buffer "
                     f"'{e.name}' in memory '{mem.name()}'"
                 )
 
-            if e.name in self._scalar_refs:
-                return f"*{self.env[e.name]}"
-            elif not rtyp.is_tensor_or_window():
-                return self.env[e.name]
+            if isinstance(rtyp, LoopIR.SporkTensor):
+                return self.access_str(e.name, e.idx[rtyp.distributed_dims :])
             else:
                 return self.access_str(e.name, e.idx)
 
