@@ -17,6 +17,7 @@
 #           * reduce to the memory (optional)
 """
 from abc import ABC, abstractmethod
+from typing import Optional
 
 """
 --- Alloc specifications ---
@@ -58,7 +59,10 @@ class MemGenError(Exception):
     pass
 
 
-def generate_offset(indices, strides):
+def generate_offset(indices, strides, vector_size=1):
+    assert isinstance(vector_size, int), "generalize this if needed"
+    assert vector_size >= 1
+
     def index_expr(i, s):
         if s == "0" or i == "0":
             return ""
@@ -75,10 +79,88 @@ def generate_offset(indices, strides):
 
     exprs = [e for i, s in zip(indices, strides) if (e := index_expr(i, s)) != ""]
 
-    return " + ".join(exprs) if len(exprs) > 0 else "0"
+    expr = " + ".join(exprs) if len(exprs) > 0 else "0"
+    if vector_size != 1 and expr != "0":
+        expr = f"({expr}) / {vector_size}"
+
+    return expr
 
 
-class Memory(ABC):
+class WindowStructCtx(object):
+    __slots__ = [
+        "_ctype",
+        "_type_shorthand",
+        "_n_dims",
+        "_is_const",
+        "_srcinfo",
+        "_struct_name",
+        "_guard_macro",
+    ]
+
+    def __init__(self, ctype, type_shorthand, n_dims, is_const, srcinfo):
+        """For internal use of LoopIR compiler"""
+        self._ctype = ctype
+        self._type_shorthand = type_shorthand
+        self._n_dims = n_dims
+        self._is_const = is_const
+        self._srcinfo = srcinfo
+
+        self._struct_name = None
+        self._guard_macro = None
+
+    def generate_default(self, mem_win_name, data_ctype=None):
+        sname = self.struct_name(mem_win_name)
+        if data_ctype is None:
+            data_ctype = self._ctype
+        # Spacing difference gives byte-for-byte compatibility with Exo 1.
+        struct_cptr = "const " * self._is_const + data_ctype + " *"
+        dataptr_ctype = "const " * self._is_const + data_ctype + "*"
+
+        sdef = (
+            f"struct {sname}{{\n"
+            f"    {struct_cptr} const data;\n"
+            f"    const int_fast32_t strides[{self._n_dims}];\n"
+            f"}};"
+        )
+        return dataptr_ctype, sdef
+
+    def struct_name(self, mem_win_name):
+        assert isinstance(mem_win_name, str), "use str (avoid silent mistakes)"
+        assert mem_win_name
+        const_suffix = "c" if self._is_const else ""
+        base_sname = f"exo_win_{self._n_dims}{self._type_shorthand}{const_suffix}"
+        mem_suffix = "" if mem_win_name == "DRAM" else "_" + mem_win_name
+        sname = base_sname + mem_suffix
+
+        assert self._struct_name is None or self.struct_name == sname
+        self._struct_name = sname
+        self._guard_macro = base_sname.upper() + mem_suffix  # case-sensitive
+
+        return sname
+
+    def n_dims(self):
+        return self._n_dims
+
+    def is_const(self):
+        return self._is_const
+
+    def ctype(self):
+        return self._ctype
+
+    def type_shorthand(self):
+        return self._type_shorthand
+
+    def srcinfo(self):
+        return self._srcinfo
+
+
+class WindowFromDenseCtx(object):
+    __slots__ = ["compiler"]
+
+
+class MemWin(ABC):
+    """Common base class of allocable Memory and non-allocable SpecialWindow"""
+
     @classmethod
     def name(cls):
         return cls.__name__
@@ -92,25 +174,73 @@ class Memory(ABC):
 
     @classmethod
     @abstractmethod
-    def alloc(cls, new_name, prim_type, shape, srcinfo):
+    def window_definition(cls, ctx: WindowStructCtx):
         """
-        python gemmini_extended_compute_preloaded
+        C code defining struct.
+        Get the required parameters from the WindowStructCtx.
+        Return (dataptr : str, window_struct : str, separate_dataptr : bool)
+
+        dataptr: C type for a raw pointer (e.g. __m256d*, float*)
+
+        window_struct: C code defining a struct named ctx.struct_name()
+
+        The compiler will include a header guard for you.
         """
         raise NotImplementedError()
 
     @classmethod
-    @abstractmethod
-    def free(cls, new_name, prim_type, shape, srcinfo):
-        raise NotImplementedError()
+    def separate_dataptr(cls):
+        """separate_dataptr: False for the usual case
+        If True, the window is passed to functions as separate arguments
+        (dataptr, window_struct) rather than a combined window struct;
+        the window struct only contains layout information in this case,
+        and you must define this custom layout (see window(...))
+        """
+        return False
 
     @classmethod
-    def window(cls, basetyp, baseptr, indices, strides, srcinfo):
-        offset = generate_offset(indices, strides)
+    def window(cls, basetyp, in_expr, indices, strides, srcinfo) -> str:
+        """
+        Return one of the following:
 
-        if basetyp.is_win():
-            baseptr = f"{baseptr}.data"
+        Base case:      data : str
+        Custom layout:  (dataptr : str, layout : str)
 
-        return f"{baseptr}[{offset}]"
+        Where dataptr and layout are both C strings used to initialize
+        the window struct. (A default layout is provided in non-custom cases).
+        We implicitly take dataptr = &data in the base case.
+
+        If you wish to implement can_read/write/reduce, you should not use
+        a custom layout. Furthermore, currently custom layouts don't support
+        reducing the dimensionality of a window (can be changed later).
+
+        basetyp: LoopIR.Tensor instance
+
+        in_expr: C expression of the following type:
+
+          basetyp.is_win() = false: dense tensor type (as generated by alloc)
+            Won't occur if implementing a SpecialWindow
+
+          basetyp.is_win() = True: window type
+            str if no separate_dataptr, else (dataptr : str, layout : str)
+
+        indices: C expressions of indices (offsets per dimension)
+          e.g. [1:10, 42:46] -> ["1", "42"] (we don't provide the slice sizes)
+
+        strides: C expressions of per-dim strides, in units of scalars. (*)
+          If basetyp.is_win() and you define a custom layout, don't use this.
+          (*) consider passing vector_size to generate_offset.
+
+        srcinfo: include this when throwing an exception.
+        """
+        return cls.default_window(1, basetyp, in_expr, indices, strides, srcinfo)
+
+    @classmethod
+    def default_window(cls, vector_size, basetyp, in_expr, indices, strides, srcinfo):
+        """Don't override this"""
+        offset = generate_offset(indices, strides, vector_size)
+        dataptr = f"{in_expr}.data" if basetyp.is_win() else in_expr
+        return f"{dataptr}[{offset}]"
 
     @classmethod
     @abstractmethod
@@ -132,13 +262,47 @@ class Memory(ABC):
         )
 
 
+class Memory(MemWin):
+    @classmethod
+    @abstractmethod
+    def alloc(cls, new_name, prim_type, shape, srcinfo):
+        """
+        python gemmini_extended_compute_preloaded
+        """
+        raise NotImplementedError()
+
+    @classmethod
+    @abstractmethod
+    def free(cls, new_name, prim_type, shape, srcinfo):
+        raise NotImplementedError()
+
+    @classmethod
+    def window_definition(cls, ctx: WindowStructCtx):
+        """This is not correct for non-scalar cases but we provide this
+        for backwards compatibility with Exo 1 ... programs worked OK
+        if they never materialized the faulty default window struct"""
+        return ctx.generate_default("DRAM")
+
+
+class SpecialWindow(MemWin):
+    @classmethod
+    @abstractmethod
+    def memory_type(cls) -> type:
+        raise NotImplementedError()
+
+    @classmethod
+    @abstractmethod
+    def window_from_dense(cls, ctx):
+        pass
+
+
 # ----------- DRAM on LINUX ----------------
 
 
 class DRAM(Memory):
     @classmethod
     def global_(cls):
-        return "#include <stdio.h>\n" "#include <stdlib.h>\n"
+        return "#include <stdio.h>\n#include <stdlib.h>\n"
 
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):

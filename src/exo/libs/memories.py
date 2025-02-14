@@ -192,16 +192,17 @@ class AVX2(Memory):
     def global_(cls):
         return "#include <immintrin.h>"
 
+    _vec_types = {
+        "float": (8, "__m256"),
+        "double": (4, "__m256d"),
+        "uint16_t": (16, "__m256i"),
+    }
+
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
+        vec_types = cls._vec_types
         if not shape:
             raise MemGenError(f"{srcinfo}: AVX2 vectors are not scalar values")
-
-        vec_types = {
-            "float": (8, "__m256"),
-            "double": (4, "__m256d"),
-            "uint16_t": (16, "__m256i"),
-        }
 
         if not prim_type in vec_types.keys():
             raise MemGenError(
@@ -215,7 +216,7 @@ class AVX2(Memory):
             )
         shape = shape[:-1]
         if shape:
-            result = f'{C_reg_type_name} {new_name}[{"][".join(map(str, shape))}];'
+            result = f"{C_reg_type_name} {new_name}[{' * '.join(shape)}];"
         else:
             result = f"{C_reg_type_name} {new_name};"
         return result
@@ -233,8 +234,19 @@ class AVX2(Memory):
         assert strides[-1] == "1"
         idxs = indices[:-1] or ""
         if idxs:
-            idxs = "[" + "][".join(idxs) + "]"
-        return f"{baseptr}{idxs}"
+            vec_types = cls._vec_types
+            vector_size, _ = vec_types[basetyp.basetype().ctype()]
+            return cls.default_window(
+                vector_size, basetyp, baseptr, idxs, strides[:-1], srcinfo
+            )
+        else:
+            return baseptr
+
+    @classmethod
+    def window_definition(cls, ctx):
+        assert ctx.n_dims() > 0
+        vec_types = cls._vec_types
+        return ctx.generate_default("AVX2", vec_types[ctx.ctype()][1])
 
 
 # ----------- AVX-512 registers ----------------
