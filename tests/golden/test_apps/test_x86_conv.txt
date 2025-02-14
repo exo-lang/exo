@@ -1,11 +1,6 @@
-
 #pragma once
 #ifndef TEST_CASE_H
 #define TEST_CASE_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 
 #include <stdint.h>
@@ -30,17 +25,50 @@ extern "C" {
 #endif
 
 
-#ifndef EXO_WIN_1F32
-#define EXO_WIN_1F32
-struct exo_win_1f32{
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
+#include <stdio.h>
+#include <stdlib.h>
+
+#endif
+/* Required by DRAM */
+#ifndef EXO_WIN_4F32C
+#define EXO_WIN_4F32C
+struct exo_win_4f32c {
+    const float * const data;
+    const int_fast32_t strides[4];
+};
+#endif
+/* Required by DRAM */
+#ifndef EXO_WIN_4F32
+#define EXO_WIN_4F32
+struct exo_win_4f32 {
     float * const data;
+    const int_fast32_t strides[4];
+};
+#endif
+/* Required by AVX512 */
+/* Required by DRAM */
+#ifndef EXO_WIN_1F32C
+#define EXO_WIN_1F32C
+struct exo_win_1f32c {
+    const float * const data;
     const int_fast32_t strides[1];
 };
 #endif
-#ifndef EXO_WIN_1F32C
-#define EXO_WIN_1F32C
-struct exo_win_1f32c{
-    const float * const data;
+/* Required by AVX512 */
+/* Required by DRAM */
+#ifndef EXO_WIN_1F32
+#define EXO_WIN_1F32
+struct exo_win_1f32 {
+    float * const data;
     const int_fast32_t strides[1];
 };
 #endif
@@ -57,14 +85,25 @@ void conv_specialized( void *ctxt, const float* inp, float* output, const float*
 #ifdef __cplusplus
 }
 #endif
+
+
 #endif  // TEST_CASE_H
 
 #include "test_case.h"
 
+/* Required by AVX512 */
+#ifndef EXO_MEMORY_GLOBAL_AVX512
+#define EXO_MEMORY_GLOBAL_AVX512
 #include <immintrin.h>
-#include <stdio.h>
-#include <stdlib.h>
-
+#endif
+/* Required by AVX512 */
+#ifndef EXO_WIN_3F32
+#define EXO_WIN_3F32
+struct exo_win_3f32 {
+    float * const data;
+    const int_fast32_t strides[3];
+};
+#endif
 // conv_specialized(
 //     inp : f32[5, 82, 102, 128] @DRAM,
 //     output : f32[5, 80, 100, 128] @DRAM,

@@ -1,0 +1,627 @@
+// ########################################################################
+// .h
+// ########################################################################
+#pragma once
+#ifndef TEST_GOLDEN_B_CP_ASYNC_COMMIT_GROUP_H
+#define TEST_GOLDEN_B_CP_ASYNC_COMMIT_GROUP_H
+
+
+#include <stdint.h>
+#include <stdbool.h>
+
+#ifndef EXO_CUDA_HEADER_COMMON
+#define EXO_CUDA_HEADER_COMMON
+#include <cuda_runtime.h>
+#include <cuda_fp16.h>
+#include <cuda_bf16.h>
+
+#ifdef __CUDACC__
+#define EXO_CUDA_INLINE __device__ __forceinline__
+EXO_CUDA_INLINE unsigned exo_smemU32(const void* smem_ptr)
+{
+    return (unsigned)__cvta_generic_to_shared(smem_ptr);
+}
+EXO_CUDA_INLINE unsigned exo_mapa_shared_cluster(unsigned addr_u32, unsigned cta_rank)
+{
+#if __CUDA_ARCH__ >= 900
+    asm("mapa.shared::cluster.u32 %0, %1, %2;": "=r"(addr_u32) : "r"(addr_u32), "r"(cta_rank));
+#endif
+    return addr_u32;
+}
+#endif  // __CUDACC__
+
+#ifndef EXO_EXCUT_bENABLE_LOG
+#define EXO_EXCUT_bENABLE_LOG 0
+#endif
+
+#if EXO_EXCUT_bENABLE_LOG
+#include "exo_excut.h"  // Used for exo excut tests (tracing)
+#else
+// Do-nothing replacements for exo_excut.h
+#define exo_excut_log_file_enabled() 0
+#define exo_excut_begin_log_action(action_name)
+#define exo_excut_log_str_arg(str)
+#define exo_excut_log_int_arg(bytes, binary)
+#define exo_excut_log_ptr_arg(ptr)
+#define exo_excut_end_log_action(device_name, _blockIdx, _threadIdx, file, line)
+#define exo_excut_get_device_log()
+#define exo_excut_flush_device_log(stream, _gridDim, _blockDim, string_id_count, string_table, file_id_count, file_table)
+#define EXO_EXCUT_DEVICE_LOG_MEMBER
+#define EXO_EXCUT_STR_ID(c) 0
+#ifdef __CUDACC__
+struct exo_ExcutThreadLog {
+    EXO_CUDA_INLINE void log_action(uint32_t, uint32_t, uint32_t) {}
+    EXO_CUDA_INLINE void log_str_id_arg(uint32_t) {}
+    EXO_CUDA_INLINE void log_u32_arg(uint32_t) {}
+    EXO_CUDA_INLINE void log_u64_arg(uint32_t) {}
+    EXO_CUDA_INLINE void log_ptr_arg(const void*) {}
+    template <typename T>
+    EXO_CUDA_INLINE void log_ptr_data_arg(const T*, uint32_t = 0) {}
+};
+#define exo_excut_begin_thread_log(log) {}
+#endif
+#endif // EXO_EXCUT_bENABLE_LOG
+
+#endif // EXO_CUDA_HEADER_COMMON
+
+#ifndef EXO_CUDA_STREAM_GUARD
+#define EXO_CUDA_STREAM_GUARD
+static const cudaStream_t exo_cudaStream = 0;
+#endif
+// Compiler feature macros adapted from Hedley (public domain)
+// https://github.com/nemequ/hedley
+
+#if defined(__has_builtin)
+#  define EXO_HAS_BUILTIN(builtin) __has_builtin(builtin)
+#else
+#  define EXO_HAS_BUILTIN(builtin) (0)
+#endif
+
+#if EXO_HAS_BUILTIN(__builtin_assume)
+#  define EXO_ASSUME(expr) __builtin_assume(expr)
+#elif EXO_HAS_BUILTIN(__builtin_unreachable)
+#  define EXO_ASSUME(expr) \
+      ((void)((expr) ? 1 : (__builtin_unreachable(), 1)))
+#else
+#  define EXO_ASSUME(expr) ((void)(expr))
+#endif
+
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
+#include <stdio.h>
+#include <stdlib.h>
+
+#endif
+/* Required by CudaGmemLinear */
+/* Required by DRAM */
+#ifndef EXO_WIN_2F32
+#define EXO_WIN_2F32
+struct exo_win_2f32 {
+    float * const data;
+    const int_fast32_t strides[2];
+};
+#endif
+/* Required by CudaGmemLinear */
+/* Required by DRAM */
+#ifndef EXO_WIN_2F32C
+#define EXO_WIN_2F32C
+struct exo_win_2f32c {
+    const float * const data;
+    const int_fast32_t strides[2];
+};
+#endif
+// _6_256_8_cp_async_commit_group(
+//     M : size,
+//     K : size,
+//     h_out : f32[M, K] @DRAM,
+//     h_in : f32[M, K] @DRAM
+// )
+void _6_256_8_cp_async_commit_group( void *ctxt, int_fast32_t M, int_fast32_t K, float* h_out, const float* h_in );
+
+
+
+struct exo_CudaDeviceArgs0__6_256_8_cp_async_commit_group;
+
+#ifdef __CUDACC__
+__global__ void exo_deviceFunction0__6_256_8_cp_async_commit_group(__grid_constant__ const struct exo_CudaDeviceArgs0__6_256_8_cp_async_commit_group exo_deviceArgs);
+#endif
+void exo_cudaLaunch0__6_256_8_cp_async_commit_group(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0__6_256_8_cp_async_commit_group* exo_deviceArgs);
+
+
+
+
+#ifdef __cplusplus
+}
+#endif
+
+
+#endif  // TEST_GOLDEN_B_CP_ASYNC_COMMIT_GROUP_H
+
+
+// ########################################################################
+// .c
+// ########################################################################
+#include "test_golden_B_cp_async_commit_group.h"
+
+/* Required by CudaGmemLinear */
+#ifndef EXO_MEMORY_GLOBAL_CudaGmemLinear
+#define EXO_MEMORY_GLOBAL_CudaGmemLinear
+
+#ifndef exo_cudaMallocAsync
+#ifndef __cplusplus
+static
+#endif
+inline void* exo_cudaMallocAsync_default(size_t size, cudaStream_t exo_cudaStream,
+                                         const char* file __attribute__((unused)),
+                                         int line __attribute__((unused)) )
+{
+    void* out;
+    cudaMallocAsync(&out, size, exo_cudaStream);
+    if (exo_excut_log_file_enabled()) {
+        exo_excut_begin_log_action("cudaMallocAsync");
+        exo_excut_log_ptr_arg(out);
+        exo_excut_log_ptr_arg((void*)(size));
+        exo_excut_log_ptr_arg(exo_cudaStream);
+        exo_excut_end_log_action("cpu", 0, 0, file, line);
+    }
+    return out;
+}
+#define exo_cudaMallocAsync(size, stream) exo_cudaMallocAsync_default(size, stream, __FILE__, __LINE__)
+#endif
+
+#ifndef exo_cudaFreeAsync
+#ifndef __cplusplus
+static
+#endif
+inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
+                                      const char* file __attribute__((unused)),
+                                      int line __attribute__((unused)) )
+{
+    cudaFreeAsync(ptr, exo_cudaStream);
+    if (exo_excut_log_file_enabled()) {
+        exo_excut_begin_log_action("cudaFreeAsync");
+        exo_excut_log_ptr_arg(ptr);
+        exo_excut_log_ptr_arg(exo_cudaStream);
+        exo_excut_end_log_action("cpu", 0, 0, file, line);
+    }
+}
+#define exo_cudaFreeAsync(ptr, stream) exo_cudaFreeAsync_default(ptr, stream, __FILE__, __LINE__)
+#endif
+
+#endif
+/* Required by CudaSmemLinear */
+#ifndef EXO_WIN_3F32
+#define EXO_WIN_3F32
+struct exo_win_3f32 {
+    float * const data;
+    const int_fast32_t strides[3];
+};
+#endif
+/* Required by CudaSmemAtomicity16B */
+#ifndef EXO_WIN_1F32
+#define EXO_WIN_1F32
+struct exo_win_1f32 {
+    float * const data;
+    const int_fast32_t strides[1];
+};
+#endif
+/* Required by CudaGmemAtomicity16B */
+#ifndef EXO_WIN_1F32C
+#define EXO_WIN_1F32C
+struct exo_win_1f32c {
+    const float * const data;
+    const int_fast32_t strides[1];
+};
+#endif
+// CUDA device function args -- duplicated in .cuh file
+struct exo_CudaDeviceArgs0__6_256_8_cp_async_commit_group
+{
+    int_fast32_t M;  // M : size
+    int_fast32_t K;  // K : size
+    float* d_in;  // d_in : f32[M, K] @CudaGmemLinear
+    float* d_out;  // d_out : f32[M, K] @CudaGmemLinear
+    EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
+};
+
+
+/* relying on the following instruction..."
+Sm80_cp_async_f32(smem,gmem,size=4)
+
+*/
+// _6_256_8_cp_async_commit_group(
+//     M : size,
+//     K : size,
+//     h_out : f32[M, K] @DRAM,
+//     h_in : f32[M, K] @DRAM
+// )
+void _6_256_8_cp_async_commit_group( void *ctxt, int_fast32_t M, int_fast32_t K, float* h_out, const float* h_in ) {
+EXO_ASSUME(M % 256 == 0);
+EXO_ASSUME(K % 8 == 0);
+float *d_in = (float*) exo_cudaMallocAsync(M * K * sizeof(*d_in), exo_cudaStream);
+float *d_out = (float*) exo_cudaMallocAsync(M * K * sizeof(*d_out), exo_cudaStream);
+cudaMemcpyAsync(&d_in[0], &h_in[0], 4 * (M) * (K), cudaMemcpyHostToDevice, exo_cudaStream);
+{
+  struct exo_CudaDeviceArgs0__6_256_8_cp_async_commit_group exo_deviceArgs = {
+    M, K, d_in, d_out, exo_excut_get_device_log()
+  };
+  exo_cudaLaunch0__6_256_8_cp_async_commit_group(exo_cudaStream, &exo_deviceArgs);
+}
+exo_cudaFreeAsync(d_in, exo_cudaStream);
+cudaMemcpyAsync(&h_out[0], &d_out[0], 4 * (M) * (K), cudaMemcpyDeviceToHost, exo_cudaStream);
+exo_cudaFreeAsync(d_out, exo_cudaStream);
+}
+
+
+/* relying on the following instruction..."
+cudaMemcpyAsync_dtoh_2f32(M,N,dst,src)
+cudaMemcpyAsync(&{dst_data}, &{src_data}, 4 * {M} * {N}, cudaMemcpyDeviceToHost, exo_cudaStream);
+*/
+
+/* relying on the following instruction..."
+cudaMemcpyAsync_htod_2f32(M,N,dst,src)
+cudaMemcpyAsync(&{dst_data}, &{src_data}, 4 * {M} * {N}, cudaMemcpyHostToDevice, exo_cudaStream);
+*/
+
+
+// ########################################################################
+// .cuh
+// ########################################################################
+#pragma once
+#include "test_golden_B_cp_async_commit_group.h"
+#if EXO_EXCUT_bENABLE_LOG
+#include "test_golden_B_cp_async_commit_group.excut_str_table"
+#endif
+/* Required by CudaGmemLinear */
+#ifndef EXO_MEMORY_GLOBAL_CudaGmemLinear
+#define EXO_MEMORY_GLOBAL_CudaGmemLinear
+
+#ifndef exo_cudaMallocAsync
+#ifndef __cplusplus
+static
+#endif
+inline void* exo_cudaMallocAsync_default(size_t size, cudaStream_t exo_cudaStream,
+                                         const char* file __attribute__((unused)),
+                                         int line __attribute__((unused)) )
+{
+    void* out;
+    cudaMallocAsync(&out, size, exo_cudaStream);
+    if (exo_excut_log_file_enabled()) {
+        exo_excut_begin_log_action("cudaMallocAsync");
+        exo_excut_log_ptr_arg(out);
+        exo_excut_log_ptr_arg((void*)(size));
+        exo_excut_log_ptr_arg(exo_cudaStream);
+        exo_excut_end_log_action("cpu", 0, 0, file, line);
+    }
+    return out;
+}
+#define exo_cudaMallocAsync(size, stream) exo_cudaMallocAsync_default(size, stream, __FILE__, __LINE__)
+#endif
+
+#ifndef exo_cudaFreeAsync
+#ifndef __cplusplus
+static
+#endif
+inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
+                                      const char* file __attribute__((unused)),
+                                      int line __attribute__((unused)) )
+{
+    cudaFreeAsync(ptr, exo_cudaStream);
+    if (exo_excut_log_file_enabled()) {
+        exo_excut_begin_log_action("cudaFreeAsync");
+        exo_excut_log_ptr_arg(ptr);
+        exo_excut_log_ptr_arg(exo_cudaStream);
+        exo_excut_end_log_action("cpu", 0, 0, file, line);
+    }
+}
+#define exo_cudaFreeAsync(ptr, stream) exo_cudaFreeAsync_default(ptr, stream, __FILE__, __LINE__)
+#endif
+
+#endif
+/* Required by CudaSmemLinear */
+#ifndef EXO_WIN_3F32
+#define EXO_WIN_3F32
+struct exo_win_3f32 {
+    float * const data;
+    const int_fast32_t strides[3];
+};
+#endif
+/* Required by CudaSmemAtomicity16B */
+#ifndef EXO_WIN_1F32
+#define EXO_WIN_1F32
+struct exo_win_1f32 {
+    float * const data;
+    const int_fast32_t strides[1];
+};
+#endif
+/* Required by CudaGmemAtomicity16B */
+#ifndef EXO_WIN_1F32C
+#define EXO_WIN_1F32C
+struct exo_win_1f32c {
+    const float * const data;
+    const int_fast32_t strides[1];
+};
+#endif
+
+namespace exo_CudaUtil_test_golden_B_cp_async_commit_group {
+namespace exo_CudaUtil = ::exo_CudaUtil_test_golden_B_cp_async_commit_group;
+}  // end namespace exo_CudaUtil_test_golden_B_cp_async_commit_group
+// CUDA device function args -- duplicated in .c file
+struct exo_CudaDeviceArgs0__6_256_8_cp_async_commit_group
+{
+    int_fast32_t M;  // M : size
+    int_fast32_t K;  // K : size
+    float* d_in;  // d_in : f32[M, K] @CudaGmemLinear
+    float* d_out;  // d_out : f32[M, K] @CudaGmemLinear
+    EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
+};
+
+// We need this inline namespace to avoid ODR problems in pytest.
+inline namespace exo_CudaInline_test_golden_B_cp_async_commit_group {
+struct exo_Cuda0__6_256_8_cp_async_commit_group
+{
+  using exo_DeviceArgs = exo_CudaDeviceArgs0__6_256_8_cp_async_commit_group;
+
+  static constexpr uint32_t exo_blockDim = 256;
+  static constexpr uint32_t exo_clusterDim = 1;
+
+  static constexpr unsigned exo_smemBytes = 49152;
+  static constexpr unsigned exo_smemOffset0_smem = 0;  // 49152-byte allocation
+
+  struct exo_Task
+  {
+    int_fast32_t m_task;
+  };
+
+  struct exo_TaskGenerator
+  {
+    uint32_t exo_taskIndex;
+    uint32_t exo_numClusters;
+    uint32_t exo_taskCount;
+    int_fast32_t exo_cudaTasksLo_m_task;
+    uint32_t exo_cudaTasksNum_m_task;
+    EXO_CUDA_INLINE exo_TaskGenerator(
+        uint32_t cluster_index, uint32_t num_clusters,
+        int_fast32_t _exo_cudaTasksLo_m_task, int_fast32_t _exo_cudaTasksHi_m_task,
+        const exo_DeviceArgs&)
+    {
+      exo_taskIndex = cluster_index;
+      exo_numClusters = num_clusters;
+      exo_taskCount = 1;
+      exo_cudaTasksLo_m_task = _exo_cudaTasksLo_m_task;
+      exo_cudaTasksNum_m_task = static_cast<uint32_t>(_exo_cudaTasksHi_m_task - _exo_cudaTasksLo_m_task);
+      exo_taskCount *= exo_cudaTasksNum_m_task;
+    }
+    [[nodiscard]] EXO_CUDA_INLINE bool prepare_next_task()
+    {
+      return exo_taskIndex < exo_taskCount;
+    }
+    EXO_CUDA_INLINE exo_Task get_next_task()
+    {
+      exo_Task exo_task;
+      uint32_t exo_tmp = exo_taskIndex;
+      exo_taskIndex += exo_numClusters;
+      exo_task.m_task = exo_cudaTasksLo_m_task + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_m_task);
+      exo_tmp /= exo_cudaTasksNum_m_task;
+      return exo_task;
+    }
+  };
+
+  struct exo_SyncState
+  {
+
+  };
+
+  static inline const char*& exo_FILE()
+  {
+    static const char* name = __FILE__;
+    return name;
+  }
+
+  static void
+  exo_cudaLaunch(cudaStream_t exo_cudaStream, const exo_DeviceArgs& exo_deviceArgs);
+
+  static __device__ __forceinline__ void
+  exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
+
+  static __device__ __forceinline__ void
+  exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
+
+  static __device__ __forceinline__ void
+  exo_deviceTask(
+      char* exo_smem,
+      exo_SyncState& exo_syncState,
+      const exo_DeviceArgs& exo_deviceArgs,
+      exo_Task exo_task,
+      exo_ExcutThreadLog exo_excutLog={});
+};
+}  // end inline namespace
+
+inline void
+exo_CudaInline_test_golden_B_cp_async_commit_group::exo_Cuda0__6_256_8_cp_async_commit_group::exo_cudaLaunch(
+    cudaStream_t exo_cudaStream,
+    const exo_DeviceArgs& exo_deviceArgs)
+{
+  namespace exo_CudaUtil = exo_CudaUtil_test_golden_B_cp_async_commit_group;
+  cudaFuncSetAttribute(exo_deviceFunction0__6_256_8_cp_async_commit_group, cudaFuncAttributeMaxDynamicSharedMemorySize, exo_smemBytes);
+  // TODO how expensive is it to query this every time?
+  int exo_cudaDevice;
+  cudaGetDevice(&exo_cudaDevice);
+  int exo_SMs;
+  cudaDeviceGetAttribute(&exo_SMs, cudaDevAttrMultiProcessorCount, exo_cudaDevice);
+  const unsigned exo_gridDim = (unsigned(exo_SMs) & ~(exo_clusterDim - 1)) * 1u;
+
+  cudaLaunchConfig_t exo_launchConfig = {};
+  exo_launchConfig.gridDim = dim3(exo_gridDim, 1, 1);
+  exo_launchConfig.blockDim = dim3(exo_blockDim, 1, 1);
+  exo_launchConfig.dynamicSmemBytes = exo_smemBytes;
+  exo_launchConfig.stream = exo_cudaStream;
+
+  cudaLaunchKernelEx(&exo_launchConfig, exo_deviceFunction0__6_256_8_cp_async_commit_group, exo_deviceArgs);
+
+  exo_excut_flush_device_log(
+      exo_cudaStream, exo_gridDim, exo_blockDim,
+      exo_CudaUtil::exo_excut_str_id_count, exo_CudaUtil::exo_excut_str_table,
+      1, &exo_FILE());
+}
+
+__device__ __forceinline__ void
+exo_CudaInline_test_golden_B_cp_async_commit_group::exo_Cuda0__6_256_8_cp_async_commit_group::exo_deviceSetup(
+    char* exo_smem,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_ExcutThreadLog exo_excutLog)
+{
+  // No mbarriers used
+}
+
+__device__ __forceinline__ void
+exo_CudaInline_test_golden_B_cp_async_commit_group::exo_Cuda0__6_256_8_cp_async_commit_group::exo_deviceTask(
+    char* exo_smem,
+    exo_SyncState& exo_syncState,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_Task exo_task,
+    exo_ExcutThreadLog exo_excutLog)
+{
+  namespace exo_CudaUtil = exo_CudaUtil_test_golden_B_cp_async_commit_group;
+  // cg: barrier[256] @ CudaCommitGroup
+  auto& smem = reinterpret_cast<float (&) [12288]>(exo_smem[exo_smemOffset0_smem]);
+  for (int warmup = 0; warmup < 4; warmup++) {
+    // cuda_threads(0, 256, unit=cuda_thread)
+    if ([[maybe_unused]] int exo_1thr_tid = threadIdx.x; 1) {
+      if (warmup < ((exo_deviceArgs.K) / (8))) {
+        for (int k_cp = 0; k_cp < 2; k_cp++) {
+          asm volatile(
+            "cp.async.cg.shared.global [%0], [%1], 16;"
+              :
+              :"r"(exo_smemU32(&smem[(warmup) * (2048) + (exo_1thr_tid) * 8 + 4 * k_cp])),
+              "l"(&exo_deviceArgs.d_in[(exo_1thr_tid + 256 * exo_task.m_task) * (exo_deviceArgs.K) + 4 * k_cp + 8 * warmup])
+          );
+          exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_cg_shared_global), 0, __LINE__);
+          exo_excutLog.log_u32_arg(exo_smemU32(&smem[(warmup) * (2048) + (exo_1thr_tid) * 8 + 4 * k_cp]));
+          exo_excutLog.log_ptr_arg(&exo_deviceArgs.d_in[(exo_1thr_tid + 256 * exo_task.m_task) * (exo_deviceArgs.K) + 4 * k_cp + 8 * warmup]);
+          exo_excutLog.log_u32_arg(static_cast<uint32_t>(16));
+        }
+      }
+      // Arrive(Sm80_cp_async, 1) >> cg[tid]
+      asm volatile(
+        "cp.async.commit_group;"
+      );
+      exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_commit_group), 0, __LINE__);
+    }
+  }
+  for (int k_iter = 0; k_iter < ((exo_deviceArgs.K) / (8)); k_iter++) {
+    // cuda_threads(0, 256, unit=cuda_thread)
+    if ([[maybe_unused]] int exo_1thr_tid = threadIdx.x; 1) {
+      if (4 + k_iter < ((exo_deviceArgs.K) / (8))) {
+        for (int k_cp = 0; k_cp < 2; k_cp++) {
+          asm volatile(
+            "cp.async.cg.shared.global [%0], [%1], 16;"
+              :
+              :"r"(exo_smemU32(&smem[((4 + k_iter) % 6) * (2048) + (exo_1thr_tid) * 8 + 4 * k_cp])),
+              "l"(&exo_deviceArgs.d_in[(exo_1thr_tid + 256 * exo_task.m_task) * (exo_deviceArgs.K) + 32 + 4 * k_cp + 8 * k_iter])
+          );
+          exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_cg_shared_global), 0, __LINE__);
+          exo_excutLog.log_u32_arg(exo_smemU32(&smem[((4 + k_iter) % 6) * (2048) + (exo_1thr_tid) * 8 + 4 * k_cp]));
+          exo_excutLog.log_ptr_arg(&exo_deviceArgs.d_in[(exo_1thr_tid + 256 * exo_task.m_task) * (exo_deviceArgs.K) + 32 + 4 * k_cp + 8 * k_iter]);
+          exo_excutLog.log_u32_arg(static_cast<uint32_t>(16));
+        }
+      }
+      // Arrive(Sm80_cp_async, 1) >> cg[tid]
+      asm volatile(
+        "cp.async.commit_group;"
+      );
+      exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_commit_group), 0, __LINE__);
+      // Await(cg[tid], cuda_in_order, 4)
+      asm volatile(
+        "cp.async.wait_group 4;"
+      );
+      exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_wait_group), 0, __LINE__);
+      exo_excutLog.log_u32_arg(static_cast<uint32_t>(4));
+    }
+    // Fence(cuda_in_order, cuda_in_order)
+    asm volatile(
+      "barrier.cta.sync 0;"
+    );
+    exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cta_sync), 0, __LINE__);
+    exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
+    for (int ms = 0; ms < 8; ms++) {
+      // cuda_threads(0, 32, unit=8 * cuda_thread)
+      if ([[maybe_unused]] int exo_8thr_mt = (threadIdx.x / 8); 1) {
+        // cuda_threads(0, 8, unit=cuda_thread)
+        if ([[maybe_unused]] int exo_1thr_k = (threadIdx.x % 8); 1) {
+          exo_deviceArgs.d_out[(exo_8thr_mt + 32 * ms + 256 * exo_task.m_task) * (exo_deviceArgs.K) + exo_1thr_k + 8 * k_iter] = 3.0f * smem[(k_iter % 6) * (2048) + (exo_8thr_mt + 32 * ms) * 8 + exo_1thr_k];
+        }
+      }
+    }
+  }
+  // cuda_threads(0, 256, unit=cuda_thread)
+  if ([[maybe_unused]] int exo_1thr_tid = threadIdx.x; 1) {
+    // Await(cg[tid], cuda_in_order, 0)
+    asm volatile(
+      "cp.async.wait_group 0;"
+    );
+    exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_wait_group), 0, __LINE__);
+    exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
+  }
+  // Fence(cuda_in_order, cuda_in_order)
+  asm volatile(
+    "barrier.cta.sync 0;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cta_sync), 0, __LINE__);
+  exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
+}
+__device__ __forceinline__ void
+exo_CudaInline_test_golden_B_cp_async_commit_group::exo_Cuda0__6_256_8_cp_async_commit_group::exo_deviceMainLoop(
+    char* exo_smem,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_ExcutThreadLog exo_excutLog)
+{
+  namespace exo_CudaUtil = exo_CudaUtil_test_golden_B_cp_async_commit_group;
+  exo_SyncState exo_syncState{};
+  int32_t nreg;
+  nreg = ((int32_t) 0);
+  if (nreg == ((int32_t) 0)) {
+    if (int tmp = threadIdx.x; tmp >= 0 && tmp < 256) {
+      {
+        int_fast32_t exo_cudaTasksLo_m_task = 0;
+        int_fast32_t exo_cudaTasksHi_m_task = ((exo_deviceArgs.M) / (256));
+        exo_TaskGenerator exo_taskGenerator(
+            blockIdx.x / exo_clusterDim,
+            gridDim.x / exo_clusterDim,
+            exo_cudaTasksLo_m_task, exo_cudaTasksHi_m_task,
+            exo_deviceArgs);
+        while (exo_taskGenerator.prepare_next_task()) {
+          exo_deviceTask(exo_smem, exo_syncState, exo_deviceArgs, exo_taskGenerator.get_next_task(), exo_excutLog);
+        }
+      }
+    }
+  }
+}
+
+// ########################################################################
+// .cu
+// ########################################################################
+#include "test_golden_B_cp_async_commit_group.cuh"
+__launch_bounds__(256, 1)
+__global__ void
+exo_deviceFunction0__6_256_8_cp_async_commit_group(__grid_constant__ const struct exo_CudaDeviceArgs0__6_256_8_cp_async_commit_group exo_deviceArgs)
+{
+  extern __shared__ char exo_smem[];
+  exo_ExcutThreadLog exo_excutLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
+  exo_Cuda0__6_256_8_cp_async_commit_group::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda0__6_256_8_cp_async_commit_group::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
+}
+
+void
+exo_cudaLaunch0__6_256_8_cp_async_commit_group(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0__6_256_8_cp_async_commit_group* exo_deviceArgs)
+{
+  exo_Cuda0__6_256_8_cp_async_commit_group::exo_cudaLaunch(exo_cudaStream, *exo_deviceArgs);
+}
+

@@ -33,7 +33,7 @@ class Neon(Memory):
         vec_types = {
             "float": (4, "float32x4_t"),
             "double": (2, "float64x2_t"),
-            "_Float16": (8, "float16x8_t"),
+            "exo_f16": (8, "float16x8_t"),
         }
 
         if not prim_type in vec_types.keys():

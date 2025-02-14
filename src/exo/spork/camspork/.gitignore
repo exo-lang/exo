@@ -1,0 +1,6 @@
+.ninja_log
+compile_commands.json
+.cache
+*_excut.json
+my
+perfspork_remarks.py

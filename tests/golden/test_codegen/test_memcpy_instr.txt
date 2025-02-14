@@ -1,16 +1,14 @@
 #include "bar.h"
 
+/* Required by memcpy(n,dst,src) */
 #include <string.h>
-#include <stdio.h>
-#include <stdlib.h>
-
 // bar(
 //     n : size,
 //     dst : f32[n] @DRAM,
 //     src : f32[n] @DRAM
 // )
 void bar( void *ctxt, int_fast32_t n, float* dst, const float* src ) {
-memcpy((dst), (src), (n + 0) * sizeof(float));
+memcpy((dst), (src), ((n + 0)) * sizeof(float));
 }
 
 
@@ -19,14 +17,9 @@ memcpy(n,dst,src)
 memcpy({dst}, {src}, {n} * sizeof(float));
 */
 
-
 #pragma once
 #ifndef BAR_H
 #define BAR_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 
 #include <stdint.h>
@@ -52,6 +45,34 @@ extern "C" {
 
 
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
+#include <stdio.h>
+#include <stdlib.h>
+
+#endif
+/* Required by DRAM */
+#ifndef EXO_WIN_1F32
+#define EXO_WIN_1F32
+struct exo_win_1f32 {
+    float * const data;
+    const int_fast32_t strides[1];
+};
+#endif
+/* Required by DRAM */
+#ifndef EXO_WIN_1F32C
+#define EXO_WIN_1F32C
+struct exo_win_1f32c {
+    const float * const data;
+    const int_fast32_t strides[1];
+};
+#endif
 // bar(
 //     n : size,
 //     dst : f32[n] @DRAM,
@@ -64,4 +85,6 @@ void bar( void *ctxt, int_fast32_t n, float* dst, const float* src );
 #ifdef __cplusplus
 }
 #endif
+
+
 #endif  // BAR_H

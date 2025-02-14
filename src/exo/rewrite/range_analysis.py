@@ -463,6 +463,7 @@ class IndexRangeEnvironment:
             sym_range = (None, None)
 
         self.env[sym] = sym_range
+        return sym_range
 
     @staticmethod
     def _check_range(range0, op, range1):

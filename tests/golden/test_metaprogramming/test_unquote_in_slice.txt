@@ -7,15 +7,12 @@ def bar(a: i8[10, 10] @ DRAM):
 C:
 #include "test.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-
 // bar(
 //     a : i8[10, 10] @DRAM
 // )
 void bar( void *ctxt, int8_t* a ) {
 for (int_fast32_t i = 0; i < 5; i++) {
-  foo(ctxt,(struct exo_win_1i8){ &a[(i) * (10) + 2], { 1 } });
+  foo(ctxt, (struct exo_win_1i8) { &a[(i) * (10) + 2], {1} });
 }
 }
 

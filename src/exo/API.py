@@ -10,13 +10,43 @@ from exo.rewrite.LoopIR_scheduling import SchedulingError
 
 from .API_types import ProcedureBase, ExoType
 from .core import LoopIR as LoopIR
-from .backend.LoopIR_compiler import run_compile, compile_to_strings
+from .core.cir import CIR_Wrapper
+from .core.instr_class import (
+    AtomicityInfo,
+    AccessInfo,
+    InstrInfo,
+    InstrTemplate,
+    old_style_instr_info,
+    InstrArgs,
+)
+from .backend.LoopIR_compiler import (
+    run_compile,
+    compile_to_strings,
+    ext_compile_to_strings,
+    run_backend_checks,
+)
 from .core.configs import Config
 from .frontend.boundscheck import CheckBounds
-from .core.memory import Memory
+from .core.c_window import (
+    WindowFeatures,
+    WindowEncoder,
+    WindowIndexer,
+    WindowIndexerResult,
+    UtilInjector,
+)
+from .core.memory import (
+    MemWin,
+    Memory,
+    SpecialWindow,
+    memwin_template,
+    window_encoder,
+    window_indexer,
+    MemGlobalC,
+    MemIncludeC,
+)
 from .frontend.parse_fragment import parse_fragment
 from .frontend.pattern_match import match_pattern
-from .core.prelude import *
+from .core.prelude import Sym, SrcInfo, null_srcinfo, ScalarInfo
 from .rewrite.new_eff import Check_Aliasing
 
 # Moved to new file
@@ -32,7 +62,7 @@ from .core import internal_cursors as IC
 # Top-level decorator
 
 
-def proc(f, _instr=None) -> "Procedure":
+def proc(f, _c_instr_global=None) -> "Procedure":
     if not isinstance(f, types.FunctionType):
         raise TypeError("@proc decorator must be applied to a function")
 
@@ -42,22 +72,33 @@ def proc(f, _instr=None) -> "Procedure":
     parser = Parser(
         body,
         src_info,
-        parent_scope=get_parent_scope(depth=3 if _instr else 2),
-        instr=_instr,
+        parent_scope=get_parent_scope(depth=3 if _c_instr_global else 2),
         as_func=True,
     )
-    return Procedure(parser.result())
+    return Procedure(parser.result(), _c_instr_global=_c_instr_global)
 
 
 def instr(c_instr, c_global=""):
-    if not isinstance(c_instr, str):
-        raise TypeError("@instr decorator must be @instr(<your instruction>)")
+    if inspect.isclass(c_instr):
+        # Instruction template from class
+        return InstrTemplate(
+            c_instr, lambda proc: Procedure(proc), get_parent_scope(depth=2)
+        )
 
+    if not isinstance(c_instr, str):
+        raise TypeError(
+            "Valid usage: @instr applied to a class, "
+            "or @instr(C syntax : str) applied to a function"
+        )
+
+    # Old-style instr from Python function
     def inner(f):
         if not isinstance(f, types.FunctionType):
-            raise TypeError("@instr decorator must be applied to a function")
+            raise TypeError(
+                "@instr(<C syntax>) decorator must be applied to a function"
+            )
 
-        return proc(f, _instr=(c_instr, c_global))
+        return proc(f, (c_instr, c_global))
 
     return inner
 
@@ -141,16 +182,55 @@ class FindDup(LoopIR.LoopIR_Do):
 #   Procedure Objects
 
 
+def ext_compile_procs(proc_list, basedir: Path, stem: str, *, silent=False):
+    """Compile procs to separate code files, written to {basedir}/{stem}.{ext}
+
+    Returns a sorted list of file extensions (without .) e.g. ["c", "h"]
+
+    This determinism actually matters, e.g. the ninja build tool expects
+    the order of depfile outputs to match that of the ninja file.
+    We should explain this somewhere...
+    """
+    debug_log = LoopIR.get_debug_log(basedir)
+    try:
+        ext_snippets = ext_compile_procs_to_strings(proc_list, stem, debug_log)
+        for ext, text in ext_snippets.items():
+            (basedir / f"{stem}.{ext}").write_text(text)
+        return sorted(ext_snippets)
+    except Exception:
+        if not silent:
+            debug_log.enable_notify_user()
+        raise
+
+
+def ext_compile_procs_to_strings(
+    proc_list, stem: str, debug_log: Optional[LoopIR.BaseCompilerDebugLog] = None
+):
+    """Compile procs to separate code files, with filenames {stem}.{ext}
+
+    The returned dictionary maps file extensions (without .) to file text
+    e.g. {"h": header_contents, "c": c_code, "cu": cuda_code}
+    """
+    assert isinstance(proc_list, list)
+    assert all(isinstance(p, Procedure) for p in proc_list)
+    return run_compile([p._loopir_proc for p in proc_list], stem, debug_log)
+
+
 def compile_procs(proc_list, basedir: Path, c_file: str, h_file: str):
-    c_data, h_data = compile_procs_to_strings(proc_list, h_file)
-    (basedir / c_file).write_text(c_data)
-    (basedir / h_file).write_text(h_data)
+    """Legacy wrapper around ext_compile_procs, for C-only"""
+    stem = c_file[:-2]
+    assert f"{stem}.c" == c_file
+    assert f"{stem}.h" == h_file
+    ext_compile_procs(proc_list, basedir, stem)
 
 
 def compile_procs_to_strings(proc_list, h_file_name: str):
-    assert isinstance(proc_list, list)
-    assert all(isinstance(p, Procedure) for p in proc_list)
-    return run_compile([p._loopir_proc for p in proc_list], h_file_name)
+    """Legacy wrapper around ext_compile_procs_to_strings, for C-only"""
+    stem = h_file_name[:-2]
+    assert f"{stem}.h" == h_file_name
+    ext_snippets = ext_compile_procs_to_strings(proc_list, stem)
+    assert len(ext_snippets) == 2, "use ext_compile_procs_to_strings for non-C"
+    return ext_snippets["c"], ext_snippets["h"]
 
 
 class Procedure(ProcedureBase):
@@ -160,6 +240,7 @@ class Procedure(ProcedureBase):
         _provenance_eq_Procedure: "Procedure" = None,
         _forward=None,
         _mod_config=None,
+        _c_instr_global=None,
     ):
         super().__init__()
 
@@ -171,6 +252,11 @@ class Procedure(ProcedureBase):
             Check_Aliasing(proc)
 
         assert isinstance(proc, LoopIR.LoopIR.proc)
+
+        if _c_instr_global:
+            c_instr, c_global = _c_instr_global
+            assert proc.instr is None
+            proc = proc.update(instr=old_style_instr_info(proc, c_instr, c_global))
 
         # add this procedure into the equivalence tracking mechanism
         if _provenance_eq_Procedure:
@@ -366,3 +452,26 @@ class Procedure(ProcedureBase):
 
     def _root(self):
         return IC.Cursor.create(self._loopir_proc)
+
+    # ------------------------------- #
+    #     sync check
+    # ------------------------------- #
+    def sync_check(self, **kwargs):
+        """Perform sync check for a given concrete problem size.
+
+        All size/index argument values must be given as int keyword arguments.
+        This proc will be checked for the problem size given.
+
+        """
+
+        from exo.spork import sync_check
+        from exo.backend import LoopIR_compiler
+
+        debug_log = LoopIR.get_global_debug_log()
+        try:
+            backend = LoopIR_compiler.run_backend_checks(self._loopir_proc, debug_log)
+            # Should we check assertions?
+            sync_check.top_level_check(backend, kwargs)
+        except Exception:
+            debug_log.enable_notify_user()
+            raise
