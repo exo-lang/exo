@@ -36,6 +36,12 @@ from ..API_scheduling import (
     replace,
     call_eqv,
     insert_noop_call,
+    # sync
+    insert_fence,
+    insert_barrier_alloc,
+    insert_arrive,
+    insert_await,
+    set_trailing_barrier_expr,
     #
     # precision, memory, and window annotation setting
     set_precision,
@@ -63,6 +69,8 @@ from ..API_scheduling import (
     #
     # loop rewriting
     parallelize_loop,
+    set_loop_mode,
+    update_loop_mode,
     divide_with_recompute,
     divide_loop,
     mult_loops,
@@ -78,7 +86,10 @@ from ..API_scheduling import (
     fission,
     fuse,
     remove_loop,
+    unsafe_remove_if,
     add_loop,
+    wrap_with_context,
+    add_if,
     unroll_loop,
     #
     # guard rewriting

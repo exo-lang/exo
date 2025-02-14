@@ -1,0 +1,168 @@
+from dataclasses import dataclass, replace as dataclass_replace
+from typing import List, Optional, Set, Tuple
+
+from .coll_algebra import CollUnit, cuda_thread
+
+
+loop_mode_dict = {}
+
+
+class LoopMode(object):
+    __slots__ = []
+
+    @classmethod
+    def loop_mode_name(cls):
+        raise NotImplementedError
+
+    @classmethod
+    def is_par(cls):
+        raise NotImplementedError
+
+    def format_loop_cond(self, lo, hi):
+        return format_loop_cond(lo, hi, self)
+
+    def update(self, **kwargs):
+        return dataclass_replace(self, **kwargs)
+
+
+def loop_mode_class(_loop_mode_name, _is_par):
+    assert _loop_mode_name
+    _loop_mode_name = str(_loop_mode_name)
+    assert isinstance(_is_par, bool)
+
+    @classmethod
+    def loop_mode_name(cls):
+        return _loop_mode_name
+
+    @classmethod
+    def is_par(cls):
+        return _is_par
+
+    def decorator(cls):
+        # Frozen, add __slots__, loop_mode_name(), is_par() functions,
+        # LoopMode base class, and register in loop_mode_dict.
+        cls_dict = dict(loop_mode_name=loop_mode_name, is_par=is_par, **cls.__dict__)
+        cls = type(cls.__name__, (LoopMode,), cls_dict)
+        cls = dataclass(frozen=True, slots=True)(cls)
+        assert _loop_mode_name not in loop_mode_dict
+        loop_mode_dict[_loop_mode_name] = cls
+        return cls
+
+    return decorator
+
+
+@loop_mode_class("seq", False)
+class Seq:
+    pragma_unroll: Optional[int] = None
+
+    def __post_init__(self, pragma_unroll=None):
+        assert self.pragma_unroll is None or isinstance(self.pragma_unroll, int)
+
+
+seq = Seq()
+
+
+@loop_mode_class("par", True)
+class Par:
+    pass
+
+
+par = Par()
+
+
+@loop_mode_class("cuda_tasks", True)
+class CudaTasks:
+    def validate_loop(self, s) -> bool:
+        """Inspect stmt as cuda_tasks loop and give tri-state result.
+
+        Invalid/not a cuda_tasks loop: raise
+        cuda_tasks loop whose body is device task: True
+        cuda_tasks loop otherwise: False
+        """
+        if not s.is_loop() or not isinstance(s.loop_mode, CudaTasks):
+            raise ValueError(
+                f"{s.srcinfo}: Invalid cuda_tasks loop, not a cuda_tasks loop"
+            )
+        n_stmts = len(s.body)
+
+        assert n_stmts > 0
+
+        child = s.body[0]
+        if child.is_loop() and isinstance(child.loop_mode, CudaTasks):
+            if n_stmts > 1:
+                raise ValueError(
+                    f"{child.srcinfo}: Invalid cuda_tasks loop, unexpected stmt after"
+                )
+            return False
+
+        return True
+
+
+cuda_tasks = CudaTasks()
+
+
+@loop_mode_class("cuda_threads", True)
+class CudaThreads(LoopMode):
+    unit: CollUnit = cuda_thread
+
+    def __post_init__(self, unit=cuda_thread):
+        assert isinstance(self.unit, CollUnit)
+
+
+cuda_threads = CudaThreads()
+
+
+def format_loop_cond(lo, hi, loop_mode: LoopMode):
+    """loop_mode(lo, hi, kwarg1=value1, kwarg2=value2,...)
+
+    Also a member function of LoopMode.
+
+    """
+    strings = [loop_mode.loop_mode_name(), "(", str(lo), ", ", str(hi)]
+    for attr in loop_mode.__slots__:
+        value = getattr(loop_mode, attr)
+        if value is None and isinstance(loop_mode, Seq):
+            # Avoid adding pragma_unroll=None for every seq(...)
+            pass
+        else:
+            strings.append(f", {attr}={value!r}")
+    strings.append(")")
+    return "".join(strings)
+
+
+@loop_mode_class("_codegen_par", True)
+class _CodegenPar:
+    """Internal use loop mode for use in code generation of parallel loops"""
+
+    # C expr giving iterator value, plus optional comment.
+    c_index: str
+    comment: Optional[str]
+
+    # Test static_bounds[0] <= iter && iter < static_bounds[1]
+    # Omit test if a None bound is given.
+    static_bounds: Optional[Tuple[int, int]]
+
+    # If not None, subtree of code shall only be executed by warps
+    # whose name matches the str given.
+    warp_name_filter: Optional[str]
+
+    domain: Tuple[int]
+
+    # Arguments for amspork ThreadsFor
+    # am_dim_idx=None when the ThreadsFor should be omitted
+    # due to no actual change to the CollTiling.
+    am_dim_idx: Optional[int]
+    am_offset: int
+    am_box: int
+
+    def __post_init__(self):
+        # Compiled C string giving index of parallel loop "iteration"
+        assert isinstance(self.c_index, str)
+
+        # Pair of optional ints, giving [lo, hi) for c_index to test against.
+        # None means no test needed.
+        # This is intentionally separate from the lo, hi of the loop itself
+        # since this may be used for underhanded purposes in codegen.
+        lo, hi = self.static_bounds
+        assert lo is None or isinstance(lo, int)
+        assert hi is None or isinstance(hi, int)

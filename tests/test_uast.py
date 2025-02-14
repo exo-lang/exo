@@ -17,7 +17,6 @@ def to_uast(f):
         body,
         getsrcinfo,
         parent_scope=get_parent_scope(depth=2),
-        instr=("TEST", ""),
         as_func=True,
     )
     return parser.result()
@@ -121,4 +120,14 @@ def test_variable_lookup_name_error():
             f += 1
 
     with pytest.raises(ParseError, match="'xyzzy' undefined"):
+        to_uast(func)
+
+
+def test_call_not_a_proc():
+    fake_proc = 137.0
+
+    def func(f: f32):
+        fake_proc(f)
+
+    with pytest.raises(ParseError, match="procedure or InstrTemplate"):
         to_uast(func)

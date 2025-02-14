@@ -5,6 +5,7 @@ import inspect
 import re
 import sys
 import textwrap
+import warnings
 from collections import ChainMap
 
 from asdl_adt.validators import ValidationError
@@ -12,8 +13,14 @@ from asdl_adt.validators import ValidationError
 from ..API_types import ProcedureBase
 from ..core.configs import Config
 from ..core.LoopIR import UAST, PAST, front_ops
+from ..core.LoopIR import uast_prim_types as _prim_types
 from ..core.prelude import *
 from ..core.extern import Extern
+from ..core.memory import MemWin, AllocableMemWin, Memory, SpecialWindow
+from ..spork.base_with_context import BaseWithContext, is_if_holding_with
+from ..spork.loop_modes import LoopMode, loop_mode_dict
+from ..spork.sync_types import SyncType, fence_type, arrive_type, await_type
+from ..spork.timelines import Sync_tl, Instr_tl
 
 from typing import Any, Callable, Union, NoReturn, Optional
 import copy
@@ -600,17 +607,7 @@ _is_size = lambda x: isinstance(x, pyast.Name) and x.id == "size"
 _is_index = lambda x: isinstance(x, pyast.Name) and x.id == "index"
 _is_bool = lambda x: isinstance(x, pyast.Name) and x.id == "bool"
 _is_stride = lambda x: isinstance(x, pyast.Name) and x.id == "stride"
-
-_prim_types = {
-    "R": UAST.Num(),
-    "f16": UAST.F16(),
-    "f32": UAST.F32(),
-    "f64": UAST.F64(),
-    "i8": UAST.INT8(),
-    "ui8": UAST.UINT8(),
-    "ui16": UAST.UINT16(),
-    "i32": UAST.INT32(),
-}
+_is_barrier = lambda x: isinstance(x, pyast.Name) and x.id == "barrier"
 
 
 class Parser:
@@ -622,7 +619,6 @@ class Parser:
         is_fragment=False,
         as_func=False,
         as_config=False,
-        instr=None,
         is_quote_stmt=False,
         is_quote_expr=False,
     ):
@@ -647,7 +643,7 @@ class Parser:
             self.AST = UAST
 
         if as_func:
-            self._cached_result = self.parse_fdef(module_ast, instr=instr)
+            self._cached_result = self.parse_fdef(module_ast)
         elif as_config:
             self._cached_result = self.parse_cls(module_ast)
         elif is_fragment:
@@ -743,7 +739,7 @@ class Parser:
     # - # - # - # - # - # - # - # - # - # - # - # - # - # - # - #
     # structural parsing rules...
 
-    def parse_fdef(self, fdef, instr=None):
+    def parse_fdef(self, fdef):
         assert isinstance(fdef, pyast.FunctionDef)
 
         fargs = fdef.args
@@ -810,8 +806,6 @@ class Parser:
             a = a.test
             preds.append(self.parse_expr(a))
 
-        if instr:
-            instr = UAST.instr(*instr)
         # parse the procedure body
         body = self.parse_stmt_block(pyast_body)
         return UAST.proc(
@@ -819,7 +813,6 @@ class Parser:
             args=args,
             preds=preds,
             body=body,
-            instr=instr,
             srcinfo=self.getsrcinfo(fdef),
         )
 
@@ -916,10 +909,23 @@ class Parser:
                 )
             return UAST.Stride(), None
 
-        else:
-            typ = self.parse_num_type(typ_node, is_arg=True)
+        elif _is_barrier(typ_node):
+            self.err("Cannot pass barrier as argument")
 
-            mem = self.eval_expr(mem_node) if mem_node else None
+        else:
+            typ = self.parse_alloc_type(typ_node, is_arg=True)
+
+            if mem_node:
+                mem = self.eval_expr(mem_node)
+                if not isinstance(mem, type) or not (
+                    issubclass(mem, Memory) or issubclass(mem, SpecialWindow)
+                ):
+                    self.err(
+                        node,
+                        f"annotation @ {mem} needs to be subclass of Memory or SpecialWindow",
+                    )
+            else:
+                mem = None
 
             return typ, mem
 
@@ -930,13 +936,47 @@ class Parser:
             # x[n] @ lib.scratch
             mem = self.eval_expr(node.right)
             node = node.left
+            if not isinstance(mem, type):
+                self.err(
+                    node,
+                    f"expected @mem annotation to evaluate to Python type object, not {type(mem)}",
+                )
+            elif not issubclass(mem, AllocableMemWin):
+                self.err(node, f"@{mem.__name__} must be AllocableMemWin subclass")
         else:
             mem = None
-        typ = self.parse_num_type(node)
+        typ = self.parse_alloc_type(node)
+        if typ is None:
+            # Catch-all error, shouldn't be handled here, but we do as a last
+            # resort so we don't give an incomprehensible error.
+            self.err(node, f"Failed to parse as allocation (name : type @ mem)")
         return typ, mem
 
-    def parse_num_type(self, node, is_arg=False):
-        if isinstance(node, pyast.Subscript):
+    def parse_alloc_type(self, node, is_arg=False):
+        """Parse numeric type or barrier type
+
+        barrier type is of syntax barrier(guarded_by)[hi...], where
+        (guarded_by) and [hi...] are both optional.
+
+        """
+        if isinstance(node, pyast.Call):
+            f = node.func
+            if not isinstance(f, pyast.Name) or f.id != "barrier":
+                self.err(node, "Only barrier type takes ()")
+            if node.keywords:
+                self.err(node, "Unexpected keyword parameters")
+            if len(node.args) != 1:
+                self.err(node, "type barrier(...) takes exactly 1 parameter")
+            a = node.args[0]
+            if isinstance(a, pyast.Name):
+                try:
+                    guarded_by = self.exo_locals[a.id]
+                except KeyError:
+                    self.err(node, f"barrier({a.id}): unknown {a.id}")
+            else:
+                self.err(node, "type barrier(...) takes a single identifier argument")
+            return UAST.Barrier(guarded_by, [])
+        elif isinstance(node, pyast.Subscript):
             if isinstance(node.value, pyast.List):
                 if is_arg is not True:
                     self.err(
@@ -965,7 +1005,7 @@ class Parser:
                 typ = _prim_types[node.value.id]
                 is_window = False
             else:
-                typ = self.parse_num_type(node.value)
+                typ = self.parse_alloc_type(node.value)
                 is_window = False
 
             if sys.version_info[:3] >= (3, 9):
@@ -989,10 +1029,17 @@ class Parser:
 
             # convert the dimension list into a full tensor type
             exprs = [self.parse_expr(idx) for idx in dims]
-            typ = UAST.Tensor(exprs, is_window, typ)
+            if typ.shape():
+                self.err(node, "Use TypeName[x,y,...], not TypeName[x][y]...")
+            elif isinstance(typ, UAST.Barrier):
+                typ = typ.update(hi=exprs)
+            else:
+                typ = UAST.Tensor(exprs, is_window, typ)
 
             return typ
 
+        elif isinstance(node, pyast.Name) and node.id == "barrier":
+            return UAST.Barrier(None, [])
         elif isinstance(node, pyast.Name) and node.id in _prim_types:
             return _prim_types[node.id]
         elif isinstance(node, pyast.Name) and (
@@ -1007,8 +1054,10 @@ class Parser:
                 unquoted = unquote_eval_result[0]
                 if isinstance(unquoted, str) and unquoted in _prim_types:
                     return _prim_types[unquoted]
-                else:
-                    self.err(node, "Unquote computation did not yield valid type")
+            if isinstance(node, pyast.Name):
+                self.err(node, f"{node.id} not a valid type name")
+            else:
+                self.err(node, "Unquote computation did not yield valid type")
 
     def parse_stmt_block(self, stmts):
         assert isinstance(stmts, list)
@@ -1016,6 +1065,7 @@ class Parser:
         rstmts = []
 
         for s in stmts:
+            # ----- With statement parsing
             if isinstance(s, pyast.With):
                 if (
                     len(s.items) == 1
@@ -1041,7 +1091,8 @@ class Parser:
                         lambda stmts: rstmts.extend(stmts),
                     )
                 else:
-                    self.err(s, "Expected unquote")
+                    self.parse_spork_with(s, rstmts)
+
             elif isinstance(s, pyast.Expr) and isinstance(s.value, pyast.Set):
                 if len(s.value.elts) != 1:
                     self.err(s, "Unquote must take 1 argument")
@@ -1254,65 +1305,9 @@ class Parser:
 
                 rstmts.append(self.AST.If(cond, body, orelse, self.getsrcinfo(s)))
 
-            # ----- Sub-routine call parsing
-            elif (
-                isinstance(s, pyast.Expr)
-                and isinstance(s.value, pyast.Call)
-                and isinstance(s.value.func, pyast.Name)
-            ):
-                if self.is_fragment:
-                    # handle stride expression
-                    if s.value.func.id == "stride":
-                        if (
-                            len(s.value.keywords) > 0
-                            or len(s.value.args) != 2
-                            or not isinstance(s.value.args[0], pyast.Name)
-                            or not isinstance(s.value.args[1], pyast.Constant)
-                            or not isinstance(s.value.args[1].value, int)
-                        ):
-                            self.err(
-                                s.value,
-                                "expected stride(...) to "
-                                "have exactly 2 arguments: the identifier "
-                                "for the buffer we are talking about "
-                                "and an integer specifying which dimension",
-                            )
-
-                        name = s.value.args[0].id
-                        dim = int(s.value.args[1].value)
-
-                        rstmts.append(
-                            PAST.StrideExpr(name, dim, self.getsrcinfo(s.value))
-                        )
-                    else:
-                        if len(s.value.keywords) > 0:
-                            self.err(
-                                s.value,
-                                "cannot call procedure() " "with keyword arguments",
-                            )
-
-                        args = [self.parse_expr(a) for a in s.value.args]
-
-                        rstmts.append(
-                            PAST.Call(s.value.func.id, args, self.getsrcinfo(s.value))
-                        )
-                else:
-                    f = self.eval_expr(s.value.func)
-                    if not isinstance(f, ProcedureBase):
-                        self.err(
-                            s.value.func, f"expected called object " "to be a procedure"
-                        )
-
-                    if len(s.value.keywords) > 0:
-                        self.err(
-                            s.value, "cannot call procedure() " "with keyword arguments"
-                        )
-
-                    args = [self.parse_expr(a) for a in s.value.args]
-
-                    rstmts.append(
-                        UAST.Call(f.INTERNAL_proc(), args, self.getsrcinfo(s.value))
-                    )
+            # ----- SyncStmt or Sub-routine call parsing
+            elif parsed := self.parse_if_call(s):
+                rstmts.append(parsed)
 
             # ----- Pass no-op parsing
             elif isinstance(s, pyast.Pass):
@@ -1332,34 +1327,176 @@ class Parser:
                     "predicate assert should happen at the beginning " "of a function",
                 )
             else:
-                self.err(s, "unsupported type of statement")
+                self.err(s, f"unsupported type of statement {type(s).__name__}")
 
         return rstmts
 
+    def parse_if_call(self, s):
+        """Return None if s doesn't look like a function call, otherwise return parsed"""
+        if isinstance(s, pyast.Expr):
+            s = s.value
+
+        # Parse trailing barrier expressions, if any.
+        barriers = []
+        while isinstance(s, pyast.BinOp):
+            op = s.op
+            if not isinstance(op, pyast.RShift):
+                self.err(
+                    s, f"Only >> BinOp supported at top level, not {type(op).__name__}"
+                )
+            s, bar = s.left, self.parse_barrier_expr(s.right)
+            barriers = [bar] + barriers  # O(n^2) but I expect few barriers
+
+        # Parse call, or quit if not
+        if isinstance(s, pyast.Call) and isinstance(s.func, pyast.Name):
+            fname = s.func.id
+        else:
+            if barriers:
+                self.err(s, "Only SyncStmt and Call can take >> trailing barrier exprs")
+            return None
+
+        # Parsing special sync statement
+        if fname == "Arrive":
+            sync_stmt = self.parse_SyncStmt_call(s)
+            sync_stmt = sync_stmt.update(barriers=barriers)
+            return sync_stmt
+        elif fname == "Fence" or fname == "Await":
+            sync_stmt = self.parse_SyncStmt_call(s)
+            if barriers:
+                self.err(s, f"{fname} cannot take >> trailing barrier exprs")
+            return sync_stmt
+
+        # Parsing ordinary sub-routine
+        elif self.is_fragment:
+            # handle stride expression
+            if fname == "stride":
+                if (
+                    len(s.keywords) > 0
+                    or len(s.args) != 2
+                    or not isinstance(s.args[0], pyast.Name)
+                    or not isinstance(s.args[1], pyast.Constant)
+                    or not isinstance(s.args[1].value, int)
+                ):
+                    self.err(
+                        s,
+                        "expected stride(...) to "
+                        "have exactly 2 arguments: the identifier "
+                        "for the buffer we are talking about "
+                        "and an integer specifying which dimension",
+                    )
+
+                name = s.args[0].id
+                dim = int(s.args[1].value)
+
+                return PAST.StrideExpr(name, dim, self.getsrcinfo(s))
+            else:
+                if len(s.keywords) > 0:
+                    self.err(
+                        s,
+                        "cannot call procedure() " "with keyword arguments",
+                    )
+
+                args = [self.parse_expr(a) for a in s.args]
+
+                return PAST.Call(fname, args, self.getsrcinfo(s))
+        else:
+            f = self.eval_expr(s.func)
+            kwargs = {kw.arg: self.eval_expr(kw.value) for kw in s.keywords}
+            if isinstance(f, ProcedureBase):
+                if kwargs:
+                    self.err(s.func, "Cannot take keyword arguments")
+            else:
+                # circular import
+                from ..core.instr_class import InstrTemplate, InstrTemplateError
+
+                if isinstance(f, InstrTemplate):
+                    try:
+                        f = f(**kwargs)
+                    except InstrTemplateError as e:
+                        self.err(s.func, str(e), e)
+                else:
+                    self.err(
+                        s.func,
+                        f"expected called object to be a procedure or InstrTemplate",
+                    )
+
+            args = [self.parse_expr(a) for a in s.args]
+
+            if barriers:
+                if len(barriers) > 1:
+                    self.err(
+                        s.func,
+                        f"{f.name()} cannot have more than 1 trailing barrier expr",
+                    )
+                bar = barriers[0]
+            else:
+                bar = None
+
+            return UAST.Call(f.INTERNAL_proc(), args, bar, self.getsrcinfo(s))
+
+    # ----- With statement parsing for spork gpu (distinct from meta exo)
+    def parse_spork_with(self, s, rstmts):
+        assert isinstance(s, pyast.With)
+        self.push()
+        body = self.parse_stmt_block(s.body)
+        self.pop()
+
+        if len(s.items) != 1:
+            self.err(s, "expected only 1 withitem")
+        context_pyast = s.items[0].context_expr
+        if (
+            self.is_fragment
+            and isinstance(context_pyast, pyast.Name)
+            and context_pyast.id == "_"
+        ):
+            ctx = BaseWithContext()  # """hole"""
+        else:
+            # TODO this doesn't work when self.is_fragment is true.
+            assert not self.is_fragment
+            ctx = self.eval_expr(context_pyast)
+        if isinstance(ctx, BaseWithContext):
+            # XXX With statement disguised as If statement temporarily
+            cond = self.AST.Const(ctx, self.getsrcinfo(s))
+            new_stmt = self.AST.If(cond, body, [], self.getsrcinfo(s))
+            assert is_if_holding_with(new_stmt, self.AST)
+            rstmts.append(new_stmt)
+        else:
+            self.err(
+                s.items[0].context_expr,
+                f"Unsupported context type for with: {type(ctx)}",
+            )
+
     def parse_loop_cond(self, cond):
         if isinstance(cond, pyast.Call):
-            if isinstance(cond.func, pyast.Name) and cond.func.id in ("par", "seq"):
-                if len(cond.keywords) > 0:
+            if isinstance(cond.func, pyast.Name):
+                loop_mode_kwargs = {
+                    kw.arg: self.eval_expr(kw.value) for kw in cond.keywords
+                }
+                if len(cond.args) != 2:
                     self.err(
-                        cond, "par() and seq() does not support" " named arguments"
+                        cond,
+                        f"{cond.func.id}() expects exactly 2 positional arguments: lo, hi",
                     )
-                elif len(cond.args) != 2:
-                    self.err(cond, "par() and seq() expects exactly" " 2 arguments")
                 lo = self.parse_expr(cond.args[0])
                 hi = self.parse_expr(cond.args[1])
 
                 if self.is_fragment:
                     return lo, hi
                 else:
-                    if cond.func.id == "par":
-                        return UAST.ParRange(lo, hi, self.getsrcinfo(cond))
-                    else:
-                        return UAST.SeqRange(lo, hi, self.getsrcinfo(cond))
+                    try:
+                        loop_mode_type = loop_mode_dict[cond.func.id]
+                    except Exception as e:
+                        self.err(cond, f"unknown loop mode name {cond.func.id}", e)
+                    try:
+                        loop_mode = loop_mode_type(**loop_mode_kwargs)
+                    except Exception as e:
+                        self.err(cond, "failed to construct loop mode", e)
+                    return UAST.LoopRange(lo, hi, loop_mode, self.getsrcinfo(cond))
             else:
                 self.err(
                     cond,
                     "expected for loop condition to be in the form "
-                    "'par(...,...)' or 'seq(...,...)'",
+                    "'par(...,...)' or 'seq(...,...)' or 'cuda_*(...,...)'",
                 )
         else:
             e_hole = PAST.E_Hole(self.getsrcinfo(cond))
@@ -1497,6 +1634,19 @@ class Parser:
 
         return UAST.Interval(lo, hi, srcinfo)
 
+    def parse_barrier_expr(self, e):
+        # Parse WindowExpr-like expression and translate to BarrierExpr
+        parsed = self.parse_expr(e)
+        if isinstance(parsed, UAST.WindowExpr):
+            nm = parsed.name
+            idx = parsed.idx
+        elif isinstance(parsed, UAST.Read):
+            nm = parsed.name
+            idx = [UAST.Point(pt, pt.srcinfo) for pt in parsed.idx]
+        else:
+            self.err(e, f"expected window-like expression for barrier, not {e}")
+        return UAST.BarrierExpr(nm, idx, parsed.srcinfo)
+
     # parse expressions, including values, indices, and booleans
     def parse_expr(self, e):
         unquote_eval_result = self.try_eval_unquote(e)
@@ -1555,7 +1705,8 @@ class Parser:
                     )
 
                 if is_window:
-                    return UAST.WindowExpr(nm, idxs, self.getsrcinfo(e))
+                    # SpecialWindow handled by BinOp parser
+                    return UAST.WindowExpr(nm, idxs, None, self.getsrcinfo(e))
                 else:
                     return UAST.Read(nm, idxs, self.getsrcinfo(e))
 
@@ -1600,6 +1751,20 @@ class Parser:
 
         elif isinstance(e, pyast.BinOp):
             lhs = self.parse_expr(e.left)
+
+            # tensor[idxs...] @ SpecialWindow
+            if (
+                isinstance(e.op, pyast.MatMult)
+                and hasattr(self.AST, "WindowExpr")
+                and isinstance(lhs, self.AST.WindowExpr)
+            ):
+                special_window = self.eval_expr(e.right)
+                if not isinstance(special_window, type) or not issubclass(
+                    special_window, SpecialWindow
+                ):
+                    self.err(e, "expected @win with win a subclass of SpecialWindow")
+                return lhs.update(special_window=special_window)
+
             rhs = self.parse_expr(e.right)
             if isinstance(e.op, pyast.Add):
                 op = "+"
@@ -1755,3 +1920,62 @@ class Parser:
 
         else:
             self.err(e, "unsupported form of expression")
+
+    # Parse SyncStmt
+    def parse_SyncStmt_call(self, ast_call: pyast.Call):
+        assert isinstance(ast_call.func, pyast.Name)
+        func_id = ast_call.func.id
+
+        def eval_sync_tl(expr):
+            sync_tl = self.eval_expr(expr)
+            if not isinstance(sync_tl, Sync_tl):
+                note = ""
+                if isinstance(sync_tl, Instr_tl):
+                    # cuda_in_order{_instr} -> cuda_in_order
+                    note = f" (maybe {str(sync_tl)[:-6]}?)"
+                self.err(expr, f"Expected sync-tl, not {sync_tl}{note}")
+                return cpu_in_order
+            return sync_tl
+
+        for kw in ast_call.keywords:
+            name, eval_me = kw.arg, kw.value
+            raise ParseError(f"Unknown keyword '{name}' for {func_id}()")
+
+        if func_id == "Fence":
+            if len(ast_call.args) != 2:
+                self.err(ast_call, f"{func_id} expects 2 arguments")
+            sync_type = fence_type(
+                eval_sync_tl(ast_call.args[0]), eval_sync_tl(ast_call.args[1])
+            )
+            barriers = []
+
+        elif func_id == "Arrive":
+            n_args = len(ast_call.args)
+            if n_args == 1:
+                N = 1
+            elif n_args == 2:
+                N = self.eval_expr(ast_call.args[1])
+                if N != 1:
+                    raise ValueError("Expect N=1 for Arrive")
+            else:
+                self.err(ast_call, f"{func_id} expects 2 arguments")
+            if not isinstance(N, int):
+                self.err(ast_call, f"{func_id} N={N!r}; expected int")
+            sync_type = arrive_type(eval_sync_tl(ast_call.args[0]), N)
+            barriers = []
+            # Outer >> parser will fill barriers array.
+
+        elif func_id == "Await":
+            if len(ast_call.args) != 3:
+                self.err(ast_call, f"{func_id} expects 3 arguments")
+            N = self.eval_expr(ast_call.args[2])
+            if not isinstance(N, int):
+                self.err(ast_call, f"{func_id} N={N!r}; expected int")
+            sync_type = await_type(eval_sync_tl(ast_call.args[1]), N)
+            barriers = [self.parse_barrier_expr(ast_call.args[0])]
+
+        else:
+            assert 0
+
+        # TODO PAST.SyncStmt
+        return self.AST.SyncStmt(sync_type, barriers, self.getsrcinfo(ast_call))

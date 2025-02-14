@@ -1,11 +1,20 @@
 #include "test.h"
 
+/* Required by DRAM_STACK */
+#ifndef EXO_MEMORY_GLOBAL_DRAM_STACK
+#define EXO_MEMORY_GLOBAL_DRAM_STACK
 #include <stdio.h>
 #include <stdlib.h>
 
-#include <stdio.h>
-#include <stdlib.h>
-
+#endif
+/* Required by DRAM_STACK */
+#ifndef EXO_WIN_1I8C
+#define EXO_WIN_1I8C
+struct exo_win_1i8c {
+    const int8_t * const data;
+    const int_fast32_t strides[1];
+};
+#endif
 // foo(
 //     x : i8[10] @DRAM
 // )

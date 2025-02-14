@@ -1,0 +1,676 @@
+# Compiler: Generate exo_SyncState for CUDA C++ device functions, and
+# lowered Arrive/Await/Fence statements.
+
+from dataclasses import dataclass, field
+from enum import Enum, auto
+from typing import Callable, Dict, Optional, Type, List, Tuple
+
+from ..core.prelude import Sym, SrcInfo
+from ..core.LoopIR import LoopIR
+
+from .barrier_usage import BarrierUsage, SyncInfo
+from .coll_algebra import (
+    CollParam,
+    CollUnit,
+    clusterDim_param,
+    blockDim_param,
+    CollIndexExpr,
+    CollTiling,
+    cuda_thread,
+    cuda_warp,
+    cuda_warpgroup,
+    cuda_cta_in_cluster,
+    cuda_cluster,
+    cuda_agnostic_sub_cta,
+)
+from .cuda_device_setup_builder import (
+    CudaDeviceSetupBuilder,
+    CudaDeviceSetupInfo,
+)
+from .cuda_memory import (
+    CudaCommitGroup,
+    CudaMbarrier,
+    CudaClusterSync,
+)
+from .distributed_memory import DistributedAllocState, ThreadIter
+from .excut import InlinePtxGen, simple_ptx_c_lines, excut_c_str_id
+from .lowered_barrier import LoweredBarrierType, LoweredBarrier
+from .sync_types import SyncType
+from . import timelines
+from .timelines import Instr_tl, Sync_tl
+
+
+@dataclass(slots=True)
+class SyncStateBuilder:
+    _coll_env: Dict[CollParam, int]
+
+    # LoweredBarrier for each barrier lowered, indexed by name
+    lowered: Dict[Sym, LoweredBarrier] = field(default_factory=dict)
+
+    # C++ lines to join into exo_SyncState struct
+    SyncState_lines: List[str] = field(default_factory=list)
+
+    # Need to assign a name unique-ifying suffix for each barrier
+    # This is different than what the main LoopIR->C compiler does because the
+    # name needs to be unique throughout the full device function, i.e. it's not
+    # enough to be unique just within the barrier's scope in Exo object code.
+    _sym_counters: Dict[Sym, int] = field(default_factory=dict)
+
+    def add_barrier(
+        self,
+        name: Sym,
+        get_usage: Callable[[Sym], BarrierUsage],
+        coll_tilings: DistributedAllocState,
+        thread_iters: Dict[Sym, ThreadIter],
+        device_setup_builder: CudaDeviceSetupBuilder,
+    ):
+        usage = get_usage(name)
+        for info in (usage.get_arrive(), usage.get_await()):
+            if info is not None:
+                if not timelines.internal_cuda_async_proxy_detection.disjoint_full_timeline_set(
+                    info.sync_tl
+                ):
+                    device_setup_builder.require_proxy_fence()
+
+        srcinfo = usage.decl_stmt.srcinfo
+        barrier_mechanism = usage.barrier_mechanism
+        suffix = self._assign_suffix(name)
+        if usage.is_fence():
+            L1 = usage.get_arrive().sync_tl
+            if L1 == timelines.wgmma_fence_1:
+                self.add_wgmma_fence(name, usage, coll_tilings, thread_iters, suffix)
+            else:
+                self.add_garden_variety_or_cluster_sync(
+                    name, usage, coll_tilings, thread_iters, suffix, False
+                )
+        elif issubclass(barrier_mechanism, CudaMbarrier):
+            self.add_mbarrier(
+                name,
+                get_usage,
+                coll_tilings,
+                thread_iters,
+                suffix,
+                device_setup_builder,
+            )
+        elif issubclass(barrier_mechanism, CudaCommitGroup):
+            self.add_commit_group(name, usage, coll_tilings, thread_iters, suffix)
+        elif issubclass(barrier_mechanism, CudaClusterSync):
+            self.add_garden_variety_or_cluster_sync(
+                name, usage, coll_tilings, thread_iters, suffix, True
+            )
+        else:
+            raise TypeError(
+                f"{srcinfo}: {barrier_mechanism.name()} "
+                f"not supported in CUDA device function"
+            )
+
+    def add_wgmma_fence(
+        self,
+        name: Sym,
+        usage: BarrierUsage,
+        coll_tilings: DistributedAllocState,
+        thread_iters: Dict[Sym, ThreadIter],
+        suffix: str,
+    ):
+        Arrive = usage.get_arrive()
+        Await = usage.get_await()
+        L1 = Arrive.sync_tl
+        L2 = Await.sync_tl
+        srcinfo = Arrive.get_srcinfo()
+        assert L1 == timelines.wgmma_fence_1
+        if L2 != timelines.wgmma_fence_2:
+            raise ValueError(
+                f"{srcinfo}: wgmma fence needs second sync-tl wgmma_fence_2"
+            )
+
+        coll_tiling = coll_tilings.get_arrive()
+        # Should be the case for a Fence
+        assert coll_tiling is coll_tilings.get_await()
+
+        if msg := coll_tiling.unit_mismatch(cuda_warpgroup, self._coll_env):
+            raise ValueError(
+                f"{srcinfo}: wgmma fence must be executed by a warpgroup: {msg}"
+            )
+
+        lowered = LoweredBarrier(False, LoweredBarrierType.wgmma_fence)
+        lowered.codegen_sync_stmt = lambda _: simple_ptx_c_lines(
+            "wgmma.fence.sync.aligned"
+        )
+        self.lowered[name] = lowered
+
+    def add_garden_variety_or_cluster_sync(
+        self,
+        name: Sym,
+        usage: BarrierUsage,
+        coll_tilings: DistributedAllocState,
+        thread_iters: Dict[Sym, ThreadIter],
+        suffix: str,
+        force_cluster_sync: bool,
+    ):
+        """Do up to 3 things
+
+        - wait_all if first sync-tl includes Sm80_cp_async
+        - barrier arrive/await if more than 1 thread
+        - fence.proxy.async if second sync-tl includes any async proxy
+
+        Q: should we have a special case for generic->wgmma fence in a warpgroup?
+        i.e. if 128 threads generate input data for the wgmma, then issue the wgmma,
+        is it required to synchronize the threads?
+
+        """
+
+        Arrive = usage.get_arrive()
+        Await = usage.get_await()
+        L1 = Arrive.sync_tl
+        L2 = Await.sync_tl
+        srcinfo = usage.get_srcinfo()
+        clusterDim = self._clusterDim()
+        coll_tiling = coll_tilings.get_arrive()
+        await_coll_tiling = coll_tilings.get_await()
+
+        mismatch_messages = []
+
+        def match_unit(unit):
+            if msg := coll_tiling.unit_mismatch(unit, self._coll_env):
+                mismatch_messages.append(msg)
+                return False
+            return True
+
+        if force_cluster_sync:
+            is_cluster_sync = True
+            if msg := coll_tiling.unit_mismatch(cuda_cluster, self._coll_env):
+                raise ValueError(
+                    f"{srcinfo}: Arrive for {name} must be by full cluster ({msg})"
+                )
+            # If the Arrive passed, then so should the Await, since the
+            # guarding requirement enforces identical coll units.
+            assert CudaClusterSync.traits().requires_guarding
+            assert not await_coll_tiling.unit_mismatch(cuda_cluster, self._coll_env)
+        else:
+            is_cluster_sync = self._clusterDim() > 1 and match_unit(cuda_cluster)
+            assert (
+                coll_tiling is await_coll_tiling
+            ), "Expected Fence to have identical Arrive/Await tiling"
+        if is_cluster_sync:
+            # solitary=True as there's only one built-in cluster sync per cluster
+            lowered = LoweredBarrier(True, LoweredBarrierType.cluster_sync)
+        else:
+            lowered = LoweredBarrier(False, LoweredBarrierType.cluster_sync)
+        arrive_lines = []
+        await_lines = []
+
+        # Insert wait for sm_80 cp.async if needed.
+        if timelines.cuda_in_order.implements_first(L1):
+            pass
+        elif timelines.Sm80_generic.implements_first(L1):
+            arrive_lines += simple_ptx_c_lines("cp.async.wait_all")
+        else:
+            raise ValueError(
+                f"{srcinfo}: Fence first sync-tl "
+                f"{L1} not supported (we allow Sm80_generic)"
+            )
+
+        # Insert cross-thread sync if needed
+        if is_cluster_sync:
+            arrive_lines.extend(simple_ptx_c_lines("barrier.cluster.arrive.aligned"))
+            await_lines.extend(simple_ptx_c_lines("barrier.cluster.wait.aligned"))
+        elif match_unit(cuda_thread):
+            pass
+        elif match_unit(cuda_warp):
+            arrive_lines.append("__syncwarp();")
+            action_id = excut_c_str_id("__syncwarp")
+            arrive_lines.append(f"exo_excutLog.log_action({action_id}, 0, __LINE__);")
+        elif match_unit(cuda_cta_in_cluster):
+            # We need to use barrier.cta.sync, not bar or syncthreads
+            # due to divergent control flow in "full CTA" code
+            # if there's [named] warp specialization.
+            arrive_lines.extend(simple_ptx_c_lines("barrier.cta.sync", 0))
+        else:
+            raise ValueError(
+                "\n".join(
+                    [f"{srcinfo}: Fence collective unit matched no known case"]
+                    + mismatch_messages
+                )
+            )
+
+        # Insert fence.proxy.async if needed
+        if timelines.cuda_temporal.implements_first(L1):
+            # No values from the first full visibility set are being made
+            # visible so no proxy fence regardless of second sync timeline.
+            proxy_fence = False
+        elif timelines.cuda_in_order.implements_second(L2):
+            # Second sync-tl is purely in generic proxy.
+            pass
+        elif timelines.Sm80_generic.implements_second(L2):
+            raise ValueError(
+                "Sm80_cp_async not supported as second sync-tl; use cuda_in_order"
+            )
+        elif timelines.cuda_generic_and_async_proxy.implements_second(L2):
+            await_lines.extend(simple_ptx_c_lines("fence.proxy.async"))
+        else:
+            raise ValueError(
+                f"{srcinfo}: Fence second sync-tl {L2} not "
+                f"supported (at most cuda_generic_and_async_proxy)"
+            )
+
+        def codegen(sync_stmt: LoopIR.SyncStmt):
+            sync_type = sync_stmt.sync_type
+            if sync_type.is_arrive():
+                return arrive_lines
+            elif sync_type.is_await():
+                assert sync_type.N == 0, "should have been flagged earlier"
+                return await_lines
+            else:
+                return arrive_lines + await_lines
+
+        lowered.codegen_sync_stmt = codegen
+        self.lowered[name] = lowered
+
+    def add_mbarrier(
+        self,
+        name: Sym,
+        get_usage: Callable[[Sym], BarrierUsage],
+        coll_tilings: DistributedAllocState,
+        thread_iters: Dict[Sym, ThreadIter],
+        suffix: str,
+        device_setup_builder: CudaDeviceSetupBuilder,
+    ):
+        usage = get_usage(name)
+
+        # Each queue barrier object (equiv, mbarrier ring buffer) must be
+        # resident in 1 CTA only. NB any Arrive/Await will do here.
+        if msg := coll_tilings.get_arrive().unit_mismatch(
+            cuda_agnostic_sub_cta, self._coll_env
+        ):
+            raise ValueError(
+                f"{usage.get_srcinfo()}: {name} must be distributed so each mbarrier is resident in 1 CTA only ({msg})"
+            )
+
+        lowered = LoweredBarrier(False, LoweredBarrierType.mbarrier)
+        nm_suffix = f"{suffix}_{name}"
+
+        # Translate N to number of trivial Awaits (skip mbarrier wait)
+        def get_n_skips(info: SyncInfo):
+            assert info.min_N == info.max_N
+            return ~info.min_N
+
+        # Calculate the size of the ring buffer (number of mbarriers)
+        # and CTA indices to XOR with (cluster feature)
+        n_skips = get_n_skips(usage.get_await())
+        cta_xor_list = coll_tilings.cta_xor_list(
+            self._blockDim(), thread_iters, usage.get_arrive()
+        )
+        ring = n_skips
+        names = [name]
+        # We have to look through the whole cycle of guarding mbarriers and sum up the number of skips.
+        guard_name = usage.guarded_by
+        while guard_name != name:
+            names.append(guard_name)
+            guard_usage = get_usage(guard_name)
+            ring += get_n_skips(guard_usage.get_await())
+            guard_name = guard_usage.guarded_by
+        if len(names) == 1:
+            # Needed for Arrive followed by Await to work, which is only
+            # allowed in the self-guarded case.
+            ring += 1
+        if ring == 0:
+            names_str = "; ".join(str(s) for s in names)
+            raise ValueError(
+                f"{usage.get_srcinfo()}: {names_str} must have some "
+                f"await with nonzero skips (e.g. set N = ~1)"
+            )
+
+        # Number of physical mbarriers is slice_count * ring, where
+        # slice_count is the number of logical Exo queue barrier objects per CTA
+        # (usually 1) and ring is the depth of the ring buffer.
+        slice_count = coll_tilings.codegen_slices_to_root(
+            self._blockDim(), thread_iters
+        )
+
+        # Need to be able to store values 0 through (ring-1)
+        ring_bits = (ring - 1).bit_length()
+        # Need to be able to count 0 to ring (inclusive) skips.
+        # This value will not be used if skipping is not actually enabled.
+        skip_bits = ring.bit_length()
+
+        # mbarrier allocator: record mbarriers to initialize.
+        num_per_cta = ring * slice_count
+        lines = self.SyncState_lines
+        arrive_count = coll_tilings.get_arrive().get_box_num_threads() * len(
+            cta_xor_list
+        )
+        smem_offset_name = device_setup_builder.add_mbarriers(
+            name, num_per_cta, arrive_count
+        )
+        lines.append(
+            f"// {name}: barrier @ CudaMbarrier, ring={ring}, slice_count={slice_count}"
+        )
+        lines.append(f"// num_per_cta={num_per_cta}; arrive_count={arrive_count}")
+
+        # black formatting will ruin the readability of the generated C++ code below
+        # fmt: off
+        def mbarrier_to_u32(lines, ringidx):
+            idx = f"(slice * {ring} + {ringidx})"
+            lines.append(f"  const auto mbarrier_u32 = exo_smemU32(exo_smem + {smem_offset_name} + 8*{idx});")
+
+        def generate_arrive():
+            info = usage.get_arrive()
+            sync_tl = info.sync_tl
+
+            if timelines.Sm80_cp_async.implements_first(sync_tl):
+                is_Sm80_cp_async = True
+            elif timelines.cuda_in_order.implements_first(sync_tl):
+                is_Sm80_cp_async = False
+            elif timelines.tcgen05_commit.implements_first(sync_tl):
+                assert 0, "Luca needs to implement this"
+            elif timelines.tma_to_smem_async.implements_first(sync_tl):
+                raise ValueError(
+                    f"{info.get_srcinfo()}: mbarrier Arrive sync-tl {sync_tl} "
+                    f"not supported: use cuda_temporal, and add trailing barriers to TMA instrs")
+            else:
+                raise ValueError(
+                    f"{info.get_srcinfo()}: mbarrier Arrive sync-tl {sync_tl} "
+                    f"not supported: need cuda_in_order, Sm80_cp_async, or tcgen05_commit")
+
+            lines = self.SyncState_lines
+            idx = f"ArriveIdx{nm_suffix}"
+            if ring_bits > 0:
+                lines.append(f"unsigned {idx} : {ring_bits} = 0;")
+            else:
+                lines.append(f"static constexpr unsigned {idx} = 0;  // Trivial size-1 ring buffer")
+            lines.append(f"EXO_CUDA_INLINE uint32_t Arrive{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {{")
+            mbarrier_to_u32(lines, idx);
+            lines.append(f"  if (enable) {{")
+
+            # Optional broadcast to other CTAs in cluster.
+            if len(cta_xor_list) > 1:
+                multicast = True
+                cta_or_cluster = "cluster"
+                lines.append(f"    const unsigned cta_rank = blockIdx.x % {self._clusterDim()};")
+            else:
+                multicast = False
+                assert cta_xor_list[0] == 0
+                cta_or_cluster = "cta"
+
+            # Issue arrives to each CTA (special code for 1-CTA case, so we
+            # don't break sm_80, and don't waste time translating addresses)
+            for cta_xor in cta_xor_list:
+                ptx_format = f"// Arrive{nm_suffix}\n"
+                if multicast:
+                    ptx_format += f"// cta_xor={cta_xor}\n"
+                if is_Sm80_cp_async:
+                    if cta_or_cluster != "cta":
+                        bad_stmt = usage.get_arrive().stmts[0]
+                        raise ValueError(f"{bad_stmt.srcinfo}: Sm80_cp_async mbarrier must be within 1 CTA (in {bad_stmt})")
+                    ptx_format += f"cp.async.mbarrier.arrive.noinc.shared::cta.b64 #0#;"
+                else:
+                    ptx_format += f"mbarrier.arrive.shared::{cta_or_cluster}.b64 _, #0#;"
+                ptx = InlinePtxGen(ptx_format, volatile=True)
+                if multicast:
+                    ptx.add_arg(f"exo_mapa_shared_cluster(mbarrier_u32, cta_rank ^ {cta_xor})",
+                                constraint="r", log_as="bits", brackets=True)
+                else:
+                    ptx.add_arg("mbarrier_u32", constraint="r", log_as="bits", brackets=True)
+                lines.extend(ptx.as_c_lines(py_format=False, tab="    "))
+            if ring_bits > 0:
+                lines.append(f"    // Advance ring buffer state")
+                lines.append(f"    {idx} = {idx} == {ring - 1} ? 0 : {idx} + 1;")
+            lines.append(f"  }}")
+            lines.append(f"  return mbarrier_u32;")
+            lines.append(f"}}")
+
+        def generate_await(L1):
+            info = usage.get_await()
+            L2 = info.sync_tl
+
+            if timelines.cuda_in_order.implements_second(L2):
+                proxy_fence = False
+            elif timelines.cuda_generic_and_async_proxy.implements_second(L2):
+                proxy_fence = True
+                if timelines.cuda_temporal.implements_first(L1):
+                    # No values from the first full visibility set are being made
+                    # visible so no proxy fence regardless of second sync timeline.
+                    # This is done afterwards, to check invalid L2 above first.
+                    proxy_fence = False
+                if timelines.tcgen05_commit.implements_first(L1):
+                    # tcgen05 actions are already in the async proxy, so no proxy fence.
+                    proxy_fence = False
+            else:
+                if L2 == timelines.wgmma_async:
+                    remark = "consider cuda_generic_and_async_proxy"
+                elif L2.implements_second(timelines.Sm80_cp_async):
+                    remark = "Sm80_cp_async not supported in second sync-tl; use cuda_in_order"
+                else:
+                    remark = "at most cuda_generic_and_async_proxy"
+                raise ValueError(
+                    f"{info.get_srcinfo()}: mbarrier Await sync-tl {L2} "
+                    f"not supported ({remark})")
+
+            lines = self.SyncState_lines
+            idx = f"AwaitIdx{nm_suffix}"
+            skips = f"Skips{nm_suffix}"
+            parity_bits = f"Parity{nm_suffix}"
+            enable_skips = n_skips != 0
+
+            # Define (register) exo_SyncState member variables: ring buffer
+            # index, parity bitfield, and, if needed, counter for inital skips.
+            if ring_bits > 0:
+                lines.append(f"unsigned {idx} : {ring_bits} = 0;")
+            else:
+                lines.append(f"static constexpr unsigned {idx} = 0;  // Trivial size-1 ring buffer")
+            lines.append(f"unsigned {parity_bits} : {ring} = 0;")
+            if enable_skips:
+                lines.append(f"unsigned {skips} : {skip_bits} = 0;")
+
+            # Define Await member function
+            # The initial_skips parameter is included iff skipping is enabled,
+            # as a last line of defense against future Exo compiler bugs.
+            if enable_skips:
+                lines.append(f"EXO_CUDA_INLINE void Await{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, int initial_skips = 0) {{")
+                mbarrier_to_u32(lines, idx)
+                lines.append(f"  const bool enable = {skips} >= initial_skips;")
+            else:
+                lines.append(f"EXO_CUDA_INLINE void Await{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice) {{")
+                mbarrier_to_u32(lines, idx)
+                lines.append(f"  const bool enable = true;")
+            comment = f"// Await{nm_suffix}"
+            lines.append(f"  if (enable) {{")
+            # sm_90 needed for try_wait; condition on __CUDA_ARCH__
+            def add_inline_ptx(try_or_test):
+                ptx_format = """{
+                    %s
+                    .reg.pred P1;
+                    EXO_BEFORE_WAIT:
+                    mbarrier.%s_wait.parity.acquire.cta.shared::cta.b64 P1, #0#;
+                    @P1 bra.uni EXO_WAIT_DONE;
+                    bra.uni EXO_BEFORE_WAIT;
+                    EXO_WAIT_DONE:
+                    }""" % (comment, try_or_test)
+                ptx = InlinePtxGen(ptx_format, volatile=True)
+                ptx.add_arg("mbarrier_u32", constraint="r", log_as="bits", brackets=True)
+                ptx.add_arg(f"1u & {parity_bits} >> {idx}", constraint="r", log_as="bits")
+                lines.extend(ptx.as_c_lines(py_format=False, tab="    "))
+            lines.append("#if __CUDA_ARCH__ < 900")
+            add_inline_ptx("test")
+            lines.append("#else")
+            add_inline_ptx("try")
+            lines.append("#endif")
+            lines.append(f"    // Flip parity")
+            lines.append(f"    {parity_bits} ^= 1u << {idx};")
+            if ring_bits > 0:
+                lines.append(f"    // Advance ring buffer state")
+                lines.append(f"    {idx} = {idx} == {ring - 1} ? 0 : {idx} + 1;")
+            if proxy_fence:
+                lines.append(f'    // Needed for first sync-tl {L1}; second sync-tl {L2}')
+                lines.extend(simple_ptx_c_lines("fence.proxy.async", tab="    "))
+            lines.append(f"  }}")
+            if enable_skips:
+                lines.append(f"  else {{")
+                lines.append(f"    // Await({name}) returns without waiting for mbarrier first <initial_skips> times")
+                lines.append(f"    {skips}++;")
+                lines.append(f"  }}")
+            lines.append(f"}}")
+
+        # Generate Arrive and Await syntax
+        # Awaits must be aware with the sync-tl
+        # of the matched Arrive
+        generate_arrive()
+        generate_await(usage.get_arrive().sync_tl)
+
+        # Arrive/Await lowers to call to generated exo_syncState member function.
+        Arrive_txt = f"Arrive{nm_suffix}(exo_smem, exo_excutLog"
+        def codegen(node: LoopIR.SyncStmt | LoopIR.BarrierExpr):
+            # Unpack BarrierExpr from SyncStmt
+            if isinstance(node, LoopIR.SyncStmt):
+                # Generating stateful Arrive/Await call.
+                e = node.barriers[0]
+                sync_type = node.sync_type
+                is_arg = False
+            else:
+                # Generating expression to pass as arg to TMA instr.
+                e = node
+                is_arg = True
+            assert isinstance(e, LoopIR.BarrierExpr)
+
+            # The purpose of this is to generate an expression of threadIdx.x
+            # to select between mbarriers in the same CTA
+            # (niche usage ... I hope we test this).
+            # DICEY: in the chosen BarrierExpr, intervals lo:hi become None (ignored).
+            # These are distributed dims, which correspond to CTA-in-cluster dimensions,
+            # which codegen_slices_to_root will ignore anyway due to
+            # hi_thread_pitch=blockDim.
+            iter_syms = [None if multicast else idx.pt.name for multicast, idx in zip(e.multicast_flags(), e.idx)]
+            slice = coll_tilings.codegen_slices_to_root(self._blockDim(), thread_iters, iter_syms)
+
+            if is_arg:
+                return f"exo_syncState.{Arrive_txt}, {slice}, 0)"
+            elif sync_type.is_arrive():
+                assert sync_type.N == 1
+                lines = []
+                for e in node.barriers:
+                    cta_mask = coll_tilings.codegen_cta_mask(self._blockDim(), thread_iters, e)
+                    lines.append(f"// cta_mask: {cta_mask}")
+                lines.append(f"exo_syncState.{Arrive_txt}, {slice}, 1);")
+                return lines
+            else:
+                assert sync_type.is_await()
+                skips_arg = ""
+                if skips := ~sync_type.N:
+                    assert skips > 0, "should have been caught by BarrierUsageAnalysis"
+                    skips_arg = f", {skips}"
+                return [f"exo_syncState.Await{nm_suffix}(exo_smem, exo_excutLog, {slice}{skips_arg});"]
+        lowered.codegen_sync_stmt = codegen
+        lowered.codegen_barrier_arg = codegen
+        lowered.codegen_cta_mask = lambda e: coll_tilings.codegen_cta_mask(self._blockDim(), thread_iters, e)
+        self.lowered[name] = lowered
+        # fmt: on
+
+    def add_commit_group(
+        self,
+        name: Sym,
+        usage: BarrierUsage,
+        coll_tilings: DistributedAllocState,
+        thread_iters: Dict[Sym, ThreadIter],
+        suffix: str,
+    ):
+        # Commit groups
+        #
+        # Sm80_cp_async -> cuda_in_order; 1 thread
+        # tma_to_gmem_async -> cuda_generic_and_async_proxy; 32 threads
+        # wgmma_async -> cuda_generic_and_async_proxy; 128 threads
+        #
+        # Can fail due to
+        #   * unsupported first sync-tl
+        #   * incorrect second sync-tl given supported first sync-tl
+        #   * incorrect collective unit given supported first sync-tl
+
+        solitary = True
+        L1 = usage.get_arrive().sync_tl
+        L2 = usage.get_await().sync_tl
+
+        def check_coll_unit(coll_tiling, action_name, coll_unit):
+            if msg := coll_tiling.unit_mismatch(coll_unit, self._coll_env):
+                raise TypeError(  # XXX srcinfo should be of location
+                    f"{usage.get_srcinfo()}: {action_name} of CudaCommitGroup "
+                    f"{name} with Arrive({L1}) "
+                    f"expects collective unit {coll_unit}: {msg}"
+                )
+
+        def check_L2_coll_unit(expect_L2, coll_unit):
+            if not expect_L2.implements_second(L2):
+                raise TypeError(
+                    f"{usage.get_srcinfo()}: commit group "
+                    f"{name} with Arrive({L1}) "
+                    f"expects Await({expect_L2}), "
+                    f"not {L2} (wrong second sync-tl)"
+                )
+            check_coll_unit(coll_tilings.get_arrive(), "Arrive", coll_unit)
+            check_coll_unit(coll_tilings.get_await(), "Await", coll_unit)
+
+        if timelines.Sm80_cp_async.implements_first(L1):
+            # sm_80 non-bulk cp.async
+            check_L2_coll_unit(timelines.cuda_in_order, cuda_thread)
+            lowered = LoweredBarrier(solitary, LoweredBarrierType.Sm80_commit_group)
+            arrive_instr = "cp.async.commit_group"
+            await_instr = "cp.async.wait_group"
+        elif timelines.tma_to_gmem_async.implements_first(L1):
+            # sm_90a bulk cp.async SMEM->GMEM (warp)
+            # NB PTX docs describe this as a thread instr but the hardware reality
+            # is this is a warp-level instruction, because all threads in the
+            # warp share the same "commit group" state.
+            # TBH this may be the case for Sm80_cp_async as well (???)
+            check_L2_coll_unit(timelines.cuda_generic_and_async_proxy, cuda_warp)
+            lowered = LoweredBarrier(
+                solitary, LoweredBarrierType.tma_to_gmem_commit_group
+            )
+            arrive_instr = "cp.async.bulk.commit_group"
+            await_instr = "cp.async.bulk.wait_group"
+        elif timelines.wgmma_async.implements_first(L1):
+            # sm_90a wgmma; note unit is now warpgroup and not a single thread.
+            check_L2_coll_unit(timelines.cuda_generic_and_async_proxy, cuda_warpgroup)
+            lowered = LoweredBarrier(solitary, LoweredBarrierType.wgmma_commit_group)
+            arrive_instr = "wgmma.commit_group.sync.aligned"
+            await_instr = "wgmma.wait_group.sync.aligned"
+        else:
+            raise TypeError(
+                f"{usage.get_srcinfo()}: {name} @ CudaCommitGroup "
+                f"does not support Arrive({L1}) (wrong first sync-tl)"
+            )
+
+        def codegen(s: LoopIR.SyncStmt):
+            sync_type = s.sync_type
+            assert sync_type.is_split()
+            if sync_type.is_arrive():
+                assert (
+                    sync_type.N == 1
+                ), "should have been flagged by BarrierUsageAnalysis"
+                lowered_arrive = simple_ptx_c_lines(arrive_instr)
+                return lowered_arrive
+            else:
+                assert (
+                    sync_type.N >= 0
+                ), "should have been flagged by BarrierUsageAnalysis"
+                return simple_ptx_c_lines(await_instr, sync_type.N)
+
+        lowered.codegen_sync_stmt = codegen
+        self.lowered[name] = lowered
+
+    def generate_SyncState_body(self):
+        lines = []
+        for line in self.SyncState_lines:
+            if line:
+                lines.append("    " + line)
+        return "\n".join(lines)
+
+    def _assign_suffix(self, barrier_name):
+        assert isinstance(barrier_name, Sym)
+        count = self._sym_counters.get(barrier_name, 0)
+        self._sym_counters[barrier_name] = count + 1
+        suffix = str(count)
+        return suffix
+
+    def _blockDim(self):
+        return self._coll_env[blockDim_param]
+
+    def _clusterDim(self):
+        return self._coll_env[clusterDim_param]

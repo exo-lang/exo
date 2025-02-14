@@ -1,53 +1,50 @@
+import atexit
 import re
+import sys
 from collections import ChainMap, defaultdict
-from typing import List, Type
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Dict, List, Tuple, Type, Optional, Union, Set
 
 from asdl_adt import ADT, validators
 
+from ..API_types import ExoType
 from .extern import Extern
 from .configs import Config
-from .memory import Memory
-from .prelude import Sym, SrcInfo, extclass
+from .instr_info import InstrInfo
+from .memory import (
+    DRAM,
+    MemWin,
+    AllocableMemWin,
+    Memory,
+    SpecialWindow,
+    MemGlobalC,
+    MemIncludeC,
+)
+
+from .prelude import (
+    Sym,
+    SrcInfo,
+    extclass,
+    Identifier,
+    IdentifierOrHole,
+    Operator,
+    comparison_ops,
+    arithmetic_ops,
+    logical_ops,
+    front_ops,
+    ScalarInfo,
+)
+
+from ..spork.timelines import Instr_tl, cpu_in_order_instr, Sync_tl
+from ..spork.base_with_context import BaseWithContext
+from ..spork.coll_algebra import CollUnit, standalone_thread
+from ..spork.loop_modes import LoopMode
+from ..spork.sync_types import SyncType, fence_type
 
 
-# --------------------------------------------------------------------------- #
-# Validated string subtypes
-# --------------------------------------------------------------------------- #
-
-
-class Identifier(str):
-    _valid_re = re.compile(r"^(?:_\w|[a-zA-Z])\w*$")
-
-    def __new__(cls, name):
-        name = str(name)
-        if Identifier._valid_re.match(name):
-            return super().__new__(cls, name)
-        raise ValueError(f"invalid identifier: {name}")
-
-
-class IdentifierOrHole(str):
-    _valid_re = re.compile(r"^[a-zA-Z_]\w*$")
-
-    def __new__(cls, name):
-        name = str(name)
-        if IdentifierOrHole._valid_re.match(name):
-            return super().__new__(cls, name)
-        raise ValueError(f"invalid identifier: {name}")
-
-
-comparision_ops = {"<", ">", "<=", ">=", "=="}
-arithmetic_ops = {"+", "-", "*", "/", "%"}
-logical_ops = {"and", "or"}
-
-front_ops = comparision_ops | arithmetic_ops | logical_ops
-
-
-class Operator(str):
-    def __new__(cls, op):
-        op = str(op)
-        if op in front_ops:
-            return super().__new__(cls, op)
-        raise ValueError(f"invalid operator: {op}")
+# TODO fix typo...
+comparision_ops = comparison_ops
 
 
 # --------------------------------------------------------------------------- #
@@ -65,34 +62,33 @@ module LoopIR {
              instr?  instr,
              srcinfo srcinfo )
 
-    instr  = ( string c_instr,
-               string c_global )
-
     fnarg  = ( sym     name,
                type    type,
-               mem?    mem,
+               memwin? mem,
                srcinfo srcinfo )
 
     stmt = Assign( sym name, type type, expr* idx, expr rhs )
          | Reduce( sym name, type type, expr* idx, expr rhs )
          | WriteConfig( config config, string field, expr rhs )
          | Pass()
+           -- Fence: barriers[0] is internal name of fence
+           -- Arrive: barriers: List[BarrierExpr]
+           -- Await: barriers = List[BarrierExpr] of length 1
+         | SyncStmt( sync_type sync_type, expr* barriers )
          | If( expr cond, stmt* body, stmt* orelse )
          | For( sym iter, expr lo, expr hi, stmt* body, loop_mode loop_mode )
-         | Alloc( sym name, type type, mem mem )
-         | Free( sym name, type type, mem mem )
-         | Call( proc f, expr* args )
-         | WindowStmt( sym name, expr rhs )
+         | Alloc( sym name, type type, allocable mem )
+         | Free( sym name, type type, allocable mem )
+         | Call( proc f, expr* args, expr? trailing_barrier_expr )
+         | WindowStmt( sym name, expr rhs, special_window? special_window )
          attributes( srcinfo srcinfo )
-
-    loop_mode = Seq()
-                | Par()
 
     expr = Read( sym name, expr* idx )
          | Const( object val )
          | USub( expr arg )  -- i.e.  -(...)
          | BinOp( binop op, expr lhs, expr rhs )
          | Extern( extern f, expr* args )
+         | BarrierExpr( sym name, w_access* idx ) -- Should we replace with WindowExpr alone?
          | WindowExpr( sym name, w_access* idx )
          | StrideExpr( sym name, int dim )
          | ReadConfig( config config, string field )
@@ -104,6 +100,7 @@ module LoopIR {
              attributes( srcinfo srcinfo )
 
     type = Num()
+         | BF16()
          | F16()
          | F32()
          | F64()
@@ -128,6 +125,9 @@ module LoopIR {
          -- still refer to the original Tensor
          | WindowType( type src_type, type as_tensor,
                        sym src_buf, w_access *idx )
+         -- Spork (Exo-GPU) extensions
+         | WithContext()
+         | Barrier( sym? guarded_by, expr* hi )
 
     -- Dense tensor: Tensor(is_window = False)
     -- Window parameter (of proc): Tensor(is_window = True)
@@ -140,15 +140,21 @@ module LoopIR {
 }""",
     ext_types={
         "name": validators.instance_of(Identifier, convert=True),
+        "instr": InstrInfo,
         "sym": Sym,
-        "mem": Type[Memory],
+        "memwin": Type[MemWin],
+        "allocable": Type[AllocableMemWin],
+        "special_window": Type[SpecialWindow],
         "extern": Extern,
         "config": Config,
         "binop": validators.instance_of(Operator, convert=True),
         "srcinfo": SrcInfo,
+        "loop_mode": LoopMode,
+        "sync_type": SyncType,
     },
     memoize={
         "Num",
+        "BF16",
         "F16",
         "F32",
         "F64",
@@ -176,15 +182,11 @@ module UAST {
                 fnarg*          args,
                 expr*           preds,
                 stmt*           body,
-                instr?          instr,
                 srcinfo         srcinfo )
-
-    instr   = ( string          c_instr,
-                string          c_global )
 
     fnarg   = ( sym             name,
                 type            type,
-                mem?            mem,
+                memwin?         mem,
                 srcinfo         srcinfo )
 
     stmt    = Assign  ( sym name, expr* idx, expr rhs )
@@ -192,10 +194,11 @@ module UAST {
             | WriteConfig ( config config, string field, expr rhs )
             | FreshAssign( sym name, expr rhs )
             | Pass    ()
+            | SyncStmt( sync_type sync_type, expr* barriers )
             | If      ( expr cond, stmt* body,  stmt* orelse )
             | For     ( sym iter,  expr cond,   stmt* body )
-            | Alloc   ( sym name, type type, mem? mem )
-            | Call    ( loopir_proc f, expr* args )
+            | Alloc   ( sym name, type type, allocable? mem )
+            | Call    ( loopir_proc f, expr* args, expr? trailing_barrier_expr )
             attributes( srcinfo srcinfo )
 
     expr    = Read    ( sym name, expr* idx )
@@ -203,10 +206,10 @@ module UAST {
             | USub    ( expr arg ) -- i.e.  -(...)
             | BinOp   ( op op, expr lhs, expr rhs )
             | Extern( extern f, expr* args )
-            | WindowExpr( sym name, w_access* idx )
+            | BarrierExpr( sym name, w_access* idx )
+            | WindowExpr( sym name, w_access* idx, special_window? special_window )
             | StrideExpr( sym name, int dim )
-            | ParRange( expr lo, expr hi ) -- only use for loop cond
-            | SeqRange( expr lo, expr hi ) -- only use for loop cond
+            | LoopRange( expr lo, expr hi, loop_mode loop_mode ) -- only use for loop cond
             | ReadConfig( config config, string field )
             attributes( srcinfo srcinfo )
 
@@ -215,6 +218,7 @@ module UAST {
             attributes( srcinfo srcinfo )
 
     type    = Num   ()
+            | BF16()
             | F16   ()
             | F32   ()
             | F64   ()
@@ -228,19 +232,26 @@ module UAST {
             | Index ()
             | Stride()
             | Tensor( expr *hi, bool is_window, type type )
+            | WithContext()
+            | Barrier( sym? guarded_by, expr *hi )
 } """,
     ext_types={
         "name": validators.instance_of(Identifier, convert=True),
         "sym": Sym,
-        "mem": Type[Memory],
+        "memwin": Type[MemWin],
+        "allocable": Type[AllocableMemWin],
+        "special_window": Type[SpecialWindow],
         "extern": Extern,
         "config": Config,
         "loopir_proc": LoopIR.proc,
         "op": validators.instance_of(Operator, convert=True),
         "srcinfo": SrcInfo,
+        "loop_mode": LoopMode,
+        "sync_type": SyncType,
     },
     memoize={
         "Num",
+        "BF16",
         "F16",
         "F32",
         "F64",
@@ -261,6 +272,7 @@ module UAST {
 #   - used to specify pattern-matches
 # --------------------------------------------------------------------------- #
 
+# TODO Exo-GPU concepts basically don't exist in PAST
 PAST = ADT(
     """
 module PAST {
@@ -291,73 +303,9 @@ module PAST {
         "name": validators.instance_of(IdentifierOrHole, convert=True),
         "op": validators.instance_of(Operator, convert=True),
         "srcinfo": SrcInfo,
+        "sync_type": SyncType,
     },
 )
-
-
-# --------------------------------------------------------------------------- #
-# C Codegen AST
-# --------------------------------------------------------------------------- #
-
-CIR = ADT(
-    """
-module CIR {
-
-    expr    = Read    ( sym name, bool is_non_neg )
-            | Stride  ( sym name, int dim )
-            | Const   ( object val )
-            | BinOp   ( op op, expr lhs, expr rhs, bool is_non_neg )
-            | USub    ( expr arg, bool is_non_neg )
-
-} """,
-    ext_types={
-        "bool": bool,
-        "int": int,
-        "sym": Sym,
-        "op": validators.instance_of(Operator, convert=True),
-    },
-)
-
-
-# --------------------------------------------------------------------------- #
-# Extension methods
-# --------------------------------------------------------------------------- #
-
-
-@extclass(UAST.Tensor)
-@extclass(UAST.Num)
-@extclass(UAST.F16)
-@extclass(UAST.F32)
-@extclass(UAST.F64)
-@extclass(UAST.INT8)
-@extclass(UAST.UINT8)
-@extclass(UAST.UINT16)
-@extclass(UAST.INT32)
-def shape(t):
-    shp = t.hi if isinstance(t, UAST.Tensor) else []
-    return shp
-
-
-del shape
-
-
-@extclass(UAST.type)
-def basetype(t):
-    if isinstance(t, UAST.Tensor):
-        t = t.type
-    return t
-
-
-del basetype
-
-
-# make proc be a hashable object
-@extclass(LoopIR.proc)
-def __hash__(self):
-    return id(self)
-
-
-del __hash__
 
 
 # --------------------------------------------------------------------------- #
@@ -367,6 +315,7 @@ del __hash__
 
 class T:
     Num = LoopIR.Num
+    BF16 = LoopIR.BF16
     F16 = LoopIR.F16
     F32 = LoopIR.F32
     F64 = LoopIR.F64
@@ -382,8 +331,11 @@ class T:
     Error = LoopIR.Error
     Tensor = LoopIR.Tensor
     Window = LoopIR.WindowType
+    Barrier = LoopIR.Barrier
+    WithContextT = LoopIR.WithContext
     type = LoopIR.type
     R = Num()
+    bf16 = BF16()
     f16 = F16()
     f32 = F32()
     int8 = INT8()
@@ -401,79 +353,255 @@ class T:
     size = Size()
     stride = Stride()
     err = Error()
+    # Spork extensions
+    with_context = WithContextT()
+    barrier = LoopIR.Barrier(None, [])
+
+
+# str to UAST type instance (see ScalarInfo, it adds to this)
+uast_prim_types = {
+    "R": UAST.Num(),
+}
+
+
+# UAST to LoopIR non-parameterized types (see ScalarInfo, it adds to this)
+loopir_from_uast_metatype_table = {
+    UAST.Num: T.R,
+    UAST.Int: T.int,
+    UAST.Size: T.size,
+    UAST.Index: T.index,
+    UAST.Stride: T.stride,
+    UAST.Bool: T.bool,
+}
+
+# ScalarInfo.extclass adds to this
+uast_concrete_scalar_metatypes: Type[UAST.type] = []
+loopir_concrete_scalar_metatypes: Type[LoopIR.type] = []
+
+
+# ScalarInfo.extclass will override this for concrete scalar types
+@extclass(LoopIR.type)
+def scalar_info(t):
+    raise TypeError(f"No scalar_info for {t}")
+
+
+del scalar_info
+
+
+# To add new concrete scalar types, you have to add more entries
+# here, then unfortunately manually edit the LoopIR and UAST and T
+# and ExoType class definitions to add the type to the grammar.
+# fmt: off
+ScalarInfo.extclass(UAST.BF16(),        T.bf16,         ExoType.BF16,   "bf16",         "exo_bf16",     16)
+ScalarInfo.extclass(UAST.F16(),         T.f16,          ExoType.F16,    "f16",          "exo_f16",      16)
+ScalarInfo.extclass(UAST.F32(),         T.f32,          ExoType.F32,    "f32",          "float",        32)
+ScalarInfo.extclass(UAST.F64(),         T.f64,          ExoType.F64,    "f64",          "double",       64)
+ScalarInfo.extclass(UAST.INT8(),        T.i8,           ExoType.I8,     "i8",           "int8_t",       8)
+ScalarInfo.extclass(UAST.UINT8(),       T.ui8,          ExoType.UI8,    "ui8",          "uint8_t",      8)
+ScalarInfo.extclass(UAST.UINT16(),      T.ui16,         ExoType.UI16,   "ui16",         "uint16_t",     16)
+ScalarInfo.extclass(UAST.INT32(),       T.i32,          ExoType.I32,    "i32",          "int32_t",      32)
+# fmt: on
+
+
+# extclass for all concrete scalar types
+# Only define this after ScalarInfo.extclass populated needed tables.
+
+
+def extclass_LoopIR_concrete_scalars(f):
+    for t in loopir_concrete_scalar_metatypes:
+        f = extclass(t)(f)
+    return f
+
+
+def extclass_UAST_concrete_scalars(f):
+    for t in uast_concrete_scalar_metatypes:
+        f = extclass(t)(f)
+    return f
+
+
+# MemGlobalC will double-duty as a way to inject optional f16/bf16 typedefs.
+# This is not very well thought out.
+# Can be improved if we have to add more not-so-portable types besides f16/bf16.
+
+
+@extclass(LoopIR.type)
+def scalar_mem_global(t):
+    return None
+
+
+@extclass(T.BF16)
+def scalar_mem_global(t):
+    code = """#ifndef exo_bf16  /* Define before inclusion to override exo_bf16 */
+#ifdef __CUDACC__
+using exo_bf16 = __nv_bfloat16;
+#else
+typedef struct { short bits; } exo_bf16;
+#endif
+#endif
+"""
+    return MemGlobalC("exo_bf16", code, ())
+    # Crappy issue: we don't include cuda_fp16.h or cuda_bf16.h here, because
+    # MemGlobalC appears in extern "C", and using MemIncludeC will force the include
+    # even if cuda isn't used (which would force dependence on cuda toolkit)
+    #
+    # Further issue, could be host/device C++ mangling issues due to not
+    # having the same underlying type for host and device code.
+
+
+@extclass(T.F16)
+def scalar_mem_global(t):
+    code = """#ifndef exo_f16  /* Define before inclusion to override exo_f16 */
+#ifdef __CUDACC__
+using exo_f16 = __half;
+#elif defined(__STDCPP_FLOAT16_T__)
+typedef _Float16 exo_f16;
+#else
+typedef struct { short bits; } exo_f16;
+#endif
+#endif
+"""
+    return MemGlobalC("exo_f16", code, ())
+
+
+@extclass(T.Tensor)
+@extclass(T.Window)
+def scalar_mem_global(t):
+    return t.basetype().scalar_mem_global()
+
+
+# --------------------------------------------------------------------------- #
+# Extension methods
+# --------------------------------------------------------------------------- #
+
+
+@extclass(UAST.Tensor)
+@extclass(UAST.Num)
+@extclass(UAST.Barrier)
+@extclass_UAST_concrete_scalars
+def shape(t):
+    shp = t.hi if isinstance(t, (UAST.Tensor, UAST.Barrier)) else []
+    return shp
+
+
+del shape
+
+
+@extclass(UAST.type)
+def basetype(t):
+    if isinstance(t, UAST.Tensor):
+        t = t.type
+    elif isinstance(t, UAST.Barrier):
+        t = UAST.Barrier([])
+    return t
+
+
+del basetype
+
+
+# make proc be a hashable object
+@extclass(LoopIR.proc)
+def __hash__(self):
+    return id(self)
+
+
+del __hash__
 
 
 # --------------------------------------------------------------------------- #
 # type helper functions
 
 
-@extclass(T.Tensor)
-@extclass(T.Window)
-@extclass(T.Num)
-@extclass(T.F16)
-@extclass(T.F32)
-@extclass(T.F64)
-@extclass(T.INT8)
-@extclass(T.UINT8)
-@extclass(T.UINT16)
-@extclass(T.INT32)
-def shape(t):
-    if isinstance(t, T.Window):
-        return t.as_tensor.shape()
-    elif isinstance(t, T.Tensor):
-        assert not isinstance(t.type, T.Tensor), "expect no nesting"
-        return t.hi
+@extclass(LoopIR.proc)
+def is_const_param(proc, sym: Sym):
+    assert isinstance(sym, Sym)
+    assert sym in (a.name for a in proc.args)
+    if proc.instr is None:
+        # This is really expensive, we should cache this
+        write_syms = set(x for x, _ in get_writes_of_stmts(proc.body))
+        return sym not in write_syms
     else:
-        return []
+        access = proc.instr.access_info.get(str(sym))
+        if access is not None:
+            return access.const
+
+
+@extclass(T.Tensor)
+def as_tensor_type(t):
+    return t
+
+
+@extclass(T.Window)
+def as_tensor_type(t):
+    return t.as_tensor
+
+
+del as_tensor_type
+
+
+@extclass(T.Tensor)
+def shape(t):
+    assert not isinstance(t.type, T.Tensor), "expect no nesting"
+    return t.hi
+
+
+@extclass(T.Barrier)
+def shape(t):
+    return t.hi
+
+
+@extclass(T.Window)
+def shape(t):
+    return t.as_tensor.shape()
+
+
+@extclass(T.Num)
+@extclass_LoopIR_concrete_scalars
+def shape(t):
+    return []
 
 
 del shape
 
 
-@extclass(T.Num)
-@extclass(T.F16)
-@extclass(T.F32)
-@extclass(T.F64)
-@extclass(T.INT8)
-@extclass(T.UINT8)
-@extclass(T.UINT16)
-@extclass(T.INT32)
+@extclass_LoopIR_concrete_scalars
+def ctype(t):
+    return t.scalar_info().ctype
+
+
 @extclass(T.Bool)
+def ctype(t):
+    return "bool"
+
+
+@extclass(T.Num)
+def ctype(t):
+    assert False, "Don't ask for ctype of Num"
+
+
 @extclass(T.Int)
 @extclass(T.Index)
 @extclass(T.Size)
 @extclass(T.Stride)
 def ctype(t):
-    if isinstance(t, T.Num):
-        assert False, "Don't ask for ctype of Num"
-    elif isinstance(t, T.F16):
-        return "_Float16"
-    elif isinstance(t, T.F32):
-        return "float"
-    elif isinstance(t, T.F64):
-        return "double"
-    elif isinstance(t, T.INT8):
-        return "int8_t"
-    elif isinstance(t, T.UINT8):
-        return "uint8_t"
-    elif isinstance(t, T.UINT16):
-        return "uint16_t"
-    elif isinstance(t, T.INT32):
-        return "int32_t"
-    elif isinstance(t, T.Bool):
-        return "bool"
-    elif isinstance(t, (T.Int, T.Index, T.Size, T.Stride)):
-        return "int_fast32_t"
+    return "int_fast32_t"
 
 
 del ctype
 
 
+def scalar_bits(ctype):
+    return ScalarInfo(ctype).bits
+
+
 @extclass(LoopIR.type)
 def is_real_scalar(t):
-    return isinstance(
-        t, (T.Num, T.F16, T.F32, T.F64, T.INT8, T.UINT8, T.UINT16, T.INT32)
-    )
+    return False
+
+
+@extclass(LoopIR.Num)
+@extclass_LoopIR_concrete_scalars
+def is_real_scalar(t):
+    return True
 
 
 del is_real_scalar
@@ -531,7 +659,7 @@ del is_indexable
 
 @extclass(LoopIR.type)
 def is_stridable(t):
-    return isinstance(t, (T.Int, T.Stride))
+    return isinstance(t, (T.Int, T.Stride, T.Size, T.Index))
 
 
 @extclass(LoopIR.type)
@@ -541,11 +669,178 @@ def basetype(t):
     elif isinstance(t, T.Tensor):
         assert not t.type.is_tensor_or_window()
         return t.type
+    elif isinstance(t, T.Barrier):
+        return T.barrier
     else:
         return t
 
 
 del basetype
+
+
+@extclass(LoopIR.type)
+def strip_leading_dims(t, n: int):
+    if isinstance(t, LoopIR.Tensor):
+        if len(t.hi) == n:
+            # All dimensions removed; reduce to scalar
+            t = t.basetype()
+        else:
+            assert n < len(t.hi)
+            t = t.update(hi=t.hi[n:])
+    elif isinstance(t, LoopIR.WindowType):
+        assert len(t.idx) == len(t.as_tensor.hi)
+        if len(t.idx) == n:
+            # All dimensions removed; reduce to scalar.
+            # Sketchy, this will probably not work as intended...
+            t = t.basetype()
+        else:
+            assert n < len(t.idx)
+            t = t.update(
+                src_type=t.src_type.strip_leading_dims(n),
+                as_tensor=t.as_tensor.strip_leading_dims(n),
+                idx=t.idx[n:],
+            )
+    elif isinstance(t, T.Barrier):
+        assert n < len(t.hi)
+        t = t.update(hi=t.hi[n:])
+    else:
+        assert n == 0
+    return t
+
+
+def LoopIR_Fence(L1: Sync_tl, L2: Sync_tl, srcinfo: SrcInfo):
+    name = Sym("Fence")  # Sym as internal unique ID for Fence.
+    barriers = [LoopIR.BarrierExpr(name, [], T.barrier, srcinfo)]
+    return LoopIR.SyncStmt(fence_type(L1, L2), barriers, srcinfo)
+
+
+@extclass(LoopIR.BarrierExpr)
+def multicast_flags(e):
+    return tuple(isinstance(w, LoopIR.Interval) for w in e.idx)
+
+
+del multicast_flags
+
+
+@extclass(LoopIR.SyncStmt)
+def multicasts(s):
+    return tuple(e.multicast_flags() for e in s.barriers)
+
+
+del multicasts
+
+
+@extclass(LoopIR.SyncStmt)
+def forbid_multicast(s, reason):
+    for e in s.barriers:
+        for w in e.idx:
+            if isinstance(w, LoopIR.Interval):
+                raise ValueError(
+                    f"{s.srcinfo}: Unsupported multicast ({w}) in {e}; {reason}"
+                )
+
+
+@extclass(LoopIR.SyncStmt)
+def home_barrier_expr(s) -> LoopIR.BarrierExpr:
+    """Give expression for the home barrier, e.g.
+
+    Arrive(...) >> foo[a, :] >> foo[:, b]
+
+    becomes foo[a, b]"""
+    if not s.barriers:
+        raise ValueError(f"{s.srcinfo}: {s} missing >> trailing barrier exprs")
+
+    e0 = s.barriers[0]
+    nm = e0.name
+    dim = len(e0.idx)
+    idx = [None] * dim
+
+    for expr_idx in range(len(s.barriers)):
+        e = s.barriers[expr_idx]
+        if e.name != nm:
+            raise ValueError(
+                f"{s.srcinfo}: cannot arrive on different queue barrier arrays {e} and {e0}"
+            )
+        for dim_idx in range(dim):
+            this_idx = e.idx[dim_idx]
+            if isinstance(this_idx, LoopIR.Point):
+                pt = this_idx.pt
+                if not isinstance(pt, LoopIR.Read):
+                    raise ValueError(
+                        f"{s.srcinfo}: expected a plain variable, not {this_idx}, in {e}"
+                    )
+                if old_idx := idx[dim_idx]:
+                    if old_idx.pt.name != pt.name:
+                        raise ValueError(
+                            f"{s.srcinfo}: {e} has idx[{dim_idx}] = {pt.name}; mismatches idx[{dim_idx}] in previous trailing barrier expressions of {s}"
+                        )
+                else:
+                    idx[dim_idx] = this_idx
+
+    for dim_idx, w in enumerate(idx):
+        if w is None:
+            raise ValueError(
+                f"{s.srcinfo}: at least one trailing barrier expression must have idx[{dim_idx}] be a point, not an interval {s.barriers[0].idx[dim_idx]} (in {s})"
+            )
+
+    return LoopIR.BarrierExpr(nm, idx, T.barrier, s.srcinfo)
+
+
+del home_barrier_expr
+
+
+@extclass(LoopIR.type)
+def is_barrier(t):
+    return False
+
+
+@extclass(LoopIR.Barrier)
+def is_barrier(t):
+    return True
+
+
+del is_barrier
+
+
+@extclass(LoopIR.stmt)
+def is_loop(s):
+    return False
+
+
+@extclass(LoopIR.For)
+def is_loop(s):
+    return True
+
+
+del is_loop
+
+
+@extclass(LoopIR.proc)
+def proc_instr_tl(f) -> Instr_tl:
+    """Return instr-tl in scope needed to call a proc.
+
+    For now, any non-instr procs are assumed to require 1 CPU thread.
+    """
+    if f.instr:
+        return f.instr.instr_tl
+    return cpu_in_order_instr
+
+
+del proc_instr_tl
+
+
+@extclass(LoopIR.proc)
+def proc_coll_unit(f):
+    """Return collective unit needed to call a proc.
+
+    For now, any non-instr procs are assumed to require 1 CPU thread.
+    """
+    if f.instr:
+        return f.instr.coll_unit
+    return standalone_thread
+
+
+del proc_coll_unit
 
 
 def chain_window_idx(idx0, idx1):
@@ -575,7 +870,9 @@ def chain_window_idx(idx0, idx1):
             e1 = idx1[i1]
             i1 += 1
             srcinfo = e1.srcinfo  # newer srcinfo likely more relevant
-            if isinstance(e1, LoopIR.Point):
+            if isinstance(e1, LoopIR.expr):
+                chained_idx[i0] = add_e(e0.lo, e1)
+            elif isinstance(e1, LoopIR.Point):
                 chained_idx[i0] = LoopIR.Point(add_e(e0.lo, e1.pt), srcinfo)
             else:
                 # Note e0.hi unused ... not responsibility here to do
@@ -617,6 +914,192 @@ def create_window_type(in_name: Sym, in_typ: LoopIR.type, idx):
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
+# Compiler debug logging
+# This functionality is intended to dump formatted LoopIR to the compiler
+# output directory, with remarks (likely errors) inserted in-place.
+# unsafe_hash needed for Python 3.11 dataclasses changes.
+@dataclass(slots=True, unsafe_hash=True)
+class ProcDebugRemarks:
+    # Maps stmt_id to list of lines to insert.
+    stmt_id_lines: Dict[int, List[str]] = field(default_factory=dict)
+    # Set of expr id to comment.
+    # This is to help contextualize expr IDs in remarks.
+    expr_id_comment_set: Set[int] = field(default_factory=set)
+
+    def get_stmt_id_lines(self, stmt_id: Optional[int]) -> List[str]:
+        if stmt_id is None:
+            return ()
+        assert isinstance(stmt_id, int)
+        return self.stmt_id_lines.get(stmt_id, ())
+
+    def is_expr_id_commented(self, expr_id: Optional[int]) -> bool:
+        if expr_id is None:
+            return False
+        assert isinstance(expr_id, int)
+        return expr_id in self.expr_id_comment_set
+
+    def get_all_stmt_id_lines(self) -> List[Tuple[int, List[str]]]:
+        return sorted(self.stmt_id_lines.items())
+
+
+ProcDebugRemarks.empty = ProcDebugRemarks()
+
+
+class BaseCompilerDebugLog:
+    __slots__ = []
+
+    def get_path(self):
+        return None
+
+    def log(self, proc_name: str, suffix: str, subtree, preferred=False):
+        pass
+
+    def remark(self, proc_name: str, remark: str):
+        pass
+
+    def get_proc_debug_remarks(self, proc_name: str) -> ProcDebugRemarks:
+        return ProcDebugRemarks.empty
+
+    def enable_notify_user(self):
+        pass
+
+
+@dataclass(slots=True)
+class CompilerDebugLogImpl(BaseCompilerDebugLog):
+    """Don't create this directly; use get_debug_log."""
+
+    _path: Path
+    _names_to_subtree: Dict[Tuple[str, str], Union[LoopIR.stmt, LoopIR.proc]] = field(
+        default_factory=dict
+    )
+    _proc_debug_remarks: Dict[str, ProcDebugRemarks] = field(default_factory=dict)
+    _enable_notify_user: bool = False
+    _preferred_names: Set[Tuple[str, str]] = field(default_factory=set)
+
+    def get_path(self):
+        return self._path
+
+    def log(
+        self,
+        proc_name: str,
+        suffix: str,
+        subtree: Union[LoopIR.stmt, LoopIR.proc, str],
+        preferred=False,
+    ):
+        names = (proc_name, suffix)
+        # This assert was too fragile in pytest!
+        # assert names not in self._names_to_subtree, names
+        assert isinstance(subtree, (LoopIR.proc, LoopIR.stmt, str))
+        self._names_to_subtree[names] = subtree
+        if preferred:
+            self._preferred_names.add(names)
+
+    def remark(self, proc_name: str, remark: str):
+        # This is rather hacky but I do what I must to retrofit this logging
+        # to existing Exo code. We search the remark (likely error message)
+        # for the stmt_id/expr_id formatting pattern that str(SrcInfo) uses,
+        # and associate the remark lines with all stmt/expr named.
+        # If no stmt_id was found, we associate the lines with the fake stmt_id -1
+        # so the remark doesn't just get sent to /dev/null
+        #
+        # In the future, we could investigate more "structured"
+        # exception handling that embeds the stmt_id/expr_id in the
+        # error object but this is not that important.
+        remarks = self._proc_debug_remarks.get(proc_name)
+        if remarks is None:
+            remarks = self._proc_debug_remarks.setdefault(proc_name, ProcDebugRemarks())
+        lines = [line for line in remark.split("\n") if line]
+        stmt_ids = [int(m) for m in re.findall(SrcInfo.stmt_id_pattern, remark)]
+        expr_ids = [int(m) for m in re.findall(SrcInfo.expr_id_pattern, remark)]
+        if not stmt_ids:
+            stmt_ids = (-1,)
+        for s_id in stmt_ids:
+            lst = remarks.stmt_id_lines.setdefault(s_id, [])
+            if lst:
+                lst.append("")
+            lst.extend(lines)
+        for e_id in expr_ids:
+            remarks.expr_id_comment_set.add(e_id)
+
+    def get_proc_debug_remarks(self, proc_name: str) -> ProcDebugRemarks:
+        return self._proc_debug_remarks.get(proc_name, ProcDebugRemarks.empty)
+
+    def write_all_impl(self):
+        debug_path = self._path / "debug"
+        debug_path.mkdir(exist_ok=True, parents=True)
+        for names, subtree in self._names_to_subtree.items():
+            proc_name, suffix = names
+            out_path = debug_path / f"{proc_name}-{suffix}.py"
+            if isinstance(subtree, (LoopIR.proc, LoopIR.stmt)):
+                # str_with_remarks is part of the LoopIR pretty print infra
+                remarks = self.get_proc_debug_remarks(proc_name)
+                out_path.write_text(subtree.str_with_remarks(remarks))
+            else:
+                out_path.write_text(str(subtree))
+            if self._enable_notify_user:
+                color_prefix = ""
+                if names in self._preferred_names:
+                    color_prefix = "\x1b[1m\x1b[35m"
+                # We want this to appear prominently underneath the Python traceback.
+                # Currently this only works since write_all_impl is called atexit.
+                print(
+                    f"{color_prefix}Debug output:\x1b[0m",
+                    str(out_path),
+                    file=sys.stderr,
+                )
+
+    def enable_notify_user(self):
+        self._enable_notify_user = True
+
+
+_debug_log_dict = {}
+
+
+def get_debug_log(path: Optional[Path]) -> BaseCompilerDebugLog:
+    if path is None:
+        return BaseCompilerDebugLog()
+    assert isinstance(path, Path)
+    try:
+        log = _debug_log_dict[path]
+    except KeyError:
+        log = CompilerDebugLogImpl(path)
+        _debug_log_dict[path] = log
+    return log
+
+
+@atexit.register
+def _atexit_debug_log_write():
+    # Log isn't written until program exit, because we can't write
+    # remarks inline with an output file (based on printed LoopIR)
+    # until all future remarks are collected.
+    # This design will be a problem if one of our C modules segfaults.
+    for log in _debug_log_dict.values():
+        log.write_all_impl()
+
+
+# Global state; the exocc frontend or pytest config will set up the
+# debug directory, but we don't have a great way to communicate this to
+# the user's module or the large lib of existing test functions,
+# which may raise errors that we now wish to have nicely logged.
+_global_debug_log_path = None
+
+
+def get_global_debug_log():
+    return get_debug_log(_global_debug_log_path)
+
+
+def get_global_debug_log_path():
+    return _global_debug_log_path
+
+
+def set_global_debug_log_path(path: Optional[Path]):
+    assert path is None or isinstance(path, Path)
+    global _global_debug_log_path
+    _global_debug_log_path = path
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
 
 # Install string printing functions on LoopIR, UAST and T
 # This must be imported after those objects are defined to
@@ -632,6 +1115,8 @@ from . import LoopIR_pprint
 
 
 class LoopIR_Rewrite:
+    __slots__ = []
+
     def apply_proc(self, old):
         return self.map_proc(old) or old
 
@@ -723,7 +1208,7 @@ class LoopIR_Rewrite:
             new_lo = self.map_e(s.lo)
             new_hi = self.map_e(s.hi)
             new_body = self.map_stmts(s.body)
-            if any((new_lo, new_hi, new_body is not None)):
+            if new_lo is not None or new_hi is not None or new_body is not None:
                 return [
                     s.update(
                         lo=new_lo or s.lo, hi=new_hi or s.hi, body=new_body or s.body
@@ -731,12 +1216,28 @@ class LoopIR_Rewrite:
                 ]
         elif isinstance(s, LoopIR.Call):
             new_args = self.map_exprs(s.args)
-            if new_args is not None:
-                return [s.update(args=new_args or s.args)]
-        elif isinstance(s, LoopIR.Alloc):
+            old_bar = s.trailing_barrier_expr
+            new_bar = None
+            if old_bar is not None:
+                new_bar = self.map_e(old_bar)
+                assert new_bar is None or isinstance(new_bar, LoopIR.BarrierExpr)
+            if new_args is not None or new_bar is not None:
+                return [
+                    s.update(
+                        args=new_args or s.args,
+                        trailing_barrier_expr=new_bar or old_bar,
+                    )
+                ]
+
+        elif isinstance(s, (LoopIR.Alloc, LoopIR.Free)):
             new_type = self.map_t(s.type)
             if new_type:
                 return [s.update(type=new_type or s.type)]
+        elif isinstance(s, LoopIR.SyncStmt):
+            new_barriers = self._map_list(self.map_e, s.barriers)
+            if new_barriers:
+                return [s.update(barriers=new_barriers)]
+            return None
         elif isinstance(s, LoopIR.Pass):
             return None
         else:
@@ -778,7 +1279,7 @@ class LoopIR_Rewrite:
                     arg=new_arg or e.arg,
                     type=new_type or e.type,
                 )
-        elif isinstance(e, LoopIR.WindowExpr):
+        elif isinstance(e, (LoopIR.WindowExpr, LoopIR.BarrierExpr)):
             new_idx = self._map_list(self.map_w_access, e.idx)
             new_type = self.map_t(e.type)
             if any((new_idx is not None, new_type)):
@@ -825,6 +1326,10 @@ class LoopIR_Rewrite:
                     as_tensor=new_as_tensor or t.as_tensor,
                     idx=new_idx or t.idx,
                 )
+        elif isinstance(t, T.Barrier):
+            new_hi = self.map_exprs(t.hi)
+            if new_hi is not None:
+                return t.update(hi=new_hi)
         return None
 
     @staticmethod
@@ -850,6 +1355,8 @@ class LoopIR_Rewrite:
 
 
 class LoopIR_Do:
+    __slots__ = ["proc"]
+
     def __init__(self, proc, *args, **kwargs):
         self.proc = proc
 
@@ -886,8 +1393,13 @@ class LoopIR_Do:
         elif styp is LoopIR.Call:
             for e in s.args:
                 self.do_e(e)
+            if e := s.trailing_barrier_expr:
+                self.do_e(e)
         elif styp is LoopIR.Alloc:
             self.do_t(s.type)
+        elif styp is LoopIR.SyncStmt:
+            for e in s.barriers:
+                self.do_e(e)
         else:
             pass
 
@@ -904,7 +1416,7 @@ class LoopIR_Do:
                 self.do_e(a)
         elif etyp is LoopIR.USub:
             self.do_e(e.arg)
-        elif etyp is LoopIR.WindowExpr:
+        elif etyp in (LoopIR.WindowExpr, LoopIR.BarrierExpr):
             for w in e.idx:
                 self.do_w_access(w)
         else:
@@ -922,7 +1434,7 @@ class LoopIR_Do:
             assert False, "bad case"
 
     def do_t(self, t):
-        if isinstance(t, T.Tensor):
+        if isinstance(t, (T.Tensor, T.Barrier)):
             for i in t.hi:
                 self.do_e(i)
         elif isinstance(t, T.Window):
@@ -961,6 +1473,15 @@ class LoopIR_Compare:
             )
         elif isinstance(s1, LoopIR.Pass):
             return True
+        elif isinstance(s1, LoopIR.SyncStmt):
+            # TODO test this
+            return (
+                s1.sync_type == s2.sync_type
+                and len(s1.barriers) == len(s2.barriers)
+                and all(
+                    self.match_e(i1, i2) for i1, i2 in zip(s1.barriers, s2.barriers)
+                )
+            )
         elif isinstance(s1, LoopIR.If):
             return (
                 self.match_e(s1.cond, s2.cond)
@@ -977,8 +1498,10 @@ class LoopIR_Compare:
         elif isinstance(s1, LoopIR.Alloc):
             return self.match_name(s1.name, s2.name) and self.match_t(s1.type, s2.type)
         elif isinstance(s1, LoopIR.Call):
-            return s1.f == s2.f and all(
-                self.match_e(a1, a2) for a1, a2 in zip(s1.args, s2.args)
+            return (
+                s1.f == s2.f
+                and all(self.match_e(a1, a2) for a1, a2 in zip(s1.args, s2.args))
+                and self.match_e(s1.trailing_barrier_expr, s2.trailing_barrier_expr)
             )
         elif isinstance(s1, LoopIR.WindowStmt):
             return self.match_name(s1.name, s2.name) and self.match_e(s1.rhs, s2.rhs)
@@ -1008,6 +1531,10 @@ class LoopIR_Compare:
             return e1.f is e2.f and all(
                 self.match_e(a1, a2) for a1, a2 in zip(e1.args, e2.args)
             )
+        elif isinstance(e1, LoopIR.BarrierExpr):
+            return self.match_name(e1.name, e2.name) and all(
+                self.match_w_access(w1, w2) for w1, w2 in zip(e1.idx, e2.idx)
+            )
         elif isinstance(e1, LoopIR.WindowExpr):
             return self.match_name(e1.name, e2.name) and all(
                 self.match_w_access(w1, w2) for w1, w2 in zip(e1.idx, e2.idx)
@@ -1017,6 +1544,8 @@ class LoopIR_Compare:
         elif isinstance(e1, LoopIR.ReadConfig):
             # TODO: check configfield equality
             return e1.config == e2.config and e1.field == e2.field
+        elif e1 is None:
+            return e2 is None
         else:
             assert False, "bad case"
 
@@ -1035,12 +1564,14 @@ class LoopIR_Compare:
             assert False, "bad case"
 
     def match_t(self, t1, t2):
-        if isinstance(t1, LoopIR.Tensor):
+        if isinstance(t1, LoopIR.Tensor) and isinstance(t2, LoopIR.Tensor):
             return (
                 t1.is_window == t2.is_window
                 and self.match_t(t1.type, t2.type)
                 and all(self.match_e(i1, i2) for i1, i2 in zip(t1.hi, t2.hi))
             )
+        elif isinstance(t1, LoopIR.Barrier) and isinstance(t2, LoopIR.Barrier):
+            return all(self.match_e(i1, i2) for i1, i2 in zip(t1.hi, t2.hi))
         else:  # scalar
             return type(t1) == type(t2)
 
@@ -1050,9 +1581,18 @@ class GetReads(LoopIR_Do):
         self.reads = []
 
     def do_e(self, e):
+        # XXX this is an over-approximation for Call.
+        # If a parameter is write-only, it's still counted as a read here.
         if hasattr(e, "name"):
             self.reads.append((e.name, e.type))
         super().do_e(e)
+
+
+class GetReadsWithReduce(GetReads):
+    def do_s(self, s):
+        if isinstance(s, LoopIR.Reduce):
+            self.reads.append((s.name, s.type))
+        super().do_s(s)
 
 
 class GetReadConfigs(LoopIR_Do):
@@ -1071,8 +1611,9 @@ def get_reads_of_expr(e):
     return gr.reads
 
 
-def get_reads_of_stmts(stmts):
-    gr = GetReads()
+def get_reads_of_stmts(stmts, include_reduce=False):
+    # XXX this doesn't account for WindowStmt.
+    gr = GetReadsWithReduce() if include_reduce else GetReads()
     for stmt in stmts:
         gr.do_s(stmt)
     return gr.reads
@@ -1224,6 +1765,7 @@ class FreeVars(LoopIR_Do):
         etyp = type(e)
         if (
             etyp is LoopIR.Read
+            or etyp is LoopIR.BarrierExpr
             or etyp is LoopIR.WindowExpr
             or etyp is LoopIR.StrideExpr
         ):
@@ -1278,6 +1820,18 @@ class Alpha_Rename(LoopIR_Rewrite):
                 return [((s2 and s2[0]) or s).update(name=new_name)]
             else:
                 return s2
+        elif isinstance(s, LoopIR.SyncStmt):
+            if s.sync_type.is_split():
+                return super().map_s(s)
+            else:
+                # Fence(...) stmt does not refer to allocated barrier variable
+                # and we must unique-ify its internal barrier name regardless
+                # of self.env; hence we handle this here specially.
+                assert len(s.barriers) == 1
+                bar_expr = s.barriers[0]
+                new_name = bar_expr.name.copy()
+                self.env[bar_expr.name] = new_name
+                return s.update(barriers=[bar_expr.update(name=new_name)])
         elif isinstance(s, LoopIR.Alloc):
             s2 = super().map_s(s)
             assert s.name not in self.env
@@ -1309,7 +1863,9 @@ class Alpha_Rename(LoopIR_Rewrite):
         return super().map_s(s)
 
     def map_e(self, e):
-        if isinstance(e, (LoopIR.Read, LoopIR.WindowExpr, LoopIR.StrideExpr)):
+        if isinstance(
+            e, (LoopIR.Read, LoopIR.BarrierExpr, LoopIR.WindowExpr, LoopIR.StrideExpr)
+        ):
             e2 = super().map_e(e)
             if new_name := self.env.get(e.name):
                 return (e2 or e).update(name=new_name)
@@ -1341,6 +1897,11 @@ class SubstArgs(LoopIR_Rewrite):
                 self.nodes += self.apply_s(n)
             elif isinstance(n, LoopIR.expr):
                 self.nodes += [self.apply_e(n)]
+            elif isinstance(n, LoopIR.fnarg):
+                t = self.map_t(n.type)
+                if t:
+                    n = n.update(type=t)
+                self.nodes.append(n)
             else:
                 assert False, "expected stmt or expr"
 
@@ -1396,6 +1957,33 @@ class SubstArgs(LoopIR_Rewrite):
                 return (t2 or t).update(src_buf=src_buf.name)
 
         return t2
+
+
+class LoopIR_Add_ID(LoopIR_Rewrite):
+    __slots__ = ["s_id", "e_id"]
+    s_id: int
+    e_id: int
+
+    def __init__(self):
+        self.s_id = 10
+        self.e_id = 1
+
+    def map_s(self, s):
+        # Allocate stmt_id as multiples of 10 to make room for
+        # e.g. MemAnalysis giving a Free a different stmt id from an Alloc.
+        stmts = super().map_s(s)
+        if stmts:
+            assert len(stmts) == 1
+            s = stmts[0]
+        info = s.srcinfo.update(stmt_id=self.s_id)
+        self.s_id += 10
+        return s.update(srcinfo=info)
+
+    def map_e(self, e):
+        e = super().map_e(e) or e
+        info = e.srcinfo.update(stmt_id=self.s_id, expr_id=self.e_id)
+        self.e_id += 1
+        return e.update(srcinfo=info)
 
 
 # Data-flow dependencies between variable names
@@ -1568,13 +2156,13 @@ class LoopIR_Dependencies(LoopIR_Do):
                 process_reads()
                 self._lhs = None
 
-        elif isinstance(s, (LoopIR.Pass, LoopIR.Alloc)):
+        elif isinstance(s, (LoopIR.Pass, LoopIR.Alloc, LoopIR.SyncStmt)):
             pass
         else:
             assert False, "bad case"
 
     def do_e(self, e):
-        if isinstance(e, (LoopIR.Read, LoopIR.WindowExpr)):
+        if isinstance(e, (LoopIR.Read, LoopIR.BarrierExpr, LoopIR.WindowExpr)):
 
             def visit_idx(e):
                 if isinstance(e, LoopIR.Read):

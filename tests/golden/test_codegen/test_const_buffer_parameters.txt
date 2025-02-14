@@ -1,11 +1,6 @@
-
 #pragma once
 #ifndef TEST_H
 #define TEST_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 
 #include <stdint.h>
@@ -30,16 +25,31 @@ extern "C" {
 #endif
 
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
+#include <stdio.h>
+#include <stdlib.h>
+
+#endif
+/* Required by DRAM */
 #ifndef EXO_WIN_1F32
 #define EXO_WIN_1F32
-struct exo_win_1f32{
+struct exo_win_1f32 {
     float * const data;
     const int_fast32_t strides[1];
 };
 #endif
+/* Required by DRAM */
 #ifndef EXO_WIN_1F32C
 #define EXO_WIN_1F32C
-struct exo_win_1f32c{
+struct exo_win_1f32c {
     const float * const data;
     const int_fast32_t strides[1];
 };
@@ -70,12 +80,11 @@ void memcpy_b( void *ctxt, int_fast32_t N, float* A, struct exo_win_1f32c B );
 #ifdef __cplusplus
 }
 #endif
+
+
 #endif  // TEST_H
 
 #include "test.h"
-
-#include <stdio.h>
-#include <stdlib.h>
 
 // memcpy(
 //     N : size,
@@ -95,7 +104,7 @@ for (int_fast32_t i = 0; i < N; i++) {
 // )
 void memcpy_ab( void *ctxt, int_fast32_t N, struct exo_win_1f32 A, struct exo_win_1f32c B ) {
 for (int_fast32_t i = 0; i < N; i++) {
-  A.data[i * A.strides[0]] = B.data[i * B.strides[0]];
+  A.data[(i) * (A.strides[0])] = B.data[(i) * (B.strides[0])];
 }
 }
 
@@ -106,7 +115,7 @@ for (int_fast32_t i = 0; i < N; i++) {
 // )
 void memcpy_b( void *ctxt, int_fast32_t N, float* A, struct exo_win_1f32c B ) {
 for (int_fast32_t i = 0; i < N; i++) {
-  A[i] = B.data[i * B.strides[0]];
+  A[i] = B.data[(i) * (B.strides[0])];
 }
 }
 

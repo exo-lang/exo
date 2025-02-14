@@ -1,6 +1,5 @@
 def alloc_nest(n: size, m: size, x: R[n, m], y: R[n, m] @ DRAM,
                res: R[n, m] @ DRAM):
-    # @instr TEST
     for i in seq(0, n):
         rloc: R[m] @ DRAM
         xloc: R[m] @ DRAM

@@ -14,6 +14,7 @@ from exo.core.internal_cursors import (
 from exo.frontend.pattern_match import match_pattern
 from exo.core.prelude import Sym
 from exo.frontend.syntax import size, f32
+from exo.spork import loop_modes
 
 
 def _find_cursors(ctx, pattern):
@@ -629,7 +630,7 @@ def test_wrap_block(proc_bar, golden):
         src = body[0].srcinfo
         zero = LoopIR.Const(0, T.index, src)
         eight = LoopIR.Const(8, T.index, src)
-        return LoopIR.For(k, zero, eight, body, LoopIR.Seq(), src)
+        return LoopIR.For(k, zero, eight, body, loop_modes.seq, src)
 
     procs = []
     for i in range(0, 6):
@@ -877,7 +878,7 @@ def test_wrap_forwarding_for_blocks(proc_baz, golden):
         src = body[0].srcinfo
         zero = LoopIR.Const(0, T.index, src)
         eight = LoopIR.Const(8, T.index, src)
-        return LoopIR.For(k, zero, eight, body, LoopIR.Seq(), src)
+        return LoopIR.For(k, zero, eight, body, loop_modes.seq, src)
 
     _, fwd = c._wrap(wrapper, "body")
 

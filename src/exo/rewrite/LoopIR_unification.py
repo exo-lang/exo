@@ -78,7 +78,7 @@ def Get_Live_Variables(stmt_cursor):
     return live_vars
 
 
-def DoReplace(subproc, block_cursor):
+def DoReplace(subproc, block_cursor: ic.Block):
     n_stmts = len(subproc.body)
     if len(block_cursor) < n_stmts:
         raise SchedulingError("Not enough statements to match")
@@ -90,7 +90,7 @@ def DoReplace(subproc, block_cursor):
     new_args = Unification(temp_subproc, stmts, live_vars).result()
 
     # but don't use a different LoopIR.proc for the callsite itself
-    new_call = LoopIR.Call(subproc, new_args, stmts[0].srcinfo)
+    new_call = LoopIR.Call(subproc, new_args, None, stmts[0].srcinfo)
 
     ir, fwd = block_cursor._replace([new_call])
     Check_Aliasing(ir)
@@ -573,7 +573,7 @@ class BufVar:
                     idx.append(LoopIR.Interval(lo, hi, srcinfo))
                     win_shape.append(subtract(hi, lo))
 
-            as_tensor = T.Tensor(win_shape, True, buf_typ.type)
+            as_tensor = T.Tensor(win_shape, True, buf_typ.basetype())
             w_typ = T.Window(buf_typ, as_tensor, buf, idx)
             return LoopIR.WindowExpr(buf, idx, w_typ, srcinfo)
 
@@ -739,7 +739,9 @@ class Unification:
                 elif isinstance(e.rhs, LoopIR.Const):
                     return UEq.Scale(e.rhs.val, self.to_ueq(e.lhs, insp))
                 else:
-                    assert False, "unexpected multiplication; improve the code here"
+                    assert (
+                        False
+                    ), f"{e} unexpected multiplication; improve the code here"
             elif e.op == "/" or e.op == "%":
                 if in_subproc:
                     raise UnificationError(
@@ -893,7 +895,7 @@ class Unification:
                     f"with Writeconfig '{be.config.name()}.{be.field}'"
                 )
             self.unify_e(ps.rhs, bs.rhs)
-        elif isinstance(ps, LoopIR.Pass):
+        elif isinstance(ps, (LoopIR.Pass, LoopIR.SyncStmt)):
             pass
         elif isinstance(ps, LoopIR.If):
             self.unify_e(ps.cond, bs.cond)

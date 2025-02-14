@@ -5,6 +5,7 @@ import pysmt
 from pysmt import shortcuts as SMT
 
 from ..core.LoopIR import LoopIR, T, Operator, Config
+from ..core.instr_info import InstrInfo, AccessInfo
 from ..core.prelude import *
 
 
@@ -564,7 +565,7 @@ class CheckBounds:
 
         self.preprocess_stmts(proc.body)
 
-        body_eff = self.map_stmts(proc.body, self.rec_proc_types(proc))
+        body_eff = self.map_stmts(proc.body, self.rec_proc_types(proc), ())
 
         for arg in proc.args:
             if arg.type.is_numeric():
@@ -664,6 +665,9 @@ class CheckBounds:
                 return SMT.Bool(expr.val)
             elif expr.type.is_indexable():
                 return SMT.Int(expr.val)
+            elif expr.type == T.with_context:
+                # TODO remove this when we stop smuggling with statements as If.
+                return SMT.Bool(True)
             else:
                 assert False, f"unrecognized const type: {type(expr.val)}"
         elif isinstance(expr, E.Var):
@@ -912,11 +916,12 @@ class CheckBounds:
             else:
                 pass
 
-    def map_stmts(self, body, type_env):
+    def map_stmts(self, body, type_env, exempt_names):
         """
         Returns an effect for the argument `body`
         And also checks bounds/parallelism for any
         allocations/loops within `body`
+        Do not emit effects for Sym(s) mentioned in exempt_names.
         """
         assert len(body) > 0
         body_eff = eff_null(body[-1].srcinfo)
@@ -924,8 +929,10 @@ class CheckBounds:
         for stmt in reversed(body):
             if isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
                 loc = [lift_expr(idx) for idx in stmt.idx]
-                rhs_eff = self.eff_e(stmt.rhs, type_env)
-                if isinstance(stmt, LoopIR.Assign):
+                rhs_eff = self.eff_e(stmt.rhs, type_env, exempt_names)
+                if stmt.name in exempt_names:
+                    effects = eff_null(stmt.srcinfo)
+                elif isinstance(stmt, LoopIR.Assign):
                     effects = eff_write(stmt.name, loc, stmt.srcinfo)
                 else:  # Reduce
                     effects = eff_reduce(stmt.name, loc, stmt.srcinfo)
@@ -934,7 +941,7 @@ class CheckBounds:
                 body_eff = eff_concat(stmt_eff, body_eff)
 
             elif isinstance(stmt, LoopIR.WriteConfig):
-                rhs_eff = self.eff_e(stmt.rhs, type_env)
+                rhs_eff = self.eff_e(stmt.rhs, type_env, exempt_names)
                 if stmt.rhs.type.is_numeric():
                     rhs = E.Var(Sym("opaque_rhs"), stmt.rhs.type, stmt.rhs.srcinfo)
                 else:
@@ -966,7 +973,7 @@ class CheckBounds:
                 pred, config_pred = bd_pred(stmt.iter, stmt.lo, stmt.hi, stmt.srcinfo)
                 self.solver.add_assertion(self.expr_to_smt(pred))
 
-                child_eff = self.map_stmts(stmt.body, type_env)
+                child_eff = self.map_stmts(stmt.body, type_env, exempt_names)
 
                 self.pop()
 
@@ -981,7 +988,7 @@ class CheckBounds:
                 self.push()
                 cond = lift_expr(stmt.cond)
                 self.solver.add_assertion(self.expr_to_smt(cond))
-                body_effects = self.map_stmts(stmt.body, type_env)
+                body_effects = self.map_stmts(stmt.body, type_env, exempt_names)
                 self.pop()
 
                 body_effects = eff_filter(cond, body_effects)
@@ -993,7 +1000,7 @@ class CheckBounds:
                     self.push()
                     neg_cond = cond.negate()
                     self.solver.add_assertion(self.expr_to_smt(neg_cond))
-                    orelse_effects = self.map_stmts(stmt.orelse, type_env)
+                    orelse_effects = self.map_stmts(stmt.orelse, type_env, exempt_names)
                     orelse_effects = eff_filter(cond.negate(), orelse_effects)
                     self.pop()
 
@@ -1010,11 +1017,16 @@ class CheckBounds:
                 body_eff = eff_remove_buf(stmt.name, body_eff)
 
             elif isinstance(stmt, LoopIR.Call):
-
                 self.push()
 
                 bind = dict()
                 subst = dict()
+                exempt_names = set()
+
+                access_info = None
+                if instr := stmt.f.instr:
+                    instr: InstrInfo
+                    access_info = instr.access_info
 
                 for sig, arg in zip(stmt.f.args, stmt.args):
                     # Add type assertion from the size signature
@@ -1049,12 +1061,20 @@ class CheckBounds:
                         ]
                         self.check_call_shape_eqv(arg_shape, sig_shape, arg)
 
+                        # Prep for allow_out_of_bounds exception.
+                        if access_info:
+                            nm = sig.name  # Sym type, use str for dict lookup.
+                            if access_info[str(nm)].allow_out_of_bounds:
+                                exempt_names.add(nm)
                     else:
                         bind[sig.name] = lift_expr(arg)
 
-                # map body of the subprocedure
+                # map body of the subprocedure, discarding effects on variables
+                # with allow_out_of_bounds.
                 self.preprocess_stmts(stmt.f.body)
-                eff = self.map_stmts(stmt.f.body, self.rec_proc_types(stmt.f))
+                eff = self.map_stmts(
+                    stmt.f.body, self.rec_proc_types(stmt.f), exempt_names
+                )
                 eff = eff.subst(bind)
 
                 # translate effects occurring on windowed arguments
@@ -1080,7 +1100,7 @@ class CheckBounds:
 
                 body_eff = eff_concat(eff, body_eff)
 
-            elif isinstance(stmt, (LoopIR.Pass, LoopIR.WindowStmt)):
+            elif isinstance(stmt, (LoopIR.Pass, LoopIR.WindowStmt, LoopIR.SyncStmt)):
                 pass
 
             else:
@@ -1089,9 +1109,9 @@ class CheckBounds:
         return body_eff  # Returns union of all effects
 
     # extract effects from this expression; return E.effect
-    def eff_e(self, e, type_env):
+    def eff_e(self, e, type_env, exempt_names):
         if isinstance(e, LoopIR.Read):
-            if e.type.is_numeric():
+            if e.type.is_numeric() and e.name not in exempt_names:
                 # we may assume that we're not in a call-argument position
                 assert e.type.is_real_scalar()
                 loc = [lift_expr(idx) for idx in e.idx]
@@ -1107,12 +1127,12 @@ class CheckBounds:
                 return eff_null(e.srcinfo)
         elif isinstance(e, LoopIR.BinOp):
             return eff_concat(
-                self.eff_e(e.lhs, type_env),
-                self.eff_e(e.rhs, type_env),
+                self.eff_e(e.lhs, type_env, exempt_names),
+                self.eff_e(e.rhs, type_env, exempt_names),
                 srcinfo=e.srcinfo,
             )
         elif isinstance(e, LoopIR.USub):
-            return self.eff_e(e.arg, type_env)
+            return self.eff_e(e.arg, type_env, exempt_names)
         elif isinstance(e, LoopIR.Const):
             return eff_null(e.srcinfo)
         elif isinstance(e, LoopIR.WindowExpr):

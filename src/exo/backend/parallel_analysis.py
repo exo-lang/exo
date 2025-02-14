@@ -1,6 +1,7 @@
 from ..core.LoopIR import LoopIR, LoopIR_Rewrite
 
 from ..rewrite.new_eff import Check_ParallelizeLoop
+from ..spork.loop_modes import Par
 
 
 class ParallelAnalysis(LoopIR_Rewrite):
@@ -20,7 +21,7 @@ class ParallelAnalysis(LoopIR_Rewrite):
         self._errors.append(f"{node.srcinfo}: {msg}")
 
     def map_s(self, s):
-        if isinstance(s, LoopIR.For) and isinstance(s.loop_mode, LoopIR.Par):
+        if isinstance(s, LoopIR.For) and isinstance(s.loop_mode, Par):
             try:
                 Check_ParallelizeLoop(self.proc, s)
             except:

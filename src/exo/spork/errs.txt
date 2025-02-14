@@ -1,0 +1,152 @@
+Todo catalog all possible compiler errors
+
+LoopIR_compiler:
+
+mem is invalid (kvetch)
+# SyncStmt fail
+# instr fail
+# unexpected loop mode
+name collision for mem_global?
+
+cuda_backend:
+
+# cuda_tasks loop alone
+# Duplicate cuda_tasks iter variable name
+# Invalid statement after cuda_tasks loop
+# Missing cuda_tasks loop
+# Grid constant window
+# cuda_tasks loop must appear only in top level...
+# Unexpected loop mode in CudaDeviceFunction
+# SMEM allocation const shape
+# Solitary barrier error
+# expect_SyncStmt
+---
+Number of intervals in barrier wrong...
+---
+# Write must be executed by one thread only
+# Top-level CudaWarps must provide
+# CudaWarps out-of-range
+# CudaWarps cannot change warp name
+# CudaWarps must define lo and hi
+# CTA must not be subdivided by parent cuda_threads loop
+# Wrong coll_unit for instr
+# cuda_threads 0/const hi
+
+
+Barrier Usage:
+
+# incompatible sync-tl
+incompatible multicasts
+no back queue barrier
+no multicast support
+N != 1
+uniform N
+
+Distributed memory
+
+Mbarrier multicast on intra-CTA dimension
+Convergence requirement
+Mismatched distributed dim values (barrier)
+Barrier: tile size mismatches leaf threads
+---
+# Inconsistent collective tiling with previous
+# Expected point, not interval
+# Expected 0:const
+# Iter not from cuda_threads
+# Repeated? index
+# SyncStmt 0:const_extent
+# Mismatched distributed dims
+# mismatches #distributed dims
+# Mismatched extent
+# Overshot
+# Wrong collective unit at point of allocation
+# Tried to allocate under x loop
+# Expected single variable name
+
+mem_analysis:
+
+# WindowStmt input memory
+# does not take trailing barrier expression
+requires trailing barrier expression
+intact packed dimensions
+multiple barriers, different variable
+multiple barriers, different sidedness
+missing BarrierExpr
+check_pairing issues (this code is broken right now!)
+---
+missing point expr for BarrierExpr coord
+incompatible point expr for BarrierExpr coord
+
+async_config:
+
+# blockDim={blockDim} must be positive multiple of 32
+# Duplicate warp name
+# setmaxnreg requires multiples of 128 threads; blockDim={self.blockDim}
+# setmaxnreg must be uniform within warpgroups (128 threads)
+# setmaxnreg must be a multiple of 8 in [24, 256]
+# regcount {setmaxnreg} used both for setmaxnreg.inc and setmaxnreg.dec
+--
+# Wrong parent instr-tl
+# Memory type alloc/read/write
+# Assign/Reduce
+# WindowStmt
+# Call
+# Read
+---
+SyncStmt
+warn_weird_letters
+
+cuda_sync_state:
+
+not supported in CUDA device function
+# wgmma fence needs second sync-tl wgmma_fence_2
+# wgmma fence must be executed by a warpgroup
+# Arrive cluster sync needs to be by full cluster
+# Fence first sync-tl we allow Sm80_generic
+# Fence collective unit matched no known case
+# Fence second sync-tl we allow CUDA generic+async proxy
+# Reminder: warpgroup special case for Fence
+---
+# mbarrier must be distributed so each mbarrier is resident in 1 CTA only
+# mbarrier must have some await with nonzero skips
+# mbarrier Arrive sync-tl not supported (TMA/non-TMA)
+# mbarrier Await sync-tl not supported (consider wgmma_async_smem)
+---
+# TODO no multicast for Sm80_cp_async
+# commit_group collective unit error
+# commit_group unknown first sync tl error
+# commit_group unknown second sync tl error
+
+c_window:
+
+Does not support explicit strides
+Does not support WindowEncoder
+Does not support WindowIndexer
+
+pyparser:
+
+# Only >> BinOp supported at top level
+# Only SyncStmt and Call can take >> trailing barrier exprs
+# {fname} cannot take >> trailing barrier exprs
+# expected only 1 withitem
+# expected called object to be a procedure or InstrTemplate
+# cannot have more than 1 trailing barrier expr
+# unknown loop mode name
+# failed to construct loop mode
+# annotation needs to be subclass of Memory or SpecialWindow
+# expected sync-tl, not ...
+# Unknown keyword '{name}' for {func_id}()
+# Arrive expects 2 arguments
+# Fence expects 2 arguments
+# Await expects 3 arguments
+# N expected int
+
+typecheck:
+
+# got {n_args} arguments but need {expected_args}
+# BarrierExpr requires barrier type
+# expected {len(in_shape)} indices for BarrierExprs
+# Can only create SpecialWindow as part of WindowStmt
+# expected {len(in_shape)} indices for window
+---
+Can only create SpecialWindow from a dense tensor, not another window (why???)
