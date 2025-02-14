@@ -228,12 +228,12 @@ EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
 // assert stride(C, 1) == 1
-__m512 C_reg[1 * 4];
+__m512 C_reg[1][4];
 for (int_fast32_t i0 = 0; i0 < 1; i0++) {
-  C_reg[((i0) * (64)) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
-  C_reg[((i0) * (64) + 16) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
-  C_reg[((i0) * (64) + (2) * (16)) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
-  C_reg[((i0) * (64) + (3) * (16)) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
+  C_reg[i0][0] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
+  C_reg[i0][1] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
+  C_reg[i0][2] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
+  C_reg[i0][3] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
 }
 for (int_fast32_t k = 0; k < K; k++) {
   for (int_fast32_t i = 0; i < 1; i++) {
@@ -241,23 +241,23 @@ for (int_fast32_t k = 0; k < K; k++) {
     var0 = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + k]);
     __m512 var1;
     var1 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0])]);
-    C_reg[((i) * (64)) / 16] = _mm512_fmadd_ps(var0, var1, C_reg[((i) * (64)) / 16]);
+    C_reg[i][0] = _mm512_fmadd_ps(var0, var1, C_reg[i][0]);
     __m512 var1_1;
     var1_1 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + 16]);
-    C_reg[((i) * (64) + 16) / 16] = _mm512_fmadd_ps(var0, var1_1, C_reg[((i) * (64) + 16) / 16]);
+    C_reg[i][1] = _mm512_fmadd_ps(var0, var1_1, C_reg[i][1]);
     __m512 var1_2;
     var1_2 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + 32]);
-    C_reg[((i) * (64) + (2) * (16)) / 16] = _mm512_fmadd_ps(var0, var1_2, C_reg[((i) * (64) + (2) * (16)) / 16]);
+    C_reg[i][2] = _mm512_fmadd_ps(var0, var1_2, C_reg[i][2]);
     __m512 var1_3;
     var1_3 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + 48]);
-    C_reg[((i) * (64) + (3) * (16)) / 16] = _mm512_fmadd_ps(var0, var1_3, C_reg[((i) * (64) + (3) * (16)) / 16]);
+    C_reg[i][3] = _mm512_fmadd_ps(var0, var1_3, C_reg[i][3]);
   }
 }
 for (int_fast32_t i0 = 0; i0 < 1; i0++) {
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[((i0) * (64)) / 16]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[((i0) * (64) + 16) / 16]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], C_reg[((i0) * (64) + (2) * (16)) / 16]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], C_reg[((i0) * (64) + (3) * (16)) / 16]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[i0][0]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[i0][1]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], C_reg[i0][2]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], C_reg[i0][3]);
 }
 }
 
@@ -272,12 +272,12 @@ EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
 // assert stride(C, 1) == 1
-__m512 C_reg[2 * 4];
+__m512 C_reg[2][4];
 for (int_fast32_t i0 = 0; i0 < 2; i0++) {
-  C_reg[((i0) * (64)) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
-  C_reg[((i0) * (64) + 16) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
-  C_reg[((i0) * (64) + (2) * (16)) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
-  C_reg[((i0) * (64) + (3) * (16)) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
+  C_reg[i0][0] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
+  C_reg[i0][1] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
+  C_reg[i0][2] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
+  C_reg[i0][3] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
 }
 for (int_fast32_t k = 0; k < K; k++) {
   for (int_fast32_t i = 0; i < 2; i++) {
@@ -285,23 +285,23 @@ for (int_fast32_t k = 0; k < K; k++) {
     var0 = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + k]);
     __m512 var1;
     var1 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0])]);
-    C_reg[((i) * (64)) / 16] = _mm512_fmadd_ps(var0, var1, C_reg[((i) * (64)) / 16]);
+    C_reg[i][0] = _mm512_fmadd_ps(var0, var1, C_reg[i][0]);
     __m512 var1_1;
     var1_1 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + 16]);
-    C_reg[((i) * (64) + 16) / 16] = _mm512_fmadd_ps(var0, var1_1, C_reg[((i) * (64) + 16) / 16]);
+    C_reg[i][1] = _mm512_fmadd_ps(var0, var1_1, C_reg[i][1]);
     __m512 var1_2;
     var1_2 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + 32]);
-    C_reg[((i) * (64) + (2) * (16)) / 16] = _mm512_fmadd_ps(var0, var1_2, C_reg[((i) * (64) + (2) * (16)) / 16]);
+    C_reg[i][2] = _mm512_fmadd_ps(var0, var1_2, C_reg[i][2]);
     __m512 var1_3;
     var1_3 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + 48]);
-    C_reg[((i) * (64) + (3) * (16)) / 16] = _mm512_fmadd_ps(var0, var1_3, C_reg[((i) * (64) + (3) * (16)) / 16]);
+    C_reg[i][3] = _mm512_fmadd_ps(var0, var1_3, C_reg[i][3]);
   }
 }
 for (int_fast32_t i0 = 0; i0 < 2; i0++) {
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[((i0) * (64)) / 16]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[((i0) * (64) + 16) / 16]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], C_reg[((i0) * (64) + (2) * (16)) / 16]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], C_reg[((i0) * (64) + (3) * (16)) / 16]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[i0][0]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[i0][1]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], C_reg[i0][2]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], C_reg[i0][3]);
 }
 }
 
@@ -316,12 +316,12 @@ EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
 // assert stride(C, 1) == 1
-__m512 C_reg[3 * 4];
+__m512 C_reg[3][4];
 for (int_fast32_t i0 = 0; i0 < 3; i0++) {
-  C_reg[((i0) * (64)) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
-  C_reg[((i0) * (64) + 16) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
-  C_reg[((i0) * (64) + (2) * (16)) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
-  C_reg[((i0) * (64) + (3) * (16)) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
+  C_reg[i0][0] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
+  C_reg[i0][1] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
+  C_reg[i0][2] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
+  C_reg[i0][3] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
 }
 for (int_fast32_t k = 0; k < K; k++) {
   for (int_fast32_t i = 0; i < 3; i++) {
@@ -329,23 +329,23 @@ for (int_fast32_t k = 0; k < K; k++) {
     var0 = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + k]);
     __m512 var1;
     var1 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0])]);
-    C_reg[((i) * (64)) / 16] = _mm512_fmadd_ps(var0, var1, C_reg[((i) * (64)) / 16]);
+    C_reg[i][0] = _mm512_fmadd_ps(var0, var1, C_reg[i][0]);
     __m512 var1_1;
     var1_1 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + 16]);
-    C_reg[((i) * (64) + 16) / 16] = _mm512_fmadd_ps(var0, var1_1, C_reg[((i) * (64) + 16) / 16]);
+    C_reg[i][1] = _mm512_fmadd_ps(var0, var1_1, C_reg[i][1]);
     __m512 var1_2;
     var1_2 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + 32]);
-    C_reg[((i) * (64) + (2) * (16)) / 16] = _mm512_fmadd_ps(var0, var1_2, C_reg[((i) * (64) + (2) * (16)) / 16]);
+    C_reg[i][2] = _mm512_fmadd_ps(var0, var1_2, C_reg[i][2]);
     __m512 var1_3;
     var1_3 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + 48]);
-    C_reg[((i) * (64) + (3) * (16)) / 16] = _mm512_fmadd_ps(var0, var1_3, C_reg[((i) * (64) + (3) * (16)) / 16]);
+    C_reg[i][3] = _mm512_fmadd_ps(var0, var1_3, C_reg[i][3]);
   }
 }
 for (int_fast32_t i0 = 0; i0 < 3; i0++) {
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[((i0) * (64)) / 16]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[((i0) * (64) + 16) / 16]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], C_reg[((i0) * (64) + (2) * (16)) / 16]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], C_reg[((i0) * (64) + (3) * (16)) / 16]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[i0][0]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[i0][1]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], C_reg[i0][2]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], C_reg[i0][3]);
 }
 }
 
@@ -360,12 +360,12 @@ EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
 // assert stride(C, 1) == 1
-__m512 C_reg[4 * 4];
+__m512 C_reg[4][4];
 for (int_fast32_t i0 = 0; i0 < 4; i0++) {
-  C_reg[((i0) * (64)) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
-  C_reg[((i0) * (64) + 16) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
-  C_reg[((i0) * (64) + (2) * (16)) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
-  C_reg[((i0) * (64) + (3) * (16)) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
+  C_reg[i0][0] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
+  C_reg[i0][1] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
+  C_reg[i0][2] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
+  C_reg[i0][3] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
 }
 for (int_fast32_t k = 0; k < K; k++) {
   for (int_fast32_t i = 0; i < 4; i++) {
@@ -373,23 +373,23 @@ for (int_fast32_t k = 0; k < K; k++) {
     var0 = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + k]);
     __m512 var1;
     var1 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0])]);
-    C_reg[((i) * (64)) / 16] = _mm512_fmadd_ps(var0, var1, C_reg[((i) * (64)) / 16]);
+    C_reg[i][0] = _mm512_fmadd_ps(var0, var1, C_reg[i][0]);
     __m512 var1_1;
     var1_1 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + 16]);
-    C_reg[((i) * (64) + 16) / 16] = _mm512_fmadd_ps(var0, var1_1, C_reg[((i) * (64) + 16) / 16]);
+    C_reg[i][1] = _mm512_fmadd_ps(var0, var1_1, C_reg[i][1]);
     __m512 var1_2;
     var1_2 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + 32]);
-    C_reg[((i) * (64) + (2) * (16)) / 16] = _mm512_fmadd_ps(var0, var1_2, C_reg[((i) * (64) + (2) * (16)) / 16]);
+    C_reg[i][2] = _mm512_fmadd_ps(var0, var1_2, C_reg[i][2]);
     __m512 var1_3;
     var1_3 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + 48]);
-    C_reg[((i) * (64) + (3) * (16)) / 16] = _mm512_fmadd_ps(var0, var1_3, C_reg[((i) * (64) + (3) * (16)) / 16]);
+    C_reg[i][3] = _mm512_fmadd_ps(var0, var1_3, C_reg[i][3]);
   }
 }
 for (int_fast32_t i0 = 0; i0 < 4; i0++) {
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[((i0) * (64)) / 16]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[((i0) * (64) + 16) / 16]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], C_reg[((i0) * (64) + (2) * (16)) / 16]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], C_reg[((i0) * (64) + (3) * (16)) / 16]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[i0][0]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[i0][1]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], C_reg[i0][2]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], C_reg[i0][3]);
 }
 }
 
@@ -404,12 +404,12 @@ EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
 // assert stride(C, 1) == 1
-__m512 C_reg[5 * 4];
+__m512 C_reg[5][4];
 for (int_fast32_t i0 = 0; i0 < 5; i0++) {
-  C_reg[((i0) * (64)) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
-  C_reg[((i0) * (64) + 16) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
-  C_reg[((i0) * (64) + (2) * (16)) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
-  C_reg[((i0) * (64) + (3) * (16)) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
+  C_reg[i0][0] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
+  C_reg[i0][1] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
+  C_reg[i0][2] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
+  C_reg[i0][3] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
 }
 for (int_fast32_t k = 0; k < K; k++) {
   for (int_fast32_t i = 0; i < 5; i++) {
@@ -417,23 +417,23 @@ for (int_fast32_t k = 0; k < K; k++) {
     var0 = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + k]);
     __m512 var1;
     var1 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0])]);
-    C_reg[((i) * (64)) / 16] = _mm512_fmadd_ps(var0, var1, C_reg[((i) * (64)) / 16]);
+    C_reg[i][0] = _mm512_fmadd_ps(var0, var1, C_reg[i][0]);
     __m512 var1_1;
     var1_1 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + 16]);
-    C_reg[((i) * (64) + 16) / 16] = _mm512_fmadd_ps(var0, var1_1, C_reg[((i) * (64) + 16) / 16]);
+    C_reg[i][1] = _mm512_fmadd_ps(var0, var1_1, C_reg[i][1]);
     __m512 var1_2;
     var1_2 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + 32]);
-    C_reg[((i) * (64) + (2) * (16)) / 16] = _mm512_fmadd_ps(var0, var1_2, C_reg[((i) * (64) + (2) * (16)) / 16]);
+    C_reg[i][2] = _mm512_fmadd_ps(var0, var1_2, C_reg[i][2]);
     __m512 var1_3;
     var1_3 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + 48]);
-    C_reg[((i) * (64) + (3) * (16)) / 16] = _mm512_fmadd_ps(var0, var1_3, C_reg[((i) * (64) + (3) * (16)) / 16]);
+    C_reg[i][3] = _mm512_fmadd_ps(var0, var1_3, C_reg[i][3]);
   }
 }
 for (int_fast32_t i0 = 0; i0 < 5; i0++) {
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[((i0) * (64)) / 16]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[((i0) * (64) + 16) / 16]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], C_reg[((i0) * (64) + (2) * (16)) / 16]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], C_reg[((i0) * (64) + (3) * (16)) / 16]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[i0][0]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[i0][1]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], C_reg[i0][2]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], C_reg[i0][3]);
 }
 }
 
@@ -448,12 +448,12 @@ EXO_ASSUME(K >= 1);
 // assert stride(A, 1) == 1
 // assert stride(B, 1) == 1
 // assert stride(C, 1) == 1
-__m512 C_reg[6 * 4];
+__m512 C_reg[6][4];
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
-  C_reg[((i0) * (64)) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
-  C_reg[((i0) * (64) + 16) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
-  C_reg[((i0) * (64) + (2) * (16)) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
-  C_reg[((i0) * (64) + (3) * (16)) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
+  C_reg[i0][0] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
+  C_reg[i0][1] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
+  C_reg[i0][2] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
+  C_reg[i0][3] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 48]);
 }
 for (int_fast32_t k = 0; k < K; k++) {
   for (int_fast32_t i = 0; i < 6; i++) {
@@ -461,23 +461,23 @@ for (int_fast32_t k = 0; k < K; k++) {
     var0 = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + k]);
     __m512 var1;
     var1 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0])]);
-    C_reg[((i) * (64)) / 16] = _mm512_fmadd_ps(var0, var1, C_reg[((i) * (64)) / 16]);
+    C_reg[i][0] = _mm512_fmadd_ps(var0, var1, C_reg[i][0]);
     __m512 var1_1;
     var1_1 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + 16]);
-    C_reg[((i) * (64) + 16) / 16] = _mm512_fmadd_ps(var0, var1_1, C_reg[((i) * (64) + 16) / 16]);
+    C_reg[i][1] = _mm512_fmadd_ps(var0, var1_1, C_reg[i][1]);
     __m512 var1_2;
     var1_2 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + 32]);
-    C_reg[((i) * (64) + (2) * (16)) / 16] = _mm512_fmadd_ps(var0, var1_2, C_reg[((i) * (64) + (2) * (16)) / 16]);
+    C_reg[i][2] = _mm512_fmadd_ps(var0, var1_2, C_reg[i][2]);
     __m512 var1_3;
     var1_3 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + 48]);
-    C_reg[((i) * (64) + (3) * (16)) / 16] = _mm512_fmadd_ps(var0, var1_3, C_reg[((i) * (64) + (3) * (16)) / 16]);
+    C_reg[i][3] = _mm512_fmadd_ps(var0, var1_3, C_reg[i][3]);
   }
 }
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[((i0) * (64)) / 16]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[((i0) * (64) + 16) / 16]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], C_reg[((i0) * (64) + (2) * (16)) / 16]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], C_reg[((i0) * (64) + (3) * (16)) / 16]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[i0][0]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[i0][1]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], C_reg[i0][2]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], C_reg[i0][3]);
 }
 }
 
@@ -569,9 +569,9 @@ EXO_ASSUME(K >= 1);
 // assert stride(C, 1) == 1
 EXO_ASSUME(N < 64);
 EXO_ASSUME(((15 + N) / (16)) == 1);
-__m512 C_reg[6 * 1];
+__m512 C_reg[6][1];
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
-  C_reg[((i0) * (16)) / 16] = _mm512_maskz_loadu_ps(((1 << (N)) - 1), &C.data[(i0) * (C.strides[0])]);
+  C_reg[i0][0] = _mm512_maskz_loadu_ps(((1 << (N)) - 1), &C.data[(i0) * (C.strides[0])]);
 }
 for (int_fast32_t k = 0; k < K; k++) {
   for (int_fast32_t i = 0; i < 6; i++) {
@@ -579,11 +579,11 @@ for (int_fast32_t k = 0; k < K; k++) {
     __m512 var1;
     var0 = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + k]);
     var1 = _mm512_maskz_loadu_ps(((1 << (N)) - 1), &B.data[(k) * (B.strides[0])]);
-    C_reg[((i) * (16)) / 16] = _mm512_mask_fmadd_ps(var0, ((1 << (N)) - 1), var1, C_reg[((i) * (16)) / 16]);
+    C_reg[i][0] = _mm512_mask_fmadd_ps(var0, ((1 << (N)) - 1), var1, C_reg[i][0]);
   }
 }
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
-  _mm512_mask_storeu_ps(&C.data[(i0) * (C.strides[0])], ((1 << (N)) - 1), C_reg[((i0) * (16)) / 16]);
+  _mm512_mask_storeu_ps(&C.data[(i0) * (C.strides[0])], ((1 << (N)) - 1), C_reg[i0][0]);
 }
 }
 
@@ -602,10 +602,10 @@ EXO_ASSUME(K >= 1);
 // assert stride(C, 1) == 1
 EXO_ASSUME(N < 64);
 EXO_ASSUME(((15 + N) / (16)) == 2);
-__m512 C_reg[6 * 2];
+__m512 C_reg[6][2];
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
-  C_reg[((i0) * (32)) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
-  C_reg[((i0) * (32) + 16) / 16] = _mm512_maskz_loadu_ps(((1 << (-16 + N)) - 1), &C.data[(i0) * (C.strides[0]) + 16]);
+  C_reg[i0][0] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
+  C_reg[i0][1] = _mm512_maskz_loadu_ps(((1 << (-16 + N)) - 1), &C.data[(i0) * (C.strides[0]) + 16]);
 }
 for (int_fast32_t k = 0; k < K; k++) {
   for (int_fast32_t i = 0; i < 6; i++) {
@@ -613,17 +613,17 @@ for (int_fast32_t k = 0; k < K; k++) {
     __m512 var1;
     var0 = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + k]);
     var1 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0])]);
-    C_reg[((i) * (32)) / 16] = _mm512_fmadd_ps(var0, var1, C_reg[((i) * (32)) / 16]);
+    C_reg[i][0] = _mm512_fmadd_ps(var0, var1, C_reg[i][0]);
     __m512 var0_1;
     __m512 var1_1;
     var0_1 = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + k]);
     var1_1 = _mm512_maskz_loadu_ps(((1 << (-16 + N)) - 1), &B.data[(k) * (B.strides[0]) + 16]);
-    C_reg[((i) * (32) + 16) / 16] = _mm512_mask_fmadd_ps(var0_1, ((1 << (-16 + N)) - 1), var1_1, C_reg[((i) * (32) + 16) / 16]);
+    C_reg[i][1] = _mm512_mask_fmadd_ps(var0_1, ((1 << (-16 + N)) - 1), var1_1, C_reg[i][1]);
   }
 }
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[((i0) * (32)) / 16]);
-  _mm512_mask_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], ((1 << (-16 + N)) - 1), C_reg[((i0) * (32) + 16) / 16]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[i0][0]);
+  _mm512_mask_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], ((1 << (-16 + N)) - 1), C_reg[i0][1]);
 }
 }
 
@@ -642,11 +642,11 @@ EXO_ASSUME(K >= 1);
 // assert stride(C, 1) == 1
 EXO_ASSUME(N < 64);
 EXO_ASSUME(((15 + N) / (16)) == 3);
-__m512 C_reg[6 * 3];
+__m512 C_reg[6][3];
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
-  C_reg[((i0) * (48)) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
-  C_reg[((i0) * (48) + 16) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
-  C_reg[((i0) * (48) + (2) * (16)) / 16] = _mm512_maskz_loadu_ps(((1 << (-32 + N)) - 1), &C.data[(i0) * (C.strides[0]) + 32]);
+  C_reg[i0][0] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
+  C_reg[i0][1] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
+  C_reg[i0][2] = _mm512_maskz_loadu_ps(((1 << (-32 + N)) - 1), &C.data[(i0) * (C.strides[0]) + 32]);
 }
 for (int_fast32_t k = 0; k < K; k++) {
   for (int_fast32_t i = 0; i < 6; i++) {
@@ -654,23 +654,23 @@ for (int_fast32_t k = 0; k < K; k++) {
     __m512 var1;
     var0 = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + k]);
     var1 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0])]);
-    C_reg[((i) * (48)) / 16] = _mm512_fmadd_ps(var0, var1, C_reg[((i) * (48)) / 16]);
+    C_reg[i][0] = _mm512_fmadd_ps(var0, var1, C_reg[i][0]);
     __m512 var0_1;
     __m512 var1_1;
     var0_1 = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + k]);
     var1_1 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + 16]);
-    C_reg[((i) * (48) + 16) / 16] = _mm512_fmadd_ps(var0_1, var1_1, C_reg[((i) * (48) + 16) / 16]);
+    C_reg[i][1] = _mm512_fmadd_ps(var0_1, var1_1, C_reg[i][1]);
     __m512 var0_2;
     __m512 var1_2;
     var0_2 = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + k]);
     var1_2 = _mm512_maskz_loadu_ps(((1 << (-32 + N)) - 1), &B.data[(k) * (B.strides[0]) + 32]);
-    C_reg[((i) * (48) + (2) * (16)) / 16] = _mm512_mask_fmadd_ps(var0_2, ((1 << (-32 + N)) - 1), var1_2, C_reg[((i) * (48) + (2) * (16)) / 16]);
+    C_reg[i][2] = _mm512_mask_fmadd_ps(var0_2, ((1 << (-32 + N)) - 1), var1_2, C_reg[i][2]);
   }
 }
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[((i0) * (48)) / 16]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[((i0) * (48) + 16) / 16]);
-  _mm512_mask_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], ((1 << (-32 + N)) - 1), C_reg[((i0) * (48) + (2) * (16)) / 16]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[i0][0]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[i0][1]);
+  _mm512_mask_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], ((1 << (-32 + N)) - 1), C_reg[i0][2]);
 }
 }
 
@@ -689,12 +689,12 @@ EXO_ASSUME(K >= 1);
 // assert stride(C, 1) == 1
 EXO_ASSUME(N < 64);
 EXO_ASSUME(((15 + N) / (16)) == 4);
-__m512 C_reg[6 * 4];
+__m512 C_reg[6][4];
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
-  C_reg[((i0) * (64)) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
-  C_reg[((i0) * (64) + 16) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
-  C_reg[((i0) * (64) + (2) * (16)) / 16] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
-  C_reg[((i0) * (64) + (3) * (16)) / 16] = _mm512_maskz_loadu_ps(((1 << (-48 + N)) - 1), &C.data[(i0) * (C.strides[0]) + 48]);
+  C_reg[i0][0] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0])]);
+  C_reg[i0][1] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 16]);
+  C_reg[i0][2] = _mm512_loadu_ps(&C.data[(i0) * (C.strides[0]) + 32]);
+  C_reg[i0][3] = _mm512_maskz_loadu_ps(((1 << (-48 + N)) - 1), &C.data[(i0) * (C.strides[0]) + 48]);
 }
 for (int_fast32_t k = 0; k < K; k++) {
   for (int_fast32_t i = 0; i < 6; i++) {
@@ -702,29 +702,29 @@ for (int_fast32_t k = 0; k < K; k++) {
     __m512 var1;
     var0 = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + k]);
     var1 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0])]);
-    C_reg[((i) * (64)) / 16] = _mm512_fmadd_ps(var0, var1, C_reg[((i) * (64)) / 16]);
+    C_reg[i][0] = _mm512_fmadd_ps(var0, var1, C_reg[i][0]);
     __m512 var0_1;
     __m512 var1_1;
     var0_1 = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + k]);
     var1_1 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + 16]);
-    C_reg[((i) * (64) + 16) / 16] = _mm512_fmadd_ps(var0_1, var1_1, C_reg[((i) * (64) + 16) / 16]);
+    C_reg[i][1] = _mm512_fmadd_ps(var0_1, var1_1, C_reg[i][1]);
     __m512 var0_2;
     __m512 var1_2;
     var0_2 = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + k]);
     var1_2 = _mm512_loadu_ps(&B.data[(k) * (B.strides[0]) + 32]);
-    C_reg[((i) * (64) + (2) * (16)) / 16] = _mm512_fmadd_ps(var0_2, var1_2, C_reg[((i) * (64) + (2) * (16)) / 16]);
+    C_reg[i][2] = _mm512_fmadd_ps(var0_2, var1_2, C_reg[i][2]);
     __m512 var0_3;
     __m512 var1_3;
     var0_3 = _mm512_set1_ps(A.data[(i) * (A.strides[0]) + k]);
     var1_3 = _mm512_maskz_loadu_ps(((1 << (-48 + N)) - 1), &B.data[(k) * (B.strides[0]) + 48]);
-    C_reg[((i) * (64) + (3) * (16)) / 16] = _mm512_mask_fmadd_ps(var0_3, ((1 << (-48 + N)) - 1), var1_3, C_reg[((i) * (64) + (3) * (16)) / 16]);
+    C_reg[i][3] = _mm512_mask_fmadd_ps(var0_3, ((1 << (-48 + N)) - 1), var1_3, C_reg[i][3]);
   }
 }
 for (int_fast32_t i0 = 0; i0 < 6; i0++) {
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[((i0) * (64)) / 16]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[((i0) * (64) + 16) / 16]);
-  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], C_reg[((i0) * (64) + (2) * (16)) / 16]);
-  _mm512_mask_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], ((1 << (-48 + N)) - 1), C_reg[((i0) * (64) + (3) * (16)) / 16]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0])], C_reg[i0][0]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 16], C_reg[i0][1]);
+  _mm512_storeu_ps(&C.data[(i0) * (C.strides[0]) + 32], C_reg[i0][2]);
+  _mm512_mask_storeu_ps(&C.data[(i0) * (C.strides[0]) + 48], ((1 << (-48 + N)) - 1), C_reg[i0][3]);
 }
 }
 

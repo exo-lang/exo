@@ -178,7 +178,7 @@ class MemWin(ABC):
         """
         C code defining struct.
         Get the required parameters from the WindowStructCtx.
-        Return (dataptr : str, window_struct : str, separate_dataptr : bool)
+        Return (dataptr : str, window_struct : str)
 
         dataptr: C type for a raw pointer (e.g. __m256d*, float*)
 

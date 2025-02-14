@@ -188,10 +188,6 @@ class GEMM_ACCUM(Memory):
 
 
 class AVX2(Memory):
-    @classmethod
-    def global_(cls):
-        return "#include <immintrin.h>"
-
     _vec_types = {
         "float": (8, "__m256"),
         "double": (4, "__m256d"),
@@ -199,8 +195,20 @@ class AVX2(Memory):
     }
 
     @classmethod
+    def global_(cls):
+        return "#include <immintrin.h>"
+
+    @classmethod
+    def window_definition(cls, ctx):
+        if ctx.n_dims() != 1:
+            raise MemGenError("Only support windows to a single AVX vector (n_dims 1)")
+        _, c_vec = cls._vec_types[ctx.ctype()]
+        return ctx.generate_default("AVX2", c_vec)
+
+    @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
         vec_types = cls._vec_types
+
         if not shape:
             raise MemGenError(f"{srcinfo}: AVX2 vectors are not scalar values")
 
@@ -216,7 +224,7 @@ class AVX2(Memory):
             )
         shape = shape[:-1]
         if shape:
-            result = f"{C_reg_type_name} {new_name}[{' * '.join(shape)}];"
+            result = f'{C_reg_type_name} {new_name}[{"][".join(map(str, shape))}];'
         else:
             result = f"{C_reg_type_name} {new_name};"
         return result
@@ -231,22 +239,13 @@ class AVX2(Memory):
 
     @classmethod
     def window(cls, basetyp, baseptr, indices, strides, srcinfo):
+        if basetyp.is_win():
+            return f"*{baseptr}.data"
         assert strides[-1] == "1"
         idxs = indices[:-1] or ""
         if idxs:
-            vec_types = cls._vec_types
-            vector_size, _ = vec_types[basetyp.basetype().ctype()]
-            return cls.default_window(
-                vector_size, basetyp, baseptr, idxs, strides[:-1], srcinfo
-            )
-        else:
-            return baseptr
-
-    @classmethod
-    def window_definition(cls, ctx):
-        assert ctx.n_dims() > 0
-        vec_types = cls._vec_types
-        return ctx.generate_default("AVX2", vec_types[ctx.ctype()][1])
+            idxs = "[" + "][".join(idxs) + "]"
+        return f"{baseptr}{idxs}"
 
 
 # ----------- AVX-512 registers ----------------
@@ -256,6 +255,12 @@ class AVX512(Memory):
     @classmethod
     def global_(cls):
         return "#include <immintrin.h>"
+
+    @classmethod
+    def window_definition(cls, ctx):
+        if ctx.n_dims() != 1:
+            raise MemGenError("Only support windows to a single AVX vector (n_dims 1)")
+        return ctx.generate_default("AVX512", "__m512")
 
     @classmethod
     def can_read(cls):
@@ -271,7 +276,7 @@ class AVX512(Memory):
             raise MemGenError(f"{srcinfo}: AVX512 vectors must be 16-wide")
         shape = shape[:-1]
         if shape:
-            result = f"__m512 {new_name}[{' * '.join(shape)}];"
+            result = f'__m512 {new_name}[{"][".join(map(str, shape))}];'
         else:
             result = f"__m512 {new_name};"
         return result
@@ -282,20 +287,13 @@ class AVX512(Memory):
 
     @classmethod
     def window(cls, basetyp, baseptr, indices, strides, srcinfo):
+        if basetyp.is_win():
+            return f"*{baseptr}.data"
         assert strides[-1] == "1"
         idxs = indices[:-1] or ""
         if idxs:
-            vector_size = 16  # Needs to be updated if F32 restriction removed
-            return cls.default_window(
-                vector_size, basetyp, baseptr, idxs, strides[:-1], srcinfo
-            )
-        else:
-            return baseptr
-
-    @classmethod
-    def window_definition(cls, ctx):
-        assert ctx.n_dims() > 0
-        return ctx.generate_default("AVX512", "__m512")
+            idxs = "[" + "][".join(idxs) + "]"
+        return f"{baseptr}{idxs}"
 
 
 # ----------- AMX tile! ----------------
