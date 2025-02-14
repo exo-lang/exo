@@ -271,7 +271,7 @@ class AVX512(Memory):
             raise MemGenError(f"{srcinfo}: AVX512 vectors must be 16-wide")
         shape = shape[:-1]
         if shape:
-            result = f'__m512 {new_name}[{"][".join(map(str, shape))}];'
+            result = f"__m512 {new_name}[{' * '.join(shape)}];"
         else:
             result = f"__m512 {new_name};"
         return result
@@ -285,8 +285,17 @@ class AVX512(Memory):
         assert strides[-1] == "1"
         idxs = indices[:-1] or ""
         if idxs:
-            idxs = "[" + "][".join(idxs) + "]"
-        return f"{baseptr}{idxs}"
+            vector_size = 16  # Needs to be updated if F32 restriction removed
+            return cls.default_window(
+                vector_size, basetyp, baseptr, idxs, strides[:-1], srcinfo
+            )
+        else:
+            return baseptr
+
+    @classmethod
+    def window_definition(cls, ctx):
+        assert ctx.n_dims() > 0
+        return ctx.generate_default("AVX512", "__m512")
 
 
 # ----------- AMX tile! ----------------
