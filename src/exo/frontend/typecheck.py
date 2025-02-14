@@ -1,14 +1,22 @@
+from ..core.memory import *
+
+from ..core.extern import Extern_Typecheck_Error
+from ..core.prelude import Sym
+from ..spork.base_with_context import BaseWithContext
+
 from ..core.LoopIR import (
     T,
     UAST,
     LoopIR,
+    LoopIR_Fence,
     LoopIR_Dependencies,
     get_writeconfigs,
     get_loop_iters,
     create_window_type,
+    loopir_from_uast_metatype_table,
 )
-from ..core.extern import Extern_Typecheck_Error
-from ..core.memory import *
+
+from ..spork.sync_types import SyncType, fence_type
 
 
 # --------------------------------------------------------------------------- #
@@ -93,6 +101,8 @@ def check_call_types(err_handler, args, call_args):
 
 
 class TypeChecker:
+    _typ_table = loopir_from_uast_metatype_table
+
     def __init__(self, proc):
         self.uast_proc = proc
         self.env = dict()
@@ -100,7 +110,7 @@ class TypeChecker:
 
         args = []
         for a in proc.args:
-            typ = self.check_t(a.type)
+            typ = self.check_t(a, a.type)
             self.env[a.name] = typ
             mem = a.mem
             if mem is None:
@@ -128,16 +138,12 @@ class TypeChecker:
                     f"expected writes to configuration {name[0].name()}.{name[1]} does not depend on loop iterations",
                 )
 
-        instr = proc.instr
-        if instr:
-            instr = LoopIR.instr(c_instr=instr.c_instr, c_global=instr.c_global)
-
         self.loopir_proc = LoopIR.proc(
             name=proc.name or "anon",
             args=args,
             preds=preds,
             body=body,
-            instr=instr,
+            instr=None,
             srcinfo=proc.srcinfo,
         )
 
@@ -154,7 +160,9 @@ class TypeChecker:
         self.errors.append(f"{node.srcinfo}: {msg}")
 
     def check_stmts(self, body):
-        assert len(body) > 0 or self.uast_proc.instr
+        # David Akeley: this assert doesn't work anymore since I
+        # replaced UAST.instr with InstrInfo
+        # assert len(body) > 0 or self.uast_proc.instr
         stmts = []
         for s in body:
             stmts += self.check_single_stmt(s)
@@ -202,14 +210,14 @@ class TypeChecker:
                 f"a non-numeric variable of type '{typ}'",
             )
             typ = T.err
-        elif len(idx) > 0:
+        elif len(idx) > 0 and not typ.is_barrier():
             self.err(node, f"cannot index a variable of type '{typ}'")
 
         return idx, typ
 
     def check_single_stmt(self, stmt):
         if isinstance(stmt, UAST.FreshAssign):
-            rhs = self.check_e(stmt.rhs)
+            rhs = self.check_e(stmt.rhs, allow_special_window=True)
 
             # We see a statement of the form
             #   nm = ...
@@ -223,7 +231,11 @@ class TypeChecker:
             elif isinstance(rhs.type, T.Window):
                 assert isinstance(rhs, LoopIR.WindowExpr)
                 self.env[stmt.name] = rhs.type
-                return [LoopIR.WindowStmt(stmt.name, rhs, stmt.srcinfo)]
+                return [
+                    LoopIR.WindowStmt(
+                        stmt.name, rhs, stmt.rhs.special_window, stmt.srcinfo
+                    )
+                ]
             else:
                 self.err(
                     stmt,
@@ -293,9 +305,28 @@ class TypeChecker:
             return [LoopIR.WriteConfig(stmt.config, stmt.field, rhs, stmt.srcinfo)]
         elif isinstance(stmt, UAST.Pass):
             return [LoopIR.Pass(stmt.srcinfo)]
+        elif isinstance(stmt, UAST.SyncStmt):
+            if stmt.sync_type.is_split():
+                barriers = [self.check_e(e) for e in stmt.barriers]
+                assert all(isinstance(e, LoopIR.BarrierExpr) for e in barriers)
+                assert stmt.sync_type.is_arrive() or len(barriers) == 1
+                return [LoopIR.SyncStmt(stmt.sync_type, barriers, stmt.srcinfo)]
+            else:
+                return [
+                    LoopIR_Fence(
+                        stmt.sync_type.first_sync_tl,
+                        stmt.sync_type.second_sync_tl,
+                        stmt.srcinfo,
+                    )
+                ]
+
         elif isinstance(stmt, UAST.If):
             cond = self.check_e(stmt.cond, is_index=True)
-            if cond.type != T.err and cond.type != T.bool:
+            if (
+                cond.type != T.err
+                and cond.type != T.bool
+                and cond.type != T.with_context
+            ):
                 self.err(cond, f"expected a bool expression")
             body = self.check_stmts(stmt.body)
             ebody = []
@@ -306,14 +337,14 @@ class TypeChecker:
         elif isinstance(stmt, UAST.For):
             self.env[stmt.iter] = T.index
 
-            # handle standard ParRanges
+            # handle standard LoopRanges
             parerr = (
                 "currently supporting for-loops of the form:\n"
                 "  'for _ in par(affine_expression, affine_expression):' and "
                 "'for _ in seq(affine_expression, affine_expression):'"
             )
 
-            if not isinstance(stmt.cond, (UAST.ParRange, UAST.SeqRange)):
+            if not isinstance(stmt.cond, UAST.LoopRange):
                 self.err(stmt.cond, parerr)
 
             lo = self.check_e(stmt.cond.lo, is_index=True)
@@ -324,32 +355,55 @@ class TypeChecker:
                 self.err(hi, "expected loop bound to be indexable.")
 
             body = self.check_stmts(stmt.body)
-            if isinstance(stmt.cond, UAST.SeqRange):
-                return [LoopIR.For(stmt.iter, lo, hi, body, LoopIR.Seq(), stmt.srcinfo)]
-            elif isinstance(stmt.cond, UAST.ParRange):
-                return [LoopIR.For(stmt.iter, lo, hi, body, LoopIR.Par(), stmt.srcinfo)]
+            if isinstance(stmt.cond, UAST.LoopRange):
+                return [
+                    LoopIR.For(
+                        stmt.iter, lo, hi, body, stmt.cond.loop_mode, stmt.srcinfo
+                    )
+                ]
             else:
                 assert False, "bad case"
 
         elif isinstance(stmt, UAST.Alloc):
-            typ = self.check_t(stmt.type)
+            typ = self.check_t(stmt, stmt.type)
             self.env[stmt.name] = typ
             mem = stmt.mem
             if mem is None:
                 mem = DRAM
+
+            def expect_subclass(cls):
+                if not issubclass(mem, cls):
+                    self.err(
+                        stmt,
+                        f"expected @{mem.__name__} annotation to subclass {cls.__name__}",
+                    )
+
+            if typ.is_barrier():
+                expect_subclass(BarrierMechanism)
+            else:
+                expect_subclass(Memory)
             return [LoopIR.Alloc(stmt.name, typ, mem, stmt.srcinfo)]
 
         elif isinstance(stmt, UAST.Call):
+            n_args, expected_args = len(stmt.args), len(stmt.f.args)
+            if n_args != expected_args:
+                self.err(
+                    stmt,
+                    f"{stmt.f.name} got {n_args} arguments but need {expected_args}",
+                )
             args = [
                 self.check_e(
                     call_a, is_index=sig_a.type in (T.size, T.index, T.stride, T.bool)
                 )
                 for call_a, sig_a in zip(stmt.args, stmt.f.args)
             ]
-
             check_call_types(self.err, args, stmt.f.args)
 
-            return [LoopIR.Call(stmt.f, args, stmt.srcinfo)]
+            if bar := stmt.trailing_barrier_expr:
+                bar = self.check_e(bar)
+                assert isinstance(bar, LoopIR.BarrierExpr)
+
+            return [LoopIR.Call(stmt.f, args, bar, stmt.srcinfo)]
         else:
             assert False, f"not a loopir in check_stmts {type(stmt)}"
 
@@ -377,7 +431,7 @@ class TypeChecker:
 
             return LoopIR.Interval(lo, hi, e.srcinfo)
 
-    def check_e(self, e, is_index=False):
+    def check_e(self, e, is_index=False, allow_special_window=False):
         if isinstance(e, UAST.Read):
             typ = self.env[e.name]
             # if we only partially accessed the base tensor/window,
@@ -391,7 +445,7 @@ class TypeChecker:
                     for _ in range(0, len(typ.shape()) - len(e.idx))
                 ]
 
-                desugared = UAST.WindowExpr(e.name, idxs, e.srcinfo)
+                desugared = UAST.WindowExpr(e.name, idxs, None, e.srcinfo)
                 return self.check_e(desugared)
 
             # otherwise, we have a normal access
@@ -399,15 +453,54 @@ class TypeChecker:
                 idx, typ = self.check_access(e, e.name, e.idx, lvalue=False)
                 return LoopIR.Read(e.name, idx, typ, e.srcinfo)
 
+        elif isinstance(e, UAST.BarrierExpr):
+            in_typ = self.env[e.name]
+            if not in_typ.is_barrier():
+                self.err(
+                    e, f"BarrierExpr requires barrier type, not {e.name}: {in_typ}"
+                )
+                return LoopIR.BarrierExpr(e.name, [], T.err, e.srcinfo)
+            in_shape = in_typ.shape()
+            if len(in_shape) != len(e.idx):
+                self.err(
+                    e,
+                    f"expected {len(in_shape)} indices for BarrierExpr "
+                    f"but got {len(e.idx)}",
+                )
+                return LoopIR.BarrierExpr(e.name, [], T.err, e.srcinfo)
+            idx = [self.check_w_access(w, t) for w, t in zip(e.idx, in_shape)]
+            # Correct shape of in_typ if anything downstream needs it.
+            return LoopIR.BarrierExpr(e.name, idx, in_typ, e.srcinfo)
+
         elif isinstance(e, UAST.WindowExpr):
             in_typ = self.env[e.name]
             if not in_typ.is_tensor_or_window():
                 self.err(
                     e,
                     f"cannot perform windowing on non-tensor, "
-                    f"non-window type {e.base}",
+                    f"non-window type {in_type} defined by {e}",
                 )
                 return LoopIR.WindowExpr(e.name, [], T.err, e.srcinfo)
+
+            if e.special_window is not None:
+                # UAST has the optional special window as part of WindowExpr as
+                # that's how it parses, but LoopIR has the special window as
+                # part of WindowStmt since that matches the usage pattern
+                # (can't construct special windows just anywhere)
+                if not allow_special_window:
+                    self.err(
+                        e,
+                        f"Can only create SpecialWindow as part of "
+                        f"WindowStmt (W = t[idx...] @ SpecialWindow)",
+                    )
+                    return LoopIR.WindowExpr(e.name, [], T.err, e.srcinfo)
+                elif not in_typ.is_dense_tensor():
+                    self.err(
+                        e,
+                        "Can only create SpecialWindow from a dense "
+                        "tensor, not another window",
+                    )
+                    return LoopIR.WindowExpr(e.name, [], T.err, e.srcinfo)
 
             in_shape = in_typ.shape()
             if len(in_shape) != len(e.idx):
@@ -416,15 +509,22 @@ class TypeChecker:
                     f"expected {len(in_shape)} indices for window "
                     f"but got {len(e.idx)}",
                 )
+                return LoopIR.WindowExpr(e.name, [], T.err, e.srcinfo)
 
             idx = [self.check_w_access(w, t) for w, t in zip(e.idx, in_shape)]
             w_typ = create_window_type(e.name, in_typ, idx)
             return LoopIR.WindowExpr(e.name, idx, w_typ, e.srcinfo)
 
         elif isinstance(e, UAST.Const):
-            ty = {float: T.R, bool: T.bool, int: T.int if is_index else T.R}.get(
-                type(e.val)
-            )
+            if isinstance(e.val, BaseWithContext):
+                # TODO remove BaseWithContext hack when we add a with node to LoopIR.
+                ty = T.with_context
+            else:
+                ty = {
+                    float: T.R,
+                    bool: T.bool,
+                    int: T.int if is_index else T.R,
+                }.get(type(e.val))
             if not ty:
                 self.err(
                     e,
@@ -471,7 +571,7 @@ class TypeChecker:
                         self.err(
                             operand,
                             f"expected 'index' or 'size' argument to "
-                            f"comparison op: {e.op}",
+                            f"comparison op: {e.op}, not {operand}: {operand.type}",
                         )
                 typ = T.bool
             elif e.op in ("+", "-", "*", "/", "%"):
@@ -572,9 +672,9 @@ class TypeChecker:
 
             return LoopIR.StrideExpr(e.name, e.dim, T.stride, e.srcinfo)
 
-        elif isinstance(e, UAST.ParRange):
+        elif isinstance(e, UAST.LoopRange):
             assert False, (
-                "parser should not place ParRange anywhere "
+                "parser should not place LoopRange anywhere "
                 "outside of a for-loop condition"
             )
         elif isinstance(e, UAST.ReadConfig):
@@ -589,28 +689,9 @@ class TypeChecker:
         else:
             assert False, "not a LoopIR in check_e"
 
-    _typ_table = {
-        UAST.Num: T.R,
-        UAST.F16: T.f16,
-        UAST.F32: T.f32,
-        UAST.F64: T.f64,
-        UAST.INT8: T.int8,
-        UAST.UINT8: T.uint8,
-        UAST.UINT16: T.uint16,
-        UAST.INT32: T.int32,
-        UAST.Bool: T.bool,
-        UAST.Int: T.int,
-        UAST.Size: T.size,
-        UAST.Index: T.index,
-        UAST.Stride: T.stride,
-    }
-
-    def check_t(self, typ):
-        if type(typ) in TypeChecker._typ_table:
-            return TypeChecker._typ_table[type(typ)]
-        elif isinstance(typ, UAST.Tensor):
+    def check_t(self, node, typ):
+        def check_hi():
             hi = [self.check_e(h, is_index=True) for h in typ.hi]
-            sub_typ = self.check_t(typ.type)
             for h in hi:
                 if not h.type.is_indexable():
                     self.err(
@@ -618,6 +699,29 @@ class TypeChecker:
                         "expected array size expression "
                         "to have type 'size' or type 'index'",
                     )
-            return T.Tensor(hi, typ.is_window, sub_typ)
+            return hi
+
+        if type(typ) in TypeChecker._typ_table:
+            return TypeChecker._typ_table[type(typ)]
+        elif isinstance(typ, UAST.Bool):
+            return T.bool
+        elif isinstance(typ, UAST.Tensor):
+            sub_typ = self.check_t(node, typ.type)
+            return T.Tensor(check_hi(), typ.is_window, sub_typ)
+        elif isinstance(typ, UAST.Barrier):
+            guarded_by = typ.guarded_by
+            if guarded_by is not None:
+                if isinstance(node, UAST.Alloc) and node.name == guarded_by:
+                    self.err(
+                        node,
+                        f"barrier({guarded_by}): {guarded_by} must not reference itself",
+                    )
+                    guarded_by = None
+                elif not self.env[guarded_by].is_barrier():
+                    self.err(
+                        node, f"barrier({guarded_by}): {guarded_by} must name a barrier"
+                    )
+                    guarded_by = None
+            return T.Barrier(guarded_by, check_hi())
         else:
             assert False, "bad case"

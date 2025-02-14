@@ -1,11 +1,6 @@
-
 #pragma once
 #ifndef TEST_CASE_H
 #define TEST_CASE_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 
 #include <stdint.h>
@@ -31,6 +26,34 @@ extern "C" {
 
 
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
+#include <stdio.h>
+#include <stdlib.h>
+
+#endif
+/* Required by DRAM */
+#ifndef EXO_WIN_1F32C
+#define EXO_WIN_1F32C
+struct exo_win_1f32c {
+    const float * const data;
+    const int_fast32_t strides[1];
+};
+#endif
+/* Required by DRAM */
+#ifndef EXO_WIN_1F32
+#define EXO_WIN_1F32
+struct exo_win_1f32 {
+    float * const data;
+    const int_fast32_t strides[1];
+};
+#endif
 // vec_double(
 //     N : size,
 //     inp : f32[N] @DRAM,
@@ -50,12 +73,11 @@ void vec_double_optimized( void *ctxt, int_fast32_t N, const float* inp, float* 
 #ifdef __cplusplus
 }
 #endif
+
+
 #endif  // TEST_CASE_H
 
 #include "test_case.h"
-
-#include <stdio.h>
-#include <stdlib.h>
 
 // vec_double(
 //     N : size,
@@ -63,10 +85,10 @@ void vec_double_optimized( void *ctxt, int_fast32_t N, const float* inp, float* 
 //     out : f32[N] @DRAM
 // )
 void vec_double( void *ctxt, int_fast32_t N, const float* inp, float* out ) {
-EXO_ASSUME(N % 8 == 0);
-for (int_fast32_t i = 0; i < N; i++) {
-  out[i] = 2.0f * inp[i];
-}
+  EXO_ASSUME(N % 8 == 0);
+  for (int_fast32_t i = 0; i < N; i++) {
+    out[i] = 2.0f * inp[i];
+  }
 }
 
 // vec_double_optimized(
@@ -75,26 +97,26 @@ for (int_fast32_t i = 0; i < N; i++) {
 //     out : f32[N] @DRAM
 // )
 void vec_double_optimized( void *ctxt, int_fast32_t N, const float* inp, float* out ) {
-EXO_ASSUME(N % 8 == 0);
-float *two_vec = (float*) malloc(8 * sizeof(*two_vec));
-for (int_fast32_t ii = 0; ii < 8; ii++) {
-  two_vec[ii] = 2.0f;
-}
-for (int_fast32_t io = 0; io < ((N) / (8)); io++) {
-  float *out_vec = (float*) malloc(8 * sizeof(*out_vec));
-  float *inp_vec = (float*) malloc(8 * sizeof(*inp_vec));
-  for (int_fast32_t i0 = 0; i0 < 8; i0++) {
-    inp_vec[i0] = inp[i0 + 8 * io];
-  }
+  EXO_ASSUME(N % 8 == 0);
+  float *two_vec = (float*) malloc(8 * sizeof(*two_vec));
   for (int_fast32_t ii = 0; ii < 8; ii++) {
-    out_vec[ii] = two_vec[ii] * inp_vec[ii];
+    two_vec[ii] = 2.0f;
   }
-  free(inp_vec);
-  for (int_fast32_t i0 = 0; i0 < 8; i0++) {
-    out[i0 + 8 * io] = out_vec[i0];
+  for (int_fast32_t io = 0; io < ((N) / (8)); io++) {
+    float *out_vec = (float*) malloc(8 * sizeof(*out_vec));
+    float *inp_vec = (float*) malloc(8 * sizeof(*inp_vec));
+    for (int_fast32_t i0 = 0; i0 < 8; i0++) {
+      inp_vec[i0] = inp[i0 + 8 * io];
+    }
+    for (int_fast32_t ii = 0; ii < 8; ii++) {
+      out_vec[ii] = two_vec[ii] * inp_vec[ii];
+    }
+    free(inp_vec);
+    for (int_fast32_t i0 = 0; i0 < 8; i0++) {
+      out[i0 + 8 * io] = out_vec[i0];
+    }
+    free(out_vec);
   }
-  free(out_vec);
-}
-free(two_vec);
+  free(two_vec);
 }
 

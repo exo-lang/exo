@@ -3,13 +3,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from typing import List, Any
+from typing import List, Any, Optional, Type
 
 from . import API  # TODO: remove this circular import
 from .API_types import ExoType, loopir_type_to_exotype
 from .core.LoopIR import LoopIR
 from .core.configs import Config
-from .core.memory import Memory
+from .core.memory import MemWin, Memory, SpecialWindow
 
 from .core import internal_cursors as C
 from .frontend.pattern_match import match_pattern
@@ -20,6 +20,9 @@ from .core.internal_cursors import InvalidCursorError
 from .core.LoopIR_pprint import _print_cursor
 from .rewrite.LoopIR_scheduling import SchedulingError
 
+from .spork.loop_modes import LoopMode
+from .spork.timelines import Instr_tl, Sync_tl
+from .spork.sync_types import SyncType
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -65,7 +68,7 @@ class Cursor(ABC):
                | For( name : str, hi : Expr, body : Block )
                | Alloc( name : str, mem : Memory? )
                | Call( subproc : Procedure, args : ExprList )
-               | WindowStmt( name : str, winexpr : WindowExpr )
+               | WindowStmt( name : str, winexpr : WindowExpr, special_window : SpecialWindow? )
 
         Expr ::= Read( name : str, idx : ExprList )
                | ReadConfig( config : Config, field : str )
@@ -203,13 +206,13 @@ class ArgCursor(Cursor):
 
         return self._impl._node.name.name()
 
-    def mem(self) -> Memory:
+    def mem(self) -> MemWin:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.fnarg)
         assert not self._impl._node.type.is_indexable()
 
         mem = self._impl._node.mem
-        assert issubclass(mem, Memory)
+        assert issubclass(mem, MemWin)
         return mem
 
     def is_tensor(self) -> bool:
@@ -515,6 +518,31 @@ class PassCursor(StmtCursor):
     """
 
 
+class SyncCursor(StmtCursor):
+    """
+    Cursor pointing to a synchronization statement
+    """
+
+    def sync_type(self) -> SyncType:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.SyncStmt)
+        return self._impl._node.sync_type
+
+    def first_sync_tl(self) -> Sync_tl:
+        return self.sync_type().first_sync_tl
+
+    def second_sync_tl(self) -> Sync_tl:
+        return self.sync_type().second_sync_tl
+
+    def name(self):
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.SyncStmt)
+        return self._impl._node.name.name()
+
+    def idx(self):
+        return ExprListCursor(self._impl._child_block("idx"), self._proc)
+
+
 class IfCursor(StmtCursor):
     """
     Cursor pointing to an if statement:
@@ -584,6 +612,11 @@ class ForCursor(StmtCursor):
         assert isinstance(self._impl._node, LoopIR.For)
 
         return BlockCursor(self._impl._child_block("body"), self._proc)
+
+    def loop_mode(self) -> LoopMode:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.For)
+        return self._impl._node.loop_mode
 
 
 class AllocCursor(StmtCursor):
@@ -657,7 +690,7 @@ class WindowStmtCursor(StmtCursor):
     """
     Cursor pointing to a window declaration statement:
         ```
-        name = winexpr
+        name = winexpr @ special_window
         ```
     """
 
@@ -672,6 +705,13 @@ class WindowStmtCursor(StmtCursor):
         assert isinstance(self._impl._node, LoopIR.WindowStmt)
 
         return WindowExprCursor(self._impl._child_node("rhs"), self._proc)
+
+    def special_window(self) -> Optional[Type[SpecialWindow]]:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.WindowStmt)
+        special_window = self._impl._node.special_window
+        assert issubclass(special_window, SpecialWindow)
+        return special_window
 
 
 # --------------------------------------------------------------------------- #
@@ -901,6 +941,8 @@ def lift_cursor(impl, proc):
             return AssignConfigCursor(impl, proc)
         elif isinstance(n, LoopIR.Pass):
             return PassCursor(impl, proc)
+        elif isinstance(n, LoopIR.SyncStmt):
+            return SyncCursor(impl, proc)
         elif isinstance(n, LoopIR.If):
             return IfCursor(impl, proc)
         elif isinstance(n, LoopIR.For):
@@ -989,6 +1031,7 @@ __all__ = [
     "ReduceCursor",
     "AssignConfigCursor",
     "PassCursor",
+    "SyncCursor",
     "IfCursor",
     "ForCursor",
     "AllocCursor",

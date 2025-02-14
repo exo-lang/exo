@@ -1,0 +1,26 @@
+rule cxx
+  command = c++ -fdiagnostics-color=always -g -O2 -Wall -Wextra -Wconversion -fPIC -g -std=c++17 $in -c -o $out -MD -MF $out.d
+  depfile = $out.d
+
+rule link_lib
+  command = c++ $in -shared -o $out
+
+build bin/lib/util/require.o: cxx lib/util/require.cpp
+build bin/lib/syncv/syncv_table.o: cxx lib/syncv/syncv_table.cpp
+build bin/lib/syncv/vis_record_history_log.o: cxx lib/syncv/vis_record_history_log.cpp
+build bin/lib/program/builder.o: cxx lib/program/builder.cpp
+build bin/lib/program/camspork_excut.o: cxx lib/program/camspork_excut.cpp
+build bin/lib/program/exec.o: cxx lib/program/exec.cpp
+build bin/lib/program/grammar.o: cxx lib/program/grammar.cpp
+build bin/lib/program/print.o: cxx lib/program/print.cpp
+
+build bin/libcamspork.so: link_lib $
+    bin/lib/util/require.o $
+    bin/lib/syncv/syncv_table.o $
+    bin/lib/syncv/vis_record_history_log.o $
+    bin/lib/program/builder.o $
+    bin/lib/program/camspork_excut.o $
+    bin/lib/program/exec.o $
+    bin/lib/program/grammar.o $
+    bin/lib/program/print.o
+    

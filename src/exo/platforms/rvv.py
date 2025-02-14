@@ -32,7 +32,7 @@ class RVV(Memory):
 
         vec_types = {
             "float": (4, "vfloat32m1_t")
-        }  # , "double": (2, "float64x2_t"), "_Float16" : (8, "float16x8_t")}
+        }  # , "double": (2, "float64x2_t"), "exo_f16" : (8, "float16x8_t")}
 
         if not prim_type in vec_types.keys():
             raise MemGenError(f"{srcinfo}: RVV vectors must be f32 (for now)")

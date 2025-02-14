@@ -1,11 +1,6 @@
-
 #pragma once
 #ifndef TEST_CASE_H
 #define TEST_CASE_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 
 #include <stdint.h>
@@ -30,17 +25,50 @@ extern "C" {
 #endif
 
 
-#ifndef EXO_WIN_1F32
-#define EXO_WIN_1F32
-struct exo_win_1f32{
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
+#include <stdio.h>
+#include <stdlib.h>
+
+#endif
+/* Required by DRAM */
+#ifndef EXO_WIN_4F32C
+#define EXO_WIN_4F32C
+struct exo_win_4f32c {
+    const float * const data;
+    const int_fast32_t strides[4];
+};
+#endif
+/* Required by DRAM */
+#ifndef EXO_WIN_4F32
+#define EXO_WIN_4F32
+struct exo_win_4f32 {
     float * const data;
+    const int_fast32_t strides[4];
+};
+#endif
+/* Required by AVX512 */
+/* Required by DRAM */
+#ifndef EXO_WIN_1F32C
+#define EXO_WIN_1F32C
+struct exo_win_1f32c {
+    const float * const data;
     const int_fast32_t strides[1];
 };
 #endif
-#ifndef EXO_WIN_1F32C
-#define EXO_WIN_1F32C
-struct exo_win_1f32c{
-    const float * const data;
+/* Required by AVX512 */
+/* Required by DRAM */
+#ifndef EXO_WIN_1F32
+#define EXO_WIN_1F32
+struct exo_win_1f32 {
+    float * const data;
     const int_fast32_t strides[1];
 };
 #endif
@@ -57,14 +85,25 @@ void conv_specialized( void *ctxt, const float* inp, float* output, const float*
 #ifdef __cplusplus
 }
 #endif
+
+
 #endif  // TEST_CASE_H
 
 #include "test_case.h"
 
+/* Required by AVX512 */
+#ifndef EXO_MEMORY_GLOBAL_AVX512
+#define EXO_MEMORY_GLOBAL_AVX512
 #include <immintrin.h>
-#include <stdio.h>
-#include <stdlib.h>
-
+#endif
+/* Required by AVX512 */
+#ifndef EXO_WIN_3F32
+#define EXO_WIN_3F32
+struct exo_win_3f32 {
+    float * const data;
+    const int_fast32_t strides[3];
+};
+#endif
 // conv_specialized(
 //     inp : f32[5, 82, 102, 128] @DRAM,
 //     output : f32[5, 80, 100, 128] @DRAM,
@@ -72,44 +111,44 @@ void conv_specialized( void *ctxt, const float* inp, float* output, const float*
 //     bias : f32[128] @DRAM
 // )
 void conv_specialized( void *ctxt, const float* inp, float* output, const float* weights, const float* bias ) {
-for (int_fast32_t oc_o = 0; oc_o < 2; oc_o++) {
-  for (int_fast32_t n = 0; n < 5; n++) {
-    for (int_fast32_t oy = 0; oy < 80; oy++) {
-      for (int_fast32_t ox_o = 0; ox_o < 20; ox_o++) {
-        __m512 res[5][4];
-        for (int_fast32_t ox_i = 0; ox_i < 5; ox_i++) {
-          for (int_fast32_t oc_u = 0; oc_u < 4; oc_u++) {
-            res[ox_i][oc_u] = _mm512_loadu_ps(&bias[16 * oc_u + 64 * oc_o]);
+  for (int_fast32_t oc_o = 0; oc_o < 2; oc_o++) {
+    for (int_fast32_t n = 0; n < 5; n++) {
+      for (int_fast32_t oy = 0; oy < 80; oy++) {
+        for (int_fast32_t ox_o = 0; ox_o < 20; ox_o++) {
+          __m512 res[5][4];
+          for (int_fast32_t ox_i = 0; ox_i < 5; ox_i++) {
+            for (int_fast32_t oc_u = 0; oc_u < 4; oc_u++) {
+              res[ox_i][oc_u] = _mm512_loadu_ps(&bias[16 * oc_u + 64 * oc_o]);
+            }
           }
-        }
-        for (int_fast32_t ky = 0; ky < 3; ky++) {
-          for (int_fast32_t kx = 0; kx < 3; kx++) {
-            for (int_fast32_t kc_o = 0; kc_o < 64; kc_o++) {
-              for (int_fast32_t kc_i = 0; kc_i < 2; kc_i++) {
-                for (int_fast32_t ox_i = 0; ox_i < 5; ox_i++) {
-                  for (int_fast32_t oc_u = 0; oc_u < 4; oc_u++) {
-                    __m512 wt_vec;
-                    wt_vec = _mm512_loadu_ps(&weights[(kc_i + 2 * kc_o) * (1152) + (ky) * (384) + (kx) * (128) + 16 * oc_u + 64 * oc_o]);
-                    __m512 in_vec;
-                    in_vec = _mm512_set1_ps(inp[(n) * (1070592) + (ky + oy) * (13056) + (kx + ox_i + 5 * ox_o) * (128) + kc_i + 2 * kc_o]);
-                    res[ox_i][oc_u] = _mm512_fmadd_ps(wt_vec, in_vec, res[ox_i][oc_u]);
+          for (int_fast32_t ky = 0; ky < 3; ky++) {
+            for (int_fast32_t kx = 0; kx < 3; kx++) {
+              for (int_fast32_t kc_o = 0; kc_o < 64; kc_o++) {
+                for (int_fast32_t kc_i = 0; kc_i < 2; kc_i++) {
+                  for (int_fast32_t ox_i = 0; ox_i < 5; ox_i++) {
+                    for (int_fast32_t oc_u = 0; oc_u < 4; oc_u++) {
+                      __m512 wt_vec;
+                      wt_vec = _mm512_loadu_ps(&weights[(kc_i + 2 * kc_o) * (1152) + (ky) * (384) + (kx) * (128) + 16 * oc_u + 64 * oc_o]);
+                      __m512 in_vec;
+                      in_vec = _mm512_set1_ps(inp[(n) * (1070592) + (ky + oy) * (13056) + (kx + ox_i + 5 * ox_o) * (128) + kc_i + 2 * kc_o]);
+                      res[ox_i][oc_u] = _mm512_fmadd_ps(wt_vec, in_vec, res[ox_i][oc_u]);
+                    }
                   }
                 }
               }
             }
           }
-        }
-        for (int_fast32_t ox_i = 0; ox_i < 5; ox_i++) {
-          for (int_fast32_t oc_u = 0; oc_u < 4; oc_u++) {
-            __m512 relu_v;
-            relu_v = _mm512_max_ps(res[ox_i][oc_u], (__m512){0});
-            _mm512_storeu_ps(&output[(n) * (1024000) + (oy) * (12800) + (ox_i + 5 * ox_o) * (128) + 16 * oc_u + 64 * oc_o], relu_v);
+          for (int_fast32_t ox_i = 0; ox_i < 5; ox_i++) {
+            for (int_fast32_t oc_u = 0; oc_u < 4; oc_u++) {
+              __m512 relu_v;
+              relu_v = _mm512_max_ps(res[ox_i][oc_u], (__m512){0});
+              _mm512_storeu_ps(&output[(n) * (1024000) + (oy) * (12800) + (ox_i + 5 * ox_o) * (128) + 16 * oc_u + 64 * oc_o], relu_v);
+            }
           }
         }
       }
     }
   }
-}
 }
 
 

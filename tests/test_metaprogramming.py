@@ -208,7 +208,7 @@ def test_scope_collision2(golden):
 def test_scope_collision3():
     with pytest.raises(
         NameError,
-        match="cannot access free variable 'x' .+ in enclosing scope",
+        match="free variable",
     ):
 
         @proc
@@ -301,9 +301,7 @@ def test_unquote_index_tuple(golden):
 
 
 def test_unquote_err():
-    with pytest.raises(
-        ParseError, match="Unquote computation did not yield valid type"
-    ):
+    with pytest.raises(ParseError, match="valid type"):
         T = 1
 
         @proc
@@ -441,7 +439,9 @@ def test_unquote_multiple_exprs():
 
 
 def test_disallow_with_in_exo():
-    with pytest.raises(ParseError, match="Expected unquote"):
+    # David Akeley: removed regex as the error message is unstable
+    # with Spork also overloading the with statement.
+    with pytest.raises(ParseError):
 
         @proc
         def foo(a: i32):

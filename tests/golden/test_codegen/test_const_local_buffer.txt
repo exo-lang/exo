@@ -1,11 +1,6 @@
-
 #pragma once
 #ifndef TEST_H
 #define TEST_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 
 #include <stdint.h>
@@ -30,13 +25,13 @@ extern "C" {
 #endif
 
 
-#ifndef EXO_WIN_1F32
-#define EXO_WIN_1F32
-struct exo_win_1f32{
-    float * const data;
-    const int_fast32_t strides[1];
-};
+
+#ifdef __cplusplus
+extern "C" {
 #endif
+
+
+
 // caller(
 
 // )
@@ -47,12 +42,26 @@ void caller( void *ctxt );
 #ifdef __cplusplus
 }
 #endif
+
+
 #endif  // TEST_H
 #include "test.h"
 
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
 #include <stdio.h>
 #include <stdlib.h>
 
+#endif
+/* Required by DRAM */
+#ifndef EXO_WIN_1F32
+#define EXO_WIN_1F32
+struct exo_win_1f32 {
+    float * const data;
+    const int_fast32_t strides[1];
+};
+#endif
 // callee(
 //     N : size,
 //     A : [f32][N] @DRAM
@@ -64,17 +73,17 @@ static void callee( void *ctxt, int_fast32_t N, struct exo_win_1f32 A );
 //     A : [f32][N] @DRAM
 // )
 static void callee( void *ctxt, int_fast32_t N, struct exo_win_1f32 A ) {
-for (int_fast32_t i = 0; i < N; i++) {
-  A.data[i * A.strides[0]] = 0.0f;
-}
+  for (int_fast32_t i = 0; i < N; i++) {
+    A.data[(i) * (A.strides[0])] = 0.0f;
+  }
 }
 
 // caller(
 
 // )
 void caller( void *ctxt ) {
-float *A = (float*) malloc(10 * sizeof(*A));
-callee(ctxt,10,(struct exo_win_1f32){ &A[0], { 1 } });
-free(A);
+  float *A = (float*) malloc(10 * sizeof(*A));
+  callee(ctxt, 10, (struct exo_win_1f32) { &A[0], {1} });
+  free(A);
 }
 

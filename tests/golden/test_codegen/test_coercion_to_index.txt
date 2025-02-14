@@ -1,11 +1,18 @@
 #include "test.h"
 
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
+#include <stdio.h>
+#include <stdlib.h>
+
+#endif
 // foo(
 
 // )
 void foo( void *ctxt ) {
-for (int_fast32_t x = 0; x < 6; x++) {
-  ; // NO-OP
-}
+  for (int_fast32_t x = 0; x < 6; x++) {
+    ; // NO-OP
+  }
 }
 

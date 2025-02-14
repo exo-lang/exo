@@ -659,7 +659,7 @@ def test_matmul_on_amx_scheduled_i8(compiler, sde64, matmul_i8):
     )
 
 
-def test_amx_memories_tile_number_limit(compiler, sde64):
+def test_amx_memories_tile_number_limit(compiler):
     @proc
     def nine_amx_tiles():
         config()
@@ -793,7 +793,7 @@ def test_amx_memories_free(compiler, sde64):
     )
 
 
-def test_amx_memories_tile_size_limit(compiler, sde64):
+def test_amx_memories_tile_size_limit(compiler):
     @proc
     def too_many_bytes_i8():
         config()
@@ -854,6 +854,12 @@ def test_static_memory_register_allocation(compiler, sde64):
 
 
 def _run_amx(compiler, sde64, procs, test_source):
+    # David Zhao Akeley 2026-01-15:
+    # The previous strategy to call AMX_TILE.reset_allocations() after "error"
+    # tests face plants because that reset won't happen if the error test itself
+    # has an error (ty for wasting my time) but I keep the post resets anyway for
+    # defensive programming purposes. TODO add a MemWin.proc_init() classfunction.
+    AMX_TILE.reset_allocations()
     test_exe = compiler.compile(
         procs,
         test_files={"main.c": str(test_source)},

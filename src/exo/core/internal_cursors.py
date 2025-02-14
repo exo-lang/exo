@@ -111,7 +111,7 @@ class Cursor(ABC):
     # Protected path / mutation helpers
     # ------------------------------------------------------------------------ #
 
-    def _local_forward(self, new_root, fwd_node, fwd_block):
+    def _local_forward(self, new_root, fwd_node, fwd_block, *, require_leaf=False):
         """
         Creates a forwarding function for "local" edits to the AST.
         Here, local means that all affected nodes share a common LCA,
@@ -178,6 +178,7 @@ class Cursor(ABC):
                     raise InvalidCursorError("block no longer exists (parent deleted)")
 
             old_path = cursor._path
+            is_leaf = len(old_path) == depth + 1
 
             if len(old_path) < depth + 1:
                 # Too shallow
@@ -190,7 +191,9 @@ class Cursor(ABC):
                 return evolve(cursor)
 
             new_path = (
-                old_path[:depth] + fwd_node(attr, old_idx) + old_path[depth + 1 :]
+                old_path[:depth]
+                + fwd_node(attr, old_idx, is_leaf)
+                + old_path[depth + 1 :]
             )
             return evolve(cursor, _path=new_path)
 
@@ -316,9 +319,14 @@ class Block(Cursor):
 
         idx_update = lambda i: i + n_diff * (i >= del_range.stop)
 
-        def fwd_node(attr, i):
+        def fwd_node(attr, i, is_leaf):
+            # David Zhao Akeley 2025-10-24: NEW forwarding function that
+            # forwards everything in the block cursor to the replaced
+            # statement if it's a single statement, so DoReplace isn't broken.
             if i in del_range:
-                raise InvalidCursorError("node no longer exists")
+                if n_ins != 1 or not is_leaf:
+                    raise InvalidCursorError("node no longer exists")
+                return [(attr, del_range.start)]
             return [(attr, idx_update(i))]
 
         def fwd_block(attr, rng):
@@ -327,7 +335,7 @@ class Block(Cursor):
 
             return [(attr, range(idx_update(rng.start), idx_update(rng.stop)))]
 
-        return self._local_forward(new_proc, fwd_node, fwd_block)
+        return self._local_forward(new_proc, fwd_node, fwd_block, require_leaf=True)
 
     def _delete(self):
         """
@@ -377,7 +385,7 @@ class Block(Cursor):
         rng = self._range
         n_delta = len(rng) - 1
 
-        def fwd_node(attr, i):
+        def fwd_node(attr, i, is_leaf):
             if i >= rng.stop:
                 return [(attr, i - n_delta)]
             elif i >= rng.start:
@@ -827,7 +835,7 @@ class Gap(Cursor):
 
         idx_update = lambda i: i + ins_len * (i >= ins_idx)
 
-        def fwd_node(attr, i):
+        def fwd_node(attr, i, is_leaf):
             return [(attr, idx_update(i))]
 
         def fwd_block(attr, rng):

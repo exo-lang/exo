@@ -4,13 +4,10 @@ def foo(a: i32 @ DRAM):
 C:
 #include "test.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-
 // foo(
 //     a : i32 @DRAM
 // )
 void foo( void *ctxt, int32_t* a ) {
-*a = *a + ((int32_t) 1) + ((int32_t) 1);
+  *a = *a + ((int32_t) 1) + ((int32_t) 1);
 }
 

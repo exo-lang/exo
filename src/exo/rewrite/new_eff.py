@@ -4,6 +4,7 @@ from itertools import chain
 
 from ..core.LoopIR import Alpha_Rename, SubstArgs, LoopIR_Do
 from ..core.configs import reverse_config_lookup, Config
+from ..spork.loop_modes import LoopMode, seq
 from .new_analysis_core import *
 from ..core.proc_eqv import get_repr_proc
 
@@ -334,7 +335,12 @@ def lift_e(e):
         strides = [A.Stride(e.name, i, T.stride, e.srcinfo) for i in range(len(e.idx))]
         return AWin(e.name, [lift_w(w) for w in e.idx], strides)
     else:
-        if e.type.is_indexable() or e.type.is_stridable() or e.type == T.bool:
+        if (
+            e.type.is_indexable()
+            or e.type.is_stridable()
+            or e.type == T.bool
+            or e.type == T.with_context
+        ):
             if isinstance(e, LoopIR.Read):
                 assert len(e.idx) == 0
                 return A.Var(e.name, e.type, e.srcinfo)
@@ -1188,7 +1194,7 @@ def stmts_effs(stmts):
             effs += [E.Alloc(s.name, len(s.type.shape()))]
         elif isinstance(s, LoopIR.WindowStmt):
             effs += expr_effs(s.rhs)
-        elif isinstance(s, (LoopIR.Free, LoopIR.Pass)):
+        elif isinstance(s, (LoopIR.Free, LoopIR.Pass, LoopIR.SyncStmt)):
             pass
         else:
             assert False, f"bad case: {type(s)}"
@@ -1585,7 +1591,7 @@ def loop_globenv(i, lo_expr, hi_expr, body):
     assert isinstance(lo_expr, LoopIR.expr)
     assert isinstance(hi_expr, LoopIR.expr)
 
-    loop = [LoopIR.For(i, lo_expr, hi_expr, body, LoopIR.Seq(), null_srcinfo())]
+    loop = [LoopIR.For(i, lo_expr, hi_expr, body, seq, null_srcinfo())]
     return globenv(loop)
 
 
