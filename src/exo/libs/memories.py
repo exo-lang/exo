@@ -201,7 +201,9 @@ class AVX2(Memory):
     @classmethod
     def window_definition(cls, ctx):
         if ctx.n_dims() != 1:
-            raise MemGenError("Only support windows to a single AVX vector (n_dims 1)")
+            raise MemGenError(
+                f"{ctx.srcinfo()}: Only support windows to a single AVX vector (n_dims 1)"
+            )
         _, c_vec = cls._vec_types[ctx.ctype()]
         return ctx.generate_default("AVX2", c_vec)
 
@@ -259,7 +261,9 @@ class AVX512(Memory):
     @classmethod
     def window_definition(cls, ctx):
         if ctx.n_dims() != 1:
-            raise MemGenError("Only support windows to a single AVX vector (n_dims 1)")
+            raise MemGenError(
+                f"{ctx.srcinfo()}: Only support windows to a single AVX vector (n_dims 1)"
+            )
         return ctx.generate_default("AVX512", "__m512")
 
     @classmethod
