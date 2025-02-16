@@ -31,6 +31,7 @@ from .analysis import (
     Check_IsIdempotent,
     Check_ExprBound,
     Check_Aliasing,
+    Check_ExtendEqv2,
 )
 
 from .range_analysis import IndexRangeEnvironment, IndexRange, index_range_analysis
@@ -2575,20 +2576,20 @@ class DoFissionLoops:
 
 class DoAddUnsafeGuard(Cursor_Rewrite):
     def __init__(self, proc_cursor, stmt_cursor, cond):
-        self.stmt = stmt_cursor._node
+        self.orig_stmt = stmt_cursor._node
         self.cond = cond
         self.in_loop = False
 
         super().__init__(proc_cursor)
 
+        Check_ExtendEqv2(self.orig_proc._node, self.proc, [self.orig_stmt], [self.stmt])
+
     def map_s(self, sc):
         s = sc._node
-        if s is self.stmt:
-            # Check_ExprEqvInContext(self.orig_proc,
-            #                       self.cond, [s],
-            #                       LoopIR.Const(True, T.bool, s.srcinfo))
+        if s is self.orig_stmt:
             s1 = Alpha_Rename([s]).result()
-            return [LoopIR.If(self.cond, s1, [], s.srcinfo)]
+            self.stmt = LoopIR.If(self.cond, s1, [], s.srcinfo)
+            return [self.stmt]
 
         return super().map_s(sc)
 

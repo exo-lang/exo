@@ -770,6 +770,50 @@ def test_orig_array():
     print(foo.dataflow()[0])
 
 
+def test_simple_read():
+    @proc
+    def foo(x: f32[5], y: f32[5]):
+        for i in seq(0, 5):
+            x[i] = y[i]
+
+    res = foo.dataflow()[0]
+    print(res)
+
+
+def test_simple_read_nest():
+    @proc
+    def foo(x: f32[5], y: f32[5]):
+        for i in seq(0, 5):
+            for j in seq(0, 5):
+                x[i] = y[j]
+
+    res = foo.dataflow()[0]
+    print(res)
+
+
+def test_add_unsafe_guard():
+    @proc
+    def foo(dst: R[30], src: R[30]):
+        for i in seq(0, 20):
+            for j in seq(0, 10):
+                dst[i + j] = src[i + j]
+
+    res = foo.dataflow()[0]
+    print(res)
+
+
+def test_add_unsafe_guard2():
+    @proc
+    def foo(dst: R[30], src: R[30]):
+        for i in seq(0, 20):
+            for j in seq(0, 10):
+                if i == 0 or j == 9:
+                    dst[i + j] = src[i + j]
+
+    res = foo.dataflow()[0]
+    print(res)
+
+
 def test_array_rhs():
     @proc
     def foo(x: R[10]):

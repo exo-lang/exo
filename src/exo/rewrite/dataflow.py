@@ -1318,19 +1318,16 @@ def get_halfspaces_for_aexpr(aexpr, branch, variables, eps=1e-6):
 # =============================================================================
 
 
-def extract_regions(node, iterators, halfspaces=None, candidates=None, path=None):
+def extract_regions(node, iterators, halfspaces=None, path=None):
     """
     Recursively traverse the abstract domain tree to collect regions (cells).
     For each leaf, record:
       - "halfspaces": list of halfspace arrays defining the cell,
-      - "candidates": list of candidate markers (from eqz branches),
       - "path": list of (aexpr, branch) tuples representing decisions,
       - "leaf_value": the cell's marking.
     """
     if halfspaces is None:
         halfspaces = []
-    if candidates is None:
-        candidates = []
     if path is None:
         path = []
 
@@ -1339,17 +1336,26 @@ def extract_regions(node, iterators, halfspaces=None, candidates=None, path=None
         regions.append(
             {
                 "halfspaces": list(halfspaces),
-                "candidates": list(candidates),
                 "path": list(path),
-                "leaf_value": node,
+                "value": node,
             }
         )
     elif isinstance(node, D.AffineSplit):
-        hs_ltz = get_halfspaces_for_aexpr(node.ae, "ltz", iterators)
-        hs_eqz = get_halfspaces_for_aexpr(node.ae, "eqz", iterators)
-        hs_gtz = get_halfspaces_for_aexpr(node.ae, "gtz", iterators)
-
-        new_candidate = (node.ae, node.eqz)
+        hs_ltz = get_halfspaces_for_aexpr(
+            node.ae,
+            "ltz",
+            iterators,
+        )
+        hs_eqz = get_halfspaces_for_aexpr(
+            node.ae,
+            "eqz",
+            iterators,
+        )
+        hs_gtz = get_halfspaces_for_aexpr(
+            node.ae,
+            "gtz",
+            iterators,
+        )
 
         for branch, hs_list, child in [
             ("ltz", hs_ltz, node.ltz),
@@ -1359,13 +1365,7 @@ def extract_regions(node, iterators, halfspaces=None, candidates=None, path=None
             for hs in hs_list:
                 halfspaces.append(hs)
             path.append((node.ae, branch))
-            if new_candidate is not None:
-                candidates.append(new_candidate)
-            regions.extend(
-                extract_regions(child, iterators, halfspaces, candidates, path)
-            )
-            if new_candidate is not None:
-                candidates.pop()
+            regions.extend(extract_regions(child, iterators, halfspaces, path))
             path.pop()
             for _ in hs_list:
                 halfspaces.pop()
@@ -1447,8 +1447,6 @@ def find_intersections(dims, eqs):
          for each remaining dimension.
       4. Convert each resulting dictionary back to a D.aexpr.
     """
-    assert len(dims) == 2, f"got {len(dims)} dimensions!"
-
     intersections = []
     cvted_eqs = []
     for eq in list(eqs):
@@ -1484,15 +1482,19 @@ def find_intersections(dims, eqs):
     return [cvt_back(dic) for dic in intersections]
 
 
-def get_eqs_from_path(path):
-    """
-    Given a region path (list of (aexpr, branch) tuples), return the set
-    of eqz equations (the aexprs from eqz branches).
-    """
-    eqs = set()
-    for aexpr, branch in path:
-        eqs.add(aexpr)
-    return eqs
+def get_eqs_from_tree(t):
+    """ """
+    if isinstance(t, D.Leaf):
+        return set()
+    elif isinstance(t, D.AffineSplit):
+        return (
+            {t.ae}
+            | get_eqs_from_tree(t.ltz)
+            | get_eqs_from_tree(t.eqz)
+            | get_eqs_from_tree(t.gtz)
+        )
+    else:
+        assert False
 
 
 # =============================================================================
@@ -1500,44 +1502,15 @@ def get_eqs_from_path(path):
 # =============================================================================
 
 
-def refine_region(region, variables):
-    """
-    This version uses the equations from eqz branches (via find_intersections)
-    to partition the cell along one chosen dimension (here we use variables[1]).
-    If find_intersections returns n candidate equations, we solve each candidate
-    for the chosen dimension to get candidate values. Then we sort these candidate
-    values and produce n+1 regions:
-      - Region 0: x₁ ≤ candidate_value₀
-      - Region i (1 ≤ i < n): candidate_value₍i-1₎ < x₁ ≤ candidate_value₍i₎
-      - Region n: x₁ > candidate_value₍n-1₎
-    """
+def refine_region(region, variables, candidates, intersection_pairs):
+    """ """
     print()
     print(f"Original Region:")
     print("  Path:", [(str(a), br) for a, br in region["path"]])
-    print("  Leaf value:", region["leaf_value"])
+    print("  Leaf value:", region["value"])
     print("  Halfspaces:")
     for hs in region["halfspaces"]:
         print("   ", hs)
-
-    eqs = get_eqs_from_path(region["path"])
-    if not eqs:
-        return [region]
-
-    candidates = find_intersections(variables, eqs)
-
-    print("  Candidates: ", [str(c) for c in candidates])
-    # We partition along dimension variables[1].
-    candidate_pairs = []
-    for candidate in candidates:
-        coeff, const = linearize_aexpr(candidate, variables)
-        if abs(coeff.get(variables[1], 0)) < 1e-9:
-            continue
-        candidate_val = -const / coeff[variables[1]]
-        candidate_pairs.append((candidate_val, candidate))
-
-    # Sort the candidate pairs by candidate value.
-    candidate_pairs.sort(key=lambda pair: pair[0])
-    dim = len(variables)
 
     half_spaces = []
 
@@ -1549,24 +1522,24 @@ def refine_region(region, variables):
     orig_h = list(region["halfspaces"])
     orig_p = list(region["path"])
 
-    if candidate_pairs:
-        append_hspaces(orig_h, orig_p, candidate_pairs[0][1], "ltz")
-        append_hspaces(orig_h, orig_p, candidate_pairs[0][1], "eqz")
+    if intersection_pairs:
+        append_hspaces(orig_h, orig_p, intersection_pairs[0][1], "ltz")
+        append_hspaces(orig_h, orig_p, intersection_pairs[0][1], "eqz")
         tmp_spaces = []
         tmp_paths = []
-        for i in range(1, len(candidate_pairs)):
+        for i in range(1, len(intersection_pairs)):
             tmp_spaces.extend(
-                get_halfspaces_for_aexpr(candidate_pairs[i - 1][1], "gtz", variables)
+                get_halfspaces_for_aexpr(intersection_pairs[i - 1][1], "gtz", variables)
             )
-            tmp_paths.append((candidate_pairs[i - 1][1], "gtz"))
+            tmp_paths.append((intersection_pairs[i - 1][1], "gtz"))
             append_hspaces(
-                orig_h + tmp_spaces, orig_p + tmp_paths, candidate_pairs[i][1], "ltz"
+                orig_h + tmp_spaces, orig_p + tmp_paths, intersection_pairs[i][1], "ltz"
             )
             append_hspaces(
-                orig_h + tmp_spaces, orig_p + tmp_paths, candidate_pairs[i][1], "eqz"
+                orig_h + tmp_spaces, orig_p + tmp_paths, intersection_pairs[i][1], "eqz"
             )
         append_hspaces(
-            orig_h + tmp_spaces, orig_p + tmp_paths, candidate_pairs[-1][1], "gtz"
+            orig_h + tmp_spaces, orig_p + tmp_paths, intersection_pairs[-1][1], "gtz"
         )
     else:
         half_spaces = [(orig_h, orig_p)]
@@ -1576,9 +1549,8 @@ def refine_region(region, variables):
     for i, hs in enumerate(half_spaces):
         region_i = {
             "halfspaces": hs[0],
-            "candidates": list(region["candidates"]),
             "path": hs[1],
-            "leaf_value": region["leaf_value"],
+            "value": region["value"],
         }
         rep = find_feasible_point(region_i["halfspaces"], len(variables))
         if rep is None:
@@ -1586,31 +1558,82 @@ def refine_region(region, variables):
 
         print(f"Region {i}:")
         print("  Path:", [(str(a), br) for a, br in region_i["path"]])
-        print("  Leaf value:", region_i["leaf_value"])
+        print("  Leaf value:", region_i["value"])
         print("  Halfspaces:")
         for hs in region_i["halfspaces"]:
             print("   ", hs)
         print("  Representative point:", rep)
-        print("  Color candidates:")
-        for f, s in region_i["candidates"]:
-            print("    ", f, " : ", s)
-        color = compute_candidate_color(rep, region_i["candidates"], variables)
+        # print("  Candidates:")
+        # for f, s in candidates:
+        #    print("    ", f, " : ", s)
+        color = compute_candidate_color(rep, candidates, variables)
         print("  Candidate color:", color)
         if (
-            isinstance(region_i["leaf_value"], D.Leaf)
-            and isinstance(region_i["leaf_value"].v, D.SubVal)
-            and isinstance(region_i["leaf_value"].v.av, V.Bot)
+            isinstance(region_i["value"], D.Leaf)
+            and isinstance(region_i["value"].v, D.SubVal)
+            and isinstance(region_i["value"].v.av, V.Bot)
             and color is not None
         ):
-            region_i["leaf_value"] = color
+            region_i["value"] = color
             print("  colored")
         else:
-            print("  orig_value: ", region_i["leaf_value"])
+            print("  orig_value: ", region_i["value"])
         print()
 
         res.append(region_i)
 
     return res
+
+
+def vertical_line_intersect(rep_point, paths, variables, tol=1e-9):
+    lower_bound = float("-inf")
+    upper_bound = float("inf")
+
+    for aexpr, rel in paths:
+        # linearize_aexpr returns (coeff_dict, constant_term)
+        coeff, const = linearize_aexpr(aexpr, variables)
+        # Incorporate the constant from linearization.
+        constant = const + sum(
+            coeff.get(var, 0) * rep_point[j]
+            for j, var in enumerate(variables[1:], start=1)
+        )
+        a0 = coeff.get(variables[0], 0)
+
+        # Adjust the constraint based on its relation.
+        if rel == "gtz":
+            # f(x) > 0 becomes -f(x) <= 0.
+            a0 = -a0
+            constant = -constant
+        elif rel == "eqz":
+            # Equality: f(x) = 0 forces a unique value.
+            if abs(a0) < tol:
+                if abs(constant) > tol:
+                    return None
+                continue
+            eq_bound = -constant / a0
+            lower_bound = max(lower_bound, eq_bound)
+            upper_bound = min(upper_bound, eq_bound)
+            continue
+        # For "ltz" (or similar), we have f(x) <= 0.
+        if abs(a0) < tol:
+            if constant > tol:
+                return None
+            continue
+
+        # Solve: a0 * x0 + constant <= 0  =>
+        #   if a0 > 0: x0 <= -constant/a0, else x0 >= -constant/a0.
+        bound = -constant / a0
+        if a0 > 0:
+            upper_bound = min(upper_bound, bound)
+        else:
+            lower_bound = max(lower_bound, bound)
+
+    # We’re considering the vertical ray: x0 <= rep_point[0].
+    feasible_upper = min(upper_bound, rep_point[0])
+    if lower_bound > feasible_upper + tol:
+        return None
+
+    return feasible_upper
 
 
 # =============================================================================
@@ -1626,24 +1649,18 @@ def compute_candidate_color(rep_point, candidates, variables):
     """
     best_i = float("-inf")
     best_color = None
-    print()
-    print("  compute_candidate_color:")
-    print("  rep_point[0]: ", rep_point[0])
-    for aexpr, color in candidates:
-        coeff, const = linearize_aexpr(aexpr, variables)
-        c_target = coeff.get(variables[0], 0)
-        if abs(c_target) < 1e-9:
-            continue
-        print("    aexpr: ", aexpr)
-        sum_other = sum(
-            coeff.get(var, 0) * rep_point[j]
-            for j, var in enumerate(variables[1:], start=1)
+    for candidate in candidates:
+        candidate_i = vertical_line_intersect(rep_point, candidate["path"], variables)
+        print(
+            "  Path:",
+            [(str(a), br) for a, br in candidate["path"]],
+            " color: ",
+            candidate["value"],
         )
-        candidate_i = -(sum_other + const) / c_target
-        print("    candidate_i: ", candidate_i)
-        if candidate_i < rep_point[0] and candidate_i > best_i:
+        print("    i=", candidate_i)
+        if candidate_i != None and candidate_i < rep_point[0] and candidate_i > best_i:
             best_i = candidate_i
-            best_color = color
+            best_color = candidate["value"]
     return best_color
 
 
@@ -1670,16 +1687,11 @@ def insert_region_path(dict_tree, path, leaf_value):
 
 def build_dict_tree(regions):
     dict_tree = {}
-    print("build_dict_tree")
+    #    print("build_dict_tree")
     for reg in regions:
-        print(
-            "  Path:",
-            [(str(a), br) for a, br in reg["path"]],
-            ", value:",
-            reg["leaf_value"],
-        )
-        insert_region_path(dict_tree, reg["path"], reg["leaf_value"])
-    print()
+        #        print( "  Path:", [(str(a), br) for a, br in reg["path"]], ", value:", reg["leaf_value"],)
+        insert_region_path(dict_tree, reg["path"], reg["value"])
+    #    print()
     return dict_tree
 
 
@@ -1728,6 +1740,9 @@ def find_feasible_point(halfspaces, dim):
     Given a list of halfspaces (each as [a0,...,a_{dim}, b] representing
     a0*x0+...+a_{dim-1}*x_{dim-1}+b <= 0), use linprog to find a feasible point.
     """
+    if halfspaces == []:
+        return None
+
     A_ub = []
     b_ub = []
     for hs in halfspaces:
@@ -1736,44 +1751,11 @@ def find_feasible_point(halfspaces, dim):
     A_ub = np.array(A_ub)
     b_ub = np.array(b_ub)
     c = np.zeros(dim)
-    res = linprog(c, A_ub=A_ub, b_ub=b_ub, bounds=[(-1000, 1000)] * dim, method="highs")
+    res = linprog(c, A_ub=A_ub, b_ub=b_ub, bounds=[(0, 1000)] * dim, method="highs")
     if res.success:
         return res.x
     else:
         return None
-
-
-def get_interior_point(halfspaces, dim, delta=1e-3, max_iter=100):
-    """
-    Compute a strictly interior point for the region defined by halfspaces.
-    If the LP solution is too close to any boundary, nudge it inward.
-    """
-    rep = find_feasible_point(halfspaces, dim)
-    if rep is None:
-        return None
-    rep = rep.copy()
-    iter_count = 0
-    while iter_count < max_iter:
-        adjusted = False
-        for hs in halfspaces:
-            a = hs[:dim]
-            b = hs[dim]
-            margin = np.dot(a, rep) + b
-            if margin > -delta:
-                norm_a = np.linalg.norm(a)
-                if norm_a < 1e-12:
-                    continue
-                rep = rep - ((margin + delta) / norm_a) * (a / norm_a)
-                adjusted = True
-        if not adjusted:
-            break
-        iter_count += 1
-    for hs in halfspaces:
-        a = hs[:dim]
-        b = hs[dim]
-        if np.dot(a, rep) + b > -delta:
-            return None
-    return rep
 
 
 # =============================================================================
@@ -1791,23 +1773,152 @@ def widening(a1: D.abs, a2: D.abs) -> D.abs:
       3. For each refined region, compute a candidate color and update the marking.
       4. Reconstruct a new abstract domain tree from the refined regions.
     """
-    regions = extract_regions(a2.tree, a2.iterators)
+    # Candidates are n-1 (or lower_ dimension hyperplanes, where it has at least one "eq" in the paths
+    candidates = []
+    # Regions are n dimensional space!
+    regions = []
+    for reg in extract_regions(a2.tree, a2.iterators):
+        if any(e == "eqz" for (a, e) in reg["path"]):
+            candidates.append(reg)
+        else:
+            regions.append(reg)
+
+    # Get intersections!
+    variables = a2.iterators
+    eqs = get_eqs_from_tree(a2.tree)
+    intersections = find_intersections(variables, eqs)
+
+    # We partition along dimension variables[1].
+    # FIXME: TODO: Ordering here might be quite subtle for multi-dimensional cases.
+    intersection_pairs = []
+    for intersection in intersections:
+        coeff, const = linearize_aexpr(intersection, variables)
+        if abs(coeff.get(variables[1], 0)) < 1e-9:
+            continue
+        val = -const / coeff[variables[1]]
+        intersection_pairs.append((val, intersection))
+
+    # Sort the intersection pairs by value.
+    intersection_pairs.sort(key=lambda pair: pair[0])
 
     refined_regions = []
     for reg in regions:
-        sub_regs = refine_region(reg, a2.iterators)
+        sub_regs = refine_region(reg, a2.iterators, candidates, intersection_pairs)
         refined_regions.extend(sub_regs)
 
-    dict_tree = build_dict_tree(refined_regions)
+    # FIXME: dictionary reconstruction might be buggy
+    dict_tree = build_dict_tree(refined_regions + candidates)
+
+    if not dict_tree:
+        return a2
     reconstructed_tree = dict_tree_to_node(dict_tree)
 
-    print("\nReconstructed Abstract Domain Tree:")
+    #    print("\nReconstructed Abstract Domain Tree:")
     a = abs_simplify(
         abs_simplify(abs_simplify(D.abs(a2.iterators, reconstructed_tree)))
     )
-    print(a)
+    #    print(a)
+    #    print("\nPrevious Abstract Domain Tree:")
+    #    print(a1)
 
     return a
+
+
+# --------------------------------------------------------------------------- #
+# Equality Check (Just syntactic match)
+# --------------------------------------------------------------------------- #
+
+
+class Vabs_Eq:
+    def __init__(self, v1: V.vabs, v2: V.vabs):
+        self.result = self.do_vabs(v1, v2)
+
+    def results(self):
+        return self.result
+
+    def do_vabs(self, v1, v2):
+        if type(v1) != type(v2):
+            return False
+
+        if isinstance(v1, V.ValConst):
+            return v1.val == v2.val
+        else:
+            return True
+
+
+def has_bottom(t):
+    if isinstance(t, D.Leaf):
+        if isinstance(t.v, D.SubVal):
+            return isinstance(t.v.av, V.Bot)
+    elif isinstance(t, D.AffineSplit):
+        return has_bottom(t.ltz) or has_bottom(t.eqz) or has_bottom(t.gtz)
+    else:
+        return has_bottom(t.neqz) or has_bottom(t.eqz)
+
+
+class Abs_Eq:
+    def __init__(self, a1: D.abs, a2: D.abs):
+        self.result = self.do_abs(a1, a2)
+
+    def results(self):
+        return self.result
+
+    def do_abs(self, a1, a2):
+        if len(a1.iterators) != len(a2.iterators):
+            return False
+        for i1, i2 in zip(a1.iterators, a2.iterators):
+            if i1 != i2:
+                return False
+        return self.do_node(a1.tree, a2.tree)
+
+    def do_node(self, t1, t2):
+        if type(t1) != type(t2):
+            return False
+
+        if isinstance(t1, D.Leaf):
+            return t1.v == t2.v
+        elif isinstance(t1, D.AffineSplit):
+            gtz_b = self.do_node(t1.gtz, t2.gtz)
+            if not gtz_b:
+                # FIXME: TODO: This is saying that we're gonna stop fixpoint if all the t1 gtz values are propagated.
+                gtz_b = not has_bottom(t1.gtz)
+            return (
+                self.do_aexpr(t1.ae, t2.ae)
+                and self.do_node(t1.ltz, t2.ltz)
+                and self.do_node(t1.eqz, t2.eqz)
+                and gtz_b
+            )
+        else:
+            return (
+                self.do_aexpr(t1.ae, t2.ae)
+                and (t1.m == t2.m)
+                and self.do_node(t1.neqz, t2.neqz)
+                and self.do_node(t1.eqz, t2.eqz)
+            )
+
+    def do_val(self, v1, v2):
+        if type(v1) != type(v2):
+            return False
+
+        if isinstance(v1, D.SubVal):
+            return Vabs_Eq(v1.av, v2.av).results()
+        else:
+            return (v1.name == v2.name) and all(
+                [self.do_aexpr(a1, a2) for a1, a2 in zip(v1.idx, v2.idx)]
+            )
+
+    def do_aexpr(self, a1, a2):
+        if type(a1) != type(a2):
+            return False
+
+        if isinstance(a1, D.Const):
+            return a1.val == a2.val
+        elif isinstance(a1, D.Var):
+            return a1.name == a2.name
+        elif isinstance(a1, D.Add):
+            return self.do_aexpr(a1.lhs, a2.lhs) and self.do_aexpr(a1.rhs, a2.rhs)
+        else:
+            return (a1.coeff == a2.coeff) and self.do_aexpr(a1.ae, a2.ae)
 
 
 # --------------------------------------------------------------------------- #
@@ -1858,6 +1969,19 @@ class AbstractInterpretation(ABC):
             if isinstance(stmt, DataflowIR.Reduce):
                 body = DataflowIR.BinOp("+", body, stmt.orelse, body.type, stmt.srcinfo)
 
+            if isinstance(stmt.cond.lhs, DataflowIR.Read):
+                if isinstance(body, DataflowIR.Read):
+                    idx = body.idx[: len(stmt.iters)]
+                    for a in body.idx[: -len(stmt.dims)]:
+                        if (
+                            isinstance(a, DataflowIR.Read)
+                            and a.name == stmt.cond.lhs.name
+                        ):
+                            idx.append(stmt.cond.rhs)
+                        else:
+                            idx.append(a)
+                    body = DataflowIR.Read(body.name, idx, body.type, stmt.srcinfo)
+
             env[stmt.lhs] = D.abs(
                 stmt.iters + stmt.dims,
                 delta(
@@ -1892,19 +2016,58 @@ class AbstractInterpretation(ABC):
             for nm, val in env.items():
                 stmt.body.ctxt[nm] = val
 
-            # For( sym iter, expr lo, expr hi, block body )
-            self.fix_block(stmt.body)
             pre_env = dict()
+            # First fixpoint is special
+            self.fix_block(stmt.body)
             for nm, val in stmt.body.ctxt.items():
                 pre_env[nm] = val
 
-            self.fix_block(stmt.body)
-            for nm, val in stmt.body.ctxt.items():
-                # Don't widen if it does not depend on this loop
-                if stmt.iter in val.iterators:
+            # Give up after five fixpoints
+            count = 0
+            while True:
+                if count >= 5:
+                    assert False, f"didn't reach fixpoint!!!"
+
+                print("\n ================================= ")
+                # print("count: ", count)
+                # print("Before fix_block")
+                # for nm in list(stmt.body.ctxt.keys()):
+                #    print()
+                #    print(repr(nm))
+                #    if count == 1:
+                #        if str(nm) == "y":
+                #            del stmt.body.ctxt[nm]
+
+                self.fix_block(stmt.body)
+                all_eq = True
+                for nm, val in stmt.body.ctxt.items():
+                    # Don't widen if it does not depend on this loop
+                    if stmt.iter not in val.iterators:
+                        continue
+
+                    print("nm: ", repr(nm), "count: ", count)
+                    print("before widening: ")
+                    print(val)
                     w_res = widening(pre_env[nm], val)
-                    stmt.body.ctxt[nm] = w_res
-                    env[nm] = w_res
+
+                    print("after widening: ")
+                    print(w_res)
+                    if not Abs_Eq(pre_env[nm], w_res).results():
+                        all_eq = False
+                        print("Not equal!")
+                        stmt.body.ctxt[nm] = w_res
+                        pre_env[nm] = w_res
+                    else:
+                        stmt.body.ctxt[nm] = pre_env[nm]
+                        print("Equal!")
+                    print("\n --------- ")
+
+                if all_eq:
+                    break
+                count += 1
+
+            for nm, val in pre_env.items():
+                env[nm] = val
 
         else:
             assert False, f"bad case: {type(stmt)}"

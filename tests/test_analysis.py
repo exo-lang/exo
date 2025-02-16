@@ -569,3 +569,15 @@ def test_loop_simple(golden):
     ):
         foo = delete_config(foo, "for i in _:_ #1")
         print(foo)
+
+
+def test_add_unsafe_guard():
+    @proc
+    def foo(dst: R[30], src: R[30]):
+        for i in seq(0, 20):
+            for j in seq(0, 10):
+                dst[i + j] = src[i + j]
+
+    print(foo)
+    foo = add_unsafe_guard(foo, "dst[_] = _", "i == 0 or j == 10")
+    print(foo)

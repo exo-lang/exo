@@ -1680,7 +1680,7 @@ def Check_DeleteConfigWrite(proc, stmts):
     a = [E.Guard(AMay(p), stmts_effs(stmts))]
 
     # extract effects
-    WrA, Mod = getsets([ES.WRITE_ALL, ES.MODIFY], a)
+    WrA, _ = getsets([ES.WRITE_ALL, ES.MODIFY], a)
     WrAp, RdAp = getsets([ES.WRITE_ALL, ES.READ_ALL], ap)
     print(WrA)
     print(RdAp)
@@ -1709,7 +1709,7 @@ def Check_DeleteConfigWrite(proc, stmts):
     post_val = lift_to_smt_n(post_nm, ir1.body.ctxt[post_nm].tree)
     cfg_mod = {pt.name: pt for pt in get_point_exprs(WrA)}
 
-    # consider every global that might be modified
+    # consider every writes
     cfg_mod_visible = set()
     for _, pt in cfg_mod.items():
         pt_e = A.Var(pt.name, T.R, null_srcinfo())
@@ -1744,80 +1744,69 @@ def Check_DeleteConfigWrite(proc, stmts):
     return cfg_mod_visible
 
 
-"""
-def Check_DeleteConfigWrite(proc, stmts):
-    assert len(stmts) == 2
+def Check_ExtendEqv2(proc1, proc2, stmts1, stmts2):
+    assert isinstance(proc1, LoopIR.proc) and isinstance(proc2, LoopIR.proc)
+    assert isinstance(stmts1, list) and isinstance(stmts2, list)
+    assert len(stmts1) == 1
+    assert len(stmts2) == 1
 
-    p = GetControlPredicates(proc, stmts).result()
+    ir1, d_stmts1 = LoopIR_to_DataflowIR(proc1, stmts1).result()
+    ir2, d_stmts2 = LoopIR_to_DataflowIR(proc2, stmts2).result()
+
+    AbstractInterpretation(ir1)
+    AbstractInterpretation(ir2)
+
+    p = GetControlPredicates(proc1, stmts1).result()
     slv = SMTSolver(verbose=False)
     slv.push()
     slv.assume(AMay(p))
 
     # Remain the existing pre-checking
-    ap = PostEnv(proc, stmts).get_posteffs()
-    a = [E.Guard(AMay(p), stmts_effs(stmts))]
+    ap = PostEnv(proc1, stmts1).get_posteffs()
+    a = [E.Guard(AMay(p), stmts_effs(stmts1))]
 
     # extract effects
-    WrG, Mod = getsets([ES.WRITE_G, ES.MODIFY], a)
-    WrGp, RdGp = getsets([ES.WRITE_G, ES.READ_G], ap)
+    WrA, Mod = getsets([ES.WRITE_ALL, ES.MODIFY], a)
+    WrAp, RdAp = getsets([ES.WRITE_ALL, ES.READ_ALL], ap)
 
-    # check that `stmts` does not modify any non-global data
-    only_mod_glob = ADef(is_empty(LDiff(Mod, WrG)))
-    is_ok = slv.verify(only_mod_glob)
-    if not is_ok:
-        slv.pop()
-        raise SchedulingError(
-            f"Cannot delete or insert statements at {stmts[0].srcinfo} "
-            f"because they may modify non-configuration data"
-        )
-
+    # TODO: This is probably incorrect. We have to check multiple values not just one right?
     # Below are the actual checks
-    ir1, d_stmts = LoopIR_to_DataflowIR(proc, stmts).result()
-    AbstractInterpretation(ir1)
-    prev_nm = d_stmts[0][0].lhs
-    post_nm = d_stmts[1][0].lhs
-    prev_val = lift_to_smt_n(prev_nm, ir1.body.ctxt[prev_nm].tree)
-    post_val = lift_to_smt_n(post_nm, ir1.body.ctxt[post_nm].tree)
-    cfg_mod = {pt.name: pt for pt in get_point_exprs(WrG)}
+    if isinstance(d_stmts[0][0], DataflowIR.For):
+        ir1_nm = d_stmts[1][-1].lhs
+        ir2_nm = d_stmts[1][-1].lhs
+    else:
+        ir1_nm = d_stmts[1][0].lhs
+        ir2_nm = d_stmts[1][0].lhs
+    assert ir1_nm == ir2_nm
+    ir1_val = lift_to_smt_n(ir1_nm, ir1.body.ctxt[ir1_nm].tree)
+    ir2_val = lift_to_smt_n(ir2_nm, ir2.body.ctxt[ir2_nm].tree)
+    cfg_mod = {pt.name: pt for pt in get_point_exprs(WrA)}
 
     # consider every global that might be modified
-    cfg_mod_visible = set()
     for _, pt in cfg_mod.items():
-        pt_e = A.Var(pt.name, pt.typ, null_srcinfo())
-        is_written = is_elem(pt, WrG)
-        is_read_post = is_elem(pt, RdGp)
-        is_overwritten = is_elem(pt, WrGp)
+        pt_e = A.Var(pt.name, T.R, null_srcinfo())
+        is_read_post = is_elem(pt, RdAp)
+        is_overwritten = is_elem(pt, WrAp)
 
-        prev_k = A.Var(prev_nm, T.int, null_srcinfo())
-        post_k = A.Var(post_nm, T.int, null_srcinfo())
-        print(repr(prev_k))
-        print(repr(post_k))
+        ir1_k = A.Var(ir1_nm, T.int, null_srcinfo())
+        ir2_k = A.Var(ir2_nm, T.int, null_srcinfo())
 
-        # FIXME: Change this! wrong
-        is_unchanged = AImplies(AAnd(prev_val, post_val), AEq(prev_k, post_k))
-        print(pt_e)
+        is_unchanged = AImplies(AAnd(ir1_val, ir2_val), AEq(ir1_k, ir2_k))
         print(is_unchanged)
 
         # if the value of the global might be read,
         # then it must not have been changed.
         safe_write = AImplies(AMay(is_read_post), ADef(is_unchanged))
         print(safe_write)
-        if not slv.verify(safe_write):
+        if not slv.verify(is_unchanged):
             slv.pop()
             raise SchedulingError(
                 f"Cannot change configuration value of {pt.name} "
                 f"at {stmts[0].srcinfo}; the new (and different) "
                 f"values might be read later in this procedure"
             )
-        # the write is invisible if its definitely unchanged or definitely
-        # overwritten
-        invisible = ADef(AOr(is_unchanged, is_overwritten))
-        if not slv.verify(invisible):
-            cfg_mod_visible.add(pt.name)
 
     slv.pop()
-    return cfg_mod_visible
-"""
 
 
 # This equivalence check assumes that we can
