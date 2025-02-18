@@ -1133,19 +1133,19 @@ class Compiler:
         else:
             assert False, "bad case"
 
-    def unpack_window_expr(self, e: LoopIR.WindowExpr, mem: type, is_const=None):
+    def unpack_window_expr(self, e: LoopIR.WindowExpr, src_memwin: type, is_const=None):
         """(w_type, w_def, d_type, d_def, separate_dataptr)
 
         w_type, w_def: C typename and initialization for window struct
 
         d_type: C typename for data pointer
 
-        d_def: "data" passed through from mem.window(...)
+        d_def: "data" passed through from src_memwin.window(...)
 
         separate_dataptr: If True, the window is defined with a
           separate data pointer {d_type} {name} = {d_def}
         """
-        win_struct = self.get_window_struct(e, mem, is_const)
+        win_struct = self.get_window_struct(e, src_memwin, is_const)
         w_type = win_struct.name
         d_type = win_struct.dataptr
         separate_dataptr = win_struct.separate_dataptr
@@ -1166,7 +1166,9 @@ class Compiler:
             self.comp_cir(simplify_cir(i), self.env, prec=0) for i in all_strides
         ]
         assert 0 < len(all_strides_s) == len(e.idx)
-        callback_result = mem.window(basetyp, base, idxs, all_strides_s, e.srcinfo)
+        callback_result = src_memwin.window(
+            basetyp, base, idxs, all_strides_s, e.srcinfo
+        )
         if isinstance(callback_result, str):
             # Base case, no custom layout
             assert (
@@ -1190,7 +1192,7 @@ class Compiler:
             # This could be an optional MemWin.window_remove_dims(...) callback
             if any(isinstance(w, LoopIR.Point) for w in e.idx):
                 raise MemGenError(
-                    f"{e.srcinfo}: {mem.name()} window doesn't support removing dimensions"
+                    f"{e.srcinfo}: {src_memwin.name()} window doesn't support removing dimensions"
                 )
 
         return w_type, w_def, d_type, d_def, separate_dataptr

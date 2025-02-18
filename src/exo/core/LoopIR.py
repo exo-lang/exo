@@ -6,7 +6,7 @@ from asdl_adt import ADT, validators
 
 from .extern import Extern
 from .configs import Config
-from .memory import Memory
+from .memory import Memory, SpecialWindow
 from .prelude import Sym, SrcInfo, extclass
 
 
@@ -82,7 +82,7 @@ module LoopIR {
          | Alloc( sym name, type type, mem mem )
          | Free( sym name, type type, mem mem )
          | Call( proc f, expr* args )
-         | WindowStmt( sym name, expr rhs )
+         | WindowStmt( sym name, expr rhs, special_window? special_window )
          attributes( srcinfo srcinfo )
 
     loop_mode = Seq()
@@ -130,6 +130,7 @@ module LoopIR {
         "name": validators.instance_of(Identifier, convert=True),
         "sym": Sym,
         "mem": Type[Memory],
+        "special_window": Type[SpecialWindow],
         "extern": Extern,
         "config": Config,
         "binop": validators.instance_of(Operator, convert=True),
@@ -191,7 +192,7 @@ module UAST {
             | USub    ( expr arg ) -- i.e.  -(...)
             | BinOp   ( op op, expr lhs, expr rhs )
             | Extern( extern f, expr* args )
-            | WindowExpr( sym name, w_access* idx )
+            | WindowExpr( sym name, w_access* idx, special_window? special_window )
             | StrideExpr( sym name, int dim )
             | ParRange( expr lo, expr hi ) -- only use for loop cond
             | SeqRange( expr lo, expr hi ) -- only use for loop cond
@@ -221,6 +222,7 @@ module UAST {
         "name": validators.instance_of(Identifier, convert=True),
         "sym": Sym,
         "mem": Type[Memory],
+        "special_window": Type[SpecialWindow],
         "extern": Extern,
         "config": Config,
         "loopir_proc": LoopIR.proc,

@@ -16,6 +16,8 @@
 #           * write to the memory (optional)
 #           * reduce to the memory (optional)
 """
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from typing import Optional
 
@@ -124,7 +126,7 @@ class WindowStructCtx(object):
         )
         return dataptr_ctype, sdef
 
-    def struct_name(self, mem_win_name):
+    def struct_name(self, mem_win_name: str) -> str:
         assert isinstance(mem_win_name, str), "use str (avoid silent mistakes)"
         assert mem_win_name
         const_suffix = "c" if self._is_const else ""
@@ -138,24 +140,23 @@ class WindowStructCtx(object):
 
         return sname
 
-    def n_dims(self):
+    def n_dims(self) -> int:
         return self._n_dims
 
-    def is_const(self):
+    def is_const(self) -> bool:
         return self._is_const
 
-    def ctype(self):
+    def ctype(self) -> str:
+        """return C name for scalar type tensor is made of e.g. float, uint16_t"""
         return self._ctype
 
-    def type_shorthand(self):
+    def type_shorthand(self) -> str:
+        """e.g. f32, u16"""
         return self._type_shorthand
 
     def srcinfo(self):
+        """Convert to str and include in error messages"""
         return self._srcinfo
-
-
-class WindowFromDenseCtx(object):
-    __slots__ = ["compiler"]
 
 
 class MemWin(ABC):
@@ -285,6 +286,69 @@ class Memory(MemWin):
         return ctx.generate_default("DRAM")
 
 
+class WindowFromDenseCtx(object):
+    __slots__ = [
+        "_basetyp",
+        "_baseptr",
+        "_shape_impl",
+        "_stride_impl",
+        "_is_const",
+        "_ctype",
+        "_type_shorthand",
+        "_srcinfo",
+    ]
+
+    def __init__(
+        self,
+        basetyp,
+        baseptr,
+        shape_impl,
+        stride_impl,
+        is_const,
+        ctype,
+        type_shorthand,
+        srcinfo,
+    ):
+        """For internal use of LoopIR compiler"""
+        self._basetyp = basetyp
+        self._baseptr = baseptr
+        self._shape_impl = shape_impl
+        self._stride_impl = stride_impl
+        self._is_const = is_const
+        self._ctype = ctype
+        self._type_shorthand = type_shorthand
+        self._srcinfo = srcinfo
+
+    def basetyp(self) -> LoopIR.Tensor:
+        """return LoopIR.Tensor type of input tensor"""
+        return self._basetyp
+
+    def baseptr(self):
+        """return C name of allocated tensor"""
+        return self._baseptr
+
+    def shape_strs(self) -> List[str]:
+        return self._shape_impl()
+
+    def stride_strs(self) -> List[str]:
+        return self._stride_impl()
+
+    def is_const(self) -> bool:
+        return self._is_const
+
+    def ctype(self) -> str:
+        """return C name for scalar type tensor is made of e.g. float, uint16_t"""
+        return self._ctype
+
+    def type_shorthand(self) -> str:
+        """e.g. f32, u16"""
+        return self._type_shorthand
+
+    def srcinfo(self):
+        """Convert to str and include in error messages"""
+        return self._srcinfo
+
+
 class SpecialWindow(MemWin):
     @classmethod
     @abstractmethod
@@ -299,8 +363,8 @@ class SpecialWindow(MemWin):
         You may assume the input tensor is the correct memory type and is dense
         (not is_win()).
 
-        If separate_dataptr(), return (dataptr : str, layout : str)
-        of C expressions that define the two window variables separately.
+        If separate_dataptr(), return (dataptr : str, layout : str) of
+        C expressions that can initialize the two respective window variables.
         Otherwise, return a single C expression that can be used
         to initialize a struct of the window type.
         """
