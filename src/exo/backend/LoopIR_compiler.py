@@ -544,35 +544,9 @@ class Compiler:
         for a in proc.args:
             mem = a.mem if a.type.is_numeric() else None
             name_arg = self.new_varname(a.name, typ=a.type, mem=mem)
-            if a.type in (T.size, T.index, T.bool, T.stride):
-                arg_strs.append(f"{a.type.ctype()} {name_arg}")
-                typ_comments.append(f"{name_arg} : {a.type}")
-            # setup, arguments
-            else:
-                assert a.type.is_numeric()
-                assert a.type.basetype() != T.R
-                is_const = a.name not in self.non_const
-                if a.type.is_real_scalar():
-                    self._scalar_refs.add(a.name)
-                    arg_strs.append(
-                        f"{'const ' if is_const else ''}{a.type.ctype()}* {name_arg}"
-                    )
-                else:
-                    assert a.type.is_tensor_or_window()
-                    window_struct = self.get_window_struct(
-                        a, mem or DRAM, is_const, a.type.is_win()
-                    )
-                    if a.type.is_win():
-                        if window_struct.separate_dataptr:
-                            arg_strs.append(
-                                f"{window_struct.dataptr} exoData_{name_arg}"
-                            )
-                        arg_strs.append(f"struct {window_struct.name} {name_arg}")
-                    else:
-                        arg_strs.append(f"{window_struct.dataptr} {name_arg}")
-                memstr = f" @{a.mem.name()}" if a.mem else ""
-                comment_str = f"{name_arg} : {a.type}{memstr}"
-                typ_comments.append(comment_str)
+            if a.type.is_real_scalar():
+                self._scalar_refs.add(a.name)
+            self.append_fnarg_decl(a, name_arg, arg_strs, typ_comments)
 
         for pred in proc.preds:
             if isinstance(pred, LoopIR.Const):
@@ -617,6 +591,43 @@ class Compiler:
 
         self.proc_decl = proc_decl
         self.proc_def = proc_def
+
+    def append_fnarg_decl(self, a: LoopIR.fnarg, name_arg: str, arg_strs, typ_comments):
+        """Compile a LoopIR.fnarg to C function argument declaration(s).
+
+        Appends function arguments (e.g. `int* foo`) and type comments
+        to the given lists, respectively.
+        Side effect: triggers compilation of memory definitions
+        and window struct declarations as needed.
+        """
+        assert isinstance(a, LoopIR.fnarg)
+        mem = a.mem if a.type.is_numeric() else None
+        if a.type in (T.size, T.index, T.bool, T.stride):
+            arg_strs.append(f"{a.type.ctype()} {name_arg}")
+            typ_comments.append(f"{name_arg} : {a.type}")
+        # setup, arguments
+        else:
+            assert a.type.is_numeric()
+            assert a.type.basetype() != T.R
+            is_const = a.name not in self.non_const
+            if a.type.is_real_scalar():
+                arg_strs.append(
+                    f"{'const ' if is_const else ''}{a.type.ctype()}* {name_arg}"
+                )
+            else:
+                assert a.type.is_tensor_or_window()
+                window_struct = self.get_window_struct(
+                    a, mem or DRAM, is_const, a.type.is_win()
+                )
+                if a.type.is_win():
+                    if window_struct.separate_dataptr:
+                        arg_strs.append(f"{window_struct.dataptr} exo_data_{name_arg}")
+                    arg_strs.append(f"struct {window_struct.name} {name_arg}")
+                else:
+                    arg_strs.append(f"{window_struct.dataptr} {name_arg}")
+            memstr = f" @{a.mem.name()}" if a.mem else ""
+            comment_str = f"{name_arg} : {a.type}{memstr}"
+            typ_comments.append(comment_str)
 
     def static_memory_check(self, proc):
         def allocates_static_memory(stmts):
@@ -667,9 +678,9 @@ class Compiler:
     def new_varname(self, symbol, typ, mem=None):
         strnm = str(symbol)
 
-        # Reserve "exo" prefix for internal use.
-        if strnm.lower().startswith("exo"):
-            strnm = "_exoUser" + strnm[3:]
+        # Reserve "exo_" prefix for internal use.
+        if strnm.lower().startswith("exo_"):
+            strnm = "exo_user_" + strnm
 
         if strnm not in self.names:
             pass
@@ -885,7 +896,7 @@ class Compiler:
             name = self.new_varname(s.name, typ=rhs.type, mem=mem)
 
             if separate_dataptr:
-                self.add_line(f"{win_struct.dataptr} exoData_{name} = {d_def};")
+                self.add_line(f"{win_struct.dataptr} exo_data_{name} = {d_def};")
             self.add_line(f"struct {win_struct.name} {name} = {w_def};")
 
         elif isinstance(s, LoopIR.If):
@@ -948,19 +959,27 @@ class Compiler:
                     c_args, instr_data = arg_tups[i]
                     arg_type = s.args[i].type
                     if arg_type.is_win():
-                        assert isinstance(s.args[i], LoopIR.WindowExpr)
+                        if not isinstance(s.args[i], LoopIR.WindowExpr):
+                            # comp_fnarg requires this for {arg_name}_data
+                            raise TypeError(
+                                f"{s.srcinfo}: Argument {arg_name} must be a "
+                                f"window expression created at the call site "
+                                f"of {s.f.name}"
+                            )
                         # c_args = (window,) or (dataptr, layout) (depending on
                         # separate_dataptr); [-1] gets the window/layout
                         d[arg_name] = f"({c_args[-1]})"
                         d[f"{arg_name}_data"] = instr_data
                         # Special case for AMX instrs
                         d[f"{arg_name}_int"] = self.env[s.args[i].name]
+                        assert instr_data
                     else:
                         assert (
                             len(c_args) == 1
                         ), "didn't expect multiple c_args for non-window"
                         arg = f"({c_args[0]})"
                         d[arg_name] = arg
+                        # Exo 1 does this; unclear why for non-windows
                         d[f"{arg_name}_data"] = arg
 
                 self.add_line(f"{s.f.instr.c_instr.format(**d)}")
@@ -974,9 +993,10 @@ class Compiler:
             assert False, "bad case"
 
     def comp_fnarg(self, e, fn, i, *, prec=0):
-        """Returns (c_args : tuple, instr_data : str)
+        """Returns (c_args : tuple, instr_data : Optional[str])
 
         c_args is a tuple (length 1 or 2) of formatted arguments.
+        Length 2 only occurs for separate_dataptr windows: (dataptr, layout).
 
         instr_data is for formatting c_instr windows; passed as {arg_name}_data.
         This is needed both for compatibility with Exo 1 and for allowing
@@ -986,23 +1006,27 @@ class Compiler:
             assert not e.idx
             rtyp = self.envtyp[e.name]
             if rtyp.is_indexable():
-                c_syntax = self.env[e.name]
+                return (self.env[e.name],), None
             elif rtyp is T.bool:
-                c_syntax = self.env[e.name]
+                return (self.env[e.name],), None
             elif rtyp is T.stride:
-                c_syntax = self.env[e.name]
+                return (self.env[e.name],), None
             elif e.name in self._scalar_refs:
-                c_syntax = self.env[e.name]
+                return (self.env[e.name],), None
             elif rtyp.is_tensor_or_window():
-                c_syntax = self.env[e.name]
+                c_window = self.env[e.name]
                 mem = fn.args[i].mem
                 if mem and mem.separate_dataptr():
-                    c_data = "exoData_" + c_syntax
-                    return ((c_data, c_syntax), c_data)
+                    # This data path is exercised for calling normal
+                    # functions, but the omitted instr_data is only
+                    # used for instr, which can't use this code path.
+                    c_data = "exo_data_" + c_syntax
+                    return (c_data, c_window), None
+                else:
+                    return (c_window,), None
             else:
                 assert rtyp.is_real_scalar()
-                c_syntax = f"&{self.env[e.name]}"
-            return ((c_syntax,), c_syntax)
+                return (f"&{self.env[e.name]}",), None
         elif isinstance(e, LoopIR.WindowExpr):
             if isinstance(fn, LoopIR.proc):
                 callee_buf = fn.args[i].name
@@ -1015,12 +1039,11 @@ class Compiler:
                 e, self.mems[e.name], is_const
             )
             if separate_dataptr:
-                return ((d_def, w_def), d_def)
+                return (d_def, w_def), d_def
             else:
-                return ((w_def,), d_def)
+                return (w_def,), d_def
         else:
-            c_syntax = self.comp_e(e, prec)
-            return ((c_syntax,), c_syntax)
+            return (self.comp_e(e, prec),), None
 
     def comp_e(self, e, prec=0):
         if isinstance(e, LoopIR.Read):
@@ -1163,7 +1186,7 @@ class Compiler:
             if separate_dataptr:
                 w_def = f"(struct {w_type}) {layout}"
             else:
-                w_def = f"(struct {w_type}){{ {d_def}, {layout} }}"
+                w_def = f"(struct {w_type}){{ {d_def}, {layout} }}"  # not &data
             # This could be an optional MemWin.window_remove_dims(...) callback
             if any(isinstance(w, LoopIR.Point) for w in e.idx):
                 raise MemGenError(

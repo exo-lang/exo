@@ -385,6 +385,43 @@ class TypeChecker:
 
         return [subtract(w.hi, w.lo) for w in ws if isinstance(w, LoopIR.Interval)]
 
+    def chain_window_idx(self, idx0, idx1):
+        """Given
+
+        window_0 = tensor[idx0]
+        window_1 = window_0[idx1]
+
+        Return chained_idx such that window_1 = tensor[chained_idx]
+        """
+
+        def add_e(scalar_0, scalar_1):
+            if isinstance(scalar_0, LoopIR.Const) and scalar_0.val == 0:
+                return scalar_1
+            if isinstance(scalar_1, LoopIR.Const) and scalar_1.val == 0:
+                return scalar_0
+            return LoopIR.BinOp("+", scalar_0, scalar_1, T.index, scalar_1.srcinfo)
+
+        assert sum(isinstance(e0, LoopIR.Interval) for e0 in idx0) == len(idx1)
+        chained_idx = [None] * len(idx0)
+        i1 = 0
+        for i0, e0 in enumerate(idx0):
+            if isinstance(e0, LoopIR.Point):
+                chained_idx[i0] = e0
+            else:
+                assert isinstance(e0, LoopIR.Interval)
+                e1 = idx1[i1]
+                i1 += 1
+                srcinfo = e1.srcinfo  # newer srcinfo likely more relevant
+                if isinstance(e1, LoopIR.Point):
+                    chained_idx[i0] = LoopIR.Point(add_e(e0.lo, e1.pt), srcinfo)
+                else:
+                    # Note e0.hi unused ... not responsibility here to do
+                    # bounds checking.
+                    chained_idx[i0] = LoopIR.Interval(
+                        add_e(e0.lo, e1.lo), add_e(e0.lo, e1.hi), srcinfo
+                    )
+        return chained_idx
+
     def check_e(self, e, is_index=False):
         if isinstance(e, UAST.Read):
             typ = self.env[e.name]
@@ -408,8 +445,8 @@ class TypeChecker:
                 return LoopIR.Read(e.name, idx, typ, e.srcinfo)
 
         elif isinstance(e, UAST.WindowExpr):
-            typ = self.env[e.name]
-            if not typ.is_tensor_or_window():
+            in_typ = self.env[e.name]
+            if not in_typ.is_tensor_or_window():
                 self.err(
                     e,
                     f"cannot perform windowing on non-tensor, "
@@ -417,21 +454,35 @@ class TypeChecker:
                 )
                 return LoopIR.WindowExpr(e.name, [], T.err, e.srcinfo)
 
-            shape = typ.shape()
-            if len(shape) != len(e.idx):
+            in_shape = in_typ.shape()
+            if len(in_shape) != len(e.idx):
                 self.err(
                     e,
-                    f"expected {len(shape)} indices for window "
+                    f"expected {len(in_shape)} indices for window "
                     f"but got {len(e.idx)}",
                 )
 
-            idx = [self.check_w_access(w, t) for w, t in zip(e.idx, shape)]
+            idx = [self.check_w_access(w, t) for w, t in zip(e.idx, in_shape)]
 
             # TODO: Construct as_tensor...
             window_shape = self.build_window_shape(idx)
-            as_tensor = T.Tensor(window_shape, True, typ.type)
+            as_tensor = T.Tensor(window_shape, True, in_typ.basetype())
 
-            w_typ = T.Window(typ, as_tensor, e.name, idx)
+            # If this WindowExpr is derived from another WindowExpr, we combine
+            # the effects of the two windows for typechecking/aliasing purposes
+            # and ensure the original tensor is always part of the type.
+            # But the LoopIR.WindowExpr itself is passed through literally.
+            if isinstance(in_typ, T.Tensor):
+                # T.Tensor can be a window argument to a proc
+                # (not created with WindowExpr)
+                w_typ = T.Window(in_typ, as_tensor, e.name, idx)
+            else:
+                assert isinstance(in_typ, T.Window)
+                chained_idx = self.chain_window_idx(in_typ.idx, idx)
+                w_typ = T.Window(
+                    in_typ.src_type, as_tensor, in_typ.src_buf, chained_idx
+                )
+
             return LoopIR.WindowExpr(e.name, idx, w_typ, e.srcinfo)
 
         elif isinstance(e, UAST.Const):

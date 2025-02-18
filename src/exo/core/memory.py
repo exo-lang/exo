@@ -190,7 +190,8 @@ class MemWin(ABC):
 
     @classmethod
     def separate_dataptr(cls):
-        """separate_dataptr: False for the usual case
+        """separate_dataptr: return False for the usual case.
+
         If True, the window is passed to functions as separate arguments
         (dataptr, window_struct) rather than a combined window struct;
         the window struct only contains layout information in this case,
@@ -228,7 +229,7 @@ class MemWin(ABC):
           e.g. [1:10, 42:46] -> ["1", "42"] (we don't provide the slice sizes)
 
         strides: C expressions of per-dim strides, in units of scalars. (*)
-          If basetyp.is_win() and you define a custom layout, don't use this.
+          If basetyp.is_win() and you define a custom layout, don't use this,
           (*) consider passing vector_size to generate_offset.
 
         srcinfo: include this when throwing an exception.
@@ -237,7 +238,7 @@ class MemWin(ABC):
 
     @classmethod
     def default_window(cls, vector_size, basetyp, in_expr, indices, strides, srcinfo):
-        """Don't override this"""
+        """Helper for simple window(...) implementations. Don't override this"""
         offset = generate_offset(indices, strides, vector_size)
         dataptr = f"{in_expr}.data" if basetyp.is_win() else in_expr
         return f"{dataptr}[{offset}]"
@@ -292,8 +293,18 @@ class SpecialWindow(MemWin):
 
     @classmethod
     @abstractmethod
-    def window_from_dense(cls, ctx):
-        pass
+    def window_from_dense(cls, ctx: WindowFromDenseCtx):
+        """Callback for generating C code initializing a window to an entire tensor.
+
+        You may assume the input tensor is the correct memory type and is dense
+        (not is_win()).
+
+        If separate_dataptr(), return (dataptr : str, layout : str)
+        of C expressions that define the two window variables separately.
+        Otherwise, return a single C expression that can be used
+        to initialize a struct of the window type.
+        """
+        raise NotImplementedError()
 
 
 # ----------- DRAM on LINUX ----------------

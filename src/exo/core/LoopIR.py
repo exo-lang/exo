@@ -998,10 +998,13 @@ def get_readconfigs(stmts):
 class GetWrites(LoopIR_Do):
     def __init__(self):
         self.writes = []
+        # Translates access through T.Window to underlying T.Tensor
+        self.window_dict = {}
 
     def do_s(self, s):
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
-            self.writes.append((s.name, s.type))
+            sym = s.name
+            self.writes.append((self.window_dict.get(sym, sym), s.type))
         elif isinstance(s, LoopIR.Call):
             writes_in_subproc = [a for a, _ in get_writes_of_stmts(s.f.body)]
             for arg, call_arg in zip(s.args, s.f.args):
@@ -1009,7 +1012,13 @@ class GetWrites(LoopIR_Do):
                     if isinstance(
                         arg, (LoopIR.Read, LoopIR.WindowExpr, LoopIR.StrideExpr)
                     ):
-                        self.writes.append((arg.name, arg.type))
+                        sym = arg.name
+                        self.writes.append((self.window_dict.get(sym, sym), arg.type))
+        elif isinstance(s, LoopIR.WindowStmt):
+            w_sym, base_sym = s.name, s.rhs.name
+            while base_sym in self.window_dict:
+                base_sym = self.window_dict[base_sym]
+            self.window_dict[w_sym] = base_sym
 
         super().do_s(s)
 
