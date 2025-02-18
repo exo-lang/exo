@@ -95,11 +95,11 @@ def eval_tensor_dimension(dim_expr, control_values):
     elif isinstance(dim_expr, LoopIR.Const):
         return dim_expr.val
     elif isinstance(dim_expr, LoopIR.USub):
-        return -eval_tensor_dimension(dim_expr.arg)
+        return -eval_tensor_dimension(dim_expr.arg, control_values)
     elif isinstance(dim_expr, LoopIR.BinOp):
-        lhs, rhs = eval_tensor_dimension(dim_expr.lhs), eval_tensor_dimension(
-            dim_expr.rhs
-        )
+        lhs, rhs = eval_tensor_dimension(
+            dim_expr.lhs, control_values
+        ), eval_tensor_dimension(dim_expr.rhs, control_values)
         if dim_expr.op == "+":
             return lhs + rhs
         elif dim_expr.op == "-":
@@ -134,7 +134,8 @@ def eval_tensor_dimension(dim_expr, control_values):
         assert False, "unexpected expression type in tensor dimension"
 
 
-CONTROL_VAL_BOUND = 16
+CONTROL_VAL_BOUND = 128
+SEARCH_LIMIT = 10
 INT_BOUND = 128
 FLOAT_BOUND = 32
 
@@ -162,7 +163,7 @@ def collect_path_constraints(cursor, cm: ConstraintMaker) -> GenericConstraint:
                 ),
             )
         elif isinstance(cur._node, LoopIR.If):
-            result = ConjunctionConstraint(result, cm.make_constraint(cur._node.cond))
+            result = ConjunctionConstraint(result, cm.make_constraints(cur._node.cond))
         cur = cur.parent()
     return result
 
@@ -170,7 +171,11 @@ def collect_path_constraints(cursor, cm: ConstraintMaker) -> GenericConstraint:
 def generate_args(args, constraint: Constraint, cm: ConstraintMaker):
     arg_values = {}
     control_values = {}
-    assignments = cm.solve_constraint(constraint, CONTROL_VAL_BOUND)
+    assignments = cm.solve_constraint(
+        constraint, bound=CONTROL_VAL_BOUND, search_limit=SEARCH_LIMIT
+    )
+    if assignments is None:
+        return None
     for arg in args:
         if not arg.type.is_numeric():
             if arg.name in assignments:
@@ -227,13 +232,14 @@ TEST_CASE_BOUND = 10
 
 
 def fuzz_reorder_stmts(s1, s2):
+    print(s1)
     proc = s1.get_root()
     proc_type_visitor = TypeVisitor()
     proc_type_visitor.visit(proc)
     cm = ConstraintMaker(proc_type_visitor.type_map)
     constraint = Constraint(())
     for pred in proc.preds:
-        constraint = ConjunctionConstraint(constraint, cm.make_constraint(pred))
+        constraint = ConjunctionConstraint(constraint, cm.make_constraints(pred))
     constraint = ConjunctionConstraint(constraint, collect_path_constraints(s1, cm))
     args = [
         LoopIR.fnarg(
@@ -251,6 +257,8 @@ def fuzz_reorder_stmts(s1, s2):
     ]
     for _ in range(TEST_CASE_BOUND):
         arg_vals1 = generate_args(args, constraint, cm)
+        if arg_vals1 is None:
+            continue
         arg_vals2 = {
             key: val.copy() if isinstance(val, np.ndarray) else val
             for key, val in arg_vals1.items()
