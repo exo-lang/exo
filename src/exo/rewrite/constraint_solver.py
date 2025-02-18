@@ -1,61 +1,9 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Union, Optional
 
 from exo.core.prelude import Sym
 from ..core.LoopIR import LoopIR, T
 import numpy as np
-
-
-@dataclass
-class Range:
-    lower_bound: Optional[int]
-    upper_bound: Optional[int]
-
-    def intersect(self, other):
-        def wrap_none(option):
-            return [option] if option is not None else []
-
-        lbs = [*wrap_none(self.lower_bound), *wrap_none(other.lower_bound)]
-        ubs = [*wrap_none(self.upper_bound), *wrap_none(other.upper_bound)]
-        return Range(
-            None if len(lbs) == 0 else max(lbs),
-            None if len(ubs) == 0 else min(ubs),
-        )
-
-
-def simplify_disjunction(ranges: tuple[Range]) -> tuple[Range]:
-    bounds: list[tuple[Range, bool]] = []
-    for r in ranges:
-        if (
-            r.lower_bound is None
-            or r.upper_bound is None
-            or r.lower_bound <= r.upper_bound
-        ):
-            bounds.append((r, False))
-            bounds.append((r, True))
-
-    def key(pair: tuple[Range, bool]) -> tuple[int, int, bool]:
-        r, is_upper = pair
-        if is_upper and r.upper_bound is None:
-            return (1, 0, is_upper)
-        if not is_upper and r.lower_bound is None:
-            return (-1, 0, is_upper)
-        return (0, r.upper_bound if is_upper else r.lower_bound, is_upper)
-
-    bounds.sort(key=key)
-
-    nest_depth = 0
-    current_lower: Optional[int] = None
-    new_ranges: list[Range] = []
-    for r, is_upper in bounds:
-        if nest_depth == 0:
-            assert not is_upper
-            current_lower = r.lower_bound
-        nest_depth += -1 if is_upper else 1
-        if nest_depth == 0:
-            assert is_upper
-            new_ranges.append(Range(current_lower, r.upper_bound))
-    return tuple(new_ranges)
 
 
 @dataclass
@@ -72,18 +20,35 @@ class ConstraintTerm:
         )
 
     def apply_assignments(
-        self, assignments: dict[Sym, int], target_sym: Sym
-    ) -> Optional[tuple[int, bool]]:
-        is_const = True
+        self, assignments: dict[Sym, int]
+    ) -> Optional[tuple[int, Optional[Sym]]]:
+        target_sym = None
         acc = self.coefficient
         for sym in self.syms:
-            if sym == target_sym:
-                is_const = False
-            else:
-                if sym not in assignments:
-                    return None
+            if sym in assignments:
                 acc *= assignments[sym]
-        return (acc, is_const)
+            else:
+                if target_sym is None:
+                    target_sym = sym
+                else:
+                    return None
+        return (acc, target_sym)
+
+    def collect_nonlinear_syms(self) -> frozenset[Sym]:
+        occurrences = set()
+        result = set()
+        for sym in self.syms:
+            if sym in occurrences:
+                result.add(sym)
+            else:
+                occurrences.add(sym)
+        return frozenset(result)
+
+
+@dataclass
+class LinearConstraint:
+    coefficients: dict[Sym, int]
+    offset: int
 
 
 @dataclass
@@ -91,31 +56,31 @@ class Constraint:
     terms: tuple[ConstraintTerm]
 
     def apply_assignments(
-        self, assignments: dict[Sym, int], target_sym: Sym
-    ) -> tuple[Range]:
-        offset, scale = 0, 0
+        self, assignments: dict[Sym, int]
+    ) -> Optional[LinearConstraint]:
+        coefficients = {}
+        offset = 0
         for term in self.terms:
-            assign_result = term.apply_assignments(assignments, target_sym)
+            assign_result = term.apply_assignments(assignments)
             if assign_result is None:
-                return (Range(None, None),)
+                return None
             else:
-                acc, is_const = assign_result
-                if is_const:
-                    offset += acc
+                coefficient, sym = assign_result
+                if sym is None:
+                    offset += coefficient
                 else:
-                    scale += acc
-        if scale == 0:
-            if offset >= 0:
-                return (Range(None, None),)
-            else:
-                return (Range(0, -1),)
-        elif scale > 0:
-            return (Range(int(np.ceil(-offset / scale)), None),)
-        else:
-            return (Range(None, int(np.floor(-offset / scale))),)
+                    if sym not in coefficients:
+                        coefficients[sym] = 0
+                    coefficients[sym] += coefficient
+        return LinearConstraint(coefficients, offset)
 
     def collect_syms(self) -> frozenset[Sym]:
         return frozenset(sym for term in self.terms for sym in term.syms)
+
+    def collect_nonlinear_syms(self) -> frozenset[Sym]:
+        return frozenset().union(
+            *[term.collect_nonlinear_syms() for term in self.terms]
+        )
 
     def pretty_print(self) -> str:
         return (
@@ -125,69 +90,45 @@ class Constraint:
                     for term in self.terms
                 ]
             )
-            + " >= 0"
+            + " == 0"
         )
-
-
-GenericConstraint = Union[Constraint, "ConjunctionConstraint", "DisjunctionConstraint"]
-
-
-@dataclass
-class ConjunctionConstraint:
-    lhs: GenericConstraint
-    rhs: GenericConstraint
-
-    def apply_assignments(
-        self, assignments: dict[Sym, int], target_sym: Sym
-    ) -> tuple[Range]:
-        lhs_ranges = self.lhs.apply_assignments(assignments, target_sym)
-        rhs_ranges = self.rhs.apply_assignments(assignments, target_sym)
-        return simplify_disjunction(
-            tuple(
-                lhs_range.intersect(rhs_range)
-                for lhs_range in lhs_ranges
-                for rhs_range in rhs_ranges
-            )
-        )
-
-    def collect_syms(self) -> frozenset[Sym]:
-        return self.lhs.collect_syms() | self.rhs.collect_syms()
-
-    def pretty_print(self) -> str:
-        return f"({self.lhs.pretty_print()}) and ({self.rhs.pretty_print()})"
-
-
-@dataclass
-class DisjunctionConstraint:
-    lhs: Constraint
-    rhs: Constraint
-
-    def apply_assignments(
-        self, assignments: dict[Sym, int], target_sym: Sym
-    ) -> tuple[Range]:
-        lhs_ranges = self.lhs.apply_assignments(assignments, target_sym)
-        rhs_ranges = self.rhs.apply_assignments(assignments, target_sym)
-        return simplify_disjunction(lhs_ranges + rhs_ranges)
-
-    def collect_syms(self) -> frozenset[Sym]:
-        return self.lhs.collect_syms() | self.rhs.collect_syms()
-
-    def pretty_print(self) -> str:
-        return f"({self.lhs.pretty_print()}) or ({self.rhs.pretty_print()})"
 
 
 class ConstraintMaker:
     def __init__(self, type_map: dict[Sym, LoopIR.type]):
-        self.nonneg_vars = set(
-            sym
-            for sym, sym_type in type_map.items()
-            if isinstance(sym_type, (T.Size, T.Index))
-        )
-        self.bool_vars = set(
-            sym for sym, sym_type in type_map.items() if isinstance(sym_type, (T.Bool))
-        )
-        self.div_constraint = Constraint(())
+        self.unconstrained_var_subs: dict[Sym, tuple[ConstraintTerm]] = {}
+        self.extra_constraints: list[Constraint] = []
         self.stride_dummies: dict[tuple[Sym, int], Sym] = {}
+        for sym, sym_type in type_map.items():
+            if isinstance(sym_type, T.Size, T.Stride):
+                # positive constraint
+                self.extra_constraints.append(
+                    Constraint(
+                        (
+                            ConstraintTerm(1, (sym,)),
+                            ConstraintTerm(-1, ()),
+                            ConstraintTerm(-1, (Sym("slack"),)),
+                        )
+                    )
+                )
+            elif isinstance(sym_type, T.Int, T.Num):
+                # unsigned variables are represented as a - b, where a and b are nonnegative
+                a, b = Sym("a"), Sym("b")
+                self.unconstrained_var_subs[sym] = (
+                    ConstraintTerm(1, (a,)),
+                    ConstraintTerm(-1, (b,)),
+                )
+            elif isinstance(sym_type, T.Bool):
+                # constrained to [0, 1]
+                self.extra_constraints.append(
+                    Constraint(
+                        (
+                            ConstraintTerm(1, (sym,)),
+                            ConstraintTerm(-1, ()),
+                            ConstraintTerm(1, (Sym("slack"))),
+                        )
+                    )
+                )
 
     def make_constraint_terms(self, expr: LoopIR.expr) -> tuple[ConstraintTerm]:
         # expect that expr is int type
@@ -195,7 +136,10 @@ class ConstraintMaker:
             assert (
                 len(expr.idx) == 0
             ), "indexing not supported in assertions (yet, todo)"
-            return (ConstraintTerm(1, (expr.name,)),)
+            if expr.name in self.unconstrained_var_subs:
+                return self.unconstrained_var_subs[expr.name]
+            else:
+                return (ConstraintTerm(1, (expr.name,)),)
         elif isinstance(expr, LoopIR.Const):
             return (ConstraintTerm(expr.val, ()),)
         elif isinstance(expr, LoopIR.USub):
@@ -216,47 +160,26 @@ class ConstraintMaker:
                 )
             elif expr.op in ["/", "%"]:
                 div, rem = Sym("div"), Sym("rem")
-                div_terms = (
-                    tuple(
-                        ConstraintTerm(term.coefficient, term.syms + (div,))
-                        for term in rhs_terms
+                self.extra_constraints.append(
+                    Constraint(
+                        lhs_terms
+                        + (ConstraintTerm(1, (rem,)))
+                        + tuple(
+                            rhs_term.multiply(ConstraintTerm(1, (div,)))
+                            for rhs_term in rhs_terms
+                        )
                     )
-                    + tuple(term.negate() for term in lhs_terms)
-                    + (ConstraintTerm(1, (rem,)),)
                 )
-                self.div_constraint = ConjunctionConstraint(
-                    self.div_constraint,
-                    ConjunctionConstraint(
-                        ConjunctionConstraint(
-                            Constraint(div_terms),
-                            Constraint(tuple(term.negate() for term in div_terms)),
-                        ),
-                        DisjunctionConstraint(
-                            ConjunctionConstraint(
-                                Constraint((ConstraintTerm(1, (rem,)),)),
-                                Constraint(
-                                    rhs_terms
-                                    + (
-                                        ConstraintTerm(-1, (rem,)),
-                                        ConstraintTerm(-1, ()),
-                                    )
-                                ),
-                            ),
-                            ConjunctionConstraint(
-                                Constraint((ConstraintTerm(-1, (rem,)),)),
-                                Constraint(
-                                    tuple(term.negate() for term in rhs_terms)
-                                    + (
-                                        ConstraintTerm(1, (rem,)),
-                                        ConstraintTerm(1, ()),
-                                    )
-                                ),
-                            ),
-                        ),
-                    ),
+                self.extra_constraints.append(
+                    Constraint(
+                        (
+                            ConstraintTerm(-1, (rem,)),
+                            ConstraintTerm(-1, (Sym("slack"),)),
+                        )
+                        + rhs_terms
+                    )
                 )
-
-                return (ConstraintTerm(1, (div if expr.op == "/" else rem,)),)
+                return (ConstraintTerm(1, (rem if expr.op == "%" else div,)),)
             else:
                 assert False, f"unsupported op in assertion: {expr.op}"
         elif isinstance(expr, LoopIR.StrideExpr):
@@ -269,133 +192,112 @@ class ConstraintMaker:
         else:
             assert False, f"unsupported expr"
 
-    def make_constraint(
+    def make_constraints(
         self,
         expr: LoopIR.expr,
-    ) -> GenericConstraint:
+    ) -> tuple[Constraint]:
         # expect that expr is bool type
         if isinstance(expr, LoopIR.BinOp):
             if expr.op == "and":
-                return ConjunctionConstraint(
-                    self.make_constraint(expr.lhs), self.make_constraint(expr.rhs)
-                )
+                return self.make_constraints(expr.lhs) + self.make_constraints(expr.rhs)
             elif expr.op == "or":
-                return DisjunctionConstraint(
-                    self.make_constraint(expr.lhs), self.make_constraint(expr.rhs)
-                )
-            elif expr.op == "<":
-                return Constraint(
-                    self.make_constraint_terms(expr.rhs)
-                    + tuple(
-                        term.negate() for term in self.make_constraint_terms(expr.lhs)
+                # disjunction multiplies all constraints
+                lhs_constraints, rhs_constraints = self.make_constraints(
+                    expr.lhs
+                ), self.make_constraints(expr.rhs)
+                return tuple(
+                    Constraint(
+                        tuple(
+                            lhs_term.multiply(rhs_term)
+                            for lhs_term in lhs_constraint.terms
+                            for rhs_term in rhs_constraint.terms
+                        )
                     )
-                    + (ConstraintTerm(-1, ()),)
-                )
-            elif expr.op == ">":
-                return Constraint(
-                    self.make_constraint_terms(expr.lhs)
-                    + tuple(
-                        term.negate() for term in self.make_constraint_terms(expr.rhs)
-                    )
-                    + (ConstraintTerm(-1, ()),)
-                )
-            elif expr.op == "<=":
-                return Constraint(
-                    self.make_constraint_terms(expr.rhs)
-                    + tuple(
-                        term.negate() for term in self.make_constraint_terms(expr.lhs)
-                    )
-                )
-            elif expr.op == ">=":
-                return Constraint(
-                    self.make_constraint_terms(expr.lhs)
-                    + tuple(
-                        term.negate() for term in self.make_constraint_terms(expr.rhs)
-                    )
-                )
-            elif expr.op == "==":
-                lhs_terms = self.make_constraint_terms(expr.lhs)
-                rhs_terms = self.make_constraint_terms(expr.rhs)
-                return ConjunctionConstraint(
-                    Constraint(rhs_terms + tuple(term.negate() for term in lhs_terms)),
-                    Constraint(lhs_terms + tuple(term.negate() for term in rhs_terms)),
+                    for lhs_constraint in lhs_constraints
+                    for rhs_constraint in rhs_constraints
                 )
             else:
-                assert False, "boolean ops expected"
+                return (
+                    self.make_constraint_from_inequality(expr.lhs, expr.rhs, expr.op),
+                )
         elif isinstance(expr, LoopIR.Read):
             assert len(expr.idx) == 0, "cannot index into boolean"
-            return ConjunctionConstraint(
-                Constraint((ConstraintTerm(1, expr.name), ConstraintTerm(-1, ()))),
-                Constraint((ConstraintTerm(-1, expr.name), ConstraintTerm(1, ()))),
+            return (
+                Constraint((ConstraintTerm(1, (expr.name,)), ConstraintTerm(-1, ()))),
             )
         elif isinstance(expr, LoopIR.Const):
             if expr.val:
                 return Constraint(())
             else:
-                return Constraint((ConstraintTerm(-1, ())))
+                return Constraint((ConstraintTerm(1, ())))
         else:
             assert False, "only boolean expected"
 
-    def solve_constraint(
-        self, constraint: GenericConstraint, bound: int, seed: Optional[int] = None
+    def make_constraint_from_inequality(
+        self, lhs: LoopIR.expr, rhs: LoopIR.expr, op: str
+    ) -> Constraint:
+        lhs_terms = self.make_constraint_terms(lhs)
+        rhs_terms = self.make_constraint_terms(rhs)
+        main_terms = rhs_terms + tuple(term.negate() for term in lhs_terms)
+        if op == "<":
+            slack_terms = (
+                ConstraintTerm(-1, (Sym("slack"),)),
+                ConstraintTerm(-1, ()),
+            )
+        elif op == ">":
+            slack_terms = (
+                ConstraintTerm(1, (Sym("slack"),)),
+                ConstraintTerm(1, ()),
+            )
+        elif op == "<=":
+            slack_terms = (ConstraintTerm(-1, (Sym("slack"),)),)
+        elif op == ">=":
+            slack_terms = (ConstraintTerm(1, (Sym("slack"),)),)
+        elif op == "==":
+            slack_terms = ()
+        else:
+            assert False, "boolean ops expected"
+        return Constraint(main_terms + slack_terms)
+
+    def solve_constraints(
+        self,
+        constraints: tuple[Constraint],
+        *,
+        search_limit: int,
+        seed: Optional[int] = None,
     ):
         if seed is not None:
             np.random.seed(seed=seed)
-        constraint = ConjunctionConstraint(constraint, self.div_constraint)
+        all_constraints = constraints + tuple(self.extra_constraints)
         assignments = {}
-        syms = constraint.collect_syms()
 
-        def solve_recursive() -> bool:
-            sym_domains = [
-                (
-                    simplify_disjunction(
-                        tuple(
-                            sym_range.intersect(
-                                Range(0, bound)
-                                if sym in self.nonneg_vars
-                                else (
-                                    Range(0, 1)
-                                    if sym in self.bool_vars
-                                    else Range(-bound, bound)
-                                )
-                            )
-                            for sym_range in constraint.apply_assignments(
-                                assignments, sym
-                            )
-                        )
-                    ),
-                    sym,
-                )
-                for sym in syms - assignments.keys()
-            ]
-            if len(sym_domains) == 0:
-                return True
+        def solve_recursive():
+            linear_constraints: list[LinearConstraint] = []
+            linear_constraint_syms: set[Sym] = set()
+            nonlinear_syms: set[Sym] = set()
+            for constraint in all_constraints:
+                assign_result = constraint.apply_assignments(assignments)
+                if assign_result is not None:
+                    linear_constraints.append(assign_result)
+                    linear_constraint_syms |= {
+                        sym for sym in assign_result.coefficients.keys()
+                    }
+
+                nonlinear_syms |= constraint.collect_nonlinear_syms()
+            sym_ordering = {sym: i for i, sym in enumerate(linear_constraint_syms)}
+            matrix_Ab = np.zeros(
+                (len(linear_constraints), len(linear_constraint_syms) + 1),
+                dtype=np.int32,
+            )
+            for row, linear_constraint in enumerate(linear_constraints):
+                for sym, coefficient in linear_constraint.coefficients:
+                    matrix_Ab[row, sym_ordering[sym]] = coefficient
+                matrix_Ab[row, len(linear_constraint_syms)] = linear_constraint.offset
+
+        for _ in range(search_limit):
+            if solve_recursive():
+                return assignments
             else:
+                assignments = {}
 
-                def domain_size(sym_domain: tuple[Range]) -> int:
-                    return sum(
-                        sym_range.upper_bound - sym_range.lower_bound + 1
-                        for sym_range in sym_domain
-                    )
-
-                sym_domains.sort(key=lambda sym_domain: domain_size(sym_domain[0]))
-                sym_domain, sym = sym_domains[0]
-                if len(sym_domain) == 0:
-                    return False
-                range_sizes = np.array(
-                    [
-                        sym_range.upper_bound - sym_range.lower_bound + 1
-                        for sym_range in sym_domain
-                    ]
-                )
-                chosen_range = np.random.choice(
-                    sym_domain, p=range_sizes / np.sum(range_sizes)
-                )
-                assignments[sym] = np.random.randint(
-                    chosen_range.lower_bound, chosen_range.upper_bound + 1
-                )
-                return solve_recursive()
-
-        while not solve_recursive():
-            assignments = {}
-        return assignments
+        return None
