@@ -15,11 +15,13 @@ def test_make_constraint(golden):
 
     foo_type = TypeVisitor()
     foo_type.visit(foo._loopir_proc)
-    assert (
-        golden
-        == ConstraintMaker(foo_type.type_map)
-        .make_constraints(foo._loopir_proc.preds[0])
-        .pretty_print()
+    assert golden == "\n".join(
+        [
+            constraint.pretty_print()
+            for constraint in ConstraintMaker(foo_type.type_map).make_constraints(
+                foo._loopir_proc.preds[0]
+            )
+        ]
     )
 
 
@@ -32,12 +34,12 @@ def test_solve(golden):
     foo_type = TypeVisitor()
     foo_type.visit(foo._loopir_proc)
     cm = ConstraintMaker(foo_type.type_map)
-    constraint = cm.make_constraints(foo._loopir_proc.preds[0])
+    constraints = cm.make_constraints(foo._loopir_proc.preds[0])
     assert golden == ", ".join(
         [
             f"{str(sym)} = {val}"
-            for sym, val in cm.solve_constraint(
-                constraint, bound=16, search_limit=10, seed=13
+            for sym, val in cm.solve_constraints(
+                constraints, search_limit=10, seed=13
             ).items()
         ]
     )
@@ -52,8 +54,10 @@ def test_divmod(golden):
     foo_type = TypeVisitor()
     foo_type.visit(foo._loopir_proc)
     cm = ConstraintMaker(foo_type.type_map)
-    constraint = cm.make_constraints(foo._loopir_proc.preds[0])
-    assert golden == constraint.pretty_print()
+    constraints = cm.make_constraints(foo._loopir_proc.preds[0])
+    assert golden == "\n".join(
+        [constraint.pretty_print() for constraint in constraints]
+    )
 
 
 def test_divmod_solve(golden):
@@ -65,12 +69,12 @@ def test_divmod_solve(golden):
     foo_type = TypeVisitor()
     foo_type.visit(foo._loopir_proc)
     cm = ConstraintMaker(foo_type.type_map)
-    constraint = cm.make_constraints(foo._loopir_proc.preds[0])
+    constraints = cm.make_constraints(foo._loopir_proc.preds[0])
     assert golden == ", ".join(
         [
             f"{str(sym)} = {val}"
-            for sym, val in cm.solve_constraint(
-                constraint, bound=16, search_limit=10, seed=13
+            for sym, val in cm.solve_constraints(
+                constraints, search_limit=10, seed=13
             ).items()
         ]
     )

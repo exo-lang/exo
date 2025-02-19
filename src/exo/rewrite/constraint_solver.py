@@ -4,12 +4,14 @@ from typing import Union, Optional
 from exo.core.prelude import Sym
 from ..core.LoopIR import LoopIR, T
 import numpy as np
+from scipy.optimize import linprog
+from hsnf import smith_normal_form
 
 
 @dataclass
 class ConstraintTerm:
     coefficient: int
-    syms: tuple[Sym]
+    syms: tuple[Sym, ...]
 
     def negate(self) -> "ConstraintTerm":
         return ConstraintTerm(-self.coefficient, self.syms)
@@ -53,7 +55,7 @@ class LinearConstraint:
 
 @dataclass
 class Constraint:
-    terms: tuple[ConstraintTerm]
+    terms: tuple[ConstraintTerm, ...]
 
     def apply_assignments(
         self, assignments: dict[Sym, int]
@@ -96,11 +98,11 @@ class Constraint:
 
 class ConstraintMaker:
     def __init__(self, type_map: dict[Sym, LoopIR.type]):
-        self.unconstrained_var_subs: dict[Sym, tuple[ConstraintTerm]] = {}
+        self.unconstrained_var_subs: dict[Sym, tuple[ConstraintTerm, ...]] = {}
         self.extra_constraints: list[Constraint] = []
         self.stride_dummies: dict[tuple[Sym, int], Sym] = {}
         for sym, sym_type in type_map.items():
-            if isinstance(sym_type, T.Size, T.Stride):
+            if isinstance(sym_type, (T.Size, T.Stride)):
                 # positive constraint
                 self.extra_constraints.append(
                     Constraint(
@@ -111,7 +113,7 @@ class ConstraintMaker:
                         )
                     )
                 )
-            elif isinstance(sym_type, T.Int, T.Num):
+            elif isinstance(sym_type, (T.Int, T.Num)):
                 # unsigned variables are represented as a - b, where a and b are nonnegative
                 a, b = Sym("a"), Sym("b")
                 self.unconstrained_var_subs[sym] = (
@@ -125,14 +127,18 @@ class ConstraintMaker:
                         (
                             ConstraintTerm(1, (sym,)),
                             ConstraintTerm(-1, ()),
-                            ConstraintTerm(1, (Sym("slack"))),
+                            ConstraintTerm(1, (Sym("slack"),)),
                         )
                     )
                 )
 
-    def make_constraint_terms(self, expr: LoopIR.expr) -> tuple[ConstraintTerm]:
+    def make_constraint_terms(
+        self, expr: Union[LoopIR.expr, Sym]
+    ) -> tuple[ConstraintTerm, ...]:
         # expect that expr is int type
-        if isinstance(expr, LoopIR.Read):
+        if isinstance(expr, Sym):
+            return (ConstraintTerm(1, (expr,)),)
+        elif isinstance(expr, LoopIR.Read):
             assert (
                 len(expr.idx) == 0
             ), "indexing not supported in assertions (yet, todo)"
@@ -162,8 +168,8 @@ class ConstraintMaker:
                 div, rem = Sym("div"), Sym("rem")
                 self.extra_constraints.append(
                     Constraint(
-                        lhs_terms
-                        + (ConstraintTerm(1, (rem,)))
+                        tuple(lhs_term.negate() for lhs_term in lhs_terms)
+                        + (ConstraintTerm(1, (rem,)),)
                         + tuple(
                             rhs_term.multiply(ConstraintTerm(1, (div,)))
                             for rhs_term in rhs_terms
@@ -175,6 +181,7 @@ class ConstraintMaker:
                         (
                             ConstraintTerm(-1, (rem,)),
                             ConstraintTerm(-1, (Sym("slack"),)),
+                            ConstraintTerm(-1, ()),
                         )
                         + rhs_terms
                     )
@@ -186,7 +193,6 @@ class ConstraintMaker:
             if (expr.name, expr.dim) not in self.stride_dummies:
                 new_sym = Sym("stride")
                 self.stride_dummies[(expr.name, expr.dim)] = new_sym
-                self.nonneg_vars.add(new_sym)
             dummy = self.stride_dummies[(expr.name, expr.dim)]
             return (ConstraintTerm(1, (dummy,)),)
         else:
@@ -195,7 +201,7 @@ class ConstraintMaker:
     def make_constraints(
         self,
         expr: LoopIR.expr,
-    ) -> tuple[Constraint]:
+    ) -> tuple[Constraint, ...]:
         # expect that expr is bool type
         if isinstance(expr, LoopIR.BinOp):
             if expr.op == "and":
@@ -227,14 +233,14 @@ class ConstraintMaker:
             )
         elif isinstance(expr, LoopIR.Const):
             if expr.val:
-                return Constraint(())
+                return (Constraint(()),)
             else:
-                return Constraint((ConstraintTerm(1, ())))
+                return (Constraint((ConstraintTerm(1, ()))),)
         else:
             assert False, "only boolean expected"
 
     def make_constraint_from_inequality(
-        self, lhs: LoopIR.expr, rhs: LoopIR.expr, op: str
+        self, lhs: Union[LoopIR.expr, Sym], rhs: Union[LoopIR.expr, Sym], op: str
     ) -> Constraint:
         lhs_terms = self.make_constraint_terms(lhs)
         rhs_terms = self.make_constraint_terms(rhs)
@@ -261,7 +267,7 @@ class ConstraintMaker:
 
     def solve_constraints(
         self,
-        constraints: tuple[Constraint],
+        constraints: tuple[Constraint, ...],
         *,
         search_limit: int,
         seed: Optional[int] = None,
@@ -270,32 +276,140 @@ class ConstraintMaker:
             np.random.seed(seed=seed)
         all_constraints = constraints + tuple(self.extra_constraints)
         assignments = {}
+        x_bound = 100
+        sym_universe = set()
+        for constraint in all_constraints:
+            sym_universe |= constraint.collect_syms()
 
-        def solve_recursive():
-            linear_constraints: list[LinearConstraint] = []
-            linear_constraint_syms: set[Sym] = set()
-            nonlinear_syms: set[Sym] = set()
-            for constraint in all_constraints:
-                assign_result = constraint.apply_assignments(assignments)
-                if assign_result is not None:
-                    linear_constraints.append(assign_result)
-                    linear_constraint_syms |= {
-                        sym for sym in assign_result.coefficients.keys()
-                    }
+        def solve_helper():
+            while len(assignments) < len(sym_universe):
+                linear_constraints: list[LinearConstraint] = []
+                linear_constraint_syms: set[Sym] = set()
+                nonlinear_syms: set[Sym] = set()
+                for constraint in all_constraints:
+                    assign_result = constraint.apply_assignments(assignments)
+                    if assign_result is not None:
+                        linear_constraints.append(assign_result)
+                        linear_constraint_syms |= {
+                            sym for sym in assign_result.coefficients.keys()
+                        }
 
-                nonlinear_syms |= constraint.collect_nonlinear_syms()
-            sym_ordering = {sym: i for i, sym in enumerate(linear_constraint_syms)}
-            matrix_Ab = np.zeros(
-                (len(linear_constraints), len(linear_constraint_syms) + 1),
-                dtype=np.int32,
-            )
-            for row, linear_constraint in enumerate(linear_constraints):
-                for sym, coefficient in linear_constraint.coefficients:
-                    matrix_Ab[row, sym_ordering[sym]] = coefficient
-                matrix_Ab[row, len(linear_constraint_syms)] = linear_constraint.offset
+                    nonlinear_syms |= constraint.collect_nonlinear_syms()
+                nonlinear_syms -= assignments.keys()
+                priority_syms = nonlinear_syms & linear_constraint_syms
+                if len(priority_syms) == 0 and len(nonlinear_syms) != 0:
+                    chosen_sym = np.random.choice(
+                        sorted(list(nonlinear_syms), key=lambda sym: sym._id)
+                    )
+                    assignments[chosen_sym] = np.random.randint(0, x_bound)
+                    continue
+                sym_ordering = {
+                    sym: i
+                    for i, sym in enumerate(
+                        sorted(
+                            list(linear_constraint_syms),
+                            key=lambda sym: sym._id,
+                        )
+                    )
+                }
+                n = len(linear_constraints)
+                m = len(linear_constraint_syms)
+                matrix_A = np.zeros(
+                    (n, m),
+                    dtype=np.int32,
+                )
+                vec_b = np.zeros(n, dtype=np.int32)
+                for row, linear_constraint in enumerate(linear_constraints):
+                    for sym, coefficient in linear_constraint.coefficients.items():
+                        matrix_A[row, sym_ordering[sym]] = coefficient
+                    vec_b[row] = -linear_constraint.offset
+                matrix_B, matrix_U, matrix_V = smith_normal_form(matrix_A)
+                vec_d = matrix_U @ vec_b
+                k = min(n, m)
+                vec_f = np.zeros(m)
+                for i in range(min(n, m)):
+                    if matrix_B[i, i] == 0:
+                        k = i
+                        break
+                    if vec_d[i] % matrix_B[i, i] != 0:
+                        return False
+                    vec_f += vec_d[i] / matrix_B[i, i] * matrix_V[:, i]
+                if m == k:
+                    solution = vec_f
+                    if not np.all(vec_f >= 0):
+                        return False
+                else:
+                    matrix_C = matrix_V[:, k:]
+                    upper_bound_matrix = np.concatenate((matrix_C, -matrix_C), axis=0)
+                    upper_bound_offset = np.concatenate(
+                        (np.ones_like(vec_f) * x_bound - vec_f, vec_f), axis=0
+                    )
+                    lp = linprog(
+                        np.zeros(m - k),
+                        A_ub=upper_bound_matrix,
+                        b_ub=upper_bound_offset,
+                        bounds=(None, None),
+                    )
+                    if not lp.success:
+                        return False
+                    cur_y = lp.x
+                    har_iter = 50
+                    last_int_y = None
+                    for _ in range(har_iter):
+                        direction = np.random.normal(size=m - k)
+                        direction = direction / np.linalg.norm(direction)
+                        lower_bounds = -matrix_C @ cur_y - vec_f
+                        upper_bounds = lower_bounds + x_bound
+                        coefficients = matrix_C @ direction
+                        lower_bounds = lower_bounds[coefficients != 0]
+                        upper_bounds = upper_bounds[coefficients != 0]
+                        coefficients = coefficients[coefficients != 0]
+                        max_lambda = np.nanmin(
+                            np.where(coefficients < 0, lower_bounds, upper_bounds)
+                            / coefficients
+                        )
+                        min_lambda = np.nanmax(
+                            np.where(coefficients >= 0, lower_bounds, upper_bounds)
+                            / coefficients
+                        )
+                        new_y = cur_y + direction * (
+                            np.random.rand() * (max_lambda - min_lambda) + min_lambda
+                        )
+                        new_int_y = np.round(new_y)
+                        cur_y = new_y
+                        if np.all(upper_bound_matrix @ new_int_y <= upper_bound_offset):
+                            last_int_y = new_int_y
+                    if last_int_y is not None:
+                        solution = matrix_C @ last_int_y + vec_f
+                    else:
+                        return False
+
+                chosen_sym = None
+                if len(priority_syms) != 0:
+                    chosen_sym = np.random.choice(
+                        sorted(list(priority_syms), key=lambda sym: sym._id)
+                    )
+                elif len(linear_constraint_syms) != 0:
+                    chosen_sym = np.random.choice(
+                        sorted(list(linear_constraint_syms), key=lambda sym: sym._id)
+                    )
+                if chosen_sym is None:
+                    free_syms = (
+                        sym_universe
+                        - linear_constraint_syms
+                        - assignments.keys()
+                        - nonlinear_syms
+                    )
+                    chosen_sym = np.random.choice(
+                        sorted(list(free_syms), key=lambda sym: sym._id)
+                    )
+                    assignments[chosen_sym] = np.random.randint(0, x_bound)
+                else:
+                    assignments[chosen_sym] = int(solution[sym_ordering[chosen_sym]])
+            return True
 
         for _ in range(search_limit):
-            if solve_recursive():
+            if solve_helper():
                 return assignments
             else:
                 assignments = {}
