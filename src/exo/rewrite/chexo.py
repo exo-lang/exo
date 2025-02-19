@@ -8,9 +8,6 @@ from ..backend.LoopIR_interpreter import run_interpreter
 import numpy as np
 from .new_eff import SchedulingError
 from .constraint_solver import (
-    ConjunctionConstraint,
-    ConstraintTerm,
-    GenericConstraint,
     Constraint,
     ConstraintMaker,
 )
@@ -140,40 +137,27 @@ INT_BOUND = 128
 FLOAT_BOUND = 32
 
 
-def collect_path_constraints(cursor, cm: ConstraintMaker) -> GenericConstraint:
+def collect_path_constraints(cursor, cm: ConstraintMaker) -> tuple[Constraint]:
     cur = cursor
-    result = Constraint(())
+    result = []
     while cur.depth() != 0:
         if isinstance(cur._node, LoopIR.For):
-            result = ConjunctionConstraint(
-                ConjunctionConstraint(
-                    result,
-                    Constraint(
-                        (ConstraintTerm(1, (cur._node.iter,)),)
-                        + tuple(
-                            term.negate()
-                            for term in cm.make_constraint_terms(cur._node.lo)
-                        )
-                    ),
-                ),
-                Constraint(
-                    (ConstraintTerm(-1, (cur._node.iter,)),)
-                    + cm.make_constraint_terms(cur._node.hi)
-                    + (ConstraintTerm(-1, ()),)
-                ),
+            result.append(
+                cm.make_constraint_from_inequality(cur._node.iter, cur._node.lo, ">=")
+            )
+            result.append(
+                cm.make_constraint_from_inequality(cur._node.iter, cur._node.hi, "<")
             )
         elif isinstance(cur._node, LoopIR.If):
-            result = ConjunctionConstraint(result, cm.make_constraints(cur._node.cond))
+            result.extend(cm.make_constraints(cur._node.cond))
         cur = cur.parent()
-    return result
+    return tuple(result)
 
 
-def generate_args(args, constraint: Constraint, cm: ConstraintMaker):
+def generate_args(args, constraint: tuple[Constraint], cm: ConstraintMaker):
     arg_values = {}
     control_values = {}
-    assignments = cm.solve_constraint(
-        constraint, bound=CONTROL_VAL_BOUND, search_limit=SEARCH_LIMIT
-    )
+    assignments = cm.solve_constraints(constraint, search_limit=SEARCH_LIMIT)
     if assignments is None:
         return None
     for arg in args:
@@ -232,15 +216,14 @@ TEST_CASE_BOUND = 10
 
 
 def fuzz_reorder_stmts(s1, s2):
-    print(s1)
     proc = s1.get_root()
     proc_type_visitor = TypeVisitor()
     proc_type_visitor.visit(proc)
     cm = ConstraintMaker(proc_type_visitor.type_map)
-    constraint = Constraint(())
+    constraints = []
     for pred in proc.preds:
-        constraint = ConjunctionConstraint(constraint, cm.make_constraints(pred))
-    constraint = ConjunctionConstraint(constraint, collect_path_constraints(s1, cm))
+        constraints.extend(cm.make_constraints(pred))
+    constraints.extend(collect_path_constraints(s1, cm))
     args = [
         LoopIR.fnarg(
             name=var,
@@ -256,7 +239,7 @@ def fuzz_reorder_stmts(s1, s2):
         arg for arg in args if arg.type.is_numeric()
     ]
     for _ in range(TEST_CASE_BOUND):
-        arg_vals1 = generate_args(args, constraint, cm)
+        arg_vals1 = generate_args(args, tuple(constraints), cm)
         if arg_vals1 is None:
             continue
         arg_vals2 = {
