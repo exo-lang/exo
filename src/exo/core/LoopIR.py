@@ -186,7 +186,7 @@ module UAST {
 
     fnarg   = ( sym             name,
                 type            type,
-                mem?            mem,
+                memwin?         mem,
                 srcinfo         srcinfo )
 
     stmt    = Assign  ( sym name, expr* idx, expr rhs )
@@ -234,6 +234,7 @@ module UAST {
     ext_types={
         "name": validators.instance_of(Identifier, convert=True),
         "sym": Sym,
+        "memwin": Type[MemWin],
         "mem": Type[Memory],
         "special_window": Type[SpecialWindow],
         "extern": Extern,

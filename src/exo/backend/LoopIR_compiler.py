@@ -941,7 +941,15 @@ class Compiler:
                         )
                         for shape_coord in tensortyp.shape()
                     ]
-                    special_window_rhs = s.rhs.update(idx=idx0)
+                    # Split the WindowStmt into two WindowStmt just in time
+                    # for codegen. tmp SpecialWindow materialized with type
+                    # similar to original dense tensor.
+                    tmp_window_type = LoopIR.WindowType(
+                        tensortyp, tensortyp, rhs.name, idx0
+                    )
+                    special_window_rhs = s.rhs.update(idx=idx0, type=tmp_window_type)
+                    # Then another special window from the tmp special window
+                    # to handle offsets
                     special_window_stmt = s.update(rhs=special_window_rhs, name=tmp_sym)
                     normal_window_rhs = s.rhs.update(name=tmp_sym)
                     normal_window_stmt = s.update(
@@ -1322,7 +1330,7 @@ class Compiler:
             # This could be an optional MemWin.window_remove_dims(...) callback
             if any(isinstance(w, LoopIR.Point) for w in e.idx):
                 raise MemGenError(
-                    f"{e.srcinfo}: {src_memwin.name()} window doesn't support removing dimensions"
+                    f"{e.srcinfo}: {src_memwin.name()} window from {e.name} doesn't support removing dimensions (single Point coordinate in window indices)"
                 )
 
         return w_type, w_def, d_type, d_def, separate_dataptr
