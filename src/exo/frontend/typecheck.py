@@ -458,16 +458,23 @@ class TypeChecker:
                 )
                 return LoopIR.WindowExpr(e.name, [], T.err, e.srcinfo)
 
-            # UAST has the optional special window as part of WindowExpr as
-            # that's how it parses, but LoopIR has the special window as
-            # part of WindowStmt since that matches the usage pattern
-            # (can't construct special windows just anywhere)
-            if e.special_window is not None and not allow_special_window:
-                self.err(
-                    e,
-                    f"Can only create SpecialWindow as part of "
-                    f"WindowStmt (W = t[idx...] @ SpecialWindow)",
-                )
+            if e.special_window is not None:
+                # UAST has the optional special window as part of WindowExpr as
+                # that's how it parses, but LoopIR has the special window as
+                # part of WindowStmt since that matches the usage pattern
+                # (can't construct special windows just anywhere)
+                if not allow_special_window:
+                    self.err(
+                        e,
+                        f"Can only create SpecialWindow as part of "
+                        f"WindowStmt (W = t[idx...] @ SpecialWindow)",
+                    )
+                elif not in_typ.is_dense_tensor():
+                    self.err(
+                        e,
+                        "Can only create SpecialWindow from a dense "
+                        "tensor, not another window",
+                    )
 
             in_shape = in_typ.shape()
             if len(in_shape) != len(e.idx):

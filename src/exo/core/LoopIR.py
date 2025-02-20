@@ -118,13 +118,25 @@ module LoopIR {
          | Stride()
          | Error()
          | Tensor( expr* hi, bool is_window, type type )
-         -- src       - type of the tensor from which the window was created
+         -- src_type  - type of the Tensor from which the window was created
          -- as_tensor - tensor type as if this window were simply a tensor 
          --             itself
-         -- window    - the expression that created this window
+         -- src_buf   - sym for the Tensor from which the window was created
+         -- idx       - the expression that created this window
+         -- NB: when creating a derived window from another derived window,
+         -- we must "chain" the two window exprs so that src_type, src_buf
+         -- still refer to the original Tensor
          | WindowType( type src_type, type as_tensor,
                        sym src_buf, w_access *idx )
 
+    -- Dense tensor: Tensor(is_window = False)
+    -- Window parameter (of proc): Tensor(is_window = True)
+    -- Derived window (from WindowExpr): WindowType
+
+    -- First two are both "tensors" although imprecisely sometimes "tensor"
+    -- refers only to "dense tensor" -- we should be more clear about that.
+    -- Latter two are both "windows" (allows strides), but have separate
+    -- types since derived windows (WindowType) requires aliasing reasoning
 }""",
     ext_types={
         "name": validators.instance_of(Identifier, convert=True),
@@ -480,10 +492,20 @@ del is_tensor_or_window
 
 @extclass(LoopIR.type)
 def is_win(t):
+    # T.Tensor and t.is_window: window parameter
+    # T.Window: derived window
     return (isinstance(t, T.Tensor) and t.is_window) or isinstance(t, T.Window)
 
 
 del is_win
+
+
+@extclass(LoopIR.type)
+def is_dense_tensor(t):
+    return isinstance(t, T.Tensor) and not t.is_window
+
+
+del is_dense_tensor
 
 
 @extclass(LoopIR.type)

@@ -922,9 +922,8 @@ class Compiler:
             else:
                 rhs = s.rhs
                 tensortyp = self.envtyp[rhs.name]
-                assert tensortyp.is_tensor_or_window()
                 assert (
-                    not tensortyp.is_win()
+                    tensortyp.is_dense_tensor()
                 ), f"{s.srcinfo}: typecheck should have blocked SpecialWindow from non-dense tensor"
                 special_window_stmt = s
                 normal_window_stmt = None
