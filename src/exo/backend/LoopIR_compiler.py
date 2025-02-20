@@ -190,16 +190,16 @@ def find_all_subprocs(proc_list):
     return list(reversed(all_procs))
 
 
-class LoopIR_FindMems(LoopIR_Do):
+class LoopIR_FindMemWins(LoopIR_Do):
     def __init__(self, proc):
-        self._mems = set()
+        self._memwins = set()
         for a in proc.args:
             if a.mem:
-                self._mems.add(a.mem)
+                self._memwins.add(a.mem)
         super().__init__(proc)
 
     def result(self):
-        return self._mems
+        return self._memwins
 
     # to improve efficiency
     def do_e(self, e):
@@ -208,7 +208,10 @@ class LoopIR_FindMems(LoopIR_Do):
     def do_s(self, s):
         if isinstance(s, LoopIR.Alloc):
             if s.mem:
-                self._mems.add(s.mem)
+                self._memwins.add(s.mem)
+        elif isinstance(s, LoopIR.WindowStmt):
+            if s.special_window:
+                self._memwins.add(s.special_windows)
         else:
             super().do_s(s)
 
@@ -259,12 +262,11 @@ class LoopIR_FindConfigs(LoopIR_Do):
         pass
 
 
-def find_all_mems(proc_list):
-    mems = set()
+def find_all_memwins(proc_list):
+    memwins = set()
     for p in proc_list:
-        mems.update(LoopIR_FindMems(p).result())
-
-    return [m for m in mems]
+        memwins.update(LoopIR_FindMemWins(p).result())
+    return memwins
 
 
 def find_all_externs(proc_list):
@@ -412,9 +414,11 @@ def compile_to_strings(lib_name, proc_list):
 
     # Memories and structs are just blobs of code...
     # still sort them for output stability
-    header_mems, header_mem_code, body_mem_code = _compile_memories(proc_list)
-    header_struct_defns = window_struct_cache.sorted_definitions(header_mems, True)
-    body_struct_defns = window_struct_cache.sorted_definitions(header_mems, False)
+    header_memwins, header_memwin_code, body_memwin_code = _compile_memwins(proc_list)
+    (
+        header_struct_defns,
+        body_struct_defns,
+    ) = window_struct_cache.sorted_header_body_definitions(header_memwins)
 
     header_contents = f"""
 #include <stdint.h>
@@ -439,7 +443,7 @@ def compile_to_strings(lib_name, proc_list):
 #endif
 
 {from_lines(ctxt_def)}
-{from_lines(header_mem_code)}
+{from_lines(header_memwin_code)}
 {from_lines(header_struct_defns)}
 {from_lines(public_fwd_decls)}
 """
@@ -450,7 +454,7 @@ def compile_to_strings(lib_name, proc_list):
     body_contents = [
         helper_code,
         instrs_global,
-        body_mem_code,
+        body_memwin_code,
         body_struct_defns,
         extern_code,
         private_fwd_decls,
@@ -471,23 +475,25 @@ def _compile_externs(externs):
     return extern_code
 
 
-def _compile_memories(proc_list):
-    """Return (header memory set, header memory code, C body memory code)"""
-    all_mems = find_all_mems(proc_list)
+def _compile_memwins(proc_list):
+    """Return (header memwin set, header memwin code, C body memwin code)"""
+    all_memwins = find_all_memwins(proc_list)
 
     # Memories used as part of proc args must be defined in public header
-    header_mems = set()
+    header_memwins = set()
     for p in proc_list:
         if p.instr is None:
             for arg in p.args:
-                header_mems.add(arg.mem or DRAM)
+                memwin = arg.mem or DRAM
+                assert memwin in all_memwins
+                header_memwins.add(arg.mem or DRAM)
 
-    header_memory_code = []
-    body_memory_code = []
-    for m in sorted(all_mems, key=lambda x: x.name()):
-        memory_code = header_memory_code if m in header_mems else body_memory_code
-        memory_code.append(m.global_())
-    return header_mems, header_memory_code, body_memory_code
+    header_memwin_code = []
+    body_memwin_code = []
+    for m in sorted(all_memwins, key=lambda x: x.name()):
+        code_list = header_memwin_code if m in header_memwins else body_memwin_code
+        code_list.append(m.global_())
+    return header_memwins, header_memwin_code, body_memwin_code
 
 
 def _compile_context_struct(configs, lib_name):
@@ -1333,58 +1339,89 @@ class Compiler:
 
 
 class WindowStructCache(object):
-    __slots__ = ["_dict"]
+    __slots__ = ["_key_to_name", "_name_to_struct"]
 
     def __init__(self):
-        self._dict = {}
+        self._key_to_name = {}
+        self._name_to_struct = {}
 
-    def _add_to_cache(
-        self, mem_win, base_type, n_dims, is_const, srcinfo, emit_definition
-    ):
+    def _add_to_cache(self, key_tuple, srcinfo) -> WindowStruct:
+        memwin, base_type, n_dims, is_const = key_tuple
         type_shorthand = T_shorthand[base_type]
         ctx = WindowStructCtx(
             base_type.ctype(), type_shorthand, n_dims, is_const, srcinfo
         )
 
-        c_dataptr, c_window = mem_win.window_definition(ctx)
-        separate_dataptr = mem_win.separate_dataptr()
+        c_dataptr, c_window = memwin.window_definition(ctx)
+        separate_dataptr = memwin.separate_dataptr()
         assert isinstance(c_dataptr, str)
         assert isinstance(c_window, str)
         assert isinstance(separate_dataptr, bool)
 
         assert ctx._struct_name is not None, "MemWin didn't name the struct"
-        key = (mem_win, base_type, n_dims, is_const)
+        sname = ctx._struct_name
+
+        self._key_to_name[key_tuple] = sname
+
         sdef = f"""#ifndef {ctx._guard_macro}
 #define {ctx._guard_macro}
 {c_window}
 #endif"""
-        v = WindowStruct(
-            ctx._struct_name,
-            sdef,
-            c_dataptr,
-            separate_dataptr,
-            is_const,
-            emit_definition,
-        )
-        assert key not in self._dict
-        self._dict[key] = v
+
+        v = self._name_to_struct.get(sname)
+
+        if v is None:
+            v = WindowStruct(
+                ctx._struct_name,
+                sdef,
+                c_dataptr,
+                separate_dataptr,
+                is_const,
+                False,  # emit_definition flag; modified outside this function
+            )
+            self._name_to_struct[sname] = v
+        elif v.definition != sdef:
+            # Since windows are keyed based on MemWin type, and derived MemWin
+            # types inherit an identical window struct if not overriden,
+            # it's valid to have a struct name collision here.
+            # But we validate that the collision is due to a duplicate
+            # identical struct, and not a true name incompatibility.
+            for key_tuple2, sname2 in self._key_to_name.values():
+                if sname2 == sname:
+                    memwin2, base_type2, n_dims2, is_const2 = key_tuple2
+                    type_shorthand2 = T_shorthand[base_type2]
+                    raise ValueError(
+                        f"""Window name collision for {sname}:
+{memwin.name()}, {type_shorthand}, n_dims={n_dims}, is_const={is_const};
+{memwin2.name()}, {type_shorthand2}, n_dims={n_dims2}, is_const={is_const2}"""
+                    )
+
         return v
 
-    def get(self, mem_win, base_type, n_dims, is_const, srcinfo, emit_definition):
-        key = (mem_win, base_type, n_dims, is_const)
-        v = self._dict.get(key)
-        if v is not None:
-            v.emit_definition |= emit_definition
-            return v
-        return self._add_to_cache(
-            mem_win, base_type, n_dims, is_const, srcinfo, emit_definition
-        )
+    def get(
+        self, memwin, base_type, n_dims, is_const, srcinfo, emit_definition
+    ) -> WindowStruct:
+        key_tuple = (memwin, base_type, n_dims, is_const)
+        sname = self._key_to_name.get(key_tuple)
+        if sname is None:
+            v = self._add_to_cache(key_tuple, srcinfo)
+        else:
+            v = self._name_to_struct[sname]
+        v.emit_definition |= emit_definition
+        return v
 
-    def sorted_definitions(self, header_mems, gen_header):
-        defs = [
-            v.definition
-            for k, v in self._dict.items()
-            if (k[0] in header_mems) == gen_header and v.emit_definition
-        ]
-        defs.sort()
-        return defs
+    def sorted_header_body_definitions(self, header_memwins):
+        header_snames = set()
+        for key_tuple, sname in self._key_to_name.items():
+            memwin, _, _, _ = key_tuple
+            if memwin in header_memwins:
+                header_snames.add(sname)
+
+        sorted_pairs = sorted(self._name_to_struct.items())
+        h_definitions = []
+        c_definitions = []
+        for sname, struct in sorted_pairs:
+            if struct.emit_definition:
+                lst = h_definitions if sname in header_snames else c_definitions
+                lst.append(struct.definition)
+        return h_definitions, c_definitions

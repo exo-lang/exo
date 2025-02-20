@@ -110,8 +110,8 @@ class WindowStructCtx(object):
         self._struct_name = None
         self._guard_macro = None
 
-    def generate_default(self, mem_win_name, data_ctype=None):
-        sname = self.struct_name(mem_win_name)
+    def generate_default(self, memwin_name, data_ctype=None):
+        sname = self.struct_name(memwin_name)
         if data_ctype is None:
             data_ctype = self._ctype
         # Spacing difference gives byte-for-byte compatibility with Exo 1.
@@ -126,12 +126,12 @@ class WindowStructCtx(object):
         )
         return dataptr_ctype, sdef
 
-    def struct_name(self, mem_win_name: str) -> str:
-        assert isinstance(mem_win_name, str), "use str (avoid silent mistakes)"
-        assert mem_win_name
+    def struct_name(self, memwin_name: str) -> str:
+        assert isinstance(memwin_name, str), "use str (avoid silent mistakes)"
+        assert memwin_name
         const_suffix = "c" if self._is_const else ""
         base_sname = f"exo_win_{self._n_dims}{self._type_shorthand}{const_suffix}"
-        mem_suffix = "" if mem_win_name == "DRAM" else "_" + mem_win_name
+        mem_suffix = "" if memwin_name == "DRAM" else "_" + memwin_name
         sname = base_sname + mem_suffix
 
         assert self._struct_name is None or self.struct_name == sname
