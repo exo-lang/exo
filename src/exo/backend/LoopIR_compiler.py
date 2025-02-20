@@ -211,7 +211,7 @@ class LoopIR_FindMemWins(LoopIR_Do):
                 self._memwins.add(s.mem)
         elif isinstance(s, LoopIR.WindowStmt):
             if s.special_window:
-                self._memwins.add(s.special_windows)
+                self._memwins.add(s.special_window)
         else:
             super().do_s(s)
 
