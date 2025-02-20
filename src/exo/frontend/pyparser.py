@@ -920,7 +920,15 @@ class Parser:
         else:
             typ = self.parse_num_type(typ_node, is_arg=True)
 
-            mem = self.eval_expr(mem_node) if mem_node else None
+            if mem_node:
+                mem = self.eval_expr(mem_node)
+                if not isinstance(mem, type) or not issubclass(mem, MemWin):
+                    self.err(
+                        node,
+                        "annotation needs to be subclass of Memory or SpecialWindow",
+                    )
+            else:
+                mem = None
 
             return typ, mem
 

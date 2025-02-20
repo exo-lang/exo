@@ -353,6 +353,7 @@ class SpecialWindow(MemWin):
     @classmethod
     @abstractmethod
     def memory_type(cls) -> type:
+        """Return memory type expected as input to window statement"""
         raise NotImplementedError()
 
     @classmethod
@@ -369,6 +370,8 @@ class SpecialWindow(MemWin):
         to initialize a struct of the window type.
         """
         raise NotImplementedError()
+
+    # Remember to implement everything in base class MemWin as well
 
 
 # ----------- DRAM on LINUX ----------------

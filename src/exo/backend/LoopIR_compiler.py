@@ -5,6 +5,7 @@ from collections import ChainMap
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
+from typing import List
 
 from ..core.LoopIR import LoopIR, LoopIR_Do, get_writes_of_stmts, T, CIR
 from ..core.configs import ConfigError
@@ -29,6 +30,16 @@ from ..rewrite.range_analysis import IndexRangeEnvironment
 def sanitize_str(s):
     return re.sub(r"\W", "_", s)
 
+
+T_shorthand = {
+    T.f16: "f16",
+    T.f32: "f32",
+    T.f64: "f64",
+    T.i8: "i8",
+    T.ui8: "ui8",
+    T.ui16: "ui16",
+    T.i32: "i32",
+}
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -699,6 +710,7 @@ class Compiler:
         self.env[symbol] = strnm
         self.envtyp[symbol] = typ
         if mem is not None:
+            assert issubclass(mem, MemWin)
             self.mems[symbol] = mem
         else:
             self.mems[symbol] = DRAM
@@ -806,6 +818,10 @@ class Compiler:
         else:
             return self.tensor_strides(typ.shape())
 
+    def get_strides_s(self, name: Sym, typ) -> List[str]:
+        all_strides = self.get_strides(name, typ)
+        return [self.comp_cir(simplify_cir(i), self.env, prec=0) for i in all_strides]
+
     def get_idx_offset(self, name: Sym, typ, idx) -> CIR:
         strides = self.get_strides(name, typ)
         assert len(strides) == len(idx)
@@ -885,19 +901,52 @@ class Compiler:
             self.add_line(f"ctxt->{nm}.{s.field} = {rhs};")
 
         elif isinstance(s, LoopIR.WindowStmt):
-            rhs = s.rhs
-            assert isinstance(rhs, LoopIR.WindowExpr)
-            mem = self.mems[rhs.name]
-            win_struct = self.get_window_struct(s.rhs, mem)  # TODO SpecialWindow
-            assert isinstance(s.rhs, LoopIR.WindowExpr)
-            w_type, w_def, d_type, d_def, separate_dataptr = self.unpack_window_expr(
-                rhs, mem, win_struct.is_const
-            )
-            name = self.new_varname(s.name, typ=rhs.type, mem=mem)
+            # Can create two things
+            #  * special window from a dense tensor [changes MemWin type]
+            #  * window from another tensor/window with the same MemWin type
+            # Bottom is the common case (special window is not in Exo 1)
+            #
+            # We have to generate both, with a temporary window, when the code
+            # changes the MemWin and we have to modify the strides/layout.
 
-            if separate_dataptr:
-                self.add_line(f"{win_struct.dataptr} exo_data_{name} = {d_def};")
-            self.add_line(f"struct {win_struct.name} {name} = {w_def};")
+            if s.special_window is None:
+                # Common case
+                special_window_stmt = None
+                normal_window_stmt = s
+            else:
+                rhs = s.rhs
+                tensortyp = self.envtyp[rhs.name]
+                assert tensortyp.is_tensor_or_window()
+                assert (
+                    not tensortyp.is_win()
+                ), f"{s.srcinfo}: typecheck should have blocked SpecialWindow from non-dense tensor"
+                special_window_stmt = s
+                normal_window_stmt = None
+
+                assert isinstance(rhs, LoopIR.WindowExpr)
+
+                if not all(self.no_offset_interval(i) for i in rhs.idx):
+                    # Create a temporary SpecialWindow, then further modify that
+                    tmp_sym = Sym(s.name.name() + "_SpecialWindow")
+                    idx0 = [
+                        LoopIR.Interval(
+                            LoopIR.Const(0, LoopIR.Index(), s.srcinfo),
+                            shape_coord,
+                            s.srcinfo,
+                        )
+                        for shape_coord in tensortyp.shape()
+                    ]
+                    special_window_rhs = s.rhs.update(idx=idx0)
+                    special_window_stmt = s.update(rhs=special_window_rhs, name=tmp_sym)
+                    normal_window_rhs = s.rhs.update(name=tmp_sym)
+                    normal_window_stmt = s.update(
+                        rhs=normal_window_rhs, special_window=None
+                    )
+
+            if special_window_stmt is not None:
+                self.comp_special_window_from_dense_tensor(special_window_stmt)
+            if normal_window_stmt is not None:
+                self.comp_normal_window_stmt(normal_window_stmt)
 
         elif isinstance(s, LoopIR.If):
             cond = self.comp_e(s.cond)
@@ -1045,6 +1094,81 @@ class Compiler:
         else:
             return (self.comp_e(e, prec),), None
 
+    def comp_normal_window_stmt(self, s: LoopIR.WindowStmt):
+        """Compile declaring and generating a window struct from a dense
+        tensor or another window, where the memwin type is unchanged."""
+        assert isinstance(s, LoopIR.WindowStmt)
+        rhs = s.rhs
+        assert isinstance(rhs, LoopIR.WindowExpr)
+        mem = self.mems[rhs.name]
+        assert s.special_window is None
+        win_struct = self.get_window_struct(rhs, mem)
+        w_type, w_def, d_type, d_def, separate_dataptr = self.unpack_window_expr(
+            rhs, mem, win_struct.is_const
+        )
+        name = self.new_varname(s.name, typ=rhs.type, mem=mem)
+
+        if separate_dataptr:
+            self.add_line(f"{win_struct.dataptr} exo_data_{name} = {d_def};")
+        self.add_line(f"struct {win_struct.name} {name} = {w_def};")
+
+    def comp_special_window_from_dense_tensor(self, s: LoopIR.WindowStmt):
+        """Compile generating a special window to an entire dense tensor.
+
+        Thus WindowExpr idx must have only Intervals that start with 0."""
+        assert isinstance(s, LoopIR.WindowStmt)
+        rhs = s.rhs
+        assert isinstance(rhs, LoopIR.WindowExpr)
+        assert all(self.no_offset_interval(i) for i in rhs.idx)
+
+        input_mem = self.mems[rhs.name]
+        special_window = s.special_window
+        assert issubclass(special_window, SpecialWindow)
+        win_struct = self.get_window_struct(rhs, special_window)
+        name = self.new_varname(s.name, typ=rhs.type, mem=special_window)
+        input_typ = self.envtyp[rhs.name]
+        basetyp = input_typ.basetype()
+        ctype = basetyp.ctype()
+        type_shorthand = T_shorthand[basetyp]
+
+        shape_impl = lambda: self.shape_strs(input_typ.shape())
+        stride_impl = lambda: self.get_strides_s(rhs.name, input_typ)
+
+        ctx = WindowFromDenseCtx(
+            input_typ,
+            self.env[rhs.name],
+            shape_impl,
+            stride_impl,
+            win_struct.is_const,
+            ctype,
+            type_shorthand,
+            rhs.srcinfo,
+        )
+        info = special_window.window_from_dense(ctx)
+        is_separate = not isinstance(info, str)
+        if is_separate:
+            assert len(info) == 2
+            d_def, w_def = info
+            assert isinstance(d_def, str) and isinstance(w_def, str)
+            self.add_line(f"{win_struct.dataptr} exo_data_{name} = {d_def};")
+            self.add_line(f"struct {win_struct.name} {name} = {w_def};")
+        else:
+            is_separate = False
+            d_def, w_def = None, info
+            self.add_line(f"struct {win_struct.name} {name} = {w_def};")
+
+        assert (
+            is_separate == special_window.separate_dataptr()
+        ), "SpecialWindow.window_from_dense doesn't match SpecialWindow.separate_dataptr"
+
+    def no_offset_interval(self, w_access):
+        if isinstance(w_access, LoopIR.Interval):
+            lo = w_access.lo
+            return isinstance(lo, LoopIR.Const) and lo.val == 0
+        else:
+            assert isinstance(w_access, LoopIR.Point)
+            return False
+
     def comp_e(self, e, prec=0):
         if isinstance(e, LoopIR.Read):
             rtyp = self.envtyp[e.name]
@@ -1161,13 +1285,14 @@ class Compiler:
         idxs = [self.comp_cir(simplify_cir(i), self.env, prec=0) for i in cirs]
 
         # compute new window strides
-        all_strides = self.get_strides(e.name, basetyp)
-        all_strides_s = [
-            self.comp_cir(simplify_cir(i), self.env, prec=0) for i in all_strides
-        ]
+        all_strides_s = self.get_strides_s(e.name, basetyp)
         assert 0 < len(all_strides_s) == len(e.idx)
+        if separate_dataptr:
+            window_in_expr = "exo_data_" + base, base
+        else:
+            window_in_expr = base
         callback_result = src_memwin.window(
-            basetyp, base, idxs, all_strides_s, e.srcinfo
+            basetyp, window_in_expr, idxs, all_strides_s, e.srcinfo
         )
         if isinstance(callback_result, str):
             # Base case, no custom layout
@@ -1210,23 +1335,13 @@ class Compiler:
 class WindowStructCache(object):
     __slots__ = ["_dict"]
 
-    _window_struct_shorthand = {
-        T.f16: "f16",
-        T.f32: "f32",
-        T.f64: "f64",
-        T.i8: "i8",
-        T.ui8: "ui8",
-        T.ui16: "ui16",
-        T.i32: "i32",
-    }
-
     def __init__(self):
         self._dict = {}
 
     def _add_to_cache(
         self, mem_win, base_type, n_dims, is_const, srcinfo, emit_definition
     ):
-        type_shorthand = self._window_struct_shorthand[base_type]
+        type_shorthand = T_shorthand[base_type]
         ctx = WindowStructCtx(
             base_type.ctype(), type_shorthand, n_dims, is_const, srcinfo
         )

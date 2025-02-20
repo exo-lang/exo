@@ -6,7 +6,7 @@ from asdl_adt import ADT, validators
 
 from .extern import Extern
 from .configs import Config
-from .memory import Memory, SpecialWindow
+from .memory import MemWin, Memory, SpecialWindow
 from .prelude import Sym, SrcInfo, extclass
 
 
@@ -70,7 +70,7 @@ module LoopIR {
 
     fnarg  = ( sym     name,
                type    type,
-               mem?    mem,
+               memwin? mem,
                srcinfo srcinfo )
 
     stmt = Assign( sym name, type type, expr* idx, expr rhs )
@@ -129,6 +129,7 @@ module LoopIR {
     ext_types={
         "name": validators.instance_of(Identifier, convert=True),
         "sym": Sym,
+        "memwin": Type[MemWin],
         "mem": Type[Memory],
         "special_window": Type[SpecialWindow],
         "extern": Extern,
