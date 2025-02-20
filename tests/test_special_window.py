@@ -121,6 +121,10 @@ def test_tensor_map():
         tensor_map_C = tensor[14:, :] @ TestTensorMap(128, 196, 128)
         tensor_map_D = tensor_map_C[10:, 200:]
 
+    c = test_proc.find("tensor_map_C = _")
+    assert c.special_window() is TestTensorMap(128, 196, 128)
+    assert c.special_window() is not TestTensorMap(0, 128, 128)
+
     cc, hh = compile_procs_to_strings([test_proc], "test.h")
     print(cc, hh)
     print(test_proc)

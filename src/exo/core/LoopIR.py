@@ -131,7 +131,7 @@ module LoopIR {
 
     -- Dense tensor: Tensor(is_window = False)
     -- Window parameter (of proc): Tensor(is_window = True)
-    -- Derived window (from WindowExpr): WindowType
+    -- Derived window (from WindowExpr): WindowType / T.Window
 
     -- First two are both "tensors" although imprecisely sometimes "tensor"
     -- refers only to "dense tensor" -- we should be more clear about that.

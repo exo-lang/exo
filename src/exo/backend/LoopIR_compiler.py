@@ -880,7 +880,7 @@ class Compiler:
 
                 rhs = f"({lbtyp.ctype()})({rhs})"
 
-            mem: Memory = self.mems[s.name]
+            mem: MemWin = self.mems[s.name]
             if isinstance(s, LoopIR.Assign):
                 self.add_line(mem.write(s, lhs, rhs))
             else:
@@ -1188,7 +1188,7 @@ class Compiler:
             if rtyp.is_indexable() or rtyp is T.bool or rtyp == T.stride:
                 return self.env[e.name]
 
-            mem: Memory = self.mems[e.name]
+            mem: MemWin = self.mems[e.name]
 
             if not mem.can_read():
                 raise MemGenError(
