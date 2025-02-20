@@ -57,6 +57,10 @@ from typing import Optional
 """
 
 
+_memwin_template_names = {}
+_memwin_template_cache = {}
+
+
 class MemGenError(Exception):
     pass
 
@@ -126,9 +130,18 @@ class WindowStructCtx(object):
         )
         return dataptr_ctype, sdef
 
-    def struct_name(self, memwin_name: str) -> str:
+    def struct_name(self, memwin_name: str, mangle_parameters=None) -> str:
         assert isinstance(memwin_name, str), "use str (avoid silent mistakes)"
         assert memwin_name
+
+        if mangle_parameters:
+            for p in mangle_parameters:
+                assert isinstance(p, int), "Only support mangled names for ints"
+                if p >= 0:
+                    memwin_name += f"_{p}"
+                else:
+                    memwin_name += f"_n{-p}"
+
         const_suffix = "c" if self._is_const else ""
         base_sname = f"exo_win_{self._n_dims}{self._type_shorthand}{const_suffix}"
         mem_suffix = "" if memwin_name == "DRAM" else "_" + memwin_name
@@ -164,7 +177,7 @@ class MemWin(ABC):
 
     @classmethod
     def name(cls):
-        return cls.__name__
+        return _memwin_template_names.get(cls) or cls.__name__
 
     @classmethod
     def global_(cls):
@@ -372,6 +385,43 @@ class SpecialWindow(MemWin):
         raise NotImplementedError()
 
     # Remember to implement everything in base class MemWin as well
+
+
+# ----------- TEMPLATE SYSTEM -------------
+
+
+def memwin_template(class_factory):
+    """Wrapper for creating MemWin types parameterized on a tuple of args.
+
+    The name of the generated class will look like a function call
+    e.g. MyMemoryName(64, 128) [akin to MyMemoryName<64, 128> in C++].
+    Cached: identically parameterized MemWins will be identical Python types.
+
+    The parameter tuple is injected to the class as memwin_template_parameters
+
+    Usage:
+
+    @memwin_template
+    def MyMemoryName(*parameters):
+        class MemoryImpl(Memory):  # class name is ignored
+            ...implement memory normally
+        return MemoryImpl
+    """
+
+    def class_factory_wrapper(*parameters, **kwargs):
+        assert not kwargs, "No support for keyword template parameters"
+        cache_key = (id(class_factory), parameters)
+        cls = _memwin_template_cache.get(cache_key)
+        if not cls:
+            cls = class_factory(*parameters)
+            cls_name = f"{class_factory.__name__}{parameters}"
+            _memwin_template_cache[cache_key] = cls
+            _memwin_template_names[cls] = cls_name
+            assert not hasattr(cls, "memwin_template_parameters")
+            cls.memwin_template_parameters = parameters
+        return cls
+
+    return class_factory_wrapper
 
 
 # ----------- DRAM on LINUX ----------------
