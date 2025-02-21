@@ -5,6 +5,7 @@ from ..core.LoopIR import (
     LoopIR_Dependencies,
     get_writeconfigs,
     get_loop_iters,
+    create_window_type,
 )
 from ..core.extern import Extern_Typecheck_Error
 from ..core.memory import *
@@ -208,7 +209,7 @@ class TypeChecker:
 
     def check_single_stmt(self, stmt):
         if isinstance(stmt, UAST.FreshAssign):
-            rhs = self.check_e(stmt.rhs)
+            rhs = self.check_e(stmt.rhs, allow_special_window=True)
 
             # We see a statement of the form
             #   nm = ...
@@ -222,7 +223,11 @@ class TypeChecker:
             elif isinstance(rhs.type, T.Window):
                 assert isinstance(rhs, LoopIR.WindowExpr)
                 self.env[stmt.name] = rhs.type
-                return [LoopIR.WindowStmt(stmt.name, rhs, stmt.srcinfo)]
+                return [
+                    LoopIR.WindowStmt(
+                        stmt.name, rhs, stmt.rhs.special_window, stmt.srcinfo
+                    )
+                ]
             else:
                 self.err(
                     stmt,
@@ -376,16 +381,7 @@ class TypeChecker:
 
             return LoopIR.Interval(lo, hi, e.srcinfo)
 
-    def build_window_shape(self, ws):
-        def subtract(hi, lo):
-            if isinstance(lo, LoopIR.Const) and lo.val == 0:
-                return hi
-            else:
-                return LoopIR.BinOp("-", hi, lo, T.index, hi.srcinfo)
-
-        return [subtract(w.hi, w.lo) for w in ws if isinstance(w, LoopIR.Interval)]
-
-    def check_e(self, e, is_index=False):
+    def check_e(self, e, is_index=False, allow_special_window=False):
         if isinstance(e, UAST.Read):
             typ = self.env[e.name]
             # if we only partially accessed the base tensor/window,
@@ -399,7 +395,7 @@ class TypeChecker:
                     for _ in range(0, len(typ.shape()) - len(e.idx))
                 ]
 
-                desugared = UAST.WindowExpr(e.name, idxs, e.srcinfo)
+                desugared = UAST.WindowExpr(e.name, idxs, None, e.srcinfo)
                 return self.check_e(desugared)
 
             # otherwise, we have a normal access
@@ -408,8 +404,8 @@ class TypeChecker:
                 return LoopIR.Read(e.name, idx, typ, e.srcinfo)
 
         elif isinstance(e, UAST.WindowExpr):
-            typ = self.env[e.name]
-            if not typ.is_tensor_or_window():
+            in_typ = self.env[e.name]
+            if not in_typ.is_tensor_or_window():
                 self.err(
                     e,
                     f"cannot perform windowing on non-tensor, "
@@ -417,21 +413,34 @@ class TypeChecker:
                 )
                 return LoopIR.WindowExpr(e.name, [], T.err, e.srcinfo)
 
-            shape = typ.shape()
-            if len(shape) != len(e.idx):
+            if e.special_window is not None:
+                # UAST has the optional special window as part of WindowExpr as
+                # that's how it parses, but LoopIR has the special window as
+                # part of WindowStmt since that matches the usage pattern
+                # (can't construct special windows just anywhere)
+                if not allow_special_window:
+                    self.err(
+                        e,
+                        f"Can only create SpecialWindow as part of "
+                        f"WindowStmt (W = t[idx...] @ SpecialWindow)",
+                    )
+                elif not in_typ.is_dense_tensor():
+                    self.err(
+                        e,
+                        "Can only create SpecialWindow from a dense "
+                        "tensor, not another window",
+                    )
+
+            in_shape = in_typ.shape()
+            if len(in_shape) != len(e.idx):
                 self.err(
                     e,
-                    f"expected {len(shape)} indices for window "
+                    f"expected {len(in_shape)} indices for window "
                     f"but got {len(e.idx)}",
                 )
 
-            idx = [self.check_w_access(w, t) for w, t in zip(e.idx, shape)]
-
-            # TODO: Construct as_tensor...
-            window_shape = self.build_window_shape(idx)
-            as_tensor = T.Tensor(window_shape, True, typ.type)
-
-            w_typ = T.Window(typ, as_tensor, e.name, idx)
+            idx = [self.check_w_access(w, t) for w, t in zip(e.idx, in_shape)]
+            w_typ = create_window_type(e.name, in_typ, idx)
             return LoopIR.WindowExpr(e.name, idx, w_typ, e.srcinfo)
 
         elif isinstance(e, UAST.Const):

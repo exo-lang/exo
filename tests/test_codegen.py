@@ -685,7 +685,6 @@ def test_memcpy_instr(compiler, golden):
     optimized_bar = replace(bar, bar.body()[0], memcpy)
 
     bar_c, bar_h = compile_procs_to_strings([optimized_bar], "bar.h")
-
     assert f"{bar_c}\n{bar_h}" == golden
 
     fn = compiler.compile(optimized_bar)
@@ -700,3 +699,30 @@ def test_memcpy_instr(compiler, golden):
 
     np.testing.assert_almost_equal(dst, expected)
     np.testing.assert_almost_equal(src, expected)
+
+
+def test_window_of_window_codegen(compiler):
+    @proc
+    def bar(n: size, dst: f32[n, n, n]):
+        assert n >= 8
+        w1 = dst[2:, 3, 1:]
+        w2 = w1[0:, 4]  # dst[2:, 3, 5]
+        for n in seq(0, 4):
+            # Set dst[2:6, 3, 5] to 42
+            w2[n] = 42.0
+        w3 = w1[1, 4:]  # dst[3, 3, 5:]
+        for n in seq(0, 2):
+            # Set dst[3, 3, 5:7] to 137
+            w3[n] = 137.0
+
+    fn = compiler.compile(bar)
+
+    for n_size in (8, 10):
+        dst = np.zeros(shape=(n_size, n_size, n_size), dtype=np.float32)
+        fn(None, n_size, dst)
+        expected = np.zeros(shape=(n_size, n_size, n_size), dtype=np.float32)
+        for n in range(0, 4):
+            expected[2 + n, 3, 5] = 42.0
+        for n in range(0, 2):
+            expected[3, 3, 5 + n] = 137.0
+        np.testing.assert_almost_equal(dst, expected)
