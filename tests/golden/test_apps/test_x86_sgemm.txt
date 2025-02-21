@@ -84,13 +84,6 @@ void sgemm_exo( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, cons
 #include <stdio.h>
 #include <stdlib.h>
 
-#ifndef EXO_WIN_1F32C_AVX512
-#define EXO_WIN_1F32C_AVX512
-struct exo_win_1f32c_AVX512{
-    const __m512 * const data;
-    const int_fast32_t strides[1];
-};
-#endif
 #ifndef EXO_WIN_1F32_AVX512
 #define EXO_WIN_1F32_AVX512
 struct exo_win_1f32_AVX512{
@@ -98,11 +91,11 @@ struct exo_win_1f32_AVX512{
     const int_fast32_t strides[1];
 };
 #endif
-#ifndef EXO_WIN_2F32C
-#define EXO_WIN_2F32C
-struct exo_win_2f32c{
-    const float * const data;
-    const int_fast32_t strides[2];
+#ifndef EXO_WIN_1F32C_AVX512
+#define EXO_WIN_1F32C_AVX512
+struct exo_win_1f32c_AVX512{
+    const __m512 * const data;
+    const int_fast32_t strides[1];
 };
 #endif
 // basic_kernel_1x4(
