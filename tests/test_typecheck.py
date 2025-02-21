@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from exo import proc, config
+from exo.core.LoopIR import LoopIR
 from exo.libs.memories import GEMM_SCRATCH
 from exo.frontend.pyparser import ParseError
 from exo.libs.externs import *
@@ -522,3 +523,79 @@ def test_numeric_type_mismatch():
         @proc
         def foo(n: size):
             bar(n)
+
+
+def test_window_of_window():
+    # fmt: off
+    @proc
+    def foo(i: index, dense_tensor: f32[64, 64], window_parameter: [f32][32, 128]):
+        assert(i < 16)
+        dt_window_1a = dense_tensor[i:, 16:]
+        dt_window_2a = dt_window_1a[4, 0:]      # dense_tensor[i+4, 16:]
+        dt_window_1b = dense_tensor[i, 10:]
+        dt_window_2b = dt_window_1b[2*i:]       # dense_tensor[i, 10+2*i:]
+        wp_window_1a = window_parameter[i:, 3:]
+        wp_window_2a = wp_window_1a[0:16, i]    # window_parameter[i:i+16,3+i]
+        wp_window_3a = wp_window_2a[1:]         # window_parameter[i+1:i+16,3+i]
+    # fmt: on
+
+    str_to_type = {}
+    str_to_sym = {}
+
+    loopir = foo._loopir_proc
+    for fnarg in loopir.args:
+        str_to_sym[str(fnarg.name)] = fnarg.name
+        str_to_type[str(fnarg.name)] = fnarg.type
+    for stmt in loopir.body:
+        if isinstance(stmt, LoopIR.WindowStmt):
+            str_to_type[str(stmt.name)] = stmt.rhs.type
+            str_to_sym[str(stmt.name)] = stmt.name
+
+    i_sym = str_to_sym["i"]
+    dt_sym = str_to_sym["dense_tensor"]
+    wp_sym = str_to_sym["window_parameter"]
+
+    # Check window shapes correct
+    as_tensor_str = lambda nm: str(str_to_type[nm].as_tensor)
+    assert as_tensor_str("dt_window_1a") == "[f32][64 - i, 64 - 16]"
+    assert as_tensor_str("dt_window_2a") == "[f32][64 - 16]"
+    assert as_tensor_str("dt_window_1b") == "[f32][64 - 10]"
+    assert as_tensor_str("dt_window_2b") == "[f32][64 - 10 - 2 * i]"
+    assert as_tensor_str("wp_window_1a") == "[f32][32 - i, 128 - 3]"
+    assert as_tensor_str("wp_window_2a") == "[f32][16]"
+    assert as_tensor_str("wp_window_3a") == "[f32][16 - 1]"
+
+    # Check accurate tracking of source tensor type and source tensor alias (Sym)
+    src_type_str = lambda nm: str(str_to_type[nm].src_type)
+    for nm in ("dt_window_1a", "dt_window_2a", "dt_window_1b", "dt_window_2b"):
+        assert src_type_str(nm) == "f32[64, 64]"  # dense tensor[...]
+        assert str_to_type[nm].src_buf is dt_sym
+    for nm in ("wp_window_1a", "wp_window_2a", "wp_window_3a"):
+        assert src_type_str(nm) == "[f32][32, 128]"  # [window parameter][...]
+        assert str_to_type[nm].src_buf is wp_sym
+
+    # Check windowing expression relative to aliased source tensor is correct
+    def check_idx(nm, lo_or_pt0, optional_hi0, lo_or_pt1, optional_hi1):
+        # We capture the slicing expressions as strings, and evaluate with i=5
+        # so as not to test the simplification of indexing expressions.
+        idx0, idx1 = str_to_type[nm].idx
+        _eval = lambda thing: eval(str(thing), {"i": 5})
+        if optional_hi0 is None:
+            assert isinstance(idx0, LoopIR.Point)
+            assert _eval(idx0.pt) == _eval(lo_or_pt0)
+        else:
+            assert isinstance(idx0, LoopIR.Interval)
+            assert _eval(idx0.lo) == _eval(lo_or_pt0)
+            assert _eval(idx0.hi) == _eval(optional_hi0)
+        if optional_hi1 is None:
+            assert isinstance(idx1, LoopIR.Point)
+            assert _eval(idx1.pt) == _eval(lo_or_pt1)
+        else:
+            assert isinstance(idx1, LoopIR.Interval)
+            assert _eval(idx1.lo) == _eval(lo_or_pt1)
+            assert _eval(idx1.hi) == _eval(optional_hi1)
+
+    check_idx("dt_window_2a", "i+4", None, "16", "64")
+    check_idx("dt_window_2b", "i", None, "10 + 2*i", "64")
+    check_idx("wp_window_2a", "i", "i+16", "3+i", None)
+    check_idx("wp_window_3a", "i+1", "i+16", "3+i", None)

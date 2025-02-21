@@ -5,6 +5,7 @@ from ..core.LoopIR import (
     LoopIR_Dependencies,
     get_writeconfigs,
     get_loop_iters,
+    create_window_type,
 )
 from ..core.extern import Extern_Typecheck_Error
 from ..core.memory import *
@@ -376,15 +377,6 @@ class TypeChecker:
 
             return LoopIR.Interval(lo, hi, e.srcinfo)
 
-    def build_window_shape(self, ws):
-        def subtract(hi, lo):
-            if isinstance(lo, LoopIR.Const) and lo.val == 0:
-                return hi
-            else:
-                return LoopIR.BinOp("-", hi, lo, T.index, hi.srcinfo)
-
-        return [subtract(w.hi, w.lo) for w in ws if isinstance(w, LoopIR.Interval)]
-
     def check_e(self, e, is_index=False):
         if isinstance(e, UAST.Read):
             typ = self.env[e.name]
@@ -408,8 +400,8 @@ class TypeChecker:
                 return LoopIR.Read(e.name, idx, typ, e.srcinfo)
 
         elif isinstance(e, UAST.WindowExpr):
-            typ = self.env[e.name]
-            if not typ.is_tensor_or_window():
+            in_typ = self.env[e.name]
+            if not in_typ.is_tensor_or_window():
                 self.err(
                     e,
                     f"cannot perform windowing on non-tensor, "
@@ -417,21 +409,16 @@ class TypeChecker:
                 )
                 return LoopIR.WindowExpr(e.name, [], T.err, e.srcinfo)
 
-            shape = typ.shape()
-            if len(shape) != len(e.idx):
+            in_shape = in_typ.shape()
+            if len(in_shape) != len(e.idx):
                 self.err(
                     e,
-                    f"expected {len(shape)} indices for window "
+                    f"expected {len(in_shape)} indices for window "
                     f"but got {len(e.idx)}",
                 )
 
-            idx = [self.check_w_access(w, t) for w, t in zip(e.idx, shape)]
-
-            # TODO: Construct as_tensor...
-            window_shape = self.build_window_shape(idx)
-            as_tensor = T.Tensor(window_shape, True, typ.type)
-
-            w_typ = T.Window(typ, as_tensor, e.name, idx)
+            idx = [self.check_w_access(w, t) for w, t in zip(e.idx, in_shape)]
+            w_typ = create_window_type(e.name, in_typ, idx)
             return LoopIR.WindowExpr(e.name, idx, w_typ, e.srcinfo)
 
         elif isinstance(e, UAST.Const):
