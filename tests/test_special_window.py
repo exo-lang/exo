@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from exo import (
@@ -33,11 +34,13 @@ def TestTensorMap(swizzle, *box):
         @classmethod
         def global_(cls):
             return f"""\
+#ifndef EXO_MAKE_TENSOR_MAP_SW{swizzle}_{smem_outer}_{smem_inner}
+#define EXO_MAKE_TENSOR_MAP_SW{swizzle}_{smem_outer}_{smem_inner}
 #include <cuda.h>
-#include <cassert>
+#include <assert.h>
 #include <stdlib.h>
-inline CUtensorMap exo_make_tensor_map_SW{swizzle}_{smem_outer}_{smem_inner}(
-        const void* ptr, unsigned gmem_inner, unsigned gmem_outer)
+static inline CUtensorMap exo_make_tensor_map_SW{swizzle}_{smem_outer}_{smem_inner}(
+        const void* globalAddress, unsigned gmem_inner, unsigned gmem_outer)
 {{
     CUtensorMap tensorMap;
     const CUtensorMapSwizzle swizzle = CU_TENSOR_MAP_SWIZZLE_NONE;
@@ -52,10 +55,10 @@ inline CUtensorMap exo_make_tensor_map_SW{swizzle}_{smem_outer}_{smem_inner}(
     const CUtensorMapFloatOOBfill oobFill = CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE;
 
     const CUresult result = cuTensorMapEncodeTiled(
-            tensorMap,
+            &tensorMap,
             tensorDataType,
             tensorRank,
-            const_cast<float*>(globalAddress),
+            (void*)globalAddress,
             globalDim,
             globalStrides,
             boxDim,
@@ -69,7 +72,8 @@ inline CUtensorMap exo_make_tensor_map_SW{swizzle}_{smem_outer}_{smem_inner}(
         assert(0);
     }}
     return tensorMap;
-}}"""
+}}
+#endif"""
 
         @classmethod
         def window_definition(cls, ctx: WindowStructCtx):
@@ -128,6 +132,10 @@ def test_tensor_map():
     cc, hh = compile_procs_to_strings([test_proc], "test.h")
 
     # This is just a placeholder test for now
+    if False:
+        HOME = os.environ["HOME"]
+        open(f"{HOME}/junk/test.h", "w").write(hh)
+        open(f"{HOME}/junk/test.c", "w").write(cc)
 
     # TestTensorMap(0, 128, 128) defs should have ended up in the header file
     assert "struct exo_win_2f32c_CUtensorMap_0_128_128 {" in hh
