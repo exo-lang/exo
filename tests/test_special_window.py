@@ -65,7 +65,7 @@ inline CUtensorMap exo_make_tensor_map_SW{swizzle}_{smem_outer}_{smem_inner}(
             l2Promotion,
             oobFill);
     if (result != 0) {{
-        fprintf(stderr, "cuTensorMapEncodeTiled: %i {{%u, %u}}\n", (int)result, {smem_inner}, {smem_outer});
+        fprintf(stderr, "cuTensorMapEncodeTiled: %i {{%u, %u}}\\n", (int)result, {smem_inner}, {smem_outer});
         assert(0);
     }}
     return tensorMap;
@@ -75,9 +75,9 @@ inline CUtensorMap exo_make_tensor_map_SW{swizzle}_{smem_outer}_{smem_inner}(
         def window_definition(cls, ctx: WindowStructCtx):
             sname = ctx.struct_name("CUtensorMap", cls.memwin_template_parameters)
             s_def = f"""\
-    struct {sname} {{
-        unsigned inner_offset, outer_offset;
-    }};"""
+struct {sname} {{
+    unsigned inner_offset, outer_offset;
+}};"""
             return "CUtensorMap", s_def
 
         @classmethod
@@ -126,5 +126,51 @@ def test_tensor_map():
     assert c.special_window() is not TestTensorMap(0, 128, 128)
 
     cc, hh = compile_procs_to_strings([test_proc], "test.h")
-    print(cc, hh)
-    print(test_proc)
+
+    # This is just a placeholder test for now
+
+    # TestTensorMap(0, 128, 128) defs should have ended up in the header file
+    assert "struct exo_win_2f32c_CUtensorMap_0_128_128 {" in hh
+    assert "inline CUtensorMap exo_make_tensor_map_SW0_128_128" in hh
+
+    # test_proc definition should have separate tensormap, layout inputs for input_tensor_map
+    assert (
+        "CUtensorMap exo_data_input_tensor_map, struct exo_win_2f32c_CUtensorMap_0_128_128 input_tensor_map"
+        in hh
+    )
+
+    # TestTensorMap(128, 196, 128) defs should have ended up in the C file
+    assert "struct exo_win_2f32c_CUtensorMap_128_196_128 {" in cc
+    assert "inline CUtensorMap exo_make_tensor_map_SW128_196_128" in cc
+
+    # Expected window code
+    assert (
+        "CUtensorMap exo_data_tensor_map_0 = exo_make_tensor_map_SW0_128_128((void*) tensor, 2048, 1024);"
+        in cc
+    )
+    assert "struct exo_win_2f32c_CUtensorMap_0_128_128 tensor_map_0 = {};" in cc
+    assert "CUtensorMap exo_data_tensor_map_1 = exo_data_tensor_map_0;" in cc
+    assert (
+        "struct exo_win_2f32c_CUtensorMap_0_128_128 tensor_map_1 = (struct exo_win_2f32c_CUtensorMap_0_128_128) { tensor_map_0.inner_offset + 0, tensor_map_0.outer_offset + 14 };"
+        in cc
+    )
+    assert (
+        "CUtensorMap exo_data_tensor_map_C_SpecialWindow = exo_make_tensor_map_SW128_196_128((void*) tensor, 2048, 1024);"
+        in cc
+    )
+    assert (
+        "struct exo_win_2f32c_CUtensorMap_128_196_128 tensor_map_C_SpecialWindow = {};"
+        in cc
+    )
+    assert (
+        "CUtensorMap exo_data_tensor_map_C = exo_data_tensor_map_C_SpecialWindow;" in cc
+    )
+    assert (
+        "struct exo_win_2f32c_CUtensorMap_128_196_128 tensor_map_C = (struct exo_win_2f32c_CUtensorMap_128_196_128) { tensor_map_C_SpecialWindow.inner_offset + 0, tensor_map_C_SpecialWindow.outer_offset + 14 };"
+        in cc
+    )
+    assert "CUtensorMap exo_data_tensor_map_D = exo_data_tensor_map_C;" in cc
+    assert (
+        "struct exo_win_2f32c_CUtensorMap_128_196_128 tensor_map_D = (struct exo_win_2f32c_CUtensorMap_128_196_128) { tensor_map_C.inner_offset + 200, tensor_map_C.outer_offset + 10 };"
+        in cc
+    )
