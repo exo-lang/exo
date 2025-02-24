@@ -1,6 +1,6 @@
 import re
 from collections import ChainMap, defaultdict
-from typing import Type
+from typing import List, Type
 
 from asdl_adt import ADT, validators
 
@@ -118,13 +118,25 @@ module LoopIR {
          | Stride()
          | Error()
          | Tensor( expr* hi, bool is_window, type type )
-         -- src       - type of the tensor from which the window was created
-         -- as_tensor - tensor type as if this window were simply a tensor 
+         -- src_type  - type of the Tensor from which the window was created
+         -- as_tensor - tensor type as if this window were simply a tensor
          --             itself
-         -- window    - the expression that created this window
+         -- src_buf   - sym for the Tensor from which the window was created
+         -- idx       - the expression that created this window
+         -- NB: when creating a derived window from another derived window,
+         -- we must "chain" the two window exprs so that src_type, src_buf
+         -- still refer to the original Tensor
          | WindowType( type src_type, type as_tensor,
                        sym src_buf, w_access *idx )
 
+    -- Dense tensor: Tensor(is_window = False)
+    -- Window parameter (of proc): Tensor(is_window = True)
+    -- Derived window (from WindowExpr): WindowType / T.Window
+
+    -- First two are both "tensors" although imprecisely sometimes "tensor"
+    -- refers only to "dense tensor" -- we should be more clear about that.
+    -- Latter two are both "windows" (allows strides), but have separate
+    -- types since derived windows (WindowType) requires aliasing reasoning
 }""",
     ext_types={
         "name": validators.instance_of(Identifier, convert=True),
@@ -477,10 +489,20 @@ del is_tensor_or_window
 
 @extclass(LoopIR.type)
 def is_win(t):
+    # T.Tensor and t.is_window: window parameter
+    # T.Window: derived window
     return (isinstance(t, T.Tensor) and t.is_window) or isinstance(t, T.Window)
 
 
 del is_win
+
+
+@extclass(LoopIR.type)
+def is_dense_tensor(t):
+    return isinstance(t, T.Tensor) and not t.is_window
+
+
+del is_dense_tensor
 
 
 @extclass(LoopIR.type)
@@ -524,6 +546,74 @@ def basetype(t):
 
 
 del basetype
+
+
+def chain_window_idx(idx0, idx1):
+    """Given
+
+    window_0 = tensor[idx0]
+    window_1 = window_0[idx1]
+
+    Return chained_idx such that window_1 = tensor[chained_idx]
+    """
+
+    def add_e(scalar_0, scalar_1):
+        if isinstance(scalar_0, LoopIR.Const) and scalar_0.val == 0:
+            return scalar_1
+        if isinstance(scalar_1, LoopIR.Const) and scalar_1.val == 0:
+            return scalar_0
+        return LoopIR.BinOp("+", scalar_0, scalar_1, T.index, scalar_1.srcinfo)
+
+    assert sum(isinstance(e0, LoopIR.Interval) for e0 in idx0) == len(idx1)
+    chained_idx = [None] * len(idx0)
+    i1 = 0
+    for i0, e0 in enumerate(idx0):
+        if isinstance(e0, LoopIR.Point):
+            chained_idx[i0] = e0
+        else:
+            assert isinstance(e0, LoopIR.Interval)
+            e1 = idx1[i1]
+            i1 += 1
+            srcinfo = e1.srcinfo  # newer srcinfo likely more relevant
+            if isinstance(e1, LoopIR.Point):
+                chained_idx[i0] = LoopIR.Point(add_e(e0.lo, e1.pt), srcinfo)
+            else:
+                # Note e0.hi unused ... not responsibility here to do
+                # bounds checking.
+                chained_idx[i0] = LoopIR.Interval(
+                    add_e(e0.lo, e1.lo), add_e(e0.lo, e1.hi), srcinfo
+                )
+    return chained_idx
+
+
+def build_window_shape(ws: List[LoopIR.w_access]):
+    def subtract(hi, lo):
+        if isinstance(lo, LoopIR.Const) and lo.val == 0:
+            return hi
+        else:
+            return LoopIR.BinOp("-", hi, lo, T.index, hi.srcinfo)
+
+    return [subtract(w.hi, w.lo) for w in ws if isinstance(w, LoopIR.Interval)]
+
+
+def create_window_type(in_name: Sym, in_typ: LoopIR.type, idx):
+    """Construct a derived window type from any tensor or window type"""
+    assert isinstance(in_name, Sym)
+    window_shape = build_window_shape(idx)
+    as_tensor = T.Tensor(window_shape, True, in_typ.basetype())
+
+    if isinstance(in_typ, T.Tensor):
+        # in_typ is dense tensor or window parameter
+        w_typ = T.Window(in_typ, as_tensor, in_name, idx)
+    else:
+        # in_typ is another derived window
+        # we need to "inline" through to get the underlying Tensor
+        assert isinstance(in_typ, T.Window)
+        chained_idx = chain_window_idx(in_typ.idx, idx)
+        w_typ = T.Window(in_typ.src_type, as_tensor, in_typ.src_buf, chained_idx)
+
+    return w_typ
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -998,10 +1088,13 @@ def get_readconfigs(stmts):
 class GetWrites(LoopIR_Do):
     def __init__(self):
         self.writes = []
+        # Translates access through T.Window to underlying T.Tensor
+        self.window_dict = {}
 
     def do_s(self, s):
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
-            self.writes.append((s.name, s.type))
+            sym = s.name
+            self.writes.append((self.window_dict.get(sym, sym), s.type))
         elif isinstance(s, LoopIR.Call):
             writes_in_subproc = [a for a, _ in get_writes_of_stmts(s.f.body)]
             for arg, call_arg in zip(s.args, s.f.args):
@@ -1009,7 +1102,13 @@ class GetWrites(LoopIR_Do):
                     if isinstance(
                         arg, (LoopIR.Read, LoopIR.WindowExpr, LoopIR.StrideExpr)
                     ):
-                        self.writes.append((arg.name, arg.type))
+                        sym = arg.name
+                        self.writes.append((self.window_dict.get(sym, sym), arg.type))
+        elif isinstance(s, LoopIR.WindowStmt):
+            w_sym, base_sym = s.name, s.rhs.name
+            while base_sym in self.window_dict:
+                base_sym = self.window_dict[base_sym]
+            self.window_dict[w_sym] = base_sym
 
         super().do_s(s)
 
