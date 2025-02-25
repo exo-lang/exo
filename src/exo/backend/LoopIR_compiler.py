@@ -1114,14 +1114,6 @@ class Compiler:
         else:
             return (self.comp_e(e, prec),), None, None
 
-    def no_offset_interval(self, w_access):
-        if isinstance(w_access, LoopIR.Interval):
-            lo = w_access.lo
-            return isinstance(lo, LoopIR.Const) and lo.val == 0
-        else:
-            assert isinstance(w_access, LoopIR.Point)
-            return False
-
     def comp_e(self, e, prec=0):
         if isinstance(e, LoopIR.Read):
             rtyp = self.envtyp[e.name]
