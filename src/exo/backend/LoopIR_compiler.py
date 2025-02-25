@@ -911,9 +911,14 @@ class Compiler:
             assert isinstance(rhs, LoopIR.WindowExpr)
             input_winmem = self.mems[rhs.name]
             input_win_struct = self.get_window_struct(rhs, input_winmem)
-            w_type, w_def, d_type, d_def, separate_dataptr = self.unpack_window_expr(
-                rhs, input_winmem, input_win_struct.is_const
-            )
+            (
+                w_type,
+                w_def,
+                d_type,
+                d_def,
+                layout,
+                separate_dataptr,
+            ) = self.unpack_window_expr(rhs, input_winmem, input_win_struct.is_const)
 
             output_winmem = s.special_window or input_winmem
             name = self.new_varname(s.name, typ=rhs.type, mem=output_winmem)
@@ -930,10 +935,8 @@ class Compiler:
                 scalar_type = tensor_type.basetype()
                 output_win_struct = self.get_window_struct(rhs, output_winmem)
                 ctx = SpecialWindowFromMemoryCtx(
-                    d_type,
                     d_def,
-                    w_type,
-                    w_def,
+                    layout,
                     output_win_struct.dataptr,
                     output_win_struct.name,
                     tensor_type,
@@ -1015,7 +1018,7 @@ class Compiler:
                 assert len(s.f.args) == len(arg_tups)
                 for i in range(len(arg_tups)):
                     arg_name = str(s.f.args[i].name)
-                    c_args, instr_data = arg_tups[i]
+                    c_args, instr_data, instr_layout = arg_tups[i]
                     arg_type = s.args[i].type
                     if arg_type.is_win():
                         if not isinstance(s.args[i], LoopIR.WindowExpr):
@@ -1029,6 +1032,7 @@ class Compiler:
                         # separate_dataptr); [-1] gets the window/layout
                         d[arg_name] = f"({c_args[-1]})"
                         d[f"{arg_name}_data"] = instr_data
+                        d[f"{arg_name}_layout"] = instr_layout
                         # Special case for AMX instrs
                         d[f"{arg_name}_int"] = self.env[s.args[i].name]
                         assert instr_data
@@ -1045,14 +1049,17 @@ class Compiler:
             else:
                 fname = s.f.name
                 args = ["ctxt"]
-                for c_args, _ in arg_tups:
+                for tups in arg_tups:
+                    c_args = tups[0]
                     args.extend(c_args)
                 self.add_line(f"{fname}({','.join(args)});")
         else:
             assert False, "bad case"
 
     def comp_fnarg(self, e, fn, i, *, prec=0):
-        """Returns (c_args : tuple, instr_data : Optional[str])
+        """Returns (c_args : tuple,
+                    instr_data : Optional[str],
+                    instr_layout : Optional[str])
 
         c_args is a tuple (length 1 or 2) of formatted arguments.
         Length 2 only occurs for separate_dataptr windows: (dataptr, layout).
@@ -1060,18 +1067,21 @@ class Compiler:
         instr_data is for formatting c_instr windows; passed as {arg_name}_data.
         This is needed both for compatibility with Exo 1 and for allowing
         access to the dataptr when separate_dataptr is True.
+
+        instr_layout is similar, passed as {arg_name}_layout.
+        This is an untyped initializer for the window layout (e.g. strides).
         """
         if isinstance(e, LoopIR.Read):
             assert not e.idx
             rtyp = self.envtyp[e.name]
             if rtyp.is_indexable():
-                return (self.env[e.name],), None
+                return (self.env[e.name],), None, None
             elif rtyp is T.bool:
-                return (self.env[e.name],), None
+                return (self.env[e.name],), None, None
             elif rtyp is T.stride:
-                return (self.env[e.name],), None
+                return (self.env[e.name],), None, None
             elif e.name in self._scalar_refs:
-                return (self.env[e.name],), None
+                return (self.env[e.name],), None, None
             elif rtyp.is_tensor_or_window():
                 c_window = self.env[e.name]
                 mem = fn.args[i].mem
@@ -1080,12 +1090,12 @@ class Compiler:
                     # functions, but the omitted instr_data is only
                     # used for instr, which can't use this code path.
                     c_data = "exo_data_" + c_syntax
-                    return (c_data, c_window), None
+                    return (c_data, c_window), None, None
                 else:
-                    return (c_window,), None
+                    return (c_window,), None, None
             else:
                 assert rtyp.is_real_scalar()
-                return (f"&{self.env[e.name]}",), None
+                return (f"&{self.env[e.name]}",), None, None
         elif isinstance(e, LoopIR.WindowExpr):
             if isinstance(fn, LoopIR.proc):
                 callee_buf = fn.args[i].name
@@ -1094,15 +1104,15 @@ class Compiler:
                 )
             else:
                 raise NotImplementedError("Passing windows to externs")
-            _, w_def, _, d_def, separate_dataptr = self.unpack_window_expr(
+            _, w_def, _, d_def, layout, separate_dataptr = self.unpack_window_expr(
                 e, self.mems[e.name], is_const
             )
             if separate_dataptr:
-                return (d_def, w_def), d_def
+                return (d_def, w_def), d_def, layout
             else:
-                return (w_def,), d_def
+                return (w_def,), d_def, layout
         else:
-            return (self.comp_e(e, prec),), None
+            return (self.comp_e(e, prec),), None, None
 
     def no_offset_interval(self, w_access):
         if isinstance(w_access, LoopIR.Interval):
@@ -1201,13 +1211,15 @@ class Compiler:
             assert False, "bad case"
 
     def unpack_window_expr(self, e: LoopIR.WindowExpr, src_memwin: type, is_const=None):
-        """(w_type, w_def, d_type, d_def, separate_dataptr)
+        """(w_type, w_def, d_type, d_def, layout, separate_dataptr)
 
         w_type, w_def: C typename and initialization for window struct
 
         d_type: C typename for data pointer
 
         d_def: "data" passed through from src_memwin.window(...)
+
+        layout: untyped C braced initializer for layout portion of window
 
         separate_dataptr: If True, the window is defined with a
           separate data pointer {d_type} {name} = {d_def}
@@ -1247,8 +1259,9 @@ class Compiler:
                 for s, w in zip(all_strides_s, e.idx)
                 if isinstance(w, LoopIR.Interval)
             )
+            layout = f"{{ {strides} }}"
             d_def = callback_result
-            w_def = f"(struct {w_type}){{ &{d_def}, {{ {strides} }} }}"
+            w_def = f"(struct {w_type}){{ &{d_def}, {layout} }}"
         else:
             # Custom layout case
             assert len(callback_result) == 2
@@ -1263,7 +1276,7 @@ class Compiler:
                     f"{e.srcinfo}: {src_memwin.name()} window from {e.name} doesn't support removing dimensions (single Point coordinate in window indices)"
                 )
 
-        return w_type, w_def, d_type, d_def, separate_dataptr
+        return w_type, w_def, d_type, d_def, layout, separate_dataptr
 
     def _call_static_helper(self, helper, *args):
         self._needed_helpers.add(helper)

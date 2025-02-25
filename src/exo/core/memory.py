@@ -311,12 +311,10 @@ class SpecialWindowFromMemoryCtx(object):
     # TODO since we only give access to runtime window struct,
     # it's currently not possible to compile-time assert stride info.
     __slots__ = [
-        "_src_d_type",
-        "_src_d_def",
-        "_src_w_type",
-        "_src_w_def",
-        "_dst_d_type",
-        "_dst_w_type",
+        "_src_data",
+        "_src_layout",
+        "_dst_dataptr_ctype",
+        "_dst_struct_name",
         "_tensor_type",
         "_shape_strs",
         "_is_const",
@@ -327,12 +325,10 @@ class SpecialWindowFromMemoryCtx(object):
 
     def __init__(
         self,
-        src_d_type,
-        src_d_def,
-        src_w_type,
-        src_w_def,
-        dst_d_type,
-        dst_w_type,
+        src_data,
+        src_layout,
+        dst_dataptr_ctype,
+        dst_struct_name,
         tensor_type,
         shape_strs,
         is_const,
@@ -341,12 +337,10 @@ class SpecialWindowFromMemoryCtx(object):
         srcinfo,
     ):
         """For internal use of LoopIR compiler"""
-        self._src_d_type = src_d_type
-        self._src_d_def = src_d_def
-        self._src_w_type = src_w_type
-        self._src_w_def = src_w_def
-        self._dst_d_type = dst_d_type
-        self._dst_w_type = dst_w_type
+        self._src_data = src_data
+        self._src_layout = src_layout
+        self._dst_dataptr_ctype = dst_dataptr_ctype
+        self._dst_struct_name = dst_struct_name
         self._tensor_type = tensor_type
         self._shape_strs = shape_strs
         self._is_const = is_const
@@ -354,30 +348,26 @@ class SpecialWindowFromMemoryCtx(object):
         self._type_shorthand = type_shorthand
         self._srcinfo = srcinfo
 
-    def src_d_type(self):
-        """C type name of source data pointer"""
-        return self._src_d_type
+    def src_data(self):
+        """C initializer for source window data pointer
 
-    def src_d_def(self):
-        """C initializer for source data pointer"""
-        return self._src_d_def
+        Passed through from Memory.window of the source memory type"""
+        return self._src_data
 
-    def src_w_type(self):
-        """C struct name of source window struct"""
-        return self._src_w_type
+    def src_layout(self):
+        """Untyped C initializer for source window layout (e.g. strides)
 
-    def src_w_def(self):
-        """C initializer for source window struct (data pointer is included or
-        not depending on the separate_dataptr() flag of the source memory)"""
-        return self._src_w_def
+        Passed through (or default strides) from Memory.window of
+        the source memory type"""
+        return self._src_layout
 
-    def dst_d_type(self):
-        """C type name of destination data pointer (you defined this)"""
-        return self._dst_d_type
+    def dst_dataptr_ctype(self):
+        """C type name of SpecialWindow data pointer (you defined this)"""
+        return self._dst_dataptr_ctype
 
-    def dst_w_type(self):
-        """C struct name of destination window struct"""
-        return self._dst_w_type
+    def dst_struct_name(self):
+        """C struct name of SpecialWindow window struct (you defined this)"""
+        return self._dst_struct_name
 
     def tensor_type(self) -> LoopIR.Tensor:
         """return LoopIR.Tensor type of input tensor"""
