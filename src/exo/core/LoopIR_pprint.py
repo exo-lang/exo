@@ -11,6 +11,8 @@ from .LoopIR import T
 from .LoopIR import UAST, LoopIR
 from .internal_cursors import Node, Gap, Block, Cursor, InvalidCursorError, GapType
 from .prelude import *
+from ..spork.loop_modes import format_loop_cond
+from ..spork.base_with_context import is_if_holding_with
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -182,6 +184,8 @@ class UAST_PPrinter:
         for stmt in body:
             if isinstance(stmt, UAST.Pass):
                 self.addline("pass")
+            elif isinstance(stmt, UAST.SyncStmt):
+                self.addline(stmt.sync_type.format_stmt(stmt.bar, stmt.codegen))
             elif isinstance(stmt, UAST.Assign) or isinstance(stmt, UAST.Reduce):
                 op = "=" if isinstance(stmt, UAST.Assign) else "+="
 
@@ -210,6 +214,12 @@ class UAST_PPrinter:
                 pname = stmt.f.name or "_anon_"
                 args = [self.pexpr(a) for a in stmt.args]
                 self.addline(f"{pname}({','.join(args)})")
+            elif is_if_holding_with(stmt, UAST):  # must be before .If case
+                ctx = self.pexpr(stmt.cond)
+                self.addline(f"with {ctx}:")
+                self.push()
+                self.pstmts(stmt.body)
+                self.pop()
             elif isinstance(stmt, UAST.If):
                 cond = self.pexpr(stmt.cond)
                 self.addline(f"if {cond}:")
@@ -252,10 +262,8 @@ class UAST_PPrinter:
             return s
         elif isinstance(e, UAST.USub):
             return f"-{self.pexpr(e.arg, prec=op_prec['~'])}"
-        elif isinstance(e, UAST.ParRange):
-            return f"par({self.pexpr(e.lo)},{self.pexpr(e.hi)})"
-        elif isinstance(e, UAST.SeqRange):
-            return f"seq({self.pexpr(e.lo)},{self.pexpr(e.hi)})"
+        elif isinstance(e, UAST.LoopRange):
+            return format_loop_cond(self.pexpr(e.lo), slf.pexpr(e.hi), e.loop_mode)
         elif isinstance(e, UAST.WindowExpr):
 
             def pacc(w):
@@ -306,6 +314,8 @@ class UAST_PPrinter:
             return "index"
         elif isinstance(t, UAST.Size):
             return "size"
+        elif isinstance(t, UAST.Barrier):
+            return "barrier"
         elif isinstance(t, UAST.Tensor):
             base = str(t.basetype())
             if t.is_window:
@@ -409,6 +419,9 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
     if isinstance(stmt, LoopIR.Pass):
         return [f"{indent}pass"]
 
+    elif isinstance(stmt, LoopIR.SyncStmt):
+        return [f"{indent}{stmt.sync_type.format_stmt(stmt.bar, stmt.codegen)}"]
+
     elif isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
         op = "=" if isinstance(stmt, LoopIR.Assign) else "+="
 
@@ -445,6 +458,12 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
         args = [_print_expr(a, env) for a in stmt.args]
         return [f"{indent}{stmt.f.name}({', '.join(args)})"]
 
+    elif is_if_holding_with(stmt, LoopIR):  # must be before .If case
+        ctx = _print_expr(stmt.cond, env)
+        lines = [f"{indent}with {ctx}:"]
+        lines.extend(_print_block(stmt.body, env.push(), indent + "  "))
+        return lines
+
     elif isinstance(stmt, LoopIR.If):
         cond = _print_expr(stmt.cond, env)
         lines = [f"{indent}if {cond}:"]
@@ -457,11 +476,9 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
     elif isinstance(stmt, LoopIR.For):
         lo = _print_expr(stmt.lo, env)
         hi = _print_expr(stmt.hi, env)
+        loop_cond = format_loop_cond(lo, hi, stmt.loop_mode)
         body_env = env.push()
-        loop_type = "par" if isinstance(stmt.loop_mode, LoopIR.Par) else "seq"
-        lines = [
-            f"{indent}for {body_env.get_name(stmt.iter)} in {loop_type}({lo}, {hi}):"
-        ]
+        lines = [f"{indent}for {body_env.get_name(stmt.iter)} in {loop_cond}:"]
         lines.extend(_print_block(stmt.body, body_env, indent + "  "))
         return lines
 
@@ -566,6 +583,8 @@ def _print_type(t, env: PrintEnv) -> str:
         )
     elif isinstance(t, T.Stride):
         return "stride"
+    elif isinstance(t, T.Barrier):
+        return "barrier"
 
     assert False, f"impossible type {type(t)}"
 
@@ -692,7 +711,12 @@ def _print_cursor_stmt(
 ) -> list[str]:
     stmt = cur._node
 
-    if isinstance(stmt, LoopIR.If):
+    if is_if_holding_with(stmt, LoopIR):  # must be before .If case
+        ctx = _print_expr(stmt.cond, env)
+        lines = [f"{indent}with {ctx}:"]
+        lines.extend(_print_cursor_block(cur.body(), target, env.push(), indent + "  "))
+
+    elif isinstance(stmt, LoopIR.If):
         cond = _print_expr(stmt.cond, env)
         lines = [f"{indent}if {cond}:"]
         lines.extend(_print_cursor_block(cur.body(), target, env.push(), indent + "  "))
@@ -705,10 +729,10 @@ def _print_cursor_stmt(
     elif isinstance(stmt, LoopIR.For):
         lo = _print_expr(stmt.lo, env)
         hi = _print_expr(stmt.hi, env)
+        loop_cond = format_loop_cond(lo, hi, stmt.loop_mode)
         body_env = env.push()
-        loop_type = "par" if isinstance(stmt.loop_mode, LoopIR.Par) else "seq"
         lines = [
-            f"{indent}for {body_env.get_name(stmt.iter)} in {loop_type}({lo}, {hi}):",
+            f"{indent}for {body_env.get_name(stmt.iter)} in {loop_cond}:",
             *_print_cursor_block(cur.body(), target, body_env, indent + "  "),
         ]
 

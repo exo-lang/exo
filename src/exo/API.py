@@ -10,7 +10,11 @@ from exo.rewrite.LoopIR_scheduling import SchedulingError
 
 from .API_types import ProcedureBase, ExoType
 from .core import LoopIR as LoopIR
-from .backend.LoopIR_compiler import run_compile, compile_to_strings
+from .backend.LoopIR_compiler import (
+    run_compile,
+    compile_to_strings,
+    ext_compile_to_strings,
+)
 from .core.configs import Config
 from .frontend.boundscheck import CheckBounds
 from .core.memory import MemWin, Memory, SpecialWindow
@@ -141,16 +145,43 @@ class FindDup(LoopIR.LoopIR_Do):
 #   Procedure Objects
 
 
+def ext_compile_procs(proc_list, basedir: Path, stem: str):
+    """Compile procs to separate code files, written to {basedir}/{stem}.{ext}
+
+    Returns a sorted list of file extensions (without .) e.g. ["c", "h"]
+    """
+    ext_snippets = ext_compile_procs_to_strings(proc_list, stem)
+    for ext, text in ext_snippets.items():
+        (basedir / f"{stem}.{ext}").write_text(text)
+    return sorted(ext_snippets)
+
+
+def ext_compile_procs_to_strings(proc_list, stem: str):
+    """Compile procs to separate code files, with filenames {stem}.{ext}
+
+    The returned dictionary maps file extensions (without .) to file text
+    e.g. {"h": header_contents, "c": c_code, "cu": cuda_code}
+    """
+    assert isinstance(proc_list, list)
+    assert all(isinstance(p, Procedure) for p in proc_list)
+    return run_compile([p._loopir_proc for p in proc_list], stem)
+
+
 def compile_procs(proc_list, basedir: Path, c_file: str, h_file: str):
-    c_data, h_data = compile_procs_to_strings(proc_list, h_file)
-    (basedir / c_file).write_text(c_data)
-    (basedir / h_file).write_text(h_data)
+    """Legacy wrapper around ext_compile_procs, for C-only"""
+    stem = c_file[:-2]
+    assert f"{stem}.c" == c_file
+    assert f"{stem}.h" == h_file
+    ext_compile_procs(proc_list, basedir, stem)
 
 
 def compile_procs_to_strings(proc_list, h_file_name: str):
-    assert isinstance(proc_list, list)
-    assert all(isinstance(p, Procedure) for p in proc_list)
-    return run_compile([p._loopir_proc for p in proc_list], h_file_name)
+    """Legacy wrapper around ext_compile_procs_to_strings, for C-only"""
+    stem = h_file_name[:-2]
+    assert f"{stem}.h" == h_file_name
+    ext_snippets = ext_compile_procs_to_strings(proc_list, stem)
+    assert len(ext_snippets) == 2, "use ext_compile_procs_to_strings for non-C"
+    return ext_snippets["c"], ext_snippets["h"]
 
 
 class Procedure(ProcedureBase):

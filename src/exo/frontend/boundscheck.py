@@ -664,6 +664,9 @@ class CheckBounds:
                 return SMT.Bool(expr.val)
             elif expr.type.is_indexable():
                 return SMT.Int(expr.val)
+            elif expr.type == T.with_context:
+                # TODO remove this when we stop smuggling with statements as If.
+                return SMT.Bool(True)
             else:
                 assert False, f"unrecognized const type: {type(expr.val)}"
         elif isinstance(expr, E.Var):
@@ -1080,7 +1083,7 @@ class CheckBounds:
 
                 body_eff = eff_concat(eff, body_eff)
 
-            elif isinstance(stmt, (LoopIR.Pass, LoopIR.WindowStmt)):
+            elif isinstance(stmt, (LoopIR.Pass, LoopIR.WindowStmt, LoopIR.SyncStmt)):
                 pass
 
             else:

@@ -1,6 +1,7 @@
 import functools
 import re
 import textwrap
+import warnings
 from collections import ChainMap
 from collections import defaultdict
 from dataclasses import dataclass
@@ -25,6 +26,15 @@ from .prec_analysis import PrecisionAnalysis
 from ..core.prelude import *
 from .win_analysis import WindowAnalysis
 from ..rewrite.range_analysis import IndexRangeEnvironment
+
+from ..spork.async_config import BaseAsyncConfig
+from ..spork.base_with_context import (
+    BaseWithContext,
+    is_if_holding_with,
+    ExtWithContext,
+)
+from ..spork.loop_modes import LoopMode, Seq, Par, _CodegenPar
+from ..spork import actor_kinds
 
 
 def sanitize_str(s):
@@ -306,12 +316,25 @@ class WindowStruct:
 # top level compiler function called by tests!
 
 
-def run_compile(proc_list, h_file_name: str):
-    file_stem = str(Path(h_file_name).stem)
+def run_compile(proc_list, file_stem: str):
     lib_name = sanitize_str(file_stem)
-    fwd_decls, body = compile_to_strings(lib_name, proc_list)
+    fwd_decls, body, ext_lines = ext_compile_to_strings(lib_name, proc_list)
 
-    source = f'#include "{h_file_name}"\n\n{body}'
+    def join_ext_lines(ext):
+        if lines := ext_lines.get(ext):
+            return "\n".join(["\n"] + lines + ["\n"])
+        else:
+            return ""
+
+    def join_ext_lines(ext):
+        if lines := ext_lines.get(ext):
+            return "\n".join(["\n"] + lines + ["\n"])
+        else:
+            return ""
+
+    source = f"""#include "{file_stem}.h"
+{join_ext_lines("c")}
+{body}"""
 
     header_guard = f"{lib_name}_H".upper()
     header = f"""
@@ -322,7 +345,7 @@ def run_compile(proc_list, h_file_name: str):
 #ifdef __cplusplus
 extern "C" {{
 #endif
-
+{join_ext_lines("h")}
 {fwd_decls}
 
 #ifdef __cplusplus
@@ -331,7 +354,22 @@ extern "C" {{
 #endif  // {header_guard}
 """
 
-    return source, header
+    ext_snippets = {"c": source, "h": header}
+
+    # Gather any non .c, .h files
+    for ext, lines in ext_lines.items():
+        if ext == "c" or ext == "h":
+            continue
+        elif ext == "cuh":
+            text = f'#pragma once\n#include "{file_stem}.h"\n{join_ext_lines("cuh")}'
+        elif ext == "cu":
+            text = f'#include "{file_stem}.cuh"\n{join_ext_lines("cu")}'
+        else:
+            # A bit crappy we have per-file-extension logic here.
+            assert "Add case for file extension"
+        ext_snippets[ext] = text
+
+    return ext_snippets
 
 
 _static_helpers = {
@@ -347,6 +385,13 @@ _static_helpers = {
 
 
 def compile_to_strings(lib_name, proc_list):
+    """Legacy wrapper, for procs that don't generate extension files"""
+    header, body, ext = ext_compile_to_strings(lib_name, proc_list)
+    assert not ext
+    return header, body
+
+
+def ext_compile_to_strings(lib_name, proc_list):
     # Get transitive closure of call-graph
     orig_procs = [id(p) for p in proc_list]
 
@@ -464,7 +509,7 @@ def compile_to_strings(lib_name, proc_list):
     body_contents = map(from_lines, body_contents)
     body_contents = from_lines(body_contents)
     body_contents += "\n"  # New line at end of file
-    return header_contents, body_contents
+    return header_contents, body_contents, comp.ext_lines()
 
 
 def _compile_externs(externs):
@@ -546,6 +591,12 @@ class Compiler:
         self._needed_helpers = set()
         self.window_struct_cache = window_struct_cache
         self._known_strides = {}
+
+        # Additional lines for each file extension
+        # Since Exo was originally written for only .c and .h files,
+        # we have a lot of special treatment for these files,
+        # handled separately from this (see comp_top).
+        self._ext_lines = {}
 
         assert self.proc.name is not None, "expected names for compilation"
         name = self.proc.name
@@ -689,6 +740,9 @@ class Compiler:
     def comp_top(self):
         return self.proc_decl, self.proc_def
 
+    def ext_lines(self):
+        return self._ext_lines
+
     def needed_helpers(self):
         return self._needed_helpers
 
@@ -781,11 +835,15 @@ class Compiler:
             assert False, "bad case!"
 
     def access_str(self, nm, idx_list) -> str:
+        buf = self.env[nm]
+        if nm in self._scalar_refs:
+            return f"*{buf}"
+        elif not idx_list:
+            return buf
         type = self.envtyp[nm]
         cirs = [lift_to_cir(i, self.range_env) for i in idx_list]
         idx_expr = self.get_idx_offset(nm, type, cirs)
         idx_expr_s = self.comp_cir(simplify_cir(idx_expr), self.env, prec=0)
-        buf = self.env[nm]
         if not type.is_win():
             return f"{buf}[{idx_expr_s}]"
         else:
@@ -862,13 +920,19 @@ class Compiler:
     def comp_s(self, s):
         if isinstance(s, LoopIR.Pass):
             self.add_line("; // NO-OP")
+        elif isinstance(s, LoopIR.SyncStmt):
+            if s.codegen is None:
+                raise TypeError(
+                    f"{s.srcinfo}: SyncStmt not allowed here "
+                    "(or internal compiler error -- missing codegen)"
+                )
+            self.add_line(s.codegen)
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
-            if s.name in self._scalar_refs:
-                lhs = f"*{self.env[s.name]}"
-            elif self.envtyp[s.name].is_real_scalar():
-                lhs = self.env[s.name]
-            else:
-                lhs = self.access_str(s.name, s.idx)
+            typ = self.envtyp[s.name]
+            idx = []
+            if not typ.is_real_scalar():
+                idx = s.idx
+            lhs = self.access_str(s.name, idx)
             rhs = self.comp_e(s.rhs)
 
             # possibly cast!
@@ -961,6 +1025,40 @@ class Compiler:
                 self.add_line(f"{output_win_struct.dataptr} exo_data_{name} = {d_def};")
             self.add_line(f"struct {output_win_struct.name} {name} = {w_def};")
 
+        elif is_if_holding_with(s, LoopIR):  # must be before .If case
+            ctx = s.cond.val
+            if isinstance(ctx, ExtWithContext):
+                # Reset indentation and redirect text lines for compiled subtree
+                # to new location (per-file-extension lines dict).
+                old_lines = self._lines
+                old_tab = self._tab
+                self._lines = self._ext_lines.setdefault(ctx.body_ext, [])
+                self._tab = ""
+
+                # Add code snippets
+                for ext, snippet in ctx.ext_snippets.items():
+                    self._ext_lines.setdefault(ext, []).append(snippet)
+
+                # Compile body, with prefix and suffix.
+                # Note ordering after snippets are added, as promised in ExtWithContext.
+                self.add_line(ctx.body_prefix)  # Might not really be just 1 line...
+                self._tab += "  "
+                self.comp_stmts(s.body)
+                self._tab = ""
+                self.add_line(ctx.body_suffix)
+
+                # Restore old lines list and indentation
+                self._tab = old_tab
+                self._lines = old_lines
+
+                # Add kernel launch syntax
+                self.add_line(ctx.launch)
+
+            else:
+                raise TypeError(f"Unknown with stmt context type {type(ctx)}")
+
+        # If statement that is not disguising a with statement
+        # (remove note when this hack is fixed)
         elif isinstance(s, LoopIR.If):
             cond = self.comp_e(s.cond)
             self.add_line(f"if ({cond}) {{")
@@ -979,14 +1077,42 @@ class Compiler:
             hi = self.comp_e(s.hi)
             self.push(only="env")
             itr = self.new_varname(s.iter, typ=T.index)  # allocate a new string
-            self.range_env.add_loop_iter(
+            sym_range = self.range_env.add_loop_iter(
                 s.iter,
                 s.lo,
                 s.hi,
             )
-            if isinstance(s.loop_mode, LoopIR.Par):
+
+            loop_mode = s.loop_mode
+            emit_loop = True
+
+            if isinstance(s.loop_mode, Par):
                 self.add_line(f"#pragma omp parallel for")
-            self.add_line(f"for (int_fast32_t {itr} = {lo}; {itr} < {hi}; {itr}++) {{")
+            elif isinstance(s.loop_mode, Seq):
+                pass  # common case
+            elif isinstance(loop_mode, _CodegenPar):
+                # This is not valid C; if we add non-cuda backends we may have
+                # to add config options to _CodegenPar to tweak lowering syntax.
+                conds = []
+                if bdd := loop_mode.static_bounds[0] is not None:
+                    conds.append(f"{itr} >= {bdd}")
+                if bdd := loop_mode.static_bounds[1] is not None:
+                    conds.append(f"{itr} < {bdd}")
+                cond = "1" if not conds else " && ".join(conds)
+                self.add_line(
+                    f"if ([[mabye_unused]] int {itr} = ({loop_mode.c_index}); {cond}) {{"
+                )
+                emit_loop = False
+            else:
+                raise TypeError(
+                    f"{s.srcinfo}: unexpected loop mode {loop_mode.loop_mode_name()}"
+                )
+
+            if emit_loop:
+                self.add_line(
+                    f"for (int_fast32_t {itr} = {lo}; {itr} < {hi}; {itr}++) {{"
+                )
+
             self.push(only="tab")
             self.comp_stmts(s.body)
             self.pop()
@@ -994,20 +1120,28 @@ class Compiler:
 
         elif isinstance(s, LoopIR.Alloc):
             name = self.new_varname(s.name, typ=s.type, mem=s.mem)
-            assert s.type.basetype().is_real_scalar()
-            assert s.type.basetype() != T.R
-            ctype = s.type.basetype().ctype()
-            mem = s.mem or DRAM
-            line = mem.alloc(name, ctype, self.shape_strs(s.type.shape()), s.srcinfo)
-
-            self.add_line(line)
+            if isinstance(s.type, T.Barrier):
+                self.add_line(f"// Scope of named barrier {s.name}")
+            else:
+                assert s.type.basetype().is_real_scalar()
+                assert s.type.basetype() != T.R
+                ctype = s.type.basetype().ctype()
+                mem = s.mem or DRAM
+                line = mem.alloc(
+                    name, ctype, self.shape_strs(s.type.shape()), s.srcinfo
+                )
+                self.add_line(line)
         elif isinstance(s, LoopIR.Free):
             name = self.env[s.name]
-            assert s.type.basetype().is_real_scalar()
-            ctype = s.type.basetype().ctype()
-            mem = s.mem or DRAM
-            line = mem.free(name, ctype, self.shape_strs(s.type.shape()), s.srcinfo)
-            self.add_line(line)
+            if isinstance(s.type, T.Barrier):
+                pass
+            else:
+                assert s.type.basetype().is_real_scalar()
+                ctype = s.type.basetype().ctype()
+                mem = s.mem or DRAM
+                line = mem.free(name, ctype, self.shape_strs(s.type.shape()), s.srcinfo)
+                self.add_line(line)
+
         elif isinstance(s, LoopIR.Call):
             assert all(
                 a.type.is_win() == fna.type.is_win() for a, fna in zip(s.args, s.f.args)
@@ -1128,12 +1262,7 @@ class Compiler:
                     f"'{e.name}' in memory '{mem.name()}'"
                 )
 
-            if e.name in self._scalar_refs:
-                return f"*{self.env[e.name]}"
-            elif not rtyp.is_tensor_or_window():
-                return self.env[e.name]
-            else:
-                return self.access_str(e.name, e.idx)
+            return self.access_str(e.name, e.idx)
 
         elif isinstance(e, LoopIR.WindowExpr):
             # WindowExpr needs to be handled differently depending on usage
@@ -1152,6 +1281,8 @@ class Compiler:
                 return f"{float(e.val)}"
             elif e.type == T.f32:
                 return f"{float(e.val)}f"
+            elif e.type == T.with_context:
+                assert False, "should be handled when compiling LoopIR.If"
             else:
                 return f"(({e.type.ctype()}) {str(e.val)})"
 

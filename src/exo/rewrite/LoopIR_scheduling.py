@@ -42,6 +42,8 @@ import exo.API as api
 from ..frontend.pattern_match import match_pattern
 from ..core.memory import DRAM
 from ..frontend.typecheck import check_call_types
+from ..spork.loop_modes import LoopMode, seq, par
+from ..spork.base_with_context import is_if_holding_with
 
 from functools import partial
 
@@ -381,7 +383,7 @@ def DoReorderStmt(f_cursor, s_cursor):
 
 
 def DoParallelizeLoop(loop_cursor):
-    return loop_cursor._child_node("loop_mode")._replace(LoopIR.Par())
+    return loop_cursor._child_node("loop_mode")._replace(par)
 
 
 def DoJoinLoops(loop1_c, loop2_c):
@@ -715,7 +717,7 @@ def DoDivideWithRecompute(
             LoopIR.Const(0, T.index, srcinfo),
             hi_i,
             body,
-            LoopIR.Seq(),
+            seq,
             srcinfo,
         )
 
@@ -1486,7 +1488,9 @@ def DoLiftConstant(assign_c, loop_c):
                 raise NotImplementedError(
                     f"unsupported stmt type in loop body: {type(s)}"
                 )
-            elif isinstance(s, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free)):
+            elif isinstance(
+                s, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free, LoopIR.SyncStmt)
+            ):
                 pass
             else:
                 raise NotImplementedError(f"unknown stmt type {type(s)}")
@@ -2711,7 +2715,7 @@ def DoAddLoop(stmt_cursor, var, hi, guard, unsafe_disable_check):
             LoopIR.Const(0, T.index, s.srcinfo),
             hi,
             body,
-            LoopIR.Seq(),
+            seq,
             s.srcinfo,
         )
 
@@ -3269,7 +3273,7 @@ class _DoNormalize(Cursor_Rewrite):
             if new_type:
                 self.ir, fwd_repl = self.fwd(sc)._child_node("type")._replace(new_type)
                 self.fwd = _compose(fwd_repl, self.fwd)
-        elif isinstance(s, LoopIR.Pass):
+        elif isinstance(s, (LoopIR.Pass, LoopIR.SyncStmt)):
             pass
         else:
             raise NotImplementedError(f"bad case {type(s)}")
@@ -3488,7 +3492,11 @@ class DoSimplify(Cursor_Rewrite):
 
     def map_s(self, sc):
         s = sc._node
-        if isinstance(s, LoopIR.If):
+        if is_if_holding_with(s, LoopIR):  # must be before .If case
+            # Simplify the body
+            self.map_stmts(sc.body())
+
+        elif isinstance(s, LoopIR.If):
             cond = self.map_e(s.cond)
             safe_cond = cond or s.cond
 
@@ -3581,7 +3589,7 @@ class DoSimplify(Cursor_Rewrite):
             if new_type:
                 self.ir, fwd_repl = self.fwd(sc)._child_node("type")._replace(new_type)
                 self.fwd = _compose(fwd_repl, self.fwd)
-        elif isinstance(s, LoopIR.Pass):
+        elif isinstance(s, (LoopIR.Pass, LoopIR.SyncStmt)):
             return None
         else:
             raise NotImplementedError(f"bad case {type(s)}")
@@ -4080,7 +4088,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
                 LoopIR.Const(0, T.index, srcinfo),
                 n,
                 load_nest,
-                LoopIR.Seq(),
+                seq,
                 srcinfo,
             )
             load_nest = [loop]
@@ -4117,7 +4125,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
                 LoopIR.Const(0, T.index, srcinfo),
                 n,
                 store_nest,
-                LoopIR.Seq(),
+                seq,
                 srcinfo,
             )
             store_nest = [loop]

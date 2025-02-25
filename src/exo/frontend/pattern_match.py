@@ -7,6 +7,7 @@ from collections import ChainMap
 
 import exo.frontend.pyparser as pyparser
 from exo.core.LoopIR import LoopIR, PAST
+from ..spork.base_with_context import BaseWithContext
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -105,6 +106,7 @@ _PAST_to_LoopIR = {
     PAST.Assign: [LoopIR.Assign],
     PAST.Reduce: [LoopIR.Reduce],
     PAST.Pass: [LoopIR.Pass],
+    PAST.SyncStmt: [LoopIR.SyncStmt],
     PAST.If: [LoopIR.If],
     PAST.For: [LoopIR.For],
     PAST.Alloc: [LoopIR.Alloc],
@@ -261,9 +263,16 @@ class PatternMatch:
                 return False
         elif isinstance(stmt, LoopIR.Pass):
             return True
+        elif isinstance(stmt, LoopIR.SyncStmt):
+            if pat.sync_type == stmt.sync_type:
+                if stmt.sync_type.is_split():
+                    return self.match_e(pat.bar, stmt.bar)
+                else:
+                    return True
+            return False
         elif isinstance(stmt, LoopIR.If):
             return (
-                self.match_e(pat.cond, stmt.cond)
+                self.match_if_cond(pat.cond, stmt.cond)
                 and self.match_stmts(pat.body, cur.body()) is not None
                 and self.match_stmts(pat.orelse, cur.orelse()) is not None
             )
@@ -345,6 +354,22 @@ class PatternMatch:
         else:
             assert False, "bad case"
 
+    def match_if_cond(self, pat, e):
+        # This is a "temporary" hack until with statement handling in LoopIR
+        # is fixed (i.e. not smuggling them as if statements).
+        if self.match_e(pat, e):
+            return True
+        elif not isinstance(
+            e, (LoopIR.WindowExpr,) + tuple(_PAST_to_LoopIR[type(pat)])
+        ):
+            return False
+        elif isinstance(e, LoopIR.Const):
+            # BaseWithContext() is a fake "hole" that indicates the "if"
+            # statement is really a smuggled "with _:" statement.
+            if type(pat.val) is BaseWithContext:
+                return isinstance(e.val, BaseWithContext)
+        return False
+
     def match_name(self, pat_nm, ir_sym):
         # We use repr(sym) as a way of checking both the Sym name and id
         ir_sym = repr(ir_sym) if self._use_sym_id else str(ir_sym)
@@ -361,7 +386,7 @@ def _children(cur) -> Iterable[Node]:
         yield from _children_from_attrs(cur, n, "idx", "rhs")
     elif isinstance(n, (LoopIR.WriteConfig, LoopIR.WindowStmt)):
         yield from _children_from_attrs(cur, n, "rhs")
-    elif isinstance(n, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free)):
+    elif isinstance(n, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free, LoopIR.SyncStmt)):
         yield from []
     elif isinstance(n, LoopIR.If):
         yield from _children_from_attrs(cur, n, "cond", "body", "orelse")

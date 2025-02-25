@@ -9,7 +9,8 @@ from ..core.LoopIR import (
 )
 from ..core.extern import Extern_Typecheck_Error
 from ..core.memory import *
-
+from ..spork.actor_kinds import actor_kind_dict
+from ..spork.base_with_context import BaseWithContext
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -297,9 +298,29 @@ class TypeChecker:
             return [LoopIR.WriteConfig(stmt.config, stmt.field, rhs, stmt.srcinfo)]
         elif isinstance(stmt, UAST.Pass):
             return [LoopIR.Pass(stmt.srcinfo)]
+        elif isinstance(stmt, UAST.SyncStmt):
+            bar = None
+
+            if stmt.sync_type.is_split():
+                bar = self.check_e(stmt.bar)
+                if not isinstance(bar, LoopIR.Read):
+                    self.err(bar, "expected name of a barrier variable")
+                elif bar.idx:
+                    self.err(bar, "unexpected indexing of barrier variable")
+                elif bar.type != T.barrier:
+                    self.err(
+                        bar, f"expected {bar.name} to be barrier type, not {bar.type}"
+                    )
+
+            return [LoopIR.SyncStmt(stmt.sync_type, bar, stmt.codegen, stmt.srcinfo)]
+
         elif isinstance(stmt, UAST.If):
             cond = self.check_e(stmt.cond, is_index=True)
-            if cond.type != T.err and cond.type != T.bool:
+            if (
+                cond.type != T.err
+                and cond.type != T.bool
+                and cond.type != T.with_context
+            ):
                 self.err(cond, f"expected a bool expression")
             body = self.check_stmts(stmt.body)
             ebody = []
@@ -310,14 +331,14 @@ class TypeChecker:
         elif isinstance(stmt, UAST.For):
             self.env[stmt.iter] = T.index
 
-            # handle standard ParRanges
+            # handle standard LoopRanges
             parerr = (
                 "currently supporting for-loops of the form:\n"
                 "  'for _ in par(affine_expression, affine_expression):' and "
                 "'for _ in seq(affine_expression, affine_expression):'"
             )
 
-            if not isinstance(stmt.cond, (UAST.ParRange, UAST.SeqRange)):
+            if not isinstance(stmt.cond, UAST.LoopRange):
                 self.err(stmt.cond, parerr)
 
             lo = self.check_e(stmt.cond.lo, is_index=True)
@@ -328,10 +349,12 @@ class TypeChecker:
                 self.err(hi, "expected loop bound to be indexable.")
 
             body = self.check_stmts(stmt.body)
-            if isinstance(stmt.cond, UAST.SeqRange):
-                return [LoopIR.For(stmt.iter, lo, hi, body, LoopIR.Seq(), stmt.srcinfo)]
-            elif isinstance(stmt.cond, UAST.ParRange):
-                return [LoopIR.For(stmt.iter, lo, hi, body, LoopIR.Par(), stmt.srcinfo)]
+            if isinstance(stmt.cond, UAST.LoopRange):
+                return [
+                    LoopIR.For(
+                        stmt.iter, lo, hi, body, stmt.cond.loop_mode, stmt.srcinfo
+                    )
+                ]
             else:
                 assert False, "bad case"
 
@@ -444,9 +467,15 @@ class TypeChecker:
             return LoopIR.WindowExpr(e.name, idx, w_typ, e.srcinfo)
 
         elif isinstance(e, UAST.Const):
-            ty = {float: T.R, bool: T.bool, int: T.int if is_index else T.R}.get(
-                type(e.val)
-            )
+            if isinstance(e.val, BaseWithContext):
+                # TODO remove BaseWithContext hack when we add a with node to LoopIR.
+                ty = T.with_context
+            else:
+                ty = {
+                    float: T.R,
+                    bool: T.bool,
+                    int: T.int if is_index else T.R,
+                }.get(type(e.val))
             if not ty:
                 self.err(
                     e,
@@ -594,9 +623,9 @@ class TypeChecker:
 
             return LoopIR.StrideExpr(e.name, e.dim, T.stride, e.srcinfo)
 
-        elif isinstance(e, UAST.ParRange):
+        elif isinstance(e, UAST.LoopRange):
             assert False, (
-                "parser should not place ParRange anywhere "
+                "parser should not place LoopRange anywhere "
                 "outside of a for-loop condition"
             )
         elif isinstance(e, UAST.ReadConfig):
@@ -625,6 +654,7 @@ class TypeChecker:
         UAST.Size: T.size,
         UAST.Index: T.index,
         UAST.Stride: T.stride,
+        UAST.Barrier: T.barrier,
     }
 
     def check_t(self, typ):

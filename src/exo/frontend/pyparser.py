@@ -5,6 +5,7 @@ import inspect
 import re
 import sys
 import textwrap
+import warnings
 from collections import ChainMap
 
 from asdl_adt.validators import ValidationError
@@ -15,6 +16,10 @@ from ..core.LoopIR import UAST, PAST, front_ops
 from ..core.prelude import *
 from ..core.extern import Extern
 from ..core.memory import MemWin, Memory, SpecialWindow
+from ..spork.actor_kinds import actor_kind_dict
+from ..spork.base_with_context import BaseWithContext, is_if_holding_with
+from ..spork.loop_modes import LoopMode, loop_mode_dict
+from ..spork.sync_types import SyncType, arrive_type, await_type
 
 from typing import Any, Callable, Union, NoReturn, Optional
 import copy
@@ -601,6 +606,7 @@ _is_size = lambda x: isinstance(x, pyast.Name) and x.id == "size"
 _is_index = lambda x: isinstance(x, pyast.Name) and x.id == "index"
 _is_bool = lambda x: isinstance(x, pyast.Name) and x.id == "bool"
 _is_stride = lambda x: isinstance(x, pyast.Name) and x.id == "stride"
+_is_barrier = lambda x: isinstance(x, pyast.Name) and x.id == "barrier"
 
 _prim_types = {
     "R": UAST.Num(),
@@ -917,8 +923,11 @@ class Parser:
                 )
             return UAST.Stride(), None
 
+        elif _is_barrier(typ_node):
+            self.err("Cannot pass barrier as argument")
+
         else:
-            typ = self.parse_num_type(typ_node, is_arg=True)
+            typ = self.parse_alloc_type(typ_node, is_arg=True)
 
             if mem_node:
                 mem = self.eval_expr(mem_node)
@@ -943,10 +952,11 @@ class Parser:
             node = node.left
         else:
             mem = None
-        typ = self.parse_num_type(node)
+        typ = self.parse_alloc_type(node)
         return typ, mem
 
-    def parse_num_type(self, node, is_arg=False):
+    def parse_alloc_type(self, node, is_arg=False):
+        """Parse numeric type or special barrier type"""
         if isinstance(node, pyast.Subscript):
             if isinstance(node.value, pyast.List):
                 if is_arg is not True:
@@ -976,7 +986,7 @@ class Parser:
                 typ = _prim_types[node.value.id]
                 is_window = False
             else:
-                typ = self.parse_num_type(node.value)
+                typ = self.parse_alloc_type(node.value)
                 is_window = False
 
             if sys.version_info[:3] >= (3, 9):
@@ -1004,6 +1014,8 @@ class Parser:
 
             return typ
 
+        elif isinstance(node, pyast.Name) and node.id == "barrier":
+            return UAST.Barrier()
         elif isinstance(node, pyast.Name) and node.id in _prim_types:
             return _prim_types[node.id]
         elif isinstance(node, pyast.Name) and (
@@ -1027,6 +1039,7 @@ class Parser:
         rstmts = []
 
         for s in stmts:
+            # ----- With statement parsing
             if isinstance(s, pyast.With):
                 if (
                     len(s.items) == 1
@@ -1052,7 +1065,8 @@ class Parser:
                         lambda stmts: rstmts.extend(stmts),
                     )
                 else:
-                    self.err(s, "Expected unquote")
+                    self.parse_spork_with(s, rstmts)
+
             elif isinstance(s, pyast.Expr) and isinstance(s.value, pyast.Set):
                 if len(s.value.elts) != 1:
                     self.err(s, "Unquote must take 1 argument")
@@ -1265,13 +1279,18 @@ class Parser:
 
                 rstmts.append(self.AST.If(cond, body, orelse, self.getsrcinfo(s)))
 
-            # ----- Sub-routine call parsing
+            # ----- SyncStmt or Sub-routine call parsing
             elif (
                 isinstance(s, pyast.Expr)
                 and isinstance(s.value, pyast.Call)
                 and isinstance(s.value.func, pyast.Name)
             ):
-                if self.is_fragment:
+                # Parsing special sync statement
+                if s.value.func.id in ("Fence", "Arrive", "Await"):
+                    rstmts.append(self.parse_SyncStmt_call(s.value))
+
+                # Parsing ordinary sub-routine
+                elif self.is_fragment:
                     # handle stride expression
                     if s.value.func.id == "stride":
                         if (
@@ -1347,30 +1366,66 @@ class Parser:
 
         return rstmts
 
+    # ----- With statement parsing for spork gpu (distinct from meta exo)
+    def parse_spork_with(self, s, rstmts):
+        assert isinstance(s, pyast.With)
+        self.push()
+        body = self.parse_stmt_block(s.body)
+        self.pop()
+
+        if len(s.items) != 1:
+            self.err(s, "expected only 1 withitem")
+        context_pyast = s.items[0].context_expr
+        if (
+            self.is_fragment
+            and isinstance(context_pyast, pyast.Name)
+            and context_pyast.id == "_"
+        ):
+            ctx = BaseWithContext()  # """hole"""
+        else:
+            # TODO this doesn't work when self.is_fragment is true.
+            assert not self.is_fragment
+            ctx = self.eval_expr(context_pyast)
+        if isinstance(ctx, BaseWithContext):
+            # XXX With statement disguised as If statement temporarily
+            cond = self.AST.Const(ctx, self.getsrcinfo(s))
+            new_stmt = self.AST.If(cond, body, [], self.getsrcinfo(s))
+            assert is_if_holding_with(new_stmt, self.AST)
+            rstmts.append(new_stmt)
+        else:
+            self.err(
+                s.items[0].context_expr,
+                "Unsupported context type for with: {type(ctx)}",
+            )
+
     def parse_loop_cond(self, cond):
         if isinstance(cond, pyast.Call):
-            if isinstance(cond.func, pyast.Name) and cond.func.id in ("par", "seq"):
-                if len(cond.keywords) > 0:
+            if isinstance(cond.func, pyast.Name) and cond.func.id in loop_mode_dict:
+                loop_mode_kwargs = {
+                    kw.arg: self.eval_expr(kw.value) for kw in cond.keywords
+                }
+                if len(cond.args) != 2:
                     self.err(
-                        cond, "par() and seq() does not support" " named arguments"
+                        cond,
+                        f"{cond.func.id}() expects exactly 2 positional arguments: lo, hi",
                     )
-                elif len(cond.args) != 2:
-                    self.err(cond, "par() and seq() expects exactly" " 2 arguments")
                 lo = self.parse_expr(cond.args[0])
                 hi = self.parse_expr(cond.args[1])
 
                 if self.is_fragment:
                     return lo, hi
                 else:
-                    if cond.func.id == "par":
-                        return UAST.ParRange(lo, hi, self.getsrcinfo(cond))
-                    else:
-                        return UAST.SeqRange(lo, hi, self.getsrcinfo(cond))
+                    try:
+                        loop_mode_type = loop_mode_dict[cond.func.id]
+                        loop_mode = loop_mode_type(**loop_mode_kwargs)
+                    except Exception as e:
+                        self.err(cond, "invalid loop mode", e)
+                    return UAST.LoopRange(lo, hi, loop_mode, self.getsrcinfo(cond))
             else:
                 self.err(
                     cond,
                     "expected for loop condition to be in the form "
-                    "'par(...,...)' or 'seq(...,...)'",
+                    "'par(...,...)' or 'seq(...,...)' or 'cuda_*(...,...)'",
                 )
         else:
             e_hole = PAST.E_Hole(self.getsrcinfo(cond))
@@ -1781,3 +1836,49 @@ class Parser:
 
         else:
             self.err(e, "unsupported form of expression")
+
+    # Parse SyncStmt
+    def parse_SyncStmt_call(self, ast_call: pyast.Call):
+        assert isinstance(ast_call.func, pyast.Name)
+        func_id = ast_call.func.id
+
+        def parse_actor_kind(ast_name):
+            if not isinstance(ast_name, pyast.Name):
+                self.err(ast_name, "Expected name of actor kind")
+            actor_kind = actor_kind_dict.get(ast_name.id)
+            if actor_kind is None:
+                self.err(ast_name, f"Expected name of actor kind, not {ast_name.id}")
+            return actor_kind
+
+        codegen = None
+
+        if len(ast_call.args) != 2:
+            self.err(ast_call, f"{func_id} expects 2 arguments")
+
+        for kw in ast_call.keywords:
+            name, eval_me = kw.arg, kw.value
+            if name == "codegen":
+                codegen = self.eval_expr(eval_me)
+                if not isinstance(codegen, str):
+                    raise ParseError(f"codegen attribute for {func_id}() must be str")
+            else:
+                raise ParseError(f"Unknown keyword '{name}' for {func_id}()")
+
+        if func_id == "Fence":
+            sync_type = SyncType(
+                parse_actor_kind(ast_call.args[0]), parse_actor_kind(ast_call.args[1])
+            )
+            bar = None
+
+        elif func_id == "Arrive":
+            sync_type = arrive_type(parse_actor_kind(ast_call.args[0]))
+            bar = self.parse_expr(ast_call.args[1])
+
+        elif func_id == "Await":
+            bar = self.parse_expr(ast_call.args[0])
+            sync_type = await_type(parse_actor_kind(ast_call.args[1]))
+
+        else:
+            assert 0
+
+        return self.AST.SyncStmt(sync_type, bar, codegen, self.getsrcinfo(ast_call))

@@ -3,6 +3,7 @@ import importlib
 import importlib.machinery
 import importlib.util
 import inspect
+import shlex
 import sys
 
 sys.setrecursionlimit(10000)
@@ -22,7 +23,7 @@ def main():
         metavar="OUTDIR",
         help="output directory for build artifacts",
     )
-    parser.add_argument("--stem", help="base name for .c and .h files")
+    parser.add_argument("--stem", help="base name for .c, .h, and other files")
     parser.add_argument("source", type=str, nargs="+", help="source file to compile")
     parser.add_argument(
         "--version",
@@ -58,11 +59,11 @@ def main():
         for proc in get_procs_from_module(load_user_code(mod))
     ]
 
-    exo.compile_procs(library, outdir, f"{stem}.c", f"{stem}.h")
-    write_depfile(outdir, stem)
+    exts = exo.ext_compile_procs(library, outdir, stem)
+    write_depfile(outdir, stem, exts)
 
 
-def write_depfile(outdir, stem):
+def write_depfile(outdir, stem, exts):
     modules = set()
     for mod in sys.modules.values():
         try:
@@ -70,13 +71,14 @@ def write_depfile(outdir, stem):
         except TypeError:
             pass  # this is the case for built-in modules
 
-    c_file = outdir / f"{stem}.c"
-    h_file = outdir / f"{stem}.h"
+    encoded_outputs = []
+    for x in exts:
+        encoded_outputs.append(shlex.quote(f"{outdir}/{stem}.{x}"))
     depfile = outdir / f"{stem}.d"
 
     sep = " \\\n  "
     deps = sep.join(sorted(modules))
-    contents = f"{c_file} {h_file} : {deps}"
+    contents = f"{' '.join(encoded_outputs)} : {deps}"
 
     depfile.write_text(contents)
 

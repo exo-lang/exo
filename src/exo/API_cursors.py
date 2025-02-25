@@ -20,6 +20,8 @@ from .core.internal_cursors import InvalidCursorError
 from .core.LoopIR_pprint import _print_cursor
 from .rewrite.LoopIR_scheduling import SchedulingError
 
+from .spork.actor_kinds import actor_kind_dict, ActorKind
+from .spork.sync_types import SyncType
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -515,6 +517,33 @@ class PassCursor(StmtCursor):
     """
 
 
+class SyncCursor(StmtCursor):
+    """
+    Cursor pointing to a synchronization statement:
+        Fence(ActorKind, ActorKind)
+        Arrive(ActorKind, barrier)
+        Await(barrier, ActorKind)
+    """
+
+    def sync_type(self) -> SyncType:
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.SyncStmt)
+        return self._impl._node.sync_type
+
+    def first_actor_kind(self) -> ActorKind:
+        return self.sync_type().first_actor_kind
+
+    def second_actor_kind(self) -> ActorKind:
+        return self.sync_type().second_actor_kind
+
+    def bar(self):
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.SyncStmt)
+        bar = self._impl._node.bar
+        assert bar is not None, "Must be arrive or await"
+        return bar.name()
+
+
 class IfCursor(StmtCursor):
     """
     Cursor pointing to an if statement:
@@ -584,6 +613,11 @@ class ForCursor(StmtCursor):
         assert isinstance(self._impl._node, LoopIR.For)
 
         return BlockCursor(self._impl._child_block("body"), self._proc)
+
+    def loop_mode(self):
+        assert isinstance(self._impl, C.Node)
+        assert isinstance(self._impl._node, LoopIR.For)
+        return self._impl._node.loop_mode
 
 
 class AllocCursor(StmtCursor):
@@ -907,6 +941,8 @@ def lift_cursor(impl, proc):
             return AssignConfigCursor(impl, proc)
         elif isinstance(n, LoopIR.Pass):
             return PassCursor(impl, proc)
+        elif isinstance(n, LoopIR.SyncStmt):
+            return SyncCursor(impl, proc)
         elif isinstance(n, LoopIR.If):
             return IfCursor(impl, proc)
         elif isinstance(n, LoopIR.For):
@@ -995,6 +1031,7 @@ __all__ = [
     "ReduceCursor",
     "AssignConfigCursor",
     "PassCursor",
+    "SyncCursor",
     "IfCursor",
     "ForCursor",
     "AllocCursor",

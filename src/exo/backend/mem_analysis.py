@@ -83,6 +83,9 @@ class MemoryAnalysis:
                 res += used_e(s.rhs)
             elif isinstance(s, LoopIR.WriteConfig):
                 res += used_e(s.rhs)
+            elif isinstance(s, LoopIR.SyncStmt):
+                if s.bar is not None:
+                    res += used_e(s.bar)
             elif isinstance(s, LoopIR.If):
                 res += used_e(s.cond)
                 for b in s.body:
@@ -126,6 +129,7 @@ class MemoryAnalysis:
 
         if (
             styp is LoopIR.Pass
+            or styp is LoopIR.SyncStmt
             or styp is LoopIR.Assign
             or styp is LoopIR.Reduce
             or styp is LoopIR.WriteConfig
