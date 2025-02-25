@@ -9,12 +9,22 @@ from exo import (
     Procedure,
     DRAM,
     compile_procs_to_strings,
+    MemWin,
+    Memory,
+    WindowStructCtx,
     SpecialWindow,
+    SpecialWindowFromMemoryCtx,
     memwin_template,
 )
 from exo.libs.memories import MDRAM, MemGenError, StaticMemory, DRAM_STACK
 from exo.libs.externs import *
 from exo.stdlib.scheduling import *
+
+
+class TestCudaGmem(Memory):
+    @classmethod
+    def window_definition(cls, ctx: WindowStructCtx):
+        return ctx.generate_default("TestCudaGmem")
 
 
 @memwin_template
@@ -34,20 +44,35 @@ def TestTensorMap(swizzle, *box):
         @classmethod
         def global_(cls):
             return f"""\
-#ifndef EXO_MAKE_TENSOR_MAP_SW{swizzle}_{smem_outer}_{smem_inner}
-#define EXO_MAKE_TENSOR_MAP_SW{swizzle}_{smem_outer}_{smem_inner}
 #include <cuda.h>
 #include <assert.h>
 #include <stdlib.h>
-static inline CUtensorMap exo_make_tensor_map_SW{swizzle}_{smem_outer}_{smem_inner}(
-        const void* globalAddress, unsigned gmem_inner, unsigned gmem_outer)
+#include <stdio.h>"""
+
+        @classmethod
+        def window_definition(cls, ctx: WindowStructCtx):
+            assert ctx.type_shorthand() == "f32"
+            cu_ctype_enum = "CU_TENSOR_MAP_DATA_TYPE_FLOAT32"
+            src_sname = "XXX"  # TODO
+            sname = ctx.struct_name("CUtensorMap", cls.memwin_template_parameters)
+            s_def = f"""\
+struct {sname} {{
+    unsigned inner_offset, outer_offset;
+}};
+
+static inline CUtensorMap {sname}_encode_tensor_map(
+        struct {src_sname} input_window,
+        unsigned gmem_outer, unsigned gmem_inner)
 {{
+    unsigned gmem_stride_inner = input_window.strides[1];
+    unsigned gmem_stride_outer = input_window.strides[0];
+    assert(gmem_stride_inner == 1);
+
     CUtensorMap tensorMap;
-    const CUtensorMapSwizzle swizzle = CU_TENSOR_MAP_SWIZZLE_NONE;
-    const CUtensorMapDataType tensorDataType = CU_TENSOR_MAP_DATA_TYPE_FLOAT32;
+    const CUtensorMapSwizzle swizzle = {cu_swizzle};
     const uint32_t tensorRank = 2;
     const cuuint64_t globalDim[2] = {{gmem_inner, gmem_outer}};
-    const cuuint64_t globalStrides[1] = {{4*gmem_inner}};
+    const cuuint64_t globalStrides[1] = {{sizeof({ctx.ctype()}) * gmem_stride_outer}};
     const cuuint32_t boxDim[2] = {{ {smem_inner}, {smem_outer} }};
     const cuuint32_t elementStrides[2] = {{1, 1}};
     const CUtensorMapInterleave interleave = CU_TENSOR_MAP_INTERLEAVE_NONE;
@@ -56,9 +81,9 @@ static inline CUtensorMap exo_make_tensor_map_SW{swizzle}_{smem_outer}_{smem_inn
 
     const CUresult result = cuTensorMapEncodeTiled(
             &tensorMap,
-            tensorDataType,
+            {cu_ctype_enum},
             tensorRank,
-            (void*)globalAddress,
+            (void*)input_window.data,
             globalDim,
             globalStrides,
             boxDim,
@@ -73,15 +98,7 @@ static inline CUtensorMap exo_make_tensor_map_SW{swizzle}_{smem_outer}_{smem_inn
     }}
     return tensorMap;
 }}
-#endif"""
-
-        @classmethod
-        def window_definition(cls, ctx: WindowStructCtx):
-            sname = ctx.struct_name("CUtensorMap", cls.memwin_template_parameters)
-            s_def = f"""\
-struct {sname} {{
-    unsigned inner_offset, outer_offset;
-}};"""
+"""
             return "CUtensorMap", s_def
 
         @classmethod
@@ -100,13 +117,16 @@ struct {sname} {{
             return False
 
         @classmethod
-        def memory_type(cls):
-            return DRAM  # WRONG
+        def source_memory_type(cls):
+            return TestCudaGmem
 
         @classmethod
-        def window_from_dense(cls, ctx: WindowFromDenseCtx):
-            shape_strs = ctx.shape_strs()
-            d_def = f"exo_make_tensor_map_SW{swizzle}_{smem_outer}_{smem_inner}((void*) {ctx.baseptr()}, {shape_strs[1]}, {shape_strs[0]})"
+        def from_memory(cls, ctx: SpecialWindowFromMemoryCtx):
+            sname = ctx.dst_w_type()
+            shape0, shape1 = ctx.shape_strs()
+            d_def = f"{sname}_encode_tensor_map({ctx.src_w_def()}, {shape0}, {shape1})"
+
+            # Offsets can be 0'd
             w_def = "{}"
             return d_def, w_def
 
@@ -116,7 +136,7 @@ struct {sname} {{
 def test_tensor_map():
     @proc
     def test_proc(
-        tensor: f32[1024, 2048],
+        tensor: f32[1024, 2048] @ TestCudaGmem,
         input_tensor_map: [f32][128, 128] @ TestTensorMap(0, 128, 128),
     ):
         basic_window = tensor[14, :]
@@ -132,11 +152,13 @@ def test_tensor_map():
     cc, hh = compile_procs_to_strings([test_proc], "test.h")
 
     # This is just a placeholder test for now
-    if False:
+    if True:
         HOME = os.environ["HOME"]
         open(f"{HOME}/junk/test.h", "w").write(hh)
         open(f"{HOME}/junk/test.c", "w").write(cc)
 
+
+"""
     # TestTensorMap(0, 128, 128) defs should have ended up in the header file
     assert "struct exo_win_2f32c_CUtensorMap_0_128_128 {" in hh
     assert "inline CUtensorMap exo_make_tensor_map_SW0_128_128" in hh
@@ -182,3 +204,4 @@ def test_tensor_map():
         "struct exo_win_2f32c_CUtensorMap_128_196_128 tensor_map_D = (struct exo_win_2f32c_CUtensorMap_128_196_128) { tensor_map_C.inner_offset + 200, tensor_map_C.outer_offset + 10 };"
         in cc
     )
+"""

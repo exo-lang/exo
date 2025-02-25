@@ -412,6 +412,19 @@ class T:
 
 
 @extclass(T.Tensor)
+def as_tensor_type(t):
+    return t
+
+
+@extclass(T.Window)
+def as_tensor_type(t):
+    return t.as_tensor
+
+
+del as_tensor_type
+
+
+@extclass(T.Tensor)
 @extclass(T.Window)
 @extclass(T.Num)
 @extclass(T.F16)

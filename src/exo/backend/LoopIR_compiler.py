@@ -18,7 +18,7 @@ from ..core.memory import (
     DRAM,
     StaticMemory,
     WindowStructCtx,
-    WindowFromDenseCtx,
+    SpecialWindowFromMemoryCtx,
 )
 from .parallel_analysis import ParallelAnalysis
 from .prec_analysis import PrecisionAnalysis
@@ -907,59 +907,56 @@ class Compiler:
             self.add_line(f"ctxt->{nm}.{s.field} = {rhs};")
 
         elif isinstance(s, LoopIR.WindowStmt):
-            # Can create two things
-            #  * special window from a dense tensor [changes MemWin type]
-            #  * window from another tensor/window with the same MemWin type
-            # Bottom is the common case (special window is not in Exo 1)
-            #
-            # We have to generate both, with a temporary window, when the code
-            # changes the MemWin and we have to modify the strides/layout.
+            rhs = s.rhs
+            assert isinstance(rhs, LoopIR.WindowExpr)
+            input_winmem = self.mems[rhs.name]
+            input_win_struct = self.get_window_struct(rhs, input_winmem)
+            w_type, w_def, d_type, d_def, separate_dataptr = self.unpack_window_expr(
+                rhs, input_winmem, input_win_struct.is_const
+            )
 
-            if s.special_window is None:
-                # Common case
-                special_window_stmt = None
-                normal_window_stmt = s
+            output_winmem = s.special_window or input_winmem
+            name = self.new_varname(s.name, typ=rhs.type, mem=output_winmem)
+
+            if not s.special_window:
+                output_win_struct = input_win_struct
             else:
-                rhs = s.rhs
-                tensortyp = self.envtyp[rhs.name]
-                assert (
-                    tensortyp.is_dense_tensor()
-                ), f"{s.srcinfo}: typecheck should have blocked SpecialWindow from non-dense tensor"
-                special_window_stmt = s
-                normal_window_stmt = None
+                # Special case, creating a special window
+                # We pass the temporary expressions from unpack_window_expr to
+                # the SpecialWindow creation callback.
+                assert issubclass(output_winmem, SpecialWindow)
+                assert issubclass(input_winmem, output_winmem.source_memory_type())
+                tensor_type = rhs.type.as_tensor_type()
+                scalar_type = tensor_type.basetype()
+                output_win_struct = self.get_window_struct(rhs, output_winmem)
+                ctx = SpecialWindowFromMemoryCtx(
+                    d_type,
+                    d_def,
+                    w_type,
+                    w_def,
+                    output_win_struct.dataptr,
+                    output_win_struct.name,
+                    tensor_type,
+                    self.shape_strs(tensor_type.shape()),
+                    output_win_struct.is_const,
+                    scalar_type.ctype(),
+                    T_shorthand[scalar_type],
+                    s.srcinfo,
+                )
+                tmp = output_winmem.from_memory(ctx)
 
-                assert isinstance(rhs, LoopIR.WindowExpr)
+                # Substitute window definition for codegen, replacing temporary window.
+                separate_dataptr = output_winmem.separate_dataptr()
+                if separate_dataptr:
+                    assert len(tmp) == 2
+                    d_def, w_def = tmp
+                else:
+                    assert isinstance(tmp, str)
+                    d_def, w_def = None, tmp
 
-                if not all(self.no_offset_interval(i) for i in rhs.idx):
-                    # Create a temporary SpecialWindow, then further modify that
-                    tmp_sym = Sym(s.name.name() + "_SpecialWindow")
-                    idx0 = [
-                        LoopIR.Interval(
-                            LoopIR.Const(0, LoopIR.Index(), s.srcinfo),
-                            shape_coord,
-                            s.srcinfo,
-                        )
-                        for shape_coord in tensortyp.shape()
-                    ]
-                    # Split the WindowStmt into two WindowStmt just in time
-                    # for codegen. tmp SpecialWindow materialized with type
-                    # similar to original dense tensor.
-                    tmp_window_type = LoopIR.WindowType(
-                        tensortyp, tensortyp, rhs.name, idx0
-                    )
-                    special_window_rhs = s.rhs.update(idx=idx0, type=tmp_window_type)
-                    # Then another special window from the tmp special window
-                    # to handle offsets
-                    special_window_stmt = s.update(rhs=special_window_rhs, name=tmp_sym)
-                    normal_window_rhs = s.rhs.update(name=tmp_sym)
-                    normal_window_stmt = s.update(
-                        rhs=normal_window_rhs, special_window=None
-                    )
-
-            if special_window_stmt is not None:
-                self.comp_special_window_from_dense_tensor(special_window_stmt)
-            if normal_window_stmt is not None:
-                self.comp_normal_window_stmt(normal_window_stmt)
+            if separate_dataptr:
+                self.add_line(f"{output_win_struct.dataptr} exo_data_{name} = {d_def};")
+            self.add_line(f"struct {output_win_struct.name} {name} = {w_def};")
 
         elif isinstance(s, LoopIR.If):
             cond = self.comp_e(s.cond)
@@ -1107,73 +1104,6 @@ class Compiler:
         else:
             return (self.comp_e(e, prec),), None
 
-    def comp_normal_window_stmt(self, s: LoopIR.WindowStmt):
-        """Compile declaring and generating a window struct from a dense
-        tensor or another window, where the memwin type is unchanged."""
-        assert isinstance(s, LoopIR.WindowStmt)
-        rhs = s.rhs
-        assert isinstance(rhs, LoopIR.WindowExpr)
-        mem = self.mems[rhs.name]
-        assert s.special_window is None
-        win_struct = self.get_window_struct(rhs, mem)
-        w_type, w_def, d_type, d_def, separate_dataptr = self.unpack_window_expr(
-            rhs, mem, win_struct.is_const
-        )
-        name = self.new_varname(s.name, typ=rhs.type, mem=mem)
-
-        if separate_dataptr:
-            self.add_line(f"{win_struct.dataptr} exo_data_{name} = {d_def};")
-        self.add_line(f"struct {win_struct.name} {name} = {w_def};")
-
-    def comp_special_window_from_dense_tensor(self, s: LoopIR.WindowStmt):
-        """Compile generating a special window to an entire dense tensor.
-
-        Thus WindowExpr idx must have only Intervals that start with 0."""
-        assert isinstance(s, LoopIR.WindowStmt)
-        rhs = s.rhs
-        assert isinstance(rhs, LoopIR.WindowExpr)
-        assert all(self.no_offset_interval(i) for i in rhs.idx)
-
-        input_mem = self.mems[rhs.name]
-        special_window = s.special_window
-        assert issubclass(special_window, SpecialWindow)
-        win_struct = self.get_window_struct(rhs, special_window)
-        name = self.new_varname(s.name, typ=rhs.type, mem=special_window)
-        input_typ = self.envtyp[rhs.name]
-        basetyp = input_typ.basetype()
-        ctype = basetyp.ctype()
-        type_shorthand = T_shorthand[basetyp]
-
-        shape_impl = lambda: self.shape_strs(input_typ.shape())
-        stride_impl = lambda: self.get_strides_s(rhs.name, input_typ)
-
-        ctx = WindowFromDenseCtx(
-            input_typ,
-            self.env[rhs.name],
-            shape_impl,
-            stride_impl,
-            win_struct.is_const,
-            ctype,
-            type_shorthand,
-            rhs.srcinfo,
-        )
-        info = special_window.window_from_dense(ctx)
-        is_separate = not isinstance(info, str)
-        if is_separate:
-            assert len(info) == 2
-            d_def, w_def = info
-            assert isinstance(d_def, str) and isinstance(w_def, str)
-            self.add_line(f"{win_struct.dataptr} exo_data_{name} = {d_def};")
-            self.add_line(f"struct {win_struct.name} {name} = {w_def};")
-        else:
-            is_separate = False
-            d_def, w_def = None, info
-            self.add_line(f"struct {win_struct.name} {name} = {w_def};")
-
-        assert (
-            is_separate == special_window.separate_dataptr()
-        ), "SpecialWindow.window_from_dense doesn't match SpecialWindow.separate_dataptr"
-
     def no_offset_interval(self, w_access):
         if isinstance(w_access, LoopIR.Interval):
             lo = w_access.lo
@@ -1288,7 +1218,7 @@ class Compiler:
         separate_dataptr = win_struct.separate_dataptr
 
         base = self.env[e.name]
-        basetyp = self.envtyp[e.name]
+        basetyp = self.envtyp[e.name].as_tensor_type()
 
         # compute offset to new data pointer
         def w_lo(w):
@@ -1300,7 +1230,7 @@ class Compiler:
         # compute new window strides
         all_strides_s = self.get_strides_s(e.name, basetyp)
         assert 0 < len(all_strides_s) == len(e.idx)
-        if separate_dataptr:
+        if separate_dataptr and basetyp.is_win():
             window_in_expr = "exo_data_" + base, base
         else:
             window_in_expr = base
@@ -1355,12 +1285,18 @@ class WindowStructCache(object):
     def _add_to_cache(self, key_tuple, srcinfo) -> WindowStruct:
         memwin, base_type, n_dims, is_const = key_tuple
         type_shorthand = T_shorthand[base_type]
-        ctx = WindowStructCtx(
-            base_type.ctype(), type_shorthand, n_dims, is_const, srcinfo
-        )
-
-        c_dataptr, c_window = memwin.window_definition(ctx)
         separate_dataptr = memwin.separate_dataptr()
+
+        ctx = WindowStructCtx(
+            base_type.ctype(),
+            type_shorthand,
+            n_dims,
+            is_const,
+            separate_dataptr,
+            srcinfo,
+        )
+        c_dataptr, c_window = memwin.window_definition(ctx)
+
         assert isinstance(c_dataptr, str)
         assert isinstance(c_window, str)
         assert isinstance(separate_dataptr, bool)

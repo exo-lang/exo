@@ -98,17 +98,21 @@ class WindowStructCtx(object):
         "_type_shorthand",
         "_n_dims",
         "_is_const",
+        "_separate_dataptr",
         "_srcinfo",
         "_struct_name",
         "_guard_macro",
     ]
 
-    def __init__(self, ctype, type_shorthand, n_dims, is_const, srcinfo):
+    def __init__(
+        self, ctype, type_shorthand, n_dims, is_const, separate_dataptr, srcinfo
+    ):
         """For internal use of LoopIR compiler"""
         self._ctype = ctype
         self._type_shorthand = type_shorthand
         self._n_dims = n_dims
         self._is_const = is_const
+        self._separate_dataptr = separate_dataptr
         self._srcinfo = srcinfo
 
         self._struct_name = None
@@ -131,6 +135,7 @@ class WindowStructCtx(object):
         return dataptr_ctype, sdef
 
     def struct_name(self, memwin_name: str, mangle_parameters=None) -> str:
+        """Must be called at least once (and consistently) to name the struct."""
         assert isinstance(memwin_name, str), "use str (avoid silent mistakes)"
         assert memwin_name
 
@@ -142,7 +147,8 @@ class WindowStructCtx(object):
                 else:
                     memwin_name += f"_n{-p}"
 
-        const_suffix = "c" if self._is_const else ""
+        # As promised in MemWin.separate_dataptr, if True, disable const suffix
+        const_suffix = "c" if self._is_const and not self._separate_dataptr else ""
         base_sname = f"exo_win_{self._n_dims}{self._type_shorthand}{const_suffix}"
         mem_suffix = "" if memwin_name == "DRAM" else "_" + memwin_name
         sname = base_sname + mem_suffix
@@ -210,6 +216,9 @@ class MemWin(ABC):
         (dataptr, window_struct) rather than a combined window struct;
         the window struct only contains layout information in this case,
         and you must define this custom layout (see window(...))
+
+        In this case, the layout-only window struct is the same for both
+        const and non-const windows.
         """
         return False
 
@@ -243,7 +252,6 @@ class MemWin(ABC):
           e.g. [1:10, 42:46] -> ["1", "42"] (we don't provide the slice sizes)
 
         strides: C expressions of per-dim strides, in units of scalars. (*)
-          If basetyp.is_win() and you define a custom layout, don't use this,
           (*) consider passing vector_size to generate_offset.
 
         srcinfo: include this when throwing an exception.
@@ -299,12 +307,18 @@ class Memory(MemWin):
         return ctx.generate_default("DRAM")
 
 
-class WindowFromDenseCtx(object):
+class SpecialWindowFromMemoryCtx(object):
+    # TODO since we only give access to runtime window struct,
+    # it's currently not possible to compile-time assert stride info.
     __slots__ = [
-        "_basetyp",
-        "_baseptr",
-        "_shape_impl",
-        "_stride_impl",
+        "_src_d_type",
+        "_src_d_def",
+        "_src_w_type",
+        "_src_w_def",
+        "_dst_d_type",
+        "_dst_w_type",
+        "_tensor_type",
+        "_shape_strs",
         "_is_const",
         "_ctype",
         "_type_shorthand",
@@ -313,38 +327,66 @@ class WindowFromDenseCtx(object):
 
     def __init__(
         self,
-        basetyp,
-        baseptr,
-        shape_impl,
-        stride_impl,
+        src_d_type,
+        src_d_def,
+        src_w_type,
+        src_w_def,
+        dst_d_type,
+        dst_w_type,
+        tensor_type,
+        shape_strs,
         is_const,
         ctype,
         type_shorthand,
         srcinfo,
     ):
         """For internal use of LoopIR compiler"""
-        self._basetyp = basetyp
-        self._baseptr = baseptr
-        self._shape_impl = shape_impl
-        self._stride_impl = stride_impl
+        self._src_d_type = src_d_type
+        self._src_d_def = src_d_def
+        self._src_w_type = src_w_type
+        self._src_w_def = src_w_def
+        self._dst_d_type = dst_d_type
+        self._dst_w_type = dst_w_type
+        self._tensor_type = tensor_type
+        self._shape_strs = shape_strs
         self._is_const = is_const
         self._ctype = ctype
         self._type_shorthand = type_shorthand
         self._srcinfo = srcinfo
 
-    def basetyp(self) -> LoopIR.Tensor:
+    def src_d_type(self):
+        """C type name of source data pointer"""
+        return self._src_d_type
+
+    def src_d_def(self):
+        """C initializer for source data pointer"""
+        return self._src_d_def
+
+    def src_w_type(self):
+        """C struct name of source window struct"""
+        return self._src_w_type
+
+    def src_w_def(self):
+        """C initializer for source window struct (data pointer is included or
+        not depending on the separate_dataptr() flag of the source memory)"""
+        return self._src_w_def
+
+    def dst_d_type(self):
+        """C type name of destination data pointer (you defined this)"""
+        return self._dst_d_type
+
+    def dst_w_type(self):
+        """C struct name of destination window struct"""
+        return self._dst_w_type
+
+    def tensor_type(self) -> LoopIR.Tensor:
         """return LoopIR.Tensor type of input tensor"""
-        return self._basetyp
+        assert isinstance(self._tensor_type, LoopIR.Tensor)
+        return self._tensor_type
 
-    def baseptr(self):
-        """return C name of allocated tensor"""
-        return self._baseptr
-
-    def shape_strs(self) -> List[str]:
-        return self._shape_impl()
-
-    def stride_strs(self) -> List[str]:
-        return self._stride_impl()
+    def shape_strs(self):
+        """C strings defining dimension sizes of window"""
+        return self._shape_strs
 
     def is_const(self) -> bool:
         return self._is_const
@@ -365,17 +407,15 @@ class WindowFromDenseCtx(object):
 class SpecialWindow(MemWin):
     @classmethod
     @abstractmethod
-    def memory_type(cls) -> type:
+    def source_memory_type(cls) -> type:
         """Return memory type expected as input to window statement"""
         raise NotImplementedError()
 
     @classmethod
     @abstractmethod
-    def window_from_dense(cls, ctx: WindowFromDenseCtx):
-        """Callback for generating C code initializing a window to an entire tensor.
-
-        You may assume the input tensor is the correct memory type and is dense
-        (not is_win()).
+    def from_memory(cls, ctx: SpecialWindowFromMemoryCtx):
+        """Callback for generating C code initializing a special window
+        from a window to a tensor of the source memory type.
 
         If separate_dataptr(), return (dataptr : str, layout : str) of
         C expressions that can initialize the two respective window variables.
