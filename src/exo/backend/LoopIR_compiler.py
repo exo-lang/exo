@@ -1089,7 +1089,10 @@ class Compiler:
             if isinstance(s.loop_mode, Par):
                 self.add_line(f"#pragma omp parallel for")
             elif isinstance(s.loop_mode, Seq):
-                pass  # common case
+                unroll = s.loop_mode.pragma_unroll
+                if unroll is not None:
+                    unroll_str = f" {unroll}" if unroll > 0 else ""
+                    self.add_line(f"#pragma unroll{unroll_str}")
             elif isinstance(loop_mode, _CodegenPar):
                 # This is not valid C; if we add non-cuda backends we may have
                 # to add config options to _CodegenPar to tweak lowering syntax.
@@ -1100,7 +1103,7 @@ class Compiler:
                     conds.append(f"{itr} < {bdd}")
                 cond = "1" if not conds else " && ".join(conds)
                 self.add_line(
-                    f"if ([[mabye_unused]] int {itr} = ({loop_mode.c_index}); {cond}) {{"
+                    f"if ([[maybe_unused]] int {itr} = ({loop_mode.c_index}); {cond}) {{"
                 )
                 emit_loop = False
             else:
