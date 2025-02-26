@@ -1,21 +1,12 @@
 from typing import Optional, Set
 
-from ..core.prelude import SrcInfo
-from . import actor_kinds
-
 
 class LoopMode(object):
-    is_par = False
-    allowed_actor_kinds = set()
-
     def loop_mode_name(self):
         raise NotImplementedError()
 
 
 class Seq(LoopMode):
-    is_par = False
-    allowed_actor_kinds = actor_kinds.any_actor_kind
-
     __slots__ = ["pragma_unroll"]
 
     def __init__(self, pragma_unroll=None):
@@ -30,9 +21,6 @@ seq = Seq()
 
 
 class Par(LoopMode):
-    is_par = True
-    allowed_actor_kinds = {actor_kinds.cpu}
-
     def __init__(self):
         pass
 
@@ -48,8 +36,6 @@ class _CodegenPar(LoopMode):
 
     Contains a C string for the "index expression" (e.g. "threadIdx.x / 32")
     and optional bounds"""
-
-    is_par = True
 
     __slots__ = ["c_index", "static_bounds"]
 
@@ -73,9 +59,6 @@ class _CodegenPar(LoopMode):
 
 
 class CudaTasks(LoopMode):
-    is_par = True
-    allowed_actor_kinds = {actor_kinds.cuda_sync}
-
     __slots__ = []
 
     def __init__(self):
@@ -89,9 +72,6 @@ cuda_tasks = CudaTasks()
 
 
 class CudaThreads(LoopMode):
-    is_par = True
-    allowed_actor_kinds = {actor_kinds.cuda_sync}
-
     __slots__ = []
 
     def __init__(self):
