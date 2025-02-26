@@ -264,6 +264,8 @@ class CollTiling(object):
         return self.hash
 
     def tiled(self, unit: CollUnit, env: Dict[CollParam, int]):
+        advice = CollLoweringAdvice()
+
         # Translate unit domain and tiling to concrete integers
         unit_partial_domain = unit.int_partial_domain(env)
         unit_tile = unit.int_tile(env)
@@ -304,23 +306,36 @@ class CollTiling(object):
                 tile_count = box_coord // unit_tile_coord
                 tile_remainder = box_coord % unit_tile_coord
                 new_tile[dim_idx] = unit_tile_coord
+
+                advice.coll_index = new_exprs[dim_idx] // unit_tile_coord
                 new_exprs[dim_idx] = new_exprs[dim_idx] % unit_tile_coord
+
+                advice.hi = None if tile_remainder == 0 else tile_count
+
+        if tiled_dim_idx is None:
+            advice.coll_index = CollIndexExpr(0)
 
         new_parent = self
         new_offset = (0,) * len(common_domain)
         new_tile = tuple(new_tile)
         new_box = new_tile
 
-        return CollTiling(
-            new_parent,
-            common_domain,
-            new_tile,
-            new_offset,
-            new_box,
-            new_exprs,
+        return (
+            CollTiling(
+                new_parent,
+                common_domain,
+                new_tile,
+                new_offset,
+                new_box,
+                new_exprs,
+            ),
+            advice,
+            tile_count,
         )
 
     def specialized(self, unit: CollUnit, lo: int, hi: int, env: Dict[CollParam, int]):
+        advice = CollLoweringAdvice()
+
         # Translate unit domain and tiling to concrete integers
         unit_partial_domain = unit.int_partial_domain(env)
         unit_tile = unit.int_tile(env)
@@ -357,10 +372,11 @@ class CollTiling(object):
                 and unit_tile_coord != common_tile_coord
             ):
                 tile_count = common_tile_coord // unit_tile_coord
+                tile_remainder = common_tile_coord % unit_tile_coord
 
                 # TODO messages
                 assert tiled_dim_idx is None
-                assert hi - lo <= tile_count
+                assert 0 <= lo <= hi <= tile_count
                 assert new_box[dim_idx] == common_tile[dim_idx]
 
                 tiled_dim_idx = dim_idx
@@ -369,19 +385,50 @@ class CollTiling(object):
                 new_offset[dim_idx] = lo * stride
                 new_box[dim_idx] = (hi - lo) * stride
 
+                advice.coll_index = new_exprs[dim_idx]
+                if lo != 0:
+                    advice.lo = lo * unit_tile_coord
+                if hi != tile_count or tile_remainder != 0:
+                    advice.hi = hi * unit_tile_coord
+
         if tiled_dim_idx is None:
+            advice.coll_index = CollIndexExpr(0)
             assert (lo, hi) == (0, 1)  # TODO message
 
         new_parent = self.parent
 
-        return CollTiling(
-            new_parent,
-            common_domain,
-            common_tile,
-            new_offset,
-            new_box,
-            new_exprs,
+        return (
+            CollTiling(
+                new_parent,
+                common_domain,
+                common_tile,
+                new_offset,
+                new_box,
+                new_exprs,
+            ),
+            advice,
         )
+
+
+class CollLoweringAdvice(object):
+    """Advice for lowering a collective tiling or specialization
+
+    Translate the coll_index to C code, and test
+    coll_index >= lo  [skip if lo is None]
+    coll_index < hi [skip if hi is None]"""
+
+    __slots__ = ["coll_index", "lo", "hi"]
+    coll_index: CollIndexExpr
+    lo: Optional[int]
+    hi: Optional[int]
+
+    def __init__(self, coll_index=None, lo=None, hi=None):
+        self.coll_index = coll_index
+        self.lo = lo
+        self.hi = hi
+
+    def __repr__(self):
+        return f"CollLoweringAdvice({self.coll_index}, {self.lo}, {self.hi})"
 
 
 class DomainCompletionOp(object):
