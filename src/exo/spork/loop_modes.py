@@ -16,6 +16,8 @@ class Seq(LoopMode):
     is_par = False
     allowed_actor_kinds = actor_kinds.any_actor_kind
 
+    __slots__ = ["pragma_unroll"]
+
     def __init__(self, pragma_unroll=None):
         self.pragma_unroll = pragma_unroll
         assert pragma_unroll is None or isinstance(pragma_unroll, int)
@@ -49,6 +51,8 @@ class _CodegenPar(LoopMode):
 
     is_par = True
 
+    __slots__ = ["c_index", "static_bounds"]
+
     def __init__(self, c_index, static_bounds):
         # Compiled C string giving index of parallel loop "iteration"
         self.c_index = c_index
@@ -72,6 +76,8 @@ class CudaTasks(LoopMode):
     is_par = True
     allowed_actor_kinds = {actor_kinds.cuda_sync}
 
+    __slots__ = []
+
     def __init__(self):
         pass
 
@@ -85,6 +91,8 @@ cuda_tasks = CudaTasks()
 class CudaThreads(LoopMode):
     is_par = True
     allowed_actor_kinds = {actor_kinds.cuda_sync}
+
+    __slots__ = []
 
     def __init__(self):
         pass
@@ -112,7 +120,7 @@ loop_mode_dict = make_loop_mode_dict()
 
 def format_loop_cond(lo_str: str, hi_str: str, loop_mode: LoopMode):
     strings = [loop_mode.loop_mode_name(), "(", lo_str, ",", hi_str]
-    for attr in loop_mode.__dict__:
+    for attr in loop_mode.__slots__:
         value = getattr(loop_mode, attr)
         if value is None and isinstance(loop_mode, Seq):
             # Avoid adding pragma_unroll=None for every seq(...)
