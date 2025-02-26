@@ -263,7 +263,7 @@ class CollTiling(object):
     def __hash__(self):
         return self.hash
 
-    def tiled(self, unit: CollUnit, env: Dict[CollParam, int]):
+    def tiled(self, unit: CollUnit, tiles_needed: int, env: Dict[CollParam, int]):
         advice = CollLoweringAdvice()
 
         # Translate unit domain and tiling to concrete integers
@@ -287,7 +287,7 @@ class CollTiling(object):
 
         # Tiling will be the same as the box dimension of the parent
         # except along the dimension being tiled.
-        # Count tiles and update tmp_tile size
+        # Count tiles; we will check against tiles_needed later.
         # Must only have change (tiling) on up to one dimension
         tiled_dim_idx = None
         tile_count = 1
@@ -310,10 +310,13 @@ class CollTiling(object):
                 advice.coll_index = new_exprs[dim_idx] // unit_tile_coord
                 new_exprs[dim_idx] = new_exprs[dim_idx] % unit_tile_coord
 
-                advice.hi = None if tile_remainder == 0 else tile_count
+                if tile_remainder != 0 or tile_count != tiles_needed:
+                    advice.hi = tiles_needed
 
         if tiled_dim_idx is None:
             advice.coll_index = CollIndexExpr(0)
+
+        assert tile_count >= tiles_needed  # TODO message
 
         new_parent = self
         new_offset = (0,) * len(common_domain)
@@ -330,7 +333,6 @@ class CollTiling(object):
                 new_exprs,
             ),
             advice,
-            tile_count,
         )
 
     def specialized(self, unit: CollUnit, lo: int, hi: int, env: Dict[CollParam, int]):
