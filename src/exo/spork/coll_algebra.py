@@ -79,18 +79,44 @@ def int_size_tuple(tup: Tuple[CollSizeExpr], env: Dict[CollParam, int]):
 
 
 class CollUnit(object):
-    __slots__ = ["partial_domain", "tile"]
+    __slots__ = ["partial_domain", "tile", "name", "scaled_dim_idx", "repr_scale"]
 
     partial_domain: Tuple[CollSizeExpr]
     tile: Tuple[CollSizeExpr]
+    name: str
+    scaled_dim_idx: Optional[int]
+    repr_scale: int
 
-    def __init__(self, partial_domain, tile):
+    def __init__(self, partial_domain, tile, name, scaled_dim_idx):
         assert len(partial_domain) == len(tile)
         self.partial_domain = coll_size_tuple(partial_domain)
         self.tile = coll_size_tuple(tile)
+        self.name = name
+        self.scaled_dim_idx = scaled_dim_idx
+        self.repr_scale = 1
+        assert scaled_dim_idx is None or scaled_dim_idx < len(tile)
+
+    def scaled(self, scale):
+        assert isinstance(scale, int)
+        i_scale = self.scaled_dim_idx
+        if i_scale is None:
+            raise ValueError(f"{self.name} cannot be scaled")
+
+        new_tile = [n * scale if i == i_scale else n for i, n in enumerate(self.tile)]
+        res = CollUnit(self.partial_domain, new_tile, self.name, i_scale)
+        res.repr_scale = self.repr_scale * scale
+        return res
+
+    def __mul__(self, scale):
+        return self.scaled(scale)
+
+    def __rmul__(self, scale):
+        return self.scaled(scale)
 
     def __repr__(self):
-        return f"CollUnit({self.partial_domain}, {self.tile})"
+        nm = self.name
+        scale = self.repr_scale
+        return nm if scale == 1 else f"{scale} * {nm}"
 
     def int_partial_domain(self, env: Dict[CollParam, int]):
         return int_size_tuple(self.partial_domain, env)
