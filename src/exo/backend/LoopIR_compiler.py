@@ -27,7 +27,7 @@ from ..core.prelude import *
 from .win_analysis import WindowAnalysis
 from ..rewrite.range_analysis import IndexRangeEnvironment
 
-from ..spork.async_config import BaseAsyncConfig
+from ..spork.async_config import BaseAsyncConfig, CudaDeviceFunction
 from ..spork.base_with_context import (
     BaseWithContext,
     is_if_holding_with,
@@ -35,6 +35,8 @@ from ..spork.base_with_context import (
 )
 from ..spork.loop_modes import LoopMode, Seq, Par, _CodegenPar
 from ..spork import actor_kinds
+from ..spork.cuda_backend import loopir_lower_cuda, h_snippet_for_cuda
+from ..spork.spork_lowering_ctx import SporkLoweringCtx
 
 
 def sanitize_str(s):
@@ -333,8 +335,8 @@ def run_compile(proc_list, file_stem: str):
             return ""
 
     source = f"""#include "{file_stem}.h"
-{join_ext_lines("c")}
-{body}"""
+{body}
+{join_ext_lines("c")}"""
 
     header_guard = f"{lib_name}_H".upper()
     header = f"""
@@ -345,8 +347,8 @@ def run_compile(proc_list, file_stem: str):
 #ifdef __cplusplus
 extern "C" {{
 #endif
-{join_ext_lines("h")}
 {fwd_decls}
+{join_ext_lines("h")}
 
 #ifdef __cplusplus
 }}
@@ -404,6 +406,7 @@ def ext_compile_to_strings(lib_name, proc_list):
     ctxt_name, ctxt_def = _compile_context_struct(find_all_configs(proc_list), lib_name)
     window_struct_cache = WindowStructCache()
     public_fwd_decls = []
+    used_cuda = False
 
     # Body contents
     private_fwd_decls = []
@@ -447,6 +450,7 @@ def ext_compile_to_strings(lib_name, proc_list):
             )
             d, b = comp.comp_top()
             needed_helpers |= comp.needed_helpers()
+            used_cuda |= comp.used_cuda()
 
             if is_public_decl:
                 public_fwd_decls.append(d)
@@ -468,6 +472,7 @@ def ext_compile_to_strings(lib_name, proc_list):
     header_contents = f"""
 #include <stdint.h>
 #include <stdbool.h>
+{h_snippet_for_cuda if used_cuda else ""}\
 
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
@@ -591,6 +596,7 @@ class Compiler:
         self._needed_helpers = set()
         self.window_struct_cache = window_struct_cache
         self._known_strides = {}
+        self._cuda_kernel_count = 0
 
         # Additional lines for each file extension
         # Since Exo was originally written for only .c and .h files,
@@ -745,6 +751,9 @@ class Compiler:
 
     def needed_helpers(self):
         return self._needed_helpers
+
+    def used_cuda(self):
+        return self._cuda_kernel_count != 0
 
     def new_varname(self, symbol, typ, mem=None):
         strnm = str(symbol)
@@ -1030,9 +1039,10 @@ class Compiler:
             if isinstance(ctx, ExtWithContext):
                 # Reset indentation and redirect text lines for compiled subtree
                 # to new location (per-file-extension lines dict).
+                # We defer this so that nested ExtWithContext works.
                 old_lines = self._lines
                 old_tab = self._tab
-                self._lines = self._ext_lines.setdefault(ctx.body_ext, [])
+                self._lines = []
                 self._tab = ""
 
                 # Add code snippets
@@ -1047,6 +1057,9 @@ class Compiler:
                 self._tab = ""
                 self.add_line(ctx.body_suffix)
 
+                # Deferred extension of lines dict
+                self._ext_lines.setdefault(ctx.body_ext, []).extend(self._lines)
+
                 # Restore old lines list and indentation
                 self._tab = old_tab
                 self._lines = old_lines
@@ -1054,6 +1067,12 @@ class Compiler:
                 # Add kernel launch syntax
                 self.add_line(ctx.launch)
 
+            elif isinstance(ctx, CudaDeviceFunction):
+                spork_ctx = SporkLoweringCtx(self.proc.name, self._cuda_kernel_count)
+                lowered = loopir_lower_cuda(s, spork_ctx)
+                # print(lowered)
+                self.comp_s(lowered)
+                self._cuda_kernel_count += 1
             else:
                 raise TypeError(f"Unknown with stmt context type {type(ctx)}")
 

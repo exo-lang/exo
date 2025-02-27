@@ -90,6 +90,9 @@ cuda_all = ActorKind(
     },
 )
 
+"""All actions on both the CPU and the CUDA device"""
+cpu_cuda_all = ActorKind("cpu_cuda_all", True, cuda_all.signatures | {sig_cpu})
+
 """Typical CUDA instructions that operate on the generic proxy
 and follow the typical per-thread in-order execution abstraction"""
 cuda_sync = ActorKind("cuda_sync", True, {sig_cuda_sync})
@@ -146,6 +149,7 @@ actor_kind_dict = {
     for actor_kind in [
         cpu,
         cuda_all,
+        cpu_cuda_all,
         cuda_sync,
         non_bulk_cp_async,
         cuda_generic,
