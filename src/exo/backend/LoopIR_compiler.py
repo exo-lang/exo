@@ -36,7 +36,6 @@ from ..spork.base_with_context import (
 from ..spork.loop_modes import LoopMode, Seq, Par, _CodegenPar
 from ..spork import actor_kinds
 from ..spork.cuda_backend import loopir_lower_cuda, h_snippet_for_cuda
-from ..spork.spork_lowering_ctx import SporkLoweringCtx
 
 
 def sanitize_str(s):
@@ -334,9 +333,10 @@ def run_compile(proc_list, file_stem: str):
         else:
             return ""
 
-    source = f"""#include "{file_stem}.h"
-{body}
-{join_ext_lines("c")}"""
+    source = f'#include "{file_stem}.h"\n\n{body}'
+    c_ext_lines = join_ext_lines("c")
+    if c_ext_lines:
+        source = f"{source}\n{c_ext_lines}\n"
 
     header_guard = f"{lib_name}_H".upper()
     header = f"""
@@ -347,9 +347,9 @@ def run_compile(proc_list, file_stem: str):
 #ifdef __cplusplus
 extern "C" {{
 #endif
+
 {fwd_decls}
 {join_ext_lines("h")}
-
 #ifdef __cplusplus
 }}
 #endif
@@ -586,6 +586,7 @@ class Compiler:
         self.proc = proc
         self.ctxt_name = ctxt_name
         self.env = ChainMap()
+        self.force_names = dict()  # For ExtWithContext.force_names
         self.range_env = IndexRangeEnvironment(proc, fast=False)
         self.names = ChainMap()
         self.envtyp = dict()
@@ -613,7 +614,9 @@ class Compiler:
         self.new_varname(Sym("ctxt"), None)
         arg_strs.append(f"{ctxt_name} *ctxt")
 
-        self.non_const = set(e for e, _ in get_writes_of_stmts(self.proc.body))
+        # See self.is_const
+        self.global_non_const = set(e for e, _ in get_writes_of_stmts(self.proc.body))
+        self.force_const = set()  # For ExtWithContext.force_const
 
         for a in proc.args:
             mem = a.mem if a.type.is_numeric() else None
@@ -666,7 +669,17 @@ class Compiler:
         self.proc_decl = proc_decl
         self.proc_def = proc_def
 
-    def append_fnarg_decl(self, a: LoopIR.fnarg, name_arg: str, arg_strs, typ_comments):
+    def is_const(self, sym: Sym):
+        assert isinstance(sym, Sym)
+        return sym not in self.global_non_const or sym in self.force_const
+
+    def append_fnarg_decl(
+        self,
+        a: LoopIR.fnarg,
+        name_arg: str,
+        arg_strs: List[str],
+        typ_comments: List[str],
+    ):
         """Compile a LoopIR.fnarg to C function argument declaration(s).
 
         Appends function arguments (e.g. `int* foo`) and type comments
@@ -683,7 +696,7 @@ class Compiler:
         else:
             assert a.type.is_numeric()
             assert a.type.basetype() != T.R
-            is_const = a.name not in self.non_const
+            is_const = self.is_const(a.name)
             if a.type.is_real_scalar():
                 arg_strs.append(
                     f"{'const ' if is_const else ''}{a.type.ctype()}* {name_arg}"
@@ -762,7 +775,9 @@ class Compiler:
         if strnm.lower().startswith("exo_"):
             strnm = "exo_user_" + strnm
 
-        if strnm not in self.names:
+        if forced_name := self.force_names.get(symbol):
+            strnm = forced_name
+        elif strnm not in self.names:
             pass
         else:
             s = self.names[strnm]
@@ -915,12 +930,12 @@ class Compiler:
             base = typ.as_tensor.basetype()
             n_dims = len(typ.as_tensor.shape())
             if is_const is None:
-                is_const = typ.src_buf not in self.non_const
+                is_const = self.is_const(typ.src_buf)
         else:
             base = typ.type.basetype()
             n_dims = len(typ.shape())
             if is_const is None:
-                is_const = node.name not in self.non_const
+                is_const = self.is_const(node.name)
 
         return self.window_struct_cache.get(
             mem, base, n_dims, is_const, node.srcinfo, emit_definition
@@ -1037,9 +1052,33 @@ class Compiler:
         elif is_if_holding_with(s, LoopIR):  # must be before .If case
             ctx = s.cond.val
             if isinstance(ctx, ExtWithContext):
+                # Modify Sym state as specified by ExtWithContext.
+                # Please read the comment in ExtWithContext and ensure it's
+                # correct ... in particular handling nested ExtWithContexts.
+                self.push()
+                old_force_names = self.force_names
+                old_force_const = self.force_const
+                old_scalar_refs = self._scalar_refs
+                for nm in ctx.reserved_names:
+                    # TODO We can prevent using the reserved name inside, but
+                    # we don't retroactively undo its usage outside.
+                    self.names[nm] = nm
+                self.force_names = dict(old_force_names)
+                for sym, nm in ctx.force_names.items():
+                    if nm in self.names and self.force_names.get(sym) != nm:
+                        raise ValueError(
+                            f"{s.srcinfo}: internal compiler error: name collision {nm}"
+                        )
+                    self.names[nm] = nm
+                    self.force_names[sym] = nm
+                    if sym in self.env:
+                        self.env[sym] = nm
+                self.force_const = old_force_const | ctx.force_const
+                self._scalar_refs = ctx.scalar_refs  # ignore old scalar_refs
+
                 # Reset indentation and redirect text lines for compiled subtree
-                # to new location (per-file-extension lines dict).
-                # We defer this so that nested ExtWithContext works.
+                # to new location (per-file-extension lines dict). We defer
+                # extending the list so that nested ExtWithContext works.
                 old_lines = self._lines
                 old_tab = self._tab
                 self._lines = []
@@ -1060,6 +1099,12 @@ class Compiler:
                 # Deferred extension of lines dict
                 self._ext_lines.setdefault(ctx.body_ext, []).extend(self._lines)
 
+                # Restore Sym state
+                self._scalar_refs = old_scalar_refs
+                self.force_const = old_force_const
+                self.force_names = old_force_names
+                self.pop()  # Rolls back reserved names
+
                 # Restore old lines list and indentation
                 self._tab = old_tab
                 self._lines = old_lines
@@ -1068,11 +1113,14 @@ class Compiler:
                 self.add_line(ctx.launch)
 
             elif isinstance(ctx, CudaDeviceFunction):
-                spork_ctx = SporkLoweringCtx(self.proc.name, self._cuda_kernel_count)
+                spork_ctx = SporkLoweringCtx(
+                    self.proc.name, self._cuda_kernel_count, self
+                )
                 lowered = loopir_lower_cuda(s, spork_ctx)
                 # print(lowered)
                 self.comp_s(lowered)
                 self._cuda_kernel_count += 1
+
             else:
                 raise TypeError(f"Unknown with stmt context type {type(ctx)}")
 
@@ -1212,7 +1260,7 @@ class Compiler:
         else:
             assert False, "bad case"
 
-    def comp_fnarg(self, e, fn, i, *, prec=0):
+    def comp_fnarg(self, e, fn, i, *, prec=0, callee_force_pass_by_value=False):
         """Returns (c_args : tuple,
                     instr_data : Optional[str],
                     instr_layout : Optional[str])
@@ -1226,7 +1274,19 @@ class Compiler:
 
         instr_layout is similar, passed as {arg_name}_layout.
         This is an untyped initializer for the window layout (e.g. strides).
+
+        We assume that all scalar values are passed by pointer,
+        unless callee_force_pass_by_value is True.
         """
+        assert isinstance(fn, LoopIR.proc)
+        mem = fn.args[i].mem
+        is_const = None
+        if isinstance(e, LoopIR.WindowExpr):
+            callee_buf = fn.args[i].name
+            is_const = callee_buf not in set(x for x, _ in get_writes_of_stmts(fn.body))
+        return self.comp_fnarg_impl(e, mem, is_const, prec, callee_force_pass_by_value)
+
+    def comp_fnarg_impl(self, e, mem, is_const, prec, callee_force_pass_by_value):
         if isinstance(e, LoopIR.Read):
             assert not e.idx
             rtyp = self.envtyp[e.name]
@@ -1237,10 +1297,10 @@ class Compiler:
             elif rtyp is T.stride:
                 return (self.env[e.name],), None, None
             elif e.name in self._scalar_refs:
-                return (self.env[e.name],), None, None
+                star = "*" if callee_force_pass_by_value else ""
+                return (f"{star}{self.env[e.name]}",), None, None
             elif rtyp.is_tensor_or_window():
                 c_window = self.env[e.name]
-                mem = fn.args[i].mem
                 if mem and mem.separate_dataptr():
                     # This data path is exercised for calling normal
                     # functions, but the omitted instr_data is only
@@ -1251,17 +1311,12 @@ class Compiler:
                     return (c_window,), None, None
             else:
                 assert rtyp.is_real_scalar()
-                return (f"&{self.env[e.name]}",), None, None
+                amp = "" if callee_force_pass_by_value else "&"
+                return (f"{amp}{self.env[e.name]}",), None, None
         elif isinstance(e, LoopIR.WindowExpr):
-            if isinstance(fn, LoopIR.proc):
-                callee_buf = fn.args[i].name
-                is_const = callee_buf not in set(
-                    x for x, _ in get_writes_of_stmts(fn.body)
-                )
-            else:
-                raise NotImplementedError("Passing windows to externs")
+            assert is_const is not None
             _, w_def, _, d_def, layout, separate_dataptr = self.unpack_window_expr(
-                e, self.mems[e.name], is_const
+                e, mem, is_const
             )
             if separate_dataptr:
                 return (d_def, w_def), d_def, layout
@@ -1526,3 +1581,64 @@ class WindowStructCache(object):
                 lst = h_definitions if sname in header_snames else c_definitions
                 lst.append(struct.definition)
         return h_definitions, c_definitions
+
+
+class SporkLoweringCtx(object):
+    """Communication object between main LoopIR compiler and Spork backend.
+
+    The task of the spork backend is to transform a subtree of LoopIR
+    to a new subtree of LoopIR that the main compiler is able to
+    understand.  Usually, the backend will return a tree rooted with
+    an ExtWithContext to redirect the generated subtree C-like code to
+    separate files for accelerator code (e.g. .cuh or .cu code for
+    cuda).
+
+    """
+
+    __slots__ = [
+        "_proc_name",
+        "_kernel_index",
+        "_compiler",
+    ]
+
+    def __init__(self, proc_name, kernel_index, compiler):
+        self._proc_name = proc_name
+        self._kernel_index = kernel_index
+        self._compiler = compiler
+
+    def proc_name(self):
+        return self._proc_name
+
+    def kernel_index(self):
+        return self._kernel_index
+
+    def sym_c_name(self, sym: Sym):
+        assert isinstance(sym, Sym)
+        return self.compiler.env[sym]
+
+    def sym_type(self, sym: Sym):
+        assert isinstance(sym, Sym)
+        return self.compiler.envtyp[sym]
+
+    def sym_is_scalar_ref(self, sym: Sym):
+        assert isinstance(sym, Sym)
+        sym in self.compiler._scalar_refs
+
+    def is_const(self, sym: Sym):
+        assert isinstance(sym, Sym)
+        return self.compiler.is_const(sym)
+
+    def append_fnarg_decl(
+        self,
+        a: LoopIR.fnarg,
+        name_arg: str,
+        arg_strs: List[str],
+        typ_comments: List[str],
+    ):
+        return self._compiler.append_fnarg_decl(a, name_arg, arg_strs, typ_comments)
+
+    def fnarg_value(e, is_const, callee_force_pass_by_value):
+        mem = self.compiler.mems[e]
+        return self.compiler.comp_fnarg_impl(
+            e, mem, is_const, 0, callee_force_pass_by_value
+        )[0]

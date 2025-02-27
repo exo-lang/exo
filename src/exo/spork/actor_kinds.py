@@ -18,7 +18,7 @@ class ActorSignature(object):
 
 
 sig_cpu = ActorSignature("sig_cpu")
-sig_cuda_sync = ActorSignature("sig_cuda_sync")
+sig_cuda_classic = ActorSignature("sig_cuda_classic")
 sig_non_bulk_cp_async = ActorSignature("sig_non_bulk_cp_async")
 sig_tma_to_smem = ActorSignature("sig_tma_to_smem")
 sig_tma_to_gmem = ActorSignature("sig_tma_to_gmem")
@@ -69,18 +69,20 @@ class ActorKind(object):
         return bool(self.signatures)
 
 
-"""No instructions; internal use only"""
-_null_actor = ActorKind("_null_actor", False, set())
-
 """Host CPU instructions"""
 cpu = ActorKind("cpu", True, {sig_cpu})
 
-"""All actions on the CUDA device"""
-cuda_all = ActorKind(
-    "cuda_all",
+"""All actions on the CUDA device
+
+So-named because everything in CUDA participates in "API synchronization",
+or the implicit ordering between actions done by different API calls
+(cudaMemcpyAsync, kernel launch, etc.) on the same stream.
+"""
+cuda_api = ActorKind(
+    "cuda_api",
     True,
     {
-        sig_cuda_sync,
+        sig_cuda_classic,
         sig_non_bulk_cp_async,
         sig_tma_to_smem,
         sig_tma_to_gmem,
@@ -91,17 +93,19 @@ cuda_all = ActorKind(
 )
 
 """All actions on both the CPU and the CUDA device"""
-cpu_cuda_all = ActorKind("cpu_cuda_all", True, cuda_all.signatures | {sig_cpu})
+cpu_cuda_api = ActorKind("cpu_cuda_api", True, cuda_api.signatures | {sig_cpu})
 
-"""Typical CUDA instructions that operate on the generic proxy
+"""Classic CUDA instructions that operate on the generic proxy
 and follow the typical per-thread in-order execution abstraction"""
-cuda_sync = ActorKind("cuda_sync", True, {sig_cuda_sync})
+cuda_classic = ActorKind("cuda_classic", True, {sig_cuda_classic})
 
 """Ampere cp.async instructions"""
 non_bulk_cp_async = ActorKind("non_bulk_cp_async", False, {sig_non_bulk_cp_async})
 
 """CUDA generic proxy (sync and async instructions)"""
-cuda_generic = ActorKind("cuda_generic", False, {sig_cuda_sync, sig_non_bulk_cp_async})
+cuda_generic = ActorKind(
+    "cuda_generic", False, {sig_cuda_classic, sig_non_bulk_cp_async}
+)
 
 """CUDA async proxy (TMA and wgmma, excluding register access)"""
 cuda_async_proxy = ActorKind(
@@ -132,7 +136,7 @@ this is the first actor kind of wgmma.fence"""
 wgmma_fence_1 = ActorKind(
     "wgmma_fence_1",
     False,
-    {sig_cuda_sync, sig_wgmma_rmem_a, sig_wgmma_rmem_d},
+    {sig_cuda_classic, sig_wgmma_rmem_a, sig_wgmma_rmem_d},
 )
 
 """wgmma instructions' actions on registers;
@@ -143,14 +147,13 @@ wgmma_fence_2 = ActorKind(
     {sig_wgmma_rmem_a, sig_wgmma_rmem_d},
 )
 
-# _null_actor excluded
 actor_kind_dict = {
     actor_kind.name: actor_kind
     for actor_kind in [
         cpu,
-        cuda_all,
-        cpu_cuda_all,
-        cuda_sync,
+        cuda_api,
+        cpu_cuda_api,
+        cuda_classic,
         non_bulk_cp_async,
         cuda_generic,
         tma_to_smem_async,
