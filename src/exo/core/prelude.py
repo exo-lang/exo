@@ -55,6 +55,9 @@ class Sym:
     def copy(self):
         return Sym(self._nm)
 
+    def id_number(self):
+        return self._id
+
 
 # from a github gist by victorlei
 def extclass(cls):

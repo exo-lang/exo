@@ -18,6 +18,12 @@ reserved_names = {"gridDim", "blockDim", "blockIdx", "threadIdx"}
 
 
 def loopir_lower_cuda(s, ctx: SporkLoweringCtx):
+    """Top level function to call.
+
+    Transforms with-statement node holding CudaDeviceFunction to
+    with-statement node holding ExtWithContext, ready for final
+    code lowering with the main LoopIR-to-C compiler.
+    """
     scan = SubtreeScan(s, ctx)
     return SubtreeRewrite(s, scan, ctx).result()
 
@@ -30,6 +36,8 @@ class SubtreeScan(LoopIR_Do):
         "fmt_dict",
         "task_loop_depth",
         "task_iter_syms",
+        "device_args_syms",
+        "_syms_seen",
     ]
 
     sym_advice: Dict[Sym, object]
@@ -38,6 +46,7 @@ class SubtreeScan(LoopIR_Do):
     fmt_dict: Dict
     task_loop_depth: int
     task_iter_syms: List[Sym]
+    _syms_seen: Set[Sym]
 
     def __init__(self, s, ctx: SporkLoweringCtx):
         assert is_if_holding_with(s, LoopIR)
@@ -53,12 +62,7 @@ class SubtreeScan(LoopIR_Do):
             "gridDim": "48",  # TODO
             "blockDim": self.blockDim,
             "clusterDim": self.clusterDim,
-            "device_args": "M, N, K, A, B, C",  # TODO
             "smem_bytes": 0,  # TODO
-            "device_struct_body": """  int_fast32_t M, N, K;
-  const float* A;
-  const float* B;
-  float* C;""",  # TODO
         }
 
         # Validate top-level form of cuda kernel
@@ -120,9 +124,60 @@ class SubtreeScan(LoopIR_Do):
         self.fmt_dict["task_args"] = ", ".join(
             "exo_task_" + str(sym) for sym in self.task_iter_syms
         )
-        self.fmt_dict["task_struct_decls"] = "\n".join(
+        self.fmt_dict["task_struct_body"] = "\n".join(
             f"    int_fast32_t {str(sym)};" for sym in self.task_iter_syms
         )
+
+        # Scan the subtree
+        self._syms_seen = set()
+        self.do_stmts(s.body)
+
+        # Prepare the device args struct
+        # These are all the syms that appear in the subtree that were
+        # defined by the outside (CPU function) environment.
+        self.device_args_syms = []
+        for sym in self._syms_seen:
+            try:
+                cpu_nm = ctx.sym_c_name(sym)
+            except KeyError:
+                continue
+            self.device_args_syms.append(sym)
+        self.device_args_syms.sort(key=lambda s: s.id_number())
+
+        device_args_values = []
+        for sym in self.device_args_syms:
+            # TODO grid constant parameters must be const, pass by value.
+            e = LoopIR.Read(sym, [], ctx.sym_type(sym), s.srcinfo)
+            device_args_values.extend(ctx.fnarg_values(e, ctx.is_const(sym), False))
+        self.fmt_dict["device_args"] = ", ".join(device_args_values)
+
+        device_args_decls = []
+        device_args_comments = []
+        for sym in self.device_args_syms:
+            # We don't mangle syms in the device args struct
+            # They will appear as exo_deviceArgs.{str(sym)} in CUDA code.
+            # TODO grid constant scalars must be pass-by-value
+            mem = ctx.sym_mem(sym)
+            fnarg = LoopIR.fnarg(sym, ctx.sym_type(sym), mem, s.srcinfo)
+            ctx.append_fnarg_decl(
+                fnarg, str(sym), device_args_decls, device_args_comments
+            )
+        device_args_struct_lines = []
+        for i in range(len(device_args_decls)):
+            device_args_struct_lines.append(
+                f"    {device_args_decls[i]};  // {device_args_comments[i]}"
+            )
+        self.fmt_dict["device_args_struct_body"] = "\n".join(device_args_struct_lines)
+
+    def do_s(self, s):
+        super().do_s(s)
+        if hasattr(s, "name"):
+            self._syms_seen.add(s.name)
+
+    def do_e(self, e):
+        super().do_e(e)
+        if hasattr(e, "name"):
+            self._syms_seen.add(e.name)
 
 
 class SubtreeRewrite(LoopIR_Rewrite):
@@ -144,12 +199,10 @@ class SubtreeRewrite(LoopIR_Rewrite):
         for sym in scan.task_iter_syms:
             main_loop_force_names[sym] = "exo_task_" + str(sym)
             task_force_names[sym] = "exo_task." + str(sym)
-        # TODO don't hard-wire
-        for sym in ctx._compiler.env:
-            if str(sym) in "MNKABC":
-                new_name = "exo_deviceArgs." + str(sym)
-                main_loop_force_names[sym] = new_name
-                task_force_names[sym] = new_name
+        for sym in scan.device_args_syms:
+            new_name = "exo_deviceArgs." + str(sym)
+            main_loop_force_names[sym] = new_name
+            task_force_names[sym] = new_name
 
         # ExtWithContext objects for diverting lowered code into
         # exo_deviceMainLoop() and exo_deviceTask(), respectively.
@@ -233,7 +286,7 @@ static const cudaStream_t exo_cudaStream = 0;
 h_snippet_fmt = """\
 struct exo_CudaDeviceArgs{N}_{proc}
 {{
-{device_struct_body}
+{device_args_struct_body}
 }};
 
 #ifdef __CUDACC__
@@ -254,7 +307,7 @@ struct exo_Cuda{N}_{proc}
 
   struct exo_Task
   {{
-{task_struct_decls}
+{task_struct_body}
   }};
 
   static void

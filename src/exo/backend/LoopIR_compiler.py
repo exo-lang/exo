@@ -679,6 +679,8 @@ class Compiler:
         name_arg: str,
         arg_strs: List[str],
         typ_comments: List[str],
+        *,
+        force_pass_by_value=False,
     ):
         """Compile a LoopIR.fnarg to C function argument declaration(s).
 
@@ -698,9 +700,12 @@ class Compiler:
             assert a.type.basetype() != T.R
             is_const = self.is_const(a.name)
             if a.type.is_real_scalar():
-                arg_strs.append(
-                    f"{'const ' if is_const else ''}{a.type.ctype()}* {name_arg}"
-                )
+                if force_pass_by_value:
+                    arg_strs.append(f"{a.type.ctype()} {name_arg}")
+                else:
+                    arg_strs.append(
+                        f"{'const ' if is_const else ''}{a.type.ctype()}* {name_arg}"
+                    )
             else:
                 assert a.type.is_tensor_or_window()
                 window_struct = self.get_window_struct(
@@ -709,6 +714,7 @@ class Compiler:
                 if a.type.is_win():
                     if window_struct.separate_dataptr:
                         arg_strs.append(f"{window_struct.dataptr} exo_data_{name_arg}")
+                        typ_comments.append("    (Separate window data pointer)")
                     arg_strs.append(f"struct {window_struct.name} {name_arg}")
                 else:
                     arg_strs.append(f"{window_struct.dataptr} {name_arg}")
@@ -1260,7 +1266,7 @@ class Compiler:
         else:
             assert False, "bad case"
 
-    def comp_fnarg(self, e, fn, i, *, prec=0, callee_force_pass_by_value=False):
+    def comp_fnarg(self, e, fn, i, *, prec=0, force_pass_by_value=False):
         """Returns (c_args : tuple,
                     instr_data : Optional[str],
                     instr_layout : Optional[str])
@@ -1276,7 +1282,7 @@ class Compiler:
         This is an untyped initializer for the window layout (e.g. strides).
 
         We assume that all scalar values are passed by pointer,
-        unless callee_force_pass_by_value is True.
+        unless force_pass_by_value is True.
         """
         assert isinstance(fn, LoopIR.proc)
         mem = fn.args[i].mem
@@ -1284,9 +1290,9 @@ class Compiler:
         if isinstance(e, LoopIR.WindowExpr):
             callee_buf = fn.args[i].name
             is_const = callee_buf not in set(x for x, _ in get_writes_of_stmts(fn.body))
-        return self.comp_fnarg_impl(e, mem, is_const, prec, callee_force_pass_by_value)
+        return self.comp_fnarg_impl(e, mem, is_const, prec, force_pass_by_value)
 
-    def comp_fnarg_impl(self, e, mem, is_const, prec, callee_force_pass_by_value):
+    def comp_fnarg_impl(self, e, mem, is_const, prec, force_pass_by_value):
         if isinstance(e, LoopIR.Read):
             assert not e.idx
             rtyp = self.envtyp[e.name]
@@ -1297,7 +1303,7 @@ class Compiler:
             elif rtyp is T.stride:
                 return (self.env[e.name],), None, None
             elif e.name in self._scalar_refs:
-                star = "*" if callee_force_pass_by_value else ""
+                star = "*" if force_pass_by_value else ""
                 return (f"{star}{self.env[e.name]}",), None, None
             elif rtyp.is_tensor_or_window():
                 c_window = self.env[e.name]
@@ -1311,7 +1317,7 @@ class Compiler:
                     return (c_window,), None, None
             else:
                 assert rtyp.is_real_scalar()
-                amp = "" if callee_force_pass_by_value else "&"
+                amp = "" if force_pass_by_value else "&"
                 return (f"{amp}{self.env[e.name]}",), None, None
         elif isinstance(e, LoopIR.WindowExpr):
             assert is_const is not None
@@ -1601,6 +1607,10 @@ class SporkLoweringCtx(object):
         "_compiler",
     ]
 
+    _proc_name: str
+    _kernel_index: int
+    _compiler: Compiler
+
     def __init__(self, proc_name, kernel_index, compiler):
         self._proc_name = proc_name
         self._kernel_index = kernel_index
@@ -1614,19 +1624,23 @@ class SporkLoweringCtx(object):
 
     def sym_c_name(self, sym: Sym):
         assert isinstance(sym, Sym)
-        return self.compiler.env[sym]
+        return self._compiler.env[sym]
 
     def sym_type(self, sym: Sym):
         assert isinstance(sym, Sym)
-        return self.compiler.envtyp[sym]
+        return self._compiler.envtyp[sym]
+
+    def sym_mem(self, sym: Sym):
+        assert isinstance(sym, Sym)
+        return self._compiler.mems[sym]
 
     def sym_is_scalar_ref(self, sym: Sym):
         assert isinstance(sym, Sym)
-        sym in self.compiler._scalar_refs
+        sym in self._compiler._scalar_refs
 
     def is_const(self, sym: Sym):
         assert isinstance(sym, Sym)
-        return self.compiler.is_const(sym)
+        return self._compiler.is_const(sym)
 
     def append_fnarg_decl(
         self,
@@ -1634,11 +1648,15 @@ class SporkLoweringCtx(object):
         name_arg: str,
         arg_strs: List[str],
         typ_comments: List[str],
+        *,
+        force_pass_by_value=False,
     ):
-        return self._compiler.append_fnarg_decl(a, name_arg, arg_strs, typ_comments)
+        return self._compiler.append_fnarg_decl(
+            a, name_arg, arg_strs, typ_comments, force_pass_by_value=force_pass_by_value
+        )
 
-    def fnarg_value(e, is_const, callee_force_pass_by_value):
-        mem = self.compiler.mems[e]
-        return self.compiler.comp_fnarg_impl(
-            e, mem, is_const, 0, callee_force_pass_by_value
-        )[0]
+    def fnarg_values(self, e, is_const, force_pass_by_value):
+        mem = self._compiler.mems[e.name]
+        return self._compiler.comp_fnarg_impl(e, mem, is_const, 0, force_pass_by_value)[
+            0
+        ]
