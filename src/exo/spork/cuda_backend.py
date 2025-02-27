@@ -8,7 +8,15 @@ from ..core.LoopIR import LoopIR, T, LoopIR_Do, LoopIR_Rewrite
 from .actor_kinds import cpu_cuda_api, cuda_api
 from .async_config import CudaDeviceFunction, CudaAsync
 from .base_with_context import is_if_holding_with, ExtWithContext
-from .loop_modes import CudaTasks, CudaThreads, Seq, seq
+from .coll_algebra import (
+    CollParam,
+    clusterDim_param,
+    blockDim_param,
+    CollIndexExpr,
+    CollTiling,
+    CollLoweringAdvice,
+)
+from .loop_modes import CudaTasks, CudaThreads, Seq, seq, _CodegenPar
 from .sync_types import SyncType
 
 
@@ -25,6 +33,8 @@ def loopir_lower_cuda(s, ctx: SporkLoweringCtx):
     code lowering with the main LoopIR-to-C compiler.
     """
     scan = SubtreeScan(s, ctx)
+    # Scanner validates correctness and passes advice from "global analysis"
+    # to the subtree rewriter on how to substitute certain stmts/expressions.
     return SubtreeRewrite(s, scan, ctx).result()
 
 
@@ -38,6 +48,9 @@ class SubtreeScan(LoopIR_Do):
         "task_iter_syms",
         "device_args_syms",
         "_syms_seen",
+        "_stmt_stack",
+        "_coll_params",
+        "_coll_tiling",
     ]
 
     sym_advice: Dict[Sym, object]
@@ -47,6 +60,9 @@ class SubtreeScan(LoopIR_Do):
     task_loop_depth: int
     task_iter_syms: List[Sym]
     _syms_seen: Set[Sym]
+    _stmt_stack: List[LoopIR.stmt]
+    _coll_params: Dict[CollParam, int]
+    _coll_tiling: CollTiling
 
     def __init__(self, s, ctx: SporkLoweringCtx):
         assert is_if_holding_with(s, LoopIR)
@@ -129,7 +145,28 @@ class SubtreeScan(LoopIR_Do):
         )
 
         # Scan the subtree
+        # We seed the analysis of the collective units with the tiling
+        # for the top-level collective (2D tile clusterDim x blockDim)
         self._syms_seen = set()
+        self._stmt_stack = []
+        self._coll_params = {
+            clusterDim_param: self.clusterDim,
+            blockDim_param: self.blockDim,
+        }
+        # TODO need to fix coll_algebra to remove this special casing for clusterDim = 1
+        if self.clusterDim == 1:
+            tlc_offset = (0,)
+            tlc_box = (self.blockDim,)
+            intra_box_exprs = (CollIndexExpr("threadIdx.x"),)
+        else:
+            tlc_offset = (0, 0)
+            tlc_box = (self.clusterDim, self.blockDim)
+            cta_expr = CollIndexExpr("blockIdx.x") % self.clusterDim
+            thread_expr = CollIndexExpr("threadIdx.x")
+            intra_box_exprs = (cta_expr, CollIndexExpr("threadIdx.x"))
+        self._coll_tiling = CollTiling(
+            None, tlc_box, tlc_box, tlc_offset, tlc_box, intra_box_exprs
+        )
         self.do_stmts(s.body)
 
         # Prepare the device args struct
@@ -170,14 +207,66 @@ class SubtreeScan(LoopIR_Do):
         self.fmt_dict["device_args_struct_body"] = "\n".join(device_args_struct_lines)
 
     def do_s(self, s):
+        old_coll_tiling = self._coll_tiling
+        self._stmt_stack.append(s)
+
+        self.apply_s(s)
         super().do_s(s)
-        if hasattr(s, "name"):
-            self._syms_seen.add(s.name)
+
+        self._stmt_stack.pop()
+        self._coll_tiling = old_coll_tiling
 
     def do_e(self, e):
         super().do_e(e)
         if hasattr(e, "name"):
             self._syms_seen.add(e.name)
+
+    def apply_s(self, s):
+        if hasattr(s, "name"):
+            self._syms_seen.add(s.name)
+
+        if isinstance(s, LoopIR.For):
+            loop_mode = s.loop_mode
+            if isinstance(loop_mode, Seq):
+                pass
+            elif isinstance(loop_mode, CudaTasks):
+                if s.iter not in self.task_iter_syms:
+                    raise ValueError(
+                        f"{s.srcinfo}: cuda_tasks loop must appear only at top level of CudaDeviceFunction"
+                    )
+            elif isinstance(loop_mode, CudaThreads):
+                self.apply_cuda_threads_loop(s)
+            else:
+                raise TypeError(
+                    f"{s.srcinfo}: unexpected loop mode {s.loop_mode.loop_mode_name()}"
+                )
+
+    def apply_cuda_threads_loop(self, s):
+        def get_const(e, name):
+            expected = "literal int value"
+            if isinstance(e, LoopIR.Const):
+                if e.type.is_indexable():
+                    v = int(e.val)
+                    if v != 0 and name == "lo":
+                        expected = "0"
+                    else:
+                        return v
+            raise ValueError(
+                f"{e.srcinfo}: expected {expected} for {name} of {s.iter} loop (rewrite with simplify(...) if needed)"
+            )
+
+        lo_int = get_const(s.lo, "lo")
+        hi_int = get_const(s.hi, "hi")
+        assert lo_int == 0
+
+        self._coll_tiling, advice = self._coll_tiling.tiled(
+            s.loop_mode.unit, hi_int, self._coll_params
+        )
+
+        # We will advise replacing the loop mode with _CodegenPar
+        self.sym_advice[s.iter] = _CodegenPar(
+            advice.coll_index.codegen(), (advice.lo, advice.hi)
+        )
 
 
 class SubtreeRewrite(LoopIR_Rewrite):
@@ -270,6 +359,27 @@ class SubtreeRewrite(LoopIR_Rewrite):
     def result(self):
         assert is_if_holding_with(self._result, LoopIR)
         return self._result
+
+    def map_s(self, s):
+        s_rewrite = None
+
+        if isinstance(s, LoopIR.For):
+            # Replace CudaThreads loop with _CodegenPar loop that the
+            # scanner has prepared.
+            if isinstance(s.loop_mode, CudaThreads):
+                new_loop_mode = self.sym_advice[s.iter]
+                s_rewrite = s.update(loop_mode=new_loop_mode)
+            else:
+                assert isinstance(s.loop_mode, (Seq, _CodegenPar))
+
+        if s_rewrite is None:
+            return super().map_s(s)
+        else:
+            super_rewritten = super().map_s(s_rewrite)
+            if super_rewritten is None:
+                return [s_rewrite]
+            else:
+                return super_rewritten
 
 
 # Paste this into the C header (.h) if any proc uses cuda.

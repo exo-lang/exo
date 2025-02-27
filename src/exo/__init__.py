@@ -30,6 +30,13 @@ from .spork import loop_modes
 from .spork import coll_algebra
 from .spork import sync_types
 from .spork.async_config import BaseAsyncConfig, CudaDeviceFunction, CudaAsync
+from .spork.coll_algebra import (
+    cuda_thread,
+    cuda_quadpair,
+    cuda_warp,
+    cuda_warpgroup,
+    cuda_cta_in_cluster,
+)
 
 from .spork.base_with_context import ExtWithContext  # INTERNAL, FIXME
 
@@ -67,5 +74,12 @@ __all__ = [
     "BaseAsyncConfig",
     "CudaDeviceFunction",
     "CudaAsync",
+    #
+    "cuda_thread",
+    "cuda_quadpair",
+    "cuda_warp",
+    "cuda_warpgroup",
+    "cuda_cta_in_cluster",
+    #
     "ExtWithContext",  # INTERNAL, FIXME
 ]

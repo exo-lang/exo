@@ -1181,7 +1181,7 @@ class Compiler:
                 emit_loop = False
             else:
                 raise TypeError(
-                    f"{s.srcinfo}: unexpected loop mode {loop_mode.loop_mode_name()}"
+                    f"{s.srcinfo}: unexpected loop mode {loop_mode.loop_mode_name()} in {s.iter} loop"
                 )
 
             if emit_loop:

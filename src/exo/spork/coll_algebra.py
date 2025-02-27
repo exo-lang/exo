@@ -98,6 +98,7 @@ class CollUnit(object):
 
     def scaled(self, scale):
         assert isinstance(scale, int)
+        assert scale > 0
         i_scale = self.scaled_dim_idx
         if i_scale is None:
             raise ValueError(f"{self.name} cannot be scaled")
@@ -561,3 +562,12 @@ class DomainCompletionOp(object):
             else:
                 coords[idx : idx + 1] = [outer_op(c, factor), inner_op(c, factor)]
         return coords
+
+
+cuda_thread = CollUnit((blockDim,), (1,), "cuda_thread", 0)
+cuda_quadpair = CollUnit((blockDim / 16, 16), (2, 4), "cuda_quadpair", None)
+cuda_warp = CollUnit((blockDim,), (32,), "cuda_warp", 0)
+cuda_warpgroup = CollUnit((blockDim,), (128,), "cuda_warpgroup", 0)
+cuda_cta_in_cluster = CollUnit(
+    (clusterDim * blockDim,), (blockDim,), "cuda_cta_in_cluster", 0
+)

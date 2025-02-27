@@ -1400,7 +1400,7 @@ class Parser:
 
     def parse_loop_cond(self, cond):
         if isinstance(cond, pyast.Call):
-            if isinstance(cond.func, pyast.Name) and cond.func.id in loop_mode_dict:
+            if isinstance(cond.func, pyast.Name):
                 loop_mode_kwargs = {
                     kw.arg: self.eval_expr(kw.value) for kw in cond.keywords
                 }
@@ -1417,9 +1417,12 @@ class Parser:
                 else:
                     try:
                         loop_mode_type = loop_mode_dict[cond.func.id]
+                    except Exception as e:
+                        self.err(cond, f"unknown loop mode name {cond.func.id}", e)
+                    try:
                         loop_mode = loop_mode_type(**loop_mode_kwargs)
                     except Exception as e:
-                        self.err(cond, "invalid loop mode", e)
+                        self.err(cond, "failed to construct loop mode", e)
                     return UAST.LoopRange(lo, hi, loop_mode, self.getsrcinfo(cond))
             else:
                 self.err(
