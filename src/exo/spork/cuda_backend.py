@@ -47,7 +47,8 @@ class SubtreeScan(LoopIR_Do):
         "task_loop_depth",
         "task_iter_syms",
         "device_args_syms",
-        "_syms_seen",
+        #
+        "_syms_needed",
         "_stmt_stack",
         "_coll_params",
         "_coll_tiling",
@@ -59,7 +60,7 @@ class SubtreeScan(LoopIR_Do):
     fmt_dict: Dict
     task_loop_depth: int
     task_iter_syms: List[Sym]
-    _syms_seen: Set[Sym]
+    _syms_needed: Set[Sym]
     _stmt_stack: List[LoopIR.stmt]
     _coll_params: Dict[CollParam, int]
     _coll_tiling: CollTiling
@@ -147,7 +148,7 @@ class SubtreeScan(LoopIR_Do):
         # Scan the subtree
         # We seed the analysis of the collective units with the tiling
         # for the top-level collective (2D tile clusterDim x blockDim)
-        self._syms_seen = set()
+        self._syms_needed = set()
         self._stmt_stack = []
         self._coll_params = {
             clusterDim_param: self.clusterDim,
@@ -173,7 +174,7 @@ class SubtreeScan(LoopIR_Do):
         # These are all the syms that appear in the subtree that were
         # defined by the outside (CPU function) environment.
         self.device_args_syms = []
-        for sym in self._syms_seen:
+        for sym in self._syms_needed:
             try:
                 cpu_nm = ctx.sym_c_name(sym)
             except KeyError:
@@ -218,12 +219,16 @@ class SubtreeScan(LoopIR_Do):
 
     def do_e(self, e):
         super().do_e(e)
-        if hasattr(e, "name"):
-            self._syms_seen.add(e.name)
+        if isinstance(e, (LoopIR.Read, LoopIR.WindowExpr, LoopIR.StrideExpr)):
+            self._syms_needed.add(e.name)
+        else:
+            assert not hasattr(e, "name")
 
     def apply_s(self, s):
-        if hasattr(s, "name"):
-            self._syms_seen.add(s.name)
+        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            self._syms_needed.add(s.name)
+        elif not isinstance(s, (LoopIR.WindowStmt, LoopIR.Alloc, LoopIR.Free)):
+            assert not hasattr(s, "name")
 
         if isinstance(s, LoopIR.For):
             loop_mode = s.loop_mode
