@@ -210,11 +210,12 @@ class CollIndexExpr(object):
 
     def codegen(self):
         """Assuming C for now. Should be usable downstream without further parenthesization"""
-        need_parens = isinstance(self.base_expr, str) and not self.base_expr.isalnum()
+        simple = lambda s: all(c.isalnum() or c == "." for c in s)
+        need_parens = isinstance(self.base_expr, str) and not simple(self.base_expr)
         expr = self._codegen_impl(self.base_expr, need_parens)
 
         # Wrap final expression in parens if not trivial
-        if not expr.isalnum():
+        if not simple(expr):
             expr = f"({expr})"
         return expr
 

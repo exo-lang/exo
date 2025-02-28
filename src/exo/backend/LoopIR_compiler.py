@@ -1170,13 +1170,13 @@ class Compiler:
                 # This is not valid C; if we add non-cuda backends we may have
                 # to add config options to _CodegenPar to tweak lowering syntax.
                 conds = []
-                if bdd := loop_mode.static_bounds[0] is not None:
+                if (bdd := loop_mode.static_bounds[0]) is not None:
                     conds.append(f"{itr} >= {bdd}")
-                if bdd := loop_mode.static_bounds[1] is not None:
+                if (bdd := loop_mode.static_bounds[1]) is not None:
                     conds.append(f"{itr} < {bdd}")
                 cond = "1" if not conds else " && ".join(conds)
                 self.add_line(
-                    f"if ([[maybe_unused]] int {itr} = ({loop_mode.c_index}); {cond}) {{"
+                    f"if ([[maybe_unused]] int {itr} = {loop_mode.c_index}; {cond}) {{"
                 )
                 emit_loop = False
             else:
