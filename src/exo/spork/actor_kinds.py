@@ -19,7 +19,7 @@ class ActorSignature(object):
 
 sig_cpu = ActorSignature("sig_cpu")
 sig_cuda_classic = ActorSignature("sig_cuda_classic")
-sig_non_bulk_cp_async = ActorSignature("sig_non_bulk_cp_async")
+sig_Sm80_cp_async = ActorSignature("sig_Sm80_cp_async")
 sig_tma_to_smem = ActorSignature("sig_tma_to_smem")
 sig_tma_to_gmem = ActorSignature("sig_tma_to_gmem")
 sig_wgmma_rmem_a = ActorSignature("sig_wgmma_rmem_a")
@@ -83,7 +83,7 @@ cuda_api = ActorKind(
     True,
     {
         sig_cuda_classic,
-        sig_non_bulk_cp_async,
+        sig_Sm80_cp_async,
         sig_tma_to_smem,
         sig_tma_to_gmem,
         sig_wgmma_rmem_a,
@@ -100,12 +100,12 @@ and follow the typical per-thread in-order execution abstraction"""
 cuda_classic = ActorKind("cuda_classic", True, {sig_cuda_classic})
 
 """Ampere cp.async instructions"""
-non_bulk_cp_async = ActorKind("non_bulk_cp_async", False, {sig_non_bulk_cp_async})
+Sm80_cp_async = ActorKind("Sm80_cp_async", False, {sig_Sm80_cp_async})
 
-"""CUDA generic proxy (sync and async instructions)"""
-cuda_generic = ActorKind(
-    "cuda_generic", False, {sig_cuda_classic, sig_non_bulk_cp_async}
-)
+"""CUDA classic + sm_80 cp.async
+
+These are operations that sm_90a+ retroactively term the generic proxy"""
+Sm80_generic = ActorKind("Sm80_generic", False, {sig_cuda_classic, sig_Sm80_cp_async})
 
 """CUDA async proxy (TMA and wgmma, excluding register access)"""
 cuda_async_proxy = ActorKind(
@@ -154,8 +154,8 @@ actor_kind_dict = {
         cuda_api,
         cpu_cuda_api,
         cuda_classic,
-        non_bulk_cp_async,
-        cuda_generic,
+        Sm80_cp_async,
+        Sm80_generic,
         tma_to_smem_async,
         tma_to_gmem_async,
         wgmma_async,

@@ -5,7 +5,7 @@ class CudaBasicDeviceVisible(Memory):
     pass
 
 
-class CudaBasicSmem(Memory):
+class CudaBasicSmem(CudaBasicDeviceVisible):
     pass
 
 
@@ -68,18 +68,62 @@ class CudaRmem(CudaDeviceVisibleLinear):
         return ""
 
 
-class Sm70_BasicRmemMatrix(CudaBasicDeviceVisible):
+class Sm80_BasicRmemMatrix(CudaBasicDeviceVisible):
     @classmethod
-    def matrix_alloc_impl(cls, new_name, prim_type, shape, srcinfo, regcount):
+    def window_definition(cls, ctx):
+        if ctx.n_dims() != 2:
+            raise MemGenError(
+                f"{ctx.srcinfo()}: Only support windows to a single tile (n_dims 2)"
+            )
+        return ctx.generate_default("Sm80_RmemMatrix", "unsigned")
+
+    @classmethod
+    def alloc(cls, new_name, prim_type, shape, srcinfo):
         if len(shape) < 2:
-            raise MemGenError("Require at least 2D tile for Sm70 MMA tile")
+            raise MemGenError("Require at least 2D tile for Sm80 MMA tile")
         array_shape = shape[:-2]
         tile_shape = shape[-2:]
         assert prim_type == "float"  # TODO
-        if len(array_shape) == 0:
-            return f"unsigned {new_name}[{regcount}]"
-        return f"unsigned {new_name}[' * '.join(array_shape)][{regcount}]"
+        regcount = cls.tile_shape[0] * cls.tile_shape[1] // 32
+
+        assert len(cls.tile_shape) == 2
+        for i, c in enumerate(tile_shape):
+            try:
+                if int(c) != int(cls.tile_shape[i]):
+                    raise ValueError("WRONG")
+            except Exception:
+                raise MemGenError(
+                    f"Expected last 2 dimensions of size "
+                    f"{cls.tile_shape}, not {tile_shape}"
+                )
+
+        # Last array dimension corresponds to uint32_t-encoded matrix tile
+        # Leading dimensions correspond to the Exo user's array dimensions.
+        leading = "".join(f"[{c}]" for c in array_shape)
+        return f"unsigned {new_name}{leading}[{regcount}];"
+
+    @classmethod
+    def window(cls, basetyp, baseptr, indices, strides, srcinfo):
+        if basetyp.is_win():
+            return f"*{baseptr}.data"
+        assert len(strides) >= 2
+        assert strides[-2] == str(cls.tile_shape[1])
+        assert strides[-1] == "1"
+        leading = "".join(f"[{c}]" for c in indices[:-2])
+        return f"{baseptr}{leading}"
 
     @classmethod
     def free(cls, new_name, prim_type, shape, srcinfo):
         return ""
+
+
+class Sm80_RmemMatrixA(Sm80_BasicRmemMatrix):
+    tile_shape = (16, 8)
+
+
+class Sm80_RmemMatrixB(Sm80_BasicRmemMatrix):
+    tile_shape = (8, 8)
+
+
+class Sm80_RmemMatrixD(Sm80_BasicRmemMatrix):
+    tile_shape = (16, 8)
