@@ -66,3 +66,20 @@ class CudaRmem(CudaDeviceVisibleLinear):
     @classmethod
     def free(cls, new_name, prim_type, shape, srcinfo):
         return ""
+
+
+class Sm70_BasicRmemMatrix(CudaBasicDeviceVisible):
+    @classmethod
+    def matrix_alloc_impl(cls, new_name, prim_type, shape, srcinfo, regcount):
+        if len(shape) < 2:
+            raise MemGenError("Require at least 2D tile for Sm70 MMA tile")
+        array_shape = shape[:-2]
+        tile_shape = shape[-2:]
+        assert prim_type == "float"  # TODO
+        if len(array_shape) == 0:
+            return f"unsigned {new_name}[{regcount}]"
+        return f"unsigned {new_name}[' * '.join(array_shape)][{regcount}]"
+
+    @classmethod
+    def free(cls, new_name, prim_type, shape, srcinfo):
+        return ""

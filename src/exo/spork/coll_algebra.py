@@ -125,6 +125,12 @@ class CollUnit(object):
     def int_tile(self, env: Dict[CollParam, int]):
         return int_size_tuple(self.tile, env)
 
+    def int_threads(self, env: Dict[CollParam, int]):
+        n = 1
+        for c in self.tile:
+            n *= c(env)
+        return n
+
 
 class CollIndexExpr(object):
     __slots__ = ["base_expr", "ops", "hash"]
@@ -281,7 +287,7 @@ class CollTiling(object):
     def __eq__(self, other: CollTiling):
         return self is other or (
             type(other) is CollTiling
-            and self.parent is other.parent
+            and self.parent == other.parent
             and self.domain == other.domain
             and self.tile == other.tile
             and self.offset == other.offset
@@ -438,6 +444,12 @@ class CollTiling(object):
             ),
             advice,
         )
+
+    def box_threads(self):
+        n = 1
+        for c in self.box:
+            n *= c
+        return n
 
 
 class CollLoweringAdvice(object):

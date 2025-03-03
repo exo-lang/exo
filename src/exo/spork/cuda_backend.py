@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from typing import Dict, Optional, Type
+from warnings import warn
 
+from ..core.memory import MemGenError
 from ..core.prelude import Sym
 from ..core.LoopIR import LoopIR, T, LoopIR_Do, LoopIR_Rewrite
 
@@ -10,19 +12,31 @@ from .async_config import CudaDeviceFunction, CudaAsync
 from .base_with_context import is_if_holding_with, ExtWithContext
 from .coll_algebra import (
     CollParam,
+    CollUnit,
     clusterDim_param,
     blockDim_param,
     CollIndexExpr,
     CollTiling,
     CollLoweringAdvice,
+    cuda_thread,
+    cuda_warp,
+    cuda_cta_in_cluster,
 )
 from .loop_modes import CudaTasks, CudaThreads, Seq, seq, _CodegenPar
 from .sync_types import SyncType
+
+from .cuda_memory import (
+    Sm70_BasicRmemMatrix,
+    CudaBasicSmem,
+)  # XXX should be externalized
 
 
 # We use the reserved exo_ prefix everywhere, but we still have to reserve
 # CUDA builtins we have no control over.
 reserved_names = {"gridDim", "blockDim", "blockIdx", "threadIdx"}
+
+idx_e_types = (LoopIR.Read, LoopIR.WindowExpr, LoopIR.StrideExpr)
+idx_s_types = (LoopIR.Assign, LoopIR.Reduce)
 
 
 def loopir_lower_cuda(s, ctx: SporkLoweringCtx):
@@ -50,11 +64,21 @@ class SubtreeScan(LoopIR_Do):
         #
         "_syms_needed",
         "_stmt_stack",
-        "_coll_params",
+        "_coll_env",
         "_coll_tiling",
+        "_sym_coll_tiling",
     ]
 
+    # We will have to substitute some LoopIR nodes in the SubtreeRewrite phase.
+    # During the scan, for a node that needs to be rewritten, we will stash
+    # needed info for the rewrite here, indexed by a relevant Sym.
+    # The type of the info depends on the rewrite needed -- see corresponding
+    # rewrite in SubtreeRewrite.
+    #
+    # Allocated Sym: AllocState
+    # Index of cuda_threads loop: _CodegenPar
     sym_advice: Dict[Sym, object]
+
     blockDim: int
     clusterDim: int
     fmt_dict: Dict
@@ -62,8 +86,10 @@ class SubtreeScan(LoopIR_Do):
     task_iter_syms: List[Sym]
     _syms_needed: Set[Sym]
     _stmt_stack: List[LoopIR.stmt]
-    _coll_params: Dict[CollParam, int]
+    _coll_env: Dict[CollParam, int]
     _coll_tiling: CollTiling
+    # CollTiling created by the cuda_threads loop with the given iter
+    _iter_coll_tiling: Dict[Sym, CollTiling]
 
     def __init__(self, s, ctx: SporkLoweringCtx):
         assert is_if_holding_with(s, LoopIR)
@@ -150,7 +176,7 @@ class SubtreeScan(LoopIR_Do):
         # for the top-level collective (2D tile clusterDim x blockDim)
         self._syms_needed = set()
         self._stmt_stack = []
-        self._coll_params = {
+        self._coll_env = {
             clusterDim_param: self.clusterDim,
             blockDim_param: self.blockDim,
         }
@@ -168,6 +194,7 @@ class SubtreeScan(LoopIR_Do):
         self._coll_tiling = CollTiling(
             None, tlc_box, tlc_box, tlc_offset, tlc_box, intra_box_exprs
         )
+        self._iter_coll_tiling = {}
         self.do_stmts(s.body)
 
         # Prepare the device args struct
@@ -208,27 +235,36 @@ class SubtreeScan(LoopIR_Do):
         self.fmt_dict["device_args_struct_body"] = "\n".join(device_args_struct_lines)
 
     def do_s(self, s):
+        # Save state
         old_coll_tiling = self._coll_tiling
         self._stmt_stack.append(s)
 
+        # Modify state, then recurse with super()
+        # (order is important so recursion sees updated state!)
         self.apply_s(s)
         super().do_s(s)
 
+        # Restore state
         self._stmt_stack.pop()
         self._coll_tiling = old_coll_tiling
 
     def do_e(self, e):
+        self.apply_e(e)
         super().do_e(e)
-        if isinstance(e, (LoopIR.Read, LoopIR.WindowExpr, LoopIR.StrideExpr)):
+
+    def apply_e(self, e):
+        if isinstance(e, idx_e_types):
             self._syms_needed.add(e.name)
+            self.apply_idx(e)
         else:
-            assert not hasattr(e, "name")
+            assert not hasattr(e, "name"), "Add handling for array indexing"
 
     def apply_s(self, s):
-        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+        if isinstance(s, idx_s_types):
             self._syms_needed.add(s.name)
+            self.apply_idx(s)
         elif not isinstance(s, (LoopIR.WindowStmt, LoopIR.Alloc, LoopIR.Free)):
-            assert not hasattr(s, "name")
+            assert not hasattr(s, "name"), "Add handling for array indexing"
 
         if isinstance(s, LoopIR.For):
             loop_mode = s.loop_mode
@@ -243,8 +279,17 @@ class SubtreeScan(LoopIR_Do):
                 self.apply_cuda_threads_loop(s)
             else:
                 raise TypeError(
-                    f"{s.srcinfo}: unexpected loop mode {s.loop_mode.loop_mode_name()}"
+                    f"{s.srcinfo}: unexpected loop mode {s.loop_mode.loop_mode_name()} in CudaDeviceFunction"
                 )
+        elif isinstance(s, LoopIR.Alloc):
+            # TODO native_unit should be externalized
+            if issubclass(s.mem, CudaBasicSmem):
+                native_unit = cuda_cta_in_cluster
+            elif issubclass(s.mem, Sm70_BasicRmemMatrix):
+                native_unit = cuda_warp
+            else:
+                native_unit = cuda_thread
+            self.sym_advice[s.name] = AllocState(self._coll_tiling, native_unit)
 
     def apply_cuda_threads_loop(self, s):
         def get_const(e, name):
@@ -264,14 +309,92 @@ class SubtreeScan(LoopIR_Do):
         hi_int = get_const(s.hi, "hi")
         assert lo_int == 0
 
+        # Update stored CollTiling
         self._coll_tiling, advice = self._coll_tiling.tiled(
-            s.loop_mode.unit, hi_int, self._coll_params
+            s.loop_mode.unit, hi_int, self._coll_env
         )
+        self._iter_coll_tiling[s.iter] = self._coll_tiling
 
         # We will advise replacing the loop mode with _CodegenPar
         self.sym_advice[s.iter] = _CodegenPar(
             advice.coll_index.codegen(), (advice.lo, advice.hi)
         )
+
+    def apply_idx(self, node):
+        if not node.idx:
+            # XXX early exit needed for Reads that are not from tensors
+            # (e.g. index variables), but could hide issues?
+            return
+
+        state: AllocState
+        state = self.sym_advice.get(node.name)
+        if state is None:
+            return  # was allocated outside presumably
+
+        assert isinstance(state, AllocState)
+        native_threads = state.native_unit.int_threads(self._coll_env)
+        assert isinstance(native_threads, int)
+
+        try:
+            # Allocation collective tiling is tiled by leading index variables,
+            # until the actual tiling matches the native unit of the memory type.
+            # Remaining indices are lowered to source code.
+            # TODO improve error messages. Maybe less strict usage patterns.
+            cur_coll_tiling = state.alloc_coll_tiling
+            n_distributed_dims = None
+            for dim_index, idx_coord in enumerate(node.idx):
+                # TODO check thread box shape, alignment; not just thread count.
+                cur_threads = cur_coll_tiling.box_threads()
+                if cur_threads == native_threads:
+                    n_distributed_dims = dim_index
+                    break
+                if cur_threads < native_threads:
+                    raise ValueError("Mismatched thread counts for distributed memory")
+
+                def coord_error(expected):
+                    raise ValueError(
+                        f"Index {dim_index}: expected {expected}, "
+                        f"got {idx_coord}, to index distributed "
+                        f"memory {node.name}"
+                    )
+
+                if isinstance(idx_coord, LoopIR.Read):
+                    idx_sym = idx_coord.name
+                elif isinstance(idx_coord, LoopIR.Point) and isinstance(
+                    idx_coord.pt, LoopIR.Read
+                ):
+                    idx_sym = idx_coord.pt.name
+                else:
+                    coord_error("plain variable")
+
+                next_coll_tiling = self._iter_coll_tiling.get(idx_sym)
+                if next_coll_tiling is None:
+                    coord_error("index from cuda_threads loop")
+                if next_coll_tiling.parent != cur_coll_tiling:
+                    coord_error("correct parent tiling (TODO explain)")
+                cur_coll_tiling = next_coll_tiling
+
+            # TODO check thread box shape, alignment; not just thread count.
+            # Repeated check is annoying; needed in case all dims are distributed.
+            if n_distributed_dims is None:
+                if cur_coll_tiling.box_threads() != native_threads:
+                    raise ValueError(f"Not enough indices for distributed memory")
+                n_distributed_dims = len(node.idx)
+
+            # Record usage.
+            # If not the first usage, check usage pattern matches prior usage.
+            if not state.live:
+                state.live = True
+                state.n_distributed_dims = n_distributed_dims
+                state.usage_coll_tiling = cur_coll_tiling
+            else:
+                if state.usage_coll_tiling != cur_coll_tiling:
+                    raise ValueError("collective tiling mismatch")
+
+        except Exception as e:
+            # TODO better error messages
+            message = f"{node.srcinfo}: {node.name} distributed memory analysis failed (see chained exception)"
+            raise MemGenError(message) from e
 
 
 class SubtreeRewrite(LoopIR_Rewrite):
@@ -377,6 +500,35 @@ class SubtreeRewrite(LoopIR_Rewrite):
             else:
                 assert isinstance(s.loop_mode, (Seq, _CodegenPar))
 
+        elif isinstance(s, (LoopIR.Alloc, LoopIR.Free)):
+            alloc_state = self.sym_advice[s.name]
+            assert isinstance(alloc_state, AllocState)
+            if not alloc_state.live:
+                # Distributed memory analysis isn't run for unused variables...
+                warn(
+                    f"{s.srcinfo}: Unused allocation {s.name} in CUDA code may not lower correctly"
+                )
+            # Remove distributed dimensions
+            n = alloc_state.n_distributed_dims
+            if n > 0:
+                typ = s.type
+                if len(typ.hi) == n:
+                    # All dimensions removed; reduce to scalar
+                    # TODO consider scalar refs
+                    typ = typ.basetype()
+                else:
+                    assert n < len(typ.hi)
+                    typ = typ.update(hi=typ.hi[n:])
+                s_rewrite = s.update(type=typ)
+
+        elif isinstance(s, idx_s_types):
+            # Remove distributed dimensions
+            s_rewrite = self.remove_distributed_idx(s)
+
+        # Use superclass to recursre and rewrite subtree
+        # We have to have logic to handle None being used to indicate
+        # "no change"; if the superclass makes no changes, we still have
+        # to preserve any rewrites of our own.
         if s_rewrite is None:
             return super().map_s(s)
         else:
@@ -385,6 +537,80 @@ class SubtreeRewrite(LoopIR_Rewrite):
                 return [s_rewrite]
             else:
                 return super_rewritten
+
+    def map_e(self, e):
+        e_rewrite = None
+
+        if isinstance(e, idx_e_types):
+            e_rewrite = self.remove_distributed_idx(e)
+
+        # Use superclass to recursre and rewrite subtree
+        # We have to have logic to handle None being used to indicate
+        # "no change"; if the superclass makes no changes, we still have
+        # to preserve any rewrites of our own.
+        if e_rewrite is None:
+            return super().map_e(e)
+        else:
+            super_rewritten = super().map_e(e_rewrite)
+            if super_rewritten is None:
+                return e_rewrite
+            else:
+                return super_rewritten
+
+    def remove_distributed_idx(self, node):
+        alloc_state = self.sym_advice.get(node.name)
+        if isinstance(alloc_state, AllocState):
+            assert isinstance(alloc_state, AllocState)
+            n = alloc_state.n_distributed_dims
+            if n > 0:
+                return node.update(idx=node.idx[n:])
+        return None
+
+
+class AllocState(object):
+    __slots__ = [
+        "live",
+        "n_distributed_dims",
+        "alloc_coll_tiling",
+        "usage_coll_tiling",
+        "native_unit",
+    ]
+
+    # Some GPU allocations are "distributed", when the collective unit
+    # (e.g. CTA) that allocated a tensor doesn't match the "native unit"
+    # of the memory type (e.g. thread for a register; warp for a wmma tile).
+    #
+    # Some of the leading dimensions of the tensor will be deduced to be
+    # "distributed", i.e., correspond to a thread index rather than a
+    # (CUDA syntactic) array index. e.g. if the CTA size is 512, something like
+    #
+    # foo : f32[32,16,4] @ CudaRmem  # Access with 2D grid of 32 x 16 threads
+    #
+    # may lower to `float foo[4]` since the first 2 dimensions are distributed.
+    #
+    # We deduce this from the usage of the memory, and enforce that each thread
+    # only accesses its own index. TODO explain all this tiling stuff better.
+    # Currently, we only support very trivial patterns, but this should be good
+    # enough for prototyping.
+    #
+    # In the rewrite phase, we will strip the leading n_distributed_dims-many
+    # indices from all uses of the memory ... this is just a hack for
+    # code lowering; ignore that this changes the real meaning of the LoopIR.
+
+    live: bool
+    n_distributed_dims: int
+    alloc_coll_tiling: CollTiling
+    usage_coll_tilings: Optional[CollTiling]
+    native_unit: CollUnit
+
+    def __init__(self, alloc_coll_tiling, native_unit):
+        assert isinstance(alloc_coll_tiling, CollTiling)
+        assert isinstance(native_unit, CollUnit)
+        self.live = False
+        self.n_distributed_dims = 0
+        self.alloc_coll_tiling = alloc_coll_tiling
+        self.usage_coll_tiling = None
+        self.native_unit = native_unit
 
 
 # Paste this into the C header (.h) if any proc uses cuda.
