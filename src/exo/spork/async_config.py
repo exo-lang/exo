@@ -38,13 +38,14 @@ class BaseAsyncConfig(BaseWithContext):
 
 
 class CudaDeviceFunction(BaseAsyncConfig):
-    __slots__ = ["blockDim", "clusterDim"]
+    __slots__ = ["blockDim", "clusterDim", "blocks_per_sm"]
 
-    def __init__(self, blockDim: int, clusterDim: int = 1):
+    def __init__(self, blockDim: int, clusterDim: int = 1, blocks_per_sm: int = 1):
         assert isinstance(blockDim, int) and blockDim > 0
         assert isinstance(clusterDim, int) and clusterDim > 0
         self.blockDim = blockDim
         self.clusterDim = clusterDim
+        self.blocks_per_sm = blocks_per_sm
 
     def get_actor_kind(self):
         return actor_kinds.cuda_sync  # Synchronous (non-async) CUDA instr
@@ -56,13 +57,14 @@ class CudaDeviceFunction(BaseAsyncConfig):
         return None
 
     def __repr__(self):
-        return f"CudaDeviceFunction({self.blockDim}, {self.clusterDim})"
+        return f"CudaDeviceFunction({self.blockDim}, {self.clusterDim}, {self.blocks_per_sm})"
 
     def __eq__(self, other):
         return (
             type(other) == CudaDeviceFunction
             and self.blockDim == other.blockDim
             and self.clusterDim == other.clusterDim
+            and self.blocks_per_sm == other.blocks_per_sm
         )
 
 

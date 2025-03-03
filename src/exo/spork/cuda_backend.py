@@ -102,10 +102,11 @@ class SubtreeScan(LoopIR_Do):
         self.fmt_dict = {
             "proc": ctx.proc_name(),
             "N": ctx.kernel_index(),
-            "gridDim": "48",  # TODO
+            "gridDim": 48 * cuda_device_function.blocks_per_sm,  # TODO
             "blockDim": self.blockDim,
             "clusterDim": self.clusterDim,
             "smem_bytes": 0,  # TODO
+            "blocks_per_sm": cuda_device_function.blocks_per_sm,
         }
 
         # Validate top-level form of cuda kernel
@@ -669,7 +670,7 @@ exo_Cuda{N}_{proc}::exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_de
 """
 
 cu_snippet_fmt = """\
-__launch_bounds__({blockDim})
+__launch_bounds__({blockDim} * {blocks_per_sm})
 __global__ void
 exo_deviceFunction{N}_{proc}(__grid_constant__ const struct exo_CudaDeviceArgs{N}_{proc} exo_deviceArgs)
 {{

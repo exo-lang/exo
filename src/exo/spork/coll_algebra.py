@@ -97,8 +97,15 @@ class CollUnit(object):
         assert scaled_dim_idx is None or scaled_dim_idx < len(tile)
 
     def scaled(self, scale):
-        assert isinstance(scale, int)
-        assert scale > 0
+        try:
+            tmp = int(scale)
+            if tmp != scale or scale <= 0:
+                raise ValueError
+            scale = tmp
+        except Exception:
+            raise TypeError(
+                f"Expected {self.name} to be scaled by positive int, not {scale}"
+            )
         i_scale = self.scaled_dim_idx
         if i_scale is None:
             raise ValueError(f"{self.name} cannot be scaled")
