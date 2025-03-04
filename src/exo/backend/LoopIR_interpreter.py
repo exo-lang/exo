@@ -31,18 +31,20 @@ def _eshape(typ, env):
     return tuple(r if is_pos_int(r) else env[r] for r in typ.shape())
 
 
-def run_interpreter(proc, kwargs):
-    Interpreter(proc, kwargs)
+def run_interpreter(proc, kwargs, ctxt=None):
+    Interpreter(proc, kwargs, ctxt)
 
 
 class Interpreter:
-    def __init__(self, proc, kwargs, use_randomization=False):
+    def __init__(self, proc, kwargs, ctxt=None, use_randomization=False):
         if not isinstance(proc, LoopIR.proc):
             raise TypeError(f"Expected {proc.name} to be of type proc")
 
         self.env = ChainMap()
         self.use_randomization = use_randomization
-        self.ctxt = defaultdict(dict)
+        self.ctxt = {}
+        if ctxt is not None:
+            self.ctxt |= ctxt
 
         self.eval_proc(proc, kwargs)
 
@@ -52,13 +54,16 @@ class Interpreter:
     def _del_scope(self):
         self.env = self.env.parents
 
+    def lookup_kwarg(self, kwargs, name):
+        return kwargs[name] if name in kwargs else kwargs[str(name)]
+
     def typecheck_input_buffer(self, proc_arg, kwargs):
         nm = proc_arg.name
         if not proc_arg.type.is_numeric():
             raise TypeError(f"arg {nm} is expected to be numeric")
 
         basetype = proc_arg.type.basetype()
-        buf = kwargs[str(proc_arg.name)]
+        buf = self.lookup_kwarg(kwargs, proc_arg.name)
 
         pre = f"bad argument '{nm}'"
         if not isinstance(buf, np.ndarray):
@@ -108,46 +113,50 @@ class Interpreter:
 
     def eval_proc(self, proc, kwargs):
         proc = ParallelAnalysis().run(proc)
-        proc = PrecisionAnalysis().run(proc)  # TODO: need this?
+        # proc = PrecisionAnalysis().run(proc)  # TODO: need this?
         proc = WindowAnalysis().apply_proc(proc)
-        proc = MemoryAnalysis().run(proc)  # TODO: need this?
+        # proc = MemoryAnalysis().run(proc)  # TODO: need this?
 
         for a in proc.args:
-            if not str(a.name) in kwargs:
+            if not str(a.name) in kwargs and not a.name in kwargs:
                 raise TypeError(f"expected argument '{a.name}' to be supplied")
 
+            kwarg_val = self.lookup_kwarg(kwargs, a.name)
             if a.type is T.size:
-                if not is_pos_int(kwargs[str(a.name)]):
+                if not is_pos_int(kwarg_val):
                     raise TypeError(
                         f"expected size '{a.name}' to have positive integer value"
                     )
-                self.env[a.name] = kwargs[str(a.name)]
+                self.env[a.name] = kwarg_val
             elif a.type is T.index:
-                if type(kwargs[str(a.name)]) is not int:
+                if type(kwarg_val) is not int:
                     raise TypeError(
                         f"expected index variable '{a.name}' to be an integer"
                     )
-                self.env[a.name] = kwargs[str(a.name)]
+                self.env[a.name] = kwarg_val
             elif a.type is T.bool:
-                if type(kwargs[str(a.name)]) is not bool:
+                if type(kwarg_val) is not bool:
                     raise TypeError(f"expected bool variable '{a.name}' to be a bool")
-                self.env[a.name] = kwargs[str(a.name)]
+                self.env[a.name] = kwarg_val
             elif a.type is T.stride:
-                if type(kwargs[str(a.name)]) is not int:
+                if type(kwarg_val) is not int:
                     raise TypeError(
                         f"expected stride variable '{a.name}' to be an integer"
                     )
-                self.env[a.name] = kwargs[str(a.name)]
+                self.env[a.name] = kwarg_val
             else:
                 self.typecheck_input_buffer(a, kwargs)
-                self.env[a.name] = kwargs[str(a.name)]
+                self.env[a.name] = kwarg_val
 
         # evaluate preconditions
         for pred in proc.preds:
             if isinstance(pred, LoopIR.Const):
                 continue
             else:
-                assert self.eval_e(pred), "precondition not satisfied"
+                predv = self.eval_e(pred)
+                if not predv:
+                    print("hi")
+                assert predv, "precondition not satisfied"
 
         # eval statements
         self.eval_stmts(proc.body)
@@ -176,7 +185,10 @@ class Interpreter:
         elif isinstance(s, LoopIR.WriteConfig):
             nm = s.config.name()
             rhs = self.eval_e(s.rhs)
-            self.ctxt[nm][s.field] = rhs
+            if s.rhs.type.is_numeric():
+                self.ctxt[(nm, s.field)] = np.array([rhs])
+            else:
+                self.ctxt[(nm, s.field)] = rhs
 
         elif isinstance(s, LoopIR.WindowStmt):
             # nm = rbuf[...]
@@ -222,7 +234,7 @@ class Interpreter:
 
         elif isinstance(s, LoopIR.Call):
             argvals = [self.eval_e(a, call_arg=True) for a in s.args]
-            argnames = [str(a.name) for a in s.f.args]
+            argnames = [a.name for a in s.f.args]
             kwargs = {nm: val for nm, val in zip(argnames, argvals)}
             self._new_scope()
             self.eval_proc(s.f, kwargs)
@@ -300,6 +312,8 @@ class Interpreter:
 
         elif isinstance(e, LoopIR.USub):
             return -self.eval_e(e.arg)
+        elif isinstance(e, LoopIR.Extern):
+            return e.f.interpret([self.eval_e(arg) for arg in e.args])
 
         # BuiltIns don't go to the interpreter, they are just called (via call) like a proc
         # TODO Discuss to make sure
@@ -316,7 +330,7 @@ class Interpreter:
 
         elif isinstance(e, LoopIR.ReadConfig):
             nm = e.config.name()
-            return self.ctxt[nm][e.field]
+            return self.ctxt[(nm, e.field)]
 
         else:
             print(e)

@@ -1,0 +1,9 @@
+Types:
+a: size
+b: f32[a]
+c: f32
+i: index
+Mems:
+a: <class 'exo.core.memory.DRAM'>
+b: <class 'exo.core.memory.DRAM'>
+c: <class 'exo.core.memory.StaticMemory'>

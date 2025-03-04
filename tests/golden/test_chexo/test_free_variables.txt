@@ -1,0 +1,3 @@
+a: (size, <class 'exo.core.memory.DRAM'>)
+b: (f32[a], <class 'exo.core.memory.DRAM'>)
+i: (index, None)

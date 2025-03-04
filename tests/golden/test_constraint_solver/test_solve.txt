@@ -1,1 +1,3 @@
-a = 70, slack = 96, slack = 0, slack = 69, b = 4, c = 97, slack = 3, slack = 80, slack = 186
+a = 22
+b = 2
+c = 16

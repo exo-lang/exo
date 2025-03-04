@@ -1,11 +1,12 @@
 from dataclasses import dataclass, field
-from typing import Union, Optional
+from typing import Literal, Union, Optional
 
 from exo.core.prelude import Sym
 from ..core.LoopIR import LoopIR, T
 import numpy as np
 from scipy.optimize import linprog
 from hsnf import smith_normal_form
+import textwrap
 
 
 @dataclass
@@ -51,11 +52,13 @@ class ConstraintTerm:
 class LinearConstraint:
     coefficients: dict[Sym, int]
     offset: int
+    has_slack: bool
 
 
 @dataclass
 class Constraint:
     terms: tuple[ConstraintTerm, ...]
+    has_slack: bool
 
     def apply_assignments(
         self, assignments: dict[Sym, int]
@@ -74,7 +77,7 @@ class Constraint:
                     if sym not in coefficients:
                         coefficients[sym] = 0
                     coefficients[sym] += coefficient
-        return LinearConstraint(coefficients, offset)
+        return LinearConstraint(coefficients, offset, self.has_slack)
 
     def collect_syms(self) -> frozenset[Sym]:
         return frozenset(sym for term in self.terms for sym in term.syms)
@@ -84,6 +87,33 @@ class Constraint:
             *[term.collect_nonlinear_syms() for term in self.terms]
         )
 
+    def lift_to_disjoint_constraint(self) -> "DisjointConstraint":
+        return DisjointConstraint((ConstraintClause((self,)),))
+
+    def invert(self) -> "DisjointConstraint":
+        if self.has_slack:
+            return Constraint(
+                tuple(term.negate() for term in self.terms) + (ConstraintTerm(-1, ()),),
+                True,
+            ).lift_to_disjoint_constraint()
+        else:
+            return DisjointConstraint(
+                (
+                    ConstraintClause(
+                        (Constraint(self.terms + (ConstraintTerm(-1, ()),), True),)
+                    ),
+                    ConstraintClause(
+                        (
+                            Constraint(
+                                tuple(term.negate() for term in self.terms)
+                                + (ConstraintTerm(-1, ()),),
+                                True,
+                            ),
+                        )
+                    ),
+                )
+            )
+
     def pretty_print(self) -> str:
         return (
             " + ".join(
@@ -92,60 +122,143 @@ class Constraint:
                     for term in self.terms
                 ]
             )
-            + " == 0"
+            + f" {'>=' if self.has_slack else '=='} 0"
         )
+
+
+@dataclass
+class ConstraintClause:
+    constraints: tuple[Constraint, ...]
+
+    def invert(self) -> "DisjointConstraint":
+        acc = FALSE_CONSTRAINT
+        for constraint in self.constraints:
+            acc = acc.union(constraint.invert())
+        return acc
+
+    def pretty_print(self) -> str:
+        lines = [
+            "intersect(",
+            *list(
+                textwrap.indent(constraint.pretty_print(), "\t") + ","
+                for constraint in self.constraints
+            ),
+            ")",
+        ]
+        return "\n".join(lines)
+
+
+@dataclass
+class DisjointConstraint:
+    clauses: tuple[ConstraintClause, ...]
+
+    def intersect(self, other: "DisjointConstraint"):
+        return DisjointConstraint(
+            tuple(
+                ConstraintClause(lhs_clause.constraints + rhs_clause.constraints)
+                for lhs_clause in self.clauses
+                for rhs_clause in other.clauses
+            )
+        )
+
+    def union(self, other: "DisjointConstraint"):
+        return DisjointConstraint(self.clauses + other.clauses)
+
+    def invert(self) -> "DisjointConstraint":
+        acc = TRUE_CONSTRAINT
+        for clause in self.clauses:
+            acc = acc.intersect(clause.invert())
+        return acc
+
+    def pretty_print(self) -> str:
+        lines = [
+            "union(",
+            *list(
+                textwrap.indent(clause.pretty_print(), "\t") + ","
+                for clause in self.clauses
+            ),
+            ")",
+        ]
+        return "\n".join(lines)
+
+
+TRUE_CONSTRAINT = DisjointConstraint((ConstraintClause(()),))
+FALSE_CONSTRAINT = DisjointConstraint(())
+
+
+@dataclass
+class Expression:
+    terms: tuple[ConstraintTerm, ...]
+
+    def apply_assignments(self, assignments: dict[Sym, int]) -> Optional[int]:
+        result = 0
+        for term in self.terms:
+            assign_result = term.apply_assignments(assignments)
+            if assign_result is None:
+                return None
+            else:
+                coeff, target = assign_result
+                if target is None:
+                    result += coeff
+                else:
+                    return None
+        return result
+
+
+@dataclass
+class Solution:
+    ctxt: dict[tuple[str, str], int]
+    var_assignments: dict[Sym, int]
 
 
 class ConstraintMaker:
     def __init__(self, type_map: dict[Sym, LoopIR.type]):
-        self.unconstrained_var_subs: dict[Sym, tuple[ConstraintTerm, ...]] = {}
+        self.var_subs: dict[Sym, Expression] = {}
+        self.ctxt: dict[tuple[str, str], Expression] = {}
         self.extra_constraints: list[Constraint] = []
         self.stride_dummies: dict[tuple[Sym, int], Sym] = {}
         for sym, sym_type in type_map.items():
-            if isinstance(sym_type, (T.Size, T.Stride)):
-                # positive constraint
-                self.extra_constraints.append(
-                    Constraint(
-                        (
-                            ConstraintTerm(1, (sym,)),
-                            ConstraintTerm(-1, ()),
-                            ConstraintTerm(-1, (Sym("slack"),)),
-                        )
-                    )
+            var_sub_result = self.make_var_sub(sym.name(), sym_type)
+            if var_sub_result is not None:
+                self.var_subs[sym] = var_sub_result
+
+    def make_var_sub(self, name: str, var_type: LoopIR.type) -> Optional[Expression]:
+        if isinstance(var_type, (T.Size, T.Stride)):
+            # positive variable
+            return Expression(
+                (ConstraintTerm(1, (Sym(f"{name}_m1"),)), ConstraintTerm(1, ()))
+            )
+        elif isinstance(var_type, (T.Int, T.Index)):
+            # unsigned variables are represented as a - b, where a and b are nonnegative
+            a, b = Sym(f"{name}_a"), Sym(f"{name}_b")
+            return Expression((ConstraintTerm(1, (a,)), ConstraintTerm(-1, (b,))))
+        elif isinstance(var_type, T.Bool):
+            # constrained to [0, 1]
+            sym = Sym(name)
+            self.extra_constraints.append(
+                Constraint(
+                    (
+                        ConstraintTerm(-1, (sym,)),
+                        ConstraintTerm(1, ()),
+                    ),
+                    True,
                 )
-            elif isinstance(sym_type, (T.Int, T.Num)):
-                # unsigned variables are represented as a - b, where a and b are nonnegative
-                a, b = Sym("a"), Sym("b")
-                self.unconstrained_var_subs[sym] = (
-                    ConstraintTerm(1, (a,)),
-                    ConstraintTerm(-1, (b,)),
-                )
-            elif isinstance(sym_type, T.Bool):
-                # constrained to [0, 1]
-                self.extra_constraints.append(
-                    Constraint(
-                        (
-                            ConstraintTerm(1, (sym,)),
-                            ConstraintTerm(-1, ()),
-                            ConstraintTerm(1, (Sym("slack"),)),
-                        )
-                    )
-                )
+            )
+            return Expression((ConstraintTerm(1, (sym,)),))
+        else:
+            return None
 
     def make_constraint_terms(
         self, expr: Union[LoopIR.expr, Sym]
     ) -> tuple[ConstraintTerm, ...]:
         # expect that expr is int type
         if isinstance(expr, Sym):
-            return (ConstraintTerm(1, (expr,)),)
+            return self.var_subs[expr].terms
         elif isinstance(expr, LoopIR.Read):
             assert (
                 len(expr.idx) == 0
             ), "indexing not supported in assertions (yet, todo)"
-            if expr.name in self.unconstrained_var_subs:
-                return self.unconstrained_var_subs[expr.name]
-            else:
-                return (ConstraintTerm(1, (expr.name,)),)
+            return self.var_subs[expr.name].terms
         elif isinstance(expr, LoopIR.Const):
             return (ConstraintTerm(expr.val, ()),)
         elif isinstance(expr, LoopIR.USub):
@@ -173,17 +286,18 @@ class ConstraintMaker:
                         + tuple(
                             rhs_term.multiply(ConstraintTerm(1, (div,)))
                             for rhs_term in rhs_terms
-                        )
+                        ),
+                        False,
                     )
                 )
                 self.extra_constraints.append(
                     Constraint(
                         (
                             ConstraintTerm(-1, (rem,)),
-                            ConstraintTerm(-1, (Sym("slack"),)),
                             ConstraintTerm(-1, ()),
                         )
-                        + rhs_terms
+                        + rhs_terms,
+                        True,
                     )
                 )
                 return (ConstraintTerm(1, (rem if expr.op == "%" else div,)),)
@@ -195,47 +309,51 @@ class ConstraintMaker:
                 self.stride_dummies[(expr.name, expr.dim)] = new_sym
             dummy = self.stride_dummies[(expr.name, expr.dim)]
             return (ConstraintTerm(1, (dummy,)),)
+        elif isinstance(expr, LoopIR.ReadConfig):
+            if (expr.config.name(), expr.field) not in self.ctxt:
+                field_type = expr.config.lookup_type(expr.field)
+                var_sub_result = self.make_var_sub(
+                    f"{expr.config.name()}_{expr.field}", field_type
+                )
+                assert (
+                    var_sub_result is not None
+                ), "constraints can only occur on control variables"
+                self.ctxt[(expr.config.name(), expr.field)] = var_sub_result
+            return self.ctxt[(expr.config.name(), expr.field)].terms
         else:
             assert False, f"unsupported expr"
 
-    def make_constraints(
+    def make_constraint(
         self,
         expr: LoopIR.expr,
-    ) -> tuple[Constraint, ...]:
+    ) -> DisjointConstraint:
         # expect that expr is bool type
         if isinstance(expr, LoopIR.BinOp):
             if expr.op == "and":
-                return self.make_constraints(expr.lhs) + self.make_constraints(expr.rhs)
-            elif expr.op == "or":
-                # disjunction multiplies all constraints
-                lhs_constraints, rhs_constraints = self.make_constraints(
+                lhs_constraints, rhs_constraints = self.make_constraint(
                     expr.lhs
-                ), self.make_constraints(expr.rhs)
-                return tuple(
-                    Constraint(
-                        tuple(
-                            lhs_term.multiply(rhs_term)
-                            for lhs_term in lhs_constraint.terms
-                            for rhs_term in rhs_constraint.terms
-                        )
-                    )
-                    for lhs_constraint in lhs_constraints
-                    for rhs_constraint in rhs_constraints
-                )
+                ), self.make_constraint(expr.rhs)
+                return lhs_constraints.intersect(rhs_constraints)
+            elif expr.op == "or":
+                lhs_constraints, rhs_constraints = self.make_constraint(
+                    expr.lhs
+                ), self.make_constraint(expr.rhs)
+                return lhs_constraints.union(rhs_constraints)
             else:
-                return (
-                    self.make_constraint_from_inequality(expr.lhs, expr.rhs, expr.op),
-                )
+                return self.make_constraint_from_inequality(
+                    expr.lhs, expr.rhs, expr.op
+                ).lift_to_disjoint_constraint()
         elif isinstance(expr, LoopIR.Read):
             assert len(expr.idx) == 0, "cannot index into boolean"
-            return (
-                Constraint((ConstraintTerm(1, (expr.name,)), ConstraintTerm(-1, ()))),
-            )
+            return Constraint(
+                (
+                    ConstraintTerm(1, (expr.name,)),
+                    ConstraintTerm(-1, ()),
+                ),
+                True,
+            ).lift_to_disjoint_constraint()
         elif isinstance(expr, LoopIR.Const):
-            if expr.val:
-                return (Constraint(()),)
-            else:
-                return (Constraint((ConstraintTerm(1, ()))),)
+            return TRUE_CONSTRAINT if expr.val else FALSE_CONSTRAINT
         else:
             assert False, "only boolean expected"
 
@@ -244,39 +362,46 @@ class ConstraintMaker:
     ) -> Constraint:
         lhs_terms = self.make_constraint_terms(lhs)
         rhs_terms = self.make_constraint_terms(rhs)
-        main_terms = rhs_terms + tuple(term.negate() for term in lhs_terms)
+        has_slack = True
         if op == "<":
-            slack_terms = (
-                ConstraintTerm(-1, (Sym("slack"),)),
-                ConstraintTerm(-1, ()),
+            terms = (
+                rhs_terms
+                + tuple(term.negate() for term in lhs_terms)
+                + (ConstraintTerm(-1, ()),)
             )
         elif op == ">":
-            slack_terms = (
-                ConstraintTerm(1, (Sym("slack"),)),
-                ConstraintTerm(1, ()),
+            terms = (
+                lhs_terms
+                + tuple(term.negate() for term in rhs_terms)
+                + (ConstraintTerm(-1, ()),)
             )
         elif op == "<=":
-            slack_terms = (ConstraintTerm(-1, (Sym("slack"),)),)
+            terms = rhs_terms + tuple(term.negate() for term in lhs_terms)
         elif op == ">=":
-            slack_terms = (ConstraintTerm(1, (Sym("slack"),)),)
+            terms = lhs_terms + tuple(term.negate() for term in rhs_terms)
         elif op == "==":
-            slack_terms = ()
+            has_slack = False
+            terms = rhs_terms + tuple(term.negate() for term in lhs_terms)
         else:
             assert False, "boolean ops expected"
-        return Constraint(main_terms + slack_terms)
+        return Constraint(terms, has_slack)
 
-    def solve_constraints(
+    def solve_constraint(
         self,
-        constraints: tuple[Constraint, ...],
+        disjoint_constraint: DisjointConstraint,
         *,
+        bound: int,
         search_limit: int,
         seed: Optional[int] = None,
-    ):
+    ) -> Optional[Solution]:
         if seed is not None:
             np.random.seed(seed=seed)
-        all_constraints = constraints + tuple(self.extra_constraints)
+        if len(disjoint_constraint.clauses) == 0:
+            return None
+        chosen_clause = np.random.choice(list(disjoint_constraint.clauses))
+        assert isinstance(chosen_clause, ConstraintClause)
+        all_constraints = chosen_clause.constraints + tuple(self.extra_constraints)
         assignments = {}
-        x_bound = 100
         sym_universe = set()
         for constraint in all_constraints:
             sym_universe |= constraint.collect_syms()
@@ -293,7 +418,6 @@ class ConstraintMaker:
                         linear_constraint_syms |= {
                             sym for sym in assign_result.coefficients.keys()
                         }
-
                     nonlinear_syms |= constraint.collect_nonlinear_syms()
                 nonlinear_syms -= assignments.keys()
                 priority_syms = nonlinear_syms & linear_constraint_syms
@@ -301,7 +425,7 @@ class ConstraintMaker:
                     chosen_sym = np.random.choice(
                         sorted(list(nonlinear_syms), key=lambda sym: sym._id)
                     )
-                    assignments[chosen_sym] = np.random.randint(0, x_bound)
+                    assignments[chosen_sym] = np.random.randint(0, bound)
                     continue
                 sym_ordering = {
                     sym: i
@@ -313,15 +437,21 @@ class ConstraintMaker:
                     )
                 }
                 n = len(linear_constraints)
-                m = len(linear_constraint_syms)
+                m_nonslack = len(linear_constraint_syms)
                 matrix_A = np.zeros(
-                    (n, m),
+                    (n, m_nonslack),
                     dtype=np.int32,
                 )
+                m = m_nonslack
                 vec_b = np.zeros(n, dtype=np.int32)
                 for row, linear_constraint in enumerate(linear_constraints):
                     for sym, coefficient in linear_constraint.coefficients.items():
                         matrix_A[row, sym_ordering[sym]] = coefficient
+                    if linear_constraint.has_slack:
+                        slack_col = np.zeros((n, 1), dtype=np.int32)
+                        slack_col[row, 0] = -1
+                        matrix_A = np.hstack((matrix_A, slack_col))
+                        m += 1
                     vec_b[row] = -linear_constraint.offset
                 matrix_B, matrix_U, matrix_V = smith_normal_form(matrix_A)
                 vec_d = matrix_U @ vec_b
@@ -340,9 +470,12 @@ class ConstraintMaker:
                         return False
                 else:
                     matrix_C = matrix_V[:, k:]
-                    upper_bound_matrix = np.concatenate((matrix_C, -matrix_C), axis=0)
+                    upper_bound_matrix = np.concatenate(
+                        (matrix_C[:m_nonslack, :], -matrix_C), axis=0
+                    )
                     upper_bound_offset = np.concatenate(
-                        (np.ones_like(vec_f) * x_bound - vec_f, vec_f), axis=0
+                        (np.ones(m_nonslack) * bound - vec_f[:m_nonslack], vec_f),
+                        axis=0,
                     )
                     lp = linprog(
                         np.zeros(m - k),
@@ -359,7 +492,8 @@ class ConstraintMaker:
                         direction = np.random.normal(size=m - k)
                         direction = direction / np.linalg.norm(direction)
                         lower_bounds = -matrix_C @ cur_y - vec_f
-                        upper_bounds = lower_bounds + x_bound
+                        upper_bounds = lower_bounds + bound
+                        upper_bounds[m_nonslack:] = -np.nan
                         coefficients = matrix_C @ direction
                         lower_bounds = lower_bounds[coefficients != 0]
                         upper_bounds = upper_bounds[coefficients != 0]
@@ -403,14 +537,24 @@ class ConstraintMaker:
                     chosen_sym = np.random.choice(
                         sorted(list(free_syms), key=lambda sym: sym._id)
                     )
-                    assignments[chosen_sym] = np.random.randint(0, x_bound)
+                    assignments[chosen_sym] = np.random.randint(0, bound)
                 else:
                     assignments[chosen_sym] = int(solution[sym_ordering[chosen_sym]])
             return True
 
         for _ in range(search_limit):
             if solve_helper():
-                return assignments
+                var_assignments = {}
+                for sym, sub in self.var_subs.items():
+                    result = sub.apply_assignments(assignments)
+                    if result is not None:
+                        var_assignments[sym] = result
+                ctxt = {}
+                for (config_name, field), sub in self.ctxt.items():
+                    result = sub.apply_assignments(assignments)
+                    if result is not None:
+                        ctxt[(config_name, field)] = result
+                return Solution(ctxt, var_assignments)
             else:
                 assignments = {}
 
