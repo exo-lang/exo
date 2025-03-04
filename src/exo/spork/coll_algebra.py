@@ -104,7 +104,7 @@ class CollUnit(object):
             scale = tmp
         except Exception:
             raise TypeError(
-                f"Expected {self.name} to be scaled by positive int, not {scale}"
+                f"Expected {self.name} to be scaled by positive int, not {scale!r}"
             )
         i_scale = self.scaled_dim_idx
         if i_scale is None:
