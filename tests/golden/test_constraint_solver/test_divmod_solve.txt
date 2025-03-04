@@ -1,1 +1,3 @@
-a = 31, slack = 1, div = 7, b = 2, slack = 0, c = 48, slack = 47, slack = 2, rem = 3, slack = 30, slack = 84, slack = 77
+a = 15
+b = 4
+c = 15

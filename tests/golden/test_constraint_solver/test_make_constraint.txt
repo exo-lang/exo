@@ -1,2 +1,10 @@
-3 * c + -1 * c * a + -1 * c * slack + -12 * a + 4 * a * a + 4 * a * slack + -3 * b + 1 * b * a + 1 * b * slack + 3 * slack + -1 * slack * a + -1 * slack * slack + 3 + -1 * a + -1 * slack == 0
-5 + -1 * b + -1 * slack + -1 == 0
+union(
+	intersect(
+		4 * a_m1 + 4 + 1 * b_m1 + 1 + -1 * c_m1 + -1 + -1 >= 0,
+		5 + -1 * b_m1 + -1 + -1 >= 0,
+	),
+	intersect(
+		3 + -1 * a_m1 + -1 >= 0,
+		5 + -1 * b_m1 + -1 + -1 >= 0,
+	),
+)

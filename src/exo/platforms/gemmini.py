@@ -386,8 +386,8 @@ def ld_i8_block(
     assert n <= 16
     assert m <= 4
     assert stride(src, 1) == 1
-    assert stride(dst, 0) == 16
-    assert stride(dst, 1) == 1
+    assert stride(dst, 1) == 16
+    assert stride(dst, 2) == 1
 
     for i in seq(0, n):
         for j in seq(0, m):
@@ -481,8 +481,8 @@ def zero_block_id2(
 ):
     assert n <= 16
     assert m <= 4
-    assert stride(dst, 0) == 16
-    assert stride(dst, 1) == 1
+    assert stride(dst, 1) == 16
+    assert stride(dst, 2) == 1
 
     for i in seq(0, n):
         for j in seq(0, m):
