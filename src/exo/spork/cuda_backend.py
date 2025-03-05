@@ -291,6 +291,13 @@ class SubtreeScan(LoopIR_Do):
             else:
                 native_unit = cuda_thread
             self.sym_advice[s.name] = AllocState(self._coll_tiling, native_unit)
+        elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            if (n_threads := self._coll_tiling.box_threads()) != 1:
+                raise ValueError(
+                    f"{s.srcinfo}: write must be executed by one "
+                    f"thread only (current: {n_threads} threads)\n"
+                    f"stmt: {s}"
+                )
 
     def apply_cuda_threads_loop(self, s):
         def get_const(e, name):
@@ -702,7 +709,7 @@ task_launch_fmt = """if (exo_taskIndex++ % (gridDim.x / exo_clusterDim) == block
 # Paste this into the C header (.h) if any proc uses cuda.
 # TODO this should be minimal.
 # cp.async and MMA stuff should be externalized
-h_snippet_for_cuda = r"""\
+h_snippet_for_cuda = r"""
 #include <cuda.h>
 #include <cuda_runtime.h>
 
