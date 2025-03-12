@@ -1061,7 +1061,7 @@ class Compiler:
                 # Modify Sym state as specified by ExtWithContext.
                 # Please read the comment in ExtWithContext and ensure it's
                 # correct ... in particular handling nested ExtWithContexts.
-                self.push()
+                self.push(only="env")
                 old_force_names = self.force_names
                 old_force_const = self.force_const
                 old_scalar_refs = self._scalar_refs
