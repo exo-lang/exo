@@ -499,7 +499,15 @@ class SubtreeRewrite(LoopIR_Rewrite):
     def map_s(self, s):
         s_rewrite = None
 
-        if isinstance(s, LoopIR.For):
+        if is_if_holding_with(s, LoopIR):
+            ctx = s.cond.val
+            if isinstance(ctx, CudaAsync):
+                s_rewrite = s.update(cond=LoopIR.Const(True, T.bool, s.srcinfo))
+            else:
+                raise TypeError(
+                    f"{s.srcinfo}: unexpected with context type {type(ctx)} in CUDA device code"
+                )
+        elif isinstance(s, LoopIR.For):
             # Replace CudaThreads loop with _CodegenPar loop that the
             # scanner has prepared.
             if isinstance(s.loop_mode, CudaThreads):

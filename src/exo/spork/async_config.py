@@ -12,7 +12,7 @@ class BaseAsyncConfig(BaseWithContext):
 
     At a minimum, the derived class must specify the ActorKind that
     the child statements execute with, the name of the device
-    (compiler backend), and parent_async_type.
+    (compiler backend), and parent_actor_kind.
 
     """
 
@@ -24,15 +24,10 @@ class BaseAsyncConfig(BaseWithContext):
     def get_device_name(self):
         raise NotImplementedError()
 
-    def parent_async_type(self) -> Optional[type]:
-        """Dictates allowed nesting of async blocks in other async blocks.
+    def parent_actor_kind(self) -> ActorKind:
+        """Controls allowed nesting of async blocks in other async blocks.
 
-        If None, we require that the async block is not nested inside
-        another (i.e. must be the child of top-level CPU code).
-        Otherwise, parent_async_type must return a type object, and we
-        require the parent async block have a configuration of that
-        type.
-
+        The async block must appear in a code block with the given actor kind
         """
         raise NotImplementedError()
 
@@ -53,8 +48,8 @@ class CudaDeviceFunction(BaseAsyncConfig):
     def get_device_name(self):
         return "cuda"
 
-    def parent_async_type(self):
-        return None
+    def parent_actor_kind(self):
+        return actor_kinds.cpu
 
     def __repr__(self):
         return f"CudaDeviceFunction({self.blockDim}, {self.clusterDim}, {self.blocks_per_sm})"
@@ -73,7 +68,7 @@ class CudaAsync(BaseAsyncConfig):
 
     def __init__(self, actor_kind):
         assert actor_kind in [
-            actor_kinds.non_bulk_cp_async,
+            actor_kinds.Sm80_cp_async,
             actor_kinds.tma_to_smem_async,
             actor_kinds.tma_to_gmem_async,
             actor_kinds.wgmma_async,
@@ -86,8 +81,8 @@ class CudaAsync(BaseAsyncConfig):
     def get_device_name(self):
         return "cuda"
 
-    def parent_async_type(self):
-        return CudaDeviceFunction
+    def parent_actor_kind(self):
+        return actor_kinds.cuda_classic
 
     def __repr__(self):
         return f"CudaAsync({self._actor_kind})"
