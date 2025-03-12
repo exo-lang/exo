@@ -67,12 +67,7 @@ class CudaAsync(BaseAsyncConfig):
     __slots__ = ["_actor_kind"]
 
     def __init__(self, actor_kind):
-        assert actor_kind in [
-            actor_kinds.Sm80_cp_async,
-            actor_kinds.tma_to_smem_async,
-            actor_kinds.tma_to_gmem_async,
-            actor_kinds.wgmma_async,
-        ]
+        assert actor_kind in actor_kinds.cuda_async_actor_kinds
         self._actor_kind = actor_kind
 
     def get_actor_kind(self):

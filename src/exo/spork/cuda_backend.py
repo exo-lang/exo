@@ -25,11 +25,6 @@ from .coll_algebra import (
 from .loop_modes import CudaTasks, CudaThreads, Seq, seq, _CodegenPar
 from .sync_types import SyncType
 
-from .cuda_memory import (
-    Sm80_BasicRmemMatrix,
-    CudaBasicSmem,
-)  # XXX should be externalized
-
 
 # We use the reserved exo_ prefix everywhere, but we still have to reserve
 # CUDA builtins we have no control over.
@@ -283,13 +278,7 @@ class SubtreeScan(LoopIR_Do):
                     f"{s.srcinfo}: unexpected loop mode {s.loop_mode.loop_mode_name()} in CudaDeviceFunction"
                 )
         elif isinstance(s, LoopIR.Alloc):
-            # TODO native_unit should be externalized
-            if issubclass(s.mem, CudaBasicSmem):
-                native_unit = cuda_cta_in_cluster
-            elif issubclass(s.mem, Sm80_BasicRmemMatrix):
-                native_unit = cuda_warp
-            else:
-                native_unit = cuda_thread
+            native_unit = s.mem.native_unit()
             self.sym_advice[s.name] = AllocState(self._coll_tiling, native_unit)
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if (n_threads := self._coll_tiling.box_threads()) != 1:

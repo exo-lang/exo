@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from typing import Optional
+from ..spork.actor_kinds import cpu
 
 """
 --- Alloc specifications ---
@@ -283,6 +284,26 @@ class MemWin(ABC):
             f"{s.srcinfo}: cannot reduce to buffer "
             f"'{s.name}' in memory '{cls.name()}'"
         )
+
+    @classmethod
+    def actor_kind_permission(cls, actor_kind, is_instr):
+        """For a given actor kind, return a string of permission letters.
+
+        r: read
+        w: write
+        c: create (allocate Memory or create SpecialWindow)
+
+        The syntax similar to e.g. "rw" for opening a file
+        NB for now, we expect 'r' if 'w' is given (i.e. no write-only mems)
+
+        is_instr is True iff the access is via calling an instr, and not
+        a scalar Read/Assign/Reduce statement. If is_instr is False,
+        whether a Read/Assign/Reduce will actually compile additionally
+        depends on the can_read/write/reduce member functions."""
+        if actor_kind == cpu:
+            return "rwc"
+        else:
+            return ""
 
 
 class Memory(MemWin):

@@ -165,6 +165,14 @@ actor_kind_dict = {
     ]
 }
 
+# Valid actor kinds for CudaAsync block
+cuda_async_actor_kinds = (
+    Sm80_cp_async,
+    tma_to_smem_async,
+    tma_to_gmem_async,
+    wgmma_async,
+)
+
 
 class AnyActorKind(object):
     def __repr__(self):

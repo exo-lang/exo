@@ -1,12 +1,75 @@
 from ..core.memory import Memory, MemGenError
+from . import actor_kinds
+from .coll_algebra import (
+    CollUnit,
+    cuda_thread,
+    cuda_warp,
+    cuda_warpgroup,
+    cuda_cta_in_cluster,
+)
 
 
 class CudaBasicDeviceVisible(Memory):
-    pass
+    """All memory types allocatable in CUDA device code must inherit from this.
+    The LoopIR compiler expects this subclassing, and expects
+    the native_unit() function to be implemented if allocable on the device.
+
+    Converse is not true -- this class represents only that the
+    memory is device visible, not allocable. Subclasses should
+    implement actor_kind_permission in terms of one of the impl
+    functions based on the correct behavior.
+    """
+
+    @classmethod
+    def actor_kind_permission(cls, actor_kind, is_instr):
+        raise NotImplementedError()
+
+    @classmethod
+    def native_unit(cls) -> CollUnit:
+        raise NotImplementedError()
+
+    @classmethod
+    def device_allocated_impl(cls, actor_kind, is_instr):
+        """Only allocated and used on the CUDA device"""
+        if actor_kind == actor_kinds.cuda_classic:
+            return "rwa"
+        elif actor_kind in actor_kinds.cuda_async_actor_kinds:
+            return "rwa" if is_instr else "a"
+        else:
+            return ""
+
+    @classmethod
+    def host_allocated_impl(cls, actor_kind, is_instr, pinned):
+        """Only allocated and used on the CUDA device"""
+        if actor_kind == actor_kinds.cpu:
+            return "rwa" if pinned else "a"
+        elif actor_kind == actor_kinds.cuda_classic:
+            return "rw"
+        elif actor_kind in actor_kinds.cuda_async_actor_kinds:
+            return "rw" if is_instr else ""
+        else:
+            return ""
+
+    @classmethod
+    def grid_constant_impl(cls, actor_kind, is_instr, pinned):
+        if actor_kind == actor_kinds.cpu:
+            return "rwa"
+        elif actor_kind == actor_kinds.cuda_classic:
+            return "r"
+        elif actor_kind in actor_kinds.cuda_async_actor_kinds:
+            return "r" if is_instr else ""
+        else:
+            return ""
 
 
 class CudaBasicSmem(CudaBasicDeviceVisible):
-    pass
+    @classmethod
+    def actor_kind_permission(cls, actor_kind, is_instr):
+        return cls.device_allocated_impl(actor_kind, is_instr)
+
+    @classmethod
+    def native_unit(cls):
+        return cuda_cta_in_cluster
 
 
 class CudaDeviceVisibleLinear(CudaBasicDeviceVisible):
@@ -31,6 +94,10 @@ class CudaGmemLinear(CudaDeviceVisibleLinear):
     @classmethod
     def free(cls, new_name, prim_type, shape, srcinfo):
         raise MemGenError("TODO implement CudaGmemLinear.free")
+
+    @classmethod
+    def actor_kind_permission(cls, actor_kind, is_instr):
+        return cls.host_allocated_impl(actor_kind, is_instr, pinned=False)
 
 
 class CudaSmemLinear(CudaDeviceVisibleLinear, CudaBasicSmem):
@@ -66,6 +133,14 @@ class CudaRmem(CudaDeviceVisibleLinear):
     @classmethod
     def free(cls, new_name, prim_type, shape, srcinfo):
         return ""
+
+    @classmethod
+    def actor_kind_permission(cls, actor_kind, is_instr):
+        return cls.device_allocated_impl(actor_kind, is_instr)
+
+    @classmethod
+    def native_unit(cls):
+        return cuda_thread
 
 
 class Sm80_BasicRmemMatrix(CudaBasicDeviceVisible):
@@ -115,6 +190,14 @@ class Sm80_BasicRmemMatrix(CudaBasicDeviceVisible):
     @classmethod
     def free(cls, new_name, prim_type, shape, srcinfo):
         return ""
+
+    @classmethod
+    def actor_kind_permission(cls, actor_kind, is_instr):
+        return cls.device_allocated_impl(actor_kind, is_instr)
+
+    @classmethod
+    def native_unit(cls):
+        return cuda_warp
 
 
 class Sm80_RmemMatrixA(Sm80_BasicRmemMatrix):
