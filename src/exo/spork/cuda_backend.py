@@ -177,17 +177,11 @@ class SubtreeScan(LoopIR_Do):
             clusterDim_param: self.clusterDim,
             blockDim_param: self.blockDim,
         }
-        # TODO need to fix coll_algebra to remove this special casing for clusterDim = 1
-        if self.clusterDim == 1:
-            tlc_offset = (0,)
-            tlc_box = (self.blockDim,)
-            intra_box_exprs = (CollIndexExpr("threadIdx.x"),)
-        else:
-            tlc_offset = (0, 0)
-            tlc_box = (self.clusterDim, self.blockDim)
-            cta_expr = CollIndexExpr("blockIdx.x") % self.clusterDim
-            thread_expr = CollIndexExpr("threadIdx.x")
-            intra_box_exprs = (cta_expr, CollIndexExpr("threadIdx.x"))
+        tlc_offset = (0, 0)
+        tlc_box = (self.clusterDim, self.blockDim)
+        cta_expr = CollIndexExpr("blockIdx.x") % self.clusterDim
+        thread_expr = CollIndexExpr("threadIdx.x")
+        intra_box_exprs = (cta_expr, CollIndexExpr("threadIdx.x"))
         self._coll_tiling = CollTiling(
             None, tlc_box, tlc_box, tlc_offset, tlc_box, intra_box_exprs
         )

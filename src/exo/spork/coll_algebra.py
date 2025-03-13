@@ -210,6 +210,7 @@ class CollIndexExpr(object):
         if isinstance(self.base_expr, int):
             return CollIndexExpr(self.base_expr % v)
         elif v == 1:
+            # We rely on this in DomainCompletionOp.new_intra_box_exprs!
             return CollIndexExpr(0)
         elif self.ops and self.ops[-1][0] == "%":
             # Merge with the prior modulo op if possible
@@ -481,11 +482,12 @@ class CollLoweringAdvice(object):
 
 
 class DomainCompletionOp(object):
-    __slots__ = ["idx_factors", "input_dim", "domain", "source_partial"]
-    idx_factors: Tuple[int, int]
+    __slots__ = ["input_dim", "source_partial", "remove_idx", "idx_factors", "domain"]
     input_dim: int
-    domain: Tuple[int]
     source_partial: bool
+    remove_idx: Tuple[int]
+    idx_factors: Tuple[int, int]
+    domain: Tuple[int]
 
     def __init__(
         self,
@@ -493,6 +495,54 @@ class DomainCompletionOp(object):
         target_domain: Tuple[int],
         allow_partial_source: bool,
     ):
+        # Record the original source domain dimension, before modifications
+        assert isinstance(source_domain, tuple)
+        original_source_domain = source_domain
+        self.input_dim = len(original_source_domain)
+
+        # Calculate total number of threads in source and target domain
+        # and deduce if the source domain is partial.
+        # NB we have to do this early, before removing 1s.
+        def total_threads(domain):
+            tmp = 1
+            for c in domain:
+                tmp *= c
+            return tmp
+
+        threads_s = total_threads(source_domain)
+        threads_t = total_threads(target_domain)
+        s_to_t_multiplier = threads_t // threads_s
+        if allow_partial_source and threads_s != threads_t:
+            # Complete source domain if needed (prepend coordinate to domain
+            # so total thread count matches that of target domain).
+            # self.source_partial means we will do a matching prepend when
+            # translating coordinates
+            assert threads_t % threads_s == 0  # TODO message
+            self.source_partial = True
+            source_domain = (s_to_t_multiplier,) + source_domain
+        else:
+            assert threads_s % threads_t == 0  # TODO message
+            self.source_partial = False
+
+        # Remove 1s in source and target domains
+        def remove_1s_impl(domain):
+            new_domain = []
+            remove_idx = []
+            for i, c in enumerate(domain):
+                assert c >= 1, "Expected domain to consist only of positive numbers"
+                if c == 1:
+                    remove_idx.append(i - len(remove_idx))
+                else:
+                    new_domain.append(c)
+            return tuple(new_domain), tuple(remove_idx)
+
+        source_domain, self.remove_idx = remove_1s_impl(source_domain)
+        target_domain, _ = remove_1s_impl(target_domain)
+
+        # Generate list of splitting commands (i, f) to apply in order
+        # "split the (current) i-th dimension by f".
+        idx_factors = []
+
         def cumulative_thread_counts(domain):
             tmp = [1]
             for c in domain[::-1]:
@@ -502,16 +552,6 @@ class DomainCompletionOp(object):
 
         cumulative_s = cumulative_thread_counts(source_domain)
         cumulative_t = cumulative_thread_counts(target_domain)
-        if allow_partial_source and cumulative_s[0] != cumulative_t[0]:
-            assert cumulative_t[0] % cumulative_s[0] == 0  # TODO message
-            source_domain = (cumulative_t[0] // cumulative_s[0],) + source_domain
-            cumulative_s = [cumulative_t[0]] + cumulative_s
-            self.source_partial = True
-        else:
-            assert cumulative_s[0] % cumulative_t[0] == 0  # TODO message
-            self.source_partial = False
-
-        idx_factors = []
 
         for i_s in range(len(source_domain) - 1, -1, -1):
             s0 = cumulative_s[i_s] if i_s >= 0 else float("inf")
@@ -527,12 +567,14 @@ class DomainCompletionOp(object):
                     idx_factors.append((i_s, split))
 
         self.idx_factors = idx_factors
-        self.input_dim = len(source_domain)
+
+        # Generate the new domain
         self.domain = self._new_coords(
-            source_domain,
+            original_source_domain,
             lambda c, factor: c // factor,
             lambda c, factor: factor,
-            allow_prefix=False,
+            1,
+            partial_prepend=s_to_t_multiplier,
         )
 
     def new_size(self, size: Tuple):
@@ -546,7 +588,7 @@ class DomainCompletionOp(object):
         def inner_op(c, factor):
             return min(c, factor)
 
-        return self._new_coords(size, outer_op, inner_op)
+        return self._new_coords(size, outer_op, inner_op, 1)
 
     def new_offset(self, offset: Tuple):
         def outer_op(c, factor):
@@ -556,7 +598,7 @@ class DomainCompletionOp(object):
             assert c % factor == 0  # TODO message
             return 0
 
-        return self._new_coords(offset, outer_op, inner_op)
+        return self._new_coords(offset, outer_op, inner_op, 0)
 
     def new_intra_box_exprs(self, coords: Tuple):
         def outer_op(c, factor):
@@ -565,17 +607,37 @@ class DomainCompletionOp(object):
         def inner_op(c, factor):
             return c % factor
 
-        return self._new_coords(coords, outer_op, inner_op)
+        # NB rely on CollIndexExpr(...) % 1 to be 0 for expected_removed_coord
+        return self._new_coords(coords, outer_op, inner_op, CollIndexExpr(0))
 
-    def _new_coords(self, coords: Tuple, outer_op, inner_op, allow_prefix=True):
-        if allow_prefix and self.source_partial:
-            coords = [None] + list(coords)
+    def _new_coords(
+        self,
+        coords: Tuple,
+        outer_op,
+        inner_op,
+        expected_removed_coord,
+        partial_prepend=None,
+    ):
+        # We have to do translation in the same order as we initialized the
+        # DomainCompletionOp.
+        #   a. prepend if completing a partial domain
+        #   b. remove indices (1s)
+        #   c. split coordinates
+        # Wrong order would e.g. cause index values to lose intended meaning.
+        assert len(coords) == self.input_dim
+
+        if self.source_partial:
+            coords = [partial_prepend] + list(coords)
         else:
             coords = list(coords)
-        assert len(coords) == self.input_dim
+
+        for i in self.remove_idx:
+            assert coords[i] == expected_removed_coord  # TODO message
+            del coords[i]
+
         for idx, factor in self.idx_factors:
             assert idx >= 0
-            assert idx < self.input_dim
+            assert idx < len(coords)
             c = coords[idx]
             if c is None:
                 coords[idx : idx + 1] = [None, None]
