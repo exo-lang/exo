@@ -273,11 +273,16 @@ class SubtreeScan(LoopIR_Do):
                     f"{s.srcinfo}: unexpected loop mode {s.loop_mode.loop_mode_name()} in CudaDeviceFunction"
                 )
         elif isinstance(s, LoopIR.Alloc):
+            if not issubclass(s.mem, CudaBasicDeviceVisible):
+                raise TypeError(
+                    f"{s.srcinfo}: For cuda code, memory type "
+                    f"({s.mem.name()}) must subclass CudaBasicDeviceVisible"
+                )
             native_unit = s.mem.native_unit()
             self.sym_advice[s.name] = AllocState(self._coll_tiling, native_unit)
 
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
-            if (n_threads := self._coll_tiling.box_threads()) != 1:
+            if (n_threads := self._coll_tiling.box_num_threads()) != 1:
                 raise ValueError(
                     f"{s.srcinfo}: write must be executed by one "
                     f"thread only (current: {n_threads} threads)\n"
@@ -336,18 +341,25 @@ class SubtreeScan(LoopIR_Do):
             # TODO improve error messages. Maybe less strict usage patterns.
             cur_coll_tiling = state.alloc_coll_tiling
             n_distributed_dims = None
-            for dim_index, idx_coord in enumerate(node.idx):
-                # TODO check thread box shape, alignment; not just thread count.
-                cur_threads = cur_coll_tiling.box_threads()
+            for dim_i, idx_coord in enumerate(node.idx):
+                cur_threads = cur_coll_tiling.box_num_threads()
                 if cur_threads == native_threads:
-                    n_distributed_dims = dim_index
+                    n_distributed_dims = dim_i
                     break
                 if cur_threads < native_threads:
-                    raise ValueError("Mismatched thread counts for distributed memory")
+                    # TODO no one is going to understand this...
+                    message = (
+                        f"Expected {native_threads} threads to allocate "
+                        f"{node.name} but have {cur_threads}"
+                    )
+                    if dim_i > 0:
+                        str_idxs = ", ".join(str(idx) for idx in node.idx[:dim_i])
+                        message += f" (deduced after indexing by {str_idxs})"
+                    raise ValueError(message)
 
                 def coord_error(expected):
                     raise ValueError(
-                        f"Index {dim_index}: expected {expected}, "
+                        f"Index {dim_i}: expected {expected}, "
                         f"got {idx_coord}, to index distributed "
                         f"memory {node.name}"
                     )
@@ -368,12 +380,11 @@ class SubtreeScan(LoopIR_Do):
                     coord_error("correct parent tiling (TODO explain)")
                 cur_coll_tiling = next_coll_tiling
 
-            # TODO check thread box shape, alignment; not just thread count.
-            # Repeated check is annoying; needed in case all dims are distributed.
-            if n_distributed_dims is None:
-                if cur_coll_tiling.box_threads() != native_threads:
-                    raise ValueError(f"Not enough indices for distributed memory")
-                n_distributed_dims = len(node.idx)
+            # Check thread box shape, alignment; not just thread count.
+            if mismatch_reason := cur_coll_tiling.unit_mismatch(
+                state.native_unit, self._coll_env
+            ):
+                raise ValueError(mismatch_reason)
 
             # Record usage.
             # If not the first usage, check usage pattern matches prior usage.
@@ -385,7 +396,7 @@ class SubtreeScan(LoopIR_Do):
                 if state.usage_coll_tiling != cur_coll_tiling:
                     raise ValueError("collective tiling mismatch")
 
-        except Exception as e:
+        except ValueError as e:
             # TODO better error messages
             message = f"{node.srcinfo}: {node.name} distributed memory analysis failed (see chained exception)"
             raise MemGenError(message) from e

@@ -453,11 +453,63 @@ class CollTiling(object):
             advice,
         )
 
-    def box_threads(self):
+    def box_num_threads(self):
         n = 1
         for c in self.box:
             n *= c
         return n
+
+    def unit_mismatch(self, unit: CollUnit, env: Dict[CollParam, int]):
+        """Return False if the thread tiles match the given collective unit
+        (requires size and alignment match), else give str mismatch reason."""
+        assert isinstance(unit, CollUnit)
+
+        self_n_threads = self.box_num_threads()
+        # TODO explain: tile = box for unit but not CollTiling
+        unit_box_raw = unit.int_tile(env)
+        unit_n_threads = unit.int_threads(env)
+        unit_partial_domain = unit.int_partial_domain(env)
+        if self_n_threads != unit_n_threads:
+            return f"Have {self_n_threads} threads {self.box}; expected {unit_n_threads} ({unit})"
+
+        try:
+            tiling = self
+            while tiling is not None:
+                unit_completion = DomainCompletionOp(
+                    unit_partial_domain, tiling.domain, allow_partial_source=True
+                )
+                tiling_completion = DomainCompletionOp(
+                    tiling.domain, unit_partial_domain, allow_partial_source=False
+                )
+                assert unit_completion.domain == tiling_completion.domain
+
+                new_unit_box = unit_completion.new_size(unit_box_raw, 1)
+
+                # Check box size for leaf CollTiling
+                if self is tiling:
+                    new_tiling_box = tiling_completion.new_size(tiling.box)
+                    if new_unit_box != new_tiling_box:
+                        return (
+                            f"Have threads in shape {new_tiling_box}; "
+                            f"expected {new_unit_box} "
+                            f"({unit}); domain={unit_completion.domain}"
+                        )
+
+                # Check alignment for all CollTiling to root
+                new_tiling_offset = tiling_completion.new_offset(tiling.offset, 0)
+                assert len(new_tiling_offset) == len(new_unit_box)
+                for off_c, box_c in zip(new_tiling_offset, new_unit_box):
+                    if off_c % box_c != 0:
+                        return f"Incorrect alignment for {unit}"
+
+                # Traverse to root
+                tiling = tiling.parent
+
+        except DomainCompletionError as e:
+            # TODO no one is going to understand this failure mode...
+            return "domain completion failed: " + str(e)
+
+        return False  # False => match
 
 
 class CollLoweringAdvice(object):
@@ -479,6 +531,10 @@ class CollLoweringAdvice(object):
 
     def __repr__(self):
         return f"CollLoweringAdvice({self.coll_index}, {self.lo}, {self.hi})"
+
+
+class DomainCompletionError(Exception):
+    pass
 
 
 class DomainCompletionOp(object):
@@ -517,11 +573,13 @@ class DomainCompletionOp(object):
             # so total thread count matches that of target domain).
             # self.source_partial means we will do a matching prepend when
             # translating coordinates
-            assert threads_t % threads_s == 0  # TODO message
+            if threads_t % threads_s != 0:
+                raise DomainCompletionError()  # TODO message
             self.source_partial = True
             source_domain = (s_to_t_multiplier,) + source_domain
         else:
-            assert threads_s % threads_t == 0  # TODO message
+            if threads_s % threads_t != 0:
+                raise DomainCompletionError()  # TODO message
             self.source_partial = False
 
         # Remove 1s in source and target domains
@@ -562,8 +620,8 @@ class DomainCompletionOp(object):
                     t1 = cumulative_t[i_t + 1]
                     divisor = max(t1, s1)
                     split = t0 // divisor
-                    if i_s >= 0:
-                        assert source_domain[i_s] % split == 0  # TODO message
+                    if i_s >= 0 and source_domain[i_s] % split != 0:
+                        raise DomainCompletionError()  # TODO message
                     idx_factors.append((i_s, split))
 
         self.idx_factors = idx_factors
@@ -577,28 +635,34 @@ class DomainCompletionOp(object):
             partial_prepend=s_to_t_multiplier,
         )
 
-    def new_size(self, size: Tuple):
+    def new_size(self, size: Tuple, partial_prepend=None):
         def outer_op(c, factor):
             if c < factor:
                 return 1
             else:
-                assert c % factor == 0
+                if c % factor != 0:
+                    raise DomainCompletionError()  # TODO message
                 return c // factor
 
         def inner_op(c, factor):
             return min(c, factor)
 
-        return self._new_coords(size, outer_op, inner_op, 1)
+        return self._new_coords(
+            size, outer_op, inner_op, 1, partial_prepend=partial_prepend
+        )
 
-    def new_offset(self, offset: Tuple):
+    def new_offset(self, offset: Tuple, partial_prepend=None):
         def outer_op(c, factor):
             return c // factor
 
         def inner_op(c, factor):
-            assert c % factor == 0  # TODO message
+            if c % factor != 0:
+                raise DomainCompletionError()  # TODO message
             return 0
 
-        return self._new_coords(offset, outer_op, inner_op, 0)
+        return self._new_coords(
+            offset, outer_op, inner_op, 0, partial_prepend=partial_prepend
+        )
 
     def new_intra_box_exprs(self, coords: Tuple):
         def outer_op(c, factor):
@@ -632,7 +696,7 @@ class DomainCompletionOp(object):
             coords = list(coords)
 
         for i in self.remove_idx:
-            assert coords[i] == expected_removed_coord  # TODO message
+            assert coords[i] == expected_removed_coord
             del coords[i]
 
         for idx, factor in self.idx_factors:

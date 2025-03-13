@@ -212,7 +212,7 @@ class CudaRmem(CudaDeviceVisibleLinear):
                 int(extent)
             except ValueError as e:
                 raise MemGenError(
-                    f"CudaRmem requires constant shapes. Saw: {extent}"
+                    f"{srcinfo}: CudaRmem requires constant shapes. Saw: {extent}"
                 ) from e
 
         return f'{prim_type} {new_name}[{" * ".join(shape)}];'
@@ -242,7 +242,7 @@ class Sm80_BasicRmemMatrix(CudaBasicDeviceVisible):
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
         if len(shape) < 2:
-            raise MemGenError("Require at least 2D tile for Sm80 MMA tile")
+            raise MemGenError(f"{srcinfo}: Require at least 2D tile for Sm80 MMA tile")
         array_shape = shape[:-2]
         tile_shape = shape[-2:]
         assert prim_type == "float"  # TODO
@@ -255,7 +255,7 @@ class Sm80_BasicRmemMatrix(CudaBasicDeviceVisible):
                     raise ValueError("WRONG")
             except Exception:
                 raise MemGenError(
-                    f"Expected last 2 dimensions of size "
+                    f"{srcinfo}: Expected last 2 dimensions of size "
                     f"{cls.tile_shape}, not {tile_shape}"
                 )
 
