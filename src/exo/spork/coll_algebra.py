@@ -719,6 +719,7 @@ class DomainCompletionOp(object):
         return coords
 
 
+standalone_thread = CollUnit((1,), (1,), "standalone_thread", 0)
 cuda_thread = CollUnit((blockDim,), (1,), "cuda_thread", 0)
 cuda_quadpair = CollUnit((blockDim / 16, 16), (2, 4), "cuda_quadpair", None)
 cuda_warp = CollUnit((blockDim,), (32,), "cuda_warp", 0)
