@@ -459,9 +459,16 @@ class CollTiling(object):
             n *= c
         return n
 
-    def unit_mismatch(self, unit: CollUnit, env: Dict[CollParam, int]):
-        """Return False if the thread tiles match the given collective unit
-        (requires size and alignment match), else give str mismatch reason."""
+    def unit_mismatch(
+        self, unit: CollUnit, env: Dict[CollParam, int], no_message=False
+    ):
+        """Return False iff the thread boxes match the given collective unit
+
+        Matching requires both size match and alignment match.
+
+        If mismatched, return a str reason, unless
+        no_message=True (return True if so).
+        """
         assert isinstance(unit, CollUnit)
 
         self_n_threads = self.box_num_threads()
@@ -470,8 +477,10 @@ class CollTiling(object):
         unit_n_threads = unit.int_threads(env)
         unit_partial_domain = unit.int_partial_domain(env)
         if self_n_threads != unit_n_threads:
-            return f"Have {self_n_threads} threads {self.box}; expected {unit_n_threads} ({unit})"
-
+            return no_message or (
+                f"Have {self_n_threads} threads {self.box}; "
+                f"expected {unit_n_threads} ({unit})"
+            )
         try:
             tiling = self
             while tiling is not None:
@@ -489,7 +498,7 @@ class CollTiling(object):
                 if self is tiling:
                     new_tiling_box = tiling_completion.new_size(tiling.box)
                     if new_unit_box != new_tiling_box:
-                        return (
+                        return no_message or (
                             f"Have threads in shape {new_tiling_box}; "
                             f"expected {new_unit_box} "
                             f"({unit}); domain={unit_completion.domain}"
@@ -500,14 +509,14 @@ class CollTiling(object):
                 assert len(new_tiling_offset) == len(new_unit_box)
                 for off_c, box_c in zip(new_tiling_offset, new_unit_box):
                     if off_c % box_c != 0:
-                        return f"Incorrect alignment for {unit}"
+                        return no_message or f"Incorrect alignment for {unit}"
 
                 # Traverse to root
                 tiling = tiling.parent
 
         except DomainCompletionError as e:
             # TODO no one is going to understand this failure mode...
-            return "domain completion failed: " + str(e)
+            return no_message or "domain completion failed: " + str(e)
 
         return False  # False => match
 
