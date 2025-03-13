@@ -40,7 +40,7 @@ class CudaBasicDeviceVisible(Memory):
 
     @classmethod
     def host_allocated_impl(cls, actor_kind, is_instr, pinned):
-        """Only allocated and used on the CUDA device"""
+        """Allocated on the CPU and accessed on the CUDA device"""
         if actor_kind == actor_kinds.cpu:
             return "rwa" if pinned else "a"
         elif actor_kind == actor_kinds.cuda_classic:
