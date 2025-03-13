@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import Dict, Optional, Type
 from warnings import warn
 
-from ..core.memory import MemGenError
+from ..core.memory import MemGenError, memwin_template
 from ..core.prelude import Sym
-from ..core.LoopIR import LoopIR, T, LoopIR_Do, LoopIR_Rewrite
+from ..core.LoopIR import LoopIR, T, LoopIR_Do, LoopIR_Rewrite, ctype_bits
 
 from .actor_kinds import cpu_cuda_api, cuda_api
 from .async_config import CudaDeviceFunction, CudaAsync
@@ -22,6 +22,7 @@ from .coll_algebra import (
     cuda_warp,
     cuda_cta_in_cluster,
 )
+from .cuda_memory import CudaBasicDeviceVisible, CudaBasicSmem, SmemConfigInputs
 from .loop_modes import CudaTasks, CudaThreads, Seq, seq, _CodegenPar
 from .sync_types import SyncType
 
@@ -61,7 +62,7 @@ class SubtreeScan(LoopIR_Do):
         "_stmt_stack",
         "_coll_env",
         "_coll_tiling",
-        "_sym_coll_tiling",
+        "_iter_coll_tiling",
     ]
 
     # We will have to substitute some LoopIR nodes in the SubtreeRewrite phase.
@@ -100,7 +101,6 @@ class SubtreeScan(LoopIR_Do):
             "gridDim": 48 * cuda_device_function.blocks_per_sm,  # TODO
             "blockDim": self.blockDim,
             "clusterDim": self.clusterDim,
-            "smem_bytes": 0,  # TODO
             "blocks_per_sm": cuda_device_function.blocks_per_sm,
         }
 
@@ -132,6 +132,7 @@ class SubtreeScan(LoopIR_Do):
         while True:
             if len(task_loop_body) == 0:
                 break
+            # TODO also support if statements, to allow imperfect loop divide!
             first_stmt = task_loop_body[0]
             if isinstance(first_stmt, LoopIR.For):
                 if isinstance(first_stmt.loop_mode, CudaTasks):
@@ -280,6 +281,7 @@ class SubtreeScan(LoopIR_Do):
         elif isinstance(s, LoopIR.Alloc):
             native_unit = s.mem.native_unit()
             self.sym_advice[s.name] = AllocState(self._coll_tiling, native_unit)
+
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if (n_threads := self._coll_tiling.box_threads()) != 1:
                 raise ValueError(
@@ -318,6 +320,7 @@ class SubtreeScan(LoopIR_Do):
         )
 
     def apply_idx(self, node):
+        """Do analysis for one usage of tensor in distributed memory"""
         if not node.idx:
             # XXX early exit needed for Reads that are not from tensors
             # (e.g. index variables), but could hide issues?
@@ -398,6 +401,8 @@ class SubtreeRewrite(LoopIR_Rewrite):
     __slots__ = [
         "sym_advice",
         "fmt_dict",
+        "smem_offset",
+        "smem_data_usage",
         "_result",
     ]
 
@@ -405,6 +410,10 @@ class SubtreeRewrite(LoopIR_Rewrite):
         self.sym_advice = scan.sym_advice
         fmt_dict = scan.fmt_dict
         self.fmt_dict = fmt_dict
+
+        # Prepare SMEM stack allocator
+        self.smem_offset = 0
+        self.smem_data_usage = 0
 
         # We override the C names of variables that appear in the
         # exo_DeviceArgs or exo_Task structs.
@@ -419,25 +428,8 @@ class SubtreeRewrite(LoopIR_Rewrite):
             task_force_names[sym] = new_name
 
         # ExtWithContext objects for diverting lowered code into
-        # exo_deviceMainLoop() and exo_deviceTask(), respectively.
-        # We arbitrarily choose one to additionally emit the needed
-        # snippets into the .h, .cuh, .cu files.
+        # exo_deviceTask().
         format = lambda fmt_string: fmt_string.format(**fmt_dict)
-        main_loop_context = ExtWithContext(
-            format(cuda_launch_fmt),
-            format(device_main_loop_prefix_fmt),
-            "}",
-            "cuh",
-            {
-                "h": format(h_snippet_fmt),
-                "cu": format(cu_snippet_fmt),
-                "cuh": format(cuh_snippet_fmt),
-            },
-            reserved_names,
-            main_loop_force_names,
-            set(),  # TODO force_const
-            set(),  # TODO scalar_refs
-        )
         task_context = ExtWithContext(
             format(task_launch_fmt),
             format(device_task_prefix_fmt),
@@ -474,6 +466,31 @@ class SubtreeRewrite(LoopIR_Rewrite):
         assert len(s.body) == 2  # SyncStmt, task loop
         task_loop = rewrite_task_loop(s.body[1], scan.task_loop_depth)
 
+        # ExoWithContext object for diverting lowered code into
+        # exo_deviceMainLoop(), and putting the required strings
+        # into the .cu, .cuh, .h files.
+        # Only at this point do we know the SMEM usage of the kernel,
+        # which we load into fmt_dict at the last moment.
+        assert (
+            self.smem_offset == 0
+        ), "SMEM stack allocator should have returned to initial state"
+        fmt_dict["smem_bytes"] = self.smem_data_usage  # TODO mbarrier
+        main_loop_context = ExtWithContext(
+            format(cuda_launch_fmt),
+            format(device_main_loop_prefix_fmt),
+            "}",
+            "cuh",
+            {
+                "h": format(h_snippet_fmt),
+                "cu": format(cu_snippet_fmt),
+                "cuh": format(cuh_snippet_fmt),
+            },
+            reserved_names,
+            main_loop_force_names,
+            set(),  # TODO force_const
+            set(),  # TODO scalar_refs
+        )
+
         # Finally wrap the task loops into exo_deviceMainLoop
         # The Fence(cpu_cuda_api, cuda_api) is eliminated since
         # its effect comes for free from CUDA kernel launch.
@@ -485,13 +502,11 @@ class SubtreeRewrite(LoopIR_Rewrite):
         assert is_if_holding_with(self._result, LoopIR)
         return self._result
 
-    def map_s(self, s):
-        s_rewrite = None
-
+    def updated_stmt(self, s):
         if is_if_holding_with(s, LoopIR):
             ctx = s.cond.val
             if isinstance(ctx, CudaAsync):
-                s_rewrite = s.update(cond=LoopIR.Const(True, T.bool, s.srcinfo))
+                s = s.update(cond=LoopIR.Const(True, T.bool, s.srcinfo))
             else:
                 raise TypeError(
                     f"{s.srcinfo}: unexpected with context type {type(ctx)} in CUDA device code"
@@ -501,7 +516,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
             # scanner has prepared.
             if isinstance(s.loop_mode, CudaThreads):
                 new_loop_mode = self.sym_advice[s.iter]
-                s_rewrite = s.update(loop_mode=new_loop_mode)
+                s = s.update(loop_mode=new_loop_mode)
             else:
                 assert isinstance(s.loop_mode, (Seq, _CodegenPar))
 
@@ -513,10 +528,11 @@ class SubtreeRewrite(LoopIR_Rewrite):
                 warn(
                     f"{s.srcinfo}: Unused allocation {s.name} in CUDA code may not lower correctly"
                 )
+
             # Remove distributed dimensions
             n = alloc_state.n_distributed_dims
+            typ = s.type
             if n > 0:
-                typ = s.type
                 if len(typ.hi) == n:
                     # All dimensions removed; reduce to scalar
                     # TODO consider scalar refs
@@ -524,24 +540,72 @@ class SubtreeRewrite(LoopIR_Rewrite):
                 else:
                     assert n < len(typ.hi)
                     typ = typ.update(hi=typ.hi[n:])
-                s_rewrite = s.update(type=typ)
+                s = s.update(type=typ)
+
+            # SMEM offset lowering (crucially after removing distributed dimensions)
+            if issubclass(s.mem, CudaBasicSmem):
+                if isinstance(s, LoopIR.Alloc):
+                    # Get SMEM memory config
+                    inputs = smem_config_inputs(s)
+                    config = s.mem.smem_config(inputs)
+                    offset = self.smem_offset
+
+                    # Allocate at current offset, rounded up for alignment
+                    alignment = config.alignment
+                    element_bits = inputs.element_bits()
+                    assert element_bits % 8 == 0, "TODO sub-byte scalar types"
+                    if alignment * 8 < element_bits:
+                        alignment = element_bits // 8
+                    assert 0 == (
+                        alignment & (alignment - 1)
+                    ), "SMEM alignment must be power of 2"
+                    offset = (offset + alignment - 1) & ~(alignment - 1)
+
+                    # Stack allocator reserves space for this allocation
+                    alloc_state.smem_offset_before = self.smem_offset
+                    smem_bytes = element_bits // 8
+                    for n in inputs.const_shape:
+                        smem_bytes *= n
+                    self.smem_offset = offset + smem_bytes
+                    self.smem_data_usage = max(self.smem_offset, self.smem_data_usage)
+
+                    # Wrap user-specified memory type with SMEM offset,
+                    # C++ reference type.
+                    assert isinstance(config.reftype, str)
+                    mem = CodegenSmem(offset, config.reftype, s.mem)
+                    alloc_state.codegen_smem = mem  # for rewriting Free, below
+                else:
+                    # Rewrite Free Memory type to match corresponding Alloc
+                    # and restore stack allocator state
+                    mem = alloc_state.codegen_smem
+                    assert mem
+                    assert alloc_state.smem_offset_before < self.smem_offset
+                    self.smem_offset = alloc_state.smem_offset_before
+                s = s.update(mem=mem)
 
         elif isinstance(s, idx_s_types):
-            # Remove distributed dimensions
-            s_rewrite = self.remove_distributed_idx(s)
+            # Remove distributed dimensions for tensor indexing expression
+            s = self.remove_distributed_idx(s)
 
-        # Use superclass to recursre and rewrite subtree
+        return s
+
+    def map_s(self, s):
+        s_rewrite = self.updated_stmt(s)
+
+        # Use superclass to recurse and rewrite subtree
         # We have to have logic to handle None being used to indicate
         # "no change"; if the superclass makes no changes, we still have
         # to preserve any rewrites of our own.
-        if s_rewrite is None:
-            return super().map_s(s)
+        if s_rewrite is s:
+            out_stmts = super().map_s(s)
         else:
             super_rewritten = super().map_s(s_rewrite)
             if super_rewritten is None:
-                return [s_rewrite]
+                out_stmts = [s_rewrite]
             else:
-                return super_rewritten
+                out_stmts = super_rewritten
+
+        return out_stmts
 
     def map_e(self, e):
         e_rewrite = None
@@ -573,14 +637,6 @@ class SubtreeRewrite(LoopIR_Rewrite):
 
 
 class AllocState(object):
-    __slots__ = [
-        "live",
-        "n_distributed_dims",
-        "alloc_coll_tiling",
-        "usage_coll_tiling",
-        "native_unit",
-    ]
-
     # Some GPU allocations are "distributed", when the collective unit
     # (e.g. CTA) that allocated a tensor doesn't match the "native unit"
     # of the memory type (e.g. thread for a register; warp for a wmma tile).
@@ -602,11 +658,23 @@ class AllocState(object):
     # indices from all uses of the memory ... this is just a hack for
     # code lowering; ignore that this changes the real meaning of the LoopIR.
 
+    __slots__ = [
+        "live",
+        "n_distributed_dims",
+        "alloc_coll_tiling",
+        "usage_coll_tiling",
+        "native_unit",
+        "codegen_smem",
+        "smem_offset_before",
+    ]
+
     live: bool
     n_distributed_dims: int
     alloc_coll_tiling: CollTiling
     usage_coll_tilings: Optional[CollTiling]
     native_unit: CollUnit
+    codegen_smem: Optional[Type[CudaBasicSmem]]
+    smem_offset_before: Optional[int]
 
     def __init__(self, alloc_coll_tiling, native_unit):
         assert isinstance(alloc_coll_tiling, CollTiling)
@@ -616,6 +684,46 @@ class AllocState(object):
         self.alloc_coll_tiling = alloc_coll_tiling
         self.usage_coll_tiling = None
         self.native_unit = native_unit
+        self.codegen_smem = None
+        self.smem_offset_before = None
+
+
+def smem_config_inputs(s: LoopIR.Alloc):
+    assert isinstance(s, LoopIR.Alloc)
+    ctype = s.type.basetype().ctype()
+    shape = s.type.shape()
+
+    def as_int(c):
+        if isinstance(c, LoopIR.Const):
+            val = c.val
+            if isinstance(val, int):
+                return val
+        raise TypeError(
+            f"{c.srcinfo}: SMEM allocation {s.name} requires "
+            f"constant shape, not {shape}; simplify() if needed"
+        )
+
+    const_shape = [as_int(c) for c in shape]
+    return SmemConfigInputs(ctype, const_shape, s.srcinfo, s.mem)
+
+
+@memwin_template
+def CodegenSmem(byte_offset, reftype, wrapped_smem_type):
+    """When rewriting the subtree for the CUDA device function,
+    wrap all SMEM memory types with this, which includes the
+    exact byte offset for the allocation in the SMEM segment"""
+
+    assert issubclass(wrapped_smem_type, CudaBasicSmem)
+
+    class Impl(wrapped_smem_type):
+        @classmethod
+        def alloc(cls, new_name, prim_type, shape, srcinfo):
+            # We call the wrapped alloc() method to allow the memory class to raise errors.
+            wrapped_alloc = wrapped_smem_type.alloc(new_name, prim_type, shape, srcinfo)
+            assert wrapped_alloc == ""
+            return f"auto& {new_name} = reinterpret_cast<{reftype}>(exo_smem[{byte_offset}]);"
+
+    return Impl
 
 
 h_snippet_fmt = """\

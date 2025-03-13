@@ -507,6 +507,30 @@ def ctype(t):
 del ctype
 
 
+ctypes_bits_dict = {
+    "_Float16": 16,
+    "float": 32,
+    "double": 64,
+    "int8_t": 8,
+    "uint8_t": 8,
+    "uint16_t": 16,
+    "int32_t": 32,
+    "bool": None,
+    "int_fast32_t": None,
+}
+
+
+def ctype_bits(ctype):
+    try:
+        bits = ctypes_bits_dict[ctype]
+        if bits is None:
+            raise TypeError(f"{ctype} has no known bit count")
+        return bits
+    except KeyError:
+        # Add to the dict above if this happens to you
+        raise TypeError(f"Sorry, unimplemented: bit count for {ctype}")
+
+
 @extclass(LoopIR.type)
 def is_real_scalar(t):
     return isinstance(
@@ -670,6 +694,8 @@ from . import LoopIR_pprint
 
 
 class LoopIR_Rewrite:
+    __slots__ = []
+
     def apply_proc(self, old):
         return self.map_proc(old) or old
 
@@ -888,6 +914,8 @@ class LoopIR_Rewrite:
 
 
 class LoopIR_Do:
+    __slots__ = ["proc"]
+
     def __init__(self, proc, *args, **kwargs):
         self.proc = proc
 
