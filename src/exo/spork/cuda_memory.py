@@ -40,9 +40,9 @@ class CudaBasicDeviceVisible(Memory):
     def device_allocated_impl(cls, actor_kind, is_instr):
         """Only allocated and used on the CUDA device"""
         if actor_kind == actor_kinds.cuda_classic:
-            return "rwa"
+            return "rwc"
         elif actor_kind in actor_kinds.cuda_async_actor_kinds:
-            return "rwa" if is_instr else "a"
+            return "rwc" if is_instr else "c"
         else:
             return ""
 
@@ -50,7 +50,7 @@ class CudaBasicDeviceVisible(Memory):
     def host_allocated_impl(cls, actor_kind, is_instr, pinned):
         """Allocated on the CPU and accessed on the CUDA device"""
         if actor_kind == actor_kinds.cpu:
-            return "rwa" if pinned else "a"
+            return "rwc" if pinned else "c"
         elif actor_kind == actor_kinds.cuda_classic:
             return "rw"
         elif actor_kind in actor_kinds.cuda_async_actor_kinds:
@@ -61,7 +61,7 @@ class CudaBasicDeviceVisible(Memory):
     @classmethod
     def grid_constant_impl(cls, actor_kind, is_instr, pinned):
         if actor_kind == actor_kinds.cpu:
-            return "rwa"
+            return "rwc"
         elif actor_kind == actor_kinds.cuda_classic:
             return "r"
         elif actor_kind in actor_kinds.cuda_async_actor_kinds:

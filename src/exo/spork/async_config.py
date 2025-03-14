@@ -1,7 +1,11 @@
 from typing import Optional
+from warnings import warn
+
 from .actor_kinds import ActorKind
 from . import actor_kinds
-from .base_with_context import BaseWithContext
+from .base_with_context import BaseWithContext, is_if_holding_with
+from ..core.LoopIR import LoopIR, LoopIR_Rewrite
+from ..core.memory import DRAM, Memory, SpecialWindow
 
 
 class BaseAsyncConfig(BaseWithContext):
@@ -43,7 +47,7 @@ class CudaDeviceFunction(BaseAsyncConfig):
         self.blocks_per_sm = blocks_per_sm
 
     def get_actor_kind(self):
-        return actor_kinds.cuda_sync  # Synchronous (non-async) CUDA instr
+        return actor_kinds.cuda_classic  # Synchronous (non-async) CUDA instr
 
     def get_device_name(self):
         return "cuda"
@@ -84,3 +88,119 @@ class CudaAsync(BaseAsyncConfig):
 
     def __eq__(self, other):
         return type(other) == CudaAsync and self._actor_kind == other._actor_kind
+
+
+class ActorKindAnalysis(LoopIR_Rewrite):
+    __slots__ = ["actor_kind", "sym_memwin"]
+
+    def __init__(self):
+        self.actor_kind = actor_kinds.cpu  # Currently inspected scope's actor kind
+        self.sym_memwin = dict()  # Sym -> MemWin type
+
+    def map_s(self, s):
+        old_actor_kind = self.actor_kind
+
+        if is_if_holding_with(s, LoopIR):
+            ctx = s.cond.val
+            if isinstance(ctx, BaseAsyncConfig):
+                needed = ctx.parent_actor_kind()
+                if needed != self.actor_kind:
+                    raise ValueError(
+                        f"{s.srcinfo}: {ctx.__class__.__name__} "
+                        f"requires actor kind {needed}; actor kind "
+                        f"in scope is actually {self.actor_kind}"
+                    )
+                self.actor_kind = ctx.get_actor_kind()
+        else:
+            self.inspect_s(s)
+
+        super().map_s(s)
+        self.actor_kind = old_actor_kind
+
+    def map_e(self, e):
+        self.inspect_e(e)
+        super().map_e(e)
+
+    def inspect_s(self, s):
+        if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            if not s.type.is_numeric():
+                return
+
+            memwin = self.sym_memwin[s.name]
+            perm = memwin.actor_kind_permission(self.actor_kind, is_instr=False)
+            if "w" in perm:
+                assert "r" in perm, "Not supported: write without read permission"
+            else:
+                self.warn_weird_letters(memwin, perm)
+                action = "mutable access" if "r" in perm else "any access"
+                raise TypeError(
+                    f"{s.srcinfo}: {s.name} (memory type "
+                    f"{memwin.name()}) does not allow {action} in a "
+                    f"scope with actor kind {self.actor_kind}"
+                )
+        elif isinstance(s, LoopIR.Alloc):
+            mem = s.mem or DRAM
+            self.sym_memwin[s.name] = mem
+            assert issubclass(mem, Memory)
+            perm = mem.actor_kind_permission(self.actor_kind, is_instr=False)
+            if "c" not in perm:
+                self.warn_weird_letters(mem, perm)
+                raise TypeError(
+                    f"{s.srcinfo}: {s.name} (memory type "
+                    f"{mem.name()}) cannot be allocated in a scope "
+                    f"with actor kind {self.actor_kind}"
+                )
+        elif isinstance(s, LoopIR.WindowStmt):
+            special_window = s.special_window
+            self.sym_memwin[s.name] = special_window or self.sym_memwin[s.rhs.name]
+
+            if not special_window:
+                return
+
+            assert issubclass(special_window, SpecialWindow)
+            perm = special_window.actor_kind_permission(self.actor_kind, is_instr=False)
+            if "c" not in perm:
+                self.warn_weird_letters(special_window, perm)
+                raise TypeError(
+                    f"{s.srcinfo}: a special window {s.name} "
+                    f"of type {special_window.name()} cannot be "
+                    f"constructed in a scope with actor kind "
+                    f"{self.actor_kind}"
+                )
+        elif isinstance(s, LoopIR.Call):
+            callee = s.f
+            if callee.instr is None:
+                if self.actor_kind != cpu:
+                    # We currently assume the top-level actor kind of all
+                    # non-instr procs is cpu ... so must be called by CPU.
+                    raise TypeError(
+                        f"{s.srcinfo}: non-instr proc must be called "
+                        f"by the CPU (scope has actor kind "
+                        f"{self.actor_kind})"
+                    )
+            else:
+                pass
+                # TODO
+
+    def inspect_e(self, e):
+        if isinstance(e, LoopIR.Read) and e.type.is_numeric():
+            memwin = self.sym_memwin[e.name]
+            perm = memwin.actor_kind_permission(self.actor_kind, is_instr=False)
+            if "r" not in perm:
+                assert "w" not in perm, "Not supported: write without read permission"
+                raise TypeError(
+                    f"{e.srcinfo}: {e.name} (memory type "
+                    f"{memwin.name()}) does not allow reads in a "
+                    f"scope with actor kind {self.actor_kind}"
+                )
+
+    def run(self, proc):
+        for arg in proc.args:
+            memwin = arg.mem or DRAM
+            self.sym_memwin[arg.name] = memwin
+        return super().apply_proc(proc)
+
+    def warn_weird_letters(self, memwin, perm):
+        for c in perm:
+            if c not in "rwc":
+                warn(f"{memwin.name()}.actor_kind_permission gave unknown letter {c!r}")

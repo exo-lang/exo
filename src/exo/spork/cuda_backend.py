@@ -7,7 +7,7 @@ from ..core.memory import MemGenError, memwin_template
 from ..core.prelude import Sym
 from ..core.LoopIR import LoopIR, T, LoopIR_Do, LoopIR_Rewrite, ctype_bits
 
-from .actor_kinds import cpu_cuda_api, cuda_api
+from .actor_kinds import cpu, cpu_cuda_api, cuda_api
 from .async_config import CudaDeviceFunction, CudaAsync
 from .base_with_context import is_if_holding_with, ExtWithContext
 from .coll_algebra import (

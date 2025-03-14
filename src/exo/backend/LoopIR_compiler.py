@@ -27,7 +27,7 @@ from ..core.prelude import *
 from .win_analysis import WindowAnalysis
 from ..rewrite.range_analysis import IndexRangeEnvironment
 
-from ..spork.async_config import BaseAsyncConfig, CudaDeviceFunction
+from ..spork.async_config import BaseAsyncConfig, CudaDeviceFunction, ActorKindAnalysis
 from ..spork.base_with_context import (
     BaseWithContext,
     is_if_holding_with,
@@ -444,6 +444,7 @@ def ext_compile_to_strings(lib_name, proc_list):
             p = PrecisionAnalysis().run(p)
             p = WindowAnalysis().apply_proc(p)
             p = MemoryAnalysis().run(p)
+            p = ActorKindAnalysis().run(p)
 
             comp = Compiler(
                 p, ctxt_name, window_struct_cache, is_public_decl=is_public_decl
