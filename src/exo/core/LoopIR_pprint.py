@@ -263,7 +263,7 @@ class UAST_PPrinter:
         elif isinstance(e, UAST.USub):
             return f"-{self.pexpr(e.arg, prec=op_prec['~'])}"
         elif isinstance(e, UAST.LoopRange):
-            return format_loop_cond(self.pexpr(e.lo), slf.pexpr(e.hi), e.loop_mode)
+            return format_loop_cond(self.pexpr(e.lo), self.pexpr(e.hi), e.loop_mode)
         elif isinstance(e, UAST.WindowExpr):
 
             def pacc(w):

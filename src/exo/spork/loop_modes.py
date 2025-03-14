@@ -22,6 +22,8 @@ seq = Seq()
 
 
 class Par(LoopMode):
+    __slots__ = []
+
     def __init__(self):
         pass
 
