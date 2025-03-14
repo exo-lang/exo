@@ -787,7 +787,7 @@ exo_Cuda{N}_{proc}::exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_de
 """
 
 cu_snippet_fmt = """\
-__launch_bounds__({blockDim} * {blocks_per_sm})
+__launch_bounds__({blockDim}, {blocks_per_sm})
 __global__ void
 exo_deviceFunction{N}_{proc}(__grid_constant__ const struct exo_CudaDeviceArgs{N}_{proc} exo_deviceArgs)
 {{
