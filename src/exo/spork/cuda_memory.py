@@ -168,6 +168,8 @@ class CudaBasicSmem(CudaBasicDeviceVisible):
 
 
 class CudaDeviceVisibleLinear(CudaBasicDeviceVisible):
+    """Any memory in C array order visible to CUDA device"""
+
     @classmethod
     def can_read(cls):
         return True
@@ -182,6 +184,13 @@ class CudaDeviceVisibleLinear(CudaBasicDeviceVisible):
 
 
 class CudaGmemLinear(CudaDeviceVisibleLinear):
+    """Global memory in C array order
+
+    Consider CudaDeviceVisibleLinear when you do not truly need this
+    to be global memory.
+
+    """
+
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
         raise MemGenError("TODO implement CudaGmemLinear.alloc")
@@ -196,12 +205,16 @@ class CudaGmemLinear(CudaDeviceVisibleLinear):
 
 
 class CudaSmemLinear(CudaDeviceVisibleLinear, CudaBasicSmem):
+    """Shared memory in C array order"""
+
     @classmethod
     def smem_config(cls, inputs: SmemConfigInputs) -> SmemConfig:
         return SmemConfig(inputs.make_reftype())
 
 
 class CudaRmem(CudaDeviceVisibleLinear):
+    """Per-thread registers"""
+
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
         if not shape:
@@ -288,12 +301,18 @@ class Sm80_BasicRmemMatrix(CudaBasicDeviceVisible):
 
 
 class Sm80_RmemMatrixA(Sm80_BasicRmemMatrix):
+    """Matrix tile for sm_80+ warp MMA A operand"""
+
     tile_shape = (16, 8)
 
 
 class Sm80_RmemMatrixB(Sm80_BasicRmemMatrix):
+    """Matrix tile for sm_80+ warp MMA B operand"""
+
     tile_shape = (8, 8)
 
 
 class Sm80_RmemMatrixD(Sm80_BasicRmemMatrix):
+    """Matrix tile for sm_80+ warp MMA accumulator (C, D) operands"""
+
     tile_shape = (16, 8)
