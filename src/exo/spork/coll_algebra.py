@@ -4,6 +4,12 @@ from typing import Dict, Optional, Tuple
 
 
 class CollParam(object):
+    """Collective parameter: a variable like blockDim, clusterDim, etc.
+
+    This will be substituted with an integer value during code lowering,
+    via a collective environment (just env in this module).
+    This is Dict[CollParam, int]"""
+
     __slots__ = ["name"]
 
     def __init__(self, name):
@@ -14,6 +20,12 @@ class CollParam(object):
 
 
 class CollSizeExpr(object):
+    """Scalar coordinate type for CollUnit (collective unit)
+
+    Product of CollParam and a fraction.
+    You should not create this directly, but use overloaded * and /
+    e.g. clusterDim * blockDim * 3 / 4"""
+
     __slots__ = ["scalar", "coll_params"]
 
     scalar: Fraction
@@ -64,6 +76,7 @@ clusterDim = CollSizeExpr(1, (clusterDim_param,))
 
 
 def coll_size_tuple(tup):
+    """Coerce ints in tuple to CollSizeExpr"""
     result = []
     for n in tup:
         if isinstance(n, int):
@@ -75,10 +88,22 @@ def coll_size_tuple(tup):
 
 
 def int_size_tuple(tup: Tuple[CollSizeExpr], env: Dict[CollParam, int]):
+    """Translate Tuple[CollSizeExpr] to Tuple[int]"""
     return tuple(n(env) for n in tup)
 
 
 class CollUnit(object):
+    """Collective unit, e.g. a cuda warp, cuda CTA
+
+    Consists of a partial domain and tile size (identical-length
+    tuples of CollSizeExpr) which should be described in
+    collective algebra documentation.
+
+    As a convenience, if repr_scale is not None, we support multiplying by an
+    int; this scales the repr_scale-th coordinate of the tile size.
+    This is intended syntax for the Exo end user (e.g. 8 * cuda_thread)
+    """
+
     __slots__ = ["partial_domain", "tile", "name", "scaled_dim_idx", "repr_scale"]
 
     partial_domain: Tuple[CollSizeExpr]
@@ -140,6 +165,18 @@ class CollUnit(object):
 
 
 class CollIndexExpr(object):
+    """This is mainly intended to aid codegen, with intra_box_exprs
+
+    We need to be able to deduce the coordinates of each thread in
+    a given thread box of a CollTiling.
+    For example, in the top-level collective (clusterDim, blockDim),
+    the intra_box_exprs are (blockIdx % clusterDim, threadIdx).
+
+    These CollIndexExpr (collective index expressions) will be an
+    expression of blockIdx/threadIdx (or the equivalent if we support
+    non-CUDA), plus division, modulo, and subtract by integers.
+    """
+
     __slots__ = ["base_expr", "ops", "hash"]
 
     # Target language (e.g. C) expression, e.g. "threadIdx" as str
@@ -253,6 +290,8 @@ class CollIndexExpr(object):
 
 
 class CollTiling(object):
+    """Immutable collective tiling. See collective algebra documentation."""
+
     __slots__ = ["parent", "domain", "tile", "offset", "box", "intra_box_exprs", "hash"]
 
     parent: Optional[CollTiling]
@@ -306,6 +345,12 @@ class CollTiling(object):
         return self.hash
 
     def tiled(self, unit: CollUnit, tiles_needed: int, env: Dict[CollParam, int]):
+        """Tile the CollTiling with the given collective unit.
+
+        Returns (CollTiling, CollTilingAdvice).
+        Produces the given number of tiles (or throws if not possible).
+        self is the parent of the resulting CollTiling.
+        """
         advice = CollLoweringAdvice()
 
         # Translate unit domain and tiling to concrete integers
@@ -378,6 +423,11 @@ class CollTiling(object):
         )
 
     def specialized(self, unit: CollUnit, lo: int, hi: int, env: Dict[CollParam, int]):
+        """Specialize the CollTiling.
+
+        Returns (CollTiling, CollTilingAdvice).
+
+        self and the resulting CollTiling share a common parent."""
         advice = CollLoweringAdvice()
 
         # Translate unit domain and tiling to concrete integers
@@ -454,9 +504,11 @@ class CollTiling(object):
         )
 
     def box_num_threads(self):
+        """Total number of threads in the thread box"""
         n = 1
         for c in self.box:
             n *= c
+        assert n > 0
         return n
 
     def unit_mismatch(
