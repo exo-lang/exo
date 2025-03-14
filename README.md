@@ -15,7 +15,7 @@ In case of `ModuleNotFoundError: No module named 'attrs'` please upgrade your at
 
 ## Compile Exo
 
-Exo files can be directly excuted with Python:
+Exo files can be directly executed with Python:
 ```sh
 $ python exo_file.py
 ```

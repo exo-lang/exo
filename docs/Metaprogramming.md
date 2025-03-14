@@ -1,6 +1,6 @@
 # Metaprogramming
 
-In the context of Exo, metaprogramming refers to the composition of [object code](object_code.md) fragments, similar to macros in languages like C. Unlike scheduling operations, metaprogramming does not seek to preserve equivalence as it transforms the object code - instead, it stitches together Exo code fragments, allowing the user to make code more concise or parametrizable.
+In the context of Exo, metaprogramming refers to the composition of [object code](object_code.md) fragments, similar to macros in languages like C. Unlike scheduling operations, metaprogramming does not seek to preserve equivalence as it transforms the object code - instead, it stitches together Exo code fragments, allowing the user to make code more concise or parameterizable.
 
 The user can get a reference to one of these Exo code fragments through *quoting*, which produces a Python reference to the code fragment. After manipulating this code fragment as a Python object, the user can then paste in a code fragment from Python through *unquoting*.
 
