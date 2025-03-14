@@ -441,7 +441,9 @@ def test_unquote_multiple_exprs():
 
 
 def test_disallow_with_in_exo():
-    with pytest.raises(ParseError, match="Expected unquote"):
+    # David Akeley: removed regex as the error message is unstable
+    # with Spork also overloading the with statement.
+    with pytest.raises(ParseError):
 
         @proc
         def foo(a: i32):

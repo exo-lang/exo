@@ -1395,7 +1395,7 @@ class Parser:
         else:
             self.err(
                 s.items[0].context_expr,
-                "Unsupported context type for with: {type(ctx)}",
+                f"Unsupported context type for with: {type(ctx)}",
             )
 
     def parse_loop_cond(self, cond):
