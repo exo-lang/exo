@@ -170,7 +170,7 @@ class ActorKindAnalysis(LoopIR_Rewrite):
         elif isinstance(s, LoopIR.Call):
             callee = s.f
             if callee.instr is None:
-                if self.actor_kind != cpu:
+                if self.actor_kind != actor_kinds.cpu:
                     # We currently assume the top-level actor kind of all
                     # non-instr procs is cpu ... so must be called by CPU.
                     raise TypeError(
