@@ -95,7 +95,7 @@ def int_size_tuple(tup: Tuple[CollSizeExpr], env: Dict[CollParam, int]):
 class CollUnit(object):
     """Collective unit, e.g. a cuda warp, cuda CTA
 
-    Consists of a partial domain and tile size (identical-length
+    Consists of a possibly-partial domain and tile size (identical-length
     tuples of CollSizeExpr) which should be described in
     collective algebra documentation.
 
@@ -104,17 +104,17 @@ class CollUnit(object):
     This is intended syntax for the Exo end user (e.g. 8 * cuda_thread)
     """
 
-    __slots__ = ["partial_domain", "tile", "name", "scaled_dim_idx", "repr_scale"]
+    __slots__ = ["domain", "tile", "name", "scaled_dim_idx", "repr_scale"]
 
-    partial_domain: Tuple[CollSizeExpr]
+    domain: Tuple[CollSizeExpr]
     tile: Tuple[CollSizeExpr]
     name: str
     scaled_dim_idx: Optional[int]
     repr_scale: int
 
-    def __init__(self, partial_domain, tile, name, scaled_dim_idx):
-        assert len(partial_domain) == len(tile)
-        self.partial_domain = coll_size_tuple(partial_domain)
+    def __init__(self, domain, tile, name, scaled_dim_idx):
+        assert len(domain) == len(tile)
+        self.domain = coll_size_tuple(domain)
         self.tile = coll_size_tuple(tile)
         self.name = name
         self.scaled_dim_idx = scaled_dim_idx
@@ -136,7 +136,7 @@ class CollUnit(object):
             raise ValueError(f"{self.name} cannot be scaled")
 
         new_tile = [n * scale if i == i_scale else n for i, n in enumerate(self.tile)]
-        res = CollUnit(self.partial_domain, new_tile, self.name, i_scale)
+        res = CollUnit(self.domain, new_tile, self.name, i_scale)
         res.repr_scale = self.repr_scale * scale
         return res
 
@@ -151,8 +151,8 @@ class CollUnit(object):
         scale = self.repr_scale
         return nm if scale == 1 else f"{scale} * {nm}"
 
-    def int_partial_domain(self, env: Dict[CollParam, int]):
-        return int_size_tuple(self.partial_domain, env)
+    def int_domain(self, env: Dict[CollParam, int]):
+        return int_size_tuple(self.domain, env)
 
     def int_tile(self, env: Dict[CollParam, int]):
         return int_size_tuple(self.tile, env)
@@ -292,26 +292,34 @@ class CollIndexExpr(object):
 class CollTiling(object):
     """Immutable collective tiling. See collective algebra documentation."""
 
-    __slots__ = ["parent", "domain", "tile", "offset", "box", "intra_box_exprs", "hash"]
+    __slots__ = [
+        "parent",
+        "full_domain",
+        "tile",
+        "offset",
+        "box",
+        "intra_box_exprs",
+        "hash",
+    ]
 
     parent: Optional[CollTiling]
-    domain: Tuple[int]
+    full_domain: Tuple[int]
     tile: Tuple[int]
     offset: Tuple[int]
     box: Tuple[int]
     intra_box_exprs: Tuple[CollIndexExpr]
     hash: int
 
-    def __init__(self, parent, domain, tile, offset, box, intra_box_exprs):
+    def __init__(self, parent, full_domain, tile, offset, box, intra_box_exprs):
         assert parent is None or isinstance(parent, CollTiling)
         self.parent = parent
-        self.domain = tuple(domain)
+        self.full_domain = tuple(full_domain)
         self.tile = tuple(tile)
         self.offset = tuple(offset)
         self.box = tuple(box)
-        for tup in (domain, tile, offset, box):
+        for tup in (full_domain, tile, offset, box):
             assert all(isinstance(c, int) for c in tup)
-            assert len(tup) == len(domain)
+            assert len(tup) == len(full_domain)
 
         self.intra_box_exprs = tuple(intra_box_exprs)
         assert all(isinstance(c, CollIndexExpr) for c in intra_box_exprs)
@@ -320,7 +328,7 @@ class CollTiling(object):
         self.hash = hash(
             (
                 self.parent,
-                self.domain,
+                self.full_domain,
                 self.tile,
                 self.offset,
                 self.box,
@@ -329,13 +337,13 @@ class CollTiling(object):
         )
 
     def __repr__(self):
-        return f"CollTiling({self.parent}, {self.domain}, {self.tile}, {self.offset}, {self.box}, {self.intra_box_exprs})"
+        return f"CollTiling({self.parent}, {self.full_domain}, {self.tile}, {self.offset}, {self.box}, {self.intra_box_exprs})"
 
     def __eq__(self, other: CollTiling):
         return self is other or (
             type(other) is CollTiling
             and self.parent == other.parent
-            and self.domain == other.domain
+            and self.full_domain == other.full_domain
             and self.tile == other.tile
             and self.offset == other.offset
             and self.box == other.box
@@ -354,15 +362,15 @@ class CollTiling(object):
         advice = CollLoweringAdvice()
 
         # Translate unit domain and tiling to concrete integers
-        unit_partial_domain = unit.int_partial_domain(env)
+        unit_domain = unit.int_domain(env)
         unit_tile = unit.int_tile(env)
 
         # Determine the common domain between us and the given unit
         unit_completion = DomainCompletionOp(
-            unit_partial_domain, self.domain, allow_partial_source=True
+            unit_domain, self.full_domain, allow_partial_source=True
         )
         self_completion = DomainCompletionOp(
-            self.domain, unit_partial_domain, allow_partial_source=False
+            self.full_domain, unit_domain, allow_partial_source=False
         )
         common_domain = unit_completion.domain
         assert unit_completion.domain == self_completion.domain
@@ -431,15 +439,15 @@ class CollTiling(object):
         advice = CollLoweringAdvice()
 
         # Translate unit domain and tiling to concrete integers
-        unit_partial_domain = unit.int_partial_domain(env)
+        unit_domain = unit.int_domain(env)
         unit_tile = unit.int_tile(env)
 
         # Determine the common domain between us and the given unit
         unit_completion = DomainCompletionOp(
-            unit_partial_domain, self.domain, allow_partial_source=True
+            unit_domain, self.full_domain, allow_partial_source=True
         )
         self_completion = DomainCompletionOp(
-            self.domain, unit_partial_domain, allow_partial_source=False
+            self.full_domain, unit_domain, allow_partial_source=False
         )
         common_domain = unit_completion.domain
         assert unit_completion.domain == self_completion.domain
@@ -527,7 +535,7 @@ class CollTiling(object):
         # TODO explain: tile = box for unit but not CollTiling
         unit_box_raw = unit.int_tile(env)
         unit_n_threads = unit.int_threads(env)
-        unit_partial_domain = unit.int_partial_domain(env)
+        unit_domain = unit.int_domain(env)
         if self_n_threads != unit_n_threads:
             return no_message or (
                 f"Have {self_n_threads} threads {self.box}; "
@@ -537,10 +545,10 @@ class CollTiling(object):
             tiling = self
             while tiling is not None:
                 unit_completion = DomainCompletionOp(
-                    unit_partial_domain, tiling.domain, allow_partial_source=True
+                    unit_domain, tiling.full_domain, allow_partial_source=True
                 )
                 tiling_completion = DomainCompletionOp(
-                    tiling.domain, unit_partial_domain, allow_partial_source=False
+                    tiling.full_domain, unit_domain, allow_partial_source=False
                 )
                 assert unit_completion.domain == tiling_completion.domain
 
