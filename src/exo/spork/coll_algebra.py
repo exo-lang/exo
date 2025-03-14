@@ -95,31 +95,31 @@ def int_size_tuple(tup: Tuple[CollSizeExpr], env: Dict[CollParam, int]):
 class CollUnit(object):
     """Collective unit, e.g. a cuda warp, cuda CTA
 
-    Consists of a possibly-partial domain and tile size (identical-length
+    Consists of a possibly-partial domain and box size (identical-length
     tuples of CollSizeExpr) which should be described in
     collective algebra documentation.
 
     As a convenience, if repr_scale is not None, we support multiplying by an
-    int; this scales the repr_scale-th coordinate of the tile size.
+    int; this scales the repr_scale-th coordinate of the box size.
     This is intended syntax for the Exo end user (e.g. 8 * cuda_thread)
     """
 
-    __slots__ = ["domain", "tile", "name", "scaled_dim_idx", "repr_scale"]
+    __slots__ = ["domain", "box", "name", "scaled_dim_idx", "repr_scale"]
 
     domain: Tuple[CollSizeExpr]
-    tile: Tuple[CollSizeExpr]
+    box: Tuple[CollSizeExpr]
     name: str
     scaled_dim_idx: Optional[int]
     repr_scale: int
 
-    def __init__(self, domain, tile, name, scaled_dim_idx):
-        assert len(domain) == len(tile)
+    def __init__(self, domain, box, name, scaled_dim_idx):
+        assert len(domain) == len(box)
         self.domain = coll_size_tuple(domain)
-        self.tile = coll_size_tuple(tile)
+        self.box = coll_size_tuple(box)
         self.name = name
         self.scaled_dim_idx = scaled_dim_idx
         self.repr_scale = 1
-        assert scaled_dim_idx is None or scaled_dim_idx < len(tile)
+        assert scaled_dim_idx is None or scaled_dim_idx < len(box)
 
     def scaled(self, scale):
         try:
@@ -135,8 +135,8 @@ class CollUnit(object):
         if i_scale is None:
             raise ValueError(f"{self.name} cannot be scaled")
 
-        new_tile = [n * scale if i == i_scale else n for i, n in enumerate(self.tile)]
-        res = CollUnit(self.domain, new_tile, self.name, i_scale)
+        new_box = [n * scale if i == i_scale else n for i, n in enumerate(self.box)]
+        res = CollUnit(self.domain, new_box, self.name, i_scale)
         res.repr_scale = self.repr_scale * scale
         return res
 
@@ -154,12 +154,12 @@ class CollUnit(object):
     def int_domain(self, env: Dict[CollParam, int]):
         return int_size_tuple(self.domain, env)
 
-    def int_tile(self, env: Dict[CollParam, int]):
-        return int_size_tuple(self.tile, env)
+    def int_box(self, env: Dict[CollParam, int]):
+        return int_size_tuple(self.box, env)
 
     def int_threads(self, env: Dict[CollParam, int]):
         n = 1
-        for c in self.tile:
+        for c in self.box:
             n *= c(env)
         return n
 
@@ -363,7 +363,7 @@ class CollTiling(object):
 
         # Translate unit domain and tiling to concrete integers
         unit_domain = unit.int_domain(env)
-        unit_tile = unit.int_tile(env)
+        unit_box = unit.int_box(env)
 
         # Determine the common domain between us and the given unit
         unit_completion = DomainCompletionOp(
@@ -387,23 +387,23 @@ class CollTiling(object):
         tiled_dim_idx = None
         tile_count = 1
         tile_remainder = 0
-        for dim_idx, unit_tile_coord in enumerate(unit_completion.new_size(unit_tile)):
+        for dim_idx, unit_box_coord in enumerate(unit_completion.new_size(unit_box)):
             domain_coord = common_domain[dim_idx]
             box_coord = old_box[dim_idx]
             if (
-                unit_tile_coord is not None
-                and unit_tile_coord != domain_coord
-                and unit_tile_coord != box_coord
+                unit_box_coord is not None
+                and unit_box_coord != domain_coord
+                and unit_box_coord != box_coord
             ):
-                assert unit_tile_coord < box_coord  # TODO message
+                assert unit_box_coord < box_coord  # TODO message
                 assert tiled_dim_idx is None  # TODO message
                 tiled_dim_idx = dim_idx
-                tile_count = box_coord // unit_tile_coord
-                tile_remainder = box_coord % unit_tile_coord
-                new_tile[dim_idx] = unit_tile_coord
+                tile_count = box_coord // unit_box_coord
+                tile_remainder = box_coord % unit_box_coord
+                new_tile[dim_idx] = unit_box_coord
 
-                advice.coll_index = new_exprs[dim_idx] // unit_tile_coord
-                new_exprs[dim_idx] = new_exprs[dim_idx] % unit_tile_coord
+                advice.coll_index = new_exprs[dim_idx] // unit_box_coord
+                new_exprs[dim_idx] = new_exprs[dim_idx] % unit_box_coord
 
                 if tile_remainder != 0 or tile_count != tiles_needed:
                     advice.hi = tiles_needed
@@ -440,7 +440,7 @@ class CollTiling(object):
 
         # Translate unit domain and tiling to concrete integers
         unit_domain = unit.int_domain(env)
-        unit_tile = unit.int_tile(env)
+        unit_box = unit.int_box(env)
 
         # Determine the common domain between us and the given unit
         unit_completion = DomainCompletionOp(
@@ -465,16 +465,16 @@ class CollTiling(object):
         tiled_dim_idx = None
         stride = None
         tile_count = 1
-        for dim_idx, unit_tile_coord in enumerate(unit_completion.new_size(unit_tile)):
+        for dim_idx, unit_box_coord in enumerate(unit_completion.new_size(unit_box)):
             domain_coord = common_domain[dim_idx]
             common_tile_coord = common_tile[dim_idx]
             if (
-                unit_tile_coord is not None
-                and unit_tile_coord != domain_coord
-                and unit_tile_coord != common_tile_coord
+                unit_box_coord is not None
+                and unit_box_coord != domain_coord
+                and unit_box_coord != common_tile_coord
             ):
-                tile_count = common_tile_coord // unit_tile_coord
-                tile_remainder = common_tile_coord % unit_tile_coord
+                tile_count = common_tile_coord // unit_box_coord
+                tile_remainder = common_tile_coord % unit_box_coord
 
                 # TODO messages
                 assert tiled_dim_idx is None
@@ -482,16 +482,16 @@ class CollTiling(object):
                 assert new_box[dim_idx] == common_tile[dim_idx]
 
                 tiled_dim_idx = dim_idx
-                stride = unit_tile_coord
+                stride = unit_box_coord
                 new_exprs[dim_idx] -= lo * stride
                 new_offset[dim_idx] = lo * stride
                 new_box[dim_idx] = (hi - lo) * stride
 
                 advice.coll_index = new_exprs[dim_idx]
                 if lo != 0:
-                    advice.lo = lo * unit_tile_coord
+                    advice.lo = lo * unit_box_coord
                 if hi != tile_count or tile_remainder != 0:
-                    advice.hi = hi * unit_tile_coord
+                    advice.hi = hi * unit_box_coord
 
         if tiled_dim_idx is None:
             advice.coll_index = CollIndexExpr(0)
@@ -533,7 +533,7 @@ class CollTiling(object):
 
         self_n_threads = self.box_num_threads()
         # TODO explain: tile = box for unit but not CollTiling
-        unit_box_raw = unit.int_tile(env)
+        unit_box_raw = unit.int_box(env)
         unit_n_threads = unit.int_threads(env)
         unit_domain = unit.int_domain(env)
         if self_n_threads != unit_n_threads:
