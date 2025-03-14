@@ -66,7 +66,7 @@ API -> Parser -> TypeCheck -> BoundsCheck/AssertCheck
 
 Some scheduling primitives (such as `expand_dim` and all primitives that take `NewExprA` as an argument) require the construction of new LoopIR expressions.
 `parse_fragment.py` implements this pass by calling into `pyparser.pattern`, which invokes the parser with `is_fragment=True`.
-When parsing new expressions, it is not possible to use holes `_`. Holes are used for pattern matching for obtaining a cursor referene.
+When parsing new expressions, it is not possible to use holes `_`. Holes are used for pattern matching for obtaining a cursor reference.
 
 ### Pattern Match for Reference
 

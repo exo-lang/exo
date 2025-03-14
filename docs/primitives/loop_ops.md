@@ -152,7 +152,7 @@ rewrite:
 
 
 #### `fission(proc, gap_cursor, n_lifts=1, unsafe_disable_checks=False)`
-Fission aparts the For and If statements wrapped around
+Fissions apart the For and If statements wrapped around
 this block of statements into two copies; the first containing all
 statements before the cursor, and the second all statements after the
 cursor.
