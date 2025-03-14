@@ -1,10 +1,11 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import List, Optional, Type
+from math import prod
 
 from ..core.LoopIR import ctype_bits
 from ..core.prelude import SrcInfo
-from ..core.memory import Memory, MemGenError
+from ..core.memory import Memory, MemGenError, DRAM
 from . import actor_kinds
 from .coll_algebra import (
     CollUnit,
@@ -59,7 +60,7 @@ class CudaBasicDeviceVisible(Memory):
             return ""
 
     @classmethod
-    def grid_constant_impl(cls, actor_kind, is_instr, pinned):
+    def grid_constant_impl(cls, actor_kind, is_instr):
         if actor_kind == actor_kinds.cpu:
             return "rwc"
         elif actor_kind == actor_kinds.cuda_classic:
@@ -101,10 +102,7 @@ class SmemConfigInputs:
         to an array of size = product of shape dimensions."""
         ctype = ctype or self.ctype
         if shape is None and self.const_shape:
-            prod = 1
-            for n in self.const_shape:
-                prod *= n
-            shape = [prod]
+            shape = [prod(self.const_shape)]
         if not shape:
             return f"{ctype}&"
         else:
@@ -181,6 +179,42 @@ class CudaDeviceVisibleLinear(CudaBasicDeviceVisible):
     @classmethod
     def reduce(cls, s, lhs, rhs):
         return f"{lhs} += {rhs};"
+
+
+# TODO grid constants require special compiler support. Consider additional
+# abstraction if we support other similar API concepts, e.g. Vulkan push constants.
+class CudaGridConstant(CudaDeviceVisibleLinear, DRAM):
+    """CUDA Grid constant; usable as both cuda device memory and CPU DRAM.
+
+    Scalar or fixed-size array allocated and writeable on the CPU;
+    copied to the CUDA device as a parameter to the kernel launch.
+    Cannot be modified on the device.
+
+    """
+
+    @classmethod
+    def alloc(cls, new_name, prim_type, shape, srcinfo):
+        # Allocated "on the stack"
+        for extent in shape:
+            try:
+                int(extent)
+            except ValueError as e:
+                raise MemGenError(
+                    f"CudaGridConstant requires constant shapes. Saw: {shape}"
+                ) from e
+
+        if len(shape) == 0:
+            return f"{prim_type} {new_name};"
+        else:
+            return f'{prim_type} {new_name}[{" * ".join(shape)}];'
+
+    @classmethod
+    def free(cls, new_name, prim_type, shape, srcinfo):
+        return ""
+
+    @classmethod
+    def actor_kind_permission(cls, actor_kind, is_instr):
+        return cls.grid_constant_impl(actor_kind, is_instr)
 
 
 class CudaGmemLinear(CudaDeviceVisibleLinear):

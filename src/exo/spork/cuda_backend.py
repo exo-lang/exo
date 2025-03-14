@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from math import prod
 from typing import Dict, Optional, Type
 from warnings import warn
 
 from ..core.memory import MemGenError, memwin_template
-from ..core.prelude import Sym
+from ..core.prelude import Sym, SrcInfo
 from ..core.LoopIR import LoopIR, T, LoopIR_Do, LoopIR_Rewrite, ctype_bits
 
 from .actor_kinds import cpu, cpu_cuda_api, cuda_api
@@ -22,7 +23,12 @@ from .coll_algebra import (
     cuda_warp,
     cuda_cta_in_cluster,
 )
-from .cuda_memory import CudaBasicDeviceVisible, CudaBasicSmem, SmemConfigInputs
+from .cuda_memory import (
+    CudaBasicDeviceVisible,
+    CudaBasicSmem,
+    SmemConfigInputs,
+    CudaGridConstant,
+)
 from .loop_modes import CudaTasks, CudaThreads, Seq, seq, _CodegenPar
 from .sync_types import SyncType
 
@@ -57,6 +63,8 @@ class SubtreeScan(LoopIR_Do):
         "task_loop_depth",
         "task_iter_syms",
         "device_args_syms",
+        "grid_constant_syms",
+        "scalar_ref_syms",
         #
         "_syms_needed",
         "_stmt_stack",
@@ -191,38 +199,83 @@ class SubtreeScan(LoopIR_Do):
         # Prepare the device args struct
         # These are all the syms that appear in the subtree that were
         # defined by the outside (CPU function) environment.
+        #
+        # Additionally, we have special handling for grid constants
+        # (force const) and scalar parameters (scalar_ref if not grid constant).
         self.device_args_syms = []
+        self.grid_constant_syms = set()
+        self.scalar_ref_syms = set()
         for sym in self._syms_needed:
             try:
                 cpu_nm = ctx.sym_c_name(sym)
             except KeyError:
                 continue
             self.device_args_syms.append(sym)
-        self.device_args_syms.sort(key=lambda s: s.id_number())
+            if issubclass(ctx.sym_mem(sym), CudaGridConstant):
+                self.grid_constant_syms.add(sym)
+            elif ctx.sym_type(sym).is_real_scalar():
+                # elif ensures not added if grid constant
+                self.scalar_ref_syms.add(sym)
 
-        device_args_values = []
-        for sym in self.device_args_syms:
-            # TODO grid constant parameters must be const, pass by value.
-            e = LoopIR.Read(sym, [], ctx.sym_type(sym), s.srcinfo)
-            device_args_values.extend(ctx.fnarg_values(e, ctx.is_const(sym), False))
-        self.fmt_dict["device_args"] = ", ".join(device_args_values)
+        # The device args struct will be sorted in the order the variables were
+        # created in Python code
+        self.device_args_syms.sort(key=lambda s: s.id_number())
 
         device_args_decls = []
         device_args_comments = []
+        device_args_values = []
+
         for sym in self.device_args_syms:
-            # We don't mangle syms in the device args struct
-            # They will appear as exo_deviceArgs.{str(sym)} in CUDA code.
-            # TODO grid constant scalars must be pass-by-value
-            mem = ctx.sym_mem(sym)
-            fnarg = LoopIR.fnarg(sym, ctx.sym_type(sym), mem, s.srcinfo)
-            ctx.append_fnarg_decl(
-                fnarg, str(sym), device_args_decls, device_args_comments
-            )
+            if sym not in self.grid_constant_syms:
+                # Non-grid-constant, passed as in Exo C code.
+                # We don't mangle syms in the device args struct.
+                # They will appear as exo_deviceArgs.{str(sym)} in CUDA code.
+                mem = ctx.sym_mem(sym)
+                fnarg = LoopIR.fnarg(sym, ctx.sym_type(sym), mem, s.srcinfo)
+                ctx.append_fnarg_decl(
+                    fnarg, str(sym), device_args_decls, device_args_comments
+                )
+                e = LoopIR.Read(sym, [], ctx.sym_type(sym), s.srcinfo)
+                device_args_values.extend(ctx.fnarg_values(e, ctx.is_const(sym), False))
+            else:
+                # Grid constants are passed as array or scalar by-value
+                c_arg = ctx.sym_c_name(sym)
+                typ = ctx.sym_type(sym)
+                if typ.is_win():
+                    raise TypeError(
+                        f"{s.srcinfo}: grid constant parameter {sym} "
+                        f"cannot be a window"
+                    )
+                elif typ.is_dense_tensor():
+                    n = prod(type_const_shape(typ, "grid constant", sym, s.srcinfo))
+                    # See "we don't mangle syms" for str(sym) vs c_args
+                    device_args_decls.append(
+                        f"{typ.basetype().ctype()} {str(sym)}[{n}]"
+                    )
+                    # We have to manually pass each array element by value ...
+                    arg_fragments = ["{"]
+                    for i in range(n):
+                        if i != 0:
+                            arg_fragments.append(", ")
+                        arg_fragments.append(f"{c_arg}[{i}]")
+                    arg_fragments.append("}")
+                    device_args_values.append("".join(arg_fragments))
+                else:
+                    # Scalar grid constant
+                    # See "we don't mangle syms" for str(sym) vs c_args
+                    device_args_decls.append(f"{typ.ctype()} {str(sym)}")
+                    if ctx.sym_is_scalar_ref(sym):
+                        c_arg = f"*{c_arg}"
+                    device_args_values.append(c_arg)
+                device_args_comments.append(f"{sym}: {typ} -- grid constant")
+
         device_args_struct_lines = []
+        assert len(device_args_decls) == len(device_args_comments)
         for i in range(len(device_args_decls)):
             device_args_struct_lines.append(
                 f"    {device_args_decls[i]};  // {device_args_comments[i]}"
             )
+        self.fmt_dict["device_args"] = ", ".join(device_args_values)
         self.fmt_dict["device_args_struct_body"] = "\n".join(device_args_struct_lines)
 
     def do_s(self, s):
@@ -443,8 +496,8 @@ class SubtreeRewrite(LoopIR_Rewrite):
             {},
             reserved_names,
             task_force_names,
-            set(),  # TODO force_const
-            set(),  # TODO scalar_refs
+            scan.grid_constant_syms,  # force_const
+            scan.scalar_ref_syms,
         )
 
         def wrap_with_context(with_context, body, srcinfo):
@@ -492,8 +545,8 @@ class SubtreeRewrite(LoopIR_Rewrite):
             },
             reserved_names,
             main_loop_force_names,
-            set(),  # TODO force_const
-            set(),  # TODO scalar_refs
+            scan.grid_constant_syms,  # force_const
+            scan.scalar_ref_syms,
         )
 
         # Finally wrap the task loops into exo_deviceMainLoop
@@ -601,7 +654,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
         # We have to have logic to handle None being used to indicate
         # "no change"; if the superclass makes no changes, we still have
         # to preserve any rewrites of our own.
-        if s_rewrite is s:
+        if s_rewrite is s or s_rewrite is None:
             out_stmts = super().map_s(s)
         else:
             super_rewritten = super().map_s(s_rewrite)
@@ -693,10 +746,10 @@ class AllocState(object):
         self.smem_offset_before = None
 
 
-def smem_config_inputs(s: LoopIR.Alloc):
-    assert isinstance(s, LoopIR.Alloc)
-    ctype = s.type.basetype().ctype()
-    shape = s.type.shape()
+def type_const_shape(t: LoopIR.type, usage_str, name, srcinfo: SrcInfo):
+    assert isinstance(t, LoopIR.type)
+    assert isinstance(srcinfo, SrcInfo)
+    shape = t.shape()
 
     def as_int(c):
         if isinstance(c, LoopIR.Const):
@@ -704,11 +757,17 @@ def smem_config_inputs(s: LoopIR.Alloc):
             if isinstance(val, int):
                 return val
         raise TypeError(
-            f"{c.srcinfo}: SMEM allocation {s.name} requires "
+            f"{srcinfo}: {usage_str} {name} requires "
             f"constant shape, not {shape}; simplify() if needed"
         )
 
-    const_shape = [as_int(c) for c in shape]
+    return [as_int(c) for c in shape]
+
+
+def smem_config_inputs(s: LoopIR.Alloc):
+    assert isinstance(s, LoopIR.Alloc)
+    ctype = s.type.basetype().ctype()
+    const_shape = type_const_shape(s.type, "SMEM allocation", s.name, s.srcinfo)
     return SmemConfigInputs(ctype, const_shape, s.srcinfo, s.mem)
 
 

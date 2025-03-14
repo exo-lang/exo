@@ -1637,7 +1637,7 @@ class SporkLoweringCtx(object):
 
     def sym_is_scalar_ref(self, sym: Sym):
         assert isinstance(sym, Sym)
-        sym in self._compiler._scalar_refs
+        return sym in self._compiler._scalar_refs
 
     def is_const(self, sym: Sym):
         assert isinstance(sym, Sym)
