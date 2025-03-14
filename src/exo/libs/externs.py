@@ -24,6 +24,9 @@ class _Sin(Extern):
     def interpret(self, args):
         return np.sin(args[0])
 
+    def transpile(self, args):
+        return f"Math.sin({args[0]})"
+
     def compile(self, args, prim_type):
         return f"sin(({prim_type}){args[0]})"
 
@@ -61,6 +64,9 @@ class _Relu(Extern):
             return args[0]
         else:
             return 0
+
+    def transpile(self, args):
+        return f"(({args[0]}>0)?{args[0]}:0)"
 
     def compile(self, args, prim_type):
         return f"_relu_{prim_type}(({prim_type}){args[0]})"
@@ -106,6 +112,9 @@ class _Select(Extern):
         else:
             return z
 
+    def transpile(self, args):
+        return f"(({args[0]}<{args[1]})?{args[2]}:{args[3]})"
+
     def compile(self, args, prim_type):
         return f"_select_{prim_type}(({prim_type}){args[0]}, ({prim_type}){args[1]}, ({prim_type}){args[2]}, ({prim_type}){args[3]})"
 
@@ -134,6 +143,9 @@ class _Expf(Extern):
 
     def interpret(self, args):
         return np.exp(args[0])
+
+    def transpile(self, args):
+        return f"Math.exp({args[0]})"
 
     def compile(self, args, prim_type):
         return f"expf(({prim_type})({args[0]}))"
@@ -164,6 +176,9 @@ class _FmaxF(Extern):
 
     def interpret(self, args):
         return np.nanmax([args[0], args[1]])
+
+    def transpile(self, args):
+        return f"(({args[0]}<{args[1]}&&{args[1]}=={args[1]})?{args[1]}:{args[0]})"
 
     def compile(self, args, prim_type):
         return f"fmaxf(({prim_type})({args[0]}), ({prim_type})({args[1]}))"
@@ -199,6 +214,9 @@ class _Sigmoid(Extern):
     def interpret(self, args):
         return 1 / (1 + np.exp(-args[0]))
 
+    def transpile(self, args):
+        return f"1/(1+Math.exp(-{args[0]}))"
+
     def compile(self, args, prim_type):
         return f"sigmoid(({prim_type})({args[0]}))"
 
@@ -227,6 +245,9 @@ class _Sqrt(Extern):
 
     def interpret(self, args):
         return np.sqrt(args[0])
+
+    def transpile(self, args):
+        return f"Math.sqrt({args[0]})"
 
     def compile(self, args, prim_type):
         return f"sqrt(({prim_type})({args[0]}))"

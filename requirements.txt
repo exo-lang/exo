@@ -6,3 +6,4 @@ z3-solver==4.14.0.0
 yapf==0.43.0
 scipy==1.6.2
 hsnf==0.3.16
+pythonmonkey==1.1.0
