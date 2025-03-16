@@ -326,13 +326,17 @@ class SubtreeScan(LoopIR_Do):
                     f"{s.srcinfo}: unexpected loop mode {s.loop_mode.loop_mode_name()} in CudaDeviceFunction"
                 )
         elif isinstance(s, LoopIR.Alloc):
-            if not issubclass(s.mem, CudaBasicDeviceVisible):
-                raise TypeError(
-                    f"{s.srcinfo}: For cuda code, memory type "
-                    f"({s.mem.name()}) must subclass CudaBasicDeviceVisible"
-                )
-            native_unit = s.mem.native_unit()
-            self.sym_advice[s.name] = AllocState(self._coll_tiling, native_unit)
+            if s.type == T.Barrier():
+                # TODO
+                pass
+            else:
+                if not issubclass(s.mem, CudaBasicDeviceVisible):
+                    raise TypeError(
+                        f"{s.srcinfo}: For cuda code, memory type "
+                        f"({s.mem.name()}) must subclass CudaBasicDeviceVisible"
+                    )
+                native_unit = s.mem.native_unit()
+                self.sym_advice[s.name] = AllocState(self._coll_tiling, native_unit)
 
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if (n_threads := self._coll_tiling.box_num_threads()) != 1:
@@ -578,7 +582,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
             else:
                 assert isinstance(s.loop_mode, (Seq, _CodegenPar))
 
-        elif isinstance(s, (LoopIR.Alloc, LoopIR.Free)):
+        elif isinstance(s, (LoopIR.Alloc, LoopIR.Free)) and s.type.is_numeric():
             alloc_state = self.sym_advice[s.name]
             assert isinstance(alloc_state, AllocState)
             if not alloc_state.live:
@@ -593,7 +597,6 @@ class SubtreeRewrite(LoopIR_Rewrite):
             if n > 0:
                 if len(typ.hi) == n:
                     # All dimensions removed; reduce to scalar
-                    # TODO consider scalar refs
                     typ = typ.basetype()
                 else:
                     assert n < len(typ.hi)

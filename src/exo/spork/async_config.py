@@ -138,7 +138,7 @@ class ActorKindAnalysis(LoopIR_Rewrite):
                     f"{memwin.name()}) does not allow {action} in a "
                     f"scope with actor kind {self.actor_kind}"
                 )
-        elif isinstance(s, LoopIR.Alloc):
+        elif isinstance(s, LoopIR.Alloc) and s.type.is_numeric():
             mem = s.mem or DRAM
             self.sym_memwin[s.name] = mem
             assert issubclass(mem, Memory)
