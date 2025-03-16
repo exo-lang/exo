@@ -1175,9 +1175,14 @@ class Compiler:
                     conds.append(f"{itr} >= {bdd}")
                 if (bdd := loop_mode.static_bounds[1]) is not None:
                     conds.append(f"{itr} < {bdd}")
-                cond = "1" if not conds else " && ".join(conds)
+                if conds:
+                    cond = " && ".join(conds)
+                    maybe_unused = ""
+                else:
+                    cond = "1"
+                    maybe_unused = "[[maybe_unused]] "
                 self.add_line(
-                    f"if ([[maybe_unused]] int {itr} = {loop_mode.c_index}; {cond}) {{"
+                    f"if ({maybe_unused}int {itr} = {loop_mode.c_index}; {cond}) {{"
                 )
                 emit_loop = False
             else:
