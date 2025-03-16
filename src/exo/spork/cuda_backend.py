@@ -31,6 +31,7 @@ from .cuda_memory import (
 )
 from .loop_modes import CudaTasks, CudaThreads, Seq, seq, _CodegenPar
 from .sync_types import SyncType
+from .with_cuda_warps import CudaWarps
 
 
 # We use the reserved exo_ prefix everywhere, but we still have to reserve
@@ -56,7 +57,8 @@ def loopir_lower_cuda(s, ctx: SporkLoweringCtx):
 
 class SubtreeScan(LoopIR_Do):
     __slots__ = [
-        "sym_advice",
+        "alloc_states",
+        "stmt_id_codegen_par",
         "blockDim",
         "clusterDim",
         "fmt_dict",
@@ -75,13 +77,9 @@ class SubtreeScan(LoopIR_Do):
 
     # We will have to substitute some LoopIR nodes in the SubtreeRewrite phase.
     # During the scan, for a node that needs to be rewritten, we will stash
-    # needed info for the rewrite here, indexed by a relevant Sym.
-    # The type of the info depends on the rewrite needed -- see corresponding
-    # rewrite in SubtreeRewrite.
-    #
-    # Allocated Sym: AllocState
-    # Index of cuda_threads loop: _CodegenPar
-    sym_advice: Dict[Sym, object]
+    # needed info for the rewrites here.
+    alloc_states: Dict[Sym, AllocState]
+    stmt_id_codegen_par: Dict[int, _CodegenPar]  # id(LoopIR.stmt)->_CodegenPar
 
     blockDim: int
     clusterDim: int
@@ -89,7 +87,7 @@ class SubtreeScan(LoopIR_Do):
     task_loop_depth: int
     task_iter_syms: List[Sym]
     _syms_needed: Set[Sym]
-    _stmt_stack: List[LoopIR.stmt]
+    _stmt_stack: List[LoopIR.stmt]  # TODO is this useful?
     _coll_env: Dict[CollParam, int]
     _coll_tiling: CollTiling
     # CollTiling created by the cuda_threads loop with the given iter
@@ -100,7 +98,8 @@ class SubtreeScan(LoopIR_Do):
         cuda_device_function = s.cond.val
         assert isinstance(cuda_device_function, CudaDeviceFunction)
 
-        self.sym_advice = {}
+        self.alloc_states = {}
+        self.stmt_id_codegen_par = {}
         self.blockDim = cuda_device_function.blockDim
         self.clusterDim = cuda_device_function.clusterDim
         self.fmt_dict = {
@@ -338,7 +337,11 @@ class SubtreeScan(LoopIR_Do):
         elif not isinstance(s, (LoopIR.WindowStmt, LoopIR.Alloc, LoopIR.Free)):
             assert not hasattr(s, "name"), "Add handling for array indexing"
 
-        if isinstance(s, LoopIR.For):
+        if is_if_holding_with(s, LoopIR):
+            ctx = s.cond.val
+            if isinstance(ctx, CudaWarps):
+                self.apply_with_cuda_warps(s)
+        elif isinstance(s, LoopIR.For):
             loop_mode = s.loop_mode
             if isinstance(loop_mode, Seq):
                 pass
@@ -364,7 +367,7 @@ class SubtreeScan(LoopIR_Do):
                         f"({s.mem.name()}) must subclass CudaBasicDeviceVisible"
                     )
                 native_unit = s.mem.native_unit()
-                self.sym_advice[s.name] = AllocState(self._coll_tiling, native_unit)
+                self.alloc_states[s.name] = AllocState(self._coll_tiling, native_unit)
 
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if (n_threads := self._coll_tiling.box_num_threads()) != 1:
@@ -373,6 +376,16 @@ class SubtreeScan(LoopIR_Do):
                     f"thread only (current: {n_threads} threads)\n"
                     f"stmt: {s}"
                 )
+
+    def apply_with_cuda_warps(self, s):
+        ctx = s.cond.val
+        assert isinstance(ctx, CudaWarps)
+        self._coll_tiling, advice = self._coll_tiling.specialized(
+            cuda_warp, ctx.lo, ctx.hi, self._coll_env
+        )
+        self.stmt_id_codegen_par[id(s)] = _CodegenPar(
+            advice.coll_index.codegen(), (advice.lo, advice.hi)
+        )
 
     def apply_cuda_threads_loop(self, s):
         def get_const(e, name):
@@ -399,7 +412,7 @@ class SubtreeScan(LoopIR_Do):
         self._iter_coll_tiling[s.iter] = self._coll_tiling
 
         # We will advise replacing the loop mode with _CodegenPar
-        self.sym_advice[s.iter] = _CodegenPar(
+        self.stmt_id_codegen_par[id(s)] = _CodegenPar(
             advice.coll_index.codegen(), (advice.lo, advice.hi)
         )
 
@@ -411,7 +424,7 @@ class SubtreeScan(LoopIR_Do):
             return
 
         state: AllocState
-        state = self.sym_advice.get(node.name)
+        state = self.alloc_states.get(node.name)
         if state is None:
             return  # was allocated outside presumably
 
@@ -489,7 +502,8 @@ class SubtreeScan(LoopIR_Do):
 
 class SubtreeRewrite(LoopIR_Rewrite):
     __slots__ = [
-        "sym_advice",
+        "alloc_states",
+        "stmt_id_codegen_par",
         "fmt_dict",
         "smem_offset",
         "smem_data_usage",
@@ -497,7 +511,8 @@ class SubtreeRewrite(LoopIR_Rewrite):
     ]
 
     def __init__(self, s, scan: SubtreeScan, ctx: SporkLoweringCtx):
-        self.sym_advice = scan.sym_advice
+        self.alloc_states = scan.alloc_states
+        self.stmt_id_codegen_par = scan.stmt_id_codegen_par
         fmt_dict = scan.fmt_dict
         self.fmt_dict = fmt_dict
 
@@ -597,6 +612,19 @@ class SubtreeRewrite(LoopIR_Rewrite):
             ctx = s.cond.val
             if isinstance(ctx, CudaAsync):
                 s = s.update(cond=LoopIR.Const(True, T.bool, s.srcinfo))
+            elif isinstance(ctx, CudaWarps):
+                # Replace with CudaWarps block with _CodegenPar "loop"
+                # that the scanner has prepared. NB (0, 1) isn't the same
+                # as the indices encoded in _CodegenPar.
+                loop_mode = self.stmt_id_codegen_par[id(s)]
+                s = LoopIR.For(
+                    Sym("tmp"),
+                    LoopIR.Const(0, T.int, s.srcinfo),
+                    LoopIR.Const(1, T.int, s.srcinfo),
+                    s.body,
+                    loop_mode,
+                    s.srcinfo,
+                )
             else:
                 raise TypeError(
                     f"{s.srcinfo}: unexpected with context type {type(ctx)} in CUDA device code"
@@ -605,13 +633,13 @@ class SubtreeRewrite(LoopIR_Rewrite):
             # Replace CudaThreads loop with _CodegenPar loop that the
             # scanner has prepared.
             if isinstance(s.loop_mode, CudaThreads):
-                new_loop_mode = self.sym_advice[s.iter]
+                new_loop_mode = self.stmt_id_codegen_par[id(s)]
                 s = s.update(loop_mode=new_loop_mode)
             else:
                 assert isinstance(s.loop_mode, (Seq, _CodegenPar))
 
         elif isinstance(s, (LoopIR.Alloc, LoopIR.Free)) and s.type.is_numeric():
-            alloc_state = self.sym_advice[s.name]
+            alloc_state = self.alloc_states[s.name]
             assert isinstance(alloc_state, AllocState)
             if not alloc_state.live:
                 # Distributed memory analysis isn't run for unused variables...
@@ -716,7 +744,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
                 return super_rewritten
 
     def remove_distributed_idx(self, node):
-        alloc_state = self.sym_advice.get(node.name)
+        alloc_state = self.alloc_states.get(node.name)
         if isinstance(alloc_state, AllocState):
             assert isinstance(alloc_state, AllocState)
             n = alloc_state.n_distributed_dims

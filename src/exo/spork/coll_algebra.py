@@ -494,11 +494,11 @@ class CollTiling(object):
 
                 tiled_dim_idx = dim_idx
                 stride = unit_box_coord
+                advice.coll_index = new_exprs[dim_idx]  # before -= below
                 new_exprs[dim_idx] -= lo * stride
                 new_offset[dim_idx] = lo * stride
                 new_box[dim_idx] = (hi - lo) * stride
 
-                advice.coll_index = new_exprs[dim_idx]
                 if lo != 0:
                     advice.lo = lo * unit_box_coord
                 if hi != tile_count or tile_remainder != 0:

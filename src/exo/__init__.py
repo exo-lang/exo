@@ -37,6 +37,7 @@ from .spork.coll_algebra import (
     cuda_warpgroup,
     cuda_cta_in_cluster,
 )
+from .spork.with_cuda_warps import CudaWarps
 
 from .spork.base_with_context import ExtWithContext  # INTERNAL, FIXME
 
@@ -74,6 +75,7 @@ __all__ = [
     "BaseAsyncConfig",
     "CudaDeviceFunction",
     "CudaAsync",
+    "CudaWarps",
     #
     "cuda_thread",
     "cuda_quadpair",
