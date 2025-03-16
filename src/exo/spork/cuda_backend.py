@@ -178,7 +178,8 @@ class SubtreeScan(LoopIR_Do):
 
         # Scan the subtree
         # We seed the analysis of the collective units with the tiling
-        # for the top-level collective (2D tile clusterDim x blockDim)
+        # for the top-level collective (clusterDim x blockDim,
+        # with redundant clusterDim removed if clusterDim = 1).
         self._syms_needed = set()
         self._stmt_stack = []
         self._coll_env = {
@@ -196,7 +197,14 @@ class SubtreeScan(LoopIR_Do):
             cta_expr = CollIndexExpr("blockIdx.x") % self.clusterDim
             intra_box_exprs = (cta_expr, CollIndexExpr("threadIdx.x"))
         self._coll_tiling = CollTiling(
-            None, tlc_box, tlc_box, tlc_offset, tlc_box, intra_box_exprs
+            None,
+            tlc_box,
+            tlc_box,
+            tlc_offset,
+            tlc_box,
+            intra_box_exprs,
+            1,
+            CollIndexExpr(0),
         )
         self._iter_coll_tiling = {}
         self.do_stmts(s.body)

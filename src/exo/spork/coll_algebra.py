@@ -299,6 +299,8 @@ class CollTiling(object):
         "offset",
         "box",
         "intra_box_exprs",
+        "tile_count",
+        "tile_expr",
     ]
 
     parent: Optional[CollTiling]
@@ -307,8 +309,20 @@ class CollTiling(object):
     offset: Tuple[int]
     box: Tuple[int]
     intra_box_exprs: Tuple[CollIndexExpr]
+    tile_count: int
+    tile_expr: CollIndexExpr
 
-    def __init__(self, parent, full_domain, tile, offset, box, intra_box_exprs):
+    def __init__(
+        self,
+        parent,
+        full_domain,
+        tile,
+        offset,
+        box,
+        intra_box_exprs,
+        tile_count,
+        tile_expr,
+    ):
         assert parent is None or isinstance(parent, CollTiling)
         self.parent = parent
         self.full_domain = tuple(full_domain)
@@ -323,8 +337,13 @@ class CollTiling(object):
         assert all(isinstance(c, CollIndexExpr) for c in intra_box_exprs)
         assert len(intra_box_exprs) == len(box)
 
+        self.tile_count = tile_count
+        self.tile_expr = tile_expr
+        assert isinstance(tile_count, int)
+        assert isinstance(tile_expr, CollIndexExpr)
+
     def __repr__(self):
-        return f"CollTiling({self.parent}, {self.full_domain}, {self.tile}, {self.offset}, {self.box}, {self.intra_box_exprs})"
+        return f"CollTiling({self.parent}, {self.full_domain}, {self.tile}, {self.offset}, {self.box}, {self.intra_box_exprs}, {self.tile_count}, {self.tile_expr})"
 
     def equiv(self, other: Optional[CollTiling]):
         if other is None:
@@ -416,6 +435,8 @@ class CollTiling(object):
                 new_offset,
                 new_box,
                 new_exprs,
+                tiles_needed,
+                advice.coll_index,
             ),
             advice,
         )
@@ -497,6 +518,8 @@ class CollTiling(object):
                 new_offset,
                 new_box,
                 new_exprs,
+                self.tile_count,
+                self.tile_expr,
             ),
             advice,
         )
