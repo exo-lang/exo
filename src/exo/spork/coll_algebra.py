@@ -299,7 +299,6 @@ class CollTiling(object):
         "offset",
         "box",
         "intra_box_exprs",
-        "hash",
     ]
 
     parent: Optional[CollTiling]
@@ -308,7 +307,6 @@ class CollTiling(object):
     offset: Tuple[int]
     box: Tuple[int]
     intra_box_exprs: Tuple[CollIndexExpr]
-    hash: int
 
     def __init__(self, parent, full_domain, tile, offset, box, intra_box_exprs):
         assert parent is None or isinstance(parent, CollTiling)
@@ -325,32 +323,24 @@ class CollTiling(object):
         assert all(isinstance(c, CollIndexExpr) for c in intra_box_exprs)
         assert len(intra_box_exprs) == len(box)
 
-        self.hash = hash(
-            (
-                self.parent,
-                self.full_domain,
-                self.tile,
-                self.offset,
-                self.box,
-                self.intra_box_exprs,
-            )
-        )
-
     def __repr__(self):
         return f"CollTiling({self.parent}, {self.full_domain}, {self.tile}, {self.offset}, {self.box}, {self.intra_box_exprs})"
 
-    def __eq__(self, other: CollTiling):
-        return self is other or (
-            type(other) is CollTiling
-            and self.parent == other.parent
+    def equiv(self, other: Optional[CollTiling]):
+        if other is None:
+            return False
+        assert isinstance(other, CollTiling)
+        if self.parent is None:
+            parent_match = other.parent is None
+        else:
+            parent_match = self.parent.equiv(other.parent)
+        return (
+            parent_match
             and self.full_domain == other.full_domain
             and self.tile == other.tile
             and self.offset == other.offset
             and self.box == other.box
         )
-
-    def __hash__(self):
-        return self.hash
 
     def tiled(self, unit: CollUnit, tiles_needed: int, env: Dict[CollParam, int]):
         """Tile the CollTiling with the given collective unit.

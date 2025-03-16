@@ -186,11 +186,15 @@ class SubtreeScan(LoopIR_Do):
             blockDim_param: self.blockDim,
         }
         assert self.clusterDim > 0 and isinstance(self.clusterDim, int)
-        tlc_offset = (0, 0)
-        tlc_box = (self.clusterDim, self.blockDim)
-        cta_expr = CollIndexExpr("blockIdx.x") % self.clusterDim
-        thread_expr = CollIndexExpr("threadIdx.x")
-        intra_box_exprs = (cta_expr, CollIndexExpr("threadIdx.x"))
+        if self.clusterDim == 1:
+            tlc_offset = (0,)
+            tlc_box = (self.blockDim,)
+            intra_box_exprs = (CollIndexExpr("threadIdx.x"),)
+        else:
+            tlc_offset = (0, 0)
+            tlc_box = (self.clusterDim, self.blockDim)
+            cta_expr = CollIndexExpr("blockIdx.x") % self.clusterDim
+            intra_box_exprs = (cta_expr, CollIndexExpr("threadIdx.x"))
         self._coll_tiling = CollTiling(
             None, tlc_box, tlc_box, tlc_offset, tlc_box, intra_box_exprs
         )
@@ -466,7 +470,7 @@ class SubtreeScan(LoopIR_Do):
                 state.n_distributed_dims = n_distributed_dims
                 state.usage_coll_tiling = cur_coll_tiling
             else:
-                if state.usage_coll_tiling != cur_coll_tiling:
+                if not state.usage_coll_tiling.equiv(cur_coll_tiling):
                     raise ValueError("collective tiling mismatch")
 
         except ValueError as e:
