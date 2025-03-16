@@ -360,6 +360,11 @@ def __str__(self):
     return _format_code(_print_type(self, PrintEnv()))
 
 
+@extclass(LoopIR.w_access)
+def __str__(self):
+    return _format_code(_print_w_access(self, PrintEnv()))
+
+
 del __str__
 
 

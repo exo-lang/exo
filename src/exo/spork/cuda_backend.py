@@ -185,6 +185,7 @@ class SubtreeScan(LoopIR_Do):
             clusterDim_param: self.clusterDim,
             blockDim_param: self.blockDim,
         }
+        assert self.clusterDim > 0 and isinstance(self.clusterDim, int)
         tlc_offset = (0, 0)
         tlc_box = (self.clusterDim, self.blockDim)
         cta_expr = CollIndexExpr("blockIdx.x") % self.clusterDim
@@ -304,6 +305,21 @@ class SubtreeScan(LoopIR_Do):
             assert not hasattr(e, "name"), "Add handling for array indexing"
 
     def apply_s(self, s):
+        def current_cluster_count():
+            if self.clusterDim == 1:
+                return 1
+            else:
+                # Only if the clusterDim is not 1 can we rely on the left-most
+                # dimension of the domain to correspond to the CTA-in-cluster axis.
+                domain = self._coll_tiling.full_domain
+                box = self._coll_tiling.box
+                assert len(domain) == len(box)
+                if domain[0] != self.clusterDim:
+                    # Unlikely error, only occurs of the user defines their own
+                    # unit splitting the cluster dimension of the coll tiling.
+                    raise TypeError(f"{s.srcinfo}: could not deduce cluster count")
+                return box[0]
+
         if isinstance(s, idx_s_types):
             self._syms_needed.add(s.name)
             self.apply_idx(s)
