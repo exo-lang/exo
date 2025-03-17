@@ -22,8 +22,8 @@ class SyncType(object):
     second_actor_kind: Optional[ActorKind]
 
     def __init__(self, first_actor_kind: ActorKind, second_actor_kind: ActorKind):
-        assert isinstance(first_actor_kind, ActorKind)
-        assert isinstance(second_actor_kind, ActorKind)
+        assert first_actor_kind is None or isinstance(first_actor_kind, ActorKind)
+        assert second_actor_kind is None or isinstance(second_actor_kind, ActorKind)
         assert first_actor_kind or second_actor_kind
         self.first_actor_kind = first_actor_kind
         self.second_actor_kind = second_actor_kind
@@ -68,13 +68,13 @@ class SyncType(object):
 def arrive_type(first_actor_kind: ActorKind):
     assert isinstance(first_actor_kind, ActorKind)
     assert first_actor_kind
-    return SyncType(first_actor_kind, actor_kinds._null_actor)
+    return SyncType(first_actor_kind, None)
 
 
 def await_type(second_actor_kind: ActorKind):
     assert isinstance(second_actor_kind, ActorKind)
     assert second_actor_kind
-    return SyncType(actor_kinds._null_actor, second_actor_kind)
+    return SyncType(None, second_actor_kind)
 
 
 cuda_syncthreads = SyncType(actor_kinds.cuda_classic, actor_kinds.Sm80_generic)
