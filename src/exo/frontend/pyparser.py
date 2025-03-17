@@ -12,7 +12,7 @@ from asdl_adt.validators import ValidationError
 
 from ..API_types import ProcedureBase
 from ..core.configs import Config
-from ..core.LoopIR import UAST, PAST, front_ops
+from ..core.LoopIR import UAST, PAST, front_ops, barrier_type_count
 from ..core.prelude import *
 from ..core.extern import Extern
 from ..core.memory import MemWin, Memory, SpecialWindow
@@ -606,7 +606,7 @@ _is_size = lambda x: isinstance(x, pyast.Name) and x.id == "size"
 _is_index = lambda x: isinstance(x, pyast.Name) and x.id == "index"
 _is_bool = lambda x: isinstance(x, pyast.Name) and x.id == "bool"
 _is_stride = lambda x: isinstance(x, pyast.Name) and x.id == "stride"
-_is_barrier = lambda x: isinstance(x, pyast.Name) and x.id == "barrier"
+_is_barrier = lambda x: isinstance(x, pyast.Name) and x.id in _barrier_types
 
 _prim_types = {
     "R": UAST.Num(),
@@ -618,6 +618,15 @@ _prim_types = {
     "ui16": UAST.UINT16(),
     "i32": UAST.INT32(),
 }
+
+_barrier_types = {
+    "cuda_event": UAST.CudaEvent,
+    "cuda_mbarrier": UAST.CudaMbarrier,
+    "cuda_commit_group": UAST.CudaCommitGroup,
+}
+
+
+assert len(_barrier_types) == barrier_type_count, "update _barrier_types"
 
 
 class Parser:
@@ -956,7 +965,7 @@ class Parser:
         return typ, mem
 
     def parse_alloc_type(self, node, is_arg=False):
-        """Parse numeric type or special barrier type"""
+        """Parse numeric type or barrier type"""
         if isinstance(node, pyast.Subscript):
             if isinstance(node.value, pyast.List):
                 if is_arg is not True:
@@ -1012,15 +1021,15 @@ class Parser:
             exprs = [self.parse_expr(idx) for idx in dims]
             if typ.shape():
                 self.err(node, "Use TypeName[x,y,...], not TypeName[x][y]...")
-            elif isinstance(typ, UAST.Barrier):
+            elif typ in _barrier_types:
                 self.err(node, "Cannot create tensor of barriers")
             else:
                 typ = UAST.Tensor(exprs, is_window, typ)
 
             return typ
 
-        elif isinstance(node, pyast.Name) and node.id == "barrier":
-            return UAST.Barrier()
+        elif isinstance(node, pyast.Name) and node.id in _barrier_types:
+            return _barrier_types[node.id]()
         elif isinstance(node, pyast.Name) and node.id in _prim_types:
             return _prim_types[node.id]
         elif isinstance(node, pyast.Name) and (

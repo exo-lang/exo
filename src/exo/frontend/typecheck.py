@@ -6,6 +6,7 @@ from ..core.LoopIR import (
     get_writeconfigs,
     get_loop_iters,
     create_window_type,
+    barrier_type_count,
 )
 from ..core.extern import Extern_Typecheck_Error
 from ..core.memory import *
@@ -307,7 +308,7 @@ class TypeChecker:
                     self.err(bar, "expected name of a barrier variable")
                 elif bar.idx:
                     self.err(bar, "unexpected indexing of barrier variable")
-                elif bar.type != T.barrier:
+                elif not bar.type.is_barrier():
                     self.err(
                         bar, f"expected {bar.name} to be barrier type, not {bar.type}"
                     )
@@ -654,8 +655,12 @@ class TypeChecker:
         UAST.Size: T.size,
         UAST.Index: T.index,
         UAST.Stride: T.stride,
-        UAST.Barrier: T.barrier,
+        UAST.CudaEvent: T.cuda_event,
+        UAST.CudaMbarrier: T.cuda_mbarrier,
+        UAST.CudaCommitGroup: T.cuda_commit_group,
     }
+
+    assert barrier_type_count == 3, "update _typ_table"
 
     def check_t(self, typ):
         if type(typ) in TypeChecker._typ_table:

@@ -1202,7 +1202,7 @@ class Compiler:
 
         elif isinstance(s, LoopIR.Alloc):
             name = self.new_varname(s.name, typ=s.type, mem=s.mem)
-            if isinstance(s.type, T.Barrier):
+            if s.type.is_barrier():
                 self.add_line(f"// Scope of named barrier {s.name}")
             else:
                 assert s.type.basetype().is_real_scalar()
@@ -1215,7 +1215,7 @@ class Compiler:
                 self.add_line(line)
         elif isinstance(s, LoopIR.Free):
             name = self.env[s.name]
-            if isinstance(s.type, T.Barrier):
+            if s.type.is_barrier():
                 pass
             else:
                 assert s.type.basetype().is_real_scalar()

@@ -357,7 +357,7 @@ class SubtreeScan(LoopIR_Do):
                     f"{s.srcinfo}: unexpected loop mode {s.loop_mode.loop_mode_name()} in CudaDeviceFunction"
                 )
         elif isinstance(s, LoopIR.Alloc):
-            if s.type == T.Barrier():
+            if s.type.is_barrier():
                 # TODO
                 pass
             else:

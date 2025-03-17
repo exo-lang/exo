@@ -119,7 +119,6 @@ module LoopIR {
          | Index()
          | Size()
          | Stride()
-         | Barrier()
          | Error()
          | Tensor( expr* hi, bool is_window, type type )
          -- src_type  - type of the Tensor from which the window was created
@@ -132,7 +131,12 @@ module LoopIR {
          -- still refer to the original Tensor
          | WindowType( type src_type, type as_tensor,
                        sym src_buf, w_access *idx )
+         -- Spork (Exo-GPU) extensions
+         -- May want to externalize barrier type somehow
          | WithContext()
+         | CudaEvent()
+         | CudaMbarrier()
+         | CudaCommitGroup()
 
     -- Dense tensor: Tensor(is_window = False)
     -- Window parameter (of proc): Tensor(is_window = True)
@@ -170,10 +174,11 @@ module LoopIR {
         "Index",
         "Size",
         "Stride",
-        "Barrier",
         "Error",
     },
 )
+
+barrier_type_count = 3
 
 # --------------------------------------------------------------------------- #
 # Untyped AST
@@ -237,9 +242,11 @@ module UAST {
             | Size  ()
             | Index ()
             | Stride()
-            | Barrier()
             | Tensor( expr *hi, bool is_window, type type )
             | WithContext()
+            | CudaEvent()
+            | CudaMbarrier()
+            | CudaCommitGroup()
 } """,
     ext_types={
         "name": validators.instance_of(Identifier, convert=True),
@@ -269,7 +276,6 @@ module UAST {
         "Size",
         "Index",
         "Stride",
-        "Barrier",
     },
 )
 
@@ -352,12 +358,15 @@ module CIR {
 @extclass(UAST.UINT8)
 @extclass(UAST.UINT16)
 @extclass(UAST.INT32)
-@extclass(UAST.Barrier)
+@extclass(UAST.CudaEvent)
+@extclass(UAST.CudaMbarrier)
+@extclass(UAST.CudaCommitGroup)
 def shape(t):
     shp = t.hi if isinstance(t, UAST.Tensor) else []
     return shp
 
 
+assert barrier_type_count == 3, "update @extclass shape"
 del shape
 
 
@@ -399,7 +408,6 @@ class T:
     Index = LoopIR.Index
     Size = LoopIR.Size
     Stride = LoopIR.Stride
-    Barrier = LoopIR.Barrier
     Error = LoopIR.Error
     Tensor = LoopIR.Tensor
     Window = LoopIR.WindowType
@@ -422,9 +430,15 @@ class T:
     index = Index()
     size = Size()
     stride = Stride()
-    barrier = Barrier()
     err = Error()
+    # Spork extensions
     with_context = WithContextT()
+    CudaEvent = LoopIR.CudaEvent
+    CudaMbarrier = LoopIR.CudaMbarrier
+    CudaCommitGroup = LoopIR.CudaCommitGroup
+    cuda_event = CudaEvent()
+    cuda_mbarrier = CudaMbarrier()
+    cuda_commit_group = CudaCommitGroup()
 
 
 # --------------------------------------------------------------------------- #
@@ -454,7 +468,9 @@ del as_tensor_type
 @extclass(T.UINT8)
 @extclass(T.UINT16)
 @extclass(T.INT32)
-@extclass(T.Barrier)
+@extclass(T.CudaEvent)
+@extclass(T.CudaMbarrier)
+@extclass(T.CudaCommitGroup)
 def shape(t):
     if isinstance(t, T.Window):
         return t.as_tensor.shape()
@@ -465,6 +481,7 @@ def shape(t):
         return []
 
 
+assert barrier_type_count == 3, "update @extclass shape"
 del shape
 
 
@@ -608,6 +625,17 @@ def basetype(t):
 
 
 del basetype
+
+
+assert barrier_type_count == 3, "update is_barrier"
+
+
+@extclass(LoopIR.type)
+def is_barrier(t):
+    return isinstance(t, (T.CudaEvent, T.CudaMbarrier, T.CudaCommitGroup))
+
+
+del is_barrier
 
 
 def chain_window_idx(idx0, idx1):
