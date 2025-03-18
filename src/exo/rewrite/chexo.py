@@ -8,7 +8,6 @@ from ..core.LoopIR import LoopIR, T
 from dataclasses import dataclass, field
 from ..core.prelude import Sym, SrcInfo
 from ..core.memory import DRAM, Memory
-from ..backend.LoopIR_interpreter import Interpreter, run_interpreter
 import numpy as np
 from .new_eff import SchedulingError
 from .constraint_solver import (
