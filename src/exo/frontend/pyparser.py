@@ -19,7 +19,7 @@ from ..core.memory import MemWin, Memory, SpecialWindow
 from ..spork.actor_kinds import actor_kind_dict
 from ..spork.base_with_context import BaseWithContext, is_if_holding_with
 from ..spork.loop_modes import LoopMode, loop_mode_dict
-from ..spork.sync_types import SyncType, arrive_type, await_type
+from ..spork.sync_types import SyncType, fence_type, arrive_type, await_type
 
 from typing import Any, Callable, Union, NoReturn, Optional
 import copy
@@ -1300,7 +1300,13 @@ class Parser:
                 and isinstance(s.value.func, pyast.Name)
             ):
                 # Parsing special sync statement
-                if s.value.func.id in ("Fence", "Arrive", "Await"):
+                if s.value.func.id in (
+                    "Fence",
+                    "Arrive",
+                    "ReverseArrive",
+                    "Await",
+                    "ReverseAwait",
+                ):
                     rstmts.append(self.parse_SyncStmt_call(s.value))
 
                 # Parsing ordinary sub-routine
@@ -1869,9 +1875,6 @@ class Parser:
 
         codegen = None
 
-        if len(ast_call.args) != 2:
-            self.err(ast_call, f"{func_id} expects 2 arguments")
-
         for kw in ast_call.keywords:
             name, eval_me = kw.arg, kw.value
             if name == "codegen":
@@ -1881,19 +1884,49 @@ class Parser:
             else:
                 raise ParseError(f"Unknown keyword '{name}' for {func_id}()")
 
+        def unpack_arrive(is_reversed):
+            if len(ast_call.args) != 2:
+                self.err(ast_call, f"{func_id} expects 2 arguments")
+            sync_type = arrive_type(is_reversed, parse_actor_kind(ast_call.args[0]))
+            bar = self.parse_expr(ast_call.args[1])
+            return sync_type, bar
+
+        def unpack_await(is_reversed):
+            delay = 0
+            if len(ast_call.args) == 3:
+                delay = self.eval_expr(ast_call.args[2])
+                if not isinstance(delay, int) or delay < 0:
+                    self.err(
+                        ast_call, f"Arrive delay={delay}; expected non-negative int"
+                    )
+            if 2 <= len(ast_call.args) <= 3:
+                sync_type = await_type(
+                    is_reversed, parse_actor_kind(ast_call.args[1]), delay
+                )
+                bar = self.parse_expr(ast_call.args[0])
+            else:
+                self.err(ast_call, f"{func_id} expects 2 arguments")
+            return sync_type, bar
+
         if func_id == "Fence":
-            sync_type = SyncType(
+            if len(ast_call.args) != 2:
+                self.err(ast_call, f"{func_id} expects 2 arguments")
+            sync_type = fence_type(
                 parse_actor_kind(ast_call.args[0]), parse_actor_kind(ast_call.args[1])
             )
             bar = None
 
         elif func_id == "Arrive":
-            sync_type = arrive_type(parse_actor_kind(ast_call.args[0]))
-            bar = self.parse_expr(ast_call.args[1])
+            sync_type, bar = unpack_arrive(False)
+
+        elif func_id == "ReverseArrive":
+            sync_type, bar = unpack_arrive(True)
 
         elif func_id == "Await":
-            bar = self.parse_expr(ast_call.args[0])
-            sync_type = await_type(parse_actor_kind(ast_call.args[1]))
+            sync_type, bar = unpack_await(False)
+
+        elif func_id == "ReverseAwait":
+            sync_type, bar = unpack_await(True)
 
         else:
             assert 0

@@ -80,9 +80,9 @@ module LoopIR {
          | Reduce( sym name, type type, expr* idx, expr rhs )
          | WriteConfig( config config, string field, expr rhs )
          | Pass()
-           -- `bar` needed for arrive/await
+           -- `bar` user-visible for arrive/await; internal unique id for fence
            -- `codegen` used internally for lowering pass
-         | SyncStmt( sync_type sync_type, expr? bar, string? codegen )
+         | SyncStmt( sync_type sync_type, name bar, string? codegen )
          | If( expr cond, stmt* body, stmt* orelse )
          | For( sym iter, expr lo, expr hi, stmt* body, loop_mode loop_mode )
          | Alloc( sym name, type type, mem mem )

@@ -10,6 +10,7 @@ from ..core.LoopIR import (
 )
 from ..core.extern import Extern_Typecheck_Error
 from ..core.memory import *
+from ..core.prelude import Sym
 from ..spork.actor_kinds import actor_kind_dict
 from ..spork.base_with_context import BaseWithContext
 
@@ -300,8 +301,6 @@ class TypeChecker:
         elif isinstance(stmt, UAST.Pass):
             return [LoopIR.Pass(stmt.srcinfo)]
         elif isinstance(stmt, UAST.SyncStmt):
-            bar = None
-
             if stmt.sync_type.is_split():
                 bar = self.check_e(stmt.bar)
                 if not isinstance(bar, LoopIR.Read):
@@ -312,6 +311,9 @@ class TypeChecker:
                     self.err(
                         bar, f"expected {bar.name} to be barrier type, not {bar.type}"
                     )
+                bar = bar.name
+            else:
+                bar = Sym("autogen")  # Sym as internal unique ID for Fence.
 
             return [LoopIR.SyncStmt(stmt.sync_type, bar, stmt.codegen, stmt.srcinfo)]
 

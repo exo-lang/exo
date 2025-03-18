@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 # string
 from yapf.yapflib.yapf_api import FormatCode
 
-from .LoopIR import T
+from .LoopIR import T, barrier_type_count
 from .LoopIR import UAST, LoopIR
 from .internal_cursors import Node, Gap, Block, Cursor, InvalidCursorError, GapType
 from .prelude import *
@@ -314,8 +314,12 @@ class UAST_PPrinter:
             return "index"
         elif isinstance(t, UAST.Size):
             return "size"
-        elif isinstance(t, UAST.Barrier):
-            return "barrier"
+        elif isinstance(t, UAST.CudaEvent):
+            return "cuda_event"
+        elif isinstance(t, UAST.CudaMbarrier):
+            return "cuda_mbarrier"
+        elif isinstance(t, UAST.CudaCommitGroup):
+            return "cuda_commit_group"
         elif isinstance(t, UAST.Tensor):
             base = str(t.basetype())
             if t.is_window:
@@ -324,6 +328,9 @@ class UAST_PPrinter:
             return f"{base}[{rngs}]"
         else:
             assert False, "impossible type case"
+
+
+assert barrier_type_count == 3, "update above"
 
 
 # --------------------------------------------------------------------------- #
@@ -588,10 +595,17 @@ def _print_type(t, env: PrintEnv) -> str:
         )
     elif isinstance(t, T.Stride):
         return "stride"
-    elif isinstance(t, T.Barrier):
-        return "barrier"
+    elif isinstance(t, T.CudaEvent):
+        return "cuda_event"
+    elif isinstance(t, T.CudaMbarrier):
+        return "cuda_mbarrier"
+    elif isinstance(t, T.CudaCommitGroup):
+        return "cuda_commit_group"
 
     assert False, f"impossible type {type(t)}"
+
+
+assert barrier_type_count == 3, "update above"
 
 
 def _print_w_access(node, env: PrintEnv) -> str:

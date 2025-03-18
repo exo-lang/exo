@@ -59,6 +59,7 @@ class SubtreeScan(LoopIR_Do):
     __slots__ = [
         "alloc_states",
         "stmt_id_codegen_par",
+        "barriers",
         "blockDim",
         "clusterDim",
         "fmt_dict",
@@ -78,8 +79,9 @@ class SubtreeScan(LoopIR_Do):
     # We will have to substitute some LoopIR nodes in the SubtreeRewrite phase.
     # During the scan, for a node that needs to be rewritten, we will stash
     # needed info for the rewrites here.
-    alloc_states: Dict[Sym, AllocState]
+    alloc_states: Dict[Sym, AllocState]  # name of non-barrier -> AllocState
     stmt_id_codegen_par: Dict[int, _CodegenPar]  # id(LoopIR.stmt)->_CodegenPar
+    barriers: Dict[Sym, object]  # name of barrier -> lowered
 
     blockDim: int
     clusterDim: int
@@ -100,6 +102,7 @@ class SubtreeScan(LoopIR_Do):
 
         self.alloc_states = {}
         self.stmt_id_codegen_par = {}
+        self.barriers = {}
         self.blockDim = cuda_device_function.blockDim
         self.clusterDim = cuda_device_function.clusterDim
         self.fmt_dict = {
