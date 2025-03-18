@@ -413,6 +413,7 @@ def ext_compile_to_strings(lib_name, proc_list):
     proc_bodies = []
     instrs_global = []
     analyzed_proc_list = []
+    ext_lines = {}
 
     needed_helpers = set()
 
@@ -445,6 +446,7 @@ def ext_compile_to_strings(lib_name, proc_list):
             p = WindowAnalysis().apply_proc(p)
             p = MemoryAnalysis().run(p)
             p = ActorKindAnalysis().run(p)
+            print(p)
 
             comp = Compiler(
                 p, ctxt_name, window_struct_cache, is_public_decl=is_public_decl
@@ -461,6 +463,8 @@ def ext_compile_to_strings(lib_name, proc_list):
             proc_bodies.append(b)
 
             analyzed_proc_list.append(p)
+            for ext, snippets in comp.ext_lines().items():
+                ext_lines.setdefault(ext, []).extend(snippets)
 
     # Memories and structs are just blobs of code...
     # still sort them for output stability
@@ -515,7 +519,7 @@ def ext_compile_to_strings(lib_name, proc_list):
     body_contents = map(from_lines, body_contents)
     body_contents = from_lines(body_contents)
     body_contents += "\n"  # New line at end of file
-    return header_contents, body_contents, comp.ext_lines()
+    return header_contents, body_contents, ext_lines
 
 
 def _compile_externs(externs):
