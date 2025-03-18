@@ -3,7 +3,6 @@ from exo.core.prelude import Sym
 
 from exo.rewrite.chexo import (
     TypeVisitor,
-    get_used_config_fields,
     get_free_variables,
     collect_path_constraints,
     collect_arg_size_constraints,
@@ -37,22 +36,6 @@ def test_type_visitor(golden):
     types = stringify_dict(type_visitor.type_map)
     mems = stringify_dict(type_visitor.mem_map)
     assert golden == f"Types:\n{types}\nMems:\n{mems}"
-
-
-def test_get_used_config_fields(golden):
-    @config
-    class TestConfig:
-        a: f32
-        b: size
-        c: f32
-
-    @proc
-    def foo(a: f32):
-        TestConfig.c = a
-        a = TestConfig.a
-
-    used_configs = get_used_config_fields(foo._loopir_proc.body)
-    assert golden == stringify_dict(used_configs)
 
 
 def test_free_variables(golden):

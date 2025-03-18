@@ -1,7 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Literal, Union, Optional
 
-from exo.core.prelude import Sym
+from ..core.configs import Config
+from ..core.prelude import Sym
 from ..core.LoopIR import LoopIR, T
 import numpy as np
 from scipy.optimize import linprog
@@ -207,14 +208,14 @@ class Expression:
 
 @dataclass
 class Solution:
-    ctxt: dict[tuple[str, str], int]
+    ctxt: dict[tuple[Config, str], int]
     var_assignments: dict[Sym, int]
 
 
 class ConstraintMaker:
     def __init__(self, type_map: dict[Sym, LoopIR.type]):
         self.var_subs: dict[Sym, Expression] = {}
-        self.ctxt: dict[tuple[str, str], Expression] = {}
+        self.ctxt: dict[tuple[Config, str], Expression] = {}
         self.extra_constraints: list[Constraint] = []
         self.stride_dummies: dict[tuple[Sym, int], Sym] = {}
         for sym, sym_type in type_map.items():
@@ -310,7 +311,7 @@ class ConstraintMaker:
             dummy = self.stride_dummies[(expr.name, expr.dim)]
             return (ConstraintTerm(1, (dummy,)),)
         elif isinstance(expr, LoopIR.ReadConfig):
-            if (expr.config.name(), expr.field) not in self.ctxt:
+            if (expr.config, expr.field) not in self.ctxt:
                 field_type = expr.config.lookup_type(expr.field)
                 var_sub_result = self.make_var_sub(
                     f"{expr.config.name()}_{expr.field}", field_type
@@ -318,8 +319,8 @@ class ConstraintMaker:
                 assert (
                     var_sub_result is not None
                 ), "constraints can only occur on control variables"
-                self.ctxt[(expr.config.name(), expr.field)] = var_sub_result
-            return self.ctxt[(expr.config.name(), expr.field)].terms
+                self.ctxt[(expr.config, expr.field)] = var_sub_result
+            return self.ctxt[(expr.config, expr.field)].terms
         else:
             assert False, f"unsupported expr"
 
@@ -550,10 +551,10 @@ class ConstraintMaker:
                     if result is not None:
                         var_assignments[sym] = result
                 ctxt = {}
-                for (config_name, field), sub in self.ctxt.items():
+                for (config, field), sub in self.ctxt.items():
                     result = sub.apply_assignments(assignments)
                     if result is not None:
-                        ctxt[(config_name, field)] = result
+                        ctxt[(config, field)] = result
                 return Solution(ctxt, var_assignments)
             else:
                 assignments = {}

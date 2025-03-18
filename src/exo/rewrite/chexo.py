@@ -1,5 +1,7 @@
 from typing import Optional, Union
 
+from ..backend.LoopIR_transpiler import Transpiler
+
 from ..core.configs import Config
 
 from ..core.LoopIR import LoopIR, T
@@ -17,6 +19,8 @@ from .constraint_solver import (
     ConstraintTerm,
     DisjointConstraint,
 )
+
+from pythonmonkey import eval as js_eval
 
 
 class LoopIRVisitor:
@@ -67,17 +71,6 @@ class TypeVisitor(LoopIRVisitor):
 
 
 @dataclass
-class ConfigVisitor(LoopIRVisitor):
-    config_reads: dict[tuple[str, str], LoopIR.type] = field(default_factory=lambda: {})
-
-    def visit(self, node):
-        if isinstance(node, LoopIR.ReadConfig):
-            self.config_reads[(node.config.name(), node.field)] = node.type
-        else:
-            self.visit_generic(node)
-
-
-@dataclass
 class UsedVariableVisitor(LoopIRVisitor):
     used_vars: set[Sym] = field(default_factory=lambda: set())
 
@@ -88,11 +81,16 @@ class UsedVariableVisitor(LoopIRVisitor):
             self.visit_generic(node)
 
 
-def get_used_config_fields(fragment):
-    config_visitor = ConfigVisitor()
-    for stmt in fragment:
-        config_visitor.visit(stmt)
-    return config_visitor.config_reads
+@dataclass
+class Dimension:
+    size: int
+    stride: int
+
+
+@dataclass
+class Tensor:
+    data: np.ndarray
+    dims: tuple[Dimension, ...]
 
 
 def get_free_variables(type_map, mem_map, fragment):
@@ -111,7 +109,7 @@ def get_free_variables(type_map, mem_map, fragment):
 
 
 def eval_tensor_dimension(
-    dim_expr: LoopIR.expr, arg_values: dict[Sym, Union[int, bool, float, np.ndarray]]
+    dim_expr: LoopIR.expr, arg_values: dict[Sym, Union[int, bool, float, Tensor]]
 ) -> int:
     if isinstance(dim_expr, LoopIR.Read):
         return arg_values[dim_expr.name]
@@ -206,11 +204,11 @@ def collect_arg_size_constraints(
 
 @dataclass
 class TestCase:
-    arg_values: dict[Sym, Union[int, bool, float, np.ndarray]]
-    ctxt: dict[tuple[str, str], Union[int, bool, float, np.ndarray]]
+    arg_values: dict[Sym, Union[int, bool, float, Tensor]]
+    ctxt: dict[tuple[Config, str], Union[int, bool, float, Tensor]]
 
 
-def generate_control_value(var_type: LoopIR.type):
+def generate_control_value(var_type: LoopIR.type) -> Union[int, bool, float]:
     if isinstance(var_type, T.Bool):
         return np.random.rand() < 0.5
     elif isinstance(var_type, (T.Size, T.Stride)):
@@ -221,7 +219,7 @@ def generate_control_value(var_type: LoopIR.type):
         assert False, "not a control type"
 
 
-def generate_numeric_value(var_type: LoopIR.type, shape: Optional[tuple[int]]):
+def generate_numeric_value(var_type: LoopIR.type, shape: tuple[int, ...]) -> Tensor:
     if isinstance(var_type, (T.F32, T.Num)):
         dtype = np.float32
     elif isinstance(var_type, T.F16):
@@ -240,21 +238,26 @@ def generate_numeric_value(var_type: LoopIR.type, shape: Optional[tuple[int]]):
         assert False, "not a numeric type"
 
     if dtype in [np.int8, np.int32]:
-        return np.random.randint(-INT_BOUND, INT_BOUND, shape, dtype=dtype)
+        data = np.random.randint(-INT_BOUND, INT_BOUND, shape, dtype=dtype)
     elif dtype in [np.uint8, np.uint16]:
-        return np.random.randint(0, INT_BOUND, shape, dtype=dtype)
+        data = np.random.randint(0, INT_BOUND, shape, dtype=dtype)
     elif dtype in [np.float16, np.float32, np.float64]:
-        if shape is None:
-            return (np.random.rand() * 2 - 1) * FLOAT_BOUND
-        else:
-            return ((np.random.rand(*shape) * 2 - 1) * FLOAT_BOUND).astype(dtype)
+        data = ((np.random.rand(*shape) * 2 - 1) * FLOAT_BOUND).astype(dtype)
     else:
         assert False, "unreachable"
+
+    return Tensor(
+        data.flatten(),
+        tuple(
+            Dimension(dim_size, dim_stride / data.dtype.itemsize)
+            for dim_size, dim_stride in zip(data.shape, data.strides)
+        ),
+    )
 
 
 def generate_test_case(
     args: list[LoopIR.fnarg],
-    config_fields: dict[tuple[str, str], LoopIR.type],
+    config_fields: frozenset[tuple[Config, str]],
     constraint: DisjointConstraint,
     cm: ConstraintMaker,
 ) -> Optional[TestCase]:
@@ -265,15 +268,16 @@ def generate_test_case(
     )
     if solution is None:
         return None
-    for (config_name, field), field_type in config_fields.items():
-        if (config_name, field) in solution.ctxt:
-            ctxt[(config_name, field)] = solution.ctxt[(config_name, field)]
+    for config, field in config_fields:
+        if (config, field) in solution.ctxt:
+            ctxt[(config, field)] = solution.ctxt[(config, field)]
         else:
+            field_type = config.lookup_type(field)
             if field_type.is_numeric():
                 val = generate_numeric_value(field_type, (1,))
             else:
                 val = generate_control_value(field_type)
-            ctxt[(config_name, field)] = val
+            ctxt[(config, field)] = val
 
     for arg in args:
         if not arg.type.is_numeric():
@@ -300,6 +304,68 @@ def generate_test_case(
     return TestCase(arg_values, ctxt)
 
 
+@dataclass
+class TestResult:
+    buffer_values: dict[Sym, np.ndarray]
+    ctxt_object: dict[str, Union[int, float]]
+
+
+def run_test_case(test_case: TestCase, transpiled_proc: Transpiler) -> TestResult:
+    subs = {}
+    for arg_name, arg_value in test_case.arg_values.items():
+        if isinstance(arg_value, Tensor):
+            for dim_idx, dim in enumerate(arg_value.dims):
+                subs[transpiled_proc.get_size_param_name(arg_name, dim_idx)] = str(
+                    dim.size
+                )
+                subs[transpiled_proc.get_stride_param_name(arg_name, dim_idx)] = str(
+                    dim.stride
+                )
+        elif isinstance(arg_value, bool):
+            subs[repr(arg_name)] = "true" if arg_value else "false"
+        elif isinstance(arg_value, (int, float)):
+            subs[repr(arg_name)] = str(arg_value)
+        else:
+            assert False
+    for (config, field), config_value in test_case.ctxt.items():
+        if isinstance(config_value, Tensor):
+            assert config_value.data.shape == (1,)
+            subs[transpiled_proc.get_config_param_name(config, field)] = str(
+                config_value.data[0]
+            )
+        elif isinstance(config_value, bool):
+            subs[transpiled_proc.get_config_param_name(config, field)] = (
+                "true" if config_value else "false"
+            )
+        elif isinstance(config_value, (int, float)):
+            subs[transpiled_proc.get_config_param_name(config, field)] = str(
+                config_value
+            )
+        else:
+            assert False
+
+    buffer_args = tuple(
+        test_case.arg_values[buffer_name].data.copy()
+        for buffer_name in transpiled_proc.get_buffer_arg_order()
+    )
+    javascript = transpiled_proc.get_javascript_template().substitute(subs)
+    try:
+        [result, ctxt_object] = js_eval(javascript)(*buffer_args)
+    except Exception as e:
+        print(e)
+
+    assert result == 0
+    return TestResult(
+        {
+            buffer_name: buffer_value
+            for buffer_name, buffer_value in zip(
+                transpiled_proc.get_buffer_arg_order(), buffer_args
+            )
+        },
+        ctxt_object,
+    )
+
+
 TEST_CASE_BOUND = 15
 
 
@@ -307,7 +373,7 @@ def fuzz_reorder_stmts(s1, s2):
     proc = s1.get_root()
     proc_type_visitor = TypeVisitor()
     proc_type_visitor.visit(proc)
-    config_fields = get_used_config_fields([s1._node, s2._node])
+
     cm = ConstraintMaker(proc_type_visitor.type_map)
     constraint = TRUE_CONSTRAINT
     for pred in proc.preds:
@@ -327,10 +393,30 @@ def fuzz_reorder_stmts(s1, s2):
     args = [arg for arg in args if not arg.type.is_numeric()] + [
         arg for arg in args if arg.type.is_numeric()
     ]
+
+    transpiled_test1 = Transpiler(
+        LoopIR.proc(
+            name=proc.name,
+            args=args,
+            preds=[],
+            body=[s1._node, s2._node],
+            instr=None,
+            srcinfo=proc.srcinfo,
+        )
+    )
+    transpiled_test2 = Transpiler(
+        LoopIR.proc(
+            name=proc.name,
+            args=args,
+            preds=[],
+            body=[s2._node, s1._node],
+            instr=None,
+            srcinfo=proc.srcinfo,
+        )
+    )
+
+    config_fields = transpiled_test1.get_configs() | transpiled_test2.get_configs()
     buffer_size_bound = MIN_BUFFER_SIZE_BOUND
-    print("start")
-    print(constraint.pretty_print())
-    print("end")
     for _ in range(TEST_CASE_BOUND):
         test_case = generate_test_case(
             args,
@@ -346,54 +432,21 @@ def fuzz_reorder_stmts(s1, s2):
         )
         if test_case is None:
             if buffer_size_bound is None or buffer_size_bound >= MAX_BUFFER_SIZE_BOUND:
-                if buffer_size_bound is None:
-                    print(constraint.pretty_print())
                 assert buffer_size_bound is not None
                 buffer_size_bound = None
             else:
                 buffer_size_bound = min(MAX_BUFFER_SIZE_BOUND, buffer_size_bound * 4)
             continue
-        arg_vals1 = test_case.arg_values
-        arg_vals2 = {
-            key: val.copy() if isinstance(val, np.ndarray) else val
-            for key, val in arg_vals1.items()
-        }
-        ctxt1 = test_case.ctxt
-        ctxt2 = {
-            key: val.copy() if isinstance(val, np.ndarray) else val
-            for key, val in ctxt1.items()
-        }
 
-        try:
-            interpret1 = Interpreter(
-                LoopIR.proc(
-                    name=proc.name,
-                    args=args,
-                    preds=[],
-                    body=[s1._node, s2._node],
-                    instr=None,
-                    srcinfo=proc.srcinfo,
-                ),
-                arg_vals1,
-                ctxt1,
-            )
-            interpret2 = Interpreter(
-                LoopIR.proc(
-                    name=proc.name,
-                    args=args,
-                    preds=[],
-                    body=[s2._node, s1._node],
-                    instr=None,
-                    srcinfo=proc.srcinfo,
-                ),
-                arg_vals2,
-                ctxt2,
-            )
-        except Exception as e:
-            print(e)
-        for x in arg_vals1:
-            if not np.allclose(arg_vals1[x], arg_vals2[x]):
+        out1 = run_test_case(test_case, transpiled_test1)
+        out2 = run_test_case(test_case, transpiled_test2)
+        for buffer_name in out1.buffer_values.keys() & out2.buffer_values.keys():
+            if not np.allclose(
+                out1.buffer_values[buffer_name], out2.buffer_values[buffer_name]
+            ):
                 raise SchedulingError("mismatch found")
-        for key, val in interpret1.ctxt.items():
-            if key not in interpret2.ctxt or interpret2.ctxt[key] != val:
+        for ctxt_name in out1.ctxt_object & out2.ctxt_object.keys():
+            if not np.allclose(
+                out1.ctxt_object[ctxt_name], out2.ctxt_object[ctxt_name]
+            ):
                 raise SchedulingError("context mismatch found")

@@ -1,6 +1,6 @@
 import re
 from collections import ChainMap
-from typing import List, Tuple, Optional
+from typing import Callable, List, Literal, Tuple, Optional
 
 from ..core.LoopIR import (
     LoopIR,
@@ -368,6 +368,31 @@ def divide_expr(e, quot):
 # Scheduling directives
 
 
+def do_check(
+    static_check: Callable[[], None],
+    dynamic_check: Callable[[], None],
+    mode: Literal["static", "dynamic", "both"],
+):
+    if mode == "both":
+        e_static, e_dynamic = None, None
+        try:
+            static_check()
+        except Exception as e:
+            e_static = e
+        try:
+            dynamic_check()
+        except Exception as e:
+            e_dynamic = e
+        if (e_static is None) != (e_dynamic is None):
+            assert False, "fuzzer should match static analysis"
+        elif e_static is not None:
+            raise e_static
+    elif mode == "static":
+        static_check()
+    elif mode == "dynamic":
+        dynamic_check()
+
+
 # Take a conservative approach and allow stmt reordering only when they are
 # writing to different buffers
 # TODO: Do effectcheck's check_commutes-ish thing using SMT here
@@ -376,8 +401,11 @@ def DoReorderStmt(f_cursor, s_cursor):
         raise SchedulingError(
             "expected the second statement to be directly after the first"
         )
-    # Check_ReorderStmts(f_cursor.get_root(), f_cursor._node, s_cursor._node)
-    fuzz_reorder_stmts(f_cursor, s_cursor)
+    do_check(
+        lambda: Check_ReorderStmts(f_cursor.get_root(), f_cursor._node, s_cursor._node),
+        lambda: fuzz_reorder_stmts(f_cursor, s_cursor),
+        "both",
+    )
     ir, fwd = s_cursor._move(f_cursor.before())
     return ir, fwd
 
