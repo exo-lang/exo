@@ -73,7 +73,7 @@ class SyncType(object):
     def is_await(self):
         return self.first_actor_kind is None
 
-    def format_stmt(self, bar, codegen):
+    def format_stmt(self, bar, codegen=None):
         codegen_suffix = "" if codegen is None else f", codegen={codegen!r}"
         r = "Reverse" if self.is_reversed else ""
         if self.is_arrive():

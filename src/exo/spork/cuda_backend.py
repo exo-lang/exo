@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from math import prod
 from typing import Dict, Optional, Type
 from warnings import warn
@@ -8,7 +9,7 @@ from ..core.memory import MemGenError, memwin_template
 from ..core.prelude import Sym, SrcInfo
 from ..core.LoopIR import LoopIR, T, LoopIR_Do, LoopIR_Rewrite, ctype_bits
 
-from .actor_kinds import cpu, cpu_cuda_api, cuda_api
+from .actor_kinds import cpu, cpu_cuda_api, cuda_api, ActorKind
 from .async_config import CudaDeviceFunction, CudaAsync
 from .base_with_context import is_if_holding_with, ExtWithContext
 from .coll_algebra import (
@@ -59,7 +60,7 @@ class SubtreeScan(LoopIR_Do):
     __slots__ = [
         "alloc_states",
         "stmt_id_codegen_par",
-        "barriers",
+        "barrier_scans",
         "blockDim",
         "clusterDim",
         "fmt_dict",
@@ -81,7 +82,7 @@ class SubtreeScan(LoopIR_Do):
     # needed info for the rewrites here.
     alloc_states: Dict[Sym, AllocState]  # name of non-barrier -> AllocState
     stmt_id_codegen_par: Dict[int, _CodegenPar]  # id(LoopIR.stmt)->_CodegenPar
-    barriers: Dict[Sym, object]  # name of barrier -> lowered
+    barrier_scans: Dict[Sym, BarrierScan]  # name of barrier -> BarrierScan
 
     blockDim: int
     clusterDim: int
@@ -102,7 +103,7 @@ class SubtreeScan(LoopIR_Do):
 
         self.alloc_states = {}
         self.stmt_id_codegen_par = {}
-        self.barriers = {}
+        self.barrier_scans = {}
         self.blockDim = cuda_device_function.blockDim
         self.clusterDim = cuda_device_function.clusterDim
         self.fmt_dict = {
@@ -361,8 +362,9 @@ class SubtreeScan(LoopIR_Do):
                 )
         elif isinstance(s, LoopIR.Alloc):
             if s.type.is_barrier():
-                # TODO
-                pass
+                self.barrier_scans[s.name] = BarrierScan(
+                    s.name, s.type, self._coll_tiling, s.srcinfo
+                )
             else:
                 if not issubclass(s.mem, CudaBasicDeviceVisible):
                     raise TypeError(
@@ -372,6 +374,10 @@ class SubtreeScan(LoopIR_Do):
                 native_unit = s.mem.native_unit()
                 self.alloc_states[s.name] = AllocState(self._coll_tiling, native_unit)
 
+        elif isinstance(s, LoopIR.Free):
+            if s.type.is_barrier():
+                self.barrier_scans[s.name].check()
+
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if (n_threads := self._coll_tiling.box_num_threads()) != 1:
                 raise ValueError(
@@ -379,6 +385,17 @@ class SubtreeScan(LoopIR_Do):
                     f"thread only (current: {n_threads} threads)\n"
                     f"stmt: {s}"
                 )
+        elif isinstance(s, LoopIR.SyncStmt):
+            if s.sync_type.is_split():
+                # arrive/await
+                state = self.barrier_scans.get(s.bar)
+                assert isinstance(state, BarrierScan)
+            else:
+                # Fence: each should have its own unique internal-use name (Sym)
+                state = BarrierScan(s.bar, None, self._coll_tiling, s.srcinfo)
+                assert s.bar not in self.barrier_scans
+                self.barrier_scans[s.bar] = state
+            state.inspect_sync_stmt(s, self._coll_tiling, self._stmt_stack)
 
     def apply_with_cuda_warps(self, s):
         ctx = s.cond.val
@@ -850,6 +867,146 @@ def CodegenSmem(byte_offset, reftype, wrapped_smem_type):
             return f"auto& {new_name} = reinterpret_cast<{reftype}>(exo_smem[{byte_offset}]);"
 
     return Impl
+
+
+@dataclass(slots=True)
+class ArriveAwaitInfo:
+    actor_kind: ActorKind
+    delay: int
+    coll_tiling: CollTiling
+    stmt_stack: Tuple
+
+
+class BarrierScan(object):
+    """Helper object for collecting all usages of one barrier symbol
+
+    This includes the internal-use-only symbol for a Fence.
+    We only enforce basic valid usage requirements for barrier usage
+    here, and defer other error checking to lowering.
+    Run check() after inspecting all SyncStmts for a barrier.
+
+    Requirements Here:
+      * No duplicate Arrive/Await statement
+
+      * Barrier declaration and usage must not be split by a parallel-for
+
+      * If ReverseArrive/ReverseAwait is used, we must have
+        - mbarrier barrier type
+        - (Await, ReverseArrive) pairing requirement [below]
+        - (ReverseAwait, Arrive) pairing requirement
+
+      * Otherwise
+        - (Arrive/Await) or (Await/Arrive) pairing requirement
+
+    (A/B) Pairing requirement:
+        - A must preceed B
+        - A and B must be in the same block of code, not split by
+          any if/for stmts (except we allow with CudaAsync)
+    """
+
+    __slots__ = [
+        "barrier_name",
+        "barrier_srcinfo",
+        "barrier_coll_tiling",
+        "barrier_type",
+        "Arrive",
+        "Await",
+        "ReverseArrive",
+        "ReverseAwait",
+    ]
+
+    barrier_name: Sym
+    barrier_srcinfo: SrcInfo
+    barrier_coll_tiling: CollTiling
+    barrier_type: Optional[LoopIR.type]
+    # Info on [Reverse]Arrive/Await statements encountered
+    # None if not yet encountered
+    Arrive: Optional[ArriveAwaitInfo]
+    Await: Optional[ArriveAwaitInfo]
+    ReverseArrive: Optional[ArriveAwaitInfo]
+    ReverseAwait: Optional[ArriveAwaitInfo]
+
+    def __init__(
+        self,
+        name: Sym,
+        barrier_type: Optional[LoopIR.type],
+        coll_tiling: CollTiling,
+        srcinfo: SrcInfo,
+    ):
+        assert isinstance(name, Sym)
+        assert barrier_type is None or barrier_type.is_barrier()
+        assert isinstance(coll_tiling, CollTiling)
+        assert isinstance(srcinfo, SrcInfo)
+        self.barrier_name = name
+        self.barrier_srcinfo = srcinfo
+        self.barrier_coll_tiling = coll_tiling
+        self.barrier_type = barrier_type
+        self.Arrive = None
+        self.Await = None
+        self.ReverseArrive = None
+        self.ReverseAwait = None
+
+    def inspect_sync_stmt(
+        self, s: LoopIR.SyncStmt, coll_tiling: CollTiling, stmt_stack
+    ):
+        assert s.bar is self.barrier_name
+        stmt_stack = tuple(stmt_stack)  # Immutable copy
+        assert all(isinstance(s, LoopIR.stmt) for s in stmt_stack)
+
+        assert isinstance(s, LoopIR.SyncStmt)
+        sync_type: SyncType = s.sync_type
+
+        if not sync_type.is_split():
+            # Fence, it's like an arrive+await
+            self.Arrive = ArriveAwaitInfo(
+                sync_type.first_actor_kind, 0, coll_tiling, stmt_stack
+            )
+            self.Await = ArriveAwaitInfo(
+                sync_type.second_actor_kind, 0, coll_tiling, stmt_stack
+            )
+        else:
+            assert isinstance(self.barrier_type, LoopIR.type)
+            if sync_type.is_arrive():
+                actor_kind = sync_type.first_actor_kind
+                attr_name = "ReverseArrive" if sync_type.is_reversed else "Arrive"
+                assert sync_type.delay == 0
+            else:
+                assert sync_type.is_await()
+                actor_kind = sync_type.second_actor_kind
+                attr_name = "ReverseAwait" if sync_type.is_reversed else "Await"
+            assert isinstance(actor_kind, ActorKind)
+
+            # Set self.Arrive, self.Await, self.ReverseArrive, or self.ReverseAwait
+            should_be_none = getattr(self, attr_name)
+            if should_be_none is not None:
+                # No duplicate arrive/await statement
+                raise ValueError(
+                    f"{should_be_none.srcinfo}, {s.srcinfo}: "
+                    f"duplicate {attr_name} for {s.bar}"
+                )
+            setattr(
+                self,
+                attr_name,
+                ArriveAwaitInfo(actor_kind, sync_type.delay, coll_tiling, stmt_stack),
+            )
+
+            # No parallel-for split
+            if self.barrier_coll_tiling.parent is not coll_tiling.parent:
+                loop_info = ""
+                for sus in stmt_stack:
+                    if isinstance(sus, LoopIR.For):
+                        if isinstance(sus.loop_mode, CudaThreads):
+                            loop_info = (
+                                f"{sus.iter} in ({sus.lo}, {sus.hi}) at {sus.srcinfo}"
+                            )
+                raise ValueError(
+                    f"{s.srcinfo}: {attr_name}({s.bar}) must "
+                    f"not be split from alloc of {s.bar} by "
+                    f"parallel for {loop_info}"
+                )
+
+    def check(self):
+        pass
 
 
 h_snippet_fmt = """\
