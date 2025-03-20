@@ -12,7 +12,7 @@ The complete code with scheduling operations can be found in `exo/examples/avx2_
 
 To start off, let's implement a basic matrix multiplication kernel in Exo object code:
 ```py
-from __future__ import annotation
+from __future__ import annotations
 from exo import *
 
 @proc

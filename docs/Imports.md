@@ -37,7 +37,7 @@ Imports basic classes and functions necessary for defining and manipulating high
 
 ## 3. Memory Libraries
 
-Even though users can define memory definitions externally to the compiler in the user code (see [memories.md](./memories.md)), we provide memory definitions for some architectures for convinience.
+Even though users can define memory definitions externally to the compiler in the user code (see [memories.md](./memories.md)), we provide memory definitions for some architectures for convenience.
 The supported memory definitions can be found by looking into `src/exo/libs/memories.py`.
 
 ```python
@@ -49,7 +49,7 @@ For example, you can import `DRAM_STATIC`, `AVX2`, or `AVX512` as shown above.
 
 ## 4. Instruction Libraries
 
-Similar to memories, we provide some hardware instruction definitions for convinience (see [instructions.md](./instructions.md) to learn how to define your own accelerator instructions).
+Similar to memories, we provide some hardware instruction definitions for convenience (see [instructions.md](./instructions.md) to learn how to define your own accelerator instructions).
 
 ```python
 from exo.platforms.x86 import mm256_loadu_ps, mm256_setzero_ps, mm256_broadcast_ss
@@ -57,7 +57,7 @@ from exo.platforms.x86 import mm256_loadu_ps, mm256_setzero_ps, mm256_broadcast_
 
 ## 5. Extern Libraries
 
-Similary, convinience extern libraries can be imported as follows. See [externs.md](./externs.md) to learn how to define your own externs.
+Similarly, convenient extern libraries can be imported as follows. See [externs.md](./externs.md) to learn how to define your own externs.
 
 ```python
 from exo.libs.externs import sin, relu
