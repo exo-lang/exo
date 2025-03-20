@@ -48,7 +48,7 @@ While the flexibility of fine-grained primitives is necessary for achieving peak
 These user-defined scheduling operations can encapsulate common optimization patterns and hardware-specific transformations such as auto-vectorize, tiling, and even simulate scheduling operations from other USLs (like Halide's `compute_at`).
 They can be put together in reusable libraries, further enabling modularity and portability.
 
-More infomation can be found in the [ASPLOS paper](https://arxiv.org/abs/2411.07211) and [Cursor.md](./Cursor.md).
+More information can be found in the [ASPLOS paper](https://arxiv.org/abs/2411.07211) and [Cursor.md](./Cursor.md).
 
 ## The AIR Framework: Action, Inspection, Reference
 

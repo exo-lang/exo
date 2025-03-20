@@ -1,7 +1,7 @@
 # External Inspection Functions
 
 Inspection is a metaprogramming feature that enables metaprograms (like schedules) to dynamically examine the properties of object code. Exo provides inspection through [Cursors](./Cursors.md), allowing users to examine standard AST properties such as variable names, literal expression values, and annotations (e.g., memory spaces and precisions) at scheduling time. Cursors also support local AST navigation, for example, accessing loop bounds (`loop.hi()`) and bodies (`loop.body()`). Inspection functions can be written externally from the Exo compiler, giving users the ability to customize them according to their needs.
-For convinience, standard library inspection functions are provided as `exo.stdlib.inspection` module.
+For convenience, standard library inspection functions are provided as `exo.stdlib.inspection` module.
 
 Cursor types (such as `ForCursor` and `IfCursor`) are defined in `exo.API_cursors`, so you should import it when writing inspection functions:
 
