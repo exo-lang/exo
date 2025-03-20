@@ -498,6 +498,173 @@ class SubtreeScan(LoopIR_Do):
             message = f"{node.srcinfo}: {node.name} distributed memory analysis failed (see chained exception)"
             raise MemGenError(message) from e
 
+    def get_cta_count(self, coll_tiling: CollTiling, srcinfo: SrcInfo):
+        assert isinstance(srcinfo, SrcInfo)
+        if self.clusterDim == 1:
+            return 1
+        else:
+            # Only if the clusterDim is not 1 can we rely on the left-most
+            # dimension of the domain to correspond to the CTA-in-cluster axis.
+            domain = coll_tiling.full_domain
+            box = coll_tiling.box
+            assert len(domain) == len(box)
+            if domain[0] != self.clusterDim:
+                # Unlikely error, only occurs of the user defines their own
+                # unit splitting the cluster dimension of the coll tiling.
+                raise TypeError(f"{srcinfo}: could not deduce cluster count")
+            return box[0]
+
+    def lower_barriers(self) -> Tuple[Dict[LoweredBarrier], List[Tuple[int, int]]]:
+        """Lower barriers, returns Dict[Sym, LoweredBarrier] and mbarrier pairs
+
+        mbarrier pairs are tuples (mbarrier_count, arrive_count) to
+        initialize in SMEM, e.g. (8, 64), (2, 384) means initialize an
+        array of 10 mbarriers in SMEM with the first 8 having
+        arrive_count=64, last 2 arrive_count=384
+
+        This requires hard-wired compiler support to lower, so
+        "lower_barriers" doesn't really do its job fully ... not clean,
+        but should be OK for now, at least until CUDA introduces even more
+        synchronization primitives to construct in weird new ways.
+
+        """
+        # Need to assign a name unique-ifying suffix for each barrier
+        # This is different than what the main LoopIR->C compiler does because the
+        # name needs to be unique throughout the full device function, i.e. it's not
+        # enough to be unique just within the barrier's scope in Exo object code.
+        sym_suffix = {}
+        sym_counters = {}
+
+        def assign_suffix(barrier_name):
+            assert isinstance(barrier_name, Sym)
+            count = sym_counters.get(barrier_name, 0)
+            sym_counters[barrier_name] = count + 1
+            suffix = str(count)
+            sym_suffix[barrier_name] = suffix
+            return suffix
+
+        lowered = {}
+        mbarriers = []
+
+        # Sort scanned barriers by Sym ID for output stability.
+        key = lambda tup: tup[0].id_number()
+
+        for name, scan in sorted(self.barrier_scans.items(), key=key):
+            srcinfo = scan.barrier_srcinfo
+            barrier_type = scan.barrier_type
+            suffix = assign_suffix(name)
+            if not scan.is_split():
+                # Fence
+                if scan.Arrive.actor_kind == actor_kinds.wgmma_fence_1:
+                    raise NotImplementedError(f"{srcinfo}: wgmma fence")
+                else:
+                    lowered[name] = self.garden_variety_fence(scan, suffix)
+            # elif isinstance(barrier_type, LoopIR.CudaMbarrier):
+            #     pass
+            # elif isinstance(barrier_type, LoopIR.CudaCommitGroup):
+            #     pass
+            else:
+                raise NotImplementedError(
+                    f"{srcinfo}: {barrier_type} must not "
+                    f"be used in CUDA device function"
+                )
+
+        return lowered, mbarriers
+
+    def garden_variety_fence(self, scan: BarrierScan, suffix):
+        """Do up to 3 things
+
+        - wait_all if first actor kind includes Sm80_cp_async
+        - barrier arrive/await if more than 1 thread, or special exception (*)
+        - fence.proxy.async if second actor kinds includes any async proxy
+
+        (*) special exception, if thread collective is a warpgroup and
+        the second actor kind only includes wgmma_async, we can elide
+        the barrier. This relies on wgmma_async not being V1-transitive.
+        """
+
+        A1 = scan.Arrive.actor_kind
+        A2 = scan.Await.actor_kind
+        srcinfo = scan.Arrive.get_srcinfo()
+        clusterDim = self.clusterDim
+
+        lowered = CudaLoweredBarrier(False, LoweredBarrierType.garden_variety_fence)
+        lowered.Arrive = []
+        lowered.Await = []
+
+        # Insert wait for sm_80 cp.async if needed.
+        if actor_kinds.cuda_classic.implements(A1):
+            pass
+        elif actor_kinds.Sm80_generic.implements(A1):
+            lowered.Arrive.append('asm volatile("cp.async.wait_all;" ::);')
+        else:
+            raise ValueError(
+                f"{srcinfo}: Fence first actor kind "
+                f"{A1} not supported (we allow Sm80_generic)"
+            )
+
+        # Should be the case for a Fence
+        coll_tiling = scan.Arrive.coll_tiling
+        assert coll_tiling is scan.Await.coll_tiling
+
+        cta_count = self.get_cta_count(coll_tiling, srcinfo)
+        threads = coll_tiling.box_num_threads()
+        n_warps = threads // 32
+        if threads != 1:
+            if threads % 32 != 0:
+                raise ValueError(
+                    f"{srcinfo}: Fence expects convergent warps "
+                    f"(threads = {threads} is not divisible by 32)"
+                )
+            unit = n_warps * cuda_warp
+            if msg := coll_tiling.unit_mismatch(unit, self._coll_env):
+                raise ValueError(f"{srcinfo}: Fence expects convergent warps: {msg}")
+
+        # Insert cross-thread sync if needed
+        assert not actor_kinds.wgmma_async.V1_transitive
+        wgmma_special_case = actor_kinds.wgmma_async.implements(
+            A2
+        ) and not coll_tiling.unit_mismatch(cuda_warpgroup, self._coll_env)
+        if n_warps > 0 and not wgmma_special_case:
+            if cta_count == 1:
+                if n_warps == 1:
+                    lowered.Arrive.append("__syncwarp();")
+                elif n_warps * 32 == self.blockDim:
+                    lowered.Arrive.append("__syncthreads();")  # TODO consider PTX
+                else:
+                    raise NotImplementedError(
+                        "TODO Fence lowering other than warp/CTA/cluster"
+                    )
+            elif cta_count == clusterDim:
+                if msg := coll_tiling.unit_mismatch(
+                    cta_count * cuda_cta_in_cluster, self._coll_env
+                ):
+                    raise ValueError(
+                        f"{srcinfo}: expected full cluster " f"or only 1 CTA: {msg}"
+                    )
+                else:
+                    lowered.Arrive.append('asm("barrier.cluster.arrive.aligned;"::);')
+                    lowered.Await.append('asm("barrier.cluster.wait.aligned;"::);')
+            else:
+                raise ValueError(
+                    f"{srcinfo}: {cta_count}/{clusterDim} CTAs in cluster active for thread collective for Fence; must have 1 or all"
+                )
+
+        # Insert fence.proxy.async if needed
+        if actor_kinds.Sm80_generic.implements(A2):
+            pass
+        elif actor_kinds.cuda_generic_and_async_proxy.implements(A2):
+            lowered.Await.append('asm("fence.proxy.async;");')
+        else:
+            raise ValueError(
+                f"{srcinfo}: Fence second actor kind {A2} not "
+                f"supported (at most CUDA generic+async proxy)"
+            )
+        return lowered
+
+
+# End class SubtreeScan
+
 
 class SubtreeRewrite(LoopIR_Rewrite):
     __slots__ = [
@@ -513,9 +680,11 @@ class SubtreeRewrite(LoopIR_Rewrite):
     def __init__(self, s, scan: SubtreeScan, ctx: SporkLoweringCtx):
         self.alloc_states = scan.alloc_states
         self.stmt_id_codegen_par = scan.stmt_id_codegen_par
-        self.lowered_barriers, mbarriers = lower_barriers(scan.barrier_scans)
+        self.lowered_barriers, mbarriers = scan.lower_barriers()
         fmt_dict = scan.fmt_dict
         self.fmt_dict = fmt_dict
+
+        assert not mbarriers, "TODO mbarriers"
 
         # Prepare SMEM stack allocator
         self.smem_offset = 0
@@ -757,6 +926,9 @@ class SubtreeRewrite(LoopIR_Rewrite):
         return None
 
 
+# End class SubtreeRewrite
+
+
 class AllocState(object):
     # Some GPU allocations are "distributed", when the collective unit
     # (e.g. CTA) that allocated a tensor doesn't match the "native unit"
@@ -895,7 +1067,6 @@ class BarrierScan(object):
     """
 
     __slots__ = [
-        "coll_env",
         "barrier_name",
         "barrier_srcinfo",
         "barrier_coll_tiling",
@@ -907,7 +1078,6 @@ class BarrierScan(object):
         "ReverseAwait",
     ]
 
-    coll_env: Dict
     barrier_name: Sym
     barrier_srcinfo: SrcInfo
     barrier_coll_tiling: CollTiling
@@ -930,7 +1100,6 @@ class BarrierScan(object):
             assert isinstance(s, LoopIR.SyncStmt)
             assert not s.sync_type.is_split()
             self.barrier_type = None
-        self.coll_env = scanner._coll_env
         self.barrier_name = s.bar
         self.barrier_srcinfo = s.srcinfo
         self.barrier_coll_tiling = scanner._coll_tiling
@@ -1103,192 +1272,24 @@ class BarrierScan(object):
             )
 
 
-def get_cta_count(clusterDim: int, coll_tiling: CollTiling, srcinfo: SrcInfo):
-    assert isinstance(srcinfo, SrcInfo)
-    if clusterDim == 1:
-        return 1
-    else:
-        # Only if the clusterDim is not 1 can we rely on the left-most
-        # dimension of the domain to correspond to the CTA-in-cluster axis.
-        domain = coll_tiling.full_domain
-        box = coll_tiling.box
-        assert len(domain) == len(box)
-        if domain[0] != clusterDim:
-            # Unlikely error, only occurs of the user defines their own
-            # unit splitting the cluster dimension of the coll tiling.
-            raise TypeError(f"{srcinfo}: could not deduce cluster count")
-        return box[0]
+class LoweredBarrierType(Enum):
+    garden_variety_fence = auto()
+    wgmma_fence = auto()
+    mbarrier = auto()
+    Sm80_commit_group = auto()
+    tma_to_gmem_commit_group = auto()
+    wgmma_commit_group = auto()
 
 
 class CudaLoweredBarrier(LoweredBarrier):
-    __slots__ = ["SyncState", "solitary"]
+    __slots__ = ["SyncState_lines", "solitary", "type_enum"]
 
-    def __init__(self):
+    def __init__(self, solitary, type_enum):
         super().__init__()
-        self.SyncState = []
-        self.solitary = False
-
-
-class LoweredGardenVarietyFence(CudaLoweredBarrier):
-    __slots__ = []
-
-    def __init__(self, barrier_scan: BarrierScan, suffix):
-        # Do up to 3 things
-        # - wait_all if first actor kind includes Sm80_cp_async
-        # - barrier arrive/await if more than 1 thread, or special exception (*)
-        # - fence.proxy.async if second actor kinds includes any async proxy
-        #
-        # (*) special exception, if thread collective is a warpgroup and
-        # the second actor kind only includes wgmma_async, we can elide
-        # the barrier. This relies on wgmma_async not being V1-transitive.
-        super().__init__()
-        coll_env = barrier_scan.coll_env
-
-        A1 = barrier_scan.Arrive.actor_kind
-        A2 = barrier_scan.Await.actor_kind
-        srcinfo = barrier_scan.Arrive.get_srcinfo()
-
-        self.Arrive = []
-        self.Await = []
-
-        # Insert wait for sm_80 cp.async if needed.
-        if actor_kinds.cuda_classic.implements(A1):
-            pass
-        elif actor_kinds.Sm80_generic.implements(A1):
-            self.Arrive.append('asm volatile("cp.async.wait_all;" ::);')
-        else:
-            raise ValueError(
-                f"{srcinfo}: Fence first actor kind "
-                f"{A1} not supported (we allow Sm80_generic)"
-            )
-
-        # Should be the case for a Fence
-        coll_tiling = barrier_scan.Arrive.coll_tiling
-        assert coll_tiling is barrier_scan.Await.coll_tiling
-
-        clusterDim = coll_env[clusterDim_param]
-        cta_count = get_cta_count(clusterDim, coll_tiling, srcinfo)
-        threads = coll_tiling.box_num_threads()
-        n_warps = threads // 32
-        if threads != 1:
-            if threads % 32 != 0:
-                raise ValueError(
-                    f"{srcinfo}: Fence expects convergent warps "
-                    f"(threads = {threads} is not divisible by 32)"
-                )
-            unit = n_warps * cuda_warp
-            if msg := coll_tiling.unit_mismatch(unit, coll_env):
-                raise ValueError(f"{srcinfo}: Fence expects convergent warps: {msg}")
-
-        # Insert cross-thread sync if needed
-        assert not actor_kinds.wgmma_async.V1_transitive
-        wgmma_special_case = actor_kinds.wgmma_async.implements(
-            A2
-        ) and not coll_tiling.unit_mismatch(cuda_warpgroup, coll_env)
-        if n_warps > 0 and not wgmma_special_case:
-            if cta_count == 1:
-                if n_warps == 1:
-                    self.Arrive.append("__syncwarp();")
-                elif n_warps * 32 == coll_env[blockDim_param]:
-                    self.Arrive.append("__syncthreads();")  # TODO consider PTX
-                else:
-                    raise NotImplementedError(
-                        "TODO Fence lowering other than warp/CTA/cluster"
-                    )
-            elif cta_count == clusterDim:
-                if msg := coll_tiling.unit_mismatch(
-                    cta_count * cuda_cta_in_cluster, coll_env
-                ):
-                    raise ValueError(
-                        f"{srcinfo}: expected full cluster " f"or only 1 CTA: {msg}"
-                    )
-                else:
-                    self.Arrive.append('asm("barrier.cluster.arrive.aligned;"::);')
-                    self.Await.append('asm("barrier.cluster.wait.aligned;"::);')
-            else:
-                raise ValueError(
-                    f"{srcinfo}: {cta_count}/{clusterDim} CTAs in cluster active for thread collective for Fence; must have 1 or all"
-                )
-
-        # Insert fence.proxy.async if needed
-        if actor_kinds.Sm80_generic.implements(A2):
-            pass
-        elif actor_kinds.cuda_generic_and_async_proxy.implements(A2):
-            self.Await.append('asm("fence.proxy.async;");')
-        else:
-            raise ValueError(
-                f"{srcinfo}: Fence second actor kind {A2} not "
-                f"supported (at most CUDA generic+async proxy)"
-            )
-
-
-class LoweredMbarrier(LoweredBarrier):
-    __slots__ = ["SyncState", "mbarrier_count", "arrive_count"]
-
-    def __init__(self, barrier_scan: BarrierScan, suffix, mbarrier_offset: int):
-        pass
-
-
-def lower_barriers(
-    barrier_scans: Dict[Sym, BarrierScan]
-) -> Tuple[Dict[LoweredBarrier], List[Tuple[int, int]]]:
-    """Lower barriers, returns Dict[Sym, LoweredBarrier] and mbarrier pairs
-
-    mbarrier pairs are tuples (mbarrier_count, arrive_count) to
-    initialize in SMEM, e.g. (8, 64), (2, 384) means initialize an
-    array of 10 mbarriers in SMEM with the first 8 having
-    arrive_count=64, last 2 arrive_count=384
-
-    This requires hard-wired compiler support to lower, so
-    "lower_barriers" doesn't really do its job fully ... not clean,
-    but should be OK for now, at least until CUDA introduces even more
-    synchronization primitives to construct in weird new ways.
-
-    """
-
-    # Need to assign a name unique-ifying suffix for each barrier
-    # This is different than what the main LoopIR->C compiler does because the
-    # name needs to be unique throughout the full device function, i.e. it's not
-    # enough to be unique just within the barrier's scope in Exo object code.
-    sym_suffix = {}
-    sym_counters = {}
-
-    def assign_suffix(barrier_name):
-        assert isinstance(barrier_name, Sym)
-        count = sym_counters.get(barrier_name, 0)
-        sym_counters[barrier_name] = count + 1
-        suffix = str(count)
-        sym_suffix[barrier_name] = suffix
-        return suffix
-
-    lowered = {}
-    mbarriers = []
-
-    # Sort scanned barriers by Sym ID for output stability.
-    key = lambda tup: tup[0].id_number()
-
-    for name, scan in sorted(barrier_scans.items(), key=key):
-        srcinfo = scan.barrier_srcinfo
-        barrier_type = scan.barrier_type
-        suffix = assign_suffix(name)
-        if not scan.is_split():
-            # Fence
-            if scan.Arrive.actor_kind == actor_kinds.wgmma_fence_1:
-                raise NotImplementedError(f"{srcinfo}: wgmma fence")
-            else:
-                lowered[name] = LoweredGardenVarietyFence(scan, suffix)
-        # elif isinstance(barrier_type, LoopIR.CudaMbarrier):
-        #     pass
-        # elif isinstance(barrier_type, LoopIR.CudaCommitGroup):
-        #     pass
-        elif isinstance(barrier_type, LoopIR.CudaEvent):
-            raise TypeError(
-                f"{srcinfo}: cuda_event must not be used in device function"
-            )
-        else:
-            raise NotImplementedError(f"{srcinfo}: {barrier_type}")
-
-    return lowered, mbarriers
+        self.SyncState_lines = []
+        self.solitary = solitary
+        self.type_enum = type_enum
+        assert isinstance(type_enum, LoweredBarrierType)
 
 
 h_snippet_fmt = """\
