@@ -1213,8 +1213,8 @@ class LoweredGardenVarietyFence(CudaLoweredBarrier):
         # Insert fence.proxy.async if needed
         if actor_kinds.Sm80_generic.implements(A2):
             pass
-        elif actor_kinds.cuda_generic_and_async.implements(A2):
-            self.Await.append('asm("fence.proxy.async"::);')
+        elif actor_kinds.cuda_generic_and_async_proxy.implements(A2):
+            self.Await.append('asm("fence.proxy.async;");')
         else:
             raise ValueError(
                 f"{srcinfo}: Fence second actor kind {A2} not "

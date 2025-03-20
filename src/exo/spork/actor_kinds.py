@@ -115,8 +115,8 @@ cuda_async_proxy = ActorKind(
 )
 
 """CUDA generic proxy + async proxy"""
-cuda_generic_and_async = ActorKind(
-    "cuda_generic_async_proxy",
+cuda_generic_and_async_proxy = ActorKind(
+    "cuda_generic_and_async_proxy",
     False,
     Sm80_generic.signatures | cuda_async_proxy.signatures,
 )
