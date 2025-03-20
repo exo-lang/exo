@@ -696,7 +696,7 @@ class SubtreeScan(LoopIR_Do):
         def mbarrier_to_u32(lines, is_reverse, idx):
             byte_offset = 8 * (mbarrier_offset + ring if is_reverse else mbarrier_offset)
             lines.append(f"  const auto mbarrier_u32 = static_cast<uint32_t>(__cvta_generic_to_shared(")
-            lines.append(f"      smem + {byte_offset} + 8*{idx}));")
+            lines.append(f"      exo_smem + {byte_offset} + 8*{idx}));")
 
         def generate_arrive(is_reverse):
             r = "Reverse" if is_reverse else ""
@@ -716,7 +716,7 @@ class SubtreeScan(LoopIR_Do):
             lines = lowered.SyncState_lines
             idx = f"{r}ArriveIdx{nm_suffix}"
             lines.append(f"unsigned {idx} : {ring_bits} = 0;")
-            lines.append(f"__device__ __forceinline__ uint32_t {r}Arrive{nm_suffix}(char* smem, bool enable) {{")
+            lines.append(f"__device__ __forceinline__ uint32_t {r}Arrive{nm_suffix}(char* exo_smem, bool enable) {{")
             mbarrier_to_u32(lines, is_reverse, idx);
             lines.append(f"  if (enable) {{")
             if is_Sm80_cp_async:
@@ -761,7 +761,7 @@ class SubtreeScan(LoopIR_Do):
                 lines.append(f"unsigned {skips} : {ring_bits} = 0;")
 
             # Define Await member function
-            lines.append(f"__device__ __forceinline__ void {r}Await{nm_suffix}(char* smem) {{")
+            lines.append(f"__device__ __forceinline__ void {r}Await{nm_suffix}(char* exo_smem) {{")
             mbarrier_to_u32(lines, is_reverse, idx)
             if delay > 0:
                 lines.append(f"  const bool enable = {skips} >= {delay};")
