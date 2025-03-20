@@ -672,7 +672,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
         "stmt_id_codegen_par",
         "lowered_barriers",
         "fmt_dict",
-        "smem_offset",  # SMEM stack allocator
+        "live_smem_ends",  # SMEM stack allocator
         "smem_data_usage",
         "_result",
     ]
@@ -684,11 +684,10 @@ class SubtreeRewrite(LoopIR_Rewrite):
         fmt_dict = scan.fmt_dict
         self.fmt_dict = fmt_dict
 
-        assert not mbarriers, "TODO mbarriers"
-
         # Prepare SMEM stack allocator
-        self.smem_offset = 0
         self.smem_data_usage = 0
+        self.live_smem_ends = {0}
+        assert not mbarriers, "TODO mbarriers, update live_smem_ends"
 
         # We override the C names of variables that appear in the
         # exo_DeviceArgs or exo_Task structs.
@@ -747,7 +746,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
         # Only at this point do we know the SMEM usage of the kernel,
         # which we load into fmt_dict at the last moment.
         assert (
-            self.smem_offset == 0
+            len(self.live_smem_ends) == 1
         ), "SMEM stack allocator should have returned to initial state"
         fmt_dict["smem_bytes"] = self.smem_data_usage  # TODO mbarrier
         main_loop_context = ExtWithContext(
@@ -835,7 +834,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
                     # Get SMEM memory config
                     inputs = smem_config_inputs(s)
                     config = s.mem.smem_config(inputs)
-                    offset = self.smem_offset
+                    offset = max(self.live_smem_ends)
 
                     # Allocate at current offset, rounded up for alignment
                     alignment = config.alignment
@@ -849,25 +848,30 @@ class SubtreeRewrite(LoopIR_Rewrite):
                     offset = (offset + alignment - 1) & ~(alignment - 1)
 
                     # Stack allocator reserves space for this allocation
-                    alloc_state.smem_offset_before = self.smem_offset
+                    # It's not truly a "stack" allocator because of how LoopIR
+                    # can free an alloc as soon as it's dead (and so lifetimes
+                    # maybe are not strictly nested). Hence the max logic, a
+                    # dead SMEM allocation stays reserved until all
+                    # higher-on-the-stack SMEMs are also dead.
                     smem_bytes = element_bits // 8
                     for n in inputs.const_shape:
                         smem_bytes *= n
-                    self.smem_offset = offset + smem_bytes
-                    self.smem_data_usage = max(self.smem_offset, self.smem_data_usage)
+                    smem_end = offset + smem_bytes
+                    self.smem_data_usage = max(smem_end, self.smem_data_usage)
+                    assert smem_end not in self.live_smem_ends
+                    self.live_smem_ends.add(smem_end)
 
                     # Wrap user-specified memory type with SMEM offset,
                     # C++ reference type.
                     assert isinstance(config.reftype, str)
-                    mem = CodegenSmem(offset, config.reftype, s.mem)
+                    mem = CodegenSmem(offset, smem_end, config.reftype, s.mem)
                     alloc_state.codegen_smem = mem  # for rewriting Free, below
                 else:
                     # Rewrite Free Memory type to match corresponding Alloc
                     # and restore stack allocator state
                     mem = alloc_state.codegen_smem
                     assert mem
-                    assert alloc_state.smem_offset_before < self.smem_offset
-                    self.smem_offset = alloc_state.smem_offset_before
+                    self.live_smem_ends.remove(mem.smem_end())
                 s = s.update(mem=mem)
 
         elif isinstance(s, idx_s_types):
@@ -958,7 +962,6 @@ class AllocState(object):
         "usage_coll_tiling",
         "native_unit",
         "codegen_smem",
-        "smem_offset_before",
     ]
 
     live: bool
@@ -967,7 +970,6 @@ class AllocState(object):
     usage_coll_tilings: Optional[CollTiling]
     native_unit: CollUnit
     codegen_smem: Optional[Type[CudaBasicSmem]]
-    smem_offset_before: Optional[int]
 
     def __init__(self, alloc_coll_tiling, native_unit):
         assert isinstance(alloc_coll_tiling, CollTiling)
@@ -978,7 +980,6 @@ class AllocState(object):
         self.usage_coll_tiling = None
         self.native_unit = native_unit
         self.codegen_smem = None
-        self.smem_offset_before = None
 
 
 def type_const_shape(t: LoopIR.type, usage_str, name, srcinfo: SrcInfo):
@@ -1007,10 +1008,10 @@ def smem_config_inputs(s: LoopIR.Alloc):
 
 
 @memwin_template
-def CodegenSmem(byte_offset, reftype, wrapped_smem_type):
+def CodegenSmem(byte_offset, byte_end, reftype, wrapped_smem_type):
     """When rewriting the subtree for the CUDA device function,
     wrap all SMEM memory types with this, which includes the
-    exact byte offset for the allocation in the SMEM segment"""
+    exact byte [offset,end) for the allocation in the SMEM segment"""
 
     assert issubclass(wrapped_smem_type, CudaBasicSmem)
 
@@ -1021,6 +1022,10 @@ def CodegenSmem(byte_offset, reftype, wrapped_smem_type):
             wrapped_alloc = wrapped_smem_type.alloc(new_name, prim_type, shape, srcinfo)
             assert wrapped_alloc == ""
             return f"auto& {new_name} = reinterpret_cast<{reftype}>(exo_smem[{byte_offset}]);"
+
+        @classmethod
+        def smem_end(cls):
+            return byte_end
 
     return Impl
 
