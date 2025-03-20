@@ -593,9 +593,9 @@ class SubtreeScan(LoopIR_Do):
         lowered.Await = []
 
         # Insert wait for sm_80 cp.async if needed.
-        if actor_kinds.cuda_classic.implements(A1):
+        if actor_kinds.cuda_classic.implements_first(A1):
             pass
-        elif actor_kinds.Sm80_generic.implements(A1):
+        elif actor_kinds.Sm80_generic.implements_first(A1):
             lowered.Arrive.append('asm volatile("cp.async.wait_all;" ::);')
         else:
             raise ValueError(
@@ -622,7 +622,7 @@ class SubtreeScan(LoopIR_Do):
 
         # Insert cross-thread sync if needed
         assert not actor_kinds.wgmma_async.V1_transitive
-        wgmma_special_case = actor_kinds.wgmma_async.implements(
+        wgmma_special_case = actor_kinds.wgmma_async.implements_second(
             A2
         ) and not coll_tiling.unit_mismatch(cuda_warpgroup, self._coll_env)
         if n_warps > 0 and not wgmma_special_case:
@@ -651,9 +651,9 @@ class SubtreeScan(LoopIR_Do):
                 )
 
         # Insert fence.proxy.async if needed
-        if actor_kinds.Sm80_generic.implements(A2):
+        if actor_kinds.Sm80_generic.implements_second(A2):
             pass
-        elif actor_kinds.cuda_generic_and_async_proxy.implements(A2):
+        elif actor_kinds.cuda_generic_and_async_proxy.implements_second(A2):
             lowered.Await.append('asm("fence.proxy.async;");')
         else:
             raise ValueError(

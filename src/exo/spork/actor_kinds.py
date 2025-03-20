@@ -42,13 +42,13 @@ class ActorKind(object):
         assert isinstance(signatures, set)
         assert all(isinstance(s, ActorSignature) for s in signatures)
 
-    def implements(self, other):
-        """True when other is "less-featureful" than self (or equal)
+    def implements_first(self, other):
+        """Is other "less-or-equally-featureful" than self as a first actor kind?
 
         Return whether the `other` actor kind is "implementable" with the
         `self` actor kind, i.e. that a hardware barrier implementing
-        Fence(A1, A2) can be used to implement Fence(A1', A2')
-        where A1 and A2 implements A1' and A2' respectively.
+        Fence(A1, A2) can be used to implement Fence(A1', A2)
+        where A1 implements A1'.
 
         This is the case when A1' has a set of actor signatures that is a
         subset of that of A1, and A1' does not require a V1-transitivity
@@ -58,6 +58,17 @@ class ActorKind(object):
         return other.signatures.issubset(self.signatures) and (
             self.V1_transitive or not other.V1_transitive
         )
+
+    def implements_second(self, other):
+        """Is other "less-or-equally-featureful" than self as a second actor kind?
+
+        Return whether the `other` actor kind is "implementable" with the
+        `self` actor kind, i.e. that a hardware barrier implementing
+        Fence(A1, A2) can be used to implement Fence(A1, A2')
+        where A2 implements A2'.
+        """
+        assert isinstance(other, ActorKind)
+        return other.signatures.issubset(self.signatures)
 
     def __repr__(self):
         return f"<exo.spork.actor_kind.ActorKind {self.name}>"
