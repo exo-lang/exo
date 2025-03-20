@@ -446,7 +446,6 @@ def ext_compile_to_strings(lib_name, proc_list):
             p = WindowAnalysis().apply_proc(p)
             p = MemoryAnalysis().run(p)
             p = ActorKindAnalysis().run(p)
-            print(p)
 
             comp = Compiler(
                 p, ctxt_name, window_struct_cache, is_public_decl=is_public_decl
@@ -956,12 +955,27 @@ class Compiler:
         if isinstance(s, LoopIR.Pass):
             self.add_line("; // NO-OP")
         elif isinstance(s, LoopIR.SyncStmt):
-            if s.codegen is None:
+            if s.lowered is None:
                 raise TypeError(
                     f"{s.srcinfo}: SyncStmt not allowed here "
-                    "(or internal compiler error -- missing codegen)"
+                    "(or internal compiler error -- missing lowered barrier)"
                 )
-            self.add_line(s.codegen)
+            sync_type = s.sync_type
+            if sync_type.is_arrive():
+                barrier_lines = (
+                    s.lowered.ReverseArrive
+                    if sync_type.is_reverse
+                    else s.lowered.Arrive
+                )
+            elif sync_type.is_await():
+                barrier_lines = (
+                    s.lowered.ReverseAwait if sync_type.is_reverse else s.lowered.Await
+                )
+            else:
+                barrier_lines = s.lowered.Arrive + s.lowered.Await
+            self.add_line(f"// {s.sync_type.format_stmt(s.bar)}")
+            for line in barrier_lines:
+                self.add_line(line)
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             typ = self.envtyp[s.name]
             idx = []

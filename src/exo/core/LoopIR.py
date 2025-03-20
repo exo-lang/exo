@@ -1,6 +1,7 @@
 import re
 from collections import ChainMap, defaultdict
-from typing import List, Type
+from dataclasses import dataclass
+from typing import List, Type, Optional
 
 from asdl_adt import ADT, validators
 
@@ -53,6 +54,21 @@ class Operator(str):
         raise ValueError(f"invalid operator: {op}")
 
 
+@dataclass(slots=True)
+class LoweredBarrier:
+    """Barrier lowered to CUDA C++ strings
+
+    Paste strings in-place of Arrive/Await stmts.
+    Fence = Arrive + Await together.
+
+    """
+
+    Arrive: Optional[List[str]] = None
+    Await: Optional[List[str]] = None
+    ReverseArrive: Optional[List[str]] = None
+    ReverseAwait: Optional[List[str]] = None
+
+
 # --------------------------------------------------------------------------- #
 # Loop IR
 # --------------------------------------------------------------------------- #
@@ -83,7 +99,7 @@ module LoopIR {
            -- `bar` user-visible barrier for arrive/await;
            --  internal unique id for fence
            -- `codegen` used internally for lowering pass
-         | SyncStmt( sync_type sync_type, sym bar, string? codegen )
+         | SyncStmt( sync_type sync_type, sym bar, lowered_barrier? lowered )
          | If( expr cond, stmt* body, stmt* orelse )
          | For( sym iter, expr lo, expr hi, stmt* body, loop_mode loop_mode )
          | Alloc( sym name, type type, mem mem )
@@ -160,6 +176,7 @@ module LoopIR {
         "srcinfo": SrcInfo,
         "loop_mode": LoopMode,
         "sync_type": SyncType,
+        "lowered_barrier": LoweredBarrier,
     },
     memoize={
         "Num",

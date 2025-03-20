@@ -114,6 +114,14 @@ cuda_async_proxy = ActorKind(
     {sig_tma_to_smem, sig_tma_to_gmem, sig_wgmma_smem},
 )
 
+"""CUDA generic proxy + async proxy"""
+cuda_generic_and_async = ActorKind(
+    "cuda_generic_async_proxy",
+    False,
+    Sm80_generic.signatures | cuda_async_proxy.signatures,
+)
+
+
 """cp.async.bulk instructions with cluster/block shared memory as destination"""
 tma_to_smem_async = ActorKind("tma_to_smem_async", False, {sig_tma_to_smem})
 

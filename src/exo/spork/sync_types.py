@@ -73,16 +73,16 @@ class SyncType(object):
     def is_await(self):
         return self.first_actor_kind is None
 
-    def format_stmt(self, bar, codegen=None):
-        codegen_suffix = "" if codegen is None else f", codegen={codegen!r}"
+    def format_stmt(self, bar, lowered=None):
+        lowered_suffix = "" if lowered is None else f", lowered={lowered!r}"
         r = "Reverse" if self.is_reversed else ""
         if self.is_arrive():
-            return f"{r}Arrive({self.first_actor_kind}, {bar}{codegen_suffix})"
+            return f"{r}Arrive({self.first_actor_kind}, {bar}{lowered_suffix})"
         elif self.is_await():
-            return f"{r}Await({bar}, {self.second_actor_kind}, {self.delay}{codegen_suffix})"
+            return f"{r}Await({bar}, {self.second_actor_kind}, {self.delay}{lowered_suffix})"
         else:
             assert not self.is_reversed
-            return f"Fence({self.first_actor_kind}, {self.second_actor_kind}{codegen_suffix})"
+            return f"Fence({self.first_actor_kind}, {self.second_actor_kind}{lowered_suffix})"
 
 
 def fence_type(first_actor_kind: ActorKind, second_actor_kind: ActorKind):

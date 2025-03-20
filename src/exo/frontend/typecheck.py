@@ -313,7 +313,7 @@ class TypeChecker:
                     )
                 bar = bar.name
             else:
-                bar = Sym("autogen")  # Sym as internal unique ID for Fence.
+                bar = Sym("Fence")  # Sym as internal unique ID for Fence.
 
             return [LoopIR.SyncStmt(stmt.sync_type, bar, stmt.codegen, stmt.srcinfo)]
 
