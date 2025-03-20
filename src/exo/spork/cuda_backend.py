@@ -71,6 +71,7 @@ class SubtreeScan(LoopIR_Do):
         "alloc_states",
         "stmt_id_codegen_par",
         "barrier_scans",
+        "uses_async_proxy",
         "blockDim",
         "clusterDim",
         "fmt_dict",
@@ -93,6 +94,7 @@ class SubtreeScan(LoopIR_Do):
     alloc_states: Dict[Sym, AllocState]  # name of non-barrier -> AllocState
     stmt_id_codegen_par: Dict[int, _CodegenPar]  # id(LoopIR.stmt)->_CodegenPar
     barrier_scans: Dict[Sym, BarrierScan]  # name of barrier -> BarrierScan
+    uses_async_proxy: bool
 
     blockDim: int
     clusterDim: int
@@ -114,6 +116,7 @@ class SubtreeScan(LoopIR_Do):
         self.alloc_states = {}
         self.stmt_id_codegen_par = {}
         self.barrier_scans = {}
+        self.uses_async_proxy = False
         self.blockDim = cuda_device_function.blockDim
         self.clusterDim = cuda_device_function.clusterDim
         self.fmt_dict = {
@@ -514,8 +517,10 @@ class SubtreeScan(LoopIR_Do):
                 raise TypeError(f"{srcinfo}: could not deduce cluster count")
             return box[0]
 
-    def lower_barriers(self) -> Tuple[Dict[LoweredBarrier], List[Tuple[int, int]]]:
-        """Lower barriers, returns Dict[Sym, LoweredBarrier] and mbarrier pairs
+    def lower_barriers(self) -> Tuple[Dict[LoweredBarrier], List[Tuple[int, int]], str]:
+        """Lower barriers
+
+        Returns Dict[Sym, LoweredBarrier], mbarrier pairs, SyncState struct body
 
         mbarrier pairs are tuples (mbarrier_count, arrive_count) to
         initialize in SMEM, e.g. (8, 64), (2, 384) means initialize an
@@ -544,7 +549,8 @@ class SubtreeScan(LoopIR_Do):
             return suffix
 
         lowered = {}
-        mbarriers = []
+        mbarrier_pairs = []
+        SyncState_lines = []
 
         # Sort scanned barriers by Sym ID for output stability.
         key = lambda tup: tup[0].id_number()
@@ -558,20 +564,24 @@ class SubtreeScan(LoopIR_Do):
                 if scan.Arrive.actor_kind == actor_kinds.wgmma_fence_1:
                     raise NotImplementedError(f"{srcinfo}: wgmma fence")
                 else:
-                    lowered[name] = self.garden_variety_fence(scan, suffix)
-            # elif isinstance(barrier_type, LoopIR.CudaMbarrier):
-            #     pass
+                    lowered[name] = self.lower_garden_variety_fence(scan, suffix)
+            elif isinstance(barrier_type, LoopIR.CudaMbarrier):
+                lowered[name] = self.lower_mbarrier(scan, suffix, mbarrier_pairs)
             # elif isinstance(barrier_type, LoopIR.CudaCommitGroup):
             #     pass
             else:
-                raise NotImplementedError(
+                raise TypeError(
                     f"{srcinfo}: {barrier_type} must not "
                     f"be used in CUDA device function"
                 )
 
-        return lowered, mbarriers
+            for line in lowered[name].SyncState_lines:
+                if line:
+                    SyncState_lines.append("    " + line)
 
-    def garden_variety_fence(self, scan: BarrierScan, suffix):
+        return lowered, mbarrier_pairs, "\n".join(SyncState_lines)
+
+    def lower_garden_variety_fence(self, scan: BarrierScan, suffix):
         """Do up to 3 things
 
         - wait_all if first actor kind includes Sm80_cp_async
@@ -662,12 +672,147 @@ class SubtreeScan(LoopIR_Do):
             )
         return lowered
 
+    def lower_mbarrier(self, scan: BarrierScan, suffix, mbarrier_pairs: list):
+        lowered = CudaLoweredBarrier(False, LoweredBarrierType.mbarrier)
+        mbarrier_offset = sum(c for c, _ in mbarrier_pairs)  # O(n^2)
+        nm_suffix = f"{suffix}_{scan.barrier_name}"
+
+        # Calculate the size of the ring buffer (number of mbarriers)
+        if scan.has_reverse():
+            ring = scan.Await.delay + scan.ReverseAwait.delay
+            assert scan.ReverseAwait.parse_counter < scan.Arrive.parse_counter
+            assert scan.Await.parse_counter < scan.ReverseArrive.parse_counter
+        else:
+            ring = scan.Await.delay
+            if scan.Await.parse_counter > scan.Arrive.parse_counter:
+                ring += 1
+        assert ring > 0
+
+        # Need to be able to store values 0 through (ring-1)
+        ring_bits = (ring - 1).bit_length()
+
+        # black formatting will ruin the readability of the generated C++ code below
+        # fmt: off
+        def mbarrier_to_u32(lines, is_reverse, idx):
+            byte_offset = 8 * (mbarrier_offset + ring if is_reverse else mbarrier_offset)
+            lines.append(f"  const auto mbarrier_u32 = static_cast<uint32_t>(__cvta_generic_to_shared(")
+            lines.append(f"      smem + {byte_offset} + 8*{idx}));")
+
+        def generate_arrive(is_reverse):
+            r = "Reverse" if is_reverse else ""
+            info = scan.ReverseArrive if is_reverse else scan.Arrive
+            actor_kind = info.actor_kind
+
+            if actor_kinds.Sm80_cp_async.implements_first(actor_kind):
+                is_Sm80_cp_async = True
+            elif actor_kinds.cuda_classic.implements_first(actor_kind):
+                is_Sm80_cp_async = False
+            else:
+                # TODO TMA
+                raise ValueError(
+                    f"{info.get_srcinfo()}: mbarrier Arrive actor kind {actor_kind} "
+                    f"not supported: need cuda_classic, Sm80_cp_async, or tma_to_smem_async")
+
+            lines = lowered.SyncState_lines
+            idx = f"{r}ArriveIdx{nm_suffix}"
+            lines.append(f"unsigned {idx} : {ring_bits} = 0;")
+            lines.append(f"__device__ __forceinline__ uint32_t {r}Arrive{nm_suffix}(char* smem, bool enable) {{")
+            mbarrier_to_u32(lines, is_reverse, idx);
+            lines.append(f"  if (enable) {{")
+            if is_Sm80_cp_async:
+                lines.append(f'    asm("cp.async.mbarrier.arrive.noinc.shared::cta.b64 [%0];" :: "r"(mbarrier_u32));');
+            else:
+                lines.append(f'    asm("mbarrier.arrive.shared::cta.b64 _, [%0];" :: "r"(mbarrier_u32));');
+            lines.append(f"    // Advance ring buffer state")
+            lines.append(f"    {idx} = {idx} == {ring - 1} ? 0 : {idx} + 1;")
+            lines.append(f"  }}")
+            lines.append(f"  return mbarrier_u32;")
+            lines.append(f"}}")
+
+        def generate_await(is_reverse):
+            r = "Reverse" if is_reverse else ""
+            info = scan.ReverseAwait if is_reverse else scan.Await
+            actor_kind = info.actor_kind
+
+            if actor_kinds.Sm80_generic.implements_second(actor_kind):
+                proxy_fence = False
+            elif actor_kinds.cuda_generic_and_async_proxy.implements_second(actor_kind):
+                proxy_fence = True
+            else:
+                raise ValueError(
+                    f"{info.get_srcinfo()}: mbarrier Await actor kind {actor_kind} "
+                    f"not supported (at most CUDA generic+async proxy)")
+
+
+            lines = lowered.SyncState_lines
+            # If we have ReverseAwait/ReverseArrive, the mbarriers for them
+            # are allocated right after those for Arrive/Await
+            offset = mbarrier_offset + ring if is_reverse else mbarrier_offset
+            idx = f"{r}AwaitIdx{nm_suffix}"
+            delay = info.delay
+            skips = f"{r}Skips{nm_suffix}"
+            parity_bits = f"{r}Parity{nm_suffix}"
+
+            # Define (register) exo_SyncState member variables: ring buffer
+            # index, parity bitfield, and, if needed, counter for inital delay.
+            lines.append(f"unsigned {idx} : {ring_bits} = 0;")
+            lines.append(f"unsigned {parity_bits} : {ring} = 0;")
+            if delay > 0:
+                lines.append(f"unsigned {skips} : {ring_bits} = 0;")
+
+            # Define Await member function
+            lines.append(f"__device__ __forceinline__ void {r}Await{nm_suffix}(char* smem) {{")
+            mbarrier_to_u32(lines, is_reverse, idx)
+            if delay > 0:
+                lines.append(f"  const bool enable = {skips} >= {delay};")
+            else:
+                lines.append(f"  const bool enable = true;")
+            lines.append(f"  if (enable) {{")
+            # sm_90 needed for try_wait
+            test_or_try = "try" if self.uses_async_proxy else "test"
+            lines.append(f"    // Wait for mbarrier ... PTX loop needed for this")
+            lines.append(f'    asm volatile("{{.reg.pred P1; EXO_BEFORE_WAIT: mbarrier.{test_or_try}_wait.parity.acquire.cta.shared::cta.b64 P1, [%0], %1; @P1 bra.uni EXO_WAIT_DONE; bra.uni EXO_BEFORE_WAIT; EXO_WAIT_DONE: }}"::')
+            lines.append(f'        "r"(mbarrier_u32), "r"(1u & {parity_bits} >> {idx}));')
+            lines.append(f"    // Advance ring buffer state and flip parity")
+            lines.append(f"    {parity_bits} ^= 1u << {idx};")
+            lines.append(f"    {idx} = {idx} == {ring - 1} ? 0 : {idx} + 1;")
+            if proxy_fence:
+                lines.append(f'    asm("fence.proxy.async;");')
+            lines.append(f"  }}")
+            if delay > 0:
+                lines.append(f"  else {{")
+                lines.append(f"    // {r}Await({scan.barrier_name}) returns without waiting for mbarrier first {delay} times")
+                lines.append(f"    {skips}++;")
+                lines.append(f"  }}")
+            lines.append(f"}}")
+
+        generate_arrive(False)
+        generate_await(False)
+        if scan.has_reverse():
+            generate_arrive(True)
+            generate_await(True)
+
+        # Arrive/Await lowers to call to generated exo_syncState member function.
+        # We also record mbarriers to initialize
+        lowered.Arrive = [f"exo_syncState.Arrive{nm_suffix}(exo_smem, true);"]
+        lowered.Await = [f"exo_syncState.Await{nm_suffix}(exo_smem);"]
+        if scan.has_reverse():
+            lowered.ReverseArrive = [f"exo_syncState.ReverseArrive{nm_suffix}(exo_smem, true);"]
+            lowered.ReverseAwait = [f"exo_syncState.ReverseAwait{nm_suffix}(exo_smem);"]
+            arrive_count = scan.ReverseArrive.coll_tiling.box_num_threads()
+            mbarrier_pairs.append((ring, arrive_count))
+        arrive_count = scan.Arrive.coll_tiling.box_num_threads()
+        mbarrier_pairs.append((ring, arrive_count))
+        return lowered
+        # fmt: on
+
 
 # End class SubtreeScan
 
 
 class SubtreeRewrite(LoopIR_Rewrite):
     __slots__ = [
+        "scan",
         "alloc_states",
         "stmt_id_codegen_par",
         "lowered_barriers",
@@ -678,16 +823,30 @@ class SubtreeRewrite(LoopIR_Rewrite):
     ]
 
     def __init__(self, s, scan: SubtreeScan, ctx: SporkLoweringCtx):
+        fmt_dict = scan.fmt_dict
+        self.scan = scan
+        self.fmt_dict = fmt_dict
         self.alloc_states = scan.alloc_states
         self.stmt_id_codegen_par = scan.stmt_id_codegen_par
-        self.lowered_barriers, mbarriers = scan.lower_barriers()
-        fmt_dict = scan.fmt_dict
-        self.fmt_dict = fmt_dict
+        (
+            self.lowered_barriers,
+            mbarrier_pairs,
+            fmt_dict["SyncState_body"],
+        ) = scan.lower_barriers()
+
+        # Prepare mbarriers in SMEM
+        if mbarrier_pairs:
+            fmt_dict["device_setup_body"], num_mbarriers = self.generate_device_setup(
+                mbarrier_pairs
+            )
+        else:
+            fmt_dict["device_setup_body"] = "  // No mbarriers used"
+            num_mbarriers = 0
 
         # Prepare SMEM stack allocator
+        # Base of SMEM allocation is reserved for mbarriers
         self.smem_data_usage = 0
-        self.live_smem_ends = {0}
-        assert not mbarriers, "TODO mbarriers, update live_smem_ends"
+        self.live_smem_ends = {8 * num_mbarriers}
 
         # We override the C names of variables that appear in the
         # exo_DeviceArgs or exo_Task structs.
@@ -929,6 +1088,28 @@ class SubtreeRewrite(LoopIR_Rewrite):
                 return node.update(idx=node.idx[n:])
         return None
 
+    def generate_device_setup(self, mbarrier_pairs):
+        # fmt: off
+        lines = []
+        lines.append("    if (threadIdx.x == 0) {")
+        lines.append("      const auto mbarrier_u32 = static_cast<uint32_t>(__cvta_generic_to_shared(exo_smem));")
+        offset = 0
+        for mbarrier_count, arrive_count in mbarrier_pairs:
+            lines.append(f"      for (int i = 0; i < {mbarrier_count}; ++i) {{")
+            lines.append(f'        asm volatile("mbarrier.init.shared::cta.b64 [%0], {arrive_count};"::')
+            lines.append(f'          "r"(mbarrier_u32 + {8*offset} + 8*i));')
+            lines.append(f"      }}")
+            offset += mbarrier_count
+        if self.scan.uses_async_proxy:
+            lines.append('      asm("fence.proxy.async;");')
+        lines.append("    }")
+        if self.scan.clusterDim > 1:
+            lines.append('    asm("barrier.cluster.arrive.aligned; barrier.cluster.wait.aligned;\n"::);')
+        else:
+            lines.append('    __syncthreads();')
+        return "\n".join(lines), offset
+        # fmt: on
+
 
 # End class SubtreeRewrite
 
@@ -1099,13 +1280,14 @@ class BarrierScan(object):
         if isinstance(s, LoopIR.Alloc):
             # Barrier alloc
             self.barrier_type = s.type
-            assert barrier_type.is_barrier()
+            self.barrier_name = s.name
+            assert self.barrier_type.is_barrier()
         else:
             # Fence
             assert isinstance(s, LoopIR.SyncStmt)
             assert not s.sync_type.is_split()
             self.barrier_type = None
-        self.barrier_name = s.bar
+            self.barrier_name = s.bar
         self.barrier_srcinfo = s.srcinfo
         self.barrier_coll_tiling = scanner._coll_tiling
         self.parse_counter = 0
@@ -1324,6 +1506,11 @@ struct exo_Cuda{N}_{proc}
 {task_struct_body}
   }};
 
+  struct exo_SyncState
+  {{
+{SyncState_body}
+  }};
+
   static void
   exo_cudaLaunch(cudaStream_t exo_cudaStream, const exo_DeviceArgs& exo_deviceArgs);
 
@@ -1334,7 +1521,7 @@ struct exo_Cuda{N}_{proc}
   exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs);
 
   static __device__ __forceinline__ void
-  exo_deviceTask(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_Task exo_task);
+  exo_deviceTask(char* exo_smem, exo_SyncState& exo_syncState, const exo_DeviceArgs& exo_deviceArgs, exo_Task exo_task);
 }};
 
 inline void
@@ -1348,7 +1535,7 @@ exo_Cuda{N}_{proc}::exo_cudaLaunch(cudaStream_t exo_cudaStream, const exo_Device
 __device__ __forceinline__ void
 exo_Cuda{N}_{proc}::exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs)
 {{
-  // TODO setup
+{device_setup_body}
 }}
 """
 
@@ -1372,15 +1559,16 @@ exo_cudaLaunch{N}_{proc}(cudaStream_t exo_cudaStream, struct exo_CudaDeviceArgs{
 device_main_loop_prefix_fmt = """__device__ __forceinline__ void
 exo_Cuda{N}_{proc}::exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs)
 {{
+  exo_SyncState exo_syncState{{}};
   unsigned exo_taskIndex = 0;"""
 
 device_task_prefix_fmt = """__device__ __forceinline__ void
-exo_Cuda{N}_{proc}::exo_deviceTask(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_Task exo_task)
+exo_Cuda{N}_{proc}::exo_deviceTask(char* exo_smem, exo_SyncState& exo_syncState, const exo_DeviceArgs& exo_deviceArgs, exo_Task exo_task)
 {{"""
 
 cuda_launch_fmt = """exo_cudaLaunch{N}_{proc}(exo_cudaStream, (struct exo_CudaDeviceArgs{N}_{proc}) {{ {device_args} }});"""
 
-task_launch_fmt = """if (exo_taskIndex++ % (gridDim.x / exo_clusterDim) == blockIdx.x / exo_clusterDim) exo_deviceTask(exo_smem, exo_deviceArgs, (struct exo_Task) {{ {task_args} }});"""
+task_launch_fmt = """if (exo_taskIndex++ % (gridDim.x / exo_clusterDim) == blockIdx.x / exo_clusterDim) exo_deviceTask(exo_smem, exo_syncState, exo_deviceArgs, (struct exo_Task) {{ {task_args} }});"""
 
 # Paste this into the C header (.h) if any proc uses cuda.
 # TODO this should be minimal.

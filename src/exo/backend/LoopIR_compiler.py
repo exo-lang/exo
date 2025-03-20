@@ -964,12 +964,12 @@ class Compiler:
             if sync_type.is_arrive():
                 barrier_lines = (
                     s.lowered.ReverseArrive
-                    if sync_type.is_reverse
+                    if sync_type.is_reversed
                     else s.lowered.Arrive
                 )
             elif sync_type.is_await():
                 barrier_lines = (
-                    s.lowered.ReverseAwait if sync_type.is_reverse else s.lowered.Await
+                    s.lowered.ReverseAwait if sync_type.is_reversed else s.lowered.Await
                 )
             else:
                 barrier_lines = s.lowered.Arrive + s.lowered.Await
