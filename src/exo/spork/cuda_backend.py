@@ -18,7 +18,7 @@ from ..core.LoopIR import (
 )
 
 from . import actor_kinds
-from .actor_kinds import cpu, cpu_cuda_api, cuda_api, ActorKind  # TODO
+from .actor_kinds import ActorKind
 from .async_config import CudaDeviceFunction, CudaAsync
 from .base_with_context import is_if_holding_with, ExtWithContext
 from .coll_algebra import (
@@ -925,8 +925,6 @@ class SubtreeRewrite(LoopIR_Rewrite):
         )
 
         # Finally wrap the task loops into exo_deviceMainLoop
-        # The Fence(cpu_cuda_api, cuda_api) is eliminated since
-        # its effect comes for free from CUDA kernel launch.
         self._result = wrap_with_context(
             main_loop_context, [task_loop], task_loop.srcinfo
         )
