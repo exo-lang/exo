@@ -102,7 +102,7 @@ class SubtreeScan(LoopIR_Do):
     task_loop_depth: int
     task_iter_syms: List[Sym]
     _syms_needed: Set[Sym]
-    _stmt_stack: List[LoopIR.stmt]  # TODO is this useful?
+    _stmt_stack: List[LoopIR.stmt]
     _coll_env: Dict[CollParam, int]
     _coll_tiling: CollTiling
     # CollTiling created by the cuda_threads loop with the given iter
@@ -743,7 +743,6 @@ class SubtreeScan(LoopIR_Do):
                     f"{info.get_srcinfo()}: mbarrier Await actor kind {actor_kind} "
                     f"not supported (at most CUDA generic+async proxy)")
 
-
             lines = lowered.SyncState_lines
             # If we have ReverseAwait/ReverseArrive, the mbarriers for them
             # are allocated right after those for Arrive/Await
@@ -777,6 +776,8 @@ class SubtreeScan(LoopIR_Do):
             lines.append(f"    {parity_bits} ^= 1u << {idx};")
             lines.append(f"    {idx} = {idx} == {ring - 1} ? 0 : {idx} + 1;")
             if proxy_fence:
+                # TODO elide if first actor kind includes only async proxy.
+                lines.append(f'    // Needed for actor kind {actor_kind}')
                 lines.append(f'    asm("fence.proxy.async;");')
             lines.append(f"  }}")
             if delay > 0:
@@ -907,7 +908,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
         assert (
             len(self.live_smem_ends) == 1
         ), "SMEM stack allocator should have returned to initial state"
-        fmt_dict["smem_bytes"] = self.smem_data_usage  # TODO mbarrier
+        fmt_dict["smem_bytes"] = self.smem_data_usage
         main_loop_context = ExtWithContext(
             format(cuda_launch_fmt),
             format(device_main_loop_prefix_fmt),
