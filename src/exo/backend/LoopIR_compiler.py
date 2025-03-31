@@ -974,6 +974,7 @@ class Compiler:
             else:
                 barrier_lines = s.lowered.Arrive + s.lowered.Await
             self.add_line(f"// {s.sync_type.format_stmt(s.bar)}")
+            assert not isinstance(barrier_lines, str), "expect List[str]"
             for line in barrier_lines:
                 self.add_line(line)
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):

@@ -567,8 +567,8 @@ class SubtreeScan(LoopIR_Do):
                     lowered[name] = self.lower_garden_variety_fence(scan, suffix)
             elif isinstance(barrier_type, LoopIR.CudaMbarrier):
                 lowered[name] = self.lower_mbarrier(scan, suffix, mbarrier_pairs)
-            # elif isinstance(barrier_type, LoopIR.CudaCommitGroup):
-            #     pass
+            elif isinstance(barrier_type, LoopIR.CudaCommitGroup):
+                lowered[name] = self.lower_commit_group(scan, suffix)
             else:
                 raise TypeError(
                     f"{srcinfo}: {barrier_type} must not "
@@ -807,6 +807,72 @@ class SubtreeScan(LoopIR_Do):
         return lowered
         # fmt: on
 
+    def lower_commit_group(self, scan: BarrierScan, suffix):
+        # Commit groups
+        #
+        # Sm80_cp_async -> Sm80_generic; 1 thread
+        # tma_to_gmem_async -> cuda_generic_and_async_proxy; 1 thread
+        # wgmma_async -> cuda_generic_and_async_proxy; 128 threads
+        #
+        # Can fail due to
+        #   * unsupported first actor kind
+        #   * incorrect second actor kind given supported first actor kind
+        #   * incorrect collective unit given supported first actor kind
+        assert not scan.ReverseArrive
+        assert not scan.ReverseAwait
+
+        solitary = True
+        A1 = scan.Arrive.actor_kind
+        A2 = scan.Await.actor_kind
+        delay = scan.Await.delay
+        coll_tiling = scan.Arrive.coll_tiling
+        assert coll_tiling.equiv(scan.Await.coll_tiling)
+
+        def check_A2_coll_unit(expect_A2, coll_unit):
+            if not expect_A2.implements_second(A2):
+                raise TypeError(
+                    f"{scan.barrier_srcinfo}: commit group "
+                    f"{scan.barrier_name} with Arrive({A1}) "
+                    f"expects Await({expect_A2}), "
+                    f"not {A2} (wrong second actor kind)"
+                )
+            if msg := coll_tiling.unit_mismatch(coll_unit, self._coll_env):
+                raise TypeError(
+                    f"{scan.barrier_srcinfo}: commit group "
+                    f"{scan.barrier_name} with Arrive({A1}) "
+                    f"expects collective unit {coll_unit}: {msg}"
+                )
+
+        if actor_kinds.Sm80_cp_async.implements_first(A1):
+            # sm_80 non-bulk cp.async
+            check_A2_coll_unit(actor_kinds.Sm80_generic, cuda_thread)
+            lowered = CudaLoweredBarrier(solitary, LoweredBarrierType.Sm80_commit_group)
+            lowered.Arrive = ['asm("cp.async.commit_group;");']
+            lowered.Await = [f'asm("cp.async.wait_group {delay};");']
+        elif actor_kinds.tma_to_gmem_async.implements_first(A1):
+            # sm_90a bulk cp.async SMEM->GMEM
+            check_A2_coll_unit(actor_kinds.cuda_generic_and_async_proxy, cuda_thread)
+            lowered = CudaLoweredBarrier(
+                solitary, LoweredBarrierType.tma_to_gmem_commit_group
+            )
+            lowered.Arrive = ['asm("cp.async.bulk.commit_group;");']
+            lowered.Await = [f'asm("cp.async.bulk.wait_group {delay};");']
+        elif actor_kinds.wgmma_async.implements_first(A1):
+            # sm_90a wgmma; note unit is now warpgroup and not a single thread
+            check_A2_coll_unit(actor_kinds.cuda_generic_and_async_proxy, cuda_warpgroup)
+            lowered = CudaLoweredBarrier(
+                solitary, LoweredBarrierType.wgmma_commit_group
+            )
+            lowered.Arrive = ['asm("wgmma.commit_group.sync.aligned;");']
+            lowered.Await = [f'asm("wgmma.wait_group.sync.aligned {delay};");']
+        else:
+            raise TypeError(
+                f"{scan.barrier_srcinfo}: {scan.barrier_name} : "
+                f"cuda_commit_group does not support "
+                f"Arrive({A1}) (wrong first actor kind)"
+            )
+        return lowered
+
 
 # End class SubtreeScan
 
@@ -814,12 +880,13 @@ class SubtreeScan(LoopIR_Do):
 class SubtreeRewrite(LoopIR_Rewrite):
     __slots__ = [
         "scan",
+        "fmt_dict",
         "alloc_states",
         "stmt_id_codegen_par",
         "lowered_barriers",
-        "fmt_dict",
+        "live_solitary_barrier_names",
         "live_smem_ends",  # SMEM stack allocator
-        "smem_data_usage",
+        "smem_data_usage",  # SMEM stack allocator
         "_result",
     ]
 
@@ -843,6 +910,10 @@ class SubtreeRewrite(LoopIR_Rewrite):
         else:
             fmt_dict["device_setup_body"] = "  // No mbarriers used"
             num_mbarriers = 0
+
+        # Dict mapping LoweredBarrierType -> Sym
+        # only includes live lowered barriers with solitary flag set.
+        self.live_solitary_barrier_names = {}
 
         # Prepare SMEM stack allocator
         # Base of SMEM allocation is reserved for mbarriers
@@ -965,79 +1036,24 @@ class SubtreeRewrite(LoopIR_Rewrite):
             else:
                 assert isinstance(s.loop_mode, (Seq, _CodegenPar))
 
-        elif isinstance(s, (LoopIR.Alloc, LoopIR.Free)) and s.type.is_numeric():
-            alloc_state = self.alloc_states[s.name]
-            assert isinstance(alloc_state, AllocState)
-            if not alloc_state.live:
-                # Distributed memory analysis isn't run for unused variables...
-                warn(
-                    f"{s.srcinfo}: Unused allocation {s.name} in CUDA code may not lower correctly"
-                )
+        elif isinstance(s, LoopIR.Alloc):
+            if s.type.is_numeric():
+                s = self.update_numeric_alloc_free(s)
+            elif s.type.is_barrier():
+                self.on_barrier_alloc(s)
 
-            # Remove distributed dimensions
-            n = alloc_state.n_distributed_dims
-            typ = s.type
-            if n > 0:
-                if len(typ.hi) == n:
-                    # All dimensions removed; reduce to scalar
-                    typ = typ.basetype()
-                else:
-                    assert n < len(typ.hi)
-                    typ = typ.update(hi=typ.hi[n:])
-                s = s.update(type=typ)
-
-            # SMEM offset lowering (crucially after removing distributed dimensions)
-            if issubclass(s.mem, CudaBasicSmem):
-                if isinstance(s, LoopIR.Alloc):
-                    # Get SMEM memory config
-                    inputs = smem_config_inputs(s)
-                    config = s.mem.smem_config(inputs)
-                    offset = max(self.live_smem_ends)
-
-                    # Allocate at current offset, rounded up for alignment
-                    alignment = config.alignment
-                    element_bits = inputs.element_bits()
-                    assert element_bits % 8 == 0, "TODO sub-byte scalar types"
-                    if alignment * 8 < element_bits:
-                        alignment = element_bits // 8
-                    assert 0 == (
-                        alignment & (alignment - 1)
-                    ), "SMEM alignment must be power of 2"
-                    offset = (offset + alignment - 1) & ~(alignment - 1)
-
-                    # Stack allocator reserves space for this allocation
-                    # It's not truly a "stack" allocator because of how LoopIR
-                    # can free an alloc as soon as it's dead (and so lifetimes
-                    # maybe are not strictly nested). Hence the max logic, a
-                    # dead SMEM allocation stays reserved until all
-                    # higher-on-the-stack SMEMs are also dead.
-                    smem_bytes = element_bits // 8
-                    for n in inputs.const_shape:
-                        smem_bytes *= n
-                    smem_end = offset + smem_bytes
-                    self.smem_data_usage = max(smem_end, self.smem_data_usage)
-                    assert smem_end not in self.live_smem_ends
-                    self.live_smem_ends.add(smem_end)
-
-                    # Wrap user-specified memory type with SMEM offset,
-                    # C++ reference type.
-                    assert isinstance(config.reftype, str)
-                    mem = CodegenSmem(offset, smem_end, config.reftype, s.mem)
-                    alloc_state.codegen_smem = mem  # for rewriting Free, below
-                else:
-                    # Rewrite Free Memory type to match corresponding Alloc
-                    # and restore stack allocator state
-                    mem = alloc_state.codegen_smem
-                    assert mem
-                    self.live_smem_ends.remove(mem.smem_end())
-                s = s.update(mem=mem)
+        elif isinstance(s, LoopIR.Free):
+            if s.type.is_numeric():
+                s = self.update_numeric_alloc_free(s)
+            elif s.type.is_barrier():
+                self.on_barrier_free(s)
 
         elif isinstance(s, idx_s_types):
             # Remove distributed dimensions for tensor indexing expression
             s = self.remove_distributed_idx(s)
 
         elif isinstance(s, LoopIR.SyncStmt):
-            s = s.update(lowered=self.lowered_barriers[s.bar])
+            s = self.update_check_sync_stmt(s)
 
         return s
 
@@ -1108,6 +1124,102 @@ class SubtreeRewrite(LoopIR_Rewrite):
             lines.append('    __syncthreads();')
         return "\n".join(lines), offset
         # fmt: on
+
+    def update_numeric_alloc_free(self, s):
+        alloc_state = self.alloc_states[s.name]
+        assert isinstance(alloc_state, AllocState)
+        if not alloc_state.live:
+            # Distributed memory analysis isn't run for unused variables...
+            warn(
+                f"{s.srcinfo}: Unused allocation {s.name} in CUDA code may not lower correctly"
+            )
+
+        # Remove distributed dimensions
+        n = alloc_state.n_distributed_dims
+        typ = s.type
+        if n > 0:
+            if len(typ.hi) == n:
+                # All dimensions removed; reduce to scalar
+                typ = typ.basetype()
+            else:
+                assert n < len(typ.hi)
+                typ = typ.update(hi=typ.hi[n:])
+            s = s.update(type=typ)
+
+        # SMEM offset lowering (crucially after removing distributed dimensions)
+        if issubclass(s.mem, CudaBasicSmem):
+            if isinstance(s, LoopIR.Alloc):
+                # Get SMEM memory config
+                inputs = smem_config_inputs(s)
+                config = s.mem.smem_config(inputs)
+                offset = max(self.live_smem_ends)
+
+                # Allocate at current offset, rounded up for alignment
+                alignment = config.alignment
+                element_bits = inputs.element_bits()
+                assert element_bits % 8 == 0, "TODO sub-byte scalar types"
+                if alignment * 8 < element_bits:
+                    alignment = element_bits // 8
+                assert 0 == (
+                    alignment & (alignment - 1)
+                ), "SMEM alignment must be power of 2"
+                offset = (offset + alignment - 1) & ~(alignment - 1)
+
+                # Stack allocator reserves space for this allocation
+                # It's not truly a "stack" allocator because of how LoopIR
+                # can free an alloc as soon as it's dead (and so lifetimes
+                # maybe are not strictly nested). Hence the max logic, a
+                # dead SMEM allocation stays reserved until all
+                # higher-on-the-stack SMEMs are also dead.
+                smem_bytes = element_bits // 8
+                for n in inputs.const_shape:
+                    smem_bytes *= n
+                smem_end = offset + smem_bytes
+                self.smem_data_usage = max(smem_end, self.smem_data_usage)
+                assert smem_end not in self.live_smem_ends
+                self.live_smem_ends.add(smem_end)
+
+                # Wrap user-specified memory type with SMEM offset,
+                # C++ reference type.
+                assert isinstance(config.reftype, str)
+                mem = CodegenSmem(offset, smem_end, config.reftype, s.mem)
+                alloc_state.codegen_smem = mem  # for rewriting Free, below
+            else:
+                # Rewrite Free Memory type to match corresponding Alloc
+                # and restore stack allocator state
+                mem = alloc_state.codegen_smem
+                assert mem
+                self.live_smem_ends.remove(mem.smem_end())
+            s = s.update(mem=mem)
+        return s
+
+    def on_barrier_alloc(self, s):
+        lowered = self.lowered_barriers[s.name]
+        if lowered.solitary:
+            self.check_solitary_barrier(s, lowered)
+            self.live_solitary_barrier_names[lowered.type_enum] = s.name
+
+    def on_barrier_free(self, s):
+        lowered = self.lowered_barriers[s.name]
+        if lowered.solitary:
+            del self.live_solitary_barrier_names[lowered.type_enum]
+
+    def update_check_sync_stmt(self, s):
+        lowered = self.lowered_barriers[s.bar]
+        if lowered.solitary and not s.sync_type.is_split():
+            # Fence must pass solitary barrier check
+            self.check_solitary_barrier(s, lowered)
+        s = s.update(lowered=lowered)
+        return s
+
+    def check_solitary_barrier(self, s, lowered):
+        sus = self.live_solitary_barrier_names.get(lowered.type_enum)
+        if sus is not None:
+            raise TypeError(
+                f'{s.srcinfo}: Invalid "{s}" of lowered '
+                f"barrier type {lowered.type_enum} due to another "
+                f'such live barrier "{sus}" in scope'
+            )
 
 
 # End class SubtreeRewrite
@@ -1469,6 +1581,17 @@ class LoweredBarrierType(Enum):
 
 class CudaLoweredBarrier(LoweredBarrier):
     __slots__ = ["SyncState_lines", "solitary", "type_enum"]
+
+    # Added to SyncState struct
+    SyncState_lines: List[str]
+
+    # If set, two barrier objects of the same type_enum (in Exo code)
+    # cannot be live at the same time.
+    solitary: bool
+
+    # More specific than the LoopIR types (specialized by actor kind).
+    # Also applies to Fence(...), which has no associated barrier object.
+    type_enum: LoweredBarrierType
 
     def __init__(self, solitary, type_enum):
         super().__init__()
