@@ -36,7 +36,7 @@ class SyncType(object):
     ):
         assert first_actor_kind is None or isinstance(first_actor_kind, ActorKind)
         assert second_actor_kind is None or isinstance(second_actor_kind, ActorKind)
-        assert first_actor_kind or second_actor_kind
+        assert first_actor_kind is not None or second_actor_kind is not None
         self.first_actor_kind = first_actor_kind
         self.second_actor_kind = second_actor_kind
         self.is_reversed = is_reversed

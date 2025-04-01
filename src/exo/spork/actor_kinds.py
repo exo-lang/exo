@@ -80,6 +80,8 @@ class ActorKind(object):
         return bool(self.signatures)
 
 
+empty_actor_kind = ActorKind("empty_actor_kind", False, set())
+
 """Host CPU instructions"""
 cpu = ActorKind("cpu", True, {sig_cpu})
 
@@ -169,6 +171,7 @@ wgmma_fence_2 = ActorKind(
 actor_kind_dict = {
     actor_kind.name: actor_kind
     for actor_kind in [
+        empty_actor_kind,
         cpu,
         cuda_api,
         cpu_cuda_api,

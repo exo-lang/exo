@@ -106,7 +106,7 @@ class ActorKindAnalysis(LoopIR_Rewrite):
                 needed = ctx.parent_actor_kind()
                 if needed != self.actor_kind:
                     raise ValueError(
-                        f"{s.srcinfo}: {ctx.__class__.__name__} "
+                        f"{s.srcinfo}: {ctx!r} "
                         f"requires actor kind {needed}; actor kind "
                         f"in scope is actually {self.actor_kind}"
                     )
