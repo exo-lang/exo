@@ -303,6 +303,12 @@ class SubtreeScan(LoopIR_Do):
         self.apply_s(s)
         super().do_s(s)
 
+        # Special case (after recursion) for handling prologue/epilogue sync
+        if is_if_holding_with(s, LoopIR):
+            ctx = s.cond.val
+            if isinstance(ctx, CudaAsync):
+                self.post_inspect_cuda_async(s)
+
         # Restore state
         self._stmt_stack.pop()
         self._coll_tiling = old_coll_tiling
@@ -388,6 +394,65 @@ class SubtreeScan(LoopIR_Do):
         self.stmt_id_codegen_par[id(s)] = _CodegenPar(
             advice.coll_index.codegen(), (advice.lo, advice.hi)
         )
+
+    def expect_SyncStmt(
+        self, async_block, is_epilogue, first_actor_kind, second_actor_kind
+    ):
+        # This is really strict, requires equality with expected actor kind
+        # instead of just implements_first/implements_second(...)
+        ctx = async_block.cond.val
+        sync = async_block.body[-1] if is_epilogue else async_block.body[0]
+        verb = "missing"
+        if isinstance(sync, LoopIR.SyncStmt):
+            verb = "wrong"
+            sync_type = sync.sync_type
+            if sync_type.first_actor_kind == first_actor_kind:
+                if sync_type.second_actor_kind == second_actor_kind:
+                    return sync
+        noun = "epilogue" if is_epilogue else "prologue"
+        expected = SyncType(first_actor_kind, second_actor_kind, False, 0).format_stmt(
+            "..."
+        )
+        raise ValueError(
+            f"{async_block.srcinfo}: {verb} {noun} sync in {ctx} block; "
+            f"expect {expected}"
+        )
+
+    def post_inspect_cuda_async(self, s):
+        # Must be run after inspecting the body of the CudaAsync block
+        # since the barriers must have been scanned.
+        # We detect prologue/epilogue sync here.
+        ctx = s.cond.val
+        assert isinstance(ctx, CudaAsync)
+        actor_kind = ctx.get_actor_kind()
+        assert actor_kind in actor_kinds.cuda_async_actor_kinds
+        assert s.body
+
+        def inspect(is_epilogue, A1, A2):
+            sync_stmt = self.expect_SyncStmt(s, is_epilogue, A1, A2)
+            scan = self.barrier_scans[sync_stmt.bar]
+            sync_type = sync_stmt.sync_type
+            # Set ArriveAwaitInfo.prologue_sync_of or ArriveAwaitInfo.epilogue_sync_of
+            attr = "epilogue_sync_of" if is_epilogue else "prologue_sync_of"
+            if sync_type.first_actor_kind is not None:
+                if sync_type.is_reversed:
+                    setattr(scan.ReverseArrive, attr, actor_kind)
+                else:
+                    setattr(scan.Arrive, attr, actor_kind)
+            if sync_type.second_actor_kind is not None:
+                if sync_type.is_reversed:
+                    setattr(scan.ReverseAwait, attr, actor_kind)
+                else:
+                    setattr(scan.Await, attr, actor_kind)
+
+        # tma_to_smem_async requires epilogue Arrive(tma_to_smem_async);
+        if actor_kind == actor_kinds.tma_to_smem_async:
+            inspect(True, actor_kinds.tma_to_smem_async, None)
+        # wgmma_async requires prologue wgmma fence, epilogue Arrive(wgmma_async)
+        elif actor_kind == actor_kinds.wgmma_async:
+            inspect(False, actor_kinds.wgmma_fence_1, actor_kinds.wgmma_fence_2)
+            inspect(True, actor_kinds.wgmma_async, None)
+        # Sm80_cp_async, tma_to_gmem_async have no prologue/epilogue
 
     def apply_cuda_threads_loop(self, s):
         def get_const(e, name):
@@ -600,6 +665,9 @@ class SubtreeScan(LoopIR_Do):
                 f"{srcinfo}: wgmma fence must be executed by a warpgroup: {msg}"
             )
 
+        # Must be prologue sync of CudaAsync(wgmma_async)
+        scan.Arrive.expect_prologue_sync_of(actor_kinds.wgmma_async)
+
         lowered = CudaLoweredBarrier(False, LoweredBarrierType.wgmma_fence)
         lowered.Arrive = ['asm("wgmma.fence.sync.aligned;");']
         lowered.Await = []
@@ -733,6 +801,7 @@ class SubtreeScan(LoopIR_Do):
                 is_Sm80_cp_async = False
             elif actor_kinds.tma_to_smem_async.implements_first(actor_kind):
                 is_Sm80_cp_async = False
+                info.expect_epilogue_sync_of(actor_kinds.tma_to_smem_async)
             else:
                 raise ValueError(
                     f"{info.get_srcinfo()}: mbarrier Arrive actor kind {actor_kind} "
@@ -904,13 +973,15 @@ class SubtreeScan(LoopIR_Do):
             lowered.Arrive = ['asm("cp.async.bulk.commit_group;");']
             lowered.Await = [f'asm("cp.async.bulk.wait_group {delay};");']
         elif actor_kinds.wgmma_async.implements_first(A1):
-            # sm_90a wgmma; note unit is now warpgroup and not a single thread
+            # sm_90a wgmma; note unit is now warpgroup and not a single thread;
+            # also enforce that this is an epilogue sync of CudaAsync(wgmma_async).
             check_A2_coll_unit(actor_kinds.cuda_generic_and_async_proxy, cuda_warpgroup)
             lowered = CudaLoweredBarrier(
                 solitary, LoweredBarrierType.wgmma_commit_group
             )
             lowered.Arrive = ['asm("wgmma.commit_group.sync.aligned;");']
             lowered.Await = [f'asm("wgmma.wait_group.sync.aligned {delay};");']
+            scan.Arrive.expect_epilogue_sync_of(actor_kinds.wgmma_async)
         else:
             raise TypeError(
                 f"{scan.barrier_srcinfo}: {scan.barrier_name} : "
@@ -1278,45 +1349,23 @@ class SubtreeRewrite(LoopIR_Rewrite):
             )
 
     def update_with_cuda_async(self, s):
+        # Handle the special case of with CudaAsync(tma_to_smem_async)
+        # where we need to make the mbarrier used for the /epilogue/
+        # mbarrier Arrive available at the /start/ of the async block.
+        # The mbarrier's 32-bit address used for this sync will be aliased as
+        # exo_tma_mbarrier in the body of the lowered CUDA C++ async block.
         ctx = s.cond.val
         assert isinstance(ctx, CudaAsync)
         actor_kind = ctx.get_actor_kind()
         assert actor_kind in actor_kinds.cuda_async_actor_kinds
         assert s.body
 
-        def visit_sync(is_epilogue, first_actor_kind, second_actor_kind):
-            # This is really strict, requires ID-equality with expected actor kind
-            # instead of just implements_first/implements_second(...)
-            sync = s.body[-1] if is_epilogue else s.body[0]
-            verb = "missing"
-            if isinstance(sync, LoopIR.SyncStmt):
-                verb = "wrong"
-                sync_type = sync.sync_type
-                if sync_type.first_actor_kind is first_actor_kind:
-                    if sync_type.second_actor_kind is second_actor_kind:
-                        # Record fact that this barrier is used as
-                        # prologue/epilogue sync and exit visit_sync
-                        if is_epilogue:
-                            self.epilogue_barriers.add(sync.bar)
-                        else:
-                            self.prologue_barriers.add(sync.bar)
-                        return sync
-            noun = "epilogue" if is_epilogue else "prologue"
-            expected = SyncType(
-                first_actor_kind, second_actor_kind, False, 0
-            ).format_stmt("...")
-            raise ValueError(
-                f"{s.srcinfo}: {verb} {noun} sync in CudaAsync("
-                f"{actor_kind}) block; expect {expected}"
-            )
-
-        # tma_to_smem_async requires epilogue Arrive(tma_to_smem_async);
-        # the mbarrier's 32-bit address used for this sync will be aliased as
-        # exo_tma_mbarrier in the body of the lowered CUDA C++ async block.
         if actor_kind == actor_kinds.tma_to_smem_async:
             # We will insert the needed uint32_t variable as "lowered" syntax
-            # for a do-nothing Fence statement.
-            _arrive = visit_sync(True, actor_kinds.tma_to_smem_async, None)
+            # for a do-nothing Fence statement. This will look goofy but works.
+            _arrive = self.scan.expect_SyncStmt(
+                s, True, actor_kinds.tma_to_smem_async, None
+            )
             dummy_sync_type = SyncType(
                 actor_kinds.empty_actor_kind, actor_kinds.empty_actor_kind, False, 0
             )
@@ -1333,11 +1382,6 @@ class SubtreeRewrite(LoopIR_Rewrite):
                 s.srcinfo,
             )
             s = s.update(body=[alias_stmt] + s.body)
-        # wgmma_async requires prologue wgmma fence, epilogue Arrive(wgmma_async)
-        elif actor_kind == actor_kinds.wgmma_async:
-            visit_sync(False, actor_kinds.wgmma_fence_1, actor_kinds.wgmma_fence_2)
-            visit_sync(True, actor_kinds.wgmma_async, None)
-        # Sm80_cp_async, tma_to_gmem_async have no prologue/epilogue
 
         return s
 
@@ -1450,8 +1494,27 @@ class ArriveAwaitInfo:
     stmt_stack: Tuple
     parse_counter: int
 
+    # Set to an actor kind `A` if the SyncStmt is detected as being the
+    # prologue or epilogue sync of a CudaAsync(A) block.
+    prologue_sync_of: Optional[ActorKind] = None
+    epilogue_sync_of: Optional[ActorKind] = None
+
     def get_srcinfo(self):
         return self.stmt_stack[-1].srcinfo
+
+    def expect_prologue_sync_of(self, actor_kind):
+        self._expect_impl("prologue", self.prologue_sync_of, actor_kind)
+
+    def expect_epilogue_sync_of(self, actor_kind):
+        self._expect_impl("epilogue", self.epilogue_sync_of, actor_kind)
+
+    def _expect_impl(self, name, actual, expected):
+        if actual != expected:
+            s = self.stmt_stack[-1]
+            raise ValueError(
+                f"{s.srcinfo}: misplaced {s}; must be "
+                f"{name} sync of CudaAsync({expected}) block"
+            )
 
 
 class BarrierScan(object):
