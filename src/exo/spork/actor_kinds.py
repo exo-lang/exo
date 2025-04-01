@@ -4,6 +4,9 @@ from enum import Enum
 from typing import Optional, Set
 
 
+actor_kind_dict = {}
+
+
 class ActorSignature(object):
     __slots__ = ["name"]
     name: str
@@ -41,6 +44,8 @@ class ActorKind(object):
         self.signatures = signatures
         assert isinstance(signatures, set)
         assert all(isinstance(s, ActorSignature) for s in signatures)
+        assert name not in actor_kind_dict
+        actor_kind_dict[name] = self
 
     def implements_first(self, other):
         """Is other "less-or-equally-featureful" than self as a first actor kind?
@@ -120,21 +125,6 @@ Sm80_cp_async = ActorKind("Sm80_cp_async", False, {sig_Sm80_cp_async})
 These are operations that sm_90a+ retroactively term the generic proxy"""
 Sm80_generic = ActorKind("Sm80_generic", False, {sig_cuda_classic, sig_Sm80_cp_async})
 
-"""CUDA async proxy (TMA and wgmma, excluding register access)"""
-cuda_async_proxy = ActorKind(
-    "cuda_async_proxy",
-    False,
-    {sig_tma_to_smem, sig_tma_to_gmem, sig_wgmma_smem},
-)
-
-"""CUDA generic proxy + async proxy"""
-cuda_generic_and_async_proxy = ActorKind(
-    "cuda_generic_and_async_proxy",
-    False,
-    Sm80_generic.signatures | cuda_async_proxy.signatures,
-)
-
-
 """cp.async.bulk instructions with cluster/block shared memory as destination"""
 tma_to_smem_async = ActorKind("tma_to_smem_async", False, {sig_tma_to_smem})
 
@@ -168,24 +158,20 @@ wgmma_fence_2 = ActorKind(
     {sig_wgmma_rmem_a, sig_wgmma_rmem_d},
 )
 
-actor_kind_dict = {
-    actor_kind.name: actor_kind
-    for actor_kind in [
-        empty_actor_kind,
-        cpu,
-        cuda_api,
-        cpu_cuda_api,
-        cuda_classic,
-        Sm80_cp_async,
-        Sm80_generic,
-        tma_to_smem_async,
-        tma_to_gmem_async,
-        wgmma_async,
-        wgmma_async_smem,
-        wgmma_fence_1,
-        wgmma_fence_2,
-    ]
-}
+"""CUDA async proxy (TMA and wgmma, excluding register access)"""
+cuda_async_proxy = ActorKind(
+    "cuda_async_proxy",
+    False,
+    {sig_tma_to_smem, sig_tma_to_gmem, sig_wgmma_smem},
+)
+
+"""CUDA generic proxy + async proxy"""
+cuda_generic_and_async_proxy = ActorKind(
+    "cuda_generic_and_async_proxy",
+    False,
+    Sm80_generic.signatures | cuda_async_proxy.signatures,
+)
+
 
 # Valid actor kinds for CudaAsync block
 cuda_async_actor_kinds = (
