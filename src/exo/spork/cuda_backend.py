@@ -962,7 +962,9 @@ class SubtreeRewrite(LoopIR_Rewrite):
         # Prepare SMEM stack allocator
         # Base of SMEM allocation is reserved for mbarriers
         self.smem_data_usage = 0
-        self.live_smem_ends = {8 * num_mbarriers}
+        # self.live_smem_ends = {8 * num_mbarriers}
+        self.live_smem_ends = {128 * ((num_mbarriers + 15) // 16)}
+        # HACK: align mbarriers to 128 bytes for now
 
         # We override the C names of variables that appear in the
         # exo_DeviceArgs or exo_Task structs.
