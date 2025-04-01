@@ -1328,9 +1328,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
             visit_sync(True, actor_kinds.wgmma_async, None)
         # Sm80_cp_async, tma_to_gmem_async have no prologue/epilogue
 
-        # Change `with CudaAsync` to `if True` as actor kind analysis
-        # doesn't matter at this late stage of codegen.
-        return s.update(cond=LoopIR.Const(True, T.bool, s.srcinfo))
+        return s
 
 
 # End class SubtreeRewrite

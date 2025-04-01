@@ -1147,6 +1147,15 @@ class Compiler:
                 self.comp_s(lowered)
                 self._cuda_kernel_count += 1
 
+            # Must appear last (fallback case)
+            elif isinstance(ctx, BaseAsyncConfig):
+                self.add_line("{")
+                self.push()
+                self.add_line(f"// {ctx}")
+                self.comp_stmts(s.body)
+                self.pop()
+                self.add_line("}")
+
             else:
                 raise TypeError(f"Unknown with stmt context type {type(ctx)}")
 
