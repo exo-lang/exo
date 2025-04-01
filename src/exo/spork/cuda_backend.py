@@ -757,20 +757,29 @@ class SubtreeScan(LoopIR_Do):
             lines.append(f"  }}")
             lines.append(f"  return mbarrier_u32;")
             lines.append(f"}}")
+            return actor_kind
 
-        def generate_await(is_reverse):
+        def generate_await(is_reverse, A1):
             r = "Reverse" if is_reverse else ""
             info = scan.ReverseAwait if is_reverse else scan.Await
-            actor_kind = info.actor_kind
+            A2 = info.actor_kind
 
-            if actor_kinds.Sm80_generic.implements_second(actor_kind):
+            if actor_kinds.cuda_async_proxy_wgmma.implements_first(A1):
+                # proxy fence always elided if first actor kind includes only
+                # async proxy and wgmma register access.
                 proxy_fence = False
-            elif actor_kinds.cuda_generic_and_async_proxy.implements_second(actor_kind):
+            elif actor_kinds.Sm80_generic.implements_second(A2):
+                proxy_fence = False
+            elif actor_kinds.cuda_generic_and_async_proxy.implements_second(A2):
                 proxy_fence = True
             else:
+                if A2 == actor_kinds.wgmma_async:
+                    remark = "consider wgmma_async_smem"
+                else:
+                    remark = "at most CUDA generic+async proxy"
                 raise ValueError(
-                    f"{info.get_srcinfo()}: mbarrier Await actor kind {actor_kind} "
-                    f"not supported (at most CUDA generic+async proxy)")
+                    f"{info.get_srcinfo()}: mbarrier Await actor kind {A2} "
+                    f"not supported ({remark})")
 
             lines = lowered.SyncState_lines
             # If we have ReverseAwait/ReverseArrive, the mbarriers for them
@@ -810,8 +819,7 @@ class SubtreeScan(LoopIR_Do):
                 lines.append(f"    // Advance ring buffer state")
                 lines.append(f"    {idx} = {idx} == {ring - 1} ? 0 : {idx} + 1;")
             if proxy_fence:
-                # TODO elide if first actor kind includes only async proxy.
-                lines.append(f'    // Needed for actor kind {actor_kind}')
+                lines.append(f'    // Needed for first actor kind {A1}; second actor kind {A2}')
                 lines.append(f'    asm("fence.proxy.async;");')
             lines.append(f"  }}")
             if delay > 0:
@@ -821,11 +829,12 @@ class SubtreeScan(LoopIR_Do):
                 lines.append(f"  }}")
             lines.append(f"}}")
 
-        generate_arrive(False)
-        generate_await(False)
+        # Generate Arrive and Await syntax
+        # {Reverse}Awaits must be aware with the actor kind
+        # of the matched {Reverse}Arrive
+        generate_await(False, generate_arrive(False))
         if scan.has_reverse():
-            generate_arrive(True)
-            generate_await(True)
+            generate_await(True, generate_arrive(True))
 
         # Arrive/Await lowers to call to generated exo_syncState member function.
         # We also record mbarriers to initialize.

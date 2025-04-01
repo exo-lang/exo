@@ -165,6 +165,13 @@ cuda_async_proxy = ActorKind(
     {sig_tma_to_smem, sig_tma_to_gmem, sig_wgmma_smem},
 )
 
+"""CUDA async proxy + wgmma register access"""
+cuda_async_proxy_wgmma = ActorKind(
+    "cuda_async_proxy_wgmma",
+    False,
+    {sig_tma_to_smem, sig_tma_to_gmem} | wgmma_async.signatures,
+)
+
 """CUDA generic proxy + async proxy"""
 cuda_generic_and_async_proxy = ActorKind(
     "cuda_generic_and_async_proxy",
