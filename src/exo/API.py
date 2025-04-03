@@ -10,6 +10,7 @@ from exo.rewrite.LoopIR_scheduling import SchedulingError
 
 from .API_types import ProcedureBase, ExoType
 from .core import LoopIR as LoopIR
+from .core.instr_class import InstrTemplate
 from .backend.LoopIR_compiler import (
     run_compile,
     compile_to_strings,
@@ -54,12 +55,24 @@ def proc(f, _instr=None) -> "Procedure":
 
 
 def instr(c_instr, c_global=""):
-    if not isinstance(c_instr, str):
-        raise TypeError("@instr decorator must be @instr(<your instuction>)")
+    if inspect.isclass(c_instr):
+        # Instruction template from class
+        return InstrTemplate(
+            c_instr, lambda proc: Procedure(proc), get_parent_scope(depth=2)
+        )
 
+    if not isinstance(c_instr, str):
+        raise TypeError(
+            "Valid usage: @instr applied to a class, "
+            "or @instr(C syntax : str) applied to a function"
+        )
+
+    # Old-style instr from Python function
     def inner(f):
         if not isinstance(f, types.FunctionType):
-            raise TypeError("@instr decorator must be applied to a function")
+            raise TypeError(
+                "@instr(<C syntax>) decorator must be applied to a function"
+            )
 
         return proc(f, _instr=(c_instr, c_global))
 

@@ -17,6 +17,9 @@ class ActorSignature(object):
     def __repr__(self):
         return f"<exo.spork.ActorSignature {self.name}>"
 
+    def __str__(self):
+        return self.name
+
     # Use default hash and equality (id-equality) from object.
 
 

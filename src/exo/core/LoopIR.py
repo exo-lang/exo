@@ -1,16 +1,18 @@
 import re
 from collections import ChainMap, defaultdict
 from dataclasses import dataclass
-from typing import List, Type, Optional
+from typing import Dict, List, Type, Optional
 
 from asdl_adt import ADT, validators
 
 from .extern import Extern
 from .configs import Config
-from .memory import MemWin, Memory, SpecialWindow
+from .memory import DRAM, MemWin, Memory, SpecialWindow
 from .prelude import Sym, SrcInfo, extclass
 
+from ..spork.actor_kinds import ActorKind, ActorSignature, sig_cpu
 from ..spork.base_with_context import BaseWithContext
+from ..spork.coll_algebra import CollUnit
 from ..spork.loop_modes import LoopMode
 from ..spork.sync_types import SyncType
 
@@ -67,6 +69,23 @@ class LoweredBarrier:
     Await: Optional[List[str]] = None
     ReverseArrive: Optional[List[str]] = None
     ReverseAwait: Optional[List[str]] = None
+
+
+@dataclass(slots=True)
+class AccessInfo:
+    mem: Type[MemWin] = DRAM
+    actor_signature: ActorSignature = sig_cpu
+
+
+@dataclass(slots=True)
+class InstrInfo:
+    instr_format: str
+    c_global: str
+    cu_util: str
+    cu_includes: List[str]
+    coll_unit: CollUnit
+    actor_kind: ActorKind
+    access_info: Dict[str, AccessInfo]
 
 
 # --------------------------------------------------------------------------- #
@@ -1457,6 +1476,11 @@ class SubstArgs(LoopIR_Rewrite):
                 self.nodes += self.apply_s(n)
             elif isinstance(n, LoopIR.expr):
                 self.nodes += [self.apply_e(n)]
+            elif isinstance(n, LoopIR.fnarg):
+                t = self.map_t(n.type)
+                if t:
+                    n = n.update(type=t)
+                self.nodes.append(n)
             else:
                 assert False, "expected stmt or expr"
 
