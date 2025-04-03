@@ -816,6 +816,7 @@ class SubtreeScan(LoopIR_Do):
             lines.append(f"__device__ __forceinline__ uint32_t {r}Arrive{nm_suffix}(char* exo_smem, bool enable) {{")
             mbarrier_to_u32(lines, is_reverse, idx);
             lines.append(f"  if (enable) {{")
+            # TODO cluster broadcast if needed
             if is_Sm80_cp_async:
                 lines.append(f'    asm("cp.async.mbarrier.arrive.noinc.shared::cta.b64 [%0];" :: "r"(mbarrier_u32));');
             else:
