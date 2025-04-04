@@ -292,19 +292,19 @@ class Sm80_BasicRmemMatrix(CudaBasicDeviceVisible):
             raise MemGenError(f"{srcinfo}: Require at least 2D tile for Sm80 MMA tile")
         array_shape = shape[:-2]
         tile_shape = shape[-2:]
-        assert prim_type == "float"  # TODO
-        regcount = cls.tile_shape[0] * cls.tile_shape[1] // 32
 
-        assert len(cls.tile_shape) == 2
-        for i, c in enumerate(tile_shape):
-            try:
-                if int(c) != int(cls.tile_shape[i]):
-                    raise ValueError("WRONG")
-            except Exception:
-                raise MemGenError(
-                    f"{srcinfo}: Expected last 2 dimensions of size "
-                    f"{cls.tile_shape}, not {tile_shape}"
-                )
+        try:
+            int_tile_shape = (int(tile_shape[0]), int(tile_shape[1]))
+            if int_tile_shape not in cls.expected_tile_shapes:
+                raise ValueError("WRONG")
+        except Exception:
+            raise MemGenError(
+                f"{srcinfo}: last 2 dims (tile_shape) {tile_shape} must match "
+                f"one of {cls.expected_tile_shapes}"
+            )
+
+        assert prim_type == "float"  # TODO
+        regcount = int_tile_shape[0] * int_tile_shape[1] // 32
 
         # Last array dimension corresponds to uint32_t-encoded matrix tile
         # Leading dimensions correspond to the Exo user's array dimensions.
@@ -316,7 +316,7 @@ class Sm80_BasicRmemMatrix(CudaBasicDeviceVisible):
         if basetyp.is_win():
             return f"*{baseptr}.data"
         assert len(strides) >= 2
-        assert strides[-2] == str(cls.tile_shape[1])
+        # assert strides[-2] == str(cls.tile_shape[1])
         assert strides[-1] == "1"
         leading = "".join(f"[{c}]" for c in indices[:-2])
         return f"{baseptr}{leading}"
@@ -337,16 +337,16 @@ class Sm80_BasicRmemMatrix(CudaBasicDeviceVisible):
 class Sm80_RmemMatrixA(Sm80_BasicRmemMatrix):
     """Matrix tile for sm_80+ warp MMA A operand"""
 
-    tile_shape = (16, 8)
+    expected_tile_shapes = [(16, 4), (16, 8)]
 
 
 class Sm80_RmemMatrixB(Sm80_BasicRmemMatrix):
     """Matrix tile for sm_80+ warp MMA B operand"""
 
-    tile_shape = (8, 8)
+    expected_tile_shapes = [(4, 8), (8, 8)]
 
 
 class Sm80_RmemMatrixD(Sm80_BasicRmemMatrix):
     """Matrix tile for sm_80+ warp MMA accumulator (C, D) operands"""
 
-    tile_shape = (16, 8)
+    expected_tile_shapes = [(16, 8)]
