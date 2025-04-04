@@ -131,16 +131,12 @@ class TypeChecker:
                     f"expected writes to configuration {name[0].name()}.{name[1]} does not depend on loop iterations",
                 )
 
-        instr = proc.instr
-        if instr:
-            instr = LoopIR.instr(c_instr=instr.c_instr, c_global=instr.c_global)
-
         self.loopir_proc = LoopIR.proc(
             name=proc.name or "anon",
             args=args,
             preds=preds,
             body=body,
-            instr=instr,
+            instr=None,
             srcinfo=proc.srcinfo,
         )
 
@@ -157,7 +153,9 @@ class TypeChecker:
         self.errors.append(f"{node.srcinfo}: {msg}")
 
     def check_stmts(self, body):
-        assert len(body) > 0 or self.uast_proc.instr
+        # David Akeley: this assert doesn't work anymore since I
+        # replaced UAST.instr with InstrInfo
+        # assert len(body) > 0 or self.uast_proc.instr
         stmts = []
         for s in body:
             stmts += self.check_single_stmt(s)

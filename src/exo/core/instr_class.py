@@ -96,6 +96,27 @@ def tparams_from_ast(clsname: str, tproc: LoopIR.proc, instance_ast: pyast.Funct
     return tparam_syms, tparam_types
 
 
+def prefill_instr_info(info: InstrInfo, proc: LoopIR.proc):
+    info.c_global = ""
+    info.cu_util = ""
+    info.cu_includes = []
+    info.coll_unit = standalone_thread
+    info.actor_kind = actor_kinds.cpu
+    info.access_info = proc_default_access_info(proc)
+    info._formatted_tparam_kwargs = ""
+
+
+def old_style_instr_info(proc: LoopIR.proc, c_instr: str, c_global: str):
+    """InstrInfo from old-style @instr decorator"""
+    assert isinstance(c_instr, str)
+    assert isinstance(c_global, str)
+    info = InstrInfo()
+    prefill_instr_info(info, proc)
+    info.instr_format = c_instr
+    info.c_global = c_global
+    return info
+
+
 class InstrTemplate:
     """Templatized instruction -- call operator yields Procedure instr"""
 
@@ -147,14 +168,9 @@ class InstrTemplate:
 
         # The user's cls.instance function will be used to initialize InstrInfo.
         def info_init(info, **tparam_dict):
-            info.c_global = ""
-            info.cu_util = ""
-            info.cu_includes = []
-            info.coll_unit = standalone_thread
-            info.actor_kind = actor_kinds.cpu
-            info.access_info = proc_default_access_info(tproc)
+            prefill_instr_info(info, tproc)
             info.instance(**tparam_dict)
-            self._postprocess_instr_info(tproc, info)
+            self._postprocess_instr_info(tproc, info, tparam_dict)
 
             assert hasattr(info, "instr_format"), f"{nm}: missing instr_format"
             assert isinstance(info.instr_format, str), f"{nm}: missing instr_format"
@@ -216,9 +232,8 @@ class InstrTemplate:
         for i, a in enumerate(iproc_args):
             iproc_args[i] = a.update(mem=instr_info.access_info[str(a.name)].mem)
         iproc_args = SubstArgs(iproc_args, binding).result()
-        instr = LoopIR.instr(instr_info.instr_format, instr_info.c_global)  # XXX
         iproc = LoopIR.proc(
-            tproc.name, iproc_args, tproc.preds, iproc_body, instr, tproc.srcinfo
+            tproc.name, iproc_args, tproc.preds, iproc_body, instr_info, tproc.srcinfo
         )
 
         # Build and save Procedure in cache.
@@ -252,7 +267,7 @@ class InstrTemplate:
         assert len(tparam_values) == len(self.tparam_syms)
         return ", ".join(f"{nm}={v}" for nm, v in zip(self.tparam_syms, tparam_values))
 
-    def _postprocess_instr_info(self, proc: LoopIR.proc, info: InstrInfo):
+    def _postprocess_instr_info(self, proc: LoopIR.proc, info: InstrInfo, tparam_dict):
         actor_kind = info.actor_kind
         assert isinstance(actor_kind, actor_kinds.ActorKind)
         access_info = info.access_info
@@ -273,4 +288,6 @@ class InstrTemplate:
                 signature in actor_kind.signatures
             ), f"{clsname}: cannot access {nm} with actor signature {signature} for actor kind {actor_kind}"
 
-        info._formatted_tparam_kwargs = self._format_tparam_kwargs
+        info._formatted_tparam_kwargs = self._format_tparam_kwargs(
+            self._tparam_values(**tparam_dict)
+        )

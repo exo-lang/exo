@@ -15,6 +15,7 @@ from .API_types import ExoType
 
 from .rewrite.LoopIR_unification import DoReplace, UnificationError
 from .core.configs import Config
+from .core.instr_class import old_style_instr_info
 from .core.memory import Memory
 from .frontend.parse_fragment import parse_fragment
 from .core.prelude import *
@@ -822,7 +823,7 @@ def make_instr(proc, c_instr, c_global=""):
         c_global - string representing global C code necessary for this instruction e.g. includes
     """
     ir = proc._loopir_proc
-    instr = LoopIR.instr(c_instr=c_instr, c_global=c_global)
+    instr = old_style_instr_info(ir, c_instr, c_global)
     ir = ir.update(instr=instr)
     return Procedure(
         ir,

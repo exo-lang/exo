@@ -638,7 +638,6 @@ class Parser:
         is_fragment=False,
         as_func=False,
         as_config=False,
-        instr=None,
         is_quote_stmt=False,
         is_quote_expr=False,
     ):
@@ -663,7 +662,7 @@ class Parser:
             self.AST = UAST
 
         if as_func:
-            self._cached_result = self.parse_fdef(module_ast, instr=instr)
+            self._cached_result = self.parse_fdef(module_ast)
         elif as_config:
             self._cached_result = self.parse_cls(module_ast)
         elif is_fragment:
@@ -759,7 +758,7 @@ class Parser:
     # - # - # - # - # - # - # - # - # - # - # - # - # - # - # - #
     # structural parsing rules...
 
-    def parse_fdef(self, fdef, instr=None):
+    def parse_fdef(self, fdef):
         assert isinstance(fdef, pyast.FunctionDef)
 
         fargs = fdef.args
@@ -826,8 +825,6 @@ class Parser:
             a = a.test
             preds.append(self.parse_expr(a))
 
-        if instr:
-            instr = UAST.instr(*instr)
         # parse the procedure body
         body = self.parse_stmt_block(pyast_body)
         return UAST.proc(
@@ -835,7 +832,6 @@ class Parser:
             args=args,
             preds=preds,
             body=body,
-            instr=instr,
             srcinfo=self.getsrcinfo(fdef),
         )
 

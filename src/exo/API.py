@@ -10,7 +10,7 @@ from exo.rewrite.LoopIR_scheduling import SchedulingError
 
 from .API_types import ProcedureBase, ExoType
 from .core import LoopIR as LoopIR
-from .core.instr_class import InstrTemplate
+from .core.instr_class import InstrTemplate, old_style_instr_info
 from .backend.LoopIR_compiler import (
     run_compile,
     compile_to_strings,
@@ -37,7 +37,7 @@ from .core import internal_cursors as IC
 # Top-level decorator
 
 
-def proc(f, _instr=None) -> "Procedure":
+def proc(f, _c_instr_global=None) -> "Procedure":
     if not isinstance(f, types.FunctionType):
         raise TypeError("@proc decorator must be applied to a function")
 
@@ -47,11 +47,10 @@ def proc(f, _instr=None) -> "Procedure":
     parser = Parser(
         body,
         src_info,
-        parent_scope=get_parent_scope(depth=3 if _instr else 2),
-        instr=_instr,
+        parent_scope=get_parent_scope(depth=3 if _c_instr_global else 2),
         as_func=True,
     )
-    return Procedure(parser.result())
+    return Procedure(parser.result(), _c_instr_global=_c_instr_global)
 
 
 def instr(c_instr, c_global=""):
@@ -74,7 +73,7 @@ def instr(c_instr, c_global=""):
                 "@instr(<C syntax>) decorator must be applied to a function"
             )
 
-        return proc(f, _instr=(c_instr, c_global))
+        return proc(f, (c_instr, c_global))
 
     return inner
 
@@ -204,6 +203,7 @@ class Procedure(ProcedureBase):
         _provenance_eq_Procedure: "Procedure" = None,
         _forward=None,
         _mod_config=None,
+        _c_instr_global=None,
     ):
         super().__init__()
 
@@ -215,6 +215,11 @@ class Procedure(ProcedureBase):
             Check_Aliasing(proc)
 
         assert isinstance(proc, LoopIR.LoopIR.proc)
+
+        if _c_instr_global:
+            c_instr, c_global = _c_instr_global
+            assert proc.instr is None
+            proc = proc.update(instr=old_style_instr_info(proc, c_instr, c_global))
 
         # add this procedure into the equivalence tracking mechanism
         if _provenance_eq_Procedure:

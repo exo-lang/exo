@@ -77,7 +77,7 @@ class AccessInfo:
     actor_signature: ActorSignature = sig_cpu
 
 
-@dataclass(slots=True)
+@dataclass(init=False, slots=True)
 class InstrInfo:
     instr_format: str
     c_global: str
@@ -105,9 +105,6 @@ module LoopIR {
              stmt*   body,
              instr?  instr,
              srcinfo srcinfo )
-
-    instr  = ( string c_instr,
-               string c_global )
 
     fnarg  = ( sym     name,
                type    type,
@@ -188,6 +185,7 @@ module LoopIR {
 }""",
     ext_types={
         "name": validators.instance_of(Identifier, convert=True),
+        "instr": InstrInfo,
         "sym": Sym,
         "memwin": Type[MemWin],
         "mem": Type[Memory],
@@ -231,11 +229,7 @@ module UAST {
                 fnarg*          args,
                 expr*           preds,
                 stmt*           body,
-                instr?          instr,
                 srcinfo         srcinfo )
-
-    instr   = ( string          c_instr,
-                string          c_global )
 
     fnarg   = ( sym             name,
                 type            type,

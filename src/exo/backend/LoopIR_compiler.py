@@ -428,7 +428,7 @@ def ext_compile_to_strings(lib_name, proc_list):
                     "",
                     '/* relying on the following instruction..."',
                     f"{p.name}({argstr})",
-                    p.instr.c_instr,
+                    p.instr.instr_format,
                     "*/",
                 ]
             )
@@ -1289,7 +1289,7 @@ class Compiler:
                         # Exo 1 does this; unclear why for non-windows
                         d[f"{arg_name}_data"] = arg
 
-                self.add_line(f"{s.f.instr.c_instr.format(**d)}")
+                self.add_line(f"{s.f.instr.instr_format.format(**d)}")
             else:
                 fname = s.f.name
                 args = ["ctxt"]
@@ -1308,7 +1308,7 @@ class Compiler:
         c_args is a tuple (length 1 or 2) of formatted arguments.
         Length 2 only occurs for separate_dataptr windows: (dataptr, layout).
 
-        instr_data is for formatting c_instr windows; passed as {arg_name}_data.
+        instr_data is for formatting instr_format windows; passed as {arg_name}_data.
         This is needed both for compatibility with Exo 1 and for allowing
         access to the dataptr when separate_dataptr is True.
 

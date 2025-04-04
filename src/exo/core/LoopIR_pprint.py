@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 # string
 from yapf.yapflib.yapf_api import FormatCode
 
-from .LoopIR import T, barrier_type_count
+from .LoopIR import T, barrier_type_count, InstrInfo
 from .LoopIR import UAST, LoopIR
 from .internal_cursors import Node, Gap, Block, Cursor, InvalidCursorError, GapType
 from .prelude import *
@@ -165,7 +165,7 @@ class UAST_PPrinter:
 
         self.push()
         if p.instr:
-            instr_lines = p.instr.c_instr.split("\n")
+            instr_lines = p.instr.instr_format.split("\n")
             instr_lines = [f"# @instr {instr_lines[0]}"] + [
                 f"#        {l}" for l in instr_lines[1:]
             ]
@@ -406,7 +406,7 @@ def _print_proc(p, env: PrintEnv, indent: str) -> list[str]:
     indent = indent + "  "
 
     if p.instr:
-        for i, line in enumerate(p.instr.c_instr.split("\n")):
+        for i, line in enumerate(p.instr.instr_format.split("\n")):
             if i == 0:
                 lines.append(f"{indent}# @instr {line}")
             else:
@@ -468,6 +468,10 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
 
     elif isinstance(stmt, LoopIR.Call):
         args = [_print_expr(a, env) for a in stmt.args]
+        instr = stmt.f.instr
+        if instr:
+            if kwargs := instr._formatted_tparam_kwargs:
+                args.append(kwargs)
         return [f"{indent}{stmt.f.name}({', '.join(args)})"]
 
     elif is_if_holding_with(stmt, LoopIR):  # must be before .If case
@@ -652,7 +656,7 @@ def _print_cursor_proc(
 
     if cur == target:
         if p.instr:
-            for i, line in enumerate(p.instr.c_instr.split("\n")):
+            for i, line in enumerate(p.instr.instr_format.split("\n")):
                 if i == 0:
                     lines.append(f"{indent}# @instr {line}")
                 else:
