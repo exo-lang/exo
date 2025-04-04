@@ -11,8 +11,9 @@ from .memory import DRAM, MemWin, Memory, SpecialWindow
 from .prelude import Sym, SrcInfo, extclass
 
 from ..spork.actor_kinds import ActorKind, ActorSignature, sig_cpu
+from ..spork import actor_kinds
 from ..spork.base_with_context import BaseWithContext
-from ..spork.coll_algebra import CollUnit
+from ..spork.coll_algebra import CollUnit, standalone_thread
 from ..spork.loop_modes import LoopMode
 from ..spork.sync_types import SyncType
 
@@ -670,6 +671,34 @@ def is_barrier(t):
 
 
 del is_barrier
+
+
+@extclass(LoopIR.proc)
+def proc_actor_kind(f):
+    """Return actor kind needed to call a proc.
+
+    For now, any non-instr procs are assumed to require 1 CPU thread.
+    """
+    if f.instr:
+        return f.instr.actor_kind
+    return actor_kinds.cpu
+
+
+del proc_actor_kind
+
+
+@extclass(LoopIR.proc)
+def proc_coll_unit(f):
+    """Return collective unit needed to call a proc.
+
+    For now, any non-instr procs are assumed to require 1 CPU thread.
+    """
+    if f.instr:
+        return f.instr.coll_unit
+    return standalone_thread
+
+
+del proc_coll_unit
 
 
 def chain_window_idx(idx0, idx1):

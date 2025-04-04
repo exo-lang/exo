@@ -385,6 +385,14 @@ class SubtreeScan(LoopIR_Do):
                 self.barrier_scans[s.bar] = state
             state.inspect_sync_stmt(s, self._coll_tiling, self._stmt_stack)
 
+        elif isinstance(s, LoopIR.Call):
+            callee = s.f
+            needed = callee.proc_coll_unit()
+            if msg := self._coll_tiling.unit_mismatch(needed, self._coll_env):
+                raise TypeError(
+                    f"{s.srcinfo}: wrong collective unit for " f"{callee.name}(): {msg}"
+                )
+
     def apply_with_cuda_warps(self, s):
         ctx = s.cond.val
         assert isinstance(ctx, CudaWarps)

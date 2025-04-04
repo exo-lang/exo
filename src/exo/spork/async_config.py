@@ -169,18 +169,13 @@ class ActorKindAnalysis(LoopIR_Rewrite):
                 )
         elif isinstance(s, LoopIR.Call):
             callee = s.f
-            if callee.instr is None:
-                if self.actor_kind != actor_kinds.cpu:
-                    # We currently assume the top-level actor kind of all
-                    # non-instr procs is cpu ... so must be called by CPU.
-                    raise TypeError(
-                        f"{s.srcinfo}: non-instr proc must be called "
-                        f"by the CPU (scope has actor kind "
-                        f"{self.actor_kind})"
-                    )
-            else:
-                pass
-                # TODO
+            needed = callee.proc_actor_kind()
+            if self.actor_kind != needed:
+                raise TypeError(
+                    f"{s.srcinfo}: {callee.name}() requires actor kind "
+                    f"{needed}; scope has actor kind "
+                    f"{self.actor_kind}"
+                )
 
     def inspect_e(self, e):
         if isinstance(e, LoopIR.Read) and e.type.is_numeric():
