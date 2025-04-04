@@ -1348,15 +1348,26 @@ class Parser:
                         )
                 else:
                     f = self.eval_expr(s.value.func)
-                    if not isinstance(f, ProcedureBase):
-                        self.err(
-                            s.value.func, f"expected called object " "to be a procedure"
-                        )
+                    kwargs = {
+                        kw.arg: self.eval_expr(kw.value) for kw in s.value.keywords
+                    }
+                    if isinstance(f, ProcedureBase):
+                        if kwargs:
+                            self.err(s.value.func, "Cannot take keyword arguments")
+                    else:
+                        # circular import
+                        from ..core.instr_class import InstrTemplate, InstrTemplateError
 
-                    if len(s.value.keywords) > 0:
-                        self.err(
-                            s.value, "cannot call procedure() " "with keyword arguments"
-                        )
+                        if isinstance(f, InstrTemplate):
+                            try:
+                                f = f(**kwargs)
+                            except InstrTemplateError as e:
+                                self.err(s.value.func, str(e))
+                        else:
+                            self.err(
+                                s.value.func,
+                                f"expected called object to be a procedure or InstrTemplate",
+                            )
 
                     args = [self.parse_expr(a) for a in s.value.args]
 

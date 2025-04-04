@@ -87,6 +87,9 @@ class InstrInfo:
     actor_kind: ActorKind
     access_info: Dict[str, AccessInfo]
 
+    # For internal use
+    _formatted_tparam_kwargs: str
+
 
 # --------------------------------------------------------------------------- #
 # Loop IR

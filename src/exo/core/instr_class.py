@@ -28,7 +28,7 @@ from typing import Callable, Optional, Dict, List, Tuple, Type
 
 from .prelude import Sym
 
-from .LoopIR import LoopIR, AccessInfo, InstrInfo, SubstArgs
+from .LoopIR import LoopIR, AccessInfo, InstrInfo, SubstArgs, Identifier
 from .memory import DRAM
 from ..frontend.pyparser import get_ast_from_python, Parser, get_parent_scope
 from ..spork import actor_kinds
@@ -44,30 +44,6 @@ def proc_default_access_info(proc: LoopIR.proc):
         mem = DRAM if arg.mem is None else arg.mem
         access_info[nm] = AccessInfo(mem)
     return access_info
-
-
-def validate_access_info(cls_name, proc: LoopIR.proc, actor_kind, access_info):
-    assert isinstance(actor_kind, actor_kinds.ActorKind)
-    for arg in proc.args:
-        if not arg.type.is_numeric():
-            continue
-        nm = arg.name.name()
-        arg_info = access_info[nm]
-        if arg.mem is not None:
-            assert (
-                arg.mem == arg_info.mem
-            ), f"{cls_name}: cannot override mem for {nm} @ {arg.mem}"
-
-        signature = arg_info.actor_signature
-        assert (
-            signature in actor_kind.signatures
-        ), f"{cls_name}: cannot access {nm} with actor signature {signature} for actor kind {actor_kind}"
-
-        # if arg_info.is_async is None:
-        #     assert signature == actor_kinds.sig_cpu, f"{cls_name}: AccessInfo for {nm} must specify boolean is_async"
-        #     arg_info.is_async = False
-        # else:
-        #     assert isinstance(arg_info.is_async, bool)
 
 
 class InstrTemplateError(Exception):
@@ -163,7 +139,8 @@ class InstrTemplate:
         parser = Parser(
             behavior_body, src_info, parent_scope=parent_scope, as_func=True
         )
-        tproc = make_procedure(parser.result())._loopir_proc
+        uast_tproc = parser.result().update(name=Identifier(nm))
+        tproc = make_procedure(uast_tproc)._loopir_proc
 
         # Deduce the (Sym) names of tparams based on cls.instance
         tparam_syms, tparam_types = tparams_from_ast(nm, tproc, instance_body)
@@ -177,7 +154,7 @@ class InstrTemplate:
             info.actor_kind = actor_kinds.cpu
             info.access_info = proc_default_access_info(tproc)
             info.instance(**tparam_dict)
-            validate_access_info(nm, tproc, info.actor_kind, info.access_info)
+            self._postprocess_instr_info(tproc, info)
 
             assert hasattr(info, "instr_format"), f"{nm}: missing instr_format"
             assert isinstance(info.instr_format, str), f"{nm}: missing instr_format"
@@ -219,7 +196,7 @@ class InstrTemplate:
         except Exception as e:
             kwargs_str = self._format_tparam_kwargs(tparam_values)
             raise InstrTemplateError(
-                f"Failed to instantiate {clsname}({kwargs_str})"
+                f"Failed to instantiate {clsname}({kwargs_str}): {e}"
             ) from e
 
         # Convert template proc (tproc) to instanced proc (iproc) by
@@ -263,9 +240,9 @@ class InstrTemplate:
             if isinstance(v, int):
                 tparam_values.append(v)
             elif v is None:
-                raise ValueError(f"{clsname}: missing template parameter {nm}")
+                raise InstrTemplateError(f"{clsname}: missing template parameter {nm}")
             else:
-                raise TypeError(f"{clsname}: {nm} must be int, not {type(v)}")
+                raise InstrTemplateError(f"{clsname}: {nm} must be int, not {type(v)}")
         # Do this assert late as the "missing parameter"
         # message above has better clarity.
         assert len(tparam_dict) == len(syms), f"{clsname}: excess arguments"
@@ -274,3 +251,26 @@ class InstrTemplate:
     def _format_tparam_kwargs(self, tparam_values):
         assert len(tparam_values) == len(self.tparam_syms)
         return ", ".join(f"{nm}={v}" for nm, v in zip(self.tparam_syms, tparam_values))
+
+    def _postprocess_instr_info(self, proc: LoopIR.proc, info: InstrInfo):
+        actor_kind = info.actor_kind
+        assert isinstance(actor_kind, actor_kinds.ActorKind)
+        access_info = info.access_info
+        clsname = self.info_cls.__name__
+
+        for arg in proc.args:
+            if not arg.type.is_numeric():
+                continue
+            nm = arg.name.name()
+            arg_info = access_info[nm]
+            if arg.mem is not None:
+                assert (
+                    arg.mem == arg_info.mem
+                ), f"{clsname}: cannot override mem for {nm} @ {arg.mem}"
+
+            signature = arg_info.actor_signature
+            assert (
+                signature in actor_kind.signatures
+            ), f"{clsname}: cannot access {nm} with actor signature {signature} for actor kind {actor_kind}"
+
+        info._formatted_tparam_kwargs = self._format_tparam_kwargs

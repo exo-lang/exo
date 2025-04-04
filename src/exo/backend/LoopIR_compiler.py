@@ -420,10 +420,6 @@ def ext_compile_to_strings(lib_name, proc_list):
     # Compile proc bodies
     seen_procs = set()
     for p in proc_list:
-        if p.name in seen_procs:
-            raise TypeError(f"multiple procs named {p.name}")
-        seen_procs.add(p.name)
-
         # don't compile instruction procedures, but add a comment.
         if p.instr is not None:
             argstr = ",".join([str(a.name) for a in p.args])
@@ -439,6 +435,10 @@ def ext_compile_to_strings(lib_name, proc_list):
             if p.instr.c_global:
                 instrs_global.append(p.instr.c_global)
         else:
+            if p.name in seen_procs:
+                raise TypeError(f"multiple non-instr procs named {p.name}")
+            seen_procs.add(p.name)
+
             is_public_decl = id(p) in orig_procs
 
             p = ParallelAnalysis().run(p)
