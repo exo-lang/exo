@@ -6,7 +6,7 @@ from collections import ChainMap
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 from ..core.LoopIR import LoopIR, LoopIR_Do, get_writes_of_stmts, T, CIR
 from ..core.configs import ConfigError
@@ -411,7 +411,9 @@ def ext_compile_to_strings(lib_name, proc_list):
     # Body contents
     private_fwd_decls = []
     proc_bodies = []
-    instrs_global = []
+    instrs_c_global = []
+    tagged_cu_util: List[Tuple[str, str]] = []  # (name, cu_util)
+    tagged_cu_includes: List[Tuple[str, str]] = []  # (name, header name)
     analyzed_proc_list = []
     ext_lines = {}
 
@@ -421,19 +423,29 @@ def ext_compile_to_strings(lib_name, proc_list):
     seen_procs = set()
     for p in proc_list:
         # don't compile instruction procedures, but add a comment.
-        if p.instr is not None:
-            argstr = ",".join([str(a.name) for a in p.args])
+        if instr := p.instr:
+            arg_list = [str(a.name) for a in p.args]
+            if kwargs := instr._formatted_tparam_kwargs:
+                arg_list.append(kwargs)
+            argstr = ",".join(arg_list)
+            instr_name = f"{p.name}({argstr})"
             proc_bodies.extend(
                 [
                     "",
                     '/* relying on the following instruction..."',
-                    f"{p.name}({argstr})",
+                    instr_name,
                     p.instr.instr_format,
                     "*/",
                 ]
             )
-            if p.instr.c_global:
-                instrs_global.append(p.instr.c_global)
+            if instr.c_global:
+                instrs_c_global.append(instr.c_global)
+            if instr.cu_util:
+                tagged_cu_util.append((instr_name, instr.cu_util))
+            if instr.cu_includes:
+                for header_name in instr.cu_includes:
+                    tagged_cu_includes.append((instr_name, header_name))
+
         else:
             if p.name in seen_procs:
                 raise TypeError(f"multiple non-instr procs named {p.name}")
@@ -448,7 +460,11 @@ def ext_compile_to_strings(lib_name, proc_list):
             p = ActorKindAnalysis().run(p)
 
             comp = Compiler(
-                p, ctxt_name, window_struct_cache, is_public_decl=is_public_decl
+                p,
+                lib_name,
+                ctxt_name,
+                window_struct_cache,
+                is_public_decl=is_public_decl,
             )
             d, b = comp.comp_top()
             needed_helpers |= comp.needed_helpers()
@@ -467,6 +483,9 @@ def ext_compile_to_strings(lib_name, proc_list):
 
     # Memories and structs are just blobs of code...
     # still sort them for output stability
+    # TODO consider injecting memory code into .cuh file ...
+    # but we have to worry about tracking window struct usage in
+    # C/cuda/public header too.
     header_memwins, header_memwin_code, body_memwin_code = _compile_memwins(proc_list)
     (
         header_struct_defns,
@@ -507,7 +526,7 @@ def ext_compile_to_strings(lib_name, proc_list):
     helper_code = [_static_helpers[v] for v in needed_helpers]
     body_contents = [
         helper_code,
-        instrs_global,
+        instrs_c_global,
         body_memwin_code,
         body_struct_defns,
         extern_code,
@@ -518,6 +537,11 @@ def ext_compile_to_strings(lib_name, proc_list):
     body_contents = map(from_lines, body_contents)
     body_contents = from_lines(body_contents)
     body_contents += "\n"  # New line at end of file
+
+    # Add cu_includes, cu_util
+    prepend_tagged_cuh_ext_lines(False, lib_name, tagged_cu_util, ext_lines)
+    prepend_tagged_cuh_ext_lines(True, lib_name, tagged_cu_includes, ext_lines)
+
     return header_contents, body_contents, ext_lines
 
 
@@ -583,10 +607,13 @@ def _compile_context_struct(configs, lib_name):
 
 
 class Compiler:
-    def __init__(self, proc, ctxt_name, window_struct_cache, *, is_public_decl):
+    def __init__(
+        self, proc, lib_name, ctxt_name, window_struct_cache, *, is_public_decl
+    ):
         assert isinstance(proc, LoopIR.proc)
         assert isinstance(window_struct_cache, WindowStructCache)
 
+        self.lib_name = lib_name
         self.proc = proc
         self.ctxt_name = ctxt_name
         self.env = ChainMap()
@@ -1140,7 +1167,7 @@ class Compiler:
 
             elif isinstance(ctx, CudaDeviceFunction):
                 spork_ctx = SporkLoweringCtx(
-                    self.proc.name, self._cuda_kernel_count, self
+                    self.lib_name, self.proc.name, self._cuda_kernel_count, self
                 )
                 lowered = loopir_lower_cuda(s, spork_ctx)
                 # print(lowered)
@@ -1525,6 +1552,54 @@ class Compiler:
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
+# Assemble includes and exo_CudaUtil struct in .cuh file
+# from list of pairs of (required_by: str, content: str)
+# where content is a header name or a cu_util blob.
+# We remove exact duplicate strings.
+def prepend_tagged_cuh_ext_lines(is_includes, lib_name, tagged_content, ext_lines):
+    if not tagged_content:
+        return
+
+    combined: [List[str], str] = []  # ([required_by], content)
+    index_dict = {}
+
+    for tag, content in tagged_content:
+        idx = index_dict.get(content)
+        if idx is None:
+            index_dict[content] = len(combined)
+            combined.append(([tag], content))
+        else:
+            combined[idx][0].append(tag)
+
+    lines = []
+    if is_includes:
+        # Alphabetize include files
+        combined.sort(key=lambda tup: tup[1])
+    else:
+        # Begin namespace
+        lines.append("")
+        lines.append(f"namespace exo_CudaUtil_{lib_name} {{")
+
+    for tags, content in combined:
+        for tag in tags:
+            lines.append(f"/* Required by {tag} */")
+        if is_includes:
+            lines.append(f"#include <{content}>")
+        else:
+            for line in content.split("\n"):
+                if not line or line.isspace():
+                    lines.append("")
+                else:
+                    lines.append(line)
+
+    if not is_includes:
+        lines.append("}  // end namespace")
+
+    ext_lines["cuh"] = lines + ext_lines.setdefault("cuh", [])
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
 # Cached collection of window struct definitions
 
 
@@ -1636,19 +1711,25 @@ class SporkLoweringCtx(object):
     """
 
     __slots__ = [
+        "_lib_name",
         "_proc_name",
         "_kernel_index",
         "_compiler",
     ]
 
+    _lib_name: str
     _proc_name: str
     _kernel_index: int
     _compiler: Compiler
 
-    def __init__(self, proc_name, kernel_index, compiler):
+    def __init__(self, lib_name, proc_name, kernel_index, compiler):
+        self._lib_name = lib_name
         self._proc_name = proc_name
         self._kernel_index = kernel_index
         self._compiler = compiler
+
+    def lib_name(self):
+        return self._lib_name
 
     def proc_name(self):
         return self._proc_name

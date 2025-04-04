@@ -121,6 +121,7 @@ class SubtreeScan(LoopIR_Do):
         self.clusterDim = cuda_device_function.clusterDim
         self.fmt_dict = {
             "proc": ctx.proc_name(),
+            "lib_name": ctx.lib_name(),
             "N": ctx.kernel_index(),
             "gridDim": 48 * cuda_device_function.blocks_per_sm,  # TODO
             "blockDim": self.blockDim,
@@ -1889,99 +1890,30 @@ exo_Cuda{N}_{proc}::exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo
 
 device_task_prefix_fmt = """__device__ __forceinline__ void
 exo_Cuda{N}_{proc}::exo_deviceTask(char* exo_smem, exo_SyncState& exo_syncState, const exo_DeviceArgs& exo_deviceArgs, exo_Task exo_task)
-{{"""
+{{
+  namespace exo_CudaUtil = exo_CudaUtil_{lib_name};"""
 
 cuda_launch_fmt = """exo_cudaLaunch{N}_{proc}(exo_cudaStream, (struct exo_CudaDeviceArgs{N}_{proc}) {{ {device_args} }});"""
 
 task_launch_fmt = """if (exo_taskIndex++ % (gridDim.x / exo_clusterDim) == blockIdx.x / exo_clusterDim) exo_deviceTask(exo_smem, exo_syncState, exo_deviceArgs, (struct exo_Task) {{ {task_args} }});"""
 
 # Paste this into the C header (.h) if any proc uses cuda.
-# TODO this should be minimal.
-# cp.async and MMA stuff should be externalized
 h_snippet_for_cuda = r"""
+#ifndef EXO_CUDA_HEADER_COMMON
+#define EXO_CUDA_HEADER_COMMON
 #include <cuda.h>
 #include <cuda_runtime.h>
+#ifdef __CUDACC__
+#define EXO_CUDA_INLINE __device__ __forceinline__
+EXO_CUDA_INLINE unsigned exo_smemU32(const void* smem_ptr)
+{
+    return (unsigned)__cvta_generic_to_shared(smem_ptr);
+}
+#endif
+#endif
 
 #ifndef EXO_CUDA_STREAM_GUARD
 #define EXO_CUDA_STREAM_GUARD
 static const cudaStream_t exo_cudaStream = 0;
-#endif
-
-#ifdef __CUDACC__
-#ifndef EXO_CUDA_GLOBAL_DEFS
-#define EXO_CUDA_GLOBAL_DEFS
-
-// XXX this is really hacky to fix extern C
-}
-#include <cuda/std/array>
-extern "C" {
-
-__device__ __forceinline__ unsigned exo_smemU32(const void* smem_ptr)
-{
-    return static_cast<unsigned>(__cvta_generic_to_shared(smem_ptr));
-}
-
-__device__ __forceinline__ void exo_Sm80_cpAsync16B(void *smem_ptr, const void* gmem_ptr) {
-    const int BYTES = 16;
-    uint32_t smem = exo_smemU32(smem_ptr);
-    asm volatile(
-        "cp.async.cg.shared.global [%0], [%1], %2;" ::"r"(smem),
-        "l"(gmem_ptr),
-        "n"(BYTES) : "memory");
-}
-
-inline __device__ void exo_Sm80_tmp_load_a(unsigned rmem[4], const float* gmem, cuda::std::array<int_fast32_t, 2> element_strides)
-{
-    const unsigned row_stride = element_strides[0];
-    const unsigned col_stride = element_strides[1];
-    const unsigned warp_lane = threadIdx.x % 32u;
-    const float* gmem_thread_baseaddr = &gmem[warp_lane / 4u * row_stride + warp_lane % 4u * col_stride];
-    rmem[0] = __float_as_uint(gmem_thread_baseaddr[0]);
-    rmem[1] = __float_as_uint(gmem_thread_baseaddr[8 * row_stride]);
-    rmem[2] = __float_as_uint(gmem_thread_baseaddr[4 * col_stride]);
-    rmem[3] = __float_as_uint(gmem_thread_baseaddr[8 * row_stride + 4 * col_stride]);
-}
-
-inline __device__ void exo_Sm80_tmp_load_b(unsigned rmem[2], const float* gmem, cuda::std::array<int_fast32_t, 2> element_strides)
-{
-    const unsigned row_stride = element_strides[0];
-    const unsigned col_stride = element_strides[1];
-    const unsigned warp_lane = threadIdx.x % 32u;
-    const float* gmem_thread_baseaddr = &gmem[warp_lane % 4u * row_stride + warp_lane / 4u * col_stride];
-    rmem[0] = __float_as_uint(gmem_thread_baseaddr[0]);
-    rmem[1] = __float_as_uint(gmem_thread_baseaddr[4 * row_stride]);
-}
-
-inline __device__ void exo_Sm80_tmp_store_d(float* gmem, const unsigned rmem[4], cuda::std::array<int_fast32_t, 2> element_strides)
-{
-    const unsigned row_stride = element_strides[0];
-    const unsigned col_stride = element_strides[1];
-    const unsigned warp_lane = threadIdx.x % 32u;
-    float* gmem_thread_baseaddr = &gmem[(warp_lane / 4u) * row_stride + (warp_lane % 4u) * 2u * col_stride];
-    gmem_thread_baseaddr[0] = __uint_as_float(rmem[0]);
-    gmem_thread_baseaddr[col_stride] = __uint_as_float(rmem[1]);
-    gmem_thread_baseaddr[8 * row_stride] = __uint_as_float(rmem[2]);
-    gmem_thread_baseaddr[8 * row_stride + col_stride] = __uint_as_float(rmem[3]);
-}
-
-inline __device__ void exo_Sm80_tmp_zero_d(unsigned rmem[4])
-{
-    rmem[0] = 0;
-    rmem[1] = 0;
-    rmem[2] = 0;
-    rmem[3] = 0;
-}
-
-inline __device__ void exo_Sm80_tmp_mma(unsigned d[4], const unsigned a[4], const unsigned b[2])
-{
-    asm("mma.sync.aligned.m16n8k8.row.col.f32.tf32.tf32.f32\n\t"
-        "{%0,%1,%2,%3},\n\t"
-        "{%4,%5,%6,%7},\n\t"
-        "{%8,%9},\n\t"
-        "{%10,%11,%12,%13};" : "=r"(d[0]), "=r"(d[1]), "=r"(d[2]), "=r"(d[3])
-        : "r"(a[0]), "r"(a[1]), "r"(a[2]), "r"(a[3]), "r"(b[0]), "r"(b[1]), "r"(d[0]), "r"(d[1]), "r"(d[2]), "r"(d[3]));
-}
-
-#endif
 #endif
 """
