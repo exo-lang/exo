@@ -23,6 +23,7 @@ For context, the "old" instr is like
 """
 
 import ast as pyast
+import inspect
 from dataclasses import dataclass
 from typing import Callable, Optional, Dict, List, Tuple, Type
 
@@ -30,7 +31,7 @@ from .prelude import Sym
 
 from .LoopIR import LoopIR, AccessInfo, InstrInfo, SubstArgs, Identifier
 from .memory import DRAM
-from ..frontend.pyparser import get_ast_from_python, Parser, get_parent_scope
+from ..frontend.pyparser import get_ast_from_python, Parser
 from ..spork import actor_kinds
 from ..spork.coll_algebra import standalone_thread
 
@@ -50,30 +51,23 @@ class InstrTemplateError(Exception):
     pass
 
 
-def tparams_from_ast(clsname: str, tproc: LoopIR.proc, instance_ast: pyast.FunctionDef):
+def tparams_from_signature(clsname: str, tproc: LoopIR.proc, signature):
     assert isinstance(tproc, LoopIR.proc)
-    assert isinstance(instance_ast, pyast.FunctionDef)
 
     tparam_syms = []
     tparam_types = []
 
-    def check_no_attr(attr):
-        if getattr(instance_ast.args, attr):
-            raise ValueError(f"{clsname}.instance: cannot have {attr}")
-
-    check_no_attr("posonlyargs")
-    check_no_attr("vararg")
-    check_no_attr("kwonlyargs")
-    check_no_attr("kw_defaults")
-    check_no_attr("kwarg")
-    check_no_attr("defaults")
-
-    for i, ast_a in enumerate(instance_ast.args.args):
-        nm = ast_a.arg
+    for i, param in enumerate(signature.parameters.values()):
+        nm = param.name
         # Skip self
         if i == 0:
             assert nm == "self", f"{clsname}.instance: missing self"
             continue
+        problem = None
+        if param.kind.name != "POSITIONAL_OR_KEYWORD":
+            problem = f"cannot be {param.kind.name} argument"
+        elif param.default is not inspect._empty:
+            problem = "cannot have default value"
         # Look for matching parameter in behavior() and get its Sym
         for tproc_a in tproc.args:
             if tproc_a.name.name() == nm:
@@ -86,10 +80,10 @@ def tparams_from_ast(clsname: str, tproc: LoopIR.proc, instance_ast: pyast.Funct
                     )
                 break
         else:
-            raise NameError(
-                f"{clsname}.instance: parameter {nm} does not "
-                f"refer to any parameter of {clsname}.behavior"
-            )
+            problem = f"does not refer to any parameter of {clsname}.behavior"
+
+        if problem:
+            raise ValueError(f"{clsname}.instance: parameter {nm} {problem}")
         tparam_syms.append(sym)
         tparam_types.append(typ)
 
@@ -155,7 +149,7 @@ class InstrTemplate:
         assert hasattr(cls, "behavior"), f"Missing {nm}.behavior"
         behavior_body, src_info = get_ast_from_python(cls.behavior)
         assert hasattr(cls, "instance"), f"Missing {nm}.instance"
-        instance_body, _ = get_ast_from_python(cls.instance)
+        instance_signature = inspect.signature(cls.instance)
 
         parser = Parser(
             behavior_body, src_info, parent_scope=parent_scope, as_func=True
@@ -164,7 +158,9 @@ class InstrTemplate:
         tproc = make_procedure(uast_tproc)._loopir_proc
 
         # Deduce the (Sym) names of tparams based on cls.instance
-        tparam_syms, tparam_types = tparams_from_ast(nm, tproc, instance_body)
+        tparam_syms, tparam_types = tparams_from_signature(
+            nm, tproc, instance_signature
+        )
 
         # The user's cls.instance function will be used to initialize InstrInfo.
         def info_init(info, **tparam_dict):
