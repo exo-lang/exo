@@ -25,21 +25,7 @@ from .core.extern import Extern
 
 from . import stdlib
 
-from .spork import actor_kinds
-from .spork import loop_modes
-from .spork import coll_algebra
-from .spork import sync_types
-from .spork.async_config import BaseAsyncConfig, CudaDeviceFunction, CudaAsync
-from .spork.coll_algebra import (
-    cuda_thread,
-    cuda_quadpair,
-    cuda_warp,
-    cuda_warpgroup,
-    cuda_cta_in_cluster,
-)
-from .spork.with_cuda_warps import CudaWarps
-
-from .spork.base_with_context import ExtWithContext  # INTERNAL, FIXME
+from .spork.coll_algebra import standalone_thread
 
 __version__ = "1.0.0"
 
@@ -66,22 +52,5 @@ __all__ = [
     #
     "stdlib",
     "ExoType",
-    #
-    "actor_kinds",
-    "loop_modes",
-    "coll_algebra",  # TODO internal?
-    "sync_types",
-    #
-    "BaseAsyncConfig",
-    "CudaDeviceFunction",
-    "CudaAsync",
-    "CudaWarps",
-    #
-    "cuda_thread",
-    "cuda_quadpair",
-    "cuda_warp",
-    "cuda_warpgroup",
-    "cuda_cta_in_cluster",
-    #
-    "ExtWithContext",  # INTERNAL, FIXME
+    "standalone_thread",
 ]
