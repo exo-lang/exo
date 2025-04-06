@@ -11,7 +11,6 @@ from ..core.LoopIR import (
 from ..core.extern import Extern_Typecheck_Error
 from ..core.memory import *
 from ..core.prelude import Sym
-from ..spork.actor_kinds import actor_kind_dict
 from ..spork.base_with_context import BaseWithContext
 
 # --------------------------------------------------------------------------- #

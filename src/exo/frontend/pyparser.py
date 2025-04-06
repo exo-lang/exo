@@ -16,7 +16,7 @@ from ..core.LoopIR import UAST, PAST, front_ops, barrier_type_count
 from ..core.prelude import *
 from ..core.extern import Extern
 from ..core.memory import MemWin, Memory, SpecialWindow
-from ..spork.actor_kinds import actor_kind_dict
+from ..spork.actor_kinds import cpu, ActorKind
 from ..spork.base_with_context import BaseWithContext, is_if_holding_with
 from ..spork.loop_modes import LoopMode, loop_mode_dict
 from ..spork.sync_types import SyncType, fence_type, arrive_type, await_type
@@ -1872,12 +1872,11 @@ class Parser:
         assert isinstance(ast_call.func, pyast.Name)
         func_id = ast_call.func.id
 
-        def parse_actor_kind(ast_name):
-            if not isinstance(ast_name, pyast.Name):
-                self.err(ast_name, "Expected name of actor kind")
-            actor_kind = actor_kind_dict.get(ast_name.id)
-            if actor_kind is None:
-                self.err(ast_name, f"Expected name of actor kind, not {ast_name.id}")
+        def eval_actor_kind(expr):
+            actor_kind = self.eval_expr(expr)
+            if not isinstance(actor_kind, ActorKind):
+                self.err(expr, f"Expected actor kind, not {actor_kind}")
+                return cpu
             return actor_kind
 
         codegen = None
@@ -1894,7 +1893,7 @@ class Parser:
         def unpack_arrive(is_reversed):
             if len(ast_call.args) != 2:
                 self.err(ast_call, f"{func_id} expects 2 arguments")
-            sync_type = arrive_type(is_reversed, parse_actor_kind(ast_call.args[0]))
+            sync_type = arrive_type(is_reversed, eval_actor_kind(ast_call.args[0]))
             bar = self.parse_expr(ast_call.args[1])
             return sync_type, bar
 
@@ -1908,7 +1907,7 @@ class Parser:
                     )
             if 2 <= len(ast_call.args) <= 3:
                 sync_type = await_type(
-                    is_reversed, parse_actor_kind(ast_call.args[1]), delay
+                    is_reversed, eval_actor_kind(ast_call.args[1]), delay
                 )
                 bar = self.parse_expr(ast_call.args[0])
             else:
@@ -1919,7 +1918,7 @@ class Parser:
             if len(ast_call.args) != 2:
                 self.err(ast_call, f"{func_id} expects 2 arguments")
             sync_type = fence_type(
-                parse_actor_kind(ast_call.args[0]), parse_actor_kind(ast_call.args[1])
+                eval_actor_kind(ast_call.args[0]), eval_actor_kind(ast_call.args[1])
             )
             bar = None
 

@@ -4,9 +4,6 @@ from enum import Enum
 from typing import Optional, Set
 
 
-actor_kind_dict = {}
-
-
 class ActorSignature(object):
     __slots__ = ["name"]
     name: str
@@ -47,8 +44,6 @@ class ActorKind(object):
         self.signatures = signatures
         assert isinstance(signatures, set)
         assert all(isinstance(s, ActorSignature) for s in signatures)
-        assert name not in actor_kind_dict
-        actor_kind_dict[name] = self
 
     def implements_first(self, other):
         """Is other "less-or-equally-featureful" than self as a first actor kind?
