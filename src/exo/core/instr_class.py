@@ -33,7 +33,7 @@ from .LoopIR import LoopIR, AccessInfo, InstrInfo, SubstArgs, Identifier
 from .memory import DRAM
 from ..frontend.pyparser import get_ast_from_python, Parser
 from ..spork import actor_kinds
-from ..spork.coll_algebra import standalone_thread
+from ..spork.coll_algebra import standalone_thread, CollUnit
 
 
 def proc_default_access_info(proc: LoopIR.proc):
@@ -168,9 +168,6 @@ class InstrTemplate:
             info.instance(**tparam_dict)
             self._postprocess_instr_info(tproc, info, tparam_dict)
 
-            assert hasattr(info, "instr_format"), f"{nm}: missing instr_format"
-            assert isinstance(info.instr_format, str), f"{nm}: missing instr_format"
-
         # The user-provided class gets converted to a subclass of InstrInfo.
         # Override __init__, and add __slots__ if user didn't.
         # I strongly believe in the typo-checking provided by __slots__.
@@ -264,10 +261,17 @@ class InstrTemplate:
         return ", ".join(f"{nm}={v}" for nm, v in zip(self.tparam_syms, tparam_values))
 
     def _postprocess_instr_info(self, proc: LoopIR.proc, info: InstrInfo, tparam_dict):
-        actor_kind = info.actor_kind
-        assert isinstance(actor_kind, actor_kinds.ActorKind)
-        access_info = info.access_info
         clsname = self.info_cls.__name__
+        assert hasattr(info, "instr_format"), f"{clsname}: missing instr_format"
+        assert isinstance(info.instr_format, str), clsname
+        assert isinstance(info.c_global, str), clsname
+        assert all(isinstance(s, str) for s in info.cu_utils), clsname
+        assert all(isinstance(s, str) for s in info.cu_includes), clsname
+        assert isinstance(info.coll_unit, CollUnit), clsname
+
+        actor_kind = info.actor_kind
+        assert isinstance(actor_kind, actor_kinds.ActorKind), clsname
+        access_info = info.access_info
 
         for arg in proc.args:
             if not arg.type.is_numeric():
