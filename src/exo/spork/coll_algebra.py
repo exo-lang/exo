@@ -1,6 +1,7 @@
 from __future__ import annotations
 from fractions import Fraction
 from typing import Dict, Optional, Tuple
+from math import prod
 
 
 class CollParam(object):
@@ -526,11 +527,14 @@ class CollTiling(object):
 
     def box_num_threads(self):
         """Total number of threads in the thread box"""
-        n = 1
-        for c in self.box:
-            n *= c
-        assert n > 0
-        return n
+        return prod(self.box)
+
+    def tile_num_threads(self):
+        """Total number of threads in the thread tile.
+
+        Unlike the box, this includes threads that are inactive
+        """
+        return prod(self.tile)
 
     def unit_mismatch(
         self, unit: CollUnit, env: Dict[CollParam, int], no_message=False

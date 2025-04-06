@@ -550,7 +550,10 @@ class SubtreeScan(LoopIR_Do):
                 next_coll_tiling = self._iter_coll_tiling.get(idx_sym)
                 if next_coll_tiling is None:
                     coord_error("index from cuda_threads loop")
-                if next_coll_tiling.parent != cur_coll_tiling:
+                if (
+                    next_coll_tiling.parent.tile_num_threads()
+                    != cur_coll_tiling.tile_num_threads()
+                ):
                     coord_error("correct parent tiling (TODO explain)")
                 cur_coll_tiling = next_coll_tiling
 
