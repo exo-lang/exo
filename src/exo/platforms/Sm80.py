@@ -29,21 +29,21 @@ from ..spork.coll_algebra import cuda_warp
 
 class cp_async_impl:
     cp_async_src = """
-    template <int BYTES>
-    EXO_CUDA_INLINE void Sm80_cpAsync(void* smem_ptr, const void* gmem_ptr) {
-      uint32_t smem = exo_smemU32(smem_ptr);
-      asm volatile(
-          "cp.async.cg.shared.global [%0], [%1], %2;" ::"r"(smem),
-          "l"(gmem_ptr),
-          "n"(BYTES) : "memory");
-    }
+template <int BYTES>
+EXO_CUDA_INLINE void Sm80_cp_async(void* smem_ptr, const void* gmem_ptr) {
+  uint32_t smem = exo_smemU32(smem_ptr);
+  asm volatile(
+      "cp.async.cg.shared.global [%0], [%1], %2;" ::"r"(smem),
+      "l"(gmem_ptr),
+      "n"(BYTES) : "memory");
+}
     """
 
     def instance_impl(self, n_bytes):
         if n_bytes not in (4, 8, 16):
             raise ValueError(f"cp.async copies 4, 8, or 16 bytes, not {n_bytes}")
         self.instr_format = (
-            "exo_CudaUtil::Sm80_cpAsync<"
+            "exo_CudaUtil::Sm80_cp_async<"
             + str(n_bytes)
             + ">(&{smem_data}, &{gmem_data});"
         )
