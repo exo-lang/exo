@@ -82,7 +82,7 @@ class AccessInfo:
 class InstrInfo:
     instr_format: str
     c_global: str
-    cu_util: str
+    cu_utils: List[str]
     cu_includes: List[str]
     coll_unit: CollUnit
     actor_kind: ActorKind

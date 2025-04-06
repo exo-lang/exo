@@ -92,7 +92,7 @@ def tparams_from_signature(clsname: str, tproc: LoopIR.proc, signature):
 
 def prefill_instr_info(info: InstrInfo, proc: LoopIR.proc):
     info.c_global = ""
-    info.cu_util = ""
+    info.cu_utils = []
     info.cu_includes = []
     info.coll_unit = standalone_thread
     info.actor_kind = actor_kinds.cpu

@@ -50,7 +50,7 @@ class cp_async_impl:
         self.actor_kind = Sm80_cp_async
         self.access_info["smem"].actor_signature = sig_Sm80_cp_async
         self.access_info["gmem"].actor_signature = sig_Sm80_cp_async
-        self.cu_util = self.cp_async_src
+        self.cu_utils.append(self.cp_async_src)
 
 
 @instr
@@ -170,7 +170,7 @@ class mma_instr_impl:
         self.actor_kind = cuda_classic
         self.coll_unit = cuda_warp
         self.cu_includes = ["cuda/std/array"]
-        self.cu_util = Sm80_mma_util
+        self.cu_utils.append(Sm80_mma_util)
 
 
 @instr

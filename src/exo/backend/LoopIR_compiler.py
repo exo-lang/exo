@@ -412,7 +412,7 @@ def ext_compile_to_strings(lib_name, proc_list):
     private_fwd_decls = []
     proc_bodies = []
     instrs_c_global = []
-    tagged_cu_util: List[Tuple[str, str]] = []  # (name, cu_util)
+    tagged_cu_utils: List[Tuple[str, str]] = []  # (name, cu_util)
     tagged_cu_includes: List[Tuple[str, str]] = []  # (name, header name)
     analyzed_proc_list = []
     ext_lines = {}
@@ -440,8 +440,9 @@ def ext_compile_to_strings(lib_name, proc_list):
             )
             if instr.c_global:
                 instrs_c_global.append(instr.c_global)
-            if instr.cu_util:
-                tagged_cu_util.append((instr_name, instr.cu_util))
+            if instr.cu_utils:
+                for util in instr.cu_utils:
+                    tagged_cu_utils.append((instr_name, util))
             if instr.cu_includes:
                 for header_name in instr.cu_includes:
                     tagged_cu_includes.append((instr_name, header_name))
@@ -539,7 +540,7 @@ def ext_compile_to_strings(lib_name, proc_list):
     body_contents += "\n"  # New line at end of file
 
     # Add cu_includes, cu_util
-    prepend_tagged_cuh_ext_lines(False, lib_name, tagged_cu_util, ext_lines)
+    prepend_tagged_cuh_ext_lines(False, lib_name, tagged_cu_utils, ext_lines)
     prepend_tagged_cuh_ext_lines(True, lib_name, tagged_cu_includes, ext_lines)
 
     return header_contents, body_contents, ext_lines
@@ -1574,6 +1575,8 @@ def prepend_tagged_cuh_ext_lines(is_includes, lib_name, tagged_content, ext_line
     lines = []
     if is_includes:
         # Alphabetize include files
+        # Note however we do NOT sort util source code, since later utils
+        # may require earlier ones to compile correctly!
         combined.sort(key=lambda tup: tup[1])
     else:
         # Begin namespace
