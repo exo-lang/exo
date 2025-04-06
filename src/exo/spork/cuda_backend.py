@@ -799,8 +799,7 @@ class SubtreeScan(LoopIR_Do):
         # fmt: off
         def mbarrier_to_u32(lines, is_reverse, idx):
             byte_offset = 8 * (mbarrier_offset + ring if is_reverse else mbarrier_offset)
-            lines.append(f"  const auto mbarrier_u32 = static_cast<uint32_t>(__cvta_generic_to_shared(")
-            lines.append(f"      exo_smem + {byte_offset} + 8*{idx}));")
+            lines.append(f"  const auto mbarrier_u32 = exo_smemU32(exo_smem + {byte_offset} + 8*{idx});")
 
         def generate_arrive(is_reverse):
             r = "Reverse" if is_reverse else ""
@@ -919,19 +918,21 @@ class SubtreeScan(LoopIR_Do):
             generate_await(True, generate_arrive(True))
 
         # Arrive/Await lowers to call to generated exo_syncState member function.
-        # We also record mbarriers to initialize.
+        # We also record mbarriers to initialize, first those for Arrive/Await,
+        # then those for ReverseArrive/ReverseAwait.
         Arrive_txt = f"Arrive{nm_suffix}(exo_smem, "
         lowered.Arrive = [f"exo_syncState.{Arrive_txt}true);"]
         lowered.c_Arrive_mbarrier = f"exo_syncState.{Arrive_txt}false)"
         lowered.Await = [f"exo_syncState.Await{nm_suffix}(exo_smem);"]
+        arrive_count = scan.Arrive.coll_tiling.box_num_threads()
+        mbarrier_pairs.append((ring, arrive_count))
+
         if scan.has_reverse():
             lowered.ReverseArrive = [f"exo_syncState.Reverse{Arrive_txt}true);"]
             lowered.c_ReverseArrive_mbarrier = f"exo_syncStat.Reverse{Arrive_txt}false)"
             lowered.ReverseAwait = [f"exo_syncState.ReverseAwait{nm_suffix}(exo_smem);"]
             arrive_count = scan.ReverseArrive.coll_tiling.box_num_threads()
             mbarrier_pairs.append((ring, arrive_count))
-        arrive_count = scan.Arrive.coll_tiling.box_num_threads()
-        mbarrier_pairs.append((ring, arrive_count))
         return lowered
         # fmt: on
 
@@ -1246,7 +1247,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
         # fmt: off
         lines = []
         lines.append("    if (threadIdx.x == 0) {")
-        lines.append("      const auto mbarrier_u32 = static_cast<uint32_t>(__cvta_generic_to_shared(exo_smem));")
+        lines.append("      const auto mbarrier_u32 = exo_smemU32(exo_smem);")
         offset = 0
         for mbarrier_count, arrive_count in mbarrier_pairs:
             lines.append(f"      for (int i = 0; i < {mbarrier_count}; ++i) {{")
