@@ -1127,6 +1127,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
             "cuh",
             {
                 "h": format(h_snippet_fmt),
+                "c": format(c_snippet_fmt),
                 "cu": format(cu_snippet_fmt),
                 "cuh": format(cuh_snippet_fmt),
             },
@@ -1810,10 +1811,7 @@ class CudaLoweredBarrier(LoweredBarrier):
 
 
 h_snippet_fmt = """\
-struct exo_CudaDeviceArgs{N}_{proc}
-{{
-{device_args_struct_body}
-}};
+struct exo_CudaDeviceArgs{N}_{proc};
 
 #ifdef __CUDACC__
 __global__ void exo_deviceFunction{N}_{proc}(__grid_constant__ const struct exo_CudaDeviceArgs{N}_{proc} exo_deviceArgs);
@@ -1821,7 +1819,24 @@ __global__ void exo_deviceFunction{N}_{proc}(__grid_constant__ const struct exo_
 void exo_cudaLaunch{N}_{proc}(cudaStream_t exo_cudaStream, struct exo_CudaDeviceArgs{N}_{proc} exo_deviceArgs);
 """
 
+# Note: the duplication of the device args struct in .c and .cuh is because the
+# common .h file may not have the MemWin code needed for the struct to compile.
+
+c_snippet_fmt = """\
+// CUDA device function args -- duplicated in .cuh file
+struct exo_CudaDeviceArgs{N}_{proc}
+{{
+{device_args_struct_body}
+}};
+"""
+
 cuh_snippet_fmt = """\
+// CUDA device function args -- duplicated in .c file
+struct exo_CudaDeviceArgs{N}_{proc}
+{{
+{device_args_struct_body}
+}};
+
 struct exo_Cuda{N}_{proc}
 {{
   using exo_DeviceArgs = exo_CudaDeviceArgs{N}_{proc};

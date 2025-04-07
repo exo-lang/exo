@@ -321,22 +321,7 @@ def run_compile(proc_list, file_stem: str):
     lib_name = sanitize_str(file_stem)
     fwd_decls, body, ext_lines = ext_compile_to_strings(lib_name, proc_list)
 
-    def join_ext_lines(ext):
-        if lines := ext_lines.get(ext):
-            return "\n".join(["\n"] + lines + ["\n"])
-        else:
-            return ""
-
-    def join_ext_lines(ext):
-        if lines := ext_lines.get(ext):
-            return "\n".join(["\n"] + lines + ["\n"])
-        else:
-            return ""
-
     source = f'#include "{file_stem}.h"\n\n{body}'
-    c_ext_lines = join_ext_lines("c")
-    if c_ext_lines:
-        source = f"{source}\n{c_ext_lines}\n"
 
     header_guard = f"{lib_name}_H".upper()
     header = f"""
@@ -349,7 +334,7 @@ extern "C" {{
 #endif
 
 {fwd_decls}
-{join_ext_lines("h")}
+
 #ifdef __cplusplus
 }}
 #endif
@@ -363,9 +348,9 @@ extern "C" {{
         if ext == "c" or ext == "h":
             continue
         elif ext == "cuh":
-            text = f'#pragma once\n#include "{file_stem}.h"\n{join_ext_lines("cuh")}'
+            text = f'#pragma once\n#include "{file_stem}.h"\n{join_ext_lines(lines)}'
         elif ext == "cu":
-            text = f'#include "{file_stem}.cuh"\n{join_ext_lines("cu")}'
+            text = f'#include "{file_stem}.cuh"\n{join_ext_lines(lines)}'
         else:
             # A bit crappy we have per-file-extension logic here.
             assert "Add case for file extension"
@@ -384,6 +369,13 @@ _static_helpers = {
         """
     ),
 }
+
+
+def join_ext_lines(lines):
+    if lines:
+        return "\n".join(["\n"] + lines + ["\n"])
+    else:
+        return ""
 
 
 def compile_to_strings(lib_name, proc_list):
@@ -520,28 +512,31 @@ def ext_compile_to_strings(lib_name, proc_list):
 {from_lines(header_memwin_code)}
 {from_lines(header_struct_defns)}
 {from_lines(public_fwd_decls)}
-"""
+{join_ext_lines(ext_lines.get("h"))}"""
 
     extern_code = _compile_externs(find_all_externs(analyzed_proc_list))
 
     helper_code = [_static_helpers[v] for v in needed_helpers]
-    body_contents = [
-        helper_code,
-        instrs_c_global,
-        body_memwin_code,
-        body_struct_defns,
-        extern_code,
-        private_fwd_decls,
-        proc_bodies,
-    ]
+    body_contents = [helper_code, instrs_c_global, body_memwin_code, body_struct_defns]
+    if lines := ext_lines.get("c"):
+        body_contents.append(lines)
+    body_contents.extend(
+        [
+            extern_code,
+            private_fwd_decls,
+            proc_bodies,
+        ]
+    )
     body_contents = list(filter(lambda x: x, body_contents))  # filter empty lines
     body_contents = map(from_lines, body_contents)
     body_contents = from_lines(body_contents)
     body_contents += "\n"  # New line at end of file
 
-    # Add cu_includes, cu_util
-    prepend_tagged_cuh_ext_lines(False, lib_name, tagged_cu_utils, ext_lines)
-    prepend_tagged_cuh_ext_lines(True, lib_name, tagged_cu_includes, ext_lines)
+    # Add cu_includes, cu_util, window definitions to .cuh file, if it exists.
+    if (cuh_lines := ext_lines.get("cuh")) is not None:
+        ext_lines["cuh"] = body_memwin_code + body_struct_defns + cuh_lines
+        prepend_tagged_cuh_ext_lines(False, lib_name, tagged_cu_utils, ext_lines)
+        prepend_tagged_cuh_ext_lines(True, lib_name, tagged_cu_includes, ext_lines)
 
     return header_contents, body_contents, ext_lines
 
@@ -629,6 +624,7 @@ class Compiler:
         self._needed_helpers = set()
         self.window_struct_cache = window_struct_cache
         self._known_strides = {}
+        self._in_cuda_function = False
         self._cuda_kernel_count = 0
 
         # Additional lines for each file extension
@@ -745,7 +741,9 @@ class Compiler:
                 )
                 if a.type.is_win():
                     if window_struct.separate_dataptr:
-                        arg_strs.append(f"{window_struct.dataptr} exo_data_{name_arg}")
+                        arg_strs.append(
+                            f"{window_struct.dataptr} {dataptr_name(name_arg)}"
+                        )
                         typ_comments.append("    (Separate window data pointer)")
                     arg_strs.append(f"struct {window_struct.name} {name_arg}")
                 else:
@@ -1100,7 +1098,15 @@ class Compiler:
                     d_def, w_def = None, tmp
 
             if separate_dataptr:
-                self.add_line(f"{output_win_struct.dataptr} exo_data_{name} = {d_def};")
+                cref = ""
+                if self._in_cuda_function:
+                    # HACK needed for CUtensorMap; if we copy the CUtensorMap
+                    # in CUDA code, then it won't be in grid constant memory,
+                    # and cp.async.bulk won't work anymore.
+                    cref = " const&"
+                self.add_line(
+                    f"{output_win_struct.dataptr}{cref} {dataptr_name(name)} = {d_def};"
+                )
             self.add_line(f"struct {output_win_struct.name} {name} = {w_def};")
 
         elif is_if_holding_with(s, LoopIR):  # must be before .If case
@@ -1172,8 +1178,11 @@ class Compiler:
                 )
                 lowered = loopir_lower_cuda(s, spork_ctx)
                 # print(lowered)
+                assert not self._in_cuda_function
+                self._in_cuda_function = True
                 self.comp_s(lowered)
                 self._cuda_kernel_count += 1
+                self._in_cuda_function = False
 
             # Must appear last (fallback case)
             elif isinstance(ctx, BaseAsyncConfig):
@@ -1247,9 +1256,8 @@ class Compiler:
                 )
 
             if emit_loop:
-                self.add_line(
-                    f"for (int_fast32_t {itr} = {lo}; {itr} < {hi}; {itr}++) {{"
-                )
+                ctype = "int" if self._in_cuda_function else "int_fast32_t"
+                self.add_line(f"for ({ctype} {itr} = {lo}; {itr} < {hi}; {itr}++) {{")
 
             self.push(only="tab")
             self.comp_stmts(s.body)
@@ -1373,7 +1381,7 @@ class Compiler:
                     # This data path is exercised for calling normal
                     # functions, but the omitted instr_data is only
                     # used for instr, which can't use this code path.
-                    c_data = "exo_data_" + c_syntax
+                    c_data = dataptr_name(c_window)
                     return (c_data, c_window), None, None
                 else:
                     return (c_window,), None, None
@@ -1511,7 +1519,7 @@ class Compiler:
         all_strides_s = self.get_strides_s(e.name, basetyp)
         assert 0 < len(all_strides_s) == len(e.idx)
         if separate_dataptr and basetyp.is_win():
-            window_in_expr = "exo_data_" + base, base
+            window_in_expr = dataptr_name(base), base
         else:
             window_in_expr = base
         callback_result = src_memwin.window(
@@ -1549,6 +1557,20 @@ class Compiler:
     def _call_static_helper(self, helper, *args):
         self._needed_helpers.add(helper)
         return f'{helper}({", ".join(map(str, args))})'
+
+
+def dataptr_name(wname):
+    """C variable name used to store the separate dataptr of a window
+
+    We prepend the (reserved) exo_data_ prefix, but this is
+    complicated by the fact that sometimes C variables are stored in
+    structs (e.g. exo_deviceArgs) and we need to avoid modifying the
+    struct name.
+
+    """
+    fragments = wname.split(".")
+    fragments[-1] = "exo_data_" + fragments[-1]
+    return ".".join(fragments)
 
 
 # --------------------------------------------------------------------------- #
