@@ -437,6 +437,11 @@ class SubtreeScan(LoopIR_Do):
         assert actor_kind in actor_kinds.cuda_async_actor_kinds
         assert s.body
 
+        if not actor_kinds.cuda_async_proxy.signatures.isdisjoint(
+            actor_kind.signatures
+        ):
+            self.uses_async_proxy = True
+
         def inspect(is_epilogue, A1, A2):
             sync_stmt = self.expect_SyncStmt(s, is_epilogue, A1, A2)
             scan = self.barrier_scans[sync_stmt.bar]
