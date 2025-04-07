@@ -1,5 +1,5 @@
 # Memory, instructions, and actor kinds specific to CUDA sm_80 (Ampere/A100)
-# Everything exported by this module starts with Sm80_
+# All names exported by this module contain Sm80_
 from __future__ import annotations
 
 # Currently we import from the exo.spork directory,
