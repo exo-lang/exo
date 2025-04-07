@@ -93,9 +93,7 @@ def Sm90_tensorMap(swizzle, *smem_box):
                 cu_ctype_enum=cu_ctype_enum,
                 stride_suffix=stride_suffix,
             )
-            # Return 2-tuple: enables separate layout for window (obscure).
-            # This is due to the tensormap needing to be stored in
-            # grid constant memory, but the offsets are in RMEM.
+            # Return 2-tuple: enables custom layout for window (obscure).
             return "CUtensorMap", s_def
 
         @classmethod
@@ -111,7 +109,8 @@ def Sm90_tensorMap(swizzle, *smem_box):
 
             out_layout = "{{ "
             out_layout += ", ".join(
-                f"{in_layout}.exo_offsets[{r}] + {indices[r]}" for r in range(rank)
+                f"{in_layout}.exo_offsets[{r}] + (unsigned)({indices[r]})"
+                for r in range(rank)
             )
             out_layout += " }}"
 
@@ -182,7 +181,7 @@ static inline CUtensorMap {sname}_encode(
     for (uint32_t cu_dim = 0; cu_dim < {rank}; ++cu_dim) {{
         const uint32_t exo_dim = {rank} - 1 - cu_dim;
         globalDim[cu_dim] = gmem_dim.exo_dim[exo_dim];
-        allGlobalStrides[cu_dim] = gmem_stride.exo_strides[exo_dim]{stride_suffix};
+        allGlobalStrides[cu_dim] = ((cuuint64_t)gmem_stride.exo_strides[exo_dim]){stride_suffix};
         elementStrides[cu_dim] = 1;
     }}
 
@@ -212,6 +211,7 @@ static inline CUtensorMap {sname}_encode(
 }}
 """
 
+
 # Translate type shorthand to CUDA enum + stride suffix
 # where f"element_count {stride suffix}" is C syntax for byte count for
 # element_count many values.
@@ -232,9 +232,112 @@ CUtensorMap_type_dict = {
 }
 
 
-# static inline struct {sname} {sname}_add_offsets(struct {sname} a, struct {sname} b)
-# {{
-#     struct {sname} c;
-#     for (uint32_t i = 0; i < {rank}; ++i) c.exo_offsets[i] = a.exo_offsets[i] + b.exo_offsets[i];
-#     return c;
-# }}
+def copy_tensor_to_smem_util(rank: int, multicast: bool):
+    cache_hint = 1152921504606846976  # copied from cutlass PTX
+    vector_fmt = "{" + ", ".join(f"%{r+2}" for r in range(rank)) + "}"
+    ptx_fmt = f" [%0], [%1, {vector_fmt}], [%{rank+2}], %{rank+3}"
+    if multicast:
+        ptx_fmt += f", %{rank+4}"
+    vector_values = ", ".join(
+        f'"r"(exo_offsets[{rank - 1 - r}])' for r in range(0, rank)
+    )
+
+    # fmt: off
+    elect_one_prefix = r"""// cute::elect_one_sync
+    uint32_t pred = 0;
+    uint32_t laneid = 0;
+    asm volatile(
+      "{\n"
+      ".reg .b32 %%rx;\n"
+      ".reg .pred %%px;\n"
+      "     elect.sync %%rx|%%px, %2;\n"
+      "@%%px mov.s32 %1, 1;\n"
+      "     mov.s32 %0, %%rx;\n"
+      "}\n"
+      : "+r"(laneid), "+r"(pred)
+      : "r"(0xFFFFFFFF));"""
+
+    # TODO ensure mbarriers for multicast TMA don't use broadcast, unlike other mbarriers
+    expect_tx = f'asm("mbarrier.expect_tx.shared::cta.b64 [%0], %1;" :: "r"(exo_tma_mbarrier), "r"(n_bytes));'
+
+    if multicast:
+        return f"""EXO_CUDA_INLINE void
+exo_Sm90_tma_to_smem_{rank}d(void* dst, const CUtensorMap& tensorMap, cuda::std::array<unsigned, {rank}> exo_offsets,
+                       uint32_t exo_tma_mbarrier, uint32_t n_bytes, uint16_t cta_mask)
+{{
+    {elect_one_prefix}
+    if (pred) {{
+        {expect_tx}
+        asm volatile(
+            "cp.async.bulk.tensor.{rank}d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.multicast.L2::cache_hint"
+            "{ptx_fmt};"
+            :
+            : "r"(exo_smemU32(dst)), "l"(&tensorMap),
+              {vector_values},
+              "r"(exo_tma_mbarrier), "h"(cta_mask), "n"({cache_hint})
+            : "memory");
+    }}
+}}"""
+    else:
+        return f"""EXO_CUDA_INLINE void
+exo_Sm90_tma_to_smem_{rank}d(void* dst, const CUtensorMap& tensorMap, cuda::std::array<unsigned, {rank}> exo_offsets,
+                        uint32_t exo_tma_mbarrier, uint32_t n_bytes)
+
+{{
+    {elect_one_prefix}
+    if (pred) {{
+        {expect_tx}
+        asm volatile(
+            "cp.async.bulk.tensor.{rank}d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
+            "{ptx_fmt};"
+            :
+            : "r"(exo_smemU32(dst)), "l"(&tensorMap),
+              {vector_values},
+              "r"(exo_tma_mbarrier), "n"({cache_hint})
+            : "memory");
+    }}
+}}"""
+    # fmt: on
+
+
+class copy_tensor_to_smem_impl:
+    def instance_impl(self, smem_box, swizzle, n_bytes):
+        rank = len(smem_box)
+        assert swizzle == 0  # TODO
+        self.access_info["dst"].actor_signature = sig_tma_to_smem
+        self.access_info["dst"].mem = CudaSmemLinear  # TODO
+        self.access_info["src"].actor_signature = sig_tma_to_smem
+        self.access_info["src"].mem = Sm90_tensorMap(swizzle, *smem_box)
+        self.actor_kind = tma_to_smem_async
+        self.coll_unit = cuda_warp
+        self.cu_includes.append("cuda/std/array")
+        self.cu_utils.append(copy_tensor_to_smem_util(rank, False))
+        indent = (
+            " " * 20
+        )  # We don't know the real indent, just try to make it less ugly
+        fmt = f"exo_CudaUtil::exo_Sm90_tma_to_smem_{rank}d("
+        fmt += f"\n{indent}&{{dst_data}}"  # Pointer to SMEM
+        fmt += f",\n{indent}{{src_data}}"  # CUtensorMap
+        fmt += f",\n{indent}{{src_layout}}"  # exo_offsets
+        fmt += f",\n{indent}exo_tma_mbarrier"
+        fmt += f",\n{indent}{n_bytes}"
+        fmt += ");"
+        self.instr_format = fmt
+
+
+@instr
+class Sm90_copy_tensor_to_smem_linear_2f32(copy_tensor_to_smem_impl):
+    def behavior(
+        box0: size, box1: size, dst: [f32][box0, box1], src: [f32][box0, box1]
+    ):
+        # assert stride(dst, 0) == box1  # TODO why doesn't this work?
+        assert stride(dst, 1) == 1
+        for i0 in seq(0, box0):
+            for i1 in seq(0, box1):
+                dst[i0, i1] = src[i0, i1]
+
+    def instance(self, box0, box1):
+        self.instance_impl((box0, box1), 0, box0 * box1 * 4)
+
+
+__all__.append("Sm90_copy_tensor_to_smem_linear_2f32")

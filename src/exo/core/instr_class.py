@@ -278,7 +278,7 @@ class InstrTemplate:
                 continue
             nm = arg.name.name()
             arg_info = access_info[nm]
-            if arg.mem is not None:
+            if arg.mem is not None and arg.mem is not DRAM:
                 assert (
                     arg.mem == arg_info.mem
                 ), f"{clsname}: cannot override mem for {nm} @ {arg.mem}"
