@@ -156,8 +156,8 @@ struct {sname}_strides {{
 }};
 
 struct {sname}_gmem_dim {{
-    // Stored in the same order as the raw CUtensorMap.
-    // Rightmost dimension is most-significant.
+    // Stored in the reverse-order as the raw CUtensorMap.
+    // Leftmost dimension is the most-significant.
     unsigned exo_dim[{rank}];
 }};
 
