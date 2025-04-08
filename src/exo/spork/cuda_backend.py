@@ -13,7 +13,6 @@ from ..core.LoopIR import (
     T,
     LoopIR_Do,
     LoopIR_Rewrite,
-    ctype_bits,
     LoweredBarrier,
 )
 

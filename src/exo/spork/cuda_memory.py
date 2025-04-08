@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import List, Optional, Type
 from math import prod
 
-from ..core.LoopIR import ctype_bits
+from ..core.LoopIR import scalar_bits
 from ..core.prelude import SrcInfo
 from ..core.memory import Memory, MemGenError, DRAM
 from . import actor_kinds
@@ -109,22 +109,50 @@ class SmemConfigInputs:
             return f"{ctype} (&) [{']['.join(str(c) for c in shape)}]"
 
     def element_bits(self):
-        return ctype_bits(self.ctype)
+        return scalar_bits(self.ctype)
 
     def require_shape_divisibility(self, divisors):
+        """Shape divisibility check
+
+        Require that the rightmost len(divisors)-many dimensions are
+        divisible by the respective divisor values
+
+        """
         shape = self.const_shape
         if len(shape) < len(divisors):
-            raise ValueError(
+            raise MemGenError(
                 f"{self.srcinfo}: {self.mem.name()} tensor shape "
                 f"must be at least {len(divisors)}-dimensional. "
-                "Got {shape} (after removing distributed dimensions)"
+                f"Got {shape} (after removing distributed dimensions)"
             )
         for i in range(1, len(divisors) + 1):
             if shape[-i] % divisors[-i] != 0:
-                raise ValueError(
+                raise MemGenError(
                     f"{self.srcinfo}: {self.mem.name()} tensor shape "
                     f"must be a multiple of {divisors}. "
-                    "Got {shape} (after removing distributed dimensions)"
+                    f"Got {shape} (after removing distributed dimensions)"
+                )
+
+    def require_shape_tile(self, tile):
+        """Shape tiling check
+
+        Require that the rightmost len(divisors)-many dimensions are
+        exactly matching the respective tile values
+
+        """
+        shape = self.const_shape
+        if len(shape) < len(tile):
+            raise MemGenError(
+                f"{self.srcinfo}: {self.mem.name()} tensor shape "
+                f"must be at least {len(tile)}-dimensional. "
+                f"Got {shape} (after removing distributed dimensions)"
+            )
+        for i in range(1, len(tile) + 1):
+            if shape[-i] != tile[-i] != 0:
+                raise MemGenError(
+                    f"{self.srcinfo}: {self.mem.name()} tensor shape "
+                    f"rightmost dims must match {tile}. "
+                    f"Got {shape} (after removing distributed dimensions)"
                 )
 
 
@@ -254,13 +282,7 @@ class CudaRmem(CudaDeviceVisibleLinear):
         if not shape:
             return f"{prim_type} {new_name};"
 
-        for extent in shape:
-            try:
-                int(extent)
-            except ValueError as e:
-                raise MemGenError(
-                    f"{srcinfo}: CudaRmem requires constant shapes. Saw: {extent}"
-                ) from e
+        const_shape = cls.as_const_shape(new_name, shape, srcinfo)
 
         return f'{prim_type} {new_name}[{" * ".join(shape)}];'
 

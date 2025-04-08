@@ -119,8 +119,8 @@ class WindowStructCtx(object):
         self._struct_name = None
         self._guard_macro = None
 
-    def generate_default(self, memwin_name, data_ctype=None):
-        sname = self.struct_name(memwin_name)
+    def generate_default(self, memwin_name, data_ctype=None, mangle_parameters=None):
+        sname = self.struct_name(memwin_name, mangle_parameters)
         if data_ctype is None:
             data_ctype = self._ctype
         # Spacing difference gives byte-for-byte compatibility with Exo 1.
@@ -305,6 +305,23 @@ class MemWin(ABC):
         else:
             return ""
 
+    @classmethod
+    def as_const_shape(cls, new_name, shape, srcinfo, *, min_dim=0):
+        if len(shape) < min_dim:
+            raise MemGenError(
+                f"{srcinfo}: {new_name} @ {cls.name()} requires at least {min_dim} dimensions"
+            )
+
+        def to_int(extent):
+            try:
+                return int(extent)
+            except ValueError as e:
+                raise MemGenError(
+                    f"{srcinfo}: {new_name} @ {cls.name()} requires constant shape. Saw: {extent}"
+                ) from e
+
+        return tuple(to_int(extent) for extent in shape)
+
 
 class Memory(MemWin):
     @classmethod
@@ -468,7 +485,6 @@ def memwin_template(class_factory):
             cls_name = f"{class_factory.__name__}{parameters}"
             _memwin_template_cache[cache_key] = cls
             _memwin_template_names[cls] = cls_name
-            assert not hasattr(cls, "memwin_template_parameters")
             cls.memwin_template_parameters = parameters
         return cls
 

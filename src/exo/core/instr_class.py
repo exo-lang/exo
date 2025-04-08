@@ -219,14 +219,16 @@ class InstrTemplate:
         assert len(self.tparam_types) == len(tparam_values)
         for sym, v, typ in zip(self.tparam_syms, tparam_values, self.tparam_types):
             binding[sym] = LoopIR.Const(v, typ, tproc.srcinfo)
+        iproc_preds = SubstArgs(tproc.preds, binding).result()
         iproc_body = SubstArgs(tproc.body, binding).result()
         iproc_args = [a for a in tproc.args if a.name not in self.tparam_syms]
         assert len(iproc_args) + len(self.tparam_syms) == len(tproc.args)
         for i, a in enumerate(iproc_args):
-            iproc_args[i] = a.update(mem=instr_info.access_info[str(a.name)].mem)
+            if (access := instr_info.access_info.get(str(a.name))) is not None:
+                iproc_args[i] = a.update(mem=access.mem)
         iproc_args = SubstArgs(iproc_args, binding).result()
         iproc = LoopIR.proc(
-            tproc.name, iproc_args, tproc.preds, iproc_body, instr_info, tproc.srcinfo
+            tproc.name, iproc_args, iproc_preds, iproc_body, instr_info, tproc.srcinfo
         )
 
         # Build and save Procedure in cache.

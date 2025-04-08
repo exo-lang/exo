@@ -20,6 +20,7 @@ from ..spork.coll_algebra import (
     cuda_cta_in_cluster,
 )
 from ..spork.cuda_memory import (
+    scalar_bits,
     CudaBasicDeviceVisible,
     SmemConfig,
     SmemConfigInputs,

@@ -572,7 +572,10 @@ ctypes_bits_dict = {
 }
 
 
-def ctype_bits(ctype):
+def scalar_bits(ctype):
+    if isinstance(ctype, LoopIR.type):
+        ctype = ctype.basetype().ctype()
+    assert isinstance(ctype, str)
     try:
         bits = ctypes_bits_dict[ctype]
         if bits is None:
