@@ -122,7 +122,7 @@ class SubtreeScan(LoopIR_Do):
             "proc": ctx.proc_name(),
             "lib_name": ctx.lib_name(),
             "N": ctx.kernel_index(),
-            "gridDim": 48 * cuda_device_function.blocks_per_sm,  # TODO
+            "gridDim": 132 * cuda_device_function.blocks_per_sm,  # TODO
             "blockDim": self.blockDim,
             "clusterDim": self.clusterDim,
             "blocks_per_sm": cuda_device_function.blocks_per_sm,

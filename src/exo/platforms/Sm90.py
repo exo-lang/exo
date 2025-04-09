@@ -6,6 +6,8 @@ from __future__ import annotations
 # Currently we import from the exo.spork directory,
 # which users shouldn't import directly.
 from ..spork.actor_kinds import (
+    sig_cuda_classic,
+    cuda_classic,
     sig_tma_to_smem,
     sig_tma_to_gmem,
     sig_wgmma_rmem_a,
@@ -480,6 +482,23 @@ class WgmmaRmemImpl(CudaBasicDeviceVisible):
         return cuda_warpgroup
 
     @classmethod
+    def global_(cls):
+        return """#ifdef __cplusplus
+template <typename T, unsigned RegCount>
+struct exo_Sm90_RmemMatrixA
+{
+    T a[RegCount];
+};
+template <typename T, unsigned RegCount>
+struct exo_Sm90_RmemMatrixD
+{
+    T d[RegCount];
+    unsigned scale_d = 0;  // Set to 0 triggers zero-init on the next mma_async call.
+};
+#endif
+"""
+
+    @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
         # Right two dimensions correspond to register tile of n_regs-many 32-bit
         # registers; other dimensions are passed through directly as {idxs}.
@@ -490,7 +509,7 @@ class WgmmaRmemImpl(CudaBasicDeviceVisible):
         comment = f"{n_regs} registers store {prim_type}[{const_shape[-2]}][{const_shape[-1]}]"
         assert prim_type == "float"
         reg_type = "float"  # TODO
-        return f"{reg_type} {new_name}{idxs}[{n_regs}]; // {comment}"
+        return f"exo_Sm90_RmemMatrixD<{reg_type}, {n_regs}> {new_name}{idxs};"
 
     @classmethod
     def free(cls, new_name, prim_type, shape, srcinfo):
@@ -511,7 +530,7 @@ class WgmmaRmemImpl(CudaBasicDeviceVisible):
             )
 
         idxs = "".join(f"[{idx}]" for idx in indices[:-2])
-        return f"{baseptr}{idxs}[0]"
+        return f"{baseptr}{idxs}"
 
     @classmethod
     def window_definition(cls, ctx: WindowStructCtx):
@@ -568,15 +587,15 @@ def mma_async_util(m, n, k, ptx_d_type, ptx_ab_type, reg_type, n_regs):
     fname = mma_async_fname(m, n, k, ptx_d_type, ptx_ab_type)
     instr_name = f"wgmma.mma_async.sync.aligned.m{m}n{n}k{k}.{ptx_d_type}.{ptx_ab_type}.{ptx_ab_type}"
     vector_fmt = "{" + ", ".join(f"%{i}" for i in range(n_regs)) + "}"
-    vector_args = ", ".join(f'"+{r}"(d[{i}])' for i in range(n_regs))
+    vector_args = ", ".join(f'"+{r}"(d.d[{i}])' for i in range(n_regs))
 
     return fr"""template <unsigned swizzle_bits_a, unsigned swizzle_bits_b>
 EXO_CUDA_INLINE void {fname}(
-        {reg_type}* d, const void* smem_a, const void* smem_b,
-        unsigned m_matrix_stride, unsigned n_matrix_stride, unsigned k_matrix_stride, unsigned scale_d)
+        exo_Sm90_RmemMatrixD<{reg_type}, {n_regs}>& d, const void* smem_a, const void* smem_b,
+        unsigned m_matrix_stride, unsigned n_matrix_stride, unsigned k_matrix_stride)
 {{
     auto desc_a = exo_matrix_descriptor<swizzle_bits_a>(smem_a, m_matrix_stride, k_matrix_stride);
-    auto desc_b = exo_matrix_descriptor<swizzle_bits_b>(smem_a, m_matrix_stride, k_matrix_stride);
+    auto desc_b = exo_matrix_descriptor<swizzle_bits_b>(smem_b, n_matrix_stride, k_matrix_stride);
     asm volatile(
                 "{{ // {fname} \n"
                   ".reg .pred p;\n"
@@ -588,7 +607,8 @@ EXO_CUDA_INLINE void {fname}(
                   " p,    1,  1;\n"
                 "}}\n"
                   : {vector_args}
-                  :  "l"(desc_a), "l"(desc_b), "r"(scale_d));
+                  :  "l"(desc_a), "l"(desc_b), "r"(d.scale_d));
+    d.scale_d = 1;
 }}
 """
     # fmt: on
@@ -608,18 +628,42 @@ class mma_async_impl:
             mma_async_util(m, n, k, ptx_d_type, ptx_ab_type, reg_type, n_regs)
         )
 
-        # TODO correct swizzle bits, scale_d, strides (1024 is assuming densely packed)
-        scale_d = "false"
+        # TODO correct swizzle bits, strides (1024 is assuming densely packed)
         swizzle_bits_a = 1
         swizzle_bits_b = 1
         fname = mma_async_fname(m, n, k, ptx_d_type, ptx_ab_type)
 
         fmt = f"""exo_CudaUtil::{fname}<{swizzle_bits_a}, {swizzle_bits_b}>(
-                    &{{d_data}},
+                    {{d_data}},
                     &{{a_data}},
                     &{{b_data}},
-                    1024, 1024, 0, {{scale_d}});"""
+                    1024, 1024, 0);"""
         self.instr_format = fmt
+
+
+# For a wgmma D-matrix (in RMEM), set the scale-d flag to 0, so
+# the NEXT wgmma.mma.async instruction will zero-initialize D.
+# This is modelled in Exo as a zero-clear, even though the effect
+# does not actually happen unless a subsequent mma.async occurs.
+# In the future, I may introduce a "wgmma zero" actor signature to model this.
+#
+# TODO this still seems to be an issue.
+@instr
+class Sm90_zero_scale_d_tf32:
+    def behavior(n: size, d: [f32][64, n] @ Sm90_RmemMatrixD):
+        for mi in seq(0, 64):
+            for ni in seq(0, n):
+                d[mi, ni] = 0
+
+    def instance(self, n):
+        # XXX cuda_classic is completely wrong
+        self.access_info["d"].actor_signature = sig_cuda_classic
+        self.actor_kind = cuda_classic
+        self.coll_unit = cuda_warpgroup
+        self.instr_format = "{d_data}.scale_d = 0;"
+
+
+__all__.append("Sm90_zero_scale_d_tf32")
 
 
 @instr
@@ -629,7 +673,6 @@ class Sm90_mma_async_tf32(mma_async_impl):
         d: [f32][64, n] @ Sm90_RmemMatrixD,
         a: [f32][8, 8, 8] @ Sm90_SmemSwizzled(128),
         b: [f32][n / 8, 8, 8] @ Sm90_SmemSwizzled(128),
-        scale_d: index,
     ):
         assert n >= 8
         assert n % 8 == 0
@@ -643,3 +686,70 @@ class Sm90_mma_async_tf32(mma_async_impl):
 
 
 __all__.append("Sm90_mma_async_tf32")
+
+
+# TODO support more than float
+write_d_util = """template <bool ColumnMajor, typename Window, typename Reg, unsigned RegCount>
+EXO_CUDA_INLINE void exo_Sm90_store_d(Window dst, const exo_Sm90_RmemMatrixD<Reg, RegCount>& src)
+{
+    const uint32_t tid = threadIdx.x % 128u;
+    const uint32_t r_base = (tid / 32u) * 16u + (tid % 32u) / 4u;
+    const uint32_t c_base = (tid % 4u) * 2u;
+    #pragma unroll
+    for (uint32_t reg_index = 0; reg_index < RegCount; ++reg_index) {
+        const uint32_t r = r_base + ((reg_index % 4u) / 2u) * 8u;
+        const uint32_t c = c_base + (reg_index / 4u) * 8 + (reg_index % 2u);
+        // Strict aliasing violation, but we have essentially no choice.
+        auto dst_ptr = reinterpret_cast<uint32_t*>(
+                &dst.data[c * dst.strides[!ColumnMajor] + r * dst.strides[ColumnMajor]]);
+        *dst_ptr = reinterpret_cast<const uint32_t&>(src.d[reg_index]);
+    }
+}
+"""
+
+
+class Sm90_mma_write_d_impl:
+    def instance_impl(self, col_major):
+        self.access_info["dst"].actor_signature = sig_cuda_classic
+        self.access_info["src"].actor_signature = sig_cuda_classic
+        self.actor_kind = cuda_classic
+        self.coll_unit = cuda_warpgroup
+        self.cu_utils.append(write_d_util)
+        col_major = "true" if col_major else "false"
+        self.instr_format = (
+            "exo_CudaUtil::exo_Sm90_store_d<" + col_major + ">({dst}, {src_data});"
+        )
+
+
+@instr
+class Sm90_mma_write_d_col_major_tf32(Sm90_mma_write_d_impl):
+    def behavior(
+        n: size,
+        dst: [f32][n, 64] @ CudaDeviceVisibleLinear,
+        src: [f32][64, n] @ Sm90_RmemMatrixD,
+    ):
+        for mi in seq(0, 64):
+            for ni in seq(0, n):
+                dst[ni, mi] = src[mi, ni]  # Transposed
+
+    def instance(self, n):
+        self.instance_impl(True)
+
+
+@instr
+class Sm90_mma_write_d_row_major_tf32(Sm90_mma_write_d_impl):
+    def behavior(
+        n: size,
+        dst: [f32][64, n] @ CudaDeviceVisibleLinear,
+        src: [f32][64, n] @ Sm90_RmemMatrixD,
+    ):
+        for mi in seq(0, 64):
+            for ni in seq(0, n):
+                dst[mi, ni] = src[mi, ni]
+
+    def instance(self, n):
+        self.instance_impl(False)
+
+
+__all__.append("Sm90_mma_write_d_col_major_tf32")
+__all__.append("Sm90_mma_write_d_row_major_tf32")
