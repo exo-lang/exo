@@ -798,6 +798,8 @@ class SubtreeScan(LoopIR_Do):
 
         # Need to be able to store values 0 through (ring-1)
         ring_bits = (ring - 1).bit_length()
+        # Need to be able to count 0 to ring, inclusive, skips
+        skip_bits = ring.bit_length()
 
         # black formatting will ruin the readability of the generated C++ code below
         # fmt: off
@@ -883,7 +885,7 @@ class SubtreeScan(LoopIR_Do):
                 lines.append(f"static constexpr unsigned {idx} = 0;  // Trivial size-1 ring buffer")
             lines.append(f"unsigned {parity_bits} : {ring} = 0;")
             if delay > 0:
-                lines.append(f"unsigned {skips} : {ring_bits} = 0;")
+                lines.append(f"unsigned {skips} : {skip_bits} = 0;")
 
             # Define Await member function
             lines.append(f"__device__ __forceinline__ void {r}Await{nm_suffix}(char* exo_smem) {{")
