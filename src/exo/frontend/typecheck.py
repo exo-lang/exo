@@ -367,6 +367,12 @@ class TypeChecker:
             return [LoopIR.Alloc(stmt.name, typ, mem, stmt.srcinfo)]
 
         elif isinstance(stmt, UAST.Call):
+            n_args, expected_args = len(stmt.args), len(stmt.f.args)
+            if n_args != expected_args:
+                self.err(
+                    stmt,
+                    f"{stmt.f.name} got {n_args} arguments but need {expected_args}",
+                )
             args = [
                 self.check_e(
                     call_a, is_index=sig_a.type in (T.size, T.index, T.stride, T.bool)
