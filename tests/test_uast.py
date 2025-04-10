@@ -17,7 +17,6 @@ def to_uast(f):
         body,
         getsrcinfo,
         parent_scope=get_parent_scope(depth=2),
-        instr=("TEST", ""),
         as_func=True,
     )
     return parser.result()

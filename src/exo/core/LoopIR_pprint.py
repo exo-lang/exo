@@ -164,13 +164,7 @@ class UAST_PPrinter:
         self.addline(f"def {name}({','.join(args)}):")
 
         self.push()
-        if p.instr:
-            instr_lines = p.instr.instr_format.split("\n")
-            instr_lines = [f"# @instr {instr_lines[0]}"] + [
-                f"#        {l}" for l in instr_lines[1:]
-            ]
-            for l in instr_lines:
-                self.addline(l)
+        assert not hasattr(p, "instr"), "UAST.proc.instr was removed"
         for pred in p.preds:
             self.addline(f"assert {self.pexpr(pred)}")
         self.pstmts(p.body)

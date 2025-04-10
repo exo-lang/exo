@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from exo import proc, SchedulingError, Procedure, loop_modes
+from exo import proc, SchedulingError, Procedure
 from exo.core.LoopIR import LoopIR, T
 from exo.core.LoopIR_pprint import _print_cursor
 from exo.core.internal_cursors import (
@@ -14,6 +14,7 @@ from exo.core.internal_cursors import (
 from exo.frontend.pattern_match import match_pattern
 from exo.core.prelude import Sym
 from exo.frontend.syntax import size, f32
+from exo.spork import loop_modes
 
 
 def _find_cursors(ctx, pattern):
