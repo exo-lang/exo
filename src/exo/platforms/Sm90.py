@@ -597,13 +597,13 @@ EXO_CUDA_INLINE void {fname}(
     auto desc_a = exo_matrix_descriptor<swizzle_bits_a>(smem_a, m_matrix_stride, k_matrix_stride);
     auto desc_b = exo_matrix_descriptor<swizzle_bits_b>(smem_b, n_matrix_stride, k_matrix_stride);
     asm volatile(
-                "{{ // {fname} \n"
-                  ".reg .pred p;\n"
-                  "setp.ne.b32 p, %{n_regs+2}, 0;\n"
-                  "{instr_name} "
-                  "{vector_fmt}, "
-                  " %{n_regs},"
-                  " %{n_regs+1},"
+                "{{ // {fname} \n\t"
+                  ".reg .pred p;\n\t"
+                  "setp.ne.b32 p, %{n_regs+2}, 0;\n\t"
+                  "{instr_name}\n\t"
+                  "{vector_fmt},\n\t"
+                  " %{n_regs}, "
+                  " %{n_regs+1}, "
                   " p,    1,  1;\n"
                 "}}\n"
                   : {vector_args}
