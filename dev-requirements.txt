@@ -3,7 +3,7 @@ coverage==7.6.12
 pre-commit==4.2.0
 pytest-cov==6.0.0
 pytest-xdist==3.6.1
-pytest==8.3.4
+pytest==8.3.5
 tox==4.23.2
 numpy==2.2.3
 Pillow==11.0.0
