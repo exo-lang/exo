@@ -2536,7 +2536,13 @@ def test_unify10(golden):
 
 def test_unify11(golden):
     @proc
-    def bar(dst: [f32][8], src: [f32][8], bound: size):
+    def bar1(dst: [f32][8], src: [f32][8], bound: size):
+        for i in seq(0, 8):
+            if i < bound:
+                dst[i] = src[i]
+
+    @proc
+    def bar2(dst: [f32][8], src: [f32][8], bound: index):
         for i in seq(0, 8):
             if i < bound:
                 dst[i] = src[i]
@@ -2550,13 +2556,16 @@ def test_unify11(golden):
             if m > n + i:
                 y[i] = x[i]
 
-    foo = replace(foo, foo.find_loop("i"), bar)
+    with pytest.raises(TypeError, match="expected expression"):
+        replace(foo, foo.find_loop("i"), bar1)
+
+    foo = replace(foo, foo.find_loop("i"), bar2)
     assert str(simplify(foo)) == golden
 
 
 def test_unify12(golden):
     @proc
-    def bar(dst: [f32][8], src: [f32][8], bound: size):
+    def bar(dst: [f32][8], src: [f32][8], bound: index):
         for i in seq(0, 8):
             if i < bound:
                 dst[i] = src[i]

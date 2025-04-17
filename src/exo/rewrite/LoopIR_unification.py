@@ -20,6 +20,7 @@ from .LoopIR_scheduling import SchedulingError
 from ..core.prelude import *
 from .new_eff import Check_Aliasing
 import exo.core.internal_cursors as ic
+from ..frontend.boundscheck import CheckBounds
 
 
 def _get_smt_solver():
@@ -94,6 +95,8 @@ def DoReplace(subproc, block_cursor):
 
     ir, fwd = block_cursor._replace([new_call])
     Check_Aliasing(ir)
+    print(ir)
+    CheckBounds(ir)
     return ir, fwd
 
 
