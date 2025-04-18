@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum, auto
 from math import prod
-from typing import Dict, Optional, Type
+from typing import Callable, Dict, Optional, Type
 from warnings import warn
 
 from ..core.memory import MemGenError, memwin_template
@@ -13,7 +13,6 @@ from ..core.LoopIR import (
     T,
     LoopIR_Do,
     LoopIR_Rewrite,
-    LoweredBarrier,
 )
 
 from . import actor_kinds
@@ -685,8 +684,7 @@ class SubtreeScan(LoopIR_Do):
         scan.Arrive.expect_prologue_sync_of(actor_kinds.wgmma_async)
 
         lowered = CudaLoweredBarrier(False, LoweredBarrierType.wgmma_fence)
-        lowered.Arrive = ['asm("wgmma.fence.sync.aligned;");']
-        lowered.Await = []
+        lowered.codegen = lambda _: ['asm("wgmma.fence.sync.aligned;");']
         return lowered
 
     def lower_garden_variety_fence(self, scan: BarrierScan, suffix):
@@ -707,14 +705,13 @@ class SubtreeScan(LoopIR_Do):
         clusterDim = self.clusterDim
 
         lowered = CudaLoweredBarrier(False, LoweredBarrierType.garden_variety_fence)
-        lowered.Arrive = []
-        lowered.Await = []
+        lines = []
 
         # Insert wait for sm_80 cp.async if needed.
         if actor_kinds.cuda_classic.implements_first(A1):
             pass
         elif actor_kinds.Sm80_generic.implements_first(A1):
-            lowered.Arrive.append('asm volatile("cp.async.wait_all;" ::);')
+            lines.append('asm volatile("cp.async.wait_all;" ::);')
         else:
             raise ValueError(
                 f"{srcinfo}: Fence first actor kind "
@@ -746,9 +743,9 @@ class SubtreeScan(LoopIR_Do):
         if n_warps > 0 and not wgmma_special_case:
             if cta_count == 1:
                 if n_warps == 1:
-                    lowered.Arrive.append("__syncwarp();")
+                    lines.append("__syncwarp();")
                 elif n_warps * 32 == self.blockDim:
-                    lowered.Arrive.append("__syncthreads();")  # TODO consider PTX
+                    lines.append("__syncthreads();")  # TODO consider PTX
                 else:
                     raise NotImplementedError(
                         "TODO Fence lowering other than warp/CTA/cluster"
@@ -761,8 +758,8 @@ class SubtreeScan(LoopIR_Do):
                         f"{srcinfo}: expected full cluster " f"or only 1 CTA: {msg}"
                     )
                 else:
-                    lowered.Arrive.append('asm("barrier.cluster.arrive.aligned;"::);')
-                    lowered.Await.append('asm("barrier.cluster.wait.aligned;"::);')
+                    lines.append('asm("barrier.cluster.arrive.aligned;"::);')
+                    lines.append('asm("barrier.cluster.wait.aligned;"::);')
             else:
                 raise ValueError(
                     f"{srcinfo}: {cta_count}/{clusterDim} CTAs in cluster active for thread collective for Fence; must have 1 or all"
@@ -772,12 +769,13 @@ class SubtreeScan(LoopIR_Do):
         if actor_kinds.Sm80_generic.implements_second(A2):
             pass
         elif actor_kinds.cuda_generic_and_async_proxy.implements_second(A2):
-            lowered.Await.append('asm("fence.proxy.async;");')
+            lines.append('asm("fence.proxy.async;");')
         else:
             raise ValueError(
                 f"{srcinfo}: Fence second actor kind {A2} not "
                 f"supported (at most CUDA generic+async proxy)"
             )
+        lowered.codegen = lambda _: lines
         return lowered
 
     def lower_mbarrier(self, scan: BarrierScan, suffix, mbarrier_pairs: list):
@@ -927,16 +925,20 @@ class SubtreeScan(LoopIR_Do):
         # We also record mbarriers to initialize, first those for Arrive/Await,
         # then those for ReverseArrive/ReverseAwait.
         Arrive_txt = f"Arrive{nm_suffix}(exo_smem, "
-        lowered.Arrive = [f"exo_syncState.{Arrive_txt}true);"]
-        lowered.c_Arrive_mbarrier = f"exo_syncState.{Arrive_txt}false)"
-        lowered.Await = [f"exo_syncState.Await{nm_suffix}(exo_smem);"]
+        def codegen(sync_type: SyncType):
+            r = "Reverse" if sync_type.is_reversed else ""
+            assert sync_type.is_split()
+            if sync_type.is_arrive():
+                return [f"exo_syncState.{r}{Arrive_txt}1);"]
+            else:
+                return [f"exo_syncState.{r}Await{nm_suffix}(exo_smem);"]
+        lowered.codegen = codegen
+        lowered.c_Arrive_mbarrier = f"exo_syncState.{Arrive_txt}0)"
         arrive_count = scan.Arrive.coll_tiling.box_num_threads()
         mbarrier_pairs.append((ring, arrive_count))
 
         if scan.has_reverse():
-            lowered.ReverseArrive = [f"exo_syncState.Reverse{Arrive_txt}true);"]
-            lowered.c_ReverseArrive_mbarrier = f"exo_syncStat.Reverse{Arrive_txt}false)"
-            lowered.ReverseAwait = [f"exo_syncState.ReverseAwait{nm_suffix}(exo_smem);"]
+            lowered.c_ReverseArrive_mbarrier = f"exo_syncState.Reverse{Arrive_txt}0)"
             arrive_count = scan.ReverseArrive.coll_tiling.box_num_threads()
             mbarrier_pairs.append((ring, arrive_count))
         return lowered
@@ -959,7 +961,6 @@ class SubtreeScan(LoopIR_Do):
         solitary = True
         A1 = scan.Arrive.actor_kind
         A2 = scan.Await.actor_kind
-        delay = scan.Await.delay
         coll_tiling = scan.Arrive.coll_tiling
         assert coll_tiling.equiv(scan.Await.coll_tiling)
 
@@ -982,16 +983,16 @@ class SubtreeScan(LoopIR_Do):
             # sm_80 non-bulk cp.async
             check_A2_coll_unit(actor_kinds.Sm80_generic, cuda_thread)
             lowered = CudaLoweredBarrier(solitary, LoweredBarrierType.Sm80_commit_group)
-            lowered.Arrive = ['asm("cp.async.commit_group;");']
-            lowered.Await = [f'asm("cp.async.wait_group {delay};");']
+            arrive = 'asm("cp.async.commit_group;");'
+            await_fmt = 'asm("cp.async.wait_group {delay};");'
         elif actor_kinds.tma_to_gmem_async.implements_first(A1):
             # sm_90a bulk cp.async SMEM->GMEM
             check_A2_coll_unit(actor_kinds.cuda_generic_and_async_proxy, cuda_thread)
             lowered = CudaLoweredBarrier(
                 solitary, LoweredBarrierType.tma_to_gmem_commit_group
             )
-            lowered.Arrive = ['asm("cp.async.bulk.commit_group;");']
-            lowered.Await = [f'asm("cp.async.bulk.wait_group {delay};");']
+            arrive = 'asm("cp.async.bulk.commit_group;");'
+            await_fmt = 'asm("cp.async.bulk.wait_group {delay};");'
         elif actor_kinds.wgmma_async.implements_first(A1):
             # sm_90a wgmma; note unit is now warpgroup and not a single thread;
             # also enforce that this is an epilogue sync of CudaAsync(wgmma_async).
@@ -999,8 +1000,8 @@ class SubtreeScan(LoopIR_Do):
             lowered = CudaLoweredBarrier(
                 solitary, LoweredBarrierType.wgmma_commit_group
             )
-            lowered.Arrive = ['asm("wgmma.commit_group.sync.aligned;");']
-            lowered.Await = [f'asm("wgmma.wait_group.sync.aligned {delay};");']
+            arrive = 'asm("wgmma.commit_group.sync.aligned;");'
+            await_fmt = 'asm("wgmma.wait_group.sync.aligned {delay};");'
             scan.Arrive.expect_epilogue_sync_of(actor_kinds.wgmma_async)
         else:
             raise TypeError(
@@ -1008,6 +1009,16 @@ class SubtreeScan(LoopIR_Do):
                 f"cuda_commit_group does not support "
                 f"Arrive({A1}) (wrong first actor kind)"
             )
+
+        def codegen(sync_type):
+            assert sync_type.is_split()
+            assert not sync_type.is_reversed
+            if sync_type.is_arrive():
+                return [arrive]
+            else:
+                return [await_fmt.format(delay=sync_type.delay)]
+
+        lowered.codegen = codegen
         return lowered
 
 
@@ -1357,7 +1368,8 @@ class SubtreeRewrite(LoopIR_Rewrite):
             if lowered.solitary and not s.sync_type.is_split():
                 # Fence must pass solitary barrier check
                 self.check_solitary_barrier(s, lowered)
-            s = s.update(lowered=lowered)
+            assert lowered.codegen is not None
+            s = s.update(lowered=lowered.codegen(s.sync_type))
         return s
 
     def check_solitary_barrier(self, s, lowered):
@@ -1399,7 +1411,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
             alias_stmt = LoopIR.SyncStmt(
                 dummy_sync_type,
                 Sym("exo_tma_mbarrier"),
-                LoweredBarrier([c_alias], []),
+                [c_alias],
                 s.srcinfo,
             )
             s = s.update(body=[alias_stmt] + s.body)
@@ -1783,14 +1795,17 @@ class LoweredBarrierType(Enum):
     wgmma_commit_group = auto()
 
 
-class CudaLoweredBarrier(LoweredBarrier):
+class CudaLoweredBarrier:
     __slots__ = [
+        "codegen",
         "SyncState_lines",
         "solitary",
         "type_enum",
         "c_Arrive_mbarrier",
         "c_ReverseArrive_mbarrier",
     ]
+
+    codegen: Callable[[SyncType], List[str]]
 
     # Added to SyncState struct
     SyncState_lines: List[str]
@@ -1809,7 +1824,7 @@ class CudaLoweredBarrier(LoweredBarrier):
     c_ReverseArrive_mbarrier: str
 
     def __init__(self, solitary, type_enum):
-        super().__init__()
+        self.codegen = None
         self.SyncState_lines = []
         self.solitary = solitary
         self.type_enum = type_enum

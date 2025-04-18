@@ -58,21 +58,6 @@ class Operator(str):
 
 
 @dataclass(slots=True)
-class LoweredBarrier:
-    """Barrier lowered to CUDA C++ strings
-
-    Paste strings in-place of Arrive/Await stmts.
-    Fence = Arrive + Await together.
-
-    """
-
-    Arrive: Optional[List[str]] = None
-    Await: Optional[List[str]] = None
-    ReverseArrive: Optional[List[str]] = None
-    ReverseAwait: Optional[List[str]] = None
-
-
-@dataclass(slots=True)
 class AccessInfo:
     mem: Type[MemWin] = DRAM
     actor_signature: ActorSignature = sig_cpu
@@ -119,7 +104,7 @@ module LoopIR {
            -- `bar` user-visible barrier for arrive/await;
            --  internal unique id for fence
            -- `codegen` used internally for lowering pass
-         | SyncStmt( sync_type sync_type, sym bar, lowered_barrier? lowered )
+         | SyncStmt( sync_type sync_type, sym bar, lowered_sync? lowered )
          | If( expr cond, stmt* body, stmt* orelse )
          | For( sym iter, expr lo, expr hi, stmt* body, loop_mode loop_mode )
          | Alloc( sym name, type type, mem mem )
@@ -197,7 +182,7 @@ module LoopIR {
         "srcinfo": SrcInfo,
         "loop_mode": LoopMode,
         "sync_type": SyncType,
-        "lowered_barrier": LoweredBarrier,
+        "lowered_sync": list,  # List[str] but that fails for some reason
     },
     memoize={
         "Num",

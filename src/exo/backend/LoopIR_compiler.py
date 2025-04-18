@@ -987,18 +987,7 @@ class Compiler:
                     "(or internal compiler error -- missing lowered barrier)"
                 )
             sync_type = s.sync_type
-            if sync_type.is_arrive():
-                barrier_lines = (
-                    s.lowered.ReverseArrive
-                    if sync_type.is_reversed
-                    else s.lowered.Arrive
-                )
-            elif sync_type.is_await():
-                barrier_lines = (
-                    s.lowered.ReverseAwait if sync_type.is_reversed else s.lowered.Await
-                )
-            else:
-                barrier_lines = s.lowered.Arrive + s.lowered.Await
+            barrier_lines = s.lowered
             self.add_line(f"// {s.sync_type.format_stmt(s.bar)}")
             assert not isinstance(barrier_lines, str), "expect List[str]"
             for line in barrier_lines:
