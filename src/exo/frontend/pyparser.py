@@ -1885,33 +1885,27 @@ class Parser:
             name, eval_me = kw.arg, kw.value
             if name == "codegen":
                 codegen = self.eval_expr(eval_me)
-                if not isinstance(codegen, str):
-                    raise ParseError(f"codegen attribute for {func_id}() must be str")
             else:
                 raise ParseError(f"Unknown keyword '{name}' for {func_id}()")
 
         def unpack_arrive(is_reversed):
-            if len(ast_call.args) != 2:
-                self.err(ast_call, f"{func_id} expects 2 arguments")
-            sync_type = arrive_type(is_reversed, eval_actor_kind(ast_call.args[0]))
+            if len(ast_call.args) != 3:
+                self.err(ast_call, f"{func_id} expects 3 arguments")
+            N = self.eval_expr(ast_call.args[2])
+            if not isinstance(N, int):
+                self.err(ast_call, f"{func_id} N={N!r}; expected int")
+            sync_type = arrive_type(is_reversed, eval_actor_kind(ast_call.args[0]), N)
             bar = self.parse_expr(ast_call.args[1])
             return sync_type, bar
 
         def unpack_await(is_reversed):
-            delay = 0
-            if len(ast_call.args) == 3:
-                delay = self.eval_expr(ast_call.args[2])
-                if not isinstance(delay, int) or delay < 0:
-                    self.err(
-                        ast_call, f"Arrive delay={delay}; expected non-negative int"
-                    )
-            if 2 <= len(ast_call.args) <= 3:
-                sync_type = await_type(
-                    is_reversed, eval_actor_kind(ast_call.args[1]), delay
-                )
-                bar = self.parse_expr(ast_call.args[0])
-            else:
-                self.err(ast_call, f"{func_id} expects 2 arguments")
+            if len(ast_call.args) != 3:
+                self.err(ast_call, f"{func_id} expects 3 arguments")
+            N = self.eval_expr(ast_call.args[2])
+            if not isinstance(N, int):
+                self.err(ast_call, f"{func_id} N={N!r}; expected int")
+            sync_type = await_type(is_reversed, eval_actor_kind(ast_call.args[1]), N)
+            bar = self.parse_expr(ast_call.args[0])
             return sync_type, bar
 
         if func_id == "Fence":

@@ -784,19 +784,23 @@ class SubtreeScan(LoopIR_Do):
         nm_suffix = f"{suffix}_{scan.barrier_name}"
 
         # Calculate the size of the ring buffer (number of mbarriers)
+        # TODO we need checking that N is correct for arrive/await
         if scan.has_reverse():
-            ring = scan.Await.delay + scan.ReverseAwait.delay
+            assert scan.Await.N < 0, "TODO error message"
+            assert scan.ReverseAwait.N < 0, "TODO error message"
+            ring = ~scan.Await.N + ~scan.ReverseAwait.N
             assert scan.ReverseAwait.parse_counter < scan.Arrive.parse_counter
             assert scan.Await.parse_counter < scan.ReverseArrive.parse_counter
         else:
-            ring = scan.Await.delay
+            assert scan.Await.N < 0, "TODO error message"
+            ring = ~scan.Await.N
             if scan.Await.parse_counter > scan.Arrive.parse_counter:
                 ring += 1
         assert ring > 0
 
         # Need to be able to store values 0 through (ring-1)
         ring_bits = (ring - 1).bit_length()
-        # Need to be able to count 0 to ring, inclusive, skips
+        # Need to be able to count 0 to ring (inclusive) skips, if skipping enabled.
         skip_bits = ring.bit_length()
 
         # black formatting will ruin the readability of the generated C++ code below
@@ -871,9 +875,9 @@ class SubtreeScan(LoopIR_Do):
             # are allocated right after those for Arrive/Await
             offset = mbarrier_offset + ring if is_reverse else mbarrier_offset
             idx = f"{r}AwaitIdx{nm_suffix}"
-            delay = info.delay
             skips = f"{r}Skips{nm_suffix}"
             parity_bits = f"{r}Parity{nm_suffix}"
+            enable_delay = info.N != ~0
 
             # Define (register) exo_SyncState member variables: ring buffer
             # index, parity bitfield, and, if needed, counter for inital delay.
@@ -882,15 +886,17 @@ class SubtreeScan(LoopIR_Do):
             else:
                 lines.append(f"static constexpr unsigned {idx} = 0;  // Trivial size-1 ring buffer")
             lines.append(f"unsigned {parity_bits} : {ring} = 0;")
-            if delay > 0:
+            if enable_delay:
                 lines.append(f"unsigned {skips} : {skip_bits} = 0;")
 
             # Define Await member function
-            lines.append(f"__device__ __forceinline__ void {r}Await{nm_suffix}(char* exo_smem) {{")
-            mbarrier_to_u32(lines, is_reverse, idx)
-            if delay > 0:
-                lines.append(f"  const bool enable = {skips} >= {delay};")
+            if enable_delay:
+                lines.append(f"__device__ __forceinline__ void {r}Await{nm_suffix}(char* exo_smem, int delay = 0) {{")
+                mbarrier_to_u32(lines, is_reverse, idx)
+                lines.append(f"  const bool enable = {skips} >= delay;")
             else:
+                lines.append(f"__device__ __forceinline__ void {r}Await{nm_suffix}(char* exo_smem) {{")
+                mbarrier_to_u32(lines, is_reverse, idx)
                 lines.append(f"  const bool enable = true;")
             lines.append(f"  if (enable) {{")
             # sm_90 needed for try_wait
@@ -907,9 +913,9 @@ class SubtreeScan(LoopIR_Do):
                 lines.append(f'    // Needed for first actor kind {A1}; second actor kind {A2}')
                 lines.append(f'    asm("fence.proxy.async;");')
             lines.append(f"  }}")
-            if delay > 0:
+            if enable_delay:
                 lines.append(f"  else {{")
-                lines.append(f"    // {r}Await({scan.barrier_name}) returns without waiting for mbarrier first {delay} times")
+                lines.append(f"    // {r}Await({scan.barrier_name}) returns without waiting for mbarrier first <delay> times")
                 lines.append(f"    {skips}++;")
                 lines.append(f"  }}")
             lines.append(f"}}")
@@ -931,7 +937,11 @@ class SubtreeScan(LoopIR_Do):
             if sync_type.is_arrive():
                 return [f"exo_syncState.{r}{Arrive_txt}1);"]
             else:
-                return [f"exo_syncState.{r}Await{nm_suffix}(exo_smem);"]
+                delay_arg = ""
+                if delay := ~sync_type.N:
+                    assert delay > 0, "should have been caught earlier"
+                    delay_arg = f", {delay}"
+                return [f"exo_syncState.{r}Await{nm_suffix}(exo_smem{delay_arg});"]
         lowered.codegen = codegen
         lowered.c_Arrive_mbarrier = f"exo_syncState.{Arrive_txt}0)"
         arrive_count = scan.Arrive.coll_tiling.box_num_threads()
@@ -955,6 +965,7 @@ class SubtreeScan(LoopIR_Do):
         #   * unsupported first actor kind
         #   * incorrect second actor kind given supported first actor kind
         #   * incorrect collective unit given supported first actor kind
+        #   * incorrect N for Arrive/Await
         assert not scan.ReverseArrive
         assert not scan.ReverseAwait
 
@@ -963,6 +974,19 @@ class SubtreeScan(LoopIR_Do):
         A2 = scan.Await.actor_kind
         coll_tiling = scan.Arrive.coll_tiling
         assert coll_tiling.equiv(scan.Await.coll_tiling)
+
+        info = scan.Arrive
+        if info.N != 1:
+            raise ValueError(
+                f"{info.get_srcinfo()}: Arrive must have N=1 "
+                f"(for cuda_commit_group {scan.barrier_name})"
+            )
+        info = scan.Await
+        if info.N < 0:
+            raise ValueError(
+                f"{info.get_srcinfo()}: Await must have N >= 0 "
+                f"(for cuda_commit_group {scan.barrier_name})"
+            )
 
         def check_A2_coll_unit(expect_A2, coll_unit):
             if not expect_A2.implements_second(A2):
@@ -984,7 +1008,7 @@ class SubtreeScan(LoopIR_Do):
             check_A2_coll_unit(actor_kinds.Sm80_generic, cuda_thread)
             lowered = CudaLoweredBarrier(solitary, LoweredBarrierType.Sm80_commit_group)
             arrive = 'asm("cp.async.commit_group;");'
-            await_fmt = 'asm("cp.async.wait_group {delay};");'
+            await_fmt = 'asm("cp.async.wait_group {N};");'
         elif actor_kinds.tma_to_gmem_async.implements_first(A1):
             # sm_90a bulk cp.async SMEM->GMEM
             check_A2_coll_unit(actor_kinds.cuda_generic_and_async_proxy, cuda_thread)
@@ -992,7 +1016,7 @@ class SubtreeScan(LoopIR_Do):
                 solitary, LoweredBarrierType.tma_to_gmem_commit_group
             )
             arrive = 'asm("cp.async.bulk.commit_group;");'
-            await_fmt = 'asm("cp.async.bulk.wait_group {delay};");'
+            await_fmt = 'asm("cp.async.bulk.wait_group {N};");'
         elif actor_kinds.wgmma_async.implements_first(A1):
             # sm_90a wgmma; note unit is now warpgroup and not a single thread;
             # also enforce that this is an epilogue sync of CudaAsync(wgmma_async).
@@ -1001,7 +1025,7 @@ class SubtreeScan(LoopIR_Do):
                 solitary, LoweredBarrierType.wgmma_commit_group
             )
             arrive = 'asm("wgmma.commit_group.sync.aligned;");'
-            await_fmt = 'asm("wgmma.wait_group.sync.aligned {delay};");'
+            await_fmt = 'asm("wgmma.wait_group.sync.aligned {N};");'
             scan.Arrive.expect_epilogue_sync_of(actor_kinds.wgmma_async)
         else:
             raise TypeError(
@@ -1016,7 +1040,7 @@ class SubtreeScan(LoopIR_Do):
             if sync_type.is_arrive():
                 return [arrive]
             else:
-                return [await_fmt.format(delay=sync_type.delay)]
+                return [await_fmt.format(N=sync_type.N)]
 
         lowered.codegen = codegen
         return lowered
@@ -1522,7 +1546,7 @@ def CodegenSmem(byte_offset, byte_end, reftype, wrapped_smem_type):
 @dataclass(slots=True)
 class ArriveAwaitInfo:
     actor_kind: ActorKind
-    delay: int
+    N: int
     coll_tiling: CollTiling
     stmt_stack: Tuple
     parse_counter: int
@@ -1647,7 +1671,6 @@ class BarrierScan(object):
             if sync_type.is_arrive():
                 actor_kind = sync_type.first_actor_kind
                 attr_name = "ReverseArrive" if sync_type.is_reversed else "Arrive"
-                assert sync_type.delay == 0
             else:
                 assert sync_type.is_await()
                 actor_kind = sync_type.second_actor_kind
@@ -1667,7 +1690,7 @@ class BarrierScan(object):
                 attr_name,
                 ArriveAwaitInfo(
                     actor_kind,
-                    sync_type.delay,
+                    sync_type.N,
                     coll_tiling,
                     stmt_stack,
                     self.parse_counter,
@@ -1725,12 +1748,12 @@ class BarrierScan(object):
                 )
             self._check_pairing("ReverseAwait", "Arrive", True)
             self._check_pairing("Await", "ReverseArrive", True)
-            if self.ReverseAwait.delay == 0 and self.Await.delay == 0:
+            if self.ReverseAwait.N == 0 and self.Await.N == 0:
                 raise ValueError(
                     f"{self.ReverseAwait.get_srcinfo()}, {self.Await.get_srcinfo()}: "
-                    f"must have at least one nonzero delay in "
-                    f"ReverseAwait({name}, ..., delay), "
-                    f"Await({name}, ..., delay)"
+                    f"must have at least one nonzero N (~delay) in "
+                    f"ReverseAwait({name}, ..., N), "
+                    f"Await({name}, ..., N)"
                 )
         else:
             self._check_pairing("Arrive", "Await", False)
@@ -1776,7 +1799,7 @@ class BarrierScan(object):
                 f"{info_0.get_srcinfo()}, {info_1.get_srcinfo()}: "
                 f"{attr_0}({name}) and {attr_1}({name}) must not "
                 f"be split by control flow; consider using "
-                f"delay:int arg in Await(bar, actor_kind, delay)"
+                f"delay:int arg in Await(bar, actor_kind, ~delay)"
             )
         if orelse0 != orelse1:
             raise ValueError(
