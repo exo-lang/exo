@@ -535,8 +535,10 @@ def ext_compile_to_strings(lib_name, proc_list):
     # Add cu_includes, cu_util, window definitions to .cuh file, if it exists.
     if (cuh_lines := ext_lines.get("cuh")) is not None:
         prepend_tagged_cuh_ext_lines(False, lib_name, tagged_cu_utils, ext_lines)
-        prepend_tagged_cuh_ext_lines(True, lib_name, tagged_cu_includes, ext_lines)
         ext_lines["cuh"] = body_memwin_code + body_struct_defns + ext_lines["cuh"]
+        # Moved CUDA includes to the top.
+        # clangd seems to get really confused if includes are in the wrong place.
+        prepend_tagged_cuh_ext_lines(True, lib_name, tagged_cu_includes, ext_lines)
 
     return header_contents, body_contents, ext_lines
 
