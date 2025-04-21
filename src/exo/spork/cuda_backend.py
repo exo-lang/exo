@@ -859,10 +859,11 @@ class SubtreeScan(LoopIR_Do):
             mbarrier_to_u32(lines, is_reverse, idx);
             lines.append(f"  if (enable) {{")
             # TODO cluster broadcast if needed
+            comment = f"// {r}Arrive{nm_suffix}\\n\\t"
             if is_Sm80_cp_async:
-                lines.append(f'    asm("cp.async.mbarrier.arrive.noinc.shared::cta.b64 [%0];" :: "r"(mbarrier_u32));');
+                lines.append(f'    asm("{comment}cp.async.mbarrier.arrive.noinc.shared::cta.b64 [%0];" :: "r"(mbarrier_u32));');
             else:
-                lines.append(f'    asm("mbarrier.arrive.shared::cta.b64 _, [%0];" :: "r"(mbarrier_u32));');
+                lines.append(f'    asm("{comment}mbarrier.arrive.shared::cta.b64 _, [%0];" :: "r"(mbarrier_u32));');
             if ring_bits > 0:
                 lines.append(f"    // Advance ring buffer state")
                 lines.append(f"    {idx} = {idx} == {ring - 1} ? 0 : {idx} + 1;")
@@ -924,11 +925,12 @@ class SubtreeScan(LoopIR_Do):
                 lines.append(f"__device__ __forceinline__ void {r}Await{nm_suffix}(char* exo_smem) {{")
                 mbarrier_to_u32(lines, is_reverse, idx)
                 lines.append(f"  const bool enable = true;")
+            comment = f"// {r}Await{nm_suffix}\\n\\t"
             lines.append(f"  if (enable) {{")
             # sm_90 needed for try_wait
             test_or_try = "try" if self.uses_async_proxy else "test"
             lines.append(f"    // Wait for mbarrier ... PTX loop needed for this")
-            lines.append(f'    asm volatile("{{.reg.pred P1; EXO_BEFORE_WAIT: mbarrier.{test_or_try}_wait.parity.acquire.cta.shared::cta.b64 P1, [%0], %1; @P1 bra.uni EXO_WAIT_DONE; bra.uni EXO_BEFORE_WAIT; EXO_WAIT_DONE: }}"::')
+            lines.append(f'    asm volatile("{comment}{{.reg.pred P1; EXO_BEFORE_WAIT: mbarrier.{test_or_try}_wait.parity.acquire.cta.shared::cta.b64 P1, [%0], %1; @P1 bra.uni EXO_WAIT_DONE; bra.uni EXO_BEFORE_WAIT; EXO_WAIT_DONE: }}"::')
             lines.append(f'        "r"(mbarrier_u32), "r"(1u & {parity_bits} >> {idx}));')
             lines.append(f"    // Flip parity")
             lines.append(f"    {parity_bits} ^= 1u << {idx};")
