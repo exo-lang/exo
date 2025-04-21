@@ -67,8 +67,9 @@ def loopir_lower_cuda(s, ctx: SporkLoweringCtx):
 class SubtreeScan(LoopIR_Do):
     __slots__ = [
         "alloc_states",
-        "stmt_id_codegen_par",
+        "thread_iters",
         "barrier_scans",
+        "cuda_warps_dfs_codegen",
         "uses_async_proxy",
         "blockDim",
         "clusterDim",
@@ -80,18 +81,26 @@ class SubtreeScan(LoopIR_Do):
         "scalar_ref_syms",
         #
         "_syms_needed",
-        "_stmt_stack",
+        "_stmt_stack",  # XXX delete me if useless
         "_coll_env",
         "_coll_tiling",
         "_iter_coll_tiling",
+        "_body_containing_s",
     ]
 
     # We will have to substitute some LoopIR nodes in the SubtreeRewrite phase.
     # During the scan, for a node that needs to be rewritten, we will stash
     # needed info for the rewrites here.
     alloc_states: Dict[Sym, AllocState]  # name of non-barrier -> AllocState
-    stmt_id_codegen_par: Dict[int, _CodegenPar]  # id(LoopIR.stmt)->_CodegenPar
+    thread_iters: Dict[Sym, ThreadIter]  # Info on iterators of cuda_threads loops
     barrier_scans: Dict[Sym, BarrierScan]  # name of barrier -> BarrierScan
+
+    # _CodegenPar needed for rewrites of CudaWarps blocks
+    # as encountered in DFS order (typical traversal order).
+    # This is a bit fragile, but CudaWarps blocks have no
+    # unique information (id(...) is not unique after scheduling).
+    cuda_warps_dfs_codegen: List[_CodegenPar]
+
     uses_async_proxy: bool
 
     blockDim: int
@@ -100,11 +109,13 @@ class SubtreeScan(LoopIR_Do):
     task_loop_depth: int
     task_iter_syms: List[Sym]
     _syms_needed: Set[Sym]
-    _stmt_stack: List[LoopIR.stmt]
+    _stmt_stack: List[LoopIR.stmt]  # XXX delete me if useless
     _coll_env: Dict[CollParam, int]
     _coll_tiling: CollTiling
     # CollTiling created by the cuda_threads loop with the given iter
     _iter_coll_tiling: Dict[Sym, CollTiling]
+    # In do_s(s), we will always have s in _body_containing_s
+    _body_containing_s: List[LoopIR.stmt]
 
     def __init__(self, s, ctx: SporkLoweringCtx):
         assert is_if_holding_with(s, LoopIR)
@@ -112,8 +123,9 @@ class SubtreeScan(LoopIR_Do):
         assert isinstance(cuda_device_function, CudaDeviceFunction)
 
         self.alloc_states = {}
-        self.stmt_id_codegen_par = {}
+        self.thread_iters = {}
         self.barrier_scans = {}
+        self.cuda_warps_dfs_codegen = []
         self.uses_async_proxy = False
         self.blockDim = cuda_device_function.blockDim
         self.clusterDim = cuda_device_function.clusterDim
@@ -208,6 +220,7 @@ class SubtreeScan(LoopIR_Do):
             CollIndexExpr(0),
         )
         self._iter_coll_tiling = {}
+        self._body_containing_s = s.body
         self.do_stmts(s.body)
 
         # Prepare the device args struct
@@ -292,6 +305,12 @@ class SubtreeScan(LoopIR_Do):
         self.fmt_dict["device_args"] = ", ".join(device_args_values)
         self.fmt_dict["device_args_struct_body"] = "\n".join(device_args_struct_lines)
 
+    def do_stmts(self, stmts):
+        saved = self._body_containing_s
+        self._body_containing_s = stmts
+        super().do_stmts(stmts)
+        self._body_containing_s = saved
+
     def do_s(self, s):
         # Save state
         old_coll_tiling = self._coll_tiling
@@ -351,7 +370,9 @@ class SubtreeScan(LoopIR_Do):
                 )
         elif isinstance(s, LoopIR.Alloc):
             if s.type.is_barrier():
-                self.barrier_scans[s.name] = BarrierScan(self, s)
+                self.barrier_scans[s.name] = BarrierScan(
+                    self, s, self._body_containing_s
+                )
             else:
                 if not issubclass(s.mem, CudaBasicDeviceVisible):
                     raise TypeError(
@@ -373,16 +394,17 @@ class SubtreeScan(LoopIR_Do):
                     f"stmt: {s}"
                 )
         elif isinstance(s, LoopIR.SyncStmt):
-            if s.sync_type.is_split():
-                # arrive/await
-                state = self.barrier_scans.get(s.bar)
-                assert isinstance(state, BarrierScan)
-            else:
-                # Fence: each should have its own unique internal-use name (Sym)
-                state = BarrierScan(self, s)
-                assert s.bar not in self.barrier_scans
-                self.barrier_scans[s.bar] = state
-            state.inspect_sync_stmt(s, self._coll_tiling, self._stmt_stack)
+            if s.lowered is None:  # backdoor, may remove later
+                if s.sync_type.is_split():
+                    # arrive/await
+                    state = self.barrier_scans.get(s.bar)
+                    assert isinstance(state, BarrierScan)
+                else:
+                    # Fence: each should have its own unique internal-use name (Sym)
+                    state = BarrierScan(self, s, self._body_containing_s)
+                    assert s.bar not in self.barrier_scans
+                    self.barrier_scans[s.bar] = state
+                state.inspect_sync_stmt(s, self._coll_tiling)
 
         elif isinstance(s, LoopIR.Call):
             callee = s.f
@@ -398,8 +420,8 @@ class SubtreeScan(LoopIR_Do):
         self._coll_tiling, advice = self._coll_tiling.specialized(
             cuda_warp, ctx.lo, ctx.hi, self._coll_env
         )
-        self.stmt_id_codegen_par[id(s)] = _CodegenPar(
-            advice.coll_index.codegen(), (advice.lo, advice.hi)
+        self.cuda_warps_dfs_codegen.append(
+            _CodegenPar(advice.coll_index.codegen(), (advice.lo, advice.hi))
         )
 
     def expect_SyncStmt(
@@ -417,7 +439,7 @@ class SubtreeScan(LoopIR_Do):
                 if sync_type.second_actor_kind == second_actor_kind:
                     return sync
         noun = "epilogue" if is_epilogue else "prologue"
-        expected = SyncType(first_actor_kind, second_actor_kind, False, 0).format_stmt(
+        expected = SyncType(first_actor_kind, second_actor_kind, False, 1).format_stmt(
             "..."
         )
         raise ValueError(
@@ -428,7 +450,9 @@ class SubtreeScan(LoopIR_Do):
     def post_inspect_cuda_async(self, s):
         # Must be run after inspecting the body of the CudaAsync block
         # since the barriers must have been scanned.
-        # We detect prologue/epilogue sync here.
+        # We detect required prologue/epilogue sync here.
+        # The converse requirement (that some sync must be a prologue/epilogue)
+        # is instead detected during code lowering.
         ctx = s.cond.val
         assert isinstance(ctx, CudaAsync)
         actor_kind = ctx.get_actor_kind()
@@ -444,18 +468,6 @@ class SubtreeScan(LoopIR_Do):
             sync_stmt = self.expect_SyncStmt(s, is_epilogue, A1, A2)
             scan = self.barrier_scans[sync_stmt.bar]
             sync_type = sync_stmt.sync_type
-            # Set ArriveAwaitInfo.prologue_sync_of or ArriveAwaitInfo.epilogue_sync_of
-            attr = "epilogue_sync_of" if is_epilogue else "prologue_sync_of"
-            if sync_type.first_actor_kind is not None:
-                if sync_type.is_reversed:
-                    setattr(scan.ReverseArrive, attr, actor_kind)
-                else:
-                    setattr(scan.Arrive, attr, actor_kind)
-            if sync_type.second_actor_kind is not None:
-                if sync_type.is_reversed:
-                    setattr(scan.ReverseAwait, attr, actor_kind)
-                else:
-                    setattr(scan.Await, attr, actor_kind)
 
         # tma_to_smem_async requires epilogue Arrive(tma_to_smem_async);
         if actor_kind == actor_kinds.tma_to_smem_async:
@@ -491,8 +503,9 @@ class SubtreeScan(LoopIR_Do):
         self._iter_coll_tiling[s.iter] = self._coll_tiling
 
         # We will advise replacing the loop mode with _CodegenPar
-        self.stmt_id_codegen_par[id(s)] = _CodegenPar(
-            advice.coll_index.codegen(), (advice.lo, advice.hi)
+        assert s.iter not in self.thread_iters
+        self.thread_iters[s.iter] = ThreadIter(
+            _CodegenPar(advice.coll_index.codegen(), (advice.lo, advice.hi))
         )
 
     def apply_idx(self, node):
@@ -662,29 +675,30 @@ class SubtreeScan(LoopIR_Do):
         return lowered, mbarrier_pairs, "\n".join(SyncState_lines)
 
     def lower_wgmma_fence(self, scan: BarrierScan, suffix):
-        A1 = scan.Arrive.actor_kind
-        A2 = scan.Await.actor_kind
-        srcinfo = scan.Arrive.get_srcinfo()
+        Arrive = scan.Arrive
+        Await = scan.Await
+        A1 = Arrive.actor_kind
+        A2 = Await.actor_kind
+        srcinfo = Arrive.get_srcinfo()
         assert A1 == actor_kinds.wgmma_fence_1
         if A2 != actor_kinds.wgmma_fence_2:
             raise ValueError(
                 f"{srcinfo}: wgmma fence needs second actor kind wgmma_fence_2"
             )
 
-        coll_tiling = scan.Arrive.coll_tiling
+        coll_tiling = Arrive.coll_tiling
         # Should be the case for a Fence
-        assert coll_tiling is scan.Await.coll_tiling
+        assert coll_tiling is Await.coll_tiling
 
         if msg := coll_tiling.unit_mismatch(cuda_warpgroup, self._coll_env):
             raise ValueError(
                 f"{srcinfo}: wgmma fence must be executed by a warpgroup: {msg}"
             )
 
-        # Must be prologue sync of CudaAsync(wgmma_async)
-        scan.Arrive.expect_prologue_sync_of(actor_kinds.wgmma_async)
-
         lowered = CudaLoweredBarrier(False, LoweredBarrierType.wgmma_fence)
-        lowered.codegen = lambda _: ['asm("wgmma.fence.sync.aligned;");']
+        lowered.codegen = lambda _: LoweredPrologueSync(
+            actor_kinds.wgmma_async, ['asm("wgmma.fence.sync.aligned;");']
+        )
         return lowered
 
     def lower_garden_variety_fence(self, scan: BarrierScan, suffix):
@@ -699,9 +713,11 @@ class SubtreeScan(LoopIR_Do):
         the barrier. This relies on wgmma_async not being V1-transitive.
         """
 
-        A1 = scan.Arrive.actor_kind
-        A2 = scan.Await.actor_kind
-        srcinfo = scan.Arrive.get_srcinfo()
+        Arrive = scan.Arrive
+        Await = scan.Await
+        A1 = Arrive.actor_kind
+        A2 = Await.actor_kind
+        srcinfo = Arrive.get_srcinfo()
         clusterDim = self.clusterDim
 
         lowered = CudaLoweredBarrier(False, LoweredBarrierType.garden_variety_fence)
@@ -718,9 +734,9 @@ class SubtreeScan(LoopIR_Do):
                 f"{A1} not supported (we allow Sm80_generic)"
             )
 
-        coll_tiling = scan.Arrive.coll_tiling
+        coll_tiling = Arrive.coll_tiling
         # Should be the case for a Fence
-        assert coll_tiling is scan.Await.coll_tiling
+        assert coll_tiling is Await.coll_tiling
 
         cta_count = self.get_cta_count(coll_tiling, srcinfo)
         threads = coll_tiling.box_num_threads()
@@ -785,22 +801,27 @@ class SubtreeScan(LoopIR_Do):
 
         # Calculate the size of the ring buffer (number of mbarriers)
         # TODO we need checking that N is correct for arrive/await
+        def max_skips(sync_stmts):
+            for s in sync_stmts:
+                if s.sync_type.N >= 0:
+                    raise ValueError(f"{s.srcinfo}: {s} must have N < 0 for mbarrier")
+            return max(~s.sync_type.N for s in sync_stmts)
+
+        max_await_skips = max_skips(scan.Await.sync_stmts)
         if scan.has_reverse():
-            assert scan.Await.N < 0, "TODO error message"
-            assert scan.ReverseAwait.N < 0, "TODO error message"
-            ring = ~scan.Await.N + ~scan.ReverseAwait.N
-            assert scan.ReverseAwait.parse_counter < scan.Arrive.parse_counter
-            assert scan.Await.parse_counter < scan.ReverseArrive.parse_counter
+            max_reverse_await_skips = max_skips(scan.ReverseAwait.sync_stmts)
+            ring = max_await_skips + max_reverse_await_skips
         else:
-            assert scan.Await.N < 0, "TODO error message"
-            ring = ~scan.Await.N
-            if scan.Await.parse_counter > scan.Arrive.parse_counter:
-                ring += 1
-        assert ring > 0
+            ring = max_await_skips + 1
+        if ring == 0:
+            raise ValueError(
+                f"{scan.get_srcinfo()}: {scan.barrier_name} must have some await with nonzero skips (e.g. set N = ~1)"
+            )
 
         # Need to be able to store values 0 through (ring-1)
         ring_bits = (ring - 1).bit_length()
-        # Need to be able to count 0 to ring (inclusive) skips, if skipping enabled.
+        # Need to be able to count 0 to ring (inclusive) skips.
+        # This value will not be used if skipping is not actually enabled.
         skip_bits = ring.bit_length()
 
         # black formatting will ruin the readability of the generated C++ code below
@@ -816,11 +837,13 @@ class SubtreeScan(LoopIR_Do):
 
             if actor_kinds.Sm80_cp_async.implements_first(actor_kind):
                 is_Sm80_cp_async = True
+                is_tma = False
             elif actor_kinds.cuda_classic.implements_first(actor_kind):
                 is_Sm80_cp_async = False
+                is_tma = False
             elif actor_kinds.tma_to_smem_async.implements_first(actor_kind):
                 is_Sm80_cp_async = False
-                info.expect_epilogue_sync_of(actor_kinds.tma_to_smem_async)
+                is_tma = True
             else:
                 raise ValueError(
                     f"{info.get_srcinfo()}: mbarrier Arrive actor kind {actor_kind} "
@@ -846,7 +869,7 @@ class SubtreeScan(LoopIR_Do):
             lines.append(f"  }}")
             lines.append(f"  return mbarrier_u32;")
             lines.append(f"}}")
-            return actor_kind
+            return is_tma
 
         def generate_await(is_reverse, A1):
             r = "Reverse" if is_reverse else ""
@@ -877,23 +900,26 @@ class SubtreeScan(LoopIR_Do):
             idx = f"{r}AwaitIdx{nm_suffix}"
             skips = f"{r}Skips{nm_suffix}"
             parity_bits = f"{r}Parity{nm_suffix}"
-            enable_delay = info.N != ~0
+            max_skips = max_reverse_await_skips if is_reverse else max_await_skips
+            enable_skips = max_skips != 0
 
             # Define (register) exo_SyncState member variables: ring buffer
-            # index, parity bitfield, and, if needed, counter for inital delay.
+            # index, parity bitfield, and, if needed, counter for inital skips.
             if ring_bits > 0:
                 lines.append(f"unsigned {idx} : {ring_bits} = 0;")
             else:
                 lines.append(f"static constexpr unsigned {idx} = 0;  // Trivial size-1 ring buffer")
             lines.append(f"unsigned {parity_bits} : {ring} = 0;")
-            if enable_delay:
+            if enable_skips:
                 lines.append(f"unsigned {skips} : {skip_bits} = 0;")
 
             # Define Await member function
-            if enable_delay:
-                lines.append(f"__device__ __forceinline__ void {r}Await{nm_suffix}(char* exo_smem, int delay = 0) {{")
+            # The initial_skips parameter is included iff skipping is enabled,
+            # as a last line of defense against future Exo compiler bugs.
+            if enable_skips:
+                lines.append(f"__device__ __forceinline__ void {r}Await{nm_suffix}(char* exo_smem, int initial_skips = 0) {{")
                 mbarrier_to_u32(lines, is_reverse, idx)
-                lines.append(f"  const bool enable = {skips} >= delay;")
+                lines.append(f"  const bool enable = {skips} >= initial_skips;")
             else:
                 lines.append(f"__device__ __forceinline__ void {r}Await{nm_suffix}(char* exo_smem) {{")
                 mbarrier_to_u32(lines, is_reverse, idx)
@@ -913,9 +939,9 @@ class SubtreeScan(LoopIR_Do):
                 lines.append(f'    // Needed for first actor kind {A1}; second actor kind {A2}')
                 lines.append(f'    asm("fence.proxy.async;");')
             lines.append(f"  }}")
-            if enable_delay:
+            if enable_skips:
                 lines.append(f"  else {{")
-                lines.append(f"    // {r}Await({scan.barrier_name}) returns without waiting for mbarrier first <delay> times")
+                lines.append(f"    // {r}Await({scan.barrier_name}) returns without waiting for mbarrier first <initial_skips> times")
                 lines.append(f"    {skips}++;")
                 lines.append(f"  }}")
             lines.append(f"}}")
@@ -923,25 +949,34 @@ class SubtreeScan(LoopIR_Do):
         # Generate Arrive and Await syntax
         # {Reverse}Awaits must be aware with the actor kind
         # of the matched {Reverse}Arrive
-        generate_await(False, generate_arrive(False))
+        Arrive_is_tma = generate_arrive(False)
+        generate_await(False, scan.Arrive.actor_kind)
         if scan.has_reverse():
-            generate_await(True, generate_arrive(True))
+            ReverseArrive_is_tma = generate_arrive(True)
+            generate_await(True, scan.ReverseArrive.actor_kind)
 
         # Arrive/Await lowers to call to generated exo_syncState member function.
         # We also record mbarriers to initialize, first those for Arrive/Await,
         # then those for ReverseArrive/ReverseAwait.
+        # Finally, for arrives with actor kind tma_to_smem_async, we need to enforce
+        # that it is an epilogue sync for tx-count to work correctly.
         Arrive_txt = f"Arrive{nm_suffix}(exo_smem, "
         def codegen(sync_type: SyncType):
             r = "Reverse" if sync_type.is_reversed else ""
             assert sync_type.is_split()
             if sync_type.is_arrive():
-                return [f"exo_syncState.{r}{Arrive_txt}1);"]
+                assert sync_type.N == 1, "TODO implement me"
+                result = [f"exo_syncState.{r}{Arrive_txt}{sync_type.N});"]
+                is_tma = ReverseArrive_is_tma if sync_type.is_reversed else Arrive_is_tma
+                if is_tma:
+                    result = LoweredEpilogueSync(actor_kinds.tma_to_smem_async, result)
+                return result
             else:
-                delay_arg = ""
-                if delay := ~sync_type.N:
-                    assert delay > 0, "should have been caught earlier"
-                    delay_arg = f", {delay}"
-                return [f"exo_syncState.{r}Await{nm_suffix}(exo_smem{delay_arg});"]
+                skips_arg = ""
+                if skips := ~sync_type.N:
+                    assert skips > 0, "should have been caught earlier"
+                    skips_arg = f", {skips}"
+                return [f"exo_syncState.{r}Await{nm_suffix}(exo_smem{skips_arg});"]
         lowered.codegen = codegen
         lowered.c_Arrive_mbarrier = f"exo_syncState.{Arrive_txt}0)"
         arrive_count = scan.Arrive.coll_tiling.box_num_threads()
@@ -966,27 +1001,23 @@ class SubtreeScan(LoopIR_Do):
         #   * incorrect second actor kind given supported first actor kind
         #   * incorrect collective unit given supported first actor kind
         #   * incorrect N for Arrive/Await
-        assert not scan.ReverseArrive
-        assert not scan.ReverseAwait
+        assert scan.ReverseAwait is None
+        assert scan.ReverseArrive is None
 
         solitary = True
         A1 = scan.Arrive.actor_kind
         A2 = scan.Await.actor_kind
-        coll_tiling = scan.Arrive.coll_tiling
-        assert coll_tiling.equiv(scan.Await.coll_tiling)
+        is_wgmma = False
 
-        info = scan.Arrive
-        if info.N != 1:
-            raise ValueError(
-                f"{info.get_srcinfo()}: Arrive must have N=1 "
-                f"(for cuda_commit_group {scan.barrier_name})"
-            )
-        info = scan.Await
-        if info.N < 0:
-            raise ValueError(
-                f"{info.get_srcinfo()}: Await must have N >= 0 "
-                f"(for cuda_commit_group {scan.barrier_name})"
-            )
+        def check_coll_unit(thing, action_name, coll_unit):
+            srcinfo = thing.get_srcinfo()
+            coll_tiling = thing.get_coll_tiling()
+            if msg := coll_tiling.unit_mismatch(coll_unit, self._coll_env):
+                raise TypeError(
+                    f"{srcinfo}: {action_name} of commit group "
+                    f"{scan.barrier_name} with Arrive({A1}) "
+                    f"expects collective unit {coll_unit}: {msg}"
+                )
 
         def check_A2_coll_unit(expect_A2, coll_unit):
             if not expect_A2.implements_second(A2):
@@ -996,18 +1027,16 @@ class SubtreeScan(LoopIR_Do):
                     f"expects Await({expect_A2}), "
                     f"not {A2} (wrong second actor kind)"
                 )
-            if msg := coll_tiling.unit_mismatch(coll_unit, self._coll_env):
-                raise TypeError(
-                    f"{scan.barrier_srcinfo}: commit group "
-                    f"{scan.barrier_name} with Arrive({A1}) "
-                    f"expects collective unit {coll_unit}: {msg}"
-                )
+            # TODO declaration coll_tiling analysis
+            # check_coll_unit(scan, "declaration", coll_unit)
+            check_coll_unit(scan.Arrive, "Arrive", coll_unit)
+            check_coll_unit(scan.Await, "Await", coll_unit)
 
         if actor_kinds.Sm80_cp_async.implements_first(A1):
             # sm_80 non-bulk cp.async
             check_A2_coll_unit(actor_kinds.Sm80_generic, cuda_thread)
             lowered = CudaLoweredBarrier(solitary, LoweredBarrierType.Sm80_commit_group)
-            arrive = 'asm("cp.async.commit_group;");'
+            lowered_arrive = ['asm("cp.async.commit_group;");']
             await_fmt = 'asm("cp.async.wait_group {N};");'
         elif actor_kinds.tma_to_gmem_async.implements_first(A1):
             # sm_90a bulk cp.async SMEM->GMEM
@@ -1015,7 +1044,7 @@ class SubtreeScan(LoopIR_Do):
             lowered = CudaLoweredBarrier(
                 solitary, LoweredBarrierType.tma_to_gmem_commit_group
             )
-            arrive = 'asm("cp.async.bulk.commit_group;");'
+            lowered_arrive = ['asm("cp.async.bulk.commit_group;");']
             await_fmt = 'asm("cp.async.bulk.wait_group {N};");'
         elif actor_kinds.wgmma_async.implements_first(A1):
             # sm_90a wgmma; note unit is now warpgroup and not a single thread;
@@ -1024,9 +1053,11 @@ class SubtreeScan(LoopIR_Do):
             lowered = CudaLoweredBarrier(
                 solitary, LoweredBarrierType.wgmma_commit_group
             )
-            arrive = 'asm("wgmma.commit_group.sync.aligned;");'
+            lowered_arrive = LoweredEpilogueSync(
+                actor_kinds.wgmma_async, ['asm("wgmma.commit_group.sync.aligned;");']
+            )
             await_fmt = 'asm("wgmma.wait_group.sync.aligned {N};");'
-            scan.Arrive.expect_epilogue_sync_of(actor_kinds.wgmma_async)
+            is_wgmma = True
         else:
             raise TypeError(
                 f"{scan.barrier_srcinfo}: {scan.barrier_name} : "
@@ -1038,8 +1069,12 @@ class SubtreeScan(LoopIR_Do):
             assert sync_type.is_split()
             assert not sync_type.is_reversed
             if sync_type.is_arrive():
-                return [arrive]
+                if sync_type.N != 1:
+                    raise ValueError("Expect N=1 for Arrive of commit group")
+                return lowered_arrive
             else:
+                if sync_type.N < 0:
+                    raise ValueError("Expect N>=0 for Await of commit group")
                 return [await_fmt.format(N=sync_type.N)]
 
         lowered.codegen = codegen
@@ -1054,10 +1089,10 @@ class SubtreeRewrite(LoopIR_Rewrite):
         "scan",
         "fmt_dict",
         "alloc_states",
-        "stmt_id_codegen_par",
+        "thread_iters",
+        "cuda_warps_dfs_codegen",
+        "cuda_warps_idx",
         "lowered_barriers",
-        "prologue_barriers",
-        "epilogue_barriers",
         "live_solitary_barrier_names",
         "live_smem_ends",  # SMEM stack allocator
         "smem_data_usage",  # SMEM stack allocator
@@ -1069,17 +1104,14 @@ class SubtreeRewrite(LoopIR_Rewrite):
         self.scan = scan
         self.fmt_dict = fmt_dict
         self.alloc_states = scan.alloc_states
-        self.stmt_id_codegen_par = scan.stmt_id_codegen_par
+        self.thread_iters = scan.thread_iters
+        self.cuda_warps_dfs_codegen = scan.cuda_warps_dfs_codegen
+        self.cuda_warps_idx = 0
         (
             self.lowered_barriers,
             mbarrier_pairs,
             fmt_dict["SyncState_body"],
         ) = scan.lower_barriers()
-
-        # For use by update_with_cuda_async and update_check_sync_stmt.
-        # Sym of barriers used as prologue/epilogue sync appear here.
-        self.prologue_barriers = set()
-        self.epilogue_barriers = set()
 
         # Prepare mbarriers in SMEM
         if mbarrier_pairs:
@@ -1183,11 +1215,13 @@ class SubtreeRewrite(LoopIR_Rewrite):
             main_loop_context, [task_loop], task_loop.srcinfo
         )
 
+        assert self.cuda_warps_idx == len(self.cuda_warps_dfs_codegen)
+
     def result(self):
         assert is_if_holding_with(self._result, LoopIR)
         return self._result
 
-    def updated_stmt(self, s):
+    def updated_stmt(self, s, prologue_of=None, epilogue_of=None):
         if is_if_holding_with(s, LoopIR):
             ctx = s.cond.val
             if isinstance(ctx, CudaAsync):
@@ -1196,7 +1230,8 @@ class SubtreeRewrite(LoopIR_Rewrite):
                 # Replace with CudaWarps block with _CodegenPar "loop"
                 # that the scanner has prepared. NB (0, 1) isn't the same
                 # as the indices encoded in _CodegenPar.
-                loop_mode = self.stmt_id_codegen_par[id(s)]
+                loop_mode = self.cuda_warps_dfs_codegen[self.cuda_warps_idx]
+                self.cuda_warps_idx += 1
                 s = LoopIR.For(
                     Sym("tmp"),
                     LoopIR.Const(0, T.int, s.srcinfo),
@@ -1213,7 +1248,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
             # Replace CudaThreads loop with _CodegenPar loop that the
             # scanner has prepared.
             if isinstance(s.loop_mode, CudaThreads):
-                new_loop_mode = self.stmt_id_codegen_par[id(s)]
+                new_loop_mode = self.thread_iters[s.iter].codegen_par
                 s = s.update(loop_mode=new_loop_mode)
             else:
                 assert isinstance(s.loop_mode, (Seq, _CodegenPar))
@@ -1235,18 +1270,22 @@ class SubtreeRewrite(LoopIR_Rewrite):
             s = self.remove_distributed_idx(s)
 
         elif isinstance(s, LoopIR.SyncStmt):
-            s = self.update_check_sync_stmt(s)
+            s = self.update_check_sync_stmt(s, prologue_of, epilogue_of)
 
         return s
 
-    def map_s(self, s):
-        s_rewrite = self.updated_stmt(s)
+    def map_s(self, s, prologue_of=None, epilogue_of=None):
+        s_rewrite = self.updated_stmt(s, prologue_of, epilogue_of)
 
         # Use superclass to recurse and rewrite subtree
         # We have to have logic to handle None being used to indicate
         # "no change"; if the superclass makes no changes, we still have
         # to preserve any rewrites of our own.
-        if s_rewrite is s or s_rewrite is None:
+        if is_if_holding_with(s, LoopIR) and isinstance(s.cond.val, CudaAsync):
+            # Special handling for CudaAsync blocks; see update_with_cuda_async
+            # We must bypass the normal superclass behavior in this case.
+            out_stmts = [s_rewrite]
+        elif s_rewrite is s or s_rewrite is None:
             out_stmts = super().map_s(s)
         else:
             super_rewritten = super().map_s(s_rewrite)
@@ -1386,14 +1425,43 @@ class SubtreeRewrite(LoopIR_Rewrite):
         if lowered.solitary:
             del self.live_solitary_barrier_names[lowered.type_enum]
 
-    def update_check_sync_stmt(self, s):
+    def update_check_sync_stmt(
+        self,
+        s: LoopIR.SyncStmt,
+        prologue_of: Optional[ActorKind],
+        epilogue_of: Optional[ActorKind],
+    ):
         if s.lowered is None:
             lowered = self.lowered_barriers[s.bar]
             if lowered.solitary and not s.sync_type.is_split():
                 # Fence must pass solitary barrier check
                 self.check_solitary_barrier(s, lowered)
             assert lowered.codegen is not None
-            s = s.update(lowered=lowered.codegen(s.sync_type))
+
+            # Do codegen, and supply srcinfo if codegen fails
+            try:
+                lowered = lowered.codegen(s.sync_type)
+            except Exception as e:
+                raise ValueError(f"{s.srcinfo}: {e}")
+
+            # Enforce prologue/epilogue sync requirements
+            if isinstance(lowered, LoweredPrologueSync):
+                if lowered.actor_kind != prologue_of:
+                    raise ValueError(
+                        f"{s.srcinfo}: {s} must be the first stmt of a CudaAsync({lowered.actor_kind}) block"
+                    )
+                lowered = lowered.lines
+            elif isinstance(lowered, LoweredEpilogueSync):
+                if lowered.actor_kind != epilogue_of:
+                    raise ValueError(
+                        f"{s.srcinfo}: {s} must be the last stmt of a CudaAsync({lowered.actor_kind}) block"
+                    )
+                lowered = lowered.lines
+            else:
+                assert isinstance(lowered, list)
+
+            # Inject lowered code
+            s = s.update(lowered=lowered)
         return s
 
     def check_solitary_barrier(self, s, lowered):
@@ -1406,7 +1474,10 @@ class SubtreeRewrite(LoopIR_Rewrite):
             )
 
     def update_with_cuda_async(self, s):
-        # Handle the special case of with CudaAsync(tma_to_smem_async)
+        # We have to customize mapping the body of a CudaAsync block, so as to
+        # allow special handling for prologue/epilogue sync.
+        #
+        # Further, handle the special case of with CudaAsync(tma_to_smem_async)
         # where we need to make the mbarrier used for the /epilogue/
         # mbarrier Arrive available at the /start/ of the async block.
         # The mbarrier's 32-bit address used for this sync will be aliased as
@@ -1416,6 +1487,16 @@ class SubtreeRewrite(LoopIR_Rewrite):
         actor_kind = ctx.get_actor_kind()
         assert actor_kind in actor_kinds.cuda_async_actor_kinds
         assert s.body
+
+        new_body = []
+        for i, child in enumerate(s.body):
+            prologue_of = actor_kind if i == 0 else None
+            epilogue_of = actor_kind if i + 1 == len(s.body) else None
+            new_children = self.map_s(child, prologue_of, epilogue_of)
+            if new_children is None:
+                new_body.append(child)  # Append unchanged stmt
+            else:
+                new_body.extend(new_children)
 
         if actor_kind == actor_kinds.tma_to_smem_async:
             # We will insert the needed uint32_t variable as "lowered" syntax
@@ -1438,12 +1519,18 @@ class SubtreeRewrite(LoopIR_Rewrite):
                 [c_alias],
                 s.srcinfo,
             )
-            s = s.update(body=[alias_stmt] + s.body)
+            new_body = [alias_stmt] + new_body
 
+        s = s.update(body=new_body)
         return s
 
 
 # End class SubtreeRewrite
+
+
+@dataclass(slots=True)
+class ThreadIter:
+    codegen_par: _CodegenPar
 
 
 class AllocState(object):
@@ -1545,19 +1632,19 @@ def CodegenSmem(byte_offset, byte_end, reftype, wrapped_smem_type):
 
 @dataclass(slots=True)
 class ArriveAwaitInfo:
+    # Information from the first such statement encountered.
+    # Others need to be checked as matching.
     actor_kind: ActorKind
-    N: int
     coll_tiling: CollTiling
-    stmt_stack: Tuple
-    parse_counter: int
-
-    # Set to an actor kind `A` if the SyncStmt is detected as being the
-    # prologue or epilogue sync of a CudaAsync(A) block.
-    prologue_sync_of: Optional[ActorKind] = None
-    epilogue_sync_of: Optional[ActorKind] = None
+    sync_stmts: List[LoopIR.SyncStmt]
 
     def get_srcinfo(self):
-        return self.stmt_stack[-1].srcinfo
+        # Matches BarrierScan.get_srcinfo()
+        return self.sync_stmts[0].srcinfo if self.sync_stmts else "<no SyncStmt seen>"
+
+    def get_coll_tiling(self):
+        # Matches BarrierScan.get_coll_tiling
+        return self.coll_tiling
 
     def expect_prologue_sync_of(self, actor_kind):
         self._expect_impl("prologue", self.prologue_sync_of, actor_kind)
@@ -1567,7 +1654,7 @@ class ArriveAwaitInfo:
 
     def _expect_impl(self, name, actual, expected):
         if actual != expected:
-            s = self.stmt_stack[-1]
+            s = self.sync_stmt
             raise ValueError(
                 f"{s.srcinfo}: misplaced {s}; must be "
                 f"{name} sync of CudaAsync({expected}) block"
@@ -1575,59 +1662,43 @@ class ArriveAwaitInfo:
 
 
 class BarrierScan(object):
-    """Helper object for collecting all usages of one barrier symbol
+    """Helper object for collecting all usages of one barrier symbol.
 
-    This includes the internal-use-only symbol for a Fence.
-    We only enforce basic valid usage requirements for barrier usage
-    here, and defer other error checking to lowering.
-    Run check() after inspecting all SyncStmts for a barrier.
+    Call the check() callback at the end to check basic common requirements:
 
-    Requirements Here:
-      * No duplicate Arrive/Await statement
+        * At least one Arrive stmt and at least one Await stmt
+        * At least one ReverseArrive stmt iff at least one ReverseAwait stmt
+        * ReverseArrive/ReverseAwait only allowed for cuda_mbarrier
+        * All stmts of one kind must have the same actor kind
+        * TODO all stmts of one kind must use the same collective tiling
 
-      * Barrier declaration and usage must not be split by a parallel-for
-
-      * If ReverseArrive/ReverseAwait is used, we must have
-        - mbarrier barrier type
-        - (Await, ReverseArrive) barrier pairing [below]
-        - (ReverseAwait, Arrive) barrier pairing
-        - at least one await delay must be nonzero
-
-      * Otherwise
-        - (Arrive/Await) or (Await/Arrive) barrier pairing
-
-    (A/B) barrier pairing requirement:
-        TODO implement
-        - A must preceed B
-        - A and B must be in the same block of code, not split by
-          any if/for stmts (except we allow with CudaAsync)
     """
 
     __slots__ = [
+        "barrier_decl_body",
         "barrier_name",
         "barrier_srcinfo",
         "barrier_coll_tiling",
         "barrier_type",
-        "parse_counter",
         "Arrive",
         "Await",
         "ReverseArrive",
         "ReverseAwait",
     ]
 
+    # LoopIR body containing declaration of barrier.
+    barrier_decl_body: List[LoopIR.stmt]
     barrier_name: Sym
     barrier_srcinfo: SrcInfo
     barrier_coll_tiling: CollTiling
     barrier_type: Optional[LoopIR.type]  # None iff is Fence
-    parse_counter: int
     # Info on [Reverse]Arrive/Await statements encountered
-    # None if not yet encountered
     Arrive: Optional[ArriveAwaitInfo]
     Await: Optional[ArriveAwaitInfo]
     ReverseArrive: Optional[ArriveAwaitInfo]
     ReverseAwait: Optional[ArriveAwaitInfo]
 
-    def __init__(self, scanner: SubtreeScan, s: LoopIR.stmt):
+    def __init__(self, scanner: SubtreeScan, s: LoopIR.stmt, body: List[LoopIR.stmt]):
         if isinstance(s, LoopIR.Alloc):
             # Barrier alloc
             self.barrier_type = s.type
@@ -1639,79 +1710,64 @@ class BarrierScan(object):
             assert not s.sync_type.is_split()
             self.barrier_type = None
             self.barrier_name = s.bar
+        assert any(s is s1 for s1 in body)
+        self.barrier_decl_body = body
         self.barrier_srcinfo = s.srcinfo
         self.barrier_coll_tiling = scanner._coll_tiling
-        self.parse_counter = 0
         self.Arrive = None
         self.Await = None
         self.ReverseArrive = None
         self.ReverseAwait = None
 
+    def get_srcinfo(self):
+        return self.barrier_srcinfo
+
+    def get_coll_tiling(self):
+        return self.barrier_coll_tiling
+
     def inspect_sync_stmt(
-        self, s: LoopIR.SyncStmt, coll_tiling: CollTiling, stmt_stack
+        self,
+        s: LoopIR.SyncStmt,
+        coll_tiling: CollTiling,
     ):
         assert s.bar is self.barrier_name
-        stmt_stack = tuple(stmt_stack)  # Immutable copy
-        assert all(isinstance(s, LoopIR.stmt) for s in stmt_stack)
 
         assert isinstance(s, LoopIR.SyncStmt)
         sync_type: SyncType = s.sync_type
 
         if not sync_type.is_split():
             # Fence, it's like an arrive+await
+            # XXX this is maybe too clever, but avoids some special casing
+            assert self.Arrive is None
+            assert self.Await is None
             assert not self.is_split()
-            self.Arrive = ArriveAwaitInfo(
-                sync_type.first_actor_kind, 0, coll_tiling, stmt_stack, 0
-            )
-            self.Await = ArriveAwaitInfo(
-                sync_type.second_actor_kind, 0, coll_tiling, stmt_stack, 0
-            )
+            self.Arrive = ArriveAwaitInfo(sync_type.first_actor_kind, coll_tiling, [s])
+            self.Await = ArriveAwaitInfo(sync_type.second_actor_kind, coll_tiling, [s])
         else:
+            # Set or modify self.Arrive, self.Await, self.ReverseArrive,
+            # or self.ReverseAwait. Enforce identical actor kind
+            # and (TODO) collective tiling
             assert self.is_split()
             if sync_type.is_arrive():
                 actor_kind = sync_type.first_actor_kind
-                attr_name = "ReverseArrive" if sync_type.is_reversed else "Arrive"
+                attr = "ReverseArrive" if sync_type.is_reversed else "Arrive"
             else:
                 assert sync_type.is_await()
                 actor_kind = sync_type.second_actor_kind
-                attr_name = "ReverseAwait" if sync_type.is_reversed else "Await"
+                attr = "ReverseAwait" if sync_type.is_reversed else "Await"
             assert isinstance(actor_kind, ActorKind)
-
-            # Set self.Arrive, self.Await, self.ReverseArrive, or self.ReverseAwait
-            should_be_none = getattr(self, attr_name)
-            if should_be_none is not None:
-                # No duplicate arrive/await statement
-                raise ValueError(
-                    f"{should_be_none.get_srcinfo()}, {s.srcinfo}: "
-                    f"duplicate {attr_name} for {s.bar}"
-                )
-            setattr(
-                self,
-                attr_name,
-                ArriveAwaitInfo(
-                    actor_kind,
-                    sync_type.N,
-                    coll_tiling,
-                    stmt_stack,
-                    self.parse_counter,
-                ),
-            )
-            self.parse_counter += 1
-
-            # No parallel-for split
-            if self.barrier_coll_tiling.parent is not coll_tiling.parent:
-                loop_info = ""
-                for sus in stmt_stack:
-                    if isinstance(sus, LoopIR.For):
-                        if isinstance(sus.loop_mode, CudaThreads):
-                            loop_info = (
-                                f"{sus.iter} in ({sus.lo}, {sus.hi}) at {sus.srcinfo}"
-                            )
-                raise ValueError(
-                    f"{s.srcinfo}: {attr_name}({s.bar}) must "
-                    f"not be split from alloc of {s.bar} by "
-                    f"parallel for {loop_info}"
-                )
+            info = getattr(self, attr)
+            if info is None:
+                setattr(self, attr, ArriveAwaitInfo(actor_kind, coll_tiling, [s]))
+            else:
+                assert isinstance(info, ArriveAwaitInfo)
+                canon = info.sync_stmts[0]
+                if info.actor_kind != actor_kind:
+                    raise ValueError(
+                        f"{s.srcinfo}: {s} mismatches actor kind of {canon} at {canon.srcinfo}"
+                    )
+                # TODO coll_tiling check
+                info.sync_stmts.append(s)
 
     def is_split(self):
         is_none = self.barrier_type is None
@@ -1725,88 +1781,30 @@ class BarrierScan(object):
         srcinfo = self.barrier_srcinfo
         name = self.barrier_name
 
-        # Basic pairing: mandatory (Arrive/Await),
-        # optional (ReverseArrive/ReverseAwait)
+        def reverse_allowed_check(info, stmt_name):
+            # NB it may be argued that we should not be handling the
+            # cuda_mbarrier special case in this common code, but this avoids
+            # every other barrier type having to check this themselves.
+            if not isinstance(self.barrier_type, LoopIR.CudaMbarrier):
+                if info is not None:
+                    sus = info.sync_stmts[0]
+                    raise TypeError(
+                        f"{sus.get_srcinfo()}: {stmt_name} not allowed for {name} of type {self.barrier_type}"
+                    )
+
+        reverse_allowed_check(self.ReverseArrive, "ReverseArrive")
+        reverse_allowed_check(self.ReverseAwait, "ReverseAwait")
+
         if self.Arrive is None:
             raise ValueError(f"{srcinfo}: missing Arrive({name}) statement")
         if self.Await is None:
             raise ValueError(f"{srcinfo}: missing Await({name}) statement")
         if self.ReverseArrive is None and self.ReverseAwait is not None:
             raise ValueError(f"{srcinfo}: missing ReverseArrive({name}) statement")
-        if self.ReverseArrive is not None and self.ReverseAwait is None:
+        if self.ReverseAwait is None and self.ReverseArrive is not None:
             raise ValueError(f"{srcinfo}: missing ReverseAwait({name}) statement")
 
-        if self.has_reverse():
-            if not isinstance(self.barrier_type, LoopIR.CudaMbarrier):
-                # IMPORTANT: if we try to implement this with barrier (instead
-                # of mbarrier) for <Sm80, we have to consider interaction
-                # with garden-variety fences.
-                raise ValueError(
-                    f"{self.ReverseArrive.get_srcinfo()}: "
-                    f"ReverseArrive requires cuda_mbarrier type, "
-                    f"not {name}: {self.barrier_type}"
-                )
-            self._check_pairing("ReverseAwait", "Arrive", True)
-            self._check_pairing("Await", "ReverseArrive", True)
-            if self.ReverseAwait.N == 0 and self.Await.N == 0:
-                raise ValueError(
-                    f"{self.ReverseAwait.get_srcinfo()}, {self.Await.get_srcinfo()}: "
-                    f"must have at least one nonzero N (~delay) in "
-                    f"ReverseAwait({name}, ..., N), "
-                    f"Await({name}, ..., N)"
-                )
-        else:
-            self._check_pairing("Arrive", "Await", False)
-
-    def _check_pairing(self, attr_0, attr_1, check_order):
-        srcinfo = self.barrier_srcinfo
-        name = self.barrier_name
-        # Get self.Arrive, self.Await, self.ReverseArrive, or self.ReverseAwait
-        info_0 = getattr(self, attr_0)
-        info_1 = getattr(self, attr_1)
-
-        # Enforce relative order, if needed.
-        if check_order and info_0.parse_counter >= info_1.parse_counter:
-            raise ValueError(
-                f"{info_0.get_srcinfo()}, {info_1.get_srcinfo()}: "
-                f"{attr_0}({name}) must be before {attr_1}({name})"
-            )
-
-        # Enforce that the paired arrive/await are in body of the same stmt,
-        # except we allow with CudaAsync.
-        stmts_0 = info_0.stmt_stack
-        stmts_1 = info_1.stmt_stack
-        assert isinstance(stmts_0, tuple)
-        assert isinstance(stmts_1, tuple)
-        assert isinstance(stmts_0[-1], LoopIR.SyncStmt)
-        assert isinstance(stmts_1[-1], LoopIR.SyncStmt)
-
-        def helper(stmts):
-            i = -2
-            while 1:
-                s = stmts[i]
-                if is_if_holding_with(s, LoopIR) and isinstance(s.cond.val, CudaAsync):
-                    i -= 1
-                else:
-                    orelse = isinstance(s, LoopIR.If) and stmts[i + 1] in s.orelse
-                    return i, orelse
-
-        i0, orelse0 = helper(stmts_0)
-        i1, orelse1 = helper(stmts_1)
-
-        if stmts_0[i0] is not stmts_1[i1]:
-            raise ValueError(
-                f"{info_0.get_srcinfo()}, {info_1.get_srcinfo()}: "
-                f"{attr_0}({name}) and {attr_1}({name}) must not "
-                f"be split by control flow; consider using "
-                f"delay:int arg in Await(bar, actor_kind, ~delay)"
-            )
-        if orelse0 != orelse1:
-            raise ValueError(
-                f"{info_0.get_srcinfo()}, {info_1.get_srcinfo()}: "
-                f"{attr_0}({name}) and {attr_1}({name}) must not "
-                f"be split into if/else branches"
-            )
+        # TODO check arrive/await pairing
 
 
 class LoweredBarrierType(Enum):
@@ -1816,6 +1814,18 @@ class LoweredBarrierType(Enum):
     Sm80_commit_group = auto()
     tma_to_gmem_commit_group = auto()
     wgmma_commit_group = auto()
+
+
+@dataclass(slots=True)
+class LoweredPrologueSync:
+    actor_kind: ActorKind
+    lines: List[str]
+
+
+@dataclass(slots=True)
+class LoweredEpilogueSync:
+    actor_kind: ActorKind
+    lines: List[str]
 
 
 class CudaLoweredBarrier:
@@ -1828,7 +1838,12 @@ class CudaLoweredBarrier:
         "c_ReverseArrive_mbarrier",
     ]
 
-    codegen: Callable[[SyncType], List[str]]
+    # Lower SyncStmt to lines of C++ code (List[str])
+    # (you may assume the SyncStmt uses this lowered barrier)
+    # If the sync must appear as the prologue/epilogue sync
+    # of a CudaAsync(A) block, warp the lines with
+    # LoweredPrologueSync(A, lines) or LoweredEpilogueSync(A, lines)
+    codegen: Callable[[SyncType], object]
 
     # Added to SyncState struct
     SyncState_lines: List[str]

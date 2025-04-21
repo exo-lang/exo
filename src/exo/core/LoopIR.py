@@ -103,7 +103,7 @@ module LoopIR {
          | Pass()
            -- `bar` user-visible barrier for arrive/await;
            --  internal unique id for fence
-           -- `codegen` used internally for lowering pass
+           -- `lowered` used internally for lowering pass
          | SyncStmt( sync_type sync_type, sym bar, lowered_sync? lowered )
          | If( expr cond, stmt* body, stmt* orelse )
          | For( sym iter, expr lo, expr hi, stmt* body, loop_mode loop_mode )
@@ -227,7 +227,7 @@ module UAST {
             | WriteConfig ( config config, string field, expr rhs )
             | FreshAssign( sym name, expr rhs )
             | Pass    ()
-            | SyncStmt( sync_type sync_type, expr? bar, string? codegen )
+            | SyncStmt( sync_type sync_type, expr? bar, lowered_sync? lowered )
             | If      ( expr cond, stmt* body,  stmt* orelse )
             | For     ( sym iter,  expr cond,   stmt* body )
             | Alloc   ( sym name, type type, mem? mem )
@@ -281,6 +281,7 @@ module UAST {
         "srcinfo": SrcInfo,
         "loop_mode": LoopMode,
         "sync_type": SyncType,
+        "lowered_sync": list,  # List[str] but that fails for some reason
     },
     memoize={
         "Num",
@@ -1425,6 +1426,19 @@ class Alpha_Rename(LoopIR_Rewrite):
             s2 = super().map_s(s)
             if new_name := self.env.get(s.name):
                 return [((s2 and s2[0]) or s).update(name=new_name)]
+            else:
+                return s2
+        elif isinstance(s, LoopIR.SyncStmt):
+            s2 = super().map_s(s)
+            if s.sync_type.is_split():
+                new_name = self.env.get(s.bar)
+            else:
+                # Fence(...) stmt does not refer to allocated barrier variable
+                # and we must unique-ify its internal barrier name.
+                new_name = s.bar.copy()
+                self.env[s.bar] = new_name
+            if new_name:
+                return [((s2 and s2[0]) or s).update(bar=new_name)]
             else:
                 return s2
         elif isinstance(s, LoopIR.Alloc):

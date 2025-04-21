@@ -1879,12 +1879,12 @@ class Parser:
                 return cpu
             return actor_kind
 
-        codegen = None
+        lowered = None
 
         for kw in ast_call.keywords:
             name, eval_me = kw.arg, kw.value
-            if name == "codegen":
-                codegen = self.eval_expr(eval_me)
+            if name == "lowered":
+                lowered = self.eval_expr(eval_me)
             else:
                 raise ParseError(f"Unknown keyword '{name}' for {func_id}()")
 
@@ -1931,4 +1931,4 @@ class Parser:
         else:
             assert 0
 
-        return self.AST.SyncStmt(sync_type, bar, codegen, self.getsrcinfo(ast_call))
+        return self.AST.SyncStmt(sync_type, bar, lowered, self.getsrcinfo(ast_call))

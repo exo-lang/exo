@@ -312,7 +312,7 @@ class TypeChecker:
             else:
                 bar = Sym("Fence")  # Sym as internal unique ID for Fence.
 
-            return [LoopIR.SyncStmt(stmt.sync_type, bar, stmt.codegen, stmt.srcinfo)]
+            return [LoopIR.SyncStmt(stmt.sync_type, bar, stmt.lowered, stmt.srcinfo)]
 
         elif isinstance(stmt, UAST.If):
             cond = self.check_e(stmt.cond, is_index=True)

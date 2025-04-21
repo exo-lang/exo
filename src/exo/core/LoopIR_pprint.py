@@ -179,7 +179,7 @@ class UAST_PPrinter:
             if isinstance(stmt, UAST.Pass):
                 self.addline("pass")
             elif isinstance(stmt, UAST.SyncStmt):
-                self.addline(stmt.sync_type.format_stmt(stmt.bar, stmt.codegen))
+                self.addline(stmt.sync_type.format_stmt(stmt.bar, stmt.lowered))
             elif isinstance(stmt, UAST.Assign) or isinstance(stmt, UAST.Reduce):
                 op = "=" if isinstance(stmt, UAST.Assign) else "+="
 
