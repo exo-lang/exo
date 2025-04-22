@@ -78,15 +78,14 @@ class SVE_VLS:
 
         @instr("{dst_data} = svld1_f32(svptrue_b32(), &{src_data});")
         def svld1_f32(
-            N: size,
-            dst: [f32][N] @ self.Vector,
-            src: [f32][N] @ DRAM,
+            dst: [f32][float_width] @ self.Vector,
+            src: [f32][float_width] @ DRAM,
         ):
             assert stride(src, 0) == 1
             assert stride(dst, 0) == 1
             assert N == 10
 
-            for i in seq(0, N):
+            for i in seq(0, float_width):
                 dst[i] = src[i]
 
         self.svld1_f32 = svld1_f32
