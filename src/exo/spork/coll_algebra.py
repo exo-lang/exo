@@ -420,6 +420,7 @@ class CollTiling(object):
 
         if tiled_dim_idx is None:
             advice.coll_index = CollIndexExpr(0)
+            advice.hi = tiles_needed  # In case tiles_needed = 0
 
         assert tile_count >= tiles_needed  # TODO message
 
