@@ -83,7 +83,6 @@ class SVE_VLS:
         ):
             assert stride(src, 0) == 1
             assert stride(dst, 0) == 1
-            assert N == 10
 
             for i in seq(0, float_width):
                 dst[i] = src[i]
