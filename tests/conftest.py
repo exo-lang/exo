@@ -1,5 +1,5 @@
 import ctypes
-import distutils.spawn
+import shutil
 import functools
 import os
 import platform
@@ -80,9 +80,8 @@ def compiler(tmp_path, request):
 
 @pytest.fixture
 def sde64():
-    sde = distutils.spawn.find_executable(
-        "sde64", os.getenv("SDE_PATH")
-    ) or distutils.spawn.find_executable("sde64")
+    sde_path = os.getenv("SDE_PATH")
+    sde = shutil.which("sde64", path=sde_path) if sde_path else shutil.which("sde64")
     if not sde:
         pytest.skip("could not find SDE")
 
