@@ -22,11 +22,8 @@ def _sve_vector_init(sve_vector_bits):
         @classmethod
         def global_(cls):
             return f"""#include <arm_sve.h>
-#ifdef __FUJITSU
-typedef svfloat32_t svfloat32_vls_t;
-#else
 typedef svfloat32_t svfloat32_vls_t __attribute__((arm_sve_vector_bits({sve_vector_bits})));
-#endif"""
+typedef svfloat64_t svfloat64_vls_t __attribute__((arm_sve_vector_bits({sve_vector_bits})));"""
 
         @classmethod
         def alloc(cls, new_name, prim_type, shape, srcinfo):

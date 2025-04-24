@@ -28,6 +28,5 @@ def test_sve_vla_svmla():
     return simplify(simple_sve_vla_svmla)
 
 
-@pytest.mark.isa("sve_vla")
 def test_gen_sve_vla_svmla(golden, test_sve_vla_svmla):
     assert str(test_sve_vla_svmla) == golden

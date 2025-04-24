@@ -13,19 +13,17 @@ SVE_VLS = SVE_VLS(512)
 def test_sve_vls_svmla():
     @proc
     def svmla(
-        N: size,
-        C: f32[N] @ DRAM,
-        A: f32[N] @ DRAM,
+        C: f32[16] @ DRAM,
+        A: f32[16] @ DRAM,
         B: f32,
     ):
-        assert N == 16
-        for i in seq(0, N):
+        for i in seq(0, 16):
             C[i] += A[i] * B
 
     def simple_svmla(p=svmla):
-        p = stage_mem(p, "for i in _:_", "C[0:N]", "C_reg")
+        p = stage_mem(p, "for i in _:_", "C[0:16]", "C_reg")
         p = set_memory(p, "C_reg:_", SVE_VLS.Vector)
-        p = stage_mem(p, "for i in _:_", "A[0:N]", "A_reg")
+        p = stage_mem(p, "for i in _:_", "A[0:16]", "A_reg")
         p = set_memory(p, "A_reg:_", SVE_VLS.Vector)
         p = replace_all(p, SVE_VLS.svld1_f32)
         p = replace_all(p, SVE_VLS.svst1_f32)
@@ -37,6 +35,5 @@ def test_sve_vls_svmla():
     return simplify(simple_sve_vls_svmla)
 
 
-@pytest.mark.isa("sve_vls")
 def test_gen_sve_vls_svmla(golden, test_sve_vls_svmla):
     assert str(test_sve_vls_svmla) == golden
