@@ -1,10 +1,7 @@
-def svmla(N: size, C: f32[N] @ DRAM, A: f32[N] @ DRAM, B: f32 @ DRAM):
-    assert N == 16
-    C_reg: f32[N] @ SVE_VLS
-    svld1_f32(N, C_reg[0:N], C[0:N])
-    A_reg: f32[N] @ SVE_VLS
-    svld1_f32(N, A_reg[0:N], A[0:N])
-    for i in seq(0, N):
-        C_reg[i] += A_reg[i] * B
-    for i0 in seq(0, N):
-        C[i0] = C_reg[i0]
+def svmla(C: f32[16] @ DRAM, A: f32[16] @ DRAM, B: f32 @ DRAM):
+    C_reg: f32[16] @ SVE_VLS
+    svld1_f32(C_reg[0:16], C[0:16])
+    A_reg: f32[16] @ SVE_VLS
+    svld1_f32(A_reg[0:16], A[0:16])
+    svmla_n_f32_x(C_reg[0:16], A_reg[0:16], B)
+    svst1_f32(C[0:16], C_reg[0:16])
