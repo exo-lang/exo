@@ -23,7 +23,7 @@ class CollParam(object):
 class CollSizeExpr(object):
     """Scalar coordinate type for CollUnit (collective unit)
 
-    Product of CollParam and a fraction.
+    Product of CollParam(s) and a fraction.
     You should not create this directly, but use overloaded * and /
     e.g. clusterDim * blockDim * 3 / 4"""
 
@@ -365,7 +365,7 @@ class CollTiling(object):
     def tiled(self, unit: CollUnit, tiles_needed: int, env: Dict[CollParam, int]):
         """Tile the CollTiling with the given collective unit.
 
-        Returns (CollTiling, CollTilingAdvice).
+        Returns (CollTiling, CollLoweringAdvice).
         Produces the given number of tiles (or throws if not possible).
         self is the parent of the resulting CollTiling.
         """
@@ -446,7 +446,7 @@ class CollTiling(object):
     def specialized(self, unit: CollUnit, lo: int, hi: int, env: Dict[CollParam, int]):
         """Specialize the CollTiling.
 
-        Returns (CollTiling, CollTilingAdvice).
+        Returns (CollTiling, CollLoweringAdvice).
 
         self and the resulting CollTiling share a common parent."""
         advice = CollLoweringAdvice()
