@@ -406,7 +406,8 @@ def ext_compile_to_strings(lib_name, proc_list):
     instrs_c_global = []
     tagged_cu_utils: List[Tuple[str, str]] = []  # (name, cu_util)
     tagged_cu_includes: List[Tuple[str, str]] = []  # (name, header name)
-    analyzed_proc_list = []
+    analyzed_public_procs = []
+    analyzed_private_procs = []
     ext_lines = {}
 
     needed_helpers = set()
@@ -470,16 +471,19 @@ def ext_compile_to_strings(lib_name, proc_list):
 
             proc_bodies.append(b)
 
-            analyzed_proc_list.append(p)
+            if is_public_decl:
+                analyzed_public_procs.append(p)
+            else:
+                analyzed_private_procs.append(p)
             for ext, snippets in comp.ext_lines().items():
                 ext_lines.setdefault(ext, []).extend(snippets)
 
     # Memories and structs are just blobs of code...
     # still sort them for output stability
-    # TODO consider injecting memory code into .cuh file ...
-    # but we have to worry about tracking window struct usage in
-    # C/cuda/public header too.
-    header_memwins, header_memwin_code, body_memwin_code = _compile_memwins(proc_list)
+    header_memwins, header_memwin_code, body_memwin_code = _compile_memwins(
+        analyzed_public_procs, analyzed_private_procs
+    )
+
     (
         header_struct_defns,
         body_struct_defns,
@@ -514,7 +518,9 @@ def ext_compile_to_strings(lib_name, proc_list):
 {from_lines(public_fwd_decls)}
 {join_ext_lines(ext_lines.get("h"))}"""
 
-    extern_code = _compile_externs(find_all_externs(analyzed_proc_list))
+    extern_code = _compile_externs(
+        find_all_externs(analyzed_public_procs + analyzed_private_procs)
+    )
 
     helper_code = [_static_helpers[v] for v in needed_helpers]
     body_contents = [helper_code, instrs_c_global, body_memwin_code, body_struct_defns]
@@ -551,13 +557,15 @@ def _compile_externs(externs):
     return extern_code
 
 
-def _compile_memwins(proc_list):
-    """Return (header memwin set, header memwin code, C body memwin code)"""
-    all_memwins = find_all_memwins(proc_list)
+def _compile_memwins(public_procs, private_procs):
+    assert public_procs or not private_procs, "Only have private procs?"
 
-    # Memories used as part of proc args must be defined in public header
+    """Return (header memwin set, header memwin code, C body memwin code)"""
+    all_memwins = find_all_memwins(public_procs + private_procs)
+
+    # Memories used as part of public proc args must be defined in public header
     header_memwins = set()
-    for p in proc_list:
+    for p in public_procs:
         if p.instr is None:
             for arg in p.args:
                 memwin = arg.mem or DRAM
