@@ -178,39 +178,46 @@ class CollIndexExpr(object):
     non-CUDA), plus division, modulo, and subtract by integers.
     """
 
-    __slots__ = ["base_expr", "ops", "hash"]
+    __slots__ = ["base_expr", "base_hi", "current_range", "ops"]
 
     # Target language (e.g. C) expression, e.g. "threadIdx" as str
     # or constant value as int
     base_expr: str | int
+
+    # base_expr known to be in range [0, base_hi-1], or [0, inf) if None
+    base_hi: Optional[int]
+
+    # Known range of full expression [lo, hi-1].
+    # NOTE: divide and modulo are treated as in Python (floor division,
+    # always non-negative modulo result), but we codegen to C without
+    # handling this, because negative values should never arise in the
+    # C code (these values correspond to masked-out threads).
+    current_range: Optional[Tuple[int, int]]
+
     # Sequence of (operator, int) pairs to apply.
     # Only allowed if the base_expr is a str.
-    ops: Tuple[str, int]
-    # Pre-computed hash
-    hash: int
+    ops: Tuple[Tuple[str, int]]
 
-    def __init__(self, base_expr, ops=()):
+    def __init__(self, base_expr, base_hi=None, _current_range=None, _ops=()):
+        self.base_expr = base_expr
         if isinstance(base_expr, int):
-            assert not ops
+            self.base_hi = base_expr + 1
+            self.current_range = (base_expr, base_expr + 1)
+            assert not _ops
         else:
             assert isinstance(base_expr, str)
-        self.base_expr = base_expr
-        self.ops = ops
-        self.hash = hash((base_expr, ops))
-
-    def __eq__(self, other):
-        """Note, this is just syntactic equality, not algebraic equality"""
-        return (
-            type(other) is CollIndexExpr
-            and self.ops == other.ops
-            and self.base_expr == other.base_expr
-        )
-
-    def __hash__(self):
-        return self.hash
+            self.base_hi = base_hi
+            if _ops:  # Internal-use constructor
+                self.current_range = _current_range
+            elif base_hi is None:
+                self.current_range = None
+            else:
+                self.current_range = (0, base_hi)
+        self.ops = _ops
 
     def __repr__(self):
-        return self._codegen_impl(f"CollIndexExpr({repr(self.base_expr)})", False)
+        expr = f"CollIndexExpr({self.base_expr!r}, {self.base_hi})"
+        return self._codegen_impl(expr, False)
 
     def __sub__(self, v: int):
         assert isinstance(v, int)
@@ -224,8 +231,10 @@ class CollIndexExpr(object):
             new_ops = self.ops[:-1] + (("-", self.ops[-1][1] + v),)
         else:
             new_ops = self.ops + (("-", v),)
-
-        return CollIndexExpr(self.base_expr, new_ops)
+        _range = self.current_range
+        if _range:
+            _range = (_range[0] - v, _range[1] - v)
+        return CollIndexExpr(self.base_expr, self.base_hi, _range, new_ops)
 
     def __truediv__(self, v: int):
         assert isinstance(v, int)
@@ -238,27 +247,82 @@ class CollIndexExpr(object):
             new_ops = self.ops[:-1] + (("/", self.ops[-1][1] * v),)
         else:
             new_ops = self.ops + (("/", v),)
-        return CollIndexExpr(self.base_expr, new_ops)
+        _range = self.current_range
+        if _range:
+            # Ceiling division required to calculate new hi
+            lo, hi = _range
+            _range = (lo // v, (hi + v - 1) // v)
+        return CollIndexExpr(self.base_expr, self.base_hi, _range, new_ops)
 
     def __floordiv__(self, v: int):
         return self.__truediv__(v)
 
     def __mod__(self, v: int):
         assert isinstance(v, int)
+        _range = self.current_range
         if isinstance(self.base_expr, int):
             return CollIndexExpr(self.base_expr % v)
         elif v == 1:
             # We rely on this in DomainCompletionOp.new_intra_box_exprs!
             return CollIndexExpr(0)
-        elif self.ops and self.ops[-1][0] == "%":
-            # Merge with the prior modulo op if possible
-            # If a divides b, then x % a % b => x % a
-            u = self.ops[-1][1]
-            if u % v == 0:
-                return CollIndexExpr(self.base_expr, self.ops[:-1] + (("%", v),))
-            elif v % u == 0:
-                return CollIndexExpr(self.base_expr, self.ops[:-1] + (("%", u),))
-        return CollIndexExpr(self.base_expr, self.ops + (("%", v),))
+        elif _range and _range[0] >= 0 and _range[1] <= v:
+            # Modulo with no effect
+            return self
+
+        # Result of x % v is is in range [0, v-1]
+        # We will append "% v" to the ops list, but try to remove redundant ops.
+        _range = (0, v)
+        ops = self.ops
+        while ops:
+            op, u = ops[-1]
+            # A prior mod or subtract by a constant divisible by v
+            # will have its effect eliminated by a subsequent `% v`.
+            if (op == "%" or op == "-") and u % v == 0:
+                ops = ops[:-1]
+                continue
+            break
+        return CollIndexExpr(self.base_expr, self.base_hi, _range, ops + (("%", v),))
+
+    def __call__(self, var_value):
+        base_expr = self.base_expr
+        if isinstance(base_expr, int):
+            return base_expr
+        assert isinstance(base_expr, str)
+        result = var_value
+        for op, v in self.ops:
+            if op == "%":
+                result %= v
+            elif op == "-":
+                result -= v
+            else:
+                assert op == "/"
+                result //= v
+        assert isinstance(result, int)
+        return result
+
+    def equiv_index(self, other):
+        """Algebraic equivalence; intentionally not =="""
+        assert isinstance(other, CollIndexExpr)
+        if self.base_expr != other.base_expr:
+            return False
+
+        lo0, hi0 = self._get_test_bounds()
+        lo1, hi1 = other._get_test_bounds()
+
+        # Test equality in the union of the two expr's test ranges.
+        # There's probably a smarter way to do this than brute force...
+        return all(self(n) == other(n) for n in range(min(lo0, lo1), max(hi0, hi1)))
+
+    def _get_test_bounds(self):
+        if self.base_hi is not None:
+            return (0, self.base_hi)
+        _ops = self.ops
+        if _ops and _ops[0][0] == "%":
+            # If the inner-most expression is var % M, then we can
+            # test var in [0, M-1] ... non-equalities from this simplification
+            # will be handled due "union of the two expr's test ranges" above.
+            return (0, _ops[0][1])
+        raise ValueError(f"Internal error: missing bounds for {self}")
 
     def codegen(self):
         """Assuming C for now. Should be usable downstream without further parenthesization"""
@@ -288,6 +352,9 @@ class CollIndexExpr(object):
             else:
                 assert False
         return expr
+
+
+coll_index_0 = CollIndexExpr(0)
 
 
 class CollTiling(object):
@@ -419,7 +486,7 @@ class CollTiling(object):
                     advice.hi = tiles_needed
 
         if tiled_dim_idx is None:
-            advice.coll_index = CollIndexExpr(0)
+            advice.coll_index = coll_index_0
             advice.hi = tiles_needed  # In case tiles_needed = 0
 
         assert max_tile_count >= tiles_needed  # TODO message
@@ -507,7 +574,7 @@ class CollTiling(object):
                     advice.hi = hi * unit_box_coord
 
         if tiled_dim_idx is None:
-            advice.coll_index = CollIndexExpr(0)
+            advice.coll_index = coll_index_0
             assert (lo, hi) == (0, 1)  # TODO message
 
         new_parent = self.parent
@@ -538,7 +605,11 @@ class CollTiling(object):
         return prod(self.tile)
 
     def unit_mismatch(
-        self, unit: CollUnit, env: Dict[CollParam, int], no_message=False
+        self,
+        unit: CollUnit,
+        env: Dict[CollParam, int],
+        no_message=False,
+        ignore_leaf_box=False,  # Consider removing if unused
     ):
         """Return False iff the thread boxes match the given collective unit
 
@@ -546,11 +617,17 @@ class CollTiling(object):
 
         If mismatched, return a str reason, unless
         no_message=True (return True if so).
+
+        ignore_leaf_box causes the offset and box of the leaf tiling
+        (self) to be treated as 0 and tile, respectively.  i.e. we
+        ignore "warp specialization" at the bottom level.
+
         """
         assert isinstance(unit, CollUnit)
 
-        self_n_threads = self.box_num_threads()
-        # TODO explain: tile = box for unit but not CollTiling
+        self_n_threads = (
+            self.tile_num_threads() if ignore_leaf_box else self.box_num_threads()
+        )
         unit_box_raw = unit.int_box(env)
         unit_n_threads = unit.int_threads(env)
         unit_domain = unit.int_domain(env)
@@ -574,7 +651,9 @@ class CollTiling(object):
 
                 # Check box size for leaf CollTiling
                 if self is tiling:
-                    new_tiling_box = tiling_completion.new_size(tiling.box)
+                    new_tiling_box = tiling_completion.new_size(
+                        tiling.tile if ignore_leaf_box else tiling.box
+                    )
                     if new_unit_box != new_tiling_box:
                         return no_message or (
                             f"Have threads in shape {new_tiling_box}; "
@@ -583,11 +662,13 @@ class CollTiling(object):
                         )
 
                 # Check alignment for all CollTiling to root
-                new_tiling_offset = tiling_completion.new_offset(tiling.offset, 0)
-                assert len(new_tiling_offset) == len(new_unit_box)
-                for off_c, box_c in zip(new_tiling_offset, new_unit_box):
-                    if off_c % box_c != 0:
-                        return no_message or f"Incorrect alignment for {unit}"
+                # (except self/leaf, if ignore_leaf_box)
+                if not (self is tiling and ignore_leaf_box):
+                    new_tiling_offset = tiling_completion.new_offset(tiling.offset, 0)
+                    assert len(new_tiling_offset) == len(new_unit_box)
+                    for off_c, box_c in zip(new_tiling_offset, new_unit_box):
+                        if off_c % box_c != 0:
+                            return no_message or f"Incorrect alignment for {unit}"
 
                 # Traverse to root
                 tiling = tiling.parent
@@ -759,7 +840,7 @@ class DomainCompletionOp(object):
             return c % factor
 
         # NB rely on CollIndexExpr(...) % 1 to be 0 for expected_removed_coord
-        return self._new_coords(coords, outer_op, inner_op, CollIndexExpr(0))
+        return self._new_coords(coords, outer_op, inner_op, coll_index_0)
 
     def _new_coords(
         self,
