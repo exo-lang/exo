@@ -395,7 +395,7 @@ class CollTiling(object):
         # Count tiles; we will check against tiles_needed later.
         # Must only have change (tiling) on up to one dimension
         tiled_dim_idx = None
-        tile_count = 1
+        max_tile_count = 1
         tile_remainder = 0
         for dim_idx, unit_box_coord in enumerate(unit_completion.new_size(unit_box)):
             domain_coord = common_domain[dim_idx]
@@ -408,21 +408,21 @@ class CollTiling(object):
                 assert unit_box_coord < box_coord  # TODO message
                 assert tiled_dim_idx is None  # TODO message
                 tiled_dim_idx = dim_idx
-                tile_count = box_coord // unit_box_coord
+                max_tile_count = box_coord // unit_box_coord
                 tile_remainder = box_coord % unit_box_coord
                 new_tile[dim_idx] = unit_box_coord
 
                 advice.coll_index = new_exprs[dim_idx] // unit_box_coord
                 new_exprs[dim_idx] = new_exprs[dim_idx] % unit_box_coord
 
-                if tile_remainder != 0 or tile_count != tiles_needed:
+                if tile_remainder != 0 or max_tile_count != tiles_needed:
                     advice.hi = tiles_needed
 
         if tiled_dim_idx is None:
             advice.coll_index = CollIndexExpr(0)
             advice.hi = tiles_needed  # In case tiles_needed = 0
 
-        assert tile_count >= tiles_needed  # TODO message
+        assert max_tile_count >= tiles_needed  # TODO message
 
         new_parent = self
         new_offset = (0,) * len(common_domain)
