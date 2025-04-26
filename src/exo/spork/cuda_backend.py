@@ -6,7 +6,7 @@ from math import prod
 from typing import Callable, Dict, Optional, Type
 from warnings import warn
 
-from ..core.memory import MemGenError, memwin_template
+from ..core.memory import MemGenError, memwin_template, DRAM
 from ..core.prelude import Sym, SrcInfo
 from ..core.LoopIR import (
     LoopIR,
@@ -556,37 +556,38 @@ class SubtreeScan(LoopIR_Do):
         else:
             for idx_e in node.idx:
                 if isinstance(idx_e, LoopIR.Read):
-                    tmp_sym = idx_e.name
+                    iter_sym = idx_e.name
                 elif isinstance(idx_e, LoopIR.Point) and isinstance(
                     idx_e.pt, LoopIR.Read
                 ):
-                    tmp_sym = idx_e.pt.name
+                    iter_sym = idx_e.pt.name
                 else:
                     bad_idx(f"expected single variable name, not {idx_e}")
                 iter_info: ThreadIter
-                iter_info = self.thread_iters.get(tmp_sym)
+                iter_info = self.thread_iters.get(iter_sym)
                 if iter_info is None:
-                    bad_idx(f"{tmp_sym} not from cuda_threads loop")
+                    bad_idx(f"`{iter_sym}` not from cuda_threads loop")
                 t0 = iter_info.parent_tile_num_threads
                 t1 = iter_info.child_tile_num_threads
                 if t0 != t1:
                     assert t0 not in t0_iter_t1
-                    t0_iter_t1[t0] = (tmp_sym, t1)
+                    t0_iter_t1[t0] = (iter_sym, t1)
                 if t1 < native_num_threads:
                     bad_idx(
                         f"Reached {t1} threads; failed to hit "
                         f"native target {native_num_threads} threads"
                     )
                 if t1 == native_num_threads:
-                    native_iter = tmp_sym
+                    native_iter = iter_sym
                     native_tiling = iter_info.coll_tiling
+
+                distributed_iters.append(iter_sym)
 
                 # Try to make forward progress on the tiling
                 # We have to do this now, not separately, so we don't try to parse
                 # non-distributed dims and give false errors above.
                 while entry := t0_iter_t1.get(cur_num_threads):
                     iter_sym, t1 = entry
-                    distributed_iters.append(iter_sym)
                     cur_num_threads = entry[1]
                 if cur_num_threads <= native_num_threads:
                     break
@@ -1400,7 +1401,8 @@ class SubtreeRewrite(LoopIR_Rewrite):
         if not alloc_state.first_usage_stmt:
             # Distributed memory analysis isn't run for unused variables...
             warn(
-                f"{s.srcinfo}: Unused allocation {s.name} in CUDA code may not lower correctly"
+                f"{s.srcinfo}: Unused allocation {s.name} @ {(s.mem or DRAM).name()} "
+                f"in CUDA code may not lower correctly"
             )
 
         # Remove distributed dimensions

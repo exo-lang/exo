@@ -43,10 +43,7 @@ class SyncType(object):
         self.second_actor_kind = second_actor_kind
         self.is_reversed = is_reversed
         self.N = N
-        if self.is_split():
-            assert isinstance(N, int)
-        else:
-            assert N == 0
+        assert isinstance(N, int)
 
     def __eq__(self, other):
         if not isinstance(other, SyncType):
