@@ -413,22 +413,6 @@ class CollTiling(object):
     def __repr__(self):
         return f"CollTiling({self.parent}, {self.full_domain}, {self.tile}, {self.offset}, {self.box}, {self.intra_box_exprs}, {self.tile_count}, {self.tile_expr})"
 
-    def equiv(self, other: Optional[CollTiling]):
-        if other is None:
-            return False
-        assert isinstance(other, CollTiling)
-        if self.parent is None:
-            parent_match = other.parent is None
-        else:
-            parent_match = self.parent.equiv(other.parent)
-        return (
-            parent_match
-            and self.full_domain == other.full_domain
-            and self.tile == other.tile
-            and self.offset == other.offset
-            and self.box == other.box
-        )
-
     def tiled(self, unit: CollUnit, tiles_needed: int, env: Dict[CollParam, int]):
         """Tile the CollTiling with the given collective unit.
 
