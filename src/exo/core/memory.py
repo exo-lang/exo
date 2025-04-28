@@ -323,7 +323,13 @@ class MemWin(ABC):
         return tuple(to_int(extent) for extent in shape)
 
 
-class Memory(MemWin):
+class AllocableMemWin(MemWin):
+    pass
+
+
+class Memory(AllocableMemWin):
+    """Memory type for backing non-barrier allocations"""
+
     @classmethod
     @abstractmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
@@ -343,6 +349,33 @@ class Memory(MemWin):
         for backwards compatibility with Exo 1 ... programs worked OK
         if they never materialized the faulty default window struct"""
         return ctx.generate_default("DRAM")
+
+
+class BarrierType(AllocableMemWin):
+    """MemWin type for backing barrier allocations
+
+    The user parameterizes barrier allocations with `@ type`, in a manner
+    similar to memory type annotations. The type must be one of the
+    subclasses of BarrierType already defined by the Exo stdlib.
+
+    Unlike memory, we currently do not have an interface for externalizing
+    barrier types. Much of the logic is by-cases within the Exo->C compiler.
+    So don't subclass this yourself (unless you plan to modify the compiler).
+
+    """
+
+    @classmethod
+    def alloc(cls, new_name, prim_type, shape, srcinfo):
+        # prim_type and shape make no sense here
+        return f"// Scope of named barrier {new_name}"
+
+    @classmethod
+    def free(cls, new_name, prim_type, shape, srcinfo):
+        return ""
+
+    @classmethod
+    def window_definition(cls, ctx):
+        assert False, "Internal Exo error: window of barrier?"
 
 
 class SpecialWindowFromMemoryCtx(object):

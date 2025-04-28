@@ -6,7 +6,6 @@ from ..core.LoopIR import (
     get_writeconfigs,
     get_loop_iters,
     create_window_type,
-    barrier_type_count,
 )
 from ..core.extern import Extern_Typecheck_Error
 from ..core.memory import *
@@ -106,6 +105,11 @@ class TypeChecker:
             self.env[a.name] = typ
             mem = a.mem
             if mem is None:
+                mem = DRAM
+            elif issubclass(mem, BarrierType):
+                self.err(
+                    a, f"{a.name}: memory type must not be Barrier Type {mem.__name__}"
+                )
                 mem = DRAM
             args.append(LoopIR.fnarg(a.name, typ, mem, a.srcinfo))
 
@@ -364,6 +368,18 @@ class TypeChecker:
             mem = stmt.mem
             if mem is None:
                 mem = DRAM
+
+            def expect_subclass(cls):
+                if not issubclass(mem, cls):
+                    self.err(
+                        stmt,
+                        f"expected @{mem.__name__} annotation to subclass {cls.__name__}",
+                    )
+
+            if typ.is_barrier():
+                expect_subclass(BarrierType)
+            else:
+                expect_subclass(Memory)
             return [LoopIR.Alloc(stmt.name, typ, mem, stmt.srcinfo)]
 
         elif isinstance(stmt, UAST.Call):
@@ -663,12 +679,8 @@ class TypeChecker:
         UAST.Size: T.size,
         UAST.Index: T.index,
         UAST.Stride: T.stride,
-        UAST.CudaEvent: T.cuda_event,
-        UAST.CudaMbarrier: T.cuda_mbarrier,
-        UAST.CudaCommitGroup: T.cuda_commit_group,
+        UAST.Barrier: T.barrier,
     }
-
-    assert barrier_type_count == 3, "update _typ_table"
 
     def check_t(self, typ):
         if type(typ) in TypeChecker._typ_table:

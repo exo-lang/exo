@@ -5,7 +5,7 @@ from math import prod
 
 from ..core.LoopIR import scalar_bits
 from ..core.prelude import SrcInfo
-from ..core.memory import Memory, MemGenError, DRAM
+from ..core.memory import Memory, MemGenError, DRAM, BarrierType
 from . import actor_kinds
 from .coll_algebra import (
     CollUnit,
@@ -297,3 +297,27 @@ class CudaRmem(CudaDeviceVisibleLinear):
     @classmethod
     def native_unit(cls):
         return cuda_thread
+
+
+class CudaEvent(BarrierType):
+    pass
+
+
+class CudaDeviceBarrier(BarrierType):
+    @classmethod
+    def actor_kind_permission(cls, actor_kind, is_instr):
+        if (
+            actor_kind == actor_kinds.cuda_classic
+            or actor_kind in actor_kinds.cuda_async_actor_kinds
+        ):
+            return "rwc"
+        else:
+            return ""
+
+
+class CudaMbarrier(CudaDeviceBarrier):
+    pass
+
+
+class CudaCommitGroup(CudaDeviceBarrier):
+    pass

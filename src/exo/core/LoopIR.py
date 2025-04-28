@@ -7,7 +7,7 @@ from asdl_adt import ADT, validators
 
 from .extern import Extern
 from .configs import Config
-from .memory import DRAM, MemWin, Memory, SpecialWindow
+from .memory import DRAM, MemWin, AllocableMemWin, Memory, SpecialWindow
 from .prelude import Sym, SrcInfo, extclass
 
 from ..spork.actor_kinds import ActorKind, ActorSignature, sig_cpu
@@ -107,8 +107,8 @@ module LoopIR {
          | SyncStmt( sync_type sync_type, sym bar, lowered_sync? lowered )
          | If( expr cond, stmt* body, stmt* orelse )
          | For( sym iter, expr lo, expr hi, stmt* body, loop_mode loop_mode )
-         | Alloc( sym name, type type, mem mem )
-         | Free( sym name, type type, mem mem )
+         | Alloc( sym name, type type, allocable mem )
+         | Free( sym name, type type, allocable mem )
          | Call( proc f, expr* args )
          | WindowStmt( sym name, expr rhs, special_window? special_window )
          attributes( srcinfo srcinfo )
@@ -154,11 +154,8 @@ module LoopIR {
          | WindowType( type src_type, type as_tensor,
                        sym src_buf, w_access *idx )
          -- Spork (Exo-GPU) extensions
-         -- May want to externalize barrier type somehow
          | WithContext()
-         | CudaEvent()
-         | CudaMbarrier()
-         | CudaCommitGroup()
+         | Barrier()
 
     -- Dense tensor: Tensor(is_window = False)
     -- Window parameter (of proc): Tensor(is_window = True)
@@ -174,7 +171,7 @@ module LoopIR {
         "instr": InstrInfo,
         "sym": Sym,
         "memwin": Type[MemWin],
-        "mem": Type[Memory],
+        "allocable": Type[AllocableMemWin],
         "special_window": Type[SpecialWindow],
         "extern": Extern,
         "config": Config,
@@ -202,8 +199,6 @@ module LoopIR {
     },
 )
 
-barrier_type_count = 3
-
 # --------------------------------------------------------------------------- #
 # Untyped AST
 # --------------------------------------------------------------------------- #
@@ -230,7 +225,7 @@ module UAST {
             | SyncStmt( sync_type sync_type, expr? bar, lowered_sync? lowered )
             | If      ( expr cond, stmt* body,  stmt* orelse )
             | For     ( sym iter,  expr cond,   stmt* body )
-            | Alloc   ( sym name, type type, mem? mem )
+            | Alloc   ( sym name, type type, allocable? mem )
             | Call    ( loopir_proc f, expr* args )
             attributes( srcinfo srcinfo )
 
@@ -264,15 +259,13 @@ module UAST {
             | Stride()
             | Tensor( expr *hi, bool is_window, type type )
             | WithContext()
-            | CudaEvent()
-            | CudaMbarrier()
-            | CudaCommitGroup()
+            | Barrier()
 } """,
     ext_types={
         "name": validators.instance_of(Identifier, convert=True),
         "sym": Sym,
         "memwin": Type[MemWin],
-        "mem": Type[Memory],
+        "allocable": Type[AllocableMemWin],
         "special_window": Type[SpecialWindow],
         "extern": Extern,
         "config": Config,
@@ -379,15 +372,12 @@ module CIR {
 @extclass(UAST.UINT8)
 @extclass(UAST.UINT16)
 @extclass(UAST.INT32)
-@extclass(UAST.CudaEvent)
-@extclass(UAST.CudaMbarrier)
-@extclass(UAST.CudaCommitGroup)
+@extclass(UAST.Barrier)
 def shape(t):
     shp = t.hi if isinstance(t, UAST.Tensor) else []
     return shp
 
 
-assert barrier_type_count == 3, "update @extclass shape"
 del shape
 
 
@@ -454,12 +444,8 @@ class T:
     err = Error()
     # Spork extensions
     with_context = WithContextT()
-    CudaEvent = LoopIR.CudaEvent
-    CudaMbarrier = LoopIR.CudaMbarrier
-    CudaCommitGroup = LoopIR.CudaCommitGroup
-    cuda_event = CudaEvent()
-    cuda_mbarrier = CudaMbarrier()
-    cuda_commit_group = CudaCommitGroup()
+    Barrier = LoopIR.Barrier
+    barrier = Barrier()
 
 
 # --------------------------------------------------------------------------- #
@@ -489,9 +475,7 @@ del as_tensor_type
 @extclass(T.UINT8)
 @extclass(T.UINT16)
 @extclass(T.INT32)
-@extclass(T.CudaEvent)
-@extclass(T.CudaMbarrier)
-@extclass(T.CudaCommitGroup)
+@extclass(T.Barrier)
 def shape(t):
     if isinstance(t, T.Window):
         return t.as_tensor.shape()
@@ -502,7 +486,6 @@ def shape(t):
         return []
 
 
-assert barrier_type_count == 3, "update @extclass shape"
 del shape
 
 
@@ -651,12 +634,14 @@ def basetype(t):
 del basetype
 
 
-assert barrier_type_count == 3, "update is_barrier"
-
-
 @extclass(LoopIR.type)
 def is_barrier(t):
-    return isinstance(t, (T.CudaEvent, T.CudaMbarrier, T.CudaCommitGroup))
+    return False
+
+
+@extclass(LoopIR.Barrier)
+def is_barrier(t):
+    return True
 
 
 del is_barrier

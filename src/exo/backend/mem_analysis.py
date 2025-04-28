@@ -1,7 +1,7 @@
 from collections import ChainMap
 from ..core.LoopIR import LoopIR
 
-from ..core.memory import MemWin, Memory, SpecialWindow
+from ..core.memory import MemWin, AllocableMemWin, Memory, SpecialWindow
 
 
 # --------------------------------------------------------------------------- #
@@ -171,7 +171,7 @@ class MemoryAnalysis:
             return s.update(body=body)
         elif styp is LoopIR.Alloc:
             mem = s.mem
-            assert issubclass(mem, Memory)
+            assert issubclass(mem, AllocableMemWin)
             self.mem_env[s.name] = mem
             self.add_malloc(s.name, s.type, s.mem)
             return s

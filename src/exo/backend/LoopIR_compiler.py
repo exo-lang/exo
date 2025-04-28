@@ -14,8 +14,10 @@ from .mem_analysis import MemoryAnalysis
 from ..core.memory import (
     MemGenError,
     MemWin,
+    AllocableMemWin,
     Memory,
     SpecialWindow,
+    BarrierType,
     DRAM,
     StaticMemory,
     WindowStructCtx,
@@ -768,7 +770,7 @@ class Compiler:
             for s in stmts:
                 if isinstance(s, LoopIR.Alloc):
                     mem = s.mem
-                    assert issubclass(mem, Memory)
+                    assert issubclass(mem, AllocableMemWin)
                     check |= issubclass(mem, StaticMemory)
                 elif isinstance(s, LoopIR.For):
                     check |= allocates_static_memory(s.body)
@@ -1265,17 +1267,18 @@ class Compiler:
 
         elif isinstance(s, LoopIR.Alloc):
             name = self.new_varname(s.name, typ=s.type, mem=s.mem)
-            if s.type.is_barrier():
-                self.add_line(f"// Scope of named barrier {s.name}")
-            else:
+            if not s.type.is_barrier():
                 assert s.type.basetype().is_real_scalar()
                 assert s.type.basetype() != T.R
                 ctype = s.type.basetype().ctype()
-                mem = s.mem or DRAM
-                line = mem.alloc(
-                    name, ctype, self.shape_strs(s.type.shape()), s.srcinfo
-                )
-                self.add_line(line)
+                shape_strs = self.shape_strs(s.type.shape())
+            else:
+                assert issubclass(s.mem, BarrierType)
+                ctype = None  # Use in the future if we externalize BarrierType?
+                shape_strs = ()
+            mem = s.mem or DRAM
+            line = mem.alloc(name, ctype, shape_strs, s.srcinfo)
+            self.add_line(line)
         elif isinstance(s, LoopIR.Free):
             name = self.env[s.name]
             if s.type.is_barrier():

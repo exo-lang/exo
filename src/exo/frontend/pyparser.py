@@ -12,10 +12,10 @@ from asdl_adt.validators import ValidationError
 
 from ..API_types import ProcedureBase
 from ..core.configs import Config
-from ..core.LoopIR import UAST, PAST, front_ops, barrier_type_count
+from ..core.LoopIR import UAST, PAST, front_ops
 from ..core.prelude import *
 from ..core.extern import Extern
-from ..core.memory import MemWin, Memory, SpecialWindow
+from ..core.memory import MemWin, AllocableMemWin, Memory, SpecialWindow
 from ..spork.actor_kinds import cpu, ActorKind
 from ..spork.base_with_context import BaseWithContext, is_if_holding_with
 from ..spork.loop_modes import LoopMode, loop_mode_dict
@@ -620,13 +620,8 @@ _prim_types = {
 }
 
 _barrier_types = {
-    "cuda_event": UAST.CudaEvent,
-    "cuda_mbarrier": UAST.CudaMbarrier,
-    "cuda_commit_group": UAST.CudaCommitGroup,
+    "barrier": UAST.Barrier(),
 }
-
-
-assert len(_barrier_types) == barrier_type_count, "update _barrier_types"
 
 
 class Parser:
@@ -936,7 +931,9 @@ class Parser:
 
             if mem_node:
                 mem = self.eval_expr(mem_node)
-                if not isinstance(mem, type) or not issubclass(mem, MemWin):
+                if not isinstance(mem, type) or not (
+                    issubclass(mem, Memory) or issubclass(SpecialWindow)
+                ):
                     self.err(
                         node,
                         "annotation needs to be subclass of Memory or SpecialWindow",
@@ -952,12 +949,20 @@ class Parser:
             # x[n] @ DRAM
             # x[n] @ lib.scratch
             mem = self.eval_expr(node.right)
-            if not isinstance(mem, type) or not issubclass(mem, Memory):
-                self.err(node, "expected @mem with mem a subclass of Memory")
             node = node.left
+            if not isinstance(mem, type):
+                self.err(
+                    node, "expected @mem annotation to evaluate to Python type object"
+                )
+            elif not issubclass(mem, AllocableMemWin):
+                self.err(node, f"@{mem.__name__} must be AllocableMemWin subclass")
         else:
             mem = None
         typ = self.parse_alloc_type(node)
+        if typ is None:
+            # Catch-all error, shouldn't be handled here, but we do as a last
+            # resort so we don't give an incomprehensible error.
+            self.err(node, f"Failed to parse as allocation (name : type @ mem)")
         return typ, mem
 
     def parse_alloc_type(self, node, is_arg=False):
@@ -1025,7 +1030,7 @@ class Parser:
             return typ
 
         elif isinstance(node, pyast.Name) and node.id in _barrier_types:
-            return _barrier_types[node.id]()
+            return _barrier_types[node.id]
         elif isinstance(node, pyast.Name) and node.id in _prim_types:
             return _prim_types[node.id]
         elif isinstance(node, pyast.Name) and (
@@ -1040,8 +1045,10 @@ class Parser:
                 unquoted = unquote_eval_result[0]
                 if isinstance(unquoted, str) and unquoted in _prim_types:
                     return _prim_types[unquoted]
-                else:
-                    self.err(node, "Unquote computation did not yield valid type")
+            if isinstance(node, pyast.Name):
+                self.err(node, f"{node.id} not a valid type name")
+            else:
+                self.err("Unquote computation did not yield valid type")
 
     def parse_stmt_block(self, stmts):
         assert isinstance(stmts, list)

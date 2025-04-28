@@ -5,7 +5,7 @@ from .actor_kinds import ActorKind
 from . import actor_kinds
 from .base_with_context import BaseWithContext, is_if_holding_with
 from ..core.LoopIR import LoopIR, LoopIR_Rewrite
-from ..core.memory import DRAM, Memory, SpecialWindow
+from ..core.memory import DRAM, Memory, SpecialWindow, AllocableMemWin
 
 
 class BaseAsyncConfig(BaseWithContext):
@@ -122,6 +122,7 @@ class ActorKindAnalysis(LoopIR_Rewrite):
         super().map_e(e)
 
     def inspect_s(self, s):
+        # TODO inspect SyncStmt
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if not s.type.is_numeric():
                 return
@@ -138,10 +139,10 @@ class ActorKindAnalysis(LoopIR_Rewrite):
                     f"{memwin.name()}) does not allow {action} in a "
                     f"scope with actor kind {self.actor_kind}"
                 )
-        elif isinstance(s, LoopIR.Alloc) and s.type.is_numeric():
+        elif isinstance(s, LoopIR.Alloc):
             mem = s.mem or DRAM
             self.sym_memwin[s.name] = mem
-            assert issubclass(mem, Memory)
+            assert issubclass(mem, AllocableMemWin)
             perm = mem.actor_kind_permission(self.actor_kind, is_instr=False)
             if "c" not in perm:
                 self.warn_weird_letters(mem, perm)

@@ -6,7 +6,7 @@ from math import prod
 from typing import Callable, Dict, Optional, Type
 from warnings import warn
 
-from ..core.memory import MemGenError, memwin_template, DRAM
+from ..core.memory import MemGenError, memwin_template, DRAM, BarrierType
 from ..core.prelude import Sym, SrcInfo
 from ..core.LoopIR import (
     LoopIR,
@@ -37,6 +37,8 @@ from .cuda_memory import (
     CudaBasicSmem,
     SmemConfigInputs,
     CudaGridConstant,
+    CudaMbarrier,
+    CudaCommitGroup,
 )
 from .loop_modes import CudaTasks, CudaThreads, Seq, seq, _CodegenPar
 from .sync_types import SyncType
@@ -705,14 +707,14 @@ class SubtreeScan(LoopIR_Do):
                     lowered[name] = self.lower_wgmma_fence(scan, suffix)
                 else:
                     lowered[name] = self.lower_garden_variety_fence(scan, suffix)
-            elif isinstance(barrier_type, LoopIR.CudaMbarrier):
+            elif issubclass(barrier_type, CudaMbarrier):
                 lowered[name] = self.lower_mbarrier(scan, suffix, mbarrier_pairs)
-            elif isinstance(barrier_type, LoopIR.CudaCommitGroup):
+            elif issubclass(barrier_type, CudaCommitGroup):
                 lowered[name] = self.lower_commit_group(scan, suffix)
             else:
                 raise TypeError(
-                    f"{srcinfo}: {barrier_type} must not "
-                    f"be used in CUDA device function"
+                    f"{srcinfo}: {barrier_type.__name__} "
+                    f"not supported in CUDA device function"
                 )
 
             for line in lowered[name].SyncState_lines:
@@ -1755,7 +1757,7 @@ class BarrierScan(object):
     barrier_name: Sym
     barrier_srcinfo: SrcInfo
     barrier_coll_tiling: CollTiling
-    barrier_type: Optional[LoopIR.type]  # None iff is Fence
+    barrier_type: Optional[Type[BarrierType]]  # None iff is Fence
     # Info on [Reverse]Arrive/Await statements encountered
     Arrive: Optional[ArriveAwaitInfo]
     Await: Optional[ArriveAwaitInfo]
@@ -1765,9 +1767,9 @@ class BarrierScan(object):
     def __init__(self, scanner: SubtreeScan, s: LoopIR.stmt, body: List[LoopIR.stmt]):
         if isinstance(s, LoopIR.Alloc):
             # Barrier alloc
-            self.barrier_type = s.type
+            assert s.type.is_barrier()
+            self.barrier_type = s.mem
             self.barrier_name = s.name
-            assert self.barrier_type.is_barrier()
         else:
             # Fence
             assert isinstance(s, LoopIR.SyncStmt)
@@ -1835,7 +1837,7 @@ class BarrierScan(object):
 
     def is_split(self):
         is_none = self.barrier_type is None
-        assert is_none or self.barrier_type.is_barrier()
+        assert is_none or issubclass(self.barrier_type, BarrierType)
         return not is_none
 
     def has_reverse(self):
@@ -1847,9 +1849,9 @@ class BarrierScan(object):
 
         def reverse_allowed_check(info, stmt_name):
             # NB it may be argued that we should not be handling the
-            # cuda_mbarrier special case in this common code, but this avoids
+            # mbarrier special case in this common code, but this avoids
             # every other barrier type having to check this themselves.
-            if not isinstance(self.barrier_type, LoopIR.CudaMbarrier):
+            if not issubclass(self.barrier_type, CudaMbarrier):
                 if info is not None:
                     sus = info.sync_stmts[0]
                     raise TypeError(
