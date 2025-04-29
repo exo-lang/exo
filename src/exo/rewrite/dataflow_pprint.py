@@ -189,7 +189,7 @@ def _print_expr(e, env: PrintEnv, prec: int = 0) -> str:
     elif isinstance(e, DataflowIR.StrideExpr):
         return f"stride({env.get_name(e.name)}, {e.dim})"
 
-    elif isinstance(e, DataflowIR.BuiltIn):
+    elif isinstance(e, DataflowIR.Extern):
         pname = e.f.name() or "_anon_"
         args = [_print_expr(a, env) for a in e.args]
         return f"{pname}({', '.join(args)})"
@@ -314,6 +314,10 @@ def _print_ae(ae, env: PrintEnv):
         return f"({_print_ae(ae.lhs, env)}+{_print_ae(ae.rhs, env)})"
     elif isinstance(ae, D.Mult):
         return f"{str(ae.coeff)}*{_print_ae(ae.ae, env)}"
+    elif isinstance(ae, D.Div):
+        return f"{_print_ae(ae.ae, env)}/{str(ae.divisor)}"
+    elif isinstance(ae, D.Mod):
+        return f"{_print_ae(ae.ae, env)}/{str(ae.m)}"
     assert False, "bad case"
 
 

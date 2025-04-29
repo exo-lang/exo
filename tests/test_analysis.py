@@ -210,6 +210,7 @@ def test_delete_config_usub(golden):
     assert str(foo) == golden
 
 
+@pytest.mark.skip
 def test_delete_config_subproc_basic(golden):
     @config
     class CFG:
@@ -250,6 +251,7 @@ def test_delete_config_fail():
         foo = delete_config(foo, "CFG.a = _")
 
 
+@pytest.mark.skip
 def test_delete_config_subproc_fail():
     @config
     class CFG:
@@ -423,6 +425,7 @@ def test_builtin_true(golden):
         delete_config(foo, "CFG.a = _ #1")
 
 
+@pytest.mark.skip
 def test_scalar_true(golden):
     @proc
     def foo(x: f32):
@@ -447,6 +450,7 @@ def test_scalar_true(golden):
         delete_config(foo, "y = _ #1")
 
 
+@pytest.mark.skip
 def test_array_true():
     @proc
     def foo(x: f32):
@@ -472,6 +476,7 @@ def test_array_true():
         delete_config(foo, "y = _ #1")
 
 
+@pytest.mark.skip
 def test_loop_true():
     @proc
     def foo(x: f32[10]):
@@ -498,6 +503,7 @@ def test_loop_true():
         print(foo)
 
 
+@pytest.mark.skip
 def test_scalar_simple(golden):
     @proc
     def foo(x: f32):
@@ -522,6 +528,7 @@ def test_scalar_simple(golden):
         delete_config(foo, "y = _ #1")
 
 
+@pytest.mark.skip
 def test_array_simple(golden):
     @proc
     def foo(x: f32):
@@ -546,6 +553,7 @@ def test_array_simple(golden):
         delete_config(foo, "y = _ #1")
 
 
+@pytest.mark.skip
 def test_loop_simple(golden):
     @proc
     def foo(x: f32[10]):

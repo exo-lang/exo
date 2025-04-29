@@ -7,8 +7,8 @@ from ..core.configs import reverse_config_lookup, Config
 from .new_analysis_core import *
 from ..core.proc_eqv import get_repr_proc
 from .dataflow import (
-    LoopIR_to_DataflowIR,
-    AbstractInterpretation,
+    dataflow_analysis,
+    Strategy1,
     D,
     lift_to_smt_n,
     DataflowIR,
@@ -1462,6 +1462,9 @@ def loop_globenv(i, lo_expr, hi_expr, body):
 def Check_ReorderStmts(proc, s1, s2):
     assert isinstance(s1, LoopIR.stmt) and isinstance(s2, LoopIR.stmt)
 
+    # TODO: remove: testing the compilation time
+    _, _, _ = dataflow_analysis(proc, [s1, s2])
+
     p = GetControlPredicates(proc, [s1, s2]).result()
 
     slv = SMTSolver(verbose=False)
@@ -1482,6 +1485,9 @@ def Check_ReorderStmts(proc, s1, s2):
 
 def Check_ReorderLoops(proc, s):
     assert isinstance(s, LoopIR.For)
+
+    # TODO: remove: testing the compilation time
+    _, _, _ = dataflow_analysis(proc, [s])
 
     p = GetControlPredicates(proc, [s]).result()
 
@@ -1559,6 +1565,9 @@ def Check_ReorderLoops(proc, s):
 def Check_ParallelizeLoop(proc, s):
     assert isinstance(s, LoopIR.For)
 
+    # TODO: remove: testing the compilation time
+    _, _, _ = dataflow_analysis(proc, [s])
+
     p = GetControlPredicates(proc, [s]).result()
 
     slv = SMTSolver(verbose=False)
@@ -1610,6 +1619,9 @@ def Check_ParallelizeLoop(proc, s):
 #                     Commutes(a1', a2) /\ AllocCommutes(a1, a2) )
 #
 def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
+
+    # TODO: remove: testing the compilation time
+    _, _, _ = dataflow_analysis(proc, [loop])
 
     p = GetControlPredicates(proc, [loop]).result()
 
@@ -1668,7 +1680,7 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
 
 
 def Check_DeleteConfigWrite(proc, stmts):
-    assert len(stmts) == 2
+    assert len(stmts) == 1
 
     p = GetControlPredicates(proc, stmts).result()
     slv = SMTSolver(verbose=False)
@@ -1682,8 +1694,6 @@ def Check_DeleteConfigWrite(proc, stmts):
     # extract effects
     WrA, _ = getsets([ES.WRITE_ALL, ES.MODIFY], a)
     WrAp, RdAp = getsets([ES.WRITE_ALL, ES.READ_ALL], ap)
-    print(WrA)
-    print(RdAp)
 
     # check that `stmts` does not modify any non-global data
     # only_mod_glob = ADef(is_empty(LDiff(Mod, WrG)))
@@ -1696,16 +1706,24 @@ def Check_DeleteConfigWrite(proc, stmts):
     #    )
 
     # Below are the actual checks
-    ir1, d_stmts = LoopIR_to_DataflowIR(proc, stmts).result()
-    AbstractInterpretation(ir1)
-    print(ir1)
-    if isinstance(d_stmts[0][0], DataflowIR.For):
-        prev_nm = d_stmts[0][-1].lhs
-        post_nm = d_stmts[1][-1].lhs
-    else:
-        prev_nm = d_stmts[0][0].lhs
-        post_nm = d_stmts[1][0].lhs
-    prev_val = lift_to_smt_n(prev_nm, ir1.body.ctxt[prev_nm].tree)
+    assert isinstance(stmts[0], LoopIR.WriteConfig)
+    config_sym = stmts[0].config._INTERNAL_sym(stmts[0].field)
+
+    ir1, d_stmts, d_syms = dataflow_analysis(proc, stmts, config_sym)
+    # ir1, d_stmts, d_syms = LoopIR_to_DataflowIR(proc, stmts, config_sym).result()
+    # assert len(d_stmts) == 1
+    # Strategy1(ir1)
+
+    post_nm = d_stmts[0][0].lhs  # new config sym
+    assert post_nm in d_syms
+
+    prev_nm = d_syms[d_syms.index(post_nm) - 1]
+
+    prev_val = (
+        lift_to_smt_n(prev_nm, ir1.body.ctxt[prev_nm].tree)
+        if prev_nm in ir1.body.ctxt
+        else A.Const(True, T.bool, null_srcinfo())
+    )
     post_val = lift_to_smt_n(post_nm, ir1.body.ctxt[post_nm].tree)
     cfg_mod = {pt.name: pt for pt in get_point_exprs(WrA)}
 
@@ -1721,13 +1739,11 @@ def Check_DeleteConfigWrite(proc, stmts):
         post_k = A.Var(post_nm, T.int, null_srcinfo())
 
         is_unchanged = AImplies(AAnd(prev_val, post_val), AEq(prev_k, post_k))
-        print(is_unchanged)
 
         # if the value of the global might be read,
         # then it must not have been changed.
         safe_write = AImplies(AMay(is_read_post), ADef(is_unchanged))
-        print(safe_write)
-        if not slv.verify(is_unchanged):
+        if not slv.verify(safe_write):
             slv.pop()
             raise SchedulingError(
                 f"Cannot change configuration value of {pt.name} "
@@ -1750,11 +1766,8 @@ def Check_ExtendEqv2(proc1, proc2, stmts1, stmts2):
     assert len(stmts1) == 1
     assert len(stmts2) == 1
 
-    ir1, d_stmts1 = LoopIR_to_DataflowIR(proc1, stmts1).result()
-    ir2, d_stmts2 = LoopIR_to_DataflowIR(proc2, stmts2).result()
-
-    AbstractInterpretation(ir1)
-    AbstractInterpretation(ir2)
+    ir1, d_stmts1, _ = dataflow_analysis(proc1, stmts1)
+    ir2, d_stmts2, _ = dataflow_analysis(proc2, stmts2)
 
     p = GetControlPredicates(proc1, stmts1).result()
     slv = SMTSolver(verbose=False)
@@ -1822,15 +1835,11 @@ def Check_ExtendEqv(proc1, proc2, stmts1, stmts2, cfg_mod):
     slv = SMTSolver(verbose=False)
     slv.push()
 
-    ir1, d_stmts1 = LoopIR_to_DataflowIR(proc1, stmts1).result()
-    ir2, d_stmts2 = LoopIR_to_DataflowIR(proc2, stmts2).result()
+    sym = cfg_mod.pop()
+    ir1, d_stmts1, config1_vals = dataflow_analysis(proc1, stmts1, sym)
+    ir2, d_stmts2, config2_vals = dataflow_analysis(proc2, stmts2, sym)
 
-    AbstractInterpretation(ir1)
-    AbstractInterpretation(ir2)
-
-    _, config1_vals = GetValues(ir1, d_stmts1).result()
-    _, config2_vals = GetValues(ir2, d_stmts2).result()
-
+    print(config1_vals)
     # extract effects
     ap = PostEnv(proc1, stmts1).get_posteffs()
     WrGp, RdGp = getsets([ES.WRITE_G, ES.READ_G], ap)
@@ -1881,6 +1890,9 @@ def Check_ExprEqvInContext(proc, expr0, stmts0, expr1, stmts1=None):
     assert len(stmts0) > 0
     stmts1 = stmts1 or stmts0
 
+    # TODO: remove: testing the compilation time
+    _, _, _ = dataflow_analysis(proc, [stmts1])
+
     p0 = GetControlPredicates(proc, stmts0).result()
     p1 = GetControlPredicates(proc, stmts1).result()
 
@@ -1900,6 +1912,9 @@ def Check_ExprEqvInContext(proc, expr0, stmts0, expr1, stmts1=None):
 
 def Check_BufferReduceOnly(proc, stmts, buf, ndim):
     assert len(stmts) > 0
+
+    # TODO: remove: testing the compilation time
+    _, _, _ = dataflow_analysis(proc, [stmts])
 
     p = GetControlPredicates(proc, stmts).result()
 
@@ -1930,6 +1945,9 @@ def Check_Access_In_Window(proc, access_cursor, w_exprs, block_cursor):
 
     block_cursor is the context in which to interpret the access in.
     """
+
+    # TODO: remove: testing the compilation time
+    _, _, _ = dataflow_analysis(proc, [])
 
     access = access_cursor._node
     block = [x._node for x in block_cursor]
@@ -2008,6 +2026,9 @@ def Check_Access_In_Window(proc, access_cursor, w_exprs, block_cursor):
 def Check_Bounds(proc, alloc_stmt, block):
     if len(block) == 0:
         return
+
+    # TODO: remove: testing the compilation time
+    _, _, _ = dataflow_analysis(proc, block)
 
     p = GetControlPredicates(proc, block).result()
 

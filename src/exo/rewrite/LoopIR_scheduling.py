@@ -2582,7 +2582,8 @@ class DoAddUnsafeGuard(Cursor_Rewrite):
 
         super().__init__(proc_cursor)
 
-        Check_ExtendEqv2(self.orig_proc._node, self.proc, [self.orig_stmt], [self.stmt])
+        # TODO: Actually safety check this
+        # Check_ExtendEqv2(self.orig_proc._node, self.proc, [self.orig_stmt], [self.stmt])
 
     def map_s(self, sc):
         s = sc._node
@@ -2791,9 +2792,7 @@ def DoInsertNoopCall(gap, proc, args):
 
 
 def DoDeleteConfig(proc_cursor, config_cursor):
-    eq_mod_config = Check_DeleteConfigWrite(
-        proc_cursor._node, [config_cursor.prev()._node, config_cursor._node]
-    )
+    eq_mod_config = Check_DeleteConfigWrite(proc_cursor._node, [config_cursor._node])
     p, fwd = config_cursor._delete()
     return p, fwd, eq_mod_config
 

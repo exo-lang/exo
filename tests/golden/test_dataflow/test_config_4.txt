@@ -1,4 +1,4 @@
-def foo(n : size, src : i8[n]):
+def foo(n : size, src : i8[n], ConfigControl_s : stride):
   assert stride(src, 0) == ConfigControl_s
   pass
 ------------------------ 

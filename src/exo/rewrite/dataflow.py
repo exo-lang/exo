@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from enum import Enum
-from collections import ChainMap
+from collections import ChainMap, defaultdict
 from itertools import chain
 from typing import Mapping, Any
 from asdl_adt import ADT, validators
@@ -39,6 +39,7 @@ def validateAbsEnv(obj):
     return obj
 
 
+# TODO: separatae absenv from DataflowIR
 DataflowIR = ADT(
     """
 module DataflowIR {
@@ -125,27 +126,15 @@ def mk_const(val):
 
 # There should be no function call or windowing at this point
 class LoopIR_to_DataflowIR:
-    def __init__(self, proc, stmts):
+    def __init__(self, proc, stmts, sym):
         self.loopir_proc = proc
         self.stmts = []
+        # self.sym and self.syms are a bit hacky.. ways of getting new syms
+        self.sym = sym
+        self.syms = []
         self.env = ChainMap()
         for s in stmts:
             self.stmts.append([s])
-
-        # Initialize configurations in this proc
-        configs = list(
-            set(
-                get_writeconfigs(proc.body)
-                + get_readconfigs(proc.body)
-                + get_readconfigs_expr(proc.preds)
-            )
-        )
-        for c in configs:
-            orig_sym = c[0]._INTERNAL_sym(c[1])
-            new_sym = orig_sym.copy()
-            typ = self.map_t(c[0].lookup_type(c[1]))
-            # (the most recent sym, (iter dims, dim dims), basetype)
-            self.env[orig_sym] = (new_sym, ([], []), typ)
 
         self.dataflow_proc = self.map_proc(self.loopir_proc)
 
@@ -155,17 +144,40 @@ class LoopIR_to_DataflowIR:
     def pop(self):
         self.env = self.env.parents
 
+    def update_env(self, name, args):
+        if self.sym == name:
+            self.syms.append(args[0])
+        self.env[name] = args
+
     def result(self):
         res = []
         for l in self.stmts:
             res.extend(l[1:])
-        return self.dataflow_proc, res
+        return self.dataflow_proc, res, self.syms
 
     def init_block(self, body):
         return DataflowIR.block(body, dict())
 
     def map_proc(self, p):
         df_args = self._map_list(self.map_fnarg, p.args)
+
+        # Initialize configurations in this proc
+        configs = list(
+            set(
+                get_writeconfigs(self.loopir_proc.body)
+                + get_readconfigs(self.loopir_proc.body)
+                + get_readconfigs_expr(self.loopir_proc.preds)
+            )
+        )
+        for c in configs:
+            orig_sym = c[0]._INTERNAL_sym(c[1])
+            new_sym = orig_sym.copy()
+            typ = self.map_t(c[0].lookup_type(c[1]))
+            # (the most recent sym, (iter dims, dim dims), basetype)
+            self.update_env(orig_sym, (new_sym, ([], []), typ))
+            # Treat the initial configuration as function arguments!
+            df_args.append(DataflowIR.fnarg(new_sym, [], typ, null_srcinfo()))
+
         df_preds = self.map_exprs(p.preds)
         df_body = self.map_stmts(p.body)
         block = self.init_block(df_body)
@@ -192,7 +204,7 @@ class LoopIR_to_DataflowIR:
                 his, _ = self.tensor_to_his(a.type)
                 dsyms = [Sym("d" + str(d)) for d in range(len(a.type.hi))]
             typ = self.map_t(a.type.basetype())
-            self.env[a.name] = (name, ([], dsyms), typ)
+            self.update_env(a.name, (name, ([], dsyms), typ))
             return DataflowIR.fnarg(name, his, typ, a.srcinfo)
 
     def map_stmts(self, stmts):
@@ -246,7 +258,7 @@ class LoopIR_to_DataflowIR:
 
             body = self.map_e(s.rhs)
             orelse = self.to_read(old_name, (iters, dims), old_typ)
-            self.env[s.name] = (new_name, (iters, dims), old_typ)
+            self.update_env(s.name, (new_name, (iters, dims), old_typ))
 
             if isinstance(s, LoopIR.Assign):
                 return [
@@ -267,7 +279,7 @@ class LoopIR_to_DataflowIR:
             df_config = ir_config.copy()
             df_rhs = self.map_e(s.rhs)
             iters, _ = self.env[ir_config][1]
-            self.env[ir_config] = (df_config, (iters, []), df_rhs.type)
+            self.update_env(ir_config, (df_config, (iters, []), df_rhs.type))
 
             return [
                 DataflowIR.Assign(
@@ -319,7 +331,7 @@ class LoopIR_to_DataflowIR:
                 post_if.append(stmt)
 
                 # update env
-                self.env[key] = (post_name, vals[1], vals[2])
+                self.update_env(key, (post_name, vals[1], vals[2]))
 
             return [
                 DataflowIR.If(
@@ -335,10 +347,8 @@ class LoopIR_to_DataflowIR:
             prev = {}
             pre_sym = {}
             for key, vals in self.env.items():
-                self.env[key] = (
-                    vals[0].copy(),
-                    ([s.iter] + vals[1][0], vals[1][1]),
-                    vals[2],
+                self.update_env(
+                    key, (vals[0].copy(), ([s.iter] + vals[1][0], vals[1][1]), vals[2])
                 )
                 pre_sym[key] = self.env[key]
                 prev[key] = vals
@@ -419,7 +429,9 @@ class LoopIR_to_DataflowIR:
                 post_loop.append(post_stmt)
 
                 # update env
-                self.env[key] = (post_name, (llast[1][0][1:], llast[1][1]), llast[2])
+                self.update_env(
+                    key, (post_name, (llast[1][0][1:], llast[1][1]), llast[2])
+                )
 
             return [
                 DataflowIR.For(
@@ -440,14 +452,14 @@ class LoopIR_to_DataflowIR:
                 his, _ = self.tensor_to_his(s.type)
                 dsyms = [Sym("d" + str(d)) for d in range(len(s.type.hi))]
                 typ = self.map_t(s.type.basetype())
-                self.env[s.name] = (name, ([], dsyms), typ)
+                self.update_env(s.name, (name, ([], dsyms), typ))
 
                 return DataflowIR.Alloc(name, his, typ, s.srcinfo)
             else:
                 assert s.type.is_real_scalar()
                 name = s.name.copy()
                 typ = self.map_t(s.type)
-                self.env[s.name] = (name, ([], []), typ)
+                self.update_env(s.name, (name, ([], []), typ))
 
                 return DataflowIR.Alloc(name, [], typ, s.srcinfo)
 
@@ -477,16 +489,11 @@ class LoopIR_to_DataflowIR:
             return DataflowIR.Read(ee[0], idx, self.map_t(e.type), e.srcinfo)
 
         elif isinstance(e, LoopIR.BinOp):
-            if e.op == "/":
-                raise NotImplementedError("division is not supported yet")
-
             df_lhs = self.map_e(e.lhs)
             df_rhs = self.map_e(e.rhs)
             return DataflowIR.BinOp(e.op, df_lhs, df_rhs, self.map_t(e.type), e.srcinfo)
 
         elif isinstance(e, LoopIR.Extern):
-            raise NotImplementedError("Extern is not supported yet")
-
             df_args = self.map_exprs(e.args)
             return DataflowIR.Extern(e.f, df_args, self.map_t(e.type), e.srcinfo)
 
@@ -498,8 +505,6 @@ class LoopIR_to_DataflowIR:
             return DataflowIR.Const(e.val, self.map_t(e.type), e.srcinfo)
 
         elif isinstance(e, LoopIR.StrideExpr):
-            raise NotImplementedError("stride expression is not supported yet")
-
             assert e.name in self.env
             return DataflowIR.StrideExpr(
                 self.env[e.name][0], e.dim, self.map_t(e.type), e.srcinfo
@@ -741,17 +746,19 @@ class DoInlineWindow(LoopIR_Rewrite):
         return super().map_e(e)
 
 
-def dataflow_analysis(proc: LoopIR.proc, loopir_stmts: list) -> DataflowIR.proc:
+def dataflow_analysis(
+    proc: LoopIR.proc, loopir_stmts: list, syms=None
+) -> DataflowIR.proc:
     proc = inline_calls(proc)
     proc = inline_windows(proc)
 
     # step 1 - convert LoopIR to DataflowIR with empty contexts (i.e. AbsEnvs)
-    datair, stmts = LoopIR_to_DataflowIR(proc, loopir_stmts).result()
+    datair, stmts, d_syms = LoopIR_to_DataflowIR(proc, loopir_stmts, syms).result()
 
     # step 2 - run abstract interpretation algorithm to populate contexts with abs values
-    AbstractInterpretation(datair)
+    Strategy1(datair)
 
-    return datair, stmts
+    return datair, stmts, d_syms
 
 
 # --------------------------------------------------------------------------- #
@@ -799,6 +806,8 @@ module ArrayDomain {
           | Var(sym name)
           | Add(aexpr lhs, aexpr rhs)
           | Mult(int coeff, aexpr ae)  
+          | Div(aexpr ae, int divisor)
+          | Mod(aexpr ae, int m)
 }
 """,
     ext_types={
@@ -811,6 +820,80 @@ D = ArrayDomain
 
 
 from . import dataflow_pprint
+
+
+# --------------------------------------------------------------------------- #
+# Join for D.val, including SubVal and ArrayVar
+# --------------------------------------------------------------------------- #
+
+
+def subval_join(v1, v2):
+    assert isinstance(v1, D.val)
+    assert isinstance(v2, D.val)
+
+    if type(v1) != type(v2):
+        return D.SubVal(V.Top())
+
+    if isinstance(v1, D.SubVal):
+        if isinstance(v1.av, V.Bot):
+            return v2
+        if isinstance(v2.av, V.Bot):
+            return v1
+        if (
+            isinstance(v1.av, V.ValConst)
+            and isinstance(v2.av, V.ValConst)
+            and v1.av.val == v2.av.val
+        ):
+            return v1
+
+        return D.SubVal(V.Top())
+
+    elif isinstance(v2, D.ArrayVar):
+        if v1.name == v2.name and all(
+            [aexpr_eq(a1, a2) for a1, a2 in zip(v1.idx, v2.idx)]
+        ):
+            return v1
+        else:
+            return D.SubVal(V.Top())
+    else:
+        assert False, "bad case"
+
+
+# --------------------------------------------------------------------------- #
+# Equivalence for D.val, used with overlay
+# --------------------------------------------------------------------------- #
+
+
+def subval_eq(v1, v2):
+    assert isinstance(v1, D.val)
+    assert isinstance(v2, D.val)
+
+    if type(v1) != type(v2):
+        return D.SubVal(V.Top())
+
+    if isinstance(v1, D.SubVal):
+        if v1 == v2:
+            return D.SubVal(V.Top())
+    if isinstance(v1, D.ArrayVar):
+        if v1.name == v2.name and all(
+            [aexpr_eq(a1, a2) for a1, a2 in zip(v1.idx, v2.idx)]
+        ):
+            return D.SubVal(V.Top())
+    return D.SubVal(V.Bot())
+
+
+def is_all_top(a):
+    if isinstance(a, D.abs):
+        return is_all_top(a.tree)
+    if isinstance(a, D.Leaf):
+        if isinstance(a.v, D.SubVal) and isinstance(a.v.av, V.Top):
+            return True
+    if isinstance(a, D.AffineSplit):
+        return is_all_top(a.ltz) and is_all_top(a.eqz) and is_all_top(a.gtz)
+    if isinstance(a, D.ModSplit):
+        return is_all_top(a.neqz) and is_all_top(a.eqz)
+
+    return False
 
 
 # --------------------------------------------------------------------------- #
@@ -887,6 +970,22 @@ def lift_to_smt_a(e: D.aexpr) -> A:
             typ,
             null_srcinfo(),
         )
+    elif isinstance(e, D.Div):
+        return A.BinOp(
+            "/",
+            lift_to_smt_a(e.ae),
+            A.Const(e.divisor, typ, null_srcinfo()),
+            typ,
+            null_srcinfo(),
+        )
+    elif isinstance(e, D.Mod):
+        return A.BinOp(
+            "%",
+            lift_to_smt_a(e.ae),
+            A.Const(e.m, typ, null_srcinfo()),
+            typ,
+            null_srcinfo(),
+        )
     else:
         assert False, "bad case!"
 
@@ -940,6 +1039,16 @@ def lift_to_smt_n(name: Sym, src: D.node):
 # Transfer and lifting functions from Dataflow IR to abstract domain
 # --------------------------------------------------------------------------- #
 
+
+def has_array_access(e: DataflowIR.expr) -> bool:
+    if isinstance(e, DataflowIR.Read):
+        if len(e.idx) > 0:
+            return True
+    elif isinstance(e, DataflowIR.BinOp):
+        return has_array_access(e.lhs) or has_array_access(e.rhs)
+    return False
+
+
 # Lifting function for dataflow ir expression to D.aexpr
 # Corresponds to $A^\# : Expr \to aexpr$ in the paper
 def lift_to_abs_a(e: DataflowIR.expr) -> D.aexpr:
@@ -971,79 +1080,17 @@ def lift_to_abs_a(e: DataflowIR.expr) -> D.aexpr:
                 assert False, "shouldn't be here"
         elif e.op == "-":
             return D.Add(lhs, D.Mult(-1, rhs))
+        elif e.op == "/":
+            assert isinstance(rhs, D.Const)
+            return D.Div(lhs, rhs.val)
+        elif e.op == "%":
+            assert isinstance(rhs, D.Const)
+            return D.Mod(lhs, rhs.val)
         else:
             # TODO: Support division at some point
-            assert False, f"got unsupported binop {e.op}."
+            assert False, f"got unsupported binop {e.op} in {e}."
 
     assert False, f"shouldn't be here. got {e}"
-
-
-# Corresponds to \delta in the paper draft
-def delta(cond: DataflowIR.expr, body: D.node, orelse: D.node) -> D.node:
-    assert isinstance(cond, DataflowIR.expr)
-    assert isinstance(body, D.node)
-    assert isinstance(orelse, D.node)
-
-    # If the condition is always True or False, just return the leaf as a tree
-    tree = D.Leaf(D.SubVal(V.Top()))
-    if isinstance(cond, DataflowIR.Const) and (cond.val == True):
-        tree = body
-    elif isinstance(cond, DataflowIR.Const) and (cond.val == False):
-        tree = orelse
-    else:
-        # operators = {+, -, *, /, mod, and, or, ==, <, <=, >, >=}
-        assert isinstance(cond, DataflowIR.BinOp)
-
-        # Handle logical operations
-        if cond.op == "and":
-            return delta(cond.lhs, delta(cond.rhs, body, orelse), orelse)
-        elif cond.op == "or":
-            return delta(cond.lhs, body, delta(cond.rhs, body, orelse))
-
-        # FIXME: Support modular inequalities for constant cases.
-        is_lhs_mod = isinstance(cond.lhs, DataflowIR.BinOp) and cond.lhs.op == "%"
-        is_rhs_mod = isinstance(cond.rhs, DataflowIR.BinOp) and cond.rhs.op == "%"
-        if is_lhs_mod or is_rhs_mod:
-            if cond.op == "==":
-                e1 = cond.lhs.lhs if is_lhs_mod else cond.rhs.lhs
-                c = cond.lhs.rhs if is_lhs_mod else cond.rhs.rhs
-                e2 = cond.rhs if is_lhs_mod else cond.lhs
-                assert isinstance(c, DataflowIR.Const)
-                tree = D.ModSplit(
-                    lift_to_abs_a(
-                        DataflowIR.BinOp("-", e1, e2, DataflowIR.Int(), null_srcinfo())
-                    ),
-                    c,
-                    orelse,
-                    body,
-                )
-            else:
-                assert False, "modular inequalites are not supported yet!"
-
-        # This is A^\#\qc{e_1 - e_2}
-        eq = lift_to_abs_a(
-            DataflowIR.BinOp("-", cond.lhs, cond.rhs, DataflowIR.Int(), null_srcinfo())
-        )
-        if cond.op == "==":
-            tree = D.AffineSplit(eq, orelse, body, orelse)
-        elif cond.op == "<":
-            tree = D.AffineSplit(eq, body, orelse, orelse)
-        elif cond.op == "<=":
-            tree = D.AffineSplit(eq, body, body, orelse)
-        elif cond.op == ">":
-            tree = D.AffineSplit(eq, orelse, orelse, body)
-        elif cond.op == ">=":
-            tree = D.AffineSplit(eq, orelse, body, body)
-        elif cond.op == "<":
-            tree = D.AffineSplit(eq, body, orelse, orelse)
-        elif cond.op == "%":
-            assert False, "mod should be handled in the cases above, shouldn't be here!"
-        elif cond.op == "/":
-            assert False, "div is unsupported, shouldn't be here!"
-        else:
-            assert False, "WTF?"
-
-    return tree
 
 
 # --------------------------------------------------------------------------- #
@@ -1230,6 +1277,12 @@ class Abs_Rewrite:
             return D.Add(self.map_aexpr(aexpr.lhs), self.map_aexpr(aexpr.rhs))
         elif isinstance(aexpr, D.Mult):
             return D.Mult(aexpr.coeff, self.map_aexpr(aexpr.ae))
+        elif isinstance(aexpr, D.Div):
+            return D.Div(self.map_aexpr(aexpr.ae), aexpr.divisor)
+        elif isinstance(aexpr, D.Mod):
+            return D.Mod(self.map_aexpr(aexpr.ae), aexpr.m)
+        else:
+            assert False
 
 
 # [i0 -> e0, ..., ik -> ek]tree
@@ -1247,6 +1300,350 @@ class ASubs(Abs_Rewrite):
                 return self.dict[a.name]
 
         return super().map_aexpr(a)
+
+
+# --------------------------------------------------------------------------- #
+# Substitution for aexpr
+# --------------------------------------------------------------------------- #
+
+# Helper function to negate an expression.
+def negate(ae):
+    if isinstance(ae, D.Const):
+        return D.Const(-ae.val)
+    elif isinstance(ae, D.Var):
+        return D.Mult(-1, ae)
+    elif isinstance(ae, D.Add):
+        return D.Add(negate(ae.lhs), negate(ae.rhs))
+    elif isinstance(ae, D.Mult):
+        return D.Mult(-ae.coeff, ae.ae)
+    else:
+        raise TypeError("Unknown aexpr type")
+
+
+# Function to "divide" an expression by an integer.
+# It assumes that every constant multiplier divides evenly.
+def divide_expr(ae, divisor):
+    if divisor == 0:
+        raise ValueError("Division by zero")
+    if isinstance(ae, D.Const):
+        if ae.val % divisor != 0:
+            raise ValueError("Non-integer division result")
+        return D.Const(ae.val // divisor)
+    elif isinstance(ae, D.Var):
+        # Treat a variable as 1*Var.
+        if 1 % divisor != 0:
+            raise ValueError("Non-integer division result")
+        # Only works if divisor is 1 or -1.
+        return D.Mult(1 // divisor, ae)
+    elif isinstance(ae, D.Add):
+        lhs = divide_expr(ae.lhs, divisor)
+        rhs = divide_expr(ae.rhs, divisor)
+        if isinstance(rhs, D.Const) and rhs.val == 0:
+            return lhs
+        if isinstance(lhs, D.Const) and lhs.val == 0:
+            return rhs
+        return D.Add(lhs, rhs)
+    elif isinstance(ae, D.Mult):
+        if ae.coeff % divisor != 0:
+            raise ValueError("Non-integer division result in multiplication")
+        if isinstance(ae.ae, D.Const) and ae.ae.val == 0:
+            return D.Const(0)
+        r = ae.coeff // divisor
+        if r == 1:
+            return ae.ae
+        elif r == 0:
+            return D.Const(0)
+        return D.Mult(r, ae.ae)
+    else:
+        raise TypeError("Unknown aexpr type")
+
+
+# Function to "collect" the target variable.
+# It returns a pair (coeff, rest) such that: ae == coeff*target + rest.
+def collect(ae, target):
+    if isinstance(ae, D.Const):
+        return (0, ae)
+    elif isinstance(ae, D.Var):
+        if ae.name == target:
+            return (1, D.Const(0))
+        else:
+            return (0, ae)
+    elif isinstance(ae, D.Add):
+        coeff_lhs, rest_lhs = collect(ae.lhs, target)
+        coeff_rhs, rest_rhs = collect(ae.rhs, target)
+        return (coeff_lhs + coeff_rhs, D.Add(rest_lhs, rest_rhs))
+    elif isinstance(ae, D.Mult):
+        coeff_inside, rest_inside = collect(ae.ae, target)
+        return (ae.coeff * coeff_inside, D.Mult(ae.coeff, rest_inside))
+    else:
+        raise TypeError("Unknown aexpr type")
+
+
+# The main function: solve the equation ae = 0 for the given target variable.
+def solve_for(ae, target):
+    coeff, rest = collect(ae, target)
+    if coeff == 0:
+        return None
+    # Equation is: coeff*target + rest = 0  ->  target = -(rest) / coeff.
+    return divide_expr(negate(rest), coeff)
+
+
+# FIXME: TODO:
+# It's not clear what to do in cases like "2*i == d", where i will be 1/2*d,
+# but we only allow integer multiplier!
+# I think this will be a real issue..
+# We won't be able to handle statements like x[2*i] :eyes:
+# Use fractions!!
+
+# is it possible to have multiple eqs conflicting?? I think the first one should be prioritized in that case.
+def eliminate_target_dim(val, tgt):
+    # can we just ASubs on the subtree?? from eq branch?
+    # that actually should be correct. We got rid of tgt from that branch, so we can just proceed.
+    assert isinstance(val, D.node)
+
+    if isinstance(val, D.Leaf):
+        return val
+    elif isinstance(val, D.AffineSplit):
+        r = solve_for(val.ae, tgt)
+        if r == None:
+            eqz = eliminate_target_dim(val.eqz, tgt)
+        else:
+            eqz = ASubs(val.eqz, {tgt: r}).result()
+
+        return D.AffineSplit(
+            val.ae,
+            eliminate_target_dim(val.ltz, tgt),
+            eqz,
+            eliminate_target_dim(val.gtz, tgt),
+        )
+    elif isinstance(val, D.ModSplit):
+        return D.ModSplit(
+            val.ae,
+            val.m,
+            eliminate_target_dim(val.neqz, tgt),
+            eliminate_target_dim(val.eqz, tgt),
+        )
+    else:
+        assert False, "bad else"
+
+
+# --------------------------------------------------------------------------- #
+# Overlay cell decomposition
+# --------------------------------------------------------------------------- #
+
+
+def overlay(a1: D.abs or D.node, a2: D.abs or D.node, fun) -> D.node:
+    """
+    return {(d1 \intersects d2, fun(v1, v2) | d1 \in a1 and d2 \in a2}
+    """
+    if isinstance(a1, D.abs):
+        assert isinstance(a2, D.abs)
+
+        if len(a1.iterators) != len(a2.iterators) or not all(
+            [i1 == i2 for i1, i2 in zip(a1.iterators, a2.iterators)]
+        ):
+            raise ValueError(f"Iterators of a1 and a2 should match exactly")
+
+        slv = SMTSolver(verbose=False)
+
+        for itr in a1.iterators:
+            slv.assume(
+                A.BinOp(
+                    ">=",
+                    A.Var(itr, T.Int(), null_srcinfo()),
+                    A.Const(0, T.Int(), null_srcinfo()),
+                    T.Bool(),
+                    null_srcinfo(),
+                )
+            )
+
+        return overlay_with_smt(slv, a1.tree, a2.tree, fun)
+    else:
+        assert isinstance(a1, D.node)
+        assert isinstance(a2, D.node)
+
+        slv = SMTSolver(verbose=False)
+
+        return overlay_with_smt(slv, a1, a2, fun)
+
+
+def mk_mod_expr(ae, m):
+    return A.BinOp(
+        "%", lift_to_smt_a(ae), A.Const(m, T.int, null_srcinfo()), T.int, null_srcinfo()
+    )
+
+
+def aexpr_eq(e1, e2):
+    assert isinstance(e1, D.aexpr) and isinstance(e2, D.aexpr)
+
+    # First check that they're the same type
+    if type(e1) != type(e2):
+        return False
+
+    if isinstance(e1, D.Const):
+        return e1.val == e2.val
+    elif isinstance(e1, D.Var):
+        return e1.name == e2.name
+    elif isinstance(e1, D.Add):
+        return aexpr_eq(e1.lhs, e2.lhs) and aexpr_eq(e1.rhs, e2.rhs)
+    elif isinstance(e1, D.Mult):
+        return e1.coeff == e2.coeff and aexpr_eq(e1.ae, e2.ae)
+    elif isinstance(e1, D.Div):
+        return e1.divisor == e2.divisor and aexpr_eq(e1.ae, e2.ae)
+    elif isinstance(e1, D.Mod):
+        return e1.m == e2.m and aexpr_eq(e1.ae, e2.ae)
+    else:
+        assert False, "bad case"
+
+
+def affine_overlay_helper(slv, t1, t2, fun):
+    """
+    t1 is a affine split, t2 can be anything
+    """
+    pred_expr = lift_to_smt_a(t1.ae)
+
+    # check if anything is simplifiable
+    ltz_eq = mk_aexpr("<", pred_expr)
+    eqz_eq = mk_aexpr("==", pred_expr)
+    gtz_eq = mk_aexpr(">", pred_expr)
+
+    if slv.verify(ltz_eq):
+        return overlay_with_smt(slv, t1.ltz, t2, fun)
+    if slv.verify(eqz_eq):
+        return overlay_with_smt(slv, t1.eqz, t2, fun)
+    if slv.verify(gtz_eq):
+        return overlay_with_smt(slv, t1.gtz, t2, fun)
+
+    slv.push()
+    slv.assume(ltz_eq)
+    new_ltz = overlay_with_smt(slv, t1.ltz, t2, fun)
+    slv.pop()
+
+    slv.push()
+    slv.assume(eqz_eq)
+    new_eqz = overlay_with_smt(slv, t1.eqz, t2, fun)
+    slv.pop()
+
+    slv.push()
+    slv.assume(gtz_eq)
+    new_gtz = overlay_with_smt(slv, t1.gtz, t2, fun)
+    slv.pop()
+
+    return D.AffineSplit(t1.ae, new_ltz, new_eqz, new_gtz)
+
+
+def mod_overlay_helper(slv, t1, t2, fun):
+    """
+    t1 is a mod-split, t2 can be anything
+    """
+    pred_expr = mk_mod_expr(t1.ae, t1.m)
+    eq_expr = mk_aexpr("==", pred_expr)
+    neq_expr = A.Not(eq_expr, T.bool, null_srcinfo())
+
+    if slv.verify(eq_expr):
+        return overlay_with_smt(slv, t1.eqz, t2, fun)
+    if slv.verify(neq_expr):
+        return overlay_with_smt(slv, t1.neqz, t2, fun)
+
+    slv.push()
+    slv.assume(eq_expr)
+    new_eqz = overlay_with_smt(slv, t1.eqz, t2, fun)
+    slv.pop()
+
+    slv.push()
+    slv.assume(neq_expr)
+    new_neqz = overlay_with_smt(slv, t1.neqz, t2, fun)
+    slv.pop()
+
+    return D.ModSplit(t1.ae, t1.m, new_neqz, new_eqz)
+
+
+def overlay_with_smt(slv, t1, t2, fun):
+    """
+    Overlay trees t1 and t2, pruning any branch whose intersection is unsatisfiable.
+    Returns the overlayed D.node, or a 'bottom' leaf if unsatisfiable.
+    """
+    # TODO: This will Bottom out the infeasible branch, but I'm commenting this out since it's a bit confusing
+    # First check if current path constraints are already unsatisfiable
+    # if not slv.satisfy(A.Const(True, T.bool, null_srcinfo())):
+    #    return D.Leaf(D.SubVal(V.Bot()))
+
+    # -- Case 1: both are leaves
+    if isinstance(t1, D.Leaf) and isinstance(t2, D.Leaf):
+        # Now we combine the leaf values with fun
+        return D.Leaf(fun(t1.v, t2.v))
+
+    # -- Case 2: t1 is a leaf but t2 is a split
+    if isinstance(t1, D.Leaf):
+        if isinstance(t2, D.AffineSplit):
+            return affine_overlay_helper(slv, t2, t1, fun)
+
+        if isinstance(t2, D.ModSplit):
+            return mod_overlay_helper(slv, t2, t1, fun)
+
+    # -- Case 3: t2 is a leaf but t1 is a split (symmetric to case 2)
+    if isinstance(t2, D.Leaf):
+        if isinstance(t1, D.AffineSplit):
+            return affine_overlay_helper(slv, t1, t2, fun)
+
+        elif isinstance(t1, D.ModSplit):
+            return mod_overlay_helper(slv, t1, t2, fun)
+
+    # -- Case 4: both are AffineSplit
+    if isinstance(t1, D.AffineSplit) and isinstance(t2, D.AffineSplit):
+        # If they split on the same expression, unify sub-branches directly
+        if aexpr_eq(t1.ae, t2.ae):  # just a syntactic equivalence for now
+            pred_expr = lift_to_smt_a(t1.ae)
+
+            slv.push()
+            slv.assume(mk_aexpr("<", pred_expr))  # from t1
+            merged_ltz = overlay_with_smt(slv, t1.ltz, t2.ltz, fun)
+            slv.pop()
+
+            slv.push()
+            slv.assume(mk_aexpr("==", pred_expr))
+            merged_eqz = overlay_with_smt(slv, t1.eqz, t2.eqz, fun)
+            slv.pop()
+
+            slv.push()
+            slv.assume(mk_aexpr(">", pred_expr))
+            merged_gtz = overlay_with_smt(slv, t1.gtz, t2.gtz, fun)
+            slv.pop()
+
+            return D.AffineSplit(t1.ae, merged_ltz, merged_eqz, merged_gtz)
+
+        else:
+            return affine_overlay_helper(slv, t1, t2, fun)
+
+    # -- Case 5: both are ModSplit
+    if isinstance(t1, D.ModSplit) and isinstance(t2, D.ModSplit):
+        # If they split on the *same* (aexpr, modulus), unify sub-branches
+        if aexpr_eq(t1.ae, t2.ae) and t1.m == t2.m:
+            # Both do `ae % m == 0` vs `!=0`; unify eqz with eqz, neqz with neqz
+            pred_expr = mk_mod_expr(t1.ae, t1.m)
+
+            slv.push()
+            slv.assume(mk_aexpr("==", pred_expr))
+            merged_eqz = overlay_with_smt(slv, t1.eqz, t2.eqz, fun)
+            slv.pop()
+
+            slv.push()
+            slv.assume(A.Not(mk_aexpr("==", pred_expr), T.bool, null_srcinfo()))
+            merged_neqz = overlay_with_smt(slv, t1.neqz, t2.neqz, fun)
+            slv.pop()
+
+            return D.ModSplit(t1.ae, t1.m, merged_neqz, merged_eqz)
+        else:
+            return mod_overlay_helper(slv, t1, t2, fun)
+
+    # -- Case 6: one is AffineSplit, the other is ModSplit
+    if isinstance(t1, D.AffineSplit) and isinstance(t2, D.ModSplit):
+        return affine_overlay_helper(slv, t1, t2, fun)
+
+    if isinstance(t1, D.ModSplit) and isinstance(t2, D.AffineSplit):
+        return mod_overlay_helper(slv, t1, t2, fun)
+
+    assert False, "shouldn't reach here"
 
 
 # --------------------------------------------------------------------------- #
@@ -1322,7 +1719,7 @@ def extract_regions(node, iterators, halfspaces=None, path=None):
     """
     Recursively traverse the abstract domain tree to collect regions (cells).
     For each leaf, record:
-      - "halfspaces": list of halfspace arrays defining the cell,
+      - "halfspaces": list of halfspace constraints defining the cell,
       - "path": list of (aexpr, branch) tuples representing decisions,
       - "leaf_value": the cell's marking.
     """
@@ -1450,36 +1847,37 @@ def find_intersections(dims, eqs):
     intersections = []
     cvted_eqs = []
     for eq in list(eqs):
-        d = cvt_eq(eq)
-        if dims[0] not in d:
-            intersections.append(d)
+        dic = cvt_eq(eq)
+        if dims[0] not in dic:
+            new_dim = sum(dic.get(d, 0) != 0 for d in dims[1:])
+            intersections.append((new_dim, dic))
         else:
-            cvted_eqs.append(d)
+            cvted_eqs.append(dic)
 
     # For two equations, eliminate dims[0] using all combinations of 2.
-    all_combinations = get_combinations(cvted_eqs, 2)
-    new_dims = dims[1:] + [const_rep]
-    for feq, seq in all_combinations:
+    for feq, seq in get_combinations(cvted_eqs, 2):
         a_n = feq.get(dims[0], 0)
         b_n = seq.get(dims[0], 0)
         cur = {}
-        for d in new_dims:
+        for d in dims[1:] + [const_rep]:
             a_i = feq.get(d, 0)
             b_i = seq.get(d, 0)
             cur[d] = a_n * b_i - b_n * a_i
 
-        # Skip if two equations are parallel
-        if all(cur.get(d, 0) == 0 for d in dims[1:]):
+        # Skip if two equations were parallel
+        new_dim = sum(cur.get(d, 0) != 0 for d in dims[1:])
+        if new_dim == 0:
             continue
 
         # Make the coefficient for dims[1] positive.
         if cur.get(dims[1], 0) < 0:
             for k in cur:
                 cur[k] = -cur[k]
-        intersections.append(cur)
+        intersections.append((new_dim, cur))
 
+    print(intersections)
     # Convert all dictionary representations back to D.aexpr.
-    return [cvt_back(dic) for dic in intersections]
+    return [(dim, cvt_back(dic)) for dim, dic in intersections]
 
 
 def get_eqs_from_tree(t):
@@ -1504,6 +1902,30 @@ def get_eqs_from_tree(t):
 
 def refine_region(region, variables, candidates, intersection_pairs):
     """ """
+    #    print("  Original candidates:")
+    #    for r in candidates:
+    #        print("     path:", [(str(a), br) for a, br in r["path"]], " val: ", r["value"])
+
+    # FIXME: This might not be general for multi-dimension
+    # Removing the paths from candidates if it exists in the region. This is projecting kind of projecting the world to this region.
+    new_candidates = []
+    for reg in candidates:
+        new_reg = dict()
+        new_reg["halfspaces"] = reg["halfspaces"]
+        new_reg["value"] = reg["value"]
+        tmp_path = []
+        for p in reg["path"]:
+            if p not in region["path"]:
+                tmp_path.append(p)
+        new_reg["path"] = tmp_path
+        new_candidates.append(new_reg)
+
+    candidates = new_candidates
+
+    #    print("  Removed candidates:")
+    #    for r in candidates:
+    #        print("     path:", [(str(a), br) for a, br in r["path"]], " val: ", r["value"])
+
     print()
     print(f"Original Region:")
     print("  Path:", [(str(a), br) for a, br in region["path"]])
@@ -1563,9 +1985,6 @@ def refine_region(region, variables, candidates, intersection_pairs):
         for hs in region_i["halfspaces"]:
             print("   ", hs)
         print("  Representative point:", rep)
-        # print("  Candidates:")
-        # for f, s in candidates:
-        #    print("    ", f, " : ", s)
         color = compute_candidate_color(rep, candidates, variables)
         print("  Candidate color:", color)
         if (
@@ -1651,13 +2070,13 @@ def compute_candidate_color(rep_point, candidates, variables):
     best_color = None
     for candidate in candidates:
         candidate_i = vertical_line_intersect(rep_point, candidate["path"], variables)
-        print(
-            "  Path:",
-            [(str(a), br) for a, br in candidate["path"]],
-            " color: ",
-            candidate["value"],
-        )
-        print("    i=", candidate_i)
+        # print(
+        #    "  Path:",
+        #    [(str(a), br) for a, br in candidate["path"]],
+        #    " color: ",
+        #    candidate["value"],
+        # )
+        # print("    i=", candidate_i)
         if candidate_i != None and candidate_i < rep_point[0] and candidate_i > best_i:
             best_i = candidate_i
             best_color = candidate["value"]
@@ -1763,7 +2182,11 @@ def find_feasible_point(halfspaces, dim):
 # =============================================================================
 
 
-def widening(a1: D.abs, a2: D.abs) -> D.abs:
+# TODO: We should probably use ternary decision "diagrams" to compress the leaf duplications (?)
+
+# maybe we should pass a count to widening so that we can debug and terminate when necessary
+# widening has information of iteration count
+def widening(a1: D.abs, a2: D.abs, count: int) -> D.abs:
     """
     Perform widening on abstract domain a2 using a1 as the previous value.
     The process:
@@ -1773,51 +2196,82 @@ def widening(a1: D.abs, a2: D.abs) -> D.abs:
       3. For each refined region, compute a candidate color and update the marking.
       4. Reconstruct a new abstract domain tree from the refined regions.
     """
-    # Candidates are n-1 (or lower_ dimension hyperplanes, where it has at least one "eq" in the paths
-    candidates = []
-    # Regions are n dimensional space!
-    regions = []
+    # and we can just run whatever on a3
+    # to satisfy the x \widen y >= x \join y
+    a3 = overlay(a1, a2, subval_join)
+
+    return a3
+
+    if isinstance(a2.tree, D.Leaf):
+        return a2
+
+    variables = a2.iterators
+
+    # Sort half spaces into dimension
+    regions = {}
     for reg in extract_regions(a2.tree, a2.iterators):
-        if any(e == "eqz" for (a, e) in reg["path"]):
-            candidates.append(reg)
-        else:
-            regions.append(reg)
+        d = len(variables) - sum(e == "eqz" for (_, e) in reg["path"])
+        assert d >= 0
+        regions[d] = [] if d not in regions else regions[d]
+        regions[d].append(reg)
 
     # Get intersections!
-    variables = a2.iterators
     eqs = get_eqs_from_tree(a2.tree)
+    print()
+    print(variables)
+    print([str(s) for s in eqs])
     intersections = find_intersections(variables, eqs)
 
-    # We partition along dimension variables[1].
-    # FIXME: TODO: Ordering here might be quite subtle for multi-dimensional cases.
-    intersection_pairs = []
-    for intersection in intersections:
-        coeff, const = linearize_aexpr(intersection, variables)
-        if abs(coeff.get(variables[1], 0)) < 1e-9:
+    for d in regions.keys():
+        print("d : ", d)
+        for reg in regions[d]:
+            print([(str(p), str(e)) for p, e in reg["path"]])
+        print()
+    print("Intersections:", [(str(dim), str(eq)) for dim, eq in intersections])
+    refined_regions = regions.get(0, [])
+    scanned_variables = variables.copy()
+
+    for dim in range(1, len(variables) + 1):
+        if dim not in regions:
             continue
-        val = -const / coeff[variables[1]]
-        intersection_pairs.append((val, intersection))
 
-    # Sort the intersection pairs by value.
-    intersection_pairs.sort(key=lambda pair: pair[0])
+        print("here dim: ", dim)
+        intersection_pairs = []
+        ivar = None
+        for idim, intersection in intersections:
+            if idim != dim - 1:
+                continue
 
-    refined_regions = []
-    for reg in regions:
-        sub_regs = refine_region(reg, a2.iterators, candidates, intersection_pairs)
-        refined_regions.extend(sub_regs)
+            coeff, const = linearize_aexpr(intersection, variables)
+            for k in coeff.keys():
+                if k in scanned_variables and abs(coeff.get(k, 0)) > 1e-9:
+                    if ivar is not None and k != ivar:
+                        assert False
+                    ivar = k
+                    scanned_variables.remove(k)
+                    break
+            val = -const / coeff[ivar]
+            intersection_pairs.append((val, intersection))
+        # Sort the intersection pairs by value.
+        intersection_pairs.sort(key=lambda pair: pair[0])
+
+        tmp_regions = []
+        for reg in regions[dim]:
+            tmp_regions.extend(
+                refine_region(reg, a2.iterators, refined_regions, intersection_pairs)
+            )
+        refined_regions.extend(tmp_regions)
 
     # FIXME: dictionary reconstruction might be buggy
-    dict_tree = build_dict_tree(refined_regions + candidates)
+    dict_tree = build_dict_tree(refined_regions)
 
-    if not dict_tree:
-        return a2
     reconstructed_tree = dict_tree_to_node(dict_tree)
 
-    #    print("\nReconstructed Abstract Domain Tree:")
+    # print("\nReconstructed Abstract Domain Tree:")
+    # print(reconstructed_tree)
     a = abs_simplify(
         abs_simplify(abs_simplify(D.abs(a2.iterators, reconstructed_tree)))
     )
-    #    print(a)
     #    print("\nPrevious Abstract Domain Tree:")
     #    print(a1)
 
@@ -1829,96 +2283,96 @@ def widening(a1: D.abs, a2: D.abs) -> D.abs:
 # --------------------------------------------------------------------------- #
 
 
-class Vabs_Eq:
-    def __init__(self, v1: V.vabs, v2: V.vabs):
-        self.result = self.do_vabs(v1, v2)
+# class Vabs_Eq:
+#     def __init__(self, v1: V.vabs, v2: V.vabs):
+#         self.result = self.do_vabs(v1, v2)
+#
+#     def results(self):
+#         return self.result
+#
+#     def do_vabs(self, v1, v2):
+#         if type(v1) != type(v2):
+#             return False
+#
+#         if isinstance(v1, V.ValConst):
+#             return v1.val == v2.val
+#         else:
+#             return True
+#
+#
+# def has_bottom(t):
+#     if isinstance(t, D.Leaf):
+#         if isinstance(t.v, D.SubVal):
+#             return isinstance(t.v.av, V.Bot)
+#     elif isinstance(t, D.AffineSplit):
+#         return has_bottom(t.ltz) or has_bottom(t.eqz) or has_bottom(t.gtz)
+#     else:
+#         return has_bottom(t.neqz) or has_bottom(t.eqz)
 
-    def results(self):
-        return self.result
 
-    def do_vabs(self, v1, v2):
-        if type(v1) != type(v2):
-            return False
-
-        if isinstance(v1, V.ValConst):
-            return v1.val == v2.val
-        else:
-            return True
-
-
-def has_bottom(t):
-    if isinstance(t, D.Leaf):
-        if isinstance(t.v, D.SubVal):
-            return isinstance(t.v.av, V.Bot)
-    elif isinstance(t, D.AffineSplit):
-        return has_bottom(t.ltz) or has_bottom(t.eqz) or has_bottom(t.gtz)
-    else:
-        return has_bottom(t.neqz) or has_bottom(t.eqz)
-
-
-class Abs_Eq:
-    def __init__(self, a1: D.abs, a2: D.abs):
-        self.result = self.do_abs(a1, a2)
-
-    def results(self):
-        return self.result
-
-    def do_abs(self, a1, a2):
-        if len(a1.iterators) != len(a2.iterators):
-            return False
-        for i1, i2 in zip(a1.iterators, a2.iterators):
-            if i1 != i2:
-                return False
-        return self.do_node(a1.tree, a2.tree)
-
-    def do_node(self, t1, t2):
-        if type(t1) != type(t2):
-            return False
-
-        if isinstance(t1, D.Leaf):
-            return t1.v == t2.v
-        elif isinstance(t1, D.AffineSplit):
-            gtz_b = self.do_node(t1.gtz, t2.gtz)
-            if not gtz_b:
-                # FIXME: TODO: This is saying that we're gonna stop fixpoint if all the t1 gtz values are propagated.
-                gtz_b = not has_bottom(t1.gtz)
-            return (
-                self.do_aexpr(t1.ae, t2.ae)
-                and self.do_node(t1.ltz, t2.ltz)
-                and self.do_node(t1.eqz, t2.eqz)
-                and gtz_b
-            )
-        else:
-            return (
-                self.do_aexpr(t1.ae, t2.ae)
-                and (t1.m == t2.m)
-                and self.do_node(t1.neqz, t2.neqz)
-                and self.do_node(t1.eqz, t2.eqz)
-            )
-
-    def do_val(self, v1, v2):
-        if type(v1) != type(v2):
-            return False
-
-        if isinstance(v1, D.SubVal):
-            return Vabs_Eq(v1.av, v2.av).results()
-        else:
-            return (v1.name == v2.name) and all(
-                [self.do_aexpr(a1, a2) for a1, a2 in zip(v1.idx, v2.idx)]
-            )
-
-    def do_aexpr(self, a1, a2):
-        if type(a1) != type(a2):
-            return False
-
-        if isinstance(a1, D.Const):
-            return a1.val == a2.val
-        elif isinstance(a1, D.Var):
-            return a1.name == a2.name
-        elif isinstance(a1, D.Add):
-            return self.do_aexpr(a1.lhs, a2.lhs) and self.do_aexpr(a1.rhs, a2.rhs)
-        else:
-            return (a1.coeff == a2.coeff) and self.do_aexpr(a1.ae, a2.ae)
+# class Abs_Eq:
+#     def __init__(self, a1: D.abs, a2: D.abs):
+#         self.result = self.do_abs(a1, a2)
+#
+#     def results(self):
+#         return self.result
+#
+#     def do_abs(self, a1, a2):
+#         if len(a1.iterators) != len(a2.iterators):
+#             return False
+#         for i1, i2 in zip(a1.iterators, a2.iterators):
+#             if i1 != i2:
+#                 return False
+#         return self.do_node(a1.tree, a2.tree)
+#
+#     def do_node(self, t1, t2):
+#         if type(t1) != type(t2):
+#             return False
+#
+#         if isinstance(t1, D.Leaf):
+#             return t1.v == t2.v
+#         elif isinstance(t1, D.AffineSplit):
+#             gtz_b = self.do_node(t1.gtz, t2.gtz)
+#             if not gtz_b:
+#                 # FIXME: TODO: This is saying that we're gonna stop fixpoint if all the t1 gtz values are propagated.
+#                 gtz_b = not has_bottom(t1.gtz)
+#             return (
+#                 self.do_aexpr(t1.ae, t2.ae)
+#                 and self.do_node(t1.ltz, t2.ltz)
+#                 and self.do_node(t1.eqz, t2.eqz)
+#                 and gtz_b
+#             )
+#         else:
+#             return (
+#                 self.do_aexpr(t1.ae, t2.ae)
+#                 and (t1.m == t2.m)
+#                 and self.do_node(t1.neqz, t2.neqz)
+#                 and self.do_node(t1.eqz, t2.eqz)
+#             )
+#
+#     def do_val(self, v1, v2):
+#         if type(v1) != type(v2):
+#             return False
+#
+#         if isinstance(v1, D.SubVal):
+#             return Vabs_Eq(v1.av, v2.av).results()
+#         else:
+#             return (v1.name == v2.name) and all(
+#                 [self.do_aexpr(a1, a2) for a1, a2 in zip(v1.idx, v2.idx)]
+#             )
+#
+#     def do_aexpr(self, a1, a2):
+#         if type(a1) != type(a2):
+#             return False
+#
+#         if isinstance(a1, D.Const):
+#             return a1.val == a2.val
+#         elif isinstance(a1, D.Var):
+#             return a1.name == a2.name
+#         elif isinstance(a1, D.Add):
+#             return self.do_aexpr(a1.lhs, a2.lhs) and self.do_aexpr(a1.rhs, a2.rhs)
+#         else:
+#             return (a1.coeff == a2.coeff) and self.do_aexpr(a1.ae, a2.ae)
 
 
 # --------------------------------------------------------------------------- #
@@ -1926,6 +2380,30 @@ class Abs_Eq:
 # --------------------------------------------------------------------------- #
 
 
+"""
+for i in ...:
+  Cfg.a = \i Cfg.a[i-1] + 1
+  x = \i \d \phi(Cfg.a[i] == 2 ? branch1 : branch2)
+abstract value after the transfer function
+...
+   <----- Cfg.a : $i
+             - i - 0
+                - Top
+                - 2
+                - Cfg.a_init
+   <----- x : $i $d
+             - i - 0
+                - branch1 \join branch2
+                - branch1
+                - branch1 \join branch2
+
+if Cfg.a[i] was just Top:
+x : $i $d
+  - branch1 \join branch2
+"""
+
+# TODO: Separaate xfer function from the abstraction!
+# TODO: rransfer funcr= handles mutable contrao
 class AbstractInterpretation(ABC):
     def __init__(self, proc: DataflowIR.proc):
         self.proc = proc
@@ -1949,8 +2427,6 @@ class AbstractInterpretation(ABC):
 
         # simplify
         for key, val in body.ctxt.items():
-            val = abs_simplify(val)
-            val = abs_simplify(val)
             body.ctxt[key] = val
 
     def fix_stmt(self, stmt: DataflowIR.stmt, env):
@@ -1969,22 +2445,9 @@ class AbstractInterpretation(ABC):
             if isinstance(stmt, DataflowIR.Reduce):
                 body = DataflowIR.BinOp("+", body, stmt.orelse, body.type, stmt.srcinfo)
 
-            if isinstance(stmt.cond.lhs, DataflowIR.Read):
-                if isinstance(body, DataflowIR.Read):
-                    idx = body.idx[: len(stmt.iters)]
-                    for a in body.idx[: -len(stmt.dims)]:
-                        if (
-                            isinstance(a, DataflowIR.Read)
-                            and a.name == stmt.cond.lhs.name
-                        ):
-                            idx.append(stmt.cond.rhs)
-                        else:
-                            idx.append(a)
-                    body = DataflowIR.Read(body.name, idx, body.type, stmt.srcinfo)
-
             env[stmt.lhs] = D.abs(
                 stmt.iters + stmt.dims,
-                delta(
+                self.abs_ternary(
                     stmt.cond,
                     self.fix_expr(body, env),
                     self.fix_expr(stmt.orelse, env),
@@ -1998,6 +2461,8 @@ class AbstractInterpretation(ABC):
             pass  # no need to do anything
 
         elif isinstance(stmt, DataflowIR.If):
+            # Basically just pass-through
+
             # Initialize
             for nm, val in env.items():
                 stmt.body.ctxt[nm] = val
@@ -2013,11 +2478,27 @@ class AbstractInterpretation(ABC):
                 env[nm] = post_val
 
         elif isinstance(stmt, DataflowIR.For):
+
+            # TODO: Approximation should not happen here, in theory.
+            # just top everything and return for now
             for nm, val in env.items():
                 stmt.body.ctxt[nm] = val
 
+            self.fix_block(stmt.body)
+            for nm, val in stmt.body.ctxt.items():
+                if stmt.iter not in val.iterators:
+                    continue
+                top = D.abs(val.iterators, D.Leaf(D.SubVal(V.Top())))
+                env[nm] = top
+
+            return
+
+            # TODO: come back to widening at some point...
+            for nm, val in env.items():
+                stmt.body.ctxt[nm] = val
+
+            # pre_env = defaultdict(lambda: D.Leaf(D.SubVal(V.Bot())))
             pre_env = dict()
-            # First fixpoint is special
             self.fix_block(stmt.body)
             for nm, val in stmt.body.ctxt.items():
                 pre_env[nm] = val
@@ -2025,45 +2506,36 @@ class AbstractInterpretation(ABC):
             # Give up after five fixpoints
             count = 0
             while True:
-                if count >= 5:
-                    assert False, f"didn't reach fixpoint!!!"
 
-                print("\n ================================= ")
-                # print("count: ", count)
-                # print("Before fix_block")
-                # for nm in list(stmt.body.ctxt.keys()):
-                #    print()
-                #    print(repr(nm))
-                #    if count == 1:
-                #        if str(nm) == "y":
-                #            del stmt.body.ctxt[nm]
-
+                # fixpoint iteration
                 self.fix_block(stmt.body)
+
                 all_eq = True
                 for nm, val in stmt.body.ctxt.items():
                     # Don't widen if it does not depend on this loop
                     if stmt.iter not in val.iterators:
                         continue
 
-                    print("nm: ", repr(nm), "count: ", count)
-                    print("before widening: ")
-                    print(val)
-                    w_res = widening(pre_env[nm], val)
+                    # Use overlay to compare equality of pre_env and val.
+                    # subval_eq will top if the values are equivalent, so will need to check that all leaves are top by is_all_top
+                    if is_all_top(overlay(pre_env[nm], val, subval_eq)):
+                        continue
 
-                    print("after widening: ")
-                    print(w_res)
-                    if not Abs_Eq(pre_env[nm], w_res).results():
-                        all_eq = False
-                        print("Not equal!")
-                        stmt.body.ctxt[nm] = w_res
-                        pre_env[nm] = w_res
-                    else:
-                        stmt.body.ctxt[nm] = pre_env[nm]
-                        print("Equal!")
-                    print("\n --------- ")
+                    # Eliminate target dim
+                    val = D.abs(
+                        val.iterators, eliminate_target_dim(val.tree, stmt.iter)
+                    )
+
+                    # Widening
+                    w_res = widening(pre_env[nm], val, count)
+
+                    all_eq = False
+                    stmt.body.ctxt[nm] = w_res
+                    pre_env[nm] = w_res
 
                 if all_eq:
                     break
+
                 count += 1
 
             for nm, val in pre_env.items():
@@ -2075,35 +2547,177 @@ class AbstractInterpretation(ABC):
     # Corresponds to E^\# : \Expr \to \Sigma^\# \to val in the paper
     def fix_expr(self, e: DataflowIR.expr, env) -> D.val:
         if isinstance(e, DataflowIR.Read):
-            idxs = [lift_to_abs_a(i) for i in e.idx]
-            if e.name in self.avars:
-                return D.Leaf(D.ArrayVar(e.name, idxs))
-            else:
-                # bot if not found in env, substitute the array access if it does
-                if e.name in env:
-                    itr_map = dict()
-                    for i1, i2 in zip(env[e.name].iterators, idxs):
-                        itr_map[i1] = i2
-
-                    return ASubs(env[e.name].tree, itr_map).result()
-
-                else:
-                    return D.Leaf(D.SubVal(V.Bot()))
+            return self.abs_read(e.name, e.idx, env)
 
         elif isinstance(e, DataflowIR.Const):
-            return D.Leaf(D.SubVal(V.ValConst(e.val)))
+            return self.abs_const(e.val)
 
         elif isinstance(e, DataflowIR.USub):
-            return D.Leaf(D.SubVal(V.Top()))
+            return self.abs_usub(e.arg)
 
         elif isinstance(e, DataflowIR.BinOp):
-            return D.Leaf(D.SubVal(V.Top()))
+            return self.abs_binop(e.op, e.lhs, e.rhs)
 
         elif isinstance(e, DataflowIR.Extern):
-            raise NotImplementedError("extern is not supported yet. Shouldn't be here!")
+            return self.abs_extern(e.f, e.args)
 
         elif isinstance(e, DataflowIR.StrideExpr):
-            raise NotImplementedError("stride is not supported yet. Shouldn't be here!")
+            return self.abs_stride(e.name, e.dim)
 
         else:
             assert False, f"bad case {type(expr)}"
+
+    @abstractmethod
+    def abs_ternary(
+        self, cond: DataflowIR.expr, body: D.node, orelse: D.node
+    ) -> D.node:
+        """Approximate the ternary phi node"""
+
+    @abstractmethod
+    def abs_read(self, name, idx):
+        """Approximate the DataflorIR Reads"""
+
+    @abstractmethod
+    def abs_const(self, val):
+        """Approximate the constant"""
+
+    @abstractmethod
+    def abs_usub(self, arg):
+        """Approximate the usub"""
+
+    @abstractmethod
+    def abs_binop(self, op, lhs, rhs):
+        """Approximate the binop"""
+
+    @abstractmethod
+    def abs_extern(self, func: Extern, args: list) -> D.node:
+        """Approximate the extern"""
+
+    @abstractmethod
+    def abs_stride(self, name, dim) -> D.node:
+        """Approximate the stride"""
+
+
+class Strategy1(AbstractInterpretation):
+    def abs_stride(self, name, dim):
+        return D.Leaf(D.SubVal(V.Top()))
+
+    def abs_extern(self, func, args):
+        return D.Leaf(D.SubVal(V.Top()))
+
+    def abs_binop(self, op, lhs, rhs):
+        return D.Leaf(D.SubVal(V.Top()))
+
+    def abs_usub(self, arg):
+        return D.Leaf(D.SubVal(V.Top()))
+
+    def abs_const(self, val):
+        return D.Leaf(D.SubVal(V.ValConst(val)))
+
+    def abs_read(self, name, idx, env):
+        # return True if arrays have indirect accesses
+        if any([has_array_access(i) for i in idx]):
+            return D.Leaf(D.SubVal(V.Top()))
+
+        idxs = [lift_to_abs_a(i) for i in idx]
+        if name in self.avars:
+            return D.Leaf(D.ArrayVar(name, idxs))
+        else:
+            # bot if not found in env, substitute the array access if it does
+            if name in env:
+                itr_map = dict()
+                for i1, i2 in zip(env[name].iterators, idxs):
+                    itr_map[i1] = i2
+                return ASubs(env[name].tree, itr_map).result()
+            else:
+                return D.Leaf(D.SubVal(V.Top()))
+
+    # Corresponds to \delta in the paper draft
+    def abs_ternary(
+        self, cond: DataflowIR.expr, body: D.node, orelse: D.node
+    ) -> D.node:
+        assert isinstance(cond, DataflowIR.expr)
+        assert isinstance(body, D.node)
+        assert isinstance(orelse, D.node)
+
+        # If the condition is always True or False, just return the leaf as a tree
+        tree = D.Leaf(D.SubVal(V.Top()))
+        if isinstance(cond, DataflowIR.Const) and (cond.val == True):
+            tree = body
+        elif isinstance(cond, DataflowIR.Const) and (cond.val == False):
+            tree = orelse
+        elif isinstance(cond, DataflowIR.Read):
+            # boolean case
+            assert len(cond.idx) == 0
+            assert isinstance(cond.type, DataflowIR.Bool)
+            # TODO: Try to handle this more precisely, not just joining bodies?
+            return overlay(body, orelse, subval_join)
+        else:
+            # operators = {+, -, *, /, mod, and, or, ==, <, <=, >, >=}
+            assert isinstance(cond, DataflowIR.BinOp)
+
+            # Handle logical operations
+            if cond.op == "and":
+                return self.abs_ternary(
+                    cond.lhs, self.abs_ternary(cond.rhs, body, orelse), orelse
+                )
+            elif cond.op == "or":
+                return self.abs_ternary(
+                    cond.lhs, body, self.abs_ternary(cond.rhs, body, orelse)
+                )
+
+            if has_array_access(cond.lhs) or has_array_access(cond.rhs):
+                # TODO: This is a loose approximation for mutable control state,
+                # because we're just treating the condition as Top, always.
+                return overlay(body, orelse, subval_join)
+
+            # FIXME: Support modular inequalities for constant cases.
+            is_lhs_mod = isinstance(cond.lhs, DataflowIR.BinOp) and cond.lhs.op == "%"
+            is_rhs_mod = isinstance(cond.rhs, DataflowIR.BinOp) and cond.rhs.op == "%"
+            if is_lhs_mod or is_rhs_mod:
+                if cond.op == "==":
+                    e1 = cond.lhs.lhs if is_lhs_mod else cond.rhs.lhs
+                    c = cond.lhs.rhs if is_lhs_mod else cond.rhs.rhs
+                    e2 = cond.rhs if is_lhs_mod else cond.lhs
+                    assert isinstance(c, DataflowIR.Const)
+                    return D.ModSplit(
+                        lift_to_abs_a(
+                            DataflowIR.BinOp(
+                                "-", e1, e2, DataflowIR.Int(), null_srcinfo()
+                            )
+                        ),
+                        c.val,
+                        orelse,
+                        body,
+                    )
+                else:
+                    assert False, "modular inequalites are not supported yet!"
+
+            # This is A^\#\qc{e_1 - e_2}
+            eq = lift_to_abs_a(
+                DataflowIR.BinOp(
+                    "-", cond.lhs, cond.rhs, DataflowIR.Int(), null_srcinfo()
+                )
+            )
+            if cond.op == "==":
+                tree = D.AffineSplit(eq, orelse, body, orelse)
+            elif cond.op == "<":
+                tree = D.AffineSplit(eq, body, orelse, orelse)
+            elif cond.op == "<=":
+                tree = D.AffineSplit(eq, body, body, orelse)
+            elif cond.op == ">":
+                tree = D.AffineSplit(eq, orelse, orelse, body)
+            elif cond.op == ">=":
+                tree = D.AffineSplit(eq, orelse, body, body)
+            elif cond.op == "<":
+                tree = D.AffineSplit(eq, body, orelse, orelse)
+            elif cond.op == "%":
+                assert (
+                    False
+                ), "mod should be handled in the cases above, shouldn't be here!"
+            elif cond.op == "/":
+                assert False, "div is unsupported, shouldn't be here!"
+            else:
+                assert False, "WTF?"
+
+        return tree
