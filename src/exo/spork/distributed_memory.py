@@ -53,8 +53,18 @@ class DistributedAllocState(object):
     first_usage_stmt: Optional[LoopIR.stmt]
     distributed_iters: List[Sym]
 
+    # CollTiling at the point of the Exo object code allocation
     alloc_coll_tiling: CollTiling
+
+    # Target native unit; we want
     optional_native_unit: Optional[CollUnit]
+
+    # Deduced suballocation. 1:1 mapping between thread collectives
+    # in the leaf CollTiling, and distributed slices.
+    # (ignoring unused indices/thread collectives)
+    # Should match the optional_native_unit, if supplied;
+    # see DistributedIdxFsm.check_native_unit
+    leaf_coll_tiling: Optional[CollTiling]
 
     def __init__(self, alloc_coll_tiling, optional_native_unit):
         assert isinstance(alloc_coll_tiling, CollTiling)
@@ -64,6 +74,7 @@ class DistributedAllocState(object):
         self.distributed_iters = []
         self.alloc_coll_tiling = alloc_coll_tiling
         self.optional_native_unit = optional_native_unit
+        self.leaf_coll_tiling = None
 
     def n_distributed_dims(self):
         return len(self.distributed_iters)
@@ -229,7 +240,9 @@ class DistributedIdxFsm:
         if state.first_usage_stmt is None:
             state.first_usage_stmt = self.context_stmt
             state.distributed_iters = self.distributed_iters
+            state.leaf_coll_tiling = self.leaf_coll_tiling
             return
+
         first_stmt = state.first_usage_stmt
         first_iters = state.distributed_iters
         cur_iters = self.distributed_iters

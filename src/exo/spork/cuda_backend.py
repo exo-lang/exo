@@ -379,6 +379,7 @@ class SubtreeScan(LoopIR_Do):
                 self.barrier_scans[s.name] = BarrierScan(
                     self, s, self._body_containing_s
                 )
+                native_unit = None
             else:
                 if not issubclass(s.mem, CudaBasicDeviceVisible):
                     raise TypeError(
@@ -386,9 +387,9 @@ class SubtreeScan(LoopIR_Do):
                         f"({s.mem.name()}) must subclass CudaBasicDeviceVisible"
                     )
                 native_unit = s.mem.native_unit()
-                self.distributed_alloc_states[s.name] = DistributedAllocState(
-                    self._coll_tiling, native_unit
-                )
+            self.distributed_alloc_states[s.name] = DistributedAllocState(
+                self._coll_tiling, native_unit
+            )
 
         elif isinstance(s, LoopIR.Free):
             if s.type.is_barrier():
@@ -402,6 +403,24 @@ class SubtreeScan(LoopIR_Do):
                     f"stmt: {s}"
                 )
         elif isinstance(s, LoopIR.SyncStmt):
+            # Distributed memory analysis TODO relocate this crap
+            if s.sync_type.is_split():
+                state = self.distributed_alloc_states.get(s.name)
+                assert isinstance(state, DistributedAllocState)
+
+                fsm = DistributedIdxFsm(
+                    s, state, "cuda_threads", self.thread_iters, self._coll_env
+                )
+                # There is no native_unit; we parse all indices as distributed
+                assert state.optional_native_unit is None
+                for i in range(len(s.idx)):
+                    fsm.consume_idx(s, i)
+
+                # We now have the distributed indices in distributed_iters.
+                # Store in DistributedAllocState if this is the first use, or check
+                # consistency (index equality) with prior uses.
+                fsm.check_store_state(s, state)
+
             if s.lowered is None:  # backdoor, may remove later
                 if s.sync_type.is_split():
                     # arrive/await
