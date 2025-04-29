@@ -5,7 +5,7 @@ from math import prod
 
 from ..core.LoopIR import scalar_bits
 from ..core.prelude import SrcInfo
-from ..core.memory import Memory, MemGenError, DRAM, BarrierType
+from ..core.memory import Memory, MemGenError, DRAM, BarrierType, BarrierTypeTraits
 from . import actor_kinds
 from .coll_algebra import (
     CollUnit,
@@ -300,7 +300,9 @@ class CudaRmem(CudaDeviceVisibleLinear):
 
 
 class CudaEvent(BarrierType):
-    pass
+    @classmethod
+    def traits(cls) -> BarrierTypeTraits:
+        return BarrierTypeTraits(requires_pairing=True, requires_arrive_first=True)
 
 
 class CudaDeviceBarrier(BarrierType):
@@ -316,8 +318,18 @@ class CudaDeviceBarrier(BarrierType):
 
 
 class CudaMbarrier(CudaDeviceBarrier):
-    pass
+    @classmethod
+    def traits(cls) -> BarrierTypeTraits:
+        return BarrierTypeTraits(
+            negative_arrive=True,
+            negative_await=True,
+            supports_reverse=True,
+            requires_pairing=True,
+            requires_arrive_first=False,
+        )
 
 
 class CudaCommitGroup(CudaDeviceBarrier):
-    pass
+    @classmethod
+    def traits(cls) -> BarrierTypeTraits:
+        return BarrierTypeTraits()

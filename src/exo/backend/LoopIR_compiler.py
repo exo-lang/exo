@@ -460,8 +460,7 @@ def ext_compile_to_strings(lib_name, proc_list):
             barrier_uses = None
             if actor_kind_analysis.contains_sync:
                 # Don't force non-CUDA Exo users to waste time here
-                barrier_usage_analysis = BarrierUsageAnalysis()
-                p = barrier_usage_analysis.run(p)
+                barrier_usage_analysis = BarrierUsageAnalysis(p)
                 barrier_uses = barrier_usage_analysis.uses
 
             comp = Compiler(

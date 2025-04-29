@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Optional
 from ..spork.actor_kinds import cpu
 
@@ -351,6 +352,24 @@ class Memory(AllocableMemWin):
         return ctx.generate_default("DRAM")
 
 
+@dataclass(slots=True)
+class BarrierTypeTraits:
+    """Bare minimum vocab to describe valid barrier usage patterns
+
+    Describes differences between cudaEvent_t, commit_group, mbarrier
+    to parts of the codebase that are not deeply connected to
+    CUDA. Re-think if we externalize.
+
+    ActorKind and CollTiling are to be handled by barrier lowering code.
+    """
+
+    negative_arrive: bool = False  # N = 1 if False; N = 1 or ~0 if True
+    negative_await: bool = False  # N <= ~0 if True; N >= 0 if True
+    supports_reverse: bool = False  # Forbid ReverseArrive/ReverseAwait if False
+    requires_pairing: bool = False
+    requires_arrive_first: bool = False
+
+
 class BarrierType(AllocableMemWin):
     """MemWin type for backing barrier allocations
 
@@ -376,6 +395,10 @@ class BarrierType(AllocableMemWin):
     @classmethod
     def window_definition(cls, ctx):
         assert False, "Internal Exo error: window of barrier?"
+
+    @classmethod
+    def traits(cls) -> BarrierTypeTraits:
+        raise NotImplementedError()
 
 
 class SpecialWindowFromMemoryCtx(object):
