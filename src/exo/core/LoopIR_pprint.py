@@ -419,7 +419,10 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
         return [f"{indent}pass"]
 
     elif isinstance(stmt, LoopIR.SyncStmt):
-        return [f"{indent}{stmt.sync_type.format_stmt(stmt.bar, stmt.lowered)}"]
+        bar = str(stmt.name)
+        if stmt.idx:
+            bar += "[" + ", ".join(str(n) for n in stmt.idx) + "]"
+        return [f"{indent}{stmt.sync_type.format_stmt(bar, stmt.lowered)}"]
 
     elif isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
         op = "=" if isinstance(stmt, LoopIR.Assign) else "+="

@@ -350,7 +350,9 @@ class SubtreeScan(LoopIR_Do):
         if isinstance(s, idx_s_types):
             self._syms_needed.add(s.name)
             self.apply_idx(s, s)
-        elif not isinstance(s, (LoopIR.WindowStmt, LoopIR.Alloc, LoopIR.Free)):
+        elif not isinstance(
+            s, (LoopIR.WindowStmt, LoopIR.Alloc, LoopIR.Free, LoopIR.SyncStmt)
+        ):
             assert not hasattr(s, "name"), "Add handling for array indexing"
 
         if is_if_holding_with(s, LoopIR):
@@ -403,13 +405,13 @@ class SubtreeScan(LoopIR_Do):
             if s.lowered is None:  # backdoor, may remove later
                 if s.sync_type.is_split():
                     # arrive/await
-                    state = self.barrier_scans.get(s.bar)
+                    state = self.barrier_scans.get(s.name)
                     assert isinstance(state, BarrierScan)
                 else:
                     # Fence: each should have its own unique internal-use name (Sym)
                     state = BarrierScan(self, s, self._body_containing_s)
-                    assert s.bar not in self.barrier_scans
-                    self.barrier_scans[s.bar] = state
+                    assert s.name not in self.barrier_scans
+                    self.barrier_scans[s.name] = state
                 state.inspect_sync_stmt(s, self._coll_tiling)
 
         elif isinstance(s, LoopIR.Call):
@@ -472,7 +474,7 @@ class SubtreeScan(LoopIR_Do):
 
         def inspect(is_epilogue, A1, A2):
             sync_stmt = self.expect_SyncStmt(s, is_epilogue, A1, A2)
-            scan = self.barrier_scans[sync_stmt.bar]
+            scan = self.barrier_scans[sync_stmt.name]
             sync_type = sync_stmt.sync_type
 
         # tma_to_smem_async requires epilogue Arrive(tma_to_smem_async);
@@ -523,6 +525,8 @@ class SubtreeScan(LoopIR_Do):
         state = self.distributed_alloc_states.get(node.name)
         if state is None:
             return  # Allocated outside, or not numeric
+
+        assert state.optional_native_unit is not None
 
         fsm = DistributedIdxFsm(
             context_stmt, state, "cuda_threads", self.thread_iters, self._coll_env
@@ -1384,7 +1388,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
         epilogue_of: Optional[ActorKind],
     ):
         if s.lowered is None:
-            lowered = self.lowered_barriers[s.bar]
+            lowered = self.lowered_barriers[s.name]
             if lowered.solitary and not s.sync_type.is_split():
                 # Fence must pass solitary barrier check
                 self.check_solitary_barrier(s, lowered)
@@ -1459,7 +1463,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
             dummy_sync_type = SyncType(
                 actor_kinds.empty_actor_kind, actor_kinds.empty_actor_kind, False, 0
             )
-            lowered = self.lowered_barriers[_arrive.bar]
+            lowered = self.lowered_barriers[_arrive.name]
             if _arrive.sync_type.is_reversed:
                 mbarrier = lowered.c_ReverseArrive_mbarrier
             else:
@@ -1468,6 +1472,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
             alias_stmt = LoopIR.SyncStmt(
                 dummy_sync_type,
                 Sym("exo_tma_mbarrier"),
+                [],
                 [c_alias],
                 s.srcinfo,
             )
@@ -1607,7 +1612,7 @@ class BarrierScan(object):
             assert isinstance(s, LoopIR.SyncStmt)
             assert not s.sync_type.is_split()
             self.barrier_type = None
-            self.barrier_name = s.bar
+            self.barrier_name = s.name
         assert any(s is s1 for s1 in body)
         self.barrier_decl_body = body
         self.barrier_srcinfo = s.srcinfo
@@ -1628,7 +1633,7 @@ class BarrierScan(object):
         s: LoopIR.SyncStmt,
         coll_tiling: CollTiling,
     ):
-        assert s.bar is self.barrier_name
+        assert s.name is self.barrier_name
 
         assert isinstance(s, LoopIR.SyncStmt)
         sync_type: SyncType = s.sync_type

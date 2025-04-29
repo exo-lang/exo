@@ -206,7 +206,7 @@ class TypeChecker:
                 f"a non-numeric variable of type '{typ}'",
             )
             typ = T.err
-        elif len(idx) > 0:
+        elif len(idx) > 0 and not typ.is_barrier():
             self.err(node, f"cannot index a variable of type '{typ}'")
 
         return idx, typ
@@ -306,17 +306,19 @@ class TypeChecker:
                 bar = self.check_e(stmt.bar)
                 if not isinstance(bar, LoopIR.Read):
                     self.err(bar, "expected name of a barrier variable")
-                elif bar.idx:
-                    self.err(bar, "unexpected indexing of barrier variable")
                 elif not bar.type.is_barrier():
                     self.err(
                         bar, f"expected {bar.name} to be barrier type, not {bar.type}"
                     )
-                bar = bar.name
+                name = bar.name
+                idx = bar.idx
             else:
-                bar = Sym("Fence")  # Sym as internal unique ID for Fence.
+                name = Sym("Fence")  # Sym as internal unique ID for Fence.
+                idx = []
 
-            return [LoopIR.SyncStmt(stmt.sync_type, bar, stmt.lowered, stmt.srcinfo)]
+            return [
+                LoopIR.SyncStmt(stmt.sync_type, name, idx, stmt.lowered, stmt.srcinfo)
+            ]
 
         elif isinstance(stmt, UAST.If):
             cond = self.check_e(stmt.cond, is_index=True)

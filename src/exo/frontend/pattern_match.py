@@ -266,7 +266,7 @@ class PatternMatch:
         elif isinstance(stmt, LoopIR.SyncStmt):
             if pat.sync_type == stmt.sync_type:
                 if stmt.sync_type.is_split():
-                    return self.match_e(pat.bar, stmt.bar)
+                    return self.match_name_idx(pat.bar, stmt.name, stmt.idx)
                 else:
                     return True
             return False
@@ -319,9 +319,8 @@ class PatternMatch:
             return False
 
         if isinstance(e, LoopIR.Read):
-            return self.match_name(pat.name, e.name) and all(
-                self.match_e(pi, si) for pi, si in zip(pat.idx, e.idx)
-            )
+            return self.match_name_idx(pat, e.name, e.idx)
+
         elif isinstance(e, LoopIR.WindowExpr):
             if isinstance(pat, PAST.Read):
                 # TODO: Should we be able to handle window slicing matching? Nah..
@@ -374,6 +373,12 @@ class PatternMatch:
         # We use repr(sym) as a way of checking both the Sym name and id
         ir_sym = repr(ir_sym) if self._use_sym_id else str(ir_sym)
         return pat_nm == "_" or pat_nm == ir_sym
+
+    def match_name_idx(self, pat, name, idx):
+        # TODO: zip ignores length differences? Is this desired?
+        return self.match_name(pat.name, name) and all(
+            self.match_e(pi, si) for pi, si in zip(pat.idx, idx)
+        )
 
 
 def _children(cur) -> Iterable[Node]:

@@ -1000,7 +1000,10 @@ class Compiler:
                 )
             sync_type = s.sync_type
             barrier_lines = s.lowered
-            self.add_line(f"// {s.sync_type.format_stmt(s.bar)}")
+            bar = str(s.name)
+            if s.idx:
+                bar += "[" + ", ".join(str(n) for n in s.idx) + "]"
+            self.add_line(f"// {s.sync_type.format_stmt(bar)}")
             assert not isinstance(barrier_lines, str), "expect List[str]"
             for line in barrier_lines:
                 self.add_line(line)

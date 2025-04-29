@@ -536,12 +536,13 @@ class SyncCursor(StmtCursor):
     def second_actor_kind(self) -> ActorKind:
         return self.sync_type().second_actor_kind
 
-    def bar(self):
+    def name(self):
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.SyncStmt)
-        bar = self._impl._node.bar
-        assert bar is not None, "Must be arrive or await"
-        return bar.name()
+        return self._impl._node.name.name()
+
+    def idx(self):
+        return ExprListCursor(self._impl._child_block("idx"), self._proc)
 
 
 class IfCursor(StmtCursor):

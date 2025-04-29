@@ -101,10 +101,10 @@ module LoopIR {
          | Reduce( sym name, type type, expr* idx, expr rhs )
          | WriteConfig( config config, string field, expr rhs )
          | Pass()
-           -- `bar` user-visible barrier for arrive/await;
-           --  internal unique id for fence
+           -- name[idx]: user-visible barrier for arrive/await;
+           -- name: internal unique id for fence
            -- `lowered` used internally for lowering pass
-         | SyncStmt( sync_type sync_type, sym bar, lowered_sync? lowered )
+         | SyncStmt( sync_type sync_type, sym name, expr* idx, lowered_sync? lowered )
          | If( expr cond, stmt* body, stmt* orelse )
          | For( sym iter, expr lo, expr hi, stmt* body, loop_mode loop_mode )
          | Alloc( sym name, type type, allocable mem )
@@ -305,7 +305,7 @@ module PAST {
     stmt    = Assign  ( name name, expr* idx, expr rhs )
             | Reduce  ( name name, expr* idx, expr rhs )
             | Pass    ()
-            | SyncStmt( sync_type sync_type, expr? bar )
+            | SyncStmt( sync_type sync_type, expr? bar, object? lowered_ignored )
             | If      ( expr cond, stmt* body, stmt* orelse )
             | For     ( name iter, expr lo, expr hi, stmt* body )
             | Alloc   ( name name, expr* sizes ) -- may want to add mem back in?
@@ -1416,14 +1416,14 @@ class Alpha_Rename(LoopIR_Rewrite):
         elif isinstance(s, LoopIR.SyncStmt):
             s2 = super().map_s(s)
             if s.sync_type.is_split():
-                new_name = self.env.get(s.bar)
+                new_name = self.env.get(s.name)
             else:
                 # Fence(...) stmt does not refer to allocated barrier variable
                 # and we must unique-ify its internal barrier name.
-                new_name = s.bar.copy()
-                self.env[s.bar] = new_name
+                new_name = s.name.copy()
+                self.env[s.name] = new_name
             if new_name:
-                return [((s2 and s2[0]) or s).update(bar=new_name)]
+                return [((s2 and s2[0]) or s).update(name=new_name)]
             else:
                 return s2
         elif isinstance(s, LoopIR.Alloc):
