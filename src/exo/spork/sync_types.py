@@ -76,6 +76,14 @@ class SyncType(object):
     def is_await(self):
         return self.first_actor_kind is None
 
+    def fname(self):
+        """ "function" name used in Exo object code"""
+        if self.is_split():
+            r = "Reverse" if self.is_reversed else ""
+            return r + ("Await" if self.is_await() else "Arrive")
+        else:
+            return "Fence"
+
     def format_stmt(self, bar, lowered=None):
         lowered_suffix = "" if lowered is None else f", lowered={lowered!r}"
         r = "Reverse" if self.is_reversed else ""

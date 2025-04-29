@@ -66,6 +66,12 @@ class DistributedAllocState(object):
     # see DistributedIdxFsm.check_native_unit
     leaf_coll_tiling: Optional[CollTiling]
 
+    # Only used for barrier types
+    Arrive_coll_tiling: Optional[CollTiling]
+    Await_coll_tiling: Optional[CollTiling]
+    ReverseArrive_coll_tiling: Optional[CollTiling]
+    ReverseAwait_coll_tiling: Optional[CollTiling]
+
     def __init__(self, alloc_coll_tiling, optional_native_unit):
         assert isinstance(alloc_coll_tiling, CollTiling)
         if optional_native_unit is not None:
@@ -75,9 +81,20 @@ class DistributedAllocState(object):
         self.alloc_coll_tiling = alloc_coll_tiling
         self.optional_native_unit = optional_native_unit
         self.leaf_coll_tiling = None
+        self.Arrive_coll_tiling = None
+        self.Await_coll_tiling = None
+        self.ReverseArrive_coll_tiling = None
+        self.ReverseAwait_coll_tiling = None
 
     def n_distributed_dims(self):
         return len(self.distributed_iters)
+
+    @staticmethod
+    def from_fence(s: LoopIR.SyncStmt, coll_tiling: CollTiling):
+        assert not s.sync_type.is_split()
+        result = DistributedAllocState(coll_tiling, None)
+        result.Arrive_coll_tiling = coll_tiling
+        result.Await_coll_tiling = coll_tiling
 
 
 @dataclass(slots=True)  # convenient to auto-define repr for debugging
@@ -265,6 +282,57 @@ class DistributedIdxFsm:
                     f"{i1}={c1.codegen()} != {i2}={c2.codegen()}\n"
                     f"Usage 1: {first_stmt} : {first_stmt.srcinfo}\n"
                     f"Usage 2: {self.context_stmt} : {self.context_stmt.srcinfo}"
+                )
+
+    def inspect_arrive_await(
+        self,
+        sync: LoopIR.SyncStmt,
+        coll_tiling: CollTiling,
+        state: DistributedAllocState,
+    ):
+        """Subsequent to check_store_state, for non-Fence SyncStmts,
+        we additionally check requirements for the collective tiling
+
+        * Equivalent for all syncs of a certain kind (Arrive, Await,...)
+        * Tile size of usage matches the leaf tiling.
+
+        """
+        assert isinstance(sync, LoopIR.SyncStmt)
+        sync_type = sync.sync_type
+        assert sync_type.is_split()
+        # Update state.Arrive_coll_tiling, state.Await_coll_tiling,
+        # state.ReverseArrive_coll_tiling, or state.ReverseAwait_coll_tiling
+        leaf_T = state.leaf_coll_tiling.tile_num_threads()
+        sync_T = coll_tiling.tile_num_threads()
+        if leaf_T != sync_T:
+            bar = f"{sync.name}[" + ", ".join(str(n) for n in sync.idx) + "]"
+            raise ValueError(
+                f"{sync.srcinfo}: {sync} executed with tile size {sync_T} threads; mismatches {leaf_T} threads deduced from {bar} (missing indices)?"
+            )
+        fname = sync_type.fname()
+        attr = fname + "_coll_tiling"
+        old_coll_tiling = getattr(state, attr)
+        if old_coll_tiling is None:
+            setattr(state, attr, coll_tiling)
+        else:
+            domain0 = old_coll_tiling.full_domain
+            tile0 = old_coll_tiling.tile
+            box0 = old_coll_tiling.box
+            offset0 = old_coll_tiling.offset
+            domain1 = coll_tiling.full_domain
+            tile1 = coll_tiling.tile
+            box1 = coll_tiling.box
+            offset1 = coll_tiling.offset
+            if (
+                domain0 != domain1
+                or box0 != box1
+                or tile0 != tile1
+                or offset0 != offset1
+            ):
+                raise ValueError(
+                    f"{sync.srcinfo}: {sync} has inconsistent collective tiling with previous {fname}\n"
+                    f"Saw tile={tile0}, box={box0}, offset={offset0}\n"
+                    f"Saw tile={tile1}, box={box1}, offset={offset1}"
                 )
 
     def bad_idx(self, node, msg):

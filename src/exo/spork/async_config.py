@@ -91,11 +91,12 @@ class CudaAsync(BaseAsyncConfig):
 
 
 class ActorKindAnalysis(LoopIR_Rewrite):
-    __slots__ = ["actor_kind", "sym_memwin"]
+    __slots__ = ["actor_kind", "sym_memwin", "contains_sync"]
 
     def __init__(self):
         self.actor_kind = actor_kinds.cpu  # Currently inspected scope's actor kind
         self.sym_memwin = dict()  # Sym -> MemWin type
+        self.contains_sync = False
 
     def map_s(self, s):
         old_actor_kind = self.actor_kind
@@ -122,7 +123,6 @@ class ActorKindAnalysis(LoopIR_Rewrite):
         super().map_e(e)
 
     def inspect_s(self, s):
-        # TODO inspect SyncStmt
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if not s.type.is_numeric():
                 return
@@ -139,7 +139,22 @@ class ActorKindAnalysis(LoopIR_Rewrite):
                     f"{memwin.name()}) does not allow {action} in a "
                     f"scope with actor kind {self.actor_kind}"
                 )
+        elif isinstance(s, LoopIR.SyncStmt):
+            self.contains_sync = True
+            if s.sync_type.is_split():
+                memwin = self.sym_memwin[s.name]
+                perm = memwin.actor_kind_permission(self.actor_kind, is_instr=False)
+                if "w" in perm:
+                    assert "r" in perm, "Not supported: write without read permission"
+                else:
+                    self.warn_weird_letters(memwin, perm)
+                    raise TypeError(
+                        f"{s.srcinfo}: {s.name} (barrier type "
+                        f"{memwin.name()}) does not allow SyncStmt in a "
+                        f"scope with actor kind {self.actor_kind}"
+                    )
         elif isinstance(s, LoopIR.Alloc):
+            self.contains_sync |= s.type.is_barrier()
             mem = s.mem or DRAM
             self.sym_memwin[s.name] = mem
             assert issubclass(mem, AllocableMemWin)

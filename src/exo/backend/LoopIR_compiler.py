@@ -6,7 +6,7 @@ from collections import ChainMap
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Optional, Dict
 
 from ..core.LoopIR import LoopIR, LoopIR_Do, get_writes_of_stmts, T, CIR
 from ..core.configs import ConfigError
@@ -37,6 +37,7 @@ from ..spork.base_with_context import (
 )
 from ..spork.loop_modes import LoopMode, Seq, Par, _CodegenPar
 from ..spork import actor_kinds
+from ..spork.barrier_usage import BarrierUsage, BarrierUsageAnalysis, SyncInfo
 from ..spork.cuda_backend import loopir_lower_cuda, h_snippet_for_cuda
 
 
@@ -453,7 +454,15 @@ def ext_compile_to_strings(lib_name, proc_list):
             p = PrecisionAnalysis().run(p)
             p = WindowAnalysis().apply_proc(p)
             p = MemoryAnalysis().run(p)
-            p = ActorKindAnalysis().run(p)
+            actor_kind_analysis = ActorKindAnalysis()
+            p = actor_kind_analysis.run(p)
+            barrier_uses: Optional[Dict[Sym, BarrierUsage]]
+            barrier_uses = None
+            if actor_kind_analysis.contains_sync:
+                # Don't force non-CUDA Exo users to waste time here
+                barrier_usage_analysis = BarrierUsageAnalysis()
+                p = barrier_usage_analysis.run(p)
+                barrier_uses = barrier_usage_analysis.uses
 
             comp = Compiler(
                 p,

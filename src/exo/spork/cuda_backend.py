@@ -403,7 +403,7 @@ class SubtreeScan(LoopIR_Do):
                     f"stmt: {s}"
                 )
         elif isinstance(s, LoopIR.SyncStmt):
-            # Distributed memory analysis TODO relocate this crap
+            # Distributed memory analysis and CollTiling for Fence/Arrive/Await
             if s.sync_type.is_split():
                 state = self.distributed_alloc_states.get(s.name)
                 assert isinstance(state, DistributedAllocState)
@@ -420,6 +420,11 @@ class SubtreeScan(LoopIR_Do):
                 # Store in DistributedAllocState if this is the first use, or check
                 # consistency (index equality) with prior uses.
                 fsm.check_store_state(s, state)
+                fsm.inspect_arrive_await(s, self._coll_tiling, state)
+            else:
+                assert s.name not in self.distributed_alloc_states
+                state = DistributedAllocState.from_fence(s, self._coll_tiling)
+                self.distributed_alloc_states[s.name] = state
 
             if s.lowered is None:  # backdoor, may remove later
                 if s.sync_type.is_split():
@@ -1672,12 +1677,11 @@ class BarrierScan(object):
             assert self.is_split()
             if sync_type.is_arrive():
                 actor_kind = sync_type.first_actor_kind
-                attr = "ReverseArrive" if sync_type.is_reversed else "Arrive"
             else:
                 assert sync_type.is_await()
                 actor_kind = sync_type.second_actor_kind
-                attr = "ReverseAwait" if sync_type.is_reversed else "Await"
             assert isinstance(actor_kind, ActorKind)
+            attr = sync_type.fname()
             info = getattr(self, attr)
             if info is None:
                 setattr(self, attr, ArriveAwaitInfo(actor_kind, coll_tiling, [s]))
