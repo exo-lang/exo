@@ -16,6 +16,7 @@ from ..core.LoopIR import (
 )
 
 from . import actor_kinds
+from .distributed_memory import ThreadIter, DistributedIdxFsm, DistributedAllocState
 from .actor_kinds import ActorKind
 from .async_config import CudaDeviceFunction, CudaAsync
 from .base_with_context import is_if_holding_with, ExtWithContext
@@ -68,7 +69,7 @@ def loopir_lower_cuda(s, ctx: SporkLoweringCtx):
 
 class SubtreeScan(LoopIR_Do):
     __slots__ = [
-        "alloc_states",
+        "distributed_alloc_states",
         "thread_iters",
         "barrier_scans",
         "cuda_warps_dfs_codegen",
@@ -93,7 +94,7 @@ class SubtreeScan(LoopIR_Do):
     # We will have to substitute some LoopIR nodes in the SubtreeRewrite phase.
     # During the scan, for a node that needs to be rewritten, we will stash
     # needed info for the rewrites here.
-    alloc_states: Dict[Sym, AllocState]  # name of non-barrier -> AllocState
+    distributed_alloc_states: Dict[Sym, DistributedAllocState]
     thread_iters: Dict[Sym, ThreadIter]  # Info on iterators of cuda_threads loops
     barrier_scans: Dict[Sym, BarrierScan]  # name of barrier -> BarrierScan
 
@@ -124,7 +125,7 @@ class SubtreeScan(LoopIR_Do):
         cuda_device_function = s.cond.val
         assert isinstance(cuda_device_function, CudaDeviceFunction)
 
-        self.alloc_states = {}
+        self.distributed_alloc_states = {}
         self.thread_iters = {}
         self.barrier_scans = {}
         self.cuda_warps_dfs_codegen = []
@@ -383,7 +384,9 @@ class SubtreeScan(LoopIR_Do):
                         f"({s.mem.name()}) must subclass CudaBasicDeviceVisible"
                     )
                 native_unit = s.mem.native_unit()
-                self.alloc_states[s.name] = AllocState(self._coll_tiling, native_unit)
+                self.distributed_alloc_states[s.name] = DistributedAllocState(
+                    self._coll_tiling, native_unit
+                )
 
         elif isinstance(s, LoopIR.Free):
             if s.type.is_barrier():
@@ -516,132 +519,27 @@ class SubtreeScan(LoopIR_Do):
     def apply_idx(self, node, context_stmt):
         """Consistent distributed memory analysis"""
         assert isinstance(context_stmt, LoopIR.stmt)
-        state: AllocState
-        state = self.alloc_states.get(node.name)
+        state: DistributedAllocState
+        state = self.distributed_alloc_states.get(node.name)
         if state is None:
             return  # Allocated outside, or not numeric
 
-        # Note we use the num_tile_threads, not num_box_threads, throughout
-        # this analysis, because we care about dividing the "ownership" of
-        # slices, so warp specialization (box, offset) doesn't matter.
-        assert isinstance(state, AllocState)
-        native_num_threads = state.native_unit.int_threads(self._coll_env)
-        assert isinstance(native_num_threads, int)
-
-        alloc_num_threads = state.alloc_coll_tiling.tile_num_threads()
-
-        # Each index variable subdivides a CollTiling, translating
-        # a parent_num_tile_threads -> child_num_tile_threads.
-        # Search for a valid chain from alloc_num_threads -> native_num_threads
-        cur_num_threads = alloc_num_threads
-        distributed_iters: List[Sym] = []
-        # parent_num_tile_threads -> (Sym, child_num_tile_threads)
-        t0_iter_t1: Dict[int, Tuple[Sym, int]] = {}
-
-        def bad_idx(msg):
-            iter_text = "".join(
-                f"\n{nm} {t0}->{t1}" for (t0, (nm, t1)) in t0_iter_t1.items()
-            )
-            raise ValueError(
-                f"{node.srcinfo}: Distributed memory analysis "
-                f"(from {alloc_num_threads} to {native_num_threads} threads) "
-                f"for {node.name} failed: {msg}\n(at {context_stmt}) "
-                f"inspected iters:{iter_text or ' <none>'}"
-            )
-
-        native_iter = None
-        native_tiling = None
-        if alloc_num_threads <= native_num_threads:
-            # No distributed memory analysis
-            # Note alloc_num_threads < native_num_threads error will be checked later.
-            native_tiling = state.alloc_coll_tiling
-        else:
-            for idx_e in node.idx:
-                if isinstance(idx_e, LoopIR.Read):
-                    iter_sym = idx_e.name
-                elif isinstance(idx_e, LoopIR.Point) and isinstance(
-                    idx_e.pt, LoopIR.Read
-                ):
-                    iter_sym = idx_e.pt.name
-                else:
-                    bad_idx(f"expected single variable name, not {idx_e}")
-                iter_info: ThreadIter
-                iter_info = self.thread_iters.get(iter_sym)
-                if iter_info is None:
-                    bad_idx(f"`{iter_sym}` not from cuda_threads loop")
-                t0 = iter_info.parent_tile_num_threads
-                t1 = iter_info.child_tile_num_threads
-                if t0 != t1:
-                    assert t0 not in t0_iter_t1
-                    t0_iter_t1[t0] = (iter_sym, t1)
-                if t1 < native_num_threads:
-                    bad_idx(
-                        f"Reached {t1} threads; failed to hit "
-                        f"native target {native_num_threads} threads"
-                    )
-                if t1 == native_num_threads:
-                    native_iter = iter_sym
-                    native_tiling = iter_info.coll_tiling
-
-                distributed_iters.append(iter_sym)
-
-                # Try to make forward progress on the tiling
-                # We have to do this now, not separately, so we don't try to parse
-                # non-distributed dims and give false errors above.
-                while entry := t0_iter_t1.get(cur_num_threads):
-                    iter_sym, t1 = entry
-                    cur_num_threads = entry[1]
-                if cur_num_threads <= native_num_threads:
-                    break
-            else:
-                bad_idx(f"Stuck at {cur_num_threads} threads")
+        fsm = DistributedIdxFsm(
+            context_stmt, state, "cuda_threads", self.thread_iters, self._coll_env
+        )
+        for i in range(len(node.idx)):
+            if fsm.is_done(node):
+                break
+            fsm.consume_idx(node, i)
 
         # We only got the correct number of threads, not shape/alignment.
         # Check that the leaf tiling has the correct collective unit.
-        assert native_tiling is not None  # Should have been caught earlier
-        if msg := native_tiling.unit_mismatch(state.native_unit, self._coll_env):
-            if native_iter is None:
-                bad_idx(f"Wrong collective unit at point of allocation: {msg}")
-            else:
-                bad_idx(
-                    f"Tried to allocate under {native_iter} loop; "
-                    f"wrong collective unit: {msg}"
-                )
+        fsm.check_native_unit(node)
 
         # We now have the distributed indices in distributed_iters.
-        # Store in AllocState if this is the first use, or check
+        # Store in DistributedAllocState if this is the first use, or check
         # consistency (index equality) with prior uses.
-        def format_iters(iters):
-            return "[" + ", ".join(str(n) for n in iters) + "]"
-
-        if state.first_usage_stmt is None:
-            state.first_usage_stmt = context_stmt
-            state.distributed_iters = distributed_iters
-        else:
-            first_stmt = state.first_usage_stmt
-            first_iters = state.distributed_iters
-            cur_iters = distributed_iters
-            if len(first_iters) != len(cur_iters):
-                d1 = format_iters(first_iters)
-                d2 = format_iters(cur_iters)
-                bad_idx(
-                    f"Deduced {len(cur_iters)} distributed dims {d2}; "
-                    f"mismatches {d1} deduced at "
-                    f"{first_stmt.srcinfo} ({first_stmt})"
-                )
-
-            for i1, i2 in zip(first_iters, cur_iters):
-                c1 = self.thread_iters[i1].coll_index_expr
-                c2 = self.thread_iters[i2].coll_index_expr
-                if not c1.equiv_index(c2):
-                    d1 = format_iters(first_iters)
-                    d2 = format_iters(cur_iters)
-                    raise ValueError(
-                        f"Mismatched distributed dims {node.name}{d1} and {node.name}{d2}:\n"
-                        f"{i1}={c1.codegen()} != {i2}={c2.codegen()}\n"
-                        f"Usage 1: {first_stmt} : {first_stmt.srcinfo}\n"
-                        f"Usage 2: {context_stmt} : {context_stmt.srcinfo}"
-                    )
+        fsm.check_store_state(node, state)
 
     def get_cta_count(self, coll_tiling: CollTiling, srcinfo: SrcInfo):
         assert isinstance(srcinfo, SrcInfo)
@@ -1139,7 +1037,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
     __slots__ = [
         "scan",
         "fmt_dict",
-        "alloc_states",
+        "distributed_alloc_states",
         "thread_iters",
         "cuda_warps_dfs_codegen",
         "cuda_warps_idx",
@@ -1147,6 +1045,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
         "live_solitary_barrier_names",
         "live_smem_ends",  # SMEM stack allocator
         "smem_data_usage",  # SMEM stack allocator
+        "codegen_smem",  # SMEM stack allocator helper
         "_result",
     ]
 
@@ -1154,7 +1053,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
         fmt_dict = scan.fmt_dict
         self.scan = scan
         self.fmt_dict = fmt_dict
-        self.alloc_states = scan.alloc_states
+        self.distributed_alloc_states = scan.distributed_alloc_states
         self.thread_iters = scan.thread_iters
         self.cuda_warps_dfs_codegen = scan.cuda_warps_dfs_codegen
         self.cuda_warps_idx = 0
@@ -1179,6 +1078,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
 
         # Prepare SMEM stack allocator
         # Base of SMEM allocation is reserved for mbarriers
+        self.codegen_smem = {}
         self.smem_data_usage = 0
         # self.live_smem_ends = {8 * num_mbarriers}
         self.live_smem_ends = {128 * ((num_mbarriers + 15) // 16)}
@@ -1367,9 +1267,9 @@ class SubtreeRewrite(LoopIR_Rewrite):
                 return super_rewritten
 
     def remove_distributed_idx(self, node):
-        alloc_state = self.alloc_states.get(node.name)
-        if isinstance(alloc_state, AllocState):
-            assert isinstance(alloc_state, AllocState)
+        alloc_state = self.distributed_alloc_states.get(node.name)
+        if isinstance(alloc_state, DistributedAllocState):
+            assert isinstance(alloc_state, DistributedAllocState)
             n = alloc_state.n_distributed_dims()
             if n > 0:
                 return node.update(idx=node.idx[n:])
@@ -1398,8 +1298,8 @@ class SubtreeRewrite(LoopIR_Rewrite):
         # fmt: on
 
     def update_numeric_alloc_free(self, s):
-        alloc_state = self.alloc_states[s.name]
-        assert isinstance(alloc_state, AllocState)
+        alloc_state = self.distributed_alloc_states[s.name]
+        assert isinstance(alloc_state, DistributedAllocState)
         if not alloc_state.first_usage_stmt:
             # Distributed memory analysis isn't run for unused variables...
             warn(
@@ -1456,11 +1356,11 @@ class SubtreeRewrite(LoopIR_Rewrite):
                 # C++ reference type.
                 assert isinstance(config.reftype, str)
                 mem = CodegenSmem(offset, smem_end, config.reftype, s.mem)
-                alloc_state.codegen_smem = mem  # for rewriting Free, below
+                self.codegen_smem[s.name] = mem  # for rewriting Free, below
             else:
                 # Rewrite Free Memory type to match corresponding Alloc
                 # and restore stack allocator state
-                mem = alloc_state.codegen_smem
+                mem = self.codegen_smem.get(s.name)
                 assert mem
                 self.live_smem_ends.remove(mem.smem_end())
             s = s.update(mem=mem)
@@ -1578,74 +1478,6 @@ class SubtreeRewrite(LoopIR_Rewrite):
 
 
 # End class SubtreeRewrite
-
-
-@dataclass(slots=True, init=False)
-class ThreadIter:
-    codegen_par: _CodegenPar
-    coll_index_expr: CollIndexExpr
-    coll_tiling: CollTiling
-    parent_tile_num_threads: int
-    child_tile_num_threads: int
-
-    def __init__(self, codegen_par, coll_index_expr, coll_tiling):
-        self.codegen_par = codegen_par
-        self.coll_index_expr = coll_index_expr
-        self.coll_tiling = coll_tiling
-        assert isinstance(coll_tiling.parent, CollTiling)
-        self.parent_tile_num_threads = coll_tiling.parent.tile_num_threads()
-        self.child_tile_num_threads = coll_tiling.tile_num_threads()
-
-
-class AllocState(object):
-    # Some GPU allocations are "distributed", when the collective unit
-    # (e.g. CTA) that allocated a tensor doesn't match the "native unit"
-    # of the memory type (e.g. thread for a register; warp for a wmma tile).
-    #
-    # Some of the leading dimensions of the tensor will be deduced to be
-    # "distributed", i.e., correspond to a thread index rather than a
-    # (CUDA syntactic) array index. e.g. if the CTA size is 512, something like
-    #
-    # foo : f32[32,16,4] @ CudaRmem  # Access with 2D grid of 32 x 16 threads
-    #
-    # may lower to `float foo[4]` since the first 2 dimensions are distributed.
-    #
-    # We deduce this from the usage of the memory, and enforce that each thread
-    # only accesses its own index. TODO explain all this tiling stuff better.
-    # Currently, we only support very trivial patterns, but this should be good
-    # enough for prototyping.
-    #
-    # In the rewrite phase, we will strip the leading len(distributed_iters)-many
-    # indices from all uses of the memory ... this is just a hack for
-    # code lowering; ignore that this changes the real meaning of the LoopIR.
-    #
-    # Following this, we need to do suballocation only for SMEM allocations.
-
-    __slots__ = [
-        "first_usage_stmt",
-        "distributed_iters",
-        "alloc_coll_tiling",
-        "native_unit",
-        "codegen_smem",
-    ]
-
-    first_usage_stmt: Optional[LoopIR.stmt]
-    distributed_iters: List[Sym]
-    alloc_coll_tiling: CollTiling
-    native_unit: CollUnit
-    codegen_smem: Optional[Type[CudaBasicSmem]]
-
-    def __init__(self, alloc_coll_tiling, native_unit):
-        assert isinstance(alloc_coll_tiling, CollTiling)
-        assert isinstance(native_unit, CollUnit)
-        self.first_usage_stmt = None
-        self.distributed_iters = []
-        self.alloc_coll_tiling = alloc_coll_tiling
-        self.native_unit = native_unit
-        self.codegen_smem = None
-
-    def n_distributed_dims(self):
-        return len(self.distributed_iters)
 
 
 def type_const_shape(t: LoopIR.type, usage_str, name, srcinfo: SrcInfo):

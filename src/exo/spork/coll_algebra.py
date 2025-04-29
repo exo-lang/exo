@@ -1,4 +1,8 @@
 from __future__ import annotations
+
+# Note: no imports from the rest of Exo so it's easy to run side experiments
+# on coll_algebra and do demos of it as a sort of "type system"
+
 from fractions import Fraction
 from typing import Dict, Optional, Tuple
 from math import prod
@@ -11,13 +15,20 @@ class CollParam(object):
     via a collective environment (just env in this module).
     This is Dict[CollParam, int]"""
 
-    __slots__ = ["name"]
+    __slots__ = ["name", "hash"]
 
     def __init__(self, name):
         self.name = name
+        self.hash = hash(name)
 
     def __repr__(self):
         return self.name + "_param"
+
+    def __eq__(self, param):
+        return isinstance(param, CollParam) and self.name == param.name
+
+    def __hash__(self):
+        return self.hash
 
 
 class CollSizeExpr(object):
