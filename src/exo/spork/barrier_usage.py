@@ -249,6 +249,7 @@ class BarrierUsageAnalysis(LoopIR_Do):
                     sub_nesting = max(
                         nesting, 0 if unmatched_sync is None else nesting_level_if
                     )
+                    # NB |= and not or, as orelse body always needs to be scanned anyway
                     found_match = recurse(s.body, unmatched_sync, sub_nesting)
                     found_match |= recurse(s.orelse, unmatched_sync, sub_nesting)
                     if found_match:
@@ -282,14 +283,18 @@ class BarrierUsageAnalysis(LoopIR_Do):
                     # No unmatched statement.
                     # Retain this as the unmatched_sync; and check/update await_first.
                     if unmatched_sync is None:
-                        if await_first is None:
-                            await_first = sync_type.is_await()
-                        elif await_first != sync_type.is_await():
-                            expected = paired_fname(sync_type)
-                            raise ValueError(
-                                f"{s.srcinfo}: {s} not paired with previous {expected} (note: those guarded by if/for don't count)"
-                            )
-                        unmatched_sync = s
+                        if sync_type.is_arrive() and sync_type.N == ~0:
+                            # Arrive with N = ~0 special case: does not need to be matched.
+                            pass
+                        else:
+                            if await_first is None:
+                                await_first = sync_type.is_await()
+                            elif await_first != sync_type.is_await():
+                                expected = paired_fname(sync_type)
+                                raise ValueError(
+                                    f"{s.srcinfo}: {s} not paired with previous {expected} (note: those guarded by if/for don't count)"
+                                )
+                            unmatched_sync = s
 
                     # Have unmatched statement (and nesting check OK)
                     # Look for exact matching statement
