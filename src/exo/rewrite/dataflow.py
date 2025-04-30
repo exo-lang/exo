@@ -2198,7 +2198,7 @@ def widening(a1: D.abs, a2: D.abs, count: int) -> D.abs:
     """
     # and we can just run whatever on a3
     # to satisfy the x \widen y >= x \join y
-    a3 = overlay(a1, a2, subval_join)
+    a3 = D.abs(a2.iterators, overlay(a1, a2, subval_join))
 
     return a3
 
@@ -2485,7 +2485,18 @@ class AbstractInterpretation(ABC):
                 stmt.body.ctxt[nm] = val
 
             self.fix_block(stmt.body)
+            pre_env = dict()
             for nm, val in stmt.body.ctxt.items():
+                pre_env[nm] = val
+
+            self.fix_block(stmt.body)
+            for nm, val in stmt.body.ctxt.items():
+                w_res = widening(pre_env[nm], val, 1)
+                stmt.body.ctxt[nm] = w_res
+                pre_env[nm] = w_res
+
+            self.fix_block(stmt.body)
+            for nm, val in pre_env.items():
                 if stmt.iter not in val.iterators:
                     continue
                 top = D.abs(val.iterators, D.Leaf(D.SubVal(V.Top())))
