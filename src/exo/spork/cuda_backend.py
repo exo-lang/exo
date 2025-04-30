@@ -498,8 +498,6 @@ class SubtreeScan(LoopIR_Do):
 
         def inspect(is_epilogue, A1, A2):
             sync_stmt = self.expect_SyncStmt(s, is_epilogue, A1, A2)
-            scan = self.barrier_scans[sync_stmt.name]
-            sync_type = sync_stmt.sync_type
 
         # tma_to_smem_async requires epilogue Arrive(tma_to_smem_async);
         if actor_kind == actor_kinds.tma_to_smem_async:
@@ -1572,20 +1570,6 @@ class ArriveAwaitInfo:
     def get_coll_tiling(self):
         # Matches BarrierScan.get_coll_tiling
         return self.coll_tiling
-
-    def expect_prologue_sync_of(self, actor_kind):
-        self._expect_impl("prologue", self.prologue_sync_of, actor_kind)
-
-    def expect_epilogue_sync_of(self, actor_kind):
-        self._expect_impl("epilogue", self.epilogue_sync_of, actor_kind)
-
-    def _expect_impl(self, name, actual, expected):
-        if actual != expected:
-            s = self.sync_stmt
-            raise ValueError(
-                f"{s.srcinfo}: misplaced {s}; must be "
-                f"{name} sync of CudaAsync({expected}) block"
-            )
 
 
 class BarrierScan(object):
