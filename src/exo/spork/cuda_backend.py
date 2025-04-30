@@ -87,7 +87,6 @@ class SubtreeScan(LoopIR_Do):
         "_stmt_stack",
         "_coll_env",
         "_coll_tiling",
-        "_iter_coll_tiling",
         "_body_containing_s",
     ]
 
@@ -115,8 +114,6 @@ class SubtreeScan(LoopIR_Do):
     _stmt_stack: List[LoopIR.stmt]
     _coll_env: Dict[CollParam, int]
     _coll_tiling: CollTiling
-    # CollTiling created by the cuda_threads loop with the given iter
-    _iter_coll_tiling: Dict[Sym, CollTiling]
     # In do_s(s), we will always have s in _body_containing_s
     _body_containing_s: List[LoopIR.stmt]
 
@@ -223,7 +220,6 @@ class SubtreeScan(LoopIR_Do):
             1,
             CollIndexExpr(0),
         )
-        self._iter_coll_tiling = {}
         self._body_containing_s = s.body
         self.do_stmts(s.body)
 
@@ -530,7 +526,6 @@ class SubtreeScan(LoopIR_Do):
         self._coll_tiling, advice = self._coll_tiling.tiled(
             s.loop_mode.unit, hi_int, self._coll_env
         )
-        self._iter_coll_tiling[s.iter] = self._coll_tiling
 
         # We will advise replacing the loop mode with _CodegenPar
         assert s.iter not in self.thread_iters
