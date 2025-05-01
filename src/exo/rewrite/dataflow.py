@@ -869,7 +869,7 @@ def subval_eq(v1, v2):
     assert isinstance(v2, D.val)
 
     if type(v1) != type(v2):
-        return D.SubVal(V.Top())
+        return D.SubVal(V.Bot())
 
     if isinstance(v1, D.SubVal):
         if v1 == v2:
@@ -1345,7 +1345,9 @@ def divide_expr(ae, divisor):
         return D.Add(lhs, rhs)
     elif isinstance(ae, D.Mult):
         if ae.coeff % divisor != 0:
-            raise ValueError("Non-integer division result in multiplication")
+            raise ValueError(
+                "Non-integer division result in multiplication, todo implement fractions"
+            )
         if isinstance(ae.ae, D.Const) and ae.ae.val == 0:
             return D.Const(0)
         r = ae.coeff // divisor
@@ -2177,107 +2179,6 @@ def find_feasible_point(halfspaces, dim):
         return None
 
 
-# =============================================================================
-# The Widening Operator
-# =============================================================================
-
-
-# TODO: We should probably use ternary decision "diagrams" to compress the leaf duplications (?)
-
-# maybe we should pass a count to widening so that we can debug and terminate when necessary
-# widening has information of iteration count
-def widening(a1: D.abs, a2: D.abs, count: int) -> D.abs:
-    """
-    Perform widening on abstract domain a2 using a1 as the previous value.
-    The process:
-      1. Extract regions (cells) from a2's tree.
-      2. Refine each region by partitioning it using equations derived
-         from the eqz branch decisions (using find_intersections).
-      3. For each refined region, compute a candidate color and update the marking.
-      4. Reconstruct a new abstract domain tree from the refined regions.
-    """
-    # and we can just run whatever on a3
-    # to satisfy the x \widen y >= x \join y
-    a3 = D.abs(a2.iterators, overlay(a1, a2, subval_join))
-
-    return a3
-
-    if isinstance(a2.tree, D.Leaf):
-        return a2
-
-    variables = a2.iterators
-
-    # Sort half spaces into dimension
-    regions = {}
-    for reg in extract_regions(a2.tree, a2.iterators):
-        d = len(variables) - sum(e == "eqz" for (_, e) in reg["path"])
-        assert d >= 0
-        regions[d] = [] if d not in regions else regions[d]
-        regions[d].append(reg)
-
-    # Get intersections!
-    eqs = get_eqs_from_tree(a2.tree)
-    print()
-    print(variables)
-    print([str(s) for s in eqs])
-    intersections = find_intersections(variables, eqs)
-
-    for d in regions.keys():
-        print("d : ", d)
-        for reg in regions[d]:
-            print([(str(p), str(e)) for p, e in reg["path"]])
-        print()
-    print("Intersections:", [(str(dim), str(eq)) for dim, eq in intersections])
-    refined_regions = regions.get(0, [])
-    scanned_variables = variables.copy()
-
-    for dim in range(1, len(variables) + 1):
-        if dim not in regions:
-            continue
-
-        print("here dim: ", dim)
-        intersection_pairs = []
-        ivar = None
-        for idim, intersection in intersections:
-            if idim != dim - 1:
-                continue
-
-            coeff, const = linearize_aexpr(intersection, variables)
-            for k in coeff.keys():
-                if k in scanned_variables and abs(coeff.get(k, 0)) > 1e-9:
-                    if ivar is not None and k != ivar:
-                        assert False
-                    ivar = k
-                    scanned_variables.remove(k)
-                    break
-            val = -const / coeff[ivar]
-            intersection_pairs.append((val, intersection))
-        # Sort the intersection pairs by value.
-        intersection_pairs.sort(key=lambda pair: pair[0])
-
-        tmp_regions = []
-        for reg in regions[dim]:
-            tmp_regions.extend(
-                refine_region(reg, a2.iterators, refined_regions, intersection_pairs)
-            )
-        refined_regions.extend(tmp_regions)
-
-    # FIXME: dictionary reconstruction might be buggy
-    dict_tree = build_dict_tree(refined_regions)
-
-    reconstructed_tree = dict_tree_to_node(dict_tree)
-
-    # print("\nReconstructed Abstract Domain Tree:")
-    # print(reconstructed_tree)
-    a = abs_simplify(
-        abs_simplify(abs_simplify(D.abs(a2.iterators, reconstructed_tree)))
-    )
-    #    print("\nPrevious Abstract Domain Tree:")
-    #    print(a1)
-
-    return a
-
-
 # --------------------------------------------------------------------------- #
 # Equality Check (Just syntactic match)
 # --------------------------------------------------------------------------- #
@@ -2479,42 +2380,14 @@ class AbstractInterpretation(ABC):
 
         elif isinstance(stmt, DataflowIR.For):
 
-            # TODO: Approximation should not happen here, in theory.
-            # just top everything and return for now
             for nm, val in env.items():
                 stmt.body.ctxt[nm] = val
 
-            self.fix_block(stmt.body)
-            pre_env = dict()
-            for nm, val in stmt.body.ctxt.items():
-                pre_env[nm] = val
-
-            self.fix_block(stmt.body)
-            for nm, val in stmt.body.ctxt.items():
-                w_res = widening(pre_env[nm], val, 1)
-                stmt.body.ctxt[nm] = w_res
-                pre_env[nm] = w_res
-
-            self.fix_block(stmt.body)
-            for nm, val in pre_env.items():
-                if stmt.iter not in val.iterators:
-                    continue
-                top = D.abs(val.iterators, D.Leaf(D.SubVal(V.Top())))
-                env[nm] = top
-
-            return
-
-            # TODO: come back to widening at some point...
-            for nm, val in env.items():
-                stmt.body.ctxt[nm] = val
-
-            # pre_env = defaultdict(lambda: D.Leaf(D.SubVal(V.Bot())))
             pre_env = dict()
             self.fix_block(stmt.body)
             for nm, val in stmt.body.ctxt.items():
                 pre_env[nm] = val
 
-            # Give up after five fixpoints
             count = 0
             while True:
 
@@ -2532,13 +2405,17 @@ class AbstractInterpretation(ABC):
                     if is_all_top(overlay(pre_env[nm], val, subval_eq)):
                         continue
 
-                    # Eliminate target dim
+                    # Eliminate target dim, pre-processing to the widening (kinda). just approximation.
                     val = D.abs(
                         val.iterators, eliminate_target_dim(val.tree, stmt.iter)
                     )
 
                     # Widening
-                    w_res = widening(pre_env[nm], val, count)
+                    w_res = self.abs_widening(pre_env[nm], val, count)
+
+                    # if the result of the widening is all Top, that means we gave up so exit the loop.
+                    if is_all_top(w_res):
+                        continue
 
                     all_eq = False
                     stmt.body.ctxt[nm] = w_res
@@ -2607,6 +2484,10 @@ class AbstractInterpretation(ABC):
     @abstractmethod
     def abs_stride(self, name, dim) -> D.node:
         """Approximate the stride"""
+
+    @abstractmethod
+    def abs_widening(self, a1, a2, count):
+        """Approximate the loop!"""
 
 
 class Strategy1(AbstractInterpretation):
@@ -2732,3 +2613,104 @@ class Strategy1(AbstractInterpretation):
                 assert False, "WTF?"
 
         return tree
+
+    # =============================================================================
+    # The Widening Operator
+    # =============================================================================
+
+    # TODO: We should probably use ternary decision "diagrams" to compress the leaf duplications (?)
+
+    # maybe we should pass a count to widening so that we can debug and terminate when necessary
+    # widening has information of iteration count
+    def abs_widening(self, a1: D.abs, a2: D.abs, count: int) -> D.abs:
+        """
+        Widening for loop approxmation
+        """
+
+        assert len(a2.iterators) == len(a1.iterators)
+
+        if count >= 0:
+            tree = D.Leaf(D.SubVal(V.Top()))
+        else:
+            tree = overlay(a1, a2, subval_join)
+
+        # and we can just run whatever on a3
+        # to satisfy the x \widen y >= x \join y
+        return D.abs(a2.iterators, tree)
+
+        if isinstance(a2.tree, D.Leaf):
+            return a2
+
+        variables = a2.iterators
+
+        # Sort half spaces into dimension
+        regions = {}
+        for reg in extract_regions(a2.tree, a2.iterators):
+            d = len(variables) - sum(e == "eqz" for (_, e) in reg["path"])
+            assert d >= 0
+            regions[d] = [] if d not in regions else regions[d]
+            regions[d].append(reg)
+
+        # Get intersections!
+        eqs = get_eqs_from_tree(a2.tree)
+        print()
+        print(variables)
+        print([str(s) for s in eqs])
+        intersections = find_intersections(variables, eqs)
+
+        for d in regions.keys():
+            print("d : ", d)
+            for reg in regions[d]:
+                print([(str(p), str(e)) for p, e in reg["path"]])
+            print()
+        print("Intersections:", [(str(dim), str(eq)) for dim, eq in intersections])
+        refined_regions = regions.get(0, [])
+        scanned_variables = variables.copy()
+
+        for dim in range(1, len(variables) + 1):
+            if dim not in regions:
+                continue
+
+            print("here dim: ", dim)
+            intersection_pairs = []
+            ivar = None
+            for idim, intersection in intersections:
+                if idim != dim - 1:
+                    continue
+
+                coeff, const = linearize_aexpr(intersection, variables)
+                for k in coeff.keys():
+                    if k in scanned_variables and abs(coeff.get(k, 0)) > 1e-9:
+                        if ivar is not None and k != ivar:
+                            assert False
+                        ivar = k
+                        scanned_variables.remove(k)
+                        break
+                val = -const / coeff[ivar]
+                intersection_pairs.append((val, intersection))
+            # Sort the intersection pairs by value.
+            intersection_pairs.sort(key=lambda pair: pair[0])
+
+            tmp_regions = []
+            for reg in regions[dim]:
+                tmp_regions.extend(
+                    refine_region(
+                        reg, a2.iterators, refined_regions, intersection_pairs
+                    )
+                )
+            refined_regions.extend(tmp_regions)
+
+        # FIXME: dictionary reconstruction might be buggy
+        dict_tree = build_dict_tree(refined_regions)
+
+        reconstructed_tree = dict_tree_to_node(dict_tree)
+
+        # print("\nReconstructed Abstract Domain Tree:")
+        # print(reconstructed_tree)
+        a = abs_simplify(
+            abs_simplify(abs_simplify(D.abs(a2.iterators, reconstructed_tree)))
+        )
+        #    print("\nPrevious Abstract Domain Tree:")
+        #    print(a1)
+
+        return a

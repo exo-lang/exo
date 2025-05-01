@@ -5,25 +5,27 @@ def foo(n : size, ConfigControl_i : index):
       ConfigControl_i_3 =\i \phi(True ? 4 : 4)
 ------------------------ ConfigControl_i_1 : \i
                              - (i-0)
-                                   - ⊤
+                                   - (n-(n-1))
+                                             - ((i-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
+                                             - 3
+                                             - ((i-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
                                    - ConfigControl_i
-                                   - ⊤
-                         ConfigControl_i_3 : \i
-                             - 4
-    else:
------------------------- ConfigControl_i_1 : \i
-                             - (i-0)
-                                   - ⊤
-                                   - ConfigControl_i
-                                   - ⊤
-    ConfigControl_i_4 =\i \phi(ConfigControl_i_1[i] == 2 ? ConfigControl_i_3[i] : ConfigControl_i_1[i]) # IfJoin
-    if n == n - 1:
-      ConfigControl_i_5 =\i \phi(True ? 3 : 3)
------------------------- ConfigControl_i_1 : \i
-                             - (i-0)
-                                   - ⊤
-                                   - ConfigControl_i
-                                   - ⊤
+                                   - (n-(n-1))
+                                             - ((i-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
+                                             - 3
+                                             - ((i-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
                          ConfigControl_i_3 : \i
                              - 4
                          ConfigControl_i_4 : \i
@@ -33,12 +35,41 @@ def foo(n : size, ConfigControl_i : index):
                                    - ⊤
                          ConfigControl_i_5 : \i
                              - 3
+                         ConfigControl_i_2 : \i
+                             - (n-(n-1))
+                                       - (i-0)
+                                             - ⊤
+                                             - ⊤
+                                             - ⊤
+                                       - 3
+                                       - (i-0)
+                                             - ⊤
+                                             - ⊤
+                                             - ⊤
     else:
 ------------------------ ConfigControl_i_1 : \i
                              - (i-0)
-                                   - ⊤
+                                   - (n-(n-1))
+                                             - ((i-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
+                                             - 3
+                                             - ((i-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
                                    - ConfigControl_i
-                                   - ⊤
+                                   - (n-(n-1))
+                                             - ((i-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
+                                             - 3
+                                             - ((i-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
                          ConfigControl_i_3 : \i
                              - 4
                          ConfigControl_i_4 : \i
@@ -46,7 +77,169 @@ def foo(n : size, ConfigControl_i : index):
                                    - ⊤
                                    - ⊤
                                    - ⊤
+                         ConfigControl_i_5 : \i
+                             - 3
+                         ConfigControl_i_2 : \i
+                             - (n-(n-1))
+                                       - (i-0)
+                                             - ⊤
+                                             - ⊤
+                                             - ⊤
+                                       - 3
+                                       - (i-0)
+                                             - ⊤
+                                             - ⊤
+                                             - ⊤
+    ConfigControl_i_4 =\i \phi(ConfigControl_i_1[i] == 2 ? ConfigControl_i_3[i] : ConfigControl_i_1[i]) # IfJoin
+    if n == n - 1:
+      ConfigControl_i_5 =\i \phi(True ? 3 : 3)
+------------------------ ConfigControl_i_1 : \i
+                             - (i-0)
+                                   - (n-(n-1))
+                                             - ((i-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
+                                             - 3
+                                             - ((i-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
+                                   - ConfigControl_i
+                                   - (n-(n-1))
+                                             - ((i-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
+                                             - 3
+                                             - ((i-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
+                         ConfigControl_i_3 : \i
+                             - 4
+                         ConfigControl_i_4 : \i
+                             - (i-0)
+                                   - ⊤
+                                   - ⊤
+                                   - ((i-1)-0)
+                                             - ⊤
+                                             - ⊤
+                                             - ⊤
+                         ConfigControl_i_5 : \i
+                             - 3
+                         ConfigControl_i_2 : \i
+                             - (n-(n-1))
+                                       - (i-0)
+                                             - ⊤
+                                             - ⊤
+                                             - ⊤
+                                       - 3
+                                       - (i-0)
+                                             - ⊤
+                                             - ⊤
+                                             - ⊤
+    else:
+------------------------ ConfigControl_i_1 : \i
+                             - (i-0)
+                                   - (n-(n-1))
+                                             - ((i-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
+                                             - 3
+                                             - ((i-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
+                                   - ConfigControl_i
+                                   - (n-(n-1))
+                                             - ((i-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
+                                             - 3
+                                             - ((i-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
+                         ConfigControl_i_3 : \i
+                             - 4
+                         ConfigControl_i_4 : \i
+                             - (i-0)
+                                   - ⊤
+                                   - ⊤
+                                   - ((i-1)-0)
+                                             - ⊤
+                                             - ⊤
+                                             - ⊤
+                         ConfigControl_i_5 : \i
+                             - 3
+                         ConfigControl_i_2 : \i
+                             - (n-(n-1))
+                                       - (i-0)
+                                             - ⊤
+                                             - ⊤
+                                             - ⊤
+                                       - 3
+                                       - (i-0)
+                                             - ⊤
+                                             - ⊤
+                                             - ⊤
     ConfigControl_i_2 =\i \phi(n == n - 1 ? ConfigControl_i_5[i] : ConfigControl_i_4[i]) # IfJoin
+------------------------ ConfigControl_i_1 : \i
+                             - (i-0)
+                                   - (n-(n-1))
+                                             - ((i-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
+                                             - 3
+                                             - ((i-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
+                                   - ConfigControl_i
+                                   - (n-(n-1))
+                                             - ((i-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
+                                             - 3
+                                             - ((i-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
+                         ConfigControl_i_3 : \i
+                             - 4
+                         ConfigControl_i_4 : \i
+                             - (i-0)
+                                   - ⊤
+                                   - ⊤
+                                   - ((i-1)-0)
+                                             - ⊤
+                                             - ⊤
+                                             - ⊤
+                         ConfigControl_i_5 : \i
+                             - 3
+                         ConfigControl_i_2 : \i
+                             - (n-(n-1))
+                                       - (i-0)
+                                             - ⊤
+                                             - ⊤
+                                             - ((i-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
+                                       - 3
+                                       - (i-0)
+                                             - ⊤
+                                             - ⊤
+                                             - ((i-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
+  ConfigControl_i_6 = \phi(n > 0 ? ConfigControl_i_2[n - 1] : ConfigControl_i) # LoopExit
 ------------------------ ConfigControl_i_1 : \i
                              - (i-0)
                                    - ⊤
@@ -72,19 +265,17 @@ def foo(n : size, ConfigControl_i : index):
                                              - ⊤
                                              - ⊤
                                              - ⊤
-  ConfigControl_i_6 = \phi(n > 0 ? ConfigControl_i_2[n - 1] : ConfigControl_i) # LoopExit
------------------------- ConfigControl_i_1 : \i
-                             - ⊤
-                         ConfigControl_i_3 : \i
-                             - ⊤
-                         ConfigControl_i_4 : \i
-                             - ⊤
-                         ConfigControl_i_5 : \i
-                             - ⊤
-                         ConfigControl_i_2 : \i
-                             - ⊤
                          ConfigControl_i_6 : 
                              - (n-0)
                                    - ConfigControl_i
                                    - ConfigControl_i
-                                   - ⊤
+                                   - (n-(n-1))
+                                             - ((n-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
+                                             - 3
+                                             - ((n-1)-0)
+                                                       - ⊤
+                                                       - ⊤
+                                                       - ⊤
