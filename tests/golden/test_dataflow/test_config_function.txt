@@ -1,4 +1,4 @@
-def foo(x : f32, ConfigAB_b : f32, ConfigAB_a : f32):
+def foo(x : f32, ConfigAB_a : f32, ConfigAB_b : f32):
   ConfigAB_a_1 = \phi(True ? 1.0 : 1.0)
   x_1 = \phi(True ? 3.0 : x)
   ConfigAB_a_2 = \phi(True ? 2.0 : 2.0)

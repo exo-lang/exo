@@ -7,11 +7,13 @@ from ..core.configs import reverse_config_lookup, Config
 from .new_analysis_core import *
 from ..core.proc_eqv import get_repr_proc
 from .dataflow import (
-    dataflow_analysis,
-    Strategy1,
     D,
     lift_to_smt_n,
     DataflowIR,
+)
+from .approximation import (
+    dataflow_analysis,
+    Strategy1,
 )
 
 
