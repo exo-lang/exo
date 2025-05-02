@@ -1,5 +1,7 @@
 # Scheduling Examples
 
+All the scheduling examples are hosted on [the compiler explorer](https://godbolt.exo-lang.dev/).
+
 This directory contains several examples, along with documentation and code.
 If you are new to Exo, we recommend going through the examples in the following order:
 
