@@ -3,6 +3,7 @@ from __future__ import annotations
 # Note: no imports from the rest of Exo so it's easy to run side experiments
 # on coll_algebra and do demos of it as a sort of "type system"
 
+from dataclasses import dataclass
 from fractions import Fraction
 from typing import Dict, Optional, Tuple
 from math import prod
@@ -373,6 +374,7 @@ class CollTiling(object):
 
     __slots__ = [
         "parent",
+        "iter",
         "full_domain",
         "tile",
         "offset",
@@ -383,6 +385,7 @@ class CollTiling(object):
     ]
 
     parent: Optional[CollTiling]
+    iter: object
     full_domain: Tuple[int]
     tile: Tuple[int]
     offset: Tuple[int]
@@ -394,6 +397,7 @@ class CollTiling(object):
     def __init__(
         self,
         parent,
+        _iter,
         full_domain,
         tile,
         offset,
@@ -404,6 +408,7 @@ class CollTiling(object):
     ):
         assert parent is None or isinstance(parent, CollTiling)
         self.parent = parent
+        self.iter = _iter
         self.full_domain = tuple(full_domain)
         self.tile = tuple(tile)
         self.offset = tuple(offset)
@@ -418,18 +423,29 @@ class CollTiling(object):
 
         self.tile_count = tile_count
         self.tile_expr = tile_expr
+        self.iter = _iter
         assert isinstance(tile_count, int)
         assert isinstance(tile_expr, CollIndexExpr)
 
     def __repr__(self):
-        return f"CollTiling({self.parent}, {self.full_domain}, {self.tile}, {self.offset}, {self.box}, {self.intra_box_exprs}, {self.tile_count}, {self.tile_expr})"
+        return f"CollTiling({self.parent!r}, {self.iter!r}, {self.full_domain!r}, {self.tile!r}, {self.offset!r}, {self.box!r}, {self.intra_box_exprs!r}, {self.tile_count!r}, {self.tile_expr!r})"
 
-    def tiled(self, unit: CollUnit, tiles_needed: int, env: Dict[CollParam, int]):
+    def tiled(
+        self,
+        _iter: object,
+        unit: CollUnit,
+        tiles_needed: int,
+        env: Dict[CollParam, int],
+    ):
         """Tile the CollTiling with the given collective unit.
 
         Returns (CollTiling, CollLoweringAdvice).
         Produces the given number of tiles (or throws if not possible).
         self is the parent of the resulting CollTiling.
+
+        The _iter is passed through to the generated CollTiling
+        ("iterator variable name").
+
         """
         advice = CollLoweringAdvice()
 
@@ -480,6 +496,11 @@ class CollTiling(object):
                 if tile_remainder != 0 or max_tile_count != tiles_needed:
                     advice.hi = tiles_needed
 
+                if tiles_needed >= 2:
+                    advice.thread_pitch = unit_box_coord * prod(
+                        common_domain[tiled_dim_idx + 1 :]
+                    )
+
         if tiled_dim_idx is None:
             advice.coll_index = coll_index_0
             advice.hi = tiles_needed  # In case tiles_needed = 0
@@ -494,6 +515,7 @@ class CollTiling(object):
         return (
             CollTiling(
                 new_parent,
+                _iter,
                 common_domain,
                 new_tile,
                 new_offset,
@@ -577,6 +599,7 @@ class CollTiling(object):
         return (
             CollTiling(
                 new_parent,
+                self.iter,
                 common_domain,
                 common_tile,
                 new_offset,
@@ -675,25 +698,30 @@ class CollTiling(object):
         return False  # False => match
 
 
-class CollLoweringAdvice(object):
+@dataclass(slots=True)
+class CollLoweringAdvice:
     """Advice for lowering a collective tiling or specialization
 
     Translate the coll_index to C code, and test
     coll_index >= lo  [skip if lo is None]
-    coll_index < hi [skip if hi is None]"""
+    coll_index < hi [skip if hi is None]
 
-    __slots__ = ["coll_index", "lo", "hi"]
-    coll_index: CollIndexExpr
-    lo: Optional[int]
-    hi: Optional[int]
+    thread_pitch is the distance in # of threads between the 0th
+    thread in a thread collective and the 0th thread of the
+    next-adjacent thread collective in a tiling (Cf. "seat pitch")
+    This gives some notion of what "axis" the tiling is performed on,
+    separate from the size of the collective unit.  For example,
+    "adjacent warps in a CTA" has pitch 32, while
+    "warp 0 of each CTA in a cluster" has pitch blockDim.
 
-    def __init__(self, coll_index=None, lo=None, hi=None):
-        self.coll_index = coll_index
-        self.lo = lo
-        self.hi = hi
+    thread_pitch = 0 when there are fewer than 2 tiles in the tiling.
 
-    def __repr__(self):
-        return f"CollLoweringAdvice({self.coll_index}, {self.lo}, {self.hi})"
+    """
+
+    coll_index: CollIndexExpr = None
+    lo: Optional[int] = None
+    hi: Optional[int] = None
+    thread_pitch: int = 0
 
 
 class DomainCompletionError(Exception):

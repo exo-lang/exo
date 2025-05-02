@@ -211,7 +211,8 @@ class SubtreeScan(LoopIR_Do):
             cta_expr = CollIndexExpr("blockIdx.x") % self.clusterDim
             intra_box_exprs = (cta_expr, threadIdx_expr)
         self._coll_tiling = CollTiling(
-            None,
+            None,  # parent
+            None,  # _iter
             tlc_box,
             tlc_box,
             tlc_offset,
@@ -524,16 +525,12 @@ class SubtreeScan(LoopIR_Do):
 
         # Update stored CollTiling
         self._coll_tiling, advice = self._coll_tiling.tiled(
-            s.loop_mode.unit, hi_int, self._coll_env
+            s.iter, s.loop_mode.unit, hi_int, self._coll_env
         )
 
         # We will advise replacing the loop mode with _CodegenPar
         assert s.iter not in self.thread_iters
-        self.thread_iters[s.iter] = ThreadIter(
-            _CodegenPar(advice.coll_index.codegen(), (advice.lo, advice.hi)),
-            advice.coll_index,
-            self._coll_tiling,
-        )
+        self.thread_iters[s.iter] = ThreadIter(self._coll_tiling, advice)
 
     def apply_idx(self, node, context_stmt):
         """Consistent distributed memory analysis"""

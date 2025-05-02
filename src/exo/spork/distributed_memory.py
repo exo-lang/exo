@@ -3,7 +3,13 @@ from typing import Optional, List, Type, Dict, Tuple
 
 from ..core.prelude import Sym
 from ..core.LoopIR import LoopIR
-from .coll_algebra import CollTiling, CollUnit, CollIndexExpr, CollParam
+from .coll_algebra import (
+    CollTiling,
+    CollUnit,
+    CollIndexExpr,
+    CollParam,
+    CollLoweringAdvice,
+)
 from .loop_modes import _CodegenPar
 
 
@@ -16,14 +22,18 @@ class ThreadIter:
     coll_tiling: CollTiling
     parent_tile_num_threads: int
     child_tile_num_threads: int
+    thread_pitch: int
 
-    def __init__(self, codegen_par, coll_index_expr, coll_tiling):
-        self.codegen_par = codegen_par
-        self.coll_index_expr = coll_index_expr
+    def __init__(self, coll_tiling: CollTiling, advice: CollLoweringAdvice):
+        self.codegen_par = _CodegenPar(
+            advice.coll_index.codegen(), (advice.lo, advice.hi)
+        )
+        self.coll_index_expr = advice.coll_index
         self.coll_tiling = coll_tiling
         assert isinstance(coll_tiling.parent, CollTiling)
         self.parent_tile_num_threads = coll_tiling.parent.tile_num_threads()
         self.child_tile_num_threads = coll_tiling.tile_num_threads()
+        self.thread_pitch = advice.thread_pitch
 
 
 @dataclass(slots=True)
