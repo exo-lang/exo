@@ -133,7 +133,7 @@ The gist of its design principles and features is summarized in [Design.md](./do
   Yuka Ikarashi\*, Gilbert Louis Bernstein\*, Alex Reinking, Hasan Genc, Jonathan Ragan-Kelley\
   PLDI 2022\
   The full version with appendices can be found [here](https://people.csail.mit.edu/yuka/pdf/exo_pldi2022_full.pdf).
-- [Exo 2: Growing a Scheduling Language](https://arxiv.org/abs/2411.07211)\
+- [Exo 2: Growing a Scheduling Language](https://dl.acm.org/doi/10.1145/3669940.3707218)\
   Yuka Ikarashi, Kevin Qian, Samir Droubi, Alex Reinking, Gilbert Bernstein, Jonathan Ragan-Kelley\
   ASPLOS 2025\
   The full version with appendices can be found [here](https://arxiv.org/abs/2411.07211).
