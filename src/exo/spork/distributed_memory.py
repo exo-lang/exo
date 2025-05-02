@@ -63,6 +63,10 @@ class DistributedAllocState(object):
     first_usage_stmt: Optional[LoopIR.stmt]
     distributed_iters: List[Sym]
 
+    # Within an indexing expression name[i0,i1,...], iN ranges within
+    # [0, distributed_extents[N]) at runtime for all uses.
+    distributed_extents: List[int]
+
     # CollTiling at the point of the Exo object code allocation
     alloc_coll_tiling: CollTiling
 
@@ -88,6 +92,7 @@ class DistributedAllocState(object):
             assert isinstance(optional_native_unit, CollUnit)
         self.first_usage_stmt = None
         self.distributed_iters = []
+        self.distributed_extents = []
         self.alloc_coll_tiling = alloc_coll_tiling
         self.optional_native_unit = optional_native_unit
         self.leaf_coll_tiling = None
@@ -111,7 +116,7 @@ class DistributedAllocState(object):
 class DistributedIdxFsm:
     """State-machine like object for analyzing distributed memory indexing
 
-    Inspect indices of a read/write (rw_node.idx) one by one with consume_idx_e.
+    Inspect indices of a read/write (rw_node.idx) one by one with consume_idx.
     Uninspected indices aren't parsed, so we don't enforce requirements on them.
 
     """
@@ -139,6 +144,7 @@ class DistributedIdxFsm:
 
     # Iterators parsed in order as distributed indices
     distributed_iters: List[Sym]
+    distributed_extents: List[int]
 
     # Parsed iterators: parent_num_tile_threads -> (Sym, child_num_tile_threads)
     t0_iter_t1: Dict[int, Tuple[Sym, int]]
@@ -171,6 +177,7 @@ class DistributedIdxFsm:
         self.thread_iters = thread_iters
         self.coll_env = coll_env
         self.distributed_iters = []
+        self.distributed_extents = []
         self.t0_iter_t1 = {}
         self.cur_num_threads = state.alloc_coll_tiling.tile_num_threads()
 
@@ -210,7 +217,10 @@ class DistributedIdxFsm:
                     f'Iterator {iter_sym} yields thread collectives of {t1} threads; "overshot" native target {n} threads',
                 )
 
+        hi = iter_info.coll_tiling.tile_count
+        assert isinstance(hi, int)
         self.distributed_iters.append(iter_sym)
+        self.distributed_extents.append(hi)
 
         # Each index variable subdivides a CollTiling, translating
         # a parent_num_tile_threads -> child_num_tile_threads.
@@ -267,6 +277,7 @@ class DistributedIdxFsm:
         if state.first_usage_stmt is None:
             state.first_usage_stmt = self.context_stmt
             state.distributed_iters = self.distributed_iters
+            state.distributed_extents = self.distributed_extents
             state.leaf_coll_tiling = self.leaf_coll_tiling
             return
 
@@ -293,6 +304,10 @@ class DistributedIdxFsm:
                     f"Usage 1: {first_stmt} : {first_stmt.srcinfo}\n"
                     f"Usage 2: {self.context_stmt} : {self.context_stmt.srcinfo}"
                 )
+
+        assert len(self.distributed_extents) == len(state.distributed_extents)
+        for i, v in enumerate(self.distributed_extents):
+            state.distributed_extents[i] = max(state.distributed_extents[i], v)
 
     def inspect_arrive_await(
         self,
