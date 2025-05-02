@@ -387,6 +387,7 @@ class SubtreeScan(LoopIR_Do):
                     s.name,
                     self.get_barrier_usage(s.name),
                     self.distributed_alloc_states[s.name],
+                    self.thread_iters,
                 )
 
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
@@ -421,7 +422,10 @@ class SubtreeScan(LoopIR_Do):
                 state = DistributedAllocState.from_fence(s, self._coll_tiling)
                 self.distributed_alloc_states[s.name] = state
                 self.sync_state_builder.add_barrier(
-                    s.name, self.get_barrier_usage(s.name), state
+                    s.name,
+                    self.get_barrier_usage(s.name),
+                    state,
+                    self.thread_iters,
                 )
 
         elif isinstance(s, LoopIR.Call):
@@ -563,7 +567,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
         "thread_iters",
         "cuda_warps_dfs_codegen",
         "cuda_warps_idx",
-        "lowered_barriers",
+        "sync_state_builder",
         "live_solitary_barrier_names",
         "live_smem_ends",  # SMEM stack allocator
         "smem_data_usage",  # SMEM stack allocator
@@ -579,7 +583,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
         self.thread_iters = scan.thread_iters
         self.cuda_warps_dfs_codegen = scan.cuda_warps_dfs_codegen
         self.cuda_warps_idx = 0
-        self.lowered_barriers = scan.sync_state_builder.lowered
+        self.sync_state_builder = scan.sync_state_builder
         fmt_dict["SyncState_body"] = scan.sync_state_builder.generate_SyncState_body()
 
         # Prepare mbarriers in SMEM
@@ -864,13 +868,13 @@ class SubtreeRewrite(LoopIR_Rewrite):
         return s
 
     def on_barrier_alloc(self, s):
-        lowered = self.lowered_barriers[s.name]
+        lowered = self.sync_state_builder.lowered[s.name]
         if lowered.solitary:
             self.check_solitary_barrier(s, lowered)
             self.live_solitary_barrier_names[lowered.type_enum] = s.name
 
     def on_barrier_free(self, s):
-        lowered = self.lowered_barriers[s.name]
+        lowered = self.sync_state_builder.lowered[s.name]
         if lowered.solitary:
             del self.live_solitary_barrier_names[lowered.type_enum]
 
@@ -881,7 +885,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
         epilogue_of: Optional[ActorKind],
     ):
         if s.lowered is None:
-            lowered = self.lowered_barriers[s.name]
+            lowered = self.sync_state_builder.lowered[s.name]
             if lowered.solitary and not s.sync_type.is_split():
                 # Fence must pass solitary barrier check
                 self.check_solitary_barrier(s, lowered)
@@ -889,9 +893,9 @@ class SubtreeRewrite(LoopIR_Rewrite):
 
             # Do codegen, and supply srcinfo if codegen fails
             try:
-                lowered = lowered.codegen(s.sync_type)
+                lowered = lowered.codegen(s)
             except Exception as e:
-                raise ValueError(f"{s.srcinfo}: {e}")
+                raise ValueError(f"{s.srcinfo}: {e}") from e
 
             # Enforce prologue/epilogue sync requirements
             if isinstance(lowered, LoweredPrologueSync):
@@ -950,18 +954,14 @@ class SubtreeRewrite(LoopIR_Rewrite):
         if actor_kind == actor_kinds.tma_to_smem_async:
             # We will insert the needed uint32_t variable as "lowered" syntax
             # for a do-nothing Fence statement. This will look goofy but works.
+            # TMA instrs expect the C++ var exo_tma_mbarrier to be in scope.
             _arrive = self.scan.expect_SyncStmt(
                 s, True, actor_kinds.tma_to_smem_async, None
             )
             dummy_sync_type = SyncType(
                 actor_kinds.empty_actor_kind, actor_kinds.empty_actor_kind, False, 0
             )
-            lowered = self.lowered_barriers[_arrive.name]
-            if _arrive.sync_type.is_reversed:
-                mbarrier = lowered.c_ReverseArrive_mbarrier
-            else:
-                mbarrier = lowered.c_Arrive_mbarrier
-            c_alias = f"const uint32_t exo_tma_mbarrier = {mbarrier};"
+            c_alias = self.sync_state_builder.codegen_exo_tma_mbarrier(_arrive)
             alias_stmt = LoopIR.SyncStmt(
                 dummy_sync_type,
                 Sym("exo_tma_mbarrier"),

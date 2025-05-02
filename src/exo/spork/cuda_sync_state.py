@@ -6,6 +6,7 @@ from enum import Enum, auto
 from typing import Callable, Dict, Optional, Type, List, Tuple
 
 from ..core.prelude import Sym, SrcInfo
+from ..core.LoopIR import LoopIR
 
 from . import actor_kinds
 from .actor_kinds import ActorKind
@@ -27,7 +28,7 @@ from .cuda_memory import (
     CudaCommitGroup,
     CudaMbarrier,
 )
-from .distributed_memory import DistributedAllocState
+from .distributed_memory import DistributedAllocState, ThreadIter
 from .sync_types import SyncType
 
 
@@ -67,12 +68,7 @@ class CudaLoweredBarrier:
     # If the sync must appear as the prologue/epilogue sync
     # of a CudaAsync(A) block, warp the lines with
     # LoweredPrologueSync(A, lines) or LoweredEpilogueSync(A, lines)
-    codegen: Callable[[SyncType], object] = None
-
-    # If applicable, syntax for getting the mbarrier used for
-    # an Arrive/ReverseArrive
-    c_Arrive_mbarrier: str = None
-    c_ReverseArrive_mbarrier: str = None
+    codegen: Callable[[LoopIR.SyncStmt], object] = None
 
 
 @dataclass(slots=True)
@@ -86,7 +82,8 @@ class SyncStateBuilder:
     # to initialize in SMEM, e.g. (8, 64), (2, 384) means initialize an
     # array of 10 mbarriers in SMEM with the first 8 having
     # arrive_count=64, last 2 arrive_count=384
-    mbarrier_pairs: List[Tuple[int, int]] = field(default_factory=list)
+    _mbarrier_pairs: List[Tuple[int, int]] = field(default_factory=list)
+    mbarrier_count: int = 0
 
     # C++ lines to join into exo_SyncState struct
     SyncState_lines: List[str] = field(default_factory=list)
@@ -100,7 +97,11 @@ class SyncStateBuilder:
     _uses_async_proxy: bool = False
 
     def add_barrier(
-        self, name: Sym, usage: BarrierUsage, coll_tilings: DistributedAllocState
+        self,
+        name: Sym,
+        usage: BarrierUsage,
+        coll_tilings: DistributedAllocState,
+        thread_iters: Dict[Sym, ThreadIter],
     ):
         for info in (
             usage.Arrive,
@@ -119,13 +120,15 @@ class SyncStateBuilder:
         suffix = self._assign_suffix(name)
         if usage.is_fence():
             if usage.Arrive.actor_kind == actor_kinds.wgmma_fence_1:
-                self.add_wgmma_fence(name, usage, coll_tilings, suffix)
+                self.add_wgmma_fence(name, usage, coll_tilings, thread_iters, suffix)
             else:
-                self.add_garden_variety_fence(name, usage, coll_tilings, suffix)
+                self.add_garden_variety_fence(
+                    name, usage, coll_tilings, thread_iters, suffix
+                )
         elif issubclass(barrier_type, CudaMbarrier):
-            self.add_mbarrier(name, usage, coll_tilings, suffix)
+            self.add_mbarrier(name, usage, coll_tilings, thread_iters, suffix)
         elif issubclass(barrier_type, CudaCommitGroup):
-            self.add_commit_group(name, usage, coll_tilings, suffix)
+            self.add_commit_group(name, usage, coll_tilings, thread_iters, suffix)
         else:
             raise TypeError(
                 f"{srcinfo}: {barrier_type.__name__} "
@@ -137,6 +140,7 @@ class SyncStateBuilder:
         name: Sym,
         usage: BarrierUsage,
         coll_tilings: DistributedAllocState,
+        thread_iters: Dict[Sym, ThreadIter],
         suffix: str,
     ):
         Arrive = usage.Arrive
@@ -170,6 +174,7 @@ class SyncStateBuilder:
         name: Sym,
         usage: BarrierUsage,
         coll_tilings: DistributedAllocState,
+        thread_iters: Dict[Sym, ThreadIter],
         suffix: str,
     ):
         """Do up to 3 things
@@ -270,10 +275,11 @@ class SyncStateBuilder:
         name: Sym,
         usage: BarrierUsage,
         coll_tilings: DistributedAllocState,
+        thread_iters: Dict[Sym, ThreadIter],
         suffix: str,
     ):
         lowered = CudaLoweredBarrier(False, LoweredBarrierType.mbarrier)
-        mbarrier_offset = sum(c for c, _ in self.mbarrier_pairs)  # O(n^2)
+        mbarrier_offset = self.mbarrier_count
         nm_suffix = f"{suffix}_{name}"
 
         # Calculate the size of the ring buffer (number of mbarriers)
@@ -291,6 +297,13 @@ class SyncStateBuilder:
                 f"{usage.get_srcinfo()}: {name} must have some await with nonzero skips (e.g. set N = ~1)"
             )
 
+        # Number of physical mbarriers is slice_count * ring, where
+        # slice_count is the number of logical Exo barrier objects per CTA
+        # (usually 1) and ring is the depth of the ring buffer.
+        slice_count = coll_tilings.codegen_slices_to_root(
+            self._blockDim(), thread_iters
+        )
+
         # Need to be able to store values 0 through (ring-1)
         ring_bits = (ring - 1).bit_length()
         # Need to be able to count 0 to ring (inclusive) skips.
@@ -299,8 +312,9 @@ class SyncStateBuilder:
 
         # black formatting will ruin the readability of the generated C++ code below
         # fmt: off
-        def mbarrier_to_u32(lines, is_reverse, idx):
-            byte_offset = 8 * (mbarrier_offset + ring if is_reverse else mbarrier_offset)
+        def mbarrier_to_u32(lines, is_reverse, ringidx):
+            byte_offset = 8 * (mbarrier_offset + (ring * slice_count) if is_reverse else mbarrier_offset)
+            idx = f"(slice * {ring} + {ringidx})"
             lines.append(f"  const auto mbarrier_u32 = exo_smemU32(exo_smem + {byte_offset} + 8*{idx});")
 
         def generate_arrive(is_reverse):
@@ -328,7 +342,7 @@ class SyncStateBuilder:
                 lines.append(f"unsigned {idx} : {ring_bits} = 0;")
             else:
                 lines.append(f"static constexpr unsigned {idx} = 0;  // Trivial size-1 ring buffer")
-            lines.append(f"__device__ __forceinline__ uint32_t {r}Arrive{nm_suffix}(char* exo_smem, bool enable) {{")
+            lines.append(f"__device__ __forceinline__ uint32_t {r}Arrive{nm_suffix}(char* exo_smem, int slice, bool enable) {{")
             mbarrier_to_u32(lines, is_reverse, idx);
             lines.append(f"  if (enable) {{")
             # TODO cluster broadcast if needed
@@ -391,11 +405,11 @@ class SyncStateBuilder:
             # The initial_skips parameter is included iff skipping is enabled,
             # as a last line of defense against future Exo compiler bugs.
             if enable_skips:
-                lines.append(f"__device__ __forceinline__ void {r}Await{nm_suffix}(char* exo_smem, int initial_skips = 0) {{")
+                lines.append(f"__device__ __forceinline__ void {r}Await{nm_suffix}(char* exo_smem, int slice, int initial_skips = 0) {{")
                 mbarrier_to_u32(lines, is_reverse, idx)
                 lines.append(f"  const bool enable = {skips} >= initial_skips;")
             else:
-                lines.append(f"__device__ __forceinline__ void {r}Await{nm_suffix}(char* exo_smem) {{")
+                lines.append(f"__device__ __forceinline__ void {r}Await{nm_suffix}(char* exo_smem, int slice) {{")
                 mbarrier_to_u32(lines, is_reverse, idx)
                 lines.append(f"  const bool enable = true;")
             comment = f"// {r}Await{nm_suffix}\\n\\t"
@@ -430,6 +444,23 @@ class SyncStateBuilder:
                 lines.append(f"  }}")
             lines.append(f"}}")
 
+        # Reserve mbarriers in mbarrier allocator
+        RS = ring * slice_count
+        lines = self.SyncState_lines
+        arrive_count = coll_tilings.Arrive.box_num_threads()
+        self._mbarrier_pairs.append((RS, arrive_count))
+        self.mbarrier_count += RS
+        lines.append(f"// {name}: barrier @ CudaMbarrier, ring={ring}, slice_count={slice_count}")
+        lines.append(f"// (forward) mbarriers [{mbarrier_offset}, {mbarrier_offset + RS}]; "
+                     f"arrive_count={arrive_count}")
+
+        if usage.has_reverse():
+            arrive_count = coll_tilings.ReverseArrive.box_num_threads()
+            self._mbarrier_pairs.append((RS, arrive_count))
+            self.mbarrier_count += RS
+            lines.append(f"// (reverse) mbarriers [{mbarrier_offset + RS}, {mbarrier_offset + RS * 2}]; "
+                         f"arrive_count={arrive_count}")
+
         # Generate Arrive and Await syntax
         # {Reverse}Awaits must be aware with the actor kind
         # of the matched {Reverse}Arrive
@@ -444,15 +475,18 @@ class SyncStateBuilder:
         # then those for ReverseArrive/ReverseAwait.
         # Finally, for arrives with actor kind tma_to_smem_async, we need to enforce
         # that it is an epilogue sync for tx-count to work correctly.
-        Arrive_txt = f"Arrive{nm_suffix}(exo_smem, "
-        def codegen(sync_type: SyncType):
+        Arrive_txt = f"Arrive{nm_suffix}(exo_smem"
+        def codegen(s: LoopIR.SyncStmt):
+            sync_type = s.sync_type
+            slice = coll_tilings.codegen_slices_to_root(self._blockDim(), thread_iters, [e.name for e in s.idx])
             r = "Reverse" if sync_type.is_reversed else ""
             assert sync_type.is_split()
             if sync_type.is_arrive():
-                assert sync_type.N == 1, "TODO implement me"
-                result = [f"exo_syncState.{r}{Arrive_txt}{sync_type.N});"]
+                assert sync_type.N <= 1, "TODO implement me"
+                result = [f"exo_syncState.{r}{Arrive_txt}, {slice}, {sync_type.N});"]
                 is_tma = ReverseArrive_is_tma if sync_type.is_reversed else Arrive_is_tma
                 if is_tma:
+                    # See also codegen_exo_tma_mbarrier if you change this!
                     result = LoweredEpilogueSync(actor_kinds.tma_to_smem_async, result)
                 return result
             else:
@@ -460,24 +494,46 @@ class SyncStateBuilder:
                 if skips := ~sync_type.N:
                     assert skips > 0, "should have been caught earlier"
                     skips_arg = f", {skips}"
-                return [f"exo_syncState.{r}Await{nm_suffix}(exo_smem{skips_arg});"]
+                return [f"exo_syncState.{r}Await{nm_suffix}(exo_smem, {slice}{skips_arg});"]
         lowered.codegen = codegen
-        lowered.c_Arrive_mbarrier = f"exo_syncState.{Arrive_txt}0)"
-        arrive_count = coll_tilings.Arrive.box_num_threads()
-        self.mbarrier_pairs.append((ring, arrive_count))
-
-        if usage.has_reverse():
-            lowered.c_ReverseArrive_mbarrier = f"exo_syncState.Reverse{Arrive_txt}0)"
-            arrive_count = coll_tilings.ReverseArrive.box_num_threads()
-            self.mbarrier_pairs.append((ring, arrive_count))
         self.lowered[name] = lowered
         # fmt: on
+
+    def codegen_exo_tma_mbarrier(self, _arrive: LoopIR.SyncStmt):
+        """Special-case code for generating the C++ def for exo_tma_mbarrier
+
+        For the mbarrier Arrive at the end of a CudaAsync(tma_to_smem_async)
+        block, we need to make the mbarrier used for the upcoming arrive
+        available in the entire block as `uint32_t exo_tma_mbarrier`.
+        This is needed to make expect-tx work.
+
+        Given the LoopIR node for said Arrive, return C++ syntax for declaring
+        exo_tma_smem. The outer compiler (cuda_backend) should paste this
+        at the beginning of the CudaAsync(tma_to_smem_async) block.
+
+        """
+        assert isinstance(_arrive, LoopIR.SyncStmt)
+        sync_type = _arrive.sync_type
+        assert sync_type.is_arrive()
+        assert sync_type.first_actor_kind == actor_kinds.tma_to_smem_async
+        lowered_mbarrier = self.lowered[_arrive.name]
+        # Read-only access to the mbarrier by lowering an arrive with N=0
+        # (arrive-count 0). This is pretty hacky; if we have more need for
+        # such custom barrier lowering, we may want a "proper" interface.
+        arrive0_sync_type = _arrive.sync_type.copy()
+        arrive0_sync_type.N = 0
+        arrive0 = _arrive.update(sync_type=arrive0_sync_type)
+        mbarrier_txt = lowered_mbarrier.codegen(arrive0).lines[0]
+        assert mbarrier_txt[-1] == ";"
+        c_alias = f"const uint32_t exo_tma_mbarrier = {mbarrier_txt}"
+        return c_alias
 
     def add_commit_group(
         self,
         name: Sym,
         usage: BarrierUsage,
         coll_tilings: DistributedAllocState,
+        thread_iters: Dict[Sym, ThreadIter],
         suffix: str,
     ):
         # Commit groups
@@ -550,7 +606,8 @@ class SyncStateBuilder:
                 f"Arrive({A1}) (wrong first actor kind)"
             )
 
-        def codegen(sync_type):
+        def codegen(s: LoopIR.SyncStmt):
+            sync_type = s.sync_type
             assert sync_type.is_split()
             assert not sync_type.is_reversed
             if sync_type.is_arrive():
@@ -583,7 +640,7 @@ class SyncStateBuilder:
         lines.append("    if (threadIdx.x == 0) {")
         lines.append("      const auto mbarrier_u32 = exo_smemU32(exo_smem);")
         offset = 0
-        for mbarrier_count, arrive_count in self.mbarrier_pairs:
+        for mbarrier_count, arrive_count in self._mbarrier_pairs:
             lines.append(f"      for (int i = 0; i < {mbarrier_count}; ++i) {{")
             lines.append(f'        asm volatile("mbarrier.init.shared::cta.b64 [%0], {arrive_count};"::')
             lines.append(f'          "r"(mbarrier_u32 + {8*offset} + 8*i));')
@@ -597,6 +654,7 @@ class SyncStateBuilder:
         else:
             lines.append('    __syncthreads();')
         # HACK: align mbarriers to 128 bytes for now
+        assert offset == self.mbarrier_count
         smem_bytes = 128 * ((offset + 15) // 16)
         if lines:
             return "\n".join(lines), smem_bytes

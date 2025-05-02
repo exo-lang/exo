@@ -63,6 +63,11 @@ class SyncType(object):
             return f"await_type({self.is_reversed}, {self.second_actor_kind}, {self.N_str()})"
         return f"fence_type({self.first_actor_kind}, {self.second_actor_kind})"
 
+    def copy(self):
+        return SyncType(
+            self.first_actor_kind, self.second_actor_kind, self.is_reversed, self.N
+        )
+
     def N_str(self):
         N = self.N
         return str(N) if N >= 0 else f"~{~N}"
