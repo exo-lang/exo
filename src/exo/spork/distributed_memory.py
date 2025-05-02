@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from math import prod
 from typing import Optional, List, Type, Dict, Tuple
 
 from ..core.prelude import Sym
@@ -58,18 +59,19 @@ class DistributedAllocState(object):
     # We deduce this from the usage of the memory, and enforce that each thread
     # only accesses its own index. TODO explain all this tiling stuff better.
     #
-    # In the rewrite phase, we will strip the leading len(distributed_iters)-many
+    # In the rewrite phase, we will strip the leading len(first_distributed_iters)-many
     # indices from all uses of the memory ... this is just a hack for
     # code lowering; ignore that this changes the real meaning of the LoopIR.
 
     # Set upon inspecting the first read/write of the allocation
-    # Subsequent uses should check that the usage pattern matches the recorded
-    # distributed_iters exactly.
+    # Subsequent uses check that the usage pattern matches the recorded
+    # first_distributed_iters exactly.
     first_usage_stmt: Optional[LoopIR.stmt]
-    distributed_iters: List[Sym]
+    first_distributed_iters: List[Sym]
 
-    # Within an indexing expression name[i0,i1,...], iN ranges within
-    # [0, distributed_extents[N]) at runtime for all uses.
+    # Within an indexing expression name[i0,i1,...],
+    # 0 <= iN < distributed_extents[N] for all uses
+    # (although iN need to range all the way to distributed_extents[N]).
     distributed_extents: List[int]
 
     # CollTiling at the point of the Exo object code allocation
@@ -96,7 +98,7 @@ class DistributedAllocState(object):
         if optional_native_unit is not None:
             assert isinstance(optional_native_unit, CollUnit)
         self.first_usage_stmt = None
-        self.distributed_iters = []
+        self.first_distributed_iters = []
         self.distributed_extents = []
         self.alloc_coll_tiling = alloc_coll_tiling
         self.optional_native_unit = optional_native_unit
@@ -107,14 +109,80 @@ class DistributedAllocState(object):
         self.ReverseAwait_coll_tiling = None
 
     def n_distributed_dims(self):
-        return len(self.distributed_iters)
+        return len(self.first_distributed_iters)
 
     @staticmethod
     def from_fence(s: LoopIR.SyncStmt, coll_tiling: CollTiling):
         assert not s.sync_type.is_split()
         result = DistributedAllocState(coll_tiling, None)
+        result.first_usage_stmt = s
         result.Arrive_coll_tiling = coll_tiling
         result.Await_coll_tiling = coll_tiling
+
+    def codegen_slices_to_root(
+        self,
+        hi_thread_pitch: int,
+        thread_iters: Dict[Sym, ThreadIter],
+        distributed_iters: Optional[List[Sym]] = None,
+    ):
+        """Function needed to codegen mbarriers and mbarrier-like objects.
+
+        Ignoring clusters, we need to generate a unique index for each
+        logically-separate mbarrier object to put in shared memory.
+        This is based on the explicit distributed indices, plus thread
+        iterators between the point-of-allocation of the barrier and
+        the CollTiling root. e.g.
+
+        for i0 in cuda_threads(0, 2, unit=cuda_warpgroup):
+            bar : barrier @ CudaMbarrier
+            for i1 in cuda_threads(0, 4, unit=cuda_warp):
+                Arrive(cuda_classic, bar[i1], 1)
+
+        We need a total of 8 mbarriers for all i0 x i1 combinations, i0
+        being the implicit to-root index and i1 the explicit distributed index.
+
+        This needs to ignore tiling in the CTA-in-cluster dimension, so we
+        ignore iterators that have a thread pitch >= hi_thread_pitch.
+        (intended usage hi_thread_pitch=blockDim, but I generalize this here)
+
+        If distributed_iters is given, return C++ index expr: str
+        Else, return the total number of slices: int.
+
+        """
+        count = 1
+        prods = []
+
+        def handle_idx(nm, ext):
+            nonlocal count
+            info = thread_iters[nm]
+            if 0 < info.thread_pitch < hi_thread_pitch:
+                assert ext >= 1
+                if ext > 1:
+                    cname = info.cname(nm.name())
+                    if count == 1:
+                        prods.append(cname)
+                    else:
+                        prods.append(f"{count}*{cname}")
+                    count *= ext
+
+        tmp_iters = (
+            self.first_distributed_iters
+            if distributed_iters is None
+            else distributed_iters
+        )
+        assert len(tmp_iters) == len(self.distributed_extents)
+        for nm, ext in zip(reversed(tmp_iters), reversed(self.distributed_extents)):
+            handle_idx(nm, ext)
+        coll_tiling = self.alloc_coll_tiling
+        while coll_tiling is not None:
+            if coll_tiling.tile_count != 1:
+                handle_idx(coll_tiling.iter, coll_tiling.tile_count)
+            coll_tiling = coll_tiling.parent
+
+        if distributed_iters is None:
+            return count
+        else:
+            return " + ".join(prods) if prods else "0"
 
 
 @dataclass(slots=True)  # convenient to auto-define repr for debugging
@@ -281,13 +349,13 @@ class DistributedIdxFsm:
 
         if state.first_usage_stmt is None:
             state.first_usage_stmt = self.context_stmt
-            state.distributed_iters = self.distributed_iters
+            state.first_distributed_iters = self.distributed_iters
             state.distributed_extents = self.distributed_extents
             state.leaf_coll_tiling = self.leaf_coll_tiling
             return
 
         first_stmt = state.first_usage_stmt
-        first_iters = state.distributed_iters
+        first_iters = state.first_distributed_iters
         cur_iters = self.distributed_iters
         if len(first_iters) != len(cur_iters):
             d1 = format_iters(first_iters)
