@@ -102,6 +102,18 @@ class SyncStateBuilder:
     def add_barrier(
         self, name: Sym, usage: BarrierUsage, coll_tilings: DistributedAllocState
     ):
+        for info in (
+            usage.Arrive,
+            usage.Await,
+            usage.ReverseArrive,
+            usage.ReverseAwait,
+        ):
+            if info is not None:
+                if not actor_kinds.cuda_async_proxy.signatures.isdisjoint(
+                    info.actor_kind.signatures
+                ):
+                    self._uses_async_proxy = True
+
         srcinfo = usage.decl_stmt.srcinfo
         barrier_type = usage.barrier_type
         suffix = self._assign_suffix(name)
@@ -389,9 +401,18 @@ class SyncStateBuilder:
             comment = f"// {r}Await{nm_suffix}\\n\\t"
             lines.append(f"  if (enable) {{")
             # sm_90 needed for try_wait
-            test_or_try = "try" if self._uses_async_proxy else "test"  # XXX
             lines.append(f"    // Wait for mbarrier ... PTX loop needed for this")
-            lines.append(f'    asm volatile("{comment}{{.reg.pred P1; EXO_BEFORE_WAIT: mbarrier.{test_or_try}_wait.parity.acquire.cta.shared::cta.b64 P1, [%0], %1; @P1 bra.uni EXO_WAIT_DONE; bra.uni EXO_BEFORE_WAIT; EXO_WAIT_DONE: }}"::')
+            lines.append(f'    asm volatile("{comment}{{.reg.pred P1;\\n\\t"')
+            lines.append(f'                 "EXO_BEFORE_WAIT: mbarrier."')
+            lines.append(f'#if __CUDA_ARCH__ >= 900')
+            lines.append(f'                 "try_wait"')
+            lines.append(f'#else')
+            lines.append(f'                 "test_wait"')
+            lines.append(f'#endif')
+            lines.append(f'                 ".parity.acquire.cta.shared::cta.b64\\n\\t"')
+            lines.append(f'                 "P1, [%0], %1;\\n\\t"')
+            lines.append(f'                 "@P1 bra.uni EXO_WAIT_DONE;\\n\\t"')
+            lines.append(f'                 "bra.uni EXO_BEFORE_WAIT; EXO_WAIT_DONE: }}"::')
             lines.append(f'        "r"(mbarrier_u32), "r"(1u & {parity_bits} >> {idx}));')
             lines.append(f"    // Flip parity")
             lines.append(f"    {parity_bits} ^= 1u << {idx};")

@@ -83,9 +83,6 @@ class SubtreeScan(LoopIR_Do):
         "distributed_alloc_states",
         "thread_iters",
         "cuda_warps_dfs_codegen",
-        "uses_async_proxy",
-        "blockDim",
-        "clusterDim",
         "fmt_dict",
         "task_loop_depth",
         "task_iter_syms",
@@ -97,7 +94,6 @@ class SubtreeScan(LoopIR_Do):
         "_stmt_stack",
         "_coll_env",
         "_coll_tiling",
-        "_body_containing_s",
     ]
 
     ctx: SporkLoweringCtx
@@ -115,8 +111,6 @@ class SubtreeScan(LoopIR_Do):
     # unique information (id(...) is not unique after scheduling).
     cuda_warps_dfs_codegen: List[_CodegenPar]
 
-    uses_async_proxy: bool
-
     blockDim: int
     clusterDim: int
     fmt_dict: Dict
@@ -126,34 +120,28 @@ class SubtreeScan(LoopIR_Do):
     _stmt_stack: List[LoopIR.stmt]
     _coll_env: Dict[CollParam, int]
     _coll_tiling: CollTiling
-    # In do_s(s), we will always have s in _body_containing_s
-    _body_containing_s: List[LoopIR.stmt]
 
     def __init__(self, s, ctx: SporkLoweringCtx):
         assert is_if_holding_with(s, LoopIR)
         cuda_device_function = s.cond.val
         assert isinstance(cuda_device_function, CudaDeviceFunction)
 
-        coll_env = {
-            clusterDim_param: cuda_device_function.clusterDim,
-            blockDim_param: cuda_device_function.blockDim,
-        }
+        blockDim = cuda_device_function.blockDim
+        clusterDim = cuda_device_function.clusterDim
+        coll_env = {clusterDim_param: clusterDim, blockDim_param: blockDim}
 
         self.ctx = ctx
         self.sync_state_builder = SyncStateBuilder(coll_env)
         self.distributed_alloc_states = {}
         self.thread_iters = {}
         self.cuda_warps_dfs_codegen = []
-        self.uses_async_proxy = False
-        self.blockDim = cuda_device_function.blockDim
-        self.clusterDim = cuda_device_function.clusterDim
         self.fmt_dict = {
             "proc": ctx.proc_name(),
             "lib_name": ctx.lib_name(),
             "N": ctx.kernel_index(),
             "gridDim": 132 * cuda_device_function.blocks_per_sm,  # TODO
-            "blockDim": self.blockDim,
-            "clusterDim": self.clusterDim,
+            "blockDim": blockDim,
+            "clusterDim": clusterDim,
             "blocks_per_sm": cuda_device_function.blocks_per_sm,
         }
 
@@ -214,16 +202,16 @@ class SubtreeScan(LoopIR_Do):
         self._syms_needed = set()
         self._stmt_stack = []
         self._coll_env = coll_env
-        assert self.clusterDim > 0 and isinstance(self.clusterDim, int)
-        threadIdx_expr = CollIndexExpr("threadIdx.x", self.blockDim)
-        if self.clusterDim == 1:
+        assert clusterDim > 0 and isinstance(clusterDim, int)
+        threadIdx_expr = CollIndexExpr("threadIdx.x", blockDim)
+        if clusterDim == 1:
             tlc_offset = (0,)
-            tlc_box = (self.blockDim,)
+            tlc_box = (blockDim,)
             intra_box_exprs = (threadIdx_expr,)
         else:
             tlc_offset = (0, 0)
-            tlc_box = (self.clusterDim, self.blockDim)
-            cta_expr = CollIndexExpr("blockIdx.x") % self.clusterDim
+            tlc_box = (clusterDim, blockDim)
+            cta_expr = CollIndexExpr("blockIdx.x") % clusterDim
             intra_box_exprs = (cta_expr, threadIdx_expr)
         self._coll_tiling = CollTiling(
             None,  # parent
@@ -236,7 +224,6 @@ class SubtreeScan(LoopIR_Do):
             1,
             CollIndexExpr(0),
         )
-        self._body_containing_s = s.body
         self.do_stmts(s.body)
 
         # Prepare the device args struct
@@ -320,12 +307,6 @@ class SubtreeScan(LoopIR_Do):
             )
         self.fmt_dict["device_args"] = ", ".join(device_args_values)
         self.fmt_dict["device_args_struct_body"] = "\n".join(device_args_struct_lines)
-
-    def do_stmts(self, stmts):
-        saved = self._body_containing_s
-        self._body_containing_s = stmts
-        super().do_stmts(stmts)
-        self._body_containing_s = saved
 
     def do_s(self, s):
         # Save state
@@ -495,11 +476,6 @@ class SubtreeScan(LoopIR_Do):
         actor_kind = ctx.get_actor_kind()
         assert actor_kind in actor_kinds.cuda_async_actor_kinds
         assert s.body
-
-        if not actor_kinds.cuda_async_proxy.signatures.isdisjoint(
-            actor_kind.signatures
-        ):
-            self.uses_async_proxy = True
 
         def inspect(is_epilogue, A1, A2):
             sync_stmt = self.expect_SyncStmt(s, is_epilogue, A1, A2)
@@ -817,28 +793,6 @@ class SubtreeRewrite(LoopIR_Rewrite):
             if n > 0:
                 return node.update(idx=node.idx[n:])
         return None
-
-    def generate_device_setup(self, mbarrier_pairs):
-        # fmt: off
-        lines = []
-        lines.append("    if (threadIdx.x == 0) {")
-        lines.append("      const auto mbarrier_u32 = exo_smemU32(exo_smem);")
-        offset = 0
-        for mbarrier_count, arrive_count in mbarrier_pairs:
-            lines.append(f"      for (int i = 0; i < {mbarrier_count}; ++i) {{")
-            lines.append(f'        asm volatile("mbarrier.init.shared::cta.b64 [%0], {arrive_count};"::')
-            lines.append(f'          "r"(mbarrier_u32 + {8*offset} + 8*i));')
-            lines.append(f"      }}")
-            offset += mbarrier_count
-        if self.scan.uses_async_proxy:
-            lines.append('      asm("fence.proxy.async;");')
-        lines.append("    }")
-        if self.scan.clusterDim > 1:
-            lines.append('    asm("barrier.cluster.arrive.aligned; barrier.cluster.wait.aligned;\n"::);')
-        else:
-            lines.append('    __syncthreads();')
-        return "\n".join(lines), offset
-        # fmt: on
 
     def update_numeric_alloc_free(self, s):
         alloc_state = self.distributed_alloc_states[s.name]
