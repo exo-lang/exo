@@ -35,6 +35,11 @@ class ThreadIter:
         self.child_tile_num_threads = coll_tiling.tile_num_threads()
         self.thread_pitch = advice.thread_pitch
 
+    def cname(self, name):
+        """Mangling convention for generated C variables"""
+        N = self.child_tile_num_threads
+        return f"exo_{N}thr_{name}"
+
 
 @dataclass(slots=True)
 class DistributedAllocState(object):

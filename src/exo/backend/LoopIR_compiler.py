@@ -1137,10 +1137,6 @@ class Compiler:
                     self.names[nm] = nm
                 self.force_names = dict(old_force_names)
                 for sym, nm in ctx.force_names.items():
-                    if nm in self.names and self.force_names.get(sym) != nm:
-                        raise ValueError(
-                            f"{s.srcinfo}: internal compiler error: name collision {nm}"
-                        )
                     self.names[nm] = nm
                     self.force_names[sym] = nm
                     if sym in self.env:

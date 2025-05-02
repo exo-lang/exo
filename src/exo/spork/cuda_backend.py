@@ -1103,7 +1103,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
         # HACK: align mbarriers to 128 bytes for now
 
         # We override the C names of variables that appear in the
-        # exo_DeviceArgs or exo_Task structs.
+        # exo_DeviceArgs or exo_Task structs, or cuda_threads iterators.
         main_loop_force_names = {}
         task_force_names = {}
         for sym in scan.task_iter_syms:
@@ -1113,6 +1113,8 @@ class SubtreeRewrite(LoopIR_Rewrite):
             new_name = "exo_deviceArgs." + str(sym)
             main_loop_force_names[sym] = new_name
             task_force_names[sym] = new_name
+        for sym, info in self.thread_iters.items():
+            task_force_names[sym] = info.cname(sym.name())
 
         # ExtWithContext objects for diverting lowered code into
         # exo_deviceTask().
