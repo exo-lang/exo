@@ -88,10 +88,10 @@ class DistributedAllocState(object):
     leaf_coll_tiling: Optional[CollTiling]
 
     # Only used for barrier types
-    Arrive_coll_tiling: Optional[CollTiling]
-    Await_coll_tiling: Optional[CollTiling]
-    ReverseArrive_coll_tiling: Optional[CollTiling]
-    ReverseAwait_coll_tiling: Optional[CollTiling]
+    Arrive: Optional[CollTiling]
+    Await: Optional[CollTiling]
+    ReverseArrive: Optional[CollTiling]
+    ReverseAwait: Optional[CollTiling]
 
     def __init__(self, alloc_coll_tiling, optional_native_unit):
         assert isinstance(alloc_coll_tiling, CollTiling)
@@ -103,10 +103,10 @@ class DistributedAllocState(object):
         self.alloc_coll_tiling = alloc_coll_tiling
         self.optional_native_unit = optional_native_unit
         self.leaf_coll_tiling = None
-        self.Arrive_coll_tiling = None
-        self.Await_coll_tiling = None
-        self.ReverseArrive_coll_tiling = None
-        self.ReverseAwait_coll_tiling = None
+        self.Arrive = None
+        self.Await = None
+        self.ReverseArrive = None
+        self.ReverseAwait = None
 
     def n_distributed_dims(self):
         return len(self.first_distributed_iters)
@@ -116,8 +116,9 @@ class DistributedAllocState(object):
         assert not s.sync_type.is_split()
         result = DistributedAllocState(coll_tiling, None)
         result.first_usage_stmt = s
-        result.Arrive_coll_tiling = coll_tiling
-        result.Await_coll_tiling = coll_tiling
+        result.Arrive = coll_tiling
+        result.Await = coll_tiling
+        return result
 
     def codegen_slices_to_root(
         self,
@@ -398,8 +399,8 @@ class DistributedIdxFsm:
         assert isinstance(sync, LoopIR.SyncStmt)
         sync_type = sync.sync_type
         assert sync_type.is_split()
-        # Update state.Arrive_coll_tiling, state.Await_coll_tiling,
-        # state.ReverseArrive_coll_tiling, or state.ReverseAwait_coll_tiling
+        # Update state.Arrive, state.Await,
+        # state.ReverseArrive, or state.ReverseAwait
         leaf_T = state.leaf_coll_tiling.tile_num_threads()
         sync_T = coll_tiling.tile_num_threads()
         if leaf_T != sync_T:
@@ -408,7 +409,7 @@ class DistributedIdxFsm:
                 f"{sync.srcinfo}: {sync} executed with tile size {sync_T} threads; mismatches {leaf_T} threads deduced from {bar} (missing indices)?"
             )
         fname = sync_type.fname()
-        attr = fname + "_coll_tiling"
+        attr = fname
         old_coll_tiling = getattr(state, attr)
         if old_coll_tiling is None:
             setattr(state, attr, coll_tiling)

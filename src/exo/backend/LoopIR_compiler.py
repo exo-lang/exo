@@ -468,6 +468,7 @@ def ext_compile_to_strings(lib_name, proc_list):
                 lib_name,
                 ctxt_name,
                 window_struct_cache,
+                barrier_uses,
                 is_public_decl=is_public_decl,
             )
             d, b = comp.comp_top()
@@ -624,7 +625,14 @@ def _compile_context_struct(configs, lib_name):
 
 class Compiler:
     def __init__(
-        self, proc, lib_name, ctxt_name, window_struct_cache, *, is_public_decl
+        self,
+        proc,
+        lib_name,
+        ctxt_name,
+        window_struct_cache,
+        barrier_uses,
+        *,
+        is_public_decl,
     ):
         assert isinstance(proc, LoopIR.proc)
         assert isinstance(window_struct_cache, WindowStructCache)
@@ -643,6 +651,7 @@ class Compiler:
         self._scalar_refs = set()
         self._needed_helpers = set()
         self.window_struct_cache = window_struct_cache
+        self.barrier_uses = barrier_uses
         self._known_strides = {}
         self._in_cuda_function = False
         self._cuda_kernel_count = 0
@@ -1809,3 +1818,6 @@ class SporkLoweringCtx(object):
         return self._compiler.comp_fnarg_impl(e, mem, is_const, 0, force_pass_by_value)[
             0
         ]
+
+    def get_barrier_usage(self, name: Sym) -> BarrierUsage:
+        return self._compiler.barrier_uses[name]

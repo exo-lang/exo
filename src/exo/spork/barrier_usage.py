@@ -16,6 +16,9 @@ class SyncInfo:
     min_N: int
     max_N: int
 
+    def get_srcinfo(self):
+        return self.stmts[0].srcinfo
+
 
 @dataclass(slots=True)
 class BarrierUsage:
@@ -30,6 +33,9 @@ class BarrierUsage:
     Await: Optional[SyncInfo] = None
     ReverseArrive: Optional[SyncInfo] = None
     ReverseAwait: Optional[SyncInfo] = None
+
+    def get_srcinfo(self):
+        return self.decl_stmt.srcinfo
 
     def is_fence(self):
         return self.barrier_type is None
@@ -99,7 +105,7 @@ class BarrierUsageAnalysis(LoopIR_Do):
                     sync_info.max_N = max(sync_info.max_N, N)
             # Fence, but we ignore any with stmt.lowered set as a
             # debug backdoor for now.
-            elif s.lowered is not None:
+            elif s.lowered is None:
                 assert (
                     s.name not in self.uses
                 ), "exocc internal error, invalid Fence Sym"
