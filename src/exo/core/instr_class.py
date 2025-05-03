@@ -287,7 +287,7 @@ class InstrTemplate:
 
             signature = arg_info.actor_signature
             assert (
-                signature in actor_kind.signatures
+                signature in actor_kind.full_signatures
             ), f"{clsname}: cannot access {nm} with actor signature {signature} for actor kind {actor_kind}"
 
         info._formatted_tparam_kwargs = self._format_tparam_kwargs(

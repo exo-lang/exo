@@ -5,9 +5,10 @@
 # which users shouldn't import directly.
 from ..spork.actor_kinds import (
     cpu,
-    cuda_classic,
     cuda_api,
     cpu_cuda_api,
+    cuda_temporal,
+    cuda_classic,
     sig_cpu,
     sig_cuda_classic,
 )

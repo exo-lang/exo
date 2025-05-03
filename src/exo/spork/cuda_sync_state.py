@@ -110,8 +110,8 @@ class SyncStateBuilder:
             usage.ReverseAwait,
         ):
             if info is not None:
-                if not actor_kinds.cuda_async_proxy.signatures.isdisjoint(
-                    info.actor_kind.signatures
+                if not actor_kinds.cuda_async_proxy.full_signatures.isdisjoint(
+                    info.actor_kind.full_signatures
                 ):
                     self._uses_async_proxy = True
 
