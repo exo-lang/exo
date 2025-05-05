@@ -488,12 +488,14 @@ template <typename T, unsigned RegCount>
 struct exo_Sm90_RmemMatrixA
 {
     T a[RegCount];
+    static constexpr unsigned reg_count = RegCount;
 };
 template <typename T, unsigned RegCount>
 struct exo_Sm90_RmemMatrixD
 {
     T d[RegCount];
     unsigned scale_d = 0;  // Set to 0 triggers zero-init on the next mma_async call.
+    static constexpr unsigned reg_count = RegCount;
 };
 #endif
 """
@@ -571,49 +573,6 @@ EXO_CUDA_INLINE uint64_t exo_matrix_descriptor(const void* smem_ptr, uint32_t mn
 """
 
 
-def mma_async_fname(m, n, k, ptx_d_type, ptx_ab_type):
-    return f"exo_wgmma_mma_async_m{m}n{n}k{k}_{ptx_d_type}_{ptx_ab_type}"
-
-
-def mma_async_util(m, n, k, ptx_d_type, ptx_ab_type, reg_type, n_regs):
-    # fmt: off
-    if reg_type == "float":
-        r = "f"
-    elif reg_type == "unsigned":
-        r = "r"
-    else:
-        assert 0
-
-    fname = mma_async_fname(m, n, k, ptx_d_type, ptx_ab_type)
-    instr_name = f"wgmma.mma_async.sync.aligned.m{m}n{n}k{k}.{ptx_d_type}.{ptx_ab_type}.{ptx_ab_type}"
-    vector_fmt = "{" + ", ".join(f"%{i}" for i in range(n_regs)) + "}"
-    vector_args = ", ".join(f'"+{r}"(d.d[{i}])' for i in range(n_regs))
-
-    return fr"""template <unsigned swizzle_bits_a, unsigned swizzle_bits_b>
-EXO_CUDA_INLINE void {fname}(
-        exo_Sm90_RmemMatrixD<{reg_type}, {n_regs}>& d, const void* smem_a, const void* smem_b,
-        unsigned m_matrix_stride, unsigned n_matrix_stride, unsigned k_matrix_stride)
-{{
-    auto desc_a = exo_matrix_descriptor<swizzle_bits_a>(smem_a, m_matrix_stride, k_matrix_stride);
-    auto desc_b = exo_matrix_descriptor<swizzle_bits_b>(smem_b, n_matrix_stride, k_matrix_stride);
-    asm volatile(
-                "{{ // {fname} \n\t"
-                  ".reg .pred p;\n\t"
-                  "setp.ne.b32 p, %{n_regs+2}, 0;\n\t"
-                  "{instr_name}\n\t"
-                  "{vector_fmt},\n\t"
-                  " %{n_regs}, "
-                  " %{n_regs+1}, "
-                  " p,    1,  1;\n"
-                "}}\n"
-                  : {vector_args}
-                  :  "l"(desc_a), "l"(desc_b), "r"(d.scale_d));
-    d.scale_d = 1;
-}}
-"""
-    # fmt: on
-
-
 class mma_async_impl:
     def instance_impl(self, m, n, k, ptx_d_type, ptx_ab_type, reg_type, n_regs):
         if n % 8 != 0 or not (8 <= n <= 256):
@@ -624,21 +583,39 @@ class mma_async_impl:
         self.actor_kind = wgmma_async
         self.coll_unit = cuda_warpgroup
         self.cu_utils.append(matrix_descriptor_util)
-        self.cu_utils.append(
-            mma_async_util(m, n, k, ptx_d_type, ptx_ab_type, reg_type, n_regs)
-        )
+
+        if reg_type == "float":
+            r = "f"
+        elif reg_type == "unsigned":
+            r = "r"
+        else:
+            assert 0
 
         # TODO correct swizzle bits, strides (1024 is assuming densely packed)
         swizzle_bits_a = 1
         swizzle_bits_b = 1
-        fname = mma_async_fname(m, n, k, ptx_d_type, ptx_ab_type)
+        instr_name = f"wgmma.mma_async.sync.aligned.m{m}n{n}k{k}.{ptx_d_type}.{ptx_ab_type}.{ptx_ab_type}"
+        vector_fmt = "{{" + ", ".join(f"%{i}" for i in range(n_regs)) + "}}"
 
-        fmt = f"""exo_CudaUtil::{fname}<{swizzle_bits_a}, {swizzle_bits_b}>(
-                    {{d_data}},
-                    &{{a_data}},
-                    &{{b_data}},
-                    1024, 1024, 0);"""
-        self.instr_format = fmt
+        fmt_snippets = []
+        vector_args_py_fmt = ", ".join(
+            f'"+{r}"({{d_data}}.d[{i}])' for i in range(n_regs)
+        )
+
+        # fmt:off
+        fmt_snippets.append('asm volatile("{{')
+        fmt_snippets.append(fr".reg .pred p;\n\tsetp.ne.b32 p, %{n_regs+2}, 0;\n\t{instr_name}\n\t")
+        fmt_snippets.append(fr"{vector_fmt},\n\t")
+        fmt_snippets.append(fr"%{n_regs}, %{n_regs+1}, p, 1, 1;\n")
+        fmt_snippets.append('}}"')
+        fmt_snippets.append(f': {vector_args_py_fmt}')
+        fmt_snippets.append(f': "l"(exo_CudaUtil::exo_matrix_descriptor<{swizzle_bits_a}>(&{{a_data}}, 1024, 1024))')
+        fmt_snippets.append(f', "l"(exo_CudaUtil::exo_matrix_descriptor<{swizzle_bits_b}>(&{{b_data}}, 1024, 1024))')
+        fmt_snippets.append(f', "r"({{d_data}}.scale_d));')
+        fmt_snippets.append(f'\n{{d_data}}.scale_d = 1;')
+        # fmt:on
+
+        self.instr_format = "".join(fmt_snippets)
 
 
 # For a wgmma D-matrix (in RMEM), set the scale-d flag to 0, so
@@ -689,35 +666,34 @@ __all__.append("Sm90_mma_async_tf32")
 
 
 # TODO support more than float
-write_d_util = """template <bool ColumnMajor, typename Window, typename Reg, unsigned RegCount>
-EXO_CUDA_INLINE void exo_Sm90_store_d(Window dst, const exo_Sm90_RmemMatrixD<Reg, RegCount>& src)
+write_d_util = """template <bool ColumnMajor, typename Window, typename Reg>
+EXO_CUDA_INLINE void exo_Sm90_store_d_reg(Window dst, Reg value, uint32_t reg_index)
 {
     const uint32_t tid = threadIdx.x % 128u;
     const uint32_t r_base = (tid / 32u) * 16u + (tid % 32u) / 4u;
     const uint32_t c_base = (tid % 4u) * 2u;
-    #pragma unroll
-    for (uint32_t reg_index = 0; reg_index < RegCount; ++reg_index) {
-        const uint32_t r = r_base + ((reg_index % 4u) / 2u) * 8u;
-        const uint32_t c = c_base + (reg_index / 4u) * 8 + (reg_index % 2u);
-        // Strict aliasing violation, but we have essentially no choice.
-        auto dst_ptr = reinterpret_cast<uint32_t*>(
-                &dst.data[c * dst.strides[!ColumnMajor] + r * dst.strides[ColumnMajor]]);
-        *dst_ptr = reinterpret_cast<const uint32_t&>(src.d[reg_index]);
-    }
+    const uint32_t r = r_base + ((reg_index % 4u) / 2u) * 8u;
+    const uint32_t c = c_base + (reg_index / 4u) * 8 + (reg_index % 2u);
+    auto dst_ptr = reinterpret_cast<Reg*>(
+            &dst.data[c * dst.strides[!ColumnMajor] + r * dst.strides[ColumnMajor]]);
+    *dst_ptr = value;
 }
 """
 
 
 class Sm90_mma_write_d_impl:
-    def instance_impl(self, col_major):
+    def instance_impl(self, col_major, reg_count):
         self.access_info["dst"].actor_signature = sig_cuda_classic
         self.access_info["src"].actor_signature = sig_cuda_classic
         self.actor_kind = cuda_classic
         self.coll_unit = cuda_warpgroup
         self.cu_utils.append(write_d_util)
         col_major = "true" if col_major else "false"
-        self.instr_format = (
-            "exo_CudaUtil::exo_Sm90_store_d<" + col_major + ">({dst}, {src_data});"
+        self.instr_format = "\n".join(
+            "exo_CudaUtil::exo_Sm90_store_d_reg<"
+            + col_major
+            + ">({dst}, {src_data}.d[%i], %i);" % (i, i)
+            for i in range(reg_count)
         )
 
 
@@ -733,7 +709,7 @@ class Sm90_mma_write_d_col_major_tf32(Sm90_mma_write_d_impl):
                 dst[ni, mi] = src[mi, ni]  # Transposed
 
     def instance(self, n):
-        self.instance_impl(True)
+        self.instance_impl(True, n // 2)
 
 
 @instr
@@ -748,7 +724,7 @@ class Sm90_mma_write_d_row_major_tf32(Sm90_mma_write_d_impl):
                 dst[mi, ni] = src[mi, ni]
 
     def instance(self, n):
-        self.instance_impl(False)
+        self.instance_impl(False, n // 2)
 
 
 __all__.append("Sm90_mma_write_d_col_major_tf32")
