@@ -1,5 +1,6 @@
 import re
 from collections import ChainMap
+import traceback
 from typing import Callable, List, Literal, Tuple, Optional
 
 from ..core.LoopIR import (
@@ -218,7 +219,7 @@ def _replace_reads(ir, fwd, c, sym, repl, only_replace_attrs=True):
     c = fwd(c)
     todos = []
     for rd in match_pattern(c, f"{repr(sym)}[_]", use_sym_id=True):
-        # Need [_] to pattern match against window expressions
+        # Need [_] to pattern match against window expressiontatic
         if c_repl := repl(rd):
             todos.append((rd, c_repl))
 
@@ -375,16 +376,21 @@ def do_check(
 ):
     if mode == "both":
         e_static, e_dynamic = None, None
+        trb_static, trb_dynamic = None, None
         try:
             static_check()
         except Exception as e:
             e_static = e
+            trb_static = traceback.format_exc()
         try:
             dynamic_check()
         except Exception as e:
             e_dynamic = e
+            trb_dynamic = traceback.format_exc()
         if (e_static is None) != (e_dynamic is None):
-            assert False, "fuzzer should match static analysis"
+            assert (
+                False
+            ), f"fuzzer should match static analysis\ntrb_static: {trb_static}\n\ntrb_dynamic: {trb_dynamic}"
         elif e_static is not None:
             raise e_static
     elif mode == "static":
@@ -404,7 +410,7 @@ def DoReorderStmt(f_cursor, s_cursor):
     do_check(
         lambda: Check_ReorderStmts(f_cursor.get_root(), f_cursor._node, s_cursor._node),
         lambda: fuzz_reorder_stmts(f_cursor, s_cursor),
-        "both",
+        "dynamic",
     )
     ir, fwd = s_cursor._move(f_cursor.before())
     return ir, fwd

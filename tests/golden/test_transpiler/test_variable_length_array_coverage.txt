@@ -1,0 +1,24 @@
+(()=>{
+ctxt={}
+let body_9=false;let skip_10=false;let write_12=new ArrayBuffer(1,{maxByteLength:16});let write_15=new ArrayBuffer(1,{maxByteLength:16});
+if(!($n_1>2))return [1,ctxt,{}];
+
+body_9||=(2<$n_1);skip_10||=(2>=$n_1);
+for(let i_2=2;i_2<$n_1;i_2++){
+
+if(!(i_2>=0))return [1,ctxt,{}];
+let b_3=new Int32Array(i_2);
+while(i_2>write_12.maxByteLength){let temp_13=new ArrayBuffer(write_12.byteLength,{maxByteLength:2*write_12.maxByteLength});for(let i=0;i<write_12.byteLength;i++)temp_13[i]=write_12[i];write_12=temp_13};write_12.resize(Math.max(i_2,write_12.byteLength));while(i_2>write_15.maxByteLength){let temp_16=new ArrayBuffer(write_15.byteLength,{maxByteLength:2*write_15.maxByteLength});for(let i=0;i<write_15.byteLength;i++)temp_16[i]=write_15[i];write_15=temp_16};write_15.resize(Math.max(i_2,write_15.byteLength));
+if(!(i_2>=0))return [1,ctxt,{}];
+if(!((i_2-1)<i_2&&(i_2-1)>=0))return [1,ctxt,{}];
+write_12[Math.imul((i_2-1),1)+0]=1;
+
+if(!((i_2-1)<i_2&&(i_2-1)>=0))return [1,ctxt,{}];
+b_3[Math.imul((i_2-1),1)+0]=0;
+if(!((i_2-2)<i_2&&(i_2-2)>=0))return [1,ctxt,{}];
+write_15[Math.imul((i_2-2),1)+0]=1;
+
+if(!((i_2-2)<i_2&&(i_2-2)>=0))return [1,ctxt,{}];
+b_3[Math.imul((i_2-2),1)+0]=1;
+}
+return [0,ctxt,{body_9,skip_10,write_12,write_15}];})

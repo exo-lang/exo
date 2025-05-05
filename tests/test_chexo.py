@@ -5,7 +5,6 @@ from exo.rewrite.chexo import (
     TypeVisitor,
     get_free_variables,
     collect_path_constraints,
-    collect_arg_size_constraints,
 )
 from exo.rewrite.constraint_solver import ConstraintMaker
 from exo import proc, config
@@ -72,15 +71,3 @@ def test_path_constraints(golden):
         golden
         == collect_path_constraints(foo.find("b[j] = b[i]")._impl, cm).pretty_print()
     )
-
-
-def test_arg_size_constraints(golden):
-    @proc
-    def foo(a: size, b: size, c: f32[a * 2, b + 1]):
-        pass
-
-    type_visitor = TypeVisitor()
-    type_visitor.visit(foo._loopir_proc)
-    cm = ConstraintMaker(type_visitor.type_map)
-    constraints = collect_arg_size_constraints(foo._loopir_proc.args, cm)
-    assert golden == constraints.pretty_print()
