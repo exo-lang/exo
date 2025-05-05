@@ -1,0 +1,7 @@
+def svmla(C: f32[16] @ DRAM, A: f32[16] @ DRAM, B: f32 @ DRAM):
+    C_reg: f32[16] @ SVE_VLS
+    svld1_f32(C_reg[0:16], C[0:16])
+    A_reg: f32[16] @ SVE_VLS
+    svld1_f32(A_reg[0:16], A[0:16])
+    svmla_n_f32_x(C_reg[0:16], A_reg[0:16], B)
+    svst1_f32(C[0:16], C_reg[0:16])

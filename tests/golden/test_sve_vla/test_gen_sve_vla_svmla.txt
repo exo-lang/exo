@@ -1,0 +1,2 @@
+def svmla(N: size, C: f32[N] @ DRAM, A: f32[N] @ DRAM, B: f32 @ DRAM):
+    svmla_n_f32_x_vla(N, C[0:N], A[0:N], B)
