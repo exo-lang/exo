@@ -1,0 +1,22 @@
+((a_4,b_5,c_6)=>{
+ctxt={}
+if(!($size_a_4_0==$N_1))return [1,ctxt,{}];
+if(!($size_a_4_1==$K_3))return [1,ctxt,{}];
+if(!($size_b_5_0==$K_3))return [1,ctxt,{}];
+if(!($size_b_5_1==$M_2))return [1,ctxt,{}];
+if(!($size_c_6_0==$N_1))return [1,ctxt,{}];
+if(!($size_c_6_1==$M_2))return [1,ctxt,{}];
+for(let i_7=0;i_7<$N_1;i_7++){
+for(let j_8=0;j_8<$M_2;j_8++){
+for(let k_9=0;k_9<$K_3;k_9++){
+if(!(i_7<$size_a_4_0&&i_7>=0))return [1,ctxt,{}];
+if(!(k_9<$size_a_4_1&&k_9>=0))return [1,ctxt,{}];
+if(!(k_9<$size_b_5_0&&k_9>=0))return [1,ctxt,{}];
+if(!(j_8<$size_b_5_1&&j_8>=0))return [1,ctxt,{}];
+if(!(i_7<$size_c_6_0&&i_7>=0))return [1,ctxt,{}];
+if(!(j_8<$size_c_6_1&&j_8>=0))return [1,ctxt,{}];
+c_6[Math.imul(i_7,$stride_c_6_0)+Math.imul(j_8,$stride_c_6_1)+0]+=(a_4[Math.imul(i_7,$stride_a_4_0)+Math.imul(k_9,$stride_a_4_1)+0]*b_5[Math.imul(k_9,$stride_b_5_0)+Math.imul(j_8,$stride_b_5_1)+0]);
+}
+}
+}
+return [0,ctxt,];})

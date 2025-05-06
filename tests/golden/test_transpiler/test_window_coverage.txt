@@ -1,0 +1,14 @@
+((a_1)=>{
+ctxt={}
+
+if(!($size_a_1_0==16))return [1,ctxt,{}];
+if(!(0<=1&&1<=8&&8<=$size_a_1_0))return [1,ctxt,{}];
+if(!(3<$size_a_1_0&&3>=0))return [1,ctxt,{}];
+
+if(!(3<$size_a_1_0&&3>=0))return [1,ctxt,{}];
+a_1[Math.imul(3,$stride_a_1_0)+0]=2;
+if(!(2<(8-1)&&2>=0))return [1,ctxt,{}];
+
+if(!(2<(8-1)&&2>=0))return [1,ctxt,{}];
+a_1[Math.imul(2,$stride_a_1_0)+(0+Math.imul(1,$stride_a_1_0))]=3;
+return [0,ctxt,{}];})

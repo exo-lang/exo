@@ -32,5 +32,8 @@ class Extern:
     def interpret(self, args):
         raise NotImplementedError()
 
+    def transpile(self, args):
+        raise NotImplementedError()
+
     def compile(self, args, prim_type):
         raise NotImplementedError()
