@@ -564,26 +564,24 @@ class CollTiling(object):
         tile_count = 1
         for dim_idx, unit_box_coord in enumerate(unit_completion.new_size(unit_box)):
             domain_coord = common_domain[dim_idx]
-            common_tile_coord = common_tile[dim_idx]
+            box_coord = new_box[dim_idx]
             if (
                 unit_box_coord is not None
                 and unit_box_coord != domain_coord
-                and unit_box_coord != common_tile_coord
+                and unit_box_coord != box_coord
             ):
-                tile_count = common_tile_coord // unit_box_coord
-                tile_remainder = common_tile_coord % unit_box_coord
+                tile_count = box_coord // unit_box_coord
+                tile_remainder = box_coord % unit_box_coord
 
                 # TODO messages
                 assert tiled_dim_idx is None
                 assert 0 <= lo <= hi <= tile_count
-                assert new_box[dim_idx] == common_tile[dim_idx]
 
                 tiled_dim_idx = dim_idx
-                stride = unit_box_coord
                 advice.coll_index = new_exprs[dim_idx]  # before -= below
-                new_exprs[dim_idx] -= lo * stride
-                new_offset[dim_idx] = lo * stride
-                new_box[dim_idx] = (hi - lo) * stride
+                new_exprs[dim_idx] -= lo * unit_box_coord
+                new_offset[dim_idx] += lo * unit_box_coord
+                new_box[dim_idx] = (hi - lo) * unit_box_coord
 
                 if lo != 0:
                     advice.lo = lo * unit_box_coord
