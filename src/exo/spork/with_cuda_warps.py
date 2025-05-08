@@ -9,6 +9,7 @@ class CudaWarps(BaseWithContext):
         self,
         lo: Optional[int] = None,
         hi: Optional[int] = None,
+        *,
         name: Optional[str] = None,
     ):
         self.lo = lo
