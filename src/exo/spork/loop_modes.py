@@ -1,4 +1,4 @@
-from typing import Optional, Set
+from typing import Optional, Set, Tuple
 from .coll_algebra import CollUnit, cuda_thread
 
 
@@ -40,9 +40,13 @@ class _CodegenPar(LoopMode):
     Contains a C string for the "index expression" (e.g. "threadIdx.x / 32")
     and optional bounds"""
 
-    __slots__ = ["c_index", "static_bounds"]
+    __slots__ = ["c_index", "static_bounds", "warp_name_filter"]
 
-    def __init__(self, c_index, static_bounds):
+    c_index: str
+    static_bounds: Optional[Tuple[int, int]]
+    warp_name_filter: Optional[str]
+
+    def __init__(self, c_index, static_bounds, warp_name_filter=None):
         # Compiled C string giving index of parallel loop "iteration"
         self.c_index = c_index
         assert isinstance(c_index, str)
@@ -56,6 +60,8 @@ class _CodegenPar(LoopMode):
         lo, hi = static_bounds
         assert lo is None or isinstance(lo, int)
         assert hi is None or isinstance(hi, int)
+
+        self.warp_name_filter = warp_name_filter
 
     def loop_mode_name(self):
         return "_codegen_par"

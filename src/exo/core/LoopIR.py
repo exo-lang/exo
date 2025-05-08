@@ -852,7 +852,7 @@ class LoopIR_Rewrite:
             new_lo = self.map_e(s.lo)
             new_hi = self.map_e(s.hi)
             new_body = self.map_stmts(s.body)
-            if any((new_lo, new_hi, new_body is not None)):
+            if new_lo is not None or new_hi is not None or new_body is not None:
                 return [
                     s.update(
                         lo=new_lo or s.lo, hi=new_hi or s.hi, body=new_body or s.body

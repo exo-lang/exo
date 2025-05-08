@@ -235,7 +235,10 @@ class SyncStateBuilder:
         if n_warps > 0 and not wgmma_special_case:
             if cta_count == 1:
                 if not coll_tiling.unit_mismatch(cuda_cta_in_cluster, self._coll_env):
-                    lines.append("__syncthreads();")
+                    # We need to use barrier.cta.sync, not bar or syncthreads
+                    # due to divergent control flow in "full CTA" code
+                    # if there's [named] warp specialization.
+                    lines.append('asm("barrier.cta.sync 0;");')
                 elif n_warps == 1:
                     lines.append("__syncwarp();")
                 else:

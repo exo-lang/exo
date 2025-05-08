@@ -35,6 +35,7 @@ from ..spork.cuda_memory import (
     CudaMbarrier,
     CudaCommitGroup,
 )
+from ..spork.cuda_warp_config import CudaWarpConfig
 from ..spork.loop_modes import CudaTasks, CudaThreads
 from ..spork.with_cuda_warps import CudaWarps
 

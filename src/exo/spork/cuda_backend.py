@@ -37,6 +37,7 @@ from .cuda_memory import (
     CudaBasicSmem,
     SmemConfigInputs,
     CudaGridConstant,
+    CudaRmem,
 )
 from .cuda_sync_state import (
     LoweredBarrierType,
@@ -45,6 +46,7 @@ from .cuda_sync_state import (
     CudaLoweredBarrier,
     SyncStateBuilder,
 )
+from .cuda_warp_config import WarpLayoutInfo
 from .loop_modes import CudaTasks, CudaThreads, Seq, seq, _CodegenPar
 from .sync_types import SyncType
 from .with_cuda_warps import CudaWarps
@@ -84,6 +86,7 @@ class SubtreeScan(LoopIR_Do):
         "thread_iters",
         "cuda_warps_dfs_codegen",
         "fmt_dict",
+        "named_warp_used_syms",  # TODO
         "task_loop_depth",
         "task_iter_syms",
         "device_args_syms",
@@ -94,6 +97,9 @@ class SubtreeScan(LoopIR_Do):
         "_stmt_stack",
         "_coll_env",
         "_coll_tiling",
+        "_current_warp_name",
+        "named_warps",
+        "setmaxnreg_is_inc",
     ]
 
     ctx: SporkLoweringCtx
@@ -111,19 +117,29 @@ class SubtreeScan(LoopIR_Do):
     # unique information (id(...) is not unique after scheduling).
     cuda_warps_dfs_codegen: List[_CodegenPar]
 
-    blockDim: int
-    clusterDim: int
     fmt_dict: Dict
+
+    # For each warp name, record the set of Syms used when executing the code
+    # path for that warp. Needed to remove unused variables.
+    named_warp_used_syms: Dict[str, Set[Sym]]
+
     task_loop_depth: int
     task_iter_syms: List[Sym]
+    device_args_syms: List[Sym]
+    grid_constant_syms: Set[Sym]
+    scalar_ref_syms: Set[Sym]
+
     _syms_needed: Set[Sym]
     _stmt_stack: List[LoopIR.stmt]
     _coll_env: Dict[CollParam, int]
     _coll_tiling: CollTiling
+    _current_warp_name: Optional[str]
+    named_warps: Dict[str, WarpLayoutInfo]
+    setmaxnreg_is_inc: Optional[Dict[int, bool]]
 
     def __init__(self, s, ctx: SporkLoweringCtx):
         assert is_if_holding_with(s, LoopIR)
-        cuda_device_function = s.cond.val
+        cuda_device_function: CudaDeviceFunction = s.cond.val
         assert isinstance(cuda_device_function, CudaDeviceFunction)
 
         blockDim = cuda_device_function.blockDim
@@ -144,6 +160,10 @@ class SubtreeScan(LoopIR_Do):
             "clusterDim": clusterDim,
             "blocks_per_sm": cuda_device_function.blocks_per_sm,
         }
+        self.named_warps = cuda_device_function.named_warps
+        self.setmaxnreg_is_inc = cuda_device_function.setmaxnreg_is_inc
+        self._current_warp_name = None
+        self.named_warp_used_syms = {nm: set() for nm in self.named_warps}
 
         # Validate top-level form of cuda kernel
         # Must be nest of 1+ cuda_tasks loops
@@ -311,6 +331,7 @@ class SubtreeScan(LoopIR_Do):
     def do_s(self, s):
         # Save state
         old_coll_tiling = self._coll_tiling
+        old_warp_name = self._current_warp_name
         self._stmt_stack.append(s)
 
         # Modify state, then recurse with super()
@@ -327,6 +348,7 @@ class SubtreeScan(LoopIR_Do):
         # Restore state
         self._stmt_stack.pop()
         self._coll_tiling = old_coll_tiling
+        self._current_warp_name = old_warp_name
 
     def do_e(self, e):
         self.apply_e(e)
@@ -334,14 +356,14 @@ class SubtreeScan(LoopIR_Do):
 
     def apply_e(self, e):
         if isinstance(e, idx_e_types):
-            self._syms_needed.add(e.name)
+            self.mark_sym_used(e.name)
             self.apply_idx(e, self._stmt_stack[-1])
         else:
             assert not hasattr(e, "name"), "Add handling for array indexing"
 
     def apply_s(self, s):
         if isinstance(s, idx_s_types):
-            self._syms_needed.add(s.name)
+            self.mark_sym_used(s.name)
             self.apply_idx(s, s)
         elif not isinstance(
             s, (LoopIR.WindowStmt, LoopIR.Alloc, LoopIR.Free, LoopIR.SyncStmt)
@@ -399,6 +421,7 @@ class SubtreeScan(LoopIR_Do):
                 )
         elif isinstance(s, LoopIR.SyncStmt):
             # Distributed memory analysis and CollTiling for Fence/Arrive/Await
+            self.mark_sym_used(s.name)
             if s.sync_type.is_split():
                 state = self.distributed_alloc_states.get(s.name)
                 assert isinstance(state, DistributedAllocState)
@@ -437,13 +460,51 @@ class SubtreeScan(LoopIR_Do):
                 )
 
     def apply_with_cuda_warps(self, s):
-        ctx = s.cond.val
+        ctx: CudaWarps = s.cond.val
         assert isinstance(ctx, CudaWarps)
+        is_top_level = self._current_warp_name is None
+
+        # Top-level CudaWarps: translate CudaWarps lo/hi to real lo/hi
+        # (taking into account physical offset of named warps)
+        if is_top_level:
+            name = "" if ctx.name is None else ctx.name
+            if (info := self.named_warps.get(name)) is None:
+                known_names = sorted(self.named_warps)
+                raise ValueError(
+                    f"{s.srcinfo}: top-level CudaWarps must provide valid warp name, not {ctx.name!r}; your CudaDeviceFunction defines: {known_names}"
+                )
+            raw_lo = 0 if ctx.lo is None else ctx.lo
+            raw_hi = info.count if ctx.hi is None else ctx.hi
+            adjusted_lo = info.offset + raw_lo
+            adjusted_hi = info.offset + raw_hi
+            if raw_hi > info.count:
+                raise ValueError(
+                    f"{s.srcinfo}: CudaWarps.hi = {raw_hi} out-of-range for {name!r}-named warps (only {info.count})"
+                )
+        # Nested CudaWarps: interpret lo/hi literally as the higher-level
+        # CudaWarps will have already handled the named warp offset adjustment.
+        # Can't request different named warps now.
+        else:
+            name = self._current_warp_name if ctx.name is None else ctx.name
+            if name != self._current_warp_name:
+                raise ValueError(
+                    f"{s.srcinfo}: nested CudaWarps cannot change warp name from {self._current_warp_name!r} to {name!r}"
+                )
+            adjusted_lo = ctx.lo
+            adjusted_hi = ctx.hi
+            if adjusted_lo is None or adjusted_hi is None:
+                raise ValueError(
+                    f"{s.srcinfo}: nested CudaWarps must define lo and hi explicitly"
+                )
+
+        del ctx  # Don't accidentally use unadjusted values
+        self._current_warp_name = name
+
         self._coll_tiling, advice = self._coll_tiling.specialized(
-            cuda_warp, ctx.lo, ctx.hi, self._coll_env
+            cuda_warp, adjusted_lo, adjusted_hi, self._coll_env
         )
         self.cuda_warps_dfs_codegen.append(
-            _CodegenPar(advice.coll_index.codegen(), (advice.lo, advice.hi))
+            _CodegenPar(advice.coll_index.codegen(), (advice.lo, advice.hi), name)
         )
 
     def expect_SyncStmt(
@@ -547,6 +608,15 @@ class SubtreeScan(LoopIR_Do):
         # consistency (index equality) with prior uses.
         fsm.check_store_state(node, state)
 
+    def mark_sym_used(self, name: Sym):
+        self._syms_needed.add(name)
+        warp_name = self._current_warp_name
+        if warp_name is None:
+            for syms in self.named_warp_used_syms.values():
+                syms.add(name)
+        else:
+            self.named_warp_used_syms[warp_name].add(name)
+
     def get_barrier_usage(self, name: Sym) -> BarrierUsage:
         return self.ctx.get_barrier_usage(name)
 
@@ -557,6 +627,172 @@ class SubtreeScan(LoopIR_Do):
 # ========================   PHASE 2: subtree rewrite   ========================
 # Rewrite the CUDA device function subtree with nodes the outer LoopIR C compiler
 # understands. In particular, we lower barriers, and rewrite parallel loops.
+#
+# The rewrite happens in two sub-phases:
+#   A. main lowering replacing spork constructs with basic LoopIR constructs
+#        -> most of SubtreeRewrite
+#   B. specialize by named warps; we generate one deviceTask per warp name.
+#        -> MainLoopRewrite
+
+
+def wrap_with_context(with_context, body, srcinfo):
+    cond = LoopIR.Const(with_context, T.with_context, srcinfo)
+    node = LoopIR.If(cond, body, [], srcinfo)
+    assert is_if_holding_with(node, LoopIR)
+    return node
+
+
+def wrap_codegen_par(codegen_par, body, srcinfo):
+    assert isinstance(codegen_par, _CodegenPar)
+    return LoopIR.For(
+        Sym("tmp"),
+        LoopIR.Const(0, T.int, srcinfo),
+        LoopIR.Const(1, T.int, srcinfo),
+        body,
+        codegen_par,
+        srcinfo,
+    )
+
+
+class MainLoopRewrite(LoopIR_Rewrite):
+    __slots__ = [
+        "named_warp_used_syms",
+        "lowered_body",
+        "result_stmts",
+        "_current_warp_name",
+    ]
+
+    named_warp_used_syms: Dict[str, Set[Sym]]
+    lowered_body: List[LoopIR.stmt]
+    result_stmts: List[LoopIR.stmt]
+    _current_warp_name: str
+
+    def __init__(self, scan, device_function_stmt, lowered_body, make_task_context):
+        assert is_if_holding_with(device_function_stmt, LoopIR)
+        assert isinstance(device_function_stmt.cond.val, CudaDeviceFunction)
+        task_loop = device_function_stmt.body[0]
+
+        self.named_warp_used_syms = scan.named_warp_used_syms
+        self.lowered_body = lowered_body
+
+        # Manually rewrite the cuda_tasks loops to use seq(...) mode,
+        # and rely on LoopIR_Rewrite to filter the per-warp-name task body,
+        # which is wrapped with the task_context to put the code into
+        # exo_deviceTask_{warp_cname}.
+        assert scan.task_loop_depth > 0
+
+        def rewrite_task_loop(loop, warp_name, depth_left=scan.task_loop_depth):
+            if depth_left == 1:
+                # Phase B: filter rewritten CUDA task body down to per-named-warp code
+                self._current_warp_name = warp_name
+                cname = scan.named_warps[warp_name].cname
+                filtered_body = self.map_stmts(lowered_body)
+                if filtered_body is None:
+                    filtered_body = lowered_body
+                body = [
+                    wrap_with_context(
+                        make_task_context(cname), filtered_body, loop.srcinfo
+                    )
+                ]
+            else:
+                body = [rewrite_task_loop(loop.body[0], warp_name, depth_left - 1)]
+            assert isinstance(loop.loop_mode, CudaTasks)
+            return loop.update(loop_mode=seq, body=body)
+
+        # Assemble body of exo_deviceMainLoop
+        #
+        # 1. Decide register count [0 if not adjusted]
+        # 2. Case by register count
+        #      * {setmaxnreg.inc/dec regcount}
+        #      * Device loops with matching register count
+        nreg_nm = Sym("nreg")
+        stmts = []
+        srcinfo = task_loop.srcinfo
+        i32 = T.i32
+
+        # nreg = 0
+        stmts.append(LoopIR.Alloc(nreg_nm, i32, CudaRmem, srcinfo))
+        stmts.append(
+            LoopIR.Assign(nreg_nm, i32, [], LoopIR.Const(0, i32, srcinfo), srcinfo)
+        )
+
+        def wrap_if_nreg(imm, body):
+            var = LoopIR.Read(nreg_nm, [], i32, srcinfo)
+            const = LoopIR.Const(imm, i32, srcinfo)
+            cond = LoopIR.BinOp("==", var, const, T.bool, srcinfo)
+            return LoopIR.If(cond, body, [], srcinfo)
+
+        def wrap_if_threadIdx(lo, hi, body):
+            loop_mode = _CodegenPar("threadIdx.x", (lo, hi))
+            return wrap_codegen_par(loop_mode, body, srcinfo)
+
+        named_warp_tuples = sorted(scan.named_warps.items())
+
+        # if (lo <= threadIdx.x && threadIdx.x < hi) {
+        #   nreg = ...nonzero;
+        # }
+        for name, info in named_warp_tuples:
+            if not info.setmaxnreg:
+                continue
+            lo = info.offset * 32
+            hi = (info.offset + info.count) * 32
+            nreg = info.setmaxnreg
+
+            asn = LoopIR.Assign(
+                nreg_nm, i32, [], LoopIR.Const(nreg, i32, srcinfo), srcinfo
+            )
+            stmts.append(wrap_if_threadIdx(lo, hi, [asn]))
+
+        # if (ntid == ...) {
+        #   if (ntid != 0) setmaxnreg.{inc/dec} ntid
+        #   for each named warp with that register count...
+        #     if (threadIdx.x in range) {
+        #        main loop for that warp name
+        #     }
+        # }
+        from .setmaxnreg import unsafe_setmaxnreg
+
+        for (nreg, is_inc) in [(0, False)] + sorted(scan.setmaxnreg_is_inc.items()):
+            body = []
+            if nreg != 0:
+                instr = unsafe_setmaxnreg(
+                    imm_reg_count=nreg, is_inc=is_inc
+                )._loopir_proc
+                body.append(LoopIR.Call(instr, [], srcinfo))
+            for name, info in named_warp_tuples:
+                if nreg != info.setmaxnreg:
+                    continue
+                lo = info.offset * 32
+                hi = (info.offset + info.count) * 32
+                body.append(
+                    wrap_if_threadIdx(lo, hi, [rewrite_task_loop(task_loop, name)])
+                )
+            if body:
+                stmts.append(wrap_if_nreg(nreg, body))
+
+        stmts.append(LoopIR.Free(nreg_nm, i32, CudaRmem, srcinfo))
+
+        self.result_stmts = stmts
+
+    def map_s(self, s):
+        # Phase B: filter rewritten CUDA task body down to per-named-warp code
+
+        if is_if_holding_with(s, LoopIR):
+            assert not isinstance(s.cond.val, CudaWarps), "Phase A not done?"
+
+        if isinstance(s, LoopIR.For):
+            # Remove branches of code corresponding to different warp name than
+            # what is currently being compiled.
+            if isinstance(s.loop_mode, _CodegenPar):
+                name = s.loop_mode.warp_name_filter
+                if name is not None and name != self._current_warp_name:
+                    return [LoopIR.Pass(s.srcinfo)]
+        elif isinstance(s, (LoopIR.Alloc, LoopIR.Free)):
+            # Remove unused variables to shut the CUDA compiler up.
+            if s.name not in self.named_warp_used_syms[self._current_warp_name]:
+                return [LoopIR.Pass(s.srcinfo)]
+
+        return super().map_s(s)
 
 
 class SubtreeRewrite(LoopIR_Rewrite):
@@ -618,44 +854,41 @@ class SubtreeRewrite(LoopIR_Rewrite):
         for sym, info in self.thread_iters.items():
             task_force_names[sym] = info.cname(sym.name())
 
-        # ExtWithContext objects for diverting lowered code into
-        # exo_deviceTask().
-        format = lambda fmt_string: fmt_string.format(**fmt_dict)
-        task_context = ExtWithContext(
-            format(task_launch_fmt),
-            format(device_task_prefix_fmt),
-            "}",
-            "cuh",
-            {},
-            reserved_names,
-            task_force_names,
-            scan.grid_constant_syms,  # force_const
-            scan.scalar_ref_syms,
+        deviceTask_decls = "".join(
+            deviceTask_decl_fmt.format(warp_cname=scan.named_warps[nm].cname)
+            for nm in sorted(scan.named_warps)
         )
 
-        def wrap_with_context(with_context, body, srcinfo):
-            cond = LoopIR.Const(with_context, T.with_context, srcinfo)
-            node = LoopIR.If(cond, body, [], srcinfo)
-            assert is_if_holding_with(node, LoopIR)
-            return node
+        # ExtWithContext objects for diverting lowered code into
+        # exo_deviceTask_{warp_cname}().
+        format = lambda fmt_string, **extra: fmt_string.format(**fmt_dict, **extra)
 
-        # Manually rewrite the cuda_tasks loops to use seq(...) mode,
-        # and rely on LoopIR_Rewrite to rewrite the task body, which
-        # is wrapped with the task_context to put the code into
-        # exo_deviceTask().
-        assert scan.task_loop_depth > 0
+        def make_task_context(warp_cname):
+            return ExtWithContext(
+                format(task_launch_fmt, warp_cname=warp_cname),
+                format(device_task_prefix_fmt, warp_cname=warp_cname),
+                "}",
+                "cuh",
+                {},
+                reserved_names,
+                task_force_names,
+                scan.grid_constant_syms,  # force_const
+                scan.scalar_ref_syms,
+            )
 
-        def rewrite_task_loop(loop, depth_left):
-            if depth_left == 1:
-                mapped_body = self.map_stmts(loop.body) or loop.body
-                body = [wrap_with_context(task_context, mapped_body, loop.srcinfo)]
-            else:
-                body = [rewrite_task_loop(loop.body[0], depth_left - 1)]
-            assert isinstance(loop.loop_mode, CudaTasks)
-            return loop.update(loop_mode=seq, body=body)
+        # Phase A: Extract and rewrite the body of the CUDA task (body of
+        # inner-most cuda_tasks loop), except for named cuda warps filtering.
+        self.cuda_warps_idx = 0
+        task_loop = s
+        for i in range(scan.task_loop_depth):
+            task_loop = task_loop.body[0]
+        rewritten_task_body = self.map_stmts(task_loop.body) or task_loop.body
+        assert self.cuda_warps_idx == len(self.cuda_warps_dfs_codegen)
 
-        assert len(s.body) == 1
-        task_loop = rewrite_task_loop(s.body[0], scan.task_loop_depth)
+        # Phase B, assemble main loops, specialized per warp name.
+        main_loop_stmts = MainLoopRewrite(
+            scan, s, rewritten_task_body, make_task_context
+        ).result_stmts
 
         # ExoWithContext object for diverting lowered code into
         # exo_deviceMainLoop(), and putting the required strings
@@ -675,7 +908,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
                 "h": format(h_snippet_fmt),
                 "c": format(c_snippet_fmt),
                 "cu": format(cu_snippet_fmt),
-                "cuh": format(cuh_snippet_fmt),
+                "cuh": format(cuh_snippet_fmt, deviceTask_decls=deviceTask_decls),
             },
             reserved_names,
             main_loop_force_names,
@@ -683,12 +916,10 @@ class SubtreeRewrite(LoopIR_Rewrite):
             scan.scalar_ref_syms,
         )
 
-        # Finally wrap the task loops into exo_deviceMainLoop
+        # Finally wrap the per-warp-name main loops into exo_deviceMainLoop
         self._result = wrap_with_context(
-            main_loop_context, [task_loop], task_loop.srcinfo
+            main_loop_context, main_loop_stmts, task_loop.srcinfo
         )
-
-        assert self.cuda_warps_idx == len(self.cuda_warps_dfs_codegen)
 
     def result(self):
         assert is_if_holding_with(self._result, LoopIR)
@@ -705,14 +936,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
                 # as the indices encoded in _CodegenPar.
                 loop_mode = self.cuda_warps_dfs_codegen[self.cuda_warps_idx]
                 self.cuda_warps_idx += 1
-                s = LoopIR.For(
-                    Sym("tmp"),
-                    LoopIR.Const(0, T.int, s.srcinfo),
-                    LoopIR.Const(1, T.int, s.srcinfo),
-                    s.body,
-                    loop_mode,
-                    s.srcinfo,
-                )
+                s = wrap_codegen_par(loop_mode, s.body, s.srcinfo)
             else:
                 raise TypeError(
                     f"{s.srcinfo}: unexpected with context type {type(ctx)} in CUDA device code"
@@ -1046,6 +1270,11 @@ struct exo_CudaDeviceArgs{N}_{proc}
 }};
 """
 
+deviceTask_decl_fmt = """
+  static __device__ __forceinline__ void
+  exo_deviceTask_{warp_cname}(char* exo_smem, exo_SyncState& exo_syncState, const exo_DeviceArgs& exo_deviceArgs, exo_Task exo_task);
+"""
+
 cuh_snippet_fmt = """\
 // CUDA device function args -- duplicated in .c file
 struct exo_CudaDeviceArgs{N}_{proc}
@@ -1080,10 +1309,7 @@ struct exo_Cuda{N}_{proc}
 
   static __device__ __forceinline__ void
   exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs);
-
-  static __device__ __forceinline__ void
-  exo_deviceTask(char* exo_smem, exo_SyncState& exo_syncState, const exo_DeviceArgs& exo_deviceArgs, exo_Task exo_task);
-}};
+{deviceTask_decls}}};
 
 inline void
 exo_Cuda{N}_{proc}::exo_cudaLaunch(cudaStream_t exo_cudaStream, const exo_DeviceArgs& exo_deviceArgs)
@@ -1124,13 +1350,13 @@ exo_Cuda{N}_{proc}::exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo
   unsigned exo_taskIndex = 0;"""
 
 device_task_prefix_fmt = """__device__ __forceinline__ void
-exo_Cuda{N}_{proc}::exo_deviceTask(char* exo_smem, exo_SyncState& exo_syncState, const exo_DeviceArgs& exo_deviceArgs, exo_Task exo_task)
+exo_Cuda{N}_{proc}::exo_deviceTask_{warp_cname}(char* exo_smem, exo_SyncState& exo_syncState, const exo_DeviceArgs& exo_deviceArgs, exo_Task exo_task)
 {{
   namespace exo_CudaUtil = exo_CudaUtil_{lib_name};"""
 
 cuda_launch_fmt = """exo_cudaLaunch{N}_{proc}(exo_cudaStream, (struct exo_CudaDeviceArgs{N}_{proc}) {{ {device_args} }});"""
 
-task_launch_fmt = """if (exo_taskIndex++ % (gridDim.x / exo_clusterDim) == blockIdx.x / exo_clusterDim) exo_deviceTask(exo_smem, exo_syncState, exo_deviceArgs, (struct exo_Task) {{ {task_args} }});"""
+task_launch_fmt = """if (exo_taskIndex++ % (gridDim.x / exo_clusterDim) == blockIdx.x / exo_clusterDim) exo_deviceTask_{warp_cname}(exo_smem, exo_syncState, exo_deviceArgs, (struct exo_Task) {{ {task_args} }});"""
 
 # Paste this into the C header (.h) if any proc uses cuda.
 h_snippet_for_cuda = r"""

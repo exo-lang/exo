@@ -1,9 +1,11 @@
-from typing import Optional
+from copy import deepcopy
+from typing import Optional, List, Dict
 from warnings import warn
 
 from .actor_kinds import ActorKind
 from . import actor_kinds
 from .base_with_context import BaseWithContext, is_if_holding_with
+from .cuda_warp_config import CudaWarpConfig, WarpLayoutInfo
 from ..core.LoopIR import LoopIR, LoopIR_Rewrite
 from ..core.memory import DRAM, Memory, SpecialWindow, AllocableMemWin
 
@@ -37,14 +39,49 @@ class BaseAsyncConfig(BaseWithContext):
 
 
 class CudaDeviceFunction(BaseAsyncConfig):
-    __slots__ = ["blockDim", "clusterDim", "blocks_per_sm"]
+    __slots__ = [
+        "blockDim",
+        "clusterDim",
+        "blocks_per_sm",
+        "_warp_config_arg",
+        "named_warps",
+        "setmaxnreg_is_inc",
+    ]
 
-    def __init__(self, blockDim: int, clusterDim: int = 1, blocks_per_sm: int = 1):
-        assert isinstance(blockDim, int) and blockDim > 0
+    blockDim: int
+    clusterDim: int
+    blocks_per_sm: int
+    _warp_config_arg: object  # passed through to repr
+    named_warps: Dict[str, WarpLayoutInfo]
+    # Census of CudaWarpConfig setmaxnreg requests, and whether that register
+    # count corresponds to setmaxnreg.inc (or setmaxnreg.dec)
+    setmaxnreg_is_inc: Dict[int, bool]
+
+    def __init__(
+        self,
+        blockDim: Optional[int] = None,
+        clusterDim: int = 1,
+        blocks_per_sm: int = 1,
+        warp_config: Optional[List[CudaWarpConfig]] = None,
+    ):
         assert isinstance(clusterDim, int) and clusterDim > 0
-        self.blockDim = blockDim
         self.clusterDim = clusterDim
+        assert isinstance(blocks_per_sm, int) and blocks_per_sm > 0
         self.blocks_per_sm = blocks_per_sm
+        self._warp_config_arg = warp_config
+
+        if blockDim is None:
+            assert (
+                warp_config
+            ), "CudaDeviceFunction: Provide exactly one of blockDim or warp_config"
+            assert all(isinstance(c, CudaWarpConfig) for c in warp_config)
+            self._init_from_warp_config(warp_config)
+        else:
+            assert isinstance(blockDim, int) and blockDim > 0
+            assert (
+                not warp_config
+            ), "CudaDeviceFunction: Provide exactly one of blockDim or warp_config"
+            self._init_from_blockDim(blockDim)
 
     def get_actor_kind(self):
         return actor_kinds.cuda_classic  # Synchronous (non-async) CUDA instr
@@ -56,15 +93,113 @@ class CudaDeviceFunction(BaseAsyncConfig):
         return actor_kinds.cpu
 
     def __repr__(self):
-        return f"CudaDeviceFunction({self.blockDim}, {self.clusterDim}, {self.blocks_per_sm})"
+        args = []
+        if not self._warp_config_arg:
+            args.append(f"blockDim = {self.blockDim}")
+        if self.clusterDim != 1:
+            args.append(f"clusterDim = {self.clusterDim}")
+        if self.blocks_per_sm != 1:
+            args.append(f"blocks_per_sm = {self.blocks_per_sm}")
+        if self._warp_config_arg:
+            args.append(f"warp_config = {self._warp_config_arg}")
 
-    def __eq__(self, other):
-        return (
-            type(other) == CudaDeviceFunction
-            and self.blockDim == other.blockDim
-            and self.clusterDim == other.clusterDim
-            and self.blocks_per_sm == other.blocks_per_sm
-        )
+        return f"CudaDeviceFunction({''.join(args)})"
+
+    def _init_from_blockDim(self, blockDim):
+        # Warp divisibility. This is not strictly required by CUDA, but the
+        # valid usage for warp-aligned / CTA-aligned stuff becomes really
+        # unclear when there's a partial warp.
+        if blockDim % 32 != 0 or blockDim <= 0:
+            raise ValueError(
+                f"CudaDeviceFunction: blockDim={blockDim} must be positive multiple of 32"
+            )
+        self.blockDim = blockDim
+        self.named_warps = {"": WarpLayoutInfo(0, blockDim // 32, "main_warps", 0)}
+        self.setmaxnreg_is_inc = {}
+
+    def _init_from_warp_config(self, warp_config):
+        cnames = set()
+        offset = 0
+        have_setmaxnreg = False
+        self.named_warps = {}
+        self.setmaxnreg_is_inc = {}
+
+        for w in warp_config:
+            # Convert name of CudaWarpConfig to a substring that can be
+            # used as the suffix of a C identifier.
+            tmp = "".join(c for c in w.name if c.isalnum() or c == "_")
+            if not tmp:
+                tmp = "main_warps"
+            cname = tmp
+            suffix = 0
+            while cname in cnames:
+                suffix += 1
+                cname = f"{tmp}_{suffix}"
+            cnames.add(cname)
+
+            if w.name in self.named_warps:
+                self._bad_warp_config(i, warp_config, f"Duplicate warp name {w.name!r}")
+
+            is_inc = w.setmaxnreg_inc is not None
+            setmaxnreg = w.setmaxnreg_inc if is_inc else w.setmaxnreg_dec
+            have_setmaxnreg |= setmaxnreg is not None
+            self.named_warps[w.name] = WarpLayoutInfo(
+                offset, w.count, cname, setmaxnreg or 0
+            )
+
+            offset += w.count
+
+        self.blockDim = offset * 32
+
+        if have_setmaxnreg:
+            self._init_setmaxnreg_is_inc(warp_config)
+
+    def _init_setmaxnreg_is_inc(self, warp_config):
+        if self.blockDim % 128 != 0:
+            self._bad_warp_config(
+                len(warp_config) - 1,
+                warp_config,
+                f"setmaxnreg requires multiples of 128 threads; blockDim = {self.blockDim}",
+            )
+
+        offset = 0
+        prev_setmaxnreg = None
+        for i, w in enumerate(warp_config):
+            assert w.setmaxnreg_inc is None or w.setmaxnreg_dec is None
+            is_inc = w.setmaxnreg_inc is not None
+            setmaxnreg = w.setmaxnreg_inc if is_inc else w.setmaxnreg_dec
+
+            if setmaxnreg != prev_setmaxnreg and offset % 4 != 0:
+                self._bad_warp_config(
+                    i,
+                    warp_config,
+                    "setmaxnreg must be uniform within warpgroups (128 threads)",
+                )
+            prev_setmaxnreg = setmaxnreg
+
+            if setmaxnreg is None:
+                continue
+
+            if setmaxnreg < 24 or setmaxnreg > 256 or setmaxnreg % 8 != 0:
+                self._bad_warp_config(
+                    i, warp_config, "setmaxnreg must be a multiple of 8 in [24, 256]"
+                )
+
+            if self.setmaxnreg_is_inc.get(setmaxnreg) == (not is_inc):
+                self._bad_warp_config(
+                    i,
+                    warp_config,
+                    f"regcount {setmaxnreg} used both for setmaxnreg.inc and setmaxnreg.dec",
+                )
+
+            self.setmaxnreg_is_inc[setmaxnreg] = is_inc
+
+            offset += w.count
+
+    def _bad_warp_config(self, i, warp_config, msg):
+        lines = [f"  {w}" if i != j else f"> {w} <" for j, w in enumerate(warp_config)]
+        info = "\n".join(lines)
+        raise ValueError(f"CudaDeviceFunction.warp_config: {msg}:\n{info}")
 
 
 class CudaAsync(BaseAsyncConfig):
