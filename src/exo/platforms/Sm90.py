@@ -65,6 +65,8 @@ def Sm90_SmemSwizzled(swizzle):
     if swizzle not in (32, 64, 128):
         raise ValueError(f"swizzle must be 32, 64, or 128 bytes, not {swizzle}")
 
+    swizzle_bits = 1 if swizzle == 128 else 2 if swizzle == 64 else 3
+
     # As I understand it 2, 4, or 8 "core matrices" (128 bytes per matrix)
     # are swizzled together for 32B, 64B, 128B swizzle mode, respectively.
     # Each core matrix has M or N = 8 (outer dimension) and
@@ -86,6 +88,11 @@ def Sm90_SmemSwizzled(swizzle):
     EXO_CUDA_INLINE {c_matrices}& byte_offset(unsigned bytes)
     {{
         return reinterpret_cast<{c_matrices}&>(matrix_bytes[bytes]);
+    }}
+
+    EXO_CUDA_INLINE uint64_t get_swizzle_bits() const
+    {{
+        return {swizzle_bits};
     }}
 #endif
 }} {c_matrices};"""
@@ -472,6 +479,201 @@ __all__.append("Sm90_copy_tensor_to_smem_swizzled_2f32")
 # wgmma: warpgroup matrix multiply-accumulate
 
 
+# TODO support more than float
+store_d_util = """template <bool ColumnMajor, typename Window, typename Reg>
+EXO_CUDA_INLINE void exo_Sm90_store_d_reg(Window dst, Reg value, uint32_t m_offset, uint32_t reg_index)
+{
+    const uint32_t tid = threadIdx.x % 128u;
+    const uint32_t r_base = (tid / 32u) * 16u + (tid % 32u) / 4u;
+    const uint32_t c_base = (tid % 4u) * 2u;
+    const uint32_t r = m_offset + r_base + ((reg_index % 4u) / 2u) * 8u;
+    const uint32_t c = c_base + (reg_index / 4u) * 8 + (reg_index % 2u);
+    auto dst_ptr = reinterpret_cast<Reg*>(
+            &dst.data[c * dst.strides[!ColumnMajor] + r * dst.strides[ColumnMajor]]);
+    *dst_ptr = value;
+}
+"""
+
+matrix_descriptor_util = """\
+EXO_CUDA_INLINE uint64_t exo_matrix_descriptor_encode(uint32_t val)
+{
+    return (val & 0x3FFFF) >> 4;
+}
+
+template <typename Window>
+EXO_CUDA_INLINE uint64_t exo_matrix_descriptor(Window window, uint32_t element_size, uint32_t mn_offset = 0)
+{
+    uint64_t mn_stride = window.strides[0] * element_size;
+    return exo_matrix_descriptor_encode(exo_smemU32(window.data) + (mn_offset / 8u) * mn_stride)
+           | exo_matrix_descriptor_encode(sizeof(*window.data)) << 16u
+           | exo_matrix_descriptor_encode(mn_stride) << 32u
+           | uint64_t(window.data->get_swizzle_bits()) << 62;
+}
+"""
+
+
+@dataclass(slots=True)
+class WgmmaHelper:
+    # wgmma.mma_async.sync.aligned.m{M}n{N}k{K}.{ptx_dtype}.{ptx_atype}.{ptx.btype}
+    M: int
+    N: int
+    ptx_dtype: str
+    ptx_atype: str
+    ptx_btype: str
+
+    def __post_init__(self):
+        M = self.M
+        N = self.N
+        if M % 64 != 0 or M <= 0:
+            raise ValueError("Require M to be a positive multiple of 64")
+        if N % 8 != 0 or N < 8 or N > 256:
+            raise ValueError("Require N to be a multiple of 8 in [8, 256]")
+
+    def ptx_instr_name(self):
+        # fmt: off
+        K = self.get_K()
+        return f"wgmma.mma_async.sync.aligned.m64n{self.N}k{K}.{self.ptx_dtype}.{self.ptx_atype}.{self.ptx_btype}"
+        # fmt: on
+
+    def rmem_d_struct_name(self):
+        # Qualify with exo_CudaUtil:: in usage in generated Exo function
+        return f"exo_Sm90_RmemD_m{self.M}n{self.N}_{self.ptx_dtype}"
+
+    def rmem_a_struct_name(self):
+        # Qualify with exo_CudaUtil:: in usage in generated Exo function
+        return f"exo_Sm90_RmemA_m{self.M}n{self.N}_{self.ptx_atype}"
+
+    def dreg_ctype(self):
+        # TODO
+        assert self.ptx_dtype == "f32"
+        return "float"
+
+    def areg_ctype(self):
+        # TODO
+        assert self.ptx_dtype == "tf32"
+        return "unsigned"
+
+    def get_K(self):
+        assert self.ptx_atype == "tf32", "TODO"
+        assert self.ptx_btype == "tf32", "TODO"
+        return 8  # TODO
+
+    def dreg_names(self, m=None, n=None):
+        result = []
+        assert self.ptx_dtype == "f32", "TODO"
+        n_stride = 8  # TODO
+
+        m_lo = 0 if m is None else m
+        m_hi = self.M if m is None else m + 64
+        n_lo = 0 if n is None else n
+        n_hi = self.N if n is None else n + n_stride
+
+        for m_ in range(m_lo, m_hi, 64):
+            for n_ in range(n_lo, n_hi, n_stride):
+                result.append(f"m{m_}n{n_}r0")
+                result.append(f"m{m_}n{n_}r1")
+                result.append(f"m{m_}n{n_}r2")
+                result.append(f"m{m_}n{n_}r3")
+
+        return result
+
+    def areg_names(self, m=None):
+        result = []
+        m_lo = 0 if m is None else m
+        m_hi = self.M if m is None else m + 64
+
+        assert self.ptx_atype == "tf32", "TODO"
+        k_divisor = 2  # TODO
+
+        for m_ in range(m_lo, m_hi, 64):
+            for r_ in range(0, self.get_K() // k_divisor):
+                result.append(f"m{m_}r{r_}")
+
+        return result
+
+    def rmem_d_struct_def(self):
+        sname = self.rmem_d_struct_name()
+        return f"""struct {sname} {{
+    {self.dreg_ctype()} {", ".join(self.dreg_names())};
+    int scale_d;
+}};"""
+
+    def rmem_a_struct_def(self):
+        sname = self.rmem_a_struct_name()
+        return """struct {sname} {{
+    {self.areg_ctype()} {", ".join(self.areg_names())};
+}};"""
+
+    def cu_utils_ss(self):
+        return [
+            store_d_util,
+            matrix_descriptor_util,
+            self.rmem_d_struct_def(),
+            self.wgmma_ss_function_def(),
+        ]
+
+    def cu_utils_rs(self):
+        return [
+            store_d_util,
+            matrix_descriptor_util,
+            self.rmem_d_struct_def(),
+            self.rmem_a_struct_def(),
+            self.wgmma_rs_function_def(),
+        ]
+
+    # fmt: off
+
+    def wgmma_ss_function_name(self):
+        return f"exo_Sm90_mma_async_ss_m{self.M}n{self.N}_{self.ptx_dtype}_{self.ptx_atype}_{self.ptx_btype}"
+
+    def wgmma_rs_function_name(self):
+        return f"exo_Sm90_mma_async_rs_m{self.M}n{self.N}_{self.ptx_dtype}_{self.ptx_atype}_{self.ptx_btype}"
+
+    def wgmma_ss_function_def(self):
+        lines = []
+        fname = self.wgmma_ss_function_name()
+        params = []
+        d_reftype = f"{self.dreg_ctype()}&"
+
+        for m in range(0, self.M, 64):
+            params.append(f"uint64_t a_descriptor_m{m}")
+        params.append("uint64_t b_descriptor")
+
+        for rname in self.dreg_names():
+            params.append(f"{d_reftype} {rname}")
+
+        params.append("int scale_d")
+
+        c = "f"
+        assert self.ptx_dtype == "f32", "TODO"
+
+        instr = self.ptx_instr_name()
+        lines.append(fr'EXO_CUDA_INLINE void {fname}({", ".join(params)})')
+        lines.append(r"{")
+
+        for m in range(0, self.M, 64):
+            dreg_names = self.dreg_names(m=m)
+            dreg_count = len(dreg_names)
+            lines.append(r'  asm volatile("{\n"')
+            lines.append(r'  ".reg .pred p;\n"')
+            lines.append(rf'  "setp.ne.b32 p, %{dreg_count + 2}, 0;\n"')
+            lines.append(rf'  "{instr} "');
+            d_vec_template = "{" + ", ".join(f"%{n}" for n in range(dreg_count)) + "}"
+            lines.append(rf'  "{d_vec_template}, "')
+            lines.append(rf'  "%{dreg_count}, %{dreg_count+1}, p, 1, 1;\n"')
+            lines.append(r'  "}"')
+            d_vec_args = ", ".join(f'"+{c}"({rname})' for rname in dreg_names)
+            lines.append(rf'  : {d_vec_args}')
+            lines.append(rf'  : "l"(a_descriptor_m{m}), "l"(b_descriptor), "r"(scale_d)')
+            lines.append(r"  );")
+
+        lines.append(r"}")
+        return "\n".join(lines)
+
+
+# fmt: on
+
+
 class WgmmaRmemImpl(CudaBasicDeviceVisible):
     @classmethod
     def actor_kind_permission(cls, actor_kind, is_instr):
@@ -482,36 +684,16 @@ class WgmmaRmemImpl(CudaBasicDeviceVisible):
         return cuda_warpgroup
 
     @classmethod
-    def global_(cls):
-        return """#ifdef __cplusplus
-template <typename T, unsigned RegCount>
-struct exo_Sm90_RmemMatrixA
-{
-    T a[RegCount];
-    static constexpr unsigned reg_count = RegCount;
-};
-template <typename T, unsigned RegCount>
-struct exo_Sm90_RmemMatrixD
-{
-    T d[RegCount];
-    unsigned scale_d = 0;  // Set to 0 triggers zero-init on the next mma_async call.
-    static constexpr unsigned reg_count = RegCount;
-};
-#endif
-"""
-
-    @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
-        # Right two dimensions correspond to register tile of n_regs-many 32-bit
-        # registers; other dimensions are passed through directly as {idxs}.
+        # We expect exactly 2D tiles to be lowered.
+        # NB if the allocation is not used, the lowering will fail, as we expect
+        # an Exo wgmma instr to inject the needed struct definition into exo_CudaUtil.
         element_bits = scalar_bits(prim_type)
-        const_shape = cls.as_const_shape(new_name, shape, srcinfo, min_dim=2)
-        n_regs = const_shape[-2] * const_shape[-1] * element_bits // 4096
-        idxs = "".join(f"[{extent}]" for extent in const_shape[:-2])
-        comment = f"{n_regs} registers store {prim_type}[{const_shape[-2]}][{const_shape[-1]}]"
-        assert prim_type == "float"
-        reg_type = "float"  # TODO
-        return f"exo_Sm90_RmemMatrixD<{reg_type}, {n_regs}> {new_name}{idxs};"
+        M, N = cls.as_const_shape(new_name, shape, srcinfo, min_dim=2, max_dim=2)
+        assert prim_type == "float"  # TODO
+        helper = WgmmaHelper(M, N, "f32", None, None)
+        sname = helper.rmem_d_struct_name()
+        return f"exo_CudaUtil::{sname} {new_name};"
 
     @classmethod
     def free(cls, new_name, prim_type, shape, srcinfo):
@@ -519,8 +701,10 @@ struct exo_Sm90_RmemMatrixD
 
     @classmethod
     def window(cls, basetyp, baseptr, indices, strides, srcinfo):
+        # This is really broken; we need to adjust the Exo window model
+        # to reflect the reality of non-random-accessable register tiles.
         if basetyp.is_win():
-            return f"*{baseptr}.data"
+            baseptr = f"*{baseptr}.data"
 
         # TODO enforce last two indices are :,:
         # e.g. we currently accept
@@ -531,19 +715,21 @@ struct exo_Sm90_RmemMatrixD
                 f"{srcinfo}: cannot offset right 2 dimensions of {baseptr} @ {cls.name()}"
             )
 
-        idxs = "".join(f"[{idx}]" for idx in indices[:-2])
-        return f"{baseptr}{idxs}"
+        return baseptr
 
     @classmethod
     def window_definition(cls, ctx: WindowStructCtx):
+        # TODO placeholder; this doesn't work at all.
+        # We need to make windows "non-materializable" for wgmma
         if ctx.n_dims() != 2:
             raise MemGenError(
                 f"{ctx.srcinfo():} Only support windows to 2D wgmma tiles"
             )
-        return ctx.generate_default("Sm90_RmemMatrix", "float")  # TODO
+        return ctx.generate_default("Sm90_RmemMatrix", "float")
 
 
 class Sm90_RmemMatrixA(WgmmaRmemImpl):
+    # TODO
     pass
 
 
@@ -555,67 +741,30 @@ __all__.append("Sm90_RmemMatrixA")
 __all__.append("Sm90_RmemMatrixD")
 
 
-matrix_descriptor_util = """\
-EXO_CUDA_INLINE uint64_t exo_matrix_descriptor_encode(uint32_t val)
-{
-    uint64_t enc = (val & 0x3FFFF) >> 4;
-    return enc;
-}
-
-template <unsigned swizzle_bits>
-EXO_CUDA_INLINE uint64_t exo_matrix_descriptor(const void* smem_ptr, uint32_t mn_stride, uint32_t k_stride)
-{
-    return exo_matrix_descriptor_encode(exo_smemU32(smem_ptr))
-           | exo_matrix_descriptor_encode(k_stride) << 16u
-           | exo_matrix_descriptor_encode(mn_stride) << 32u
-           | uint64_t(swizzle_bits) << 62;
-}
-"""
-
-
 class mma_async_impl:
-    def instance_impl(self, m, n, k, ptx_d_type, ptx_ab_type, reg_type, n_regs):
-        if n % 8 != 0 or not (8 <= n <= 256):
-            raise ValueError(f"n = {n} invalid for wgmma.mma_async")
+    def instance_impl(self, M, N, ptx_dtype, ptx_atype, ptx_btype):
+        helper = WgmmaHelper(M, N, ptx_dtype, ptx_atype, ptx_btype)
         self.access_info["d"].actor_signature = sig_wgmma_rmem_d
         self.access_info["a"].actor_signature = sig_wgmma_smem
         self.access_info["b"].actor_signature = sig_wgmma_smem
         self.actor_kind = wgmma_async
         self.coll_unit = cuda_warpgroup
-        self.cu_utils.append(matrix_descriptor_util)
+        self.cu_utils = helper.cu_utils_ss()
 
-        if reg_type == "float":
-            r = "f"
-        elif reg_type == "unsigned":
-            r = "r"
-        else:
-            assert 0
-
-        # TODO correct swizzle bits, strides (1024 is assuming densely packed)
-        swizzle_bits_a = 1
-        swizzle_bits_b = 1
-        instr_name = f"wgmma.mma_async.sync.aligned.m{m}n{n}k{k}.{ptx_d_type}.{ptx_ab_type}.{ptx_ab_type}"
-        vector_fmt = "{{" + ", ".join(f"%{i}" for i in range(n_regs)) + "}}"
-
-        fmt_snippets = []
-        vector_args_py_fmt = ", ".join(
-            f'"+{r}"({{d_data}}.d[{i}])' for i in range(n_regs)
+        element_size = helper.get_K() // 2
+        fname = "exo_CudaUtil::" + helper.wgmma_ss_function_name()
+        args = []
+        for m in range(0, M, 64):
+            args.append(
+                "exo_CudaUtil::exo_matrix_descriptor({a}, %i, %i)" % (element_size, m)
+            )
+        args.append("exo_CudaUtil::exo_matrix_descriptor({b}, %i)" % (element_size,))
+        for rname in helper.dreg_names():
+            args.append("{d_data}.%s" % rname)
+        args.append("{d_data}.scale_d")
+        self.instr_format = (
+            fname + "(" + ", ".join(args) + ");\n" + "{d_data}.scale_d = 1;"
         )
-
-        # fmt:off
-        fmt_snippets.append('asm volatile("{{')
-        fmt_snippets.append(fr".reg .pred p;\n\tsetp.ne.b32 p, %{n_regs+2}, 0;\n\t{instr_name}\n\t")
-        fmt_snippets.append(fr"{vector_fmt},\n\t")
-        fmt_snippets.append(fr"%{n_regs}, %{n_regs+1}, p, 1, 1;\n")
-        fmt_snippets.append('}}"')
-        fmt_snippets.append(f': {vector_args_py_fmt}')
-        fmt_snippets.append(f': "l"(exo_CudaUtil::exo_matrix_descriptor<{swizzle_bits_a}>(&{{a_data}}, 1024, 1024))')
-        fmt_snippets.append(f', "l"(exo_CudaUtil::exo_matrix_descriptor<{swizzle_bits_b}>(&{{b_data}}, 1024, 1024))')
-        fmt_snippets.append(f', "r"({{d_data}}.scale_d));')
-        fmt_snippets.append(f'\n{{d_data}}.scale_d = 1;')
-        # fmt:on
-
-        self.instr_format = "".join(fmt_snippets)
 
 
 # For a wgmma D-matrix (in RMEM), set the scale-d flag to 0, so
@@ -626,13 +775,13 @@ class mma_async_impl:
 #
 # TODO this still seems to be an issue.
 @instr
-class Sm90_zero_scale_d_tf32:
-    def behavior(n: size, d: [f32][64, n] @ Sm90_RmemMatrixD):
-        for mi in seq(0, 64):
-            for ni in seq(0, n):
-                d[mi, ni] = 0
+class Sm90_zero_scale_d_f32:
+    def behavior(M: size, N: size, d: [f32][M, N] @ Sm90_RmemMatrixD):
+        for m in seq(0, M):
+            for n in seq(0, N):
+                d[m, n] = 0
 
-    def instance(self, n):
+    def instance(self):
         # XXX cuda_classic is completely wrong
         self.access_info["d"].actor_signature = sig_cuda_classic
         self.actor_kind = cuda_classic
@@ -640,91 +789,86 @@ class Sm90_zero_scale_d_tf32:
         self.instr_format = "{d_data}.scale_d = 0;"
 
 
-__all__.append("Sm90_zero_scale_d_tf32")
+__all__.append("Sm90_zero_scale_d_f32")
 
 
 @instr
 class Sm90_mma_async_tf32(mma_async_impl):
     def behavior(
-        n: size,
-        d: [f32][64, n] @ Sm90_RmemMatrixD,
-        a: [f32][8, 8, 8] @ Sm90_SmemSwizzled(128),
-        b: [f32][n / 8, 8, 8] @ Sm90_SmemSwizzled(128),
+        M: size,
+        N: size,
+        d: [f32][M, N] @ Sm90_RmemMatrixD,
+        a: [f32][M / 8, 8, 8] @ Sm90_SmemSwizzled(128),
+        b: [f32][N / 8, 8, 8] @ Sm90_SmemSwizzled(128),
     ):
-        assert n >= 8
-        assert n % 8 == 0
-        for mi in seq(0, 64):
-            for ni in seq(0, n):
-                for ki in seq(0, 8):
-                    d[mi, ni] += a[mi / 8, mi % 8, ki] * b[ni / 8, ni % 8, ki]
+        assert M >= 64
+        assert M % 64 == 0
+        assert N >= 8
+        assert N % 8 == 0
+        for m in seq(0, M):
+            for n in seq(0, N):
+                for k in seq(0, 8):
+                    d[m, n] += a[m / 8, m % 8, k] * b[n / 8, n % 8, k]
 
-    def instance(self, n):
-        self.instance_impl(64, n, 8, "f32", "tf32", "float", n // 2)
+    def instance(self, M, N):
+        self.instance_impl(M, N, "f32", "tf32", "tf32")
 
 
 __all__.append("Sm90_mma_async_tf32")
 
 
-# TODO support more than float
-write_d_util = """template <bool ColumnMajor, typename Window, typename Reg>
-EXO_CUDA_INLINE void exo_Sm90_store_d_reg(Window dst, Reg value, uint32_t reg_index)
-{
-    const uint32_t tid = threadIdx.x % 128u;
-    const uint32_t r_base = (tid / 32u) * 16u + (tid % 32u) / 4u;
-    const uint32_t c_base = (tid % 4u) * 2u;
-    const uint32_t r = r_base + ((reg_index % 4u) / 2u) * 8u;
-    const uint32_t c = c_base + (reg_index / 4u) * 8 + (reg_index % 2u);
-    auto dst_ptr = reinterpret_cast<Reg*>(
-            &dst.data[c * dst.strides[!ColumnMajor] + r * dst.strides[ColumnMajor]]);
-    *dst_ptr = value;
-}
-"""
-
-
 class Sm90_mma_write_d_impl:
-    def instance_impl(self, col_major, reg_count):
+    def instance_impl(self, helper, col_major):
         self.access_info["dst"].actor_signature = sig_cuda_classic
         self.access_info["src"].actor_signature = sig_cuda_classic
         self.actor_kind = cuda_classic
         self.coll_unit = cuda_warpgroup
-        self.cu_utils.append(write_d_util)
+        self.cu_utils = helper.cu_utils_ss()
         col_major = "true" if col_major else "false"
-        self.instr_format = "\n".join(
-            "exo_CudaUtil::exo_Sm90_store_d_reg<"
-            + col_major
-            + ">({dst}, {src_data}.d[%i], %i);" % (i, i)
-            for i in range(reg_count)
-        )
+        lines = []
+
+        for m in range(0, helper.M, 64):
+            for reg_index, reg_name in enumerate(helper.dreg_names(m=m)):
+                lines.append(
+                    "exo_CudaUtil::exo_Sm90_store_d_reg<%s>({dst}, {src_data}.%s, %i, %i);"
+                    % (col_major, reg_name, m, reg_index)
+                )
+
+        self.instr_format = "\n".join(lines)
 
 
 @instr
 class Sm90_mma_write_d_col_major_tf32(Sm90_mma_write_d_impl):
     def behavior(
-        n: size,
-        dst: [f32][n, 64] @ CudaDeviceVisibleLinear,
-        src: [f32][64, n] @ Sm90_RmemMatrixD,
+        M: size,
+        N: size,
+        dst: [f32][N, M] @ CudaDeviceVisibleLinear,
+        src: [f32][M, N] @ Sm90_RmemMatrixD,
     ):
-        for mi in seq(0, 64):
-            for ni in seq(0, n):
-                dst[ni, mi] = src[mi, ni]  # Transposed
+        for m in seq(0, M):
+            for n in seq(0, N):
+                dst[n, m] = src[m, n]  # Transposed
 
-    def instance(self, n):
-        self.instance_impl(True, n // 2)
+    def instance(self, M, N):
+        helper = WgmmaHelper(M, N, "f32", "tf32", "tf32")
+        self.instance_impl(helper, True)
 
 
 @instr
 class Sm90_mma_write_d_row_major_tf32(Sm90_mma_write_d_impl):
     def behavior(
-        n: size,
-        dst: [f32][64, n] @ CudaDeviceVisibleLinear,
-        src: [f32][64, n] @ Sm90_RmemMatrixD,
+        M: size,
+        N: size,
+        dst: [f32][M, N] @ CudaDeviceVisibleLinear,
+        src: [f32][M, N] @ Sm90_RmemMatrixD,
     ):
-        for mi in seq(0, 64):
-            for ni in seq(0, n):
-                dst[mi, ni] = src[mi, ni]
+        for m in seq(0, M):
+            for n in seq(0, N):
+                dst[m, n] = src[m, n]
 
-    def instance(self, n):
-        self.instance_impl(False, n // 2)
+    def instance(self, M, N):
+        helper = WgmmaHelper(M, N, "f32", "tf32", "tf32")
+        self.instance_impl(helper, False)
 
 
 __all__.append("Sm90_mma_write_d_col_major_tf32")

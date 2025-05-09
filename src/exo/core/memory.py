@@ -307,10 +307,15 @@ class MemWin(ABC):
             return ""
 
     @classmethod
-    def as_const_shape(cls, new_name, shape, srcinfo, *, min_dim=0):
+    def as_const_shape(cls, new_name, shape, srcinfo, *, min_dim=0, max_dim=None):
         if len(shape) < min_dim:
             raise MemGenError(
                 f"{srcinfo}: {new_name} @ {cls.name()} requires at least {min_dim} dimensions"
+            )
+
+        if max_dim is not None and len(shape) > max_dim:
+            raise MemGenError(
+                f"{srcinfo}: {new_name} @ {cls.name()} requires at most {max_dim} dimensions"
             )
 
         def to_int(extent):
