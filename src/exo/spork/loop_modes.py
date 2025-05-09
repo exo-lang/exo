@@ -1,111 +1,100 @@
+from dataclasses import dataclass
 from typing import Optional, Set, Tuple
+
 from .coll_algebra import CollUnit, cuda_thread
 
 
+loop_mode_dict = {}
+
+
 class LoopMode(object):
-    def loop_mode_name(self):
-        raise NotImplementedError()
+    __slots__ = []
+
+    @classmethod
+    def loop_mode_name(cls):
+        raise NotImplementedError
 
 
-class Seq(LoopMode):
-    __slots__ = ["pragma_unroll"]
+def loop_mode_class(_loop_mode_name):
+    assert _loop_mode_name
+    _loop_mode_name = str(_loop_mode_name)
 
-    def __init__(self, pragma_unroll=None):
-        self.pragma_unroll = pragma_unroll
-        assert pragma_unroll is None or isinstance(pragma_unroll, int)
+    @classmethod
+    def loop_mode_name(cls):
+        return _loop_mode_name
 
-    def loop_mode_name(self):
-        return "seq"
+    def decorator(cls):
+        # Frozen, add __slots__, loop_mode_name() function, and register in loop_mode_dict
+        cls_dict = dict(loop_mode_name=loop_mode_name, **cls.__dict__)
+        cls = type(cls.__name__, (LoopMode,), cls_dict)
+        cls = dataclass(frozen=True, slots=True)(cls)
+        assert _loop_mode_name not in loop_mode_dict
+        loop_mode_dict[_loop_mode_name] = cls
+        return cls
+
+    return decorator
+
+
+@loop_mode_class("seq")
+class Seq:
+    pragma_unroll: Optional[int] = None
+
+    def __post_init__(self, pragma_unroll=None):
+        assert self.pragma_unroll is None or isinstance(self.pragma_unroll, int)
 
 
 seq = Seq()
 
 
-class Par(LoopMode):
-    __slots__ = []
-
-    def __init__(self):
-        pass
-
-    def loop_mode_name(self):
-        return "par"
+@loop_mode_class("par")
+class Par:
+    pass
 
 
 par = Par()
 
 
-class _CodegenPar(LoopMode):
+@loop_mode_class("_codegen_par")
+class _CodegenPar:
     """Internal use loop mode for use in code generation of parallel loops
 
     Contains a C string for the "index expression" (e.g. "threadIdx.x / 32")
     and optional bounds"""
 
-    __slots__ = ["c_index", "static_bounds", "warp_name_filter"]
-
     c_index: str
     static_bounds: Optional[Tuple[int, int]]
-    warp_name_filter: Optional[str]
+    warp_name_filter: Optional[str] = None
 
-    def __init__(self, c_index, static_bounds, warp_name_filter=None):
+    def __post_init__(self):
         # Compiled C string giving index of parallel loop "iteration"
-        self.c_index = c_index
-        assert isinstance(c_index, str)
+        assert isinstance(self.c_index, str)
 
         # Pair of optional ints, giving [lo, hi) for c_index to test against.
         # None means no test needed.
         # This is intentionally separate from the lo, hi of the loop itself
         # since this may be used for underhanded purposes in codegen.
-        self.static_bounds = static_bounds
-        assert len(static_bounds) == 2
-        lo, hi = static_bounds
+        lo, hi = self.static_bounds
         assert lo is None or isinstance(lo, int)
         assert hi is None or isinstance(hi, int)
 
-        self.warp_name_filter = warp_name_filter
 
-    def loop_mode_name(self):
-        return "_codegen_par"
-
-
-class CudaTasks(LoopMode):
-    __slots__ = []
-
-    def __init__(self):
-        pass
-
-    def loop_mode_name(self):
-        return "cuda_tasks"
+@loop_mode_class("cuda_tasks")
+class CudaTasks:
+    pass
 
 
 cuda_tasks = CudaTasks()
 
 
+@loop_mode_class("cuda_threads")
 class CudaThreads(LoopMode):
-    __slots__ = ["unit"]
+    unit: CollUnit = cuda_thread
 
-    def __init__(self, unit=cuda_thread):
-        assert isinstance(unit, CollUnit)
-        self.unit = unit
-
-    def loop_mode_name(self):
-        return "cuda_threads"
+    def __post_init__(self, unit=cuda_thread):
+        assert isinstance(self.unit, CollUnit)
 
 
 cuda_threads = CudaThreads()
-
-
-def make_loop_mode_dict():
-    loop_mode_dict = {
-        "seq": Seq,
-        "par": Par,
-        "_codegen_par": _CodegenPar,
-        "cuda_tasks": CudaTasks,
-        "cuda_threads": CudaThreads,
-    }
-    return loop_mode_dict
-
-
-loop_mode_dict = make_loop_mode_dict()
 
 
 def format_loop_cond(lo_str: str, hi_str: str, loop_mode: LoopMode):
