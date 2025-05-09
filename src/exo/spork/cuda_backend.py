@@ -678,7 +678,7 @@ class MainLoopRewrite(LoopIR_Rewrite):
         # Manually rewrite the cuda_tasks loops to use seq(...) mode,
         # and rely on LoopIR_Rewrite to filter the per-warp-name task body,
         # which is wrapped with the task_context to put the code into
-        # exo_deviceTask_{warp_cname}.
+        # exo_deviceTask{warp_cname}.
         assert scan.task_loop_depth > 0
 
         def rewrite_task_loop(loop, warp_name, depth_left=scan.task_loop_depth):
@@ -860,7 +860,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
         )
 
         # ExtWithContext objects for diverting lowered code into
-        # exo_deviceTask_{warp_cname}().
+        # exo_deviceTask{warp_cname}().
         format = lambda fmt_string, **extra: fmt_string.format(**fmt_dict, **extra)
 
         def make_task_context(warp_cname):
@@ -1272,7 +1272,7 @@ struct exo_CudaDeviceArgs{N}_{proc}
 
 deviceTask_decl_fmt = """
   static __device__ __forceinline__ void
-  exo_deviceTask_{warp_cname}(char* exo_smem, exo_SyncState& exo_syncState, const exo_DeviceArgs& exo_deviceArgs, exo_Task exo_task);
+  exo_deviceTask{warp_cname}(char* exo_smem, exo_SyncState& exo_syncState, const exo_DeviceArgs& exo_deviceArgs, exo_Task exo_task);
 """
 
 cuh_snippet_fmt = """\
@@ -1350,13 +1350,13 @@ exo_Cuda{N}_{proc}::exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo
   unsigned exo_taskIndex = 0;"""
 
 device_task_prefix_fmt = """__device__ __forceinline__ void
-exo_Cuda{N}_{proc}::exo_deviceTask_{warp_cname}(char* exo_smem, exo_SyncState& exo_syncState, const exo_DeviceArgs& exo_deviceArgs, exo_Task exo_task)
+exo_Cuda{N}_{proc}::exo_deviceTask{warp_cname}(char* exo_smem, exo_SyncState& exo_syncState, const exo_DeviceArgs& exo_deviceArgs, exo_Task exo_task)
 {{
   namespace exo_CudaUtil = exo_CudaUtil_{lib_name};"""
 
 cuda_launch_fmt = """exo_cudaLaunch{N}_{proc}(exo_cudaStream, (struct exo_CudaDeviceArgs{N}_{proc}) {{ {device_args} }});"""
 
-task_launch_fmt = """if (exo_taskIndex++ % (gridDim.x / exo_clusterDim) == blockIdx.x / exo_clusterDim) exo_deviceTask_{warp_cname}(exo_smem, exo_syncState, exo_deviceArgs, (struct exo_Task) {{ {task_args} }});"""
+task_launch_fmt = """if (exo_taskIndex++ % (gridDim.x / exo_clusterDim) == blockIdx.x / exo_clusterDim) exo_deviceTask{warp_cname}(exo_smem, exo_syncState, exo_deviceArgs, (struct exo_Task) {{ {task_args} }});"""
 
 # Paste this into the C header (.h) if any proc uses cuda.
 h_snippet_for_cuda = r"""

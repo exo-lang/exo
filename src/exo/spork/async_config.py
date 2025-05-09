@@ -114,7 +114,7 @@ class CudaDeviceFunction(BaseAsyncConfig):
                 f"CudaDeviceFunction: blockDim={blockDim} must be positive multiple of 32"
             )
         self.blockDim = blockDim
-        self.named_warps = {"": WarpLayoutInfo(0, blockDim // 32, "main_warps", 0)}
+        self.named_warps = {"": WarpLayoutInfo(0, blockDim // 32, "", 0)}
         self.setmaxnreg_is_inc = {}
 
     def _init_from_warp_config(self, warp_config):
@@ -126,10 +126,11 @@ class CudaDeviceFunction(BaseAsyncConfig):
 
         for w in warp_config:
             # Convert name of CudaWarpConfig to a substring that can be
-            # used as the suffix of a C identifier.
+            # used as the suffix of a C identifier. Always start with
+            # an underscore, unless the name is empty.
             tmp = "".join(c for c in w.name if c.isalnum() or c == "_")
-            if not tmp:
-                tmp = "main_warps"
+            if tmp and not tmp.startswith("_"):
+                tmp = "_" + tmp
             cname = tmp
             suffix = 0
             while cname in cnames:
