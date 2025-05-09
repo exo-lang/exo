@@ -123,7 +123,7 @@ class SubtreeScan(LoopIR_Do):
     # path for that warp. Needed to remove unused variables.
     named_warp_used_syms: Dict[str, Set[Sym]]
 
-    task_loop_depth: int
+    task_loop_depth: int  # Depth of if stmts + cuda_tasks loops
     task_iter_syms: List[Sym]
     device_args_syms: List[Sym]
     grid_constant_syms: Set[Sym]
@@ -155,9 +155,9 @@ class SubtreeScan(LoopIR_Do):
             "proc": ctx.proc_name(),
             "lib_name": ctx.lib_name(),
             "N": ctx.kernel_index(),
-            "gridDim": 132 * cuda_device_function.blocks_per_sm,  # TODO
             "blockDim": blockDim,
             "clusterDim": clusterDim,
+            "launchConfig_clusterDim_snippet": "",
             "blocks_per_sm": cuda_device_function.blocks_per_sm,
         }
         self.named_warps = cuda_device_function.named_warps
@@ -165,8 +165,16 @@ class SubtreeScan(LoopIR_Do):
         self._current_warp_name = None
         self.named_warp_used_syms = {nm: set() for nm in self.named_warps}
 
+        # Only set clusterDim if not 1, not only for pre-H100 compatibility,
+        # but also this avoids mysterious performance loss.
+        if clusterDim != 1:
+            self.fmt_dict[
+                "launchConfig_clusterDim_snippet"
+            ] = launchConfig_clusterDim_snippet
+
         # Validate top-level form of cuda kernel
-        # Must be nest of 1+ cuda_tasks loops
+        # Must be nest of 1+ cuda_tasks loops, and optional if statements
+        # with no else block.
         self.task_iter_syms = []
         task_iter_strs = set()
         valid_sync = False
@@ -176,11 +184,14 @@ class SubtreeScan(LoopIR_Do):
 
         self.task_loop_depth = 0
         task_loop_body = s.body
+        found_task_loop = False
+        first_stmt = s
         while True:
             if len(task_loop_body) == 0:
                 break
-            # TODO also support if statements, to allow imperfect loop divide!
             first_stmt = task_loop_body[0]
+
+            # single cuda_tasks loop
             if isinstance(first_stmt, LoopIR.For):
                 if isinstance(first_stmt.loop_mode, CudaTasks):
                     # Record cuda_tasks iteration variable
@@ -196,14 +207,23 @@ class SubtreeScan(LoopIR_Do):
                             f"{task_loop_body[1].srcinfo}: invalid statement after cuda_tasks loop"
                         )
                     else:
+                        found_task_loop = True
                         self.task_loop_depth += 1
                         task_loop_body = task_loop_body[0].body
                         continue
-            # End when encountering first non-cuda_tasks stmt.
+
+            # single if stmt with no orelse
+            elif isinstance(first_stmt, LoopIR.If):
+                if len(task_loop_body) == 1 and not first_stmt.orelse:
+                    self.task_loop_depth += 1
+                    task_loop_body = task_loop_body[0].body
+                    continue
+
+            # End when encountering first non-cuda_tasks, non-simple if stmt.
             break
 
-        if self.task_loop_depth == 0:
-            raise ValueError(f"{s.srcinfo}: missing cuda_tasks loop")
+        if not found_task_loop:
+            raise ValueError(f"{first_stmt.srcinfo}: missing cuda_tasks loop")
 
         # Prepare exo_Task struct (struct of task loop iteration variables)
         # They will be named exo_task_* in deviceMainLoop
@@ -381,7 +401,7 @@ class SubtreeScan(LoopIR_Do):
             elif isinstance(loop_mode, CudaTasks):
                 if s.iter not in self.task_iter_syms:
                     raise ValueError(
-                        f"{s.srcinfo}: cuda_tasks loop must appear only at top level of CudaDeviceFunction"
+                        f"{s.srcinfo}: cuda_tasks loop must appear only in top level nest of CudaDeviceFunction"
                     )
             elif isinstance(loop_mode, CudaThreads):
                 self.apply_cuda_threads_loop(s)
@@ -696,8 +716,14 @@ class MainLoopRewrite(LoopIR_Rewrite):
                 ]
             else:
                 body = [rewrite_task_loop(loop.body[0], warp_name, depth_left - 1)]
-            assert isinstance(loop.loop_mode, CudaTasks)
-            return loop.update(loop_mode=seq, body=body)
+
+            if isinstance(loop, LoopIR.For):
+                assert isinstance(loop.loop_mode, CudaTasks)
+                return loop.update(loop_mode=seq, body=body)
+            else:
+                assert isinstance(loop, LoopIR.If)
+                assert not loop.orelse
+                return loop.update(body=body)
 
         # Assemble body of exo_deviceMainLoop
         #
@@ -1275,6 +1301,18 @@ deviceTask_decl_fmt = """
   exo_deviceTask{warp_cname}(char* exo_smem, exo_SyncState& exo_syncState, const exo_DeviceArgs& exo_deviceArgs, exo_Task exo_task);
 """
 
+launchConfig_clusterDim_snippet = """
+  cudaLaunchAttribute exo_clusterDim_attr{};
+  exo_clusterDim_attr.id = cudaLaunchAttributeClusterDimension;
+  // For some reason setting a cluster size of (1, 1, 1) tanks performance even though it should do nothing!
+  static_assert(exo_clusterDim >= 2, "exo codegen should have elided explicit clusterDim = 1");
+  exo_clusterDim_attr.val.clusterDim.x = exo_clusterDim;
+  exo_clusterDim_attr.val.clusterDim.y = 1;
+  exo_clusterDim_attr.val.clusterDim.z = 1;
+  exo_launchConfig.attrs = &exo_clusterDim_attr;
+  exo_launchConfig.numAttrs = 1;
+"""
+
 cuh_snippet_fmt = """\
 // CUDA device function args -- duplicated in .c file
 struct exo_CudaDeviceArgs{N}_{proc}
@@ -1314,9 +1352,21 @@ struct exo_Cuda{N}_{proc}
 inline void
 exo_Cuda{N}_{proc}::exo_cudaLaunch(cudaStream_t exo_cudaStream, const exo_DeviceArgs& exo_deviceArgs)
 {{
-  const unsigned exo_gridDim = {gridDim};
   cudaFuncSetAttribute(exo_deviceFunction{N}_{proc}, cudaFuncAttributeMaxDynamicSharedMemorySize, exo_smemBytes);
-  exo_deviceFunction{N}_{proc}<<<exo_gridDim, exo_blockDim, exo_smemBytes, exo_cudaStream>>>(exo_deviceArgs);
+  // TODO how expensive is it to query this every time?
+  int exo_cudaDevice;
+  cudaGetDevice(&exo_cudaDevice);
+  int exo_SMs;
+  cudaDeviceGetAttribute(&exo_SMs, cudaDevAttrMultiProcessorCount, exo_cudaDevice);
+  const unsigned exo_gridDim = (unsigned(exo_SMs) / exo_clusterDim) * {blocks_per_sm}u;
+
+  cudaLaunchConfig_t exo_launchConfig = {{}};
+  exo_launchConfig.gridDim = dim3(exo_gridDim, 1, 1);
+  exo_launchConfig.blockDim = dim3(exo_blockDim, 1, 1);
+  exo_launchConfig.dynamicSmemBytes = exo_smemBytes;
+  exo_launchConfig.stream = exo_cudaStream;
+{launchConfig_clusterDim_snippet}
+  cudaLaunchKernelEx(&exo_launchConfig, exo_deviceFunction{N}_{proc}, exo_deviceArgs);
 }}
 
 __device__ __forceinline__ void

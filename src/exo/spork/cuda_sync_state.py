@@ -653,7 +653,7 @@ class SyncStateBuilder:
             lines.append('      asm("fence.proxy.async;");')
         lines.append("    }")
         if self._clusterDim() > 1:
-            lines.append('    asm("barrier.cluster.arrive.aligned; barrier.cluster.wait.aligned;\n"::);')
+            lines.append(r'    asm("barrier.cluster.arrive.aligned;\n\tbarrier.cluster.wait.aligned;"::);')
         else:
             lines.append('    __syncthreads();')
         # HACK: align mbarriers to 128 bytes for now
