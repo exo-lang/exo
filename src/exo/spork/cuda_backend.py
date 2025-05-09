@@ -86,7 +86,7 @@ class SubtreeScan(LoopIR_Do):
         "thread_iters",
         "cuda_warps_dfs_codegen",
         "fmt_dict",
-        "named_warp_used_syms",  # TODO
+        "named_warp_used_syms",
         "task_loop_depth",
         "task_iter_syms",
         "device_args_syms",
