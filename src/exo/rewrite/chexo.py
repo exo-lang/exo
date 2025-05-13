@@ -128,21 +128,6 @@ class ReadWriteSyms:
     read_syms: set[Sym]
 
 
-# @dataclass
-# class LoopFlattener(LoopIRModifier):
-#     universal_var_types: dict[Sym, LoopIR.type] = field(default_factory=lambda: {})
-#     loop_syms: Optional[ReadWriteSyms] = None
-
-#     def visit(self, node):
-#         if isinstance(node, LoopIR.For):
-#             old_loop_syms = self.loop_syms
-#             new_node = self.visit_generic(node)
-#             self.loop_syms = old_loop_syms
-#         elif isinstance(node, LoopIR.Assign):
-#         elif isinstance(node, LoopIR.Reduce):
-#         elif isinstance(node, LoopIR.WriteConfig):
-
-
 @dataclass
 class Dimension:
     size: int
@@ -336,7 +321,7 @@ def generate_test_case(
             arg_values[arg_name] = val
 
     for arg_name, arg_type in arg_types.items():
-        if arg_type.is_numeric():
+        if arg_type.is_numeric() and not isinstance(arg_type, LoopIR.WindowType):
             if arg_type.is_real_scalar():
                 shape = (1,)
             else:
@@ -353,7 +338,7 @@ def generate_test_case(
 class TestResult:
     buffer_values: dict[Sym, np.ndarray]
     ctxt_object: dict[str, Union[int, float]]
-    coverage_result: Optional[dict[str, Union[bool, memoryview, float]]]
+    coverage_result: Optional[dict[str, Union[bool, memoryview]]]
 
 
 def run_test_case(
@@ -472,9 +457,14 @@ class TestScope:
                 self.scope,
             ).items()
         ]
-        args = [arg for arg in args if not arg.type.is_numeric()] + [
-            arg for arg in args if arg.type.is_numeric()
-        ]
+        args = sorted(
+            args,
+            key=lambda arg: (
+                (2 if isinstance(arg.type, LoopIR.WindowType) else 1)
+                if arg.type.is_numeric()
+                else 0
+            ),
+        )
 
         proc = LoopIR.proc(
             name=root_proc.name,

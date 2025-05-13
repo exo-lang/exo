@@ -698,17 +698,17 @@ class CoverageState:
         self.scalar_symbols[scalar_sym] = self.ctxt_symbols[config_key]
 
     def assign_window(
-        self, sym: Sym, window_expr: LoopIR.WindowExpr, in_bounds_js: str
+        self, sym: Sym, source_buf: Sym, access_cursor: Block, in_bounds_js: str
     ):
-        base_tensor = self.symbolic_tensors[window_expr.name]
+        base_tensor = self.symbolic_tensors[source_buf]
         in_bounds_constraint = TRUE_CONSTRAINT
         window_dims = []
-        window_idx_iter = iter(window_expr.idx)
+        window_idx_iter = iter(access_cursor)
         for dim in base_tensor.dims:
             if isinstance(dim, SymbolicPoint):
                 window_dims.append(dim)
             else:
-                idx = next(window_idx_iter)
+                idx = next(window_idx_iter)._node
                 if isinstance(idx, LoopIR.Interval):
                     new_dim = SymbolicSlice(
                         self.cm.make_expression(idx.lo).add(dim.lower_bound),
@@ -905,6 +905,7 @@ class Transpiler:
 
     def _transpile_proc(self, proc: LoopIR.proc, coverage_args: Optional[CoverageArgs]):
         self._buffer_args = [arg.name for arg in proc.args if arg.type.is_numeric()]
+        root_cursor = Cursor.create(proc)
         self._js_lines.append(
             f'(({",".join(repr(arg) for arg in self._buffer_args)})=>{{'
         )
@@ -912,9 +913,10 @@ class Transpiler:
         if coverage_args is not None:
             self._coverage_state = CoverageState(coverage_args, self)
         arg_values = []
-        for arg in proc.args:
+        for arg_cursor in root_cursor._child_block("args"):
+            arg = arg_cursor._node
             if arg.type.is_numeric():
-                if arg.type.is_tensor_or_window():
+                if isinstance(arg.type, LoopIR.Tensor):
                     value = Tensor(
                         arg.name,
                         tuple(
@@ -936,6 +938,12 @@ class Transpiler:
                         self._coverage_state.make_tensor(
                             arg.name, arg.type.shape(), "true"
                         )
+                elif isinstance(arg.type, LoopIR.WindowType):
+                    value = self._transpile_window(
+                        arg.name,
+                        arg.type.src_buf,
+                        arg_cursor._child_node("type")._child_block("idx"),
+                    )
                 else:
                     value = Reference(repr(arg.name), False)
                     if self._coverage_state is not None:
@@ -943,7 +951,7 @@ class Transpiler:
             else:
                 value = Constant(f"${repr(arg.name)}")
             arg_values.append(value)
-        self._call_proc(Cursor.create(proc), tuple(arg_values), True)
+        self._call_proc(root_cursor, tuple(arg_values), True)
         coverage_object = ""
         if self._coverage_state is not None:
             skeleton = self._coverage_state.make_skeleton()
@@ -957,6 +965,66 @@ class Transpiler:
             for config, field in self._configs
         )
         self._js_lines[ctxt_placeholder] = f"{CONTEXT_OBJECT_NAME}={{{configs}}}"
+
+    def _transpile_window(
+        self, name: Sym, source_buf: Sym, access_cursor: Block
+    ) -> Tensor:
+        base = self._name_lookup[source_buf]
+        assert isinstance(base, Tensor)
+        window_dims = []
+        in_bounds_conds = []
+        idx_cursor_iter = iter(access_cursor)
+        for dim in base.dims:
+            if isinstance(dim.window_idx, Point):
+                window_dims.append(dim)
+            else:
+                idx_cursor = next(idx_cursor_iter)
+                idx = idx_cursor._node
+                if isinstance(idx, LoopIR.Interval):
+                    lo_expr = self._transpile_expr(
+                        idx_cursor._child_node("lo"),
+                    )
+                    hi_expr = self._transpile_expr(
+                        idx_cursor._child_node("hi"),
+                    )
+                    lo_sym, hi_sym = Sym("lo"), Sym("hi")
+                    self._js_lines.append(
+                        f"let {repr(lo_sym)}=({lo_expr})+({dim.window_idx.lower_bound});"
+                    )
+                    self._js_lines.append(
+                        f"let {repr(hi_sym)}=({hi_expr})+({dim.window_idx.lower_bound});"
+                    )
+                    in_bounds_conds.append(
+                        f"(({dim.window_idx.lower_bound})<=({repr(lo_sym)})&&({repr(lo_sym)})<=({repr(hi_sym)})&&({repr(hi_sym)})<=({dim.window_idx.upper_bound}))"
+                    )
+                    window_dims.append(
+                        Dimension(
+                            dim.size, dim.stride, Slice(repr(lo_sym), repr(hi_sym))
+                        )
+                    )
+                elif isinstance(idx, LoopIR.Point):
+                    pt_expr = self._transpile_expr(
+                        idx_cursor._child_node("pt"),
+                    )
+                    index_sym = Sym("idx")
+                    self._js_lines.append(
+                        f"let {repr(index_sym)}=({pt_expr})+({dim.window_idx.lower_bound});"
+                    )
+                    in_bounds_conds.append(
+                        f"(({dim.window_idx.lower_bound})<={repr(index_sym)}&&{repr(index_sym)}<({dim.window_idx.upper_bound}))"
+                    )
+                    window_dims.append(
+                        Dimension(dim.size, dim.stride, Point(repr(index_sym)))
+                    )
+                else:
+                    assert False, "not a window index"
+        in_bounds_js = "&&".join(in_bounds_conds)
+        if self._coverage_state is not None:
+            self._coverage_state.assign_window(
+                name, source_buf, access_cursor, in_bounds_js
+            )
+        self._assert_at_runtime(in_bounds_js)
+        return Tensor(base.name, tuple(window_dims))
 
     def _call_proc(
         self, proc_cursor: Node, arg_values: tuple[ExoValue, ...], top_level: bool
@@ -1207,60 +1275,9 @@ class Transpiler:
                     self._coverage_state.assign_scalar(new_name, expr.name)
             return buf
         elif isinstance(expr, LoopIR.WindowExpr):
-            base = self._name_lookup[expr.name]
-            assert isinstance(base, Tensor)
-            window_dims = []
-            in_bounds_conds = []
-            idx_cursor_iter = iter(expr_cursor._child_block("idx"))
-            for dim in base.dims:
-                if isinstance(dim.window_idx, Point):
-                    window_dims.append(dim)
-                else:
-                    idx_cursor = next(idx_cursor_iter)
-                    idx = idx_cursor._node
-                    if isinstance(idx, LoopIR.Interval):
-                        lo_expr = self._transpile_expr(
-                            idx_cursor._child_node("lo"),
-                        )
-                        hi_expr = self._transpile_expr(
-                            idx_cursor._child_node("hi"),
-                        )
-                        lo_sym, hi_sym = Sym("lo"), Sym("hi")
-                        self._js_lines.append(
-                            f"let {repr(lo_sym)}=({lo_expr})+({dim.window_idx.lower_bound});"
-                        )
-                        self._js_lines.append(
-                            f"let {repr(hi_sym)}=({hi_expr})+({dim.window_idx.lower_bound});"
-                        )
-                        in_bounds_conds.append(
-                            f"(({dim.window_idx.lower_bound})<=({repr(lo_sym)})&&({repr(lo_sym)})<=({repr(hi_sym)})&&({repr(hi_sym)})<=({dim.window_idx.upper_bound}))"
-                        )
-                        window_dims.append(
-                            Dimension(
-                                dim.size, dim.stride, Slice(repr(lo_sym), repr(hi_sym))
-                            )
-                        )
-                    elif isinstance(idx, LoopIR.Point):
-                        pt_expr = self._transpile_expr(
-                            idx_cursor._child_node("pt"),
-                        )
-                        index_sym = Sym("idx")
-                        self._js_lines.append(
-                            f"let {repr(index_sym)}=({pt_expr})+({dim.window_idx.lower_bound});"
-                        )
-                        in_bounds_conds.append(
-                            f"(({dim.window_idx.lower_bound})<={repr(index_sym)}&&{repr(index_sym)}<({dim.window_idx.upper_bound}))"
-                        )
-                        window_dims.append(
-                            Dimension(dim.size, dim.stride, Point(repr(index_sym)))
-                        )
-                    else:
-                        assert False, "not a window index"
-            in_bounds_js = "&&".join(in_bounds_conds)
-            if self._coverage_state is not None:
-                self._coverage_state.assign_window(new_name, expr, in_bounds_js)
-            self._assert_at_runtime(in_bounds_js)
-            return Tensor(base.name, tuple(window_dims))
+            return self._transpile_window(
+                new_name, expr.name, expr_cursor._child_block("idx")
+            )
         elif isinstance(expr, LoopIR.ReadConfig):
             self._configs.add((expr.config, expr.field))
             if self._coverage_state is not None:

@@ -22,12 +22,14 @@ def solve_proc_assertion(p):
     cm = ConstraintMaker(p_type.type_map)
     constraint = cm.make_constraint(p._loopir_proc.preds[0])
     return "\n".join(
-        [
-            f"{str(sym)} = {val}"
-            for sym, val in cm.solve_constraint(
-                constraint, bound=100, search_limit=10, seed=13
-            ).var_assignments.items()
-        ]
+        sorted(
+            [
+                f"{str(sym)} = {val}"
+                for sym, val in cm.solve_constraint(
+                    constraint, bound=100, search_limit=10, seed=13
+                ).var_assignments.items()
+            ]
+        )
     )
 
 
