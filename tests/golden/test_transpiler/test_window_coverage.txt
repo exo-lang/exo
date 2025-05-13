@@ -1,14 +1,15 @@
 ((a_1)=>{
 ctxt={}
-
-if(!($size_a_1_0==16))return [1,ctxt,{}];
-if(!(0<=1&&1<=8&&8<=$size_a_1_0))return [1,ctxt,{}];
-if(!(3<$size_a_1_0&&3>=0))return [1,ctxt,{}];
-
-if(!(3<$size_a_1_0&&3>=0))return [1,ctxt,{}];
-a_1[Math.imul(3,$stride_a_1_0)+0]=2;
-if(!(2<(8-1)&&2>=0))return [1,ctxt,{}];
-
-if(!(2<(8-1)&&2>=0))return [1,ctxt,{}];
-a_1[Math.imul(2,$stride_a_1_0)+(0+Math.imul(1,$stride_a_1_0))]=3;
-return [0,ctxt,{}];})
+let access_10=new ArrayBuffer(1,{maxByteLength:16});let access_8=new ArrayBuffer(1,{maxByteLength:16});
+while(Math.imul($size_a_1_0,$stride_a_1_0)>access_10.maxByteLength){let temp_11=new ArrayBuffer(access_10.byteLength,{maxByteLength:2*access_10.maxByteLength});for(let i=0;i<access_10.byteLength;i++)temp_11[i]=access_10[i];access_10=temp_11};access_10.resize(Math.max(Math.imul($size_a_1_0,$stride_a_1_0),access_10.byteLength));while(Math.imul($size_a_1_0,$stride_a_1_0)>access_8.maxByteLength){let temp_9=new ArrayBuffer(access_8.byteLength,{maxByteLength:2*access_8.maxByteLength});for(let i=0;i<access_8.byteLength;i++)temp_9[i]=access_8[i];access_8=temp_9};access_8.resize(Math.max(Math.imul($size_a_1_0,$stride_a_1_0),access_8.byteLength));
+if(!((($size_a_1_0)-(0))==(16)))return [1,ctxt,{}];
+let lo_6=(1)+(0);
+let hi_7=(8)+(0);
+if(!((0)<=(lo_6)&&(lo_6)<=(hi_7)&&(hi_7)<=($size_a_1_0)))return [1,ctxt,{}];
+access_8[Math.imul(((3)+(0)),$stride_a_1_0)]=1;
+if(!((((3)+(0)))>=(0)&&(((3)+(0)))<($size_a_1_0)))return [1,ctxt,{}];
+a_1[Math.imul($stride_a_1_0,((3)+(0)))]=2;
+access_10[Math.imul(((2)+(lo_6)),$stride_a_1_0)]=1;
+if(!((((2)+(lo_6)))>=(lo_6)&&(((2)+(lo_6)))<(hi_7)))return [1,ctxt,{}];
+a_1[Math.imul($stride_a_1_0,((2)+(lo_6)))]=3;
+return [0,ctxt,{access_10,access_8}];})

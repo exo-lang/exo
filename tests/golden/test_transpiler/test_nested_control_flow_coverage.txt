@@ -1,30 +1,25 @@
 ((b_2)=>{
 ctxt={}
-let body_12=false;let false_case_17=false;let false_case_25=false;let skip_13=false;let true_case_16=false;let true_case_24=false;let write_20=false;let write_21=false;let write_26=false;let write_27=false;
-
+let access_18=false;let access_19=false;let access_22=false;let access_23=false;let body_12=false;let false_case_15=false;let false_case_21=false;let skip_13=false;let true_case_14=false;let true_case_20=false;
 body_12||=(0<$n_1);skip_13||=(0>=$n_1);
 for(let i_3=0;i_3<$n_1;i_3++){
-
-
 if((i_3<(($n_1/2)|0))){
-true_case_16=true;
-write_20=true;
+true_case_14=true;
+access_18=true;
 b_2[0]=2;
 }else{
-false_case_17=true;
-write_21=true;
+false_case_15=true;
+access_19=true;
 b_2[0]=3;
 }
-
-
 if((i_3==($n_1-1))){
-true_case_24=true;
-write_26=true;
+true_case_20=true;
+access_22=true;
 b_2[0]+=1;
 }else{
-false_case_25=true;
-write_27=true;
+false_case_21=true;
+access_23=true;
 b_2[0]+=2;
 }
 }
-return [0,ctxt,{body_12,false_case_17,false_case_25,skip_13,true_case_16,true_case_24,write_20,write_21,write_26,write_27}];})
+return [0,ctxt,{access_18,access_19,access_22,access_23,body_12,false_case_15,false_case_21,skip_13,true_case_14,true_case_20}];})

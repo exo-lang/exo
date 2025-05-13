@@ -410,7 +410,7 @@ def DoReorderStmt(f_cursor, s_cursor):
     do_check(
         lambda: Check_ReorderStmts(f_cursor.get_root(), f_cursor._node, s_cursor._node),
         lambda: fuzz_reorder_stmts(f_cursor, s_cursor),
-        "dynamic",
+        "both",
     )
     ir, fwd = s_cursor._move(f_cursor.before())
     return ir, fwd

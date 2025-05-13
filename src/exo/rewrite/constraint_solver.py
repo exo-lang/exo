@@ -66,6 +66,27 @@ class LinearConstraint:
 class Expression:
     terms: tuple[ConstraintTerm, ...]
 
+    @staticmethod
+    def from_constant(const: int) -> "Expression":
+        return Expression((ConstraintTerm(const, ()),))
+
+    @staticmethod
+    def from_sym(sym: Sym) -> "Expression":
+        return Expression((ConstraintTerm(1, (sym,)),))
+
+    def negate(self) -> "Expression":
+        return Expression(tuple(term.negate() for term in self.terms))
+
+    def add(self, other: "Expression") -> "Expression":
+        return Expression((*self.terms, *other.terms))
+
+    def multiply(self, other: "Expression") -> "Expression":
+        return Expression(
+            tuple(
+                term1.multiply(term2) for term1 in self.terms for term2 in other.terms
+            )
+        )
+
     def substitute(self, assignments: dict[Sym, int]) -> "Expression":
         coefficients: dict[tuple[Sym, ...], int] = {}
         for term in self.terms:
@@ -132,10 +153,7 @@ class Constraint:
     def invert(self) -> "DisjointConstraint":
         if self.has_slack:
             return Constraint(
-                Expression(
-                    tuple(term.negate() for term in self.lhs.terms)
-                    + (ConstraintTerm(-1, ()),)
-                ),
+                self.lhs.negate().add(Expression.from_constant(-1)),
                 True,
             ).lift_to_disjoint_constraint()
         else:
@@ -144,7 +162,7 @@ class Constraint:
                     ConstraintClause(
                         (
                             Constraint(
-                                Expression(self.lhs.terms + (ConstraintTerm(-1, ()),)),
+                                self.lhs.add(Expression.from_constant(-1)),
                                 True,
                             ),
                         )
@@ -152,10 +170,7 @@ class Constraint:
                     ConstraintClause(
                         (
                             Constraint(
-                                Expression(
-                                    tuple(term.negate() for term in self.lhs.terms)
-                                    + (ConstraintTerm(-1, ()),)
-                                ),
+                                self.lhs.negate().add(Expression.from_constant(-1)),
                                 True,
                             ),
                         )
@@ -323,31 +338,29 @@ class ConstraintMaker:
             if var_sub_result is not None:
                 self.var_subs[sym] = var_sub_result
 
+    def get_var_sub(self, var_sym: Sym) -> Expression:
+        return self.var_subs[var_sym]
+
     def make_var_sub(self, name: str, var_type: LoopIR.type) -> Optional[Expression]:
         if isinstance(var_type, (T.Size, T.Stride)):
             # positive variable
-            return Expression(
-                (ConstraintTerm(1, (Sym(f"{name}_m1"),)), ConstraintTerm(1, ()))
+            return Expression.from_sym(Sym(f"{name}_m1")).add(
+                Expression.from_constant(1)
             )
         elif isinstance(var_type, (T.Int, T.Index)):
             # unsigned variables are represented as a - b, where a and b are nonnegative
             a, b = Sym(f"{name}_a"), Sym(f"{name}_b")
-            return Expression((ConstraintTerm(1, (a,)), ConstraintTerm(-1, (b,))))
+            return Expression.from_sym(a).add(Expression.from_sym(b).negate())
         elif isinstance(var_type, T.Bool):
             # constrained to [0, 1]
             sym = Sym(name)
             self.extra_constraints.append(
                 Constraint(
-                    Expression(
-                        (
-                            ConstraintTerm(-1, (sym,)),
-                            ConstraintTerm(1, ()),
-                        )
-                    ),
+                    Expression.from_sym(sym).negate().add(Expression.from_constant(1)),
                     True,
                 )
             )
-            return Expression((ConstraintTerm(1, (sym,)),))
+            return Expression.from_sym(sym)
         else:
             return None
 
@@ -361,60 +374,40 @@ class ConstraintMaker:
             ), "indexing not supported in assertions (yet, todo)"
             return self.var_subs[expr.name]
         elif isinstance(expr, LoopIR.Const):
-            return Expression((ConstraintTerm(expr.val, ()),))
+            return Expression.from_constant(expr.val)
         elif isinstance(expr, LoopIR.USub):
-            return Expression(
-                tuple(term.negate() for term in self.make_expression(expr.arg).terms)
-            )
+            return self.make_expression(expr.arg).negate()
         elif isinstance(expr, LoopIR.BinOp):
             # TODO: support mod and div using extra variables
-            lhs_terms = self.make_expression(expr.lhs).terms
-            rhs_terms = self.make_expression(expr.rhs).terms
+            lhs = self.make_expression(expr.lhs)
+            rhs = self.make_expression(expr.rhs)
             if expr.op == "+":
-                return Expression(lhs_terms + rhs_terms)
+                return lhs.add(rhs)
             elif expr.op == "-":
-                return Expression(
-                    lhs_terms + tuple(term.negate() for term in rhs_terms)
-                )
+                return lhs.add(rhs.negate())
             elif expr.op == "*":
-                return Expression(
-                    tuple(
-                        lhs_term.multiply(rhs_term)
-                        for lhs_term in lhs_terms
-                        for rhs_term in rhs_terms
-                    )
-                )
+                return lhs.multiply(rhs)
             elif expr.op in ["/", "%"]:
                 div, rem = Sym("div"), Sym("rem")
                 self.hidden_vars.update((div, rem))
                 self.extra_constraints.append(
                     Constraint(
-                        Expression(
-                            tuple(lhs_term.negate() for lhs_term in lhs_terms)
-                            + (ConstraintTerm(1, (rem,)),)
-                            + tuple(
-                                rhs_term.multiply(ConstraintTerm(1, (div,)))
-                                for rhs_term in rhs_terms
-                            )
-                        ),
+                        lhs.negate()
+                        .add(Expression.from_sym(rem))
+                        .add(rhs.multiply(Expression.from_sym(div))),
                         False,
                     )
                 )
                 self.extra_constraints.append(
                     Constraint(
-                        Expression(
-                            (
-                                ConstraintTerm(-1, (rem,)),
-                                ConstraintTerm(-1, ()),
-                            )
-                            + rhs_terms
-                        ),
+                        Expression.from_sym(rem)
+                        .add(Expression.from_constant(1))
+                        .negate()
+                        .add(rhs),
                         True,
                     )
                 )
-                return Expression(
-                    (ConstraintTerm(1, (rem if expr.op == "%" else div,)),)
-                )
+                return Expression.from_sym(rem if expr.op == "%" else div)
             else:
                 assert False, f"unsupported op in assertion: {expr.op}"
         elif isinstance(expr, LoopIR.StrideExpr):
@@ -422,7 +415,7 @@ class ConstraintMaker:
                 new_sym = Sym("stride")
                 self.stride_dummies[(expr.name, expr.dim)] = new_sym
             dummy = self.stride_dummies[(expr.name, expr.dim)]
-            return Expression((ConstraintTerm(1, (dummy,)),))
+            return Expression.from_sym(dummy)
         elif isinstance(expr, LoopIR.ReadConfig):
             if (expr.config, expr.field) not in self.ctxt:
                 field_type = expr.config.lookup_type(expr.field)
@@ -460,12 +453,7 @@ class ConstraintMaker:
         elif isinstance(expr, LoopIR.Read):
             assert len(expr.idx) == 0, "cannot index into boolean"
             return Constraint(
-                Expression(
-                    (
-                        ConstraintTerm(1, (expr.name,)),
-                        ConstraintTerm(-1, ()),
-                    )
-                ),
+                Expression.from_sym(expr.name).add(Expression.from_constant(-1)),
                 True,
             ).lift_to_disjoint_constraint()
         elif isinstance(expr, LoopIR.Const):
@@ -476,31 +464,24 @@ class ConstraintMaker:
     def make_constraint_from_inequality(
         self, lhs: Union[LoopIR.expr, Sym], rhs: Union[LoopIR.expr, Sym], op: str
     ) -> Constraint:
-        lhs_terms = self.make_expression(lhs).terms
-        rhs_terms = self.make_expression(rhs).terms
-        has_slack = True
+        lhs_expr = self.make_expression(lhs)
+        rhs_expr = self.make_expression(rhs)
         if op == "<":
-            terms = (
-                rhs_terms
-                + tuple(term.negate() for term in lhs_terms)
-                + (ConstraintTerm(-1, ()),)
+            return Constraint(
+                rhs_expr.add(lhs_expr.negate()).add(Expression.from_constant(-1)), True
             )
         elif op == ">":
-            terms = (
-                lhs_terms
-                + tuple(term.negate() for term in rhs_terms)
-                + (ConstraintTerm(-1, ()),)
+            return Constraint(
+                lhs_expr.add(rhs_expr.negate()).add(Expression.from_constant(-1)), True
             )
         elif op == "<=":
-            terms = rhs_terms + tuple(term.negate() for term in lhs_terms)
+            return Constraint(rhs_expr.add(lhs_expr.negate()), True)
         elif op == ">=":
-            terms = lhs_terms + tuple(term.negate() for term in rhs_terms)
+            return Constraint(lhs_expr.add(rhs_expr.negate()), True)
         elif op == "==":
-            has_slack = False
-            terms = rhs_terms + tuple(term.negate() for term in lhs_terms)
+            return Constraint(lhs_expr.add(rhs_expr.negate()), False)
         else:
             assert False, "boolean ops expected"
-        return Constraint(Expression(terms), has_slack)
 
     def _make_solution_from_assignments(self, assignments: dict[Sym, int]) -> Solution:
         var_assignments = {}

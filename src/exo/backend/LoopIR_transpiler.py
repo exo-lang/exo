@@ -1,7 +1,7 @@
 from functools import reduce
 from itertools import chain
 from string import Template
-from typing import Any, Iterable, Optional, Union
+from typing import Any, Callable, Generator, Iterable, Optional, Union
 
 from ..core.configs import Config
 
@@ -11,12 +11,26 @@ from .coverage import (
     CoverageSkeleton,
     CoverageSkeletonNode,
     CoverageSkeletonBranch,
+    FailureCondition,
     IndexedFiller,
     MemoryAccess,
     MemoryAccessPair,
+    ParallelAccess,
+    ParallelAccessPair,
+    SymbolicPoint,
+    SymbolicSlice,
+    StagingOverlap,
+    SymbolicWindowIndex,
 )
-from ..rewrite.constraint_solver import ConstraintMaker
-from dataclasses import dataclass
+from ..core.internal_cursors import Block, Cursor, Node, NodePath
+from ..rewrite.constraint_solver import (
+    TRUE_CONSTRAINT,
+    Constraint,
+    ConstraintMaker,
+    DisjointConstraint,
+    Expression,
+)
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -64,17 +78,30 @@ class Reference:
 
 
 @dataclass
+class Point:
+    index: str
+
+
+@dataclass
+class Slice:
+    lower_bound: str
+    upper_bound: str
+
+
+WindowIndex = Union[Point, Slice]
+
+
+@dataclass
 class Dimension:
     size: str
     stride: str
+    window_idx: WindowIndex
 
 
 @dataclass
 class Tensor:
     name: Sym
-    offset: str
     dims: tuple[Dimension, ...]
-    resize_placeholder: Optional[int]
 
 
 ExoValue = Union[Constant, Reference, Tensor]
@@ -85,30 +112,747 @@ INITIAL_DYNAMIC_SIZE = 16
 
 
 @dataclass
-class CoverageArgs:
-    cm: ConstraintMaker
+class SymbolicTensor:
+    name: Sym
+    dims: tuple[SymbolicWindowIndex, ...]
+    resize_placeholder: Optional[int]
 
 
-class CoverageState:
-    def __init__(self, args: CoverageArgs, cov_placeholder: int):
-        self.cm: ConstraintMaker = args.cm
-        self.root: CoverageSkeletonNode = CoverageSkeletonNode(None, None, ())
-        self.buffer_writes: dict[Sym, list[MemoryAccess]] = {}
-        self.buffer_reads: dict[Sym, list[MemoryAccess]] = {}
-        self.free_vars: list[Sym] = []
-        self.cov_placeholder = cov_placeholder
+class AliasingTracker:
+    def __init__(self, parent_state: "CoverageState"):
+        self.writes: dict[Sym, list[MemoryAccess]] = {}
+        self.reads: dict[Sym, list[MemoryAccess]] = {}
+        self.parent_state = parent_state
 
-    def make_skeleton(self) -> CoverageSkeleton:
+    def access_tensor(
+        self,
+        js_tensor: Tensor,
+        js_idxs: tuple[str, ...],
+        symbolic_idxs: tuple[Expression],
+        access_placeholder: int,
+        _access_cursor: Node,
+        cov_node: CoverageSkeletonNode,
+        is_write: bool,
+    ):
+        js_access = "+".join(
+            f"Math.imul({js_idx},{js_dim.stride})"
+            for js_idx, js_dim in zip(js_idxs, js_tensor.dims)
+        )
+        access_sym = Sym("access")
+        mark_stmt = f"{repr(access_sym)}[{js_access}]=1;"
+        base_size = f"Math.imul({js_tensor.dims[0].size},{js_tensor.dims[0].stride})"
+        resize_placeholder = self.parent_state.symbolic_tensors[
+            js_tensor.name
+        ].resize_placeholder
+        if resize_placeholder is None:
+            decl_stmt = f"let {repr(access_sym)}=new ArrayBuffer({base_size});"
+            fillers = (
+                IndexedFiller(access_placeholder, mark_stmt),
+                IndexedFiller(self.parent_state.cov_placeholder, decl_stmt),
+            )
+        else:
+            temp_sym = Sym("temp")
+            decl_stmt = f"let {repr(access_sym)}=new ArrayBuffer(1,{{maxByteLength:{INITIAL_DYNAMIC_SIZE}}});"
+            resize_stmt = f"while({base_size}>{repr(access_sym)}.maxByteLength){{let {repr(temp_sym)}=new ArrayBuffer({repr(access_sym)}.byteLength,{{maxByteLength:2*{repr(access_sym)}.maxByteLength}});for(let i=0;i<{repr(access_sym)}.byteLength;i++){repr(temp_sym)}[i]={repr(access_sym)}[i];{repr(access_sym)}={repr(temp_sym)}}};{repr(access_sym)}.resize(Math.max({base_size},{repr(access_sym)}.byteLength));"
+            fillers = (
+                IndexedFiller(access_placeholder, mark_stmt),
+                IndexedFiller(self.parent_state.cov_placeholder, decl_stmt),
+                IndexedFiller(resize_placeholder, resize_stmt),
+            )
+
+        dest = self.writes if is_write else self.reads
+        if js_tensor.name not in dest:
+            dest[js_tensor.name] = []
+        dest[js_tensor.name].append(
+            MemoryAccess(access_sym, cov_node, symbolic_idxs, fillers)
+        )
+
+    def access_scalar(
+        self,
+        name: Sym,
+        access_placeholder: int,
+        _access_cursor: Node,
+        cov_node: CoverageSkeletonNode,
+        is_write: bool,
+    ):
+        access_sym = Sym("access")
+        mark_stmt = f"{repr(access_sym)}=true;"
+        decl_stmt = f"let {repr(access_sym)}=false;"
+
+        dest = self.writes if is_write else self.reads
+        if name not in dest:
+            dest[name] = []
+        dest[name].append(
+            MemoryAccess(
+                access_sym,
+                cov_node,
+                (),
+                (
+                    IndexedFiller(access_placeholder, mark_stmt),
+                    IndexedFiller(self.parent_state.cov_placeholder, decl_stmt),
+                ),
+            )
+        )
+
+    def make_aliasing_accesses(self) -> tuple[MemoryAccessPair, ...]:
         aliasable_accesses: list[MemoryAccessPair] = []
-        for sym, write_indices in self.buffer_writes.items():
-            read_indices = self.buffer_reads[sym] if sym in self.buffer_reads else []
+        for sym, write_indices in self.writes.items():
+            read_indices = self.reads[sym] if sym in self.reads else []
             for i, index1 in enumerate(write_indices):
                 for index2 in chain(write_indices[i + 1 :], read_indices):
                     aliasable_accesses.append(MemoryAccessPair(index1, index2))
+        return tuple(aliasable_accesses)
 
-        return CoverageSkeleton(
-            (self.root,), tuple(aliasable_accesses), frozenset(self.free_vars)
+
+class FailureTracker:
+    def __init__(self, scope: Block, parent_state: "CoverageState"):
+        self.scope = scope
+        self.in_scope = False
+        self.call_depth = 0
+        self.failure_conditions: list[FailureCondition] = []
+        self.parent_state = parent_state
+
+    def enter_stmt(self, stmt_cursor: Node):
+        if stmt_cursor in self.scope:
+            self.in_scope = True
+
+    def exit_stmt(self, stmt_cursor):
+        if stmt_cursor in self.scope:
+            self.in_scope = False
+
+    def enter_proc_body(self):
+        self.call_depth += 1
+
+    def exit_proc_body(self):
+        self.call_depth -= 1
+
+    def add_assertion(
+        self, asserted_cond: DisjointConstraint, js_cond: str, placeholder: int
+    ):
+        if self.in_scope and self.call_depth == 1:
+            fail_sym = Sym("fail")
+            self.failure_conditions.append(
+                FailureCondition(
+                    fail_sym,
+                    asserted_cond.invert(),
+                    self.parent_state.current_node,
+                    (
+                        IndexedFiller(
+                            self.parent_state.cov_placeholder,
+                            f"let {repr(fail_sym)}=false;",
+                        ),
+                        IndexedFiller(
+                            placeholder, f"if(!({js_cond})){repr(fail_sym)}=true;"
+                        ),
+                    ),
+                )
+            )
+
+    def make_failures(self) -> tuple[FailureCondition, ...]:
+        return tuple(self.failure_conditions)
+
+
+@dataclass
+class SymbolicWindow:
+    name: Sym
+    index: tuple[SymbolicWindowIndex, ...]
+
+
+@dataclass
+class StageMemArgs:
+    window_expr: LoopIR.WindowExpr
+    scope: Block
+
+
+class StageMemTracker:
+    def __init__(self, args: StageMemArgs, parent_state: "CoverageState"):
+        self.scope: Block = args.scope
+        self.buffer_sym = args.window_expr.name
+        self.staged_window: Optional[tuple[SymbolicTensor, Tensor]] = None
+        self.overlaps: list[StagingOverlap] = []
+        self.parent_state: "CoverageState" = parent_state
+
+    def enter_stmt(self, stmt_node: Node):
+        if stmt_node in self.scope:
+            js_tensor = self.parent_state.parent_transpiler._lookup_sym(self.buffer_sym)
+            assert isinstance(js_tensor, Tensor)
+            self.staged_window = (
+                self.parent_state.symbolic_tensors[self.buffer_sym],
+                js_tensor,
+            )
+
+    def exit_stmt(self, stmt_cursor: Node):
+        if stmt_cursor in self.scope:
+            self.staged_window = None
+
+    def access_tensor(
+        self,
+        js_tensor: Tensor,
+        js_idxs: tuple[str, ...],
+        symbolic_idxs: tuple[Expression],
+        access_placeholder: int,
+        access_cursor: Node,
+        cov_node: CoverageSkeletonNode,
+        _is_write: bool,
+    ):
+        if (
+            self.staged_window is not None
+            and self.staged_window[1].name == js_tensor.name
+        ):
+            symbolic_staged_window, js_staged_window = self.staged_window
+            overlap_sym = Sym("overlap")
+            disjoint_sym = Sym("disjoint")
+            access_window = tuple(SymbolicPoint(idx) for idx in symbolic_idxs)
+            js_overlap_cond = "&&".join(
+                f"(({js_staged_slice.lower_bound})<=({js_idx}))&&(({js_staged_slice.upper_bound})>({js_idx}))"
+                for js_idx, js_staged_slice in zip(
+                    js_idxs,
+                    (
+                        dim.window_idx
+                        for dim in js_staged_window.dims
+                        if isinstance(dim.window_idx, Slice)
+                    ),
+                )
+            )
+            self.overlaps.append(
+                StagingOverlap(
+                    overlap_sym,
+                    disjoint_sym,
+                    symbolic_staged_window.dims,
+                    access_window,
+                    cov_node,
+                    access_cursor.get_path(),
+                    (
+                        IndexedFiller(
+                            access_placeholder,
+                            f"if({js_overlap_cond}){{{repr(overlap_sym)}=true}}else{{{repr(disjoint_sym)}=true}}",
+                        ),
+                        IndexedFiller(
+                            self.parent_state.cov_placeholder,
+                            f"let {repr(overlap_sym)}=false;let {repr(disjoint_sym)}=false;",
+                        ),
+                    ),
+                )
+            )
+
+    def make_staging_overlaps(self) -> tuple[StagingOverlap, ...]:
+        return tuple(self.overlaps)
+
+
+@dataclass
+class ParallelScope:
+    iter_sym: Sym
+    loop_entrance_placeholder: int
+    writes: dict[Sym, list[ParallelAccess]] = field(default_factory=lambda: {})
+    reads: dict[Sym, list[ParallelAccess]] = field(default_factory=lambda: {})
+    access_set_syms: dict[Sym, Sym] = field(default_factory=lambda: {})
+
+
+class ParallelAccessTracker:
+    def __init__(self, parent_state: "CoverageState"):
+        self.parallel_scopes: list[ParallelScope] = []
+        self.coverage_sym: Sym = Sym("par")
+        self.pairs: list[ParallelAccessPair] = []
+        self.parent_state: "CoverageState" = parent_state
+
+    def enter_loop(self, loop: LoopIR.For, loop_entrance_placeholder: int):
+        if isinstance(loop.loop_mode, LoopIR.Par):
+            self.parallel_scopes.append(
+                ParallelScope(loop.iter, loop_entrance_placeholder)
+            )
+
+    def exit_loop_body(self, loop: LoopIR.For):
+        if isinstance(loop.loop_mode, LoopIR.Par):
+            scope = self.parallel_scopes.pop()
+            loop_tail_placeholder = (
+                self.parent_state.parent_transpiler._make_placeholder()
+            )
+            for sym, sym_writes in scope.writes.items():
+                for sym_write_idx, sym_write in enumerate(sym_writes):
+                    for other_access in chain(
+                        sym_writes[sym_write_idx:],
+                        (scope.reads[sym] if sym in scope.reads else []),
+                    ):
+                        self.pairs.append(
+                            ParallelAccessPair(
+                                self.coverage_sym,
+                                scope.iter_sym,
+                                sym_write,
+                                other_access,
+                                (
+                                    IndexedFiller(
+                                        loop_tail_placeholder,
+                                        f"{repr(scope.access_set_syms[sym])}_pw={repr(scope.access_set_syms[sym])}_pw.union({repr(scope.access_set_syms[sym])}_cw);",
+                                    ),
+                                    IndexedFiller(
+                                        loop_tail_placeholder,
+                                        f"{repr(scope.access_set_syms[sym])}_pr={repr(scope.access_set_syms[sym])}_pr.union({repr(scope.access_set_syms[sym])}_cr);",
+                                    ),
+                                ),
+                            )
+                        )
+
+    def access_tensor(
+        self,
+        js_tensor: Tensor,
+        js_idxs: tuple[str, ...],
+        symbolic_idxs: tuple[Expression],
+        access_placeholder: int,
+        _access_cursor: Node,
+        cov_node: CoverageSkeletonNode,
+        is_write: bool,
+    ):
+        js_access = "+".join(
+            f"Math.imul({js_idx},{js_dim.stride})"
+            for js_idx, js_dim in zip(js_idxs, js_tensor.dims)
         )
+        for parallel_scope in self.parallel_scopes:
+            dest = parallel_scope.writes if is_write else parallel_scope.reads
+            if js_tensor.name not in dest:
+                dest[js_tensor.name] = []
+            if js_tensor.name not in parallel_scope.access_set_syms:
+                parallel_scope.access_set_syms[js_tensor.name] = Sym("access_set")
+            access_set_sym = parallel_scope.access_set_syms[js_tensor.name]
+            dest[js_tensor.name].append(
+                ParallelAccess(
+                    cov_node,
+                    symbolic_idxs,
+                    (
+                        IndexedFiller(
+                            parallel_scope.loop_entrance_placeholder,
+                            "".join(
+                                (
+                                    f"let {repr(access_set_sym)}_pr=new Set();",
+                                    f"let {repr(access_set_sym)}_pw=new Set();",
+                                    f"let {repr(access_set_sym)}_cr=new Set();",
+                                    f"let {repr(access_set_sym)}_cw=new Set();",
+                                    f"let {repr(self.coverage_sym)}=false;",
+                                )
+                            ),
+                        ),
+                        IndexedFiller(
+                            access_placeholder,
+                            "".join(
+                                (
+                                    f"{repr(access_set_sym)}{'_cw' if is_write else '_cr'}.add({js_access});",
+                                    f"if({repr(access_set_sym)}_pw.has({js_access})){{{repr(self.coverage_sym)}=true}}",
+                                    *(
+                                        (
+                                            f"if({repr(access_set_sym)}_pr.has({js_access})){{{repr(self.coverage_sym)}=true}}",
+                                        )
+                                        if is_write
+                                        else ()
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                )
+            )
+
+    def access_scalar(
+        self,
+        name: Sym,
+        access_placeholder: int,
+        _access_cursor: Node,
+        cov_node: CoverageSkeletonNode,
+        is_write: bool,
+    ):
+        self.access_tensor(
+            Tensor(name, (Dimension("1", "0", Slice("0", "1")),)),
+            ("0",),
+            tuple(),
+            access_placeholder,
+            _access_cursor,
+            cov_node,
+            is_write,
+        )
+
+    def make_parallel_access_pairs(self) -> tuple[ParallelAccessPair, ...]:
+        return tuple(self.pairs)
+
+
+@dataclass
+class CoverageArgs:
+    cm: ConstraintMaker
+    failure_scope: Optional[Block] = None
+    stage_mem_args: Optional[StageMemArgs] = None
+
+
+class CoverageState:
+    def __init__(self, args: CoverageArgs, parent_transpiler: "Transpiler"):
+        self.cm: ConstraintMaker = args.cm
+        self.parent_transpiler: Transpiler = parent_transpiler
+        self.cov_placeholder: int = parent_transpiler._make_placeholder()
+        self.root: CoverageSkeletonNode = CoverageSkeletonNode(None, None, ())
+        self.current_node: CoverageSkeletonNode = self.root
+        self.symbolic_tensors: dict[Sym, SymbolicTensor] = {}
+        self.scalar_symbols: dict[Sym, Sym] = {}
+        self.ctxt_symbols: dict[tuple[Config, str], Sym] = {}
+        self.aliasing_tracker = AliasingTracker(self)
+        self.failure_tracker: Optional[FailureTracker] = (
+            None
+            if args.failure_scope is None
+            else FailureTracker(args.failure_scope, self)
+        )
+        self.stage_mem_tracker: Optional[StageMemTracker] = (
+            None
+            if args.stage_mem_args is None
+            else StageMemTracker(args.stage_mem_args, self)
+        )
+        self.parallel_access_tracker = ParallelAccessTracker(self)
+        self.free_vars: list[Sym] = []
+
+    def enter_loop(
+        self,
+        stmt: LoopIR.For,
+        lo_js: str,
+        hi_js: str,
+        transpile_loop_body: Callable[[], None],
+    ):
+        body_sym = Sym("body")
+        skip_sym = Sym("skip")
+        loop_entrance_placeholder = self.parent_transpiler._make_placeholder()
+        body_constraint = (
+            self.cm.make_constraint_from_inequality(stmt.lo, stmt.iter, "<=")
+            .lift_to_disjoint_constraint()
+            .intersect(
+                self.cm.make_constraint_from_inequality(
+                    stmt.iter, stmt.hi, "<"
+                ).lift_to_disjoint_constraint()
+            )
+        )
+        skip_constraint = self.cm.make_constraint_from_inequality(
+            stmt.lo, stmt.hi, ">="
+        ).lift_to_disjoint_constraint()
+        parent_node = self.current_node
+        body_child = CoverageSkeletonNode(
+            body_sym,
+            (parent_node, body_constraint),
+            (
+                IndexedFiller(
+                    self.cov_placeholder,
+                    f"let {repr(body_sym)}=false;",
+                ),
+                IndexedFiller(
+                    loop_entrance_placeholder,
+                    f"{repr(body_sym)}||=({lo_js}<{hi_js});",
+                ),
+            ),
+        )
+        skip_child = CoverageSkeletonNode(
+            skip_sym,
+            (parent_node, skip_constraint),
+            (
+                IndexedFiller(
+                    self.cov_placeholder,
+                    f"let {repr(skip_sym)}=false;",
+                ),
+                IndexedFiller(
+                    loop_entrance_placeholder,
+                    f"{repr(skip_sym)}||=({lo_js}>={hi_js});",
+                ),
+            ),
+        )
+        self.current_node.branches.append(
+            CoverageSkeletonBranch(body_child, skip_child)
+        )
+        self.parallel_access_tracker.enter_loop(stmt, loop_entrance_placeholder)
+        self.free_vars.append(stmt.iter)
+        self.current_node = body_child
+        transpile_loop_body()
+        self.current_node = parent_node
+        self.parallel_access_tracker.exit_loop_body(stmt)
+
+    def enter_if(
+        self,
+        stmt: LoopIR.If,
+        transpile_if_body: Callable[[], None],
+        transpile_else_body: Callable[[], None],
+    ):
+        parent_node = self.current_node
+        true_sym = Sym("true_case")
+        false_sym = Sym("false_case")
+        true_placeholder = self.parent_transpiler._make_placeholder()
+        cond_constraint = self.cm.make_constraint(stmt.cond)
+        true_node = CoverageSkeletonNode(
+            true_sym,
+            (parent_node, cond_constraint),
+            (
+                IndexedFiller(
+                    self.cov_placeholder,
+                    f"let {repr(true_sym)}=false;",
+                ),
+                IndexedFiller(true_placeholder, f"{repr(true_sym)}=true;"),
+            ),
+        )
+        self.current_node = true_node
+        transpile_if_body()
+        false_placeholder = self.parent_transpiler._make_placeholder()
+        false_node = CoverageSkeletonNode(
+            false_sym,
+            (parent_node, cond_constraint.invert()),
+            (
+                IndexedFiller(
+                    self.cov_placeholder,
+                    f"let {repr(false_sym)}=false;",
+                ),
+                IndexedFiller(false_placeholder, f"{repr(false_sym)}=true;"),
+            ),
+        )
+        self.current_node = false_node
+        transpile_else_body()
+        self.current_node = parent_node
+        new_branch = CoverageSkeletonBranch(true_node, false_node)
+        self.current_node.branches.append(new_branch)
+
+    def enter_stmt(self, stmt_cursor: Node):
+        if self.failure_tracker is not None:
+            self.failure_tracker.enter_stmt(stmt_cursor)
+        if self.stage_mem_tracker is not None:
+            self.stage_mem_tracker.enter_stmt(stmt_cursor)
+
+    def exit_stmt(self, stmt_cursor: Node):
+        if self.failure_tracker is not None:
+            self.failure_tracker.exit_stmt(stmt_cursor)
+        if self.stage_mem_tracker is not None:
+            self.stage_mem_tracker.exit_stmt(stmt_cursor)
+
+    def enter_proc_body(self):
+        if self.failure_tracker is not None:
+            self.failure_tracker.enter_proc_body()
+
+    def exit_proc_body(self):
+        if self.failure_tracker is not None:
+            self.failure_tracker.exit_proc_body()
+
+    def assert_shape_matches(
+        self, tensor_sym: Sym, shape: list[LoopIR.expr], shape_matches_js: str
+    ):
+        match_cond = TRUE_CONSTRAINT
+        for tensor_dim, shape_dim in zip(
+            (
+                dim
+                for dim in self.symbolic_tensors[tensor_sym].dims
+                if isinstance(dim, SymbolicSlice)
+            ),
+            shape,
+        ):
+            match_cond = match_cond.intersect(
+                Constraint(
+                    self.cm.make_expression(shape_dim)
+                    .negate()
+                    .add(tensor_dim.upper_bound)
+                    .add(tensor_dim.lower_bound.negate()),
+                    False,
+                ).lift_to_disjoint_constraint(),
+            )
+        if self.failure_tracker is not None:
+            self.failure_tracker.add_assertion(
+                match_cond, shape_matches_js, self.parent_transpiler._make_placeholder()
+            )
+
+    def assert_predicate(self, pred: LoopIR.expr, js_pred: str):
+        if self.failure_tracker is not None:
+            self.failure_tracker.add_assertion(
+                self.cm.make_constraint(pred),
+                js_pred,
+                self.parent_transpiler._make_placeholder(),
+            )
+
+    def make_tensor(self, sym: Sym, dims: list[LoopIR.expr], nonnegative_dims_js: str):
+        symbolic_dims = tuple(self.cm.make_expression(dim) for dim in dims)
+        nonnegative_constraint = TRUE_CONSTRAINT
+        for symbolic_dim in symbolic_dims:
+            nonnegative_constraint = nonnegative_constraint.intersect(
+                Constraint(symbolic_dim, True).lift_to_disjoint_constraint()
+            )
+        if self.failure_tracker is not None:
+            self.failure_tracker.add_assertion(
+                nonnegative_constraint,
+                nonnegative_dims_js,
+                self.parent_transpiler._make_placeholder(),
+            )
+        self.symbolic_tensors[sym] = SymbolicTensor(
+            sym,
+            tuple(
+                SymbolicSlice(Expression.from_constant(0), symbolic_dim)
+                for symbolic_dim in symbolic_dims
+            ),
+            self.parent_transpiler._make_placeholder(),
+        )
+
+    def make_scalar(self, sym: Sym):
+        self.scalar_symbols[sym] = sym
+
+    def assign_tensor(self, arg_name: Sym, original_name: Sym):
+        self.symbolic_tensors[arg_name] = self.symbolic_tensors[original_name]
+
+    def assign_scalar(self, arg_name: Sym, original_name: Sym):
+        self.scalar_symbols[arg_name] = self.scalar_symbols[original_name]
+
+    def assign_scalar_from_context(self, scalar_sym: Sym, config: Config, field: str):
+        config_key = (config, field)
+        if config_key not in self.ctxt_symbols:
+            self.ctxt_symbols[config_key] = Sym("ctxt")
+        self.scalar_symbols[scalar_sym] = self.ctxt_symbols[config_key]
+
+    def assign_window(
+        self, sym: Sym, window_expr: LoopIR.WindowExpr, in_bounds_js: str
+    ):
+        base_tensor = self.symbolic_tensors[window_expr.name]
+        in_bounds_constraint = TRUE_CONSTRAINT
+        window_dims = []
+        window_idx_iter = iter(window_expr.idx)
+        for dim in base_tensor.dims:
+            if isinstance(dim, SymbolicPoint):
+                window_dims.append(dim)
+            else:
+                idx = next(window_idx_iter)
+                if isinstance(idx, LoopIR.Interval):
+                    new_dim = SymbolicSlice(
+                        self.cm.make_expression(idx.lo).add(dim.lower_bound),
+                        self.cm.make_expression(idx.hi).add(dim.lower_bound),
+                    )
+                    in_bounds_constraint = in_bounds_constraint.intersect(
+                        Constraint(
+                            new_dim.lower_bound.add(dim.lower_bound.negate()), True
+                        ).lift_to_disjoint_constraint()
+                    ).intersect(
+                        Constraint(
+                            dim.upper_bound.add(new_dim.upper_bound.negate()), True
+                        ).lift_to_disjoint_constraint()
+                    )
+                    window_dims.append(new_dim)
+                else:
+                    new_dim = SymbolicPoint(
+                        self.cm.make_expression(idx.pt).add(dim.lower_bound)
+                    )
+                    in_bounds_constraint = in_bounds_constraint.intersect(
+                        Constraint(
+                            new_dim.index.add(dim.lower_bound.negate()), True
+                        ).lift_to_disjoint_constraint()
+                    ).intersect(
+                        Constraint(
+                            dim.upper_bound.add(new_dim.index.negate()).add(
+                                Expression.from_constant(-1)
+                            ),
+                            True,
+                        ).lift_to_disjoint_constraint()
+                    )
+                    window_dims.append(new_dim)
+
+        if self.failure_tracker is not None:
+            self.failure_tracker.add_assertion(
+                in_bounds_constraint,
+                in_bounds_js,
+                self.parent_transpiler._make_placeholder(),
+            )
+        self.symbolic_tensors[sym] = SymbolicTensor(
+            base_tensor.name,
+            tuple(window_dims),
+            base_tensor.resize_placeholder,
+        )
+
+    def access_tensor(
+        self,
+        access_cursor: Node,
+        js_idxs: tuple[str, ...],
+        is_write: bool,
+        in_bounds_js: str,
+    ):
+        js_tensor = self.parent_transpiler._lookup_sym(access_cursor._node.name)
+        assert isinstance(js_tensor, Tensor)
+        symbolic_tensor = self.symbolic_tensors[access_cursor._node.name]
+        idx_expr_iter = iter(access_cursor._node.idx)
+        symbolic_idxs = []
+        in_bounds_constraint = TRUE_CONSTRAINT
+        for dim in symbolic_tensor.dims:
+            if isinstance(dim, SymbolicSlice):
+                idx = self.cm.make_expression(next(idx_expr_iter)).add(dim.lower_bound)
+                in_bounds_constraint = in_bounds_constraint.intersect(
+                    Constraint(
+                        idx.negate().add(dim.upper_bound), True
+                    ).lift_to_disjoint_constraint()
+                )
+                symbolic_idxs.append(idx)
+            else:
+                symbolic_idxs.append(dim.index)
+        access_placeholder = self.parent_transpiler._make_placeholder()
+        access_args = (
+            js_tensor,
+            js_idxs,
+            tuple(symbolic_idxs),
+            access_placeholder,
+            access_cursor,
+            self.current_node,
+            is_write,
+        )
+        if self.failure_tracker is not None:
+            self.failure_tracker.add_assertion(
+                in_bounds_constraint,
+                in_bounds_js,
+                self.parent_transpiler._make_placeholder(),
+            )
+        self.aliasing_tracker.access_tensor(*access_args)
+        if self.stage_mem_tracker is not None:
+            self.stage_mem_tracker.access_tensor(*access_args)
+        self.parallel_access_tracker.access_tensor(*access_args)
+
+    def access_scalar(self, access_cursor: Node, is_write: bool):
+        access_placeholder = self.parent_transpiler._make_placeholder()
+        scalar_sym = self.scalar_symbols[access_cursor._node.name]
+        access_args = (
+            scalar_sym,
+            access_placeholder,
+            access_cursor,
+            self.current_node,
+            is_write,
+        )
+        self.aliasing_tracker.access_scalar(*access_args)
+        self.parallel_access_tracker.access_scalar(*access_args)
+
+    def access_context(self, access_cursor: Node, is_write: bool):
+        access_placeholder = self.parent_transpiler._make_placeholder()
+        config_key = (access_cursor._node.config, access_cursor._node.field)
+        if config_key not in self.ctxt_symbols:
+            self.ctxt_symbols[config_key] = Sym("ctxt")
+        ctxt_sym = self.ctxt_symbols[config_key]
+        access_args = (
+            ctxt_sym,
+            access_placeholder,
+            access_cursor,
+            self.current_node,
+            is_write,
+        )
+        self.aliasing_tracker.access_scalar(*access_args)
+        self.parallel_access_tracker.access_scalar(*access_args)
+
+    def make_skeleton(self) -> CoverageSkeleton:
+        return CoverageSkeleton(
+            (self.root,),
+            self.aliasing_tracker.make_aliasing_accesses(),
+            (
+                ()
+                if self.failure_tracker is None
+                else self.failure_tracker.make_failures()
+            ),
+            (
+                ()
+                if self.stage_mem_tracker is None
+                else self.stage_mem_tracker.make_staging_overlaps()
+            ),
+            self.parallel_access_tracker.make_parallel_access_pairs(),
+            frozenset(self.free_vars),
+        )
+
+
+def get_shape_cursor(type_cursor: Node) -> Block:
+    return (
+        type_cursor._child_node("as_tensor")
+        if isinstance(type_cursor._node, LoopIR.WindowType)
+        else type_cursor
+    )._child_block("hi")
 
 
 class Transpiler:
@@ -119,7 +863,7 @@ class Transpiler:
         self._buffer_args: list[Sym] = []
         self._coverage_state: Optional[CoverageState] = None
         self._skeleton: Optional[CoverageSkeleton] = None
-        self.proc = proc  # debug
+        self._proc = proc
         self._transpile_proc(proc, coverage_args)
 
     def get_javascript_template(self) -> Template:
@@ -143,50 +887,63 @@ class Transpiler:
     def get_coverage_skeleton(self) -> Optional[CoverageSkeleton]:
         return self._skeleton
 
+    def get_proc(self) -> LoopIR.proc:
+        return self._proc
+
     def _assert_at_runtime(self, expr: str):
         self._js_lines.append(f"if(!{expr})return [1,{CONTEXT_OBJECT_NAME},{{}}];")
 
+    # for CoverageState
     def _make_placeholder(self) -> int:
         placeholder_index = len(self._js_lines)
         self._js_lines.append("")
         return placeholder_index
 
+    # for CoverageState
+    def _lookup_sym(self, sym: Sym) -> ExoValue:
+        return self._name_lookup[sym]
+
     def _transpile_proc(self, proc: LoopIR.proc, coverage_args: Optional[CoverageArgs]):
-        arg_values = []
-        for arg in proc.args:
-            if arg.type.is_numeric():
-                self._buffer_args.append(arg.name)
-                if arg.type.is_tensor_or_window():
-                    value = Tensor(
-                        arg.name,
-                        "0",
-                        tuple(
-                            Dimension(
-                                f"${self.get_size_param_name(arg.name, dim_idx)}",
-                                f"${self.get_stride_param_name(arg.name, dim_idx)}",
-                            )
-                            for dim_idx in range(len(arg.type.shape()))
-                        ),
-                        None,
-                    )
-                else:
-                    value = Reference(repr(arg.name), False)
-            else:
-                value = Constant(f"${repr(arg.name)}")
-            arg_values.append(value)
+        self._buffer_args = [arg.name for arg in proc.args if arg.type.is_numeric()]
         self._js_lines.append(
             f'(({",".join(repr(arg) for arg in self._buffer_args)})=>{{'
         )
         ctxt_placeholder = self._make_placeholder()
         if coverage_args is not None:
-            self._coverage_state = CoverageState(
-                coverage_args, self._make_placeholder()
-            )
-        self._call_proc(
-            proc,
-            tuple(arg_values),
-            None if self._coverage_state is None else self._coverage_state.root,
-        )
+            self._coverage_state = CoverageState(coverage_args, self)
+        arg_values = []
+        for arg in proc.args:
+            if arg.type.is_numeric():
+                if arg.type.is_tensor_or_window():
+                    value = Tensor(
+                        arg.name,
+                        tuple(
+                            Dimension(
+                                f"${size}",
+                                f"${stride}",
+                                Slice("0", f"${size}"),
+                            )
+                            for size, stride in map(
+                                lambda dim_idx: (
+                                    self.get_size_param_name(arg.name, dim_idx),
+                                    self.get_stride_param_name(arg.name, dim_idx),
+                                ),
+                                range(len(arg.type.shape())),
+                            )
+                        ),
+                    )
+                    if self._coverage_state is not None:
+                        self._coverage_state.make_tensor(
+                            arg.name, arg.type.shape(), "true"
+                        )
+                else:
+                    value = Reference(repr(arg.name), False)
+                    if self._coverage_state is not None:
+                        self._coverage_state.make_scalar(arg.name)
+            else:
+                value = Constant(f"${repr(arg.name)}")
+            arg_values.append(value)
+        self._call_proc(Cursor.create(proc), tuple(arg_values), True)
         coverage_object = ""
         if self._coverage_state is not None:
             skeleton = self._coverage_state.make_skeleton()
@@ -202,121 +959,99 @@ class Transpiler:
         self._js_lines[ctxt_placeholder] = f"{CONTEXT_OBJECT_NAME}={{{configs}}}"
 
     def _call_proc(
-        self,
-        proc: LoopIR.proc,
-        arg_values: tuple[ExoValue, ...],
-        coverage_node: Optional[CoverageSkeletonNode],
+        self, proc_cursor: Node, arg_values: tuple[ExoValue, ...], top_level: bool
     ):
-        for arg, arg_value in zip(proc.args, arg_values):
+        for arg_cursor, arg_value in zip(proc_cursor._child_block("args"), arg_values):
+            arg = arg_cursor._node
             self._name_lookup[arg.name] = arg_value
             if arg.type.is_tensor_or_window():
                 assert isinstance(arg_value, Tensor)
-                for arg_dim, arg_dim_expr in zip(arg_value.dims, arg.type.shape()):
-                    self._assert_at_runtime(
-                        f"({arg_dim.size}=={self._transpile_expr(arg_dim_expr, None)})",
-                    )
-
-        for pred in proc.preds:
-            self._assert_at_runtime(self._transpile_expr(pred, None))
-
-        for stmt in proc.body:
-            self._transpile_stmt(stmt, coverage_node)
-
-    def _get_index_expr(
-        self,
-        buf: Tensor,
-        idxs: Iterable[LoopIR.expr],
-        coverage_node: Optional[CoverageSkeletonNode],
-    ):
-        idx_exprs = tuple(self._transpile_expr(idx, coverage_node) for idx in idxs)
-        for idx_expr, dim in zip(idx_exprs, buf.dims):
-            self._assert_at_runtime(f"({idx_expr}<{dim.size}&&{idx_expr}>=0)")
-        relative_idx = reduce(
-            lambda dim1, dim2: f"{dim1}+{dim2}",
-            (
-                f"Math.imul({idx_expr},{dim.stride})"
-                for idx_expr, dim in zip(idx_exprs, buf.dims)
-            ),
-        )
-        return f"{relative_idx}+{buf.offset}"
-
-    def _make_scalar_access_fillers(self, access_sym: Sym) -> tuple[IndexedFiller, ...]:
-        assert self._coverage_state is not None
-        mark_placeholder = self._make_placeholder()
-        mark_stmt = f"{repr(access_sym)}=true;"
-        decl_stmt = f"let {repr(access_sym)}=false;"
-        return (
-            IndexedFiller(mark_placeholder, mark_stmt),
-            IndexedFiller(self._coverage_state.cov_placeholder, decl_stmt),
-        )
-
-    def _make_tensor_access_fillers(
-        self, access_sym: Sym, buffer: Tensor, idx: Iterable[LoopIR.expr]
-    ) -> tuple[IndexedFiller, ...]:
-        assert self._coverage_state is not None
-        mark_stmt = f"{repr(access_sym)}[{self._get_index_expr(buffer, idx, None)}]=1;"
-        mark_placeholder = self._make_placeholder()
-        base_buffer = self._name_lookup[buffer.name]
-        assert isinstance(base_buffer, Tensor)
-        base_dims = base_buffer.dims
-        base_size = reduce(
-            lambda dim1, dim2: f"Math.imul({dim1},{dim2})",
-            (dim.size for dim in base_dims),
-        )
-        if buffer.resize_placeholder is None:
-            decl_stmt = f"let {repr(access_sym)}=new ArrayBuffer({base_size});"
-            return (
-                IndexedFiller(mark_placeholder, mark_stmt),
-                IndexedFiller(self._coverage_state.cov_placeholder, decl_stmt),
-            )
-        else:
-            temp_sym = Sym("temp")
-            decl_stmt = f"let {repr(access_sym)}=new ArrayBuffer(1,{{maxByteLength:{INITIAL_DYNAMIC_SIZE}}});"
-            resize_stmt = f"while({base_size}>{repr(access_sym)}.maxByteLength){{let {repr(temp_sym)}=new ArrayBuffer({repr(access_sym)}.byteLength,{{maxByteLength:2*{repr(access_sym)}.maxByteLength}});for(let i=0;i<{repr(access_sym)}.byteLength;i++){repr(temp_sym)}[i]={repr(access_sym)}[i];{repr(access_sym)}={repr(temp_sym)}}};{repr(access_sym)}.resize(Math.max({base_size},{repr(access_sym)}.byteLength));"
-            return (
-                IndexedFiller(mark_placeholder, mark_stmt),
-                IndexedFiller(self._coverage_state.cov_placeholder, decl_stmt),
-                IndexedFiller(buffer.resize_placeholder, resize_stmt),
-            )
-
-    def _transpile_stmt(
-        self, stmt: LoopIR.stmt, coverage_node: Optional[CoverageSkeletonNode]
-    ):
-        if isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
-            lhs_buffer = self._name_lookup[stmt.name]
-
-            if self._coverage_state is not None and coverage_node is not None:
-                write_sym = Sym("write")
-                if stmt.name not in self._coverage_state.buffer_writes:
-                    self._coverage_state.buffer_writes[
-                        lhs_buffer.name if isinstance(lhs_buffer, Tensor) else stmt.name
-                    ] = []
-                self._coverage_state.buffer_writes[
-                    lhs_buffer.name if isinstance(lhs_buffer, Tensor) else stmt.name
-                ].append(
-                    MemoryAccess(
-                        write_sym,
-                        coverage_node,
-                        tuple(
-                            self._coverage_state.cm.make_expression(idx)
-                            for idx in stmt.idx
-                        ),
+                shape_matches_js = "&&".join(
+                    f"((({arg_dim_slice.upper_bound})-({arg_dim_slice.lower_bound}))==({self._transpile_expr(arg_dim_cursor)}))"
+                    for arg_dim_slice, arg_dim_cursor in zip(
                         (
-                            self._make_tensor_access_fillers(
-                                write_sym, lhs_buffer, stmt.idx
-                            )
-                            if isinstance(lhs_buffer, Tensor)
-                            else self._make_scalar_access_fillers(write_sym)
+                            dim.window_idx
+                            for dim in arg_value.dims
+                            if isinstance(dim.window_idx, Slice)
                         ),
+                        get_shape_cursor(arg_cursor._child_node("type")),
                     )
                 )
-            rhs = self._transpile_expr(stmt.rhs, coverage_node)
+                if self._coverage_state is not None and not top_level:
+                    self._coverage_state.assert_shape_matches(
+                        arg.name, arg.type.shape(), shape_matches_js
+                    )
+                self._assert_at_runtime(shape_matches_js)
+
+        for pred_cursor in proc_cursor._child_block("preds"):
+            js_pred = self._transpile_expr(pred_cursor)
+            if self._coverage_state is not None and not top_level:
+                self._coverage_state.assert_predicate(pred_cursor._node, js_pred)
+            self._assert_at_runtime(js_pred)
+
+        if self._coverage_state is not None:
+            self._coverage_state.enter_proc_body()
+        for stmt_cursor in proc_cursor._child_block("body"):
+            self._transpile_stmt(stmt_cursor)
+        if self._coverage_state is not None:
+            self._coverage_state.exit_proc_body()
+
+    def _get_index_exprs(
+        self,
+        buf: Tensor,
+        idxs: Block,
+    ) -> tuple[str, ...]:
+        idx_expr_iter = iter(self._transpile_expr(idx) for idx in idxs)
+        idx_parts = []
+        for dim in buf.dims:
+            if isinstance(dim.window_idx, Slice):
+                idx_expr = next(idx_expr_iter)
+                idx_parts.append(f"(({idx_expr})+({dim.window_idx.lower_bound}))")
+            else:
+                idx_parts.append(f"({dim.window_idx.index})")
+        return tuple(idx_parts)
+
+    def _get_in_bounds_condition(
+        self, index_exprs: tuple[str, ...], buf: Tensor
+    ) -> str:
+        return "&&".join(
+            f"(({index_expr})>=({dim.window_idx.lower_bound})&&({index_expr})<({dim.window_idx.upper_bound}))"
+            for index_expr, dim in zip(index_exprs, buf.dims)
+            if isinstance(dim.window_idx, Slice)
+        )
+
+    def _transpile_stmt(
+        self,
+        stmt_cursor: Node,
+    ):
+        if self._coverage_state is not None:
+            self._coverage_state.enter_stmt(stmt_cursor)
+        stmt = stmt_cursor._node
+        if isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
+            lhs_buffer = self._name_lookup[stmt.name]
+            rhs = self._transpile_expr(stmt_cursor._child_node("rhs"))
             if isinstance(lhs_buffer, Reference):
                 lhs = (
                     lhs_buffer.name if lhs_buffer.is_config else f"{lhs_buffer.name}[0]"
                 )
+                if self._coverage_state is not None:
+                    self._coverage_state.access_scalar(stmt_cursor, True)
             elif isinstance(lhs_buffer, Tensor):
-                lhs = f"{repr(lhs_buffer.name)}[{self._get_index_expr(lhs_buffer, stmt.idx, coverage_node)}]"
+                index_exprs = self._get_index_exprs(
+                    lhs_buffer,
+                    stmt_cursor._child_block("idx"),
+                )
+                index = f"+".join(
+                    f"Math.imul({dim.stride},{index_expr})"
+                    for dim, index_expr in zip(lhs_buffer.dims, index_exprs)
+                )
+                lhs = f"{repr(lhs_buffer.name)}[{index}]"
+                in_bounds_js = self._get_in_bounds_condition(index_exprs, lhs_buffer)
+                if self._coverage_state is not None:
+                    self._coverage_state.access_tensor(
+                        stmt_cursor, index_exprs, True, in_bounds_js
+                    )
+                self._assert_at_runtime(in_bounds_js)
             else:
                 assert False
             if isinstance(stmt, LoopIR.Assign):
@@ -325,216 +1060,213 @@ class Transpiler:
                 self._js_lines.append(f"{lhs}+={rhs};")
         elif isinstance(stmt, LoopIR.WriteConfig):
             config_name = self.get_config_param_name(stmt.config, stmt.field)
-            rhs = self._transpile_expr(stmt.rhs, coverage_node)
+            rhs = self._transpile_expr(stmt_cursor._child_node("rhs"))
             self._js_lines.append(f'{CONTEXT_OBJECT_NAME}["{config_name}"]={rhs};')
             self._configs.add((stmt.config, stmt.field))
+            if self._coverage_state is not None:
+                self._coverage_state.access_context(stmt_cursor, True)
         elif isinstance(stmt, LoopIR.Pass):
             pass
         elif isinstance(stmt, LoopIR.If):
-            cond = self._transpile_expr(stmt.cond, coverage_node)
+            cond = self._transpile_expr(stmt_cursor._child_node("cond"))
             self._js_lines.append(f"if({cond}){{")
 
-            if self._coverage_state is not None and coverage_node is not None:
-                true_sym = Sym("true_case")
-                false_sym = Sym("false_case")
-                true_placeholder = self._make_placeholder()
-                cond_constraint = self._coverage_state.cm.make_constraint(stmt.cond)
-                true_node = CoverageSkeletonNode(
-                    true_sym,
-                    (coverage_node, cond_constraint),
-                    (
-                        IndexedFiller(
-                            self._coverage_state.cov_placeholder,
-                            f"let {repr(true_sym)}=false;",
-                        ),
-                        IndexedFiller(true_placeholder, f"{repr(true_sym)}=true;"),
-                    ),
-                )
-                for body_stmt in stmt.body:
-                    self._transpile_stmt(body_stmt, true_node)
+            def transpile_if_body():
+                for body_cursor in stmt_cursor._child_block("body"):
+                    self._transpile_stmt(body_cursor)
                 self._js_lines.append("}else{")
-                false_placeholder = self._make_placeholder()
-                false_node = CoverageSkeletonNode(
-                    false_sym,
-                    (coverage_node, cond_constraint.invert()),
-                    (
-                        IndexedFiller(
-                            self._coverage_state.cov_placeholder,
-                            f"let {repr(false_sym)}=false;",
-                        ),
-                        IndexedFiller(false_placeholder, f"{repr(false_sym)}=true;"),
-                    ),
+
+            def transpile_else_body():
+                for else_cursor in stmt_cursor._child_block("orelse"):
+                    self._transpile_stmt(else_cursor)
+                self._js_lines.append("}")
+
+            if self._coverage_state is not None:
+                self._coverage_state.enter_if(
+                    stmt, transpile_if_body, transpile_else_body
                 )
-                for else_stmt in stmt.orelse:
-                    self._transpile_stmt(else_stmt, false_node)
-                new_branch = CoverageSkeletonBranch(true_node, false_node)
-                coverage_node.branches.append(new_branch)
             else:
-                for body_stmt in stmt.body:
-                    self._transpile_stmt(body_stmt, None)
-                self._js_lines.append("}else{")
-                for else_stmt in stmt.orelse:
-                    self._transpile_stmt(else_stmt, None)
-            self._js_lines.append("}")
+                transpile_if_body()
+                transpile_else_body()
         elif isinstance(stmt, LoopIR.For):
             iter_name = repr(stmt.iter)
-            iter_lo = self._transpile_expr(stmt.lo, coverage_node)
-            iter_hi = self._transpile_expr(stmt.hi, coverage_node)
+            iter_lo = self._transpile_expr(stmt_cursor._child_node("lo"))
+            iter_hi = self._transpile_expr(stmt_cursor._child_node("hi"))
             self._name_lookup[stmt.iter] = Constant(iter_name)
 
-            body_child, skip_child = None, None
-            if self._coverage_state is not None and coverage_node is not None:
-                body_sym = Sym("body")
-                skip_sym = Sym("skip")
-                loop_placeholder = self._make_placeholder()
-                body_constraint = (
-                    self._coverage_state.cm.make_constraint_from_inequality(
-                        stmt.lo, stmt.iter, "<="
-                    )
-                    .lift_to_disjoint_constraint()
-                    .intersect(
-                        self._coverage_state.cm.make_constraint_from_inequality(
-                            stmt.iter, stmt.hi, "<"
-                        ).lift_to_disjoint_constraint()
-                    )
+            def transpile_loop_body():
+                self._js_lines.append(
+                    f"for(let {iter_name}={iter_lo};{iter_name}<{iter_hi};{iter_name}++){{"
                 )
-                skip_constraint = (
-                    self._coverage_state.cm.make_constraint_from_inequality(
-                        stmt.lo, stmt.hi, ">="
-                    ).lift_to_disjoint_constraint()
-                )
-                body_child = CoverageSkeletonNode(
-                    body_sym,
-                    (coverage_node, body_constraint),
-                    (
-                        IndexedFiller(
-                            self._coverage_state.cov_placeholder,
-                            f"let {repr(body_sym)}=false;",
-                        ),
-                        IndexedFiller(
-                            loop_placeholder,
-                            f"{repr(body_sym)}||=({iter_lo}<{iter_hi});",
-                        ),
-                    ),
-                )
-                skip_child = CoverageSkeletonNode(
-                    skip_sym,
-                    (coverage_node, skip_constraint),
-                    (
-                        IndexedFiller(
-                            self._coverage_state.cov_placeholder,
-                            f"let {repr(skip_sym)}=false;",
-                        ),
-                        IndexedFiller(
-                            loop_placeholder,
-                            f"{repr(skip_sym)}||=({iter_lo}>={iter_hi});",
-                        ),
-                    ),
-                )
-                self._coverage_state.free_vars.append(stmt.iter)
-                new_loop = CoverageSkeletonBranch(body_child, skip_child)
-                coverage_node.branches.append(new_loop)
+                for body_cursor in stmt_cursor._child_block("body"):
+                    self._transpile_stmt(body_cursor)
 
-            self._js_lines.append(
-                f"for(let {iter_name}={iter_lo};{iter_name}<{iter_hi};{iter_name}++){{"
-            )
-            for body_stmt in stmt.body:
-                self._transpile_stmt(body_stmt, body_child)
+            if self._coverage_state is not None:
+                self._coverage_state.enter_loop(
+                    stmt, iter_lo, iter_hi, transpile_loop_body
+                )
+            else:
+                transpile_loop_body()
+
             self._js_lines.append("}")
         elif isinstance(stmt, LoopIR.Alloc):
             assert stmt.type.is_numeric()
             if stmt.type.is_tensor_or_window():
-                tensor_name = repr(stmt.name)
+                tensor_name: Sym = stmt.name
                 buffer_type = lookup_loopir_type(
                     stmt.type.basetype()
                 ).javascript_array_type
-                dim_exprs = tuple(
-                    self._transpile_expr(dim, coverage_node)
-                    for dim in stmt.type.shape()
-                )
-                for dim_expr in dim_exprs:
-                    self._assert_at_runtime(f"({dim_expr}>=0)")
-                buffer_size = reduce(
-                    lambda dim1, dim2: f"Math.imul({dim1},{dim2})", dim_exprs
+                shape_cursor = get_shape_cursor(stmt_cursor._child_node("type"))
+                dims = len(shape_cursor)
+                self._js_lines.append(
+                    "".join(
+                        f"let {self.get_size_param_name(tensor_name, dim_idx)}={self._transpile_expr(dim_cursor)};"
+                        for dim_idx, dim_cursor in enumerate(shape_cursor)
+                    )
                 )
                 self._js_lines.append(
-                    f"let {tensor_name}=new {buffer_type}({buffer_size});"
-                )
-                resize_placeholder = len(self._js_lines)
-                self._js_lines.append("")
-                dimensions: list[Dimension] = []
-                for dim_idx, dim_expr in enumerate(dim_exprs):
-                    self._assert_at_runtime(f"({dim_expr}>=0)")
-                    stride_expr = reduce(
-                        lambda dim1, dim2: f"Math.imul({dim1},{dim2})",
-                        dim_exprs[dim_idx + 1 :],
-                        "1",
+                    "".join(
+                        f'let {self.get_stride_param_name(tensor_name, dim_idx)}={f"1" if dim_idx + 1 == dims else f"Math.imul({self.get_stride_param_name(tensor_name, dim_idx + 1)},{self.get_size_param_name(tensor_name,dim_idx + 1)})"};'
+                        for dim_idx in reversed(range(dims))
                     )
-                    dimensions.append(Dimension(dim_expr, stride_expr))
+                )
+                nonnegative_dims_js = "&&".join(
+                    f"({self.get_size_param_name(tensor_name, dim_idx)}>=0)"
+                    for dim_idx in range(dims)
+                )
+                if self._coverage_state is not None:
+                    self._coverage_state.make_tensor(
+                        tensor_name, stmt.type.shape(), nonnegative_dims_js
+                    )
+                self._assert_at_runtime(nonnegative_dims_js)
+                self._js_lines.append(
+                    f"let {repr(tensor_name)}=new {buffer_type}(Math.imul({self.get_size_param_name(tensor_name, 0)},{self.get_stride_param_name(tensor_name, 0)}));"
+                )
                 self._name_lookup[stmt.name] = Tensor(
-                    stmt.name, "0", tuple(dimensions), resize_placeholder
+                    stmt.name,
+                    tuple(
+                        Dimension(size, stride, Slice("0", size))
+                        for size, stride in map(
+                            lambda dim_idx: (
+                                self.get_size_param_name(tensor_name, dim_idx),
+                                self.get_stride_param_name(tensor_name, dim_idx),
+                            ),
+                            range(dims),
+                        )
+                    ),
                 )
             else:
                 ref_name = repr(stmt.name)
                 buffer_type = lookup_loopir_type(stmt.type).javascript_array_type
+                if self._coverage_state is not None:
+                    self._coverage_state.make_scalar(stmt.name)
                 self._js_lines.append(f"let {ref_name}=new {buffer_type}(1);")
                 self._name_lookup[stmt.name] = Reference(ref_name, False)
         elif isinstance(stmt, LoopIR.Free):
             pass
         elif isinstance(stmt, LoopIR.Call):
             self._call_proc(
-                stmt.f,
+                stmt_cursor._child_node("f"),
                 tuple(
                     (
-                        self._transpile_buffer_arg(arg_expr, coverage_node)
-                        if arg_expr.type.is_numeric()
-                        else Constant(self._transpile_expr(arg_expr, coverage_node))
+                        self._transpile_buffer_arg(
+                            arg_val_cursor, arg_name_cursor._node.name
+                        )
+                        if arg_val_cursor._node.type.is_numeric()
+                        else Constant(self._transpile_expr(arg_val_cursor))
                     )
-                    for arg_expr in stmt.args
+                    for arg_val_cursor, arg_name_cursor in zip(
+                        stmt_cursor._child_block("args"),
+                        stmt_cursor._child_node("f")._child_block("args"),
+                    )
                 ),
-                coverage_node,
+                False,
             )
         elif isinstance(stmt, LoopIR.WindowStmt):
             self._name_lookup[stmt.name] = self._transpile_buffer_arg(
-                stmt.rhs, coverage_node
+                stmt_cursor._child_node("rhs"), stmt.name
             )
         else:
             assert False, "unsupported stmt"
 
+        if self._coverage_state is not None:
+            self._coverage_state.exit_stmt(stmt_cursor)
+
     def _transpile_buffer_arg(
-        self, expr: LoopIR.expr, coverage_node: Optional[CoverageSkeletonNode]
+        self, expr_cursor: Node, new_name: Sym
     ) -> Union[Tensor, Reference]:
+        expr = expr_cursor._node
         if isinstance(expr, LoopIR.Read):
             assert len(expr.idx) == 0
             buf = self._name_lookup[expr.name]
             assert isinstance(buf, (Tensor, Reference))
+            if self._coverage_state is not None:
+                if isinstance(buf, Tensor):
+                    self._coverage_state.assign_tensor(new_name, expr.name)
+                else:
+                    self._coverage_state.assign_scalar(new_name, expr.name)
             return buf
         elif isinstance(expr, LoopIR.WindowExpr):
             base = self._name_lookup[expr.name]
             assert isinstance(base, Tensor)
-            offset_expr = base.offset
             window_dims = []
-            for idx, dim in zip(expr.idx, base.dims):
-                if isinstance(idx, LoopIR.Interval):
-                    lo_expr = self._transpile_expr(idx.lo, coverage_node)
-                    hi_expr = self._transpile_expr(idx.hi, coverage_node)
-                    self._assert_at_runtime(
-                        f"(0<={lo_expr}&&{lo_expr}<={hi_expr}&&{hi_expr}<={dim.size})"
-                    )
-                    offset_expr = f"({offset_expr}+Math.imul({lo_expr},{dim.stride}))"
-                    size_expr = f"({hi_expr}-{lo_expr})"
-                    window_dims.append(Dimension(size_expr, dim.stride))
-                elif isinstance(idx, LoopIR.Point):
-                    pt_expr = self._transpile_expr(idx.pt, coverage_node)
-                    self._assert_at_runtime(f"(0<={pt_expr}&&{pt_expr}<{dim.size})")
-                    offset_expr = f"({offset_expr}+Math.imul({pt_expr},{dim.stride}))"
+            in_bounds_conds = []
+            idx_cursor_iter = iter(expr_cursor._child_block("idx"))
+            for dim in base.dims:
+                if isinstance(dim.window_idx, Point):
+                    window_dims.append(dim)
                 else:
-                    assert False, "not a window index"
-            return Tensor(
-                base.name, offset_expr, tuple(window_dims), base.resize_placeholder
-            )
+                    idx_cursor = next(idx_cursor_iter)
+                    idx = idx_cursor._node
+                    if isinstance(idx, LoopIR.Interval):
+                        lo_expr = self._transpile_expr(
+                            idx_cursor._child_node("lo"),
+                        )
+                        hi_expr = self._transpile_expr(
+                            idx_cursor._child_node("hi"),
+                        )
+                        lo_sym, hi_sym = Sym("lo"), Sym("hi")
+                        self._js_lines.append(
+                            f"let {repr(lo_sym)}=({lo_expr})+({dim.window_idx.lower_bound});"
+                        )
+                        self._js_lines.append(
+                            f"let {repr(hi_sym)}=({hi_expr})+({dim.window_idx.lower_bound});"
+                        )
+                        in_bounds_conds.append(
+                            f"(({dim.window_idx.lower_bound})<=({repr(lo_sym)})&&({repr(lo_sym)})<=({repr(hi_sym)})&&({repr(hi_sym)})<=({dim.window_idx.upper_bound}))"
+                        )
+                        window_dims.append(
+                            Dimension(
+                                dim.size, dim.stride, Slice(repr(lo_sym), repr(hi_sym))
+                            )
+                        )
+                    elif isinstance(idx, LoopIR.Point):
+                        pt_expr = self._transpile_expr(
+                            idx_cursor._child_node("pt"),
+                        )
+                        index_sym = Sym("idx")
+                        self._js_lines.append(
+                            f"let {repr(index_sym)}=({pt_expr})+({dim.window_idx.lower_bound});"
+                        )
+                        in_bounds_conds.append(
+                            f"(({dim.window_idx.lower_bound})<={repr(index_sym)}&&{repr(index_sym)}<({dim.window_idx.upper_bound}))"
+                        )
+                        window_dims.append(
+                            Dimension(dim.size, dim.stride, Point(repr(index_sym)))
+                        )
+                    else:
+                        assert False, "not a window index"
+            in_bounds_js = "&&".join(in_bounds_conds)
+            if self._coverage_state is not None:
+                self._coverage_state.assign_window(new_name, expr, in_bounds_js)
+            self._assert_at_runtime(in_bounds_js)
+            return Tensor(base.name, tuple(window_dims))
         elif isinstance(expr, LoopIR.ReadConfig):
             self._configs.add((expr.config, expr.field))
+            if self._coverage_state is not None:
+                self._coverage_state.assign_scalar_from_context(
+                    new_name, expr.config, expr.field
+                )
             return Reference(
                 f'{CONTEXT_OBJECT_NAME}["{self.get_config_param_name(expr.config, expr.field)}"]',
                 True,
@@ -543,36 +1275,31 @@ class Transpiler:
             assert False, "unsupported buffer expression"
 
     def _transpile_expr(
-        self, expr: LoopIR.expr, coverage_node: Optional[CoverageSkeletonNode]
+        self,
+        expr_cursor: Node,
     ) -> str:
+        expr = expr_cursor._node
         if isinstance(expr, LoopIR.Read):
             buf = self._name_lookup[expr.name]
-            if self._coverage_state is not None and coverage_node is not None:
-                read_sym = Sym("read")
-                if expr.name not in self._coverage_state.buffer_reads:
-                    self._coverage_state.buffer_reads[
-                        buf.name if isinstance(buf, Tensor) else expr.name
-                    ] = []
-                self._coverage_state.buffer_reads[
-                    buf.name if isinstance(buf, Tensor) else expr.name
-                ].append(
-                    MemoryAccess(
-                        read_sym,
-                        coverage_node,
-                        tuple(
-                            self._coverage_state.cm.make_expression(idx)
-                            for idx in expr.idx
-                        ),
-                        (
-                            self._make_tensor_access_fillers(read_sym, buf, expr.idx)
-                            if isinstance(buf, Tensor)
-                            else self._make_scalar_access_fillers(read_sym)
-                        ),
-                    )
-                )
             if isinstance(buf, Tensor):
-                return f"{repr(buf.name)}[{self._get_index_expr(buf, expr.idx, coverage_node)}]"
+                index_exprs = self._get_index_exprs(
+                    buf,
+                    expr_cursor._child_block("idx"),
+                )
+                index = f"+".join(
+                    f"Math.imul({dim.stride},{index_expr})"
+                    for dim, index_expr in zip(buf.dims, index_exprs)
+                )
+                in_bounds_js = self._get_in_bounds_condition(index_exprs, buf)
+                if self._coverage_state is not None:
+                    self._coverage_state.access_tensor(
+                        expr_cursor, index_exprs, False, in_bounds_js
+                    )
+                self._assert_at_runtime(in_bounds_js)
+                return f"{repr(buf.name)}[{index}]"
             elif isinstance(buf, Reference):
+                if self._coverage_state is not None:
+                    self._coverage_state.access_scalar(expr_cursor, False)
                 return buf.name if buf.is_config else f"{buf.name}[0]"
             else:
                 return buf.name
@@ -584,10 +1311,10 @@ class Transpiler:
             else:
                 assert False, "unexpected const type"
         elif isinstance(expr, LoopIR.USub):
-            return f"(-{self._transpile_expr(expr.arg, coverage_node)})"
+            return f"(-{self._transpile_expr(expr_cursor._child_node('arg'))})"
         elif isinstance(expr, LoopIR.BinOp):
-            lhs = self._transpile_expr(expr.lhs, coverage_node)
-            rhs = self._transpile_expr(expr.rhs, coverage_node)
+            lhs = self._transpile_expr(expr_cursor._child_node("lhs"))
+            rhs = self._transpile_expr(expr_cursor._child_node("rhs"))
             is_int = (
                 isinstance(expr.type, (T.INT8, T.UINT8, T.UINT16, T.INT32))
                 or not expr.type.is_numeric()
@@ -614,16 +1341,23 @@ class Transpiler:
                 return val
         elif isinstance(expr, LoopIR.Extern):
             return expr.f.transpile(
-                tuple(self._transpile_expr(arg, coverage_node) for arg in expr.args)
+                tuple(
+                    self._transpile_expr(arg_cursor)
+                    for arg_cursor in expr_cursor._child_block("args")
+                )
             )
         elif isinstance(expr, LoopIR.WindowExpr):
             assert False, "unexpected window expr"
         elif isinstance(expr, LoopIR.StrideExpr):
             buf = self._name_lookup[expr.name]
             assert isinstance(buf, Tensor)
-            return buf.dims[expr.dim].stride
+            return tuple(dim for dim in buf.dims if isinstance(dim.window_idx, Slice))[
+                expr.dim
+            ].stride
         elif isinstance(expr, LoopIR.ReadConfig):
             self._configs.add((expr.config, expr.field))
+            if self._coverage_state is not None:
+                self._coverage_state.access_context(expr_cursor, False)
             return f'{CONTEXT_OBJECT_NAME}["{self.get_config_param_name(expr.config, expr.field)}"]'
         else:
             assert False, "unexpected expr"

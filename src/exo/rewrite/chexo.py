@@ -402,7 +402,7 @@ def run_test_case(
         eval_info = js_eval(javascript)(*buffer_args)
     except Exception as e:
         raise Exception(
-            f"javascript:\n{javascript}\nproc:\n{transpiled_proc.proc}"
+            f"javascript:\n{javascript}\nproc:\n{transpiled_proc.get_proc()}"
         ) from e
     if transpiled_proc.get_coverage_skeleton() is None:
         [result, ctxt_object] = eval_info
@@ -504,8 +504,13 @@ def fuzz(starting_scope: Union[Block, Node], fwd: Callable[[Cursor], Cursor]):
     spec1 = cur_scope.get_test_spec(cm)
     spec2 = transformed.get_test_spec(cm)
 
-    transpiled_test1 = Transpiler(spec1.proc, CoverageArgs(cm))
-    transpiled_test2 = Transpiler(spec2.proc, CoverageArgs(cm))
+    failure_scope = (
+        starting_scope.as_block()
+        if isinstance(starting_scope, Node)
+        else starting_scope
+    )
+    transpiled_test1 = Transpiler(spec1.proc, CoverageArgs(cm, failure_scope))
+    transpiled_test2 = Transpiler(spec2.proc, CoverageArgs(cm, failure_scope))
 
     config_fields = transpiled_test1.get_configs() | transpiled_test2.get_configs()
 
