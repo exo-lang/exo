@@ -49,7 +49,7 @@ def test_free_variables(golden):
     free_vars = get_free_variables(
         type_visitor.type_map,
         type_visitor.mem_map,
-        [cursor._impl._node for cursor in foo.find("c: _").as_block().expand()],
+        foo.find("c: _")._impl.as_block().expand(),
     )
     assert golden == stringify_dict(free_vars)
 
