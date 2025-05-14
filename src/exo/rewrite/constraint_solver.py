@@ -446,6 +446,13 @@ class ConstraintMaker:
                     expr.lhs
                 ), self.make_constraint(expr.rhs)
                 return lhs_constraints.union(rhs_constraints)
+            elif expr.op == "==" and isinstance(expr.lhs.type, LoopIR.Bool):
+                lhs_constraints, rhs_constraints = self.make_constraint(
+                    expr.lhs
+                ), self.make_constraint(expr.rhs)
+                return (
+                    lhs_constraints.invert().intersect(rhs_constraints.invert())
+                ).union(lhs_constraints.intersect(rhs_constraints))
             else:
                 return self.make_constraint_from_inequality(
                     expr.lhs, expr.rhs, expr.op
@@ -578,6 +585,7 @@ class ConstraintMaker:
                     A_ub=upper_bound_matrix,
                     b_ub=upper_bound_offset,
                     bounds=(None, None),
+                    method="highs",
                 )
                 if not lp.success:
                     return "infeasible" if len(assignments) == 0 else "failed"

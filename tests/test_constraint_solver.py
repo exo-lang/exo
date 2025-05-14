@@ -87,6 +87,15 @@ def test_disjunction(golden):
     assert golden == stringify_proc_constraint(foo)
 
 
+def test_xnor(golden):
+    @proc
+    def foo(a: size, b: size):
+        assert (a <= b) == (a >= 0) and (a + b < 4)
+        pass
+
+    assert golden == stringify_proc_constraint(foo)
+
+
 def test_inversion(golden):
     @proc
     def foo(a: size, b: size):

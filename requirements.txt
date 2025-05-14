@@ -4,6 +4,6 @@ asdl==0.1.5
 build==1.2.2.post1
 z3-solver==4.14.0.0
 yapf==0.43.0
-scipy==1.6.2
+scipy==1.13.1
 hsnf==0.3.16
 pythonmonkey==1.1.0
