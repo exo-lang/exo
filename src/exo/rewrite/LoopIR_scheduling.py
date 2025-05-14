@@ -1,6 +1,7 @@
 import re
 from collections import ChainMap
-from typing import List, Tuple, Optional
+import traceback
+from typing import Callable, List, Literal, Tuple, Optional
 
 from ..core.LoopIR import (
     LoopIR,
@@ -32,6 +33,7 @@ from .new_eff import (
     Check_ExprBound,
     Check_Aliasing,
 )
+from .chexo import fuzz_reorder_stmts
 
 from .range_analysis import IndexRangeEnvironment, IndexRange, index_range_analysis
 
@@ -206,7 +208,7 @@ def _replace_pats(ir, fwd, c, pat, repl, only_replace_attrs=True, use_sym_id=Tru
             todos.append((rd, c_repl))
 
     cur_fwd = lambda x: x
-    for (rd, c_repl) in todos:
+    for rd, c_repl in todos:
         rd = cur_fwd(rd)
         ir, fwd_rd = _replace_helper(rd, c_repl, only_replace_attrs)
         cur_fwd = _compose(fwd_rd, cur_fwd)
@@ -217,12 +219,12 @@ def _replace_reads(ir, fwd, c, sym, repl, only_replace_attrs=True):
     c = fwd(c)
     todos = []
     for rd in match_pattern(c, f"{repr(sym)}[_]", use_sym_id=True):
-        # Need [_] to pattern match against window expressions
+        # Need [_] to pattern match against window expressiontatic
         if c_repl := repl(rd):
             todos.append((rd, c_repl))
 
     cur_fwd = lambda x: x
-    for (rd, c_repl) in todos:
+    for rd, c_repl in todos:
         rd = cur_fwd(rd)
         ir, fwd_rd = _replace_helper(rd, c_repl, only_replace_attrs)
         cur_fwd = _compose(fwd_rd, cur_fwd)
@@ -249,7 +251,7 @@ def _replace_writes(
             todos.append((s, c_repl))
 
     cur_fwd = lambda x: x
-    for (s, c_repl) in todos:
+    for s, c_repl in todos:
         s = cur_fwd(s)
         ir, fwd_s = _replace_helper(s, c_repl, only_replace_attrs)
         cur_fwd = _compose(fwd_s, cur_fwd)
@@ -367,6 +369,36 @@ def divide_expr(e, quot):
 # Scheduling directives
 
 
+def do_check(
+    static_check: Callable[[], None],
+    dynamic_check: Callable[[], None],
+    mode: Literal["static", "dynamic", "both"],
+):
+    if mode == "both":
+        e_static, e_dynamic = None, None
+        trb_static, trb_dynamic = None, None
+        try:
+            static_check()
+        except Exception as e:
+            e_static = e
+            trb_static = traceback.format_exc()
+        try:
+            dynamic_check()
+        except Exception as e:
+            e_dynamic = e
+            trb_dynamic = traceback.format_exc()
+        if (e_static is None) != (e_dynamic is None):
+            assert (
+                False
+            ), f"fuzzer should match static analysis\ntrb_static: {trb_static}\n\ntrb_dynamic: {trb_dynamic}"
+        elif e_static is not None:
+            raise e_static
+    elif mode == "static":
+        static_check()
+    elif mode == "dynamic":
+        dynamic_check()
+
+
 # Take a conservative approach and allow stmt reordering only when they are
 # writing to different buffers
 # TODO: Do effectcheck's check_commutes-ish thing using SMT here
@@ -375,7 +407,11 @@ def DoReorderStmt(f_cursor, s_cursor):
         raise SchedulingError(
             "expected the second statement to be directly after the first"
         )
-    Check_ReorderStmts(f_cursor.get_root(), f_cursor._node, s_cursor._node)
+    do_check(
+        lambda: Check_ReorderStmts(f_cursor.get_root(), f_cursor._node, s_cursor._node),
+        lambda: fuzz_reorder_stmts(f_cursor, s_cursor),
+        "both",
+    )
     ir, fwd = s_cursor._move(f_cursor.before())
     return ir, fwd
 

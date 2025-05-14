@@ -97,6 +97,7 @@ class TypeChecker:
         self.uast_proc = proc
         self.env = dict()
         self.errors = []
+        self.must_fuzz_reason = None
 
         args = []
         for a in proc.args:
