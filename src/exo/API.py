@@ -188,6 +188,7 @@ class Procedure(ProcedureBase):
                 )
 
         self._loopir_proc = proc
+        self._check_mode = "both"
         self._provenance_eq_Procedure = _provenance_eq_Procedure
         self._forward = _forward
 

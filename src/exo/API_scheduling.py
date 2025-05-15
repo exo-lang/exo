@@ -889,7 +889,7 @@ def reorder_stmts(proc, block_cursor):
     s1 = block_cursor[0]._impl
     s2 = block_cursor[1]._impl
 
-    ir, fwd = scheduling.DoReorderStmt(s1, s2)
+    ir, fwd = scheduling.DoReorderStmt(s1, s2, proc._check_mode)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1216,7 +1216,9 @@ def bind_config(proc, var_cursor, config, field):
             f"to match type of Config variable ({cfg_f_type})"
         )
 
-    ir, fwd, cfg = scheduling.DoBindConfig(config, field, var_cursor._impl)
+    ir, fwd, cfg = scheduling.DoBindConfig(
+        config, field, var_cursor._impl, proc._check_mode
+    )
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd, _mod_config=cfg)
 
 

@@ -583,7 +583,7 @@ class Block(Cursor):
 
 @dataclass(frozen=True)
 class NodePath:
-    path: tuple[tuple[str, Optional[int]]]
+    path: tuple[tuple[str, Optional[int]], ...]
 
 
 @dataclass

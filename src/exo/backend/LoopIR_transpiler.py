@@ -145,15 +145,17 @@ class AliasingTracker:
             js_tensor.name
         ].resize_placeholder
         if resize_placeholder is None:
-            decl_stmt = f"let {repr(access_sym)}=new ArrayBuffer({base_size});"
+            decl_stmt = f"let {repr(access_sym)}=new Uint8Array({base_size});"
             fillers = (
                 IndexedFiller(access_placeholder, mark_stmt),
                 IndexedFiller(self.parent_state.cov_placeholder, decl_stmt),
             )
         else:
             temp_sym = Sym("temp")
-            decl_stmt = f"let {repr(access_sym)}=new ArrayBuffer(1,{{maxByteLength:{INITIAL_DYNAMIC_SIZE}}});"
-            resize_stmt = f"while({base_size}>{repr(access_sym)}.maxByteLength){{let {repr(temp_sym)}=new ArrayBuffer({repr(access_sym)}.byteLength,{{maxByteLength:2*{repr(access_sym)}.maxByteLength}});for(let i=0;i<{repr(access_sym)}.byteLength;i++){repr(temp_sym)}[i]={repr(access_sym)}[i];{repr(access_sym)}={repr(temp_sym)}}};{repr(access_sym)}.resize(Math.max({base_size},{repr(access_sym)}.byteLength));"
+            decl_stmt = (
+                f"let {repr(access_sym)}=new Uint8Array({INITIAL_DYNAMIC_SIZE});"
+            )
+            resize_stmt = f"if({base_size}>{repr(access_sym)}.length){{let {repr(temp_sym)}=new Uint8Array(Math.max(2*{repr(access_sym)}.length,{base_size}));for(let i=0;i<{repr(access_sym)}.length;i++){repr(temp_sym)}[i]={repr(access_sym)}[i];{repr(access_sym)}={repr(temp_sym)}}};"
             fillers = (
                 IndexedFiller(access_placeholder, mark_stmt),
                 IndexedFiller(self.parent_state.cov_placeholder, decl_stmt),
@@ -1207,8 +1209,9 @@ class Transpiler:
                         tensor_name, stmt.type.shape(), nonnegative_dims_js
                     )
                 self._assert_at_runtime(nonnegative_dims_js)
+                buffer_size = f"Math.imul({self.get_size_param_name(tensor_name, 0)},{self.get_stride_param_name(tensor_name, 0)})"
                 self._js_lines.append(
-                    f"let {repr(tensor_name)}=new {buffer_type}(Math.imul({self.get_size_param_name(tensor_name, 0)},{self.get_stride_param_name(tensor_name, 0)}));"
+                    f"let {repr(tensor_name)}=new {buffer_type}({buffer_size});for(let i=0;i<{buffer_size};i++){{{repr(tensor_name)}[i]=(Math.random()-0.5)*(1<<30);}}"
                 )
                 self._name_lookup[stmt.name] = Tensor(
                     stmt.name,

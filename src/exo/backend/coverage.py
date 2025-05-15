@@ -27,6 +27,9 @@ class CoverageProgress:
             self.total_cases + other.total_cases,
         )
 
+    def is_finished(self) -> bool:
+        return self.covered_cases == self.total_cases
+
 
 @dataclass
 class CoverageSolverState:
@@ -291,6 +294,30 @@ class MemoryAccessPair:
                     self.visited_nonaliasing = True
             if new_solution is not None:
                 return state.update_solution(new_constraint, new_solution)
+        elif not self.visited_nonaliasing and not self.visited_aliasing:
+            (
+                access1_path_constraint,
+                access1_indices,
+                _,
+            ) = self.access1.make_renamed_constraint_and_indices(state)
+            (
+                access2_path_constraint,
+                access2_indices,
+                _,
+            ) = self.access2.make_renamed_constraint_and_indices(state)
+            path_constraints = access1_path_constraint.intersect(
+                access2_path_constraint
+            )
+            new_constraint = state.current_constraint.intersect(path_constraints)
+            new_solution = state.cm.solve_constraint(
+                new_constraint, bound=state.bound, search_limit=state.search_limit
+            )
+            if new_solution is None:
+                self.visited_aliasing = True
+                self.visited_nonaliasing = True
+            else:
+                return state.update_solution(new_constraint, new_solution)
+
         return state
 
 

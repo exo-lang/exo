@@ -8,7 +8,7 @@ let size_b_3_0=i_2;
 let stride_b_3_0=1;
 while(Math.imul(size_b_3_0,stride_b_3_0)>access_11.maxByteLength){let temp_12=new ArrayBuffer(access_11.byteLength,{maxByteLength:2*access_11.maxByteLength});for(let i=0;i<access_11.byteLength;i++)temp_12[i]=access_11[i];access_11=temp_12};access_11.resize(Math.max(Math.imul(size_b_3_0,stride_b_3_0),access_11.byteLength));while(Math.imul(size_b_3_0,stride_b_3_0)>access_13.maxByteLength){let temp_14=new ArrayBuffer(access_13.byteLength,{maxByteLength:2*access_13.maxByteLength});for(let i=0;i<access_13.byteLength;i++)temp_14[i]=access_13[i];access_13=temp_14};access_13.resize(Math.max(Math.imul(size_b_3_0,stride_b_3_0),access_13.byteLength));
 if(!(size_b_3_0>=0))return [1,ctxt,{}];
-let b_3=new Int32Array(Math.imul(size_b_3_0,stride_b_3_0));
+let b_3=new Int32Array(Math.imul(size_b_3_0,stride_b_3_0));for(let i=0;i<Math.imul(size_b_3_0,stride_b_3_0);i++){b_3[i]=(Math.random()-0.5)*(1<<30);}
 access_11[Math.imul((((i_2-1))+(0)),stride_b_3_0)]=1;
 if(!(((((i_2-1))+(0)))>=(0)&&((((i_2-1))+(0)))<(size_b_3_0)))return [1,ctxt,{}];
 b_3[Math.imul(stride_b_3_0,(((i_2-1))+(0)))]=0;

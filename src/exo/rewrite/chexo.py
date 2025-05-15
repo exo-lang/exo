@@ -1,9 +1,9 @@
 from itertools import chain
 from typing import Callable, Literal, Optional, Union
 
-from ..core.internal_cursors import Cursor, Block, Node
+from ..core.internal_cursors import Cursor, Block, Node, NodePath
 
-from ..backend.LoopIR_transpiler import CoverageArgs, Transpiler
+from ..backend.LoopIR_transpiler import CoverageArgs, StageMemArgs, Transpiler
 from ..backend.coverage import CoverageSkeleton
 
 from ..core.configs import Config
@@ -413,21 +413,65 @@ class TestSpec:
     proc: LoopIR.proc
     constraint: DisjointConstraint
     arg_types: dict[Sym, LoopIR.type]
+    original_scope: Block
+
+    def forward_to_test(self, cursor: Block) -> Optional[Block]:
+        if cursor in self.original_scope:
+            return Block(
+                self.proc,
+                Node(self.proc, []),
+                "body",
+                range(
+                    cursor._range.start - self.original_scope._range.start,
+                    cursor._range.stop - self.original_scope._range.stop,
+                ),
+            )
+        for node_idx, node in enumerate(self.original_scope):
+            if node.is_ancestor_of(cursor):
+                return Block(
+                    self.proc,
+                    Node(
+                        self.proc,
+                        [("body", node_idx)] + cursor._anchor._path[len(node._path) :],
+                    ),
+                    cursor._attr,
+                    cursor._range,
+                )
+        return None
+
+    def backward_from_test(self, path: NodePath) -> NodePath:
+        assert path.path[0][1] is not None
+        return NodePath(
+            tuple(self.original_scope._anchor._path)
+            + (
+                (
+                    self.original_scope._attr,
+                    self.original_scope._range.start + path.path[0][1],
+                ),
+            )
+            + path.path[1:]
+        )
 
 
 @dataclass
 class TestScope:
-    scope: Union[Block, Node]
-    flatten_loops: bool
+    scope: Block
 
     def broaden(self) -> Optional["TestScope"]:
-        if self.scope.depth() == 0:
-            return TestScope(self.scope, False) if self.flatten_loops else None
+        if self.scope._anchor.depth() == 0:
+            new_scope = self.scope.expand()
+            if (
+                new_scope._range.start == self.scope._range.start
+                and new_scope._range.stop == self.scope._range.stop
+            ):
+                return None
+            else:
+                return TestScope(new_scope)
         else:
-            return TestScope(self.scope.parent(), self.flatten_loops)
+            return TestScope(self.scope._anchor.as_block())
 
     def transform(self, forward: Callable[[Cursor], Cursor]) -> "TestScope":
-        return TestScope(forward(self.scope), self.flatten_loops)
+        return TestScope(forward(self.scope))
 
     def get_type_map(self) -> dict[Sym, LoopIR.type]:
         root_proc = self.scope.get_root()
@@ -470,75 +514,165 @@ class TestScope:
             name=root_proc.name,
             args=args,
             preds=[],
-            body=(
-                [self.scope._node]
-                if isinstance(self.scope, Node)
-                else self.scope.resolve_all()
-            ),
+            body=(self.scope.resolve_all()),
             instr=None,
             srcinfo=root_proc.srcinfo,
         )
         arg_types = {arg.name: arg.type for arg in args}
-        return TestSpec(proc, constraint, arg_types)
+        return TestSpec(proc, constraint, arg_types, self.scope)
 
 
 TEST_CASE_BOUND = 15
 
 
 def fuzz(starting_scope: Union[Block, Node], fwd: Callable[[Cursor], Cursor]):
-    cur_scope = TestScope(starting_scope, True)
-    transformed = cur_scope.transform(fwd)
-
-    cm = ConstraintMaker(cur_scope.get_type_map() | transformed.get_type_map())
-
-    spec1 = cur_scope.get_test_spec(cm)
-    spec2 = transformed.get_test_spec(cm)
-
-    failure_scope = (
+    starting_scope = (
         starting_scope.as_block()
         if isinstance(starting_scope, Node)
         else starting_scope
     )
-    transpiled_test1 = Transpiler(spec1.proc, CoverageArgs(cm, failure_scope))
-    transpiled_test2 = Transpiler(spec2.proc, CoverageArgs(cm, failure_scope))
+    failure_scope = starting_scope
+    failure_transformed_scope = fwd(failure_scope)
+    assert isinstance(failure_transformed_scope, Block)
+    cur_scope = TestScope(starting_scope)
 
-    config_fields = transpiled_test1.get_configs() | transpiled_test2.get_configs()
+    while cur_scope is not None:
+        transformed = cur_scope.transform(fwd)
+        cm = ConstraintMaker(cur_scope.get_type_map() | transformed.get_type_map())
 
-    arg_types = spec1.arg_types | spec2.arg_types
-    constraint = spec1.constraint.union(spec2.constraint)
-    skeleton1, skeleton2 = (
-        transpiled_test1.get_coverage_skeleton(),
-        transpiled_test2.get_coverage_skeleton(),
-    )
-    assert skeleton1 is not None and skeleton2 is not None
-    coverage_skeleton = skeleton1.merge(skeleton2)
-    for _ in range(TEST_CASE_BOUND):
-        test_case = generate_test_case(
-            arg_types,
-            config_fields,
-            constraint,
-            coverage_skeleton,
-            cm,
+        spec1 = cur_scope.get_test_spec(cm)
+        spec2 = transformed.get_test_spec(cm)
+
+        transpiled_test1 = Transpiler(
+            spec1.proc, CoverageArgs(cm, spec1.forward_to_test(failure_scope))
         )
-        if test_case is None:
-            continue
+        transpiled_test2 = Transpiler(
+            spec2.proc,
+            CoverageArgs(cm, spec2.forward_to_test(failure_transformed_scope)),
+        )
 
-        out1 = run_test_case(test_case, transpiled_test1)
-        out2 = run_test_case(test_case, transpiled_test2)
-        if out1 == "failed" or out2 == "failed":
-            raise SchedulingError("domain mismatch")
-        assert out1.coverage_result is not None and out2.coverage_result is not None
-        coverage_skeleton.update_coverage(out1.coverage_result | out2.coverage_result)
-        for buffer_name in out1.buffer_values.keys() & out2.buffer_values.keys():
-            if not np.allclose(
-                out1.buffer_values[buffer_name], out2.buffer_values[buffer_name]
-            ):
-                raise SchedulingError("mismatch found")
-        for ctxt_name in out1.ctxt_object & out2.ctxt_object.keys():
-            if not np.allclose(
-                out1.ctxt_object[ctxt_name], out2.ctxt_object[ctxt_name]
-            ):
-                raise SchedulingError("context mismatch found")
+        config_fields = transpiled_test1.get_configs() | transpiled_test2.get_configs()
+
+        arg_types = spec1.arg_types | spec2.arg_types
+        constraint = spec1.constraint.union(spec2.constraint)
+        skeleton1, skeleton2 = (
+            transpiled_test1.get_coverage_skeleton(),
+            transpiled_test2.get_coverage_skeleton(),
+        )
+        assert skeleton1 is not None and skeleton2 is not None
+        coverage_skeleton = skeleton1.merge(skeleton2)
+        tests_passed = True
+        while not coverage_skeleton.get_coverage_progress().is_finished():
+            test_case = generate_test_case(
+                arg_types,
+                config_fields,
+                constraint,
+                coverage_skeleton,
+                cm,
+            )
+            if test_case is None:
+                continue
+
+            out1 = run_test_case(test_case, transpiled_test1)
+            out2 = run_test_case(test_case, transpiled_test2)
+            if out1 == "failed" or out2 == "failed":
+                tests_passed = False
+                break
+            assert out1.coverage_result is not None and out2.coverage_result is not None
+            coverage_skeleton.update_coverage(
+                out1.coverage_result | out2.coverage_result
+            )
+            for buffer_name in out1.buffer_values.keys() & out2.buffer_values.keys():
+                if not np.allclose(
+                    out1.buffer_values[buffer_name], out2.buffer_values[buffer_name]
+                ):
+                    tests_passed = False
+                    break
+            if cur_scope.broaden() is not None:
+                for ctxt_name in out1.ctxt_object & out2.ctxt_object.keys():
+                    if not np.allclose(
+                        out1.ctxt_object[ctxt_name], out2.ctxt_object[ctxt_name]
+                    ):
+                        tests_passed = False
+                        break
+        if tests_passed:
+            return
+        else:
+            cur_scope = cur_scope.broaden()
+    raise SchedulingError("tests failed at broadest scope")
+
+
+def fuzz_stage_mem(
+    starting_scope: Block, window_expr: LoopIR.WindowExpr
+) -> set[NodePath]:
+    starting_scope = (
+        starting_scope.as_block()
+        if isinstance(starting_scope, Node)
+        else starting_scope
+    )
+    failure_scope = starting_scope
+    stage_scope = failure_scope
+    cur_scope = TestScope(starting_scope)
+
+    while cur_scope is not None:
+        cm = ConstraintMaker(cur_scope.get_type_map())
+
+        spec = cur_scope.get_test_spec(cm)
+
+        forwarded_stage_scope = spec.forward_to_test(stage_scope)
+        assert forwarded_stage_scope is not None
+        transpiled_test = Transpiler(
+            spec.proc,
+            CoverageArgs(
+                cm,
+                spec.forward_to_test(failure_scope),
+                StageMemArgs(window_expr, forwarded_stage_scope),
+            ),
+        )
+
+        config_fields = transpiled_test.get_configs()
+
+        arg_types = spec.arg_types
+        constraint = spec.constraint
+        coverage_skeleton = transpiled_test.get_coverage_skeleton()
+        assert coverage_skeleton is not None
+        tests_passed = True
+        while not coverage_skeleton.get_coverage_progress().is_finished():
+            test_case = generate_test_case(
+                arg_types,
+                config_fields,
+                constraint,
+                coverage_skeleton,
+                cm,
+            )
+            if test_case is None:
+                continue
+
+            out = run_test_case(test_case, transpiled_test)
+            if out == "failed":
+                tests_passed = False
+                break
+            assert out.coverage_result is not None
+            coverage_skeleton.update_coverage(out.coverage_result)
+
+        if tests_passed:
+            overlapping_paths = set()
+            failed = False
+            for staging_overlap in coverage_skeleton.staging_overlaps:
+                if staging_overlap.has_disjoint_access and staging_overlap.has_overlap:
+                    failed = True
+                    break
+                elif staging_overlap.has_overlap:
+                    overlapping_paths.add(
+                        spec.backward_from_test(staging_overlap.access_cursor)
+                    )
+            if failed:
+                cur_scope = cur_scope.broaden()
+            else:
+                return overlapping_paths
+        else:
+            cur_scope = cur_scope.broaden()
+    raise SchedulingError("cannot stage due to window overlaps")
 
 
 def fuzz_reorder_stmts(s1: Node, s2: Node):

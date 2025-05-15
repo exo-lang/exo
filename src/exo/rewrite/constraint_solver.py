@@ -465,6 +465,22 @@ class ConstraintMaker:
             ).lift_to_disjoint_constraint()
         elif isinstance(expr, LoopIR.Const):
             return TRUE_CONSTRAINT if expr.val else FALSE_CONSTRAINT
+
+        elif isinstance(expr, LoopIR.ReadConfig):
+            if (expr.config, expr.field) not in self.ctxt:
+                field_type = expr.config.lookup_type(expr.field)
+                assert isinstance(field_type, LoopIR.Bool)
+                var_sub_result = self.make_var_sub(
+                    f"{expr.config.name()}_{expr.field}", field_type
+                )
+                assert (
+                    var_sub_result is not None
+                ), "constraints can only occur on control variables"
+                self.ctxt[(expr.config, expr.field)] = var_sub_result
+            return Constraint(
+                self.ctxt[(expr.config, expr.field)].add(Expression.from_constant(-1)),
+                False,
+            ).lift_to_disjoint_constraint()
         else:
             assert False, "only boolean expected"
 
@@ -580,16 +596,38 @@ class ConstraintMaker:
                     (np.ones(m_nonslack) * bound - vec_f[:m_nonslack], vec_f),
                     axis=0,
                 )
+                radius_row = np.zeros((1, m - k + 1))
+                radius_row[0, -1] = -1
+                upper_bound_matrix_with_radius = np.concatenate(
+                    (
+                        np.concatenate(
+                            (
+                                upper_bound_matrix,
+                                np.linalg.norm(upper_bound_matrix, axis=1)[
+                                    :, np.newaxis
+                                ],
+                            ),
+                            axis=1,
+                        ),
+                        radius_row,
+                    ),
+                    axis=0,
+                )
+                upper_bound_offset_with_radius = np.concatenate(
+                    (upper_bound_offset, np.array([0])), axis=0
+                )
+                objective = np.zeros(m - k + 1)
+                objective[-1] = -1
                 lp = linprog(
-                    np.zeros(m - k),
-                    A_ub=upper_bound_matrix,
-                    b_ub=upper_bound_offset,
+                    objective,
+                    A_ub=upper_bound_matrix_with_radius,
+                    b_ub=upper_bound_offset_with_radius,
                     bounds=(None, None),
                     method="highs",
                 )
                 if not lp.success:
                     return "infeasible" if len(assignments) == 0 else "failed"
-                cur_y = lp.x
+                cur_y = lp.x[: m - k]
                 har_iter = 50
                 last_int_y = None
                 for _ in range(har_iter):

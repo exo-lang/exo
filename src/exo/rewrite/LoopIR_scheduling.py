@@ -1,7 +1,7 @@
 import re
 from collections import ChainMap
 import traceback
-from typing import Callable, List, Literal, Tuple, Optional
+from typing import Any, Callable, List, Literal, Tuple, Optional
 
 from ..core.LoopIR import (
     LoopIR,
@@ -33,7 +33,7 @@ from .new_eff import (
     Check_ExprBound,
     Check_Aliasing,
 )
-from .chexo import fuzz_reorder_stmts
+from .chexo import fuzz, fuzz_reorder_stmts
 
 from .range_analysis import IndexRangeEnvironment, IndexRange, index_range_analysis
 
@@ -369,16 +369,20 @@ def divide_expr(e, quot):
 # Scheduling directives
 
 
+CheckMode = Literal["static", "dynamic", "both"]
+
+
 def do_check(
-    static_check: Callable[[], None],
-    dynamic_check: Callable[[], None],
-    mode: Literal["static", "dynamic", "both"],
-):
+    static_check: Callable[[], Any],
+    dynamic_check: Callable[[], Any],
+    mode: CheckMode,
+) -> Any:
     if mode == "both":
         e_static, e_dynamic = None, None
         trb_static, trb_dynamic = None, None
+        static_res = None
         try:
-            static_check()
+            static_res = static_check()
         except Exception as e:
             e_static = e
             trb_static = traceback.format_exc()
@@ -393,16 +397,18 @@ def do_check(
             ), f"fuzzer should match static analysis\ntrb_static: {trb_static}\n\ntrb_dynamic: {trb_dynamic}"
         elif e_static is not None:
             raise e_static
+        else:
+            return static_res
     elif mode == "static":
-        static_check()
+        return static_check()
     elif mode == "dynamic":
-        dynamic_check()
+        return dynamic_check()
 
 
 # Take a conservative approach and allow stmt reordering only when they are
 # writing to different buffers
 # TODO: Do effectcheck's check_commutes-ish thing using SMT here
-def DoReorderStmt(f_cursor, s_cursor):
+def DoReorderStmt(f_cursor, s_cursor, check_mode: CheckMode):
     if f_cursor.next() != s_cursor:
         raise SchedulingError(
             "expected the second statement to be directly after the first"
@@ -410,7 +416,7 @@ def DoReorderStmt(f_cursor, s_cursor):
     do_check(
         lambda: Check_ReorderStmts(f_cursor.get_root(), f_cursor._node, s_cursor._node),
         lambda: fuzz_reorder_stmts(f_cursor, s_cursor),
-        "both",
+        check_mode,
     )
     ir, fwd = s_cursor._move(f_cursor.before())
     return ir, fwd
@@ -1199,28 +1205,54 @@ def DoConfigWrite(stmt_cursor, config, field, expr, before=False):
 # Bind Expression scheduling directive
 
 
-def DoBindConfig(config, field, expr_cursor):
-    e = expr_cursor._node
-    assert isinstance(e, LoopIR.Read)
+def DoBindConfig(config, field, expr_cursor, check_mode):
+    def static_check():
+        e = expr_cursor._node
+        assert isinstance(e, LoopIR.Read)
 
-    c = expr_cursor
-    while not isinstance(c._node, LoopIR.stmt):
-        c = c.parent()
+        c = expr_cursor
+        while not isinstance(c._node, LoopIR.stmt):
+            c = c.parent()
 
-    cfg_write_s = LoopIR.WriteConfig(config, field, e, e.srcinfo)
-    ir, fwd = c.before()._insert([cfg_write_s])
+        cfg_write_s = LoopIR.WriteConfig(config, field, e, e.srcinfo)
+        ir, fwd = c.before()._insert([cfg_write_s])
 
-    mod_cfg = Check_DeleteConfigWrite(ir, [cfg_write_s])
+        mod_cfg = Check_DeleteConfigWrite(ir, [cfg_write_s])
 
-    cfg_f_type = config.lookup_type(field)
-    cfg_read_e = LoopIR.ReadConfig(config, field, cfg_f_type, e.srcinfo)
-    if isinstance(expr_cursor.parent()._node, LoopIR.Call):
-        cfg_read_e = [cfg_read_e]
-    ir, fwd_repl = fwd(expr_cursor)._replace(cfg_read_e)
-    fwd = _compose(fwd_repl, fwd)
+        cfg_f_type = config.lookup_type(field)
+        cfg_read_e = LoopIR.ReadConfig(config, field, cfg_f_type, e.srcinfo)
+        if isinstance(expr_cursor.parent()._node, LoopIR.Call):
+            cfg_read_e = [cfg_read_e]
+        ir, fwd_repl = fwd(expr_cursor)._replace(cfg_read_e)
+        fwd = _compose(fwd_repl, fwd)
 
-    Check_Aliasing(ir)
-    return ir, fwd, mod_cfg
+        Check_Aliasing(ir)
+        return ir, fwd, mod_cfg
+
+    def dynamic_check():
+        e = expr_cursor._node
+        assert isinstance(e, LoopIR.Read)
+
+        c = expr_cursor
+        while not isinstance(c._node, LoopIR.stmt):
+            c = c.parent()
+
+        cfg_write_s = LoopIR.WriteConfig(config, field, e, e.srcinfo)
+        ir, fwd1 = c.before()._insert([LoopIR.Pass(e.srcinfo)])
+        pass_cursor = fwd1(c).prev()
+        ir, fwd2 = pass_cursor._replace([cfg_write_s])
+        new_expr_cursor = fwd2(fwd1(expr_cursor))
+
+        cfg_f_type = config.lookup_type(field)
+        cfg_read_e = LoopIR.ReadConfig(config, field, cfg_f_type, e.srcinfo)
+        if isinstance(expr_cursor.parent()._node, LoopIR.Call):
+            cfg_read_e = [cfg_read_e]
+        ir, fwd3 = new_expr_cursor._replace(cfg_read_e)
+        fwd = _compose(fwd3, _compose(fwd2, fwd1))
+        fuzz(pass_cursor.as_block().expand(delta_hi=1), _compose(fwd3, fwd2))
+        return ir, fwd, None
+
+    return do_check(static_check, dynamic_check, check_mode)
 
 
 def DoCommuteExpr(expr_cursors):
