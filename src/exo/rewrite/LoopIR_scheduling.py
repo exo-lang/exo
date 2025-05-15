@@ -43,7 +43,7 @@ import exo.core.internal_cursors as ic
 import exo.API as api
 from ..frontend.pattern_match import match_pattern
 from ..core.memory import DRAM
-from ..frontend.typecheck import check_call_types
+from ..frontend.typecheck import check_call_types, CheckMode
 
 from functools import partial
 
@@ -367,9 +367,6 @@ def divide_expr(e, quot):
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Scheduling directives
-
-
-CheckMode = Literal["static", "dynamic", "both"]
 
 
 def do_check(

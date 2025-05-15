@@ -22,17 +22,18 @@ from .rewrite.new_eff import Check_Aliasing
 # Moved to new file
 from .core.proc_eqv import decl_new_proc, derive_proc, assert_eqv_proc, check_eqv_proc
 from .frontend.pyparser import get_ast_from_python, Parser, get_parent_scope
-from .frontend.typecheck import TypeChecker
+from .frontend.typecheck import TypeChecker, CheckMode
 
 from . import API_cursors as C
 from .core import internal_cursors as IC
+from .backend.LoopIR_compiler import DEFAULT_CHECK_MODE
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Top-level decorator
 
 
-def proc(f, _instr=None) -> "Procedure":
+def proc(f, _instr=None, _check_mode: Optional[CheckMode] = None) -> "Procedure":
     if not isinstance(f, types.FunctionType):
         raise TypeError("@proc decorator must be applied to a function")
 
@@ -42,11 +43,11 @@ def proc(f, _instr=None) -> "Procedure":
     parser = Parser(
         body,
         src_info,
-        parent_scope=get_parent_scope(depth=3 if _instr else 2),
+        parent_scope=get_parent_scope(depth=3 if _instr or _check_mode else 2),
         instr=_instr,
         as_func=True,
     )
-    return Procedure(parser.result())
+    return Procedure(parser.result(), _check_mode=_check_mode)
 
 
 def instr(c_instr, c_global=""):
@@ -82,6 +83,14 @@ def config(_cls=None, *, readwrite=True):
         return parse_config
     else:
         return parse_config(_cls)
+
+
+def chexo(f):
+    return proc(f, _check_mode="dynamic")
+
+
+def chexo_debug(f):
+    return proc(f, _check_mode="both")
 
 
 # --------------------------------------------------------------------------- #
@@ -150,7 +159,11 @@ def compile_procs(proc_list, basedir: Path, c_file: str, h_file: str):
 def compile_procs_to_strings(proc_list, h_file_name: str):
     assert isinstance(proc_list, list)
     assert all(isinstance(p, Procedure) for p in proc_list)
-    return run_compile([p._loopir_proc for p in proc_list], h_file_name)
+    return run_compile(
+        [p._loopir_proc for p in proc_list],
+        h_file_name,
+        "dynamic" if any(p._check_mode == "dynamic" for p in proc_list) else "static",
+    )
 
 
 class Procedure(ProcedureBase):
@@ -160,15 +173,18 @@ class Procedure(ProcedureBase):
         _provenance_eq_Procedure: "Procedure" = None,
         _forward=None,
         _mod_config=None,
+        _check_mode: Optional[CheckMode] = None,
     ):
         super().__init__()
 
         _mod_config = _mod_config or frozenset()
 
+        self._check_mode = DEFAULT_CHECK_MODE if _check_mode is None else _check_mode
         if isinstance(proc, LoopIR.UAST.proc):
-            proc = TypeChecker(proc).get_loopir()
-            CheckBounds(proc)
-            Check_Aliasing(proc)
+            proc = TypeChecker(proc, self._check_mode).get_loopir()
+            if self._check_mode != "dynamic":
+                CheckBounds(proc)
+                Check_Aliasing(proc)
 
         assert isinstance(proc, LoopIR.LoopIR.proc)
 
@@ -188,7 +204,6 @@ class Procedure(ProcedureBase):
                 )
 
         self._loopir_proc = proc
-        self._check_mode = "both"
         self._provenance_eq_Procedure = _provenance_eq_Procedure
         self._forward = _forward
 
@@ -295,7 +310,9 @@ class Procedure(ProcedureBase):
     # ---------------------------------------------- #
 
     def c_code_str(self):
-        decls, defns = compile_to_strings("c_code_str", [self._loopir_proc])
+        decls, defns = compile_to_strings(
+            "c_code_str", [self._loopir_proc], check_mode=self._check_mode
+        )
         return decls + "\n" + defns
 
     def compile_c(self, directory: Path, filename: str):

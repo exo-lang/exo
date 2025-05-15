@@ -477,6 +477,7 @@ class ParallelAccessTracker:
 @dataclass
 class CoverageArgs:
     cm: ConstraintMaker
+    var_renaming: dict[Sym, Sym]
     failure_scope: Optional[Block] = None
     stage_mem_args: Optional[StageMemArgs] = None
 
@@ -484,6 +485,7 @@ class CoverageArgs:
 class CoverageState:
     def __init__(self, args: CoverageArgs, parent_transpiler: "Transpiler"):
         self.cm: ConstraintMaker = args.cm
+        self.var_renaming: dict[Sym, Sym] = args.var_renaming
         self.parent_transpiler: Transpiler = parent_transpiler
         self.cov_placeholder: int = parent_transpiler._make_placeholder()
         self.root: CoverageSkeletonNode = CoverageSkeletonNode(None, None, ())
@@ -516,16 +518,18 @@ class CoverageState:
         skip_sym = Sym("skip")
         loop_entrance_placeholder = self.parent_transpiler._make_placeholder()
         body_constraint = (
-            self.cm.make_constraint_from_inequality(stmt.lo, stmt.iter, "<=")
+            self.cm.make_constraint_from_inequality(
+                stmt.lo, stmt.iter, "<=", self.var_renaming
+            )
             .lift_to_disjoint_constraint()
             .intersect(
                 self.cm.make_constraint_from_inequality(
-                    stmt.iter, stmt.hi, "<"
+                    stmt.iter, stmt.hi, "<", self.var_renaming
                 ).lift_to_disjoint_constraint()
             )
         )
         skip_constraint = self.cm.make_constraint_from_inequality(
-            stmt.lo, stmt.hi, ">="
+            stmt.lo, stmt.hi, ">=", self.var_renaming
         ).lift_to_disjoint_constraint()
         parent_node = self.current_node
         body_child = CoverageSkeletonNode(
@@ -576,7 +580,7 @@ class CoverageState:
         true_sym = Sym("true_case")
         false_sym = Sym("false_case")
         true_placeholder = self.parent_transpiler._make_placeholder()
-        cond_constraint = self.cm.make_constraint(stmt.cond)
+        cond_constraint = self.cm.make_constraint(stmt.cond, self.var_renaming)
         true_node = CoverageSkeletonNode(
             true_sym,
             (parent_node, cond_constraint),
@@ -642,7 +646,7 @@ class CoverageState:
         ):
             match_cond = match_cond.intersect(
                 Constraint(
-                    self.cm.make_expression(shape_dim)
+                    self.cm.make_expression(shape_dim, self.var_renaming)
                     .negate()
                     .add(tensor_dim.upper_bound)
                     .add(tensor_dim.lower_bound.negate()),
@@ -657,13 +661,15 @@ class CoverageState:
     def assert_predicate(self, pred: LoopIR.expr, js_pred: str):
         if self.failure_tracker is not None:
             self.failure_tracker.add_assertion(
-                self.cm.make_constraint(pred),
+                self.cm.make_constraint(pred, self.var_renaming),
                 js_pred,
                 self.parent_transpiler._make_placeholder(),
             )
 
     def make_tensor(self, sym: Sym, dims: list[LoopIR.expr], nonnegative_dims_js: str):
-        symbolic_dims = tuple(self.cm.make_expression(dim) for dim in dims)
+        symbolic_dims = tuple(
+            self.cm.make_expression(dim, self.var_renaming) for dim in dims
+        )
         nonnegative_constraint = TRUE_CONSTRAINT
         for symbolic_dim in symbolic_dims:
             nonnegative_constraint = nonnegative_constraint.intersect(
@@ -713,8 +719,12 @@ class CoverageState:
                 idx = next(window_idx_iter)._node
                 if isinstance(idx, LoopIR.Interval):
                     new_dim = SymbolicSlice(
-                        self.cm.make_expression(idx.lo).add(dim.lower_bound),
-                        self.cm.make_expression(idx.hi).add(dim.lower_bound),
+                        self.cm.make_expression(idx.lo, self.var_renaming).add(
+                            dim.lower_bound
+                        ),
+                        self.cm.make_expression(idx.hi, self.var_renaming).add(
+                            dim.lower_bound
+                        ),
                     )
                     in_bounds_constraint = in_bounds_constraint.intersect(
                         Constraint(
@@ -728,7 +738,9 @@ class CoverageState:
                     window_dims.append(new_dim)
                 else:
                     new_dim = SymbolicPoint(
-                        self.cm.make_expression(idx.pt).add(dim.lower_bound)
+                        self.cm.make_expression(idx.pt, self.var_renaming).add(
+                            dim.lower_bound
+                        )
                     )
                     in_bounds_constraint = in_bounds_constraint.intersect(
                         Constraint(
@@ -771,7 +783,9 @@ class CoverageState:
         in_bounds_constraint = TRUE_CONSTRAINT
         for dim in symbolic_tensor.dims:
             if isinstance(dim, SymbolicSlice):
-                idx = self.cm.make_expression(next(idx_expr_iter)).add(dim.lower_bound)
+                idx = self.cm.make_expression(
+                    next(idx_expr_iter), self.var_renaming
+                ).add(dim.lower_bound)
                 in_bounds_constraint = in_bounds_constraint.intersect(
                     Constraint(
                         idx.negate().add(dim.upper_bound), True

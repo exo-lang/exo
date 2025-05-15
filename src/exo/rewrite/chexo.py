@@ -71,6 +71,14 @@ class TypeVisitor(LoopIRVisitor):
             self.type_map[node.name] = node.type
             if node.mem:
                 self.mem_map[node.name] = node.mem
+        elif isinstance(node, LoopIR.Call):
+            for arg_val, arg in zip(node.args, node.f.args):
+                if isinstance(arg.type, LoopIR.Tensor) and arg.type.is_window:
+                    self.type_map[arg.name] = arg_val.type
+                else:
+                    self.type_map[arg.name] = arg.type
+            for stmt in node.f.body:
+                self.visit_generic(stmt)
         else:
             self.visit_generic(node)
 
@@ -82,6 +90,22 @@ class UsedVariableVisitor(LoopIRVisitor):
     def visit(self, node):
         if isinstance(node, Sym):
             self.used_vars.add(node)
+        else:
+            self.visit_generic(node)
+
+
+@dataclass
+class ModifiedVariableVisitor(LoopIRVisitor):
+    type_map: dict[Sym, LoopIR.type]
+    modified_vars: set[Sym] = field(default_factory=lambda: set())
+
+    def visit(self, node):
+        if isinstance(node, (LoopIR.Assign, LoopIR.Reduce)):
+            node_type = self.type_map[node.name]
+            if isinstance(node_type, LoopIR.WindowType):
+                self.modified_vars.add(node_type.src_buf)
+            else:
+                self.modified_vars.add(node.name)
         else:
             self.visit_generic(node)
 
@@ -201,33 +225,57 @@ FLOAT_BOUND = 32
 
 
 def collect_path_constraints(
-    cursor: Union[Block, Node], cm: ConstraintMaker
+    cursor: Union[Block, Node], cm: ConstraintMaker, type_map: dict[Sym, LoopIR.type]
 ) -> DisjointConstraint:
-    cur = cursor
+    if isinstance(cursor, Block):
+        cursor = cursor[0]
+    assert isinstance(cursor, Node)
+    last_attr, last_index = cursor._path[-1]
+    cur = cursor.parent()
     result = TRUE_CONSTRAINT
-    last_attr = None
+    var_renaming = {}
     while cur.depth() != 0:
         if isinstance(cur, Node):
-            last_attr = cur._path[-1]
             if isinstance(cur._node, LoopIR.For):
+                modified_variable_visitor = ModifiedVariableVisitor(type_map)
+                for stmt in cur._node.body:
+                    modified_variable_visitor.visit(stmt)
+                for var_sym in modified_variable_visitor.modified_vars:
+                    var_renaming[var_sym] = cm.copy_var(var_sym)
                 result = result.intersect(
                     cm.make_constraint_from_inequality(
-                        cur._node.iter, cur._node.lo, ">="
+                        cur._node.iter, cur._node.lo, ">=", var_renaming
                     ).lift_to_disjoint_constraint()
                 )
                 result = result.intersect(
                     cm.make_constraint_from_inequality(
-                        cur._node.iter, cur._node.hi, "<"
+                        cur._node.iter, cur._node.hi, "<", var_renaming
                     ).lift_to_disjoint_constraint()
                 )
             elif isinstance(cur._node, LoopIR.If):
-                constraint = cm.make_constraint(cur._node.cond)
-                if isinstance(last_attr, tuple) and last_attr[0] == "orelse":
+                assert last_index is not None
+                modified_variable_visitor = ModifiedVariableVisitor(type_map)
+                for stmt, _ in zip(cur._node[last_attr], range(last_index)):
+                    modified_variable_visitor.visit(stmt)
+                for var_sym in modified_variable_visitor.modified_vars:
+                    var_renaming[var_sym] = cm.copy_var(var_sym)
+                constraint = cm.make_constraint(cur._node.cond, var_renaming)
+                if last_attr == "orelse":
                     result = result.intersect(constraint.invert())
                 else:
                     result = result.intersect(constraint)
 
+        last_attr, last_index = cur._path[-1]
         cur = cur.parent()
+
+    assert last_index is not None
+    modified_variable_visitor = ModifiedVariableVisitor(type_map)
+    for stmt, _ in zip(cur._node.body, range(last_index)):
+        modified_variable_visitor.visit(stmt)
+    for var_sym in modified_variable_visitor.modified_vars:
+        var_renaming[var_sym] = cm.copy_var(var_sym)
+    for pred in cur._node.preds:
+        result = result.intersect(cm.make_constraint(pred, var_renaming))
     return result
 
 
@@ -414,6 +462,7 @@ class TestSpec:
     constraint: DisjointConstraint
     arg_types: dict[Sym, LoopIR.type]
     original_scope: Block
+    var_renaming: dict[Sym, Sym]
 
     def forward_to_test(self, cursor: Block) -> Optional[Block]:
         if cursor in self.original_scope:
@@ -479,15 +528,17 @@ class TestScope:
         proc_type_visitor.visit(root_proc)
         return proc_type_visitor.type_map
 
-    def get_test_spec(self, cm: ConstraintMaker) -> TestSpec:
+    def get_test_spec(
+        self, cm: ConstraintMaker, type_map: dict[Sym, LoopIR.type]
+    ) -> TestSpec:
         root_proc = self.scope.get_root()
         proc_type_visitor = TypeVisitor()
         proc_type_visitor.visit(root_proc)
 
         constraint = TRUE_CONSTRAINT
-        for pred in root_proc.preds:
-            constraint = constraint.intersect(cm.make_constraint(pred))
-        constraint = constraint.intersect(collect_path_constraints(self.scope, cm))
+        constraint = constraint.intersect(
+            collect_path_constraints(self.scope, cm, type_map)
+        )
         args = [
             LoopIR.fnarg(
                 name=var,
@@ -518,8 +569,16 @@ class TestScope:
             instr=None,
             srcinfo=root_proc.srcinfo,
         )
+        modified_variable_visitor = ModifiedVariableVisitor(type_map)
+        modified_variable_visitor.visit(proc)
         arg_types = {arg.name: arg.type for arg in args}
-        return TestSpec(proc, constraint, arg_types, self.scope)
+        return TestSpec(
+            proc,
+            constraint,
+            arg_types,
+            self.scope,
+            {sym: cm.top_var(sym) for sym in modified_variable_visitor.modified_vars},
+        )
 
 
 TEST_CASE_BOUND = 15
@@ -535,20 +594,25 @@ def fuzz(starting_scope: Union[Block, Node], fwd: Callable[[Cursor], Cursor]):
     failure_transformed_scope = fwd(failure_scope)
     assert isinstance(failure_transformed_scope, Block)
     cur_scope = TestScope(starting_scope)
+    cur_type_map = cur_scope.get_type_map()
+    transformed_type_map = cur_scope.transform(fwd).get_type_map()
 
     while cur_scope is not None:
         transformed = cur_scope.transform(fwd)
-        cm = ConstraintMaker(cur_scope.get_type_map() | transformed.get_type_map())
+        cm = ConstraintMaker(cur_type_map | transformed_type_map)
 
-        spec1 = cur_scope.get_test_spec(cm)
-        spec2 = transformed.get_test_spec(cm)
+        spec1 = cur_scope.get_test_spec(cm, cur_type_map)
+        spec2 = transformed.get_test_spec(cm, transformed_type_map)
 
         transpiled_test1 = Transpiler(
-            spec1.proc, CoverageArgs(cm, spec1.forward_to_test(failure_scope))
+            spec1.proc,
+            CoverageArgs(cm, spec1.var_renaming, spec1.forward_to_test(failure_scope)),
         )
         transpiled_test2 = Transpiler(
             spec2.proc,
-            CoverageArgs(cm, spec2.forward_to_test(failure_transformed_scope)),
+            CoverageArgs(
+                cm, spec2.var_renaming, spec2.forward_to_test(failure_transformed_scope)
+            ),
         )
 
         config_fields = transpiled_test1.get_configs() | transpiled_test2.get_configs()
@@ -600,79 +664,6 @@ def fuzz(starting_scope: Union[Block, Node], fwd: Callable[[Cursor], Cursor]):
         else:
             cur_scope = cur_scope.broaden()
     raise SchedulingError("tests failed at broadest scope")
-
-
-def fuzz_stage_mem(
-    starting_scope: Block, window_expr: LoopIR.WindowExpr
-) -> set[NodePath]:
-    starting_scope = (
-        starting_scope.as_block()
-        if isinstance(starting_scope, Node)
-        else starting_scope
-    )
-    failure_scope = starting_scope
-    stage_scope = failure_scope
-    cur_scope = TestScope(starting_scope)
-
-    while cur_scope is not None:
-        cm = ConstraintMaker(cur_scope.get_type_map())
-
-        spec = cur_scope.get_test_spec(cm)
-
-        forwarded_stage_scope = spec.forward_to_test(stage_scope)
-        assert forwarded_stage_scope is not None
-        transpiled_test = Transpiler(
-            spec.proc,
-            CoverageArgs(
-                cm,
-                spec.forward_to_test(failure_scope),
-                StageMemArgs(window_expr, forwarded_stage_scope),
-            ),
-        )
-
-        config_fields = transpiled_test.get_configs()
-
-        arg_types = spec.arg_types
-        constraint = spec.constraint
-        coverage_skeleton = transpiled_test.get_coverage_skeleton()
-        assert coverage_skeleton is not None
-        tests_passed = True
-        while not coverage_skeleton.get_coverage_progress().is_finished():
-            test_case = generate_test_case(
-                arg_types,
-                config_fields,
-                constraint,
-                coverage_skeleton,
-                cm,
-            )
-            if test_case is None:
-                continue
-
-            out = run_test_case(test_case, transpiled_test)
-            if out == "failed":
-                tests_passed = False
-                break
-            assert out.coverage_result is not None
-            coverage_skeleton.update_coverage(out.coverage_result)
-
-        if tests_passed:
-            overlapping_paths = set()
-            failed = False
-            for staging_overlap in coverage_skeleton.staging_overlaps:
-                if staging_overlap.has_disjoint_access and staging_overlap.has_overlap:
-                    failed = True
-                    break
-                elif staging_overlap.has_overlap:
-                    overlapping_paths.add(
-                        spec.backward_from_test(staging_overlap.access_cursor)
-                    )
-            if failed:
-                cur_scope = cur_scope.broaden()
-            else:
-                return overlapping_paths
-        else:
-            cur_scope = cur_scope.broaden()
-    raise SchedulingError("cannot stage due to window overlaps")
 
 
 def fuzz_reorder_stmts(s1: Node, s2: Node):

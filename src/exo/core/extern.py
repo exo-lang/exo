@@ -37,3 +37,6 @@ class Extern:
 
     def compile(self, args, prim_type):
         raise NotImplementedError()
+
+    def express_in_constraints(self, args, out_sym):
+        raise NotImplementedError()

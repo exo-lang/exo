@@ -1,5 +1,8 @@
-from exo.core.extern import Extern, _EErr
+from ..core.extern import Extern, _EErr
 import numpy as np
+
+from ..rewrite.constraint_solver import Constraint, DisjointConstraint, Expression
+from ..core.prelude import Sym
 
 
 class _Sin(Extern):
@@ -71,6 +74,25 @@ class _Relu(Extern):
     def compile(self, args, prim_type):
         return f"_relu_{prim_type}(({prim_type}){args[0]})"
 
+    def express_in_constraints(
+        self, args: tuple[Expression, ...], out_sym: Sym
+    ) -> DisjointConstraint:
+        result_expr = Expression.from_sym(out_sym)
+        return (
+            Constraint(args[0], True)
+            .lift_to_disjoint_constraint()
+            .intersect(
+                Constraint(
+                    args[0].add(result_expr.negate()), False
+                ).lift_to_disjoint_constraint()
+            )
+            .union(
+                Constraint(args[0].negate(), True)
+                .lift_to_disjoint_constraint()
+                .intersect(Constraint(result_expr, False).lift_to_disjoint_constraint())
+            )
+        )
+
 
 relu = _Relu()
 
@@ -117,6 +139,31 @@ class _Select(Extern):
 
     def compile(self, args, prim_type):
         return f"_select_{prim_type}(({prim_type}){args[0]}, ({prim_type}){args[1]}, ({prim_type}){args[2]}, ({prim_type}){args[3]})"
+
+    def express_in_constraints(
+        self, args: tuple[Expression, ...], out_sym: Sym
+    ) -> DisjointConstraint:
+        result_expr = Expression.from_sym(out_sym)
+        return (
+            Constraint(
+                args[1].add(args[0].add(Expression.from_constant(1)).negate()), True
+            )
+            .lift_to_disjoint_constraint()
+            .intersect(
+                Constraint(
+                    args[2].add(result_expr.negate()), False
+                ).lift_to_disjoint_constraint()
+            )
+            .union(
+                Constraint(args[0].add(args[1].negate()), True)
+                .lift_to_disjoint_constraint()
+                .intersect(
+                    Constraint(
+                        args[3].add(result_expr.negate()), False
+                    ).lift_to_disjoint_constraint()
+                )
+            )
+        )
 
 
 select = _Select()
@@ -254,3 +301,72 @@ class _Sqrt(Extern):
 
 
 sqrt = _Sqrt()
+
+
+class _IntMin(Extern):
+    def __init__(self):
+        super().__init__("intmin")
+
+    def typecheck(self, args):
+        if len(args) != 2:
+            raise _EErr(f"expected 2 arguments, got {len(args)}")
+
+        for i in range(len(args)):
+            atyp = args[i].type
+            if not atyp.is_indexable() and not atyp.is_real_scalar():
+                raise _EErr(
+                    f"expected argument {i+1} to be a real scalar value or "
+                    f"control flow value, but got type {atyp}"
+                )
+        return atyp
+
+    def globl(self, prim_type):
+        s = (
+            f"{prim_type} _intmin_{prim_type}({prim_type} x,{prim_type} v)" + " {\n"
+            "    if (x < v) return x;\n"
+            "    else return v;\n"
+            "}\n"
+        )
+        return s
+
+    def interpret(self, args):
+        x = args[0]
+        v = args[1]
+        if x < v:
+            return x
+        else:
+            return v
+
+    def transpile(self, args):
+        return f"(({args[0]}<{args[1]})?{args[0]}:{args[1]})"
+
+    def compile(self, args, prim_type):
+        return f"_intmin_{prim_type}(({prim_type}){args[0]}, ({prim_type}){args[1]})"
+
+    def express_in_constraints(
+        self, args: tuple[Expression, ...], out_sym: Sym
+    ) -> DisjointConstraint:
+        result_expr = Expression.from_sym(out_sym)
+        return (
+            Constraint(
+                args[1].add(args[0].add(Expression.from_constant(1)).negate()), True
+            )
+            .lift_to_disjoint_constraint()
+            .intersect(
+                Constraint(
+                    args[0].add(result_expr.negate()), False
+                ).lift_to_disjoint_constraint()
+            )
+            .union(
+                Constraint(args[0].add(args[1].negate()), True)
+                .lift_to_disjoint_constraint()
+                .intersect(
+                    Constraint(
+                        args[1].add(result_expr.negate()), False
+                    ).lift_to_disjoint_constraint()
+                )
+            )
+        )
+
+
+intmin = _IntMin

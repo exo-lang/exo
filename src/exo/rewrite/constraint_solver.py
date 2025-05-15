@@ -1,9 +1,10 @@
 from dataclasses import dataclass, field
-from typing import Literal, Union, Optional
+from typing import Callable, Literal, Union, Optional
 
 from ..core.configs import Config
 from ..core.prelude import Sym
 from ..core.LoopIR import LoopIR, T
+from ..core.extern import Extern
 import numpy as np
 from scipy.optimize import linprog
 from hsnf import smith_normal_form
@@ -11,16 +12,98 @@ import textwrap
 
 
 @dataclass
+class IndexTerm:
+    buffer_sym: Sym
+    indices: tuple["Expression", ...]
+    register_new_index: Callable[[tuple[int, ...]], Sym]
+
+    def substitute(self, assignments: dict[Sym, int]) -> Union["IndexTerm", Sym]:
+        new_indices = tuple(index.substitute(assignments) for index in self.indices)
+        int_indices = []
+        trivial = True
+        for new_index in new_indices:
+            trivial_val = new_index.get_trivial_result()
+            if trivial_val is None:
+                trivial = False
+                break
+            else:
+                int_indices.append(trivial_val)
+        if trivial:
+            return self.register_new_index(tuple(int_indices))
+        return IndexTerm(self.buffer_sym, new_indices, self.register_new_index)
+
+    def collect_nonlinear_syms(self) -> frozenset[Sym]:
+        return frozenset().union(*(index.collect_syms() for index in self.indices))
+
+    def collect_syms(self) -> frozenset[Sym]:
+        return self.collect_nonlinear_syms()
+
+    def pretty_print(self) -> str:
+        index_str = ",".join(index.pretty_print() for index in self.indices)
+        return f"{str(self.buffer_sym)}[{index_str}]"
+
+    def rename_syms(self, lookup: dict[Sym, Sym]) -> "IndexTerm":
+        return IndexTerm(
+            self.buffer_sym,
+            tuple(index.rename_syms(lookup) for index in self.indices),
+            self.register_new_index,
+        )
+
+
+@dataclass
+class ExternTerm:
+    extern: Extern
+    args: tuple["Expression", ...]
+
+    def substitute(self, assignments: dict[Sym, int]) -> Union["ExternTerm", int]:
+        new_args = tuple(arg.substitute(assignments) for arg in self.args)
+        int_args = []
+        trivial = True
+        for new_arg in new_args:
+            trivial_val = new_arg.get_trivial_result()
+            if trivial_val is None:
+                trivial = False
+                break
+            else:
+                int_args.append(trivial_val)
+        if trivial:
+            return self.extern.interpret(tuple(int_args))
+        return ExternTerm(self.extern, new_args)
+
+    def collect_nonlinear_syms(self) -> frozenset[Sym]:
+        return frozenset().union(*(arg.collect_syms() for arg in self.args))
+
+    def collect_syms(self) -> frozenset[Sym]:
+        return self.collect_nonlinear_syms()
+
+    def pretty_print(self) -> str:
+        arg_str = ",".join(arg.pretty_print() for arg in self.args)
+        return f"{str(self.extern)}({arg_str})"
+
+    def rename_syms(self, lookup: dict[Sym, Sym]) -> "ExternTerm":
+        return ExternTerm(
+            self.extern,
+            tuple(arg.rename_syms(lookup) for arg in self.args),
+        )
+
+
+FunctionTerm = Union[IndexTerm, ExternTerm]
+
+
+@dataclass
 class ConstraintTerm:
     coefficient: int
     syms: tuple[Sym, ...]
+    functions: tuple[FunctionTerm, ...]
 
     def negate(self) -> "ConstraintTerm":
-        return ConstraintTerm(-self.coefficient, self.syms)
+        return ConstraintTerm(-self.coefficient, self.syms, self.functions)
 
     def multiply(self, other) -> "ConstraintTerm":
         return ConstraintTerm(
-            self.coefficient * other.coefficient, self.syms + other.syms
+            self.coefficient * other.coefficient,
+            self.syms + other.syms,
+            self.functions + other.functions,
         )
 
     def substitute(self, assignments: dict[Sym, int]) -> "ConstraintTerm":
@@ -31,7 +114,20 @@ class ConstraintTerm:
                 new_coefficient *= assignments[sym]
             else:
                 new_syms.append(sym)
-        return ConstraintTerm(new_coefficient, tuple(new_syms))
+        new_functions = []
+        for function in self.functions:
+            sub = function.substitute(assignments)
+            if isinstance(sub, int):
+                new_coefficient *= sub
+            elif isinstance(sub, Sym):
+                new_syms.append(sub)
+            else:
+                new_functions.append(sub)
+        return ConstraintTerm(
+            new_coefficient,
+            tuple(new_syms),
+            tuple(new_functions),
+        )
 
     def collect_nonlinear_syms(self) -> frozenset[Sym]:
         occurrences = set()
@@ -43,15 +139,19 @@ class ConstraintTerm:
                 occurrences.add(sym)
         return frozenset(result)
 
-    def pretty_print(self) -> str:
-        return (
-            f"{' * '.join([str(self.coefficient)] + [str(sym) for sym in self.syms])}"
+    def collect_syms(self) -> frozenset[Sym]:
+        return frozenset(self.syms).union(
+            *(function.collect_syms() for function in self.functions)
         )
+
+    def pretty_print(self) -> str:
+        return f"{' * '.join([str(self.coefficient)] + [str(sym) for sym in self.syms] + [function.pretty_print() for function in self.functions])}"
 
     def rename_syms(self, lookup: dict[Sym, Sym]) -> "ConstraintTerm":
         return ConstraintTerm(
             self.coefficient,
             tuple(lookup[sym] if sym in lookup else sym for sym in self.syms),
+            tuple(function.rename_syms(lookup) for function in self.functions),
         )
 
 
@@ -61,47 +161,77 @@ class LinearConstraint:
     offset: int
     has_slack: bool
 
+    def get_trivial_result(self) -> Optional[bool]:
+        if len(self.coefficients) > 0:
+            return None
+        return (self.offset >= 0 and self.has_slack) or self.offset == 0
+
 
 @dataclass
 class Expression:
-    terms: tuple[ConstraintTerm, ...]
+    terms: Optional[tuple[ConstraintTerm, ...]]
 
     @staticmethod
     def from_constant(const: int) -> "Expression":
-        return Expression((ConstraintTerm(const, ()),))
+        return Expression((ConstraintTerm(const, (), ()),))
 
     @staticmethod
     def from_sym(sym: Sym) -> "Expression":
-        return Expression((ConstraintTerm(1, (sym,)),))
+        return Expression((ConstraintTerm(1, (sym,), ()),))
+
+    @staticmethod
+    def unsolvable() -> "Expression":
+        return Expression(None)
+
+    @staticmethod
+    def from_function(function_term: FunctionTerm) -> "Expression":
+        return Expression((ConstraintTerm(1, (), (function_term,)),))
 
     def negate(self) -> "Expression":
-        return Expression(tuple(term.negate() for term in self.terms))
+        return Expression(
+            None if self.terms is None else tuple(term.negate() for term in self.terms)
+        )
 
     def add(self, other: "Expression") -> "Expression":
-        return Expression((*self.terms, *other.terms))
+        return Expression(
+            None
+            if self.terms is None or other.terms is None
+            else (*self.terms, *other.terms)
+        )
 
     def multiply(self, other: "Expression") -> "Expression":
         return Expression(
-            tuple(
+            None
+            if self.terms is None or other.terms is None
+            else tuple(
                 term1.multiply(term2) for term1 in self.terms for term2 in other.terms
             )
         )
 
     def substitute(self, assignments: dict[Sym, int]) -> "Expression":
+        if self.terms is None:
+            return self
         coefficients: dict[tuple[Sym, ...], int] = {}
+        other_terms: list[ConstraintTerm] = []
         for term in self.terms:
             sub_term = term.substitute(assignments)
-            if sub_term.syms not in coefficients:
-                coefficients[sub_term.syms] = 0
-            coefficients[sub_term.syms] += sub_term.coefficient
+            if len(sub_term.functions) != 0:
+                other_terms.append(sub_term)
+            else:
+                if sub_term.syms not in coefficients:
+                    coefficients[sub_term.syms] = 0
+                coefficients[sub_term.syms] += sub_term.coefficient
         return Expression(
             tuple(
-                ConstraintTerm(coefficient, syms)
+                ConstraintTerm(coefficient, syms, ())
                 for syms, coefficient in coefficients.items()
             )
+            + tuple(other_terms)
         )
 
     def get_trivial_result(self) -> Optional[int]:
+        if self.terms is None:
+            return None
         if len(self.terms) == 0:
             return 0
         elif len(self.terms) == 1 and len(self.terms[0].syms) == 0:
@@ -109,17 +239,25 @@ class Expression:
         return None
 
     def collect_syms(self) -> frozenset[Sym]:
-        return frozenset(sym for term in self.terms for sym in term.syms)
+        if self.terms is None:
+            return frozenset()
+        return frozenset().union(*(term.collect_syms() for term in self.terms))
 
     def collect_nonlinear_syms(self) -> frozenset[Sym]:
+        if self.terms is None:
+            return frozenset()
         return frozenset().union(
             *[term.collect_nonlinear_syms() for term in self.terms]
         )
 
     def pretty_print(self):
+        if self.terms is None:
+            return "unsolvable"
         return " + ".join([term.pretty_print() for term in self.terms])
 
     def rename_syms(self, lookup: dict[Sym, Sym]) -> "Expression":
+        if self.terms is None:
+            return self
         return Expression(tuple(term.rename_syms(lookup) for term in self.terms))
 
 
@@ -130,10 +268,14 @@ class Constraint:
 
     def linearize(self, assignments: dict[Sym, int]) -> Optional[LinearConstraint]:
         new_lhs = self.lhs.substitute(assignments)
+        if new_lhs.terms is None:
+            return None
         offset = 0
         coefficients = {}
         for term in new_lhs.terms:
-            if len(term.syms) == 0:
+            if len(term.functions) != 0:
+                return None
+            elif len(term.syms) == 0:
                 offset += term.coefficient
             elif len(term.syms) == 1:
                 coefficients[term.syms[0]] = term.coefficient
@@ -189,6 +331,9 @@ class Constraint:
         if lhs_result is not None:
             return (lhs_result >= 0 and self.has_slack) or lhs_result == 0
         return None
+
+    def is_unsolvable(self) -> bool:
+        return self.lhs.terms is None
 
     def rename_syms(self, lookup: dict[Sym, Sym]) -> "Constraint":
         return Constraint(self.lhs.rename_syms(lookup), self.has_slack)
@@ -312,31 +457,39 @@ FALSE_CONSTRAINT = DisjointConstraint(())
 class Solution:
     ctxt: dict[tuple[Config, str], int]
     var_assignments: dict[Sym, int]
+    buffer_assignments: dict[tuple[Sym, tuple[int, ...]], int]
     substitutions: dict[Sym, int]
-
-    def merge_solutions(self, other: "Solution", other_renaming: dict[Sym, Sym]):
-        return Solution(
-            self.ctxt,
-            self.var_assignments,
-            {
-                other_renaming[key] if key in other_renaming else key: value
-                for key, value in other.substitutions.items()
-            }
-            | self.substitutions,
-        )
 
 
 class ConstraintMaker:
     def __init__(self, type_map: dict[Sym, LoopIR.type]):
         self.var_subs: dict[Sym, Expression] = {}
         self.ctxt: dict[tuple[Config, str], Expression] = {}
-        self.extra_constraints: list[Constraint] = []
-        self.hidden_vars: set[Sym] = set()
+        self.extra_constraints: dict[Sym, DisjointConstraint] = {}
         self.stride_dummies: dict[tuple[Sym, int], Sym] = {}
+        self.buffer_syms: dict[Sym, tuple[Sym, tuple[int, ...]]] = {}
+        self.unbound_buffers: set[Sym] = set()
+        self.type_map = type_map
         for sym, sym_type in type_map.items():
             var_sub_result = self.make_var_sub(sym.name(), sym_type)
             if var_sub_result is not None:
                 self.var_subs[sym] = var_sub_result
+
+    def copy_var(self, sym: Sym) -> Sym:
+        new_sym = Sym(f"{sym.name()}_copy")
+        var_sub_result = self.make_var_sub(new_sym.name(), self.type_map[sym])
+        if var_sub_result is not None:
+            self.var_subs[new_sym] = var_sub_result
+        return new_sym
+
+    def top_var(self, sym: Sym) -> Sym:
+        new_sym = Sym(f"{sym.name()}_top")
+        sym_type = self.type_map[sym]
+        if sym_type.is_tensor_or_window():
+            self.unbound_buffers.add(new_sym)
+        else:
+            self.var_subs[new_sym] = Expression.unsolvable()
+        return new_sym
 
     def get_var_sub(self, var_sym: Sym) -> Expression:
         return self.var_subs[var_sym]
@@ -354,33 +507,78 @@ class ConstraintMaker:
         elif isinstance(var_type, T.Bool):
             # constrained to [0, 1]
             sym = Sym(name)
-            self.extra_constraints.append(
-                Constraint(
-                    Expression.from_sym(sym).negate().add(Expression.from_constant(1)),
-                    True,
-                )
-            )
+            self.extra_constraints[sym] = Constraint(
+                Expression.from_sym(sym).negate().add(Expression.from_constant(1)),
+                True,
+            ).lift_to_disjoint_constraint()
             return Expression.from_sym(sym)
         else:
             return None
 
-    def make_expression(self, expr: Union[LoopIR.expr, Sym]) -> Expression:
+    def register_buffer_index(self, indices: tuple[int, ...], buffer_sym: Sym) -> Sym:
+        sym = Sym("buf")
+        self.buffer_syms[sym] = (buffer_sym, indices)
+        return sym
+
+    def make_expression(
+        self, expr: Union[LoopIR.expr, Sym], var_renaming: dict[Sym, Sym]
+    ) -> Expression:
         # expect that expr is int type
         if isinstance(expr, Sym):
+            if expr in var_renaming:
+                return self.var_subs[var_renaming[expr]]
             return self.var_subs[expr]
         elif isinstance(expr, LoopIR.Read):
-            assert (
-                len(expr.idx) == 0
-            ), "indexing not supported in assertions (yet, todo)"
-            return self.var_subs[expr.name]
+            if len(expr.idx) == 0:
+                return self.var_subs[expr.name]
+            else:
+                buf_type = self.type_map[expr.name]
+                if isinstance(buf_type, LoopIR.Tensor):
+                    buf_name = expr.name
+                    index_exprs = tuple(
+                        self.make_expression(idx, var_renaming) for idx in expr.idx
+                    )
+                elif isinstance(buf_type, LoopIR.WindowType):
+                    buf_name = buf_type.src_buf
+                    index_list: list[Expression] = []
+                    expr_idx_iter = iter(expr.idx)
+                    for idx in buf_type.idx:
+                        if isinstance(idx, LoopIR.Point):
+                            index_list.append(
+                                self.make_expression(idx.pt, var_renaming)
+                            )
+                        elif isinstance(idx, LoopIR.Interval):
+                            index_list.append(
+                                self.make_expression(idx.lo, var_renaming).add(
+                                    self.make_expression(
+                                        next(expr_idx_iter), var_renaming
+                                    )
+                                )
+                            )
+                        else:
+                            assert False, "unexpected window access"
+                    index_exprs = tuple(index_list)
+                else:
+                    assert False, "unexpected buffer type"
+                if buf_name in var_renaming:
+                    buf_name = var_renaming[buf_name]
+                if buf_name in self.unbound_buffers:
+                    return Expression.unsolvable()
+                return Expression.from_function(
+                    IndexTerm(
+                        buf_name,
+                        index_exprs,
+                        lambda indices: self.register_buffer_index(indices, buf_name),
+                    )
+                )
         elif isinstance(expr, LoopIR.Const):
             return Expression.from_constant(expr.val)
         elif isinstance(expr, LoopIR.USub):
-            return self.make_expression(expr.arg).negate()
+            return self.make_expression(expr.arg, var_renaming).negate()
         elif isinstance(expr, LoopIR.BinOp):
             # TODO: support mod and div using extra variables
-            lhs = self.make_expression(expr.lhs)
-            rhs = self.make_expression(expr.rhs)
+            lhs = self.make_expression(expr.lhs, var_renaming)
+            rhs = self.make_expression(expr.rhs, var_renaming)
             if expr.op == "+":
                 return lhs.add(rhs)
             elif expr.op == "-":
@@ -389,27 +587,42 @@ class ConstraintMaker:
                 return lhs.multiply(rhs)
             elif expr.op in ["/", "%"]:
                 div, rem = Sym("div"), Sym("rem")
-                self.hidden_vars.update((div, rem))
-                self.extra_constraints.append(
+                visible_sym = rem if expr.op == "%" else div
+                self.extra_constraints[visible_sym] = (
                     Constraint(
                         lhs.negate()
                         .add(Expression.from_sym(rem))
                         .add(rhs.multiply(Expression.from_sym(div))),
                         False,
                     )
-                )
-                self.extra_constraints.append(
-                    Constraint(
-                        Expression.from_sym(rem)
-                        .add(Expression.from_constant(1))
-                        .negate()
-                        .add(rhs),
-                        True,
+                    .lift_to_disjoint_constraint()
+                    .intersect(
+                        Constraint(
+                            Expression.from_sym(rem)
+                            .add(Expression.from_constant(1))
+                            .negate()
+                            .add(rhs),
+                            True,
+                        ).lift_to_disjoint_constraint()
                     )
                 )
-                return Expression.from_sym(rem if expr.op == "%" else div)
+                return Expression.from_sym(visible_sym)
             else:
                 assert False, f"unsupported op in assertion: {expr.op}"
+        elif isinstance(expr, LoopIR.Extern):
+            extern_args = tuple(
+                self.make_expression(arg, var_renaming) for arg in expr.args
+            )
+            extern: Extern = expr.f
+            extern_result_sym = Sym("ext")
+            try:
+                extern_constraint = extern.express_in_constraints(
+                    extern_args, extern_result_sym
+                )
+                self.extra_constraints[extern_result_sym] = extern_constraint
+                return Expression.from_sym(extern_result_sym)
+            except NotImplementedError:
+                return Expression.from_function(ExternTerm(extern, extern_args))
         elif isinstance(expr, LoopIR.StrideExpr):
             if (expr.name, expr.dim) not in self.stride_dummies:
                 new_sym = Sym("stride")
@@ -431,31 +644,30 @@ class ConstraintMaker:
             assert False, f"unsupported expr"
 
     def make_constraint(
-        self,
-        expr: LoopIR.expr,
+        self, expr: LoopIR.expr, var_renaming: dict[Sym, Sym]
     ) -> DisjointConstraint:
         # expect that expr is bool type
         if isinstance(expr, LoopIR.BinOp):
             if expr.op == "and":
                 lhs_constraints, rhs_constraints = self.make_constraint(
-                    expr.lhs
-                ), self.make_constraint(expr.rhs)
+                    expr.lhs, var_renaming
+                ), self.make_constraint(expr.rhs, var_renaming)
                 return lhs_constraints.intersect(rhs_constraints)
             elif expr.op == "or":
                 lhs_constraints, rhs_constraints = self.make_constraint(
-                    expr.lhs
-                ), self.make_constraint(expr.rhs)
+                    expr.lhs, var_renaming
+                ), self.make_constraint(expr.rhs, var_renaming)
                 return lhs_constraints.union(rhs_constraints)
             elif expr.op == "==" and isinstance(expr.lhs.type, LoopIR.Bool):
                 lhs_constraints, rhs_constraints = self.make_constraint(
-                    expr.lhs
-                ), self.make_constraint(expr.rhs)
+                    expr.lhs, var_renaming
+                ), self.make_constraint(expr.rhs, var_renaming)
                 return (
                     lhs_constraints.invert().intersect(rhs_constraints.invert())
                 ).union(lhs_constraints.intersect(rhs_constraints))
             else:
                 return self.make_constraint_from_inequality(
-                    expr.lhs, expr.rhs, expr.op
+                    expr.lhs, expr.rhs, expr.op, var_renaming
                 ).lift_to_disjoint_constraint()
         elif isinstance(expr, LoopIR.Read):
             assert len(expr.idx) == 0, "cannot index into boolean"
@@ -465,7 +677,6 @@ class ConstraintMaker:
             ).lift_to_disjoint_constraint()
         elif isinstance(expr, LoopIR.Const):
             return TRUE_CONSTRAINT if expr.val else FALSE_CONSTRAINT
-
         elif isinstance(expr, LoopIR.ReadConfig):
             if (expr.config, expr.field) not in self.ctxt:
                 field_type = expr.config.lookup_type(expr.field)
@@ -485,10 +696,14 @@ class ConstraintMaker:
             assert False, "only boolean expected"
 
     def make_constraint_from_inequality(
-        self, lhs: Union[LoopIR.expr, Sym], rhs: Union[LoopIR.expr, Sym], op: str
+        self,
+        lhs: Union[LoopIR.expr, Sym],
+        rhs: Union[LoopIR.expr, Sym],
+        op: str,
+        var_renaming: dict[Sym, Sym],
     ) -> Constraint:
-        lhs_expr = self.make_expression(lhs)
-        rhs_expr = self.make_expression(rhs)
+        lhs_expr = self.make_expression(lhs, var_renaming)
+        rhs_expr = self.make_expression(rhs, var_renaming)
         if op == "<":
             return Constraint(
                 rhs_expr.add(lhs_expr.negate()).add(Expression.from_constant(-1)), True
@@ -512,33 +727,48 @@ class ConstraintMaker:
             result = sub.substitute(assignments).get_trivial_result()
             if result is not None:
                 var_assignments[sym] = result
+        buffer_assignments = {}
+        for sym, assignment in assignments.items():
+            if sym in self.buffer_syms:
+                buffer_assignments[self.buffer_syms[sym]] = assignment
         ctxt = {}
         for (config, field), sub in self.ctxt.items():
             result = sub.substitute(assignments).get_trivial_result()
             if result is not None:
                 ctxt[(config, field)] = result
-        return Solution(ctxt, var_assignments, assignments)
+        return Solution(ctxt, var_assignments, buffer_assignments, assignments)
 
     def _solve_for_assignments(
         self, all_constraints: tuple[Constraint, ...], bound: int
     ) -> Union[Literal["failed", "infeasible"], dict[Sym, int]]:
-        sym_universe = set()
-        for constraint in all_constraints:
-            sym_universe |= constraint.collect_syms()
         assignments = {}
-        while len(assignments) < len(sym_universe):
+        self.buffer_syms = {}
+        while True:
             linear_constraints: list[LinearConstraint] = []
             linear_constraint_syms: set[Sym] = set()
             nonlinear_syms: set[Sym] = set()
+            nontrivial_constraint_exists = False
             for constraint in all_constraints:
+                if constraint.is_unsolvable():
+                    return "infeasible"
                 linear_result = constraint.linearize(assignments)
                 if linear_result is not None:
-                    linear_constraints.append(linear_result)
-                    linear_constraint_syms |= {
-                        sym for sym in linear_result.coefficients.keys()
-                    }
-                nonlinear_syms |= constraint.collect_nonlinear_syms()
-            nonlinear_syms -= assignments.keys()
+                    trivial_result = linear_result.get_trivial_result()
+                    if trivial_result == False:
+                        return "infeasible" if len(assignments) == 0 else "failed"
+                    elif trivial_result is None:
+                        nontrivial_constraint_exists = True
+                        linear_constraints.append(linear_result)
+                        linear_constraint_syms |= {
+                            sym for sym in linear_result.coefficients.keys()
+                        }
+                else:
+                    nontrivial_constraint_exists = True
+                nonlinear_syms |= constraint.substitute(
+                    assignments
+                ).collect_nonlinear_syms()
+            if not nontrivial_constraint_exists:
+                break
             priority_syms = nonlinear_syms & linear_constraint_syms
             if len(priority_syms) == 0 and len(nonlinear_syms) != 0:
                 chosen_sym = np.random.choice(
@@ -663,31 +893,18 @@ class ConstraintMaker:
             if len(nonlinear_syms) == 0:
                 for sym in linear_constraint_syms:
                     assignments[sym] = int(solution[sym_ordering[sym]])
-                for sym in sym_universe - assignments.keys():
-                    assignments[sym] = np.random.randint(0, bound)
             else:
                 chosen_sym = None
                 if len(priority_syms) != 0:
                     chosen_sym = np.random.choice(
                         sorted(list(priority_syms), key=lambda sym: sym._id)
                     )
-                elif len(linear_constraint_syms) != 0:
+                else:
+                    assert len(linear_constraint_syms) != 0
                     chosen_sym = np.random.choice(
                         sorted(list(linear_constraint_syms), key=lambda sym: sym._id)
                     )
-                if chosen_sym is None:
-                    free_syms = (
-                        sym_universe
-                        - linear_constraint_syms
-                        - assignments.keys()
-                        - nonlinear_syms
-                    )
-                    chosen_sym = np.random.choice(
-                        sorted(list(free_syms), key=lambda sym: sym._id)
-                    )
-                    assignments[chosen_sym] = np.random.randint(0, bound)
-                else:
-                    assignments[chosen_sym] = int(solution[sym_ordering[chosen_sym]])
+                assignments[chosen_sym] = int(solution[sym_ordering[chosen_sym]])
         return assignments
 
     def solve_constraint(
@@ -706,13 +923,38 @@ class ConstraintMaker:
                 partial_solution.substitutions
             )
 
-        clauses = list(disjoint_constraint.clauses)
+        clauses = list(
+            clause
+            for clause in disjoint_constraint.clauses
+            if all(not constraint.is_unsolvable() for constraint in clause.constraints)
+        )
         for _ in range(search_limit):
             if len(clauses) == 0:
                 return None
             chosen_clause = np.random.choice(clauses)
             assert isinstance(chosen_clause, ConstraintClause)
-            all_constraints = chosen_clause.constraints + tuple(self.extra_constraints)
+            chosen_clause_syms = chosen_clause.collect_syms()
+            chosen_extra_clauses: list[Constraint] = []
+            failed_to_choose = False
+            for sym, extra_constraint in self.extra_constraints.items():
+                if sym in chosen_clause_syms:
+                    extra_constraint_clauses = list(
+                        clause
+                        for clause in extra_constraint.clauses
+                        if all(
+                            not constraint.is_unsolvable()
+                            for constraint in clause.constraints
+                        )
+                    )
+                    if len(extra_constraint_clauses) == 0:
+                        failed_to_choose = True
+                        break
+                    chosen_extra_clause = np.random.choice(extra_constraint_clauses)
+                    assert isinstance(chosen_extra_clause, ConstraintClause)
+                    chosen_extra_clauses.extend(chosen_extra_clause.constraints)
+            if failed_to_choose:
+                continue
+            all_constraints = chosen_clause.constraints + tuple(chosen_extra_clauses)
             assignment_result = self._solve_for_assignments(all_constraints, bound)
             if assignment_result == "failed":
                 continue
@@ -729,7 +971,7 @@ class ConstraintMaker:
         self, syms: frozenset[Sym], free_vars: frozenset[Sym]
     ) -> tuple[dict[Sym, Sym], dict[Sym, Sym]]:
         var_renaming = {}
-        sym_renaming = {sym: Sym(sym.name()) for sym in self.hidden_vars & syms}
+        sym_renaming = {}
         for var in free_vars:
             var_sub = self.var_subs[var]
             var_sub_syms = var_sub.collect_syms()
@@ -738,13 +980,18 @@ class ConstraintMaker:
                 renamed_var = Sym(var.name())
                 var_renaming[var] = renamed_var
                 self.var_subs[renamed_var] = var_sub.rename_syms(sym_renaming)
-        self.extra_constraints.extend(
-            tuple(
-                extra_constraint.rename_syms(sym_renaming)
-                for extra_constraint in self.extra_constraints
-                if len(extra_constraint.collect_syms() & sym_renaming.keys()) != 0
-            )
-        )
+        new_extra_constraints = {}
+        for sym, extra_constraint in self.extra_constraints.items():
+            if (
+                len(extra_constraint.collect_syms() & sym_renaming.keys()) != 0
+                and sym in syms
+            ):
+                new_sym = Sym(sym.name())
+                new_extra_constraints[new_sym] = extra_constraint.rename_syms(
+                    sym_renaming
+                )
+                sym_renaming[sym] = new_sym
+        self.extra_constraints |= new_extra_constraints
         return (
             sym_renaming,
             var_renaming,
