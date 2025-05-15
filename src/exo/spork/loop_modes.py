@@ -14,18 +14,28 @@ class LoopMode(object):
     def loop_mode_name(cls):
         raise NotImplementedError
 
+    @classmethod
+    def is_par(cls):
+        raise NotImplementedError
 
-def loop_mode_class(_loop_mode_name):
+
+def loop_mode_class(_loop_mode_name, _is_par):
     assert _loop_mode_name
     _loop_mode_name = str(_loop_mode_name)
+    assert isinstance(_is_par, bool)
 
     @classmethod
     def loop_mode_name(cls):
         return _loop_mode_name
 
+    @classmethod
+    def is_par(cls):
+        return _is_par
+
     def decorator(cls):
-        # Frozen, add __slots__, loop_mode_name() function, and register in loop_mode_dict
-        cls_dict = dict(loop_mode_name=loop_mode_name, **cls.__dict__)
+        # Frozen, add __slots__, loop_mode_name(), is_par() functions,
+        # LoopMode base class, and register in loop_mode_dict.
+        cls_dict = dict(loop_mode_name=loop_mode_name, is_par=is_par, **cls.__dict__)
         cls = type(cls.__name__, (LoopMode,), cls_dict)
         cls = dataclass(frozen=True, slots=True)(cls)
         assert _loop_mode_name not in loop_mode_dict
@@ -35,7 +45,7 @@ def loop_mode_class(_loop_mode_name):
     return decorator
 
 
-@loop_mode_class("seq")
+@loop_mode_class("seq", False)
 class Seq:
     pragma_unroll: Optional[int] = None
 
@@ -46,7 +56,7 @@ class Seq:
 seq = Seq()
 
 
-@loop_mode_class("par")
+@loop_mode_class("par", True)
 class Par:
     pass
 
@@ -54,7 +64,7 @@ class Par:
 par = Par()
 
 
-@loop_mode_class("_codegen_par")
+@loop_mode_class("_codegen_par", True)
 class _CodegenPar:
     """Internal use loop mode for use in code generation of parallel loops
 
@@ -78,7 +88,7 @@ class _CodegenPar:
         assert hi is None or isinstance(hi, int)
 
 
-@loop_mode_class("cuda_tasks")
+@loop_mode_class("cuda_tasks", True)
 class CudaTasks:
     pass
 
@@ -86,7 +96,7 @@ class CudaTasks:
 cuda_tasks = CudaTasks()
 
 
-@loop_mode_class("cuda_threads")
+@loop_mode_class("cuda_threads", True)
 class CudaThreads(LoopMode):
     unit: CollUnit = cuda_thread
 

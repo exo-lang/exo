@@ -235,12 +235,14 @@ class BarrierUsageAnalysis(LoopIR_Do):
         ):
             nonlocal await_first
 
-            # with statement bodies are inlined into the surrounding body.
+            # with statement and parallel-for loop bodies are inlined into the surrounding body.
             flattened_stmts = []
 
             def add_flatten(stmts):
                 for s in stmts:
                     if is_if_holding_with(s, LoopIR):
+                        add_flatten(s.body)
+                    elif isinstance(s, LoopIR.For) and s.loop_mode.is_par():
                         add_flatten(s.body)
                     else:
                         flattened_stmts.append(s)
@@ -261,10 +263,13 @@ class BarrierUsageAnalysis(LoopIR_Do):
                     if found_match:
                         unmatched_sync = None
                 elif isinstance(s, LoopIR.For):
-                    sub_nesting = max(
-                        nesting, 0 if unmatched_sync is None else nesting_level_for
-                    )
-                    recurse(s.body, unmatched_sync, sub_nesting)
+                    if s.loop_mode.is_par():
+                        pass  # flattened
+                    else:
+                        sub_nesting = max(
+                            nesting, 0 if unmatched_sync is None else nesting_level_for
+                        )
+                        recurse(s.body, unmatched_sync, sub_nesting)
                 elif isinstance(s, LoopIR.SyncStmt) and s.name == name:
                     # Inspect SyncStmt that uses the `name` barrier.
                     sync_type = s.sync_type
@@ -298,7 +303,7 @@ class BarrierUsageAnalysis(LoopIR_Do):
                             elif await_first != sync_type.is_await():
                                 expected = paired_fname(sync_type)
                                 raise ValueError(
-                                    f"{s.srcinfo}: {s} not paired with previous {expected} (note: those guarded by if/for don't count)"
+                                    f"{s.srcinfo}: {s} not paired with previous {expected} (note: those guarded by if/seq-for don't count)"
                                 )
                             unmatched_sync = s
 
@@ -320,7 +325,7 @@ class BarrierUsageAnalysis(LoopIR_Do):
             # but we forgive unmatched Awaits.
             if unmatched_sync is not None and unmatched_sync.sync_type.is_arrive():
                 raise ValueError(
-                    f"{unmatched_sync.srcinfo}: {unmatched_sync} without corresponding Await({name}) in same block (not split by if/for)"
+                    f"{unmatched_sync.srcinfo}: {unmatched_sync} without corresponding Await({name}) in same block (not split by if/seq-for)"
                 )
 
             return unmatched_sync is None  # -> found_match
