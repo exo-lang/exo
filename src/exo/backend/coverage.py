@@ -111,14 +111,13 @@ class CoverageSkeletonBranch:
             new_solution = state.cm.solve_constraint(
                 new_constraint, bound=state.bound, search_limit=state.search_limit
             )
-            if (
-                new_solution is None and state.is_base_constraint
-            ) or new_solution is not None:
+            if new_solution is None and state.is_base_constraint:
+                (self.true_child if uncovered_path else self.false_child).mark_visited()
+            if new_solution is not None:
                 if uncovered_path:
                     self.true_child.visited = True
                 else:
                     self.false_child.visited = True
-            if new_solution is not None:
                 return state.update_solution(new_constraint, new_solution)
         elif self.true_child.visited and self.false_child.visited:
             return self.false_child.solve_coverage(
@@ -181,6 +180,12 @@ class CoverageSkeletonNode:
         for branch in self.branches:
             current_state = branch.solve_coverage(current_state)
         return current_state
+
+    def mark_visited(self):
+        self.visited = True
+        for branch in self.branches:
+            branch.true_child.mark_visited()
+            branch.false_child.mark_visited()
 
 
 @dataclass

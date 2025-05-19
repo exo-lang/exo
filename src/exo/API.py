@@ -50,7 +50,7 @@ def proc(f, _instr=None, _check_mode: Optional[CheckMode] = None) -> "Procedure"
     return Procedure(parser.result(), _check_mode=_check_mode)
 
 
-def instr(c_instr, c_global=""):
+def instr(c_instr, c_global="", check_mode=None):
     if not isinstance(c_instr, str):
         raise TypeError("@instr decorator must be @instr(<your instuction>)")
 
@@ -58,7 +58,7 @@ def instr(c_instr, c_global=""):
         if not isinstance(f, types.FunctionType):
             raise TypeError("@instr decorator must be applied to a function")
 
-        return proc(f, _instr=(c_instr, c_global))
+        return proc(f, _instr=(c_instr, c_global), _check_mode=check_mode)
 
     return inner
 
@@ -179,7 +179,15 @@ class Procedure(ProcedureBase):
 
         _mod_config = _mod_config or frozenset()
 
-        self._check_mode = DEFAULT_CHECK_MODE if _check_mode is None else _check_mode
+        self._check_mode = (
+            (
+                _provenance_eq_Procedure._check_mode
+                if _provenance_eq_Procedure is not None
+                else DEFAULT_CHECK_MODE
+            )
+            if _check_mode is None
+            else _check_mode
+        )
         if isinstance(proc, LoopIR.UAST.proc):
             proc = TypeChecker(proc, self._check_mode).get_loopir()
             if self._check_mode != "dynamic":

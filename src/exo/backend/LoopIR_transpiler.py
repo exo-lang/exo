@@ -428,9 +428,12 @@ class ParallelAccessTracker:
                                     f"let {repr(access_set_sym)}_pw=new Set();",
                                     f"let {repr(access_set_sym)}_cr=new Set();",
                                     f"let {repr(access_set_sym)}_cw=new Set();",
-                                    f"let {repr(self.coverage_sym)}=false;",
                                 )
                             ),
+                        ),
+                        IndexedFiller(
+                            self.parent_state.cov_placeholder,
+                            f"let {repr(self.coverage_sym)}=false;",
                         ),
                         IndexedFiller(
                             access_placeholder,

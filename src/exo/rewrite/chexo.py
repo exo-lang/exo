@@ -1,4 +1,5 @@
 from itertools import chain
+import time
 from typing import Callable, Literal, Optional, Union
 
 from ..core.internal_cursors import Cursor, Block, Node, NodePath
@@ -78,7 +79,7 @@ class TypeVisitor(LoopIRVisitor):
                 else:
                     self.type_map[arg.name] = arg.type
             for stmt in node.f.body:
-                self.visit_generic(stmt)
+                self.visit(stmt)
         else:
             self.visit_generic(node)
 
@@ -228,8 +229,13 @@ def collect_path_constraints(
     cursor: Union[Block, Node], cm: ConstraintMaker, type_map: dict[Sym, LoopIR.type]
 ) -> DisjointConstraint:
     if isinstance(cursor, Block):
-        cursor = cursor[0]
+        if len(cursor) > 0:
+            cursor = cursor[0]
+        else:
+            cursor = cursor._anchor
     assert isinstance(cursor, Node)
+    if len(cursor._path) == 0:
+        return TRUE_CONSTRAINT
     last_attr, last_index = cursor._path[-1]
     cur = cursor.parent()
     result = TRUE_CONSTRAINT
@@ -255,7 +261,7 @@ def collect_path_constraints(
             elif isinstance(cur._node, LoopIR.If):
                 assert last_index is not None
                 modified_variable_visitor = ModifiedVariableVisitor(type_map)
-                for stmt, _ in zip(cur._node[last_attr], range(last_index)):
+                for stmt, _ in zip(getattr(cur._node, last_attr), range(last_index)):
                     modified_variable_visitor.visit(stmt)
                 for var_sym in modified_variable_visitor.modified_vars:
                     var_renaming[var_sym] = cm.copy_var(var_sym)
@@ -520,6 +526,8 @@ class TestScope:
             return TestScope(self.scope._anchor.as_block())
 
     def transform(self, forward: Callable[[Cursor], Cursor]) -> "TestScope":
+        if self.broaden() is None:
+            return TestScope(forward(self.scope._anchor)._child_block("body"))
         return TestScope(forward(self.scope))
 
     def get_type_map(self) -> dict[Sym, LoopIR.type]:
@@ -582,9 +590,90 @@ class TestScope:
 
 
 TEST_CASE_BOUND = 15
+MAX_FAILS = 3
+MAX_ITERS = 20
+TIME_RECORDING_FILE = None  # "./times.csv"
+
+
+@dataclass
+class Timer:
+    fuzz_start: Optional[int] = None
+    transpile_start: Optional[int] = None
+    constraint_start: Optional[int] = None
+    test_start: Optional[int] = None
+    scope_widen_count: int = 0
+    fuzz_total: int = 0
+    transpile_total: int = 0
+    constraint_total: int = 0
+    test_total: int = 0
+
+    def start_fuzz(self):
+        if TIME_RECORDING_FILE is None:
+            return
+        self.fuzz_start = time.process_time_ns()
+
+    def widen_scope(self):
+        self.scope_widen_count += 1
+
+    def end_fuzz(self):
+        if TIME_RECORDING_FILE is None:
+            return
+        assert self.fuzz_start is not None
+        self.fuzz_total += time.process_time_ns() - self.fuzz_start
+        self.fuzz_start = None
+
+    def start_transpile(self):
+        if TIME_RECORDING_FILE is None:
+            return
+        self.transpile_start = time.process_time_ns()
+
+    def end_transpile(self):
+        if TIME_RECORDING_FILE is None:
+            return
+        assert self.transpile_start is not None
+        self.transpile_total += time.process_time_ns() - self.transpile_start
+        self.transpile_start = None
+
+    def start_constraint(self):
+        if TIME_RECORDING_FILE is None:
+            return
+        self.constraint_start = time.process_time_ns()
+
+    def end_constraint(self):
+        if TIME_RECORDING_FILE is None:
+            return
+        assert self.constraint_start is not None
+        self.constraint_total += time.process_time_ns() - self.constraint_start
+        self.constraint_start = None
+
+    def start_test(self):
+        if TIME_RECORDING_FILE is None:
+            return
+        self.test_start = time.process_time_ns()
+
+    def end_test(self):
+        if TIME_RECORDING_FILE is None:
+            return
+        assert self.test_start is not None
+        self.test_total += time.process_time_ns() - self.test_start
+        self.test_start = None
+
+    def record(self, failed: bool, unsolved: bool):
+        if TIME_RECORDING_FILE is None:
+            return
+        with open(TIME_RECORDING_FILE, "a") as recording:
+            recording.write(
+                f"{self.fuzz_total},{self.transpile_total},{self.constraint_total},{self.test_total},{self.scope_widen_count},{1 if failed else 0},{1 if unsolved else 0}\n"
+            )
 
 
 def fuzz(starting_scope: Union[Block, Node], fwd: Callable[[Cursor], Cursor]):
+    timer = Timer()
+    timer.start_fuzz()
+    starting_scope = Cursor.create(starting_scope.get_root())
+    if isinstance(starting_scope, Node) and starting_scope.depth() == 0:
+        starting_scope = starting_scope.body()
+
     starting_scope = (
         starting_scope.as_block()
         if isinstance(starting_scope, Node)
@@ -598,6 +687,7 @@ def fuzz(starting_scope: Union[Block, Node], fwd: Callable[[Cursor], Cursor]):
     transformed_type_map = cur_scope.transform(fwd).get_type_map()
 
     while cur_scope is not None:
+        timer.start_transpile()
         transformed = cur_scope.transform(fwd)
         cm = ConstraintMaker(cur_type_map | transformed_type_map)
 
@@ -626,7 +716,15 @@ def fuzz(starting_scope: Union[Block, Node], fwd: Callable[[Cursor], Cursor]):
         assert skeleton1 is not None and skeleton2 is not None
         coverage_skeleton = skeleton1.merge(skeleton2)
         tests_passed = True
-        while not coverage_skeleton.get_coverage_progress().is_finished():
+        fails = 0
+        iters = 0
+        timer.end_transpile()
+        while (
+            not coverage_skeleton.get_coverage_progress().is_finished()
+            and iters < MAX_ITERS
+            and tests_passed
+        ):
+            timer.start_constraint()
             test_case = generate_test_case(
                 arg_types,
                 config_fields,
@@ -634,13 +732,22 @@ def fuzz(starting_scope: Union[Block, Node], fwd: Callable[[Cursor], Cursor]):
                 coverage_skeleton,
                 cm,
             )
+            timer.end_constraint()
             if test_case is None:
-                continue
+                fails += 1
+                if fails > MAX_FAILS:
+                    timer.end_fuzz()
+                    timer.record(False, True)
+                    return
+                else:
+                    continue
 
+            timer.start_test()
             out1 = run_test_case(test_case, transpiled_test1)
             out2 = run_test_case(test_case, transpiled_test2)
             if out1 == "failed" or out2 == "failed":
                 tests_passed = False
+                timer.end_test()
                 break
             assert out1.coverage_result is not None and out2.coverage_result is not None
             coverage_skeleton.update_coverage(
@@ -659,10 +766,17 @@ def fuzz(starting_scope: Union[Block, Node], fwd: Callable[[Cursor], Cursor]):
                     ):
                         tests_passed = False
                         break
+            timer.end_test()
+            iters += 1
         if tests_passed:
+            timer.end_fuzz()
+            timer.record(False, False)
             return
         else:
+            timer.widen_scope()
             cur_scope = cur_scope.broaden()
+    timer.end_fuzz()
+    timer.record(True, False)
     raise SchedulingError("tests failed at broadest scope")
 
 

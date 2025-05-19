@@ -135,6 +135,7 @@ class TypeChecker:
                 self.err(
                     proc,
                     f"expected writes to configuration {name[0].name()}.{name[1]} does not depend on loop iterations",
+                    allowed_in_chexo=True,
                 )
 
         instr = proc.instr

@@ -389,21 +389,32 @@ class ConstraintClause:
         )
 
 
+MAX_CLAUSES = 16
+
+
 @dataclass
 class DisjointConstraint:
     clauses: tuple[ConstraintClause, ...]
 
     def intersect(self, other: "DisjointConstraint"):
-        return DisjointConstraint(
-            tuple(
-                ConstraintClause(lhs_clause.constraints + rhs_clause.constraints)
-                for lhs_clause in self.clauses
-                for rhs_clause in other.clauses
-            )
+        new_clauses = tuple(
+            ConstraintClause(lhs_clause.constraints + rhs_clause.constraints)
+            for lhs_clause in self.clauses
+            for rhs_clause in other.clauses
         )
+        if len(new_clauses) > MAX_CLAUSES:
+            new_clauses = tuple(
+                np.random.choice(new_clauses, MAX_CLAUSES, replace=False)
+            )
+        return DisjointConstraint(new_clauses)
 
     def union(self, other: "DisjointConstraint"):
-        return DisjointConstraint(self.clauses + other.clauses)
+        new_clauses = self.clauses + other.clauses
+        if len(new_clauses) > MAX_CLAUSES:
+            new_clauses = tuple(
+                np.random.choice(new_clauses, MAX_CLAUSES, replace=False)
+            )
+        return DisjointConstraint(new_clauses)
 
     def invert(self) -> "DisjointConstraint":
         acc = TRUE_CONSTRAINT
@@ -461,6 +472,9 @@ class Solution:
     substitutions: dict[Sym, int]
 
 
+SIMUL_CONSTRAINT_LIMIT = 32
+
+
 class ConstraintMaker:
     def __init__(self, type_map: dict[Sym, LoopIR.type]):
         self.var_subs: dict[Sym, Expression] = {}
@@ -500,7 +514,7 @@ class ConstraintMaker:
             return Expression.from_sym(Sym(f"{name}_m1")).add(
                 Expression.from_constant(1)
             )
-        elif isinstance(var_type, (T.Int, T.Index)):
+        elif isinstance(var_type, (T.Int, T.Index, T.INT32, T.INT8, T.UINT16, T.UINT8)):
             # unsigned variables are represented as a - b, where a and b are nonnegative
             a, b = Sym(f"{name}_a"), Sym(f"{name}_b")
             return Expression.from_sym(a).add(Expression.from_sym(b).negate())
@@ -927,6 +941,7 @@ class ConstraintMaker:
             clause
             for clause in disjoint_constraint.clauses
             if all(not constraint.is_unsolvable() for constraint in clause.constraints)
+            and len(clause.constraints) <= SIMUL_CONSTRAINT_LIMIT
         )
         for _ in range(search_limit):
             if len(clauses) == 0:

@@ -369,4 +369,4 @@ class _IntMin(Extern):
         )
 
 
-intmin = _IntMin
+intmin = _IntMin()
