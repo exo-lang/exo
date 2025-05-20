@@ -20,7 +20,7 @@ from .LoopIR_scheduling import SchedulingError
 from ..core.prelude import *
 from .new_eff import Check_Aliasing
 import exo.core.internal_cursors as ic
-from .new_analysis_core import *
+from .new_analysis_core import A, SMTSolver
 
 
 def _get_smt_solver():
