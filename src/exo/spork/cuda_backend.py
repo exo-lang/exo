@@ -213,7 +213,9 @@ class SubtreeScan(LoopIR_Do):
                         continue
 
             # single if stmt with no orelse
-            elif isinstance(first_stmt, LoopIR.If):
+            elif not is_if_holding_with(first_stmt, LoopIR) and isinstance(
+                first_stmt, LoopIR.If
+            ):
                 if len(task_loop_body) == 1 and not first_stmt.orelse:
                     self.task_loop_depth += 1
                     task_loop_body = task_loop_body[0].body
