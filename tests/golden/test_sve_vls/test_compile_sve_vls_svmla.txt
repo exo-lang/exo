@@ -1,0 +1,37 @@
+#include "test.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <arm_sve.h>
+typedef svfloat32_t svfloat32_vls_t __attribute__((arm_sve_vector_bits(512)));
+typedef svfloat64_t svfloat64_vls_t __attribute__((arm_sve_vector_bits(512)));
+
+/* relying on the following instruction..."
+svld1_f32(dst,src)
+{dst_data} = svld1_f32(svptrue_b32(), &{src_data});
+*/
+// svmla(
+//     C : f32[16] @DRAM,
+//     A : f32[16] @DRAM,
+//     B : f32 @DRAM
+// )
+void svmla( void *ctxt, float* C, const float* A, const float* B ) {
+svfloat32_vls_t C_reg;
+C_reg = svld1_f32(svptrue_b32(), &C[0]);
+svfloat32_vls_t A_reg;
+A_reg = svld1_f32(svptrue_b32(), &A[0]);
+C_reg = svmla_n_f32_x(svptrue_b32(), C_reg, A_reg, *(B));
+svst1_f32(svptrue_b32(), &C[0], C_reg);
+}
+
+
+/* relying on the following instruction..."
+svmla_n_f32_x(dst,src1,src2)
+{dst_data} = svmla_n_f32_x(svptrue_b32(), {dst_data}, {src1_data}, *{src2_data});
+*/
+
+/* relying on the following instruction..."
+svst1_f32(dst,src)
+svst1_f32(svptrue_b32(), &{dst_data}, {src_data});
+*/
