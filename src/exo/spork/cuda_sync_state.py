@@ -640,22 +640,23 @@ class SyncStateBuilder:
         """
         # fmt: off
         lines = []
-        lines.append("    if (threadIdx.x == 0) {")
-        lines.append("      const auto mbarrier_u32 = exo_smemU32(exo_smem);")
         offset = 0
-        for mbarrier_count, arrive_count in self._mbarrier_pairs:
-            lines.append(f"      for (int i = 0; i < {mbarrier_count}; ++i) {{")
-            lines.append(f'        asm volatile("mbarrier.init.shared::cta.b64 [%0], {arrive_count};"::')
-            lines.append(f'          "r"(mbarrier_u32 + {8*offset} + 8*i));')
-            lines.append(f"      }}")
-            offset += mbarrier_count
-        if self._uses_async_proxy:
-            lines.append('      asm("fence.proxy.async;");')
-        lines.append("    }")
-        if self._clusterDim() > 1:
-            lines.append(r'    asm("barrier.cluster.arrive.aligned;\n\tbarrier.cluster.wait.aligned;"::);')
-        else:
-            lines.append('    __syncthreads();')
+        if self._mbarrier_pairs:
+            lines.append("    if (threadIdx.x == 0) {")
+            lines.append("      const auto mbarrier_u32 = exo_smemU32(exo_smem);")
+            for mbarrier_count, arrive_count in self._mbarrier_pairs:
+                lines.append(f"      for (int i = 0; i < {mbarrier_count}; ++i) {{")
+                lines.append(f'        asm volatile("mbarrier.init.shared::cta.b64 [%0], {arrive_count};"::')
+                lines.append(f'          "r"(mbarrier_u32 + {8*offset} + 8*i));')
+                lines.append(f"      }}")
+                offset += mbarrier_count
+            if self._uses_async_proxy:
+                lines.append('      asm("fence.proxy.async;");')
+            lines.append("    }")
+            if self._clusterDim() > 1:
+                lines.append(r'    asm("barrier.cluster.arrive.aligned;\n\tbarrier.cluster.wait.aligned;"::);')
+            else:
+                lines.append('    __syncthreads();')
         # HACK: align mbarriers to 128 bytes for now
         assert offset == self.mbarrier_count
         smem_bytes = 128 * ((offset + 15) // 16)
