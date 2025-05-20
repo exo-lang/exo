@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from exo import proc
+from exo import proc, compile_procs_to_strings
 from exo.platforms.sve_vls import *
 from exo.stdlib.scheduling import *
 
@@ -37,3 +37,9 @@ def test_sve_vls_svmla():
 
 def test_gen_sve_vls_svmla(golden, test_sve_vls_svmla):
     assert str(test_sve_vls_svmla) == golden
+
+
+def test_compile_sve_vls_svmla(golden, test_sve_vls_svmla):
+    c_file, _ = compile_procs_to_strings([test_sve_vls_svmla], "test.h")
+
+    assert c_file == golden
