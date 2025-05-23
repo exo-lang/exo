@@ -907,7 +907,7 @@ cuda_warpgroup = CollUnit((blockDim,), (128,), "cuda_warpgroup", 0)
 
 # Questionable, these may change later
 cuda_warp_in_cluster = CollUnit(
-    (clusterDim * blockDim,), (32,), "cuda_warp_in_cluster", 0
+    (clusterDim, blockDim), (1, 32), "cuda_warp_in_cluster", 0
 )
 cuda_cta_in_cluster = CollUnit(
     (clusterDim * blockDim,), (blockDim,), "cuda_cta_in_cluster", 0
