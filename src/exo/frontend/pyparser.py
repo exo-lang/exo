@@ -932,7 +932,7 @@ class Parser:
             if mem_node:
                 mem = self.eval_expr(mem_node)
                 if not isinstance(mem, type) or not (
-                    issubclass(mem, Memory) or issubclass(SpecialWindow)
+                    issubclass(mem, Memory) or issubclass(mem, SpecialWindow)
                 ):
                     self.err(
                         node,
