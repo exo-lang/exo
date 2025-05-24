@@ -89,6 +89,17 @@ class SyncType(object):
         else:
             return "Fence"
 
+    def paired_fname(self, has_reverse):
+        """For pairing requirement
+
+        Arrive <-> Await if no usage of ReverseArrive & ReverseAwait
+        Otherwise, Arrive <-> ReverseAwait; ReverseArrive <-> Await
+
+        """
+        assert self.is_split()
+        r = "Reverse" if has_reverse and not self.is_reversed else ""
+        return r + ("Arrive" if self.is_await() else "Await")
+
     def format_stmt(self, bar, lowered=None):
         lowered_suffix = "" if lowered is None else f", lowered={lowered!r}"
         r = "Reverse" if self.is_reversed else ""

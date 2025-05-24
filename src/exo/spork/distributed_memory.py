@@ -11,6 +11,7 @@ from .coll_algebra import (
     CollParam,
     CollLoweringAdvice,
 )
+from .barrier_usage import BarrierUsage
 from .loop_modes import _CodegenPar
 
 
@@ -387,13 +388,18 @@ class DistributedIdxFsm:
         self,
         sync: LoopIR.SyncStmt,
         coll_tiling: CollTiling,
+        barrier_usage: BarrierUsage,
         state: DistributedAllocState,
     ):
         """Subsequent to check_store_state, for non-Fence SyncStmts,
         we additionally check requirements for the collective tiling
 
-        * Equivalent for all syncs of a certain kind (Arrive, Await,...)
         * Tile size of usage matches the leaf tiling.
+        * Equivalent CollTiling for all syncs of a certain kind
+          (Arrive, Await, ReverseArrive, ReverseAwait)
+        * If the barrier type has a pairing requirement, additionally,
+          check equivalent CollTilings for paired Arrive/Await;
+          Arrive/ReverseAwait, or ReverseArrive/Await.
 
         """
         assert isinstance(sync, LoopIR.SyncStmt)
@@ -406,14 +412,32 @@ class DistributedIdxFsm:
         if leaf_T != sync_T:
             bar = f"{sync.name}[" + ", ".join(str(n) for n in sync.idx) + "]"
             raise ValueError(
-                f"{sync.srcinfo}: {sync} executed with tile size {sync_T} threads; mismatches {leaf_T} threads deduced from {bar} (missing indices)?"
+                f"{sync.srcinfo}: {sync} executed with tile size {sync_T} threads; mismatches {leaf_T} threads deduced from {bar} (i.e. multiple thread collectives share the same index; missing indices)?"
             )
-        fname = sync_type.fname()
-        attr = fname
+        # Get state.Arrive, state.Await, state.ReverseArrive, or state.ReverseAwait
+        attr = sync_type.fname()
         old_coll_tiling = getattr(state, attr)
-        if old_coll_tiling is None:
-            setattr(state, attr, coll_tiling)
+
+        # CollTilings that need to be equivalent
+        to_check: List[Tuple[CollTiling, str]] = []
+
+        if old_coll_tiling is not None:
+            # Will check equivalence with previous stmt of same sync type
+            to_check.append((old_coll_tiling, attr))
         else:
+            # Save new state.Arrive, state.Await, state.ReverseArrive, or state.ReverseAwait
+            setattr(state, attr, coll_tiling)
+
+        if barrier_usage.barrier_type.traits().requires_pairing:
+            # Will check equivalence with previous stmt of paired sync type
+            attr = barrier_usage.paired_fname(sync_type)
+            # Get state.Arrive, state.Await, state.ReverseArrive, or state.ReverseAwait
+            old_coll_tiling = getattr(state, attr)
+            if old_coll_tiling is not None:
+                to_check.append((old_coll_tiling, attr))
+
+        # Check equivalence
+        for old_coll_tiling, fname in to_check:
             domain0 = old_coll_tiling.full_domain
             tile0 = old_coll_tiling.tile
             box0 = old_coll_tiling.box

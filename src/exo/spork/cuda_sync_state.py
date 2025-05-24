@@ -10,7 +10,7 @@ from ..core.LoopIR import LoopIR
 
 from . import actor_kinds
 from .actor_kinds import ActorKind
-from .barrier_usage import BarrierUsage
+from .barrier_usage import BarrierUsage, SyncInfo
 from .coll_algebra import (
     CollParam,
     CollUnit,
@@ -286,15 +286,16 @@ class SyncStateBuilder:
         nm_suffix = f"{suffix}_{name}"
 
         # Calculate the size of the ring buffer (number of mbarriers)
-        def max_skips(sync_stmts):
-            return max(~s.sync_type.N for s in sync_stmts)
+        def n_skips(info: SyncInfo):
+            assert info.min_N == info.max_N
+            return ~info.min_N
 
-        max_await_skips = max_skips(usage.Await.stmts)
+        forward_skips = n_skips(usage.Await)
         if usage.has_reverse():
-            max_reverse_await_skips = max_skips(usage.ReverseAwait.stmts)
-            ring = max_await_skips + max_reverse_await_skips
+            reverse_skips = n_skips(usage.ReverseAwait)
+            ring = forward_skips + reverse_skips
         else:
-            ring = max_await_skips + 1
+            ring = forward_skips + 1
         if ring == 0:
             raise ValueError(
                 f"{usage.get_srcinfo()}: {name} must have some await with nonzero skips (e.g. set N = ~1)"
@@ -391,8 +392,8 @@ class SyncStateBuilder:
             idx = f"{r}AwaitIdx{nm_suffix}"
             skips = f"{r}Skips{nm_suffix}"
             parity_bits = f"{r}Parity{nm_suffix}"
-            max_skips = max_reverse_await_skips if is_reverse else max_await_skips
-            enable_skips = max_skips != 0
+            n_skips = reverse_skips if is_reverse else forward_skips
+            enable_skips = n_skips != 0
 
             # Define (register) exo_SyncState member variables: ring buffer
             # index, parity bitfield, and, if needed, counter for inital skips.

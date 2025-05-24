@@ -370,9 +370,13 @@ class BarrierTypeTraits:
 
     negative_arrive: bool = False  # N = 1 if False; N = 1 or ~0 if True
     negative_await: bool = False  # N <= ~0 if True; N >= 0 if True
+    uniform_await_N: bool = False  # Each [Reverse]Await stmt must use the same N
     supports_reverse: bool = False  # Forbid ReverseArrive/ReverseAwait if False
     requires_pairing: bool = False
     requires_arrive_first: bool = False
+
+    # NOTE: for uniform_await_N, ReverseAwaits and (forward) Awaits can use
+    # different N values from each other.
 
 
 class BarrierType(AllocableMemWin):

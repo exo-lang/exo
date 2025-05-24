@@ -18,6 +18,7 @@ from . import actor_kinds
 from .distributed_memory import ThreadIter, DistributedIdxFsm, DistributedAllocState
 from .actor_kinds import ActorKind
 from .async_config import CudaDeviceFunction, CudaAsync
+from .barrier_usage import BarrierUsage, SyncInfo
 from .base_with_context import is_if_holding_with, ExtWithContext
 from .coll_algebra import (
     CollParam,
@@ -445,6 +446,7 @@ class SubtreeScan(LoopIR_Do):
             # Distributed memory analysis and CollTiling for Fence/Arrive/Await
             self.mark_sym_used(s.name)
             if s.sync_type.is_split():
+                usage: BarrierUsage = self.get_barrier_usage(s.name)
                 state = self.distributed_alloc_states.get(s.name)
                 assert isinstance(state, DistributedAllocState)
 
@@ -460,7 +462,7 @@ class SubtreeScan(LoopIR_Do):
                 # Store in DistributedAllocState if this is the first use, or check
                 # consistency (index equality) with prior uses.
                 fsm.check_store_state(s, state)
-                fsm.inspect_arrive_await(s, self._coll_tiling, state)
+                fsm.inspect_arrive_await(s, self._coll_tiling, usage, state)
             elif s.lowered is None:
                 # Fence [todo, consider removing lowered=None backdoor]
                 assert s.name not in self.distributed_alloc_states

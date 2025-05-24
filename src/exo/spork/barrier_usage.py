@@ -34,6 +34,15 @@ class BarrierUsage:
     ReverseArrive: Optional[SyncInfo] = None
     ReverseAwait: Optional[SyncInfo] = None
 
+    def paired_fname(self, sync_type):
+        """For pairing requirement
+
+        Arrive <-> Await if no usage of ReverseArrive & ReverseAwait
+        Otherwise, Arrive <-> ReverseAwait; ReverseArrive <-> Await
+
+        """
+        return sync_type.paired_fname(self.has_reverse())
+
     def get_srcinfo(self):
         return self.decl_stmt.srcinfo
 
@@ -123,34 +132,41 @@ class BarrierUsageAnalysis(LoopIR_Do):
 
     def check_n(
         self,
-        s: LoopIR.SyncStmt,
+        info: SyncInfo,
         barrier_type: Type[BarrierType],
         traits: BarrierTypeTraits,
     ):
-        sync_type = s.sync_type
-        assert sync_type.is_split()
-        N = sync_type.N
-        requires = None
+        assert info.stmts
+        ref_stmt = info.stmts[0]
 
-        if sync_type.is_arrive():
-            if N != 1:
-                if traits.negative_arrive:
-                    if N != ~0:
-                        requires = "N = 1 or N = ~0"
-                else:
-                    requires = "N = 1"
-        else:
-            if traits.negative_await:
-                if N >= 0:
-                    requires = "N <= ~0"
+        for s in info.stmts:
+            sync_type = s.sync_type
+            N = sync_type.N
+            requires = None
+            conflicts = ""
+            if sync_type.is_arrive():
+                if N != 1:
+                    if traits.negative_arrive:
+                        if N != ~0:
+                            requires = "N = 1 or N = ~0"
+                    else:
+                        requires = "N = 1"
             else:
-                if N < 0:
-                    requires = "N >= 0"
+                assert sync_type.is_await()
+                if traits.negative_await:
+                    if N >= 0:
+                        requires = "N <= ~0"
+                else:
+                    if N < 0:
+                        requires = "N >= 0"
+                if traits.uniform_await_N and N != ref_stmt.sync_type.N:
+                    requires = "uniform N"
+                    conflicts = f"; conflict with{ref_stmt.srcinfo}: {ref_stmt}"
 
-        if requires:
-            raise ValueError(
-                f"{s.srcinfo}: {barrier_type.name()} requires {requires} in {s})"
-            )
+            if requires:
+                raise ValueError(
+                    f"{s.srcinfo}: {barrier_type.name()} requires {requires} in {s}{conflicts}"
+                )
 
     def check_split_barrier(
         self,
@@ -178,10 +194,8 @@ class BarrierUsageAnalysis(LoopIR_Do):
         if usage.Await is None:
             s = usage.Arrive.stmts[0]
             raise ValueError(f"{s.srcinfo}: {s} missing corresponding Await({name})")
-        for s in usage.Arrive.stmts:
-            self.check_n(s, barrier_type, traits)
-        for s in usage.Await.stmts:
-            self.check_n(s, barrier_type, traits)
+        self.check_n(usage.Arrive, barrier_type, traits)
+        self.check_n(usage.Await, barrier_type, traits)
         if usage.ReverseArrive is not None:
             s = usage.ReverseArrive.stmts[0]
             if not traits.supports_reverse:
@@ -192,8 +206,7 @@ class BarrierUsageAnalysis(LoopIR_Do):
                 raise ValueError(
                     f"{s.srcinfo}: {s} missing corresponding ReverseAwait({name})"
                 )
-            for s in usage.ReverseArrive.stmts:
-                self.check_n(s, barrier_type, traits)
+            self.check_n(usage.ReverseArrive, barrier_type, traits)
         if usage.ReverseAwait is not None:
             s = usage.ReverseAwait.stmts[0]
             if not traits.supports_reverse:
@@ -204,8 +217,7 @@ class BarrierUsageAnalysis(LoopIR_Do):
                 raise ValueError(
                     f"{s.srcinfo}: {s} missing corresponding ReverseArrive({name})"
                 )
-            for s in usage.ReverseAwait.stmts:
-                self.check_n(s, barrier_type, traits)
+            self.check_n(usage.ReverseAwait, barrier_type, traits)
 
         # Check pairing requirements only if barrier type traits require it.
         if traits.requires_pairing:
@@ -231,11 +243,8 @@ class BarrierUsageAnalysis(LoopIR_Do):
             assert not await_first
             await_first = False
 
-        def paired_fname(sync_type):
-            fname = "Await" if sync_type.is_arrive() else "Arrive"
-            if has_reverse and not sync_type.is_reversed:
-                fname = "Reverse" + fname
-            return fname
+        def paired_fname(sync_type: SyncType):
+            return usage.paired_fname(sync_type)
 
         def recurse(
             sub_stmts: List[LoopIR.stmt],
