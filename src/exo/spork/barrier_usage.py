@@ -157,11 +157,12 @@ class BarrierUsageAnalysis(LoopIR_Do):
         name: Sym,
         barrier_type: Type[BarrierType],
         in_stmts: List[LoopIR.stmt],
-        i: int,
+        stmt_idx: int,
     ):
         usage: BarrierUsage = self.uses[name]
         assert not usage.is_fence()
-        assert in_stmts[i].name == name
+        assert isinstance(in_stmts[stmt_idx], LoopIR.Alloc)
+        assert in_stmts[stmt_idx].name == name
         traits: BarrierTypeTraits = barrier_type.traits()
 
         # Boilerplate for missing Arrive/Await,
@@ -207,9 +208,17 @@ class BarrierUsageAnalysis(LoopIR_Do):
                 self.check_n(s, barrier_type, traits)
 
         # Check pairing requirements only if barrier type traits require it.
-        if not traits.requires_pairing:
-            return
+        if traits.requires_pairing:
+            self.check_pairing(name, traits, in_stmts, stmt_idx)
 
+    def check_pairing(
+        self,
+        name: Sym,
+        traits: BarrierTypeTraits,
+        in_stmts: List[LoopIR.stmt],
+        stmt_idx: int,
+    ):
+        usage: BarrierUsage = self.uses[name]
         has_reverse = usage.has_reverse()
         await_first = None  # Set to True/False when we know.
         nesting_level_if = 1  # Search for matched Arrive in if stmts, but not Await
@@ -330,4 +339,4 @@ class BarrierUsageAnalysis(LoopIR_Do):
 
             return unmatched_sync is None  # -> found_match
 
-        recurse(in_stmts[i + 1 :], None, 0)
+        recurse(in_stmts[stmt_idx + 1 :], None, 0)
