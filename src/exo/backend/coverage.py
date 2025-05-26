@@ -404,6 +404,92 @@ class SymbolicSlice:
 SymbolicWindowIndex = Union[SymbolicPoint, SymbolicSlice]
 
 
+@dataclass
+class StagingBoundCheck:
+    out_of_bounds_sym: Sym
+    staged_index: SymbolicWindowIndex
+    parent_index: SymbolicSlice
+    node: CoverageSkeletonNode
+    indexed_fillers: tuple[IndexedFiller, ...]
+    had_out_of_bounds: bool = False
+    visited_out_of_bounds: bool = False
+
+    def get_indexed_fillers(self) -> Generator[IndexedFiller, None, None]:
+        for indexed_filler in self.indexed_fillers:
+            yield indexed_filler
+
+    def get_coverage_syms(self) -> frozenset[Sym]:
+        return frozenset((self.out_of_bounds_sym,))
+
+    def update_coverage(self, coverage_result: dict[str, Union[bool, memoryview]]):
+        out_of_bounds = coverage_result[repr(self.out_of_bounds_sym)]
+        assert isinstance(out_of_bounds, bool)
+        self.had_out_of_bounds |= out_of_bounds
+        self.visited_out_of_bounds |= out_of_bounds
+
+    def get_coverage_progress(self) -> CoverageProgress:
+        return CoverageProgress(
+            (1 if self.visited_out_of_bounds else 0),
+            1,
+        )
+
+    def solve_coverage(self, state: CoverageSolverState) -> CoverageSolverState:
+        if not self.visited_out_of_bounds:
+            out_of_bounds_cond = (
+                Constraint(
+                    self.staged_index.index.add(Expression.from_constant(1))
+                    .negate()
+                    .add(self.parent_index.upper_bound),
+                    True,
+                )
+                .lift_to_disjoint_constraint()
+                .intersect(
+                    Constraint(
+                        self.staged_index.index.add(
+                            self.parent_index.lower_bound.negate()
+                        ),
+                        True,
+                    ).lift_to_disjoint_constraint()
+                )
+                if isinstance(self.staged_index, SymbolicPoint)
+                else Constraint(
+                    self.staged_index.upper_bound.negate().add(
+                        self.parent_index.upper_bound
+                    ),
+                    True,
+                )
+                .lift_to_disjoint_constraint()
+                .intersect(
+                    Constraint(
+                        self.staged_index.lower_bound.add(
+                            self.parent_index.lower_bound.negate()
+                        ),
+                        True,
+                    ).lift_to_disjoint_constraint()
+                )
+            )
+            path_constraint = self.node.get_complete_constraint().intersect(
+                out_of_bounds_cond
+            )
+            sym_renaming, _ = state.cm.rename_sym_set(
+                path_constraint.collect_syms(),
+                state.free_vars,
+            )
+            new_constraint = state.current_constraint.intersect(
+                path_constraint.rename_syms(sym_renaming)
+            )
+            new_solution = state.cm.solve_constraint(
+                new_constraint, bound=state.bound, search_limit=state.search_limit
+            )
+            if (
+                new_solution is None and state.is_base_constraint
+            ) or new_solution is not None:
+                self.visited_out_of_bounds = True
+            if new_solution is not None:
+                return state.update_solution(new_constraint, new_solution)
+        return state
+
+
 # for stage_mem
 @dataclass
 class StagingOverlap:
@@ -668,12 +754,23 @@ class ParallelAccessPair:
         return state
 
 
+CoverageTask = Union[
+    CoverageSkeletonNode,
+    MemoryAccessPair,
+    FailureCondition,
+    StagingOverlap,
+    StagingBoundCheck,
+    ParallelAccessPair,
+]
+
+
 @dataclass
 class CoverageSkeleton:
     roots: tuple[CoverageSkeletonNode, ...]
     aliasable_accesses: tuple[MemoryAccessPair, ...]
     failure_conditions: tuple[FailureCondition, ...]
     staging_overlaps: tuple[StagingOverlap, ...]
+    staging_bound_checks: tuple[StagingBoundCheck, ...]
     parallel_accesses: tuple[ParallelAccessPair, ...]
     free_vars: frozenset[Sym]
 
@@ -683,67 +780,38 @@ class CoverageSkeleton:
             self.aliasable_accesses + other.aliasable_accesses,
             self.failure_conditions + other.failure_conditions,
             self.staging_overlaps + other.staging_overlaps,
+            self.staging_bound_checks + other.staging_bound_checks,
             self.parallel_accesses + other.parallel_accesses,
             self.free_vars | other.free_vars,
         )
 
+    def get_coverage_tasks(self) -> tuple[CoverageTask, ...]:
+        return (
+            self.parallel_accesses
+            + self.staging_bound_checks
+            + self.staging_overlaps
+            + self.failure_conditions
+            + self.aliasable_accesses
+            + self.roots
+        )
+
     def get_indexed_fillers(self) -> Generator[IndexedFiller, None, None]:
-        for root in self.roots:
-            yield from root.get_indexed_fillers()
-        for aliasable_access in self.aliasable_accesses:
-            yield from aliasable_access.get_indexed_fillers()
-        for failure_condition in self.failure_conditions:
-            yield from failure_condition.get_indexed_fillers()
-        for staging_overlap in self.staging_overlaps:
-            yield from staging_overlap.get_indexed_fillers()
-        for parallel_access in self.parallel_accesses:
-            yield from parallel_access.get_indexed_fillers()
+        for task in self.get_coverage_tasks():
+            yield from task.get_indexed_fillers()
 
     def get_coverage_syms(self) -> frozenset[Sym]:
         return frozenset().union(
-            *tuple(root_node.get_coverage_syms() for root_node in self.roots),
-            *tuple(
-                aliasable_access.get_coverage_syms()
-                for aliasable_access in self.aliasable_accesses
-            ),
-            *tuple(
-                failure_condition.get_coverage_syms()
-                for failure_condition in self.failure_conditions
-            ),
-            *tuple(
-                staging_overlap.get_coverage_syms()
-                for staging_overlap in self.staging_overlaps
-            ),
-            *tuple(
-                parallel_access.get_coverage_syms()
-                for parallel_access in self.parallel_accesses
-            ),
+            *tuple(task.get_coverage_syms() for task in self.get_coverage_tasks()),
         )
 
     def update_coverage(self, coverage_result: dict[str, Union[bool, memoryview]]):
-        for root_node in self.roots:
-            root_node.update_coverage(coverage_result)
-        for aliasable_access in self.aliasable_accesses:
-            aliasable_access.update_coverage(coverage_result)
-        for failure_condition in self.failure_conditions:
-            failure_condition.update_coverage(coverage_result)
-        for staging_overlap in self.staging_overlaps:
-            staging_overlap.update_coverage(coverage_result)
-        for parallel_access in self.parallel_accesses:
-            parallel_access.update_coverage(coverage_result)
+        for task in reversed(self.get_coverage_tasks()):
+            task.update_coverage(coverage_result)
 
     def get_coverage_progress(self) -> CoverageProgress:
         result = CoverageProgress(0, 0)
-        for root_node in self.roots:
-            result = root_node.get_coverage_progress()
-        for aliasable_access in self.aliasable_accesses:
-            result = result.merge(aliasable_access.get_coverage_progress())
-        for failure_condition in self.failure_conditions:
-            result = result.merge(failure_condition.get_coverage_progress())
-        for staging_overlap in self.staging_overlaps:
-            result = result.merge(staging_overlap.get_coverage_progress())
-        for parallel_access in self.parallel_accesses:
-            result = result.merge(parallel_access.get_coverage_progress())
+        for task in self.get_coverage_tasks():
+            result = task.get_coverage_progress()
         return result
 
     def solve_constraint_with_coverage(
@@ -768,14 +836,6 @@ class CoverageSkeleton:
             bound,
             search_limit,
         )
-        for parallel_access in self.parallel_accesses:
-            state = parallel_access.solve_coverage(state)
-        for staging_overlap in self.staging_overlaps:
-            state = staging_overlap.solve_coverage(state)
-        for failure_condition in self.failure_conditions:
-            state = failure_condition.solve_coverage(state)
-        for aliasable_access in self.aliasable_accesses:
-            state = aliasable_access.solve_coverage(state)
-        for root_node in self.roots:
-            state = root_node.solve_coverage(state)
+        for task in self.get_coverage_tasks():
+            state = task.solve_coverage(state)
         return state.current_solution

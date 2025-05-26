@@ -720,34 +720,6 @@ class NewExprA(ArgumentProcessor):
         return expr
 
 
-class NewStmtA(ArgumentProcessor):
-    def __init__(self, cursor_arg, before=True):
-        self.cursor_arg = cursor_arg
-        self.before = before
-
-    def _get_ctxt_stmt(self, all_args):
-        cursor = all_args[self.cursor_arg]
-        while isinstance(cursor, PC.ExprCursor):
-            cursor = cursor.parent()
-
-        # if we don't have a gap cursor, convert to a gap cursor
-        if not isinstance(cursor, PC.GapCursor):
-            cursor = cursor.before() if self.before else cursor.after()
-
-        # TODO: improve parse_fragment to just take gaps
-        return cursor.anchor()._impl._node
-
-    def __call__(self, stmt_str, all_args):
-        if not isinstance(stmt_str, str):
-            self.err("expected a string")
-
-        proc = all_args["proc"]
-        ctxt_stmt = self._get_ctxt_stmt(all_args)
-
-        expr = parse_fragment(proc._loopir_proc, stmt_str, ctxt_stmt)
-        return expr
-
-
 # This is implemented as a workaround because the
 # current PAST parser and PAST IR don't support windowing
 # expressions.

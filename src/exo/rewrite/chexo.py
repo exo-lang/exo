@@ -392,6 +392,8 @@ def generate_test_case(
 class TestResult:
     buffer_values: dict[Sym, np.ndarray]
     ctxt_object: dict[str, Union[int, float]]
+    # map from JavaScript name of variable tracking coverage of different parts of coverage skeleton
+    # e.g. bool variable tracking whether branch of if statement gets executed
     coverage_result: Optional[dict[str, Union[bool, memoryview]]]
 
 
@@ -494,6 +496,18 @@ class TestSpec:
                 )
         return None
 
+    def forward_staging_args(
+        self, staging_args: Optional[StageMemArgs]
+    ) -> Optional[StageMemArgs]:
+        if staging_args is None:
+            return None
+        forwarded_scope = self.forward_to_test(staging_args.scope)
+        if forwarded_scope is None:
+            return None
+        return StageMemArgs(
+            staging_args.buffer_sym, staging_args.staged_window_expr, forwarded_scope
+        )
+
     def backward_from_test(self, path: NodePath) -> NodePath:
         assert path.path[0][1] is not None
         return NodePath(
@@ -524,11 +538,6 @@ class TestScope:
                 return TestScope(new_scope)
         else:
             return TestScope(self.scope._anchor.as_block())
-
-    def transform(self, forward: Callable[[Cursor], Cursor]) -> "TestScope":
-        if self.broaden() is None:
-            return TestScope(forward(self.scope._anchor)._child_block("body"))
-        return TestScope(forward(self.scope))
 
     def get_type_map(self) -> dict[Sym, LoopIR.type]:
         root_proc = self.scope.get_root()
@@ -590,141 +599,72 @@ class TestScope:
 
 
 TEST_CASE_BOUND = 15
-MAX_FAILS = 3
+MAX_SKIPPED_TESTS = 3
 MAX_ITERS = 20
-TIME_RECORDING_FILE = None  # "./times.csv"
 
 
-@dataclass
-class Timer:
-    fuzz_start: Optional[int] = None
-    transpile_start: Optional[int] = None
-    constraint_start: Optional[int] = None
-    test_start: Optional[int] = None
-    scope_widen_count: int = 0
-    fuzz_total: int = 0
-    transpile_total: int = 0
-    constraint_total: int = 0
-    test_total: int = 0
+def fuzz(
+    scope1: Block,
+    scope2: Block,
+    staging_args: Optional[StageMemArgs] = None,
+):
+    """
+    scope1: smallest scope containing all changes made by scheduling op in original program
+    scope2: scope corresponding to starting scope in transformed program
+    staging_args: arguments to stage_mem scheduling op
+    """
+    cur_scope1 = TestScope(scope1)
+    cur_scope2 = TestScope(scope2)
+    cur_type_map1 = cur_scope1.get_type_map()
+    cur_type_map2 = cur_scope2.get_type_map()
 
-    def start_fuzz(self):
-        if TIME_RECORDING_FILE is None:
-            return
-        self.fuzz_start = time.process_time_ns()
+    while cur_scope1 is not None:
+        assert cur_scope2 is not None
+        cm = ConstraintMaker(cur_type_map1 | cur_type_map2)
 
-    def widen_scope(self):
-        self.scope_widen_count += 1
-
-    def end_fuzz(self):
-        if TIME_RECORDING_FILE is None:
-            return
-        assert self.fuzz_start is not None
-        self.fuzz_total += time.process_time_ns() - self.fuzz_start
-        self.fuzz_start = None
-
-    def start_transpile(self):
-        if TIME_RECORDING_FILE is None:
-            return
-        self.transpile_start = time.process_time_ns()
-
-    def end_transpile(self):
-        if TIME_RECORDING_FILE is None:
-            return
-        assert self.transpile_start is not None
-        self.transpile_total += time.process_time_ns() - self.transpile_start
-        self.transpile_start = None
-
-    def start_constraint(self):
-        if TIME_RECORDING_FILE is None:
-            return
-        self.constraint_start = time.process_time_ns()
-
-    def end_constraint(self):
-        if TIME_RECORDING_FILE is None:
-            return
-        assert self.constraint_start is not None
-        self.constraint_total += time.process_time_ns() - self.constraint_start
-        self.constraint_start = None
-
-    def start_test(self):
-        if TIME_RECORDING_FILE is None:
-            return
-        self.test_start = time.process_time_ns()
-
-    def end_test(self):
-        if TIME_RECORDING_FILE is None:
-            return
-        assert self.test_start is not None
-        self.test_total += time.process_time_ns() - self.test_start
-        self.test_start = None
-
-    def record(self, failed: bool, unsolved: bool):
-        if TIME_RECORDING_FILE is None:
-            return
-        with open(TIME_RECORDING_FILE, "a") as recording:
-            recording.write(
-                f"{self.fuzz_total},{self.transpile_total},{self.constraint_total},{self.test_total},{self.scope_widen_count},{1 if failed else 0},{1 if unsolved else 0}\n"
-            )
-
-
-def fuzz(starting_scope: Union[Block, Node], fwd: Callable[[Cursor], Cursor]):
-    timer = Timer()
-    timer.start_fuzz()
-    starting_scope = Cursor.create(starting_scope.get_root())
-    if isinstance(starting_scope, Node) and starting_scope.depth() == 0:
-        starting_scope = starting_scope.body()
-
-    starting_scope = (
-        starting_scope.as_block()
-        if isinstance(starting_scope, Node)
-        else starting_scope
-    )
-    failure_scope = starting_scope
-    failure_transformed_scope = fwd(failure_scope)
-    assert isinstance(failure_transformed_scope, Block)
-    cur_scope = TestScope(starting_scope)
-    cur_type_map = cur_scope.get_type_map()
-    transformed_type_map = cur_scope.transform(fwd).get_type_map()
-
-    while cur_scope is not None:
-        timer.start_transpile()
-        transformed = cur_scope.transform(fwd)
-        cm = ConstraintMaker(cur_type_map | transformed_type_map)
-
-        spec1 = cur_scope.get_test_spec(cm, cur_type_map)
-        spec2 = transformed.get_test_spec(cm, transformed_type_map)
+        spec1 = cur_scope1.get_test_spec(cm, cur_type_map1)
+        spec2 = cur_scope2.get_test_spec(cm, cur_type_map2)
 
         transpiled_test1 = Transpiler(
+            # new proc that contains the current scope as a body, not the entire proc
             spec1.proc,
-            CoverageArgs(cm, spec1.var_renaming, spec1.forward_to_test(failure_scope)),
+            CoverageArgs(
+                cm,
+                spec1.var_renaming,
+                spec1.forward_to_test(scope1),
+                spec1.forward_staging_args(staging_args),
+            ),
         )
         transpiled_test2 = Transpiler(
             spec2.proc,
             CoverageArgs(
-                cm, spec2.var_renaming, spec2.forward_to_test(failure_transformed_scope)
+                cm,
+                spec2.var_renaming,
+                spec2.forward_to_test(scope2),
+                spec2.forward_staging_args(staging_args),
             ),
         )
 
         config_fields = transpiled_test1.get_configs() | transpiled_test2.get_configs()
 
         arg_types = spec1.arg_types | spec2.arg_types
+        # precondition of current scope in both original and transformed program
         constraint = spec1.constraint.union(spec2.constraint)
         skeleton1, skeleton2 = (
             transpiled_test1.get_coverage_skeleton(),
             transpiled_test2.get_coverage_skeleton(),
         )
         assert skeleton1 is not None and skeleton2 is not None
+        # symbolic representation of control flow in both original and transformed scope
         coverage_skeleton = skeleton1.merge(skeleton2)
         tests_passed = True
-        fails = 0
+        skipped_tests = 0
         iters = 0
-        timer.end_transpile()
         while (
             not coverage_skeleton.get_coverage_progress().is_finished()
             and iters < MAX_ITERS
             and tests_passed
         ):
-            timer.start_constraint()
             test_case = generate_test_case(
                 arg_types,
                 config_fields,
@@ -732,22 +672,20 @@ def fuzz(starting_scope: Union[Block, Node], fwd: Callable[[Cursor], Cursor]):
                 coverage_skeleton,
                 cm,
             )
-            timer.end_constraint()
+            # if constraint is unsolvable
             if test_case is None:
-                fails += 1
-                if fails > MAX_FAILS:
-                    timer.end_fuzz()
-                    timer.record(False, True)
-                    return
+                skipped_tests += 1
+                if skipped_tests > MAX_SKIPPED_TESTS:
+                    # program should pass but not testing it is probably bad
+                    assert False
                 else:
                     continue
 
-            timer.start_test()
             out1 = run_test_case(test_case, transpiled_test1)
             out2 = run_test_case(test_case, transpiled_test2)
             if out1 == "failed" or out2 == "failed":
+                # precondition in called subproc failed or out of bounds access
                 tests_passed = False
-                timer.end_test()
                 break
             assert out1.coverage_result is not None and out2.coverage_result is not None
             coverage_skeleton.update_coverage(
@@ -759,31 +697,17 @@ def fuzz(starting_scope: Union[Block, Node], fwd: Callable[[Cursor], Cursor]):
                 ):
                     tests_passed = False
                     break
-            if cur_scope.broaden() is not None:
-                for ctxt_name in out1.ctxt_object & out2.ctxt_object.keys():
+            if cur_scope1.broaden() is not None:
+                for ctxt_name in out1.ctxt_object.keys() & out2.ctxt_object.keys():
                     if not np.allclose(
                         out1.ctxt_object[ctxt_name], out2.ctxt_object[ctxt_name]
                     ):
                         tests_passed = False
                         break
-            timer.end_test()
             iters += 1
         if tests_passed:
-            timer.end_fuzz()
-            timer.record(False, False)
             return
         else:
-            timer.widen_scope()
-            cur_scope = cur_scope.broaden()
-    timer.end_fuzz()
-    timer.record(True, False)
+            cur_scope1 = cur_scope1.broaden()
+            cur_scope2 = cur_scope2.broaden()
     raise SchedulingError("tests failed at broadest scope")
-
-
-def fuzz_reorder_stmts(s1: Node, s2: Node):
-    starting_scope = s1.as_block().expand(0, 1)
-    _, fwd = s2._move(s1.before())
-    patched_fwd = lambda cursor: (
-        fwd(cursor) if isinstance(cursor, Node) else fwd(s2).as_block().expand(0, 1)
-    )
-    fuzz(starting_scope, patched_fwd)

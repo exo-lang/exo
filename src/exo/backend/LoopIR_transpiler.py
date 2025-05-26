@@ -17,6 +17,7 @@ from .coverage import (
     MemoryAccessPair,
     ParallelAccess,
     ParallelAccessPair,
+    StagingBoundCheck,
     SymbolicPoint,
     SymbolicSlice,
     StagingOverlap,
@@ -261,31 +262,103 @@ class SymbolicWindow:
 
 
 @dataclass
+class StagedWindowExpr:
+    indices: tuple[Union[tuple[LoopIR.expr, LoopIR.expr], LoopIR.expr], ...]
+
+
+@dataclass
 class StageMemArgs:
-    window_expr: LoopIR.WindowExpr
+    buffer_sym: Sym
+    staged_window_expr: StagedWindowExpr
     scope: Block
 
 
 class StageMemTracker:
     def __init__(self, args: StageMemArgs, parent_state: "CoverageState"):
         self.scope: Block = args.scope
-        self.buffer_sym = args.window_expr.name
+        self.buffer_sym = args.buffer_sym
+        self.staged_window_expr = args.staged_window_expr
         self.staged_window: Optional[tuple[SymbolicTensor, Tensor]] = None
+        self.enabled: bool = False
         self.overlaps: list[StagingOverlap] = []
+        self.bound_checks: list[StagingBoundCheck] = []
         self.parent_state: "CoverageState" = parent_state
 
     def enter_stmt(self, stmt_node: Node):
         if stmt_node in self.scope:
-            js_tensor = self.parent_state.parent_transpiler._lookup_sym(self.buffer_sym)
-            assert isinstance(js_tensor, Tensor)
-            self.staged_window = (
-                self.parent_state.symbolic_tensors[self.buffer_sym],
-                js_tensor,
-            )
+            self.enabled = True
+
+            if self.staged_window is None:
+                staged_win_sym = Sym("win")
+                js_parent = self.parent_state.parent_transpiler._lookup_sym(
+                    self.buffer_sym
+                )
+                js_staged = self.parent_state.parent_transpiler._transpile_window(
+                    staged_win_sym,
+                    self.buffer_sym,
+                    Cursor.create(self.staged_window_expr)._child_block("indices"),
+                )
+                assert isinstance(js_parent, Tensor)
+                symbolic_parent = self.parent_state.symbolic_tensors[self.buffer_sym]
+                symbolic_staged = self.parent_state.symbolic_tensors[staged_win_sym]
+                stage_placeholder = (
+                    self.parent_state.parent_transpiler._make_placeholder()
+                )
+                for (
+                    symbolic_parent_dim,
+                    symbolic_staged_dim,
+                    js_parent_dim,
+                    js_staged_dim,
+                ) in zip(
+                    symbolic_parent.dims,
+                    symbolic_staged.dims,
+                    (dim.window_idx for dim in js_parent.dims),
+                    (dim.window_idx for dim in js_staged.dims),
+                ):
+                    if isinstance(symbolic_parent_dim, SymbolicSlice):
+                        assert isinstance(js_parent_dim, Slice)
+                        out_of_bounds_sym = Sym("oob")
+                        js_out_of_bounds_cond = (
+                            "&&".join(
+                                (
+                                    f"({js_staged_dim.index}<{js_parent_dim.upper_bound})",
+                                    f"({js_parent_dim.lower_bound}<={js_staged_dim.index})",
+                                )
+                            )
+                            if isinstance(js_staged_dim, Point)
+                            else "&&".join(
+                                (
+                                    f"({js_parent_dim.lower_bound}<={js_staged_dim.lower_bound})",
+                                    f"({js_staged_dim.upper_bound})<{js_parent_dim.upper_bound})",
+                                )
+                            )
+                        )
+                        self.bound_checks.append(
+                            StagingBoundCheck(
+                                out_of_bounds_sym,
+                                symbolic_staged_dim,
+                                symbolic_parent_dim,
+                                self.parent_state.current_node,
+                                (
+                                    IndexedFiller(
+                                        self.parent_state.cov_placeholder,
+                                        f"let {repr(out_of_bounds_sym)}=false;",
+                                    ),
+                                    IndexedFiller(
+                                        stage_placeholder,
+                                        f"if({js_out_of_bounds_cond}){{let {repr(out_of_bounds_sym)}=true;}}",
+                                    ),
+                                ),
+                            )
+                        )
+                self.staged_window = (
+                    symbolic_staged,
+                    js_staged,
+                )
 
     def exit_stmt(self, stmt_cursor: Node):
         if stmt_cursor in self.scope:
-            self.staged_window = None
+            self.enabled = False
 
     def access_tensor(
         self,
@@ -299,6 +372,7 @@ class StageMemTracker:
     ):
         if (
             self.staged_window is not None
+            and self.enabled
             and self.staged_window[1].name == js_tensor.name
         ):
             symbolic_staged_window, js_staged_window = self.staged_window
@@ -339,6 +413,9 @@ class StageMemTracker:
 
     def make_staging_overlaps(self) -> tuple[StagingOverlap, ...]:
         return tuple(self.overlaps)
+
+    def make_staging_bound_checks(self) -> tuple[StagingBoundCheck, ...]:
+        return tuple(self.bound_checks)
 
 
 @dataclass
@@ -860,6 +937,11 @@ class CoverageState:
                 ()
                 if self.stage_mem_tracker is None
                 else self.stage_mem_tracker.make_staging_overlaps()
+            ),
+            (
+                ()
+                if self.stage_mem_tracker is None
+                else self.stage_mem_tracker.make_staging_bound_checks()
             ),
             self.parallel_access_tracker.make_parallel_access_pairs(),
             frozenset(self.free_vars),

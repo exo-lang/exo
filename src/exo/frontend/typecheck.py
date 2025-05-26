@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Literal, Union
 from ..core.LoopIR import (
     T,
     UAST,
@@ -97,7 +97,8 @@ def check_call_types(err_handler, args, call_args):
             assert False, "bad argument type case"
 
 
-CheckMode = Literal["static", "dynamic", "both"]
+Checker = Literal["static", "dynamic"]
+CheckMode = Union[Checker, Literal["both"]]
 
 
 class TypeChecker:
