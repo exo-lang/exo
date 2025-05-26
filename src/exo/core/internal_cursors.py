@@ -581,6 +581,11 @@ class Block(Cursor):
         return forward
 
 
+@dataclass(frozen=True)
+class NodePath:
+    path: tuple[tuple[str, Optional[int]], ...]
+
+
 @dataclass
 class Node(Cursor):
     _path: list[tuple[str, Optional[int]]]
@@ -604,6 +609,13 @@ class Node(Cursor):
                 n = n[idx]
 
         return n
+
+    # ------------------------------------------------------------------------ #
+    # Hashable path accessor
+    # ------------------------------------------------------------------------ #
+
+    def get_path(self) -> NodePath:
+        return NodePath(tuple(self._path))
 
     # ------------------------------------------------------------------------ #
     # Navigation (implementation)

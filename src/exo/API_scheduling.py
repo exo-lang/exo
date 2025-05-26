@@ -889,7 +889,7 @@ def reorder_stmts(proc, block_cursor):
     s1 = block_cursor[0]._impl
     s2 = block_cursor[1]._impl
 
-    ir, fwd = scheduling.DoReorderStmt(s1, s2)
+    ir, fwd = scheduling.DoReorderStmt(s1, s2, proc._check_mode)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -897,7 +897,7 @@ def reorder_stmts(proc, block_cursor):
 def parallelize_loop(proc, loop_cursor):
     loop = loop_cursor._impl
 
-    ir, fwd = scheduling.DoParallelizeLoop(loop)
+    ir, fwd = scheduling.DoParallelizeLoop(loop, proc._check_mode)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -977,7 +977,7 @@ def rewrite_expr(proc, expr_cursor, new_expr):
         ->
         `s[ expr_cursor -> new_expr]`
     """
-    ir, fwd = scheduling.DoRewriteExpr(expr_cursor._impl, new_expr)
+    ir, fwd = scheduling.DoRewriteExpr(expr_cursor._impl, new_expr, proc._check_mode)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1003,13 +1003,16 @@ def bind_expr(proc, expr_cursors, new_name):
         `a = b + 4.0`
     """
     exprs = [ec._impl for ec in expr_cursors]
-    if any(not e._node.type.is_numeric() for e in exprs):
+    if (
+        any(not e._node.type.is_numeric() for e in exprs)
+        and not proc._check_mode == "dynamic"
+    ):
         raise TypeError(
             "only numeric (not index or size) expressions "
             "can be bound by bind_expr()"
         )
 
-    ir, fwd = scheduling.DoBindExpr(new_name, exprs)
+    ir, fwd = scheduling.DoBindExpr(new_name, exprs, proc._check_mode)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1202,10 +1205,14 @@ def bind_config(proc, var_cursor, config, field):
     e = var_cursor._impl._node
     cfg_f_type = config.lookup_type(field)
 
-    if not isinstance(e, LoopIR.Read):
+    if not isinstance(e, LoopIR.Read) and proc._check_mode != "dynamic":
         raise TypeError("expected a cursor to a single variable Read")
 
-    if not (e.type.is_real_scalar() and len(e.idx) == 0) and not e.type.is_bool():
+    if (
+        not (e.type.is_real_scalar() and len(e.idx) == 0)
+        and not e.type.is_bool()
+        and proc._check_mode != "dynamic"
+    ):
         raise TypeError(
             f"cannot bind non-real-scalar non-boolean value {e} to configuration states, since index and size expressions may depend on loop iteration"
         )
@@ -1216,7 +1223,9 @@ def bind_config(proc, var_cursor, config, field):
             f"to match type of Config variable ({cfg_f_type})"
         )
 
-    ir, fwd, cfg = scheduling.DoBindConfig(config, field, var_cursor._impl)
+    ir, fwd, cfg = scheduling.DoBindConfig(
+        config, field, var_cursor._impl, proc._check_mode
+    )
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd, _mod_config=cfg)
 
 
@@ -1232,8 +1241,39 @@ def delete_config(proc, stmt_cursor):
     rewrite:
         `s1 ; config.field = _ ; s3    ->    s1 ; s3`
     """
-    ir, fwd, cfg = scheduling.DoDeleteConfig(proc._root(), stmt_cursor._impl)
+    ir, fwd, cfg = scheduling.DoDeleteConfig(
+        proc._root(), stmt_cursor._impl, proc._check_mode
+    )
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd, _mod_config=cfg)
+
+
+@sched_op([StmtCursorA])
+def delete_stmt(proc, stmt_cursor):
+    """
+    delete a statement
+
+    args:
+        stmt_cursor - cursor or pattern pointing at the statement to
+                      be deleted
+
+    rewrite:
+        `s1 ; s2 ; s3    ->    s1 ; s3`
+    """
+    ir, fwd = scheduling.DoDeleteStmt(proc._root(), stmt_cursor._impl, proc._check_mode)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([GapCursorA, NewExprA("gap_cursor"), NewExprA("gap_cursor"), BoolA])
+def insert_mutate(proc, gap_cursor, buf_read, rhs, is_reduce):
+    if not (isinstance(buf_read, LoopIR.Read) and len(buf_read.idx) == 0):
+        raise SchedulingError()
+    new_stmt = (LoopIR.Reduce if is_reduce else LoopIR.Assign)(
+        buf_read.name, buf_read.type, rhs, buf_read.srcinfo
+    )
+    ir, fwd = scheduling.DoInsertStmt(
+        proc._root(), gap_cursor._impl, new_stmt, proc._check_mode
+    )
+    return Procedure(ir, __provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([GapCursorA, ConfigA, ConfigFieldA, NewExprA("gap_cursor")])
@@ -1269,7 +1309,9 @@ def write_config(proc, gap_cursor, config, field, rhs):
             )
 
     stmt = stmtc._impl
-    ir, fwd, cfg = scheduling.DoConfigWrite(stmt, config, field, rhs, before=before)
+    ir, fwd, cfg = scheduling.DoConfigWrite(
+        stmt, config, field, rhs, proc._check_mode, before=before
+    )
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd, _mod_config=cfg)
 
 
@@ -1318,11 +1360,13 @@ def resize_dim(proc, buf_cursor, dim_idx, size, offset, fold: bool = False):
         assert isinstance(size, LoopIR.Const) and size.val > 0
         size = size.val
         buf_s = buf_cursor._impl
-        ir, fwd = scheduling.DoFoldBuffer(buf_s, dim_idx, size)
+        ir, fwd = scheduling.DoFoldBuffer(buf_s, dim_idx, size, proc._check_mode)
         return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
     else:
         # Normal resize operation
-        ir, fwd = scheduling.DoResizeDim(stmt_c, dim_idx, size, offset)
+        ir, fwd = scheduling.DoResizeDim(
+            stmt_c, dim_idx, size, offset, proc._check_mode
+        )
         return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1352,7 +1396,7 @@ def expand_dim(proc, buf_cursor, alloc_dim, indexing_expr):
         provided indexing expression is checked to make sure it is in-bounds
     """
     stmt_c = buf_cursor._impl
-    ir, fwd = scheduling.DoExpandDim(stmt_c, alloc_dim, indexing_expr)
+    ir, fwd = scheduling.DoExpandDim(stmt_c, alloc_dim, indexing_expr, proc._check_mode)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1408,7 +1452,7 @@ def divide_dim(proc, alloc_cursor, dim_idx, quotient):
     if not (0 <= dim_idx < len(stmt._node.type.shape())):
         raise ValueError(f"Cannot divide out-of-bounds dimension index {dim_idx}")
 
-    ir, fwd = scheduling.DoDivideDim(stmt, dim_idx, quotient)
+    ir, fwd = scheduling.DoDivideDim(stmt, dim_idx, quotient, proc._check_mode)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1582,7 +1626,7 @@ def reuse_buffer(proc, buf_cursor, replace_cursor):
     """
     buf_s = buf_cursor._impl
     rep_s = replace_cursor._impl
-    ir, fwd = scheduling.DoReuseBuffer(buf_s, rep_s)
+    ir, fwd = scheduling.DoReuseBuffer(buf_s, rep_s, proc._check_mode)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1679,7 +1723,12 @@ def divide_with_recompute(proc, loop_cursor, outer_hi, outer_stride, new_iters):
         `        s[ i -> outer_stride * io + ii ]`
     """
     ir, fwd = scheduling.DoDivideWithRecompute(
-        loop_cursor._impl, outer_hi, outer_stride, new_iters[0], new_iters[1]
+        loop_cursor._impl,
+        outer_hi,
+        outer_stride,
+        new_iters[0],
+        new_iters[1],
+        proc._check_mode,
     )
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
@@ -1736,8 +1785,70 @@ def divide_loop(proc, loop_cursor, div_const, new_iters, tail="guard", perfect=F
         quot=div_const,
         outer_iter=new_iters[0],
         inner_iter=new_iters[1],
+        check_mode=proc._check_mode,
         tail=tail,
         perfect=perfect,
+    )
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op(
+    [
+        ForCursorA,
+        ConfigA,
+        ConfigFieldA("quot_config"),
+        ListA(NameA, length=2),
+    ]
+)
+def divide_loop_min(proc, loop_cursor, quot_config, quot_field, new_iters):
+    """
+    Divide a loop into an outer and inner loop, where the inner loop
+    iterates over the range 0 to `div_const`.
+
+    Old Name: In Halide and TVM, this was called "split"
+
+    args:
+        loop_cursor     - cursor pointing to the loop to split ;
+                          can also be specified using the special shorthands
+                          pattern: <loop-iterator-name>
+                               or: <loop-iterator-name> #<int>
+        div_const       - integer > 1 specifying what to "divide by"
+        new_iters       - list or tuple of two strings specifying the new
+                          outer and inner iteration variable names
+        tail (opt)      - specifies the strategy for handling the "remainder"
+                          of the loop division (called the tail of the loop).
+                          value can be "cut", "guard", or "cut_and_guard".
+                          Default value: "guard"
+        perfect (opt)   - Boolean (default False) that can be set to true
+                          to assert that you know the remainder will always
+                          be zero (i.e. there is no tail).  You will get an
+                          error if the compiler cannot verify this fact itself.
+
+    rewrite:
+        divide(..., div_const=q, new_iters=['hi','lo'], tail='cut')
+        `for i in seq(0,e):`
+        `    s`
+            ->
+        `for hi in seq(0,e / q):`
+        `    for lo in seq(0, q):`
+        `        s[ i -> q*hi + lo ]`
+        `for lo in seq(0,e - q * (e / q)):`
+        `    s[ i -> q * (e / q) + lo ]
+    """
+
+    stmt = loop_cursor._impl
+
+    ir, fwd = scheduling.DoDivideLoopMin(
+        stmt,
+        quot=LoopIR.ReadConfig(
+            quot_config,
+            quot_field,
+            quot_config.lookup_type(quot_field),
+            loop_cursor._impl._node.srcinfo,
+        ),
+        outer_iter=new_iters[0],
+        inner_iter=new_iters[1],
+        check_mode=proc._check_mode,
     )
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
@@ -1785,7 +1896,9 @@ def join_loops(proc, loop1_cursor, loop2_cursor):
         `for i in seq(lo, hi):`
         `    s`
     """
-    ir, fwd = scheduling.DoJoinLoops(loop1_cursor._impl, loop2_cursor._impl)
+    ir, fwd = scheduling.DoJoinLoops(
+        loop1_cursor._impl, loop2_cursor._impl, proc._check_mode
+    )
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1813,7 +1926,7 @@ def cut_loop(proc, loop_cursor, cut_point):
         `for i in seq(cut, n):`
         `    s`
     """
-    ir, fwd = scheduling.DoCutLoop(loop_cursor._impl, cut_point)
+    ir, fwd = scheduling.DoCutLoop(loop_cursor._impl, cut_point, proc._check_mode)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1836,7 +1949,7 @@ def shift_loop(proc, loop_cursor, new_lo):
         `for i in seq(new_lo, new_lo + n - m):`
         `    s(i + (m - new_lo))`
     """
-    ir, fwd = scheduling.DoShiftLoop(loop_cursor._impl, new_lo)
+    ir, fwd = scheduling.DoShiftLoop(loop_cursor._impl, new_lo, proc._check_mode)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1871,7 +1984,7 @@ def reorder_loops(proc, nested_loops):
     if len(stmt_c.body()) != 1 or not isinstance(stmt_c.body()[0]._node, LoopIR.For):
         raise ValueError(f"expected loop directly inside of {stmt_c._node.iter} loop")
 
-    ir, fwd = scheduling.DoLiftScope(stmt_c.body()[0])
+    ir, fwd = scheduling.DoLiftScope(stmt_c.body()[0], proc._check_mode)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -2064,7 +2177,7 @@ def fission(proc, gap_cursor, n_lifts=1, unsafe_disable_checks=False):
         )
 
     ir, fwd = scheduling.DoFissionAfterSimple(
-        stmt._impl, n_lifts, unsafe_disable_checks
+        stmt._impl, n_lifts, unsafe_disable_checks, proc._check_mode
     )
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
@@ -2146,9 +2259,9 @@ def fuse(proc, stmt1, stmt2, unsafe_disable_check=False):
     s1 = stmt1._impl
     s2 = stmt2._impl
     if isinstance(stmt1, PC.IfCursor):
-        ir, fwd = scheduling.DoFuseIf(s1, s2)
+        ir, fwd = scheduling.DoFuseIf(s1, s2, proc._check_mode)
     else:
-        ir, fwd = scheduling.DoFuseLoop(s1, s2, unsafe_disable_check)
+        ir, fwd = scheduling.DoFuseLoop(s1, s2, proc._check_mode, unsafe_disable_check)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -2168,7 +2281,9 @@ def remove_loop(proc, loop_cursor, unsafe_disable_check=False):
             ->
         `s`
     """
-    ir, fwd = scheduling.DoRemoveLoop(loop_cursor._impl, unsafe_disable_check)
+    ir, fwd = scheduling.DoRemoveLoop(
+        loop_cursor._impl, unsafe_disable_check, proc._check_mode
+    )
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -2203,7 +2318,7 @@ def add_loop(
 
     stmt_c = block_cursor[0]._impl
     ir, fwd = scheduling.DoAddLoop(
-        stmt_c, iter_name, hi_expr, guard, unsafe_disable_check
+        stmt_c, iter_name, hi_expr, guard, unsafe_disable_check, proc._check_mode
     )
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
@@ -2257,7 +2372,7 @@ def lift_scope(proc, scope_cursor):
     """
     stmt_c = scope_cursor._impl
 
-    ir, fwd = scheduling.DoLiftScope(stmt_c)
+    ir, fwd = scheduling.DoLiftScope(stmt_c, proc._check_mode)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -2279,7 +2394,7 @@ def eliminate_dead_code(proc, stmt_cursor):
         `s1`
     """
 
-    ir, fwd = scheduling.DoEliminateDeadCode(stmt_cursor._impl)
+    ir, fwd = scheduling.DoEliminateDeadCode(stmt_cursor._impl, proc._check_mode)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
