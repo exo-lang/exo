@@ -1,11 +1,11 @@
 from __future__ import annotations
 from exo.core.prelude import Sym
 
-from exo.rewrite.constraint_solver import ConstraintMaker, DisjointConstraint
+from exo.rewrite.chexo.constraint_solver import ConstraintMaker, DisjointConstraint
 from exo.core.LoopIR import T
 from exo import proc
-from exo.rewrite.chexo import TypeVisitor
-from exo.backend.LoopIR_transpiler import Transpiler, CoverageArgs
+from exo.rewrite.chexo.chexo import TypeVisitor
+from exo.rewrite.chexo.LoopIR_transpiler import Transpiler, CoverageArgs
 
 
 def get_coverage_args(p) -> CoverageArgs:

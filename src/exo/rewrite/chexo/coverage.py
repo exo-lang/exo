@@ -3,7 +3,7 @@ from itertools import groupby
 from typing import Generator, Iterable, Optional, Union
 import numpy as np
 
-from ..rewrite.constraint_solver import (
+from .constraint_solver import (
     Constraint,
     ConstraintMaker,
     ConstraintTerm,
@@ -12,8 +12,8 @@ from ..rewrite.constraint_solver import (
     Expression,
     Solution,
 )
-from ..core.prelude import Sym
-from ..core.internal_cursors import Node, NodePath
+from ...core.prelude import Sym
+from ...core.internal_cursors import Node, NodePath
 
 
 @dataclass

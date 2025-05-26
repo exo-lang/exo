@@ -1,10 +1,10 @@
 from dataclasses import dataclass, field
 from typing import Callable, Literal, Union, Optional
 
-from ..core.configs import Config
-from ..core.prelude import Sym
-from ..core.LoopIR import LoopIR, T
-from ..core.extern import Extern
+from ...core.configs import Config
+from ...core.prelude import Sym
+from ...core.LoopIR import LoopIR, T
+from ...core.extern import Extern
 import numpy as np
 from scipy.optimize import linprog
 from hsnf import smith_normal_form

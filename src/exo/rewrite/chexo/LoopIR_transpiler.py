@@ -3,10 +3,10 @@ from itertools import chain
 from string import Template
 from typing import Any, Callable, Generator, Iterable, Optional, Union
 
-from ..core.configs import Config
+from ...core.configs import Config
 
-from ..core.prelude import Sym
-from ..core.LoopIR import LoopIR, T
+from ...core.prelude import Sym
+from ...core.LoopIR import LoopIR, T
 from .coverage import (
     CoverageSkeleton,
     CoverageSkeletonNode,
@@ -23,8 +23,8 @@ from .coverage import (
     StagingOverlap,
     SymbolicWindowIndex,
 )
-from ..core.internal_cursors import Block, Cursor, Node, NodePath
-from ..rewrite.constraint_solver import (
+from ...core.internal_cursors import Block, Cursor, Node, NodePath
+from .constraint_solver import (
     TRUE_CONSTRAINT,
     Constraint,
     ConstraintMaker,

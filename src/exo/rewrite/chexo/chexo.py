@@ -2,19 +2,19 @@ from itertools import chain
 import time
 from typing import Callable, Literal, Optional, Union
 
-from ..core.internal_cursors import Cursor, Block, Node, NodePath
+from ...core.internal_cursors import Cursor, Block, Node, NodePath
 
-from ..backend.LoopIR_transpiler import CoverageArgs, StageMemArgs, Transpiler
-from ..backend.coverage import CoverageSkeleton
+from .LoopIR_transpiler import CoverageArgs, StageMemArgs, Transpiler
+from .coverage import CoverageSkeleton
 
-from ..core.configs import Config
+from ...core.configs import Config
 
-from ..core.LoopIR import LoopIR, T
+from ...core.LoopIR import LoopIR, T
 from dataclasses import dataclass, field
-from ..core.prelude import Sym, SrcInfo
-from ..core.memory import DRAM, Memory
+from ...core.prelude import Sym, SrcInfo
+from ...core.memory import DRAM, Memory
 import numpy as np
-from .new_eff import SchedulingError
+from ..new_eff import SchedulingError
 from .constraint_solver import (
     TRUE_CONSTRAINT,
     Constraint,

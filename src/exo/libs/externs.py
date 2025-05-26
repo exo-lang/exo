@@ -1,7 +1,7 @@
 from ..core.extern import Extern, _EErr
 import numpy as np
 
-from ..rewrite.constraint_solver import Constraint, DisjointConstraint, Expression
+from ..rewrite.chexo.constraint_solver import Constraint, DisjointConstraint, Expression
 from ..core.prelude import Sym
 
 

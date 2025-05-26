@@ -43,7 +43,7 @@ from .new_eff import (
     Check_ExprBound,
     Check_Aliasing,
 )
-from .chexo import fuzz
+from .chexo.chexo import fuzz
 
 from .range_analysis import IndexRangeEnvironment, IndexRange, index_range_analysis
 from ..core.internal_cursors import Block, Node

@@ -15,7 +15,7 @@ from .prec_analysis import PrecisionAnalysis
 from ..core.prelude import *
 from .win_analysis import WindowAnalysis
 from ..rewrite.range_analysis import IndexRangeEnvironment
-from ..rewrite.chexo import fuzz
+from ..rewrite.chexo.chexo import fuzz
 from ..core.internal_cursors import Cursor
 
 DEFAULT_CHECK_MODE = "both"

@@ -1,10 +1,10 @@
 from __future__ import annotations
 from exo.core.prelude import Sym
 
-from exo.rewrite.constraint_solver import ConstraintMaker, DisjointConstraint
+from exo.rewrite.chexo.constraint_solver import ConstraintMaker, DisjointConstraint
 from exo.core.LoopIR import T
 from exo import proc
-from exo.rewrite.chexo import TypeVisitor
+from exo.rewrite.chexo.chexo import TypeVisitor
 
 
 def stringify_proc_constraint(p, invert=False):

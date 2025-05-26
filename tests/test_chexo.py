@@ -1,12 +1,12 @@
 from __future__ import annotations
 from exo.core.prelude import Sym
 
-from exo.rewrite.chexo import (
+from exo.rewrite.chexo.chexo import (
     TypeVisitor,
     get_free_variables,
     collect_path_constraints,
 )
-from exo.rewrite.constraint_solver import ConstraintMaker
+from exo.rewrite.chexo.constraint_solver import ConstraintMaker
 from exo import proc, config
 from exo.core.memory import StaticMemory
 
