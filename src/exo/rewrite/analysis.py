@@ -876,7 +876,9 @@ def _effstr(eff, tab=""):
         nm = (
             "Read"
             if isinstance(eff, E.Read)
-            else "Write" if isinstance(eff, E.Write) else "Reduce"
+            else "Write"
+            if isinstance(eff, E.Write)
+            else "Reduce"
         )
         coords = ",".join([str(a) for a in eff.coords])
         return f"{tab}{nm}({eff.name},{coords})"
