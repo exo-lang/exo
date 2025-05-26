@@ -15,6 +15,8 @@ from .prec_analysis import PrecisionAnalysis
 from ..core.prelude import *
 from .win_analysis import WindowAnalysis
 from ..rewrite.range_analysis import IndexRangeEnvironment
+from ..rewrite.chexo import fuzz
+from ..core.internal_cursors import Cursor
 
 DEFAULT_CHECK_MODE = "both"
 
@@ -415,7 +417,11 @@ def compile_to_strings(lib_name, proc_list, check_mode=None):
             is_public_decl = id(p) in orig_procs
 
             if check_mode != "dynamic":
+                # fixme: need to check parallel analysis on static procs even if one of the procs is dynamic
                 p = ParallelAnalysis().run(p)
+            else:
+                proc_cursor = Cursor.create(p).body()
+                fuzz(proc_cursor, proc_cursor)
             p = PrecisionAnalysis().run(p)
             p = WindowAnalysis().apply_proc(p)
             p = MemoryAnalysis().run(p)

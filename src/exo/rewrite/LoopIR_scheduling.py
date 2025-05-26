@@ -434,13 +434,13 @@ def divide_expr(e, quot):
 # --------------------------------------------------------------------------- #
 # Scheduling directives
 
-T = TypeVar("T")
+DoCheckReturn = TypeVar("DoCheckReturn")
 
 
 def do_check(
-    check: Callable[[Checker], T],
+    check: Callable[[Checker], DoCheckReturn],
     mode: CheckMode,
-) -> T:
+) -> DoCheckReturn:
     if mode == "both":
         e_static, e_dynamic = None, None
         trb_static, trb_dynamic = None, None
@@ -494,8 +494,6 @@ def DoReorderStmt(f_cursor, s_cursor, check_mode: CheckMode):
 def DoParallelizeLoop(loop_cursor, check_mode: CheckMode):
     def check(checker: Checker):
         ir, fwd = loop_cursor._child_node("loop_mode")._replace(LoopIR.Par())
-        if checker == "dynamic":
-            fuzz(loop_cursor.as_block(), fwd(loop_cursor).as_block())
         return ir, fwd
 
     return do_check(check, check_mode)

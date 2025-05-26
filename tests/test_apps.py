@@ -47,8 +47,7 @@ def test_gemmini_matmul(golden):
 @pytest.mark.slow
 def test_gemmini_conv(golden):
     module_file = REPO_ROOT / "apps" / "gemmini" / "src" / "exo" / "conv.py"
-    # TODO: uncomment when conv is fixed in main
-    # assert _test_app(module_file) == golden
+    assert _test_app(module_file) == golden
 
 
 def test_blur(golden):
