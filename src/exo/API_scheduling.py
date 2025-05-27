@@ -1259,7 +1259,7 @@ def delete_stmt(proc, stmt_cursor):
     rewrite:
         `s1 ; s2 ; s3    ->    s1 ; s3`
     """
-    ir, fwd = scheduling.DoDeleteStmt(proc._root(), stmt_cursor._impl, proc._check_mode)
+    ir, fwd = scheduling.DoDeleteStmt(stmt_cursor._impl, proc._check_mode)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1268,12 +1268,10 @@ def insert_mutate(proc, gap_cursor, buf_read, rhs, is_reduce):
     if not (isinstance(buf_read, LoopIR.Read) and len(buf_read.idx) == 0):
         raise SchedulingError()
     new_stmt = (LoopIR.Reduce if is_reduce else LoopIR.Assign)(
-        buf_read.name, buf_read.type, rhs, buf_read.srcinfo
+        buf_read.name, buf_read.type, [], rhs, buf_read.srcinfo
     )
-    ir, fwd = scheduling.DoInsertStmt(
-        proc._root(), gap_cursor._impl, new_stmt, proc._check_mode
-    )
-    return Procedure(ir, __provenance_eq_Procedure=proc, _forward=fwd)
+    ir, fwd = scheduling.DoInsertStmt(gap_cursor._impl, new_stmt, proc._check_mode)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([GapCursorA, ConfigA, ConfigFieldA, NewExprA("gap_cursor")])
@@ -1697,7 +1695,12 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
     """
     buf_name, w_exprs = win_expr
     ir, fwd = scheduling.DoStageMem(
-        block_cursor._impl, buf_name, w_exprs, new_buf_name, use_accum_zero=accum
+        block_cursor._impl,
+        buf_name,
+        w_exprs,
+        new_buf_name,
+        proc._check_mode,
+        use_accum_zero=accum,
     )
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 

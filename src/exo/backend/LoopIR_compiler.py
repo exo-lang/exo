@@ -15,10 +15,10 @@ from .prec_analysis import PrecisionAnalysis
 from ..core.prelude import *
 from .win_analysis import WindowAnalysis
 from ..rewrite.range_analysis import IndexRangeEnvironment
-from ..rewrite.chexo.chexo import fuzz
+from ..rewrite.chexo.chexo import fuzz, fuzz_single_scope
 from ..core.internal_cursors import Cursor
 
-DEFAULT_CHECK_MODE = "both"
+DEFAULT_CHECK_MODE = "static"
 
 
 def sanitize_str(s):
@@ -421,7 +421,7 @@ def compile_to_strings(lib_name, proc_list, check_mode=None):
                 p = ParallelAnalysis().run(p)
             else:
                 proc_cursor = Cursor.create(p).body()
-                fuzz(proc_cursor, proc_cursor)
+                fuzz_single_scope(proc_cursor)
             p = PrecisionAnalysis().run(p)
             p = WindowAnalysis().apply_proc(p)
             p = MemoryAnalysis().run(p)
