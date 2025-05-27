@@ -1,0 +1,30 @@
+EXO IR:
+def foo(a: [i8][2, 2] @ DRAM):
+    a[0, 0] += a[0, 1]
+    a[1, 0] += a[1, 1]
+def bar(a: i8[10, 10, 10] @ DRAM):
+    for i in seq(0, 7):
+        foo(a[i, i:i + 2, i + 1:i + 3])
+C:
+#include "test.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+// bar(
+//     a : i8[10, 10, 10] @DRAM
+// )
+void bar( void *ctxt, int8_t* a ) {
+for (int_fast32_t i = 0; i < 7; i++) {
+  foo(ctxt,(struct exo_win_2i8){ &a[(i) * (100) + (i) * (10) + i + 1], { 10, 1 } });
+}
+}
+
+// foo(
+//     a : [i8][2, 2] @DRAM
+// )
+void foo( void *ctxt, struct exo_win_2i8 a ) {
+a.data[0] += a.data[a.strides[1]];
+a.data[a.strides[0]] += a.data[a.strides[0] + a.strides[1]];
+}
+

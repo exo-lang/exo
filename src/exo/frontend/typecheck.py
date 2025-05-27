@@ -1,3 +1,4 @@
+from typing import Literal, Union
 from ..core.LoopIR import (
     T,
     UAST,
@@ -5,10 +6,10 @@ from ..core.LoopIR import (
     LoopIR_Dependencies,
     get_writeconfigs,
     get_loop_iters,
+    create_window_type,
 )
 from ..core.extern import Extern_Typecheck_Error
 from ..core.memory import *
-
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -34,6 +35,10 @@ from ..core.memory import *
 # The typechecker
 
 
+def is_mutable_index(t: LoopIR.type):
+    return isinstance(t, (T.INT8, T.UINT8, T.UINT16, T.INT32))
+
+
 def check_call_types(err_handler, args, call_args):
     for call_a, sig_a in zip(args, call_args):
         if call_a.type == T.err:
@@ -45,6 +50,7 @@ def check_call_types(err_handler, args, call_args):
                     "expected size or index type "
                     "expression, "
                     f"but got type {call_a.type}",
+                    allowed_in_chexo=is_mutable_index(call_a.type),
                 )
 
         elif sig_a.type is T.bool:
@@ -91,11 +97,16 @@ def check_call_types(err_handler, args, call_args):
             assert False, "bad argument type case"
 
 
+Checker = Literal["static", "dynamic"]
+CheckMode = Union[Checker, Literal["both"]]
+
+
 class TypeChecker:
-    def __init__(self, proc):
+    def __init__(self, proc, check_mode: CheckMode):
         self.uast_proc = proc
         self.env = dict()
         self.errors = []
+        self.check_mode = check_mode
 
         args = []
         for a in proc.args:
@@ -125,6 +136,7 @@ class TypeChecker:
                 self.err(
                     proc,
                     f"expected writes to configuration {name[0].name()}.{name[1]} does not depend on loop iterations",
+                    allowed_in_chexo=True,
                 )
 
         instr = proc.instr
@@ -149,8 +161,9 @@ class TypeChecker:
     def get_loopir(self):
         return self.loopir_proc
 
-    def err(self, node, msg):
-        self.errors.append(f"{node.srcinfo}: {msg}")
+    def err(self, node, msg, *, allowed_in_chexo=False):
+        if not allowed_in_chexo or self.check_mode != "dynamic":
+            self.errors.append(f"{node.srcinfo}: {msg}")
 
     def check_stmts(self, body):
         assert len(body) > 0 or self.uast_proc.instr
@@ -164,7 +177,11 @@ class TypeChecker:
         idx = [self.check_e(i, is_index=True) for i in idx]
         for i in idx:
             if i.type != T.err and not i.type.is_indexable():
-                self.err(i, f"cannot index with expression of type '{i.type}'")
+                self.err(
+                    i,
+                    f"cannot index with expression of type '{i.type}'",
+                    allowed_in_chexo=is_mutable_index(i.type),
+                )
 
         # check compatibility with buffer type
         typ = self.env[nm]
@@ -235,7 +252,11 @@ class TypeChecker:
         if isinstance(stmt, (UAST.Assign, UAST.Reduce)):
             rhs = self.check_e(stmt.rhs)
             if rhs.type != T.err and not rhs.type.is_real_scalar():
-                self.err(rhs, f"cannot assign/reduce a '{rhs.type}' type value")
+                self.err(
+                    rhs,
+                    f"cannot assign/reduce a '{rhs.type}' type value",
+                    allowed_in_chexo=rhs.type.is_indexable(),
+                )
 
             idx, typ = self.check_access(stmt, stmt.name, stmt.idx, lvalue=True)
             assert typ.is_real_scalar() or typ is T.err
@@ -266,6 +287,8 @@ class TypeChecker:
                             rhs,
                             f"expected a real scalar value, but "
                             f"got an expression of type {rhs.type}",
+                            allowed_in_chexo=is_mutable_index(ftyp)
+                            and rhs.type.is_indexable(),
                         )
                 elif ftyp.is_indexable():
                     if not rhs.type.is_indexable():
@@ -273,6 +296,7 @@ class TypeChecker:
                             rhs,
                             f"expected an index or size type "
                             f"expression, but got type {rhs.type}",
+                            allowed_in_chexo=is_mutable_index(rhs.type),
                         )
                 elif ftyp == T.bool:
                     if rhs.type != T.bool:
@@ -318,10 +342,18 @@ class TypeChecker:
 
             lo = self.check_e(stmt.cond.lo, is_index=True)
             if lo.type != T.err and not lo.type.is_indexable():
-                self.err(lo, "expected loop bound to be indexable.")
+                self.err(
+                    lo,
+                    "expected loop bound to be indexable.",
+                    allowed_in_chexo=is_mutable_index(lo.type),
+                )
             hi = self.check_e(stmt.cond.hi, is_index=True)
             if hi.type != T.err and not hi.type.is_indexable():
-                self.err(hi, "expected loop bound to be indexable.")
+                self.err(
+                    hi,
+                    "expected loop bound to be indexable.",
+                    allowed_in_chexo=is_mutable_index(hi.type),
+                )
 
             body = self.check_stmts(stmt.body)
             if isinstance(stmt.cond, UAST.SeqRange):
@@ -357,7 +389,11 @@ class TypeChecker:
         if isinstance(e, UAST.Point):
             pt = self.check_e(e.pt, is_index=True)
             if pt.type != T.err and not pt.type.is_indexable():
-                self.err(pt, f"cannot index with expression of type '{pt.type}'")
+                self.err(
+                    pt,
+                    f"cannot index with expression of type '{pt.type}'",
+                    allowed_in_chexo=is_mutable_index(pt.type),
+                )
             return LoopIR.Point(pt, e.srcinfo)
 
         elif isinstance(e, UAST.Interval):
@@ -366,25 +402,24 @@ class TypeChecker:
             else:
                 lo = self.check_e(e.lo, is_index=True)
                 if lo.type != T.err and not lo.type.is_indexable():
-                    self.err(lo, f"cannot index with expression of type '{lo.type}'")
+                    self.err(
+                        lo,
+                        f"cannot index with expression of type '{lo.type}'",
+                        allowed_in_chexo=is_mutable_index(lo.type),
+                    )
 
             if e.hi is None:
                 hi = orig_hi
             else:
                 hi = self.check_e(e.hi, is_index=True)
                 if hi.type != T.err and not hi.type.is_indexable():
-                    self.err(hi, f"cannot index with expression of type '{hi.type}'")
+                    self.err(
+                        hi,
+                        f"cannot index with expression of type '{hi.type}'",
+                        allowed_in_chexo=is_mutable_index(hi.type),
+                    )
 
             return LoopIR.Interval(lo, hi, e.srcinfo)
-
-    def build_window_shape(self, ws):
-        def subtract(hi, lo):
-            if isinstance(lo, LoopIR.Const) and lo.val == 0:
-                return hi
-            else:
-                return LoopIR.BinOp("-", hi, lo, T.index, hi.srcinfo)
-
-        return [subtract(w.hi, w.lo) for w in ws if isinstance(w, LoopIR.Interval)]
 
     def check_e(self, e, is_index=False):
         if isinstance(e, UAST.Read):
@@ -409,8 +444,8 @@ class TypeChecker:
                 return LoopIR.Read(e.name, idx, typ, e.srcinfo)
 
         elif isinstance(e, UAST.WindowExpr):
-            typ = self.env[e.name]
-            if not typ.is_tensor_or_window():
+            in_typ = self.env[e.name]
+            if not in_typ.is_tensor_or_window():
                 self.err(
                     e,
                     f"cannot perform windowing on non-tensor, "
@@ -418,21 +453,16 @@ class TypeChecker:
                 )
                 return LoopIR.WindowExpr(e.name, [], T.err, e.srcinfo)
 
-            shape = typ.shape()
-            if len(shape) != len(e.idx):
+            in_shape = in_typ.shape()
+            if len(in_shape) != len(e.idx):
                 self.err(
                     e,
-                    f"expected {len(shape)} indices for window "
+                    f"expected {len(in_shape)} indices for window "
                     f"but got {len(e.idx)}",
                 )
 
-            idx = [self.check_w_access(w, t) for w, t in zip(e.idx, shape)]
-
-            # TODO: Construct as_tensor...
-            window_shape = self.build_window_shape(idx)
-            as_tensor = T.Tensor(window_shape, True, typ.type)
-
-            w_typ = T.Window(typ, as_tensor, e.name, idx)
+            idx = [self.check_w_access(w, t) for w, t in zip(e.idx, in_shape)]
+            w_typ = create_window_type(e.name, in_typ, idx)
             return LoopIR.WindowExpr(e.name, idx, w_typ, e.srcinfo)
 
         elif isinstance(e, UAST.Const):
@@ -486,20 +516,33 @@ class TypeChecker:
                             operand,
                             f"expected 'index' or 'size' argument to "
                             f"comparison op: {e.op}",
+                            allowed_in_chexo=operand.type.is_real_scalar(),
                         )
                 typ = T.bool
             elif e.op in ("+", "-", "*", "/", "%"):
                 if lhs.type.is_real_scalar():
                     if not rhs.type.is_real_scalar():
-                        self.err(rhs, "expected scalar type")
-                        typ = T.err
+                        self.err(
+                            rhs,
+                            "expected scalar type",
+                            allowed_in_chexo=rhs.type.is_indexable(),
+                        )
                     elif e.op == "%":
-                        self.err(e, "cannot compute modulus of 'R' values")
-                        typ = T.err
-                    else:
-                        typ = lhs.type
+                        self.err(
+                            e,
+                            "cannot compute modulus of 'R' values",
+                            allowed_in_chexo=is_mutable_index(lhs.type)
+                            and is_mutable_index(rhs.type),
+                        )
+                    typ = lhs.type
                 elif rhs.type.is_real_scalar():
-                    self.err(lhs, "expected scalar type")
+                    self.err(
+                        lhs,
+                        "expected scalar type",
+                        allowed_in_chexo=is_mutable_index(lhs.type)
+                        and is_mutable_index(rhs.type),
+                    )
+                    typ = lhs.type
                 elif lhs.type == T.bool or rhs.type == T.bool:
                     node = lhs if lhs.type == T.bool else rhs
                     self.err(node, "cannot perform arithmetic on 'bool' values")
@@ -519,15 +562,15 @@ class TypeChecker:
                             self.err(
                                 rhs,
                                 "cannot divide or modulo by a " "non-constant value",
+                                allowed_in_chexo=True,
                             )
-                            typ = T.err
                         elif rhs.val <= 0:
                             self.err(
                                 rhs,
                                 "cannot divide or modulo by zero "
                                 "or a negative value",
+                                allowed_in_chexo=True,
                             )
-                            typ = T.err
 
                         typ = lhs.type
                     elif e.op == "*":
@@ -541,8 +584,9 @@ class TypeChecker:
                                 "cannot multiply two non-constant "
                                 "indexing/sizing expressions, since "
                                 "the result would be non-affine",
+                                allowed_in_chexo=True,
                             )
-                            typ = T.err
+                            typ = lhs.type
                     else:  # + or -
                         if lhs.type == T.index or rhs.type == T.index:
                             typ = T.index
@@ -633,6 +677,7 @@ class TypeChecker:
                         h,
                         "expected array size expression "
                         "to have type 'size' or type 'index'",
+                        allowed_in_chexo=is_mutable_index(h.type),
                     )
             return T.Tensor(hi, typ.is_window, sub_typ)
         else:

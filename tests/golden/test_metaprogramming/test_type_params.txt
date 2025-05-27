@@ -1,0 +1,51 @@
+EXO IR:
+def bar1(a: i32 @ DRAM, b: i8 @ DRAM):
+    c: i32[4] @ DRAM
+    for i in seq(0, 3):
+        d: i32 @ DRAM
+        d = b
+        c[i + 1] = a + c[i] * d
+    a = c[3]
+def bar2(a: f64 @ DRAM, b: f64 @ DRAM):
+    c: f64[4] @ DRAM
+    for i in seq(0, 3):
+        d: f64 @ DRAM
+        d = b
+        c[i + 1] = a + c[i] * d
+    a = c[3]
+C:
+#include "test.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+// bar1(
+//     a : i32 @DRAM,
+//     b : i8 @DRAM
+// )
+void bar1( void *ctxt, int32_t* a, const int8_t* b ) {
+int32_t *c = (int32_t*) malloc(4 * sizeof(*c));
+for (int_fast32_t i = 0; i < 3; i++) {
+  int32_t d;
+  d = (int32_t)(*b);
+  c[i + 1] = *a + c[i] * d;
+}
+*a = c[3];
+free(c);
+}
+
+// bar2(
+//     a : f64 @DRAM,
+//     b : f64 @DRAM
+// )
+void bar2( void *ctxt, double* a, const double* b ) {
+double *c = (double*) malloc(4 * sizeof(*c));
+for (int_fast32_t i = 0; i < 3; i++) {
+  double d;
+  d = *b;
+  c[i + 1] = *a + c[i] * d;
+}
+*a = c[3];
+free(c);
+}
+

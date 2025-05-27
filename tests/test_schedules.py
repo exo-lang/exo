@@ -346,26 +346,38 @@ def test_simplify2(golden):
     ):
         for io in seq(0, 1):
             for jo in seq(0, 1):
-                Btile1: i8[
-                    16 * (ko + 1) - 16 * ko,
-                    128 * jo
-                    + 64 * (ji_unroll + 1 + 1)
-                    - (128 * jo + 64 * (ji_unroll + 1)),
-                ] @ DRAM
-                Btile0: i8[
-                    16 * (ko + 1) - 16 * ko,
-                    128 * jo + 64 * (ji_unroll + 1) - (128 * jo + 64 * ji_unroll),
-                ] @ DRAM
-                Atile0: i8[
-                    32 * io + 16 * (ii_unroll + 1) - (32 * io + 16 * ii_unroll),
-                    64 * (ko + 1) - 64 * ko,
-                ] @ DRAM
-                Atile1: i8[
-                    32 * io
-                    + 16 * (ii_unroll + 1 + 1)
-                    - (32 * io + 16 * (ii_unroll + 1)),
-                    64 * (ko + 1) - 64 * ko,
-                ] @ DRAM
+                Btile1: (
+                    i8[
+                        16 * (ko + 1) - 16 * ko,
+                        128 * jo
+                        + 64 * (ji_unroll + 1 + 1)
+                        - (128 * jo + 64 * (ji_unroll + 1)),
+                    ]
+                    @ DRAM
+                )
+                Btile0: (
+                    i8[
+                        16 * (ko + 1) - 16 * ko,
+                        128 * jo + 64 * (ji_unroll + 1) - (128 * jo + 64 * ji_unroll),
+                    ]
+                    @ DRAM
+                )
+                Atile0: (
+                    i8[
+                        32 * io + 16 * (ii_unroll + 1) - (32 * io + 16 * ii_unroll),
+                        64 * (ko + 1) - 64 * ko,
+                    ]
+                    @ DRAM
+                )
+                Atile1: (
+                    i8[
+                        32 * io
+                        + 16 * (ii_unroll + 1 + 1)
+                        - (32 * io + 16 * (ii_unroll + 1)),
+                        64 * (ko + 1) - 64 * ko,
+                    ]
+                    @ DRAM
+                )
 
     assert str(simplify(foo)) == golden
 
@@ -4775,6 +4787,30 @@ def test_old_lift_alloc_config(golden):
 
     bar = autolift_alloc(bar, "tmp_a : _", keep_dims=True)
     assert str(bar) == golden
+
+
+def test_fission_window1():
+    @proc
+    def foo(t: f32[3]):
+        tw = t[:]
+        x: f32[3]
+        for i in seq(0, 2):
+            t[i] = 1.0
+            x[i] = tw[i + 1]
+
+    with pytest.raises(SchedulingError, match="Cannot fission loop"):
+        fission(foo, foo.find("t[_] = 1.0").after())
+
+
+def test_reorder_stmts_window1():
+    @proc
+    def foo(t: f32[3]):
+        tw = t[:]
+        t[0] = 1.0
+        tw[0] = 3.0
+
+    with pytest.raises(SchedulingError, match="do not commute"):
+        reorder_stmts(foo, foo.find("t[_] = 1.0").expand(0, 1))
 
 
 def test_call_eqv(golden):
