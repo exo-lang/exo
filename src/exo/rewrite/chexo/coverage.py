@@ -1,19 +1,18 @@
 from dataclasses import dataclass, field
-from itertools import groupby
-from typing import Generator, Iterable, Optional, Union
+from typing import Generator, Optional, Union
 import numpy as np
 
 from .constraint_solver import (
     Constraint,
     ConstraintMaker,
-    ConstraintTerm,
     DisjointConstraint,
     TRUE_CONSTRAINT,
     Expression,
     Solution,
 )
 from ...core.prelude import Sym
-from ...core.internal_cursors import Node, NodePath
+from ...core.internal_cursors import NodePath
+from ..analysis import SchedulingError
 
 
 @dataclass
@@ -406,67 +405,58 @@ SymbolicWindowIndex = Union[SymbolicPoint, SymbolicSlice]
 
 @dataclass
 class StagingBoundCheck:
-    out_of_bounds_sym: Sym
+    upper_bound_violation_sym: Sym
+    lower_bound_violation_sym: Sym
     staged_index: SymbolicWindowIndex
     parent_index: SymbolicSlice
     node: CoverageSkeletonNode
     indexed_fillers: tuple[IndexedFiller, ...]
-    had_out_of_bounds: bool = False
-    visited_out_of_bounds: bool = False
+    violated_upper_bound: bool = False
+    violated_lower_bound: bool = False
+    visited_upper_bound_violation: bool = False
+    visited_lower_bound_violation: bool = False
 
     def get_indexed_fillers(self) -> Generator[IndexedFiller, None, None]:
         for indexed_filler in self.indexed_fillers:
             yield indexed_filler
 
     def get_coverage_syms(self) -> frozenset[Sym]:
-        return frozenset((self.out_of_bounds_sym,))
+        return frozenset(
+            (self.upper_bound_violation_sym, self.lower_bound_violation_sym)
+        )
 
     def update_coverage(self, coverage_result: dict[str, Union[bool, memoryview]]):
-        out_of_bounds = coverage_result[repr(self.out_of_bounds_sym)]
-        assert isinstance(out_of_bounds, bool)
-        self.had_out_of_bounds |= out_of_bounds
-        self.visited_out_of_bounds |= out_of_bounds
+        violated_upper_bound = coverage_result[repr(self.upper_bound_violation_sym)]
+        violated_lower_bound = coverage_result[repr(self.lower_bound_violation_sym)]
+        assert isinstance(violated_upper_bound, bool) and isinstance(
+            violated_lower_bound, bool
+        )
+        self.violated_upper_bound |= violated_upper_bound
+        self.violated_lower_bound |= violated_lower_bound
 
     def get_coverage_progress(self) -> CoverageProgress:
         return CoverageProgress(
-            (1 if self.visited_out_of_bounds else 0),
-            1,
+            (1 if self.visited_upper_bound_violation else 0)
+            + (1 if self.visited_lower_bound_violation else 0),
+            2,
         )
 
     def solve_coverage(self, state: CoverageSolverState) -> CoverageSolverState:
-        if not self.visited_out_of_bounds:
+        if not self.visited_upper_bound_violation:
             out_of_bounds_cond = (
                 Constraint(
                     self.staged_index.index.add(Expression.from_constant(1))
                     .negate()
                     .add(self.parent_index.upper_bound),
                     True,
-                )
-                .lift_to_disjoint_constraint()
-                .intersect(
-                    Constraint(
-                        self.staged_index.index.add(
-                            self.parent_index.lower_bound.negate()
-                        ),
-                        True,
-                    ).lift_to_disjoint_constraint()
-                )
+                ).lift_to_disjoint_constraint()
                 if isinstance(self.staged_index, SymbolicPoint)
                 else Constraint(
                     self.staged_index.upper_bound.negate().add(
                         self.parent_index.upper_bound
                     ),
                     True,
-                )
-                .lift_to_disjoint_constraint()
-                .intersect(
-                    Constraint(
-                        self.staged_index.lower_bound.add(
-                            self.parent_index.lower_bound.negate()
-                        ),
-                        True,
-                    ).lift_to_disjoint_constraint()
-                )
+                ).lift_to_disjoint_constraint()
             )
             path_constraint = self.node.get_complete_constraint().intersect(
                 out_of_bounds_cond
@@ -484,7 +474,40 @@ class StagingBoundCheck:
             if (
                 new_solution is None and state.is_base_constraint
             ) or new_solution is not None:
-                self.visited_out_of_bounds = True
+                self.visited_upper_bound_violation = True
+            if new_solution is not None:
+                return state.update_solution(new_constraint, new_solution)
+        if not self.visited_lower_bound_violation:
+            out_of_bounds_cond = (
+                Constraint(
+                    self.staged_index.index.add(self.parent_index.lower_bound.negate()),
+                    True,
+                ).lift_to_disjoint_constraint()
+                if isinstance(self.staged_index, SymbolicPoint)
+                else Constraint(
+                    self.staged_index.lower_bound.add(
+                        self.parent_index.lower_bound.negate()
+                    ),
+                    True,
+                ).lift_to_disjoint_constraint()
+            )
+            path_constraint = self.node.get_complete_constraint().intersect(
+                out_of_bounds_cond
+            )
+            sym_renaming, _ = state.cm.rename_sym_set(
+                path_constraint.collect_syms(),
+                state.free_vars,
+            )
+            new_constraint = state.current_constraint.intersect(
+                path_constraint.rename_syms(sym_renaming)
+            )
+            new_solution = state.cm.solve_constraint(
+                new_constraint, bound=state.bound, search_limit=state.search_limit
+            )
+            if (
+                new_solution is None and state.is_base_constraint
+            ) or new_solution is not None:
+                self.visited_lower_bound_violation = True
             if new_solution is not None:
                 return state.update_solution(new_constraint, new_solution)
         return state

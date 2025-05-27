@@ -317,36 +317,43 @@ class StageMemTracker:
                 ):
                     if isinstance(symbolic_parent_dim, SymbolicSlice):
                         assert isinstance(js_parent_dim, Slice)
-                        out_of_bounds_sym = Sym("oob")
-                        js_out_of_bounds_cond = (
-                            "&&".join(
-                                (
-                                    f"({js_staged_dim.index}<{js_parent_dim.upper_bound})",
-                                    f"({js_parent_dim.lower_bound}<={js_staged_dim.index})",
-                                )
-                            )
+                        upper_bound_violation_sym = Sym("ub")
+                        lower_bound_violation_sym = Sym("lb")
+                        js_upper_bound_violation_cond = (
+                            f"({js_staged_dim.index}>={js_parent_dim.upper_bound})"
                             if isinstance(js_staged_dim, Point)
-                            else "&&".join(
-                                (
-                                    f"({js_parent_dim.lower_bound}<={js_staged_dim.lower_bound})",
-                                    f"({js_staged_dim.upper_bound})<{js_parent_dim.upper_bound})",
-                                )
-                            )
+                            else f"({js_staged_dim.upper_bound})>{js_parent_dim.upper_bound})"
+                        )
+                        js_lower_bound_violation_cond = (
+                            f"({js_parent_dim.lower_bound}<={js_staged_dim.index})"
+                            if isinstance(js_staged_dim, Point)
+                            else f"({js_parent_dim.lower_bound}<={js_staged_dim.lower_bound})"
                         )
                         self.bound_checks.append(
                             StagingBoundCheck(
-                                out_of_bounds_sym,
+                                upper_bound_violation_sym,
+                                lower_bound_violation_sym,
                                 symbolic_staged_dim,
                                 symbolic_parent_dim,
                                 self.parent_state.current_node,
                                 (
                                     IndexedFiller(
                                         self.parent_state.cov_placeholder,
-                                        f"let {repr(out_of_bounds_sym)}=false;",
+                                        "".join(
+                                            (
+                                                f"let {repr(upper_bound_violation_sym)}=false;",
+                                                f"let {repr(lower_bound_violation_sym)}=false;",
+                                            )
+                                        ),
                                     ),
                                     IndexedFiller(
                                         stage_placeholder,
-                                        f"if({js_out_of_bounds_cond}){{let {repr(out_of_bounds_sym)}=true;}}",
+                                        "".join(
+                                            (
+                                                f"if({js_upper_bound_violation_cond}){{let {repr(upper_bound_violation_sym)}=true;}}",
+                                                f"if({js_lower_bound_violation_cond}){{let {repr(lower_bound_violation_sym)}=true;}}",
+                                            )
+                                        ),
                                     ),
                                 ),
                             )
@@ -517,10 +524,10 @@ class ParallelAccessTracker:
                             "".join(
                                 (
                                     f"{repr(access_set_sym)}{'_cw' if is_write else '_cr'}.add({js_access});",
-                                    f"if({repr(access_set_sym)}_pw.has({js_access})){{{repr(self.coverage_sym)}=true}}",
+                                    f"if({repr(access_set_sym)}_pw.has({js_access})){{{repr(self.coverage_sym)}=true;return [1,{CONTEXT_OBJECT_NAME},{{}}];}}",
                                     *(
                                         (
-                                            f"if({repr(access_set_sym)}_pr.has({js_access})){{{repr(self.coverage_sym)}=true}}",
+                                            f"if({repr(access_set_sym)}_pr.has({js_access})){{{repr(self.coverage_sym)}=true;return [1,{CONTEXT_OBJECT_NAME},{{}}];}}",
                                         )
                                         if is_write
                                         else ()

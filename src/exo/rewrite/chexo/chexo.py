@@ -1,8 +1,6 @@
-from itertools import chain
-import time
-from typing import Callable, Literal, Optional, Union
+from typing import Literal, Optional, Union
 
-from ...core.internal_cursors import Cursor, Block, Node, NodePath
+from ...core.internal_cursors import Block, Node, NodePath
 
 from .LoopIR_transpiler import CoverageArgs, StageMemArgs, Transpiler
 from .coverage import CoverageSkeleton
@@ -14,16 +12,11 @@ from dataclasses import dataclass, field
 from ...core.prelude import Sym, SrcInfo
 from ...core.memory import DRAM, Memory
 import numpy as np
-from ..new_eff import SchedulingError
+from ..analysis import SchedulingError
 from .constraint_solver import (
     TRUE_CONSTRAINT,
-    Constraint,
-    ConstraintClause,
     ConstraintMaker,
-    ConstraintTerm,
     DisjointConstraint,
-    Expression,
-    Solution,
 )
 
 from pythonmonkey import eval as js_eval
@@ -603,15 +596,26 @@ MAX_SKIPPED_TESTS = 3
 MAX_ITERS = 20
 
 
+@dataclass
+class StageMemResult:
+    overlapping_accesses: frozenset[NodePath]
+    dim_needs_upper_bound_guard: tuple[bool, ...]
+    dim_needs_lower_bound_guard: tuple[bool, ...]
+
+
+@dataclass
+class CoverageSummary:
+    stage_mem_result: StageMemResult
+
+
 def fuzz(
     scope1: Block,
     scope2: Block,
-    staging_args: Optional[StageMemArgs] = None,
 ):
     """
+    fuzz to determine if behavior of two programs are equivalent
     scope1: smallest scope containing all changes made by scheduling op in original program
     scope2: scope corresponding to starting scope in transformed program
-    staging_args: arguments to stage_mem scheduling op
     """
     cur_scope1 = TestScope(scope1)
     cur_scope2 = TestScope(scope2)
@@ -632,7 +636,6 @@ def fuzz(
                 cm,
                 spec1.var_renaming,
                 spec1.forward_to_test(scope1),
-                spec1.forward_staging_args(staging_args),
             ),
         )
         transpiled_test2 = Transpiler(
@@ -641,7 +644,6 @@ def fuzz(
                 cm,
                 spec2.var_renaming,
                 spec2.forward_to_test(scope2),
-                spec2.forward_staging_args(staging_args),
             ),
         )
 
@@ -710,4 +712,107 @@ def fuzz(
         else:
             cur_scope1 = cur_scope1.broaden()
             cur_scope2 = cur_scope2.broaden()
+    raise SchedulingError("tests failed at broadest scope")
+
+
+def fuzz_single_scope(
+    scope: Block, staging_args: Optional[StageMemArgs] = None
+) -> CoverageSummary:
+    """
+    fuzz program to determine properties besides program equivalence
+    e.g. stage_mem which determines whether accesses can overlap or parallel loop checks
+    scope: smallest scope containing properties that need to be fuzzed for
+    staging_args: arguments to stage_mem scheduling op
+    """
+    cur_scope = TestScope(scope)
+    cur_type_map = cur_scope.get_type_map()
+
+    while cur_scope is not None:
+        cm = ConstraintMaker(cur_type_map)
+
+        spec = cur_scope.get_test_spec(cm, cur_type_map)
+
+        transpiled_test = Transpiler(
+            # new proc that contains the current scope as a body, not the entire proc
+            spec.proc,
+            CoverageArgs(
+                cm,
+                spec.var_renaming,
+                spec.forward_to_test(scope),
+                spec.forward_staging_args(staging_args),
+            ),
+        )
+
+        config_fields = transpiled_test.get_configs()
+
+        arg_types = spec.arg_types
+        # precondition of current scope in both original and transformed program
+        constraint = spec.constraint
+
+        # symbolic representation of control flow in both original and transformed scope
+        coverage_skeleton = transpiled_test.get_coverage_skeleton()
+        assert coverage_skeleton is not None
+        tests_passed = True
+        skipped_tests = 0
+        iters = 0
+        while (
+            not coverage_skeleton.get_coverage_progress().is_finished()
+            and iters < MAX_ITERS
+            and tests_passed
+        ):
+            test_case = generate_test_case(
+                arg_types,
+                config_fields,
+                constraint,
+                coverage_skeleton,
+                cm,
+            )
+            # if constraint is unsolvable
+            if test_case is None:
+                skipped_tests += 1
+                if skipped_tests > MAX_SKIPPED_TESTS:
+                    # program should pass but not testing it is probably bad
+                    assert False
+                else:
+                    continue
+
+            out = run_test_case(test_case, transpiled_test)
+            if out == "failed":
+                # precondition in called subproc failed or out of bounds access
+                tests_passed = False
+                break
+            assert out.coverage_result is not None
+            coverage_skeleton.update_coverage(out.coverage_result)
+            iters += 1
+        if tests_passed:
+            overlapping_accesses = []
+            invalid_staging = False
+            for staging_overlap in coverage_skeleton.staging_overlaps:
+                if staging_overlap.has_overlap:
+                    if staging_overlap.has_disjoint_access:
+                        invalid_staging = True
+                        break
+                    else:
+                        overlapping_accesses.append(
+                            spec.backward_from_test(staging_overlap.access_cursor)
+                        )
+            if invalid_staging:
+                cur_scope = cur_scope.broaden()
+                continue
+            else:
+                return CoverageSummary(
+                    StageMemResult(
+                        frozenset(overlapping_accesses),
+                        tuple(
+                            staging_bound_check.violated_upper_bound
+                            for staging_bound_check in coverage_skeleton.staging_bound_checks
+                        ),
+                        tuple(
+                            staging_bound_check.violated_lower_bound
+                            for staging_bound_check in coverage_skeleton.staging_bound_checks
+                        ),
+                    )
+                )
+        else:
+            cur_scope = cur_scope.broaden()
     raise SchedulingError("tests failed at broadest scope")
