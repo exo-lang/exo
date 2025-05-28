@@ -29,8 +29,12 @@ class RVV(Memory):
         if not shape:
             raise MemGenError(f"{srcinfo}: RVV vectors are not scalar values")
         factor = 1
-        if int(os.environ['RVV_BITS']) == 256:
-            factor = 2
+        try:
+            if int(os.environ['RVV_BITS']) > 0:
+                factor = int(os.environ['RVV_BITS'])/128 
+        except:
+            factor = 1
+            
         vec_types = {
             "float": (4*factor, "vfloat32m1_t"), "double": (2*factor, "vfloat64m1_t"), "_Float16" : (8*factor, "vfloat16m1_t")}
         
