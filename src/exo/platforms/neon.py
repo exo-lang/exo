@@ -51,7 +51,8 @@ class Neon(Memory):
         shape = shape[:-1]
         if shape:
             if not all(_is_some_const_size(s) for s in shape):
-                raise MemGenError(
+                #raise MemGenError(
+                raise MemoryError(
                     f"{srcinfo}: Cannot allocate variable numbers of Neon vectors"
                 )
             result = f'{C_reg_type_name} {new_name}[{"][".join(map(str, shape))}];'

@@ -205,7 +205,7 @@ def rvv_vfmacc_8xf32_8xf32(
     for i in seq(0, vl):
         dst[i] += lhs[i] * rhs[i]
 
-@instr("{dst_data} = __riscv_vfmacc_vf_f32m1{dst_data}, {rhs_data}, {lhs_data},{vl});")
+@instr("{dst_data} = __riscv_vfmacc_vf_f32m1({dst_data}, {rhs_data}, {lhs_data},{vl});")
 def rvv_vfmacc_4xf32_1xf32(
     dst: [f32][4] @ RVV, lhs: [f32][4] @ RVV, rhs: [f32][1] @ DRAM, vl: size
 ):
@@ -218,7 +218,7 @@ def rvv_vfmacc_4xf32_1xf32(
     for i in seq(0, vl):
         dst[i] += lhs[i] * rhs[0]
 
-@instr("{dst_data} = __riscv_vfmacc_vf_f32m1{dst_data}, {rhs_data}, {lhs_data},{vl});")
+@instr("{dst_data} = __riscv_vfmacc_vf_f32m1({dst_data}, {rhs_data}, {lhs_data},{vl});")
 def rvv_vfmacc_8xf32_1xf32(
     dst: [f32][8] @ RVV, lhs: [f32][8] @ RVV, rhs: [f32][1] @ DRAM, vl: size
 ):
@@ -231,7 +231,7 @@ def rvv_vfmacc_8xf32_1xf32(
     for i in seq(0, vl):
         dst[i] += lhs[i] * rhs[0]
 
-@instr("{dst_data} = __riscv_vfmacc_vf_f32m1{dst_data}, {lhs_data}, {rhs_data},{vl});")
+@instr("{dst_data} = __riscv_vfmacc_vf_f32m1({dst_data}, {lhs_data}, {rhs_data},{vl});")
 def rvv_vfmacc_1xf32_4xf32(
     dst: [f32][4] @ RVV, lhs: [f32][1] @ DRAM, rhs: [f32][4] @ RVV, vl: size
 ):
@@ -244,7 +244,7 @@ def rvv_vfmacc_1xf32_4xf32(
     for i in seq(0, vl):
         dst[i] += lhs[0] * rhs[i]
 
-@instr("{dst_data} = __riscv_vfmacc_vf_f32m1{dst_data}, {lhs_data}, {rhs_data},{vl});")
+@instr("{dst_data} = __riscv_vfmacc_vf_f32m1({dst_data}, {lhs_data}, {rhs_data},{vl});")
 def rvv_vfmacc_1xf32_8xf32(
     dst: [f32][8] @ RVV, lhs: [f32][1] @ DRAM, rhs: [f32][8] @ RVV, vl: size
 ):
@@ -423,7 +423,7 @@ def rvv_vfmacc_16xf16_16xf16(
         dst[i] += lhs[i] * rhs[i]
 
 
-@instr("{dst_data} = __riscv_vfmacc_vf_f16m1{dst_data}, {rhs_data}, {lhs_data},{vl});")
+@instr("{dst_data} = __riscv_vfmacc_vf_f16m1({dst_data}, {rhs_data}, {lhs_data},{vl});")
 def rvv_vfmacc_8xf16_1xf16(
     dst: [f16][8] @ RVV, lhs: [f16][8] @ RVV, rhs: [f16][1] @ DRAM, vl: size
 ):
@@ -437,7 +437,7 @@ def rvv_vfmacc_8xf16_1xf16(
         dst[i] += lhs[i] * rhs[0]
 
 
-@instr("{dst_data} = __riscv_vfmacc_vf_f16m1{dst_data}, {rhs_data}, {lhs_data},{vl});")
+@instr("{dst_data} = __riscv_vfmacc_vf_f16m1({dst_data}, {rhs_data}, {lhs_data},{vl});")
 def rvv_vfmacc_16xf16_1xf16(
     dst: [f16][16] @ RVV, lhs: [f16][16] @ RVV, rhs: [f16][1] @ DRAM, vl: size
 ):
@@ -450,7 +450,7 @@ def rvv_vfmacc_16xf16_1xf16(
     for i in seq(0, vl):
         dst[i] += lhs[i] * rhs[0]
 
-@instr("{dst_data} = __riscv_vfmacc_vf_f16m1{dst_data}, {lhs_data}, {rhs_data},{vl});")
+@instr("{dst_data} = __riscv_vfmacc_vf_f16m1({dst_data}, {lhs_data}, {rhs_data},{vl});")
 def rvv_vfmacc_1xf16_8xf16(
     dst: [f16][8] @ RVV, lhs: [f16][1] @ DRAM, rhs: [f16][8] @ RVV, vl: size
 ):
@@ -463,7 +463,7 @@ def rvv_vfmacc_1xf16_8xf16(
     for i in seq(0, vl):
         dst[i] += lhs[0] * rhs[i]
 
-@instr("{dst_data} = __riscv_vfmacc_vf_f16m1{dst_data}, {lhs_data}, {rhs_data},{vl});")
+@instr("{dst_data} = __riscv_vfmacc_vf_f16m1({dst_data}, {lhs_data}, {rhs_data},{vl});")
 def rvv_vfmacc_1xf16_16xf16(
     dst: [f16][16] @ RVV, lhs: [f16][1] @ DRAM, rhs: [f16][16] @ RVV, vl: size
 ):
