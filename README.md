@@ -20,7 +20,7 @@ Exo files can be directly executed with Python:
 $ python exo_file.py
 ```
 
-To generate generate C and header files, use `exocc` command:
+To generate C and header files, use `exocc` command:
 ```sh
 $ exocc exo_file.py
 ```

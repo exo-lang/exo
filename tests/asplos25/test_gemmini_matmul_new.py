@@ -106,7 +106,7 @@ def test_matmul(golden):
     )
     gemmini, _ = tile_loops(gemmini, [(k_loop, 16)])
 
-    # Bind and lift scrathpad & accumulator memories
+    # Bind and lift scratchpad & accumulator memories
     gemmini = autolift_alloc(gemmini, res_alloc, max_size=accum_size)
     gemmini, a_load, a_alloc = bind_and_lift(
         gemmini, gemmini.forward(a_assign).rhs(), max_size=sc_size

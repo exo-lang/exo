@@ -31,7 +31,7 @@ def lift_config(p, config):
 def replace_and_inline(p, tup):
     """
     args:
-        - tup: a tuple of an equivalent @instr procedures (instrucion 1, instruction 2)
+        - tup: a tuple of an equivalent @instr procedures (instruction 1, instruction 2)
 
     given:
         @instr(...)

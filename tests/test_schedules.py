@@ -744,7 +744,7 @@ def test_remove_loop_deterministic(golden):
                     A[i, j] = 1.0
 
     # An older Z3 version caused check within remove_loop
-    # to fail non-deterministically (return an unknwon result).
+    # to fail non-deterministically (return an unknown result).
     # This test make sure that over a few runs, it always passes.
     for i in range(10):
         assert str(remove_loop(foo, "k")) == golden

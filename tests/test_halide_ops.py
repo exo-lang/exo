@@ -57,7 +57,7 @@ def blur2d_compute_root(n: size, consumer: i8[n, n], sin: i8[n + 1, n + 1]):
         for j in seq(0, n + 1):
             producer[i, j] = sin[
                 i, j
-            ]  # just a placeholder since sine can't evalute on index exprs
+            ]  # just a placeholder since sine can't evaluate on index exprs
 
     for i in seq(0, n):
         for j in seq(0, n):

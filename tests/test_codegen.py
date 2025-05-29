@@ -32,7 +32,7 @@ class MOCK(DRAM):
         return ""
 
 
-# Testing to make sure free is inserted correcctly
+# Testing to make sure free is inserted correctly
 def test_free(compiler):
     @proc
     def foo():

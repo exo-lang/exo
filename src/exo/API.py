@@ -51,7 +51,7 @@ def proc(f, _instr=None) -> "Procedure":
 
 def instr(c_instr, c_global=""):
     if not isinstance(c_instr, str):
-        raise TypeError("@instr decorator must be @instr(<your instuction>)")
+        raise TypeError("@instr decorator must be @instr(<your instruction>)")
 
     def inner(f):
         if not isinstance(f, types.FunctionType):
