@@ -235,7 +235,6 @@ class Compiler:
         include_dir=None,
         additional_file=None,
         skip_on_fail: bool = False,
-        **kwargs,
     ):
         if isinstance(procs, Procedure):
             procs = [procs]

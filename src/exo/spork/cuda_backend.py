@@ -12,6 +12,7 @@ from ..core.LoopIR import (
     T,
     LoopIR_Do,
     LoopIR_Rewrite,
+    GetReads,
 )
 
 from . import actor_kinds
@@ -278,6 +279,19 @@ class SubtreeScan(LoopIR_Do):
         self.device_args_syms = []
         self.grid_constant_syms = set()
         self.scalar_ref_syms = set()
+        for sym in tuple(self._syms_needed):
+            # For Tensors, we need to pass the sizes explicitly to the device
+            # TODO: WindowType ignored here -- could fail for some cases?
+            try:
+                typ = ctx.sym_type(sym)
+                if isinstance(typ, LoopIR.Tensor):
+                    for e in typ.hi:
+                        getter = GetReads()
+                        getter.do_e(e)
+                        for nm, _ in getter.reads:
+                            self._syms_needed.add(nm)
+            except KeyError:
+                continue
         for sym in self._syms_needed:
             try:
                 cpu_nm = ctx.sym_c_name(sym)

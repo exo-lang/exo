@@ -330,3 +330,51 @@ def test_cuda_simple_matmul(compiler):
                 C_expected = np.ndarray(shape=(M, N), dtype=np.float32, order="F")
                 np.matmul(A, B, C_expected)
                 assert np.array_equal(C_test, C_expected)
+
+
+def test_cuda_arrays(compiler):
+    """Test correct behavior of passing arrays from host to device:
+
+    * grid constant support
+    * runtime-size arrays
+    * test exo_* prefix args; which are mangled
+    * conversion
+    """
+
+    @proc
+    def array_test(
+        exo_ZZ0a: size,
+        exo_ZZ0b: size,
+        exo_ZZ1a: size,
+        exo_ZZ1b: size,
+        exo_ZZ2: i32[exo_ZZ0a + exo_ZZ0b, exo_ZZ1a + exo_ZZ1b],
+        exo_ZZ3: f32[4],
+    ):
+        assert exo_ZZ0b > 4
+        assert exo_ZZ1b > 4
+        exo_ZZ2_device: i32[exo_ZZ0a + exo_ZZ0b, exo_ZZ1a + exo_ZZ1b] @ CudaGmemLinear
+        exo_ZZ3_device: i32[4] @ CudaGridConstant
+        for i in seq(0, 4):
+            exo_ZZ3_device[i] = exo_ZZ3[i]
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                for tid in cuda_threads(0, 4):
+                    exo_ZZ2_device[exo_ZZ0a + tid, exo_ZZ1a + 4 - tid] = exo_ZZ3_device[
+                        tid
+                    ]
+        cudaMemcpyAsync_dtoh_2i32(
+            exo_ZZ0a + exo_ZZ0b, exo_ZZ1a + exo_ZZ1b, exo_ZZ2, exo_ZZ2_device
+        )
+
+    fn = compiler.nvcc_compile(array_test)
+
+    ZZ0a = 129
+    ZZ0b = 100
+    ZZ1a = 137
+    ZZ1b = 10
+    ZZ2 = np.ndarray(shape=(ZZ0a + ZZ0b, ZZ1a + ZZ1b), dtype=np.int32, order="C")
+    ZZ3 = np.array([2, 7, 1, 8], dtype=np.float32, order="C")
+    fn(None, ZZ0a, ZZ0b, ZZ1a, ZZ1b, ZZ2, ZZ3)
+
+    for i in range(4):
+        assert ZZ2[ZZ0a + i, ZZ1a + 4 - i] == ZZ3[i]
