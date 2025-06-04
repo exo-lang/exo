@@ -16,7 +16,7 @@ import pytest
 from _pytest.config import argparsing, Config
 from _pytest.nodes import Node
 
-from exo import Procedure, compile_procs
+from exo import Procedure, compile_procs, ext_compile_procs
 
 
 # ---------------------------------------------------------------------------- #
@@ -193,11 +193,12 @@ class Compiler:
         if isinstance(procs, Procedure):
             procs = [procs]
 
-        compile_procs(procs, self.workdir, f"{self.basename}.c", f"{self.basename}.h")
+        file_exts = ext_compile_procs(procs, self.workdir, self.basename)
 
         atl = self.workdir / f"{self.basename}_pretty.atl"
         atl.write_text("\n".join(map(str, procs)))
 
+        assert file_exts == ["c", "h"]
         (self.workdir / "CMakeLists.txt").write_text(
             self._generate_cml(test_files, include_dir, additional_file)
         )
@@ -227,6 +228,51 @@ class Compiler:
 
         return LibWrapper(ctypes.CDLL(artifact_path), procs[0].name())
 
+    def nvcc_compile(
+        self,
+        procs: Union[Procedure, List[Procedure]],
+        *,
+        include_dir=None,
+        additional_file=None,
+        skip_on_fail: bool = False,
+        **kwargs,
+    ):
+        if isinstance(procs, Procedure):
+            procs = [procs]
+
+        file_exts = ext_compile_procs(procs, self.workdir, self.basename)
+        assert file_exts == ["c", "cu", "cuh", "h"]
+
+        # Directly use nvcc (or $EXO_NVCC)
+        # This pretty much only works on Linux.
+        nvcc = os.getenv("EXO_NVCC", default="nvcc")
+        artifact_path = str(self.workdir / (self.basename + ".so"))
+        args = [
+            nvcc,
+            "-arch=native",
+            "-lineinfo",
+            "-O3",
+            str(self.workdir / (self.basename + ".c")),
+            str(self.workdir / (self.basename + ".cu")),
+            "--compiler-options",
+            "'-fPIC'",
+            "--shared",
+            "-o",
+            artifact_path,
+            "-lcuda",
+        ]
+        if ccbin := os.getenv("EXO_CCBIN", default=None):
+            args.append("-ccbin")
+            args.append(ccbin)
+        if include_dir is not None:
+            args.append("-I")
+            args.append(include_dir)
+        if additional_file:
+            args.append(additional_file)
+
+        self._run_command(args, skip_on_fail)
+        return LibWrapper(ctypes.CDLL(artifact_path), procs[0].name())
+
     @staticmethod
     def _run_command(build_command, skip_on_fail):
         skip = False
@@ -249,12 +295,12 @@ class Compiler:
             f"""
             cmake_minimum_required(VERSION 3.21)
             project({self.basename} LANGUAGES C)
-            
+
             option(BUILD_SHARED_LIBS "Build shared libraries by default" ON)
-            
+
             add_library({self.basename} "{self.basename}.c" {additional_file})
             add_library({self.basename}::{self.basename} ALIAS {self.basename})
-            
+
             """
         )
 
@@ -279,7 +325,7 @@ class Compiler:
                 add_executable(main {' '.join(test_files.keys())})
                 add_executable({artifact} ALIAS main)
                 target_link_libraries(main PRIVATE {lib_name})
-                
+
                 """
             )
 

@@ -1593,14 +1593,11 @@ def dataptr_name(wname):
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
-# Assemble includes and exo_CudaUtil struct in .cuh file
+# Assemble includes and exo_CudaUtil namespace in .cuh file
 # from list of pairs of (required_by: str, content: str)
 # where content is a header name or a cu_util blob.
 # We remove exact duplicate strings.
 def prepend_tagged_cuh_ext_lines(is_includes, lib_name, tagged_content, ext_lines):
-    if not tagged_content:
-        return
-
     combined: [List[str], str] = []  # ([required_by], content)
     index_dict = {}
 

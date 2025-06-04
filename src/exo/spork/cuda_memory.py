@@ -254,12 +254,40 @@ class CudaGmemLinear(CudaDeviceVisibleLinear):
     """
 
     @classmethod
+    def global_(cls):
+        return """#include <cuda_runtime.h>
+
+#ifndef exo_cudaMallocAsync
+#ifndef __cplusplus
+static
+#endif
+inline void* exo_cudaMallocAsync_default(size_t size, cudaStream_t exo_cudaStream)
+{
+    void* out;
+    cudaMallocAsync(&out, size, exo_cudaStream);
+    return out;
+}
+#define exo_cudaMallocAsync exo_cudaMallocAsync_default
+#endif
+
+#ifndef exo_cudaFreeAsync
+#define exo_cudaFreeAsync cudaFreeAsync
+#endif"""
+
+    @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
-        raise MemGenError("TODO implement CudaGmemLinear.alloc")
+        if len(shape) == 0:
+            raise MemGenError("Cannot allocate scalar CudaGmemLinear")
+        return (
+            f"{prim_type} *{new_name} = "
+            f"({prim_type}*) exo_cudaMallocAsync({' * '.join(shape)} * sizeof(*{new_name}), exo_cudaStream);"
+        )
 
     @classmethod
     def free(cls, new_name, prim_type, shape, srcinfo):
-        raise MemGenError("TODO implement CudaGmemLinear.free")
+        if len(shape) == 0:
+            raise MemGenError("Cannot allocate scalar CudaGmemLinear")
+        return f"exo_cudaFreeAsync({new_name}, exo_cudaStream);"
 
     @classmethod
     def actor_kind_permission(cls, actor_kind, is_instr):
