@@ -266,21 +266,13 @@ def _print_absdom(absdom, env: PrintEnv, indent: str):
 def _print_tree(tree, env: PrintEnv, indent: str):
     if isinstance(tree, D.Leaf):
         return f"{indent}- {_print_val(tree.v, env)}"
-    elif isinstance(tree, D.AffineSplit):
-        nstr = _print_ae(tree.ae, env)
+    elif isinstance(tree, D.LinSplit):
+        nstr = _print_bexpr(tree.cond, env)
         newdent = indent + " " * (len(nstr) + 1)
         indent = indent + "- "
         return f"""{indent}{nstr}
-{_print_tree(tree.ltz, env, newdent)}
-{_print_tree(tree.eqz, env, newdent)}
-{_print_tree(tree.gtz, env, newdent)}"""
-    elif isinstance(tree, D.ModSplit):
-        nstr = _print_ae(tree.ae, env) + f"%{tree.m}"
-        newdent = indent + " " * (len(nstr) + 1)
-        indent = indent + "- "
-        return f"""{indent}{nstr}
-{_print_tree(tree.neqz, env, newdent)}
-{_print_tree(tree.eqz, env, newdent)}"""
+{_print_tree(tree.t_branch, env, newdent)}
+{_print_tree(tree.f_branch, env, newdent)}"""
     else:
         assert False, "bad case"
 
@@ -296,6 +288,17 @@ def _print_val(val, env: PrintEnv):
         )
         return f"{env.get_name(val.name)}{idxs}"
     assert False, "bad case"
+
+
+def _print_bexpr(be, env: PrintEnv):
+    if isinstance(be, D.Lt):
+        return f"{_print_ae(be.lhs, env)}<0"
+    elif isinstance(be, D.Le):
+        return f"{_print_ae(be.lhs, env)}<=0"
+    elif isinstance(be, D.Eq):
+        return f"{_print_ae(be.lhs, env)}==0"
+    else:
+        assert False
 
 
 def _print_ae(ae, env: PrintEnv):

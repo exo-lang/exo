@@ -58,8 +58,8 @@ def test_eliminate_target_dim(golden):
     leaf3 = D.Leaf(D.SubVal(V.ValConst(3.0)))
 
     ae = D.Add(D.Mult(2, D.Var(i)), D.Mult(-2, D.Var(d)))
-    subtree = D.ModSplit(D.Var(i), 2, avar, leaf3)
-    tree = D.AffineSplit(ae, avar, subtree, avar2)
+    subtree = D.LinSplit(D.Eq(D.Mod(D.Var(i), 2)), leaf3, avar)
+    tree = D.LinSplit(D.Lt(ae), avar, D.LinSplit(D.Eq(ae), subtree, avar2))
 
     res_tree = eliminate_target_dim(tree, i)
 
@@ -80,8 +80,8 @@ def test_overlay1(golden):
 
     ae1 = D.Add(D.Var(x), D.Mult(-1, D.Var(y)))
     ae2 = D.Add(D.Add(D.Var(x), D.Var(y)), D.Const(-10))
-    t1 = D.AffineSplit(ae1, leaf0, leaf1, leaf0)
-    t2 = D.AffineSplit(ae2, leaf2, leaf3, leaf2)
+    t1 = D.LinSplit(D.Lt(ae1), leaf0, D.LinSplit(D.Eq(ae1), leaf1, leaf0))
+    t2 = D.LinSplit(D.Lt(ae2), leaf2, D.LinSplit(D.Eq(ae2), leaf3, leaf2))
 
     # Wrap each tree in D.abs with [x, y] as iterators
     abs1 = D.abs([x, y], t1)
@@ -108,9 +108,9 @@ def test_overlay2(golden):
 
     ae1 = D.Add(D.Var(x), D.Mult(-1, D.Var(y)))
     ae2 = D.Add(D.Var(y), D.Mult(-1, D.Var(x)))
-    t1 = D.AffineSplit(ae1, leaf1, leaf2, leaf3)
-    t2 = D.AffineSplit(ae2, leaf3, leaf2, leaf1)
-    t3 = D.AffineSplit(ae2, leaf1, leaf2, leaf3)
+    t1 = D.LinSplit(D.Lt(ae1), leaf1, D.LinSplit(D.Eq(ae1), leaf2, leaf3))
+    t2 = D.LinSplit(D.Lt(ae2), leaf3, D.LinSplit(D.Eq(ae2), leaf2, leaf1))
+    t3 = D.LinSplit(D.Lt(ae2), leaf1, D.LinSplit(D.Eq(ae2), leaf2, leaf3))
 
     abs1 = D.abs([x, y], t1)
     abs2 = D.abs([x, y], t2)
@@ -133,8 +133,12 @@ def test_overlay3(golden):
 
     ae1 = D.Add(D.Var(i), D.Const(-1))
     ae2 = D.Var(d)
-    t1 = D.AffineSplit(ae1, leaf3, leafbot, leafbot)
-    t2 = D.AffineSplit(ae1, leaf3, leaf2, D.AffineSplit(ae2, leaf1, leaf2, leafbot))
+    t1 = D.LinSplit(D.Lt(ae1), leaf3, D.LinSplit(D.Eq(ae1), leafbot, leafbot))
+    t2 = D.LinSplit(
+        D.Lt(ae1),
+        leaf3,
+        D.LinSplit(D.Eq(ae1), leaf2, D.LinSplit(D.Lt(ae2), leaf1, D.LinSplit(D.Eq(ae2), leaf2, leafbot))),
+    )
 
     abs1 = D.abs([i, d], t1)
     abs2 = D.abs([i, d], t2)
@@ -155,9 +159,17 @@ def test_overlay4(golden):
 
     ae1 = D.Add(D.Var(x), D.Const(-1))
     ae2 = D.Add(D.Var(y), D.Const(-2))
-    t1 = D.AffineSplit(ae1, leaf3, leaf2, leaf1)
-    t2 = D.AffineSplit(ae1, leaf3, leaf2, D.AffineSplit(ae2, leaf1, leaf1, leaf1))
-    t3 = D.AffineSplit(ae1, leaf3, leaf2, D.AffineSplit(ae2, leaf1, leaf1, leaf3))
+    t1 = D.LinSplit(D.Lt(ae1), leaf3, D.LinSplit(D.Eq(ae1), leaf2, leaf1))
+    t2 = D.LinSplit(
+        D.Lt(ae1),
+        leaf3,
+        D.LinSplit(D.Eq(ae1), leaf2, D.LinSplit(D.Lt(ae2), leaf1, D.LinSplit(D.Eq(ae2), leaf1, leaf1))),
+    )
+    t3 = D.LinSplit(
+        D.Lt(ae1),
+        leaf3,
+        D.LinSplit(D.Eq(ae1), leaf2, D.LinSplit(D.Lt(ae2), leaf1, D.LinSplit(D.Eq(ae2), leaf1, leaf3))),
+    )
 
     abs1 = D.abs([x, y], t1)
     abs2 = D.abs([x, y], t2)

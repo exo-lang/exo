@@ -771,18 +771,16 @@ def validateValueDom(obj):
 ArrayDomain = ADT(
     """
 module ArrayDomain {
-    abs = (sym* iterators, node tree)
+    abs  = (sym* iterators, node tree)
 
-    node   = Leaf(val v)
-           | AffineSplit(aexpr ae,
-               node  ltz, -- ae < 0 case
-               node  eqz, -- ae == 0
-               node  gtz  -- ae > 0
-             )
-           | ModSplit(aexpr ae, int m
-               node neqz, -- pred % m != 0
-               node  eqz, -- pred % m == 0 case
-             )
+    node = Leaf(val v)
+         | LinSplit(bexpr cond,
+             node  t_branch,
+             node  f_branch)
+
+    bexpr = Lt(aexpr lhs)
+           | Le(aexpr lhs)
+           | Eq(aexpr lhs)
 
     val   = SubVal(vabs av)
           | ArrayVar(sym name, aexpr* idx)
@@ -790,7 +788,7 @@ module ArrayDomain {
     aexpr = Const(int val)
           | Var(sym name)
           | Add(aexpr lhs, aexpr rhs)
-          | Mult(int coeff, aexpr ae)  
+          | Mult(int coeff, aexpr ae)
           | Div(aexpr ae, int divisor)
           | Mod(aexpr ae, int m)
 }
@@ -873,10 +871,8 @@ def is_all_top(a):
     if isinstance(a, D.Leaf):
         if isinstance(a.v, D.SubVal) and isinstance(a.v.av, V.Top):
             return True
-    if isinstance(a, D.AffineSplit):
-        return is_all_top(a.ltz) and is_all_top(a.eqz) and is_all_top(a.gtz)
-    if isinstance(a, D.ModSplit):
-        return is_all_top(a.neqz) and is_all_top(a.eqz)
+    if isinstance(a, D.LinSplit):
+        return is_all_top(a.t_branch) and is_all_top(a.f_branch)
 
     return False
 
@@ -975,6 +971,20 @@ def lift_to_smt_a(e: D.aexpr) -> A:
         assert False, "bad case!"
 
 
+# Convert D.bexpr to SMT expression
+def lift_to_smt_b(e: D.bexpr):
+    assert isinstance(e, D.bexpr)
+    pred = lift_to_smt_a(e.lhs)
+    if isinstance(e, D.Lt):
+        return mk_aexpr("<", pred)
+    elif isinstance(e, D.Le):
+        return mk_aexpr("<=", pred)
+    elif isinstance(e, D.Eq):
+        return mk_aexpr("==", pred)
+    else:
+        assert False, "bad case"
+
+
 # Corresponds to \mathcal{L}^\#_{node} in the paper
 def lift_to_smt_n(name: Sym, src: D.node):
     aname = A.Var(name, T.R, null_srcinfo())
@@ -982,39 +992,14 @@ def lift_to_smt_n(name: Sym, src: D.node):
     def map_tree(tree):
         if isinstance(tree, D.Leaf):
             return lift_to_smt_val(aname, tree.v)
-        elif isinstance(tree, D.AffineSplit):
-            # | Select( expr cond, expr tcase, expr fcase )
-            pred = lift_to_smt_a(tree.ae)
-            ltz_eq = mk_aexpr("<", pred)
-            eqz_eq = mk_aexpr("==", pred)
+        elif isinstance(tree, D.LinSplit):
+            cond_expr = lift_to_smt_b(tree.cond)
             return A.Select(
-                ltz_eq,
-                map_tree(tree.ltz),
-                A.Select(
-                    eqz_eq,
-                    map_tree(tree.eqz),
-                    map_tree(tree.gtz),
-                    T.bool,
-                    null_srcinfo(),
-                ),
+                cond_expr,
+                map_tree(tree.t_branch),
+                map_tree(tree.f_branch),
                 T.bool,
                 null_srcinfo(),
-            )
-        elif isinstance(tree, D.ModSplit):
-            # | ModSplit(aexpr ae, int m
-            #   node neqz, -- pred % m != 0
-            #   node  eqz, -- pred % m == 0 case
-
-            pred = A.BinOp(
-                "%",
-                lift_to_smt_a(tree.ae),
-                A.Var(tree.m, T.int, null_srcinfo()),
-                DataflowIR.Int(),
-                null_srcinfo(),
-            )
-            mod_eq = mk_aexpr("==", pred)
-            return A.Select(
-                mod_eq, map_tree(tree.eqz), map_tree(tree.neqz), T.bool, null_srcinfo()
             )
 
     return map_tree(src)
@@ -1102,105 +1087,31 @@ def abs_simplify(src: D.abs) -> D.abs:
         if isinstance(tree, D.Leaf):
             return tree
 
-        elif isinstance(tree, D.AffineSplit):
-            # When assumptions are unsatisfiable, this is a cell without integer points. We Bottom such cases.
-            if not slv.satisfy((A.Const(True, T.bool, null_srcinfo()))):
+        elif isinstance(tree, D.LinSplit):
+            if not slv.satisfy(A.Const(True, T.bool, null_srcinfo())):
                 return D.Leaf(D.SubVal(V.Bot()))
 
-            # we can collapse the tree when all values are the same
-            if (
-                isinstance(tree.ltz, D.Leaf)
-                and isinstance(tree.eqz, D.Leaf)
-                and isinstance(tree.gtz, D.Leaf)
-                and (type(tree.ltz) == type(tree.eqz) == type(tree.gtz))
-                and (tree.ltz.v == tree.eqz.v == tree.gtz.v)
-            ):
-                return tree.ltz
+            cond_expr = lift_to_smt_b(tree.cond)
 
-            pred = lift_to_smt_a(tree.ae)
+            if slv.verify(cond_expr):
+                return map_tree(tree.t_branch)
+            if slv.verify(A.Not(cond_expr, T.bool, null_srcinfo())):
+                return map_tree(tree.f_branch)
 
-            # If ltz branch is unsatisfiable and the values for eqz and gtz branches are equivalent, we can collapse this node.
-            if (
-                isinstance(tree.eqz, D.Leaf)
-                and isinstance(tree.gtz, D.Leaf)
-                and (type(tree.eqz) == type(tree.gtz))
-                and (tree.eqz.v == tree.gtz.v)
-            ):
-                if not slv.satisfy(mk_aexpr("<", pred)):
-                    return tree.eqz
-
-            # If gtz branch is unsatisfiable and the values for eqz and ltz branches are equivalent, we can collapse this node.
-            if (
-                isinstance(tree.eqz, D.Leaf)
-                and isinstance(tree.ltz, D.Leaf)
-                and (type(tree.eqz) == type(tree.ltz))
-                and (tree.eqz.v == tree.ltz.v)
-            ):
-                if not slv.satisfy(mk_aexpr(">", pred)):
-                    return tree.eqz
-
-            # check if anything is simplifiable
-            ltz_eq = mk_aexpr("<", pred)
-            eqz_eq = mk_aexpr("==", pred)
-            gtz_eq = mk_aexpr(">", pred)
-
-            if slv.verify(eqz_eq):
-                return map_tree(tree.eqz)
-            elif slv.verify(gtz_eq):
-                return map_tree(tree.gtz)
-            elif slv.verify(ltz_eq):
-                return map_tree(tree.ltz)
-
-            # ltz
             slv.push()
-            slv.assume(ltz_eq)
-            ltz = map_tree(tree.ltz)
+            slv.assume(cond_expr)
+            t_b = map_tree(tree.t_branch)
             slv.pop()
 
-            # eqz
             slv.push()
-            slv.assume(eqz_eq)
-            eqz = map_tree(tree.eqz)
+            slv.assume(A.Not(cond_expr, T.bool, null_srcinfo()))
+            f_b = map_tree(tree.f_branch)
             slv.pop()
 
-            # gtz
-            slv.push()
-            slv.assume(gtz_eq)
-            gtz = map_tree(tree.gtz)
-            slv.pop()
+            if isinstance(t_b, D.Leaf) and isinstance(f_b, D.Leaf) and t_b.v == f_b.v:
+                return t_b
 
-            return D.AffineSplit(tree.ae, ltz, eqz, gtz)
-
-        elif isinstance(tree, D.ModSplit):
-            # pred: ae % m
-            pred = A.BinOp(
-                "%",
-                lift_to_smt_a(tree.ae),
-                A.Var(tree.m, T.int, null_srcinfo()),
-                DataflowIR.Int(),
-                null_srcinfo(),
-            )
-            # eqz_eq: ae % m == 0
-            eqz_eq = mk_aexpr("==", pred)
-            neqz_eq = A.Not(eqz_eq, T.Bool(), null_srcinfo())
-            if slv.verify(eqz_eq):
-                return map_tree(tree.eqz)
-            elif slv.verify(neqz_eq):
-                return map_tree(tree.neqz)
-
-            # eqz
-            slv.push()
-            slv.assume(eqz_eq)
-            eqz = map_tree(tree.eqz)
-            slv.pop()
-
-            # neqz
-            slv.push()
-            slv.assume(neqz_eq)
-            neqz = map_tree(tree.neqz)
-            slv.pop()
-
-            return D.ModSplit(tree.ae, tree.m, neqz, eqz)
+            return D.LinSplit(tree.cond, t_b, f_b)
         else:
             assert False, "bad case"
 
@@ -1227,19 +1138,11 @@ class Abs_Rewrite:
     def map_node(self, node):
         if isinstance(node, D.Leaf):
             return D.Leaf(self.map_val(node.v))
-        elif isinstance(node, D.AffineSplit):
-            return D.AffineSplit(
-                self.map_aexpr(node.ae),
-                self.map_node(node.ltz),
-                self.map_node(node.eqz),
-                self.map_node(node.gtz),
-            )
-        elif isinstance(node, D.ModSplit):
-            return D.ModSplit(
-                self.map_aexpr(node.ae),
-                node.m,
-                self.map_node(node.neqz),
-                self.map_node(node.eqz),
+        elif isinstance(node, D.LinSplit):
+            return D.LinSplit(
+                self.map_bexpr(node.cond),
+                self.map_node(node.t_branch),
+                self.map_node(node.f_branch),
             )
         else:
             assert False
@@ -1266,6 +1169,16 @@ class Abs_Rewrite:
             return D.Div(self.map_aexpr(aexpr.ae), aexpr.divisor)
         elif isinstance(aexpr, D.Mod):
             return D.Mod(self.map_aexpr(aexpr.ae), aexpr.m)
+        else:
+            assert False
+
+    def map_bexpr(self, be):
+        if isinstance(be, D.Lt):
+            return D.Lt(self.map_aexpr(be.lhs))
+        elif isinstance(be, D.Le):
+            return D.Le(self.map_aexpr(be.lhs))
+        elif isinstance(be, D.Eq):
+            return D.Eq(self.map_aexpr(be.lhs))
         else:
             assert False
 
@@ -1390,26 +1303,16 @@ def eliminate_target_dim(val, tgt):
 
     if isinstance(val, D.Leaf):
         return val
-    elif isinstance(val, D.AffineSplit):
-        r = solve_for(val.ae, tgt)
-        if r == None:
-            eqz = eliminate_target_dim(val.eqz, tgt)
-        else:
-            eqz = ASubs(val.eqz, {tgt: r}).result()
+    elif isinstance(val, D.LinSplit):
+        t_branch = eliminate_target_dim(val.t_branch, tgt)
+        f_branch = eliminate_target_dim(val.f_branch, tgt)
 
-        return D.AffineSplit(
-            val.ae,
-            eliminate_target_dim(val.ltz, tgt),
-            eqz,
-            eliminate_target_dim(val.gtz, tgt),
-        )
-    elif isinstance(val, D.ModSplit):
-        return D.ModSplit(
-            val.ae,
-            val.m,
-            eliminate_target_dim(val.neqz, tgt),
-            eliminate_target_dim(val.eqz, tgt),
-        )
+        if isinstance(val.cond, D.Eq):
+            r = solve_for(val.cond.lhs, tgt)
+            if r is not None:
+                t_branch = ASubs(t_branch, {tgt: r}).result()
+
+        return D.LinSplit(val.cond, t_branch, f_branch)
     else:
         assert False, "bad else"
 
@@ -1444,14 +1347,16 @@ def overlay(a1: D.abs or D.node, a2: D.abs or D.node, fun) -> D.node:
                 )
             )
 
-        return overlay_with_smt(slv, a1.tree, a2.tree, fun)
+        res = overlay_with_smt(slv, a1.tree, a2.tree, fun)
+        return reduce_ldd(res)
     else:
         assert isinstance(a1, D.node)
         assert isinstance(a2, D.node)
 
         slv = SMTSolver(verbose=False)
 
-        return overlay_with_smt(slv, a1, a2, fun)
+        res = overlay_with_smt(slv, a1, a2, fun)
+        return reduce_ldd(res)
 
 
 def mk_mod_expr(ae, m):
@@ -1483,66 +1388,37 @@ def aexpr_eq(e1, e2):
         assert False, "bad case"
 
 
-def affine_overlay_helper(slv, t1, t2, fun):
-    """
-    t1 is a affine split, t2 can be anything
-    """
-    pred_expr = lift_to_smt_a(t1.ae)
+def bexpr_eq(b1, b2):
+    assert isinstance(b1, D.bexpr) and isinstance(b2, D.bexpr)
+    if type(b1) != type(b2):
+        return False
+    return aexpr_eq(b1.lhs, b2.lhs)
 
-    # check if anything is simplifiable
-    ltz_eq = mk_aexpr("<", pred_expr)
-    eqz_eq = mk_aexpr("==", pred_expr)
-    gtz_eq = mk_aexpr(">", pred_expr)
 
-    if slv.verify(ltz_eq):
-        return overlay_with_smt(slv, t1.ltz, t2, fun)
-    if slv.verify(eqz_eq):
-        return overlay_with_smt(slv, t1.eqz, t2, fun)
-    if slv.verify(gtz_eq):
-        return overlay_with_smt(slv, t1.gtz, t2, fun)
+def bexpr_key(b):
+    return str(b)
+
+
+def split_overlay_helper(slv, t1: D.LinSplit, t2, fun):
+    """Overlay helper when t1 is a split node"""
+    cond_expr = lift_to_smt_b(t1.cond)
+
+    if slv.verify(cond_expr):
+        return overlay_with_smt(slv, t1.t_branch, t2, fun)
+    if slv.verify(A.Not(cond_expr, T.bool, null_srcinfo())):
+        return overlay_with_smt(slv, t1.f_branch, t2, fun)
 
     slv.push()
-    slv.assume(ltz_eq)
-    new_ltz = overlay_with_smt(slv, t1.ltz, t2, fun)
+    slv.assume(cond_expr)
+    new_t = overlay_with_smt(slv, t1.t_branch, t2, fun)
     slv.pop()
 
     slv.push()
-    slv.assume(eqz_eq)
-    new_eqz = overlay_with_smt(slv, t1.eqz, t2, fun)
+    slv.assume(A.Not(cond_expr, T.bool, null_srcinfo()))
+    new_f = overlay_with_smt(slv, t1.f_branch, t2, fun)
     slv.pop()
 
-    slv.push()
-    slv.assume(gtz_eq)
-    new_gtz = overlay_with_smt(slv, t1.gtz, t2, fun)
-    slv.pop()
-
-    return D.AffineSplit(t1.ae, new_ltz, new_eqz, new_gtz)
-
-
-def mod_overlay_helper(slv, t1, t2, fun):
-    """
-    t1 is a mod-split, t2 can be anything
-    """
-    pred_expr = mk_mod_expr(t1.ae, t1.m)
-    eq_expr = mk_aexpr("==", pred_expr)
-    neq_expr = A.Not(eq_expr, T.bool, null_srcinfo())
-
-    if slv.verify(eq_expr):
-        return overlay_with_smt(slv, t1.eqz, t2, fun)
-    if slv.verify(neq_expr):
-        return overlay_with_smt(slv, t1.neqz, t2, fun)
-
-    slv.push()
-    slv.assume(eq_expr)
-    new_eqz = overlay_with_smt(slv, t1.eqz, t2, fun)
-    slv.pop()
-
-    slv.push()
-    slv.assume(neq_expr)
-    new_neqz = overlay_with_smt(slv, t1.neqz, t2, fun)
-    slv.pop()
-
-    return D.ModSplit(t1.ae, t1.m, new_neqz, new_eqz)
+    return D.LinSplit(t1.cond, new_t, new_f)
 
 
 def overlay_with_smt(slv, t1, t2, fun):
@@ -1557,80 +1433,77 @@ def overlay_with_smt(slv, t1, t2, fun):
 
     # -- Case 1: both are leaves
     if isinstance(t1, D.Leaf) and isinstance(t2, D.Leaf):
-        # Now we combine the leaf values with fun
         return D.Leaf(fun(t1.v, t2.v))
 
-    # -- Case 2: t1 is a leaf but t2 is a split
-    if isinstance(t1, D.Leaf):
-        if isinstance(t2, D.AffineSplit):
-            return affine_overlay_helper(slv, t2, t1, fun)
+    # -- Case 2: one is leaf
+    if isinstance(t1, D.Leaf) and isinstance(t2, D.LinSplit):
+        return split_overlay_helper(slv, t2, t1, lambda v2, v1: fun(v1, v2))
+    if isinstance(t2, D.Leaf) and isinstance(t1, D.LinSplit):
+        return split_overlay_helper(slv, t1, t2, fun)
 
-        if isinstance(t2, D.ModSplit):
-            return mod_overlay_helper(slv, t2, t1, fun)
-
-    # -- Case 3: t2 is a leaf but t1 is a split (symmetric to case 2)
-    if isinstance(t2, D.Leaf):
-        if isinstance(t1, D.AffineSplit):
-            return affine_overlay_helper(slv, t1, t2, fun)
-
-        elif isinstance(t1, D.ModSplit):
-            return mod_overlay_helper(slv, t1, t2, fun)
-
-    # -- Case 4: both are AffineSplit
-    if isinstance(t1, D.AffineSplit) and isinstance(t2, D.AffineSplit):
-        # If they split on the same expression, unify sub-branches directly
-        if aexpr_eq(t1.ae, t2.ae):  # just a syntactic equivalence for now
-            pred_expr = lift_to_smt_a(t1.ae)
-
+    # -- Case 3: both splits
+    if isinstance(t1, D.LinSplit) and isinstance(t2, D.LinSplit):
+        if bexpr_eq(t1.cond, t2.cond):
+            cond_expr = lift_to_smt_b(t1.cond)
             slv.push()
-            slv.assume(mk_aexpr("<", pred_expr))  # from t1
-            merged_ltz = overlay_with_smt(slv, t1.ltz, t2.ltz, fun)
+            slv.assume(cond_expr)
+            t_branch = overlay_with_smt(slv, t1.t_branch, t2.t_branch, fun)
             slv.pop()
 
             slv.push()
-            slv.assume(mk_aexpr("==", pred_expr))
-            merged_eqz = overlay_with_smt(slv, t1.eqz, t2.eqz, fun)
+            slv.assume(A.Not(cond_expr, T.bool, null_srcinfo()))
+            f_branch = overlay_with_smt(slv, t1.f_branch, t2.f_branch, fun)
             slv.pop()
 
-            slv.push()
-            slv.assume(mk_aexpr(">", pred_expr))
-            merged_gtz = overlay_with_smt(slv, t1.gtz, t2.gtz, fun)
-            slv.pop()
+            return D.LinSplit(t1.cond, t_branch, f_branch)
 
-            return D.AffineSplit(t1.ae, merged_ltz, merged_eqz, merged_gtz)
-
+        if bexpr_key(t1.cond) < bexpr_key(t2.cond):
+            return D.LinSplit(
+                t1.cond,
+                overlay_with_smt(slv, t1.t_branch, t2, fun),
+                overlay_with_smt(slv, t1.f_branch, t2, fun),
+            )
         else:
-            return affine_overlay_helper(slv, t1, t2, fun)
+            return D.LinSplit(
+                t2.cond,
+                overlay_with_smt(slv, t1, t2.t_branch, fun),
+                overlay_with_smt(slv, t1, t2.f_branch, fun),
+            )
 
-    # -- Case 5: both are ModSplit
-    if isinstance(t1, D.ModSplit) and isinstance(t2, D.ModSplit):
-        # If they split on the *same* (aexpr, modulus), unify sub-branches
-        if aexpr_eq(t1.ae, t2.ae) and t1.m == t2.m:
-            # Both do `ae % m == 0` vs `!=0`; unify eqz with eqz, neqz with neqz
-            pred_expr = mk_mod_expr(t1.ae, t1.m)
-
-            slv.push()
-            slv.assume(mk_aexpr("==", pred_expr))
-            merged_eqz = overlay_with_smt(slv, t1.eqz, t2.eqz, fun)
-            slv.pop()
-
-            slv.push()
-            slv.assume(A.Not(mk_aexpr("==", pred_expr), T.bool, null_srcinfo()))
-            merged_neqz = overlay_with_smt(slv, t1.neqz, t2.neqz, fun)
-            slv.pop()
-
-            return D.ModSplit(t1.ae, t1.m, merged_neqz, merged_eqz)
-        else:
-            return mod_overlay_helper(slv, t1, t2, fun)
-
-    # -- Case 6: one is AffineSplit, the other is ModSplit
-    if isinstance(t1, D.AffineSplit) and isinstance(t2, D.ModSplit):
-        return affine_overlay_helper(slv, t1, t2, fun)
-
-    if isinstance(t1, D.ModSplit) and isinstance(t2, D.AffineSplit):
-        return mod_overlay_helper(slv, t1, t2, fun)
+    if isinstance(t1, D.LinSplit):
+        return split_overlay_helper(slv, t1, t2, fun)
+    if isinstance(t2, D.LinSplit):
+        return split_overlay_helper(slv, t2, t1, lambda v2, v1: fun(v1, v2))
 
     assert False, "shouldn't reach here"
+
+
+def reduce_ldd(node: D.node, uniq=None, memo=None):
+    if uniq is None:
+        uniq = {}
+    if memo is None:
+        memo = {}
+    if id(node) in memo:
+        return memo[id(node)]
+    if isinstance(node, D.Leaf):
+        memo[id(node)] = node
+        return node
+
+    t = reduce_ldd(node.t_branch, uniq, memo)
+    f = reduce_ldd(node.f_branch, uniq, memo)
+    if t == f:
+        memo[id(node)] = t
+        return t
+
+    key = (str(node.cond), str(t), str(f))
+    if key in uniq:
+        memo[id(node)] = uniq[key]
+        return uniq[key]
+
+    new_node = D.LinSplit(node.cond, t, f)
+    uniq[key] = new_node
+    memo[id(node)] = new_node
+    return new_node
 
 
 # --------------------------------------------------------------------------- #

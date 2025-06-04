@@ -61,7 +61,7 @@ def coeffs_to_array(coeff, variables):
 
 def get_halfspaces_for_aexpr(aexpr, branch, variables, eps=1e-6):
     """
-    Given an aexpr and a branch type ("ltz", "eqz", or "gtz"),
+    Given an aexpr and a branch type ("ltz", "leq", "eqz", or "gtz"),
     return a list of halfspaces (each is an array [a0, a1, ..., a_{n-1}, b])
     representing a0*x0 + ... + a_{n-1}*x_{n-1} + b <= 0.
     For eqz we return two inequalities.
@@ -72,6 +72,8 @@ def get_halfspaces_for_aexpr(aexpr, branch, variables, eps=1e-6):
         return [np.append(A, const + eps)]
     elif branch == "gtz":
         return [np.append(-A, -const + eps)]
+    elif branch == "leq":
+        return [np.append(A, const)]
     elif branch == "eqz":
         hs1 = np.append(A, const)
         hs2 = np.append(-A, -const)
@@ -107,35 +109,34 @@ def extract_regions(node, iterators, halfspaces=None, path=None):
                 "value": node,
             }
         )
-    elif isinstance(node, D.AffineSplit):
-        hs_ltz = get_halfspaces_for_aexpr(
-            node.ae,
-            "ltz",
-            iterators,
-        )
-        hs_eqz = get_halfspaces_for_aexpr(
-            node.ae,
-            "eqz",
-            iterators,
-        )
-        hs_gtz = get_halfspaces_for_aexpr(
-            node.ae,
-            "gtz",
-            iterators,
-        )
+    elif isinstance(node, D.LinSplit):
+        if isinstance(node.cond, D.Lt):
+            hs_t = get_halfspaces_for_aexpr(node.cond.lhs, "ltz", iterators)
+            hs_f = get_halfspaces_for_aexpr(node.cond.lhs, "gtz", iterators)
+        elif isinstance(node.cond, D.Le):
+            hs_t = get_halfspaces_for_aexpr(node.cond.lhs, "leq", iterators)
+            hs_f = get_halfspaces_for_aexpr(node.cond.lhs, "gtz", iterators)
+        elif isinstance(node.cond, D.Eq):
+            hs_t = get_halfspaces_for_aexpr(node.cond.lhs, "eqz", iterators)
+            hs_f = get_halfspaces_for_aexpr(node.cond.lhs, "ltz", iterators) + get_halfspaces_for_aexpr(node.cond.lhs, "gtz", iterators)
+        else:
+            hs_t = hs_f = []
 
-        for branch, hs_list, child in [
-            ("ltz", hs_ltz, node.ltz),
-            ("eqz", hs_eqz, node.eqz),
-            ("gtz", hs_gtz, node.gtz),
-        ]:
-            for hs in hs_list:
-                halfspaces.append(hs)
-            path.append((node.ae, branch))
-            regions.extend(extract_regions(child, iterators, halfspaces, path))
-            path.pop()
-            for _ in hs_list:
-                halfspaces.pop()
+        for hs in hs_t:
+            halfspaces.append(hs)
+        path.append((node.cond.lhs, "t"))
+        regions.extend(extract_regions(node.t_branch, iterators, halfspaces, path))
+        path.pop()
+        for _ in hs_t:
+            halfspaces.pop()
+
+        for hs in hs_f:
+            halfspaces.append(hs)
+        path.append((node.cond.lhs, "f"))
+        regions.extend(extract_regions(node.f_branch, iterators, halfspaces, path))
+        path.pop()
+        for _ in hs_f:
+            halfspaces.pop()
     else:
         raise ValueError("Unknown node type encountered during extraction.")
     return regions
@@ -254,13 +255,10 @@ def get_eqs_from_tree(t):
     """ """
     if isinstance(t, D.Leaf):
         return set()
-    elif isinstance(t, D.AffineSplit):
-        return (
-            {t.ae}
-            | get_eqs_from_tree(t.ltz)
-            | get_eqs_from_tree(t.eqz)
-            | get_eqs_from_tree(t.gtz)
-        )
+    elif isinstance(t, D.LinSplit):
+        if isinstance(t.cond, D.Eq):
+            return {t.cond.lhs} | get_eqs_from_tree(t.t_branch) | get_eqs_from_tree(t.f_branch)
+        return get_eqs_from_tree(t.t_branch) | get_eqs_from_tree(t.f_branch)
     else:
         assert False
 
@@ -516,7 +514,8 @@ def dict_tree_to_node(dict_tree):
     node_gtz = dict_tree_to_node(gtz_subtree)
 
     # Use the original aexpr from the key
-    return D.AffineSplit(aexpr, node_ltz, node_eqz, node_gtz)
+    inner = D.LinSplit(D.Eq(aexpr), node_eqz, node_gtz)
+    return D.LinSplit(D.Lt(aexpr), node_ltz, inner)
 
 
 # =============================================================================
@@ -629,15 +628,19 @@ class Strategy1(AbstractInterpretation):
                     c = cond.lhs.rhs if is_lhs_mod else cond.rhs.rhs
                     e2 = cond.rhs if is_lhs_mod else cond.lhs
                     assert isinstance(c, DataflowIR.Const)
-                    return D.ModSplit(
-                        lift_to_abs_a(
-                            DataflowIR.BinOp(
-                                "-", e1, e2, DataflowIR.Int(), null_srcinfo()
+                    return D.LinSplit(
+                        D.Eq(
+                            D.Mod(
+                                lift_to_abs_a(
+                                    DataflowIR.BinOp(
+                                        "-", e1, e2, DataflowIR.Int(), null_srcinfo()
+                                    )
+                                ),
+                                c.val,
                             )
                         ),
-                        c.val,
-                        orelse,
                         body,
+                        orelse,
                     )
                 else:
                     assert False, "modular inequalites are not supported yet!"
@@ -649,17 +652,15 @@ class Strategy1(AbstractInterpretation):
                 )
             )
             if cond.op == "==":
-                tree = D.AffineSplit(eq, orelse, body, orelse)
+                tree = D.LinSplit(D.Eq(eq), body, orelse)
             elif cond.op == "<":
-                tree = D.AffineSplit(eq, body, orelse, orelse)
+                tree = D.LinSplit(D.Lt(eq), body, orelse)
             elif cond.op == "<=":
-                tree = D.AffineSplit(eq, body, body, orelse)
+                tree = D.LinSplit(D.Le(eq), body, orelse)
             elif cond.op == ">":
-                tree = D.AffineSplit(eq, orelse, orelse, body)
+                tree = D.LinSplit(D.Lt(D.Mult(-1, eq)), body, orelse)
             elif cond.op == ">=":
-                tree = D.AffineSplit(eq, orelse, body, body)
-            elif cond.op == "<":
-                tree = D.AffineSplit(eq, body, orelse, orelse)
+                tree = D.LinSplit(D.Le(D.Mult(-1, eq)), body, orelse)
             elif cond.op == "%":
                 assert (
                     False
