@@ -118,7 +118,9 @@ def extract_regions(node, iterators, halfspaces=None, path=None):
             hs_f = get_halfspaces_for_aexpr(node.cond.lhs, "gtz", iterators)
         elif isinstance(node.cond, D.Eq):
             hs_t = get_halfspaces_for_aexpr(node.cond.lhs, "eqz", iterators)
-            hs_f = get_halfspaces_for_aexpr(node.cond.lhs, "ltz", iterators) + get_halfspaces_for_aexpr(node.cond.lhs, "gtz", iterators)
+            hs_f = get_halfspaces_for_aexpr(
+                node.cond.lhs, "ltz", iterators
+            ) + get_halfspaces_for_aexpr(node.cond.lhs, "gtz", iterators)
         else:
             hs_t = hs_f = []
 
@@ -257,7 +259,11 @@ def get_eqs_from_tree(t):
         return set()
     elif isinstance(t, D.LinSplit):
         if isinstance(t.cond, D.Eq):
-            return {t.cond.lhs} | get_eqs_from_tree(t.t_branch) | get_eqs_from_tree(t.f_branch)
+            return (
+                {t.cond.lhs}
+                | get_eqs_from_tree(t.t_branch)
+                | get_eqs_from_tree(t.f_branch)
+            )
         return get_eqs_from_tree(t.t_branch) | get_eqs_from_tree(t.f_branch)
     else:
         assert False

@@ -137,7 +137,11 @@ def test_overlay3(golden):
     t2 = D.LinSplit(
         D.Lt(ae1),
         leaf3,
-        D.LinSplit(D.Eq(ae1), leaf2, D.LinSplit(D.Lt(ae2), leaf1, D.LinSplit(D.Eq(ae2), leaf2, leafbot))),
+        D.LinSplit(
+            D.Eq(ae1),
+            leaf2,
+            D.LinSplit(D.Lt(ae2), leaf1, D.LinSplit(D.Eq(ae2), leaf2, leafbot)),
+        ),
     )
 
     abs1 = D.abs([i, d], t1)
@@ -163,12 +167,20 @@ def test_overlay4(golden):
     t2 = D.LinSplit(
         D.Lt(ae1),
         leaf3,
-        D.LinSplit(D.Eq(ae1), leaf2, D.LinSplit(D.Lt(ae2), leaf1, D.LinSplit(D.Eq(ae2), leaf1, leaf1))),
+        D.LinSplit(
+            D.Eq(ae1),
+            leaf2,
+            D.LinSplit(D.Lt(ae2), leaf1, D.LinSplit(D.Eq(ae2), leaf1, leaf1)),
+        ),
     )
     t3 = D.LinSplit(
         D.Lt(ae1),
         leaf3,
-        D.LinSplit(D.Eq(ae1), leaf2, D.LinSplit(D.Lt(ae2), leaf1, D.LinSplit(D.Eq(ae2), leaf1, leaf3))),
+        D.LinSplit(
+            D.Eq(ae1),
+            leaf2,
+            D.LinSplit(D.Lt(ae2), leaf1, D.LinSplit(D.Eq(ae2), leaf1, leaf3)),
+        ),
     )
 
     abs1 = D.abs([x, y], t1)
