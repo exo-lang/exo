@@ -288,7 +288,7 @@ class NameCountA(ArgumentProcessor):
                 "  <ident> [# <int>]?\n"
                 "where <ident> is the name of a variable "
                 "and <int> specifies which occurrence. "
-                "(e.g. 'x #2' means 'the second occurence of x')",
+                "(e.g. 'x #2' means 'the second occurrence of x')",
                 ValueError,
             )
 
@@ -1415,7 +1415,7 @@ def divide_dim(proc, alloc_cursor, dim_idx, quotient):
 @sched_op([AllocCursorA, IntA, IntA])
 def mult_dim(proc, alloc_cursor, hi_dim_idx, lo_dim_idx):
     """
-    Mutiply the `hi_dim_idx`-th buffer dimension by the `low_dim_idx`-th
+    Multiply the `hi_dim_idx`-th buffer dimension by the `low_dim_idx`-th
     buffer dimension to create a single buffer dimension.  This operation
     is only permitted when the `lo_dim_idx`-th dimension is a constant
     integer value.
@@ -1494,7 +1494,7 @@ def lift_alloc(proc, alloc_cursor, n_lifts=1):
 def sink_alloc(proc, alloc_cursor):
     """
     Sinks a buffer allocation into a scope (for loop/if statement). This scope
-    must come immediately after the alloc statemenet. Requires that the
+    must come immediately after the alloc statement. Requires that the
     alloc_cursor occurs right before the scope_cursor
 
     args:
@@ -1612,7 +1612,7 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
     the load or store between the original buffer and staging buffer, then
     the load/store loops/statements will be omitted.
 
-    If code analysis determines determines that `win_expr` accesses
+    If code analysis determines that `win_expr` accesses
     out-of-bounds locations of the buffer, it will generate loop nests
     for the load/store stages corresponding to that window, but will add
     guards within the inner loop to ensure that all accesses to the buffer

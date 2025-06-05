@@ -187,7 +187,7 @@ indicated code block.  If code analysis allows one to omit either
 the load or store between the original buffer and staging buffer, then
 the load/store loops/statements will be omitted.
 
-If code analysis determines determines that `win_expr` accesses
+If code analysis determines that `win_expr` accesses
 out-of-bounds locations of the buffer, it will generate loop nests
 for the load/store stages corresponding to that window, but will add
 guards within the inner loop to ensure that all accesses to the buffer

@@ -1092,7 +1092,7 @@ def DoInlineWindow(window_cursor):
 
         # Because our goal here is to offset `dim` in the original
         # call argument to the point indexing to the windowing expression,
-        # new_dim should essencially be:
+        # new_dim should essentially be:
         # `dim` + "number of LoopIR.Points in the windowing expression before the `dim` number of LoopIR.Interval"
         new_dim = 0
         for w in window_s.rhs.idx:
@@ -2154,7 +2154,7 @@ class DoLiftAlloc(Cursor_Rewrite):
                 # guards; oh well.
                 continue
             elif isinstance(s, LoopIR.For):
-                # TODO: may need to fix to support lo for backwards compatability
+                # TODO: may need to fix to support lo for backwards compatibility
                 if s.iter in self.alloc_deps and self.keep_dims:
                     idxs.append(s.iter)
                     if isinstance(s.hi, LoopIR.Read):
@@ -2526,7 +2526,7 @@ class DoFissionLoops:
             # then we need to gather together the pre and post.
             single_stmt = LoopIR.If(s.cond, body, orelse, s.srcinfo)
 
-        # TODO: may need to fix to support lo for backwards compatability
+        # TODO: may need to fix to support lo for backwards compatibility
         elif isinstance(s, LoopIR.For):
             # check if we need to split the loop
             pre, post = self.map_stmts(s.body)
@@ -3188,7 +3188,7 @@ class _DoNormalize(Cursor_Rewrite):
 
             return modulo_simplification(e)
 
-        # Div and mod special cases are handleded before, if that didn't succeed we cannot normalize
+        # Div and mod special cases are handled before, if that didn't succeed we cannot normalize
         # Skip ReadConfigs, they need careful handling because they're not Sym.
         if self.has_div_mod_config(e):
             return e
@@ -4023,7 +4023,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
                 for w, w_e in zip(rd.idx, w_exprs)
             ):
                 raise SchedulingError(
-                    f"Existing WindowExpr {rd} has a widnowed dimension which is not windowed in the new staged window."
+                    f"Existing WindowExpr {rd} has a windowed dimension which is not windowed in the new staged window."
                 )
 
             if idx_contained_by_window(c, block_cursor):

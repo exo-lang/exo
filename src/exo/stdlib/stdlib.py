@@ -306,7 +306,7 @@ def jam_stmt(proc, stmt, unsafe_disable_check=False, rc=False):
 def parallelize_reduction(
     proc, reduce_stmt, factor=None, memory=DRAM, nth_loop=1, unroll=False
 ):
-    # Auto-coersion
+    # Auto-coercion
     if isinstance(unroll, bool):
         unroll = (unroll, unroll)
 
@@ -387,7 +387,7 @@ def unroll_and_jam(proc, loop, factor, unroll=(True, True, True)):
     loop = proc.forward(loop)
     inner_loops = [i for i in loop.body() if isinstance(i, ForCursor)]
     if len(inner_loops) > 1:
-        raise SchedulingError("Multiple loops found, decision is ambigious")
+        raise SchedulingError("Multiple loops found, decision is ambiguous")
     if len(inner_loops) == 0:
         raise SchedulingError("No loops found")
 
