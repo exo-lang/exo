@@ -181,13 +181,9 @@ def test_pass():
     def p(x: R[10]):
         pass
 
-    return p
-
     @proc
     def p():
         pass
-
-    return p
 
 
 def test_if1():

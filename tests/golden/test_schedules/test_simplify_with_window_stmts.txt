@@ -1,0 +1,4 @@
+def foo(n: size):
+    x: i8[1] @ DRAM
+    x_window = x[0:1]
+    x_window[0] = 0.0
