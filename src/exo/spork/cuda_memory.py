@@ -261,17 +261,36 @@ class CudaGmemLinear(CudaDeviceVisibleLinear):
 #ifndef __cplusplus
 static
 #endif
-inline void* exo_cudaMallocAsync_default(size_t size, cudaStream_t exo_cudaStream)
+inline void* exo_cudaMallocAsync_default(size_t size, cudaStream_t exo_cudaStream,
+                                         const char* file __attribute__((unused)),
+                                         int line __attribute__((unused)) )
 {
     void* out;
     cudaMallocAsync(&out, size, exo_cudaStream);
+    if (exo_excut_log_file_enabled()) {
+        exo_excut_begin_log_action("cudaMallocAsync");
+        exo_excut_log_ptr_arg((void*)(size));
+        exo_excut_log_ptr_arg(out);
+        exo_excut_end_log_action("cpu", 0, 0, file, line);
+    }
     return out;
 }
-#define exo_cudaMallocAsync exo_cudaMallocAsync_default
+#define exo_cudaMallocAsync(size, stream) exo_cudaMallocAsync_default(size, stream, __FILE__, __LINE__)
 #endif
 
 #ifndef exo_cudaFreeAsync
-#define exo_cudaFreeAsync cudaFreeAsync
+inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
+                                      const char* file __attribute__((unused)),
+                                      int line __attribute__((unused)) )
+{
+    cudaFreeAsync(ptr, exo_cudaStream);
+    if (exo_excut_log_file_enabled()) {
+        exo_excut_begin_log_action("cudaFreeAsync");
+        exo_excut_log_ptr_arg(ptr);
+        exo_excut_end_log_action("cpu", 0, 0, file, line);
+    }
+}
+#define exo_cudaFreeAsync(ptr, stream) exo_cudaFreeAsync_default(ptr, stream, __FILE__, __LINE__)
 #endif"""
 
     @classmethod

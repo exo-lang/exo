@@ -308,6 +308,11 @@ class SubtreeScan(LoopIR_Do):
         # created in Python code
         self.device_args_syms.sort(key=lambda s: s.id_number())
 
+        # Assemble the exo_DeviceArgs struct definition
+        # (device_args_struct_lines) and the syntax for
+        # aggregate-initialization of exo_DeviceArgs in C code
+        # (device_args_values).
+
         device_args_decls = []
         device_args_comments = []
         device_args_values = []
@@ -356,12 +361,15 @@ class SubtreeScan(LoopIR_Do):
                     device_args_values.append(c_arg)
                 device_args_comments.append(f"{sym}: {typ} -- grid constant")
 
+        device_args_values.append("exo_excut_get_device_log()")
+
         device_args_struct_lines = []
         assert len(device_args_decls) == len(device_args_comments)
         for i in range(len(device_args_decls)):
             device_args_struct_lines.append(
                 f"    {device_args_decls[i]};  // {device_args_comments[i]}"
             )
+        device_args_struct_lines.append("    exo_ExcutDeviceLog exo_excutDeviceLog;")
         self.fmt_dict["device_args"] = ", ".join(device_args_values)
         self.fmt_dict["device_args_struct_body"] = "\n".join(device_args_struct_lines)
 
@@ -1370,6 +1378,7 @@ struct exo_Cuda{N}_{proc}
 inline void
 exo_Cuda{N}_{proc}::exo_cudaLaunch(cudaStream_t exo_cudaStream, const exo_DeviceArgs& exo_deviceArgs)
 {{
+  namespace exo_CudaUtil = exo_CudaUtil_{lib_name};
   cudaFuncSetAttribute(exo_deviceFunction{N}_{proc}, cudaFuncAttributeMaxDynamicSharedMemorySize, exo_smemBytes);
   // TODO how expensive is it to query this every time?
   int exo_cudaDevice;
@@ -1414,7 +1423,9 @@ exo_cudaLaunch{N}_{proc}(cudaStream_t exo_cudaStream, struct exo_CudaDeviceArgs{
 device_main_loop_prefix_fmt = """__device__ __forceinline__ void
 exo_Cuda{N}_{proc}::exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs)
 {{
+  namespace exo_CudaUtil = exo_CudaUtil_{lib_name};
   exo_SyncState exo_syncState{{}};
+  exo_ExcutThreadLog exo_excutThreadLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
   unsigned exo_taskIndex = 0;"""
 
 device_task_prefix_fmt = """__device__ __forceinline__ void
@@ -1432,14 +1443,42 @@ h_snippet_for_cuda = r"""
 #define EXO_CUDA_HEADER_COMMON
 #include <cuda.h>
 #include <cuda_runtime.h>
+
 #ifdef __CUDACC__
 #define EXO_CUDA_INLINE __device__ __forceinline__
 EXO_CUDA_INLINE unsigned exo_smemU32(const void* smem_ptr)
 {
     return (unsigned)__cvta_generic_to_shared(smem_ptr);
 }
+#endif  // __CUDACC__
+
+#ifndef EXO_EXCUT_bENABLE_LOG
+#define EXO_EXCUT_bENABLE_LOG 0
 #endif
+
+#ifndef EXO_EXCUT_bSKIP_PTX
+#define EXO_EXCUT_bSKIP_PTX 0
 #endif
+
+#if EXO_EXCUT_bENABLE_LOG
+#include "exo_excut.h"
+#else
+// Do-nothing replacements for exo_excut.h
+typedef struct exo_ExcutDeviceLog {} exo_ExcutDeviceLog;
+#define exo_excut_log_file_enabled() 0
+#define exo_excut_begin_log_action(action_name)
+#define exo_excut_log_str_arg(str)
+#define exo_excut_log_int_arg(bytes, binary)
+#define exo_excut_log_ptr_arg(ptr)
+#define exo_excut_end_log_action(device_name, _blockIdx, _threadIdx, file, line)
+#define exo_excut_get_device_log() (exo_ExcutDeviceLog) {}
+struct exo_ExcutThreadLog {};
+#ifdef __CUDACC__
+EXO_CUDA_INLINE exo_ExcutThreadLog exo_excut_begin_thread_log(exo_ExcutDeviceLog) { return {}; }
+#endif
+#endif // EXO_EXCUT_bENABLE_LOG
+
+#endif // EXO_CUDA_HEADER_COMMON
 
 #ifndef EXO_CUDA_STREAM_GUARD
 #define EXO_CUDA_STREAM_GUARD

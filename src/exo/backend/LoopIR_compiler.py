@@ -458,6 +458,9 @@ def ext_compile_to_strings(lib_name, proc_list):
             p = actor_kind_analysis.run(p)
             barrier_uses: Optional[Dict[Sym, BarrierUsage]]
             barrier_uses = None
+            proc_uses_cuda = (
+                actor_kinds.cuda_classic in actor_kind_analysis.actor_kinds_seen
+            )
             if actor_kind_analysis.contains_sync:
                 # Don't force non-CUDA Exo users to waste time here
                 barrier_usage_analysis = BarrierUsageAnalysis(p)
@@ -469,11 +472,12 @@ def ext_compile_to_strings(lib_name, proc_list):
                 ctxt_name,
                 window_struct_cache,
                 barrier_uses,
+                proc_uses_cuda,
                 is_public_decl=is_public_decl,
             )
             d, b = comp.comp_top()
             needed_helpers |= comp.needed_helpers()
-            used_cuda |= comp.used_cuda()
+            used_cuda |= proc_uses_cuda
 
             if is_public_decl:
                 public_fwd_decls.append(d)
@@ -631,6 +635,7 @@ class Compiler:
         ctxt_name,
         window_struct_cache,
         barrier_uses,
+        used_cuda,
         *,
         is_public_decl,
     ):
@@ -652,6 +657,7 @@ class Compiler:
         self._needed_helpers = set()
         self.window_struct_cache = window_struct_cache
         self.barrier_uses = barrier_uses
+        self._used_cuda = used_cuda
         self._known_strides = {}
         self._in_cuda_function = False
         self._cuda_kernel_count = 0
@@ -831,7 +837,7 @@ class Compiler:
         return self._needed_helpers
 
     def used_cuda(self):
-        return self._cuda_kernel_count != 0
+        return self._used_cuda
 
     def new_varname(self, symbol, typ, mem=None):
         strnm = str(symbol)
@@ -1195,6 +1201,7 @@ class Compiler:
                 )
                 lowered = loopir_lower_cuda(s, spork_ctx)
                 # print(lowered)
+                assert self._used_cuda
                 assert not self._in_cuda_function
                 self._in_cuda_function = True
                 self.comp_s(lowered)

@@ -227,10 +227,11 @@ class CudaAsync(BaseAsyncConfig):
 
 
 class ActorKindAnalysis(LoopIR_Rewrite):
-    __slots__ = ["actor_kind", "sym_memwin", "contains_sync"]
+    __slots__ = ["actor_kind", "actor_kinds_seen", "sym_memwin", "contains_sync"]
 
     def __init__(self):
         self.actor_kind = actor_kinds.cpu  # Currently inspected scope's actor kind
+        self.actor_kinds_seen = {actor_kinds.cpu}
         self.sym_memwin = dict()  # Sym -> MemWin type
         self.contains_sync = False
 
@@ -247,7 +248,9 @@ class ActorKindAnalysis(LoopIR_Rewrite):
                         f"requires actor kind {needed}; actor kind "
                         f"in scope is actually {self.actor_kind}"
                     )
-                self.actor_kind = ctx.get_actor_kind()
+                actor_kind = ctx.get_actor_kind()
+                self.actor_kind = actor_kind
+                self.actor_kinds_seen.add(actor_kind)
         else:
             self.inspect_s(s)
 

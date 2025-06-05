@@ -399,3 +399,12 @@ def require_concordance(ref_actions, trace_actions, varnames_set):
 {old_id.encode()} @ {old_deduction.srcinfo()}
 {new_id.encode()} @ {new_deduction.srcinfo()}"""
             )
+
+
+_string_table = {}
+
+
+def string_id(s):
+    _id = _string_table.setdefault(s, len(_string_table))
+    assert _id < (1 << 24)
+    return _id

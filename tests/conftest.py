@@ -8,7 +8,7 @@ import shlex
 import subprocess
 import textwrap
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Optional, Any, Dict, Union, List, Set
 
 import numpy as np
@@ -150,6 +150,8 @@ class ProcWrapper:
             return arg.ctypes.data_as(ctypes.c_void_p)
         if isinstance(arg, int):
             return arg
+        if isinstance(arg, PurePath):
+            return ctypes.c_char_p(bytes(str(arg), "utf-8"))
 
         raise ValueError(f"unrecognized type {type(arg)}")
 
@@ -235,6 +237,7 @@ class Compiler:
         include_dir=None,
         additional_file=None,
         skip_on_fail: bool = False,
+        compiler_flags=[],
     ):
         if isinstance(procs, Procedure):
             procs = [procs]
@@ -259,7 +262,7 @@ class Compiler:
             "-o",
             artifact_path,
             "-lcuda",
-        ]
+        ] + compiler_flags
         if ccbin := os.getenv("EXO_CCBIN", default=None):
             args.append("-ccbin")
             args.append(ccbin)

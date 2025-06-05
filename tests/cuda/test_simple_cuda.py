@@ -43,6 +43,46 @@ def test_cuda_add_vec(compiler):
         assert np.array_equal(c_test, c_expected)
 
 
+def test_tmp_excut(compiler):
+    """
+    Hello world: Compute c = a + b
+    """
+
+    @proc
+    def cuda_add_vec(n: size, a: i32[n], b: i32[n], c: i32[n]):
+        assert n % 32 == 0
+        device_a: i32[n] @ CudaGmemLinear
+        device_d: i32[n] @ CudaGmemLinear
+        cudaMemcpyAsync_htod_1i32(n, device_a, a)
+        cudaMemcpyAsync_htod_1i32(n, device_d, b)
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, n / 32):
+                for tid in cuda_threads(0, 32):
+                    device_d[task * 32 + tid] += device_a[task * 32 + tid]
+        cudaMemcpyAsync_dtoh_1i32(n, c, device_d)
+
+    fn = compiler.nvcc_compile(
+        cuda_add_vec,
+        include_dir="tests/cuda/excut",
+        additional_file="tests/cuda/excut/exo_excut.cu",
+        compiler_flags=["-DEXO_EXCUT_bENABLE_LOG=1"],
+    )
+    fn.exo_excut_begin_log_file(compiler.workdir / "excut_trace.json", 1 << 24)
+
+    for n in (32, 32000):
+        a = np.ndarray(shape=(n,), dtype=np.int32)
+        b = np.ndarray(shape=(n,), dtype=np.int32)
+        c_test = np.ndarray(shape=(n,), dtype=np.int32)
+        for i in range(0, n):
+            a[i] = i % 42
+            b[i] = i + 101
+        c_expected = a + b
+        fn(None, n, a, b, c_test)
+        assert np.array_equal(c_test, c_expected)
+
+    fn.exo_excut_end_log_file()
+
+
 def test_cuda_simple_saxpy(compiler):
     """
     Compute y = ay + x
