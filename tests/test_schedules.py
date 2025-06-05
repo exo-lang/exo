@@ -3515,14 +3515,14 @@ def test_simplify_div_mod_staging(golden):
     assert str(bar) == golden
 
 
-def test_simplify_with_window_stmts():
+def test_simplify_with_window_stmts(golden):
     @proc
     def foo(n: size):
         x: i8[1]
         x_window = x[0 + 0 : 1 + 0]
         x_window[0] = 0.0
 
-    return simplify(foo)
+    assert str(simplify(foo)) == golden
 
 
 def test_simplify_logical(golden):
