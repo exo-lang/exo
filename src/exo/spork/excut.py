@@ -252,7 +252,7 @@ def decode_arg(encoded):
         plus_split = var_text.split("+")
         if len(plus_split) == 2:
             var_text, offset_text = plus_split
-            offset = int(offset_text)
+            offset = int(offset_text, 0)
         elif len(plus_split) != 1:
             raise ValueError("Too many +")
 
@@ -267,7 +267,7 @@ def decode_arg(encoded):
             idx_strs, cruft = rbracket_split
             if cruft.strip():
                 raise ValueError(f"Unexpected cruft {cruft!r} after ]")
-            idxs = tuple(int(n) for n in idx_strs.split(","))
+            idxs = tuple(int(n, 0) for n in idx_strs.split(","))
         elif len(lbracket_split) != 1:
             raise ValueError("Too many [")
 
