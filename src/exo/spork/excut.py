@@ -83,6 +83,21 @@ import json
 from typing import Dict, List, Set, Tuple, Union
 
 
+class ExcutConcordanceError(ValueError):
+    pass
+
+
+class ExcutOutOfCudaMemory(ValueError):
+    __slots__ = ["bytes_needed"]
+
+    def __init__(self, trace_filename, bytes_needed):
+        super().__init__(
+            f"{trace_filename}: not enough cuda memory; "
+            f"set cuda_log_bytes={bytes_needed} in exo_excut_begin_log_file"
+        )
+        self.bytes_needed = bytes_needed
+
+
 @dataclass(slots=True, frozen=True, eq=True)
 class ExcutVariableID:
     varname: str
@@ -175,7 +190,7 @@ class ExcutAction:
         Store a deduced variable value, if appropriate."""
 
         def fail(reason):
-            raise ValueError(
+            raise ExcutConcordanceError(
                 f"""excut concordance failed: {reason}
 {self.as_json()} @ {self.srcinfo()}
 {trace.as_json()} @ {trace.srcinfo()}"""
@@ -300,6 +315,7 @@ def parse_json_file(filename) -> List[ExcutAction]:
         raise ValueError(f"{filename!r} needs to contain a list")
 
     actions = []
+    max_oom_bytes = 0
 
     for i, encoded_action in enumerate(j):
         if not isinstance(encoded_action, list):
@@ -340,6 +356,9 @@ def parse_json_file(filename) -> List[ExcutAction]:
             except Exception as e:
                 raise ValueError(f"{filename!r}: action #{i}, invalid arg {a!r}") from e
 
+        if action_name == "excut::out_of_cuda_memory":
+            max_oom_bytes = max(max_oom_bytes, args[0])
+
         actions.append(
             ExcutAction(
                 action_name,
@@ -354,6 +373,9 @@ def parse_json_file(filename) -> List[ExcutAction]:
             )
         )
 
+    if max_oom_bytes:
+        raise ExcutOutOfCudaMemory(filename, max_oom_bytes)
+
     return actions
 
 
@@ -366,6 +388,7 @@ def require_concordance(ref_actions, trace_actions, varnames_set):
     trace_actions = list(
         filter(lambda act: act.action_name in ref_action_names, trace_actions)
     )
+
     deductions: Dict[ExcutVariableID, ExcutDeduction] = {}
 
     # NOTE: we check len(ref_actions) == len(trace_actions) later, since a
