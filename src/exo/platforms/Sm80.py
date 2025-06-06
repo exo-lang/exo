@@ -42,11 +42,13 @@ EXO_CUDA_INLINE void Sm80_cp_async(void* smem_ptr, const void* gmem_ptr) {
     def instance_impl(self, n_bytes):
         if n_bytes not in (4, 8, 16):
             raise ValueError(f"cp.async copies 4, 8, or 16 bytes, not {n_bytes}")
-        self.instr_format = (
-            "exo_CudaUtil::Sm80_cp_async<"
-            + str(n_bytes)
-            + ">(&{smem_data}, &{gmem_data});"
-        )
+        self.instr_format = [
+            (
+                "exo_CudaUtil::Sm80_cp_async<"
+                + str(n_bytes)
+                + ">(&{smem_data}, &{gmem_data});"
+            )
+        ]
         self.actor_kind = Sm80_cp_async
         self.access_info["smem"].actor_signature = sig_Sm80_cp_async
         self.access_info["gmem"].actor_signature = sig_Sm80_cp_async
@@ -188,11 +190,13 @@ class Sm80_mma_load_a_tf32(mma_instr_impl):
         self.instance_common()
         if K != 4 and K != 8:
             raise ValueError("Require K=4 or K=8")
-        self.instr_format = (
-            "exo_CudaUtil::Sm80_mma_load_a_k"
-            + str(K)
-            + "({rmem_data}, &{smem_data}, {smem_layout});"
-        )
+        self.instr_format = [
+            (
+                "exo_CudaUtil::Sm80_mma_load_a_k"
+                + str(K)
+                + "({rmem_data}, &{smem_data}, {smem_layout});"
+            )
+        ]
 
 
 __all__.append("Sm80_mma_load_a_tf32")
@@ -213,11 +217,13 @@ class Sm80_mma_load_b_tf32(mma_instr_impl):
         self.instance_common()
         if K != 4 and K != 8:
             raise ValueError("Require K=4 or K=8")
-        self.instr_format = (
-            "exo_CudaUtil::Sm80_mma_load_b_k"
-            + str(K)
-            + "({rmem_data}, &{smem_data}, {smem_layout});"
-        )
+        self.instr_format = [
+            (
+                "exo_CudaUtil::Sm80_mma_load_b_k"
+                + str(K)
+                + "({rmem_data}, &{smem_data}, {smem_layout});"
+            )
+        ]
 
 
 __all__.append("Sm80_mma_load_b_tf32")
@@ -240,9 +246,9 @@ class Sm80_mma_tf32(mma_instr_impl):
         self.instance_common()
         if K != 4 and K != 8:
             raise ValueError("Require K=4 or K=8")
-        self.instr_format = (
-            "exo_CudaUtil::Sm80_mma_k" + str(K) + "({D_data}, {A_data}, {B_data});"
-        )
+        self.instr_format = [
+            ("exo_CudaUtil::Sm80_mma_k" + str(K) + "({D_data}, {A_data}, {B_data});")
+        ]
 
 
 __all__.append("Sm80_mma_tf32")
@@ -260,9 +266,11 @@ class Sm80_mma_store_d_tf32(mma_instr_impl):
 
     def instance(self):
         self.instance_common()
-        self.instr_format = (
-            "exo_CudaUtil::Sm80_mma_store_d(&{gmem_data}, {rmem_data}, {gmem_layout});"
-        )
+        self.instr_format = [
+            (
+                "exo_CudaUtil::Sm80_mma_store_d(&{gmem_data}, {rmem_data}, {gmem_layout});"
+            )
+        ]
 
 
 __all__.append("Sm80_mma_store_d_tf32")
@@ -277,7 +285,7 @@ class Sm80_mma_zero_d_tf32(mma_instr_impl):
 
     def instance(self):
         self.instance_common()
-        self.instr_format = "exo_CudaUtil::Sm80_mma_zero_d({rmem_data});"
+        self.instr_format = ["exo_CudaUtil::Sm80_mma_zero_d({rmem_data});"]
 
 
 __all__.append("Sm80_mma_zero_d_tf32")

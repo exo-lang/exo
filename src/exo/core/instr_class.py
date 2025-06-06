@@ -16,7 +16,7 @@ Module for "new" class-based instr
 
 For context, the "old" instr is like
 
-    @instr(instr_format)
+    @instr(instr_format[0])
     def instr_name(arg_a: Ta, arg_b: Tb, ...):
         # Exo code specifies instr behavior
 
@@ -106,7 +106,7 @@ def old_style_instr_info(proc: LoopIR.proc, c_instr: str, c_global: str):
     assert isinstance(c_global, str)
     info = InstrInfo()
     prefill_instr_info(info, proc)
-    info.instr_format = c_instr
+    info.instr_format = [c_instr]
     info.c_global = c_global
     return info
 
@@ -265,7 +265,8 @@ class InstrTemplate:
     def _postprocess_instr_info(self, proc: LoopIR.proc, info: InstrInfo, tparam_dict):
         clsname = self.info_cls.__name__
         assert hasattr(info, "instr_format"), f"{clsname}: missing instr_format"
-        assert isinstance(info.instr_format, str), clsname
+        assert isinstance(info.instr_format, list), clsname
+        assert all(isinstance(line, str) for line in info.instr_format), clsname
         assert isinstance(info.c_global, str), clsname
         assert all(isinstance(s, str) for s in info.cu_utils), clsname
         assert all(isinstance(s, str) for s in info.cu_includes), clsname

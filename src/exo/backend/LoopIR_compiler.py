@@ -432,7 +432,7 @@ def ext_compile_to_strings(lib_name, proc_list):
                     "",
                     '/* relying on the following instruction..."',
                     instr_name,
-                    p.instr.instr_format,
+                    "\n".join(p.instr.instr_format),
                     "*/",
                 ]
             )
@@ -1351,7 +1351,8 @@ class Compiler:
                         # Exo 1 does this; unclear why for non-windows
                         d[f"{arg_name}_data"] = arg
 
-                self.add_line(f"{s.f.instr.instr_format.format(**d)}")
+                for line in s.f.instr.instr_format:
+                    self.add_line(f"{line.format(**d)}")
             else:
                 fname = s.f.name
                 args = ["ctxt"]

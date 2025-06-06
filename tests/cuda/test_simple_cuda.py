@@ -186,9 +186,9 @@ class gemm_init_pcg3d_mod:
         self.access_info["A"].actor_signature = sig_cuda_classic
         self.coll_unit = cuda_thread
         self.cu_utils = [self._cu_util]
-        self.instr_format = self._instr_format % (seed, modulus)
+        self.instr_format = [self._line_format % (seed, modulus)]
 
-    _instr_format = "exo_CudaUtil::gemm_init_pcg3d_mod({K}, {A}, {m}, {k}, %s, %s);"
+    _line_format = "exo_CudaUtil::gemm_init_pcg3d_mod({K}, {A}, {m}, {k}, %s, %s);"
 
     _cu_util = """__device__ void gemm_init_pcg3d_mod(
         uint32_t K, struct exo_win_2f32 A,

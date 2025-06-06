@@ -422,16 +422,14 @@ class copy_tensor_to_smem_impl:
         self.coll_unit = cuda_warp
         self.cu_includes.append("cuda/std/array")
         self.cu_utils.append(copy_tensor_to_smem_util(rank, False))
-        # We don't know the real indent; just try to make it less ugly.
-        indent = " " * 20
-        fmt = f"exo_CudaUtil::exo_Sm90_tma_to_smem_{rank}d("
-        fmt += f"\n{indent}&{{dst_data}}"  # Pointer to SMEM
-        fmt += f",\n{indent}{{src_data}}"  # CUtensorMap
-        fmt += f",\n{indent}{{src_layout}}"  # exo_offsets
-        fmt += f",\n{indent}exo_tma_mbarrier"
-        fmt += f",\n{indent}{prod(smem_box) * element_bits // 8}"
-        fmt += ");"
-        self.instr_format = fmt
+        lines = [f"exo_CudaUtil::exo_Sm90_tma_to_smem_{rank}d("]
+        lines.append(f"  &{{dst_data}},")  # Pointer to SMEM
+        lines.append(f"  {{src_data}},")  # CUtensorMap
+        lines.append(f"  {{src_layout}},")  # exo_offsets
+        lines.append(f"  exo_tma_mbarrier,")
+        lines.append(f"  {prod(smem_box) * element_bits // 8}")
+        lines.append(");")
+        self.instr_format = lines
 
 
 @instr
@@ -762,9 +760,9 @@ class mma_async_impl:
         for rname in helper.dreg_names():
             args.append("{d_data}.%s" % rname)
         args.append("{d_data}.scale_d")
-        self.instr_format = (
-            fname + "(" + ", ".join(args) + ");\n" + "{d_data}.scale_d = 1;"
-        )
+        self.instr_format = [
+            (fname + "(" + ", ".join(args) + ");\n" + "{d_data}.scale_d = 1;")
+        ]
 
 
 # For a wgmma D-matrix (in RMEM), set the scale-d flag to 0, so
@@ -786,7 +784,7 @@ class Sm90_zero_scale_d_f32:
         self.access_info["d"].actor_signature = sig_cuda_classic
         self.actor_kind = cuda_classic
         self.coll_unit = cuda_warpgroup
-        self.instr_format = "{d_data}.scale_d = 0;"
+        self.instr_format = ["{d_data}.scale_d = 0;"]
 
 
 __all__.append("Sm90_zero_scale_d_f32")
@@ -834,7 +832,7 @@ class Sm90_mma_write_d_impl:
                     % (col_major, reg_name, m, reg_index)
                 )
 
-        self.instr_format = "\n".join(lines)
+        self.instr_format = lines
 
 
 @instr
