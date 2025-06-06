@@ -67,6 +67,13 @@ Deduction Rules:
 The main purpose of deduction is to match pointer values, without knowing
 the concrete value of the pointer.
 
+Out of Memory:
+
+excut_begin_log_file's cuda_log_bytes value determines the size of the allocated
+buffer used to transfer data from CUDA to the CPU. If this is too small, the
+tracer will log an action named "excut::out_of_cuda_memory" with a single
+int arg being the recommended cuda_log_bytes value.
+
 """
 
 from __future__ import annotations
@@ -401,10 +408,18 @@ def require_concordance(ref_actions, trace_actions, varnames_set):
             )
 
 
-_string_table = {}
+_string_id_table = {}
 
 
 def string_id(s):
-    _id = _string_table.setdefault(s, len(_string_table))
+    """Get or allocate 24 bit excut string ID"""
+    _id = _string_id_table.get(s)
+    if _id is None:
+        for c in s:
+            # Add chars if needed, but any special characters in JSON strings
+            # would require us to update exo_excut.cu to support escaping
+            assert c.isalnum() or c in " ,._:/<>'"
+        _id = len(_string_id_table)
+        _string_id_table[s] = _id
     assert _id < (1 << 24)
     return _id

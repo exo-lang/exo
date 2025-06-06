@@ -1456,12 +1456,8 @@ EXO_CUDA_INLINE unsigned exo_smemU32(const void* smem_ptr)
 #define EXO_EXCUT_bENABLE_LOG 0
 #endif
 
-#ifndef EXO_EXCUT_bSKIP_PTX
-#define EXO_EXCUT_bSKIP_PTX 0
-#endif
-
 #if EXO_EXCUT_bENABLE_LOG
-#include "exo_excut.h"
+#include "exo_excut.h"  // Used for exo excut tests (tracing)
 #else
 // Do-nothing replacements for exo_excut.h
 typedef struct exo_ExcutDeviceLog {} exo_ExcutDeviceLog;
@@ -1472,8 +1468,17 @@ typedef struct exo_ExcutDeviceLog {} exo_ExcutDeviceLog;
 #define exo_excut_log_ptr_arg(ptr)
 #define exo_excut_end_log_action(device_name, _blockIdx, _threadIdx, file, line)
 #define exo_excut_get_device_log() (exo_ExcutDeviceLog) {}
-struct exo_ExcutThreadLog {};
+#define exo_excut_flush_device_log(stream, _gridDim, _blockDim, string_id_count, string_table)
 #ifdef __CUDACC__
+struct exo_ExcutThreadLog {
+    EXO_CUDA_INLINE void log_action(uint32_t, uint32_t, uint32_t) {}
+    EXO_CUDA_INLINE void log_str_id_arg(uint32_t) {}
+    EXO_CUDA_INLINE void log_u32_arg(uint32_t) {}
+    EXO_CUDA_INLINE void log_u64_arg(uint32_t) {}
+    EXO_CUDA_INLINE void log_ptr_arg(void*) {}
+    template <typename T>
+    EXO_CUDA_INLINE void log_ptr_data_arg(const T*, uint32_t = 0) {}
+};
 EXO_CUDA_INLINE exo_ExcutThreadLog exo_excut_begin_thread_log(exo_ExcutDeviceLog) { return {}; }
 #endif
 #endif // EXO_EXCUT_bENABLE_LOG
@@ -1483,5 +1488,4 @@ EXO_CUDA_INLINE exo_ExcutThreadLog exo_excut_begin_thread_log(exo_ExcutDeviceLog
 #ifndef EXO_CUDA_STREAM_GUARD
 #define EXO_CUDA_STREAM_GUARD
 static const cudaStream_t exo_cudaStream = 0;
-#endif
-"""
+#endif"""

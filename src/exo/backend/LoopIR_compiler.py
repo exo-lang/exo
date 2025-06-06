@@ -323,6 +323,7 @@ class WindowStruct:
 def run_compile(proc_list, file_stem: str):
     lib_name = sanitize_str(file_stem)
     fwd_decls, body, ext_lines = ext_compile_to_strings(lib_name, proc_list)
+    used_cuda = "cu" in ext_lines
 
     source = f'#include "{file_stem}.h"\n\n{body}'
 
@@ -331,6 +332,7 @@ def run_compile(proc_list, file_stem: str):
 #pragma once
 #ifndef {header_guard}
 #define {header_guard}
+{h_snippet_for_cuda if used_cuda else ""}\
 
 #ifdef __cplusplus
 extern "C" {{
@@ -507,7 +509,6 @@ def ext_compile_to_strings(lib_name, proc_list):
     header_contents = f"""
 #include <stdint.h>
 #include <stdbool.h>
-{h_snippet_for_cuda if used_cuda else ""}\
 
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
