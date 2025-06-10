@@ -523,6 +523,20 @@ class InlinePtxParsedArg:
         return None
 
 
+def simple_ptx_c_lines(ptx_instr, *int_args, tab=""):
+    """Wrapper around InlinePtxGen for no-arg inline PTX
+
+    We still support true_const integer arguments"""
+    assert "#" not in ptx_instr
+    assert ";" not in ptx_instr
+    spc = " " if int_args else ""
+    ptx = InlinePtxGen(ptx_instr + spc + "#0#;", volatile=True)
+    for a in int_args:
+        assert isinstance(a, int)
+        ptx.add_arg(a, constraint="n", log_as="bits")
+    return ptx.as_c_lines(py_format=False, tab=tab)
+
+
 @dataclass(init=False, slots=True)
 class InlinePtxGen:
     """Utility for generating inline PTX, and optional excut logging
@@ -541,13 +555,16 @@ class InlinePtxGen:
     placeholders (%5...) and arguments ("f"(foo)) is automatic.
 
     Logging: each line of ptx_format that contains a placeholder will
-    generate excut logging. We split the line with str.split and use
-    the first string as the instruction name, and log all associated args.
-    Instrs/args get logged in the order they appear in formatted PTX.
+    generate excut logging. We use the first whitespace-separated
+    word, before any placeholders, as the instr (action) name, and log
+    all associated args. Instrs/args get logged in the order they
+    appear in formatted PTX.
 
     NOTE: at least one line must contain a placeholder, even if the
-    instr takes no arguments (e.g. "wgmma.fence.sync.aligned #0#;")
+    instr takes no arguments (e.g. "wgmma.fence.sync.aligned#0#;")
     so that at least one instruction is logged by excut.
+    Consider simple_ptx_c_lines for such simple cases.
+
     """
 
     parsed_lines: List[InlinePtxParsedLine]
@@ -592,7 +609,9 @@ class InlinePtxGen:
                 self.placeholder_args[N] = []
             log_action = None
             if have_args:
-                log_action = ln.split()[0]
+                # This will fail if a placeholder starts the line or
+                # the start of the line is otherwise weired
+                log_action = fragments[0].split()[0]
             self.parsed_lines.append(InlinePtxParsedLine(fragments, log_action))
 
         assert (
@@ -785,7 +804,7 @@ class InlinePtxGen:
             s = s.replace("{", "{{").replace("}", "}}")
         return s
 
-    def as_c_lines(self, *, py_format: bool) -> List[str]:
+    def as_c_lines(self, *, py_format: bool, tab="") -> List[str]:
         """Compile to list of C source code lines.
 
         If py_format is True, then we double all { and } in ptx_format
@@ -865,7 +884,7 @@ class InlinePtxGen:
 
         # Glue this mess together
         _volatile = " volatile" if self.volatile else ""
-        return (
+        lines = (
             [f"asm{_volatile}("]
             + c_ptx_lines
             + format_arg_lines(True)
@@ -873,24 +892,11 @@ class InlinePtxGen:
             + [");"]
             + c_log_lines
         )
+        if tab:
+            lines = [tab + ln for ln in lines]
+        return lines
 
         # This code is really confusing, and that's why it exists.
         # Before, I was dealing with this sort of logic over-and-over, anywhere
         # I needed inline PTX, and it was a litany of %off-by-1 errors,
         # incorrectly escaped stuff, and so on...
-
-
-# # XXX
-# wgmma_ptx = """
-# {
-# .reg .pred p;
-# .setp.ne.b32 p, #1#, 0;
-# wgmma.mma_async.sync.aligned.m64n128k8.f32.tf32.tf32 #0#, p, 1, 1;
-# }
-# """
-# gen = InlinePtxGen(wgmma_ptx, volatile=True)
-# gen.add_arg([f"r{N}" for N in range(64)], log_as="str_id", constraint="+f")
-# gen.add_arg("a_descriptor_m0", log_as="bits", constraint="l")
-# gen.add_arg("b_descriptor", log_as="bits", constraint="l")
-# gen.add_arg("scale_d", log_as="bits", N=1, constraint="r")
-# print("\n".join(gen.as_c_lines(py_format=False)))

@@ -29,7 +29,7 @@ from .cuda_memory import (
     CudaMbarrier,
 )
 from .distributed_memory import DistributedAllocState, ThreadIter
-from .excut import InlinePtxGen
+from .excut import InlinePtxGen, simple_ptx_c_lines
 from .sync_types import SyncType
 
 
@@ -164,11 +164,9 @@ class SyncStateBuilder:
                 f"{srcinfo}: wgmma fence must be executed by a warpgroup: {msg}"
             )
 
-        ptx = InlinePtxGen("wgmma.fence.sync.aligned #0#;", volatile=True)
-
         lowered = CudaLoweredBarrier(False, LoweredBarrierType.wgmma_fence)
         lowered.codegen = lambda _: LoweredPrologueSync(
-            actor_kinds.wgmma_async, ptx.as_c_lines(py_format=False)
+            actor_kinds.wgmma_async, simple_ptx_c_lines("wgmma.fence.sync.aligned")
         )
         self.lowered[name] = lowered
 
@@ -206,8 +204,7 @@ class SyncStateBuilder:
         if actor_kinds.cuda_classic.implements_first(A1):
             pass
         elif actor_kinds.Sm80_generic.implements_first(A1):
-            ptx = InlinePtxGen("cp.async.wait_all #0#;", volatile=True)
-            lines += ptx.as_c_lines(py_format=False)
+            lines += simple_ptx_c_lines("cp.async.wait_all")
         else:
             raise ValueError(
                 f"{srcinfo}: Fence first actor kind "
@@ -242,9 +239,7 @@ class SyncStateBuilder:
                     # We need to use barrier.cta.sync, not bar or syncthreads
                     # due to divergent control flow in "full CTA" code
                     # if there's [named] warp specialization.
-                    ptx = InlinePtxGen("barrier.cta.sync #0#;", volatile=True)
-                    ptx.add_arg(0, constraint="n", log_as="bits")
-                    lines.extend(ptx.as_c_lines(py_format=False))
+                    lines.extend(simple_ptx_c_lines("barrier.cta.sync", 0))
                 elif n_warps == 1:
                     lines.append("__syncwarp();")
                 else:
@@ -259,14 +254,8 @@ class SyncStateBuilder:
                         f"{srcinfo}: expected full cluster " f"or only 1 CTA: {msg}"
                     )
                 else:
-                    ptx = InlinePtxGen(
-                        "barrier.cluster.arrive.aligned #0#;", volatile=True
-                    )
-                    lines.extend(ptx.as_c_lines(py_format=False))
-                    ptx = InlinePtxGen(
-                        "barrier.cluster.wait.aligned #0#;", volatile=True
-                    )
-                    lines.extend(ptx.as_c_lines(py_format=False))
+                    lines.extend(simple_ptx_c_lines("barrier.cluster.arrive.aligned"))
+                    lines.extend(simple_ptx_c_lines("barrier.cluster.wait.aligned"))
             else:
                 raise ValueError(
                     f"{srcinfo}: {cta_count}/{clusterDim} CTAs in cluster active for thread collective for Fence; must have 1 or all"
@@ -276,8 +265,7 @@ class SyncStateBuilder:
         if actor_kinds.Sm80_generic.implements_second(A2):
             pass
         elif actor_kinds.cuda_generic_and_async_proxy.implements_second(A2):
-            ptx = InlinePtxGen("fence.proxy.async #0#;", volatile=True)
-            lines.extend(ptx.as_c_lines(py_format=False))
+            lines.extend(simple_ptx_c_lines("fence.proxy.async"))
         else:
             raise ValueError(
                 f"{srcinfo}: Fence second actor kind {A2} not "
@@ -359,15 +347,18 @@ class SyncStateBuilder:
                 lines.append(f"unsigned {idx} : {ring_bits} = 0;")
             else:
                 lines.append(f"static constexpr unsigned {idx} = 0;  // Trivial size-1 ring buffer")
-            lines.append(f"__device__ __forceinline__ uint32_t {r}Arrive{nm_suffix}(char* exo_smem, int slice, bool enable) {{")
+            lines.append(f"EXO_CUDA_INLINE uint32_t {r}Arrive{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {{")
             mbarrier_to_u32(lines, is_reverse, idx);
             lines.append(f"  if (enable) {{")
             # TODO cluster broadcast if needed
-            comment = f"// {r}Arrive{nm_suffix}\\n\\t"
+            ptx_format = f"// {r}Arrive{nm_suffix}\n"
             if is_Sm80_cp_async:
-                lines.append(f'    asm("{comment}cp.async.mbarrier.arrive.noinc.shared::cta.b64 [%0];" :: "r"(mbarrier_u32));');
+                ptx_format += "cp.async.mbarrier.arrive.noinc.shared::cta.b64 #0#;"
             else:
-                lines.append(f'    asm("{comment}mbarrier.arrive.shared::cta.b64 _, [%0];" :: "r"(mbarrier_u32));');
+                ptx_format += "mbarrier.arrive.shared::cta.b64 _, #0#;"
+            ptx = InlinePtxGen(ptx_format, volatile=True)
+            ptx.add_arg("mbarrier_u32", constraint="r", log_as="bits", brackets=True)
+            lines.extend(ptx.as_c_lines(py_format=False, tab="    "))
             if ring_bits > 0:
                 lines.append(f"    // Advance ring buffer state")
                 lines.append(f"    {idx} = {idx} == {ring - 1} ? 0 : {idx} + 1;")
@@ -422,29 +413,35 @@ class SyncStateBuilder:
             # The initial_skips parameter is included iff skipping is enabled,
             # as a last line of defense against future Exo compiler bugs.
             if enable_skips:
-                lines.append(f"__device__ __forceinline__ void {r}Await{nm_suffix}(char* exo_smem, int slice, int initial_skips = 0) {{")
+                lines.append(f"EXO_CUDA_INLINE void {r}Await{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, int initial_skips = 0) {{")
                 mbarrier_to_u32(lines, is_reverse, idx)
                 lines.append(f"  const bool enable = {skips} >= initial_skips;")
             else:
-                lines.append(f"__device__ __forceinline__ void {r}Await{nm_suffix}(char* exo_smem, int slice) {{")
+                lines.append(f"EXO_CUDA_INLINE void {r}Await{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice) {{")
                 mbarrier_to_u32(lines, is_reverse, idx)
                 lines.append(f"  const bool enable = true;")
-            comment = f"// {r}Await{nm_suffix}\\n\\t"
+            comment = f"// {r}Await{nm_suffix}"
             lines.append(f"  if (enable) {{")
-            # sm_90 needed for try_wait
-            lines.append(f"    // Wait for mbarrier ... PTX loop needed for this")
-            lines.append(f'    asm volatile("{comment}{{.reg.pred P1;\\n\\t"')
-            lines.append(f'                 "EXO_BEFORE_WAIT: mbarrier."')
-            lines.append(f'#if __CUDA_ARCH__ >= 900')
-            lines.append(f'                 "try_wait"')
-            lines.append(f'#else')
-            lines.append(f'                 "test_wait"')
-            lines.append(f'#endif')
-            lines.append(f'                 ".parity.acquire.cta.shared::cta.b64\\n\\t"')
-            lines.append(f'                 "P1, [%0], %1;\\n\\t"')
-            lines.append(f'                 "@P1 bra.uni EXO_WAIT_DONE;\\n\\t"')
-            lines.append(f'                 "bra.uni EXO_BEFORE_WAIT; EXO_WAIT_DONE: }}"::')
-            lines.append(f'        "r"(mbarrier_u32), "r"(1u & {parity_bits} >> {idx}));')
+            # sm_90 needed for try_wait; condition on __CUDA_ARCH__
+            def add_inline_ptx(try_or_test):
+                ptx_format = """{
+                    %s
+                    .reg.pred P1;
+                    EXO_BEFORE_WAIT:
+                    mbarrier.%s_wait.parity.acquire.cta.shared::cta.b64 P1, #0#;
+                    @P1 bra.uni EXO_WAIT_DONE;
+                    bra.uni EXO_BEFORE_WAIT;
+                    EXO_WAIT_DONE:
+                    }""" % (comment, try_or_test)
+                ptx = InlinePtxGen(ptx_format, volatile=True)
+                ptx.add_arg("mbarrier_u32", constraint="r", log_as="bits", brackets=True)
+                ptx.add_arg(f"1u & {parity_bits} >> {idx}", constraint="r", log_as="bits")
+                lines.extend(ptx.as_c_lines(py_format=False, tab="    "))
+            lines.append("#if __CUDA_ARCH__ < 900")
+            add_inline_ptx("test")
+            lines.append("#else")
+            add_inline_ptx("try")
+            lines.append("#endif")
             lines.append(f"    // Flip parity")
             lines.append(f"    {parity_bits} ^= 1u << {idx};")
             if ring_bits > 0:
@@ -452,7 +449,7 @@ class SyncStateBuilder:
                 lines.append(f"    {idx} = {idx} == {ring - 1} ? 0 : {idx} + 1;")
             if proxy_fence:
                 lines.append(f'    // Needed for first actor kind {A1}; second actor kind {A2}')
-                lines.append(f'    asm("fence.proxy.async;");')
+                lines.extend(simple_ptx_c_lines("fence.proxy.async", tab="    "))
             lines.append(f"  }}")
             if enable_skips:
                 lines.append(f"  else {{")
@@ -492,7 +489,7 @@ class SyncStateBuilder:
         # then those for ReverseArrive/ReverseAwait.
         # Finally, for arrives with actor kind tma_to_smem_async, we need to enforce
         # that it is an epilogue sync for tx-count to work correctly.
-        Arrive_txt = f"Arrive{nm_suffix}(exo_smem"
+        Arrive_txt = f"Arrive{nm_suffix}(exo_smem, exo_excutLog"
         def codegen(s: LoopIR.SyncStmt):
             sync_type = s.sync_type
             slice = coll_tilings.codegen_slices_to_root(self._blockDim(), thread_iters, [e.name for e in s.idx])
@@ -511,7 +508,7 @@ class SyncStateBuilder:
                 if skips := ~sync_type.N:
                     assert skips > 0, "should have been caught earlier"
                     skips_arg = f", {skips}"
-                return [f"exo_syncState.{r}Await{nm_suffix}(exo_smem, {slice}{skips_arg});"]
+                return [f"exo_syncState.{r}Await{nm_suffix}(exo_smem, exo_excutLog, {slice}{skips_arg});"]
         lowered.codegen = codegen
         self.lowered[name] = lowered
         # fmt: on
@@ -628,8 +625,7 @@ class SyncStateBuilder:
             if sync_type.is_arrive():
                 if sync_type.N != 1:
                     raise ValueError("Expect N=1 for Arrive of commit group")
-                ptx = InlinePtxGen(arrive_instr + " #0#;", volatile=True)
-                lowered_arrive = ptx.as_c_lines(py_format=False)
+                lowered_arrive = simple_ptx_c_lines(arrive_instr)
                 if is_wgmma:
                     lowered_arrive = LoweredEpilogueSync(
                         actor_kinds.wgmma_async, lowered_arrive
@@ -638,9 +634,7 @@ class SyncStateBuilder:
             else:
                 if sync_type.N < 0:
                     raise ValueError("Expect N>=0 for Await of commit group")
-                ptx = InlinePtxGen(await_instr + " #0#;", volatile=True)
-                ptx.add_arg(sync_type.N, constraint="n", log_as="bits")
-                return ptx.as_c_lines(py_format=False)
+                return simple_ptx_c_lines(await_instr, sync_type.N)
 
         lowered.codegen = codegen
         self.lowered[name] = lowered
@@ -663,20 +657,22 @@ class SyncStateBuilder:
         offset = 0
         if self._mbarrier_pairs:
             lines.append("    if (threadIdx.x == 0) {")
-            lines.append("      const auto mbarrier_u32 = exo_smemU32(exo_smem);")
             for mbarrier_count, arrive_count in self._mbarrier_pairs:
                 lines.append(f"      for (int i = 0; i < {mbarrier_count}; ++i) {{")
-                lines.append(f'        asm volatile("mbarrier.init.shared::cta.b64 [%0], {arrive_count};"::')
-                lines.append(f'          "r"(mbarrier_u32 + {8*offset} + 8*i));')
+                ptx = InlinePtxGen("mbarrier.init.shared::cta.b64 #0#;", volatile=True)
+                ptx.add_arg(f"exo_smem + {8*offset} + 8*i", constraint="smem", log_as="bits")
+                ptx.add_arg(arrive_count, constraint="n", log_as="bits")
+                lines.extend(ptx.as_c_lines(py_format=False, tab="          "))
                 lines.append(f"      }}")
                 offset += mbarrier_count
             if self._uses_async_proxy:
-                lines.append('      asm("fence.proxy.async;");')
+                lines.extend(simple_ptx_c_lines("fence.proxy.async", tab="      "))
             lines.append("    }")
             if self._clusterDim() > 1:
-                lines.append(r'    asm("barrier.cluster.arrive.aligned;\n\tbarrier.cluster.wait.aligned;"::);')
+                lines.extend(simple_ptx_c_lines("barrier.cluster.arrive.aligned", tab="    "))
+                lines.extend(simple_ptx_c_lines("barrier.cluster.wait.aligned", tab="    "))
             else:
-                lines.append('    __syncthreads();')
+                lines.extend(simple_ptx_c_lines("barrier.cta.sync", 0, tab="    "))
         # HACK: align mbarriers to 128 bytes for now
         assert offset == self.mbarrier_count
         smem_bytes = 128 * ((offset + 15) // 16)
