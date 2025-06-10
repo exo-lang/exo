@@ -388,7 +388,7 @@ def join_ext_lines(lines):
 
 def compile_to_strings(lib_name, proc_list):
     """Legacy wrapper, for procs that don't generate extension files"""
-    header, body, ext = ext_compile_to_strings(lib_name, "", proc_list)
+    header, body, ext = ext_compile_to_strings(lib_name, proc_list)
     assert not ext
     return header, body
 
