@@ -22,6 +22,7 @@ typedef struct exo_ExcutDeviceLog
 
 // CPU-side API. Directly emit text to excut JSON trace file.
 // This manipulates thread_local state; the same CUDA device must be used throughout.
+// We use the cudaStreamLegacy for async malloc/free
 void exo_excut_begin_log_file(const char* filename, uint32_t cuda_log_bytes);
 int exo_excut_log_file_enabled();
 void exo_excut_end_log_file();

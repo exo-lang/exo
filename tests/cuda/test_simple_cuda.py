@@ -436,7 +436,7 @@ M1 = 192
 N1 = 256  # Does not change gracefully
 
 K0 = 16
-MMA_K = 4
+MMA_K = 8
 
 
 # fmt: off

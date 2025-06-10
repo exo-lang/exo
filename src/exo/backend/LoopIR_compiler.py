@@ -323,7 +323,7 @@ class WindowStruct:
 
 def run_compile(proc_list, file_stem: str):
     lib_name = sanitize_str(file_stem)
-    fwd_decls, body, ext_lines = ext_compile_to_strings(lib_name, file_stem, proc_list)
+    fwd_decls, body, ext_lines = ext_compile_to_strings(lib_name, proc_list)
     used_cuda = "cu" in ext_lines
 
     source = f'#include "{file_stem}.h"\n\n{body}'
@@ -393,7 +393,7 @@ def compile_to_strings(lib_name, proc_list):
     return header, body
 
 
-def ext_compile_to_strings(lib_name, file_stem, proc_list):
+def ext_compile_to_strings(lib_name, proc_list):
     # Get transitive closure of call-graph
     orig_procs = [id(p) for p in proc_list]
 
@@ -559,15 +559,20 @@ def ext_compile_to_strings(lib_name, file_stem, proc_list):
 
     # Add cu_includes, cu_util, window definitions to .cuh file, if it exists.
     if (cuh_lines := ext_lines.get("cuh")) is not None:
-        cuh_filename = f"{file_stem}.cuh"
         prepend_tagged_cuh_ext_lines(
-            False, lib_name, tagged_cu_utils, ext_lines, cuh_filename
+            False,
+            lib_name,
+            tagged_cu_utils,
+            ext_lines,
         )
         ext_lines["cuh"] = body_memwin_code + body_struct_defns + ext_lines["cuh"]
         # Moved CUDA includes to the top.
         # clangd seems to get really confused if includes are in the wrong place.
         prepend_tagged_cuh_ext_lines(
-            True, lib_name, tagged_cu_includes, ext_lines, cuh_filename
+            True,
+            lib_name,
+            tagged_cu_includes,
+            ext_lines,
         )
 
     return header_contents, body_contents, ext_lines
@@ -1616,7 +1621,10 @@ def dataptr_name(wname):
 # We remove exact duplicate strings.
 # This is also where we add the excut string table, needed for test tracing
 def prepend_tagged_cuh_ext_lines(
-    is_includes, lib_name, tagged_content, ext_lines, filename
+    is_includes,
+    lib_name,
+    tagged_content,
+    ext_lines,
 ):
     combined: [List[str], str] = []  # ([required_by], content)
     index_dict = {}
@@ -1640,7 +1648,7 @@ def prepend_tagged_cuh_ext_lines(
         lines.append("")
         lines.append(f"namespace exo_CudaUtil_{lib_name} {{")
         # Paste in weird excut code
-        lines.extend(excut.generate_c_str_table_lines(filename))
+        lines.extend(excut.generate_c_str_table_lines())
 
     for tags, content in combined:
         for tag in tags:

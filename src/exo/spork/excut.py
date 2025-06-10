@@ -468,7 +468,7 @@ def str_id(s: str) -> int:
     return _id
 
 
-def generate_c_str_table_lines(src_filename):
+def generate_c_str_table_lines():
     """Generate list of C++ lines for defining string table
 
     HACK: reserve string ID 0 for src_filename
@@ -476,7 +476,6 @@ def generate_c_str_table_lines(src_filename):
     """
     id_count = 1 + len(_str_id_table)
     strings = [None] * id_count
-    strings[0] = src_filename
     for s, i in _str_id_table.items():
         assert i < id_count
         strings[i] = s
@@ -488,7 +487,10 @@ def generate_c_str_table_lines(src_filename):
     lines.append("inline const char* const exo_excut_str_table[] = {")
     lines.append("#if EXO_EXCUT_bENABLE_LOG")
     for i, s in enumerate(strings):
-        c_str = json.dumps(s)
+        if i == 0:
+            c_str = "__FILE__"
+        else:
+            c_str = json.dumps(s)
         lines.append(f"  {c_str},  // {i}")
     lines.append("#endif")
     lines.append("};")
