@@ -234,6 +234,7 @@ class Compiler:
         self,
         procs: Union[Procedure, List[Procedure]],
         *,
+        excut=False,
         include_dir=None,
         additional_file=None,
         skip_on_fail: bool = False,
@@ -271,6 +272,10 @@ class Compiler:
             args.append(include_dir)
         if additional_file:
             args.append(additional_file)
+        if excut:
+            args.append("-DEXO_EXCUT_bENABLE_LOG=1")
+            args.append("-Itests/cuda/excut")
+            args.append("tests/cuda/excut/exo_excut.cu")
 
         self._run_command(args, skip_on_fail)
         return LibWrapper(ctypes.CDLL(artifact_path), procs[0].name())

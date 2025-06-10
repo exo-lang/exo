@@ -29,6 +29,7 @@ from .cuda_memory import (
     CudaMbarrier,
 )
 from .distributed_memory import DistributedAllocState, ThreadIter
+from .excut import InlinePtxGen
 from .sync_types import SyncType
 
 
@@ -163,9 +164,11 @@ class SyncStateBuilder:
                 f"{srcinfo}: wgmma fence must be executed by a warpgroup: {msg}"
             )
 
+        ptx = InlinePtxGen("wgmma.fence.sync.aligned #0#;", volatile=True)
+
         lowered = CudaLoweredBarrier(False, LoweredBarrierType.wgmma_fence)
         lowered.codegen = lambda _: LoweredPrologueSync(
-            actor_kinds.wgmma_async, ['asm("wgmma.fence.sync.aligned;");']
+            actor_kinds.wgmma_async, ptx.as_c_lines(py_format=False)
         )
         self.lowered[name] = lowered
 
@@ -203,7 +206,8 @@ class SyncStateBuilder:
         if actor_kinds.cuda_classic.implements_first(A1):
             pass
         elif actor_kinds.Sm80_generic.implements_first(A1):
-            lines.append('asm volatile("cp.async.wait_all;" ::);')
+            ptx = InlinePtxGen("cp.async.wait_all #0#;", volatile=True)
+            lines += ptx.as_c_lines(py_format=False)
         else:
             raise ValueError(
                 f"{srcinfo}: Fence first actor kind "
@@ -238,7 +242,9 @@ class SyncStateBuilder:
                     # We need to use barrier.cta.sync, not bar or syncthreads
                     # due to divergent control flow in "full CTA" code
                     # if there's [named] warp specialization.
-                    lines.append('asm("barrier.cta.sync 0;");')
+                    ptx = InlinePtxGen("barrier.cta.sync #0#;", volatile=True)
+                    ptx.add_arg(0, constraint="n", log_as="bits")
+                    lines.extend(ptx.as_c_lines(py_format=False))
                 elif n_warps == 1:
                     lines.append("__syncwarp();")
                 else:
@@ -253,8 +259,14 @@ class SyncStateBuilder:
                         f"{srcinfo}: expected full cluster " f"or only 1 CTA: {msg}"
                     )
                 else:
-                    lines.append('asm("barrier.cluster.arrive.aligned;"::);')
-                    lines.append('asm("barrier.cluster.wait.aligned;"::);')
+                    ptx = InlinePtxGen(
+                        "barrier.cluster.arrive.aligned #0#;", volatile=True
+                    )
+                    lines.extend(ptx.as_c_lines(py_format=False))
+                    ptx = InlinePtxGen(
+                        "barrier.cluster.wait.aligned #0#;", volatile=True
+                    )
+                    lines.extend(ptx.as_c_lines(py_format=False))
             else:
                 raise ValueError(
                     f"{srcinfo}: {cta_count}/{clusterDim} CTAs in cluster active for thread collective for Fence; must have 1 or all"
@@ -264,7 +276,8 @@ class SyncStateBuilder:
         if actor_kinds.Sm80_generic.implements_second(A2):
             pass
         elif actor_kinds.cuda_generic_and_async_proxy.implements_second(A2):
-            lines.append('asm("fence.proxy.async;");')
+            ptx = InlinePtxGen("fence.proxy.async #0#;", volatile=True)
+            lines.extend(ptx.as_c_lines(py_format=False))
         else:
             raise ValueError(
                 f"{srcinfo}: Fence second actor kind {A2} not "
@@ -581,16 +594,16 @@ class SyncStateBuilder:
             # sm_80 non-bulk cp.async
             check_A2_coll_unit(actor_kinds.Sm80_generic, cuda_thread)
             lowered = CudaLoweredBarrier(solitary, LoweredBarrierType.Sm80_commit_group)
-            lowered_arrive = ['asm("cp.async.commit_group;");']
-            await_fmt = 'asm("cp.async.wait_group {N};");'
+            arrive_instr = "cp.async.commit_group"
+            await_instr = "cp.async.wait_group"
         elif actor_kinds.tma_to_gmem_async.implements_first(A1):
             # sm_90a bulk cp.async SMEM->GMEM
             check_A2_coll_unit(actor_kinds.cuda_generic_and_async_proxy, cuda_thread)
             lowered = CudaLoweredBarrier(
                 solitary, LoweredBarrierType.tma_to_gmem_commit_group
             )
-            lowered_arrive = ['asm("cp.async.bulk.commit_group;");']
-            await_fmt = 'asm("cp.async.bulk.wait_group {N};");'
+            arrive_instr = "cp.async.bulk.commit_group"
+            await_instr = "cp.async.bulk.wait_group"
         elif actor_kinds.wgmma_async.implements_first(A1):
             # sm_90a wgmma; note unit is now warpgroup and not a single thread;
             # also enforce that this is an epilogue sync of CudaAsync(wgmma_async).
@@ -598,10 +611,8 @@ class SyncStateBuilder:
             lowered = CudaLoweredBarrier(
                 solitary, LoweredBarrierType.wgmma_commit_group
             )
-            lowered_arrive = LoweredEpilogueSync(
-                actor_kinds.wgmma_async, ['asm("wgmma.commit_group.sync.aligned;");']
-            )
-            await_fmt = 'asm("wgmma.wait_group.sync.aligned {N};");'
+            arrive_instr = "wgmma.commit_group.sync.aligned"
+            await_instr = "wgmma.wait_group.sync.aligned"
             is_wgmma = True
         else:
             raise TypeError(
@@ -617,11 +628,19 @@ class SyncStateBuilder:
             if sync_type.is_arrive():
                 if sync_type.N != 1:
                     raise ValueError("Expect N=1 for Arrive of commit group")
+                ptx = InlinePtxGen(arrive_instr + " #0#;", volatile=True)
+                lowered_arrive = ptx.as_c_lines(py_format=False)
+                if is_wgmma:
+                    lowered_arrive = LoweredEpilogueSync(
+                        actor_kinds.wgmma_async, lowered_arrive
+                    )
                 return lowered_arrive
             else:
                 if sync_type.N < 0:
                     raise ValueError("Expect N>=0 for Await of commit group")
-                return [await_fmt.format(N=sync_type.N)]
+                ptx = InlinePtxGen(await_instr + " #0#;", volatile=True)
+                ptx.add_arg(sync_type.N, constraint="n", log_as="bits")
+                return ptx.as_c_lines(py_format=False)
 
         lowered.codegen = codegen
         self.lowered[name] = lowered

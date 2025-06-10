@@ -14,11 +14,11 @@ __all__ = ["Sm80_cp_async", "Sm80_generic", "sig_Sm80_cp_async"]
 
 
 # We use these but don't put them in __all__
+from .cuda import InlinePtxGen
 from ..API import instr
 from ..spork.cuda_memory import *
 from ..spork.actor_kinds import sig_cuda_classic, cuda_classic
 from ..spork.coll_algebra import cuda_warp
-
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -28,31 +28,17 @@ from ..spork.coll_algebra import cuda_warp
 
 
 class cp_async_impl:
-    cp_async_src = """
-template <int BYTES>
-EXO_CUDA_INLINE void Sm80_cp_async(void* smem_ptr, const void* gmem_ptr) {
-  uint32_t smem = exo_smemU32(smem_ptr);
-  asm volatile(
-      "cp.async.cg.shared.global [%0], [%1], %2;" ::"r"(smem),
-      "l"(gmem_ptr),
-      "n"(BYTES) : "memory");
-}
-    """
-
     def instance_impl(self, n_bytes):
         if n_bytes not in (4, 8, 16):
             raise ValueError(f"cp.async copies 4, 8, or 16 bytes, not {n_bytes}")
-        self.instr_format = [
-            (
-                "exo_CudaUtil::Sm80_cp_async<"
-                + str(n_bytes)
-                + ">(&{smem_data}, &{gmem_data});"
-            )
-        ]
+        ptx = InlinePtxGen("cp.async.cg.shared.global #0#;", volatile=True)
+        ptx.add_arg("&{smem_data}", constraint="smem", log_as="bits")
+        ptx.add_arg("&{gmem_data}", constraint="generic", log_as="bits")
+        ptx.add_arg(n_bytes, constraint="n", log_as="bits")
+        self.instr_format = ptx.as_c_lines(py_format=True)
         self.actor_kind = Sm80_cp_async
         self.access_info["smem"].actor_signature = sig_Sm80_cp_async
         self.access_info["gmem"].actor_signature = sig_Sm80_cp_async
-        self.cu_utils.append(self.cp_async_src)
 
 
 @instr
@@ -172,7 +158,7 @@ class mma_instr_impl:
         self.actor_kind = cuda_classic
         self.coll_unit = cuda_warp
         self.cu_includes = ["cuda/std/array"]
-        self.cu_utils.append(Sm80_mma_util)
+        self.cu_utils = [Sm80_mma_load_store_util]
 
 
 @instr
@@ -246,9 +232,24 @@ class Sm80_mma_tf32(mma_instr_impl):
         self.instance_common()
         if K != 4 and K != 8:
             raise ValueError("Require K=4 or K=8")
-        self.instr_format = [
-            ("exo_CudaUtil::Sm80_mma_k" + str(K) + "({D_data}, {A_data}, {B_data});")
-        ]
+        ptx_instr = f"mma.sync.aligned.m16n8k{K}.row.col.f32.tf32.tf32.f32"
+        ptx = InlinePtxGen(f"{ptx_instr} #0#;", volatile=False)
+        D_nreg = 4
+        A_nreg = K // 2
+        B_nreg = K // 4
+        ptx.add_arg(
+            [f"{{D_data}}[{i}]" for i in range(D_nreg)], log_as=None, constraint="=r"
+        )
+        ptx.add_arg(
+            [f"{{A_data}}[{i}]" for i in range(A_nreg)], log_as=None, constraint="r"
+        )
+        ptx.add_arg(
+            [f"{{B_data}}[{i}]" for i in range(B_nreg)], log_as=None, constraint="r"
+        )
+        ptx.add_arg(
+            [f"{{D_data}}[{i}]" for i in range(D_nreg)], log_as=None, constraint="r"
+        )
+        self.instr_format = ptx.as_c_lines(py_format=True)
 
 
 __all__.append("Sm80_mma_tf32")
@@ -291,7 +292,7 @@ class Sm80_mma_zero_d_tf32(mma_instr_impl):
 __all__.append("Sm80_mma_zero_d_tf32")
 
 
-Sm80_mma_util = r"""
+Sm80_mma_load_store_util = r"""
 EXO_CUDA_INLINE void Sm80_mma_load_a_k8(unsigned rmem[4], const float* gmem, cuda::std::array<int_fast32_t, 2> element_strides)
 {
   const unsigned row_stride = element_strides[0];
@@ -351,25 +352,5 @@ EXO_CUDA_INLINE void Sm80_mma_zero_d(unsigned rmem[4])
   rmem[1] = 0;
   rmem[2] = 0;
   rmem[3] = 0;
-}
-
-EXO_CUDA_INLINE void Sm80_mma_k8(unsigned d[4], const unsigned a[4], const unsigned b[2])
-{
-  asm("mma.sync.aligned.m16n8k8.row.col.f32.tf32.tf32.f32\n\t"
-      "{%0,%1,%2,%3},\n\t"
-      "{%4,%5,%6,%7},\n\t"
-      "{%8,%9},\n\t"
-      "{%10,%11,%12,%13};" : "=r"(d[0]), "=r"(d[1]), "=r"(d[2]), "=r"(d[3])
-      : "r"(a[0]), "r"(a[1]), "r"(a[2]), "r"(a[3]), "r"(b[0]), "r"(b[1]), "r"(d[0]), "r"(d[1]), "r"(d[2]), "r"(d[3]));
-}
-
-EXO_CUDA_INLINE void Sm80_mma_k4(unsigned d[4], const unsigned a[2], const unsigned b[1])
-{
-  asm("mma.sync.aligned.m16n8k4.row.col.f32.tf32.tf32.f32\n\t"
-      "{%0,%1,%2,%3},\n\t"
-      "{%4,%5},\n\t"
-      "{%6},\n\t"
-      "{%7,%8,%9,%10};" : "=r"(d[0]), "=r"(d[1]), "=r"(d[2]), "=r"(d[3])
-      : "r"(a[0]), "r"(a[1]), "r"(b[0]), "r"(d[0]), "r"(d[1]), "r"(d[2]), "r"(d[3]));
 }
 """

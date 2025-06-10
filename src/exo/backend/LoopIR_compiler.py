@@ -39,6 +39,7 @@ from ..spork.loop_modes import LoopMode, Seq, Par, _CodegenPar
 from ..spork import actor_kinds
 from ..spork.barrier_usage import BarrierUsage, BarrierUsageAnalysis, SyncInfo
 from ..spork.cuda_backend import loopir_lower_cuda, h_snippet_for_cuda
+from ..spork import excut
 
 
 def sanitize_str(s):
@@ -322,7 +323,7 @@ class WindowStruct:
 
 def run_compile(proc_list, file_stem: str):
     lib_name = sanitize_str(file_stem)
-    fwd_decls, body, ext_lines = ext_compile_to_strings(lib_name, proc_list)
+    fwd_decls, body, ext_lines = ext_compile_to_strings(lib_name, file_stem, proc_list)
     used_cuda = "cu" in ext_lines
 
     source = f'#include "{file_stem}.h"\n\n{body}'
@@ -353,9 +354,11 @@ extern "C" {{
         if ext == "c" or ext == "h":
             continue
         elif ext == "cuh":
-            text = f'#pragma once\n#include "{file_stem}.h"\n{join_ext_lines(lines)}'
+            lines2 = ["#pragma once", f'#include "{file_stem}.h"']
+            lines2.extend(lines)  # Most of the code
+            text = "\n".join(lines2)
         elif ext == "cu":
-            text = f'#include "{file_stem}.cuh"\n{join_ext_lines(lines)}'
+            text = "\n".join([f'#include "{file_stem}.cuh"'] + lines)
         else:
             # A bit crappy we have per-file-extension logic here.
             assert "Add case for file extension"
@@ -385,12 +388,12 @@ def join_ext_lines(lines):
 
 def compile_to_strings(lib_name, proc_list):
     """Legacy wrapper, for procs that don't generate extension files"""
-    header, body, ext = ext_compile_to_strings(lib_name, proc_list)
+    header, body, ext = ext_compile_to_strings(lib_name, "", proc_list)
     assert not ext
     return header, body
 
 
-def ext_compile_to_strings(lib_name, proc_list):
+def ext_compile_to_strings(lib_name, file_stem, proc_list):
     # Get transitive closure of call-graph
     orig_procs = [id(p) for p in proc_list]
 
@@ -556,11 +559,16 @@ def ext_compile_to_strings(lib_name, proc_list):
 
     # Add cu_includes, cu_util, window definitions to .cuh file, if it exists.
     if (cuh_lines := ext_lines.get("cuh")) is not None:
-        prepend_tagged_cuh_ext_lines(False, lib_name, tagged_cu_utils, ext_lines)
+        cuh_filename = f"{file_stem}.cuh"
+        prepend_tagged_cuh_ext_lines(
+            False, lib_name, tagged_cu_utils, ext_lines, cuh_filename
+        )
         ext_lines["cuh"] = body_memwin_code + body_struct_defns + ext_lines["cuh"]
         # Moved CUDA includes to the top.
         # clangd seems to get really confused if includes are in the wrong place.
-        prepend_tagged_cuh_ext_lines(True, lib_name, tagged_cu_includes, ext_lines)
+        prepend_tagged_cuh_ext_lines(
+            True, lib_name, tagged_cu_includes, ext_lines, cuh_filename
+        )
 
     return header_contents, body_contents, ext_lines
 
@@ -1606,7 +1614,10 @@ def dataptr_name(wname):
 # from list of pairs of (required_by: str, content: str)
 # where content is a header name or a cu_util blob.
 # We remove exact duplicate strings.
-def prepend_tagged_cuh_ext_lines(is_includes, lib_name, tagged_content, ext_lines):
+# This is also where we add the excut string table, needed for test tracing
+def prepend_tagged_cuh_ext_lines(
+    is_includes, lib_name, tagged_content, ext_lines, filename
+):
     combined: [List[str], str] = []  # ([required_by], content)
     index_dict = {}
 
@@ -1628,6 +1639,8 @@ def prepend_tagged_cuh_ext_lines(is_includes, lib_name, tagged_content, ext_line
         # Begin namespace
         lines.append("")
         lines.append(f"namespace exo_CudaUtil_{lib_name} {{")
+        # Paste in weird excut code
+        lines.extend(excut.generate_c_str_table_lines(filename))
 
     for tags, content in combined:
         for tag in tags:

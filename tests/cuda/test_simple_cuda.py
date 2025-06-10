@@ -63,9 +63,7 @@ def test_tmp_excut(compiler):
 
     fn = compiler.nvcc_compile(
         cuda_add_vec,
-        include_dir="tests/cuda/excut",
-        additional_file="tests/cuda/excut/exo_excut.cu",
-        compiler_flags=["-DEXO_EXCUT_bENABLE_LOG=1"],
+        excut=True,
     )
     fn.exo_excut_begin_log_file(compiler.workdir / "excut_trace.json", 1 << 24)
 
@@ -424,3 +422,138 @@ def test_cuda_arrays(compiler):
 
     for i in range(4):
         assert ZZ2[ZZ0a + i, ZZ1a + 4 - i] == ZZ3[i] + ZZ4[i]
+
+
+# TODO seperate Sm80 test
+from exo.stdlib.scheduling import *
+from exo.platforms.cuda import *
+from exo.platforms.Sm80 import *
+
+Mw = 96
+Nw = 64
+
+M1 = 192
+N1 = 256  # Does not change gracefully
+
+K0 = 16
+MMA_K = 4
+
+
+# fmt: off
+@proc
+def xgemm_Sm80_fence(M: size, N: size, K: size, A_host: f32[M,K], B_host: f32[K,N], C_host: f32[M,N]):
+    assert M % M1 == 0
+    assert N % N1 == 0
+    assert K % K0 == 0
+
+    A: f32[M, K] @ CudaGmemLinear
+    B: f32[K, N] @ CudaGmemLinear
+    C: f32[M, N] @ CudaGmemLinear
+
+    cudaMemcpyAsync_htod_2f32(M, K, A, A_host)
+    cudaMemcpyAsync_htod_2f32(K, N, B, B_host)
+
+    with CudaDeviceFunction(blockDim = 256, blocks_per_sm = 1):
+        for m2 in cuda_tasks(0, M / M1):
+            for n2 in cuda_tasks(0, N / N1):
+                # Per CTA code
+
+                # Tiles (double buffered)
+                A_smem : f32[2, M1, K0] @ CudaSmemLinear
+                B_smem : f32[2, K0, N1] @ CudaSmemLinear
+
+                # Zero-out accumulator (warp code)
+                D_rmem : f32[M1/Mw, N1/Nw, Mw/16, Nw/8, 16, 8] @ Sm80_RmemMatrixD
+                for mw in cuda_threads(0, M1/Mw, unit=(N1/Nw) * cuda_warp):
+                    for nw in cuda_threads(0, N1/Nw, unit=cuda_warp):
+                        for m_seq in seq(0, Mw/16):
+                            for n_seq in seq(0, Nw/8):
+                                Sm80_mma_zero_d_tf32(D_rmem[mw,nw,m_seq, n_seq,:,:])
+
+                # K tiles loop, double buffered
+                # Don't accum tile in first iteration.
+                # Don't load tile in last iteration.
+                # 1 iteration delay between load and use.
+                for k1 in seq(0, K / K0 + 1):
+                    if k1 < K / K0:
+                        with CudaAsync(Sm80_cp_async):
+                            # Load A tile
+                            for m1 in seq(0, M1 / 64):
+                                for m0 in cuda_threads(0, 64, unit=4 * cuda_thread):
+                                    for k0 in cuda_threads(0, 4, unit=cuda_thread):
+                                        Sm80_cp_async_f32(A_smem[k1 % 2, m1 * 64 + m0, 4 * k0 : 4 * k0 + 4],
+                                                          A[m2 * M1 + m1 * 64 + m0,
+                                                          k1 * K0 + k0 * 4 : k1 * K0 + k0 * 4 + 4], size=4)
+
+                            # Load B tile
+                            for k0_seq in seq(0, 4):
+                                for k0_par in cuda_threads(0, 4, unit=64 * cuda_thread):
+                                    for n0 in cuda_threads(0, 64, unit=cuda_thread):
+                                        Sm80_cp_async_f32(B_smem[k1 % 2, k0_seq * 4 + k0_par, 4 * n0 : 4 * n0 + 4],
+                                                          B[k1 * K0 + k0_seq * 4 + k0_par,
+                                                          n2 * N1 + 4 * n0 : n2 * N1 + 4 * n0 + 4], size=4)
+                        # end CudaAsync(Sm80_cp_async)
+                # for-k1 (K tiles) loop continues
+                    if k1 > 0:
+                        for mw in cuda_threads(0, M1 / Mw, unit=(N1/Nw) * cuda_warp):
+                            for nw in cuda_threads(0, N1 / Nw, unit=cuda_warp):
+                                # Load all B matrix tiles ahead of time
+                                B_rmem : f32[K0/MMA_K, Nw/8, MMA_K, 8] @ Sm80_RmemMatrixB
+                                for n_seq in seq(0, Nw / 8, pragma_unroll=0):
+                                    for k_seq in seq(0, K0 / MMA_K, pragma_unroll=0):
+                                        Sm80_mma_load_b_tf32(B_rmem[k_seq,n_seq,:,:],
+                                                             B_smem[1 - k1 % 2,
+                                                             k_seq*MMA_K:(k_seq+1)*MMA_K,
+                                                             nw*Nw + n_seq*8 : nw*Nw + (n_seq+1)*8], K=MMA_K)
+
+                                for m_seq in seq(0, Mw / 16, pragma_unroll=0):
+                                    # Load A matrix tiles needed for m iteration
+                                    A_rmem : f32[K0/MMA_K, 16, MMA_K] @ Sm80_RmemMatrixA
+                                    for k_seq in seq(0, K0 / MMA_K, pragma_unroll=0):
+                                        Sm80_mma_load_a_tf32(A_rmem[k_seq,:,:],
+                                                             A_smem[1 - k1 % 2,
+                                                             mw*Mw + m_seq*16 : mw*Mw + (m_seq+1)*16,
+                                                             k_seq*MMA_K:(k_seq+1)*MMA_K], K=MMA_K)
+                                    # Accumulate to tile of warp tiles owned by warp.
+                                    for n_seq in seq(0, Nw / 8, pragma_unroll=0):
+                                        for k_seq in seq(0, K0 / MMA_K, pragma_unroll=0):
+                                            Sm80_mma_tf32(D_rmem[mw,nw,m_seq,n_seq,:,:],
+                                                          A_rmem[k_seq,:,:],
+                                                          B_rmem[k_seq,n_seq,:,:], K=MMA_K)
+
+                    # Sm80_generic actor kind = (cuda_classic | Sm80_cp_async)
+                    Fence(Sm80_generic, Sm80_generic)
+
+                # for-k1 (K tiles) loop ends
+
+                # Write out accumulator
+                for mw in cuda_threads(0, M1 / Mw, unit=(N1/Nw) * cuda_warp):
+                    for nw in cuda_threads(0, N1 / Nw, unit=cuda_warp):
+                        for m_seq in seq(0, Mw / 16, pragma_unroll=0):
+                            for n_seq in seq(0, Nw / 8, pragma_unroll=0):
+                                Sm80_mma_store_d_tf32(
+                                    C[m2 * M1 + mw * Mw + m_seq * 16 : m2 * M1 + mw * Mw + (m_seq+1) * 16,
+                                    n2 * N1 + nw * Nw + n_seq * 8 : n2 * N1 + nw * Nw + (n_seq+1) * 8],
+                                    D_rmem[mw,nw,m_seq,n_seq,:,:])
+
+    cudaMemcpyAsync_dtoh_2f32(M, N, C_host, C)
+# fmt: on
+
+
+xgemm_Sm80_fence = simplify(xgemm_Sm80_fence)
+
+
+def test_tmp_Sm80(compiler):
+    fn = compiler.nvcc_compile(
+        xgemm_Sm80_fence,
+        excut=True,
+    )
+    fn.exo_excut_begin_log_file(compiler.workdir / "excut_Sm80_fence.json", 1 << 30)
+
+    M, N, K = 192, 256, 128
+    A = np.zeros(shape=(M, K), dtype=np.float32, order="C")
+    B = np.zeros(shape=(K, N), dtype=np.float32, order="C")
+    C_test = np.ndarray(shape=(M, N), dtype=np.float32, order="C")
+    fn(None, M, N, K, A, B, C_test)
+
+    fn.exo_excut_end_log_file()

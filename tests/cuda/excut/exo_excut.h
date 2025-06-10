@@ -138,7 +138,7 @@ struct exo_ExcutThreadLog
         }
     }
 
-    EXO_EXCUT_CUDA_INLINE void log_ptr_arg(void* ptr) const
+    EXO_EXCUT_CUDA_INLINE void log_ptr_arg(const void* ptr) const
     {
         static_assert(sizeof(ptr) == 8, "Assumed 64-bit");
         log_u64_arg(uint64_t(ptr));

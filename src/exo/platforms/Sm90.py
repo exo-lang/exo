@@ -761,7 +761,8 @@ class mma_async_impl:
             args.append("{d_data}.%s" % rname)
         args.append("{d_data}.scale_d")
         self.instr_format = [
-            (fname + "(" + ", ".join(args) + ");\n" + "{d_data}.scale_d = 1;")
+            fname + "(" + ", ".join(args) + ");",
+            "{d_data}.scale_d = 1;",
         ]
 
 

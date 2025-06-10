@@ -1324,7 +1324,12 @@ struct exo_CudaDeviceArgs{N}_{proc}
 
 deviceTask_decl_fmt = """
   static __device__ __forceinline__ void
-  exo_deviceTask{warp_cname}(char* exo_smem, exo_SyncState& exo_syncState, const exo_DeviceArgs& exo_deviceArgs, exo_Task exo_task);
+  exo_deviceTask{warp_cname}(
+      char* exo_smem,
+      exo_SyncState& exo_syncState,
+      const exo_DeviceArgs& exo_deviceArgs,
+      exo_Task exo_task,
+      exo_ExcutThreadLog exo_excutLog={{}});
 """
 
 launchConfig_clusterDim_snippet = """
@@ -1369,10 +1374,10 @@ struct exo_Cuda{N}_{proc}
   exo_cudaLaunch(cudaStream_t exo_cudaStream, const exo_DeviceArgs& exo_deviceArgs);
 
   static __device__ __forceinline__ void
-  exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs);
+  exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={{}});
 
   static __device__ __forceinline__ void
-  exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs);
+  exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={{}});
 {deviceTask_decls}}};
 
 inline void
@@ -1394,10 +1399,14 @@ exo_Cuda{N}_{proc}::exo_cudaLaunch(cudaStream_t exo_cudaStream, const exo_Device
   exo_launchConfig.stream = exo_cudaStream;
 {launchConfig_clusterDim_snippet}
   cudaLaunchKernelEx(&exo_launchConfig, exo_deviceFunction{N}_{proc}, exo_deviceArgs);
+
+  exo_excut_flush_device_log(
+      exo_cudaStream, exo_gridDim, exo_blockDim,
+      exo_CudaUtil::exo_excut_str_id_count, exo_CudaUtil::exo_excut_str_table);
 }}
 
 __device__ __forceinline__ void
-exo_Cuda{N}_{proc}::exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs)
+exo_Cuda{N}_{proc}::exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog)
 {{
 {device_setup_body}
 }}
@@ -1409,8 +1418,9 @@ __global__ void
 exo_deviceFunction{N}_{proc}(__grid_constant__ const struct exo_CudaDeviceArgs{N}_{proc} exo_deviceArgs)
 {{
   extern __shared__ char exo_smem[];
-  exo_Cuda{N}_{proc}::exo_deviceSetup(exo_smem, exo_deviceArgs);
-  exo_Cuda{N}_{proc}::exo_deviceMainLoop(exo_smem, exo_deviceArgs);
+  exo_ExcutThreadLog exo_excutLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
+  exo_Cuda{N}_{proc}::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda{N}_{proc}::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
 }}
 
 void
@@ -1421,21 +1431,25 @@ exo_cudaLaunch{N}_{proc}(cudaStream_t exo_cudaStream, struct exo_CudaDeviceArgs{
 """
 
 device_main_loop_prefix_fmt = """__device__ __forceinline__ void
-exo_Cuda{N}_{proc}::exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs)
+exo_Cuda{N}_{proc}::exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog)
 {{
   namespace exo_CudaUtil = exo_CudaUtil_{lib_name};
   exo_SyncState exo_syncState{{}};
-  exo_ExcutThreadLog exo_excutThreadLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
   unsigned exo_taskIndex = 0;"""
 
 device_task_prefix_fmt = """__device__ __forceinline__ void
-exo_Cuda{N}_{proc}::exo_deviceTask{warp_cname}(char* exo_smem, exo_SyncState& exo_syncState, const exo_DeviceArgs& exo_deviceArgs, exo_Task exo_task)
+exo_Cuda{N}_{proc}::exo_deviceTask{warp_cname}(
+    char* exo_smem,
+    exo_SyncState& exo_syncState,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_Task exo_task,
+    exo_ExcutThreadLog exo_excutLog)
 {{
   namespace exo_CudaUtil = exo_CudaUtil_{lib_name};"""
 
 cuda_launch_fmt = """exo_cudaLaunch{N}_{proc}(exo_cudaStream, (struct exo_CudaDeviceArgs{N}_{proc}) {{ {device_args} }});"""
 
-task_launch_fmt = """if (exo_taskIndex++ % (gridDim.x / exo_clusterDim) == blockIdx.x / exo_clusterDim) exo_deviceTask{warp_cname}(exo_smem, exo_syncState, exo_deviceArgs, (struct exo_Task) {{ {task_args} }});"""
+task_launch_fmt = """if (exo_taskIndex++ % (gridDim.x / exo_clusterDim) == blockIdx.x / exo_clusterDim) exo_deviceTask{warp_cname}(exo_smem, exo_syncState, exo_deviceArgs, (struct exo_Task) {{ {task_args} }}, exo_excutLog);"""
 
 # Paste this into the C header (.h) if any proc uses cuda.
 h_snippet_for_cuda = r"""
@@ -1475,7 +1489,7 @@ struct exo_ExcutThreadLog {
     EXO_CUDA_INLINE void log_str_id_arg(uint32_t) {}
     EXO_CUDA_INLINE void log_u32_arg(uint32_t) {}
     EXO_CUDA_INLINE void log_u64_arg(uint32_t) {}
-    EXO_CUDA_INLINE void log_ptr_arg(void*) {}
+    EXO_CUDA_INLINE void log_ptr_arg(const void*) {}
     template <typename T>
     EXO_CUDA_INLINE void log_ptr_data_arg(const T*, uint32_t = 0) {}
 };
