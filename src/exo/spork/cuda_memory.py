@@ -279,6 +279,9 @@ inline void* exo_cudaMallocAsync_default(size_t size, cudaStream_t exo_cudaStrea
 #endif
 
 #ifndef exo_cudaFreeAsync
+#ifndef __cplusplus
+static
+#endif
 inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
                                       const char* file __attribute__((unused)),
                                       int line __attribute__((unused)) )
