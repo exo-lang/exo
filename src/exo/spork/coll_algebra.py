@@ -479,9 +479,9 @@ class CollTiling(object):
             domain_coord = common_domain[dim_idx]
             box_coord = old_box[dim_idx]
             if (
-                unit_box_coord is not None
-                and unit_box_coord != domain_coord
-                and unit_box_coord != box_coord
+                unit_box_coord is not None  # "agnostic dimension"
+                and unit_box_coord != domain_coord  # Tricky: keep up-to-date
+                and unit_box_coord != box_coord  # with coll_algebra.py
             ):
                 assert unit_box_coord < box_coord  # TODO message
                 assert tiled_dim_idx is None  # TODO message
