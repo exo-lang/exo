@@ -527,6 +527,14 @@ class SubtreeScan(LoopIR_Do):
                 raise ValueError(
                     f"{s.srcinfo}: CudaWarps.hi={raw_hi} out-of-range for {name!r}-named warps (only have {info.count})"
                 )
+            # Named warps (besides fallback 1-name case) won't work if the CTA
+            # has already been subdivided by a cuda_threads loop.
+            if len(self.named_warps) > 1:
+                if self._coll_tiling.box[-1] != self.fmt_dict["blockDim"]:
+                    raise ValueError(
+                        f"{s.srcinfo}: named CudaWarps requires CTA not to be subdivided by parent cuda_threads loop"
+                    )
+
         # Nested CudaWarps: interpret lo/hi literally as the higher-level
         # CudaWarps will have already handled the named warp offset adjustment.
         # Can't request different named warps now.
