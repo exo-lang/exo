@@ -1,3 +1,6 @@
 [submodule "dependencies/benchmark"]
 	path = dependencies/benchmark
 	url = https://github.com/google/benchmark.git
+[submodule "src/exo/rewrite/cad"]
+	path = src/exo/rewrite/cad
+	url = git@github.com:mmaaz-git/cad.git

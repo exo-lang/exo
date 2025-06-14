@@ -24,6 +24,9 @@ from ..core.LoopIR import (
 )
 from .internal_analysis import *
 
+# Sympy
+import sympy as sm
+
 
 # --------------------------------------------------------------------------- #
 # DataflowIR definition
@@ -46,6 +49,7 @@ module DataflowIR {
     proc = ( name    name,
              fnarg*  args,
              expr*   preds,
+             dict    sym_table,
              block   body,
              srcinfo srcinfo )
 
@@ -96,6 +100,7 @@ module DataflowIR {
         "binop": validators.instance_of(Operator, convert=True),
         "absenv": validateAbsEnv,
         "srcinfo": SrcInfo,
+        "dict": dict,
     },
     memoize={
         "Num",
@@ -182,7 +187,7 @@ class LoopIR_to_DataflowIR:
         df_body = self.map_stmts(p.body)
         block = self.init_block(df_body)
 
-        return DataflowIR.proc(p.name, df_args, df_preds, block, p.srcinfo)
+        return DataflowIR.proc(p.name, df_args, df_preds, {}, block, p.srcinfo)
 
     def tensor_to_his(self, tensor):
         # | Tensor( expr* hi, bool is_window, type type )
@@ -768,36 +773,28 @@ def validateValueDom(obj):
     return obj
 
 
+from sympy.core.relational import Boolean
+
 ArrayDomain = ADT(
     """
 module ArrayDomain {
-    abs = (sym* iterators, node tree)
+    abs = (sym* iterators, expr *poly, node tree) -- iterators is generator list, poly is a list of original polynomials
 
-    node   = Leaf(val v)
-           | AffineSplit(aexpr ae,
-               node  ltz, -- ae < 0 case
-               node  eqz, -- ae == 0
-               node  gtz  -- ae > 0
-             )
-           | ModSplit(aexpr ae, int m
-               node neqz, -- pred % m != 0
-               node  eqz, -- pred % m == 0 case
-             )
+    node   = Leaf(val v, dict sample) -- leaf has a value and sample points!
+           | LinSplit(cell *cells)
+
+    cell = Cell(rel eq, node tree)
 
     val   = SubVal(vabs av)
-          | ArrayVar(sym name, aexpr* idx)
-
-    aexpr = Const(int val)
-          | Var(sym name)
-          | Add(aexpr lhs, aexpr rhs)
-          | Mult(int coeff, aexpr ae)  
-          | Div(aexpr ae, int divisor)
-          | Mod(aexpr ae, int m)
+          | ArrayVar(sym name, expr* idx)
 }
 """,
     ext_types={
         "vabs": validateValueDom,
-        "sym": Sym,
+        "sym": sm.Symbol,
+        "expr": sm.Expr,
+        "rel": Boolean,
+        "dict": dict,
     },
     memoize={},
 )
@@ -807,10 +804,10 @@ D = ArrayDomain
 from . import dataflow_pprint
 
 
+"""
 # --------------------------------------------------------------------------- #
 # Join for D.val, including SubVal and ArrayVar
 # --------------------------------------------------------------------------- #
-
 
 def subval_join(v1, v2):
     assert isinstance(v1, D.val)
@@ -880,6 +877,7 @@ def is_all_top(a):
 
     return False
 
+"""
 
 # --------------------------------------------------------------------------- #
 # Lifting the abstract domain tree to SMT formula (AExpr)
@@ -936,7 +934,8 @@ def lift_to_smt_val(aname: A.Var, e: D.val):
 
 
 # Lift D.aexpr to the AExpr
-def lift_to_smt_a(e: D.aexpr) -> A:
+def lift_to_smt_a(e) -> A:
+    # def lift_to_smt_a(e: D.aexpr) -> A:
     assert isinstance(e, D.aexpr)
     typ = T.Int()
     if isinstance(e, D.Var):
@@ -1034,54 +1033,63 @@ def has_array_access(e: DataflowIR.expr) -> bool:
     return False
 
 
-# Lifting function for dataflow ir expression to D.aexpr
-# Corresponds to $A^\# : Expr \to aexpr$ in the paper
-def lift_to_abs_a(e: DataflowIR.expr) -> D.aexpr:
+# Lifting function for dataflow ir expression to Sympy's Expr
+def lift_to_sympy(e: DataflowIR.expr, table: dict) -> sm.Expr:
 
     if isinstance(e, DataflowIR.Read):
         assert len(e.idx) == 0
-        return D.Var(e.name)
+        sym = sm.Symbol(e.name.__repr__())
+        table[sym] = e.name
+        return sym
 
     elif isinstance(e, DataflowIR.Const):
-        assert isinstance(e.val, (bool, int))
-        return D.Const(e.val)
+        val = e.val
+        if isinstance(val, bool):
+            return sm.S.true if val else sm.S.false
+        if isinstance(val, int):
+            return sm.Integer(val)
+        raise TypeError(f"Unsupported constant type: {type(val)}")
 
     elif isinstance(e, DataflowIR.USub):
-        if arg := lift_to_abs_a(e.arg):
-            return D.Mult(-1, arg)
+        return -lift_to_sympy(e.arg, table)
 
     elif isinstance(e, DataflowIR.BinOp):
-        lhs = lift_to_abs_a(e.lhs)
-        rhs = lift_to_abs_a(e.rhs)
+        lhs = lift_to_sympy(e.lhs, table)
+        rhs = lift_to_sympy(e.rhs, table)
 
-        if e.op == "+":
-            return D.Add(lhs, rhs)
-        elif e.op == "*":
-            if isinstance(lhs, D.Const):
-                return D.Mult(lhs.val, rhs)
-            elif isinstance(rhs, D.Const):
-                return D.Mult(rhs.val, lhs)
-            else:
-                assert False, "shouldn't be here"
-        elif e.op == "-":
-            return D.Add(lhs, D.Mult(-1, rhs))
-        elif e.op == "/":
-            assert isinstance(rhs, D.Const)
-            return D.Div(lhs, rhs.val)
-        elif e.op == "%":
-            assert isinstance(rhs, D.Const)
-            return D.Mod(lhs, rhs.val)
-        else:
-            # TODO: Support division at some point
-            assert False, f"got unsupported binop {e.op} in {e}."
+        op = e.op
+        if op == "+":
+            return sm.Add(lhs, rhs, evaluate=False)
+        elif op == "-":
+            return sm.Add(lhs, sm.Mul(-1, rhs, evaluate=False), evaluate=False)
+        elif op == "*":
+            return sm.Mul(lhs, rhs, evaluate=False)
+        elif op == "/":
+            return sm.Mul(lhs, sm.Pow(rhs, -1, evaluate=False), evaluate=False)
+        elif op == "==":
+            return sm.Eq(lhs, rhs, evaluate=False)
+        elif op == "<":
+            return sm.Lt(lhs, rhs, evaluate=False)
+        elif op == ">":
+            return sm.Gt(lhs, rhs, evaluate=False)
+        elif op == ">=":
+            return sm.Le(lhs, rhs, evaluate=False)
+        elif op == "<=":
+            return sm.Ge(lhs, rhs, evaluate=False)
+        elif op == "%":
+            return sm.Mod(lhs, rhs, evaluate=False)
 
-    assert False, f"shouldn't be here. got {e}"
+        # and, or. and other stuff should not be here!
+
+        raise ValueError(f"Unsupported binary operator: {op}")
+
+    raise TypeError(f"Unhandled DataflowIR node: {e!r}")
 
 
+"""
 # --------------------------------------------------------------------------- #
 # Simplify
 # --------------------------------------------------------------------------- #
-
 
 def abs_simplify(src: D.abs) -> D.abs:
     assert isinstance(src, D.abs)
@@ -1205,432 +1213,453 @@ def abs_simplify(src: D.abs) -> D.abs:
             assert False, "bad case"
 
     return D.abs(src.iterators, map_tree(src.tree))
+"""
 
 
 # --------------------------------------------------------------------------- #
 # Substitution related operations
 # --------------------------------------------------------------------------- #
 
-
+# -----------------------------------------------------------------------------
+# Generic tree-mapper ----------------------------------------------------------
+# -----------------------------------------------------------------------------
 class Abs_Rewrite:
-    def map_abs(self, a):
-        iters = self.map_iters(a.iterators)
-        tree = self.map_node(a.tree)
-        return (iters, tree)
+    """Generic, *immutable* mapper over an ArrayDomain element."""
 
+    # ── entry point ──────────────────────────────────────────────────────────
+    def map_abs(self, a: D.abs) -> D.abs:
+        iters = self.map_iters(a.iterators)
+        poly = [self.map_expr(p) for p in a.poly]
+        tree = self.map_node(a.tree)
+        return D.abs(iters, poly, tree)
+
+    # ── iterators ────────────────────────────────────────────────────────────
     def map_iters(self, itrs):
         return [self.map_iter(i) for i in itrs]
 
     def map_iter(self, i):
-        return i
+        return i  # default: identity
 
-    def map_node(self, node):
+    # ── expressions / relations ──────────────────────────────────────────────
+    def map_expr(self, e):
+        return e  # identity unless a subclass rewrites
+
+    def map_rel(self, r):
+        return r  # relational is a SymPy Expr, too
+
+    # ── nodes ────────────────────────────────────────────────────────────────
+    def map_node(self, node: D.node):
         if isinstance(node, D.Leaf):
-            return D.Leaf(self.map_val(node.v))
-        elif isinstance(node, D.AffineSplit):
-            return D.AffineSplit(
-                self.map_aexpr(node.ae),
-                self.map_node(node.ltz),
-                self.map_node(node.eqz),
-                self.map_node(node.gtz),
+            return D.Leaf(
+                self.map_val(node.v),  # rewrite the value
+                node.sample,  # sample stays unchanged
             )
-        elif isinstance(node, D.ModSplit):
-            return D.ModSplit(
-                self.map_aexpr(node.ae),
-                node.m,
-                self.map_node(node.neqz),
-                self.map_node(node.eqz),
-            )
-        else:
-            assert False
 
-    def map_val(self, val):
+        elif isinstance(node, D.LinSplit):
+            new_cells = [self.map_cell(c) for c in node.cells]
+            return D.LinSplit(new_cells)
+
+        else:
+            raise TypeError(f"Unknown node variant {type(node)}")
+
+    def map_cell(self, cell: D.cell):
+        return D.Cell(
+            self.map_rel(cell.eq),  # rewrite guard if needed
+            self.map_node(cell.tree),  # recurse on subtree
+        )
+
+    # ── values (leaf payload) ────────────────────────────────────────────────
+    def map_val(self, val: D.val):
         if isinstance(val, D.SubVal):
-            # TODO: May want to recurse into VABS?
+            # Could recurse into vabs here if required
             return val
+
         elif isinstance(val, D.ArrayVar):
-            return D.ArrayVar(val.name, [self.map_aexpr(i) for i in val.idx])
+            new_idx = [self.map_expr(i) for i in val.idx]
+            return D.ArrayVar(val.name, new_idx)
+
         else:
-            assert False
-
-    def map_aexpr(self, aexpr):
-        if isinstance(aexpr, D.Const):
-            return aexpr
-        elif isinstance(aexpr, D.Var):
-            return aexpr
-        elif isinstance(aexpr, D.Add):
-            return D.Add(self.map_aexpr(aexpr.lhs), self.map_aexpr(aexpr.rhs))
-        elif isinstance(aexpr, D.Mult):
-            return D.Mult(aexpr.coeff, self.map_aexpr(aexpr.ae))
-        elif isinstance(aexpr, D.Div):
-            return D.Div(self.map_aexpr(aexpr.ae), aexpr.divisor)
-        elif isinstance(aexpr, D.Mod):
-            return D.Mod(self.map_aexpr(aexpr.ae), aexpr.m)
-        else:
-            assert False
+            raise TypeError(f"Unknown val variant {type(val)}")
 
 
-# [i0 -> e0, ..., ik -> ek]tree
+# -----------------------------------------------------------------------------
+# Concrete subclass: *symbol substitution* ------------------------------------
+# -----------------------------------------------------------------------------
 class ASubs(Abs_Rewrite):
+    """
+    Apply a substitution  {sym → expr}  to every SymPy expression
+    inside a CAD node.
+    """
+
     def __init__(self, node: D.node, env: dict):
-        self.dict = env
-        self.node = super().map_node(node)
-
-    def result(self):
-        return self.node
-
-    def map_aexpr(self, a):
-        if isinstance(a, D.Var):
-            if a.name in self.dict:
-                return self.dict[a.name]
-
-        return super().map_aexpr(a)
-
-
-# --------------------------------------------------------------------------- #
-# Substitution for aexpr
-# --------------------------------------------------------------------------- #
-
-# Helper function to negate an expression.
-def negate(ae):
-    if isinstance(ae, D.Const):
-        return D.Const(-ae.val)
-    elif isinstance(ae, D.Var):
-        return D.Mult(-1, ae)
-    elif isinstance(ae, D.Add):
-        return D.Add(negate(ae.lhs), negate(ae.rhs))
-    elif isinstance(ae, D.Mult):
-        return D.Mult(-ae.coeff, ae.ae)
-    else:
-        raise TypeError("Unknown aexpr type")
-
-
-# Function to "divide" an expression by an integer.
-# It assumes that every constant multiplier divides evenly.
-def divide_expr(ae, divisor):
-    if divisor == 0:
-        raise ValueError("Division by zero")
-    if isinstance(ae, D.Const):
-        if ae.val % divisor != 0:
-            raise ValueError("Non-integer division result")
-        return D.Const(ae.val // divisor)
-    elif isinstance(ae, D.Var):
-        # Treat a variable as 1*Var.
-        if 1 % divisor != 0:
-            raise ValueError("Non-integer division result")
-        # Only works if divisor is 1 or -1.
-        return D.Mult(1 // divisor, ae)
-    elif isinstance(ae, D.Add):
-        lhs = divide_expr(ae.lhs, divisor)
-        rhs = divide_expr(ae.rhs, divisor)
-        if isinstance(rhs, D.Const) and rhs.val == 0:
-            return lhs
-        if isinstance(lhs, D.Const) and lhs.val == 0:
-            return rhs
-        return D.Add(lhs, rhs)
-    elif isinstance(ae, D.Mult):
-        if ae.coeff % divisor != 0:
-            raise ValueError(
-                "Non-integer division result in multiplication, todo implement fractions"
-            )
-        if isinstance(ae.ae, D.Const) and ae.ae.val == 0:
-            return D.Const(0)
-        r = ae.coeff // divisor
-        if r == 1:
-            return ae.ae
-        elif r == 0:
-            return D.Const(0)
-        return D.Mult(r, ae.ae)
-    else:
-        raise TypeError("Unknown aexpr type")
-
-
-# Function to "collect" the target variable.
-# It returns a pair (coeff, rest) such that: ae == coeff*target + rest.
-def collect(ae, target):
-    if isinstance(ae, D.Const):
-        return (0, ae)
-    elif isinstance(ae, D.Var):
-        if ae.name == target:
-            return (1, D.Const(0))
-        else:
-            return (0, ae)
-    elif isinstance(ae, D.Add):
-        coeff_lhs, rest_lhs = collect(ae.lhs, target)
-        coeff_rhs, rest_rhs = collect(ae.rhs, target)
-        return (coeff_lhs + coeff_rhs, D.Add(rest_lhs, rest_rhs))
-    elif isinstance(ae, D.Mult):
-        coeff_inside, rest_inside = collect(ae.ae, target)
-        return (ae.coeff * coeff_inside, D.Mult(ae.coeff, rest_inside))
-    else:
-        raise TypeError("Unknown aexpr type")
-
-
-# The main function: solve the equation ae = 0 for the given target variable.
-def solve_for(ae, target):
-    coeff, rest = collect(ae, target)
-    if coeff == 0:
-        return None
-    # Equation is: coeff*target + rest = 0  ->  target = -(rest) / coeff.
-    return divide_expr(negate(rest), coeff)
-
-
-# FIXME: TODO:
-# It's not clear what to do in cases like "2*i == d", where i will be 1/2*d,
-# but we only allow integer multiplier!
-# I think this will be a real issue..
-# We won't be able to handle statements like x[2*i] :eyes:
-# Use fractions!!
-
-# is it possible to have multiple eqs conflicting?? I think the first one should be prioritized in that case.
-def eliminate_target_dim(val, tgt):
-    # can we just ASubs on the subtree?? from eq branch?
-    # that actually should be correct. We got rid of tgt from that branch, so we can just proceed.
-    assert isinstance(val, D.node)
-
-    if isinstance(val, D.Leaf):
-        return val
-    elif isinstance(val, D.AffineSplit):
-        r = solve_for(val.ae, tgt)
-        if r == None:
-            eqz = eliminate_target_dim(val.eqz, tgt)
-        else:
-            eqz = ASubs(val.eqz, {tgt: r}).result()
-
-        return D.AffineSplit(
-            val.ae,
-            eliminate_target_dim(val.ltz, tgt),
-            eqz,
-            eliminate_target_dim(val.gtz, tgt),
-        )
-    elif isinstance(val, D.ModSplit):
-        return D.ModSplit(
-            val.ae,
-            val.m,
-            eliminate_target_dim(val.neqz, tgt),
-            eliminate_target_dim(val.eqz, tgt),
-        )
-    else:
-        assert False, "bad else"
-
-
-# --------------------------------------------------------------------------- #
-# Overlay cell decomposition
-# --------------------------------------------------------------------------- #
-
-
-def overlay(a1: D.abs or D.node, a2: D.abs or D.node, fun) -> D.node:
-    """
-    return {(d1 \intersects d2, fun(v1, v2) | d1 \in a1 and d2 \in a2}
-    """
-    if isinstance(a1, D.abs):
-        assert isinstance(a2, D.abs)
-
-        if len(a1.iterators) != len(a2.iterators) or not all(
-            [i1 == i2 for i1, i2 in zip(a1.iterators, a2.iterators)]
-        ):
-            raise ValueError(f"Iterators of a1 and a2 should match exactly")
-
-        slv = SMTSolver(verbose=False)
-
-        for itr in a1.iterators:
-            slv.assume(
-                A.BinOp(
-                    ">=",
-                    A.Var(itr, T.Int(), null_srcinfo()),
-                    A.Const(0, T.Int(), null_srcinfo()),
-                    T.Bool(),
-                    null_srcinfo(),
-                )
-            )
-
-        return overlay_with_smt(slv, a1.tree, a2.tree, fun)
-    else:
-        assert isinstance(a1, D.node)
-        assert isinstance(a2, D.node)
-
-        slv = SMTSolver(verbose=False)
-
-        return overlay_with_smt(slv, a1, a2, fun)
-
-
-def mk_mod_expr(ae, m):
-    return A.BinOp(
-        "%", lift_to_smt_a(ae), A.Const(m, T.int, null_srcinfo()), T.int, null_srcinfo()
-    )
-
-
-def aexpr_eq(e1, e2):
-    assert isinstance(e1, D.aexpr) and isinstance(e2, D.aexpr)
-
-    # First check that they're the same type
-    if type(e1) != type(e2):
-        return False
-
-    if isinstance(e1, D.Const):
-        return e1.val == e2.val
-    elif isinstance(e1, D.Var):
-        return e1.name == e2.name
-    elif isinstance(e1, D.Add):
-        return aexpr_eq(e1.lhs, e2.lhs) and aexpr_eq(e1.rhs, e2.rhs)
-    elif isinstance(e1, D.Mult):
-        return e1.coeff == e2.coeff and aexpr_eq(e1.ae, e2.ae)
-    elif isinstance(e1, D.Div):
-        return e1.divisor == e2.divisor and aexpr_eq(e1.ae, e2.ae)
-    elif isinstance(e1, D.Mod):
-        return e1.m == e2.m and aexpr_eq(e1.ae, e2.ae)
-    else:
-        assert False, "bad case"
-
-
-def affine_overlay_helper(slv, t1, t2, fun):
-    """
-    t1 is a affine split, t2 can be anything
-    """
-    pred_expr = lift_to_smt_a(t1.ae)
-
-    # check if anything is simplifiable
-    ltz_eq = mk_aexpr("<", pred_expr)
-    eqz_eq = mk_aexpr("==", pred_expr)
-    gtz_eq = mk_aexpr(">", pred_expr)
-
-    if slv.verify(ltz_eq):
-        return overlay_with_smt(slv, t1.ltz, t2, fun)
-    if slv.verify(eqz_eq):
-        return overlay_with_smt(slv, t1.eqz, t2, fun)
-    if slv.verify(gtz_eq):
-        return overlay_with_smt(slv, t1.gtz, t2, fun)
-
-    slv.push()
-    slv.assume(ltz_eq)
-    new_ltz = overlay_with_smt(slv, t1.ltz, t2, fun)
-    slv.pop()
-
-    slv.push()
-    slv.assume(eqz_eq)
-    new_eqz = overlay_with_smt(slv, t1.eqz, t2, fun)
-    slv.pop()
-
-    slv.push()
-    slv.assume(gtz_eq)
-    new_gtz = overlay_with_smt(slv, t1.gtz, t2, fun)
-    slv.pop()
-
-    return D.AffineSplit(t1.ae, new_ltz, new_eqz, new_gtz)
-
-
-def mod_overlay_helper(slv, t1, t2, fun):
-    """
-    t1 is a mod-split, t2 can be anything
-    """
-    pred_expr = mk_mod_expr(t1.ae, t1.m)
-    eq_expr = mk_aexpr("==", pred_expr)
-    neq_expr = A.Not(eq_expr, T.bool, null_srcinfo())
-
-    if slv.verify(eq_expr):
-        return overlay_with_smt(slv, t1.eqz, t2, fun)
-    if slv.verify(neq_expr):
-        return overlay_with_smt(slv, t1.neqz, t2, fun)
-
-    slv.push()
-    slv.assume(eq_expr)
-    new_eqz = overlay_with_smt(slv, t1.eqz, t2, fun)
-    slv.pop()
-
-    slv.push()
-    slv.assume(neq_expr)
-    new_neqz = overlay_with_smt(slv, t1.neqz, t2, fun)
-    slv.pop()
-
-    return D.ModSplit(t1.ae, t1.m, new_neqz, new_eqz)
-
-
-def overlay_with_smt(slv, t1, t2, fun):
-    """
-    Overlay trees t1 and t2, pruning any branch whose intersection is unsatisfiable.
-    Returns the overlayed D.node, or a 'bottom' leaf if unsatisfiable.
-    """
-    # TODO: This will Bottom out the infeasible branch, but I'm commenting this out since it's a bit confusing
-    # First check if current path constraints are already unsatisfiable
-    # if not slv.satisfy(A.Const(True, T.bool, null_srcinfo())):
-    #    return D.Leaf(D.SubVal(V.Bot()))
-
-    # -- Case 1: both are leaves
-    if isinstance(t1, D.Leaf) and isinstance(t2, D.Leaf):
-        # Now we combine the leaf values with fun
-        return D.Leaf(fun(t1.v, t2.v))
-
-    # -- Case 2: t1 is a leaf but t2 is a split
-    if isinstance(t1, D.Leaf):
-        if isinstance(t2, D.AffineSplit):
-            return affine_overlay_helper(slv, t2, t1, fun)
-
-        if isinstance(t2, D.ModSplit):
-            return mod_overlay_helper(slv, t2, t1, fun)
-
-    # -- Case 3: t2 is a leaf but t1 is a split (symmetric to case 2)
-    if isinstance(t2, D.Leaf):
-        if isinstance(t1, D.AffineSplit):
-            return affine_overlay_helper(slv, t1, t2, fun)
-
-        elif isinstance(t1, D.ModSplit):
-            return mod_overlay_helper(slv, t1, t2, fun)
-
-    # -- Case 4: both are AffineSplit
-    if isinstance(t1, D.AffineSplit) and isinstance(t2, D.AffineSplit):
-        # If they split on the same expression, unify sub-branches directly
-        if aexpr_eq(t1.ae, t2.ae):  # just a syntactic equivalence for now
-            pred_expr = lift_to_smt_a(t1.ae)
-
-            slv.push()
-            slv.assume(mk_aexpr("<", pred_expr))  # from t1
-            merged_ltz = overlay_with_smt(slv, t1.ltz, t2.ltz, fun)
-            slv.pop()
-
-            slv.push()
-            slv.assume(mk_aexpr("==", pred_expr))
-            merged_eqz = overlay_with_smt(slv, t1.eqz, t2.eqz, fun)
-            slv.pop()
-
-            slv.push()
-            slv.assume(mk_aexpr(">", pred_expr))
-            merged_gtz = overlay_with_smt(slv, t1.gtz, t2.gtz, fun)
-            slv.pop()
-
-            return D.AffineSplit(t1.ae, merged_ltz, merged_eqz, merged_gtz)
-
-        else:
-            return affine_overlay_helper(slv, t1, t2, fun)
-
-    # -- Case 5: both are ModSplit
-    if isinstance(t1, D.ModSplit) and isinstance(t2, D.ModSplit):
-        # If they split on the *same* (aexpr, modulus), unify sub-branches
-        if aexpr_eq(t1.ae, t2.ae) and t1.m == t2.m:
-            # Both do `ae % m == 0` vs `!=0`; unify eqz with eqz, neqz with neqz
-            pred_expr = mk_mod_expr(t1.ae, t1.m)
-
-            slv.push()
-            slv.assume(mk_aexpr("==", pred_expr))
-            merged_eqz = overlay_with_smt(slv, t1.eqz, t2.eqz, fun)
-            slv.pop()
-
-            slv.push()
-            slv.assume(A.Not(mk_aexpr("==", pred_expr), T.bool, null_srcinfo()))
-            merged_neqz = overlay_with_smt(slv, t1.neqz, t2.neqz, fun)
-            slv.pop()
-
-            return D.ModSplit(t1.ae, t1.m, merged_neqz, merged_eqz)
-        else:
-            return mod_overlay_helper(slv, t1, t2, fun)
-
-    # -- Case 6: one is AffineSplit, the other is ModSplit
-    if isinstance(t1, D.AffineSplit) and isinstance(t2, D.ModSplit):
-        return affine_overlay_helper(slv, t1, t2, fun)
-
-    if isinstance(t1, D.ModSplit) and isinstance(t2, D.AffineSplit):
-        return mod_overlay_helper(slv, t1, t2, fun)
-
-    assert False, "shouldn't reach here"
+        """
+        Parameters
+        ----------
+        node : D.node
+            Root of the CAD to rewrite.
+        env  : dict[sym, expr]
+            Substitution environment (keys are SymPy symbols).
+        """
+        self._env = env
+        self._out = super().map_node(node)  # produce new tree
+
+    # public accessor ---------------------------------------------------------
+    def result(self) -> D.node:
+        return self._out
+
+    # expression-level rewrite -----------------------------------------------
+    def map_expr(self, e):
+        return e.xreplace(self._env)
+
+    # relational guards need the same substitution ---------------------------
+    def map_rel(self, r):
+        return r.xreplace(self._env)
+
+
+# # --------------------------------------------------------------------------- #
+# # Substitution for aexpr
+# # --------------------------------------------------------------------------- #
+#
+# # Helper function to negate an expression.
+# def negate(ae):
+#     if isinstance(ae, D.Const):
+#         return D.Const(-ae.val)
+#     elif isinstance(ae, D.Var):
+#         return D.Mult(-1, ae)
+#     elif isinstance(ae, D.Add):
+#         return D.Add(negate(ae.lhs), negate(ae.rhs))
+#     elif isinstance(ae, D.Mult):
+#         return D.Mult(-ae.coeff, ae.ae)
+#     else:
+#         raise TypeError("Unknown aexpr type")
+#
+#
+# # Function to "divide" an expression by an integer.
+# # It assumes that every constant multiplier divides evenly.
+# def divide_expr(ae, divisor):
+#     if divisor == 0:
+#         raise ValueError("Division by zero")
+#     if isinstance(ae, D.Const):
+#         if ae.val % divisor != 0:
+#             raise ValueError("Non-integer division result")
+#         return D.Const(ae.val // divisor)
+#     elif isinstance(ae, D.Var):
+#         # Treat a variable as 1*Var.
+#         if 1 % divisor != 0:
+#             raise ValueError("Non-integer division result")
+#         # Only works if divisor is 1 or -1.
+#         return D.Mult(1 // divisor, ae)
+#     elif isinstance(ae, D.Add):
+#         lhs = divide_expr(ae.lhs, divisor)
+#         rhs = divide_expr(ae.rhs, divisor)
+#         if isinstance(rhs, D.Const) and rhs.val == 0:
+#             return lhs
+#         if isinstance(lhs, D.Const) and lhs.val == 0:
+#             return rhs
+#         return D.Add(lhs, rhs)
+#     elif isinstance(ae, D.Mult):
+#         if ae.coeff % divisor != 0:
+#             raise ValueError(
+#                 "Non-integer division result in multiplication, todo implement fractions"
+#             )
+#         if isinstance(ae.ae, D.Const) and ae.ae.val == 0:
+#             return D.Const(0)
+#         r = ae.coeff // divisor
+#         if r == 1:
+#             return ae.ae
+#         elif r == 0:
+#             return D.Const(0)
+#         return D.Mult(r, ae.ae)
+#     else:
+#         raise TypeError("Unknown aexpr type")
+#
+#
+# # Function to "collect" the target variable.
+# # It returns a pair (coeff, rest) such that: ae == coeff*target + rest.
+# def collect(ae, target):
+#     if isinstance(ae, D.Const):
+#         return (0, ae)
+#     elif isinstance(ae, D.Var):
+#         if ae.name == target:
+#             return (1, D.Const(0))
+#         else:
+#             return (0, ae)
+#     elif isinstance(ae, D.Add):
+#         coeff_lhs, rest_lhs = collect(ae.lhs, target)
+#         coeff_rhs, rest_rhs = collect(ae.rhs, target)
+#         return (coeff_lhs + coeff_rhs, D.Add(rest_lhs, rest_rhs))
+#     elif isinstance(ae, D.Mult):
+#         coeff_inside, rest_inside = collect(ae.ae, target)
+#         return (ae.coeff * coeff_inside, D.Mult(ae.coeff, rest_inside))
+#     else:
+#         raise TypeError("Unknown aexpr type")
+#
+#
+# # The main function: solve the equation ae = 0 for the given target variable.
+# def solve_for(ae, target):
+#     coeff, rest = collect(ae, target)
+#     if coeff == 0:
+#         return None
+#     # Equation is: coeff*target + rest = 0  ->  target = -(rest) / coeff.
+#     return divide_expr(negate(rest), coeff)
+#
+#
+# # FIXME: TODO:
+# # It's not clear what to do in cases like "2*i == d", where i will be 1/2*d,
+# # but we only allow integer multiplier!
+# # I think this will be a real issue..
+# # We won't be able to handle statements like x[2*i] :eyes:
+# # Use fractions!!
+#
+# # is it possible to have multiple eqs conflicting?? I think the first one should be prioritized in that case.
+# def eliminate_target_dim(val, tgt):
+#     # can we just ASubs on the subtree?? from eq branch?
+#     # that actually should be correct. We got rid of tgt from that branch, so we can just proceed.
+#     assert isinstance(val, D.node)
+#
+#     if isinstance(val, D.Leaf):
+#         return val
+#     elif isinstance(val, D.AffineSplit):
+#         r = solve_for(val.ae, tgt)
+#         if r == None:
+#             eqz = eliminate_target_dim(val.eqz, tgt)
+#         else:
+#             eqz = ASubs(val.eqz, {tgt: r}).result()
+#
+#         return D.AffineSplit(
+#             val.ae,
+#             eliminate_target_dim(val.ltz, tgt),
+#             eqz,
+#             eliminate_target_dim(val.gtz, tgt),
+#         )
+#     elif isinstance(val, D.ModSplit):
+#         return D.ModSplit(
+#             val.ae,
+#             val.m,
+#             eliminate_target_dim(val.neqz, tgt),
+#             eliminate_target_dim(val.eqz, tgt),
+#         )
+#     else:
+#         assert False, "bad else"
+#
+#
+# # --------------------------------------------------------------------------- #
+# # Overlay cell decomposition
+# # --------------------------------------------------------------------------- #
+#
+#
+# def overlay(a1: D.abs or D.node, a2: D.abs or D.node, fun) -> D.node:
+#     """
+#     return {(d1 \intersects d2, fun(v1, v2) | d1 \in a1 and d2 \in a2}
+#     """
+#     if isinstance(a1, D.abs):
+#         assert isinstance(a2, D.abs)
+#
+#         if len(a1.iterators) != len(a2.iterators) or not all(
+#             [i1 == i2 for i1, i2 in zip(a1.iterators, a2.iterators)]
+#         ):
+#             raise ValueError(f"Iterators of a1 and a2 should match exactly")
+#
+#         slv = SMTSolver(verbose=False)
+#
+#         for itr in a1.iterators:
+#             slv.assume(
+#                 A.BinOp(
+#                     ">=",
+#                     A.Var(itr, T.Int(), null_srcinfo()),
+#                     A.Const(0, T.Int(), null_srcinfo()),
+#                     T.Bool(),
+#                     null_srcinfo(),
+#                 )
+#             )
+#
+#         return overlay_with_smt(slv, a1.tree, a2.tree, fun)
+#     else:
+#         assert isinstance(a1, D.node)
+#         assert isinstance(a2, D.node)
+#
+#         slv = SMTSolver(verbose=False)
+#
+#         return overlay_with_smt(slv, a1, a2, fun)
+#
+#
+# def mk_mod_expr(ae, m):
+#     return A.BinOp(
+#         "%", lift_to_smt_a(ae), A.Const(m, T.int, null_srcinfo()), T.int, null_srcinfo()
+#     )
+#
+#
+# def aexpr_eq(e1, e2):
+#     assert isinstance(e1, D.aexpr) and isinstance(e2, D.aexpr)
+#
+#     # First check that they're the same type
+#     if type(e1) != type(e2):
+#         return False
+#
+#     if isinstance(e1, D.Const):
+#         return e1.val == e2.val
+#     elif isinstance(e1, D.Var):
+#         return e1.name == e2.name
+#     elif isinstance(e1, D.Add):
+#         return aexpr_eq(e1.lhs, e2.lhs) and aexpr_eq(e1.rhs, e2.rhs)
+#     elif isinstance(e1, D.Mult):
+#         return e1.coeff == e2.coeff and aexpr_eq(e1.ae, e2.ae)
+#     elif isinstance(e1, D.Div):
+#         return e1.divisor == e2.divisor and aexpr_eq(e1.ae, e2.ae)
+#     elif isinstance(e1, D.Mod):
+#         return e1.m == e2.m and aexpr_eq(e1.ae, e2.ae)
+#     else:
+#         assert False, "bad case"
+#
+#
+# def affine_overlay_helper(slv, t1, t2, fun):
+#     """
+#     t1 is a affine split, t2 can be anything
+#     """
+#     pred_expr = lift_to_smt_a(t1.ae)
+#
+#     # check if anything is simplifiable
+#     ltz_eq = mk_aexpr("<", pred_expr)
+#     eqz_eq = mk_aexpr("==", pred_expr)
+#     gtz_eq = mk_aexpr(">", pred_expr)
+#
+#     if slv.verify(ltz_eq):
+#         return overlay_with_smt(slv, t1.ltz, t2, fun)
+#     if slv.verify(eqz_eq):
+#         return overlay_with_smt(slv, t1.eqz, t2, fun)
+#     if slv.verify(gtz_eq):
+#         return overlay_with_smt(slv, t1.gtz, t2, fun)
+#
+#     slv.push()
+#     slv.assume(ltz_eq)
+#     new_ltz = overlay_with_smt(slv, t1.ltz, t2, fun)
+#     slv.pop()
+#
+#     slv.push()
+#     slv.assume(eqz_eq)
+#     new_eqz = overlay_with_smt(slv, t1.eqz, t2, fun)
+#     slv.pop()
+#
+#     slv.push()
+#     slv.assume(gtz_eq)
+#     new_gtz = overlay_with_smt(slv, t1.gtz, t2, fun)
+#     slv.pop()
+#
+#     return D.AffineSplit(t1.ae, new_ltz, new_eqz, new_gtz)
+#
+#
+# def mod_overlay_helper(slv, t1, t2, fun):
+#     """
+#     t1 is a mod-split, t2 can be anything
+#     """
+#     pred_expr = mk_mod_expr(t1.ae, t1.m)
+#     eq_expr = mk_aexpr("==", pred_expr)
+#     neq_expr = A.Not(eq_expr, T.bool, null_srcinfo())
+#
+#     if slv.verify(eq_expr):
+#         return overlay_with_smt(slv, t1.eqz, t2, fun)
+#     if slv.verify(neq_expr):
+#         return overlay_with_smt(slv, t1.neqz, t2, fun)
+#
+#     slv.push()
+#     slv.assume(eq_expr)
+#     new_eqz = overlay_with_smt(slv, t1.eqz, t2, fun)
+#     slv.pop()
+#
+#     slv.push()
+#     slv.assume(neq_expr)
+#     new_neqz = overlay_with_smt(slv, t1.neqz, t2, fun)
+#     slv.pop()
+#
+#     return D.ModSplit(t1.ae, t1.m, new_neqz, new_eqz)
+#
+#
+# def overlay_with_smt(slv, t1, t2, fun):
+#     """
+#     Overlay trees t1 and t2, pruning any branch whose intersection is unsatisfiable.
+#     Returns the overlayed D.node, or a 'bottom' leaf if unsatisfiable.
+#     """
+#     # TODO: This will Bottom out the infeasible branch, but I'm commenting this out since it's a bit confusing
+#     # First check if current path constraints are already unsatisfiable
+#     # if not slv.satisfy(A.Const(True, T.bool, null_srcinfo())):
+#     #    return D.Leaf(D.SubVal(V.Bot()))
+#
+#     # -- Case 1: both are leaves
+#     if isinstance(t1, D.Leaf) and isinstance(t2, D.Leaf):
+#         # Now we combine the leaf values with fun
+#         return D.Leaf(fun(t1.v, t2.v))
+#
+#     # -- Case 2: t1 is a leaf but t2 is a split
+#     if isinstance(t1, D.Leaf):
+#         if isinstance(t2, D.AffineSplit):
+#             return affine_overlay_helper(slv, t2, t1, fun)
+#
+#         if isinstance(t2, D.ModSplit):
+#             return mod_overlay_helper(slv, t2, t1, fun)
+#
+#     # -- Case 3: t2 is a leaf but t1 is a split (symmetric to case 2)
+#     if isinstance(t2, D.Leaf):
+#         if isinstance(t1, D.AffineSplit):
+#             return affine_overlay_helper(slv, t1, t2, fun)
+#
+#         elif isinstance(t1, D.ModSplit):
+#             return mod_overlay_helper(slv, t1, t2, fun)
+#
+#     # -- Case 4: both are AffineSplit
+#     if isinstance(t1, D.AffineSplit) and isinstance(t2, D.AffineSplit):
+#         # If they split on the same expression, unify sub-branches directly
+#         if aexpr_eq(t1.ae, t2.ae):  # just a syntactic equivalence for now
+#             pred_expr = lift_to_smt_a(t1.ae)
+#
+#             slv.push()
+#             slv.assume(mk_aexpr("<", pred_expr))  # from t1
+#             merged_ltz = overlay_with_smt(slv, t1.ltz, t2.ltz, fun)
+#             slv.pop()
+#
+#             slv.push()
+#             slv.assume(mk_aexpr("==", pred_expr))
+#             merged_eqz = overlay_with_smt(slv, t1.eqz, t2.eqz, fun)
+#             slv.pop()
+#
+#             slv.push()
+#             slv.assume(mk_aexpr(">", pred_expr))
+#             merged_gtz = overlay_with_smt(slv, t1.gtz, t2.gtz, fun)
+#             slv.pop()
+#
+#             return D.AffineSplit(t1.ae, merged_ltz, merged_eqz, merged_gtz)
+#
+#         else:
+#             return affine_overlay_helper(slv, t1, t2, fun)
+#
+#     # -- Case 5: both are ModSplit
+#     if isinstance(t1, D.ModSplit) and isinstance(t2, D.ModSplit):
+#         # If they split on the *same* (aexpr, modulus), unify sub-branches
+#         if aexpr_eq(t1.ae, t2.ae) and t1.m == t2.m:
+#             # Both do `ae % m == 0` vs `!=0`; unify eqz with eqz, neqz with neqz
+#             pred_expr = mk_mod_expr(t1.ae, t1.m)
+#
+#             slv.push()
+#             slv.assume(mk_aexpr("==", pred_expr))
+#             merged_eqz = overlay_with_smt(slv, t1.eqz, t2.eqz, fun)
+#             slv.pop()
+#
+#             slv.push()
+#             slv.assume(A.Not(mk_aexpr("==", pred_expr), T.bool, null_srcinfo()))
+#             merged_neqz = overlay_with_smt(slv, t1.neqz, t2.neqz, fun)
+#             slv.pop()
+#
+#             return D.ModSplit(t1.ae, t1.m, merged_neqz, merged_eqz)
+#         else:
+#             return mod_overlay_helper(slv, t1, t2, fun)
+#
+#     # -- Case 6: one is AffineSplit, the other is ModSplit
+#     if isinstance(t1, D.AffineSplit) and isinstance(t2, D.ModSplit):
+#         return affine_overlay_helper(slv, t1, t2, fun)
+#
+#     if isinstance(t1, D.ModSplit) and isinstance(t2, D.AffineSplit):
+#         return mod_overlay_helper(slv, t1, t2, fun)
+#
+#     assert False, "shouldn't reach here"
 
 
 # --------------------------------------------------------------------------- #
@@ -1643,13 +1672,16 @@ class AbstractInterpretation(ABC):
         self.proc = proc
         # set of "original" arrays of proc arguments. We need this to distinguish ArrayVars from Top
         self.avars = set()
+        self.sym_table = proc.sym_table
         self.fix_proc(self.proc)
 
     def fix_proc(self, proc: DataflowIR.proc):
         assert isinstance(proc, DataflowIR.proc)
 
         for a in proc.args:
-            self.avars.add(a.name)
+            sym = sm.Symbol(a.name.__repr__())
+            self.sym_table[sym] = a.name
+            self.avars.add(sym)
 
         # TODO: FIXME: Do we need to use precondition assertions?
 
@@ -1679,13 +1711,19 @@ class AbstractInterpretation(ABC):
             if isinstance(stmt, DataflowIR.Reduce):
                 body = DataflowIR.BinOp("+", body, stmt.orelse, body.type, stmt.srcinfo)
 
-            env[stmt.lhs] = D.abs(
-                stmt.iters + stmt.dims,
-                self.abs_ternary(
-                    stmt.cond,
-                    self.fix_expr(body, env),
-                    self.fix_expr(stmt.orelse, env),
-                ),
+            gens = []
+            for itr in stmt.iters + stmt.dims:
+                sym = sm.Symbol(itr.__repr__())
+                self.sym_table[sym] = itr
+                gens.append(sym)
+
+            lhs_name = sm.Symbol(stmt.lhs.__repr__())
+            self.sym_table[lhs_name] = stmt.lhs
+            env[lhs_name] = self.abs_ternary(
+                gens,
+                stmt.cond,
+                self.fix_expr(body, env),
+                self.fix_expr(stmt.orelse, env),
             )
 
         elif isinstance(stmt, DataflowIR.Pass):
@@ -1766,7 +1804,7 @@ class AbstractInterpretation(ABC):
             assert False, f"bad case: {type(stmt)}"
 
     # Corresponds to E^\# : \Expr \to \Sigma^\# \to val in the paper
-    def fix_expr(self, e: DataflowIR.expr, env) -> D.val:
+    def fix_expr(self, e: DataflowIR.expr, env) -> D.abs:
         if isinstance(e, DataflowIR.Read):
             return self.abs_read(e.name, e.idx, env)
 
@@ -1790,8 +1828,8 @@ class AbstractInterpretation(ABC):
 
     @abstractmethod
     def abs_ternary(
-        self, cond: DataflowIR.expr, body: D.node, orelse: D.node
-    ) -> D.node:
+        self, iterators: list, cond: DataflowIR.expr, body: D.node, orelse: D.node
+    ) -> D.abs:
         """Approximate the ternary phi node"""
 
     @abstractmethod
@@ -1811,11 +1849,11 @@ class AbstractInterpretation(ABC):
         """Approximate the binop"""
 
     @abstractmethod
-    def abs_extern(self, func: Extern, args: list) -> D.node:
+    def abs_extern(self, func: Extern, args: list):
         """Approximate the extern"""
 
     @abstractmethod
-    def abs_stride(self, name, dim) -> D.node:
+    def abs_stride(self, name, dim):
         """Approximate the stride"""
 
     @abstractmethod

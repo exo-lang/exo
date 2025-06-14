@@ -3,6 +3,7 @@ from ..core.LoopIR_pprint import op_prec
 from ..core.prelude import Sym, SrcInfo, extclass
 from collections import ChainMap
 from dataclasses import dataclass, field
+import sympy as sm
 
 # --------------------------------------------------------------------------- #
 # DataflowIR pretty printing
@@ -38,8 +39,12 @@ def __str__(self):
 class PrintEnv:
     env: ChainMap[Sym, str] = field(default_factory=ChainMap)
     names: ChainMap[str, int] = field(default_factory=ChainMap)
+    sym_table = {}
 
     def get_name(self, nm):
+        if isinstance(nm, sm.Symbol):
+            nm = self.sym_table[nm]
+
         if resolved := self.env.get(nm):
             return resolved
 
@@ -55,6 +60,8 @@ class PrintEnv:
 
 
 def _print_proc(p, env: PrintEnv, indent: str) -> list[str]:
+    env.sym_table = p.sym_table
+
     args = [_print_fnarg(a, env) for a in p.args]
 
     lines = [f"{indent}def {p.name}({', '.join(args)}):"]
@@ -83,7 +90,7 @@ def _print_absenv(absenv, env: PrintEnv) -> list[str]:
     p_res = ""
     indent = " " * 25
     for key, val in absenv.items():
-        assert isinstance(key, Sym)
+        # assert isinstance(key, Sym)
         p_res = (
             p_res
             + "\n"
@@ -229,106 +236,171 @@ def _print_type(t, env: PrintEnv) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# Abstact domain pretty printing
+# ArrayDomain pretty printer
+# --------------------------------------------------------------------------- #
+#
+# Works with the updated ADT:
+#
+#   node = Leaf(val v, dict sample)
+#        | LinSplit(cell *cells)
+#
+#   cell = Cell(rel eq, node tree)
+#
+# Produces output like:
+#
+#   (var x)
+#   │   x < 0
+#   │   │   y < x   ⟨x=-1, y=-2⟩
+#   │   │   -x + y = 0   ⟨x=-1, y=-1⟩
+#   │   │   y > x   ⟨x=-1, y=0⟩
+#   │   -x = 0
+#   │   │   y < x   ⟨x=0, y=-1⟩
+#   │   │   -x + y = 0   ⟨x=0, y=0⟩
+#   │   │   y > x   ⟨x=0, y=1⟩
+#   │   x > 0
+#   │   │   y < x   ⟨x=1, y=0⟩
+#   │   │   -x + y = 0   ⟨x=1, y=1⟩
+#   │   │   y > x   ⟨x=1, y=2⟩
+#
 # --------------------------------------------------------------------------- #
 
+import sympy as sm
+from sympy.core.relational import Relational
 
+# ───────────────────────── helpers ────────────────────────────────────────────
+def _expr_str(expr, env: PrintEnv) -> str:
+    """
+    Convert a raw SymPy Expr/Symbol to string, renaming every symbol through
+    PrintEnv so the pretty-print is consistent with the rest of Exo.
+    """
+    if isinstance(expr, sm.Symbol):
+        return env.get_name(expr)
+
+    if isinstance(expr, sm.Expr):
+        repl = {s: sm.Symbol(env.get_name(s)) for s in expr.free_symbols}
+        return str(expr.xreplace(repl))
+
+    # Fallback (should not happen for guards)
+    return str(expr)
+
+
+def _print_guard(expr, env: PrintEnv) -> str:
+    """
+    Pretty-print any SymPy Boolean expression:
+        * Relational  →  “lhs < rhs”, “lhs = rhs”, … (with renamed vars)
+        * And / Or    →  joined by  “∧”  /  “∨”
+        * Not         →  “¬ …”
+    """
+    # Simple relational (Eq, Lt, Gt, …)
+    if isinstance(expr, Relational):
+        lhs = _expr_str(expr.lhs, env)
+        rhs = _expr_str(expr.rhs, env)
+        op = expr.rel_op.replace("==", "=")
+        return f"{lhs} {op} {rhs}"
+
+    # Boolean combinators
+    if isinstance(expr, sm.And):
+        return " ∧ ".join(_print_guard(arg, env) for arg in expr.args)
+
+    if isinstance(expr, sm.Or):
+        return " ∨ ".join(_print_guard(arg, env) for arg in expr.args)
+
+    if isinstance(expr, sm.Not):
+        return "¬" + _print_guard(expr.args[0], env)
+
+    # Anything else – fall back to SymPy’s own str()
+    return _expr_str(expr, env)
+
+
+def _print_sample(sample: dict, env: PrintEnv) -> str:
+    """Render the sample dict exactly as  ⟨x=1, y=2⟩  (order = insertion order)."""
+    parts = [f"{env.get_name(k)}={v}" for k, v in sample.items()]
+    return "⟨" + ", ".join(parts) + "⟩"
+
+
+# ───────────────────────── Value printing helpers ───────────────────────────
+def _print_vabs(vabs, env):
+    """
+    Pretty string for a ValueDomain.vabs element.
+    """
+    if isinstance(vabs, V.Top):
+        return "⊤"
+    if isinstance(vabs, V.Bot):
+        return "⊥"
+    if isinstance(vabs, V.ValConst):
+        return str(vabs.val)  # already a Python or SymPy number
+    raise TypeError(f"unknown vabs variant {type(vabs)}")
+
+
+def _print_val(val, env):
+    """
+    Pretty string for an ArrayDomain.val (payload of a Leaf).
+    """
+    if isinstance(val, D.SubVal):
+        return _print_vabs(val.av, env)
+
+    if isinstance(val, D.ArrayVar):
+        idxs = (
+            "[" + ", ".join(_expr_str(i, env) for i in val.idx) + "]" if val.idx else ""
+        )
+        return f"{env.get_name(val.name)}{idxs}"
+
+    raise TypeError(f"unknown val variant {type(val)}")
+
+
+# ───────────────────────── core recursive printer ────────────────────────────
+def _print_tree(node: D.node, env: PrintEnv, prefix: str = "") -> str:
+    """
+    Walk a LinSplit tree and build the ASCII art.
+    `prefix` already contains any vertical bars (“│   ”) that must propagate
+    from ancestor levels.
+    """
+    # ── Leaf ────────────────────────────────────────────────────────────────
+    if isinstance(node, D.Leaf):
+        val_str = _print_val(node.v, env)
+        samp_str = _print_sample(node.sample, env)
+        return prefix + (f"{samp_str} {val_str}" if node.sample else val_str)
+
+    # ── LinSplit ────────────────────────────────────────────────────────────
+    lines = []
+    n_cells = len(node.cells)
+
+    for i, cell in enumerate(node.cells):
+        branch_prefix = "│   "  # always keep the guide
+        guard_str = _print_guard(cell.eq, env)
+        child = cell.tree
+
+        # Guard line
+        if isinstance(child, D.Leaf):
+            lines.append(_print_tree(child, env, prefix + branch_prefix + guard_str))
+        else:
+            lines.append(f"{prefix}{branch_prefix}{guard_str}")
+            lines.append(_print_tree(child, env, prefix + branch_prefix))
+
+    return "\n".join(lines)
+
+
+def _print_absdom(absdom: D.abs, env: PrintEnv, indent: str = "") -> str:
+    """Entry point for an `ArrayDomain.abs` value."""
+    iters = ", ".join(env.get_name(i) for i in absdom.iterators)
+    # head   = f"(var {iters})"
+    head = "(var)" if not iters else f"(var {iters})"
+    body = _print_tree(absdom.tree, env, indent) if absdom.tree else ""
+    return head + ("\n" + body if body else "")
+
+
+# ───────────────────────── attach __str__ methods ────────────────────────────
 @extclass(D.abs)
 def __str__(self):
-    return _print_absdom(self, PrintEnv(), "")
+    return _print_absdom(self, PrintEnv())
 
 
 @extclass(D.node)
 def __str__(self):
-    return _print_tree(self, PrintEnv(), "")
+    return _print_tree(self, PrintEnv())
 
 
-@extclass(D.val)
-def __str__(self):
-    return _print_val(self, PrintEnv())
-
-
-@extclass(D.aexpr)
-def __str__(self):
-    return _print_ae(self, PrintEnv())
-
-
-@extclass(V.vabs)
-def __str__(self):
-    return _print_vabs(self, PrintEnv())
-
-
-def _print_absdom(absdom, env: PrintEnv, indent: str):
-    iter_strs = ". ".join(["\\" + env.get_name(i) for i in absdom.iterators])
-    return iter_strs + "\n" + _print_tree(absdom.tree, env, indent + "    ")
-
-
-def _print_tree(tree, env: PrintEnv, indent: str):
-    if isinstance(tree, D.Leaf):
-        return f"{indent}- {_print_val(tree.v, env)}"
-    elif isinstance(tree, D.AffineSplit):
-        nstr = _print_ae(tree.ae, env)
-        newdent = indent + " " * (len(nstr) + 1)
-        indent = indent + "- "
-        return f"""{indent}{nstr}
-{_print_tree(tree.ltz, env, newdent)}
-{_print_tree(tree.eqz, env, newdent)}
-{_print_tree(tree.gtz, env, newdent)}"""
-    elif isinstance(tree, D.ModSplit):
-        nstr = _print_ae(tree.ae, env) + f"%{tree.m}"
-        newdent = indent + " " * (len(nstr) + 1)
-        indent = indent + "- "
-        return f"""{indent}{nstr}
-{_print_tree(tree.neqz, env, newdent)}
-{_print_tree(tree.eqz, env, newdent)}"""
-    else:
-        assert False, "bad case"
-
-
-def _print_val(val, env: PrintEnv):
-    if isinstance(val, D.SubVal):
-        return _print_vabs(val.av, env)
-    elif isinstance(val, D.ArrayVar):
-        idxs = (
-            "[" + ",".join([_print_ae(i, env) for i in val.idx]) + "]"
-            if len(val.idx) > 0
-            else ""
-        )
-        return f"{env.get_name(val.name)}{idxs}"
-    assert False, "bad case"
-
-
-def _print_ae(ae, env: PrintEnv):
-    if isinstance(ae, D.Const):
-        return str(ae.val)
-    elif isinstance(ae, D.Var):
-        return env.get_name(ae.name)
-    elif isinstance(ae, D.Add):
-        # clean printing for sanity
-        if isinstance(ae.rhs, D.Mult) and ae.rhs.coeff == -1:
-            return f"({_print_ae(ae.lhs, env)}-{_print_ae(ae.rhs.ae, env)})"
-        elif (isinstance(ae.rhs, D.Mult) and ae.rhs.coeff <= -1) or (
-            isinstance(ae.rhs, D.Const) and ae.rhs.val <= -1
-        ):
-            return f"({_print_ae(ae.lhs, env)}{_print_ae(ae.rhs, env)})"
-        return f"({_print_ae(ae.lhs, env)}+{_print_ae(ae.rhs, env)})"
-    elif isinstance(ae, D.Mult):
-        return f"{str(ae.coeff)}*{_print_ae(ae.ae, env)}"
-    elif isinstance(ae, D.Div):
-        return f"{_print_ae(ae.ae, env)}/{str(ae.divisor)}"
-    elif isinstance(ae, D.Mod):
-        return f"{_print_ae(ae.ae, env)}/{str(ae.m)}"
-    assert False, "bad case"
-
-
-def _print_vabs(val, env: PrintEnv):
-    if isinstance(val, V.Top):
-        return "⊤"
-    elif isinstance(val, V.Bot):
-        return "⊥"
-    elif isinstance(val, V.ValConst):
-        return str(val.val)
-    assert False, "bad case"
+# ───────────────────────── END OF MODULE ─────────────────────────────────────
 
 
 del __str__

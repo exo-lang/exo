@@ -7,11 +7,11 @@ from exo.libs.externs import sin
 from exo.rewrite.dataflow import (
     D,
     V,
-    overlay,
-    solve_for,
-    subval_join,
-    subval_eq,
-    eliminate_target_dim,
+    #    overlay,
+    #    solve_for,
+    #    subval_join,
+    #    subval_eq,
+    #    eliminate_target_dim,
 )
 from exo.core.prelude import Sym
 
@@ -175,6 +175,15 @@ def test_simple(golden):
         z = 2.0
 
     assert str(foo.dataflow()[0]) == golden
+
+
+def test_simple1_5():
+    @proc
+    def foo(x: R[2]):
+        x[1] = 3.0
+        x[0] = 2.0
+
+    print(foo.dataflow()[0])
 
 
 def test_simple2(golden):
