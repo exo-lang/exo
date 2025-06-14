@@ -186,6 +186,15 @@ def test_simple1_5():
     print(foo.dataflow()[0])
 
 
+def test_simple1_7():
+    @proc
+    def foo(n: size, x: R[3]):
+        if n < 3:
+            x[n] = 3.0
+
+    print(foo.dataflow()[0])
+
+
 def test_simple2(golden):
     @proc
     def foo(z: R, x: R[3]):
