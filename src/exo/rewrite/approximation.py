@@ -219,7 +219,7 @@ def extract_poly(expr):
         # And / Or / Implies / Equivalent … – all BooleanFunction subclasses
         if isinstance(node, BooleanFunction):
             # NOT has exactly one argument
-            if isinstance(node, Not):
+            if isinstance(node, sm.Not):
                 visit(node.args[0])
             else:
                 for arg in node.args:
@@ -344,7 +344,7 @@ class Strategy1(AbstractInterpretation):
             fsyms = []
             for p in p1 + p2 + p3:
                 for fsym in p.free_symbols:
-                    if fsym not in iterators:
+                    if fsym not in iterators and fsym not in fsyms:
                         fsyms.append(fsym)
 
             tree = cylindrical_algebraic_decomposition(
@@ -386,7 +386,7 @@ class Strategy1(AbstractInterpretation):
 
         assert len(a2.iterators) == len(a1.iterators)
 
-        if count >= 4:
+        if count >= 2:
             return None
 
         def visit(node: D.node) -> D.node:

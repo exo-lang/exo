@@ -359,7 +359,7 @@ def _print_tree(node: D.node, env: PrintEnv, prefix: str = "") -> str:
     if isinstance(node, D.Leaf):
         val_str = _print_val(node.v, env)
         samp_str = _print_sample(node.sample, env)
-        return prefix + (f"{samp_str} {val_str}" if node.sample else val_str)
+        return prefix + (f" {samp_str} {val_str}" if node.sample else val_str)
 
     # ── LinSplit ────────────────────────────────────────────────────────────
     lines = []

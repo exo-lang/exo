@@ -235,6 +235,16 @@ def test_simple_stmts2(golden):
     assert str(d_ir) + "\n\n" + "\n".join([str(s[0]) for s in stmts]) == golden
 
 
+def test_guard():
+    @proc
+    def foo(n: size, x: R[3]):
+        x[0] = 2.0
+        if n < 3:
+            x[n] = 3.0
+
+    print(foo.dataflow()[0])
+
+
 def test_simple3(golden):
     @proc
     def foo(z: R, n: size, x: R[3]):
