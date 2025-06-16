@@ -42,7 +42,7 @@ class PrintEnv:
     sym_table = {}
 
     def get_name(self, nm):
-        if isinstance(nm, sm.Symbol):
+        if isinstance(nm, sm.Symbol) and nm in self.sym_table:
             nm = self.sym_table[nm]
 
         if resolved := self.env.get(nm):

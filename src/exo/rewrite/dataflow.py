@@ -1768,24 +1768,22 @@ class AbstractInterpretation(ABC):
                 all_eq = True
                 for nm, val in stmt.body.ctxt.items():
                     # Don't widen if it does not depend on this loop
-                    if stmt.iter not in val.iterators:
+                    if sm.Symbol(stmt.iter.__repr__()) not in val.iterators:
                         continue
 
-                    # Use overlay to compare equality of pre_env and val.
-                    # subval_eq will top if the values are equivalent, so will need to check that all leaves are top by is_all_top
-                    if is_all_top(overlay(pre_env[nm], val, subval_eq)):
+                    # Compare equality of pre_env and val.
+                    if self.issubsetof(pre_env[nm], val):
                         continue
-
-                    # Eliminate target dim, pre-processing to the widening (kinda). just approximation.
-                    val = D.abs(
-                        val.iterators, eliminate_target_dim(val.tree, stmt.iter)
-                    )
 
                     # Widening
+                    print(nm)
+                    print("pre widening: ", val)
                     w_res = self.abs_widening(pre_env[nm], val, count)
+                    print("post widening: ", w_res)
+                    print()
 
-                    # if the result of the widening is all Top, that means we gave up so exit the loop.
-                    if is_all_top(w_res):
+                    # if the result of the widening is None, that means we gave up so exit the loop.
+                    if not w_res:
                         continue
 
                     all_eq = False
@@ -1859,3 +1857,7 @@ class AbstractInterpretation(ABC):
     @abstractmethod
     def abs_widening(self, a1, a2, count):
         """Approximate the loop!"""
+
+    @abstractmethod
+    def issubsetof(self, a1, a2):
+        """a1 \subsetof a2?"""

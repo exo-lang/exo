@@ -20,11 +20,22 @@ def dataflow_analysis(
     return datair, stmts, d_syms
 
 
+def nice_root(poly, var):
+    """
+    Return the exact root of a linear polynomial a*var + b.
+    Works even when a or b contain other symbols.
+    For non-linear polynomials fall back to 'root(poly)'.
+    """
+    P = sm.Poly(poly, var)
+    if P.degree() == 1:
+        a, b = P.all_coeffs()  # a*var + b
+        return sm.simplify(-b / a)  # symbolic division, then simplify
+    assert False, "hmm"
+
+
 # ---------------------------------------------------------------------------
 #  Cylindrical Algebraic Decomposition that produces an ArrayDomain instance
 # ---------------------------------------------------------------------------
-
-
 def cylindrical_algebraic_decomposition(F, gens):
     """Return the CAD of *F* with respect to *gens* encoded as a single
     ``ArrayDomain`` value.
@@ -84,14 +95,13 @@ def cylindrical_algebraic_decomposition(F, gens):
         if not ordered:  # no roots ⇒ only the unbounded interval
             smpl = get_sample_point(sm.S.NegativeInfinity, sm.S.Infinity)
             child = lift(level - 1, {**partial_sample, var: smpl})
-            rel = sm.S.true  # whole line: no defining relation
-            cells.append(D.Cell(rel, child))
+            cells.append(D.Cell(sm.S.true, child))
 
         else:
             # left unbounded interval (−∞, r₀)
             r0 = ordered[0]
             smpl = get_sample_point(sm.S.NegativeInfinity, r0)
-            rel = var < r0
+            rel = var < nice_root(roots_to_poly[r0][0].as_expr(), var)
             child = lift(level - 1, {**partial_sample, var: smpl})
             cells.append(D.Cell(rel, child))
 
@@ -102,9 +112,12 @@ def cylindrical_algebraic_decomposition(F, gens):
                 child = lift(level - 1, {**partial_sample, var: r_lo})
                 cells.append(D.Cell(rel_eq, child))
 
+                p_lo = roots_to_poly[r_lo][0].as_expr()
+                p_hi = roots_to_poly[r_hi][0].as_expr()
+
                 smpl = get_sample_point(r_lo, r_hi)
-                rel_iv = sm.And(var > r_lo, var < r_hi)
                 child = lift(level - 1, {**partial_sample, var: smpl})
+                rel_iv = sm.And(0 > p_lo, 0 < p_hi)
                 cells.append(D.Cell(rel_iv, child))
 
             # last root and right unbounded interval (rₙ, ∞)
@@ -115,8 +128,8 @@ def cylindrical_algebraic_decomposition(F, gens):
             cells.append(D.Cell(rel_eq, child))
 
             smpl = get_sample_point(r_last, sm.S.Infinity)
-            rel_iv = var > r_last
             child = lift(level - 1, {**partial_sample, var: smpl})
+            rel_iv = var > nice_root(roots_to_poly[r_last][0].as_expr(), var)
             cells.append(D.Cell(rel_iv, child))
 
         # ---------- bundle the stack for this variable -------------------
@@ -132,7 +145,7 @@ def cylindrical_algebraic_decomposition(F, gens):
 def _sample_satisfies(expr, sample) -> bool:
     subs = {sym: v for sym, v in sample.items()}
     value = expr.xreplace(subs)
-    return bool(value)
+    return bool(value.simplify())
 
 
 def _lookup_value(node: D.node, sample):
@@ -222,6 +235,39 @@ def extract_poly(expr):
     return polys
 
 
+# ───────────────────────── helpers ──────────────────────────────────────────
+def _iter_leaves(node):
+    """Depth-first generator over every Leaf in a CAD tree."""
+    if isinstance(node, D.Leaf):
+        yield node
+    else:  # LinSplit
+        for cell in node.cells:
+            yield from _iter_leaves(cell.tree)
+
+
+def _vabs_equal(a, b):
+    """Equality test for ValueDomain.vabs."""
+    if type(a) is not type(b):
+        return False
+    if isinstance(a, V.ValConst):
+        return a.val == b.val
+    return True  # Top with Top, Bot with Bot
+
+
+def _val_equal(v1: D.val, v2: D.val) -> bool:
+    """Structural equality for ArrayDomain.val."""
+    if isinstance(v1, D.SubVal) and isinstance(v2, D.SubVal):
+        return _vabs_equal(v1.av, v2.av)
+
+    if isinstance(v1, D.ArrayVar) and isinstance(v2, D.ArrayVar):
+        if v1.name != v2.name or len(v1.idx) != len(v2.idx):
+            return False
+        # compare each index modulo algebraic equivalence
+        return all(sm.simplify(e1 - e2) == 0 for e1, e2 in zip(v1.idx, v2.idx))
+
+    return False  # mismatched variants
+
+
 class Strategy1(AbstractInterpretation):
     def abs_stride(self, name, dim):
         return D.abs([], [], D.Leaf(D.SubVal(V.Top()), {}))
@@ -294,8 +340,15 @@ class Strategy1(AbstractInterpretation):
             sym_cond = lift_to_sympy(cond, self.sym_table)
             p3 = extract_poly(sym_cond)
 
+            # TODO: This is a dirty hack for handling constants like "n"
+            fsyms = []
+            for p in p1 + p2 + p3:
+                for fsym in p.free_symbols:
+                    if fsym not in iterators:
+                        fsyms.append(fsym)
+
             tree = cylindrical_algebraic_decomposition(
-                p1 + p2 + p3, iterators
+                p1 + p2 + p3, iterators + fsyms
             )  # initialize sample points for each leaf
 
             # Propagate the values to the resulting cad tree
@@ -308,103 +361,55 @@ class Strategy1(AbstractInterpretation):
 
         assert False, "something is wrong!"
 
+    def issubsetof(self, a1: D.abs, a2: D.abs) -> bool:
+        """
+        Return True iff *every* sample point stored in `a2` evaluates to the
+        *same* abstract value in `a1`.
+
+        The test is:
+            ∀ leaf L ∈ tree(a2):
+                lookup_value(tree(a1), L.sample) == L.v
+        """
+        for leaf in _iter_leaves(a2.tree):
+            v_in_a1 = _lookup_value(a1.tree, leaf.sample)
+            if v_in_a1 is None or not _val_equal(v_in_a1, leaf.v):
+                return False
+        return True
+
     # =============================================================================
     # The Widening Operator
     # =============================================================================
-
-    # TODO: We should probably use ternary decision "diagrams" to compress the leaf duplications (?)
-
-    # maybe we should pass a count to widening so that we can debug and terminate when necessary
-    # widening has information of iteration count
     def abs_widening(self, a1: D.abs, a2: D.abs, count: int) -> D.abs:
         """
-        Widening for loop approxmation
+        Widen "a2" for loop approxmation
         """
 
         assert len(a2.iterators) == len(a1.iterators)
 
-        if count >= 0:
-            tree = D.Leaf(D.SubVal(V.Top()))
-        else:
-            tree = overlay(a1, a2, subval_join)
+        if count >= 4:
+            return None
 
-        # and we can just run whatever on a3
-        # to satisfy the x \widen y >= x \join y
-        return D.abs(a2.iterators, tree)
+        def visit(node: D.node) -> D.node:
+            if isinstance(node, D.Leaf):
+                return node  # unchanged
 
-        if isinstance(a2.tree, D.Leaf):
-            return a2
+            # 1) recursively rebuild children
+            children = [D.Cell(c.eq, visit(c.tree)) for c in node.cells]
 
-        variables = a2.iterators
+            # 2) propagate leaf values for equality guards
+            for i in range(len(children) - 1):
+                left = children[i]
+                right = children[i + 1]
 
-        # Sort half spaces into dimension
-        regions = {}
-        for reg in extract_regions(a2.tree, a2.iterators):
-            d = len(variables) - sum(e == "eqz" for (_, e) in reg["path"])
-            assert d >= 0
-            regions[d] = [] if d not in regions else regions[d]
-            regions[d].append(reg)
+                if (
+                    isinstance(left.eq, sm.Equality)  # guard is '='
+                    and isinstance(left.tree, D.Leaf)  # left is a leaf
+                    and isinstance(right.tree, D.Leaf)
+                ):  # right is a leaf
 
-        # Get intersections!
-        eqs = get_eqs_from_tree(a2.tree)
-        print()
-        print(variables)
-        print([str(s) for s in eqs])
-        intersections = find_intersections(variables, eqs)
+                    new_leaf = D.Leaf(left.tree.v, right.tree.sample)
+                    children[i + 1] = D.Cell(right.eq, new_leaf)
 
-        for d in regions.keys():
-            print("d : ", d)
-            for reg in regions[d]:
-                print([(str(p), str(e)) for p, e in reg["path"]])
-            print()
-        print("Intersections:", [(str(dim), str(eq)) for dim, eq in intersections])
-        refined_regions = regions.get(0, [])
-        scanned_variables = variables.copy()
+            return D.LinSplit(children)
 
-        for dim in range(1, len(variables) + 1):
-            if dim not in regions:
-                continue
-
-            print("here dim: ", dim)
-            intersection_pairs = []
-            ivar = None
-            for idim, intersection in intersections:
-                if idim != dim - 1:
-                    continue
-
-                coeff, const = linearize_aexpr(intersection, variables)
-                for k in coeff.keys():
-                    if k in scanned_variables and abs(coeff.get(k, 0)) > 1e-9:
-                        if ivar is not None and k != ivar:
-                            assert False
-                        ivar = k
-                        scanned_variables.remove(k)
-                        break
-                val = -const / coeff[ivar]
-                intersection_pairs.append((val, intersection))
-            # Sort the intersection pairs by value.
-            intersection_pairs.sort(key=lambda pair: pair[0])
-
-            tmp_regions = []
-            for reg in regions[dim]:
-                tmp_regions.extend(
-                    refine_region(
-                        reg, a2.iterators, refined_regions, intersection_pairs
-                    )
-                )
-            refined_regions.extend(tmp_regions)
-
-        # FIXME: dictionary reconstruction might be buggy
-        dict_tree = build_dict_tree(refined_regions)
-
-        reconstructed_tree = dict_tree_to_node(dict_tree)
-
-        # print("\nReconstructed Abstract Domain Tree:")
-        # print(reconstructed_tree)
-        a = abs_simplify(
-            abs_simplify(abs_simplify(D.abs(a2.iterators, reconstructed_tree)))
-        )
-        #    print("\nPrevious Abstract Domain Tree:")
-        #    print(a1)
-
-        return a
+        return D.abs(a2.iterators, a2.poly, visit(a2.tree))
