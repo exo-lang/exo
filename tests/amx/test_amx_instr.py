@@ -382,7 +382,7 @@ def test_mimicking_double_fission_behavior():
 
     print(matmul)
 
-    # fails because Ctile0 is accsessed out-of-bounds
+    # fails because Ctile0 is accessed out-of-bounds
     # matmul = stage_mem(matmul, "for ko in _:_", "C[0:16,0:16]", "Ctile")
 
     # could work if we had "unroll_memory", although note that divide_dim fails on buffers

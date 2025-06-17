@@ -1,9 +1,9 @@
 black==24.10.0
-coverage==7.8.0
+coverage==7.8.2
 pre-commit==4.2.0
 pytest-cov==6.1.1
-pytest-xdist==3.6.1
+pytest-xdist==3.7.0
 pytest==8.3.5
-tox==4.25.0
+tox==4.26.0
 numpy==2.2.3
 Pillow==11.2.1

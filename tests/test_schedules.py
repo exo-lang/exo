@@ -744,7 +744,7 @@ def test_remove_loop_deterministic(golden):
                     A[i, j] = 1.0
 
     # An older Z3 version caused check within remove_loop
-    # to fail non-deterministically (return an unknwon result).
+    # to fail non-deterministically (return an unknown result).
     # This test make sure that over a few runs, it always passes.
     for i in range(10):
         assert str(remove_loop(foo, "k")) == golden
@@ -3515,14 +3515,14 @@ def test_simplify_div_mod_staging(golden):
     assert str(bar) == golden
 
 
-def test_simplify_with_window_stmts():
+def test_simplify_with_window_stmts(golden):
     @proc
     def foo(n: size):
         x: i8[1]
         x_window = x[0 + 0 : 1 + 0]
         x_window[0] = 0.0
 
-    return simplify(foo)
+    assert str(simplify(foo)) == golden
 
 
 def test_simplify_logical(golden):

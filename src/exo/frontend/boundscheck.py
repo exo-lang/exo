@@ -1057,7 +1057,7 @@ class CheckBounds:
                 eff = self.map_stmts(stmt.f.body, self.rec_proc_types(stmt.f))
                 eff = eff.subst(bind)
 
-                # translate effects occuring on windowed arguments
+                # translate effects occurring on windowed arguments
                 for sig, arg in zip(stmt.f.args, stmt.args):
                     if sig.type.is_numeric():
                         if isinstance(arg.type, T.Window):

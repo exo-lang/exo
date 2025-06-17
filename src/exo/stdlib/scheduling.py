@@ -282,13 +282,13 @@ def _replace_helper(proc, subprocs, mem_aware, once):
 
 def replace_all(proc, subprocs, mem_aware=True):
     """
-    Givin a proc and subprocs, replace the body of proc with subproc
+    Given a proc and subprocs, replace the body of proc with subproc
     as much as possible.
 
     args:
         subprocs  - list of subprocedures (or instruction definitions) to
                     be replaced with
-        mem_aware - if True, replace will only suceed when memory annotation
+        mem_aware - if True, replace will only succeed when memory annotation
                     also matches
     """
 
@@ -297,12 +297,12 @@ def replace_all(proc, subprocs, mem_aware=True):
 
 def replace_once(proc, subprocs, mem_aware=True):
     """
-    Givin a proc and subprocs, replace the body of proc with subproc only once.
+    Given a proc and subprocs, replace the body of proc with subproc only once.
 
     args:
         subprocs  - list of subprocedures (or instruction definitions) to
                     be replaced with
-        mem_aware - if True, replace will only suceed when memory annotation
+        mem_aware - if True, replace will only succeed when memory annotation
                     also matches
     """
 
