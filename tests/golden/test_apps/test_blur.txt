@@ -149,12 +149,11 @@ for (int_fast32_t y = 0; y < ((H) / (32)); y++) {
         var2 = _mm256_adds_epu16(var3, var4);
         var5 = _mm256_loadu_si256((const __m256i *) &inp[(yi + 32 * y) * (W + 2) + 2 + 16 * xio + 256 * x]);
         var1 = _mm256_adds_epu16(var2, var5);
-        
-    {
-        var0 = _mm256_mulhi_epu16(var1, _mm256_set1_epi16(43691));
-        var0 = _mm256_srli_epi16(var0, 1);
-    }
-    
+            {
+                var0 = _mm256_mulhi_epu16(var1, _mm256_set1_epi16(43691));
+                var0 = _mm256_srli_epi16(var0, 1);
+            }
+            
         _mm256_storeu_si256((__m256i *) &blur_x[(yi) * (256) + 16 * xio], var0);
       }
     }
@@ -171,12 +170,11 @@ for (int_fast32_t y = 0; y < ((H) / (32)); y++) {
         var8 = _mm256_adds_epu16(var9, var10);
         var11 = _mm256_loadu_si256((const __m256i *) &blur_x[(2 + yi) * (256) + 16 * xio]);
         var7 = _mm256_adds_epu16(var8, var11);
-        
-    {
-        var6 = _mm256_mulhi_epu16(var7, _mm256_set1_epi16(43691));
-        var6 = _mm256_srli_epi16(var6, 1);
-    }
-    
+            {
+                var6 = _mm256_mulhi_epu16(var7, _mm256_set1_epi16(43691));
+                var6 = _mm256_srli_epi16(var6, 1);
+            }
+            
         _mm256_storeu_si256((__m256i *) &blur_y[(yi + 32 * y) * W + 16 * xio + 256 * x], var6);
       }
     }
