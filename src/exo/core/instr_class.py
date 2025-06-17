@@ -106,7 +106,7 @@ def old_style_instr_info(proc: LoopIR.proc, c_instr: str, c_global: str):
     assert isinstance(c_global, str)
     info = InstrInfo()
     prefill_instr_info(info, proc)
-    info.instr_format = [c_instr]
+    info.instr_format = c_instr.split("\n")
     info.c_global = c_global
     return info
 
