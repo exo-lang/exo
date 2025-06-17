@@ -112,13 +112,22 @@ def cylindrical_algebraic_decomposition(F, gens):
                 child = lift(level - 1, {**partial_sample, var: r_lo})
                 cells.append(D.Cell(rel_eq, child))
 
+                # ---------- open strip (r_lo , r_hi) --------------------
                 p_lo = roots_to_poly[r_lo][0].as_expr()
                 p_hi = roots_to_poly[r_hi][0].as_expr()
 
-                smpl = get_sample_point(r_lo, r_hi)
+                smpl = get_sample_point(r_lo, r_hi)  # sample inside
                 child = lift(level - 1, {**partial_sample, var: smpl})
-                rel_iv = sm.And(0 > p_lo, 0 < p_hi)
-                cells.append(D.Cell(rel_iv, child))
+
+                # choose the correct inequality directions
+                s_lo = sm.sign(p_lo.subs({**partial_sample, var: smpl}))
+                s_hi = sm.sign(p_hi.subs({**partial_sample, var: smpl}))
+
+                ineq_lo = (p_lo > 0) if s_lo > 0 else (p_lo < 0)
+                ineq_hi = (p_hi > 0) if s_hi > 0 else (p_hi < 0)
+
+                guard = sm.And(ineq_lo, ineq_hi)
+                cells.append(D.Cell(guard, child))
 
             # last root and right unbounded interval (rₙ, ∞)
             r_last = ordered[-1]
@@ -386,7 +395,7 @@ class Strategy1(AbstractInterpretation):
 
         assert len(a2.iterators) == len(a1.iterators)
 
-        if count >= 2:
+        if count >= 10:
             return None
 
         def visit(node: D.node) -> D.node:

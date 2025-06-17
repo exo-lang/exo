@@ -7,165 +7,7 @@ from exo.libs.externs import sin
 from exo.rewrite.dataflow import (
     D,
     V,
-    #    overlay,
-    #    solve_for,
-    #    subval_join,
-    #    subval_eq,
-    #    eliminate_target_dim,
 )
-from exo.core.prelude import Sym
-
-
-def test_solve_for1(golden):
-    # x + (-1)*y = 0  ==>  x = y.
-    x = Sym("x")
-    y = Sym("y")
-    ae = D.Add(D.Var(x), D.Mult(-1, D.Var(y)))
-    expected = D.Var(y)  # Expected: x = y.
-    result = solve_for(ae, x)
-    assert str(result) == golden
-
-
-def test_solve_for2(golden):
-    # 3*x = 6*y - 9  ==>  x = (6*y - 9)/3 = 2*y - 3.
-    x = Sym("x")
-    y = Sym("y")
-    ae = D.Add(D.Mult(3, D.Var(x)), D.Add(D.Mult(-6, D.Var(y)), D.Const(9)))
-    expected = D.Add(D.Mult(2, D.Var(y)), D.Const(-3))
-    result = solve_for(ae, x)
-    assert str(result) == golden
-
-
-def test_solve_for3(golden):
-    # 2*x + 6*y - 10 = 0  ==>  2*x = -6*y + 10  ==>  x = (-6*y + 10)/2 = -3*y + 5.
-    x = Sym("x")
-    y = Sym("y")
-    ae = D.Add(D.Mult(2, D.Add(D.Var(x), D.Mult(3, D.Var(y)))), D.Const(-10))
-    expected = D.Add(D.Mult(-3, D.Var(y)), D.Const(5))
-    result = solve_for(ae, x)
-    assert str(result) == golden
-
-
-def test_eliminate_target_dim(golden):
-    i = Sym("i")
-    d = Sym("d")
-    x = Sym("x")
-
-    avar = D.Leaf(D.ArrayVar(x, [D.Var(i)]))
-    avar2 = D.Leaf(D.ArrayVar(x, [D.Mult(2, D.Var(i))]))
-    leaf1 = D.Leaf(D.SubVal(V.ValConst(1.0)))
-    leaf2 = D.Leaf(D.SubVal(V.ValConst(2.0)))
-    leaf3 = D.Leaf(D.SubVal(V.ValConst(3.0)))
-
-    ae = D.Add(D.Mult(2, D.Var(i)), D.Mult(-2, D.Var(d)))
-    subtree = D.ModSplit(D.Var(i), 2, avar, leaf3)
-    tree = D.AffineSplit(ae, avar, subtree, avar2)
-
-    res_tree = eliminate_target_dim(tree, i)
-
-    assert str(res_tree) == golden
-
-
-def test_overlay1(golden):
-    # This is an overlay test, using add as a value function
-
-    x = Sym("x")
-    y = Sym("y")
-
-    # Build some leaves with simple values
-    leaf0 = D.Leaf(D.SubVal(V.ValConst(0)))
-    leaf1 = D.Leaf(D.SubVal(V.ValConst(1)))
-    leaf2 = D.Leaf(D.SubVal(V.ValConst(2)))
-    leaf3 = D.Leaf(D.SubVal(V.ValConst(3)))
-
-    ae1 = D.Add(D.Var(x), D.Mult(-1, D.Var(y)))
-    ae2 = D.Add(D.Add(D.Var(x), D.Var(y)), D.Const(-10))
-    t1 = D.AffineSplit(ae1, leaf0, leaf1, leaf0)
-    t2 = D.AffineSplit(ae2, leaf2, leaf3, leaf2)
-
-    # Wrap each tree in D.abs with [x, y] as iterators
-    abs1 = D.abs([x, y], t1)
-    abs2 = D.abs([x, y], t2)
-
-    def foo(v1, v2):
-        assert isinstance(v1, D.SubVal)
-        assert isinstance(v2, D.SubVal)
-        return D.SubVal(V.ValConst(v1.av.val + v2.av.val))
-
-    result_tree = overlay(abs1, abs2, foo)
-
-    assert str(result_tree) == golden
-
-
-def test_overlay2(golden):
-    x = Sym("x")
-    y = Sym("y")
-
-    # Build some leaves with simple values
-    leaf1 = D.Leaf(D.SubVal(V.ValConst(1)))
-    leaf2 = D.Leaf(D.SubVal(V.ValConst(2)))
-    leaf3 = D.Leaf(D.SubVal(V.ValConst(3)))
-
-    ae1 = D.Add(D.Var(x), D.Mult(-1, D.Var(y)))
-    ae2 = D.Add(D.Var(y), D.Mult(-1, D.Var(x)))
-    t1 = D.AffineSplit(ae1, leaf1, leaf2, leaf3)
-    t2 = D.AffineSplit(ae2, leaf3, leaf2, leaf1)
-    t3 = D.AffineSplit(ae2, leaf1, leaf2, leaf3)
-
-    abs1 = D.abs([x, y], t1)
-    abs2 = D.abs([x, y], t2)
-    abs3 = D.abs([x, y], t3)
-
-    result_tree1 = overlay(abs1, abs2, subval_eq)
-    result_tree2 = overlay(abs1, abs3, subval_eq)
-
-    assert str(result_tree1) + str(result_tree2) == golden
-
-
-def test_overlay3(golden):
-    i = Sym("i")
-    d = Sym("d")
-
-    leaf1 = D.Leaf(D.SubVal(V.ValConst(1)))
-    leaf2 = D.Leaf(D.SubVal(V.ValConst(2)))
-    leaf3 = D.Leaf(D.SubVal(V.ValConst(3)))
-    leafbot = D.Leaf(D.SubVal(V.Bot()))
-
-    ae1 = D.Add(D.Var(i), D.Const(-1))
-    ae2 = D.Var(d)
-    t1 = D.AffineSplit(ae1, leaf3, leafbot, leafbot)
-    t2 = D.AffineSplit(ae1, leaf3, leaf2, D.AffineSplit(ae2, leaf1, leaf2, leafbot))
-
-    abs1 = D.abs([i, d], t1)
-    abs2 = D.abs([i, d], t2)
-
-    result_tree1 = overlay(abs1, abs2, subval_join)
-
-    assert str(result_tree1) == golden
-
-
-def test_overlay4(golden):
-    x = Sym("x")
-    y = Sym("y")
-
-    # Build some leaves with simple values
-    leaf1 = D.Leaf(D.SubVal(V.ValConst(1)))
-    leaf2 = D.Leaf(D.SubVal(V.ValConst(2)))
-    leaf3 = D.Leaf(D.SubVal(V.ValConst(3)))
-
-    ae1 = D.Add(D.Var(x), D.Const(-1))
-    ae2 = D.Add(D.Var(y), D.Const(-2))
-    t1 = D.AffineSplit(ae1, leaf3, leaf2, leaf1)
-    t2 = D.AffineSplit(ae1, leaf3, leaf2, D.AffineSplit(ae2, leaf1, leaf1, leaf1))
-    t3 = D.AffineSplit(ae1, leaf3, leaf2, D.AffineSplit(ae2, leaf1, leaf1, leaf3))
-
-    abs1 = D.abs([x, y], t1)
-    abs2 = D.abs([x, y], t2)
-    abs3 = D.abs([x, y], t3)
-    result_tree1 = overlay(abs1, abs2, subval_eq)
-    result_tree2 = overlay(abs3, abs1, subval_eq)
-
-    assert str(result_tree1) + str(result_tree2) == golden
 
 
 def test_simple(golden):
@@ -177,16 +19,16 @@ def test_simple(golden):
     assert str(foo.dataflow()[0]) == golden
 
 
-def test_simple1_5():
+def test_simple1_5(golden):
     @proc
     def foo(x: R[2]):
         x[1] = 3.0
         x[0] = 2.0
 
-    print(foo.dataflow()[0])
+    assert str(foo.dataflow()[0]) == golden
 
 
-def test_simple1_7():
+def test_simple1_7(golden):
     @proc
     def foo(z: R, n: size, x: R[3]):
         z = 4.2
@@ -195,7 +37,7 @@ def test_simple1_7():
             x[n] = 3.0
         pass
 
-    print(foo.dataflow()[0])
+    assert str(foo.dataflow()[0]) == golden
 
 
 def test_simple2(golden):
@@ -235,16 +77,6 @@ def test_simple_stmts2(golden):
     assert str(d_ir) + "\n\n" + "\n".join([str(s[0]) for s in stmts]) == golden
 
 
-def test_guard():
-    @proc
-    def foo(n: size, x: R[3]):
-        x[0] = 2.0
-        if n < 3:
-            x[n] = 3.0
-
-    print(foo.dataflow()[0])
-
-
 def test_simple3(golden):
     @proc
     def foo(z: R, n: size, x: R[3]):
@@ -255,7 +87,6 @@ def test_simple3(golden):
         x[2] = 5.0
         x[0] = 12.0
 
-    print(foo.dataflow()[0])
     assert str(foo.dataflow()[0]) == golden
 
 
@@ -269,6 +100,15 @@ def test_print(golden):
     assert str(foo.dataflow()[0]) == golden
 
 
+def test_print_new(golden):
+    @proc
+    def foo(z: R[3]):
+        for i in seq(0, 3):
+            z[i] = 3.0
+
+    print(foo.dataflow()[0])
+
+
 def test_print_0(golden):
     @proc
     def foo(z: R[3]):
@@ -279,15 +119,6 @@ def test_print_0(golden):
 
     print(foo.dataflow()[0])
     assert str(foo.dataflow()[0]) == golden
-
-
-def test_print_new(golden):
-    @proc
-    def foo(z: R[3]):
-        for i in seq(0, 3):
-            z[i] = 3.0
-
-    print(foo.dataflow()[0])
 
 
 def test_print_1(golden):
