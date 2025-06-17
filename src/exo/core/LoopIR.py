@@ -867,6 +867,7 @@ class LoopIR_Rewrite:
             if new_type:
                 return [s.update(type=new_type or s.type)]
         elif isinstance(s, (LoopIR.Pass, LoopIR.SyncStmt)):
+            # TODO SyncStmt needs to update expressions
             return None
         else:
             raise NotImplementedError(f"bad case {type(s)}")
@@ -996,6 +997,7 @@ class LoopIR_Do:
             self.do_s(s)
 
     def do_s(self, s):
+        # TODO: SyncStmt
         styp = type(s)
         if styp is LoopIR.Assign or styp is LoopIR.Reduce:
             for e in s.idx:
