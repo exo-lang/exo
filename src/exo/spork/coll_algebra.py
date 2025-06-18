@@ -88,21 +88,29 @@ clusterDim_param = CollParam("clusterDim")
 clusterDim = CollSizeExpr(1, (clusterDim_param,))
 
 
-def coll_size_tuple(tup):
-    """Coerce ints in tuple to CollSizeExpr"""
+def coll_size_tuple_helper(tup):
+    """To (Tuple[CollSizeExpr], is_agnostic: bool)"""
+    agnostic = False
     result = []
     for n in tup:
         if isinstance(n, int):
             result.append(CollSizeExpr(n, ()))
+        elif n is None:
+            result.append(None)
+            agnostic = True
         else:
             assert isinstance(n, CollSizeExpr)
             result.append(n)
-    return tuple(result)
+    return tuple(result), agnostic
 
 
-def int_size_tuple(tup: Tuple[CollSizeExpr], env: Dict[CollParam, int]):
-    """Translate Tuple[CollSizeExpr] to Tuple[int]"""
-    return tuple(n(env) for n in tup)
+def int_size_tuple(tup: Tuple[Optional[CollSizeExpr]], env: Dict[CollParam, int]):
+    """Translate Tuple[Optional[CollSizeExpr]] to Tuple[Optional[int]]"""
+    return tuple(None if n is None else n(env) for n in tup)
+
+
+def format_tuple(tup: Tuple[Optional[CollSizeExpr]]):
+    return "(" + ", ".join("*" if n is None else str(n) for n in tup) + ")"
 
 
 class CollUnit(object):
@@ -112,27 +120,35 @@ class CollUnit(object):
     tuples of CollSizeExpr) which should be described in
     collective algebra documentation.
 
-    As a convenience, if repr_scale is not None, we support multiplying by an
-    int; this scales the repr_scale-th coordinate of the box size.
-    This is intended syntax for the Exo end user (e.g. 8 * cuda_thread)
+    The box may also contain None (agnostic dimension)
+
+    As a convenience, if scaled_dim_idx is not None, we support
+    multiplying by an int; this scales the scaled_dim_idx-th
+    coordinate of the box size.  This is intended syntax for the Exo
+    end user (e.g. 8 * cuda_thread)
+
     """
 
-    __slots__ = ["domain", "box", "name", "scaled_dim_idx", "repr_scale"]
+    __slots__ = ["domain", "box", "name", "scaled_dim_idx", "repr_scale", "agnostic"]
 
     domain: Tuple[CollSizeExpr]
-    box: Tuple[CollSizeExpr]
+    box: Tuple[Optional[CollSizeExpr]]
     name: str
     scaled_dim_idx: Optional[int]
     repr_scale: int
+    agnostic: bool
 
-    def __init__(self, domain, box, name, scaled_dim_idx):
+    def __init__(self, domain, box, name, scaled_dim_idx=None):
         assert len(domain) == len(box)
-        self.domain = coll_size_tuple(domain)
-        self.box = coll_size_tuple(box)
+        self.domain, None_in_domain = coll_size_tuple_helper(domain)
+        self.box, self.agnostic = coll_size_tuple_helper(box)
+        assert not None_in_domain
         self.name = name
         self.scaled_dim_idx = scaled_dim_idx
         self.repr_scale = 1
-        assert scaled_dim_idx is None or scaled_dim_idx < len(box)
+        if scaled_dim_idx is not None:
+            assert scaled_dim_idx < len(box)
+            assert box[scaled_dim_idx] is not None
 
     def scaled(self, scale):
         try:
@@ -148,7 +164,8 @@ class CollUnit(object):
         if i_scale is None:
             raise ValueError(f"{self.name} cannot be scaled")
 
-        new_box = [n * scale if i == i_scale else n for i, n in enumerate(self.box)]
+        new_box = list(self.box)
+        new_box[i_scale] *= scale
         res = CollUnit(self.domain, new_box, self.name, i_scale)
         res.repr_scale = self.repr_scale * scale
         return res
@@ -171,6 +188,7 @@ class CollUnit(object):
         return int_size_tuple(self.box, env)
 
     def int_threads(self, env: Dict[CollParam, int]):
+        assert not self.agnostic
         n = 1
         for c in self.box:
             n *= c(env)
@@ -624,6 +642,7 @@ class CollTiling(object):
         self,
         unit: CollUnit,
         env: Dict[CollParam, int],
+        *,
         no_message=False,
         ignore_leaf_box=False,  # Consider removing if unused
     ):
@@ -640,18 +659,22 @@ class CollTiling(object):
 
         """
         assert isinstance(unit, CollUnit)
+        f = format_tuple
 
         self_n_threads = (
             self.tile_num_threads() if ignore_leaf_box else self.box_num_threads()
         )
         unit_box_raw = unit.int_box(env)
-        unit_n_threads = unit.int_threads(env)
         unit_domain = unit.int_domain(env)
-        if self_n_threads != unit_n_threads:
-            return no_message or (
-                f"Have {self_n_threads} threads {self.box}; "
-                f"expected {unit_n_threads} ({unit})"
-            )
+
+        if not unit.agnostic:
+            unit_n_threads = unit.int_threads(env)
+            if self_n_threads != unit_n_threads:
+                return no_message or (
+                    f"Have {self_n_threads} threads {f(self.box)}; "
+                    f"expected {unit_n_threads} ({unit})"
+                )
+
         try:
             tiling = self
             while tiling is not None:
@@ -666,16 +689,18 @@ class CollTiling(object):
                 new_unit_box = unit_completion.new_size(unit_box_raw, 1)
 
                 # Check box size for leaf CollTiling
+                # We have to handle None (agnostic) dimensions in the unit box
                 if self is tiling:
                     new_tiling_box = tiling_completion.new_size(
                         tiling.tile if ignore_leaf_box else tiling.box
                     )
-                    if new_unit_box != new_tiling_box:
-                        return no_message or (
-                            f"Have threads in shape {new_tiling_box}; "
-                            f"expected {new_unit_box} "
-                            f"({unit}); domain={unit_completion.domain}"
-                        )
+                    for unit_c, tile_c in zip(new_unit_box, new_tiling_box):
+                        if unit_c is not None and unit_c != tile_c:
+                            return no_message or (
+                                f"Have threads in shape {f(new_tiling_box)}; "
+                                f"expected {f(new_unit_box)} "
+                                f"({unit}); domain={f(unit_completion.domain)}"
+                            )
 
                 # Check alignment for all CollTiling to root
                 # (except self/leaf, if ignore_leaf_box)
@@ -683,7 +708,7 @@ class CollTiling(object):
                     new_tiling_offset = tiling_completion.new_offset(tiling.offset, 0)
                     assert len(new_tiling_offset) == len(new_unit_box)
                     for off_c, box_c in zip(new_tiling_offset, new_unit_box):
-                        if off_c % box_c != 0:
+                        if box_c is not None and off_c % box_c != 0:
                             return no_message or f"Incorrect alignment for {unit}"
 
                 # Traverse to root
@@ -826,7 +851,9 @@ class DomainCompletionOp(object):
 
     def new_size(self, size: Tuple, partial_prepend=None):
         def outer_op(c, factor):
-            if c < factor:
+            if c is None:
+                return None
+            elif c < factor:
                 return 1
             else:
                 if c % factor != 0:
@@ -834,7 +861,7 @@ class DomainCompletionOp(object):
                 return c // factor
 
         def inner_op(c, factor):
-            return min(c, factor)
+            return None if c is None else min(c, factor)
 
         return self._new_coords(
             size, outer_op, inner_op, 1, partial_prepend=partial_prepend
@@ -885,7 +912,8 @@ class DomainCompletionOp(object):
             coords = list(coords)
 
         for i in self.remove_idx:
-            assert coords[i] == expected_removed_coord
+            c = coords[i]
+            assert c is None or c == expected_removed_coord
             del coords[i]
 
         for idx, factor in self.idx_factors:
@@ -904,6 +932,16 @@ cuda_thread = CollUnit((blockDim,), (1,), "cuda_thread", 0)
 cuda_quadpair = CollUnit((blockDim / 16, 16), (2, 4), "cuda_quadpair", None)
 cuda_warp = CollUnit((blockDim,), (32,), "cuda_warp", 0)
 cuda_warpgroup = CollUnit((blockDim,), (128,), "cuda_warpgroup", 0)
+
+# Matches collective units that reside within one CTA
+cuda_agnostic_sub_cta = CollUnit(
+    (clusterDim, blockDim), (1, None), "cuda_agnonstic_sub_cta", None
+)
+
+# Matches collective units that consist of any number of non-subdivided CTAs
+cuda_agnostic_intact_cta = CollUnit(
+    (clusterDim, blockDim), (None, blockDim), "cuda_agnostic_intact_cta", None
+)
 
 # Questionable, these may change later
 cuda_warp_in_cluster = CollUnit(

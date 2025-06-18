@@ -33,6 +33,8 @@ from .coll_algebra import (
     cuda_warp,
     cuda_warpgroup,
     cuda_cta_in_cluster,
+    cuda_agnostic_sub_cta,
+    cuda_agnostic_intact_cta,
 )
 from .cuda_memory import (
     CudaBasicDeviceVisible,
@@ -530,9 +532,11 @@ class SubtreeScan(LoopIR_Do):
             # Named warps (besides fallback 1-name case) won't work if the CTA
             # has already been subdivided by a cuda_threads loop.
             if len(self.named_warps) > 1:
-                if self._coll_tiling.box[-1] != self.fmt_dict["blockDim"]:
+                if detail := self._coll_tiling.unit_mismatch(
+                    cuda_agnostic_intact_cta, self._coll_env
+                ):
                     raise ValueError(
-                        f"{s.srcinfo}: named CudaWarps requires CTA not to be subdivided by parent cuda_threads loop"
+                        f"{s.srcinfo}: named {ctx} requires CTA not to be subdivided by parent cuda_threads loop (detail: {detail})"
                     )
 
         # Nested CudaWarps: interpret lo/hi literally as the higher-level

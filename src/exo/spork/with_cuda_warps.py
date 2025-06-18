@@ -30,5 +30,10 @@ class CudaWarps(BaseWithContext):
             assert hi >= 1
 
     def __repr__(self):
-        nm_str = "" if self.name is None else f"name = {self.name!r}, "
-        return f"CudaWarps({nm_str}lo={self.lo}, hi={self.hi})"
+        args = []
+        if self.lo is not None or self.hi is not None:
+            args.append(str(self.lo))
+            args.append(str(self.hi))
+        if self.name is not None:
+            args.append(f"name={self.name!r}")
+        return "CudaWarps(" + ", ".join(args) + ")"
