@@ -1017,100 +1017,121 @@ def lift_to_sympy(e: DataflowIR.expr, table: dict) -> sm.Expr:
 # Substitution related operations
 # --------------------------------------------------------------------------- #
 
-# -----------------------------------------------------------------------------
-# Generic tree-mapper ----------------------------------------------------------
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+#  Generic, immutable mapper --------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 class Abs_Rewrite:
-    """Generic, *immutable* mapper over an ArrayDomain element."""
+    """Walk every node of an ArrayDomain tree, building a *new* tree on the way.
 
-    # ── entry point ──────────────────────────────────────────────────────────
+    To specialise, override *only* the small `map_*` methods; the scaffolding
+    takes care of recursion and immutability.
+    """
+
+    # ── entry point ----------------------------------------------------------
     def map_abs(self, a: D.abs) -> D.abs:
-        iters = self.map_iters(a.iterators)
-        poly = [self.map_expr(p) for p in a.poly]
-        tree = self.map_node(a.tree)
-        return D.abs(iters, poly, tree)
+        return D.abs(
+            self.map_iters(a.iterators),
+            [self.map_expr(p) for p in a.poly],
+            self.map_node(a.tree),
+        )
 
-    # ── iterators ────────────────────────────────────────────────────────────
+    # ── iterators ------------------------------------------------------------
     def map_iters(self, itrs):
         return [self.map_iter(i) for i in itrs]
 
-    def map_iter(self, i):
-        return i  # default: identity
+    def map_iter(self, i):  # ← identity-by-default
+        return i
 
-    # ── expressions / relations ──────────────────────────────────────────────
+    # ── expressions / relations ---------------------------------------------
     def map_expr(self, e):
-        return e  # identity unless a subclass rewrites
+        return e  # identity
 
     def map_rel(self, r):
-        return r  # relational is a SymPy Expr, too
+        return r
 
-    # ── nodes ────────────────────────────────────────────────────────────────
+    # ── NEW: samples ---------------------------------------------------------
+    def map_sample(self, sample: dict) -> dict:
+        """Rewrite the dictionary *value* expressions.
+        The *keys* (variables) stay unchanged here.
+        """
+        return {k: self.map_expr(v) for k, v in sample.items()}
+
+    # ── nodes ----------------------------------------------------------------
     def map_node(self, node: D.node):
         if isinstance(node, D.Leaf):
             return D.Leaf(
-                self.map_val(node.v),  # rewrite the value
-                node.sample,  # sample stays unchanged
+                self.map_val(node.v),
+                self.map_sample(node.sample),  # *** now rewritten ***
             )
 
         elif isinstance(node, D.LinSplit):
-            new_cells = [self.map_cell(c) for c in node.cells]
-            return D.LinSplit(new_cells)
+            return D.LinSplit([self.map_cell(c) for c in node.cells])
 
-        else:
-            raise TypeError(f"Unknown node variant {type(node)}")
+        raise TypeError(f"Unknown node variant {type(node)}")
 
     def map_cell(self, cell: D.cell):
-        return D.Cell(
-            self.map_rel(cell.eq),  # rewrite guard if needed
-            self.map_node(cell.tree),  # recurse on subtree
-        )
+        return D.Cell(self.map_rel(cell.eq), self.map_node(cell.tree))
 
-    # ── values (leaf payload) ────────────────────────────────────────────────
+    # ── values ---------------------------------------------------------------
     def map_val(self, val: D.val):
         if isinstance(val, D.SubVal):
-            # Could recurse into vabs here if required
-            return val
+            return val  # nothing inside to touch
 
-        elif isinstance(val, D.ArrayVar):
-            new_idx = [self.map_expr(i) for i in val.idx]
-            return D.ArrayVar(val.name, new_idx)
+        if isinstance(val, D.ArrayVar):
+            return D.ArrayVar(val.name, [self.map_expr(i) for i in val.idx])
 
-        else:
-            raise TypeError(f"Unknown val variant {type(val)}")
+        raise TypeError(f"Unknown val variant {type(val)}")
 
 
-# -----------------------------------------------------------------------------
-# Concrete subclass: *symbol substitution* ------------------------------------
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+#  Concrete subclass:  substitution ------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
 class ASubs(Abs_Rewrite):
-    """
-    Apply a substitution  {sym → expr}  to every SymPy expression
-    inside a CAD node.
+    r"""
+    Apply a *single* SymPy substitution  Σ = {sym : expr}  to a CAD.
+
+    * Works for **numeric** maps  {x: 3, y: -7/2}                       – projection
+    * Works for **symbolic** maps {x: x - 1,  y: y + z} (affine change) – pull-back
     """
 
-    def __init__(self, node: D.node, env: dict):
-        """
-        Parameters
-        ----------
-        node : D.node
-            Root of the CAD to rewrite.
-        env  : dict[sym, expr]
-            Substitution environment (keys are SymPy symbols).
-        """
+    # ── construction ---------------------------------------------------------
+    def __init__(self, node: D.node, env: dict[sm.Symbol, sm.Expr]):
         self._env = env
-        self._out = super().map_node(node)  # produce new tree
+        self._out = super().map_node(node)  # build transformed tree
 
-    # public accessor ---------------------------------------------------------
-    def result(self) -> D.node:
+    def result(self) -> D.node:  # public accessor
         return self._out
 
-    # expression-level rewrite -----------------------------------------------
+    # ── expression-level rewrite --------------------------------------------
     def map_expr(self, e):
         return e.xreplace(self._env)
 
-    # relational guards need the same substitution ---------------------------
     def map_rel(self, r):
         return r.xreplace(self._env)
+
+    # ── sample-point logic ---------------------------------------------------
+    def map_sample(self, sample: dict) -> dict:
+        new_s = {}
+
+        for var, old_val in sample.items():
+
+            if var not in self._env:
+                # coordinate unchanged – just push Σ into the value
+                new_s[var] = old_val.xreplace(self._env)
+                continue
+
+            rhs = self._env[var]  # Σ(var)
+
+            # case 1 : constant substitution  (x → 3)
+            if not rhs.free_symbols & {var}:
+                new_s[var] = rhs.xreplace(self._env)
+                continue
+
+            # case 2 : affine/self-referential (x → x - 1, etc.)
+            sol = sm.solve(sm.Eq(rhs, old_val), var, dict=True)
+            new_s[var] = sol[0][var] if sol else old_val.xreplace(self._env)
+
+        return new_s
 
 
 # --------------------------------------------------------------------------- #
@@ -1168,6 +1189,7 @@ class AbstractInterpretation(ABC):
 
             lhs_name = sm.Symbol(stmt.lhs.__repr__())
             self.sym_table[lhs_name] = stmt.lhs
+
             env[lhs_name] = self.abs_ternary(
                 gens,
                 stmt.cond,
@@ -1220,8 +1242,8 @@ class AbstractInterpretation(ABC):
                     if sm.Symbol(stmt.iter.__repr__()) not in val.iterators:
                         continue
 
-                    # Compare equality of pre_env and val.
-                    if self.issubsetof(pre_env[nm], val):
+                    # if X_{k+1} \subseteq X_{k}
+                    if self.issubsetof(val, pre_env[nm]):
                         continue
 
                     # Widening
@@ -1229,6 +1251,7 @@ class AbstractInterpretation(ABC):
 
                     # if the result of the widening is None, that means we gave up so exit the loop.
                     if not w_res:
+                        assert False, "widening returned None, debug"
                         continue
 
                     all_eq = False

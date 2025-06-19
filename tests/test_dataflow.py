@@ -4,10 +4,140 @@ from exo import proc, DRAM, Procedure, config
 from exo.stdlib.scheduling import *
 from exo.libs.externs import sin
 
-from exo.rewrite.dataflow import (
-    D,
-    V,
-)
+from exo.rewrite.dataflow import D, V, ASubs
+from exo.rewrite.approximation import Strategy1
+
+
+def _leaf(value=V.Top(), sample=None):
+    """Create the common leaf pattern quickly."""
+    if sample is None:
+        sample = {}
+    return D.Leaf(D.SubVal(value), sample)
+
+
+# ──────────────────────────────────────────────────────────────────────
+# 1) purely numeric substitution
+# ──────────────────────────────────────────────────────────────────────
+def test_asubs_numeric():
+    """{x: 5, y: 7} should literally overwrite the sample coordinates."""
+    from sympy.abc import x, y
+    import sympy as sm
+
+    leaf = _leaf(sample={x: 0, y: 1})
+    cad = D.abs([x, y], [x + y], leaf)
+
+    new_tree = ASubs(cad.tree, {x: sm.Integer(5), y: sm.Integer(7)}).result()
+
+    assert new_tree.sample == {x: 5, y: 7}  # ← sample updated
+    assert new_tree.v == leaf.v  # payload unchanged
+    # polynomial inside cad (x + y) → 5 + 7
+    assert new_tree.v is leaf.v  # immutability check
+
+
+def test_asubs_translation():
+    """
+    Original guard:   y < 0 | y == 0 | y > 0
+    After Σ:          y - 1 < 0  …  ⇒   y < 1, etc.
+    Samples should move forward by +1.
+    """
+    from sympy.abc import x, y
+    import sympy as sm
+
+    cells = [
+        D.Cell(y < 0, _leaf(sample={y: -1})),
+        D.Cell(sm.Eq(y, 0), _leaf(sample={y: 0})),
+        D.Cell(y > 0, _leaf(sample={y: 1})),
+    ]
+    cad = D.abs([y], [y], D.LinSplit(cells))
+
+    new_tree = ASubs(cad.tree, {y: y - 1}).result()
+    new_cells = new_tree.cells  # unpack LinSplit
+
+    # guards
+    lhs = lambda r: sm.simplify(r.lhs - r.rhs)
+    assert lhs(new_cells[0].eq) == lhs(y < 1)
+    assert lhs(new_cells[1].eq) == lhs(sm.Eq(y, 1))
+    assert lhs(new_cells[2].eq) == lhs(y > 1)
+
+    # samples
+    assert new_cells[0].tree.sample == {y: 0}
+    assert new_cells[1].tree.sample == {y: 1}
+    assert new_cells[2].tree.sample == {y: 2}
+
+
+def test_asubs_mixed():
+    from sympy.abc import x, y
+    import sympy as sm
+
+    leaf = _leaf(sample={x: 1, y: 2})
+    cad = D.abs([x, y], [x - y], leaf)
+
+    sigma = {x: x + 2, y: sm.Integer(3)}
+    new_tree = ASubs(cad.tree, sigma).result()
+
+    # Guard polynomial  (x - y)  →  (x + 2) - 3 = x - 1
+    assert sm.simplify((cad.poly[0]).xreplace(sigma) - (x - 1)) == 0
+
+    # Sample:  x + 2 = 1  ⇒  x = -1 ;  y → 3
+    assert new_tree.sample == {x: -1, y: 3}
+
+
+def _make_strategy():
+    @proc
+    def foo():
+        pass
+
+    return Strategy1(foo.dataflow()[0])
+
+
+def test_issubsetof_basic():
+    from sympy.abc import x, y
+    import sympy as sm
+
+    a1 = D.abs([y], [], D.Leaf(D.SubVal(V.Top()), {y: 1}))
+    a2 = D.abs(
+        [y],
+        [y],
+        D.LinSplit(
+            [
+                D.Cell(y < 0, D.Leaf(D.SubVal(V.Top()), sample={y: -1})),
+                D.Cell(sm.Eq(y, 0), D.Leaf(D.SubVal(V.Top()), sample={y: 0})),
+                D.Cell(y > 0, D.Leaf(D.SubVal(V.Top()), sample={y: 1})),
+            ]
+        ),
+    )
+    strat = _make_strategy()
+    assert strat.issubsetof(a1, a2)
+    assert strat.issubsetof(a2, a1)
+
+
+def test_issubsetof_false():
+    from sympy.abc import x, y
+
+    gens = [x, y]
+    strat = _make_strategy()
+    a1 = D.abs(gens, [], D.Leaf(D.SubVal(V.ValConst(1)), {x: 1, y: 1}))
+    a2 = D.abs(gens, [], D.Leaf(D.SubVal(V.ValConst(2)), {x: 1, y: 1}))
+    assert not strat.issubsetof(a1, a2)
+
+
+def test_widening(golden):
+    from sympy.abc import x, y
+    import sympy as sm
+
+    a = D.abs(
+        [y],
+        [y],
+        D.LinSplit(
+            [
+                D.Cell(y < 0, D.Leaf(D.SubVal(V.Top()), sample={y: -1})),
+                D.Cell(sm.Eq(y, 0), D.Leaf(D.SubVal(V.ValConst(1)), sample={y: 0})),
+                D.Cell(y > 0, D.Leaf(D.SubVal(V.Top()), sample={y: 1})),
+            ]
+        ),
+    )
+    strat = _make_strategy()
+    assert str(strat.abs_widening(a, a, 0)) == golden
 
 
 def test_simple(golden):

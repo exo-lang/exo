@@ -74,6 +74,7 @@ def cylindrical_algebraic_decomposition(F, gens):
 
         # ---------- leaf --------------------------------------------------
         if level < 0:
+            # TODO: What is this Top doing here?
             val = D.SubVal(V.Top())
             # In R^0 the sample point is the empty tuple ⇒ ``{}``
             return D.Leaf(val, dict(partial_sample))
@@ -244,29 +245,84 @@ def extract_poly(expr):
     return polys
 
 
+from sympy.solvers.simplex import lpmin, InfeasibleLPError
+from sympy.core.relational import StrictGreaterThan, StrictLessThan, Ge, Le
+
+
+def has_integer_solution(inequalities):
+    # 1 .  Replace strict signs by non-strict ones, shifting the RHS by ±1
+    normalised = []
+    for rel in inequalities:
+        if isinstance(rel, StrictGreaterThan):  #  expr > rhs  ⇒  expr ≥ rhs+1
+            normalised.append(Ge(rel.lhs, rel.rhs + 1))
+        elif isinstance(rel, StrictLessThan):  #  expr < rhs  ⇒  expr ≤ rhs-1
+            normalised.append(Le(rel.lhs, rel.rhs - 1))
+        else:  #  ≤, ≥ or = already OK
+            normalised.append(rel)
+
+    # 2 .  Ask the simplex solver to “minimise 0” (pure feasibility test)
+    try:
+        lpmin(0, tuple(normalised))
+        return True  # feasible  ⇒  there is an (integer) solution
+    except InfeasibleLPError:
+        return False  # contradictory system
+
+
 # ───────────────────────── helpers ──────────────────────────────────────────
-def _iter_leaves(node):
+def _iter_leaves(node, eqs: tuple):
     """Depth-first generator over every Leaf in a CAD tree."""
     if isinstance(node, D.Leaf):
         yield node
     else:  # LinSplit
         for cell in node.cells:
-            yield from _iter_leaves(cell.tree)
+            new_eqs = eqs
+            if isinstance(cell.eq, sm.Eq):
+                new_eqs = eqs + (cell.eq,)
+            else:
+                # skip if cell.eq is unsatisfiable for integer
+                polys = sm.And.make_args(cell.eq) | set(eqs)
+                if not has_integer_solution(polys):
+                    continue
+
+            yield from _iter_leaves(cell.tree, new_eqs)
 
 
-def _vabs_equal(a, b):
-    """Equality test for ValueDomain.vabs."""
-    if type(a) is not type(b):
+def _vabs_subsetof(v1, v2):
+    """
+    Return True iff v1 ⊑ v2 w.r.t. the ValueDomain lattice.
+
+    Bot   ⊑ everything
+    c     ⊑ Top                    (for any constant c)
+    c₁    ⊑ c₂     ⇔ c₁ == c₂      (same constant)
+    Top   ⊑ Top only
+    """
+    # ⊥ is below everything
+    if isinstance(v1, V.Bot):
+        return True
+
+    # ⊤ is only below itself
+    if isinstance(v1, V.Top):
+        return isinstance(v2, V.Top)
+
+    # v1 is a concrete constant
+    if isinstance(v1, V.ValConst):
+        # Constant is below ⊤
+        if isinstance(v2, V.Top):
+            return True
+        # Two constants: only if they are the *same* constant
+        if isinstance(v2, V.ValConst):
+            return v1.val == v2.val
+        # Otherwise (v2 is Bot or some unsupported kind) -> False
         return False
-    if isinstance(a, V.ValConst):
-        return a.val == b.val
-    return True  # Top with Top, Bot with Bot
+
+    # Fallback: if both have exactly the same representation we treat them equal
+    return type(v1) is type(v2)
 
 
 def _val_equal(v1: D.val, v2: D.val) -> bool:
     """Structural equality for ArrayDomain.val."""
     if isinstance(v1, D.SubVal) and isinstance(v2, D.SubVal):
-        return _vabs_equal(v1.av, v2.av)
+        return _vabs_subsetof(v1.av, v2.av)
 
     if isinstance(v1, D.ArrayVar) and isinstance(v2, D.ArrayVar):
         if v1.name != v2.name or len(v1.idx) != len(v2.idx):
@@ -275,6 +331,21 @@ def _val_equal(v1: D.val, v2: D.val) -> bool:
         return all(sm.simplify(e1 - e2) == 0 for e1, e2 in zip(v1.idx, v2.idx))
 
     return False  # mismatched variants
+
+
+def evaluate_poly(poly, values):
+    # Accept either a Poly or a raw SymPy expression
+    expr = poly.as_expr() if isinstance(poly, sm.Poly) else sm.sympify(poly)
+
+    # Perform *simultaneous* substitution to avoid unintended cascades
+    # (subs(..., simultaneous=True) is new in SymPy 1.11 – fall back
+    #  to ordinary .subs if you are on an older version)
+    try:
+        out = expr.subs(values, simultaneous=True)
+    except TypeError:
+        out = expr.subs(values)
+
+    return sm.simplify(out)
 
 
 class Strategy1(AbstractInterpretation):
@@ -296,11 +367,12 @@ class Strategy1(AbstractInterpretation):
     def abs_read(self, ename, idx, env):
         # return True if arrays have indirect accesses
         if any([has_array_access(i) for i in idx]):
+            assert False, "implement"
             return D.Leaf(D.SubVal(V.Top()))
 
         name = sm.Symbol(ename.__repr__())
         self.sym_table[name] = ename
-        idxs = [lift_to_sympy(i, self.sym_table) for i in idx]
+        idxs = [lift_to_sympy(i, self.sym_table).simplify() for i in idx]
         if name in self.avars:
             return D.abs([], [], D.Leaf(D.ArrayVar(name, idxs), {}))
         else:
@@ -308,13 +380,17 @@ class Strategy1(AbstractInterpretation):
             if name in env:
                 rabs = env[name]
                 itr_map = dict()
+                iters = []
                 for i1, i2 in zip(rabs.iterators, idxs):
+                    if i2.free_symbols:
+                        iters.append(i1)
                     itr_map[i1] = i2
-                return D.abs(
-                    rabs.iterators, rabs.poly, ASubs(rabs.tree, itr_map).result()
-                )
+
+                new_poly = list({evaluate_poly(p, itr_map) for p in rabs.poly})
+
+                return D.abs(iters, new_poly, ASubs(rabs.tree, itr_map).result())
             else:
-                return D.abs([], [], D.Leaf(D.SubVal(V.Top()), {}))
+                return D.abs([], [], D.Leaf(D.SubVal(V.Bot()), {}))
 
     # Corresponds to \delta in the paper draft
     def abs_ternary(
@@ -379,7 +455,8 @@ class Strategy1(AbstractInterpretation):
             ∀ leaf L ∈ tree(a2):
                 lookup_value(tree(a1), L.sample) == L.v
         """
-        for leaf in _iter_leaves(a2.tree):
+        assert a1.iterators == a2.iterators
+        for leaf in _iter_leaves(a2.tree, tuple()):
             v_in_a1 = _lookup_value(a1.tree, leaf.sample)
             if v_in_a1 is None or not _val_equal(v_in_a1, leaf.v):
                 return False
@@ -395,7 +472,7 @@ class Strategy1(AbstractInterpretation):
 
         assert len(a2.iterators) == len(a1.iterators)
 
-        if count >= 10:
+        if count >= 1:
             return None
 
         def visit(node: D.node) -> D.node:
