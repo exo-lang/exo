@@ -1244,6 +1244,7 @@ class AbstractInterpretation(ABC):
 
                     # if X_{k+1} \subseteq X_{k}
                     if self.issubsetof(val, pre_env[nm]):
+                        stmt.body.ctxt[nm] = pre_env[nm]
                         continue
 
                     # Widening

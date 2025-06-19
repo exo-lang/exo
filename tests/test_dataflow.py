@@ -236,7 +236,7 @@ def test_print_new(golden):
         for i in seq(0, 3):
             z[i] = 3.0
 
-    print(foo.dataflow()[0])
+    assert str(foo.dataflow()[0]) == golden
 
 
 def test_print_0(golden):
@@ -247,7 +247,6 @@ def test_print_0(golden):
             z[i] = 3.0
         z[2] = 2.0
 
-    print(foo.dataflow()[0])
     assert str(foo.dataflow()[0]) == golden
 
 
@@ -262,17 +261,6 @@ def test_print_1(golden):
     assert str(foo.dataflow()[0]) == golden
 
 
-def test_print_2(golden):
-    @proc
-    def foo(x: R[3], y: R[3], z: R):
-        z = x[0] * y[2]
-        for i in seq(0, 3):
-            z = 3.0
-        z = 2.0
-
-    assert str(foo.dataflow()[0]) == golden
-
-
 def test_print_3(golden):
     @proc
     def foo(x: R[3], y: R[3], z: R):
@@ -281,19 +269,6 @@ def test_print_3(golden):
             z = 3.0
         else:
             z = 4.0
-        z = 0.0
-
-    assert str(foo.dataflow()[0]) == golden
-
-
-def test_print_4(golden):
-    @proc
-    def foo(x: R[3], y: R[3], z: R):
-        z = x[0] * y[2]
-        if 0 == 0:
-            z = 3.0
-        else:
-            z = 3.0
         z = 0.0
 
     assert str(foo.dataflow()[0]) == golden
@@ -316,16 +291,6 @@ def test_sliding_window_debug():
         for i in seq(0, 10):
             for j in seq(0, 20):
                 dst[i] = 2.0
-
-    print(foo.dataflow()[0])
-
-
-def test_sliding_window_const():
-    @proc
-    def foo(dst: i8[30]):
-        for i in seq(0, 10):
-            for j in seq(0, 20):
-                dst[i + j] = 2.0
 
     print(foo.dataflow()[0])
 

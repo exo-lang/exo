@@ -74,8 +74,8 @@ def cylindrical_algebraic_decomposition(F, gens):
 
         # ---------- leaf --------------------------------------------------
         if level < 0:
-            # TODO: What is this Top doing here?
-            val = D.SubVal(V.Top())
+            # Initial, placeholder value. To be colored by propagate_values
+            val = D.SubVal(V.Bot())
             # In R^0 the sample point is the empty tuple ⇒ ``{}``
             return D.Leaf(val, dict(partial_sample))
 
