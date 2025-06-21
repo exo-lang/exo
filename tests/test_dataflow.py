@@ -7,12 +7,14 @@ from exo.libs.externs import sin
 from exo.rewrite.dataflow import D, V, ASubs
 from exo.rewrite.approximation import Strategy1
 
+import sympy as sm
+
 
 def _leaf(value=V.Top(), sample=None):
     """Create the common leaf pattern quickly."""
     if sample is None:
         sample = {}
-    return D.Leaf(D.SubVal(value), sample)
+    return D.Leaf(D.SubVal(V.ValConst(value)), sample)
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -92,7 +94,6 @@ def _make_strategy():
 
 def test_issubsetof_basic():
     from sympy.abc import x, y
-    import sympy as sm
 
     a1 = D.abs([y], [], D.Leaf(D.SubVal(V.Top()), {y: 1}))
     a2 = D.abs(
@@ -111,6 +112,28 @@ def test_issubsetof_basic():
     assert strat.issubsetof(a2, a1)
 
 
+def test_issubsetof_or():
+    from sympy.abc import x, y
+
+    t1 = D.LinSplit(
+        [
+            D.Cell(y < 0, _leaf(value=1, sample={y: -1})),
+            D.Cell(sm.Eq(y, 0), _leaf(value=1, sample={y: 0})),
+            D.Cell(y > 0, _leaf(value=3, sample={y: 1})),
+        ]
+    )
+    t2 = D.LinSplit(
+        [
+            D.Cell(sm.Or(y < 0, sm.Eq(y, 0)), _leaf(value=1, sample={y: -1})),
+            D.Cell(y > 0, _leaf(value=3, sample={y: 1})),
+        ]
+    )
+    a1 = D.abs([], [], t1)
+    a2 = D.abs([], [], t2)
+    strat = _make_strategy()
+    assert strat.issubsetof(a1, a2)
+
+
 def test_issubsetof_false():
     from sympy.abc import x, y
 
@@ -123,7 +146,6 @@ def test_issubsetof_false():
 
 def test_widening(golden):
     from sympy.abc import x, y
-    import sympy as sm
 
     a = D.abs(
         [y],
@@ -285,14 +307,14 @@ def test_print_5(golden):
     assert str(foo.dataflow()[0]) == golden
 
 
-def test_sliding_window_debug():
+def test_sliding_window_debug(golden):
     @proc
     def foo(dst: i8[30]):
         for i in seq(0, 10):
             for j in seq(0, 20):
                 dst[i] = 2.0
 
-    print(foo.dataflow()[0])
+    assert str(foo.dataflow()[0]) == golden
 
 
 def test_sliding_window_const_guard():

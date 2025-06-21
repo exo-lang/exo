@@ -75,7 +75,7 @@ def cylindrical_algebraic_decomposition(F, gens):
         # ---------- leaf --------------------------------------------------
         if level < 0:
             # Initial, placeholder value. To be colored by propagate_values
-            val = D.SubVal(V.Bot())
+            val = D.SubVal(V.Top())
             # In R^0 the sample point is the empty tuple ⇒ ``{}``
             return D.Leaf(val, dict(partial_sample))
 
@@ -153,8 +153,7 @@ def cylindrical_algebraic_decomposition(F, gens):
 
 
 def _sample_satisfies(expr, sample) -> bool:
-    subs = {sym: v for sym, v in sample.items()}
-    value = expr.xreplace(subs)
+    value = expr.xreplace(sample)
     return bool(value.simplify())
 
 
@@ -196,7 +195,8 @@ def propagate_values(dst: D.abs, src1: D.abs, src2: D.abs, cond):
             choose_src = (
                 src1.tree if _sample_satisfies(cond, node.sample) else src2.tree
             )
-            tgt_val = _lookup_value(choose_src, node.sample) or node.v
+            tgt_val = _lookup_value(choose_src, node.sample)
+            assert tgt_val is not None
             # create a *new* Leaf with the (possibly) updated value
             return D.Leaf(tgt_val, node.sample)
 
@@ -205,6 +205,7 @@ def propagate_values(dst: D.abs, src1: D.abs, src2: D.abs, cond):
             D.Cell(cell.eq, rebuild(cell.tree))  # new subtree per child
             for cell in node.cells
         ]
+
         return D.LinSplit(new_cells)
 
     # build an entirely new abs element (iterators & polynomials unchanged)
@@ -319,8 +320,11 @@ def _vabs_subsetof(v1, v2):
     return type(v1) is type(v2)
 
 
-def _val_equal(v1: D.val, v2: D.val) -> bool:
-    """Structural equality for ArrayDomain.val."""
+def _val_subset(v1: D.val, v2: D.val) -> bool:
+    """Return True iff v1 subset of v2"""
+    if isinstance(v1, D.SubVal) and isinstance(v1.av, V.Bot):
+        return True
+
     if isinstance(v1, D.SubVal) and isinstance(v2, D.SubVal):
         return _vabs_subsetof(v1.av, v2.av)
 
@@ -448,17 +452,13 @@ class Strategy1(AbstractInterpretation):
 
     def issubsetof(self, a1: D.abs, a2: D.abs) -> bool:
         """
-        Return True iff *every* sample point stored in `a2` evaluates to the
-        *same* abstract value in `a1`.
-
-        The test is:
-            ∀ leaf L ∈ tree(a2):
-                lookup_value(tree(a1), L.sample) == L.v
+        is a1 subset of a2?
+        for all leaves in a1, get the corresponding value in a2
         """
         assert a1.iterators == a2.iterators
-        for leaf in _iter_leaves(a2.tree, tuple()):
-            v_in_a1 = _lookup_value(a1.tree, leaf.sample)
-            if v_in_a1 is None or not _val_equal(v_in_a1, leaf.v):
+        for v_leaf in _iter_leaves(a1.tree, tuple()):
+            v_a2 = _lookup_value(a2.tree, v_leaf.sample)
+            if v_a2 is None or not _val_subset(v_leaf.v, v_a2):
                 return False
         return True
 
@@ -479,23 +479,32 @@ class Strategy1(AbstractInterpretation):
             if isinstance(node, D.Leaf):
                 return node  # unchanged
 
-            # 1) recursively rebuild children
-            children = [D.Cell(c.eq, visit(c.tree)) for c in node.cells]
+            new_cells = []
+            prev_val = None
+            for cell in node.cells:
+                new_tree = visit(cell.tree)
 
-            # 2) propagate leaf values for equality guards
-            for i in range(len(children) - 1):
-                left = children[i]
-                right = children[i + 1]
+                if isinstance(new_tree, D.Leaf):
+                    val = new_tree.v
+                    if not prev_val or (
+                        isinstance(cell.eq, sm.Equality)
+                        and not (
+                            isinstance(val, D.SubVal) and isinstance(val.av, V.Bot)
+                        )
+                    ):
+                        if val != prev_val:
+                            new_cells.append(D.Cell(cell.eq, new_tree))
+                            prev_val = val
+                            continue
 
-                if (
-                    isinstance(left.eq, sm.Equality)  # guard is '='
-                    and isinstance(left.tree, D.Leaf)  # left is a leaf
-                    and isinstance(right.tree, D.Leaf)
-                ):  # right is a leaf
+                    # Case 1: If inequality, merge with the previous cell
+                    # Case 2: If the cell is equality but the value is Bottom, merge with the previous cell
+                    # Case 3: If the equality has the same value as the previous cells!
+                    new_eq = sm.Or(new_cells[-1].eq, cell.eq)
+                    new_cells[-1] = D.Cell(new_eq, new_cells[-1].tree)
+                else:
+                    new_cells.append(D.Cell(cell.eq, new_tree))
 
-                    new_leaf = D.Leaf(left.tree.v, right.tree.sample)
-                    children[i + 1] = D.Cell(right.eq, new_leaf)
-
-            return D.LinSplit(children)
+            return D.LinSplit(new_cells)
 
         return D.abs(a2.iterators, a2.poly, visit(a2.tree))

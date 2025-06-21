@@ -1239,7 +1239,7 @@ class AbstractInterpretation(ABC):
                 all_eq = True
                 for nm, val in stmt.body.ctxt.items():
                     # Don't widen if it does not depend on this loop
-                    if sm.Symbol(stmt.iter.__repr__()) not in val.iterators:
+                    if sm.Symbol(stmt.iter.__repr__()) != val.iterators[0]:
                         continue
 
                     # if X_{k+1} \subseteq X_{k}
