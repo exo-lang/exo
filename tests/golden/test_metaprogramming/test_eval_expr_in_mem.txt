@@ -1,0 +1,16 @@
+EXO IR:
+def foo(a: f32 @ DRAM):
+    pass
+C:
+#include "test.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+// foo(
+//     a : f32 @DRAM
+// )
+void foo( void *ctxt, const float* a ) {
+; // NO-OP
+}
+

@@ -15,6 +15,10 @@ from .prec_analysis import PrecisionAnalysis
 from ..core.prelude import *
 from .win_analysis import WindowAnalysis
 from ..rewrite.range_analysis import IndexRangeEnvironment
+from ..rewrite.chexo.chexo import fuzz, fuzz_single_scope
+from ..core.internal_cursors import Cursor
+
+DEFAULT_CHECK_MODE = "static"
 
 
 def sanitize_str(s):
@@ -52,7 +56,11 @@ op_prec = {
 def lift_to_cir(e, range_env):
     assert e.type.is_indexable(), "why are you here?"
 
-    is_non_neg = lambda e: range_env.check_expr_bound(0, IndexRangeEnvironment.leq, e)
+    is_non_neg = lambda e: (
+        False
+        if range_env is None
+        else range_env.check_expr_bound(0, IndexRangeEnvironment.leq, e)
+    )
 
     if isinstance(e, LoopIR.Read):
         return CIR.Read(e.name, is_non_neg(e))
@@ -320,10 +328,10 @@ def window_struct(base_type, n_dims, is_const) -> WindowStruct:
 # top level compiler function called by tests!
 
 
-def run_compile(proc_list, h_file_name: str):
+def run_compile(proc_list, h_file_name: str, check_mode=None):
     file_stem = str(Path(h_file_name).stem)
     lib_name = sanitize_str(file_stem)
-    fwd_decls, body = compile_to_strings(lib_name, proc_list)
+    fwd_decls, body = compile_to_strings(lib_name, proc_list, check_mode)
 
     source = f'#include "{h_file_name}"\n\n{body}'
 
@@ -360,7 +368,8 @@ _static_helpers = {
 }
 
 
-def compile_to_strings(lib_name, proc_list):
+def compile_to_strings(lib_name, proc_list, check_mode=None):
+    check_mode = DEFAULT_CHECK_MODE if check_mode is None else check_mode
     # Get transitive closure of call-graph
     orig_procs = [id(p) for p in proc_list]
 
@@ -407,12 +416,19 @@ def compile_to_strings(lib_name, proc_list):
         else:
             is_public_decl = id(p) in orig_procs
 
-            p = ParallelAnalysis().run(p)
+            if check_mode != "dynamic":
+                # fixme: need to check parallel analysis on static procs even if one of the procs is dynamic
+                p = ParallelAnalysis().run(p)
+            else:
+                proc_cursor = Cursor.create(p).body()
+                fuzz_single_scope(proc_cursor)
             p = PrecisionAnalysis().run(p)
             p = WindowAnalysis().apply_proc(p)
             p = MemoryAnalysis().run(p)
 
-            comp = Compiler(p, ctxt_name, is_public_decl=is_public_decl)
+            comp = Compiler(
+                p, ctxt_name, is_public_decl=is_public_decl, check_mode=check_mode
+            )
             d, b = comp.comp_top()
             struct_defns |= comp.struct_defns()
             needed_helpers |= comp.needed_helpers()
@@ -522,13 +538,15 @@ def _compile_context_struct(configs, lib_name):
 
 
 class Compiler:
-    def __init__(self, proc, ctxt_name, *, is_public_decl):
+    def __init__(self, proc, ctxt_name, *, is_public_decl, check_mode):
         assert isinstance(proc, LoopIR.proc)
 
         self.proc = proc
         self.ctxt_name = ctxt_name
         self.env = ChainMap()
-        self.range_env = IndexRangeEnvironment(proc, fast=False)
+        self.range_env = (
+            None if check_mode == "dynamic" else IndexRangeEnvironment(proc, fast=False)
+        )
         self.names = ChainMap()
         self.envtyp = dict()
         self.mems = dict()
@@ -693,12 +711,14 @@ class Compiler:
     def push(self, only=None):
         if only is None:
             self.env = self.env.new_child()
-            self.range_env.enter_scope()
+            if self.range_env is not None:
+                self.range_env.enter_scope()
             self.names = self.names.new_child()
             self._tab = self._tab + "  "
         elif only == "env":
             self.env = self.env.new_child()
-            self.range_env.enter_scope()
+            if self.range_env is not None:
+                self.range_env.enter_scope()
             self.names = self.names.new_child()
         elif only == "tab":
             self._tab = self._tab + "  "
@@ -707,7 +727,8 @@ class Compiler:
 
     def pop(self):
         self.env = self.env.parents
-        self.range_env.exit_scope()
+        if self.range_env is not None:
+            self.range_env.exit_scope()
         self.names = self.names.parents
         self._tab = self._tab[:-2]
 
@@ -894,11 +915,12 @@ class Compiler:
             hi = self.comp_e(s.hi)
             self.push(only="env")
             itr = self.new_varname(s.iter, typ=T.index)  # allocate a new string
-            self.range_env.add_loop_iter(
-                s.iter,
-                s.lo,
-                s.hi,
-            )
+            if self.range_env is not None:
+                self.range_env.add_loop_iter(
+                    s.iter,
+                    s.lo,
+                    s.hi,
+                )
             if isinstance(s.loop_mode, LoopIR.Par):
                 self.add_line(f"#pragma omp parallel for")
             self.add_line(f"for (int_fast32_t {itr} = {lo}; {itr} < {hi}; {itr}++) {{")
@@ -1035,7 +1057,9 @@ class Compiler:
             rhs = self.comp_e(e.rhs, local_prec + 1)
 
             if int_div:
-                if self.range_env.check_expr_bound(0, IndexRangeEnvironment.leq, e):
+                if self.range_env is None or self.range_env.check_expr_bound(
+                    0, IndexRangeEnvironment.leq, e
+                ):
                     # TODO: too many parens?
                     return f"(({lhs}) / ({rhs}))"
                 return self._call_static_helper("exo_floor_div", lhs, rhs)
