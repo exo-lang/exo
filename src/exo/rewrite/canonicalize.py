@@ -88,50 +88,14 @@ DIR = DataflowIR  # shorter alias
 
 
 def _canon_dir(proc: DIR.proc) -> DIR.proc:
-    """
-    Walk the whole `DataflowIR` tree, call `_canon_abs` on every entry of a
-    block's `absenv`, and return an *updated* `proc`.
-
-    The traversal is shallow for statements that do **not** embed a `block`
-    (Assign, Reduce, …) and recursive for the two constructs that *do* contain
-    blocks (`If`, `For`).
-    """
-
-    # ---- local helpers -------------------------------------------------------
-    def rebuild_block(blk: DIR.block) -> DIR.block:
-        """Return a new block with
-        • canonicalised ctxt      (absenv)
-        • rebuilt stmts (recursing where needed)
-        """
-        # 1. canonicalise the abstract-environment dictionary
-        new_ctxt = {k: _canon_abs(v) for k, v in blk.ctxt.items()}
-
-        # 2. rebuild the statement list
-        new_stmts: List[DIR.stmt] = []
-        for s in blk.stmts:
-            # ——— statements that hold *nested* blocks ————————————————
-            if isinstance(s, DIR.If):
-                new_body = rebuild_block(s.body)
-                new_orelse = rebuild_block(s.orelse)
-                new_stmts.append(
-                    DIR.If(s.cond, new_body, new_orelse, srcinfo=s.srcinfo)
-                )
-
-            elif isinstance(s, DIR.For):
-                new_body = rebuild_block(s.body)
-                new_stmts.append(
-                    DIR.For(s.iter, s.lo, s.hi, new_body, srcinfo=s.srcinfo)
-                )
-
-            # ——— all other statements are block-free; keep as-is ————————
-            else:
-                new_stmts.append(s)
-
-        return DIR.block(list(new_stmts), new_ctxt)
-
-    # ---- rebuild the whole proc ---------------------------------------------
-    new_body = rebuild_block(proc.body)
+    new_ctxt = {k: _canon_abs(v) for k, v in proc.ctxt.items()}
 
     return DIR.proc(
-        proc.name, proc.args, proc.preds, proc.sym_table, new_body, proc.srcinfo
+        proc.name,
+        proc.args,
+        proc.preds,
+        proc.sym_table,
+        proc.body,
+        new_ctxt,
+        proc.srcinfo,
     )

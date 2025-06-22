@@ -320,7 +320,6 @@ def test_sliding_window_debug(golden):
             for j in seq(0, 20):
                 dst[i] = 2.0
 
-    print(_canon_dir(foo.dataflow()[0]))
     assert str(_canon_dir(foo.dataflow()[0])) == golden
 
 

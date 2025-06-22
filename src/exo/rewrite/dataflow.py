@@ -27,6 +27,8 @@ from .internal_analysis import *
 # Sympy
 import sympy as sm
 
+fast_widening = True
+
 
 # --------------------------------------------------------------------------- #
 # DataflowIR definition
@@ -49,16 +51,15 @@ module DataflowIR {
     proc = ( name    name,
              fnarg*  args,
              expr*   preds,
-             dict    sym_table,
-             block   body,
+             dict    sym_table, -- table of sm.Symbol to Sym
+             stmt*   body,
+             absenv  ctxt,
              srcinfo srcinfo )
 
     fnarg  = ( sym     name,
                expr*   hi,
                type    type,
                srcinfo srcinfo )
-
-    block = ( stmt* stmts, absenv ctxt )
 
     stmt = Assign( sym lhs, sym *iters, sym* dims, expr cond, expr body, expr orelse )
          | Reduce( sym lhs, sym *iters, sym* dims, expr cond, expr body, expr orelse )
@@ -67,8 +68,8 @@ module DataflowIR {
          | IfJoin( sym lhs, sym *iters, sym* dims, expr cond, expr body, expr orelse )
          | Alloc( sym name, expr* hi, type type )
          | Pass()
-         | If( expr cond, block body, block orelse )
-         | For( sym iter, expr lo, expr hi, block body )
+         | If( expr cond, stmt* body, stmt* orelse )
+         | For( sym iter, expr lo, expr hi, stmt* body )
          attributes( srcinfo srcinfo )
 
     expr = Read( sym name, expr* idx )
@@ -160,9 +161,6 @@ class LoopIR_to_DataflowIR:
             res.extend(l[1:])
         return self.dataflow_proc, res, self.syms
 
-    def init_block(self, body):
-        return DataflowIR.block(body, dict())
-
     def map_proc(self, p):
         df_args = self._map_list(self.map_fnarg, p.args)
 
@@ -185,9 +183,8 @@ class LoopIR_to_DataflowIR:
 
         df_preds = self.map_exprs(p.preds)
         df_body = self.map_stmts(p.body)
-        block = self.init_block(df_body)
 
-        return DataflowIR.proc(p.name, df_args, df_preds, {}, block, p.srcinfo)
+        return DataflowIR.proc(p.name, df_args, df_preds, {}, df_body, {}, p.srcinfo)
 
     def tensor_to_his(self, tensor):
         # | Tensor( expr* hi, bool is_window, type type )
@@ -338,11 +335,7 @@ class LoopIR_to_DataflowIR:
                 # update env
                 self.update_env(key, (post_name, vals[1], vals[2]))
 
-            return [
-                DataflowIR.If(
-                    cond, self.init_block(body), self.init_block(orelse), s.srcinfo
-                )
-            ] + post_if
+            return [DataflowIR.If(cond, body, orelse, s.srcinfo)] + post_if
 
         elif isinstance(s, LoopIR.For):
             # We first need the merge node before the body, but the problem is that we don't know what the last node is until doing the body
@@ -443,7 +436,7 @@ class LoopIR_to_DataflowIR:
                     s.iter,
                     self.map_e(s.lo),
                     self.map_e(s.hi),
-                    self.init_block(pre_loop + body),
+                    pre_loop + body,
                     s.srcinfo,
                 )
             ] + post_loop
@@ -1155,15 +1148,11 @@ class AbstractInterpretation(ABC):
 
         # TODO: FIXME: Do we need to use precondition assertions?
 
-        self.fix_block(proc.body)
+        self.fix_stmts(proc.body, proc.ctxt)
 
-    def fix_block(self, body: DataflowIR.block):
-        for i in range(len(body.stmts)):
-            self.fix_stmt(body.stmts[i], body.ctxt)
-
-        # simplify
-        for key, val in body.ctxt.items():
-            body.ctxt[key] = val
+    def fix_stmts(self, stmts: list[DataflowIR.stmt], env):
+        for i in range(len(stmts)):
+            self.fix_stmt(stmts[i], env)
 
     def fix_stmt(self, stmt: DataflowIR.stmt, env):
         if isinstance(
@@ -1206,66 +1195,72 @@ class AbstractInterpretation(ABC):
         elif isinstance(stmt, DataflowIR.If):
             # Basically just pass-through
 
-            # Initialize
-            for nm, val in env.items():
-                stmt.body.ctxt[nm] = val
-                stmt.orelse.ctxt[nm] = val
-
-            self.fix_block(stmt.body)
-            self.fix_block(stmt.orelse)
-
-            # Write back
-            for nm, post_val in stmt.body.ctxt.items():
-                env[nm] = post_val
-            for nm, post_val in stmt.orelse.ctxt.items():
-                env[nm] = post_val
+            self.fix_stmts(stmt.body, env)
+            self.fix_stmts(stmt.orelse, env)
 
         elif isinstance(stmt, DataflowIR.For):
 
-            for nm, val in env.items():
-                stmt.body.ctxt[nm] = val
-
             pre_env = dict()
-            self.fix_block(stmt.body)
-            for nm, val in stmt.body.ctxt.items():
+            self.fix_stmts(stmt.body, env)
+            for nm, val in env.items():
                 pre_env[nm] = val
 
-            count = 0
-            while True:
-
+            if fast_widening:
                 # fixpoint iteration
-                self.fix_block(stmt.body)
+                self.fix_stmts(stmt.body, env)
 
-                all_eq = True
-                for nm, val in stmt.body.ctxt.items():
+                for nm, val in env.items():
                     # Don't widen if it does not depend on this loop
                     if (
                         val.iterators == []
                         or sm.Symbol(stmt.iter.__repr__()) != val.iterators[0]
                     ):
-                        continue
-
-                    # if X_{k+1} \subseteq X_{k}
-                    if self.issubsetof(val, pre_env[nm]):
-                        stmt.body.ctxt[nm] = pre_env[nm]
+                        env[nm] = pre_env[nm]
                         continue
 
                     # Widening
-                    w_res = self.abs_widening(pre_env[nm], val, count)
-
-                    # if the result of the widening is None, that means we gave up so exit the loop.
-                    if not w_res:
-                        assert False, "widening returned None, debug"
-                        continue
-
-                    all_eq = False
-                    stmt.body.ctxt[nm] = w_res
+                    w_res = self.abs_widening(pre_env[nm], val, 0)
+                    env[nm] = w_res
                     pre_env[nm] = w_res
 
-                if all_eq:
-                    break
+            else:  # This is "proper" widening
+                count = 0
+                while True:
 
-                count += 1
+                    # fixpoint iteration
+                    self.fix_stmts(stmt.body, env)
+
+                    all_eq = True
+                    for nm, val in env.items():
+                        # Don't widen if it does not depend on this loop
+                        if (
+                            val.iterators == []
+                            or sm.Symbol(stmt.iter.__repr__()) != val.iterators[0]
+                        ):  # should be just executed once!! recover env from the first iteration!
+                            env[nm] = pre_env[nm]
+                            continue
+
+                        # if X_{k+1} \subseteq X_{k}
+                        if self.issubsetof(val, pre_env[nm]):
+                            env[nm] = pre_env[nm]
+                            continue
+
+                        # Widening
+                        w_res = self.abs_widening(pre_env[nm], val, count)
+
+                        # if the result of the widening is None, that means we gave up so exit the loop.
+                        if not w_res:
+                            assert False, "widening returned None, debug"
+                            continue
+
+                        all_eq = False
+                        env[nm] = w_res
+                        pre_env[nm] = w_res
+
+                    if all_eq:
+                        break
+
+                    count += 1
 
             for nm, val in pre_env.items():
                 env[nm] = val

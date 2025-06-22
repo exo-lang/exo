@@ -15,11 +15,6 @@ def __str__(self):
     return "\n".join(_print_proc(self, PrintEnv(), ""))
 
 
-# @extclass(DataflowIR.fnarg)
-# def __str__(self):
-#    return _print_fnarg(self, PrintEnv())
-
-
 @extclass(DataflowIR.stmt)
 def __str__(self):
     return "\n".join(_print_stmt(self, PrintEnv(), ""))
@@ -28,11 +23,6 @@ def __str__(self):
 @extclass(DataflowIR.expr)
 def __str__(self):
     return _print_expr(self, PrintEnv())
-
-
-# @extclass(DataflowIR.block)
-# def __str__(self):
-#     return "\n".join(_print_block(self, PrintEnv(), ""))
 
 
 @dataclass
@@ -71,17 +61,16 @@ def _print_proc(p, env: PrintEnv, indent: str) -> list[str]:
     for pred in p.preds:
         lines.append(f"{indent}assert {_print_expr(pred, env)}")
 
-    lines.extend(_print_block(p.body, env, indent))
+    lines.extend(_print_stmts(p.body, env, indent))
+    lines.extend(_print_absenv(p.ctxt, env))
 
     return lines
 
 
-def _print_block(blk, env: PrintEnv, indent: str) -> list[str]:
+def _print_stmts(stmts: list, env: PrintEnv, indent: str) -> list[str]:
     lines = []
-    for stmt in blk.stmts:
+    for stmt in stmts:
         lines.extend(_print_stmt(stmt, env, indent))
-    lines.extend(_print_absenv(blk.ctxt, env))
-
     return lines
 
 
@@ -143,17 +132,17 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
     elif isinstance(stmt, DataflowIR.If):
         cond = _print_expr(stmt.cond, env)
         lines = [f"{indent}if {cond}:"]
-        lines.extend(_print_block(stmt.body, env, indent + "  "))
+        lines.extend(_print_stmts(stmt.body, env, indent + "  "))
         if stmt.orelse:
             lines.append(f"{indent}else:")
-            lines.extend(_print_block(stmt.orelse, env, indent + "  "))
+            lines.extend(_print_stmts(stmt.orelse, env, indent + "  "))
         return lines
 
     elif isinstance(stmt, DataflowIR.For):
         lo = _print_expr(stmt.lo, env)
         hi = _print_expr(stmt.hi, env)
         lines = [f"{indent}for {env.get_name(stmt.iter)} in seq({lo}, {hi}):"]
-        lines.extend(_print_block(stmt.body, env, indent + "  "))
+        lines.extend(_print_stmts(stmt.body, env, indent + "  "))
         return lines
 
     assert False, f"unrecognized stmt: {type(stmt)}"
