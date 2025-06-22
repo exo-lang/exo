@@ -37,8 +37,8 @@ def validateAbsEnv(obj):
     if not isinstance(obj, dict):
         raise ValidationError(D, type(obj))
     for key in obj:
-        if not isinstance(key, Sym):
-            raise ValidationError(Sym, key)
+        if not isinstance(key, sm.Symbol):
+            raise ValidationError(sm.Symbol, key)
     return obj
 
 
@@ -1239,7 +1239,10 @@ class AbstractInterpretation(ABC):
                 all_eq = True
                 for nm, val in stmt.body.ctxt.items():
                     # Don't widen if it does not depend on this loop
-                    if sm.Symbol(stmt.iter.__repr__()) != val.iterators[0]:
+                    if (
+                        val.iterators == []
+                        or sm.Symbol(stmt.iter.__repr__()) != val.iterators[0]
+                    ):
                         continue
 
                     # if X_{k+1} \subseteq X_{k}

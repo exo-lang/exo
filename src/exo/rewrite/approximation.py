@@ -102,20 +102,35 @@ def cylindrical_algebraic_decomposition(F, gens):
             # left unbounded interval (−∞, r₀)
             r0 = ordered[0]
             smpl = get_sample_point(sm.S.NegativeInfinity, r0)
-            rel = var < nice_root(roots_to_poly[r0][0].as_expr(), var)
+            e0 = (
+                roots_to_poly[r0][0]
+                if len(roots_to_poly[r0]) == 1
+                else sorted(roots_to_poly[r0], key=sm.default_sort_key)[0]
+            )
+            rel = var < nice_root(e0.as_expr(), var)
             child = lift(level - 1, {**partial_sample, var: smpl})
             cells.append(D.Cell(rel, child))
 
             # root points and the open intervals between successive roots
             for r_lo, r_hi in zip(ordered, ordered[1:]):
-                p_eq = roots_to_poly[r_lo][0]
-                rel_eq = sm.Eq(p_eq.as_expr(), 0)
+                e_lo = (
+                    roots_to_poly[r_lo][0]
+                    if len(roots_to_poly[r_lo]) == 1
+                    else sorted(roots_to_poly[r_lo], key=sm.default_sort_key)[0]
+                )
+                e_hi = (
+                    roots_to_poly[r_hi][0]
+                    if len(roots_to_poly[r_hi]) == 1
+                    else sorted(roots_to_poly[r_hi], key=sm.default_sort_key)[0]
+                )
+
+                rel_eq = sm.Eq(e_lo.as_expr(), 0)
                 child = lift(level - 1, {**partial_sample, var: r_lo})
                 cells.append(D.Cell(rel_eq, child))
 
                 # ---------- open strip (r_lo , r_hi) --------------------
-                p_lo = roots_to_poly[r_lo][0].as_expr()
-                p_hi = roots_to_poly[r_hi][0].as_expr()
+                p_lo = e_lo.as_expr()
+                p_hi = e_hi.as_expr()
 
                 smpl = get_sample_point(r_lo, r_hi)  # sample inside
                 child = lift(level - 1, {**partial_sample, var: smpl})
@@ -132,14 +147,18 @@ def cylindrical_algebraic_decomposition(F, gens):
 
             # last root and right unbounded interval (rₙ, ∞)
             r_last = ordered[-1]
-            p_eq = roots_to_poly[r_last][0]
+            p_eq = (
+                roots_to_poly[r_last][0]
+                if len(roots_to_poly[r_last]) == 1
+                else sorted(roots_to_poly[r_last], key=sm.default_sort_key)[0]
+            )
             rel_eq = sm.Eq(p_eq.as_expr(), 0)
             child = lift(level - 1, {**partial_sample, var: r_last})
             cells.append(D.Cell(rel_eq, child))
 
             smpl = get_sample_point(r_last, sm.S.Infinity)
             child = lift(level - 1, {**partial_sample, var: smpl})
-            rel_iv = var > nice_root(roots_to_poly[r_last][0].as_expr(), var)
+            rel_iv = var > nice_root(p_eq.as_expr(), var)
             cells.append(D.Cell(rel_iv, child))
 
         # ---------- bundle the stack for this variable -------------------
