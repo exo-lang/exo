@@ -438,7 +438,7 @@ class Sm90_copy_tensor_to_smem_linear_2f32(copy_tensor_to_smem_impl):
         box0: size, box1: size, dst: [f32][box0, box1], src: [f32][box0, box1]
     ):
         assert stride(dst, 1) == 1
-        # assert stride(dst, 0) == box1  # TODO why doesn't this work?
+        assert stride(dst, 0) == box1
         # We need to assert that the dst is densely packed.
         for i0 in seq(0, box0):
             for i1 in seq(0, box1):
@@ -459,7 +459,8 @@ class Sm90_copy_tensor_to_smem_swizzled_2f32(copy_tensor_to_smem_impl):
         assert box0 % 8 == 0
         assert box0 >= 8
         assert stride(dst, 2) == 1
-        # assert stride(dst, 0) == box1  # TODO why doesn't this work?
+        assert stride(dst, 1) == box1
+        assert stride(dst, 0) == box1 * 8
         # We need to assert that the dst is densely packed.
         for i0 in seq(0, box0):
             for i1 in seq(0, box1):

@@ -617,7 +617,7 @@ del is_indexable
 
 @extclass(LoopIR.type)
 def is_stridable(t):
-    return isinstance(t, (T.Int, T.Stride))
+    return isinstance(t, (T.Int, T.Stride, T.Size, T.Index))
 
 
 @extclass(LoopIR.type)

@@ -549,7 +549,7 @@ class TypeChecker:
                         self.err(
                             operand,
                             f"expected 'index' or 'size' argument to "
-                            f"comparison op: {e.op}",
+                            f"comparison op: {e.op}, not {operand}: {operand.type}",
                         )
                 typ = T.bool
             elif e.op in ("+", "-", "*", "/", "%"):
