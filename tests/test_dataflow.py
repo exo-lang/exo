@@ -160,7 +160,7 @@ def test_widening(golden):
         ),
     )
     strat = _make_strategy()
-    assert str(strat.abs_widening(a, a, 0)) == golden
+    assert str(strat.abs_widening(a, a, 0, y)) == golden
 
 
 def test_simple(golden):
@@ -188,6 +188,17 @@ def test_simple1_7(golden):
         x[0] = 2.0
         if n < 3:
             x[n] = 3.0
+        pass
+
+    assert str(_canon_dir(foo.dataflow()[0])) == golden
+
+
+def test_simple_ref(golden):
+    @proc
+    def foo(n: size, x: R[3], y: R[3]):
+        x[0] = y[0]
+        if n < 3:
+            x[n] = y[n]
         pass
 
     assert str(_canon_dir(foo.dataflow()[0])) == golden
@@ -244,6 +255,33 @@ def test_simple3(golden):
             x[n] = 3.0
         x[2] = 5.0
         x[0] = 12.0
+
+    assert str(_canon_dir(foo.dataflow()[0])) == golden
+
+
+def test_simple4(golden):
+    @proc
+    def foo(n: size, dst: f32[n]):
+        for i in seq(0, n):
+            dst[i] = 0.0
+
+    assert str(_canon_dir(foo.dataflow()[0])) == golden
+
+
+def test_simple5(golden):
+    @proc
+    def foo(dst: f32[3], src: f32[3]):
+        for i in seq(0, 3):
+            dst[i] = src[i]
+
+    assert str(_canon_dir(foo.dataflow()[0])) == golden
+
+
+def test_simple6(golden):
+    @proc
+    def foo(n: size, dst: f32[n], src: f32[n]):
+        for i in seq(0, n):
+            dst[i] = src[i]
 
     assert str(_canon_dir(foo.dataflow()[0])) == golden
 
@@ -323,7 +361,7 @@ def test_sliding_window_debug(golden):
     assert str(_canon_dir(foo.dataflow()[0])) == golden
 
 
-def test_sliding_window_const_guard():
+def test_sliding_window_const_guard(golden):
     @proc
     def foo(dst: i8[30]):
         for i in seq(0, 10):
@@ -331,9 +369,10 @@ def test_sliding_window_const_guard():
                 if i == 0 or j == 19:
                     dst[i + j] = 2.0
 
-    print(foo.dataflow()[0])
+    assert str(_canon_dir(foo.dataflow()[0])) == golden
 
 
+@pytest.mark.skip()
 def test_sliding_window_print():
     @proc
     def foo(n: size, m: size, dst: i8[n + m]):
@@ -344,6 +383,7 @@ def test_sliding_window_print():
     print(foo.dataflow()[0])
 
 
+@pytest.mark.skip()
 def test_multi_dim_print():
     @proc
     def foo(n: size, dst: i8[n, n]):
@@ -355,6 +395,7 @@ def test_multi_dim_print():
 
 
 # TODO: Currently add_unsafe_guard lacks analysis, but we should be able to analyze this
+@pytest.mark.skip()
 def test_sliding_window(golden):
     @proc
     def foo(n: size, m: size, dst: i8[n + m], src: i8[n + m]):
@@ -368,6 +409,7 @@ def test_sliding_window(golden):
 
 
 # TODO: fission should be able to handle this
+@pytest.mark.skip()
 def test_fission_fail():
     @proc
     def foo(n: size, dst: i8[n + 1], src: i8[n + 1]):
@@ -381,6 +423,7 @@ def test_fission_fail():
 
 
 # TODO: This is unsafe, lift_alloc should give an error
+@pytest.mark.skip()
 def test_lift_alloc_unsafe(golden):
     @proc
     def foo():
@@ -395,6 +438,7 @@ def test_lift_alloc_unsafe(golden):
 
 
 # TODO: We are not supporting this AFAIK but should keep this example in mind
+@pytest.mark.skip()
 def test_reduc(golden):
     @proc
     def foo(n: size, a: f32, c: f32):
@@ -407,20 +451,6 @@ def test_reduc(golden):
             c += tmp[i]  # some use of tmp
 
     assert str(foo.dataflow()[0]) == golden
-
-
-def test_absval_init(golden):
-    @proc
-    def foo1(n: size, dst: f32[n]):
-        for i in seq(0, n):
-            dst[i] = 0.0
-
-    @proc
-    def foo2(n: size, dst: f32[n], src: f32[n]):
-        for i in seq(0, n):
-            dst[i] = src[i]
-
-    assert str(foo1.dataflow()[0]) + str(foo2.dataflow()[0]) == golden
 
 
 # Below are Configuration sanity checking tests

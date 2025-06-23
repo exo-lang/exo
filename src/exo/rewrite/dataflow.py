@@ -27,8 +27,6 @@ from .internal_analysis import *
 # Sympy
 import sympy as sm
 
-fast_widening = True
-
 
 # --------------------------------------------------------------------------- #
 # DataflowIR definition
@@ -1200,67 +1198,44 @@ class AbstractInterpretation(ABC):
 
         elif isinstance(stmt, DataflowIR.For):
 
+            itr_sym = sm.Symbol(stmt.iter.__repr__())
+
             pre_env = dict()
             self.fix_stmts(stmt.body, env)
             for nm, val in env.items():
                 pre_env[nm] = val
 
-            if fast_widening:
-                # fixpoint iteration
-                self.fix_stmts(stmt.body, env)
+            count = 0
+            while True:
 
-                for nm, val in env.items():
+                # fixpoint iteration
+                tmp_env = pre_env.copy()
+                self.fix_stmts(stmt.body, tmp_env)
+                all_eq = True
+                for nm, val in tmp_env.items():
+
                     # Don't widen if it does not depend on this loop
                     if (
-                        val.iterators == []
-                        or sm.Symbol(stmt.iter.__repr__()) != val.iterators[0]
-                    ):
-                        env[nm] = pre_env[nm]
+                        val.iterators == [] or itr_sym != val.iterators[0]
+                    ):  # should be just executed once!! recover env from the first iteration!
                         continue
 
-                    # Widening
-                    w_res = self.abs_widening(pre_env[nm], val, 0)
-                    env[nm] = w_res
+                    if self.issubsetof(val, pre_env[nm]):
+                        continue
+
+                    w_res = self.abs_widening(pre_env[nm], val, count, itr_sym)
+
+                    # if the result of the widening is None, that means we gave up so exit the loop.
+                    if not w_res:
+                        assert False, "widening returned None, debug"
+
+                    all_eq = False
                     pre_env[nm] = w_res
 
-            else:  # This is "proper" widening
-                count = 0
-                while True:
+                if all_eq:
+                    break
 
-                    # fixpoint iteration
-                    self.fix_stmts(stmt.body, env)
-
-                    all_eq = True
-                    for nm, val in env.items():
-                        # Don't widen if it does not depend on this loop
-                        if (
-                            val.iterators == []
-                            or sm.Symbol(stmt.iter.__repr__()) != val.iterators[0]
-                        ):  # should be just executed once!! recover env from the first iteration!
-                            env[nm] = pre_env[nm]
-                            continue
-
-                        # if X_{k+1} \subseteq X_{k}
-                        if self.issubsetof(val, pre_env[nm]):
-                            env[nm] = pre_env[nm]
-                            continue
-
-                        # Widening
-                        w_res = self.abs_widening(pre_env[nm], val, count)
-
-                        # if the result of the widening is None, that means we gave up so exit the loop.
-                        if not w_res:
-                            assert False, "widening returned None, debug"
-                            continue
-
-                        all_eq = False
-                        env[nm] = w_res
-                        pre_env[nm] = w_res
-
-                    if all_eq:
-                        break
-
-                    count += 1
+                count += 1
 
             for nm, val in pre_env.items():
                 env[nm] = val

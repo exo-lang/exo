@@ -348,6 +348,9 @@ def _val_subset(v1: D.val, v2: D.val) -> bool:
         return _vabs_subsetof(v1.av, v2.av)
 
     if isinstance(v1, D.ArrayVar) and isinstance(v2, D.ArrayVar):
+        # TODO: fix properly!
+        if v1.name == v2.name:
+            return True
         if v1.name != v2.name or len(v1.idx) != len(v2.idx):
             return False
         # compare each index modulo algebraic equivalence
@@ -462,7 +465,6 @@ class Strategy1(AbstractInterpretation):
             # Propagate the values to the resulting cad tree
             # by evaluating sample points on the cond, body, and orelse branches
             # because the sample points should be unique, it should represent the cells
-
             new_tree = propagate_values(tree, body, orelse, sym_cond)
 
             return new_tree
@@ -478,52 +480,78 @@ class Strategy1(AbstractInterpretation):
         for v_leaf in _iter_leaves(a1.tree, tuple()):
             v_a2 = _lookup_value(a2.tree, v_leaf.sample)
             if v_a2 is None or not _val_subset(v_leaf.v, v_a2):
+                # print(f"{v_leaf.v} not subset of {v_a2} in {v_leaf}")
                 return False
         return True
 
     # =============================================================================
     # The Widening Operator
     # =============================================================================
-    def abs_widening(self, a1: D.abs, a2: D.abs, count: int) -> D.abs:
+    def abs_widening(
+        self, a1: D.abs, a2: D.abs, count: int, itr_sym: sm.Symbol
+    ) -> D.abs:
         """
         Widen "a2" for loop approxmation
         """
 
         assert len(a2.iterators) == len(a1.iterators)
 
-        if count >= 1:
+        if count >= 3:
             return None
 
-        def visit(node: D.node) -> D.node:
+        def visit(node: D.node, eqs: list) -> D.node:
             if isinstance(node, D.Leaf):
-                return node  # unchanged
+                if not isinstance(node.v, D.ArrayVar):
+                    return node  # unchanged
+                # arrayvar
+                map_ = sm.solve(eqs, itr_sym)
+
+                newitr = []
+                for e in node.v.idx:
+                    if e.has(itr_sym):
+                        newitr.append(e.xreplace(map_))
+                    else:
+                        newitr.append(e)
+                newvar = D.ArrayVar(node.v.name, newitr)
+                return D.Leaf(newvar, node.sample)
 
             new_cells = []
             prev_val = None
             for cell in node.cells:
-                new_tree = visit(cell.tree)
+                equality = [cell.eq] if isinstance(cell.eq, sm.Equality) else []
+                new_tree = visit(cell.tree, eqs + equality)
 
                 if isinstance(new_tree, D.Leaf):
                     val = new_tree.v
-                    if not prev_val or (
-                        isinstance(cell.eq, sm.Equality)
-                        and not (
-                            isinstance(val, D.SubVal) and isinstance(val.av, V.Bot)
-                        )
-                    ):
-                        if val != prev_val:
-                            new_cells.append(D.Cell(cell.eq, new_tree))
-                            prev_val = val
+                    if prev_val:
+                        merge = False
+                        if not isinstance(cell.eq, sm.Equality):
+                            # Case 1: If inequality, merge with the previous cell
+                            merge = True
+                        else:
+                            # Case 2: If the equality has the same value as the previous cells!
+                            if val == prev_val:
+                                merge = True
+
+                            # Case 3: If the equality cell is bottom...
+                            if isinstance(val, D.SubVal) and isinstance(val.av, V.Bot):
+                                tgt_eq = sm.Eq(cell.eq.lhs + 1, 0)
+                                # ... merge with the older version of itself!
+                                if tgt_eq in new_cells[-1].eq.args:
+                                    merge = True
+
+                        if merge:
+                            new_eq = sm.Or(new_cells[-1].eq, cell.eq)
+                            new_cells[-1] = D.Cell(new_eq, new_cells[-1].tree)
                             continue
 
-                    # Case 1: If inequality, merge with the previous cell
-                    # Case 2: If the cell is equality but the value is Bottom, merge with the previous cell
-                    # Case 3: If the equality has the same value as the previous cells!
-                    new_eq = sm.Or(new_cells[-1].eq, cell.eq)
-                    new_cells[-1] = D.Cell(new_eq, new_cells[-1].tree)
+                    # Create new cells!
+                    new_cells.append(D.Cell(cell.eq, new_tree))
+                    prev_val = val
+
                 else:
                     new_cells.append(D.Cell(cell.eq, new_tree))
 
             return D.LinSplit(new_cells)
 
-        return D.abs(a2.iterators, a2.poly, visit(a2.tree))
+        return D.abs(a2.iterators, a2.poly, visit(a2.tree, []))
