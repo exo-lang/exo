@@ -386,8 +386,8 @@ def ld_i8_block(
     assert n <= 16
     assert m <= 4
     assert stride(src, 1) == 1
-    assert stride(dst, 0) == 16
-    assert stride(dst, 1) == 1
+    assert stride(dst, 1) == 16
+    assert stride(dst, 2) == 1
 
     for i in seq(0, n):
         for j in seq(0, m):
@@ -481,8 +481,8 @@ def zero_block_id2(
 ):
     assert n <= 16
     assert m <= 4
-    assert stride(dst, 0) == 16
-    assert stride(dst, 1) == 1
+    assert stride(dst, 1) == 16
+    assert stride(dst, 2) == 1
 
     for i in seq(0, n):
         for j in seq(0, m):
@@ -620,7 +620,7 @@ def ld_i8_vector(
     src: [i8][16] @ DRAM,
     dst: [i8][16] @ GEMM_SCRATCH,
 ):
-    assert stride(dst, 0) == 16
+    assert stride(dst, 0) == 1
 
     for i in seq(0, 16):
         dst[i] = src[i]
@@ -636,7 +636,7 @@ def do_ld_i8_vector(
     src: [i8][16] @ DRAM,
     dst: [i8][16] @ GEMM_SCRATCH,
 ):
-    assert stride(dst, 0) == 16
+    assert stride(dst, 0) == 1
 
     for i in seq(0, 16):
         dst[i] = src[i]
@@ -736,8 +736,8 @@ def ld_acc_i32_vector(
     dst: [i32][n, 16] @ GEMM_ACCUM,
 ):
     assert n <= 16
-    assert stride(dst, 0) == 1
-    assert stride(src, 0) == 1
+    assert stride(dst, 1) == 1
+    assert stride(src, 1) == 1
 
     for i in seq(0, n):
         for j in seq(0, 16):
@@ -754,8 +754,8 @@ def do_ld_acc_i32_vector(
     dst: [i32][n, 16] @ GEMM_ACCUM,
 ):
     assert n <= 16
-    assert stride(dst, 0) == 1
-    assert stride(src, 0) == 1
+    assert stride(dst, 1) == 1
+    assert stride(src, 1) == 1
 
     for i in seq(0, n):
         for j in seq(0, 16):
@@ -1088,7 +1088,7 @@ _gemm_zero_vec = (
 def zero_i8_vector(
     dst: [i8][16] @ GEMM_SCRATCH,
 ):
-    assert stride(dst, 0) == 16
+    assert stride(dst, 0) == 1
     pass
 
     for i in seq(0, 16):
@@ -1102,7 +1102,7 @@ _do_gemm_zero_vec = "gemmini_extended_mvin( 0, ((uint64_t) &{dst_data})," + "16,
 def do_zero_i8_vector(
     dst: [i8][16] @ GEMM_SCRATCH,
 ):
-    assert stride(dst, 0) == 16
+    assert stride(dst, 0) == 1
 
     for i in seq(0, 16):
         dst[i] = 0.0

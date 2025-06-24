@@ -29,6 +29,8 @@ from ..API_scheduling import (
     bind_expr,
     commute_expr,
     left_reassociate_expr,
+    insert_mutate,
+    delete_stmt,
     #
     # subprocedure oriented operations
     extract_subproc,
@@ -65,6 +67,7 @@ from ..API_scheduling import (
     parallelize_loop,
     divide_with_recompute,
     divide_loop,
+    divide_loop_min,
     mult_loops,
     cut_loop,
     join_loops,

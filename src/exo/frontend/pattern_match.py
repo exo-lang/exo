@@ -83,7 +83,7 @@ def match_pattern(
     # get source location where this is getting called from
     caller = inspect.getframeinfo(stack_frames[call_depth][0])
     func_locals = ChainMap(stack_frames[call_depth].frame.f_locals)
-    func_globals = ChainMap(stack_frames[call_depth].frame.f_globals)
+    func_globals = stack_frames[call_depth].frame.f_globals
 
     # parse the pattern we're going to use to match
     p_ast = pyparser.pattern(

@@ -1,0 +1,20 @@
+EXO IR:
+def foo(a: i32 @ DRAM):
+    a = a
+    a = a
+    a = a
+C:
+#include "test.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+
+// foo(
+//     a : i32 @DRAM
+// )
+void foo( void *ctxt, int32_t* a ) {
+*a = *a;
+*a = *a;
+*a = *a;
+}
+
