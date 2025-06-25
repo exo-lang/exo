@@ -1,0 +1,1 @@
+(x_1 == 0)? arr_elem_4 == array_C_0_6 : ((x_1 == 1)? arr_elem_4 == array_C_1_5 : False)

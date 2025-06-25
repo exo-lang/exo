@@ -604,6 +604,22 @@ def test_config_min_loop(golden):
     assert str(_canon_dir(foo.dataflow()[0])) == golden
 
 
+# It says I need value dependent control flow but I'm not sure if that's true
+@pytest.mark.skip()
+def test_config_min_loop2(golden):
+    CTRL = new_control_config()
+
+    @proc
+    def foo(n: size):
+        for io in seq(0, n / 8 + 1):
+            CTRL.i = intmin(8, n - io * 8)
+            for ii in seq(0, CTRL.i):
+                pass
+                # y[io * 8 + ii] += x[io * 8 + ii] * a
+
+    print(_canon_dir(foo.dataflow()[0]))
+
+
 # Value dependent control flow!
 # To handle this, sym_cond should be a CAD tree, instead of Sympy boolean expressions
 # Probably possible, just tedious

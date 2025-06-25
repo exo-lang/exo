@@ -8,9 +8,9 @@ from .new_analysis_core import *
 from ..core.proc_eqv import get_repr_proc
 from .dataflow import (
     D,
-    lift_to_smt_n,
     DataflowIR,
 )
+from .lift_to_smt import lift_to_smt_n
 from .approximation import (
     dataflow_analysis,
     Strategy1,
