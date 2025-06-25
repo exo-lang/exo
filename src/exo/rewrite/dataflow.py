@@ -1111,9 +1111,6 @@ class ASubs(Abs_Rewrite):
         for var, old_val in sample.items():
 
             if var not in self._env:
-                # print(f"type(old_val): {type(old_val)}, old_val: {old_val}")
-                # coordinate unchanged – just push Σ into the value
-                # new_s[var] = old_val.xreplace(self._env)
                 expr = (
                     sm.sympify(old_val) if not hasattr(old_val, "xreplace") else old_val
                 )
@@ -1140,7 +1137,6 @@ class ASubs(Abs_Rewrite):
 class AbstractInterpretation(ABC):
     def __init__(self, proc: DataflowIR.proc):
         self.proc = proc
-        # print(proc)
         # set of "original" arrays of proc arguments. We need this to distinguish ArrayVars from Top
         self.avars = set()
         # set of scalar variables defined in the current scope!
@@ -1192,12 +1188,8 @@ class AbstractInterpretation(ABC):
             lhs_name = sm.Symbol(stmt.lhs.__repr__())
             self.sym_table[lhs_name] = stmt.lhs
 
-            # print()
-            # print(stmt)
             a_body = self.fix_expr(body, env)
-            # print(a_body)
             a_orelse = self.fix_expr(stmt.orelse, env)
-            # print(a_orelse)
             env[lhs_name] = self.abs_ternary(
                 gens,
                 stmt.cond,
@@ -1230,7 +1222,6 @@ class AbstractInterpretation(ABC):
             count = 0
             while True:
 
-                # print(f"count: {count}")
                 # fixpoint iteration
                 tmp_env = pre_env.copy()
                 self.fix_stmts(stmt.body, tmp_env)
@@ -1243,13 +1234,7 @@ class AbstractInterpretation(ABC):
                     ):  # should be just executed once!! recover env from the first iteration!
                         continue
 
-                    print()
-                    print(nm)
-                    print(pre_env[nm])
-                    print(val)
-
                     if self.issubsetof(val, pre_env[nm]):
-                        print(f"{nm} reached fixpoint")
                         continue
 
                     w_res = self.abs_widening(pre_env[nm], val, count, itr_sym)

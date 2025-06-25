@@ -229,8 +229,7 @@ def test_simple_stmts(golden):
     )
 
 
-# skipping because printing is unstable, but it works
-@pytest.mark.skip()
+# unstable test, bc of the stmts
 def test_simple_stmts2(golden):
     @proc
     def foo(z: R, n: size, x: R[3]):
@@ -269,29 +268,22 @@ def test_simple4(golden):
     assert str(_canon_dir(foo.dataflow()[0])) == golden
 
 
-# debug this test!
 def test_simple5(golden):
     @proc
     def foo(dst: f32[3], src: f32[3]):
         for i in seq(0, 3):
             dst[i] = src[i]
 
-    s = _canon_dir(foo.dataflow()[0])
-    print(s)
-    assert str(s) == golden
+    assert str(_canon_dir(foo.dataflow()[0])) == golden
 
 
-# TODO: the output is incorrect...
-# src[0] is in d0 < n - 3 when it should be src[d0]. It seems like solve is solving {i : 0} instead of {i : d0}...
 def test_simple6(golden):
     @proc
     def foo(n: size, dst: f32[n], src: f32[n]):
         for i in seq(0, n):
             dst[i] = src[i]
 
-    s = _canon_dir(foo.dataflow()[0])
-    print(s)
-    assert str(s) == golden
+    assert str(_canon_dir(foo.dataflow()[0])) == golden
 
 
 def test_print(golden):
@@ -487,6 +479,7 @@ def new_control_config():
     return ConfigControl
 
 
+# unstable bc of the config order
 def test_config_1(golden):
     ConfigAB = new_config_f32()
 
@@ -501,6 +494,7 @@ def test_config_1(golden):
     assert str(_canon_dir(foo.dataflow()[0])) == golden
 
 
+# unstable bc of the config order
 def test_config_2(golden):
     ConfigAB = new_config_f32()
 

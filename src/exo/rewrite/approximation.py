@@ -170,9 +170,6 @@ def cylindrical_algebraic_decomposition(F, gens):
                 ineq_lo = (p_lo > 0) if s_lo > 0 else (p_lo < 0)
                 ineq_hi = (p_hi > 0) if s_hi > 0 else (p_hi < 0)
 
-                # if not has_integer_solution([ineq_lo, ineq_hi]):
-                #    continue
-
                 guard = sm.And(ineq_lo, ineq_hi)
                 child = lift(level - 1, {**partial_sample, var: smpl})
                 cells.append(D.Cell(guard, child))
@@ -382,7 +379,7 @@ def _val_subset(v1: D.val, v2: D.val) -> bool:
         return sm.simplify(v1.poly - v2.poly) == 0
 
     if isinstance(v1, D.ArrayVar) and isinstance(v2, D.ArrayVar):
-        # TODO: fix properly!
+        # FIXME: It's probably possible to do this properly if we do substitution in prapagate_values or issubsetof as well, but not worth doing it rn
         if v1.name == v2.name:
             return True
         if v1.name != v2.name or len(v1.idx) != len(v2.idx):
@@ -408,9 +405,14 @@ def evaluate_poly(poly, values):
     return sm.simplify(out)
 
 
+def top():
+    """Convenience helper that returns ⊤ in the expected wrapper."""
+    return D.abs([], [], D.Leaf(D.SubVal(V.Top()), {}))
+
+
 class Strategy1(AbstractInterpretation):
     def abs_stride(self, name, dim):
-        return D.abs([], [], D.Leaf(D.SubVal(V.Top()), {}))
+        return top()
 
     def abs_extern(self, func, env):
         # | Extern( extern f, expr* args )
@@ -423,39 +425,29 @@ class Strategy1(AbstractInterpretation):
             min_abs = self.abs_ternary([], cond, args[0], args[1])
             return min_abs
 
-        return D.abs([], [], D.Leaf(D.SubVal(V.Top()), {}))
+        return top()
 
-    def abs_binop(self, op, lhs, rhs):
-        # print("inside abs_binop")
-        # print(lhs)
-        # print(rhs)
-        if len(lhs.iterators) != 0 or len(rhs.iterators) != 0:
-            return D.abs([], [], D.Leaf(D.SubVal(V.Top()), {}))
+    # this doesn't handle arrays, although it's probably possible, will need to handle arrayvar binop like x[d0] + y[d0] too, which is laborious
+    def abs_binop(self, op: str, lhs: D.abs, rhs: D.abs):
+        # We only handle simplest cases
+        if lhs.iterators or rhs.iterators or lhs.poly or rhs.poly:
+            return top()
 
-        if len(lhs.poly) != 0 or len(rhs.poly) != 0:
-            return D.abs([], [], D.Leaf(D.SubVal(V.Top()), {}))
+        assert isinstance(lhs.tree, D.Leaf) and isinstance(rhs.tree, D.Leaf)
 
-        if not isinstance(lhs.tree, D.Leaf) or not isinstance(rhs.tree, D.Leaf):
-            assert False, "why?"
+        def extract_expr(abs_val: D.abs):
+            v = abs_val.tree.v
+            if isinstance(v, D.ScalarExpr):
+                return v.poly
+            if isinstance(v, D.SubVal) and isinstance(v.av, V.ValConst):
+                return v.av.val
+            return None
 
-        if isinstance(lhs.tree.v, D.ArrayVar) or isinstance(rhs.tree.v, D.ArrayVar):
-            # cannot handle array binop for now
-            return D.abs([], [], D.Leaf(D.SubVal(V.Top()), {}))
+        lhs_expr, rhs_expr = map(extract_expr, (lhs, rhs))
+        if lhs_expr is None or rhs_expr is None:
+            return top()
 
-        lhs_expr = None
-        rhs_expr = None
-        if isinstance(lhs.tree.v, D.ScalarExpr):
-            lhs_expr = lhs.tree.v.poly
-        if isinstance(rhs.tree.v, D.ScalarExpr):
-            rhs_expr = rhs.tree.v.poly
-        if isinstance(lhs.tree.v, D.SubVal) and isinstance(lhs.tree.v.av, V.ValConst):
-            lhs_expr = lhs.tree.v.av.val
-        if isinstance(rhs.tree.v, D.SubVal) and isinstance(rhs.tree.v.av, V.ValConst):
-            rhs_expr = rhs.tree.v.av.val
-
-        if not lhs_expr or not rhs_expr:
-            return D.abs([], [], D.Leaf(D.SubVal(V.Top()), {}))
-
+        # Build the resulting symbolic expression without automatic evaluation.
         if op == "+":
             expr = sm.Add(lhs_expr, rhs_expr, evaluate=False)
         elif op == "-":
@@ -465,12 +457,12 @@ class Strategy1(AbstractInterpretation):
         elif op == "*":
             expr = sm.Mul(lhs_expr, rhs_expr, evaluate=False)
         else:
-            assert False, "unimplemented"
+            raise AssertionError(f"unimplemented binary operator: {op}")
 
         return D.abs([], [], D.Leaf(D.ScalarExpr(expr), {}))
 
     def abs_usub(self, arg):
-        return D.abs([], [], D.Leaf(D.SubVal(V.Top()), {}))
+        return top()
 
     def abs_const(self, val):
         return D.abs([], [], D.Leaf(D.SubVal(V.ValConst(val)), {}))
@@ -479,13 +471,17 @@ class Strategy1(AbstractInterpretation):
         # return True if arrays have indirect accesses
         if any([has_array_access(i) for i in idx]):
             assert False, "implement"
-            return D.Leaf(D.SubVal(V.Top()))
+            return top()
 
         name = sm.Symbol(ename.__repr__())
         self.sym_table[name] = ename
         idxs = [lift_to_sympy(i, self.sym_table).simplify() for i in idx]
+
         if name in self.avars:
             return D.abs([], [], D.Leaf(D.ArrayVar(name, idxs), {}))
+
+        # FIXME: This doesn't work when we start writing to svars!!
+        # If/when we do, we need to have a value dependent control flow support
         if name in self.svars:
             return D.abs([], [], D.Leaf(D.ScalarExpr(name), {}))
 
@@ -500,8 +496,6 @@ class Strategy1(AbstractInterpretation):
                 itr_map[i1] = i2
 
             new_poly = list({evaluate_poly(p, itr_map) for p in rabs.poly})
-            # print(f"in read, {rabs.iterators}, {idxs}")
-            # print(rabs)
 
             return D.abs(iters, new_poly, ASubs(rabs.tree, itr_map).result())
 
@@ -536,11 +530,11 @@ class Strategy1(AbstractInterpretation):
             # operators = {+, -, *, /, mod, and, or, ==, <, <=, >, >=}
 
             if has_array_access(cond.lhs) or has_array_access(cond.rhs):
-                assert False, "unimplemented"
                 # TODO: Implement this
                 # if the condition is value dependent, we have to join body and orelse values.
                 # call cad with (p1 + p2, iterators)
                 # and join values in the propagate_values call!
+                assert False, "unimplemented"
 
             # Get polynomials from cond, body, and orelse, and call cad
             p1 = body.poly
@@ -578,7 +572,7 @@ class Strategy1(AbstractInterpretation):
         for v_leaf in _iter_leaves(a1.tree, tuple()):
             v_a2 = _lookup_value(a2.tree, v_leaf.sample)
             if v_a2 is None or not _val_subset(v_leaf.v, v_a2):
-                print(f"{v_leaf.v} not subset of {v_a2} in {v_leaf}")
+                # print(f"{v_leaf.v} not subset of {v_a2} in {v_leaf}")
                 return False
         return True
 
@@ -595,36 +589,13 @@ class Strategy1(AbstractInterpretation):
         if count >= 3:
             return None
 
-        # if all(v == itr_sym for v in a2.iterators):
-        #    return a2
-
         def visit(node: D.node, eqs: list) -> D.node:
             if isinstance(node, D.Leaf):
-                if isinstance(node.v, D.SubVal):
-                    return node, True  # unchanged
-
-                if isinstance(node.v, D.ScalarExpr):
-                    if itr_sym in node.v.poly.free_symbols:
-                        return node, False
-                    return node, True  # unchanged
+                if isinstance(node.v, (D.SubVal, D.ScalarExpr)):
+                    return node  # unchanged
 
                 # arrayvar
                 map_ = sm.solve(eqs, itr_sym)
-
-                #                lhs = eqs[0].lhs
-                #                for eq in eqs[1:]:
-                #                    lhs = lhs - eq.lhs
-                #                relational = sm.Eq(lhs, 0)
-                #
-                #                map_ = sm.solve(relational, itr_sym, dict=True)
-                #                if len(map_) == 0:
-                #                    return node
-                #                else:
-                #                    map_ = map_[0]
-                #                print()
-                #                print(f"eqs: {eqs}")
-                #                print(f"relational: {relational}")
-                #                print(f"map_: {map_}")
 
                 newitr = []
                 for e in node.v.idx:
@@ -633,47 +604,37 @@ class Strategy1(AbstractInterpretation):
                     else:
                         newitr.append(e)
                 newvar = D.ArrayVar(node.v.name, newitr)
-                return D.Leaf(newvar, node.sample), True
+                return D.Leaf(newvar, node.sample)
 
             new_cells = []
             prev_val = None
             for cell in node.cells:
                 equality = [cell.eq] if isinstance(cell.eq, sm.Equality) else []
-                new_tree, can_widen = visit(cell.tree, eqs + equality)
+                new_tree = visit(cell.tree, eqs + equality)
 
-                if can_widen and isinstance(new_tree, D.Leaf):
+                if isinstance(new_tree, D.Leaf):
                     val = new_tree.v
                     if prev_val:
                         merge = False
                         # Case 1: If the cell has the same value as the previous cells!
                         if val == prev_val:
                             merge = True
-
-                        if isinstance(cell.eq, sm.Equality):
-                            # Case 3: If the equality cell is bottom...
+                        # Case 2: If the equality cell is bottom...
+                        # ... and the cell's polynomial is previous cell + 1
+                        elif isinstance(cell.eq, sm.Equality):
                             if isinstance(val, D.SubVal) and isinstance(val.av, V.Bot):
                                 tgt_eq = sm.Eq(cell.eq.lhs + 1, 0)
                                 merge = any(
                                     tgt_eq.equals(eq)
                                     for eq in new_cells[-1].eq.atoms(sm.Equality)
                                 )
-                                # if isinstance(new_cells[-1].eq, sm.Or):
-                                # print(tgt_eq, new_cells[-1].eq.args, tgt_eq in new_cells[-1].eq.args)
-                                # ... merge with the older version of itself!
-                                #    if tgt_eq in new_cells[-1].eq.args:
-                                #        merge = True
-                                # else:
-                                # print(tgt_eq, new_cells[-1].eq.args, tgt_eq == new_cells[-1].eq)
-                                #    if tgt_eq == new_cells[-1].eq:
-                                #        merge = True
-                        else:
-                            if (
-                                isinstance(val, D.SubVal)
-                                and isinstance(val.av, V.Bot)
-                                or not has_integer_solution(sm.And.make_args(cell.eq))
-                            ):
-                                # Case 1: If inequality (and the value is bottom), merge with the previous cell
-                                merge = True
+                        # Case 3: If inequality (and the value is bottom) or doesn't have an integer solutoin, merge with the previous cell
+                        elif (
+                            isinstance(val, D.SubVal)
+                            and isinstance(val.av, V.Bot)
+                            or not has_integer_solution(sm.And.make_args(cell.eq))
+                        ):
+                            merge = True
 
                         if merge:
                             new_eq = sm.Or(new_cells[-1].eq, cell.eq)
@@ -687,6 +648,6 @@ class Strategy1(AbstractInterpretation):
                 else:
                     new_cells.append(D.Cell(cell.eq, new_tree))
 
-            return D.LinSplit(new_cells), True
+            return D.LinSplit(new_cells)
 
-        return D.abs(a2.iterators, a2.poly, visit(a2.tree, [])[0])
+        return D.abs(a2.iterators, a2.poly, visit(a2.tree, []))
