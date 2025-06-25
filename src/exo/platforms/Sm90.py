@@ -1,18 +1,15 @@
-# Memory, instructions, and actor kinds specific to CUDA sm_90 and sm_90a (H100)
-# Everything exported by this module starts with Sm90_,
-# except for actor kinds and actor signatures.
+# Memory, instructions, instr-tl, sync-tl specific to CUDA sm_90 and sm_90a (H100)
+# Everything exported by this module starts with Sm90_, except for timelines (tl).
 from __future__ import annotations
 
 # Currently we import from the exo.spork directory,
 # which users shouldn't import directly.
-from ..spork.actor_kinds import (
-    sig_cuda_classic,
-    cuda_classic,
-    sig_tma_to_smem,
-    sig_tma_to_gmem,
-    sig_wgmma_rmem_a,
-    sig_wgmma_rmem_d,
-    sig_wgmma_smem,
+from ..spork.timelines import (
+    cuda_in_order_instr,
+    tma_to_smem_async_instr,
+    tma_to_gmem_async_instr,
+    wgmma_async_instr,
+    cuda_in_order,
     tma_to_smem_async,
     tma_to_gmem_async,
     wgmma_async,
@@ -22,14 +19,16 @@ from ..spork.actor_kinds import (
     cuda_async_proxy,
     cuda_async_proxy_wgmma,
     cuda_generic_and_async_proxy,
+    cuda_sync_rmem_usage,
+    cuda_ram_usage,
+    cuda_async_a_rmem_usage,
+    cuda_async_d_rmem_usage,
 )
 
 __all__ = [
-    "sig_tma_to_smem",
-    "sig_tma_to_gmem",
-    "sig_wgmma_rmem_a",
-    "sig_wgmma_rmem_d",
-    "sig_wgmma_smem",
+    "tma_to_smem_async_instr",
+    "tma_to_gmem_async_instr",
+    "wgmma_async_instr",
     "tma_to_smem_async",
     "tma_to_gmem_async",
     "wgmma_async",
@@ -173,6 +172,10 @@ def Sm90_tensorMap(swizzle, *smem_box):
         @classmethod
         def global_(cls):
             return "#include <assert.h>\n#include <stdio.h>"
+
+        @classmethod
+        def default_usage_tl(cls, instr_tl):
+            return cuda_ram_usage
 
         @classmethod
         def window_definition(cls, ctx: WindowStructCtx):
@@ -414,11 +417,11 @@ class copy_tensor_to_smem_impl:
                 )
         else:
             swizzle = 0
-        self.access_info["dst"].actor_signature = sig_tma_to_smem
         self.access_info["dst"].mem = Sm90_get_mma_smem(swizzle)
-        self.access_info["src"].actor_signature = sig_tma_to_smem
+        self.access_info["dst"].out_of_order = True
         self.access_info["src"].mem = Sm90_tensorMap(swizzle, *smem_box)
-        self.actor_kind = tma_to_smem_async
+        self.access_info["src"].out_of_order = True
+        self.instr_tl = tma_to_smem_async_instr
         self.coll_unit = cuda_warp
         self.cu_includes.append("cuda/std/array")
         self.cu_utils.append(copy_tensor_to_smem_util(rank, False))
@@ -675,8 +678,8 @@ class WgmmaHelper:
 
 class WgmmaRmemImpl(CudaBasicDeviceVisible):
     @classmethod
-    def actor_kind_permission(cls, actor_kind, is_instr):
-        return cls.device_allocated_impl(actor_kind, is_instr)
+    def instr_tl_permission(cls, instr_tl, is_instr):
+        return cls.device_allocated_impl(instr_tl, is_instr)
 
     @classmethod
     def native_unit(cls):
@@ -728,12 +731,25 @@ class WgmmaRmemImpl(CudaBasicDeviceVisible):
 
 
 class Sm90_RmemMatrixA(WgmmaRmemImpl):
-    # TODO
-    pass
+    # TODO implement this
+
+    @classmethod
+    def default_usage_tl(cls, instr_tl):
+        if instr_tl == wgmma_async_instr:
+            return cuda_async_a_rmem_usage
+        else:
+            assert instr_tl == cuda_in_order_instr
+            return cuda_sync_rmem_usage
 
 
 class Sm90_RmemMatrixD(WgmmaRmemImpl):
-    pass
+    @classmethod
+    def default_usage_tl(cls, instr_tl):
+        if instr_tl == wgmma_async_instr:
+            return cuda_async_d_rmem_usage
+        else:
+            assert instr_tl == cuda_in_order_instr
+            return cuda_sync_rmem_usage
 
 
 __all__.append("Sm90_RmemMatrixA")
@@ -743,10 +759,7 @@ __all__.append("Sm90_RmemMatrixD")
 class mma_async_impl:
     def instance_impl(self, M, N, ptx_dtype, ptx_atype, ptx_btype):
         helper = WgmmaHelper(M, N, ptx_dtype, ptx_atype, ptx_btype)
-        self.access_info["d"].actor_signature = sig_wgmma_rmem_d
-        self.access_info["a"].actor_signature = sig_wgmma_smem
-        self.access_info["b"].actor_signature = sig_wgmma_smem
-        self.actor_kind = wgmma_async
+        self.instr_tl = wgmma_async_instr
         self.coll_unit = cuda_warpgroup
         self.cu_utils = helper.cu_utils_ss()
 
@@ -765,13 +778,16 @@ class mma_async_impl:
             fname + "(" + ", ".join(args) + ");",
             "{d_data}.scale_d = 1;",
         ]
+        self.access_info["a"].out_of_order = True
+        self.access_info["b"].out_of_order = True
+        self.access_info["d"].out_of_order = False
 
 
 # For a wgmma D-matrix (in RMEM), set the scale-d flag to 0, so
 # the NEXT wgmma.mma.async instruction will zero-initialize D.
 # This is modelled in Exo as a zero-clear, even though the effect
 # does not actually happen unless a subsequent mma.async occurs.
-# In the future, I may introduce a "wgmma zero" actor signature to model this.
+# In the future, I may introduce a "wgmma zero" instr-tl to model this.
 #
 # TODO this still seems to be an issue.
 @instr
@@ -782,9 +798,8 @@ class Sm90_zero_scale_d_f32:
                 d[m, n] = 0
 
     def instance(self):
-        # XXX cuda_classic is completely wrong
-        self.access_info["d"].actor_signature = sig_cuda_classic
-        self.actor_kind = cuda_classic
+        # XXX cuda_in_order is completely wrong
+        self.instr_tl = cuda_in_order_instr
         self.coll_unit = cuda_warpgroup
         self.instr_format = ["{d_data}.scale_d = 0;"]
 
@@ -819,9 +834,7 @@ __all__.append("Sm90_mma_async_tf32")
 
 class Sm90_mma_write_d_impl:
     def instance_impl(self, helper, col_major):
-        self.access_info["dst"].actor_signature = sig_cuda_classic
-        self.access_info["src"].actor_signature = sig_cuda_classic
-        self.actor_kind = cuda_classic
+        self.instr_tl = cuda_in_order_instr
         self.coll_unit = cuda_warpgroup
         self.cu_utils = helper.cu_utils_ss()
         col_major = "true" if col_major else "false"

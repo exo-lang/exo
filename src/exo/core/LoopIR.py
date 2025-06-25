@@ -10,8 +10,7 @@ from .configs import Config
 from .memory import DRAM, MemWin, AllocableMemWin, Memory, SpecialWindow
 from .prelude import Sym, SrcInfo, extclass
 
-from ..spork.actor_kinds import ActorKind, ActorSignature, sig_cpu
-from ..spork import actor_kinds
+from ..spork.timelines import Instr_tl, Usage_tl, cpu_in_order_instr
 from ..spork.base_with_context import BaseWithContext
 from ..spork.coll_algebra import CollUnit, standalone_thread
 from ..spork.loop_modes import LoopMode
@@ -60,7 +59,11 @@ class Operator(str):
 @dataclass(slots=True)
 class AccessInfo:
     mem: Type[MemWin] = DRAM
-    actor_signature: ActorSignature = sig_cpu
+    usage_tl: Usage_tl = None
+    ext_instr_tl: List[Instr_tl] = tuple()
+    ext_usage_tl: List[Usage_tl] = tuple()
+    out_of_order: bool = None
+    access_by_owner_only: bool = False
 
 
 @dataclass(init=False, slots=True)
@@ -70,7 +73,7 @@ class InstrInfo:
     cu_utils: List[str]
     cu_includes: List[str]
     coll_unit: CollUnit
-    actor_kind: ActorKind
+    instr_tl: Instr_tl
     access_info: Dict[str, AccessInfo]
 
     # For internal use
@@ -648,17 +651,17 @@ del is_barrier
 
 
 @extclass(LoopIR.proc)
-def proc_actor_kind(f):
-    """Return actor kind needed to call a proc.
+def proc_instr_tl(f):
+    """Return instr-tl in scope needed to call a proc.
 
     For now, any non-instr procs are assumed to require 1 CPU thread.
     """
     if f.instr:
-        return f.instr.actor_kind
-    return actor_kinds.cpu
+        return f.instr.instr_tl
+    return cpu_in_order_instr
 
 
-del proc_actor_kind
+del proc_instr_tl
 
 
 @extclass(LoopIR.proc)

@@ -1,30 +1,38 @@
-# Memory, instructions, and actor kinds specific to CUDA sm_80 (Ampere/A100)
+# Memory, instructions, instr-tl, and sync-tl specific to CUDA sm_80 (Ampere/A100)
 # All names exported by this module contain Sm80_
 from __future__ import annotations
 
 # Currently we import from the exo.spork directory,
 # which users shouldn't import directly.
-from ..spork.actor_kinds import (
+from ..spork.timelines import (
     Sm80_cp_async,
+    Sm80_cp_async_instr,
     Sm80_generic,
-    sig_Sm80_cp_async,
+    cuda_sync_rmem_usage,
+    cuda_ram_usage,
 )
 
-__all__ = ["Sm80_cp_async", "Sm80_generic", "sig_Sm80_cp_async"]
+__all__ = [
+    "Sm80_cp_async",
+    "Sm80_cp_async_instr",
+    "Sm80_generic",
+    "cuda_sync_rmem_usage",
+    "cuda_ram_usage",
+]
 
 
 # We use these but don't put them in __all__
 from .cuda import InlinePtxGen
 from ..API import instr
 from ..spork.cuda_memory import *
-from ..spork.actor_kinds import sig_cuda_classic, cuda_classic
+from ..spork.timelines import cuda_in_order, cuda_in_order_instr
 from ..spork.coll_algebra import cuda_warp
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # cp.async instruction
 # 1 CUDA thread copies 4, 8, or 16 bytes asynchronously.
-# In Exo, we model this with actor_kind=Sm80_cp_async.
+# In Exo, we model this with instr_tl=Sm80_cp_async_instr.
 
 
 class cp_async_impl:
@@ -36,9 +44,7 @@ class cp_async_impl:
         ptx.add_arg("&{gmem_data}", constraint="generic", log_as="bits")
         ptx.add_arg(n_bytes, constraint="n", log_as="bits")
         self.instr_format = ptx.as_c_lines(py_format=True)
-        self.actor_kind = Sm80_cp_async
-        self.access_info["smem"].actor_signature = sig_Sm80_cp_async
-        self.access_info["gmem"].actor_signature = sig_Sm80_cp_async
+        self.instr_tl = Sm80_cp_async_instr
 
 
 @instr
@@ -54,6 +60,8 @@ class Sm80_cp_async_f32(cp_async_impl):
 
     def instance(self, size):
         self.instance_impl(4 * size)
+        self.access_info["smem"].out_of_order = True
+        self.access_info["gmem"].out_of_order = True
 
 
 __all__.append("Sm80_cp_async_f32")
@@ -115,12 +123,16 @@ class Sm80_BasicRmemMatrix(CudaBasicDeviceVisible):
         return ""
 
     @classmethod
-    def actor_kind_permission(cls, actor_kind, is_instr):
-        return cls.device_allocated_impl(actor_kind, is_instr)
+    def instr_tl_permission(cls, instr_tl, is_instr):
+        return cls.device_allocated_impl(instr_tl, is_instr)
 
     @classmethod
     def native_unit(cls):
         return cuda_warp
+
+    @classmethod
+    def default_usage_tl(cls, instr_tl):
+        return timelines.cuda_sync_rmem_usage
 
 
 class Sm80_RmemMatrixA(Sm80_BasicRmemMatrix):
@@ -148,14 +160,12 @@ __all__ += ["Sm80_RmemMatrixA", "Sm80_RmemMatrixB", "Sm80_RmemMatrixD"]
 # --------------------------------------------------------------------------- #
 # Instructions for sm_80 MMA
 # Unlike later tensor cores, these are NOT async instructions.
-# In exo terminology, these operate with actor_kind=cuda_classic
+# In exo terminology, these operate with instr_tl=cuda_in_order_instr
 
 
 class mma_instr_impl:
     def instance_common(self):
-        for v in self.access_info.values():
-            v.actor_signature = sig_cuda_classic
-        self.actor_kind = cuda_classic
+        self.instr_tl = cuda_in_order_instr
         self.coll_unit = cuda_warp
         self.cu_includes = ["cuda/std/array"]
         self.cu_utils = [Sm80_mma_load_store_util]

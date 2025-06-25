@@ -8,8 +8,6 @@ from typing import Callable, Dict, Optional, Type, List, Tuple
 from ..core.prelude import Sym, SrcInfo
 from ..core.LoopIR import LoopIR
 
-from . import actor_kinds
-from .actor_kinds import ActorKind
 from .barrier_usage import BarrierUsage, SyncInfo
 from .coll_algebra import (
     CollParam,
@@ -31,6 +29,8 @@ from .cuda_memory import (
 from .distributed_memory import DistributedAllocState, ThreadIter
 from .excut import InlinePtxGen, simple_ptx_c_lines
 from .sync_types import SyncType
+from . import timelines
+from .timelines import Instr_tl, Sync_tl
 
 
 class LoweredBarrierType(Enum):
@@ -44,13 +44,13 @@ class LoweredBarrierType(Enum):
 
 @dataclass(slots=True)
 class LoweredPrologueSync:
-    actor_kind: ActorKind
+    instr_tl: Instr_tl
     lines: List[str]
 
 
 @dataclass(slots=True)
 class LoweredEpilogueSync:
-    actor_kind: ActorKind
+    instr_tl: Instr_tl
     lines: List[str]
 
 
@@ -60,7 +60,7 @@ class CudaLoweredBarrier:
     # cannot be live at the same time.
     solitary: bool
 
-    # More specific than the BarrierType (specialized by actor kind).
+    # More specific than the BarrierType (specialized by sync-tl).
     # Also applies to Fence(...), which has no associated barrier object.
     type_enum: LoweredBarrierType
 
@@ -100,7 +100,7 @@ class SyncStateBuilder:
     def add_barrier(
         self,
         name: Sym,
-        usage: BarrierUsage,
+        usage: BarrierUsage,  # Not to be confused with Usage_tl (sorry)
         coll_tilings: DistributedAllocState,
         thread_iters: Dict[Sym, ThreadIter],
     ):
@@ -111,8 +111,8 @@ class SyncStateBuilder:
             usage.ReverseAwait,
         ):
             if info is not None:
-                if not actor_kinds.cuda_async_proxy.full_signatures.isdisjoint(
-                    info.actor_kind.full_signatures
+                if not timelines.cuda_async_proxy.disjoint_full_timeline_set(
+                    info.sync_tl
                 ):
                     self._uses_async_proxy = True
 
@@ -120,7 +120,7 @@ class SyncStateBuilder:
         barrier_type = usage.barrier_type
         suffix = self._assign_suffix(name)
         if usage.is_fence():
-            if usage.Arrive.actor_kind == actor_kinds.wgmma_fence_1:
+            if usage.Arrive.sync_tl == timelines.wgmma_fence_1:
                 self.add_wgmma_fence(name, usage, coll_tilings, thread_iters, suffix)
             else:
                 self.add_garden_variety_fence(
@@ -146,13 +146,13 @@ class SyncStateBuilder:
     ):
         Arrive = usage.Arrive
         Await = usage.Await
-        A1 = Arrive.actor_kind
-        A2 = Await.actor_kind
+        L1 = Arrive.sync_tl
+        L2 = Await.sync_tl
         srcinfo = Arrive.get_srcinfo()
-        assert A1 == actor_kinds.wgmma_fence_1
-        if A2 != actor_kinds.wgmma_fence_2:
+        assert L1 == timelines.wgmma_fence_1
+        if L2 != timelines.wgmma_fence_2:
             raise ValueError(
-                f"{srcinfo}: wgmma fence needs second actor kind wgmma_fence_2"
+                f"{srcinfo}: wgmma fence needs second sync-tl wgmma_fence_2"
             )
 
         coll_tiling = coll_tilings.Arrive
@@ -166,7 +166,7 @@ class SyncStateBuilder:
 
         lowered = CudaLoweredBarrier(False, LoweredBarrierType.wgmma_fence)
         lowered.codegen = lambda _: LoweredPrologueSync(
-            actor_kinds.wgmma_async, simple_ptx_c_lines("wgmma.fence.sync.aligned")
+            timelines.wgmma_async_instr, simple_ptx_c_lines("wgmma.fence.sync.aligned")
         )
         self.lowered[name] = lowered
 
@@ -180,20 +180,20 @@ class SyncStateBuilder:
     ):
         """Do up to 3 things
 
-        - wait_all if first actor kind includes Sm80_cp_async
+        - wait_all if first sync-tl includes Sm80_cp_async
         - barrier arrive/await if more than 1 thread, or special exception (*)
-        - fence.proxy.async if second actor kinds includes any async proxy
+        - fence.proxy.async if second sync-tl includes any async proxy
 
         (*) special exception, if thread collective is a warpgroup and
-        the second actor kind only includes wgmma_async, we can elide
+        the second sync-tl only includes wgmma_async, we can elide
         the barrier. This relies on wgmma_async not being V1-transitive.
 
         """
 
         Arrive = usage.Arrive
         Await = usage.Await
-        A1 = Arrive.actor_kind
-        A2 = Await.actor_kind
+        L1 = Arrive.sync_tl
+        L2 = Await.sync_tl
         srcinfo = usage.get_srcinfo()
         clusterDim = self._clusterDim()
 
@@ -201,14 +201,14 @@ class SyncStateBuilder:
         lines = []
 
         # Insert wait for sm_80 cp.async if needed.
-        if actor_kinds.cuda_classic.implements_first(A1):
+        if timelines.cuda_in_order.implements_first(L1):
             pass
-        elif actor_kinds.Sm80_generic.implements_first(A1):
+        elif timelines.Sm80_generic.implements_first(L1):
             lines += simple_ptx_c_lines("cp.async.wait_all")
         else:
             raise ValueError(
-                f"{srcinfo}: Fence first actor kind "
-                f"{A1} not supported (we allow Sm80_generic)"
+                f"{srcinfo}: Fence first sync-tl "
+                f"{L1} not supported (we allow Sm80_generic)"
             )
 
         coll_tiling = coll_tilings.Arrive
@@ -229,10 +229,11 @@ class SyncStateBuilder:
                 raise ValueError(f"{srcinfo}: Fence expects convergent warps: {msg}")
 
         # Insert cross-thread sync if needed
-        assert not actor_kinds.wgmma_async.V1_transitive
-        wgmma_special_case = actor_kinds.wgmma_async.implements_second(
-            A2
+        assert not timelines.wgmma_async.is_V1_transitive()
+        wgmma_special_case = timelines.wgmma_async.implements_second(
+            L1
         ) and not coll_tiling.unit_mismatch(cuda_warpgroup, self._coll_env)
+
         if n_warps > 0 and not wgmma_special_case:
             if cta_count == 1:
                 if not coll_tiling.unit_mismatch(cuda_cta_in_cluster, self._coll_env):
@@ -262,13 +263,13 @@ class SyncStateBuilder:
                 )
 
         # Insert fence.proxy.async if needed
-        if actor_kinds.Sm80_generic.implements_second(A2):
+        if timelines.Sm80_generic.implements_second(L2):
             pass
-        elif actor_kinds.cuda_generic_and_async_proxy.implements_second(A2):
+        elif timelines.cuda_generic_and_async_proxy.implements_second(L2):
             lines.extend(simple_ptx_c_lines("fence.proxy.async"))
         else:
             raise ValueError(
-                f"{srcinfo}: Fence second actor kind {A2} not "
+                f"{srcinfo}: Fence second sync-tl {L2} not "
                 f"supported (at most CUDA generic+async proxy)"
             )
         lowered.codegen = lambda _: lines
@@ -325,21 +326,21 @@ class SyncStateBuilder:
         def generate_arrive(is_reverse):
             r = "Reverse" if is_reverse else ""
             info = usage.ReverseArrive if is_reverse else usage.Arrive
-            actor_kind = info.actor_kind
+            sync_tl = info.sync_tl
 
-            if actor_kinds.Sm80_cp_async.implements_first(actor_kind):
+            if timelines.Sm80_cp_async.implements_first(sync_tl):
                 is_Sm80_cp_async = True
                 is_tma = False
-            elif actor_kinds.cuda_classic.implements_first(actor_kind):
+            elif timelines.cuda_in_order.implements_first(sync_tl):
                 is_Sm80_cp_async = False
                 is_tma = False
-            elif actor_kinds.tma_to_smem_async.implements_first(actor_kind):
+            elif timelines.tma_to_smem_async.implements_first(sync_tl):
                 is_Sm80_cp_async = False
                 is_tma = True
             else:
                 raise ValueError(
-                    f"{info.get_srcinfo()}: mbarrier Arrive actor kind {actor_kind} "
-                    f"not supported: need cuda_classic, Sm80_cp_async, or tma_to_smem_async")
+                    f"{info.get_srcinfo()}: mbarrier Arrive sync-tl {sync_tl} "
+                    f"not supported: need cuda_in_order, Sm80_cp_async, or tma_to_smem_async")
 
             lines = self.SyncState_lines
             idx = f"{r}ArriveIdx{nm_suffix}"
@@ -367,26 +368,26 @@ class SyncStateBuilder:
             lines.append(f"}}")
             return is_tma
 
-        def generate_await(is_reverse, A1):
+        def generate_await(is_reverse, L1):
             r = "Reverse" if is_reverse else ""
             info = usage.ReverseAwait if is_reverse else usage.Await
-            A2 = info.actor_kind
+            L2 = info.sync_tl
 
-            if actor_kinds.cuda_async_proxy_wgmma.implements_first(A1):
-                # proxy fence always elided if first actor kind includes only
+            if timelines.cuda_async_proxy_wgmma.implements_first(L1):
+                # proxy fence always elided if first sync-tl includes only
                 # async proxy and wgmma register access.
                 proxy_fence = False
-            elif actor_kinds.Sm80_generic.implements_second(A2):
+            elif timelines.Sm80_generic.implements_second(L2):
                 proxy_fence = False
-            elif actor_kinds.cuda_generic_and_async_proxy.implements_second(A2):
+            elif timelines.cuda_generic_and_async_proxy.implements_second(L2):
                 proxy_fence = True
             else:
-                if A2 == actor_kinds.wgmma_async:
+                if L2 == timelines.wgmma_async:
                     remark = "consider wgmma_async_smem"
                 else:
                     remark = "at most CUDA generic+async proxy"
                 raise ValueError(
-                    f"{info.get_srcinfo()}: mbarrier Await actor kind {A2} "
+                    f"{info.get_srcinfo()}: mbarrier Await sync-tl {L2} "
                     f"not supported ({remark})")
 
             lines = self.SyncState_lines
@@ -448,7 +449,7 @@ class SyncStateBuilder:
                 lines.append(f"    // Advance ring buffer state")
                 lines.append(f"    {idx} = {idx} == {ring - 1} ? 0 : {idx} + 1;")
             if proxy_fence:
-                lines.append(f'    // Needed for first actor kind {A1}; second actor kind {A2}')
+                lines.append(f'    // Needed for first sync-tl {L1}; second sync-tl {L2}')
                 lines.extend(simple_ptx_c_lines("fence.proxy.async", tab="    "))
             lines.append(f"  }}")
             if enable_skips:
@@ -476,19 +477,20 @@ class SyncStateBuilder:
                          f"arrive_count={arrive_count}")
 
         # Generate Arrive and Await syntax
-        # {Reverse}Awaits must be aware with the actor kind
+        # {Reverse}Awaits must be aware with the sync-tl
         # of the matched {Reverse}Arrive
         Arrive_is_tma = generate_arrive(False)
-        generate_await(False, usage.Arrive.actor_kind)
+        generate_await(False, usage.Arrive.sync_tl)
         if usage.has_reverse():
             ReverseArrive_is_tma = generate_arrive(True)
-            generate_await(True, usage.ReverseArrive.actor_kind)
+            generate_await(True, usage.ReverseArrive.sync_tl)
 
         # Arrive/Await lowers to call to generated exo_syncState member function.
         # We also record mbarriers to initialize, first those for Arrive/Await,
         # then those for ReverseArrive/ReverseAwait.
-        # Finally, for arrives with actor kind tma_to_smem_async, we need to enforce
-        # that it is an epilogue sync for tx-count to work correctly.
+        # Finally, for arrives with sync-tl tma_to_smem_async, we need to enforce
+        # that it is an epilogue sync for tx-count to work correctly
+        # (TODO this will change to TMA instrs taking mbarrier parameters)
         Arrive_txt = f"Arrive{nm_suffix}(exo_smem, exo_excutLog"
         def codegen(s: LoopIR.SyncStmt):
             sync_type = s.sync_type
@@ -501,7 +503,7 @@ class SyncStateBuilder:
                 is_tma = ReverseArrive_is_tma if sync_type.is_reversed else Arrive_is_tma
                 if is_tma:
                     # See also codegen_exo_tma_mbarrier if you change this!
-                    result = LoweredEpilogueSync(actor_kinds.tma_to_smem_async, result)
+                    result = LoweredEpilogueSync(timelines.tma_to_smem_async_instr, result)
                 return result
             else:
                 skips_arg = ""
@@ -526,10 +528,13 @@ class SyncStateBuilder:
         at the beginning of the CudaAsync(tma_to_smem_async) block.
 
         """
+
+        # TODO this will go away when TMA instrs take mbarrier parameters
+
         assert isinstance(_arrive, LoopIR.SyncStmt)
         sync_type = _arrive.sync_type
         assert sync_type.is_arrive()
-        assert sync_type.first_actor_kind == actor_kinds.tma_to_smem_async
+        assert sync_type.first_sync_tl == timelines.tma_to_smem_async
         lowered_mbarrier = self.lowered[_arrive.name]
         # Read-only access to the mbarrier by lowering an arrive with N=0
         # (arrive-count 0). This is pretty hacky; if we have more need for
@@ -557,54 +562,54 @@ class SyncStateBuilder:
         # wgmma_async -> cuda_generic_and_async_proxy; 128 threads
         #
         # Can fail due to
-        #   * unsupported first actor kind
-        #   * incorrect second actor kind given supported first actor kind
-        #   * incorrect collective unit given supported first actor kind
+        #   * unsupported first sync-tl
+        #   * incorrect second sync-tl given supported first sync-tl
+        #   * incorrect collective unit given supported first sync-tl
         assert usage.ReverseAwait is None
         assert usage.ReverseArrive is None
 
         solitary = True
-        A1 = usage.Arrive.actor_kind
-        A2 = usage.Await.actor_kind
+        L1 = usage.Arrive.sync_tl
+        L2 = usage.Await.sync_tl
         is_wgmma = False
 
         def check_coll_unit(coll_tiling, action_name, coll_unit):
             if msg := coll_tiling.unit_mismatch(coll_unit, self._coll_env):
                 raise TypeError(  # XXX srcinfo should be of location
                     f"{usage.get_srcinfo()}: {action_name} of commit group "
-                    f"{name} with Arrive({A1}) "
+                    f"{name} with Arrive({L1}) "
                     f"expects collective unit {coll_unit}: {msg}"
                 )
 
-        def check_A2_coll_unit(expect_A2, coll_unit):
-            if not expect_A2.implements_second(A2):
+        def check_L2_coll_unit(expect_L2, coll_unit):
+            if not expect_L2.implements_second(L2):
                 raise TypeError(
                     f"{usage.get_srcinfo()}: commit group "
-                    f"{name} with Arrive({A1}) "
-                    f"expects Await({expect_A2}), "
-                    f"not {A2} (wrong second actor kind)"
+                    f"{name} with Arrive({L1}) "
+                    f"expects Await({expect_L2}), "
+                    f"not {L2} (wrong second sync-tl)"
                 )
             check_coll_unit(coll_tilings.Arrive, "Arrive", coll_unit)
             check_coll_unit(coll_tilings.Await, "Await", coll_unit)
 
-        if actor_kinds.Sm80_cp_async.implements_first(A1):
+        if timelines.Sm80_cp_async.implements_first(L1):
             # sm_80 non-bulk cp.async
-            check_A2_coll_unit(actor_kinds.Sm80_generic, cuda_thread)
+            check_L2_coll_unit(timelines.Sm80_generic, cuda_thread)
             lowered = CudaLoweredBarrier(solitary, LoweredBarrierType.Sm80_commit_group)
             arrive_instr = "cp.async.commit_group"
             await_instr = "cp.async.wait_group"
-        elif actor_kinds.tma_to_gmem_async.implements_first(A1):
+        elif timelines.tma_to_gmem_async.implements_first(L1):
             # sm_90a bulk cp.async SMEM->GMEM
-            check_A2_coll_unit(actor_kinds.cuda_generic_and_async_proxy, cuda_thread)
+            check_L2_coll_unit(timelines.cuda_generic_and_async_proxy, cuda_thread)
             lowered = CudaLoweredBarrier(
                 solitary, LoweredBarrierType.tma_to_gmem_commit_group
             )
             arrive_instr = "cp.async.bulk.commit_group"
             await_instr = "cp.async.bulk.wait_group"
-        elif actor_kinds.wgmma_async.implements_first(A1):
+        elif timelines.wgmma_async.implements_first(L1):
             # sm_90a wgmma; note unit is now warpgroup and not a single thread;
             # also enforce that this is an epilogue sync of CudaAsync(wgmma_async).
-            check_A2_coll_unit(actor_kinds.cuda_generic_and_async_proxy, cuda_warpgroup)
+            check_L2_coll_unit(timelines.cuda_generic_and_async_proxy, cuda_warpgroup)
             lowered = CudaLoweredBarrier(
                 solitary, LoweredBarrierType.wgmma_commit_group
             )
@@ -615,7 +620,7 @@ class SyncStateBuilder:
             raise TypeError(
                 f"{usage.get_srcinfo()}: {name} : "
                 f"cuda_commit_group does not support "
-                f"Arrive({A1}) (wrong first actor kind)"
+                f"Arrive({L1}) (wrong first sync-tl)"
             )
 
         def codegen(s: LoopIR.SyncStmt):
@@ -628,7 +633,7 @@ class SyncStateBuilder:
                 lowered_arrive = simple_ptx_c_lines(arrive_instr)
                 if is_wgmma:
                     lowered_arrive = LoweredEpilogueSync(
-                        actor_kinds.wgmma_async, lowered_arrive
+                        timelines.wgmma_async_instr, lowered_arrive
                     )
                 return lowered_arrive
             else:

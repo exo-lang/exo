@@ -20,7 +20,7 @@ from .core.internal_cursors import InvalidCursorError
 from .core.LoopIR_pprint import _print_cursor
 from .rewrite.LoopIR_scheduling import SchedulingError
 
-from .spork.actor_kinds import ActorKind
+from .spork.timelines import Instr_tl, Usage_tl, Sync_tl
 from .spork.sync_types import SyncType
 
 # --------------------------------------------------------------------------- #
@@ -519,10 +519,7 @@ class PassCursor(StmtCursor):
 
 class SyncCursor(StmtCursor):
     """
-    Cursor pointing to a synchronization statement:
-        Fence(ActorKind, ActorKind)
-        Arrive(ActorKind, barrier)
-        Await(barrier, ActorKind)
+    Cursor pointing to a synchronization statement
     """
 
     def sync_type(self) -> SyncType:
@@ -530,11 +527,11 @@ class SyncCursor(StmtCursor):
         assert isinstance(self._impl._node, LoopIR.SyncStmt)
         return self._impl._node.sync_type
 
-    def first_actor_kind(self) -> ActorKind:
-        return self.sync_type().first_actor_kind
+    def first_sync_tl(self) -> Sync_tl:
+        return self.sync_type().first_sync_tl
 
-    def second_actor_kind(self) -> ActorKind:
-        return self.sync_type().second_actor_kind
+    def second_sync_tl(self) -> Sync_tl:
+        return self.sync_type().second_sync_tl
 
     def name(self):
         assert isinstance(self._impl, C.Node)

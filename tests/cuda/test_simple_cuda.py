@@ -180,8 +180,7 @@ class gemm_init_pcg3d_mod:
         A[m, k] = 12345  # Lie to Exo since Exo can't express this prng
 
     def instance(self, seed, modulus):
-        self.actor_kind = cuda_classic
-        self.access_info["A"].actor_signature = sig_cuda_classic
+        self.instr_tl = cuda_in_order_instr
         self.coll_unit = cuda_thread
         self.cu_utils = [self._cu_util]
         self.instr_format = [self._line_format % (seed, modulus)]
@@ -304,7 +303,7 @@ def test_cuda_simple_matmul(compiler):
                         # TeX: end working_smem[1]
 
                         # TeX: begin working_smem
-                        Fence(cuda_classic, cuda_classic)  # __syncthreads()
+                        Fence(cuda_in_order, cuda_in_order)  # __syncthreads()
                         # TeX: end working_smem
 
                         # TeX: begin working_smem
@@ -330,7 +329,7 @@ def test_cuda_simple_matmul(compiler):
                                 # TeX: end working_smem[2]
 
                         # TeX: begin working_smem
-                        Fence(cuda_classic, cuda_classic)  # __syncthreads()
+                        Fence(cuda_in_order, cuda_in_order)  # __syncthreads()
                     # TeX: color line *
                     #     bb
                     # End k1 loop
@@ -521,7 +520,7 @@ def xgemm_Sm80_fence(M: size, N: size, K: size, A_host: f32[M,K], B_host: f32[K,
                                                           A_rmem[k_seq,:,:],
                                                           B_rmem[k_seq,n_seq,:,:], K=MMA_K)
 
-                    # Sm80_generic actor kind = (cuda_classic | Sm80_cp_async)
+                    # Sm80_generic actor kind = (cuda_in_order | Sm80_cp_async)
                     Fence(Sm80_generic, Sm80_generic)
 
                 # for-k1 (K tiles) loop ends

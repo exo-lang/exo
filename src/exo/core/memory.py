@@ -21,7 +21,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional
-from ..spork.actor_kinds import cpu
+from ..spork.timelines import cpu_in_order_instr, cpu_usage, Instr_tl, Usage_tl
 
 """
 --- Alloc specifications ---
@@ -287,8 +287,8 @@ class MemWin(ABC):
         )
 
     @classmethod
-    def actor_kind_permission(cls, actor_kind, is_instr):
-        """For a given actor kind, return a string of permission letters.
+    def instr_tl_permission(cls, instr_tl: Instr_tl, is_instr):
+        """For a given instr_tl, return a string of permission letters.
 
         r: read
         w: write
@@ -301,10 +301,17 @@ class MemWin(ABC):
         a scalar Read/Assign/Reduce statement. If is_instr is False,
         whether a Read/Assign/Reduce will actually compile additionally
         depends on the can_read/write/reduce member functions."""
-        if actor_kind == cpu:
+        if instr_tl == cpu_in_order_instr:
             return "rwc"
         else:
             return ""
+
+    @classmethod
+    def default_usage_tl(cls, instr_tl: Instr_tl):
+        assert (
+            instr_tl == cpu_in_order_instr
+        ), f"{cls} needs to implement default_usage_tl(instr_tl={instr_tl})"
+        return cpu_usage
 
     @classmethod
     def as_const_shape(cls, new_name, shape, srcinfo, *, min_dim=0, max_dim=None):
@@ -365,7 +372,7 @@ class BarrierTypeTraits:
     to parts of the codebase that are not deeply connected to
     CUDA. Re-think if we externalize.
 
-    ActorKind and CollTiling are to be handled by barrier lowering code.
+    Instr_tl and CollTiling are to be handled by barrier lowering code.
     """
 
     negative_arrive: bool = False  # N = 1 if False; N = 1 or ~0 if True

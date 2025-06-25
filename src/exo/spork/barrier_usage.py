@@ -4,14 +4,14 @@ from typing import Optional, List, Dict, Type, Tuple
 from ..core.LoopIR import LoopIR, LoopIR_Do
 from ..core.memory import BarrierType, BarrierTypeTraits
 from ..core.prelude import Sym
-from .actor_kinds import ActorKind
 from .base_with_context import is_if_holding_with
 from .sync_types import SyncType
+from .timelines import Sync_tl
 
 
 @dataclass(slots=True)
 class SyncInfo:
-    actor_kind: ActorKind
+    sync_tl: Sync_tl
     stmts: List[LoopIR.stmt]
     min_N: int
     max_N: int
@@ -72,7 +72,7 @@ class BarrierUsageAnalysis(LoopIR_Do):
         # Check barriers declared in this scope now that the full
         # scope has been scanned. Ignore Fence(s) which are trivially
         # correct for our purposes here (only later in CUDA code
-        # lowering can we meaningfully inspect actor kind, CollTiling).
+        # lowering can we meaningfully inspect sync-tl, CollTiling).
         for name, barrier_type, i in barriers_here:
             self.check_split_barrier(name, barrier_type, stmts, i)
 
@@ -95,19 +95,19 @@ class BarrierUsageAnalysis(LoopIR_Do):
                 # Set or update usage.Arrive, usage.Await
                 # usage.ReverseArrive, usage.ReverseAwait
                 if sync_type.is_arrive():
-                    actor_kind = sync_type.first_actor_kind
+                    sync_tl = sync_type.first_sync_tl
                 else:
                     assert sync_type.is_await()
-                    actor_kind = sync_type.second_actor_kind
+                    sync_tl = sync_type.second_sync_tl
                 attr = sync_type.fname()
                 sync_info: SyncInfo = getattr(usage, attr)
                 if sync_info is None:
-                    setattr(usage, attr, SyncInfo(actor_kind, [s], N, N))
+                    setattr(usage, attr, SyncInfo(sync_tl, [s], N, N))
                 else:
-                    if sync_info.actor_kind != actor_kind:
+                    if sync_info.sync_tl != sync_tl:
                         sus = sync_info.stmts[0]
                         raise ValueError(
-                            f"{s.srcinfo}: {s} mismatches actor kind of {sus} at {sus.srcinfo}"
+                            f"{s.srcinfo}: {s} mismatches sync-tl of {sus} at {sus.srcinfo}"
                         )
                     sync_info.stmts.append(s)
                     sync_info.min_N = min(sync_info.min_N, N)
@@ -119,8 +119,8 @@ class BarrierUsageAnalysis(LoopIR_Do):
                     s.name not in self.uses
                 ), "exocc internal error, invalid Fence Sym"
                 usage = BarrierUsage(None, s)
-                usage.Arrive = SyncInfo(sync_type.first_actor_kind, [s], 1, 1)
-                usage.Await = SyncInfo(sync_type.second_actor_kind, [s], 0, 0)
+                usage.Arrive = SyncInfo(sync_type.first_sync_tl, [s], 1, 1)
+                usage.Await = SyncInfo(sync_type.second_sync_tl, [s], 0, 0)
                 self.uses[s.name] = usage
                 assert usage.is_fence()
         elif hasattr(s, "body"):

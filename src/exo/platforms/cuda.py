@@ -6,14 +6,13 @@ from ..API import instr
 
 # Currently we import from the exo.spork directory,
 # which users shouldn't import directly.
-from ..spork.actor_kinds import (
-    cpu,
-    cuda_api,
-    cpu_cuda_api,
+from ..spork.timelines import (
+    cpu_in_order_instr,
     cuda_temporal,
-    cuda_classic,
-    sig_cpu,
-    sig_cuda_classic,
+    cuda_in_order,
+    cuda_in_order_instr,
+    cuda_sync_rmem_usage,
+    cuda_ram_usage,
 )
 from ..spork.async_config import CudaDeviceFunction, CudaAsync
 from ..spork.coll_algebra import (

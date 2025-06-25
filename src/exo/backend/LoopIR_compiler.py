@@ -29,15 +29,19 @@ from ..core.prelude import *
 from .win_analysis import WindowAnalysis
 from ..rewrite.range_analysis import IndexRangeEnvironment
 
-from ..spork.async_config import BaseAsyncConfig, CudaDeviceFunction, ActorKindAnalysis
+from ..spork.async_config import (
+    BaseAsyncConfig,
+    CudaDeviceFunction,
+    InstrTimelineAnalysis,
+)
 from ..spork.base_with_context import (
     BaseWithContext,
     is_if_holding_with,
     ExtWithContext,
 )
 from ..spork.loop_modes import LoopMode, Seq, Par, _CodegenPar
-from ..spork import actor_kinds
 from ..spork.barrier_usage import BarrierUsage, BarrierUsageAnalysis, SyncInfo
+from ..spork import timelines
 from ..spork.cuda_backend import loopir_lower_cuda, h_snippet_for_cuda
 from ..spork import excut
 
@@ -459,14 +463,14 @@ def ext_compile_to_strings(lib_name, proc_list):
             p = PrecisionAnalysis().run(p)
             p = WindowAnalysis().apply_proc(p)
             p = MemoryAnalysis().run(p)
-            actor_kind_analysis = ActorKindAnalysis()
-            p = actor_kind_analysis.run(p)
+            instr_tl_analysis = InstrTimelineAnalysis()
+            p = instr_tl_analysis.run(p)
             barrier_uses: Optional[Dict[Sym, BarrierUsage]]
             barrier_uses = None
             proc_uses_cuda = (
-                actor_kinds.cuda_classic in actor_kind_analysis.actor_kinds_seen
+                timelines.cuda_in_order_instr in instr_tl_analysis.instr_tl_seen
             )
-            if actor_kind_analysis.contains_sync:
+            if instr_tl_analysis.contains_sync:
                 # Don't force non-CUDA Exo users to waste time here
                 barrier_usage_analysis = BarrierUsageAnalysis(p)
                 barrier_uses = barrier_usage_analysis.uses
