@@ -778,6 +778,7 @@ module ArrayDomain {
 
     val   = SubVal(vabs av)
           | ArrayVar(sym name, expr* idx)
+          | ScalarExpr(expr poly)
 }
 """,
     ext_types={
@@ -1068,6 +1069,9 @@ class Abs_Rewrite:
         if isinstance(val, D.SubVal):
             return val  # nothing inside to touch
 
+        if isinstance(val, D.ScalarExpr):
+            return D.ScalarExpr(self.map_expr(val.poly))
+
         if isinstance(val, D.ArrayVar):
             return D.ArrayVar(val.name, [self.map_expr(i) for i in val.idx])
 
@@ -1107,8 +1111,13 @@ class ASubs(Abs_Rewrite):
         for var, old_val in sample.items():
 
             if var not in self._env:
+                # print(f"type(old_val): {type(old_val)}, old_val: {old_val}")
                 # coordinate unchanged – just push Σ into the value
-                new_s[var] = old_val.xreplace(self._env)
+                # new_s[var] = old_val.xreplace(self._env)
+                expr = (
+                    sm.sympify(old_val) if not hasattr(old_val, "xreplace") else old_val
+                )
+                new_s[var] = expr.xreplace(self._env)
                 continue
 
             rhs = self._env[var]  # Σ(var)
@@ -1131,8 +1140,11 @@ class ASubs(Abs_Rewrite):
 class AbstractInterpretation(ABC):
     def __init__(self, proc: DataflowIR.proc):
         self.proc = proc
+        # print(proc)
         # set of "original" arrays of proc arguments. We need this to distinguish ArrayVars from Top
         self.avars = set()
+        # set of scalar variables defined in the current scope!
+        self.svars = set()
         self.sym_table = proc.sym_table
         self.fix_proc(self.proc)
 
@@ -1142,7 +1154,10 @@ class AbstractInterpretation(ABC):
         for a in proc.args:
             sym = sm.Symbol(a.name.__repr__())
             self.sym_table[sym] = a.name
-            self.avars.add(sym)
+            if len(a.hi) > 0:
+                self.avars.add(sym)
+            else:
+                self.svars.add(sym)
 
         # TODO: FIXME: Do we need to use precondition assertions?
 
@@ -1177,11 +1192,17 @@ class AbstractInterpretation(ABC):
             lhs_name = sm.Symbol(stmt.lhs.__repr__())
             self.sym_table[lhs_name] = stmt.lhs
 
+            # print()
+            # print(stmt)
+            a_body = self.fix_expr(body, env)
+            # print(a_body)
+            a_orelse = self.fix_expr(stmt.orelse, env)
+            # print(a_orelse)
             env[lhs_name] = self.abs_ternary(
                 gens,
                 stmt.cond,
-                self.fix_expr(body, env),
-                self.fix_expr(stmt.orelse, env),
+                a_body,
+                a_orelse,
             )
 
         elif isinstance(stmt, DataflowIR.Pass):
@@ -1199,6 +1220,7 @@ class AbstractInterpretation(ABC):
         elif isinstance(stmt, DataflowIR.For):
 
             itr_sym = sm.Symbol(stmt.iter.__repr__())
+            self.svars.add(itr_sym)
 
             pre_env = dict()
             self.fix_stmts(stmt.body, env)
@@ -1208,6 +1230,7 @@ class AbstractInterpretation(ABC):
             count = 0
             while True:
 
+                # print(f"count: {count}")
                 # fixpoint iteration
                 tmp_env = pre_env.copy()
                 self.fix_stmts(stmt.body, tmp_env)
@@ -1220,7 +1243,13 @@ class AbstractInterpretation(ABC):
                     ):  # should be just executed once!! recover env from the first iteration!
                         continue
 
+                    print()
+                    print(nm)
+                    print(pre_env[nm])
+                    print(val)
+
                     if self.issubsetof(val, pre_env[nm]):
+                        print(f"{nm} reached fixpoint")
                         continue
 
                     w_res = self.abs_widening(pre_env[nm], val, count, itr_sym)
@@ -1237,6 +1266,7 @@ class AbstractInterpretation(ABC):
 
                 count += 1
 
+            self.svars.remove(itr_sym)
             for nm, val in pre_env.items():
                 env[nm] = val
 
@@ -1255,10 +1285,12 @@ class AbstractInterpretation(ABC):
             return self.abs_usub(e.arg)
 
         elif isinstance(e, DataflowIR.BinOp):
-            return self.abs_binop(e.op, e.lhs, e.rhs)
+            lhs = self.fix_expr(e.lhs, env)
+            rhs = self.fix_expr(e.rhs, env)
+            return self.abs_binop(e.op, lhs, rhs)
 
         elif isinstance(e, DataflowIR.Extern):
-            return self.abs_extern(e.f, e.args)
+            return self.abs_extern(e, env)
 
         elif isinstance(e, DataflowIR.StrideExpr):
             return self.abs_stride(e.name, e.dim)
@@ -1289,7 +1321,7 @@ class AbstractInterpretation(ABC):
         """Approximate the binop"""
 
     @abstractmethod
-    def abs_extern(self, func: Extern, args: list):
+    def abs_extern(self, func):
         """Approximate the extern"""
 
     @abstractmethod

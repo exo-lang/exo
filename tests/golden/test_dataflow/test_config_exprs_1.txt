@@ -1,0 +1,4 @@
+def foo(x : f32, y : f32, ConfigAB_a : f32):
+  ConfigAB_a_1 = \phi(True ? x + y : x + y)
+------------------------ ConfigAB_a_1 : (var)
+                         x + y

@@ -334,6 +334,9 @@ def _print_val(val, env):
         )
         return f"{env.get_name(val.name)}{idxs}"
 
+    if isinstance(val, D.ScalarExpr):
+        return f"{_expr_str(val.poly, env)}"
+
     raise TypeError(f"unknown val variant {type(val)}")
 
 

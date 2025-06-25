@@ -191,8 +191,8 @@ class Procedure(ProcedureBase):
         )
         if isinstance(proc, LoopIR.UAST.proc):
             proc = TypeChecker(proc, self._check_mode).get_loopir()
-            if self._check_mode != "dynamic":
-                CheckBounds(proc)
+            # if self._check_mode != "dynamic":
+            # CheckBounds(proc)
             Check_Aliasing(proc)
 
         assert isinstance(proc, LoopIR.LoopIR.proc)

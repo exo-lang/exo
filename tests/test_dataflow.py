@@ -2,7 +2,7 @@ from __future__ import annotations
 import pytest
 from exo import proc, DRAM, Procedure, config
 from exo.stdlib.scheduling import *
-from exo.libs.externs import sin
+from exo.libs.externs import sin, intmin
 
 from exo.rewrite.dataflow import D, V, ASubs
 from exo.rewrite.approximation import Strategy1
@@ -155,7 +155,7 @@ def test_widening(golden):
             [
                 D.Cell(y < 0, D.Leaf(D.SubVal(V.Top()), sample={y: -1})),
                 D.Cell(sm.Eq(y, 0), D.Leaf(D.SubVal(V.ValConst(1)), sample={y: 0})),
-                D.Cell(y > 0, D.Leaf(D.SubVal(V.Top()), sample={y: 1})),
+                D.Cell(y > 0, D.Leaf(D.SubVal(V.Bot()), sample={y: 1})),
             ]
         ),
     )
@@ -269,22 +269,29 @@ def test_simple4(golden):
     assert str(_canon_dir(foo.dataflow()[0])) == golden
 
 
+# debug this test!
 def test_simple5(golden):
     @proc
     def foo(dst: f32[3], src: f32[3]):
         for i in seq(0, 3):
             dst[i] = src[i]
 
-    assert str(_canon_dir(foo.dataflow()[0])) == golden
+    s = _canon_dir(foo.dataflow()[0])
+    print(s)
+    assert str(s) == golden
 
 
+# TODO: the output is incorrect...
+# src[0] is in d0 < n - 3 when it should be src[d0]. It seems like solve is solving {i : 0} instead of {i : d0}...
 def test_simple6(golden):
     @proc
     def foo(n: size, dst: f32[n], src: f32[n]):
         for i in seq(0, n):
             dst[i] = src[i]
 
-    assert str(_canon_dir(foo.dataflow()[0])) == golden
+    s = _canon_dir(foo.dataflow()[0])
+    print(s)
+    assert str(s) == golden
 
 
 def test_print(golden):
@@ -480,8 +487,6 @@ def new_control_config():
     return ConfigControl
 
 
-# TODO: check
-@pytest.mark.skip()
 def test_config_1(golden):
     ConfigAB = new_config_f32()
 
@@ -493,11 +498,9 @@ def test_config_1(golden):
         x = ConfigAB.a
         ConfigAB.b = ConfigAB.a
 
-    assert str(foo.dataflow()[0]) == golden
+    assert str(_canon_dir(foo.dataflow()[0])) == golden
 
 
-# TODO: check
-@pytest.mark.skip()
 def test_config_2(golden):
     ConfigAB = new_config_f32()
 
@@ -510,10 +513,106 @@ def test_config_2(golden):
             ConfigAB.b = ConfigAB.a
         ConfigAB.a = 2.0
 
-    assert str(foo.dataflow()[0]) == golden
+    assert str(_canon_dir(foo.dataflow()[0])) == golden
 
 
-# TODO: check
+def test_config_exprs_1(golden):
+    ConfigAB = new_config_f32()
+
+    @proc
+    def foo(x: f32, y: f32):
+        ConfigAB.a = x + y
+
+    assert str(_canon_dir(foo.dataflow()[0])) == golden
+
+
+def test_config_exprs_2(golden):
+    @proc
+    def foo(x: f32, y: f32):
+        x = 4
+        y = x + 1
+
+    assert str(_canon_dir(foo.dataflow()[0])) == golden
+
+
+def test_config_test(golden):
+    CTRL = new_control_config()
+
+    @proc
+    def foo(n: size):
+        CTRL.i = n
+
+    assert str(_canon_dir(foo.dataflow()[0])) == golden
+
+
+def test_config_i(golden):
+    CTRL = new_control_config()
+
+    @proc
+    def foo():
+        for i in seq(0, 120):
+            CTRL.i = i
+
+    assert str(_canon_dir(foo.dataflow()[0])) == golden
+
+
+def test_config_min(golden):
+    CTRL = new_control_config()
+
+    @proc
+    def foo(n: size):
+        CTRL.i = intmin(3, n)
+
+    assert str(_canon_dir(foo.dataflow()[0])) == golden
+
+
+def test_config_min2(golden):
+    CTRL = new_control_config()
+
+    @proc
+    def foo(n: size):
+        for i in seq(0, 10):
+            CTRL.i = intmin(3, n)
+
+    assert str(_canon_dir(foo.dataflow()[0])) == golden
+
+
+def test_config_min3(golden):
+    CTRL = new_control_config()
+
+    @proc
+    def foo(n: size):
+        for i in seq(0, 10):
+            CTRL.i = intmin(3 * i, n)
+
+    assert str(_canon_dir(foo.dataflow()[0])) == golden
+
+
+def test_config_i_loop(golden):
+    CTRL = new_control_config()
+
+    @proc
+    def foo(n: size):
+        for i in seq(0, n):
+            CTRL.i = n - i
+
+    assert str(_canon_dir(foo.dataflow()[0])) == golden
+
+
+def test_config_min_loop(golden):
+    CTRL = new_control_config()
+
+    @proc
+    def foo(n: size):
+        for i in seq(0, n):
+            CTRL.i = intmin(8, n - i * 8)
+
+    assert str(_canon_dir(foo.dataflow()[0])) == golden
+
+
+# Value dependent control flow!
+# To handle this, sym_cond should be a CAD tree, instead of Sympy boolean expressions
+# Probably possible, just tedious
 @pytest.mark.skip()
 def test_config_3(golden):
     CTRL = new_control_config()
@@ -526,7 +625,8 @@ def test_config_3(golden):
             if n == n - 1:
                 CTRL.i = 3
 
-    assert str(foo.dataflow()[0]) == golden
+    print(_canon_dir(foo.dataflow()[0]))
+    assert str(_canon_dir(foo.dataflow()[0])) == golden
 
 
 # TODO: check

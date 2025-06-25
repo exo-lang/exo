@@ -1,0 +1,15 @@
+def foo(n : size, ConfigControl_i : index):
+  for i in seq(0, n):
+    ConfigControl_i_1 =\i \phi(i == 0 ? ConfigControl_i : ConfigControl_i_2[i - 1]) # LoopStart
+    ConfigControl_i_2 =\i \phi(True ? n - i : n - i)
+  ConfigControl_i_3 = \phi(n > 0 ? ConfigControl_i_2[n - 1] : ConfigControl_i) # LoopExit
+------------------------ ConfigControl_i_1 : (var i)
+                         │   i < 0 ⟨i=-1⟩ -i + n + 1
+                         │   i = 0 ⟨i=0⟩ ConfigControl_i
+                         │   i > 0 ⟨i=1⟩ -i + n + 1
+                         ConfigControl_i_2 : (var i)
+                         -i + n
+                         ConfigControl_i_3 : (var n)
+                         │   n < 0 ⟨n=-1⟩ ConfigControl_i
+                         │   n = 0 ⟨n=0⟩ ConfigControl_i
+                         │   n > 0 ⟨n=1⟩ 1

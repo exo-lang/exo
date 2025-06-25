@@ -1,0 +1,4 @@
+def foo(n : size, ConfigControl_i : index):
+  ConfigControl_i_1 = \phi(True ? n : n)
+------------------------ ConfigControl_i_1 : (var)
+                         n

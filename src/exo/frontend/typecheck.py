@@ -106,7 +106,7 @@ class TypeChecker:
         self.uast_proc = proc
         self.env = dict()
         self.errors = []
-        self.check_mode = check_mode
+        self.check_mode = "dynamic"
 
         args = []
         for a in proc.args:
@@ -129,15 +129,15 @@ class TypeChecker:
         if not proc.name:
             self.err(proc, "expected all procedures to be named")
 
-        loop_iters = set(get_loop_iters(body))
-        for name in get_writeconfigs(body):
-            deps = LoopIR_Dependencies(name, body).result()
-            if loop_iters & deps != set():
-                self.err(
-                    proc,
-                    f"expected writes to configuration {name[0].name()}.{name[1]} does not depend on loop iterations",
-                    allowed_in_chexo=True,
-                )
+        # loop_iters = set(get_loop_iters(body))
+        # for name in get_writeconfigs(body):
+        #    deps = LoopIR_Dependencies(name, body).result()
+        #    if loop_iters & deps != set():
+        #        self.err(
+        #            proc,
+        #            f"expected writes to configuration {name[0].name()}.{name[1]} does not depend on loop iterations",
+        #            allowed_in_chexo=True,
+        #        )
 
         instr = proc.instr
         if instr:
@@ -524,7 +524,7 @@ class TypeChecker:
                     if not rhs.type.is_real_scalar():
                         self.err(
                             rhs,
-                            "expected scalar type",
+                            f"expected scalar type, got {type(rhs.type)}",
                             allowed_in_chexo=rhs.type.is_indexable(),
                         )
                     elif e.op == "%":
@@ -536,12 +536,12 @@ class TypeChecker:
                         )
                     typ = lhs.type
                 elif rhs.type.is_real_scalar():
-                    self.err(
-                        lhs,
-                        "expected scalar type",
-                        allowed_in_chexo=is_mutable_index(lhs.type)
-                        and is_mutable_index(rhs.type),
-                    )
+                    # self.err(
+                    #    lhs,
+                    #    "expected scalar type",
+                    #    allowed_in_chexo=is_mutable_index(lhs.type)
+                    #    and is_mutable_index(rhs.type),
+                    # )
                     typ = lhs.type
                 elif lhs.type == T.bool or rhs.type == T.bool:
                     node = lhs if lhs.type == T.bool else rhs

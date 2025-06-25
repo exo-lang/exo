@@ -4,13 +4,13 @@ def foo(x : f32, y : f32, ConfigAB_a : f32, ConfigAB_b : f32):
   ConfigAB_b_1 = \phi(True ? 3.0 : 3.0)
   x_1 = \phi(True ? ConfigAB_a_2 : x)
   ConfigAB_b_2 = \phi(True ? ConfigAB_a_2 : ConfigAB_a_2)
------------------------- ConfigAB_a_1 : 
-                             - ConfigAB_a
-                         ConfigAB_a_2 : 
-                             - 1.0
-                         ConfigAB_b_1 : 
-                             - 3.0
-                         x_1 : 
-                             - 1.0
-                         ConfigAB_b_2 : 
-                             - 1.0
+------------------------ ConfigAB_a_1 : (var)
+                         ConfigAB_a
+                         ConfigAB_a_2 : (var)
+                         1.0
+                         ConfigAB_b_1 : (var)
+                         3.0
+                         x_1 : (var)
+                         1.0
+                         ConfigAB_b_2 : (var)
+                         1.0
