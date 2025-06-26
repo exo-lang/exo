@@ -312,6 +312,14 @@ class TypeChecker:
                     )
                 name = bar.name
                 idx = bar.idx
+                typ = bar.type
+                dim = len(bar.type.hi)
+                if dim != len(idx):
+                    str_idx = "[" + ", ".join(str(x) for x in idx) + "]"
+                    self.err(
+                        bar,
+                        f"Allocated barriers {name} @ {typ} has dimension {dim}; mismatches idx={str_idx}",
+                    )
             else:
                 name = Sym("Fence")  # Sym as internal unique ID for Fence.
                 idx = []
@@ -681,15 +689,11 @@ class TypeChecker:
         UAST.Size: T.size,
         UAST.Index: T.index,
         UAST.Stride: T.stride,
-        UAST.Barrier: T.barrier,
     }
 
     def check_t(self, typ):
-        if type(typ) in TypeChecker._typ_table:
-            return TypeChecker._typ_table[type(typ)]
-        elif isinstance(typ, UAST.Tensor):
+        def check_hi():
             hi = [self.check_e(h, is_index=True) for h in typ.hi]
-            sub_typ = self.check_t(typ.type)
             for h in hi:
                 if not h.type.is_indexable():
                     self.err(
@@ -697,6 +701,14 @@ class TypeChecker:
                         "expected array size expression "
                         "to have type 'size' or type 'index'",
                     )
-            return T.Tensor(hi, typ.is_window, sub_typ)
+            return hi
+
+        if type(typ) in TypeChecker._typ_table:
+            return TypeChecker._typ_table[type(typ)]
+        elif isinstance(typ, UAST.Tensor):
+            sub_typ = self.check_t(typ.type)
+            return T.Tensor(check_hi(), typ.is_window, sub_typ)
+        elif isinstance(typ, UAST.Barrier):
+            return T.Barrier(check_hi())
         else:
             assert False, "bad case"

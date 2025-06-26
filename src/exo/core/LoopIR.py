@@ -158,7 +158,7 @@ module LoopIR {
                        sym src_buf, w_access *idx )
          -- Spork (Exo-GPU) extensions
          | WithContext()
-         | Barrier()
+         | Barrier( expr* hi )
 
     -- Dense tensor: Tensor(is_window = False)
     -- Window parameter (of proc): Tensor(is_window = True)
@@ -262,7 +262,7 @@ module UAST {
             | Stride()
             | Tensor( expr *hi, bool is_window, type type )
             | WithContext()
-            | Barrier()
+            | Barrier( expr *hi )
 } """,
     ext_types={
         "name": validators.instance_of(Identifier, convert=True),
@@ -377,7 +377,7 @@ module CIR {
 @extclass(UAST.INT32)
 @extclass(UAST.Barrier)
 def shape(t):
-    shp = t.hi if isinstance(t, UAST.Tensor) else []
+    shp = t.hi if isinstance(t, (UAST.Tensor, UAST.Barrier)) else []
     return shp
 
 
@@ -388,6 +388,8 @@ del shape
 def basetype(t):
     if isinstance(t, UAST.Tensor):
         t = t.type
+    elif isinstance(t, UAST.Barrier):
+        t = UAST.Barrier([])
     return t
 
 
@@ -425,6 +427,7 @@ class T:
     Error = LoopIR.Error
     Tensor = LoopIR.Tensor
     Window = LoopIR.WindowType
+    Barrier = LoopIR.Barrier
     WithContextT = LoopIR.WithContext
     type = LoopIR.type
     R = Num()
@@ -447,8 +450,7 @@ class T:
     err = Error()
     # Spork extensions
     with_context = WithContextT()
-    Barrier = LoopIR.Barrier
-    barrier = Barrier()
+    barrier = LoopIR.Barrier([])
 
 
 # --------------------------------------------------------------------------- #
@@ -469,7 +471,21 @@ del as_tensor_type
 
 
 @extclass(T.Tensor)
+def shape(t):
+    assert not isinstance(t.type, T.Tensor), "expect no nesting"
+    return t.hi
+
+
+@extclass(T.Barrier)
+def shape(t):
+    return t.hi
+
+
 @extclass(T.Window)
+def shape(t):
+    return t.as_tensor.shape()
+
+
 @extclass(T.Num)
 @extclass(T.F16)
 @extclass(T.F32)
@@ -478,15 +494,8 @@ del as_tensor_type
 @extclass(T.UINT8)
 @extclass(T.UINT16)
 @extclass(T.INT32)
-@extclass(T.Barrier)
 def shape(t):
-    if isinstance(t, T.Window):
-        return t.as_tensor.shape()
-    elif isinstance(t, T.Tensor):
-        assert not isinstance(t.type, T.Tensor), "expect no nesting"
-        return t.hi
-    else:
-        return []
+    return []
 
 
 del shape
@@ -630,6 +639,8 @@ def basetype(t):
     elif isinstance(t, T.Tensor):
         assert not t.type.is_tensor_or_window()
         return t.type
+    elif isinstance(t, T.Barrier):
+        return T.barrier
     else:
         return t
 
@@ -958,6 +969,10 @@ class LoopIR_Rewrite:
                     as_tensor=new_as_tensor or t.as_tensor,
                     idx=new_idx or t.idx,
                 )
+        elif isinstance(t, T.Barrier):
+            new_hi = self.map_exprs(t.hi)
+            if new_hi is not None:
+                return t.update(hi=new_hi)
         return None
 
     @staticmethod
@@ -1058,7 +1073,7 @@ class LoopIR_Do:
             assert False, "bad case"
 
     def do_t(self, t):
-        if isinstance(t, T.Tensor):
+        if isinstance(t, (T.Tensor, T.Barrier)):
             for i in t.hi:
                 self.do_e(i)
         elif isinstance(t, T.Window):
@@ -1175,12 +1190,14 @@ class LoopIR_Compare:
             assert False, "bad case"
 
     def match_t(self, t1, t2):
-        if isinstance(t1, LoopIR.Tensor):
+        if isinstance(t1, LoopIR.Tensor) and isinstance(t2, LoopIR.Tensor):
             return (
                 t1.is_window == t2.is_window
                 and self.match_t(t1.type, t2.type)
                 and all(self.match_e(i1, i2) for i1, i2 in zip(t1.hi, t2.hi))
             )
+        elif isinstance(t1, LoopIR.Barrier) and isinstance(t2, LoopIR.Barrier):
+            return all(self.match_e(i1, i2) for i1, i2 in zip(t1.hi, t2.hi))
         else:  # scalar
             return type(t1) == type(t2)
 

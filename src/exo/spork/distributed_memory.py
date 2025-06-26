@@ -271,16 +271,15 @@ class DistributedIdxFsm:
             self.bad_idx(node, f"`{iter_sym}` not from {self.loop_mode_name} loop")
 
         shape = typ.shape()
-        if shape:  # TODO remove this backdoor. Shape check should be mandatory
-            const_extent = None
-            if isinstance(e := shape[i], LoopIR.Const):
-                const_extent = e.val
-            tile_count = iter_info.coll_tiling.tile_count
-            if tile_count != const_extent:
-                self.bad_idx(
-                    node,
-                    f"`{iter_sym}` range [0, {tile_count}] mismatches extent `{shape[i]}` in {typ}",
-                )
+        const_extent = None
+        if i < len(shape) and isinstance(e := shape[i], LoopIR.Const):
+            const_extent = e.val
+        tile_count = iter_info.coll_tiling.tile_count
+        if tile_count != const_extent:
+            self.bad_idx(
+                node,
+                f"`{iter_sym}` range [0, {tile_count}] mismatches extent `{shape[i]}` in {typ}",
+            )
 
         # Note we use the num_tile_threads, not num_box_threads, throughout
         # this analysis, because we care about dividing the "ownership" of
