@@ -96,6 +96,7 @@ class SubtreeScan(LoopIR_Do):
         "grid_constant_syms",
         "scalar_ref_syms",
         #
+        "_local_envtyp",
         "_syms_needed",
         "_stmt_stack",
         "_coll_env",
@@ -132,6 +133,7 @@ class SubtreeScan(LoopIR_Do):
     grid_constant_syms: Set[Sym]
     scalar_ref_syms: Set[Sym]
 
+    _local_envtyp: Dict[Sym, LoopIR.type]
     _syms_needed: Set[Sym]
     _stmt_stack: List[LoopIR.stmt]
     _coll_env: Dict[CollParam, int]
@@ -244,6 +246,7 @@ class SubtreeScan(LoopIR_Do):
         # We seed the analysis of the collective units with the tiling
         # for the top-level collective (clusterDim x blockDim,
         # with redundant clusterDim removed if clusterDim = 1).
+        self._local_envtyp = {}
         self._syms_needed = set()
         self._stmt_stack = []
         self._coll_env = coll_env
@@ -284,7 +287,7 @@ class SubtreeScan(LoopIR_Do):
             # For Tensors, we need to pass the sizes explicitly to the device
             # TODO: WindowType ignored here -- could fail for some cases?
             try:
-                typ = ctx.sym_type(sym)
+                typ = self.sym_type(sym)
                 if isinstance(typ, LoopIR.Tensor):
                     for e in typ.hi:
                         getter = GetReads()
@@ -301,7 +304,7 @@ class SubtreeScan(LoopIR_Do):
             self.device_args_syms.append(sym)
             if issubclass(ctx.sym_mem(sym), CudaGridConstant):
                 self.grid_constant_syms.add(sym)
-            elif ctx.sym_type(sym).is_real_scalar():
+            elif self.sym_type(sym).is_real_scalar():
                 # elif ensures not added if grid constant
                 self.scalar_ref_syms.add(sym)
 
@@ -324,16 +327,16 @@ class SubtreeScan(LoopIR_Do):
                 # We don't mangle syms in the device args struct.
                 # They will appear as exo_deviceArgs.{str(sym)} in CUDA code.
                 mem = ctx.sym_mem(sym)
-                fnarg = LoopIR.fnarg(sym, ctx.sym_type(sym), mem, s.srcinfo)
+                fnarg = LoopIR.fnarg(sym, self.sym_type(sym), mem, s.srcinfo)
                 ctx.append_fnarg_decl(
                     fnarg, str(sym), device_args_decls, device_args_comments
                 )
-                e = LoopIR.Read(sym, [], ctx.sym_type(sym), s.srcinfo)
+                e = LoopIR.Read(sym, [], self.sym_type(sym), s.srcinfo)
                 device_args_values.extend(ctx.fnarg_values(e, ctx.is_const(sym), False))
             else:
                 # Grid constants are passed as array or scalar by-value
                 c_arg = ctx.sym_c_name(sym)
-                typ = ctx.sym_type(sym)
+                typ = self.sym_type(sym)
                 if typ.is_win():
                     raise TypeError(
                         f"{s.srcinfo}: grid constant parameter {sym} "
@@ -373,6 +376,9 @@ class SubtreeScan(LoopIR_Do):
         device_args_struct_lines.append("    exo_ExcutDeviceLog exo_excutDeviceLog;")
         self.fmt_dict["device_args"] = ", ".join(device_args_values)
         self.fmt_dict["device_args_struct_body"] = "\n".join(device_args_struct_lines)
+
+    def sym_type(self, sym: Sym):
+        return self.ctx.sym_type(sym, self._local_envtyp)
 
     def do_s(self, s):
         # Save state
@@ -435,7 +441,10 @@ class SubtreeScan(LoopIR_Do):
                 raise TypeError(
                     f"{s.srcinfo}: unexpected loop mode {s.loop_mode.loop_mode_name()} in CudaDeviceFunction"
                 )
+        elif isinstance(s, LoopIR.WindowStmt):
+            self._local_envtyp[s.name] = s.rhs.type
         elif isinstance(s, LoopIR.Alloc):
+            self._local_envtyp[s.name] = s.type
             if s.type.is_barrier():
                 native_unit = None
             else:
@@ -479,7 +488,7 @@ class SubtreeScan(LoopIR_Do):
                 # There is no native_unit; we parse all indices as distributed
                 assert state.optional_native_unit is None
                 for i in range(len(s.idx)):
-                    fsm.consume_idx(s, i)
+                    fsm.consume_idx(s, self.sym_type(s.name), i)
 
                 # We now have the distributed indices in distributed_iters.
                 # Store in DistributedAllocState if this is the first use, or check
@@ -656,7 +665,7 @@ class SubtreeScan(LoopIR_Do):
         for i in range(len(node.idx)):
             if fsm.is_done(node):
                 break
-            fsm.consume_idx(node, i)
+            fsm.consume_idx(node, self.sym_type(node.name), i)
 
         # We only got the correct number of threads, not shape/alignment.
         # Check that the leaf tiling has the correct collective unit.

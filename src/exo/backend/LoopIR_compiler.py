@@ -1815,9 +1815,9 @@ class SporkLoweringCtx(object):
         assert isinstance(sym, Sym)
         return self._compiler.env[sym]
 
-    def sym_type(self, sym: Sym):
+    def sym_type(self, sym: Sym, overrides: Dict[Sym, LoopIR.type]):
         assert isinstance(sym, Sym)
-        return self._compiler.envtyp[sym]
+        return overrides.get(sym) or self._compiler.envtyp[sym]
 
     def sym_mem(self, sym: Sym):
         assert isinstance(sym, Sym)
