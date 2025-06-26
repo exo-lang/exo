@@ -1,0 +1,3 @@
+def foo(N: size, x: R[N] @ DRAM):
+    CFG.a = 3
+    CFG.b = CFG.a

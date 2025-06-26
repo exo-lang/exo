@@ -126,3 +126,17 @@ def test_lift_to_smt_n_linsplit(golden):
     # Expect top‑level Select
     assert isinstance(expr, A.Select)
     assert str(expr) == golden
+
+
+def test_smt():
+    v1 = sm.Eq(x, 3)
+    v2 = sm.Eq(y, 4)
+    e1 = lift_to_smt_a(v1, _env)
+    e2 = lift_to_smt_a(v2, _env)
+    ir1_k = A.Var(_env[x], T.int, null_srcinfo())
+    ir2_k = A.Var(_env[y], T.int, null_srcinfo())
+    is_unchanged = AImplies(AAnd(e1, e2), AEq(ir1_k, ir2_k))
+    print(is_unchanged)
+    slv = SMTSolver(verbose=False)
+    is_ok = slv.verify(is_unchanged)
+    print(is_ok)

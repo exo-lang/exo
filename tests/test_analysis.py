@@ -162,6 +162,40 @@ def test_reorder_loops_failing_seq():
 # rewrites are allowed or not.
 
 
+def test_delete_config_simple(golden):
+    @config
+    class CFG:
+        a: index
+        b: index
+
+    @proc
+    def foo(N: size, x: R[N]):
+        CFG.a = 3
+        CFG.a = 3
+        CFG.b = CFG.a
+
+    foo = delete_config(foo, "CFG.a = _ #1")
+    assert str(foo) == golden
+
+
+def test_delete_config_simple2():
+    @config
+    class CFG:
+        a: index
+        b: index
+
+    @proc
+    def foo(N: size, x: R[N]):
+        CFG.a = 4
+        CFG.a = 3
+        CFG.b = CFG.a
+
+    with pytest.raises(
+        SchedulingError, match="Cannot change configuration value of CFG_a"
+    ):
+        foo = delete_config(foo, "CFG.a = _ #1")
+
+
 def test_delete_config_basic(golden):
     @config
     class CFG:

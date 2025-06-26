@@ -4,7 +4,7 @@ from itertools import chain
 
 from ..core.LoopIR import Alpha_Rename, SubstArgs, LoopIR_Do
 from ..core.configs import reverse_config_lookup, Config
-from .new_analysis_core import *
+from .internal_analysis import *
 from ..core.proc_eqv import get_repr_proc
 from .dataflow import (
     D,
@@ -1466,7 +1466,7 @@ def Check_ReorderStmts(proc, s1, s2):
     assert isinstance(s1, LoopIR.stmt) and isinstance(s2, LoopIR.stmt)
 
     # TODO: remove: testing the compilation time
-    _, _, _ = dataflow_analysis(proc, [s1, s2])
+    # _, _, _ = dataflow_analysis(proc, [s1, s2])
 
     p = GetControlPredicates(proc, [s1, s2]).result()
 
@@ -1474,8 +1474,8 @@ def Check_ReorderStmts(proc, s1, s2):
     slv.push()
     slv.assume(AMay(p))
 
-    a1 = G(stmts_effs([s1]))
-    a2 = G(stmts_effs([s2]))
+    a1 = stmts_effs([s1])
+    a2 = stmts_effs([s2])
 
     pred = AAnd(Commutes(a1, a2), AllocCommutes(a1, a2))
     is_ok = slv.verify(pred)
@@ -1490,7 +1490,7 @@ def Check_ReorderLoops(proc, s):
     assert isinstance(s, LoopIR.For)
 
     # TODO: remove: testing the compilation time
-    _, _, _ = dataflow_analysis(proc, [s])
+    # _, _, _ = dataflow_analysis(proc, [s])
 
     p = GetControlPredicates(proc, [s]).result()
 
@@ -1518,8 +1518,8 @@ def Check_ReorderLoops(proc, s):
         + expr_effs(y_loop.lo)
         + expr_effs(y_loop.hi)
     )
-    a = G(stmts_effs(body))
-    a2 = G(stmts_effs(body2))
+    a = stmts_effs(body)
+    a2 = stmts_effs(body2)
 
     def bds(x, lo, hi):
         return AAnd(lift_e(lo) <= AInt(x), AInt(x) < lift_e(hi))
@@ -1569,7 +1569,7 @@ def Check_ParallelizeLoop(proc, s):
     assert isinstance(s, LoopIR.For)
 
     # TODO: remove: testing the compilation time
-    _, _, _ = dataflow_analysis(proc, [s])
+    # _, _, _ = dataflow_analysis(proc, [s])
 
     p = GetControlPredicates(proc, [s]).result()
 
@@ -1624,7 +1624,7 @@ def Check_ParallelizeLoop(proc, s):
 def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
 
     # TODO: remove: testing the compilation time
-    _, _, _ = dataflow_analysis(proc, [loop])
+    # _, _, _ = dataflow_analysis(proc, [loop])
 
     p = GetControlPredicates(proc, [loop]).result()
 
@@ -1713,21 +1713,25 @@ def Check_DeleteConfigWrite(proc, stmts):
     config_sym = stmts[0].config._INTERNAL_sym(stmts[0].field)
 
     ir1, d_stmts, d_syms = dataflow_analysis(proc, stmts, config_sym)
-    # ir1, d_stmts, d_syms = LoopIR_to_DataflowIR(proc, stmts, config_sym).result()
-    # assert len(d_stmts) == 1
-    # Strategy1(ir1)
 
     post_nm = d_stmts[0][0].lhs  # new config sym
     assert post_nm in d_syms
 
     prev_nm = d_syms[d_syms.index(post_nm) - 1]
 
+    # dirty
+    for k, v in ir1.sym_table.items():
+        if v == post_nm:
+            post_nm_sm = k
+        if v == prev_nm:
+            prev_nm_sm = k
+
     prev_val = (
-        lift_to_smt_n(prev_nm, ir1.body.ctxt[prev_nm].tree)
-        if prev_nm in ir1.body.ctxt
+        lift_to_smt_n(prev_nm, ir1.ctxt[prev_nm_sm].tree, ir1.sym_table)
+        if prev_nm_sm in ir1.ctxt
         else A.Const(True, T.bool, null_srcinfo())
     )
-    post_val = lift_to_smt_n(post_nm, ir1.body.ctxt[post_nm].tree)
+    post_val = lift_to_smt_n(post_nm, ir1.ctxt[post_nm_sm].tree, ir1.sym_table)
     cfg_mod = {pt.name: pt for pt in get_point_exprs(WrA)}
 
     # consider every writes
@@ -1808,12 +1812,10 @@ def Check_ExtendEqv2(proc1, proc2, stmts1, stmts2):
         ir2_k = A.Var(ir2_nm, T.int, null_srcinfo())
 
         is_unchanged = AImplies(AAnd(ir1_val, ir2_val), AEq(ir1_k, ir2_k))
-        print(is_unchanged)
 
         # if the value of the global might be read,
         # then it must not have been changed.
         safe_write = AImplies(AMay(is_read_post), ADef(is_unchanged))
-        print(safe_write)
         if not slv.verify(is_unchanged):
             slv.pop()
             raise SchedulingError(
@@ -1894,7 +1896,7 @@ def Check_ExprEqvInContext(proc, expr0, stmts0, expr1, stmts1=None):
     stmts1 = stmts1 or stmts0
 
     # TODO: remove: testing the compilation time
-    _, _, _ = dataflow_analysis(proc, [stmts1])
+    # _, _, _ = dataflow_analysis(proc, [stmts1])
 
     p0 = GetControlPredicates(proc, stmts0).result()
     p1 = GetControlPredicates(proc, stmts1).result()
@@ -1917,7 +1919,7 @@ def Check_BufferReduceOnly(proc, stmts, buf, ndim):
     assert len(stmts) > 0
 
     # TODO: remove: testing the compilation time
-    _, _, _ = dataflow_analysis(proc, [stmts])
+    # _, _, _ = dataflow_analysis(proc, [stmts])
 
     p = GetControlPredicates(proc, stmts).result()
 
@@ -1950,7 +1952,7 @@ def Check_Access_In_Window(proc, access_cursor, w_exprs, block_cursor):
     """
 
     # TODO: remove: testing the compilation time
-    _, _, _ = dataflow_analysis(proc, [])
+    # _, _, _ = dataflow_analysis(proc, [])
 
     access = access_cursor._node
     block = [x._node for x in block_cursor]
@@ -2031,7 +2033,7 @@ def Check_Bounds(proc, alloc_stmt, block):
         return
 
     # TODO: remove: testing the compilation time
-    _, _, _ = dataflow_analysis(proc, block)
+    # _, _, _ = dataflow_analysis(proc, block)
 
     p = GetControlPredicates(proc, block).result()
 
