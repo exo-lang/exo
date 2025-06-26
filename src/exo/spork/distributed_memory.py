@@ -9,7 +9,6 @@ from .coll_algebra import (
     CollUnit,
     CollIndexExpr,
     CollParam,
-    CollLoweringAdvice,
 )
 from .barrier_usage import BarrierUsage
 from .loop_modes import _CodegenPar
@@ -26,16 +25,17 @@ class ThreadIter:
     child_tile_num_threads: int
     thread_pitch: int
 
-    def __init__(self, coll_tiling: CollTiling, advice: CollLoweringAdvice):
+    def __init__(self, coll_tiling: CollTiling):
         self.codegen_par = _CodegenPar(
-            advice.coll_index.codegen(), (advice.lo, advice.hi)
+            coll_tiling.codegen_expr.codegen(),
+            (coll_tiling.codegen_lo, coll_tiling.codegen_hi),
         )
-        self.coll_index_expr = advice.coll_index
+        self.coll_index_expr = coll_tiling.tile_expr
         self.coll_tiling = coll_tiling
         assert isinstance(coll_tiling.parent, CollTiling)
         self.parent_tile_num_threads = coll_tiling.parent.tile_num_threads()
         self.child_tile_num_threads = coll_tiling.tile_num_threads()
-        self.thread_pitch = advice.thread_pitch
+        self.thread_pitch = coll_tiling.thread_pitch
 
     def cname(self, name):
         """Mangling convention for generated C variables"""

@@ -387,20 +387,9 @@ class CollIndexExpr(object):
 coll_index_0 = CollIndexExpr(0)
 
 
+@dataclass(slots=True)
 class CollTiling(object):
     """Immutable collective tiling. See collective algebra documentation."""
-
-    __slots__ = [
-        "parent",
-        "iter",
-        "full_domain",
-        "tile",
-        "offset",
-        "box",
-        "intra_box_exprs",
-        "tile_count",
-        "tile_expr",
-    ]
 
     parent: Optional[CollTiling]
     iter: object
@@ -411,6 +400,28 @@ class CollTiling(object):
     intra_box_exprs: Tuple[CollIndexExpr]
     tile_count: int
     tile_expr: CollIndexExpr
+    codegen_expr: CollIndexExpr
+    codegen_lo: Optional[int] = None
+    codegen_hi: Optional[int] = None
+    thread_pitch: int = 0
+
+    """Advice for lowering a collective tiling or specialization:
+
+    Translate the tile_expr to C code, and test
+    codegen_expr >= codegen_lo  [skip if lo is None]
+    codegen_expr < codegen_hi [skip if hi is None]
+
+    thread_pitch is the distance in # of threads between the 0th
+    thread in a thread collective and the 0th thread of the
+    next-adjacent thread collective in a tiling (Cf. "seat pitch")
+    This gives some notion of what "axis" the tiling is performed on,
+    separate from the size of the collective unit.  For example,
+    "adjacent warps in a CTA" has pitch 32, while
+    "warp 0 of each CTA in a cluster" has pitch blockDim.
+
+    thread_pitch = 0 when there are fewer than 2 tiles in the tiling.
+
+    """
 
     def __init__(
         self,
@@ -423,6 +434,10 @@ class CollTiling(object):
         intra_box_exprs,
         tile_count,
         tile_expr,
+        codegen_expr=coll_index_0,
+        codegen_lo=None,
+        codegen_hi=None,
+        thread_pitch=0,
     ):
         assert parent is None or isinstance(parent, CollTiling)
         self.parent = parent
@@ -445,6 +460,11 @@ class CollTiling(object):
         assert isinstance(tile_count, int)
         assert isinstance(tile_expr, CollIndexExpr)
 
+        self.codegen_expr = codegen_expr
+        self.codegen_lo = codegen_lo
+        self.codegen_hi = codegen_hi
+        self.thread_pitch = thread_pitch
+
     def __repr__(self):
         return f"CollTiling({self.parent!r}, {self.iter!r}, {self.full_domain!r}, {self.tile!r}, {self.offset!r}, {self.box!r}, {self.intra_box_exprs!r}, {self.tile_count!r}, {self.tile_expr!r})"
 
@@ -457,15 +477,13 @@ class CollTiling(object):
     ):
         """Tile the CollTiling with the given collective unit.
 
-        Returns (CollTiling, CollLoweringAdvice).
-        Produces the given number of tiles (or throws if not possible).
-        self is the parent of the resulting CollTiling.
+        Returns a new CollTiling with self as its parent.
 
+        Produces the given number of tiles (or throws if not possible).
         The _iter is passed through to the generated CollTiling
         ("iterator variable name").
 
         """
-        advice = CollLoweringAdvice()
 
         # Translate unit domain and tiling to concrete integers
         unit_domain = unit.int_domain(env)
@@ -493,6 +511,9 @@ class CollTiling(object):
         tiled_dim_idx = None
         max_tile_count = 1
         tile_remainder = 0
+        codegen_lo = None
+        codegen_hi = None
+        thread_pitch = 0
         for dim_idx, unit_box_coord in enumerate(unit_completion.new_size(unit_box)):
             domain_coord = common_domain[dim_idx]
             box_coord = old_box[dim_idx]
@@ -508,20 +529,20 @@ class CollTiling(object):
                 tile_remainder = box_coord % unit_box_coord
                 new_tile[dim_idx] = unit_box_coord
 
-                advice.coll_index = new_exprs[dim_idx] // unit_box_coord
+                coll_index = new_exprs[dim_idx] // unit_box_coord
                 new_exprs[dim_idx] = new_exprs[dim_idx] % unit_box_coord
 
                 if tile_remainder != 0 or max_tile_count != tiles_needed:
-                    advice.hi = tiles_needed
+                    codegen_hi = tiles_needed
 
                 if tiles_needed >= 2:
-                    advice.thread_pitch = unit_box_coord * prod(
+                    thread_pitch = unit_box_coord * prod(
                         common_domain[tiled_dim_idx + 1 :]
                     )
 
         if tiled_dim_idx is None:
-            advice.coll_index = coll_index_0
-            advice.hi = tiles_needed  # In case tiles_needed = 0
+            coll_index = coll_index_0
+            codegen_hi = tiles_needed  # In case tiles_needed = 0
 
         assert max_tile_count >= tiles_needed  # TODO message
 
@@ -530,28 +551,26 @@ class CollTiling(object):
         new_tile = tuple(new_tile)
         new_box = new_tile
 
-        return (
-            CollTiling(
-                new_parent,
-                _iter,
-                common_domain,
-                new_tile,
-                new_offset,
-                new_box,
-                new_exprs,
-                tiles_needed,
-                advice.coll_index,
-            ),
-            advice,
+        return CollTiling(
+            new_parent,
+            _iter,
+            common_domain,
+            new_tile,
+            new_offset,
+            new_box,
+            new_exprs,
+            tiles_needed,
+            coll_index,
+            coll_index,  # codegen_expr
+            codegen_lo,
+            codegen_hi,
+            thread_pitch,
         )
 
     def specialized(self, unit: CollUnit, lo: int, hi: int, env: Dict[CollParam, int]):
-        """Specialize the CollTiling.
+        """Specialize the CollTiling
 
-        Returns (CollTiling, CollLoweringAdvice).
-
-        self and the resulting CollTiling share a common parent."""
-        advice = CollLoweringAdvice()
+        self and the returned CollTiling share a common parent."""
 
         # Translate unit domain and tiling to concrete integers
         unit_domain = unit.int_domain(env)
@@ -580,6 +599,8 @@ class CollTiling(object):
         tiled_dim_idx = None
         stride = None
         tile_count = 1
+        codegen_lo = None
+        codegen_hi = None
         for dim_idx, unit_box_coord in enumerate(unit_completion.new_size(unit_box)):
             domain_coord = common_domain[dim_idx]
             box_coord = new_box[dim_idx]
@@ -596,35 +617,36 @@ class CollTiling(object):
                 assert 0 <= lo <= hi <= tile_count
 
                 tiled_dim_idx = dim_idx
-                advice.coll_index = new_exprs[dim_idx]  # before -= below
+                codegen_coll_index = new_exprs[dim_idx]  # before -= below
                 new_exprs[dim_idx] -= lo * unit_box_coord
                 new_offset[dim_idx] += lo * unit_box_coord
                 new_box[dim_idx] = (hi - lo) * unit_box_coord
 
                 if lo != 0:
-                    advice.lo = lo * unit_box_coord
+                    codegen_lo = lo * unit_box_coord
                 if hi != tile_count or tile_remainder != 0:
-                    advice.hi = hi * unit_box_coord
+                    codegen_hi = hi * unit_box_coord
 
         if tiled_dim_idx is None:
-            advice.coll_index = coll_index_0
+            codegen_coll_index = coll_index_0
             assert (lo, hi) == (0, 1)  # TODO message
 
         new_parent = self.parent
 
-        return (
-            CollTiling(
-                new_parent,
-                self.iter,
-                common_domain,
-                common_tile,
-                new_offset,
-                new_box,
-                new_exprs,
-                self.tile_count,
-                self.tile_expr,
-            ),
-            advice,
+        return CollTiling(
+            new_parent,
+            self.iter,
+            common_domain,
+            common_tile,
+            new_offset,
+            new_box,
+            new_exprs,
+            self.tile_count,
+            self.tile_expr,
+            codegen_coll_index,
+            codegen_lo,
+            codegen_hi,
+            self.thread_pitch,
         )
 
     def box_num_threads(self):
@@ -719,32 +741,6 @@ class CollTiling(object):
             return no_message or "domain completion failed: " + str(e)
 
         return False  # False => match
-
-
-@dataclass(slots=True)
-class CollLoweringAdvice:
-    """Advice for lowering a collective tiling or specialization
-
-    Translate the coll_index to C code, and test
-    coll_index >= lo  [skip if lo is None]
-    coll_index < hi [skip if hi is None]
-
-    thread_pitch is the distance in # of threads between the 0th
-    thread in a thread collective and the 0th thread of the
-    next-adjacent thread collective in a tiling (Cf. "seat pitch")
-    This gives some notion of what "axis" the tiling is performed on,
-    separate from the size of the collective unit.  For example,
-    "adjacent warps in a CTA" has pitch 32, while
-    "warp 0 of each CTA in a cluster" has pitch blockDim.
-
-    thread_pitch = 0 when there are fewer than 2 tiles in the tiling.
-
-    """
-
-    coll_index: CollIndexExpr = None
-    lo: Optional[int] = None
-    hi: Optional[int] = None
-    thread_pitch: int = 0
 
 
 class DomainCompletionError(Exception):

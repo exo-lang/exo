@@ -16,7 +16,6 @@ from .coll_algebra import (
     blockDim_param,
     CollIndexExpr,
     CollTiling,
-    CollLoweringAdvice,
     cuda_thread,
     cuda_warp,
     cuda_warpgroup,

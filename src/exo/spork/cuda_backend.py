@@ -28,7 +28,6 @@ from .coll_algebra import (
     blockDim_param,
     CollIndexExpr,
     CollTiling,
-    CollLoweringAdvice,
     cuda_thread,
     cuda_warp,
     cuda_warpgroup,
@@ -558,11 +557,16 @@ class SubtreeScan(LoopIR_Do):
         del ctx  # Don't accidentally use unadjusted values
         self._current_warp_name = name
 
-        self._coll_tiling, advice = self._coll_tiling.specialized(
+        new_tiling = self._coll_tiling.specialized(
             cuda_warp, adjusted_lo, adjusted_hi, self._coll_env
         )
+        self._coll_tiling = new_tiling
         self.cuda_warps_dfs_codegen.append(
-            _CodegenPar(advice.coll_index.codegen(), (advice.lo, advice.hi), name)
+            _CodegenPar(
+                new_tiling.codegen_expr.codegen(),
+                (new_tiling.codegen_lo, new_tiling.codegen_hi),
+                name,
+            )
         )
 
     def expect_SyncStmt(self, async_block, is_epilogue, first_sync_tl, second_sync_tl):
@@ -627,13 +631,14 @@ class SubtreeScan(LoopIR_Do):
         assert lo_int == 0
 
         # Update stored CollTiling
-        self._coll_tiling, advice = self._coll_tiling.tiled(
+        new_tiling = self._coll_tiling.tiled(
             s.iter, s.loop_mode.unit, hi_int, self._coll_env
         )
+        self._coll_tiling = new_tiling
 
         # We will advise replacing the loop mode with _CodegenPar
         assert s.iter not in self.thread_iters
-        self.thread_iters[s.iter] = ThreadIter(self._coll_tiling, advice)
+        self.thread_iters[s.iter] = ThreadIter(self._coll_tiling)
 
     def apply_idx(self, node, context_stmt):
         """Consistent distributed memory analysis"""
