@@ -179,7 +179,7 @@ class UAST_PPrinter:
             if isinstance(stmt, UAST.Pass):
                 self.addline("pass")
             elif isinstance(stmt, UAST.SyncStmt):
-                self.addline(stmt.sync_type.format_stmt(stmt.bar, stmt.lowered))
+                self.addline(stmt.sync_type.format_stmt(stmt.barriers, stmt.lowered))
             elif isinstance(stmt, UAST.Assign) or isinstance(stmt, UAST.Reduce):
                 op = "=" if isinstance(stmt, UAST.Assign) else "+="
 
@@ -258,7 +258,7 @@ class UAST_PPrinter:
             return f"-{self.pexpr(e.arg, prec=op_prec['~'])}"
         elif isinstance(e, UAST.LoopRange):
             return format_loop_cond(self.pexpr(e.lo), self.pexpr(e.hi), e.loop_mode)
-        elif isinstance(e, UAST.WindowExpr):
+        elif isinstance(e, (UAST.BarrierExpr, UAST.WindowExpr)):
 
             def pacc(w):
                 if isinstance(w, UAST.Point):
@@ -270,7 +270,13 @@ class UAST_PPrinter:
                 else:
                     assert False, "bad case"
 
-            return f"{self.get_name(e.name)}[{', '.join([pacc(w) for w in e.idx])}]"
+            s = f"{self.get_name(e.name)}[{', '.join([pacc(w) for w in e.idx])}]"
+
+            if isinstance(e, UAST.BarrierExpr):
+                s = ("-" if e.back else "+") + s
+            elif memwin := e.special_window:
+                s += " @ " + memwin.name()
+            return s
         elif isinstance(e, UAST.StrideExpr):
             return f"stride({self.get_name(e.name)}, {e.dim})"
         elif isinstance(e, UAST.Extern):
@@ -423,10 +429,12 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
         return [f"{indent}pass"]
 
     elif isinstance(stmt, LoopIR.SyncStmt):
-        bar = str(stmt.name)
-        if stmt.idx:
-            bar += "[" + ", ".join(str(n) for n in stmt.idx) + "]"
-        return [f"{indent}{stmt.sync_type.format_stmt(bar, stmt.lowered)}"]
+        s = f"{indent}{stmt.sync_type.format_stmt(stmt.barriers, stmt.lowered)}"
+        if not stmt.sync_type.is_split():
+            assert len(stmt.barriers) == 1
+            nm = stmt.barriers[0].name
+            s += f"  # {nm!r}"
+        return [s]
 
     elif isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
         op = "=" if isinstance(stmt, LoopIR.Assign) else "+="
@@ -527,6 +535,14 @@ def _print_expr(e, env: PrintEnv, prec: int = 0) -> str:
         # if we have a lower precedence than the environment...
         if local_prec < prec:
             s = f"({s})"
+        return s
+
+    elif isinstance(e, LoopIR.BarrierExpr):
+        name = env.get_name(e.name)
+        sign = "-" if e.back else "+"
+        s = f"{sign}{name}"
+        if e.idx:
+            s += f"[{', '.join([_print_w_access(w, env) for w in e.idx])}]"
         return s
 
     elif isinstance(e, LoopIR.WindowExpr):

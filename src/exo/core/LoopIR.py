@@ -104,10 +104,11 @@ module LoopIR {
          | Reduce( sym name, type type, expr* idx, expr rhs )
          | WriteConfig( config config, string field, expr rhs )
          | Pass()
-           -- name[idx]: user-visible barrier for arrive/await;
-           -- name: internal unique id for fence
+           -- Fence: barriers[0] is internal name of fence
+           -- Arrive: barriers: List[BarrierExpr]
+           -- Await: barriers = List[BarrierExpr] of length 1
            -- `lowered` used internally for lowering pass
-         | SyncStmt( sync_type sync_type, sym name, expr* idx, lowered_sync? lowered )
+         | SyncStmt( sync_type sync_type, expr* barriers, lowered_sync? lowered )
          | If( expr cond, stmt* body, stmt* orelse )
          | For( sym iter, expr lo, expr hi, stmt* body, loop_mode loop_mode )
          | Alloc( sym name, type type, allocable mem )
@@ -121,6 +122,7 @@ module LoopIR {
          | USub( expr arg )  -- i.e.  -(...)
          | BinOp( binop op, expr lhs, expr rhs )
          | Extern( extern f, expr* args )
+         | BarrierExpr( sym name, bool back, w_access* idx )
          | WindowExpr( sym name, w_access* idx )
          | StrideExpr( sym name, int dim )
          | ReadConfig( config config, string field )
@@ -225,7 +227,7 @@ module UAST {
             | WriteConfig ( config config, string field, expr rhs )
             | FreshAssign( sym name, expr rhs )
             | Pass    ()
-            | SyncStmt( sync_type sync_type, expr? bar, lowered_sync? lowered )
+            | SyncStmt( sync_type sync_type, expr* barriers, lowered_sync? lowered )
             | If      ( expr cond, stmt* body,  stmt* orelse )
             | For     ( sym iter,  expr cond,   stmt* body )
             | Alloc   ( sym name, type type, allocable? mem )
@@ -237,6 +239,7 @@ module UAST {
             | USub    ( expr arg ) -- i.e.  -(...)
             | BinOp   ( op op, expr lhs, expr rhs )
             | Extern( extern f, expr* args )
+            | BarrierExpr( sym name, bool back, w_access* idx )
             | WindowExpr( sym name, w_access* idx, special_window? special_window )
             | StrideExpr( sym name, int dim )
             | LoopRange( expr lo, expr hi, loop_mode loop_mode ) -- only use for loop cond
@@ -880,8 +883,12 @@ class LoopIR_Rewrite:
             new_type = self.map_t(s.type)
             if new_type:
                 return [s.update(type=new_type or s.type)]
-        elif isinstance(s, (LoopIR.Pass, LoopIR.SyncStmt)):
-            # TODO SyncStmt needs to update expressions
+        elif isinstance(s, LoopIR.SyncStmt):
+            new_barriers = self._map_list(self.map_e, s.barriers)
+            if new_barriers:
+                return s.update(barriers=new_barriers)
+            return None
+        elif isinstance(s, LoopIR.Pass):
             return None
         else:
             raise NotImplementedError(f"bad case {type(s)}")
@@ -922,7 +929,7 @@ class LoopIR_Rewrite:
                     arg=new_arg or e.arg,
                     type=new_type or e.type,
                 )
-        elif isinstance(e, LoopIR.WindowExpr):
+        elif isinstance(e, (LoopIR.WindowExpr, LoopIR.BarrierExpr)):
             new_idx = self._map_list(self.map_w_access, e.idx)
             new_type = self.map_t(e.type)
             if any((new_idx is not None, new_type)):
@@ -1015,7 +1022,6 @@ class LoopIR_Do:
             self.do_s(s)
 
     def do_s(self, s):
-        # TODO: SyncStmt
         styp = type(s)
         if styp is LoopIR.Assign or styp is LoopIR.Reduce:
             for e in s.idx:
@@ -1039,6 +1045,9 @@ class LoopIR_Do:
                 self.do_e(e)
         elif styp is LoopIR.Alloc:
             self.do_t(s.type)
+        elif styp is LoopIR.SyncStmt:
+            for e in s.barriers:
+                self.do_e(e)
         else:
             pass
 
@@ -1055,7 +1064,7 @@ class LoopIR_Do:
                 self.do_e(a)
         elif etyp is LoopIR.USub:
             self.do_e(e.arg)
-        elif etyp is LoopIR.WindowExpr:
+        elif etyp in (LoopIR.WindowExpr, LoopIR.BarrierExpr):
             for w in e.idx:
                 self.do_w_access(w)
         else:
@@ -1113,8 +1122,9 @@ class LoopIR_Compare:
         elif isinstance(s1, LoopIR.Pass):
             return True
         elif isinstance(s1, LoopIR.SyncStmt):
-            return self.match_name(s1.before, s2.before) and self.match_name(
-                s1.after, s2.after
+            # TODO test this
+            return s1.sync_type == s2.sync_type and all(
+                self.match_e(i1, i2) for i1, i2 in zip(s1.barriers, s2.barriers)
             )
         elif isinstance(s1, LoopIR.If):
             return (
@@ -1162,6 +1172,12 @@ class LoopIR_Compare:
             # TODO: check f equality
             return e1.f is e2.f and all(
                 self.match_e(a1, a2) for a1, a2 in zip(e1.args, e2.args)
+            )
+        elif isinstance(e1, LoopIR.BarrierExpr):
+            return (
+                self.match_name(e1.name, e2.name)
+                and e1.back == e2.back
+                and all(self.match_w_access(w1, w2) for w1, w2 in zip(e1.idx, e2.idx))
             )
         elif isinstance(e1, LoopIR.WindowExpr):
             return self.match_name(e1.name, e2.name) and all(
@@ -1381,6 +1397,7 @@ class FreeVars(LoopIR_Do):
         etyp = type(e)
         if (
             etyp is LoopIR.Read
+            or etyp is LoopIR.BarrierExpr
             or etyp is LoopIR.WindowExpr
             or etyp is LoopIR.StrideExpr
         ):
@@ -1436,18 +1453,17 @@ class Alpha_Rename(LoopIR_Rewrite):
             else:
                 return s2
         elif isinstance(s, LoopIR.SyncStmt):
-            s2 = super().map_s(s)
             if s.sync_type.is_split():
-                new_name = self.env.get(s.name)
+                return super().map_s(s)
             else:
                 # Fence(...) stmt does not refer to allocated barrier variable
-                # and we must unique-ify its internal barrier name.
-                new_name = s.name.copy()
-                self.env[s.name] = new_name
-            if new_name:
-                return [((s2 and s2[0]) or s).update(name=new_name)]
-            else:
-                return s2
+                # and we must unique-ify its internal barrier name regardless
+                # of self.env; hence we handle this here specially.
+                assert len(s.barriers) == 1
+                bar_expr = s.barriers[0]
+                new_name = bar_expr.name.copy()
+                self.env[bar_expr.name] = new_name
+                return s.update(barriers=[bar_expr.update(name=new_name)])
         elif isinstance(s, LoopIR.Alloc):
             s2 = super().map_s(s)
             assert s.name not in self.env
@@ -1479,7 +1495,9 @@ class Alpha_Rename(LoopIR_Rewrite):
         return super().map_s(s)
 
     def map_e(self, e):
-        if isinstance(e, (LoopIR.Read, LoopIR.WindowExpr, LoopIR.StrideExpr)):
+        if isinstance(
+            e, (LoopIR.Read, LoopIR.BarrierExpr, LoopIR.WindowExpr, LoopIR.StrideExpr)
+        ):
             e2 = super().map_e(e)
             if new_name := self.env.get(e.name):
                 return (e2 or e).update(name=new_name)
@@ -1749,7 +1767,7 @@ class LoopIR_Dependencies(LoopIR_Do):
             assert False, "bad case"
 
     def do_e(self, e):
-        if isinstance(e, (LoopIR.Read, LoopIR.WindowExpr)):
+        if isinstance(e, (LoopIR.Read, LoopIR.BarrierExpr, LoopIR.WindowExpr)):
 
             def visit_idx(e):
                 if isinstance(e, LoopIR.Read):

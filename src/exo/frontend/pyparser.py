@@ -1044,7 +1044,7 @@ class Parser:
             if isinstance(node, pyast.Name):
                 self.err(node, f"{node.id} not a valid type name")
             else:
-                self.err("Unquote computation did not yield valid type")
+                self.err(node, "Unquote computation did not yield valid type")
 
     def parse_stmt_block(self, stmts):
         assert isinstance(stmts, list)
@@ -1293,86 +1293,8 @@ class Parser:
                 rstmts.append(self.AST.If(cond, body, orelse, self.getsrcinfo(s)))
 
             # ----- SyncStmt or Sub-routine call parsing
-            elif (
-                isinstance(s, pyast.Expr)
-                and isinstance(s.value, pyast.Call)
-                and isinstance(s.value.func, pyast.Name)
-            ):
-                # Parsing special sync statement
-                if s.value.func.id in (
-                    "Fence",
-                    "Arrive",
-                    "ReverseArrive",
-                    "Await",
-                    "ReverseAwait",
-                ):
-                    rstmts.append(self.parse_SyncStmt_call(s.value))
-
-                # Parsing ordinary sub-routine
-                elif self.is_fragment:
-                    # handle stride expression
-                    if s.value.func.id == "stride":
-                        if (
-                            len(s.value.keywords) > 0
-                            or len(s.value.args) != 2
-                            or not isinstance(s.value.args[0], pyast.Name)
-                            or not isinstance(s.value.args[1], pyast.Constant)
-                            or not isinstance(s.value.args[1].value, int)
-                        ):
-                            self.err(
-                                s.value,
-                                "expected stride(...) to "
-                                "have exactly 2 arguments: the identifier "
-                                "for the buffer we are talking about "
-                                "and an integer specifying which dimension",
-                            )
-
-                        name = s.value.args[0].id
-                        dim = int(s.value.args[1].value)
-
-                        rstmts.append(
-                            PAST.StrideExpr(name, dim, self.getsrcinfo(s.value))
-                        )
-                    else:
-                        if len(s.value.keywords) > 0:
-                            self.err(
-                                s.value,
-                                "cannot call procedure() " "with keyword arguments",
-                            )
-
-                        args = [self.parse_expr(a) for a in s.value.args]
-
-                        rstmts.append(
-                            PAST.Call(s.value.func.id, args, self.getsrcinfo(s.value))
-                        )
-                else:
-                    f = self.eval_expr(s.value.func)
-                    kwargs = {
-                        kw.arg: self.eval_expr(kw.value) for kw in s.value.keywords
-                    }
-                    if isinstance(f, ProcedureBase):
-                        if kwargs:
-                            self.err(s.value.func, "Cannot take keyword arguments")
-                    else:
-                        # circular import
-                        from ..core.instr_class import InstrTemplate, InstrTemplateError
-
-                        if isinstance(f, InstrTemplate):
-                            try:
-                                f = f(**kwargs)
-                            except InstrTemplateError as e:
-                                self.err(s.value.func, str(e))
-                        else:
-                            self.err(
-                                s.value.func,
-                                f"expected called object to be a procedure or InstrTemplate",
-                            )
-
-                    args = [self.parse_expr(a) for a in s.value.args]
-
-                    rstmts.append(
-                        UAST.Call(f.INTERNAL_proc(), args, self.getsrcinfo(s.value))
-                    )
+            elif parsed := self.parse_if_call(s):
+                rstmts.append(parsed)
 
             # ----- Pass no-op parsing
             elif isinstance(s, pyast.Pass):
@@ -1392,9 +1314,103 @@ class Parser:
                     "predicate assert should happen at the beginning " "of a function",
                 )
             else:
-                self.err(s, "unsupported type of statement")
+                self.err(s, f"unsupported type of statement {type(s).__name__}")
 
         return rstmts
+
+    def parse_if_call(self, s):
+        """Return None if s doesn't look like a function call, otherwise return parsed"""
+        if isinstance(s, pyast.Expr):
+            s = s.value
+
+        # Parse trailing barrier expressions, if any.
+        barriers = []
+        while isinstance(s, pyast.BinOp):
+            op = s.op
+            if not isinstance(op, pyast.RShift):
+                self.err(
+                    s, f"Only >> BinOp supported at top level, not {type(op).__name__}"
+                )
+            s, bar = s.left, self.parse_barrier_expr(s.right)
+            barriers = [bar] + barriers  # O(n^2) but I expect few barriers
+
+        # Parse call, or quit if not
+        if isinstance(s, pyast.Call) and isinstance(s.func, pyast.Name):
+            fname = s.func.id
+        else:
+            if barriers:
+                self.err(s, "Only SyncStmt and Call can take >> trailing barrier exprs")
+            return None
+
+        # Parsing special sync statement
+        if fname == "Arrive":
+            sync_stmt = self.parse_SyncStmt_call(s)
+            sync_stmt = sync_stmt.update(barriers=barriers)
+            return sync_stmt
+        elif fname == "Fence" or fname == "Await":
+            sync_stmt = self.parse_SyncStmt_call(s)
+            return sync_stmt
+            if barriers:
+                self.err(f"{fname} cannot take >> trailing barrier exprs")
+
+        # Parsing ordinary sub-routine
+        elif self.is_fragment:
+            # handle stride expression
+            if fname == "stride":
+                if (
+                    len(s.keywords) > 0
+                    or len(s.args) != 2
+                    or not isinstance(s.args[0], pyast.Name)
+                    or not isinstance(s.args[1], pyast.Constant)
+                    or not isinstance(s.args[1].value, int)
+                ):
+                    self.err(
+                        s,
+                        "expected stride(...) to "
+                        "have exactly 2 arguments: the identifier "
+                        "for the buffer we are talking about "
+                        "and an integer specifying which dimension",
+                    )
+
+                name = s.args[0].id
+                dim = int(s.args[1].value)
+
+                return PAST.StrideExpr(name, dim, self.getsrcinfo(s))
+            else:
+                if len(s.keywords) > 0:
+                    self.err(
+                        s,
+                        "cannot call procedure() " "with keyword arguments",
+                    )
+
+                args = [self.parse_expr(a) for a in s.args]
+
+                return PAST.Call(fname, args, self.getsrcinfo(s))
+        else:
+            f = self.eval_expr(s.func)
+            kwargs = {kw.arg: self.eval_expr(kw.value) for kw in s.keywords}
+            if isinstance(f, ProcedureBase):
+                if kwargs:
+                    self.err(s.func, "Cannot take keyword arguments")
+            else:
+                # circular import
+                from ..core.instr_class import InstrTemplate, InstrTemplateError
+
+                if isinstance(f, InstrTemplate):
+                    try:
+                        f = f(**kwargs)
+                    except InstrTemplateError as e:
+                        self.err(s.func, str(e))
+                else:
+                    self.err(
+                        s.func,
+                        f"expected called object to be a procedure or InstrTemplate",
+                    )
+
+            args = [self.parse_expr(a) for a in s.args]
+
+            # TODO barriers
+            return UAST.Call(f.INTERNAL_proc(), args, self.getsrcinfo(s))
 
     # ----- With statement parsing for spork gpu (distinct from meta exo)
     def parse_spork_with(self, s, rstmts):
@@ -1595,6 +1611,31 @@ class Parser:
             )
 
         return UAST.Interval(lo, hi, srcinfo)
+
+    def parse_barrier_expr(self, e):
+        back = False
+        # Parse leading +/- if any
+        # + or missing means front (not back) queue barrier array.
+        # - means back queue barrier array.
+        if isinstance(e, pyast.UnaryOp):
+            if isinstance(e.op, pyast.UAdd):
+                pass
+            elif isinstance(e.op, pyast.USub):
+                back = True
+            else:
+                self.err(e, "Unexpected unary {type(e.op).__name__}")
+            e = e.operand
+        # Parse WindowExpr-like expression and translate to BarrierExpr
+        parsed = self.parse_expr(e)
+        if isinstance(parsed, UAST.WindowExpr):
+            nm = parsed.name
+            idx = parsed.idx
+        elif isinstance(parsed, UAST.Read):
+            nm = parsed.name
+            idx = [UAST.Point(pt, pt.srcinfo) for pt in parsed.idx]
+        else:
+            self.err(e, "expected window-like expression for barrier")
+        return UAST.BarrierExpr(nm, back, idx, parsed.srcinfo)
 
     # parse expressions, including values, indices, and booleans
     def parse_expr(self, e):
@@ -1891,47 +1932,36 @@ class Parser:
             else:
                 raise ParseError(f"Unknown keyword '{name}' for {func_id}()")
 
-        def unpack_arrive(is_reversed):
-            if len(ast_call.args) != 3:
-                self.err(ast_call, f"{func_id} expects 3 arguments")
-            N = self.eval_expr(ast_call.args[2])
-            if not isinstance(N, int):
-                self.err(ast_call, f"{func_id} N={N!r}; expected int")
-            sync_type = arrive_type(is_reversed, eval_sync_tl(ast_call.args[0]), N)
-            bar = self.parse_expr(ast_call.args[1])
-            return sync_type, bar
-
-        def unpack_await(is_reversed):
-            if len(ast_call.args) != 3:
-                self.err(ast_call, f"{func_id} expects 3 arguments")
-            N = self.eval_expr(ast_call.args[2])
-            if not isinstance(N, int):
-                self.err(ast_call, f"{func_id} N={N!r}; expected int")
-            sync_type = await_type(is_reversed, eval_sync_tl(ast_call.args[1]), N)
-            bar = self.parse_expr(ast_call.args[0])
-            return sync_type, bar
-
         if func_id == "Fence":
             if len(ast_call.args) != 2:
                 self.err(ast_call, f"{func_id} expects 2 arguments")
             sync_type = fence_type(
                 eval_sync_tl(ast_call.args[0]), eval_sync_tl(ast_call.args[1])
             )
-            bar = None
+            barriers = []
 
         elif func_id == "Arrive":
-            sync_type, bar = unpack_arrive(False)
-
-        elif func_id == "ReverseArrive":
-            sync_type, bar = unpack_arrive(True)
+            if len(ast_call.args) != 2:
+                self.err(ast_call, f"{func_id} expects 2 arguments")
+            N = self.eval_expr(ast_call.args[1])
+            if not isinstance(N, int):
+                self.err(ast_call, f"{func_id} N={N!r}; expected int")
+            sync_type = arrive_type(eval_sync_tl(ast_call.args[0]), N)
+            barriers = []
+            # Outer >> parser will fill barriers array.
 
         elif func_id == "Await":
-            sync_type, bar = unpack_await(False)
-
-        elif func_id == "ReverseAwait":
-            sync_type, bar = unpack_await(True)
+            if len(ast_call.args) != 3:
+                self.err(ast_call, f"{func_id} expects 3 arguments")
+            N = self.eval_expr(ast_call.args[2])
+            if not isinstance(N, int):
+                self.err(ast_call, f"{func_id} N={N!r}; expected int")
+            sync_type = await_type(eval_sync_tl(ast_call.args[1]), N)
+            barriers = [self.parse_barrier_expr(ast_call.args[0])]
 
         else:
             assert 0
 
-        return self.AST.SyncStmt(sync_type, bar, lowered, self.getsrcinfo(ast_call))
+        return self.AST.SyncStmt(
+            sync_type, barriers, lowered, self.getsrcinfo(ast_call)
+        )

@@ -27,21 +27,13 @@ class BarrierUsage:
 
     decl_stmt: LoopIR.stmt  # barrier alloc, or Fence
 
-    # Information for up to 4 types of SyncStmt.
-    # Fence() stmts are decomposed as an Arrive+Await
-    Arrive: Optional[SyncInfo] = None
-    Await: Optional[SyncInfo] = None
-    ReverseArrive: Optional[SyncInfo] = None
-    ReverseAwait: Optional[SyncInfo] = None
-
-    def paired_fname(self, sync_type):
-        """For pairing requirement
-
-        Arrive <-> Await if no usage of ReverseArrive & ReverseAwait
-        Otherwise, Arrive <-> ReverseAwait; ReverseArrive <-> Await
-
-        """
-        return sync_type.paired_fname(self.has_reverse())
+    # Information for Arrive/Await statements, split by usage
+    # of front (+name) and back (-name) queue barrier array.
+    # Fence() stmts are decomposed as an front_Arrive + Await
+    front_arrive: Optional[SyncInfo] = None
+    front_await: Optional[SyncInfo] = None
+    back_arrive: Optional[SyncInfo] = None
+    back_await: Optional[SyncInfo] = None
 
     def get_srcinfo(self):
         return self.decl_stmt.srcinfo
@@ -49,9 +41,9 @@ class BarrierUsage:
     def is_fence(self):
         return self.barrier_type is None
 
-    def has_reverse(self):
-        assert (self.ReverseArrive is None) == (self.ReverseAwait is None)
-        return self.ReverseArrive is not None
+    def has_back_array(self):
+        assert (self.back_arrive is None) == (self.back_await is None)
+        return self.back_arrive is not None
 
 
 class BarrierUsageAnalysis(LoopIR_Do):
@@ -119,8 +111,8 @@ class BarrierUsageAnalysis(LoopIR_Do):
                     s.name not in self.uses
                 ), "exocc internal error, invalid Fence Sym"
                 usage = BarrierUsage(None, s)
-                usage.Arrive = SyncInfo(sync_type.first_sync_tl, [s], 1, 1)
-                usage.Await = SyncInfo(sync_type.second_sync_tl, [s], 0, 0)
+                usage.front_arrive = SyncInfo(sync_type.first_sync_tl, [s], 1, 1)
+                usage.front_await = SyncInfo(sync_type.second_sync_tl, [s], 0, 0)
                 self.uses[s.name] = usage
                 assert usage.is_fence()
         elif hasattr(s, "body"):

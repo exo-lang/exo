@@ -405,7 +405,7 @@ class CudaMbarrier(CudaDeviceBarrier):
             negative_arrive=True,
             negative_await=True,
             uniform_await_N=True,
-            supports_reverse=True,
+            supports_back_array=True,
             requires_pairing=True,
             requires_arrive_first=False,
         )

@@ -303,7 +303,7 @@ class SyncStateBuilder:
             )
 
         # Number of physical mbarriers is slice_count * ring, where
-        # slice_count is the number of logical Exo barrier objects per CTA
+        # slice_count is the number of logical Exo queue barrier objects per CTA
         # (usually 1) and ring is the depth of the ring buffer.
         slice_count = coll_tilings.codegen_slices_to_root(
             self._blockDim(), thread_iters
