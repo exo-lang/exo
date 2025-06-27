@@ -31,6 +31,7 @@ class BarrierUsage:
     # Information for Arrive/Await statements, split by usage
     # of front (+name) and back (-name) queue barrier array.
     # Fence() stmts are decomposed as an front_arrive + front_await
+    # Index using constants in SyncType or get_{front|back}_{arrive|await}.
     sync_info: List[Optional[SyncInfo]]
 
     def __init__(self, s):
@@ -58,28 +59,17 @@ class BarrierUsage:
         assert (arrive_info is None) == (await_info is None)
         return arrive_info is not None
 
-    def get_sync_info(self, sync_type: SyncType, back: bool):
-        # Get info for Arrive/Await on front/back queue barrier array
-        return self.sync_info[sync_type.info_idx(back)]
-
-    def get_front_arrive(self):
+    def get_front_arrive(self) -> Optional[SyncInfo]:
         return self.sync_info[SyncType.front_arrive_idx]
 
-    def get_front_await(self):
+    def get_front_await(self) -> Optional[SyncInfo]:
         return self.sync_info[SyncType.front_await_idx]
 
-    def get_back_arrive(self):
+    def get_back_arrive(self) -> Optional[SyncInfo]:
         return self.sync_info[SyncType.back_arrive_idx]
 
-    def get_back_await(self):
+    def get_back_await(self) -> Optional[SyncInfo]:
         return self.sync_info[SyncType.back_await_idx]
-
-    def get_fence_info(self):
-        assert self.is_fence()
-        return (
-            self.sync_info[SyncType.front_arrive_idx],
-            self.sync_info[SyncType.front_await_idx],
-        )
 
     def visit_Arrive(self, s: LoopIR.SyncStmt):
         # We do not enforce pairing, but we enforce other traits

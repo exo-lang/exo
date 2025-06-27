@@ -68,9 +68,9 @@ class SyncType(object):
             return f"await_type({self.second_sync_tl}, {self.N_str()})"
         return f"fence_type({self.first_sync_tl}, {self.second_sync_tl})"
 
-    def info_idx(self, back: bool):
+    def info_idx(self, back: bool, swap=False):
         assert self.is_split()
-        return self.is_await() + 2 * bool(back)
+        return (swap ^ self.is_await()) + 2 * bool(back)
 
     def copy(self):
         return SyncType(self.first_sync_tl, self.second_sync_tl, self.N)

@@ -103,12 +103,7 @@ class SyncStateBuilder:
         coll_tilings: DistributedAllocState,
         thread_iters: Dict[Sym, ThreadIter],
     ):
-        for info in (
-            usage.Arrive,
-            usage.Await,
-            usage.ReverseArrive,
-            usage.ReverseAwait,
-        ):
+        for info in usage.sync_info:
             if info is not None:
                 if not timelines.cuda_async_proxy.disjoint_full_timeline_set(
                     info.sync_tl
@@ -119,7 +114,7 @@ class SyncStateBuilder:
         barrier_type = usage.barrier_type
         suffix = self._assign_suffix(name)
         if usage.is_fence():
-            if usage.Arrive.sync_tl == timelines.wgmma_fence_1:
+            if usage.get_front_arrive().sync_tl == timelines.wgmma_fence_1:
                 self.add_wgmma_fence(name, usage, coll_tilings, thread_iters, suffix)
             else:
                 self.add_garden_variety_fence(
@@ -131,7 +126,7 @@ class SyncStateBuilder:
             self.add_commit_group(name, usage, coll_tilings, thread_iters, suffix)
         else:
             raise TypeError(
-                f"{srcinfo}: {barrier_type.__name__} "
+                f"{srcinfo}: {barrier_type.name()} "
                 f"not supported in CUDA device function"
             )
 
@@ -143,8 +138,8 @@ class SyncStateBuilder:
         thread_iters: Dict[Sym, ThreadIter],
         suffix: str,
     ):
-        Arrive = usage.Arrive
-        Await = usage.Await
+        Arrive = usage.get_front_arrive()
+        Await = usage.get_front_await()
         L1 = Arrive.sync_tl
         L2 = Await.sync_tl
         srcinfo = Arrive.get_srcinfo()
@@ -154,9 +149,9 @@ class SyncStateBuilder:
                 f"{srcinfo}: wgmma fence needs second sync-tl wgmma_fence_2"
             )
 
-        coll_tiling = coll_tilings.Arrive
+        coll_tiling = coll_tilings.get_front_arrive()
         # Should be the case for a Fence
-        assert coll_tiling is coll_tilings.Await
+        assert coll_tiling is coll_tilings.get_front_await()
 
         if msg := coll_tiling.unit_mismatch(cuda_warpgroup, self._coll_env):
             raise ValueError(
@@ -189,8 +184,8 @@ class SyncStateBuilder:
 
         """
 
-        Arrive = usage.Arrive
-        Await = usage.Await
+        Arrive = usage.get_front_arrive()
+        Await = usage.get_front_await()
         L1 = Arrive.sync_tl
         L2 = Await.sync_tl
         srcinfo = usage.get_srcinfo()
@@ -210,9 +205,9 @@ class SyncStateBuilder:
                 f"{L1} not supported (we allow Sm80_generic)"
             )
 
-        coll_tiling = coll_tilings.Arrive
+        coll_tiling = coll_tilings.get_front_arrive()
         # Should be the case for a Fence
-        assert coll_tiling is coll_tilings.Await
+        assert coll_tiling is coll_tilings.get_front_await()
 
         cta_count = self._get_cta_count(coll_tiling, srcinfo)
         threads = coll_tiling.box_num_threads()
@@ -291,12 +286,12 @@ class SyncStateBuilder:
             assert info.min_N == info.max_N
             return ~info.min_N
 
-        forward_skips = n_skips(usage.Await)
-        if usage.has_reverse():
-            reverse_skips = n_skips(usage.ReverseAwait)
-            ring = forward_skips + reverse_skips
+        front_skips = n_skips(usage.get_front_await())
+        if usage.has_back_array():
+            back_skips = n_skips(usage.get_back_await())
+            ring = front_skips + back_skips
         else:
-            ring = forward_skips + 1
+            ring = front_skips + 1
         if ring == 0:
             raise ValueError(
                 f"{usage.get_srcinfo()}: {name} must have some await with nonzero skips (e.g. set N = ~1)"
@@ -317,14 +312,14 @@ class SyncStateBuilder:
 
         # black formatting will ruin the readability of the generated C++ code below
         # fmt: off
-        def mbarrier_to_u32(lines, is_reverse, ringidx):
-            byte_offset = 8 * (mbarrier_offset + (ring * slice_count) if is_reverse else mbarrier_offset)
+        def mbarrier_to_u32(lines, is_back, ringidx):
+            byte_offset = 8 * (mbarrier_offset + (ring * slice_count) if is_back else mbarrier_offset)
             idx = f"(slice * {ring} + {ringidx})"
             lines.append(f"  const auto mbarrier_u32 = exo_smemU32(exo_smem + {byte_offset} + 8*{idx});")
 
-        def generate_arrive(is_reverse):
-            r = "Reverse" if is_reverse else ""
-            info = usage.ReverseArrive if is_reverse else usage.Arrive
+        def generate_arrive(is_back):
+            b = "Back" if is_back else "Front"
+            info = usage.get_back_arrive() if is_back else usage.get_front_arrive()
             sync_tl = info.sync_tl
 
             if timelines.Sm80_cp_async.implements_first(sync_tl):
@@ -342,16 +337,16 @@ class SyncStateBuilder:
                     f"not supported: need cuda_in_order, Sm80_cp_async, or tma_to_smem_async")
 
             lines = self.SyncState_lines
-            idx = f"{r}ArriveIdx{nm_suffix}"
+            idx = f"{b}ArriveIdx{nm_suffix}"
             if ring_bits > 0:
                 lines.append(f"unsigned {idx} : {ring_bits} = 0;")
             else:
                 lines.append(f"static constexpr unsigned {idx} = 0;  // Trivial size-1 ring buffer")
-            lines.append(f"EXO_CUDA_INLINE uint32_t {r}Arrive{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {{")
-            mbarrier_to_u32(lines, is_reverse, idx);
+            lines.append(f"EXO_CUDA_INLINE uint32_t {b}Arrive{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {{")
+            mbarrier_to_u32(lines, is_back, idx);
             lines.append(f"  if (enable) {{")
             # TODO cluster broadcast if needed
-            ptx_format = f"// {r}Arrive{nm_suffix}\n"
+            ptx_format = f"// {b}Arrive{nm_suffix}\n"
             if is_Sm80_cp_async:
                 ptx_format += "cp.async.mbarrier.arrive.noinc.shared::cta.b64 #0#;"
             else:
@@ -367,9 +362,9 @@ class SyncStateBuilder:
             lines.append(f"}}")
             return is_tma
 
-        def generate_await(is_reverse, L1):
-            r = "Reverse" if is_reverse else ""
-            info = usage.ReverseAwait if is_reverse else usage.Await
+        def generate_await(is_back, L1):
+            b = "Back" if is_back else "Front"
+            info = usage.get_back_await() if is_back else usage.get_back_arrive()
             L2 = info.sync_tl
 
             if timelines.cuda_async_proxy_wgmma.implements_first(L1):
@@ -390,13 +385,13 @@ class SyncStateBuilder:
                     f"not supported ({remark})")
 
             lines = self.SyncState_lines
-            # If we have ReverseAwait/ReverseArrive, the mbarriers for them
-            # are allocated right after those for Arrive/Await
-            offset = mbarrier_offset + ring if is_reverse else mbarrier_offset
-            idx = f"{r}AwaitIdx{nm_suffix}"
-            skips = f"{r}Skips{nm_suffix}"
-            parity_bits = f"{r}Parity{nm_suffix}"
-            n_skips = reverse_skips if is_reverse else forward_skips
+            # If we have a back queue barrier array, the mbarriers for them
+            # are allocated right after those for the front queue barrier array.
+            offset = mbarrier_offset + ring if is_back else mbarrier_offset
+            idx = f"{b}AwaitIdx{nm_suffix}"
+            skips = f"{b}Skips{nm_suffix}"
+            parity_bits = f"{b}Parity{nm_suffix}"
+            n_skips = back_skips if is_back else front_skips
             enable_skips = n_skips != 0
 
             # Define (register) exo_SyncState member variables: ring buffer
@@ -413,14 +408,14 @@ class SyncStateBuilder:
             # The initial_skips parameter is included iff skipping is enabled,
             # as a last line of defense against future Exo compiler bugs.
             if enable_skips:
-                lines.append(f"EXO_CUDA_INLINE void {r}Await{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, int initial_skips = 0) {{")
-                mbarrier_to_u32(lines, is_reverse, idx)
+                lines.append(f"EXO_CUDA_INLINE void {b}Await{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, int initial_skips = 0) {{")
+                mbarrier_to_u32(lines, is_back, idx)
                 lines.append(f"  const bool enable = {skips} >= initial_skips;")
             else:
-                lines.append(f"EXO_CUDA_INLINE void {r}Await{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice) {{")
-                mbarrier_to_u32(lines, is_reverse, idx)
+                lines.append(f"EXO_CUDA_INLINE void {b}Await{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice) {{")
+                mbarrier_to_u32(lines, is_back, idx)
                 lines.append(f"  const bool enable = true;")
-            comment = f"// {r}Await{nm_suffix}"
+            comment = f"// {b}Await{nm_suffix}"
             lines.append(f"  if (enable) {{")
             # sm_90 needed for try_wait; condition on __CUDA_ARCH__
             def add_inline_ptx(try_or_test):
@@ -453,7 +448,7 @@ class SyncStateBuilder:
             lines.append(f"  }}")
             if enable_skips:
                 lines.append(f"  else {{")
-                lines.append(f"    // {r}Await({name}) returns without waiting for mbarrier first <initial_skips> times")
+                lines.append(f"    // {b}Await({name}) returns without waiting for mbarrier first <initial_skips> times")
                 lines.append(f"    {skips}++;")
                 lines.append(f"  }}")
             lines.append(f"}}")
@@ -461,45 +456,53 @@ class SyncStateBuilder:
         # Reserve mbarriers in mbarrier allocator
         RS = ring * slice_count
         lines = self.SyncState_lines
-        arrive_count = coll_tilings.Arrive.box_num_threads()
+        arrive_count = coll_tilings.get_front_arrive().box_num_threads()
         self._mbarrier_pairs.append((RS, arrive_count))
         self.mbarrier_count += RS
         lines.append(f"// {name}: barrier @ CudaMbarrier, ring={ring}, slice_count={slice_count}")
-        lines.append(f"// (forward) mbarriers [{mbarrier_offset}, {mbarrier_offset + RS}]; "
+        lines.append(f"// front mbarriers [{mbarrier_offset}, {mbarrier_offset + RS}]; "
                      f"arrive_count={arrive_count}")
 
-        if usage.has_reverse():
-            arrive_count = coll_tilings.ReverseArrive.box_num_threads()
+        if usage.has_back_array():
+            arrive_count = coll_tilings.get_back_arrive().box_num_threads()
             self._mbarrier_pairs.append((RS, arrive_count))
             self.mbarrier_count += RS
-            lines.append(f"// (reverse) mbarriers [{mbarrier_offset + RS}, {mbarrier_offset + RS * 2}]; "
+            lines.append(f"// back mbarriers [{mbarrier_offset + RS}, {mbarrier_offset + RS * 2}]; "
                          f"arrive_count={arrive_count}")
 
         # Generate Arrive and Await syntax
-        # {Reverse}Awaits must be aware with the sync-tl
-        # of the matched {Reverse}Arrive
-        Arrive_is_tma = generate_arrive(False)
-        generate_await(False, usage.Arrive.sync_tl)
-        if usage.has_reverse():
-            ReverseArrive_is_tma = generate_arrive(True)
-            generate_await(True, usage.ReverseArrive.sync_tl)
+        # Awaits must be aware with the sync-tl
+        # of the matched Arrive
+        # TODO TMA special handling should go away.
+        front_arrive_is_tma = generate_arrive(False)
+        generate_await(False, usage.get_front_arrive().sync_tl)
+        if usage.has_back_array():
+            back_arrive_is_tma = generate_arrive(True)
+            generate_await(True, usage.get_back_arrive().sync_tl)
 
         # Arrive/Await lowers to call to generated exo_syncState member function.
-        # We also record mbarriers to initialize, first those for Arrive/Await,
-        # then those for ReverseArrive/ReverseAwait.
+        # We also record mbarriers to initialize, first the front queue barrier
+        # array, then the optional back queue barrier array.
         # Finally, for arrives with sync-tl tma_to_smem_async, we need to enforce
         # that it is an epilogue sync for tx-count to work correctly
         # (TODO this will change to TMA instrs taking mbarrier parameters)
         Arrive_txt = f"Arrive{nm_suffix}(exo_smem, exo_excutLog"
         def codegen(s: LoopIR.SyncStmt):
+            # TODO handle multicast.
+            assert len(s.barriers) == 1
+            e = s.barriers[0]
+            iter_syms = [idx.pt.name for idx in e.idx]  # Will need to handle intervals
+            # End wrong code
+
             sync_type = s.sync_type
-            slice = coll_tilings.codegen_slices_to_root(self._blockDim(), thread_iters, [e.name for e in s.idx])
-            r = "Reverse" if sync_type.is_reversed else ""
+            slice = coll_tilings.codegen_slices_to_root(self._blockDim(), thread_iters, iter_syms)
+            back = s.barriers[0].back
+            b = "Back" if back else "Front"
             assert sync_type.is_split()
             if sync_type.is_arrive():
                 assert sync_type.N <= 1, "TODO implement me"
-                result = [f"exo_syncState.{r}{Arrive_txt}, {slice}, {sync_type.N});"]
-                is_tma = ReverseArrive_is_tma if sync_type.is_reversed else Arrive_is_tma
+                result = [f"exo_syncState.{b}{Arrive_txt}, {slice}, {sync_type.N});"]
+                is_tma = back_arrive_is_tma if back else front_arrive_is_tma
                 if is_tma:
                     # See also codegen_exo_tma_mbarrier if you change this!
                     result = LoweredEpilogueSync(timelines.tma_to_smem_async_instr, result)
@@ -509,7 +512,7 @@ class SyncStateBuilder:
                 if skips := ~sync_type.N:
                     assert skips > 0, "should have been caught earlier"
                     skips_arg = f", {skips}"
-                return [f"exo_syncState.{r}Await{nm_suffix}(exo_smem, exo_excutLog, {slice}{skips_arg});"]
+                return [f"exo_syncState.{b}Await{nm_suffix}(exo_smem, exo_excutLog, {slice}{skips_arg});"]
         lowered.codegen = codegen
         self.lowered[name] = lowered
         # fmt: on
@@ -534,7 +537,7 @@ class SyncStateBuilder:
         sync_type = _arrive.sync_type
         assert sync_type.is_arrive()
         assert sync_type.first_sync_tl == timelines.tma_to_smem_async
-        lowered_mbarrier = self.lowered[_arrive.name]
+        lowered_mbarrier = self.lowered[_arrive.barriers[0].name]
         # Read-only access to the mbarrier by lowering an arrive with N=0
         # (arrive-count 0). This is pretty hacky; if we have more need for
         # such custom barrier lowering, we may want a "proper" interface.
@@ -564,12 +567,11 @@ class SyncStateBuilder:
         #   * unsupported first sync-tl
         #   * incorrect second sync-tl given supported first sync-tl
         #   * incorrect collective unit given supported first sync-tl
-        assert usage.ReverseAwait is None
-        assert usage.ReverseArrive is None
+        assert not usage.has_back_array()
 
         solitary = True
-        L1 = usage.Arrive.sync_tl
-        L2 = usage.Await.sync_tl
+        L1 = usage.get_front_arrive().sync_tl
+        L2 = usage.get_front_await().sync_tl
         is_wgmma = False
 
         def check_coll_unit(coll_tiling, action_name, coll_unit):
@@ -588,8 +590,8 @@ class SyncStateBuilder:
                     f"expects Await({expect_L2}), "
                     f"not {L2} (wrong second sync-tl)"
                 )
-            check_coll_unit(coll_tilings.Arrive, "Arrive", coll_unit)
-            check_coll_unit(coll_tilings.Await, "Await", coll_unit)
+            check_coll_unit(coll_tilings.get_front_arrive(), "Arrive", coll_unit)
+            check_coll_unit(coll_tilings.get_front_await(), "Await", coll_unit)
 
         if timelines.Sm80_cp_async.implements_first(L1):
             # sm_80 non-bulk cp.async
@@ -625,7 +627,6 @@ class SyncStateBuilder:
         def codegen(s: LoopIR.SyncStmt):
             sync_type = s.sync_type
             assert sync_type.is_split()
-            assert not sync_type.is_reversed
             if sync_type.is_arrive():
                 if sync_type.N != 1:
                     raise ValueError("Expect N=1 for Arrive of commit group")

@@ -59,6 +59,7 @@ from .with_cuda_warps import CudaWarps
 # CUDA builtins we have no control over.
 reserved_names = {"gridDim", "blockDim", "blockIdx", "threadIdx"}
 
+# No BarrierExpr here; handled specially as part of SyncStmt.
 idx_e_types = (LoopIR.Read, LoopIR.WindowExpr, LoopIR.StrideExpr)
 idx_s_types = (LoopIR.Assign, LoopIR.Reduce)
 
@@ -408,9 +409,10 @@ class SubtreeScan(LoopIR_Do):
 
     def apply_e(self, e):
         if isinstance(e, idx_e_types):
+            # BarrierExpr not handled here; part of SyncStmt handling.
             self.mark_sym_used(e.name)
             self.apply_idx(e, self._stmt_stack[-1])
-        else:
+        elif not isinstance(e, LoopIR.BarrierExpr):
             assert not hasattr(e, "name"), "Add handling for array indexing"
 
     def apply_s(self, s):
@@ -474,10 +476,11 @@ class SubtreeScan(LoopIR_Do):
                 )
         elif isinstance(s, LoopIR.SyncStmt):
             # Distributed memory analysis and CollTiling for Fence/Arrive/Await
-            self.mark_sym_used(s.barriers[0].name)
             if s.sync_type.is_split():
-                usage: BarrierUsage = self.get_barrier_usage(s.name)
-                state = self.distributed_alloc_states.get(s.name)
+                name = s.barriers[0].name
+                self.mark_sym_used(name)
+                usage: BarrierUsage = self.get_barrier_usage(name)
+                state = self.distributed_alloc_states.get(name)
                 assert isinstance(state, DistributedAllocState)
 
                 fsm = DistributedIdxFsm(
@@ -485,8 +488,10 @@ class SubtreeScan(LoopIR_Do):
                 )
                 # There is no native_unit; we parse all indices as distributed
                 assert state.optional_native_unit is None
-                for i in range(len(s.idx)):
-                    fsm.consume_idx(s, self.sym_type(s.name), i)
+                assert len(s.barriers) == 1, "TODO multicast"
+                e = s.barriers[0]
+                for i in range(len(e.idx)):
+                    fsm.consume_idx(e, self.sym_type(e.name), i)
 
                 # We now have the distributed indices in distributed_iters.
                 # Store in DistributedAllocState if this is the first use, or check
@@ -495,12 +500,15 @@ class SubtreeScan(LoopIR_Do):
                 fsm.inspect_arrive_await(s, self._coll_tiling, usage, state)
             elif s.lowered is None:
                 # Fence [todo, consider removing lowered=None backdoor]
-                assert s.name not in self.distributed_alloc_states
+                assert len(s.barriers) == 1
+                e = s.barriers[0]
+                assert isinstance(e, LoopIR.BarrierExpr)
+                assert e.name not in self.distributed_alloc_states
                 state = DistributedAllocState.from_fence(s, self._coll_tiling)
-                self.distributed_alloc_states[s.name] = state
+                self.distributed_alloc_states[e.name] = state
                 self.sync_state_builder.add_barrier(
-                    s.name,
-                    self.get_barrier_usage(s.name),
+                    e.name,
+                    self.get_barrier_usage(e.name),
                     state,
                     self.thread_iters,
                 )
@@ -1181,7 +1189,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
         epilogue_of: Optional[Instr_tl],
     ):
         if s.lowered is None:
-            lowered = self.sync_state_builder.lowered[s.name]
+            lowered = self.sync_state_builder.lowered[s.barriers[0].name]
             if lowered.solitary and not s.sync_type.is_split():
                 # Fence must pass solitary barrier check
                 self.check_solitary_barrier(s, lowered)
@@ -1247,6 +1255,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
             else:
                 new_body.extend(new_children)
 
+        # TODO this should be replaced with trailing barrier expression for TMA instr
         if instr_tl == timelines.tma_to_smem_async_instr:
             # We will insert the needed uint32_t variable as "lowered" syntax
             # for a do-nothing Fence statement. This will look goofy but works.
@@ -1255,14 +1264,17 @@ class SubtreeRewrite(LoopIR_Rewrite):
                 s, True, timelines.tma_to_smem_async, None
             )
             dummy_sync_type = SyncType(
-                timelines.empty_sync_tl, timelines.empty_sync_tl, False, 0
+                timelines.empty_sync_tl, timelines.empty_sync_tl, 0
             )
             c_alias = self.sync_state_builder.codegen_exo_tma_mbarrier(_arrive)
             alias_stmt = LoopIR.SyncStmt(
                 dummy_sync_type,
-                Sym("exo_tma_mbarrier"),
-                [],
-                [c_alias],
+                [
+                    LoopIR.BarrierExpr(
+                        Sym("exo_tma_mbarrier"), False, [], T.barrier, s.srcinfo
+                    )
+                ],
+                [c_alias],  # lowered
                 s.srcinfo,
             )
             new_body = [alias_stmt] + new_body

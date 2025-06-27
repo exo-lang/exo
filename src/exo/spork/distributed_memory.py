@@ -12,6 +12,7 @@ from .coll_algebra import (
 )
 from .barrier_usage import BarrierUsage
 from .loop_modes import _CodegenPar
+from .sync_types import SyncType
 
 
 @dataclass(slots=True, init=False)
@@ -88,11 +89,11 @@ class DistributedAllocState(object):
     # see DistributedIdxFsm.check_native_unit
     leaf_coll_tiling: Optional[CollTiling]
 
-    # Only used for barrier types
-    Arrive: Optional[CollTiling]
-    Await: Optional[CollTiling]
-    ReverseArrive: Optional[CollTiling]
-    ReverseAwait: Optional[CollTiling]
+    # Information for Arrive/Await statements, split by usage
+    # of front (+name) and back (-name) queue barrier array.
+    # Fence() stmts are decomposed as an front_arrive + front_await
+    # Index using constants in SyncType or get_{front|back}_{arrive|await}.
+    sync_coll_tilings: List[Optional[CollTiling]]
 
     def __init__(self, alloc_coll_tiling, optional_native_unit):
         assert isinstance(alloc_coll_tiling, CollTiling)
@@ -104,21 +105,30 @@ class DistributedAllocState(object):
         self.alloc_coll_tiling = alloc_coll_tiling
         self.optional_native_unit = optional_native_unit
         self.leaf_coll_tiling = None
-        self.Arrive = None
-        self.Await = None
-        self.ReverseArrive = None
-        self.ReverseAwait = None
+        self.sync_coll_tilings = [None] * SyncType.n_info_idx
 
     def n_distributed_dims(self):
         return len(self.first_distributed_iters)
+
+    def get_front_arrive(self) -> Optional[CollTiling]:
+        return self.sync_coll_tilings[SyncType.front_arrive_idx]
+
+    def get_front_await(self) -> Optional[CollTiling]:
+        return self.sync_coll_tilings[SyncType.front_await_idx]
+
+    def get_back_arrive(self) -> Optional[CollTiling]:
+        return self.sync_coll_tilings[SyncType.back_arrive_idx]
+
+    def get_back_await(self) -> Optional[CollTiling]:
+        return self.sync_coll_tilings[SyncType.back_await_idx]
 
     @staticmethod
     def from_fence(s: LoopIR.SyncStmt, coll_tiling: CollTiling):
         assert not s.sync_type.is_split()
         result = DistributedAllocState(coll_tiling, None)
         result.first_usage_stmt = s
-        result.Arrive = coll_tiling
-        result.Await = coll_tiling
+        result.sync_coll_tilings[SyncType.front_arrive_idx] = coll_tiling
+        result.sync_coll_tilings[SyncType.front_await_idx] = coll_tiling
         return result
 
     def codegen_slices_to_root(
@@ -138,7 +148,7 @@ class DistributedAllocState(object):
         for i0 in cuda_threads(0, 2, unit=cuda_warpgroup):
             bar : barrier @ CudaMbarrier
             for i1 in cuda_threads(0, 4, unit=cuda_warp):
-                Arrive(cuda_classic, bar[i1], 1)
+                Arrive(cuda_classic, 1) >> bar[i1]
 
         We need a total of 8 mbarriers for all i0 x i1 combinations, i0
         being the implicit to-root index and i1 the explicit distributed index.
@@ -256,7 +266,7 @@ class DistributedIdxFsm:
         self.t0_iter_t1 = {}
         self.cur_num_threads = state.alloc_coll_tiling.tile_num_threads()
 
-    def consume_idx(self, node: LoopIR.stmt, typ: LoopIR.type, i: int):
+    def consume_idx(self, node, typ: LoopIR.type, i: int):
         """Process node.idx[i] as the next distributed index"""
         idx_e = node.idx[i]
         if isinstance(idx_e, LoopIR.Read):
@@ -406,11 +416,11 @@ class DistributedIdxFsm:
         we additionally check requirements for the collective tiling
 
         * Tile size of usage matches the leaf tiling.
-        * Equivalent CollTiling for all syncs of a certain kind
-          (Arrive, Await, ReverseArrive, ReverseAwait)
+        * Equivalent CollTiling for same action on same queue barrier array.
+          (+Arrive, +Await, -Arrive, -Await) +/- meaning front/back.
         * If the barrier type has a pairing requirement, additionally,
-          check equivalent CollTilings for paired Arrive/Await;
-          Arrive/ReverseAwait, or ReverseArrive/Await.
+          check equivalent CollTilings for paired +Arrive/+Await;
+          +Arrive/-Await, or -Arrive/+Await.
 
         """
         assert isinstance(sync, LoopIR.SyncStmt)
@@ -425,30 +435,38 @@ class DistributedIdxFsm:
             raise ValueError(
                 f"{sync.srcinfo}: {sync} executed with tile size {sync_T} threads; mismatches {leaf_T} threads deduced from {bar} (i.e. multiple thread collectives share the same index; missing indices)?"
             )
-        # Get state.Arrive, state.Await, state.ReverseArrive, or state.ReverseAwait
-        attr = sync_type.fname()
-        old_coll_tiling = getattr(state, attr)
+        # Get CollTiling for Arrive >> +name, Await(+name), Arrive >> -name, or Await(-name)
+        name = sync.barriers[0].name
+        back = sync.barriers[0].back
+        info_idx = sync_type.info_idx(back)
+        old_coll_tiling = state.sync_coll_tilings[info_idx]
 
         # CollTilings that need to be equivalent
         to_check: List[Tuple[CollTiling, str]] = []
 
         if old_coll_tiling is not None:
             # Will check equivalence with previous stmt of same sync type
-            to_check.append((old_coll_tiling, attr))
+            f_text = str(sync)
+            to_check.append((old_coll_tiling, f_text))
         else:
-            # Save new state.Arrive, state.Await, state.ReverseArrive, or state.ReverseAwait
-            setattr(state, attr, coll_tiling)
+            # Save new state
+            state.sync_coll_tilings[info_idx] = coll_tiling
 
         if barrier_usage.barrier_type.traits().requires_pairing:
             # Will check equivalence with previous stmt of paired sync type
-            attr = barrier_usage.paired_fname(sync_type)
-            # Get state.Arrive, state.Await, state.ReverseArrive, or state.ReverseAwait
-            old_coll_tiling = getattr(state, attr)
-            if old_coll_tiling is not None:
-                to_check.append((old_coll_tiling, attr))
+            paired_back = back ^ barrier_usage.has_back_array()
+            sign = "-" if paired_back else "+"
+            paired_info_idx = sync_type.info_idx(paired_back, swap=True)
+            if sync_type.is_arrive():  # Arrive paired with Await
+                f_text = f"Await({sign}{name}, ...)"
+            else:
+                f_text = f"Arrive(...) >> {sign}{name}"
+            if old_coll_tiling := state.sync_coll_tilings[paired_info_idx]:
+                to_check.append((old_coll_tiling, f_text))
 
-        # Check equivalence
-        for old_coll_tiling, fname in to_check:
+        # Check equivalence (the code here only checks issues that wouldn't be
+        # flagged by the primary distributed memory deduction).
+        for old_coll_tiling, f_text in to_check:
             domain0 = old_coll_tiling.full_domain
             tile0 = old_coll_tiling.tile
             box0 = old_coll_tiling.box
@@ -464,7 +482,7 @@ class DistributedIdxFsm:
                 or offset0 != offset1
             ):
                 raise ValueError(
-                    f"{sync.srcinfo}: {sync} has inconsistent collective tiling with previous {fname}\n"
+                    f"{sync.srcinfo}: {sync} has inconsistent collective tiling with previous {f_text}\n"
                     f"Saw tile={tile0}, box={box0}, offset={offset0}\n"
                     f"Saw tile={tile1}, box={box1}, offset={offset1}"
                 )
