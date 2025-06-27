@@ -281,11 +281,12 @@ class SyncStateBuilder:
         mbarrier_offset = self.mbarrier_count
         nm_suffix = f"{suffix}_{name}"
 
-        # Calculate the size of the ring buffer (number of mbarriers)
+        # Translate N to number of trivial Awaits (skip mbarrier wait)
         def n_skips(info: SyncInfo):
             assert info.min_N == info.max_N
             return ~info.min_N
 
+        # Calculate the size of the ring buffer (number of mbarriers)
         front_skips = n_skips(usage.get_front_await())
         if usage.has_back_array():
             back_skips = n_skips(usage.get_back_await())

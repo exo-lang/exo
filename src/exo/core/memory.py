@@ -375,7 +375,7 @@ class BarrierTypeTraits:
     Instr_tl and CollTiling are to be handled by barrier lowering code.
     """
 
-    negative_arrive: bool = False  # N = 1 if False; N = 1 or ~0 if True
+    # N = 1 always for an Arrive as of 2025-06-27
     negative_await: bool = False  # N <= ~0 if True; N >= 0 if True
     # Each Await stmt for same queue barrier array must use the same N
     uniform_await_N: bool = False

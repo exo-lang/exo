@@ -402,7 +402,6 @@ class CudaMbarrier(CudaDeviceBarrier):
     @classmethod
     def traits(cls) -> BarrierTypeTraits:
         return BarrierTypeTraits(
-            negative_arrive=True,
             negative_await=True,
             uniform_await_N=True,
             supports_back_array=True,

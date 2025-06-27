@@ -126,16 +126,16 @@ class BarrierUsage:
                 kvetch_incompatible("multicasts")
 
         # Enforce traits
-        if traits.negative_arrive and N not in (1, ~0):
-            kvetch_invalid("Need N = 1 or N = ~0")
-        if not traits.negative_arrive and N != 1:
-            kvetch_invalid("Need N = 1")
         if not traits.supports_back_array and back:
             kvetch_invalid(
                 f"{mem.name()} does not support back queue barrier {e0} (i.e. need + not -)"
             )
         if not traits.supports_multicast:
             s.forbid_multicast(f"{mem.name()} does not support multicast")
+
+        # Enforce N = 1
+        if N != 1:
+            kvetch_invalid("Need N = 1")
 
     def visit_Await(self, s: LoopIR.SyncStmt):
         # We do not enforce requirements on N, or pairing, but we enforce other traits
@@ -411,19 +411,14 @@ class BarrierUsageAnalysis(LoopIR_Do):
                     # No unmatched statement.
                     # Retain this as the unmatched_sync; and check/update await_first.
                     if unmatched_sync is None:
-                        if sync_type.is_arrive() and sync_type.N == ~0:
-                            # Arrive with N = ~0 special case: does not need to be matched.
-                            # TODO remove this if we stop supporting N = ~0
-                            pass
-                        else:
-                            if await_first is None:
-                                await_first = sync_type.is_await()
-                            elif await_first != sync_type.is_await():
-                                expected = paired_expected(s)
-                                raise ValueError(
-                                    f"{s.srcinfo}: {s} not paired with previous {expected} (note: those guarded by if/seq-for don't count)"
-                                )
-                            unmatched_sync = s
+                        if await_first is None:
+                            await_first = sync_type.is_await()
+                        elif await_first != sync_type.is_await():
+                            expected = paired_expected(s)
+                            raise ValueError(
+                                f"{s.srcinfo}: {s} not paired with previous {expected} (note: those guarded by if/seq-for don't count)"
+                            )
+                        unmatched_sync = s
 
                     # Have unmatched statement (and nesting check OK)
                     # Look for exact matching statement
