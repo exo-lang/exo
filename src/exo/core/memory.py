@@ -382,6 +382,7 @@ class BarrierTypeTraits:
     supports_back_array: bool = False  # Forbid back queue barrier array (-name)
     requires_pairing: bool = False
     requires_arrive_first: bool = False
+    supports_multicast: bool = False  # Allow : in Arrive trailing queue barrier expr
 
 
 class BarrierType(AllocableMemWin):

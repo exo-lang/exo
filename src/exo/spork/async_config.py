@@ -288,17 +288,20 @@ class InstrTimelineAnalysis(LoopIR_Rewrite):
         elif isinstance(s, LoopIR.SyncStmt):
             self.contains_sync = True
             if s.sync_type.is_split():
-                memwin = self.sym_memwin[s.name]
-                perm = memwin.instr_tl_permission(self.instr_tl, is_instr=False)
-                if "w" in perm:
-                    assert "r" in perm, "Not supported: write without read permission"
-                else:
-                    self.warn_weird_letters(memwin, perm)
-                    raise TypeError(
-                        f"{s.srcinfo}: {s.name} (barrier type "
-                        f"{memwin.name()}) does not allow SyncStmt in a "
-                        f"scope with instr-tl {self.instr_tl}"
-                    )
+                for e in s.barriers:
+                    memwin = self.sym_memwin[e.name]
+                    perm = memwin.instr_tl_permission(self.instr_tl, is_instr=False)
+                    if "w" in perm:
+                        assert (
+                            "r" in perm
+                        ), "Not supported: write without read permission"
+                    else:
+                        self.warn_weird_letters(memwin, perm)
+                        raise TypeError(
+                            f"{s.srcinfo}: {e.name} (barrier type "
+                            f"{memwin.name()}) does not allow SyncStmt in a "
+                            f"scope with instr-tl {self.instr_tl}"
+                        )
         elif isinstance(s, LoopIR.Alloc):
             self.contains_sync |= s.type.is_barrier()
             mem = s.mem or DRAM

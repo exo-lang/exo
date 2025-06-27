@@ -25,6 +25,16 @@ class SyncType(object):
     second_sync_tl: Optional[Sync_tl]
     N: int
 
+    # Often we will need to check that all Arrives on the same queue barrier
+    # array are compatible on some way; same for all Awaits.
+    # We will store info for such checking as a list of 4 elements,
+    # one element each for the 4 combinations of (Arrive/Await) and (front/back)
+    front_arrive_idx = 0  # Arrive on front queue barrier array (+name)
+    front_await_idx = 1  # Await on front queue barrier array (+name)
+    back_arrive_idx = 2  # Arrive on back queue barrier array (-name)
+    back_await_idx = 3  # Await on back queue barrier array (-name)
+    n_info_idx = 4
+
     def __init__(
         self,
         first_sync_tl: Sync_tl,
@@ -57,6 +67,10 @@ class SyncType(object):
         if self.is_await():
             return f"await_type({self.second_sync_tl}, {self.N_str()})"
         return f"fence_type({self.first_sync_tl}, {self.second_sync_tl})"
+
+    def info_idx(self, back: bool):
+        assert self.is_split()
+        return self.is_await() + 2 * bool(back)
 
     def copy(self):
         return SyncType(self.first_sync_tl, self.second_sync_tl, self.N)

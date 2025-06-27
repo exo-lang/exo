@@ -15,6 +15,7 @@ class SyncInfo:
     stmts: List[LoopIR.stmt]
     min_N: int
     max_N: int
+    multicasts: Tuple[Tuple[bool]]
 
     def get_srcinfo(self):
         return self.stmts[0].srcinfo
@@ -29,11 +30,21 @@ class BarrierUsage:
 
     # Information for Arrive/Await statements, split by usage
     # of front (+name) and back (-name) queue barrier array.
-    # Fence() stmts are decomposed as an front_Arrive + Await
-    front_arrive: Optional[SyncInfo] = None
-    front_await: Optional[SyncInfo] = None
-    back_arrive: Optional[SyncInfo] = None
-    back_await: Optional[SyncInfo] = None
+    # Fence() stmts are decomposed as an front_arrive + front_await
+    sync_info: List[Optional[SyncInfo]]
+
+    def __init__(self, s):
+        self.decl_stmt = s
+        self.sync_info = [None] * SyncType.n_info_idx
+        if isinstance(s, LoopIR.SyncStmt):
+            sync_type = s.sync_type
+            assert not sync_type.is_split()
+            self.barrier_type = None
+            self._init_Fence_impl(s)
+        else:
+            assert isinstance(s, LoopIR.Alloc)
+            self.barrier_type = s.mem
+            assert issubclass(s.mem, BarrierType)
 
     def get_srcinfo(self):
         return self.decl_stmt.srcinfo
@@ -42,12 +53,174 @@ class BarrierUsage:
         return self.barrier_type is None
 
     def has_back_array(self):
-        assert (self.back_arrive is None) == (self.back_await is None)
-        return self.back_arrive is not None
+        arrive_info = self.sync_info[SyncType.back_arrive_idx]
+        await_info = self.sync_info[SyncType.back_await_idx]
+        assert (arrive_info is None) == (await_info is None)
+        return arrive_info is not None
+
+    def get_sync_info(self, sync_type: SyncType, back: bool):
+        # Get info for Arrive/Await on front/back queue barrier array
+        return self.sync_info[sync_type.info_idx(back)]
+
+    def get_front_arrive(self):
+        return self.sync_info[SyncType.front_arrive_idx]
+
+    def get_front_await(self):
+        return self.sync_info[SyncType.front_await_idx]
+
+    def get_back_arrive(self):
+        return self.sync_info[SyncType.back_arrive_idx]
+
+    def get_back_await(self):
+        return self.sync_info[SyncType.back_await_idx]
+
+    def get_fence_info(self):
+        assert self.is_fence()
+        return (
+            self.sync_info[SyncType.front_arrive_idx],
+            self.sync_info[SyncType.front_await_idx],
+        )
+
+    def visit_Arrive(self, s: LoopIR.SyncStmt):
+        # We do not enforce pairing, but we enforce other traits
+        mem = self.barrier_type
+        assert mem
+        sync_type = s.sync_type
+        sync_tl = sync_type.first_sync_tl
+        N = sync_type.N
+        assert sync_type.is_arrive()
+
+        if not s.barriers:
+            raise ValueError(f"{s.srcinfo}: {s} missing >> trailing barrier exprs")
+        e0 = s.barriers[0]
+        nm = e0.name
+        back = e0.back
+        traits = mem.traits()
+        multicasts = s.multicasts()
+
+        # Enforce usage of the same queue barrier array
+        for i, e in enumerate(s.barriers):
+            if e.name != nm:
+                raise ValueError(
+                    f"{s.srcinfo}: cannot arrive on different queue barrier arrays {e} and {e0}"
+                )
+            if e.back != back:
+                raise ValueError(
+                    f"{s.srcinfo}: cannot arrive on different queue barrier arrays {e} and {e0} (+/- mismatch)"
+                )
+
+        def kvetch_invalid(reason):
+            raise ValueError(f"{s.srcinfo}: invalid {s}; {reason}")
+
+        def kvetch_incompatible(thing):
+            raise ValueError(
+                f"{s.srcinfo}: incompatible {thing} with previous Arrive\n{old} @ {old.srcinfo}\n{s} @ {s.srcinfo}"
+            )
+
+        # Save new SyncInfo, or check with previously saved SyncInfo.
+        # Must have identical sync-tl and multicasting as any
+        # other Arrives to the same queue barrier array.
+        info_idx = sync_type.info_idx(back)
+        info = self.sync_info[info_idx]
+        if info is None:
+            info = SyncInfo(sync_tl, [s], N, N, multicasts)
+            self.sync_info[info_idx] = info
+        else:
+            old = info.stmts[0]
+            info.stmts.append(info)
+            info.min_N = min(N, info.min_N)
+            info.max_N = max(N, info.max_N)
+            if info.sync_tl != sync_tl:
+                kvetch_incompatible(f"sync-tl ({sync_tl})")
+            if info.multicasts != multicasts:
+                kvetch_incompatible("multicasts")
+
+        # Enforce traits
+        if traits.negative_arrive and N not in (1, ~0):
+            kvetch_invalid("Need N = 1 or N = ~0")
+        if not traits.negative_arrive and N != 1:
+            kvetch_invalid("Need N = 1")
+        if not traits.supports_back_array and back:
+            kvetch_invalid(
+                f"{mem.name()} does not support back queue barrier {e0} (i.e. need + not -)"
+            )
+        if not traits.supports_multicast:
+            s.forbid_multicast(f"{mem.name()} does not support multicast")
+
+    def visit_Await(self, s: LoopIR.SyncStmt):
+        # We do not enforce requirements on N, or pairing, but we enforce other traits
+        mem = self.barrier_type
+        assert mem
+        sync_type = s.sync_type
+        sync_tl = sync_type.second_sync_tl
+        N = sync_type.N
+        assert sync_type.is_await()
+
+        assert len(s.barriers) == 1
+        e0 = s.barriers[0]
+        nm = e0.name
+        back = e0.back
+        traits = mem.traits()
+        multicasts = s.multicasts()
+
+        def kvetch_invalid(reason):
+            raise ValueError(f"{s.srcinfo}: invalid {s}; {reason}")
+
+        def kvetch_incompatible(thing):
+            raise ValueError(
+                f"{s.srcinfo}: incompatible {thing} with previous Await\n{old} @ {old.srcinfo}\n{s} @ {s.srcinfo}"
+            )
+
+        # Save new SyncInfo, or check with previously saved SyncInfo.
+        # Must have identical sync-tl as any
+        # other Awaits to the same queue barrier array.
+        info_idx = sync_type.info_idx(back)
+        info = self.sync_info[info_idx]
+        if info is None:
+            info = SyncInfo(sync_tl, [s], N, N, multicasts)
+            self.sync_info[info_idx] = info
+        else:
+            old = info.stmts[0]
+            info.stmts.append(info)
+            info.min_N = min(N, info.min_N)
+            info.max_N = max(N, info.max_N)
+            if info.sync_tl != sync_tl:
+                kvetch_incompatible(f"sync-tl ({sync_tl})")
+
+        # Enforce traits
+        if traits.negative_await and N >= 0:
+            kvetch_invalid(f"{mem.name()} requires N < 0 (e.g. N = ~0)")
+        if not traits.negative_await and N < 0:
+            kvetch_invalid(f"{mem.name()} requires N >= 0")
+        if traits.uniform_await_N and info.min_N != info.max_N:
+            kvetch_incompatible(f"N ({mem.name()} uniform-N requirement)")
+        if not traits.supports_back_array and back:
+            kvetch_invalid(
+                f"{mem.name()} does not support back queue barrier {e0} (i.e. need + not -)"
+            )
+
+        # Enforce no multicast for any Await
+        s.forbid_multicast("multicast is for Arrive, not Await")
+
+    fence_multicasts = (False,)
+
+    def _init_Fence_impl(self, s: LoopIR.SyncStmt):
+        sync_type = s.sync_type
+        assert not sync_type.is_split()
+        # Decompose Fence
+        self.sync_info[SyncType.front_arrive_idx] = SyncInfo(
+            sync_type.first_sync_tl, [s], 1, 1, self.fence_multicasts
+        )
+        self.sync_info[SyncType.front_await_idx] = SyncInfo(
+            sync_type.second_sync_tl, [s], 0, 0, self.fence_multicasts
+        )
 
 
 class BarrierUsageAnalysis(LoopIR_Do):
     __slots__ = ["proc", "uses"]
+
+    proc: LoopIR.proc
+    uses: Dict[Sym, BarrierUsage]
 
     def __init__(self, proc):
         self.proc = proc
@@ -74,47 +247,36 @@ class BarrierUsageAnalysis(LoopIR_Do):
                 mem = s.mem
                 assert mem and issubclass(mem, BarrierType)
                 assert s.name not in self.uses
-                self.uses[s.name] = BarrierUsage(mem, s)
-                return mem  # Indicates we found a barrier decl
+                self.uses[s.name] = BarrierUsage(s)
+                return mem  # Indicates to do_stmts() that we found a barrier decl
         elif isinstance(s, LoopIR.SyncStmt):
             sync_type: SyncType = s.sync_type
-            N = sync_type.N
-            # Arrive/Await
-            if sync_type.is_split():
-                usage = self.uses.get(s.name)
+            # Arrive
+            if sync_type.is_arrive():
+                if not s.barriers:
+                    raise ValueError(
+                        f"{s.srcinfo}: {s} missing >> trailing barrier exprs"
+                    )
+                usage = self.uses.get(s.barriers[0].name)
                 assert isinstance(usage, BarrierUsage)
-                assert not usage.is_fence()
-                # Set or update usage.Arrive, usage.Await
-                # usage.ReverseArrive, usage.ReverseAwait
-                if sync_type.is_arrive():
-                    sync_tl = sync_type.first_sync_tl
-                else:
-                    assert sync_type.is_await()
-                    sync_tl = sync_type.second_sync_tl
-                attr = sync_type.fname()
-                sync_info: SyncInfo = getattr(usage, attr)
-                if sync_info is None:
-                    setattr(usage, attr, SyncInfo(sync_tl, [s], N, N))
-                else:
-                    if sync_info.sync_tl != sync_tl:
-                        sus = sync_info.stmts[0]
-                        raise ValueError(
-                            f"{s.srcinfo}: {s} mismatches sync-tl of {sus} at {sus.srcinfo}"
-                        )
-                    sync_info.stmts.append(s)
-                    sync_info.min_N = min(sync_info.min_N, N)
-                    sync_info.max_N = max(sync_info.max_N, N)
+                usage.visit_Arrive(s)
+            # Await
+            elif sync_type.is_await():
+                assert len(s.barriers) == 1
+                usage = self.uses.get(s.barriers[0].name)
+                assert isinstance(usage, BarrierUsage)
+                usage.visit_Await(s)
             # Fence, but we ignore any with stmt.lowered set as a
             # debug backdoor for now.
             elif s.lowered is None:
                 assert (
-                    s.name not in self.uses
-                ), "exocc internal error, invalid Fence Sym"
-                usage = BarrierUsage(None, s)
-                usage.front_arrive = SyncInfo(sync_type.first_sync_tl, [s], 1, 1)
-                usage.front_await = SyncInfo(sync_type.second_sync_tl, [s], 0, 0)
-                self.uses[s.name] = usage
-                assert usage.is_fence()
+                    len(s.barriers) == 1
+                ), "exocc internal error: Fence internal barrier not initialized"
+                nm = s.barriers[0].name
+                assert (
+                    nm not in self.uses
+                ), "exocc internal error, invalid Fence Sym {nm!r}"
+                self.uses[nm] = BarrierUsage(s)
         elif hasattr(s, "body"):
             super().do_s(s)
         return None
@@ -122,121 +284,75 @@ class BarrierUsageAnalysis(LoopIR_Do):
     def do_e(self, e):
         return None  # speed things up
 
-    def check_n(
-        self,
-        info: SyncInfo,
-        barrier_type: Type[BarrierType],
-        traits: BarrierTypeTraits,
-    ):
-        assert info.stmts
-        ref_stmt = info.stmts[0]
-
-        for s in info.stmts:
-            sync_type = s.sync_type
-            N = sync_type.N
-            requires = None
-            conflicts = ""
-            if sync_type.is_arrive():
-                if N != 1:
-                    if traits.negative_arrive:
-                        if N != ~0:
-                            requires = "N = 1 or N = ~0"
-                    else:
-                        requires = "N = 1"
-            else:
-                assert sync_type.is_await()
-                if traits.negative_await:
-                    if N >= 0:
-                        requires = "N <= ~0"
-                else:
-                    if N < 0:
-                        requires = "N >= 0"
-                if traits.uniform_await_N and N != ref_stmt.sync_type.N:
-                    requires = "uniform N"
-                    conflicts = f"; conflict with{ref_stmt.srcinfo}: {ref_stmt}"
-
-            if requires:
-                raise ValueError(
-                    f"{s.srcinfo}: {barrier_type.name()} requires {requires} in {s}{conflicts}"
-                )
-
     def check_split_barrier(
         self,
         name: Sym,
         barrier_type: Type[BarrierType],
         in_stmts: List[LoopIR.stmt],
-        stmt_idx: int,
+        alloc_idx: int,
     ):
         usage: BarrierUsage = self.uses[name]
         assert not usage.is_fence()
-        assert isinstance(in_stmts[stmt_idx], LoopIR.Alloc)
-        assert in_stmts[stmt_idx].name == name
+        alloc = in_stmts[alloc_idx]
+        assert isinstance(alloc, LoopIR.Alloc)
+        assert alloc.name == name
         traits: BarrierTypeTraits = barrier_type.traits()
 
-        # Boilerplate for missing Arrive/Await,
-        # or unpaired or unsupported ReverseArrive/ReverseAwait;
-        # also check N values.
-        if usage.Arrive is None and usage.Await is None:
-            raise ValueError(
-                f"{usage.decl_stmt.srcinfo}: missing Arrive({name}) and Await({name})"
-            )
-        if usage.Arrive is None:
-            s = usage.Await.stmts[0]
-            raise ValueError(f"{s.srcinfo}: {s} missing corresponding Arrive({name})")
-        if usage.Await is None:
-            s = usage.Arrive.stmts[0]
-            raise ValueError(f"{s.srcinfo}: {s} missing corresponding Await({name})")
-        self.check_n(usage.Arrive, barrier_type, traits)
-        self.check_n(usage.Await, barrier_type, traits)
-        if usage.ReverseArrive is not None:
-            s = usage.ReverseArrive.stmts[0]
-            if not traits.supports_reverse:
+        # Boilerplate for missing Arrive/Await pairs.
+        front_arrive = usage.get_front_arrive()
+        front_await = usage.get_front_await()
+        back_arrive = usage.get_back_arrive()
+        back_await = usage.get_back_await()
+
+        def kvetch_missing(info, whats_missing: str):
+            s = info.stmts[0]
+            raise ValueError(f"{s.srcinfo}: missing {whats_missing} for {s}")
+
+        if front_arrive is None:
+            if front_await is None:
                 raise ValueError(
-                    f"{s.srcinfo}: ReverseArrive not supported by {name} @ {barrier_type.name()}"
+                    f"{alloc.srcinfo}: missing Arrive(...) >> +{name} and Await(+{name})"
                 )
-            if usage.ReverseAwait is None:
-                raise ValueError(
-                    f"{s.srcinfo}: {s} missing corresponding ReverseAwait({name})"
-                )
-            self.check_n(usage.ReverseArrive, barrier_type, traits)
-        if usage.ReverseAwait is not None:
-            s = usage.ReverseAwait.stmts[0]
-            if not traits.supports_reverse:
-                raise ValueError(
-                    f"{s.srcinfo}: ReverseAwait not supported by {name} @ {barrier_type.name()}"
-                )
-            if usage.ReverseArrive is None:
-                raise ValueError(
-                    f"{s.srcinfo}: {s} missing corresponding ReverseArrive({name})"
-                )
-            self.check_n(usage.ReverseAwait, barrier_type, traits)
+            else:
+                kvetch_missing(front_await, f"Arrive(...) >> +{name}")
+        if front_await is None:
+            kvetch_missing(front_arrive, f"Await(+{name}, ...)")
+        if back_arrive is None and back_await is not None:
+            kvetch_missing(back_await, f"Arrive(...) >> -{name}")
+        if back_arrive is not None and back_await is None:
+            kvetch_missing(back_arrive, f"Await(-{name}, ...)")
 
         # Check pairing requirements only if barrier type traits require it.
         if traits.requires_pairing:
-            self.check_pairing(name, traits, in_stmts, stmt_idx)
+            self.check_pairing(name, traits, in_stmts, alloc_idx)
 
     def check_pairing(
         self,
         name: Sym,
         traits: BarrierTypeTraits,
         in_stmts: List[LoopIR.stmt],
-        stmt_idx: int,
+        alloc_idx: int,
     ):
         usage: BarrierUsage = self.uses[name]
-        has_reverse = usage.has_reverse()
+        has_back = usage.has_back_array()
         await_first = None  # Set to True/False when we know.
         nesting_level_if = 1  # Search for matched Arrive in if stmts, but not Await
         nesting_level_for = 2  # Never search for matches in for stmts.
 
-        if has_reverse:
-            # We only support {Reverse}Await -> {!Reverse}Arrive for 2-way barriers
+        if has_back:
+            # We only support {+/-}Await -> {-/+}Arrive for 2-way barriers
             await_first = True
         if traits.requires_arrive_first:
             assert not await_first
             await_first = False
 
-        def paired_fname(sync_type: SyncType):
-            return usage.paired_fname(sync_type)
+        def paired_expected(s: LoopIR.SyncStmt):
+            back = s.barriers[0].back ^ has_back
+            sign = "-" if back else "+"
+            if s.sync_type.is_await():
+                return f"Arrive(...) >> {sign}{name}"
+            else:
+                return f"Await({sign}{name}, ...)"
 
         def recurse(
             sub_stmts: List[LoopIR.stmt],
@@ -267,7 +383,8 @@ class BarrierUsageAnalysis(LoopIR_Do):
                     sub_nesting = max(
                         nesting, 0 if unmatched_sync is None else nesting_level_if
                     )
-                    # NB |= and not or, as orelse body always needs to be scanned anyway
+                    # NB |= and not short-circuit `or`,
+                    # as orelse body always needs to be scanned anyway
                     found_match = recurse(s.body, unmatched_sync, sub_nesting)
                     found_match |= recurse(s.orelse, unmatched_sync, sub_nesting)
                     if found_match:
@@ -280,7 +397,7 @@ class BarrierUsageAnalysis(LoopIR_Do):
                             nesting, 0 if unmatched_sync is None else nesting_level_for
                         )
                         recurse(s.body, unmatched_sync, sub_nesting)
-                elif isinstance(s, LoopIR.SyncStmt) and s.name == name:
+                elif isinstance(s, LoopIR.SyncStmt) and s.barriers[0].name == name:
                     # Inspect SyncStmt that uses the `name` barrier.
                     sync_type = s.sync_type
                     assert sync_type.is_split()
@@ -306,12 +423,13 @@ class BarrierUsageAnalysis(LoopIR_Do):
                     if unmatched_sync is None:
                         if sync_type.is_arrive() and sync_type.N == ~0:
                             # Arrive with N = ~0 special case: does not need to be matched.
+                            # TODO remove this if we stop supporting N = ~0
                             pass
                         else:
                             if await_first is None:
                                 await_first = sync_type.is_await()
                             elif await_first != sync_type.is_await():
-                                expected = paired_fname(sync_type)
+                                expected = paired_expected(s)
                                 raise ValueError(
                                     f"{s.srcinfo}: {s} not paired with previous {expected} (note: those guarded by if/seq-for don't count)"
                                 )
@@ -320,8 +438,15 @@ class BarrierUsageAnalysis(LoopIR_Do):
                     # Have unmatched statement (and nesting check OK)
                     # Look for exact matching statement
                     else:
-                        expected = paired_fname(unmatched_sync.sync_type)
-                        if expected != sync_type.fname():
+                        expected = paired_expected(unmatched_sync)
+                        matches = (
+                            sync_type.is_arrive() == unmatched_sync.sync_type.is_await()
+                        )
+                        if has_back:
+                            matches &= (
+                                s.barriers[0].back != unmatched_sync.barriers[0].back
+                            )
+                        if not matches:
                             raise ValueError(
                                 f"{s.srcinfo}: expected {expected} to match {unmatched_sync} @ {unmatched_sync.srcinfo}"
                             )
@@ -333,6 +458,7 @@ class BarrierUsageAnalysis(LoopIR_Do):
 
             # Arrives must be matched with a subsequent Await,
             # but we forgive unmatched Awaits.
+            # TODO rethink this if we stop supporting conditional Arrive.
             if unmatched_sync is not None and unmatched_sync.sync_type.is_arrive():
                 raise ValueError(
                     f"{unmatched_sync.srcinfo}: {unmatched_sync} without corresponding Await({name}) in same block (not split by if/seq-for)"
@@ -340,4 +466,4 @@ class BarrierUsageAnalysis(LoopIR_Do):
 
             return unmatched_sync is None  # -> found_match
 
-        recurse(in_stmts[stmt_idx + 1 :], None, 0)
+        recurse(in_stmts[alloc_idx + 1 :], None, 0)

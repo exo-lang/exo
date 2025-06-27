@@ -651,6 +651,32 @@ def basetype(t):
 del basetype
 
 
+@extclass(LoopIR.BarrierExpr)
+def multicast_flags(e):
+    return tuple(isinstance(w, LoopIR.Interval) for w in e.idx)
+
+
+del multicast_flags
+
+
+@extclass(LoopIR.SyncStmt)
+def multicasts(s):
+    return tuple(e.multicast_flags() for e in s.barriers)
+
+
+del multicasts
+
+
+@extclass(LoopIR.SyncStmt)
+def forbid_multicast(s, reason):
+    for e in s.barriers:
+        for w in e.idx:
+            if isinstance(w, LoopIR.Interval):
+                raise ValueError(
+                    f"{s.srcinfo}: Unsupported multicast ({w}) in {e}; {reason}"
+                )
+
+
 @extclass(LoopIR.type)
 def is_barrier(t):
     return False

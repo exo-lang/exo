@@ -417,9 +417,7 @@ class SubtreeScan(LoopIR_Do):
         if isinstance(s, idx_s_types):
             self.mark_sym_used(s.name)
             self.apply_idx(s, s)
-        elif not isinstance(
-            s, (LoopIR.WindowStmt, LoopIR.Alloc, LoopIR.Free, LoopIR.SyncStmt)
-        ):
+        elif not isinstance(s, (LoopIR.WindowStmt, LoopIR.Alloc, LoopIR.Free)):
             assert not hasattr(s, "name"), "Add handling for array indexing"
 
         if is_if_holding_with(s, LoopIR):
@@ -476,7 +474,7 @@ class SubtreeScan(LoopIR_Do):
                 )
         elif isinstance(s, LoopIR.SyncStmt):
             # Distributed memory analysis and CollTiling for Fence/Arrive/Await
-            self.mark_sym_used(s.name)
+            self.mark_sym_used(s.barriers[0].name)
             if s.sync_type.is_split():
                 usage: BarrierUsage = self.get_barrier_usage(s.name)
                 state = self.distributed_alloc_states.get(s.name)

@@ -1044,7 +1044,7 @@ class Compiler:
             bar = str(s.name)
             if s.idx:
                 bar += "[" + ", ".join(str(n) for n in s.idx) + "]"
-            self.add_line(f"// {s.sync_type.format_stmt(bar)}")
+            self.add_line(f"// {s.sync_type.format_stmt(s.barriers)}")
             assert not isinstance(barrier_lines, str), "expect List[str]"
             for line in barrier_lines:
                 self.add_line(line)
