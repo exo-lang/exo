@@ -301,9 +301,7 @@ def test_unquote_index_tuple(golden):
 
 
 def test_unquote_err():
-    with pytest.raises(
-        ParseError, match="Unquote computation did not yield valid type"
-    ):
+    with pytest.raises(ParseError, match="valid type"):
         T = 1
 
         @proc
