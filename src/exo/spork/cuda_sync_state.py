@@ -287,10 +287,17 @@ class SyncStateBuilder:
             return ~info.min_N
 
         # Calculate the size of the ring buffer (number of mbarriers)
+        # and CTA indices to XOR with (cluster feature)
         front_skips = n_skips(usage.get_front_await())
+        front_cta_xor_list = coll_tilings.cta_xor_list(
+            self._blockDim(), thread_iters, usage.get_front_arrive()
+        )
         if usage.has_back_array():
             back_skips = n_skips(usage.get_back_await())
             ring = front_skips + back_skips
+            back_cta_xor_list = coll_tilings.cta_xor_list(
+                self._blockDim(), thread_iters, usage.get_back_arrive()
+            )
         else:
             ring = front_skips + 1
         if ring == 0:
@@ -321,6 +328,7 @@ class SyncStateBuilder:
         def generate_arrive(is_back):
             b = "Back" if is_back else "Front"
             info = usage.get_back_arrive() if is_back else usage.get_front_arrive()
+            cta_xor_list = back_cta_xor_list if is_back else front_cta_xor_list
             sync_tl = info.sync_tl
 
             if timelines.Sm80_cp_async.implements_first(sync_tl):
@@ -346,15 +354,34 @@ class SyncStateBuilder:
             lines.append(f"EXO_CUDA_INLINE uint32_t {b}Arrive{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {{")
             mbarrier_to_u32(lines, is_back, idx);
             lines.append(f"  if (enable) {{")
-            # TODO cluster broadcast if needed
-            ptx_format = f"// {b}Arrive{nm_suffix}\n"
-            if is_Sm80_cp_async:
-                ptx_format += "cp.async.mbarrier.arrive.noinc.shared::cta.b64 #0#;"
+            
+            # Optional broadcast to other CTAs in cluster.
+            if len(cta_xor_list) > 1:
+                multicast = True
+                cta_or_cluster = "cluster"
+                lines.append(f"    const unsigned cta_rank = blockDim.x % {self._clusterDim()};")
             else:
-                ptx_format += "mbarrier.arrive.shared::cta.b64 _, #0#;"
-            ptx = InlinePtxGen(ptx_format, volatile=True)
-            ptx.add_arg("mbarrier_u32", constraint="r", log_as="bits", brackets=True)
-            lines.extend(ptx.as_c_lines(py_format=False, tab="    "))
+                multicast = False
+                assert cta_xor_list[0] == 0
+                cta_or_cluster = "cta"
+            
+            # Issue arrives to each CTA (special code for 1-CTA case, so we
+            # don't break sm_80, and don't waste time translating addresses)
+            for cta_xor in cta_xor_list:
+                ptx_format = f"// {b}Arrive{nm_suffix}\n"
+                if multicast:
+                    ptx_format += f"// cta_xor={cta_xor}\n"
+                if is_Sm80_cp_async:
+                    ptx_format += f"cp.async.mbarrier.arrive.noinc.shared::{cta_or_cluster}.b64 #0#;"
+                else:
+                    ptx_format += f"mbarrier.arrive.shared::{cta_or_cluster}.b64 _, #0#;"
+                ptx = InlinePtxGen(ptx_format, volatile=True)
+                if multicast:
+                    ptx.add_arg(f"exo_mapa_shared_cluster(mbarrier_u32, cta_rank ^ {cta_xor})",
+                                constraint="r", log_as="bits", brackets=True)
+                else:
+                    ptx.add_arg("mbarrier_u32", constraint="r", log_as="bits", brackets=True)
+                lines.extend(ptx.as_c_lines(py_format=False, tab="    "))
             if ring_bits > 0:
                 lines.append(f"    // Advance ring buffer state")
                 lines.append(f"    {idx} = {idx} == {ring - 1} ? 0 : {idx} + 1;")
@@ -457,7 +484,7 @@ class SyncStateBuilder:
         # Reserve mbarriers in mbarrier allocator
         RS = ring * slice_count
         lines = self.SyncState_lines
-        arrive_count = coll_tilings.get_front_arrive().box_num_threads()
+        arrive_count = coll_tilings.get_front_arrive().box_num_threads() * len(front_cta_xor_list)
         self._mbarrier_pairs.append((RS, arrive_count))
         self.mbarrier_count += RS
         lines.append(f"// {name}: barrier @ CudaMbarrier, ring={ring}, slice_count={slice_count}")
@@ -465,7 +492,7 @@ class SyncStateBuilder:
                      f"arrive_count={arrive_count}")
 
         if usage.has_back_array():
-            arrive_count = coll_tilings.get_back_arrive().box_num_threads()
+            arrive_count = coll_tilings.get_back_arrive().box_num_threads() * len(back_cta_xor_list)
             self._mbarrier_pairs.append((RS, arrive_count))
             self.mbarrier_count += RS
             lines.append(f"// back mbarriers [{mbarrier_offset + RS}, {mbarrier_offset + RS * 2}]; "
@@ -489,12 +516,7 @@ class SyncStateBuilder:
         # (TODO this will change to TMA instrs taking mbarrier parameters)
         Arrive_txt = f"Arrive{nm_suffix}(exo_smem, exo_excutLog"
         def codegen(s: LoopIR.SyncStmt):
-            # TODO handle multicast.
-            assert len(s.barriers) == 1
-            e = s.barriers[0]
-            iter_syms = [idx.pt.name for idx in e.idx]  # Will need to handle intervals
-            # End wrong code
-
+            iter_syms = [idx.pt.name for idx in s.home_barrier_expr().idx]
             sync_type = s.sync_type
             slice = coll_tilings.codegen_slices_to_root(self._blockDim(), thread_iters, iter_syms)
             back = s.barriers[0].back

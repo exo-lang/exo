@@ -488,10 +488,10 @@ class SubtreeScan(LoopIR_Do):
                 )
                 # There is no native_unit; we parse all indices as distributed
                 assert state.optional_native_unit is None
-                assert len(s.barriers) == 1, "TODO multicast"
-                e = s.barriers[0]
-                for i in range(len(e.idx)):
-                    fsm.consume_idx(e, self.sym_type(e.name), i)
+                assert len(s.barriers) >= 1
+                e0 = s.barriers[0]
+                for i in range(len(e0.idx)):
+                    fsm.consume_SyncStmt_idx(s, self.sym_type(e0.name), i)
 
                 # We now have the distributed indices in distributed_iters.
                 # Store in DistributedAllocState if this is the first use, or check
@@ -1495,6 +1495,13 @@ h_snippet_for_cuda = r"""
 EXO_CUDA_INLINE unsigned exo_smemU32(const void* smem_ptr)
 {
     return (unsigned)__cvta_generic_to_shared(smem_ptr);
+}
+EXO_CUDA_INLINE unsigned exo_mapa_shared_cluster(unsigned addr_u32, unsigned cta_rank)
+{
+#if __CUDA_ARCH__ >= 900
+    asm("mapa.shared::cluster.u32 %0, %1, %2;": "=r"(addr_u32) : "r"(addr_u32), "r"(cta_rank));
+#endif
+    return addr_u32;
 }
 #endif  // __CUDACC__
 

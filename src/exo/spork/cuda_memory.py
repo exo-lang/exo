@@ -407,6 +407,7 @@ class CudaMbarrier(CudaDeviceBarrier):
             supports_back_array=True,
             requires_pairing=True,
             requires_arrive_first=False,
+            supports_arrive_multicast=True,
         )
 
 

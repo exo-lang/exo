@@ -677,6 +677,57 @@ def forbid_multicast(s, reason):
                 )
 
 
+@extclass(LoopIR.SyncStmt)
+def home_barrier_expr(s) -> LoopIR.BarrierExpr:
+    """Give expression for the home barrier, e.g.
+
+    Arrive(...) >> -foo[a, :] >> -foo[:, b]
+
+    becomes -foo[a, b]"""
+    if not s.barriers:
+        raise ValueError(f"{s.srcinfo}: {s} missing >> trailing barrier exprs")
+
+    e0 = s.barriers[0]
+    nm = e0.name
+    back = e0.back
+    dim = len(e0.idx)
+    idx = [None] * dim
+
+    for expr_idx in range(len(s.barriers)):
+        e = s.barriers[expr_idx]
+        if e.name != nm:
+            raise ValueError(
+                f"{s.srcinfo}: cannot arrive on different queue barrier arrays {e} and {e0}"
+            )
+        if e.back != back:
+            raise ValueError(
+                f"{s.srcinfo}: cannot arrive on different queue barrier arrays {e} and {e0} (+/- mismatch)"
+            )
+        for dim_idx in range(dim):
+            this_idx = e.idx[dim_idx]
+            if isinstance(this_idx, LoopIR.Point):
+                pt = this_idx.pt
+                if not isinstance(pt, LoopIR.Read):
+                    raise ValueError(
+                        f"{s.srcinfo}: expected a plain variable, not {this_idx}, in {e}"
+                    )
+                if old_idx := idx[dim_idx]:
+                    if old_idx.pt.name != pt.name:
+                        raise ValueError(
+                            f"{s.srcinfo}: {e} has idx[{dim_idx}] = {pt.name}; mismatches idx[{dim_idx}] in previous trailing barrier expressions of {s}"
+                        )
+                else:
+                    idx[dim_idx] = this_idx
+
+    for dim_idx, w in enumerate(idx):
+        if w is None:
+            raise ValueError(
+                f"{s.srcinfo}: at least one trailing barrier expression must have idx[{dim_idx}] be a point, not an interval {s.barriers[0].idx[dim_idx]} (in {s})"
+            )
+
+    return LoopIR.BarrierExpr(nm, back, idx, T.barrier, s.srcinfo)
+
+
 @extclass(LoopIR.type)
 def is_barrier(t):
     return False

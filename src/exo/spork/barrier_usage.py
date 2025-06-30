@@ -80,24 +80,13 @@ class BarrierUsage:
         N = sync_type.N
         assert sync_type.is_arrive()
 
-        if not s.barriers:
-            raise ValueError(f"{s.srcinfo}: {s} missing >> trailing barrier exprs")
-        e0 = s.barriers[0]
-        nm = e0.name
-        back = e0.back
+        # home_barrier_expr() enforces usage of the same queue barrier array
+        home_barrier = s.home_barrier_expr()
+        nm = home_barrier.name
+        back = home_barrier.back
+
         traits = mem.traits()
         multicasts = s.multicasts()
-
-        # Enforce usage of the same queue barrier array
-        for i, e in enumerate(s.barriers):
-            if e.name != nm:
-                raise ValueError(
-                    f"{s.srcinfo}: cannot arrive on different queue barrier arrays {e} and {e0}"
-                )
-            if e.back != back:
-                raise ValueError(
-                    f"{s.srcinfo}: cannot arrive on different queue barrier arrays {e} and {e0} (+/- mismatch)"
-                )
 
         def kvetch_invalid(reason):
             raise ValueError(f"{s.srcinfo}: invalid {s}; {reason}")
@@ -128,9 +117,9 @@ class BarrierUsage:
         # Enforce traits
         if not traits.supports_back_array and back:
             kvetch_invalid(
-                f"{mem.name()} does not support back queue barrier {e0} (i.e. need + not -)"
+                f"{mem.name()} does not support back queue barrier {home_barrier} (i.e. need + not -)"
             )
-        if not traits.supports_multicast:
+        if not traits.supports_arrive_multicast:
             s.forbid_multicast(f"{mem.name()} does not support multicast")
 
         # Enforce N = 1
@@ -147,7 +136,7 @@ class BarrierUsage:
         assert sync_type.is_await()
 
         assert len(s.barriers) == 1
-        e0 = s.barriers[0]
+        e0 = s.home_barrier_expr()
         nm = e0.name
         back = e0.back
         traits = mem.traits()

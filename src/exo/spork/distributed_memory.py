@@ -9,10 +9,13 @@ from .coll_algebra import (
     CollUnit,
     CollIndexExpr,
     CollParam,
+    clusterDim_param,
+    blockDim_param,
 )
 from .barrier_usage import BarrierUsage
 from .loop_modes import _CodegenPar
 from .sync_types import SyncType
+from .barrier_usage import SyncInfo
 
 
 @dataclass(slots=True, init=False)
@@ -197,6 +200,46 @@ class DistributedAllocState(object):
         else:
             return " + ".join(prods) if prods else "0"
 
+    def cta_xor_list(
+        self, blockDim: int, thread_iters: Dict[Sym, ThreadIter], sync_info: SyncInfo
+    ) -> List[int]:
+        """Intended for Arrive statements for mbarriers in distributed shared memory.
+
+        Compile the arrive statement with the given
+        SyncStmt.multicasts() value (list of multicast flags)
+        to a series of arrives on the CTAs with ranks
+        [(blockIdx.x % clusterDim) ^ m for m in cta_xor_list(..)]
+
+        """
+        stmt = sync_info.stmts[0]
+        multicasts = sync_info.multicasts
+        mask_bits = 0
+        iterators: List[Sym] = self.first_distributed_iters
+        for multicast_flags in multicasts:
+            assert len(multicast_flags) == len(iterators)
+            tmp_bits = 1
+            for flag, sym in zip(multicast_flags, iterators):
+                if flag:
+                    info = thread_iters[sym]
+                    thread_pitch = info.thread_pitch
+                    cta_count = info.coll_tiling.tile_count
+                    if cta_count >= 2:
+                        if thread_pitch % blockDim != 0:
+                            raise ValueError(
+                                f"{stmt.srcinfo}: {sym} thread_pitch {thread_pitch} not divisible by blockDim ({blockDim}); cannot be multicast (in {stmt})"
+                            )
+                        cta_pitch = thread_pitch // blockDim
+                        new_bits = 0
+                        for n in range(cta_count):
+                            new_bits |= tmp_bits << (n * cta_pitch)
+                        tmp_bits = new_bits
+            mask_bits |= tmp_bits
+        return [
+            bit_index
+            for bit_index in range(mask_bits.bit_length())
+            if ((mask_bits >> bit_index) & 1)
+        ]
+
 
 @dataclass(slots=True)  # convenient to auto-define repr for debugging
 class DistributedIdxFsm:
@@ -301,7 +344,7 @@ class DistributedIdxFsm:
         if t0 != t1:
             if t0 in self.t0_iter_t1:
                 self.bad_idx(
-                    node, f"unexpected (repeated?) index {idx_e} (duplicate t0={t0})"
+                    node, f"unexpected (repeated?) index {iter_sym} (duplicate t0={t0})"
                 )
             self.t0_iter_t1[t0] = (iter_sym, t1)
         if t1 < self.leaf_coll_tiling.tile_num_threads():
@@ -328,6 +371,29 @@ class DistributedIdxFsm:
         while entry := self.t0_iter_t1.get(self.cur_num_threads):
             iter_sym, t1 = entry
             self.cur_num_threads = entry[1]
+
+        return (const_extent, iter_sym)  # Internal use by consume_SyncStmt_idx
+
+    def consume_SyncStmt_idx(
+        self, sync_stmt: LoopIR.SyncStmt, typ: LoopIR.type, i: int
+    ):
+        """Process sync_stmt.barriers[n].idx[i] for all n"""
+        assert typ.is_barrier()
+
+        home_barrier = sync_stmt.home_barrier_expr()
+
+        # Analyze the point
+        const_extent, iter_sym = self.consume_idx(home_barrier, typ, i)
+
+        # Range check for intervals
+        for e in sync_stmt.barriers:
+            idx = e.idx[i]
+            if isinstance(idx, LoopIR.Interval):
+                lo, hi = idx.lo, idx.hi
+                if not isinstance(lo, LoopIR.Const) or lo.val != 0:
+                    self.bad_idx(e, f"Expected idx[{i}] to be 0:{const_extent}")
+                if not isinstance(hi, LoopIR.Const) or hi.val != const_extent:
+                    self.bad_idx(e, f"Expected idx[{i}] to be 0:{const_extent}")
 
     def is_done(self, node):
         """True if we should not call consume_idx() again.
