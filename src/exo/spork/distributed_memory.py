@@ -71,9 +71,10 @@ class DistributedAllocState(object):
     first_usage_stmt: Optional[LoopIR.stmt]
     first_distributed_iters: List[Sym]
 
-    # Within an indexing expression name[i0,i1,...],
-    # 0 <= iN < distributed_extents[N] for all uses
-    # (although iN need to range all the way to distributed_extents[N]).
+    # Deduced compile-time const shape of the array of distributed shards.
+    # e.g. f32[8, 4, j] with 2 distributed dims gives [8, 4].
+    # This is possible redundant (i.e. maybe we should just require the LoopIR
+    # type of the indexed variable to be passed each time).
     distributed_extents: List[int]
 
     # CollTiling at the point of the Exo object code allocation
@@ -401,9 +402,7 @@ class DistributedIdxFsm:
                     f"Usage 2: {self.context_stmt} : {self.context_stmt.srcinfo}"
                 )
 
-        assert len(self.distributed_extents) == len(state.distributed_extents)
-        for i, v in enumerate(self.distributed_extents):
-            state.distributed_extents[i] = max(state.distributed_extents[i], v)
+        assert self.distributed_extents == state.distributed_extents
 
     def inspect_arrive_await(
         self,
