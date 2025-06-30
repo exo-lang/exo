@@ -18,6 +18,9 @@ class LoopMode(object):
     def is_par(cls):
         raise NotImplementedError
 
+    def format_loop_cond(self, lo, hi):
+        return format_loop_cond(lo, hi, self)
+
 
 def loop_mode_class(_loop_mode_name, _is_par):
     assert _loop_mode_name
@@ -107,9 +110,9 @@ class CudaThreads(LoopMode):
 cuda_threads = CudaThreads()
 
 
-def format_loop_cond(lo_str: str, hi_str: str, loop_mode: LoopMode):
+def format_loop_cond(lo, hi, loop_mode: LoopMode):
     """loop_mode(lo, hi, kwarg1=value1, kwarg2=value2,...)"""
-    strings = [loop_mode.loop_mode_name(), "(", lo_str, ",", hi_str]
+    strings = [loop_mode.loop_mode_name(), "(", str(lo), ", ", str(hi)]
     for attr in loop_mode.__slots__:
         value = getattr(loop_mode, attr)
         if value is None and isinstance(loop_mode, Seq):

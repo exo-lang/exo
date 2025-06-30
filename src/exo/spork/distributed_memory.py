@@ -16,6 +16,7 @@ from .barrier_usage import BarrierUsage
 from .loop_modes import _CodegenPar
 from .sync_types import SyncType
 from .barrier_usage import SyncInfo
+from .base_with_context import is_if_holding_with
 
 
 @dataclass(slots=True, init=False)
@@ -375,7 +376,11 @@ class DistributedIdxFsm:
         return (const_extent, iter_sym)  # Internal use by consume_SyncStmt_idx
 
     def consume_SyncStmt_idx(
-        self, sync_stmt: LoopIR.SyncStmt, typ: LoopIR.type, i: int
+        self,
+        stmt_stack: List[LoopIR.stmt],
+        sync_stmt: LoopIR.SyncStmt,
+        typ: LoopIR.type,
+        i: int,
     ):
         """Process sync_stmt.barriers[n].idx[i] for all n"""
         assert typ.is_barrier()
@@ -386,14 +391,42 @@ class DistributedIdxFsm:
         const_extent, iter_sym = self.consume_idx(home_barrier, typ, i)
 
         # Range check for intervals
+        any_multicast = False
         for e in sync_stmt.barriers:
             idx = e.idx[i]
             if isinstance(idx, LoopIR.Interval):
+                any_multicast = True
                 lo, hi = idx.lo, idx.hi
                 if not isinstance(lo, LoopIR.Const) or lo.val != 0:
                     self.bad_idx(e, f"Expected idx[{i}] to be 0:{const_extent}")
                 if not isinstance(hi, LoopIR.Const) or hi.val != const_extent:
                     self.bad_idx(e, f"Expected idx[{i}] to be 0:{const_extent}")
+
+        # Check convergence requirement for multicasted iterators.
+        # Go from root-to-leaf of AST, and complain if there are seq-for or
+        # there are if-else (not with) between the loop that defines the
+        # multicast iterator and the SyncStmt.
+        if any_multicast:
+            iter_sym_loop = None
+            for s in stmt_stack:
+                if iter_sym_loop is None:
+                    if isinstance(s, LoopIR.For) and s.iter == iter_sym:
+                        iter_sym_loop = s
+                else:
+                    # Now within the loop found, start enforcing
+                    sus = None
+                    if is_if_holding_with(s, LoopIR):
+                        pass
+                    elif isinstance(s, LoopIR.If):
+                        sus = f"if {s.cond}"
+                    elif isinstance(s, LoopIR.For) and not s.loop_mode.is_par():
+                        sus = f"for {s.iter} in {s.loop_mode.format_loop_cond(s.lo, s.hi)}"
+                    if sus:
+                        raise ValueError(
+                            f"{sync_stmt.srcinfo}: multicasted {iter_sym} fails "
+                            f"convergence requirement due to `{sus}` at "
+                            f"{s.srcinfo} (SyncStmt: {sync_stmt})"
+                        )
 
     def is_done(self, node):
         """True if we should not call consume_idx() again.
