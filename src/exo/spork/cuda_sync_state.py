@@ -365,7 +365,7 @@ class SyncStateBuilder:
 
         def generate_await(is_back, L1):
             b = "Back" if is_back else "Front"
-            info = usage.get_back_await() if is_back else usage.get_back_arrive()
+            info = usage.get_back_await() if is_back else usage.get_front_await()
             L2 = info.sync_tl
 
             if timelines.cuda_async_proxy_wgmma.implements_first(L1):
