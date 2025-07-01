@@ -394,10 +394,12 @@ class Procedure(ProcedureBase):
     def _root(self):
         return IC.Cursor.create(self._loopir_proc)
 
-    def dataflow(self, s=[]):
+    def dataflow(self, s=[], fast_widening=False):
         stmts = [s] if isinstance(s, C.StmtCursor) else s
         loopir_stmts = []
         for s in stmts:
             loopir_stmts.append(s._impl._node)
 
-        return dataflow_analysis(self._loopir_proc, loopir_stmts)
+        return dataflow_analysis(
+            self._loopir_proc, loopir_stmts, fast_widening=fast_widening
+        )

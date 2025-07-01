@@ -1,0 +1,44 @@
+def foo(n : size, ConfigControl_i : index):
+  for i in seq(0, n):
+    ConfigControl_i_1 =\i \phi(i == 0 ? ConfigControl_i : ConfigControl_i_2[i - 1]) # LoopStart
+    ConfigControl_i_3 =\i \phi(True ? 8 : 8)
+    if n - i * 8 < 8:
+      ConfigControl_i_4 =\i \phi(True ? n - i * 8 : n - i * 8)
+    ConfigControl_i_2 =\i \phi(n - i * 8 < 8 ? ConfigControl_i_4[i] : ConfigControl_i_3[i]) # IfJoin
+  ConfigControl_i_5 = \phi(n > 0 ? ConfigControl_i_2[n - 1] : ConfigControl_i) # LoopExit
+------------------------ ConfigControl_i_1 : (var i, n)
+                         │   n < 0
+                         │   │   i < n/8 ∨ 8*i - n = 0 ⟨n=-1, i=-2⟩ 8
+                         │   │   i < 0 ∧ 8*i - n > 0 ⟨n=-1, i=-1/16⟩ -8*i + n + 8
+                         │   │   i = 0 ⟨n=-1, i=0⟩ ConfigControl_i
+                         │   │   i > 0 ⟨n=-1, i=1⟩ -8*i + n + 8
+                         │   n = 0
+                         │   │   i < n/8 ⟨n=0, i=-1⟩ 8
+                         │   │   8*i - n = 0 ⟨n=0, i=0⟩ ConfigControl_i
+                         │   │   i > n/8 ⟨n=0, i=1⟩ -8*i + n + 8
+                         │   n > 0
+                         │   │   i < 0 ⟨n=1, i=-1⟩ 8
+                         │   │   i = 0 ⟨n=1, i=0⟩ ConfigControl_i
+                         │   │   8*i - n = 0 ∨ i > 0 ∧ 8*i - n < 0 ⟨n=1, i=1/16⟩ 8
+                         │   │   i > n/8 ⟨n=1, i=2⟩ -8*i + n + 8
+                         ConfigControl_i_3 : (var i)
+                         8
+                         ConfigControl_i_4 : (var i)
+                         -8*i + n
+                         ConfigControl_i_2 : (var i, n)
+                         │   n < 8
+                         │   │   i < n/8 - 1 ⟨n=0, i=-2⟩ 8
+                         │   │   8*i - n + 8 = 0 ⟨n=0, i=-1⟩ 8
+                         │   │   i > n/8 - 1 ⟨n=0, i=0⟩ -8*i + n
+                         │   n - 8 = 0
+                         │   │   i < n/8 - 1 ⟨n=8, i=-1⟩ 8
+                         │   │   8*i - n + 8 = 0 ⟨n=8, i=0⟩ 8
+                         │   │   i > n/8 - 1 ⟨n=8, i=1⟩ -8*i + n
+                         │   n > 8
+                         │   │   i < n/8 - 1 ⟨n=9, i=0⟩ 8
+                         │   │   8*i - n + 8 = 0 ⟨n=9, i=1/8⟩ 8
+                         │   │   i > n/8 - 1 ⟨n=9, i=2⟩ -8*i + n
+                         ConfigControl_i_5 : (var n)
+                         │   n < 0 ⟨n=-1⟩ ConfigControl_i
+                         │   7*n = 0 ⟨n=0⟩ ConfigControl_i
+                         │   n > 0 ⟨n=1⟩ 8 - 7*n

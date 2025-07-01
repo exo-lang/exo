@@ -90,7 +90,7 @@ def _make_strategy():
     def foo():
         pass
 
-    return Strategy1(foo.dataflow()[0])
+    return Strategy1(foo.dataflow()[0], [], False)
 
 
 def test_issubsetof_basic():
@@ -246,6 +246,16 @@ def test_simple_stmts2(golden):
     )
 
 
+def test_simple_cond(golden):
+    @proc
+    def foo(n: size, x: R[3]):
+        x[0] = 2.0
+        if n < 3:
+            x[n] = 3.0
+
+    assert str(_canon_dir(foo.dataflow()[0])) == golden
+
+
 def test_simple3(golden):
     @proc
     def foo(z: R, n: size, x: R[3]):
@@ -361,7 +371,82 @@ def test_sliding_window_debug(golden):
     assert str(_canon_dir(foo.dataflow()[0])) == golden
 
 
-# TODO: check
+# TODO: Those two tests are failing because when we try to parametarize lo,
+# sympy's lpmin seems to fail (it says it can find an integer solution when it shouldn't)
+@pytest.mark.skip()
+def test_slice_init_const(golden):
+    @proc
+    def foo(lo: index, dst: f32[30]):
+        assert lo >= 0
+        assert lo <= 30
+
+        for i in seq(lo, 30):
+            dst[i] = 0.0
+
+    print(_canon_dir(foo.dataflow()[0]))
+
+
+@pytest.mark.skip()
+def test_slice_init(golden):
+    @proc
+    def foo(lo: index, hi: index, n: size, dst: f32[n]):
+        assert lo >= 0
+        assert lo <= n
+        assert lo <= hi
+        assert hi >= 0
+        assert hi <= n
+        for i in seq(lo, hi):
+            dst[i] = 0.0
+
+    print(_canon_dir(foo.dataflow()[0]))
+
+
+def test_fission(golden):
+    @proc
+    def foo(dst: f32[10]):
+        for i in seq(0, 10):
+            dst[i] = 2.0
+
+        for i in seq(0, 5):
+            dst[i] = 0.0
+
+    assert str(_canon_dir(foo.dataflow()[0])) == golden
+
+
+# multi loop multi dim tests
+def test_array_init_2d_const(golden):
+    @proc
+    def foo(dst: f32[10, 20]):
+        for i in seq(0, 10):
+            for j in seq(0, 20):
+                dst[i, j] = 0.0
+
+    assert str(_canon_dir(foo.dataflow(fast_widening=True)[0])) == golden
+
+
+# takes 1373.02s
+@pytest.mark.skip()
+def test_array_init_2d(golden):
+    @proc
+    def foo(n: size, m: size, dst: f32[n, m]):
+        for i in seq(0, n):
+            for j in seq(0, m):
+                dst[i, j] = 0.0
+
+    assert str(_canon_dir(foo.dataflow(fast_widening=True)[0])) == golden
+
+
+def test_sliding_window_const(golden):
+    @proc
+    def foo(dst: i8[30]):
+        for i in seq(0, 10):
+            for j in seq(0, 20):
+                dst[i + j] = 2.0
+
+    assert str(_canon_dir(foo.dataflow(fast_widening=True)[0])) == golden
+
+
+# takes 1318.51s
 @pytest.mark.skip()
 def test_sliding_window_print(golden):
     @proc
@@ -370,11 +455,9 @@ def test_sliding_window_print(golden):
             for j in seq(0, m):
                 dst[i + j] = 2.0
 
-    assert str(_canon_dir(foo.dataflow()[0])) == golden
+    assert str(_canon_dir(foo.dataflow(fast_widening=True)[0])) == golden
 
 
-# (probably) works but is too slow with the full widening
-@pytest.mark.skip()
 def test_sliding_window_const_guard(golden):
     @proc
     def foo(dst: i8[30]):
@@ -383,8 +466,7 @@ def test_sliding_window_const_guard(golden):
                 if i == 0 or j == 19:
                     dst[i + j] = 2.0
 
-    s = _canon_dir(foo.dataflow()[0])
-    assert str(s) == golden
+    assert str(_canon_dir(foo.dataflow(fast_widening=True)[0])) == golden
 
 
 @pytest.mark.skip()
@@ -510,6 +592,20 @@ def test_config_2(golden):
     assert str(_canon_dir(foo.dataflow()[0])) == golden
 
 
+@pytest.mark.skip()
+def test_array_max(golden):
+    ConfigAB = new_config_f32()
+
+    @proc
+    def foo(n: size, x: f32[n]):
+        ConfigAB.a = x[0]
+        for i in seq(1, n):
+            if ConfigAB.a < x[i]:
+                ConfigAB.a = x[i]
+
+    print(_canon_dir(foo.dataflow()[0]))
+
+
 def test_config_exprs_1(golden):
     ConfigAB = new_config_f32()
 
@@ -600,6 +696,19 @@ def test_config_min_loop(golden):
     def foo(n: size):
         for i in seq(0, n):
             CTRL.i = intmin(8, n - i * 8)
+
+    assert str(_canon_dir(foo.dataflow()[0])) == golden
+
+
+def test_config_min_loop_if(golden):
+    CTRL = new_control_config()
+
+    @proc
+    def foo(n: size):
+        for i in seq(0, n):
+            CTRL.i = 8
+            if n - i * 8 < 8:
+                CTRL.i = n - i * 8
 
     assert str(_canon_dir(foo.dataflow()[0])) == golden
 

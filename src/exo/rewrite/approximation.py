@@ -6,7 +6,7 @@ from sympy.core.relational import Relational
 
 
 def dataflow_analysis(
-    proc: LoopIR.proc, loopir_stmts: list, syms=None
+    proc: LoopIR.proc, loopir_stmts: list, syms=None, fast_widening=False
 ) -> DataflowIR.proc:
     proc = inline_calls(proc)
     proc = inline_windows(proc)
@@ -15,7 +15,7 @@ def dataflow_analysis(
     datair, stmts, d_syms = LoopIR_to_DataflowIR(proc, loopir_stmts, syms).result()
 
     # step 2 - run abstract interpretation algorithm to populate contexts with abs values
-    Strategy1(datair)
+    Strategy1(datair, d_syms, fast_widening)
 
     return datair, stmts, d_syms
 
@@ -33,25 +33,8 @@ def nice_root(poly, var):
     assert False, "hmm"
 
 
-def sort_by_variable_count(exprs, *, descending=True):
-    """
-    Return *exprs* ordered by the number of distinct SymPy symbols they contain.
-
-    Parameters
-    ----------
-    exprs : iterable of sympy expressions (or things accepted by `sympify`)
-    descending : bool, optional
-        If True (default) the expression with **more** variables comes first.
-        If False the order is ascending.
-
-    Notes
-    -----
-    * `len(expr.free_symbols)` is the number of variables in an expression.
-    * `sorted` is stable, so when two expressions have the same count their
-      original relative order is preserved.  If you prefer a deterministic
-      tie-break, add `expr.sort_key()` to the key tuple.
-    """
-    exprs = list(map(sm.sympify, exprs))  # accept strings too
+def sort_by_variable_count(exprs, descending=True):
+    exprs = list(map(sm.sympify, exprs))
 
     # Negative count ⇒ larger counts sort earlier when `descending` is True
     key = (
@@ -95,6 +78,8 @@ def cylindrical_algebraic_decomposition(F, gens):
     proj_sets = [F]
     for i in range(len(gens) - 1):
         proj_sets.append(list(hongproj(proj_sets[-1], gens[i])))
+
+    cell_num = 0
 
     # ---------------------------------------------------------------------
     # 3.  Helper: build the tree recursively (lifting phase)
@@ -191,12 +176,21 @@ def cylindrical_algebraic_decomposition(F, gens):
             cells.append(D.Cell(rel_iv, child))
 
         # ---------- bundle the stack for this variable -------------------
+        nonlocal cell_num
+        cell_num += len(cells)
         return D.LinSplit(cells)
 
     # ---------------------------------------------------------------------
     # 4.  Assemble the root ``ArrayDomain.abs`` value
     # ---------------------------------------------------------------------
     tree = lift(len(gens) - 1, {})
+
+    if False:
+        print()
+        print(f"# of variables: {len(gens)}")
+        print(f"# of polys: {len(F)}")
+        print(f"number of cells: {cell_num}")
+
     return D.abs(gens, F, tree)
 
 
@@ -372,6 +366,9 @@ def _val_subset(v1: D.val, v2: D.val) -> bool:
     if isinstance(v1, D.SubVal) and isinstance(v1.av, V.Bot):
         return True
 
+    if isinstance(v2, D.SubVal) and isinstance(v2.av, V.Top):
+        return True
+
     if isinstance(v1, D.SubVal) and isinstance(v2, D.SubVal):
         return _vabs_subsetof(v1.av, v2.av)
 
@@ -470,7 +467,7 @@ class Strategy1(AbstractInterpretation):
     def abs_read(self, ename, idx, env):
         # return True if arrays have indirect accesses
         if any([has_array_access(i) for i in idx]):
-            assert False, "implement"
+            # assert False, "implement"
             return top()
 
         name = sm.Symbol(ename.__repr__())
@@ -534,7 +531,8 @@ class Strategy1(AbstractInterpretation):
                 # if the condition is value dependent, we have to join body and orelse values.
                 # call cad with (p1 + p2, iterators)
                 # and join values in the propagate_values call!
-                assert False, "unimplemented"
+                # assert False, "unimplemented"
+                return top()
 
             # Get polynomials from cond, body, and orelse, and call cad
             p1 = body.poly
@@ -588,6 +586,9 @@ class Strategy1(AbstractInterpretation):
 
         if count >= 3:
             return None
+
+        # This is for "dumb widening" ablation
+        # return D.abs(a2.iterators, a2.poly, D.Leaf(D.SubVal(V.Top()), {}))
 
         def visit(node: D.node, eqs: list) -> D.node:
             if isinstance(node, D.Leaf):

@@ -805,6 +805,8 @@ def has_array_access(e: DataflowIR.expr) -> bool:
             return True
     elif isinstance(e, DataflowIR.BinOp):
         return has_array_access(e.lhs) or has_array_access(e.rhs)
+    elif isinstance(e, DataflowIR.Extern):
+        return True
     return False
 
 
@@ -995,8 +997,10 @@ class ASubs(Abs_Rewrite):
 # Abstract Interpretation on DataflowIR
 # --------------------------------------------------------------------------- #
 class AbstractInterpretation(ABC):
-    def __init__(self, proc: DataflowIR.proc):
+    def __init__(self, proc: DataflowIR.proc, target_syms: list, fast_widening: bool):
         self.proc = proc
+        self.fast_widening = fast_widening
+        self.target_syms = target_syms
         # set of "original" arrays of proc arguments. We need this to distinguish ArrayVars from Top
         self.avars = set()
         # set of scalar variables defined in the current scope!
@@ -1034,6 +1038,9 @@ class AbstractInterpretation(ABC):
                 DataflowIR.IfJoin,
             ),
         ):
+            if self.target_syms != [] and stmt.lhs not in self.target_syms:
+                return
+
             body = stmt.body
             # if reducing, then expand to x = x + rhs now we can handle both cases uniformly
             if isinstance(stmt, DataflowIR.Reduce):
@@ -1079,37 +1086,50 @@ class AbstractInterpretation(ABC):
             for nm, val in env.items():
                 pre_env[nm] = val
 
-            count = 0
-            while True:
-
-                # fixpoint iteration
+            if self.fast_widening:
                 tmp_env = pre_env.copy()
                 self.fix_stmts(stmt.body, tmp_env)
-                all_eq = True
                 for nm, val in tmp_env.items():
-
                     # Don't widen if it does not depend on this loop
                     if (
                         val.iterators == [] or itr_sym != val.iterators[0]
                     ):  # should be just executed once!! recover env from the first iteration!
                         continue
 
-                    if self.issubsetof(val, pre_env[nm]):
-                        continue
+                    w_res = self.abs_widening(pre_env[nm], val, 0, itr_sym)
 
-                    w_res = self.abs_widening(pre_env[nm], val, count, itr_sym)
-
-                    # if the result of the widening is None, that means we gave up so exit the loop.
-                    if not w_res:
-                        assert False, "widening returned None, debug"
-
-                    all_eq = False
                     pre_env[nm] = w_res
+            else:
+                count = 0
+                while True:
+                    # fixpoint iteration
+                    tmp_env = pre_env.copy()
+                    self.fix_stmts(stmt.body, tmp_env)
+                    all_eq = True
+                    for nm, val in tmp_env.items():
 
-                if all_eq:
-                    break
+                        # Don't widen if it does not depend on this loop
+                        if (
+                            val.iterators == [] or itr_sym != val.iterators[0]
+                        ):  # should be just executed once!! recover env from the first iteration!
+                            continue
 
-                count += 1
+                        if self.issubsetof(val, pre_env[nm]):
+                            continue
+
+                        w_res = self.abs_widening(pre_env[nm], val, count, itr_sym)
+
+                        # if the result of the widening is None, that means we gave up so exit the loop.
+                        if not w_res:
+                            assert False, "widening returned None, debug"
+
+                        all_eq = False
+                        pre_env[nm] = w_res
+
+                    if all_eq:
+                        break
+
+                    count += 1
 
             self.svars.remove(itr_sym)
             for nm, val in pre_env.items():
