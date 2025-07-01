@@ -376,12 +376,19 @@ class BarrierTypeTraits:
     """
 
     # N = 1 always for an Arrive as of 2025-06-27
-    negative_await: bool = False  # N <= ~0 if True; N >= 0 if False
+    # N = 0 for Await if neither of the following:
+    non_negative_await_N: bool = False  # Require N >= 0 if true
+    negative_await_N: bool = False  # Require N < 0 if true
+
     # Each Await stmt for same queue barrier array must use the same N
     uniform_await_N: bool = False
-    supports_back_array: bool = False  # Forbid back queue barrier array (-name)
+
+    # Forbid back queue barrier array (-name)
+    supports_back_array: bool = False
+
     requires_pairing: bool = False
     requires_arrive_first: bool = False
+
     # Allow : in Arrive trailing queue barrier expr
     supports_arrive_multicast: bool = False
 

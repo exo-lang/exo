@@ -402,7 +402,7 @@ class CudaMbarrier(CudaDeviceBarrier):
     @classmethod
     def traits(cls) -> BarrierTypeTraits:
         return BarrierTypeTraits(
-            negative_await=True,
+            negative_await_N=True,
             uniform_await_N=True,
             supports_back_array=True,
             requires_pairing=True,
@@ -414,7 +414,7 @@ class CudaMbarrier(CudaDeviceBarrier):
 class CudaCommitGroup(CudaDeviceBarrier):
     @classmethod
     def traits(cls) -> BarrierTypeTraits:
-        return BarrierTypeTraits()
+        return BarrierTypeTraits(non_negative_await_N=True)
 
 
 class CudaClusterSync(CudaDeviceBarrier):
