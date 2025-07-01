@@ -928,6 +928,9 @@ cuda_thread = CollUnit((blockDim,), (1,), "cuda_thread", 0)
 cuda_quadpair = CollUnit((blockDim / 16, 16), (2, 4), "cuda_quadpair", None)
 cuda_warp = CollUnit((blockDim,), (32,), "cuda_warp", 0)
 cuda_warpgroup = CollUnit((blockDim,), (128,), "cuda_warpgroup", 0)
+cuda_cluster = CollUnit(
+    (clusterDim, blockDim), (clusterDim, blockDim), "cuda_cluster", 0
+)
 
 # Matches collective units that reside within one CTA
 cuda_agnostic_sub_cta = CollUnit(

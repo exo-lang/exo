@@ -20,11 +20,13 @@ from .coll_algebra import (
     cuda_warp,
     cuda_warpgroup,
     cuda_cta_in_cluster,
+    cuda_cluster,
     cuda_agnostic_sub_cta,
 )
 from .cuda_memory import (
     CudaCommitGroup,
     CudaMbarrier,
+    CudaClusterSync,
 )
 from .distributed_memory import DistributedAllocState, ThreadIter
 from .excut import InlinePtxGen, simple_ptx_c_lines
@@ -35,6 +37,7 @@ from .timelines import Instr_tl, Sync_tl
 
 class LoweredBarrierType(Enum):
     garden_variety_fence = auto()
+    cluster_sync = auto()
     wgmma_fence = auto()
     mbarrier = auto()
     Sm80_commit_group = auto()
@@ -118,13 +121,17 @@ class SyncStateBuilder:
             if usage.get_front_arrive().sync_tl == timelines.wgmma_fence_1:
                 self.add_wgmma_fence(name, usage, coll_tilings, thread_iters, suffix)
             else:
-                self.add_garden_variety_fence(
-                    name, usage, coll_tilings, thread_iters, suffix
+                self.add_garden_variety_or_cluster_sync(
+                    name, usage, coll_tilings, thread_iters, suffix, False
                 )
         elif issubclass(barrier_type, CudaMbarrier):
             self.add_mbarrier(name, usage, coll_tilings, thread_iters, suffix)
         elif issubclass(barrier_type, CudaCommitGroup):
             self.add_commit_group(name, usage, coll_tilings, thread_iters, suffix)
+        elif issubclass(barrier_type, CudaClusterSync):
+            self.add_garden_variety_or_cluster_sync(
+                name, usage, coll_tilings, thread_iters, suffix, True
+            )
         else:
             raise TypeError(
                 f"{srcinfo}: {barrier_type.name()} "
@@ -165,13 +172,14 @@ class SyncStateBuilder:
         )
         self.lowered[name] = lowered
 
-    def add_garden_variety_fence(
+    def add_garden_variety_or_cluster_sync(
         self,
         name: Sym,
         usage: BarrierUsage,
         coll_tilings: DistributedAllocState,
         thread_iters: Dict[Sym, ThreadIter],
         suffix: str,
+        force_cluster_sync: bool,
     ):
         """Do up to 3 things
 
@@ -180,8 +188,8 @@ class SyncStateBuilder:
         - fence.proxy.async if second sync-tl includes any async proxy
 
         (*) special exception, if thread collective is a warpgroup and
-        the second sync-tl only includes wgmma_async, we can elide
-        the barrier. This relies on wgmma_async not being V1-transitive.
+        the second sync-tl only includes wgmma_async_smem, we can elide
+        the barrier. This relies on wgmma_async_smem not being V1-transitive.
 
         """
 
@@ -191,83 +199,104 @@ class SyncStateBuilder:
         L2 = Await.sync_tl
         srcinfo = usage.get_srcinfo()
         clusterDim = self._clusterDim()
+        coll_tiling = coll_tilings.get_front_arrive()
+        await_coll_tiling = coll_tilings.get_front_await()
+        assert not usage.has_back_array()
 
-        lowered = CudaLoweredBarrier(False, LoweredBarrierType.garden_variety_fence)
-        lines = []
+        mismatch_messages = []
+
+        def match_unit(unit):
+            if msg := coll_tiling.unit_mismatch(unit, self._coll_env):
+                mismatch_messages.append(msg)
+                return False
+            return True
+
+        if force_cluster_sync:
+            is_cluster_sync = True
+            if msg := coll_tiling.unit_mismatch(cuda_cluster, self._coll_env):
+                raise ValueError(
+                    f"{srcinfo}: Arrive for {name} must be by full cluster ({msg})"
+                )
+            if msg := await_coll_tiling.unit_mismatch(cuda_cluster, self._coll_env):
+                raise ValueError(
+                    f"{srcinfo}: Await for {name} must be by full cluster ({msg})"
+                )
+        else:
+            is_cluster_sync = match_unit(cuda_cluster)
+            assert (
+                coll_tiling is await_coll_tiling
+            ), "Expected Fence to have identical Arrive/Await tiling"
+        if is_cluster_sync:
+            # solitary=True as there's only one built-in cluster sync per cluster
+            lowered = CudaLoweredBarrier(True, LoweredBarrierType.cluster_sync)
+        else:
+            lowered = CudaLoweredBarrier(False, LoweredBarrierType.cluster_sync)
+        arrive_lines = []
+        await_lines = []
 
         # Insert wait for sm_80 cp.async if needed.
         if timelines.cuda_in_order.implements_first(L1):
             pass
         elif timelines.Sm80_generic.implements_first(L1):
-            lines += simple_ptx_c_lines("cp.async.wait_all")
+            arrive_lines += simple_ptx_c_lines("cp.async.wait_all")
         else:
             raise ValueError(
                 f"{srcinfo}: Fence first sync-tl "
                 f"{L1} not supported (we allow Sm80_generic)"
             )
 
-        coll_tiling = coll_tilings.get_front_arrive()
-        # Should be the case for a Fence
-        assert coll_tiling is coll_tilings.get_front_await()
-
-        cta_count = self._get_cta_count(coll_tiling, srcinfo)
-        threads = coll_tiling.box_num_threads()
-        n_warps = threads // 32
-        if threads != 1:
-            if threads % 32 != 0:
-                raise ValueError(
-                    f"{srcinfo}: Fence expects convergent warps "
-                    f"(threads = {threads} is not divisible by 32)"
-                )
-            unit = n_warps * cuda_warp
-            if msg := coll_tiling.unit_mismatch(unit, self._coll_env):
-                raise ValueError(f"{srcinfo}: Fence expects convergent warps: {msg}")
-
         # Insert cross-thread sync if needed
-        assert not timelines.wgmma_async.is_V1_transitive()
-        wgmma_special_case = timelines.wgmma_async.implements_second(
+        assert not timelines.wgmma_async_smem.is_V1_transitive()
+        wgmma_special_case = timelines.wgmma_async_smem.implements_second(
             L1
-        ) and not coll_tiling.unit_mismatch(cuda_warpgroup, self._coll_env)
+        ) and match_unit(cuda_warpgroup)
 
-        if n_warps > 0 and not wgmma_special_case:
-            if cta_count == 1:
-                if not coll_tiling.unit_mismatch(cuda_cta_in_cluster, self._coll_env):
-                    # We need to use barrier.cta.sync, not bar or syncthreads
-                    # due to divergent control flow in "full CTA" code
-                    # if there's [named] warp specialization.
-                    lines.extend(simple_ptx_c_lines("barrier.cta.sync", 0))
-                elif n_warps == 1:
-                    lines.append("__syncwarp();")
-                else:
-                    raise NotImplementedError(
-                        "TODO Fence lowering other than warp/CTA/cluster"
-                    )
-            elif cta_count == clusterDim:
-                if msg := coll_tiling.unit_mismatch(
-                    cta_count * cuda_cta_in_cluster, self._coll_env
-                ):
-                    raise ValueError(
-                        f"{srcinfo}: expected full cluster " f"or only 1 CTA: {msg}"
-                    )
-                else:
-                    lines.extend(simple_ptx_c_lines("barrier.cluster.arrive.aligned"))
-                    lines.extend(simple_ptx_c_lines("barrier.cluster.wait.aligned"))
-            else:
-                raise ValueError(
-                    f"{srcinfo}: {cta_count}/{clusterDim} CTAs in cluster active for thread collective for Fence; must have 1 or all"
+        if not wgmma_special_case:
+            mismatch_messages.append("warpgroup with second sync-tl=wgmma_async_smem")
+
+        if is_cluster_sync:
+            arrive_lines.extend(simple_ptx_c_lines("barrier.cluster.arrive.aligned"))
+            await_lines.extend(simple_ptx_c_lines("barrier.cluster.wait.aligned"))
+        elif wgmma_special_case or match_unit(cuda_thread):
+            pass
+        elif match_unit(cuda_warp):
+            arrive_lines.append("__syncwarp();")
+        elif match_unit(cuda_cta_in_cluster):
+            # We need to use barrier.cta.sync, not bar or syncthreads
+            # due to divergent control flow in "full CTA" code
+            # if there's [named] warp specialization.
+            arrive_lines.extend(simple_ptx_c_lines("barrier.cta.sync", 0))
+        else:
+            raise ValueError(
+                "\n".join(
+                    [f"{srcinfo}: Fence collective unit matched no known case"]
+                    + mismatch_messages
                 )
+            )
 
         # Insert fence.proxy.async if needed
         if timelines.Sm80_generic.implements_second(L2):
             pass
         elif timelines.cuda_generic_and_async_proxy.implements_second(L2):
-            lines.extend(simple_ptx_c_lines("fence.proxy.async"))
+            await_lines.extend(simple_ptx_c_lines("fence.proxy.async"))
         else:
             raise ValueError(
                 f"{srcinfo}: Fence second sync-tl {L2} not "
                 f"supported (at most CUDA generic+async proxy)"
             )
-        lowered.codegen = lambda _: lines
+
+        def codegen(sync_stmt: LoopIR.SyncStmt):
+            sync_type = sync_stmt.sync_type
+            if sync_type.is_arrive():
+                return arrive_lines
+            elif sync_type.is_await():
+                if sync_type.N != 0:
+                    raise ValueError(f"{sync_stmt.srcinfo}: N must be 0 in {sync_stmt}")
+                return await_lines
+            else:
+                return arrive_lines + await_lines
+
+        lowered.codegen = codegen
         self.lowered[name] = lowered
 
     def add_mbarrier(
@@ -733,20 +762,3 @@ class SyncStateBuilder:
 
     def _clusterDim(self):
         return self._coll_env[clusterDim_param]
-
-    def _get_cta_count(self, coll_tiling: CollTiling, srcinfo: SrcInfo):
-        assert isinstance(srcinfo, SrcInfo)
-        clusterDim = self._clusterDim()
-        if clusterDim == 1:
-            return 1
-        else:
-            # Only if the clusterDim is not 1 can we rely on the left-most
-            # dimension of the domain to correspond to the CTA-in-cluster axis.
-            domain = coll_tiling.full_domain
-            box = coll_tiling.box
-            assert len(domain) == len(box)
-            if domain[0] != clusterDim:
-                # Unlikely error, only occurs of the user defines their own
-                # unit splitting the cluster dimension of the coll tiling.
-                raise TypeError(f"{srcinfo}: could not deduce cluster count")
-            return box[0]

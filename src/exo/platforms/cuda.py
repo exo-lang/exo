@@ -20,6 +20,7 @@ from ..spork.coll_algebra import (
     cuda_quadpair,
     cuda_warp,
     cuda_warpgroup,
+    cuda_cluster,
     cuda_cta_in_cluster,
     cuda_warp_in_cluster,
 )
@@ -37,6 +38,7 @@ from ..spork.cuda_memory import (
     CudaEvent,
     CudaMbarrier,
     CudaCommitGroup,
+    CudaClusterSync,
     DRAM,
 )
 from ..spork.coll_algebra import CollUnit, blockDim, clusterDim
