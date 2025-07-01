@@ -222,7 +222,7 @@ class SyncStateBuilder:
                     f"{srcinfo}: Await for {name} must be by full cluster ({msg})"
                 )
         else:
-            is_cluster_sync = match_unit(cuda_cluster)
+            is_cluster_sync = self._clusterDim() > 1 and match_unit(cuda_cluster)
             assert (
                 coll_tiling is await_coll_tiling
             ), "Expected Fence to have identical Arrive/Await tiling"
