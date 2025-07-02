@@ -1081,7 +1081,7 @@ class Compiler:
                 )
             sync_type = s.sync_type
             barrier_lines = s.lowered
-            self.add_line(f"// {s}")
+            self.add_line(f"// {sync_type.format_stmt(s.barriers)}")
             assert not isinstance(barrier_lines, str), "expect List[str]"
             for line in barrier_lines:
                 self.add_line(line)
