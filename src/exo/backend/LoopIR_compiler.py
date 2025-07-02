@@ -640,10 +640,6 @@ def _compile_context_struct(configs, lib_name):
     return ctxt_name, ctxt_def
 
 
-def sanitize_comment(comment):
-    return " ".join(comment.split())
-
-
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Loop IR Compiler
@@ -778,7 +774,7 @@ class Compiler:
         mem = a.mem if a.type.is_numeric() else None
         if a.type in (T.size, T.index, T.bool, T.stride):
             arg_strs.append(f"{a.type.ctype()} {name_arg}")
-            typ_comments.append(sanitize_comment(f"{name_arg} : {a.type}"))
+            typ_comments.append(f"{name_arg} : {a.type}")
         # setup, arguments
         else:
             assert a.type.is_numeric()
@@ -807,7 +803,7 @@ class Compiler:
                     arg_strs.append(f"{window_struct.dataptr} {name_arg}")
             memstr = f" @{a.mem.name()}" if a.mem else ""
             comment_str = f"{name_arg} : {a.type}{memstr}"
-            typ_comments.append(sanitize_comment(comment_str))
+            typ_comments.append(comment_str)
 
     def static_memory_check(self, proc):
         def allocates_static_memory(stmts):
@@ -1045,7 +1041,7 @@ class Compiler:
                 )
             sync_type = s.sync_type
             barrier_lines = s.lowered
-            self.add_line(f"// {s.sync_type.format_stmt(s.barriers)}")
+            self.add_line(f"// {s}")
             assert not isinstance(barrier_lines, str), "expect List[str]"
             for line in barrier_lines:
                 self.add_line(line)
@@ -1859,6 +1855,3 @@ class SporkLoweringCtx(object):
 
     def get_barrier_usage(self, name: Sym) -> BarrierUsage:
         return self._compiler.barrier_uses[name]
-
-    def sanitize_comment(self, comment: str) -> str:
-        return sanitize_comment(comment)

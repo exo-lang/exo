@@ -360,9 +360,7 @@ class SubtreeScan(LoopIR_Do):
                     if ctx.sym_is_scalar_ref(sym):
                         c_arg = f"*{c_arg}"
                     device_args_values.append(c_arg)
-                device_args_comments.append(
-                    ctx.sanitize_comment(f"{sym}: {typ} @{mem.name()}")
-                )
+                device_args_comments.append(f"{sym}: {typ} @{mem.name()}")
 
         device_args_values.append("exo_excut_get_device_log()")
 

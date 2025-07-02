@@ -336,7 +336,22 @@ class UAST_PPrinter:
 
 
 def _format_code(code):
-    return FormatCode(code)[0].rstrip("\n")
+    """Format Python code snippet.
+
+    We obey the line length limit of the formatter unless the input is only
+    one line, in which case the output is only one line as well.
+    This is so that stringifying code in f"// {foo}" works as expected.
+
+    In previous versions of Exo, this was not done, and so there were
+    rare bugs where a long comment would get broken up into multiple
+    lines and the output C code wouldn't compile.
+
+    """
+    had_newline = "\n" in code
+    text = FormatCode(code)[0].rstrip("\n")
+    if not had_newline and "\n" in text:
+        text = " ".join(line.strip() for line in text.split("\n"))
+    return text
 
 
 @extclass(LoopIR.proc)
