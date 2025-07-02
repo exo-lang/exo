@@ -1285,6 +1285,9 @@ class Compiler:
                 else:
                     cond = "1"
                     maybe_unused = "[[maybe_unused]] "
+                if comment := loop_mode.comment:
+                    assert "\n" not in comment
+                    self.add_line(f"// {comment}")
                 self.add_line(
                     f"if ({maybe_unused}int {itr} = {loop_mode.c_index}; {cond}) {{"
                 )

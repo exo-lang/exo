@@ -75,6 +75,7 @@ class _CodegenPar:
     and optional bounds"""
 
     c_index: str
+    comment: Optional[str]
     static_bounds: Optional[Tuple[int, int]]
     warp_name_filter: Optional[str] = None
 
@@ -119,6 +120,6 @@ def format_loop_cond(lo, hi, loop_mode: LoopMode):
             # Avoid adding pragma_unroll=None for every seq(...)
             pass
         else:
-            strings.append(f",{attr}={value!r}")
+            strings.append(f", {attr}={value!r}")
     strings.append(")")
     return "".join(strings)

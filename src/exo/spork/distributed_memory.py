@@ -30,9 +30,10 @@ class ThreadIter:
     child_tile_num_threads: int
     thread_pitch: int
 
-    def __init__(self, coll_tiling: CollTiling):
+    def __init__(self, coll_tiling: CollTiling, comment: Optional[str] = None):
         self.codegen_par = _CodegenPar(
             coll_tiling.codegen_expr.codegen(),
+            comment,
             (coll_tiling.codegen_lo, coll_tiling.codegen_hi),
         )
         self.coll_index_expr = coll_tiling.tile_expr

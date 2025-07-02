@@ -526,10 +526,13 @@ class SubtreeScan(LoopIR_Do):
     def apply_with_cuda_warps(self, s):
         ctx: CudaWarps = s.cond.val
         assert isinstance(ctx, CudaWarps)
+        coll_tiling = self._coll_tiling
         is_top_level = self._current_warp_name is None
 
-        # Top-level CudaWarps: translate CudaWarps lo/hi to real lo/hi
-        # (taking into account physical offset of named warps)
+        # Top-level CudaWarps: adjust CollTiling to account for offset of named warps.
+        # We ignore the codegen here ... because of how the deviceTask is specialized
+        # per named-warp set, we already can assume the physical code is executed
+        # only by the subset of warps that are part of the named warp set.
         if is_top_level:
             name = "" if ctx.name is None else ctx.name
             if (info := self.named_warps.get(name)) is None:
@@ -537,14 +540,7 @@ class SubtreeScan(LoopIR_Do):
                 raise ValueError(
                     f"{s.srcinfo}: top-level CudaWarps must provide valid warp name, not {ctx.name!r}; your CudaDeviceFunction defines: {known_names}"
                 )
-            raw_lo = 0 if ctx.lo is None else ctx.lo
-            raw_hi = info.count if ctx.hi is None else ctx.hi
-            adjusted_lo = info.offset + raw_lo
-            adjusted_hi = info.offset + raw_hi
-            if raw_hi > info.count:
-                raise ValueError(
-                    f"{s.srcinfo}: CudaWarps.hi={raw_hi} out-of-range for {name!r}-named warps (only have {info.count})"
-                )
+
             # Named warps (besides fallback 1-name case) won't work if the CTA
             # has already been subdivided by a cuda_threads loop.
             if len(self.named_warps) > 1:
@@ -555,6 +551,20 @@ class SubtreeScan(LoopIR_Do):
                         f"{s.srcinfo}: named {ctx} requires CTA not to be subdivided by parent cuda_threads loop (detail: {detail})"
                     )
 
+            # Extract lo/hi offsets (with defaulted values allowed).
+            # This gets handled towards the end of the function.
+            warps_lo = 0 if ctx.lo is None else ctx.lo
+            warps_hi = info.count if ctx.hi is None else ctx.hi
+            if warps_hi > info.count:
+                raise ValueError(
+                    f"{s.srcinfo}: CudaWarps.hi={warps_hi} out-of-range for {name!r}-named warps (only have {info.count})"
+                )
+
+            # (1/2) adjust CollTiling for named warps offset. Codegen discarded.
+            coll_tiling = coll_tiling.specialized(
+                cuda_warp, info.offset, info.offset + info.count, self._coll_env
+            )
+
         # Nested CudaWarps: interpret lo/hi literally as the higher-level
         # CudaWarps will have already handled the named warp offset adjustment.
         # Can't request different named warps now.
@@ -564,24 +574,25 @@ class SubtreeScan(LoopIR_Do):
                 raise ValueError(
                     f"{s.srcinfo}: nested CudaWarps cannot change warp name from {self._current_warp_name!r} to {name!r}"
                 )
-            adjusted_lo = ctx.lo
-            adjusted_hi = ctx.hi
-            if adjusted_lo is None or adjusted_hi is None:
+            warps_lo = ctx.lo
+            warps_hi = ctx.hi
+            if warps_lo is None or warps_hi is None:
                 raise ValueError(
                     f"{s.srcinfo}: nested CudaWarps must define lo and hi explicitly"
                 )
 
-        del ctx  # Don't accidentally use unadjusted values
         self._current_warp_name = name
 
-        new_tiling = self._coll_tiling.specialized(
-            cuda_warp, adjusted_lo, adjusted_hi, self._coll_env
+        # (2/2) Ajdust CollTiling for lo/hi offset.
+        coll_tiling = coll_tiling.specialized(
+            cuda_warp, warps_lo, warps_hi, self._coll_env
         )
-        self._coll_tiling = new_tiling
+        self._coll_tiling = coll_tiling
         self.cuda_warps_dfs_codegen.append(
             _CodegenPar(
-                new_tiling.codegen_expr.codegen(),
-                (new_tiling.codegen_lo, new_tiling.codegen_hi),
+                coll_tiling.codegen_expr.codegen(),
+                str(ctx),
+                (coll_tiling.codegen_lo, coll_tiling.codegen_hi),
                 name,
             )
         )
@@ -655,7 +666,9 @@ class SubtreeScan(LoopIR_Do):
 
         # We will advise replacing the loop mode with _CodegenPar
         assert s.iter not in self.thread_iters
-        self.thread_iters[s.iter] = ThreadIter(self._coll_tiling)
+        self.thread_iters[s.iter] = ThreadIter(
+            self._coll_tiling, s.loop_mode.format_loop_cond(lo_int, hi_int)
+        )
 
     def apply_idx(self, node, context_stmt):
         """Consistent distributed memory analysis"""
@@ -805,7 +818,7 @@ class MainLoopRewrite(LoopIR_Rewrite):
             return LoopIR.If(cond, body, [], srcinfo)
 
         def wrap_if_threadIdx(lo, hi, body):
-            loop_mode = _CodegenPar("threadIdx.x", (lo, hi))
+            loop_mode = _CodegenPar("threadIdx.x", None, (lo, hi))
             return wrap_codegen_par(loop_mode, body, srcinfo)
 
         named_warp_tuples = sorted(scan.named_warps.items())
