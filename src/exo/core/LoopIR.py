@@ -7,8 +7,21 @@ from asdl_adt import ADT, validators
 
 from .extern import Extern
 from .configs import Config
+from .instr_info import InstrInfo
 from .memory import DRAM, MemWin, AllocableMemWin, Memory, SpecialWindow
-from .prelude import Sym, SrcInfo, extclass
+
+from .prelude import (
+    Sym,
+    SrcInfo,
+    extclass,
+    Identifier,
+    IdentifierOrHole,
+    Operator,
+    comparison_ops,
+    arithmetic_ops,
+    logical_ops,
+    front_ops,
+)
 
 from ..spork.timelines import Instr_tl, Usage_tl, cpu_in_order_instr
 from ..spork.base_with_context import BaseWithContext
@@ -16,68 +29,9 @@ from ..spork.coll_algebra import CollUnit, standalone_thread
 from ..spork.loop_modes import LoopMode
 from ..spork.sync_types import SyncType
 
-# --------------------------------------------------------------------------- #
-# Validated string subtypes
-# --------------------------------------------------------------------------- #
 
-
-class Identifier(str):
-    _valid_re = re.compile(r"^(?:_\w|[a-zA-Z])\w*$")
-
-    def __new__(cls, name):
-        name = str(name)
-        if Identifier._valid_re.match(name):
-            return super().__new__(cls, name)
-        raise ValueError(f"invalid identifier: {name}")
-
-
-class IdentifierOrHole(str):
-    _valid_re = re.compile(r"^[a-zA-Z_]\w*$")
-
-    def __new__(cls, name):
-        name = str(name)
-        if IdentifierOrHole._valid_re.match(name):
-            return super().__new__(cls, name)
-        raise ValueError(f"invalid identifier: {name}")
-
-
-comparision_ops = {"<", ">", "<=", ">=", "=="}
-arithmetic_ops = {"+", "-", "*", "/", "%"}
-logical_ops = {"and", "or"}
-
-front_ops = comparision_ops | arithmetic_ops | logical_ops
-
-
-class Operator(str):
-    def __new__(cls, op):
-        op = str(op)
-        if op in front_ops:
-            return super().__new__(cls, op)
-        raise ValueError(f"invalid operator: {op}")
-
-
-@dataclass(slots=True)
-class AccessInfo:
-    mem: Type[MemWin] = DRAM
-    usage_tl: Usage_tl = None
-    ext_instr_tl: List[Instr_tl] = tuple()
-    ext_usage_tl: List[Usage_tl] = tuple()
-    out_of_order: bool = None
-    access_by_owner_only: bool = False
-
-
-@dataclass(init=False, slots=True)
-class InstrInfo:
-    instr_format: List[str]  # Split by lines
-    c_global: str
-    cu_utils: List[str]
-    cu_includes: List[str]
-    coll_unit: CollUnit
-    instr_tl: Instr_tl
-    access_info: Dict[str, AccessInfo]
-
-    # For internal use
-    _formatted_tparam_kwargs: str
+# TODO fix typo...
+comparision_ops = comparison_ops
 
 
 # --------------------------------------------------------------------------- #
@@ -336,36 +290,6 @@ module PAST {
         "op": validators.instance_of(Operator, convert=True),
         "srcinfo": SrcInfo,
         "sync_type": SyncType,
-    },
-)
-
-
-# --------------------------------------------------------------------------- #
-# C Codegen AST
-# --------------------------------------------------------------------------- #
-
-CIR = ADT(
-    """
-module CIR {
-
-    expr    = Read    ( sym name, bool is_non_neg )
-            | Stride  ( sym name, int dim )
-            | Const   ( object val )
-            | BinOp   ( op op, expr lhs, expr rhs, bool is_non_neg )
-            | USub    ( expr arg, bool is_non_neg )
-            | AddressOf(expr arg )
-            | Indexed ( expr ptr, expr idx )  -- ptr[idx]
-            | GetAttr ( expr arg, str attr ) -- arg.attr
-            | Custom  ( str format, dict kwargs, srcinfo srcinfo ) -- format.format(**kwargs)
-} """,
-    ext_types={
-        "bool": bool,
-        "int": int,
-        "sym": Sym,
-        "op": validators.instance_of(Operator, convert=True),
-        "str": str,
-        "dict": dict,
-        "srcinfo": SrcInfo,
     },
 )
 

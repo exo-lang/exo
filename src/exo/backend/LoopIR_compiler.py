@@ -8,7 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict
 
-from ..core.LoopIR import LoopIR, LoopIR_Do, get_writes_of_stmts, T, CIR
+from ..core.cir import CIR, CIR_Wrapper
+from ..core.LoopIR import LoopIR, LoopIR_Do, get_writes_of_stmts, T
 from ..core.configs import ConfigError
 from .mem_analysis import MemoryAnalysis
 from ..core.memory import (
@@ -120,7 +121,7 @@ operations = {
 
 
 def simplify_cir(e):
-    if isinstance(e, (CIR.Read, CIR.Const, CIR.Stride)):
+    if isinstance(e, (CIR.Read, CIR.Const)):
         return e
 
     elif isinstance(e, CIR.BinOp):
@@ -167,14 +168,14 @@ def simplify_cir(e):
     elif isinstance(e, CIR.AddressOf):
         return e.update(arg=simplify_cir(e.arg))
     elif isinstance(e, CIR.Indexed):
-        return e.update(ptr=simplify_cir(e.ptr), attr=simplify_cir(e.attr))
+        return e.update(ptr=simplify_cir(e.ptr), idx=simplify_cir(e.idx))
     elif isinstance(e, CIR.GetAttr):
-        return e.update(arg=simplify_cir(e.arg), attr=simplify_cir(e.attr))
+        return e.update(arg=simplify_cir(e.arg))
     elif isinstance(e, CIR.Custom):
         kwargs = {key: simplify_cir(value) for (key, value) in e.kwargs.items()}
         return e.update(kwargs=kwargs)
     else:
-        assert False, "bad case!"
+        assert False, f"bad case: {type(e)}"
 
 
 class LoopIR_SubProcs(LoopIR_Do):
@@ -952,8 +953,6 @@ class Compiler:
 
             return s
 
-        elif isinstance(e, CIR.Stride):
-            return f"{env[e.name]}.strides[{e.dim}]"
         elif isinstance(e, CIR.USub):
             return f'-{self.comp_cir(e.arg, op_prec["~"])}'
         elif isinstance(e, CIR.AddressOf):
@@ -966,14 +965,22 @@ class Compiler:
             arg = self.comp_cir(e.arg, op_prec["."])
             return f"{arg}.{e.attr}"
         elif isinstance(e, CIR.Custom):
-            try:
-                kwargs = {
-                    key: self.comp_cir(value, op_prec["~"])
-                    for key, value in e.kwargs.items()
-                }
-                return e.format.format(**kwargs)
-            except Exception as e:
-                raise ValueError("Codegen failure associated with {e.srcinfo}") from e
+            if not e.kwargs:
+                text = e.format
+            else:
+                try:
+                    kwargs = {
+                        key: self.comp_cir(value, op_prec["~"])
+                        for key, value in e.kwargs.items()
+                    }
+                    text = e.format.format(**kwargs)
+                except Exception as e:
+                    raise ValueError(
+                        "Codegen failure associated with {e.srcinfo}"
+                    ) from e
+            if prec > 0:
+                text = f"({text})"
+            return text
         else:
             assert False, "bad case!"
 
@@ -999,28 +1006,31 @@ class Compiler:
         ]
         return comp_res
 
-    def tensor_strides(self, shape) -> CIR:
+    def tensor_strides(self, shape) -> List[CIR.expr]:
         szs = [lift_to_cir(i, self.range_env) for i in shape]
         assert len(szs) >= 1
         strides = [CIR.Const(1)]
-        s = szs[-1]
+        wrapped_stride = CIR_Wrapper(szs[-1])
         for sz in reversed(szs[:-1]):
+            s = wrapped_stride.exo_get_cir()
+            if hasattr(s, "is_non_neg"):
+                s = s.update(is_non_neg=True)  # TODO rethink is_non_neg
             strides.append(s)
-            s = CIR.BinOp("*", sz, s, True)
-        strides = list(reversed(strides))
-
+            wrapped_stride *= sz
+        strides.reverse()
         return strides
 
     # works for any tensor or window type
-    def get_strides(self, name: Sym, typ) -> CIR:
+    def get_strides(self, name: Sym, typ) -> List[CIR.expr]:
         if typ.is_win():
             res = []
             for i in range(len(typ.shape())):
                 if stride := self._known_strides.get((name, i)):
                     res.append(stride)
                 else:
-                    res.append(CIR.Stride(name, i))
-
+                    # TODO externalize soon
+                    expr = CIR_Wrapper(name).strides[i]
+                    res.append(expr.exo_get_cir())
             return res
         else:
             return self.tensor_strides(typ.shape())

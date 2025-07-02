@@ -101,3 +101,43 @@ _null_srcinfo_obj = SrcInfo("unknown", 0)
 
 def null_srcinfo():
     return _null_srcinfo_obj
+
+
+# --------------------------------------------------------------------------- #
+# Validated string subtypes
+# --------------------------------------------------------------------------- #
+
+
+class Identifier(str):
+    _valid_re = _re_compile(r"^(?:_\w|[a-zA-Z])\w*$")
+
+    def __new__(cls, name):
+        name = str(name)
+        if Identifier._valid_re.match(name):
+            return super().__new__(cls, name)
+        raise ValueError(f"invalid identifier: {name}")
+
+
+class IdentifierOrHole(str):
+    _valid_re = _re_compile(r"^[a-zA-Z_]\w*$")
+
+    def __new__(cls, name):
+        name = str(name)
+        if IdentifierOrHole._valid_re.match(name):
+            return super().__new__(cls, name)
+        raise ValueError(f"invalid identifier: {name}")
+
+
+comparison_ops = {"<", ">", "<=", ">=", "=="}
+arithmetic_ops = {"+", "-", "*", "/", "%"}
+logical_ops = {"and", "or"}
+
+front_ops = comparison_ops | arithmetic_ops | logical_ops
+
+
+class Operator(str):
+    def __new__(cls, op):
+        op = str(op)
+        if op in front_ops:
+            return super().__new__(cls, op)
+        raise ValueError(f"invalid operator: {op}")

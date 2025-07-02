@@ -29,7 +29,8 @@ from typing import Callable, Optional, Dict, List, Tuple, Type
 
 from .prelude import Sym
 
-from .LoopIR import LoopIR, AccessInfo, InstrInfo, SubstArgs, Identifier
+from .instr_info import AccessInfo, InstrInfo
+from .LoopIR import LoopIR, SubstArgs, Identifier
 from .memory import DRAM
 from ..frontend.pyparser import get_ast_from_python, Parser
 from ..spork import timelines
