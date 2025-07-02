@@ -7,7 +7,7 @@ import re
 import shlex
 import subprocess
 import textwrap
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path, PurePath
 from typing import Optional, Any, Dict, Union, List, Set
 
@@ -166,6 +166,9 @@ class ProcWrapper:
 class LibWrapper:
     dll: ctypes.CDLL
     default_proc: str
+    workdir: Path
+    basename: Path
+    _sources_by_ext: Dict[str, str] = field(default_factory=dict)
 
     def __getattr__(self, item):
         return ProcWrapper(getattr(self.dll, item))
@@ -173,6 +176,15 @@ class LibWrapper:
     def __call__(self, *args, **kwargs):
         fn_ptr = getattr(self.dll, self.default_proc)
         return ProcWrapper(fn_ptr)(*args, **kwargs)
+
+    def get_source_by_ext(self, ext) -> str:
+        assert ext in ("c", "h", "cu", "cuh"), "Update this if needed"
+        if (text := self._sources_by_ext.get(ext)) is not None:
+            return text
+        with open(str(self.workdir / self.basename) + "." + ext) as f:
+            text = f.read()
+            self._sources_by_ext[ext] = text
+            return text
 
 
 @dataclass
@@ -228,7 +240,9 @@ class Compiler:
         if compile_only or test_files:
             return artifact_path
 
-        return LibWrapper(ctypes.CDLL(artifact_path), procs[0].name())
+        return LibWrapper(
+            ctypes.CDLL(artifact_path), procs[0].name(), self.workdir, self.basename
+        )
 
     def nvcc_compile(
         self,
@@ -278,7 +292,9 @@ class Compiler:
             args.append("tests/cuda/excut/exo_excut.cu")
 
         self._run_command(args, skip_on_fail)
-        return LibWrapper(ctypes.CDLL(artifact_path), procs[0].name())
+        return LibWrapper(
+            ctypes.CDLL(artifact_path), procs[0].name(), self.workdir, self.basename
+        )
 
     @staticmethod
     def _run_command(build_command, skip_on_fail):

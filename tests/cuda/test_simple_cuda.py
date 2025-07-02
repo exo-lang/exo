@@ -162,6 +162,101 @@ def test_cuda_two_device_functions(compiler):
             assert np.array_equal(y, y_expected)
 
 
+def test_grid_constants_windows(compiler):
+    """
+    Test tricky parts of CUDA code lowering
+      * Windows passed from host to device
+      * Grid constants
+      * Re-used variable names
+      * Two device functions
+    """
+
+    @proc
+    def weird_windows(
+        N: size,
+        test_scalar: i32 @ DRAM,
+        test_vector: i32[8] @ DRAM,
+        test_out: i32[N, N] @ DRAM,
+    ):
+        assert N > 4
+        test_mem: i32[N, N] @ CudaGmemLinear
+
+        # const_scalar = test_scalar
+        # const_vector = test_vector[0:4]
+        # input_window = test_vector[4:8]
+        const_scalar: i32 @ CudaGridConstant
+        const_scalar = test_scalar
+        const_vector: i32[4] @ CudaGridConstant
+        for i in seq(0, 4):
+            const_vector[i] = test_vector[i]
+        test_vector_gmem: i32[8] @ CudaGmemLinear
+        cudaMemcpyAsync_htod_1i32(8, test_vector_gmem, test_vector)
+        input_window = test_vector_gmem[4:8]
+
+        # for i in [0, N), j in [0, 4)
+        # test_out[i, j] = test_scalar * test_vector[j] * test_vector[4 + j]
+        for i in seq(0, N):
+            for N in seq(0, 4):  # Re-used N
+                with CudaDeviceFunction(blockDim=32):
+                    for task in cuda_tasks(0, 1):
+                        for tid in cuda_threads(0, 1):
+                            test_mem[i, N] = (
+                                const_scalar * const_vector[N] * input_window[N]
+                            )
+
+        # for i in [0, N), j in [4, N)
+        # test_out[i, j] = test_vector[4 + i % 4] * test_vector[j % 4] + test_vector[i % 4]
+        # where we write the output per-column (assuming row major) using the WindowStmt
+        for col in seq(4, N):
+            col_window = test_mem[:, col]  # WindowStmt
+            with CudaDeviceFunction(blockDim=32):
+                for task in cuda_tasks(0, N):
+                    for tid in cuda_threads(0, 1):
+                        col_window[task] = (
+                            input_window[task % 4] * const_vector[col % 4]
+                            + test_vector_gmem[task % 4]
+                        )
+
+        cudaMemcpyAsync_dtoh_2i32(N, N, test_out[:, :], test_mem[:, :])
+
+    fn = compiler.nvcc_compile(weird_windows)
+
+    for N in (10,):
+        test_scalar = np.array(
+            [
+                137,
+            ],
+            dtype=np.int32,
+        )
+        test_vector = np.array([11, 12, 13, 14, 25, 26, 27, 28], dtype=np.int32)
+        test_out = np.ndarray(shape=(N, N), dtype=np.int32)
+        fn(None, N, test_scalar, test_vector, test_out)
+
+        ref_out = np.ndarray(shape=(N, N), dtype=np.int32)
+        for i in range(0, N):
+            for j in range(0, 4):
+                ref_out[i, j] = test_scalar * test_vector[j] * test_vector[4 + j]
+            for j in range(4, N):
+                ref_out[i, j] = (
+                    test_vector[4 + i % 4] * test_vector[j % 4] + test_vector[i % 4]
+                )
+
+        assert np.array_equal(test_out, ref_out)
+
+    # Test the test i.e. that it actually tests what it's supposed to.
+    # These could fail if the compiler outputs change substantially, but the
+    # underlying functionality could still be correct ... use your judgment.
+    cuh_src = fn.get_source_by_ext("cuh")
+    c_src = fn.get_source_by_ext("c")
+    assert (
+        "exo_deviceArgs.N_1" in cuh_src
+    ), "Was supposed to test mangling of N variable"
+    assert "int32_t const_scalar" in cuh_src, "Expected grid constant scalar int32_t"
+    assert "int32_t const_vector[4]" in cuh_src, "Expected grid constant int32_t[4]"
+    assert "const int32_t* test_vector" in c_src, "Expected test_vector to be const"
+    assert "exo_Cuda1_weird_windows" in cuh_src, "Expected a second device function"
+
+
 @instr
 class gemm_init_pcg3d_mod:
     def behavior(

@@ -323,14 +323,14 @@ class SubtreeScan(LoopIR_Do):
         device_args_values = []
 
         for sym in self.device_args_syms:
+            c_name = ctx.sym_c_name(sym)
+            mem = ctx.sym_mem(sym)
             if sym not in self.grid_constant_syms:
                 # Non-grid-constant, passed as in Exo C code.
-                # We don't mangle syms in the device args struct.
-                # They will appear as exo_deviceArgs.{str(sym)} in CUDA code.
-                mem = ctx.sym_mem(sym)
+                # They will appear as exo_deviceArgs.{c_name} in CUDA code.
                 fnarg = LoopIR.fnarg(sym, self.sym_type(sym), mem, s.srcinfo)
                 ctx.append_fnarg_decl(
-                    fnarg, str(sym), device_args_decls, device_args_comments
+                    fnarg, c_name, device_args_decls, device_args_comments
                 )
                 e = LoopIR.Read(sym, [], self.sym_type(sym), s.srcinfo)
                 device_args_values.extend(ctx.fnarg_values(e, ctx.is_const(sym), False))
@@ -345,10 +345,7 @@ class SubtreeScan(LoopIR_Do):
                     )
                 elif typ.is_dense_tensor():
                     n = prod(type_const_shape(typ, "grid constant", sym, s.srcinfo))
-                    # See "we don't mangle syms" for str(sym) vs c_args
-                    device_args_decls.append(
-                        f"{typ.basetype().ctype()} {str(sym)}[{n}]"
-                    )
+                    device_args_decls.append(f"{typ.basetype().ctype()} {c_name}[{n}]")
                     # We have to manually pass each array element by value ...
                     arg_fragments = ["{"]
                     for i in range(n):
@@ -359,12 +356,13 @@ class SubtreeScan(LoopIR_Do):
                     device_args_values.append("".join(arg_fragments))
                 else:
                     # Scalar grid constant
-                    # See "we don't mangle syms" for str(sym) vs c_args
-                    device_args_decls.append(f"{typ.ctype()} {str(sym)}")
+                    device_args_decls.append(f"{typ.ctype()} {c_name}")
                     if ctx.sym_is_scalar_ref(sym):
                         c_arg = f"*{c_arg}"
                     device_args_values.append(c_arg)
-                device_args_comments.append(f"{sym}: {typ} -- grid constant")
+                device_args_comments.append(
+                    ctx.sanitize_comment(f"{sym}: {typ} @{mem.name()}")
+                )
 
         device_args_values.append("exo_excut_get_device_log()")
 
@@ -943,7 +941,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
             main_loop_force_names[sym] = "exo_task_" + str(sym)
             task_force_names[sym] = "exo_task." + str(sym)
         for sym in scan.device_args_syms:
-            new_name = "exo_deviceArgs." + str(sym)
+            new_name = "exo_deviceArgs." + ctx.sym_c_name(sym)
             main_loop_force_names[sym] = new_name
             task_force_names[sym] = new_name
         for sym, info in self.thread_iters.items():

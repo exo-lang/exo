@@ -640,6 +640,10 @@ def _compile_context_struct(configs, lib_name):
     return ctxt_name, ctxt_def
 
 
+def sanitize_comment(comment):
+    return " ".join(comment.split())
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Loop IR Compiler
@@ -774,7 +778,7 @@ class Compiler:
         mem = a.mem if a.type.is_numeric() else None
         if a.type in (T.size, T.index, T.bool, T.stride):
             arg_strs.append(f"{a.type.ctype()} {name_arg}")
-            typ_comments.append(f"{name_arg} : {a.type}")
+            typ_comments.append(sanitize_comment(f"{name_arg} : {a.type}"))
         # setup, arguments
         else:
             assert a.type.is_numeric()
@@ -803,7 +807,7 @@ class Compiler:
                     arg_strs.append(f"{window_struct.dataptr} {name_arg}")
             memstr = f" @{a.mem.name()}" if a.mem else ""
             comment_str = f"{name_arg} : {a.type}{memstr}"
-            typ_comments.append(comment_str)
+            typ_comments.append(sanitize_comment(comment_str))
 
     def static_memory_check(self, proc):
         def allocates_static_memory(stmts):
@@ -941,7 +945,7 @@ class Compiler:
             return s
 
         elif isinstance(e, CIR.Stride):
-            return f"{e.name}.strides[{e.dim}]"
+            return f"{env[e.name]}.strides[{e.dim}]"
         elif isinstance(e, CIR.USub):
             return f'-{self.comp_cir(e.arg, env, op_prec["~"])}'
         else:
@@ -1101,6 +1105,9 @@ class Compiler:
                 layout,
                 separate_dataptr,
             ) = self.unpack_window_expr(rhs, input_winmem, input_win_struct.is_const)
+
+            if not input_win_struct.is_const:
+                self.global_non_const.add(s.name)
 
             output_winmem = s.special_window or input_winmem
             name = self.new_varname(s.name, typ=rhs.type, mem=output_winmem)
@@ -1852,3 +1859,6 @@ class SporkLoweringCtx(object):
 
     def get_barrier_usage(self, name: Sym) -> BarrierUsage:
         return self._compiler.barrier_uses[name]
+
+    def sanitize_comment(self, comment: str) -> str:
+        return sanitize_comment(comment)
