@@ -353,13 +353,19 @@ module CIR {
             | Const   ( object val )
             | BinOp   ( op op, expr lhs, expr rhs, bool is_non_neg )
             | USub    ( expr arg, bool is_non_neg )
-
+            | AddressOf(expr arg )
+            | Indexed ( expr ptr, expr idx )  -- ptr[idx]
+            | GetAttr ( expr arg, str attr ) -- arg.attr
+            | Custom  ( str format, dict kwargs, srcinfo srcinfo ) -- format.format(**kwargs)
 } """,
     ext_types={
         "bool": bool,
         "int": int,
         "sym": Sym,
         "op": validators.instance_of(Operator, convert=True),
+        "str": str,
+        "dict": dict,
+        "srcinfo": SrcInfo,
     },
 )
 

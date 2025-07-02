@@ -85,6 +85,8 @@ op_prec = {
     "%": 60,
     # unary minus
     "~": 70,
+    # getattr
+    ".": 80,
 }
 
 
@@ -162,6 +164,15 @@ def simplify_cir(e):
         if isinstance(arg, CIR.Const):
             return arg.update(val=-(arg.val))
         return e.update(arg=arg)
+    elif isinstance(e, CIR.AddressOf):
+        return e.update(arg=simplify_cir(e.arg))
+    elif isinstance(e, CIR.Indexed):
+        return e.update(ptr=simplify_cir(e.ptr), attr=simplify_cir(e.attr))
+    elif isinstance(e, CIR.GetAttr):
+        return e.update(arg=simplify_cir(e.arg), attr=simplify_cir(e.attr))
+    elif isinstance(e, CIR.Custom):
+        kwargs = {key: simplify_cir(value) for (key, value) in e.kwargs.items()}
+        return e.update(kwargs=kwargs)
     else:
         assert False, "bad case!"
 
@@ -910,7 +921,8 @@ class Compiler:
         self.names = self.names.parents
         self._tab = self._tab[:-2]
 
-    def comp_cir(self, e, env, prec) -> str:
+    def comp_cir(self, e, prec) -> str:
+        env = self.env
         if isinstance(e, CIR.Read):
             return env[e.name]
 
@@ -920,8 +932,8 @@ class Compiler:
         elif isinstance(e, CIR.BinOp):
             local_prec = op_prec[e.op]
 
-            lhs = self.comp_cir(e.lhs, env, local_prec)
-            rhs = self.comp_cir(e.rhs, env, local_prec)
+            lhs = self.comp_cir(e.lhs, local_prec)
+            rhs = self.comp_cir(e.rhs, local_prec)
 
             if isinstance(e.rhs, CIR.BinOp) and (e.op == "-" or e.op == "/"):
                 rhs = f"({rhs})"
@@ -943,7 +955,25 @@ class Compiler:
         elif isinstance(e, CIR.Stride):
             return f"{env[e.name]}.strides[{e.dim}]"
         elif isinstance(e, CIR.USub):
-            return f'-{self.comp_cir(e.arg, env, op_prec["~"])}'
+            return f'-{self.comp_cir(e.arg, op_prec["~"])}'
+        elif isinstance(e, CIR.AddressOf):
+            return "&" + self.comp_cir(e.arg, op_prec["~"])
+        elif isinstance(e, CIR.Indexed):
+            ptr = self.comp_cir(e.ptr, op_prec["."])
+            idx = self.comp_cir(e.idx, 0)
+            return f"{ptr}[{idx}]"
+        elif isinstance(e, CIR.GetAttr):
+            arg = self.comp_cir(e.arg, op_prec["."])
+            return f"{arg}.{e.attr}"
+        elif isinstance(e, CIR.Custom):
+            try:
+                kwargs = {
+                    key: self.comp_cir(value, op_prec["~"])
+                    for key, value in e.kwargs.items()
+                }
+                return e.format.format(**kwargs)
+            except Exception as e:
+                raise ValueError("Codegen failure associated with {e.srcinfo}") from e
         else:
             assert False, "bad case!"
 
@@ -956,7 +986,7 @@ class Compiler:
         type = self.envtyp[nm]
         cirs = [lift_to_cir(i, self.range_env) for i in idx_list]
         idx_expr = self.get_idx_offset(nm, type, cirs)
-        idx_expr_s = self.comp_cir(simplify_cir(idx_expr), self.env, prec=0)
+        idx_expr_s = self.comp_cir(simplify_cir(idx_expr), prec=0)
         if not type.is_win():
             return f"{buf}[{idx_expr_s}]"
         else:
@@ -964,7 +994,7 @@ class Compiler:
 
     def shape_strs(self, shape, prec=100) -> str:
         comp_res = [
-            self.comp_cir(simplify_cir(lift_to_cir(i, self.range_env)), self.env, prec)
+            self.comp_cir(simplify_cir(lift_to_cir(i, self.range_env)), prec)
             for i in shape
         ]
         return comp_res
@@ -997,7 +1027,7 @@ class Compiler:
 
     def get_strides_s(self, name: Sym, typ) -> List[str]:
         all_strides = self.get_strides(name, typ)
-        return [self.comp_cir(simplify_cir(i), self.env, prec=0) for i in all_strides]
+        return [self.comp_cir(simplify_cir(i), prec=0) for i in all_strides]
 
     def get_idx_offset(self, name: Sym, typ, idx) -> CIR:
         strides = self.get_strides(name, typ)
@@ -1521,7 +1551,7 @@ class Compiler:
         elif isinstance(e, LoopIR.StrideExpr):
             basetyp = self.envtyp[e.name]
             stride = self.get_strides(e.name, basetyp)[e.dim]
-            return self.comp_cir(simplify_cir(stride), self.env, prec=0)
+            return self.comp_cir(simplify_cir(stride), prec=0)
 
         elif isinstance(e, LoopIR.ReadConfig):
             if not e.config.is_allow_rw():
@@ -1560,7 +1590,7 @@ class Compiler:
             return w.lo if isinstance(w, LoopIR.Interval) else w.pt
 
         cirs = [lift_to_cir(w_lo(w), self.range_env) for w in e.idx]
-        idxs = [self.comp_cir(simplify_cir(i), self.env, prec=0) for i in cirs]
+        idxs = [self.comp_cir(simplify_cir(i), prec=0) for i in cirs]
 
         # compute new window strides
         all_strides_s = self.get_strides_s(e.name, basetyp)
