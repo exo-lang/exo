@@ -1433,7 +1433,7 @@ exo_Cuda{N}_{proc}::exo_cudaLaunch(cudaStream_t exo_cudaStream, const exo_Device
   cudaGetDevice(&exo_cudaDevice);
   int exo_SMs;
   cudaDeviceGetAttribute(&exo_SMs, cudaDevAttrMultiProcessorCount, exo_cudaDevice);
-  const unsigned exo_gridDim = (unsigned(exo_SMs) / exo_clusterDim) * {blocks_per_sm}u;
+  const unsigned exo_gridDim = (unsigned(exo_SMs) & ~(exo_clusterDim - 1)) * {blocks_per_sm}u;
 
   cudaLaunchConfig_t exo_launchConfig = {{}};
   exo_launchConfig.gridDim = dim3(exo_gridDim, 1, 1);
