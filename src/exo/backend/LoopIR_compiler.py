@@ -427,7 +427,8 @@ def ext_compile_to_strings(lib_name, proc_list):
     # Body contents
     private_fwd_decls = []
     proc_bodies = []
-    instrs_c_global = []
+    tagged_c_utils: List[Tuple[str, str]] = []  # (name, cu_util)
+    tagged_c_includes: List[Tuple[str, str]] = []  # (name, cu_util)
     tagged_cu_utils: List[Tuple[str, str]] = []  # (name, cu_util)
     tagged_cu_includes: List[Tuple[str, str]] = []  # (name, header name)
     analyzed_public_procs = []
@@ -451,12 +452,16 @@ def ext_compile_to_strings(lib_name, proc_list):
                     "",
                     '/* relying on the following instruction..."',
                     instr_name,
-                    "\n".join(p.instr.instr_format),
+                    "\n".join(p.instr.instr_format or ""),
                     "*/",
                 ]
             )
-            if instr.c_global:
-                instrs_c_global.append(instr.c_global)
+            if instr.c_utils:
+                for util in instr.c_utils:
+                    tagged_c_utils.append((instr_name, util))
+            if instr.c_includes:
+                for header_name in instr.c_includes:
+                    tagged_c_includes.append((instr_name, header_name))
             if instr.cu_utils:
                 for util in instr.cu_utils:
                     tagged_cu_utils.append((instr_name, util))
@@ -557,8 +562,12 @@ def ext_compile_to_strings(lib_name, proc_list):
         find_all_externs(analyzed_public_procs + analyzed_private_procs)
     )
 
+    body_contents = [make_utility_lines(True, None, tagged_c_includes)]
     helper_code = [_static_helpers[v] for v in needed_helpers]
-    body_contents = [helper_code, instrs_c_global, body_memwin_code, body_struct_defns]
+    body_contents.append(helper_code)
+    body_contents.append(body_memwin_code)
+    body_contents.append(body_struct_defns)
+    body_contents.append(make_utility_lines(False, None, tagged_c_utils))
     if lines := ext_lines.get("c"):
         body_contents.append(lines)
     body_contents.extend(
@@ -575,20 +584,18 @@ def ext_compile_to_strings(lib_name, proc_list):
 
     # Add cu_includes, cu_util, window definitions to .cuh file, if it exists.
     if (cuh_lines := ext_lines.get("cuh")) is not None:
-        prepend_tagged_cuh_ext_lines(
-            False,
-            lib_name,
-            tagged_cu_utils,
-            ext_lines,
-        )
-        ext_lines["cuh"] = body_memwin_code + body_struct_defns + ext_lines["cuh"]
         # Moved CUDA includes to the top.
         # clangd seems to get really confused if includes are in the wrong place.
-        prepend_tagged_cuh_ext_lines(
-            True,
-            lib_name,
-            tagged_cu_includes,
-            ext_lines,
+        cu_include_lines = make_utility_lines(True, None, tagged_cu_includes)
+        cu_util_lines = make_utility_lines(
+            False, f"exo_CudaUtil_{lib_name}", tagged_cu_utils
+        )
+        ext_lines["cuh"] = (
+            cu_include_lines
+            + body_memwin_code
+            + body_struct_defns
+            + cu_util_lines
+            + cuh_lines
         )
 
     return header_contents, body_contents, ext_lines
@@ -1660,6 +1667,58 @@ def dataptr_name(wname):
     return ".".join(fragments)
 
 
+# Assemble includes or utility code into List[str] of lines
+# from list of pairs of (required_by: str, content: str)
+# where content is a header name or a cu_util blob.
+# We remove exact duplicate strings.
+#
+# XXX TODO REMOVE: This is also where we add the excut string table, needed for test tracing.
+def make_utility_lines(
+    is_includes: bool, namespace: Optional[str], tagged_content: List[Tuple[str, str]]
+) -> List[str]:
+    combined: [List[str], str] = []  # ([required_by], content)
+    index_dict = {}
+
+    for tag, content in tagged_content:
+        idx = index_dict.get(content)
+        if idx is None:
+            index_dict[content] = len(combined)
+            combined.append(([tag], content))
+        else:
+            combined[idx][0].append(tag)
+
+    lines = []
+    if is_includes:
+        # Alphabetize include files
+        # Note however we do NOT sort util source code, since later utils
+        # may require earlier ones to compile correctly!
+        combined.sort(key=lambda tup: tup[1])
+    else:
+        # Begin namespace
+        if namespace:
+            lines.append("")
+            lines.append(f"namespace {namespace} {{")
+            # XXX paste in weird excut code
+            lines.extend(excut.generate_c_str_table_lines())
+
+    for tags, content in combined:
+        for tag in tags:
+            lines.append(f"/* Required by {tag} */")
+        if is_includes:
+            lines.append(f"#include <{content}>")
+        else:
+            for line in content.split("\n"):
+                if not line or line.isspace():
+                    lines.append("")
+                else:
+                    lines.append(line)
+
+    if namespace:
+        lines.append("}  // end namespace")
+
+    return lines
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Assemble includes and exo_CudaUtil namespace in .cuh file
@@ -1667,6 +1726,7 @@ def dataptr_name(wname):
 # where content is a header name or a cu_util blob.
 # We remove exact duplicate strings.
 # This is also where we add the excut string table, needed for test tracing
+# XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 def prepend_tagged_cuh_ext_lines(
     is_includes,
     lib_name,

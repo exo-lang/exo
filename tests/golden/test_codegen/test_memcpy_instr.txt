@@ -1,5 +1,6 @@
 #include "bar.h"
 
+/* Required by memcpy(n,dst,src) */
 #include <string.h>
 // bar(
 //     n : size,

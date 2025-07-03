@@ -18,7 +18,8 @@ class AccessInfo:
 @dataclass(init=False, slots=True)
 class InstrInfo:
     instr_format: List[str]  # Split by lines
-    c_global: str
+    c_utils: List[str]
+    c_includes: List[str]
     cu_utils: List[str]
     cu_includes: List[str]
     coll_unit: CollUnit

@@ -116,6 +116,7 @@ void bar( void *ctxt, int_fast32_t n, float* y );
 
 #include "bar.h"
 
+/* Required by foo(n,x) */
 #include "foo.h"
 // bar(
 //     n : size,

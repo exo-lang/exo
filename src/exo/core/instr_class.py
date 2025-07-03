@@ -99,7 +99,8 @@ def tparams_from_signature(clsname: str, tproc: LoopIR.proc, signature):
 
 
 def prefill_instr_info(info: InstrInfo, proc: LoopIR.proc):
-    info.c_global = ""
+    info.c_utils = []
+    info.c_includes = []
     info.cu_utils = []
     info.cu_includes = []
     info.coll_unit = standalone_thread
@@ -115,7 +116,8 @@ def old_style_instr_info(proc: LoopIR.proc, c_instr: str, c_global: str):
     info = InstrInfo()
     prefill_instr_info(info, proc)
     info.instr_format = c_instr.split("\n")
-    info.c_global = c_global
+    if c_global:
+        info.c_utils.append(c_global)
     return info
 
 
@@ -275,7 +277,8 @@ class InstrTemplate:
         assert hasattr(info, "instr_format"), f"{clsname}: missing instr_format"
         assert isinstance(info.instr_format, list), clsname
         assert all(isinstance(line, str) for line in info.instr_format), clsname
-        assert isinstance(info.c_global, str), clsname
+        assert all(isinstance(s, str) for s in info.c_utils), clsname
+        assert all(isinstance(s, str) for s in info.c_includes), clsname
         assert all(isinstance(s, str) for s in info.cu_utils), clsname
         assert all(isinstance(s, str) for s in info.cu_includes), clsname
         assert isinstance(info.coll_unit, CollUnit), clsname
