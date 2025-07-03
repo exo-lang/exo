@@ -529,6 +529,11 @@ def generate_excut_str_table_header(namespace_name):
         f"#define EXO_EXCUT_STR_ID(c) ::{namespace_name}::exo_excut_str_id_##c"
     )
 
+    lines.append("")
+    lines.append("#ifndef EXO_EXCUT_FILE")
+    lines.append("#error define EXO_EXCUT_FILE")
+    lines.append("#endif")
+
     header_guard = f"EXO_EXCUT_STR_TABLE_{namespace_name}"
     lines.append(f"#ifndef {header_guard}")
     lines.append(f"#define {header_guard}")
@@ -541,7 +546,7 @@ def generate_excut_str_table_header(namespace_name):
     lines.append("inline const char* const exo_excut_str_table[] = {")
     for i, s in enumerate(strings):
         if i == 0:
-            c_str = "__FILE__"
+            c_str = "EXO_EXCUT_FILE"
         else:
             c_str = json.dumps(s)
         lines.append(f"  {c_str},  // {i}")
@@ -554,6 +559,7 @@ def generate_excut_str_table_header(namespace_name):
 
     lines.append("}  // end namespace")
     lines.append("#endif")
+    lines.append("#undef EXO_EXCUT_FILE")
 
     return "\n".join(lines)
 
