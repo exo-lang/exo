@@ -370,15 +370,25 @@ extern "C" {{
         if ext == "c" or ext == "h":
             continue
         elif ext == "cuh":
-            lines2 = ["#pragma once", f'#include "{file_stem}.h"']
-            lines2.extend(lines)  # Most of the code
-            text = "\n".join(lines2)
+            cuh_lines = ["#pragma once"]
+            cuh_lines.append(f'#include "{file_stem}.h"')
+            cuh_lines.append("#if EXO_EXCUT_bENABLE_LOG")
+            cuh_lines.append(f'#include "{file_stem}.excut_str_table"')
+            cuh_lines.append("#endif")
+            cuh_lines.extend(lines)  # Most of the code
+            text = "\n".join(cuh_lines)
         elif ext == "cu":
             text = "\n".join([f'#include "{file_stem}.cuh"'] + lines)
         else:
             # A bit crappy we have per-file-extension logic here.
             assert "Add case for file extension"
         ext_snippets[ext] = text
+
+    # excut stuff for CUDA tests
+    if used_cuda:
+        ext_snippets["excut_str_table"] = excut.generate_excut_str_table_header(
+            f"exo_CudaUtil_{lib_name}"
+        )
 
     return ext_snippets
 
@@ -1673,8 +1683,6 @@ def dataptr_name(wname):
 # from list of pairs of (required_by: str, content: str)
 # where content is a header name or a cu_util blob.
 # We remove exact duplicate strings.
-#
-# XXX TODO REMOVE: This is also where we add the excut string table, needed for test tracing.
 def make_utility_lines(
     is_includes: bool, namespace: Optional[str], tagged_content: List[Tuple[str, str]]
 ) -> List[str]:
@@ -1700,8 +1708,6 @@ def make_utility_lines(
         if namespace:
             lines.append("")
             lines.append(f"namespace {namespace} {{")
-            # XXX paste in weird excut code
-            lines.extend(excut.generate_c_str_table_lines())
 
     for tags, content in combined:
         for tag in tags:

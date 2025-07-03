@@ -258,7 +258,7 @@ class Compiler:
             procs = [procs]
 
         file_exts = ext_compile_procs(procs, self.workdir, self.basename)
-        assert file_exts == ["c", "cu", "cuh", "h"]
+        assert file_exts == ["c", "cu", "cuh", "excut_str_table", "h"]
 
         # Directly use nvcc (or $EXO_NVCC)
         # This pretty much only works on Linux.

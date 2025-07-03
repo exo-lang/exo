@@ -1533,6 +1533,7 @@ typedef struct exo_ExcutDeviceLog {} exo_ExcutDeviceLog;
 #define exo_excut_end_log_action(device_name, _blockIdx, _threadIdx, file, line)
 #define exo_excut_get_device_log() (exo_ExcutDeviceLog) {}
 #define exo_excut_flush_device_log(stream, _gridDim, _blockDim, string_id_count, string_table)
+#define EXO_EXCUT_STR_ID(c) 0
 #ifdef __CUDACC__
 struct exo_ExcutThreadLog {
     EXO_CUDA_INLINE void log_action(uint32_t, uint32_t, uint32_t) {}

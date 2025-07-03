@@ -60,6 +60,11 @@ def main():
     ]
 
     exts = exo.ext_compile_procs(library, outdir, stem)
+    # Exclude debug-only file from depfile
+    try:
+        exts.remove("excut_str_table")
+    except ValueError:
+        pass
     write_depfile(outdir, stem, exts)
 
 
