@@ -33,7 +33,8 @@ void exo_excut_log_ptr_arg(void* ptr);
 void exo_excut_end_log_action(const char* device_name, unsigned _blockIdx, unsigned _threadIdx, const char* file, int line);
 exo_ExcutDeviceLog exo_excut_get_device_log();
 void exo_excut_flush_device_log(cudaStream_t exo_cudaStream, unsigned gridDim, unsigned blockDim,
-                                uint32_t str_id_count, const char* const* str_table);
+                                uint32_t str_id_count, const char* const* str_table,
+                                uint32_t file_id_count, const char* const* file_table);
 
 #ifdef __cplusplus
 }  // extern "C"
@@ -65,7 +66,7 @@ void exo_excut_flush_device_log(cudaStream_t exo_cudaStream, unsigned gridDim, u
 // * encode(type, value) = exo_ExcutHighByte::type << 24 | value & 0xFFFFFF
 //
 // * Write a new action by appending to the log words:
-//   [encode(action, str_id(action_name)), str_id(file_name), line_number]
+//   [encode(action, str_id(action_name)), file_id(file_name), line_number]
 //
 // * After appending an action, add a string argument by appending:
 //   [encode(str_arg, str_id)]
@@ -106,11 +107,11 @@ struct exo_ExcutThreadLog
         return nullptr;  // Not enough capacity
     }
 
-    EXO_EXCUT_CUDA_INLINE void log_action(uint32_t action_str_id, uint32_t file_str_id, uint32_t line) const
+    EXO_EXCUT_CUDA_INLINE void log_action(uint32_t action_str_id, uint32_t file_id, uint32_t line) const
     {
         if (uint32_t* p = _alloc_log(3)) {
             p[0] = uint32_t(exo_ExcutHighByte::action) << 24 | action_str_id & 0xFFFFFF;
-            p[1] = file_str_id;
+            p[1] = file_id;
             p[2] = line;
         }
     }

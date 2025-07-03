@@ -126,7 +126,8 @@ exo_ExcutDeviceLog get_device_log()
 }
 
 void flush_device_log(cudaStream_t stream, uint32_t gridDim, uint32_t blockDim,
-                      uint32_t str_id_count, const char* const* str_table)
+                      uint32_t str_id_count, const char* const* str_table,
+                      uint32_t file_id_count, const char* const* file_table)
 {
     if (!log_file_enabled()) {
         return;
@@ -144,6 +145,14 @@ void flush_device_log(cudaStream_t stream, uint32_t gridDim, uint32_t blockDim,
             return str_table[str_id];
         }
         return "<invalid str_id>";
+    };
+
+    auto lookup_file_id = [file_id_count, file_table](uint32_t file_id)
+    {
+        if (file_id < file_id_count) {
+            return file_table[file_id];
+        }
+        return "<invalid file_id>";
     };
 
     auto log_out_of_cuda_memory = [&] (uint32_t blockIdx, uint32_t threadIdx, uint32_t needed)
@@ -176,12 +185,12 @@ void flush_device_log(cudaStream_t stream, uint32_t gridDim, uint32_t blockDim,
         // Translate binary trace to text
         const uint32_t* log_words = &thread_data[1];
         bool in_action = false;
-        uint32_t action_file_str_id = 0;
+        uint32_t action_file_id = 0;
         int action_line = 0;
         auto end_action = [&]
         {
             if (in_action) {
-                end_log_action("cuda", blockIdx, threadIdx, lookup_str_id(action_file_str_id), action_line);
+                end_log_action("cuda", blockIdx, threadIdx, lookup_file_id(action_file_id), action_line);
                 in_action = false;
             }
         };
@@ -197,7 +206,7 @@ void flush_device_log(cudaStream_t stream, uint32_t gridDim, uint32_t blockDim,
                 end_action();
                 EXO_EXCUT_ASSERT(log_i + 3 <= n_log_words);
                 begin_log_action(lookup_str_id(cmd_value));
-                action_file_str_id = log_words[log_i + 1];
+                action_file_id = log_words[log_i + 1];
                 action_line = int(log_words[log_i + 2]);
                 log_i += 3;
                 in_action = true;
@@ -278,9 +287,10 @@ exo_ExcutDeviceLog exo_excut_get_device_log()
 }
 
 void exo_excut_flush_device_log(cudaStream_t exo_cudaStream, uint32_t gridDim, uint32_t blockDim,
-                                uint32_t str_id_count, const char* const* str_table)
+                                uint32_t str_id_count, const char* const* str_table,
+                                uint32_t file_id_count, const char* const* file_table)
 {
-    exo_excut::flush_device_log(exo_cudaStream, gridDim, blockDim, str_id_count, str_table);
+    exo_excut::flush_device_log(exo_cudaStream, gridDim, blockDim, str_id_count, str_table, file_id_count, file_table);
 }
 
 }  // extern "C"

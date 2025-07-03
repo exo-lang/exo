@@ -1443,9 +1443,11 @@ exo_Cuda{N}_{proc}::exo_cudaLaunch(cudaStream_t exo_cudaStream, const exo_Device
 {launchConfig_clusterDim_snippet}
   cudaLaunchKernelEx(&exo_launchConfig, exo_deviceFunction{N}_{proc}, exo_deviceArgs);
 
+  [[maybe_unused]] static const char* filename = __FILE__;
   exo_excut_flush_device_log(
       exo_cudaStream, exo_gridDim, exo_blockDim,
-      exo_CudaUtil::exo_excut_str_id_count, exo_CudaUtil::exo_excut_str_table);
+      exo_CudaUtil::exo_excut_str_id_count, exo_CudaUtil::exo_excut_str_table,
+      1, &filename);
 }}
 
 __device__ __forceinline__ void
@@ -1532,7 +1534,7 @@ typedef struct exo_ExcutDeviceLog {} exo_ExcutDeviceLog;
 #define exo_excut_log_ptr_arg(ptr)
 #define exo_excut_end_log_action(device_name, _blockIdx, _threadIdx, file, line)
 #define exo_excut_get_device_log() (exo_ExcutDeviceLog) {}
-#define exo_excut_flush_device_log(stream, _gridDim, _blockDim, string_id_count, string_table)
+#define exo_excut_flush_device_log(stream, _gridDim, _blockDim, string_id_count, string_table, file_id_count, file_table)
 #define EXO_EXCUT_STR_ID(c) 0
 #ifdef __CUDACC__
 struct exo_ExcutThreadLog {

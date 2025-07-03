@@ -478,10 +478,9 @@ class ExcutStringTable:
         s_name = "_".join(cleaned.split())
         assert s_name
 
-        # Reserve 0 for file name for now
         # Only up to 24 bits available for ID.
         id_table = self._str_to_id
-        _id = len(id_table) + 1
+        _id = len(id_table)
         assert _id < (1 << 24)
         id_table[name] = _id
 
@@ -506,13 +505,9 @@ def excut_c_str_id(name):
 
 
 def generate_excut_str_table_header(namespace_name):
-    """Generate header file for excut string table.
-
-    HACK: reserve string ID 0 for src_filename
-
-    """
+    """Generate header file for excut string table."""
     str_to_id = _string_table._str_to_id
-    id_count = 1 + len(str_to_id)
+    id_count = len(str_to_id)
     strings = [None] * id_count
     for s, i in str_to_id.items():
         assert i < id_count
@@ -530,9 +525,6 @@ def generate_excut_str_table_header(namespace_name):
     )
 
     lines.append("")
-    lines.append("#ifndef EXO_EXCUT_FILE")
-    lines.append("#error define EXO_EXCUT_FILE")
-    lines.append("#endif")
 
     header_guard = f"EXO_EXCUT_STR_TABLE_{namespace_name}"
     lines.append(f"#ifndef {header_guard}")
@@ -545,10 +537,7 @@ def generate_excut_str_table_header(namespace_name):
     # String table contents
     lines.append("inline const char* const exo_excut_str_table[] = {")
     for i, s in enumerate(strings):
-        if i == 0:
-            c_str = "EXO_EXCUT_FILE"
-        else:
-            c_str = json.dumps(s)
+        c_str = json.dumps(s)
         lines.append(f"  {c_str},  // {i}")
     lines.append("};")
 
@@ -559,7 +548,6 @@ def generate_excut_str_table_header(namespace_name):
 
     lines.append("}  // end namespace")
     lines.append("#endif")
-    lines.append("#undef EXO_EXCUT_FILE")
 
     return "\n".join(lines)
 
@@ -890,7 +878,7 @@ class InlinePtxGen:
         for ptx_lineno, parsed_line in enumerate(self.parsed_lines):
             logging = parsed_line.log_action is not None
             if logging:
-                # HACK: currently hardwired 0 as ID of file name str
+                # HACK: currently hardwired 0 as ID of file name
                 action_id = excut_c_str_id(parsed_line.log_action)
                 c_log_lines.append(
                     f"exo_excutLog.log_action({action_id}, 0, __LINE__);"

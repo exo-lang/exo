@@ -373,10 +373,6 @@ extern "C" {{
             cuh_lines = ["#pragma once"]
             cuh_lines.append(f'#include "{file_stem}.h"')
             cuh_lines.append("#if EXO_EXCUT_bENABLE_LOG")
-            cuh_lines.append(
-                f"inline const char exo_cuh_filename_{lib_name}[] = __FILE__;"
-            )
-            cuh_lines.append(f"#define EXO_EXCUT_FILE exo_cuh_filename_{lib_name}")
             cuh_lines.append(f'#include "{file_stem}.excut_str_table"')
             cuh_lines.append("#endif")
             cuh_lines.extend(lines)  # Most of the code
