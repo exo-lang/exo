@@ -1,6 +1,8 @@
 from .prelude import Sym, SrcInfo, Operator, extclass
 
 from asdl_adt import ADT, validators
+from dataclasses import dataclass
+from typing import Optional
 
 # --------------------------------------------------------------------------- #
 # C Codegen AST
@@ -36,11 +38,12 @@ def exo_get_cir(self):
     return self
 
 
+@dataclass(slots=True)
 class CIR_Wrapper:
-    __slots__ = ["_ir"]
     _ir: CIR.expr
+    _origin_story: Optional[str]
 
-    def __init__(self, arg):
+    def __init__(self, arg, origin_story=None):
         if isinstance(arg, Sym):
             # is_non_neg maybe shouldn't be always False?
             self._ir = CIR.Read(arg, False)
@@ -48,6 +51,7 @@ class CIR_Wrapper:
             self._ir = CIR.Const(arg)
         else:
             self._ir = arg.exo_get_cir()
+        self._origin_story = origin_story
 
     def __repr__(self):
         return f"CIR_Wrapper({self._ir})"
@@ -98,3 +102,11 @@ class CIR_Wrapper:
         # is_non_neg maybe shouldn't be always False?
         result._ir = CIR.BinOp(op, self._ir, result._ir, False)
         return result
+
+    def __int__(self):
+        assert self._origin_story is not None
+        ir = self._ir
+        if isinstance(ir, CIR.Const):
+            return int(ir.val)
+        else:
+            raise ValueError(f"{self._origin_story}: needs to be int")
