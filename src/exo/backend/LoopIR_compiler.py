@@ -1723,62 +1723,6 @@ def make_utility_lines(
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
-# Assemble includes and exo_CudaUtil namespace in .cuh file
-# from list of pairs of (required_by: str, content: str)
-# where content is a header name or a cu_util blob.
-# We remove exact duplicate strings.
-# This is also where we add the excut string table, needed for test tracing
-# XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
-def prepend_tagged_cuh_ext_lines(
-    is_includes,
-    lib_name,
-    tagged_content,
-    ext_lines,
-):
-    combined: [List[str], str] = []  # ([required_by], content)
-    index_dict = {}
-
-    for tag, content in tagged_content:
-        idx = index_dict.get(content)
-        if idx is None:
-            index_dict[content] = len(combined)
-            combined.append(([tag], content))
-        else:
-            combined[idx][0].append(tag)
-
-    lines = []
-    if is_includes:
-        # Alphabetize include files
-        # Note however we do NOT sort util source code, since later utils
-        # may require earlier ones to compile correctly!
-        combined.sort(key=lambda tup: tup[1])
-    else:
-        # Begin namespace
-        lines.append("")
-        lines.append(f"namespace exo_CudaUtil_{lib_name} {{")
-        # Paste in weird excut code
-        lines.extend(excut.generate_c_str_table_lines())
-
-    for tags, content in combined:
-        for tag in tags:
-            lines.append(f"/* Required by {tag} */")
-        if is_includes:
-            lines.append(f"#include <{content}>")
-        else:
-            for line in content.split("\n"):
-                if not line or line.isspace():
-                    lines.append("")
-                else:
-                    lines.append(line)
-
-    if not is_includes:
-        lines.append("}  // end namespace")
-
-    ext_lines["cuh"] = lines + ext_lines.setdefault("cuh", [])
-
-
-# --------------------------------------------------------------------------- #
-# --------------------------------------------------------------------------- #
 # Cached collection of window struct definitions
 
 
