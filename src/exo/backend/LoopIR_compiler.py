@@ -1017,13 +1017,13 @@ class Compiler:
         szs = [lift_to_cir(i, self.range_env) for i in shape]
         assert len(szs) >= 1
         strides = [CIR.Const(1)]
-        wrapped_stride = CIR_Wrapper(szs[-1])
+        wrapped_stride = CIR_Wrapper(szs[-1], self, "tensor_strides")
         for sz in reversed(szs[:-1]):
             s = wrapped_stride.exo_get_cir()
             if hasattr(s, "is_non_neg"):
                 s = s.update(is_non_neg=True)  # TODO rethink is_non_neg
             strides.append(s)
-            wrapped_stride *= sz
+            wrapped_stride = sz * wrapped_stride
         strides.reverse()
         return strides
 
@@ -1036,7 +1036,9 @@ class Compiler:
                     res.append(stride)
                 else:
                     # TODO externalize soon
-                    expr = CIR_Wrapper(name).strides[i]
+                    expr = CIR_Wrapper(
+                        CIR.Read(name, False), self, "get_strides"
+                    ).strides[i]
                     res.append(expr.exo_get_cir())
             return res
         else:
