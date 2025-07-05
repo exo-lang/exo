@@ -705,7 +705,7 @@ class Compiler:
         typ_comments = []
 
         # reserve the first "ctxt" argument
-        self.new_varname(proc, Sym("ctxt"), None)
+        self.new_varname(Sym("ctxt"), None)
         arg_strs.append(f"{ctxt_name} *ctxt")
 
         # See self.is_const
@@ -714,7 +714,7 @@ class Compiler:
 
         for a in proc.args:
             mem = a.mem if a.type.is_numeric() else None
-            name_arg = self.new_varname(a, a.name, typ=a.type, mem=mem)
+            name_arg = self.new_varname(a.name, typ=a.type, mem=mem)
             if a.type.is_real_scalar():
                 self._scalar_refs.add(a.name)
             self.append_fnarg_decl(a, name_arg, arg_strs, typ_comments)
@@ -738,6 +738,11 @@ class Compiler:
                 # Default to just informing the compiler about the constraint
                 # on a best-effort basis
                 self.add_line(f"EXO_ASSUME({self.comp_e(pred)});")
+
+        for a in proc.args:
+            # NOTE: Moved below preds, so that known_strides gets filled
+            # before initializing new variables.
+            self.init_window_features(a, a.name)
 
         if not self.static_memory_check(self.proc):
             raise MemGenError("Cannot generate static memory in non-leaf procs")
@@ -870,7 +875,14 @@ class Compiler:
     def used_cuda(self):
         return self._used_cuda
 
-    def new_varname(self, node, symbol, typ, mem=None):
+    def new_varname(self, symbol, typ, mem=None) -> str:
+        """Init envs for new variable, except env_window_features.
+
+        Give back C name for the variable (env[symbol]).
+        Note, env_window_features must be initialized separately due to
+        an ordering issue with known_strides.
+
+        """
         strnm = str(symbol)
 
         # Reserve "exo_" prefix for internal use.
@@ -904,10 +916,6 @@ class Compiler:
         else:
             mem = DRAM
         self.mems[symbol] = mem
-
-        # Decompose into window features
-        if typ and typ.is_tensor_or_window():
-            self.init_window_features(node, symbol, strnm, typ, mem)
 
         return strnm
 
@@ -1075,7 +1083,13 @@ class Compiler:
             mem, base, n_dims, is_const, node.srcinfo, emit_definition
         )
 
-    def init_window_features(self, node, symbol, strnm, typ, mem):
+    def init_window_features(self, node, symbol):
+        typ = self.envtyp[symbol]
+        if not typ.is_tensor_or_window():
+            return
+        strnm = self.env[symbol]
+        mem = self.mems[symbol]
+
         srcinfo = node.srcinfo
         basetype_name = str(typ.basetype())
         const = self.is_const(symbol)
@@ -1298,7 +1312,8 @@ class Compiler:
                 self.global_non_const.add(s.name)
 
             output_winmem = s.special_window or input_winmem
-            name = self.new_varname(s, s.name, typ=rhs.type, mem=output_winmem)
+            name = self.new_varname(s.name, typ=rhs.type, mem=output_winmem)
+            self.init_window_features(s, s.name)
 
             if not s.special_window:
                 output_win_struct = input_win_struct
@@ -1451,7 +1466,7 @@ class Compiler:
             lo = self.comp_e(s.lo)
             hi = self.comp_e(s.hi)
             self.push(only="env")
-            itr = self.new_varname(s, s.iter, typ=T.index)  # allocate a new string
+            itr = self.new_varname(s.iter, typ=T.index)  # allocate a new string
             sym_range = self.range_env.add_loop_iter(
                 s.iter,
                 s.lo,
@@ -1504,7 +1519,8 @@ class Compiler:
             self.add_line("}")
 
         elif isinstance(s, LoopIR.Alloc):
-            name = self.new_varname(s, s.name, typ=s.type, mem=s.mem)
+            name = self.new_varname(s.name, typ=s.type, mem=s.mem)
+            self.init_window_features(s, s.name)
             if not s.type.is_barrier():
                 assert s.type.basetype().is_real_scalar()
                 assert s.type.basetype() != T.R
