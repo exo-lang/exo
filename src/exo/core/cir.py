@@ -105,30 +105,36 @@ def simplify_cir(e):
 
 @dataclass(slots=True)
 class CIR_Wrapper:
-    _ir: CIR.expr
-    _compiler: "Compiler"
-    _origin_story: str
+    _exo_ir: CIR.expr
+    _exo_compiler: "Compiler"
+    _exo_origin_story: str
+    _exo_simplified: bool
 
     def __init__(self, ir, compiler, origin_story):
         assert isinstance(ir, CIR.expr)
-        self._ir = ir
+        self._exo_ir = ir
         assert hasattr(compiler, "comp_cir")
-        self._compiler = compiler
+        self._exo_compiler = compiler
         assert isinstance(origin_story, str)
-        self._origin_story = origin_story
+        self._exo_origin_story = origin_story
+        self._exo_simplified = False
 
     def __repr__(self):
-        return f"CIR_Wrapper({self._ir}, {self._compiler}, {self._origin_story})"
+        return f"CIR_Wrapper({self._exo_ir}, {self._exo_compiler}, {self._exo_origin_story})"
 
     def __str__(self):
-        return self._compiler.comp_cir(simplify_cir(self._ir), 0)
+        self.exo_simplify()
+        return self._exo_compiler.comp_cir(self._exo_ir, 0)
 
     def __getattr__(self, attr):
         assert not attr.startswith(
             "exo_"
         ), f"{attr} is reserved (or typo of member function)"
+        assert not attr.startswith(
+            "_exo_"
+        ), f"{attr} is reserved (or typo of member function)"
         return CIR_Wrapper(
-            CIR.GetAttr(self._ir, attr), self._compiler, self._origin_story
+            CIR.GetAttr(self._exo_ir, attr), self._exo_compiler, self._exo_origin_story
         )
 
     def __getitem__(self, index):
@@ -137,7 +143,7 @@ class CIR_Wrapper:
         else:
             index = index.exo_get_cir()
         return CIR_Wrapper(
-            CIR.Indexed(self._ir, index), self._compiler, self._origin_story
+            CIR.Indexed(self._exo_ir, index), self._exo_compiler, self._exo_origin_story
         )
 
     def __add__(self, val):
@@ -167,11 +173,18 @@ class CIR_Wrapper:
     def __mod__(self, val):
         return self.exo_bin_op(val, "%")
 
+    def exo_simplify(self):
+        if not self._exo_simplified:
+            self._exo_ir = simplify_cir(self._exo_ir)
+            self._exo_simplified = True
+
     def exo_get_cir(self):
-        return self._ir
+        return self._exo_ir
 
     def exo_address_of(self):
-        return CIR_Wrapper(CIR.AddressOf(self._ir), self._compiler, self._origin_story)
+        return CIR_Wrapper(
+            CIR.AddressOf(self._exo_ir), self._exo_compiler, self._exo_origin_story
+        )
 
     def exo_bin_op(self, rhs, op, r=False):
         if isinstance(rhs, int):
@@ -180,17 +193,18 @@ class CIR_Wrapper:
             rhs = CIR.Read(rhs, False)  # is_non_neg?
         else:
             rhs = rhs.exo_get_cir()
-        lhs = self._ir
+        lhs = self._exo_ir
         if r:
             lhs, rhs = rhs, lhs
         # is_non_neg maybe shouldn't be always False?
         bin_op = CIR.BinOp(op, lhs, rhs, False)
-        return CIR_Wrapper(bin_op, self._compiler, self._origin_story)
+        return CIR_Wrapper(bin_op, self._exo_compiler, self._exo_origin_story)
 
     def __int__(self):
-        assert self._origin_story is not None
-        ir = self._ir
+        assert self._exo_origin_story is not None
+        self.exo_simplify()
+        ir = self._exo_ir
         if isinstance(ir, CIR.Const):
             return int(ir.val)
         else:
-            raise ValueError(f"{self._origin_story}: needs to be int, not `{self}`")
+            raise ValueError(f"{self._exo_origin_story}: needs to be int, not `{self}`")
