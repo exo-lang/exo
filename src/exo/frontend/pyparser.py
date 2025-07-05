@@ -13,6 +13,7 @@ from asdl_adt.validators import ValidationError
 from ..API_types import ProcedureBase
 from ..core.configs import Config
 from ..core.LoopIR import UAST, PAST, front_ops
+from ..core.LoopIR import uast_prim_types as _prim_types
 from ..core.prelude import *
 from ..core.extern import Extern
 from ..core.memory import MemWin, AllocableMemWin, Memory, SpecialWindow
@@ -607,17 +608,6 @@ _is_index = lambda x: isinstance(x, pyast.Name) and x.id == "index"
 _is_bool = lambda x: isinstance(x, pyast.Name) and x.id == "bool"
 _is_stride = lambda x: isinstance(x, pyast.Name) and x.id == "stride"
 _is_barrier = lambda x: isinstance(x, pyast.Name) and x.id == "barrier"
-
-_prim_types = {
-    "R": UAST.Num(),
-    "f16": UAST.F16(),
-    "f32": UAST.F32(),
-    "f64": UAST.F64(),
-    "i8": UAST.INT8(),
-    "ui8": UAST.UINT8(),
-    "ui16": UAST.UINT16(),
-    "i32": UAST.INT32(),
-}
 
 
 class Parser:

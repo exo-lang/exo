@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Set, Type
 from ..spork.timelines import cpu_in_order_instr, cpu_usage, Instr_tl, Usage_tl
 
 """
@@ -65,6 +65,63 @@ _memwin_template_cache = {}
 
 class MemGenError(Exception):
     pass
+
+
+@dataclass
+class MemIncludeC:
+    """Give back MemIncludeC(...) in global_() to require a header file"""
+
+    header_name: str
+    _used_by: Set[Type[MemWin]]
+
+    def __init__(self, header_name: str):
+        self.header_name = header_name
+        self._used_by = set()
+
+    def used_by_strs(self) -> List[str]:
+        return sorted(u.name() for u in self._used_by)
+
+
+@dataclass
+class MemGlobalC:
+    """Give back MemGlobalC(...) in global_() to require some source code.
+
+    The MemGlobalC contains a C identifier `name`, and C code `code`.
+    The code is injected into either the header file, or the C/CUDA
+    source file, wrapped with a `name`-based header guard.
+    The code goes into the header file only if it's required by some
+    MemWin type that's part of a public proc's interface.
+
+    For two MemGlobalC instances a and b, Exo requires that
+    (a.name == b.name) iff (a.code == b.code).
+
+    Any code in the self.depends_on list will get injected before self.code.
+
+    """
+
+    name: str
+    code: str
+    depends_on: Tuple[MemGlobalC | MemIncludeC]
+    _used_by: Set[Type[MemWin]]
+
+    def __init__(
+        self, name: str, code: str, depends_on: List[MemGlobalC | MemIncludeC] = None
+    ):
+        assert all(c == "_" or c.isalnum() for c in name)
+        self.name = name
+        self.code = code
+        if depends_on:
+            assert all(isinstance(c, (MemIncludeC, MemGlobalC)) for c in depends_on)
+            self.depends_on = tuple(depends_on)
+        else:
+            self.depends_on = ()
+        self._used_by = set()
+
+    def used_by_strs(self) -> List[str]:
+        return sorted(u.name() for u in self._used_by)
+
+    def header_guard_name(self) -> str:
+        return "EXO_MEM_GLOBAL_" + self.name
 
 
 def generate_offset(indices, strides, vector_size=1):

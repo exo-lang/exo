@@ -390,6 +390,37 @@ class T:
 # type helper functions
 
 
+# str to UAST type
+uast_prim_types = {
+    "R": UAST.Num(),
+    "f16": UAST.F16(),
+    "f32": UAST.F32(),
+    "f64": UAST.F64(),
+    "i8": UAST.INT8(),
+    "ui8": UAST.UINT8(),
+    "ui16": UAST.UINT16(),
+    "i32": UAST.INT32(),
+}
+
+
+# UAST to LoopIR scalars
+loopir_from_uast_type_table = {
+    UAST.Num: T.R,
+    UAST.F16: T.f16,
+    UAST.F32: T.f32,
+    UAST.F64: T.f64,
+    UAST.INT8: T.int8,
+    UAST.UINT8: T.uint8,
+    UAST.UINT16: T.uint16,
+    UAST.INT32: T.int32,
+    UAST.Bool: T.bool,
+    UAST.Int: T.int,
+    UAST.Size: T.size,
+    UAST.Index: T.index,
+    UAST.Stride: T.stride,
+}
+
+
 @extclass(T.Tensor)
 def as_tensor_type(t):
     return t

@@ -8,7 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict
 
-from ..core.cir import CIR, CIR_Wrapper
+from ..core.cir import CIR, CIR_Wrapper, simplify_cir
+from ..core.c_window import WindowFeatures
 from ..core.LoopIR import LoopIR, LoopIR_Do, get_writes_of_stmts, T
 from ..core.configs import ConfigError
 from .mem_analysis import MemoryAnalysis
@@ -23,6 +24,14 @@ from ..core.memory import (
     StaticMemory,
     WindowStructCtx,
     SpecialWindowFromMemoryCtx,
+)
+from ..core.c_window import (
+    UtilInjector,
+    WindowFeatures,
+    WindowEncoderArgs,
+    WindowIndexerSupport,
+    WindowIndexerArgs,
+    WindowIndexerResult,
 )
 from .parallel_analysis import ParallelAnalysis
 from .prec_analysis import PrecisionAnalysis
@@ -109,73 +118,6 @@ def lift_to_cir(e, range_env):
         return CIR.USub(arg, is_non_neg(e))
     else:
         assert False, "bad case!"
-
-
-operations = {
-    "+": lambda x, y: x + y,
-    "-": lambda x, y: x - y,
-    "*": lambda x, y: x * y,
-    "/": lambda x, y: x / y,
-    "%": lambda x, y: x % y,
-}
-
-
-def simplify_cir(e):
-    if isinstance(e, (CIR.Read, CIR.Const)):
-        return e
-
-    elif isinstance(e, CIR.BinOp):
-        lhs = simplify_cir(e.lhs)
-        rhs = simplify_cir(e.rhs)
-
-        if isinstance(lhs, CIR.Const) and isinstance(rhs, CIR.Const):
-            return CIR.Const(operations[e.op](lhs.val, rhs.val))
-
-        if isinstance(lhs, CIR.Const) and lhs.val == 0:
-            if e.op == "+":
-                return rhs
-            elif e.op == "*" or e.op == "/":
-                return CIR.Const(0)
-            elif e.op == "-":
-                pass  # cannot simplify
-            else:
-                assert False
-
-        if isinstance(rhs, CIR.Const) and rhs.val == 0:
-            if e.op == "+" or e.op == "-":
-                return lhs
-            elif e.op == "*":
-                return CIR.Const(0)
-            elif e.op == "/":
-                assert False, "division by zero??"
-            else:
-                assert False, "bad case"
-
-        if isinstance(lhs, CIR.Const) and lhs.val == 1 and e.op == "*":
-            return rhs
-
-        if isinstance(rhs, CIR.Const) and rhs.val == 1 and (e.op == "*" or e.op == "/"):
-            return lhs
-
-        return CIR.BinOp(e.op, lhs, rhs, e.is_non_neg)
-    elif isinstance(e, CIR.USub):
-        arg = simplify_cir(e.arg)
-        if isinstance(arg, CIR.USub):
-            return arg.arg
-        if isinstance(arg, CIR.Const):
-            return arg.update(val=-(arg.val))
-        return e.update(arg=arg)
-    elif isinstance(e, CIR.AddressOf):
-        return e.update(arg=simplify_cir(e.arg))
-    elif isinstance(e, CIR.Indexed):
-        return e.update(ptr=simplify_cir(e.ptr), idx=simplify_cir(e.idx))
-    elif isinstance(e, CIR.GetAttr):
-        return e.update(arg=simplify_cir(e.arg))
-    elif isinstance(e, CIR.Custom):
-        kwargs = {key: simplify_cir(value) for (key, value) in e.kwargs.items()}
-        return e.update(kwargs=kwargs)
-    else:
-        assert False, f"bad case: {type(e)}"
 
 
 class LoopIR_SubProcs(LoopIR_Do):
@@ -328,6 +270,31 @@ class WindowStruct:
     separate_dataptr: bool
     is_const: bool
     emit_definition: bool
+
+
+@dataclass(slots=True)
+class UtilInjectorImpl(UtilInjector):
+    tag: str
+    tagged_c_utils: List[Tuple[str, str]]  # (name, c_util)
+    tagged_c_includes: List[Tuple[str, str]]  # (name, header name)
+    tagged_cu_utils: List[Tuple[str, str]]  # (name, cu_util)
+    tagged_cu_includes: List[Tuple[str, str]]  # (name, header name)
+
+    def add_c_util(self, code):
+        """Add snippet of C code at global scope to appear before your code"""
+        self.tagged_c_utils.append(self.tag, code)
+
+    def add_c_include(self, header_name):
+        """Add header file to generated C code"""
+        self.tagged_c_includes.append(self.tag, header_name)
+
+    def add_cu_util(self, code):
+        """Add CUDA utility to appear before your code"""
+        self.tagged_cu_utils.append(self.tag, code)
+
+    def add_cu_include(self, header_name):
+        """Add header file to generated CUDA code"""
+        self.tagged_cu_includes.append(self.tag, header_name)
 
 
 # --------------------------------------------------------------------------- #
@@ -620,9 +587,9 @@ def _compile_externs(externs):
 
 
 def _compile_memwins(public_procs, private_procs):
+    """Return (header memwin set, header memwin code, C body memwin code)"""
     assert public_procs or not private_procs, "Only have private procs?"
 
-    """Return (header memwin set, header memwin code, C body memwin code)"""
     all_memwins = find_all_memwins(public_procs + private_procs)
 
     # Memories used as part of public proc args must be defined in public header
@@ -697,6 +664,7 @@ class Compiler:
         self.range_env = IndexRangeEnvironment(proc, fast=False)
         self.names = ChainMap()
         self.envtyp = dict()
+        self.window_features = dict()  # Sym -> WindowFeatures
         self.mems = dict()
         self._tab = ""
         self._lines = []
@@ -944,6 +912,9 @@ class Compiler:
         if isinstance(e, CIR.Read):
             return env[e.name]
 
+        elif isinstance(e, CIR.ReadSeparateDataptr):
+            return dataptr_name(env[e.name])
+
         elif isinstance(e, CIR.Const):
             return str(e.val)
 
@@ -982,19 +953,8 @@ class Compiler:
             arg = self.comp_cir(e.arg, op_prec["."])
             return f"{arg}.{e.attr}"
         elif isinstance(e, CIR.Custom):
-            if not e.kwargs:
-                text = e.format
-            else:
-                try:
-                    kwargs = {
-                        key: self.comp_cir(value, op_prec["~"])
-                        for key, value in e.kwargs.items()
-                    }
-                    text = e.format.format(**kwargs)
-                except Exception as e:
-                    raise ValueError(
-                        "Codegen failure associated with {e.srcinfo}"
-                    ) from e
+            str_args = [self.comp_cir(a) for a in e.args]
+            text = e.callback(*str_args)
             if prec > 0:
                 text = f"({text})"
             return text
@@ -1593,6 +1553,7 @@ class Compiler:
             assert False, "bad case"
 
     def unpack_window_expr(self, e: LoopIR.WindowExpr, src_memwin: type, is_const=None):
+        # TODO remove this stuff
         """(w_type, w_def, d_type, d_def, layout, separate_dataptr)
 
         w_type, w_def: C typename and initialization for window struct
@@ -1660,6 +1621,24 @@ class Compiler:
 
         return w_type, w_def, d_type, d_def, layout, separate_dataptr
 
+    def get_window_features(self, name: Sym):
+        if features := self.window_features.get(name):
+            assert isinstance(features, WindowFeatures)
+            return features
+
+        typ = self.envtyp[name]
+        mem = self.mems[name]
+
+        if typ.is_dense_tensor():
+            pass
+        elif typ.is_win():
+            pass
+        else:
+            assert 0
+
+        self.window_features[name] = features
+        return features
+
     def _call_static_helper(self, helper, *args):
         self._needed_helpers.add(helper)
         return f'{helper}({", ".join(map(str, args))})'
@@ -1684,7 +1663,9 @@ def dataptr_name(wname):
 # where content is a header name or a cu_util blob.
 # We remove exact duplicate strings.
 def make_utility_lines(
-    is_includes: bool, namespace: Optional[str], tagged_content: List[Tuple[str, str]]
+    is_includes: bool,
+    cu_namespace: Optional[str],
+    tagged_content: List[Tuple[str, str]],
 ) -> List[str]:
     combined: [List[str], str] = []  # ([required_by], content)
     index_dict = {}
@@ -1705,9 +1686,10 @@ def make_utility_lines(
         combined.sort(key=lambda tup: tup[1])
     else:
         # Begin namespace
-        if namespace:
+        if cu_namespace:
             lines.append("")
-            lines.append(f"namespace {namespace} {{")
+            lines.append(f"namespace {cu_namespace} {{")
+            lines.append(f"namespace exo_CudaUtil = ::{cu_namespace};")
 
     for tags, content in combined:
         for tag in tags:
@@ -1721,8 +1703,8 @@ def make_utility_lines(
                 else:
                     lines.append(line)
 
-    if namespace:
-        lines.append("}  // end namespace")
+    if cu_namespace:
+        lines.append(f"}}  // end namespace {cu_namespace}")
 
     return lines
 

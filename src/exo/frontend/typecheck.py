@@ -6,6 +6,7 @@ from ..core.LoopIR import (
     get_writeconfigs,
     get_loop_iters,
     create_window_type,
+    loopir_from_uast_type_table,
 )
 from ..core.extern import Extern_Typecheck_Error
 from ..core.memory import *
@@ -94,6 +95,8 @@ def check_call_types(err_handler, args, call_args):
 
 
 class TypeChecker:
+    _typ_table = loopir_from_uast_type_table
+
     def __init__(self, proc):
         self.uast_proc = proc
         self.env = dict()
@@ -685,22 +688,6 @@ class TypeChecker:
             return LoopIR.ReadConfig(e.config, e.field, ftyp, e.srcinfo)
         else:
             assert False, "not a LoopIR in check_e"
-
-    _typ_table = {
-        UAST.Num: T.R,
-        UAST.F16: T.f16,
-        UAST.F32: T.f32,
-        UAST.F64: T.f64,
-        UAST.INT8: T.int8,
-        UAST.UINT8: T.uint8,
-        UAST.UINT16: T.uint16,
-        UAST.INT32: T.int32,
-        UAST.Bool: T.bool,
-        UAST.Int: T.int,
-        UAST.Size: T.size,
-        UAST.Index: T.index,
-        UAST.Stride: T.stride,
-    }
 
     def check_t(self, typ):
         def check_hi():

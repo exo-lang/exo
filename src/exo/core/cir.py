@@ -1,4 +1,4 @@
-from .prelude import Sym, SrcInfo, Operator, extclass
+from .prelude import Sym, Operator, extclass
 
 from asdl_adt import ADT, validators
 from dataclasses import dataclass
@@ -19,16 +19,14 @@ module CIR {
             | AddressOf(expr arg )
             | Indexed ( expr ptr, expr idx )  -- ptr[idx]
             | GetAttr ( expr arg, str attr ) -- arg.attr
-            -- format.format(**kwargs) if kwargs else format
-            | Custom  ( str format, dict kwargs, srcinfo srcinfo )
+            | ReadSeparateDataptr ( sym name )
+            | Custom  ( object callback, expr* args )  -- callback(str(args)...) -> str
 } """,
     ext_types={
         "bool": bool,
         "sym": Sym,
         "op": validators.instance_of(Operator, convert=True),
         "str": str,
-        "dict": dict,
-        "srcinfo": SrcInfo,
     },
 )
 
@@ -36,6 +34,73 @@ module CIR {
 @extclass(CIR.expr)
 def exo_get_cir(self):
     return self
+
+
+_operations = {
+    "+": lambda x, y: x + y,
+    "-": lambda x, y: x - y,
+    "*": lambda x, y: x * y,
+    "/": lambda x, y: x / y,
+    "%": lambda x, y: x % y,
+}
+
+
+def simplify_cir(e):
+    if isinstance(e, (CIR.Read, CIR.Const)):
+        return e
+
+    elif isinstance(e, CIR.BinOp):
+        lhs = simplify_cir(e.lhs)
+        rhs = simplify_cir(e.rhs)
+
+        if isinstance(lhs, CIR.Const) and isinstance(rhs, CIR.Const):
+            return CIR.Const(_operations[e.op](lhs.val, rhs.val))
+
+        if isinstance(lhs, CIR.Const) and lhs.val == 0:
+            if e.op == "+":
+                return rhs
+            elif e.op == "*" or e.op == "/":
+                return CIR.Const(0)
+            elif e.op == "-":
+                pass  # cannot simplify
+            else:
+                assert False
+
+        if isinstance(rhs, CIR.Const) and rhs.val == 0:
+            if e.op == "+" or e.op == "-":
+                return lhs
+            elif e.op == "*":
+                return CIR.Const(0)
+            elif e.op == "/":
+                assert False, "division by zero??"
+            else:
+                assert False, "bad case"
+
+        if isinstance(lhs, CIR.Const) and lhs.val == 1 and e.op == "*":
+            return rhs
+
+        if isinstance(rhs, CIR.Const) and rhs.val == 1 and (e.op == "*" or e.op == "/"):
+            return lhs
+
+        return CIR.BinOp(e.op, lhs, rhs, e.is_non_neg)
+    elif isinstance(e, CIR.USub):
+        arg = simplify_cir(e.arg)
+        if isinstance(arg, CIR.USub):
+            return arg.arg
+        if isinstance(arg, CIR.Const):
+            return arg.update(val=-(arg.val))
+        return e.update(arg=arg)
+    elif isinstance(e, CIR.AddressOf):
+        return e.update(arg=simplify_cir(e.arg))
+    elif isinstance(e, CIR.Indexed):
+        return e.update(ptr=simplify_cir(e.ptr), idx=simplify_cir(e.idx))
+    elif isinstance(e, CIR.GetAttr):
+        return e.update(arg=simplify_cir(e.arg))
+    elif isinstance(e, CIR.Custom):
+        args = [simplify_cir(value) for value in e.args]
+        return e.update(args=args)
+    else:
+        assert False, f"bad case: {type(e)}"
 
 
 @dataclass(slots=True)
@@ -56,7 +121,7 @@ class CIR_Wrapper:
         return f"CIR_Wrapper({self._ir}, {self._compiler}, {self._origin_story})"
 
     def __str__(self):
-        return self._compiler.comp_cir(self._ir, 0)
+        return self._compiler.comp_cir(simplify_cir(self._ir), 0)
 
     def __getattr__(self, attr):
         assert not attr.startswith(
