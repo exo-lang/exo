@@ -1,10 +1,11 @@
 """Codegen utilites for windows"""
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional, Tuple, Type
 
 from .cir import CIR, CIR_Wrapper
-from .LoopIR import uast_prim_types, loopir_from_uast_type_table
+from . import LoopIR
+from .prelude import SrcInfo
 
 
 class UtilInjector:
@@ -31,8 +32,9 @@ class UtilInjector:
 class WindowFeatures:
     """Container holding C syntax describing "features" of a window"""
 
-    _memwin_name: str
+    _mem: Type["MemWin"]
     _scalars_per_packed_tensor: int
+    _raw_name: str
     _dataptr: CIR_Wrapper
     _array_strides_as_packed: Tuple[CIR_Wrapper]  # empty if strides not supported
     _array_offsets: Tuple[CIR_Wrapper]
@@ -42,9 +44,19 @@ class WindowFeatures:
     _encoder: Optional["WindowEncoder"]
     _indexer: Optional["WindowIndexer"]
 
+    # For use by FallbackWindowEncoder, FallbackWindowIndexer only
+    _legacy_basetyp: object  # LoopIR type
+    _legacy_srcinfo: SrcInfo
+
+    def get_mem(self) -> Type["MemWin"]:
+        return self._mem
+
     def get_memwin_name(self) -> str:
         """Name of the MemWin type of the source tensor/window"""
-        return self._memwin_name
+        return self._mem.name()
+
+    def get_raw_name(self) -> str:
+        return self._raw_name
 
     def get_dataptr(self) -> CIR_Wrapper:
         """C syntax for data pointer of the window"""
@@ -164,32 +176,39 @@ class WindowFeatures:
 
 @dataclass(slots=True)
 class WindowEncoderArgs:
+    mem: type
     type_shorthand: str  # Exo name for scalar type, e.g. f64, i32
     n_dims: int  # Number of dimensions
     const: bool
+    base_memwin_name: str
+    memwin_template_parameters: tuple
 
 
 @dataclass(slots=True)
 class WindowEncoder:
     # Filled by __init__ (if you don't override it)
+    mem: type
     type_shorthand: str
     ctype: str
     n_dims: int
     const: bool
-
-    # Injected implicitly
     _exo_base_memwin_name: str
     _exo_memwin_template_parameters: Tuple[int]
 
     def __init__(self, args: WindowEncoderArgs):
+        assert isinstance(args.type_shorthand, str)
+        assert isinstance(args.n_dims, int)
+        self.mem = mem
         self.type_shorthand = args.type_shorthand
-        self.ctype = loopir_from_uast_type_table[
-            uast_prim_types[args.type_shorthand]
+        self.ctype = LoopIR.loopir_from_uast_type_table[
+            LoopIR.uast_prim_types[args.type_shorthand]
         ].ctype()
         self.n_dims = args.n_dims
         self.const = args.const
+        self._exo_base_mimwin_name = args.base_memwin_name
+        self._exo_memwin_template_parameters = args.memwin_template_parameters
 
-    def exo_struct_ctype(self) -> str:
+    def exo_struct_name(self) -> str:
         """Dictates the C name you use for the window struct. DON'T override this"""
         memwin_name = self._exo_base_minwin_name
         mangle_parameters = self._exo_memwin_template_parameters
@@ -202,7 +221,7 @@ class WindowEncoder:
                     memwin_name += f"_{p}"
                 else:
                     memwin_name += f"_n{-p}"
-        if memwin_name == "DRAM":
+        if not memwin_name:
             mem_suffix = ""
         else:
             mem_suffix = "_" + memwin_name
@@ -219,7 +238,7 @@ class WindowEncoder:
         """Override this to return a str to opt-in to separate dataptr mode.
 
         In this mode, window structs are given as a pair of C objects
-        {exo_struct_ctype()} {varname};
+        {exo_struct_name()} {varname};
         {separate_dataptr_ctype()} exo_data_{varname};
 
         If the dataptr is separate, the struct name will be the same
@@ -260,9 +279,19 @@ class WindowEncoder:
         """
         raise NotImplementedError()
 
+    def encode_separate_dataptr(
+        self, utils: UtilInjector, features: WindowFeatures
+    ) -> str | CIR_Wrapper:
+        """Return C expression (str or CIR_Wrapper) giving the dataptr.
+
+        This is only used if a separate dataptr type is defined.
+
+        """
+        return features.get_dataptr()
+
     def decode_array_offset(
         self, utils: UtilInjector, window: CIR_Wrapper, n: int
-    ) -> CIR_Wrapper:
+    ) -> int | CIR_Wrapper:
         """Return the i-th array offset with respect to the dataptr.
 
         If you adjusted the dataptr to already point to the [0, 0, ...0]-th
@@ -273,7 +302,7 @@ class WindowEncoder:
 
     def decode_array_stride_as_packed(
         self, utils: UtilInjector, window: CIR_Wrapper, n: int
-    ) -> CIR_Wrapper:
+    ) -> int | CIR_Wrapper:
         """Optional: return the stride on the i-th array dimension.
 
         This is given in units of number of packed tensors.
@@ -300,7 +329,7 @@ class WindowIndexerArgs:
     type_shorthand: str  # Exo name for scalar type, e.g. f64, i32
     n_dims: int  # Number of dimensions
     const: bool
-    exo_struct_ctype: Optional[str]
+    exo_struct_name: Optional[str]
 
 
 @dataclass(slots=True)
@@ -320,21 +349,21 @@ class WindowIndexer:
     ctype: str
     n_dims: int
     const: bool
-    _exo_struct_ctype: Optional[str]
+    _exo_struct_name: Optional[str]
 
     def __init__(self, args: WindowIndexerArgs):
         self.type_shorthand = args.type_shorthand
-        self.ctype = loopir_from_uast_type_table[
-            uast_prim_types[args.type_shorthand]
+        self.ctype = LoopIR.loopir_from_uast_type_table[
+            LoopIR.uast_prim_types[args.type_shorthand]
         ].ctype()
         self.n_dims = args.n_dims
         self.const = args.const
-        self._exo_struct_ctype = args.exo_struct_ctype
+        self._exo_struct_name = args.exo_struct_name
 
-    def exo_struct_ctype(self):
+    def exo_struct_name(self):
         """Give the name of the window struct as defined by the WindowEncoder"""
-        assert self._exo_struct_ctype
-        return self._exo_struct_ctype
+        assert self._exo_struct_name
+        return self._exo_struct_name
 
     def array_dim_support(self) -> WindowIndexerSupport:
         """The WindowIndexer only supports encoding window expressions
@@ -358,7 +387,7 @@ class WindowIndexer:
           if WindowIndexerSupport.points_before_intervals
 
         """
-        return WindowIndexerSupport.intervals_only
+        raise NotImplementedError()
 
     def index(
         self, utils: UtilInjector, features: WindowFeatures
@@ -380,3 +409,81 @@ class WindowIndexer:
         """
 
         raise NotImplementedError()
+
+
+_default_struct_template = """\
+struct {sname} {{
+    {const_keyword}{ctype} * const data;
+    const int_fast32_t strides[{n_dims}];
+}};"""
+
+
+class FallbackWindowEncoder(WindowEncoder):
+    __slots__ = []
+
+    def define_struct(self, depends_on: list) -> str:
+        sname = self.exo_struct_name()
+        const_keyword = "const " if self.const else ""
+        return _default_struct_template.format(
+            sname=sname,
+            ctype=self.ctype,
+            n_dims=self.n_dims,
+            const_keyword=const_keyword,
+        )
+
+    def supports_dim_change(self) -> bool:
+        return True
+
+    def encode_window(self, utils: UtilInjector, features: WindowFeatures) -> str:
+        assert (
+            features.n_packed_dims() == 0
+        ), "Implement your own @window_encoder if you have packed dimensions"
+        sname = self.exo_struct_name()
+        mem = features.get_mem()
+        n_dims = features.n_array_dims()
+
+        indices_strs = [features.get_array_offset(i) for i in range(n_dims)]
+        strides_strs = [features.get_array_stride_as_packed(i) for i in range(n_dims)]
+        strides = "{" + ", ".join(strides_strs) + "}"
+        dataptr = mem.window(
+            features._legacy_basetyp,
+            features.raw_name(),
+            indices_strs,
+            strides_strs,
+            features._legacy_srcinfo,
+        )
+
+        return f"(struct {sname}) {{ {dataptr}, {strides} }}"
+
+    def decode_array_offset(
+        self, utils: UtilInjector, window: CIR_Wrapper, n: int
+    ) -> int:
+        return 0
+
+    def decode_array_stride_as_packed(
+        self, utils: UtilInjector, window: CIR_Wrapper, n: int
+    ) -> CIR_Wrapper:
+        return window.strides[n]
+
+
+class FallbackWindowIndexer(WindowIndexer):
+    def index(
+        self, utils: UtilInjector, features: WindowFeatures
+    ) -> WindowIndexerResult:
+        assert (
+            features.n_packed_dims() == 0
+        ), "Implement your own @window_indexer if you have packed dimensions"
+        mem = features.get_mem()
+        n_dims = features.n_array_dims()
+
+        indices_strs = [features.get_array_offset(i) for i in range(n_dims)]
+        strides_strs = [features.get_array_stride_as_packed(i) for i in range(n_dims)]
+        code = mem.window(
+            features._legacy_basetyp,
+            features.raw_name(),
+            indices_strs,
+            strides_strs,
+            features._legacy_srcinfo,
+        )
+
+        return WindowIndexerResult(code, False)

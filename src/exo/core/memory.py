@@ -22,6 +22,13 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional, Set, Type
 from ..spork.timelines import cpu_in_order_instr, cpu_usage, Instr_tl, Usage_tl
+from .c_window import (
+    WindowEncoder,
+    WindowEncoderArgs,
+    WindowIndexer,
+    FallbackWindowEncoder,
+    FallbackWindowIndexer,
+)
 
 """
 --- Alloc specifications ---
@@ -60,6 +67,7 @@ from ..spork.timelines import cpu_in_order_instr, cpu_usage, Instr_tl, Usage_tl
 
 
 _memwin_template_names = {}
+_memwin_template_base_names = {}
 _memwin_template_cache = {}
 
 
@@ -92,8 +100,8 @@ class MemGlobalC:
     The code goes into the header file only if it's required by some
     MemWin type that's part of a public proc's interface.
 
-    For two MemGlobalC instances a and b, Exo requires that
-    (a.name == b.name) iff (a.code == b.code).
+    For two MemGlobalC instances a and b with a.code, b.code both not empty,
+    Exo requires that (a.name == b.name) iff (a.code == b.code)
 
     Any code in the self.depends_on list will get injected before self.code.
 
@@ -124,6 +132,7 @@ class MemGlobalC:
         return "EXO_MEM_GLOBAL_" + self.name
 
 
+# TODO remove vector_size
 def generate_offset(indices, strides, vector_size=1):
     assert isinstance(vector_size, int), "generalize this if needed"
     assert vector_size >= 1
@@ -151,6 +160,7 @@ def generate_offset(indices, strides, vector_size=1):
     return expr
 
 
+# TODO remove entirely
 class WindowStructCtx(object):
     __slots__ = [
         "_ctype",
@@ -240,17 +250,34 @@ class WindowStructCtx(object):
 class MemWin(ABC):
     """Common base class of allocable Memory and non-allocable SpecialWindow"""
 
+    # Injected by @window_encoder, @window_indexer
+    # The fallbacks are only used if the user never specifes a custom encoder/indexer
+    _exo_window_encoder_type: Optional[Type[WindowEncoder]] = FallbackWindowEncoder
+    _exo_window_encoder_origin_memwin: Optional[Type[MemWin]] = None
+    _exo_window_indexer_type: Optional[Type[WindowIndexer]] = FallbackWindowIndexer
+    _exo_window_indexer_origin_memwin: Optional[Type[MemWin]] = None
+
+    # Injected by @memwin_template
+    memwin_template_parameters: tuple = ()
+
     @classmethod
     def name(cls):
         return _memwin_template_names.get(cls) or cls.__name__
 
     @classmethod
-    def global_(cls):
+    def base_name(cls):
+        """Name without template parameters"""
+        return _memwin_template_base_names.get(cls) or cls.__name__
+
+    # TODO support MemGlobalC
+    @classmethod
+    def global_(cls) -> str | MemGlobalC:
         """
         C code
         """
         return ""
 
+    # TODO remove
     @classmethod
     @abstractmethod
     def window_definition(cls, ctx: WindowStructCtx):
@@ -267,6 +294,7 @@ class MemWin(ABC):
         """
         raise NotImplementedError()
 
+    # TODO remove
     @classmethod
     def separate_dataptr(cls):
         """separate_dataptr: return False for the usual case.
@@ -281,6 +309,7 @@ class MemWin(ABC):
         """
         return False
 
+    # TODO go back to Exo 1 features only
     @classmethod
     def window(cls, basetyp, in_expr, indices, strides, srcinfo) -> str:
         """
@@ -317,6 +346,7 @@ class MemWin(ABC):
         """
         return cls.default_window(1, basetyp, in_expr, indices, strides, srcinfo)
 
+    # TODO remove
     @classmethod
     def default_window(cls, vector_size, basetyp, in_expr, indices, strides, srcinfo):
         """Helper for simple window(...) implementations. Don't override this"""
@@ -370,6 +400,7 @@ class MemWin(ABC):
         ), f"{cls} needs to implement default_usage_tl(instr_tl={instr_tl})"
         return cpu_usage
 
+    # TODO remove?
     @classmethod
     def as_const_shape(cls, new_name, shape, srcinfo, *, min_dim=0, max_dim=None):
         if len(shape) < min_dim:
@@ -392,6 +423,43 @@ class MemWin(ABC):
 
         return tuple(to_int(extent) for extent in shape)
 
+    @classmethod
+    def has_window_encoder(cls):
+        """Do not override"""
+        return cls._exo_window_encoder_type is not None
+
+    @classmethod
+    def make_window_encoder(cls, type_shorthand, n_dims, const):
+        """Do not override"""
+        args = WindowEncoderArgs(
+            cls,
+            str(type_shorthand),
+            n_dims,
+            const,
+            cls._exo_window_encoder_origin_memwin.base_name(),
+            cls.memwin_template_parameters,
+        )
+        return cls._exo_window_encoder_type(args)
+
+    @classmethod
+    def window_struct_name(cls, type_shorthand, n_dims, const):
+        """Do not override"""
+        return cls.make_window_encoder(type_shorthand, n_dims, const).exo_struct_name()
+
+    @classmethod
+    def has_window_indexer(cls):
+        """Do not override"""
+        return cls._exo_window_indexer_type is not None
+
+    @classmethod
+    def make_window_indexer(cls, type_shorthand, n_dims, const):
+        """Do not override"""
+        sname = None
+        if cls.has_window_encoder():
+            sname = cls.window_struct_name(type_shorthand, n_dims, const)
+        args = WindowIndexerArgs(str(type_shorthand), n_dims, const, sname)
+        return cls._exo_window_indexer_type(args)
+
 
 class AllocableMemWin(MemWin):
     pass
@@ -413,6 +481,7 @@ class Memory(AllocableMemWin):
     def free(cls, new_name, prim_type, shape, srcinfo):
         raise NotImplementedError()
 
+    # TODO remove
     @classmethod
     def window_definition(cls, ctx: WindowStructCtx):
         """This is not correct for non-scalar cases but we provide this
@@ -472,6 +541,7 @@ class BarrierType(AllocableMemWin):
     def free(cls, new_name, prim_type, shape, srcinfo):
         return ""
 
+    # TODO remove
     @classmethod
     def window_definition(cls, ctx):
         assert False, "Internal Exo error: window of barrier?"
@@ -481,6 +551,7 @@ class BarrierType(AllocableMemWin):
         raise NotImplementedError()
 
 
+# TODO remove
 class SpecialWindowFromMemoryCtx(object):
     # TODO since we only give access to runtime window struct,
     # it's currently not possible to compile-time assert stride info.
@@ -569,12 +640,18 @@ class SpecialWindowFromMemoryCtx(object):
 
 
 class SpecialWindow(MemWin):
+    _exo_window_encoder_type: Optional[Type[WindowEncoder]] = None
+    _exo_special_window_encoder_type: Optional[Type[WindowEncoder]] = None
+    _exo_window_indexer_type: Optional[Type[WindowIndexer]] = None
+    _exo_special_window_encoder_origin_memwin: Optional[Type[MemWin]] = None
+
     @classmethod
     @abstractmethod
     def source_memory_type(cls) -> type:
         """Return memory type expected as input to window statement"""
         raise NotImplementedError()
 
+    # TODO remove
     @classmethod
     @abstractmethod
     def from_memory(cls, ctx: SpecialWindowFromMemoryCtx):
@@ -607,6 +684,8 @@ def memwin_template(class_factory):
 
     @memwin_template
     def MyMemoryName(*parameters):
+        @window_encoder(...)  # optional
+        @window_indexer(...)  # optional
         class MemoryImpl(Memory):  # class name is ignored
             ...implement memory normally
         return MemoryImpl
@@ -621,10 +700,72 @@ def memwin_template(class_factory):
             cls_name = f"{class_factory.__name__}{parameters}"
             _memwin_template_cache[cache_key] = cls
             _memwin_template_names[cls] = cls_name
+            _memwin_template_base_names[cls] = class_factory.__name__
             cls.memwin_template_parameters = parameters
         return cls
 
     return class_factory_wrapper
+
+
+# ----------- WINDOW ENCODER, INDEXER DECORATORS -------------
+
+
+def window_encoder(encoder_cls):
+    """MemWin class decorator, add WindowEncoder
+
+    For SpecialWindows, this encoder is used to convert from one
+    SpecialWindow to another. See also special_window_encoder.
+
+    """
+    assert issubclass(encoder_cls, WindowEncoder) or encoder_cls is None
+    assert not issubclass(
+        encoder_cls, FallbackWindowEncoder
+    ), "you are not allowed to use this explicitly"
+
+    def add_encoder(mem_cls):
+        assert issubclass(mem_cls, MemWin)
+        mem_cls._exo_window_encoder_type = encoder_cls
+        mem_cls._exo_window_encoder_origin_memwin = mem_cls
+        if mem_cls._exo_window_indexer_type is FallbackWindowIndexer:
+            mem_cls._exo_window_indexer_type = None
+
+    return add_encoder
+
+
+def window_indexer(indexer_cls):
+    """MemWin class decorator, add WindowIndexer"""
+    assert issubclass(indexer_cls, WindowIndexer) or indexer_cls is None
+    assert not issubclass(
+        indexer_cls, FallbackWindowIndexer
+    ), "you are not allowed to use this explicitly"
+
+    def add_indexer(mem_cls):
+        assert issubclass(mem_cls, MemWin)
+        mem_cls._exo_window_indexer_type = indexer_cls
+        mem_cls._exo_window_indexer_origin_memwin = mem_cls
+        if mem_cls._exo_window_encoder_type is FallbackWindowEncoder:
+            mem_cls._exo_window_encoder_type = None
+
+    return add_indexer
+
+
+def special_window_encoder(encoder_cls):
+    """SpecialWindow decorator; Memory -> SpecialWindow encoder
+
+    Add a WindowEncoder that is used to convert from windows in Memory
+    to a special window.
+
+    """
+    assert issubclass(encoder_cls, WindowEncoder) or encoder_cls is None
+    assert not issubclass(
+        encoder_cls, FallbackWindowEncoder
+    ), "you are not allowed to use this explicitly"
+
+    def add_encoder(mem_cls):
+        mem_cls._exo_special_window_encoder_type = encoder_cls
+        mem_cls._exo_special_window_encoder_origin_memwin = mem_cls
+
+    return add_encoder
 
 
 # ----------- DRAM on LINUX ----------------
