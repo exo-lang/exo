@@ -26,6 +26,7 @@ from .c_window import (
     WindowEncoder,
     WindowEncoderArgs,
     WindowIndexer,
+    WindowIndexerArgs,
     FallbackWindowEncoder,
     FallbackWindowIndexer,
 )
@@ -400,6 +401,15 @@ class MemWin(ABC):
         ), f"{cls} needs to implement default_usage_tl(instr_tl={instr_tl})"
         return cpu_usage
 
+    @classmethod
+    def n_packed_dims(cls) -> int:
+        return 0
+
+    @classmethod
+    def check_packed_tensor_size(cls, type_shorthand: str, shape: List[int]):
+        if shape:
+            raise NotImplementedError()
+
     # TODO remove?
     @classmethod
     def as_const_shape(cls, new_name, shape, srcinfo, *, min_dim=0, max_dim=None):
@@ -431,12 +441,13 @@ class MemWin(ABC):
     @classmethod
     def make_window_encoder(cls, type_shorthand, n_dims, const):
         """Do not override"""
+        origin_memwin = cls._exo_window_encoder_origin_memwin
         args = WindowEncoderArgs(
             cls,
             str(type_shorthand),
             n_dims,
             const,
-            cls._exo_window_encoder_origin_memwin.base_name(),
+            "" if not origin_memwin else origin_memwin.base_name(),
             cls.memwin_template_parameters,
         )
         return cls._exo_window_encoder_type(args)
@@ -671,7 +682,7 @@ class SpecialWindow(MemWin):
 # ----------- TEMPLATE SYSTEM -------------
 
 
-def memwin_template(class_factory):
+def memwin_template(class_factory, *, hide_parameters=False):
     """Wrapper for creating MemWin types parameterized on a tuple of args.
 
     The name of the generated class will look like a function call
@@ -701,7 +712,8 @@ def memwin_template(class_factory):
             _memwin_template_cache[cache_key] = cls
             _memwin_template_names[cls] = cls_name
             _memwin_template_base_names[cls] = class_factory.__name__
-            cls.memwin_template_parameters = parameters
+            if not hide_parameters:
+                cls.memwin_template_parameters = parameters
         return cls
 
     return class_factory_wrapper

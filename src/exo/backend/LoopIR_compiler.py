@@ -5,6 +5,7 @@ import warnings
 from collections import ChainMap
 from collections import defaultdict
 from dataclasses import dataclass
+from math import prod
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict
 
@@ -272,13 +273,22 @@ class WindowStruct:
     emit_definition: bool
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, frozen=True)
 class UtilInjectorImpl(UtilInjector):
     tag: str
     tagged_c_utils: List[Tuple[str, str]]  # (name, c_util)
     tagged_c_includes: List[Tuple[str, str]]  # (name, header name)
     tagged_cu_utils: List[Tuple[str, str]]  # (name, cu_util)
     tagged_cu_includes: List[Tuple[str, str]]  # (name, header name)
+
+    def with_tag(self, new_tag):
+        return UtilInjectorImpl(
+            new_tag,
+            self.tagged_c_utils,
+            self.tagged_c_includes,
+            self.tagged_cu_utils,
+            self.tagged_cu_includes,
+        )
 
     def add_c_util(self, code):
         """Add snippet of C code at global scope to appear before your code"""
@@ -408,6 +418,9 @@ def ext_compile_to_strings(lib_name, proc_list):
     tagged_c_includes: List[Tuple[str, str]] = []  # (name, cu_util)
     tagged_cu_utils: List[Tuple[str, str]] = []  # (name, cu_util)
     tagged_cu_includes: List[Tuple[str, str]] = []  # (name, header name)
+    util_injector = UtilInjectorImpl(
+        "", tagged_c_utils, tagged_c_includes, tagged_cu_utils, tagged_cu_includes
+    )
     analyzed_public_procs = []
     analyzed_private_procs = []
     ext_lines = {}
@@ -476,6 +489,7 @@ def ext_compile_to_strings(lib_name, proc_list):
                 window_struct_cache,
                 barrier_uses,
                 proc_uses_cuda,
+                util_injector,
                 is_public_decl=is_public_decl,
             )
             d, b = comp.comp_top()
@@ -650,6 +664,7 @@ class Compiler:
         window_struct_cache,
         barrier_uses,
         used_cuda,
+        util_injector,
         *,
         is_public_decl,
     ):
@@ -664,7 +679,7 @@ class Compiler:
         self.range_env = IndexRangeEnvironment(proc, fast=False)
         self.names = ChainMap()
         self.envtyp = dict()
-        self.window_features = dict()  # Sym -> WindowFeatures
+        self.env_window_features = dict()  # Sym -> WindowFeatures
         self.mems = dict()
         self._tab = ""
         self._lines = []
@@ -676,6 +691,7 @@ class Compiler:
         self._known_strides = {}
         self._in_cuda_function = False
         self._cuda_kernel_count = 0
+        self._util_injector = util_injector
 
         # Additional lines for each file extension
         # Since Exo was originally written for only .c and .h files,
@@ -689,7 +705,7 @@ class Compiler:
         typ_comments = []
 
         # reserve the first "ctxt" argument
-        self.new_varname(Sym("ctxt"), None)
+        self.new_varname(proc, Sym("ctxt"), None)
         arg_strs.append(f"{ctxt_name} *ctxt")
 
         # See self.is_const
@@ -698,7 +714,7 @@ class Compiler:
 
         for a in proc.args:
             mem = a.mem if a.type.is_numeric() else None
-            name_arg = self.new_varname(a.name, typ=a.type, mem=mem)
+            name_arg = self.new_varname(a, a.name, typ=a.type, mem=mem)
             if a.type.is_real_scalar():
                 self._scalar_refs.add(a.name)
             self.append_fnarg_decl(a, name_arg, arg_strs, typ_comments)
@@ -854,7 +870,7 @@ class Compiler:
     def used_cuda(self):
         return self._used_cuda
 
-    def new_varname(self, symbol, typ, mem=None):
+    def new_varname(self, node, symbol, typ, mem=None):
         strnm = str(symbol)
 
         # Reserve "exo_" prefix for internal use.
@@ -878,12 +894,21 @@ class Compiler:
 
         self.names[strnm] = strnm
         self.env[symbol] = strnm
+
+        # Record LoopIR type
         self.envtyp[symbol] = typ
+
+        # Record MemWin type
         if mem is not None:
             assert issubclass(mem, MemWin)
-            self.mems[symbol] = mem
         else:
-            self.mems[symbol] = DRAM
+            mem = DRAM
+        self.mems[symbol] = mem
+
+        # Decompose into window features
+        if typ and typ.is_tensor_or_window():
+            self.init_window_features(node, symbol, strnm, typ, mem)
+
         return strnm
 
     def push(self, only=None):
@@ -1028,6 +1053,7 @@ class Compiler:
 
         return acc
 
+    # TODO remove
     def get_window_struct(self, node, mem, is_const=None, emit_definition=True):
         typ = node.type
         assert isinstance(typ, T.Window) or (
@@ -1048,6 +1074,153 @@ class Compiler:
         return self.window_struct_cache.get(
             mem, base, n_dims, is_const, node.srcinfo, emit_definition
         )
+
+    def init_window_features(self, node, symbol, strnm, typ, mem):
+        srcinfo = node.srcinfo
+        basetype_name = str(typ.basetype())
+        const = self.is_const(symbol)
+        utils = self._util_injector.with_tag(mem.name())
+
+        def kvetch(message):
+            raise MemGenError(f"{srcinfo}: {typ} @ {mem.name()} is invalid: {message}")
+
+        def wrap_cir(obj, attr, idx):
+            if isinstance(obj, int):
+                obj = CIR.Const(obj)
+            else:
+                obj = obj.exo_get_cir()
+            return CIR_Wrapper(obj, self, f"{symbol} {attr}[{idx}]")
+
+        # Analyze packed tensor size
+        shape = typ.shape()
+        n_dims = len(shape)
+        n_packed_dims = mem.n_packed_dims()
+        n_array_dims = n_dims - n_packed_dims
+        if n_array_dims < 0:
+            kvetch(f"must be at least {n_packed_dims}-dimensional (for packed tensors)")
+
+        cir_array_interval_sizes = [
+            simplify_cir(lift_to_cir(e, self.range_env)) for e in shape[:n_array_dims]
+        ]
+        cir_packed_interval_sizes = [
+            simplify_cir(lift_to_cir(e, self.range_env)) for e in shape[n_array_dims:]
+        ]
+
+        packed_const_shape: List[int] = []
+        for c in cir_packed_interval_sizes:
+            if isinstance(c, CIR.Const):
+                packed_const_shape.append(c.val)
+            else:
+                actual = [str(c) for c in cir_packed_interval_sizes]
+                kvetch(f"Required constant packed tensor size, not {actual}")
+        try:
+            mem.check_packed_tensor_size(basetype_name, packed_const_shape)
+        except Exception as e:
+            kvetch(f"{packed_const_shape} packed tensor size not supported: {e}")
+        scalars_per_packed_tensor = prod(packed_const_shape)
+
+        # Get encoder and indexer if possible. Analyze stride support
+        cw_sym = CIR_Wrapper(CIR.Read(symbol, False), self, strnm)
+        encoder, indexer = None, None
+        if mem.has_window_encoder():
+            encoder = mem.make_window_encoder(basetype_name, n_dims, const)
+        if mem.has_window_indexer():
+            indexer = mem.make_window_indexer(basetype_name, n_dims, const)
+        supports_strides = True
+        if n_array_dims > 0 and encoder:
+            try:
+                encoder.decode_array_stride_as_packed(utils, cw_sym, 0)
+            except NotImplementedError:
+                supports_strides = False
+
+        # Handle differences between unpacking window structs (MemWin-customized)
+        # vs allocated tensors (built in logic).
+        cw_array_strides = []
+        cw_array_offsets = []
+        if typ.is_win():
+            # Unpack dataptr, array offsets, maybe strides, from window
+            if encoder is None:
+                kvetch(
+                    "cannot create a window when the MemWin type defines no WindowEncoder"
+                )
+            if encoder.separate_dataptr_ctype():
+                cw_dataptr = CIR_Wrapper(CIR.ReadSeparateDataptr(symbol), self, strnm)
+            else:
+                cw_dataptr = cw_sym.data
+            for n in range(n_array_dims):
+                offset = encoder.decode_array_offset(utils, cw_sym, n)
+                cw_array_offsets.append(wrap_cir(offset, "array_offsets", n))
+                if supports_strides:
+                    if stride := self._known_strides.get((symbol, n)):
+                        # Translate stride units from scalars to packed tensors
+                        stride = wrap_cir(stride, "array_strides_as_packed", n)
+                        cw_array_strides.append(stride / scalars_per_packed_tensor)
+                    else:
+                        stride = encoder.decode_array_stride_as_packed(utils, cw_sym, n)
+                        cw_array_strides.append(
+                            wrap_cir(stride, "array_strides_as_packed", n)
+                        )
+        else:
+            # dataptr = allocated tensor name
+            # array_offsets = all 0
+            # strides = defaults, if not disabled
+            assert isinstance(typ, LoopIR.Tensor)
+            cw_dataptr = cw_sym
+            for n in range(n_array_dims):
+                cw_array_offsets.append(wrap_cir(0, "array_offsets", n))
+                if supports_strides:
+                    stride = wrap_cir(1, "array_strides_as_packed", n)
+                    for i in range(n + 1, n_array_dims):
+                        stride *= cir_array_interval_sizes[i]
+                    cw_array_strides.append(stride)
+
+        # Make features object.
+        features = WindowFeatures()
+        features._mem = mem
+        features._scalars_per_packed_tensor = scalars_per_packed_tensor
+        features._raw_name = strnm
+        features._dataptr = cw_dataptr
+        features._array_strides_as_packed = cw_array_strides
+        features._array_offsets = cw_array_offsets
+        features._array_interval_sizes = [
+            wrap_cir(c, "array_interval_sizes", i)
+            for i, c in enumerate(cir_array_interval_sizes)
+        ]
+        features._packed_offsets = [
+            wrap_cir(0, "packed_offsets", i) for i in range(n_packed_dims)
+        ]
+        features._packed_interval_sizes = [
+            wrap_cir(c, "packed_interval_sizes", i)
+            for i, c in enumerate(cir_packed_interval_sizes)
+        ]
+        features._encoder = encoder
+        features._indexer = indexer
+        features._legacy_basetyp = typ
+        features._legacy_srcinfo = srcinfo
+        self.env_window_features[symbol] = features
+
+    def debug_comment_window_features(self, features: WindowFeatures):
+        self.add_line("/*")
+        self.add_line(f"mem = {features.get_mem().name()}")
+        self.add_line(
+            f"scalars_per_packed_tensor = {features._scalars_per_packed_tensor}"
+        )
+        self.add_line(f"raw_name = {features.get_raw_name()!r}")
+        self.add_line(f"dataptr = {features.get_dataptr()}")
+        for n in range(features.n_array_dims()):
+            offset = features.get_array_offset(n)
+            size = features.get_array_interval_size(n)
+            stride = None
+            if features._array_strides_as_packed:
+                stride = features.get_array_stride_as_packed(n)
+            self.add_line(f"array[{n}]: {offset}, {size}, {stride}")
+        for n in range(features.n_packed_dims()):
+            offset = features.get_packed_offset(n)
+            size = features.get_packed_interval_size(n)
+            self.add_line(f"packed[{n}]: {offset}, {size}")
+        self.add_line(f"encoder: {type(features._encoder).__name__}")
+        self.add_line(f"indexer: {type(features._indexer).__name__}")
+        self.add_line("*/")
 
     def comp_s(self, s):
         if isinstance(s, LoopIR.Pass):
@@ -1125,7 +1298,7 @@ class Compiler:
                 self.global_non_const.add(s.name)
 
             output_winmem = s.special_window or input_winmem
-            name = self.new_varname(s.name, typ=rhs.type, mem=output_winmem)
+            name = self.new_varname(s, s.name, typ=rhs.type, mem=output_winmem)
 
             if not s.special_window:
                 output_win_struct = input_win_struct
@@ -1171,6 +1344,8 @@ class Compiler:
                 self.add_line(
                     f"{output_win_struct.dataptr}{cref} {dataptr_name(name)} = {d_def};"
                 )
+            self.debug_comment_window_features(self.env_window_features[rhs.name])
+            self.debug_comment_window_features(self.env_window_features[s.name])
             self.add_line(f"struct {output_win_struct.name} {name} = {w_def};")
 
         elif is_if_holding_with(s, LoopIR):  # must be before .If case
@@ -1276,7 +1451,7 @@ class Compiler:
             lo = self.comp_e(s.lo)
             hi = self.comp_e(s.hi)
             self.push(only="env")
-            itr = self.new_varname(s.iter, typ=T.index)  # allocate a new string
+            itr = self.new_varname(s, s.iter, typ=T.index)  # allocate a new string
             sym_range = self.range_env.add_loop_iter(
                 s.iter,
                 s.lo,
@@ -1329,7 +1504,7 @@ class Compiler:
             self.add_line("}")
 
         elif isinstance(s, LoopIR.Alloc):
-            name = self.new_varname(s.name, typ=s.type, mem=s.mem)
+            name = self.new_varname(s, s.name, typ=s.type, mem=s.mem)
             if not s.type.is_barrier():
                 assert s.type.basetype().is_real_scalar()
                 assert s.type.basetype() != T.R
@@ -1620,24 +1795,6 @@ class Compiler:
                 )
 
         return w_type, w_def, d_type, d_def, layout, separate_dataptr
-
-    def get_window_features(self, name: Sym):
-        if features := self.window_features.get(name):
-            assert isinstance(features, WindowFeatures)
-            return features
-
-        typ = self.envtyp[name]
-        mem = self.mems[name]
-
-        if typ.is_dense_tensor():
-            pass
-        elif typ.is_win():
-            pass
-        else:
-            assert 0
-
-        self.window_features[name] = features
-        return features
 
     def _call_static_helper(self, helper, *args):
         self._needed_helpers.add(helper)

@@ -1322,7 +1322,6 @@ def smem_config_inputs(s: LoopIR.Alloc):
     return SmemConfigInputs(ctype, const_shape, s.srcinfo, s.mem)
 
 
-@memwin_template
 def CodegenSmem(byte_offset, byte_end, reftype, wrapped_smem_type):
     """When rewriting the subtree for the CUDA device function,
     wrap all SMEM memory types with this, which includes the
@@ -1343,6 +1342,11 @@ def CodegenSmem(byte_offset, byte_end, reftype, wrapped_smem_type):
             return byte_end
 
     return Impl
+
+
+# HACK: avoid showing to users that we added another level of templatization.
+# The memwin_template_parameters are as they were before.
+CodegenSmem = memwin_template(CodegenSmem, hide_parameters=True)
 
 
 h_snippet_fmt = """\

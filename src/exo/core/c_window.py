@@ -28,7 +28,7 @@ class UtilInjector:
         raise NotImplementedError()
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, init=False)
 class WindowFeatures:
     """Container holding C syntax describing "features" of a window"""
 
@@ -47,6 +47,12 @@ class WindowFeatures:
     # For use by FallbackWindowEncoder, FallbackWindowIndexer only
     _legacy_basetyp: object  # LoopIR type
     _legacy_srcinfo: SrcInfo
+
+    def copy(self):
+        new = WindowFeatures()
+        for attr in self.__slots__:
+            setattr(new, attr, getattr(self, attr))
+        return new
 
     def get_mem(self) -> Type["MemWin"]:
         return self._mem
@@ -70,14 +76,15 @@ class WindowFeatures:
         minus the number of None array interval sizes.
         """
         dims = len(self._array_offsets)
-        assert len(self._array_strides_as_packed) == dims, "LoopIR internal error"
         assert len(self._array_interval_sizes) == dims, "LoopIR internal error"
+        return dims
 
     def get_array_stride_as_packed(self, i) -> CIR_Wrapper:
         """Get the stride of the i-th array dimension in units of packed tensors"""
         strides = self._array_strides_as_packed
         if not strides:
             raise ValueError(f"{self._memwin_name} does not support explicit strides")
+        assert len(self._array_offsets) == len(strides), "LoopIR internal error"
         return strides[i]
 
     def get_array_stride_as_scalars(self, i) -> CIR_Wrapper:
@@ -127,6 +134,7 @@ class WindowFeatures:
         """
         dims = len(self._packed_offsets)
         assert len(self._packed_interval_sizes) == dims, "LoopIR internal error"
+        return dims
 
     def get_packed_offset(self, i) -> CIR_Wrapper:
         """Offset with respect to the dataptr on the i-th packed dimension.
@@ -198,25 +206,27 @@ class WindowEncoder:
     def __init__(self, args: WindowEncoderArgs):
         assert isinstance(args.type_shorthand, str)
         assert isinstance(args.n_dims, int)
-        self.mem = mem
+        self.mem = args.mem
         self.type_shorthand = args.type_shorthand
         self.ctype = LoopIR.loopir_from_uast_type_table[
-            LoopIR.uast_prim_types[args.type_shorthand]
+            type(LoopIR.uast_prim_types[args.type_shorthand])
         ].ctype()
         self.n_dims = args.n_dims
         self.const = args.const
-        self._exo_base_mimwin_name = args.base_memwin_name
+        self._exo_base_memwin_name = args.base_memwin_name
         self._exo_memwin_template_parameters = args.memwin_template_parameters
 
     def exo_struct_name(self) -> str:
         """Dictates the C name you use for the window struct. DON'T override this"""
-        memwin_name = self._exo_base_minwin_name
+        memwin_name = self._exo_base_memwin_name
         mangle_parameters = self._exo_memwin_template_parameters
 
         assert isinstance(memwin_name, str)
         if mangle_parameters:
             for p in mangle_parameters:
-                assert isinstance(p, int), "Only support mangled names for ints"
+                assert isinstance(
+                    p, int
+                ), f"{mangle_parameters}: only support mangled names for ints"
                 if p >= 0:
                     memwin_name += f"_{p}"
                 else:
@@ -354,7 +364,7 @@ class WindowIndexer:
     def __init__(self, args: WindowIndexerArgs):
         self.type_shorthand = args.type_shorthand
         self.ctype = LoopIR.loopir_from_uast_type_table[
-            LoopIR.uast_prim_types[args.type_shorthand]
+            type(LoopIR.uast_prim_types[args.type_shorthand])
         ].ctype()
         self.n_dims = args.n_dims
         self.const = args.const
