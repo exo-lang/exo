@@ -76,22 +76,14 @@ class MemGenError(Exception):
     pass
 
 
-@dataclass
+@dataclass(slots=True)
 class MemIncludeC:
-    """Give back MemIncludeC(...) in global_() to require a header file"""
+    """Add MemIncludeC to MemGlobalC.depends_on to require a header file"""
 
     header_name: str
-    _used_by: Set[Type[MemWin]]
-
-    def __init__(self, header_name: str):
-        self.header_name = header_name
-        self._used_by = set()
-
-    def used_by_strs(self) -> List[str]:
-        return sorted(u.name() for u in self._used_by)
 
 
-@dataclass
+@dataclass(slots=True, init=False)
 class MemGlobalC:
     """Give back MemGlobalC(...) in global_() to require some source code.
 
@@ -111,7 +103,6 @@ class MemGlobalC:
     name: str
     code: str
     depends_on: Tuple[MemGlobalC | MemIncludeC]
-    _used_by: Set[Type[MemWin]]
 
     def __init__(
         self, name: str, code: str, depends_on: List[MemGlobalC | MemIncludeC] = None
@@ -124,13 +115,6 @@ class MemGlobalC:
             self.depends_on = tuple(depends_on)
         else:
             self.depends_on = ()
-        self._used_by = set()
-
-    def used_by_strs(self) -> List[str]:
-        return sorted(u.name() for u in self._used_by)
-
-    def header_guard_name(self) -> str:
-        return "EXO_MEM_GLOBAL_" + self.name
 
 
 # TODO remove vector_size
@@ -270,7 +254,18 @@ class MemWin(ABC):
         """Name without template parameters"""
         return _memwin_template_base_names.get(cls) or cls.__name__
 
-    # TODO support MemGlobalC
+    @classmethod
+    def mangled_name(cls, base_name=None):
+        """Unique C identifier for (MemWin, template parameters) combination"""
+        fragments = [base_name or cls.base_name()]
+        mangle_parameters = cls.memwin_template_parameters
+        for p in mangle_parameters:
+            assert isinstance(
+                p, int
+            ), f"{cls.name()}: only support mangled names for ints, not {p}"
+            fragments.append(f"{p}" if p >= 0 else "n{-p}")
+        return "_".join(fragments)
+
     @classmethod
     def global_(cls) -> str | MemGlobalC:
         """
@@ -443,7 +438,6 @@ class MemWin(ABC):
             n_dims,
             const,
             "" if not origin_memwin else origin_memwin.base_name(),
-            cls.memwin_template_parameters,
         )
         return cls._exo_window_encoder_type(args)
 
@@ -465,6 +459,11 @@ class MemWin(ABC):
             sname = cls.window_struct_name(type_shorthand, n_dims, const)
         args = WindowIndexerArgs(str(type_shorthand), n_dims, const, sname)
         return cls._exo_window_indexer_type(args)
+
+    @classmethod
+    def wrapped_smem_type(cls):
+        """Do not override; used in the compiler internally"""
+        return cls
 
 
 class AllocableMemWin(MemWin):

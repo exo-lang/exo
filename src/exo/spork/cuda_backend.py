@@ -1344,6 +1344,10 @@ def CodegenSmem(byte_offset, byte_end, reftype, wrapped_smem_type):
         def smem_end(cls):
             return byte_end
 
+        @classmethod
+        def wrapped_smem_type(cls):
+            return wrapped_smem_type
+
     return Impl
 
 

@@ -189,7 +189,6 @@ class WindowEncoderArgs:
     n_dims: int  # Number of dimensions
     const: bool
     base_memwin_name: str
-    memwin_template_parameters: tuple
 
 
 @dataclass(slots=True)
@@ -201,7 +200,6 @@ class WindowEncoder:
     n_dims: int
     const: bool
     _exo_base_memwin_name: str
-    _exo_memwin_template_parameters: Tuple[int]
 
     def __init__(self, args: WindowEncoderArgs):
         assert isinstance(args.type_shorthand, str)
@@ -214,27 +212,15 @@ class WindowEncoder:
         self.n_dims = args.n_dims
         self.const = args.const
         self._exo_base_memwin_name = args.base_memwin_name
-        self._exo_memwin_template_parameters = args.memwin_template_parameters
 
     def exo_struct_name(self) -> str:
         """Dictates the C name you use for the window struct. DON'T override this"""
-        memwin_name = self._exo_base_memwin_name
-        mangle_parameters = self._exo_memwin_template_parameters
 
-        assert isinstance(memwin_name, str)
-        if mangle_parameters:
-            for p in mangle_parameters:
-                assert isinstance(
-                    p, int
-                ), f"{mangle_parameters}: only support mangled names for ints"
-                if p >= 0:
-                    memwin_name += f"_{p}"
-                else:
-                    memwin_name += f"_n{-p}"
-        if not memwin_name:
-            mem_suffix = ""
+        if self._exo_base_memwin_name:
+            mem_suffix = "_" + self.mem.mangled_name(self._exo_base_memwin_name)
         else:
-            mem_suffix = "_" + memwin_name
+            # Special case when using FallbackWindowEncoder
+            mem_suffix = ""
         if not self.separate_dataptr_ctype() and self.const:
             # const_suffix suppressed if separate dataptr enabled as promised
             # in separate_dataptr_ctype()
@@ -242,7 +228,7 @@ class WindowEncoder:
         else:
             const_suffix = ""
 
-        return f"exo_win_{self.n_dims}_{self.type_shorthand}{const_suffix}{mem_suffix}"
+        return f"exo_win_{self.n_dims}{self.type_shorthand}{const_suffix}{mem_suffix}"
 
     def separate_dataptr_ctype(self) -> Optional[str]:
         """Override this to return a str to opt-in to separate dataptr mode.
@@ -268,6 +254,10 @@ class WindowEncoder:
         Optionally append MemIncludeC and MemGlobalC objects to depends_on
         to have them injected (along with include guards) at some point
         before this struct's definition in the generated C/CUDA code.
+
+        NOTE: you are intentionally not given a UtilInjector here.
+        Defer adding C/CUDA utilities until actually generating code
+        for encoding a struct, or in WindowIndexer too if needed.
 
         """
         raise NotImplementedError()

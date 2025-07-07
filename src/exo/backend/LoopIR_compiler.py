@@ -4,17 +4,20 @@ import textwrap
 import warnings
 from collections import ChainMap
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from math import prod
 from pathlib import Path
-from typing import List, Tuple, Optional, Dict
+from typing import List, Tuple, Optional, Dict, Set, Type
 
 from ..core.cir import CIR, CIR_Wrapper, simplify_cir
 from ..core.c_window import WindowFeatures
 from ..core.LoopIR import LoopIR, LoopIR_Do, get_writes_of_stmts, T
 from ..core.configs import ConfigError
 from .mem_analysis import MemoryAnalysis
+from ..core.c_window import WindowIndexer, WindowEncoder
 from ..core.memory import (
+    MemIncludeC,
+    MemGlobalC,
     MemGenError,
     MemWin,
     AllocableMemWin,
@@ -164,35 +167,6 @@ def find_all_subprocs(proc_list):
     return list(reversed(all_procs))
 
 
-class LoopIR_FindMemWins(LoopIR_Do):
-    def __init__(self, proc):
-        self._memwins = set()
-        for a in proc.args:
-            if a.mem:
-                self._memwins.add(a.mem)
-        super().__init__(proc)
-
-    def result(self):
-        return self._memwins
-
-    # to improve efficiency
-    def do_e(self, e):
-        pass
-
-    def do_s(self, s):
-        if isinstance(s, LoopIR.Alloc):
-            if s.mem:
-                self._memwins.add(s.mem)
-        elif isinstance(s, LoopIR.WindowStmt):
-            if s.special_window:
-                self._memwins.add(s.special_window)
-        else:
-            super().do_s(s)
-
-    def do_t(self, t):
-        pass
-
-
 class LoopIR_FindExterns(LoopIR_Do):
     def __init__(self, proc):
         self._externs = set()
@@ -236,13 +210,6 @@ class LoopIR_FindConfigs(LoopIR_Do):
         pass
 
 
-def find_all_memwins(proc_list):
-    memwins = set()
-    for p in proc_list:
-        memwins.update(LoopIR_FindMemWins(p).result())
-    return memwins
-
-
 def find_all_externs(proc_list):
     externs = set()
     for p in proc_list:
@@ -263,6 +230,7 @@ def find_all_configs(proc_list):
 # --------------------------------------------------------------------------- #
 
 
+# TODO REMOVE
 @dataclass
 class WindowStruct:
     name: str
@@ -426,6 +394,8 @@ def ext_compile_to_strings(lib_name, proc_list):
     ext_lines = {}
 
     needed_helpers = set()
+    mem_code_builder = MemCodeBuilder()
+    header_memwins = set()
 
     # Compile proc bodies
     seen_procs = set()
@@ -490,6 +460,7 @@ def ext_compile_to_strings(lib_name, proc_list):
                 barrier_uses,
                 proc_uses_cuda,
                 util_injector,
+                mem_code_builder,
                 is_public_decl=is_public_decl,
             )
             d, b = comp.comp_top()
@@ -505,21 +476,14 @@ def ext_compile_to_strings(lib_name, proc_list):
 
             if is_public_decl:
                 analyzed_public_procs.append(p)
+                for a in p.args:
+                    header_memwins.add(a.mem or DRAM)
             else:
                 analyzed_private_procs.append(p)
             for ext, snippets in comp.ext_lines().items():
                 ext_lines.setdefault(ext, []).extend(snippets)
 
-    # Memories and structs are just blobs of code...
-    # still sort them for output stability
-    header_memwins, header_memwin_code, body_memwin_code = _compile_memwins(
-        analyzed_public_procs, analyzed_private_procs
-    )
-
-    (
-        header_struct_defns,
-        body_struct_defns,
-    ) = window_struct_cache.sorted_header_body_definitions(header_memwins)
+    memgen = mem_code_builder.generate_code(header_memwins)
 
     header_contents = f"""
 #include <stdint.h>
@@ -543,9 +507,9 @@ def ext_compile_to_strings(lib_name, proc_list):
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+{from_lines(memgen.h_includes)}
 {from_lines(ctxt_def)}
-{from_lines(header_memwin_code)}
-{from_lines(header_struct_defns)}
+{from_lines(memgen.h_code)}
 {from_lines(public_fwd_decls)}
 {join_ext_lines(ext_lines.get("h"))}"""
 
@@ -553,11 +517,11 @@ def ext_compile_to_strings(lib_name, proc_list):
         find_all_externs(analyzed_public_procs + analyzed_private_procs)
     )
 
-    body_contents = [make_utility_lines(True, None, tagged_c_includes)]
+    body_contents = [memgen.c_includes]
+    body_contents.append(make_utility_lines(True, None, tagged_c_includes))
     helper_code = [_static_helpers[v] for v in needed_helpers]
     body_contents.append(helper_code)
-    body_contents.append(body_memwin_code)
-    body_contents.append(body_struct_defns)
+    body_contents.append(memgen.c_code)
     body_contents.append(make_utility_lines(False, None, tagged_c_utils))
     if lines := ext_lines.get("c"):
         body_contents.append(lines)
@@ -582,9 +546,9 @@ def ext_compile_to_strings(lib_name, proc_list):
             False, f"exo_CudaUtil_{lib_name}", tagged_cu_utils
         )
         ext_lines["cuh"] = (
-            cu_include_lines
-            + body_memwin_code
-            + body_struct_defns
+            memgen.c_includes
+            + cu_include_lines
+            + memgen.c_code
             + cu_util_lines
             + cuh_lines
         )
@@ -598,29 +562,6 @@ def _compile_externs(externs):
         if glb := f.globl(t):
             extern_code.append(glb)
     return extern_code
-
-
-def _compile_memwins(public_procs, private_procs):
-    """Return (header memwin set, header memwin code, C body memwin code)"""
-    assert public_procs or not private_procs, "Only have private procs?"
-
-    all_memwins = find_all_memwins(public_procs + private_procs)
-
-    # Memories used as part of public proc args must be defined in public header
-    header_memwins = set()
-    for p in public_procs:
-        if p.instr is None:
-            for arg in p.args:
-                memwin = arg.mem or DRAM
-                assert memwin in all_memwins
-                header_memwins.add(arg.mem or DRAM)
-
-    header_memwin_code = []
-    body_memwin_code = []
-    for m in sorted(all_memwins, key=lambda x: x.name()):
-        code_list = header_memwin_code if m in header_memwins else body_memwin_code
-        code_list.append(m.global_())
-    return header_memwins, header_memwin_code, body_memwin_code
 
 
 def _compile_context_struct(configs, lib_name):
@@ -665,6 +606,7 @@ class Compiler:
         barrier_uses,
         used_cuda,
         util_injector,
+        mem_code_builder,
         *,
         is_public_decl,
     ):
@@ -692,6 +634,7 @@ class Compiler:
         self._in_cuda_function = False
         self._cuda_kernel_count = 0
         self._util_injector = util_injector
+        self._mem_code_builder = mem_code_builder
 
         # Additional lines for each file extension
         # Since Exo was originally written for only .c and .h files,
@@ -876,7 +819,7 @@ class Compiler:
         return self._used_cuda
 
     def new_varname(self, symbol, typ, mem=None) -> str:
-        """Init envs for new variable, except env_window_features.
+        """Init envs & MemWin for new variable, except env_window_features.
 
         Give back C name for the variable (env[symbol]).
         Note, env_window_features must be initialized separately due to
@@ -916,6 +859,7 @@ class Compiler:
         else:
             mem = DRAM
         self.mems[symbol] = mem
+        self._mem_code_builder.register_memwin(mem)
 
         return strnm
 
@@ -1084,6 +1028,7 @@ class Compiler:
         )
 
     def init_window_features(self, node, symbol):
+        """Init env_window_features for variable and add global memory code"""
         typ = self.envtyp[symbol]
         if not typ.is_tensor_or_window():
             return
@@ -1141,6 +1086,7 @@ class Compiler:
         encoder, indexer = None, None
         if mem.has_window_encoder():
             encoder = mem.make_window_encoder(basetype_name, n_dims, const)
+            self._mem_code_builder.register_window_encoder(encoder)
         if mem.has_window_indexer():
             indexer = mem.make_window_indexer(basetype_name, n_dims, const)
         supports_strides = True
@@ -1887,7 +1833,126 @@ def make_utility_lines(
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
+# Builds collection of C code from code requested from Memory and
+# WindowEncoder (MemIncludeC and MemGlobalC). We place code in the header
+# file iff it's required by a MemWin type in a public proc's interface.
+
+
+@dataclass(slots=True)
+class MemCodeResult:
+    h_includes: List[str]
+    h_code: List[str]
+    c_includes: List[str]
+    c_code: List[str]
+
+
+@dataclass(slots=True)
+class MemCodeBuilder(object):
+    # Maps header names to set of MemWin types requiring it.
+    header_used_by_dict: Dict[str, Set[Type[MemWin]]] = field(default_factory=dict)
+
+    # Maps MemGlobalC.name to set of MemWin types requiring the MemGlobalC
+    code_name_used_by_dict: Dict[str, Set[Type[MemWin]]] = field(default_factory=dict)
+
+    # Maps MemGlobalC.name to MemGlobalC.code
+    name_to_code_dict: Dict[str, str] = field(default_factory=dict)
+
+    # List of MemGlobal.name in the order received.
+    code_name_order: List[str] = field(default_factory=list)
+
+    def register_memwin(self, mem: Type[MemWin]):
+        glob = mem.global_()
+        mem_name = mem.mangled_name()
+        if isinstance(glob, str):
+            glob = MemGlobalC(mem_name, glob)
+        self._add_global(mem, glob)
+
+    def register_window_encoder(self, encoder: WindowEncoder):
+        depends_on = []
+        sdef = encoder.define_struct(depends_on)
+        glob = MemGlobalC(encoder.exo_struct_name(), sdef, tuple(depends_on))
+        self._add_global(encoder.mem, glob)
+
+    def _add_header(self, mem: Type[MemWin], item: MemIncludeC):
+        headers = self.header_used_by_dict
+        header_name = item.header_name
+        mem_set = headers.get(header_name)
+        if mem_set is None:
+            mem_set = {mem}
+            headers[header_name] = mem_set
+        else:
+            # Hacky: hide CodegenSmem from the generated used_by comments
+            mem_set.add(mem.wrapped_smem_type())
+
+    def _add_global(self, mem: Type[MemWin], item: MemGlobalC):
+        # Add dependecies first
+        for sub_item in item.depends_on:
+            if isinstance(sub_item, MemGlobalC):
+                self._add_global(mem, sub_item)
+            elif isinstance(sub_item, MemIncludeC):
+                self._add_include(mem, sub_item)
+            else:
+                assert 0, f"{mem.name()}: Unexpected type {(sub_item)}"
+
+        name, code = item.name, item.code
+        if code:
+            # Empty code is ignored
+            used_by = self.code_name_used_by_dict.get(name)
+            if used_by is None:
+                used_by = set()
+                self.code_name_used_by_dict[name] = used_by
+
+            old_code = self.name_to_code_dict.get(name)
+            if old_code is None:
+                # First time seeing this chunk of code
+                self.name_to_code_dict[name] = code
+                self.code_name_order.append(name)
+            elif old_code != code:
+                conflict_names = [sus.name() for sus in used_by]
+                raise ValueError(
+                    f"Name collision; different code with same name {name}; {mem.name()} conflicts with {conflict_names}"
+                )
+
+            used_by.add(mem.wrapped_smem_type())
+
+    def generate_code(self, header_memwins: Set[Type[MemWin]]) -> MemCodeResult:
+        """Given set of MemWin needed in the header file, generate lists of C code"""
+        result = MemCodeResult([], [], [], [])
+
+        include_pairs = sorted(self.header_used_by_dict.items(), key=lambda a: a[0])
+        for header, used_by in include_pairs:
+            lines = (
+                result.c_includes
+                if used_by.isdisjoint(header_memwins)
+                else result.h_includes
+            )
+            for user in sorted(user.name() for user in used_by):
+                include_lines.append(f"/* Required by {user.name()} */")
+            include_lines.append(f'#include "{header}"')
+
+        assert len(self.code_name_order) == len(self.code_name_used_by_dict)
+        assert len(self.code_name_order) == len(self.name_to_code_dict)
+        for name in self.code_name_order:
+            used_by = self.code_name_used_by_dict[name]
+            lines = (
+                result.c_code if used_by.isdisjoint(header_memwins) else result.h_code
+            )
+            code = self.name_to_code_dict[name]
+            header_guard = f"EXO_MEMORY_GLOBAL_{name}"
+            for user in sorted(user.name() for user in used_by):
+                lines.append(f"/* Required by {user} */")
+            lines.append(f"#ifndef {header_guard}")
+            lines.append(f"#define {header_guard}")
+            lines.append(code)
+            lines.append("#endif")
+
+        return result
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
 # Cached collection of window struct definitions
+# TODO REMOVE
 
 
 class WindowStructCache(object):
