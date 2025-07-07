@@ -14,6 +14,11 @@ Module for "new" class-based instr
             # must match a parameter in behavior(), and causes that parameter
             # to become a template parameter.
 
+            def codegen(self, args) -> List[str]:
+                # Each param x in behavior becomes args.x
+                # Return list of C lines
+                # This is optional if you define self.instr_format
+
 For context, the "old" instr is like
 
     @instr(instr_format[0])
@@ -99,6 +104,7 @@ def tparams_from_signature(clsname: str, tproc: LoopIR.proc, signature):
 
 
 def prefill_instr_info(info: InstrInfo, proc: LoopIR.proc):
+    info.instr_format = None
     info.c_utils = []
     info.c_includes = []
     info.cu_utils = []
@@ -119,6 +125,25 @@ def old_style_instr_info(proc: LoopIR.proc, c_instr: str, c_global: str):
     if c_global:
         info.c_utils.append(c_global)
     return info
+
+
+def old_style_codegen(self, args) -> List[str]:
+    """Translate args to dictionary then use instr_format.format"""
+    d = dict()
+    for name, value in args.items():
+        if value.exo_is_window():
+            mem = self.access_info[name].mem
+            if mem.has_window_encoder():
+                d[name] = str(value)
+            if mem.has_window_indexer():
+                d[name + "_data"] = value.index()
+            d[name + "_int"] = value.get_raw_name()
+        else:
+            # Non-window; Exo 1 defines {name}_data; unclear why.
+            s_value = str(value)
+            d[name] = s_value
+            d[name + "_data"] = s_value
+    return [line.format(**d) for line in self.instr_format]
 
 
 class InstrTemplate:
@@ -160,6 +185,7 @@ class InstrTemplate:
         behavior_body, src_info = get_ast_from_python(cls.behavior)
         assert hasattr(cls, "instance"), f"Missing {nm}.instance"
         instance_signature = inspect.signature(cls.instance)
+        has_custom_codegen = hasattr(cls, "codegen")
 
         parser = Parser(
             behavior_body, src_info, parent_scope=parent_scope, as_func=True
@@ -176,11 +202,12 @@ class InstrTemplate:
         def info_init(info, **tparam_dict):
             prefill_instr_info(info, tproc)
             info.instance(**tparam_dict)
-            self._postprocess_instr_info(tproc, info, tparam_dict)
+            self._postprocess_instr_info(tproc, info, tparam_dict, has_custom_codegen)
 
         # The user-provided class gets converted to a subclass of InstrInfo.
         # Override __init__, and add __slots__ if user didn't.
         # I strongly believe in the typo-checking provided by __slots__.
+        # Finally, add a fallback if no codegen callback was provided.
         info_dict = dict(cls.__dict__)
         info_bases = [b for b in cls.__bases__ if b is not object]
         if not issubclass(cls, InstrInfo):
@@ -188,6 +215,8 @@ class InstrTemplate:
         if "__slots__" not in info_dict:
             info_dict["__slots__"] = []
         info_dict["__init__"] = info_init
+        if not has_custom_codegen:
+            info_dict["codegen"] = old_style_codegen
         info_cls = type(nm, tuple(info_bases), info_dict)
 
         self.make_procedure = make_procedure
@@ -222,7 +251,6 @@ class InstrTemplate:
         #   * Substituting concrete values in place of template params (tparams)
         #   * Removing fnargs that correspond to tparams
         #   * Adding the InstrInfo; set fnarg.mem as needed from InstrInfo
-        # TODO
         tproc = self.tproc
         binding = {}
         assert len(self.tparam_syms) == len(tparam_values)
@@ -272,11 +300,16 @@ class InstrTemplate:
         assert len(tparam_values) == len(self.tparam_syms)
         return ", ".join(f"{nm}={v}" for nm, v in zip(self.tparam_syms, tparam_values))
 
-    def _postprocess_instr_info(self, proc: LoopIR.proc, info: InstrInfo, tparam_dict):
+    def _postprocess_instr_info(
+        self, proc: LoopIR.proc, info: InstrInfo, tparam_dict, has_custom_codegen: bool
+    ):
         clsname = self.info_cls.__name__
-        assert hasattr(info, "instr_format"), f"{clsname}: missing instr_format"
-        assert isinstance(info.instr_format, list), clsname
-        assert all(isinstance(line, str) for line in info.instr_format), clsname
+        has_instr_format = info.instr_format is not None
+        if not has_custom_codegen:
+            assert has_instr_format, f"{clsname}: missing instr_format or codegen()"
+        if has_instr_format:
+            assert isinstance(info.instr_format, list), clsname
+            assert all(isinstance(line, str) for line in info.instr_format), clsname
         assert all(isinstance(s, str) for s in info.c_utils), clsname
         assert all(isinstance(s, str) for s in info.c_includes), clsname
         assert all(isinstance(s, str) for s in info.cu_utils), clsname

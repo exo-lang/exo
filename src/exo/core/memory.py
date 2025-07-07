@@ -646,9 +646,7 @@ class SpecialWindowFromMemoryCtx(object):
 
 class SpecialWindow(MemWin):
     _exo_window_encoder_type: Optional[Type[WindowEncoder]] = None
-    _exo_special_window_encoder_type: Optional[Type[WindowEncoder]] = None
     _exo_window_indexer_type: Optional[Type[WindowIndexer]] = None
-    _exo_special_window_encoder_origin_memwin: Optional[Type[MemWin]] = None
 
     @classmethod
     @abstractmethod
@@ -718,12 +716,7 @@ def memwin_template(class_factory, *, hide_parameters=False):
 
 
 def window_encoder(encoder_cls):
-    """MemWin class decorator, add WindowEncoder
-
-    For SpecialWindows, this encoder is used to convert from one
-    SpecialWindow to another. See also special_window_encoder.
-
-    """
+    """MemWin class decorator, add WindowEncoder"""
     assert issubclass(encoder_cls, WindowEncoder) or encoder_cls is None
     assert not issubclass(
         encoder_cls, FallbackWindowEncoder
@@ -754,25 +747,6 @@ def window_indexer(indexer_cls):
             mem_cls._exo_window_encoder_type = None
 
     return add_indexer
-
-
-def special_window_encoder(encoder_cls):
-    """SpecialWindow decorator; Memory -> SpecialWindow encoder
-
-    Add a WindowEncoder that is used to convert from windows in Memory
-    to a special window.
-
-    """
-    assert issubclass(encoder_cls, WindowEncoder) or encoder_cls is None
-    assert not issubclass(
-        encoder_cls, FallbackWindowEncoder
-    ), "you are not allowed to use this explicitly"
-
-    def add_encoder(mem_cls):
-        mem_cls._exo_special_window_encoder_type = encoder_cls
-        mem_cls._exo_special_window_encoder_origin_memwin = mem_cls
-
-    return add_encoder
 
 
 # ----------- DRAM on LINUX ----------------

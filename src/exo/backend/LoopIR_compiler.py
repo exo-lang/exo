@@ -672,7 +672,7 @@ class Compiler:
                 and isinstance(pred.rhs, LoopIR.Const)
             ):
                 self._known_strides[(pred.lhs.name, pred.lhs.dim)] = CIR.Const(
-                    pred.rhs.val
+                    int(pred.rhs.val)
                 )
                 self.add_line(f"// assert {pred}")
             else:
@@ -1245,58 +1245,51 @@ class Compiler:
             rhs = s.rhs
             assert isinstance(rhs, LoopIR.WindowExpr)
             input_winmem = self.mems[rhs.name]
-            input_win_struct = self.get_window_struct(rhs, input_winmem)
-            (
-                w_type,
-                w_def,
-                d_type,
-                d_def,
-                layout,
-                separate_dataptr,
-            ) = self.unpack_window_expr(rhs, input_winmem, input_win_struct.is_const)
-
-            if not input_win_struct.is_const:
+            is_const = self.is_const(rhs.name)
+            if not is_const:
                 self.global_non_const.add(s.name)
 
             output_winmem = s.special_window or input_winmem
             name = self.new_varname(s.name, typ=rhs.type, mem=output_winmem)
             self.init_window_features(s, s.name)
 
-            if not s.special_window:
-                output_win_struct = input_win_struct
-            else:
-                # Special case, creating a special window
-                # We pass the temporary expressions from unpack_window_expr to
-                # the SpecialWindow creation callback.
-                assert issubclass(output_winmem, SpecialWindow)
-                assert issubclass(input_winmem, output_winmem.source_memory_type())
-                tensor_type = rhs.type.as_tensor_type()
-                scalar_type = tensor_type.basetype()
-                output_win_struct = self.get_window_struct(rhs, output_winmem)
-                ctx = SpecialWindowFromMemoryCtx(
-                    d_def,
-                    layout,
-                    output_win_struct.dataptr,
-                    output_win_struct.name,
-                    tensor_type,
-                    self.shape_strs(tensor_type.shape()),
-                    output_win_struct.is_const,
-                    scalar_type.ctype(),
-                    T_shorthand[scalar_type],
-                    s.srcinfo,
-                )
-                tmp = output_winmem.from_memory(ctx)
-
-                # Substitute window definition for codegen, replacing temporary window.
-                separate_dataptr = output_winmem.separate_dataptr()
-                if separate_dataptr:
-                    assert len(tmp) == 2
-                    d_def, w_def = tmp
+            # Unpack features of input window, and modify based on WindowExpr
+            in_features = self.env_window_features[rhs.name]
+            w_idxs = []
+            w_intervals = []
+            for i, w in enumerate(rhs.idx):
+                if isinstance(w, LoopIR.Point):
+                    lo = w.pt
+                    w_intervals.append(None)
                 else:
-                    assert isinstance(tmp, str)
-                    d_def, w_def = None, tmp
+                    lo = w.lo
+                    w_intervals.append(
+                        CIR_Wrapper(
+                            lift_to_cir(w.hi, self.range_env),
+                            self,
+                            f"interval size {i}",
+                        )
+                        - lift_to_cir(w.lo, self.range_env)
+                    )
+                w_idxs.append(
+                    CIR_Wrapper(lift_to_cir(lo, self.range_env), self, f"offset {i}")
+                )
+            in_features = in_features.new_window(w_idxs, w_intervals, rhs.srcinfo)
 
-            if separate_dataptr:
+            # Unpack features of output window.
+            out_features = self.env_window_features[s.name]
+            out_encoder: WindowEncoder = out_features.get_encoder()
+            if s.special_window and not issubclass(input_winmem, SpecialWindow):
+                encode_window = out_encoder.encode_special_window
+                encode_dataptr = out_encoder.encode_special_separate_dataptr
+            else:
+                encode_window = out_encoder.encode_window
+                encode_dataptr = out_encoder.encode_separate_dataptr
+            utils = self._util_injector.with_tag(output_winmem.name())
+
+            # Initialize separate dataptr
+            if out_encoder.separate_dataptr():
+                d_def = encode_dataptr(utils, in_features)
                 cref = ""
                 if self._in_cuda_function:
                     # HACK needed for CUtensorMap; if we copy the CUtensorMap
@@ -1304,11 +1297,13 @@ class Compiler:
                     # and cp.async.bulk won't work anymore.
                     cref = " const&"
                 self.add_line(
-                    f"{output_win_struct.dataptr}{cref} {dataptr_name(name)} = {d_def};"
+                    f"{out_encoder.dataptr_ctype()}{cref} {dataptr_name(name)} = {d_def};"
                 )
-            self.debug_comment_window_features(self.env_window_features[rhs.name])
-            self.debug_comment_window_features(self.env_window_features[s.name])
-            self.add_line(f"struct {output_win_struct.name} {name} = {w_def};")
+            self.debug_comment_window_features(in_features)
+            self.debug_comment_window_features(out_features)
+            # Initialize window struct.
+            w_def = encode_window(utils, in_features)
+            self.add_line(f"struct {out_encoder.exo_struct_name()} {name} = {w_def};")
 
         elif is_if_holding_with(s, LoopIR):  # must be before .If case
             ctx = s.cond.val

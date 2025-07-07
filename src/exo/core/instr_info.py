@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, List, Type
+from typing import Dict, List, Type, Optional
 from .memory import DRAM, MemWin, AllocableMemWin, Memory, SpecialWindow
 from ..spork.coll_algebra import CollUnit
 from ..spork.timelines import Instr_tl, Usage_tl
@@ -17,7 +17,7 @@ class AccessInfo:
 
 @dataclass(init=False, slots=True)
 class InstrInfo:
-    instr_format: List[str]  # Split by lines
+    instr_format: Optional[List[str]]  # Split by lines
     c_utils: List[str]
     c_includes: List[str]
     cu_utils: List[str]

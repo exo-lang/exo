@@ -36,11 +36,18 @@ def exo_get_cir(self):
     return self
 
 
+def cir_div(a, b):
+    if isinstance(a, int) and isinstance(b, int) and a % b == 0:
+        return a // b
+    else:
+        return a / b
+
+
 _operations = {
     "+": lambda x, y: x + y,
     "-": lambda x, y: x - y,
     "*": lambda x, y: x * y,
-    "/": lambda x, y: x / y,
+    "/": cir_div,
     "%": lambda x, y: x % y,
 }
 

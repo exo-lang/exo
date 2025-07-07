@@ -181,6 +181,52 @@ class WindowFeatures:
     def srcinfo(self) -> SrcInfo:
         return self._srcinfo
 
+    def new_window(
+        self,
+        idxs: List[CIR_Wrapper],
+        interval_sizes: List[Optional[CIR_Wrapper]],
+        srcinfo: SrcInfo,
+    ):
+        """For the compiler. Create a new WindowFeatures holding the features for
+        a window made by applying a window expression [idx0, idx1, ...] to self.
+
+        idxN is a point pt when (idxs[N] = pt, interval_sizes[N] = None)
+
+        idxN is an interval lo:hi when (idxs[N] = lo, interval_sizes[N] = hi - lo)
+
+        idxs may be shorter than the dimensionality of the window
+        (implies trailing 0:hi which have no effect).
+
+        """
+        assert len(idxs) == len(interval_sizes), "Internal error"
+        new = self.copy()
+        new_offsets = list(new._array_offsets) + list(new._packed_offsets)
+        new_interval_sizes = list(new._array_interval_sizes) + list(
+            new._packed_interval_sizes
+        )
+        assert len(new_offsets) == len(new_interval_sizes), "Internal error"
+        i = -1
+        for idx, interval in zip(idxs, interval_sizes):
+            # Find the next interval to update
+            # Skip points
+            while True:
+                i += 1
+                if i > len(new_interval_sizes):
+                    raise ValueError("Too many indices given to window code generator")
+                if new_interval_sizes[i] is not None:
+                    break
+            # Update here
+            new_offsets[i] += idx
+            new_interval_sizes[i] = interval
+
+        n_array_dims = new.n_array_dims()
+        new._array_offsets = tuple(new_offsets[:n_array_dims])
+        new._array_interval_sizes = tuple(new_interval_sizes[:n_array_dims])
+        new._packed_offsets = tuple(new_offsets[n_array_dims:])
+        new._packed_interval_sizes = tuple(new_interval_sizes[n_array_dims:])
+        new._srcinfo = srcinfo
+        return new
+
 
 @dataclass(slots=True)
 class WindowEncoderArgs:
@@ -282,6 +328,9 @@ class WindowEncoder:
 
         e.g. (struct struct_name) { foo, bar };
 
+        For SpecialWindow, this is used to convert from an existing
+        SpecialWindow. See encode_special_window.
+
         """
         raise NotImplementedError()
 
@@ -290,10 +339,32 @@ class WindowEncoder:
     ) -> str | CIR_Wrapper:
         """Return C expression (str or CIR_Wrapper) giving the dataptr.
 
-        This is only used if a separate dataptr type is defined.
+        This is only used when a separate_dataptr() is true.
+        For SpecialWindow, this is used to convert from an existing
+        SpecialWindow. See encode_special_separate_window.
 
         """
-        return features.get_dataptr()
+        raise NotImplementedError()
+
+    def encode_special_window(
+        self, utils: UtilInjector, features: WindowFeatures
+    ) -> str | CIR_Wrapper:
+        """Used for converting ordinary Memory to SpecialWindow.
+
+        Same usage as encode_window()
+
+        """
+        raise NotImplementedError()
+
+    def encode_special_separate_dataptr(
+        self, utils: UtilInjector, features: WindowFeatures
+    ) -> str | CIR_Wrapper:
+        """Used for converting ordinary Memory to SpecialWindow.
+
+        Same usage as encode_separate_dataptr()
+
+        """
+        raise NotImplementedError()
 
     def decode_array_offset(
         self, utils: UtilInjector, window: CIR_Wrapper, n: int
@@ -418,18 +489,27 @@ class FallbackWindowEncoder(WindowEncoder):
         mem = features.get_mem()
         n_dims = features.n_array_dims()
 
-        indices_strs = [features.get_array_offset(i) for i in range(n_dims)]
-        strides_strs = [features.get_array_stride_as_packed(i) for i in range(n_dims)]
-        strides = "{" + ", ".join(strides_strs) + "}"
+        indices_strs = [str(features.get_array_offset(i)) for i in range(n_dims)]
+        strides_strs = [
+            str(features.get_array_stride_as_packed(i)) for i in range(n_dims)
+        ]
         dataptr = mem.window(
             features._legacy_basetyp,
-            features.raw_name(),
+            features.get_raw_name(),
             indices_strs,
             strides_strs,
             features.srcinfo(),
         )
 
-        return f"(struct {sname}) {{ {dataptr}, {strides} }}"
+        # Remove strides corresponding to point expressions.
+        filtered_strides_strs = [
+            strides_strs[i]
+            for i in range(n_dims)
+            if features.get_array_interval_size(i) is not None
+        ]
+        strides = "{" + ", ".join(filtered_strides_strs) + "}"
+
+        return f"(struct {sname}) {{ &{dataptr}, {strides} }}"
 
     def decode_array_offset(
         self, utils: UtilInjector, window: CIR_Wrapper, n: int
