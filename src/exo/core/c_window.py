@@ -46,7 +46,8 @@ class WindowFeatures:
 
     # For use by FallbackWindowEncoder, FallbackWindowIndexer only
     _legacy_basetyp: object  # LoopIR type
-    _legacy_srcinfo: SrcInfo
+
+    _srcinfo: SrcInfo
 
     def copy(self):
         new = WindowFeatures()
@@ -121,7 +122,6 @@ class WindowFeatures:
         For WindowEncoder, the latter case (point) will only occur if
         WindowEncoder.supports_dim_change()
 
-        For WindowIndexer, see WindowIndexerSupport.
         """
         return self._array_interval_sizes[i]
 
@@ -151,14 +151,11 @@ class WindowFeatures:
 
         WindowEncoder ignores this.
 
-        For WindowIndexer, see WindowIndexerSupport, and,
-        with A being n_array_dims(),
+        For WindowIndexer, with A being n_array_dims(),
 
         If the (A + n)-th index in the window expression is an interval lo:hi,
         get_packed_offset(n) =          lo
         get_packed_interval_size(n) =   hi - lo
-        where in fact we guarantee lo = 0 and
-        hi = the n-th coordinate of the packed tensor size
 
         If the (A + n)-th index of the window expression is a point pt,
         get_packed_offset(n) =         pt
@@ -180,6 +177,9 @@ class WindowFeatures:
             raise ValueError(f"{self._memwin_name} does not support WindowIndexer")
         assert isinstance(indexer, WindowIndexer)
         return indexer
+
+    def srcinfo(self) -> SrcInfo:
+        return self._srcinfo
 
 
 @dataclass(slots=True)
@@ -221,21 +221,27 @@ class WindowEncoder:
         else:
             # Special case when using FallbackWindowEncoder
             mem_suffix = ""
-        if not self.separate_dataptr_ctype() and self.const:
+        if not self.separate_dataptr() and self.const:
             # const_suffix suppressed if separate dataptr enabled as promised
-            # in separate_dataptr_ctype()
+            # in separate_dataptr()
             const_suffix = "c"
         else:
             const_suffix = ""
 
         return f"exo_win_{self.n_dims}{self.type_shorthand}{const_suffix}{mem_suffix}"
 
-    def separate_dataptr_ctype(self) -> Optional[str]:
-        """Override this to return a str to opt-in to separate dataptr mode.
+    def dataptr_ctype(self) -> str:
+        if self.const:
+            return f"const {self.ctype}*"
+        else:
+            return f"{self.ctype}*"
+
+    def separate_dataptr(self) -> bool:
+        """Override this to return True to opt-in to separate dataptr mode.
 
         In this mode, window structs are given as a pair of C objects
         {exo_struct_name()} {varname};
-        {separate_dataptr_ctype()} exo_data_{varname};
+        {dataptr_ctype()} exo_data_{varname};
 
         If the dataptr is separate, the struct name will be the same
         for the const and non-const versions of a certain window.
@@ -243,7 +249,7 @@ class WindowEncoder:
         This is primarily for CUtensorMap.
 
         """
-        return None
+        return False
 
     def define_struct(self, depends_on: list) -> str:
         """Give window struct definition as C string.
@@ -318,12 +324,6 @@ class WindowEncoder:
     # strides, or offsets into packed dimensions.
 
 
-class WindowIndexerSupport(Enum):
-    points_only = auto()
-    intervals_only = auto()
-    points_before_intervals = auto()
-
-
 @dataclass(slots=True)
 class WindowIndexerArgs:
     type_shorthand: str  # Exo name for scalar type, e.g. f64, i32
@@ -362,32 +362,8 @@ class WindowIndexer:
 
     def exo_struct_name(self):
         """Give the name of the window struct as defined by the WindowEncoder"""
-        assert self._exo_struct_name
+        assert self._exo_struct_name, "seems to be no WindowEncoder"
         return self._exo_struct_name
-
-    def array_dim_support(self) -> WindowIndexerSupport:
-        """The WindowIndexer only supports encoding window expressions
-        where the indices corresponding to array dimensions consist of:
-
-        * points only, if WindowIndexerSupport.points_only
-        * intervals only, if WindowIndexerSupport.intervals_only
-        * any number of points followed by any number of intervals,
-          if WindowIndexerSupport.points_before_intervals
-
-        """
-        return WindowIndexerSupport.points_only
-
-    def packed_dim_support(self) -> WindowIndexerSupport:
-        """The WindowIndexer only supports encoding window expressions
-        where the indices corresponding to packed dimensions consist of:
-
-        * points only, if WindowIndexerSupport.points_only
-        * intervals only, if WindowIndexerSupport.intervals_only
-        * any number of points followed by any number of intervals,
-          if WindowIndexerSupport.points_before_intervals
-
-        """
-        raise NotImplementedError()
 
     def index(
         self, utils: UtilInjector, features: WindowFeatures
@@ -450,7 +426,7 @@ class FallbackWindowEncoder(WindowEncoder):
             features.raw_name(),
             indices_strs,
             strides_strs,
-            features._legacy_srcinfo,
+            features.srcinfo(),
         )
 
         return f"(struct {sname}) {{ {dataptr}, {strides} }}"
@@ -483,7 +459,7 @@ class FallbackWindowIndexer(WindowIndexer):
             features.raw_name(),
             indices_strs,
             strides_strs,
-            features._legacy_srcinfo,
+            features.srcinfo(),
         )
 
         return WindowIndexerResult(code, False)

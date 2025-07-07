@@ -33,7 +33,6 @@ from ..core.c_window import (
     UtilInjector,
     WindowFeatures,
     WindowEncoderArgs,
-    WindowIndexerSupport,
     WindowIndexerArgs,
     WindowIndexerResult,
 )
@@ -657,10 +656,9 @@ class Compiler:
 
         for a in proc.args:
             mem = a.mem if a.type.is_numeric() else None
-            name_arg = self.new_varname(a.name, typ=a.type, mem=mem)
+            self.new_varname(a.name, typ=a.type, mem=mem)
             if a.type.is_real_scalar():
                 self._scalar_refs.add(a.name)
-            self.append_fnarg_decl(a, name_arg, arg_strs, typ_comments)
 
         for pred in proc.preds:
             if isinstance(pred, LoopIR.Const):
@@ -686,6 +684,7 @@ class Compiler:
             # NOTE: Moved below preds, so that known_strides gets filled
             # before initializing new variables.
             self.init_window_features(a, a.name)
+            self.append_fnarg_decl(a, self.env[a.name], arg_strs, typ_comments)
 
         if not self.static_memory_check(self.proc):
             raise MemGenError("Cannot generate static memory in non-leaf procs")
@@ -728,8 +727,6 @@ class Compiler:
 
         Appends function arguments (e.g. `int* foo`) and type comments
         to the given lists, respectively.
-        Side effect: triggers compilation of memory definitions
-        and window struct declarations as needed.
         """
         assert isinstance(a, LoopIR.fnarg)
         mem = a.mem if a.type.is_numeric() else None
@@ -750,18 +747,19 @@ class Compiler:
                     )
             else:
                 assert a.type.is_tensor_or_window()
-                window_struct = self.get_window_struct(
-                    a, mem or DRAM, is_const, a.type.is_win()
-                )
+
+                # Need to have init_window_features(a, a.name) before this
+                encoder = self.env_window_features[a.name].get_encoder()
+
                 if a.type.is_win():
-                    if window_struct.separate_dataptr:
+                    if encoder.separate_dataptr():
                         arg_strs.append(
-                            f"{window_struct.dataptr} {dataptr_name(name_arg)}"
+                            f"{encoder.dataptr_ctype()} {dataptr_name(name_arg)}"
                         )
                         typ_comments.append("    (Separate window data pointer)")
-                    arg_strs.append(f"struct {window_struct.name} {name_arg}")
+                    arg_strs.append(f"struct {encoder.exo_struct_name()} {name_arg}")
                 else:
-                    arg_strs.append(f"{window_struct.dataptr} {name_arg}")
+                    arg_strs.append(f"{encoder.dataptr_ctype()} {name_arg}")
             memstr = f" @{a.mem.name()}" if a.mem else ""
             comment_str = f"{name_arg} : {a.type}{memstr}"
             typ_comments.append(comment_str)
@@ -1106,7 +1104,7 @@ class Compiler:
                 kvetch(
                     "cannot create a window when the MemWin type defines no WindowEncoder"
                 )
-            if encoder.separate_dataptr_ctype():
+            if encoder.separate_dataptr():
                 cw_dataptr = CIR_Wrapper(CIR.ReadSeparateDataptr(symbol), self, strnm)
             else:
                 cw_dataptr = cw_sym.data
@@ -1159,7 +1157,7 @@ class Compiler:
         features._encoder = encoder
         features._indexer = indexer
         features._legacy_basetyp = typ
-        features._legacy_srcinfo = srcinfo
+        features._srcinfo = srcinfo
         self.env_window_features[symbol] = features
 
     def debug_comment_window_features(self, features: WindowFeatures):
