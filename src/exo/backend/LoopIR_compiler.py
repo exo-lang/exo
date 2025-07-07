@@ -1105,13 +1105,16 @@ class Compiler:
                 obj = obj.exo_get_cir()
             return CIR_Wrapper(obj, self, f"{symbol} {attr}[{idx}]")
 
-        # Analyze packed tensor size
+        # Analyze packed tensor shape
         shape = typ.shape()
         n_dims = len(shape)
-        n_packed_dims = mem.n_packed_dims()
+        packed_tensor_shape = mem.packed_tensor_shape(basetype_name)
+        n_packed_dims = len(packed_tensor_shape)
         n_array_dims = n_dims - n_packed_dims
         if n_array_dims < 0:
-            kvetch(f"must be at least {n_packed_dims}-dimensional (for packed tensors)")
+            kvetch(
+                f"must be at least {n_packed_dims}-dimensional (for packed tensor shape {packed_tensor_shape})"
+            )
 
         cir_array_interval_sizes = [
             simplify_cir(lift_to_cir(e, self.range_env)) for e in shape[:n_array_dims]
@@ -1126,11 +1129,11 @@ class Compiler:
                 packed_const_shape.append(c.val)
             else:
                 actual = [str(c) for c in cir_packed_interval_sizes]
-                kvetch(f"Required constant packed tensor size, not {actual}")
-        try:
-            mem.check_packed_tensor_size(basetype_name, packed_const_shape)
-        except Exception as e:
-            kvetch(f"{packed_const_shape} packed tensor size not supported: {e}")
+                kvetch(f"Required constant packed tensor shape, not {actual}")
+        if tuple(packed_const_shape) != tuple(packed_tensor_shape):
+            kvetch(
+                f"{packed_const_shape} packed tensor shape not supported; expect {packed_tensor_shape}"
+            )
         scalars_per_packed_tensor = prod(packed_const_shape)
 
         # Get encoder and indexer if possible. Analyze stride support

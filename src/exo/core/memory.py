@@ -402,13 +402,8 @@ class MemWin(ABC):
         return cpu_usage
 
     @classmethod
-    def n_packed_dims(cls) -> int:
-        return 0
-
-    @classmethod
-    def check_packed_tensor_size(cls, type_shorthand: str, shape: List[int]):
-        if shape:
-            raise NotImplementedError()
+    def packed_tensor_shape(cls, type_shorthand: str) -> List[int]:
+        return ()
 
     # TODO remove?
     @classmethod
@@ -708,6 +703,7 @@ def memwin_template(class_factory, *, hide_parameters=False):
         cls = _memwin_template_cache.get(cache_key)
         if not cls:
             cls = class_factory(*parameters)
+            assert cls, f"forgot return from {class_factory}?"
             cls_name = f"{class_factory.__name__}{parameters}"
             _memwin_template_cache[cache_key] = cls
             _memwin_template_names[cls] = cls_name

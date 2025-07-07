@@ -18,7 +18,7 @@ from .backend.LoopIR_compiler import (
 )
 from .core.configs import Config
 from .frontend.boundscheck import CheckBounds
-from .core.memory import MemWin, Memory, SpecialWindow
+from .core.memory import MemWin, Memory, SpecialWindow, memwin_template
 from .frontend.parse_fragment import parse_fragment
 from .frontend.pattern_match import match_pattern
 from .core.prelude import *

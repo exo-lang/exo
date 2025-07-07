@@ -150,7 +150,7 @@ class MemoryAnalysis:
                     cmem = self.get_e_mem(ca)
                     if not issubclass(cmem, smem):
                         raise TypeError(
-                            f"{ca.srcinfo}: expected "
+                            f"{ca.srcinfo}: expected `{sa.name}` "
                             f"argument in {smem.name()} but got an "
                             f"argument in {cmem.name()}"
                         )

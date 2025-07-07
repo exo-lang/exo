@@ -938,7 +938,8 @@ class Parser:
             node = node.left
             if not isinstance(mem, type):
                 self.err(
-                    node, "expected @mem annotation to evaluate to Python type object"
+                    node,
+                    f"expected @mem annotation to evaluate to Python type object, not {type(mem)}",
                 )
             elif not issubclass(mem, AllocableMemWin):
                 self.err(node, f"@{mem.__name__} must be AllocableMemWin subclass")

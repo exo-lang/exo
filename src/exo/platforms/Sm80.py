@@ -23,7 +23,7 @@ __all__ = [
 
 # We use these but don't put them in __all__
 from .cuda import InlinePtxGen
-from ..API import instr
+from ..API import instr, memwin_template
 from ..spork.cuda_memory import *
 from ..spork.timelines import cuda_in_order, cuda_in_order_instr
 from ..spork.coll_algebra import cuda_warp
@@ -85,36 +85,19 @@ class Sm80_BasicRmemMatrix(CudaBasicDeviceVisible):
 
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
-        if len(shape) < 2:
-            raise MemGenError(f"{srcinfo}: Require at least 2D tile for Sm80 MMA tile")
-        array_shape = shape[:-2]
-        tile_shape = shape[-2:]
-
-        try:
-            int_tile_shape = (int(tile_shape[0]), int(tile_shape[1]))
-            if int_tile_shape not in cls.expected_tile_shapes:
-                raise ValueError("WRONG")
-        except Exception:
-            raise MemGenError(
-                f"{srcinfo}: last 2 dims (tile_shape) {tile_shape} must match "
-                f"one of {cls.expected_tile_shapes}"
-            )
-
+        tile_shape = cls.mma_packed_tensor_shape
         assert prim_type == "float"  # TODO
-        regcount = int_tile_shape[0] * int_tile_shape[1] // 32
+        regcount = tile_shape[0] * tile_shape[1] // 32
 
         # Last array dimension corresponds to uint32_t-encoded matrix tile
         # Leading dimensions correspond to the Exo user's array dimensions.
-        leading = "".join(f"[{c}]" for c in array_shape)
+        leading = "".join(f"[{c}]" for c in shape[:-2])
         return f"unsigned {new_name}{leading}[{regcount}];"
 
     @classmethod
     def window(cls, basetyp, baseptr, indices, strides, srcinfo):
         if basetyp.is_win():
             return f"*{baseptr}.data"
-        assert len(strides) >= 2
-        # assert strides[-2] == str(cls.tile_shape[1])
-        assert strides[-1] == "1"
         leading = "".join(f"[{c}]" for c in indices[:-2])
         return f"{baseptr}{leading}"
 
@@ -134,23 +117,40 @@ class Sm80_BasicRmemMatrix(CudaBasicDeviceVisible):
     def default_usage_tl(cls, instr_tl):
         return timelines.cuda_sync_rmem_usage
 
-
-class Sm80_RmemMatrixA(Sm80_BasicRmemMatrix):
-    """Matrix tile for sm_80+ warp MMA A operand"""
-
-    expected_tile_shapes = [(16, 4), (16, 8)]
+    @classmethod
+    def packed_tensor_shape(cls, _):
+        return cls.mma_packed_tensor_shape
 
 
-class Sm80_RmemMatrixB(Sm80_BasicRmemMatrix):
-    """Matrix tile for sm_80+ warp MMA B operand"""
+@memwin_template
+def Sm80_RmemMatrixA(M: int, K: int):
+    class Sm80_RmemMatrixA(Sm80_BasicRmemMatrix):
+        """Matrix tile for sm_80+ warp MMA A operand"""
 
-    expected_tile_shapes = [(4, 8), (8, 8)]
+        mma_packed_tensor_shape = (M, K)
+
+    return Sm80_RmemMatrixA
 
 
-class Sm80_RmemMatrixD(Sm80_BasicRmemMatrix):
-    """Matrix tile for sm_80+ warp MMA accumulator (C, D) operands"""
+@memwin_template
+def Sm80_RmemMatrixB(N: int, K: int):
+    class Sm80_RmemMatrixB(Sm80_BasicRmemMatrix):
+        """Matrix tile for sm_80+ warp MMA B operand"""
 
-    expected_tile_shapes = [(16, 8)]
+        # TODO consider N/K ordering confusion (swap here)
+        mma_packed_tensor_shape = (K, N)
+
+    return Sm80_RmemMatrixB
+
+
+@memwin_template
+def Sm80_RmemMatrixD(M: int, N: int):
+    class Sm80_RmemMatrixD(Sm80_BasicRmemMatrix):
+        """Matrix tile for sm_80+ warp MMA accumulator (C, D) operands"""
+
+        mma_packed_tensor_shape = (M, N)
+
+    return Sm80_RmemMatrixD
 
 
 __all__ += ["Sm80_RmemMatrixA", "Sm80_RmemMatrixB", "Sm80_RmemMatrixD"]
@@ -175,7 +175,7 @@ class mma_instr_impl:
 class Sm80_mma_load_a_tf32(mma_instr_impl):
     def behavior(
         K: size,
-        rmem: [f32][16, K] @ Sm80_RmemMatrixA,
+        rmem: [f32][16, K],
         smem: [f32][16, K] @ CudaSmemLinear,
     ):
         for m in seq(0, 16):
@@ -186,6 +186,7 @@ class Sm80_mma_load_a_tf32(mma_instr_impl):
         self.instance_common()
         if K != 4 and K != 8:
             raise ValueError("Require K=4 or K=8")
+        self.access_info["rmem"].mem = Sm80_RmemMatrixA(16, K)
         self.instr_format = [
             (
                 "exo_CudaUtil::Sm80_mma_load_a_k"
@@ -202,7 +203,7 @@ __all__.append("Sm80_mma_load_a_tf32")
 class Sm80_mma_load_b_tf32(mma_instr_impl):
     def behavior(
         K: size,
-        rmem: [f32][K, 8] @ Sm80_RmemMatrixB,
+        rmem: [f32][K, 8],
         smem: [f32][K, 8] @ CudaSmemLinear,
     ):
         for k in seq(0, K):
@@ -213,6 +214,7 @@ class Sm80_mma_load_b_tf32(mma_instr_impl):
         self.instance_common()
         if K != 4 and K != 8:
             raise ValueError("Require K=4 or K=8")
+        self.access_info["rmem"].mem = Sm80_RmemMatrixB(8, K)
         self.instr_format = [
             (
                 "exo_CudaUtil::Sm80_mma_load_b_k"
@@ -229,9 +231,9 @@ __all__.append("Sm80_mma_load_b_tf32")
 class Sm80_mma_tf32(mma_instr_impl):
     def behavior(
         K: size,
-        D: [f32][16, 8] @ Sm80_RmemMatrixD,
-        A: [f32][16, K] @ Sm80_RmemMatrixA,
-        B: [f32][K, 8] @ Sm80_RmemMatrixB,
+        D: [f32][16, 8],
+        A: [f32][16, K],
+        B: [f32][K, 8],
     ):
         for m in seq(0, 16):
             for n in seq(0, 8):
@@ -260,6 +262,9 @@ class Sm80_mma_tf32(mma_instr_impl):
             [f"{{D_data}}[{i}]" for i in range(D_nreg)], log_as=None, constraint="r"
         )
         self.instr_format = ptx.as_c_lines(py_format=True)
+        self.access_info["D"].mem = Sm80_RmemMatrixD(16, 8)
+        self.access_info["A"].mem = Sm80_RmemMatrixA(16, K)
+        self.access_info["B"].mem = Sm80_RmemMatrixB(8, K)
 
 
 __all__.append("Sm80_mma_tf32")
@@ -269,7 +274,7 @@ __all__.append("Sm80_mma_tf32")
 class Sm80_mma_store_d_tf32(mma_instr_impl):
     def behavior(
         gmem: [f32][16, 8] @ CudaDeviceVisibleLinear,
-        rmem: [f32][16, 8] @ Sm80_RmemMatrixD,
+        rmem: [f32][16, 8] @ Sm80_RmemMatrixD(16, 8),
     ):
         for m in seq(0, 16):
             for n in seq(0, 8):
@@ -289,7 +294,7 @@ __all__.append("Sm80_mma_store_d_tf32")
 
 @instr
 class Sm80_mma_zero_d_tf32(mma_instr_impl):
-    def behavior(rmem: [f32][16, 8] @ Sm80_RmemMatrixD):
+    def behavior(rmem: [f32][16, 8] @ Sm80_RmemMatrixD(16, 8)):
         for m in seq(0, 16):
             for n in seq(0, 8):
                 rmem[m, n] = 0
