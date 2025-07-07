@@ -529,7 +529,11 @@ class SubtreeScan(LoopIR_Do):
         # We ignore the codegen here ... because of how the deviceTask is specialized
         # per named-warp set, we already can assume the physical code is executed
         # only by the subset of warps that are part of the named warp set.
-        if is_top_level:
+        #
+        # NB it's important that this is skipped when the user doesn't
+        # use named warps (fallback len-1 case) because the (***)
+        # restriction must not be enforced.
+        if is_top_level and len(self.named_warps) > 1:
             name = "" if ctx.name is None else ctx.name
             if (info := self.named_warps.get(name)) is None:
                 known_names = sorted(self.named_warps)
@@ -537,15 +541,14 @@ class SubtreeScan(LoopIR_Do):
                     f"{s.srcinfo}: top-level CudaWarps must provide valid warp name, not {ctx.name!r}; your CudaDeviceFunction defines: {known_names}"
                 )
 
-            # Named warps (besides fallback 1-name case) won't work if the CTA
-            # has already been subdivided by a cuda_threads loop.
-            if len(self.named_warps) > 1:
-                if detail := self._coll_tiling.unit_mismatch(
-                    cuda_agnostic_intact_cta, self._coll_env
-                ):
-                    raise ValueError(
-                        f"{s.srcinfo}: named {ctx} requires CTA not to be subdivided by parent cuda_threads loop (detail: {detail})"
-                    )
+            # (***) Named warps won't work if the CTA has already been
+            # subdivided by a cuda_threads loop.
+            if detail := self._coll_tiling.unit_mismatch(
+                cuda_agnostic_intact_cta, self._coll_env
+            ):
+                raise ValueError(
+                    f"{s.srcinfo}: named {ctx} requires CTA not to be subdivided by parent cuda_threads loop (detail: {detail})"
+                )
 
             # Extract lo/hi offsets (with defaulted values allowed).
             # This gets handled towards the end of the function.
