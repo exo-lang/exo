@@ -1428,11 +1428,12 @@ class Compiler:
             )
             if fn.instr is not None:
                 try:
-                    args_dict = dict()
+                    args_dict = fn.instr._tparam_dict.copy()
                     for i, e in enumerate(s.args):
                         fnarg = fn.args[i]
                         args_dict[str(fnarg.name)] = self.comp_fnarg(e, fn, i)
                     lines = fn.instr.codegen(InstrArgs(args_dict))
+                    assert lines is not None, "codegen() forgot return?"
                     assert not isinstance(lines, str), "codegen() must give List[str]"
                     for line in lines:
                         self.add_line(line)

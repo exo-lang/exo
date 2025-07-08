@@ -895,12 +895,11 @@ __all__.append("Sm90_RmemMatrixD")
 
 
 class mma_async_impl(InstrInfo):
-    __slots__ = ["helper", "M"]
+    __slots__ = ["helper"]
 
     def instance_impl(self, M, N, ptx_dtype, ptx_atype, ptx_btype):
         helper = WgmmaHelper(M, N, ptx_dtype, ptx_atype, ptx_btype)
         self.helper = helper
-        self.M = M
         self.instr_tl = wgmma_async_instr
         self.coll_unit = cuda_warpgroup
         self.cu_utils = helper.cu_utils_ss()
@@ -913,7 +912,7 @@ class mma_async_impl(InstrInfo):
         fname = "exo_CudaUtil::" + helper.wgmma_ss_function_name()
         lines = []
         lines.append(f"{fname}(")
-        for m in range(0, self.M, 64):
+        for m in range(0, args.M, 64):
             ref = args.a.index()
             strides = args.a.to_strides_as_packed()
             lines.append(
@@ -947,7 +946,9 @@ class Sm90_zero_scale_d_f32:
         # XXX cuda_in_order is completely wrong
         self.instr_tl = cuda_in_order_instr
         self.coll_unit = cuda_warpgroup
-        self.instr_format = ["{d_data}.scale_d = 0;"]
+
+    def codegen(self, args):
+        return [f"{args.d.index()}.scale_d = 0;"]
 
 
 __all__.append("Sm90_zero_scale_d_f32")
@@ -978,22 +979,26 @@ class Sm90_mma_async_tf32(mma_async_impl):
 __all__.append("Sm90_mma_async_tf32")
 
 
-class Sm90_mma_write_d_impl:
+class Sm90_mma_write_d_impl(InstrInfo):
+    __slots__ = ["helper", "col_major"]
+
     def instance_impl(self, helper, col_major):
+        self.helper = helper
+        self.col_major = 1 if col_major else 0
         self.instr_tl = cuda_in_order_instr
         self.coll_unit = cuda_warpgroup
         self.cu_utils = helper.cu_utils_ss()
-        col_major = "true" if col_major else "false"
+
+    def codegen(self, args):
         lines = []
-
-        for m in range(0, helper.M, 64):
-            for reg_index, reg_name in enumerate(helper.dreg_names(m=m)):
+        dst = str(args.dst)
+        src = args.src.index()
+        for m in range(0, args.M, 64):
+            for reg_index, reg_name in enumerate(self.helper.dreg_names(m=m)):
                 lines.append(
-                    "exo_CudaUtil::exo_Sm90_store_d_reg<%s>({dst}, {src_data}.%s, %i, %i);"
-                    % (col_major, reg_name, m, reg_index)
+                    f"exo_CudaUtil::exo_Sm90_store_d_reg<{self.col_major}>({dst}, {src}.{reg_name}, {m}, {reg_index});"
                 )
-
-        self.instr_format = lines
+        return lines
 
 
 @instr

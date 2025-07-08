@@ -28,4 +28,5 @@ class InstrInfo:
     access_info: Dict[str, AccessInfo]
 
     # For internal use
+    _tparam_dict: dict
     _formatted_tparam_kwargs: str

@@ -15,8 +15,10 @@ Module for "new" class-based instr
             # to become a template parameter.
 
             def codegen(self, args: InstrArgs) -> List[str]:
-                # Each param x in behavior becomes args.x of type
-                # InstrWindowArg or InstrNonWindowArg.
+                # Each non-template param x in behavior becomes args.x of type
+                # InstrWindowArg or InstrNonWindowArg. Template params will
+                # be kept as their literal Python types (usually int).
+                #
                 # Return list of C lines
                 # This is optional if you define self.instr_format
 
@@ -119,6 +121,7 @@ def prefill_instr_info(info: InstrInfo, proc: LoopIR.proc):
     info.coll_unit = standalone_thread
     info.instr_tl = cpu_in_order_instr
     info.access_info = proc_default_access_info(proc, write_syms)
+    info._tparam_dict = {}
     info._formatted_tparam_kwargs = ""
 
 
@@ -352,6 +355,7 @@ class InstrTemplate:
                     arg_info.out_of_order is not None
                 ), f"{clsname}: need out_of_order flag for {nm} @ {arg.mem.name()}"
 
+        info._tparam_dict = tparam_dict
         info._formatted_tparam_kwargs = self._format_tparam_kwargs(
             self._tparam_values(**tparam_dict)
         )
