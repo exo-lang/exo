@@ -11,7 +11,7 @@ from exo.rewrite.LoopIR_scheduling import SchedulingError
 from .API_types import ProcedureBase, ExoType
 from .core import LoopIR as LoopIR
 from .core.cir import CIR_Wrapper
-from .core.instr_class import InstrTemplate, old_style_instr_info, InstrArgs
+from .core.instr_class import InstrInfo, InstrTemplate, old_style_instr_info, InstrArgs
 from .backend.LoopIR_compiler import (
     run_compile,
     compile_to_strings,

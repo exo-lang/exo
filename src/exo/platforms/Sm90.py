@@ -56,6 +56,7 @@ from ..API import (
     ScalarInfo,
     UtilInjector,
     CIR_Wrapper,
+    InstrInfo,
 )
 from ..spork.cuda_memory import *
 from ..spork.coll_algebra import cuda_warp, cuda_warpgroup
@@ -345,8 +346,18 @@ class TensorMapEncoder(WindowEncoder):
         assert len(cw_strides) == rank
         assert len(cw_dim) == rank
 
-        strides = "{ {" + ", ".join(str(s) for s in cw_strides) + "} }"
-        dim = "{ {" + ", ".join(str(s) for s in cw_dim) + "} }"
+        strides = (
+            f"(exo_Sm90_CUtensorMap_{rank}_strides)"
+            + "{ {"
+            + ", ".join(str(s) for s in cw_strides)
+            + "} }"
+        )
+        dim = (
+            f"(exo_Sm90_CUtensorMap_{rank}_dim)"
+            + "{ {"
+            + ", ".join(str(s) for s in cw_dim)
+            + "} }"
+        )
         return f"{sname}_encode({cw_dataptr}, {strides}, {dim})"
 
     def decode_array_offset(self, utils, window: CIR_Wrapper, n: int):
@@ -384,7 +395,7 @@ static inline CUtensorMap {sname}_encode(
         // Window dataptr, strides
         const void* globalAddress, exo_Sm90_CUtensorMap_{rank}_strides gmem_stride,
         // Tensor size
-        exo_Sm90_CUtensorMap_{rank}_dim gmem_dim
+        exo_Sm90_CUtensorMap_{rank}_dim gmem_dim)
 {{
     assert(gmem_stride.C_strides[{rank} - 1] == 1);
 
@@ -503,7 +514,6 @@ exo_Sm90_tma_to_smem_{rank}d(void* dst, const CUtensorMap& tensorMap, WindowOffs
 EXO_CUDA_INLINE void
 exo_Sm90_tma_to_smem_{rank}d(void* dst, const CUtensorMap& tensorMap, WindowOffsets window,
                         uint32_t exo_tma_mbarrier, uint32_t n_bytes)
-
 {{
     {elect_one_prefix}
     if (pred) {{
@@ -521,7 +531,9 @@ exo_Sm90_tma_to_smem_{rank}d(void* dst, const CUtensorMap& tensorMap, WindowOffs
     # fmt: on
 
 
-class copy_tensor_to_smem_impl:
+class copy_tensor_to_smem_impl(InstrInfo):
+    __slots__ = ["smem_box", "swizzle", "element_bits"]
+
     def instance_impl(self, smem_box, swizzled, element_bits):
         rank = len(smem_box)
         assert rank > 0
@@ -542,14 +554,22 @@ class copy_tensor_to_smem_impl:
         self.instr_tl = tma_to_smem_async_instr
         self.coll_unit = cuda_warp
         self.cu_utils.append(copy_tensor_to_smem_util(rank, False))
-        lines = [f"exo_CudaUtil::exo_Sm90_tma_to_smem_{rank}d("]
-        lines.append(f"  &{{dst_data}},")  # Pointer to SMEM
-        lines.append(f"  {{src_data}},")  # CUtensorMap
-        lines.append(f"  {{src}},")
+        self.smem_box = smem_box
+        self.element_bits = element_bits
+
+    def codegen(self, args: InstrArgs):
+        box = self.smem_box
+        lines = [f"exo_CudaUtil::exo_Sm90_tma_to_smem_{len(box)}d("]
+        smem_data = args.dst.index()
+        CUtensorMap = args.src.get_separate_dataptr()
+        src_struct = args.src.get_window()
+        lines.append(f"  &{smem_data},")
+        lines.append(f"  {CUtensorMap},")
+        lines.append(f"  {src_struct},")
         lines.append(f"  exo_tma_mbarrier,")
-        lines.append(f"  {prod(smem_box) * element_bits // 8}")
+        lines.append(f"  {prod(box) * self.element_bits // 8}")
         lines.append(");")
-        self.instr_format = lines
+        return lines
 
 
 @instr

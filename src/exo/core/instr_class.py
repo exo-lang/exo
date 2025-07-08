@@ -461,9 +461,6 @@ class OldStyleInstrInfo(InstrInfo):
                 mem = self.access_info[name].mem
                 if mem.has_window_encoder():
                     d[name] = str(value)
-                    if value.separate_dataptr():
-                        # This shouldn't exist!
-                        d[name + "_data"] = value.get_separate_dataptr()
                 if mem.has_window_indexer():
                     d[name + "_data"] = value.index()
                 d[name + "_int"] = value.get_raw_name()

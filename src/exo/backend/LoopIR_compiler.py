@@ -1781,7 +1781,10 @@ class MemCodeBuilder(object):
                 result.c_code if used_by.isdisjoint(header_memwins) else result.h_code
             )
             code = self.name_to_code_dict[name]
-            header_guard = f"EXO_MEMORY_GLOBAL_{name}"
+            if name.startswith("exo_win_") and name.count("_") == 2:
+                header_guard = name.upper()
+            else:
+                header_guard = f"EXO_MEMORY_GLOBAL_{name}"
             for user in sorted(user.name() for user in used_by):
                 lines.append(f"/* Required by {user} */")
             lines.append(f"#ifndef {header_guard}")
