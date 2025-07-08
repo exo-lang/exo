@@ -30,10 +30,22 @@ extern "C" {
 #endif
 
 
+
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
 #include <stdio.h>
 #include <stdlib.h>
 
-
+#endif
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_exo_win_2f32
+#define EXO_MEMORY_GLOBAL_exo_win_2f32
+struct exo_win_2f32 {
+    float * const data;
+    const int_fast32_t strides[2];
+};
+#endif
 // foo(
 //     N : size,
 //     x : f32[N, N] @DRAM
@@ -56,7 +68,7 @@ void foo( void *ctxt, int_fast32_t N, float* x );
 void foo( void *ctxt, int_fast32_t N, float* x ) {
 for (int_fast32_t ii = 0; ii < N % 4; ii++) {
   for (int_fast32_t joo = 0; joo < ((ii + ((N) / (4)) * 4) / (16)); joo++) {
-    x[ii * N + joo] = 0.0f;
+    x[(ii) * N + joo] = 0.0f;
   }
 }
 }

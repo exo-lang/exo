@@ -45,12 +45,17 @@ void caller( void *ctxt );
 #endif  // TEST_H
 #include "test.h"
 
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
 #include <stdio.h>
 #include <stdlib.h>
 
-#ifndef EXO_WIN_1F32
-#define EXO_WIN_1F32
-struct exo_win_1f32{
+#endif
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_exo_win_1f32
+#define EXO_MEMORY_GLOBAL_exo_win_1f32
+struct exo_win_1f32 {
     float * const data;
     const int_fast32_t strides[1];
 };
@@ -67,7 +72,7 @@ static void callee( void *ctxt, int_fast32_t N, struct exo_win_1f32 A );
 // )
 static void callee( void *ctxt, int_fast32_t N, struct exo_win_1f32 A ) {
 for (int_fast32_t i = 0; i < N; i++) {
-  A.data[i * A.strides[0]] = 0.0f;
+  A.data[(i) * (A.strides[0])] = 0.0f;
 }
 }
 
@@ -76,7 +81,7 @@ for (int_fast32_t i = 0; i < N; i++) {
 // )
 void caller( void *ctxt ) {
 float *A = (float*) malloc(100 * sizeof(*A));
-callee(ctxt,10,(struct exo_win_1f32){ &A[10], { 1 } });
+callee(ctxt, 10, (struct exo_win_1f32) { &A[10], {1} });
 free(A);
 }
 

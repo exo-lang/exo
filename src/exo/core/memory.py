@@ -117,11 +117,7 @@ class MemGlobalC:
             self.depends_on = ()
 
 
-# TODO remove vector_size
-def generate_offset(indices, strides, vector_size=1):
-    assert isinstance(vector_size, int), "generalize this if needed"
-    assert vector_size >= 1
-
+def generate_offset(indices, strides):
     def index_expr(i, s):
         if s == "0" or i == "0":
             return ""
@@ -139,97 +135,7 @@ def generate_offset(indices, strides, vector_size=1):
     exprs = [e for i, s in zip(indices, strides) if (e := index_expr(i, s)) != ""]
 
     expr = " + ".join(exprs) if len(exprs) > 0 else "0"
-    if vector_size != 1 and expr != "0":
-        expr = f"({expr}) / {vector_size}"
-
     return expr
-
-
-# TODO remove entirely
-class WindowStructCtx(object):
-    __slots__ = [
-        "_ctype",
-        "_type_shorthand",
-        "_n_dims",
-        "_is_const",
-        "_separate_dataptr",
-        "_srcinfo",
-        "_struct_name",
-        "_guard_macro",
-    ]
-
-    def __init__(
-        self, ctype, type_shorthand, n_dims, is_const, separate_dataptr, srcinfo
-    ):
-        """For internal use of LoopIR compiler"""
-        self._ctype = ctype
-        self._type_shorthand = type_shorthand
-        self._n_dims = n_dims
-        self._is_const = is_const
-        self._separate_dataptr = separate_dataptr
-        self._srcinfo = srcinfo
-
-        self._struct_name = None
-        self._guard_macro = None
-
-    def generate_default(self, memwin_name, data_ctype=None, mangle_parameters=None):
-        sname = self.struct_name(memwin_name, mangle_parameters)
-        if data_ctype is None:
-            data_ctype = self._ctype
-        # Spacing difference gives byte-for-byte compatibility with Exo 1.
-        struct_cptr = "const " * self._is_const + data_ctype + " *"
-        dataptr_ctype = "const " * self._is_const + data_ctype + "*"
-
-        sdef = (
-            f"struct {sname}{{\n"
-            f"    {struct_cptr} const data;\n"
-            f"    const int_fast32_t strides[{self._n_dims}];\n"
-            f"}};"
-        )
-        return dataptr_ctype, sdef
-
-    def struct_name(self, memwin_name: str, mangle_parameters=None) -> str:
-        """Must be called at least once (and consistently) to name the struct."""
-        assert isinstance(memwin_name, str), "use str (avoid silent mistakes)"
-        assert memwin_name
-
-        if mangle_parameters:
-            for p in mangle_parameters:
-                assert isinstance(p, int), "Only support mangled names for ints"
-                if p >= 0:
-                    memwin_name += f"_{p}"
-                else:
-                    memwin_name += f"_n{-p}"
-
-        # As promised in MemWin.separate_dataptr, if True, disable const suffix
-        const_suffix = "c" if self._is_const and not self._separate_dataptr else ""
-        base_sname = f"exo_win_{self._n_dims}{self._type_shorthand}{const_suffix}"
-        mem_suffix = "" if memwin_name == "DRAM" else "_" + memwin_name
-        sname = base_sname + mem_suffix
-
-        assert self._struct_name is None or self.struct_name == sname
-        self._struct_name = sname
-        self._guard_macro = base_sname.upper() + mem_suffix  # case-sensitive
-
-        return sname
-
-    def n_dims(self) -> int:
-        return self._n_dims
-
-    def is_const(self) -> bool:
-        return self._is_const
-
-    def ctype(self) -> str:
-        """return C name for scalar type tensor is made of e.g. float, uint16_t"""
-        return self._ctype
-
-    def type_shorthand(self) -> str:
-        """e.g. f32, u16"""
-        return self._type_shorthand
-
-    def srcinfo(self):
-        """Convert to str and include in error messages"""
-        return self._srcinfo
 
 
 class MemWin(ABC):
@@ -273,82 +179,14 @@ class MemWin(ABC):
         """
         return ""
 
-    # TODO remove
     @classmethod
-    @abstractmethod
-    def window_definition(cls, ctx: WindowStructCtx):
-        """
-        C code defining struct.
-        Get the required parameters from the WindowStructCtx.
-        Return (dataptr : str, window_struct : str)
+    def window(cls, basetyp, baseptr, indices, strides, srcinfo):
+        offset = generate_offset(indices, strides)
 
-        dataptr: C type for a raw pointer (e.g. __m256d*, float*)
+        if basetyp.is_win():
+            baseptr = f"{baseptr}.data"
 
-        window_struct: C code defining a struct named ctx.struct_name()
-
-        The compiler will include a header guard for you.
-        """
-        raise NotImplementedError()
-
-    # TODO remove
-    @classmethod
-    def separate_dataptr(cls):
-        """separate_dataptr: return False for the usual case.
-
-        If True, the window is passed to functions as separate arguments
-        (dataptr, window_struct) rather than a combined window struct;
-        the window struct only contains layout information in this case,
-        and you must define this custom layout (see window(...))
-
-        In this case, the layout-only window struct is the same for both
-        const and non-const windows.
-        """
-        return False
-
-    # TODO go back to Exo 1 features only
-    @classmethod
-    def window(cls, basetyp, in_expr, indices, strides, srcinfo) -> str:
-        """
-        Return one of the following:
-
-        Base case:      data : str
-        Custom layout:  (dataptr : str, layout : str)
-
-        Where dataptr and layout are both C strings used to initialize
-        the window struct. (A default layout is provided in non-custom cases).
-        We implicitly take dataptr = &data in the base case.
-
-        If you wish to implement can_read/write/reduce, you should not use
-        a custom layout. Furthermore, currently custom layouts don't support
-        reducing the dimensionality of a window (can be changed later).
-
-        basetyp: LoopIR.Tensor instance
-
-        in_expr: C expression of the following type:
-
-          basetyp.is_win() = false: dense tensor type (as generated by alloc)
-            Won't occur if implementing a SpecialWindow
-
-          basetyp.is_win() = True: window type
-            str if no separate_dataptr, else (dataptr : str, layout : str)
-
-        indices: C expressions of indices (offsets per dimension)
-          e.g. [1:10, 42:46] -> ["1", "42"] (we don't provide the slice sizes)
-
-        strides: C expressions of per-dim strides, in units of scalars. (*)
-          (*) consider passing vector_size to generate_offset.
-
-        srcinfo: include this when throwing an exception.
-        """
-        return cls.default_window(1, basetyp, in_expr, indices, strides, srcinfo)
-
-    # TODO remove
-    @classmethod
-    def default_window(cls, vector_size, basetyp, in_expr, indices, strides, srcinfo):
-        """Helper for simple window(...) implementations. Don't override this"""
-        offset = generate_offset(indices, strides, vector_size)
-        dataptr = f"{in_expr}.data" if basetyp.is_win() else in_expr
-        return f"{dataptr}[{offset}]"
+        return f"{baseptr}[{offset}]"
 
     @classmethod
     @abstractmethod
@@ -486,14 +324,6 @@ class Memory(AllocableMemWin):
     def free(cls, new_name, prim_type, shape, srcinfo):
         raise NotImplementedError()
 
-    # TODO remove
-    @classmethod
-    def window_definition(cls, ctx: WindowStructCtx):
-        """This is not correct for non-scalar cases but we provide this
-        for backwards compatibility with Exo 1 ... programs worked OK
-        if they never materialized the faulty default window struct"""
-        return ctx.generate_default("DRAM")
-
 
 @dataclass(slots=True)
 class BarrierTypeTraits:
@@ -546,102 +376,9 @@ class BarrierType(AllocableMemWin):
     def free(cls, new_name, prim_type, shape, srcinfo):
         return ""
 
-    # TODO remove
-    @classmethod
-    def window_definition(cls, ctx):
-        assert False, "Internal Exo error: window of barrier?"
-
     @classmethod
     def traits(cls) -> BarrierTypeTraits:
         raise NotImplementedError()
-
-
-# TODO remove
-class SpecialWindowFromMemoryCtx(object):
-    # TODO since we only give access to runtime window struct,
-    # it's currently not possible to compile-time assert stride info.
-    __slots__ = [
-        "_src_data",
-        "_src_layout",
-        "_dst_dataptr_ctype",
-        "_dst_struct_name",
-        "_tensor_type",
-        "_shape_strs",
-        "_is_const",
-        "_ctype",
-        "_type_shorthand",
-        "_srcinfo",
-    ]
-
-    def __init__(
-        self,
-        src_data,
-        src_layout,
-        dst_dataptr_ctype,
-        dst_struct_name,
-        tensor_type,
-        shape_strs,
-        is_const,
-        ctype,
-        type_shorthand,
-        srcinfo,
-    ):
-        """For internal use of LoopIR compiler"""
-        self._src_data = src_data
-        self._src_layout = src_layout
-        self._dst_dataptr_ctype = dst_dataptr_ctype
-        self._dst_struct_name = dst_struct_name
-        self._tensor_type = tensor_type
-        self._shape_strs = shape_strs
-        self._is_const = is_const
-        self._ctype = ctype
-        self._type_shorthand = type_shorthand
-        self._srcinfo = srcinfo
-
-    def src_data(self):
-        """C initializer for source window data pointer
-
-        Passed through from Memory.window of the source memory type"""
-        return self._src_data
-
-    def src_layout(self):
-        """Untyped C initializer for source window layout (e.g. strides)
-
-        Passed through (or default strides) from Memory.window of
-        the source memory type"""
-        return self._src_layout
-
-    def dst_dataptr_ctype(self):
-        """C type name of SpecialWindow data pointer (you defined this)"""
-        return self._dst_dataptr_ctype
-
-    def dst_struct_name(self):
-        """C struct name of SpecialWindow window struct (you defined this)"""
-        return self._dst_struct_name
-
-    def tensor_type(self) -> LoopIR.Tensor:
-        """return LoopIR.Tensor type of input tensor"""
-        assert isinstance(self._tensor_type, LoopIR.Tensor)
-        return self._tensor_type
-
-    def shape_strs(self):
-        """C strings defining dimension sizes of window"""
-        return self._shape_strs
-
-    def is_const(self) -> bool:
-        return self._is_const
-
-    def ctype(self) -> str:
-        """return C name for scalar type tensor is made of e.g. float, uint16_t"""
-        return self._ctype
-
-    def type_shorthand(self) -> str:
-        """e.g. f32, u16"""
-        return self._type_shorthand
-
-    def srcinfo(self):
-        """Convert to str and include in error messages"""
-        return self._srcinfo
 
 
 class SpecialWindow(MemWin):
@@ -652,20 +389,6 @@ class SpecialWindow(MemWin):
     @abstractmethod
     def source_memory_type(cls) -> type:
         """Return memory type expected as input to window statement"""
-        raise NotImplementedError()
-
-    # TODO remove
-    @classmethod
-    @abstractmethod
-    def from_memory(cls, ctx: SpecialWindowFromMemoryCtx):
-        """Callback for generating C code initializing a special window
-        from a window to a tensor of the source memory type.
-
-        If separate_dataptr(), return (dataptr : str, layout : str) of
-        C expressions that can initialize the two respective window variables.
-        Otherwise, return a single C expression that can be used
-        to initialize a struct of the window type.
-        """
         raise NotImplementedError()
 
     # Remember to implement everything in base class MemWin as well

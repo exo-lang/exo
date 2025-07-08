@@ -27,8 +27,6 @@ from ..core.memory import (
     BarrierType,
     DRAM,
     StaticMemory,
-    WindowStructCtx,
-    SpecialWindowFromMemoryCtx,
 )
 from ..core.c_window import (
     UtilInjector,
@@ -639,12 +637,17 @@ class Compiler:
         self.global_non_const = set(e for e, _ in get_writes_of_stmts(self.proc.body))
         self.force_const = set()  # For ExtWithContext.force_const
 
+        # Register new variables
         for a in proc.args:
             mem = a.mem if a.type.is_numeric() else None
             self.new_varname(a.name, typ=a.type, mem=mem)
             if a.type.is_real_scalar():
                 self._scalar_refs.add(a.name)
 
+        # Compile preds in two steps
+        #   * Scan for known (constant) strides and leave comments
+        #   * Emit EXO_ASSUME for other predicates (deferred)
+        runtime_preds = []
         for pred in proc.preds:
             if isinstance(pred, LoopIR.Const):
                 # TODO: filter these out earlier?
@@ -663,13 +666,17 @@ class Compiler:
             else:
                 # Default to just informing the compiler about the constraint
                 # on a best-effort basis
-                self.add_line(f"EXO_ASSUME({self.comp_e(pred)});")
+                runtime_preds.append(pred)
 
         for a in proc.args:
             # NOTE: Moved below preds, so that known_strides gets filled
-            # before initializing new variables.
+            # before initializing new variables, but above EXO_ASSUME,
+            # since comp_e expects env_window_features to be initialized.
             self.init_window_features(a, a.name)
             self.append_fnarg_decl(a, self.env[a.name], arg_strs, typ_comments)
+
+        for pred in runtime_preds:
+            self.add_line(f"EXO_ASSUME({self.comp_e(pred)});")
 
         if not self.static_memory_check(self.proc):
             raise MemGenError("Cannot generate static memory in non-leaf procs")
@@ -950,20 +957,25 @@ class Compiler:
         else:
             assert False, "bad case!"
 
-    def access_str(self, nm, idx_list) -> str:
-        buf = self.env[nm]
+    def access_str(self, nm, idx_list, srcinfo) -> str:
+        assert isinstance(srcinfo, SrcInfo)
         if nm in self._scalar_refs:
-            return f"*{buf}"
+            return f"*{self.env[nm]}"
         elif not idx_list:
-            return buf
-        type = self.envtyp[nm]
-        cirs = [lift_to_cir(i, self.range_env) for i in idx_list]
-        idx_expr = self.get_idx_offset(nm, type, cirs)
-        idx_expr_s = self.comp_cir(simplify_cir(idx_expr), prec=0)
-        if not type.is_win():
-            return f"{buf}[{idx_expr_s}]"
-        else:
-            return f"{buf}.data[{idx_expr_s}]"
+            return self.env[nm]
+        cw_offsets = [self.wrap_cir(idx, "idx", i) for i, idx in enumerate(idx_list)]
+        features = self.env_window_features[nm].new_window(
+            cw_offsets, [None] * len(cw_offsets), srcinfo
+        )
+        indexer = features.get_indexer()
+        result = indexer.index(
+            self._util_injector.with_tag(features.get_memwin_name()), features
+        )
+        assert isinstance(result, WindowIndexerResult)
+        code = result.code
+        if result.is_ptr:
+            code = f"*({code})"
+        return code
 
     def shape_strs(self, shape, prec=100) -> str:
         comp_res = [
@@ -971,54 +983,6 @@ class Compiler:
             for i in shape
         ]
         return comp_res
-
-    # TODO remove
-    def tensor_strides(self, shape) -> List[CIR.expr]:
-        szs = [lift_to_cir(i, self.range_env) for i in shape]
-        assert len(szs) >= 1
-        strides = [CIR.Const(1)]
-        wrapped_stride = self.wrap_cir(szs[-1], "tensor_strides")
-        for sz in reversed(szs[:-1]):
-            s = wrapped_stride.exo_get_cir()
-            if hasattr(s, "is_non_neg"):
-                s = s.update(is_non_neg=True)  # TODO rethink is_non_neg
-            strides.append(s)
-            wrapped_stride = sz * wrapped_stride
-        strides.reverse()
-        return strides
-
-    # works for any tensor or window type
-    # TODO remove
-    def get_strides(self, name: Sym, typ) -> List[CIR.expr]:
-        if typ.is_win():
-            res = []
-            for i in range(len(typ.shape())):
-                if stride := self._known_strides.get((name, i)):
-                    res.append(stride)
-                else:
-                    # TODO externalize soon
-                    expr = CIR_Wrapper(
-                        CIR.Read(name, False), self, "get_strides"
-                    ).strides[i]
-                    res.append(expr.exo_get_cir())
-            return res
-        else:
-            return self.tensor_strides(typ.shape())
-
-    # TODO remove
-    def get_strides_s(self, name: Sym, typ) -> List[str]:
-        all_strides = self.get_strides(name, typ)
-        return [self.comp_cir(simplify_cir(i), prec=0) for i in all_strides]
-
-    def get_idx_offset(self, name: Sym, typ, idx) -> CIR:
-        strides = self.get_strides(name, typ)
-        assert len(strides) == len(idx)
-        acc = CIR.BinOp("*", idx[0], strides[0], True)
-        for i, s in zip(idx[1:], strides[1:]):
-            new = CIR.BinOp("*", i, s, True)
-            acc = CIR.BinOp("+", acc, new, True)
-
-        return acc
 
     def init_window_features(self, node, symbol):
         """Init env_window_features for variable and add global memory code"""
@@ -1157,7 +1121,7 @@ class Compiler:
 
     def debug_comment_window_features(self, features: WindowFeatures):
         self.add_line("/*")
-        self.add_line(f"mem = {features.get_mem().name()}")
+        self.add_line(f"mem = {features.get_memwin_name()}")
         self.add_line(
             f"scalars_per_packed_tensor = {features._scalars_per_packed_tensor}"
         )
@@ -1198,7 +1162,7 @@ class Compiler:
             idx = []
             if not typ.is_real_scalar():
                 idx = s.idx
-            lhs = self.access_str(s.name, idx)
+            lhs = self.access_str(s.name, idx, s.srcinfo)
             rhs = self.comp_e(s.rhs)
 
             # possibly cast!
@@ -1548,7 +1512,7 @@ class Compiler:
             features._encoder = encoder_mem.make_window_encoder(typ, n_dims, is_const)
 
         # Package InstrWindowArg
-        indexer_mem = features.get_mem()
+        indexer_mem = features.get_memwin()
         return InstrWindowArg(
             self._util_injector.with_tag(encoder_mem.name()),
             self._util_injector.with_tag(indexer_mem.name()),
@@ -1570,7 +1534,7 @@ class Compiler:
                     f"'{e.name}' in memory '{mem.name()}'"
                 )
 
-            return self.access_str(e.name, e.idx)
+            return self.access_str(e.name, e.idx, e.srcinfo)
 
         elif isinstance(e, LoopIR.WindowExpr):
             # WindowExpr needs to be handled differently depending on usage
@@ -1626,9 +1590,8 @@ class Compiler:
             return e.f.compile(args, e.type.basetype().ctype())
 
         elif isinstance(e, LoopIR.StrideExpr):
-            basetyp = self.envtyp[e.name]
-            stride = self.get_strides(e.name, basetyp)[e.dim]
-            return self.comp_cir(simplify_cir(stride), prec=0)
+            features = self.env_window_features[e.name]
+            return str(features.get_array_stride_as_scalars(e.dim))
 
         elif isinstance(e, LoopIR.ReadConfig):
             if not e.config.is_allow_rw():

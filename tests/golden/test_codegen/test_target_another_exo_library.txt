@@ -30,10 +30,22 @@ extern "C" {
 #endif
 
 
+
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
 #include <stdio.h>
 #include <stdlib.h>
 
-
+#endif
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_exo_win_1f32
+#define EXO_MEMORY_GLOBAL_exo_win_1f32
+struct exo_win_1f32 {
+    float * const data;
+    const int_fast32_t strides[1];
+};
+#endif
 // foo(
 //     n : size,
 //     x : f32[n] @DRAM
@@ -97,10 +109,22 @@ extern "C" {
 #endif
 
 
+
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
 #include <stdio.h>
 #include <stdlib.h>
 
-
+#endif
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_exo_win_1f32
+#define EXO_MEMORY_GLOBAL_exo_win_1f32
+struct exo_win_1f32 {
+    float * const data;
+    const int_fast32_t strides[1];
+};
+#endif
 // bar(
 //     n : size,
 //     y : f32[n] @DRAM
@@ -123,7 +147,7 @@ void bar( void *ctxt, int_fast32_t n, float* y );
 //     y : f32[n] @DRAM
 // )
 void bar( void *ctxt, int_fast32_t n, float* y ) {
-foo(NULL, (n + 0), (y));
+foo(NULL, (n + 0), y);
 }
 
 

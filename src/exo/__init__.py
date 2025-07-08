@@ -17,8 +17,6 @@ from .core.memory import (
     Memory,
     SpecialWindow,
     DRAM,
-    WindowStructCtx,
-    SpecialWindowFromMemoryCtx,
     memwin_template,
 )
 from .core.extern import Extern
@@ -42,8 +40,6 @@ __all__ = [
     "MemWin",
     "Memory",
     "SpecialWindow",
-    "WindowStructCtx",
-    "SpecialWindowFromMemoryCtx",
     "memwin_template",
     "DRAM",
     "Extern",
