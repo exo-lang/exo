@@ -557,7 +557,7 @@ def xgemm_Sm80_fence(M: size, N: size, K: size, A_host: f32[M,K], B_host: f32[K,
                 B_smem : f32[2, K0, N1] @ CudaSmemLinear
 
                 # Zero-out accumulator (warp code)
-                D_rmem : f32[M1/Mw, N1/Nw, Mw/16, Nw/8, 16, 8] @ Sm80_RmemMatrixD
+                D_rmem : f32[M1/Mw, N1/Nw, Mw/16, Nw/8, 16, 8] @ Sm80_RmemMatrixD(16, 8)
                 for mw in cuda_threads(0, M1/Mw, unit=(N1/Nw) * cuda_warp):
                     for nw in cuda_threads(0, N1/Nw, unit=cuda_warp):
                         for m_seq in seq(0, Mw/16):
@@ -592,7 +592,7 @@ def xgemm_Sm80_fence(M: size, N: size, K: size, A_host: f32[M,K], B_host: f32[K,
                         for mw in cuda_threads(0, M1 / Mw, unit=(N1/Nw) * cuda_warp):
                             for nw in cuda_threads(0, N1 / Nw, unit=cuda_warp):
                                 # Load all B matrix tiles ahead of time
-                                B_rmem : f32[K0/MMA_K, Nw/8, MMA_K, 8] @ Sm80_RmemMatrixB
+                                B_rmem : f32[K0/MMA_K, Nw/8, MMA_K, 8] @ Sm80_RmemMatrixB(8, MMA_K)
                                 for n_seq in seq(0, Nw / 8, pragma_unroll=0):
                                     for k_seq in seq(0, K0 / MMA_K, pragma_unroll=0):
                                         Sm80_mma_load_b_tf32(B_rmem[k_seq,n_seq,:,:],
@@ -602,7 +602,7 @@ def xgemm_Sm80_fence(M: size, N: size, K: size, A_host: f32[M,K], B_host: f32[K,
 
                                 for m_seq in seq(0, Mw / 16, pragma_unroll=0):
                                     # Load A matrix tiles needed for m iteration
-                                    A_rmem : f32[K0/MMA_K, 16, MMA_K] @ Sm80_RmemMatrixA
+                                    A_rmem : f32[K0/MMA_K, 16, MMA_K] @ Sm80_RmemMatrixA(16, MMA_K)
                                     for k_seq in seq(0, K0 / MMA_K, pragma_unroll=0):
                                         Sm80_mma_load_a_tf32(A_rmem[k_seq,:,:],
                                                              A_smem[1 - k1 % 2,

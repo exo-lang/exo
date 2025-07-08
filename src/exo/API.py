@@ -10,7 +10,7 @@ from exo.rewrite.LoopIR_scheduling import SchedulingError
 
 from .API_types import ProcedureBase, ExoType
 from .core import LoopIR as LoopIR
-from .core.instr_class import InstrTemplate, old_style_instr_info
+from .core.instr_class import InstrTemplate, old_style_instr_info, InstrArgs
 from .backend.LoopIR_compiler import (
     run_compile,
     compile_to_strings,
@@ -18,7 +18,15 @@ from .backend.LoopIR_compiler import (
 )
 from .core.configs import Config
 from .frontend.boundscheck import CheckBounds
-from .core.memory import MemWin, Memory, SpecialWindow, memwin_template
+from .core.c_window import WindowEncoder, WindowIndexer, WindowIndexerResult
+from .core.memory import (
+    MemWin,
+    Memory,
+    SpecialWindow,
+    memwin_template,
+    window_encoder,
+    window_indexer,
+)
 from .frontend.parse_fragment import parse_fragment
 from .frontend.pattern_match import match_pattern
 from .core.prelude import *

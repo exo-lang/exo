@@ -9,6 +9,7 @@ from exo import proc
 from exo.platforms.x86 import *
 from exo.stdlib.scheduling import *
 
+can_skip = True
 old_split = repeat(divide_loop)
 old_unroll = repeat(unroll_loop)
 
@@ -43,7 +44,7 @@ def test_avx2_memcpy(compiler):
     #   a Target, which has certain memories available. Then we can say that
     #   e.g. Skylake-X has AVX2, AVX512, etc.
     fn = compiler.compile(
-        memcpy_avx2, skip_on_fail=True, CMAKE_C_FLAGS="-march=skylake"
+        memcpy_avx2, skip_on_fail=can_skip, CMAKE_C_FLAGS="-march=skylake"
     )
 
     for n in (7, 8, 9, 31, 32, 33, 127, 128, 129):
@@ -74,7 +75,7 @@ def test_avx2_simple_math(compiler):
             mm256_storeu_ps(x[8 * i : 8 * i + 8], xVec)
 
     fn = compiler.compile(
-        simple_math_avx2, skip_on_fail=True, CMAKE_C_FLAGS="-march=skylake"
+        simple_math_avx2, skip_on_fail=can_skip, CMAKE_C_FLAGS="-march=skylake"
     )
 
     for n in (8, 16, 24, 32, 64, 128):
@@ -136,7 +137,7 @@ def test_gen_avx2_simple_math_scheduling(golden, simple_math_avx2_sched):
 @pytest.mark.isa("AVX2")
 def test_exec_avx2_simple_math_scheduling(compiler, simple_math_avx2_sched):
     fn = compiler.compile(
-        simple_math_avx2_sched, skip_on_fail=True, CMAKE_C_FLAGS="-march=skylake"
+        simple_math_avx2_sched, skip_on_fail=can_skip, CMAKE_C_FLAGS="-march=skylake"
     )
 
     for n in (8, 16, 24, 32, 64, 128):
@@ -309,7 +310,7 @@ def test_gen_avx2_sgemm_full(avx2_sgemm_full):
 @pytest.mark.isa("AVX2")
 def test_avx2_sgemm_full(compiler, avx2_sgemm_full):
     fn = compiler.compile(
-        avx2_sgemm_full, skip_on_fail=True, CMAKE_C_FLAGS="-march=skylake"
+        avx2_sgemm_full, skip_on_fail=can_skip, CMAKE_C_FLAGS="-march=skylake"
     )
 
     _sgemm_test_cases(
@@ -331,7 +332,7 @@ def test_avx2_sgemm_6x16(compiler, avx2_sgemm_6x16):
         avx2_sgemm_6x16(K, C, A, B)
 
     fn = compiler.compile(
-        avx2_sgemm_6x16_wrapper, skip_on_fail=True, CMAKE_C_FLAGS="-march=skylake"
+        avx2_sgemm_6x16_wrapper, skip_on_fail=can_skip, CMAKE_C_FLAGS="-march=skylake"
     )
 
     _sgemm_test_cases(fn, M=[6], N=[16], K=range(1, 512))
@@ -423,7 +424,7 @@ def test_avx512_sgemm_full(compiler, spec_kernel):
                     C[i, j] += A[i, k] * B[k, j]
 
     fn = compiler.compile(
-        sgemm_full, skip_on_fail=True, CMAKE_C_FLAGS="-march=skylake-avx512"
+        sgemm_full, skip_on_fail=can_skip, CMAKE_C_FLAGS="-march=skylake-avx512"
     )
 
     _sgemm_test_cases(
@@ -491,7 +492,7 @@ def simple_buffer_select():
 @pytest.mark.isa("AVX2")
 def test_avx2_select_ps(compiler, simple_buffer_select):
     fn = compiler.compile(
-        simple_buffer_select, skip_on_fail=True, CMAKE_C_FLAGS="-march=skylake"
+        simple_buffer_select, skip_on_fail=can_skip, CMAKE_C_FLAGS="-march=skylake"
     )
 
     def run_and_check(N, x, v, y, z):
@@ -561,7 +562,7 @@ def test_avx2_assoc_reduce_add_ps(compiler):
     accumulate_buffer = simplify(accumulate_buffer)
 
     fn = compiler.compile(
-        accumulate_buffer, skip_on_fail=True, CMAKE_C_FLAGS="-march=skylake"
+        accumulate_buffer, skip_on_fail=can_skip, CMAKE_C_FLAGS="-march=skylake"
     )
 
     def run_and_check(x, result):
@@ -621,7 +622,7 @@ def test_mm256_broadcast_ss_scalar(compiler):
 
     fn = compiler.compile(
         [mm256_broadcast_ss_scalar_wrapper, mm256_broadcast_ss_scalar_ref],
-        skip_on_fail=True,
+        skip_on_fail=can_skip,
         CMAKE_C_FLAGS="-march=skylake",
     )
 
@@ -674,7 +675,7 @@ def test_mm256_add_ps(compiler):
 
     fn = compiler.compile(
         [mm256_add_ps_wrapper, mm256_add_ps_ref],
-        skip_on_fail=True,
+        skip_on_fail=can_skip,
         CMAKE_C_FLAGS="-march=skylake",
     )
 
@@ -750,7 +751,7 @@ def test_avx2_reg_copy_ps(compiler):
 
     fn = compiler.compile(
         [avx2_reg_copy_ps_wrapper, avx2_reg_copy_ps_ref],
-        skip_on_fail=True,
+        skip_on_fail=can_skip,
         CMAKE_C_FLAGS="-march=skylake",
     )
 
@@ -811,7 +812,7 @@ def test_avx2_sign_ps(compiler):
 
     fn = compiler.compile(
         [avx2_sign_ps_wrapper, avx2_sign_ps_ref],
-        skip_on_fail=True,
+        skip_on_fail=can_skip,
         CMAKE_C_FLAGS="-march=skylake",
     )
 
@@ -873,7 +874,7 @@ def test_avx2_reduce_add_wide_ps(compiler):
 
     fn = compiler.compile(
         [avx2_reduce_add_wide_ps_wrapper, avx2_reduce_add_wide_ps_ref],
-        skip_on_fail=True,
+        skip_on_fail=can_skip,
         CMAKE_C_FLAGS="-march=skylake",
     )
 
@@ -930,7 +931,7 @@ def test_mm256_setzero_pd(compiler):
 
     fn = compiler.compile(
         [mm256_setzero_pd_wrapper, mm256_setzero_pd_ref],
-        skip_on_fail=True,
+        skip_on_fail=can_skip,
         CMAKE_C_FLAGS="-march=skylake",
     )
     dst = np.array(
@@ -977,7 +978,7 @@ def test_mm256_fmadd_pd(compiler):
 
     fn = compiler.compile(
         [mm256_fmadd_pd_wrapper, mm256_fmadd_pd_ref],
-        skip_on_fail=True,
+        skip_on_fail=can_skip,
         CMAKE_C_FLAGS="-march=skylake",
     )
     dst = np.array(
@@ -1034,7 +1035,7 @@ def test_mm256_broadcast_sd(compiler):
 
     fn = compiler.compile(
         [mm256_broadcast_sd_wrapper, mm256_broadcast_sd_ref],
-        skip_on_fail=True,
+        skip_on_fail=can_skip,
         CMAKE_C_FLAGS="-march=skylake",
     )
     out = np.array(
@@ -1074,7 +1075,7 @@ def test_mm256_broadcast_sd_scalar(compiler):
 
     fn = compiler.compile(
         [mm256_broadcast_sd_scalar_wrapper, mm256_broadcast_sd_scalar_ref],
-        skip_on_fail=True,
+        skip_on_fail=can_skip,
         CMAKE_C_FLAGS="-march=skylake",
     )
     out = np.array(
@@ -1120,7 +1121,7 @@ def test_mm256_mul_pd(compiler):
 
     fn = compiler.compile(
         [mm256_mul_pd_wrapper, mm256_mul_pd_ref],
-        skip_on_fail=True,
+        skip_on_fail=can_skip,
         CMAKE_C_FLAGS="-march=skylake",
     )
     out = np.array(
@@ -1185,7 +1186,7 @@ def test_mm256_add_pd(compiler):
 
     fn = compiler.compile(
         [mm256_add_pd_wrapper, mm256_add_pd_ref],
-        skip_on_fail=True,
+        skip_on_fail=can_skip,
         CMAKE_C_FLAGS="-march=skylake",
     )
     out = np.array(
@@ -1280,7 +1281,7 @@ def test_avx2_select_pd(compiler):
 
     fn = compiler.compile(
         [avx2_select_pd_wrapper, avx2_select_pd_ref],
-        skip_on_fail=True,
+        skip_on_fail=can_skip,
         CMAKE_C_FLAGS="-march=skylake",
     )
     out = np.array(
@@ -1362,7 +1363,7 @@ def test_avx2_assoc_reduce_add_pd(compiler):
 
     fn = compiler.compile(
         [avx2_assoc_reduce_add_pd_wrapper, avx2_assoc_reduce_add_pd_ref],
-        skip_on_fail=True,
+        skip_on_fail=can_skip,
         CMAKE_C_FLAGS="-march=skylake",
     )
     x = np.array(
@@ -1404,7 +1405,7 @@ def test_avx2_sign_pd(compiler):
 
     fn = compiler.compile(
         [avx2_sign_pd_wrapper, avx2_sign_pd_ref],
-        skip_on_fail=True,
+        skip_on_fail=can_skip,
         CMAKE_C_FLAGS="-march=skylake",
     )
     dst = np.array(
@@ -1454,7 +1455,7 @@ def test_avx2_reduce_add_wide_pd(compiler):
 
     fn = compiler.compile(
         [avx2_reduce_add_wide_pd_wrapper, avx2_reduce_add_wide_pd_ref],
-        skip_on_fail=True,
+        skip_on_fail=can_skip,
         CMAKE_C_FLAGS="-march=skylake",
     )
     dst = np.array(
@@ -1504,7 +1505,7 @@ def test_avx2_reg_copy_pd(compiler):
 
     fn = compiler.compile(
         [avx2_reg_copy_pd_wrapper, avx2_reg_copy_pd_ref],
-        skip_on_fail=True,
+        skip_on_fail=can_skip,
         CMAKE_C_FLAGS="-march=skylake",
     )
     dst = np.array(

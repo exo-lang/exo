@@ -421,6 +421,20 @@ loopir_from_uast_type_table = {
 }
 
 
+@extclass(LoopIR.proc)
+def is_const_param(proc, sym: Sym):
+    assert isinstance(sym, Sym)
+    assert sym in (a.name for a in proc.args)
+    if proc.instr is None:
+        # This is really expensive, we should cache this
+        write_syms = set(x for x, _ in get_writes_of_stmts(proc.body))
+        return sym not in write_syms
+    else:
+        access = proc.instr.access_info.get(str(sym))
+        if access is not None:
+            return access.const
+
+
 @extclass(T.Tensor)
 def as_tensor_type(t):
     return t

@@ -13,6 +13,7 @@ class AccessInfo:
     ext_usage_tl: List[Usage_tl] = tuple()
     out_of_order: bool = None
     access_by_owner_only: bool = False
+    const: bool = False
 
 
 @dataclass(init=False, slots=True)

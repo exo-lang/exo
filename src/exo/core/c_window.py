@@ -34,7 +34,7 @@ class WindowFeatures:
 
     _mem: Type["MemWin"]
     _scalars_per_packed_tensor: int
-    _raw_name: str
+    _varname: CIR_Wrapper
     _dataptr: CIR_Wrapper
     _array_strides_as_packed: Tuple[CIR_Wrapper]  # empty if strides not supported
     _array_offsets: Tuple[CIR_Wrapper]
@@ -63,7 +63,7 @@ class WindowFeatures:
         return self._mem.name()
 
     def get_raw_name(self) -> str:
-        return self._raw_name
+        return str(self._varname)
 
     def get_dataptr(self) -> CIR_Wrapper:
         """C syntax for data pointer of the window"""
@@ -178,12 +178,18 @@ class WindowFeatures:
         assert isinstance(indexer, WindowIndexer)
         return indexer
 
+    def separate_dataptr(self) -> bool:
+        if self._encoder is None:
+            return False
+        else:
+            return self._encoder.separate_dataptr()
+
     def srcinfo(self) -> SrcInfo:
         return self._srcinfo
 
     def new_window(
         self,
-        idxs: List[CIR_Wrapper],
+        idxs: List[int | CIR_Wrapper],
         interval_sizes: List[Optional[CIR_Wrapper]],
         srcinfo: SrcInfo,
     ):
@@ -198,6 +204,7 @@ class WindowFeatures:
         (implies trailing 0:hi which have no effect).
 
         """
+        assert isinstance(srcinfo, SrcInfo)
         assert len(idxs) == len(interval_sizes), "Internal error"
         new = self.copy()
         new_offsets = list(new._array_offsets) + list(new._packed_offsets)
@@ -532,11 +539,13 @@ class FallbackWindowIndexer(WindowIndexer):
         mem = features.get_mem()
         n_dims = features.n_array_dims()
 
-        indices_strs = [features.get_array_offset(i) for i in range(n_dims)]
-        strides_strs = [features.get_array_stride_as_packed(i) for i in range(n_dims)]
+        indices_strs = [str(features.get_array_offset(i)) for i in range(n_dims)]
+        strides_strs = [
+            str(features.get_array_stride_as_packed(i)) for i in range(n_dims)
+        ]
         code = mem.window(
             features._legacy_basetyp,
-            features.raw_name(),
+            features.get_raw_name(),
             indices_strs,
             strides_strs,
             features.srcinfo(),

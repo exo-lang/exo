@@ -728,6 +728,7 @@ def window_encoder(encoder_cls):
         mem_cls._exo_window_encoder_origin_memwin = mem_cls
         if mem_cls._exo_window_indexer_type is FallbackWindowIndexer:
             mem_cls._exo_window_indexer_type = None
+        return mem_cls
 
     return add_encoder
 
@@ -745,6 +746,7 @@ def window_indexer(indexer_cls):
         mem_cls._exo_window_indexer_origin_memwin = mem_cls
         if mem_cls._exo_window_encoder_type is FallbackWindowEncoder:
             mem_cls._exo_window_encoder_type = None
+        return mem_cls
 
     return add_indexer
 

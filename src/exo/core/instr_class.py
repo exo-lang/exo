@@ -14,8 +14,9 @@ Module for "new" class-based instr
             # must match a parameter in behavior(), and causes that parameter
             # to become a template parameter.
 
-            def codegen(self, args) -> List[str]:
-                # Each param x in behavior becomes args.x
+            def codegen(self, args: InstrArgs) -> List[str]:
+                # Each param x in behavior becomes args.x of type
+                # InstrWindowArg or InstrNonWindowArg.
                 # Return list of C lines
                 # This is optional if you define self.instr_format
 
@@ -30,12 +31,12 @@ For context, the "old" instr is like
 import ast as pyast
 import inspect
 from dataclasses import dataclass
-from typing import Callable, Optional, Dict, List, Tuple, Type
+from typing import Callable, Optional, Dict, List, Tuple, Type, Set
 
-from .prelude import Sym
+from .prelude import Sym, SrcInfo
 
 from .instr_info import AccessInfo, InstrInfo
-from .LoopIR import LoopIR, SubstArgs, Identifier
+from .LoopIR import LoopIR, SubstArgs, Identifier, get_writes_of_stmts
 from .memory import DRAM
 from ..frontend.pyparser import get_ast_from_python, Parser
 from ..spork import timelines
@@ -47,16 +48,21 @@ from ..spork.timelines import (
     cpu_in_order_instr,
     cuda_in_order_instr,
 )
+from .c_window import WindowFeatures, UtilInjector, WindowIndexerResult
 
 
-def proc_default_access_info(proc: LoopIR.proc):
+def proc_default_access_info(proc: LoopIR.proc, write_syms: Set[Sym]):
     access_info = {}
     for arg in proc.args:
         if not arg.type.is_numeric():
             continue
         nm = arg.name.name()
         mem = DRAM if arg.mem is None else arg.mem
-        access_info[nm] = AccessInfo(mem)
+        access = AccessInfo()
+        access.mem = mem
+        access.const = arg.name not in write_syms
+        access_info[nm] = access
+
     return access_info
 
 
@@ -104,6 +110,7 @@ def tparams_from_signature(clsname: str, tproc: LoopIR.proc, signature):
 
 
 def prefill_instr_info(info: InstrInfo, proc: LoopIR.proc):
+    write_syms = set(x for x, _ in get_writes_of_stmts(proc.body))
     info.instr_format = None
     info.c_utils = []
     info.c_includes = []
@@ -111,7 +118,7 @@ def prefill_instr_info(info: InstrInfo, proc: LoopIR.proc):
     info.cu_includes = []
     info.coll_unit = standalone_thread
     info.instr_tl = cpu_in_order_instr
-    info.access_info = proc_default_access_info(proc)
+    info.access_info = proc_default_access_info(proc, write_syms)
     info._formatted_tparam_kwargs = ""
 
 
@@ -119,31 +126,12 @@ def old_style_instr_info(proc: LoopIR.proc, c_instr: str, c_global: str):
     """InstrInfo from old-style @instr decorator"""
     assert isinstance(c_instr, str)
     assert isinstance(c_global, str)
-    info = InstrInfo()
+    info = OldStyleInstrInfo()
     prefill_instr_info(info, proc)
     info.instr_format = c_instr.split("\n")
     if c_global:
         info.c_utils.append(c_global)
     return info
-
-
-def old_style_codegen(self, args) -> List[str]:
-    """Translate args to dictionary then use instr_format.format"""
-    d = dict()
-    for name, value in args.items():
-        if value.exo_is_window():
-            mem = self.access_info[name].mem
-            if mem.has_window_encoder():
-                d[name] = str(value)
-            if mem.has_window_indexer():
-                d[name + "_data"] = value.index()
-            d[name + "_int"] = value.get_raw_name()
-        else:
-            # Non-window; Exo 1 defines {name}_data; unclear why.
-            s_value = str(value)
-            d[name] = s_value
-            d[name + "_data"] = s_value
-    return [line.format(**d) for line in self.instr_format]
 
 
 class InstrTemplate:
@@ -213,10 +201,10 @@ class InstrTemplate:
         if not issubclass(cls, InstrInfo):
             info_bases.append(InstrInfo)
         if "__slots__" not in info_dict:
-            info_dict["__slots__"] = []
+            info_dict["__slots__"] = list(cls.__annotations__)
         info_dict["__init__"] = info_init
         if not has_custom_codegen:
-            info_dict["codegen"] = old_style_codegen
+            info_dict["codegen"] = OldStyleInstrInfo.codegen
         info_cls = type(nm, tuple(info_bases), info_dict)
 
         self.make_procedure = make_procedure
@@ -367,3 +355,111 @@ class InstrTemplate:
         info._formatted_tparam_kwargs = self._format_tparam_kwargs(
             self._tparam_values(**tparam_dict)
         )
+
+
+@dataclass(slots=True)
+class InstrWindowArg:
+    _encoder_utils: UtilInjector
+    _indexer_utils: UtilInjector
+    _features: WindowFeatures
+    _srcinfo: SrcInfo
+
+    def __str__(self):
+        return self.get_window()
+
+    def get_window(self) -> str:
+        # TODO check packed dimensions
+        features = self._features
+        return str(features.get_encoder().encode_window(self._encoder_utils, features))
+
+    def get_dataptr(self) -> str:
+        return str(self._features.get_dataptr())
+
+    def separate_dataptr(self):
+        return self._features.separate_dataptr()
+
+    def get_raw_name(self) -> str:
+        return self._features.get_raw_name()
+
+    def index(self, *idxs) -> str:
+        new_features = self._features.new_window(
+            idxs, [None] * len(idxs), self._srcinfo
+        )
+        indexed = self._features.get_indexer().index(
+            self._indexer_utils, self._features
+        )
+        assert isinstance(indexed, WindowIndexerResult)
+        return indexed.code
+
+    def to_arg_strs(self):
+        if self.separate_dataptr():
+            return [self.get_dataptr(), self.get_window()]
+        else:
+            return [self.get_window()]
+
+    def srcinfo(self):
+        return self._srcinfo
+
+
+@dataclass(slots=True)
+class InstrNonWindowArg:
+    # This could be expanded later...
+    _code: str
+    _srcinfo: SrcInfo
+
+    def __str__(self):
+        return self._code
+
+    def separate_dataptr(self):
+        return False
+
+    def to_arg_strs(self):
+        return [self._code]
+
+    def srcinfo(self):
+        return self._srcinfo
+
+
+@dataclass(slots=True)
+class InstrArgs:
+    _exo_args_dict: Dict[str, InstrWindowArg | InstrNonWindowArg]
+
+    def __init__(self, the_dict):
+        self._exo_args_dict = the_dict
+
+    def __getattr__(self, attr):
+        assert not attr.startswith(
+            "exo_"
+        ), "exo_ prefix not allowed for arg name (or typo)"
+        assert not attr.startswith(
+            "_exo_"
+        ), "_exo_ prefix not allowed for arg name (or typo)"
+        return self._exo_args_dict[attr]
+
+    def __iter__(self):
+        return iter(self._exo_args_dict)
+
+    def items(self):
+        return self._exo_args_dict.items()
+
+
+class OldStyleInstrInfo(InstrInfo):
+    __slots__ = []
+
+    def codegen(self, args: InstrArgs) -> List[str]:
+        """Translate args to dictionary then use instr_format.format"""
+        d = dict()
+        for name, value in args.items():
+            if isinstance(value, InstrWindowArg):
+                mem = self.access_info[name].mem
+                if mem.has_window_encoder():
+                    d[name] = str(value)
+                if mem.has_window_indexer():
+                    d[name + "_data"] = value.index()
+                d[name + "_int"] = value.get_raw_name()
+            else:
+                # Non-window; Exo 1 defines {name}_data; unclear why.
+                s_value = str(value)
+                d[name] = s_value
+                d[name + "_data"] = s_value
+        return [line.format(**d) for line in self.instr_format]
