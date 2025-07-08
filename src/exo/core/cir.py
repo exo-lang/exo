@@ -53,7 +53,7 @@ _operations = {
 
 
 def simplify_cir(e):
-    if isinstance(e, (CIR.Read, CIR.Const)):
+    if isinstance(e, (CIR.Read, CIR.ReadSeparateDataptr, CIR.Const)):
         return e
 
     elif isinstance(e, CIR.BinOp):
@@ -207,11 +207,20 @@ class CIR_Wrapper:
         bin_op = CIR.BinOp(op, lhs, rhs, False)
         return CIR_Wrapper(bin_op, self._exo_compiler, self._exo_origin_story)
 
-    def __int__(self):
+    def to_int(self, expected):
         assert self._exo_origin_story is not None
         self.exo_simplify()
         ir = self._exo_ir
         if isinstance(ir, CIR.Const):
             return int(ir.val)
         else:
-            raise ValueError(f"{self._exo_origin_story}: needs to be int, not `{self}`")
+            raise ValueError(
+                f"{self._exo_origin_story}: needs to be {expected}, not `{self}`"
+            )
+
+    def __int__(self):
+        return self.to_int("int")
+
+    def expect(self, n):
+        if self.to_int(n) != n:
+            raise ValueError(f"{self._exo_origin_story}: needs to be {n}, not `{self}`")

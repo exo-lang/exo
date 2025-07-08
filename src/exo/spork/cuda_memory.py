@@ -122,50 +122,6 @@ class SmemConfigInputs:
     def element_bits(self):
         return self.scalar_info.bits
 
-    def require_shape_divisibility(self, divisors):
-        """Shape divisibility check
-
-        Require that the rightmost len(divisors)-many dimensions are
-        divisible by the respective divisor values
-
-        """
-        shape = self.const_shape
-        if len(shape) < len(divisors):
-            raise MemGenError(
-                f"{self.srcinfo}: {self.mem.name()} tensor shape "
-                f"must be at least {len(divisors)}-dimensional. "
-                f"Got {shape} (after removing distributed dimensions)"
-            )
-        for i in range(1, len(divisors) + 1):
-            if shape[-i] % divisors[-i] != 0:
-                raise MemGenError(
-                    f"{self.srcinfo}: {self.mem.name()} tensor shape "
-                    f"must be a multiple of {divisors}. "
-                    f"Got {shape} (after removing distributed dimensions)"
-                )
-
-    def require_shape_tile(self, tile):
-        """Shape tiling check
-
-        Require that the rightmost len(divisors)-many dimensions are
-        exactly matching the respective tile values
-
-        """
-        shape = self.const_shape
-        if len(shape) < len(tile):
-            raise MemGenError(
-                f"{self.srcinfo}: {self.mem.name()} tensor shape "
-                f"must be at least {len(tile)}-dimensional. "
-                f"Got {shape} (after removing distributed dimensions)"
-            )
-        for i in range(1, len(tile) + 1):
-            if shape[-i] != tile[-i] != 0:
-                raise MemGenError(
-                    f"{self.srcinfo}: {self.mem.name()} tensor shape "
-                    f"rightmost dims must match {tile}. "
-                    f"Got {shape} (after removing distributed dimensions)"
-                )
-
 
 class CudaBasicSmem(CudaBasicDeviceVisible):
     """Mandatory base class for all SMEM-resident memory types, which require
@@ -189,7 +145,7 @@ class CudaBasicSmem(CudaBasicDeviceVisible):
 
         If you must do your own checks, you may implement alloc(...), but
         it must return an empty string (which will be ignored by the compiler).
-        Consider SmemConfigInputs.require_shape_divisibility.
+
         """
         return ""
 

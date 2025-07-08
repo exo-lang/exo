@@ -1511,7 +1511,6 @@ task_launch_fmt = """if (exo_taskIndex++ % (gridDim.x / exo_clusterDim) == block
 h_snippet_for_cuda = r"""
 #ifndef EXO_CUDA_HEADER_COMMON
 #define EXO_CUDA_HEADER_COMMON
-#include <cuda.h>
 #include <cuda_runtime.h>
 
 #ifdef __CUDACC__

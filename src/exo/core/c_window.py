@@ -109,6 +109,23 @@ class WindowFeatures:
         """Get the stride of the i-th array dimension in units of C scalars"""
         return self.get_array_stride_as_packed(i) * self._scalars_per_packed_tensor
 
+    def strided_window_helper(self) -> Tuple[CIR_Wrapper, List[CIR_Wrapper]]:
+        """Make offset pointer + strides, like default Exo window"""
+        dataptr = self.get_dataptr()
+        filtered_strides = []
+        offset = 0
+        for i in range(self.n_array_dims()):
+            cw_offset = self.get_array_offset(i)
+            cw_stride = self.get_array_stride_as_packed(i)
+            if self.get_array_interval_size(i) is not None:
+                # Remove strides corresponding to point expressions
+                filtered_strides.append(cw_stride)
+            offset += cw_offset * cw_stride
+        return dataptr[offset].exo_address_of(), filtered_strides
+
+    def array_interval_sizes_without_points(self) -> List[CIR_Wrapper]:
+        return [sz for sz in self._array_interval_sizes if sz is not None]
+
     def get_array_offset(self, i) -> CIR_Wrapper:
         """Offset with respect to the dataptr on the i-th array dimension.
 
@@ -299,6 +316,10 @@ class WindowEncoder:
         """For your convenience; don't override"""
         return self.scalar_info.ctype
 
+    def element_bits(self):
+        """For your convenience; don't override"""
+        return self.scalar_info.bits
+
     def dataptr_ctype(self) -> str:
         if self.const:
             return f"const {self.ctype()}*"
@@ -338,8 +359,15 @@ class WindowEncoder:
         raise NotImplementedError()
 
     def supports_dim_change(self) -> bool:
-        """Override to True to indicate the encoder allows creating a window
-        from another window of greater dimension.
+        """Override to True to indicate encode_window(..) allows creating
+        a window from another window of greater dimension.
+
+        """
+        return False
+
+    def supports_special_dim_change(self) -> bool:
+        """Override to True to indicate encode_special_window(..) allows
+        creating a window from another window of greater dimension.
 
         """
         return False
@@ -459,6 +487,10 @@ class WindowIndexer:
         """For your convenience; don't override"""
         return self.scalar_info.ctype
 
+    def element_bits(self):
+        """For your convenience; don't override"""
+        return self.scalar_info.bits
+
     def index(
         self, utils: UtilInjector, features: WindowFeatures
     ) -> WindowIndexerResult:
@@ -480,9 +512,9 @@ class WindowIndexer:
 
         raise NotImplementedError()
 
-    def pack_result(self, code: str, is_ptr: bool) -> WindowIndexerResult:
+    def pack_result(self, code, is_ptr: bool) -> WindowIndexerResult:
         """For your convenience; don't override"""
-        return WindowIndexerResult(code, is_ptr)
+        return WindowIndexerResult(str(code), is_ptr)
 
 
 _default_struct_template = """\

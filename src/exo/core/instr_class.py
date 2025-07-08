@@ -369,6 +369,8 @@ class InstrWindowArg:
 
     def get_window(self) -> str:
         # TODO check packed dimensions
+        # TODO check dimensionality change
+        # TODO Mem check needs to handle SpecialWindow.source_memory_type()
         features = self._features
         return str(features.get_encoder().encode_window(self._encoder_utils, features))
 
@@ -398,7 +400,7 @@ class InstrWindowArg:
 
     def to_arg_strs(self):
         if self.separate_dataptr():
-            return [self.get_dataptr(), self.get_window()]
+            return [self.get_separate_dataptr(), self.get_window()]
         else:
             return [self.get_window()]
 
@@ -459,6 +461,9 @@ class OldStyleInstrInfo(InstrInfo):
                 mem = self.access_info[name].mem
                 if mem.has_window_encoder():
                     d[name] = str(value)
+                    if value.separate_dataptr():
+                        # This shouldn't exist!
+                        d[name + "_data"] = value.get_separate_dataptr()
                 if mem.has_window_indexer():
                     d[name + "_data"] = value.index()
                 d[name + "_int"] = value.get_raw_name()

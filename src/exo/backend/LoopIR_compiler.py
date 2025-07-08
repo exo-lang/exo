@@ -237,19 +237,19 @@ class UtilInjectorImpl(UtilInjector):
 
     def add_c_util(self, code):
         """Add snippet of C code at global scope to appear before your code"""
-        self.tagged_c_utils.append(self.tag, code)
+        self.tagged_c_utils.append((self.tag, code))
 
     def add_c_include(self, header_name):
         """Add header file to generated C code"""
-        self.tagged_c_includes.append(self.tag, header_name)
+        self.tagged_c_includes.append((self.tag, header_name))
 
     def add_cu_util(self, code):
         """Add CUDA utility to appear before your code"""
-        self.tagged_cu_utils.append(self.tag, code)
+        self.tagged_cu_utils.append((self.tag, code))
 
     def add_cu_include(self, header_name):
         """Add header file to generated CUDA code"""
-        self.tagged_cu_includes.append(self.tag, header_name)
+        self.tagged_cu_includes.append((self.tag, header_name))
 
 
 # --------------------------------------------------------------------------- #
@@ -270,7 +270,6 @@ def run_compile(proc_list, file_stem: str):
     header = f"""#pragma once
 #ifndef {header_guard}
 #define {header_guard}
-{h_snippet_for_cuda if used_cuda else ""}\
 
 {fwd_decls}
 
@@ -455,6 +454,7 @@ def ext_compile_to_strings(lib_name, proc_list):
     header_contents = f"""
 #include <stdint.h>
 #include <stdbool.h>
+{h_snippet_for_cuda if used_cuda else ""}\
 
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
@@ -991,7 +991,12 @@ class Compiler:
         utils = self._util_injector.with_tag(mem.name())
 
         def kvetch(message):
-            raise MemGenError(f"{srcinfo}: {typ} @ {mem.name()} is invalid: {message}")
+            cuda_note = ""
+            if self._in_cuda_function:
+                cuda_note = " (distributed dimensions removed)"
+            raise MemGenError(
+                f"{srcinfo}: {typ} @ {mem.name()}{cuda_note} is invalid: {message}"
+            )
 
         def wrap_cir(obj, attr, idx):
             if isinstance(obj, int):
@@ -1707,6 +1712,7 @@ class MemCodeBuilder(object):
     def register_window_encoder(self, encoder: WindowEncoder):
         depends_on = []
         sdef = encoder.define_struct(depends_on)
+        assert sdef, f"Missing return from {type(encoder).__name__}.define_struct?"
         glob = MemGlobalC(encoder.exo_struct_name(), sdef, tuple(depends_on))
         self._add_global(encoder.mem, glob)
 

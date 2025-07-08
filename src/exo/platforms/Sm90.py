@@ -45,16 +45,17 @@ from math import prod
 from ..API import (
     instr,
     memwin_template,
+    window_encoder,
+    window_indexer,
     Memory,
+    MemGlobalC,
+    MemIncludeC,
     SpecialWindow,
     WindowEncoder,
     WindowIndexer,
     ScalarInfo,
-)
-from ..core.memory import (
-    memwin_template,
-    Memory,
-    SpecialWindow,
+    UtilInjector,
+    CIR_Wrapper,
 )
 from ..spork.cuda_memory import *
 from ..spork.coll_algebra import cuda_warp, cuda_warpgroup
@@ -84,6 +85,8 @@ def Sm90_SmemSwizzled(swizzle):
     matrix_bytes = 128
     c_matrices = f"Sm90_SmemMatrices_SW{swizzle}"
 
+    @window_encoder(SwizzledEncoder)
+    @window_indexer(SwizzledIndexer)
     class SwizzledImpl(CudaBasicSmem):
         @classmethod
         def global_(cls):
@@ -107,41 +110,25 @@ def Sm90_SmemSwizzled(swizzle):
             return False
 
         @classmethod
+        def packed_tensor_shape(cls, scalar_info: ScalarInfo):
+            # 2, 4, or 8 core matrices
+            return (matrix_mn, num_matrices * cls.get_matrix_k(scalar_info))
+
+        @classmethod
         def smem_config(cls, inputs: SmemConfigInputs) -> SmemConfig:
-            matrix_k = cls.get_matrix_k(inputs.scalar_info)
-            inputs.require_shape_tile((matrix_mn, matrix_k * num_matrices))
             return SmemConfig(f"{c_matrices} (&)[]", 128)
-
-        @classmethod
-        def window_definition(cls, ctx: WindowStructCtx):
-            dataptr_ctype, sdef = ctx.generate_default(
-                "Sm90_SmemSwizzled", c_matrices, (swizzle,)
-            )
-            return dataptr_ctype, sdef
-
-        @classmethod
-        def window(cls, basetyp, in_expr, indices, strides, srcinfo):
-            matrix_k = cls.get_matrix_k(basetyp)
-            assert len(indices) >= 2
-            if strides[-1] != "1" or strides[-2] != str(matrix_k * num_matrices):
-                raise MemGenError("Cannot stride swizzled dimensions (last 2)")
-            # TODO, we should only allow M/N offset (indices[-2]) in multiples of 8.
-            # We should allow K offset only for multiples of 256 / element_bits
-            # Stride core matrices
-            vector_size = num_matrices * matrix_mn * matrix_k
-            # In CUDA, the K (inner) dimension can be offset just by adding
-            # K_offset * sizeof(element) to the pointer. This survives
-            # the swizzling process.
-            return (
-                cls.default_window(
-                    vector_size, basetyp, in_expr, indices, strides, srcinfo
-                )
-                + f".byte_offset(({indices[-1]}) * {scalar_bits(basetyp) // 8})"
-            )
 
         @classmethod
         def get_matrix_k(cls, scalar_info):
             return 128 // ScalarInfo(scalar_info).bits
+
+        @classmethod
+        def get_swizzle_bits(cls):
+            return swizzle_bits
+
+        @classmethod
+        def get_swizzle(cls):
+            return swizzle
 
     return SwizzledImpl
 
@@ -157,6 +144,73 @@ __all__.append("Sm90_SmemSwizzled")
 __all__.append("Sm90_get_mma_smem")
 
 
+window_struct_template = """\
+struct {sname} {{
+    {const_keyword}Sm90_SmemMatrices_SW{swizzle}* data;
+    int32_t strides[{n_dims}];
+}};"""
+
+
+class SwizzledEncoder(WindowEncoder):
+    __slots__ = []
+
+    def define_struct(self, depends_on: list) -> str:
+        sname = self.exo_struct_name()
+        const_keyword = "const " if self.const else ""
+        return window_struct_template.format(
+            sname=sname,
+            swizzle=self.mem.get_swizzle(),
+            n_dims=self.n_dims,
+            const_keyword=const_keyword,
+        )
+
+    def supports_dim_change(self) -> bool:
+        return True
+
+    def encode_window(self, utils: UtilInjector, features: WindowFeatures) -> str:
+        sname = self.exo_struct_name()
+        mem = features.get_memwin()
+        n_dims = features.n_array_dims()
+
+        dataptr, filtered_strides = features.strided_window_helper()
+        strides = "{" + ", ".join(str(s) for s in filtered_strides) + "}"
+        return f"(struct {sname}) {{ {dataptr}, {strides} }}"
+
+    def decode_array_offset(
+        self, utils: UtilInjector, window: CIR_Wrapper, n: int
+    ) -> int:
+        return 0
+
+    def decode_array_stride_as_packed(
+        self, utils: UtilInjector, window: CIR_Wrapper, n: int
+    ) -> CIR_Wrapper:
+        return window.strides[n]
+
+
+class SwizzledIndexer(WindowIndexer):
+    __slots__ = []
+
+    def index(self, utils, features: WindowFeatures):
+        mem = features.get_memwin()
+
+        dataptr = features.get_dataptr()
+        array_offset = 0
+        for i in range(features.n_array_dims()):
+            array_offset += features.get_array_offset(
+                i
+            ) * features.get_array_stride_as_packed(i)
+
+        assert features.n_packed_dims() == 2
+        features.get_packed_offset(0).expect(0)  # Cannot offset packed M/N
+        assert self.element_bits() >= 8, "TODO implement float4 etc."
+        byte_offset = features.get_packed_offset(1)  # Offset packed K
+        byte_offset *= self.element_bits() // 8
+
+        code = f"{dataptr}[{array_offset}].byte_offset({byte_offset})"
+
+        return self.pack_result(code, False)
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # CUtensorMap
@@ -166,82 +220,35 @@ __all__.append("Sm90_get_mma_smem")
 # that is constructed as a window to CudaGmemLinear.
 @memwin_template
 def Sm90_tensorMap(swizzle, *smem_box):
-    if swizzle == 0:
-        cu_swizzle = "CU_TENSOR_MAP_SWIZZLE_NONE"
-    else:
-        assert swizzle in (32, 64, 128)
-        cu_swizzle = f"CU_TENSOR_MAP_SWIZZLE_{swizzle}B"
     rank = len(smem_box)
     assert 1 <= rank <= 5
+    assert swizzle in (0, 32, 64, 128)
 
+    @window_encoder(TensorMapEncoder)
     class CUtensorMap(SpecialWindow):
         @classmethod
         def global_(cls):
-            return "#include <assert.h>\n#include <stdio.h>"
+            return ""
 
         @classmethod
         def default_usage_tl(cls, instr_tl):
             return cuda_ram_usage
 
         @classmethod
-        def window_definition(cls, ctx: WindowStructCtx):
-            sname = ctx.struct_name("Sm90_tensorMap", cls.memwin_template_parameters)
-            cls.sname = sname
-            typ = ctx.type_shorthand()
-            try:
-                cu_ctype_enum, stride_suffix = CUtensorMap_type_dict[typ]
-            except KeyError:
-                raise TypeError("CUtensorMap: implement me: " + typ)
-            # CUDA boxDim in opposite order as Exo smem_box
-            cu_boxDim = "{ " + ", ".join(str(n) for n in smem_box[::-1]) + " }"
-            s_def = CUtensorMap_s_def_template.format(
-                sname=sname,
-                rank=rank,
-                cu_swizzle=cu_swizzle,
-                cu_boxDim=cu_boxDim,
-                cu_ctype_enum=cu_ctype_enum,
-                stride_suffix=stride_suffix,
-            )
-            # Return 2-tuple: enables custom layout for window (obscure).
-            return "CUtensorMap", s_def
-
-        @classmethod
-        def separate_dataptr(cls):
-            return True
-
-        @classmethod
-        def window(cls, basetyp, in_expr, indices, strides, srcinfo):
-            # Window creation: CUtensorMap (dataptr) is passed through unchanged.
-            # Offsets (layout) are modified.
-            assert len(indices) == rank
-            dataptr, in_layout = in_expr
-
-            out_layout = "{{ "
-            out_layout += ", ".join(
-                f"{in_layout}.exo_offsets[{r}] + (unsigned)({indices[r]})"
-                for r in range(rank)
-            )
-            out_layout += " }}"
-
-            return dataptr, out_layout
-
-        @classmethod
         def source_memory_type(cls):
             return CudaGmemLinear
 
         @classmethod
-        def from_memory(cls, ctx: SpecialWindowFromMemoryCtx):
-            sname = ctx.dst_struct_name()
-            shape = ctx.shape_strs()
-            clayout = f"(struct {sname}_strides){{ {ctx.src_layout()} }}"
-            cdim = f'(struct {sname}_gmem_dim){{ {{ {", ".join(s for s in shape)} }} }}'
+        def rank(cls):
+            return len(smem_box)
 
-            # Dataptr: Encode CUtensorMap from strides and GMEM dimension (shape)
-            d_def = f"{sname}_encode(&{ctx.src_data()}, {clayout}, {cdim})"
+        @classmethod
+        def swizzle(cls):
+            return swizzle
 
-            # Layout: offsets are initially zero.
-            w_def = "{}"
-            return d_def, w_def
+        @classmethod
+        def smem_box(cls):
+            return smem_box
 
     return CUtensorMap
 
@@ -249,34 +256,137 @@ def Sm90_tensorMap(swizzle, *smem_box):
 __all__.append("Sm90_tensorMap")
 
 
-# str.format template for CUtensorMap-related Exo window C definition
-CUtensorMap_s_def_template = """
-struct {sname} {{
+class TensorMapEncoder(WindowEncoder):
+    def separate_dataptr(self):
+        return True
+
+    def define_struct(self, depends_on: list):
+        rank = self.mem.rank()
+        sdef = CUtensorMap_window_template.format(
+            rank=rank, sname=self.exo_struct_name()
+        )
+        strides_sname = f"exo_Sm90_CUtensorMap_{rank}_strides"
+        dim_sname = f"exo_Sm90_CUtensorMap_{rank}_dim"
+        depends_on.append(
+            MemGlobalC(strides_sname, CUtensorMap_strides_template.format(rank=rank))
+        )
+        depends_on.append(
+            MemGlobalC(dim_sname, CUtensorMap_dim_template.format(rank=rank))
+        )
+        depends_on.append(MemIncludeC("cuda.h"))
+        return sdef
+
+    def supports_dim_change(self):
+        return False
+
+    def supports_special_dim_change(self):
+        return True
+
+    def dataptr_ctype(self):
+        return "CUtensorMap"
+
+    def encode_window(self, utils, features: WindowFeatures):
+        """Convert from one window struct to another; just encode offsets"""
+        init = (
+            "{ {"
+            + ", ".join(
+                str(features.get_array_offset(i))
+                for i in range(features.n_array_dims())
+            )
+            + "} }"
+        )
+        return f"({self.exo_struct_name()}) {init}"
+
+    def encode_separate_dataptr(self, utils, features: WindowFeatures):
+        return features.get_dataptr()
+
+    def encode_special_window(self, utils, features: WindowFeatures):
+        """For CudaGmemLinear -> CUtensorMap conversion.
+
+        The window struct is just 0-initialized
+
+        """
+        init = "{ {" + ", ".join("0" for i in range(features.n_array_dims())) + "} }"
+        return f"({self.exo_struct_name()}) {init}"
+
+    def encode_special_separate_dataptr(
+        self, utils: UtilInjector, features: WindowFeatures
+    ):
+        """For CudaGmemLinear -> CUtensorMap conversion. Make CUtensorMap blob"""
+        sname = self.exo_struct_name()
+        rank = self.mem.rank()
+        swizzle = self.mem.swizzle()
+        if swizzle == 0:
+            cu_swizzle = "CU_TENSOR_MAP_SWIZZLE_NONE"
+        else:
+            cu_swizzle = f"CU_TENSOR_MAP_SWIZZLE_{swizzle}B"
+        # CUDA boxDim in opposite order as Exo smem_box
+        cu_boxDim = "{ " + ", ".join(str(n) for n in self.mem.smem_box()[::-1]) + " }"
+        try:
+            cu_type = CUtensorMap_type_dict[self.scalar_info.shorthand]
+        except KeyError as e:
+            raise TypeError("CUtensorMap: doesn't currently support {e}")
+
+        kwargs = dict(
+            sname=sname,
+            rank=rank,
+            cu_swizzle=cu_swizzle,
+            cu_boxDim=cu_boxDim,
+            cu_ctype_enum=cu_type[0],
+            stride_suffix=cu_type[1],
+        )
+        utils.add_c_include("stdio.h")
+        utils.add_c_include("assert.h")
+        utils.add_c_util(CUtensorMap_encode_template.format(**kwargs))
+
+        cw_dataptr, cw_strides = features.strided_window_helper()
+        cw_dim = features.array_interval_sizes_without_points()
+        assert features.n_packed_dims() == 0
+        assert len(cw_strides) == rank
+        assert len(cw_dim) == rank
+
+        strides = "{ {" + ", ".join(str(s) for s in cw_strides) + "} }"
+        dim = "{ {" + ", ".join(str(s) for s in cw_dim) + "} }"
+        return f"{sname}_encode({cw_dataptr}, {strides}, {dim})"
+
+    def decode_array_offset(self, utils, window: CIR_Wrapper, n: int):
+        return window.C_offsets[n]
+
+
+# str.format templates for CUtensorMap-related Exo window C definition
+CUtensorMap_window_template = """\
+typedef struct {sname} {{
     // Stored in reverse-order as the raw CUtensorMap.
     // Leftmost offset is most-significant.
-    unsigned exo_offsets[{rank}];
-}};
+    unsigned C_offsets[{rank}];
+}} {sname};
+"""
 
-struct {sname}_strides {{
+CUtensorMap_strides_template = """\
+typedef struct exo_Sm90_CUtensorMap_{rank}_strides {{
     // Stored in reverse-order as the raw CUtensorMap,
     // and in element count, not in bytes.
     // Leftmost stride is most-significant.
-    unsigned exo_strides[{rank}];
-}};
+    unsigned C_strides[{rank}];
+}} exo_Sm90_CUtensorMap_{rank}_strides;
+"""
 
-struct {sname}_gmem_dim {{
+CUtensorMap_dim_template = """\
+typedef struct exo_Sm90_CUtensorMap_{rank}_dim {{
     // Stored in the reverse-order as the raw CUtensorMap.
     // Leftmost dimension is the most-significant.
-    unsigned exo_dim[{rank}];
-}};
+    unsigned C_dim[{rank}];
+}} exo_Sm90_CUtensorMap_{rank}_dim;
+"""
 
+CUtensorMap_encode_template = """\
 static inline CUtensorMap {sname}_encode(
-        // Window dataptr, layout
-        const void* globalAddress, struct {sname}_strides gmem_stride,
+        // Window dataptr, strides
+        const void* globalAddress, exo_Sm90_CUtensorMap_{rank}_strides gmem_stride,
         // Tensor size
-        struct {sname}_gmem_dim gmem_dim)
+        exo_Sm90_CUtensorMap_{rank}_dim gmem_dim
 {{
-    assert(gmem_stride.exo_strides[{rank} - 1] == 1);
+    assert(gmem_stride.C_strides[{rank} - 1] == 1);
 
     CUtensorMap tensorMap;
     const CUtensorMapSwizzle swizzle = {cu_swizzle};
@@ -287,11 +397,11 @@ static inline CUtensorMap {sname}_encode(
 
     // We translate from the Exo ordering (leftmost stride is most-significant)
     // to the CUDA ordering (leftmost stride is least-significant).
-    for (uint32_t cu_dim = 0; cu_dim < {rank}; ++cu_dim) {{
-        const uint32_t exo_dim = {rank} - 1 - cu_dim;
-        globalDim[cu_dim] = gmem_dim.exo_dim[exo_dim];
-        allGlobalStrides[cu_dim] = ((cuuint64_t)gmem_stride.exo_strides[exo_dim]){stride_suffix};
-        elementStrides[cu_dim] = 1;
+    for (uint32_t cu_idx = 0; cu_idx < {rank}; ++cu_idx) {{
+        const uint32_t C_idx = {rank} - 1 - cu_idx;
+        globalDim[cu_idx] = gmem_dim.C_dim[C_idx];
+        allGlobalStrides[cu_idx] = ((cuuint64_t)gmem_stride.C_strides[C_idx]){stride_suffix};
+        elementStrides[cu_idx] = 1;
     }}
 
     cuuint32_t boxDim[{rank}] = {cu_boxDim};
@@ -327,9 +437,9 @@ static inline CUtensorMap {sname}_encode(
 # NB not all shorthands here are implemented in Exo ... David just implemented
 # them anyway so things will "just work" in the future.
 CUtensorMap_type_dict = {
-    "u8": ("CU_TENSOR_MAP_DATA_TYPE_UINT8", ""),
-    "u16": ("CU_TENSOR_MAP_DATA_TYPE_UINT16", " * 2"),
-    "u32": ("CU_TENSOR_MAP_DATA_TYPE_UINT32", " * 4"),
+    "ui8": ("CU_TENSOR_MAP_DATA_TYPE_UINT8", ""),
+    "ui16": ("CU_TENSOR_MAP_DATA_TYPE_UINT16", " * 2"),
+    "ui32": ("CU_TENSOR_MAP_DATA_TYPE_UINT32", " * 4"),
     "i32": ("CU_TENSOR_MAP_DATA_TYPE_INT32", " * 4"),
     "u64": ("CU_TENSOR_MAP_DATA_TYPE_UINT64", " * 8"),
     "i64": ("CU_TENSOR_MAP_DATA_TYPE_INT64", " * 8"),
@@ -348,7 +458,7 @@ def copy_tensor_to_smem_util(rank: int, multicast: bool):
     if multicast:
         ptx_fmt += f", %{rank+4}"
     vector_values = ", ".join(
-        f'"r"(exo_offsets[{rank - 1 - r}])' for r in range(0, rank)
+        f'"r"(window.C_offsets[{rank - 1 - r}])' for r in range(0, rank)
     )
 
     # fmt: off
@@ -370,8 +480,9 @@ def copy_tensor_to_smem_util(rank: int, multicast: bool):
     expect_tx = f'asm("mbarrier.expect_tx.shared::cta.b64 [%0], %1;" :: "r"(exo_tma_mbarrier), "r"(n_bytes));'
 
     if multicast:
-        return f"""EXO_CUDA_INLINE void
-exo_Sm90_tma_to_smem_{rank}d(void* dst, const CUtensorMap& tensorMap, cuda::std::array<unsigned, {rank}> exo_offsets,
+        return f"""template <typename WindowOffsets>
+EXO_CUDA_INLINE void
+exo_Sm90_tma_to_smem_{rank}d(void* dst, const CUtensorMap& tensorMap, WindowOffsets window,
                        uint32_t exo_tma_mbarrier, uint32_t n_bytes, uint16_t cta_mask)
 {{
     {elect_one_prefix}
@@ -388,8 +499,9 @@ exo_Sm90_tma_to_smem_{rank}d(void* dst, const CUtensorMap& tensorMap, cuda::std:
     }}
 }}"""
     else:
-        return f"""EXO_CUDA_INLINE void
-exo_Sm90_tma_to_smem_{rank}d(void* dst, const CUtensorMap& tensorMap, cuda::std::array<unsigned, {rank}> exo_offsets,
+        return f"""template <typename WindowOffsets>
+EXO_CUDA_INLINE void
+exo_Sm90_tma_to_smem_{rank}d(void* dst, const CUtensorMap& tensorMap, WindowOffsets window,
                         uint32_t exo_tma_mbarrier, uint32_t n_bytes)
 
 {{
@@ -429,12 +541,11 @@ class copy_tensor_to_smem_impl:
         self.access_info["src"].out_of_order = True
         self.instr_tl = tma_to_smem_async_instr
         self.coll_unit = cuda_warp
-        self.cu_includes.append("cuda/std/array")
         self.cu_utils.append(copy_tensor_to_smem_util(rank, False))
         lines = [f"exo_CudaUtil::exo_Sm90_tma_to_smem_{rank}d("]
         lines.append(f"  &{{dst_data}},")  # Pointer to SMEM
         lines.append(f"  {{src_data}},")  # CUtensorMap
-        lines.append(f"  {{src_layout}},")  # exo_offsets
+        lines.append(f"  {{src}},")
         lines.append(f"  exo_tma_mbarrier,")
         lines.append(f"  {prod(smem_box) * element_bits // 8}")
         lines.append(");")
