@@ -368,11 +368,35 @@ class InstrWindowArg:
         return self.get_window()
 
     def get_window(self) -> str:
-        # TODO check packed dimensions
-        # TODO check dimensionality change
-        # TODO Mem check needs to handle SpecialWindow.source_memory_type()
         features = self._features
-        return str(features.get_encoder().encode_window(self._encoder_utils, features))
+        encoder = features.get_encoder()
+
+        # TODO Mem check needs to handle SpecialWindow.source_memory_type()
+
+        # Check intact packed dimensions
+        mem = features.get_memwin()
+        packed_tensor_shape = features.packed_tensor_shape()
+        assert features.n_packed_dims() == len(packed_tensor_shape)
+        for i, c in enumerate(packed_tensor_shape):
+            features.get_packed_offset(i).exo_expect_int(0)
+            sz = features.get_packed_interval_size(i)
+            if sz is None:
+                raise ValueError(
+                    f"{features.get_raw_name()} must not have point expressions for packed dimensions (last {features.n_packed_dims()})"
+                )
+            sz.exo_expect_int(c)
+
+        # Conditionally forbid dimensionality change
+        if not encoder.supports_dim_change():
+            if any(
+                features.get_array_interval_size(i) is None
+                for i in range(features.n_array_dims())
+            ):
+                raise ValueError(
+                    f"{features.get_raw_name()} must not have point expressions for array dimensions"
+                )
+
+        return str(encoder.encode_window(self._encoder_utils, features))
 
     def get_separate_dataptr(self) -> str:
         features = self._features
@@ -403,6 +427,9 @@ class InstrWindowArg:
             return [self.get_separate_dataptr(), self.get_window()]
         else:
             return [self.get_window()]
+
+    def to_strides_as_packed(self):
+        return self._features.interval_array_strides_as_packed()
 
     def srcinfo(self):
         return self._srcinfo

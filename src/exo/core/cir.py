@@ -207,7 +207,7 @@ class CIR_Wrapper:
         bin_op = CIR.BinOp(op, lhs, rhs, False)
         return CIR_Wrapper(bin_op, self._exo_compiler, self._exo_origin_story)
 
-    def to_int(self, expected):
+    def exo_to_int(self, expected):
         assert self._exo_origin_story is not None
         self.exo_simplify()
         ir = self._exo_ir
@@ -219,8 +219,8 @@ class CIR_Wrapper:
             )
 
     def __int__(self):
-        return self.to_int("int")
+        return self.exo_to_int("int")
 
-    def expect(self, n):
-        if self.to_int(n) != n:
+    def exo_expect_int(self, n):
+        if self.exo_to_int(n) != n:
             raise ValueError(f"{self._exo_origin_story}: needs to be {n}, not `{self}`")

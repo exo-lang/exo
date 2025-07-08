@@ -1,6 +1,7 @@
 """Codegen utilites for windows"""
 from dataclasses import dataclass
 from enum import Enum, auto
+from math import prod
 from typing import List, Dict, Optional, Tuple, Type
 
 from .cir import CIR, CIR_Wrapper
@@ -50,7 +51,7 @@ class WindowFeatures:
     """
 
     _mem: Type["MemWin"]
-    _scalars_per_packed_tensor: int
+    _packed_tensor_shape: Tuple[int]
     _varname: CIR_Wrapper
     _dataptr: CIR_Wrapper
     _array_strides_as_packed: Tuple[CIR_Wrapper]  # empty if strides not supported
@@ -97,6 +98,12 @@ class WindowFeatures:
         assert len(self._array_interval_sizes) == dims, "LoopIR internal error"
         return dims
 
+    def packed_tensor_shape(self) -> Tuple[int]:
+        return self._packed_tensor_shape
+
+    def scalars_per_packed_tensor(self) -> int:
+        return prod(self._packed_tensor_shape)
+
     def get_array_stride_as_packed(self, i) -> CIR_Wrapper:
         """Get the stride of the i-th array dimension in units of packed tensors"""
         strides = self._array_strides_as_packed
@@ -107,7 +114,7 @@ class WindowFeatures:
 
     def get_array_stride_as_scalars(self, i) -> CIR_Wrapper:
         """Get the stride of the i-th array dimension in units of C scalars"""
-        return self.get_array_stride_as_packed(i) * self._scalars_per_packed_tensor
+        return self.get_array_stride_as_packed(i) * self.scalars_per_packed_tensor()
 
     def strided_window_helper(self) -> Tuple[CIR_Wrapper, List[CIR_Wrapper]]:
         """Make offset pointer + strides, like default Exo window"""
@@ -125,6 +132,15 @@ class WindowFeatures:
 
     def array_interval_sizes_without_points(self) -> List[CIR_Wrapper]:
         return [sz for sz in self._array_interval_sizes if sz is not None]
+
+    def interval_array_strides_as_packed(self) -> List[CIR_Wrapper]:
+        filtered_strides = []
+        for i in range(self.n_array_dims()):
+            if self.get_array_interval_size(i) is not None:
+                # Remove strides corresponding to point expressions
+                cw_stride = self.get_array_stride_as_packed(i)
+                filtered_strides.append(cw_stride)
+        return filtered_strides
 
     def get_array_offset(self, i) -> CIR_Wrapper:
         """Offset with respect to the dataptr on the i-th array dimension.
@@ -195,6 +211,7 @@ class WindowFeatures:
         get_packed_offset(n) =         pt
         get_packed_interval_size(n) =  None
         """
+        return self._packed_interval_sizes[i]
 
     def get_encoder(self) -> "WindowEncoder":
         """Get WindowEncoder for this window struct, if the MemWin supports it"""

@@ -1095,7 +1095,7 @@ class Compiler:
         # Make features object.
         features = WindowFeatures()
         features._mem = mem
-        features._scalars_per_packed_tensor = scalars_per_packed_tensor
+        features._packed_tensor_shape = tuple(packed_tensor_shape)
         features._varname = cw_sym
         features._dataptr = cw_dataptr
         features._array_strides_as_packed = cw_array_strides
@@ -1120,9 +1120,7 @@ class Compiler:
     def debug_comment_window_features(self, features: WindowFeatures):
         self.add_line("/*")
         self.add_line(f"mem = {features.get_memwin_name()}")
-        self.add_line(
-            f"scalars_per_packed_tensor = {features._scalars_per_packed_tensor}"
-        )
+        self.add_line(f"packed_tensor_shape = {features.packed_tensor_shape()}")
         self.add_line(f"raw_name = {features.get_raw_name()!r}")
         self.add_line(f"dataptr = {features.get_dataptr()}")
         for n in range(features.n_array_dims()):
@@ -1440,7 +1438,7 @@ class Compiler:
                         self.add_line(line)
                 except Exception as e:
                     raise ValueError(
-                        f"Failed to compile {fn.name}; this could be invalid usage, or a bug in the @instr implementation: {e}"
+                        f"{s.srcinfo}: Failed to compile {fn.name}; this could be invalid usage, or a bug in the @instr implementation: {e}"
                     ) from e
             else:
                 args = ["ctxt"]

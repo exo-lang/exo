@@ -202,7 +202,7 @@ class SwizzledIndexer(WindowIndexer):
             ) * features.get_array_stride_as_packed(i)
 
         assert features.n_packed_dims() == 2
-        features.get_packed_offset(0).expect(0)  # Cannot offset packed M/N
+        features.get_packed_offset(0).exo_expect_int(0)  # Cannot offset packed M/N
         assert self.element_bits() >= 8, "TODO implement float4 etc."
         byte_offset = features.get_packed_offset(1)  # Offset packed K
         byte_offset *= self.element_bits() // 8
@@ -639,14 +639,15 @@ EXO_CUDA_INLINE uint64_t exo_matrix_descriptor_encode(uint32_t val)
     return (val & 0x3FFFF) >> 4;
 }
 
-template <typename Window>
-EXO_CUDA_INLINE uint64_t exo_matrix_descriptor(Window window, uint32_t element_size, uint32_t mn_offset = 0)
+template <typename PackedMatrix>
+EXO_CUDA_INLINE uint64_t exo_matrix_descriptor(PackedMatrix* ptr, uint32_t mn_stride_as_packed, uint32_t mn_offset = 0)
 {
-    uint64_t mn_stride = window.strides[0] * element_size;
-    return exo_matrix_descriptor_encode(exo_smemU32(window.data) + (mn_offset / 8u) * mn_stride)
-           | exo_matrix_descriptor_encode(sizeof(*window.data)) << 16u
+    static_assert(sizeof(PackedMatrix) > 8, "Write a new impl for non-swizzled stuff");
+    uint64_t mn_stride = mn_stride_as_packed * sizeof(PackedMatrix);
+    return exo_matrix_descriptor_encode(exo_smemU32(ptr) + (mn_offset / 8u) * mn_stride)
+           | exo_matrix_descriptor_encode(16) << 16u
            | exo_matrix_descriptor_encode(mn_stride) << 32u
-           | uint64_t(window.data->get_swizzle_bits()) << 62;
+           | uint64_t(ptr->get_swizzle_bits()) << 62;
 }
 """
 
@@ -893,31 +894,39 @@ __all__.append("Sm90_RmemMatrixA")
 __all__.append("Sm90_RmemMatrixD")
 
 
-class mma_async_impl:
+class mma_async_impl(InstrInfo):
+    __slots__ = ["helper", "M"]
+
     def instance_impl(self, M, N, ptx_dtype, ptx_atype, ptx_btype):
         helper = WgmmaHelper(M, N, ptx_dtype, ptx_atype, ptx_btype)
+        self.helper = helper
+        self.M = M
         self.instr_tl = wgmma_async_instr
         self.coll_unit = cuda_warpgroup
         self.cu_utils = helper.cu_utils_ss()
-
-        element_size = helper.get_K() // 2
-        fname = "exo_CudaUtil::" + helper.wgmma_ss_function_name()
-        args = []
-        for m in range(0, M, 64):
-            args.append(
-                "exo_CudaUtil::exo_matrix_descriptor({a}, %i, %i)" % (element_size, m)
-            )
-        args.append("exo_CudaUtil::exo_matrix_descriptor({b}, %i)" % (element_size,))
-        for rname in helper.dreg_names():
-            args.append("{d_data}.%s" % rname)
-        args.append("{d_data}.scale_d")
-        self.instr_format = [
-            fname + "(" + ", ".join(args) + ");",
-            "{d_data}.scale_d = 1;",
-        ]
         self.access_info["a"].out_of_order = True
         self.access_info["b"].out_of_order = True
         self.access_info["d"].out_of_order = False
+
+    def codegen(self, args):
+        helper = self.helper
+        fname = "exo_CudaUtil::" + helper.wgmma_ss_function_name()
+        lines = []
+        lines.append(f"{fname}(")
+        for m in range(0, self.M, 64):
+            ref = args.a.index()
+            strides = args.a.to_strides_as_packed()
+            lines.append(
+                f"  exo_CudaUtil::exo_matrix_descriptor(&{ref}, {strides[0]}, {m}),"
+            )
+        ref = args.b.index()
+        strides = args.b.to_strides_as_packed()
+        lines.append(f"  exo_CudaUtil::exo_matrix_descriptor(&{ref}, {strides[0]}),")
+        d = args.d.index()
+        lines.append("  " + "".join(f"{d}.{rname}," for rname in helper.dreg_names()))
+        lines.append(f"  {d}.scale_d);")
+        lines.append(f"{d}.scale_d = 1;")
+        return lines
 
 
 # For a wgmma D-matrix (in RMEM), set the scale-d flag to 0, so
