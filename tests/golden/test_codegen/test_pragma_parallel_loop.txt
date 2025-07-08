@@ -8,8 +8,8 @@
 
 #endif
 /* Required by DRAM_STACK */
-#ifndef EXO_MEMORY_GLOBAL_exo_win_1i8c
-#define EXO_MEMORY_GLOBAL_exo_win_1i8c
+#ifndef EXO_WIN_1I8C
+#define EXO_WIN_1I8C
 struct exo_win_1i8c {
     const int8_t * const data;
     const int_fast32_t strides[1];

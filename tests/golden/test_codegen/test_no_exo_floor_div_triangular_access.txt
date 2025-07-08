@@ -39,8 +39,8 @@ extern "C" {
 
 #endif
 /* Required by DRAM */
-#ifndef EXO_MEMORY_GLOBAL_exo_win_2f32
-#define EXO_MEMORY_GLOBAL_exo_win_2f32
+#ifndef EXO_WIN_2F32
+#define EXO_WIN_2F32
 struct exo_win_2f32 {
     float * const data;
     const int_fast32_t strides[2];
