@@ -372,8 +372,13 @@ class InstrWindowArg:
         features = self._features
         return str(features.get_encoder().encode_window(self._encoder_utils, features))
 
-    def get_dataptr(self) -> str:
-        return str(self._features.get_dataptr())
+    def get_separate_dataptr(self) -> str:
+        features = self._features
+        return str(
+            features.get_encoder().encode_separate_dataptr(
+                self._encoder_utils, features
+            )
+        )
 
     def separate_dataptr(self):
         return self._features.separate_dataptr()

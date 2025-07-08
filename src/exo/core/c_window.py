@@ -30,7 +30,24 @@ class UtilInjector:
 
 @dataclass(slots=True, init=False)
 class WindowFeatures:
-    """Container holding C syntax describing "features" of a window"""
+    """Container holding C syntax describing "features" of a window
+
+    Important tricky implementation notes:
+
+    1. The WindowFeatures more-or-less encodes a window *expression*,
+    which contain both points and intervals (x[pt] vs x[lo:hi]).
+    The "strides" (should they exist) correspond to both point and
+    intervals dimensions, so a classic-style Exo window struct will
+    have to filter out strides corresponding to points, e.g.
+    encode(x[a, b:c, d]) will use get_*_stride(0) and get_*_stride(2).
+
+    2. Exo-GPU leverages the "Sym to cname" conversion (Compiler.env)
+    to sometimes give different C names to the same Exo variable
+    in C and CUDA code (e.g. foo vs exo_deviceArgs.foo). Thus the use
+    of CIR_Wrapper is required even for "trivial" expressions; this
+    delays to Sym-to-str lookup so we know which name to use.
+
+    """
 
     _mem: Type["MemWin"]
     _scalars_per_packed_tensor: int
