@@ -277,8 +277,7 @@ def run_compile(proc_list, file_stem: str):
     source = f'#include "{file_stem}.h"\n\n{body}'
 
     header_guard = f"{lib_name}_H".upper()
-    header = f"""
-#pragma once
+    header = f"""#pragma once
 #ifndef {header_guard}
 #define {header_guard}
 {h_snippet_for_cuda if used_cuda else ""}\
