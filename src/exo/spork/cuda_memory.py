@@ -5,7 +5,15 @@ from math import prod
 
 from ..core.LoopIR import scalar_bits
 from ..core.prelude import SrcInfo
-from ..core.memory import Memory, MemGenError, DRAM, BarrierType, BarrierTypeTraits
+from ..core.memory import (
+    Memory,
+    MemGenError,
+    DRAM,
+    BarrierType,
+    BarrierTypeTraits,
+    MemIncludeC,
+    MemGlobalC,
+)
 from . import timelines
 from .coll_algebra import (
     CollUnit,
@@ -260,18 +268,7 @@ class CudaGridConstant(CudaDeviceVisibleLinear, DRAM):
             return timelines.cuda_sync_rmem_usage
 
 
-class CudaGmemLinear(CudaDeviceVisibleLinear):
-    """Global memory in C array order
-
-    Consider CudaDeviceVisibleLinear when you do not truly need this
-    to be global memory.
-
-    """
-
-    @classmethod
-    def global_(cls):
-        return """#include <cuda_runtime.h>
-
+gmem_code = """
 #ifndef exo_cudaMallocAsync
 #ifndef __cplusplus
 static
@@ -309,7 +306,21 @@ inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
     }
 }
 #define exo_cudaFreeAsync(ptr, stream) exo_cudaFreeAsync_default(ptr, stream, __FILE__, __LINE__)
-#endif"""
+#endif
+"""
+
+
+class CudaGmemLinear(CudaDeviceVisibleLinear):
+    """Global memory in C array order
+
+    Consider CudaDeviceVisibleLinear when you do not truly need this
+    to be global memory.
+
+    """
+
+    @classmethod
+    def global_(cls):
+        return MemGlobalC("CudaGmemLinear", gmem_code)
 
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):

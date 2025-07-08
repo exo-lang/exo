@@ -283,15 +283,8 @@ def run_compile(proc_list, file_stem: str):
 #define {header_guard}
 {h_snippet_for_cuda if used_cuda else ""}\
 
-#ifdef __cplusplus
-extern "C" {{
-#endif
-
 {fwd_decls}
 
-#ifdef __cplusplus
-}}
-#endif
 #endif  // {header_guard}
 """
 
@@ -493,10 +486,20 @@ def ext_compile_to_strings(lib_name, proc_list):
 #endif
 
 {from_lines(memgen.h_includes)}
+
+#ifdef __cplusplus
+extern "C" {{
+#endif
+
 {from_lines(ctxt_def)}
 {from_lines(memgen.h_code)}
 {from_lines(public_fwd_decls)}
-{join_ext_lines(ext_lines.get("h"))}"""
+{join_ext_lines(ext_lines.get("h"))}
+
+#ifdef __cplusplus
+}}
+#endif
+"""
 
     extern_code = _compile_externs(
         find_all_externs(analyzed_public_procs + analyzed_private_procs)
@@ -1715,7 +1718,7 @@ class MemCodeBuilder(object):
         glob = MemGlobalC(encoder.exo_struct_name(), sdef, tuple(depends_on))
         self._add_global(encoder.mem, glob)
 
-    def _add_header(self, mem: Type[MemWin], item: MemIncludeC):
+    def _add_include(self, mem: Type[MemWin], item: MemIncludeC):
         headers = self.header_used_by_dict
         header_name = item.header_name
         mem_set = headers.get(header_name)
@@ -1769,8 +1772,8 @@ class MemCodeBuilder(object):
                 else result.h_includes
             )
             for user in sorted(user.name() for user in used_by):
-                include_lines.append(f"/* Required by {user.name()} */")
-            include_lines.append(f'#include "{header}"')
+                lines.append(f"/* Required by {user} */")
+            lines.append(f'#include "{header}"')
 
         assert len(self.code_name_order) == len(self.code_name_used_by_dict)
         assert len(self.code_name_order) == len(self.name_to_code_dict)
