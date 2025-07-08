@@ -481,6 +481,10 @@ class WindowIndexer:
 
         raise NotImplementedError()
 
+    def pack_result(self, code: str, is_ptr: bool) -> WindowIndexerResult:
+        """For your convenience; don't override"""
+        return WindowIndexerResult(code, is_ptr)
+
 
 _default_struct_template = """\
 struct {sname} {{
@@ -568,4 +572,4 @@ class FallbackWindowIndexer(WindowIndexer):
             features.srcinfo(),
         )
 
-        return WindowIndexerResult(code, False)
+        return self.pack_result(code, False)

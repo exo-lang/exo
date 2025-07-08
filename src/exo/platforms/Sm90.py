@@ -42,13 +42,18 @@ __all__ = [
 
 # We use these but don't put them in __all__
 from math import prod
-from ..API import instr
+from ..API import (
+    instr,
+    memwin_template,
+    Memory,
+    SpecialWindow,
+    WindowEncoder,
+    WindowIndexer,
+)
 from ..core.memory import (
     memwin_template,
     Memory,
     SpecialWindow,
-    WindowStructCtx,
-    SpecialWindowFromMemoryCtx,
 )
 from ..spork.cuda_memory import *
 from ..spork.coll_algebra import cuda_warp, cuda_warpgroup

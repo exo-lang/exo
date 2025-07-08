@@ -1511,7 +1511,9 @@ class Compiler:
         if encoder_mem.has_window_encoder():
             typ = str(e.type.basetype())
             n_dims = len(e.type.shape())
-            features._encoder = encoder_mem.make_window_encoder(typ, n_dims, is_const)
+            encoder = encoder_mem.make_window_encoder(typ, n_dims, is_const)
+            self._mem_code_builder.register_window_encoder(encoder)
+            features._encoder = encoder
 
         # Package InstrWindowArg
         indexer_mem = features.get_memwin()

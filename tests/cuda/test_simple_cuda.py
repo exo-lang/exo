@@ -539,13 +539,27 @@ def xgemm_Sm80_fence(M: size, N: size, K: size, A_host: f32[M,K], B_host: f32[K,
     assert M % M1 == 0
     assert N % N1 == 0
     assert K % K0 == 0
+    assert K % 32 == 0
 
     A: f32[M, K] @ CudaGmemLinear
     B: f32[K, N] @ CudaGmemLinear
     C: f32[M, N] @ CudaGmemLinear
 
-    cudaMemcpyAsync_htod_2f32(M, K, A, A_host)
-    cudaMemcpyAsync_htod_2f32(K, N, B, B_host)
+    # Cuda0: initialize A with "random" data
+    with CudaDeviceFunction(blockDim=32):
+        for m in cuda_tasks(0, M):
+            for k_task in cuda_tasks(0, K / 32):
+                for k_seq in cuda_threads(0, 32):
+                    # Really tiny modulus to account for low tf32 precision
+                    gemm_init_pcg3d_mod(M, K, A, m, k_task * 32 + k_seq, seed=1337, modulus=5)
+
+    # Cuda1: initialize B with "random" data
+    with CudaDeviceFunction(blockDim=32):
+        for n in cuda_tasks(0, N):
+            for k_task in cuda_tasks(0, K / 32):
+                for k_seq in cuda_threads(0, 32):
+                    # Really tiny modulus to account for low tf32 precision
+                    gemm_init_pcg3d_mod(K, N, B, k_task * 32 + k_seq, n, seed=42, modulus=3)
 
     with CudaDeviceFunction(blockDim = 256, blocks_per_sm = 1):
         for m2 in cuda_tasks(0, M / M1):
@@ -630,6 +644,8 @@ def xgemm_Sm80_fence(M: size, N: size, K: size, A_host: f32[M,K], B_host: f32[K,
                                     n2 * N1 + nw * Nw + n_seq * 8 : n2 * N1 + nw * Nw + (n_seq+1) * 8],
                                     D_rmem[mw,nw,m_seq,n_seq,:,:])
 
+    cudaMemcpyAsync_dtoh_2f32(M, K, A_host, A)
+    cudaMemcpyAsync_dtoh_2f32(K, N, B_host, B)
     cudaMemcpyAsync_dtoh_2f32(M, N, C_host, C)
 # fmt: on
 
@@ -642,12 +658,15 @@ def test_tmp_Sm80(compiler):
         xgemm_Sm80_fence,
         excut=True,
     )
-    fn.exo_excut_begin_log_file(compiler.workdir / "excut_Sm80_fence.json", 1 << 30)
 
-    M, N, K = 192, 256, 128
-    A = np.zeros(shape=(M, K), dtype=np.float32, order="C")
-    B = np.zeros(shape=(K, N), dtype=np.float32, order="C")
+    M, N, K = 192, 256, 64
+    A = np.ndarray(shape=(M, K), dtype=np.float32, order="C")
+    B = np.ndarray(shape=(K, N), dtype=np.float32, order="C")
     C_test = np.ndarray(shape=(M, N), dtype=np.float32, order="C")
-    fn(None, M, N, K, A, B, C_test)
 
+    fn.exo_excut_begin_log_file(compiler.workdir / "excut_Sm80_fence.json", 1 << 30)
+    fn(None, M, N, K, A, B, C_test)
     fn.exo_excut_end_log_file()
+
+    C_expected = A @ B
+    assert np.array_equal(C_test, C_expected)
