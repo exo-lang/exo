@@ -39,7 +39,7 @@ class WindowFeatures:
     The "strides" (should they exist) correspond to both point and
     intervals dimensions, so a classic-style Exo window struct will
     have to filter out strides corresponding to points, e.g.
-    encode(x[a, b:c, d]) will use get_*_stride(0) and get_*_stride(2).
+    encode(x[a:b, c, x:y]) will use get_*_stride(0) and get_*_stride(2).
 
     2. Exo-GPU leverages the "Sym to cname" conversion (Compiler.env)
     to sometimes give different C names to the same Exo variable
