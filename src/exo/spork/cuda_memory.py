@@ -4,7 +4,7 @@ from typing import List, Optional, Type
 from math import prod
 
 from ..core.LoopIR import scalar_bits
-from ..core.prelude import SrcInfo
+from ..core.prelude import SrcInfo, ScalarInfo
 from ..core.memory import (
     Memory,
     MemGenError,
@@ -79,7 +79,7 @@ class CudaBasicDeviceVisible(Memory):
             return ""
 
 
-@dataclass
+@dataclass(slots=True)
 class SmemConfig:
     """Subclasses of CudaBasicSmem (CUDA shared memory) must not implement
     alloc and free directly. Instead, return SmemConfig in smem_config()
@@ -96,9 +96,9 @@ class SmemConfig:
     alignment: int = 1
 
 
-@dataclass
+@dataclass(slots=True)
 class SmemConfigInputs:
-    ctype: str  # C type name e.g. "float", "int32_t"
+    scalar_info: ScalarInfo
     const_shape: List[int]  # Tensor shape as list of ints
     srcinfo: SrcInfo  # Include this in error messages
     mem: Type[Memory]
@@ -108,7 +108,7 @@ class SmemConfigInputs:
 
         By default we generate either a scalar reference, or a reference
         to an array of size = product of shape dimensions."""
-        ctype = ctype or self.ctype
+        ctype = ctype or self.scalar_info.ctype
         if shape is None and self.const_shape:
             shape = [prod(self.const_shape)]
         if not shape:
@@ -116,8 +116,11 @@ class SmemConfigInputs:
         else:
             return f"{ctype} (&) [{']['.join(str(c) for c in shape)}]"
 
+    def ctype(self):
+        return self.scalar_info.ctype
+
     def element_bits(self):
-        return scalar_bits(self.ctype)
+        return self.scalar_info.bits
 
     def require_shape_divisibility(self, divisors):
         """Shape divisibility check

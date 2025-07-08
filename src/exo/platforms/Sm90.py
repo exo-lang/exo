@@ -49,6 +49,7 @@ from ..API import (
     SpecialWindow,
     WindowEncoder,
     WindowIndexer,
+    ScalarInfo,
 )
 from ..core.memory import (
     memwin_template,
@@ -107,7 +108,7 @@ def Sm90_SmemSwizzled(swizzle):
 
         @classmethod
         def smem_config(cls, inputs: SmemConfigInputs) -> SmemConfig:
-            matrix_k = cls.get_matrix_k(inputs.ctype)
+            matrix_k = cls.get_matrix_k(inputs.scalar_info)
             inputs.require_shape_tile((matrix_mn, matrix_k * num_matrices))
             return SmemConfig(f"{c_matrices} (&)[]", 128)
 
@@ -139,8 +140,8 @@ def Sm90_SmemSwizzled(swizzle):
             )
 
         @classmethod
-        def get_matrix_k(cls, ctype):
-            return 128 // scalar_bits(ctype)
+        def get_matrix_k(cls, scalar_info):
+            return 128 // ScalarInfo(scalar_info).bits
 
     return SwizzledImpl
 

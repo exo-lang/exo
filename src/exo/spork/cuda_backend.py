@@ -1320,9 +1320,9 @@ def type_const_shape(t: LoopIR.type, usage_str, name, srcinfo: SrcInfo):
 
 def smem_config_inputs(s: LoopIR.Alloc):
     assert isinstance(s, LoopIR.Alloc)
-    ctype = s.type.basetype().ctype()
+    scalar_info = s.type.basetype().scalar_info()
     const_shape = type_const_shape(s.type, "SMEM allocation", s.name, s.srcinfo)
-    return SmemConfigInputs(ctype, const_shape, s.srcinfo, s.mem)
+    return SmemConfigInputs(scalar_info, const_shape, s.srcinfo, s.mem)
 
 
 def CodegenSmem(byte_offset, byte_end, reftype, wrapped_smem_type):
