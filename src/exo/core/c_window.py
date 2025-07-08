@@ -255,7 +255,7 @@ class WindowFeatures:
 @dataclass(slots=True)
 class WindowEncoderArgs:
     mem: type
-    type_shorthand: str  # Exo name for scalar type, e.g. f64, i32
+    scalar_info: object  # ScalarInfo
     n_dims: int  # Number of dimensions
     const: bool
     base_memwin_name: str
@@ -265,20 +265,14 @@ class WindowEncoderArgs:
 class WindowEncoder:
     # Filled by __init__ (if you don't override it)
     mem: type
-    type_shorthand: str
-    ctype: str
+    scalar_info: object  # ScalarInfo
     n_dims: int
     const: bool
     _exo_base_memwin_name: str
 
     def __init__(self, args: WindowEncoderArgs):
-        assert isinstance(args.type_shorthand, str)
-        assert isinstance(args.n_dims, int)
         self.mem = args.mem
-        self.type_shorthand = args.type_shorthand
-        self.ctype = LoopIR.loopir_from_uast_type_table[
-            type(LoopIR.uast_prim_types[args.type_shorthand])
-        ].ctype()
+        self.scalar_info = args.scalar_info
         self.n_dims = args.n_dims
         self.const = args.const
         self._exo_base_memwin_name = args.base_memwin_name
@@ -298,13 +292,18 @@ class WindowEncoder:
         else:
             const_suffix = ""
 
-        return f"exo_win_{self.n_dims}{self.type_shorthand}{const_suffix}{mem_suffix}"
+        exo_name = self.scalar_info.shorthand
+        return f"exo_win_{self.n_dims}{exo_name}{const_suffix}{mem_suffix}"
+
+    def ctype(self):
+        """For your convenience; don't override"""
+        return self.scalar_info.ctype
 
     def dataptr_ctype(self) -> str:
         if self.const:
-            return f"const {self.ctype}*"
+            return f"const {self.ctype()}*"
         else:
-            return f"{self.ctype}*"
+            return f"{self.ctype()}*"
 
     def separate_dataptr(self) -> bool:
         """Override this to return True to opt-in to separate dataptr mode.
@@ -421,7 +420,7 @@ class WindowEncoder:
 
 @dataclass(slots=True)
 class WindowIndexerArgs:
-    type_shorthand: str  # Exo name for scalar type, e.g. f64, i32
+    scalar_info: object  # ScalarInfo
     n_dims: int  # Number of dimensions
     const: bool
     exo_struct_name: Optional[str]
@@ -440,17 +439,13 @@ class WindowIndexerResult:
 @dataclass(slots=True)
 class WindowIndexer:
     # Filled by __init__ (if you don't override it)
-    type_shorthand: str
-    ctype: str
+    scalar_info: object  # ScalarInfo
     n_dims: int
     const: bool
     _exo_struct_name: Optional[str]
 
     def __init__(self, args: WindowIndexerArgs):
-        self.type_shorthand = args.type_shorthand
-        self.ctype = LoopIR.loopir_from_uast_type_table[
-            type(LoopIR.uast_prim_types[args.type_shorthand])
-        ].ctype()
+        self.scalar_info = args.scalar_info
         self.n_dims = args.n_dims
         self.const = args.const
         self._exo_struct_name = args.exo_struct_name
@@ -459,6 +454,10 @@ class WindowIndexer:
         """Give the name of the window struct as defined by the WindowEncoder"""
         assert self._exo_struct_name, "seems to be no WindowEncoder"
         return self._exo_struct_name
+
+    def ctype(self):
+        """For your convenience; don't override"""
+        return self.scalar_info.ctype
 
     def index(
         self, utils: UtilInjector, features: WindowFeatures
@@ -501,7 +500,7 @@ class FallbackWindowEncoder(WindowEncoder):
         const_keyword = "const " if self.const else ""
         return _default_struct_template.format(
             sname=sname,
-            ctype=self.ctype,
+            ctype=self.ctype(),
             n_dims=self.n_dims,
             const_keyword=const_keyword,
         )

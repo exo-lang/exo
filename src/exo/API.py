@@ -29,7 +29,7 @@ from .core.memory import (
 )
 from .frontend.parse_fragment import parse_fragment
 from .frontend.pattern_match import match_pattern
-from .core.prelude import *
+from .core.prelude import Sym, SrcInfo, null_srcinfo, ScalarInfo
 from .rewrite.new_eff import Check_Aliasing
 
 # Moved to new file

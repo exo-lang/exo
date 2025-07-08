@@ -1,5 +1,6 @@
 from inspect import currentframe as _curr_frame, getframeinfo as _get_frame_info
 from re import compile as _re_compile
+from dataclasses import dataclass as _dataclass
 
 
 def is_pos_int(obj):
@@ -141,3 +142,52 @@ class Operator(str):
         if op in front_ops:
             return super().__new__(cls, op)
         raise ValueError(f"invalid operator: {op}")
+
+
+# --------------------------------------------------------------------------- #
+# Scalar Type Info
+# --------------------------------------------------------------------------- #
+
+
+_scalar_info_dict = {}
+
+
+@_dataclass(slots=True, init=False)
+class ScalarInfo:
+    shorthand: str  # Exo name, e.g. f64
+    ctype: str  # C name, e.g. double
+    bits: int  # bit width, e.g. 64
+
+    def __new__(cls, arg):
+        """From ScalarInfo (no-op), Exo name, C name, or (internal) LoopIR type"""
+        if isinstance(arg, ScalarInfo):
+            return arg
+        if isinstance(arg, str):
+            return _scalar_info_dict[arg]
+        from .LoopIR import LoopIR, UAST
+
+        if isinstance(arg, (LoopIR.type, UAST.type)):
+            return _scalar_info_dict[type(arg)]
+        if isinstance(arg, type):
+            return _scalar_info_dict[arg]
+        assert 0, "Expect str, ScalarInfo, or LoopIR.type"
+
+    def extclass(uast, t, shorthand, ctype, bits):
+        from .LoopIR import LoopIR, UAST, uast_prim_types, loopir_from_uast_type_table
+
+        assert isinstance(uast, UAST.type)
+        assert isinstance(t, LoopIR.type)
+        info = object.__new__(ScalarInfo)
+        info.shorthand = shorthand
+        info.ctype = ctype
+        info.bits = bits
+        _scalar_info_dict[shorthand] = info
+        _scalar_info_dict[ctype] = info
+        _scalar_info_dict[type(t)] = info
+        _scalar_info_dict[type(uast)] = info
+        uast_prim_types[shorthand] = uast
+        loopir_from_uast_type_table[type(uast)] = t
+
+        @extclass(type(t))
+        def scalar_info(t):
+            return info

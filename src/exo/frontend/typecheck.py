@@ -13,6 +13,9 @@ from ..core.memory import *
 from ..core.prelude import Sym
 from ..spork.base_with_context import BaseWithContext
 
+if hasattr(LoopIR, "LoopIR"):
+    LoopIR = LoopIR.LoopIR
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 

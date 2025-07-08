@@ -21,6 +21,7 @@ from .prelude import (
     arithmetic_ops,
     logical_ops,
     front_ops,
+    ScalarInfo,
 )
 
 from ..spork.timelines import Instr_tl, Usage_tl, cpu_in_order_instr
@@ -390,37 +391,6 @@ class T:
 # type helper functions
 
 
-# str to UAST type
-uast_prim_types = {
-    "R": UAST.Num(),
-    "f16": UAST.F16(),
-    "f32": UAST.F32(),
-    "f64": UAST.F64(),
-    "i8": UAST.INT8(),
-    "ui8": UAST.UINT8(),
-    "ui16": UAST.UINT16(),
-    "i32": UAST.INT32(),
-}
-
-
-# UAST to LoopIR scalars
-loopir_from_uast_type_table = {
-    UAST.Num: T.R,
-    UAST.F16: T.f16,
-    UAST.F32: T.f32,
-    UAST.F64: T.f64,
-    UAST.INT8: T.int8,
-    UAST.UINT8: T.uint8,
-    UAST.UINT16: T.uint16,
-    UAST.INT32: T.int32,
-    UAST.Bool: T.bool,
-    UAST.Int: T.int,
-    UAST.Size: T.size,
-    UAST.Index: T.index,
-    UAST.Stride: T.stride,
-}
-
-
 @extclass(LoopIR.proc)
 def is_const_param(proc, sym: Sym):
     assert isinstance(sym, Sym)
@@ -479,70 +449,65 @@ def shape(t):
 del shape
 
 
+@extclass(T.type)
+def ctype(t):
+    return t.scalar_info().ctype
+
+
 @extclass(T.Num)
-@extclass(T.F16)
-@extclass(T.F32)
-@extclass(T.F64)
-@extclass(T.INT8)
-@extclass(T.UINT8)
-@extclass(T.UINT16)
-@extclass(T.INT32)
-@extclass(T.Bool)
+def ctype(t):
+    assert False, "Don't ask for ctype of Num"
+
+
 @extclass(T.Int)
 @extclass(T.Index)
 @extclass(T.Size)
 @extclass(T.Stride)
 def ctype(t):
-    if isinstance(t, T.Num):
-        assert False, "Don't ask for ctype of Num"
-    elif isinstance(t, T.F16):
-        return "_Float16"
-    elif isinstance(t, T.F32):
-        return "float"
-    elif isinstance(t, T.F64):
-        return "double"
-    elif isinstance(t, T.INT8):
-        return "int8_t"
-    elif isinstance(t, T.UINT8):
-        return "uint8_t"
-    elif isinstance(t, T.UINT16):
-        return "uint16_t"
-    elif isinstance(t, T.INT32):
-        return "int32_t"
-    elif isinstance(t, T.Bool):
-        return "bool"
-    elif isinstance(t, (T.Int, T.Index, T.Size, T.Stride)):
-        return "int_fast32_t"
+    return "int_fast32_t"
 
 
 del ctype
 
 
-ctypes_bits_dict = {
-    "_Float16": 16,
-    "float": 32,
-    "double": 64,
-    "int8_t": 8,
-    "uint8_t": 8,
-    "uint16_t": 16,
-    "int32_t": 32,
-    "bool": None,
-    "int_fast32_t": None,
+# str to UAST type instance (see ScalarInfo too)
+uast_prim_types = {
+    "R": UAST.Num(),
 }
 
 
+# UAST to LoopIR scalars (see ScalarInfo too)
+loopir_from_uast_type_table = {
+    UAST.Num: T.R,
+    UAST.Int: T.int,
+    UAST.Size: T.size,
+    UAST.Index: T.index,
+    UAST.Stride: T.stride,
+}
+
+
+@extclass(LoopIR.type)
+def scalar_info(t):
+    raise TypeError(f"No scalar_info for {t}")
+
+
+# fmt: off
+ScalarInfo.extclass(UAST.F16(),         T.f16,          "f16",          "_Float16",     16)
+ScalarInfo.extclass(UAST.F32(),         T.f32,          "f32",          "float",        32)
+ScalarInfo.extclass(UAST.F64(),         T.f64,          "f64",          "double",       64)
+ScalarInfo.extclass(UAST.INT8(),        T.i8,           "i8",           "int8_t",       8)
+ScalarInfo.extclass(UAST.UINT8(),       T.ui8,          "ui8",          "uint8_t",      8)
+ScalarInfo.extclass(UAST.UINT16(),      T.ui16,         "ui16",         "uint16_t",     16)
+ScalarInfo.extclass(UAST.INT32(),       T.i32,          "i32",          "int32_t",      32)
+ScalarInfo.extclass(UAST.Bool(),        T.bool,         "bool",         "bool",         1)
+# fmt: on
+
+
+del scalar_info
+
+
 def scalar_bits(ctype):
-    if isinstance(ctype, LoopIR.type):
-        ctype = ctype.basetype().ctype()
-    assert isinstance(ctype, str)
-    try:
-        bits = ctypes_bits_dict[ctype]
-        if bits is None:
-            raise TypeError(f"{ctype} has no known bit count")
-        return bits
-    except KeyError:
-        # Add to the dict above if this happens to you
-        raise TypeError(f"Sorry, unimplemented: bit count for {ctype}")
+    return ScalarInfo(ctype).bits
 
 
 @extclass(LoopIR.type)

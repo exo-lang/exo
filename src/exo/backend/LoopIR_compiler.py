@@ -62,16 +62,6 @@ def sanitize_str(s):
     return re.sub(r"\W", "_", s)
 
 
-T_shorthand = {
-    T.f16: "f16",
-    T.f32: "f32",
-    T.f64: "f64",
-    T.i8: "i8",
-    T.ui8: "ui8",
-    T.ui16: "ui16",
-    T.i32: "i32",
-}
-
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 
@@ -995,7 +985,8 @@ class Compiler:
         mem = self.mems[symbol]
 
         srcinfo = node.srcinfo
-        basetype_name = str(typ.basetype())
+        basetype = typ.basetype()
+        scalar_info = basetype.scalar_info()
         const = self.is_const(symbol)
         utils = self._util_injector.with_tag(mem.name())
 
@@ -1012,7 +1003,7 @@ class Compiler:
         # Analyze packed tensor shape
         shape = typ.shape()
         n_dims = len(shape)
-        packed_tensor_shape = mem.packed_tensor_shape(basetype_name)
+        packed_tensor_shape = mem.packed_tensor_shape(scalar_info)
         n_packed_dims = len(packed_tensor_shape)
         n_array_dims = n_dims - n_packed_dims
         if n_array_dims < 0:
@@ -1044,10 +1035,10 @@ class Compiler:
         cw_sym = CIR_Wrapper(CIR.Read(symbol, False), self, strnm)
         encoder, indexer = None, None
         if mem.has_window_encoder():
-            encoder = mem.make_window_encoder(basetype_name, n_dims, const)
+            encoder = mem.make_window_encoder(scalar_info, n_dims, const)
             self._mem_code_builder.register_window_encoder(encoder)
         if mem.has_window_indexer():
-            indexer = mem.make_window_indexer(basetype_name, n_dims, const)
+            indexer = mem.make_window_indexer(scalar_info, n_dims, const)
         supports_strides = True
         if n_array_dims > 0 and encoder:
             try:

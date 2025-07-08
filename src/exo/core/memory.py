@@ -22,6 +22,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional, Set, Type
 from ..spork.timelines import cpu_in_order_instr, cpu_usage, Instr_tl, Usage_tl
+from .prelude import ScalarInfo
 from .c_window import (
     WindowEncoder,
     WindowEncoderArgs,
@@ -235,7 +236,7 @@ class MemWin(ABC):
         return cpu_usage
 
     @classmethod
-    def packed_tensor_shape(cls, type_shorthand: str) -> List[int]:
+    def packed_tensor_shape(cls, scalar_info) -> List[int]:
         return ()
 
     # TODO remove?
@@ -267,12 +268,12 @@ class MemWin(ABC):
         return cls._exo_window_encoder_type is not None
 
     @classmethod
-    def make_window_encoder(cls, type_shorthand, n_dims, const):
+    def make_window_encoder(cls, scalar_info, n_dims, const):
         """Do not override"""
         origin_memwin = cls._exo_window_encoder_origin_memwin
         args = WindowEncoderArgs(
             cls,
-            str(type_shorthand),
+            ScalarInfo(scalar_info),
             n_dims,
             const,
             "" if not origin_memwin else origin_memwin.base_name(),
@@ -280,9 +281,11 @@ class MemWin(ABC):
         return cls._exo_window_encoder_type(args)
 
     @classmethod
-    def window_struct_name(cls, type_shorthand, n_dims, const):
+    def window_struct_name(cls, scalar_info, n_dims, const):
         """Do not override"""
-        return cls.make_window_encoder(type_shorthand, n_dims, const).exo_struct_name()
+        return cls.make_window_encoder(
+            ScalarInfo(scalar_info), n_dims, const
+        ).exo_struct_name()
 
     @classmethod
     def has_window_indexer(cls):
@@ -290,12 +293,13 @@ class MemWin(ABC):
         return cls._exo_window_indexer_type is not None
 
     @classmethod
-    def make_window_indexer(cls, type_shorthand, n_dims, const):
+    def make_window_indexer(cls, scalar_info, n_dims, const):
         """Do not override"""
         sname = None
+        scalar_info = ScalarInfo(scalar_info)
         if cls.has_window_encoder():
-            sname = cls.window_struct_name(type_shorthand, n_dims, const)
-        args = WindowIndexerArgs(str(type_shorthand), n_dims, const, sname)
+            sname = cls.window_struct_name(scalar_info.shorthand, n_dims, const)
+        args = WindowIndexerArgs(scalar_info, n_dims, const, sname)
         return cls._exo_window_indexer_type(args)
 
     @classmethod
