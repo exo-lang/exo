@@ -1,11 +1,6 @@
-
 #pragma once
 #ifndef TEST_H
 #define TEST_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 
 #include <stdint.h>
@@ -29,6 +24,11 @@ extern "C" {
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 
 /* Required by DRAM */
@@ -57,6 +57,8 @@ void foo( void *ctxt, int_fast32_t N, float* x );
 #ifdef __cplusplus
 }
 #endif
+
+
 #endif  // TEST_H
 
 #include "test.h"

@@ -17,14 +17,9 @@ memcpy(n,dst,src)
 memcpy({dst}, {src}, {n} * sizeof(float));
 */
 
-
 #pragma once
 #ifndef BAR_H
 #define BAR_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 
 #include <stdint.h>
@@ -48,6 +43,11 @@ extern "C" {
 #  define EXO_ASSUME(expr) ((void)(expr))
 #endif
 
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 
 /* Required by DRAM */
@@ -85,4 +85,6 @@ void bar( void *ctxt, int_fast32_t n, float* dst, const float* src );
 #ifdef __cplusplus
 }
 #endif
+
+
 #endif  // BAR_H
