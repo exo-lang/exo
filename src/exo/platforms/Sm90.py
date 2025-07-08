@@ -748,7 +748,6 @@ class WgmmaHelper:
         return [
             store_d_util,
             matrix_descriptor_util,
-            self.rmem_d_struct_def(),
             self.wgmma_ss_function_def(),
         ]
 
@@ -756,8 +755,6 @@ class WgmmaHelper:
         return [
             store_d_util,
             matrix_descriptor_util,
-            self.rmem_d_struct_def(),
-            self.rmem_a_struct_def(),
             self.wgmma_rs_function_def(),
         ]
 
@@ -814,61 +811,7 @@ class WgmmaHelper:
 # fmt: on
 
 
-class WgmmaRmemImpl(CudaBasicDeviceVisible):
-    @classmethod
-    def instr_tl_permission(cls, instr_tl, is_instr):
-        return cls.device_allocated_impl(instr_tl, is_instr)
-
-    @classmethod
-    def native_unit(cls):
-        return cuda_warpgroup
-
-    @classmethod
-    def alloc(cls, new_name, prim_type, shape, srcinfo):
-        # We expect exactly 2D tiles to be lowered.
-        # NB if the allocation is not used, the lowering will fail, as we expect
-        # an Exo wgmma instr to inject the needed struct definition into exo_CudaUtil.
-        element_bits = scalar_bits(prim_type)
-        M, N = cls.as_const_shape(new_name, shape, srcinfo, min_dim=2, max_dim=2)
-        assert prim_type == "float"  # TODO
-        helper = WgmmaHelper(M, N, "f32", None, None)
-        sname = helper.rmem_d_struct_name()
-        return f"exo_CudaUtil::{sname} {new_name};"
-
-    @classmethod
-    def free(cls, new_name, prim_type, shape, srcinfo):
-        return ""
-
-    @classmethod
-    def window(cls, basetyp, baseptr, indices, strides, srcinfo):
-        # This is really broken; we need to adjust the Exo window model
-        # to reflect the reality of non-random-accessable register tiles.
-        if basetyp.is_win():
-            baseptr = f"*{baseptr}.data"
-
-        # TODO enforce last two indices are :,:
-        # e.g. we currently accept
-        # D : f32[64,64,256]
-        # D2 = D[:,:,0]
-        if indices[-1] != "0" or indices[-2] != "0":
-            raise MemGenError(
-                f"{srcinfo}: cannot offset right 2 dimensions of {baseptr} @ {cls.name()}"
-            )
-
-        return baseptr
-
-    @classmethod
-    def window_definition(cls, ctx: WindowStructCtx):
-        # TODO placeholder; this doesn't work at all.
-        # We need to make windows "non-materializable" for wgmma
-        if ctx.n_dims() != 2:
-            raise MemGenError(
-                f"{ctx.srcinfo():} Only support windows to 2D wgmma tiles"
-            )
-        return ctx.generate_default("Sm90_RmemMatrix", "float")
-
-
-class Sm90_RmemMatrixA(WgmmaRmemImpl):
+class Sm90_RmemMatrixA:
     # TODO implement this
 
     @classmethod
@@ -880,18 +823,63 @@ class Sm90_RmemMatrixA(WgmmaRmemImpl):
             return cuda_sync_rmem_usage
 
 
-class Sm90_RmemMatrixD(WgmmaRmemImpl):
-    @classmethod
-    def default_usage_tl(cls, instr_tl):
-        if instr_tl == wgmma_async_instr:
-            return cuda_async_d_rmem_usage
-        else:
-            assert instr_tl == cuda_in_order_instr
-            return cuda_sync_rmem_usage
+@memwin_template
+def Sm90_RmemMatrixD(M, N):
+    helper = WgmmaHelper(M, N, "f32", None, None)
+
+    @window_indexer(RmemIndexer)
+    class Sm90_RmemMatrixD(CudaBasicDeviceVisible):
+        @classmethod
+        def global_(cls):
+            return helper.rmem_d_struct_def()
+
+        @classmethod
+        def default_usage_tl(cls, instr_tl):
+            if instr_tl == wgmma_async_instr:
+                return cuda_async_d_rmem_usage
+            else:
+                assert instr_tl == cuda_in_order_instr
+                return cuda_sync_rmem_usage
+
+        @classmethod
+        def instr_tl_permission(cls, instr_tl, is_instr):
+            return cls.device_allocated_impl(instr_tl, is_instr)
+
+        @classmethod
+        def native_unit(cls):
+            return cuda_warpgroup
+
+        @classmethod
+        def alloc(cls, new_name, prim_type, shape, srcinfo):
+            element_bits = scalar_bits(prim_type)
+            shape = cls.as_const_shape(new_name, shape, srcinfo, min_dim=2)
+            array_shape = shape[:-2]
+            assert prim_type == "float"  # TODO
+            sname = helper.rmem_d_struct_name()
+            arrays = "".join(f"[{s}]" for s in array_shape)
+            return f"{sname} {new_name}{arrays};"
+
+        @classmethod
+        def free(cls, new_name, prim_type, shape, srcinfo):
+            return ""
+
+        @classmethod
+        def packed_tensor_shape(cls, typ):
+            return (M, N)
+
+    return Sm90_RmemMatrixD
 
 
 __all__.append("Sm90_RmemMatrixA")
 __all__.append("Sm90_RmemMatrixD")
+
+
+class RmemIndexer(WindowIndexer):
+    def index(self, utils, features: WindowFeatures):
+        code = features.get_dataptr()
+        for i in range(features.n_array_dims()):
+            code = code[features.get_array_offset(i)]
+        return self.pack_result(code, False)
 
 
 class mma_async_impl(InstrInfo):
@@ -906,6 +894,7 @@ class mma_async_impl(InstrInfo):
         self.access_info["a"].out_of_order = True
         self.access_info["b"].out_of_order = True
         self.access_info["d"].out_of_order = False
+        self.access_info["d"].mem = Sm90_RmemMatrixD(M, N)
 
     def codegen(self, args):
         helper = self.helper
@@ -937,15 +926,16 @@ class mma_async_impl(InstrInfo):
 # TODO this still seems to be an issue.
 @instr
 class Sm90_zero_scale_d_f32:
-    def behavior(M: size, N: size, d: [f32][M, N] @ Sm90_RmemMatrixD):
+    def behavior(M: size, N: size, d: [f32][M, N]):
         for m in seq(0, M):
             for n in seq(0, N):
                 d[m, n] = 0
 
-    def instance(self):
+    def instance(self, M, N):
         # XXX cuda_in_order is completely wrong
         self.instr_tl = cuda_in_order_instr
         self.coll_unit = cuda_warpgroup
+        self.access_info["d"].mem = Sm90_RmemMatrixD(M, N)
 
     def codegen(self, args):
         return [f"{args.d.index()}.scale_d = 0;"]
@@ -959,7 +949,7 @@ class Sm90_mma_async_tf32(mma_async_impl):
     def behavior(
         M: size,
         N: size,
-        d: [f32][M, N] @ Sm90_RmemMatrixD,
+        d: [f32][M, N],  # @ Sm90_RmemMatrixD
         a: [f32][M / 8, 8, 8] @ Sm90_SmemSwizzled(128),
         b: [f32][N / 8, 8, 8] @ Sm90_SmemSwizzled(128),
     ):
@@ -988,6 +978,7 @@ class Sm90_mma_write_d_impl(InstrInfo):
         self.instr_tl = cuda_in_order_instr
         self.coll_unit = cuda_warpgroup
         self.cu_utils = helper.cu_utils_ss()
+        self.access_info["src"].mem = Sm90_RmemMatrixD(helper.M, helper.N)
 
     def codegen(self, args):
         lines = []
@@ -1007,7 +998,7 @@ class Sm90_mma_write_d_col_major_tf32(Sm90_mma_write_d_impl):
         M: size,
         N: size,
         dst: [f32][N, M] @ CudaDeviceVisibleLinear,
-        src: [f32][M, N] @ Sm90_RmemMatrixD,
+        src: [f32][M, N],  # Sm90_RmemMatrixD
     ):
         for m in seq(0, M):
             for n in seq(0, N):
@@ -1024,7 +1015,7 @@ class Sm90_mma_write_d_row_major_tf32(Sm90_mma_write_d_impl):
         M: size,
         N: size,
         dst: [f32][M, N] @ CudaDeviceVisibleLinear,
-        src: [f32][M, N] @ Sm90_RmemMatrixD,
+        src: [f32][M, N],  # Sm90_RmemMatrixD
     ):
         for m in seq(0, M):
             for n in seq(0, N):
