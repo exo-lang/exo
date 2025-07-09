@@ -30,57 +30,18 @@ from .cuda_memory import (
 )
 from .distributed_memory import DistributedAllocState, ThreadIter
 from .excut import InlinePtxGen, simple_ptx_c_lines
+from .lowered_barrier import LoweredBarrierType, LoweredBarrier
 from .sync_types import SyncType
 from . import timelines
 from .timelines import Instr_tl, Sync_tl
-
-
-class LoweredBarrierType(Enum):
-    garden_variety_fence = auto()
-    cluster_sync = auto()
-    wgmma_fence = auto()
-    mbarrier = auto()
-    Sm80_commit_group = auto()
-    tma_to_gmem_commit_group = auto()
-    wgmma_commit_group = auto()
-
-
-@dataclass(slots=True)
-class LoweredPrologueSync:
-    instr_tl: Instr_tl
-    lines: List[str]
-
-
-@dataclass(slots=True)
-class LoweredEpilogueSync:
-    instr_tl: Instr_tl
-    lines: List[str]
-
-
-@dataclass(slots=True)
-class CudaLoweredBarrier:
-    # If set, two barrier objects of the same type_enum (in Exo code)
-    # cannot be live at the same time.
-    solitary: bool
-
-    # More specific than the BarrierType (specialized by sync-tl).
-    # Also applies to Fence(...), which has no associated barrier object.
-    type_enum: LoweredBarrierType
-
-    # Lower SyncStmt to lines of C++ code (List[str])
-    # (you may assume the SyncStmt uses this lowered barrier)
-    # If the sync must appear as the prologue/epilogue sync
-    # of a CudaAsync(A) block, warp the lines with
-    # LoweredPrologueSync(A, lines) or LoweredEpilogueSync(A, lines)
-    codegen: Callable[[LoopIR.SyncStmt], object] = None
 
 
 @dataclass(slots=True)
 class SyncStateBuilder:
     _coll_env: Dict[CollParam, int]
 
-    # CudaLoweredBarrier for each barrier lowered, indexed by name
-    lowered: Dict[Sym, CudaLoweredBarrier] = field(default_factory=dict)
+    # LoweredBarrier for each barrier lowered, indexed by name
+    lowered: Dict[Sym, LoweredBarrier] = field(default_factory=dict)
 
     # tuples (mbarrier_count, arrive_count)
     # to initialize in SMEM, e.g. (8, 64), (2, 384) means initialize an
@@ -166,9 +127,9 @@ class SyncStateBuilder:
                 f"{srcinfo}: wgmma fence must be executed by a warpgroup: {msg}"
             )
 
-        lowered = CudaLoweredBarrier(False, LoweredBarrierType.wgmma_fence)
-        lowered.codegen = lambda _: LoweredPrologueSync(
-            timelines.wgmma_async_instr, simple_ptx_c_lines("wgmma.fence.sync.aligned")
+        lowered = LoweredBarrier(False, LoweredBarrierType.wgmma_fence)
+        lowered.codegen_sync_stmt = lambda _: simple_ptx_c_lines(
+            "wgmma.fence.sync.aligned"
         )
         self.lowered[name] = lowered
 
@@ -228,9 +189,9 @@ class SyncStateBuilder:
             ), "Expected Fence to have identical Arrive/Await tiling"
         if is_cluster_sync:
             # solitary=True as there's only one built-in cluster sync per cluster
-            lowered = CudaLoweredBarrier(True, LoweredBarrierType.cluster_sync)
+            lowered = LoweredBarrier(True, LoweredBarrierType.cluster_sync)
         else:
-            lowered = CudaLoweredBarrier(False, LoweredBarrierType.cluster_sync)
+            lowered = LoweredBarrier(False, LoweredBarrierType.cluster_sync)
         arrive_lines = []
         await_lines = []
 
@@ -296,7 +257,7 @@ class SyncStateBuilder:
             else:
                 return arrive_lines + await_lines
 
-        lowered.codegen = codegen
+        lowered.codegen_sync_stmt = codegen
         self.lowered[name] = lowered
 
     def add_mbarrier(
@@ -317,7 +278,7 @@ class SyncStateBuilder:
             )
 
         # Reserve C name and space for mbarriers in SMEM
-        lowered = CudaLoweredBarrier(False, LoweredBarrierType.mbarrier)
+        lowered = LoweredBarrier(False, LoweredBarrierType.mbarrier)
         mbarrier_offset = self.mbarrier_count
         nm_suffix = f"{suffix}_{name}"
 
@@ -565,10 +526,11 @@ class SyncStateBuilder:
             if sync_type.is_arrive():
                 assert sync_type.N <= 1, "TODO implement me"
                 result = [f"exo_syncState.{b}{Arrive_txt}, {slice}, {sync_type.N});"]
-                is_tma = back_arrive_is_tma if back else front_arrive_is_tma
-                if is_tma:
-                    # See also codegen_exo_tma_mbarrier if you change this!
-                    result = LoweredEpilogueSync(timelines.tma_to_smem_async_instr, result)
+                # XXX XXX XXX WIP new Call barrier system
+                # is_tma = back_arrive_is_tma if back else front_arrive_is_tma
+                # if is_tma:
+                #     # See also codegen_exo_tma_mbarrier if you change this!
+                #     result = LoweredEpilogueSync(timelines.tma_to_smem_async_instr, result)
                 return result
             else:
                 skips_arg = ""
@@ -576,24 +538,11 @@ class SyncStateBuilder:
                     assert skips > 0, "should have been caught earlier"
                     skips_arg = f", {skips}"
                 return [f"exo_syncState.{b}Await{nm_suffix}(exo_smem, exo_excutLog, {slice}{skips_arg});"]
-        lowered.codegen = codegen
+        lowered.codegen_sync_stmt = codegen
         self.lowered[name] = lowered
         # fmt: on
 
     def codegen_exo_tma_mbarrier(self, _arrive: LoopIR.SyncStmt):
-        """Special-case code for generating the C++ def for exo_tma_mbarrier
-
-        For the mbarrier Arrive at the end of a CudaAsync(tma_to_smem_async)
-        block, we need to make the mbarrier used for the upcoming arrive
-        available in the entire block as `uint32_t exo_tma_mbarrier`.
-        This is needed to make expect-tx work.
-
-        Given the LoopIR node for said Arrive, return C++ syntax for declaring
-        exo_tma_smem. The outer compiler (cuda_backend) should paste this
-        at the beginning of the CudaAsync(tma_to_smem_async) block.
-
-        """
-
         # TODO this will go away when TMA instrs take mbarrier parameters
 
         assert isinstance(_arrive, LoopIR.SyncStmt)
@@ -607,10 +556,14 @@ class SyncStateBuilder:
         arrive0_sync_type = _arrive.sync_type.copy()
         arrive0_sync_type.N = 0
         arrive0 = _arrive.update(sync_type=arrive0_sync_type)
-        mbarrier_txt = lowered_mbarrier.codegen(arrive0).lines[0]
+        mbarrier_txt = lowered_mbarrier.codegen_sync_stmt(arrive0)[0]
         assert mbarrier_txt[-1] == ";"
-        c_alias = f"const uint32_t exo_tma_mbarrier = {mbarrier_txt}"
-        return c_alias
+        alias_sym = Sym("exo_tma_mbarrier")
+        lines = [f"const uint32_t exo_tma_mbarrier = {mbarrier_txt}"]
+        self.lowered[alias_sym] = LoweredBarrier(
+            False, LoweredBarrierType.mbarrier, lambda s: lines
+        )
+        return alias_sym
 
     def add_commit_group(
         self,
@@ -659,13 +612,13 @@ class SyncStateBuilder:
         if timelines.Sm80_cp_async.implements_first(L1):
             # sm_80 non-bulk cp.async
             check_L2_coll_unit(timelines.Sm80_generic, cuda_thread)
-            lowered = CudaLoweredBarrier(solitary, LoweredBarrierType.Sm80_commit_group)
+            lowered = LoweredBarrier(solitary, LoweredBarrierType.Sm80_commit_group)
             arrive_instr = "cp.async.commit_group"
             await_instr = "cp.async.wait_group"
         elif timelines.tma_to_gmem_async.implements_first(L1):
             # sm_90a bulk cp.async SMEM->GMEM
             check_L2_coll_unit(timelines.cuda_generic_and_async_proxy, cuda_thread)
-            lowered = CudaLoweredBarrier(
+            lowered = LoweredBarrier(
                 solitary, LoweredBarrierType.tma_to_gmem_commit_group
             )
             arrive_instr = "cp.async.bulk.commit_group"
@@ -674,9 +627,7 @@ class SyncStateBuilder:
             # sm_90a wgmma; note unit is now warpgroup and not a single thread;
             # also enforce that this is an epilogue sync of CudaAsync(wgmma_async).
             check_L2_coll_unit(timelines.cuda_generic_and_async_proxy, cuda_warpgroup)
-            lowered = CudaLoweredBarrier(
-                solitary, LoweredBarrierType.wgmma_commit_group
-            )
+            lowered = LoweredBarrier(solitary, LoweredBarrierType.wgmma_commit_group)
             arrive_instr = "wgmma.commit_group.sync.aligned"
             await_instr = "wgmma.wait_group.sync.aligned"
             is_wgmma = True
@@ -694,17 +645,13 @@ class SyncStateBuilder:
                 if sync_type.N != 1:
                     raise ValueError("Expect N=1 for Arrive of commit group")
                 lowered_arrive = simple_ptx_c_lines(arrive_instr)
-                if is_wgmma:
-                    lowered_arrive = LoweredEpilogueSync(
-                        timelines.wgmma_async_instr, lowered_arrive
-                    )
                 return lowered_arrive
             else:
                 if sync_type.N < 0:
                     raise ValueError("Expect N>=0 for Await of commit group")
                 return simple_ptx_c_lines(await_instr, sync_type.N)
 
-        lowered.codegen = codegen
+        lowered.codegen_sync_stmt = codegen
         self.lowered[name] = lowered
 
     def generate_SyncState_body(self):

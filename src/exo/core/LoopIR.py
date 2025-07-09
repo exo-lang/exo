@@ -62,7 +62,7 @@ module LoopIR {
            -- Fence: barriers[0] is internal name of fence
            -- Arrive: barriers: List[BarrierExpr]
            -- Await: barriers = List[BarrierExpr] of length 1
-           -- `lowered` used internally for lowering pass
+           -- `lowered` used internally for lowering pa
          | SyncStmt( sync_type sync_type, expr* barriers, lowered_sync? lowered )
          | If( expr cond, stmt* body, stmt* orelse )
          | For( sym iter, expr lo, expr hi, stmt* body, loop_mode loop_mode )

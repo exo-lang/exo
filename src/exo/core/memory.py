@@ -372,15 +372,6 @@ class BarrierType(AllocableMemWin):
     """
 
     @classmethod
-    def alloc(cls, new_name, prim_type, shape, srcinfo):
-        # prim_type and shape make no sense here
-        return f"// Scope of named barrier {new_name}"
-
-    @classmethod
-    def free(cls, new_name, prim_type, shape, srcinfo):
-        return ""
-
-    @classmethod
     def traits(cls) -> BarrierTypeTraits:
         raise NotImplementedError()
 

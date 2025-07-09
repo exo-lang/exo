@@ -49,8 +49,8 @@ from ..spork.async_config import (
 from ..spork.base_with_context import (
     BaseWithContext,
     is_if_holding_with,
-    ExtWithContext,
 )
+from ..spork.ext_with_context import ExtWithContext
 from ..spork.loop_modes import LoopMode, Seq, Par, _CodegenPar
 from ..spork.barrier_usage import BarrierUsage, BarrierUsageAnalysis, SyncInfo
 from ..spork import timelines
@@ -609,6 +609,7 @@ class Compiler:
         self._cuda_kernel_count = 0
         self._util_injector = util_injector
         self._mem_code_builder = mem_code_builder
+        self._lowered_barriers = ChainMap()
 
         # Additional lines for each file extension
         # Since Exo was originally written for only .c and .h files,
@@ -1142,14 +1143,15 @@ class Compiler:
         if isinstance(s, LoopIR.Pass):
             self.add_line("; // NO-OP")
         elif isinstance(s, LoopIR.SyncStmt):
-            if s.lowered is None:
-                raise TypeError(
-                    f"{s.srcinfo}: SyncStmt not allowed here "
-                    "(or internal compiler error -- missing lowered barrier)"
-                )
-            sync_type = s.sync_type
-            barrier_lines = s.lowered
-            self.add_line(f"// {sync_type.format_stmt(s.barriers)}")
+            assert (
+                s.barriers
+            ), f"{s.srcinfo}: Should have caught missing BarrierExpr earlier"
+            nm = s.barriers[0].name
+            assert all(
+                b.name == nm for b in s.barriers
+            ), f"{s.srcinfo}: Should have caught inconsistent barrier names earlier"
+            self.add_line(f"// {s.sync_type.format_stmt(s.barriers)}")
+            barrier_lines = self._lowered_barriers[nm].codegen_sync_stmt(s)
             assert not isinstance(barrier_lines, str), "expect List[str]"
             for line in barrier_lines:
                 self.add_line(line)
@@ -1270,6 +1272,10 @@ class Compiler:
                         self.env[sym] = nm
                 self.force_const = old_force_const | ctx.force_const
                 self._scalar_refs = ctx.scalar_refs  # ignore old scalar_refs
+                self._lowered_barriers = self._lowered_barriers.new_child()
+
+                for k, v in ctx.lowered_barriers.items():
+                    self._lowered_barriers[k] = v
 
                 # Reset indentation and redirect text lines for compiled subtree
                 # to new location (per-file-extension lines dict). We defer
@@ -1295,6 +1301,7 @@ class Compiler:
                 self._ext_lines.setdefault(ctx.body_ext, []).extend(self._lines)
 
                 # Restore Sym state
+                self._lowered_barriers = self._lowered_barriers.parents
                 self._scalar_refs = old_scalar_refs
                 self.force_const = old_force_const
                 self.force_names = old_force_names
@@ -1411,17 +1418,22 @@ class Compiler:
                 assert s.type.basetype() != T.R
                 ctype = s.type.basetype().ctype()
                 shape_strs = self.shape_strs(s.type.shape())
+                mem = s.mem or DRAM
+                line = mem.alloc(name, ctype, shape_strs, s.srcinfo)
+                self.add_line(line)
             else:
                 assert issubclass(s.mem, BarrierType)
-                ctype = None  # Use in the future if we externalize BarrierType?
-                shape_strs = ()
-            mem = s.mem or DRAM
-            line = mem.alloc(name, ctype, shape_strs, s.srcinfo)
-            self.add_line(line)
+                lines = self._lowered_barriers[s.name].codegen_alloc(s)
+                assert not isinstance(lines, str), "Expect List[str]"
+                for line in lines:
+                    self.add_line(line)
         elif isinstance(s, LoopIR.Free):
             name = self.env[s.name]
             if s.type.is_barrier():
-                pass
+                lines = self._lowered_barriers[s.name].codegen_free(s)
+                assert not isinstance(lines, str), "Expect List[str]"
+                for line in lines:
+                    self.add_line(line)
             else:
                 assert s.type.basetype().is_real_scalar()
                 ctype = s.type.basetype().ctype()

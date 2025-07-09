@@ -20,7 +20,8 @@ from .timelines import Instr_tl, Sync_tl
 from . import timelines
 from .async_config import CudaDeviceFunction, CudaAsync
 from .barrier_usage import BarrierUsage, SyncInfo
-from .base_with_context import is_if_holding_with, ExtWithContext
+from .base_with_context import is_if_holding_with
+from .ext_with_context import ExtWithContext
 from .coll_algebra import (
     CollParam,
     CollUnit,
@@ -42,13 +43,8 @@ from .cuda_memory import (
     CudaGridConstant,
     CudaRmem,
 )
-from .cuda_sync_state import (
-    LoweredBarrierType,
-    LoweredPrologueSync,
-    LoweredEpilogueSync,
-    CudaLoweredBarrier,
-    SyncStateBuilder,
-)
+from .lowered_barrier import LoweredBarrierType, LoweredBarrier
+from .cuda_sync_state import SyncStateBuilder
 from .cuda_warp_config import WarpLayoutInfo
 from .loop_modes import CudaTasks, CudaThreads, Seq, seq, _CodegenPar
 from .sync_types import SyncType
@@ -968,6 +964,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
                 task_force_names,
                 scan.grid_constant_syms,  # force_const
                 scan.scalar_ref_syms,
+                {},  # lowered_barriers
             )
 
         # Phase A: Extract and rewrite the body of the CUDA task (body of
@@ -1008,6 +1005,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
             main_loop_force_names,
             scan.grid_constant_syms,  # force_const
             scan.scalar_ref_syms,
+            scan.sync_state_builder.lowered,
         )
 
         # Finally wrap the per-warp-name main loops into exo_deviceMainLoop
@@ -1207,29 +1205,15 @@ class SubtreeRewrite(LoopIR_Rewrite):
             if lowered.solitary and not s.sync_type.is_split():
                 # Fence must pass solitary barrier check
                 self.check_solitary_barrier(s, lowered)
-            assert lowered.codegen is not None
+            assert lowered.codegen_sync_stmt is not None
 
             # Do codegen, and supply srcinfo if codegen fails
             try:
-                lowered = lowered.codegen(s)
+                lowered = lowered.codegen_sync_stmt(s)
             except Exception as e:
                 raise ValueError(f"{s.srcinfo}: {e}") from e
 
-            # Enforce prologue/epilogue sync requirements
-            if isinstance(lowered, LoweredPrologueSync):
-                if lowered.instr_tl != prologue_of:
-                    raise ValueError(
-                        f"{s.srcinfo}: {s} must be the first stmt of a CudaAsync({lowered.instr_tl}) block"
-                    )
-                lowered = lowered.lines
-            elif isinstance(lowered, LoweredEpilogueSync):
-                if lowered.instr_tl != epilogue_of:
-                    raise ValueError(
-                        f"{s.srcinfo}: {s} must be the last stmt of a CudaAsync({lowered.instr_tl}) block"
-                    )
-                lowered = lowered.lines
-            else:
-                assert isinstance(lowered, list)
+            assert isinstance(lowered, list)
 
             # Inject lowered code
             s = s.update(lowered=lowered)
@@ -1280,15 +1264,11 @@ class SubtreeRewrite(LoopIR_Rewrite):
             dummy_sync_type = SyncType(
                 timelines.empty_sync_tl, timelines.empty_sync_tl, 0
             )
-            c_alias = self.sync_state_builder.codegen_exo_tma_mbarrier(_arrive)
+            alias_sym = self.sync_state_builder.codegen_exo_tma_mbarrier(_arrive)
             alias_stmt = LoopIR.SyncStmt(
                 dummy_sync_type,
-                [
-                    LoopIR.BarrierExpr(
-                        Sym("exo_tma_mbarrier"), False, [], T.barrier, s.srcinfo
-                    )
-                ],
-                [c_alias],  # lowered
+                [LoopIR.BarrierExpr(alias_sym, False, [], T.barrier, s.srcinfo)],
+                None,
                 s.srcinfo,
             )
             new_body = [alias_stmt] + new_body
