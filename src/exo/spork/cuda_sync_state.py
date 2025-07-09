@@ -334,13 +334,12 @@ class SyncStateBuilder:
 
             if timelines.Sm80_cp_async.implements_first(sync_tl):
                 is_Sm80_cp_async = True
-                is_tma = False
             elif timelines.cuda_in_order.implements_first(sync_tl):
                 is_Sm80_cp_async = False
-                is_tma = False
             elif timelines.tma_to_smem_async.implements_first(sync_tl):
-                is_Sm80_cp_async = False
-                is_tma = True
+                raise ValueError(
+                    f"{info.get_srcinfo()}: mbarrier Arrive sync-tl {sync_tl} "
+                    f"not supported: use cuda_temporal, and add trailing barriers to TMA instrs")
             else:
                 raise ValueError(
                     f"{info.get_srcinfo()}: mbarrier Arrive sync-tl {sync_tl} "
@@ -389,16 +388,15 @@ class SyncStateBuilder:
             lines.append(f"  }}")
             lines.append(f"  return mbarrier_u32;")
             lines.append(f"}}")
-            return is_tma
 
         def generate_await(is_back, L1):
             b = "Back" if is_back else "Front"
             info = usage.get_back_await() if is_back else usage.get_front_await()
             L2 = info.sync_tl
 
-            if timelines.cuda_async_proxy_wgmma.implements_first(L1):
-                # proxy fence always elided if first sync-tl includes only
-                # async proxy and wgmma register access.
+            if timelines.cuda_temporal.implements_first(L1):
+                # No values from the first full visibility set are being made
+                # visible so no proxy fence regardless of second sync timeline.
                 proxy_fence = False
             elif timelines.Sm80_generic.implements_second(L2):
                 proxy_fence = False
@@ -503,10 +501,10 @@ class SyncStateBuilder:
         # Generate Arrive and Await syntax
         # Awaits must be aware with the sync-tl
         # of the matched Arrive
-        front_arrive_is_tma = generate_arrive(False)
+        generate_arrive(False)
         generate_await(False, usage.get_front_arrive().sync_tl)
         if usage.has_back_array():
-            back_arrive_is_tma = generate_arrive(True)
+            generate_arrive(True)
             generate_await(True, usage.get_back_arrive().sync_tl)
 
         # Arrive/Await lowers to call to generated exo_syncState member function.

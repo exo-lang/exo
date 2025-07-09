@@ -604,7 +604,7 @@ class SubtreeScan(LoopIR_Do):
                 if sync_type.second_sync_tl == second_sync_tl:
                     return sync
         noun = "epilogue" if is_epilogue else "prologue"
-        expected = SyncType(first_sync_tl, second_sync_tl, False, 1).format_stmt("...")
+        expected = SyncType(first_sync_tl, second_sync_tl, 1).format_stmt(["..."])
         raise ValueError(
             f"{async_block.srcinfo}: {verb} {noun} sync in {ctx} block; "
             f"expect {expected}"
@@ -624,12 +624,8 @@ class SubtreeScan(LoopIR_Do):
         def inspect(is_epilogue, L1, L2):
             sync_stmt = self.expect_SyncStmt(s, is_epilogue, L1, L2)
 
-        # tma_to_smem_async_instr requires epilogue Arrive(tma_to_smem_async);
-        # TODO replace me. Should be using barrier parameters.
-        if instr_tl == timelines.tma_to_smem_async_instr:
-            inspect(True, timelines.tma_to_smem_async, None)
         # wgmma_async_instr requires prologue wgmma fence, epilogue Arrive(wgmma_async)
-        elif instr_tl == timelines.wgmma_async_instr:
+        if instr_tl == timelines.wgmma_async_instr:
             inspect(False, timelines.wgmma_fence_1, timelines.wgmma_fence_2)
             inspect(True, timelines.wgmma_async, None)
         # Sm80_cp_async, tma_to_gmem_async have no prologue/epilogue
