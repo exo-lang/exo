@@ -106,7 +106,6 @@ _PAST_to_LoopIR = {
     PAST.Assign: [LoopIR.Assign],
     PAST.Reduce: [LoopIR.Reduce],
     PAST.Pass: [LoopIR.Pass],
-    PAST.SyncStmt: [LoopIR.SyncStmt],
     PAST.If: [LoopIR.If],
     PAST.For: [LoopIR.For],
     PAST.Alloc: [LoopIR.Alloc],
@@ -264,11 +263,7 @@ class PatternMatch:
         elif isinstance(stmt, LoopIR.Pass):
             return True
         elif isinstance(stmt, LoopIR.SyncStmt):
-            if pat.sync_type == stmt.sync_type:
-                if stmt.sync_type.is_split():
-                    return self.match_name_idx(pat.bar, stmt.name, stmt.idx)
-                else:
-                    return True
+            # Currently don't support SyncStmt matching
             return False
         elif isinstance(stmt, LoopIR.If):
             return (

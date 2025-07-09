@@ -256,6 +256,7 @@ module UAST {
 #   - used to specify pattern-matches
 # --------------------------------------------------------------------------- #
 
+# TODO Exo-GPU concepts basically don't exist in PAST
 PAST = ADT(
     """
 module PAST {
@@ -263,11 +264,10 @@ module PAST {
     stmt    = Assign  ( name name, expr* idx, expr rhs )
             | Reduce  ( name name, expr* idx, expr rhs )
             | Pass    ()
-            | SyncStmt( sync_type sync_type, expr? bar )
             | If      ( expr cond, stmt* body, stmt* orelse )
             | For     ( name iter, expr lo, expr hi, stmt* body )
             | Alloc   ( name name, expr* sizes ) -- may want to add mem back in?
-            | Call    ( name f, expr* args, expr? trailing_barrier_expr )
+            | Call    ( name f, expr* args )
             | WriteConfig ( name config, name field )
             | S_Hole  ()
             attributes( srcinfo srcinfo )
