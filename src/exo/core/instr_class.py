@@ -483,10 +483,7 @@ class InstrArgs:
         return self._exo_args_dict[attr]
 
     def __iter__(self):
-        return iter(self._exo_args_dict)
-
-    def items(self):
-        return self._exo_args_dict.items()
+        return iter(self._exo_args_dict.items())
 
 
 class OldStyleInstrInfo(InstrInfo):
@@ -495,7 +492,7 @@ class OldStyleInstrInfo(InstrInfo):
     def codegen(self, args: InstrArgs) -> List[str]:
         """Translate args to dictionary then use instr_format.format"""
         d = dict()
-        for name, value in args.items():
+        for name, value in args:
             if isinstance(value, InstrWindowArg):
                 mem = self.access_info[name].mem
                 if mem.has_window_encoder():
