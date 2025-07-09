@@ -141,7 +141,7 @@ class DistributedAllocState(object):
         self,
         hi_thread_pitch: int,
         thread_iters: Dict[Sym, ThreadIter],
-        distributed_iters: Optional[List[Sym]] = None,
+        distributed_iters: Optional[List[Optional[Sym]]] = None,
     ):
         """Function needed to codegen mbarriers and mbarrier-like objects.
 
@@ -190,7 +190,8 @@ class DistributedAllocState(object):
         )
         assert len(tmp_iters) == len(self.distributed_extents)
         for nm, ext in zip(reversed(tmp_iters), reversed(self.distributed_extents)):
-            handle_idx(nm, ext)
+            if nm is not None:
+                handle_idx(nm, ext)
         coll_tiling = self.alloc_coll_tiling
         while coll_tiling is not None:
             if coll_tiling.tile_count != 1:
@@ -241,6 +242,57 @@ class DistributedAllocState(object):
             for bit_index in range(mask_bits.bit_length())
             if ((mask_bits >> bit_index) & 1)
         ]
+
+    def codegen_cta_mask(
+        self, blockDim: int, thread_iters: Dict[Sym, ThreadIter], e: LoopIR.BarrierExpr
+    ) -> str:
+        """Translate BarrierExpr to CTA mask"""
+        assert isinstance(e, LoopIR.BarrierExpr)
+        base_num = 1
+        shift_mask = 0
+        iterators: List[Sym] = self.first_distributed_iters
+        flags = e.multicast_flags()
+        assert len(iterators) == len(flags)
+        for multicast, sym in zip(flags, iterators):
+            info = thread_iters[sym]
+            thread_pitch = info.thread_pitch
+            if thread_pitch < blockDim:
+                # thread_pitch = 0: [0, 1] interval has no effect on CTA mask
+                # 0 < thread_pitch < blockDim: non-CTA index has no effect on CTA
+                continue
+            cta_count = info.coll_tiling.tile_count
+            cta_pitch = thread_pitch // blockDim
+            assert cta_pitch * blockDim == thread_pitch
+            assert cta_count >= 2
+
+            if (cta_count - 1) & cta_count:
+                raise ValueError(
+                    f"{e.srcinfo}: Unimplemented, non-power-of-2 CTA count"
+                )
+            cta_count_log2 = cta_count.bit_length() - 1
+            if (cta_pitch - 1) & cta_pitch:
+                raise ValueError(
+                    f"{e.srcinfo}: Unimplemented, non-power-of-2 CTA pitch"
+                )
+            cta_pitch_log2 = cta_pitch.bit_length() - 1
+
+            if multicast:
+                tmp = 1
+                for i in range(1, cta_count):
+                    tmp = (tmp << cta_pitch) | 1
+                base_num *= tmp
+            else:
+                shift_mask |= ((1 << cta_count_log2) - 1) << cta_pitch_log2
+
+        # Imagine arranging the CTAs into an N-dimensional cuboid, where N
+        # is the number of array indices corresponding to CTA-in-cluster
+        # dimensions. Then base_num is the mask corresponding to the sub-cuboid
+        # of CTAs that the 0th CTA multicasts to, and the shift is needed to
+        # reposition the sub-cuboid to get the target CTAs for this CTA.
+        if shift_mask == 0:
+            return f"uint16_t({hex(base_num)})"
+        else:
+            return f"uint16_t({hex(base_num)} << (blockIdx.x & {hex(shift_mask)}))"
 
 
 @dataclass(slots=True)  # convenient to auto-define repr for debugging

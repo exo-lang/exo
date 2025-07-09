@@ -665,6 +665,9 @@ def home_barrier_expr(s) -> LoopIR.BarrierExpr:
     return LoopIR.BarrierExpr(nm, back, idx, T.barrier, s.srcinfo)
 
 
+del home_barrier_expr
+
+
 @extclass(LoopIR.type)
 def is_barrier(t):
     return False

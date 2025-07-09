@@ -522,14 +522,14 @@ class SyncStateBuilder:
                 is_arg = True
             assert isinstance(e, LoopIR.BarrierExpr)
 
-            # DICEY: in the chosen BarrierExpr, skip intervals lo:hi.
-            # These are distributed dims, which correspond to CTA-in-cluster dimensions,
-            # which codegen_slices_to_root will ignore anyway due to
-            # hi_thread_pitch=blockDim.
             # The purpose of this is to generate an expression of threadIdx.x
             # to select between mbarriers in the same CTA
             # (niche usage ... I hope we test this).
-            iter_syms = [idx.pt.name for idx in e.idx if not isinstance(idx, LoopIR.Interval)]
+            # DICEY: in the chosen BarrierExpr, intervals lo:hi become None (ignored).
+            # These are distributed dims, which correspond to CTA-in-cluster dimensions,
+            # which codegen_slices_to_root will ignore anyway due to
+            # hi_thread_pitch=blockDim.
+            iter_syms = [None if multicast else idx.pt.name for multicast, idx in zip(e.multicast_flags(), e.idx)]
             slice = coll_tilings.codegen_slices_to_root(self._blockDim(), thread_iters, iter_syms)
             b = "Back" if e.back else "Front"
 
@@ -537,7 +537,12 @@ class SyncStateBuilder:
                 return f"exo_syncState.{b}{Arrive_txt}, {slice}, 0)"
             elif sync_type.is_arrive():
                 assert sync_type.N == 1
-                return [f"exo_syncState.{b}{Arrive_txt}, {slice}, 1);"]
+                lines = []
+                for e in node.barriers:
+                    cta_mask = coll_tilings.codegen_cta_mask(self._blockDim(), thread_iters, e)
+                    lines.append(f"// cta_mask: {cta_mask}")
+                lines.append(f"exo_syncState.{b}{Arrive_txt}, {slice}, 1);")
+                return lines
             else:
                 assert sync_type.is_await()
                 skips_arg = ""
