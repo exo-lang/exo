@@ -137,8 +137,18 @@ class MemoryAnalysis:
             return s
 
         elif styp is LoopIR.WindowStmt:
-            mem = self.get_e_mem(s.rhs)
-            self.mem_env[s.name] = s.special_window or mem
+            rhs_mem = self.get_e_mem(s.rhs)
+            lhs_mem = s.special_window or rhs_mem
+            if lhs_mem != rhs_mem:
+                src_mem = lhs_mem.source_memory_type()
+                assert issubclass(src_mem, Memory)
+                if not issubclass(rhs_mem, src_mem):
+                    raise TypeError(
+                        f"{s.srcinfo}: {lhs_mem.name()} expects {s.rhs} "
+                        f"to be in memory {src_mem.name()} "
+                        f"but it's actually in {rhs_mem.name()}"
+                    )
+            self.mem_env[s.name] = lhs_mem
             return s
 
         elif styp is LoopIR.Call:

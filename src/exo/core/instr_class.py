@@ -368,14 +368,16 @@ class InstrWindowArg:
     _features: WindowFeatures
     _srcinfo: SrcInfo
 
+    # The _special args are hacky: for @instr, we don't ever convert
+    # Memory to a SpecialWindow, but we re-use this object in the
+    # compiler to implement such conversions, to avoid code divergence.
+
     def __str__(self):
         return self.get_window()
 
-    def get_window(self) -> str:
+    def get_window(self, _special=False) -> str:
         features = self._features
         encoder = features.get_encoder()
-
-        # TODO Mem check needs to handle SpecialWindow.source_memory_type()
 
         # Check intact packed dimensions
         mem = features.get_mem()
@@ -391,7 +393,12 @@ class InstrWindowArg:
             sz.exo_expect_int(c)
 
         # Conditionally forbid dimensionality change
-        if not encoder.supports_dim_change():
+        can_change_dim = (
+            encoder.supports_special_dim_change()
+            if _special
+            else encoder.supports_dim_change()
+        )
+        if not can_change_dim:
             if any(
                 features.get_array_interval_size(i) is None
                 for i in range(features.n_array_dims())
@@ -400,15 +407,16 @@ class InstrWindowArg:
                     f"{features.get_raw_name()} must not have point expressions for array dimensions"
                 )
 
-        return str(encoder.encode_window(self._encoder_utils, features))
+        do_encode = encoder.encode_special_window if _special else encoder.encode_window
+        return str(do_encode(self._encoder_utils, features))
 
-    def get_separate_dataptr(self) -> str:
+    def get_separate_dataptr(self, _special=False) -> str:
         features = self._features
-        return str(
-            features.get_encoder().encode_separate_dataptr(
-                self._encoder_utils, features
-            )
-        )
+        if _special:
+            do_encode = features.get_encoder().encode_special_separate_dataptr
+        else:
+            do_encode = features.get_encoder().encode_separate_dataptr
+        return str(do_encode(self._encoder_utils, features))
 
     def separate_dataptr(self):
         return self._features.separate_dataptr()

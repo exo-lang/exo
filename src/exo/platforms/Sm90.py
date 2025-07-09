@@ -240,10 +240,6 @@ def Sm90_tensorMap(swizzle, *smem_box):
             return CudaGmemLinear
 
         @classmethod
-        def rank(cls):
-            return len(smem_box)
-
-        @classmethod
         def swizzle(cls):
             return swizzle
 
@@ -262,7 +258,7 @@ class TensorMapEncoder(WindowEncoder):
         return True
 
     def define_struct(self, depends_on: list):
-        rank = self.mem.rank()
+        rank = self.n_dims
         sdef = CUtensorMap_window_template.format(
             rank=rank, sname=self.exo_struct_name()
         )
@@ -315,7 +311,7 @@ class TensorMapEncoder(WindowEncoder):
     ):
         """For CudaGmemLinear -> CUtensorMap conversion. Make CUtensorMap blob"""
         sname = self.exo_struct_name()
-        rank = self.mem.rank()
+        rank = self.n_dims
         swizzle = self.mem.swizzle()
         if swizzle == 0:
             cu_swizzle = "CU_TENSOR_MAP_SWIZZLE_NONE"

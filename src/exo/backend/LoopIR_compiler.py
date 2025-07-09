@@ -1197,48 +1197,56 @@ class Compiler:
             self.add_line(f"ctxt->{nm}.{s.field} = {rhs};")
 
         elif isinstance(s, LoopIR.WindowStmt):
-            rhs = s.rhs
-            assert isinstance(rhs, LoopIR.WindowExpr)
-            input_winmem = self.mems[rhs.name]
-            is_const = self.is_const(rhs.name)
-            if not is_const:
-                self.global_non_const.add(s.name)
-
-            output_winmem = s.special_window or input_winmem
-            name = self.new_varname(s.name, typ=rhs.type, mem=output_winmem)
-            self.init_window_features(s, s.name)
-
-            # Unpack features of input window, and modify based on WindowExpr
-            in_features = self.env_window_features[rhs.name].new_window(
-                *self.window_expr_to_cir(rhs)
-            )
-
-            # Unpack features of output window.
-            out_features = self.env_window_features[s.name]
-            out_encoder: WindowEncoder = out_features.get_encoder()
-            if s.special_window and not issubclass(input_winmem, SpecialWindow):
-                encode_window = out_encoder.encode_special_window
-                encode_dataptr = out_encoder.encode_special_separate_dataptr
-            else:
-                encode_window = out_encoder.encode_window
-                encode_dataptr = out_encoder.encode_separate_dataptr
-            utils = self._util_injector.with_tag(output_winmem.name())
-
-            # Initialize separate dataptr
-            if out_encoder.separate_dataptr():
-                d_def = encode_dataptr(utils, in_features)
-                cref = ""
-                if self._in_cuda_function:
-                    # HACK needed for CUtensorMap; if we copy the CUtensorMap
-                    # in CUDA code, then it won't be in grid constant memory,
-                    # and cp.async.bulk won't work anymore.
-                    cref = " const&"
-                self.add_line(
-                    f"{out_encoder.dataptr_ctype()}{cref} {dataptr_name(name)} = {d_def};"
+            try:
+                rhs = s.rhs
+                assert isinstance(rhs, LoopIR.WindowExpr)
+                input_winmem = self.mems[rhs.name]
+                is_const = self.is_const(rhs.name)
+                if not is_const:
+                    self.global_non_const.add(s.name)
+                special = s.special_window is not None and not issubclass(
+                    input_winmem, SpecialWindow
                 )
-            # Initialize window struct.
-            w_def = encode_window(utils, in_features)
-            self.add_line(f"struct {out_encoder.exo_struct_name()} {name} = {w_def};")
+
+                output_winmem = s.special_window or input_winmem
+                name = self.new_varname(s.name, typ=rhs.type, mem=output_winmem)
+                self.init_window_features(s, s.name)
+                out_features = self.env_window_features[s.name]
+                out_encoder: WindowEncoder = out_features.get_encoder()
+
+                # Unpack features of input window, and modify based on WindowExpr
+                in_features = self.env_window_features[rhs.name].new_window(
+                    *self.window_expr_to_cir(rhs)
+                )
+                # Change encoder of in_features (private copy due to new_window)
+                in_features._encoder = out_encoder
+                self.debug_comment_window_features(in_features)
+                self.debug_comment_window_features(out_features)
+
+                utils = self._util_injector.with_tag(output_winmem.name())
+                helper = InstrWindowArg(utils, None, in_features, s.srcinfo)
+
+                # Initialize separate dataptr
+                if out_encoder.separate_dataptr():
+                    d_def = helper.get_separate_dataptr(special)
+                    cref = ""
+                    if self._in_cuda_function:
+                        # HACK needed for CUtensorMap; if we copy the CUtensorMap
+                        # in CUDA code, then it won't be in grid constant memory,
+                        # and cp.async.bulk won't work anymore.
+                        cref = " const&"
+                    self.add_line(
+                        f"{out_encoder.dataptr_ctype()}{cref} {dataptr_name(name)} = {d_def};"
+                    )
+                # Initialize window struct.
+                w_def = helper.get_window(special)
+                self.add_line(
+                    f"struct {out_encoder.exo_struct_name()} {name} = {w_def};"
+                )
+            except Exception as e:
+                raise ValueError(
+                    f"{s.srcinfo}: Failed to compile {s}; this could be invalid usage, or a bug in the {output_winmem.name()} implementation: {e}"
+                ) from e
 
         elif is_if_holding_with(s, LoopIR):  # must be before .If case
             ctx = s.cond.val
