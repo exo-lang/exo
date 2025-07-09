@@ -1,6 +1,7 @@
 import re
 from collections import ChainMap
 from dataclasses import dataclass, field
+from warnings import warn
 
 # google python formatting project to save myself the trouble of being overly
 # clever run the function FormatCode to transform one string into a formatted
@@ -348,10 +349,14 @@ def _format_code(code):
 
     """
     had_newline = "\n" in code
-    text = FormatCode(code)[0].rstrip("\n")
-    if not had_newline and "\n" in text:
-        text = " ".join(line.strip() for line in text.split("\n"))
-    return text
+    try:
+        text = FormatCode(code)[0].rstrip("\n")
+        if not had_newline and "\n" in text:
+            text = " ".join(line.strip() for line in text.split("\n"))
+        return text
+    except Exception as e:
+        warn(f"YAPF FAILED: {e}")
+        return code
 
 
 @extclass(LoopIR.proc)

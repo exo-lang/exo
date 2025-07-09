@@ -33,3 +33,6 @@ class LoweredBarrier:
     # Special case for TMA mbarriers
     codegen_cta_mask: Callable[[LoopIR.BarrierExpr], str] = None
     codegen_barrier_arg: Callable[[LoopIR.BarrierExpr], str] = None
+
+    def __repr__(self):
+        return f"LoweredBarrier({self.solitary}, {self.type_enum})"
