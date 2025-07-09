@@ -401,7 +401,7 @@ class SpecialWindow(MemWin):
 # ----------- TEMPLATE SYSTEM -------------
 
 
-def memwin_template(class_factory, *, hide_parameters=False):
+def memwin_template(class_factory, *, is_smem_wrapper=False):
     """Wrapper for creating MemWin types parameterized on a tuple of args.
 
     The name of the generated class will look like a function call
@@ -430,9 +430,14 @@ def memwin_template(class_factory, *, hide_parameters=False):
             assert cls, f"forgot return from {class_factory}?"
             cls_name = f"{class_factory.__name__}{parameters}"
             _memwin_template_cache[cache_key] = cls
-            _memwin_template_names[cls] = cls_name
-            _memwin_template_base_names[cls] = class_factory.__name__
-            if not hide_parameters:
+            if is_smem_wrapper:
+                # Hacky, we try to hide the existence of the CUDA Smem wrapper
+                wrapped = cls.wrapped_smem_type()
+                _memwin_template_names[cls] = wrapped.name()
+                _memwin_template_base_names[cls] = wrapped.base_name()
+            else:
+                _memwin_template_names[cls] = cls_name
+                _memwin_template_base_names[cls] = class_factory.__name__
                 cls.memwin_template_parameters = parameters
         return cls
 

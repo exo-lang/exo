@@ -1352,8 +1352,7 @@ def CodegenSmem(byte_offset, byte_end, reftype, wrapped_smem_type):
 
 
 # HACK: avoid showing to users that we added another level of templatization.
-# The memwin_template_parameters are as they were before.
-CodegenSmem = memwin_template(CodegenSmem, hide_parameters=True)
+CodegenSmem = memwin_template(CodegenSmem, is_smem_wrapper=True)
 
 
 h_snippet_fmt = """\
