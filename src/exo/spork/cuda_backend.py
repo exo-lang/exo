@@ -56,7 +56,7 @@ from .with_cuda_warps import CudaWarps
 reserved_names = {"gridDim", "blockDim", "blockIdx", "threadIdx"}
 
 # No BarrierExpr here; handled specially as part of SyncStmt.
-idx_e_types = (LoopIR.Read, LoopIR.WindowExpr, LoopIR.StrideExpr)
+idx_e_types = (LoopIR.Read, LoopIR.WindowExpr)
 idx_s_types = (LoopIR.Assign, LoopIR.Reduce)
 
 
@@ -404,7 +404,7 @@ class SubtreeScan(LoopIR_Do):
             # BarrierExpr not handled here; part of SyncStmt handling.
             self.mark_sym_used(e.name)
             self.apply_idx(e, self._stmt_stack[-1])
-        elif not isinstance(e, LoopIR.BarrierExpr):
+        elif not isinstance(e, (LoopIR.BarrierExpr, LoopIR.StrideExpr)):
             assert not hasattr(e, "name"), "Add handling for array indexing"
 
     def apply_s(self, s):
@@ -1101,7 +1101,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
 
     def remove_distributed_idx(self, node):
         alloc_state = self.distributed_alloc_states.get(node.name)
-        if isinstance(alloc_state, DistributedAllocState):
+        if alloc_state is not None:
             assert isinstance(alloc_state, DistributedAllocState)
             n = alloc_state.n_distributed_dims()
             if n > 0:
