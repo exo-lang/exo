@@ -252,9 +252,8 @@ class BarrierUsageAnalysis(LoopIR_Do):
                 usage = self.uses.get(s.barriers[0].name)
                 assert isinstance(usage, BarrierUsage)
                 usage.visit_Await(s)
-            # Fence, but we ignore any with stmt.lowered set as a
-            # debug backdoor for now.
-            elif s.lowered is None:
+            # Fence
+            else:
                 assert (
                     len(s.barriers) == 1
                 ), "exocc internal error: Fence internal barrier not initialized"

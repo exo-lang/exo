@@ -1151,7 +1151,10 @@ class Compiler:
                 b.name == nm for b in s.barriers
             ), f"{s.srcinfo}: Should have caught inconsistent barrier names earlier"
             self.add_line(f"// {s.sync_type.format_stmt(s.barriers)}")
-            barrier_lines = self._lowered_barriers[nm].codegen_sync_stmt(s)
+            try:
+                barrier_lines = self._lowered_barriers[nm].codegen_sync_stmt(s)
+            except Exception as e:
+                raise ValueError(f"{s.srcinfo}: {e}") from e
             assert not isinstance(barrier_lines, str), "expect List[str]"
             for line in barrier_lines:
                 self.add_line(line)

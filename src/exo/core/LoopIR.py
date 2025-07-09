@@ -62,8 +62,7 @@ module LoopIR {
            -- Fence: barriers[0] is internal name of fence
            -- Arrive: barriers: List[BarrierExpr]
            -- Await: barriers = List[BarrierExpr] of length 1
-           -- `lowered` used internally for lowering pa
-         | SyncStmt( sync_type sync_type, expr* barriers, lowered_sync? lowered )
+         | SyncStmt( sync_type sync_type, expr* barriers )
          | If( expr cond, stmt* body, stmt* orelse )
          | For( sym iter, expr lo, expr hi, stmt* body, loop_mode loop_mode )
          | Alloc( sym name, type type, allocable mem )
@@ -139,7 +138,6 @@ module LoopIR {
         "srcinfo": SrcInfo,
         "loop_mode": LoopMode,
         "sync_type": SyncType,
-        "lowered_sync": list,  # List[str] but that fails for some reason
     },
     memoize={
         "Num",
@@ -182,7 +180,7 @@ module UAST {
             | WriteConfig ( config config, string field, expr rhs )
             | FreshAssign( sym name, expr rhs )
             | Pass    ()
-            | SyncStmt( sync_type sync_type, expr* barriers, lowered_sync? lowered )
+            | SyncStmt( sync_type sync_type, expr* barriers )
             | If      ( expr cond, stmt* body,  stmt* orelse )
             | For     ( sym iter,  expr cond,   stmt* body )
             | Alloc   ( sym name, type type, allocable? mem )
@@ -235,7 +233,6 @@ module UAST {
         "srcinfo": SrcInfo,
         "loop_mode": LoopMode,
         "sync_type": SyncType,
-        "lowered_sync": list,  # List[str] but that fails for some reason
     },
     memoize={
         "Num",
@@ -266,7 +263,7 @@ module PAST {
     stmt    = Assign  ( name name, expr* idx, expr rhs )
             | Reduce  ( name name, expr* idx, expr rhs )
             | Pass    ()
-            | SyncStmt( sync_type sync_type, expr? bar, object? lowered_ignored )
+            | SyncStmt( sync_type sync_type, expr? bar )
             | If      ( expr cond, stmt* body, stmt* orelse )
             | For     ( name iter, expr lo, expr hi, stmt* body )
             | Alloc   ( name name, expr* sizes ) -- may want to add mem back in?

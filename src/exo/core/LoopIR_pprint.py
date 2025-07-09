@@ -179,7 +179,7 @@ class UAST_PPrinter:
             if isinstance(stmt, UAST.Pass):
                 self.addline("pass")
             elif isinstance(stmt, UAST.SyncStmt):
-                self.addline(stmt.sync_type.format_stmt(stmt.barriers, stmt.lowered))
+                self.addline(stmt.sync_type.format_stmt(stmt.barriers))
             elif isinstance(stmt, UAST.Assign) or isinstance(stmt, UAST.Reduce):
                 op = "=" if isinstance(stmt, UAST.Assign) else "+="
 
@@ -444,7 +444,7 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
         return [f"{indent}pass"]
 
     elif isinstance(stmt, LoopIR.SyncStmt):
-        s = f"{indent}{stmt.sync_type.format_stmt(stmt.barriers, stmt.lowered)}"
+        s = f"{indent}{stmt.sync_type.format_stmt(stmt.barriers)}"
         if not stmt.sync_type.is_split():
             assert len(stmt.barriers) == 1
             nm = stmt.barriers[0].name

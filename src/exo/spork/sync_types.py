@@ -95,21 +95,18 @@ class SyncType(object):
         else:
             return "Fence"
 
-    def format_stmt(self, barrier_exprs, lowered=None):
-        lowered_suffix = "" if lowered is None else f", lowered={lowered!r}"
+    def format_stmt(self, barrier_exprs):
         if self.is_arrive():
-            fragments = [
-                f"Arrive({self.first_sync_tl}, {self.N_str()}{lowered_suffix})"
-            ] + [f" >> {bar}" for bar in barrier_exprs]
+            fragments = [f"Arrive({self.first_sync_tl}, {self.N_str()})"] + [
+                f" >> {bar}" for bar in barrier_exprs
+            ]
             return "".join(fragments)
         elif self.is_await():
             assert len(barrier_exprs) == 1
             bar = barrier_exprs[0]
-            return (
-                f"Await({bar}, {self.second_sync_tl}, {self.N_str()}{lowered_suffix})"
-            )
+            return f"Await({bar}, {self.second_sync_tl}, {self.N_str()})"
         else:
-            return f"Fence({self.first_sync_tl}, {self.second_sync_tl}{lowered_suffix})"
+            return f"Fence({self.first_sync_tl}, {self.second_sync_tl})"
 
 
 def fence_type(first_sync_tl: Sync_tl, second_sync_tl: Sync_tl):

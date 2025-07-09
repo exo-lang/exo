@@ -320,9 +320,7 @@ class TypeChecker:
                     )
                 ]
 
-            return [
-                LoopIR.SyncStmt(stmt.sync_type, barriers, stmt.lowered, stmt.srcinfo)
-            ]
+            return [LoopIR.SyncStmt(stmt.sync_type, barriers, stmt.srcinfo)]
 
         elif isinstance(stmt, UAST.If):
             cond = self.check_e(stmt.cond, is_index=True)

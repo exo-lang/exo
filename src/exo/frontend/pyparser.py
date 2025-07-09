@@ -1914,14 +1914,9 @@ class Parser:
                 return cpu_in_order
             return sync_tl
 
-        lowered = None
-
         for kw in ast_call.keywords:
             name, eval_me = kw.arg, kw.value
-            if name == "lowered":
-                lowered = self.eval_expr(eval_me)
-            else:
-                raise ParseError(f"Unknown keyword '{name}' for {func_id}()")
+            raise ParseError(f"Unknown keyword '{name}' for {func_id}()")
 
         if func_id == "Fence":
             if len(ast_call.args) != 2:
@@ -1953,6 +1948,4 @@ class Parser:
         else:
             assert 0
 
-        return self.AST.SyncStmt(
-            sync_type, barriers, lowered, self.getsrcinfo(ast_call)
-        )
+        return self.AST.SyncStmt(sync_type, barriers, self.getsrcinfo(ast_call))

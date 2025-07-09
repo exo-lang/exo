@@ -492,8 +492,7 @@ class SubtreeScan(LoopIR_Do):
                 # consistency (index equality) with prior uses.
                 fsm.check_store_state(s, state)
                 fsm.inspect_arrive_await(s, self._coll_tiling, usage, state)
-            elif s.lowered is None:
-                # Fence [todo, consider removing lowered=None backdoor]
+            else:
                 assert len(s.barriers) == 1
                 e = s.barriers[0]
                 assert isinstance(e, LoopIR.BarrierExpr)
@@ -1059,8 +1058,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
             s = self.remove_distributed_idx(s)
 
         elif isinstance(s, LoopIR.SyncStmt):
-            if s.lowered is None:
-                s = self.update_check_sync_stmt(s, prologue_of, epilogue_of)
+            s = self.update_check_sync_stmt(s, prologue_of, epilogue_of)
 
         return s
 
@@ -1200,23 +1198,11 @@ class SubtreeRewrite(LoopIR_Rewrite):
         prologue_of: Optional[Instr_tl],
         epilogue_of: Optional[Instr_tl],
     ):
-        if s.lowered is None:
-            lowered = self.sync_state_builder.lowered[s.barriers[0].name]
-            if lowered.solitary and not s.sync_type.is_split():
-                # Fence must pass solitary barrier check
-                self.check_solitary_barrier(s, lowered)
-            assert lowered.codegen_sync_stmt is not None
-
-            # Do codegen, and supply srcinfo if codegen fails
-            try:
-                lowered = lowered.codegen_sync_stmt(s)
-            except Exception as e:
-                raise ValueError(f"{s.srcinfo}: {e}") from e
-
-            assert isinstance(lowered, list)
-
-            # Inject lowered code
-            s = s.update(lowered=lowered)
+        lowered = self.sync_state_builder.lowered[s.barriers[0].name]
+        if lowered.solitary and not s.sync_type.is_split():
+            # Fence must pass solitary barrier check
+            self.check_solitary_barrier(s, lowered)
+        assert lowered.codegen_sync_stmt is not None
         return s
 
     def check_solitary_barrier(self, s, lowered):
@@ -1268,7 +1254,6 @@ class SubtreeRewrite(LoopIR_Rewrite):
             alias_stmt = LoopIR.SyncStmt(
                 dummy_sync_type,
                 [LoopIR.BarrierExpr(alias_sym, False, [], T.barrier, s.srcinfo)],
-                None,
                 s.srcinfo,
             )
             new_body = [alias_stmt] + new_body
