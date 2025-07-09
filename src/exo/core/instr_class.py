@@ -468,18 +468,14 @@ class InstrNonWindowArg:
 
 @dataclass(slots=True)
 class InstrArgs:
-    _exo_args_dict: Dict[str, InstrWindowArg | InstrNonWindowArg]
-
-    def __init__(self, the_dict):
-        self._exo_args_dict = the_dict
+    _exo_args_dict: Dict[str, object]
 
     def __getattr__(self, attr):
-        assert not attr.startswith(
-            "exo_"
-        ), "exo_ prefix not allowed for arg name (or typo)"
-        assert not attr.startswith(
-            "_exo_"
-        ), "_exo_ prefix not allowed for arg name (or typo)"
+        if attr.startswith("exo_"):
+            assert (
+                attr == "exo_barrier" or attr == "exo_cta_mask"
+            ), "exo_ prefix not allowed for arg name"
+        assert not attr.startswith("_exo_"), "_exo_ prefix not allowed for arg name"
         return self._exo_args_dict[attr]
 
     def __iter__(self):

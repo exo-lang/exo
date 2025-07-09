@@ -100,6 +100,8 @@ class MemoryAnalysis:
             elif isinstance(s, LoopIR.Call):
                 for e in s.args:
                     res += used_e(e)
+                if e := s.trailing_barrier_expr:
+                    res.append(e.name)
             elif isinstance(s, LoopIR.WindowStmt):
                 res += used_e(s.rhs)
             return res

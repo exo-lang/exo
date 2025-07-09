@@ -355,7 +355,7 @@ class SyncStateBuilder:
             lines.append(f"EXO_CUDA_INLINE uint32_t {b}Arrive{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {{")
             mbarrier_to_u32(lines, is_back, idx);
             lines.append(f"  if (enable) {{")
-            
+
             # Optional broadcast to other CTAs in cluster.
             if len(cta_xor_list) > 1:
                 multicast = True
@@ -365,7 +365,7 @@ class SyncStateBuilder:
                 multicast = False
                 assert cta_xor_list[0] == 0
                 cta_or_cluster = "cta"
-            
+
             # Issue arrives to each CTA (special code for 1-CTA case, so we
             # don't break sm_80, and don't waste time translating addresses)
             for cta_xor in cta_xor_list:
@@ -482,7 +482,8 @@ class SyncStateBuilder:
                 lines.append(f"  }}")
             lines.append(f"}}")
 
-        # Reserve mbarriers in mbarrier allocator
+        # mbarrier allocator: record mbarriers to initialize, first the front queue barrier
+        # array, then the optional back queue barrier array.
         RS = ring * slice_count
         lines = self.SyncState_lines
         arrive_count = coll_tilings.get_front_arrive().box_num_threads() * len(front_cta_xor_list)
@@ -502,7 +503,6 @@ class SyncStateBuilder:
         # Generate Arrive and Await syntax
         # Awaits must be aware with the sync-tl
         # of the matched Arrive
-        # TODO TMA special handling should go away.
         front_arrive_is_tma = generate_arrive(False)
         generate_await(False, usage.get_front_arrive().sync_tl)
         if usage.has_back_array():
@@ -510,60 +510,47 @@ class SyncStateBuilder:
             generate_await(True, usage.get_back_arrive().sync_tl)
 
         # Arrive/Await lowers to call to generated exo_syncState member function.
-        # We also record mbarriers to initialize, first the front queue barrier
-        # array, then the optional back queue barrier array.
-        # Finally, for arrives with sync-tl tma_to_smem_async, we need to enforce
-        # that it is an epilogue sync for tx-count to work correctly
-        # (TODO this will change to TMA instrs taking mbarrier parameters)
         Arrive_txt = f"Arrive{nm_suffix}(exo_smem, exo_excutLog"
-        def codegen(s: LoopIR.SyncStmt):
-            iter_syms = [idx.pt.name for idx in s.home_barrier_expr().idx]
-            sync_type = s.sync_type
-            slice = coll_tilings.codegen_slices_to_root(self._blockDim(), thread_iters, iter_syms)
-            back = s.barriers[0].back
-            b = "Back" if back else "Front"
-            assert sync_type.is_split()
-            if sync_type.is_arrive():
-                assert sync_type.N <= 1, "TODO implement me"
-                result = [f"exo_syncState.{b}{Arrive_txt}, {slice}, {sync_type.N});"]
-                # XXX XXX XXX WIP new Call barrier system
-                # is_tma = back_arrive_is_tma if back else front_arrive_is_tma
-                # if is_tma:
-                #     # See also codegen_exo_tma_mbarrier if you change this!
-                #     result = LoweredEpilogueSync(timelines.tma_to_smem_async_instr, result)
-                return result
+        def codegen(node: LoopIR.SyncStmt | LoopIR.BarrierExpr):
+            # Unpack BarrierExpr from SyncStmt
+            if isinstance(node, LoopIR.SyncStmt):
+                # Generating stateful Arrive/Await call.
+                e = node.barriers[0]
+                sync_type = node.sync_type
+                is_arg = False
             else:
+                # Generating expression to pass as arg to TMA instr.
+                e = node
+                is_arg = True
+            assert isinstance(e, LoopIR.BarrierExpr)
+
+            # DICEY: in the chosen BarrierExpr, skip intervals lo:hi.
+            # These are distributed dims, which correspond to CTA-in-cluster dimensions,
+            # which codegen_slices_to_root will ignore anyway due to
+            # hi_thread_pitch=blockDim.
+            # The purpose of this is to generate an expression of threadIdx.x
+            # to select between mbarriers in the same CTA
+            # (niche usage ... I hope we test this).
+            iter_syms = [idx.pt.name for idx in e.idx if not isinstance(idx, LoopIR.Interval)]
+            slice = coll_tilings.codegen_slices_to_root(self._blockDim(), thread_iters, iter_syms)
+            b = "Back" if e.back else "Front"
+
+            if is_arg:
+                return f"exo_syncState.{b}{Arrive_txt}, {slice}, 0)"
+            elif sync_type.is_arrive():
+                assert sync_type.N == 1
+                return [f"exo_syncState.{b}{Arrive_txt}, {slice}, 1);"]
+            else:
+                assert sync_type.is_await()
                 skips_arg = ""
                 if skips := ~sync_type.N:
                     assert skips > 0, "should have been caught earlier"
                     skips_arg = f", {skips}"
                 return [f"exo_syncState.{b}Await{nm_suffix}(exo_smem, exo_excutLog, {slice}{skips_arg});"]
         lowered.codegen_sync_stmt = codegen
+        lowered.codegen_barrier_arg = codegen
         self.lowered[name] = lowered
         # fmt: on
-
-    def codegen_exo_tma_mbarrier(self, _arrive: LoopIR.SyncStmt):
-        # TODO this will go away when TMA instrs take mbarrier parameters
-
-        assert isinstance(_arrive, LoopIR.SyncStmt)
-        sync_type = _arrive.sync_type
-        assert sync_type.is_arrive()
-        assert sync_type.first_sync_tl == timelines.tma_to_smem_async
-        lowered_mbarrier = self.lowered[_arrive.barriers[0].name]
-        # Read-only access to the mbarrier by lowering an arrive with N=0
-        # (arrive-count 0). This is pretty hacky; if we have more need for
-        # such custom barrier lowering, we may want a "proper" interface.
-        arrive0_sync_type = _arrive.sync_type.copy()
-        arrive0_sync_type.N = 0
-        arrive0 = _arrive.update(sync_type=arrive0_sync_type)
-        mbarrier_txt = lowered_mbarrier.codegen_sync_stmt(arrive0)[0]
-        assert mbarrier_txt[-1] == ";"
-        alias_sym = Sym("exo_tma_mbarrier")
-        lines = [f"const uint32_t exo_tma_mbarrier = {mbarrier_txt}"]
-        self.lowered[alias_sym] = LoweredBarrier(
-            False, LoweredBarrierType.mbarrier, lambda s: lines
-        )
-        return alias_sym
 
     def add_commit_group(
         self,

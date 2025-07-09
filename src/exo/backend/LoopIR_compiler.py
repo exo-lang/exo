@@ -1455,6 +1455,11 @@ class Compiler:
                     for i, e in enumerate(s.args):
                         fnarg = fn.args[i]
                         args_dict[str(fnarg.name)] = self.comp_fnarg(e, fn, i)
+                    if e := s.trailing_barrier_expr:
+                        lowered_barrier = self._lowered_barriers[e.name]
+                        mbarrier = lowered_barrier.codegen_barrier_arg(e)
+                        assert isinstance(mbarrier, str)
+                        args_dict["exo_barrier"] = mbarrier
                     lines = fn.instr.codegen(InstrArgs(args_dict))
                     assert lines is not None, "codegen() forgot return?"
                     assert not isinstance(lines, str), "codegen() must give List[str]"
@@ -1462,7 +1467,7 @@ class Compiler:
                         self.add_line(line)
                 except Exception as e:
                     raise ValueError(
-                        f"{s.srcinfo}: Failed to compile {fn.name}; this could be invalid usage, or a bug in the @instr implementation: {e}"
+                        f"{s.srcinfo}: Failed to compile {s}; this could be invalid usage, or a bug in the @instr implementation: {e}"
                     ) from e
             else:
                 args = ["ctxt"]

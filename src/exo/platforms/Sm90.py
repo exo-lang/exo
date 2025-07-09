@@ -562,7 +562,7 @@ class copy_tensor_to_smem_impl(InstrInfo):
         lines.append(f"  &{smem_data},")
         lines.append(f"  {CUtensorMap},")
         lines.append(f"  {src_struct},")
-        lines.append(f"  exo_tma_mbarrier,")
+        lines.append(f"  {args.exo_barrier},")
         lines.append(f"  {prod(box) * self.element_bits // 8}")
         lines.append(");")
         return lines

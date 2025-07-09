@@ -90,7 +90,7 @@ def DoReplace(subproc, block_cursor):
     new_args = Unification(temp_subproc, stmts, live_vars).result()
 
     # but don't use a different LoopIR.proc for the callsite itself
-    new_call = LoopIR.Call(subproc, new_args, stmts[0].srcinfo)
+    new_call = LoopIR.Call(subproc, new_args, None, stmts[0].srcinfo)
 
     ir, fwd = block_cursor._replace([new_call])
     Check_Aliasing(ir)

@@ -399,10 +399,13 @@ class TypeChecker:
                 )
                 for call_a, sig_a in zip(stmt.args, stmt.f.args)
             ]
-
             check_call_types(self.err, args, stmt.f.args)
 
-            return [LoopIR.Call(stmt.f, args, stmt.srcinfo)]
+            if bar := stmt.trailing_barrier_expr:
+                bar = self.check_e(bar)
+                assert isinstance(bar, LoopIR.BarrierExpr)
+
+            return [LoopIR.Call(stmt.f, args, bar, stmt.srcinfo)]
         else:
             assert False, f"not a loopir in check_stmts {type(stmt)}"
 

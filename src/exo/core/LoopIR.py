@@ -67,7 +67,7 @@ module LoopIR {
          | For( sym iter, expr lo, expr hi, stmt* body, loop_mode loop_mode )
          | Alloc( sym name, type type, allocable mem )
          | Free( sym name, type type, allocable mem )
-         | Call( proc f, expr* args )
+         | Call( proc f, expr* args, expr? trailing_barrier_expr )
          | WindowStmt( sym name, expr rhs, special_window? special_window )
          attributes( srcinfo srcinfo )
 
@@ -184,7 +184,7 @@ module UAST {
             | If      ( expr cond, stmt* body,  stmt* orelse )
             | For     ( sym iter,  expr cond,   stmt* body )
             | Alloc   ( sym name, type type, allocable? mem )
-            | Call    ( loopir_proc f, expr* args )
+            | Call    ( loopir_proc f, expr* args, expr? trailing_barrier_expr )
             attributes( srcinfo srcinfo )
 
     expr    = Read    ( sym name, expr* idx )
@@ -267,7 +267,7 @@ module PAST {
             | If      ( expr cond, stmt* body, stmt* orelse )
             | For     ( name iter, expr lo, expr hi, stmt* body )
             | Alloc   ( name name, expr* sizes ) -- may want to add mem back in?
-            | Call    ( name f, expr* args )
+            | Call    ( name f, expr* args, expr? trailing_barrier_expr )
             | WriteConfig ( name config, name field )
             | S_Hole  ()
             attributes( srcinfo srcinfo )
@@ -891,8 +891,19 @@ class LoopIR_Rewrite:
                 ]
         elif isinstance(s, LoopIR.Call):
             new_args = self.map_exprs(s.args)
-            if new_args is not None:
-                return [s.update(args=new_args or s.args)]
+            old_bar = s.trailing_barrier_expr
+            new_bar = None
+            if old_bar is not None:
+                new_bar = self.map_e(old_bar)
+                assert new_bar is None or isinstance(new_bar, LoopIR.BarrierExpr)
+            if new_args is not None or new_bar is not None:
+                return [
+                    s.update(
+                        args=new_args or s.args,
+                        trailing_barrier_expr=new_bar or old_bar,
+                    )
+                ]
+
         elif isinstance(s, (LoopIR.Alloc, LoopIR.Free)):
             new_type = self.map_t(s.type)
             if new_type:
@@ -1057,6 +1068,8 @@ class LoopIR_Do:
         elif styp is LoopIR.Call:
             for e in s.args:
                 self.do_e(e)
+            if e := s.trailing_barrier_expr:
+                self.do_e(e)
         elif styp is LoopIR.Alloc:
             self.do_t(s.type)
         elif styp is LoopIR.SyncStmt:
@@ -1156,8 +1169,10 @@ class LoopIR_Compare:
         elif isinstance(s1, LoopIR.Alloc):
             return self.match_name(s1.name, s2.name) and self.match_t(s1.type, s2.type)
         elif isinstance(s1, LoopIR.Call):
-            return s1.f == s2.f and all(
-                self.match_e(a1, a2) for a1, a2 in zip(s1.args, s2.args)
+            return (
+                s1.f == s2.f
+                and all(self.match_e(a1, a2) for a1, a2 in zip(s1.args, s2.args))
+                and self.match_e(s1.trailing_barrier_expr, s2.trailing_barrier_expr)
             )
         elif isinstance(s1, LoopIR.WindowStmt):
             return self.match_name(s1.name, s2.name) and self.match_e(s1.rhs, s2.rhs)
@@ -1202,6 +1217,8 @@ class LoopIR_Compare:
         elif isinstance(e1, LoopIR.ReadConfig):
             # TODO: check configfield equality
             return e1.config == e2.config and e1.field == e2.field
+        elif e1 is None:
+            return e2 is None
         else:
             assert False, "bad case"
 

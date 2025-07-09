@@ -1400,8 +1400,14 @@ class Parser:
 
             args = [self.parse_expr(a) for a in s.args]
 
-            # TODO barriers
-            return UAST.Call(f.INTERNAL_proc(), args, self.getsrcinfo(s))
+            if barriers:
+                if len(barriers) > 1:
+                    self.err(s.func, "Cannot have more than 1 trailing barrier expr")
+                bar = barriers[0]
+            else:
+                bar = None
+
+            return UAST.Call(f.INTERNAL_proc(), args, bar, self.getsrcinfo(s))
 
     # ----- With statement parsing for spork gpu (distinct from meta exo)
     def parse_spork_with(self, s, rstmts):

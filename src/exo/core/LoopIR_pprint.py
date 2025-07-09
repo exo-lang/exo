@@ -489,7 +489,10 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
         if instr:
             if kwargs := instr._formatted_tparam_kwargs:
                 args.append(kwargs)
-        return [f"{indent}{stmt.f.name}({', '.join(args)})"]
+        trailing_bar = ""
+        if e := stmt.trailing_barrier_expr:
+            trailing_bar = " >> " + _print_expr(e, env)
+        return [f"{indent}{stmt.f.name}({', '.join(args)}){trailing_bar}"]
 
     elif is_if_holding_with(stmt, LoopIR):  # must be before .If case
         ctx = _print_expr(stmt.cond, env)

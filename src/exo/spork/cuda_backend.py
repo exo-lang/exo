@@ -847,7 +847,7 @@ class MainLoopRewrite(LoopIR_Rewrite):
                 instr = unsafe_setmaxnreg(
                     imm_reg_count=nreg, is_inc=is_inc
                 )._loopir_proc
-                body.append(LoopIR.Call(instr, [], srcinfo))
+                body.append(LoopIR.Call(instr, [], None, srcinfo))
             for name, info in named_warp_tuples:
                 if nreg != info.setmaxnreg:
                     continue
@@ -1218,11 +1218,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
         # We have to customize mapping the body of a CudaAsync block, so as to
         # allow special handling for prologue/epilogue sync.
         #
-        # Further, handle the special case of with CudaAsync(tma_to_smem_async_instr)
-        # where we need to make the mbarrier used for the /epilogue/
-        # mbarrier Arrive available at the /start/ of the async block.
-        # The mbarrier's 32-bit address used for this sync will be aliased as
-        # exo_tma_mbarrier in the body of the lowered CUDA C++ async block.
+        # TODO all of this should be removed
         ctx = s.cond.val
         assert isinstance(ctx, CudaAsync)
         instr_tl = ctx.get_instr_tl()
@@ -1238,25 +1234,6 @@ class SubtreeRewrite(LoopIR_Rewrite):
                 new_body.append(child)  # Append unchanged stmt
             else:
                 new_body.extend(new_children)
-
-        # TODO this should be replaced with trailing barrier expression for TMA instr
-        if instr_tl == timelines.tma_to_smem_async_instr:
-            # We will insert the needed uint32_t variable as "lowered" syntax
-            # for a do-nothing Fence statement. This will look goofy but works.
-            # TMA instrs expect the C++ var exo_tma_mbarrier to be in scope.
-            _arrive = self.scan.expect_SyncStmt(
-                s, True, timelines.tma_to_smem_async, None
-            )
-            dummy_sync_type = SyncType(
-                timelines.empty_sync_tl, timelines.empty_sync_tl, 0
-            )
-            alias_sym = self.sync_state_builder.codegen_exo_tma_mbarrier(_arrive)
-            alias_stmt = LoopIR.SyncStmt(
-                dummy_sync_type,
-                [LoopIR.BarrierExpr(alias_sym, False, [], T.barrier, s.srcinfo)],
-                s.srcinfo,
-            )
-            new_body = [alias_stmt] + new_body
 
         s = s.update(body=new_body)
         return s

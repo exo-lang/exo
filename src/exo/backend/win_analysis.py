@@ -38,7 +38,7 @@ class WindowAnalysis(LoopIR_Rewrite):
 
             args = [promote_arg(a, sa) for a, sa in zip(args, s.f.args)]
 
-            return [LoopIR.Call(s.f, args, s.srcinfo)]
+            return [LoopIR.Call(s.f, args, s.trailing_barrier_expr, s.srcinfo)]
 
         return super().map_s(s)
 

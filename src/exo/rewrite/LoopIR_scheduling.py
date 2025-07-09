@@ -2771,7 +2771,7 @@ def DoInsertNoopCall(gap, proc, args):
         return LoopIR.WindowExpr(name, idxs, w_typ, srcinfo)
 
     args = [process_slice(arg) for arg in args]
-    call_stmt = LoopIR.Call(proc, args, srcinfo)
+    call_stmt = LoopIR.Call(proc, args, None, srcinfo)
     ir, fwd = gap._insert([call_stmt])
 
     def err_handler(_, msg):
@@ -2869,7 +2869,7 @@ def DoExtractSubproc(block, subproc_name, include_asserts):
             subproc_preds = []
 
         subproc_ir = LoopIR.proc(subproc_name, fnargs, subproc_preds, body, None, info)
-        call = LoopIR.Call(subproc_ir, args, info)
+        call = LoopIR.Call(subproc_ir, args, None, info)
         return subproc_ir, call
 
     subproc_ir, call = make_closure()

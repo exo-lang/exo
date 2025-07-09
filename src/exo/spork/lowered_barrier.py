@@ -24,9 +24,12 @@ class LoweredBarrier:
     # Also applies to Fence(...), which has no associated barrier object.
     type_enum: LoweredBarrierType
 
-    # Lower SyncStmt to lines of C++ code (List[str])
-    # (you may assume the SyncStmt uses this lowered barrier)
+    # Lower SyncStmt, Alloc, Free to lines of C++ code (List[str])
+    # (you may assume the statement uses this lowered barrier)
     codegen_sync_stmt: Callable[[LoopIR.SyncStmt], List[str]] = None
-
     codegen_alloc: Callable[[LoopIR.Alloc], List[str]] = lambda a: [f"// {a}"]
     codegen_free: Callable[[LoopIR.Free], List[str]] = lambda a: []
+
+    # Special case for TMA mbarriers
+    codegen_cta_mask: Callable[[LoopIR.BarrierExpr], str] = None
+    codegen_barrier_arg: Callable[[LoopIR.BarrierExpr], str] = None
