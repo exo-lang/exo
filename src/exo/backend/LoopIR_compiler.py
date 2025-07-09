@@ -961,7 +961,7 @@ class Compiler:
         )
         indexer = features.get_indexer()
         result = indexer.index(
-            self._util_injector.with_tag(features.get_memwin_name()), features
+            self._util_injector.with_tag(features.get_mem_name()), features
         )
         assert isinstance(result, WindowIndexerResult)
         code = result.code
@@ -1119,7 +1119,7 @@ class Compiler:
 
     def debug_comment_window_features(self, features: WindowFeatures):
         self.add_line("/*")
-        self.add_line(f"mem = {features.get_memwin_name()}")
+        self.add_line(f"mem = {features.get_mem_name()}")
         self.add_line(f"packed_tensor_shape = {features.packed_tensor_shape()}")
         self.add_line(f"raw_name = {features.get_raw_name()!r}")
         self.add_line(f"dataptr = {features.get_dataptr()}")
@@ -1511,7 +1511,7 @@ class Compiler:
             features._encoder = encoder
 
         # Package InstrWindowArg
-        indexer_mem = features.get_memwin()
+        indexer_mem = features.get_mem()
         return InstrWindowArg(
             self._util_injector.with_tag(encoder_mem.name()),
             self._util_injector.with_tag(indexer_mem.name()),

@@ -73,10 +73,10 @@ class WindowFeatures:
             setattr(new, attr, getattr(self, attr))
         return new
 
-    def get_memwin(self) -> Type["MemWin"]:
+    def get_mem(self) -> Type["MemWin"]:
         return self._mem
 
-    def get_memwin_name(self) -> str:
+    def get_mem_name(self) -> str:
         """Name of the MemWin type of the source tensor/window"""
         return self._mem.name()
 
@@ -562,7 +562,7 @@ class FallbackWindowEncoder(WindowEncoder):
             features.n_packed_dims() == 0
         ), "Implement your own @window_encoder if you have packed dimensions"
         sname = self.exo_struct_name()
-        mem = features.get_memwin()
+        mem = features.get_mem()
         n_dims = features.n_array_dims()
 
         indices_strs = [str(features.get_array_offset(i)) for i in range(n_dims)]
@@ -605,7 +605,7 @@ class FallbackWindowIndexer(WindowIndexer):
         assert (
             features.n_packed_dims() == 0
         ), "Implement your own @window_indexer if you have packed dimensions"
-        mem = features.get_memwin()
+        mem = features.get_mem()
         n_dims = features.n_array_dims()
 
         indices_strs = [str(features.get_array_offset(i)) for i in range(n_dims)]

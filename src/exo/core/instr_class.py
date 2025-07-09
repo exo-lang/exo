@@ -378,7 +378,7 @@ class InstrWindowArg:
         # TODO Mem check needs to handle SpecialWindow.source_memory_type()
 
         # Check intact packed dimensions
-        mem = features.get_memwin()
+        mem = features.get_mem()
         packed_tensor_shape = features.packed_tensor_shape()
         assert features.n_packed_dims() == len(packed_tensor_shape)
         for i, c in enumerate(packed_tensor_shape):

@@ -170,7 +170,7 @@ class SwizzledEncoder(WindowEncoder):
 
     def encode_window(self, utils: UtilInjector, features: WindowFeatures) -> str:
         sname = self.exo_struct_name()
-        mem = features.get_memwin()
+        mem = features.get_mem()
         n_dims = features.n_array_dims()
 
         dataptr, filtered_strides = features.strided_window_helper()
@@ -192,7 +192,7 @@ class SwizzledIndexer(WindowIndexer):
     __slots__ = []
 
     def index(self, utils, features: WindowFeatures):
-        mem = features.get_memwin()
+        mem = features.get_mem()
 
         dataptr = features.get_dataptr()
         array_offset = 0
