@@ -877,22 +877,26 @@ class Compiler:
             origin_story = f"{origin_story}[{origin_index}]"
         return CIR_Wrapper(e, self, origin_story)
 
-    def window_expr_to_cir(
-        self, e: LoopIR.WindowExpr
+    def idxs_to_cir(
+        self, e: LoopIR.WindowExpr | LoopIR.Read
     ) -> Tuple[List[CIR_Wrapper], List[CIR_Wrapper], SrcInfo]:
-        """Convert WindowExpr to WindowFeatures.new_window args"""
+        """Convert WindowExpr/Read to WindowFeatures.new_window args"""
         w_idxs = []
         w_intervals = []
         for i, w in enumerate(e.idx):
             if isinstance(w, LoopIR.Point):
                 lo = w.pt
                 w_intervals.append(None)
-            else:
+            elif isinstance(w, LoopIR.Interval):
                 lo = w.lo
                 w_intervals.append(
                     self.wrap_cir(w.hi, f"{e.name} interval_sizes", i)
                     - lift_to_cir(w.lo, self.range_env)
                 )
+            else:
+                assert isinstance(e, LoopIR.Read)
+                lo = w
+                w_intervals.append(None)
             w_idxs.append(self.wrap_cir(lo, f"{e.name} offsets", i))
         return w_idxs, w_intervals, e.srcinfo
 
@@ -1221,7 +1225,7 @@ class Compiler:
 
                 # Unpack features of input window, and modify based on WindowExpr
                 in_features = self.env_window_features[rhs.name].new_window(
-                    *self.window_expr_to_cir(rhs)
+                    *self.idxs_to_cir(rhs)
                 )
                 # Change encoder of in_features (private copy due to new_window)
                 in_features._encoder = out_encoder
@@ -1506,20 +1510,36 @@ class Compiler:
         """Returns InstrWindowArg or InstrNonWindowArg"""
         defaults_to_ptr = not force_pass_by_value
         if isinstance(e, LoopIR.Read):
-            assert not e.idx
             rtyp = self.envtyp[e.name]
             cname = self.env[e.name]
             if rtyp.is_indexable() or rtyp is T.bool or rtyp is T.stride:
+                assert not e.idx
                 return InstrNonWindowArg(cname, False, False, e.srcinfo)
-            if rtyp.is_dense_tensor():
+            if rtyp.is_dense_tensor() and not e.idx:
+                return InstrNonWindowArg(cname, True, True, e.srcinfo)
+            if e.name in self._scalar_refs:
+                assert not e.idx
                 return InstrNonWindowArg(cname, True, defaults_to_ptr, e.srcinfo)
-            elif e.name in self._scalar_refs:
-                return InstrNonWindowArg(cname, True, defaults_to_ptr, e.srcinfo)
-            elif rtyp.is_win():
-                return self.comp_fnarg_window(e, mem, is_const)
-            else:
-                assert rtyp.is_real_scalar()
+            if rtyp.is_real_scalar():
                 return InstrNonWindowArg(cname, False, defaults_to_ptr, e.srcinfo)
+            assert rtyp.is_tensor_or_window()
+            window_arg: InstrWindowArg
+            window_arg = self.comp_fnarg_window(e, mem, is_const)
+            if e.idx:
+                # This is a really roundabout way of extracting a scalar from a
+                # tensor/window. We compile it as a "window", then extract the
+                # 0th element (index_result) from the "window", and repackage
+                # it as a scalar.
+                assert len(e.idx) == len(rtyp.shape())
+                index_result = window_arg.index_result()
+                return InstrNonWindowArg(
+                    index_result.code, index_result.is_ptr, defaults_to_ptr, e.srcinfo
+                )
+            else:
+                # Since the tensor/window is not "derefererenced" with indices,
+                # it's actually a window and we pass it packaged up as so.
+                return window_arg
+
         elif isinstance(e, LoopIR.WindowExpr):
             return self.comp_fnarg_window(e, mem, is_const)
         else:
@@ -1530,16 +1550,8 @@ class Compiler:
     def comp_fnarg_window(
         self, e: LoopIR.expr, encoder_mem: Type[MemWin], is_const: bool
     ):
-        # Create private copy of WindowFeatures, with offsets etc. updated
-        # if the input is a WindowExpr.
-        if isinstance(e, LoopIR.WindowExpr):
-            features = self.env_window_features[e.name].new_window(
-                *self.window_expr_to_cir(e)
-            )
-        else:
-            assert isinstance(e, LoopIR.Read)
-            assert not e.idx
-            features = self.env_window_features[e.name].copy()
+        # Create private copy of WindowFeatures, with offsets etc. updated.
+        features = self.env_window_features[e.name].new_window(*self.idxs_to_cir(e))
 
         # Replace encoder for the features (which we have a private copy of
         # because of the new_window(...) or copy()) with encoder based on the
