@@ -46,3 +46,34 @@ class cuda_warp_broadcast_sync_1f32(cuda_warp_shfl_impl):
 
 
 __all__.append("cuda_warp_broadcast_sync_1f32")
+
+
+@instr
+class cuda_warp_broadcast_sync_2f32(cuda_warp_shfl_impl):
+    def behavior(
+        size0: size,
+        size1: size,
+        outputs: [f32][size0, size1],
+        inputs: [f32][size0, size1],
+        i0: index,
+        i1: index,
+    ):
+        assert i0 >= 0
+        assert i0 < size0
+        assert i1 >= 0
+        assert i1 < size1
+        for dst0 in seq(0, size0):
+            for dst1 in seq(0, size1):
+                outputs[dst0, dst1] = inputs[i0, i1]
+
+    def instance(self, size0, size1):
+        self.instance_impl(size0, size1)
+
+    def codegen(self, args):
+        inp = args.inputs.index()
+        out = args.outputs.index()
+        idx = f"{args.i1} + {args.i0} * {args.size1}"
+        return [f"{out} = __shfl_sync({self.mask}, {inp}, {idx});"]
+
+
+__all__.append("cuda_warp_broadcast_sync_2f32")
