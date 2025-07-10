@@ -39,7 +39,7 @@ from .prelude import Sym, SrcInfo
 
 from .instr_info import AccessInfo, InstrInfo
 from .LoopIR import LoopIR, SubstArgs, Identifier, get_writes_of_stmts
-from .memory import DRAM
+from .memory import DRAM, BarrierType
 from ..frontend.pyparser import get_ast_from_python, Parser
 from ..spork import timelines
 from ..spork.coll_algebra import standalone_thread, CollUnit
@@ -121,6 +121,8 @@ def prefill_instr_info(info: InstrInfo, proc: LoopIR.proc):
     info.coll_unit = standalone_thread
     info.instr_tl = cpu_in_order_instr
     info.access_info = proc_default_access_info(proc, write_syms)
+    info.barrier_mem = None
+    info.barrier_coll_units = ()
     info._tparam_dict = {}
     info._formatted_tparam_kwargs = ""
 
@@ -294,6 +296,11 @@ class InstrTemplate:
     def _postprocess_instr_info(
         self, proc: LoopIR.proc, info: InstrInfo, tparam_dict, has_custom_codegen: bool
     ):
+        # =====================================================================
+        # If anything in this code fails, it's almost certainly the fault
+        # of the @instr author, not the end user using the instr.
+        # =====================================================================
+
         clsname = self.info_cls.__name__
         has_instr_format = info.instr_format is not None
         if not has_custom_codegen:
@@ -306,6 +313,8 @@ class InstrTemplate:
         assert all(isinstance(s, str) for s in info.cu_utils), clsname
         assert all(isinstance(s, str) for s in info.cu_includes), clsname
         assert isinstance(info.coll_unit, CollUnit), clsname
+        assert info.barrier_mem is None or issubclass(info.barrier_mem, BarrierType)
+        assert all(isinstance(unit, CollUnit) for unit in info.barrier_coll_units)
 
         # instr_tl (L^i) must be Instr_tl typed
         instr_tl = info.instr_tl
@@ -354,6 +363,10 @@ class InstrTemplate:
                 assert (
                     arg_info.out_of_order is not None
                 ), f"{clsname}: need out_of_order flag for {nm} @ {arg.mem.name()}"
+
+            assert all(
+                isinstance(unit, CollUnit) for unit in arg_info.distributed_coll_units
+            ), clsname
 
         info._tparam_dict = tparam_dict
         info._formatted_tparam_kwargs = self._format_tparam_kwargs(
@@ -424,7 +437,7 @@ class InstrWindowArg:
     def get_raw_name(self) -> str:
         return self._features.get_raw_name()
 
-    def index(self, *idxs) -> str:
+    def index_result(self, *idxs) -> WindowIndexerResult:
         new_features = self._features.new_window(
             idxs, [None] * len(idxs), self._srcinfo
         )
@@ -432,7 +445,15 @@ class InstrWindowArg:
             self._indexer_utils, self._features
         )
         assert isinstance(indexed, WindowIndexerResult)
-        return indexed.code
+        return indexed
+
+    def index(self, *idxs) -> str:
+        r = self.index_result(*idxs)
+        return f"({r.code})[0]" if r.is_ptr else r.code
+
+    def index_ptr(self, *idxs) -> str:
+        r = self.index_result(*idxs)
+        return r.code if r.is_ptr else f"&{r.code}"
 
     def to_arg_strs(self):
         if self.separate_dataptr():
@@ -451,16 +472,30 @@ class InstrWindowArg:
 class InstrNonWindowArg:
     # This could be expanded later...
     _code: str
+    _is_ptr: bool
+    _defaults_to_ptr: bool
     _srcinfo: SrcInfo
 
     def __str__(self):
-        return self._code
+        """Backwards-compatibility hack"""
+        return self.index_ptr() if self._defaults_to_ptr else self.index()
+
+    def index(self) -> str:
+        """For compatibility with InstrWindowArg"""
+        code = self._code
+        return f"({code})[0]" if self._is_ptr else code
+
+    def index_ptr(self) -> str:
+        """For compatibility with InstrWindowArg"""
+        code = self._code
+        return code if self._is_ptr else f"&{code}"
 
     def separate_dataptr(self):
+        """For compatibility with InstrWindowArg"""
         return False
 
     def to_arg_strs(self):
-        return [self._code]
+        return [str(self)]
 
     def srcinfo(self):
         return self._srcinfo

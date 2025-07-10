@@ -1490,27 +1490,28 @@ class Compiler:
 
     def comp_fnarg_impl(self, e, mem, is_const, force_pass_by_value):
         """Returns InstrWindowArg or InstrNonWindowArg"""
+        defaults_to_ptr = not force_pass_by_value
         if isinstance(e, LoopIR.Read):
             assert not e.idx
             rtyp = self.envtyp[e.name]
             cname = self.env[e.name]
             if rtyp.is_indexable() or rtyp is T.bool or rtyp is T.stride:
-                return InstrNonWindowArg(cname, e.srcinfo)
+                return InstrNonWindowArg(cname, False, False, e.srcinfo)
             if rtyp.is_dense_tensor():
-                return InstrNonWindowArg(cname, e.srcinfo)
+                return InstrNonWindowArg(cname, True, defaults_to_ptr, e.srcinfo)
             elif e.name in self._scalar_refs:
-                star = "*" if force_pass_by_value else ""
-                return InstrNonWindowArg(f"{star}{cname}", e.srcinfo)
+                return InstrNonWindowArg(cname, True, defaults_to_ptr, e.srcinfo)
             elif rtyp.is_win():
                 return self.comp_fnarg_window(e, mem, is_const)
             else:
                 assert rtyp.is_real_scalar()
-                amp = "" if force_pass_by_value else "&"
-                return InstrNonWindowArg(f"{amp}{cname}", e.srcinfo)
+                return InstrNonWindowArg(cname, False, defaults_to_ptr, e.srcinfo)
         elif isinstance(e, LoopIR.WindowExpr):
             return self.comp_fnarg_window(e, mem, is_const)
         else:
-            return InstrNonWindowArg(self.comp_e(e, op_prec["."]), e.srcinfo)
+            return InstrNonWindowArg(
+                self.comp_e(e, op_prec["."]), False, False, e.srcinfo
+            )
 
     def comp_fnarg_window(
         self, e: LoopIR.expr, encoder_mem: Type[MemWin], is_const: bool

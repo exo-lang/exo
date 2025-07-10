@@ -6,6 +6,7 @@ from typing import Callable, Dict, Optional, Type, List
 from warnings import warn
 
 from ..core.memory import MemGenError, memwin_template, DRAM, BarrierType
+from ..core.instr_info import AccessInfo, InstrInfo
 from ..core.prelude import Sym, SrcInfo
 from ..core.LoopIR import (
     LoopIR,
@@ -379,10 +380,14 @@ class SubtreeScan(LoopIR_Do):
         old_warp_name = self._current_warp_name
         self._stmt_stack.append(s)
 
-        # Modify state, then recurse with super()
-        # (order is important so recursion sees updated state!)
-        self.apply_s(s)
-        super().do_s(s)
+        if isinstance(s, LoopIR.Call):
+            self.do_call_stmt(s)
+            # do_call_stmt cannot use super().do_s(s) due to window handling
+        else:
+            # Modify state, then recurse with super()
+            # (order is important so recursion sees updated state!)
+            self.apply_s(s)
+            super().do_s(s)
 
         # Special case (after recursion) for handling prologue/epilogue sync
         if is_if_holding_with(s, LoopIR):
@@ -395,22 +400,22 @@ class SubtreeScan(LoopIR_Do):
         self._coll_tiling = old_coll_tiling
         self._current_warp_name = old_warp_name
 
-    def do_e(self, e):
-        self.apply_e(e)
+    def do_e(self, e, callee_distributed_syms=()):
+        self.apply_e(e, callee_distributed_syms)
         super().do_e(e)
 
-    def apply_e(self, e):
+    def apply_e(self, e, callee_distributed_syms):
         if isinstance(e, idx_e_types):
             # BarrierExpr not handled here; part of SyncStmt handling.
             self.mark_sym_used(e.name)
-            self.apply_idx(e, self._stmt_stack[-1])
+            self.apply_idx(e, self._stmt_stack[-1], callee_distributed_syms)
         elif not isinstance(e, (LoopIR.BarrierExpr, LoopIR.StrideExpr)):
             assert not hasattr(e, "name"), "Add handling for array indexing"
 
     def apply_s(self, s):
         if isinstance(s, idx_s_types):
             self.mark_sym_used(s.name)
-            self.apply_idx(s, s)
+            self.apply_idx(s, s, ())
         elif not isinstance(s, (LoopIR.WindowStmt, LoopIR.Alloc, LoopIR.Free)):
             assert not hasattr(s, "name"), "Add handling for array indexing"
 
@@ -434,6 +439,10 @@ class SubtreeScan(LoopIR_Do):
                     f"{s.srcinfo}: unexpected loop mode {s.loop_mode.loop_mode_name()} in CudaDeviceFunction"
                 )
         elif isinstance(s, LoopIR.WindowStmt):
+            # Unlike for Calls, the WindowExpr here do not allow intervals for
+            # any distributed dimensions ... this would be very hard to support.
+            # Basically the dimensionality of the WindowStmt will never change!
+            # See WindowExpr case for remove_distributed_idx.
             self._local_envtyp[s.name] = s.rhs.type
         elif isinstance(s, LoopIR.Alloc):
             self._local_envtyp[s.name] = s.type
@@ -507,12 +516,7 @@ class SubtreeScan(LoopIR_Do):
                 )
 
         elif isinstance(s, LoopIR.Call):
-            callee = s.f
-            needed = callee.proc_coll_unit()
-            if msg := self._coll_tiling.unit_mismatch(needed, self._coll_env):
-                raise TypeError(
-                    f"{s.srcinfo}: wrong collective unit for " f"{callee.name}(): {msg}"
-                )
+            assert 0, "Was supposed to be handled specially with do_call_stmt"
 
     def apply_with_cuda_warps(self, s):
         ctx: CudaWarps = s.cond.val
@@ -614,8 +618,6 @@ class SubtreeScan(LoopIR_Do):
         # Must be run after inspecting the body of the CudaAsync block
         # since the barriers must have been scanned.
         # We detect required prologue/epilogue sync here.
-        # The converse requirement (that some sync must be a prologue/epilogue)
-        # is instead detected during code lowering.
         ctx = s.cond.val
         assert isinstance(ctx, CudaAsync)
         instr_tl = ctx.get_instr_tl()
@@ -660,7 +662,7 @@ class SubtreeScan(LoopIR_Do):
             self._coll_tiling, s.loop_mode.format_loop_cond(lo_int, hi_int)
         )
 
-    def apply_idx(self, node, context_stmt):
+    def apply_idx(self, node, context_stmt, callee_distributed_syms):
         """Consistent distributed memory analysis"""
         assert isinstance(context_stmt, LoopIR.stmt)
         state: DistributedAllocState
@@ -671,7 +673,12 @@ class SubtreeScan(LoopIR_Do):
         assert state.optional_native_unit is not None
 
         fsm = DistributedIdxFsm(
-            context_stmt, state, "cuda_threads", self.thread_iters, self._coll_env
+            context_stmt,
+            state,
+            "cuda_threads",
+            self.thread_iters,
+            self._coll_env,
+            callee_distributed_syms,
         )
         for i in range(len(node.idx)):
             if fsm.is_done(node):
@@ -686,6 +693,41 @@ class SubtreeScan(LoopIR_Do):
         # Store in DistributedAllocState if this is the first use, or check
         # consistency (index equality) with prior uses.
         fsm.check_store_state(node, state)
+
+    def do_call_stmt(self, s: LoopIR.Call):
+        # Check collective unit.
+        callee = s.f
+        instr_info: InstrInfo = callee.instr
+        needed = callee.proc_coll_unit()
+        if msg := self._coll_tiling.unit_mismatch(needed, self._coll_env):
+            raise TypeError(
+                f"{s.srcinfo}: wrong collective unit for {callee.name}(): got {msg}, need {needed}"
+            )
+
+        # Inspect distributed indices of arguments (safer after above check)
+        assert len(callee.args) == len(s.args)
+        for decl, e in zip(callee.args, s.args):
+            arg_name_str = str(decl.name)
+            coll_units = None
+            if e.type.is_tensor_or_window():
+                access_info: AccessInfo = instr_info.access_info[arg_name_str]
+                coll_units = access_info.distributed_coll_units
+            if coll_units:
+                coll_tiling = self.coll_tiling
+                callee_distributed_syms = []
+                for unit in coll_units:
+                    unit_sym = Sym("IMPLICIT_" + arg_name_str)
+                    coll_tiling = coll_tiling.tiled(
+                        unit_sym, unit, hi_int, self._coll_env
+                    )
+                    self.thread_iters[unit_sym] = ThreadIter(coll_tiling)
+                    callee_distributed_syms.append(unit_sym)
+            else:
+                callee_distributed_syms = ()
+            self.do_e(e, callee_distributed_syms)
+
+        # Inspect barrier.
+        # TODO
 
     def mark_sym_used(self, name: Sym):
         self._syms_needed.add(name)
@@ -1083,10 +1125,14 @@ class SubtreeRewrite(LoopIR_Rewrite):
     def map_e(self, e):
         e_rewrite = None
 
+        # Remove distributed dimensions
+        # HACK: for instructions that take windows with distributed dimensions,
+        # the resulting program will no longer typecheck, since the
+        # dimensionality of the passed window won't match the fnarg anymore!
         if isinstance(e, idx_e_types):
             e_rewrite = self.remove_distributed_idx(e)
 
-        # Use superclass to recursre and rewrite subtree
+        # Use superclass to recurse and rewrite subtree
         # We have to have logic to handle None being used to indicate
         # "no change"; if the superclass makes no changes, we still have
         # to preserve any rewrites of our own.
@@ -1105,7 +1151,40 @@ class SubtreeRewrite(LoopIR_Rewrite):
             assert isinstance(alloc_state, DistributedAllocState)
             n = alloc_state.n_distributed_dims()
             if n > 0:
-                return node.update(idx=node.idx[n:])
+                old_idx = node.idx
+                new_idx = node.idx[n:]
+                if isinstance(node, LoopIR.WindowExpr):
+                    # Remove the first n coordinates of the idx expression.
+                    # If any removed coordinates were intervals, this reduces
+                    # the dimensionality of the resulting window type.
+                    n_intervals_removed = sum(
+                        isinstance(coord, LoopIR.Interval) for coord in old_idx[:n]
+                    )
+                    old_type = node.type
+                    old_src_type = old_type.src_type
+                    old_as_tensor = old_type.as_tensor
+                    assert (
+                        old_type.src_buf == node.name
+                    ), "See WindowStmt case for SubtreeScan.apply_s"
+                    assert isinstance(old_type, LoopIR.WindowType)
+                    new_hi = old_as_tensor.hi[n_intervals_removed:]
+                    if not new_hi:
+                        # Decayed to scalar
+                        return LoopIR.Read(
+                            node.name,
+                            [coord.pt for coord in new_idx],
+                            node.type.basetype(),
+                            node.srcinfo,
+                        )
+                    new_type = old_type.update(
+                        src_type=old_src_type.update(hi=old_src_type.hi[n:]),
+                        as_tensor=old_as_tensor.update(hi=new_hi),
+                        idx=new_idx,
+                    )
+                    return node.update(idx=new_idx, type=new_type)
+                else:
+                    assert isinstance(node, (LoopIR.Read, LoopIR.stmt))
+                    return node.update(idx=new_idx)
         return None
 
     def update_numeric_alloc_free(self, s):
@@ -1124,7 +1203,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
         if n > 0:
             if len(typ.hi) == n:
                 # All dimensions removed; reduce to scalar
-                typ = typ.basetype()
+                typ = type.basetype()
             else:
                 assert n < len(typ.hi)
                 typ = typ.update(hi=typ.hi[n:])

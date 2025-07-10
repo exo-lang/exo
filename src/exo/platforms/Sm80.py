@@ -85,7 +85,7 @@ class Sm80_RmemMatrixIndexer(WindowIndexer):
         data = features.get_dataptr()
         for i in range(features.n_array_dims()):
             data = data[features.get_array_offset(i)]
-        return WindowIndexerResult(data, True)
+        return self.pack_result(data, False)
 
 
 @window_indexer(Sm80_RmemMatrixIndexer)
