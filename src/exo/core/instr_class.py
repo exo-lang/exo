@@ -303,6 +303,7 @@ class InstrTemplate:
 
         clsname = self.info_cls.__name__
         has_instr_format = info.instr_format is not None
+        # fmt: off
         if not has_custom_codegen:
             assert has_instr_format, f"{clsname}: missing instr_format or codegen()"
         if has_instr_format:
@@ -313,16 +314,15 @@ class InstrTemplate:
         assert all(isinstance(s, str) for s in info.cu_utils), clsname
         assert all(isinstance(s, str) for s in info.cu_includes), clsname
         assert isinstance(info.coll_unit, CollUnit), clsname
-        assert info.barrier_mem is None or issubclass(info.barrier_mem, BarrierType)
-        assert all(isinstance(unit, CollUnit) for unit in info.barrier_coll_units)
+        assert info.barrier_mem is None or issubclass(info.barrier_mem, BarrierType), clsname
+        assert all(isinstance(unit, CollUnit) for unit in info.barrier_coll_units), clsname
 
         # instr_tl (L^i) must be Instr_tl typed
         instr_tl = info.instr_tl
-        assert not isinstance(
-            instr_tl, Sync_tl
-        ), f"{clsname}: use {instr_tl}_instr, if it exists"
+        assert not isinstance(instr_tl, Sync_tl), f"{clsname}: use {instr_tl}_instr, if it exists"
         assert isinstance(instr_tl, Instr_tl), clsname
         access_info = info.access_info
+        # fmt: on
 
         for arg in proc.args:
             if not arg.type.is_numeric():
@@ -330,13 +330,13 @@ class InstrTemplate:
             nm = arg.name.name()
             arg_info = access_info[nm]
             if arg.mem is not None and arg.mem is not DRAM:
-                assert (
-                    arg.mem == arg_info.mem
-                ), f"{clsname}: cannot override mem for {nm} @ {arg.mem.name()}"
+                # fmt: off
+                assert arg.mem == arg_info.mem, f"{clsname}: cannot override mem for {nm} @ {arg.mem.name()}"
+                # fmt: on
 
             # Set usage_tl (L^u) if not explicitly given
             if not isinstance(arg_info.usage_tl, Usage_tl):
-                assert arg_info.usage_tl is None
+                assert arg_info.usage_tl is None, clsname
                 try:
                     arg_info.usage_tl = arg_info.mem.default_usage_tl(instr_tl)
                 except Exception as e:
@@ -350,23 +350,40 @@ class InstrTemplate:
             # We may change this default later for certain Qual_tl(L^i, L^u).
             if not arg_info.ext_instr_tl:
                 arg_info.ext_instr_tl = [instr_tl]
-            assert all(isinstance(tl, Instr_tl) for tl in arg_info.ext_instr_tl)
-            assert instr_tl in arg_info.ext_instr_tl
+            assert all(
+                isinstance(tl, Instr_tl) for tl in arg_info.ext_instr_tl
+            ), clsname
+            assert instr_tl in arg_info.ext_instr_tl, clsname
 
             if not arg_info.ext_usage_tl:
                 arg_info.ext_usage_tl = [usage_tl]
-            assert all(isinstance(tl, Usage_tl) for tl in arg_info.ext_usage_tl)
-            assert usage_tl in arg_info.ext_usage_tl
+            assert all(
+                isinstance(tl, Usage_tl) for tl in arg_info.ext_usage_tl
+            ), clsname
+            assert usage_tl in arg_info.ext_usage_tl, clsname
 
             # Non-in-order instructions must set the OOO flag explicitly
             if instr_tl not in (cpu_in_order_instr, cuda_in_order_instr):
-                assert (
-                    arg_info.out_of_order is not None
-                ), f"{clsname}: need out_of_order flag for {nm} @ {arg.mem.name()}"
+                # fmt: off
+                assert (arg_info.out_of_order is not None), \
+                    f"{clsname}: need out_of_order flag for {nm} @ {arg.mem.name()}"
+                # fmt: on
 
-            assert all(
-                isinstance(unit, CollUnit) for unit in arg_info.distributed_coll_units
-            ), clsname
+            # Distributed memory configuration checks
+            for i, unit in enumerate(arg_info.distributed_coll_units):
+                extent = arg.type.hi[i]
+                extent_is_template_param = (
+                    isinstance(extent, LoopIR.Read) and str(extent.name) in tparam_dict
+                )
+                assert isinstance(unit, CollUnit), clsname
+                assert isinstance(arg.type, LoopIR.Tensor), clsname
+                assert i < len(arg.type.hi), clsname
+                assert isinstance(extent, LoopIR.Const) or extent_is_template_param
+            if arg_info.distributed_coll_units:
+                # fmt: off
+                assert isinstance(arg_info.access_by_owner_only, bool
+                    ), f"{clsname} must set access_by_owner_only for distributed memory args explicitly"
+                # fmt: on
 
         info._tparam_dict = tparam_dict
         info._formatted_tparam_kwargs = self._format_tparam_kwargs(

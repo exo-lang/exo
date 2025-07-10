@@ -485,7 +485,12 @@ class SubtreeScan(LoopIR_Do):
                 assert isinstance(state, DistributedAllocState)
 
                 fsm = DistributedIdxFsm(
-                    s, state, "cuda_threads", self.thread_iters, self._coll_env
+                    s,
+                    state,
+                    "cuda_threads",
+                    self.thread_iters,
+                    self._coll_env,
+                    (),
                 )
                 # There is no native_unit; we parse all indices as distributed
                 assert state.optional_native_unit is None
@@ -713,12 +718,15 @@ class SubtreeScan(LoopIR_Do):
                 access_info: AccessInfo = instr_info.access_info[arg_name_str]
                 coll_units = access_info.distributed_coll_units
             if coll_units:
-                coll_tiling = self.coll_tiling
+                # Generate series of coll tilings "internal" to the instruction,
+                # and associate them with temporary Syms.
+                coll_tiling = self._coll_tiling
                 callee_distributed_syms = []
-                for unit in coll_units:
+                for extent, unit in zip(decl.type.hi, coll_units):
+                    assert isinstance(extent, LoopIR.Const)
                     unit_sym = Sym("IMPLICIT_" + arg_name_str)
                     coll_tiling = coll_tiling.tiled(
-                        unit_sym, unit, hi_int, self._coll_env
+                        unit_sym, unit, extent.val, self._coll_env
                     )
                     self.thread_iters[unit_sym] = ThreadIter(coll_tiling)
                     callee_distributed_syms.append(unit_sym)
@@ -1203,7 +1211,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
         if n > 0:
             if len(typ.hi) == n:
                 # All dimensions removed; reduce to scalar
-                typ = type.basetype()
+                typ = typ.basetype()
             else:
                 assert n < len(typ.hi)
                 typ = typ.update(hi=typ.hi[n:])

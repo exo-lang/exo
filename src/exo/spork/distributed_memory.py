@@ -340,7 +340,7 @@ class DistributedIdxFsm:
     # passed to instrs, where the correct behavior for an interval depends
     # on the behavior inside the function.
     interval_syms: List[Sym]
-    interval_syms_idx: int = 0
+    interval_syms_idx: int
 
     def __init__(
         self,
@@ -349,7 +349,7 @@ class DistributedIdxFsm:
         loop_mode_name: str,
         thread_iters: Dict[Sym, ThreadIter],
         coll_env: Dict[CollParam, int],
-        interval_syms: List[Sym] = (),
+        interval_syms: List[Sym],
     ):
         self.context_stmt = context_stmt
         self.alloc_coll_tiling = state.alloc_coll_tiling
@@ -372,6 +372,7 @@ class DistributedIdxFsm:
         self.t0_iter_t1 = {}
         self.cur_num_threads = state.alloc_coll_tiling.tile_num_threads()
         self.interval_syms = interval_syms
+        self.interval_syms_idx = 0
 
     def consume_idx(self, node, typ: LoopIR.type, i: int):
         """Process node.idx[i] as the next distributed index"""
@@ -395,7 +396,7 @@ class DistributedIdxFsm:
                 or idx_e.hi.val != const_extent
             ):
                 self.bad_idx(node, f"expected 0:{const_extent}, not {idx_e}")
-            iter_sym = self.syms_for_interval[0]
+            iter_sym = self.interval_syms[self.interval_syms_idx]
             self.interval_syms_idx += 1
         else:
             self.bad_idx(node, f"expected single variable name, not {idx_e}")

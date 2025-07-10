@@ -1446,9 +1446,23 @@ class Compiler:
 
         elif isinstance(s, LoopIR.Call):
             fn = s.f
-            assert all(
-                a.type.is_win() == fna.type.is_win() for a, fna in zip(s.args, fn.args)
-            )
+
+            # David: I apologize for this hack, but for CUDA instrs
+            # that use distributed memory (TMA and warp shuffle), the program
+            # will not properly typecheck after distributed dimensions are
+            # removed by cuda_backend. This is because some dimensions of the
+            # arg were removed, but the instr was not updated to match.
+            #
+            # The "proper" way to do it would be to completely rewrite the
+            # instr on-the-fly in cuda_backend and substitute the rewrite;
+            # however, this poses serious maintenance challenges itself.
+            for i, a in enumerate(s.args):
+                fna = fn.args[i]
+                if fna.type.is_win():
+                    assert a.type.is_win() or self._in_cuda_function
+                else:
+                    assert not a.type.is_win()
+
             if fn.instr is not None:
                 try:
                     args_dict = fn.instr._tparam_dict.copy()

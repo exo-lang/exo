@@ -12,7 +12,7 @@ class AccessInfo:
     ext_instr_tl: List[Instr_tl] = tuple()
     ext_usage_tl: List[Usage_tl] = tuple()
     out_of_order: bool = None
-    access_by_owner_only: bool = False
+    access_by_owner_only: Optional[bool] = None
     const: bool = False
 
     # For warp shuffles and TMA: identifies that the first
