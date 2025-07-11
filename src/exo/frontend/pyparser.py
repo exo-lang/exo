@@ -1954,4 +1954,5 @@ class Parser:
         else:
             assert 0
 
+        # TODO PAST.SyncStmt
         return self.AST.SyncStmt(sync_type, barriers, self.getsrcinfo(ast_call))
