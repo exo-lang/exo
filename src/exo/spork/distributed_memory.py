@@ -335,21 +335,23 @@ class DistributedIdxFsm:
     # Progress of deduced tiling
     cur_num_threads: int
 
-    # interval_syms[interval_syms_idx++] gets used for each interval in
-    # consume_idx; this is intended for the use case of analyzing windows
-    # passed to instrs, where the correct behavior for an interval depends
-    # on the behavior inside the function.
-    interval_syms: List[Sym]
-    interval_syms_idx: int
+    # For analyzing intervals passed to instrs.
+    # The CollTiling is initially that of the caller, and we create new
+    # ones progressively, tiled by callee_coll_units[callee_unit_idx++]
+    # for each distributed interval passed to the instr.
+    callee_coll_tiling: CollTiling
+    callee_coll_units: List[CollUnit]
+    callee_unit_idx: int
 
     def __init__(
         self,
         context_stmt: LoopIR.stmt,
         state: DistributedAllocState,
         loop_mode_name: str,
-        thread_iters: Dict[Sym, ThreadIter],
+        thread_iters: Dict[Sym, ThreadIter],  # May be modified
         coll_env: Dict[CollParam, int],
-        interval_syms: List[Sym],
+        callee_coll_tiling: CollTiling,
+        callee_coll_units: List[CollUnit],
     ):
         self.context_stmt = context_stmt
         self.alloc_coll_tiling = state.alloc_coll_tiling
@@ -365,14 +367,15 @@ class DistributedIdxFsm:
         self.leaf_coll_tiling = state.alloc_coll_tiling  # will be updated
         self.leaf_iter = None
         self.loop_mode_name = loop_mode_name
-        self.thread_iters = thread_iters
+        self.thread_iters = thread_iters  # must NOT be a copy
         self.coll_env = coll_env
         self.distributed_iters = []
         self.distributed_extents = []
         self.t0_iter_t1 = {}
         self.cur_num_threads = state.alloc_coll_tiling.tile_num_threads()
-        self.interval_syms = interval_syms
-        self.interval_syms_idx = 0
+        self.callee_coll_tiling = callee_coll_tiling
+        self.callee_coll_units = callee_coll_units
+        self.callee_unit_idx = 0
 
     def consume_idx(self, node, typ: LoopIR.type, i: int):
         """Process node.idx[i] as the next distributed index"""
@@ -387,7 +390,7 @@ class DistributedIdxFsm:
         elif isinstance(idx_e, LoopIR.Point) and isinstance(idx_e.pt, LoopIR.Read):
             iter_sym = idx_e.pt.name
         elif isinstance(idx_e, LoopIR.Interval):
-            if len(self.interval_syms) <= self.interval_syms_idx:
+            if len(self.callee_coll_units) <= self.callee_unit_idx:
                 self.bad_idx(node, f"expected point, not interval {idx_e}")
             if (
                 not isinstance(idx_e.lo, LoopIR.Const)
@@ -396,8 +399,17 @@ class DistributedIdxFsm:
                 or idx_e.hi.val != const_extent
             ):
                 self.bad_idx(node, f"expected 0:{const_extent}, not {idx_e}")
-            iter_sym = self.interval_syms[self.interval_syms_idx]
-            self.interval_syms_idx += 1
+            iter_sym = Sym(f"CALLEE_DISTRIBUTED_IDX_{self.callee_unit_idx}")
+            unit = self.callee_coll_units[self.callee_unit_idx]
+            self.callee_coll_tiling = self.callee_coll_tiling.tiled(
+                iter_sym, unit, const_extent, self.coll_env
+            )
+            self.callee_unit_idx += 1
+            # HACK: writing state of new synthetic Sym to thread_iters.
+            # This may actually be used later, since it goes into
+            # distributed_iters which could be really confusing.
+            # Hence the note on how thread_iters may be modified.
+            self.thread_iters[iter_sym] = ThreadIter(self.callee_coll_tiling)
         else:
             self.bad_idx(node, f"expected single variable name, not {idx_e}")
         iter_info: ThreadIter

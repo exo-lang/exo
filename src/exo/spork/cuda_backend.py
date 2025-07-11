@@ -400,15 +400,15 @@ class SubtreeScan(LoopIR_Do):
         self._coll_tiling = old_coll_tiling
         self._current_warp_name = old_warp_name
 
-    def do_e(self, e, callee_distributed_syms=()):
-        self.apply_e(e, callee_distributed_syms)
+    def do_e(self, e, distributed_coll_units=()):
+        self.apply_e(e, distributed_coll_units)
         super().do_e(e)
 
-    def apply_e(self, e, callee_distributed_syms):
+    def apply_e(self, e, distributed_coll_units):
         if isinstance(e, idx_e_types):
             # BarrierExpr not handled here; part of SyncStmt handling.
             self.mark_sym_used(e.name)
-            self.apply_idx(e, self._stmt_stack[-1], callee_distributed_syms)
+            self.apply_idx(e, self._stmt_stack[-1], distributed_coll_units)
         elif not isinstance(e, (LoopIR.BarrierExpr, LoopIR.StrideExpr)):
             assert not hasattr(e, "name"), "Add handling for array indexing"
 
@@ -478,6 +478,7 @@ class SubtreeScan(LoopIR_Do):
         elif isinstance(s, LoopIR.SyncStmt):
             # Distributed memory analysis and CollTiling for Fence/Arrive/Await
             if s.sync_type.is_split():
+                assert len(s.barriers) >= 1
                 name = s.barriers[0].name
                 self.mark_sym_used(name)
                 usage: BarrierUsage = self.get_barrier_usage(name)
@@ -490,11 +491,11 @@ class SubtreeScan(LoopIR_Do):
                     "cuda_threads",
                     self.thread_iters,
                     self._coll_env,
+                    self._coll_tiling,
                     (),
                 )
                 # There is no native_unit; we parse all indices as distributed
                 assert state.optional_native_unit is None
-                assert len(s.barriers) >= 1
                 e0 = s.barriers[0]
                 for i in range(len(e0.idx)):
                     fsm.consume_SyncStmt_idx(
@@ -667,7 +668,7 @@ class SubtreeScan(LoopIR_Do):
             self._coll_tiling, s.loop_mode.format_loop_cond(lo_int, hi_int)
         )
 
-    def apply_idx(self, node, context_stmt, callee_distributed_syms):
+    def apply_idx(self, node, context_stmt, distributed_coll_units):
         """Consistent distributed memory analysis"""
         assert isinstance(context_stmt, LoopIR.stmt)
         state: DistributedAllocState
@@ -683,7 +684,8 @@ class SubtreeScan(LoopIR_Do):
             "cuda_threads",
             self.thread_iters,
             self._coll_env,
-            callee_distributed_syms,
+            self._coll_tiling,
+            distributed_coll_units,
         )
         for i in range(len(node.idx)):
             if fsm.is_done(node):
@@ -703,6 +705,7 @@ class SubtreeScan(LoopIR_Do):
         # Check collective unit.
         callee = s.f
         instr_info: InstrInfo = callee.instr
+        assert isinstance(instr_info, InstrInfo), "Unimplemented: CUDA function calls"
         needed = callee.proc_coll_unit()
         if msg := self._coll_tiling.unit_mismatch(needed, self._coll_env):
             raise TypeError(
@@ -713,29 +716,52 @@ class SubtreeScan(LoopIR_Do):
         assert len(callee.args) == len(s.args)
         for decl, e in zip(callee.args, s.args):
             arg_name_str = str(decl.name)
-            coll_units = None
+            coll_units = ()
             if e.type.is_tensor_or_window():
                 access_info: AccessInfo = instr_info.access_info[arg_name_str]
                 coll_units = access_info.distributed_coll_units
-            if coll_units:
-                # Generate series of coll tilings "internal" to the instruction,
-                # and associate them with temporary Syms.
-                coll_tiling = self._coll_tiling
-                callee_distributed_syms = []
-                for extent, unit in zip(decl.type.hi, coll_units):
-                    assert isinstance(extent, LoopIR.Const)
-                    unit_sym = Sym("IMPLICIT_" + arg_name_str)
-                    coll_tiling = coll_tiling.tiled(
-                        unit_sym, unit, extent.val, self._coll_env
-                    )
-                    self.thread_iters[unit_sym] = ThreadIter(coll_tiling)
-                    callee_distributed_syms.append(unit_sym)
-            else:
-                callee_distributed_syms = ()
-            self.do_e(e, callee_distributed_syms)
+            self.do_e(e, coll_units)
 
-        # Inspect barrier.
-        # TODO
+        # Inspect trailing barrier expression
+        if bar_e := s.trailing_barrier_expr:
+            name = bar_e.name
+            self.mark_sym_used(name)
+            state = self.distributed_alloc_states.get(name)
+            barrier_loopir_type = self.sym_type(name)
+            assert barrier_loopir_type.is_barrier()
+            assert isinstance(state, DistributedAllocState)
+
+            # Inspect intervals (as opposed to points) in BarrierExpr
+            coll_units = instr_info.barrier_coll_units
+            interval_count = 0
+            for coord in bar_e.idx:
+                if isinstance(coord, LoopIR.Interval):
+                    interval_count += 1
+            if interval_count != len(coll_units):
+                raise ValueError(
+                    f"{s.srcinfo}: {callee.name} #intervals in barrier {bar_e} wrong; "
+                    f"have {interval_count}, need {len(coll_units)}"
+                )
+
+            # Distributed memory deduction
+            fsm = DistributedIdxFsm(
+                s,
+                state,
+                "cuda_threads",
+                self.thread_iters,
+                self._coll_env,
+                self._coll_tiling,
+                coll_units,
+            )
+            # There is no native_unit; we parse all indices as distributed
+            assert state.optional_native_unit is None
+            for i in range(len(bar_e.idx)):
+                fsm.consume_idx(bar_e, barrier_loopir_type, i)
+
+            # We now have the distributed indices in distributed_iters.
+            # Store in DistributedAllocState if this is the first use, or check
+            # consistency (index equality) with prior uses.
+            fsm.check_store_state(s, state)
 
     def mark_sym_used(self, name: Sym):
         self._syms_needed.add(name)
