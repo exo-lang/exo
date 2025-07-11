@@ -121,7 +121,7 @@ def prefill_instr_info(info: InstrInfo, proc: LoopIR.proc):
     info.coll_unit = standalone_thread
     info.instr_tl = cpu_in_order_instr
     info.access_info = proc_default_access_info(proc, write_syms)
-    info.barrier_mem = None
+    info.barrier_type = None
     info.barrier_coll_units = ()
     info._tparam_dict = {}
     info._formatted_tparam_kwargs = ""
@@ -314,7 +314,7 @@ class InstrTemplate:
         assert all(isinstance(s, str) for s in info.cu_utils), clsname
         assert all(isinstance(s, str) for s in info.cu_includes), clsname
         assert isinstance(info.coll_unit, CollUnit), clsname
-        assert info.barrier_mem is None or issubclass(info.barrier_mem, BarrierType), clsname
+        assert info.barrier_type is None or issubclass(info.barrier_type, BarrierType), clsname
         assert all(isinstance(unit, CollUnit) for unit in info.barrier_coll_units), clsname
 
         # instr_tl (L^i) must be Instr_tl typed
@@ -379,10 +379,13 @@ class InstrTemplate:
                 assert isinstance(arg.type, LoopIR.Tensor), clsname
                 assert i < len(arg.type.hi), clsname
                 assert isinstance(extent, LoopIR.Const) or extent_is_template_param
-            if arg_info.distributed_coll_units:
                 # fmt: off
-                assert isinstance(arg_info.access_by_owner_only, bool
-                    ), f"{clsname} must set access_by_owner_only for distributed memory args explicitly"
+                assert (instr_tl != cpu_in_order_instr
+                    ), f"{clsname} can't have CPU distributed memory"
+            if arg_info.distributed_coll_units:
+                assert isinstance(
+                    arg_info.access_by_owner_only, bool
+                ), f"{clsname} must set access_by_owner_only for distributed memory args explicitly"
                 # fmt: on
 
         info._tparam_dict = tparam_dict

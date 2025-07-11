@@ -550,6 +550,7 @@ class copy_tensor_to_smem_impl(InstrInfo):
         self.instr_tl = tma_to_smem_async_instr
         self.coll_unit = cuda_warp
         self.cu_utils.append(copy_tensor_to_smem_util(rank, False))
+        self.barrier_type = CudaMbarrier
         self.smem_box = smem_box
         self.element_bits = element_bits
 

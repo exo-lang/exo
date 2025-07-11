@@ -1,6 +1,7 @@
 from collections import ChainMap
 from ..core.LoopIR import LoopIR
 
+from ..core.instr_info import InstrInfo
 from ..core.memory import MemWin, AllocableMemWin, Memory, SpecialWindow
 
 
@@ -140,6 +141,7 @@ class MemoryAnalysis:
 
         elif styp is LoopIR.WindowStmt:
             rhs_mem = self.get_e_mem(s.rhs)
+            self.check_window_expr(s.rhs, rhs_mem)
             lhs_mem = s.special_window or rhs_mem
             if lhs_mem != rhs_mem:
                 src_mem = lhs_mem.source_memory_type()
@@ -154,7 +156,7 @@ class MemoryAnalysis:
             return s
 
         elif styp is LoopIR.Call:
-            # check memory consistency at call boundaries
+            # check memory & window consistency at call boundaries
             for ca, sa in zip(s.args, s.f.args):
                 if sa.type.is_numeric():
                     smem = sa.mem
@@ -166,6 +168,33 @@ class MemoryAnalysis:
                             f"argument in {smem.name()} but got an "
                             f"argument in {cmem.name()}"
                         )
+                if sa.type.is_win():
+                    self.check_window_expr(ca, cmem)
+
+            # Check trailing barrier expression
+            bar: LoopIR.BarrierExpr = s.trailing_barrier_expr
+            instr_info: InstrInfo = s.f.instr
+            bar_type = None
+            if instr_info is not None:
+                bar_type = instr_info.barrier_type
+            assert bar is None or isinstance(
+                bar, LoopIR.BarrierExpr
+            ), "typecheck should have caught this"
+            if bar_type is None:
+                if bar is not None:
+                    raise TypeError(
+                        f"{s.srcinfo}: {s.f.name} does not take trailing barrier expression >> {bar}"
+                    )
+            else:
+                wrong = None
+                if bar is None:
+                    wrong = "<missing BarrierExpr>"
+                elif not issubclass(actual_type := self.mem_env[bar.name], bar_type):
+                    wrong = f">> {bar} @ {actual_type.name()}"
+                if wrong:
+                    raise TypeError(
+                        f"{s.srcinfo}: {s.f.name} requires trailing barrier expression in {bar_type.name()}, not {wrong}"
+                    )
 
             return s
 
@@ -192,3 +221,14 @@ class MemoryAnalysis:
             assert False, "There should not be frees inserted before mem " "analysis"
         else:
             assert False, f"bad case {styp}"
+
+    def check_window_expr(self, e, mem):
+        # Check intact packed dimensions
+        scalar_info = e.type.basetype().scalar_info()
+        n_packed_dims = len(mem.packed_tensor_shape(scalar_info))
+        idxs = e.idx[-n_packed_dims:] if n_packed_dims else ()
+        for idx in idxs:
+            if not isinstance(idx, LoopIR.Interval):
+                raise ValueError(
+                    f"{e.srcinfo}: expected last {n_packed_dims} idx to be intervals to match {mem.name()}'s packed tensor shape (in {e})"
+                )

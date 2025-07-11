@@ -38,10 +38,10 @@ class InstrInfo:
     instr_tl: Instr_tl
     access_info: Dict[str, AccessInfo]
 
-    # The instr expects a trailing barrier expr iff barrier_mem is not None.
+    # The instr expects a trailing barrier expr iff barrier_type is not None.
     # barrier_coll_units is akin to AccessInfo.distributed_coll_units.
-    # The barrier must be allocated in barrier_mem and have dim len(barrier_coll_units).
-    barrier_mem: Optional[Type[BarrierType]]
+    # The barrier must be allocated in barrier_type and have dim len(barrier_coll_units).
+    barrier_type: Optional[Type[BarrierType]]
     barrier_coll_units: List[CollUnit]
 
     # For internal use

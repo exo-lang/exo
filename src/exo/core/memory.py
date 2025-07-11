@@ -236,10 +236,9 @@ class MemWin(ABC):
         return cpu_usage
 
     @classmethod
-    def packed_tensor_shape(cls, scalar_info) -> List[int]:
+    def packed_tensor_shape(cls, scalar_info: ScalarInfo) -> List[int]:
         return ()
 
-    # TODO remove?
     @classmethod
     def as_const_shape(cls, new_name, shape, srcinfo, *, min_dim=0, max_dim=None):
         if len(shape) < min_dim:
