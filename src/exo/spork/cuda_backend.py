@@ -709,7 +709,7 @@ class SubtreeScan(LoopIR_Do):
         needed = callee.proc_coll_unit()
         if msg := self._coll_tiling.unit_mismatch(needed, self._coll_env):
             raise TypeError(
-                f"{s.srcinfo}: wrong collective unit for {callee.name}(): got {msg}, need {needed}"
+                f"{s.srcinfo}: wrong collective unit for {callee.name}(): {msg}, need {needed}"
             )
 
         # Inspect distributed indices of arguments (safer after above check)

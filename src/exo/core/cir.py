@@ -20,7 +20,7 @@ module CIR {
             | Indexed ( expr ptr, expr idx )  -- ptr[idx]
             | GetAttr ( expr arg, str attr ) -- arg.attr
             | ReadSeparateDataptr ( sym name )
-            | Custom  ( object callback, expr* args )  -- callback(str(args)...) -> str
+            | Verbatim ( str code )
 } """,
     ext_types={
         "bool": bool,
@@ -36,11 +36,21 @@ def exo_get_cir(self):
     return self
 
 
-def cir_div(a, b):
-    if isinstance(a, int) and isinstance(b, int) and a % b == 0:
-        return a // b
-    else:
-        return a / b
+def cast_to_cir(n):
+    if isinstance(n, int):
+        return CIR.Const(n)
+    if isinstance(n, str):
+        return CIR.Verbatim(n)
+    if isinstance(n, Sym):
+        return CIR.Read(n, False)  # is_non_neg?
+    return n.exo_get_cir()
+
+
+def cir_div(num, denom):
+    quot = num // denom
+    if denom * quot == num:
+        return quot
+    return num / denom
 
 
 _operations = {
@@ -53,7 +63,7 @@ _operations = {
 
 
 def simplify_cir(e):
-    if isinstance(e, (CIR.Read, CIR.ReadSeparateDataptr, CIR.Const)):
+    if isinstance(e, (CIR.Read, CIR.ReadSeparateDataptr, CIR.Const, CIR.Verbatim)):
         return e
 
     elif isinstance(e, CIR.BinOp):
@@ -103,9 +113,6 @@ def simplify_cir(e):
         return e.update(ptr=simplify_cir(e.ptr), idx=simplify_cir(e.idx))
     elif isinstance(e, CIR.GetAttr):
         return e.update(arg=simplify_cir(e.arg))
-    elif isinstance(e, CIR.Custom):
-        args = [simplify_cir(value) for value in e.args]
-        return e.update(args=args)
     else:
         assert False, f"bad case: {type(e)}"
 
@@ -194,12 +201,7 @@ class CIR_Wrapper:
         )
 
     def exo_bin_op(self, rhs, op, r=False):
-        if isinstance(rhs, int):
-            rhs = CIR.Const(rhs)
-        elif isinstance(rhs, Sym):
-            rhs = CIR.Read(rhs, False)  # is_non_neg?
-        else:
-            rhs = rhs.exo_get_cir()
+        rhs = cast_to_cir(rhs)
         lhs = self._exo_ir
         if r:
             lhs, rhs = rhs, lhs

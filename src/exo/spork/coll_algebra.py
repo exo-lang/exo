@@ -499,10 +499,15 @@ class CollTiling(object):
         common_domain = unit_completion.domain
         assert unit_completion.domain == self_completion.domain
 
+        # !!! TODO document non-equivalence of tile and box output
+        # in coll_algebra.pdf !!!
+
         # Translate ourself to common domain
         new_exprs = self_completion.new_intra_box_exprs(self.intra_box_exprs)
-        new_tile = self_completion.new_size(self.box)  # May be modified later
-        old_box = tuple(new_tile)  # Constant
+        new_box = self_completion.new_size(self.box)  # May be modified later
+        new_tile = self_completion.new_size(self.tile)  # May be modified later
+        old_box = tuple(new_box)  # Constant
+        old_tile = tuple(new_tile)
 
         # Tiling will be the same as the box dimension of the parent
         # except along the dimension being tiled.
@@ -528,6 +533,7 @@ class CollTiling(object):
                 max_tile_count = box_coord // unit_box_coord
                 tile_remainder = box_coord % unit_box_coord
                 new_tile[dim_idx] = unit_box_coord
+                new_box[dim_idx] = unit_box_coord
 
                 coll_index = new_exprs[dim_idx] // unit_box_coord
                 new_exprs[dim_idx] = new_exprs[dim_idx] % unit_box_coord
@@ -549,7 +555,7 @@ class CollTiling(object):
         new_parent = self
         new_offset = (0,) * len(common_domain)
         new_tile = tuple(new_tile)
-        new_box = new_tile
+        new_box = tuple(new_box)
 
         return CollTiling(
             new_parent,
@@ -666,7 +672,7 @@ class CollTiling(object):
         env: Dict[CollParam, int],
         *,
         no_message=False,
-        ignore_leaf_box=False,  # Consider removing if unused
+        ignore_box=False,
     ):
         """Return False iff the thread boxes match the given collective unit
 
@@ -675,25 +681,23 @@ class CollTiling(object):
         If mismatched, return a str reason, unless
         no_message=True (return True if so).
 
-        ignore_leaf_box causes the offset and box of the leaf tiling
-        (self) to be treated as 0 and tile, respectively.  i.e. we
-        ignore "warp specialization" at the bottom level.
+        ignore_box causes the offset and box (self) to be treated
+        as 0 and tile, respectively.  i.e. we ignore "warp
+        specialization". TODO except for alignment check?
 
         """
         assert isinstance(unit, CollUnit)
         f = format_tuple
 
-        self_n_threads = (
-            self.tile_num_threads() if ignore_leaf_box else self.box_num_threads()
-        )
         unit_box_raw = unit.int_box(env)
         unit_domain = unit.int_domain(env)
+        box_n_threads = self.box_num_threads()
 
-        if not unit.agnostic:
+        if not unit.agnostic and not ignore_box:
             unit_n_threads = unit.int_threads(env)
-            if self_n_threads != unit_n_threads:
+            if box_n_threads != unit_n_threads:
                 return no_message or (
-                    f"Have {self_n_threads} threads {f(self.box)}; "
+                    f"Have {box_n_threads} threads {f(self.box)}; "
                     f"expected {unit_n_threads} ({unit})"
                 )
 
@@ -713,25 +717,31 @@ class CollTiling(object):
                 # Check box size for leaf CollTiling
                 # We have to handle None (agnostic) dimensions in the unit box
                 if self is tiling:
-                    new_tiling_box = tiling_completion.new_size(
-                        tiling.tile if ignore_leaf_box else tiling.box
+                    compare_box = tiling_completion.new_size(
+                        tiling.tile if ignore_box else tiling.box
                     )
-                    for unit_c, tile_c in zip(new_unit_box, new_tiling_box):
+                    for unit_c, tile_c in zip(new_unit_box, compare_box):
                         if unit_c is not None and unit_c != tile_c:
                             return no_message or (
-                                f"Have threads in shape {f(new_tiling_box)}; "
+                                f"Have threads in shape {f(compare_box)}; "
                                 f"expected {f(new_unit_box)} "
                                 f"({unit}); domain={f(unit_completion.domain)}"
                             )
 
-                # Check alignment for all CollTiling to root
-                # (except self/leaf, if ignore_leaf_box)
-                if not (self is tiling and ignore_leaf_box):
-                    new_tiling_offset = tiling_completion.new_offset(tiling.offset, 0)
-                    assert len(new_tiling_offset) == len(new_unit_box)
-                    for off_c, box_c in zip(new_tiling_offset, new_unit_box):
-                        if box_c is not None and off_c % box_c != 0:
-                            return no_message or f"Incorrect alignment for {unit}"
+                # TODO explain logic for alignment check when ignore_box is True
+                new_tiling_offset = tiling_completion.new_offset(tiling.offset, 0)
+                new_tiling_box = tiling_completion.new_size(tiling.box, 0)
+                assert len(new_tiling_offset) == len(new_unit_box)
+                for off_c, tiling_box_c, unit_box_c in zip(
+                    new_tiling_offset, new_tiling_box, new_unit_box
+                ):
+                    if ignore_box and unit_box_c > tiling_box_c:
+                        continue
+                    if unit_box_c is not None and off_c % unit_box_c != 0:
+                        return (
+                            no_message
+                            or f"Incorrect alignment for {unit}, {off_c} % {unit_box_c} != 0 @ {tiling.iter}"
+                        )
 
                 # Traverse to root
                 tiling = tiling.parent

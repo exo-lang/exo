@@ -198,15 +198,15 @@ class InstrTemplate:
             self._postprocess_instr_info(tproc, info, tparam_dict, has_custom_codegen)
 
         # The user-provided class gets converted to a subclass of InstrInfo.
-        # Override __init__, and add __slots__ if user didn't.
+        # Override __init__, and add __slots__.
         # I strongly believe in the typo-checking provided by __slots__.
         # Finally, add a fallback if no codegen callback was provided.
         info_dict = dict(cls.__dict__)
         info_bases = [b for b in cls.__bases__ if b is not object]
         if not issubclass(cls, InstrInfo):
             info_bases.append(InstrInfo)
-        if "__slots__" not in info_dict:
-            info_dict["__slots__"] = list(cls.__annotations__)
+        assert "__slots__" not in info_dict, f"{cls.__name__}: use annotations"
+        info_dict["__slots__"] = list(cls.__annotations__)
         info_dict["__init__"] = info_init
         if not has_custom_codegen:
             info_dict["codegen"] = OldStyleInstrInfo.codegen
@@ -462,7 +462,8 @@ class InstrWindowArg:
             idxs, [None] * len(idxs), self._srcinfo
         )
         indexed = self._features.get_indexer().index(
-            self._indexer_utils, self._features
+            self._indexer_utils,
+            new_features,
         )
         assert isinstance(indexed, WindowIndexerResult)
         return indexed
@@ -524,6 +525,7 @@ class InstrNonWindowArg:
 @dataclass(slots=True)
 class InstrArgs:
     _exo_args_dict: Dict[str, object]
+    _compiler: object
 
     def __getattr__(self, attr):
         if attr.startswith("exo_"):
@@ -535,6 +537,9 @@ class InstrArgs:
 
     def __iter__(self):
         return iter(self._exo_args_dict.items())
+
+    def exo_wrap_cir(self, n):
+        return self._compiler.wrap_cir(n, "(from InstrArgs.exo_wrap_cir)")
 
 
 class OldStyleInstrInfo(InstrInfo):

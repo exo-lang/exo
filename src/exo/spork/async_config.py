@@ -108,7 +108,7 @@ class CudaDeviceFunction(BaseAsyncConfig):
         if self._warp_config_arg:
             args.append(f"warp_config = {self._warp_config_arg}")
 
-        return f"CudaDeviceFunction({''.join(args)})"
+        return f"CudaDeviceFunction({', '.join(args)})"
 
     def _init_from_blockDim(self, blockDim):
         # Warp divisibility. This is not strictly required by CUDA, but the

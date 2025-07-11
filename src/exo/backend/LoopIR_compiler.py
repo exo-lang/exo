@@ -9,7 +9,7 @@ from math import prod
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Set, Type
 
-from ..core.cir import CIR, CIR_Wrapper, simplify_cir
+from ..core.cir import CIR, CIR_Wrapper, simplify_cir, cast_to_cir
 from ..core.c_window import WindowFeatures
 from ..core.instr_class import InstrWindowArg, InstrNonWindowArg, InstrArgs
 from ..core.LoopIR import LoopIR, LoopIR_Do, get_writes_of_stmts, T
@@ -870,8 +870,8 @@ class Compiler:
     def wrap_cir(self, e, origin_story, origin_index=None) -> CIR_Wrapper:
         if isinstance(e, LoopIR.expr):
             e = lift_to_cir(e, self.range_env)
-        elif isinstance(e, int):
-            e = CIR.Const(e)
+        else:
+            e = cast_to_cir(e)
         assert isinstance(e, CIR.expr)
         if origin_index is not None:
             origin_story = f"{origin_story}[{origin_index}]"
@@ -945,10 +945,9 @@ class Compiler:
         elif isinstance(e, CIR.GetAttr):
             arg = self.comp_cir(e.arg, op_prec["."])
             return f"{arg}.{e.attr}"
-        elif isinstance(e, CIR.Custom):
-            str_args = [self.comp_cir(a) for a in e.args]
-            text = e.callback(*str_args)
-            if prec > 0:
+        elif isinstance(e, CIR.Verbatim):
+            text = e.code
+            if prec > 0 and not all(c == "_" or c == "." or c.isalnum() for c in text):
                 text = f"({text})"
             return text
         else:
@@ -1478,7 +1477,8 @@ class Compiler:
                         mbarrier = lowered_barrier.codegen_barrier_arg(e)
                         assert isinstance(mbarrier, str)
                         args_dict["exo_barrier"] = mbarrier
-                    lines = fn.instr.codegen(InstrArgs(args_dict))
+                        args_dict["exo_cta_mask"] = lowered_barrier.codegen_cta_mask(e)
+                    lines = fn.instr.codegen(InstrArgs(args_dict, self))
                     assert lines is not None, "codegen() forgot return?"
                     assert not isinstance(lines, str), "codegen() must give List[str]"
                     for line in lines:

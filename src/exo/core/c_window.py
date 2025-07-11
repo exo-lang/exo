@@ -4,7 +4,7 @@ from enum import Enum, auto
 from math import prod
 from typing import List, Dict, Optional, Tuple, Type
 
-from .cir import CIR, CIR_Wrapper
+from .cir import CIR, CIR_Wrapper, cast_to_cir
 from . import LoopIR
 from .prelude import SrcInfo
 
@@ -240,7 +240,7 @@ class WindowFeatures:
 
     def new_window(
         self,
-        idxs: List[int | CIR_Wrapper],
+        idxs: List[str | int | CIR_Wrapper],
         interval_sizes: List[Optional[CIR_Wrapper]],
         srcinfo: SrcInfo,
     ):

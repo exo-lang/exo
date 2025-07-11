@@ -59,7 +59,7 @@ from ..API import (
     InstrInfo,
 )
 from ..spork.cuda_memory import *
-from ..spork.coll_algebra import cuda_warp, cuda_warpgroup
+from ..spork.coll_algebra import cuda_warp, cuda_warpgroup, cuda_warp_in_cluster
 
 
 # --------------------------------------------------------------------------- #
@@ -464,9 +464,10 @@ def copy_tensor_to_smem_util(rank: int, multicast: bool):
     ptx_fmt = f" [%0], [%1, {vector_fmt}], [%{rank+2}], %{rank+3}"
     if multicast:
         ptx_fmt += f", %{rank+4}"
-    vector_values = ", ".join(
-        f'"r"(window.C_offsets[{rank - 1 - r}])' for r in range(0, rank)
-    )
+    vector_args = [f'"r"(window.C_offsets[{rank - 1 - r}])' for r in range(0, rank)]
+    if multicast:
+        vector_args[-1] = f'"r"(window.C_offsets[{0}] + window0_offset)'
+    vector_values = ", ".join(vector_args)
 
     # fmt: off
     elect_one_prefix = r"""// cute::elect_one_sync
@@ -483,20 +484,19 @@ def copy_tensor_to_smem_util(rank: int, multicast: bool):
       : "+r"(laneid), "+r"(pred)
       : "r"(0xFFFFFFFF));"""
 
-    # TODO ensure mbarriers for multicast TMA don't use broadcast, unlike other mbarriers
-    expect_tx = f'asm("mbarrier.expect_tx.shared::cta.b64 [%0], %1;" :: "r"(exo_tma_mbarrier), "r"(n_bytes));'
+    expect_tx = f'asm("mbarrier.expect_tx.shared::cta.b64 [%0], %1;" :: "r"(exo_tma_mbarrier), "r"(expect_tx));'
 
     if multicast:
         return f"""template <typename WindowOffsets>
 EXO_CUDA_INLINE void
-exo_Sm90_tma_to_smem_{rank}d(void* dst, const CUtensorMap& tensorMap, WindowOffsets window,
-                       uint32_t exo_tma_mbarrier, uint32_t n_bytes, uint16_t cta_mask)
+exo_Sm90_tma_to_smem_{rank}d_multicast(void* dst, const CUtensorMap& tensorMap, WindowOffsets window,
+                       uint32_t exo_tma_mbarrier, uint32_t expect_tx, uint32_t window0_offset, uint16_t cta_mask)
 {{
     {elect_one_prefix}
     if (pred) {{
         {expect_tx}
         asm volatile(
-            "cp.async.bulk.tensor.{rank}d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.multicast.L2::cache_hint"
+            "cp.async.bulk.tensor.{rank}d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.multicast::cluster.L2::cache_hint"
             "{ptx_fmt};"
             :
             : "r"(exo_smemU32(dst)), "l"(&tensorMap),
@@ -509,7 +509,7 @@ exo_Sm90_tma_to_smem_{rank}d(void* dst, const CUtensorMap& tensorMap, WindowOffs
         return f"""template <typename WindowOffsets>
 EXO_CUDA_INLINE void
 exo_Sm90_tma_to_smem_{rank}d(void* dst, const CUtensorMap& tensorMap, WindowOffsets window,
-                        uint32_t exo_tma_mbarrier, uint32_t n_bytes)
+                        uint32_t exo_tma_mbarrier, uint32_t expect_tx)
 {{
     {elect_one_prefix}
     if (pred) {{
@@ -528,8 +528,6 @@ exo_Sm90_tma_to_smem_{rank}d(void* dst, const CUtensorMap& tensorMap, WindowOffs
 
 
 class copy_tensor_to_smem_impl(InstrInfo):
-    __slots__ = ["smem_box", "swizzle", "element_bits"]
-
     def instance_impl(self, smem_box, swizzled, element_bits):
         rank = len(smem_box)
         assert rank > 0
@@ -609,6 +607,82 @@ class Sm90_copy_tensor_to_smem_swizzled_2f32(copy_tensor_to_smem_impl):
 
 __all__.append("Sm90_copy_tensor_to_smem_swizzled_2f32")
 
+
+@instr
+class Sm90_tmp_cta_pair_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
+    smem_box: Tuple[int]
+    swizzle: int
+    element_bits: int
+
+    def behavior(
+        size0: size,
+        size1: size,
+        dst: [f32][2, size0 / 8, 8, size1],
+        src: [f32][size0, size1],
+    ):
+        assert size0 % 8 == 0
+        assert size0 >= 8
+        assert stride(dst, 3) == 1
+        assert stride(dst, 2) == size1
+        assert stride(dst, 1) == size1 * 8
+        # We need to assert that the dst is densely packed.
+        for cta in seq(0, 2):
+            for i0 in seq(0, size0):
+                for i1 in seq(0, size1):
+                    dst[cta, i0 / 8, i0 % 8, i1] = src[i0, i1]
+
+    def instance(self, size0, size1):
+        assert size0 % 16 == 0
+        self.instance_impl((size0 // 2, size1), True, 32)
+
+    def instance_impl(self, smem_box, swizzled, element_bits):
+        element_bits = 32
+        rank = len(smem_box)
+        assert rank > 0
+        if swizzled:
+            swizzle = smem_box[-1] * element_bits // 8
+            if swizzle not in (32, 64, 128):
+                raise ValueError(
+                    f"Invalid smem_box {smem_box}; "
+                    f"last dimension must lead to swizzle of "
+                    f"32, 64, or 128; not {swizzle}"
+                )
+        else:
+            swizzle = 0
+        self.access_info["dst"].mem = Sm90_get_mma_smem(swizzle)
+        self.access_info["dst"].out_of_order = True
+        self.access_info["src"].mem = Sm90_tensorMap(swizzle, *smem_box)
+        self.access_info["src"].out_of_order = True
+        self.instr_tl = tma_to_smem_async_instr
+        self.coll_unit = 2 * cuda_warp_in_cluster
+        self.cu_utils.append(copy_tensor_to_smem_util(rank, True))
+        self.barrier_type = CudaMbarrier
+        self.smem_box = smem_box
+        self.element_bits = element_bits
+        self.access_info["dst"].distributed_coll_units = [cuda_cta_in_cluster]
+        self.access_info["dst"].access_by_owner_only = False
+        self.barrier_coll_units = [cuda_cta_in_cluster]
+
+    def codegen(self, args: InstrArgs):
+        box = self.smem_box
+        lines = [f"exo_CudaUtil::exo_Sm90_tma_to_smem_{len(box)}d_multicast("]
+        cta_idx = args.exo_wrap_cir("blockIdx.x % 2u")
+        smem_data = args.dst.index(cta_idx * (box[0] // 8))
+        CUtensorMap = args.src.get_separate_dataptr()
+        src_struct = args.src.get_window()
+        lines.append(f"  &{smem_data},")
+        lines.append(f"  {CUtensorMap},")
+        lines.append(f"  {src_struct},")
+        lines.append(f"  {args.exo_barrier},")
+        lines.append(f"  {2 * prod(box) * self.element_bits // 8},")
+        lines.append(f"  {cta_idx * box[0]},")
+        lines.append(f"  {args.exo_cta_mask}")
+        lines.append(");")
+        return lines
+
+
+__all__.append("Sm90_tmp_cta_pair_copy_tensor_to_smem_swizzled_2f32")
+Sm90_tmp_cta_pair_copy_tensor_to_smem_swizzled_2f32(size0=128, size1=32)
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #

@@ -552,6 +552,7 @@ class SyncStateBuilder:
                 return [f"exo_syncState.{b}Await{nm_suffix}(exo_smem, exo_excutLog, {slice}{skips_arg});"]
         lowered.codegen_sync_stmt = codegen
         lowered.codegen_barrier_arg = codegen
+        lowered.codegen_cta_mask = lambda e: coll_tilings.codegen_cta_mask(self._blockDim(), thread_iters, e)
         self.lowered[name] = lowered
         # fmt: on
 

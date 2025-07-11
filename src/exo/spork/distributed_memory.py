@@ -528,19 +528,21 @@ class DistributedIdxFsm:
 
     def check_native_unit(self, node):
         """Check that the leaf tiling matches the stored native unit"""
-        assert self.optional_native_unit is not None
+        unit = self.optional_native_unit
+        assert unit is not None
         if msg := self.leaf_coll_tiling.unit_mismatch(
-            self.optional_native_unit, self.coll_env
+            unit, self.coll_env, ignore_box=True
         ):
             _iter = self.leaf_iter
+            node = ' (NOTE: the effects of with CudaAsync are partially ignored; a "do-nothing" for _ in cuda_threads(0, 1, unit={unit}) loop may fix this)'
             if _iter is None:
                 self.bad_idx(
-                    node, f"Wrong collective unit at point of allocation: {msg}"
+                    node, f"Wrong collective unit at point of allocation: {msg}{note}"
                 )
             else:
                 self.bad_idx(
                     node,
-                    f"Tried to allocate under {_iter} loop; wrong collective unit: {msg}",
+                    f"Tried to allocate under {_iter} loop; wrong collective unit: {msg}{note}",
                 )
 
     def check_store_state(self, node, state: DistributedAllocState):
