@@ -15,9 +15,6 @@ class ExtWithContext(BaseWithContext):
 
     We further affect code lowering of the subtree by customizing:
 
-    * reserved_names: set of string C variable names that must not be used
-      to lower the names of Exo variables
-
     * force_names: generated C names for Sym [if not provided, we use defaults]
 
     * force_const: set of Syms that must lower to const values in subtree
@@ -50,14 +47,12 @@ class ExtWithContext(BaseWithContext):
     # The LoopIR compiler shall do this before the main body code is inserted.
     ext_snippets: Dict[str, str]
 
-    reserved_names: Set[str]  # TODO rethink this
     force_names: Dict[Sym, str]
     force_const: Set[Sym]
     scalar_refs: Set[Sym]
     lowered_barriers: Dict[Sym, LoweredBarrier]
 
     def __post_init__(self):
-        assert all(isinstance(s, str) for s in self.reserved_names)
         assert all(isinstance(k, Sym) for k in self.force_names)
         assert all(isinstance(v, str) for v in self.force_names.values())
         assert all(isinstance(s, Sym) for s in self.force_const)

@@ -16,7 +16,7 @@ class SyncType(object):
     N: used to parameterize split barriers
       * Await with N >= 0: wait for all but the last N-many Arrives
       * Await with N < 0: wait for "matched" arrive; skip first ~N arrives
-    TODO behavior for arrive
+      * Arrive expects N=1 always for now
     """
 
     __slots__ = ["first_sync_tl", "second_sync_tl", "N"]

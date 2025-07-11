@@ -1183,8 +1183,12 @@ class LoopIR_Compare:
             return True
         elif isinstance(s1, LoopIR.SyncStmt):
             # TODO test this
-            return s1.sync_type == s2.sync_type and all(
-                self.match_e(i1, i2) for i1, i2 in zip(s1.barriers, s2.barriers)
+            return (
+                s1.sync_type == s2.sync_type
+                and len(s1.barriers) == len(s2.barriers)
+                and all(
+                    self.match_e(i1, i2) for i1, i2 in zip(s1.barriers, s2.barriers)
+                )
             )
         elif isinstance(s1, LoopIR.If):
             return (

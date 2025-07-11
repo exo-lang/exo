@@ -9,6 +9,7 @@ from math import prod
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Set, Type
 
+from .reserved_names import is_exo_reserved_name
 from ..core.cir import CIR, CIR_Wrapper, simplify_cir, cast_to_cir
 from ..core.c_window import WindowFeatures
 from ..core.instr_class import InstrWindowArg, InstrNonWindowArg, InstrArgs
@@ -622,8 +623,8 @@ class Compiler:
         arg_strs = []
         typ_comments = []
 
-        # reserve the first "ctxt" argument
-        self.new_varname(Sym("ctxt"), None)
+        # Add the "ctxt" argument
+        assert is_exo_reserved_name("ctxt")
         arg_strs.append(f"{ctxt_name} *ctxt")
 
         # See self.is_const
@@ -811,8 +812,7 @@ class Compiler:
         """
         strnm = str(symbol)
 
-        # Reserve "exo_" prefix for internal use.
-        if strnm.lower().startswith("exo_"):
+        if is_exo_reserved_name(strnm):
             strnm = "exo_user_" + strnm
 
         if forced_name := self.force_names.get(symbol):
@@ -1266,10 +1266,6 @@ class Compiler:
                 old_force_names = self.force_names
                 old_force_const = self.force_const
                 old_scalar_refs = self._scalar_refs
-                for nm in ctx.reserved_names:
-                    # TODO We can prevent using the reserved name inside, but
-                    # we don't retroactively undo its usage outside.
-                    self.names[nm] = nm
                 self.force_names = dict(old_force_names)
                 for sym, nm in ctx.force_names.items():
                     self.names[nm] = nm
@@ -1311,7 +1307,7 @@ class Compiler:
                 self._scalar_refs = old_scalar_refs
                 self.force_const = old_force_const
                 self.force_names = old_force_names
-                self.pop()  # Rolls back reserved names
+                self.pop()  # Roll back force_names effects on self.env
 
                 # Restore old lines list and indentation
                 self._tab = old_tab

@@ -52,10 +52,6 @@ from .sync_types import SyncType
 from .with_cuda_warps import CudaWarps
 
 
-# We use the reserved exo_ prefix everywhere, but we still have to reserve
-# CUDA builtins we have no control over.
-reserved_names = {"gridDim", "blockDim", "blockIdx", "threadIdx"}
-
 # No BarrierExpr here; handled specially as part of SyncStmt.
 idx_e_types = (LoopIR.Read, LoopIR.WindowExpr)
 idx_s_types = (LoopIR.Assign, LoopIR.Reduce)
@@ -283,15 +279,14 @@ class SubtreeScan(LoopIR_Do):
         self.scalar_ref_syms = set()
         for sym in tuple(self._syms_needed):
             # For Tensors, we need to pass the sizes explicitly to the device
-            # TODO: WindowType ignored here -- could fail for some cases?
             try:
                 typ = self.sym_type(sym)
-                if isinstance(typ, LoopIR.Tensor):
-                    for e in typ.hi:
-                        getter = GetReads()
-                        getter.do_e(e)
-                        for nm, _ in getter.reads:
-                            self._syms_needed.add(nm)
+                if typ.is_tensor_or_window():
+                    getter = GetReads()
+                    getter.do_t(typ)
+                    for nm, _ in getter.reads:
+                        self._syms_needed.add(nm)
+
             except KeyError:
                 continue
         for sym in self._syms_needed:
@@ -489,7 +484,7 @@ class SubtreeScan(LoopIR_Do):
                     s,
                     state,
                     "cuda_threads",
-                    self.thread_iters,
+                    self.thread_iters,  # May be modified
                     self._coll_env,
                     self._coll_tiling,
                     (),
@@ -682,7 +677,7 @@ class SubtreeScan(LoopIR_Do):
             context_stmt,
             state,
             "cuda_threads",
-            self.thread_iters,
+            self.thread_iters,  # May be modified
             self._coll_env,
             self._coll_tiling,
             distributed_coll_units,
@@ -748,7 +743,7 @@ class SubtreeScan(LoopIR_Do):
                 s,
                 state,
                 "cuda_threads",
-                self.thread_iters,
+                self.thread_iters,  # May be modified
                 self._coll_env,
                 self._coll_tiling,
                 coll_units,
@@ -1031,7 +1026,6 @@ class SubtreeRewrite(LoopIR_Rewrite):
                 "}",
                 "cuh",
                 {},
-                reserved_names,
                 task_force_names,
                 scan.grid_constant_syms,  # force_const
                 scan.scalar_ref_syms,
@@ -1072,7 +1066,6 @@ class SubtreeRewrite(LoopIR_Rewrite):
                 "cu": format(cu_snippet_fmt),
                 "cuh": format(cuh_snippet_fmt, deviceTask_decls=deviceTask_decls),
             },
-            reserved_names,
             main_loop_force_names,
             scan.grid_constant_syms,  # force_const
             scan.scalar_ref_syms,
