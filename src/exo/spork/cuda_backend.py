@@ -622,6 +622,7 @@ class SubtreeScan(LoopIR_Do):
         ctx = s.cond.val
         assert isinstance(ctx, CudaAsync)
         instr_tl = ctx.get_instr_tl()
+        assert instr_tl in timelines.cuda_async_instr_tl
         assert s.body
 
         def inspect(is_epilogue, L1, L2):
@@ -631,7 +632,7 @@ class SubtreeScan(LoopIR_Do):
         if instr_tl == timelines.wgmma_async_instr:
             inspect(False, timelines.wgmma_fence_1, timelines.wgmma_fence_2)
             inspect(True, timelines.wgmma_async, None)
-        # Sm80_cp_async, tma_to_gmem_async have no prologue/epilogue
+        # Sm80_cp_async, tma_to_smem_async, tma_to_gmem_async have no prologue/epilogue
 
     def apply_cuda_threads_loop(self, s):
         def get_const(e, name):
@@ -1081,19 +1082,17 @@ class SubtreeRewrite(LoopIR_Rewrite):
         assert is_if_holding_with(self._result, LoopIR)
         return self._result
 
-    def updated_stmt(self, s, prologue_of=None, epilogue_of=None):
+    def updated_stmt(self, s):
         if is_if_holding_with(s, LoopIR):
             ctx = s.cond.val
-            if isinstance(ctx, CudaAsync):
-                s = self.update_with_cuda_async(s)
-            elif isinstance(ctx, CudaWarps):
+            if isinstance(ctx, CudaWarps):
                 # Replace with CudaWarps block with _CodegenPar "loop"
                 # that the scanner has prepared. NB (0, 1) isn't the same
                 # as the indices encoded in _CodegenPar.
                 loop_mode = self.cuda_warps_dfs_codegen[self.cuda_warps_idx]
                 self.cuda_warps_idx += 1
                 s = wrap_codegen_par(loop_mode, s.body, s.srcinfo)
-            else:
+            elif not isinstance(ctx, CudaAsync):
                 raise TypeError(
                     f"{s.srcinfo}: unexpected with context type {type(ctx)} in CUDA device code"
                 )
@@ -1123,22 +1122,18 @@ class SubtreeRewrite(LoopIR_Rewrite):
             s = self.remove_distributed_idx(s)
 
         elif isinstance(s, LoopIR.SyncStmt):
-            s = self.update_check_sync_stmt(s, prologue_of, epilogue_of)
+            s = self.update_check_sync_stmt(s)
 
         return s
 
-    def map_s(self, s, prologue_of=None, epilogue_of=None):
-        s_rewrite = self.updated_stmt(s, prologue_of, epilogue_of)
+    def map_s(self, s):
+        s_rewrite = self.updated_stmt(s)
 
         # Use superclass to recurse and rewrite subtree
         # We have to have logic to handle None being used to indicate
         # "no change"; if the superclass makes no changes, we still have
         # to preserve any rewrites of our own.
-        if is_if_holding_with(s, LoopIR) and isinstance(s.cond.val, CudaAsync):
-            # Special handling for CudaAsync blocks; see update_with_cuda_async
-            # We must bypass the normal superclass behavior in this case.
-            out_stmts = [s_rewrite]
-        elif s_rewrite is s or s_rewrite is None:
+        if s_rewrite is s or s_rewrite is None:
             out_stmts = super().map_s(s)
         else:
             super_rewritten = super().map_s(s_rewrite)
@@ -1297,8 +1292,6 @@ class SubtreeRewrite(LoopIR_Rewrite):
     def update_check_sync_stmt(
         self,
         s: LoopIR.SyncStmt,
-        prologue_of: Optional[Instr_tl],
-        epilogue_of: Optional[Instr_tl],
     ):
         lowered = self.sync_state_builder.lowered[s.barriers[0].name]
         if lowered.solitary and not s.sync_type.is_split():
@@ -1315,30 +1308,6 @@ class SubtreeRewrite(LoopIR_Rewrite):
                 f"barrier type {lowered.type_enum} due to another "
                 f'such live barrier "{sus}" in scope'
             )
-
-    def update_with_cuda_async(self, s):
-        # We have to customize mapping the body of a CudaAsync block, so as to
-        # allow special handling for prologue/epilogue sync.
-        #
-        # TODO all of this should be removed
-        ctx = s.cond.val
-        assert isinstance(ctx, CudaAsync)
-        instr_tl = ctx.get_instr_tl()
-        assert instr_tl in timelines.cuda_async_instr_tl
-        assert s.body
-
-        new_body = []
-        for i, child in enumerate(s.body):
-            prologue_of = instr_tl if i == 0 else None
-            epilogue_of = instr_tl if i + 1 == len(s.body) else None
-            new_children = self.map_s(child, prologue_of, epilogue_of)
-            if new_children is None:
-                new_body.append(child)  # Append unchanged stmt
-            else:
-                new_body.extend(new_children)
-
-        s = s.update(body=new_body)
-        return s
 
 
 # End class SubtreeRewrite
