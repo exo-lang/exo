@@ -205,10 +205,11 @@ class ExcutAction:
         trace: ExcutAction,
         deductions: Dict[ExcutVariableID, ExcutDeduction],
         varnames_set: Set[str],
+        defer_deduction: bool,
     ):
         """Match self (from the reference actions) with trace's ExcutAction
 
-        Store a deduced variable value, if appropriate."""
+        Store a deduced variable value, if appropriate, unless defer_deduction"""
 
         def fail(reason):
             raise ExcutConcordanceError(
@@ -248,14 +249,15 @@ class ExcutAction:
                     if old_deduction is None:
                         if var_id.varname not in varnames_set:
                             fail(f"{var_id.varname!r} not in varnames_set")
-                        deductions[var_id] = ExcutDeduction(
-                            deduced,
-                            var_id,
-                            trace.src_file,
-                            trace.src_line,
-                            trace.json_file,
-                            trace.json_line,
-                        )
+                        if not defer_deduction:
+                            deductions[var_id] = ExcutDeduction(
+                                deduced,
+                                var_id,
+                                trace.src_file,
+                                trace.src_line,
+                                trace.json_file,
+                                trace.json_line,
+                            )
                     elif old_deduction.value != deduced:
                         fail(
                             f"""args[{i}] mismatch: {ref_arg.encode()} != {hex(trace_arg)}
@@ -430,7 +432,7 @@ def require_concordance(
     )
 
     deductions: Dict[ExcutVariableID, ExcutDeduction] = {}
-    matched_trace_actions = bytearray(len(trace_actions))
+    trace_i_to_ref_i = [None] * len(trace_actions)
 
     def get_trace_action(trace_i, ref_a):
         if trace_i >= len(trace_actions):
@@ -441,31 +443,52 @@ def require_concordance(
 
     # NOTE: we check for mismatched lengths as late as possible as a
     # "mismatched length" error is terrible for diagnosing a test case failure.
-    for ref_i, ref_a in enumerate(ref_actions):
-        slice_len = ref_a.permutation_slice_len
-        assert slice_len > 0
-        fail_messages = []
-        success = False
-        for trace_i in range(ref_i - offset, ref_i - offset + slice_len):
-            trace_a = get_trace_action(trace_i, ref_a)
-            if matched_trace_actions[trace_i]:
-                fail_messages.append(
-                    f"Already matched {trace_actions[trace_i].srcinfo()}"
-                )
-            else:
-                try:
-                    ref_a.match_trace(trace_a, deductions, varnames_set)
-                    success = True
-                    matched_trace_actions[trace_i] = 1
-                except ExcutCondordanceError as e:
-                    fail_messages.append(str(e))
-            ref_a.match_trace(trace_a, deductions, varnames_set)
-        if not success:
-            raise ExcutConcordanceError("\n".join(fail_messages))
+    #
+    # As explained in "Deduction + Permutation Note", we try to avoid
+    # deducing variable values from permuted reference actions.
+    # Checking is done in two phases:
+    #
+    # Phase 0: match non-permuted reference actions, partially match permuted actions
+    # (don't deduce variable values, and assume all variables match for now).
+    #
+    # Phase 1: match permuted reference actions
+    # (checks "assume all variables match" is accurate).
+    #
+    # The "partial match" step in phase 0 is not strictly needed,
+    # but this provides better feedback on test failures.
+    for phase in range(2):
+        for ref_i, ref_a in enumerate(ref_actions):
+            slice_len = ref_a.permutation_slice_len
+            assert slice_len > 0
+            fail_messages = []
+            success = False
+            if phase == 1 and slice_len == 1:
+                continue
+            for trace_i in range(ref_i - offset, ref_i - offset + slice_len):
+                trace_a = get_trace_action(trace_i, ref_a)
+                matched_ref_i = trace_i_to_ref_i[trace_i]
+                defer_deduction = slice_len > 1 and phase == 0
+                if matched_ref_i is not None:
+                    fail_messages.append(
+                        f"Already matched {trace_actions[trace_i].srcinfo()}"
+                    )
+                else:
+                    try:
+                        ref_a.match_trace(
+                            trace_a, deductions, varnames_set, defer_deduction
+                        )
+                        success = True
+                        if not defer_deduction:
+                            trace_i_to_ref_i[trace_i] = ref_i
+                    except ExcutCondordanceError as e:
+                        fail_messages.append(str(e))
+            if not success:
+                raise ExcutConcordanceError("\n".join(fail_messages))
 
-    if len(ref_actions) > len(trace_actions):
+    if len(trace_actions) > len(ref_actions):
+        trace_a = trace_actions[len(ref_actions)]
         raise ExcutConcordanceError(
-            f"No trace action left to match {ref_actions[len(trace_actions)].srcinfo()}"
+            f"No reference action left to match {trace_a.srcinfo()}"
         )
 
     # varname -> (value -> deduction)
