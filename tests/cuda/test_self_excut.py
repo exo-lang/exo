@@ -87,15 +87,15 @@ def test_excut_bootstrap(compiler):
     malloc = trace_actions[0]
     free = trace_actions[-1]
 
-    # cudaMallocAsync(size, out ptr), cudaFreeAsync(ptr)
+    # cudaMallocAsync(size, stream, out ptr), cudaFreeAsync(ptr, stream)
     assert malloc.action_name == "cudaMallocAsync"
-    assert len(malloc.args) == 2
-    gmem_size, gmem_base = malloc.args
+    assert len(malloc.args) == 3
+    gmem_size, stream, gmem_base = malloc.args
     assert gmem_size == 1024 * 4
     assert isinstance(gmem_base, int)
     assert malloc.device_name == "cpu"
     assert free.action_name == "cudaFreeAsync"
-    assert len(free.args) == 1
+    assert len(free.args) == 2
     assert free.args[0] == gmem_base
 
     # Actions are sorted by CUDA kernel launch, then blockIdx, then threadIdx.
