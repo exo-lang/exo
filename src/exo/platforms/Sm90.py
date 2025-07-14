@@ -465,8 +465,6 @@ def copy_tensor_to_smem_util(rank: int, multicast: bool):
     if multicast:
         ptx_fmt += f", %{rank+4}"
     vector_args = [f'"r"(window.C_offsets[{rank - 1 - r}])' for r in range(0, rank)]
-    if multicast:
-        vector_args[-1] = f'"r"(window.C_offsets[{0}] + window0_offset)'
     vector_values = ", ".join(vector_args)
 
     # fmt: off
@@ -490,7 +488,7 @@ def copy_tensor_to_smem_util(rank: int, multicast: bool):
         return f"""template <typename WindowOffsets>
 EXO_CUDA_INLINE void
 exo_Sm90_tma_to_smem_{rank}d_multicast(void* dst, const CUtensorMap& tensorMap, WindowOffsets window,
-                       uint32_t exo_tma_mbarrier, uint32_t expect_tx, uint32_t window0_offset, uint16_t cta_mask)
+                       uint32_t exo_tma_mbarrier, uint32_t expect_tx, uint16_t cta_mask)
 {{
     {elect_one_prefix}
     if (pred) {{
@@ -669,13 +667,12 @@ class Sm90_tmp_cta_pair_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
         cta_idx = args.exo_wrap_cir("blockIdx.x % 2u")
         smem_data = args.dst.index(cta_idx * (box[0] // 8))
         CUtensorMap = args.src.get_separate_dataptr()
-        src_struct = args.src.get_window()
+        src_struct = args.src[cta_idx * box[0] : (cta_idx + 1) * box[0]]
         lines.append(f"  &{smem_data},")
         lines.append(f"  {CUtensorMap},")
         lines.append(f"  {src_struct},")
         lines.append(f"  {args.exo_barrier},")
         lines.append(f"  {2 * prod(box) * self.element_bits // 8},")
-        lines.append(f"  {cta_idx * box[0]},")
         lines.append(f"  {args.exo_cta_mask}")
         lines.append(");")
         return lines

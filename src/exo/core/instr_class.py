@@ -401,47 +401,43 @@ class InstrWindowArg:
     _features: WindowFeatures
     _srcinfo: SrcInfo
 
-    # The _special args are hacky: for @instr, we don't ever convert
-    # Memory to a SpecialWindow, but we re-use this object in the
-    # compiler to implement such conversions, to avoid code divergence.
-
     def __str__(self):
         return self.get_window()
 
-    def get_window(self, _special=False) -> str:
-        features = self._features
-        encoder = features.get_encoder()
+    def get_window(self):
+        return self._get_window_impl()
 
-        # Check intact packed dimensions
-        mem = features.get_mem()
-        packed_tensor_shape = features.packed_tensor_shape()
-        assert features.n_packed_dims() == len(packed_tensor_shape)
-        for i, c in enumerate(packed_tensor_shape):
-            features.get_packed_offset(i).exo_expect_int(0)
-            sz = features.get_packed_interval_size(i)
-            if sz is None:
-                raise ValueError(
-                    f"{features.get_raw_name()} must not have point expressions for packed dimensions (last {features.n_packed_dims()})"
-                )
-            sz.exo_expect_int(c)
+    def __getitem__(self, pos):
+        """Array indexing used to encode window struct to sub-window.
 
-        # Conditionally forbid dimensionality change
-        can_change_dim = (
-            encoder.supports_special_dim_change()
-            if _special
-            else encoder.supports_dim_change()
+        Currently only support slices with explicit lo and hi, e.g. win[lo:hi].
+        lo and hi must be of int or CIR_Wrapper type.
+
+        See index(), index_ptr() to use the memory's WindowIndexer
+        instead of WindowEncoder.
+
+        """
+        if not isinstance(pos, tuple):
+            pos = (pos,)
+        offsets = []
+        interval_sizes = []
+        for coord in pos:
+            if isinstance(coord, slice):
+                assert coord.start is not None, "Exo @instr supports only lo:hi slices"
+                assert coord.stop is not None, "Exo @instr supports only lo:hi slices"
+                assert coord.step is None, "Exo @instr supports only lo:hi slices"
+                assert not isinstance(coord.start, str)
+                assert not isinstance(coord.stop, str)
+                offsets.append(coord.start)
+                interval_sizes.append(coord.stop - coord.start)
+            else:
+                assert 0, "Expected slice"
+                # assert not isinstance(coord, str)
+                # offsets.append(coord)
+                # interval_sizes.append(None)
+        return self._get_window_impl(
+            _special=False, _offsets=offsets, _interval_sizes=interval_sizes
         )
-        if not can_change_dim:
-            if any(
-                features.get_array_interval_size(i) is None
-                for i in range(features.n_array_dims())
-            ):
-                raise ValueError(
-                    f"{features.get_raw_name()} must not have point expressions for array dimensions"
-                )
-
-        do_encode = encoder.encode_special_window if _special else encoder.encode_window
-        return str(do_encode(self._encoder_utils, features))
 
     def get_separate_dataptr(self, _special=False) -> str:
         features = self._features
@@ -488,6 +484,48 @@ class InstrWindowArg:
     def srcinfo(self):
         return self._srcinfo
 
+    # The _special args are hacky: for @instr, we don't ever convert
+    # Memory to a SpecialWindow, but we re-use this object in the
+    # compiler to implement such conversions, to avoid code divergence.
+
+    def _get_window_impl(self, _special=False, _offsets=(), _interval_sizes=()) -> str:
+        features = self._features.new_window(_offsets, _interval_sizes, self._srcinfo)
+        encoder = features.get_encoder()
+
+        # Check intact packed dimensions
+        mem = features.get_mem()
+        packed_tensor_shape = features.packed_tensor_shape()
+        assert features.n_packed_dims() == len(packed_tensor_shape)
+        for i, c in enumerate(packed_tensor_shape):
+            features.get_packed_offset(i).exo_expect_int(0)
+            sz = features.get_packed_interval_size(i)
+            if sz is None:
+                raise ValueError(
+                    f"{features.get_raw_name()} must not have point expressions for packed dimensions (last {features.n_packed_dims()})"
+                )
+            sz.exo_expect_int(c)
+
+        # Conditionally forbid dimensionality change
+        can_change_dim = (
+            encoder.supports_special_dim_change()
+            if _special
+            else encoder.supports_dim_change()
+        )
+        if not can_change_dim:
+            if any(
+                features.get_array_interval_size(i) is None
+                for i in range(features.n_array_dims())
+            ):
+                raise ValueError(
+                    f"{features.get_raw_name()} must not have point expressions for array dimensions"
+                )
+
+        do_encode = encoder.encode_special_window if _special else encoder.encode_window
+        return str(do_encode(self._encoder_utils, features))
+
+    def _compiler_encode_special_window(self):
+        return self._get_window_impl(_special=True)
+
 
 @dataclass(slots=True)
 class InstrNonWindowArg:
@@ -498,6 +536,7 @@ class InstrNonWindowArg:
     _srcinfo: SrcInfo
 
     def __str__(self):
+
         """Backwards-compatibility hack"""
         return self.index_ptr() if self._defaults_to_ptr else self.index()
 

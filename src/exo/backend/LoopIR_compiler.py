@@ -1237,6 +1237,7 @@ class Compiler:
                 # Initialize separate dataptr
                 if out_encoder.separate_dataptr():
                     d_def = helper.get_separate_dataptr(special)
+                    w_def = helper._compiler_encode_special_window()
                     cref = ""
                     if self._in_cuda_function:
                         # HACK needed for CUtensorMap; if we copy the CUtensorMap
@@ -1246,8 +1247,10 @@ class Compiler:
                     self.add_line(
                         f"{out_encoder.dataptr_ctype()}{cref} {dataptr_name(name)} = {d_def};"
                     )
+                else:
+                    w_def = helper.get_window()
+
                 # Initialize window struct.
-                w_def = helper.get_window(special)
                 self.add_line(
                     f"struct {out_encoder.exo_struct_name()} {name} = {w_def};"
                 )
