@@ -99,10 +99,12 @@ struct exo_ExcutThreadLog
 
     EXO_EXCUT_CUDA_INLINE uint32_t* _alloc_log(uint32_t word_count) const
     {
-        uint32_t idx = log_words_written() + 1;
-        log_words_written() += word_count;
-        if (idx + word_count <= words_per_thread) {
-            return &thread_data[idx];
+        if (words_per_thread > 0) {
+            uint32_t idx = log_words_written() + 1;
+            log_words_written() += word_count;
+            if (idx + word_count <= words_per_thread) {
+                return &thread_data[idx];
+            }
         }
         return nullptr;  // Not enough capacity
     }

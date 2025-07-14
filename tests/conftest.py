@@ -7,6 +7,7 @@ import re
 import shlex
 import subprocess
 import textwrap
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path, PurePath
 from typing import Optional, Any, Dict, Union, List, Set
@@ -17,6 +18,7 @@ from _pytest.config import argparsing, Config
 from _pytest.nodes import Node
 
 from exo import Procedure, compile_procs, ext_compile_procs
+from exo.spork import excut
 
 
 # ---------------------------------------------------------------------------- #
@@ -296,6 +298,9 @@ class Compiler:
             ctypes.CDLL(artifact_path), procs[0].name(), self.workdir, self.basename
         )
 
+    def excut_test_context(self, *args, **kwargs) -> "ExcutTestContext":
+        return ExcutTestContext(self, *args, **kwargs)
+
     @staticmethod
     def _run_command(build_command, skip_on_fail):
         skip = False
@@ -394,3 +399,42 @@ def get_cpu_features() -> Set[str]:
             return ""
 
     return set(get_cpuinfo_string().lower().split())
+
+
+@dataclass(slots=True)
+class ExcutTestContext:
+    compiler: Compiler
+    fn: LibWrapper
+    trace_actions: List[excut.ExcutAction]
+    ref_actions: List[excut.ExcutAction]
+
+    _saved_buffer_size = 1 << 28
+
+    def __init__(self, compiler, *args, **kwargs):
+        self.compiler = compiler
+        self.fn = compiler.nvcc_compile(excut=True, *args, **kwargs)
+
+    def __call__(self, *args):
+        self.test(self.fn.default_proc, *args)
+
+    def test(self, proc_name, *args):
+        assert args[0] == None, "Expect ctxt=None for CUDA"
+        c_proc = getattr(self.fn, proc_name)
+        for i in range(3):
+            trace_filename = self.compiler.workdir / "excut_trace.json"
+            self.fn.exo_excut_begin_log_file(trace_filename, self._saved_buffer_size)
+            c_proc(*args)
+            self.fn.exo_excut_end_log_file()
+            try:
+                self.trace_actions = excut.parse_json_file(trace_filename)
+                break
+            except excut.ExcutOutOfCudaMemory as e:
+                mib = e.bytes_needed / 1048576
+                self.set_buffer_size(e.bytes_needed)
+                warnings.warn(f"excut: out of CUDA memory; now requesting {mib} MiB")
+        else:
+            assert False, "Excut internal error, trace failed after 3 tries"
+
+    @classmethod
+    def set_buffer_size(cls, bytes):
+        cls._saved_buffer_size = bytes

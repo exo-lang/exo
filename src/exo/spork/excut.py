@@ -1,13 +1,15 @@
-"""
-excut: Exo eXecuted cuda test
+"""excut: Exo eXecuted cuda test
 
-Utility for logging actions on the CPU or CUDA device
+Utility for logging actions on the CPU or CUDA device.
+We provide InlinePtxGen for use by @instr implementations, to generate
+inline PTX that's also logged to excut.
 
 The executed cuda code generates a trace JSON file,
 and the pytest case generates a reference JSON file.
 The two files get checked for concordance.
 
-Syntax: List of actions, with actions being the 7-tuple:
+Syntax: List of actions or sub-lists of actions,
+with actions being the 7-tuple:
 
     [action name: str, args: List[str],
     device name: str, blockIdx.x: int, threadIdx.x: int,
@@ -21,7 +23,7 @@ and where each arg is a string holding:
     variable: "var:{varname}[{idxs}] + {offset}"
     sink: "_"
 
-Variables and sinks must appear only in reference files.
+Variables, sinks, and sub-lists must appear only in reference files.
 
 * varname is an alphanumeric string (plus underscores)
   and must be in varnames_set (to avoid accidentally passing
@@ -52,6 +54,9 @@ and arg matching is defined as:
 * integers match with identical integers, sink, or variables,
   with the latter case deducing a value for the variable.
 
+* a sub-list of N reference actions matches with N traced actions
+  in any permutation (see deduction + permutation note")
+
 Deduction Rules:
 
 * Each (varname, idxs) pair identifies a variable
@@ -73,6 +78,14 @@ excut_begin_log_file's cuda_log_bytes value determines the size of the allocated
 buffer used to transfer data from CUDA to the CPU. If this is too small, the
 tracer will log an action named "excut::out_of_cuda_memory" with a single
 int arg being the recommended cuda_log_bytes value.
+
+Deduction + Permutation Note:
+
+Deduction is potentially ambiguous when we use the sub-list
+permutation matching feature.  This can cause the concordance to fail
+in cases when a solution could have been found. To minimize the risk of
+this, we try to deduce values based on non-permuted actions first,
+then check permuted actions.
 
 """
 
@@ -145,6 +158,12 @@ class ExcutDeduction:
 
 @dataclass(slots=True)
 class ExcutAction:
+    # The nth reference action can match with any not-already-matched
+    # trace action in trace_actions[base : base + permutation_slice_len].
+    # where base = n - permutation_slice_offset
+    permutation_slice_offset: int
+    permutation_slice_len: int
+
     action_name: str
     args: List[Union[str, int, ExcutSink, ExcutVariableArg]]
     device_name: str
@@ -307,6 +326,7 @@ def decode_arg(encoded):
 
 
 def parse_json_file(filename: str) -> List[ExcutAction]:
+    filename = str(filename)
     f = open(filename)
     try:
         j = json.load(f)
@@ -319,7 +339,8 @@ def parse_json_file(filename: str) -> List[ExcutAction]:
     actions = []
     max_oom_bytes = 0
 
-    for i, encoded_action in enumerate(j):
+    def add_action(encoded_action, permutation_slice_offset, permutation_slice_len):
+        i = len(actions)
         if not isinstance(encoded_action, list):
             raise ValueError(f"{filename!r}: action #{i} needs to be a list")
 
@@ -359,10 +380,13 @@ def parse_json_file(filename: str) -> List[ExcutAction]:
                 raise ValueError(f"{filename!r}: action #{i}, invalid arg {a!r}") from e
 
         if action_name == "excut::out_of_cuda_memory":
+            nonlocal max_oom_bytes
             max_oom_bytes = max(max_oom_bytes, args[0])
 
         actions.append(
             ExcutAction(
+                permutation_slice_offset,
+                permutation_slice_len,
                 action_name,
                 args,
                 device_name,
@@ -374,6 +398,16 @@ def parse_json_file(filename: str) -> List[ExcutAction]:
                 i + 2,  # Guess the line number
             )
         )
+
+    for item in j:
+        i = len(actions)
+        if not isinstance(item, list):
+            raise ValueError(f"{filename!r}: action #{i} needs to be a list")
+        if len(item) == 0 or isinstance(item[0], list):
+            for offset, action in enumerate(item):
+                add_action(action, offset, len(item))
+        else:
+            add_action(item, 0, 1)
 
     if max_oom_bytes:
         raise ExcutOutOfCudaMemory(filename, max_oom_bytes)
@@ -396,19 +430,42 @@ def require_concordance(
     )
 
     deductions: Dict[ExcutVariableID, ExcutDeduction] = {}
+    matched_trace_actions = bytearray(len(trace_actions))
 
-    # NOTE: we check len(ref_actions) == len(trace_actions) later, since a
-    # "mismatched length" error is terrible for diagnosing a test case failure
-    for ref_a, trace_a in zip(ref_actions, trace_actions):
-        ref_a.match_trace(trace_a, deductions, varnames_set)
+    def get_trace_action(trace_i, ref_a):
+        if trace_i >= len(trace_actions):
+            raise ExcutConcordanceError(
+                f"No trace action left to match {ref_a.srcinfo()}"
+            )
+        return trace_actions[trace_i]
+
+    # NOTE: we check for mismatched lengths as late as possible as a
+    # "mismatched length" error is terrible for diagnosing a test case failure.
+    for ref_i, ref_a in enumerate(ref_actions):
+        slice_len = ref_a.permutation_slice_len
+        assert slice_len > 0
+        fail_messages = []
+        success = False
+        for trace_i in range(ref_i - offset, ref_i - offset + slice_len):
+            trace_a = get_trace_action(trace_i, ref_a)
+            if matched_trace_actions[trace_i]:
+                fail_messages.append(
+                    f"Already matched {trace_actions[trace_i].srcinfo()}"
+                )
+            else:
+                try:
+                    ref_a.match_trace(trace_a, deductions, varnames_set)
+                    success = True
+                    matched_trace_actions[trace_i] = 1
+                except ExcutCondordanceError as e:
+                    fail_messages.append(str(e))
+            ref_a.match_trace(trace_a, deductions, varnames_set)
+        if not success:
+            raise ExcutConcordanceError("\n".join(fail_messages))
 
     if len(ref_actions) > len(trace_actions):
-        raise ValueError(
+        raise ExcutConcordanceError(
             f"No trace action left to match {ref_actions[len(trace_actions)].srcinfo()}"
-        )
-    if len(ref_actions) < len(trace_actions):
-        raise ValueError(
-            f"No reference action left to match {trace_actions[len(ref_actions)].srcinfo()}"
         )
 
     # varname -> (value -> deduction)
@@ -430,7 +487,7 @@ def require_concordance(
         elif old_deduction.id.idxs != new_deduction.id.idxs:
             old_id = old_deduction.id
             new_id = new_deduction.id
-            raise ValueError(
+            raise ExcutConcordanceError(
                 f"""Duplicate deduced value {hex(value)} for
 {old_id.encode()} @ {old_deduction.srcinfo()}
 {new_id.encode()} @ {new_deduction.srcinfo()}"""

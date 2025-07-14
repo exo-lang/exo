@@ -211,10 +211,10 @@ class CudaDeviceFunction(BaseAsyncConfig):
 class CudaAsync(BaseAsyncConfig):
     __slots__ = ["_instr_tl"]
 
-    def __init__(self, instr_tl):
+    def __init__(self, instr_tl: Instr_tl):
         if isinstance(instr_tl, Sync_tl):
             instr_tl = instr_tl.as_instr_tl()
-        assert instr_tl in cuda_async_instr_tl
+        assert instr_tl.is_cuda_async()
         self._instr_tl = instr_tl
 
     def get_instr_tl(self):
@@ -336,10 +336,13 @@ class InstrTimelineAnalysis(LoopIR_Rewrite):
             callee = s.f
             needed = callee.proc_instr_tl()
             if self.instr_tl != needed:
+                note = ""
+                if needed.is_cuda_async():
+                    note = f"; wrap with CudaAsync({needed})"
                 raise TypeError(
                     f"{s.srcinfo}: {callee.name}() requires instr-tl "
                     f"{needed}; scope has instr-tl "
-                    f"{self.instr_tl}"
+                    f"{self.instr_tl}{note}"
                 )
 
     def inspect_e(self, e):

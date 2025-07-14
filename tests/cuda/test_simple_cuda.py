@@ -654,9 +654,8 @@ xgemm_Sm80_fence = simplify(xgemm_Sm80_fence)
 
 
 def test_tmp_Sm80(compiler):
-    fn = compiler.nvcc_compile(
+    xtc = compiler.excut_test_context(
         xgemm_Sm80_fence,
-        excut=True,
     )
 
     M, N, K = 192, 256, 64
@@ -664,9 +663,7 @@ def test_tmp_Sm80(compiler):
     B = np.ndarray(shape=(K, N), dtype=np.float32, order="C")
     C_test = np.ndarray(shape=(M, N), dtype=np.float32, order="C")
 
-    fn.exo_excut_begin_log_file(compiler.workdir / "excut_Sm80_fence.json", 1 << 30)
-    fn(None, M, N, K, A, B, C_test)
-    fn.exo_excut_end_log_file()
+    xtc(None, M, N, K, A, B, C_test)
 
     C_expected = A @ B
     assert np.array_equal(C_test, C_expected)

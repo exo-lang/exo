@@ -17,6 +17,9 @@ class Instr_tl(object):
     def __str__(self):
         return self._name
 
+    def is_cuda_async(self):
+        return self in cuda_async_instr_tl
+
     # Use default hash and equality (id-equality) from object.
 
 

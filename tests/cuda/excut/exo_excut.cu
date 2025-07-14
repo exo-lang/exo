@@ -42,7 +42,7 @@ void begin_log_file(const char* filename, uint32_t cuda_log_bytes_arg)
     cudaMallocAsync(&tmp, cuda_log_bytes_arg, cudaStreamLegacy);
     cuda_log = (uint32_t*)tmp;
     if (cuda_log == nullptr and cuda_log_bytes_arg != 0) {
-        fprintf(stderr, "exo_excut: Failed to cudaMalloc %u bytes\n", cuda_log_bytes_arg);
+        fprintf(stderr, __FILE__ ": Failed to cudaMallocAsync %u bytes\n", cuda_log_bytes_arg);
         cuda_log_bytes = 0;
     }
     else {
