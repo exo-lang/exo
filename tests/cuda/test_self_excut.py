@@ -13,6 +13,7 @@ import pytest
 import sys
 
 from exo import *
+from exo.stdlib.scheduling import *
 from exo.platforms.cuda import *
 from exo.platforms.Sm80 import *
 from exo.spork import excut
@@ -33,7 +34,7 @@ class excut_trace_smem_str_base:
         # excut_tracer(tracer_str, smem_ptr)
         return [
             f"exo_excutLog.log_action({action_id}, 0, __LINE__);",
-            f"exo_excutLog.log_u32_arg(exo_smemU32(&{args.smem.index(0)}));",
+            f"exo_excutLog.log_u32_arg(exo_smemU32({args.smem.index_ptr(0)}));",
             f"exo_excutLog.log_str_id_arg({tracer_id});",
         ]
 
@@ -226,7 +227,7 @@ def impl_test_trace(mkref, cu, error_substr, **kwargs):
 
     if error_substr:
         with pytest.raises(excut.ExcutConcordanceError) as exc:
-            return cu.excut_concordance(mkref, f"excut_ref_{error_substr}.json")
+            cu.excut_concordance(mkref, f"excut_ref_{error_substr}.json")
         # Note, we paste a lot of context in subsequent lines of the message
         # so we only scan line 1 to avoid undermining the test.
         assert error_substr in str(exc.value).split("\n")[0]
@@ -301,3 +302,204 @@ def test_simple_reference(compiler):
     gmem_ptr = xrg.get_var("gmem_ptr")
     gmem_ptr1 = xrg.get_var("gmem_ptr")[(1,)]
     assert gmem_ptr(deductions) == gmem_ptr1(deductions) + 888
+
+
+def make_excut_trace_init_smem(value):
+    @instr
+    class excut_trace_init_smem:
+        def behavior(smem: [i32][1] @ CudaSmemLinear):
+            smem[0] = value
+
+        def instance(self):
+            self.instr_tl = cuda_in_order_instr
+            self.coll_unit = cuda_thread
+
+        def codegen(self, args):
+            action_id = excut.excut_c_str_id("excut_trace_init_smem")
+            return [
+                f"{args.smem.index()} = {value};",
+                f"exo_excutLog.log_action({action_id}, 0, __LINE__);",
+                f"exo_excutLog.log_u32_arg(exo_smemU32({args.smem.index_ptr(0)}));",
+                f"exo_excutLog.log_u32_arg({value});",
+            ]
+
+    return excut_trace_init_smem()
+
+
+excut_trace_init_smem_0 = make_excut_trace_init_smem(0)
+excut_trace_init_smem_1 = make_excut_trace_init_smem(1)
+excut_trace_init_smem_2 = make_excut_trace_init_smem(2)
+
+
+@instr
+class excut_trace_log_smem:
+    def behavior(smem: [i32][1] @ CudaSmemLinear):
+        pass
+
+    def instance(self):
+        self.instr_tl = cuda_in_order_instr
+        self.coll_unit = cuda_thread
+
+    def codegen(self, args):
+        action_id = excut.excut_c_str_id("excut_trace_log_smem")
+        return [
+            f"exo_excutLog.log_action({action_id}, 0, __LINE__);",
+            f"exo_excutLog.log_u32_arg(exo_smemU32({args.smem.index_ptr(0)}));",
+            f"exo_excutLog.log_u32_arg({args.smem.index(0)});",
+        ]
+
+
+"""Trickier test cases:
+
+Test the interaction between variable deductions and permutations.
+This is a harder case in excut, because we need to not "eagerly"
+deduce variable values in permutations, which could cause unfair
+test failures later.
+
+"""
+
+
+def mkproc_advanced(test_idx_1, test_idx_2):
+    @proc
+    def cuda_proc():
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                smem: i32[4] @ CudaSmemLinear
+                for tid in cuda_threads(0, 1):
+                    # Part 0
+                    excut_trace_init_smem_0(smem[0:1])
+
+                    # Part 1
+                    excut_trace_init_smem_1(smem[0:1])
+                    excut_trace_init_smem_1(smem[1:2])
+                    excut_trace_init_smem_1(smem[2:3])
+                    excut_trace_init_smem_2(smem[3:4])
+
+                    # Part 2
+                    excut_trace_log_smem(smem[test_idx_1 : test_idx_1 + 1])
+                    excut_trace_log_smem(smem[test_idx_2 : test_idx_2 + 1])
+
+                    # Part 3
+                    # "Former group"
+                    excut_trace_init_smem_1(smem[0:1])
+                    excut_trace_init_smem_1(smem[1:2])
+                    # "Latter group"
+                    excut_trace_init_smem_1(smem[2:3])
+                    excut_trace_init_smem_2(smem[3:4])
+
+    return rename(cuda_proc, f"cuda_proc_{test_idx_1}_{test_idx_2}")
+
+
+def mkref_advanced(
+    xrg: excut.ExcutReferenceGenerator,
+    multiple_2s=False,
+    wrong_place_2=False,
+    too_many=False,
+    not_enough=False,
+):
+    for threadIdx in xrg.stride_threadIdx(1):
+        smem = xrg.new_varname("smem")
+        A = xrg.new_varname("A")
+        B = xrg.new_varname("B")
+        C = xrg.new_varname("C")
+        D = xrg.new_varname("D")
+
+        # Part 0
+        xrg("excut_trace_init_smem", smem, 0)
+
+        # Part 1
+        with xrg.permuted():
+            xrg("excut_trace_init_smem", A, 1)
+            xrg("excut_trace_init_smem", D, 2)
+            xrg("excut_trace_init_smem", B, 1)
+            xrg("excut_trace_init_smem", C, 2 if multiple_2s else 1)
+
+        # Part 2
+        xrg("excut_trace_log_smem", A, 1)
+        xrg("excut_trace_log_smem", D, 2)
+
+        # Part 3
+        with xrg.permuted():
+            # "Former group"
+            xrg("excut_trace_init_smem", A, 1)
+            xrg("excut_trace_init_smem", B, 1)
+            if wrong_place_2:
+                xrg("excut_trace_init_smem", D, 2)
+        if not not_enough:
+            # "Latter group"
+            with xrg.permuted():
+                xrg("excut_trace_init_smem", C, 1)
+                if not wrong_place_2:
+                    xrg("excut_trace_init_smem", D, 2)
+            if too_many:
+                xrg("excut_trace_init_smem", D, 2)
+
+
+def impl_test_advanced_A(compiler, test_idx_1):
+    cu_proc = mkproc_advanced(test_idx_1, 3)
+    cu = compiler.cuda_test_context(cu_proc, excut=True)
+    cu(None)
+    mkref = mkref_advanced
+
+    # In part 2, we deduce that A = &smem[test_idx_1]
+    #
+    # In part 3, in the former group, we have smem[0] = 1 and smem[1] = 1.
+    # We will deduce one of them as A = 1 and the other as B = 1.
+    # Hence, the test should fail if test_idx_1 == 2.
+    result = impl_test_trace(mkref, cu, "mismatch" if test_idx_1 == 2 else None)
+    if result:
+        xrg, deductions = result
+        A = xrg.get_var("A")
+        smem = xrg.get_var("smem")
+        assert smem(deductions) + 4 * test_idx_1 == A(deductions)
+
+    # Also check this is robust against too many / not enough reference actions.
+    # As in the simpler tests, the more specific error (for test_idx_1 = 2) is
+    # prioritized over the generic action count mismatch error.
+    impl_test_trace(
+        mkref,
+        cu,
+        "mismatch" if test_idx_1 == 2 else "No trace action left",
+        too_many=True,
+    )
+    impl_test_trace(
+        mkref,
+        cu,
+        "mismatch" if test_idx_1 == 2 else "No reference action left",
+        not_enough=True,
+    )
+
+
+def test_advanced_A0(compiler):
+    impl_test_advanced_A(compiler, 0)
+
+
+def test_advanced_A1(compiler):
+    impl_test_advanced_A(compiler, 1)
+
+
+def test_advanced_A2(compiler):
+    impl_test_advanced_A(compiler, 2)
+
+
+def test_advanced_multiple_2s(compiler):
+    cu_proc = mkproc_advanced(1, 3)
+    cu = compiler.cuda_test_context(cu_proc, excut=True)
+    cu(None)
+    mkref = mkref_advanced
+
+    # Since both C=2 and D=2 in the reference actions, one of them will fail
+    # to match, as the trace will have only 1 of the 4 values set to 2.
+    return impl_test_trace(mkref, cu, "Already matched", multiple_2s=True)
+
+
+def test_advanced_wrong_place_2(compiler):
+    cu_proc = mkproc_advanced(1, 3)
+    cu = compiler.cuda_test_context(cu_proc, excut=True)
+    cu(None)
+    mkref = mkref_advanced
+
+    # Part 3 has 2 groups of permutations
+    # The D=2 action is in the latter group, and shouldn't be able to match with
+    # the D=2 in the trace which is in the former group.
+    return impl_test_trace(mkref, cu, "D !=", wrong_place_2=True)

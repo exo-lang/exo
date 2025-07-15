@@ -160,7 +160,10 @@ class ExcutVariableArg:
     offset: int
 
     def encode(self):
-        return f"var:{self.id.encode()} + {self.offset}"
+        s = f"var:{self.id.encode()}"
+        if self.offset:
+            s += f" + {self.offset}"
+        return s
 
     def __getitem__(self, idxs):
         if isinstance(idxs, tuple):
