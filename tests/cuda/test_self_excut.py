@@ -157,6 +157,9 @@ def mkref_test_simple_reference(
     reverse_permutation=False,
     wrong_permutation=False,
     allow_permutation=False,
+    free_ptr_var=False,
+    alt_free_gmem_ptr=False,
+    alt_free_gmem_offset=0,
 ):
     gmem_ptr = xrg.new_varname("gmem_ptr")
 
@@ -208,8 +211,14 @@ def mkref_test_simple_reference(
                     for tup in arg_tups:
                         xrg(*tup)
 
+    if free_ptr_var:
+        free_ptr = xrg.new_varname("free_ptr")
+    elif alt_free_gmem_ptr:
+        free_ptr = gmem_ptr[1] + alt_free_gmem_offset
+    else:
+        free_ptr = gmem_ptr
     for i in range(num_frees):
-        xrg("cudaFreeAsync", gmem_ptr, 0)
+        xrg("cudaFreeAsync", free_ptr, 0)
 
 
 def impl_test_trace(mkref, cu, error_substr, **kwargs):
@@ -217,12 +226,12 @@ def impl_test_trace(mkref, cu, error_substr, **kwargs):
 
     if error_substr:
         with pytest.raises(excut.ExcutConcordanceError) as exc:
-            cu.excut_concordance(mkref, f"excut_ref_{error_substr}.json")
+            return cu.excut_concordance(mkref, f"excut_ref_{error_substr}.json")
         # Note, we paste a lot of context in subsequent lines of the message
         # so we only scan line 1 to avoid undermining the test.
         assert error_substr in str(exc.value).split("\n")[0]
     else:
-        cu.excut_concordance(mkref)
+        return cu.excut_concordance(mkref)
 
 
 def test_simple_reference(compiler):
@@ -274,3 +283,21 @@ def test_simple_reference(compiler):
     impl_test(cu, "action_name", allow_permutation=False, reverse_permutation=True)
     impl_test(cu, None, allow_permutation=True, reverse_permutation=True)
     impl_test(cu, "action_name", allow_permutation=True, wrong_permutation=True)
+
+    # Variable deduction: should allow gmem_ptr and free_ptr to be deduced the same
+    xrg, deductions = impl_test(cu, None, free_ptr_var=True)
+    gmem_ptr = xrg.get_var("gmem_ptr")
+    free_ptr = xrg.get_var("free_ptr")
+    assert gmem_ptr(deductions) == free_ptr(deductions)
+    assert (gmem_ptr + 100)(deductions) == gmem_ptr(deductions) + 100
+
+    # Variable deduction: should forbid gmem_ptr and gmem_ptr[1] to be deduced the same
+    impl_test(cu, "gmem_ptr[1]", alt_free_gmem_ptr=True)
+
+    # Variable deduction: deduced gmem_ptr == gmem_ptr[1] + 888 (weird test)
+    xrg, deductions = impl_test(
+        cu, None, alt_free_gmem_ptr=True, alt_free_gmem_offset=888
+    )
+    gmem_ptr = xrg.get_var("gmem_ptr")
+    gmem_ptr1 = xrg.get_var("gmem_ptr")[(1,)]
+    assert gmem_ptr(deductions) == gmem_ptr1(deductions) + 888

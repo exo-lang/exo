@@ -439,6 +439,21 @@ class CudaTestContext:
         make_reference: Callable[[excut.ExcutReferenceGenerator], None],
         ref_filename="excut_ref.json",
     ):
+        """Compare previously generated trace with newly generated reference
+
+        make_reference will create the reference actions using the member
+        functions of ExcutReferenceGenerator.
+        functools.partial could be very useful to you.
+
+        Returns (xrg: ExcutReferenceGenerator, deductions) where
+
+        var = xrg.get_var(varname: str) gets an existing variable
+
+        var2 = var[idx] and var2 = var + offset adds indices/offsets
+
+        var2(deductions) gets the deduced integer value.
+
+        """
         assert self.enable_excut
         trace_path = self.compiler.workdir / "excut_trace.json"
         ref_path = self.compiler.workdir / ref_filename
@@ -448,7 +463,10 @@ class CudaTestContext:
             xrg.write_json(f)
         self.ref_actions = excut.parse_json_file(str(ref_path))
         assert self.trace_actions is not None, "Need to run CUDA function first"
-        excut.require_concordance(self.ref_actions, self.trace_actions, xrg.varname_set)
+        deductions = excut.require_concordance(
+            self.ref_actions, self.trace_actions, xrg.varname_set
+        )
+        return xrg, deductions
 
     @classmethod
     def set_excut_buffer_size(cls, n_bytes):

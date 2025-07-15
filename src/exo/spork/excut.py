@@ -174,7 +174,7 @@ class ExcutVariableArg:
         return ExcutVariableArg(self.id, self.offset + offset)
 
     def __call__(self, deductions: Dict[ExcutVariableID, ExcutDeduction]):
-        return deductions[self.id] + self.offset
+        return (deductions[self.id].value) + self.offset
 
 
 @dataclass(slots=True)
@@ -533,12 +533,12 @@ def require_concordance(
         if old_deduction is None:
             value_deductions[value] = new_deduction
         elif old_deduction.id.idxs != new_deduction.id.idxs:
-            old_id = old_deduction.id
-            new_id = new_deduction.id
+            old_var = old_deduction.id.encode()
+            new_var = new_deduction.id.encode()
             raise ExcutConcordanceError(
-                f"""Duplicate deduced value {hex(value)} for
-{old_id.encode()} @ {old_deduction.srcinfo()}
-{new_id.encode()} @ {new_deduction.srcinfo()}"""
+                f"""{old_var} and {new_var} cannot both be {hex(value)}
+{old_var} @ {old_deduction.srcinfo()}
+{new_var} @ {new_deduction.srcinfo()}"""
             )
 
     return deductions
@@ -664,8 +664,12 @@ class ExcutReferenceGenerator:
         Use python [] and + operators to add indices and offsets, respectively.
 
         """
-        assert varname not in self.varname_set
+        assert varname not in self.varname_set, varname
         self.varname_set.add(varname)
+        return ExcutVariableArg(ExcutVariableID(varname, ()), 0)
+
+    def get_var(self, varname) -> ExcutVariableArg:
+        assert varname in self.varname_set, varname
         return ExcutVariableArg(ExcutVariableID(varname, ()), 0)
 
     def write_json(self, f: file):
