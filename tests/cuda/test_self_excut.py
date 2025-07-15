@@ -154,6 +154,9 @@ def mkref_test_simple_reference(
     too_many_args=False,
     too_few_args=False,
     type_mismatch=False,
+    reverse_permutation=False,
+    wrong_permutation=False,
+    allow_permutation=False,
 ):
     gmem_ptr = xrg.new_varname("gmem_ptr")
 
@@ -175,27 +178,42 @@ def mkref_test_simple_reference(
                 str_arg = "foo" if threadIdx < blockIdx or wrong_str_arg else "bar"
                 n_bytes = None if test_sink else 0x1337 if wrong_int_arg else 16
                 if type_mismatch:
-                    barrier_args = ("0",)
+                    barrier_args = ("barrier.cta.sync", "0")
                 elif too_few_args:
-                    barrier_args = ()
+                    barrier_args = ("barrier.cta.sync",)
                 elif too_many_args:
-                    barrier_args = (0, 0)
+                    barrier_args = ("barrier.cta.sync", 0, 0)
                 else:
-                    barrier_args = (0,)
+                    barrier_args = ("barrier.cta.sync", 0)
 
+                arg_tups = []
                 if skip_all_cp_async or (skip_some_cp_async and threadIdx < 10):
                     pass
                 else:
-                    xrg("cp.async.cg.shared.global", smem_dst, gmem_src, n_bytes)
-                xrg("barrier.cta.sync", *barrier_args)
-                xrg("excut_tracer", smem_dst, str_arg)
+                    arg_tups.append(
+                        ("cp.async.cg.shared.global", smem_dst, gmem_src, n_bytes)
+                    )
+                arg_tups.append(barrier_args)
+                arg_tups.append(("excut_tracer", smem_dst, str_arg))
+                if wrong_permutation:
+                    arg_tups[1] = arg_tups[0]
+                if reverse_permutation:
+                    arg_tups = arg_tups[::-1]
+                if allow_permutation:
+                    arg_tups = arg_tups[::-1]
+                    with xrg.permuted():
+                        for tup in arg_tups:
+                            xrg(*tup)
+                else:
+                    for tup in arg_tups:
+                        xrg(*tup)
 
     for i in range(num_frees):
         xrg("cudaFreeAsync", gmem_ptr, 0)
 
 
-def impl_test_simple_reference(cu, error_substr, **kwargs):
-    mkref = functools.partial(mkref_test_simple_reference, **kwargs)
+def impl_test_trace(mkref, cu, error_substr, **kwargs):
+    mkref = functools.partial(mkref, **kwargs)
 
     if error_substr:
         with pytest.raises(excut.ExcutConcordanceError) as exc:
@@ -214,44 +232,45 @@ def test_simple_reference(compiler):
     """
     cu = compiler.cuda_test_context(Sm80_test_proc, excut=True)
     cu(None)
+    impl_test = functools.partial(impl_test_trace, mkref_test_simple_reference)
 
     # Note: each of the following is logically a separate test case,
     # but we merge them all together to avoid wasting a ton of time
     # compiling the same CUDA code.
-    impl_test_simple_reference(cu, None)
-    impl_test_simple_reference(cu, "blockIdx", wrong_blockIdx=True)
-    impl_test_simple_reference(cu, "threadIdx", wrong_threadIdx=True)
-    impl_test_simple_reference(cu, "device_name", wrong_device_name=True)
-    impl_test_simple_reference(cu, None, test_sink=True)
-    impl_test_simple_reference(cu, "0 != 1", too_few_args=True)
-    impl_test_simple_reference(cu, "2 != 1", too_many_args=True)
-    impl_test_simple_reference(cu, "'0' != 0x0", type_mismatch=True)
+    impl_test(cu, None)
+    impl_test(cu, "blockIdx", wrong_blockIdx=True)
+    impl_test(cu, "threadIdx", wrong_threadIdx=True)
+    impl_test(cu, "device_name", wrong_device_name=True)
+    impl_test(cu, None, test_sink=True)
+    impl_test(cu, "0 != 1", too_few_args=True)
+    impl_test(cu, "2 != 1", too_many_args=True)
+    impl_test(cu, "'0' != 0x0", type_mismatch=True)
 
     # If the reference trace has no action of a certain name, we
     # should ignore the trace having this action logged (filter out
     # these trace actions)
-    impl_test_simple_reference(cu, None, skip_all_cp_async=True)
-    impl_test_simple_reference(cu, None, num_frees=0)
+    impl_test(cu, None, skip_all_cp_async=True)
+    impl_test(cu, None, num_frees=0)
 
     # If only some cp.async are missing, then we need to diagnose the
     # trace missing cp.async
-    impl_test_simple_reference(cu, "cp.async.cg.shared.global", skip_some_cp_async=True)
+    impl_test(cu, "cp.async.cg.shared.global", skip_some_cp_async=True)
 
     # Check diagnosing incorrect number of (non-filtered) trace actions vs reference actions.
-    impl_test_simple_reference(cu, "No reference action left", num_frees=2)
-    impl_test_simple_reference(
-        cu, "No reference action left", num_frees=0, cuda_launches=1
-    )
-    impl_test_simple_reference(cu, "No trace action left", num_frees=0, cuda_launches=3)
+    impl_test(cu, "No reference action left", num_frees=2)
+    impl_test(cu, "No reference action left", num_frees=0, cuda_launches=1)
+    impl_test(cu, "No trace action left", num_frees=0, cuda_launches=3)
 
     # Check diagnosing incorrect arguments.
     # This error should be preferred over the above category of error.
-    impl_test_simple_reference(cu, "0x1337", wrong_int_arg=True)
-    impl_test_simple_reference(cu, "gmem_ptr", wrong_deduction=True)
-    impl_test_simple_reference(
-        cu, "gmem_ptr", wrong_deduction=True, num_frees=0, cuda_launches=1
-    )
-    impl_test_simple_reference(
-        cu, "gmem_ptr", wrong_deduction=True, num_frees=0, cuda_launches=3
-    )
-    impl_test_simple_reference(cu, "foo", wrong_str_arg=True)
+    # The wrongness of num_frees/cuda_launches is a red herring.
+    impl_test(cu, "0x1337", wrong_int_arg=True)
+    impl_test(cu, "gmem_ptr", wrong_deduction=True)
+    impl_test(cu, "gmem_ptr", wrong_deduction=True, num_frees=0, cuda_launches=1)
+    impl_test(cu, "gmem_ptr", wrong_deduction=True, num_frees=0, cuda_launches=3)
+    impl_test(cu, "foo", wrong_str_arg=True)
+
+    # Permutation testing
+    impl_test(cu, "action_name", allow_permutation=False, reverse_permutation=True)
+    impl_test(cu, None, allow_permutation=True, reverse_permutation=True)
+    impl_test(cu, "action_name", allow_permutation=True, wrong_permutation=True)

@@ -231,7 +231,7 @@ class ExcutAction:
             if a != b:
                 fail(f"{attr}: {a!r} != {b!r}")
 
-        require_eq("action_name")
+        require_eq("action_name")  # First; generally most relevant for error message
         require_eq("device_name")
         require_eq("blockIdx")
         require_eq("threadIdx")
@@ -594,7 +594,7 @@ class ExcutReferenceGenerator:
 
         """
 
-        return ExcutPermuterContext(self, self._permuted)
+        return ExcutPermuterContext(self, self._permute_group_id is not None)
 
     def stride_blockIdx(self, n, stride=1, offset=0):
         """Usage: for i in xrg.stride_blockIdx(n, stride): ...
@@ -704,7 +704,7 @@ class ExcutPermuterContext:
 
     def __enter__(self):
         if not self._was_permuted:
-            self._permute_group_id = len(self._generator._actions)
+            self._generator._permute_group_id = len(self._generator._actions)
 
     def __exit__(self, a, b, c):
         if not self._was_permuted:
