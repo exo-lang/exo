@@ -138,7 +138,7 @@ class ExcutVariableArg:
     offset: int
 
     def encode(self):
-        return f"{self.id.encode()} + {self.offset}"
+        return f"var:{self.id.encode()} + {self.offset}"
 
 
 @dataclass(slots=True)
@@ -329,7 +329,7 @@ def decode_arg(encoded):
         varname = var_text.strip()
         for c in varname:
             if c != "_" and not c.isalnum():
-                raise ValueError("fExpected alphanumeric varname, not {varname!r}")
+                raise ValueError(f"Expected alphanumeric varname, not {varname!r}")
 
         return ExcutVariableArg(ExcutVariableID(varname, idxs), offset)
 
@@ -596,13 +596,13 @@ class ExcutReferenceGenerator:
 
         return ExcutPermuterContext(self, self._permuted)
 
-    def stride_blockIdx(self, n, stride=1):
+    def stride_blockIdx(self, n, stride=1, offset=0):
         """Usage: for i in xrg.stride_blockIdx(n, stride): ...
 
         Iterates i in range(0, n).
         Within the loop body, actions are logged as being done on the cuda
-        device with blockIdx = blockIdx" + i * stride, blockIdx" being
-        the blockIdx value outside the loop (initially 0).
+        device with blockIdx = blockIdx" + offset + i * stride,
+        blockIdx" being the blockIdx value outside the loop (initially 0).
 
         """
         old_device_name = self._device_name
@@ -618,7 +618,7 @@ class ExcutReferenceGenerator:
 
         return generator()
 
-    def stride_threadIdx(self, n, stride=1):
+    def stride_threadIdx(self, n, stride=1, offset=0):
         """Usage: for i in xrg.stride_threadIdx(n, stride): ...
 
         Same as stride_blockIdx, but modifies threadIdx instead.

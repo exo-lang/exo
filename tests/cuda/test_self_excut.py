@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import functools
 import pytest
+import sys
 
 from exo import *
 from exo.platforms.cuda import *
@@ -172,7 +173,7 @@ def mkref_test_simple_reference(
                 else:
                     gmem_src = gmem_ptr + 16 * threadIdx + 1024 * blockIdx
                 str_arg = "foo" if threadIdx < blockIdx or wrong_str_arg else "bar"
-                n_bytes = None if test_sink else 1337 if wrong_int_arg else 16
+                n_bytes = None if test_sink else 0x1337 if wrong_int_arg else 16
                 if type_mismatch:
                     barrier_args = ("0",)
                 elif too_few_args:
@@ -193,12 +194,15 @@ def mkref_test_simple_reference(
         xrg("cudaFreeAsync", gmem_ptr, 0)
 
 
-def impl_test_simple_reference(cu, match_error, **kwargs):
+def impl_test_simple_reference(cu, error_substr, **kwargs):
     mkref = functools.partial(mkref_test_simple_reference, **kwargs)
 
-    if match_error:
-        with pytest.raises(excut.ExcutConcordanceError, match=match_error):
-            cu.excut_concordance(mkref, f"excut_ref_{match_error}.json")
+    if error_substr:
+        with pytest.raises(excut.ExcutConcordanceError) as exc:
+            cu.excut_concordance(mkref, f"excut_ref_{error_substr}.json")
+        # Note, we paste a lot of context in subsequent lines of the message
+        # so we only scan line 1 to avoid undermining the test.
+        assert error_substr in str(exc.value).split("\n")[0]
     else:
         cu.excut_concordance(mkref)
 
@@ -242,7 +246,7 @@ def test_simple_reference(compiler):
 
     # Check diagnosing incorrect arguments.
     # This error should be preferred over the above category of error.
-    impl_test_simple_reference(cu, "1337", wrong_int_arg=True)
+    impl_test_simple_reference(cu, "0x1337", wrong_int_arg=True)
     impl_test_simple_reference(cu, "gmem_ptr", wrong_deduction=True)
     impl_test_simple_reference(
         cu, "gmem_ptr", wrong_deduction=True, num_frees=0, cuda_launches=1
