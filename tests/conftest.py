@@ -10,7 +10,7 @@ import textwrap
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path, PurePath
-from typing import Optional, Any, Dict, Union, List, Set
+from typing import Optional, Any, Dict, Union, List, Set, Callable
 
 import numpy as np
 import pytest
@@ -298,8 +298,8 @@ class Compiler:
             ctypes.CDLL(artifact_path), procs[0].name(), self.workdir, self.basename
         )
 
-    def excut_test_context(self, *args, **kwargs) -> "ExcutTestContext":
-        return ExcutTestContext(self, *args, **kwargs)
+    def cuda_test_context(self, *args, **kwargs) -> "CudaTestContext":
+        return CudaTestContext(self, *args, **kwargs)
 
     @staticmethod
     def _run_command(build_command, skip_on_fail):
@@ -402,39 +402,95 @@ def get_cpu_features() -> Set[str]:
 
 
 @dataclass(slots=True)
-class ExcutTestContext:
+class CudaTestContext:
     compiler: Compiler
     fn: LibWrapper
+    enable_excut: bool
     trace_actions: List[excut.ExcutAction]
     ref_actions: List[excut.ExcutAction]
 
-    _saved_buffer_size = 1 << 28
+    _saved_excut_buffer_size = 1 << 28
 
     def __init__(self, compiler, *args, **kwargs):
+        # Note in particular excut=bool keyword argument
+        # controls whether excut logging is enabled.
         self.compiler = compiler
-        self.fn = compiler.nvcc_compile(excut=True, *args, **kwargs)
+        self.enable_excut = kwargs.get("excut", False)
+        self.fn = compiler.nvcc_compile(*args, **kwargs)
+        self.trace_actions = None
+        self.ref_actions = None
 
     def __call__(self, *args):
-        self.test(self.fn.default_proc, *args)
+        self.run(self.fn.default_proc, *args)
 
-    def test(self, proc_name, *args):
+    def run(self, proc_name, *args):
         assert args[0] == None, "Expect ctxt=None for CUDA"
         c_proc = getattr(self.fn, proc_name)
+        if self.enable_excut:
+            self._run_trace_excut(c_proc, *args)
+        else:
+            c_proc(*args)
+
+    def compare_golden(self, golden: str):
+        assert self._make_golden() == golden
+
+    def excut_concordance(
+        self,
+        make_reference: Callable[[excut.ExcutReferenceGenerator], None],
+        ref_filename="excut_ref.json",
+    ):
+        assert self.enable_excut
+        trace_path = self.compiler.workdir / "excut_trace.json"
+        ref_path = self.compiler.workdir / ref_filename
+        xrg = excut.ExcutReferenceGenerator()
+        make_reference(xrg)
+        with open(str(ref_path), "w") as f:
+            xrg.write_json(f)
+        self.ref_actions = excut.parse_json_file(str(ref_path))
+        assert self.trace_actions is not None, "Need to run CUDA function first"
+        excut.require_concordance(self.ref_actions, self.trace_actions, xrg.varname_set)
+
+    @classmethod
+    def set_excut_buffer_size(cls, n_bytes):
+        cls._saved_excut_buffer_size = n_bytes
+
+    def _run_trace_excut(self, c_proc, *args):
         for i in range(3):
             trace_filename = self.compiler.workdir / "excut_trace.json"
-            self.fn.exo_excut_begin_log_file(trace_filename, self._saved_buffer_size)
+            self.fn.exo_excut_begin_log_file(
+                trace_filename, self._saved_excut_buffer_size
+            )
             c_proc(*args)
             self.fn.exo_excut_end_log_file()
             try:
                 self.trace_actions = excut.parse_json_file(trace_filename)
-                break
+                return
             except excut.ExcutOutOfCudaMemory as e:
                 mib = e.bytes_needed / 1048576
-                self.set_buffer_size(e.bytes_needed)
+                self.set_excut_buffer_size(e.bytes_needed)
                 warnings.warn(f"excut: out of CUDA memory; now requesting {mib} MiB")
-        else:
-            assert False, "Excut internal error, trace failed after 3 tries"
+        raise MemoryError(
+            "Excut internal error, trace out-of-cuda-memory after 3 tries"
+        )
 
-    @classmethod
-    def set_buffer_size(cls, bytes):
-        cls._saved_buffer_size = bytes
+    def _make_golden(self):
+        return f"""// ########################################################################
+.h
+// ########################################################################
+{self.fn.get_source_by_ext("h")}
+
+// ########################################################################
+.c
+// ########################################################################
+{self.fn.get_source_by_ext("c")}
+
+// ########################################################################
+.cuh
+// ########################################################################
+{self.fn.get_source_by_ext("cuh")}
+
+// ########################################################################
+.cu
+// ########################################################################
+{self.fn.get_source_by_ext("cu")}
+"""

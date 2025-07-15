@@ -8,6 +8,8 @@ on excut don't incorrectly pass due to excut bugs.
 
 from __future__ import annotations
 from dataclasses import dataclass
+import functools
+import pytest
 
 from exo import *
 from exo.platforms.cuda import *
@@ -72,12 +74,14 @@ def Sm80_test_proc():
 
 
 def test_excut_bootstrap(compiler):
-    xtc = compiler.excut_test_context(Sm80_test_proc)
-    assert isinstance(xtc._saved_buffer_size, int)
-    xtc.set_buffer_size(0)  # Test the retry-on-out-of-memory functionality
-    xtc(None)
+    cu = compiler.cuda_test_context(Sm80_test_proc, excut=True)
+    old_buffer_size = cu._saved_excut_buffer_size
+    assert isinstance(old_buffer_size, int)
+    cu.set_excut_buffer_size(0)  # Test the retry-on-out-of-memory functionality
+    cu(None)
+    cu.set_excut_buffer_size(old_buffer_size)
 
-    trace_actions = xtc.trace_actions
+    trace_actions = cu.trace_actions
 
     # Manually check the trace actions are correct.
     # This test is not future-proof to minute changes to excut outputs, so all
@@ -90,7 +94,7 @@ def test_excut_bootstrap(compiler):
     # cudaMallocAsync(size, stream, out ptr), cudaFreeAsync(ptr, stream)
     assert malloc.action_name == "cudaMallocAsync"
     assert len(malloc.args) == 3
-    gmem_size, stream, gmem_base = malloc.args
+    gmem_base, gmem_size, stream = malloc.args
     assert gmem_size == 1024 * 4
     assert isinstance(gmem_base, int)
     assert malloc.device_name == "cpu"
@@ -131,3 +135,119 @@ def test_excut_bootstrap(compiler):
                 assert len(tracer.args) == 2
                 assert tracer.args[0] == smem_dst
                 assert tracer.args[1] == ("foo" if threadIdx < blockIdx else "bar")
+
+
+def mkref_test_simple_reference(
+    xrg: excut.ExcutReferenceGenerator,
+    wrong_blockIdx=False,
+    wrong_threadIdx=False,
+    skip_all_cp_async=False,
+    skip_some_cp_async=False,
+    wrong_int_arg=False,
+    wrong_deduction=False,
+    num_frees=1,
+    cuda_launches=2,
+    wrong_str_arg=False,
+    wrong_device_name=False,
+    test_sink=False,
+    too_many_args=False,
+    too_few_args=False,
+    type_mismatch=False,
+):
+    gmem_ptr = xrg.new_varname("gmem_ptr")
+
+    if wrong_device_name:
+        for threadIdx in xrg.stride_threadIdx(1):
+            xrg("cudaMallocAsync", gmem_ptr, 4096, 0)
+    else:
+        xrg("cudaMallocAsync", gmem_ptr, 4096, 0)
+
+    for i in range(1, cuda_launches + 1):
+        for blockIdx in xrg.stride_blockIdx(2 * i, 2 if wrong_blockIdx else 1):
+            smem_base = xrg.new_varname(f"smem_base_{i}_{blockIdx}")
+            for threadIdx in xrg.stride_threadIdx(64, 2 if wrong_threadIdx else 1):
+                smem_dst = smem_base + 16 * threadIdx
+                if wrong_deduction:
+                    gmem_src = gmem_ptr
+                else:
+                    gmem_src = gmem_ptr + 16 * threadIdx + 1024 * blockIdx
+                str_arg = "foo" if threadIdx < blockIdx or wrong_str_arg else "bar"
+                n_bytes = None if test_sink else 1337 if wrong_int_arg else 16
+                if type_mismatch:
+                    barrier_args = ("0",)
+                elif too_few_args:
+                    barrier_args = ()
+                elif too_many_args:
+                    barrier_args = (0, 0)
+                else:
+                    barrier_args = (0,)
+
+                if skip_all_cp_async or (skip_some_cp_async and threadIdx < 10):
+                    pass
+                else:
+                    xrg("cp.async.cg.shared.global", smem_dst, gmem_src, n_bytes)
+                xrg("barrier.cta.sync", *barrier_args)
+                xrg("excut_tracer", smem_dst, str_arg)
+
+    for i in range(num_frees):
+        xrg("cudaFreeAsync", gmem_ptr, 0)
+
+
+def impl_test_simple_reference(cu, match_error, **kwargs):
+    mkref = functools.partial(mkref_test_simple_reference, **kwargs)
+
+    if match_error:
+        with pytest.raises(excut.ExcutConcordanceError, match=match_error):
+            cu.excut_concordance(mkref, f"excut_ref_{match_error}.json")
+    else:
+        cu.excut_concordance(mkref)
+
+
+def test_simple_reference(compiler):
+    """Simple diagnoses of mismatches between trace and reference actions
+
+    There are also a few cases of acceptable deviations.
+    """
+    cu = compiler.cuda_test_context(Sm80_test_proc, excut=True)
+    cu(None)
+
+    # Note: each of the following is logically a separate test case,
+    # but we merge them all together to avoid wasting a ton of time
+    # compiling the same CUDA code.
+    impl_test_simple_reference(cu, None)
+    impl_test_simple_reference(cu, "blockIdx", wrong_blockIdx=True)
+    impl_test_simple_reference(cu, "threadIdx", wrong_threadIdx=True)
+    impl_test_simple_reference(cu, "device_name", wrong_device_name=True)
+    impl_test_simple_reference(cu, None, test_sink=True)
+    impl_test_simple_reference(cu, "0 != 1", too_few_args=True)
+    impl_test_simple_reference(cu, "2 != 1", too_many_args=True)
+    impl_test_simple_reference(cu, "'0' != 0x0", type_mismatch=True)
+
+    # If the reference trace has no action of a certain name, we
+    # should ignore the trace having this action logged (filter out
+    # these trace actions)
+    impl_test_simple_reference(cu, None, skip_all_cp_async=True)
+    impl_test_simple_reference(cu, None, num_frees=0)
+
+    # If only some cp.async are missing, then we need to diagnose the
+    # trace missing cp.async
+    impl_test_simple_reference(cu, "cp.async.cg.shared.global", skip_some_cp_async=True)
+
+    # Check diagnosing incorrect number of (non-filtered) trace actions vs reference actions.
+    impl_test_simple_reference(cu, "No reference action left", num_frees=2)
+    impl_test_simple_reference(
+        cu, "No reference action left", num_frees=0, cuda_launches=1
+    )
+    impl_test_simple_reference(cu, "No trace action left", num_frees=0, cuda_launches=3)
+
+    # Check diagnosing incorrect arguments.
+    # This error should be preferred over the above category of error.
+    impl_test_simple_reference(cu, "1337", wrong_int_arg=True)
+    impl_test_simple_reference(cu, "gmem_ptr", wrong_deduction=True)
+    impl_test_simple_reference(
+        cu, "gmem_ptr", wrong_deduction=True, num_frees=0, cuda_launches=1
+    )
+    impl_test_simple_reference(
+        cu, "gmem_ptr", wrong_deduction=True, num_frees=0, cuda_launches=3
+    )
+    impl_test_simple_reference(cu, "foo", wrong_str_arg=True)

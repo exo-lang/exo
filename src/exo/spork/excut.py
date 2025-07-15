@@ -26,7 +26,7 @@ and where each arg is a string holding:
 Variables, sinks, and sub-lists must appear only in reference files.
 
 * varname is an alphanumeric string (plus underscores)
-  and must be in varnames_set (to avoid accidentally passing
+  and must be in varname_set (to avoid accidentally passing
   tests due to typos)
 
 * idxs is a comma-separated list of integers.
@@ -96,6 +96,13 @@ import json
 import re
 import string
 from typing import Dict, List, Optional, Set, Tuple, Union
+from ..core.prelude import get_srcinfo
+
+
+########################################################################
+# Excut Parsing and Concordance
+# Functions for parsing JSON and comparing reference and trace actions
+########################################################################
 
 
 class ExcutConcordanceError(ValueError):
@@ -204,7 +211,7 @@ class ExcutAction:
         self,
         trace: ExcutAction,
         deductions: Dict[ExcutVariableID, ExcutDeduction],
-        varnames_set: Set[str],
+        varname_set: Set[str],
         defer_deduction: bool,
     ):
         """Match self (from the reference actions) with trace's ExcutAction
@@ -218,16 +225,18 @@ class ExcutAction:
 {trace.as_json()} @ {trace.srcinfo()}"""
             )
 
-        if self.action_name != trace.action_name:
-            fail(f"{self.action_name!r} != {trace.action_name!r}")
-        if self.device_name != trace.device_name:
-            fail(f"{self.device_name!r} != {trace.device_name!r}")
-        if (self.blockIdx, self.threadIdx) != (trace.blockIdx, trace.threadIdx):
-            fail(
-                f"({self.blockIdx}, {self.threadIdx}) != ({trace.blockIdx}, {trace.threadIdx})"
-            )
+        def require_eq(attr):
+            a = getattr(self, attr)
+            b = getattr(trace, attr)
+            if a != b:
+                fail(f"{attr}: {a!r} != {b!r}")
+
+        require_eq("action_name")
+        require_eq("device_name")
+        require_eq("blockIdx")
+        require_eq("threadIdx")
         if len(self.args) != len(trace.args):
-            fail("len(args) mismatch")
+            fail(f"len(args): {len(self.args)} != {len(trace.args)}")
 
         for i, ref_arg, trace_arg in zip(range(len(self.args)), self.args, trace.args):
             if isinstance(trace_arg, str):
@@ -247,8 +256,8 @@ class ExcutAction:
                     var_id = ref_arg.id
                     old_deduction = deductions.get(var_id)
                     if old_deduction is None:
-                        if var_id.varname not in varnames_set:
-                            fail(f"{var_id.varname!r} not in varnames_set")
+                        if var_id.varname not in varname_set:
+                            fail(f"{var_id.varname!r} not in varname_set")
                         if not defer_deduction:
                             deductions[var_id] = ExcutDeduction(
                                 deduced,
@@ -420,7 +429,7 @@ def parse_json_file(filename: str) -> List[ExcutAction]:
 def require_concordance(
     ref_actions: List[ExcutAction],
     trace_actions: List[ExcutAction],
-    varnames_set: Set[str],
+    varname_set: Set[str],
 ):
     ref_action_names = set()
     for r_act in ref_actions:
@@ -458,6 +467,7 @@ def require_concordance(
     # but this provides better feedback on test failures.
     for phase in range(2):
         for ref_i, ref_a in enumerate(ref_actions):
+            offset = ref_a.permutation_slice_offset
             slice_len = ref_a.permutation_slice_len
             assert slice_len > 0
             fail_messages = []
@@ -475,12 +485,12 @@ def require_concordance(
                 else:
                     try:
                         ref_a.match_trace(
-                            trace_a, deductions, varnames_set, defer_deduction
+                            trace_a, deductions, varname_set, defer_deduction
                         )
                         success = True
                         if not defer_deduction:
                             trace_i_to_ref_i[trace_i] = ref_i
-                    except ExcutCondordanceError as e:
+                    except ExcutConcordanceError as e:
                         fail_messages.append(str(e))
             if not success:
                 raise ExcutConcordanceError("\n".join(fail_messages))
@@ -494,6 +504,7 @@ def require_concordance(
     # varname -> (value -> deduction)
     varname_value_deductions: Dict[str, Dict[int, ExcutDeduction]] = {}
 
+    # Uniqueness property for deduced variables with same varname
     # Check "different values" for same-varname, different-idx variables
     for var_id, new_deduction in deductions.items():
         varname = var_id.varname
@@ -515,6 +526,198 @@ def require_concordance(
 {old_id.encode()} @ {old_deduction.srcinfo()}
 {new_id.encode()} @ {new_deduction.srcinfo()}"""
             )
+
+
+@dataclass(slots=True)
+class ExcutBuilderAction:
+    json_action: str
+    permute_group_id: Optional[int]
+
+
+@dataclass
+class ExcutReferenceVariable:
+    varname: str
+    idxs: Tuple[int] = ()
+    offset: int = 0
+
+    def __getitem__(self, idxs):
+        if isinstance(idxs, int):
+            idxs = self.idxs + (idxs,)
+        else:
+            idxs = tuple(self.idxs) + tuple(idxs)
+        return ExcutReferenceVariable(self.varname, idxs, self.offset)
+
+    def __add__(self, offset):
+        return ExcutReferenceVariable(self.varname, self.idxs, self.offset + offset)
+
+    def __str__(self):
+        s_idxs = ""
+        s_offset = ""
+        if self.idxs:
+            s_idxs = json.dumps(self.idxs)
+        if self.offset:
+            s_offset = f" + {self.offset}"
+        return f"var:{self.varname}{s_idxs}{s_offset}"
+
+
+@dataclass(slots=True)
+class ExcutReferenceGenerator:
+    """Makes reference action list and writes them to a JSON file
+
+    It's a bit funny how we generate this list in memory, write it to
+    file, and immediately read it back again. However, this ensures
+    the test directory contains this list in human-readable form,
+    enhancing the debuggability of failing test cases.
+
+    """
+
+    _permute_group_id: Optional[int]
+    _device_name: str
+    _blockIdx: int
+    _threadIdx: int
+    _actions: List[ExcutBuilderAction]
+    varname_set: Set[str]
+
+    def __init__(self):
+        self._permute_group_id = None
+        self._device_name = "cpu"
+        self._blockIdx = 0
+        self._threadIdx = 0
+        self._actions = []
+        self.varname_set = set()
+
+    def permuted(self):
+        """Usage: with xrg.permuted(): ...
+
+        Within the body of the with statement, the N-many logged reference
+        actions will be matched with N-many trace actions in any permutation.
+
+        """
+
+        return ExcutPermuterContext(self, self._permuted)
+
+    def stride_blockIdx(self, n, stride=1):
+        """Usage: for i in xrg.stride_blockIdx(n, stride): ...
+
+        Iterates i in range(0, n).
+        Within the loop body, actions are logged as being done on the cuda
+        device with blockIdx = blockIdx" + i * stride, blockIdx" being
+        the blockIdx value outside the loop (initially 0).
+
+        """
+        old_device_name = self._device_name
+        base_blockIdx = self._blockIdx
+
+        def generator():
+            self._device_name = "cuda"
+            for i in range(n):
+                self._blockIdx = base_blockIdx + i * stride
+                yield i
+            self._blockIdx = base_blockIdx
+            self._device_name = old_device_name
+
+        return generator()
+
+    def stride_threadIdx(self, n, stride=1):
+        """Usage: for i in xrg.stride_threadIdx(n, stride): ...
+
+        Same as stride_blockIdx, but modifies threadIdx instead.
+
+        """
+        old_device_name = self._device_name
+        base_threadIdx = self._threadIdx
+
+        def generator():
+            self._device_name = "cuda"
+            for i in range(n):
+                self._threadIdx = base_threadIdx + i * stride
+                yield i
+            self._threadIdx = base_threadIdx
+            self._device_name = old_device_name
+
+        return generator()
+
+    def __call__(self, action_name, *args, depth=0):
+        """Log an action with args. Uses the current threadIdx, etc.
+
+        An argument may be an int, str, ExcutReferenceVariable, or None (sink)
+
+        """
+        srcinfo = get_srcinfo(depth + 2)
+        str_args = []
+        for a in args:
+            if isinstance(a, int):
+                str_args.append(f"int:{hex(a)}")
+            elif isinstance(a, str):
+                str_args.append(f"str:{a}")
+            elif a is None:
+                str_args.append("_")
+            else:
+                assert isinstance(a, ExcutReferenceVariable)
+                str_args.append(str(a))
+        j = json.dumps(
+            [
+                action_name,
+                str_args,
+                self._device_name,
+                self._blockIdx,
+                self._threadIdx,
+                srcinfo.filename,
+                srcinfo.lineno,
+            ]
+        )
+        self._actions.append(ExcutBuilderAction(j, self._permute_group_id))
+
+    def new_varname(self, varname: str) -> ExcutReferenceVariable:
+        """Make new variable usable as an action's argument.
+
+        Use python [] and + operators to add indices and offsets, respectively.
+
+        """
+        assert varname not in self.varname_set
+        self.varname_set.add(varname)
+        return ExcutReferenceVariable(varname)
+
+    def write_json(self, f: file):
+        """Serialize JSON to file"""
+        actions = self._actions
+        f.write("[\n")
+        for i, action in enumerate(actions):
+            prev_group = None if i == 0 else actions[i - 1].permute_group_id
+            next_group = (
+                None if i == len(actions) - 1 else actions[i + 1].permute_group_id
+            )
+            group = action.permute_group_id
+            comma = " " if i == 0 else ","
+            # Note [ and ] for permute groups don't cause an extra newline.
+            # This is so the fake line numbers heuristic still works.
+            lb = "[" if group is not None and group != prev_group else ""
+            rb = "]" if group is not None and group != next_group else ""
+            f.write(f"  {comma}{lb}{action.json_action}{rb}\n")
+        f.write("]\n")
+
+
+@dataclass(slots=True)
+class ExcutPermuterContext:
+    _generator: ExcutReferenceGenerator
+    _was_permuted: bool
+
+    def __enter__(self):
+        if not self._was_permuted:
+            self._permute_group_id = len(self._generator._actions)
+
+    def __exit__(self, a, b, c):
+        if not self._was_permuted:
+            self._generator._permute_group_id = None
+
+
+########################################################################
+# Excut Code Generation
+# Global string ID table (str->int) and logged inline PTX generator.
+# NOTE: the global-ness of the string table could compromise
+# stability of test C++ outputs (goldens). For this reason, we refer to
+# string IDs by macro (stable) and put the numeric values in a side file.
+########################################################################
 
 
 # Add chars if needed, but any special characters in JSON strings
@@ -585,7 +788,12 @@ def excut_c_str_id(name):
 
 
 def generate_excut_str_table_header(namespace_name):
-    """Generate header file for excut string table."""
+    """Generate header file for excut string table.
+
+    This should be included by the .cuh file only if excut logging is
+    enabled; it is separate from the .cuh to avoid polluting test goldens.
+
+    """
     str_to_id = _string_table._str_to_id
     id_count = len(str_to_id)
     strings = [None] * id_count
@@ -948,7 +1156,8 @@ class InlinePtxGen:
 
         LIMITATION: log_as="str_id" will not work well if PTX args are
         formatted! We'll log the Python format string, NOT the real
-        (substituted) C expression.
+        (substituted) C expression. Hence why @instr now uses a
+        codegen() function instead of the old str.format system.
 
         """
         c_ptx_lines = []

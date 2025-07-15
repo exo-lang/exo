@@ -240,9 +240,9 @@ inline void* exo_cudaMallocAsync_default(size_t size, cudaStream_t exo_cudaStrea
     cudaMallocAsync(&out, size, exo_cudaStream);
     if (exo_excut_log_file_enabled()) {
         exo_excut_begin_log_action("cudaMallocAsync");
+        exo_excut_log_ptr_arg(out);
         exo_excut_log_ptr_arg((void*)(size));
         exo_excut_log_ptr_arg(exo_cudaStream);
-        exo_excut_log_ptr_arg(out);
         exo_excut_end_log_action("cpu", 0, 0, file, line);
     }
     return out;
