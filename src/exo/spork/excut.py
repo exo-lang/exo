@@ -133,15 +133,6 @@ class ExcutVariableID:
 
 
 @dataclass(slots=True)
-class ExcutVariableArg:
-    id: ExcutVariableID
-    offset: int
-
-    def encode(self):
-        return f"var:{self.id.encode()} + {self.offset}"
-
-
-@dataclass(slots=True)
 class ExcutSink:
     def encode(self):
         return "_"
@@ -161,6 +152,29 @@ class ExcutDeduction:
 
     def srcinfo(self):
         return f"{self.src_file}:{self.src_line} {self.json_file}:{self.json_line}?"
+
+
+@dataclass(slots=True)
+class ExcutVariableArg:
+    id: ExcutVariableID
+    offset: int
+
+    def encode(self):
+        return f"var:{self.id.encode()} + {self.offset}"
+
+    def __getitem__(self, idxs):
+        if isinstance(idxs, tuple):
+            idxs = self.id.idxs + idxs
+        else:
+            assert isinstance(idxs, int)
+            idxs = self.id.idxs + (idxs,)
+        return ExcutVariableArg(ExcutVariableID(self.id.varname, idxs), self.offset)
+
+    def __add__(self, offset):
+        return ExcutVariableArg(self.id, self.offset + offset)
+
+    def __call__(self, deductions: Dict[ExcutVariableID, ExcutDeduction]):
+        return deductions[self.id] + self.offset
 
 
 @dataclass(slots=True)
@@ -527,37 +541,13 @@ def require_concordance(
 {new_id.encode()} @ {new_deduction.srcinfo()}"""
             )
 
+    return deductions
+
 
 @dataclass(slots=True)
 class ExcutBuilderAction:
     json_action: str
     permute_group_id: Optional[int]
-
-
-@dataclass
-class ExcutReferenceVariable:
-    varname: str
-    idxs: Tuple[int] = ()
-    offset: int = 0
-
-    def __getitem__(self, idxs):
-        if isinstance(idxs, int):
-            idxs = self.idxs + (idxs,)
-        else:
-            idxs = tuple(self.idxs) + tuple(idxs)
-        return ExcutReferenceVariable(self.varname, idxs, self.offset)
-
-    def __add__(self, offset):
-        return ExcutReferenceVariable(self.varname, self.idxs, self.offset + offset)
-
-    def __str__(self):
-        s_idxs = ""
-        s_offset = ""
-        if self.idxs:
-            s_idxs = json.dumps(self.idxs)
-        if self.offset:
-            s_offset = f" + {self.offset}"
-        return f"var:{self.varname}{s_idxs}{s_offset}"
 
 
 @dataclass(slots=True)
@@ -640,7 +630,7 @@ class ExcutReferenceGenerator:
     def __call__(self, action_name, *args, depth=0):
         """Log an action with args. Uses the current threadIdx, etc.
 
-        An argument may be an int, str, ExcutReferenceVariable, or None (sink)
+        An argument may be an int, str, ExcutVariableArg, or excut.sink
 
         """
         srcinfo = get_srcinfo(depth + 2)
@@ -650,11 +640,11 @@ class ExcutReferenceGenerator:
                 str_args.append(f"int:{hex(a)}")
             elif isinstance(a, str):
                 str_args.append(f"str:{a}")
-            elif a is None:
+            elif a is sink:
                 str_args.append("_")
             else:
-                assert isinstance(a, ExcutReferenceVariable)
-                str_args.append(str(a))
+                assert isinstance(a, ExcutVariableArg)
+                str_args.append(a.encode())
         j = json.dumps(
             [
                 action_name,
@@ -668,7 +658,7 @@ class ExcutReferenceGenerator:
         )
         self._actions.append(ExcutBuilderAction(j, self._permute_group_id))
 
-    def new_varname(self, varname: str) -> ExcutReferenceVariable:
+    def new_varname(self, varname: str) -> ExcutVariableArg:
         """Make new variable usable as an action's argument.
 
         Use python [] and + operators to add indices and offsets, respectively.
@@ -676,7 +666,7 @@ class ExcutReferenceGenerator:
         """
         assert varname not in self.varname_set
         self.varname_set.add(varname)
-        return ExcutReferenceVariable(varname)
+        return ExcutVariableArg(ExcutVariableID(varname, ()), 0)
 
     def write_json(self, f: file):
         """Serialize JSON to file"""

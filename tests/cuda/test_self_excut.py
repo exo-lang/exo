@@ -176,7 +176,7 @@ def mkref_test_simple_reference(
                 else:
                     gmem_src = gmem_ptr + 16 * threadIdx + 1024 * blockIdx
                 str_arg = "foo" if threadIdx < blockIdx or wrong_str_arg else "bar"
-                n_bytes = None if test_sink else 0x1337 if wrong_int_arg else 16
+                n_bytes = excut.sink if test_sink else 0x1337 if wrong_int_arg else 16
                 if type_mismatch:
                     barrier_args = ("barrier.cta.sync", "0")
                 elif too_few_args:
