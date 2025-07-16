@@ -250,11 +250,12 @@ class Compiler:
         self,
         procs: Union[Procedure, List[Procedure]],
         *,
+        sm,
         excut=False,
         include_dir=None,
-        additional_file=None,
+        additional_files=(),
         skip_on_fail: bool = False,
-        compiler_flags=[],
+        compiler_flags=(),
     ):
         if isinstance(procs, Procedure):
             procs = [procs]
@@ -268,7 +269,8 @@ class Compiler:
         artifact_path = str(self.workdir / (self.basename + ".so"))
         args = [
             nvcc,
-            "-arch=native",
+            f"-arch=compute_{sm}",
+            f"-code=sm_{sm},compute_{sm}",
             "-lineinfo",
             "-O3",
             str(self.workdir / (self.basename + ".c")),
@@ -279,15 +281,15 @@ class Compiler:
             "-o",
             artifact_path,
             "-lcuda",
-        ] + compiler_flags
+        ]
+        args.extend(compiler_flags)
         if ccbin := os.getenv("EXO_CCBIN", default=None):
             args.append("-ccbin")
             args.append(ccbin)
         if include_dir is not None:
             args.append("-I")
             args.append(include_dir)
-        if additional_file:
-            args.append(additional_file)
+        args.extend(additional_files)
         if excut:
             args.append("-DEXO_EXCUT_bENABLE_LOG=1")
             args.append("-Itests/cuda/excut")

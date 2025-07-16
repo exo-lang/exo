@@ -76,7 +76,7 @@ def Sm80_test_proc():
 
 
 def test_excut_bootstrap(compiler):
-    cu = compiler.cuda_test_context(Sm80_test_proc, excut=True)
+    cu = compiler.cuda_test_context(Sm80_test_proc, sm=80, excut=True)
     old_buffer_size = cu._saved_excut_buffer_size
     assert isinstance(old_buffer_size, int)
     cu.set_excut_buffer_size(0)  # Test the retry-on-out-of-memory functionality
@@ -240,7 +240,7 @@ def test_simple_reference(compiler):
 
     There are also a few cases of acceptable deviations.
     """
-    cu = compiler.cuda_test_context(Sm80_test_proc, excut=True)
+    cu = compiler.cuda_test_context(Sm80_test_proc, sm=80, excut=True)
     cu(None)
     impl_test = functools.partial(impl_test_trace, mkref_test_simple_reference)
 
@@ -437,7 +437,7 @@ def mkref_advanced(
 
 def impl_test_advanced_A(compiler, test_idx_1):
     cu_proc = mkproc_advanced(test_idx_1, 3)
-    cu = compiler.cuda_test_context(cu_proc, excut=True)
+    cu = compiler.cuda_test_context(cu_proc, sm=80, excut=True)
     cu(None)
     mkref = mkref_advanced
 
@@ -484,7 +484,7 @@ def test_advanced_A2(compiler):
 
 def test_advanced_multiple_2s(compiler):
     cu_proc = mkproc_advanced(1, 3)
-    cu = compiler.cuda_test_context(cu_proc, excut=True)
+    cu = compiler.cuda_test_context(cu_proc, sm=80, excut=True)
     cu(None)
     mkref = mkref_advanced
 
@@ -495,7 +495,7 @@ def test_advanced_multiple_2s(compiler):
 
 def test_advanced_wrong_place_2(compiler):
     cu_proc = mkproc_advanced(1, 3)
-    cu = compiler.cuda_test_context(cu_proc, excut=True)
+    cu = compiler.cuda_test_context(cu_proc, sm=80, excut=True)
     cu(None)
     mkref = mkref_advanced
 

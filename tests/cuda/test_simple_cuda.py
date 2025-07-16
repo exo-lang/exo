@@ -29,7 +29,7 @@ def test_cuda_add_vec(compiler):
                     device_d[task * 32 + tid] += device_a[task * 32 + tid]
         cudaMemcpyAsync_dtoh_1i32(n, c, device_d)
 
-    fn = compiler.nvcc_compile(cuda_add_vec)
+    cu = compiler.cuda_test_context(cuda_add_vec, sm=80)
 
     for n in (32, 32000):
         a = np.ndarray(shape=(n,), dtype=np.int32)
@@ -39,46 +39,8 @@ def test_cuda_add_vec(compiler):
             a[i] = i % 42
             b[i] = i + 101
         c_expected = a + b
-        fn(None, n, a, b, c_test)
+        cu(None, n, a, b, c_test)
         assert np.array_equal(c_test, c_expected)
-
-
-def test_tmp_excut(compiler):
-    """
-    Hello world: Compute c = a + b
-    """
-
-    @proc
-    def cuda_add_vec(n: size, a: i32[n], b: i32[n], c: i32[n]):
-        assert n % 32 == 0
-        device_a: i32[n] @ CudaGmemLinear
-        device_d: i32[n] @ CudaGmemLinear
-        cudaMemcpyAsync_htod_1i32(n, device_a, a)
-        cudaMemcpyAsync_htod_1i32(n, device_d, b)
-        with CudaDeviceFunction(blockDim=32):
-            for task in cuda_tasks(0, n / 32):
-                for tid in cuda_threads(0, 32):
-                    device_d[task * 32 + tid] += device_a[task * 32 + tid]
-        cudaMemcpyAsync_dtoh_1i32(n, c, device_d)
-
-    fn = compiler.nvcc_compile(
-        cuda_add_vec,
-        excut=True,
-    )
-    fn.exo_excut_begin_log_file(compiler.workdir / "excut_trace.json", 1 << 24)
-
-    for n in (32, 32000):
-        a = np.ndarray(shape=(n,), dtype=np.int32)
-        b = np.ndarray(shape=(n,), dtype=np.int32)
-        c_test = np.ndarray(shape=(n,), dtype=np.int32)
-        for i in range(0, n):
-            a[i] = i % 42
-            b[i] = i + 101
-        c_expected = a + b
-        fn(None, n, a, b, c_test)
-        assert np.array_equal(c_test, c_expected)
-
-    fn.exo_excut_end_log_file()
 
 
 def test_cuda_simple_saxpy(compiler):
@@ -106,7 +68,7 @@ def test_cuda_simple_saxpy(compiler):
                     )
         cudaMemcpyAsync_dtoh_1f32(n, y, device_y)
 
-    fn = compiler.nvcc_compile(saxpy)
+    cu = compiler.cuda_test_context(saxpy, sm=80)
 
     for a in (1.0, 3.75):
         for n in (128, 128 * 300):
@@ -116,7 +78,7 @@ def test_cuda_simple_saxpy(compiler):
                 x[i] = i % 42
                 y[i] = i + 101.5
             y_expected = a * y + x
-            fn(None, n, np.array([a], dtype=np.float32), y, x)
+            cu(None, n, np.array([a], dtype=np.float32), y, x)
             assert np.array_equal(y, y_expected)
 
 
@@ -148,7 +110,7 @@ def test_cuda_two_device_functions(compiler):
 
         cudaMemcpyAsync_dtoh_1f32(n, y, device_y)
 
-    fn = compiler.nvcc_compile(saxpy)
+    cu = compiler.cuda_test_context(saxpy, sm=80)
 
     for a in (1.0, 3.75):
         for n in (128, 128 * 300):
@@ -158,7 +120,7 @@ def test_cuda_two_device_functions(compiler):
                 x[i] = i % 42
                 y[i] = i + 101.5
             y_expected = a * y + x
-            fn(None, n, np.array([a], dtype=np.float32), y, x)
+            cu(None, n, np.array([a], dtype=np.float32), y, x)
             assert np.array_equal(y, y_expected)
 
 
@@ -219,18 +181,13 @@ def test_grid_constants_windows(compiler):
 
         cudaMemcpyAsync_dtoh_2i32(N, N, test_out[:, :], test_mem[:, :])
 
-    fn = compiler.nvcc_compile(weird_windows)
+    cu = compiler.cuda_test_context(weird_windows, sm=80)
 
     for N in (10,):
-        test_scalar = np.array(
-            [
-                137,
-            ],
-            dtype=np.int32,
-        )
+        test_scalar = np.array([137], dtype=np.int32)
         test_vector = np.array([11, 12, 13, 14, 25, 26, 27, 28], dtype=np.int32)
         test_out = np.ndarray(shape=(N, N), dtype=np.int32)
-        fn(None, N, test_scalar, test_vector, test_out)
+        cu(None, N, test_scalar, test_vector, test_out)
 
         ref_out = np.ndarray(shape=(N, N), dtype=np.int32)
         for i in range(0, N):
@@ -246,8 +203,8 @@ def test_grid_constants_windows(compiler):
     # Test the test i.e. that it actually tests what it's supposed to.
     # These could fail if the compiler outputs change substantially, but the
     # underlying functionality could still be correct ... use your judgment.
-    cuh_src = fn.get_source_by_ext("cuh")
-    c_src = fn.get_source_by_ext("c")
+    cuh_src = cu.fn.get_source_by_ext("cuh")
+    c_src = cu.fn.get_source_by_ext("c")
     assert (
         "exo_deviceArgs.N_1" in cuh_src
     ), "Was supposed to test mangling of N variable"
@@ -447,7 +404,7 @@ def test_cuda_simple_matmul(compiler):
         cudaMemcpyAsync_dtoh_2f32(N, K, B_cpu, B)
         cudaMemcpyAsync_dtoh_2f32(N, M, C_cpu, C)
 
-    fn = compiler.nvcc_compile(gemm_test)
+    cu = compiler.cuda_test_context(gemm_test, sm=80)
 
     for M in (512, 4096):
         for N in (512, 65536):
@@ -457,7 +414,7 @@ def test_cuda_simple_matmul(compiler):
                 A = np.ndarray(shape=(M, K), dtype=np.float32, order="C")
                 B = np.ndarray(shape=(K, N), dtype=np.float32, order="F")
                 C_test = np.ndarray(shape=(M, N), dtype=np.float32, order="F")
-                fn(None, M, N, K, A, B, C_test)
+                cu(None, M, N, K, A, B, C_test)
                 # A and B initialized by gemm_test, then used by numpy
                 C_expected = np.ndarray(shape=(M, N), dtype=np.float32, order="F")
                 np.matmul(A, B, C_expected)
@@ -503,7 +460,7 @@ def test_cuda_arrays(compiler):
             exo_ZZ0a + exo_ZZ0b, exo_ZZ1a + exo_ZZ1b, exo_ZZ2, exo_ZZ2_device
         )
 
-    fn = compiler.nvcc_compile(array_test)
+    cu = compiler.cuda_test_context(array_test, sm=80)
 
     ZZ0a = 129
     ZZ0b = 100
@@ -512,7 +469,7 @@ def test_cuda_arrays(compiler):
     ZZ2 = np.ndarray(shape=(ZZ0a + ZZ0b, ZZ1a + ZZ1b), dtype=np.int32, order="C")
     ZZ3 = np.array([2.5, 7.5, 1.5, 8.5], dtype=np.float32, order="C")
     ZZ4 = np.array([0.5, 1.5, 2.5, 3.5], dtype=np.float32, order="C")
-    fn(None, ZZ0a, ZZ0b, ZZ1a, ZZ1b, ZZ2, ZZ3, ZZ4)
+    cu(None, ZZ0a, ZZ0b, ZZ1a, ZZ1b, ZZ2, ZZ3, ZZ4)
 
     for i in range(4):
         assert ZZ2[ZZ0a + i, ZZ1a + 4 - i] == ZZ3[i] + ZZ4[i]
@@ -654,16 +611,14 @@ xgemm_Sm80_fence = simplify(xgemm_Sm80_fence)
 
 
 def test_tmp_Sm80(compiler):
-    xtc = compiler.excut_test_context(
-        xgemm_Sm80_fence,
-    )
+    cu = compiler.cuda_test_context(xgemm_Sm80_fence, sm=80)
 
     M, N, K = 192, 256, 64
     A = np.ndarray(shape=(M, K), dtype=np.float32, order="C")
     B = np.ndarray(shape=(K, N), dtype=np.float32, order="C")
     C_test = np.ndarray(shape=(M, N), dtype=np.float32, order="C")
 
-    xtc(None, M, N, K, A, B, C_test)
+    cu(None, M, N, K, A, B, C_test)
 
     C_expected = A @ B
     assert np.array_equal(C_test, C_expected)
