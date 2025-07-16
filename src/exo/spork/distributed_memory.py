@@ -265,16 +265,11 @@ class DistributedAllocState(object):
             assert cta_pitch * blockDim == thread_pitch
             assert cta_count >= 2
 
-            if (cta_count - 1) & cta_count:
-                raise ValueError(
-                    f"{e.srcinfo}: Unimplemented, non-power-of-2 CTA count"
-                )
+            # CUDA model fundamentally assumes power-of-2 CTA counts
             cta_count_log2 = cta_count.bit_length() - 1
-            if (cta_pitch - 1) & cta_pitch:
-                raise ValueError(
-                    f"{e.srcinfo}: Unimplemented, non-power-of-2 CTA pitch"
-                )
             cta_pitch_log2 = cta_pitch.bit_length() - 1
+            assert cta_count == 1 << cta_count_log2
+            assert cta_pitch == 1 << cta_pitch_log2
 
             if multicast:
                 tmp = 1
@@ -530,19 +525,21 @@ class DistributedIdxFsm:
         """Check that the leaf tiling matches the stored native unit"""
         unit = self.optional_native_unit
         assert unit is not None
+        _iter = self.leaf_iter
+        is_distributed = _iter is not None
         if msg := self.leaf_coll_tiling.unit_mismatch(
-            unit, self.coll_env, ignore_box=True
+            unit,
+            self.coll_env,
+            ignore_box=is_distributed,
         ):
-            _iter = self.leaf_iter
-            node = ' (NOTE: the effects of with CudaAsync are partially ignored; a "do-nothing" for _ in cuda_threads(0, 1, unit={unit}) loop may fix this)'
-            if _iter is None:
-                self.bad_idx(
-                    node, f"Wrong collective unit at point of allocation: {msg}{note}"
-                )
-            else:
+            if is_distributed:
                 self.bad_idx(
                     node,
                     f"Tried to allocate under {_iter} loop; wrong collective unit: {msg}{note}",
+                )
+            else:
+                self.bad_idx(
+                    node, f"Wrong collective unit at point of allocation: {msg}{note}"
                 )
 
     def check_store_state(self, node, state: DistributedAllocState):

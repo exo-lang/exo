@@ -1,0 +1,84 @@
+Todo catalog all possible compiler errors
+
+Main compiler:
+
+cuda_tasks loop alone
+Duplicate cuda_tasks iter variable name
+Invalid statement after cuda_tasks loop
+Missing cuda_tasks loop
+Grid constant window
+cuda_tasks loop must appear only in top level...
+Unexpected loop mode in CudaDeviceFunction
+CudaBasicDeviceVisible
+expect_SyncStmt???
+Number of intervals in barrier wrong...
+Unexpected with context type
+Solitary barrier error
+SMEM allocation const shape
+---
+Write must be executed by one thread only
+Top-level CudaWarps must provide
+CTA must not be subdivided by parent cuda_threads loop
+Wrong coll_unit for instr
+cuda_threads 0/const hi
+CudaWarps out-of-range
+CudaWarps cannot change warp name
+CudaWarps must define lo and hi
+
+
+Barrier Usage:
+
+incompatible sync-tl
+incompatible multicasts
+no back queue barrier
+no multicast support
+N != 1
+uniform N
+
+Distributed memory
+
+Mbarrier multicast on intra-CTA dimension
+Convergence requirement
+Mismatched #distributed dims
+Mismatched distributed dim values
+Barrier: tile size mismatches leaf threads
+Inconsistent collective tiling with previous
+Expected point, not interval
+Expected 0:const
+Expected single variable name
+Iter not from cuda_threads
+Mismatched extent
+Repeated? index
+Overshot
+SyncStmt 0:const_extent
+Wrong collective unit at point of allocation
+Tried to allocate under x loop
+mismatches #distributed dims
+Mismatched distributed dims
+
+mem_analysis:
+
+WindowStmt input memory
+call mem type
+does not take trailing barrier expression
+requires trailing barrier expression
+intact packed dimensions
+multiple barriers, different variable
+multiple barriers, different sidedness
+missing something
+check_pairing issues
+
+InstrTimelineAnalysis:
+
+Wrong parent instr-tl
+Memory type alloc/read/write
+Assign/Reduce
+WindowStmt
+SyncStmt
+Call
+Read
+warn_weird_letters
+
+coll_algebra
+
+CollSizeExpr broken division [or remove this feature?]

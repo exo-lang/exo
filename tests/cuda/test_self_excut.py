@@ -16,6 +16,7 @@ from exo import *
 from exo.stdlib.scheduling import *
 from exo.platforms.cuda import *
 from exo.platforms.Sm80 import *
+
 from exo.spork import excut
 
 
@@ -165,15 +166,20 @@ def mkref_test_simple_reference(
     gmem_ptr = xrg.new_varname("gmem_ptr")
 
     if wrong_device_name:
+        xrg.begin_cuda()
         for threadIdx in xrg.stride_threadIdx(1):
             xrg("cudaMallocAsync", gmem_ptr, 4096, 0)
+        xrg.end_cuda()
     else:
         xrg("cudaMallocAsync", gmem_ptr, 4096, 0)
 
     for i in range(1, cuda_launches + 1):
-        for blockIdx in xrg.stride_blockIdx(2 * i, 2 if wrong_blockIdx else 1):
+        xrg.begin_cuda()
+        for blockIdx in xrg.stride_blockIdx(2 * i, stride=2 if wrong_blockIdx else 1):
             smem_base = xrg.new_varname(f"smem_base_{i}_{blockIdx}")
-            for threadIdx in xrg.stride_threadIdx(64, 2 if wrong_threadIdx else 1):
+            for threadIdx in xrg.stride_threadIdx(
+                64, stride=2 if wrong_threadIdx else 1
+            ):
                 smem_dst = smem_base + 16 * threadIdx
                 if wrong_deduction:
                     gmem_src = gmem_ptr
@@ -211,6 +217,7 @@ def mkref_test_simple_reference(
                 else:
                     for tup in arg_tups:
                         xrg(*tup)
+        xrg.end_cuda()
 
     if free_ptr_var:
         free_ptr = xrg.new_varname("free_ptr")
@@ -304,31 +311,23 @@ def test_simple_reference(compiler):
     assert gmem_ptr(deductions) == gmem_ptr1(deductions) + 888
 
 
-def make_excut_trace_init_smem(value):
-    @instr
-    class excut_trace_init_smem:
-        def behavior(smem: [i32][1] @ CudaSmemLinear):
-            smem[0] = value
+@instr
+class excut_trace_init_smem:
+    def behavior(smem: [i32][1] @ CudaSmemLinear, value: i32 @ CudaRmem):
+        smem[0] = value
 
-        def instance(self):
-            self.instr_tl = cuda_in_order_instr
-            self.coll_unit = cuda_thread
+    def instance(self):
+        self.instr_tl = cuda_in_order_instr
+        self.coll_unit = cuda_thread
 
-        def codegen(self, args):
-            action_id = excut.excut_c_str_id("excut_trace_init_smem")
-            return [
-                f"{args.smem.index()} = {value};",
-                f"exo_excutLog.log_action({action_id}, 0, __LINE__);",
-                f"exo_excutLog.log_u32_arg(exo_smemU32({args.smem.index_ptr(0)}));",
-                f"exo_excutLog.log_u32_arg({value});",
-            ]
-
-    return excut_trace_init_smem()
-
-
-excut_trace_init_smem_0 = make_excut_trace_init_smem(0)
-excut_trace_init_smem_1 = make_excut_trace_init_smem(1)
-excut_trace_init_smem_2 = make_excut_trace_init_smem(2)
+    def codegen(self, args):
+        action_id = excut.excut_c_str_id("excut_trace_init_smem")
+        return [
+            f"{args.smem.index()} = {args.value.index()};",
+            f"exo_excutLog.log_action({action_id}, 0, __LINE__);",
+            f"exo_excutLog.log_u32_arg(exo_smemU32({args.smem.index_ptr(0)}));",
+            f"exo_excutLog.log_u32_arg({args.value.index()});",
+        ]
 
 
 @instr
@@ -366,14 +365,21 @@ def mkproc_advanced(test_idx_1, test_idx_2):
             for task in cuda_tasks(0, 1):
                 smem: i32[4] @ CudaSmemLinear
                 for tid in cuda_threads(0, 1):
+                    _0: i32 @ CudaRmem
+                    _1: i32 @ CudaRmem
+                    _2: i32 @ CudaRmem
+                    _0 = 0
+                    _1 = 1
+                    _2 = 2
+
                     # Part 0
-                    excut_trace_init_smem_0(smem[0:1])
+                    excut_trace_init_smem(smem[0:1], _0)
 
                     # Part 1
-                    excut_trace_init_smem_1(smem[0:1])
-                    excut_trace_init_smem_1(smem[1:2])
-                    excut_trace_init_smem_1(smem[2:3])
-                    excut_trace_init_smem_2(smem[3:4])
+                    excut_trace_init_smem(smem[0:1], _1)
+                    excut_trace_init_smem(smem[1:2], _1)
+                    excut_trace_init_smem(smem[2:3], _1)
+                    excut_trace_init_smem(smem[3:4], _2)
 
                     # Part 2
                     excut_trace_log_smem(smem[test_idx_1 : test_idx_1 + 1])
@@ -381,11 +387,11 @@ def mkproc_advanced(test_idx_1, test_idx_2):
 
                     # Part 3
                     # "Former group"
-                    excut_trace_init_smem_1(smem[0:1])
-                    excut_trace_init_smem_1(smem[1:2])
+                    excut_trace_init_smem(smem[0:1], _1)
+                    excut_trace_init_smem(smem[1:2], _1)
                     # "Latter group"
-                    excut_trace_init_smem_1(smem[2:3])
-                    excut_trace_init_smem_2(smem[3:4])
+                    excut_trace_init_smem(smem[2:3], _1)
+                    excut_trace_init_smem(smem[3:4], _2)
 
     return rename(cuda_proc, f"cuda_proc_{test_idx_1}_{test_idx_2}")
 
@@ -397,6 +403,7 @@ def mkref_advanced(
     too_many=False,
     not_enough=False,
 ):
+    xrg.begin_cuda()
     for threadIdx in xrg.stride_threadIdx(1):
         smem = xrg.new_varname("smem")
         A = xrg.new_varname("A")
@@ -433,6 +440,7 @@ def mkref_advanced(
                     xrg("excut_trace_init_smem", D, 2)
             if too_many:
                 xrg("excut_trace_init_smem", D, 2)
+    xrg.end_cuda()
 
 
 def impl_test_advanced_A(compiler, test_idx_1):

@@ -551,6 +551,9 @@ def require_concordance(
 class ExcutBuilderAction:
     json_action: str
     permute_group_id: Optional[int]
+    # For sorting by (generation, blockIdx, threadIdx) where generation
+    # is used to distinguish between CPU/CUDA and different CUDA launches.
+    key: Tuple[int, int, int]
 
 
 @dataclass(slots=True)
@@ -566,6 +569,7 @@ class ExcutReferenceGenerator:
 
     _permute_group_id: Optional[int]
     _device_name: str
+    _generation: int
     _blockIdx: int
     _threadIdx: int
     _actions: List[ExcutBuilderAction]
@@ -574,10 +578,21 @@ class ExcutReferenceGenerator:
     def __init__(self):
         self._permute_group_id = None
         self._device_name = "cpu"
+        self._generation = 0
         self._blockIdx = 0
         self._threadIdx = 0
         self._actions = []
         self.varname_set = set()
+
+    def begin_cuda(self):
+        assert self._device_name == "cpu"
+        self._device_name = "cuda"
+        self._generation += 1
+
+    def end_cuda(self):
+        assert self._device_name == "cuda"
+        self._device_name = "cpu"
+        self._generation += 1
 
     def permuted(self):
         """Usage: with xrg.permuted(): ...
@@ -585,11 +600,13 @@ class ExcutReferenceGenerator:
         Within the body of the with statement, the N-many logged reference
         actions will be matched with N-many trace actions in any permutation.
 
+        Undefined behavior if permutation is not within just one thread.
+
         """
 
         return ExcutPermuterContext(self, self._permute_group_id is not None)
 
-    def stride_blockIdx(self, n, stride=1, offset=0):
+    def stride_blockIdx(self, n, *, stride=1, offset=0):
         """Usage: for i in xrg.stride_blockIdx(n, stride): ...
 
         Iterates i in range(0, n).
@@ -597,36 +614,34 @@ class ExcutReferenceGenerator:
         device with blockIdx = blockIdx" + offset + i * stride,
         blockIdx" being the blockIdx value outside the loop (initially 0).
 
+        Must be between begin_cuda(), end_cuda() pair.
+
         """
-        old_device_name = self._device_name
+        assert self._device_name == "cuda"
         base_blockIdx = self._blockIdx
 
         def generator():
-            self._device_name = "cuda"
             for i in range(n):
-                self._blockIdx = base_blockIdx + i * stride
+                self._blockIdx = base_blockIdx + i * stride + offset
                 yield i
             self._blockIdx = base_blockIdx
-            self._device_name = old_device_name
 
         return generator()
 
-    def stride_threadIdx(self, n, stride=1, offset=0):
+    def stride_threadIdx(self, n, *, stride=1, offset=0):
         """Usage: for i in xrg.stride_threadIdx(n, stride): ...
 
         Same as stride_blockIdx, but modifies threadIdx instead.
 
         """
-        old_device_name = self._device_name
+        assert self._device_name == "cuda"
         base_threadIdx = self._threadIdx
 
         def generator():
-            self._device_name = "cuda"
             for i in range(n):
-                self._threadIdx = base_threadIdx + i * stride
+                self._threadIdx = base_threadIdx + i * stride + offset
                 yield i
             self._threadIdx = base_threadIdx
-            self._device_name = old_device_name
 
         return generator()
 
@@ -659,7 +674,13 @@ class ExcutReferenceGenerator:
                 srcinfo.lineno,
             ]
         )
-        self._actions.append(ExcutBuilderAction(j, self._permute_group_id))
+        self._actions.append(
+            ExcutBuilderAction(
+                j,
+                self._permute_group_id,
+                (self._generation, self._blockIdx, self._threadIdx),
+            )
+        )
 
     def new_varname(self, varname: str) -> ExcutVariableArg:
         """Make new variable usable as an action's argument.
@@ -678,6 +699,7 @@ class ExcutReferenceGenerator:
     def write_json(self, f: file):
         """Serialize JSON to file"""
         actions = self._actions
+        actions.sort(key=lambda a: a.key)
         f.write("[\n")
         for i, action in enumerate(actions):
             prev_group = None if i == 0 else actions[i - 1].permute_group_id

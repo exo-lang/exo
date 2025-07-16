@@ -52,6 +52,7 @@ class CollSizeExpr(object):
         n = self.scalar.numerator
         for p in self.coll_params:
             n *= env[p]
+        assert self.scalar.denominator == 1
         assert n % self.scalar.denominator == 0  # TODO better message
         n //= self.scalar.denominator
         assert isinstance(n, int)

@@ -5,8 +5,6 @@ import pytest
 import random
 
 from exo import proc
-from exo.core.LoopIR import T
-from exo.core.extern import Extern, _EErr
 from exo.platforms.cuda import *
 from exo.stdlib.scheduling import *
 
