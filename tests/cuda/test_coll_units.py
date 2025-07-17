@@ -593,6 +593,9 @@ def test_cuda_threads_bounds_variable(compiler):
     assert "test_iter" in str(exc.value)
 
 
+# fmt: off
+
+
 def test_invalid_index_expression(compiler):
     @proc
     def seq_fail():
@@ -612,8 +615,8 @@ def test_invalid_index_expression(compiler):
                         for s in seq(0, 16):
                             # Expecting tiling chain 256 $\mapsto$ ... $\mapsto$ 1
                             # TeX: color line *
-                            #                                    b                            gggggggggggggggggg
-                            # Failure: non-cuda_threads iterator s consumed when we only have m: $256\mapsto 16$
+          #                                    b                            gggggggggggggggggg
+          # Failure: non-cuda_threads iterator s consumed when we only have m: $256\mapsto 16$
                             # TeX: color line *
                             #    g  b  v
                             vals[m, s, n, 0] = 0
@@ -638,14 +641,10 @@ def test_mismatched_CollIndexExpr(compiler):
                 vals: f32[16, 4] @ CudaRmem
                 # TeX: color line *
                 #   g
-                for m in cuda_threads(
-                    0, 16, unit=4 * cuda_thread
-                ):  # m = threadIdx.x / 4
+                for m in cuda_threads(0, 16, unit=4 * cuda_thread):# m = threadIdx.x / 4
                     # TeX: color line *
                     #   v
-                    for n in cuda_threads(
-                        0, 4, unit=cuda_thread
-                    ):  # n = threadIdx.x % 4
+                    for n in cuda_threads(0, 4, unit=cuda_thread):# n = threadIdx.x % 4
                         # TeX: color line *
                         #    g  v         ggggggggggggggggg  vvvvvvvvvvvvvvv
                         vals[m, n] = 0  # m: $256\mapsto 4$, n: $4\mapsto 1$
@@ -653,12 +652,8 @@ def test_mismatched_CollIndexExpr(compiler):
                 #            rrrrrrrrrrrrrrr ggg  rrrrrrrrrrrrrrr vvv
                 # Deduction: threadIdx.x / 4 (m), threadIdx.x % 4 (n)
                 with CudaWarps(1, 3):
-                    for m in cuda_threads(
-                        0, 16, unit=4 * cuda_thread
-                    ):  # m = (threadIdx.x - 32) / 4
-                        for n in cuda_threads(
-                            0, 4, unit=cuda_thread
-                        ):  # n = threadIdx.x % 4
+                    for m in cuda_threads(0, 16, unit=4 * cuda_thread):# m = (threadIdx.x - 32) / 4
+                        for n in cuda_threads(0, 4, unit=cuda_thread): # n = threadIdx.x % 4
                             # TeX: color line *
                             #    g  v         ggggggggggggggggg  vvvvvvvvvvvvvvv
                             vals[m, n] = 0  # m: $256\mapsto 4$, n: $4\mapsto 1$
@@ -667,7 +662,7 @@ def test_mismatched_CollIndexExpr(compiler):
                     # Mismatched deduction: (threadIdx.x - 32) / 4 (m), threadIdx.x % 4 (n)
                 # TeX: color line *
                 #   y
-                for t in cuda_threads(0, 16, unit=cuda_thread):  # t = threadIdx.x
+                for t in cuda_threads(0, 16, unit=cuda_thread):# t = threadIdx.x
                     # TeX: color line *
                     #   b
                     for s in seq(0, 4):
@@ -695,14 +690,10 @@ def test_matched_CollIndexExpr(compiler):
                 vals: f32[16, 8] @ CudaRmem
                 # TeX: color line *
                 #   g
-                for m in cuda_threads(
-                    0, 16, unit=8 * cuda_thread
-                ):  # m = threadIdx.x / 8
+                for m in cuda_threads(0, 16, unit=8 * cuda_thread):# m = threadIdx.x / 8
                     # TeX: color line *
                     #   v
-                    for n in cuda_threads(
-                        0, 8, unit=cuda_thread
-                    ):  # n = threadIdx.x % 8
+                    for n in cuda_threads(0, 8, unit=cuda_thread):# n = threadIdx.x % 8
                         # TeX: color line *
                         #    g  v         ggggggggggggggggg  vvvvvvvvvvvvvvv
                         vals[m, n] = 0  # m: $128\mapsto 8$, n: $8\mapsto 1$
@@ -713,12 +704,8 @@ def test_matched_CollIndexExpr(compiler):
                 # TeX: color remark! matched[0]
                 #                                                            rrrrrrrrrrrrr
                 # The names of the variables do not matter; only the deduced CollIndexExpr
-                for a in cuda_threads(
-                    0, 16, unit=8 * cuda_thread
-                ):  # a = threadIdx.x / 8
-                    for b in cuda_threads(
-                        0, 8, unit=cuda_thread
-                    ):  # b = threadIdx.x % 8
+                for a in cuda_threads(0, 16, unit=8 * cuda_thread):# a = threadIdx.x / 8
+                    for b in cuda_threads(0, 8, unit=cuda_thread):# b = threadIdx.x % 8
                         vals[a, b] = 0
                 # TeX: color line *
                 #            rrrrrrrrrrrrrrr      rrrrrrrrrrrrrrr
@@ -733,25 +720,18 @@ def test_matched_CollIndexExpr(compiler):
                 # n = threadIdx.x % 8
                 # TeX: color line *
                 #   v
-                for n in cuda_threads(
-                    0, 8, unit=CollUnit((8,), (1,), "one_thread_per_8", None)
-                ):
-                    # CollUnit(domain, box, __repr__, scaled_dim_idx)
+                for n in cuda_threads(0, 8, unit=CollUnit((8,), (1,), "one_thread_per_8", None)):
+                                               # CollUnit(domain, box, __repr__, scaled_dim_idx)
                     # TeX: color line *
                     #   g
-                    for m in cuda_threads(
-                        0, 16, unit=cuda_thread
-                    ):  # m = threadIdx.x / 8
+                    for m in cuda_threads(0, 16, unit=cuda_thread):  # m = threadIdx.x / 8
                         # TeX: color line *
                         #    g  v         vvvvvvvvvvvvvvvvvv  gggggggggggggggg
-                        vals[
-                            m, n
-                        ] = 0  # n: $128\mapsto 16$, m: $16\mapsto 1$ (not same order as indices)
+                        vals[m, n] = 0  # n: $128\mapsto 16$, m: $16\mapsto 1$ (not same order as indices)
                 # TeX: color line *
                 #            rrrrrrrrrrrrrrr ggg  rrrrrrrrrrrrrrr vvv
                 # Deduction: threadIdx.x / 8 (m), threadIdx.x % 8 (n)
         # TeX: end matched[0]
-
     cu = compiler.cuda_test_context(matched, sm=80)
 
 
@@ -767,28 +747,22 @@ def test_broken_chain(compiler):
                 vals: f32[16, 8, 2] @ CudaRmem  # $t_a = 256$; $t_n = 1$
                 # TeX: color line *
                 #   y                                                   yyyyyyyyyyyyyyyyyyy
-                for b in cuda_threads(
-                    0, 2, unit=128 * cuda_thread
-                ):  # b: $256\mapsto 128$
+                for b in cuda_threads(0, 2, unit=128 * cuda_thread):  # b: $256\mapsto 128$
                     # TeX: color line *
                     #   g                                                  ggggggggggggggggg
-                    for m in cuda_threads(
-                        0, 16, unit=8 * cuda_thread
-                    ):  # m: $128\mapsto 8$
+                    for m in cuda_threads(0, 16, unit=8 * cuda_thread):  # m: $128\mapsto 8$
                         # TeX: color line *
                         #   v                                             vvvvvvvvvvvvvvv
-                        for n in cuda_threads(
-                            0, 8, unit=cuda_thread
-                        ):  # n: $8\mapsto 1$
+                        for n in cuda_threads(0, 8, unit=cuda_thread):  # n: $8\mapsto 1$
                             # TeX: color line *
                             #   b
                             for s in seq(0, 2):
                                 # TeX: color line *
-                                # ggggggggggggggggg     vvvvvvvvvvvvvvv                                   rrrrrrrrrrrrrr
-                                # m: $128\mapsto 8$ and n: $8\mapsto 1$ is insufficient to reach the goal $256\mapsto 1$
-                                # TeX: color line *
-                                #                                                  b
-                                # Distributed memory analysis fails upon consuming s (non-cuda_threads iter)
+                # ggggggggggggggggg     vvvvvvvvvvvvvvv                                   rrrrrrrrrrrrrr
+                # m: $128\mapsto 8$ and n: $8\mapsto 1$ is insufficient to reach the goal $256\mapsto 1$
+                # TeX: color line *
+                #                                                  b
+                # Distributed memory analysis fails upon consuming s (non-cuda_threads iter)
                                 # TeX: color line *
                                 #    g  v  b
                                 vals[m, n, s] = 0
@@ -797,7 +771,6 @@ def test_broken_chain(compiler):
                 # This rule enforces that two different thread collectives (in this case, differing by b value)
                 # can't access the same distributed shard.
         # TeX: end broken_chain[0]
-
     with pytest.raises(Exception) as exc:
         cu = compiler.cuda_test_context(broken_chain, sm=80)
     assert "128" in str(exc.value)
@@ -811,17 +784,13 @@ def test_warp_example(compiler):
             for task in cuda_tasks(0, 1):
                 # TeX: color line *
                 #      rrrr                                         rrrrrrrrrrrrrrrrrrrrrrr
-                D: f32[2, 4, 6, 16, 8] @ Sm80_RmemMatrixD(
-                    16, 8
-                )  # $t_a = 256$, $t_n = 32$
+                D: f32[2, 4, 6, 16, 8] @ Sm80_RmemMatrixD(16, 8)  # $t_a = 256$, $t_n = 32$
                 # TeX: color line *
                 #            rrrrrrrrrrrrrrrrr  rrrrrrrrrrrrrrrrrrrrrrrr
                 # Deduction: threadIdx.x / 128, threadIdx.x % 128 / 32
                 # TeX: color line *
                 #   gg
-                for mw in cuda_threads(
-                    0, 2, unit=128 * cuda_thread
-                ):  # mw = threadIdx.x / 128
+                for mw in cuda_threads(0, 2, unit=128 * cuda_thread):# mw = threadIdx.x / 128
                     # TeX: color line *
                     #   vv
                     for nw in cuda_threads(0, 4, unit=32 * cuda_thread):
@@ -831,13 +800,10 @@ def test_warp_example(compiler):
                         for s in seq(0, 6):
                             # TeX: color line *
                             #                      gg  vv  b           gggggggggggggggggggg  vvvvvvvvvvvvvvvvvvv
-                            Sm80_mma_zero_d_tf32(
-                                D[mw, nw, s, :, :]
-                            )  # mw: $256\mapsto 128$, nw: $128\mapsto 32$
+                            Sm80_mma_zero_d_tf32(D[mw, nw, s, :, :]) # mw: $256\mapsto 128$, nw: $128\mapsto 32$
                     # TeX: color line *
                     #                                   b                                        rrrrrrrrrr
                     # Indexing by seq-for iter variable s is OK as we already reached the target $t_n$ = 32
-
     # TeX: end warp_example[0]
 
     cu = compiler.cuda_test_context(warp_example, sm=80)
@@ -855,9 +821,7 @@ def chain_0():
             #            rrrrrrrrrrrrrrrrrrrrrr  rrrrrrrrrrrrrrr
             # Deduction: (threadIdx.x - 64) / 8, threadIdx.x % 8
             # tile = (256,), box = (256,), offset = (0,)
-            with CudaWarps(
-                2, 6
-            ):  # Offset by 2*32 = 64 threads; box = (6-2)*32 = 128 threads
+            with CudaWarps(2, 6):  # Offset by 2*32 = 64 threads; box = (6-2)*32 = 128 threads
                 # TeX: color line *
                 #        gggggg
                 # tile = (256,), box = (128,), offset=(64,)
@@ -878,8 +842,6 @@ def chain_0():
                             #    g  v  b         ggggggggggggggggg  vvvvvvvvvvvvvvv
                             vals[m, n, s] = 0  # m: $256\mapsto 8$, n: $8\mapsto 1$
                             excut_trace_3index(m, n, s)
-
-
 # TeX: end chain[0]
 
 
@@ -925,9 +887,7 @@ def chain_1():
                     for n in cuda_threads(0, 8, unit=cuda_thread):  # n: $8\mapsto 1$
                         # TeX: color line *
                         #    g  v  y         yyyyyyyyyyyyyyyyyyy  ggggggggggggggggg  vvvvvvvvvvvvvvv
-                        vals[
-                            m, n, b
-                        ] = 0  # b: $256\mapsto 128$, m: $128\mapsto 8$, n: $8\mapsto 1$
+                        vals[m, n, b] = 0  # b: $256\mapsto 128$, m: $128\mapsto 8$, n: $8\mapsto 1$
                         excut_trace_3index(m, n, b)
 
 
@@ -976,8 +936,6 @@ def test_repeated_index(compiler):
     with pytest.raises(Exception) as exc:
         cu = compiler.cuda_test_context(repeated_index, sm=80)
     assert "repeated" in str(exc.value)
-
-
 # TeX: end repeated[0]
 
 
@@ -995,21 +953,16 @@ def test_repeated_index_fixed(compiler):
                 # Deduction: threadIdx.x % 16, threadIdx.x / 16
                 # TeX: color line *
                 #   g
-                for m in cuda_threads(
-                    0, 16, unit=16 * cuda_thread
-                ):  # m = threadIdx. / 16
+                for m in cuda_threads(0, 16, unit=16 * cuda_thread):# m = threadIdx. / 16
                     # TeX: color line *
                     #   v
-                    for n in cuda_threads(
-                        0, 16, unit=cuda_thread
-                    ):  # n = threadIdx.x % 16
+                    for n in cuda_threads(0, 16, unit=cuda_thread):# n = threadIdx.x % 16
                         # TeX: color line *
                         #    v  g            gggggggggggggggggg  vvvvvvvvvvvvvvvv
                         vals[n, m, m] = 0  # m: $256\mapsto 16$, n: $16\mapsto 1$
                 # TeX: color line *
                 #                                                                             rrrrrrrrr
                 # Second m not deduced as distributed idx since we already reached the target $t_n = 1$
-
     cu = compiler.cuda_test_context(repeated_index, sm=80)
     cuh = cu.fn.get_source_by_ext("cuh")
     assert "float vals[16]" in cuh
