@@ -36,14 +36,13 @@ EXO_CUDA_INLINE unsigned exo_mapa_shared_cluster(unsigned addr_u32, unsigned cta
 #include "exo_excut.h"  // Used for exo excut tests (tracing)
 #else
 // Do-nothing replacements for exo_excut.h
-typedef struct exo_ExcutDeviceLog {} exo_ExcutDeviceLog;
 #define exo_excut_log_file_enabled() 0
 #define exo_excut_begin_log_action(action_name)
 #define exo_excut_log_str_arg(str)
 #define exo_excut_log_int_arg(bytes, binary)
 #define exo_excut_log_ptr_arg(ptr)
 #define exo_excut_end_log_action(device_name, _blockIdx, _threadIdx, file, line)
-#define exo_excut_get_device_log() (exo_ExcutDeviceLog) {}
+#define exo_excut_get_device_log()
 #define exo_excut_flush_device_log(stream, _gridDim, _blockDim, string_id_count, string_table, file_id_count, file_table)
 #define EXO_EXCUT_STR_ID(c) 0
 #ifdef __CUDACC__
@@ -56,7 +55,7 @@ struct exo_ExcutThreadLog {
     template <typename T>
     EXO_CUDA_INLINE void log_ptr_data_arg(const T*, uint32_t = 0) {}
 };
-EXO_CUDA_INLINE exo_ExcutThreadLog exo_excut_begin_thread_log(exo_ExcutDeviceLog) { return {}; }
+#define exo_excut_begin_thread_log(log) {}
 #endif
 #endif // EXO_EXCUT_bENABLE_LOG
 
@@ -132,7 +131,9 @@ void exo_cudaLaunch0_proc_odd_threads(cudaStream_t exo_cudaStream, struct exo_Cu
 // CUDA device function args -- duplicated in .cuh file
 struct exo_CudaDeviceArgs0_proc_odd_threads
 {
+# if EXO_EXCUT_bENABLE_LOG
     exo_ExcutDeviceLog exo_excutDeviceLog;
+# endif
 };
 
 
@@ -171,7 +172,9 @@ namespace exo_CudaUtil = ::exo_CudaUtil_test_odd_threads_golden;
 // CUDA device function args -- duplicated in .c file
 struct exo_CudaDeviceArgs0_proc_odd_threads
 {
+# if EXO_EXCUT_bENABLE_LOG
     exo_ExcutDeviceLog exo_excutDeviceLog;
+# endif
 };
 
 struct exo_Cuda0_proc_odd_threads

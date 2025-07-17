@@ -349,7 +349,7 @@ def mkproc_scalar_write(unit):
 
 
 def test_scalar_write_positive(compiler):
-    cu = compiler.cuda_test_context(mkproc_scalar_write(cuda_thread), sm=80, excut=True)
+    cu = compiler.cuda_test_context(mkproc_scalar_write(cuda_thread), sm=80)
     src = np.ndarray(shape=(1,), dtype=np.int32)
     dst = np.ndarray(shape=(1,), dtype=np.int32)
     src[0] = 1337

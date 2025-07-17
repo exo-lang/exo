@@ -354,15 +354,21 @@ class SubtreeScan(LoopIR_Do):
                     device_args_values.append(c_arg)
                 device_args_comments.append(f"{sym}: {typ} @{mem.name()}")
 
-        device_args_values.append("exo_excut_get_device_log()")
-
         device_args_struct_lines = []
         assert len(device_args_decls) == len(device_args_comments)
         for i in range(len(device_args_decls)):
             device_args_struct_lines.append(
                 f"    {device_args_decls[i]};  // {device_args_comments[i]}"
             )
+        # exo_ExcutDeviceLog is only defined in the supplemental exo_excut.h file.
+        # This used to be an empty struct, but this caused crazy C/C++ ABI issues.
+        # Must be the last arg, as exo_excut_get_device_log() is defined to nothing.
+        # Fortunately, C seems to allow a trailing comma here.
+        device_args_struct_lines.append("# if EXO_EXCUT_bENABLE_LOG")
         device_args_struct_lines.append("    exo_ExcutDeviceLog exo_excutDeviceLog;")
+        device_args_struct_lines.append("# endif")
+        device_args_values.append("exo_excut_get_device_log()")
+
         self.fmt_dict["device_args"] = ", ".join(device_args_values)
         self.fmt_dict["device_args_struct_body"] = "\n".join(device_args_struct_lines)
 
@@ -1548,14 +1554,13 @@ EXO_CUDA_INLINE unsigned exo_mapa_shared_cluster(unsigned addr_u32, unsigned cta
 #include "exo_excut.h"  // Used for exo excut tests (tracing)
 #else
 // Do-nothing replacements for exo_excut.h
-typedef struct exo_ExcutDeviceLog {} exo_ExcutDeviceLog;
 #define exo_excut_log_file_enabled() 0
 #define exo_excut_begin_log_action(action_name)
 #define exo_excut_log_str_arg(str)
 #define exo_excut_log_int_arg(bytes, binary)
 #define exo_excut_log_ptr_arg(ptr)
 #define exo_excut_end_log_action(device_name, _blockIdx, _threadIdx, file, line)
-#define exo_excut_get_device_log() (exo_ExcutDeviceLog) {}
+#define exo_excut_get_device_log()
 #define exo_excut_flush_device_log(stream, _gridDim, _blockDim, string_id_count, string_table, file_id_count, file_table)
 #define EXO_EXCUT_STR_ID(c) 0
 #ifdef __CUDACC__
@@ -1568,7 +1573,7 @@ struct exo_ExcutThreadLog {
     template <typename T>
     EXO_CUDA_INLINE void log_ptr_data_arg(const T*, uint32_t = 0) {}
 };
-EXO_CUDA_INLINE exo_ExcutThreadLog exo_excut_begin_thread_log(exo_ExcutDeviceLog) { return {}; }
+#define exo_excut_begin_thread_log(log) {}
 #endif
 #endif // EXO_EXCUT_bENABLE_LOG
 
