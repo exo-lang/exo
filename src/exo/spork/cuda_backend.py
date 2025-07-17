@@ -364,9 +364,9 @@ class SubtreeScan(LoopIR_Do):
         # This used to be an empty struct, but this caused crazy C/C++ ABI issues.
         # Must be the last arg, as exo_excut_get_device_log() is defined to nothing.
         # Fortunately, C seems to allow a trailing comma here.
-        device_args_struct_lines.append("# if EXO_EXCUT_bENABLE_LOG")
-        device_args_struct_lines.append("    exo_ExcutDeviceLog exo_excutDeviceLog;")
-        device_args_struct_lines.append("# endif")
+        device_args_struct_lines.append(
+            "    EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)"
+        )
         device_args_values.append("exo_excut_get_device_log()")
 
         self.fmt_dict["device_args"] = ", ".join(device_args_values)
@@ -1380,7 +1380,7 @@ struct exo_CudaDeviceArgs{N}_{proc};
 #ifdef __CUDACC__
 __global__ void exo_deviceFunction{N}_{proc}(__grid_constant__ const struct exo_CudaDeviceArgs{N}_{proc} exo_deviceArgs);
 #endif
-void exo_cudaLaunch{N}_{proc}(cudaStream_t exo_cudaStream, struct exo_CudaDeviceArgs{N}_{proc} exo_deviceArgs);
+void exo_cudaLaunch{N}_{proc}(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs{N}_{proc}* exo_deviceArgs);
 """
 
 # Note: the duplication of the device args struct in .c and .cuh is because the
@@ -1498,9 +1498,9 @@ exo_deviceFunction{N}_{proc}(__grid_constant__ const struct exo_CudaDeviceArgs{N
 }}
 
 void
-exo_cudaLaunch{N}_{proc}(cudaStream_t exo_cudaStream, struct exo_CudaDeviceArgs{N}_{proc} exo_deviceArgs)
+exo_cudaLaunch{N}_{proc}(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs{N}_{proc}* exo_deviceArgs)
 {{
-  exo_Cuda{N}_{proc}::exo_cudaLaunch(exo_cudaStream, exo_deviceArgs);
+  exo_Cuda{N}_{proc}::exo_cudaLaunch(exo_cudaStream, *exo_deviceArgs);
 }}
 """
 
@@ -1521,9 +1521,19 @@ exo_Cuda{N}_{proc}::exo_deviceTask{warp_cname}(
 {{
   namespace exo_CudaUtil = exo_CudaUtil_{lib_name};"""
 
-cuda_launch_fmt = """exo_cudaLaunch{N}_{proc}(exo_cudaStream, (struct exo_CudaDeviceArgs{N}_{proc}) {{ {device_args} }});"""
+# We used to pass exo_deviceArgs by value, now we don't due to bad experiences with ABI.
+cuda_launch_fmt = """{{
+  struct exo_CudaDeviceArgs{N}_{proc} exo_deviceArgs = {{
+    {device_args}
+  }};
+  exo_cudaLaunch{N}_{proc}(exo_cudaStream, &exo_deviceArgs);
+}}"""
 
-task_launch_fmt = """if (exo_taskIndex++ % (gridDim.x / exo_clusterDim) == blockIdx.x / exo_clusterDim) exo_deviceTask{warp_cname}(exo_smem, exo_syncState, exo_deviceArgs, (struct exo_Task) {{ {task_args} }}, exo_excutLog);"""
+task_launch_fmt = """if (exo_taskIndex++ % (gridDim.x / exo_clusterDim) == blockIdx.x / exo_clusterDim) {{
+    exo_deviceTask{warp_cname}(exo_smem, exo_syncState, exo_deviceArgs,
+        (struct exo_Task) {{ {task_args} }},
+        exo_excutLog);
+}}"""
 
 # Paste this into the C header (.h) if any proc uses cuda.
 h_snippet_for_cuda = r"""
@@ -1562,6 +1572,7 @@ EXO_CUDA_INLINE unsigned exo_mapa_shared_cluster(unsigned addr_u32, unsigned cta
 #define exo_excut_end_log_action(device_name, _blockIdx, _threadIdx, file, line)
 #define exo_excut_get_device_log()
 #define exo_excut_flush_device_log(stream, _gridDim, _blockDim, string_id_count, string_table, file_id_count, file_table)
+#define EXO_EXCUT_DEVICE_LOG_MEMBER
 #define EXO_EXCUT_STR_ID(c) 0
 #ifdef __CUDACC__
 struct exo_ExcutThreadLog {

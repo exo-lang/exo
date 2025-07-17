@@ -1317,7 +1317,8 @@ class Compiler:
                 self._lines = old_lines
 
                 # Add kernel launch syntax
-                self.add_line(ctx.launch)
+                for line in ctx.launch.split("\n"):
+                    self.add_line(line)
 
             elif isinstance(ctx, CudaDeviceFunction):
                 spork_ctx = SporkLoweringCtx(

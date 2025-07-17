@@ -35,6 +35,8 @@ exo_ExcutDeviceLog exo_excut_get_device_log();
 void exo_excut_flush_device_log(cudaStream_t exo_cudaStream, unsigned gridDim, unsigned blockDim,
                                 uint32_t str_id_count, const char* const* str_table,
                                 uint32_t file_id_count, const char* const* file_table);
+#define EXO_EXCUT_DEVICE_LOG_MEMBER exo_ExcutDeviceLog exo_excutDeviceLog;
+
 #ifdef __cplusplus
 }  // extern "C"
 #endif
