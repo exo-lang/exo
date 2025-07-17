@@ -6,6 +6,7 @@ import pytest
 from exo import proc
 from exo.core.LoopIR import T
 from exo.platforms.cuda import *
+from exo.platforms.Sm80 import *
 from exo.stdlib.scheduling import *
 
 from exo.spork import excut
@@ -203,34 +204,55 @@ def test_CudaWarps_in_wg_golden(compiler, golden):
     invoke_test(proc_CudaWarps_in_wg, mkref_CudaWarps_in_wg, compiler, golden)
 
 
-@proc
-def proc_simple_named_warps():
-    with CudaDeviceFunction(
-        warp_config=[CudaWarpConfig("abc", 16), CudaWarpConfig("xyz", 4)]
-    ):
-        for task in cuda_tasks(0, 3):
-            for t in cuda_threads(0, 320, unit=cuda_thread):
-                excut_trace_3index(0, 0, t)
-            for t in cuda_threads(0, 300, unit=cuda_thread):
-                excut_trace_3index(1, 0, t)
-            with CudaWarps(name="abc"):
-                for w in cuda_threads(0, 16, unit=cuda_warp):
+def mkproc_named_warps(
+    wrong_name=False,
+    missing_name=False,
+    change_name=False,
+    missing_lo=False,
+    missing_hi=False,
+    out_of_range=False,
+):
+    abc = None if missing_name else "wrong_name" if wrong_name else "abc"
+    xyz = "abc" if change_name else "xyz"
+    _2 = None if missing_lo else 2
+    _10 = None if missing_hi else 10
+    _16 = 17 if out_of_range else 16
+
+    @proc
+    def proc_named_warps():
+        with CudaDeviceFunction(
+            warp_config=[CudaWarpConfig("abc", 16), CudaWarpConfig("xyz", 4)]
+        ):
+            for task in cuda_tasks(0, 3):
+                for t in cuda_threads(0, 320, unit=cuda_thread):
+                    excut_trace_3index(0, 0, t)
+                for t in cuda_threads(0, 300, unit=cuda_thread):
+                    excut_trace_3index(1, 0, t)
+                with CudaWarps(0, _16, name=abc):
+                    for w in cuda_threads(0, 16, unit=cuda_warp):
+                        for t in cuda_threads(0, 32):
+                            excut_trace_3index(2, w, t)
+                    with CudaWarps(_2, _10, name=abc):
+                        for w2 in cuda_threads(0, 4, unit=2 * cuda_warp):
+                            with CudaWarps(1, 2):
+                                for t in cuda_threads(0, 17):
+                                    excut_trace_3index(3, w2, t)
+                with CudaWarps(name="xyz"):
+                    for w in cuda_threads(0, 3, unit=cuda_warp):
+                        for t in cuda_threads(0, 10):
+                            excut_trace_3index(4, w, t)
+                    with CudaWarps(1, 3, name=xyz):
+                        for w in cuda_threads(0, 2, unit=cuda_warp):
+                            for t in cuda_threads(0, 32):
+                                excut_trace_3index(5, w, t)
+                        with CudaWarps(1, 2):
+                            for t in cuda_threads(0, 32):
+                                excut_trace_3index(6, 0, t)
+                with CudaWarps(1, 4, name="xyz"):
                     for t in cuda_threads(0, 32):
-                        excut_trace_3index(2, w, t)
-                with CudaWarps(2, 4, name="abc"):
-                    for t in cuda_threads(0, 42):
-                        excut_trace_3index(3, 0, t)
-            with CudaWarps(name="xyz"):
-                for w in cuda_threads(0, 3, unit=cuda_warp):
-                    for t in cuda_threads(0, 10):
-                        excut_trace_3index(4, w, t)
-                with CudaWarps(1, 3, name="xyz"):
-                    for w in cuda_threads(0, 2, unit=cuda_warp):
-                        for t in cuda_threads(0, 32):
-                            excut_trace_3index(5, w, t)
-                    with CudaWarps(1, 2):
-                        for t in cuda_threads(0, 32):
-                            excut_trace_3index(6, 0, t)
+                        excut_trace_3index(7, 0, t)
+
+    return proc_named_warps
 
 
 def mkref_simple_named_warps(xrg: excut.ExcutReferenceGenerator):
@@ -243,8 +265,9 @@ def mkref_simple_named_warps(xrg: excut.ExcutReferenceGenerator):
         for w in xrg.stride_threadIdx(16, stride=32):
             for t in xrg.stride_threadIdx(32):
                 xrg("excut_trace_3index", 2, w, t)
-        for t in xrg.stride_threadIdx(42, offset=64):
-            xrg("excut_trace_3index", 3, 0, t)
+        for w2 in xrg.stride_threadIdx(4, stride=64, offset=2 * 32):
+            for t in xrg.stride_threadIdx(17, offset=32):
+                xrg("excut_trace_3index", 3, w2, t)
         for w in xrg.stride_threadIdx(3, stride=32, offset=16 * 32):
             for t in xrg.stride_threadIdx(10):
                 xrg("excut_trace_3index", 4, w, t)
@@ -253,15 +276,17 @@ def mkref_simple_named_warps(xrg: excut.ExcutReferenceGenerator):
                 xrg("excut_trace_3index", 5, w, t)
         for t in xrg.stride_threadIdx(32, offset=18 * 32):
             xrg("excut_trace_3index", 6, 0, t)
+        for t in xrg.stride_threadIdx(32, offset=17 * 32):
+            xrg("excut_trace_3index", 7, 0, t)
     xrg.end_cuda()
 
 
 def test_simple_named_warps_excut(compiler):
-    invoke_test(proc_simple_named_warps, mkref_simple_named_warps, compiler, None)
+    invoke_test(mkproc_named_warps(), mkref_simple_named_warps, compiler, None)
 
 
 def test_simple_named_warps_golden(compiler, golden):
-    invoke_test(proc_simple_named_warps, mkref_simple_named_warps, compiler, golden)
+    invoke_test(mkproc_named_warps(), mkref_simple_named_warps, compiler, golden)
 
 
 cuda_1_3 = CollUnit((3,), (1,), "cuda_1_3")
@@ -361,3 +386,179 @@ def test_scalar_write_negative(compiler):
     with pytest.raises(Exception) as exc:
         cu = compiler.cuda_test_context(mkproc_scalar_write(cuda_warp), sm=80)
     assert "gmem[0] = src" in str(exc.value)
+
+
+def test_wrong_warp_name(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_test_context(mkproc_named_warps(wrong_name=True), sm=80)
+    assert "wrong_name" in str(exc.value)
+
+
+def test_missing_warp_name(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_test_context(mkproc_named_warps(missing_name=True), sm=80)
+    assert "None" in str(exc.value)
+
+
+def test_change_warp_name(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_test_context(mkproc_named_warps(change_name=True), sm=80)
+    assert "cannot change warp name" in str(exc.value)
+
+
+def test_missing_CudaWarps_lo(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_test_context(mkproc_named_warps(missing_lo=True), sm=80)
+    assert " lo " in str(exc.value)
+
+
+def test_missing_CudaWarps_lo(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_test_context(mkproc_named_warps(missing_hi=True), sm=80)
+    assert " hi " in str(exc.value)
+
+
+def test_CudaWarps_out_of_range(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_test_context(mkproc_named_warps(out_of_range=True), sm=80)
+    assert "17" in str(exc.value)
+
+
+def mkproc_CudaWarps_in_loop(unit):
+    warp_config = [CudaWarpConfig("abc", 16), CudaWarpConfig("xyz", 4)]
+
+    @proc
+    def proc_CudaWarps_in_loop():
+        with CudaDeviceFunction(clusterDim=2, warp_config=warp_config):
+            for task in cuda_tasks(0, 1):
+                # The CudaAsync and seq-loop should have no effect on with CudaWarps.
+                with CudaAsync(Sm80_cp_async_instr):
+                    for seq_i in seq(0, 5):
+                        # This loop will mess up the CudaWarps if the unit is
+                        # sub-CTA, but not if it's inter-CTA.
+                        for par_i in cuda_threads(0, 2, unit=unit):
+                            with CudaWarps(name="abc"):
+                                pass
+
+    return proc_CudaWarps_in_loop
+
+
+def test_CudaWarps_in_loop_positive(compiler):
+    cu = compiler.cuda_test_context(
+        mkproc_CudaWarps_in_loop(cuda_cta_in_cluster), sm="90a"
+    )
+
+
+def test_CudaWarps_in_loop_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        cu = compiler.cuda_test_context(
+            mkproc_CudaWarps_in_loop(cuda_warpgroup), sm="90a"
+        )
+    assert "cuda_threads loop" in str(exc.value)
+
+
+def mkproc_warp_instr(warp=cuda_warp):
+    @proc
+    def proc_warp_instr(dst: f32[16, 8] @ CudaGmemLinear):
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                d: f32[16, 8] @ Sm80_RmemMatrixD(16, 8)
+                for i in cuda_threads(0, 1, unit=warp):
+                    Sm80_mma_store_d_tf32(dst[:, :], d[:, :])
+
+    return proc_warp_instr
+
+
+def test_warp_instr_positive(compiler):
+    cu = compiler.cuda_test_context(mkproc_warp_instr(cuda_warp), sm=80)
+
+
+def test_warp_instr_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        cu = compiler.cuda_test_context(mkproc_warp_instr(cuda_thread), sm=80)
+    assert "32" in str(exc.value)
+
+
+@instr
+class test_warpgroup_instr:
+    def behavior(i: index):
+        pass
+
+    def instance(self):
+        self.instr_tl = cuda_in_order_instr
+        self.coll_unit = cuda_warpgroup
+
+    def codegen(self, args):
+        action_id = excut.excut_c_str_id("test_warpgroup_instr")
+        return [
+            f"exo_excutLog.log_action({action_id}, 0, __LINE__);",
+            f"exo_excutLog.log_u32_arg({args.i.index()});",
+        ]
+
+
+def mkproc_warpgroup_align(abc_warps=8, xyz_warps=24):
+    warp_config = [CudaWarpConfig("abc", abc_warps), CudaWarpConfig("xyz", xyz_warps)]
+
+    @proc
+    def proc_warpgroup_align():
+        with CudaDeviceFunction(warp_config=warp_config):
+            for task in cuda_tasks(0, 1):
+                with CudaWarps(name="xyz"):
+                    for wg in cuda_threads(0, 2, unit=cuda_warpgroup):
+                        test_warpgroup_instr(wg)
+
+    return proc_warpgroup_align
+
+
+def mkref_warpgroup_align(xrg: excut.ExcutReferenceGenerator):
+    abc_warps = 8
+    xrg.begin_cuda()
+    for wg in xrg.stride_threadIdx(2, stride=128, offset=abc_warps * 32):
+        for t in xrg.stride_threadIdx(128):
+            xrg("test_warpgroup_instr", wg)
+    xrg.end_cuda()
+
+
+def test_warpgroup_align_positive(compiler):
+    invoke_test(mkproc_warpgroup_align(8, 24), mkref_warpgroup_align, compiler, None)
+
+
+def test_warpgroup_align_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        cu = compiler.cuda_test_context(mkproc_warpgroup_align(7, 25), sm=80)
+    assert "alignment" in str(exc.value)
+
+
+def mkproc_cuda_threads_bounds(lo=0, variable_bounds=False):
+    @proc
+    def proc_cuda_threads_bounds(N: size, dst: i32[N] @ CudaGmemLinear):
+        with CudaDeviceFunction(blockDim=256):
+            for task in cuda_tasks(0, N):  # This is OK
+                for seq in seq(0, N):  # This is OK
+                    if variable_bounds:
+                        for test_iter in cuda_threads(lo, N):
+                            dst[test_iter] = 0
+                    else:
+                        for test_iter in cuda_threads(lo, 200 + 56):
+                            if test_iter < N:
+                                dst[test_iter] = 0
+
+    return simplify(proc_cuda_threads_bounds)
+
+
+def test_cuda_threads_bounds_postive(compiler):
+    cu = compiler.cuda_test_context(mkproc_cuda_threads_bounds(), sm=80)
+
+
+def test_cuda_threads_bounds_wrong_lo(compiler):
+    with pytest.raises(Exception) as exc:
+        cu = compiler.cuda_test_context(mkproc_cuda_threads_bounds(lo=137), sm=80)
+    assert "test_iter" in str(exc.value)
+
+
+def test_cuda_threads_bounds_variable(compiler):
+    with pytest.raises(Exception) as exc:
+        cu = compiler.cuda_test_context(
+            mkproc_cuda_threads_bounds(variable_bounds=True), sm=80
+        )
+    assert "test_iter" in str(exc.value)

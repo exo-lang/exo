@@ -163,17 +163,8 @@ __all__ += ["Sm80_RmemMatrixA", "Sm80_RmemMatrixB", "Sm80_RmemMatrixD"]
 # In exo terminology, these operate with instr_tl=cuda_in_order_instr
 
 
-class mma_instr_impl:
-    __slots__ = []
-
-    def instance_common(self):
-        self.instr_tl = cuda_in_order_instr
-        self.coll_unit = cuda_warp
-        self.cu_utils = [Sm80_mma_load_store_util]
-
-
 @instr
-class Sm80_mma_load_a_tf32(mma_instr_impl):
+class Sm80_mma_load_a_tf32:
     K: int
 
     def behavior(
@@ -186,7 +177,9 @@ class Sm80_mma_load_a_tf32(mma_instr_impl):
                 rmem[m, k] = src[m, k]
 
     def instance(self, K):
-        self.instance_common()
+        self.instr_tl = cuda_in_order_instr
+        self.coll_unit = cuda_warp
+        self.cu_utils = [Sm80_mma_load_util]
         if K != 4 and K != 8:
             raise ValueError("Require K=4 or K=8")
         self.K = K
@@ -202,7 +195,7 @@ __all__.append("Sm80_mma_load_a_tf32")
 
 
 @instr
-class Sm80_mma_load_b_tf32(mma_instr_impl):
+class Sm80_mma_load_b_tf32:
     K: int
 
     def behavior(
@@ -215,7 +208,9 @@ class Sm80_mma_load_b_tf32(mma_instr_impl):
                 rmem[k, n] = src[k, n]
 
     def instance(self, K):
-        self.instance_common()
+        self.instr_tl = cuda_in_order_instr
+        self.coll_unit = cuda_warp
+        self.cu_utils = [Sm80_mma_load_util]
         if K != 4 and K != 8:
             raise ValueError("Require K=4 or K=8")
         self.K = K
@@ -231,7 +226,7 @@ __all__.append("Sm80_mma_load_b_tf32")
 
 
 @instr
-class Sm80_mma_tf32(mma_instr_impl):
+class Sm80_mma_tf32:
     def behavior(
         K: size,
         D: [f32][16, 8],
@@ -244,7 +239,8 @@ class Sm80_mma_tf32(mma_instr_impl):
                     D[m, n] += A[m, k] * B[k, n]
 
     def instance(self, K):
-        self.instance_common()
+        self.instr_tl = cuda_in_order_instr
+        self.coll_unit = cuda_warp
         if K != 4 and K != 8:
             raise ValueError("Require K=4 or K=8")
         ptx_instr = f"mma.sync.aligned.m16n8k{K}.row.col.f32.tf32.tf32.f32"
@@ -274,7 +270,7 @@ __all__.append("Sm80_mma_tf32")
 
 
 @instr
-class Sm80_mma_store_d_tf32(mma_instr_impl):
+class Sm80_mma_store_d_tf32:
     def behavior(
         dst: [f32][16, 8] @ CudaDeviceVisibleLinear,
         rmem: [f32][16, 8] @ Sm80_RmemMatrixD(16, 8),
@@ -284,7 +280,9 @@ class Sm80_mma_store_d_tf32(mma_instr_impl):
                 dst[m, n] = rmem[m, n]
 
     def instance(self):
-        self.instance_common()
+        self.instr_tl = cuda_in_order_instr
+        self.coll_unit = cuda_warp
+        self.cu_utils = [Sm80_mma_store_util]
 
     def codegen(self, args: InstrArgs):
         return [f"exo_CudaUtil::Sm80_mma_store_d({args.dst}, {args.rmem.index()});"]
@@ -294,21 +292,23 @@ __all__.append("Sm80_mma_store_d_tf32")
 
 
 @instr
-class Sm80_mma_zero_d_tf32(mma_instr_impl):
+class Sm80_mma_zero_d_tf32:
     def behavior(rmem: [f32][16, 8] @ Sm80_RmemMatrixD(16, 8)):
         for m in seq(0, 16):
             for n in seq(0, 8):
                 rmem[m, n] = 0
 
     def instance(self):
-        self.instance_common()
+        self.instr_tl = cuda_in_order_instr
+        self.coll_unit = cuda_warp
+        self.cu_utils = [Sm80_mma_zero_util]
         self.instr_format = ["exo_CudaUtil::Sm80_mma_zero_d({rmem_data});"]
 
 
 __all__.append("Sm80_mma_zero_d_tf32")
 
 
-Sm80_mma_load_store_util = r"""
+Sm80_mma_load_util = r"""
 EXO_CUDA_INLINE void Sm80_mma_load_a_k8(unsigned rmem[4], struct exo_win_2f32c src)
 {
   const unsigned row_stride = src.strides[0];
@@ -349,7 +349,9 @@ EXO_CUDA_INLINE void Sm80_mma_load_b_k4(unsigned rmem[1], struct exo_win_2f32c s
   const float* gmem_thread_baseaddr = &src.data[warp_lane % 4u * row_stride + warp_lane / 4u * col_stride];
   rmem[0] = __float_as_uint(gmem_thread_baseaddr[0]);
 }
+"""
 
+Sm80_mma_store_util = r"""
 EXO_CUDA_INLINE void Sm80_mma_store_d(struct exo_win_2f32 dst, const unsigned rmem[4])
 {
   const unsigned row_stride = dst.strides[0];
@@ -361,7 +363,9 @@ EXO_CUDA_INLINE void Sm80_mma_store_d(struct exo_win_2f32 dst, const unsigned rm
   gmem_thread_baseaddr[8 * row_stride] = __uint_as_float(rmem[2]);
   gmem_thread_baseaddr[8 * row_stride + col_stride] = __uint_as_float(rmem[3]);
 }
+"""
 
+Sm80_mma_zero_util = r"""
 EXO_CUDA_INLINE void Sm80_mma_zero_d(unsigned rmem[4])
 {
   rmem[0] = 0;

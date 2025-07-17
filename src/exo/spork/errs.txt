@@ -18,12 +18,12 @@ SMEM allocation const shape
 ---
 Write must be executed by one thread only
 Top-level CudaWarps must provide
-CTA must not be subdivided by parent cuda_threads loop
-Wrong coll_unit for instr
-cuda_threads 0/const hi
 CudaWarps out-of-range
 CudaWarps cannot change warp name
 CudaWarps must define lo and hi
+CTA must not be subdivided by parent cuda_threads loop
+Wrong coll_unit for instr
+cuda_threads 0/const hi
 
 
 Barrier Usage:

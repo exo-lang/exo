@@ -92,19 +92,19 @@ extern "C" {
 
 
 
-// proc_simple_named_warps(
+// proc_named_warps(
 
 // )
-void proc_simple_named_warps( void *ctxt );
+void proc_named_warps( void *ctxt );
 
 
 
-struct exo_CudaDeviceArgs0_proc_simple_named_warps;
+struct exo_CudaDeviceArgs0_proc_named_warps;
 
 #ifdef __CUDACC__
-__global__ void exo_deviceFunction0_proc_simple_named_warps(__grid_constant__ const struct exo_CudaDeviceArgs0_proc_simple_named_warps exo_deviceArgs);
+__global__ void exo_deviceFunction0_proc_named_warps(__grid_constant__ const struct exo_CudaDeviceArgs0_proc_named_warps exo_deviceArgs);
 #endif
-void exo_cudaLaunch0_proc_simple_named_warps(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0_proc_simple_named_warps* exo_deviceArgs);
+void exo_cudaLaunch0_proc_named_warps(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0_proc_named_warps* exo_deviceArgs);
 
 
 
@@ -130,7 +130,7 @@ void exo_cudaLaunch0_proc_simple_named_warps(cudaStream_t exo_cudaStream, const 
 
 #endif
 // CUDA device function args -- duplicated in .cuh file
-struct exo_CudaDeviceArgs0_proc_simple_named_warps
+struct exo_CudaDeviceArgs0_proc_named_warps
 {
     EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
 };
@@ -140,15 +140,15 @@ struct exo_CudaDeviceArgs0_proc_simple_named_warps
 excut_trace_3index(i0,i1,i2)
 
 */
-// proc_simple_named_warps(
+// proc_named_warps(
 
 // )
-void proc_simple_named_warps( void *ctxt ) {
+void proc_named_warps( void *ctxt ) {
 {
-  struct exo_CudaDeviceArgs0_proc_simple_named_warps exo_deviceArgs = {
+  struct exo_CudaDeviceArgs0_proc_named_warps exo_deviceArgs = {
     exo_excut_get_device_log()
   };
-  exo_cudaLaunch0_proc_simple_named_warps(exo_cudaStream, &exo_deviceArgs);
+  exo_cudaLaunch0_proc_named_warps(exo_cudaStream, &exo_deviceArgs);
 }
 }
 
@@ -174,14 +174,14 @@ namespace exo_CudaUtil_test_simple_named_warps_golden {
 namespace exo_CudaUtil = ::exo_CudaUtil_test_simple_named_warps_golden;
 }  // end namespace exo_CudaUtil_test_simple_named_warps_golden
 // CUDA device function args -- duplicated in .c file
-struct exo_CudaDeviceArgs0_proc_simple_named_warps
+struct exo_CudaDeviceArgs0_proc_named_warps
 {
     EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
 };
 
-struct exo_Cuda0_proc_simple_named_warps
+struct exo_Cuda0_proc_named_warps
 {
-  using exo_DeviceArgs = exo_CudaDeviceArgs0_proc_simple_named_warps;
+  using exo_DeviceArgs = exo_CudaDeviceArgs0_proc_named_warps;
 
   static constexpr uint32_t exo_blockDim = 640;
   static constexpr uint32_t exo_clusterDim = 1;
@@ -225,10 +225,10 @@ struct exo_Cuda0_proc_simple_named_warps
 };
 
 inline void
-exo_Cuda0_proc_simple_named_warps::exo_cudaLaunch(cudaStream_t exo_cudaStream, const exo_DeviceArgs& exo_deviceArgs)
+exo_Cuda0_proc_named_warps::exo_cudaLaunch(cudaStream_t exo_cudaStream, const exo_DeviceArgs& exo_deviceArgs)
 {
   namespace exo_CudaUtil = exo_CudaUtil_test_simple_named_warps_golden;
-  cudaFuncSetAttribute(exo_deviceFunction0_proc_simple_named_warps, cudaFuncAttributeMaxDynamicSharedMemorySize, exo_smemBytes);
+  cudaFuncSetAttribute(exo_deviceFunction0_proc_named_warps, cudaFuncAttributeMaxDynamicSharedMemorySize, exo_smemBytes);
   // TODO how expensive is it to query this every time?
   int exo_cudaDevice;
   cudaGetDevice(&exo_cudaDevice);
@@ -242,7 +242,7 @@ exo_Cuda0_proc_simple_named_warps::exo_cudaLaunch(cudaStream_t exo_cudaStream, c
   exo_launchConfig.dynamicSmemBytes = exo_smemBytes;
   exo_launchConfig.stream = exo_cudaStream;
 
-  cudaLaunchKernelEx(&exo_launchConfig, exo_deviceFunction0_proc_simple_named_warps, exo_deviceArgs);
+  cudaLaunchKernelEx(&exo_launchConfig, exo_deviceFunction0_proc_named_warps, exo_deviceArgs);
 
   [[maybe_unused]] static const char* filename = __FILE__;
   exo_excut_flush_device_log(
@@ -252,13 +252,13 @@ exo_Cuda0_proc_simple_named_warps::exo_cudaLaunch(cudaStream_t exo_cudaStream, c
 }
 
 __device__ __forceinline__ void
-exo_Cuda0_proc_simple_named_warps::exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog)
+exo_Cuda0_proc_named_warps::exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog)
 {
   // No mbarriers used
 }
 
 __device__ __forceinline__ void
-exo_Cuda0_proc_simple_named_warps::exo_deviceTask_abc(
+exo_Cuda0_proc_named_warps::exo_deviceTask_abc(
     char* exo_smem,
     exo_SyncState& exo_syncState,
     const exo_DeviceArgs& exo_deviceArgs,
@@ -280,7 +280,7 @@ exo_Cuda0_proc_simple_named_warps::exo_deviceTask_abc(
     exo_excutLog.log_u32_arg(0);
     exo_excutLog.log_u32_arg(exo_1thr_t);
   }
-  // CudaWarps(name='abc')
+  // CudaWarps(0, 16, name='abc')
   if ([[maybe_unused]] int tmp_1 = threadIdx.x; 1) {
     // cuda_threads(0, 16, unit=cuda_warp)
     if ([[maybe_unused]] int exo_32thr_w = (threadIdx.x / 32); 1) {
@@ -292,21 +292,28 @@ exo_Cuda0_proc_simple_named_warps::exo_deviceTask_abc(
         exo_excutLog.log_u32_arg(exo_1thr_t);
       }
     }
-    // CudaWarps(2, 4, name='abc')
-    if (int tmp_2 = threadIdx.x; tmp_2 >= 64 && tmp_2 < 128) {
-      // cuda_threads(0, 42, unit=cuda_thread)
-      if (int exo_1thr_t = (threadIdx.x - 64); exo_1thr_t < 42) {
-        exo_excutLog.log_action(EXO_EXCUT_STR_ID(excut_trace_3index), 0, __LINE__);
-        exo_excutLog.log_u32_arg(3);
-        exo_excutLog.log_u32_arg(0);
-        exo_excutLog.log_u32_arg(exo_1thr_t);
+    // CudaWarps(2, 10, name='abc')
+    if (int tmp_2 = threadIdx.x; tmp_2 >= 64 && tmp_2 < 320) {
+      // cuda_threads(0, 4, unit=2 * cuda_warp)
+      if ([[maybe_unused]] int exo_64thr_w2 = ((threadIdx.x - 64) / 64); 1) {
+        // CudaWarps(1, 2)
+        if (int tmp_3 = (threadIdx.x % 64); tmp_3 >= 32) {
+          // cuda_threads(0, 17, unit=cuda_thread)
+          if (int exo_1thr_t = (threadIdx.x % 64 - 32); exo_1thr_t < 17) {
+            exo_excutLog.log_action(EXO_EXCUT_STR_ID(excut_trace_3index), 0, __LINE__);
+            exo_excutLog.log_u32_arg(3);
+            exo_excutLog.log_u32_arg(exo_64thr_w2);
+            exo_excutLog.log_u32_arg(exo_1thr_t);
+          }
+        }
       }
     }
   }
   ; // NO-OP
+  ; // NO-OP
 }
 __device__ __forceinline__ void
-exo_Cuda0_proc_simple_named_warps::exo_deviceTask_xyz(
+exo_Cuda0_proc_named_warps::exo_deviceTask_xyz(
     char* exo_smem,
     exo_SyncState& exo_syncState,
     const exo_DeviceArgs& exo_deviceArgs,
@@ -365,9 +372,19 @@ exo_Cuda0_proc_simple_named_warps::exo_deviceTask_xyz(
       }
     }
   }
+  // CudaWarps(1, 4, name='xyz')
+  if (int tmp_1 = (threadIdx.x - 512); tmp_1 >= 32) {
+    // cuda_threads(0, 32, unit=cuda_thread)
+    if (int exo_1thr_t = (threadIdx.x - 544); exo_1thr_t < 32) {
+      exo_excutLog.log_action(EXO_EXCUT_STR_ID(excut_trace_3index), 0, __LINE__);
+      exo_excutLog.log_u32_arg(7);
+      exo_excutLog.log_u32_arg(0);
+      exo_excutLog.log_u32_arg(exo_1thr_t);
+    }
+  }
 }
 __device__ __forceinline__ void
-exo_Cuda0_proc_simple_named_warps::exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog)
+exo_Cuda0_proc_named_warps::exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog)
 {
   namespace exo_CudaUtil = exo_CudaUtil_test_simple_named_warps_golden;
   exo_SyncState exo_syncState{};
@@ -402,17 +419,17 @@ exo_Cuda0_proc_simple_named_warps::exo_deviceMainLoop(char* exo_smem, const exo_
 #include "test_simple_named_warps_golden.cuh"
 __launch_bounds__(640, 1)
 __global__ void
-exo_deviceFunction0_proc_simple_named_warps(__grid_constant__ const struct exo_CudaDeviceArgs0_proc_simple_named_warps exo_deviceArgs)
+exo_deviceFunction0_proc_named_warps(__grid_constant__ const struct exo_CudaDeviceArgs0_proc_named_warps exo_deviceArgs)
 {
   extern __shared__ char exo_smem[];
   exo_ExcutThreadLog exo_excutLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
-  exo_Cuda0_proc_simple_named_warps::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
-  exo_Cuda0_proc_simple_named_warps::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda0_proc_named_warps::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda0_proc_named_warps::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
 }
 
 void
-exo_cudaLaunch0_proc_simple_named_warps(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0_proc_simple_named_warps* exo_deviceArgs)
+exo_cudaLaunch0_proc_named_warps(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0_proc_named_warps* exo_deviceArgs)
 {
-  exo_Cuda0_proc_simple_named_warps::exo_cudaLaunch(exo_cudaStream, *exo_deviceArgs);
+  exo_Cuda0_proc_named_warps::exo_cudaLaunch(exo_cudaStream, *exo_deviceArgs);
 }
 
