@@ -1,11 +1,6 @@
-
 #pragma once
 #ifndef TEST_CASE_H
 #define TEST_CASE_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 
 #include <stdint.h>
@@ -30,20 +25,50 @@ extern "C" {
 #endif
 
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
 #include <stdio.h>
 #include <stdlib.h>
 
-#ifndef EXO_WIN_1F32
-#define EXO_WIN_1F32
-struct exo_win_1f32{
+#endif
+/* Required by DRAM */
+#ifndef EXO_WIN_4F32C
+#define EXO_WIN_4F32C
+struct exo_win_4f32c {
+    const float * const data;
+    const int_fast32_t strides[4];
+};
+#endif
+/* Required by DRAM */
+#ifndef EXO_WIN_4F32
+#define EXO_WIN_4F32
+struct exo_win_4f32 {
     float * const data;
+    const int_fast32_t strides[4];
+};
+#endif
+/* Required by AVX512 */
+/* Required by DRAM */
+#ifndef EXO_WIN_1F32C
+#define EXO_WIN_1F32C
+struct exo_win_1f32c {
+    const float * const data;
     const int_fast32_t strides[1];
 };
 #endif
-#ifndef EXO_WIN_1F32C
-#define EXO_WIN_1F32C
-struct exo_win_1f32c{
-    const float * const data;
+/* Required by AVX512 */
+/* Required by DRAM */
+#ifndef EXO_WIN_1F32
+#define EXO_WIN_1F32
+struct exo_win_1f32 {
+    float * const data;
     const int_fast32_t strides[1];
 };
 #endif
@@ -60,23 +85,23 @@ void conv_specialized( void *ctxt, const float* inp, float* output, const float*
 #ifdef __cplusplus
 }
 #endif
+
+
 #endif  // TEST_CASE_H
 
 #include "test_case.h"
 
+/* Required by AVX512 */
+#ifndef EXO_MEMORY_GLOBAL_AVX512
+#define EXO_MEMORY_GLOBAL_AVX512
 #include <immintrin.h>
-#ifndef EXO_WIN_1F32_AVX512
-#define EXO_WIN_1F32_AVX512
-struct exo_win_1f32_AVX512{
-    __m512 * const data;
-    const int_fast32_t strides[1];
-};
 #endif
-#ifndef EXO_WIN_1F32C_AVX512
-#define EXO_WIN_1F32C_AVX512
-struct exo_win_1f32c_AVX512{
-    const __m512 * const data;
-    const int_fast32_t strides[1];
+/* Required by AVX512 */
+#ifndef EXO_WIN_3F32
+#define EXO_WIN_3F32
+struct exo_win_3f32 {
+    float * const data;
+    const int_fast32_t strides[3];
 };
 #endif
 // conv_specialized(

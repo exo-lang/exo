@@ -1,11 +1,6 @@
-
 #pragma once
 #ifndef TEST_CASE_H
 #define TEST_CASE_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 
 #include <stdint.h>
@@ -30,10 +25,35 @@ extern "C" {
 #endif
 
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
 #include <stdio.h>
 #include <stdlib.h>
 
-
+#endif
+/* Required by DRAM */
+#ifndef EXO_WIN_2UI16
+#define EXO_WIN_2UI16
+struct exo_win_2ui16 {
+    uint16_t * const data;
+    const int_fast32_t strides[2];
+};
+#endif
+/* Required by DRAM */
+#ifndef EXO_WIN_2UI16C
+#define EXO_WIN_2UI16C
+struct exo_win_2ui16c {
+    const uint16_t * const data;
+    const int_fast32_t strides[2];
+};
+#endif
 // tile_and_fused_blur(
 //     W : size,
 //     H : size,
@@ -55,6 +75,8 @@ void tile_and_fused_blur_scheduled( void *ctxt, int_fast32_t W, int_fast32_t H, 
 #ifdef __cplusplus
 }
 #endif
+
+
 #endif  // TEST_CASE_H
 
 #include "test_case.h"

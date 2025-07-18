@@ -1,11 +1,6 @@
-
 #pragma once
 #ifndef TEST_CASE_H
 #define TEST_CASE_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 
 #include <stdint.h>
@@ -30,10 +25,43 @@ extern "C" {
 #endif
 
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
 #include <stdio.h>
 #include <stdlib.h>
 
-
+#endif
+/* Required by DRAM */
+#ifndef EXO_WIN_2F32C
+#define EXO_WIN_2F32C
+struct exo_win_2f32c {
+    const float * const data;
+    const int_fast32_t strides[2];
+};
+#endif
+/* Required by DRAM */
+#ifndef EXO_WIN_1F32C
+#define EXO_WIN_1F32C
+struct exo_win_1f32c {
+    const float * const data;
+    const int_fast32_t strides[1];
+};
+#endif
+/* Required by DRAM */
+#ifndef EXO_WIN_1F32
+#define EXO_WIN_1F32
+struct exo_win_1f32 {
+    float * const data;
+    const int_fast32_t strides[1];
+};
+#endif
 // gemv(
 //     M : size,
 //     N : size,
@@ -48,6 +76,8 @@ void gemv( void *ctxt, int_fast32_t M, int_fast32_t N, const float* A, const flo
 #ifdef __cplusplus
 }
 #endif
+
+
 #endif  // TEST_CASE_H
 
 #include "test_case.h"

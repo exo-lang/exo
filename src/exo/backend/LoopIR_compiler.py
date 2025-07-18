@@ -1228,8 +1228,8 @@ class Compiler:
                 )
                 # Change encoder of in_features (private copy due to new_window)
                 in_features._encoder = out_encoder
-                self.debug_comment_window_features(in_features)
-                self.debug_comment_window_features(out_features)
+                # self.debug_comment_window_features(in_features)
+                # self.debug_comment_window_features(out_features)
 
                 utils = self._util_injector.with_tag(output_winmem.name())
                 helper = InstrWindowArg(utils, None, in_features, s.srcinfo)

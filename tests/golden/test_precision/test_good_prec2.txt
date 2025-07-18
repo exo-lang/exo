@@ -21,10 +21,27 @@
 #endif
 
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
 #include <stdio.h>
 #include <stdlib.h>
 
-
+#endif
+/* Required by DRAM */
+#ifndef EXO_WIN_1F32C
+#define EXO_WIN_1F32C
+struct exo_win_1f32c {
+    const float * const data;
+    const int_fast32_t strides[1];
+};
+#endif
 // hoge(
 //     n : size,
 //     x : f32[n] @DRAM,
@@ -32,6 +49,11 @@
 // )
 void hoge( void *ctxt, int_fast32_t n, const float* x, const float* y );
 
+
+
+#ifdef __cplusplus
+}
+#endif
 
 // dot(
 //     m : size,
@@ -61,6 +83,6 @@ for (int_fast32_t i = 0; i < m; i++) {
 // )
 void hoge( void *ctxt, int_fast32_t n, const float* x, const float* y ) {
 float xy;
-dot(ctxt,n,x,y,&xy);
+dot(ctxt, n, x, y, &xy);
 }
 

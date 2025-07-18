@@ -1,11 +1,6 @@
-
 #pragma once
 #ifndef TEST_CASE_H
 #define TEST_CASE_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 
 #include <stdint.h>
@@ -30,20 +25,43 @@ extern "C" {
 #endif
 
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
 #include <stdio.h>
 #include <stdlib.h>
 
-#ifndef EXO_WIN_2I32
-#define EXO_WIN_2I32
-struct exo_win_2i32{
-    int32_t * const data;
+#endif
+/* Required by DRAM */
+/* Required by RVM_TILE */
+#ifndef EXO_WIN_2I32C
+#define EXO_WIN_2I32C
+struct exo_win_2i32c {
+    const int32_t * const data;
     const int_fast32_t strides[2];
 };
 #endif
-#ifndef EXO_WIN_2I32C
-#define EXO_WIN_2I32C
-struct exo_win_2i32c{
+/* Required by DRAM */
+#ifndef EXO_WIN_3I32C
+#define EXO_WIN_3I32C
+struct exo_win_3i32c {
     const int32_t * const data;
+    const int_fast32_t strides[3];
+};
+#endif
+/* Required by DRAM */
+/* Required by DRAM_STATIC */
+/* Required by RVM_TILE */
+#ifndef EXO_WIN_2I32
+#define EXO_WIN_2I32
+struct exo_win_2i32 {
+    int32_t * const data;
     const int_fast32_t strides[2];
 };
 #endif
@@ -59,14 +77,19 @@ void exo_conv1d_tile_lt_kw( void *ctxt, const int32_t* data, const int32_t* kern
 #ifdef __cplusplus
 }
 #endif
+
+
 #endif  // TEST_CASE_H
 
 #include "test_case.h"
 
+/* Required by DRAM_STATIC */
+#ifndef EXO_MEMORY_GLOBAL_DRAM_STATIC
+#define EXO_MEMORY_GLOBAL_DRAM_STATIC
 #include <stdio.h>
 #include <stdlib.h>
 
-
+#endif
 // exo_conv1d_tile_lt_kw(
 //     data : i32[4, 16] @DRAM,
 //     kernels : i32[16, 4, 4] @DRAM,
@@ -88,9 +111,9 @@ for (int_fast32_t ioo = 0; ioo < 1; ioo++) {
       for (int_fast32_t ji = 0; ji < 4; ji++) {
         for (int_fast32_t r = 0; r < 4; r++) {
           if (ji + r + 4 * jo < 16) {
-            y[ji * 4 + r] = data[c * 16 + ji + r + 4 * jo];
+            y[(ji) * 4 + r] = data[(c) * (16) + ji + r + 4 * jo];
           } else {
-            y[ji * 4 + r] = ((int32_t) 0);
+            y[(ji) * 4 + r] = ((int32_t) 0);
           }
         }
       }
@@ -98,27 +121,27 @@ for (int_fast32_t ioo = 0; ioo < 1; ioo++) {
       #define kernel_tile_1 "m2"
       #define kernel_tile_2 "m1"
       #define data_tile "m0"
-      asm volatile("mld.w "data_tile", (%1), %0" :: "r"(4*(((struct exo_win_2i32c){ &y[0], { 4, 1 } }).strides[0])), "r"(&y[0]));
-      asm volatile("mld.w "kernel_tile_0", (%1), %0" :: "r"(4*(((struct exo_win_2i32c){ &kernels[(16 * ioo) * (16) + (c) * 4], { 16, 1 } }).strides[0])), "r"(&kernels[(16 * ioo) * (16) + (c) * 4]));
+      asm volatile("mld.w "data_tile", (%1), %0" :: "r"(4*((struct exo_win_2i32c) { &y[0], {4, 1} }.strides[0])), "r"(&y[0]));
+      asm volatile("mld.w "kernel_tile_0", (%1), %0" :: "r"(4*((struct exo_win_2i32c) { &kernels[(16 * ioo) * (16) + (c) * 4], {16, 1} }.strides[0])), "r"(&kernels[(16 * ioo) * (16) + (c) * 4]));
       asm volatile("mmasa.w "out_tile_0", "data_tile", "kernel_tile_0);
-      asm volatile("mld.w "kernel_tile_1", (%1), %0" :: "r"(4*(((struct exo_win_2i32c){ &kernels[(4 + 16 * ioo) * (16) + (c) * 4], { 16, 1 } }).strides[0])), "r"(&kernels[(4 + 16 * ioo) * (16) + (c) * 4]));
+      asm volatile("mld.w "kernel_tile_1", (%1), %0" :: "r"(4*((struct exo_win_2i32c) { &kernels[(4 + 16 * ioo) * (16) + (c) * 4], {16, 1} }.strides[0])), "r"(&kernels[(4 + 16 * ioo) * (16) + (c) * 4]));
       asm volatile("mmasa.w "out_tile_1", "data_tile", "kernel_tile_1);
       #undef kernel_tile_1
-      asm volatile("mld.w "kernel_tile_2", (%1), %0" :: "r"(4*(((struct exo_win_2i32c){ &kernels[(8 + 16 * ioo) * (16) + (c) * 4], { 16, 1 } }).strides[0])), "r"(&kernels[(8 + 16 * ioo) * (16) + (c) * 4]));
+      asm volatile("mld.w "kernel_tile_2", (%1), %0" :: "r"(4*((struct exo_win_2i32c) { &kernels[(8 + 16 * ioo) * (16) + (c) * 4], {16, 1} }.strides[0])), "r"(&kernels[(8 + 16 * ioo) * (16) + (c) * 4]));
       asm volatile("mmasa.w "out_tile_2", "data_tile", "kernel_tile_2);
       #undef kernel_tile_2
-      asm volatile("mld.w "kernel_tile_0", (%1), %0" :: "r"(4*(((struct exo_win_2i32c){ &kernels[(12 + 16 * ioo) * (16) + (c) * 4], { 16, 1 } }).strides[0])), "r"(&kernels[(12 + 16 * ioo) * (16) + (c) * 4]));
+      asm volatile("mld.w "kernel_tile_0", (%1), %0" :: "r"(4*((struct exo_win_2i32c) { &kernels[(12 + 16 * ioo) * (16) + (c) * 4], {16, 1} }.strides[0])), "r"(&kernels[(12 + 16 * ioo) * (16) + (c) * 4]));
       asm volatile("mmasa.w "out_tile_3", "data_tile", "kernel_tile_0);
       #undef data_tile
       #undef kernel_tile_0
     }
-    asm volatile("mst.w "out_tile_0", (%1), %0" :: "r"(4*(((struct exo_win_2i32){ &out[(16 * ioo) * (16) + 4 * jo], { 16, 1 } }).strides[0])), "r"(&out[(16 * ioo) * (16) + 4 * jo]));
+    asm volatile("mst.w "out_tile_0", (%1), %0" :: "r"(4*((struct exo_win_2i32) { &out[(16 * ioo) * (16) + 4 * jo], {16, 1} }.strides[0])), "r"(&out[(16 * ioo) * (16) + 4 * jo]));
     #undef out_tile_0
-    asm volatile("mst.w "out_tile_1", (%1), %0" :: "r"(4*(((struct exo_win_2i32){ &out[(4 + 16 * ioo) * (16) + 4 * jo], { 16, 1 } }).strides[0])), "r"(&out[(4 + 16 * ioo) * (16) + 4 * jo]));
+    asm volatile("mst.w "out_tile_1", (%1), %0" :: "r"(4*((struct exo_win_2i32) { &out[(4 + 16 * ioo) * (16) + 4 * jo], {16, 1} }.strides[0])), "r"(&out[(4 + 16 * ioo) * (16) + 4 * jo]));
     #undef out_tile_1
-    asm volatile("mst.w "out_tile_2", (%1), %0" :: "r"(4*(((struct exo_win_2i32){ &out[(8 + 16 * ioo) * (16) + 4 * jo], { 16, 1 } }).strides[0])), "r"(&out[(8 + 16 * ioo) * (16) + 4 * jo]));
+    asm volatile("mst.w "out_tile_2", (%1), %0" :: "r"(4*((struct exo_win_2i32) { &out[(8 + 16 * ioo) * (16) + 4 * jo], {16, 1} }.strides[0])), "r"(&out[(8 + 16 * ioo) * (16) + 4 * jo]));
     #undef out_tile_2
-    asm volatile("mst.w "out_tile_3", (%1), %0" :: "r"(4*(((struct exo_win_2i32){ &out[(12 + 16 * ioo) * (16) + 4 * jo], { 16, 1 } }).strides[0])), "r"(&out[(12 + 16 * ioo) * (16) + 4 * jo]));
+    asm volatile("mst.w "out_tile_3", (%1), %0" :: "r"(4*((struct exo_win_2i32) { &out[(12 + 16 * ioo) * (16) + 4 * jo], {16, 1} }.strides[0])), "r"(&out[(12 + 16 * ioo) * (16) + 4 * jo]));
     #undef out_tile_3
   }
 }

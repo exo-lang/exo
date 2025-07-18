@@ -1,11 +1,6 @@
-
 #pragma once
 #ifndef TEST_CASE_H
 #define TEST_CASE_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 
 #include <stdint.h>
@@ -30,19 +25,50 @@ extern "C" {
 #endif
 
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
 #include <stdio.h>
 #include <stdlib.h>
 
+#endif
+/* Required by DRAM */
+#ifndef EXO_WIN_2F32C
+#define EXO_WIN_2F32C
+struct exo_win_2f32c {
+    const float * const data;
+    const int_fast32_t strides[2];
+};
+#endif
+/* Required by AVX2 */
+/* Required by DRAM */
+#ifndef EXO_WIN_2F32
+#define EXO_WIN_2F32
+struct exo_win_2f32 {
+    float * const data;
+    const int_fast32_t strides[2];
+};
+#endif
+/* Required by AVX2 */
+/* Required by DRAM */
 #ifndef EXO_WIN_1F32
 #define EXO_WIN_1F32
-struct exo_win_1f32{
+struct exo_win_1f32 {
     float * const data;
     const int_fast32_t strides[1];
 };
 #endif
+/* Required by AVX2 */
+/* Required by DRAM */
 #ifndef EXO_WIN_1F32C
 #define EXO_WIN_1F32C
-struct exo_win_1f32c{
+struct exo_win_1f32c {
     const float * const data;
     const int_fast32_t strides[1];
 };
@@ -68,23 +94,23 @@ void rank_k_reduce_6x16_scheduled( void *ctxt, int_fast32_t K, const float* A, c
 #ifdef __cplusplus
 }
 #endif
+
+
 #endif  // TEST_CASE_H
 
 #include "test_case.h"
 
+/* Required by AVX2 */
+#ifndef EXO_MEMORY_GLOBAL_AVX2
+#define EXO_MEMORY_GLOBAL_AVX2
 #include <immintrin.h>
-#ifndef EXO_WIN_1F32_AVX2
-#define EXO_WIN_1F32_AVX2
-struct exo_win_1f32_AVX2{
-    __m256 * const data;
-    const int_fast32_t strides[1];
-};
 #endif
-#ifndef EXO_WIN_1F32C_AVX2
-#define EXO_WIN_1F32C_AVX2
-struct exo_win_1f32c_AVX2{
-    const __m256 * const data;
-    const int_fast32_t strides[1];
+/* Required by AVX2 */
+#ifndef EXO_WIN_3F32
+#define EXO_WIN_3F32
+struct exo_win_3f32 {
+    float * const data;
+    const int_fast32_t strides[3];
 };
 #endif
 
@@ -117,7 +143,7 @@ void rank_k_reduce_6x16( void *ctxt, int_fast32_t K, const float* A, const float
 for (int_fast32_t i = 0; i < 6; i++) {
   for (int_fast32_t j = 0; j < 16; j++) {
     for (int_fast32_t k = 0; k < K; k++) {
-      C[i * 16 + j] += A[i * K + k] * B[k * 16 + j];
+      C[(i) * (16) + j] += A[(i) * K + k] * B[(k) * (16) + j];
     }
   }
 }

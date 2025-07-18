@@ -21,14 +21,33 @@
 #endif
 
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
 #include <stdio.h>
 #include <stdlib.h>
 
+#endif
+/* Required by DRAM */
 #ifndef EXO_WIN_1F32C
 #define EXO_WIN_1F32C
-struct exo_win_1f32c{
+struct exo_win_1f32c {
     const float * const data;
     const int_fast32_t strides[1];
+};
+#endif
+/* Required by DRAM */
+#ifndef EXO_WIN_2F32C
+#define EXO_WIN_2F32C
+struct exo_win_2f32c {
+    const float * const data;
+    const int_fast32_t strides[2];
 };
 #endif
 // proj(
@@ -39,6 +58,11 @@ struct exo_win_1f32c{
 // )
 void proj( void *ctxt, int_fast32_t n, int_fast32_t m, const float* x, const float* y );
 
+
+
+#ifdef __cplusplus
+}
+#endif
 
 // dot(
 //     m : size,
@@ -57,7 +81,7 @@ static void dot( void *ctxt, int_fast32_t m, struct exo_win_1f32c x, struct exo_
 static void dot( void *ctxt, int_fast32_t m, struct exo_win_1f32c x, struct exo_win_1f32c y, float* r ) {
 *r = 0.0f;
 for (int_fast32_t i = 0; i < m; i++) {
-  *r += x.data[i * x.strides[0]] * y.data[i * y.strides[0]];
+  *r += x.data[(i) * (x.strides[0])] * y.data[(i) * (y.strides[0])];
 }
 }
 
@@ -72,7 +96,7 @@ EXO_ASSUME(n > 4);
 EXO_ASSUME(m > 4);
 float xy;
 float y2;
-dot(ctxt,m,(struct exo_win_1f32c){ &x[m], { 1 } },(struct exo_win_1f32c){ &y[2], { n } },&xy);
-dot(ctxt,m,(struct exo_win_1f32c){ &y[3], { n } },(struct exo_win_1f32c){ &x[(2) * m], { 1 } },&y2);
+dot(ctxt, m, (struct exo_win_1f32c) { &x[m], {1} }, (struct exo_win_1f32c) { &y[2], {n} }, &xy);
+dot(ctxt, m, (struct exo_win_1f32c) { &y[3], {n} }, (struct exo_win_1f32c) { &x[(2) * m], {1} }, &y2);
 }
 

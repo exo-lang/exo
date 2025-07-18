@@ -13,7 +13,7 @@ static void sin( void *ctxt, float* a );
 //     a : f32 @DRAM
 // )
 void foo( void *ctxt, float* a ) {
-sin(ctxt,a);
+sin(ctxt, a);
 }
 
 // sin(

@@ -21,10 +21,27 @@
 #endif
 
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
 #include <stdio.h>
 #include <stdlib.h>
 
-
+#endif
+/* Required by DRAM */
+#ifndef EXO_WIN_1UI8
+#define EXO_WIN_1UI8
+struct exo_win_1ui8 {
+    uint8_t * const data;
+    const int_fast32_t strides[1];
+};
+#endif
 // hoge(
 //     n : size,
 //     x : ui8[n] @DRAM,
@@ -32,6 +49,11 @@
 // )
 void hoge( void *ctxt, int_fast32_t n, uint8_t* x, const uint8_t* y );
 
+
+
+#ifdef __cplusplus
+}
+#endif
 
 // hoge(
 //     n : size,

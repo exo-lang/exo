@@ -11,14 +11,9 @@ for (int_fast32_t i = 0; i < 16; i++) {
 }
 }
 
-
 #pragma once
 #ifndef TEST_H
 #define TEST_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 
 #include <stdint.h>
@@ -43,10 +38,35 @@ extern "C" {
 #endif
 
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
 #include <stdio.h>
 #include <stdlib.h>
 
-
+#endif
+/* Required by DRAM */
+#ifndef EXO_WIN_1I8C
+#define EXO_WIN_1I8C
+struct exo_win_1i8c {
+    const int8_t * const data;
+    const int_fast32_t strides[1];
+};
+#endif
+/* Required by DRAM */
+#ifndef EXO_WIN_1I8
+#define EXO_WIN_1I8
+struct exo_win_1i8 {
+    int8_t * const data;
+    const int_fast32_t strides[1];
+};
+#endif
 // foo(
 //     x : i8[16] @DRAM,
 //     y : i8[16] @DRAM
@@ -58,4 +78,6 @@ void foo( void *ctxt, const int8_t* x, int8_t* y );
 #ifdef __cplusplus
 }
 #endif
+
+
 #endif  // TEST_H

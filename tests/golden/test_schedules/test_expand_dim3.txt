@@ -21,10 +21,27 @@
 #endif
 
 
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
 #include <stdio.h>
 #include <stdlib.h>
 
-
+#endif
+/* Required by DRAM */
+#ifndef EXO_WIN_1I8C
+#define EXO_WIN_1I8C
+struct exo_win_1i8c {
+    const int8_t * const data;
+    const int_fast32_t strides[1];
+};
+#endif
 // foo(
 //     n : size,
 //     m : size,
@@ -32,6 +49,11 @@
 // )
 void foo( void *ctxt, int_fast32_t n, int_fast32_t m, int8_t* x );
 
+
+
+#ifdef __cplusplus
+}
+#endif
 
 // foo(
 //     n : size,
