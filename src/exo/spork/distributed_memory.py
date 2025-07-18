@@ -329,6 +329,7 @@ class DistributedIdxFsm:
 
     # Progress of deduced tiling
     cur_num_threads: int
+    alloc_box_num_threads: int
 
     # For analyzing intervals passed to instrs.
     # The CollTiling is initially that of the caller, and we create new
@@ -368,6 +369,7 @@ class DistributedIdxFsm:
         self.distributed_extents = []
         self.t0_iter_t1 = {}
         self.cur_num_threads = state.alloc_coll_tiling.tile_num_threads()
+        self.alloc_box_num_threads = state.alloc_coll_tiling.box_num_threads()
         self.callee_coll_tiling = callee_coll_tiling
         self.callee_coll_units = callee_coll_units
         self.callee_unit_idx = 0
@@ -519,7 +521,8 @@ class DistributedIdxFsm:
         not the converse ... still have to call check_native_unit()"""
         n = self.optional_native_num_threads
         assert n is not None
-        return self.cur_num_threads <= n
+        # TODO: explain this min(...) in coll_algebra.pdf
+        return min(self.cur_num_threads, self.alloc_box_num_threads) <= n
 
     def check_native_unit(self, node):
         """Check that the leaf tiling matches the stored native unit"""
@@ -527,19 +530,20 @@ class DistributedIdxFsm:
         assert unit is not None
         _iter = self.leaf_iter
         is_distributed = _iter is not None
+        ignore_box = self.alloc_box_num_threads != self.optional_native_num_threads
         if msg := self.leaf_coll_tiling.unit_mismatch(
             unit,
             self.coll_env,
-            ignore_box=is_distributed,
+            ignore_box=ignore_box,
         ):
             if is_distributed:
                 self.bad_idx(
                     node,
-                    f"Tried to allocate under {_iter} loop; wrong collective unit: {msg}{note}",
+                    f"Tried to allocate under {_iter} loop; wrong collective unit: {msg}",
                 )
             else:
                 self.bad_idx(
-                    node, f"Wrong collective unit at point of allocation: {msg}{note}"
+                    node, f"Wrong collective unit at point of allocation: {msg}"
                 )
 
     def check_store_state(self, node, state: DistributedAllocState):

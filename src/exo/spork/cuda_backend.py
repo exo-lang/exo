@@ -589,9 +589,15 @@ class SubtreeScan(LoopIR_Do):
         self._current_warp_name = name
 
         # (2/2) Ajdust CollTiling for lo/hi offset.
-        coll_tiling = coll_tiling.specialized(
-            cuda_warp, warps_lo, warps_hi, self._coll_env
-        )
+        try:
+            coll_tiling = coll_tiling.specialized(
+                cuda_warp, warps_lo, warps_hi, self._coll_env
+            )
+        except AssertionError:
+            raise
+        except Exception as e:
+            raise ValueError(f"{s.srcinfo}: failed to compile {ctx}: {e}") from e
+
         self._coll_tiling = coll_tiling
         self.cuda_warps_dfs_codegen.append(
             _CodegenPar(
@@ -659,9 +665,15 @@ class SubtreeScan(LoopIR_Do):
         assert lo_int == 0
 
         # Update stored CollTiling
-        new_tiling = self._coll_tiling.tiled(
-            s.iter, s.loop_mode.unit, hi_int, self._coll_env
-        )
+        try:
+            new_tiling = self._coll_tiling.tiled(
+                s.iter, s.loop_mode.unit, hi_int, self._coll_env
+            )
+        except AssertionError:
+            raise
+        except Exception as e:
+            loop_str = f"for {s.iter} in {s.loop_mode.format_loop_cond(s.lo, s.hi)}"
+            raise ValueError(f"{s.srcinfo}: Failed to compile {loop_str}: {e}") from e
         self._coll_tiling = new_tiling
 
         # We will advise replacing the loop mode with _CodegenPar
@@ -1098,10 +1110,8 @@ class SubtreeRewrite(LoopIR_Rewrite):
                 loop_mode = self.cuda_warps_dfs_codegen[self.cuda_warps_idx]
                 self.cuda_warps_idx += 1
                 s = wrap_codegen_par(loop_mode, s.body, s.srcinfo)
-            elif not isinstance(ctx, CudaAsync):
-                raise TypeError(
-                    f"{s.srcinfo}: unexpected with context type {type(ctx)} in CUDA device code"
-                )
+            else:
+                assert isinstance(ctx, CudaAsync)
         elif isinstance(s, LoopIR.For):
             # Replace CudaThreads loop with _CodegenPar loop that the
             # scanner has prepared.

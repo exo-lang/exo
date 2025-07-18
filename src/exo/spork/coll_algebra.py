@@ -9,6 +9,10 @@ from typing import Dict, Optional, Tuple
 from math import prod
 
 
+class CollTilingError(Exception):
+    pass
+
+
 class CollParam(object):
     """Collective parameter: a variable like blockDim, clusterDim, etc.
 
@@ -44,7 +48,7 @@ class CollSizeExpr(object):
     scalar: Fraction
     coll_params: Tuple[CollParam]
 
-    def __init__(self, scalar: Fraction | int, coll_params: Tuple[CollParam]):
+    def __init__(self, scalar: Fraction | int, coll_params: Tuple[CollParam] = ()):
         self.scalar = Fraction(scalar)
         self.coll_params = coll_params
 
@@ -52,8 +56,9 @@ class CollSizeExpr(object):
         n = self.scalar.numerator
         for p in self.coll_params:
             n *= env[p]
-        assert self.scalar.denominator == 1
-        assert n % self.scalar.denominator == 0  # TODO better message
+        if n % self.scalar.denominator != 0:
+            envstr = " ".join(f"{k}={v}" for k, v in env.items())
+            raise CollTilingError(f"{self!r} has divisibility issue with {envstr}")
         n //= self.scalar.denominator
         assert isinstance(n, int)
         return n
@@ -74,7 +79,7 @@ class CollSizeExpr(object):
 
     def __repr__(self):
         if not self.coll_params:
-            return f"CollSizeExpr({self.scalar}, {self.coll_params})"
+            return f"CollSizeExpr({self.scalar})"
         s = " * ".join([p.name for p in self.coll_params])
         if self.scalar.numerator != 1:
             s += f" * {self.scalar.numerator}"
@@ -469,6 +474,13 @@ class CollTiling(object):
     def __repr__(self):
         return f"CollTiling({self.parent!r}, {self.iter!r}, {self.full_domain!r}, {self.tile!r}, {self.offset!r}, {self.box!r}, {self.intra_box_exprs!r}, {self.tile_count!r}, {self.tile_expr!r})"
 
+    def err(self, unit: CollUnit, hi: int, msg: str):
+        raise CollTilingError(
+            f"Bad CollTiling ({msg}); "
+            f"box={self.box}, tried tiling {hi}-many {unit}, "
+            f"i.e. CollUnit({unit.domain}, {unit.box}, ...)"
+        )
+
     def tiled(
         self,
         _iter: object,
@@ -528,8 +540,10 @@ class CollTiling(object):
                 and unit_box_coord != domain_coord  # Tricky: keep up-to-date
                 and unit_box_coord != box_coord  # with coll_algebra.py
             ):
-                assert unit_box_coord < box_coord  # TODO message
-                assert tiled_dim_idx is None  # TODO message
+                if unit_box_coord > box_coord:
+                    self.err(unit, tiles_needed, "unit too big for box")
+                if tiled_dim_idx is not None:
+                    self.err(unit, tiles_needed, "ambiguous dimension to tile")
                 tiled_dim_idx = dim_idx
                 max_tile_count = box_coord // unit_box_coord
                 tile_remainder = box_coord % unit_box_coord
@@ -551,7 +565,12 @@ class CollTiling(object):
             coll_index = coll_index_0
             codegen_hi = tiles_needed  # In case tiles_needed = 0
 
-        assert max_tile_count >= tiles_needed  # TODO message
+        if max_tile_count < tiles_needed:
+            self.err(
+                unit,
+                tiles_needed,
+                f"needs too many threads; max_tile_count={max_tile_count}",
+            )
 
         new_parent = self
         new_offset = (0,) * len(common_domain)
@@ -619,9 +638,11 @@ class CollTiling(object):
                 tile_count = box_coord // unit_box_coord
                 tile_remainder = box_coord % unit_box_coord
 
-                # TODO messages
-                assert tiled_dim_idx is None
-                assert 0 <= lo <= hi <= tile_count
+                if tiled_dim_idx is not None:
+                    # Probably unreachable through public Exo-GPU interface
+                    self.err(unit, hi, "ambiguous dimension for tiling")
+                if not (0 <= lo <= hi <= tile_count):
+                    self.err(unit, hi, f"lo={lo}, hi={hi} invalid")
 
                 tiled_dim_idx = dim_idx
                 codegen_coll_index = new_exprs[dim_idx]  # before -= below
@@ -636,7 +657,8 @@ class CollTiling(object):
 
         if tiled_dim_idx is None:
             codegen_coll_index = coll_index_0
-            assert (lo, hi) == (0, 1)  # TODO message
+            if lo != 0 or hi != 1:
+                self.err(unit, hi, f"expect lo=0, hi=1 for trivial tiling")
 
         new_parent = self.parent
 
@@ -758,8 +780,10 @@ class DomainCompletionError(Exception):
     pass
 
 
-class DomainCompletionOp(object):
-    __slots__ = ["input_dim", "source_partial", "remove_idx", "idx_factors", "domain"]
+@dataclass(slots=True)
+class DomainCompletionOp:
+    source_domain: Tuple[int]
+    target_domain: Tuple[int]
     input_dim: int
     source_partial: bool
     remove_idx: Tuple[int]
@@ -773,6 +797,8 @@ class DomainCompletionOp(object):
         allow_partial_source: bool,
     ):
         # Record the original source domain dimension, before modifications
+        self.source_domain = source_domain
+        self.target_domain = target_domain
         assert isinstance(source_domain, tuple)
         original_source_domain = source_domain
         self.input_dim = len(original_source_domain)
@@ -794,13 +820,11 @@ class DomainCompletionOp(object):
             # so total thread count matches that of target domain).
             # self.source_partial means we will do a matching prepend when
             # translating coordinates
-            if threads_t % threads_s != 0:
-                raise DomainCompletionError()  # TODO message
+            self.require_divides(threads_t, threads_s)
             self.source_partial = True
             source_domain = (s_to_t_multiplier,) + source_domain
         else:
-            if threads_s % threads_t != 0:
-                raise DomainCompletionError()  # TODO message
+            self.require_divides(threads_s, threads_t)
             self.source_partial = False
 
         # Remove 1s in source and target domains
@@ -841,8 +865,8 @@ class DomainCompletionOp(object):
                     t1 = cumulative_t[i_t + 1]
                     divisor = max(t1, s1)
                     split = t0 // divisor
-                    if i_s >= 0 and source_domain[i_s] % split != 0:
-                        raise DomainCompletionError()  # TODO message
+                    if i_s >= 0:
+                        self.require_divides(source_domain[i_s], split)
                     idx_factors.append((i_s, split))
 
         self.idx_factors = idx_factors
@@ -856,6 +880,18 @@ class DomainCompletionOp(object):
             partial_prepend=s_to_t_multiplier,
         )
 
+    def err(msg):
+        raise DomainCompletionError(
+            f"Domain completion for {self.source_domain} and {self.target_domain} failed: {msg}"
+        )
+
+    def require_divides(self, a, b):
+        if a % b != 0:
+            # This will not make much sense without context but better than nothing.
+            # In general these errors are unlikely for the vast majority of programs.
+            # So currently I don't invest in better messages.
+            self.err(f"{b} doesn't divide {a}")
+
     def new_size(self, size: Tuple, partial_prepend=None):
         def outer_op(c, factor):
             if c is None:
@@ -863,8 +899,7 @@ class DomainCompletionOp(object):
             elif c < factor:
                 return 1
             else:
-                if c % factor != 0:
-                    raise DomainCompletionError()  # TODO message
+                self.require_divides(c, factor)
                 return c // factor
 
         def inner_op(c, factor):
@@ -879,8 +914,7 @@ class DomainCompletionOp(object):
             return c // factor
 
         def inner_op(c, factor):
-            if c % factor != 0:
-                raise DomainCompletionError()  # TODO message
+            self.require_divides(c, factor)
             return 0
 
         return self._new_coords(

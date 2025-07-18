@@ -210,13 +210,15 @@ def mkproc_named_warps(
     change_name=False,
     missing_lo=False,
     missing_hi=False,
-    out_of_range=False,
+    out_of_range_top=False,
+    out_of_range_bottom=False,
 ):
     abc = None if missing_name else "wrong_name" if wrong_name else "abc"
     xyz = "abc" if change_name else "xyz"
     _2 = None if missing_lo else 2
     _10 = None if missing_hi else 10
-    _16 = 17 if out_of_range else 16
+    _16 = 17 if out_of_range_top else 16
+    _3 = 5 if out_of_range_bottom else 3
 
     @proc
     def proc_named_warps():
@@ -241,7 +243,7 @@ def mkproc_named_warps(
                     for w in cuda_threads(0, 3, unit=cuda_warp):
                         for t in cuda_threads(0, 10):
                             excut_trace_3index(4, w, t)
-                    with CudaWarps(1, 3, name=xyz):
+                    with CudaWarps(1, _3, name=xyz):
                         for w in cuda_threads(0, 2, unit=cuda_warp):
                             for t in cuda_threads(0, 32):
                                 excut_trace_3index(5, w, t)
@@ -328,6 +330,12 @@ def proc_strange_domain():
                         for z in cuda_threads(0, 32):
                             excut_trace_3index(x, y, z)
 
+            for w in cuda_threads(0, 2, unit=cuda_warp):
+                for x in cuda_threads(0, 4, unit=cuda_quadpair):
+                    for y in cuda_threads(0, 2, unit=4 * cuda_thread):
+                        for z in cuda_threads(0, 4, unit=cuda_thread):
+                            excut_trace_3index(x, y, z)
+
 
 def mkref_strange_domain(xrg: excut.ExcutReferenceGenerator):
     xrg.begin_cuda()
@@ -349,6 +357,12 @@ def mkref_strange_domain(xrg: excut.ExcutReferenceGenerator):
             xrg("excut_trace_3index", x, y, z)
             if z >= 32:
                 xrg("excut_trace_3index", x, y, z - 32)
+            w = threadIdx // 32
+            if w < 2:
+                x = (threadIdx % 16) // 4
+                y = (threadIdx % 32) // 16
+                z = threadIdx % 4
+                xrg("excut_trace_3index", x, y, z)
     xrg.end_cuda()
 
 
@@ -418,10 +432,16 @@ def test_missing_CudaWarps_lo(compiler):
     assert " hi " in str(exc.value)
 
 
-def test_CudaWarps_out_of_range(compiler):
+def test_CudaWarps_out_of_range_top(compiler):
     with pytest.raises(Exception) as exc:
-        compiler.cuda_test_context(mkproc_named_warps(out_of_range=True), sm=80)
+        compiler.cuda_test_context(mkproc_named_warps(out_of_range_top=True), sm=80)
     assert "17" in str(exc.value)
+
+
+def test_CudaWarps_out_of_range_bottom(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_test_context(mkproc_named_warps(out_of_range_bottom=True), sm=80)
+    assert "5" in str(exc.value)
 
 
 def mkproc_CudaWarps_in_loop(unit):
@@ -455,6 +475,51 @@ def test_CudaWarps_in_loop_negative(compiler):
             mkproc_CudaWarps_in_loop(cuda_warpgroup), sm="90a"
         )
     assert "cuda_threads loop" in str(exc.value)
+
+
+def mkproc_CudaWarps_2_4(unit):
+    @proc
+    def test_proc():
+        with CudaDeviceFunction(blockDim=256):
+            for x in cuda_tasks(0, 4):
+                for y in cuda_tasks(0, 3):
+                    for wg in cuda_threads(0, 2, unit=unit):
+                        with CudaWarps(2, 4):
+                            for t in cuda_threads(0, 64):
+                                excut_trace_3index(x, y, t)
+
+    return test_proc
+
+
+def mkref_CudaWarps_2_4(xrg: ExcutReferenceGenerator):
+    xrg.begin_cuda()
+    # Note, this blockIdx only works assuming Exo chooses to launch at least 12 CTAs.
+    for x in xrg.stride_blockIdx(4, stride=3):
+        for y in xrg.stride_blockIdx(3):
+            for wg in xrg.stride_threadIdx(2, stride=128):
+                for t in xrg.stride_threadIdx(64, offset=64):
+                    xrg("excut_trace_3index", x, y, t)
+    xrg.end_cuda()
+
+
+def test_CudaWarps_2_4_excut(compiler):
+    invoke_test(
+        mkproc_CudaWarps_2_4(cuda_warpgroup), mkref_CudaWarps_2_4, compiler, None
+    )
+
+
+def test_CudaWarps_2_4_golden(compiler, golden):
+    invoke_test(
+        mkproc_CudaWarps_2_4(cuda_warpgroup), mkref_CudaWarps_2_4, compiler, golden
+    )
+
+
+def test_CudaWarps_trivial(compiler):
+    # Trying to specialize CudaWarps(2, 4) in scope with unit already being cuda_warp.
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_test_context(mkproc_CudaWarps_2_4(cuda_warp), sm=80)
+    assert "trivial tiling" in str(exc.value)
+    assert "CudaWarps(2, 4)" in str(exc.value)
 
 
 def mkproc_warp_instr(warp=cuda_warp):
@@ -593,9 +658,319 @@ def test_cuda_threads_bounds_variable(compiler):
     assert "test_iter" in str(exc.value)
 
 
+def mkproc_coll_unit_divisibility(concrete_blockDim):
+    test_unit = CollUnit((blockDim / 64, 64), (blockDim / 64, 1), "test_unit")
+
+    @proc
+    def test_proc():
+        with CudaDeviceFunction(blockDim=concrete_blockDim):
+            for task in cuda_tasks(0, 1):
+                for t in cuda_threads(0, 1, unit=test_unit):
+                    pass
+
+    return test_proc
+
+
+def test_coll_unit_divisibility_positive(compiler):
+    cu = compiler.cuda_test_context(mkproc_coll_unit_divisibility(256), sm=80)
+
+
+def test_coll_unit_divisibility_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_test_context(mkproc_coll_unit_divisibility(96), sm=80)
+    assert "blockDim / 64" in str(exc.value)
+
+
+def mkproc_test_bad_for(sus_unit):
+    @proc
+    def test_proc():
+        with CudaDeviceFunction(blockDim=512):
+            for task in cuda_tasks(0, 1):
+                for wg in cuda_threads(0, 4, unit=cuda_warpgroup):
+                    for sus_iter in cuda_threads(0, 4, unit=sus_unit):
+                        pass
+
+    return test_proc
+
+
+def test_bad_for_baseline(compiler):
+    compiler.cuda_test_context(mkproc_test_bad_for(cuda_warp), sm=80)
+
+
+def test_bad_for_too_big(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_test_context(mkproc_test_bad_for(2 * cuda_warpgroup), sm=80)
+    assert "unit too big for box" in str(exc.value)
+    assert "2 * cuda_warpgroup" in str(exc.value)
+    assert "sus_iter" in str(exc.value)
+
+
+def test_bad_for_max_tile_count(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_test_context(mkproc_test_bad_for(40 * cuda_thread), sm=80)
+    assert "max_tile_count=3" in str(exc.value)  # 128 // 40 = 3
+    assert "40 * cuda_thread" in str(exc.value)
+    assert "sus_iter" in str(exc.value)
+
+
+def test_bad_for_ambiguous(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_test_context(mkproc_test_bad_for(cuda_quadpair), sm=80)
+    assert "ambiguous dimension" in str(exc.value)
+    assert "cuda_quadpair" in str(exc.value)
+    assert "sus_iter" in str(exc.value)
+
+
+def mkproc_mismatched_distributed_dims(wrong_count=False, wrong_extent=False):
+    _8 = 12 if wrong_extent else 8
+
+    @proc
+    def proc_mismatched_distributed_dims():
+        with CudaDeviceFunction(blockDim=512):
+            for task in cuda_tasks(0, 1):
+                vals: f32[8, _8, 8] @ CudaRmem
+                for x in cuda_threads(0, 8, unit=64 * cuda_thread):
+                    for y in cuda_threads(0, 8, unit=8 * cuda_thread):
+                        for z in cuda_threads(0, 8, unit=cuda_thread):
+                            # Deduces [x, y, z] all as distributed dims
+                            vals[x, y, z] = 3
+                if wrong_count:
+                    for x in cuda_threads(0, 8, unit=64 * cuda_thread):
+                        for y in cuda_threads(0, 8, unit=cuda_thread):
+                            for z in seq(0, 8):
+                                # Deduces [x, y] as distributed, [z] as non-distributed
+                                vals[x, y, z] = 4
+
+    return simplify(proc_mismatched_distributed_dims)
+
+
+def test_mismatched_distributed_dims_baseline(compiler):
+    compiler.cuda_test_context(mkproc_mismatched_distributed_dims(), sm=80)
+
+
+def test_mismatched_distributed_dims_count(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_test_context(
+            mkproc_mismatched_distributed_dims(wrong_count=True), sm=80
+        )
+    assert "[x, y]" in str(exc.value)
+    assert "[x, y, z]" in str(exc.value)
+
+
+def test_mismatched_distributed_dims_extent(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_test_context(
+            mkproc_mismatched_distributed_dims(wrong_extent=True), sm=80
+        )
+    assert "8" in str(exc.value)
+    assert "12" in str(exc.value)
+
+
+def mkproc_non_const_rmem(distributed, z_offset=0):
+    y_unit = 16 * cuda_thread if distributed else cuda_thread
+
+    @proc
+    def test_proc(not_a_constant: size):
+        assert not_a_constant > 1000
+        with CudaDeviceFunction(blockDim=256):
+            for task in cuda_tasks(0, 1):
+                rmem: f32[4, 4, not_a_constant] @ CudaRmem
+                for x in cuda_threads(0, 4, unit=64 * cuda_thread):
+                    for y in cuda_threads(0, 4, unit=y_unit):
+                        if distributed:
+                            for z in cuda_threads(0, 16, unit=cuda_thread):
+                                # y_unit = 16 * cuda_thread
+                                # [x, y, z] distributed dims
+                                # z-extent not being constant diagnosed
+                                # by distributed memory deduction
+                                rmem[x, y, z + z_offset] = 1337
+                        else:
+                            for z in seq(0, 16):
+                                # [x, y] distributed dims
+                                # z-extent not being constant diagnosed
+                                # by CudaRmem memory type
+                                rmem[x, y, z + z_offset] = 1337
+
+    return simplify(test_proc)
+
+
+def test_distributed_dims_non_const(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_test_context(mkproc_non_const_rmem(True), sm=80)
+    assert "16" in str(exc.value)
+    assert "not_a_constant" in str(exc.value)
+
+
+def test_rmem_non_const(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_test_context(mkproc_non_const_rmem(False), sm=80)
+    assert "CudaRmem requires constant shape" in str(exc.value)
+    assert "not_a_constant" in str(exc.value)
+
+
+def test_distributed_dims_binop(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_test_context(
+            mkproc_non_const_rmem(distributed=True, z_offset=19), sm=80
+        )
+    assert ("z + 19" in str(exc.value)) or ("19 + z" in str(exc.value))
+    assert "single variable name" in str(exc.value)
+
+
+def mkproc_weird_cta(overshot=False, wrong_shape=False):
+    """Weird test case.
+
+    We have cases where the distributed memory is superficially correct,
+    but doesn't work due to our requirement of distributed dims to the left
+    of non-distributed dims. Specifically, we try to subdivide the
+    CTA-in-cluster dimension (y) inside the thread-in-CTA (x) dimension
+    when sharding per-CTA SMEM.
+
+    """
+    if wrong_shape:
+        # Want to distributed to groups of 256 threads (=blockDim here).
+        # We have x: 1024->256
+        # But this fails, because those 256 threads are not a CTA,
+        # but 64 threads each from 4 CTAs (256 = 64 * 4)
+        x_unit = 64 * cuda_thread
+        y_unit = cuda_cta_in_cluster
+    elif overshot:
+        # x: 1024->128
+        # 128 < 256, will manifest as "overshot" error.
+        # You are not expected to understand this.
+        x_unit = 32 * cuda_thread
+        y_unit = cuda_cta_in_cluster
+    else:
+        # Positive (no error) test case.
+        # Sholud deduce smem[x][y, z] distributed/non-distributed
+        x_unit = cuda_cta_in_cluster
+        y_unit = 64 * cuda_thread
+
+    @proc
+    def test_proc():
+        with CudaDeviceFunction(clusterDim=4, blockDim=256):
+            for task in cuda_tasks(0, 1):
+                smem: f32[4, 4, 64] @ CudaSmemLinear
+                for x in cuda_threads(0, 4, unit=x_unit):
+                    for y in cuda_threads(0, 4, unit=y_unit):
+                        for z in cuda_threads(0, 32, unit=cuda_thread):
+                            smem[x, y, z] = 13
+
+    return test_proc
+
+
+def test_weird_cta_positive(compiler):
+    cu = compiler.cuda_test_context(mkproc_weird_cta(), sm="90a")
+    cuh = cu.fn.get_source_by_ext("cuh")
+    # Sanity check expected deduction (smem[4, 64]);
+    # this could fail if the compiler details change.
+    assert "smem = reinterpret_cast<float (&) [256]>" in cuh
+
+
+def test_weird_cta_wrong_shape(compiler):
+    with pytest.raises(Exception) as exc:
+        cu = compiler.cuda_test_context(mkproc_weird_cta(wrong_shape=True), sm="90a")
+    msg = str(exc.value)
+    assert "Tried to allocate under x loop" in msg
+    assert "(4, 64)" in msg
+    assert "(1, 256)" in msg
+
+
+def test_weird_cta_overshot(compiler):
+    with pytest.raises(Exception) as exc:
+        cu = compiler.cuda_test_context(mkproc_weird_cta(overshot=True), sm="90a")
+    msg = str(exc.value)
+    assert "overshot" in msg
+    assert "1024->128" in msg
+
+
+def mkproc_smem_in_warp(blockDim):
+    @proc
+    def test_proc():
+        with CudaDeviceFunction(blockDim=blockDim):
+            for t in cuda_tasks(0, 1):
+                for w in cuda_threads(0, blockDim / 32, unit=cuda_warp):
+                    # If the blockDim=32 (i.e. just 1 warp),
+                    # then this allocation actually works
+                    smem: f32[32] @ CudaSmemLinear
+                    for t in cuda_threads(0, 32):
+                        smem[t] = 39
+
+    return simplify(test_proc)
+
+
+def test_smem_in_warp_positive(compiler):
+    compiler.cuda_test_context(mkproc_smem_in_warp(32), sm=80)
+
+
+def test_smem_in_warp_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_test_context(mkproc_smem_in_warp(128), sm=80)
+    assert "Wrong collective unit at point of allocation" in str(exc.value)
+
+
+@proc
+def proc_matrix_in_CudaWarps_negative_0():
+    with CudaDeviceFunction(blockDim=256):
+        for task in cuda_tasks(0, 1):
+            thread_rmem: f32[256] @ CudaRmem
+            for t in cuda_threads(0, 256):
+                thread_rmem[t] = 14
+            warp_rmem: f32[16, 8] @ Sm80_RmemMatrixD(16, 8)
+            with CudaWarps(2, 3):
+                Sm80_mma_zero_d_tf32(warp_rmem[:, :])
+            Fence(cuda_in_order, cuda_in_order)
+            with CudaWarps(3, 4):
+                # Accessed same warp_rmem from different warp
+                Sm80_mma_zero_d_tf32(warp_rmem[:, :])
+
+
+def test_matrix_in_CudaWarps_negative_0(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_test_context(proc_matrix_in_CudaWarps_negative_0, sm=80)
+    assert "expected point, not interval" in str(exc.value)
+
+
+@proc
+def proc_matrix_in_CudaWarps_negative_1():
+    with CudaDeviceFunction(blockDim=256):
+        for task in cuda_tasks(0, 1):
+            thread_rmem: f32[256] @ CudaRmem
+            for t in cuda_threads(0, 256):
+                thread_rmem[t] = 14
+            warp_rmem: f32[2, 16, 8] @ Sm80_RmemMatrixD(16, 8)
+            for wg in cuda_threads(0, 2, unit=cuda_warpgroup):
+                with CudaWarps(2, 3):
+                    Sm80_mma_zero_d_tf32(warp_rmem[wg, :, :])
+                Fence(cuda_in_order, cuda_in_order)
+                with CudaWarps(3, 4):
+                    # Accessed same warp_rmem from different warp
+                    Sm80_mma_zero_d_tf32(warp_rmem[wg, :, :])
+
+
+def test_matrix_in_CudaWarps_negative_1(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_test_context(proc_matrix_in_CudaWarps_negative_0, sm=80)
+    assert "expected point, not interval" in str(exc.value)
+
+
+@proc
+def proc_matrix_in_CudaWarps_positive():
+    with CudaDeviceFunction(blockDim=256):
+        for task in cuda_tasks(0, 1):
+            thread_rmem: f32[256] @ CudaRmem
+            for t in cuda_threads(0, 256):
+                thread_rmem[t] = 14
+            with CudaWarps(3, 4):
+                warp_rmem: f32[16, 8] @ Sm80_RmemMatrixD(16, 8)
+                Sm80_mma_zero_d_tf32(warp_rmem[:, :])
+
+
+def test_matrix_in_CudaWarps_positive(compiler, golden):
+    invoke_test(proc_matrix_in_CudaWarps_positive, None, compiler, golden)
+
+
 # fmt: off
-
-
 def test_invalid_index_expression(compiler):
     @proc
     def seq_fail():
