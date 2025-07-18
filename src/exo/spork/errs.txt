@@ -79,12 +79,12 @@ incompatible point expr for BarrierExpr coord
 
 async_config:
 
-blockDim={blockDim} must be positive multiple of 32
-Duplicate warp name
-setmaxnreg requires multiples of 128 threads; blockDim = {self.blockDim}
-setmaxnreg must be uniform within warpgroups (128 threads)
-setmaxnreg must be a multiple of 8 in [24, 256]
-regcount {setmaxnreg} used both for setmaxnreg.inc and setmaxnreg.dec
+# blockDim={blockDim} must be positive multiple of 32
+# Duplicate warp name
+# setmaxnreg requires multiples of 128 threads; blockDim={self.blockDim}
+# setmaxnreg must be uniform within warpgroups (128 threads)
+# setmaxnreg must be a multiple of 8 in [24, 256]
+# regcount {setmaxnreg} used both for setmaxnreg.inc and setmaxnreg.dec
 --
 # Wrong parent instr-tl
 # Memory type alloc/read/write

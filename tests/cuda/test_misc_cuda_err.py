@@ -579,3 +579,64 @@ def test_typecheck_unexpected_SpecialWindow():
 
     msg = str(exc.value)
     assert "Can only create SpecialWindow as part of WindowStmt" in msg
+
+
+def test_CudaDeviceFunction_blockDim_valid():
+    for b in (-64, 0, 0.5, 1):
+        with pytest.raises(Exception) as exc:
+            CudaDeviceFunction(blockDim=b)
+        msg = str(exc.value)
+        assert f"blockDim={b} must be a positive multiple of 32" in msg
+
+
+def test_CudaDeviceFunction_duplicate_warp_name():
+    warp_config = [
+        CudaWarpConfig("foobar", 4),
+        CudaWarpConfig("okay", 4),
+        CudaWarpConfig("foobar", 8),
+    ]
+    with pytest.raises(Exception) as exc:
+        CudaDeviceFunction(warp_config=warp_config)
+    msg = str(exc.value)
+    assert "warp name 'foobar'" in msg
+
+
+def test_CudaDeviceFunction_setmaxnreg_multiple_128():
+    warp_config = [
+        CudaWarpConfig("foobar", 4, setmaxnreg_inc=232),
+        CudaWarpConfig("okay", 6, setmaxnreg_dec=40),
+    ]
+    with pytest.raises(Exception) as exc:
+        CudaDeviceFunction(warp_config=warp_config)
+    msg = str(exc.value)
+    assert "128" in msg
+    assert "setmaxnreg" in msg
+    assert "blockDim=320" in msg
+
+
+def test_CudaDeviceFunction_setmaxnreg_uniform_128():
+    warp_config = [
+        CudaWarpConfig("foobar", 5, setmaxnreg_inc=232),
+        CudaWarpConfig("okay", 7, setmaxnreg_dec=40),
+    ]
+    with pytest.raises(Exception) as exc:
+        CudaDeviceFunction(warp_config=warp_config)
+    msg = str(exc.value)
+    assert "128" in msg
+    assert "uniform" in msg
+    assert "setmaxnreg" in msg
+
+
+def test_CudaDeviceFunction_setmaxnreg_valid():
+    for nreg in (16, 100, 320, 232):
+        warp_config = [
+            CudaWarpConfig("foobar", 8, setmaxnreg_inc=232),
+            CudaWarpConfig("okay", 4, setmaxnreg_dec=nreg),
+        ]
+        with pytest.raises(Exception) as exc:
+            CudaDeviceFunction(warp_config=warp_config)
+        msg = str(exc.value)
+        if nreg == 232:
+            assert "232 used both for setmaxnreg.inc and setmaxnreg.dec" in msg
+        else:
+            assert "setmaxnreg must be a multiple of 8 in [24, 256]" in msg

@@ -82,7 +82,6 @@ class CudaDeviceFunction(BaseAsyncConfig):
             assert all(isinstance(c, CudaWarpConfig) for c in warp_config)
             self._init_from_warp_config(warp_config)
         else:
-            assert isinstance(blockDim, int) and blockDim > 0
             assert (
                 not warp_config
             ), "CudaDeviceFunction: Provide exactly one of blockDim or warp_config"
@@ -114,9 +113,9 @@ class CudaDeviceFunction(BaseAsyncConfig):
         # Warp divisibility. This is not strictly required by CUDA, but the
         # valid usage for warp-aligned / CTA-aligned stuff becomes really
         # unclear when there's a partial warp.
-        if blockDim % 32 != 0 or blockDim <= 0:
+        if not isinstance(blockDim, int) or blockDim % 32 != 0 or blockDim <= 0:
             raise ValueError(
-                f"CudaDeviceFunction: blockDim={blockDim} must be positive multiple of 32"
+                f"CudaDeviceFunction: blockDim={blockDim} must be a positive multiple of 32"
             )
         self.blockDim = blockDim
         self.named_warps = {"": WarpLayoutInfo(0, blockDim // 32, "", 0)}
@@ -129,7 +128,7 @@ class CudaDeviceFunction(BaseAsyncConfig):
         self.named_warps = {}
         self.setmaxnreg_is_inc = {}
 
-        for w in warp_config:
+        for i, w in enumerate(warp_config):
             # Convert name of CudaWarpConfig to a substring that can be
             # used as the suffix of a C identifier. Always start with
             # an underscore, unless the name is empty.
@@ -165,7 +164,7 @@ class CudaDeviceFunction(BaseAsyncConfig):
             self._bad_warp_config(
                 len(warp_config) - 1,
                 warp_config,
-                f"setmaxnreg requires multiples of 128 threads; blockDim = {self.blockDim}",
+                f"setmaxnreg requires multiples of 128 threads; blockDim={self.blockDim}",
             )
 
         offset = 0
