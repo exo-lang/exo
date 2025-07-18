@@ -1,3 +1,9 @@
+from ..core.memory import *
+
+from ..core.extern import Extern_Typecheck_Error
+from ..core.prelude import Sym
+from ..spork.base_with_context import BaseWithContext
+
 from ..core.LoopIR import (
     T,
     UAST,
@@ -8,13 +14,7 @@ from ..core.LoopIR import (
     create_window_type,
     loopir_from_uast_type_table,
 )
-from ..core.extern import Extern_Typecheck_Error
-from ..core.memory import *
-from ..core.prelude import Sym
-from ..spork.base_with_context import BaseWithContext
 
-if hasattr(LoopIR, "LoopIR"):
-    LoopIR = LoopIR.LoopIR
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -111,11 +111,6 @@ class TypeChecker:
             self.env[a.name] = typ
             mem = a.mem
             if mem is None:
-                mem = DRAM
-            elif issubclass(mem, BarrierType):
-                self.err(
-                    a, f"{a.name}: memory type must not be Barrier Type {mem.__name__}"
-                )
                 mem = DRAM
             args.append(LoopIR.fnarg(a.name, typ, mem, a.srcinfo))
 

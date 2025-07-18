@@ -212,8 +212,7 @@ class CudaAsync(BaseAsyncConfig):
     __slots__ = ["_instr_tl"]
 
     def __init__(self, instr_tl: Instr_tl):
-        if isinstance(instr_tl, Sync_tl):
-            instr_tl = instr_tl.as_instr_tl()
+        instr_tl = instr_tl.as_instr_tl()
         assert instr_tl.is_cuda_async()
         self._instr_tl = instr_tl
 

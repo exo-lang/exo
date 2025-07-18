@@ -994,3 +994,6 @@ cuda_warp_in_cluster = CollUnit(
 cuda_cta_in_cluster = CollUnit(
     (clusterDim * blockDim,), (blockDim,), "cuda_cta_in_cluster", 0
 )
+cuda_cluster = CollUnit(
+    (clusterDim * blockDim,), (clusterDim * blockDim,), "cuda_cluster", 0
+)

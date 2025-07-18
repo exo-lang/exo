@@ -127,7 +127,7 @@ class BarrierUsage:
             kvetch_invalid("Need N = 1")
 
     def visit_Await(self, s: LoopIR.SyncStmt):
-        # We do not enforce requirements on N, or pairing, but we enforce other traits
+        # We do not enforce requirements on pairing, but we enforce other traits
         mem = self.barrier_type
         assert mem
         sync_type = s.sync_type

@@ -393,4 +393,4 @@ class CudaCommitGroup(CudaDeviceBarrier):
 class CudaClusterSync(CudaDeviceBarrier):
     @classmethod
     def traits(cls) -> BarrierTypeTraits:
-        return BarrierTypeTraits()
+        return BarrierTypeTraits(requires_pairing=True, requires_arrive_first=True)

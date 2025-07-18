@@ -121,3 +121,13 @@ def test_variable_lookup_name_error():
 
     with pytest.raises(ParseError, match="'xyzzy' undefined"):
         to_uast(func)
+
+
+def test_call_not_a_proc():
+    fake_proc = 137.0
+
+    def func(f: f32):
+        fake_proc(f)
+
+    with pytest.raises(ParseError, match="procedure or InstrTemplate"):
+        to_uast(func)

@@ -525,6 +525,30 @@ def test_numeric_type_mismatch():
             bar(n)
 
 
+def test_wrong_arg_count():
+    with pytest.raises(TypeError, match="got 3 arguments"):
+
+        @proc
+        def bar(n: R):
+            pass
+
+        @proc
+        def foo(m: size, n: size, k: size):
+            bar(m, n, k)
+
+
+def test_window_dim():
+    with pytest.raises(Exception, match="expected 2 indices"):
+
+        @proc
+        def bar(t: [f32][4, 8]):
+            pass
+
+        @proc
+        def foo(t: f32[8, 8]):
+            bar(t[4:])
+
+
 def test_window_of_window():
     # fmt: off
     @proc

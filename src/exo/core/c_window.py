@@ -217,7 +217,9 @@ class WindowFeatures:
         """Get WindowEncoder for this window struct, if the MemWin supports it"""
         encoder = self._encoder
         if encoder is None:
-            raise ValueError(f"{self._memwin_name} does not support WindowEncoder")
+            raise ValueError(
+                f"{self._memwin_name} does not support WindowEncoder (window struct)"
+            )
         assert isinstance(encoder, WindowEncoder)
         return encoder
 
@@ -225,7 +227,9 @@ class WindowFeatures:
         """Get WindowIndexer for this window, if the MemWin supports it"""
         indexer = self._indexer
         if indexer is None:
-            raise ValueError(f"{self._memwin_name} does not support WindowIndexer")
+            raise ValueError(
+                f"{self._memwin_name} does not support WindowIndexer (read/write to index)"
+            )
         assert isinstance(indexer, WindowIndexer)
         return indexer
 
@@ -269,8 +273,7 @@ class WindowFeatures:
             # Skip points
             while True:
                 i += 1
-                if i > len(new_interval_sizes):
-                    raise ValueError("Too many indices given to window code generator")
+                assert i <= len(new_interval_sizes), "Too many indices given"
                 if new_interval_sizes[i] is not None:
                     break
             # Update here

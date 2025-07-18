@@ -20,7 +20,7 @@ from ..core.memory import MemWin, AllocableMemWin, Memory, SpecialWindow
 from ..spork.base_with_context import BaseWithContext, is_if_holding_with
 from ..spork.loop_modes import LoopMode, loop_mode_dict
 from ..spork.sync_types import SyncType, fence_type, arrive_type, await_type
-from ..spork.timelines import Sync_tl
+from ..spork.timelines import Sync_tl, Instr_tl
 
 from typing import Any, Callable, Union, NoReturn, Optional
 import copy
@@ -922,7 +922,7 @@ class Parser:
                 ):
                     self.err(
                         node,
-                        "annotation needs to be subclass of Memory or SpecialWindow",
+                        f"annotation @ {mem} needs to be subclass of Memory or SpecialWindow",
                     )
             else:
                 mem = None
@@ -1340,9 +1340,9 @@ class Parser:
             return sync_stmt
         elif fname == "Fence" or fname == "Await":
             sync_stmt = self.parse_SyncStmt_call(s)
-            return sync_stmt
             if barriers:
-                self.err(f"{fname} cannot take >> trailing barrier exprs")
+                self.err(s, f"{fname} cannot take >> trailing barrier exprs")
+            return sync_stmt
 
         # Parsing ordinary sub-routine
         elif self.is_fragment:
@@ -1402,7 +1402,10 @@ class Parser:
 
             if barriers:
                 if len(barriers) > 1:
-                    self.err(s.func, "Cannot have more than 1 trailing barrier expr")
+                    self.err(
+                        s.func,
+                        f"{f.name()} cannot have more than 1 trailing barrier expr",
+                    )
                 bar = barriers[0]
             else:
                 bar = None
@@ -1916,7 +1919,11 @@ class Parser:
         def eval_sync_tl(expr):
             sync_tl = self.eval_expr(expr)
             if not isinstance(sync_tl, Sync_tl):
-                self.err(expr, f"Expected sync-tl, not {sync_tl}")
+                note = ""
+                if isinstance(sync_tl, Instr_tl):
+                    # cuda_in_order{_instr} -> cuda_in_order
+                    note = f" (maybe {str(sync_tl)[:-6]}?)"
+                self.err(expr, f"Expected sync-tl, not {sync_tl}{note}")
                 return cpu_in_order
             return sync_tl
 

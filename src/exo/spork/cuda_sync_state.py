@@ -178,10 +178,10 @@ class SyncStateBuilder:
                 raise ValueError(
                     f"{srcinfo}: Arrive for {name} must be by full cluster ({msg})"
                 )
-            if msg := await_coll_tiling.unit_mismatch(cuda_cluster, self._coll_env):
-                raise ValueError(
-                    f"{srcinfo}: Await for {name} must be by full cluster ({msg})"
-                )
+            # If the Arrive passed, then so should the Await, since the
+            # pairing requirement enforces identical coll units.
+            assert CudaClusterSync.traits().requires_pairing
+            assert not await_coll_tiling.unit_mismatch(cuda_cluster, self._coll_env)
         else:
             is_cluster_sync = self._clusterDim() > 1 and match_unit(cuda_cluster)
             assert (
@@ -251,8 +251,7 @@ class SyncStateBuilder:
             if sync_type.is_arrive():
                 return arrive_lines
             elif sync_type.is_await():
-                if sync_type.N != 0:
-                    raise ValueError(f"{sync_stmt.srcinfo}: N must be 0 in {sync_stmt}")
+                assert sync_type.N == 0, "should have been flagged earlier"
                 return await_lines
             else:
                 return arrive_lines + await_lines
@@ -343,7 +342,7 @@ class SyncStateBuilder:
             else:
                 raise ValueError(
                     f"{info.get_srcinfo()}: mbarrier Arrive sync-tl {sync_tl} "
-                    f"not supported: need cuda_in_order, Sm80_cp_async, or tma_to_smem_async")
+                    f"not supported: need cuda_in_order or Sm80_cp_async")
 
             lines = self.SyncState_lines
             idx = f"{b}ArriveIdx{nm_suffix}"
@@ -547,7 +546,7 @@ class SyncStateBuilder:
                 assert sync_type.is_await()
                 skips_arg = ""
                 if skips := ~sync_type.N:
-                    assert skips > 0, "should have been caught earlier"
+                    assert skips > 0, "should have been caught by BarrierUsageAnalysis"
                     skips_arg = f", {skips}"
                 return [f"exo_syncState.{b}Await{nm_suffix}(exo_smem, exo_excutLog, {slice}{skips_arg});"]
         lowered.codegen_sync_stmt = codegen
@@ -579,12 +578,11 @@ class SyncStateBuilder:
         solitary = True
         L1 = usage.get_front_arrive().sync_tl
         L2 = usage.get_front_await().sync_tl
-        is_wgmma = False
 
         def check_coll_unit(coll_tiling, action_name, coll_unit):
             if msg := coll_tiling.unit_mismatch(coll_unit, self._coll_env):
                 raise TypeError(  # XXX srcinfo should be of location
-                    f"{usage.get_srcinfo()}: {action_name} of commit group "
+                    f"{usage.get_srcinfo()}: {action_name} of CudaCommitGroup "
                     f"{name} with Arrive({L1}) "
                     f"expects collective unit {coll_unit}: {msg}"
                 )
@@ -615,31 +613,30 @@ class SyncStateBuilder:
             arrive_instr = "cp.async.bulk.commit_group"
             await_instr = "cp.async.bulk.wait_group"
         elif timelines.wgmma_async.implements_first(L1):
-            # sm_90a wgmma; note unit is now warpgroup and not a single thread;
-            # also enforce that this is an epilogue sync of CudaAsync(wgmma_async).
+            # sm_90a wgmma; note unit is now warpgroup and not a single thread.
             check_L2_coll_unit(timelines.cuda_generic_and_async_proxy, cuda_warpgroup)
             lowered = LoweredBarrier(solitary, LoweredBarrierType.wgmma_commit_group)
             arrive_instr = "wgmma.commit_group.sync.aligned"
             await_instr = "wgmma.wait_group.sync.aligned"
-            is_wgmma = True
         else:
             raise TypeError(
-                f"{usage.get_srcinfo()}: {name} : "
-                f"cuda_commit_group does not support "
-                f"Arrive({L1}) (wrong first sync-tl)"
+                f"{usage.get_srcinfo()}: {name} @ CudaCommitGroup "
+                f"does not support Arrive({L1}) (wrong first sync-tl)"
             )
 
         def codegen(s: LoopIR.SyncStmt):
             sync_type = s.sync_type
             assert sync_type.is_split()
             if sync_type.is_arrive():
-                if sync_type.N != 1:
-                    raise ValueError("Expect N=1 for Arrive of commit group")
+                assert (
+                    sync_type.N == 1
+                ), "should have been flagged by BarrierUsageAnalysis"
                 lowered_arrive = simple_ptx_c_lines(arrive_instr)
                 return lowered_arrive
             else:
-                if sync_type.N < 0:
-                    raise ValueError("Expect N>=0 for Await of commit group")
+                assert (
+                    sync_type.N >= 0
+                ), "should have been flagged by BarrierUsageAnalysis"
                 return simple_ptx_c_lines(await_instr, sync_type.N)
 
         lowered.codegen_sync_stmt = codegen

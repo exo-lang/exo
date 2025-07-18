@@ -1343,7 +1343,7 @@ class Compiler:
                 self.add_line("}")
 
             else:
-                raise TypeError(f"Unknown with stmt context type {type(ctx)}")
+                assert 0, f"Unknown with stmt context type {type(ctx)}"
 
         # If statement that is not disguising a with statement
         # (remove note when this hack is fixed)

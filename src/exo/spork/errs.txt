@@ -1,6 +1,14 @@
 Todo catalog all possible compiler errors
 
-Main compiler:
+LoopIR_compiler:
+
+mem is invalid (kvetch)
+# SyncStmt fail
+# instr fail
+# unexpected loop mode
+name collision for mem_global?
+
+cuda_backend:
 
 # cuda_tasks loop alone
 # Duplicate cuda_tasks iter variable name
@@ -10,10 +18,10 @@ Main compiler:
 # cuda_tasks loop must appear only in top level...
 # Unexpected loop mode in CudaDeviceFunction
 # SMEM allocation const shape
+# Solitary barrier error
+# expect_SyncStmt
 ---
-Solitary barrier error
 Number of intervals in barrier wrong...
-expect_SyncStmt???
 ---
 # Write must be executed by one thread only
 # Top-level CudaWarps must provide
@@ -27,7 +35,7 @@ expect_SyncStmt???
 
 Barrier Usage:
 
-incompatible sync-tl
+# incompatible sync-tl
 incompatible multicasts
 no back queue barrier
 no multicast support
@@ -38,11 +46,10 @@ Distributed memory
 
 Mbarrier multicast on intra-CTA dimension
 Convergence requirement
-Mismatched #distributed dims
-Mismatched distributed dim values
+Mismatched distributed dim values (barrier)
 Barrier: tile size mismatches leaf threads
-Inconsistent collective tiling with previous
 ---
+# Inconsistent collective tiling with previous
 # Expected point, not interval
 # Expected 0:const
 # Iter not from cuda_threads
@@ -64,11 +71,21 @@ requires trailing barrier expression
 intact packed dimensions
 multiple barriers, different variable
 multiple barriers, different sidedness
-missing something
+missing BarrierExpr
 check_pairing issues
+---
+missing point expr for BarrierExpr coord
+incompatible point expr for BarrierExpr coord
 
-InstrTimelineAnalysis:
+async_config:
 
+blockDim={blockDim} must be positive multiple of 32
+Duplicate warp name
+setmaxnreg requires multiples of 128 threads; blockDim = {self.blockDim}
+setmaxnreg must be uniform within warpgroups (128 threads)
+setmaxnreg must be a multiple of 8 in [24, 256]
+regcount {setmaxnreg} used both for setmaxnreg.inc and setmaxnreg.dec
+--
 # Wrong parent instr-tl
 # Memory type alloc/read/write
 # Assign/Reduce
@@ -79,3 +96,56 @@ InstrTimelineAnalysis:
 SyncStmt
 warn_weird_letters
 
+cuda_sync_state:
+
+not supported in CUDA device function
+# wgmma fence needs second sync-tl wgmma_fence_2
+# wgmma fence must be executed by a warpgroup
+# Arrive cluster sync needs to be by full cluster
+Fence first sync-tl we allow Sm80_generic
+Fence collective unit matched no known case
+Fence second sync-tl we allow CUDA generic+async proxy
+Reminder: warpgroup special case for Fence
+---
+mbarrier must be distributed so each mbarrier is resident in one CTA only
+mbarrier must have some await with nonzero skips
+mbarrier Arrive sync-tl not supported (TMA/non-TMA)
+mbarrier Await sync-tl not supported (consider wgmma_async_smem)
+---
+# commit_group collective unit error
+# commit_group unknown first sync tl error
+# commit_group unknown second sync tl error
+
+c_window:
+
+Does not support explicit strides
+Does not support WindowEncoder
+Does not support WindowIndexer
+
+pyparser:
+
+# Only >> BinOp supported at top level
+# Only SyncStmt and Call can take >> trailing barrier exprs
+# {fname} cannot take >> trailing barrier exprs
+# expected only 1 withitem
+# expected called object to be a procedure or InstrTemplate
+# cannot have more than 1 trailing barrier expr
+# unknown loop mode name
+# failed to construct loop mode
+# annotation needs to be subclass of Memory or SpecialWindow
+# expected sync-tl, not ...
+# Unknown keyword '{name}' for {func_id}()
+# Arrive expects 2 arguments
+# Fence expects 2 arguments
+# Await expects 3 arguments
+# N expected int
+
+typecheck:
+
+# got {n_args} arguments but need {expected_args}
+# BarrierExpr requires barrier type
+# expected {len(in_shape)} indices for BarrierExprs
+# Can only create SpecialWindow as part of WindowStmt
+# expected {len(in_shape)} indices for window
+---
+Can only create SpecialWindow from a dense tensor, not another window (why???)

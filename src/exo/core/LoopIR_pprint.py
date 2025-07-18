@@ -423,7 +423,7 @@ def _print_proc(p, env: PrintEnv, indent: str) -> list[str]:
     indent = indent + "  "
 
     if p.instr:
-        for i, line in enumerate(p.instr.instr_format):
+        for i, line in enumerate(p.instr.instr_format or ()):
             if i == 0:
                 lines.append(f"{indent}# @instr {line}")
             else:
@@ -686,7 +686,7 @@ def _print_cursor_proc(
 
     if cur == target:
         if p.instr:
-            for i, line in enumerate(p.instr.instr_format):
+            for i, line in enumerate(p.instr.instr_format or ()):
                 if i == 0:
                     lines.append(f"{indent}# @instr {line}")
                 else:
