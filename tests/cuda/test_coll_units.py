@@ -541,6 +541,7 @@ def test_warp_instr_positive(compiler):
 def test_warp_instr_negative(compiler):
     with pytest.raises(Exception) as exc:
         cu = compiler.cuda_test_context(mkproc_warp_instr(cuda_thread), sm=80)
+    assert "wrong collective unit" in str(exc.value)
     assert "32" in str(exc.value)
 
 

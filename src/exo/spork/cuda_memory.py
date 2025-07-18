@@ -32,7 +32,8 @@ class CudaBasicDeviceVisible(Memory):
     Converse is not true -- this class represents only that the
     memory is device visible, not allocable. Subclasses should
     implement instr_tl_permission in terms of one of the impl
-    functions based on the correct behavior.
+    functions based on the correct behavior (e.g. GMEM is
+    host allocable, device visible).
     """
 
     @classmethod

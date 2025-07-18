@@ -281,8 +281,8 @@ class InstrTimelineAnalysis(LoopIR_Rewrite):
                 self.warn_weird_letters(memwin, perm)
                 action = "mutable access" if "r" in perm else "any access"
                 raise TypeError(
-                    f"{s.srcinfo}: {s.name} (memory type "
-                    f"{memwin.name()}) does not allow {action} in a "
+                    f"{s.srcinfo}: {s.name} @ "
+                    f"{memwin.name()} does not allow {action} in a "
                     f"scope with instr-tl {self.instr_tl}"
                 )
         elif isinstance(s, LoopIR.SyncStmt):
@@ -311,8 +311,8 @@ class InstrTimelineAnalysis(LoopIR_Rewrite):
             if "c" not in perm:
                 self.warn_weird_letters(mem, perm)
                 raise TypeError(
-                    f"{s.srcinfo}: {s.name} (memory type "
-                    f"{mem.name()}) cannot be allocated in a scope "
+                    f"{s.srcinfo}: {s.name} @ "
+                    f"{mem.name()} cannot be allocated in a scope "
                     f"with instr-tl {self.instr_tl}"
                 )
         elif isinstance(s, LoopIR.WindowStmt):
@@ -352,8 +352,8 @@ class InstrTimelineAnalysis(LoopIR_Rewrite):
             if "r" not in perm:
                 assert "w" not in perm, "Not supported: write without read permission"
                 raise TypeError(
-                    f"{e.srcinfo}: {e.name} (memory type "
-                    f"{memwin.name()}) does not allow reads in a "
+                    f"{e.srcinfo}: {e.name} @ "
+                    f"{memwin.name()} does not allow reads in a "
                     f"scope with instr-tl {self.instr_tl}"
                 )
 

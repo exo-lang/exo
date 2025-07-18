@@ -2,18 +2,18 @@ Todo catalog all possible compiler errors
 
 Main compiler:
 
-cuda_tasks loop alone
-Duplicate cuda_tasks iter variable name
-Invalid statement after cuda_tasks loop
-Missing cuda_tasks loop
-Grid constant window
-cuda_tasks loop must appear only in top level...
-Unexpected loop mode in CudaDeviceFunction
-CudaBasicDeviceVisible
-expect_SyncStmt???
-Number of intervals in barrier wrong...
+# cuda_tasks loop alone
+# Duplicate cuda_tasks iter variable name
+# Invalid statement after cuda_tasks loop
+# Missing cuda_tasks loop
+# Grid constant window
+# cuda_tasks loop must appear only in top level...
+# Unexpected loop mode in CudaDeviceFunction
+# SMEM allocation const shape
+---
 Solitary barrier error
-SMEM allocation const shape
+Number of intervals in barrier wrong...
+expect_SyncStmt???
 ---
 # Write must be executed by one thread only
 # Top-level CudaWarps must provide
@@ -42,13 +42,13 @@ Mismatched #distributed dims
 Mismatched distributed dim values
 Barrier: tile size mismatches leaf threads
 Inconsistent collective tiling with previous
+---
 # Expected point, not interval
 # Expected 0:const
 # Iter not from cuda_threads
 # Repeated? index
 # SyncStmt 0:const_extent
 # Mismatched distributed dims
----
 # mismatches #distributed dims
 # Mismatched extent
 # Overshot
@@ -58,9 +58,8 @@ Inconsistent collective tiling with previous
 
 mem_analysis:
 
-WindowStmt input memory
-call mem type
-does not take trailing barrier expression
+# WindowStmt input memory
+# does not take trailing barrier expression
 requires trailing barrier expression
 intact packed dimensions
 multiple barriers, different variable
@@ -70,12 +69,13 @@ check_pairing issues
 
 InstrTimelineAnalysis:
 
-Wrong parent instr-tl
-Memory type alloc/read/write
-Assign/Reduce
-WindowStmt
+# Wrong parent instr-tl
+# Memory type alloc/read/write
+# Assign/Reduce
+# WindowStmt
+# Call
+# Read
+---
 SyncStmt
-Call
-Read
 warn_weird_letters
 

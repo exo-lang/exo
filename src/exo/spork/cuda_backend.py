@@ -450,11 +450,7 @@ class SubtreeScan(LoopIR_Do):
             if s.type.is_barrier():
                 native_unit = None
             else:
-                if not issubclass(s.mem, CudaBasicDeviceVisible):
-                    raise TypeError(
-                        f"{s.srcinfo}: For cuda code, memory type "
-                        f"({s.mem.name()}) must subclass CudaBasicDeviceVisible"
-                    )
+                assert issubclass(s.mem, CudaBasicDeviceVisible)
                 native_unit = s.mem.native_unit()
             self.distributed_alloc_states[s.name] = DistributedAllocState(
                 self._coll_tiling, native_unit
@@ -1339,9 +1335,10 @@ def type_const_shape(t: LoopIR.type, usage_str, name, srcinfo: SrcInfo):
             val = c.val
             if isinstance(val, int):
                 return val
+        shape_str = "[" + ", ".join(str(c) for c in shape) + "]"
         raise TypeError(
             f"{srcinfo}: {usage_str} {name} requires "
-            f"constant shape, not {shape}; simplify() if needed"
+            f"constant shape, not {shape_str}; simplify() if needed"
         )
 
     return [as_int(c) for c in shape]
