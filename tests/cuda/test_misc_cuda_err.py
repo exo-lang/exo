@@ -640,3 +640,12 @@ def test_CudaDeviceFunction_setmaxnreg_valid():
             assert "232 used both for setmaxnreg.inc and setmaxnreg.dec" in msg
         else:
             assert "setmaxnreg must be a multiple of 8 in [24, 256]" in msg
+
+
+def test_CudaDeviceFunction_bad_warp_name():
+    for name in ("hello world", "***"):
+        with pytest.raises(Exception) as exc:
+            CudaDeviceFunction(warp_config=[CudaWarpConfig(name, 4)])
+        msg = str(exc.value)
+        assert "C identifier" in msg
+        assert repr(name) in msg

@@ -122,7 +122,6 @@ class CudaDeviceFunction(BaseAsyncConfig):
         self.setmaxnreg_is_inc = {}
 
     def _init_from_warp_config(self, warp_config):
-        cnames = set()
         offset = 0
         have_setmaxnreg = False
         self.named_warps = {}
@@ -132,15 +131,13 @@ class CudaDeviceFunction(BaseAsyncConfig):
             # Convert name of CudaWarpConfig to a substring that can be
             # used as the suffix of a C identifier. Always start with
             # an underscore, unless the name is empty.
-            tmp = "".join(c for c in w.name if c.isalnum() or c == "_")
-            if tmp and not tmp.startswith("_"):
-                tmp = "_" + tmp
-            cname = tmp
-            suffix = 0
-            while cname in cnames:
-                suffix += 1
-                cname = f"{tmp}_{suffix}"
-            cnames.add(cname)
+            cname = w.name
+            if any(c != "_" and not c.isalnum() for c in cname):
+                self._bad_warp_config(
+                    i, warp_config, f"{w.name!r} needs to be a valid C identifier"
+                )
+            if cname:
+                cname = "_" + cname
 
             if w.name in self.named_warps:
                 self._bad_warp_config(i, warp_config, f"Duplicate warp name {w.name!r}")
