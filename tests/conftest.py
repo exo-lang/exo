@@ -9,6 +9,7 @@ import subprocess
 import textwrap
 import warnings
 from dataclasses import dataclass, field
+from enum import Enum, auto
 from pathlib import Path, PurePath
 from typing import Optional, Any, Dict, Union, List, Set, Callable
 
@@ -19,6 +20,12 @@ from _pytest.nodes import Node
 
 from exo import Procedure, compile_procs, ext_compile_procs
 from exo.spork import excut
+
+
+class CudaRun:
+    cpu = (auto(),)
+    Sm80 = (auto(),)
+    Sm90a = (auto(),)
 
 
 # ---------------------------------------------------------------------------- #
@@ -32,6 +39,27 @@ def pytest_addoption(parser: argparsing.Parser):
         action="store_true",
         default=False,
         help="Update golden outputs.",
+    )
+    parser.addoption(
+        "--cuda-run-cpu",
+        dest="cuda_run",
+        action="append_const",
+        const=CudaRun.cpu,
+        help="Enable compiler test fixture (implied if no --cuda-run-* flags given)",
+    )
+    parser.addoption(
+        "--cuda-run-Sm80",
+        dest="cuda_run",
+        action="append_const",
+        const=CudaRun.Sm80,
+        help="Enable compiler_Sm80 test fixture (for tests requiring sm_80 device)",
+    )
+    parser.addoption(
+        "--cuda-run-Sm90a",
+        dest="cuda_run",
+        action="append_const",
+        const=CudaRun.Sm90a,
+        help="Enable compiler_Sm90a test fixture (for tests requiring sm_90a device)",
     )
 
 
@@ -77,17 +105,36 @@ def golden(request):
 
 @pytest.fixture
 def compiler(tmp_path, request):
-    return Compiler(tmp_path, request.node.name, None)
+    """C and (optional) CUDA compiler test fixture
+
+    Use this test fixture for all tests requiring compiling C, as well as tests
+    with CUDA where you do NOT intend to actually execute the CUDA code.
+
+    """
+
+    cuda_run = request.config.getoption("cuda_run")
+    if not cuda_run or CudaRun.cpu in cuda_run:
+        return Compiler(tmp_path, request.node.name, None)
+    else:
+        pytest.skip("--cuda-run-cpu not given")
 
 
 @pytest.fixture
 def compiler_Sm80(tmp_path, request):
-    return Compiler(tmp_path, request.node.name, "80")
+    """Test fixture for compiling and executing code for sm_80 CUDA devices"""
+    if CudaRun.Sm80 in request.config.getoption("cuda_run"):
+        return Compiler(tmp_path, request.node.name, "80")
+    else:
+        pytest.skip("--cuda-run-Sm80 not given")
 
 
 @pytest.fixture
 def compiler_Sm90a(tmp_path, request):
-    return Compiler(tmp_path, request.node.name, "90a")
+    """Test fixture for compiling and executing code for sm_90a CUDA devices"""
+    if CudaRun.Sm90a in request.config.getoption("cuda_run"):
+        return Compiler(tmp_path, request.node.name, "90a")
+    else:
+        pytest.skip("--cuda-run-Sm90a not given")
 
 
 @pytest.fixture
@@ -313,7 +360,7 @@ class Compiler:
             if _cpu_test_sm is None:
                 raise ValueError("Define EXO_NVCC environment variable")
             else:
-                pytest.skips("EXO_NVCC environment variable not defined")
+                pytest.skip("EXO_NVCC environment variable not defined")
         artifact_path = str(self.workdir / (self.basename + ".so"))
         args = [
             nvcc,
@@ -362,6 +409,14 @@ class Compiler:
         Optionally, we compare with a reference str if the golden arg is provided,
         and we try to compile with nvcc as an sm_{sm}-architecture CUDA module
         if the sm argument is provided.
+
+        NOTE: if sm is not provided, then the generated CUDA code is
+        never compiled, but it is still desirable to use the compiler
+        test fixture, since this is how
+        --cuda-run-Sm80/--cuda-run-Sm90a filter out non-executed tests.
+        For now I centralize this filtering to the (mutually
+        exclusive) compiler* fixtures to avoid accidents where some
+        test is filtered out on all code paths.
 
         """
 
