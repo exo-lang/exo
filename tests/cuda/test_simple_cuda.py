@@ -9,7 +9,7 @@ from exo.platforms.cuda import *
 from exo.stdlib.scheduling import *
 
 
-def test_cuda_add_vec(compiler):
+def test_cuda_add_vec(compiler_Sm80):
     """
     Hello world: Compute c = a + b
     """
@@ -27,7 +27,7 @@ def test_cuda_add_vec(compiler):
                     device_d[task * 32 + tid] += device_a[task * 32 + tid]
         cudaMemcpyAsync_dtoh_1i32(n, c, device_d)
 
-    cu = compiler.cuda_test_context(cuda_add_vec, sm=80)
+    cu = compiler_Sm80.cuda_test_context(cuda_add_vec)
 
     for n in (32, 32000):
         a = np.ndarray(shape=(n,), dtype=np.int32)
@@ -41,7 +41,7 @@ def test_cuda_add_vec(compiler):
         assert np.array_equal(c_test, c_expected)
 
 
-def test_cuda_simple_saxpy(compiler):
+def test_cuda_simple_saxpy(compiler_Sm80):
     """
     Compute y = ay + x
     """
@@ -66,7 +66,7 @@ def test_cuda_simple_saxpy(compiler):
                     )
         cudaMemcpyAsync_dtoh_1f32(n, y, device_y)
 
-    cu = compiler.cuda_test_context(saxpy, sm=80)
+    cu = compiler_Sm80.cuda_test_context(saxpy)
 
     for a in (1.0, 3.75):
         for n in (128, 128 * 300):
@@ -80,7 +80,7 @@ def test_cuda_simple_saxpy(compiler):
             assert np.array_equal(y, y_expected)
 
 
-def test_cuda_two_device_functions(compiler):
+def test_cuda_two_device_functions(compiler_Sm80):
     """
     Compute y = ay + x but really inefficiently, using 2 cuda kernels
     """
@@ -108,7 +108,7 @@ def test_cuda_two_device_functions(compiler):
 
         cudaMemcpyAsync_dtoh_1f32(n, y, device_y)
 
-    cu = compiler.cuda_test_context(saxpy, sm=80)
+    cu = compiler_Sm80.cuda_test_context(saxpy)
 
     for a in (1.0, 3.75):
         for n in (128, 128 * 300):
@@ -122,7 +122,7 @@ def test_cuda_two_device_functions(compiler):
             assert np.array_equal(y, y_expected)
 
 
-def test_grid_constants_windows(compiler):
+def test_grid_constants_windows(compiler_Sm80):
     """
     Test tricky parts of CUDA code lowering
       * Windows passed from host to device
@@ -179,7 +179,7 @@ def test_grid_constants_windows(compiler):
 
         cudaMemcpyAsync_dtoh_2i32(N, N, test_out[:, :], test_mem[:, :])
 
-    cu = compiler.cuda_test_context(weird_windows, sm=80)
+    cu = compiler_Sm80.cuda_test_context(weird_windows)
 
     for N in (10,):
         test_scalar = np.array([137], dtype=np.int32)
@@ -190,7 +190,7 @@ def test_grid_constants_windows(compiler):
         ref_out = np.ndarray(shape=(N, N), dtype=np.int32)
         for i in range(0, N):
             for j in range(0, 4):
-                ref_out[i, j] = test_scalar * test_vector[j] * test_vector[4 + j]
+                ref_out[i, j] = test_scalar[0] * test_vector[j] * test_vector[4 + j]
             for j in range(4, N):
                 ref_out[i, j] = (
                     test_vector[4 + i % 4] * test_vector[j % 4] + test_vector[i % 4]
@@ -201,8 +201,8 @@ def test_grid_constants_windows(compiler):
     # Test the test i.e. that it actually tests what it's supposed to.
     # These could fail if the compiler outputs change substantially, but the
     # underlying functionality could still be correct ... use your judgment.
-    cuh_src = cu.fn.get_source_by_ext("cuh")
-    c_src = cu.fn.get_source_by_ext("c")
+    cuh_src = cu.cuh_src
+    c_src = cu.c_src
     assert (
         "exo_deviceArgs.N_1" in cuh_src
     ), "Was supposed to test mangling of N variable"
@@ -271,7 +271,7 @@ class gemm_init_pcg3d_mod:
 """
 
 
-def test_cuda_simple_matmul(compiler):
+def test_cuda_simple_matmul(compiler_Sm80):
     """
     Initialize A, B with data, and compute C = A * B
     """
@@ -402,7 +402,7 @@ def test_cuda_simple_matmul(compiler):
         cudaMemcpyAsync_dtoh_2f32(N, K, B_cpu, B)
         cudaMemcpyAsync_dtoh_2f32(N, M, C_cpu, C)
 
-    cu = compiler.cuda_test_context(gemm_test, sm=80)
+    cu = compiler_Sm80.cuda_test_context(gemm_test)
 
     for M in (512, 4096):
         for N in (512, 65536):
@@ -419,7 +419,7 @@ def test_cuda_simple_matmul(compiler):
                 assert np.array_equal(C_test, C_expected)
 
 
-def test_cuda_arrays(compiler):
+def test_cuda_arrays(compiler_Sm80):
     """Test correct behavior of passing arrays from host to device:
 
     * grid constant support
@@ -458,7 +458,7 @@ def test_cuda_arrays(compiler):
             exo_ZZ0a + exo_ZZ0b, exo_ZZ1a + exo_ZZ1b, exo_ZZ2, exo_ZZ2_device
         )
 
-    cu = compiler.cuda_test_context(array_test, sm=80)
+    cu = compiler_Sm80.cuda_test_context(array_test)
 
     ZZ0a = 129
     ZZ0b = 100
@@ -471,6 +471,15 @@ def test_cuda_arrays(compiler):
 
     for i in range(4):
         assert ZZ2[ZZ0a + i, ZZ1a + 4 - i] == ZZ3[i] + ZZ4[i]
+
+    cuh_src = cu.cuh_src
+    assert "exo_user_exo_ZZ0a" in cuh_src
+    assert "exo_user_exo_ZZ0b" in cuh_src
+    assert "exo_user_exo_ZZ1a" in cuh_src
+    assert "exo_user_exo_ZZ1b" in cuh_src
+    assert "exo_user_exo_ZZ2" in cuh_src
+    assert "exo_user_exo_ZZ3" in cuh_src
+    assert "exo_user_exo_ZZ4" in cuh_src
 
 
 # TODO seperate Sm80 test
@@ -608,8 +617,8 @@ def xgemm_Sm80_fence(M: size, N: size, K: size, A_host: f32[M,K], B_host: f32[K,
 xgemm_Sm80_fence = simplify(xgemm_Sm80_fence)
 
 
-def test_tmp_Sm80(compiler):
-    cu = compiler.cuda_test_context(xgemm_Sm80_fence, sm=80)
+def test_tmp_Sm80(compiler_Sm80):
+    cu = compiler_Sm80.cuda_test_context(xgemm_Sm80_fence)
 
     M, N, K = 192, 256, 64
     A = np.ndarray(shape=(M, K), dtype=np.float32, order="C")

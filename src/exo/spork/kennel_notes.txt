@@ -1,0 +1,7 @@
+python3 ../xvenv/activate
+source ../xvenv/bin/activate
+python3 -m pip install -U pip setuptools wheel
+python3 -m pip install -r requirements.txt
+python3 -m pip install pytest numpy pillow
+EXO_NVCC=/usr/local/cuda-12.6/bin/nvcc h100 pytest tests/cuda
+h100 is aliased to `srun --partition debug --gres=gpu:h100:1 --nodelist=dogo'

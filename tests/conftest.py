@@ -77,7 +77,17 @@ def golden(request):
 
 @pytest.fixture
 def compiler(tmp_path, request):
-    return Compiler(tmp_path, request.node.name)
+    return Compiler(tmp_path, request.node.name, None)
+
+
+@pytest.fixture
+def compiler_Sm80(tmp_path, request):
+    return Compiler(tmp_path, request.node.name, "80")
+
+
+@pytest.fixture
+def compiler_Sm90a(tmp_path, request):
+    return Compiler(tmp_path, request.node.name, "90a")
 
 
 @pytest.fixture
@@ -170,7 +180,6 @@ class LibWrapper:
     default_proc: str
     workdir: Path
     basename: Path
-    _sources_by_ext: Dict[str, str] = field(default_factory=dict)
 
     def __getattr__(self, item):
         return ProcWrapper(getattr(self.dll, item))
@@ -179,20 +188,51 @@ class LibWrapper:
         fn_ptr = getattr(self.dll, self.default_proc)
         return ProcWrapper(fn_ptr)(*args, **kwargs)
 
-    def get_source_by_ext(self, ext) -> str:
+    def read_source_by_ext(self, ext) -> str:
         assert ext in ("c", "h", "cu", "cuh"), "Update this if needed"
-        if (text := self._sources_by_ext.get(ext)) is not None:
-            return text
         with open(str(self.workdir / self.basename) + "." + ext) as f:
             text = f.read()
-            self._sources_by_ext[ext] = text
             return text
+
+
+@dataclass(slots=True)
+class CudaTestSource:
+    h_src: str
+    c_src: str
+    cu_src: str
+    cuh_src: str
+
+    def compare_golden(self, golden: str):
+        assert self._make_golden() == golden
+
+    def _make_golden(self):
+        return f"""// ########################################################################
+// .h
+// ########################################################################
+{self.h_src}
+
+// ########################################################################
+// .c
+// ########################################################################
+{self.c_src}
+
+// ########################################################################
+// .cuh
+// ########################################################################
+{self.cuh_src}
+
+// ########################################################################
+// .cu
+// ########################################################################
+{self.cu_src}
+"""
 
 
 @dataclass
 class Compiler:
     workdir: Path
     basename: str
+    cuda_sm: str
 
     def compile(
         self,
@@ -250,22 +290,30 @@ class Compiler:
         self,
         procs: Union[Procedure, List[Procedure]],
         *,
-        sm,
         excut=False,
         include_dir=None,
         additional_files=(),
         skip_on_fail: bool = False,
         compiler_flags=(),
+        _cpu_test_sm=None,
     ):
+        sm = _cpu_test_sm or self.cuda_sm
+        if sm is None:
+            raise ValueError("Use compiler_Sm80 fixture")
         if isinstance(procs, Procedure):
             procs = [procs]
 
         file_exts = ext_compile_procs(procs, self.workdir, self.basename)
         assert file_exts == ["c", "cu", "cuh", "excut_str_table", "h"]
 
-        # Directly use nvcc (or $EXO_NVCC)
+        # Directly use nvcc ($EXO_NVCC)
         # This pretty much only works on Linux.
-        nvcc = os.getenv("EXO_NVCC", default="nvcc")
+        nvcc = os.getenv("EXO_NVCC", default=None)
+        if nvcc is None:
+            if _cpu_test_sm is None:
+                raise ValueError("Define EXO_NVCC environment variable")
+            else:
+                pytest.skips("EXO_NVCC environment variable not defined")
         artifact_path = str(self.workdir / (self.basename + ".so"))
         args = [
             nvcc,
@@ -299,6 +347,74 @@ class Compiler:
         return LibWrapper(
             ctypes.CDLL(artifact_path), procs[0].name(), self.workdir, self.basename
         )
+
+    def cuda_cpu_test(
+        self,
+        mkproc: Callable[[], Union[Procedure, List[Procedure]]],
+        golden=None,
+        sm=None,
+        **kwargs,
+    ) -> CudaTestSource:
+        """CPU-only CUDA test (no CUDA device required)
+
+        We call mkproc(**kwargs) and compile the resulting proc(s) into C+CUDA code.
+
+        Optionally, we compare with a reference str if the golden arg is provided,
+        and we try to compile with nvcc as an sm_{sm}-architecture CUDA module
+        if the sm argument is provided.
+
+        """
+
+        procs = mkproc(**kwargs)
+        assert procs is not None, f"Forgot return in {mkproc}?"
+        if isinstance(procs, Procedure):
+            procs = [procs]
+
+        file_exts = ext_compile_procs(procs, self.workdir, self.basename)
+        assert file_exts == ["c", "cu", "cuh", "excut_str_table", "h"]
+        read_source = LibWrapper.read_source_by_ext
+        sources = CudaTestSource(
+            h_src=read_source(self, "h"),
+            c_src=read_source(self, "c"),
+            cu_src=read_source(self, "cu"),
+            cuh_src=read_source(self, "cuh"),
+        )
+        if golden is not None:
+            sources.compare_golden(golden)
+        if sm:
+            self.nvcc_compile(procs, _cpu_test_sm=sm)
+        return sources
+
+    def excut_test(
+        self,
+        mkproc: Callable[[], Union[Procedure, List[Procedure]]],
+        mkref: Callable[[excut.ExcutReferenceGenerator], None],
+        *args,
+        **kwargs,
+    ) -> "CudaTestContext":
+        """Helper for simple CUDA excut tests.
+
+        Generate proc(s) with mkproc(**kwargs) and generate excut
+        reference actions with mkref(xrg, **kwargs) where you use the
+        member functions of xrg: ExcutReferenceGenerator to create the
+        reference actions.
+
+        The procs get compiled to a CUDA library and we execute it with
+        *args (plus the implicit null ctx arg...) and compare the
+        output excut trace with the reference.
+
+        More advanced executed CUDA tests may use cuda_test_context(...) directly.
+        Be sure to pass excut=True if you intend to use excut action logging.
+
+        """
+        procs = mkproc(**kwargs)
+        assert procs is not None, f"Forgot return in {mkproc}?"
+        if isinstance(procs, Procedure):
+            procs = [procs]
+        cu = CudaTestContext(self, procs, excut=True)
+        cu(None, *args)
+        cu.excut_concordance(mkref, **kwargs)
+        return cu
 
     def cuda_test_context(self, *args, **kwargs) -> "CudaTestContext":
         return CudaTestContext(self, *args, **kwargs)
@@ -404,12 +520,29 @@ def get_cpu_features() -> Set[str]:
 
 
 @dataclass(slots=True)
-class CudaTestContext:
+class CudaTestContext(CudaTestSource):
+    """Wrapper around a compiled CUDA library.
+
+    There is bunch of extra context state that only is used if excut
+    is enabled (excut=True). In this case, the library gets compiled
+    to log excut actions (trace) to file.
+
+    IMPORTANT: in the excut=True code path, calls to the library may
+    be repeated, so side effects (e.g. +=) may be duplicated.
+    Generally, do NOT enable excut if you plan to test the tensor
+    outputs for correctness (i.e. CUDA runtime tests should assert
+    correctness either by examining the excut outputs, or by examining
+    the numpy/etc. outputs, but not both).
+
+    """
+
     compiler: Compiler
     fn: LibWrapper
     enable_excut: bool
     trace_actions: List[excut.ExcutAction]
     ref_actions: List[excut.ExcutAction]
+    xrg: excut.ExcutReferenceGenerator
+    deductions: dict
 
     _saved_excut_buffer_size = 1 << 28
 
@@ -420,7 +553,10 @@ class CudaTestContext:
         self.enable_excut = kwargs.get("excut", False)
         self.fn = compiler.nvcc_compile(*args, **kwargs)
         self.trace_actions = None
-        self.ref_actions = None
+        self.c_src = self.fn.read_source_by_ext("c")
+        self.cu_src = self.fn.read_source_by_ext("cu")
+        self.cuh_src = self.fn.read_source_by_ext("cuh")
+        self.h_src = self.fn.read_source_by_ext("h")
 
     def __call__(self, *args):
         self.run(self.fn.default_proc, *args)
@@ -433,34 +569,30 @@ class CudaTestContext:
         else:
             c_proc(*args)
 
-    def compare_golden(self, golden: str):
-        assert self._make_golden() == golden
-
     def excut_concordance(
         self,
         make_reference: Callable[[excut.ExcutReferenceGenerator], None],
         ref_filename="excut_ref.json",
+        **kwargs,
     ):
         """Compare previously generated trace with newly generated reference
 
-        make_reference will create the reference actions using the member
-        functions of ExcutReferenceGenerator.
-        functools.partial could be very useful to you.
+        make_reference(**kwargs) must create the reference actions using the
+        member functions of ExcutReferenceGenerator.
+        Either kwargs or functools.partial could be very useful to you.
 
-        Returns (xrg: ExcutReferenceGenerator, deductions) where
-
-        var = xrg.get_var(varname: str) gets an existing variable
+        var = self.get_var(varname: str) gets an existing variable
 
         var2 = var[idx] and var2 = var + offset adds indices/offsets
 
-        var2(deductions) gets the deduced integer value.
+        var2(self) gets the deduced integer value.
 
         """
         assert self.enable_excut
         trace_path = self.compiler.workdir / "excut_trace.json"
         ref_path = self.compiler.workdir / ref_filename
         xrg = excut.ExcutReferenceGenerator()
-        make_reference(xrg)
+        make_reference(xrg, **kwargs)
         with open(str(ref_path), "w") as f:
             xrg.write_json(f)
         self.ref_actions = excut.parse_json_file(str(ref_path))
@@ -468,7 +600,15 @@ class CudaTestContext:
         deductions = excut.require_concordance(
             self.ref_actions, self.trace_actions, xrg.varname_set
         )
-        return xrg, deductions
+        self.xrg = xrg
+        self.deductions = deductions
+
+    def get_var(self, varname: str) -> excut.ExcutVariableArg:
+        return self.xrg.get_var(varname)
+
+    def __getitem__(self, excut_id: excut.ExcutVariableID):
+        """For ExcutVariableArg.__call__"""
+        return self.deductions[excut_id]
 
     @classmethod
     def set_excut_buffer_size(cls, n_bytes):
@@ -492,25 +632,3 @@ class CudaTestContext:
         raise MemoryError(
             "Excut internal error, trace out-of-cuda-memory after 3 tries"
         )
-
-    def _make_golden(self):
-        return f"""// ########################################################################
-// .h
-// ########################################################################
-{self.fn.get_source_by_ext("h")}
-
-// ########################################################################
-// .c
-// ########################################################################
-{self.fn.get_source_by_ext("c")}
-
-// ########################################################################
-// .cuh
-// ########################################################################
-{self.fn.get_source_by_ext("cuh")}
-
-// ########################################################################
-// .cu
-// ########################################################################
-{self.fn.get_source_by_ext("cu")}
-"""
