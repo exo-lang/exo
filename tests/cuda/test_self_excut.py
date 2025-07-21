@@ -76,8 +76,8 @@ def Sm80_test_proc():
                         excut_tracer_bar(smem[4 * tid : 4 * tid + 4])
 
 
-def test_excut_bootstrap(compiler):
-    cu = compiler.cuda_test_context(Sm80_test_proc, sm=80, excut=True)
+def test_excut_bootstrap(compiler_Sm80):
+    cu = compiler_Sm80.cuda_test_context(Sm80_test_proc, excut=True)
     old_buffer_size = cu._saved_excut_buffer_size
     assert isinstance(old_buffer_size, int)
     cu.set_excut_buffer_size(0)  # Test the retry-on-out-of-memory functionality
@@ -242,12 +242,12 @@ def impl_test_trace(mkref, cu, error_substr, **kwargs):
         return cu.excut_concordance(mkref)
 
 
-def test_simple_reference(compiler):
+def test_simple_reference(compiler_Sm80):
     """Simple diagnoses of mismatches between trace and reference actions
 
     There are also a few cases of acceptable deviations.
     """
-    cu = compiler.cuda_test_context(Sm80_test_proc, sm=80, excut=True)
+    cu = compiler_Sm80.cuda_test_context(Sm80_test_proc, excut=True)
     cu(None)
     impl_test = functools.partial(impl_test_trace, mkref_test_simple_reference)
 
@@ -293,22 +293,20 @@ def test_simple_reference(compiler):
     impl_test(cu, "action_name", allow_permutation=True, wrong_permutation=True)
 
     # Variable deduction: should allow gmem_ptr and free_ptr to be deduced the same
-    xrg, deductions = impl_test(cu, None, free_ptr_var=True)
-    gmem_ptr = xrg.get_var("gmem_ptr")
-    free_ptr = xrg.get_var("free_ptr")
-    assert gmem_ptr(deductions) == free_ptr(deductions)
-    assert (gmem_ptr + 100)(deductions) == gmem_ptr(deductions) + 100
+    impl_test(cu, None, free_ptr_var=True)
+    gmem_ptr = cu.get_var("gmem_ptr")
+    free_ptr = cu.get_var("free_ptr")
+    assert gmem_ptr(cu) == free_ptr(cu)
+    assert (gmem_ptr + 100)(cu) == gmem_ptr(cu) + 100
 
     # Variable deduction: should forbid gmem_ptr and gmem_ptr[1] to be deduced the same
     impl_test(cu, "gmem_ptr[1]", alt_free_gmem_ptr=True)
 
     # Variable deduction: deduced gmem_ptr == gmem_ptr[1] + 888 (weird test)
-    xrg, deductions = impl_test(
-        cu, None, alt_free_gmem_ptr=True, alt_free_gmem_offset=888
-    )
-    gmem_ptr = xrg.get_var("gmem_ptr")
-    gmem_ptr1 = xrg.get_var("gmem_ptr")[(1,)]
-    assert gmem_ptr(deductions) == gmem_ptr1(deductions) + 888
+    impl_test(cu, None, alt_free_gmem_ptr=True, alt_free_gmem_offset=888)
+    gmem_ptr = cu.get_var("gmem_ptr")
+    gmem_ptr1 = cu.get_var("gmem_ptr")[(1,)]
+    assert gmem_ptr(cu) == gmem_ptr1(cu) + 888
 
 
 @instr
@@ -443,9 +441,9 @@ def mkref_advanced(
     xrg.end_cuda()
 
 
-def impl_test_advanced_A(compiler, test_idx_1):
+def impl_test_advanced_A(compiler_Sm80, test_idx_1):
     cu_proc = mkproc_advanced(test_idx_1, 3)
-    cu = compiler.cuda_test_context(cu_proc, sm=80, excut=True)
+    cu = compiler_Sm80.cuda_test_context(cu_proc, excut=True)
     cu(None)
     mkref = mkref_advanced
 
@@ -478,21 +476,21 @@ def impl_test_advanced_A(compiler, test_idx_1):
     )
 
 
-def test_advanced_A0(compiler):
-    impl_test_advanced_A(compiler, 0)
+def test_advanced_A0(compiler_Sm80):
+    impl_test_advanced_A(compiler_Sm80, 0)
 
 
-def test_advanced_A1(compiler):
-    impl_test_advanced_A(compiler, 1)
+def test_advanced_A1(compiler_Sm80):
+    impl_test_advanced_A(compiler_Sm80, 1)
 
 
-def test_advanced_A2(compiler):
-    impl_test_advanced_A(compiler, 2)
+def test_advanced_A2(compiler_Sm80):
+    impl_test_advanced_A(compiler_Sm80, 2)
 
 
-def test_advanced_multiple_2s(compiler):
+def test_advanced_multiple_2s(compiler_Sm80):
     cu_proc = mkproc_advanced(1, 3)
-    cu = compiler.cuda_test_context(cu_proc, sm=80, excut=True)
+    cu = compiler_Sm80.cuda_test_context(cu_proc, excut=True)
     cu(None)
     mkref = mkref_advanced
 
@@ -501,9 +499,9 @@ def test_advanced_multiple_2s(compiler):
     return impl_test_trace(mkref, cu, "Already matched", multiple_2s=True)
 
 
-def test_advanced_wrong_place_2(compiler):
+def test_advanced_wrong_place_2(compiler_Sm80):
     cu_proc = mkproc_advanced(1, 3)
-    cu = compiler.cuda_test_context(cu_proc, sm=80, excut=True)
+    cu = compiler_Sm80.cuda_test_context(cu_proc, excut=True)
     cu(None)
     mkref = mkref_advanced
 
@@ -511,3 +509,84 @@ def test_advanced_wrong_place_2(compiler):
     # The D=2 action is in the latter group, and shouldn't be able to match with
     # the D=2 in the trace which is in the former group.
     return impl_test_trace(mkref, cu, "D !=", wrong_place_2=True)
+
+
+@instr
+class excut_trace_3index:
+    def behavior(i0: index, i1: index, i2: index):
+        pass
+
+    def instance(self):
+        self.instr_tl = cuda_in_order_instr
+        self.coll_unit = cuda_thread
+
+    def codegen(self, args):
+        action_id = excut.excut_c_str_id("excut_trace_3index")
+        return [
+            f"exo_excutLog.log_action({action_id}, 0, __LINE__);",
+            f"exo_excutLog.log_u32_arg({args.i0.index()});",
+            f"exo_excutLog.log_u32_arg({args.i1.index()});",
+            f"exo_excutLog.log_u32_arg({args.i2.index()});",
+        ]
+
+
+def mkproc_self_excut_CudaWarps(trace_lo, trace_hi, ref_lo, ref_hi):
+    n_threads = 32 * (trace_hi - trace_lo)
+    blockDim = 32 * trace_hi
+
+    @proc
+    def test_proc():
+        with CudaDeviceFunction(blockDim=blockDim):
+            for x in cuda_tasks(0, 3):
+                for y in cuda_tasks(0, 2):
+                    with CudaWarps(trace_lo, trace_hi):
+                        for z in cuda_threads(0, n_threads):
+                            excut_trace_3index(x, y, z)
+
+    return test_proc
+
+
+def mkref_self_excut_CudaWarps(
+    xrg: excut.ExcutReferenceGenerator, trace_lo, trace_hi, ref_lo, ref_hi
+):
+    n_threads = 32 * (ref_hi - ref_lo)
+    xrg.begin_cuda()
+    for x in xrg.stride_blockIdx(3, stride=2):
+        for y in xrg.stride_blockIdx(2):
+            for z in xrg.stride_threadIdx(n_threads, offset=ref_lo * 32):
+                xrg("excut_trace_3index", x, y, z)
+    xrg.end_cuda()
+
+
+def test_self_excut_CudaWarps_positive(compiler_Sm80):
+    cu = compiler_Sm80.excut_test(
+        mkproc_self_excut_CudaWarps,
+        mkref_self_excut_CudaWarps,
+        trace_lo=2,
+        trace_hi=10,
+        ref_lo=2,
+        ref_hi=10,
+    )
+
+
+def test_self_excut_CudaWarps_negative(compiler_Sm80):
+    """Mismatched, real kernel logs using warps [1, 9) but reference expects [2, 10)
+
+    This is really not that deep a test, but it does use the
+    excut_test helper function, which otherwise isn't tested in a
+    negative test case here.  This is crucial for guarding against
+    mistakes in the excut_test helper.
+
+    """
+    with pytest.raises(Exception) as exc:
+        compiler_Sm80.excut_test(
+            mkproc_self_excut_CudaWarps,
+            mkref_self_excut_CudaWarps,
+            trace_lo=1,
+            trace_hi=9,
+            ref_lo=2,
+            ref_hi=10,
+        )
+    msg = str(exc.value)
+    assert "threadIdx" in msg
+    assert "32 != 64" in msg or "64 != 32" in msg
