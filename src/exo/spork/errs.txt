@@ -102,13 +102,13 @@ not supported in CUDA device function
 # wgmma fence needs second sync-tl wgmma_fence_2
 # wgmma fence must be executed by a warpgroup
 # Arrive cluster sync needs to be by full cluster
-Fence first sync-tl we allow Sm80_generic
-Fence collective unit matched no known case
-Fence second sync-tl we allow CUDA generic+async proxy
-Reminder: warpgroup special case for Fence
+# Fence first sync-tl we allow Sm80_generic
+# Fence collective unit matched no known case
+# Fence second sync-tl we allow CUDA generic+async proxy
+# Reminder: warpgroup special case for Fence
 ---
 # mbarrier must be distributed so each mbarrier is resident in 1 CTA only
-mbarrier must have some await with nonzero skips
+# mbarrier must have some await with nonzero skips
 # mbarrier Arrive sync-tl not supported (TMA/non-TMA)
 # mbarrier Await sync-tl not supported (consider wgmma_async_smem)
 ---

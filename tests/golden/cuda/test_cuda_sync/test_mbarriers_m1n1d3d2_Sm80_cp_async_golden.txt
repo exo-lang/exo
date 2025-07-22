@@ -812,6 +812,12 @@ exo_CudaInline_test_mbarriers_m1n1d3d2_Sm80_cp_async_golden::exo_Cuda0_test_mbar
       }
     }
   }
+  // Fence(cuda_temporal, cuda_temporal)
+  asm volatile(
+    "barrier.cta.sync 0;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cta_sync), 0, __LINE__);
+  exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
 }
 __device__ __forceinline__ void
 exo_CudaInline_test_mbarriers_m1n1d3d2_Sm80_cp_async_golden::exo_Cuda0_test_mbarriers::exo_deviceMainLoop(

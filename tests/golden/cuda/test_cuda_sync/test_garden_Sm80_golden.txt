@@ -1,0 +1,339 @@
+// ########################################################################
+// .h
+// ########################################################################
+#pragma once
+#ifndef TEST_GARDEN_SM80_GOLDEN_H
+#define TEST_GARDEN_SM80_GOLDEN_H
+
+
+#include <stdint.h>
+#include <stdbool.h>
+
+#ifndef EXO_CUDA_HEADER_COMMON
+#define EXO_CUDA_HEADER_COMMON
+#include <cuda_runtime.h>
+
+#ifdef __CUDACC__
+#define EXO_CUDA_INLINE __device__ __forceinline__
+EXO_CUDA_INLINE unsigned exo_smemU32(const void* smem_ptr)
+{
+    return (unsigned)__cvta_generic_to_shared(smem_ptr);
+}
+EXO_CUDA_INLINE unsigned exo_mapa_shared_cluster(unsigned addr_u32, unsigned cta_rank)
+{
+#if __CUDA_ARCH__ >= 900
+    asm("mapa.shared::cluster.u32 %0, %1, %2;": "=r"(addr_u32) : "r"(addr_u32), "r"(cta_rank));
+#endif
+    return addr_u32;
+}
+#endif  // __CUDACC__
+
+#ifndef EXO_EXCUT_bENABLE_LOG
+#define EXO_EXCUT_bENABLE_LOG 0
+#endif
+
+#if EXO_EXCUT_bENABLE_LOG
+#include "exo_excut.h"  // Used for exo excut tests (tracing)
+#else
+// Do-nothing replacements for exo_excut.h
+#define exo_excut_log_file_enabled() 0
+#define exo_excut_begin_log_action(action_name)
+#define exo_excut_log_str_arg(str)
+#define exo_excut_log_int_arg(bytes, binary)
+#define exo_excut_log_ptr_arg(ptr)
+#define exo_excut_end_log_action(device_name, _blockIdx, _threadIdx, file, line)
+#define exo_excut_get_device_log()
+#define exo_excut_flush_device_log(stream, _gridDim, _blockDim, string_id_count, string_table, file_id_count, file_table)
+#define EXO_EXCUT_DEVICE_LOG_MEMBER
+#define EXO_EXCUT_STR_ID(c) 0
+#ifdef __CUDACC__
+struct exo_ExcutThreadLog {
+    EXO_CUDA_INLINE void log_action(uint32_t, uint32_t, uint32_t) {}
+    EXO_CUDA_INLINE void log_str_id_arg(uint32_t) {}
+    EXO_CUDA_INLINE void log_u32_arg(uint32_t) {}
+    EXO_CUDA_INLINE void log_u64_arg(uint32_t) {}
+    EXO_CUDA_INLINE void log_ptr_arg(const void*) {}
+    template <typename T>
+    EXO_CUDA_INLINE void log_ptr_data_arg(const T*, uint32_t = 0) {}
+};
+#define exo_excut_begin_thread_log(log) {}
+#endif
+#endif // EXO_EXCUT_bENABLE_LOG
+
+#endif // EXO_CUDA_HEADER_COMMON
+
+#ifndef EXO_CUDA_STREAM_GUARD
+#define EXO_CUDA_STREAM_GUARD
+static const cudaStream_t exo_cudaStream = 0;
+#endif
+// Compiler feature macros adapted from Hedley (public domain)
+// https://github.com/nemequ/hedley
+
+#if defined(__has_builtin)
+#  define EXO_HAS_BUILTIN(builtin) __has_builtin(builtin)
+#else
+#  define EXO_HAS_BUILTIN(builtin) (0)
+#endif
+
+#if EXO_HAS_BUILTIN(__builtin_assume)
+#  define EXO_ASSUME(expr) __builtin_assume(expr)
+#elif EXO_HAS_BUILTIN(__builtin_unreachable)
+#  define EXO_ASSUME(expr) \
+      ((void)((expr) ? 1 : (__builtin_unreachable(), 1)))
+#else
+#  define EXO_ASSUME(expr) ((void)(expr))
+#endif
+
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+
+// test_proc(
+
+// )
+void test_proc( void *ctxt );
+
+
+
+struct exo_CudaDeviceArgs0_test_proc;
+
+#ifdef __CUDACC__
+__global__ void exo_deviceFunction0_test_proc(__grid_constant__ const struct exo_CudaDeviceArgs0_test_proc exo_deviceArgs);
+#endif
+void exo_cudaLaunch0_test_proc(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0_test_proc* exo_deviceArgs);
+
+
+
+
+#ifdef __cplusplus
+}
+#endif
+
+
+#endif  // TEST_GARDEN_SM80_GOLDEN_H
+
+
+// ########################################################################
+// .c
+// ########################################################################
+#include "test_garden_Sm80_golden.h"
+
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
+#include <stdio.h>
+#include <stdlib.h>
+
+#endif
+// CUDA device function args -- duplicated in .cuh file
+struct exo_CudaDeviceArgs0_test_proc
+{
+    EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
+};
+
+// test_proc(
+
+// )
+void test_proc( void *ctxt ) {
+{
+  struct exo_CudaDeviceArgs0_test_proc exo_deviceArgs = {
+    exo_excut_get_device_log()
+  };
+  exo_cudaLaunch0_test_proc(exo_cudaStream, &exo_deviceArgs);
+}
+}
+
+
+
+// ########################################################################
+// .cuh
+// ########################################################################
+#pragma once
+#include "test_garden_Sm80_golden.h"
+#if EXO_EXCUT_bENABLE_LOG
+#include "test_garden_Sm80_golden.excut_str_table"
+#endif
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
+#include <stdio.h>
+#include <stdlib.h>
+
+#endif
+
+namespace exo_CudaUtil_test_garden_Sm80_golden {
+namespace exo_CudaUtil = ::exo_CudaUtil_test_garden_Sm80_golden;
+}  // end namespace exo_CudaUtil_test_garden_Sm80_golden
+// CUDA device function args -- duplicated in .c file
+struct exo_CudaDeviceArgs0_test_proc
+{
+    EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
+};
+
+// We need this inline namespace to avoid ODR problems in pytest.
+inline namespace exo_CudaInline_test_garden_Sm80_golden {
+struct exo_Cuda0_test_proc
+{
+  using exo_DeviceArgs = exo_CudaDeviceArgs0_test_proc;
+
+  static constexpr uint32_t exo_blockDim = 256;
+  static constexpr uint32_t exo_clusterDim = 1;
+
+  static constexpr unsigned exo_smemBytes = 0;
+
+  struct exo_Task
+  {
+    int_fast32_t task;
+  };
+
+  struct exo_SyncState
+  {
+
+  };
+
+  static inline const char*& exo_FILE()
+  {
+    static const char* name = __FILE__;
+    return name;
+  }
+
+  static void
+  exo_cudaLaunch(cudaStream_t exo_cudaStream, const exo_DeviceArgs& exo_deviceArgs);
+
+  static __device__ __forceinline__ void
+  exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
+
+  static __device__ __forceinline__ void
+  exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
+
+  static __device__ __forceinline__ void
+  exo_deviceTask(
+      char* exo_smem,
+      exo_SyncState& exo_syncState,
+      const exo_DeviceArgs& exo_deviceArgs,
+      exo_Task exo_task,
+      exo_ExcutThreadLog exo_excutLog={});
+};
+}  // end inline namespace
+
+inline void
+exo_CudaInline_test_garden_Sm80_golden::exo_Cuda0_test_proc::exo_cudaLaunch(
+    cudaStream_t exo_cudaStream,
+    const exo_DeviceArgs& exo_deviceArgs)
+{
+  namespace exo_CudaUtil = exo_CudaUtil_test_garden_Sm80_golden;
+  cudaFuncSetAttribute(exo_deviceFunction0_test_proc, cudaFuncAttributeMaxDynamicSharedMemorySize, exo_smemBytes);
+  // TODO how expensive is it to query this every time?
+  int exo_cudaDevice;
+  cudaGetDevice(&exo_cudaDevice);
+  int exo_SMs;
+  cudaDeviceGetAttribute(&exo_SMs, cudaDevAttrMultiProcessorCount, exo_cudaDevice);
+  const unsigned exo_gridDim = (unsigned(exo_SMs) & ~(exo_clusterDim - 1)) * 1u;
+
+  cudaLaunchConfig_t exo_launchConfig = {};
+  exo_launchConfig.gridDim = dim3(exo_gridDim, 1, 1);
+  exo_launchConfig.blockDim = dim3(exo_blockDim, 1, 1);
+  exo_launchConfig.dynamicSmemBytes = exo_smemBytes;
+  exo_launchConfig.stream = exo_cudaStream;
+
+  cudaLaunchKernelEx(&exo_launchConfig, exo_deviceFunction0_test_proc, exo_deviceArgs);
+
+  exo_excut_flush_device_log(
+      exo_cudaStream, exo_gridDim, exo_blockDim,
+      exo_CudaUtil::exo_excut_str_id_count, exo_CudaUtil::exo_excut_str_table,
+      1, &exo_FILE());
+}
+
+__device__ __forceinline__ void
+exo_CudaInline_test_garden_Sm80_golden::exo_Cuda0_test_proc::exo_deviceSetup(
+    char* exo_smem,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_ExcutThreadLog exo_excutLog)
+{
+  // No mbarriers used
+}
+
+__device__ __forceinline__ void
+exo_CudaInline_test_garden_Sm80_golden::exo_Cuda0_test_proc::exo_deviceTask(
+    char* exo_smem,
+    exo_SyncState& exo_syncState,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_Task exo_task,
+    exo_ExcutThreadLog exo_excutLog)
+{
+  namespace exo_CudaUtil = exo_CudaUtil_test_garden_Sm80_golden;
+  // Fence(Sm80_cp_async, cuda_in_order)
+  asm volatile(
+    "cp.async.wait_all;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_wait_all), 0, __LINE__);
+  asm volatile(
+    "barrier.cta.sync 0;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cta_sync), 0, __LINE__);
+  exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
+  // cuda_threads(0, 8, unit=cuda_warp)
+  if ([[maybe_unused]] int exo_32thr_w = (threadIdx.x / 32); 1) {
+    // Fence(Sm80_generic, cuda_temporal)
+    asm volatile(
+      "cp.async.wait_all;"
+    );
+    exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_wait_all), 0, __LINE__);
+    __syncwarp();
+    exo_excutLog.log_action(EXO_EXCUT_STR_ID(syncwarp), 0, __LINE__);
+  }
+  // Fence(cuda_in_order, Sm80_cp_async)
+  asm volatile(
+    "barrier.cta.sync 0;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cta_sync), 0, __LINE__);
+  exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
+}
+__device__ __forceinline__ void
+exo_CudaInline_test_garden_Sm80_golden::exo_Cuda0_test_proc::exo_deviceMainLoop(
+    char* exo_smem,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_ExcutThreadLog exo_excutLog)
+{
+  namespace exo_CudaUtil = exo_CudaUtil_test_garden_Sm80_golden;
+  exo_SyncState exo_syncState{};
+  unsigned exo_taskIndex = 0;
+  int32_t nreg;
+  nreg = ((int32_t) 0);
+  if (nreg == ((int32_t) 0)) {
+    if (int tmp = threadIdx.x; tmp >= 0 && tmp < 256) {
+      for (int exo_task_task = 0; exo_task_task < 1; exo_task_task++) {
+        if (exo_taskIndex++ % (gridDim.x / exo_clusterDim) == blockIdx.x / exo_clusterDim) {
+            exo_deviceTask(exo_smem, exo_syncState, exo_deviceArgs,
+                (struct exo_Task) { exo_task_task },
+                exo_excutLog);
+        }
+      }
+    }
+  }
+}
+
+// ########################################################################
+// .cu
+// ########################################################################
+#include "test_garden_Sm80_golden.cuh"
+__launch_bounds__(256, 1)
+__global__ void
+exo_deviceFunction0_test_proc(__grid_constant__ const struct exo_CudaDeviceArgs0_test_proc exo_deviceArgs)
+{
+  extern __shared__ char exo_smem[];
+  exo_ExcutThreadLog exo_excutLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
+  exo_Cuda0_test_proc::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda0_test_proc::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
+}
+
+void
+exo_cudaLaunch0_test_proc(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0_test_proc* exo_deviceArgs)
+{
+  exo_Cuda0_test_proc::exo_cudaLaunch(exo_cudaStream, *exo_deviceArgs);
+}
+

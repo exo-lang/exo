@@ -29,7 +29,7 @@ from .cuda_memory import (
     CudaClusterSync,
 )
 from .distributed_memory import DistributedAllocState, ThreadIter
-from .excut import InlinePtxGen, simple_ptx_c_lines
+from .excut import InlinePtxGen, simple_ptx_c_lines, excut_c_str_id
 from .lowered_barrier import LoweredBarrierType, LoweredBarrier
 from .sync_types import SyncType
 from . import timelines
@@ -209,7 +209,7 @@ class SyncStateBuilder:
         # Insert cross-thread sync if needed
         assert not timelines.wgmma_async_smem.is_V1_transitive()
         wgmma_special_case = timelines.wgmma_async_smem.implements_second(
-            L1
+            L2
         ) and match_unit(cuda_warpgroup)
 
         if not wgmma_special_case:
@@ -222,6 +222,8 @@ class SyncStateBuilder:
             pass
         elif match_unit(cuda_warp):
             arrive_lines.append("__syncwarp();")
+            action_id = excut_c_str_id("__syncwarp")
+            arrive_lines.append(f"exo_excutLog.log_action({action_id}, 0, __LINE__);")
         elif match_unit(cuda_cta_in_cluster):
             # We need to use barrier.cta.sync, not bar or syncthreads
             # due to divergent control flow in "full CTA" code
@@ -236,7 +238,12 @@ class SyncStateBuilder:
             )
 
         # Insert fence.proxy.async if needed
-        if timelines.Sm80_generic.implements_second(L2):
+        if timelines.cuda_temporal.implements_first(L1):
+            # No values from the first full visibility set are being made
+            # visible so no proxy fence regardless of second sync timeline.
+            proxy_fence = False
+        elif timelines.Sm80_generic.implements_second(L2):
+            # Second sync-tl is purely in generic proxy.
             pass
         elif timelines.cuda_generic_and_async_proxy.implements_second(L2):
             await_lines.extend(simple_ptx_c_lines("fence.proxy.async"))

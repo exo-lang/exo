@@ -916,6 +916,15 @@ exo_CudaInline_test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden::exo_Cuda0_test_
       }
     }
   }
+  // Fence(cuda_temporal, cuda_temporal)
+  asm volatile(
+    "barrier.cluster.arrive.aligned;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cluster_arrive_aligned), 0, __LINE__);
+  asm volatile(
+    "barrier.cluster.wait.aligned;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cluster_wait_aligned), 0, __LINE__);
 }
 __device__ __forceinline__ void
 exo_CudaInline_test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden::exo_Cuda0_test_mbarriers::exo_deviceMainLoop(

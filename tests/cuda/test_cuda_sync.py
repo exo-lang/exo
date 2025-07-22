@@ -821,3 +821,225 @@ def test_mbarrier_not_in_1_CTA(compiler):
     assert "bad_bar must be distributed so each mbarrier is resident in 1 CTA" in str(
         exc.value
     )
+
+
+# "garden" means "garden variety fence", but the shorter name makes
+# filenames in pytest /tmp dirs not be truncated as much.
+
+
+def mkproc_garden_Sm80():
+    @proc
+    def test_proc():
+        with CudaDeviceFunction(blockDim=256):
+            for task in cuda_tasks(0, 1):
+                # cp.async.wait_all + barrier.cta.sync
+                Fence(Sm80_cp_async, cuda_in_order)
+
+                for w in cuda_threads(0, 8, unit=cuda_warp):
+                    # cp.async.wait_all + __syncwarp()
+                    Fence(Sm80_generic, cuda_temporal)
+
+                # barrier.cta.sync only
+                Fence(cuda_in_order, Sm80_cp_async)
+
+    return test_proc
+
+
+def mkref_garden_Sm80(xrg: excut.ExcutReferenceGenerator):
+    xrg.begin_cuda()
+    for threadIdx in xrg.stride_threadIdx(256):
+        xrg("cp.async.wait_all")
+        xrg("barrier.cta.sync", 0)
+        xrg("cp.async.wait_all")
+        xrg("__syncwarp")
+        xrg("barrier.cta.sync", 0)
+    xrg.end_cuda()
+
+
+def test_garden_Sm80_excut(compiler_Sm80):
+    compiler_Sm80.excut_test(mkproc_garden_Sm80, mkref_garden_Sm80)
+
+
+def test_garden_Sm80_golden(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_garden_Sm80, golden)
+
+
+def mkproc_garden_warps_threads():
+    @proc
+    def test_proc():
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                Fence(cuda_in_order, cuda_in_order)
+
+                for tid in cuda_threads(0, 32, unit=cuda_thread):
+                    Fence(Sm80_cp_async, cuda_in_order)
+
+    return test_proc
+
+
+def mkref_garden_warps_threads(xrg: excut.ExcutReferenceGenerator):
+    xrg.begin_cuda()
+    for threadIdx in xrg.stride_threadIdx(32):
+        xrg("__syncwarp")
+        xrg("cp.async.wait_all")
+    xrg.end_cuda()
+
+
+def test_garden_warps_threads_excut(compiler_Sm80):
+    compiler_Sm80.excut_test(mkproc_garden_warps_threads, mkref_garden_warps_threads)
+
+
+def test_garden_warps_threads_golden(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_garden_warps_threads, golden)
+
+
+def mkproc_garden_Sm90(
+    special_lo,
+    special_hi,
+    test_first_sync_tl=cuda_in_order,
+    test_second_sync_tl=cuda_in_order,
+    special_first_sync_tl=cuda_in_order,
+    special_second_sync_tl=wgmma_async_smem,
+):
+    @proc
+    def test_proc():
+        with CudaDeviceFunction(clusterDim=4, blockDim=256):
+            for task in cuda_tasks(0, 1):
+                # cluster: generic->async proxy
+                Fence(cuda_in_order, tma_to_smem_async)
+
+                # We use the __syncwarp to separate blocks of code in mkref
+                # and also for the (non-CUDA-device) invalid sync-tl tests.
+                for cta in cuda_threads(0, 4, unit=cuda_cta_in_cluster):
+                    # No proxy fence, as first-sync-tl is temporal-only
+                    Fence(cuda_temporal, wgmma_async_smem)
+                    for w in cuda_threads(0, 8, unit=cuda_warp):
+                        Fence(test_first_sync_tl, test_second_sync_tl)
+
+                    # No proxy fence or cp.async.wait_all
+                    Fence(cuda_in_order, cuda_in_order)
+                    for w in cuda_threads(0, 8, unit=cuda_warp):
+                        Fence(test_first_sync_tl, test_second_sync_tl)
+
+                    # cp.async.wait_all
+                    Fence(Sm80_cp_async, cuda_temporal)
+                    for w in cuda_threads(0, 8, unit=cuda_warp):
+                        Fence(test_first_sync_tl, test_second_sync_tl)
+
+                    # Proxy fence for generic->wgmma_async
+                    Fence(cuda_in_order, wgmma_async_smem)
+                    for w in cuda_threads(0, 8, unit=cuda_warp):
+                        Fence(test_first_sync_tl, test_second_sync_tl)
+
+                    with CudaWarps(special_lo, special_hi):
+                        # Testing special case; warpgroup
+                        # cuda_in_order->wgmma_async_smem
+                        Fence(special_first_sync_tl, special_second_sync_tl)
+
+                # cluster: cp.async.wait_all
+                cluster_sync: barrier @ CudaClusterSync
+                Arrive(Sm80_generic, 1) >> cluster_sync
+                Await(cluster_sync, cuda_in_order, 0)
+
+                # Literally should do nothing
+                for cta in cuda_threads(0, 4, unit=cuda_cta_in_cluster):
+                    for tid in cuda_threads(0, 256, unit=cuda_thread):
+                        Fence(cuda_in_order, cuda_in_order)
+
+    return test_proc
+
+
+def mkref_garden_Sm90(
+    xrg: excut.ExcutReferenceGenerator,
+    special_lo,
+    special_hi,
+    # Ignored args to match mkproc_garden_Sm90
+    cluster_first_sync_tl=None,
+    cluster_second_sync_tl=None,
+    special_first_sync_tl=None,
+    special_second_sync_tl=None,
+):
+    xrg.begin_cuda()
+    for blockIdx in xrg.stride_blockIdx(4):
+        for threadIdx in xrg.stride_threadIdx(256):
+            # cluster: generic->async proxy
+            xrg("barrier.cluster.arrive.aligned")
+            xrg("barrier.cluster.await.aligned")
+            xrg("fence.proxy.async")
+
+            # No proxy fence, as first-sync-tl is temporal-only
+            xrg("barrier.cta.sync", 0)
+            xrg("__syncwarp")
+
+            # No proxy fence or cp.async.wait_all
+            xrg("barrier.cta.sync", 0)
+            xrg("__syncwarp")
+
+            # Proxy fence for generic->wgmma_async
+            xrg("barrier.cta.sync", 0)
+            xrg("fence.proxy.async")
+            xrg("__syncwarp")
+
+            if 32 * special_lo <= threadIdx < 32 * special_hi:
+                # Testing special case; warpgroup
+                # cuda_in_order->wgmma_async_smem
+                xrg("fence.proxy.async")
+
+            # cluster: cp.async.wait_all
+            xrg("cp.async.wait_all")
+            xrg("barrier.cluster.arrive.aligned")
+            xrg("barrier.cluster.await.aligned")
+    xrg.end_cuda()
+
+
+def test_garden_Sm90_excut(compiler_Sm90a):
+    compiler_Sm90a.excut_test(
+        mkproc_garden_Sm90, mkref_garden_Sm90, special_lo=4, special_hi=8
+    )
+
+
+def test_garden_Sm90_golden(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_garden_Sm90, golden, special_lo=4, special_hi=8)
+
+
+def test_garden_wrong_L1(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(
+            mkproc_garden_Sm90,
+            special_lo=4,
+            special_hi=8,
+            test_first_sync_tl=tma_to_smem_async,
+        )
+    msg = str(exc.value)
+    assert "we allow Sm80_generic" in msg
+    assert "tma_to_smem_async" in msg
+
+
+def test_garden_wrong_L2(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(
+            mkproc_garden_Sm90,
+            special_lo=4,
+            special_hi=8,
+            test_second_sync_tl=cpu_in_order,
+        )
+    msg = str(exc.value)
+    assert "at most CUDA generic+async proxy" in msg
+    assert "cpu_in_order" in msg
+
+
+def test_garden_wrong_coll_unit(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(mkproc_garden_Sm90, special_lo=2, special_hi=6)
+    assert "collective unit matched no known case" in str(exc.value)
+
+
+def test_garden_wrong_special_case_L2(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(
+            mkproc_garden_Sm90,
+            special_lo=4,
+            special_hi=8,
+            special_second_sync_tl=tma_to_gmem_async,
+        )
+    assert "collective unit matched no known case" in str(exc.value)
