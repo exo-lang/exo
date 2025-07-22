@@ -237,11 +237,14 @@ class DistributedAllocState(object):
                             new_bits |= tmp_bits << (n * cta_pitch)
                         tmp_bits = new_bits
             mask_bits |= tmp_bits
-        return [
+        xor_list = [
             bit_index
             for bit_index in range(mask_bits.bit_length())
             if ((mask_bits >> bit_index) & 1)
         ]
+        # Limitation: excut tests require this for now as of 2025-07-22
+        assert xor_list[0] == 0
+        return xor_list
 
     def codegen_cta_mask(
         self, blockDim: int, thread_iters: Dict[Sym, ThreadIter], e: LoopIR.BarrierExpr

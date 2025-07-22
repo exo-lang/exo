@@ -268,12 +268,12 @@ class SyncStateBuilder:
         suffix: str,
     ):
         # Each queue barrier object (equiv, mbarrier ring buffer) must be
-        # resident in one CTA only. NB any Arrive/Await will do here.
+        # resident in 1 CTA only. NB any Arrive/Await will do here.
         if msg := coll_tilings.get_front_arrive().unit_mismatch(
             cuda_agnostic_sub_cta, self._coll_env
         ):
             raise ValueError(
-                f"{usage.get_srcinfo()}: {name} must be distributed so each mbarrier is resident in one CTA only ({msg})"
+                f"{usage.get_srcinfo()}: {name} must be distributed so each mbarrier is resident in 1 CTA only ({msg})"
             )
 
         # Reserve C name and space for mbarriers in SMEM

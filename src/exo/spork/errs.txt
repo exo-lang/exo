@@ -72,7 +72,7 @@ intact packed dimensions
 multiple barriers, different variable
 multiple barriers, different sidedness
 missing BarrierExpr
-check_pairing issues
+check_pairing issues (this code is broken right now!)
 ---
 missing point expr for BarrierExpr coord
 incompatible point expr for BarrierExpr coord
@@ -107,12 +107,12 @@ Fence collective unit matched no known case
 Fence second sync-tl we allow CUDA generic+async proxy
 Reminder: warpgroup special case for Fence
 ---
-mbarrier must be distributed so each mbarrier is resident in one CTA only
+# mbarrier must be distributed so each mbarrier is resident in 1 CTA only
 mbarrier must have some await with nonzero skips
-mbarrier Arrive sync-tl not supported (TMA/non-TMA)
-mbarrier Await sync-tl not supported (consider wgmma_async_smem)
-TODO no multicast for Sm80_cp_async
+# mbarrier Arrive sync-tl not supported (TMA/non-TMA)
+# mbarrier Await sync-tl not supported (consider wgmma_async_smem)
 ---
+# TODO no multicast for Sm80_cp_async
 # commit_group collective unit error
 # commit_group unknown first sync tl error
 # commit_group unknown second sync tl error
