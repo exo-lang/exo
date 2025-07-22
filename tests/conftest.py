@@ -22,10 +22,10 @@ from exo import Procedure, compile_procs, ext_compile_procs
 from exo.spork import excut
 
 
-class CudaRun:
-    cpu = (auto(),)
-    Sm80 = (auto(),)
-    Sm90a = (auto(),)
+class CudaRun(Enum):
+    cpu = auto()
+    Sm80 = auto()
+    Sm90a = auto()
 
 
 # ---------------------------------------------------------------------------- #
