@@ -463,6 +463,7 @@ def mkproc_mbarriers(M_CTA: int, N_CTA: int, delay: int, qc: MbarrierQualConfig)
     second_sync_tl = qc.second_sync_tl
     @proc
     def test_mbarriers():
+        todo_remove: f32[40] @ CudaGmemLinear
         with CudaDeviceFunction(clusterDim=M_CTA * N_CTA, blockDim=64):
             for task in cuda_tasks(0, 2):
                 for t2 in cuda_threads(0, 4, unit=16 * cuda_thread):
