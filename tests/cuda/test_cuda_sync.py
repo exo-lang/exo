@@ -592,8 +592,8 @@ def mkref_mbarriers(
             # baseline mbarrier arrive (no ring buffering)
             xrg(cta_arrive, baseline[m_cta, n_cta, wg_pair, wg, 0])
 
-            match_row = lambda m, n: n == n_cta
-            match_col = lambda m, n: m == m_cta
+            match_row = lambda m, n: m == m_cta
+            match_col = lambda m, n: n == n_cta
             match_any = lambda m, n: True
             match_rc = lambda m, n: m == m_cta or n == n_cta
 

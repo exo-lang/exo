@@ -260,7 +260,7 @@ struct exo_Cuda0_test_mbarriers
     EXO_CUDA_INLINE uint32_t FrontArrive0_rc_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
       const auto mbarrier_u32 = exo_smemU32(exo_smem + 64 + 8*(slice * 1 + FrontArriveIdx0_rc_bars));
       if (enable) {
-        const unsigned cta_rank = blockDim.x % 4;
+        const unsigned cta_rank = blockIdx.x % 4;
         asm volatile(
           "// FrontArrive0_rc_bars\n\t"
           "// cta_xor=0\n\t"
@@ -353,7 +353,7 @@ struct exo_Cuda0_test_mbarriers
     EXO_CUDA_INLINE uint32_t FrontArrive0_all_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
       const auto mbarrier_u32 = exo_smemU32(exo_smem + 128 + 8*(slice * 1 + FrontArriveIdx0_all_bars));
       if (enable) {
-        const unsigned cta_rank = blockDim.x % 4;
+        const unsigned cta_rank = blockIdx.x % 4;
         asm volatile(
           "// FrontArrive0_all_bars\n\t"
           "// cta_xor=0\n\t"
@@ -446,7 +446,7 @@ struct exo_Cuda0_test_mbarriers
     EXO_CUDA_INLINE uint32_t FrontArrive0_col_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
       const auto mbarrier_u32 = exo_smemU32(exo_smem + 192 + 8*(slice * 1 + FrontArriveIdx0_col_bars));
       if (enable) {
-        const unsigned cta_rank = blockDim.x % 4;
+        const unsigned cta_rank = blockIdx.x % 4;
         asm volatile(
           "// FrontArrive0_col_bars\n\t"
           "// cta_xor=0\n\t"
