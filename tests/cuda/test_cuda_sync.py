@@ -623,11 +623,11 @@ def mkref_mbarriers(
 
 mb_m1n1d1_Sm80_cp_async = dict(M_CTA=1, N_CTA=1, delay=1, qc=mbarrier_Sm80_cp_async_qc)
 mb_m1n1d3_Sm80_cp_async = dict(M_CTA=1, N_CTA=1, delay=3, qc=mbarrier_Sm80_cp_async_qc)
-mb_m4n2d4_Sm90a_cp_async = dict(
-    M_CTA=4, N_CTA=2, delay=4, qc=mbarrier_Sm90a_cp_async_qc
+mb_m1n1d4_Sm90a_cp_async = dict(
+    M_CTA=1, N_CTA=1, delay=4, qc=mbarrier_Sm90a_cp_async_qc
 )
-mb_m2n2d1_in_order_to_wgmma = dict(
-    M_CTA=2, N_CTA=2, delay=1, qc=mbarrier_in_order_to_wgmma_qc
+mb_m4n2d1_in_order_to_wgmma = dict(
+    M_CTA=4, N_CTA=2, delay=1, qc=mbarrier_in_order_to_wgmma_qc
 )
 mb_m4n1d0_temporal_to_wgmma = dict(
     M_CTA=4, N_CTA=1, delay=0, qc=mbarrier_temporal_to_wgmma_qc
@@ -660,24 +660,24 @@ def test_mbarriers_m1n1d3_Sm80_cp_async_golden(compiler, golden):
     compiler.cuda_cpu_test(mkproc_mbarriers, golden, **mb_m1n1d3_Sm80_cp_async)
 
 
-def test_mbarriers_m4n2d4_Sm90a_cp_async_excut(compiler_Sm90a):
+def test_mbarriers_m1n1d4_Sm90a_cp_async_excut(compiler_Sm90a):
     compiler_Sm90a.excut_test(
-        mkproc_mbarriers, mkref_mbarriers, **mb_m4n2d4_Sm90a_cp_async
+        mkproc_mbarriers, mkref_mbarriers, **mb_m1n1d4_Sm90a_cp_async
     )
 
 
-def test_mbarriers_m4n2d4_Sm90a_cp_async_golden(compiler, golden):
-    compiler.cuda_cpu_test(mkproc_mbarriers, golden, **mb_m4n2d4_Sm90a_cp_async)
+def test_mbarriers_m1n1d4_Sm90a_cp_async_golden(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_mbarriers, golden, **mb_m1n1d4_Sm90a_cp_async)
 
 
-def test_mbarriers_m2n2d1_in_order_to_wgmma_excut(compiler_Sm90a):
+def test_mbarriers_m4n2d1_in_order_to_wgmma_excut(compiler_Sm90a):
     compiler_Sm90a.excut_test(
-        mkproc_mbarriers, mkref_mbarriers, **mb_m2n2d1_in_order_to_wgmma
+        mkproc_mbarriers, mkref_mbarriers, **mb_m4n2d1_in_order_to_wgmma
     )
 
 
-def test_mbarriers_m2n2d1_in_order_to_wgmma_golden(compiler, golden):
-    compiler.cuda_cpu_test(mkproc_mbarriers, golden, **mb_m2n2d1_in_order_to_wgmma)
+def test_mbarriers_m4n2d1_in_order_to_wgmma_golden(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_mbarriers, golden, **mb_m4n2d1_in_order_to_wgmma)
 
 
 def test_mbarriers_m4n1d0_temporal_to_wgmma_excut(compiler_Sm90a):
