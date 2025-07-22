@@ -614,6 +614,10 @@ def mkref_mbarriers(
 
     def thread_main(m_cta, n_cta, t2, t1):
         for i in range(5):
+            assert (
+                f_delay + b_delay <= 5
+            ), "excut won't work if some of the mbarriers are never used (unfortunate design flaw with variable deduction)"
+
             # baseline mbarrier arrive (no ring buffering)
             xrg(cta_arrive, baseline[m_cta, n_cta, t2, t1, 0])
 
@@ -662,8 +666,8 @@ mb_m1n1d3d2_Sm80_cp_async = dict(
 mb_m1n1d0d0_Sm80_cp_async = dict(
     M_CTA=1, N_CTA=1, f_delay=0, b_delay=0, qc=mbarrier_Sm80_cp_async_qc
 )
-mb_m1n1d4d2_Sm90a_cp_async = dict(
-    M_CTA=1, N_CTA=1, f_delay=4, b_delay=2, qc=mbarrier_Sm90a_cp_async_qc
+mb_m1n1d4d1_Sm90a_cp_async = dict(
+    M_CTA=1, N_CTA=1, f_delay=4, b_delay=1, qc=mbarrier_Sm90a_cp_async_qc
 )
 mb_m4n2d1d2_in_order_to_wgmma = dict(
     M_CTA=4, N_CTA=2, f_delay=1, b_delay=2, qc=mbarrier_in_order_to_wgmma_qc
@@ -713,14 +717,14 @@ def test_mbarriers_m1n1d3d2_Sm80_cp_async_golden(compiler, golden):
     compiler.cuda_cpu_test(mkproc_mbarriers, golden, **mb_m1n1d3d2_Sm80_cp_async)
 
 
-def test_mbarriers_m1n1d4d2_Sm90a_cp_async_excut(compiler_Sm90a):
+def test_mbarriers_m1n1d4d1_Sm90a_cp_async_excut(compiler_Sm90a):
     compiler_Sm90a.excut_test(
-        mkproc_mbarriers, mkref_mbarriers, **mb_m1n1d4d2_Sm90a_cp_async
+        mkproc_mbarriers, mkref_mbarriers, **mb_m1n1d4d1_Sm90a_cp_async
     )
 
 
-def test_mbarriers_m1n1d4d2_Sm90a_cp_async_golden(compiler, golden):
-    compiler.cuda_cpu_test(mkproc_mbarriers, golden, **mb_m1n1d4d2_Sm90a_cp_async)
+def test_mbarriers_m1n1d4d1_Sm90a_cp_async_golden(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_mbarriers, golden, **mb_m1n1d4d1_Sm90a_cp_async)
 
 
 def test_mbarriers_m4n2d1d2_in_order_to_wgmma_excut(compiler_Sm90a):

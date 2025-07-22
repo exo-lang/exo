@@ -86,7 +86,8 @@ Deduction is potentially ambiguous when we use the sub-list
 permutation matching feature.  This can cause the concordance to fail
 in cases when a solution could have been found. To minimize the risk of
 this, we try to deduce values based on non-permuted actions first,
-then check permuted actions.
+then check permuted actions. This is still not perfect; generally,
+each variable should be used at least once by an action that's not permuted.
 
 """
 
