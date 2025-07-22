@@ -178,7 +178,7 @@ struct exo_Cuda0_test_mbarriers
 {
   using exo_DeviceArgs = exo_CudaDeviceArgs0_test_mbarriers;
 
-  static constexpr uint32_t exo_blockDim = 1024;
+  static constexpr uint32_t exo_blockDim = 64;
   static constexpr uint32_t exo_clusterDim = 1;
 
   static constexpr unsigned exo_smemBytes = 1408;
@@ -191,7 +191,7 @@ struct exo_Cuda0_test_mbarriers
   struct exo_SyncState
   {
     // baseline: barrier @ CudaMbarrier, ring=1, slice_count=8
-    // front mbarriers [0, 8]; arrive_count=128
+    // front mbarriers [0, 8]; arrive_count=8
     static constexpr unsigned FrontArriveIdx0_baseline = 0;  // Trivial size-1 ring buffer
     EXO_CUDA_INLINE uint32_t FrontArrive0_baseline(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
       const auto mbarrier_u32 = exo_smemU32(exo_smem + 0 + 8*(slice * 1 + FrontArriveIdx0_baseline));
@@ -255,7 +255,7 @@ struct exo_Cuda0_test_mbarriers
       }
     }
     // rc_bars: barrier @ CudaMbarrier, ring=5, slice_count=8
-    // front mbarriers [8, 48]; arrive_count=128
+    // front mbarriers [8, 48]; arrive_count=8
     unsigned FrontArriveIdx0_rc_bars : 3 = 0;
     EXO_CUDA_INLINE uint32_t FrontArrive0_rc_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
       const auto mbarrier_u32 = exo_smemU32(exo_smem + 64 + 8*(slice * 5 + FrontArriveIdx0_rc_bars));
@@ -328,7 +328,7 @@ struct exo_Cuda0_test_mbarriers
       }
     }
     // all_bars: barrier @ CudaMbarrier, ring=5, slice_count=8
-    // front mbarriers [48, 88]; arrive_count=128
+    // front mbarriers [48, 88]; arrive_count=8
     unsigned FrontArriveIdx0_all_bars : 3 = 0;
     EXO_CUDA_INLINE uint32_t FrontArrive0_all_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
       const auto mbarrier_u32 = exo_smemU32(exo_smem + 384 + 8*(slice * 5 + FrontArriveIdx0_all_bars));
@@ -401,7 +401,7 @@ struct exo_Cuda0_test_mbarriers
       }
     }
     // col_bars: barrier @ CudaMbarrier, ring=5, slice_count=8
-    // front mbarriers [88, 128]; arrive_count=128
+    // front mbarriers [88, 128]; arrive_count=8
     unsigned FrontArriveIdx0_col_bars : 3 = 0;
     EXO_CUDA_INLINE uint32_t FrontArrive0_col_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
       const auto mbarrier_u32 = exo_smemU32(exo_smem + 704 + 8*(slice * 5 + FrontArriveIdx0_col_bars));
@@ -474,7 +474,7 @@ struct exo_Cuda0_test_mbarriers
       }
     }
     // row_bars: barrier @ CudaMbarrier, ring=5, slice_count=8
-    // front mbarriers [128, 168]; arrive_count=128
+    // front mbarriers [128, 168]; arrive_count=8
     unsigned FrontArriveIdx0_row_bars : 3 = 0;
     EXO_CUDA_INLINE uint32_t FrontArrive0_row_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
       const auto mbarrier_u32 = exo_smemU32(exo_smem + 1024 + 8*(slice * 5 + FrontArriveIdx0_row_bars));
@@ -599,53 +599,53 @@ exo_Cuda0_test_mbarriers::exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& 
     if (threadIdx.x == 0) {
       for (int i = 0; i < 8; ++i) {
           asm volatile(
-            "mbarrier.init.shared::cta.b64 [%0], 128;"
+            "mbarrier.init.shared::cta.b64 [%0], 8;"
               :
               :"r"(exo_smemU32(exo_smem + 0 + 8*i))
           );
           exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_init_shared_cta_b64), 0, __LINE__);
           exo_excutLog.log_u32_arg(exo_smemU32(exo_smem + 0 + 8*i));
-          exo_excutLog.log_u32_arg(static_cast<uint32_t>(128));
+          exo_excutLog.log_u32_arg(static_cast<uint32_t>(8));
       }
       for (int i = 0; i < 40; ++i) {
           asm volatile(
-            "mbarrier.init.shared::cta.b64 [%0], 128;"
+            "mbarrier.init.shared::cta.b64 [%0], 8;"
               :
               :"r"(exo_smemU32(exo_smem + 64 + 8*i))
           );
           exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_init_shared_cta_b64), 0, __LINE__);
           exo_excutLog.log_u32_arg(exo_smemU32(exo_smem + 64 + 8*i));
-          exo_excutLog.log_u32_arg(static_cast<uint32_t>(128));
+          exo_excutLog.log_u32_arg(static_cast<uint32_t>(8));
       }
       for (int i = 0; i < 40; ++i) {
           asm volatile(
-            "mbarrier.init.shared::cta.b64 [%0], 128;"
+            "mbarrier.init.shared::cta.b64 [%0], 8;"
               :
               :"r"(exo_smemU32(exo_smem + 384 + 8*i))
           );
           exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_init_shared_cta_b64), 0, __LINE__);
           exo_excutLog.log_u32_arg(exo_smemU32(exo_smem + 384 + 8*i));
-          exo_excutLog.log_u32_arg(static_cast<uint32_t>(128));
+          exo_excutLog.log_u32_arg(static_cast<uint32_t>(8));
       }
       for (int i = 0; i < 40; ++i) {
           asm volatile(
-            "mbarrier.init.shared::cta.b64 [%0], 128;"
+            "mbarrier.init.shared::cta.b64 [%0], 8;"
               :
               :"r"(exo_smemU32(exo_smem + 704 + 8*i))
           );
           exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_init_shared_cta_b64), 0, __LINE__);
           exo_excutLog.log_u32_arg(exo_smemU32(exo_smem + 704 + 8*i));
-          exo_excutLog.log_u32_arg(static_cast<uint32_t>(128));
+          exo_excutLog.log_u32_arg(static_cast<uint32_t>(8));
       }
       for (int i = 0; i < 40; ++i) {
           asm volatile(
-            "mbarrier.init.shared::cta.b64 [%0], 128;"
+            "mbarrier.init.shared::cta.b64 [%0], 8;"
               :
               :"r"(exo_smemU32(exo_smem + 1024 + 8*i))
           );
           exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_init_shared_cta_b64), 0, __LINE__);
           exo_excutLog.log_u32_arg(exo_smemU32(exo_smem + 1024 + 8*i));
-          exo_excutLog.log_u32_arg(static_cast<uint32_t>(128));
+          exo_excutLog.log_u32_arg(static_cast<uint32_t>(8));
       }
     }
     asm volatile(
@@ -664,49 +664,49 @@ exo_Cuda0_test_mbarriers::exo_deviceTask(
     exo_ExcutThreadLog exo_excutLog)
 {
   namespace exo_CudaUtil = exo_CudaUtil_test_mbarriers_m1n1d4_Sm90a_cp_async_golden;
-  // cuda_threads(0, 4, unit=2 * cuda_warpgroup)
-  if ([[maybe_unused]] int exo_256thr_wg_pair = (threadIdx.x / 256); 1) {
+  // cuda_threads(0, 4, unit=16 * cuda_thread)
+  if ([[maybe_unused]] int exo_16thr_t2 = (threadIdx.x / 16); 1) {
     // row_bars: barrier[1, 1, 2] @ CudaMbarrier
     // col_bars: barrier[1, 1, 2] @ CudaMbarrier
     // all_bars: barrier[1, 1, 2] @ CudaMbarrier
     // rc_bars: barrier[1, 1, 2] @ CudaMbarrier
     // baseline: barrier[1, 1, 2] @ CudaMbarrier
     for (int i = 0; i < 5; i++) {
-      // cuda_threads(0, 2, unit=cuda_warpgroup)
-      if ([[maybe_unused]] int exo_128thr_wg = (threadIdx.x % 256 / 128); 1) {
+      // cuda_threads(0, 2, unit=8 * cuda_thread)
+      if ([[maybe_unused]] int exo_8thr_t1 = (threadIdx.x % 16 / 8); 1) {
         // cuda_threads(0, 1, unit=cuda_cta_in_cluster)
-        if (int exo_128thr_m_cta = 0; exo_128thr_m_cta < 1) {
+        if (int exo_8thr_m_cta = 0; exo_8thr_m_cta < 1) {
           // cuda_threads(0, 1, unit=cuda_cta_in_cluster)
-          if (int exo_128thr_n_cta = 0; exo_128thr_n_cta < 1) {
-            // Arrive(cuda_in_order, 1) >> +baseline[m_cta, n_cta, wg]
+          if (int exo_8thr_n_cta = 0; exo_8thr_n_cta < 1) {
+            // Arrive(cuda_in_order, 1) >> +baseline[m_cta, n_cta, t1]
             // cta_mask: uint16_t(0x1)
-            exo_syncState.FrontArrive0_baseline(exo_smem, exo_excutLog, exo_128thr_wg + 2*exo_256thr_wg_pair, 1);
-            // Arrive(Sm80_cp_async, 1) >> +row_bars[m_cta, n_cta, wg] >> +row_bars[m_cta, 0:1, wg]
-            // cta_mask: uint16_t(0x1)
-            // cta_mask: uint16_t(0x1)
-            exo_syncState.FrontArrive0_row_bars(exo_smem, exo_excutLog, exo_128thr_wg + 2*exo_256thr_wg_pair, 1);
-            // Await(+row_bars[m_cta, n_cta, wg], cuda_temporal, ~4)
-            exo_syncState.FrontAwait0_row_bars(exo_smem, exo_excutLog, exo_128thr_wg + 2*exo_256thr_wg_pair, 4);
-            // Arrive(Sm80_cp_async, 1) >> +col_bars[m_cta, n_cta, wg] >> +col_bars[0:1, n_cta, wg]
+            exo_syncState.FrontArrive0_baseline(exo_smem, exo_excutLog, exo_8thr_t1 + 2*exo_16thr_t2, 1);
+            // Arrive(Sm80_cp_async, 1) >> +row_bars[m_cta, n_cta, t1] >> +row_bars[m_cta, 0:1, t1]
             // cta_mask: uint16_t(0x1)
             // cta_mask: uint16_t(0x1)
-            exo_syncState.FrontArrive0_col_bars(exo_smem, exo_excutLog, exo_128thr_wg + 2*exo_256thr_wg_pair, 1);
-            // Await(+col_bars[m_cta, n_cta, wg], cuda_temporal, ~4)
-            exo_syncState.FrontAwait0_col_bars(exo_smem, exo_excutLog, exo_128thr_wg + 2*exo_256thr_wg_pair, 4);
-            // Arrive(Sm80_cp_async, 1) >> +all_bars[m_cta, n_cta, wg] >> +all_bars[0:1, 0:1, wg]
+            exo_syncState.FrontArrive0_row_bars(exo_smem, exo_excutLog, exo_8thr_t1 + 2*exo_16thr_t2, 1);
+            // Await(+row_bars[m_cta, n_cta, t1], cuda_temporal, ~4)
+            exo_syncState.FrontAwait0_row_bars(exo_smem, exo_excutLog, exo_8thr_t1 + 2*exo_16thr_t2, 4);
+            // Arrive(Sm80_cp_async, 1) >> +col_bars[m_cta, n_cta, t1] >> +col_bars[0:1, n_cta, t1]
             // cta_mask: uint16_t(0x1)
             // cta_mask: uint16_t(0x1)
-            exo_syncState.FrontArrive0_all_bars(exo_smem, exo_excutLog, exo_128thr_wg + 2*exo_256thr_wg_pair, 1);
-            // Await(+all_bars[m_cta, n_cta, wg], cuda_temporal, ~4)
-            exo_syncState.FrontAwait0_all_bars(exo_smem, exo_excutLog, exo_128thr_wg + 2*exo_256thr_wg_pair, 4);
-            // Arrive(Sm80_cp_async, 1) >> +rc_bars[m_cta, 0:1, wg] >> +rc_bars[0:1, n_cta, wg]
+            exo_syncState.FrontArrive0_col_bars(exo_smem, exo_excutLog, exo_8thr_t1 + 2*exo_16thr_t2, 1);
+            // Await(+col_bars[m_cta, n_cta, t1], cuda_temporal, ~4)
+            exo_syncState.FrontAwait0_col_bars(exo_smem, exo_excutLog, exo_8thr_t1 + 2*exo_16thr_t2, 4);
+            // Arrive(Sm80_cp_async, 1) >> +all_bars[m_cta, n_cta, t1] >> +all_bars[0:1, 0:1, t1]
             // cta_mask: uint16_t(0x1)
             // cta_mask: uint16_t(0x1)
-            exo_syncState.FrontArrive0_rc_bars(exo_smem, exo_excutLog, exo_128thr_wg + 2*exo_256thr_wg_pair, 1);
-            // Await(+rc_bars[m_cta, n_cta, wg], cuda_temporal, ~4)
-            exo_syncState.FrontAwait0_rc_bars(exo_smem, exo_excutLog, exo_128thr_wg + 2*exo_256thr_wg_pair, 4);
-            // Await(+baseline[m_cta, n_cta, wg], cuda_in_order, ~0)
-            exo_syncState.FrontAwait0_baseline(exo_smem, exo_excutLog, exo_128thr_wg + 2*exo_256thr_wg_pair);
+            exo_syncState.FrontArrive0_all_bars(exo_smem, exo_excutLog, exo_8thr_t1 + 2*exo_16thr_t2, 1);
+            // Await(+all_bars[m_cta, n_cta, t1], cuda_temporal, ~4)
+            exo_syncState.FrontAwait0_all_bars(exo_smem, exo_excutLog, exo_8thr_t1 + 2*exo_16thr_t2, 4);
+            // Arrive(Sm80_cp_async, 1) >> +rc_bars[m_cta, 0:1, t1] >> +rc_bars[0:1, n_cta, t1]
+            // cta_mask: uint16_t(0x1)
+            // cta_mask: uint16_t(0x1)
+            exo_syncState.FrontArrive0_rc_bars(exo_smem, exo_excutLog, exo_8thr_t1 + 2*exo_16thr_t2, 1);
+            // Await(+rc_bars[m_cta, n_cta, t1], cuda_temporal, ~4)
+            exo_syncState.FrontAwait0_rc_bars(exo_smem, exo_excutLog, exo_8thr_t1 + 2*exo_16thr_t2, 4);
+            // Await(+baseline[m_cta, n_cta, t1], cuda_in_order, ~0)
+            exo_syncState.FrontAwait0_baseline(exo_smem, exo_excutLog, exo_8thr_t1 + 2*exo_16thr_t2);
           }
         }
       }
@@ -722,7 +722,7 @@ exo_Cuda0_test_mbarriers::exo_deviceMainLoop(char* exo_smem, const exo_DeviceArg
   int32_t nreg;
   nreg = ((int32_t) 0);
   if (nreg == ((int32_t) 0)) {
-    if (int tmp = threadIdx.x; tmp >= 0 && tmp < 1024) {
+    if (int tmp = threadIdx.x; tmp >= 0 && tmp < 64) {
       for (int exo_task_task = 0; exo_task_task < 2; exo_task_task++) {
         if (exo_taskIndex++ % (gridDim.x / exo_clusterDim) == blockIdx.x / exo_clusterDim) {
             exo_deviceTask(exo_smem, exo_syncState, exo_deviceArgs,
@@ -738,7 +738,7 @@ exo_Cuda0_test_mbarriers::exo_deviceMainLoop(char* exo_smem, const exo_DeviceArg
 // .cu
 // ########################################################################
 #include "test_mbarriers_m1n1d4_Sm90a_cp_async_golden.cuh"
-__launch_bounds__(1024, 1)
+__launch_bounds__(64, 1)
 __global__ void
 exo_deviceFunction0_test_mbarriers(__grid_constant__ const struct exo_CudaDeviceArgs0_test_mbarriers exo_deviceArgs)
 {
