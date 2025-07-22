@@ -514,6 +514,8 @@ def mkproc_mbarriers(M_CTA: int, N_CTA: int, f_delay: int, b_delay: int, qc: Mba
                                     Arrive(first_sync_tl, 1) >> -rc_bars[m_cta, :, t1] >> -rc_bars[:, n_cta, t1]
 
                                     Await(baseline[m_cta, n_cta, t1], cuda_in_order, ~0)
+                # Need for the test not to crash due to "Cluster target block not present"
+                Fence(cuda_temporal, cuda_temporal)
     return test_mbarriers
 # fmt: on
 
@@ -644,6 +646,12 @@ def mkref_mbarriers(
 
             # baseline mbarrier await (no ring buffering)
             xrg(cta_await, baseline[m_cta, n_cta, t2, t1, 0], i % 2)
+
+        if clusterDim == 1:
+            xrg("barrier.cta.sync", 0)
+        else:
+            xrg("barrier.cluster.arrive.aligned")
+            xrg("barrier.cluster.wait.aligned")
 
     xrg.begin_cuda()
     for task in xrg.stride_blockIdx(2, stride=clusterDim):
