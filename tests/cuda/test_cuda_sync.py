@@ -437,25 +437,34 @@ class MbarrierQualConfig:
     have_init_proxy_fence: bool
 
 
+# Sm80_cp_async -> cuda_temporal
+# should use cp.async.mbarrier.arrive.noinc.shared::cta.b64
 mbarrier_Sm80_cp_async_qc = MbarrierQualConfig(
     Sm80_cp_async, cuda_temporal, "test", True, False, False
 )
+
+# Same as before, but when compiled for sm_90a, switch from test_wait to try_wait
 mbarrier_Sm90a_cp_async_qc = MbarrierQualConfig(
     Sm80_cp_async, cuda_temporal, "try", True, False, False
 )
-mbarrier_temporal_to_wgmma_qc = MbarrierQualConfig(
-    cuda_temporal, wgmma_async_smem, "try", False, False, True
-)
+
+# cuda_in_order -> wgmma requires generic -> async proxy fence
 mbarrier_in_order_to_wgmma_qc = MbarrierQualConfig(
     cuda_in_order, wgmma_async_smem, "try", False, True, True
 )
+
+# cuda_temporal -> wgmma doesn't require the fence after the await (cuda_temporal
+# resolves only WAR hazards), but we still need the proxy fence at startup.
+mbarrier_temporal_to_wgmma_qc = MbarrierQualConfig(
+    cuda_temporal, wgmma_async_smem, "try", False, False, True
+)
+
 mbarrier_wrong_wgmma_qc = MbarrierQualConfig(
     cuda_in_order, wgmma_async, "try", False, True, True
 )
 mbarrier_wrong_cpu_qc = MbarrierQualConfig(
     cuda_in_order, cpu_in_order, "try", False, True, True
 )
-
 
 # fmt: off
 def mkproc_mbarriers(M_CTA: int, N_CTA: int, delay: int, qc: MbarrierQualConfig):
@@ -640,6 +649,10 @@ mb_m1n4d2_temporal_to_wgmma = dict(
 mb_m1n4d2_wrong_wgmma = dict(M_CTA=1, N_CTA=4, delay=2, qc=mbarrier_wrong_wgmma_qc)
 mb_m1n4d2_wrong_cpu = dict(M_CTA=1, N_CTA=4, delay=2, qc=mbarrier_wrong_cpu_qc)
 
+mb_m2n1d4_Sm90a_cp_async = dict(
+    M_CTA=2, N_CTA=1, delay=4, qc=mbarrier_Sm90a_cp_async_qc
+)
+
 
 def test_mbarriers_m1n1d1_Sm80_cp_async_excut(compiler_Sm80):
     compiler_Sm80.excut_test(
@@ -711,3 +724,9 @@ def test_mbarriers_wrong_cpu(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_mbarriers, **mb_m1n4d2_wrong_cpu)
     assert "cpu_in_order not supported" in str(exc.value)
+
+
+def test_mbarriers_Sm80_cp_async_1_CTA(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(mkproc_mbarriers, **mb_m2n1d4_Sm90a_cp_async)
+    assert "Sm80_cp_async mbarrier must be within 1 CTA" in str(exc.value)

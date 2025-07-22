@@ -371,7 +371,10 @@ class SyncStateBuilder:
                 if multicast:
                     ptx_format += f"// cta_xor={cta_xor}\n"
                 if is_Sm80_cp_async:
-                    ptx_format += f"cp.async.mbarrier.arrive.noinc.shared::{cta_or_cluster}.b64 #0#;"
+                    if cta_or_cluster != "cta":
+                        bad_stmt = usage.get_front_arrive().stmts[0]
+                        raise ValueError(f"{bad_stmt.srcinfo}: Sm80_cp_async mbarrier must be within 1 CTA (in {bad_stmt})")
+                    ptx_format += f"cp.async.mbarrier.arrive.noinc.shared::cta.b64 #0#;"
                 else:
                     ptx_format += f"mbarrier.arrive.shared::{cta_or_cluster}.b64 _, #0#;"
                 ptx = InlinePtxGen(ptx_format, volatile=True)
