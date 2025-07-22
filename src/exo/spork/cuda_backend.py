@@ -1005,7 +1005,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
         # Prepare SMEM stack allocator
         # Base of SMEM allocation is reserved for mbarriers
         self.codegen_smem = {}
-        self.smem_data_usage = 0
+        self.smem_data_usage = mbarrier_smem_bytes
         # self.live_smem_ends = {8 * num_mbarriers}
         self.live_smem_ends = {mbarrier_smem_bytes}
         # HACK: align mbarriers to 128 bytes for now

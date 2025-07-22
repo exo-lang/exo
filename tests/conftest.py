@@ -122,7 +122,8 @@ def compiler(tmp_path, request):
 @pytest.fixture
 def compiler_Sm80(tmp_path, request):
     """Test fixture for compiling and executing code for sm_80 CUDA devices"""
-    if CudaRun.Sm80 in request.config.getoption("cuda_run"):
+    cuda_run = request.config.getoption("cuda_run")
+    if cuda_run and CudaRun.Sm80 in cuda_run:
         return Compiler(tmp_path, request.node.name, "80")
     else:
         pytest.skip("--cuda-run-Sm80 not given")
@@ -131,7 +132,8 @@ def compiler_Sm80(tmp_path, request):
 @pytest.fixture
 def compiler_Sm90a(tmp_path, request):
     """Test fixture for compiling and executing code for sm_90a CUDA devices"""
-    if CudaRun.Sm90a in request.config.getoption("cuda_run"):
+    cuda_run = request.config.getoption("cuda_run")
+    if cuda_run and CudaRun.Sm90a in cuda_run:
         return Compiler(tmp_path, request.node.name, "90a")
     else:
         pytest.skip("--cuda-run-Sm90a not given")
@@ -366,6 +368,7 @@ class Compiler:
             nvcc,
             f"-arch=compute_{sm}",
             f"-code=sm_{sm},compute_{sm}",
+            "-std=c++20",
             "-lineinfo",
             "-O3",
             str(self.workdir / (self.basename + ".c")),

@@ -3,6 +3,7 @@ from ..API import instr, InstrInfo
 # Currently we import from the exo.spork directory,
 # which users shouldn't import directly.
 from ..spork.timelines import (
+    cpu_in_order,
     cpu_in_order_instr,
     cuda_temporal,
     cuda_in_order,

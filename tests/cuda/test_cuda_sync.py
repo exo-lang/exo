@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import numpy as np
 import pytest
 
@@ -424,3 +425,288 @@ def test_bad_first_sync_tl_commit_group(compiler):
     assert "cg" in msg
     assert "Arrive" in msg
     assert "tma_to_smem_async" in msg
+
+
+@dataclass(slots=True)
+class MbarrierQualConfig:
+    first_sync_tl: Sync_tl
+    second_sync_tl: Sync_tl
+    try_or_test: str
+    arrive_cp_async: bool
+    have_await_proxy_fence: bool
+    have_init_proxy_fence: bool
+
+
+mbarrier_Sm80_cp_async_qc = MbarrierQualConfig(
+    Sm80_cp_async, cuda_temporal, "test", True, False, False
+)
+mbarrier_Sm90a_cp_async_qc = MbarrierQualConfig(
+    Sm80_cp_async, cuda_temporal, "try", True, False, False
+)
+mbarrier_temporal_to_wgmma_qc = MbarrierQualConfig(
+    cuda_temporal, wgmma_async_smem, "try", False, False, True
+)
+mbarrier_in_order_to_wgmma_qc = MbarrierQualConfig(
+    cuda_in_order, wgmma_async_smem, "try", False, True, True
+)
+mbarrier_wrong_wgmma_qc = MbarrierQualConfig(
+    cuda_in_order, wgmma_async, "try", False, True, True
+)
+mbarrier_wrong_cpu_qc = MbarrierQualConfig(
+    cuda_in_order, cpu_in_order, "try", False, True, True
+)
+
+
+# fmt: off
+def mkproc_mbarriers(M_CTA: int, N_CTA: int, delay: int, qc: MbarrierQualConfig):
+    first_sync_tl = qc.first_sync_tl
+    second_sync_tl = qc.second_sync_tl
+    @proc
+    def test_mbarriers():
+        with CudaDeviceFunction(clusterDim=M_CTA * N_CTA, blockDim=1024):
+            for task in cuda_tasks(0, 2):
+                for wg_pair in cuda_threads(0, 4, unit=2*cuda_warpgroup):
+                    # Note: there are actually 4x as many queue barriers as there appear
+                    # to be, because of the wg_pair(0, 4) loop above. This is one of
+                    # the tricky cases being tested by this test case. Essentially the
+                    # compiler "lifts" the array to [M_CTA, N_CTA, 4, 2].
+                    row_bars: barrier[M_CTA, N_CTA, 2] @ CudaMbarrier
+                    col_bars: barrier[M_CTA, N_CTA, 2] @ CudaMbarrier
+                    all_bars: barrier[M_CTA, N_CTA, 2] @ CudaMbarrier
+                    rc_bars: barrier[M_CTA, N_CTA, 2] @ CudaMbarrier
+                    baseline: barrier[M_CTA, N_CTA, 2] @ CudaMbarrier
+                    for i in seq(0, 5):
+                        for wg in cuda_threads(0, 2, unit=cuda_warpgroup):
+                            for m_cta in cuda_threads(0, M_CTA, unit=N_CTA * cuda_cta_in_cluster):
+                                for n_cta in cuda_threads(0, N_CTA, unit=cuda_cta_in_cluster):
+                                    # Note baseline mbarrier doesn't use delay or parameterized sync-tl
+                                    Arrive(cuda_in_order, 1) >> baseline[m_cta, n_cta, wg]
+
+                                    Arrive(first_sync_tl, 1) >> row_bars[m_cta, n_cta, wg] >> row_bars[m_cta, :, wg]
+                                    Await(row_bars[m_cta, n_cta, wg], second_sync_tl, ~delay)
+                                    Arrive(first_sync_tl, 1) >> col_bars[m_cta, n_cta, wg] >> col_bars[:, n_cta, wg]
+                                    Await(col_bars[m_cta, n_cta, wg], second_sync_tl, ~delay)
+                                    Arrive(first_sync_tl, 1) >> all_bars[m_cta, n_cta, wg] >> all_bars[:, :, wg]
+                                    Await(all_bars[m_cta, n_cta, wg], second_sync_tl, ~delay)
+                                    Arrive(first_sync_tl, 1) >> rc_bars[m_cta, :, wg] >> rc_bars[:, n_cta, wg]
+                                    Await(rc_bars[m_cta, n_cta, wg], second_sync_tl, ~delay)
+
+                                    Await(baseline[m_cta, n_cta, wg], cuda_in_order, ~0)
+    return test_mbarriers
+# fmt: on
+
+
+def mkref_mbarriers(
+    xrg: excut.ExcutReferenceGenerator,
+    M_CTA: int,
+    N_CTA: int,
+    delay: int,
+    qc: MbarrierQualConfig,
+):
+    clusterDim = M_CTA * N_CTA
+    blockDim = 1024
+    row_bars = xrg.new_varname("row_bars")
+    col_bars = xrg.new_varname("col_bars")
+    all_bars = xrg.new_varname("all_bars")
+    rc_bars = xrg.new_varname("rc_bars")
+    baseline = xrg.new_varname("baseline")
+
+    cta_arrive = f"mbarrier.arrive.shared::cta.b64"
+    cluster_arrive = f"mbarrier.arrive.shared::cluster.b64"
+    cta_async_arrive = f"cp.async.mbarrier.arrive.noinc.shared::cta.b64"
+    cluster_async_arrive = f"cp.async.mbarrier.arrive.noinc.shared::cluster.b64"
+    cta_await = f"mbarrier.{qc.try_or_test}_wait.parity.acquire.cta.shared::cta.b64"
+
+    mbarrier_cta_pairs = (
+        (row_bars, N_CTA),
+        (col_bars, M_CTA),
+        (all_bars, clusterDim),
+        (rc_bars, M_CTA + N_CTA - 1),
+    )
+
+    def device_setup(m_cta, n_cta):
+        # 0th thread's initialization actions.
+        with xrg.permuted():
+            for wg_pair in range(4):
+                for wg in range(2):
+                    # Initialize row_bars, col_bars, all_bars, rc_bars each
+                    # with respective expected-arrive-count.
+                    for ring in range(1 + delay):
+                        for var, cta_count in mbarrier_cta_pairs:
+                            expected_arrive = cta_count * 128
+                            xrg(
+                                "mbarrier.init.shared::cta.b64",
+                                var[m_cta, n_cta, wg_pair, wg, ring],
+                                expected_arrive,
+                            )
+                    # Init baseline mbarriers (delay=0, no cross-cluster multicast)
+                    for ring in range(1):
+                        xrg(
+                            "mbarrier.init.shared::cta.b64",
+                            baseline[m_cta, n_cta, wg_pair, wg, ring],
+                            128,
+                        )
+        if qc.have_init_proxy_fence:
+            xrg("fence.proxy.async")
+        # End 0th thread init
+        # Cross-thread sync
+        for threadIdx in xrg.stride_threadIdx(blockDim):
+            if clusterDim == 1:
+                xrg("barrier.cta.sync", 0)
+            else:
+                xrg("barrier.cluster.arrive.aligned")
+                xrg("barrier.cluster.wait.aligned")
+        # End exo_deviceSetup
+
+    def arrive_impl(m_cta, n_cta, wg_pair, wg, i, match_cta, var):
+        other_ctas = []
+        for m2 in range(0, M_CTA):
+            for n2 in range(0, N_CTA):
+                if match_cta(m2, n2) and (m_cta != m2 or n_cta != n2):
+                    other_ctas.append((m2, n2))
+
+        if qc.arrive_cp_async:
+            ptx = cluster_async_arrive if other_ctas else cta_async_arrive
+        else:
+            ptx = cluster_arrive if other_ctas else cta_arrive
+
+        # excut limitation: we assume that the mbarrier inside this CTA
+        # is signalled first. This is not required for correct codegen.
+        # The deduction algorithm might fail if we don't follow this assumption.
+        xrg(ptx, var[m_cta, n_cta, wg_pair, wg, i % (1 + delay)])
+        for m2, n2 in other_ctas:
+            xrg(ptx, var[m2, n2, wg_pair, wg, i % (1 + delay)])
+
+    def await_impl(m_cta, n_cta, wg_pair, wg, i, var):
+        i -= delay
+        if i >= 0:
+            ringsize = 1 + delay
+            ring = i % ringsize
+            parity = (i // ringsize) % 2
+            xrg(cta_await, var[m_cta, n_cta, wg_pair, wg, ring], parity)
+            if qc.have_await_proxy_fence:
+                xrg("fence.proxy.async")
+
+    def thread_main(m_cta, n_cta, wg_pair, wg):
+        for i in range(5):
+            # baseline mbarrier arrive (no ring buffering)
+            xrg(cta_arrive, baseline[m_cta, n_cta, wg_pair, wg, 0])
+
+            match_row = lambda m, n: n == n_cta
+            match_col = lambda m, n: m == m_cta
+            match_any = lambda m, n: True
+            match_rc = lambda m, n: m == m_cta or n == n_cta
+
+            arrive_impl(m_cta, n_cta, wg_pair, wg, i, match_row, row_bars)
+            await_impl(m_cta, n_cta, wg_pair, wg, i, row_bars)
+            arrive_impl(m_cta, n_cta, wg_pair, wg, i, match_col, col_bars)
+            await_impl(m_cta, n_cta, wg_pair, wg, i, col_bars)
+            arrive_impl(m_cta, n_cta, wg_pair, wg, i, match_any, all_bars)
+            await_impl(m_cta, n_cta, wg_pair, wg, i, all_bars)
+            arrive_impl(m_cta, n_cta, wg_pair, wg, i, match_rc, rc_bars)
+            await_impl(m_cta, n_cta, wg_pair, wg, i, rc_bars)
+
+            # baseline mbarrier await (no ring buffering)
+            xrg(cta_await, baseline[m_cta, n_cta, wg_pair, wg, 0], i % 2)
+
+    xrg.begin_cuda()
+    for task in xrg.stride_blockIdx(2, stride=clusterDim):
+        for m_cta in xrg.stride_blockIdx(M_CTA, stride=N_CTA):
+            for n_cta in xrg.stride_blockIdx(N_CTA):
+                device_setup(m_cta, n_cta)
+                for wg_pair in xrg.stride_threadIdx(4, stride=256):
+                    for wg in xrg.stride_threadIdx(2, stride=128):
+                        for intra_wg in xrg.stride_threadIdx(128):
+                            thread_main(m_cta, n_cta, wg_pair, wg)
+    xrg.end_cuda()
+
+
+mb_m1n1d1_Sm80_cp_async = dict(M_CTA=1, N_CTA=1, delay=1, qc=mbarrier_Sm80_cp_async_qc)
+mb_m1n1d3_Sm80_cp_async = dict(M_CTA=1, N_CTA=1, delay=3, qc=mbarrier_Sm80_cp_async_qc)
+mb_m4n2d4_Sm90a_cp_async = dict(
+    M_CTA=4, N_CTA=2, delay=4, qc=mbarrier_Sm90a_cp_async_qc
+)
+mb_m2n2d1_in_order_to_wgmma = dict(
+    M_CTA=2, N_CTA=2, delay=1, qc=mbarrier_in_order_to_wgmma_qc
+)
+mb_m4n1d0_temporal_to_wgmma = dict(
+    M_CTA=4, N_CTA=1, delay=0, qc=mbarrier_temporal_to_wgmma_qc
+)
+mb_m1n4d2_temporal_to_wgmma = dict(
+    M_CTA=1, N_CTA=4, delay=2, qc=mbarrier_temporal_to_wgmma_qc
+)
+
+mb_m1n4d2_wrong_wgmma = dict(M_CTA=1, N_CTA=4, delay=2, qc=mbarrier_wrong_wgmma_qc)
+mb_m1n4d2_wrong_cpu = dict(M_CTA=1, N_CTA=4, delay=2, qc=mbarrier_wrong_cpu_qc)
+
+
+def test_mbarriers_m1n1d1_Sm80_cp_async_excut(compiler_Sm80):
+    compiler_Sm80.excut_test(
+        mkproc_mbarriers, mkref_mbarriers, **mb_m1n1d1_Sm80_cp_async
+    )
+
+
+def test_mbarriers_m1n1d1_Sm80_cp_async_golden(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_mbarriers, golden, **mb_m1n1d1_Sm80_cp_async)
+
+
+def test_mbarriers_m1n1d3_Sm80_cp_async_excut(compiler_Sm80):
+    compiler_Sm80.excut_test(
+        mkproc_mbarriers, mkref_mbarriers, **mb_m1n1d3_Sm80_cp_async
+    )
+
+
+def test_mbarriers_m1n1d3_Sm80_cp_async_golden(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_mbarriers, golden, **mb_m1n1d3_Sm80_cp_async)
+
+
+def test_mbarriers_m4n2d4_Sm90a_cp_async_excut(compiler_Sm90a):
+    compiler_Sm90a.excut_test(
+        mkproc_mbarriers, mkref_mbarriers, **mb_m4n2d4_Sm90a_cp_async
+    )
+
+
+def test_mbarriers_m4n2d4_Sm90a_cp_async_golden(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_mbarriers, golden, **mb_m4n2d4_Sm90a_cp_async)
+
+
+def test_mbarriers_m2n2d1_in_order_to_wgmma_excut(compiler_Sm90a):
+    compiler_Sm90a.excut_test(
+        mkproc_mbarriers, mkref_mbarriers, **mb_m2n2d1_in_order_to_wgmma
+    )
+
+
+def test_mbarriers_m2n2d1_in_order_to_wgmma_golden(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_mbarriers, golden, **mb_m2n2d1_in_order_to_wgmma)
+
+
+def test_mbarriers_m4n1d0_temporal_to_wgmma_excut(compiler_Sm90a):
+    compiler_Sm90a.excut_test(
+        mkproc_mbarriers, mkref_mbarriers, **mb_m4n1d0_temporal_to_wgmma
+    )
+
+
+def test_mbarriers_m4n1d0_temporal_to_wgmma_golden(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_mbarriers, golden, **mb_m4n1d0_temporal_to_wgmma)
+
+
+def test_mbarriers_m1n4d2_temporal_to_wgmma_excut(compiler_Sm90a):
+    compiler_Sm90a.excut_test(
+        mkproc_mbarriers, mkref_mbarriers, **mb_m1n4d2_temporal_to_wgmma
+    )
+
+
+def test_mbarriers_m1n4d2_temporal_to_wgmma_golden(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_mbarriers, golden, **mb_m1n4d2_temporal_to_wgmma)
+
+
+def test_mbarriers_wrong_wgmma(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(mkproc_mbarriers, **mb_m1n4d2_wrong_wgmma)
+    assert "consider wgmma_async_smem" in str(exc.value)
+
+
+def test_mbarriers_wrong_cpu(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(mkproc_mbarriers, **mb_m1n4d2_wrong_cpu)
+    assert "cpu_in_order not supported" in str(exc.value)

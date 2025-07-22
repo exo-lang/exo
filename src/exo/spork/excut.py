@@ -40,8 +40,9 @@ Variables, sinks, and sub-lists must appear only in reference files.
 
 Concordance:
 
-Take the set of all action names in the reference file,
-and erase all actions in the trace file with an action name not in the set.
+Take the set of all action names and blockIdx in the reference file,
+and erase all actions in the trace file with an action name not in the
+action name set or blockIdx not in the blockIdx set.
 (Extensibility/backwards compatibility: allows us to trace new actions
 without impacting old tests that don't care about them)
 
@@ -449,12 +450,18 @@ def require_concordance(
     varname_set: Set[str],
 ):
     ref_action_names = set()
+    blockIdxs = set()
     for r_act in ref_actions:
         assert isinstance(r_act, ExcutAction)
         ref_action_names.add(r_act.action_name)
+        blockIdxs.add(r_act.blockIdx)
 
     trace_actions = list(
-        filter(lambda act: act.action_name in ref_action_names, trace_actions)
+        filter(
+            lambda act: act.action_name in ref_action_names
+            and act.blockIdx in blockIdxs,
+            trace_actions,
+        )
     )
 
     deductions: Dict[ExcutVariableID, ExcutDeduction] = {}
