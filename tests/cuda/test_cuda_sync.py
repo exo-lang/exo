@@ -574,8 +574,9 @@ def mkref_mbarriers(
         # is signalled first. This is not required for correct codegen.
         # The deduction algorithm might fail if we don't follow this assumption.
         xrg(ptx, var[m_cta, n_cta, wg_pair, wg, i % (1 + delay)])
-        for m2, n2 in other_ctas:
-            xrg(ptx, var[m2, n2, wg_pair, wg, i % (1 + delay)])
+        with xrg.permuted():
+            for m2, n2 in other_ctas:
+                xrg(ptx, var[m2, n2, wg_pair, wg, i % (1 + delay)])
 
     def await_impl(m_cta, n_cta, wg_pair, wg, i, var):
         i -= delay
