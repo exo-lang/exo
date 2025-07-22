@@ -136,7 +136,7 @@ void flush_device_log(cudaStream_t stream, uint32_t gridDim, uint32_t blockDim,
     std::unique_ptr<uint32_t[]> data(new uint32_t[(cuda_log_bytes + 3) / 4u]);
     cudaMemcpyAsync(data.get(), cuda_log, cuda_log_bytes, cudaMemcpyDeviceToHost, stream);
     cudaStreamSynchronize(stream);
-    const cudaError_t peeked_error = cudaPeekLastError();
+    const cudaError_t peeked_error = cudaPeekAtLastError();
     if (peeked_error) {
         fprintf(stderr, "%s:%i: %i (%s)\n", __FILE__, __LINE__, (int)peeked_error, cudaGetErrorName(peeked_error));
         fflush(stderr);
