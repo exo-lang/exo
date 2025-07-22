@@ -964,7 +964,7 @@ def mkref_garden_Sm90(
         for threadIdx in xrg.stride_threadIdx(256):
             # cluster: generic->async proxy
             xrg("barrier.cluster.arrive.aligned")
-            xrg("barrier.cluster.await.aligned")
+            xrg("barrier.cluster.wait.aligned")
             xrg("fence.proxy.async")
 
             # No proxy fence, as first-sync-tl is temporal-only
@@ -972,6 +972,11 @@ def mkref_garden_Sm90(
             xrg("__syncwarp")
 
             # No proxy fence or cp.async.wait_all
+            xrg("barrier.cta.sync", 0)
+            xrg("__syncwarp")
+
+            # cp.async.wait_all
+            xrg("cp.async.wait_all")
             xrg("barrier.cta.sync", 0)
             xrg("__syncwarp")
 
@@ -988,7 +993,7 @@ def mkref_garden_Sm90(
             # cluster: cp.async.wait_all
             xrg("cp.async.wait_all")
             xrg("barrier.cluster.arrive.aligned")
-            xrg("barrier.cluster.await.aligned")
+            xrg("barrier.cluster.wait.aligned")
     xrg.end_cuda()
 
 
