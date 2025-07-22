@@ -1422,6 +1422,20 @@ launchConfig_clusterDim_snippet = """
   exo_launchConfig.numAttrs = 1;
 """
 
+# Note about ODR isuse and inline namespace:
+#
+# I've been having issues with test cases failing when running the
+# full test suite but not when run in isolation. The test cases work
+# by compiling a shared library, loading it, and executing the
+# compiled test proc from the .so. For my CUDA stuff, I use inline
+# heavily. It turns out that on Linux, if you have a name collision
+# between inline symbols exported by two shared libraries, the second
+# shared library transparently replaces its inline objects with
+# definitions loaded from the first shared library. This caused my
+# tests to fail because the executed C++ library was a chimera of code
+# from the current test and spliced-in code from an unrelated earlier
+# test case (this took me HOURS to figure out).
+
 cuh_snippet_fmt = """\
 // CUDA device function args -- duplicated in .c file
 struct exo_CudaDeviceArgs{N}_{proc}
@@ -1429,6 +1443,8 @@ struct exo_CudaDeviceArgs{N}_{proc}
 {device_args_struct_body}
 }};
 
+// We need this inline namespace to avoid ODR problems in pytest.
+inline namespace exo_CudaInline_{lib_name} {{
 struct exo_Cuda{N}_{proc}
 {{
   using exo_DeviceArgs = exo_CudaDeviceArgs{N}_{proc};
@@ -1448,6 +1464,12 @@ struct exo_Cuda{N}_{proc}
 {SyncState_body}
   }};
 
+  static inline const char*& exo_FILE()
+  {{
+    static const char* name = __FILE__;
+    return name;
+  }}
+
   static void
   exo_cudaLaunch(cudaStream_t exo_cudaStream, const exo_DeviceArgs& exo_deviceArgs);
 
@@ -1457,9 +1479,12 @@ struct exo_Cuda{N}_{proc}
   static __device__ __forceinline__ void
   exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={{}});
 {deviceTask_decls}}};
+}}  // end inline namespace
 
 inline void
-exo_Cuda{N}_{proc}::exo_cudaLaunch(cudaStream_t exo_cudaStream, const exo_DeviceArgs& exo_deviceArgs)
+exo_CudaInline_{lib_name}::exo_Cuda{N}_{proc}::exo_cudaLaunch(
+    cudaStream_t exo_cudaStream,
+    const exo_DeviceArgs& exo_deviceArgs)
 {{
   namespace exo_CudaUtil = exo_CudaUtil_{lib_name};
   cudaFuncSetAttribute(exo_deviceFunction{N}_{proc}, cudaFuncAttributeMaxDynamicSharedMemorySize, exo_smemBytes);
@@ -1478,15 +1503,17 @@ exo_Cuda{N}_{proc}::exo_cudaLaunch(cudaStream_t exo_cudaStream, const exo_Device
 {launchConfig_clusterDim_snippet}
   cudaLaunchKernelEx(&exo_launchConfig, exo_deviceFunction{N}_{proc}, exo_deviceArgs);
 
-  [[maybe_unused]] static const char* filename = __FILE__;
   exo_excut_flush_device_log(
       exo_cudaStream, exo_gridDim, exo_blockDim,
       exo_CudaUtil::exo_excut_str_id_count, exo_CudaUtil::exo_excut_str_table,
-      1, &filename);
+      1, &exo_FILE());
 }}
 
 __device__ __forceinline__ void
-exo_Cuda{N}_{proc}::exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog)
+exo_CudaInline_{lib_name}::exo_Cuda{N}_{proc}::exo_deviceSetup(
+    char* exo_smem,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_ExcutThreadLog exo_excutLog)
 {{
 {device_setup_body}
 }}
@@ -1511,14 +1538,17 @@ exo_cudaLaunch{N}_{proc}(cudaStream_t exo_cudaStream, const struct exo_CudaDevic
 """
 
 device_main_loop_prefix_fmt = """__device__ __forceinline__ void
-exo_Cuda{N}_{proc}::exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog)
+exo_CudaInline_{lib_name}::exo_Cuda{N}_{proc}::exo_deviceMainLoop(
+    char* exo_smem,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_ExcutThreadLog exo_excutLog)
 {{
   namespace exo_CudaUtil = exo_CudaUtil_{lib_name};
   exo_SyncState exo_syncState{{}};
   unsigned exo_taskIndex = 0;"""
 
 device_task_prefix_fmt = """__device__ __forceinline__ void
-exo_Cuda{N}_{proc}::exo_deviceTask{warp_cname}(
+exo_CudaInline_{lib_name}::exo_Cuda{N}_{proc}::exo_deviceTask{warp_cname}(
     char* exo_smem,
     exo_SyncState& exo_syncState,
     const exo_DeviceArgs& exo_deviceArgs,

@@ -179,6 +179,8 @@ struct exo_CudaDeviceArgs0_proc_CudaWarps_in_wg
     EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
 };
 
+// We need this inline namespace to avoid ODR problems in pytest.
+inline namespace exo_CudaInline_test_CudaWarps_in_wg_golden {
 struct exo_Cuda0_proc_CudaWarps_in_wg
 {
   using exo_DeviceArgs = exo_CudaDeviceArgs0_proc_CudaWarps_in_wg;
@@ -198,6 +200,12 @@ struct exo_Cuda0_proc_CudaWarps_in_wg
 
   };
 
+  static inline const char*& exo_FILE()
+  {
+    static const char* name = __FILE__;
+    return name;
+  }
+
   static void
   exo_cudaLaunch(cudaStream_t exo_cudaStream, const exo_DeviceArgs& exo_deviceArgs);
 
@@ -215,9 +223,12 @@ struct exo_Cuda0_proc_CudaWarps_in_wg
       exo_Task exo_task,
       exo_ExcutThreadLog exo_excutLog={});
 };
+}  // end inline namespace
 
 inline void
-exo_Cuda0_proc_CudaWarps_in_wg::exo_cudaLaunch(cudaStream_t exo_cudaStream, const exo_DeviceArgs& exo_deviceArgs)
+exo_CudaInline_test_CudaWarps_in_wg_golden::exo_Cuda0_proc_CudaWarps_in_wg::exo_cudaLaunch(
+    cudaStream_t exo_cudaStream,
+    const exo_DeviceArgs& exo_deviceArgs)
 {
   namespace exo_CudaUtil = exo_CudaUtil_test_CudaWarps_in_wg_golden;
   cudaFuncSetAttribute(exo_deviceFunction0_proc_CudaWarps_in_wg, cudaFuncAttributeMaxDynamicSharedMemorySize, exo_smemBytes);
@@ -236,21 +247,23 @@ exo_Cuda0_proc_CudaWarps_in_wg::exo_cudaLaunch(cudaStream_t exo_cudaStream, cons
 
   cudaLaunchKernelEx(&exo_launchConfig, exo_deviceFunction0_proc_CudaWarps_in_wg, exo_deviceArgs);
 
-  [[maybe_unused]] static const char* filename = __FILE__;
   exo_excut_flush_device_log(
       exo_cudaStream, exo_gridDim, exo_blockDim,
       exo_CudaUtil::exo_excut_str_id_count, exo_CudaUtil::exo_excut_str_table,
-      1, &filename);
+      1, &exo_FILE());
 }
 
 __device__ __forceinline__ void
-exo_Cuda0_proc_CudaWarps_in_wg::exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog)
+exo_CudaInline_test_CudaWarps_in_wg_golden::exo_Cuda0_proc_CudaWarps_in_wg::exo_deviceSetup(
+    char* exo_smem,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_ExcutThreadLog exo_excutLog)
 {
   // No mbarriers used
 }
 
 __device__ __forceinline__ void
-exo_Cuda0_proc_CudaWarps_in_wg::exo_deviceTask(
+exo_CudaInline_test_CudaWarps_in_wg_golden::exo_Cuda0_proc_CudaWarps_in_wg::exo_deviceTask(
     char* exo_smem,
     exo_SyncState& exo_syncState,
     const exo_DeviceArgs& exo_deviceArgs,
@@ -323,7 +336,10 @@ exo_Cuda0_proc_CudaWarps_in_wg::exo_deviceTask(
   }
 }
 __device__ __forceinline__ void
-exo_Cuda0_proc_CudaWarps_in_wg::exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog)
+exo_CudaInline_test_CudaWarps_in_wg_golden::exo_Cuda0_proc_CudaWarps_in_wg::exo_deviceMainLoop(
+    char* exo_smem,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_ExcutThreadLog exo_excutLog)
 {
   namespace exo_CudaUtil = exo_CudaUtil_test_CudaWarps_in_wg_golden;
   exo_SyncState exo_syncState{};

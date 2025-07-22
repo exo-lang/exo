@@ -111,6 +111,7 @@ mbarrier must be distributed so each mbarrier is resident in one CTA only
 mbarrier must have some await with nonzero skips
 mbarrier Arrive sync-tl not supported (TMA/non-TMA)
 mbarrier Await sync-tl not supported (consider wgmma_async_smem)
+TODO no multicast for Sm80_cp_async
 ---
 # commit_group collective unit error
 # commit_group unknown first sync tl error
