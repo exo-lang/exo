@@ -358,7 +358,7 @@ class SyncStateBuilder:
             if len(cta_xor_list) > 1:
                 multicast = True
                 cta_or_cluster = "cluster"
-                lines.append(f"    const unsigned cta_rank = blockDim.x % {self._clusterDim()};")
+                lines.append(f"    const unsigned cta_rank = blockIdx.x % {self._clusterDim()};")
             else:
                 multicast = False
                 assert cta_xor_list[0] == 0
