@@ -11,6 +11,7 @@ from .coll_algebra import (
     CollParam,
     clusterDim_param,
     blockDim_param,
+    DomainCompletionOp,
 )
 from .barrier_usage import BarrierUsage
 from .loop_modes import _CodegenPar
@@ -657,26 +658,24 @@ class DistributedIdxFsm:
                 to_check.append((old_coll_tiling, f_text))
 
         # Check equivalence (the code here only checks issues that wouldn't be
-        # flagged by the primary distributed memory deduction).
+        # flagged by the primary distributed memory deduction, i.e., issues
+        # related to masked-out threads, so we check box, offset).
         for old_coll_tiling, f_text in to_check:
-            domain0 = old_coll_tiling.full_domain
-            tile0 = old_coll_tiling.tile
-            box0 = old_coll_tiling.box
-            offset0 = old_coll_tiling.offset
-            domain1 = coll_tiling.full_domain
-            tile1 = coll_tiling.tile
-            box1 = coll_tiling.box
-            offset1 = coll_tiling.offset
-            if (
-                domain0 != domain1
-                or box0 != box1
-                or tile0 != tile1
-                or offset0 != offset1
-            ):
+            old_completion = DomainCompletionOp(
+                old_coll_tiling.full_domain, coll_tiling.full_domain, False
+            )
+            new_completion = DomainCompletionOp(
+                coll_tiling.full_domain, old_coll_tiling.full_domain, False
+            )
+            box0 = old_completion.new_size(old_coll_tiling.box)
+            offset0 = old_completion.new_offset(old_coll_tiling.offset)
+            box1 = new_completion.new_size(coll_tiling.box)
+            offset1 = new_completion.new_offset(coll_tiling.offset)
+            if box0 != box1 or offset0 != offset1:
                 raise ValueError(
                     f"{sync.srcinfo}: {sync} has inconsistent collective tiling with previous {f_text}\n"
-                    f"Saw tile={tile0}, box={box0}, offset={offset0}\n"
-                    f"Saw tile={tile1}, box={box1}, offset={offset1}"
+                    f"Saw box={box0}, offset={offset0}\n"
+                    f"Saw box={box1}, offset={offset1}"
                 )
 
     def bad_idx(self, node, msg):

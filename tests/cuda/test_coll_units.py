@@ -622,7 +622,7 @@ def test_warpgroup_shape_negative(compiler):
     unit1 = CollUnit((4, 128), (2, 64), "unit1")
     with pytest.raises(Exception) as exc:
         cu = compiler.cuda_cpu_test(mkproc_warpgroup_shape, unit0=unit0, unit1=unit1)
-    assert "shape (2, 64)" in str(exc.value)
+    assert "box=(2, 64)" in str(exc.value)
 
 
 def mkproc_cuda_threads_bounds(lo=0, variable_bounds=False):

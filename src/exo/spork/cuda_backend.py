@@ -722,7 +722,7 @@ class SubtreeScan(LoopIR_Do):
             offset = self._coll_tiling.offset
             raise TypeError(
                 f"{s.srcinfo}: wrong collective unit for {callee.name}(): {msg}, "
-                f"need {needed}, have domain={domain}, box={box}, offset={offset}"
+                f"need {needed}, have threads in shape box={box}, offset={offset}, domain={domain}"
             )
 
         # Inspect distributed indices of arguments (safer after above check)
