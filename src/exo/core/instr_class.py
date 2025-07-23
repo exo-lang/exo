@@ -6,21 +6,22 @@ Module for "new" class-based instr
             def behavior(arg_a: Ta, arg_b: Tb, ...):
                 # Exo code specifies instr behavior
 
-            def instance(self, tparam...):
+            def instance(self, proc_tparam..., *, extra_tparam...):
                 # Python code configures instruction
                 self.instr_format = ...
 
-            # Each tparam (template parameter) in the instance()
+            # Each proc_tparam (proc template parameter) in the instance()
             # must match a parameter in behavior(), and causes that parameter
-            # to become a template parameter.
+            # to become a template parameter. The extra_tparam names must not
+            # match any argument in behavior()
 
             def codegen(self, args: InstrArgs) -> List[str]:
                 # Each non-template param x in behavior becomes args.x of type
-                # InstrWindowArg or InstrNonWindowArg. Template params will
-                # be kept as their literal Python types (usually int).
+                # InstrWindowArg or InstrNonWindowArg. Template params y will
+                # be kept as their literal Python types (often int) as args.y
                 #
                 # Return list of C lines
-                # This is optional if you define self.instr_format
+                # codegen() is optional if you define self.instr_format
 
 For context, the "old" instr is like
 
@@ -75,8 +76,9 @@ class InstrTemplateError(Exception):
 def tparams_from_signature(clsname: str, tproc: LoopIR.proc, signature):
     assert isinstance(tproc, LoopIR.proc)
 
-    tparam_syms = []
-    tparam_types = []
+    proc_tparam_syms = []
+    proc_tparam_types = []
+    extra_tparam_names = []
 
     for i, param in enumerate(signature.parameters.values()):
         nm = param.name
@@ -85,13 +87,22 @@ def tparams_from_signature(clsname: str, tproc: LoopIR.proc, signature):
             assert nm == "self", f"{clsname}.instance: missing self"
             continue
         problem = None
-        if param.kind.name != "POSITIONAL_OR_KEYWORD":
+        if param.kind.name == "POSITIONAL_OR_KEYWORD":
+            is_proc_param = True
+        elif param.kind.name == "KEYWORD_ONLY":
+            is_proc_param = False
+        else:
             problem = f"cannot be {param.kind.name} argument"
-        elif param.default is not inspect._empty:
+        if param.default is not inspect._empty:
             problem = "cannot have default value"
         # Look for matching parameter in behavior() and get its Sym
         for tproc_a in tproc.args:
             if tproc_a.name.name() == nm:
+                if not is_proc_param:
+                    problem = (
+                        f"name conflict with {clsname}.behavior parameter "
+                        f"(note, move before * if intended)"
+                    )
                 sym = tproc_a.name
                 typ = tproc_a.type
                 if not typ.is_indexable():
@@ -101,14 +112,21 @@ def tparams_from_signature(clsname: str, tproc: LoopIR.proc, signature):
                     )
                 break
         else:
-            problem = f"does not refer to any parameter of {clsname}.behavior"
+            if is_proc_param:
+                problem = (
+                    f"does not refer to any parameter of {clsname}.behavior "
+                    f"(note, move after *, i.e. make keyword-only, if intended)"
+                )
 
         if problem:
             raise ValueError(f"{clsname}.instance: parameter {nm} {problem}")
-        tparam_syms.append(sym)
-        tparam_types.append(typ)
+        if is_proc_param:
+            proc_tparam_syms.append(sym)
+            proc_tparam_types.append(typ)
+        else:
+            extra_tparam_names.append(str(nm))
 
-    return tparam_syms, tparam_types
+    return proc_tparam_syms, proc_tparam_types, extra_tparam_names
 
 
 def prefill_instr_info(info: InstrInfo, proc: LoopIR.proc):
@@ -139,26 +157,20 @@ def old_style_instr_info(proc: LoopIR.proc, c_instr: str, c_global: str):
     return info
 
 
+@dataclass(slots=True)
 class InstrTemplate:
     """Templatized instruction -- call operator yields Procedure instr"""
-
-    __slots__ = [
-        "make_procedure",
-        "tparam_syms",
-        "tparam_types",
-        "tproc",
-        "info_cls",
-        "cache",
-    ]
 
     # Avoid circular modules: proc -> Procedure
     make_procedure: Callable[[object], "Procedure"]
 
     # Syms of tproc paremeters that are template parameters
-    tparam_syms: List[Sym]
+    proc_tparam_syms: List[Sym]
 
-    # LoopIR types of template parameters
-    tparam_types: List
+    # LoopIR types of proc template parameters
+    proc_tparam_types: List[LoopIR.type]
+
+    extra_tparam_names: List[str]
 
     # "Template proc"; this is not an instr; this is directly parsed from
     # the user's cls.behavior Exo function.
@@ -169,7 +181,8 @@ class InstrTemplate:
 
     # Cache of Procedures.
     # When we substitute template parameters, we cache the resulting Procedure
-    # here indexed by a tuple of tparam values (same order as tparam_syms)
+    # here indexed by a tuple of tparam values
+    # (order = proc_tparam_syms + extra_tparam_names)
     cache: Dict[tuple, "Procedure"]
 
     def __init__(self, cls, make_procedure, parent_scope):
@@ -187,9 +200,11 @@ class InstrTemplate:
         tproc = make_procedure(uast_tproc)._loopir_proc
 
         # Deduce the (Sym) names of tparams based on cls.instance
-        tparam_syms, tparam_types = tparams_from_signature(
-            nm, tproc, instance_signature
-        )
+        (
+            proc_tparam_syms,
+            proc_tparam_types,
+            extra_tparam_names,
+        ) = tparams_from_signature(nm, tproc, instance_signature)
 
         # The user's cls.instance function will be used to initialize InstrInfo.
         def info_init(info, **tparam_dict):
@@ -213,8 +228,9 @@ class InstrTemplate:
         info_cls = type(nm, tuple(info_bases), info_dict)
 
         self.make_procedure = make_procedure
-        self.tparam_syms = tparam_syms
-        self.tparam_types = tparam_types
+        self.proc_tparam_syms = proc_tparam_syms
+        self.proc_tparam_types = proc_tparam_types
+        self.extra_tparam_names = extra_tparam_names
         self.tproc = tproc
         self.info_cls = info_cls
         self.cache = {}
@@ -244,16 +260,20 @@ class InstrTemplate:
         #   * Substituting concrete values in place of template params (tparams)
         #   * Removing fnargs that correspond to tparams
         #   * Adding the InstrInfo; set fnarg.mem as needed from InstrInfo
+        # zip note: tparam_values contains proc tparams before extra tparams
         tproc = self.tproc
         binding = {}
-        assert len(self.tparam_syms) == len(tparam_values)
-        assert len(self.tparam_types) == len(tparam_values)
-        for sym, v, typ in zip(self.tparam_syms, tparam_values, self.tparam_types):
+        n_extras = len(self.extra_tparam_names)
+        assert len(self.proc_tparam_syms) + n_extras == len(tparam_values)
+        assert len(self.proc_tparam_types) + n_extras == len(tparam_values)
+        for sym, v, typ in zip(
+            self.proc_tparam_syms, tparam_values, self.proc_tparam_types
+        ):
             binding[sym] = LoopIR.Const(v, typ, tproc.srcinfo)
         iproc_preds = SubstArgs(tproc.preds, binding).result()
         iproc_body = SubstArgs(tproc.body, binding).result()
-        iproc_args = [a for a in tproc.args if a.name not in self.tparam_syms]
-        assert len(iproc_args) + len(self.tparam_syms) == len(tproc.args)
+        iproc_args = [a for a in tproc.args if a.name not in self.proc_tparam_syms]
+        assert len(iproc_args) + len(self.proc_tparam_syms) == len(tproc.args)
         for i, a in enumerate(iproc_args):
             if (access := instr_info.access_info.get(str(a.name))) is not None:
                 iproc_args[i] = a.update(mem=access.mem)
@@ -271,8 +291,15 @@ class InstrTemplate:
         return self(**tparam_dict)._loopir_proc
 
     def _tparam_values(self, **tparam_dict):
+        """Convert kwargs dict into tuple of template parameter values
+
+        The args are ordered to correspond with proc_tparam_syms followed by
+        extra_tparam_names; i.e., syntactically this is the same order as
+        that of the instance(...) function.
+
+        """
         clsname = self.info_cls.__name__
-        syms = self.tparam_syms
+        syms = self.proc_tparam_syms
         tparam_values = []
         for sym in syms:
             assert isinstance(sym, Sym)
@@ -284,14 +311,25 @@ class InstrTemplate:
                 raise InstrTemplateError(f"{clsname}: missing template parameter {nm}")
             else:
                 raise InstrTemplateError(f"{clsname}: {nm} must be int, not {type(v)}")
+        extras = self.extra_tparam_names
+        for nm in extras:
+            try:
+                v = tparam_dict[nm]
+            except KeyError:
+                raise InstrTemplateError(f"{clsname}: missing template parameter {nm}")
+            tparam_values.append(v)
+
         # Do this assert late as the "missing parameter"
         # message above has better clarity.
-        assert len(tparam_dict) == len(syms), f"{clsname}: excess arguments"
+        # fmt: off
+        assert len(tparam_dict) == len(syms) + len(extras), f"{clsname}: excess arguments"
+        # fmt: on
         return tuple(tparam_values)
 
     def _format_tparam_kwargs(self, tparam_values):
-        assert len(tparam_values) == len(self.tparam_syms)
-        return ", ".join(f"{nm}={v}" for nm, v in zip(self.tparam_syms, tparam_values))
+        all_names = self.proc_tparam_syms + self.extra_tparam_names
+        assert len(tparam_values) == len(all_names)
+        return ", ".join(f"{nm}={v}" for nm, v in zip(all_names, tparam_values))
 
     def _postprocess_instr_info(
         self, proc: LoopIR.proc, info: InstrInfo, tparam_dict, has_custom_codegen: bool
@@ -370,6 +408,7 @@ class InstrTemplate:
                 # fmt: on
 
             # Distributed memory configuration checks
+            # fmt: off
             for i, unit in enumerate(arg_info.distributed_coll_units):
                 extent = arg.type.hi[i]
                 extent_is_template_param = (
@@ -379,14 +418,12 @@ class InstrTemplate:
                 assert isinstance(arg.type, LoopIR.Tensor), clsname
                 assert i < len(arg.type.hi), clsname
                 assert isinstance(extent, LoopIR.Const) or extent_is_template_param
-                # fmt: off
                 assert (instr_tl != cpu_in_order_instr
                     ), f"{clsname} can't have CPU distributed memory"
             if arg_info.distributed_coll_units:
-                assert isinstance(
-                    arg_info.access_by_owner_only, bool
+                assert isinstance(arg_info.access_by_owner_only, bool
                 ), f"{clsname} must set access_by_owner_only for distributed memory args explicitly"
-                # fmt: on
+            # fmt: on
 
         info._tparam_dict = tparam_dict
         info._formatted_tparam_kwargs = self._format_tparam_kwargs(

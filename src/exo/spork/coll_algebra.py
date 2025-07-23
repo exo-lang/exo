@@ -712,19 +712,19 @@ class CollTiling(object):
         assert isinstance(unit, CollUnit)
         f = format_tuple
 
-        unit_box_raw = unit.int_box(env)
-        unit_domain = unit.int_domain(env)
-        box_n_threads = self.box_num_threads()
-
-        if not unit.agnostic and not ignore_box:
-            unit_n_threads = unit.int_threads(env)
-            if box_n_threads != unit_n_threads:
-                return no_message or (
-                    f"Have {box_n_threads} threads {f(self.box)}; "
-                    f"expected {unit_n_threads} ({unit})"
-                )
-
         try:
+            unit_box_raw = unit.int_box(env)
+            unit_domain = unit.int_domain(env)
+            box_n_threads = self.box_num_threads()
+
+            if not unit.agnostic and not ignore_box:
+                unit_n_threads = unit.int_threads(env)
+                if box_n_threads != unit_n_threads:
+                    return no_message or (
+                        f"Have {box_n_threads} threads {f(self.box)}; "
+                        f"expected {unit_n_threads} ({unit})"
+                    )
+
             tiling = self
             while tiling is not None:
                 unit_completion = DomainCompletionOp(
@@ -746,7 +746,7 @@ class CollTiling(object):
                     for unit_c, tile_c in zip(new_unit_box, compare_box):
                         if unit_c is not None and unit_c != tile_c:
                             return no_message or (
-                                f"Have threads in shape {f(compare_box)}; "
+                                f"Have threads in shape box={f(compare_box)}; "
                                 f"expected {f(new_unit_box)} "
                                 f"({unit}); domain={f(unit_completion.domain)}"
                             )
@@ -771,12 +771,15 @@ class CollTiling(object):
 
         except DomainCompletionError as e:
             # TODO no one is going to understand this failure mode...
-            return no_message or "domain completion failed: " + str(e)
+            return no_message or str(e)
+
+        except CollTilingError as e:
+            return no_message or "CollTilingError: " + str(e)
 
         return False  # False => match
 
 
-class DomainCompletionError(Exception):
+class DomainCompletionError(CollTilingError):
     pass
 
 
@@ -880,7 +883,7 @@ class DomainCompletionOp:
             partial_prepend=s_to_t_multiplier,
         )
 
-    def err(msg):
+    def err(self, msg):
         raise DomainCompletionError(
             f"Domain completion for {self.source_domain} and {self.target_domain} failed: {msg}"
         )
@@ -954,8 +957,12 @@ class DomainCompletionOp:
 
         for i in self.remove_idx:
             c = coords[i]
-            assert c is None or c == expected_removed_coord
-            del coords[i]
+            if c is None or c == expected_removed_coord:
+                del coords[i]
+            else:
+                self.err(
+                    f"expected coords[{i}]={expected_removed_coord} in coords={coords}"
+                )
 
         for idx, factor in self.idx_factors:
             assert idx >= 0
@@ -997,3 +1004,17 @@ cuda_cta_in_cluster = CollUnit(
 cuda_cluster = CollUnit(
     (clusterDim * blockDim,), (clusterDim * blockDim,), "cuda_cluster", 0
 )
+
+
+def cuda_cta_in_cluster_strided(cta_stride):
+    name = f"cuda_cta_in_cluster_strided({cta_stride})"
+    return CollUnit(
+        (clusterDim / cta_stride, cta_stride, blockDim), (1, 1, blockDim), name, 0
+    )
+
+
+def cuda_warp_in_cluster_strided(cta_stride):
+    name = f"cuda_warp_in_cluster_strided({cta_stride})"
+    return CollUnit(
+        (clusterDim / cta_stride, cta_stride, blockDim), (1, 1, 32), name, 0
+    )

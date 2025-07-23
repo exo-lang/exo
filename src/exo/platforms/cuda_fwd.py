@@ -20,6 +20,8 @@ from ..spork.coll_algebra import (
     cuda_cluster,
     cuda_cta_in_cluster,
     cuda_warp_in_cluster,
+    cuda_cta_in_cluster_strided,
+    cuda_warp_in_cluster_strided,
 )
 from ..spork.cuda_memory import (
     scalar_bits,

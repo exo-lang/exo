@@ -717,8 +717,12 @@ class SubtreeScan(LoopIR_Do):
         assert isinstance(instr_info, InstrInfo), "Unimplemented: CUDA function calls"
         needed = callee.proc_coll_unit()
         if msg := self._coll_tiling.unit_mismatch(needed, self._coll_env):
+            domain = self._coll_tiling.full_domain
+            box = self._coll_tiling.box
+            offset = self._coll_tiling.offset
             raise TypeError(
-                f"{s.srcinfo}: wrong collective unit for {callee.name}(): {msg}, need {needed}"
+                f"{s.srcinfo}: wrong collective unit for {callee.name}(): {msg}, "
+                f"need {needed}, have domain={domain}, box={box}, offset={offset}"
             )
 
         # Inspect distributed indices of arguments (safer after above check)

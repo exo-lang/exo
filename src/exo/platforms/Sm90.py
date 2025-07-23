@@ -59,7 +59,12 @@ from ..API import (
     InstrInfo,
 )
 from ..spork.cuda_memory import *
-from ..spork.coll_algebra import cuda_warp, cuda_warpgroup, cuda_warp_in_cluster
+from ..spork.coll_algebra import (
+    cuda_warp,
+    cuda_warpgroup,
+    cuda_warp_in_cluster,
+    cuda_warp_in_cluster_strided,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -570,9 +575,12 @@ class Sm90_copy_tensor_to_smem_linear_2f32(copy_tensor_to_smem_impl):
     def behavior(
         box0: size, box1: size, dst: [f32][box0, box1], src: [f32][box0, box1]
     ):
+        # We need to assert that the dst is densely packed.
         assert stride(dst, 1) == 1
         assert stride(dst, 0) == box1
-        # We need to assert that the dst is densely packed.
+        # src must be densely packed in last dimension
+        assert stride(src, 1) == 1
+
         for i0 in seq(0, box0):
             for i1 in seq(0, box1):
                 dst[i0, i1] = src[i0, i1]
@@ -591,10 +599,13 @@ class Sm90_copy_tensor_to_smem_swizzled_2f32(copy_tensor_to_smem_impl):
     ):
         assert box0 % 8 == 0
         assert box0 >= 8
+        # We need to assert that the dst is densely packed.
         assert stride(dst, 2) == 1
         assert stride(dst, 1) == box1
         assert stride(dst, 0) == box1 * 8
-        # We need to assert that the dst is densely packed.
+        # src must be densely packed in last dimension
+        assert stride(src, 1) == 1
+
         for i0 in seq(0, box0):
             for i1 in seq(0, box1):
                 dst[i0 / 8, i0 % 8, i1] = src[i0, i1]
@@ -607,33 +618,37 @@ __all__.append("Sm90_copy_tensor_to_smem_swizzled_2f32")
 
 
 @instr
-class Sm90_tmp_cta_pair_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
+class Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
     smem_box: Tuple[int]
     swizzle: int
     element_bits: int
 
     def behavior(
+        n_cta: size,
         size0: size,
         size1: size,
-        dst: [f32][2, size0 / 8, 8, size1],
+        dst: [f32][n_cta, size0 / 8, 8, size1],
         src: [f32][size0, size1],
     ):
         assert size0 % 8 == 0
         assert size0 >= 8
+        # We need to assert that the dst is densely packed.
         assert stride(dst, 3) == 1
         assert stride(dst, 2) == size1
         assert stride(dst, 1) == size1 * 8
-        # We need to assert that the dst is densely packed.
-        for cta in seq(0, 2):
+        # src must be densely packed in last dimension
+        assert stride(src, 1) == 1
+
+        for cta in seq(0, n_cta):
             for i0 in seq(0, size0):
                 for i1 in seq(0, size1):
                     dst[cta, i0 / 8, i0 % 8, i1] = src[i0, i1]
 
-    def instance(self, size0, size1):
-        assert size0 % 16 == 0
-        self.instance_impl((size0 // 2, size1), True, 32)
+    def instance(self, size0, size1, n_cta, *, cta_stride):
+        assert size0 % (8 * n_cta) == 0
+        self.instance_impl((size0 // n_cta, size1), True, 32, n_cta, cta_stride)
 
-    def instance_impl(self, smem_box, swizzled, element_bits):
+    def instance_impl(self, smem_box, swizzled, element_bits, n_cta, cta_stride):
         element_bits = 32
         rank = len(smem_box)
         assert rank > 0
@@ -652,7 +667,7 @@ class Sm90_tmp_cta_pair_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
         self.access_info["src"].mem = Sm90_tensorMap(swizzle, *smem_box)
         self.access_info["src"].out_of_order = True
         self.instr_tl = tma_to_smem_async_instr
-        self.coll_unit = 2 * cuda_warp_in_cluster
+        self.coll_unit = n_cta * cuda_warp_in_cluster_strided(cta_stride)
         self.cu_utils.append(copy_tensor_to_smem_util(rank, True))
         self.barrier_type = CudaMbarrier
         self.smem_box = smem_box
@@ -664,7 +679,7 @@ class Sm90_tmp_cta_pair_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
     def codegen(self, args: InstrArgs):
         box = self.smem_box
         lines = [f"exo_CudaUtil::exo_Sm90_tma_to_smem_{len(box)}d_multicast("]
-        cta_idx = args.exo_wrap_cir("blockIdx.x % 2u")
+        cta_idx = args.exo_wrap_cir(f"(blockIdx.x / {args.cta_stride}) % {args.n_cta}")
         smem_data = args.dst.index(cta_idx * (box[0] // 8))
         CUtensorMap = args.src.get_separate_dataptr()
         src_struct = args.src[cta_idx * box[0] : (cta_idx + 1) * box[0]]
@@ -672,14 +687,14 @@ class Sm90_tmp_cta_pair_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
         lines.append(f"  {CUtensorMap},")
         lines.append(f"  {src_struct},")
         lines.append(f"  {args.exo_barrier},")
-        lines.append(f"  {2 * prod(box) * self.element_bits // 8},")
+        lines.append(f"  {args.n_cta * prod(box) * self.element_bits // 8},")
         lines.append(f"  {args.exo_cta_mask}")
         lines.append(");")
         return lines
 
 
-__all__.append("Sm90_tmp_cta_pair_copy_tensor_to_smem_swizzled_2f32")
-Sm90_tmp_cta_pair_copy_tensor_to_smem_swizzled_2f32(size0=128, size1=32)
+__all__.append("Sm90_multicast_copy_tensor_to_smem_swizzled_2f32")
+
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
