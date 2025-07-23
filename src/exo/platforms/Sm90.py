@@ -573,20 +573,20 @@ class copy_tensor_to_smem_impl(InstrInfo):
 @instr
 class Sm90_copy_tensor_to_smem_linear_2f32(copy_tensor_to_smem_impl):
     def behavior(
-        box0: size, box1: size, dst: [f32][box0, box1], src: [f32][box0, box1]
+        size0: size, size1: size, dst: [f32][size0, size1], src: [f32][size0, size1]
     ):
         # We need to assert that the dst is densely packed.
         assert stride(dst, 1) == 1
-        assert stride(dst, 0) == box1
+        assert stride(dst, 0) == size1
         # src must be densely packed in last dimension
         assert stride(src, 1) == 1
 
-        for i0 in seq(0, box0):
-            for i1 in seq(0, box1):
+        for i0 in seq(0, size0):
+            for i1 in seq(0, size1):
                 dst[i0, i1] = src[i0, i1]
 
-    def instance(self, box0, box1):
-        self.instance_impl((box0, box1), False, 32)
+    def instance(self, size0, size1):
+        self.instance_impl((size0, size1), False, 32)
 
 
 __all__.append("Sm90_copy_tensor_to_smem_linear_2f32")
@@ -595,23 +595,26 @@ __all__.append("Sm90_copy_tensor_to_smem_linear_2f32")
 @instr
 class Sm90_copy_tensor_to_smem_swizzled_2f32(copy_tensor_to_smem_impl):
     def behavior(
-        box0: size, box1: size, dst: [f32][box0 / 8, 8, box1], src: [f32][box0, box1]
+        size0: size,
+        size1: size,
+        dst: [f32][size0 / 8, 8, size1],
+        src: [f32][size0, size1],
     ):
-        assert box0 % 8 == 0
-        assert box0 >= 8
+        assert size0 % 8 == 0
+        assert size0 >= 8
         # We need to assert that the dst is densely packed.
         assert stride(dst, 2) == 1
-        assert stride(dst, 1) == box1
-        assert stride(dst, 0) == box1 * 8
+        assert stride(dst, 1) == size1
+        assert stride(dst, 0) == size1 * 8
         # src must be densely packed in last dimension
         assert stride(src, 1) == 1
 
-        for i0 in seq(0, box0):
-            for i1 in seq(0, box1):
+        for i0 in seq(0, size0):
+            for i1 in seq(0, size1):
                 dst[i0 / 8, i0 % 8, i1] = src[i0, i1]
 
-    def instance(self, box0, box1):
-        self.instance_impl((box0, box1), True, 32)
+    def instance(self, size0, size1):
+        self.instance_impl((size0, size1), True, 32)
 
 
 __all__.append("Sm90_copy_tensor_to_smem_swizzled_2f32")
