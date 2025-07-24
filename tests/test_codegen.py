@@ -20,7 +20,7 @@ class MOCK(DRAM):
         assert len(shape) == 1 and int(shape[0]) == 16
         global mock_registers
         if mock_registers > 0:
-            raise MemGenError("Cannot allocate more than one mock register")
+            raise MemGenError(f"{srcinfo}: Cannot allocate more than one mock register")
         mock_registers += 1
 
         return f"static {prim_type} {new_name}[16];"
