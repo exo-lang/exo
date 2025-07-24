@@ -136,6 +136,8 @@ class SubtreeScan(LoopIR_Do):
     named_warps: Dict[str, WarpLayoutInfo]
     setmaxnreg_is_inc: Optional[Dict[int, bool]]
 
+    # Edit __slots__ if you add more attributes
+
     def __init__(self, s, ctx: SporkLoweringCtx):
         assert is_if_holding_with(s, LoopIR)
         cuda_device_function: CudaDeviceFunction = s.cond.val
@@ -841,6 +843,8 @@ class MainLoopRewrite(LoopIR_Rewrite):
     result_stmts: List[LoopIR.stmt]
     _current_warp_name: str
 
+    # Edit __slots__ if you add more attributes
+
     def __init__(self, scan, device_function_stmt, lowered_body, make_task_context):
         assert is_if_holding_with(device_function_stmt, LoopIR)
         assert isinstance(device_function_stmt.cond.val, CudaDeviceFunction)
@@ -990,6 +994,8 @@ class SubtreeRewrite(LoopIR_Rewrite):
         "codegen_smem",  # SMEM stack allocator helper
         "_result",
     ]
+
+    # Edit __slots__ if you add more attributes
 
     def __init__(self, s, scan: SubtreeScan, ctx: SporkLoweringCtx):
         fmt_dict = scan.fmt_dict
