@@ -593,7 +593,7 @@ class DistributedIdxFsm:
                     f"Mismatched distributed dims {node.name}{d1} and {node.name}{d2}:\n"
                     f"{i1}={c1.codegen()} != {i2}={c2.codegen()}\n"
                     f"Usage 1: {first_stmt} : {first_stmt.srcinfo}\n"
-                    f"Usage 2: {self.context_stmt} : {self.context_stmt.srcinfo}"
+                    f"Usage 2: {self.context_stmt} : {node.srcinfo}"
                 )
 
         assert self.distributed_extents == state.distributed_extents

@@ -1027,9 +1027,10 @@ def mkproc_mismatched_CollIndexExpr():
                 with CudaWarps(1, 3):
                     for m in cuda_threads(0, 16, unit=4 * cuda_thread):# m = (threadIdx.x - 32) / 4
                         for n in cuda_threads(0, 4, unit=cuda_thread): # n = threadIdx.x % 4
+                            r: f32 @ CudaRmem
                             # TeX: color line *
-                            #    g  v         ggggggggggggggggg  vvvvvvvvvvvvvvv
-                            vals[m, n] = 0  # m: $256\mapsto 4$, n: $4\mapsto 1$
+                            #        g  v     ggggggggggggggggg  vvvvvvvvvvvvvvv
+                            r = vals[m, n]  # m: $256\mapsto 4$, n: $4\mapsto 1$
                     # TeX: color line *
                     #                       rrrrrrrrrrrrrrrrrrrrrr ggg  rrrrrrrrrrrrrrr vvv
                     # Mismatched deduction: (threadIdx.x - 32) / 4 (m), threadIdx.x % 4 (n)

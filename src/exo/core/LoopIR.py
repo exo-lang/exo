@@ -1,6 +1,6 @@
 import re
 from collections import ChainMap, defaultdict
-from dataclasses import dataclass, replace, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Tuple, Type, Optional, Union, Set
 
@@ -1775,13 +1775,13 @@ class LoopIR_Add_ID(LoopIR_Rewrite):
         if stmts:
             assert len(stmts) == 1
             s = stmts[0]
-        info = replace(s.srcinfo, stmt_id=self.s_id)
+        info = s.srcinfo.update(stmt_id=self.s_id)
         self.s_id += 1
         return s.update(srcinfo=info)
 
     def map_e(self, e):
         e = super().map_e(e) or e
-        info = replace(e.srcinfo, stmt_id=self.s_id, expr_id=self.e_id)
+        info = e.srcinfo.update(stmt_id=self.s_id, expr_id=self.e_id)
         self.e_id += 1
         return e.update(srcinfo=info)
 

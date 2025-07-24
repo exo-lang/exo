@@ -115,7 +115,7 @@ class MemoryAnalysis:
                 if nm in used:
                     rm += [(nm, typ, mem)]
             for (nm, typ, mem) in rm:
-                body += [LoopIR.Free(nm, typ, mem, b.srcinfo)]
+                body += [LoopIR.Free(nm, typ, mem, b.srcinfo.update(stmt_id=None))]
                 self.tofree[-1].remove((nm, typ, mem))
             body += [b]
 

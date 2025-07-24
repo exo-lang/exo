@@ -1,6 +1,6 @@
 from inspect import currentframe as _curr_frame, getframeinfo as _get_frame_info
 from re import compile as _re_compile
-from dataclasses import dataclass as _dataclass
+from dataclasses import dataclass as _dataclass, replace as _replace
 from typing import Optional as _Optional
 
 
@@ -82,6 +82,9 @@ class SrcInfo:
         s_str = "" if self.stmt_id is None else f":(s{self.stmt_id})"
         e_str = "" if self.expr_id is None else f":(e{self.expr_id})"
         return f"{self.filename}:{self.lineno}{colstr}{s_str}{e_str}"
+
+    def update(self, **kwargs):
+        return _replace(self, **kwargs)
 
 
 SrcInfo.stmt_id_pattern = r":\(s(\d+)\)"

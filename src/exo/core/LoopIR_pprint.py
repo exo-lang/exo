@@ -588,7 +588,7 @@ def _print_expr(e, env: PrintEnv, prec: int = 0) -> str:
     e_str = _print_expr_impl(e, env, prec)
     expr_id = e.srcinfo.expr_id
     if env.remarks.is_expr_id_commented(expr_id):
-        e_str += f"  # :(e{expr_id})\n"
+        e_str = f"({e_str}  # :(e{expr_id})\n)"
     return e_str
 
 
