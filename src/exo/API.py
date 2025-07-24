@@ -184,8 +184,6 @@ def ext_compile_procs(proc_list, basedir: Path, stem: str):
         for ext, text in ext_snippets.items():
             (basedir / f"{stem}.{ext}").write_text(text)
         return sorted(ext_snippets)
-    except Exception as exc:
-        debug_log.remark(str(exc))
     finally:
         debug_log.write_all()
 

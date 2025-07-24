@@ -812,23 +812,44 @@ def create_window_type(in_name: Sym, in_typ: LoopIR.type, idx):
 # Compiler debug logging
 # This functionality is intended to dump formatted LoopIR to the compiler
 # output directory, with remarks (likely errors) inserted in-place.
+@dataclass(slots=True)
+class ProcDebugRemarks:
+    # Maps stmt_id to list of lines to insert.
+    stmt_id_lines: Dict[int, List[str]] = field(default_factory=dict)
+    # Set of expr id to comment.
+    # This is to help contextualize expr IDs in remarks.
+    expr_id_comment_set: Set[int] = field(default_factory=set)
+
+    def get_stmt_id_lines(self, stmt_id: Optional[int]) -> List[str]:
+        if stmt_id is None:
+            return ()
+        assert isinstance(stmt_id, int)
+        return self.stmt_id_lines.get(stmt_id, ())
+
+    def is_expr_id_commented(self, expr_id: Optional[int]) -> bool:
+        if expr_id is None:
+            return False
+        assert isinstance(expr_id, int)
+        return expr_id in self.expr_id_comment_set
+
+    def get_all_stmt_id_lines(self) -> List[Tuple[int, List[str]]]:
+        return sorted(self.stmt_id_lines.items())
+
+
+ProcDebugRemarks.empty = ProcDebugRemarks()
+
+
 class BaseCompilerDebugLog:
     __slots__ = []
 
     def log(self, proc_name: str, suffix: str, subtree: LoopIR.stmt):
         pass
 
-    def remark(self, remark: str):
+    def remark(self, proc_name: str, remark: str):
         pass
 
-    def get_stmt_id_lines(self, stmt_id: int) -> List[str]:
-        return ()
-
-    def is_expr_id_commented(self, expr_id: int) -> bool:
-        return False
-
-    def get_all_stmt_id_lines(self) -> List[Tuple[int, List[str]]]:
-        return ()
+    def get_proc_debug_remarks(self, proc_name: str) -> ProcDebugRemarks:
+        return ProcDebugRemarks.empty
 
 
 @dataclass(slots=True)
@@ -837,11 +858,7 @@ class CompilerDebugLog(BaseCompilerDebugLog):
     names_to_subtree: Dict[Tuple[str, str], Union[LoopIR.stmt, LoopIR.proc]] = field(
         default_factory=dict
     )
-    # Maps stmt_id to list of lines to insert.
-    stmt_id_lines: Dict[int, List[str]] = field(default_factory=dict)
-    # Set of expr id to comment.
-    # This is to help contextualize expr IDs in remarks.
-    expr_id_comment_set: Set[int] = field(default_factory=set)
+    proc_debug_remarks: Dict[str, ProcDebugRemarks] = field(default_factory=dict)
 
     def log(
         self, proc_name: str, suffix: str, subtree: Union[LoopIR.stmt, LoopIR.proc]
@@ -862,33 +879,24 @@ class CompilerDebugLog(BaseCompilerDebugLog):
         # In the future, we could investigate more "structured"
         # exception handling that embeds the stmt_id/expr_id in the
         # error object but this is not that important.
+        remarks = self.proc_debug_remarks.get(proc_name)
+        if remarks is None:
+            remarks = self.proc_debug_remarks.setdefault(proc_name, ProcDebugRemarks())
         lines = [line for line in remark.split("\n") if line]
         stmt_ids = [int(m) for m in re.findall(SrcInfo.stmt_id_pattern, remark)]
         expr_ids = [int(m) for m in re.findall(SrcInfo.expr_id_pattern, remark)]
         if not stmt_ids:
             stmt_ids = (-1,)
         for s_id in stmt_ids:
-            lst = self.stmt_id_lines.setdefault(s_id, [])
+            lst = remarks.stmt_id_lines.setdefault(s_id, [])
             if lst:
                 lst.append("")
             lst.extend(lines)
         for e_id in expr_ids:
-            self.expr_id_comment_set.add(e_id)
+            remarks.expr_id_comment_set.add(e_id)
 
-    def get_stmt_id_lines(self, stmt_id: Optional[int]) -> List[str]:
-        if stmt_id is None:
-            return ()
-        assert isinstance(stmt_id, int)
-        return self.stmt_id_lines.get(stmt_id, ())
-
-    def is_expr_id_commented(self, expr_id: Optional[int]) -> bool:
-        if expr_id is None:
-            return False
-        assert isinstance(expr_id, int)
-        return expr_id in self.expr_id_comment_set
-
-    def get_all_stmt_id_lines(self) -> List[Tuple[int, List[str]]]:
-        return sorted(self.stmt_id_lines.items())
+    def get_proc_debug_remarks(self, proc_name: str) -> ProcDebugRemarks:
+        return self.proc_debug_remarks.get(proc_name, ProcDebugRemarks.empty)
 
     def write_all(self):
         debug_path = self.path / "debug"
@@ -896,7 +904,8 @@ class CompilerDebugLog(BaseCompilerDebugLog):
         for names, subtree in self.names_to_subtree.items():
             proc_name, suffix = names
             fname = f"{proc_name}-{suffix}.py"
-            (debug_path / fname).write_text(subtree.str_for_debug_log(self))
+            remarks = self.get_proc_debug_remarks(proc_name)
+            (debug_path / fname).write_text(subtree.str_with_remarks(remarks))
 
 
 # --------------------------------------------------------------------------- #

@@ -690,6 +690,6 @@ class DistributedIdxFsm:
         raise ValueError(
             f"{node.srcinfo}: Distributed memory analysis "
             f"(from {alloc_num_threads} threads{native_suffix}) "
-            f"for {node.name} failed: {msg}\n(at {self.context_stmt}) "
+            f"for {node.name} failed:\n{msg}\n(at {self.context_stmt}) "
             f"inspected iters:{iter_text or ' <none>'}"
         )

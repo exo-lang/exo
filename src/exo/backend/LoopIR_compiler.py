@@ -421,7 +421,7 @@ def ext_compile_to_strings(
             is_public_decl = id(p) in orig_procs
 
             p = LoopIR_Add_ID().apply_proc(p)
-            debug_log.log(p.name, f"{p.name}~scheduled.py", p)
+            debug_log.log(p.name, f"scheduled", p)
 
             try:
                 p = ParallelAnalysis().run(p)
@@ -472,10 +472,9 @@ def ext_compile_to_strings(
                     ext_lines.setdefault(ext, []).extend(snippets)
             except Exception as exc:
                 debug_log.remark(p.name, str(exc))
-                raise
-            finally:
-                # Log the "error" as whatever state the proc was in above
+                # Log the "error" with respect to whatever state the proc was in above
                 debug_log.log(p.name, f"error", p)
+                raise
 
     memgen = mem_code_builder.generate_code(header_memwins)
 

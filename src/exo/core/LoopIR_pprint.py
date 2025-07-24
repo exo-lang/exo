@@ -10,7 +10,7 @@ from typing import Set
 # string
 from yapf.yapflib.yapf_api import FormatCode
 
-from .LoopIR import T, InstrInfo, BaseCompilerDebugLog
+from .LoopIR import T, InstrInfo, ProcDebugRemarks
 from .LoopIR import UAST, LoopIR
 from .internal_cursors import Node, Gap, Block, Cursor, InvalidCursorError, GapType
 from .prelude import *
@@ -393,12 +393,12 @@ def __str__(self):
 del __str__
 
 
-def str_for_debug_log_impl(self, debug_log: BaseCompilerDebugLog, to_lines):
-    env = PrintEnv(debug_log=debug_log, stmt_id_set=set())
+def str_with_remarks_impl(self, remarks: ProcDebugRemarks, to_lines):
+    env = PrintEnv(remarks=remarks, stmt_id_set=set())
     code_lines = to_lines(self, env, "")  # Fills env.stmt_id_set
     lines = []
     # Add remarks that weren't formatted with some statement
-    for stmt_id, remark_lines in debug_log.get_all_stmt_id_lines():
+    for stmt_id, remark_lines in remarks.get_all_stmt_id_lines():
         if stmt_id in env.stmt_id_set:
             continue
         if not lines:
@@ -412,13 +412,13 @@ def str_for_debug_log_impl(self, debug_log: BaseCompilerDebugLog, to_lines):
 
 
 @extclass(LoopIR.proc)
-def str_for_debug_log(self, debug_log: BaseCompilerDebugLog):
-    return str_for_debug_log_impl(self, debug_log, _print_proc)
+def str_with_remarks(self, remarks: ProcDebugRemarks):
+    return str_with_remarks_impl(self, remarks, _print_proc)
 
 
 @extclass(LoopIR.stmt)
-def str_for_debug_log(self, debug_log: BaseCompilerDebugLog):
-    return str_for_debug_log_impl(self, debug_log, _print_stmt)
+def str_with_remarks(self, remarks: ProcDebugRemarks):
+    return str_with_remarks_impl(self, remarks, _print_stmt)
 
 
 class FakeStmtIdSet:
@@ -432,14 +432,14 @@ class FakeStmtIdSet:
 class PrintEnv:
     env: ChainMap[Sym, str] = field(default_factory=ChainMap)
     names: ChainMap[str, int] = field(default_factory=ChainMap)
-    debug_log: BaseCompilerDebugLog = BaseCompilerDebugLog()
+    remarks: ProcDebugRemarks = ProcDebugRemarks.empty
     stmt_id_set: Set[int] | FakeStmtIdSet = FakeStmtIdSet()
 
     def push(self) -> "PrintEnv":
         return PrintEnv(
             self.env.new_child(),
             self.names.new_child(),
-            self.debug_log,
+            self.remarks,
             self.stmt_id_set,
         )
 
@@ -484,7 +484,7 @@ def _print_block(blk, env: PrintEnv, indent: str) -> list[str]:
     lines = []
     for stmt in blk:
         if (stmt_id := stmt.srcinfo.stmt_id) is not None:
-            for remark_line in env.debug_log.get_stmt_id_lines(stmt_id):
+            for remark_line in env.remarks.get_stmt_id_lines(stmt_id):
                 lines.append(f"{indent}# {remark_line}")
             env.stmt_id_set.add(stmt_id)
         lines.extend(_print_stmt(stmt, env, indent))
@@ -587,7 +587,7 @@ def _print_fnarg(a, env: PrintEnv) -> str:
 def _print_expr(e, env: PrintEnv, prec: int = 0) -> str:
     e_str = _print_expr_impl(e, env, prec)
     expr_id = e.srcinfo.expr_id
-    if env.debug_log.is_expr_id_commented(expr_id):
+    if env.remarks.is_expr_id_commented(expr_id):
         e_str += f"  # :(e{expr_id})\n"
     return e_str
 
