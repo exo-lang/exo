@@ -673,8 +673,14 @@ class SubtreeScan(LoopIR_Do):
 
         # We will advise replacing the loop mode with _CodegenPar
         assert s.iter not in self.thread_iters
-        self.thread_iters[s.iter] = ThreadIter(
+        thread_iter = ThreadIter(
             self._coll_tiling, s.loop_mode.format_loop_cond(lo_int, hi_int)
+        )
+        self.thread_iters[s.iter] = thread_iter
+        log_lhs = thread_iter.cname(s.iter)
+        log_rhs = thread_iter.codegen_par.c_index
+        self.ctx.debug_log.remark(
+            self.ctx.proc_name(), f"{log_lhs} = {log_rhs} @ {s.srcinfo}"
         )
 
     def apply_idx(self, node, context_stmt, distributed_coll_units):

@@ -178,13 +178,21 @@ def ext_compile_procs(proc_list, basedir: Path, stem: str):
 
     Returns a sorted list of file extensions (without .) e.g. ["c", "h"]
     """
-    ext_snippets = ext_compile_procs_to_strings(proc_list, stem)
-    for ext, text in ext_snippets.items():
-        (basedir / f"{stem}.{ext}").write_text(text)
-    return sorted(ext_snippets)
+    debug_log = LoopIR.CompilerDebugLog(basedir)
+    try:
+        ext_snippets = ext_compile_procs_to_strings(proc_list, stem, debug_log)
+        for ext, text in ext_snippets.items():
+            (basedir / f"{stem}.{ext}").write_text(text)
+        return sorted(ext_snippets)
+    except Exception as exc:
+        debug_log.remark(str(exc))
+    finally:
+        debug_log.write_all()
 
 
-def ext_compile_procs_to_strings(proc_list, stem: str):
+def ext_compile_procs_to_strings(
+    proc_list, stem: str, debug_log: Optional[LoopIR.BaseCompilerDebugLog] = None
+):
     """Compile procs to separate code files, with filenames {stem}.{ext}
 
     The returned dictionary maps file extensions (without .) to file text
@@ -192,7 +200,7 @@ def ext_compile_procs_to_strings(proc_list, stem: str):
     """
     assert isinstance(proc_list, list)
     assert all(isinstance(p, Procedure) for p in proc_list)
-    return run_compile([p._loopir_proc for p in proc_list], stem)
+    return run_compile([p._loopir_proc for p in proc_list], stem, debug_log)
 
 
 def compile_procs(proc_list, basedir: Path, c_file: str, h_file: str):

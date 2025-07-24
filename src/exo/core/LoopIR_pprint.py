@@ -2,13 +2,15 @@ import re
 from collections import ChainMap
 from dataclasses import dataclass, field
 from warnings import warn
+from pathlib import Path
+from typing import Set
 
 # google python formatting project to save myself the trouble of being overly
 # clever run the function FormatCode to transform one string into a formatted
 # string
 from yapf.yapflib.yapf_api import FormatCode
 
-from .LoopIR import T, InstrInfo
+from .LoopIR import T, InstrInfo, BaseCompilerDebugLog
 from .LoopIR import UAST, LoopIR
 from .internal_cursors import Node, Gap, Block, Cursor, InvalidCursorError, GapType
 from .prelude import *
@@ -31,7 +33,6 @@ from ..spork.base_with_context import is_if_holding_with
 
 # We expect pprint to install functions on the IR rather than
 # expose functions; therefore hide all variables as local
-__all__ = []
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -392,13 +393,55 @@ def __str__(self):
 del __str__
 
 
+def str_for_debug_log_impl(self, debug_log: BaseCompilerDebugLog, to_lines):
+    env = PrintEnv(debug_log=debug_log, stmt_id_set=set())
+    code_lines = to_lines(self, env, "")  # Fills env.stmt_id_set
+    lines = []
+    # Add remarks that weren't formatted with some statement
+    for stmt_id, remark_lines in debug_log.get_all_stmt_id_lines():
+        if stmt_id in env.stmt_id_set:
+            continue
+        if not lines:
+            lines.append("# Additional remarks:")
+        if remark_lines:
+            lines.append("#")
+        for line in remark_lines:
+            lines.append(f"# {line}")
+    lines.extend(code_lines)
+    return _format_code("\n".join(lines))
+
+
+@extclass(LoopIR.proc)
+def str_for_debug_log(self, debug_log: BaseCompilerDebugLog):
+    return str_for_debug_log_impl(self, debug_log, _print_proc)
+
+
+@extclass(LoopIR.stmt)
+def str_for_debug_log(self, debug_log: BaseCompilerDebugLog):
+    return str_for_debug_log_impl(self, debug_log, _print_stmt)
+
+
+class FakeStmtIdSet:
+    __slots__ = []
+
+    def add(self, _):
+        pass
+
+
 @dataclass
 class PrintEnv:
     env: ChainMap[Sym, str] = field(default_factory=ChainMap)
     names: ChainMap[str, int] = field(default_factory=ChainMap)
+    debug_log: BaseCompilerDebugLog = BaseCompilerDebugLog()
+    stmt_id_set: Set[int] | FakeStmtIdSet = FakeStmtIdSet()
 
     def push(self) -> "PrintEnv":
-        return PrintEnv(self.env.new_child(), self.names.new_child())
+        return PrintEnv(
+            self.env.new_child(),
+            self.names.new_child(),
+            self.debug_log,
+            self.stmt_id_set,
+        )
 
     def get_name(self, nm):
         if resolved := self.env.get(nm):
@@ -440,6 +483,10 @@ def _print_proc(p, env: PrintEnv, indent: str) -> list[str]:
 def _print_block(blk, env: PrintEnv, indent: str) -> list[str]:
     lines = []
     for stmt in blk:
+        if (stmt_id := stmt.srcinfo.stmt_id) is not None:
+            for remark_line in env.debug_log.get_stmt_id_lines(stmt_id):
+                lines.append(f"{indent}# {remark_line}")
+            env.stmt_id_set.add(stmt_id)
         lines.extend(_print_stmt(stmt, env, indent))
     return lines
 
@@ -538,6 +585,14 @@ def _print_fnarg(a, env: PrintEnv) -> str:
 
 
 def _print_expr(e, env: PrintEnv, prec: int = 0) -> str:
+    e_str = _print_expr_impl(e, env, prec)
+    expr_id = e.srcinfo.expr_id
+    if env.debug_log.is_expr_id_commented(expr_id):
+        e_str += f"  # :(e{expr_id})\n"
+    return e_str
+
+
+def _print_expr_impl(e, env: PrintEnv, prec: int) -> str:
     if isinstance(e, LoopIR.Read):
         name = env.get_name(e.name)
         idx = f"[{', '.join(_print_expr(i, env) for i in e.idx)}]" if e.idx else ""

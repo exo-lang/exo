@@ -1,7 +1,8 @@
 import re
 from collections import ChainMap, defaultdict
-from dataclasses import dataclass
-from typing import Dict, List, Type, Optional
+from dataclasses import dataclass, replace, field
+from pathlib import Path
+from typing import Dict, List, Tuple, Type, Optional, Union, Set
 
 from asdl_adt import ADT, validators
 
@@ -808,6 +809,98 @@ def create_window_type(in_name: Sym, in_typ: LoopIR.type, idx):
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
+# Compiler debug logging
+# This functionality is intended to dump formatted LoopIR to the compiler
+# output directory, with remarks (likely errors) inserted in-place.
+class BaseCompilerDebugLog:
+    __slots__ = []
+
+    def log(self, proc_name: str, suffix: str, subtree: LoopIR.stmt):
+        pass
+
+    def remark(self, remark: str):
+        pass
+
+    def get_stmt_id_lines(self, stmt_id: int) -> List[str]:
+        return ()
+
+    def is_expr_id_commented(self, expr_id: int) -> bool:
+        return False
+
+    def get_all_stmt_id_lines(self) -> List[Tuple[int, List[str]]]:
+        return ()
+
+
+@dataclass(slots=True)
+class CompilerDebugLog(BaseCompilerDebugLog):
+    path: Path
+    names_to_subtree: Dict[Tuple[str, str], Union[LoopIR.stmt, LoopIR.proc]] = field(
+        default_factory=dict
+    )
+    # Maps stmt_id to list of lines to insert.
+    stmt_id_lines: Dict[int, List[str]] = field(default_factory=dict)
+    # Set of expr id to comment.
+    # This is to help contextualize expr IDs in remarks.
+    expr_id_comment_set: Set[int] = field(default_factory=set)
+
+    def log(
+        self, proc_name: str, suffix: str, subtree: Union[LoopIR.stmt, LoopIR.proc]
+    ):
+        names = (proc_name, suffix)
+        assert names not in self.names_to_subtree
+        assert isinstance(subtree, (LoopIR.proc, LoopIR.stmt))
+        self.names_to_subtree[names] = subtree
+
+    def remark(self, proc_name: str, remark: str):
+        # This is rather hacky but I do what I must to retrofit this logging
+        # to existing Exo code. We search the remark (likely error message)
+        # for the stmt_id/expr_id formatting pattern that str(SrcInfo) uses,
+        # and associate the remark lines with all stmt/expr named.
+        # If no stmt_id was found, we associate the lines with the fake stmt_id -1
+        # so the remark doesn't just get sent to /dev/null
+        #
+        # In the future, we could investigate more "structured"
+        # exception handling that embeds the stmt_id/expr_id in the
+        # error object but this is not that important.
+        lines = [line for line in remark.split("\n") if line]
+        stmt_ids = [int(m) for m in re.findall(SrcInfo.stmt_id_pattern, remark)]
+        expr_ids = [int(m) for m in re.findall(SrcInfo.expr_id_pattern, remark)]
+        if not stmt_ids:
+            stmt_ids = (-1,)
+        for s_id in stmt_ids:
+            lst = self.stmt_id_lines.setdefault(s_id, [])
+            if lst:
+                lst.append("")
+            lst.extend(lines)
+        for e_id in expr_ids:
+            self.expr_id_comment_set.add(e_id)
+
+    def get_stmt_id_lines(self, stmt_id: Optional[int]) -> List[str]:
+        if stmt_id is None:
+            return ()
+        assert isinstance(stmt_id, int)
+        return self.stmt_id_lines.get(stmt_id, ())
+
+    def is_expr_id_commented(self, expr_id: Optional[int]) -> bool:
+        if expr_id is None:
+            return False
+        assert isinstance(expr_id, int)
+        return expr_id in self.expr_id_comment_set
+
+    def get_all_stmt_id_lines(self) -> List[Tuple[int, List[str]]]:
+        return sorted(self.stmt_id_lines.items())
+
+    def write_all(self):
+        debug_path = self.path / "debug"
+        debug_path.mkdir(exist_ok=True, parents=True)
+        for names, subtree in self.names_to_subtree.items():
+            proc_name, suffix = names
+            fname = f"{proc_name}-{suffix}.py"
+            (debug_path / fname).write_text(subtree.str_for_debug_log(self))
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
 
 # Install string printing functions on LoopIR, UAST and T
 # This must be imported after those objects are defined to
@@ -944,7 +1037,7 @@ class LoopIR_Rewrite:
         elif isinstance(s, LoopIR.SyncStmt):
             new_barriers = self._map_list(self.map_e, s.barriers)
             if new_barriers:
-                return s.update(barriers=new_barriers)
+                return [s.update(barriers=new_barriers)]
             return None
         elif isinstance(s, LoopIR.Pass):
             return None
@@ -1657,6 +1750,31 @@ class SubstArgs(LoopIR_Rewrite):
                 return (t2 or t).update(src_buf=src_buf.name)
 
         return t2
+
+
+class LoopIR_Add_ID(LoopIR_Rewrite):
+    __slots__ = ["s_id", "e_id"]
+    s_id: int
+    e_id: int
+
+    def __init__(self):
+        self.s_id = 1
+        self.e_id = 1
+
+    def map_s(self, s):
+        stmts = super().map_s(s)
+        if stmts:
+            assert len(stmts) == 1
+            s = stmts[0]
+        info = replace(s.srcinfo, stmt_id=self.s_id)
+        self.s_id += 1
+        return s.update(srcinfo=info)
+
+    def map_e(self, e):
+        e = super().map_e(e) or e
+        info = replace(e.srcinfo, stmt_id=self.s_id, expr_id=self.e_id)
+        self.e_id += 1
+        return e.update(srcinfo=info)
 
 
 # Data-flow dependencies between variable names

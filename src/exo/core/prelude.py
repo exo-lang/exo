@@ -1,6 +1,7 @@
 from inspect import currentframe as _curr_frame, getframeinfo as _get_frame_info
 from re import compile as _re_compile
 from dataclasses import dataclass as _dataclass
+from typing import Optional as _Optional
 
 
 def is_pos_int(obj):
@@ -65,26 +66,26 @@ def extclass(cls):
     return lambda f: (setattr(cls, f.__name__, f) or f)
 
 
+@_dataclass(slots=True)
 class SrcInfo:
-    def __init__(
-        self,
-        filename,
-        lineno,
-        col_offset=None,
-        end_lineno=None,
-        end_col_offset=None,
-        function=None,
-    ):
-        self.filename = filename
-        self.lineno = lineno
-        self.col_offset = col_offset
-        self.end_lineno = end_lineno
-        self.end_col_offset = end_col_offset
-        self.function = function
+    filename: str
+    lineno: int
+    col_offset: _Optional[int] = None
+    end_lineno: _Optional[int] = None
+    end_col_offset: _Optional[int] = None
+    function: _Optional[object] = None
+    stmt_id: _Optional[int] = None
+    expr_id: _Optional[int] = None
 
     def __str__(self):
         colstr = "" if self.col_offset is None else f":{self.col_offset}"
-        return f"{self.filename}:{self.lineno}{colstr}"
+        s_str = "" if self.stmt_id is None else f":(s{self.stmt_id})"
+        e_str = "" if self.expr_id is None else f":(e{self.expr_id})"
+        return f"{self.filename}:{self.lineno}{colstr}{s_str}{e_str}"
+
+
+SrcInfo.stmt_id_pattern = r":\(s(\d+)\)"
+SrcInfo.expr_id_pattern = r":\(e(\d+)\)"
 
 
 def get_srcinfo(depth=1):

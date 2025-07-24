@@ -7,13 +7,21 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from math import prod
 from pathlib import Path
-from typing import List, Tuple, Optional, Dict, Set, Type
+from typing import List, Tuple, Optional, Dict, Set, Type, Callable, Union
 
 from .reserved_names import is_exo_reserved_name
 from ..core.cir import CIR, CIR_Wrapper, simplify_cir, cast_to_cir
 from ..core.c_window import WindowFeatures
 from ..core.instr_class import InstrWindowArg, InstrNonWindowArg, InstrArgs
-from ..core.LoopIR import LoopIR, LoopIR_Do, get_writes_of_stmts, T
+from ..core.LoopIR import (
+    LoopIR,
+    LoopIR_Do,
+    get_writes_of_stmts,
+    T,
+    LoopIR_Add_ID,
+    CompilerDebugLog,
+    BaseCompilerDebugLog,
+)
 from ..core.configs import ConfigError
 from .mem_analysis import MemoryAnalysis
 from ..core.c_window import WindowIndexer, WindowEncoder
@@ -260,9 +268,13 @@ class UtilInjectorImpl(UtilInjector):
 # top level compiler function called by tests!
 
 
-def run_compile(proc_list, file_stem: str):
+def run_compile(
+    proc_list: List[LoopIR.proc],
+    file_stem: str,
+    debug_log: Optional[BaseCompilerDebugLog] = None,
+):
     lib_name = sanitize_str(file_stem)
-    fwd_decls, body, ext_lines = ext_compile_to_strings(lib_name, proc_list)
+    fwd_decls, body, ext_lines = ext_compile_to_strings(lib_name, proc_list, debug_log)
     used_cuda = "cu" in ext_lines
 
     source = f'#include "{file_stem}.h"\n\n{body}'
@@ -333,7 +345,12 @@ def compile_to_strings(lib_name, proc_list):
     return header, body
 
 
-def ext_compile_to_strings(lib_name, proc_list):
+def ext_compile_to_strings(
+    lib_name, proc_list, debug_log: Optional[BaseCompilerDebugLog] = None
+):
+    if debug_log is None:
+        debug_log = BaseCompilerDebugLog()
+
     # Get transitive closure of call-graph
     orig_procs = [id(p) for p in proc_list]
 
@@ -401,54 +418,64 @@ def ext_compile_to_strings(lib_name, proc_list):
             if p.name in seen_procs:
                 raise TypeError(f"multiple non-instr procs named {p.name}")
             seen_procs.add(p.name)
-
             is_public_decl = id(p) in orig_procs
 
-            p = ParallelAnalysis().run(p)
-            p = PrecisionAnalysis().run(p)
-            p = WindowAnalysis().apply_proc(p)
-            p = MemoryAnalysis().run(p)
-            instr_tl_analysis = InstrTimelineAnalysis()
-            p = instr_tl_analysis.run(p)
-            barrier_uses: Optional[Dict[Sym, BarrierUsage]]
-            barrier_uses = None
-            proc_uses_cuda = (
-                timelines.cuda_in_order_instr in instr_tl_analysis.instr_tl_seen
-            )
-            if instr_tl_analysis.contains_sync:
-                # Don't force non-CUDA Exo users to waste time here
-                barrier_usage_analysis = BarrierUsageAnalysis(p)
-                barrier_uses = barrier_usage_analysis.uses
+            p = LoopIR_Add_ID().apply_proc(p)
+            debug_log.log(p.name, f"{p.name}~scheduled.py", p)
 
-            comp = Compiler(
-                p,
-                lib_name,
-                ctxt_name,
-                barrier_uses,
-                proc_uses_cuda,
-                util_injector,
-                mem_code_builder,
-                is_public_decl=is_public_decl,
-            )
-            d, b = comp.comp_top()
-            needed_helpers |= comp.needed_helpers()
-            used_cuda |= proc_uses_cuda
+            try:
+                p = ParallelAnalysis().run(p)
+                p = PrecisionAnalysis().run(p)
+                p = WindowAnalysis().apply_proc(p)
+                p = MemoryAnalysis().run(p)
+                instr_tl_analysis = InstrTimelineAnalysis()
+                p = instr_tl_analysis.run(p)
+                barrier_uses: Optional[Dict[Sym, BarrierUsage]]
+                barrier_uses = None
+                proc_uses_cuda = (
+                    timelines.cuda_in_order_instr in instr_tl_analysis.instr_tl_seen
+                )
+                if instr_tl_analysis.contains_sync:
+                    # Don't force non-CUDA Exo users to waste time here
+                    barrier_usage_analysis = BarrierUsageAnalysis(p)
+                    barrier_uses = barrier_usage_analysis.uses
 
-            if is_public_decl:
-                public_fwd_decls.append(d)
-            else:
-                private_fwd_decls.append(d)
+                comp = Compiler(
+                    p,
+                    lib_name,
+                    ctxt_name,
+                    barrier_uses,
+                    proc_uses_cuda,
+                    util_injector,
+                    mem_code_builder,
+                    debug_log,
+                    is_public_decl=is_public_decl,
+                )
+                d, b = comp.comp_top()
+                needed_helpers |= comp.needed_helpers()
+                used_cuda |= proc_uses_cuda
 
-            proc_bodies.append(b)
+                if is_public_decl:
+                    public_fwd_decls.append(d)
+                else:
+                    private_fwd_decls.append(d)
 
-            if is_public_decl:
-                analyzed_public_procs.append(p)
-                for a in p.args:
-                    header_memwins.add(a.mem or DRAM)
-            else:
-                analyzed_private_procs.append(p)
-            for ext, snippets in comp.ext_lines().items():
-                ext_lines.setdefault(ext, []).extend(snippets)
+                proc_bodies.append(b)
+
+                if is_public_decl:
+                    analyzed_public_procs.append(p)
+                    for a in p.args:
+                        header_memwins.add(a.mem or DRAM)
+                else:
+                    analyzed_private_procs.append(p)
+                for ext, snippets in comp.ext_lines().items():
+                    ext_lines.setdefault(ext, []).extend(snippets)
+            except Exception as exc:
+                debug_log.remark(p.name, str(exc))
+                raise
+            finally:
+                # Log the "error" as whatever state the proc was in above
+                debug_log.log(p.name, f"error", p)
 
     memgen = mem_code_builder.generate_code(header_memwins)
 
@@ -584,6 +611,7 @@ class Compiler:
         used_cuda,
         util_injector,
         mem_code_builder,
+        debug_log,
         *,
         is_public_decl,
     ):
@@ -610,6 +638,7 @@ class Compiler:
         self._cuda_kernel_count = 0
         self._util_injector = util_injector
         self._mem_code_builder = mem_code_builder
+        self._debug_log = debug_log
         self._lowered_barriers = ChainMap()
 
         # Additional lines for each file extension
@@ -788,7 +817,15 @@ class Compiler:
 
     def comp_stmts(self, stmts):
         for b in stmts:
-            self.comp_s(b)
+            try:
+                self.comp_s(b)
+            except Exception as exc:
+                # Re-raise all errors, but if the error doesn't seem to contain srcinfo
+                # then we wrap the error message with a srcinfo.
+                exc_str = str(exc)
+                if not re.findall(SrcInfo.stmt_id_pattern, exc_str):
+                    raise ValueError(f"{b.srcinfo}: {exc_str}")
+                raise
 
     def comp_top(self):
         return self.proc_decl, self.proc_def
@@ -1322,14 +1359,20 @@ class Compiler:
 
             elif isinstance(ctx, CudaDeviceFunction):
                 spork_ctx = SporkLoweringCtx(
-                    self.lib_name, self.proc.name, self._cuda_kernel_count, self
+                    self.lib_name,
+                    self.proc.name,
+                    self._cuda_kernel_count,
+                    self,
+                    self._debug_log,
                 )
                 lowered = loopir_lower_cuda(s, spork_ctx)
-                # print(lowered)
                 assert self._used_cuda
                 assert not self._in_cuda_function
                 self._in_cuda_function = True
-                self.comp_s(lowered)
+                self._debug_log.log(
+                    self.proc.name, f"Cuda{self._cuda_kernel_count}", lowered
+                )
+                self.comp_stmts([lowered])
                 self._cuda_kernel_count += 1
                 self._in_cuda_function = False
 
@@ -1849,6 +1892,7 @@ class MemCodeBuilder(object):
         return result
 
 
+@dataclass(slots=True)
 class SporkLoweringCtx(object):
     """Communication object between main LoopIR compiler and Spork backend.
 
@@ -1861,23 +1905,11 @@ class SporkLoweringCtx(object):
 
     """
 
-    __slots__ = [
-        "_lib_name",
-        "_proc_name",
-        "_kernel_index",
-        "_compiler",
-    ]
-
     _lib_name: str
     _proc_name: str
     _kernel_index: int
     _compiler: Compiler
-
-    def __init__(self, lib_name, proc_name, kernel_index, compiler):
-        self._lib_name = lib_name
-        self._proc_name = proc_name
-        self._kernel_index = kernel_index
-        self._compiler = compiler
+    debug_log: BaseCompilerDebugLog
 
     def lib_name(self):
         return self._lib_name
