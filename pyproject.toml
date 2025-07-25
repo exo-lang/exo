@@ -81,6 +81,8 @@ dev = [
 ]
 tools = [
     "black>=24.10",
+    "cmake>=3.22",
+    "ninja>=1.11",
     "pre-commit>=4.2",
     "tox>=4.26",
 ]

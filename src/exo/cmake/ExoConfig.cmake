@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.21)
+cmake_minimum_required(VERSION 3.22)
 
 if (NOT CMAKE_FIND_PACKAGE_NAME STREQUAL "Exo")
   message(AUTHOR_WARNING "Found Exo using non-standard name '${CMAKE_FIND_PACKAGE_NAME}'")
