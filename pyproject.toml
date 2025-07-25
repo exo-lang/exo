@@ -14,3 +14,15 @@ markers = [
 
 [tool.black]
 exclude = '(demo_stage\.py|dependencies/.*|build/.*)'
+
+[tool.tox]
+requires = ["tox>=4.26"]
+env_list = ["3.12"]
+
+[tool.tox.env_run_base]
+description = "Run tests under {base_python}"
+commands = [
+    ["pytest", "--cov=./", "--cov=exo", "--cov-report=xml", "-o", "pythonpath="]
+]
+deps = ["-r requirements.txt"]
+passenv = ["SDE_PATH"]
