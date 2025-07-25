@@ -346,6 +346,7 @@ def test_simplify2(golden):
     ):
         for io in seq(0, 1):
             for jo in seq(0, 1):
+                # fmt: off
                 Btile1: i8[
                     16 * (ko + 1) - 16 * ko,
                     128 * jo
@@ -366,6 +367,7 @@ def test_simplify2(golden):
                     - (32 * io + 16 * (ii_unroll + 1)),
                     64 * (ko + 1) - 64 * ko,
                 ] @ DRAM
+                # fmt: on
 
     assert str(simplify(foo)) == golden
 

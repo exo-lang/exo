@@ -859,6 +859,7 @@ class StrideExprCursor(ExprCursor):
 # --------------------------------------------------------------------------- #
 # Internal Functions; Not for Exposure to Users
 
+
 # helper function to dispatch to constructors
 def lift_cursor(impl, proc):
     assert isinstance(impl, C.Cursor)
