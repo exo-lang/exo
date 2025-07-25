@@ -5,6 +5,7 @@ from exo.stdlib.scheduling import *
 
 old_split = repeat(divide_loop)
 
+
 # I'm going to define a 1D version of a standard convolutional layer (cf. CuDNN)
 # K - number of output channels
 # C - number of input channels

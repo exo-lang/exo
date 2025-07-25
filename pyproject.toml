@@ -80,7 +80,7 @@ dev = [
     "pytest>=8.3",
 ]
 tools = [
-    "black>=24.10",
+    "black>=25.1",
     "cmake>=3.22",
     "ninja>=1.11",
     "pre-commit>=4.2",
@@ -88,7 +88,7 @@ tools = [
 ]
 
 [tool.black]
-exclude = '(demo_stage\.py|dependencies/.*|build/.*)'
+extend-exclude = '(demo_stage\.py|dependencies/.*|build/.*)'
 
 [tool.coverage.report]
 exclude_lines = [

@@ -18,6 +18,7 @@ class ConfigError(Exception):
 # nice front-end syntax for these using pyparser-style hijacking
 # Instead, we will specify a creation/factory function here
 
+
 # Because of the recursive inclusion, we cannot use ctype in LoopIR here..
 def ctyp(typ):
     if isinstance(typ, LoopIR.T.F16):

@@ -92,6 +92,7 @@ def do_specialization(p):
     #
     p = reorder_loops(p, "oc_v ox_i")
     p = repeat(reorder_loops)(p, "oc_u ox_i")
+
     #
     def stage_input(p, read_expr, name):
         p = bind_expr(p, read_expr, name)

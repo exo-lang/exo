@@ -9,6 +9,7 @@ from exo import proc
 from exo.frontend.syntax import *
 from exo.stdlib.scheduling import *
 
+
 # skipping because the API has changed to invalidate this particular
 # error message
 @pytest.mark.skip()

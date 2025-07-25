@@ -105,10 +105,10 @@ class MemoryAnalysis:
         for b in reversed([self.mem_s(b) for b in stmts]):
             used = used_s(b)
             rm = []
-            for (nm, typ, mem) in self.tofree[-1]:
+            for nm, typ, mem in self.tofree[-1]:
                 if nm in used:
                     rm += [(nm, typ, mem)]
-            for (nm, typ, mem) in rm:
+            for nm, typ, mem in rm:
                 body += [LoopIR.Free(nm, typ, mem, b.srcinfo)]
                 self.tofree[-1].remove((nm, typ, mem))
             body += [b]
