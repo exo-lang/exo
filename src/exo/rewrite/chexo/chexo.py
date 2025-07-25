@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from ...core.prelude import Sym, SrcInfo
 from ...core.memory import DRAM, Memory
 import numpy as np
-from ..analysis import SchedulingError
+from ..new_eff import SchedulingError
 from .constraint_solver import (
     TRUE_CONSTRAINT,
     ConstraintMaker,

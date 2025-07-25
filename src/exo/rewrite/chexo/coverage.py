@@ -12,7 +12,7 @@ from .constraint_solver import (
 )
 from ...core.prelude import Sym
 from ...core.internal_cursors import NodePath
-from ..analysis import SchedulingError
+from ..new_eff import SchedulingError
 
 
 @dataclass
