@@ -78,6 +78,9 @@ tools = [
     "tox>=4.26",
 ]
 
+[tool.black]
+exclude = '(demo_stage\.py|dependencies/.*|build/.*)'
+
 [tool.pytest.ini_options]
 filterwarnings = [
     "ignore:lib2to3 package is deprecated:PendingDeprecationWarning"
@@ -87,9 +90,6 @@ pythonpath = "src/"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]
-
-[tool.black]
-exclude = '(demo_stage\.py|dependencies/.*|build/.*)'
 
 [tool.tox]
 requires = ["tox>=4.26"]
