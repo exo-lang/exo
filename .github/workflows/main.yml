@@ -62,7 +62,7 @@ jobs:
         run: brew install llvm@17
 
       - name: Run tox
-        run: tox
+        run: uv run tox
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
