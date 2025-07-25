@@ -4,17 +4,15 @@ import importlib.util
 import inspect
 import sys
 
-sys.setrecursionlimit(10000)
-
 from pathlib import Path
 
 import exo
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        prog=Path(sys.argv[0]).name, description="Compile an Exo library."
-    )
+def main(*args, name="exocc"):
+    sys.setrecursionlimit(10000)
+
+    parser = argparse.ArgumentParser(prog=name, description="Compile an Exo library.")
     parser.add_argument(
         "-o",
         "--outdir",
@@ -30,7 +28,7 @@ def main():
         help="print the version and exit",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(args)
     srcname = Path(args.source[0]).stem
 
     if not args.outdir:
@@ -146,4 +144,4 @@ def load_user_code(path):
 
 
 if __name__ == "__main__":
-    main()
+    main(*sys.argv[1:], name=Path(sys.argv[0]).name)
