@@ -1,6 +1,0 @@
-[report]
-exclude_lines =
-    @proc
-    @instr
-    @config
-    pragma: no cover

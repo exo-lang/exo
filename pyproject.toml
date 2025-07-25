@@ -42,6 +42,9 @@ dependencies = [
     "z3-solver>=4.15",
 ]
 
+##
+# Packaging settings
+
 [project.scripts]
 exocc = "exo.main:main"
 
@@ -63,10 +66,14 @@ exclude = ["exo.cmake"]
 [tool.setuptools.dynamic]
 version = { attr = "exo.__version__" }
 
+##
+# Settings for developer tools
+
 [dependency-groups]
 dev = [
     "Pillow>=11.2",
     "build>=1.2",
+    "coverage[toml]>=7.10.0",
     "numpy>=1.26",
     "pytest-cov>=6.1",
     "pytest-xdist>=3.7",
@@ -80,6 +87,14 @@ tools = [
 
 [tool.black]
 exclude = '(demo_stage\.py|dependencies/.*|build/.*)'
+
+[tool.coverage.report]
+exclude_lines = [
+    "@proc",
+    "@instr",
+    "@config",
+    "pragma: no cover",
+]
 
 [tool.pytest.ini_options]
 filterwarnings = [
