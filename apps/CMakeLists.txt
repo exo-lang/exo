@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.21)
+cmake_minimum_required(VERSION 3.22)
 project(apps)
 
 if (PROJECT_IS_TOP_LEVEL)
