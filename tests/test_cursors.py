@@ -272,14 +272,14 @@ def test_split_write_forwarding(golden):
     body = foo.body()
 
     foo = split_write(foo, stmt0)
-    with pytest.raises(InvalidCursorError, match=""):
+    with pytest.raises(InvalidCursorError, match="node no longer exists"):
         foo.forward(stmt0)
     assert foo.body()[:2] == foo.forward(stmt0.as_block())
     assert foo.body()[2] == foo.forward(stmt1)
     assert foo.body() == foo.forward(body)
 
     foo = split_write(foo, stmt1)
-    with pytest.raises(InvalidCursorError, match=""):
+    with pytest.raises(InvalidCursorError, match="node no longer exists"):
         foo.forward(stmt0.rhs())
 
     assert foo.body()[:2] == foo.forward(stmt0.as_block())
@@ -398,10 +398,10 @@ def test_argcursor_introspection():
     n_arg = bar.args()[0]
     assert isinstance(n_arg, ArgCursor)
     assert n_arg.name() == "n"
-    with pytest.raises(AssertionError, match=""):
+    with pytest.raises(AssertionError, match="^$"):
         mem = n_arg.mem()
     assert n_arg.is_tensor() == False
-    with pytest.raises(AssertionError, match=""):
+    with pytest.raises(AssertionError, match="^$"):
         shape = n_arg.shape()
     assert n_arg.type() == ExoType.Size
 
@@ -436,7 +436,7 @@ def test_argcursor_introspection():
     assert result_arg.name() == "result"
     assert result_arg.mem() == DRAM
     assert result_arg.is_tensor() == False
-    with pytest.raises(AssertionError, match=""):
+    with pytest.raises(AssertionError, match="^$"):
         shape = result_arg.shape()
     assert result_arg.type() == ExoType.R
 
@@ -497,10 +497,10 @@ def test_eliminate_dead_code_forwarding():
     if_false_stmt = if_cursor.orelse()[0]
     foo = eliminate_dead_code(foo, "if _:_ #0")
     loop_cursor = foo.forward(loop_cursor)
-    with pytest.raises(InvalidCursorError, match=""):
+    with pytest.raises(InvalidCursorError, match="node no longer exists"):
         if_cursor = foo.forward(if_cursor)
     if_true_stmt = foo.forward(if_true_stmt)
-    with pytest.raises(InvalidCursorError, match=""):
+    with pytest.raises(InvalidCursorError, match="node no longer exists"):
         if_false_stmt = foo.forward(if_false_stmt)
 
     assert isinstance(loop_cursor, ForCursor)
@@ -528,9 +528,9 @@ def test_eliminate_dead_code_forwarding2():
     if_false_stmt = if_cursor.orelse()[0]
     foo = eliminate_dead_code(foo, "if _:_ #0")
     loop_cursor = foo.forward(loop_cursor)
-    with pytest.raises(InvalidCursorError, match=""):
+    with pytest.raises(InvalidCursorError, match="node no longer exists"):
         if_cursor = foo.forward(if_cursor)
-    with pytest.raises(InvalidCursorError, match=""):
+    with pytest.raises(InvalidCursorError, match="node no longer exists"):
         if_true_stmt = foo.forward(if_true_stmt)
     if_false_stmt = foo.forward(if_false_stmt)
 
@@ -554,7 +554,7 @@ def test_eliminate_dead_code_forwarding3():
     if_true_stmt = if_cursor.body()[0]
     foo = eliminate_dead_code(foo, "if _:_ #0")
     loop_cursor = foo.forward(loop_cursor)
-    with pytest.raises(InvalidCursorError, match=""):
+    with pytest.raises(InvalidCursorError, match="node no longer exists"):
         if_cursor = foo.forward(if_cursor)
     if_true_stmt = foo.forward(if_true_stmt)
 
@@ -578,9 +578,9 @@ def test_eliminate_dead_code_forwarding4():
     if_true_stmt = if_cursor.body()[0]
     foo = eliminate_dead_code(foo, "if _:_ #0")
     loop_cursor = foo.forward(loop_cursor)
-    with pytest.raises(InvalidCursorError, match=""):
+    with pytest.raises(InvalidCursorError, match="node no longer exists"):
         if_cursor = foo.forward(if_cursor)
-    with pytest.raises(InvalidCursorError, match=""):
+    with pytest.raises(InvalidCursorError, match="node no longer exists"):
         if_true_stmt = foo.forward(if_true_stmt)
 
     assert isinstance(loop_cursor, ForCursor)
@@ -599,9 +599,9 @@ def test_eliminate_dead_code_forwarding5():
     else_loop_alloc = else_loop.body()[0]
     foo = eliminate_dead_code(foo, else_loop)
 
-    with pytest.raises(InvalidCursorError, match=""):
+    with pytest.raises(InvalidCursorError, match="node no longer exists"):
         foo.forward(else_loop)
-    with pytest.raises(InvalidCursorError, match=""):
+    with pytest.raises(InvalidCursorError, match="node no longer exists"):
         foo.forward(else_loop_alloc)
 
 

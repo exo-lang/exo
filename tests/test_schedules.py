@@ -1260,7 +1260,7 @@ def test_fold_buffer_sequential_stmts(golden):
         x[5] = 0.0
 
     with pytest.raises(
-        SchedulingError, match="Buffer folding failed because access window of x\[5\]"
+        SchedulingError, match=r"Buffer folding failed because access window of x\[5\]"
     ):
         foo = resize_dim(foo, foo.find("x: _"), 0, 2, 0, fold=True)
 
@@ -1298,7 +1298,7 @@ def test_fold_buffer_if_stmt(golden):
 
     with pytest.raises(
         SchedulingError,
-        match="Buffer folding failed because access window of x\[i \- 2\]",
+        match=r"Buffer folding failed because access window of x\[i \- 2\]",
     ):
         foo = resize_dim(foo, foo.find("x: _"), 0, 2, 0, fold=True)
 
@@ -3800,7 +3800,10 @@ def test_join_loops_fail_type_match():
             x: f32[4]
             x[i] = 0.0
 
-    with pytest.raises(SchedulingError, match=""):
+    with pytest.raises(
+        SchedulingError,
+        match="expected the two loops to have identical bodies",
+    ):
         foo = join_loops(foo, foo.find_loop("i"), foo.find_loop("i #1"))
 
 
@@ -4210,7 +4213,7 @@ def test_lift_reduce_constant_bad_9():
 
     with pytest.raises(
         SchedulingError,
-        match="y\[i\] depends on the variable i which is defined within the loop",
+        match=r"y\[i\] depends on the variable i which is defined within the loop",
     ):
         dot = lift_reduce_constant(dot, dot.find_loop("i").expand(1, 0))
 
@@ -4226,7 +4229,7 @@ def test_lift_reduce_constant_bad_10():
 
     with pytest.raises(
         SchedulingError,
-        match="y\[j\] depends on the variable j which is defined within the loop",
+        match=r"y\[j\] depends on the variable j which is defined within the loop",
     ):
         dot = lift_reduce_constant(dot, dot.find_loop("i").expand(1, 0))
 
