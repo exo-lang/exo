@@ -11,7 +11,7 @@ urls = { Homepage = "https://exo-lang.dev/" }
 maintainers = [
     { name = "Yuka Ikarashi", email = "yuka@csail.mit.edu" }
 ]
-license = { text = "MIT License" }
+license = "MIT"
 keywords = ["exo", "exocompilation", "array", "dsl", "language", "performance"]
 requires-python = ">=3.9"
 classifiers = [
