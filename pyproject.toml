@@ -50,10 +50,12 @@ exocc = "exo.main:main"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
+include-package-data = false
 
 [tool.setuptools.packages.find]
 where = ["src"]
 namespaces = false
+exclude = ["exo.cmake"]
 
 [tool.setuptools.package-data]
 "exo.libs" = ["*.c", "*.h"]
