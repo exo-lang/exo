@@ -208,7 +208,7 @@ def test_scope_collision2(golden):
 def test_scope_collision3():
     with pytest.raises(
         NameError,
-        match="free variable 'x' referenced before assignment in enclosing scope",
+        match="cannot access free variable 'x' .+ in enclosing scope",
     ):
 
         @proc

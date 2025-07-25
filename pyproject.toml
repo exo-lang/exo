@@ -1,16 +1,121 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools>=61.2"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "exo-lang"
+dynamic = ["version"]
+description = "Exo: Exocompiled Array Language"
+readme = { file = "README.md", content-type = "text/markdown" }
+urls = { Homepage = "https://exo-lang.dev/" }
+maintainers = [
+    { name = "Yuka Ikarashi", email = "yuka@csail.mit.edu" }
+]
+license = "MIT"
+keywords = ["exo", "exocompilation", "array", "dsl", "language", "performance"]
+requires-python = ">=3.9"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: C",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Code Generators",
+    "Topic :: Software Development :: Compilers",
+]
+
+dependencies = [
+    "PySMT>=0.9.6",
+    "asdl-adt>=0.1,<0.2",
+    "yapf>=0.43",
+    "z3-solver>=4.15",
+]
+
+##
+# Packaging settings
+
+[project.scripts]
+exocc = "exo.main:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+namespaces = false
+exclude = ["exo.cmake"]
+
+[tool.setuptools.package-data]
+"exo.libs" = ["*.c", "*.h"]
+
+[tool.setuptools.data-files]
+"share/exo/cmake" = ["src/exo/cmake/*.cmake"]
+
+[tool.setuptools.dynamic]
+version = { attr = "exo.__version__" }
+
+##
+# Settings for developer tools
+
+[dependency-groups]
+dev = [
+    "build>=1.2",
+    "coverage[toml]>=7.10.0",
+    "numpy>=1.26",
+    "pillow>=11.3",
+    "pytest-cov>=6.1",
+    "pytest-xdist>=3.7",
+    "pytest>=8.3",
+]
+tools = [
+    "black>=25.1",
+    "cmake>=3.22",
+    "ninja>=1.11",
+    "pre-commit>=4.2",
+    "tox>=4.26",
+]
+
+[tool.black]
+extend-exclude = '(demo_stage\.py|dependencies/.*|build/.*)'
+
+[tool.coverage.report]
+exclude_lines = [
+    "@proc",
+    "@instr",
+    "@config",
+    "pragma: no cover",
+]
 
 [tool.pytest.ini_options]
 filterwarnings = [
-    'ignore:lib2to3 package is deprecated:PendingDeprecationWarning'
+    "ignore:lib2to3 package is deprecated:PendingDeprecationWarning"
 ]
-norecursedirs = ['dependencies']
+norecursedirs = ["dependencies"]
 pythonpath = "src/"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]
 
-[tool.black]
-exclude = '(demo_stage\.py|dependencies/.*|build/.*)'
+[tool.tox]
+requires = ["tox>=4.26"]
+env_list = ["3.12"]
+
+[tool.tox.env_run_base]
+description = "Run tests under {base_python}"
+commands = [
+    ["pytest", "--cov=./", "--cov=exo", "--cov-report=xml", "-o", "pythonpath="]
+]
+deps = ["-r requirements.txt"]
+passenv = ["SDE_PATH"]
