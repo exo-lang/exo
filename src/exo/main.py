@@ -103,7 +103,7 @@ def _discover_package_parts(start_dir: Path):
         parts.append(current.name)
         current = current.parent
     parts.reverse()
-    return parts
+    return str(current), parts
 
 
 def load_user_code(path):
@@ -127,7 +127,7 @@ def load_user_code(path):
         stem = module_path.stem
         base_dir = module_path.parent
 
-    pkg_parts = _discover_package_parts(base_dir)
+    package_root, pkg_parts = _discover_package_parts(base_dir)
     package_name = ".".join(pkg_parts) if pkg_parts else None
     module_name = (
         ".".join(pkg_parts + [stem]) if stem else package_name or module_path.stem
@@ -135,8 +135,11 @@ def load_user_code(path):
 
     spec = importlib.util.spec_from_file_location(module_name, str(file_path))
     module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
     module.__package__ = package_name
+
+    sys.path.insert(0, package_root)
+    sys.modules[module_name] = module
+
     spec.loader.exec_module(module)
 
     return module
