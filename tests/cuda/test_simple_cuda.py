@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import numpy as np
 import pytest
 import random
@@ -41,6 +42,22 @@ def test_cuda_add_vec(compiler_Sm80):
         assert np.array_equal(c_test, c_expected)
 
 
+def impl_test_saxpy(compiler_Sm80, saxpy_proc, min_divisibility):
+    cu = compiler_Sm80.cuda_test_context(saxpy_proc)
+
+    for a in (1.0, 3.75):
+        for n in (128, 128 * 300):
+            n = min_divisibility * int(math.ceil(n / min_divisibility))
+            x = np.ndarray(shape=(n,), dtype=np.float32)
+            y = np.ndarray(shape=(n,), dtype=np.float32)
+            for i in range(0, n):
+                x[i] = i % 42
+                y[i] = i + 101.5
+            y_expected = a * y + x
+            cu(None, n, np.array([a], dtype=np.float32), y, x)
+            assert np.array_equal(y, y_expected)
+
+
 def test_cuda_simple_saxpy(compiler_Sm80):
     """
     Compute y = ay + x
@@ -66,18 +83,7 @@ def test_cuda_simple_saxpy(compiler_Sm80):
                     )
         cudaMemcpyAsync_dtoh_1f32(n, y, device_y)
 
-    cu = compiler_Sm80.cuda_test_context(saxpy)
-
-    for a in (1.0, 3.75):
-        for n in (128, 128 * 300):
-            x = np.ndarray(shape=(n,), dtype=np.float32)
-            y = np.ndarray(shape=(n,), dtype=np.float32)
-            for i in range(0, n):
-                x[i] = i % 42
-                y[i] = i + 101.5
-            y_expected = a * y + x
-            cu(None, n, np.array([a], dtype=np.float32), y, x)
-            assert np.array_equal(y, y_expected)
+    impl_test_saxpy(compiler_Sm80, saxpy, 128)
 
 
 def test_cuda_two_device_functions(compiler_Sm80):
@@ -108,18 +114,73 @@ def test_cuda_two_device_functions(compiler_Sm80):
 
         cudaMemcpyAsync_dtoh_1f32(n, y, device_y)
 
-    cu = compiler_Sm80.cuda_test_context(saxpy)
+    impl_test_saxpy(compiler_Sm80, saxpy, 128)
 
-    for a in (1.0, 3.75):
-        for n in (128, 128 * 300):
-            x = np.ndarray(shape=(n,), dtype=np.float32)
-            y = np.ndarray(shape=(n,), dtype=np.float32)
-            for i in range(0, n):
-                x[i] = i % 42
-                y[i] = i + 101.5
-            y_expected = a * y + x
-            cu(None, n, np.array([a], dtype=np.float32), y, x)
-            assert np.array_equal(y, y_expected)
+
+def test_cp_async_fence_saxpy(compiler_Sm80):
+    """
+    Compute y = ay + x with cp.async
+    """
+
+    @proc
+    def saxpy(n: size, a: f32[1], y: f32[n], x: f32[n]):
+        assert n % 128 == 20
+        device_x: f32[n] @ CudaGmemLinear
+        device_y: f32[n] @ CudaGmemLinear
+        device_a: f32 @ CudaGridConstant
+
+        device_a = a[0]
+        cudaMemcpyAsync_htod_1f32(n, device_x, x)
+        cudaMemcpyAsync_htod_1f32(n, device_y, y)
+
+        with CudaDeviceFunction(blockDim=128):
+            for task in cuda_tasks(0, n / 1024):
+                smem_x: f32[2, 256] @ CudaSmemLinear
+                smem_y: f32[2, 256] @ CudaSmemLinear
+                for i in seq(0, 5):
+                    if i < 4:
+                        with CudaAsync(Sm80_cp_async):
+                            with CudaWarps(0, 2):
+                                for tid in cuda_threads(0, 64, unit=cuda_thread):
+                                    Sm80_cp_async_f32(
+                                        smem_x[i % 2, tid * 4 : tid * 4 + 4],
+                                        device_x[
+                                            task * 1024
+                                            + i * 256
+                                            + tid * 4 : task * 1024
+                                            + i * 256
+                                            + tid * 4
+                                            + 4
+                                        ],
+                                        size=4,
+                                    )
+                            with CudaWarps(2, 4):
+                                for tid in cuda_threads(0, 64, unit=cuda_thread):
+                                    Sm80_cp_async_f32(
+                                        smem_y[i % 2, tid * 4 : tid * 4 + 4],
+                                        device_y[
+                                            task * 1024
+                                            + i * 256
+                                            + tid * 4 : task * 1024
+                                            + i * 256
+                                            + tid * 4
+                                            + 4
+                                        ],
+                                        size=4,
+                                    )
+                    Fence(Sm80_cp_async, cuda_in_order)
+                    if i >= 1:
+                        for j in seq(0, 2):
+                            for tid in cuda_threads(0, 128, unit=cuda_thread):
+                                device_y[
+                                    task * 1024 + (i - 1) * 256 + j * 128 + tid
+                                ] = (
+                                    smem_y[(i - 1) % 2, j * 128 + tid] * device_a
+                                    + smem_x[(i - 1) % 2, j * 128 + tid]
+                                )
+        cudaMemcpyAsync_dtoh_1f32(n, y, device_y)
+
+    impl_test_saxpy(compiler_Sm80, saxpy, 1024)
 
 
 def test_grid_constants_windows(compiler_Sm80):
