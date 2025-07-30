@@ -487,7 +487,7 @@ class CollTiling(object):
         unit: CollUnit,
         tiles_needed: int,
         env: Dict[CollParam, int],
-    ):
+    ) -> "CollTiling":
         """Tile the CollTiling with the given collective unit.
 
         Returns a new CollTiling with self as its parent.
@@ -593,7 +593,9 @@ class CollTiling(object):
             thread_pitch,
         )
 
-    def specialized(self, unit: CollUnit, lo: int, hi: int, env: Dict[CollParam, int]):
+    def specialized(
+        self, unit: CollUnit, lo: int, hi: int, env: Dict[CollParam, int]
+    ) -> "CollTiling":
         """Specialize the CollTiling
 
         self and the returned CollTiling share a common parent."""
