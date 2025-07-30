@@ -122,9 +122,14 @@ def test_cp_async_fence_saxpy(compiler_Sm80):
     Compute y = ay + x with cp.async
     """
 
+    # fmt: off
+    elements_per_task = 1024
+    scratch_size = 256
+    block_dim = 128
+
     @proc
     def saxpy(n: size, a: f32[1], y: f32[n], x: f32[n]):
-        assert n % 128 == 20
+        assert n % elements_per_task == 20
         device_x: f32[n] @ CudaGmemLinear
         device_y: f32[n] @ CudaGmemLinear
         device_a: f32 @ CudaGridConstant
@@ -133,54 +138,47 @@ def test_cp_async_fence_saxpy(compiler_Sm80):
         cudaMemcpyAsync_htod_1f32(n, device_x, x)
         cudaMemcpyAsync_htod_1f32(n, device_y, y)
 
-        with CudaDeviceFunction(blockDim=128):
-            for task in cuda_tasks(0, n / 1024):
-                smem_x: f32[2, 256] @ CudaSmemLinear
-                smem_y: f32[2, 256] @ CudaSmemLinear
-                for i in seq(0, 5):
-                    if i < 4:
+        with CudaDeviceFunction(blockDim=block_dim):
+            for task in cuda_tasks(0, n / elements_per_task):
+                scratch_x: f32[2, scratch_size] @ CudaSmemLinear
+                scratch_y: f32[2, scratch_size] @ CudaSmemLinear
+                for i in seq(0, elements_per_task / 256 + 1):
+                    if i < elements_per_task / scratch_size:
                         with CudaAsync(Sm80_cp_async):
                             with CudaWarps(0, 2):
                                 for tid in cuda_threads(0, 64, unit=cuda_thread):
                                     Sm80_cp_async_f32(
-                                        smem_x[i % 2, tid * 4 : tid * 4 + 4],
-                                        device_x[
-                                            task * 1024
-                                            + i * 256
-                                            + tid * 4 : task * 1024
-                                            + i * 256
-                                            + tid * 4
-                                            + 4
-                                        ],
-                                        size=4,
+                                        scratch_x[i % 2, tid * 4 : tid * 4 + 4],
+                                        device_x[ task * 1024 + i *
+                                            256 + tid * 4 : task *
+                                            1024 + i * 256 + tid * 4 +
+                                            4 ],
+                                        size=4,  # Use size=1 (and omit syntax) for the talk example
                                     )
                             with CudaWarps(2, 4):
                                 for tid in cuda_threads(0, 64, unit=cuda_thread):
                                     Sm80_cp_async_f32(
-                                        smem_y[i % 2, tid * 4 : tid * 4 + 4],
-                                        device_y[
-                                            task * 1024
-                                            + i * 256
-                                            + tid * 4 : task * 1024
-                                            + i * 256
-                                            + tid * 4
-                                            + 4
-                                        ],
+                                        scratch_y[i % 2, tid * 4 : tid * 4 + 4],
+                                        device_y[ task * 1024 + i *
+                                            256 + tid * 4 : task *
+                                            1024 + i * 256 + tid * 4 +
+                                            4 ],
                                         size=4,
                                     )
-                    Fence(Sm80_cp_async, cuda_in_order)
                     if i >= 1:
-                        for j in seq(0, 2):
+                        for j in seq(0, scratch_size / block_dim):
                             for tid in cuda_threads(0, 128, unit=cuda_thread):
-                                device_y[
-                                    task * 1024 + (i - 1) * 256 + j * 128 + tid
-                                ] = (
-                                    smem_y[(i - 1) % 2, j * 128 + tid] * device_a
-                                    + smem_x[(i - 1) % 2, j * 128 + tid]
+                                device_y[task * elements_per_task + (i - 1) * 256 + j * 128 + tid] = (
+                                    scratch_y[(i - 1) % 2, j * 128 + tid] * device_a
+                                    + scratch_x[(i - 1) % 2, j * 128 + tid]
                                 )
+                    # Same as Fence(Sm80_generic, Sm80_generic)
+                    Fence(Sm80_cp_async, cuda_in_order)  # RAW
+                    Fence(cuda_in_order, Sm80_cp_async)  # WAR
         cudaMemcpyAsync_dtoh_1f32(n, y, device_y)
 
     impl_test_saxpy(compiler_Sm80, saxpy, 1024)
+    # fmt: on
 
 
 def test_grid_constants_windows(compiler_Sm80):
