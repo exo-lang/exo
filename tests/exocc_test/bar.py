@@ -1,3 +1,3 @@
-from .common import make_proc
+import common
 
-bar = make_proc("bar")
+bar = common.make_proc("bar")

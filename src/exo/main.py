@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import argparse
 import importlib
 import importlib.util
@@ -7,6 +9,17 @@ import sys
 from pathlib import Path
 
 import exo
+
+from contextlib import contextmanager
+
+
+@contextmanager
+def pythonpath(paths: list[Path]):
+    try:
+        sys.path = list(map(str, paths)) + sys.path
+        yield
+    finally:
+        sys.path = sys.path[len(paths):]
 
 
 def main(*args, name="exocc"):
@@ -18,6 +31,14 @@ def main(*args, name="exocc"):
         "--outdir",
         metavar="OUTDIR",
         help="output directory for build artifacts",
+    )
+    parser.add_argument(
+        "-p",
+        "--pythonpath",
+        metavar="PYTHONPATH",
+        help="directory to add to PYTHONPATH",
+        default=Path("."),
+        type=Path,
     )
     parser.add_argument("--stem", help="base name for .c and .h files")
     parser.add_argument("source", type=str, nargs="+", help="source file to compile")
@@ -49,11 +70,12 @@ def main(*args, name="exocc"):
     else:
         stem = args.stem
 
-    library = [
-        proc
-        for mod in args.source
-        for proc in get_procs_from_module(load_user_code(mod))
-    ]
+    with pythonpath([args.pythonpath]):
+        library = [
+            proc
+            for mod in args.source
+            for proc in get_procs_from_module(load_user_code(mod))
+        ]
 
     exo.compile_procs(library, outdir, f"{stem}.c", f"{stem}.h")
     write_depfile(outdir, stem)
@@ -94,53 +116,14 @@ def get_procs_from_module(user_module):
     return library
 
 
-def _discover_package_parts(start_dir: Path):
-    parts = []
-    current = start_dir.resolve()
-    while (current / "__init__.py").exists():
-        parts.append(current.name)
-        current = current.parent
-    parts.reverse()
-    return str(current), parts
-
-
 def load_user_code(path):
     module_path = Path(path).resolve(strict=True)
-
-    if module_path.name == "__init__.py":
-        raise ValueError(
-            "Do not pass __init__.py directly. Pass the package directory instead."
-        )
-
-    if module_path.is_dir():
-        file_path = module_path / "__init__.py"
-        if not file_path.exists():
-            raise ValueError(
-                f"Directory '{module_path}' is not a package (missing __init__.py)"
-            )
-        stem = None
-        base_dir = module_path
-    else:
-        file_path = module_path
-        stem = module_path.stem
-        base_dir = module_path.parent
-
-    package_root, pkg_parts = _discover_package_parts(base_dir)
-    package_name = ".".join(pkg_parts) if pkg_parts else None
-    module_name = (
-        ".".join(pkg_parts + [stem]) if stem else package_name or module_path.stem
-    )
-
-    spec = importlib.util.spec_from_file_location(module_name, str(file_path))
-    module = importlib.util.module_from_spec(spec)
-    module.__package__ = package_name
-
-    sys.path.insert(0, package_root)
-    sys.modules[module_name] = module
-
-    spec.loader.exec_module(module)
-
-    return module
+    module_name = module_path.stem
+    module_path = str(module_path)
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    user_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(user_module)
+    return user_module
 
 
 if __name__ == "__main__":
