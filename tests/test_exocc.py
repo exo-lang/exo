@@ -4,10 +4,21 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
+import os
 
 from exo.main import exocc
 
 TEST_ROOT = Path(__file__).parent.resolve()
+
+
+@contextlib.contextmanager
+def chdir(new_cwd):
+    old_cwd = os.getcwd()
+    try:
+        os.chdir(new_cwd)
+        yield
+    finally:
+        os.chdir(old_cwd)
 
 
 def test_build_only_foo(tmp_path):
@@ -45,7 +56,7 @@ def test_build_both_explicit(tmp_path):
 
 def test_build_both_chdir(tmp_path):
     with (
-        contextlib.chdir(TEST_ROOT / "exocc_test"),
+        chdir(TEST_ROOT / "exocc_test"),
         mock.patch.dict(sys.modules),
     ):
         exocc(
