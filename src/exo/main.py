@@ -16,10 +16,10 @@ from contextlib import contextmanager
 @contextmanager
 def pythonpath(path: Path):
     try:
-        sys.path.insert(0, str(path))
+        sys.path.insert(0, str(path.resolve(strict=True)))
         yield
     finally:
-        sys.path = sys.path[1:]
+        sys.path.pop(0)
 
 
 def exocc(*args, name="exocc"):
@@ -77,7 +77,7 @@ def exocc(*args, name="exocc"):
         if len(args.source) == 1:
             args.pythonpath = args.source[0].parent
         else:
-            args.pythonpath = Path(".")
+            args.pythonpath = Path.cwd()
 
     with pythonpath(args.pythonpath):
         library = [
@@ -127,9 +127,7 @@ def get_procs_from_module(user_module):
 
 def load_user_code(path: Path):
     module_path = path.resolve(strict=True)
-    module_name = module_path.stem
-    module_path = str(module_path)
-    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    spec = importlib.util.spec_from_file_location(module_path.stem, str(module_path))
     user_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(user_module)
     return user_module
