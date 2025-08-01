@@ -253,7 +253,7 @@ def normalize(orig_e):
 
     def from_nform(cs, off):
         e = None
-        for (c, v) in cs:
+        for c, v in cs:
             assert c != 0
             t = UEq.Var(v)
             t = t if c == 1 else UEq.Scale(c, t)
@@ -767,15 +767,14 @@ class Unification:
         elif isinstance(e, UEq.Add):
             lhs = self.from_ueq(e.lhs, srcinfo)
             rhs = self.from_ueq(e.rhs, srcinfo)
-            typ = (
-                lhs.type
-                if rhs.type == T.int
-                else rhs.type
-                if lhs.type == T.int
-                else lhs.type
-                if rhs.type == T.size
-                else rhs.type
-            )
+            if rhs.type == T.int:
+                typ = lhs.type
+            elif lhs.type == T.int:
+                typ = rhs.type
+            elif rhs.type == T.size:
+                typ = lhs.type
+            else:
+                typ = rhs.type
             return LoopIR.BinOp("+", lhs, rhs, typ, srcinfo)
         elif isinstance(e, UEq.Scale):
             lhs = LoopIR.Const(e.coeff, T.int, srcinfo)

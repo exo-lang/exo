@@ -905,6 +905,7 @@ module EffectsNew {
     },
 )
 
+
 # pretty printing
 def _effstr(eff, tab=""):
     if isinstance(eff, E.Empty):
@@ -923,13 +924,12 @@ def _effstr(eff, tab=""):
         rhs = "" if isinstance(eff, E.GlobalRead) or not eff.rhs else f",{eff.rhs}"
         return f"{tab}{nm}({eff.name},{eff.type}{rhs})"
     elif isinstance(eff, (E.Read, E.Write, E.Reduce)):
-        nm = (
-            "Read"
-            if isinstance(eff, E.Read)
-            else "Write"
-            if isinstance(eff, E.Write)
-            else "Reduce"
-        )
+        if isinstance(eff, E.Read):
+            nm = "Read"
+        elif isinstance(eff, E.Write):
+            nm = "Write"
+        else:
+            nm = "Reduce"
         coords = ",".join([str(a) for a in eff.coords])
         return f"{tab}{nm}({eff.name},{coords})"
     elif isinstance(eff, E.Alloc):

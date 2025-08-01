@@ -171,17 +171,16 @@ class ASimplify:
                     # fall-through
                 elif a.op in ("<", ">", "<=", ">=", "=="):
                     if lconst and rconst:
-                        return ABool(
-                            (lhs.val < rhs.val)
-                            if a.op == "<"
-                            else (lhs.val > rhs.val)
-                            if a.op == ">"
-                            else (lhs.val <= rhs.val)
-                            if a.op == "<="
-                            else (lhs.val >= rhs.val)
-                            if a.op == ">="
-                            else (lhs.val == rhs.val)
-                        )
+                        if a.op == "<":
+                            return ABool(lhs.val < rhs.val)
+                        if a.op == ">":
+                            return ABool(lhs.val > rhs.val)
+                        if a.op == "<=":
+                            return ABool(lhs.val <= rhs.val)
+                        if a.op == ">=":
+                            return ABool(lhs.val >= rhs.val)
+                        assert a.op == "=="
+                        return ABool(lhs.val == rhs.val)
                     elif lunk or runk:
                         return A.Unk(T.bool, a.srcinfo)
                     # fall-through
@@ -194,15 +193,14 @@ class ASimplify:
                     if a.op == "/":
                         pass
                     else:
-                        return AInt(
-                            (lhs.val + rhs.val)
-                            if a.op == "+"
-                            else (lhs.val - rhs.val)
-                            if a.op == "-"
-                            else (lhs.val * rhs.val)
-                            if a.op == "*"
-                            else (lhs.val % rhs.val)
-                        )
+                        if a.op == "+":
+                            return AInt(lhs.val + rhs.val)
+                        if a.op == "-":
+                            return AInt(lhs.val - rhs.val)
+                        if a.op == "*":
+                            return AInt(lhs.val * rhs.val)
+                        assert a.op == "%"
+                        return AInt(lhs.val % rhs.val)
                 elif lconst:
                     if a.op == "+" and lhs.val == 0:
                         return rhs
