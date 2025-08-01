@@ -19,7 +19,7 @@ def pythonpath(paths: list[Path]):
         sys.path = list(map(str, paths)) + sys.path
         yield
     finally:
-        sys.path = sys.path[len(paths):]
+        sys.path = sys.path[len(paths) :]
 
 
 def main(*args, name="exocc"):
