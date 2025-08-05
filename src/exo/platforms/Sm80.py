@@ -45,7 +45,8 @@ class cp_async_impl:
     def instance_impl(self, n_bytes):
         if n_bytes not in (4, 8, 16):
             raise ValueError(f"cp.async copies 4, 8, or 16 bytes, not {n_bytes}")
-        ptx = InlinePtxGen("cp.async.cg.shared.global #0#;", volatile=True)
+        cg_ca = "cg" if n_bytes == 16 else "ca"
+        ptx = InlinePtxGen(f"cp.async.{cg_ca}.shared.global #0#;", volatile=True)
         ptx.add_arg("&{smem_data}", constraint="smem", log_as="bits")
         ptx.add_arg("&{gmem_data}", constraint="generic", log_as="bits")
         ptx.add_arg(n_bytes, constraint="n", log_as="bits")
