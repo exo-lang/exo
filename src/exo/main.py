@@ -15,11 +15,12 @@ from contextlib import contextmanager
 
 @contextmanager
 def pythonpath(path: Path):
+    _sys_path = sys.path.copy()
     try:
         sys.path.insert(0, str(path.resolve(strict=True)))
         yield
     finally:
-        sys.path.pop(0)
+        sys.path = _sys_path
 
 
 def exocc(*args, name="exocc"):
@@ -127,6 +128,8 @@ def get_procs_from_module(user_module):
 
 def load_user_code(path: Path):
     module_path = path.resolve(strict=True)
+    if not module_path.is_file():
+        raise ValueError(f"Expected path to a file, got: {module_path}")
     spec = importlib.util.spec_from_file_location(module_path.stem, str(module_path))
     user_module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(user_module)
