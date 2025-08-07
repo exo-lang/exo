@@ -1,38 +1,62 @@
+from __future__ import annotations
+
 import argparse
 import importlib
-import importlib.machinery
 import importlib.util
 import inspect
 import sys
-
-sys.setrecursionlimit(10000)
 
 from pathlib import Path
 
 import exo
 
+from contextlib import contextmanager
 
-def main():
-    parser = argparse.ArgumentParser(
-        prog=Path(sys.argv[0]).name, description="Compile an Exo library."
-    )
+
+@contextmanager
+def pythonpath(path: Path):
+    _sys_path = sys.path.copy()
+    try:
+        sys.path.insert(0, str(path.resolve(strict=True)))
+        yield
+    finally:
+        sys.path = _sys_path
+
+
+def exocc(*args, name="exocc"):
+    sys.setrecursionlimit(10000)
+
+    parser = argparse.ArgumentParser(prog=name, description="Compile an Exo library.")
     parser.add_argument(
         "-o",
         "--outdir",
         metavar="OUTDIR",
         help="output directory for build artifacts",
     )
-    parser.add_argument("--stem", help="base name for .c and .h files")
-    parser.add_argument("source", type=str, nargs="+", help="source file to compile")
     parser.add_argument(
+        "-p",
+        "--pythonpath",
+        metavar="PYTHONPATH",
+        help=(
+            "directory to add to PYTHONPATH. Defaults to parent of a single source "
+            "file or the current working directory for multiple source files."
+        ),
+        type=Path,
+    )
+    parser.add_argument("-s", "--stem", help="base name for .c and .h files")
+    parser.add_argument(
+        "-v",
         "--version",
         action="version",
         version=f"%(prog)s version {exo.__version__}",
         help="print the version and exit",
     )
+    parser.add_argument(
+        "source", type=Path, nargs="+", help="source file(s) to compile"
+    )
 
-    args = parser.parse_args()
-    srcname = Path(args.source[0]).stem
+    args = parser.parse_args(args)
+    srcname = args.source[0].stem
 
     if not args.outdir:
         if len(args.source) == 1:
@@ -46,20 +70,25 @@ def main():
 
     if not args.stem:
         if len(args.source) == 1:
-            stem = srcname
+            args.stem = srcname
         else:
             parser.error("Must provide --stem when processing multiple source files.")
-    else:
-        stem = args.stem
 
-    library = [
-        proc
-        for mod in args.source
-        for proc in get_procs_from_module(load_user_code(mod))
-    ]
+    if not args.pythonpath:
+        if len(args.source) == 1:
+            args.pythonpath = args.source[0].parent
+        else:
+            args.pythonpath = Path.cwd()
 
-    exo.compile_procs(library, outdir, f"{stem}.c", f"{stem}.h")
-    write_depfile(outdir, stem)
+    with pythonpath(args.pythonpath):
+        library = [
+            proc
+            for mod in args.source
+            for proc in get_procs_from_module(load_user_code(mod))
+        ]
+
+    exo.compile_procs(library, outdir, f"{args.stem}.c", f"{args.stem}.h")
+    write_depfile(outdir, args.stem)
 
 
 def write_depfile(outdir, stem):
@@ -97,15 +126,18 @@ def get_procs_from_module(user_module):
     return library
 
 
-def load_user_code(path):
-    module_path = Path(path).resolve(strict=True)
-    module_name = module_path.stem
-    module_path = str(module_path)
-    loader = importlib.machinery.SourceFileLoader(module_name, module_path)
-    spec = importlib.util.spec_from_loader(module_name, loader)
+def load_user_code(path: Path):
+    module_path = path.resolve(strict=True)
+    if not module_path.is_file():
+        raise ValueError(f"Expected path to a file, got: {module_path}")
+    spec = importlib.util.spec_from_file_location(module_path.stem, str(module_path))
     user_module = importlib.util.module_from_spec(spec)
-    loader.exec_module(user_module)
+    spec.loader.exec_module(user_module)
     return user_module
+
+
+def main():
+    exocc(*sys.argv[1:], name=Path(sys.argv[0]).name)
 
 
 if __name__ == "__main__":
