@@ -280,7 +280,7 @@ class QuoteReplacer(pyast.NodeTransformer):
             if stmt_destination is None:
 
                 def quote_callback(
-                    quote_stmt_processor: Optional[Callable[[Any], None]]
+                    quote_stmt_processor: Optional[Callable[[Any], None]],
                 ):
                     if quote_stmt_processor is None:
                         raise TypeError(

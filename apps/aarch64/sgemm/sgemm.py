@@ -4,6 +4,7 @@ from exo import *
 from exo.platforms.neon import *
 from exo.stdlib.scheduling import *
 
+
 # Compute Matrix-Matrix Multiplication C += A * B
 @proc
 def SGEMM(M: size, N: size, K: size, A: f32[M, K], B: f32[K, N], C: f32[M, N]):

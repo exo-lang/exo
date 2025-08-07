@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.21)
+cmake_minimum_required(VERSION 3.22)
 project(aarch64_sgemm)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -ffast-math -ffp-contract=fast -framework Accelerate -save-temps=obj")

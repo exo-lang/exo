@@ -90,7 +90,7 @@ def test_matmul(golden):
     gemmini = old_lift_alloc(gemmini, "a : _", n_lifts=4)
     gemmini = old_lift_alloc(gemmini, "b : _", n_lifts=3)
 
-    for (s, n) in [("a : i8", 1), ("b : i8", 2), ("res : _", 4)]:
+    for s, n in [("a : i8", 1), ("b : i8", 2), ("res : _", 4)]:
         gemmini = old_lift_alloc(gemmini, s, n_lifts=n, keep_dims=False)
 
     gemmini = simplify(gemmini)

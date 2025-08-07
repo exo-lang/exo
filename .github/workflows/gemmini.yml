@@ -20,18 +20,14 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
-        run: |
-          apt-get update
-          apt-get install -y ninja-build
-          python -m pip install -r requirements.txt
-          python -m pip install -r dev-requirements.txt
-          python -m pip install cmake build
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Install Python dependencies
+        run: uv sync --all-groups --no-install-project
 
       - name: Install exo
-        run: |
-          python -m build
-          python -m pip install dist/*.whl
+        run: uv pip install .
 
       - name: Configure, build, and run GEMMINI tests
         shell: bash
@@ -40,6 +36,7 @@ jobs:
           source $(conda info --base)/etc/profile.d/conda.sh
           source env.sh
           cd -
+          source .venv/bin/activate
           cmake -G Ninja -S apps/gemmini -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build --verbose
           cd build

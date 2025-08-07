@@ -117,6 +117,7 @@ def ld_i8_3d(
 # st_i8, st_i32, zero_i32                                                      #
 # ---------------------------------------------------------------------------- #
 
+
 # TODO: Handle custom write_stride
 @instr("_tile_stored({src_int}, {dst}.data, {dst}.strides[0]);")
 def st_i8(

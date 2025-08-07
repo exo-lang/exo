@@ -206,7 +206,7 @@ def _replace_pats(ir, fwd, c, pat, repl, only_replace_attrs=True, use_sym_id=Tru
             todos.append((rd, c_repl))
 
     cur_fwd = lambda x: x
-    for (rd, c_repl) in todos:
+    for rd, c_repl in todos:
         rd = cur_fwd(rd)
         ir, fwd_rd = _replace_helper(rd, c_repl, only_replace_attrs)
         cur_fwd = _compose(fwd_rd, cur_fwd)
@@ -222,7 +222,7 @@ def _replace_reads(ir, fwd, c, sym, repl, only_replace_attrs=True):
             todos.append((rd, c_repl))
 
     cur_fwd = lambda x: x
-    for (rd, c_repl) in todos:
+    for rd, c_repl in todos:
         rd = cur_fwd(rd)
         ir, fwd_rd = _replace_helper(rd, c_repl, only_replace_attrs)
         cur_fwd = _compose(fwd_rd, cur_fwd)
@@ -249,7 +249,7 @@ def _replace_writes(
             todos.append((s, c_repl))
 
     cur_fwd = lambda x: x
-    for (s, c_repl) in todos:
+    for s, c_repl in todos:
         s = cur_fwd(s)
         ir, fwd_s = _replace_helper(s, c_repl, only_replace_attrs)
         cur_fwd = _compose(fwd_s, cur_fwd)
