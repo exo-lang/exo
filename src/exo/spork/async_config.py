@@ -10,6 +10,7 @@ from .timelines import (
     cuda_async_instr_tl,
 )
 from .base_with_context import BaseWithContext, is_if_holding_with
+from .coll_algebra import clusterDim_param, blockDim_param, CollIndexExpr, CollTiling
 from .cuda_warp_config import CudaWarpConfig, WarpLayoutInfo
 from ..core.LoopIR import LoopIR, LoopIR_Rewrite
 from ..core.memory import DRAM, Memory, SpecialWindow, AllocableMemWin
@@ -95,6 +96,38 @@ class CudaDeviceFunction(BaseAsyncConfig):
 
     def parent_instr_tl(self):
         return cpu_in_order_instr
+
+    def coll_env(self):
+        return {clusterDim_param: self.clusterDim, blockDim_param: self.blockDim}
+
+    def top_level_coll_tiling(self):
+        # We seed the analysis of the collective units with the tiling
+        # for the top-level collective (clusterDim x blockDim,
+        # with redundant clusterDim removed if clusterDim = 1).
+        blockDim = self.blockDim
+        clusterDim = self.clusterDim
+        assert clusterDim > 0 and isinstance(clusterDim, int)
+        threadIdx_expr = CollIndexExpr("threadIdx.x", blockDim)
+        if clusterDim == 1:
+            tlc_offset = (0,)
+            tlc_box = (blockDim,)
+            intra_box_exprs = (threadIdx_expr,)
+        else:
+            tlc_offset = (0, 0)
+            tlc_box = (clusterDim, blockDim)
+            cta_expr = CollIndexExpr("blockIdx.x") % clusterDim
+            intra_box_exprs = (cta_expr, threadIdx_expr)
+        return CollTiling(
+            None,  # parent
+            None,  # _iter
+            tlc_box,
+            tlc_box,
+            tlc_offset,
+            tlc_box,
+            intra_box_exprs,
+            1,
+            CollIndexExpr(0),
+        )
 
     def __repr__(self):
         args = []

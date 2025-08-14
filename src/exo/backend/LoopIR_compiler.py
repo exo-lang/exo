@@ -436,12 +436,13 @@ def ext_compile_to_strings(
                 proc_uses_cuda = (
                     timelines.cuda_in_order_instr in instr_tl_analysis.instr_tl_seen
                 )
-                if instr_tl_analysis.contains_sync:
+                coll_analysis = None
+                if proc_uses_cuda or instr_tl_analysis.contains_sync:
                     # Don't force non-CUDA Exo users to waste time here
                     barrier_usage_analysis = BarrierUsageAnalysis(p)
                     barrier_uses = barrier_usage_analysis.uses
-                    coll_analysis = CollAnalysis(barrier_usage_analysis)
-                    tmp = coll_analysis.run(p)
+                    coll_analysis = CollAnalysis(barrier_usage_analysis, debug_log)
+                    p = coll_analysis.run(p)
 
                 comp = Compiler(
                     p,
@@ -451,6 +452,7 @@ def ext_compile_to_strings(
                     proc_uses_cuda,
                     util_injector,
                     mem_code_builder,
+                    coll_analysis,
                     debug_log,
                     is_public_decl=is_public_decl,
                 )
@@ -613,6 +615,7 @@ class Compiler:
         used_cuda,
         util_injector,
         mem_code_builder,
+        coll_analysis,
         debug_log,
         *,
         is_public_decl,
@@ -640,6 +643,7 @@ class Compiler:
         self._cuda_kernel_count = 0
         self._util_injector = util_injector
         self._mem_code_builder = mem_code_builder
+        self._coll_analysis = coll_analysis
         self._debug_log = debug_log
         self._lowered_barriers = ChainMap()
 
@@ -1963,3 +1967,8 @@ class SporkLoweringCtx(object):
 
     def get_barrier_usage(self, name: Sym) -> BarrierUsage:
         return self._compiler.barrier_uses[name]
+
+    def coll_analysis(self) -> CollAnalysis:
+        analysis = self._compiler._coll_analysis
+        assert isinstance(analysis, CollAnalysis)
+        return analysis

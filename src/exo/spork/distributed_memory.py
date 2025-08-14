@@ -22,7 +22,7 @@ from .base_with_context import is_if_holding_with
 
 @dataclass(slots=True, init=False)
 class ThreadIter:
-    """Information for an iter variable from a for-threads parallel loop (cuda_threads)"""
+    """Information for an iter variable from a for-threads parallel loop (cuda_threads), or rewritten CudaWarps"""
 
     codegen_par: _CodegenPar
     coll_index_expr: CollIndexExpr
@@ -39,8 +39,10 @@ class ThreadIter:
         )
         self.coll_index_expr = coll_tiling.tile_expr
         self.coll_tiling = coll_tiling
-        assert isinstance(coll_tiling.parent, CollTiling)
-        self.parent_tile_num_threads = coll_tiling.parent.tile_num_threads()
+        parent = coll_tiling.parent
+        if parent is None:
+            parent = coll_tiling
+        self.parent_tile_num_threads = parent.tile_num_threads()
         self.child_tile_num_threads = coll_tiling.tile_num_threads()
         self.thread_pitch = coll_tiling.thread_pitch
 

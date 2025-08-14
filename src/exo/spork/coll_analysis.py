@@ -2,10 +2,10 @@ from typing import Callable, Dict, Optional, Type, List
 
 from ..core.prelude import Sym
 from ..core.instr_info import InstrInfo
-from ..core.LoopIR import T, LoopIR, LoopIR_Rewrite
+from ..core.LoopIR import T, LoopIR, LoopIR_Rewrite, BaseCompilerDebugLog
 
 from .async_config import CudaDeviceFunction
-from .barrier_usage import BarrierUsageAnalysis
+from .barrier_usage import BarrierUsageAnalysis, BarrierUsage
 from .base_with_context import is_if_holding_with
 from .distributed_memory import ThreadIter, DistributedIdxFsm, DistributedAllocState
 from .coll_algebra import (
@@ -31,10 +31,12 @@ coll_idx_e_types = (LoopIR.Read, LoopIR.WindowExpr)
 coll_idx_s_types = (LoopIR.Assign, LoopIR.Reduce)
 
 
-def wrap_codegen_par(codegen_par, body, srcinfo):
+def wrap_codegen_par(codegen_par, body, srcinfo, iter_sym=None):
     assert isinstance(codegen_par, _CodegenPar)
+    if iter_sym is None:
+        iter_sym = Sym("tmp")
     return LoopIR.For(
-        Sym("tmp"),
+        iter_sym,
         LoopIR.Const(0, T.int, srcinfo),
         LoopIR.Const(1, T.int, srcinfo),
         body,
@@ -54,18 +56,29 @@ class CollAnalysis(LoopIR_Rewrite):
         "_envtyp",
         "_cuda_device_function",
         "_barrier_uses",
+        "_debug_log",
+        "_proc_name",
     ]
 
+    # Public variables
     distributed_alloc_states: Dict[Sym, DistributedAllocState]
     thread_iters: Dict[Sym, ThreadIter]  # Info on iterators of cuda_threads loops
+
     _stmt_stack: List[LoopIR.stmt]
     _coll_env: Dict[CollParam, int]
     _coll_tiling: Optional[CollTiling]
     _current_warp_name: Optional[str]
     _envtyp: Dict[Sym, LoopIR.type]
     _cuda_device_function: Optional[CudaDeviceFunction]
+    _barrier_uses: Dict[Sym, BarrierUsage]
+    _debug_log: BaseCompilerDebugLog
+    _proc_name: str
 
-    def __init__(self, barrier_usage_analysis: BarrierUsageAnalysis):
+    def __init__(
+        self,
+        barrier_usage_analysis: BarrierUsageAnalysis,
+        debug_log: BaseCompilerDebugLog = BaseCompilerDebugLog(),
+    ):
         self.distributed_alloc_states = {}
         self.thread_iters = {}
         self._stmt_stack = []
@@ -75,8 +88,10 @@ class CollAnalysis(LoopIR_Rewrite):
         self._envtyp = {}
         self._cuda_device_function = None
         self._barrier_uses = barrier_usage_analysis.uses
+        self._debug_log = debug_log
 
     def run(self, proc):
+        self._proc_name = proc.name
         return super().apply_proc(proc)
 
     def in_cuda(self):
@@ -99,11 +114,11 @@ class CollAnalysis(LoopIR_Rewrite):
             self._envtyp[s.name] = s.rhs.type
 
         if self.in_cuda():
-            loop_mode = self.cuda_inspect_s(s)
+            thread_iter = self.cuda_inspect_s(s)
 
         if isinstance(s, LoopIR.For) and isinstance(s.loop_mode, CudaThreads):
             if self.in_cuda():
-                stmts = self.map_cuda_threads_loop(s, loop_mode)
+                stmts = self.map_cuda_threads_loop(s, thread_iter)
             else:
                 raise TypeError(
                     f"{s.srcinfo}: cannot have cuda_threads loop outside CUDA device function"
@@ -111,7 +126,7 @@ class CollAnalysis(LoopIR_Rewrite):
         elif is_if_holding_with(s, LoopIR):
             if isinstance(cuda_warps := s.cond.val, CudaWarps):
                 if self.in_cuda():
-                    stmts = self.map_with_cuda_warps(s, loop_mode)
+                    stmts = self.map_with_cuda_warps(s, thread_iter)
                 else:
                     raise TypeError(
                         f"{s.srcinfo}: cannot have with CudaWarps outside CUDA device function"
@@ -135,8 +150,8 @@ class CollAnalysis(LoopIR_Rewrite):
         self._cuda_device_function = old_cuda_device_function
         return stmts
 
-    def cuda_inspect_s(self, s) -> Optional[_CodegenPar]:
-        codegen_par = None
+    def cuda_inspect_s(self, s) -> ThreadIter:
+        thread_iter = None
         if isinstance(s, coll_idx_s_types):
             self.cuda_inspect_idx(s, s, ())
         elif not isinstance(s, (LoopIR.WindowStmt, LoopIR.Alloc, LoopIR.Free)):
@@ -145,10 +160,10 @@ class CollAnalysis(LoopIR_Rewrite):
         if is_if_holding_with(s, LoopIR):
             ctx = s.cond.val
             if isinstance(ctx, CudaWarps):
-                codegen_par = self.apply_with_cuda_warps(s)
+                thread_iter = self.apply_with_cuda_warps(s)
         elif isinstance(s, LoopIR.For):
             if isinstance(s.loop_mode, CudaThreads):
-                codegen_par = self.apply_cuda_threads_loop(s)
+                thread_iter = self.apply_cuda_threads_loop(s)
         elif isinstance(s, LoopIR.WindowStmt):
             # Unlike for Calls, the WindowExpr here do not allow intervals for
             # any distributed dimensions ... this would be very hard to support.
@@ -209,7 +224,7 @@ class CollAnalysis(LoopIR_Rewrite):
                 assert e.name not in self.distributed_alloc_states
                 state = DistributedAllocState.from_fence(s, self._coll_tiling)
                 self.distributed_alloc_states[e.name] = state
-        return codegen_par
+        return thread_iter
 
     def map_e(self, e, distributed_coll_units=()):
         if self.in_cuda():
@@ -223,49 +238,25 @@ class CollAnalysis(LoopIR_Rewrite):
         elif not isinstance(e, (LoopIR.BarrierExpr, LoopIR.StrideExpr)):
             assert not hasattr(e, "name"), "Add handling for array indexing"
 
-    def map_cuda_threads_loop(self, s: LoopIR.For, loop_mode: _CodegenPar):
+    def map_cuda_threads_loop(self, s: LoopIR.For, thread_iter: ThreadIter):
         stmts = super().map_s(s)
         if stmts is not None:
             assert len(stmts) == 1
             s = stmts[0]
-        return s.update(loop_mode=loop_mode)
+        return [s.update(loop_mode=thread_iter.codegen_par)]
 
-    def map_with_cuda_warps(self, s: LoopIR.stmt, loop_mode: _CodegenPar):
+    def map_with_cuda_warps(self, s: LoopIR.stmt, thread_iter: ThreadIter):
         assert not s.orelse
         stmts = self.map_stmts(s.body)
         if stmts is None:
             stmts = s.body
-        return wrap_codegen_par(loop_mode, stmts, s.srcinfo)
+        s2 = wrap_codegen_par(thread_iter.codegen_par, stmts, s.srcinfo)
+        self.thread_iters[s2.iter] = thread_iter
+        return [s2]
 
     def apply_cuda_device_function(self, cuda_device_function: CudaDeviceFunction):
-        # We seed the analysis of the collective units with the tiling
-        # for the top-level collective (clusterDim x blockDim,
-        # with redundant clusterDim removed if clusterDim = 1).
-        blockDim = cuda_device_function.blockDim
-        clusterDim = cuda_device_function.clusterDim
-        assert clusterDim > 0 and isinstance(clusterDim, int)
-        threadIdx_expr = CollIndexExpr("threadIdx.x", blockDim)
-        if clusterDim == 1:
-            tlc_offset = (0,)
-            tlc_box = (blockDim,)
-            intra_box_exprs = (threadIdx_expr,)
-        else:
-            tlc_offset = (0, 0)
-            tlc_box = (clusterDim, blockDim)
-            cta_expr = CollIndexExpr("blockIdx.x") % clusterDim
-            intra_box_exprs = (cta_expr, threadIdx_expr)
-        self._coll_tiling = CollTiling(
-            None,  # parent
-            None,  # _iter
-            tlc_box,
-            tlc_box,
-            tlc_offset,
-            tlc_box,
-            intra_box_exprs,
-            1,
-            CollIndexExpr(0),
-        )
-        self._coll_env = {clusterDim_param: clusterDim, blockDim_param: blockDim}
+        self._coll_tiling = cuda_device_function.top_level_coll_tiling()
+        self._coll_env = cuda_device_function.coll_env()
         self._current_warp_name = None
         self._cuda_device_function = cuda_device_function
 
@@ -370,7 +361,7 @@ class CollAnalysis(LoopIR_Rewrite):
         # Cannot use super().map_s(s) due to window handling
         return None
 
-    def apply_cuda_threads_loop(self, s: LoopIR.For) -> _CodegenPar:
+    def apply_cuda_threads_loop(self, s: LoopIR.For) -> ThreadIter:
         def get_const(e, name):
             expected = "literal int value"
             if isinstance(e, LoopIR.Const):
@@ -405,15 +396,15 @@ class CollAnalysis(LoopIR_Rewrite):
         thread_iter = ThreadIter(
             self._coll_tiling, s.loop_mode.format_loop_cond(lo_int, hi_int)
         )
-        self.thread_iters[s.iter] = thread_iter
-        return thread_iter.codegen_par
-        # log_lhs = thread_iter.cname(s.iter)
-        # log_rhs = thread_iter.codegen_par.c_index
-        # self.ctx.debug_log.remark(
-        #     self.ctx.proc_name(), f"{log_lhs} = {log_rhs} @ {s.srcinfo}"
-        # )
 
-    def apply_with_cuda_warps(self, s) -> _CodegenPar:
+        log_lhs = thread_iter.cname(s.iter)
+        log_rhs = thread_iter.codegen_par.c_index
+        self._debug_log.remark(self._proc_name, f"{log_lhs} = {log_rhs} @ {s.srcinfo}")
+
+        self.thread_iters[s.iter] = thread_iter
+        return thread_iter
+
+    def apply_with_cuda_warps(self, s) -> ThreadIter:
         assert self.in_cuda()
         ctx: CudaWarps = s.cond.val
         assert isinstance(ctx, CudaWarps)
@@ -489,9 +480,4 @@ class CollAnalysis(LoopIR_Rewrite):
             raise ValueError(f"{s.srcinfo}: failed to compile {ctx}: {e}") from e
 
         self._coll_tiling = coll_tiling
-        return _CodegenPar(
-            coll_tiling.codegen_expr.codegen(),
-            str(ctx),
-            (coll_tiling.codegen_lo, coll_tiling.codegen_hi),
-            name,
-        )
+        return ThreadIter(coll_tiling, str(ctx))
