@@ -1,0 +1,497 @@
+from typing import Callable, Dict, Optional, Type, List
+
+from ..core.prelude import Sym
+from ..core.instr_info import InstrInfo
+from ..core.LoopIR import T, LoopIR, LoopIR_Rewrite
+
+from .async_config import CudaDeviceFunction
+from .barrier_usage import BarrierUsageAnalysis
+from .base_with_context import is_if_holding_with
+from .distributed_memory import ThreadIter, DistributedIdxFsm, DistributedAllocState
+from .coll_algebra import (
+    CollParam,
+    CollUnit,
+    clusterDim_param,
+    blockDim_param,
+    CollIndexExpr,
+    CollTiling,
+    cuda_warp,
+    cuda_cta_in_cluster,
+    cuda_agnostic_sub_cta,
+    cuda_agnostic_intact_cta,
+)
+from .cuda_memory import CudaBasicDeviceVisible
+from .cuda_warp_config import WarpLayoutInfo
+from .loop_modes import CudaThreads, _CodegenPar
+from .with_cuda_warps import CudaWarps
+
+
+# No BarrierExpr here; handled specially as part of SyncStmt.
+coll_idx_e_types = (LoopIR.Read, LoopIR.WindowExpr)
+coll_idx_s_types = (LoopIR.Assign, LoopIR.Reduce)
+
+
+def wrap_codegen_par(codegen_par, body, srcinfo):
+    assert isinstance(codegen_par, _CodegenPar)
+    return LoopIR.For(
+        Sym("tmp"),
+        LoopIR.Const(0, T.int, srcinfo),
+        LoopIR.Const(1, T.int, srcinfo),
+        body,
+        codegen_par,
+        srcinfo,
+    )
+
+
+class CollAnalysis(LoopIR_Rewrite):
+    __slots__ = [
+        "distributed_alloc_states",
+        "thread_iters",
+        "_stmt_stack",
+        "_coll_env",
+        "_coll_tiling",
+        "_current_warp_name",
+        "_envtyp",
+        "_cuda_device_function",
+        "_barrier_uses",
+    ]
+
+    distributed_alloc_states: Dict[Sym, DistributedAllocState]
+    thread_iters: Dict[Sym, ThreadIter]  # Info on iterators of cuda_threads loops
+    _stmt_stack: List[LoopIR.stmt]
+    _coll_env: Dict[CollParam, int]
+    _coll_tiling: Optional[CollTiling]
+    _current_warp_name: Optional[str]
+    _envtyp: Dict[Sym, LoopIR.type]
+    _cuda_device_function: Optional[CudaDeviceFunction]
+
+    def __init__(self, barrier_usage_analysis: BarrierUsageAnalysis):
+        self.distributed_alloc_states = {}
+        self.thread_iters = {}
+        self._stmt_stack = []
+        self._coll_env = None
+        self._coll_tiling = None
+        self._current_warp_name = None
+        self._envtyp = {}
+        self._cuda_device_function = None
+        self._barrier_uses = barrier_usage_analysis.uses
+
+    def run(self, proc):
+        return super().apply_proc(proc)
+
+    def in_cuda(self):
+        return self._cuda_device_function is not None
+
+    def map_fnarg(self, a):
+        self._envtyp[a.name] = a.type
+        return None
+
+    def map_s(self, s):
+        # Save state
+        old_cuda_device_function = self._cuda_device_function
+        old_coll_tiling = self._coll_tiling
+        old_warp_name = self._current_warp_name
+        self._stmt_stack.append(s)
+
+        if isinstance(s, LoopIR.Alloc):
+            self._envtyp[s.name] = s.type
+        elif isinstance(s, LoopIR.WindowStmt):
+            self._envtyp[s.name] = s.rhs.type
+
+        if self.in_cuda():
+            loop_mode = self.cuda_inspect_s(s)
+
+        if isinstance(s, LoopIR.For) and isinstance(s.loop_mode, CudaThreads):
+            if self.in_cuda():
+                stmts = self.map_cuda_threads_loop(s, loop_mode)
+            else:
+                raise TypeError(
+                    f"{s.srcinfo}: cannot have cuda_threads loop outside CUDA device function"
+                )
+        elif is_if_holding_with(s, LoopIR):
+            if isinstance(cuda_warps := s.cond.val, CudaWarps):
+                if self.in_cuda():
+                    stmts = self.map_with_cuda_warps(s, loop_mode)
+                else:
+                    raise TypeError(
+                        f"{s.srcinfo}: cannot have with CudaWarps outside CUDA device function"
+                    )
+            elif isinstance(cuda_device_function := s.cond.val, CudaDeviceFunction):
+                assert not self.in_cuda()
+                self.apply_cuda_device_function(cuda_device_function)
+                stmts = super().map_s(s)
+            else:
+                stmts = super().map_s(s)
+        elif isinstance(s, LoopIR.Call) and self.in_cuda():
+            stmts = self.cuda_map_call_stmt(s)
+            # cuda_map_call_stmt cannot use super().map_s(s) due to window handling.
+        else:
+            stmts = super().map_s(s)
+
+        # Restore state
+        self._stmt_stack.pop()
+        self._current_warp_name = old_warp_name
+        self._coll_tiling = old_coll_tiling
+        self._cuda_device_function = old_cuda_device_function
+        return stmts
+
+    def cuda_inspect_s(self, s) -> Optional[_CodegenPar]:
+        codegen_par = None
+        if isinstance(s, coll_idx_s_types):
+            self.cuda_inspect_idx(s, s, ())
+        elif not isinstance(s, (LoopIR.WindowStmt, LoopIR.Alloc, LoopIR.Free)):
+            assert not hasattr(s, "name"), "Add handling for array indexing"
+
+        if is_if_holding_with(s, LoopIR):
+            ctx = s.cond.val
+            if isinstance(ctx, CudaWarps):
+                codegen_par = self.apply_with_cuda_warps(s)
+        elif isinstance(s, LoopIR.For):
+            if isinstance(s.loop_mode, CudaThreads):
+                codegen_par = self.apply_cuda_threads_loop(s)
+        elif isinstance(s, LoopIR.WindowStmt):
+            # Unlike for Calls, the WindowExpr here do not allow intervals for
+            # any distributed dimensions ... this would be very hard to support.
+            # Basically the dimensionality of the WindowStmt will never change!
+            # See WindowExpr case for remove_distributed_idx.
+            pass
+        elif isinstance(s, LoopIR.Alloc):
+            if s.type.is_barrier():
+                native_unit = None
+            else:
+                assert issubclass(s.mem, CudaBasicDeviceVisible)
+                native_unit = s.mem.native_unit()
+            self.distributed_alloc_states[s.name] = DistributedAllocState(
+                self._coll_tiling, native_unit
+            )
+        elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+            if (n_threads := self._coll_tiling.box_num_threads()) != 1:
+                raise ValueError(
+                    f"{s.srcinfo}: write must be executed by one "
+                    f"thread only (current: {n_threads} threads)\n"
+                    f"stmt: {s}"
+                )
+        elif isinstance(s, LoopIR.SyncStmt):
+            # Distributed memory analysis and CollTiling for Fence/Arrive/Await
+            if s.sync_type.is_split():
+                assert len(s.barriers) >= 1
+                name = s.barriers[0].name
+                usage: BarrierUsage = self._barrier_uses[name]
+                state = self.distributed_alloc_states.get(name)
+                assert isinstance(state, DistributedAllocState)
+
+                fsm = DistributedIdxFsm(
+                    s,
+                    state,
+                    "cuda_threads",
+                    self.thread_iters,  # May be modified
+                    self._coll_env,
+                    self._coll_tiling,
+                    (),
+                )
+                # There is no native_unit; we parse all indices as distributed
+                assert state.optional_native_unit is None
+                e0 = s.barriers[0]
+                for i in range(len(e0.idx)):
+                    fsm.consume_SyncStmt_idx(
+                        self._stmt_stack, s, self._envtyp[e0.name], i
+                    )
+
+                # We now have the distributed indices in distributed_iters.
+                # Store in DistributedAllocState if this is the first use, or check
+                # consistency (index equality) with prior uses.
+                fsm.check_store_state(s, state)
+                fsm.inspect_arrive_await(s, self._coll_tiling, usage, state)
+            else:
+                assert len(s.barriers) == 1
+                e = s.barriers[0]
+                assert isinstance(e, LoopIR.BarrierExpr)
+                assert e.name not in self.distributed_alloc_states
+                state = DistributedAllocState.from_fence(s, self._coll_tiling)
+                self.distributed_alloc_states[e.name] = state
+        return codegen_par
+
+    def map_e(self, e, distributed_coll_units=()):
+        if self.in_cuda():
+            self.cuda_inspect_e(e, distributed_coll_units)
+        return super().map_e(e)
+
+    def cuda_inspect_e(self, e, distributed_coll_units):
+        if isinstance(e, coll_idx_e_types):
+            # BarrierExpr not handled here; part of SyncStmt handling.
+            self.cuda_inspect_idx(e, self._stmt_stack[-1], distributed_coll_units)
+        elif not isinstance(e, (LoopIR.BarrierExpr, LoopIR.StrideExpr)):
+            assert not hasattr(e, "name"), "Add handling for array indexing"
+
+    def map_cuda_threads_loop(self, s: LoopIR.For, loop_mode: _CodegenPar):
+        stmts = super().map_s(s)
+        if stmts is not None:
+            assert len(stmts) == 1
+            s = stmts[0]
+        return s.update(loop_mode=loop_mode)
+
+    def map_with_cuda_warps(self, s: LoopIR.stmt, loop_mode: _CodegenPar):
+        assert not s.orelse
+        stmts = self.map_stmts(s.body)
+        if stmts is None:
+            stmts = s.body
+        return wrap_codegen_par(loop_mode, stmts, s.srcinfo)
+
+    def apply_cuda_device_function(self, cuda_device_function: CudaDeviceFunction):
+        # We seed the analysis of the collective units with the tiling
+        # for the top-level collective (clusterDim x blockDim,
+        # with redundant clusterDim removed if clusterDim = 1).
+        blockDim = cuda_device_function.blockDim
+        clusterDim = cuda_device_function.clusterDim
+        assert clusterDim > 0 and isinstance(clusterDim, int)
+        threadIdx_expr = CollIndexExpr("threadIdx.x", blockDim)
+        if clusterDim == 1:
+            tlc_offset = (0,)
+            tlc_box = (blockDim,)
+            intra_box_exprs = (threadIdx_expr,)
+        else:
+            tlc_offset = (0, 0)
+            tlc_box = (clusterDim, blockDim)
+            cta_expr = CollIndexExpr("blockIdx.x") % clusterDim
+            intra_box_exprs = (cta_expr, threadIdx_expr)
+        self._coll_tiling = CollTiling(
+            None,  # parent
+            None,  # _iter
+            tlc_box,
+            tlc_box,
+            tlc_offset,
+            tlc_box,
+            intra_box_exprs,
+            1,
+            CollIndexExpr(0),
+        )
+        self._coll_env = {clusterDim_param: clusterDim, blockDim_param: blockDim}
+        self._current_warp_name = None
+        self._cuda_device_function = cuda_device_function
+
+    def cuda_inspect_idx(self, node, context_stmt, distributed_coll_units):
+        """Consistent distributed memory analysis"""
+        assert isinstance(context_stmt, LoopIR.stmt)
+        state: DistributedAllocState
+        state = self.distributed_alloc_states.get(node.name)
+        if state is None:
+            return  # Allocated outside CUDA, or not numeric
+
+        assert state.optional_native_unit is not None
+
+        fsm = DistributedIdxFsm(
+            context_stmt,
+            state,
+            "cuda_threads",
+            self.thread_iters,  # May be modified
+            self._coll_env,
+            self._coll_tiling,
+            distributed_coll_units,
+        )
+        for i in range(len(node.idx)):
+            if fsm.is_done(node):
+                break
+            fsm.consume_idx(node, self._envtyp[node.name], i)
+
+        # We only got the correct number of threads, not shape/alignment.
+        # Check that the leaf tiling has the correct collective unit.
+        fsm.check_native_unit(node)
+
+        # We now have the distributed indices in distributed_iters.
+        # Store in DistributedAllocState if this is the first use, or check
+        # consistency (index equality) with prior uses.
+        fsm.check_store_state(node, state)
+
+    def cuda_map_call_stmt(self, s: LoopIR.Call):
+        # Check collective unit.
+        callee = s.f
+        instr_info: InstrInfo = callee.instr
+        assert isinstance(instr_info, InstrInfo), "Unimplemented: CUDA function calls"
+        needed = callee.proc_coll_unit()
+        if msg := self._coll_tiling.unit_mismatch(needed, self._coll_env):
+            domain = self._coll_tiling.full_domain
+            box = self._coll_tiling.box
+            offset = self._coll_tiling.offset
+            raise TypeError(
+                f"{s.srcinfo}: wrong collective unit for {callee.name}():\n{msg},\n"
+                f"need {needed}, have threads in shape box={box}, offset={offset}, domain={domain}"
+            )
+
+        # Inspect distributed indices of arguments (safer after above check)
+        assert len(callee.args) == len(s.args)
+        for decl, e in zip(callee.args, s.args):
+            arg_name_str = str(decl.name)
+            coll_units = ()
+            if e.type.is_tensor_or_window():
+                access_info: AccessInfo = instr_info.access_info[arg_name_str]
+                coll_units = access_info.distributed_coll_units
+            self.cuda_inspect_e(e, coll_units)
+
+        # Inspect trailing barrier expression
+        if bar_e := s.trailing_barrier_expr:
+            name = bar_e.name
+            state = self.distributed_alloc_states.get(name)
+            barrier_loopir_type = self._envtyp[name]
+            assert barrier_loopir_type.is_barrier()
+            assert isinstance(state, DistributedAllocState)
+
+            # Inspect intervals (as opposed to points) in BarrierExpr
+            coll_units = instr_info.barrier_coll_units
+            interval_count = 0
+            for coord in bar_e.idx:
+                if isinstance(coord, LoopIR.Interval):
+                    interval_count += 1
+            if interval_count != len(coll_units):
+                raise ValueError(
+                    f"{s.srcinfo}: {callee.name} #intervals in barrier {bar_e} wrong; "
+                    f"have {interval_count}, need {len(coll_units)}"
+                )
+
+            # Distributed memory deduction
+            fsm = DistributedIdxFsm(
+                s,
+                state,
+                "cuda_threads",
+                self.thread_iters,  # May be modified
+                self._coll_env,
+                self._coll_tiling,
+                coll_units,
+            )
+            # There is no native_unit; we parse all indices as distributed
+            assert state.optional_native_unit is None
+            for i in range(len(bar_e.idx)):
+                fsm.consume_idx(bar_e, barrier_loopir_type, i)
+
+            # We now have the distributed indices in distributed_iters.
+            # Store in DistributedAllocState if this is the first use, or check
+            # consistency (index equality) with prior uses.
+            fsm.check_store_state(s, state)
+
+        # Cannot use super().map_s(s) due to window handling
+        return None
+
+    def apply_cuda_threads_loop(self, s: LoopIR.For) -> _CodegenPar:
+        def get_const(e, name):
+            expected = "literal int value"
+            if isinstance(e, LoopIR.Const):
+                if e.type.is_indexable():
+                    v = int(e.val)
+                    if v != 0 and name == "lo":
+                        expected = "0"
+                    else:
+                        return v
+            raise ValueError(
+                f"{e.srcinfo}: expected {expected} for {name} of {s.iter} loop (rewrite with simplify(...) if needed)"
+            )
+
+        lo_int = get_const(s.lo, "lo")
+        hi_int = get_const(s.hi, "hi")
+        assert lo_int == 0
+
+        # Update stored CollTiling
+        try:
+            new_tiling = self._coll_tiling.tiled(
+                s.iter, s.loop_mode.unit, hi_int, self._coll_env
+            )
+        except AssertionError:
+            raise
+        except Exception as e:
+            loop_str = f"for {s.iter} in {s.loop_mode.format_loop_cond(s.lo, s.hi)}"
+            raise ValueError(f"{s.srcinfo}: Failed to compile {loop_str}: {e}") from e
+        self._coll_tiling = new_tiling
+
+        # We will advise replacing the loop mode with _CodegenPar
+        assert s.iter not in self.thread_iters
+        thread_iter = ThreadIter(
+            self._coll_tiling, s.loop_mode.format_loop_cond(lo_int, hi_int)
+        )
+        self.thread_iters[s.iter] = thread_iter
+        return thread_iter.codegen_par
+        # log_lhs = thread_iter.cname(s.iter)
+        # log_rhs = thread_iter.codegen_par.c_index
+        # self.ctx.debug_log.remark(
+        #     self.ctx.proc_name(), f"{log_lhs} = {log_rhs} @ {s.srcinfo}"
+        # )
+
+    def apply_with_cuda_warps(self, s) -> _CodegenPar:
+        assert self.in_cuda()
+        ctx: CudaWarps = s.cond.val
+        assert isinstance(ctx, CudaWarps)
+        coll_tiling = self._coll_tiling
+        is_top_level = self._current_warp_name is None
+        named_warps = self._cuda_device_function.named_warps
+
+        # Top-level CudaWarps: adjust CollTiling to account for offset of named warps.
+        # We ignore the codegen here ... because of how the deviceTask is specialized
+        # per named-warp set, we already can assume the physical code is executed
+        # only by the subset of warps that are part of the named warp set.
+        #
+        # NB it's important that this is skipped when the user doesn't
+        # use named warps (fallback len-1 case) because the (***)
+        # restriction must not be enforced.
+        if is_top_level and len(named_warps) > 1:
+            name = "" if ctx.name is None else ctx.name
+            if (info := named_warps.get(name)) is None:
+                known_names = sorted(named_warps)
+                raise ValueError(
+                    f"{s.srcinfo}: top-level CudaWarps must provide valid warp name, not {ctx.name!r}; your CudaDeviceFunction defines: {known_names}"
+                )
+
+            # (***) Named warps won't work if the CTA has already been
+            # subdivided by a cuda_threads loop.
+            if detail := self._coll_tiling.unit_mismatch(
+                cuda_agnostic_intact_cta, self._coll_env
+            ):
+                raise ValueError(
+                    f"{s.srcinfo}: named {ctx} requires CTA not to be subdivided by parent cuda_threads loop (detail: {detail})"
+                )
+
+            # Extract lo/hi offsets (with defaulted values allowed).
+            # This gets handled towards the end of the function.
+            warps_lo = 0 if ctx.lo is None else ctx.lo
+            warps_hi = info.count if ctx.hi is None else ctx.hi
+            if warps_hi > info.count:
+                raise ValueError(
+                    f"{s.srcinfo}: CudaWarps.hi={warps_hi} out-of-range for {name!r}-named warps (only have {info.count})"
+                )
+
+            # (1/2) adjust CollTiling for named warps offset. Codegen discarded.
+            coll_tiling = coll_tiling.specialized(
+                cuda_warp, info.offset, info.offset + info.count, self._coll_env
+            )
+
+        # Nested CudaWarps: interpret lo/hi literally as the higher-level
+        # CudaWarps will have already handled the named warp offset adjustment.
+        # Can't request different named warps now.
+        else:
+            name = self._current_warp_name if ctx.name is None else ctx.name
+            if name != self._current_warp_name:
+                raise ValueError(
+                    f"{s.srcinfo}: nested CudaWarps cannot change warp name from {self._current_warp_name!r} to {name!r}"
+                )
+            warps_lo = ctx.lo
+            warps_hi = ctx.hi
+            if warps_lo is None or warps_hi is None:
+                raise ValueError(
+                    f"{s.srcinfo}: nested CudaWarps must define lo and hi explicitly"
+                )
+
+        self._current_warp_name = name
+
+        # (2/2) Ajdust CollTiling for lo/hi offset.
+        try:
+            coll_tiling = coll_tiling.specialized(
+                cuda_warp, warps_lo, warps_hi, self._coll_env
+            )
+        except AssertionError:
+            raise
+        except Exception as e:
+            raise ValueError(f"{s.srcinfo}: failed to compile {ctx}: {e}") from e
+
+        self._coll_tiling = coll_tiling
+        return _CodegenPar(
+            coll_tiling.codegen_expr.codegen(),
+            str(ctx),
+            (coll_tiling.codegen_lo, coll_tiling.codegen_hi),
+            name,
+        )

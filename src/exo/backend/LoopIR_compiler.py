@@ -65,6 +65,7 @@ from ..spork.barrier_usage import BarrierUsage, BarrierUsageAnalysis, SyncInfo
 from ..spork import timelines
 from ..spork.cuda_backend import loopir_lower_cuda, h_snippet_for_cuda
 from ..spork import excut
+from ..spork.coll_analysis import CollAnalysis
 
 
 def sanitize_str(s):
@@ -439,6 +440,8 @@ def ext_compile_to_strings(
                     # Don't force non-CUDA Exo users to waste time here
                     barrier_usage_analysis = BarrierUsageAnalysis(p)
                     barrier_uses = barrier_usage_analysis.uses
+                    coll_analysis = CollAnalysis(barrier_usage_analysis)
+                    tmp = coll_analysis.run(p)
 
                 comp = Compiler(
                     p,

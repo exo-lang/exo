@@ -37,6 +37,11 @@ from .coll_algebra import (
     cuda_agnostic_sub_cta,
     cuda_agnostic_intact_cta,
 )
+from .coll_analysis import (
+    coll_idx_e_types as idx_e_types,
+    coll_idx_s_types as idx_s_types,
+    wrap_codegen_par,
+)
 from .cuda_memory import (
     CudaBasicDeviceVisible,
     CudaBasicSmem,
@@ -50,11 +55,6 @@ from .cuda_warp_config import WarpLayoutInfo
 from .loop_modes import CudaTasks, CudaThreads, Seq, seq, _CodegenPar
 from .sync_types import SyncType
 from .with_cuda_warps import CudaWarps
-
-
-# No BarrierExpr here; handled specially as part of SyncStmt.
-idx_e_types = (LoopIR.Read, LoopIR.WindowExpr)
-idx_s_types = (LoopIR.Assign, LoopIR.Reduce)
 
 
 def loopir_lower_cuda(s, ctx: SporkLoweringCtx):
@@ -245,6 +245,7 @@ class SubtreeScan(LoopIR_Do):
         self._local_envtyp = {}
         self._syms_needed = set()
         self._stmt_stack = []
+        # Remove
         self._coll_env = coll_env
         assert clusterDim > 0 and isinstance(clusterDim, int)
         threadIdx_expr = CollIndexExpr("threadIdx.x", blockDim)
@@ -268,6 +269,7 @@ class SubtreeScan(LoopIR_Do):
             1,
             CollIndexExpr(0),
         )
+        # End remove
         self.do_stmts(s.body)
 
         # Prepare the device args struct
@@ -410,23 +412,27 @@ class SubtreeScan(LoopIR_Do):
     def apply_e(self, e, distributed_coll_units):
         if isinstance(e, idx_e_types):
             # BarrierExpr not handled here; part of SyncStmt handling.
-            self.mark_sym_used(e.name)
+            self.mark_sym_used(e.name)  # DON'T REMOVE
             self.apply_idx(e, self._stmt_stack[-1], distributed_coll_units)
         elif not isinstance(e, (LoopIR.BarrierExpr, LoopIR.StrideExpr)):
             assert not hasattr(e, "name"), "Add handling for array indexing"
 
     def apply_s(self, s):
         if isinstance(s, idx_s_types):
-            self.mark_sym_used(s.name)
-            self.apply_idx(s, s, ())
-        elif not isinstance(s, (LoopIR.WindowStmt, LoopIR.Alloc, LoopIR.Free)):
+            self.mark_sym_used(s.name)  # DON'T REMOVE
+            self.apply_idx(s, s, ())  # Remove
+        elif not isinstance(
+            s, (LoopIR.WindowStmt, LoopIR.Alloc, LoopIR.Free)
+        ):  # Remove
             assert not hasattr(s, "name"), "Add handling for array indexing"
 
         if is_if_holding_with(s, LoopIR):
             ctx = s.cond.val
             if isinstance(ctx, CudaWarps):
                 self.apply_with_cuda_warps(s)
+            # Remove
         elif isinstance(s, LoopIR.For):
+            # Rewrite with new expectations
             loop_mode = s.loop_mode
             if isinstance(loop_mode, Seq):
                 pass
@@ -449,6 +455,7 @@ class SubtreeScan(LoopIR_Do):
             self._local_envtyp[s.name] = s.rhs.type
         elif isinstance(s, LoopIR.Alloc):
             self._local_envtyp[s.name] = s.type
+            # Remove
             if s.type.is_barrier():
                 native_unit = None
             else:
@@ -467,6 +474,7 @@ class SubtreeScan(LoopIR_Do):
                     self.thread_iters,
                 )
 
+        # Remove
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if (n_threads := self._coll_tiling.box_num_threads()) != 1:
                 raise ValueError(
@@ -477,6 +485,7 @@ class SubtreeScan(LoopIR_Do):
         elif isinstance(s, LoopIR.SyncStmt):
             # Distributed memory analysis and CollTiling for Fence/Arrive/Await
             if s.sync_type.is_split():
+                # REMOVE
                 assert len(s.barriers) >= 1
                 name = s.barriers[0].name
                 self.mark_sym_used(name)
@@ -507,12 +516,14 @@ class SubtreeScan(LoopIR_Do):
                 fsm.check_store_state(s, state)
                 fsm.inspect_arrive_await(s, self._coll_tiling, usage, state)
             else:
+                # REMOVE
                 assert len(s.barriers) == 1
                 e = s.barriers[0]
                 assert isinstance(e, LoopIR.BarrierExpr)
                 assert e.name not in self.distributed_alloc_states
                 state = DistributedAllocState.from_fence(s, self._coll_tiling)
                 self.distributed_alloc_states[e.name] = state
+                # DON'T REMOVE
                 self.sync_state_builder.add_barrier(
                     e.name,
                     self.get_barrier_usage(e.name),
@@ -524,6 +535,7 @@ class SubtreeScan(LoopIR_Do):
             assert 0, "Was supposed to be handled specially with do_call_stmt"
 
     def apply_with_cuda_warps(self, s):
+        # Remove
         ctx: CudaWarps = s.cond.val
         assert isinstance(ctx, CudaWarps)
         coll_tiling = self._coll_tiling
@@ -685,6 +697,7 @@ class SubtreeScan(LoopIR_Do):
             self.ctx.proc_name(), f"{log_lhs} = {log_rhs} @ {s.srcinfo}"
         )
 
+    # Remove
     def apply_idx(self, node, context_stmt, distributed_coll_units):
         """Consistent distributed memory analysis"""
         assert isinstance(context_stmt, LoopIR.stmt)
@@ -719,6 +732,8 @@ class SubtreeScan(LoopIR_Do):
         fsm.check_store_state(node, state)
 
     def do_call_stmt(self, s: LoopIR.Call):
+        # Remove
+
         # Check collective unit.
         callee = s.f
         instr_info: InstrInfo = callee.instr
@@ -746,7 +761,7 @@ class SubtreeScan(LoopIR_Do):
         # Inspect trailing barrier expression
         if bar_e := s.trailing_barrier_expr:
             name = bar_e.name
-            self.mark_sym_used(name)
+            self.mark_sym_used(name)  # DON'T REMOVE
             state = self.distributed_alloc_states.get(name)
             barrier_loopir_type = self.sym_type(name)
             assert barrier_loopir_type.is_barrier()
@@ -816,18 +831,6 @@ def wrap_with_context(with_context, body, srcinfo):
     node = LoopIR.If(cond, body, [], srcinfo)
     assert is_if_holding_with(node, LoopIR)
     return node
-
-
-def wrap_codegen_par(codegen_par, body, srcinfo):
-    assert isinstance(codegen_par, _CodegenPar)
-    return LoopIR.For(
-        Sym("tmp"),
-        LoopIR.Const(0, T.int, srcinfo),
-        LoopIR.Const(1, T.int, srcinfo),
-        body,
-        codegen_par,
-        srcinfo,
-    )
 
 
 class MainLoopRewrite(LoopIR_Rewrite):
