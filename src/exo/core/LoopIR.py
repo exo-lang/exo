@@ -812,7 +812,8 @@ def create_window_type(in_name: Sym, in_typ: LoopIR.type, idx):
 # Compiler debug logging
 # This functionality is intended to dump formatted LoopIR to the compiler
 # output directory, with remarks (likely errors) inserted in-place.
-@dataclass(slots=True)
+# unsafe_hash needed for Python 3.11 dataclasses changes.
+@dataclass(slots=True, unsafe_hash=True)
 class ProcDebugRemarks:
     # Maps stmt_id to list of lines to insert.
     stmt_id_lines: Dict[int, List[str]] = field(default_factory=dict)
