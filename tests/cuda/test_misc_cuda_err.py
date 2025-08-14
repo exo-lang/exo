@@ -21,7 +21,8 @@ def mkproc_cuda_tasks(
     def test_proc(ptr: f32[4] @ CudaGmemLinear):
         with CudaDeviceFunction(blockDim=32):
             if extra_stmt_before:
-                ptr[0] = 100
+                for t in cuda_threads(0, 1):
+                    ptr[0] = 100
             if have_cuda_tasks:
                 for a in cuda_tasks(0, 4):
                     for t in cuda_threads(0, 1):

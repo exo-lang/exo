@@ -704,7 +704,8 @@ class SubtreeRewrite(LoopIR_Rewrite):
             main_loop_force_names[sym] = new_name
             task_force_names[sym] = new_name
         for sym, info in self.thread_iters.items():
-            task_force_names[sym] = info.cname(sym.name())
+            if info.mangle:
+                task_force_names[sym] = info.cname(sym.name())
 
         deviceTask_decls = "".join(
             deviceTask_decl_fmt.format(warp_cname=scan.named_warps[nm].cname)

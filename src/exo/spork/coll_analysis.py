@@ -397,6 +397,7 @@ class CollAnalysis(LoopIR_Rewrite):
             self._coll_tiling,
             s.loop_mode.format_loop_cond(lo_int, hi_int),
             self._current_warp_name,
+            mangle=True,
         )
 
         log_lhs = thread_iter.cname(s.iter)
@@ -482,4 +483,4 @@ class CollAnalysis(LoopIR_Rewrite):
             raise ValueError(f"{s.srcinfo}: failed to compile {ctx}: {e}") from e
 
         self._coll_tiling = coll_tiling
-        return ThreadIter(coll_tiling, str(ctx), name)
+        return ThreadIter(coll_tiling, str(ctx), name, mangle=False)

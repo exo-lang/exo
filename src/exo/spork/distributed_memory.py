@@ -30,12 +30,14 @@ class ThreadIter:
     parent_tile_num_threads: int
     child_tile_num_threads: int
     thread_pitch: int
+    mangle: bool
 
     def __init__(
         self,
         coll_tiling: CollTiling,
         comment: Optional[str] = None,
         warp_name_filter: Optional[str] = None,
+        mangle: bool = True,
     ):
         self.codegen_par = _CodegenPar(
             coll_tiling.codegen_expr.codegen(),
@@ -51,6 +53,7 @@ class ThreadIter:
         self.parent_tile_num_threads = parent.tile_num_threads()
         self.child_tile_num_threads = coll_tiling.tile_num_threads()
         self.thread_pitch = coll_tiling.thread_pitch
+        self.mangle = mangle
 
     def cname(self, name):
         """Mangling convention for generated C variables"""
