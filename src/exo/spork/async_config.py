@@ -8,6 +8,7 @@ from .timelines import (
     cpu_in_order_instr,
     cuda_in_order_instr,
     cuda_async_instr_tl,
+    Sm80_cp_async_instr,
 )
 from .base_with_context import BaseWithContext, is_if_holding_with
 from .coll_algebra import clusterDim_param, blockDim_param, CollIndexExpr, CollTiling
@@ -363,7 +364,8 @@ class InstrTimelineAnalysis(LoopIR_Rewrite):
         elif isinstance(s, LoopIR.Call):
             callee = s.f
             needed = callee.proc_instr_tl()
-            if self.instr_tl != needed:
+            # XXX backdoor, Sm80_cp_async_instr is exempt (nyc25.tex slides)
+            if self.instr_tl != needed and needed != Sm80_cp_async_instr:
                 note = ""
                 if needed.is_cuda_async():
                     note = f"; wrap with CudaAsync({needed})"
