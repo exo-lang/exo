@@ -107,7 +107,7 @@ struct VisRecordListNode
     // TODO this has to change. Will be valid soon.
     bool is_forwarded() const
     {
-        return base_data.visibility_set._1_index == 0;
+        return !base_data.visibility_set;
     }
 
     refcnt_t get_refcnt() const
@@ -491,6 +491,13 @@ struct SyncvTable
         return id_set;
     }
 
+    template <typename ListNode>
+    const nodepool::Pool<ListNode>& debug_get_pool() const
+    {
+        using TypedPool = nodepool::Pool<ListNode>;
+        return std::get<TypedPool>(pool_tuple);
+    }
+
     // Increment reference count of assignment record
     void incref(nodepool::id<AssignmentRecord> id) noexcept
     {
@@ -510,7 +517,6 @@ struct SyncvTable
         if (0 == node.refcnt) {
             reset_assignment_record(&node);
             CAMSPORK_REQUIRE(!node.camspork_next_id, "Unexpected: AssignmentRecord next only used for free list");
-            node.camspork_next_id._1_index = 0;
             extend_free_list(id);
         }
     }
@@ -1516,7 +1522,7 @@ struct SyncvTable
             input_node.camspork_next_id = fwd_id;
             CAMSPORK_REQUIRE(input_node.is_forwarded(), "should now be in forwarding state");
             incref(fwd_id);  // Forwarding reference is owning.
-            // fprintf(stderr, "FWD %u -> %u [IsMutate=%i]\n", command.input_id._1_index, fwd_id._1_index, IsMutate);
+            // fprintf(stderr, "FWD %u -> %u [IsMutate=%i]\n", command.input_id.id_bits, fwd_id.id_bits, IsMutate);
         }
         else {
             // Insert input node to memoization bucket. No refcnt changes needed for memoization.
@@ -1984,13 +1990,13 @@ struct SyncvTable
                         const node_id id{input.base[i].node_id};
                         const auto iter = census.find(id);
                         CAMSPORK_REQUIRE(iter != census.end(), "fix census code");
-                        input.base[i].node_id = iter->second.new_node_id._1_index;
+                        input.base[i].node_id = iter->second.new_node_id.id_bits;
                     }
                 }
             );
         }
         else {
-            input->node_id = census[0].second.new_node_id._1_index;  // Where decltype(input) is assignment_record_id*
+            input->node_id = census[0].second.new_node_id.id_bits;  // Where decltype(input) is assignment_record_id*
         }
     }
 
@@ -2094,7 +2100,7 @@ struct SyncvTable
         nodepool::id<AssignmentRecordReadNode> id = record.read_vis_records_head_id;
         while (id) {
             const AssignmentRecordReadNode& node = get(id);
-            out->push_back(node.vis_record_id._1_index);
+            out->push_back(node.vis_record_id.id_bits);
             id = node.camspork_next_id;
         }
     }
@@ -2137,9 +2143,9 @@ struct SyncvTable
 
         void check_refcnts(const SyncvTable& self)
         {
-            for (nodepool::id<ListNode> id{1}; id._1_index <= refcnts.size(); id._1_index++) {
+            for (nodepool::id<ListNode> id : self.debug_get_pool<ListNode>()) {
                 const refcnt_t tested_refcnt = self.get(id).get_refcnt();
-                const refcnt_t expected_refcnt = refcnts[id._1_index - 1];
+                const refcnt_t expected_refcnt = refcnts[id.node_index()];
                 const bool is_free = free_node_ids.count(id);
                 if (is_free) {
                     CAMSPORK_REQUIRE_CMP(expected_refcnt, ==, 0, "node on free list is referenced");
@@ -2183,8 +2189,8 @@ struct SyncvTable
             std::vector<refcnt_t>& refcnts =
                     std::get<RefcntDebug<typename decltype(id)::value_type>>(debug_refcnts).refcnts;
             if (id) {
-                CAMSPORK_REQUIRE_CMP(id._1_index, <=, refcnts.size(), "out-of-bounds node ID");
-                auto refcnt_before = refcnts.at(id._1_index - 1)++;
+                CAMSPORK_REQUIRE_CMP(id.node_index(), <, refcnts.size(), "out-of-bounds node ID");
+                auto refcnt_before = refcnts.at(id.node_index())++;
                 return refcnt_before == 0;
             }
             return false;
@@ -2272,11 +2278,11 @@ struct SyncvTable
             }
         };
 
-        auto process_all_vis_records = [&] (auto id)
+        auto process_all_vis_records = [&] (auto id_for_typing)
         {
-            using ListNode = typename decltype(id)::value_type;
+            using ListNode = typename decltype(id_for_typing)::value_type;
             RefcntDebug<ListNode>& debug_info = std::get<RefcntDebug<ListNode>>(debug_refcnts);
-            for (id._1_index = 1; id._1_index <= debug_info.refcnts.size(); ++id._1_index) {
+            for (nodepool::id<ListNode> id : debug_get_pool<ListNode>()) {
                 process_vis_record_impl(id, debug_info.free_node_ids);
             }
         };
@@ -2342,12 +2348,12 @@ struct SyncvTable
         // (VisRecord in memoization table <- alive and in base state)
         // Each VisRecord should be able to find itself in the table; if we fail, it could be because we
         // forgot to memoize it, or something is wrong with the bucket search or equality function.
-        auto memoize_self_check = [&] (auto id)
+        auto memoize_self_check = [&] (auto id_for_typing)
         {
-            using ListNode = typename decltype(id)::value_type;
+            using ListNode = typename decltype(id_for_typing)::value_type;
             RefcntDebug<ListNode>& debug = std::get<RefcntDebug<ListNode>>(debug_refcnts);
-            for (id._1_index = 1; id._1_index <= debug.refcnts.size(); ++id._1_index) {
-                const bool live = debug.refcnts[id._1_index - 1] != 0;
+            for (nodepool::id<ListNode> id : debug_get_pool<ListNode>()) {
+                const bool live = debug.refcnts[id.node_index()] != 0;
                 if (!live) {
                     continue;
                 }
@@ -2360,7 +2366,6 @@ struct SyncvTable
                     CAMSPORK_REQUIRE_CMP(id, ==, find_memoized(&node), "memoization lookup is buggy");
                 }
                 catch (...) {
-                    fprintf(stderr, "is_mutate %i\n", int(node.is_mutate));
                     VisRecord record = node.base_data;
                     nodepool::id<TlSigIntervalListNode> interval_id = record.visibility_set;
                     while (interval_id) {
