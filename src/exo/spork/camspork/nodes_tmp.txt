@@ -1,0 +1,46 @@
+Stmt:
+
+-- If access by owner only, this is wrapped with a CudaThreadsFor loop
+SyncEnv{Read|Mutate}{|OOO}(PositionRef, Extent, initial_qual_bit, extended_qual_bits)
+MutateValue(PositionRef, expr, Op)
+Fence(V1-transitive, L1_qual_bits, L2_full_qual_bits, L2_temporal_qual_bits)
+Arrive(V1-transitive, qual_bits, PositionRef, multicast bits)
+Await(PositionRef, full_qual_bits, temporal_qual_bits, N)
+ValueEnvAlloc(Varname, Extent) -- Prepare value env
+SyncEnvAlloc(Varname, Extent) -- Prepare sync env
+BarrierEnvAlloc(Varname, Extent) -- Prepare barrier env
+BarrierEnvFree(Varname, Extent) -- Check barrier env
+SyncEnvFreeShard(PositionRef, Extent, extended_qual_bits)
+If(Expr, stmt*)
+SeqFor(Varname, lo, hi, stmt*)
+CudaTasksFor(Varname, lo, hi, stmt*) -- steps task_id each time!
+CudaThreadsFor(Varname, lo, hi, dim_idx, offset, box_size, stmt*)  -- For both cuda_threads and with CudaWarps
+ParallelBlock(Extent, stmt child_stmt)
+DomainSplit(int, int, stmt child_stmt) -- need to add advice to CollTiling
+DomainRemoveIdx(int, stmt child_stmt)  -- need to add advice to CollTiling  (needed ???)
+
+-- ???
+-- For SMEM and mbarrier (delayed end of scope and end of task, respectively).
+-- Inspect delta between leaf_coll_tiling and alloc_coll_tiling, and translate to loop nest?
+-- Box[i]/offset[i] coords within last M dimensions are set to (0, domain[i])
+-- where M is chosen so prod(domain[-M:]) == n_threads
+SyncEnvFreeShard(PositionRef, Extent, extended_qual_bits, int n_threads)
+
+Expr:
+
+ReadValue(PositionRef)
+Const(val)
+Usub(expr)
+BinOp(expr, expr, op)
+
+Misc:
+
+PositionRef(Varname, expr*)
+Varname(int slot_index)
+Extent(expr*)
+
+Notes:
+
+Abstract machine holds (task index, TlSigRectangle) as current state
+Sym -> slot_index -> (value env, sync env, barrier env)
+Rectangle -> intervals helper
