@@ -1524,6 +1524,23 @@ struct SyncvTable
         }
     };
 
+    BarrierArriveState& get_barrier_arrive_state(pending_await_t info)
+    {
+        const auto barrier_id = pending_await_barrier_id(info);
+        const auto arrive_count = pending_await_arrive_count(info);
+        return barrier_states[barrier_id].arrive_states[arrive_count];
+    }
+
+    const BarrierArriveState& get_const_barrier_arrive_state(pending_await_t info) const
+    {
+        const auto barrier_id = pending_await_barrier_id(info);
+        const auto arrive_count = pending_await_arrive_count(info);
+        const auto& map = barrier_states[barrier_id].arrive_states;
+        auto it = map.find(arrive_count);
+        CAMSPORK_REQUIRE(it != map.end(), "Missing BarrierArriveState");
+        return it->second;
+    }
+
     template <bool Transitive>
     struct ArriveUpdateCommand
     {
@@ -1572,9 +1589,7 @@ struct SyncvTable
 
                 // Extend BarrierArriveState to hold the new VisRecord.
                 for (pending_await_t info : pending_awaits) {
-                    const auto barrier_id = pending_await_barrier_id(info);
-                    const auto arrive_count = pending_await_arrive_count(info);
-                    BarrierArriveState& state = env.barrier_states[barrier_id].arrive_states[arrive_count];
+                    BarrierArriveState& state = env.get_barrier_arrive_state(info);
                     nodepool::id<AssignmentRecordVisNode<IsMutate>> list_node_id{};
                     auto& list_node = env.alloc_default_node(&list_node_id);
                     list_node.vis_record_id = vis_record_id;
@@ -2138,6 +2153,8 @@ struct SyncvTable
 
     // Massive function that verifies that the current state is legal.
     // This only works if all of the user's arrays of assignment_record_id have been passed.
+    // NB this is a const member function to help guard against accidental subtle changes in the course of checking
+    // which could cause heisenbugs.
     void debug_validate_state(size_t input_count, const SyncvDebugValidateInput* p_inputs) const
     {
         std::tuple<
@@ -2243,7 +2260,9 @@ struct SyncvTable
         //   * TlSigIntervalListNode
         //   * PendingAwaitTreeNode
         //   * forwarded-to VisRecordListNodes
-        // Furthermore we validate that the encoding for the visibility set is correct.
+        // Furthermore we validate the following:
+        //   * encoding for the visibility set is correct.
+        //   * VisRecords are properly stored in BarrierArriveState.
         auto process_vis_record_impl = [&] (auto id, const auto& free_vis_ids)
         {
             if (free_vis_ids.count(id)) {
@@ -2275,7 +2294,33 @@ struct SyncvTable
                     }
                 }
 
+                // Record PendingAwaitTreeNode references.
                 on_PendingAwaitTreeNode(node.base_data.pending_awaits, on_PendingAwaitTreeNode);
+
+                // Look for VisRecord reference in BarrierArriveState.
+                // The other half of this checking is done in check_BarrierArriveState_VisRecords.
+                nodepool::id<PendingAwaitTreeNode> await_node_id = node.base_data.pending_awaits;
+                while (await_node_id) {
+                    const PendingAwaitTreeNode& await_node = get(await_node_id);
+                    await_node_id = await_node.camspork_next_id;
+                    const BarrierArriveState& state = get_const_barrier_arrive_state(await_node.await_id);
+                    constexpr bool IsMutate = node.is_mutate;
+                    nodepool::id<AssignmentRecordVisNode<IsMutate>> record_node_id;
+                    if constexpr (node.is_mutate) {
+                        record_node_id = state.mutate_vis_records_head_id;
+                    }
+                    else {
+                        record_node_id = state.read_vis_records_head_id;
+                    }
+                    while (1) {
+                        CAMSPORK_REQUIRE(record_node_id, "Missing VisRecord reference in BarrierArriveState");
+                        const auto& record_node = get(record_node_id);
+                        if (record_node.vis_record_id == id) {
+                            break;
+                        }
+                        record_node_id = record_node.camspork_next_id;
+                    }
+                }
             }
         };
 
@@ -2384,6 +2429,43 @@ struct SyncvTable
         };
         memoize_self_check(nodepool::id<ReadVisRecordListNode>{});
         memoize_self_check(nodepool::id<MutateVisRecordListNode>{});
+
+        // Check correct BarrierArriveState.
+        // A base state VisRecord is pointed to by BarrierArriveState iff it contains a corresponding pending await.
+        // BarrierArriveState may also point to forwarding state VisRecord.
+        // The other half of this checking is in process_vis_record_impl.
+        auto check_BarrierArriveState_VisRecords = [&] (auto record_node_id, pending_await_t expected_await_id)
+        {
+            while (record_node_id) {
+                constexpr bool IsMutate = decltype(record_node_id)::value_type::is_mutate;
+                const AssignmentRecordVisNode<IsMutate>& record_node = get(record_node_id);
+                record_node_id = record_node.camspork_next_id;
+                const nodepool::id<VisRecordListNode<IsMutate>> vis_record_id = record_node.vis_record_id;
+                const VisRecordListNode<IsMutate>& vis_record = get(vis_record_id);
+                if (vis_record.is_forwarded()) {
+                    continue;
+                }
+                nodepool::id<PendingAwaitTreeNode> await_node_id = vis_record.base_data.pending_awaits;
+                while (true) {
+                    CAMSPORK_REQUIRE(await_node_id, "BarrierArriveState references VisRecord without corresponding pending_await_id");
+                    const PendingAwaitTreeNode& await_node = get(await_node_id);
+                    await_node_id = await_node.camspork_next_id;
+                    if (await_node.await_id == expected_await_id) {
+                        break;
+                    }
+                }
+            }
+        };
+        for (uint32_t barrier_index = 0; barrier_index < max_live_barriers; ++barrier_index) {
+            const BarrierState& state = barrier_states[barrier_index];
+            for (const auto& pair : state.arrive_states) {
+                pending_await_t info = pack_pending_await(barrier_index, pair.first);
+                const nodepool::id<AssignmentRecordMutateNode> mutate_id = pair.second.mutate_vis_records_head_id;
+                check_BarrierArriveState_VisRecords(mutate_id, info);
+                const nodepool::id<AssignmentRecordReadNode> read_id = pair.second.read_vis_records_head_id;
+                check_BarrierArriveState_VisRecords(read_id, info);
+            }
+        }
     }
 };
 
