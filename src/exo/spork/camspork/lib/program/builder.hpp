@@ -131,6 +131,12 @@ class ProgramBuilder
     StmtRef add_Fence(
         uint32_t V1_transitive, qual_bits_t L1_qual_bits,
         qual_bits_t L2_full_qual_bits, qual_bits_t L2_temporal_qual_bits);
+    StmtRef add_Arrive(
+        uint32_t V1_transitive, qual_bits_t L1_qual_bits,
+        Varname name, uint32_t num_idx, const ArriveIdx* idx);
+    StmtRef add_Await(
+        Varname name, uint32_t num_idx, const ExprRef* idx,
+        uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits);
     StmtRef add_ValueEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent);
     StmtRef add_SyncEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent);
     StmtRef add_BarrierEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent);
@@ -199,6 +205,12 @@ CAMSPORK_EXPORT camspork::StmtRef camspork_add_MutateValue(camspork::ProgramBuil
 CAMSPORK_EXPORT camspork::StmtRef camspork_add_Fence(camspork::ProgramBuilder* p_builder,
     uint32_t V1_transitive, camspork::qual_bits_t L1_qual_bits,
     camspork::qual_bits_t L2_full_qual_bits, camspork::qual_bits_t L2_temporal_qual_bits);
+CAMSPORK_EXPORT camspork::StmtRef camspork_add_Arrive(camspork::ProgramBuilder* p_builder,
+    uint32_t V1_transitive, camspork::qual_bits_t L1_qual_bits,
+    camspork::Varname name, uint32_t num_idx, const camspork::ArriveIdx* idx);
+CAMSPORK_EXPORT camspork::StmtRef camspork_add_Await(camspork::ProgramBuilder* p_builder,
+    camspork::Varname name, uint32_t num_idx, const camspork::ExprRef* idx,
+    uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits);
 CAMSPORK_EXPORT camspork::StmtRef camspork_add_ValueEnvAlloc(camspork::ProgramBuilder* p_builder,
     camspork::Varname name, uint32_t num_dims, const camspork::ExprRef* extent);
 CAMSPORK_EXPORT camspork::StmtRef camspork_add_SyncEnvAlloc(camspork::ProgramBuilder* p_builder,
@@ -206,7 +218,7 @@ CAMSPORK_EXPORT camspork::StmtRef camspork_add_SyncEnvAlloc(camspork::ProgramBui
 CAMSPORK_EXPORT camspork::StmtRef camspork_add_BarrierEnvAlloc(camspork::ProgramBuilder* p_builder,
     camspork::Varname name, uint32_t num_dims, const camspork::ExprRef* extent);
 
-// TODO Arrive, Await, SyncEnvFreeShard, BarrierEnvFree
+// TODO SyncEnvFreeShard, BarrierEnvFree
 
 CAMSPORK_EXPORT camspork::StmtRef camspork_push_If(camspork::ProgramBuilder* p_builder,
     camspork::ExprRef cond);

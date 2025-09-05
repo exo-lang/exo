@@ -117,6 +117,9 @@ class Varname(Structure, BuilderExpr):
 class OffsetExtentExpr(Structure):
     _fields_ = [("offset_e", ExprRef), ("extent_e", ExprRef)]
 
+class ArriveIdx(Structure):
+    _fields_ = [("idx", ExprRef), ("multicast_per_expr", c_uint32)]
+
 # binop enum values are always the same for a given operator (_binop_from_str)
 class binop(Structure):
     _fields_ = [("enum_value", c_uint32)]
@@ -196,6 +199,14 @@ _add_MutateValue.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, binop, Ex
 _add_Fence = lib.camspork_add_Fence
 _add_Fence.restype = StmtRef
 _add_Fence.argtypes = (c_void_p, c_uint32, c_uint32, c_uint32, c_uint32)
+
+_add_Arrive = lib.camspork_add_Arrive
+_add_Arrive.restype = StmtRef
+_add_Arrive.argtypes = (c_void_p, c_uint32, c_uint32, Varname, c_uint32, POINTER(ArriveIdx))
+
+_add_Await = lib.camspork_add_Await
+_add_Await.restype = StmtRef
+_add_Await.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c_uint32, c_uint32)
 
 _add_ValueEnvAlloc = lib.camspork_add_ValueEnvAlloc
 _add_ValueEnvAlloc.restype = StmtRef
@@ -361,7 +372,7 @@ class BuilderIndexExpr(BuilderExpr):
             return dim, e
 
     def build_expr(self, builder) -> ExprRef:
-        # When interpreted as an expression, generate ReadValue"""
+        """When interpreted as an expression, generate ReadValue"""
         dim, e = self.c_dim_idxs(builder)
         return check_return(_add_ReadValue(builder, self._varname, dim, e))
 
@@ -471,6 +482,25 @@ class ProgramBuilder:
     def Fence(self, V1_transitive: bool, L1_qual_bits: int, L2_full_qual_bits: int, L2_temporal_qual_bits: int) -> StmtRef:
         return check_return(_add_Fence(self._builder, V1_transitive, L1_qual_bits, L2_full_qual_bits, L2_temporal_qual_bits))
 
+    def Arrive(self, V1_transitive: bool, L1_qual_bits: int, dst: BuilderIndexExpr, multicasts: Tuple[Tuple[bool]]):
+        dim, e_idxs = dst.c_dim_idxs(self._builder)
+        arrive_idx = (ArriveIdx * dim)()
+        for dim_idx in range(dim):
+            arrive_idx[dim_idx].idx = e_idxs[dim_idx]
+            arrive_idx[dim_idx].multicast_per_expr = 0
+        # Pack multicast_flags into multicast_per_expr flags ("transposed bits")
+        assert len(multicasts) < 32
+        for barrier_expr_idx, multicast_flags in enumerate(multicasts):
+            assert len(multicast_flags) == dim
+            for dim_idx, f in enumerate(multicast_flags):
+                if f:
+                    arrive_idx[dim_idx].multicast_per_expr |= 1 << barrier_expr_idx
+        return check_return(_add_Arrive(self._builder, V1_transitive, L1_qual_bits, dst._varname, dim, arrive_idx))
+
+    def Await(self, dst: BuilderIndexExpr, L2_full_qual_bits: int, L2_temporal_qual_bits: int):
+        dim, idxs = dst.c_dim_idxs(self._builder)
+        return check_return(_add_Await(self._builder, dst._varname, dim, idxs, L2_full_qual_bits, L2_temporal_qual_bits))
+
     def ValueEnvAlloc(self, e: Varname | BuilderIndexExpr) -> StmtRef:
         return self._add_alloc(_add_ValueEnvAlloc, e)
 
@@ -478,7 +508,7 @@ class ProgramBuilder:
         return self._add_alloc(_add_SyncEnvAlloc, e)
 
     def BarrierEnvAlloc(self, e: Varname | BuilderIndexExpr) -> StmtRef:
-        return self._add_alloc(_add_SyncEnvAlloc, e)
+        return self._add_alloc(_add_BarrierEnvAlloc, e)
 
     def _add_alloc(self, c_adder, e) -> StmtRef:
         e = e.as_index_expr()
@@ -610,6 +640,28 @@ class ProgramEnv:
 
 
 if __name__ == "__main__":
+    @camspork.program
+    def foo_barrier(b: camspork.ProgramBuilder):
+        bars = b.add_variable("bars")
+        m = b.add_variable("m")
+        n = b.add_variable("n")
+        k = b.add_variable("k")
+        b.BarrierEnvAlloc(bars[4, 2, 2])
+        buf = b.add_variable("buf")
+        b.SyncEnvAlloc(buf[64])
+        with b.ParallelBlock(64):
+            tid = b.add_variable("tid")
+            with b.ThreadsFor(tid, 0, 24, 0, 0, 1):
+                b.SyncEnvAccess(buf[tid], 2, 2, is_mutate=True, is_ooo=False)
+            with b.ThreadsFor(tid, 0, 1, 0, 0, 11):
+                b.Arrive(True, 3, bars[m, n, k], ((True, False, True), (True, True, False)))
+                with b.If(0):
+                    b.Await(bars[m, n, k], 1, 3)
+    print(foo_barrier)
+    env = ProgramEnv(foo_barrier)
+    env.set_debug_validation_enable(True)
+    env.exec()
+
     @camspork.program
     def fib(b):
         fib_size = b.add_variable("fib_size")

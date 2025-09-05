@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <tuple>
 #include <type_traits>
+#include <typeinfo>
 #include <utility>
 #include <vector>
 
@@ -260,8 +261,8 @@ struct IntervalBucket : IntervalBucketParentPointer<IsMutate, BucketLevel>
     using child_t = IntervalBucket<IsMutate, BucketLevel - 1>;
     std::unique_ptr<child_t> child_interval_buckets[child_count];
 
-    // Count of non-null pointers in child_interval_buckets.
-    uint32_t nonempty_child_count = 0;
+    // Nth bit is set iff child_interval_buckets[N] isn't empty.
+    uint64_t nonempty_child_flags = 0;
 
     // Bucket for this interval.
     // Note: we don't have to deep copy this because it's just indices into the node pool, which is deep copied.
@@ -294,7 +295,7 @@ struct IntervalBucket : IntervalBucketParentPointer<IsMutate, BucketLevel>
                 child_interval_buckets[i].reset(new child_t(*p_child, this));
             }
         }
-        nonempty_child_count = other.nonempty_child_count;
+        nonempty_child_flags = other.nonempty_child_flags;
         bucket = other.bucket;
         visitor_count = other.visitor_count;
         CAMSPORK_REQUIRE_CMP(visitor_count, ==, 0, "Not sure copying is OK while being traversed.");
@@ -308,8 +309,8 @@ struct IntervalBucket<IsMutate, 1> : IntervalBucketParentPointer<IsMutate, 1>
     static constexpr uint32_t child_count = bucket_level_size<1>;
     nodepool::id<VisRecordListNode<IsMutate>> child_interval_buckets[child_count] = {};
 
-    // Count of non-null single_thread_buckets.
-    uint32_t nonempty_child_count = 0;
+    // Nth bit is set iff child_interval_buckets[N] isn't empty.
+    uint64_t nonempty_child_flags = 0;
 
     // Bucket for this interval.
     // Note: we don't have to deep copy this because it's just indices into the node pool, which is deep copied.
@@ -327,7 +328,7 @@ struct IntervalBucket<IsMutate, 1> : IntervalBucketParentPointer<IsMutate, 1>
         for (uint32_t i = 0; i < child_count; ++i) {
             child_interval_buckets[i] = other.child_interval_buckets[i];
         }
-        nonempty_child_count = other.nonempty_child_count;
+        nonempty_child_flags = other.nonempty_child_flags;
         bucket = other.bucket;
         visitor_count = other.visitor_count;
         CAMSPORK_REQUIRE_CMP(visitor_count, ==, 0, "Not sure copying is OK while being traversed.");
@@ -343,21 +344,21 @@ struct IntervalBucket<IsMutate, 1> : IntervalBucketParentPointer<IsMutate, 1>
 template <bool IsMutate, uint32_t BucketLevel>
 bool interval_bucket_is_empty(const IntervalBucket<IsMutate, BucketLevel>& bucket) noexcept
 {
-    return bucket.nonempty_child_count == 0 && !bucket.bucket && !bucket.visitor_count;
+    return bucket.nonempty_child_flags == 0 && !bucket.bucket && !bucket.visitor_count;
 }
 
 // De-allocate the given bucket if it's empty and not the top-level bucket.
 // We presume that the bucket is owned by its parent (unique_ptr tree).
 //
 // We do not make any modifications to the parent except for nulling out the pointer.
-// In particular, we don't change nonempty_child_count, or handle deleting the parent
+// In particular, we don't change nonempty_child_flags, or handle deleting the parent
 // if it too is now empty.
 template <bool IsMutate, uint32_t BucketLevel>
 void delete_interval_bucket_if_empty(IntervalBucket<IsMutate, BucketLevel>* p) noexcept
 {
     if (interval_bucket_is_empty(*p)) {
         for (const auto& child : p->child_interval_buckets) {
-            CAMSPORK_REQUIRE(!child, "nonempty_child_count was wrong.");
+            CAMSPORK_REQUIRE(!child, "nonempty_child_flags was wrong.");
         }
 
         if constexpr (BucketLevel < bucket_level_count - 1) {
@@ -366,7 +367,7 @@ void delete_interval_bucket_if_empty(IntervalBucket<IsMutate, BucketLevel>* p) n
             CAMSPORK_REQUIRE(p_parent, "missing parent ptr");
             const uint32_t child_index = p->child_index_in_parent;
             CAMSPORK_REQUIRE_CMP(child_index, <, p_parent->child_count, "child_index out-of-range");
-            CAMSPORK_REQUIRE_CMP(p_parent->nonempty_child_count, >, 0, "should have been deallocated");
+            CAMSPORK_REQUIRE_CMP(p_parent->nonempty_child_flags, >, 0, "should have been deallocated");
 
             // p is invalidated after this (unique_ptr reset).
             CAMSPORK_REQUIRE_CMP(p_parent->child_interval_buckets[child_index].get(), ==, p, "???");
@@ -1248,7 +1249,8 @@ struct SyncvTable
                 if (!child_ref && Type == BucketProcessType::Insert) {
                     // Speculate that the child bucket will be filled.
                     // We will undo this later if wrong.
-                    p_bucket->nonempty_child_count++;
+                    static_assert(p_bucket->child_count <= 64);
+                    p_bucket->nonempty_child_flags |= uint64_t(1) << child_index;
 
                     if constexpr (BucketLevel != 1) {
                         // Create child interval bucket (unique_ptr).
@@ -1280,16 +1282,19 @@ struct SyncvTable
             }
             catch (...) {
                 if (!child_ref) {
-                    CAMSPORK_REQUIRE_CMP(p_bucket->nonempty_child_count, >, 0, "should have been deleted");
-                    p_bucket->nonempty_child_count--;
+                    CAMSPORK_REQUIRE_CMP(p_bucket->nonempty_child_flags, >, 0, "should have been deleted");
+                    static_assert(p_bucket->child_count <= 64);
+                    p_bucket->nonempty_child_flags &= ~(uint64_t(1) << child_index);
                 }
                 throw;
             }
 
             // Child bucket may have been deallocated for being empty.
+            // Note, flags used to be count, this failed because it wasn't re-entrant.
             if (!child_ref) {
-                CAMSPORK_REQUIRE_CMP(p_bucket->nonempty_child_count, >, 0, "should have been deleted");
-                p_bucket->nonempty_child_count--;
+                CAMSPORK_REQUIRE_CMP(p_bucket->nonempty_child_flags, >, 0, "should have been deleted");
+                static_assert(p_bucket->child_count <= 64);
+                p_bucket->nonempty_child_flags &= ~(uint64_t(1) << child_index);
             }
             return lambda_result_id;
         };
@@ -1541,7 +1546,7 @@ struct SyncvTable
     struct FenceUpdateCommand
     {
         const ThreadCuboid* p_cuboid;
-        uint32_t L1_bitfield, L2_full_bitfield, L2_temporal_bitfield;
+        uint32_t L1_qual_bits, L2_full_bitfield, L2_temporal_bitfield;
 
         template <bool IsMutate>
         void update_for_sync(SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> vis_record_id) const
@@ -1550,7 +1555,7 @@ struct SyncvTable
             CAMSPORK_REQUIRE(!node.is_forwarded(), "unexpected forwarding state");
             VisRecord* p_record = &node.base_data;
 
-            if (env.synchronizes_with<Transitive>(*p_record, *p_cuboid, L1_bitfield)) {
+            if (env.synchronizes_with<Transitive>(*p_record, *p_cuboid, L1_qual_bits)) {
                 p_cuboid->to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi)
                     {
                         const auto bitfield = IsMutate ? L2_full_bitfield : L2_temporal_bitfield;
@@ -1562,7 +1567,7 @@ struct SyncvTable
 
         TlSigInterval minimal_superset_interval() const
         {
-            return p_cuboid->minimal_superset_interval(L1_bitfield);
+            return p_cuboid->minimal_superset_interval(L1_qual_bits);
         }
     };
 
@@ -1570,7 +1575,7 @@ struct SyncvTable
     struct ArriveUpdateCommand
     {
         const ThreadCuboid* p_cuboid;
-        uint32_t L1_bitfield;
+        uint32_t L1_qual_bits;
         std::vector<pending_await_t> pending_awaits;
 
         // Used internally, to avoid creating redundant PendingAwaitTreeNode.
@@ -1585,28 +1590,31 @@ struct SyncvTable
             CAMSPORK_REQUIRE(!node.is_forwarded(), "unexpected forwarding state");
             VisRecord* p_record = &node.base_data;
 
-            if (env.synchronizes_with<Transitive>(*p_record, *p_cuboid, L1_bitfield)) {
+            if (env.synchronizes_with<Transitive>(*p_record, *p_cuboid, L1_qual_bits)) {
                 // Extend pending_awaits list of the VisRecord.
                 const nodepool::id<PendingAwaitTreeNode> old_await_node = p_record->pending_awaits;
-                nodepool::id<PendingAwaitTreeNode>* p_new_await_node = &node_id_map[old_await_node];
-                if (const auto new_await_node = *p_new_await_node) {
+                nodepool::id<PendingAwaitTreeNode>* p_map_value = &node_id_map[old_await_node];
+                if (auto new_await_node = *p_map_value) {
                     // Recycle the list created in the else stmt.
                     env.incref(new_await_node);
-                    env.decref(old_await_node);  // critically after incref, in case the two nodes are the same.
+                    if (old_await_node) {
+                        env.decref(old_await_node);  // critically after incref, in case the two nodes are the same.
+                    }
                     p_record->pending_awaits = new_await_node;
                 }
                 else {
-                    *p_new_await_node = old_await_node;
+                    new_await_node = old_await_node;
                     // Add nodes to the head of the list.
                     // Don't have to manipulate refcnt here, actually.
                     for (auto iter = pending_awaits.rbegin(); iter != pending_awaits.rend(); ++iter) {
-                        const auto tmp_id = *p_new_await_node;
-                        PendingAwaitTreeNode& node = env.alloc_default_node(p_new_await_node);
+                        const auto tmp_id = new_await_node;
+                        PendingAwaitTreeNode& node = env.alloc_default_node(&new_await_node);
                         node.camspork_next_id = tmp_id;
                         node.refcnt = 1;
                         node.await_id = *iter;
                     }
-                    p_record->pending_awaits = *p_new_await_node;
+                    *p_map_value = new_await_node;
+                    p_record->pending_awaits = new_await_node;
                 }
 
                 // Extend BarrierArriveState to hold the new VisRecord.
@@ -1632,7 +1640,7 @@ struct SyncvTable
 
         TlSigInterval minimal_superset_interval() const
         {
-            return p_cuboid->minimal_superset_interval(L1_bitfield);
+            return p_cuboid->minimal_superset_interval(L1_qual_bits);
         }
     };
 
@@ -1705,16 +1713,17 @@ struct SyncvTable
 
     // Augment all visibility records that synchronize with the first visibility set of the fence.
     void update_vis_records_for_fence(bool transitive, const ThreadCuboid& cuboid,
-            uint32_t L1_bitfield, uint32_t L2_full_bitfield, uint32_t L2_temporal_bitfield)
+            uint32_t L1_qual_bits, uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits)
     {
-        L2_full_bitfield |= TlSigInterval::ordered_bits;  // Augment V_A, V_U, and V_O.
-        L2_temporal_bitfield |= TlSigInterval::ordered_bits;
+        // Augment V_A, V_U, and V_O.
+        const uint32_t L2_full_bitfield = L2_full_qual_bits | TlSigInterval::ordered_bits;
+        const uint32_t L2_temporal_bitfield = L2_temporal_qual_bits | TlSigInterval::ordered_bits;
         if (transitive) {
-            FenceUpdateCommand<true> command{&cuboid, L1_bitfield, L2_full_bitfield, L2_temporal_bitfield};
+            FenceUpdateCommand<true> command{&cuboid, L1_qual_bits, L2_full_bitfield, L2_temporal_bitfield};
             update_vis_records_for_sync_impl(command);
         }
         else {
-            FenceUpdateCommand<false> command{&cuboid, L1_bitfield, L2_full_bitfield, L2_temporal_bitfield};
+            FenceUpdateCommand<false> command{&cuboid, L1_qual_bits, L2_full_bitfield, L2_temporal_bitfield};
             update_vis_records_for_sync_impl(command);
         }
     }
@@ -2165,6 +2174,9 @@ struct SyncvTable
                     CAMSPORK_REQUIRE_CMP(expected_refcnt, ==, 0, "node on free list is referenced");
                 }
                 else {
+                    if (expected_refcnt != tested_refcnt) {
+                        fprintf(stderr, "%u, %s\n", id.id_bits, typeid(ListNode).name());
+                    }
                     CAMSPORK_REQUIRE_CMP(expected_refcnt, ==, tested_refcnt, "wrong refcnt");
                 }
             }
@@ -2268,6 +2280,7 @@ struct SyncvTable
             }
             if (!record_owning(id)) {
                 // Not the first time, don't re-scan.
+                return;
             }
             id = get(id).camspork_next_id;
             recurse(id, recurse);
@@ -2349,11 +2362,14 @@ struct SyncvTable
         auto validate_child_buckets = [this, validate_bucket_linked_list] (const auto& bucket, auto validate)
         {
             CAMSPORK_REQUIRE_CMP(bucket.visitor_count, ==, 0, "Should always be 0 outside for_buckets<...>(...) otherwise the bucket is immortal.");
-            uint32_t real_nonempty_child_count = 0;
+            uint64_t real_nonempty_child_flags = 0;
 
             for (uint32_t child_index = 0; child_index < bucket.child_count; ++child_index) {
                 const auto& child_bucket_id_or_ptr = bucket.child_interval_buckets[child_index];
-                real_nonempty_child_count += child_bucket_id_or_ptr ? 1u : 0u;
+                if (child_bucket_id_or_ptr) {
+                    CAMSPORK_REQUIRE_CMP(child_index, <, 64, "need to use more than 64 bit flags");
+                    real_nonempty_child_flags |= uint64_t(1) << child_index;
+                }
                 if constexpr (bucket.bucket_level != 1) {
                     if (child_bucket_id_or_ptr) {
                         auto& child_bucket = *child_bucket_id_or_ptr;
@@ -2370,7 +2386,7 @@ struct SyncvTable
                 }
             }
 
-            CAMSPORK_REQUIRE_CMP(bucket.nonempty_child_count, ==, real_nonempty_child_count, "wrong child count");
+            CAMSPORK_REQUIRE_CMP(bucket.nonempty_child_flags, ==, real_nonempty_child_flags, "wrong child flags");
             validate_bucket_linked_list(bucket.bucket);
         };
         validate_child_buckets(read_top_level_bucket, validate_child_buckets);

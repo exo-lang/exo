@@ -137,6 +137,9 @@ class ProgramExec
             if constexpr (std::is_same_v<typename Node::camspork_vla_type, OffsetExtentExpr>) {
                 tmp_offset[i] = eval_extent_t(node_vla_get(node, i).offset_e);
             }
+            else if constexpr (std::is_same_v<typename Node::camspork_vla_type, ArriveIdx>) {
+                tmp_offset[i] = eval_extent_t(node_vla_get(node, i).idx);
+            }
             else {
                 tmp_offset[i] = eval_extent_t(node_vla_get(node, i));
             }
@@ -210,9 +213,42 @@ class ProgramExec
         env.maybe_syncv_debug_validate();
     }
 
-    void operator() (const Arrive*)
+    void operator() (const Arrive* node)
     {
-        CAMSPORK_REQUIRE(0, "TODO: implement Arrive");
+        VarSlotEntry<barrier_id>& slot = env.barrier_slot(node->name);
+        const std::vector<extent_t>& extent = slot.extent();
+        const uint32_t dim = node->camspork_vla_size;
+
+        CAMSPORK_REQUIRE_CMP(dim, ==, extent.size(), "dimension mismatch");
+
+        // Evaluate concrete indices of home barrier.
+        eval_tmp_offset(node);
+        const barrier_id home_barrier = slot.idx(tmp_offset.begin(), tmp_offset.end());
+
+        // Find all barriers matching at least one BarrierExpr.
+        tmp_all_barriers.clear();
+        auto fill_barriers = [&] (
+                uint32_t dim_idx, uint32_t partial_idx, uint32_t equality_mask, auto recurse)
+        {
+            if (dim_idx >= dim) {
+                if (equality_mask != 0) {
+                    tmp_all_barriers.push_back(slot.data()[partial_idx]);
+                }
+                return;
+            }
+            const extent_t extent_coord = extent[dim_idx];
+            const extent_t var_value = tmp_offset[dim_idx];
+            const ArriveIdx arrive_idx = node_vla_get(node, dim_idx);
+            for (extent_t i = 0; i < extent_coord; ++i) {
+                const uint32_t tmp_mask = (i == var_value) ? ~uint32_t(0) : arrive_idx.multicast_per_expr;
+                recurse(dim_idx + 1, partial_idx * extent_coord + i, equality_mask & tmp_mask, recurse);
+            }
+        };
+        fill_barriers(0, 0, ~uint32_t(0), fill_barriers);
+
+        // Pass to SyncvTable.
+        on_arrive(env.p_syncv_table.get(), home_barrier, uint32_t(tmp_all_barriers.size()), tmp_all_barriers.data(),
+                node->V1_transitive, env.prepare_thread_cuboid(), node->L1_qual_bits);
         env.maybe_syncv_debug_validate();
     }
 
@@ -264,6 +300,7 @@ class ProgramExec
         if (tmp_extent != slot.extent()) {
             slot.reset();
             slot = VarSlotEntry<barrier_id>(tmp_extent);
+            alloc_barriers(env.p_syncv_table.get(), slot.size(), slot.data());
         }
         env.maybe_syncv_debug_validate();
     }

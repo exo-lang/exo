@@ -532,13 +532,20 @@ struct stmt<5>
     CAMSPORK_NODE_NO_VLA()
 };
 
+// Note: definition duplicated as Python ctypes.
 struct ArriveIdx
 {
-    Varname idx;
-    uint32_t multicast_per_expr;
+    ExprRef idx;
+    uint32_t multicast_per_expr;  // bitfield
+
+    uint32_t operator[] (uint32_t expr_idx) const
+    {
+        return 1u & (multicast_per_expr >> expr_idx);
+    }
 };
 
-// Arrive(Varname name, bool V1_transitive, qual_tl* L1_qual_bits, Varname* idx, multicast_flag* multicast_flags)
+// Arrive(Varname name, bool V1_transitive, qual_tl* L1_qual_bits, ExprRef* idx, multicast_flag* multicasts)
+// multicasts[expr_idx][dim_idx] = ArriveIdx[dim_idx][expr_idx]
 using Arrive = stmt<6>;
 template<>
 struct stmt<6>
@@ -546,11 +553,10 @@ struct stmt<6>
     Varname name;
     uint32_t V1_transitive;
     uint32_t L1_qual_bits;
-    uint32_t num_barrier_exprs;
     CAMSPORK_NODE_VLA_MEMBER(ArriveIdx)
 };
 
-// Await(Varname name, qual_tl* L2_full_qual_bits, qual_tl* L2_temporal_qual_bits, Varname* idx)
+// Await(Varname name, qual_tl* L2_full_qual_bits, qual_tl* L2_temporal_qual_bits, ExprRef* idx)
 using Await = stmt<7>;
 template<>
 struct stmt<7>
@@ -558,7 +564,7 @@ struct stmt<7>
     Varname name;
     uint32_t L2_full_qual_bits;
     uint32_t L2_temporal_qual_bits;
-    CAMSPORK_NODE_VLA_MEMBER(Varname)
+    CAMSPORK_NODE_VLA_MEMBER(ExprRef)
 };
 
 // ValueEnvAlloc(Varname name, expr* extent)

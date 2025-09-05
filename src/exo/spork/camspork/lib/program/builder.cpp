@@ -148,6 +148,26 @@ StmtRef ProgramBuilder::add_Fence(
     return append_impl(Fence{V1_transitive, L1_qual_bits, L2_full_qual_bits, L2_temporal_qual_bits});
 }
 
+StmtRef ProgramBuilder::add_Arrive(
+        uint32_t V1_transitive, qual_bits_t L1_qual_bits,
+        Varname name, uint32_t num_idx, const ArriveIdx* idx)
+{
+    CAMSPORK_REQUIRE_CMP(V1_transitive, <=, 1, "must be bool");
+    CAMSPORK_REQUIRE(!TlSigInterval::vis_level(L1_qual_bits), "top bits must not be set");
+    return append_impl(Arrive{name, V1_transitive, L1_qual_bits}, num_idx, idx);
+}
+
+StmtRef ProgramBuilder::add_Await(
+        Varname name, uint32_t num_idx, const ExprRef* idx,
+        uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits)
+{
+    CAMSPORK_REQUIRE(!TlSigInterval::vis_level(L2_full_qual_bits), "top bits must not be set");
+    CAMSPORK_REQUIRE(!TlSigInterval::vis_level(L2_temporal_qual_bits), "top bits must not be set");
+    CAMSPORK_REQUIRE_CMP(L2_full_qual_bits, ==, L2_full_qual_bits & L2_temporal_qual_bits,
+                         "L2_full_qual_bits must be a subset of L2_temporal_qual_bits");
+    return append_impl(Await{name, L2_full_qual_bits, L2_temporal_qual_bits}, num_idx, idx);
+}
+
 StmtRef ProgramBuilder::add_ValueEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent)
 {
     return append_impl(ValueEnvAlloc{name}, num_dims, extent);
@@ -389,6 +409,24 @@ camspork::StmtRef camspork_add_Fence(camspork::ProgramBuilder* p_builder,
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_Fence(V1_transitive, L1_qual_bits, L2_full_qual_bits, L2_temporal_qual_bits);
+    CAMSPORK_API_EPILOGUE(camspork::StmtRef())
+}
+
+camspork::StmtRef camspork_add_Arrive(camspork::ProgramBuilder* p_builder,
+        uint32_t V1_transitive, camspork::qual_bits_t L1_qual_bits,
+        camspork::Varname name, uint32_t num_idx, const camspork::ArriveIdx* idx)
+{
+    CAMSPORK_API_PROLOGUE
+    return p_builder->add_Arrive(V1_transitive, L1_qual_bits, name, num_idx, idx);
+    CAMSPORK_API_EPILOGUE(camspork::StmtRef())
+}
+
+camspork::StmtRef camspork_add_Await(camspork::ProgramBuilder* p_builder,
+    camspork::Varname name, uint32_t num_idx, const camspork::ExprRef* idx,
+    uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits)
+{
+    CAMSPORK_API_PROLOGUE
+    return p_builder->add_Await(name, num_idx, idx, L2_full_qual_bits, L2_temporal_qual_bits);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
