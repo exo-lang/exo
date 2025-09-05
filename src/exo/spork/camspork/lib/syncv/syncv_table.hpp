@@ -85,7 +85,8 @@ void alloc_barriers(SyncvTable* table, size_t N, barrier_id* barriers);
 void free_barriers(SyncvTable* table, size_t N, barrier_id* barriers);
 void on_fence(SyncvTable* table, bool transitive, const ThreadCuboid& cuboid,
         uint32_t L1_bitfield, uint32_t L2_full_bitfield, uint32_t L2_temporal_bitfield);
-void on_arrive(SyncvTable* table, barrier_id* bar, TlSigInterval V1, bool transitive);
+void on_arrive(SyncvTable* table, barrier_id* home_barrier, uint32_t barrier_count, barrier_id* all_barriers,
+        bool transitive, const ThreadCuboid& cuboid, uint32_t L1_bitfield);
 void on_await(SyncvTable* table, barrier_id* bar, TlSigInterval V2_full, TlSigInterval V2_temporal);
 void begin_no_checking(SyncvTable* table);
 void end_no_checking(SyncvTable* table);

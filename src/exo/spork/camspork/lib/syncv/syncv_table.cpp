@@ -32,14 +32,18 @@ namespace
 
 using refcnt_t = uint32_t;
 
-struct PendingAwaitListNode
+// We attach a "linked list" of pending awaits to a non-forwarded VisRecord.
+// However, two different linked lists may share the same tail, hence the "tree" name and the refcnt.
+struct PendingAwaitTreeNode
 {
+    // Owning reference to the next node in the list (may be shared tail).
+    nodepool::id<PendingAwaitTreeNode> camspork_next_id;
+    uint32_t refcnt;
     pending_await_t await_id;
-    nodepool::id<PendingAwaitListNode> camspork_next_id;
 
     refcnt_t get_refcnt() const
     {
-        return 1;  // Replace if refcnt member added;
+        return refcnt;
     }
 };
 
@@ -72,9 +76,8 @@ struct VisRecord
     // Owning reference to singly-linked list.
     nodepool::id<TlSigIntervalListNode> visibility_set;
 
-    // Owning reference to singly-linked list.
-    // TODO replace this with generation flag.
-    nodepool::id<PendingAwaitListNode> pending_await_list;
+    // Owning reference to tree node.
+    nodepool::id<PendingAwaitTreeNode> pending_awaits;
 
     uint8_t original_qual_tl;
 
@@ -171,7 +174,6 @@ struct BarrierState
 {
     uint32_t arrive_count;
     uint32_t await_count;
-    TlSigInterval arrive_tl_sigs;  // TODO remove me, replace with list of VisRecords.
 };
 
 template <uint32_t Level> constexpr uint64_t bucket_level_size = 0;
@@ -393,7 +395,7 @@ struct SyncvTable
     std::tuple<
         nodepool::Pool<AssignmentRecord>,
         nodepool::Pool<TlSigIntervalListNode>,
-        nodepool::Pool<PendingAwaitListNode>,
+        nodepool::Pool<PendingAwaitTreeNode>,
         nodepool::Pool<ReadVisRecordListNode>,
         nodepool::Pool<MutateVisRecordListNode>,
         nodepool::Pool<AssignmentRecordReadNode>,
@@ -557,14 +559,37 @@ struct SyncvTable
         }
     }
 
+    void incref(nodepool::id<PendingAwaitTreeNode> id) noexcept
+    {
+        PendingAwaitTreeNode& node = get(id);
+        CAMSPORK_REQUIRE_CMP(node.refcnt, !=, 0, "should not have started with 0 refcnt");
+        node.refcnt++;
+        CAMSPORK_REQUIRE_CMP(node.refcnt, !=, 0, "reference count overflow");
+    }
+
+    void decref(nodepool::id<PendingAwaitTreeNode> id) noexcept
+    {
+        PendingAwaitTreeNode& node = get(id);
+        if (0 != --node.refcnt) {
+            return;
+        }
+        auto victim_id = remove_next_node(&id);
+        extend_free_list(victim_id);
+        if (id) {
+            decref(id);
+        }
+    }
+
     void reset_vis_record_data(VisRecord* p_data) noexcept
     {
         static_assert(sizeof(*p_data) == 12, "update me");
         p_data->original_qual_tl = ~0;
         extend_free_list(p_data->visibility_set);
         p_data->visibility_set = {};
-        extend_free_list(p_data->pending_await_list);
-        p_data->pending_await_list = {};
+        if (auto& id = p_data->pending_awaits) {
+            decref(id);
+            id = nodepool::id<PendingAwaitTreeNode>{};
+        }
     }
 
     template <bool IsMutate>
@@ -610,33 +635,6 @@ struct SyncvTable
     // If the visibility record is modified, you need to be careful to update the memoization table.
 
 
-
-    // Insert to pending await list
-    void add_pending_await(VisRecord* p, pending_await_t await_id)
-    {
-        nodepool::id<PendingAwaitListNode> new_node_id;
-        auto& node = alloc_default_node(&new_node_id);
-        CAMSPORK_REQUIRE(!node.camspork_next_id, "");
-        node.await_id = await_id;
-        insert_next_node(&p->pending_await_list, new_node_id);
-    }
-
-    // Remove from pending await if found (return found flag).
-    bool remove_pending_await(VisRecord* p, pending_await_t await_id) noexcept
-    {
-        nodepool::id<PendingAwaitListNode>* p_node_id = &p->pending_await_list;
-        nodepool::id<PendingAwaitListNode> node_id;
-
-        while ((node_id = *p_node_id)) {
-            PendingAwaitListNode& node = get(node_id);
-            if (node.await_id == await_id) {
-                remove_and_free_next_node(p_node_id);
-                return true;
-            }
-            p_node_id = &node.camspork_next_id;
-        }
-        return false;
-    }
 
     // Allocate a new visibility record.
     // This will later need to be added to the memoization table.
@@ -842,24 +840,9 @@ struct SyncvTable
         }
 
         // Check equal pending awaits.
-        // TODO explain why it's OK not to check for re-ordering. Should be OK because there's a total ordering
-        // of how pending awaits are simulated and added to lists.
-        using node_id = nodepool::id<PendingAwaitListNode>;
-        node_id id_a = a.pending_await_list;
-        node_id id_b = b.pending_await_list;
-
-        while (id_a && id_b) {
-            const PendingAwaitListNode& current_a = get(id_a);
-            const PendingAwaitListNode& current_b = get(id_b);
-            id_a = current_a.camspork_next_id;
-            id_b = current_b.camspork_next_id;
-
-            if (current_a.await_id != current_b.await_id) {
-                return false;
-            }
-        }
-
-        return id_a == id_b;  // Check lists had the same length.
+        // NB false negative shouldn't happen but won't mess things up too badly.
+        // i.e. it'll be OK if the lists are equal, but didn't have the same ID.
+        return a.pending_awaits == b.pending_awaits;
     }
 
     // Check if a visibility record matches what would have been constructed
@@ -868,7 +851,7 @@ struct SyncvTable
     {
         static_assert(sizeof(a) == 12, "Update me");
 
-        if (a.pending_await_list) {
+        if (a.pending_awaits) {
             return false;
         }
 
@@ -1194,7 +1177,7 @@ struct SyncvTable
     //   account for if we modify the bucketing scheme.
     //   TODO: is this reasoning correct?
     template <bool IsMutate, BucketProcessType Type, typename Command>
-    nodepool::id<VisRecordListNode<IsMutate>> for_buckets(TlSigInterval minimal_superset, const Command& command)
+    nodepool::id<VisRecordListNode<IsMutate>> for_buckets(TlSigInterval minimal_superset, Command&& command)
     {
         if constexpr (IsMutate) {
             return this->for_buckets_impl<Type>(&mutate_top_level_bucket,
@@ -1213,7 +1196,7 @@ struct SyncvTable
             IntervalBucket<IsMutate, BucketLevel>* p_bucket,
             int64_t relative_tid_lo,
             int64_t relative_tid_hi,
-            const Command& command)
+            Command&& command)
     {
         if constexpr (Type != BucketProcessType::Insert && BucketLevel < bucket_level_count - 1) {
             CAMSPORK_REQUIRE(!interval_bucket_is_empty(*p_bucket), "Left behind empty bucket that should have been de-allocated.");
@@ -1561,43 +1544,46 @@ struct SyncvTable
     template <bool Transitive>
     struct ArriveUpdateCommand
     {
-        TlSigInterval V1;
-        pending_await_t await_id;
+        const ThreadCuboid* p_cuboid;
+        uint32_t L1_bitfield;
+        std::vector<pending_await_t> pending_awaits;
+
+        // Used internally, to avoid creating redundant PendingAwaitTreeNode.
+        // This also helps memoization ... VisRecord with equivalent sets of pending awaits
+        // will hopefull also use equivalent node ID for the pending_awaits list.
+        Map<nodepool::id<PendingAwaitTreeNode>, nodepool::id<PendingAwaitTreeNode>> node_id_map;
 
         template <bool IsMutate>
-        void update_for_sync(SyncvTable& env, VisRecord* p_record) const
+        void update_for_sync(SyncvTable& env, VisRecord* p_record)
         {
-            if (env.synchronizes_with<Transitive>(*p_record, V1)) {
-                env.add_pending_await(p_record, await_id);
+            if (env.synchronizes_with<Transitive>(*p_record, *p_cuboid, L1_bitfield)) {
+                nodepool::id<PendingAwaitTreeNode> old_await_node = p_record->pending_awaits;
+                nodepool::id<PendingAwaitTreeNode>* p_new_await_node = &node_id_map[old_await_node];
+                if (const auto new_await_node = *p_new_await_node) {
+                    // Recycle the list created in the else stmt.
+                    env.incref(new_await_node);
+                    env.decref(old_await_node);  // critically after incref, in case the two nodes are the same.
+                    p_record->pending_awaits = new_await_node;
+                }
+                else {
+                    *p_new_await_node = old_await_node;
+                    // Add nodes to the head of the list.
+                    // Don't have to manipulate refcnt here, actually.
+                    for (auto iter = pending_awaits.rbegin(); iter != pending_awaits.rend(); ++iter) {
+                        const auto tmp_id = *p_new_await_node;
+                        PendingAwaitTreeNode& node = env.alloc_default_node(p_new_await_node);
+                        node.camspork_next_id = tmp_id;
+                        node.refcnt = 1;
+                        node.await_id = *iter;
+                    }
+                    p_record->pending_awaits = *p_new_await_node;
+                }
             }
         }
 
         TlSigInterval minimal_superset_interval() const
         {
-            return V1;
-        }
-    };
-
-    struct AwaitUpdateCommand
-    {
-        TlSigInterval V1;
-        TlSigInterval V2_full;
-        TlSigInterval V2_temporal;
-        pending_await_t await_id;
-
-        template <bool IsMutate>
-        void update_for_sync(SyncvTable& env, VisRecord* p_record) const
-        {
-            if (env.remove_pending_await(p_record, await_id)) {
-                // TODO rethink this
-                assert(env.synchronizes_with<true>(*p_record, V1));
-                env.union_tl_sig_interval(p_record, IsMutate ? V2_full : V2_temporal);
-            }
-        }
-
-        TlSigInterval minimal_superset_interval() const
-        {
-            return V1;
+            return p_cuboid->minimal_superset_interval(L1_bitfield);
         }
     };
 
@@ -1607,17 +1593,16 @@ struct SyncvTable
     //
     // The real entrypoints are the ones specialized for fence, arrive, await.
     template <typename Command>
-    void update_vis_records_for_sync_impl(const Command& command)
+    void update_vis_records_for_sync_impl(Command&& command)
     {
         // Only visibility sets that intersect the first visibility set (V1) can be updated by this sync.
-        // This is even the case for Await, assuming the V1 for the corresponding Arrive was correctly given.
         const TlSigInterval minimal_superset = command.minimal_superset_interval();
         for_buckets<false, BucketProcessType::MapAll>(minimal_superset, command);
         for_buckets<true, BucketProcessType::MapAll>(minimal_superset, command);
     }
 
     template <bool IsMutate, typename Command>
-    void process_bucket_for_sync_impl(nodepool::id<VisRecordListNode<IsMutate>>* p_bucket_head, const Command& command)
+    void process_bucket_for_sync_impl(nodepool::id<VisRecordListNode<IsMutate>>* p_bucket_head, Command&& command)
     {
         // The bucket update process for handling the effects of synchronization on visibility records is quite
         // risky actually. When we modify a visibility record, we temporarily remove it from the memoization bucket,
@@ -1693,14 +1678,18 @@ struct SyncvTable
     }
 
     // Save await_id into all visibility records that synchronize with the first visibility set of the fence.
-    void update_vis_records_for_arrive(TlSigInterval V1, bool transitive, pending_await_t await_id)
+    void update_vis_records_for_arrive(
+            bool transitive,
+            const ThreadCuboid& cuboid,
+            uint32_t L1_bitfield,
+            std::vector<pending_await_t> pending_awaits)
     {
         if (transitive) {
-            ArriveUpdateCommand<true> command{V1, await_id};
+            ArriveUpdateCommand<true> command{&cuboid, L1_bitfield, std::move(pending_awaits), {}};
             update_vis_records_for_sync_impl(command);
         }
         else {
-            ArriveUpdateCommand<false> command{V1, await_id};
+            ArriveUpdateCommand<false> command{&cuboid, L1_bitfield, std::move(pending_awaits), {}};
             update_vis_records_for_sync_impl(command);
         }
     }
@@ -1708,28 +1697,7 @@ struct SyncvTable
     template <bool IsMutate, bool Transitive>
     void process_bucket(
             nodepool::id<VisRecordListNode<IsMutate>>* p_bucket_head,
-            const ArriveUpdateCommand<Transitive>& command)
-    {
-        process_bucket_for_sync_impl(p_bucket_head, command);
-    }
-
-    // Augment all visibility records with await_id saved.
-    // Assumes that V1 matches what was provided for the corresponding arrive.
-    // (if this is wrong, we may not update the correct buckets).
-    void update_vis_records_for_await(
-            TlSigInterval V1,
-            TlSigInterval V2_full,
-            TlSigInterval V2_temporal,
-            pending_await_t await_id)
-    {
-        V2_full.bitfield |= TlSigInterval::ordered_bits;  // Augment V_A, V_U, and V_O.
-        V2_temporal.bitfield |= TlSigInterval::ordered_bits;
-        AwaitUpdateCommand command{V1, V2_full, V2_temporal, await_id};
-        update_vis_records_for_sync_impl(command);
-    }
-
-    template <bool IsMutate>
-    void process_bucket(nodepool::id<VisRecordListNode<IsMutate>>* p_bucket_head, const AwaitUpdateCommand& command)
+            ArriveUpdateCommand<Transitive>& command)
     {
         process_bucket_for_sync_impl(p_bucket_head, command);
     }
@@ -1747,35 +1715,34 @@ struct SyncvTable
         update_vis_records_for_fence(transitive, cuboid, L1_bitfield, L2_full_bitfield, L2_temporal_bitfield);
     }
 
-    void on_arrive(barrier_id* bar, TlSigInterval V1, bool transitive)
+    void on_arrive(barrier_id* home_barrier, uint32_t barrier_count, barrier_id* all_barriers,
+            bool transitive, const ThreadCuboid& cuboid, uint32_t L1_bitfield)
     {
-        const auto barrier_id = get_barrier_id(bar);
-        BarrierState& state = barrier_states[barrier_id];
-        const auto await_id = pack_pending_await(barrier_id, state.arrive_count);
+        const auto home_barrier_id = get_barrier_id(home_barrier);
+        BarrierState& state = barrier_states[home_barrier_id];
+        const auto await_id = pack_pending_await(home_barrier_id, state.arrive_count);
 
-        if (state.arrive_count++ == 0) {
-            state.arrive_tl_sigs = V1;
+        std::vector<pending_await_t> pending_awaits(barrier_count);
+        for (uint32_t i = 0; i < barrier_count; ++i) {
+            pending_awaits[i] = pack_pending_await(get_barrier_id(&all_barriers[i]), state.arrive_count);
         }
-        else {
-            assert(state.arrive_tl_sigs == V1);  // TODO should not be assertion (but this should go away anyway).
-        }
+        state.arrive_count++;
 
-        update_vis_records_for_arrive(V1, transitive, await_id);
+        update_vis_records_for_arrive(transitive, cuboid, L1_bitfield, std::move(pending_awaits));
     }
 
-    void on_await(barrier_id* bar, TlSigInterval V2_full, TlSigInterval V2_temporal)
+    void on_await(barrier_id* bar)
     {
         const auto barrier_id = get_barrier_id(bar);
         BarrierState& state = barrier_states[barrier_id];
-        const auto await_id = pack_pending_await(barrier_id, state.await_count);
 
         state.await_count++;
 
         assert(state.arrive_count >= state.await_count);  // TODO should not be assertion
-        const TlSigInterval V1 = state.arrive_tl_sigs;
 
         augment_counter++;
-        update_vis_records_for_await(V1, V2_full, V2_temporal, await_id);
+        CAMSPORK_REQUIRE(0, "Implement me");
+        // update_vis_records_for_await(V1, V2_full, V2_temporal, await_id);
     }
 
 
@@ -2119,8 +2086,8 @@ struct SyncvTable
         }
 
         out->pending_await_list.clear();
-        for (nodepool::id<PendingAwaitListNode> node_id = record.pending_await_list; node_id; ) {
-            const PendingAwaitListNode& node = get(node_id);
+        for (nodepool::id<PendingAwaitTreeNode> node_id = record.pending_awaits; node_id; ) {
+            const PendingAwaitTreeNode& node = get(node_id);
             out->pending_await_list.push_back(node.await_id);
             node_id = node.camspork_next_id;
         }
@@ -2161,7 +2128,7 @@ struct SyncvTable
         std::tuple<
             RefcntDebug<AssignmentRecord>,
             RefcntDebug<TlSigIntervalListNode>,
-            RefcntDebug<PendingAwaitListNode>,
+            RefcntDebug<PendingAwaitTreeNode>,
             RefcntDebug<ReadVisRecordListNode>,
             RefcntDebug<MutateVisRecordListNode>,
             RefcntDebug<AssignmentRecordReadNode>,
@@ -2233,9 +2200,22 @@ struct SyncvTable
             }
         }
 
+        // This handles references between PendingAwaitTreeNode
+        auto on_PendingAwaitTreeNode = [&] (nodepool::id<PendingAwaitTreeNode> id, auto recurse)
+        {
+            if (!id) {
+                return;
+            }
+            if (!record_owning(id)) {
+                // Not the first time, don't re-scan.
+            }
+            id = get(id).camspork_next_id;
+            recurse(id, recurse);
+        };
+
         // Count ownership references from live VisRecordListNode objects to other objects:
         //   * TlSigIntervalListNode
-        //   * PendingAwaitListNode
+        //   * PendingAwaitTreeNode
         //   * forwarded-to VisRecordListNodes
         // Furthermore we validate that the encoding for the visibility set is correct.
         auto process_vis_record_impl = [&] (auto id, const auto& free_vis_ids)
@@ -2248,6 +2228,8 @@ struct SyncvTable
             if (node.is_forwarded()) {
                 CAMSPORK_REQUIRE(node.camspork_next_id, "in forwarding state, but forwarded-to node is null");
                 record_owning(node.camspork_next_id);
+                CAMSPORK_REQUIRE(!node.base_data.visibility_set, "state should have been cleared upon forwarding");
+                CAMSPORK_REQUIRE(!node.base_data.pending_awaits, "state should have been cleared upon forwarding");
             }
             else {
                 for (nodepool::id<TlSigIntervalListNode> node_id = node.base_data.visibility_set; node_id; ) {
@@ -2267,11 +2249,7 @@ struct SyncvTable
                     }
                 }
 
-                for (nodepool::id<PendingAwaitListNode> node_id = node.base_data.pending_await_list; node_id; ) {
-                    record_owning(node_id);
-                    PendingAwaitListNode node = get(node_id);
-                    node_id = node.camspork_next_id;
-                }
+                on_PendingAwaitTreeNode(node.base_data.pending_awaits, on_PendingAwaitTreeNode);
             }
         };
 
@@ -2485,19 +2463,20 @@ void on_fence(SyncvTable* table, bool transitive, const ThreadCuboid& cuboid,
     INTERFACE_EPILOGUE(table)
 }
 
-void on_arrive(SyncvTable* table, barrier_id* bar, TlSigInterval V1, bool transitive)
+void on_arrive(SyncvTable* table, barrier_id* home_barrier, uint32_t barrier_count, barrier_id* all_barriers,
+        bool transitive, const ThreadCuboid& cuboid, uint32_t L1_bitfield)
 {
     INTERFACE_PROLOGUE(table)
-    table->on_arrive(bar, V1, transitive);
+    table->on_arrive(home_barrier, barrier_count, all_barriers, transitive, cuboid, L1_bitfield);
     INTERFACE_EPILOGUE(table)
 }
 
-void on_await(SyncvTable* table, barrier_id* bar, TlSigInterval V2_full, TlSigInterval V2_temporal)
-{
-    INTERFACE_PROLOGUE(table)
-    table->on_await(bar, V2_full, V2_temporal);
-    INTERFACE_EPILOGUE(table)
-}
+// void on_await(SyncvTable* table, barrier_id* bar, TlSigInterval V2_full, TlSigInterval V2_temporal)
+// {
+//     INTERFACE_PROLOGUE(table)
+//     table->on_await(bar, V2_full, V2_temporal);
+//     INTERFACE_EPILOGUE(table)
+// }
 
 void begin_no_checking(SyncvTable* table)
 {
