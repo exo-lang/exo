@@ -48,6 +48,7 @@ class ProgramExec
 
     std::vector<extent_t> tmp_extent;
     std::vector<extent_t> tmp_offset;
+    std::vector<barrier_id> tmp_all_barriers;
 
   public:
     ProgramExec(ProgramEnv* p_self)

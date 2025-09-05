@@ -11,6 +11,7 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #include "tl_sig.hpp"
 #include "../util/bit_util.hpp"
@@ -19,8 +20,10 @@
 #include "../util/require.hpp"
 
 // Maybe replace later
+#include <map>
 #include <unordered_map>
 #include <unordered_set>
+template <typename K, typename V> using BinaryTree = std::map<K, V>;
 template <typename K, typename V> using Map = std::unordered_map<K, V>;
 template <typename V> using Set = std::unordered_set<V>;
 
@@ -170,10 +173,27 @@ struct AssignmentRecord
     }
 };
 
+
+struct BarrierArriveState
+{
+    // Linked lists of owning references to VisRecord.
+    // A base-state VisRecord is in a list iff the VisRecord has (parent, arrive_count) in its pending_awaits.
+    // Forwarding-state VisRecords may be in the lists as well ... ignore them if found.
+    //
+    // Re-use of "assignment record" structs is just pragmatic (maybe confusing).
+    nodepool::id<AssignmentRecordMutateNode> mutate_vis_records_head_id{0};
+    nodepool::id<AssignmentRecordReadNode> read_vis_records_head_id{0};
+};
+
+
 struct BarrierState
 {
     uint32_t arrive_count;
     uint32_t await_count;
+
+    // Sorted by arrive_count.
+    // Entries removed from the list upon matched await.
+    BinaryTree<uint32_t, BarrierArriveState> arrive_states;
 };
 
 template <uint32_t Level> constexpr uint64_t bucket_level_size = 0;
@@ -992,10 +1012,10 @@ struct SyncvTable
 
 
 
-    uint32_t get_barrier_id(const barrier_id* bar)
+    uint32_t get_barrier_id(barrier_id bar)
     {
-        CAMSPORK_REQUIRE_CMP(bar->data, !=, 0, "null barrier");
-        const auto id = (bar->data - 1);
+        CAMSPORK_REQUIRE_CMP(bar.data, !=, 0, "null barrier");
+        const auto id = (bar.data - 1);
         CAMSPORK_REQUIRE_CMP(id, <, max_live_barriers, "max_live_barriers limit exceeded");
         return uint32_t(id);
     }
@@ -1039,7 +1059,7 @@ struct SyncvTable
             if (!barriers[i]) {
                 continue;
             }
-            const auto barrier_id = get_barrier_id(&barriers[i]);
+            const auto barrier_id = get_barrier_id(barriers[i]);
             const BarrierState& state = barrier_states[barrier_id];
             if (state.arrive_count != state.await_count) {
                 std::string message =
@@ -1047,6 +1067,7 @@ struct SyncvTable
                     + std::to_string(state.await_count) + ")";
                 throw SyncvCheckFail{std::move(message)};
             }
+            CAMSPORK_REQUIRE(state.arrive_states.empty(), "await should have cleared this list");
 
             uint64_t& word = live_barrier_bits[barrier_id / 64u];
             const uint64_t bit = uint64_t(1) << (barrier_id & 63u);
@@ -1523,8 +1544,12 @@ struct SyncvTable
         uint32_t L1_bitfield, L2_full_bitfield, L2_temporal_bitfield;
 
         template <bool IsMutate>
-        void update_for_sync(SyncvTable& env, VisRecord* p_record) const
+        void update_for_sync(SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> vis_record_id) const
         {
+            auto& node = env.get(vis_record_id);
+            CAMSPORK_REQUIRE(!node.is_forwarded(), "unexpected forwarding state");
+            VisRecord* p_record = &node.base_data;
+
             if (env.synchronizes_with<Transitive>(*p_record, *p_cuboid, L1_bitfield)) {
                 p_cuboid->to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi)
                     {
@@ -1554,10 +1579,15 @@ struct SyncvTable
         Map<nodepool::id<PendingAwaitTreeNode>, nodepool::id<PendingAwaitTreeNode>> node_id_map;
 
         template <bool IsMutate>
-        void update_for_sync(SyncvTable& env, VisRecord* p_record)
+        void update_for_sync(SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> vis_record_id)
         {
+            auto& node = env.get(vis_record_id);
+            CAMSPORK_REQUIRE(!node.is_forwarded(), "unexpected forwarding state");
+            VisRecord* p_record = &node.base_data;
+
             if (env.synchronizes_with<Transitive>(*p_record, *p_cuboid, L1_bitfield)) {
-                nodepool::id<PendingAwaitTreeNode> old_await_node = p_record->pending_awaits;
+                // Extend pending_awaits list of the VisRecord.
+                const nodepool::id<PendingAwaitTreeNode> old_await_node = p_record->pending_awaits;
                 nodepool::id<PendingAwaitTreeNode>* p_new_await_node = &node_id_map[old_await_node];
                 if (const auto new_await_node = *p_new_await_node) {
                     // Recycle the list created in the else stmt.
@@ -1577,6 +1607,25 @@ struct SyncvTable
                         node.await_id = *iter;
                     }
                     p_record->pending_awaits = *p_new_await_node;
+                }
+
+                // Extend BarrierArriveState to hold the new VisRecord.
+                for (pending_await_t info : pending_awaits) {
+                    const auto barrier_id = pending_await_barrier_id(info);
+                    const auto arrive_count = pending_await_arrive_count(info);
+                    BarrierArriveState& state = env.barrier_states[barrier_id].arrive_states[arrive_count];
+                    nodepool::id<AssignmentRecordVisNode<IsMutate>> list_node_id{};
+                    auto& list_node = env.alloc_default_node(&list_node_id);
+                    list_node.vis_record_id = vis_record_id;
+                    env.incref(vis_record_id);
+                    if constexpr (IsMutate) {
+                        list_node.camspork_next_id = state.mutate_vis_records_head_id;
+                        state.mutate_vis_records_head_id = list_node_id;
+                    }
+                    else {
+                        list_node.camspork_next_id = state.read_vis_records_head_id;
+                        state.read_vis_records_head_id = list_node_id;
+                    }
                 }
             }
         }
@@ -1626,12 +1675,13 @@ struct SyncvTable
             // ("next_node" reflects the "pointer to previous node" viewpoint explained above).
             // *p_id will now be the ID of the node that formerly was after current_node, which (if not ID = 0)
             // is the node that we should process on the next iteration.
-            VisRecordListNode<IsMutate>& current_node = get(remove_next_node(p_id));
+            const node_id modified_id = remove_next_node(p_id);
+            VisRecordListNode<IsMutate>& current_node = get(modified_id);
             CAMSPORK_REQUIRE(!current_node.camspork_next_id, "Should have been removed from list.");
             CAMSPORK_REQUIRE(!current_node.is_forwarded(), "forwarding state memoized?");
 
             // Update the visibility record stored in the node.
-            command.template update_for_sync<IsMutate>(*this, &current_node.base_data);
+            command.update_for_sync(*this, modified_id);
             CAMSPORK_REQUIRE_CMP(p_id, !=, &current_node.camspork_next_id, "something happened");
 
             // This is where the node might get re-inserted to the memoization table.
@@ -1715,7 +1765,7 @@ struct SyncvTable
         update_vis_records_for_fence(transitive, cuboid, L1_bitfield, L2_full_bitfield, L2_temporal_bitfield);
     }
 
-    void on_arrive(barrier_id* home_barrier, uint32_t barrier_count, barrier_id* all_barriers,
+    void on_arrive(barrier_id home_barrier, uint32_t barrier_count, const barrier_id* all_barriers,
             bool transitive, const ThreadCuboid& cuboid, uint32_t L1_bitfield)
     {
         const auto home_barrier_id = get_barrier_id(home_barrier);
@@ -1724,14 +1774,14 @@ struct SyncvTable
 
         std::vector<pending_await_t> pending_awaits(barrier_count);
         for (uint32_t i = 0; i < barrier_count; ++i) {
-            pending_awaits[i] = pack_pending_await(get_barrier_id(&all_barriers[i]), state.arrive_count);
+            pending_awaits[i] = pack_pending_await(get_barrier_id(all_barriers[i]), state.arrive_count);
         }
         state.arrive_count++;
 
         update_vis_records_for_arrive(transitive, cuboid, L1_bitfield, std::move(pending_awaits));
     }
 
-    void on_await(barrier_id* bar)
+    void on_await(barrier_id bar, uint32_t L2_full_bitfield, uint32_t L2_temporal_bitfield)
     {
         const auto barrier_id = get_barrier_id(bar);
         BarrierState& state = barrier_states[barrier_id];
@@ -2160,6 +2210,17 @@ struct SyncvTable
             return false;
         };
 
+        auto process_assignment_record_list = [&] (auto id)
+        {
+            while (id) {
+                auto& node = get(id);
+                CAMSPORK_REQUIRE(node.vis_record_id, "unexpected null");
+                record_owning(id);
+                record_owning(node.vis_record_id);
+                id = node.camspork_next_id;
+            }
+        };
+
         auto process_assignment_record = [&] (nodepool::id<AssignmentRecord> id, auto recurse)
         {
             const bool first_time = record_owning(id);
@@ -2168,23 +2229,11 @@ struct SyncvTable
             }
             const AssignmentRecord& record = get(id);
 
-            nodepool::id<AssignmentRecordMutateNode> mutate_id = record.mutate_vis_records_head_id;
-            while (mutate_id) {
-                const AssignmentRecordMutateNode& mutate_node = get(mutate_id);
-                CAMSPORK_REQUIRE(mutate_node.vis_record_id, "unexpected null mutate_node");
-                record_owning(mutate_id);
-                record_owning(mutate_node.vis_record_id);
-                mutate_id = mutate_node.camspork_next_id;
-            }
+            const nodepool::id<AssignmentRecordMutateNode> mutate_id = record.mutate_vis_records_head_id;
+            process_assignment_record_list(mutate_id);
+            const nodepool::id<AssignmentRecordReadNode> read_id = record.read_vis_records_head_id;
+            process_assignment_record_list(read_id);
 
-            nodepool::id<AssignmentRecordReadNode> read_id = record.read_vis_records_head_id;
-            while (read_id) {
-                const AssignmentRecordReadNode& read_node = get(read_id);
-                CAMSPORK_REQUIRE(read_node.vis_record_id, "unexpected null read_node");
-                record_owning(read_id);
-                record_owning(read_node.vis_record_id);
-                read_id = read_node.camspork_next_id;
-            }
             recurse(record.camspork_next_id, recurse);
         };
 
@@ -2197,6 +2246,17 @@ struct SyncvTable
             for (size_t i = 0; i < sz; ++i) {
                 nodepool::id<AssignmentRecord> id{ptr[i].node_id};
                 process_assignment_record(id, process_assignment_record);
+            }
+        }
+
+        // Also count references due to BarrierArriveState
+        for (uint32_t barrier_index = 0; barrier_index < max_live_barriers; ++barrier_index) {
+            const BarrierState& state = barrier_states[barrier_index];
+            for (const auto& pair : state.arrive_states) {
+                const nodepool::id<AssignmentRecordMutateNode> mutate_id = pair.second.mutate_vis_records_head_id;
+                process_assignment_record_list(mutate_id);
+                const nodepool::id<AssignmentRecordReadNode> read_id = pair.second.read_vis_records_head_id;
+                process_assignment_record_list(read_id);
             }
         }
 
@@ -2271,7 +2331,6 @@ struct SyncvTable
 
         // Memoization Validation
         // A VisRecord should be in the memoization table iff it's alive and in the base state.
-
 
         // (VisRecord in memoization table -> alive and in base state)
         // We also check that no empty IntervalBucket(s) left behind (besides the top level bucket)
@@ -2463,7 +2522,7 @@ void on_fence(SyncvTable* table, bool transitive, const ThreadCuboid& cuboid,
     INTERFACE_EPILOGUE(table)
 }
 
-void on_arrive(SyncvTable* table, barrier_id* home_barrier, uint32_t barrier_count, barrier_id* all_barriers,
+void on_arrive(SyncvTable* table, barrier_id home_barrier, uint32_t barrier_count, const barrier_id* all_barriers,
         bool transitive, const ThreadCuboid& cuboid, uint32_t L1_bitfield)
 {
     INTERFACE_PROLOGUE(table)

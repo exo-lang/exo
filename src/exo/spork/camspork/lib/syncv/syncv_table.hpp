@@ -7,6 +7,7 @@
 
 #include "syncv_types.hpp"
 #include "tl_sig.hpp"
+#include "../util/require.hpp"
 
 namespace camspork
 {
@@ -29,16 +30,16 @@ inline uint32_t pending_await_barrier_id(pending_await_t id)
     return id & ((1u << barrier_id_bits) - 1u);
 }
 
-inline uint32_t pending_await_counter(pending_await_t id)
+inline uint32_t pending_await_arrive_count(pending_await_t id)
 {
     return id >> barrier_id_bits;
 }
 
-inline pending_await_t pack_pending_await(uint32_t barrier_id, uint32_t counter)
+inline pending_await_t pack_pending_await(uint32_t barrier_id, uint32_t arrive_count)
 {
-    const uint32_t id = barrier_id | counter << barrier_id_bits;
-    assert(pending_await_barrier_id(id) == barrier_id);
-    assert(pending_await_counter(id) == counter);
+    const uint32_t id = barrier_id | arrive_count << barrier_id_bits;
+    CAMSPORK_REQUIRE_CMP(pending_await_barrier_id(id), ==, barrier_id, "implementation limit: barrier_id overflow");
+    CAMSPORK_REQUIRE_CMP(pending_await_arrive_count(id), ==, arrive_count, "implementation limit: arrive_count overflow");
     return id;
 }
 
@@ -85,7 +86,7 @@ void alloc_barriers(SyncvTable* table, size_t N, barrier_id* barriers);
 void free_barriers(SyncvTable* table, size_t N, barrier_id* barriers);
 void on_fence(SyncvTable* table, bool transitive, const ThreadCuboid& cuboid,
         uint32_t L1_bitfield, uint32_t L2_full_bitfield, uint32_t L2_temporal_bitfield);
-void on_arrive(SyncvTable* table, barrier_id* home_barrier, uint32_t barrier_count, barrier_id* all_barriers,
+void on_arrive(SyncvTable* table, barrier_id home_barrier, uint32_t barrier_count, const barrier_id* all_barriers,
         bool transitive, const ThreadCuboid& cuboid, uint32_t L1_bitfield);
 void on_await(SyncvTable* table, barrier_id* bar, TlSigInterval V2_full, TlSigInterval V2_temporal);
 void begin_no_checking(SyncvTable* table);
