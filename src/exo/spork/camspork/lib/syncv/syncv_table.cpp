@@ -85,6 +85,8 @@ struct VisRecord
 
     uint8_t original_qual_tl;
 
+    uint8_t forwarded_flag;
+
     // This has nothing to do with the main purpose of the struct; only needed for assignment_record_remove_duplicates.
     // This should be in AssignmentRecordVisNode conceptually, but that would waste 4 bytes.
     uint8_t tmp_is_duplicate;
@@ -109,12 +111,9 @@ struct VisRecordListNode
     // If the visibility record is in the forwarding state, the data is that of the record at get(camspork_next_id).
     VisRecord base_data;
 
-    // Empty visibility set is never valid.
-    // We will use that to indicate forwarding.
-    // TODO this has to change. Will be valid soon.
     bool is_forwarded() const
     {
-        return !base_data.visibility_set;
+        return base_data.forwarded_flag;
     }
 
     refcnt_t get_refcnt() const
@@ -668,6 +667,7 @@ struct SyncvTable
         VisRecordListNode<IsMutate>& vis_record = alloc_default_node(&vis_record_id);
         vis_record.refcnt = 1;
         vis_record.base_data.original_qual_tl = TlSigInterval::get_unique_qual_tl(bitfield);
+        vis_record.base_data.forwarded_flag = 0;
 
         // Initialize visibility set = linked list of intervals generated from the initial thread cuboid.
         nodepool::id<TlSigIntervalListNode>* p_node_id = &vis_record.base_data.visibility_set;
@@ -698,10 +698,6 @@ struct SyncvTable
         static_assert(vis_level_atomic_only == 0);
         static_assert(vis_level_unordered == 1);
         static_assert(vis_level_ordered == 3);
-
-        // Visibility set must not be created empty (or VisRecord is in forwarding state). See alloc_visibility_record.
-        // TODO fix this.
-        assert(p->visibility_set);
 
         // Modify and/or add intervals.
         // We can view each pointer-to-node_id as a "gap" between intervals (imagine an arrow between nodes = a gap).
@@ -826,11 +822,6 @@ struct SyncvTable
     {
         static_assert(sizeof(a) == 12, "Update me");
 
-        // Must not have empty visibility set (forwarding state passed?)
-        // TODO fix me
-        assert(a.visibility_set);
-        assert(b.visibility_set);
-
         // Check equal original qual-tl.
         if (a.original_qual_tl != b.original_qual_tl) {
             return false;
@@ -895,45 +886,6 @@ struct SyncvTable
             }
         });
         return equal && !node_id;
-    }
-
-    template <bool OrderedOnly, bool Transitive>
-    bool visible_to_impl(const VisRecord& vis_record, TlSigInterval access_set)
-    {
-        // Must not have empty visibility set (forwarding state passed?)
-        // TODO fix me
-        assert(vis_record.visibility_set);
-
-        const uint32_t qual_bits_mask = Transitive ? ~uint32_t(0) : uint32_t(1) << vis_record.original_qual_tl;
-
-        nodepool::id<TlSigIntervalListNode> id = vis_record.visibility_set;
-        while (id) {
-            const TlSigIntervalListNode& current_node = get(id);
-            id = current_node.camspork_next_id;
-            CAMSPORK_REQUIRE(!id || valid_adjacent(current_node.data, get(id).data), "invalid adjacent intervals");
-
-            if (current_node.data.intersects(access_set, qual_bits_mask)) {
-                if (!OrderedOnly || current_node.data.vis_level() == vis_level_ordered) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    // Check if the visibility record is visible-to an access with the given tl_sig access set.
-    bool visible_to(const VisRecord& vis_record, TlSigInterval accessor_set)
-    {
-        // TODO remove
-        return visible_to_impl<true, true>(vis_record, accessor_set);
-    }
-
-    // Check if the visibility record synchronizes-with a synchronization statement with the given first visibility set.
-    template <bool Transitive>
-    bool synchronizes_with(const VisRecord& vis_record, TlSigInterval V1)
-    {
-        // TODO remove
-        return visible_to_impl<false, Transitive>(vis_record, V1);
     }
 
     template <bool Transitive>
@@ -1526,8 +1478,9 @@ struct SyncvTable
             CAMSPORK_REQUIRE(fwd_id, "unexpected null");
             CAMSPORK_REQUIRE_CMP(fwd_id, !=, command.input_id, "Trying to memoize something already in the memoization table.");
 
-            reset_vis_record_data(&input_node.base_data);  // Clear data to put visibility record into forwarding state.
+            reset_vis_record_data(&input_node.base_data);
             input_node.camspork_next_id = fwd_id;
+            input_node.base_data.forwarded_flag = 1;
             CAMSPORK_REQUIRE(input_node.is_forwarded(), "should now be in forwarding state");
             incref(fwd_id);  // Forwarding reference is owning.
             // fprintf(stderr, "FWD %u -> %u [IsMutate=%i]\n", command.input_id.id_bits, fwd_id.id_bits, IsMutate);
