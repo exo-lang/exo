@@ -3,6 +3,7 @@
 #include <memory>
 #include <stdexcept>
 #include <stdint.h>
+#include <string>
 
 #include "tl_sig.hpp"
 #include "../util/cuboid_util.hpp"
@@ -40,7 +41,7 @@ struct syncv_init_t
 
 struct SyncvCheckFail : std::runtime_error
 {
-    SyncvCheckFail() : std::runtime_error("camspork::SyncvCheckFail")
+    SyncvCheckFail(std::string msg) : std::runtime_error(std::move(msg))
     {
     }
 };

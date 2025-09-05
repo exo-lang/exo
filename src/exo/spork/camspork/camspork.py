@@ -4,7 +4,7 @@ from ctypes import *
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Tuple, Optional
 
-lib = cdll.LoadLibrary(os.path.join(os.path.split(__name__)[0], "bin/libexospork.so"))
+lib = cdll.LoadLibrary(os.path.join(os.path.split(__file__)[0], "bin/libexospork.so"))
 extent_t = c_uint32
 value_t = c_int32
 
@@ -71,9 +71,13 @@ class BuilderExpr:
         return BuilderUSub(self)
 
 
+class CamsporkError(ValueError):
+    pass
+
+
 def check_return(code):
     if not code:
-        raise ValueError(str(_thread_local_message_c_str(), "utf-8"))
+        raise CamsporkError(str(_thread_local_message_c_str(), "utf-8"))
     return code
 
 class VoidPtr(c_void_p):
