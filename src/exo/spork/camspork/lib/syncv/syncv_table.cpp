@@ -188,12 +188,12 @@ struct BarrierArriveState
 
 struct BarrierState
 {
-    uint32_t arrive_count;
-    uint32_t await_count;
+    int32_t arrive_count;
+    int32_t await_count;
 
     // Sorted by arrive_count.
     // Entries removed from the list upon matched await.
-    BinaryTree<uint32_t, BarrierArriveState> arrive_states;
+    BinaryTree<int32_t, BarrierArriveState> arrive_states;
 };
 
 template <uint32_t Level> constexpr uint64_t bucket_level_size = 0;
@@ -961,22 +961,22 @@ struct SyncvTable
 
 
     // *** Barrier ID Allocation ***
-    // For now barrier_id::data only stores the barrier ID number + 1, but this could change.
+    // For now barrier_id::data only stores the barrier index number + 1, but this could change.
 
 
 
-    uint32_t get_barrier_id(barrier_id bar)
+    uint32_t get_barrier_index(barrier_id bar)
     {
         CAMSPORK_REQUIRE_CMP(bar.data, !=, 0, "null barrier");
-        const auto id = (bar.data - 1);
-        CAMSPORK_REQUIRE_CMP(id, <, max_live_barriers, "max_live_barriers limit exceeded");
-        return uint32_t(id);
+        const auto index = (bar.data - 1);
+        CAMSPORK_REQUIRE_CMP(index, <, max_live_barriers, "max_live_barriers limit exceeded");
+        return uint32_t(index);
     }
 
-    void set_barrier_id(barrier_id* bar, uint32_t id)
+    void set_barrier_index(barrier_id* bar, uint32_t index)
     {
-        CAMSPORK_REQUIRE_CMP(id, <, max_live_barriers, "max_live_barriers limit exceeded");
-        bar->data = id + 1;
+        CAMSPORK_REQUIRE_CMP(index, <, max_live_barriers, "max_live_barriers limit exceeded");
+        bar->data = index + 1;
     }
 
     void alloc_barriers(size_t N, barrier_id* barriers)
@@ -994,7 +994,7 @@ struct SyncvTable
                 CAMSPORK_REQUIRE_CMP(barriers[num_allocated].data, ==, 0, "allocated barrier without free");
                 uint8_t bit_index = pop_low_bit_index(&negated_bits);
                 barrier_index = word_index * 64 + bit_index;
-                set_barrier_id(&barriers[num_allocated], barrier_index);
+                set_barrier_index(&barriers[num_allocated], barrier_index);
                 live_barrier_bits[word_index] = ~negated_bits;
                 barrier_states[barrier_index] = {};
                 if (++num_allocated >= N) {
@@ -1012,8 +1012,8 @@ struct SyncvTable
             if (!barriers[i]) {
                 continue;
             }
-            const auto barrier_id = get_barrier_id(barriers[i]);
-            const BarrierState& state = barrier_states[barrier_id];
+            const auto barrier_index = get_barrier_index(barriers[i]);
+            const BarrierState& state = barrier_states[barrier_index];
             if (state.arrive_count != state.await_count) {
                 std::string message =
                     "Arrive count (" + std::to_string(state.arrive_count) + ") != Await count ("
@@ -1022,8 +1022,8 @@ struct SyncvTable
             }
             CAMSPORK_REQUIRE(state.arrive_states.empty(), "await should have cleared this list");
 
-            uint64_t& word = live_barrier_bits[barrier_id / 64u];
-            const uint64_t bit = uint64_t(1) << (barrier_id & 63u);
+            uint64_t& word = live_barrier_bits[barrier_index / 64u];
+            const uint64_t bit = uint64_t(1) << (barrier_index & 63u);
             CAMSPORK_REQUIRE_CMP((word & bit), !=, 0, "Barrier ID was not allocated");
             word &= ~bit;
             barriers[i].data = 0;
@@ -1377,7 +1377,6 @@ struct SyncvTable
             const VisRecordListNode<IsMutate>* p_node) noexcept
     {
         CAMSPORK_REQUIRE(p_node, "unexpected null");
-        CAMSPORK_REQUIRE_CMP(p_node->refcnt, ==, 0, "should still be memoized if kept alive elsewhere");
         CAMSPORK_REQUIRE(!p_node->is_forwarded(), "forwarding state VisRecord would not be memoized");
 
         RemoveMemoizedCommand<IsMutate> command{p_node};
@@ -1495,6 +1494,26 @@ struct SyncvTable
         return command.input_id;
     }
 
+    struct AugmentVisRecordCallback
+    {
+        const ThreadCuboid* p_cuboid;
+        uint32_t L2_full_bitfield;
+        uint32_t L2_temporal_bitfield;
+
+        template <bool IsMutate>
+        void operator() (SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> vis_record_id)
+        {
+            auto& node = env.get(vis_record_id);
+            CAMSPORK_REQUIRE(!node.is_forwarded(), "Unexpected modification of forwarding state VisRecord");
+            p_cuboid->to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi)
+                {
+                    const auto bitfield = IsMutate ? L2_full_bitfield : L2_temporal_bitfield;
+                    env.union_tl_sig_interval(&node.base_data, TlSigInterval{tid_lo, tid_hi, bitfield});
+                }
+            );
+        }
+    };
+
     template <bool Transitive>
     struct FenceUpdateCommand
     {
@@ -1508,13 +1527,13 @@ struct SyncvTable
             CAMSPORK_REQUIRE(!node.is_forwarded(), "unexpected forwarding state");
             VisRecord* p_record = &node.base_data;
 
+            AugmentVisRecordCallback augment{};
+            augment.p_cuboid = p_cuboid;
+            augment.L2_full_bitfield = L2_full_bitfield;
+            augment.L2_temporal_bitfield = L2_temporal_bitfield;
+
             if (env.synchronizes_with<Transitive>(*p_record, *p_cuboid, L1_qual_bits)) {
-                p_cuboid->to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi)
-                    {
-                        const auto bitfield = IsMutate ? L2_full_bitfield : L2_temporal_bitfield;
-                        env.union_tl_sig_interval(p_record, TlSigInterval{tid_lo, tid_hi, bitfield});
-                    }
-                );
+                augment(env, vis_record_id);
             }
         };
 
@@ -1526,16 +1545,16 @@ struct SyncvTable
 
     BarrierArriveState& get_barrier_arrive_state(pending_await_t info)
     {
-        const auto barrier_id = pending_await_barrier_id(info);
+        const auto barrier_index = pending_await_barrier_index(info);
         const auto arrive_count = pending_await_arrive_count(info);
-        return barrier_states[barrier_id].arrive_states[arrive_count];
+        return barrier_states[barrier_index].arrive_states[arrive_count];
     }
 
     const BarrierArriveState& get_const_barrier_arrive_state(pending_await_t info) const
     {
-        const auto barrier_id = pending_await_barrier_id(info);
+        const auto barrier_index = pending_await_barrier_index(info);
         const auto arrive_count = pending_await_arrive_count(info);
-        const auto& map = barrier_states[barrier_id].arrive_states;
+        const auto& map = barrier_states[barrier_index].arrive_states;
         auto it = map.find(arrive_count);
         CAMSPORK_REQUIRE(it != map.end(), "Missing BarrierArriveState");
         return it->second;
@@ -1582,6 +1601,7 @@ struct SyncvTable
                         node.camspork_next_id = tmp_id;
                         node.refcnt = 1;
                         node.await_id = *iter;
+                        // fprintf(stderr, "ADDING await_id %u\n", node.await_id);
                     }
                     *p_map_value = new_await_node;
                     p_record->pending_awaits = new_await_node;
@@ -1611,6 +1631,69 @@ struct SyncvTable
             return p_cuboid->minimal_superset_interval(L1_qual_bits);
         }
     };
+
+    // Find all VisRecords referenced by the BarrierArriveState and remove corresponding pending awaits,
+    // then clear the BarrierArriveState.
+    // We run the supplied callback (likely AugmentVisRecordCallback) to modify each base-state VisRecord.
+    template <typename Callback>
+    void retire_barrier_arrive(BarrierArriveState* p_state, pending_await_t await_info, Callback&& callback)
+    {
+        auto retire_list = [&] (auto record_id)
+        {
+            constexpr bool IsMutate = decltype(record_id)::value_type::is_mutate;
+            while (record_id) {
+                AssignmentRecordVisNode<IsMutate>& record_node = get(record_id);
+                record_id = record_node.camspork_next_id;
+                const nodepool::id<VisRecordListNode<IsMutate>> vis_record_id = record_node.vis_record_id;
+                VisRecordListNode<IsMutate>& vis_node = get(vis_record_id);
+                nodepool::id<PendingAwaitTreeNode>* p_await_node = &vis_node.base_data.pending_awaits;
+                if (vis_node.is_forwarded()) {
+                    CAMSPORK_REQUIRE(!*p_await_node, "pending_awaits should be empty for forwarded VisRecord");
+                }
+                else {
+                    // We will remove and re-memoize the base-state VisRecord.
+                    const auto tmp = remove_memoized(&vis_node);
+                    CAMSPORK_REQUIRE_CMP(tmp, ==, vis_record_id, "memoization broken?");
+                    callback(*this, vis_record_id);
+
+                    // Remove PendingAwaitTreeNode.
+                    // Note, although it would be nice to assert that we actually performed this remove, this isn't
+                    // feasible, due to the PendingAwaitTreeNode list tail sharing. The PendingAwaitTreeNode may
+                    // have been removed earlier on in the function.
+                    while (*p_await_node) {
+                        PendingAwaitTreeNode& node = get(*p_await_node);
+                        if (node.await_id == await_info) {
+                            // remove_next_node would be inappropriate here due to tail sharing (the "tree").
+                            const auto removed_id = *p_await_node;
+                            const auto new_id = node.camspork_next_id;
+                            *p_await_node = new_id;
+                            if (new_id) {
+                                incref(new_id);
+                            }
+                            decref(removed_id);
+                            break;
+                        }
+                        p_await_node = &node.camspork_next_id;
+                    }
+
+                    memoize_or_forward(vis_record_id);
+                }
+                // Note, this could cause the newly-memoized VisRecord to be immediately destroyed.
+                decref(vis_record_id);
+                record_node.vis_record_id = {};  // to make things clearer in the debugger.
+            }
+        };
+
+        nodepool::id<AssignmentRecordMutateNode>& mutate_id = p_state->mutate_vis_records_head_id;
+        retire_list(mutate_id);
+        extend_free_list(mutate_id);
+        mutate_id = {};
+
+        nodepool::id<AssignmentRecordReadNode>& read_id = p_state->read_vis_records_head_id;
+        retire_list(read_id);
+        extend_free_list(read_id);
+        read_id = {};
+    }
 
     // Big payoff for all this code: function that performs the effects of a synchronization statement with the given
     // sync type and given first/second visibility sets. This affects all visibility records whose visibility set
@@ -1729,6 +1812,33 @@ struct SyncvTable
         process_bucket_for_sync_impl(p_bucket_head, command);
     }
 
+    void update_vis_records_for_await(
+        uint32_t barrier_index,
+        int32_t max_arrive_count,
+        const ThreadCuboid& cuboid,
+        uint32_t L2_full_qual_bits,
+        uint32_t L2_temporal_qual_bits)
+    {
+        AugmentVisRecordCallback augment{};
+        augment.p_cuboid = &cuboid;
+        augment.L2_full_bitfield = L2_full_qual_bits | TlSigInterval::ordered_bits;
+        augment.L2_temporal_bitfield = L2_temporal_qual_bits | TlSigInterval::ordered_bits;
+
+
+        // Retire all BarrierArriveState with arrive_count <= max_arrive_count.
+        CAMSPORK_C_BOUNDSCHECK(barrier_index, max_live_barriers);
+        BinaryTree<int32_t, BarrierArriveState>& arrive_map = barrier_states[barrier_index].arrive_states;
+        for (auto iter = arrive_map.begin(); iter != arrive_map.end(); ) {
+            auto& pair = *iter;
+            const auto arrive_count = pair.first;
+            if (int32_t(arrive_count) > max_arrive_count) {
+                break;
+            }
+            retire_barrier_arrive(&pair.second, pack_pending_await(barrier_index, arrive_count), augment);
+            arrive_map.erase(iter++);
+        }
+    }
+
 
 
     // *** Synchronization State Update ***
@@ -1745,31 +1855,40 @@ struct SyncvTable
     void on_arrive(barrier_id home_barrier, uint32_t barrier_count, const barrier_id* all_barriers,
             bool transitive, const ThreadCuboid& cuboid, uint32_t L1_bitfield)
     {
-        const auto home_barrier_id = get_barrier_id(home_barrier);
-        BarrierState& state = barrier_states[home_barrier_id];
-        const auto await_id = pack_pending_await(home_barrier_id, state.arrive_count);
+        const auto home_barrier_index = get_barrier_index(home_barrier);
+        BarrierState& state = barrier_states[home_barrier_index];
 
         std::vector<pending_await_t> pending_awaits(barrier_count);
         for (uint32_t i = 0; i < barrier_count; ++i) {
-            pending_awaits[i] = pack_pending_await(get_barrier_id(all_barriers[i]), state.arrive_count);
+            pending_awaits[i] = pack_pending_await(get_barrier_index(all_barriers[i]), state.arrive_count);
         }
-        state.arrive_count++;
 
+        state.arrive_count++;
         update_vis_records_for_arrive(transitive, cuboid, L1_bitfield, std::move(pending_awaits));
     }
 
-    void on_await(barrier_id bar, uint32_t L2_full_bitfield, uint32_t L2_temporal_bitfield)
+    void on_await(barrier_id bar, int32_t N,
+        const ThreadCuboid& cuboid, uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits)
     {
-        const auto barrier_id = get_barrier_id(bar);
-        BarrierState& state = barrier_states[barrier_id];
-
-        state.await_count++;
-
-        assert(state.arrive_count >= state.await_count);  // TODO should not be assertion
-
         augment_counter++;
-        CAMSPORK_REQUIRE(0, "Implement me");
-        // update_vis_records_for_await(V1, V2_full, V2_temporal, await_id);
+
+        const auto barrier_index = get_barrier_index(bar);
+        BarrierState& state = barrier_states[barrier_index];
+
+        int32_t max_arrive_count;
+        if (N >= 0) {
+            // Arrive-indexed barrier.
+            max_arrive_count = state.arrive_count - N - 1;
+            state.await_count = std::max(max_arrive_count + 1, state.await_count);
+        }
+        else {
+            // Await-indexed barrier.
+            int32_t lag = ~N;
+            max_arrive_count = state.await_count - lag;
+            state.await_count++;
+        }
+
+        update_vis_records_for_await(barrier_index, max_arrive_count, cuboid, L2_full_qual_bits, L2_temporal_qual_bits);
     }
 
 
@@ -2581,12 +2700,13 @@ void on_arrive(SyncvTable* table, barrier_id home_barrier, uint32_t barrier_coun
     INTERFACE_EPILOGUE(table)
 }
 
-// void on_await(SyncvTable* table, barrier_id* bar, TlSigInterval V2_full, TlSigInterval V2_temporal)
-// {
-//     INTERFACE_PROLOGUE(table)
-//     table->on_await(bar, V2_full, V2_temporal);
-//     INTERFACE_EPILOGUE(table)
-// }
+void on_await(SyncvTable* table, barrier_id bar, int32_t N,
+        const ThreadCuboid& cuboid, uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits)
+{
+    INTERFACE_PROLOGUE(table)
+    table->on_await(bar, N, cuboid, L2_full_qual_bits, L2_temporal_qual_bits);
+    INTERFACE_EPILOGUE(table)
+}
 
 void begin_no_checking(SyncvTable* table)
 {

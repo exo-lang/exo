@@ -556,7 +556,7 @@ struct stmt<6>
     CAMSPORK_NODE_VLA_MEMBER(ArriveIdx)
 };
 
-// Await(Varname name, qual_tl* L2_full_qual_bits, qual_tl* L2_temporal_qual_bits, ExprRef* idx)
+// Await(Varname name, qual_tl* L2_full_qual_bits, qual_tl* L2_temporal_qual_bits, int32_t N, ExprRef* idx)
 using Await = stmt<7>;
 template<>
 struct stmt<7>
@@ -564,6 +564,7 @@ struct stmt<7>
     Varname name;
     uint32_t L2_full_qual_bits;
     uint32_t L2_temporal_qual_bits;
+    int32_t N;
     CAMSPORK_NODE_VLA_MEMBER(ExprRef)
 };
 

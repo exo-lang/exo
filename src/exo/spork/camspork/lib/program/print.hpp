@@ -161,7 +161,7 @@ class ProgramPrinter
         print_tabs();
         *this << "b.Await(" << node->name;
         print_idx(node);
-        *this << ", " << node->L2_full_qual_bits << ", " << node->L2_temporal_qual_bits << ")\n";
+        *this << ", " << node->L2_full_qual_bits << ", " << node->L2_temporal_qual_bits << ", N=" << node->N << ")\n";
     }
 
     void operator() (const ValueEnvAlloc* node)

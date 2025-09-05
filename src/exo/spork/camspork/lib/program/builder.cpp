@@ -159,13 +159,13 @@ StmtRef ProgramBuilder::add_Arrive(
 
 StmtRef ProgramBuilder::add_Await(
         Varname name, uint32_t num_idx, const ExprRef* idx,
-        uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits)
+        uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits, int32_t N)
 {
     CAMSPORK_REQUIRE(!TlSigInterval::vis_level(L2_full_qual_bits), "top bits must not be set");
     CAMSPORK_REQUIRE(!TlSigInterval::vis_level(L2_temporal_qual_bits), "top bits must not be set");
     CAMSPORK_REQUIRE_CMP(L2_full_qual_bits, ==, L2_full_qual_bits & L2_temporal_qual_bits,
                          "L2_full_qual_bits must be a subset of L2_temporal_qual_bits");
-    return append_impl(Await{name, L2_full_qual_bits, L2_temporal_qual_bits}, num_idx, idx);
+    return append_impl(Await{name, L2_full_qual_bits, L2_temporal_qual_bits, N}, num_idx, idx);
 }
 
 StmtRef ProgramBuilder::add_ValueEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent)
@@ -423,10 +423,10 @@ camspork::StmtRef camspork_add_Arrive(camspork::ProgramBuilder* p_builder,
 
 camspork::StmtRef camspork_add_Await(camspork::ProgramBuilder* p_builder,
     camspork::Varname name, uint32_t num_idx, const camspork::ExprRef* idx,
-    uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits)
+    uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits, int32_t N)
 {
     CAMSPORK_API_PROLOGUE
-    return p_builder->add_Await(name, num_idx, idx, L2_full_qual_bits, L2_temporal_qual_bits);
+    return p_builder->add_Await(name, num_idx, idx, L2_full_qual_bits, L2_temporal_qual_bits, N);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 

@@ -206,7 +206,7 @@ _add_Arrive.argtypes = (c_void_p, c_uint32, c_uint32, Varname, c_uint32, POINTER
 
 _add_Await = lib.camspork_add_Await
 _add_Await.restype = StmtRef
-_add_Await.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c_uint32, c_uint32)
+_add_Await.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c_uint32, c_uint32, c_int32)
 
 _add_ValueEnvAlloc = lib.camspork_add_ValueEnvAlloc
 _add_ValueEnvAlloc.restype = StmtRef
@@ -497,9 +497,9 @@ class ProgramBuilder:
                     arrive_idx[dim_idx].multicast_per_expr |= 1 << barrier_expr_idx
         return check_return(_add_Arrive(self._builder, V1_transitive, L1_qual_bits, dst._varname, dim, arrive_idx))
 
-    def Await(self, dst: BuilderIndexExpr, L2_full_qual_bits: int, L2_temporal_qual_bits: int):
+    def Await(self, dst: BuilderIndexExpr, L2_full_qual_bits: int, L2_temporal_qual_bits: int, N: int):
         dim, idxs = dst.c_dim_idxs(self._builder)
-        return check_return(_add_Await(self._builder, dst._varname, dim, idxs, L2_full_qual_bits, L2_temporal_qual_bits))
+        return check_return(_add_Await(self._builder, dst._varname, dim, idxs, L2_full_qual_bits, L2_temporal_qual_bits, N))
 
     def ValueEnvAlloc(self, e: Varname | BuilderIndexExpr) -> StmtRef:
         return self._add_alloc(_add_ValueEnvAlloc, e)
@@ -653,13 +653,15 @@ if __name__ == "__main__":
             tid = b.add_variable("tid")
             with b.ThreadsFor(tid, 0, 24, 0, 0, 1):
                 b.SyncEnvAccess(buf[tid], 2, 2, is_mutate=True, is_ooo=False)
-            with b.ThreadsFor(tid, 0, 1, 0, 0, 11):
+            with b.ThreadsFor(tid, 0, 1, 0, 0, 14):
                 b.Arrive(True, 3, bars[m, n, k], ((True, False, True), (True, True, False)))
-                with b.If(0):
-                    b.Await(bars[m, n, k], 1, 3)
+                b.Await(bars[m, n, k], 1, 3, N=0)
     print(foo_barrier)
     env = ProgramEnv(foo_barrier)
     env.set_debug_validation_enable(True)
+    env.alloc_scalar_value("m", 0)
+    env.alloc_scalar_value("n", 0)
+    env.alloc_scalar_value("k", 0)
     env.exec()
 
     @camspork.program

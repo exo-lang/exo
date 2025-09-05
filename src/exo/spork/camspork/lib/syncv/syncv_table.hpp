@@ -14,34 +14,38 @@ namespace camspork
 
 struct SyncvTable;
 
-// We record pending barrier awaits as (barrier ID, counter) pairs.
-// barrier_id_bits many bits are used for the barrier ID.
-// (32 - barrier_id_bits) bits are used for the counter.
+// We record pending barrier awaits as (barrier index, counter) pairs.
+// barrier_index_bits many bits are used for the index,
+// where this is used for a lookup in an internal table.
+// (32 - barrier_index_bits) bits are used for the counter.
 //
 // This limits the number of live barriers and the number of times
 // a barrier can be used. The latter is capped in a real CUDA program
 // by the number of times an mbarrier can be used: pow(2, 20).
-constexpr uint32_t barrier_id_bits = 10;
-constexpr uint32_t max_live_barriers = 1u << barrier_id_bits;
+constexpr uint32_t barrier_index_bits = 10;
+constexpr uint32_t max_live_barriers = 1u << barrier_index_bits;
 using pending_await_t = uint32_t;
 
-inline uint32_t pending_await_barrier_id(pending_await_t id)
+inline uint32_t pending_await_barrier_index(pending_await_t id)
 {
-    return id & ((1u << barrier_id_bits) - 1u);
+    return id & ((1u << barrier_index_bits) - 1u);
 }
 
-inline uint32_t pending_await_arrive_count(pending_await_t id)
+inline int32_t pending_await_arrive_count(pending_await_t id)
 {
-    return id >> barrier_id_bits;
+    return int32_t(id >> barrier_index_bits);
 }
 
-inline pending_await_t pack_pending_await(uint32_t barrier_id, uint32_t arrive_count)
+inline pending_await_t pack_pending_await(uint32_t barrier_index, int32_t arrive_count)
 {
-    const uint32_t id = barrier_id | arrive_count << barrier_id_bits;
-    CAMSPORK_REQUIRE_CMP(pending_await_barrier_id(id), ==, barrier_id, "implementation limit: barrier_id overflow");
+    const uint32_t id = barrier_index | uint32_t(arrive_count) << barrier_index_bits;
+    CAMSPORK_REQUIRE_CMP(pending_await_barrier_index(id), ==, barrier_index, "implementation limit: barrier_index overflow");
     CAMSPORK_REQUIRE_CMP(pending_await_arrive_count(id), ==, arrive_count, "implementation limit: arrive_count overflow");
     return id;
 }
+
+// Use signed values for arrive_count.
+inline pending_await_t pack_pending_await(uint32_t barrier_index, uint32_t arrive_count) = delete;
 
 struct VisRecordDebugData
 {
@@ -88,7 +92,8 @@ void on_fence(SyncvTable* table, bool transitive, const ThreadCuboid& cuboid,
         uint32_t L1_qual_bits, uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits);
 void on_arrive(SyncvTable* table, barrier_id home_barrier, uint32_t barrier_count, const barrier_id* all_barriers,
         bool transitive, const ThreadCuboid& cuboid, uint32_t L1_qual_bits);
-void on_await(SyncvTable* table, barrier_id* bar, TlSigInterval V2_full, TlSigInterval V2_temporal);
+void on_await(SyncvTable* table, barrier_id bar, int32_t N,
+        const ThreadCuboid& cuboid, uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits);
 void begin_no_checking(SyncvTable* table);
 void end_no_checking(SyncvTable* table);
 

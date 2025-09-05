@@ -252,9 +252,16 @@ class ProgramExec
         env.maybe_syncv_debug_validate();
     }
 
-    void operator() (const Await*)
+    void operator() (const Await* node)
     {
-        CAMSPORK_REQUIRE(0, "TODO: implement Await");
+        // Evaluate concrete indices of barrier.
+        VarSlotEntry<barrier_id>& slot = env.barrier_slot(node->name);
+        eval_tmp_offset(node);
+        const barrier_id bar = slot.idx(tmp_offset.begin(), tmp_offset.end());
+
+        // Pass to SyncvTable.
+        on_await(env.p_syncv_table.get(), bar, node->N, env.prepare_thread_cuboid(),
+                node->L2_full_qual_bits, node->L2_temporal_qual_bits);
         env.maybe_syncv_debug_validate();
     }
 
