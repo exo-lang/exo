@@ -10,7 +10,7 @@
 namespace camspork
 {
 
-struct ExcutBasicAction
+struct ExcutBaseAction
 {
     // Action name.
     // Don't include characters that would require escaping in JSON.
@@ -20,7 +20,7 @@ struct ExcutBasicAction
     virtual void write_args(FILE* file) const = 0;
 };
 
-struct ExcutSyncEnvAccess : ExcutBasicAction
+struct ExcutSyncEnvAccess : ExcutBaseAction
 {
     uint32_t id_before;
     uint32_t id_after;
@@ -30,7 +30,7 @@ struct ExcutSyncEnvAccess : ExcutBasicAction
     virtual void write_args(FILE* file) const override;
 };
 
-struct ExcutVisRecord : ExcutBasicAction
+struct ExcutVisRecord : ExcutBaseAction
 {
     uint32_t id;
     uint32_t original_qual_bit;
@@ -38,7 +38,7 @@ struct ExcutVisRecord : ExcutBasicAction
     virtual void write_args(FILE* file) const override;
 };
 
-struct ExcutTlSigInterval : ExcutBasicAction
+struct ExcutTlSigInterval : ExcutBaseAction
 {
     uint32_t tid_lo;
     uint32_t tid_hi;
@@ -48,7 +48,7 @@ struct ExcutTlSigInterval : ExcutBasicAction
     virtual void write_args(FILE* file) const override;
 };
 
-struct ExcutPendingAwait : ExcutBasicAction
+struct ExcutPendingAwait : ExcutBaseAction
 {
     uint32_t id;
     uint32_t arrive_count;
@@ -56,7 +56,7 @@ struct ExcutPendingAwait : ExcutBasicAction
     virtual void write_args(FILE* file) const override;
 };
 
-struct ExcutBarrierAlloc : ExcutBasicAction
+struct ExcutBarrierAlloc : ExcutBaseAction
 {
     uint32_t id;
     std::string name;

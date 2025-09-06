@@ -261,7 +261,7 @@ class ProgramEnv
         var_slots[name.slot()].value = VarSlotEntry<value_t>(value);
     }
 
-    const std::string& get_varname(Varname name)
+    const std::string& str_name(Varname name)
     {
         CAMSPORK_C_BOUNDSCHECK(name.slot(), var_slots.size());
         return var_slots[name.slot()].name;

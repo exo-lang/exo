@@ -49,12 +49,19 @@ class ProgramExecExcutBase
   protected:
     FILE* excut_file = nullptr;
 
+    // if EnableExcutLog, then the per-stmt/per-expr callbacks in ProgramExec may push excut actions to log.
+    // These should be flushed for each statement using flush_excut_log, if applicable.
+    std::vector<std::unique_ptr<ExcutBaseAction>> excut_actions;
+
+    bool excut_first_time = true;
+
     ProgramExecExcutBase() = default;
     ProgramExecExcutBase(ProgramExecExcutBase&&) = delete;
 
     ~ProgramExecExcutBase()
     {
         if (excut_file) {
+            fprintf(excut_file, "]\n");
             fclose(excut_file);
         }
     }
@@ -94,6 +101,7 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         if (!file) {
             throw std::runtime_error(std::string(p_excut_filename) + ": " + strerror(errno));
         }
+        fprintf(file, "[\n");
     }
 
     // ******************************************************************************************
@@ -193,6 +201,7 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
     {
         if (s) {
             s.dispatch(*this, buffer_size, p_buffer);
+            flush_excut_log();
         }
     }
 
@@ -346,7 +355,34 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
 
         // Allocate new barrier IDs.
         alloc_barriers(env.p_syncv_table.get(), slot.size(), slot.data());
+        log_barrier_helper(env.str_name(node->name), slot, {});
         env.maybe_syncv_debug_validate();
+    }
+
+    void log_barrier_helper(
+            const std::string& var_str_name, const VarSlotEntry<barrier_id>& slot, std::vector<extent_t> idx)
+    {
+        // Recursively log newly allocated barriers' IDs.
+        const std::vector<extent_t>& extent = slot.extent();
+        if constexpr (EnableExcutLog) {
+            if (idx.size() >= extent.size()) {
+                const barrier_id id = slot.idx(idx.begin(), idx.end());
+                auto p_info = std::make_unique<ExcutBarrierAlloc>();
+                p_info->p_action_name = "barrier_id";
+                p_info->id = id.data;
+                p_info->name = var_str_name;
+                p_info->idx = std::move(idx);
+                this->excut_actions.emplace_back(std::move(p_info));
+            }
+            else {
+                const uint32_t c = extent[idx.size()];
+                for (uint32_t i = 0; i < c; ++i) {
+                    std::vector<extent_t> new_idx = idx;
+                    new_idx.push_back(i);
+                    log_barrier_helper(var_str_name, slot, new_idx);
+                }
+            }
+        }
     }
 
     void operator() (const BarrierEnvFree* node)
@@ -358,14 +394,15 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
 
     struct BodyExecImpl
     {
-        ProgramExec<EnableExcutLog>& exec;
+        ProgramExec<EnableExcutLog>& program_exec;
         uint32_t stmts_left;
         const StmtRef* p_stmts;
 
         template <typename Stmt>
         void operator() (const Stmt* node)
         {
-            exec(node);
+            program_exec(node);
+            program_exec.flush_excut_log();
             stmts_left--;
             p_stmts++;
             if (stmts_left <= 0) {
@@ -374,7 +411,7 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
             // Tail call to execute next stmt.
             // Since this is per-Stmt type, the branch predictor may learn correlations
             // of what the next statement type is with respect to this statement type.
-            p_stmts->dispatch(*this, exec.buffer_size, exec.p_buffer);
+            p_stmts->dispatch(*this, program_exec.buffer_size, program_exec.p_buffer);
         }
     };
 
@@ -513,6 +550,41 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         // Execute body with new thread cuboid, and restore before returning (~SwapThreadCuboid).
         SwapThreadCuboid swap(&env.raw_thread_cuboid, new_cuboid);
         exec(node->body);
+    }
+
+    void flush_excut_log()
+    {
+        if constexpr (EnableExcutLog) {
+            std::vector<std::unique_ptr<ExcutBaseAction>>& actions = this->excut_actions;
+            FILE* file = this->excut_file;
+            for (const auto& p_action : actions) {
+                bool& first_time = this->excut_first_time;
+                CAMSPORK_REQUIRE(p_action, "null excut action");
+                const char* action_name = p_action->p_action_name;
+                CAMSPORK_REQUIRE(action_name, "null excut action name");
+                fprintf(file, "  %c[\"%s\", ", (first_time ? ' ' : ','), action_name);
+                p_action->write_args(file);
+
+                // RISKY: state change in debug logging.
+                const ThreadCuboid& cuboid = env.prepare_thread_cuboid();
+                std::stringstream s;
+                s << cuboid;
+                printf("%s\n", s.str().c_str());
+
+                const bool is_cpu = cuboid.dim() == 1 && 0 == (1 + cuboid.box()[0]);
+                uint32_t local_tid = 0;
+                for (uint32_t i = 0; i < cuboid.dim(); ++i) {
+                    local_tid = local_tid * cuboid.domain()[i] + cuboid.offset()[i];
+                }
+                const char* source = "xyzzy.py";  // TODO
+                const int line = 42;  // TODO
+
+                fprintf(file, ", \"%s\", %u, %u, \"%s\", %i]\n",
+                        is_cpu ? "cpu" : "am_threads", cuboid.task_index, local_tid, source, line);
+                first_time = false;
+            }
+            actions.clear();
+        }
     }
 
     // ******************************************************************************************

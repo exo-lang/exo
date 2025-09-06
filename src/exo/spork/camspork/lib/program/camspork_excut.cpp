@@ -9,7 +9,7 @@ void ExcutSyncEnvAccess::write_args(FILE* file) const
 {
     fprintf(file, "[\"int:%u\", \"int:%u\", \"str:%s\"", id_before, id_after, name.c_str());
     for (extent_t n : idx) {
-        fprintf(file, ", \"int:%u\",", n);
+        fprintf(file, ", \"int:%u\"", n);
     }
     fprintf(file, "]");
 }
@@ -34,7 +34,7 @@ void ExcutBarrierAlloc::write_args(FILE* file) const
 {
     fprintf(file, "[\"int:%u\", \"str:%s\"", id, name.c_str());
     for (extent_t n : idx) {
-        fprintf(file, ", \"int:%u\",", n);
+        fprintf(file, ", \"int:%u\"", n);
     }
     fprintf(file, "]");
 }
