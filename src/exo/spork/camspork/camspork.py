@@ -289,11 +289,11 @@ _delete_ProgramEnv.argtypes = (c_void_p,)
 
 _exec_top = lib.camspork_exec_top
 _exec_top.restype = c_int
-_exec_top.argtypes = (c_void_p,)
+_exec_top.argtypes = (c_void_p, c_char_p)
 
 _exec_stmt = lib.camspork_exec_stmt
 _exec_stmt.restype = c_int
-_exec_stmt.argtypes = (c_void_p, StmtRef)
+_exec_stmt.argtypes = (c_void_p, StmtRef, c_char_p)
 
 _alloc_values = lib.camspork_alloc_values
 _alloc_values.restype = c_int
@@ -601,12 +601,13 @@ class ProgramEnv:
     def get_program(self) -> ProgramBuilder:
         return self._program
 
-    def exec(self, stmt: Optional[StmtRef] = None):
+    def exec(self, stmt: Optional[StmtRef] = None, *, excut_filename=None):
+        excut_filename_bytes = bytes(excut_filename, "utf-8") if excut_filename else None
         if stmt is None:
-            check_return(_exec_top(self._env))
+            check_return(_exec_top(self._env, excut_filename_bytes))
         else:
             assert isinstance(stmt, StmtRef)
-            check_return(_exec_stmt(self._env, stmt))
+            check_return(_exec_stmt(self._env, stmt, excut_filename_bytes))
 
     def alloc_scalar_value(self, var, value: int):
         check_return(_alloc_scalar_value(self._env, self.get_varname(var), value))
@@ -662,7 +663,7 @@ if __name__ == "__main__":
     env.alloc_scalar_value("m", 0)
     env.alloc_scalar_value("n", 0)
     env.alloc_scalar_value("k", 0)
-    env.exec()
+    env.exec(excut_filename="foo_barrier_excut.json")
 
     @camspork.program
     def fib(b):
@@ -708,7 +709,7 @@ if __name__ == "__main__":
     print(extent_test)
     env = ProgramEnv(extent_test)
     env.set_debug_validation_enable(True)
-    env.exec()
+    env.exec(excut_filename="extent_excut.json")
 
     @camspork.program
     def fence_test(b: camspork.ProgramBuilder):

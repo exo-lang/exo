@@ -1,11 +1,15 @@
 #include "exec.hpp"
 
+#include <errno.h>
 #include <sstream>
+#include <stdexcept>
 #include <stdio.h>
+#include <string.h>
 #include <type_traits>
 #include <utility>
 
 #include "builder.hpp"
+#include "camspork_excut.hpp"
 #include "grammar.hpp"
 #include "../util/cuboid_util.hpp"
 
@@ -39,8 +43,31 @@ class SwapThreadCuboid
     }
 };
 
+template <bool EnableExcutLog>
+class ProgramExecExcutBase
+{
+  protected:
+    FILE* excut_file = nullptr;
+
+    ProgramExecExcutBase() = default;
+    ProgramExecExcutBase(ProgramExecExcutBase&&) = delete;
+
+    ~ProgramExecExcutBase()
+    {
+        if (excut_file) {
+            fclose(excut_file);
+        }
+    }
+};
+
+template <>
+struct ProgramExecExcutBase<false>
+{
+};
+
 // Borrowed reference wrapper around ProgramEnv, to implement actual per-node-type execution.
-class ProgramExec
+template <bool EnableExcutLog>
+class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
 {
     size_t buffer_size;
     const char* p_buffer;
@@ -58,6 +85,17 @@ class ProgramExec
     {
     }
 
+    ProgramExec(ProgramEnv* p_self, const char* p_excut_filename) : ProgramExec(p_self)
+    {
+        static_assert(EnableExcutLog, "Can't open excut log file if C++ functionality not enabled");
+        CAMSPORK_REQUIRE(p_excut_filename, "null ptr");
+        FILE*& file = this->excut_file;
+        file = fopen(p_excut_filename, "w");
+        if (!file) {
+            throw std::runtime_error(std::string(p_excut_filename) + ": " + strerror(errno));
+        }
+    }
+
     // ******************************************************************************************
     // Many nodes define array indices as a VLA of ExprRef.
     // We provide a stripped-down iterator over these exprs, evaluated as values.
@@ -65,7 +103,7 @@ class ProgramExec
     struct ExprIterator
     {
         const ExprRef* p_node_ref;
-        const ProgramExec* p_exec;
+        const ProgramExec<EnableExcutLog>* p_exec;
 
         intptr_t operator-(ExprIterator other) const
         {
@@ -320,7 +358,7 @@ class ProgramExec
 
     struct BodyExecImpl
     {
-        ProgramExec& exec;
+        ProgramExec<EnableExcutLog>& exec;
         uint32_t stmts_left;
         const StmtRef* p_stmts;
 
@@ -604,7 +642,7 @@ ProgramEnv::ProgramEnv(size_t buffer_size, std::shared_ptr<const char[]> buffer)
   , p_syncv_table(new_syncv_table(default_table_init))
   , raw_thread_cuboid(ThreadCuboid::full(&static_uint32_max, 1 + &static_uint32_max))
 {
-    ProgramExec(this).init_vars(header.var_config_table);
+    ProgramExec<false>(this).init_vars(header.var_config_table);
 };
 
 ProgramEnv::ProgramEnv(const ProgramBuilder& builder)
@@ -612,9 +650,14 @@ ProgramEnv::ProgramEnv(const ProgramBuilder& builder)
 {
 }
 
-void ProgramEnv::exec(StmtRef stmt)
+void ProgramEnv::exec(StmtRef stmt, const char* p_excut_filename)
 {
-    ProgramExec(this).exec(stmt);
+    if (p_excut_filename) {
+        ProgramExec<true>(this, p_excut_filename).exec(stmt);
+    }
+    else {
+        ProgramExec<false>(this).exec(stmt);
+    }
 }
 
 void ProgramEnv::set_debug_validation_enable(bool flag)
@@ -660,18 +703,18 @@ void camspork_delete_ProgramEnv(camspork::ProgramEnv* p_victim)
     delete p_victim;
 }
 
-int camspork_exec_top(camspork::ProgramEnv* p_env)
+int camspork_exec_top(camspork::ProgramEnv* p_env, const char* p_excut_filename)
 {
     CAMSPORK_API_PROLOGUE
-    p_env->exec();
+    p_env->exec(p_excut_filename);
     return 1;
     CAMSPORK_API_EPILOGUE(0)
 }
 
-int camspork_exec_stmt(camspork::ProgramEnv* p_env, camspork::StmtRef stmt)
+int camspork_exec_stmt(camspork::ProgramEnv* p_env, camspork::StmtRef stmt, const char* p_excut_filename)
 {
     CAMSPORK_API_PROLOGUE
-    p_env->exec(stmt);
+    p_env->exec(stmt, p_excut_filename);
     return 1;
     CAMSPORK_API_EPILOGUE(0)
 }

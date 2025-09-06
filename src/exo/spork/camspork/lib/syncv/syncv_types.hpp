@@ -55,8 +55,6 @@ struct SyncvTableDeleter
 
 using SyncvTable_unique_ptr = std::unique_ptr<SyncvTable, SyncvTableDeleter>;
 
-struct TlSigInterval;
-
 struct ThreadCuboid
 {
     uint32_t task_index = 0;

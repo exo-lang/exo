@@ -230,6 +230,7 @@ class ProgramEnv
     bool debug_validation_enable = false;
 
   public:
+    template <bool EnableExcutLog>
     friend class ProgramExec;
 
     ProgramEnv(size_t buffer_size, const char* buffer);
@@ -241,12 +242,12 @@ class ProgramEnv
     ProgramEnv& operator=(const ProgramEnv&) = default;
     ~ProgramEnv() = default;
 
-    void exec()
+    void exec(const char* p_excut_filename = nullptr)
     {
-        exec(header.top_level_stmt);
+        exec(header.top_level_stmt, p_excut_filename);
     }
 
-    void exec(StmtRef stmt);
+    void exec(StmtRef stmt, const char* p_excut_filename = nullptr);
 
     void alloc_values(Varname name, std::vector<extent_t> extent)
     {
@@ -346,8 +347,8 @@ CAMSPORK_EXPORT camspork::ProgramEnv* camspork_new_ProgramEnv(const camspork::Pr
 CAMSPORK_EXPORT camspork::ProgramEnv* camspork_copy_ProgramEnv(const camspork::ProgramEnv* p_original);
 CAMSPORK_EXPORT void camspork_delete_ProgramEnv(camspork::ProgramEnv* p_victim);
 
-CAMSPORK_EXPORT int camspork_exec_top(camspork::ProgramEnv* p_env);
-CAMSPORK_EXPORT int camspork_exec_stmt(camspork::ProgramEnv* p_env, camspork::StmtRef stmt);
+CAMSPORK_EXPORT int camspork_exec_top(camspork::ProgramEnv* p_env, const char* p_excut_filename);
+CAMSPORK_EXPORT int camspork_exec_stmt(camspork::ProgramEnv* p_env, camspork::StmtRef stmt, const char* p_excut_filename);
 
 CAMSPORK_EXPORT int camspork_alloc_values(
         camspork::ProgramEnv* p_env, camspork::Varname name, uint32_t dims, const camspork::extent_t* p_extent);

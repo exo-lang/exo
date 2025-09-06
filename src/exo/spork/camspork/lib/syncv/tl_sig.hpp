@@ -5,15 +5,30 @@
 
 #include "../util/bit_util.hpp"
 #include "../util/require.hpp"
-#include "syncv_types.hpp"
 
 namespace camspork
 {
 
 // Note, assignment of 0, 1, 3, allows for bitwise-or to "promote" to the next vis_level.
-static constexpr uint32_t vis_level_atomic_only = 0;
-static constexpr uint32_t vis_level_unordered = 1;
-static constexpr uint32_t vis_level_ordered = 3;
+static constexpr int32_t vis_level_none = -1;
+static constexpr int32_t vis_level_atomic_only = 0;
+static constexpr int32_t vis_level_unordered = 1;
+static constexpr int32_t vis_level_ordered = 3;
+
+inline const char* vis_level_name(int32_t vis_level)
+{
+    CAMSPORK_REQUIRE_CMP(vis_level, >=, -1, "Invalid vis_level enum");
+    CAMSPORK_REQUIRE_CMP(vis_level, <=, 3, "Invalid vis_level enum");
+    CAMSPORK_REQUIRE_CMP(vis_level, !=, 2, "Invalid vis_level enum");
+    static const char* strs[5] = {
+        "vis_level_none",
+        "vis_level_atomic_only",
+        "vis_level_unordered",
+        nullptr,
+        "vis_level_ordered",
+    };
+    return strs[vis_level + 1];
+}
 
 // A single timeline signature consists (conceptually) of a pair of
 // (thread ID, qual-tl) [qualitative timeline]. We never store this directly.
@@ -53,19 +68,19 @@ struct TlSigInterval
         CAMSPORK_REQUIRE_CMP(tid_lo, <=, tid_hi, "Invalid TlSigInterval");
     }
 
-    uint32_t vis_level() const
+    int32_t vis_level() const
     {
-        return bitfield >> 30;
+        return vis_level(bitfield);
     }
 
     uint32_t qual_bits() const
     {
-        return bitfield & ((1u << 30) - 1);
+        return qual_bits(bitfield);
     }
 
-    static uint32_t vis_level(uint32_t bitfield)
+    static int32_t vis_level(uint32_t bitfield)
     {
-        return bitfield >> 30;
+        return int32_t(bitfield >> 30);
     }
 
     static uint32_t qual_bits(uint32_t bitfield)
