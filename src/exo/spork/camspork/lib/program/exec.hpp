@@ -1,8 +1,11 @@
 #pragma once
 
 #include <memory>
+#include <new>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -20,27 +23,20 @@ class ProgramBuilder;
 template <typename T>
 class VarSlotEntry
 {
-    T* p_data;
-    T self_data;  // p_data = &self_data if of size 1; otherwise heap allocated.
+    T* p_data = nullptr;
+    size_t _capacity = 0;
     std::vector<extent_t> _extent;
 
   public:
     VarSlotEntry(std::vector<extent_t> extent_arg)
     {
-        const size_t alloc_size = get_alloc_size(extent_arg);
-        if (alloc_size <= 1) {
-            p_data = &self_data;
-        }
-        else {
-            p_data = new T[alloc_size];
-        }
-        _extent = std::move(extent_arg);
+        resize(std::move(extent_arg));
     };
 
     VarSlotEntry(T scalar_init = T{})
     {
-        p_data = &self_data;
-        self_data = scalar_init;
+        allocate_at_least(1);
+        p_data[0] = scalar_init;
     }
 
     ~VarSlotEntry()
@@ -51,7 +47,8 @@ class VarSlotEntry
     VarSlotEntry(const VarSlotEntry& other)
     {
         const size_t alloc_size = get_alloc_size(other._extent);
-        p_data = other.p_data == &other.self_data ? &self_data : new T[alloc_size];
+        allocate_at_least(alloc_size);
+        static_assert(std::is_trivially_copyable_v<T>);
         memcpy(p_data, other.p_data, alloc_size * sizeof(p_data[0]));
         _extent = other._extent;
     }
@@ -68,12 +65,17 @@ class VarSlotEntry
         return *this;
     }
 
+    void resize(std::vector<extent_t> extent_arg)
+    {
+        const size_t alloc_size = get_alloc_size(extent_arg);
+        allocate_at_least(alloc_size);
+        _extent = std::move(extent_arg);
+    }
+
     void reset()
     {
         free_if_allocated();
-        p_data = &self_data;
         _extent.clear();
-        self_data = T{};
     }
 
     const std::vector<extent_t>& extent() const
@@ -132,6 +134,12 @@ class VarSlotEntry
         return get_alloc_size(_extent);
     }
 
+    void mark_empty()
+    {
+        _extent = std::vector<extent_t>{0};
+        CAMSPORK_REQUIRE_CMP(size(), ==, 0, "should be seen as empty now");
+    }
+
   private:
     static size_t get_alloc_size(const std::vector<extent_t>& extent_arg)
     {
@@ -142,22 +150,32 @@ class VarSlotEntry
         return prod;
     }
 
-    void free_if_allocated()
+    void allocate_at_least(size_t N)
     {
-        if (p_data && p_data != &self_data) {
-            delete[] p_data;
+        if (N > _capacity) {
+            free_if_allocated();
+            p_data = new T[N];
+            _capacity = N;
         }
     }
 
-    void move_from(VarSlotEntry&& other)
+    void free_if_allocated() noexcept
     {
-        p_data = other.p_data == &other.self_data ? &self_data : other.p_data;
-        self_data = other.self_data;
-        _extent = std::move(other._extent);
+        if (p_data) {
+            delete[] p_data;
+            p_data = nullptr;
+            _capacity = 0;
+        }
+    }
 
-        other._extent.clear();
-        other.p_data = &other.self_data;
-        other.self_data = T{};
+    void move_from(VarSlotEntry&& other) noexcept
+    {
+        _extent = std::move(other._extent);
+        p_data = other.p_data;
+        _capacity = other._capacity;
+        other.p_data = nullptr;
+        other._capacity = 0;
+        other.mark_empty();  // Technically this can throw
     }
 };
 

@@ -270,24 +270,21 @@ class ProgramExec
         VarSlotEntry<value_t>& slot = env.value_slot(node->name);
         // Resize if needed.
         eval_tmp_extent(node);
-        if (tmp_extent != slot.extent()) {
-            slot.reset();
-            slot = VarSlotEntry<value_t>(tmp_extent);
-        }
+        slot.resize(tmp_extent);
     }
 
     void operator() (const SyncEnvAlloc* node)
     {
         VarSlotEntry<assignment_record_id>& slot = env.sync_slot(node->name);
+
         // Clear every entry.
         // This is needed to return memory to the syncv table.
         clear_visibility(env.p_syncv_table.get(), slot.size(), slot.data());
+        slot.mark_empty();
+
         // Resize if needed.
         eval_tmp_extent(node);
-        if (tmp_extent != slot.extent()) {
-            slot.reset();
-            slot = VarSlotEntry<assignment_record_id>(tmp_extent);
-        }
+        slot.resize(tmp_extent);
         env.maybe_syncv_debug_validate();
     }
 
@@ -300,15 +297,17 @@ class ProgramExec
     void operator() (const BarrierEnvAlloc* node)
     {
         VarSlotEntry<barrier_id>& slot = env.barrier_slot(node->name);
+
         // This is needed to return memory to the syncv table.
         free_barriers(env.p_syncv_table.get(), slot.size(), slot.data());
+        slot.mark_empty();
+
         // Resize if needed.
         eval_tmp_extent(node);
-        if (tmp_extent != slot.extent()) {
-            slot.reset();
-            slot = VarSlotEntry<barrier_id>(tmp_extent);
-            alloc_barriers(env.p_syncv_table.get(), slot.size(), slot.data());
-        }
+        slot.resize(tmp_extent);
+
+        // Allocate new barrier IDs.
+        alloc_barriers(env.p_syncv_table.get(), slot.size(), slot.data());
         env.maybe_syncv_debug_validate();
     }
 
