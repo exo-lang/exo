@@ -53,12 +53,12 @@ class VarSlotEntry
         _extent = other._extent;
     }
 
-    VarSlotEntry(VarSlotEntry&& other) noexcept
+    VarSlotEntry(VarSlotEntry&& other)
     {
-        move_from(std::move(other));
+        move_from(std::move(other));  // can throw due to mark_empty()
     };
 
-    VarSlotEntry& operator=(VarSlotEntry other) noexcept
+    VarSlotEntry& operator=(VarSlotEntry other)
     {
         free_if_allocated();
         move_from(std::move(other));
@@ -168,14 +168,14 @@ class VarSlotEntry
         }
     }
 
-    void move_from(VarSlotEntry&& other) noexcept
+    void move_from(VarSlotEntry&& other)
     {
         _extent = std::move(other._extent);
         p_data = other.p_data;
         _capacity = other._capacity;
         other.p_data = nullptr;
         other._capacity = 0;
-        other.mark_empty();  // Technically this can throw
+        other.mark_empty();  // can throw
     }
 };
 

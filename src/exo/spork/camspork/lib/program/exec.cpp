@@ -201,12 +201,25 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
     {
         if (s) {
             s.dispatch(*this, buffer_size, p_buffer);
-            flush_excut_log();
         }
     }
 
+    template <typename Stmt>
+    void operator() (const Stmt* node)
+    {
+        // Specialized per-Stmt-type execution (exec_impl) wrapped with common code.
+        try {
+            exec_impl(node);
+        }
+        catch (...) {
+            flush_excut_log();
+            throw;
+        }
+        flush_excut_log();
+    }
+
     template <bool IsMutate, bool IsWindow>
-    void operator() (const SyncEnvAccessNode<IsMutate, IsWindow>* node)
+    void exec_impl(const SyncEnvAccessNode<IsMutate, IsWindow>* node)
     {
         CAMSPORK_REQUIRE_CMP(node->initial_qual_bit, ==, node->extended_qual_bits, "TODO");
         uint32_t bitfield = node->initial_qual_bit |
@@ -246,21 +259,21 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         env.maybe_syncv_debug_validate();
     }
 
-    void operator() (const MutateValue* node)
+    void exec_impl(const MutateValue* node)
     {
         value_t& lhs = env.value_slot(node->name).idx(expr_vla_begin(node), expr_vla_end(node));
         const value_t rhs = eval(node->rhs);
         lhs = eval_binop(node->op, lhs, rhs);
     }
 
-    void operator() (const Fence* node)
+    void exec_impl(const Fence* node)
     {
         on_fence(env.p_syncv_table.get(), node->V1_transitive, env.prepare_thread_cuboid(),
                 node->L1_qual_bits, node->L2_full_qual_bits, node->L2_temporal_qual_bits);
         env.maybe_syncv_debug_validate();
     }
 
-    void operator() (const Arrive* node)
+    void exec_impl(const Arrive* node)
     {
         VarSlotEntry<barrier_id>& slot = env.barrier_slot(node->name);
         const std::vector<extent_t>& extent = slot.extent();
@@ -299,7 +312,7 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         env.maybe_syncv_debug_validate();
     }
 
-    void operator() (const Await* node)
+    void exec_impl(const Await* node)
     {
         // Evaluate concrete indices of barrier.
         VarSlotEntry<barrier_id>& slot = env.barrier_slot(node->name);
@@ -312,7 +325,7 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         env.maybe_syncv_debug_validate();
     }
 
-    void operator() (const ValueEnvAlloc* node)
+    void exec_impl(const ValueEnvAlloc* node)
     {
         VarSlotEntry<value_t>& slot = env.value_slot(node->name);
         // Resize if needed.
@@ -320,7 +333,7 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         slot.resize(tmp_extent);
     }
 
-    void operator() (const SyncEnvAlloc* node)
+    void exec_impl(const SyncEnvAlloc* node)
     {
         VarSlotEntry<assignment_record_id>& slot = env.sync_slot(node->name);
 
@@ -335,13 +348,13 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         env.maybe_syncv_debug_validate();
     }
 
-    void operator() (const SyncEnvFreeShard*)
+    void exec_impl(const SyncEnvFreeShard*)
     {
         CAMSPORK_REQUIRE(0, "TODO: implement SyncEnvFreeShard");
         env.maybe_syncv_debug_validate();
     }
 
-    void operator() (const BarrierEnvAlloc* node)
+    void exec_impl(const BarrierEnvAlloc* node)
     {
         VarSlotEntry<barrier_id>& slot = env.barrier_slot(node->name);
 
@@ -385,7 +398,7 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         }
     }
 
-    void operator() (const BarrierEnvFree* node)
+    void exec_impl(const BarrierEnvFree* node)
     {
         VarSlotEntry<barrier_id>& slot = env.barrier_slot(node->name);
         free_barriers(env.p_syncv_table.get(), slot.size(), slot.data());
@@ -402,7 +415,6 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         void operator() (const Stmt* node)
         {
             program_exec(node);
-            program_exec.flush_excut_log();
             stmts_left--;
             p_stmts++;
             if (stmts_left <= 0) {
@@ -415,7 +427,7 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         }
     };
 
-    void operator() (const StmtBody* node)
+    void exec_impl(const StmtBody* node)
     {
         uint32_t num_stmts = node->camspork_vla_size;
         if (num_stmts > 0) {
@@ -425,13 +437,13 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         }
     }
 
-    void operator() (const If* node)
+    void exec_impl(const If* node)
     {
         StmtRef s = eval(node->cond) ? node->body : node->orelse;
         exec(s);  // Inlined only once
     }
 
-    void operator() (const SeqFor* node)
+    void exec_impl(const SeqFor* node)
     {
         const auto lo = eval(node->lo);
         const auto hi = eval(node->hi);
@@ -443,7 +455,7 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         }
     }
 
-    void operator() (const TasksFor* node)
+    void exec_impl(const TasksFor* node)
     {
         const auto lo = eval(node->lo);
         const auto hi = eval(node->hi);
@@ -458,7 +470,7 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         }
     }
 
-    void operator() (const ThreadsFor* node)
+    void exec_impl(const ThreadsFor* node)
     {
         const uint32_t dim_idx = node->dim_idx;
 
@@ -496,7 +508,7 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         }
     }
 
-    void operator() (const ParallelBlock* node)
+    void exec_impl(const ParallelBlock* node)
     {
         const uint32_t dim = node->camspork_vla_size;
         const uint32_t* begin_dims = &node_vla_get_unsafe(node, 0);
@@ -510,7 +522,7 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         env.dirty_task_index = false;
     }
 
-    void operator() (const DomainSplit* node)
+    void exec_impl(const DomainSplit* node)
     {
         ThreadCuboid new_cuboid = env.raw_thread_cuboid;
         const uint32_t split_idx = node->dim_idx;
