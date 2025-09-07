@@ -713,6 +713,12 @@ if __name__ == "__main__":
                     b.SyncEnvAccess(buf[0, 3], 1, 1, is_mutate=False, is_ooo=False)
                     b.SyncEnvAccess(buf[0, 4], 1, 1, is_mutate=False, is_ooo=False)
                 b.SyncEnvAccess(buf[tid, 2 * tid], 1, 1, is_mutate=False, is_ooo=False, extent=[6, 5])
+            b.Fence(True, 1, 1, 1)
+            m = b.add_variable("m")
+            n = b.add_variable("n")
+            with b.SeqFor(m, 0, 10):
+                with b.SeqFor(n, 0, 16):
+                    b.SyncEnvAccess(buf[m, n], 1, 1, is_mutate=True, is_ooo=False)
     print(extent_test)
     env = ProgramEnv(extent_test)
     env.set_debug_validation_enable(True)

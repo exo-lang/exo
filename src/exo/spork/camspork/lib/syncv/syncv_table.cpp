@@ -1116,9 +1116,10 @@ struct SyncvTable
 
     // Like remove_forwarding but non-destructive, i.e., don't actually replace the ID of a forwarding visibility
     // record with that of the forwarded-to base visibility record.
-    // NB could easily modify this to return the ID as well, but not needed for now.
     template <bool IsMutate>
-    VisRecord const_resolve_forwarding(nodepool::id<VisRecordListNode<IsMutate>> id) const noexcept
+    VisRecord const_resolve_forwarding(
+            nodepool::id<VisRecordListNode<IsMutate>> id,
+            nodepool::id<VisRecordListNode<IsMutate>>* p_out_id=nullptr) const noexcept
     {
         CAMSPORK_REQUIRE(id, "null input to const_resolve_forwarding");
         const VisRecordListNode<IsMutate>* p_node = &get(id);
@@ -1131,6 +1132,9 @@ struct SyncvTable
             CAMSPORK_REQUIRE_CMP(p_node->refcnt, !=, 0, "unexpected 0 refcnt");
         }
 
+        if (p_out_id) {
+            *p_out_id = id;
+        }
         return p_node->base_data;
     }
 
@@ -2745,7 +2749,7 @@ struct SyncvExcutLogger
     template <bool IsMutate>
     void log_vis_record(const SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> id, ExcutMutateTag mutate_tag)
     {
-        const VisRecord& vis_record = env.const_resolve_forwarding(id);
+        const VisRecord& vis_record = env.const_resolve_forwarding(id, &id);
         auto p_excut_vis_record = std::make_unique<ExcutVisRecord>();
         p_excut_vis_record->id = id.id_bits;
         p_excut_vis_record->original_qual_bit = uint32_t(1) << vis_record.original_qual_tl;
