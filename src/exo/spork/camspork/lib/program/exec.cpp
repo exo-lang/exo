@@ -567,9 +567,6 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
 
                 // RISKY: state change in debug logging.
                 const ThreadCuboid& cuboid = env.prepare_thread_cuboid();
-                std::stringstream s;
-                s << cuboid;
-                printf("%s\n", s.str().c_str());
 
                 const bool is_cpu = cuboid.dim() == 1 && 0 == (1 + cuboid.box()[0]);
                 uint32_t local_tid = 0;
