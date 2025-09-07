@@ -225,36 +225,42 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         uint32_t bitfield = node->initial_qual_bit |
             (node->is_ooo ? TlSigInterval::unordered_bits : TlSigInterval::ordered_bits);
 
+        // Prepare input: window or single assignment record
+        using Input = std::conditional_t<IsWindow, AssignmentRecordWindow, assignment_record_id*>;
+        Input input;
         VarSlotEntry<assignment_record_id>& slot = env.sync_slot(node->name);
         eval_tmp_offset(node);
-
         if constexpr (node->is_window) {
             eval_tmp_extent(node);
-
-            AssignmentRecordWindow window{};
-            window.base = slot.data();
-            window.begin_outer_extent = &*slot.extent().begin();
-            window.end_outer_extent = &*slot.extent().end();
-            window.begin_offset = &*tmp_offset.begin();
-            window.end_offset = &*tmp_offset.end();
-            window.begin_inner_extent = &*tmp_extent.begin();
-            window.end_inner_extent = &*tmp_extent.end();
-            if (node->is_mutate) {
-                on_rw(env.p_syncv_table.get(), window, env.prepare_thread_cuboid(), bitfield);
-            }
-            else {
-                on_r(env.p_syncv_table.get(), window, env.prepare_thread_cuboid(), bitfield);
-            }
+            input.base = slot.data();
+            input.begin_outer_extent = &*slot.extent().begin();
+            input.end_outer_extent = &*slot.extent().end();
+            input.begin_offset = &*tmp_offset.begin();
+            input.end_offset = &*tmp_offset.end();
+            input.begin_inner_extent = &*tmp_extent.begin();
+            input.end_inner_extent = &*tmp_extent.end();
         }
         else {
-            if (node->is_mutate) {
-                on_rw(env.p_syncv_table.get(), &slot.idx(tmp_offset.begin(), tmp_offset.end()),
-                    env.prepare_thread_cuboid(), bitfield);
+            input = &slot.idx(tmp_offset.begin(), tmp_offset.end());
+        }
+
+        // Prepare excut debug logger if applicable.
+        using Logger = std::conditional_t<EnableExcutLog, SyncvExcutRequest, decltype(nullptr)>;
+        Logger logger{};
+        if constexpr (EnableExcutLog) {
+            logger.var_str_name = env.str_name(node->name);
+            logger.p_out = &this->excut_actions;
+            if constexpr (!IsWindow) {
+                logger.idx_for_single = tmp_offset;
             }
-            else {
-                on_r(env.p_syncv_table.get(), &slot.idx(tmp_offset.begin(), tmp_offset.end()),
-                    env.prepare_thread_cuboid(), bitfield);
-            }
+        }
+
+        // Call into syncv table
+        if constexpr (node->is_mutate) {
+            on_rw(env.p_syncv_table.get(), input, env.prepare_thread_cuboid(), bitfield, logger);
+        }
+        else {
+            on_r(env.p_syncv_table.get(), input, env.prepare_thread_cuboid(), bitfield, logger);
         }
         env.maybe_syncv_debug_validate();
     }
@@ -381,7 +387,6 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
             if (idx.size() >= extent.size()) {
                 const barrier_id id = slot.idx(idx.begin(), idx.end());
                 auto p_info = std::make_unique<ExcutBarrierAlloc>();
-                p_info->p_action_name = "barrier_id";
                 p_info->id = id.data;
                 p_info->name = var_str_name;
                 p_info->idx = std::move(idx);
@@ -572,7 +577,7 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
             for (const auto& p_action : actions) {
                 bool& first_time = this->excut_first_time;
                 CAMSPORK_REQUIRE(p_action, "null excut action");
-                const char* action_name = p_action->p_action_name;
+                const char* action_name = p_action->action_name();
                 CAMSPORK_REQUIRE(action_name, "null excut action name");
                 fprintf(file, "  %c[\"%s\", ", (first_time ? ' ' : ','), action_name);
                 p_action->write_args(file);

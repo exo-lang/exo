@@ -654,13 +654,16 @@ if __name__ == "__main__":
             warp = b.add_variable("warp")
             with b.TasksFor(task, 0, 2):
                 with b.ThreadsFor(warp, 0, 2, 0, 0, 32):
+                    # This program is BS
                     b.BarrierEnvAlloc(bars[4, 2, 2])
                     tid = b.add_variable("tid")
                     with b.ThreadsFor(tid, 0, 24, 0, 0, 1):
-                        b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 2, 2, is_mutate=True, is_ooo=False)
+                        b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 2, 2, is_mutate=True, is_ooo=True)
                     with b.ThreadsFor(tid, 0, 1, 0, 0, 14):
                         b.Arrive(True, 3, bars[m, n, k], ((True, False, True), (True, True, False)))
                         b.Await(bars[m, n, k], 1, 3, N=0)
+                    with b.ThreadsFor(tid, 0, 14, 0, 0, 1):
+                        b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 1, 1, is_mutate=False, is_ooo=False)
     print(foo_barrier)
     env = ProgramEnv(foo_barrier)
     env.set_debug_validation_enable(True)
