@@ -1,7 +1,6 @@
 #include "camspork_excut.hpp"
 
 #include "../util/require.hpp"
-#include "../syncv/tl_sig.hpp"
 
 namespace camspork {
 
@@ -42,8 +41,8 @@ const char* ExcutTlSigInterval::action_name() const
 
 void ExcutTlSigInterval::write_args(FILE* file) const
 {
-    fprintf(file, "[\"int:%u\", \"int:%u\", \"int:%u\", \"str:%s\"]",
-            tid_lo, tid_hi, qual_bits, vis_level_name(vis_level));
+    fprintf(file, "[\"int:%u\", \"int:%u\", \"int:%u\", \"int:%u\", \"int:%u\"]",
+            tid_lo, tid_hi, atomic_only_qual_bits, unordered_qual_bits, ordered_qual_bits);
 }
 
 const char* ExcutPendingAwait::action_name() const

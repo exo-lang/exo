@@ -145,7 +145,7 @@ struct ThreadCuboid
         );
     }
 
-    TlSigInterval minimal_superset_interval(uint32_t bitfield) const
+    TlSigInterval minimal_superset_interval(QualBitsByVis qual_bits_by_vis) const
     {
         uint32_t tid_lo = task_index;
         uint32_t tid_hi_inclusive = task_index;
@@ -156,7 +156,7 @@ struct ThreadCuboid
             tid_lo = tid_lo * domain_c + offset_c;
             tid_hi_inclusive = tid_hi_inclusive * domain_c + (offset_c + box_c - 1u);
         }
-        return TlSigInterval{tid_lo, tid_hi_inclusive + 1u, bitfield};
+        return TlSigInterval{tid_lo, tid_hi_inclusive + 1u, qual_bits_by_vis};
     }
 };
 

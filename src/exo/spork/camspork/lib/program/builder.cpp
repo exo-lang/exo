@@ -140,9 +140,6 @@ StmtRef ProgramBuilder::add_Fence(
     qual_bits_t L2_full_qual_bits, qual_bits_t L2_temporal_qual_bits)
 {
     CAMSPORK_REQUIRE_CMP(V1_transitive, <=, 1, "must be bool");
-    CAMSPORK_REQUIRE(!TlSigInterval::vis_level(L1_qual_bits), "top bits must not be set");
-    CAMSPORK_REQUIRE(!TlSigInterval::vis_level(L2_full_qual_bits), "top bits must not be set");
-    CAMSPORK_REQUIRE(!TlSigInterval::vis_level(L2_temporal_qual_bits), "top bits must not be set");
     CAMSPORK_REQUIRE_CMP(L2_full_qual_bits, ==, L2_full_qual_bits & L2_temporal_qual_bits,
                          "L2_full_qual_bits must be a subset of L2_temporal_qual_bits");
     return append_impl(Fence{V1_transitive, L1_qual_bits, L2_full_qual_bits, L2_temporal_qual_bits});
@@ -153,7 +150,6 @@ StmtRef ProgramBuilder::add_Arrive(
         Varname name, uint32_t num_idx, const ArriveIdx* idx)
 {
     CAMSPORK_REQUIRE_CMP(V1_transitive, <=, 1, "must be bool");
-    CAMSPORK_REQUIRE(!TlSigInterval::vis_level(L1_qual_bits), "top bits must not be set");
     return append_impl(Arrive{name, V1_transitive, L1_qual_bits}, num_idx, idx);
 }
 
@@ -161,8 +157,6 @@ StmtRef ProgramBuilder::add_Await(
         Varname name, uint32_t num_idx, const ExprRef* idx,
         uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits, int32_t N)
 {
-    CAMSPORK_REQUIRE(!TlSigInterval::vis_level(L2_full_qual_bits), "top bits must not be set");
-    CAMSPORK_REQUIRE(!TlSigInterval::vis_level(L2_temporal_qual_bits), "top bits must not be set");
     CAMSPORK_REQUIRE_CMP(L2_full_qual_bits, ==, L2_full_qual_bits & L2_temporal_qual_bits,
                          "L2_full_qual_bits must be a subset of L2_temporal_qual_bits");
     return append_impl(Await{name, L2_full_qual_bits, L2_temporal_qual_bits, N}, num_idx, idx);

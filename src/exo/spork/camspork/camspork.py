@@ -661,7 +661,7 @@ if __name__ == "__main__":
                         b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 2, 2, is_mutate=True, is_ooo=True)
                     with b.ThreadsFor(tid, 0, 1, 0, 0, 14):
                         b.Arrive(True, 3, bars[m, n, k], ((True, False, True), (True, True, False)))
-                        b.Await(bars[m, n, k], 1, 3, N=0)
+                        b.Await(bars[m, n, k], 1, 5, N=0)
                     with b.ThreadsFor(tid, 0, 14, 0, 0, 1):
                         b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 1, 1, is_mutate=False, is_ooo=False)
     print(foo_barrier)
