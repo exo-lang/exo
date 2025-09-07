@@ -1013,14 +1013,29 @@ struct SyncvTable
                 continue;
             }
             const auto barrier_index = get_barrier_index(barriers[i]);
-            const BarrierState& state = barrier_states[barrier_index];
-            if (state.arrive_count != state.await_count) {
-                std::string message =
-                    "Arrive count (" + std::to_string(state.arrive_count) + ") != Await count ("
-                    + std::to_string(state.await_count) + ")";
-                throw SyncvCheckFail{std::move(message)};
+            BarrierState& state = barrier_states[barrier_index];
+            if (true) {
+                // This checking should be optional, separate from free-ing physical resources.
+                if (state.arrive_count != state.await_count) {
+                    std::string message =
+                        "Arrive count (" + std::to_string(state.arrive_count) + ") != Await count ("
+                        + std::to_string(state.await_count) + ")";
+                    throw SyncvCheckFail{std::move(message)};
+                }
             }
-            CAMSPORK_REQUIRE(state.arrive_states.empty(), "await should have cleared this list");
+
+            // Dicey: a "correct" (passes validation) abstract machine program shouldn't trigger
+            // this code path, but we implement this anyway, for incorrect programs.
+            // Normally, retire_barrier_arrive augments VisRecords, but here we just pass no_op,
+            // so the only intended effect is for us to free memory.
+            for (auto& pair : state.arrive_states) {
+                const auto arrive_count = pair.first;
+                BarrierArriveState& arrive = pair.second;
+                auto no_op = [] (auto, auto) {};
+                const pending_await_t await_id = pack_pending_await(barrier_index, arrive_count);
+                retire_barrier_arrive(&arrive, await_id, no_op);
+            }
+            state.arrive_states.clear();
 
             uint64_t& word = live_barrier_bits[barrier_index / 64u];
             const uint64_t bit = uint64_t(1) << (barrier_index & 63u);
