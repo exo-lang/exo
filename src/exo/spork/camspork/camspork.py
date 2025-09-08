@@ -140,6 +140,10 @@ _thread_local_print_program = lib.camspork_thread_local_print_program
 _thread_local_print_program.restype = c_int
 _thread_local_print_program.argtypes = (c_size_t, c_void_p)
 
+_thread_local_print_program_with_remarks = lib.camspork_thread_local_print_program_with_remarks
+_thread_local_print_program_with_remarks.restype = c_int
+_thread_local_print_program_with_remarks.argtypes = (c_void_p, )
+
 _new_ProgramBuilder = lib.camspork_new_ProgramBuilder
 _new_ProgramBuilder.restype = VoidPtr
 _new_ProgramBuilder.argtypes = ()
@@ -638,6 +642,10 @@ class ProgramEnv:
 
     def set_debug_validation_enable(self, flag):
         check_return(_set_debug_validation_enable(self._env, bool(flag)))
+    
+    def program_with_remarks(self):
+        check_return(_thread_local_print_program_with_remarks(self._env))
+        return str(_thread_local_message_c_str(), "utf-8")
 
 
 if __name__ == "__main__":

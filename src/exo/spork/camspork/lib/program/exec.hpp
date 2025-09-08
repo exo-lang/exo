@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <new>
+#include <ostream>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -218,6 +219,12 @@ class ProgramEnvSyncvTable
     }
 };
 
+struct ProgramExecRemark
+{
+    StmtRef stmt;
+    std::string text;
+};
+
 class ProgramEnv
 {
     size_t program_buffer_size;
@@ -228,6 +235,12 @@ class ProgramEnv
     std::vector<VarSlotEnvs> var_slots;
     bool dirty_task_index = false;
     bool debug_validation_enable = false;
+
+    // This will grow forever, but the intention of remarks is just for small experiments or reporting errors,
+    // and adding a system for deleting remarks will cause Python/C++ interop chaos.
+    std::vector<ProgramExecRemark> remarks;
+    Varname hazard_detected_var = {};
+    std::vector<extent_t> hazard_detected_idx;
 
   public:
     template <bool EnableExcutLog>
@@ -321,6 +334,30 @@ class ProgramEnv
 
     void syncv_debug_validate();
 
+    template <uint32_t TypeID>
+    StmtRef stmt_ref_from_ptr(const stmt<TypeID>* node) const
+    {
+        StmtRef out;
+        const ptrdiff_t offset = reinterpret_cast<const char*>(node) - p_program_buffer.get();
+        CAMSPORK_REQUIRE_CMP(offset, >=, 1, "node not from this program");
+        CAMSPORK_REQUIRE_CMP(offset, <, ptrdiff_t(program_buffer_size), "node not from this program");
+        out.set_type_byte_offset(TypeID, uint32_t(offset));
+        return out;
+    }
+
+    void add_remark(StmtRef stmt, std::string remark)
+    {
+        remarks.push_back({stmt, std::move(remark)});
+    }
+
+    template <typename Stmt>
+    void add_remark(const Stmt* node, std::string remark)
+    {
+        remarks.push_back({stmt_ref_from_ptr(node), std::move(remark)});
+    }
+
+    void stream_program_remarks(std::ostream& stream);
+
   private:
     std::shared_ptr<char[]> make_shared_program_buffer(size_t buffer_size, const char* buffer)
     {
@@ -365,5 +402,6 @@ CAMSPORK_EXPORT int camspork_set_value(
         camspork::value_t arg);
 
 CAMSPORK_EXPORT int camspork_set_debug_validation_enable(camspork::ProgramEnv* p_env, uint32_t flag);
+
 
 // Return 0

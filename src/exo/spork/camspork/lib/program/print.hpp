@@ -1,6 +1,9 @@
 #pragma once
 
+#include <array>
 #include <set>
+#include <sstream>
+#include <string>
 #include <vector>
 
 #include "grammar.hpp"
@@ -10,10 +13,11 @@
 namespace camspork
 {
 
-template <typename Stream>
+template <typename Stream, typename StmtRefRemarksCallback>
 class ProgramPrinter
 {
     Stream& stream;
+    StmtRefRemarksCallback& remarks_callback;  // StmtRef -> sequence_container<obj> where we can do Stream << obj.
     size_t buffer_size;
     const char* program_buffer;
     int indent_levels = 1;
@@ -23,8 +27,12 @@ class ProgramPrinter
     bool binop_no_parens_flag = false;
 
   public:
-    ProgramPrinter(Stream& _stream, size_t _buffer_size, const char* _program_buffer)
+    // Constructor just prints the program, wrapped with print_program(...) later.
+    ProgramPrinter(
+            Stream& _stream, StmtRefRemarksCallback& _remarks_callback,
+            size_t _buffer_size, const char* _program_buffer)
       : stream(_stream)
+      , remarks_callback(_remarks_callback)
       , buffer_size(_buffer_size)
       , program_buffer(_program_buffer)
     {
@@ -271,13 +279,13 @@ class ProgramPrinter
 
   private:
     template <typename T>
-    ProgramPrinter<Stream>& operator<<(T n)
+    ProgramPrinter<Stream, StmtRefRemarksCallback>& operator<<(T n)
     {
         stream << n;
         return *this;
     }
 
-    ProgramPrinter<Stream>& operator<<(Varname varname)
+    ProgramPrinter<Stream, StmtRefRemarksCallback>& operator<<(Varname varname)
     {
         const auto slot = varname.slot();
         CAMSPORK_C_BOUNDSCHECK(slot, var_str_table.size());
@@ -285,7 +293,7 @@ class ProgramPrinter
         return *this;
     }
 
-    ProgramPrinter<Stream>& operator<<(ExprRef expr)
+    ProgramPrinter<Stream, StmtRefRemarksCallback>& operator<<(ExprRef expr)
     {
         binop_no_parens_flag = true;
         expr.dispatch(*this, buffer_size, program_buffer);
@@ -293,19 +301,35 @@ class ProgramPrinter
         return *this;
     }
 
-    ProgramPrinter<Stream>& operator<<(StmtRef stmt)
+    ProgramPrinter<Stream, StmtRefRemarksCallback>& operator<<(StmtRef stmt)
     {
         if (!stmt) {
             print_tabs();
             stream << "pass\n";
         }
         else {
+            for (auto&& remark : remarks_callback(stmt)) {
+                std::stringstream stringstream;
+                stringstream << remark;
+                bool had_newline = true;
+                for (char c : stringstream.str()) {
+                    if (had_newline) {
+                        print_tabs();
+                        stream << "# ";
+                    }
+                    stream << c;
+                    had_newline = c == '\n';
+                }
+                if (!had_newline) {
+                    stream << '\n';
+                }
+            }
             stmt.dispatch(*this, buffer_size, program_buffer);
         }
         return *this;
     }
 
-    ProgramPrinter<Stream>& operator<<(binop op)
+    ProgramPrinter<Stream, StmtRefRemarksCallback>& operator<<(binop op)
     {
         stream << binop_names.get(op);
         return *this;
@@ -347,8 +371,28 @@ class ProgramPrinter
     }
 };
 
+template <typename Stream>
+void print_program(Stream& stream, size_t buffer_size, const char* program_buffer)
+{
+    auto no_remarks = [] (StmtRef)
+    {
+        return std::array<char, 0>{};
+    };
+    ProgramPrinter<Stream, decltype(no_remarks)>(stream, no_remarks, buffer_size, program_buffer);
 }
+
+template <typename Stream, typename StmtRefRemarksCallback>
+void print_program(
+        Stream& stream, StmtRefRemarksCallback& remarks_callback, size_t buffer_size, const char* program_buffer)
+{
+    ProgramPrinter<Stream, StmtRefRemarksCallback>(stream, remarks_callback, buffer_size, program_buffer);
+}
+
+class ProgramEnv;
+
+}  // end namespace camspork
 
 // Output, either formatted program or error, goes into thread_local_message.
 // 0 = error, 1 = success.
 CAMSPORK_EXPORT int camspork_thread_local_print_program(size_t buffer_size, const void* program_buffer);
+CAMSPORK_EXPORT int camspork_thread_local_print_program_with_remarks(camspork::ProgramEnv* p_env);

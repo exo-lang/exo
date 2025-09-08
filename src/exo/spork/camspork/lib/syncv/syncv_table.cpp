@@ -1977,7 +1977,7 @@ struct SyncvTable
                 AssignmentRecordMutateNode& node = get(mutate_id);
                 const VisRecord& mutate_record = remove_forwarding(&node.vis_record_id);
                 if (!visible_to(mutate_record, cuboid, bitfield)) {
-                    throw SyncvCheckFail{IsMutate ? "WAW Hazard" : "RAW Hazard"};
+                    throw SyncvCheckFail{IsMutate ? "WAW HAZARD" : "RAW HAZARD"};
                 }
                 mutate_id = node.camspork_next_id;
             }
@@ -1989,7 +1989,7 @@ struct SyncvTable
                     AssignmentRecordReadNode& node = get(read_id);
                     const VisRecord& read_record = remove_forwarding(&node.vis_record_id);
                     if (!visible_to(read_record, cuboid, bitfield)) {
-                        throw SyncvCheckFail{"WAR Hazard"};
+                        throw SyncvCheckFail{"WAR HAZARD"};
                     }
                     read_id = node.camspork_next_id;
                 }

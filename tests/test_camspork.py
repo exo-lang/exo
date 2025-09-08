@@ -36,6 +36,7 @@ def impl_test_very_simple_fence(num_tasks, fence_enable, err_substr=None):
                 env.exec()
             msg = str(exc.value)
             assert err_substr in msg
+            print(env.program_with_remarks())
         else:
             env.exec()
 

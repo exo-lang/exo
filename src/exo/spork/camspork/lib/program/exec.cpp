@@ -6,11 +6,14 @@
 #include <stdio.h>
 #include <string.h>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "builder.hpp"
 #include "camspork_excut.hpp"
 #include "grammar.hpp"
+#include "print.hpp"
 #include "../util/cuboid_util.hpp"
 
 namespace camspork
@@ -83,6 +86,7 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
     std::vector<extent_t> tmp_extent;
     std::vector<extent_t> tmp_offset;
     std::vector<barrier_id> tmp_all_barriers;
+    StmtRef current_stmt{};
 
   public:
     ProgramExec(ProgramEnv* p_self)
@@ -208,18 +212,42 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
     void operator() (const Stmt* node)
     {
         // Specialized per-Stmt-type execution (exec_impl) wrapped with common code.
+        const StmtRef stmt_before = current_stmt;
         try {
+            current_stmt = env.stmt_ref_from_ptr(node);
             exec_impl(node);
         }
         catch (...) {
+            current_stmt = stmt_before;
             flush_excut_log();
             throw;
         }
+        current_stmt = stmt_before;
         flush_excut_log();
     }
 
+    void exec_impl(const SyncEnvReadSingle* node)
+    {
+        exec_sync_env_impl(node, env.stmt_ref_from_ptr(node));
+    }
+
+    void exec_impl(const SyncEnvReadWindow* node)
+    {
+        exec_sync_env_impl(node, env.stmt_ref_from_ptr(node));
+    }
+
+    void exec_impl(const SyncEnvMutateSingle* node)
+    {
+        exec_sync_env_impl(node, env.stmt_ref_from_ptr(node));
+    }
+
+    void exec_impl(const SyncEnvMutateWindow* node)
+    {
+        exec_sync_env_impl(node, env.stmt_ref_from_ptr(node));
+    }
+
     template <bool IsMutate, bool IsWindow>
-    void exec_impl(const SyncEnvAccessNode<IsMutate, IsWindow>* node)
+    void exec_sync_env_impl(const SyncEnvAccessNode<IsMutate, IsWindow>* node, StmtRef stmt_ref)
     {
         CAMSPORK_REQUIRE_CMP(node->initial_qual_bit, ==, node->extended_qual_bits, "TODO");
         QualBitsByVis qual_bits_by_vis;
@@ -258,11 +286,17 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         }
 
         // Call into syncv table
-        if constexpr (node->is_mutate) {
-            on_rw(env.p_syncv_table.get(), input, env.prepare_thread_cuboid(), qual_bits_by_vis, logger);
+        try {
+            if constexpr (node->is_mutate) {
+                on_rw(env.p_syncv_table.get(), input, env.prepare_thread_cuboid(), qual_bits_by_vis, logger);
+            }
+            else {
+                on_r(env.p_syncv_table.get(), input, env.prepare_thread_cuboid(), qual_bits_by_vis, logger);
+            }
         }
-        else {
-            on_r(env.p_syncv_table.get(), input, env.prepare_thread_cuboid(), qual_bits_by_vis, logger);
+        catch (const SyncvCheckFail& exc) {
+            env.add_remark(stmt_ref, exc.what());
+            throw;
         }
         env.maybe_syncv_debug_validate();
     }
@@ -446,19 +480,38 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
 
     void exec_impl(const If* node)
     {
-        StmtRef s = eval(node->cond) ? node->body : node->orelse;
-        exec(s);  // Inlined only once
+        const bool cond = eval(node->cond);
+        try {
+            StmtRef s = cond ? node->body : node->orelse;
+            exec(s);  // Inlined only once
+        }
+        catch (...) {
+            env.add_remark(node, cond ? "True" : "False");
+            throw;
+        }
+    }
+
+    template <typename TypedFor>
+    void exec_for_body(const TypedFor* node, value_t iter_value)
+    {
+        try {
+            env.alloc_scalar_value(node->iter, iter_value);
+            exec(node->body);
+        }
+        catch (...) {
+            std::stringstream s;
+            s << env.str_name(node->iter) << " = " << iter_value;
+            env.add_remark(node, s.str());
+            throw;
+        }
     }
 
     void exec_impl(const SeqFor* node)
     {
         const auto lo = eval(node->lo);
         const auto hi = eval(node->hi);
-        env.alloc_scalar_value(node->iter, lo);
         for (value_t i = lo; i < hi; ++i) {
-            // Look up Varslot each time in case the loop body did something bad!
-            env.value_slot(node->iter).scalar() = i;
-            exec(node->body);
+            exec_for_body(node, i);
         }
     }
 
@@ -466,11 +519,8 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
     {
         const auto lo = eval(node->lo);
         const auto hi = eval(node->hi);
-        env.alloc_scalar_value(node->iter, lo);
         for (value_t i = lo; i < hi; ++i) {
-            // Look up Varslot each time in case the loop body did something bad!
-            env.value_slot(node->iter).scalar() = i;
-            exec(node->body);
+            exec_for_body(node, i);
             // Lazy task index. This prompts task_index to change if actually used.
             // This avoids wasting task_index values on every level of the TasksFor loop nest.
             env.dirty_task_index = true;
@@ -485,7 +535,6 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         const uint32_t box_c = node->box;
         const auto lo = eval(node->lo);
         const auto hi = eval(node->hi);
-        env.alloc_scalar_value(node->iter, lo);
 
         // This shouldn't hard to change, but just test it quickly if you change this.
         CAMSPORK_REQUIRE_CMP(lo, ==, 0, "Expected ThreadsFor loop to start from 0 for now");
@@ -501,15 +550,7 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         env.raw_thread_cuboid.box()[dim_idx] = box_c;
 
         for (value_t i = lo; i < hi; ++i) {
-            if (false) {
-                const char* var_c_name = env.var_slots[node->iter.slot()].name.c_str();
-                printf("%s = %i, %s\n", var_c_name, i, (std::stringstream() << env.raw_thread_cuboid).str().c_str());
-            }
-
-            // Look up Varslot each time in case the loop body did something bad!
-            env.value_slot(node->iter).scalar() = i;
-            exec(node->body);
-
+            exec_for_body(node, i);
             // Slide thread box over for the next iteration.
             env.raw_thread_cuboid.offset()[dim_idx] += box_c;
         }
@@ -769,6 +810,27 @@ void ProgramEnv::syncv_debug_validate()
     debug_validate_state(p_syncv_table.get(), inputs.size(), inputs.data());
 }
 
+void ProgramEnv::stream_program_remarks(std::ostream& stream)
+{
+    std::unordered_map<camspork::StmtRef, std::vector<const char*>> remarks_map;
+    for (const camspork::ProgramExecRemark& remark : remarks) {
+        remarks_map[remark.stmt].push_back(remark.text.c_str());
+    }
+
+    const std::vector<const char*> empty;
+    auto get_remarks = [&remarks_map, &empty] (camspork::StmtRef stmt) -> const std::vector<const char*>&
+    {
+        auto iter = remarks_map.find(stmt);
+        if (iter == remarks_map.end()) {
+            return empty;
+        }
+        else {
+            return iter->second;
+        }
+    };
+
+    print_program(stream, get_remarks, program_buffer_size, p_program_buffer.get());
+}
 
 }  // end namespace camspork
 

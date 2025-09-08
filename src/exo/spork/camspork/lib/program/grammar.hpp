@@ -115,7 +115,7 @@ struct NodeRef
         return (raw_data >> 3) & ~uint32_t(3);
     }
 
-    void set_type_byte_offset(uint32_t type, size_t byte_offset)
+    void set_type_byte_offset(uint32_t type, uint32_t byte_offset)
     {
         CAMSPORK_REQUIRE_CMP(type, <, NumTypes, "internal error, invalid NodeRef type ID");
         raw_data = decltype(raw_data)(type | byte_offset << 3);  // overflow checked below
