@@ -141,6 +141,21 @@ class VarSlotEntry
         CAMSPORK_REQUIRE_CMP(size(), ==, 0, "should be seen as empty now");
     }
 
+    std::vector<extent_t> idx_from_linear(size_t linear_index) const
+    {
+        const size_t dim = _extent.size();
+        std::vector<extent_t> res(dim);
+        for (size_t i = 0; i < res.size(); ++i) {
+            const size_t dim_idx = dim - 1 - i;
+            const size_t dim_size = _extent[dim_idx];
+            const size_t r = linear_index % dim_size;
+            linear_index = linear_index / dim_size;
+            res[dim_idx] = extent_t(r);
+        }
+        CAMSPORK_REQUIRE_CMP(linear_index, ==, 0, "idx_from_linear, out-of-range");
+        return res;
+    }
+
   private:
     static size_t get_alloc_size(const std::vector<extent_t>& extent_arg)
     {
@@ -238,9 +253,9 @@ class ProgramEnv
 
     // This will grow forever, but the intention of remarks is just for small experiments or reporting errors,
     // and adding a system for deleting remarks will cause Python/C++ interop chaos.
-    std::vector<ProgramExecRemark> remarks;
-    Varname hazard_detected_var = {};
-    std::vector<extent_t> hazard_detected_idx;
+    std::vector<ProgramExecRemark> _remarks;
+    Varname _syncv_fail_var = {};
+    std::vector<extent_t> _syncv_fail_idx;
 
   public:
     template <bool EnableExcutLog>
@@ -347,16 +362,26 @@ class ProgramEnv
 
     void add_remark(StmtRef stmt, std::string remark)
     {
-        remarks.push_back({stmt, std::move(remark)});
+        _remarks.push_back({stmt, std::move(remark)});
     }
 
     template <typename Stmt>
     void add_remark(const Stmt* node, std::string remark)
     {
-        remarks.push_back({stmt_ref_from_ptr(node), std::move(remark)});
+        _remarks.push_back({stmt_ref_from_ptr(node), std::move(remark)});
     }
 
     void stream_program_remarks(std::ostream& stream);
+
+    camspork::Varname syncv_fail_var() const
+    {
+        return _syncv_fail_var;
+    }
+
+    const std::vector<extent_t>& syncv_fail_idx() const
+    {
+        return _syncv_fail_idx;
+    }
 
   private:
     std::shared_ptr<char[]> make_shared_program_buffer(size_t buffer_size, const char* buffer)
@@ -402,6 +427,11 @@ CAMSPORK_EXPORT int camspork_set_value(
         camspork::value_t arg);
 
 CAMSPORK_EXPORT int camspork_set_debug_validation_enable(camspork::ProgramEnv* p_env, uint32_t flag);
+
+// These don't have error conditions; 0 signals "no syncv fail detected" or "0 dimensional".
+CAMSPORK_EXPORT camspork::Varname camspork_syncv_fail_var(const camspork::ProgramEnv* p_env);
+CAMSPORK_EXPORT int camspork_syncv_fail_idx_dim(const camspork::ProgramEnv* p_env);
+CAMSPORK_EXPORT const camspork::extent_t* camspork_syncv_fail_idx_ptr(const camspork::ProgramEnv* p_env);
 
 
 // Return 0

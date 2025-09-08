@@ -730,7 +730,11 @@ if __name__ == "__main__":
     print(extent_test)
     env = ProgramEnv(extent_test)
     env.set_debug_validation_enable(True)
-    env.exec(excut_filename="extent_excut.json")
+    try:
+        env.exec(excut_filename="extent_excut.json")
+    except:
+        print(env.program_with_remarks())
+        raise
 
     @camspork.program
     def fence_test(b: camspork.ProgramBuilder):

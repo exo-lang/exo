@@ -376,6 +376,7 @@ struct AssignmentRecordCensusEntry
 {
     uint32_t count = 0;
     nodepool::id<AssignmentRecord> new_node_id{};
+    size_t linear_index_in_input = 0;
 };
 
 using CensusMap = Map<nodepool::id<AssignmentRecord>, AssignmentRecordCensusEntry>;
@@ -982,7 +983,7 @@ struct SyncvTable
                     std::string message =
                         "Arrive count (" + std::to_string(state.arrive_count) + ") != Await count ("
                         + std::to_string(state.await_count) + ")";
-                    throw SyncvCheckFail{std::move(message)};
+                    throw SyncvCheckFail{std::move(message), i};
                 }
             }
 
@@ -1941,7 +1942,9 @@ struct SyncvTable
                 [&] (size_t lo, size_t hi) {
                     for (size_t i = lo; i < hi; ++i) {
                         node_id id{input.base[i].node_id};
-                        census[id].count++;
+                        if (0 == census[id].count++) {
+                            census[id].linear_index_in_input = i;
+                        }
                     }
                 }
             );
@@ -1961,7 +1964,7 @@ struct SyncvTable
         logger.log_assignment_records(*this, input, vis_record_id,
                 IsMutate ? ExcutMutateTag::Mutate : ExcutMutateTag::Read);
 
-        auto check = [&] (node_id id)
+        auto check = [&] (node_id id, size_t linear_index)
         {
             if (!id) {
                 return;
@@ -1977,7 +1980,7 @@ struct SyncvTable
                 AssignmentRecordMutateNode& node = get(mutate_id);
                 const VisRecord& mutate_record = remove_forwarding(&node.vis_record_id);
                 if (!visible_to(mutate_record, cuboid, bitfield)) {
-                    throw SyncvCheckFail{IsMutate ? "WAW HAZARD" : "RAW HAZARD"};
+                    throw SyncvCheckFail{IsMutate ? "WAW HAZARD" : "RAW HAZARD", linear_index};
                 }
                 mutate_id = node.camspork_next_id;
             }
@@ -1989,7 +1992,7 @@ struct SyncvTable
                     AssignmentRecordReadNode& node = get(read_id);
                     const VisRecord& read_record = remove_forwarding(&node.vis_record_id);
                     if (!visible_to(read_record, cuboid, bitfield)) {
-                        throw SyncvCheckFail{"WAR HAZARD"};
+                        throw SyncvCheckFail{"WAR HAZARD", linear_index};
                     }
                     read_id = node.camspork_next_id;
                 }
@@ -2063,7 +2066,7 @@ struct SyncvTable
 
         // Check & update all distinct assignment records once.
         for (auto& pair : census) {
-            check(pair.first);
+            check(pair.first, pair.second.linear_index_in_input);
             if constexpr (UpdateRecords) {
                 copy_on_write_update(pair.first, pair.second, vis_record_id);
             }

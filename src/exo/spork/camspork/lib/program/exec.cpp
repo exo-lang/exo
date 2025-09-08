@@ -196,6 +196,18 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         }
     }
 
+    template <typename Stream>
+    static void print_idx_helper(Stream& stream, const std::vector<extent_t>& idx)
+    {
+        if (!idx.empty()) {
+            stream << '[' << idx[0];
+            for (auto it = idx.begin() + 1; it != idx.end(); ++it) {
+                stream << ", " << *it;
+            }
+            stream << ']';
+        }
+    }
+
 
     // ******************************************************************************************
     // EXECUTE STATEMENT
@@ -295,7 +307,13 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
             }
         }
         catch (const SyncvCheckFail& exc) {
-            env.add_remark(stmt_ref, exc.what());
+            // If !IsWindow, we can't trust linear_index_in_input as we passed an already-offset pointer to SyncvTable.
+            env._syncv_fail_var = node->name;
+            env._syncv_fail_idx = IsWindow ? slot.idx_from_linear(exc.linear_index_in_input()) : tmp_offset;
+            std::stringstream s;
+            s << exc.what() << " @ " << env.str_name(node->name);
+            print_idx_helper(s, env._syncv_fail_idx);
+            env.add_remark(stmt_ref, s.str());
             throw;
         }
         env.maybe_syncv_debug_validate();
@@ -813,7 +831,7 @@ void ProgramEnv::syncv_debug_validate()
 void ProgramEnv::stream_program_remarks(std::ostream& stream)
 {
     std::unordered_map<camspork::StmtRef, std::vector<const char*>> remarks_map;
-    for (const camspork::ProgramExecRemark& remark : remarks) {
+    for (const camspork::ProgramExecRemark& remark : _remarks) {
         remarks_map[remark.stmt].push_back(remark.text.c_str());
     }
 
@@ -922,4 +940,20 @@ int camspork_set_debug_validation_enable(camspork::ProgramEnv* p_env, uint32_t f
     p_env->set_debug_validation_enable(flag);
     return 1;
     CAMSPORK_API_EPILOGUE(0)
+}
+
+camspork::Varname camspork_syncv_fail_var(const camspork::ProgramEnv* p_env)
+{
+    // No exception possible, I think.
+    return p_env->syncv_fail_var();
+}
+
+int camspork_syncv_fail_idx_dim(const camspork::ProgramEnv* p_env)
+{
+    return int(p_env->syncv_fail_idx().size());
+}
+
+const camspork::extent_t* camspork_syncv_fail_idx_ptr(const camspork::ProgramEnv* p_env)
+{
+    return p_env->syncv_fail_idx().data();
 }

@@ -41,8 +41,17 @@ struct syncv_init_t
 
 struct SyncvCheckFail : std::runtime_error
 {
-    SyncvCheckFail(std::string msg) : std::runtime_error(std::move(msg))
+    size_t _linear_index_in_input;
+
+    SyncvCheckFail(std::string msg, size_t linear_index_in_input)
+      : std::runtime_error(std::move(msg))
+      , _linear_index_in_input(linear_index_in_input)
     {
+    }
+
+    size_t linear_index_in_input() const
+    {
+        return _linear_index_in_input;
     }
 };
 
