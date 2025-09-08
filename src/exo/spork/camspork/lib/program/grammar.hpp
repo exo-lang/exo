@@ -95,7 +95,7 @@ extern const BinOpTable binop_table;
 // The NodeRef identifies both the type of the node, and its position in the buffer/file.
 // Therefore, it is not possible to dereference a NodeRef without a pointer to the buffer.
 // ******************************************************************************************
-// Note: definition duplicated as Python ctypes
+// Note: definition duplicated as Python ctypes, see also std::hash specialization.
 template <template<uint32_t> typename NodeType, uint32_t NumTypes>
 struct NodeRef
 {
@@ -118,7 +118,7 @@ struct NodeRef
     void set_type_byte_offset(uint32_t type, size_t byte_offset)
     {
         CAMSPORK_REQUIRE_CMP(type, <, NumTypes, "internal error, invalid NodeRef type ID");
-        raw_data = type | byte_offset << 3;
+        raw_data = decltype(raw_data)(type | byte_offset << 3);  // overflow checked below
         CAMSPORK_REQUIRE_CMP(this->byte_offset(), ==, byte_offset, "NodeRef 32 bit overflow");
     }
 
@@ -452,6 +452,7 @@ struct OffsetExtentExpr
 // Statement node types, all pointed to by polymorphic StmtRef object (which can be null)
 // ******************************************************************************************
 
+// TODO we are not really using this consistently, maybe -Wconversion can help if we need to widen this.
 using qual_bits_t = uint32_t;
 
 template <uint32_t TypeID>
@@ -708,7 +709,19 @@ struct ProgramHeader
 
 static_assert(alignof(ProgramHeader) == 4);
 
-}
+}  // end namespace camspork
+
+namespace std
+{
+template <template<uint32_t> typename NodeType, uint32_t NumTypes>
+struct hash<camspork::NodeRef<NodeType, NumTypes>>
+{
+    size_t operator()(const camspork::NodeRef<NodeType, NumTypes>& ref) const
+    {
+        return ref.raw_data;
+    }
+};
+}  // end namespace std
 
 CAMSPORK_EXPORT camspork::binop camspork_binop_from_str(const char* p_str);
 CAMSPORK_EXPORT const char* camspork_binop_to_str(camspork::binop op);

@@ -1,5 +1,5 @@
 rule cxx
-  command = c++ -fdiagnostics-color=always -g -O2 -Wall -Wextra -fPIC -g -std=c++17 $in -c -o $out -MD -MF $out.d
+  command = c++ -fdiagnostics-color=always -g -O2 -Wall -Wextra -Wconversion -fPIC -g -std=c++17 $in -c -o $out -MD -MF $out.d
   depfile = $out.d
 
 rule link_lib

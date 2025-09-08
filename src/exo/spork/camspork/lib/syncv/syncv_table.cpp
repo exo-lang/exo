@@ -153,14 +153,16 @@ struct AssignmentRecord
     nodepool::id<AssignmentRecord> camspork_next_id{0};
     refcnt_t refcnt = 0;
 
-    // TODO update this
+    // Zero or more mutate visibility records.
+    // I think multiple mutate visibility records are needed only for atomics.
     nodepool::id<AssignmentRecordMutateNode> mutate_vis_records_head_id{0};
 
     // Zero or more read visibility records.
     nodepool::id<AssignmentRecordReadNode> read_vis_records_head_id{0};
 
     // See assignment_record_remove_duplicates.
-    uint32_t last_augment_counter_bits : 16;
+    // This can become a bitfield if we need the space for something else, but I had issues with -Wconversion.
+    uint16_t last_augment_counter_bits;
 
     refcnt_t get_refcnt() const
     {
@@ -405,6 +407,11 @@ struct SyncvTable
 
     // Counters for operations
     uint64_t augment_counter = 0;     // Number of fence+arrive
+
+    auto get_augment_counter_bits() const
+    {
+        return static_cast<decltype(AssignmentRecord::last_augment_counter_bits)>(augment_counter);
+    }
 
     // Memory pool state.
     uintptr_t original_memory_budget = 0;
@@ -2028,7 +2035,7 @@ struct SyncvTable
                 reset_assignment_record(&assignment_record);
                 AssignmentRecordMutateNode& node = alloc_default_node(&assignment_record.mutate_vis_records_head_id);
                 node.vis_record_id = new_vis_record_id;
-                assignment_record.last_augment_counter_bits = augment_counter;
+                assignment_record.last_augment_counter_bits = get_augment_counter_bits();
             }
             else {
                 // Add the new visibility record to the list of read visibility records.
@@ -2041,8 +2048,11 @@ struct SyncvTable
                 // once and read many times. We fix this by removing duplicates; however, this is really expensive,
                 // so we only do it once after each fence or await event (synchronization is when memoization kicks
                 // in to potentially allow us to recognize duplicates due to duplicated IDs).
+                #pragma GCC diagnostic push
+                #pragma GCC diagnostic ignored "-Wconversion"
                 const auto old_bits = assignment_record.last_augment_counter_bits;
-                assignment_record.last_augment_counter_bits = augment_counter;
+                assignment_record.last_augment_counter_bits = get_augment_counter_bits();
+                #pragma GCC diagnostic pop
                 if (old_bits != assignment_record.last_augment_counter_bits) {
                     // This could fail if the bits of augment_counter overflow exactly.
                     // However, this is unlikely, and is only a performance issue if so (we fail to remove duplicates).

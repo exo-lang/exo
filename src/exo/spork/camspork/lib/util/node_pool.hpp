@@ -226,7 +226,7 @@ class Pool
             ListNode& node = get(tmp_id);
             if constexpr (CAMSPORK_NODE_POOL_DEBUG_BITS) {
                 const auto node_index = tmp_id.node_index();
-                chunks[node_index / chunk_size]->expected_debug_bits[node_index % chunk_size] -= 1u;
+                chunks[node_index / chunk_size]->expected_debug_bits[node_index % chunk_size]--;
             }
             if (node.camspork_next_id) {
                 tmp_id = node.camspork_next_id;
