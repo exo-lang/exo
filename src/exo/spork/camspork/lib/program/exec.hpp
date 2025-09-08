@@ -251,8 +251,8 @@ class ProgramEnv
     bool dirty_task_index = false;
     bool debug_validation_enable = false;
 
-    // This will grow forever, but the intention of remarks is just for small experiments or reporting errors,
-    // and adding a system for deleting remarks will cause Python/C++ interop chaos.
+    // This will grow forever, but the intention of remarks is just for small experiments or reporting errors.
+    // Reconsider if needed.
     std::vector<ProgramExecRemark> _remarks;
     Varname _syncv_fail_var = {};
     std::vector<extent_t> _syncv_fail_idx;
