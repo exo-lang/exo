@@ -88,8 +88,10 @@ ExprRef ProgramBuilder::add_BinOp(binop op, ExprRef lhs, ExprRef rhs)
 
 StmtRef ProgramBuilder::add_SyncEnvAccess(
     Varname name, size_t num_idx, const ExprRef* idx,
-    qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, uint32_t is_mutate, uint32_t is_ooo)
+    qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, qual_bits_t atomic_qual_bits,
+    uint32_t is_mutate, uint32_t is_ooo)
 {
+    // Single access case, duplicated code as window case (sad).
     CAMSPORK_REQUIRE_CMP(is_mutate, <=, 1, "must be bool");
     CAMSPORK_REQUIRE_CMP(is_ooo, <=, 1, "must be bool");
     auto impl = [&] (auto node)
@@ -98,6 +100,12 @@ StmtRef ProgramBuilder::add_SyncEnvAccess(
         node.initial_qual_bit = initial_qual_bit;
         node.extended_qual_bits = extended_qual_bits;
         node.is_ooo = is_ooo;
+        if constexpr (node.is_mutate) {
+            node.atomic_qual_bits = atomic_qual_bits;
+        }
+        else {
+            CAMSPORK_REQUIRE_CMP(atomic_qual_bits, ==, 0, "is_mutate=False case doesn't support atomics");
+        }
         return append_impl(node, num_idx, idx);
     };
     if (is_mutate) {
@@ -110,8 +118,10 @@ StmtRef ProgramBuilder::add_SyncEnvAccess(
 
 StmtRef ProgramBuilder::add_SyncEnvAccess(
     Varname name, size_t num_idx, const OffsetExtentExpr* idx,
-    qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, uint32_t is_mutate, uint32_t is_ooo)
+    qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, qual_bits_t atomic_qual_bits,
+    uint32_t is_mutate, uint32_t is_ooo)
 {
+    // Window case, duplicated code as single access case (sad).
     CAMSPORK_REQUIRE_CMP(is_mutate, <=, 1, "must be bool");
     CAMSPORK_REQUIRE_CMP(is_ooo, <=, 1, "must be bool");
     auto impl = [&] (auto node)
@@ -120,6 +130,12 @@ StmtRef ProgramBuilder::add_SyncEnvAccess(
         node.initial_qual_bit = initial_qual_bit;
         node.extended_qual_bits = extended_qual_bits;
         node.is_ooo = is_ooo;
+        if constexpr (node.is_mutate) {
+            node.atomic_qual_bits = atomic_qual_bits;
+        }
+        else {
+            CAMSPORK_REQUIRE_CMP(atomic_qual_bits, ==, 0, "is_mutate=False case doesn't support atomics");
+        }
         return append_impl(node, num_idx, idx);
     };
     if (is_mutate) {
@@ -372,20 +388,24 @@ camspork::ExprRef camspork_add_BinOp(camspork::ProgramBuilder* p_builder,
 camspork::StmtRef camspork_add_SyncEnvAccessSingle(camspork::ProgramBuilder* p_builder,
     camspork::Varname name, uint32_t num_idx, const camspork::ExprRef* idx,
     camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t extended_qual_bits,
+    camspork::qual_bits_t atomic_qual_bits,
     uint32_t is_mutate, uint32_t is_ooo)
 {
     CAMSPORK_API_PROLOGUE
-    return p_builder->add_SyncEnvAccess(name, num_idx, idx, initial_qual_bit, extended_qual_bits, is_mutate, is_ooo);
+    return p_builder->add_SyncEnvAccess(
+            name, num_idx, idx, initial_qual_bit, extended_qual_bits, atomic_qual_bits, is_mutate, is_ooo);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
 camspork::StmtRef camspork_add_SyncEnvAccessWindow(camspork::ProgramBuilder* p_builder,
     camspork::Varname name, uint32_t num_idx, const camspork::OffsetExtentExpr* idx,
     camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t extended_qual_bits,
+    camspork::qual_bits_t atomic_qual_bits,
     uint32_t is_mutate, uint32_t is_ooo)
 {
     CAMSPORK_API_PROLOGUE
-    return p_builder->add_SyncEnvAccess(name, num_idx, idx, initial_qual_bit, extended_qual_bits, is_mutate, is_ooo);
+    return p_builder->add_SyncEnvAccess(
+            name, num_idx, idx, initial_qual_bit, extended_qual_bits, atomic_qual_bits, is_mutate, is_ooo);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 

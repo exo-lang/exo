@@ -9,6 +9,11 @@
 namespace camspork
 {
 
+// TODO we are not really using this consistently, maybe -Wconversion can help if we need to widen this.
+// However, a better way may be to change Exo to allow assigning different bits to stand for different QualTL
+// on a per-program basis, as it's unlikely a single program needs more than 32 QualTL.
+using qual_bits_t = uint32_t;
+
 static constexpr int32_t vis_level_none = -1;
 static constexpr int32_t vis_level_atomic_only = 0;
 static constexpr int32_t vis_level_unordered = 1;
@@ -29,7 +34,7 @@ inline const char* vis_level_name(int32_t vis_level)
 
 struct QualBitsByVis
 {
-    uint32_t array[3];
+    qual_bits_t array[3];
 
     bool operator== (const QualBitsByVis& other) const
     {

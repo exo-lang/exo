@@ -68,6 +68,14 @@ struct AssignmentRecordWindow
     const uint32_t* end_inner_extent;
 };
 
+struct SyncvQualTlInput
+{
+    bool is_ooo;
+    qual_bits_t initial_qual_bit;
+    qual_bits_t extended_qual_bits;
+    qual_bits_t atomic_qual_bits;
+};
+
 struct SyncvDebugValidateInput
 {
     size_t size;
@@ -82,26 +90,26 @@ SyncvTable* new_syncv_table(const syncv_init_t& init);
 SyncvTable* copy_syncv_table(const SyncvTable* table);
 void delete_syncv_table(SyncvTable* table);
 
-void on_r(SyncvTable*, assignment_record_id*, const ThreadCuboid&, QualBitsByVis, decltype(nullptr) = nullptr);
-void on_r(SyncvTable*, assignment_record_id*, const ThreadCuboid&, QualBitsByVis, const SyncvExcutRequest&);
-void on_r(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, QualBitsByVis, decltype(nullptr) = nullptr);
-void on_r(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, QualBitsByVis, const SyncvExcutRequest&);
-void on_rw(SyncvTable*, assignment_record_id*, const ThreadCuboid&, QualBitsByVis, decltype(nullptr) = nullptr);
-void on_rw(SyncvTable*, assignment_record_id*, const ThreadCuboid&, QualBitsByVis, const SyncvExcutRequest&);
-void on_rw(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, QualBitsByVis, decltype(nullptr) = nullptr);
-void on_rw(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, QualBitsByVis, const SyncvExcutRequest&);
-void on_check_free(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, QualBitsByVis, decltype(nullptr) = nullptr);
-void on_check_free(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, QualBitsByVis, const SyncvExcutRequest&);
+void on_r(SyncvTable*, assignment_record_id*, const ThreadCuboid&, SyncvQualTlInput, decltype(nullptr) = nullptr);
+void on_r(SyncvTable*, assignment_record_id*, const ThreadCuboid&, SyncvQualTlInput, const SyncvExcutRequest&);
+void on_r(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvQualTlInput, decltype(nullptr) = nullptr);
+void on_r(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvQualTlInput, const SyncvExcutRequest&);
+void on_rw(SyncvTable*, assignment_record_id*, const ThreadCuboid&, SyncvQualTlInput, decltype(nullptr) = nullptr);
+void on_rw(SyncvTable*, assignment_record_id*, const ThreadCuboid&, SyncvQualTlInput, const SyncvExcutRequest&);
+void on_rw(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvQualTlInput, decltype(nullptr) = nullptr);
+void on_rw(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvQualTlInput, const SyncvExcutRequest&);
+void on_check_free(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvQualTlInput, decltype(nullptr) = nullptr);
+void on_check_free(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvQualTlInput, const SyncvExcutRequest&);
 
 void clear_visibility(SyncvTable* table, size_t N, assignment_record_id* array);
 void alloc_barriers(SyncvTable* table, size_t N, barrier_id* barriers);
 void free_barriers(SyncvTable* table, size_t N, barrier_id* barriers);
 void on_fence(SyncvTable* table, bool transitive, const ThreadCuboid& cuboid,
-        uint32_t L1_qual_bits, uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits);
+        qual_bits_t L1_qual_bits, qual_bits_t L2_full_qual_bits, qual_bits_t L2_temporal_qual_bits);
 void on_arrive(SyncvTable* table, barrier_id home_barrier, uint32_t barrier_count, const barrier_id* all_barriers,
-        bool transitive, const ThreadCuboid& cuboid, uint32_t L1_qual_bits);
+        bool transitive, const ThreadCuboid& cuboid, qual_bits_t L1_qual_bits);
 void on_await(SyncvTable* table, barrier_id bar, int32_t N,
-        const ThreadCuboid& cuboid, uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits);
+        const ThreadCuboid& cuboid, qual_bits_t L2_full_qual_bits, qual_bits_t L2_temporal_qual_bits);
 void begin_no_checking(SyncvTable* table);
 void end_no_checking(SyncvTable* table);
 

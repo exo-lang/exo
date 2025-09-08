@@ -64,6 +64,14 @@ struct SyncvTableDeleter
 
 using SyncvTable_unique_ptr = std::unique_ptr<SyncvTable, SyncvTableDeleter>;
 
+struct TlSigBucketKey
+{
+    // TODO rename.
+    uint32_t tid_lo;
+    uint32_t tid_hi;
+    // NOTE: qual-tl data isn't used for bucketing, but maybe it should be.
+};
+
 struct ThreadCuboid
 {
     uint32_t task_index = 0;
@@ -154,7 +162,7 @@ struct ThreadCuboid
         );
     }
 
-    TlSigInterval minimal_superset_interval(QualBitsByVis qual_bits_by_vis) const
+    TlSigBucketKey minimal_superset_interval() const
     {
         uint32_t tid_lo = task_index;
         uint32_t tid_hi_inclusive = task_index;
@@ -165,7 +173,7 @@ struct ThreadCuboid
             tid_lo = tid_lo * domain_c + offset_c;
             tid_hi_inclusive = tid_hi_inclusive * domain_c + (offset_c + box_c - 1u);
         }
-        return TlSigInterval{tid_lo, tid_hi_inclusive + 1u, qual_bits_by_vis};
+        return {tid_lo, tid_hi_inclusive + 1u};
     }
 };
 

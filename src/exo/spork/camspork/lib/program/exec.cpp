@@ -261,11 +261,11 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
     template <bool IsMutate, bool IsWindow>
     void exec_sync_env_impl(const SyncEnvAccessNode<IsMutate, IsWindow>* node, StmtRef stmt_ref)
     {
-        CAMSPORK_REQUIRE_CMP(node->initial_qual_bit, ==, node->extended_qual_bits, "TODO");
-        QualBitsByVis qual_bits_by_vis;
-        qual_bits_by_vis.array[vis_level_atomic_only] = node->extended_qual_bits;
-        qual_bits_by_vis.array[vis_level_unordered] = node->extended_qual_bits;
-        qual_bits_by_vis.array[vis_level_ordered] = node->is_ooo ? 0u : node->extended_qual_bits;
+        SyncvQualTlInput q_input;
+        q_input.is_ooo = node->is_ooo;
+        q_input.initial_qual_bit = node->initial_qual_bit;
+        q_input.extended_qual_bits = node->extended_qual_bits;
+        q_input.atomic_qual_bits = node->get_atomic_qual_bits();
 
         // Prepare input: window or single assignment record
         using Input = std::conditional_t<IsWindow, AssignmentRecordWindow, assignment_record_id*>;
@@ -300,10 +300,10 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         // Call into syncv table
         try {
             if constexpr (node->is_mutate) {
-                on_rw(env.p_syncv_table.get(), input, env.prepare_thread_cuboid(), qual_bits_by_vis, logger);
+                on_rw(env.p_syncv_table.get(), input, env.prepare_thread_cuboid(), q_input, logger);
             }
             else {
-                on_r(env.p_syncv_table.get(), input, env.prepare_thread_cuboid(), qual_bits_by_vis, logger);
+                on_r(env.p_syncv_table.get(), input, env.prepare_thread_cuboid(), q_input, logger);
             }
         }
         catch (const SyncvCheckFail& exc) {

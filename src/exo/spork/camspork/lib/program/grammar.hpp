@@ -7,6 +7,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "../syncv/tl_sig.hpp"
 #include "../util/api_util.hpp"
 #include "../util/require.hpp"
 
@@ -452,9 +453,6 @@ struct OffsetExtentExpr
 // Statement node types, all pointed to by polymorphic StmtRef object (which can be null)
 // ******************************************************************************************
 
-// TODO we are not really using this consistently, maybe -Wconversion can help if we need to widen this.
-using qual_bits_t = uint32_t;
-
 template <uint32_t TypeID>
 struct stmt
 {
@@ -468,15 +466,29 @@ template <bool IsWindow>
 struct SyncEnvAccessNodeData
 {
     Varname name;
-    uint32_t initial_qual_bit;
-    uint32_t extended_qual_bits;
+    qual_bits_t initial_qual_bit;
+    qual_bits_t extended_qual_bits;
     static constexpr bool is_window = IsWindow;
     using IdxT = std::conditional_t<IsWindow, OffsetExtentExpr, ExprRef>;
     CAMSPORK_NODE_VLA_MEMBER(IdxT);
 };
 
+// Only is_mutate=True SyncEnvAccessNode have atomic_qual_bits.
+template <bool IsMutate>
+struct CondAtomicQualBits
+{
+    qual_bits_t get_atomic_qual_bits() const { return 0; }
+};
+
+template <>
+struct CondAtomicQualBits<true>
+{
+    qual_bits_t atomic_qual_bits;
+    qual_bits_t get_atomic_qual_bits() const { return atomic_qual_bits; }
+};
+
 template <bool IsMutate, bool IsWindow>
-struct SyncEnvAccessNode : SyncEnvAccessNodeData<IsWindow>
+struct SyncEnvAccessNode : SyncEnvAccessNodeData<IsWindow>, CondAtomicQualBits<IsMutate>
 {
     static constexpr bool is_mutate = IsMutate;
     uint32_t is_ooo;
@@ -553,7 +565,7 @@ struct stmt<6>
 {
     Varname name;
     uint32_t V1_transitive;
-    uint32_t L1_qual_bits;
+    qual_bits_t L1_qual_bits;
     CAMSPORK_NODE_VLA_MEMBER(ArriveIdx)
 };
 
@@ -563,8 +575,8 @@ template<>
 struct stmt<7>
 {
     Varname name;
-    uint32_t L2_full_qual_bits;
-    uint32_t L2_temporal_qual_bits;
+    qual_bits_t L2_full_qual_bits;
+    qual_bits_t L2_temporal_qual_bits;
     int32_t N;
     CAMSPORK_NODE_VLA_MEMBER(ExprRef)
 };

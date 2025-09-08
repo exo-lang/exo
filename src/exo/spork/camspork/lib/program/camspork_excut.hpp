@@ -15,7 +15,6 @@ enum class ExcutMutateTag
 {
     Read,
     Mutate,
-    Atomic,
     RAW,
     WAR,
     WAW,

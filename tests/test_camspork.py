@@ -15,7 +15,9 @@ def very_simple_fence_program(b: camspork.ProgramBuilder):
         with b.TasksFor(task, 0, num_tasks):
             with b.ThreadsFor(tid, 0, 32, 0, 0, 1):
                 # If task_count > 1, then there is invalid WAW.
-                b.SyncEnvAccess(buf[tid], 1, 1, is_mutate=True, is_ooo=False)
+                b.SyncEnvAccess(
+                    buf[tid], 1, 1, is_mutate=True, is_ooo=False, atomic_qual_bits=8
+                )
             with b.If(fence_enable):
                 # If fence is skipped, the reads below are bogus.
                 b.Fence(True, 1, 1, 1)

@@ -190,11 +190,11 @@ _add_BinOp.argtypes = (c_void_p, binop, ExprRef, ExprRef)
 
 _add_SyncEnvAccessSingle = lib.camspork_add_SyncEnvAccessSingle
 _add_SyncEnvAccessSingle.restype = StmtRef
-_add_SyncEnvAccessSingle.argtypes = (c_void_p, Varname, c_size_t, ptr_ExprRef, c_uint32, c_uint32, c_uint32, c_uint32)
+_add_SyncEnvAccessSingle.argtypes = (c_void_p, Varname, c_size_t, ptr_ExprRef, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32)
 
 _add_SyncEnvAccessWindow = lib.camspork_add_SyncEnvAccessWindow
 _add_SyncEnvAccessWindow.restype = StmtRef
-_add_SyncEnvAccessWindow.argtypes = (c_void_p, Varname, c_size_t, ptr_OffsetExtentExpr, c_uint32, c_uint32, c_uint32, c_uint32)
+_add_SyncEnvAccessWindow.argtypes = (c_void_p, Varname, c_size_t, ptr_OffsetExtentExpr, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32)
 
 _add_MutateValue = lib.camspork_add_MutateValue
 _add_MutateValue.restype = StmtRef
@@ -463,7 +463,8 @@ class ProgramBuilder:
 
     def SyncEnvAccess(
             self, dst: BuilderIndexExpr, initial_qual_bit: int, extended_qual_bits: int, *,
-            is_mutate: bool, is_ooo: bool, extent: Optional[List[BuilderExpr]] = None) -> StmtRef:
+            is_mutate: bool, is_ooo: bool, extent: Optional[List[BuilderExpr]] = None,
+            atomic_qual_bits: int = 0) -> StmtRef:
         dim, offsets = dst.c_dim_idxs(self._builder)
         if extent:
             # Window variant -- have to interleave offsets and extents (of window)
@@ -477,7 +478,7 @@ class ProgramBuilder:
             # Single value variant
             c_func = _add_SyncEnvAccessSingle
             idxs = offsets
-        return check_return(c_func(self._builder, dst._varname, dim, idxs, initial_qual_bit, extended_qual_bits, bool(is_mutate), bool(is_ooo)))
+        return check_return(c_func(self._builder, dst._varname, dim, idxs, initial_qual_bit, extended_qual_bits, atomic_qual_bits, bool(is_mutate), bool(is_ooo)))
 
     def MutateValue(self, dst: BuilderIndexExpr, op, rhs) -> StmtRef:
         dim, idxs = dst.c_dim_idxs(self._builder)
@@ -666,10 +667,10 @@ if __name__ == "__main__":
                     b.BarrierEnvAlloc(bars[4, 2, 2])
                     tid = b.add_variable("tid")
                     with b.ThreadsFor(tid, 0, 24, 0, 0, 1):
-                        b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 2, 2, is_mutate=True, is_ooo=True)
+                        b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 2, 2, is_mutate=True, is_ooo=True, atomic_qual_bits=8)
                     with b.ThreadsFor(tid, 0, 1, 0, 0, 14):
                         b.Arrive(True, 3, bars[m, n, k], ((True, False, True), (True, True, False)))
-                        b.Await(bars[m, n, k], 1, 5, N=0)
+                        b.Await(bars[m, n, k], 3, 3, N=0)
                     with b.ThreadsFor(tid, 0, 14, 0, 0, 1):
                         b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 1, 1, is_mutate=False, is_ooo=False)
     print(foo_barrier)

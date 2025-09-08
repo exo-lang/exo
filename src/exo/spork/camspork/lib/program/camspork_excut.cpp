@@ -6,8 +6,8 @@ namespace camspork {
 
 #define RETURN_MUTATE_TAGGED(name) \
     const uint32_t idx = static_cast<uint32_t>(mutate_tag); \
-    CAMSPORK_REQUIRE_CMP(idx, <, 6, "invalid ExcutMutateTag"); \
-    static const char* table[] = {name "::Read", name "::Mutate", name "::Atomic", name "::RAW", name "::WAR", name "::WAW"}; \
+    CAMSPORK_REQUIRE_CMP(idx, <, 5, "invalid ExcutMutateTag"); \
+    static const char* table[] = {name "::Read", name "::Mutate", name "::RAW", name "::WAR", name "::WAW"}; \
     return table[idx];
 
 const char* ExcutSyncEnvAccess::action_name() const

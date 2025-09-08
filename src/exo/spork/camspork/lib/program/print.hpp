@@ -111,6 +111,9 @@ class ProgramPrinter
         *this << ", " << node->initial_qual_bit << ", " << node->extended_qual_bits;
         *this << ", is_mutate=" << (node->is_mutate ? "True" : "False");
         *this << ", is_ooo=" << (node->is_ooo ? "True" : "False");
+        if (const qual_bits_t q = node->get_atomic_qual_bits()) {
+            *this << ", atomic_qual_bits=" << q;
+        }
         if constexpr (node->is_window) {
             *this << ", extent=";
             print_idx(node, false);  // print extent
