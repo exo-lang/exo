@@ -624,7 +624,7 @@ struct SyncvTable
     {
         CAMSPORK_REQUIRE(id, "unexpected 0 id");
         VisRecordListNode<IsMutate>& node = get(id);
-        CAMSPORK_REQUIRE_CMP(node.refcnt, ==, 0, "unexpected 0 refcnt");
+        CAMSPORK_REQUIRE_CMP(node.refcnt, ==, 0, "unexpected nonzero refcnt");
         reset_vis_record_data(&node.base_data);
         node.camspork_next_id = {};  // Avoid freeing entire list.
         extend_free_list(id);
@@ -674,6 +674,8 @@ struct SyncvTable
         vis_record.refcnt = 1;
         vis_record.base_data.original_qual_tl = TlSigInterval::get_unique_qual_tl(q_input.initial_qual_bit);
         vis_record.base_data.forwarded_flag = 0;
+        vis_record.base_data.visibility_set = {};
+        vis_record.base_data.pending_awaits = {};
 
         // Initialize visibility set = linked list of intervals generated from the initial thread cuboid.
         const qual_bits_t q = q_input.initial_qual_bit;
@@ -1331,7 +1333,7 @@ struct SyncvTable
         get(id).refcnt += added_refcnt;  // Must do this before decref.
         auto& new_vis = get(new_vis_id);
         CAMSPORK_REQUIRE_CMP(new_vis.refcnt, >, 0, "unexpected 0 refcnt in new VisRecord");
-        if (0 == new_vis.refcnt--) {
+        if (0 == --new_vis.refcnt) {
             free_single_vis_record(new_vis_id);
         }
         return id;
@@ -2261,17 +2263,18 @@ struct SyncvTable
         void check_refcnts(const SyncvTable& self)
         {
             for (nodepool::id<ListNode> id : self.debug_get_pool<ListNode>()) {
-                const refcnt_t tested_refcnt = self.get(id).get_refcnt();
-                const refcnt_t expected_refcnt = refcnts[id.node_index()];
+                const refcnt_t stored_refcnt = self.get(id).get_refcnt();
+                const refcnt_t true_refcnt = refcnts[id.node_index()];
                 const bool is_free = free_node_ids.count(id);
                 if (is_free) {
-                    CAMSPORK_REQUIRE_CMP(expected_refcnt, ==, 0, "node on free list is referenced");
+                    CAMSPORK_REQUIRE_CMP(true_refcnt, ==, 0, "Reference exists to free node");
                 }
                 else {
-                    if (expected_refcnt != tested_refcnt) {
+                    CAMSPORK_REQUIRE_CMP(true_refcnt, !=, 0, "Unreachable node");
+                    if (true_refcnt != stored_refcnt) {
                         fprintf(stderr, "%u, %s\n", id.id_bits, typeid(ListNode).name());
                     }
-                    CAMSPORK_REQUIRE_CMP(expected_refcnt, ==, tested_refcnt, "wrong refcnt");
+                    CAMSPORK_REQUIRE_CMP(true_refcnt, ==, stored_refcnt, "wrong refcnt");
                 }
             }
         }
@@ -2294,6 +2297,16 @@ struct SyncvTable
         debug_refcnts(
             *this, *this, *this, *this, *this, *this, *this
         );
+
+        if (false) {
+            fprintf(stderr, "AssignmentRecord: %u\n", debug_get_pool<AssignmentRecord>().size());
+            fprintf(stderr, "TlSigIntervalListNode: %u\n", debug_get_pool<TlSigIntervalListNode>().size());
+            fprintf(stderr, "PendingAwaitTreeNode: %u\n", debug_get_pool<PendingAwaitTreeNode>().size());
+            fprintf(stderr, "ReadVisRecordListNode: %u\n", debug_get_pool<ReadVisRecordListNode>().size());
+            fprintf(stderr, "MutateVisRecordListNode: %u\n", debug_get_pool<MutateVisRecordListNode>().size());
+            fprintf(stderr, "AssignmentRecordReadNode: %u\n", debug_get_pool<AssignmentRecordReadNode>().size());
+            fprintf(stderr, "AssignmentRecordMutateNode: %u\n", debug_get_pool<AssignmentRecordMutateNode>().size());
+        }
 
         auto check_all_refcnts = [&]
         {
