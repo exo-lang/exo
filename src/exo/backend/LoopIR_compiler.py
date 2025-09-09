@@ -66,6 +66,7 @@ from ..spork import timelines
 from ..spork.cuda_backend import loopir_lower_cuda, h_snippet_for_cuda
 from ..spork import excut
 from ..spork.coll_analysis import CollAnalysis
+from ..spork import sync_check
 
 
 def sanitize_str(s):
@@ -443,6 +444,12 @@ def ext_compile_to_strings(
                     barrier_uses = barrier_usage_analysis.uses
                     coll_analysis = CollAnalysis(barrier_usage_analysis, debug_log)
                     p = coll_analysis.run(p)
+                    # TODO tmp
+                    sync_syms = set(nm for (nm, typ) in get_writes_of_stmts(p.body))
+                    camspork_program = sync_check.coll_analysis_to_camspork(
+                        coll_analysis, p, (), sync_syms
+                    )
+                    debug_log.log(p.name, "camspork", str(camspork_program))
 
                 comp = Compiler(
                     p,

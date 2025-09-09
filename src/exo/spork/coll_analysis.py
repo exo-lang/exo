@@ -74,6 +74,8 @@ class CollAnalysis(LoopIR_Rewrite):
     _debug_log: BaseCompilerDebugLog
     _proc_name: str
 
+    # TODO barrier_usage_analysis only needed to check barrier pairing.
+    # Consider making this an optional feature.
     def __init__(
         self,
         barrier_usage_analysis: BarrierUsageAnalysis,

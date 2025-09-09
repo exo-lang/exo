@@ -393,7 +393,7 @@ class CollIndexExpr(object):
 coll_index_0 = CollIndexExpr(0)
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, init=False)
 class CollTiling(object):
     """Immutable collective tiling. See collective algebra documentation."""
 
@@ -407,9 +407,17 @@ class CollTiling(object):
     tile_count: int
     tile_expr: CollIndexExpr
     codegen_expr: CollIndexExpr
-    codegen_lo: Optional[int] = None
-    codegen_hi: Optional[int] = None
-    thread_pitch: int = 0
+    codegen_lo: Optional[int]
+    codegen_hi: Optional[int]
+    thread_pitch: int
+
+    # Advice for compiling to abstract machine ThreadsFor loop (am_threads).
+    # Index of dimension to subdivide (ThreadsFor::dim_idx)
+    dim_idx: Optional[int]
+    # DomainSplit (dim_idx, split_factor)
+    split_idx_factors: List[Tuple[int, int]]
+    # ThreadsFor::offset; not cumulative, unlike offset: Tuple[int]
+    offset_from_parent: int
 
     """Advice for lowering a collective tiling or specialization:
 
@@ -456,6 +464,9 @@ class CollTiling(object):
             assert all(isinstance(c, int) for c in tup)
             assert len(tup) == len(full_domain)
 
+        for c in full_domain:
+            assert c >= 2, f"Need non-1 positive ints in domain {full_domain}"
+
         self.intra_box_exprs = tuple(intra_box_exprs)
         assert all(isinstance(c, CollIndexExpr) for c in intra_box_exprs)
         assert len(intra_box_exprs) == len(box)
@@ -470,6 +481,10 @@ class CollTiling(object):
         self.codegen_lo = codegen_lo
         self.codegen_hi = codegen_hi
         self.thread_pitch = thread_pitch
+
+        self.dim_idx = None
+        self.split_idx_factors = ()
+        self.offset_from_parent = 0
 
     def __repr__(self):
         return f"CollTiling({self.parent!r}, {self.iter!r}, {self.full_domain!r}, {self.tile!r}, {self.offset!r}, {self.box!r}, {self.intra_box_exprs!r}, {self.tile_count!r}, {self.tile_expr!r})"
@@ -577,7 +592,7 @@ class CollTiling(object):
         new_tile = tuple(new_tile)
         new_box = tuple(new_box)
 
-        return CollTiling(
+        tiling = CollTiling(
             new_parent,
             _iter,
             common_domain,
@@ -592,6 +607,10 @@ class CollTiling(object):
             codegen_hi,
             thread_pitch,
         )
+        tiling.dim_idx = tiled_dim_idx
+        tiling.split_idx_factors = self_completion.idx_factors
+        tiling.offset_from_parent = 0
+        return tiling
 
     def specialized(
         self, unit: CollUnit, lo: int, hi: int, env: Dict[CollParam, int]
@@ -629,6 +648,7 @@ class CollTiling(object):
         tile_count = 1
         codegen_lo = None
         codegen_hi = None
+        offset_from_parent = 0
         for dim_idx, unit_box_coord in enumerate(unit_completion.new_size(unit_box)):
             domain_coord = common_domain[dim_idx]
             box_coord = new_box[dim_idx]
@@ -646,10 +666,11 @@ class CollTiling(object):
                 if not (0 <= lo <= hi <= tile_count):
                     self.err(unit, hi, f"lo={lo}, hi={hi} invalid")
 
+                offset_from_parent = lo * unit_box_coord
                 tiled_dim_idx = dim_idx
                 codegen_coll_index = new_exprs[dim_idx]  # before -= below
-                new_exprs[dim_idx] -= lo * unit_box_coord
-                new_offset[dim_idx] += lo * unit_box_coord
+                new_exprs[dim_idx] -= offset_from_parent
+                new_offset[dim_idx] += offset_from_parent
                 new_box[dim_idx] = (hi - lo) * unit_box_coord
 
                 if lo != 0:
@@ -664,7 +685,7 @@ class CollTiling(object):
 
         new_parent = self.parent
 
-        return CollTiling(
+        tiling = CollTiling(
             new_parent,
             self.iter,
             common_domain,
@@ -679,6 +700,10 @@ class CollTiling(object):
             codegen_hi,
             self.thread_pitch,
         )
+        tiling.dim_idx = tiled_dim_idx
+        tiling.split_idx_factors = self_completion.idx_factors
+        tiling.offset_from_parent = offset_from_parent
+        return tiling
 
     def box_num_threads(self):
         """Total number of threads in the thread box"""
@@ -846,6 +871,11 @@ class DomainCompletionOp:
 
         source_domain, self.remove_idx = remove_1s_impl(source_domain)
         target_domain, _ = remove_1s_impl(target_domain)
+
+        if not allow_partial_source:
+            assert (
+                not self.remove_idx
+            ), f"Unexpected 1 in complete domain {source_domain}"
 
         # Generate list of splitting commands (i, f) to apply in order
         # "split the (current) i-th dimension by f".

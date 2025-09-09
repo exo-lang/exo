@@ -843,7 +843,7 @@ ProcDebugRemarks.empty = ProcDebugRemarks()
 class BaseCompilerDebugLog:
     __slots__ = []
 
-    def log(self, proc_name: str, suffix: str, subtree: LoopIR.stmt):
+    def log(self, proc_name: str, suffix: str, subtree):
         pass
 
     def remark(self, proc_name: str, remark: str):
@@ -862,11 +862,11 @@ class CompilerDebugLog(BaseCompilerDebugLog):
     proc_debug_remarks: Dict[str, ProcDebugRemarks] = field(default_factory=dict)
 
     def log(
-        self, proc_name: str, suffix: str, subtree: Union[LoopIR.stmt, LoopIR.proc]
+        self, proc_name: str, suffix: str, subtree: Union[LoopIR.stmt, LoopIR.proc, str]
     ):
         names = (proc_name, suffix)
         assert names not in self.names_to_subtree
-        assert isinstance(subtree, (LoopIR.proc, LoopIR.stmt))
+        assert isinstance(subtree, (LoopIR.proc, LoopIR.stmt, str))
         self.names_to_subtree[names] = subtree
 
     def remark(self, proc_name: str, remark: str):
@@ -904,9 +904,13 @@ class CompilerDebugLog(BaseCompilerDebugLog):
         debug_path.mkdir(exist_ok=True, parents=True)
         for names, subtree in self.names_to_subtree.items():
             proc_name, suffix = names
-            fname = f"{proc_name}-{suffix}.py"
-            remarks = self.get_proc_debug_remarks(proc_name)
-            (debug_path / fname).write_text(subtree.str_with_remarks(remarks))
+            ext = "txt" if isinstance(subtree, str) else "py"
+            fname = f"{proc_name}-{suffix}.{ext}"
+            if ext == "py":
+                remarks = self.get_proc_debug_remarks(proc_name)
+                (debug_path / fname).write_text(subtree.str_with_remarks(remarks))
+            else:
+                (debug_path / fname).write_text(subtree)
 
 
 # --------------------------------------------------------------------------- #

@@ -577,7 +577,7 @@ class MainLoopRewrite(LoopIR_Rewrite):
             return LoopIR.If(cond, body, [], srcinfo)
 
         def wrap_if_threadIdx(lo, hi, body):
-            loop_mode = _CodegenPar("threadIdx.x", None, (lo, hi))
+            loop_mode = _CodegenPar("threadIdx.x", None, (lo, hi), None)
             return wrap_codegen_par(loop_mode, body, srcinfo)
 
         named_warp_tuples = sorted(scan.named_warps.items())

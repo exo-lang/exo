@@ -18,8 +18,8 @@ class BuilderExpr:
             return BuilderConst(item)
         elif isinstance(item, ExprRef):
             return item
-        else:
-            assert isinstance(item, BuilderExpr), "expected int, ExprRef, or BuilderExpr"
+        elif isinstance(item, BuilderExpr):
+            assert isinstance(item, BuilderExpr), "expected int, ExprRef, or BuilderExpr (consider tuple(...) if you intended multidimensional indexing)"
             return item
 
     def __add__(self, other):
@@ -390,6 +390,7 @@ class BuilderIndexExpr(BuilderExpr):
             a = (self.typecheck(a),)
         return BuilderIndexExpr(self._varname, self._idx + a)
 
+
 @dataclass(slots=True)
 class BuilderConst(BuilderExpr):
     _value: int
@@ -411,6 +412,11 @@ class BuilderBinOp(BuilderExpr):
     _binop: binop
     _lhs: BuilderExpr | ExprRef
     _rhs: BuilderExpr | ExprRef
+
+    def __init__(self, op, lhs, rhs):
+        self._binop = to_binop(op)
+        self._lhs = lhs
+        self._rhs = rhs
 
     def build_expr(self, builder) -> ExprRef:
         return check_return(_add_BinOp(builder, self._binop, self._lhs.build_expr(builder), self._rhs.build_expr(builder)))
@@ -626,7 +632,10 @@ class ProgramEnv:
     def _alloc_impl(self, var, extent_tuple, c_func):
         c_var = self.get_varname(var)
         c_dim = len(extent_tuple)
-        c_extent = (value_t * c_dim)(*extent_tuple)
+        extent_tuple = tuple(extent_tuple)
+        for n in extent_tuple:
+            assert n >= 0
+        c_extent = (extent_t * c_dim)(*extent_tuple)
         check_return(c_func(self._env, c_var, c_dim, c_extent))
 
     def read_value(self, var, *idxs):
@@ -650,7 +659,7 @@ class ProgramEnv:
 
 
 if __name__ == "__main__":
-    b_validation = True
+    b_validation = False
 
     @camspork.program
     def foo_barrier(b: camspork.ProgramBuilder):
@@ -689,20 +698,20 @@ if __name__ == "__main__":
         fib_size = b.add_variable("fib_size")
         _fib = b.add_variable("fib")
         _iter = b.add_variable("iter")
-        b.ValueEnvAlloc(_fib[fib_size])
-        b.MutateValue(_fib[0], "=", 0)
-        b.MutateValue(_fib[1], "=", 1)
+        b.ValueEnvAlloc(_fib[fib_size,])
+        b.MutateValue(_fib[0,], "=", 0)
+        b.MutateValue(_fib[1,], "=", 1)
         with b.SeqFor(_iter, 2, fib_size):
-            b.MutateValue(_fib[_iter], "=", _fib[_iter-1] + _fib[_iter-2])
+            b.MutateValue(_fib[_iter,], "=", _fib[_iter-1,] + _fib[_iter-2,])
 
         _dst = b.add_variable("dst")
-        b.ValueEnvAlloc(_dst[fib_size])
+        b.ValueEnvAlloc(_dst[fib_size,])
         with b.SeqFor(_iter, 0, fib_size):
           with b.If(_iter % 5):
-            b.MutateValue(_fib[_iter], "=", -_fib[_iter])
-            b.MutateValue(_fib[_iter], "*", 10000)
+            b.MutateValue(_fib[_iter,], "=", -_fib[_iter,])
+            b.MutateValue(_fib[_iter,], "*", 10000)
             b.begin_orelse()
-            b.MutateValue(_fib[_iter], "/", 5)
+            b.MutateValue(_fib[_iter,], "/", 5)
 
     env = ProgramEnv(fib)
     env.set_debug_validation_enable(b_validation)
@@ -809,3 +818,21 @@ if __name__ == "__main__":
     env.alloc_scalar_value("fence_enable", 1)
     env.exec()
     env.set_debug_validation_enable(True)  # defer to later
+
+
+    @camspork.program
+    def realloc_test(b: camspork.ProgramBuilder):
+        with b.ParallelBlock(2):
+            task = b.add_variable("task")
+            tid = b.add_variable("tid")
+            with b.TasksFor(task, 0, 3):
+                buf = b.add_variable("buf")
+                b.SyncEnvAlloc(buf[2])
+                with b.ThreadsFor(tid, 0, 2, 0, 0, 1):
+                    b.SyncEnvAccess(buf[tid], 1, 1, is_mutate=True, is_ooo=False)
+                    b.SyncEnvAccess(buf[tid], 1, 1, is_mutate=True, is_ooo=False)
+                # b.Fence(True, 1, 1, 1)
+                with b.ThreadsFor(tid, 0, 2, 0, 0, 1):
+                    b.SyncEnvAccess(buf[tid], 1, 1, is_mutate=True, is_ooo=False)
+    env = ProgramEnv(realloc_test)
+    env.exec(excut_filename="realloc_excut.json")

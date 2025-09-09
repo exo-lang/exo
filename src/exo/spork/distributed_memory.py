@@ -13,10 +13,9 @@ from .coll_algebra import (
     blockDim_param,
     DomainCompletionOp,
 )
-from .barrier_usage import BarrierUsage
+from .barrier_usage import BarrierUsage, SyncInfo
 from .loop_modes import _CodegenPar
 from .sync_types import SyncType
-from .barrier_usage import SyncInfo
 from .base_with_context import is_if_holding_with
 
 

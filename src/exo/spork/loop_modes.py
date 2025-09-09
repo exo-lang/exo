@@ -77,7 +77,7 @@ class _CodegenPar:
     c_index: str
     comment: Optional[str]
     static_bounds: Optional[Tuple[int, int]]
-    warp_name_filter: Optional[str] = None
+    warp_name_filter: Optional[str]
 
     def __post_init__(self):
         # Compiled C string giving index of parallel loop "iteration"
