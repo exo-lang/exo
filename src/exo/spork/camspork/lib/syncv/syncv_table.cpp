@@ -431,7 +431,7 @@ struct SyncvTable
     uint64_t live_barrier_bits[max_live_barriers / 64] = {0};
     BarrierState barrier_states[max_live_barriers];
 
-    // Memoization table state (requires special deep copy support).
+    // Memoization table state (requires special deep copy support implemented in IntervalBucket).
     IntervalBucket<false, bucket_level_count - 1> read_top_level_bucket;
     IntervalBucket<true, bucket_level_count - 1> mutate_top_level_bucket;
 
@@ -1045,12 +1045,7 @@ struct SyncvTable
                 key.tid_hi = std::max(key.tid_hi, data.tid_hi);
             }
         }
-        CAMSPORK_REQUIRE_CMP(key.tid_hi, !=, 0, "XXX todo remove, support empty interval");
-
-        // If no valid intervals are found, we return {0, 0}.
-        // Note, this isn't the same as checking for id == 0 at the top of the function,
-        // because we have to handle cases where all TlSigInterval are atomic-only.
-        key.tid_lo = key.tid_hi == 0u ? 0u : key.tid_lo;
+        CAMSPORK_REQUIRE_CMP(key.tid_hi, !=, 0, "unsupported: empty interval");  // akeley98/camspork_0_threads
         return key;
     }
 

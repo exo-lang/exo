@@ -643,13 +643,15 @@ class ProgramEnv:
 
     def set_debug_validation_enable(self, flag):
         check_return(_set_debug_validation_enable(self._env, bool(flag)))
-    
+
     def program_with_remarks(self):
         check_return(_thread_local_print_program_with_remarks(self._env))
         return str(_thread_local_message_c_str(), "utf-8")
 
 
 if __name__ == "__main__":
+    b_validation = True
+
     @camspork.program
     def foo_barrier(b: camspork.ProgramBuilder):
         bars = b.add_variable("bars")
@@ -675,11 +677,12 @@ if __name__ == "__main__":
                         b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 1, 1, is_mutate=False, is_ooo=False)
     print(foo_barrier)
     env = ProgramEnv(foo_barrier)
-    env.set_debug_validation_enable(True)
+    env.set_debug_validation_enable(b_validation)
     env.alloc_scalar_value("m", 0)
     env.alloc_scalar_value("n", 0)
     env.alloc_scalar_value("k", 0)
     env.exec(excut_filename="foo_barrier_excut.json")
+    env.set_debug_validation_enable(True)  # defer to later
 
     @camspork.program
     def fib(b):
@@ -702,12 +705,13 @@ if __name__ == "__main__":
             b.MutateValue(_fib[_iter], "/", 5)
 
     env = ProgramEnv(fib)
-    env.set_debug_validation_enable(True)
+    env.set_debug_validation_enable(b_validation)
     print(fib)
     env.alloc_scalar_value("fib_size", 22)
     env.exec()
     for i in range(0, env.read_value("fib_size")):
         print("%2i %i" % (i, env.read_value("fib", i)))
+    env.set_debug_validation_enable(True)  # defer to later
 
     @camspork.program
     def extent_test(b: camspork.ProgramBuilder):
@@ -730,12 +734,13 @@ if __name__ == "__main__":
                     b.SyncEnvAccess(buf[m, n], 1, 1, is_mutate=True, is_ooo=False)
     print(extent_test)
     env = ProgramEnv(extent_test)
-    env.set_debug_validation_enable(True)
+    env.set_debug_validation_enable(b_validation)
     try:
         env.exec(excut_filename="extent_excut.json")
     except:
         print(env.program_with_remarks())
         raise
+    env.set_debug_validation_enable(True)  # defer to later
 
     @camspork.program
     def atomic_test(b: camspork.ProgramBuilder):
@@ -761,8 +766,9 @@ if __name__ == "__main__":
                 b.Fence(True, 1, 5, 5)
             with b.ThreadsFor(tid, 0, 8, 0, 0, 1):
                 b.SyncEnvAccess(buf[tid], 1, 1, is_mutate=False, is_ooo=False)
-                
+
     env = ProgramEnv(atomic_test)
+    env.set_debug_validation_enable(b_validation)
     env.alloc_scalar_value("use_atomics", 1)
     env.alloc_scalar_value("wrong_tl", 0)
     env.alloc_scalar_value("fence_enable", 1)
@@ -772,7 +778,7 @@ if __name__ == "__main__":
         print(env.program_with_remarks())
         raise
     env.set_debug_validation_enable(True)  # defer to later
-                
+
 
     @camspork.program
     def fence_test(b: camspork.ProgramBuilder):
@@ -798,6 +804,7 @@ if __name__ == "__main__":
     print(tasks_for.body)
     print(tasks_for.orelse)
     env = ProgramEnv(fence_test)
+    env.set_debug_validation_enable(b_validation)
     env.alloc_scalar_value("num_tasks", 1)
     env.alloc_scalar_value("fence_enable", 1)
     env.exec()
