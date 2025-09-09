@@ -98,7 +98,8 @@ struct VisRecordListNode
     // Memoization table references are non-owning.
     refcnt_t refcnt;
 
-    // If in base state, this is the next node in the memoization bucket.
+    // If in base state and unordered visibility set is non-empty, this is the next node in the memoization bucket.
+    // If in base state and the unordered visibility set is empty, this is 0.
     // If in the forwarding state, this is an owning reference to the forwarded-to visibility record.
     nodepool::id<VisRecordListNode<IsMutate>> camspork_next_id;
 
@@ -431,7 +432,7 @@ struct SyncvTable
     uint64_t live_barrier_bits[max_live_barriers / 64] = {0};
     BarrierState barrier_states[max_live_barriers];
 
-    // Memoization table state (requires special deep copy support).
+    // Memoization table state (requires special deep copy support implemented in IntervalBucket).
     IntervalBucket<false, bucket_level_count - 1> read_top_level_bucket;
     IntervalBucket<true, bucket_level_count - 1> mutate_top_level_bucket;
 
@@ -560,8 +561,8 @@ struct SyncvTable
 
     // Decrement reference count of visibility record,
     // and handle necessary free-ing in case of 0 refcnt.
-    // NB this is not used in memoize_new_vis_record, since we assert here that the deleted VisRecord
-    // is memoized, which isn't the case there. This check is lifesaving for sanity in other cases!
+    // NB this is not used in memoize_new_vis_record, since we assert in remove_memoized that the deleted VisRecord
+    // is properly memoized, which isn't the case there. This check is lifesaving for sanity in other cases!
     template <bool IsMutate>
     void decref(nodepool::id<VisRecordListNode<IsMutate>> id)
     {
@@ -578,10 +579,9 @@ struct SyncvTable
             }
             else {
                 // Non-forwarded (base) visibility record must be removed from memoization first.
-                auto memoized_id = remove_memoized(&node);
-                CAMSPORK_REQUIRE_CMP(id, ==, memoized_id, "should have been found in memoization table");
-                CAMSPORK_REQUIRE(!get(memoized_id).camspork_next_id, "Should have been removed from bucket's list.");
-                free_single_vis_record(memoized_id);
+                remove_memoized(&node);
+                CAMSPORK_REQUIRE(!get(id).camspork_next_id, "Should have been removed from bucket's list.");
+                free_single_vis_record(id);
             }
         }
     }
@@ -1374,15 +1374,23 @@ struct SyncvTable
     // This removes the given node from the memoization table, but does not decrement the reference count or free it.
     // Recall that the memoization table does not own (reference count) the VisRecords contained.
     template <bool IsMutate>
-    [[nodiscard]] nodepool::id<VisRecordListNode<IsMutate>> remove_memoized(
+    nodepool::id<VisRecordListNode<IsMutate>> remove_memoized(
             const VisRecordListNode<IsMutate>* p_node)
     {
         CAMSPORK_REQUIRE(p_node, "unexpected null");
         CAMSPORK_REQUIRE(!p_node->is_forwarded(), "forwarding state VisRecord would not be memoized");
 
         RemoveMemoizedCommand<IsMutate> command{p_node};
-        auto bucket_key = minimal_superset_interval(p_node->base_data.visibility_set);
-        return for_buckets<IsMutate, BucketProcessType::Find>(bucket_key, command);
+        TlSigBucketKey bucket_key = minimal_superset_interval(p_node->base_data.visibility_set);
+        if (bucket_key.should_memoize()) {
+            auto found_id = for_buckets<IsMutate, BucketProcessType::Find>(bucket_key, command);
+            CAMSPORK_REQUIRE(found_id, "remove_memoized: memoization lookup failed");
+            CAMSPORK_REQUIRE_CMP(p_node, ==, &get(found_id), "remove_memoized: memoization lookup failed");
+            return found_id;
+        }
+        else {
+            return {};
+        }
     }
 
     // Find and remove node in bucket.
@@ -1412,10 +1420,14 @@ struct SyncvTable
     nodepool::id<VisRecordListNode<IsMutate>> find_memoized(const VisRecordListNode<IsMutate>* p_node) const
     {
         CAMSPORK_REQUIRE(p_node, "unexpected null");
-        CAMSPORK_REQUIRE(!p_node->is_forwarded(), "forwarding state VisRecord would not be memoized");
-
+        if (p_node->is_forwarded()) {
+            return {};
+        }
         FindMemoizedCommand<IsMutate> command{p_node};
-        auto bucket_key = minimal_superset_interval(p_node->base_data.visibility_set);
+        TlSigBucketKey bucket_key = minimal_superset_interval(p_node->base_data.visibility_set);
+        if (!bucket_key.should_memoize()) {
+            return {};
+        }
         return const_cast<SyncvTable*>(this)->for_buckets<IsMutate, BucketProcessType::Find>(bucket_key, command);
     }
 
@@ -2523,12 +2535,14 @@ struct SyncvTable
         validate_bucket_linked_list(mutate_top_level_bucket.bucket);
 
 
-        // (VisRecord in memoization table <- alive and in base state)
-        // Each VisRecord should be able to find itself in the table; if we fail, it could be because we
+        // A VisRecord is memoized iff it's in the base state (not forwarded) and contains any timeline signatures
+        // at or above vis_level_unordered.
+        // Each such VisRecord should be able to find itself in the table; if we fail, it could be because we
         // forgot to memoize it, or something is wrong with the bucket search or equality function.
         auto memoize_self_check = [&] (auto id_for_typing)
         {
-            using ListNode = typename decltype(id_for_typing)::value_type;
+            constexpr bool IsMutate = decltype(id_for_typing)::value_type::is_mutate;
+            using ListNode = VisRecordListNode<IsMutate>;
             RefcntDebug<ListNode>& debug = std::get<RefcntDebug<ListNode>>(debug_refcnts);
             for (nodepool::id<ListNode> id : debug_get_pool<ListNode>()) {
                 const bool live = debug.refcnts[id.node_index()] != 0;
@@ -2536,12 +2550,20 @@ struct SyncvTable
                     continue;
                 }
                 const auto& node = get(id);
-                if (node.is_forwarded()) {
-                    continue;
+                nodepool::id<ListNode> expect_memo_id{0};
+                if (!node.is_forwarded()) {
+                    // NB not using should_memoize here in case it's buggy.
+                    nodepool::id<TlSigIntervalListNode> interval_id = node.base_data.visibility_set;
+                    while (interval_id) {
+                        const TlSigIntervalListNode& interval_node = get(interval_id);
+                        interval_id = interval_node.camspork_next_id;
+                        if (0 != interval_node.data.qual_bits_by_vis.array[vis_level_unordered]) {
+                            expect_memo_id = id;
+                        }
+                    }
                 }
-
                 try {
-                    CAMSPORK_REQUIRE_CMP(id, ==, find_memoized(&node), "memoization lookup is buggy");
+                    CAMSPORK_REQUIRE_CMP(expect_memo_id, ==, find_memoized(&node), "memoization lookup is buggy");
                 }
                 catch (...) {
                     VisRecord record = node.base_data;

@@ -70,6 +70,11 @@ struct TlSigBucketKey
     uint32_t tid_lo;
     uint32_t tid_hi;
     // NOTE: qual-tl data isn't used for bucketing, but maybe it should be.
+
+    bool should_memoize() const
+    {
+        return tid_lo < tid_hi;
+    }
 };
 
 struct ThreadCuboid
