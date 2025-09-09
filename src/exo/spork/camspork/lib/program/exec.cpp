@@ -405,6 +405,7 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         // Resize if needed.
         eval_tmp_extent(node);
         slot.resize(tmp_extent);
+        clear_visibility(env.p_syncv_table.get(), slot.size(), slot.data());
         env.maybe_syncv_debug_validate();
     }
 
@@ -557,7 +558,9 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         // This shouldn't hard to change, but just test it quickly if you change this.
         CAMSPORK_REQUIRE_CMP(lo, ==, 0, "Expected ThreadsFor loop to start from 0 for now");
 
-        // Restores thread cuboid before returning.
+        // Restores thread cuboid before returning (we have to update task index before saving, otherwise we
+        // might restore an incorrect task index).
+        env.prepare_thread_cuboid();
         SwapThreadCuboid swap(&env.raw_thread_cuboid);
 
         CAMSPORK_REQUIRE_CMP(dim_idx, <, env.raw_thread_cuboid.dim(), "ThreadsFor::dim_idx out of range");
@@ -582,6 +585,7 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         const ThreadCuboid new_cuboid = ThreadCuboid::full(begin_dims, end_dims);
 
         // Execute body with new thread cuboid, and restore before returning (~SwapThreadCuboid).
+        env.prepare_thread_cuboid();
         SwapThreadCuboid swap(&env.raw_thread_cuboid, new_cuboid);
         env.dirty_task_index = false;
         exec(node->body);
@@ -590,7 +594,7 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
 
     void exec_impl(const DomainSplit* node)
     {
-        ThreadCuboid new_cuboid = env.raw_thread_cuboid;
+        ThreadCuboid new_cuboid = env.prepare_thread_cuboid();  // Must update task_index here!
         const uint32_t split_idx = node->dim_idx;
         const uint32_t split_factor = node->split_factor;
         CAMSPORK_REQUIRE_CMP(split_idx, <, new_cuboid.dim(), "out-of-range DomainSplit::dim_idx");

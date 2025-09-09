@@ -63,7 +63,7 @@ class ProgramPrinter
             std::string name = i == 0 ? prefix : prefix + "_" + std::to_string(i);
             if (!var_str_set.count(name)) {
                 // Add new variable, and declare in Python builder syntax.
-                *this << "  " << name << " = b.add_variable(\"" << prefix << "\")\n";
+                *this << "  " << name << " = b.add_variable(\"" << name << "\")\n";
                 var_str_set.insert(name);
                 var_str_table.push_back(std::move(name));
                 return;
