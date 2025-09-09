@@ -738,6 +738,43 @@ if __name__ == "__main__":
         raise
 
     @camspork.program
+    def atomic_test(b: camspork.ProgramBuilder):
+        buf = b.add_variable("buf")
+        use_atomics = b.add_variable("use_atomics")
+        wrong_tl = b.add_variable("wrong_tl")
+        fence_enable = b.add_variable("fence_enable")
+        b.SyncEnvAlloc(buf[32])
+        with b.ParallelBlock(32):
+            tid = b.add_variable("tid")
+            with b.ThreadsFor(tid, 0, 32, 0, 0, 1):
+                s = b.add_variable("s")
+                with b.SeqFor(s, 0, 32):
+                    with b.If(use_atomics):
+                        b.SyncEnvAccess(buf[s], 1, 1, is_mutate=True, is_ooo=False, atomic_qual_bits=1)
+                        with b.If(wrong_tl):
+                            b.SyncEnvAccess(buf[s], 2, 2, is_mutate=True, is_ooo=False, atomic_qual_bits=2)
+                            b.begin_orelse()
+                            b.SyncEnvAccess(buf[s], 1, 1, is_mutate=True, is_ooo=False, atomic_qual_bits=1)
+                        b.begin_orelse()
+                        b.SyncEnvAccess(buf[s], 1, 1, is_mutate=True, is_ooo=False, atomic_qual_bits=0)
+            with b.If(fence_enable):
+                b.Fence(True, 1, 1, 1)
+            with b.ThreadsFor(tid, 0, 32, 0, 0, 1):
+                b.SyncEnvAccess(buf[tid], 1, 1, is_mutate=False, is_ooo=False)
+                
+    env = ProgramEnv(atomic_test)
+    env.alloc_scalar_value("use_atomics", 1)
+    env.alloc_scalar_value("wrong_tl", 0)
+    env.alloc_scalar_value("fence_enable", 1)
+    try:
+        env.exec(excut_filename="atomic_excut.json")
+    except:
+        print(env.program_with_remarks())
+        raise
+    env.set_debug_validation_enable(True)  # defer to later
+                
+
+    @camspork.program
     def fence_test(b: camspork.ProgramBuilder):
         num_tasks = b.add_variable("num_tasks")
         fence_enable = b.add_variable("fence_enable")
@@ -761,7 +798,7 @@ if __name__ == "__main__":
     print(tasks_for.body)
     print(tasks_for.orelse)
     env = ProgramEnv(fence_test)
-    env.set_debug_validation_enable(True)
     env.alloc_scalar_value("num_tasks", 1)
     env.alloc_scalar_value("fence_enable", 1)
     env.exec()
+    env.set_debug_validation_enable(True)  # defer to later
