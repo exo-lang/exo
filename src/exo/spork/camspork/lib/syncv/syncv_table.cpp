@@ -677,7 +677,7 @@ struct SyncvTable
 
         // Initialize visibility set = linked list of intervals generated from the initial thread cuboid.
         const qual_bits_t q = q_input.initial_qual_bit;
-        const QualBitsByVis qual_bits_by_vis{{q, q, q_input.is_ooo ? q : 0u}};
+        const QualBitsByVis qual_bits_by_vis{{q, q, q_input.is_ooo ? 0u : q}};
         nodepool::id<TlSigIntervalListNode>* p_node_id = &vis_record.base_data.visibility_set;
         cuboid.to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi)
         {

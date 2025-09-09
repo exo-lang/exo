@@ -743,12 +743,12 @@ if __name__ == "__main__":
         use_atomics = b.add_variable("use_atomics")
         wrong_tl = b.add_variable("wrong_tl")
         fence_enable = b.add_variable("fence_enable")
-        b.SyncEnvAlloc(buf[32])
-        with b.ParallelBlock(32):
+        b.SyncEnvAlloc(buf[8])
+        with b.ParallelBlock(8):
             tid = b.add_variable("tid")
-            with b.ThreadsFor(tid, 0, 32, 0, 0, 1):
+            with b.ThreadsFor(tid, 0, 8, 0, 0, 1):
                 s = b.add_variable("s")
-                with b.SeqFor(s, 0, 32):
+                with b.SeqFor(s, 0, 8):
                     with b.If(use_atomics):
                         b.SyncEnvAccess(buf[s], 1, 1, is_mutate=True, is_ooo=False, atomic_qual_bits=1)
                         with b.If(wrong_tl):
@@ -758,8 +758,8 @@ if __name__ == "__main__":
                         b.begin_orelse()
                         b.SyncEnvAccess(buf[s], 1, 1, is_mutate=True, is_ooo=False, atomic_qual_bits=0)
             with b.If(fence_enable):
-                b.Fence(True, 1, 1, 1)
-            with b.ThreadsFor(tid, 0, 32, 0, 0, 1):
+                b.Fence(True, 1, 5, 5)
+            with b.ThreadsFor(tid, 0, 8, 0, 0, 1):
                 b.SyncEnvAccess(buf[tid], 1, 1, is_mutate=False, is_ooo=False)
                 
     env = ProgramEnv(atomic_test)
