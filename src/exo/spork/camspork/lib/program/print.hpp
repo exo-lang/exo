@@ -37,12 +37,23 @@ class ProgramPrinter
       , program_buffer(_program_buffer)
     {
         const ProgramHeader& header = ProgramHeader::validate(buffer_size, program_buffer);
-        *this << "@camspork.program\n";
-        *this << "def program(b: camspork.ProgramBuilder):\n";
+        stream << "@camspork.program\n";
+        stream << "def program(b: camspork.ProgramBuilder):\n";
 
         // Fill var_str_table, and add b.add_variable(...) to output text.
         var_str_set.insert("b");
         header.var_config_table.dispatch(*this, buffer_size, program_buffer);
+
+        // Create Varname variables in Python.
+        stream << "  (";
+        for (const auto& nm : var_str_table) {
+            stream << nm << ", ";
+        }
+        stream << ") = b.add_variables(\n    (";
+        for (const auto& nm : var_str_table) {
+            stream << "\"" << nm << "\", ";
+        }
+        stream << "))\n";
 
         *this << header.top_level_stmt;
     }
@@ -62,8 +73,7 @@ class ProgramPrinter
         for (int i = 0; ; ++i) {
             std::string name = i == 0 ? prefix : prefix + "_" + std::to_string(i);
             if (!var_str_set.count(name)) {
-                // Add new variable, and declare in Python builder syntax.
-                *this << "  " << name << " = b.add_variable(\"" << name << "\")\n";
+                // Add new variable.
                 var_str_set.insert(name);
                 var_str_table.push_back(std::move(name));
                 return;

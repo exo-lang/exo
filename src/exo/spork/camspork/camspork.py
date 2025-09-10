@@ -18,8 +18,8 @@ class BuilderExpr:
             return BuilderConst(item)
         elif isinstance(item, ExprRef):
             return item
-        elif isinstance(item, BuilderExpr):
-            assert isinstance(item, BuilderExpr), "expected int, ExprRef, or BuilderExpr (consider tuple(...) if you intended multidimensional indexing)"
+        else:
+            assert isinstance(item, BuilderExpr), "expected int, ExprRef, Varname, or BuilderExpr (consider tuple(...) if you intended multidimensional indexing)"
             return item
 
     def __add__(self, other):
@@ -105,8 +105,8 @@ class Varname(Structure, BuilderExpr):
     def __bool__(self):
         return self.slot_1_index != 0  # 0 used to signal error (use check_return)
 
-    def as_index_expr(self):
-        return BuilderIndexExpr(self, ())
+    def c_var_dim_idxs(self, builder):
+        return self, 0, ptr_ExprRef()
 
     def build_expr(self, builder):
         return BuilderIndexExpr(self, ()).build_expr(builder)
@@ -365,23 +365,20 @@ class BuilderIndexExpr(BuilderExpr):
     _varname: Varname
     _idx: Tuple[BuilderExpr | ExprRef]
 
-    def c_dim_idxs(self, builder):
+    def c_var_dim_idxs(self, builder):
         dim = len(self._idx)
         if dim == 0:
-            return 0, ptr_ExprRef()
+            return self._varname, 0, ptr_ExprRef()
         else:
             e = (ExprRef * dim)()
             for i, tmp in enumerate(self._idx):
                 e[i] = tmp.build_expr(builder)
-            return dim, e
+            return self._varname, dim, e
 
     def build_expr(self, builder) -> ExprRef:
         """When interpreted as an expression, generate ReadValue"""
-        dim, e = self.c_dim_idxs(builder)
-        return check_return(_add_ReadValue(builder, self._varname, dim, e))
-
-    def as_index_expr(self):
-        return self
+        varname, dim, e = self.c_var_dim_idxs(builder)
+        return check_return(_add_ReadValue(builder, varname, dim, e))
 
     def __getitem__(self, a):
         if isinstance(a, tuple):
@@ -455,23 +452,25 @@ class ProgramBuilder:
         self._varname_dict[name] = varname
         return varname
 
-    def get_varname(self, var):
+    def add_variables(self, names, to_ascii=lambda name: bytes(str(name), "utf8")) -> List[Varname]:
+        return [self.add_variable(nm, to_ascii) for nm in names]
+
+    def __getitem__(self, var):
         if isinstance(var, Varname):
             return var
         else:
             return self._varname_dict[var]
 
-    def __getitem__(self, var):
-        return self.get_varname(var)
+    get_varname = __getitem__
 
     def build_expr(self, e) -> ExprRef:
         return BuilderExpr.typecheck(e).build_expr(self._builder)
 
     def SyncEnvAccess(
-            self, dst: BuilderIndexExpr, initial_qual_bit: int, extended_qual_bits: int, *,
+            self, dst: BuilderIndexExpr | Varname, initial_qual_bit: int, extended_qual_bits: int, *,
             is_mutate: bool, is_ooo: bool, extent: Optional[List[BuilderExpr]] = None,
             atomic_qual_bits: int = 0) -> StmtRef:
-        dim, offsets = dst.c_dim_idxs(self._builder)
+        var, dim, offsets = dst.c_var_dim_idxs(self._builder)
         if extent:
             # Window variant -- have to interleave offsets and extents (of window)
             assert len(extent) == dim
@@ -484,17 +483,18 @@ class ProgramBuilder:
             # Single value variant
             c_func = _add_SyncEnvAccessSingle
             idxs = offsets
-        return check_return(c_func(self._builder, dst._varname, dim, idxs, initial_qual_bit, extended_qual_bits, atomic_qual_bits, bool(is_mutate), bool(is_ooo)))
+        return check_return(c_func(self._builder, var, dim, idxs, initial_qual_bit, extended_qual_bits, atomic_qual_bits, bool(is_mutate), bool(is_ooo)))
 
-    def MutateValue(self, dst: BuilderIndexExpr, op, rhs) -> StmtRef:
-        dim, idxs = dst.c_dim_idxs(self._builder)
-        return check_return(_add_MutateValue(self._builder, dst._varname, dim, idxs, to_binop(op), self.build_expr(rhs)))
+    def MutateValue(self, dst: BuilderIndexExpr | Varname, op, rhs) -> StmtRef:
+        var, dim, idxs = dst.c_var_dim_idxs(self._builder)
+        return check_return(_add_MutateValue(self._builder, var, dim, idxs, to_binop(op), self.build_expr(rhs)))
 
     def Fence(self, V1_transitive: bool, L1_qual_bits: int, L2_full_qual_bits: int, L2_temporal_qual_bits: int) -> StmtRef:
         return check_return(_add_Fence(self._builder, V1_transitive, L1_qual_bits, L2_full_qual_bits, L2_temporal_qual_bits))
 
-    def Arrive(self, V1_transitive: bool, L1_qual_bits: int, dst: BuilderIndexExpr, multicasts: Tuple[Tuple[bool]]):
-        dim, e_idxs = dst.c_dim_idxs(self._builder)
+    def Arrive(self, V1_transitive: bool, L1_qual_bits: int, dst: BuilderIndexExpr | Varname, multicasts: Tuple[Tuple[bool]]):
+        dst = BuilderExpr.typecheck(dst)
+        var, dim, e_idxs = dst.c_var_dim_idxs(self._builder)
         arrive_idx = (ArriveIdx * dim)()
         for dim_idx in range(dim):
             arrive_idx[dim_idx].idx = e_idxs[dim_idx]
@@ -506,11 +506,11 @@ class ProgramBuilder:
             for dim_idx, f in enumerate(multicast_flags):
                 if f:
                     arrive_idx[dim_idx].multicast_per_expr |= 1 << barrier_expr_idx
-        return check_return(_add_Arrive(self._builder, V1_transitive, L1_qual_bits, dst._varname, dim, arrive_idx))
+        return check_return(_add_Arrive(self._builder, V1_transitive, L1_qual_bits, var, dim, arrive_idx))
 
     def Await(self, dst: BuilderIndexExpr, L2_full_qual_bits: int, L2_temporal_qual_bits: int, N: int):
-        dim, idxs = dst.c_dim_idxs(self._builder)
-        return check_return(_add_Await(self._builder, dst._varname, dim, idxs, L2_full_qual_bits, L2_temporal_qual_bits, N))
+        var, dim, idxs = dst.c_var_dim_idxs(self._builder)
+        return check_return(_add_Await(self._builder, var, dim, idxs, L2_full_qual_bits, L2_temporal_qual_bits, N))
 
     def ValueEnvAlloc(self, e: Varname | BuilderIndexExpr) -> StmtRef:
         return self._add_alloc(_add_ValueEnvAlloc, e)
@@ -522,11 +522,12 @@ class ProgramBuilder:
         return self._add_alloc(_add_BarrierEnvAlloc, e)
 
     def _add_alloc(self, c_adder, e) -> StmtRef:
-        e = e.as_index_expr()
-        dim, idxs = e.c_dim_idxs(self._builder)
-        return check_return(c_adder(self._builder, e._varname, dim, idxs))
+        var, dim, idxs = e.c_var_dim_idxs(self._builder)
+        return check_return(c_adder(self._builder, var, dim, idxs))
 
-    def If(self, cond) -> BodyCtx:
+    def If(self, cond, allow_bool=False) -> BodyCtx:
+        # Catches expressions like "not var" which Python reduces to constant bool.
+        assert allow_bool or not isinstance(cond, bool), "Literal bool passed"
         cond = self.build_expr(cond)
         return BodyCtx(self._builder, lambda builder: _push_If(builder, cond))
 
@@ -827,12 +828,17 @@ if __name__ == "__main__":
             tid = b.add_variable("tid")
             with b.TasksFor(task, 0, 3):
                 buf = b.add_variable("buf")
+                scalar = b.add_variable("scalar")
                 b.SyncEnvAlloc(buf[2])
+                b.SyncEnvAlloc(scalar)
                 with b.ThreadsFor(tid, 0, 2, 0, 0, 1):
                     b.SyncEnvAccess(buf[tid], 1, 1, is_mutate=True, is_ooo=False)
                     b.SyncEnvAccess(buf[tid], 1, 1, is_mutate=True, is_ooo=False)
+                    with b.If(tid == 0):
+                      b.SyncEnvAccess(scalar, 1, 1, is_mutate=True, is_ooo=False)
                 # b.Fence(True, 1, 1, 1)
                 with b.ThreadsFor(tid, 0, 2, 0, 0, 1):
                     b.SyncEnvAccess(buf[tid], 1, 1, is_mutate=True, is_ooo=False)
+    print(realloc_test)
     env = ProgramEnv(realloc_test)
     env.exec(excut_filename="realloc_excut.json")
