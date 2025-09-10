@@ -1,6 +1,6 @@
 # Tests for abstract machine interpreter
 import pytest
-from exo.spork.camspork import camspork
+import exo.spork.camspork as camspork
 
 
 @camspork.program

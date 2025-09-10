@@ -8,7 +8,7 @@ from ..core.LoopIR import T, LoopIR, LoopIR_Do, BaseCompilerDebugLog
 from .async_config import CudaDeviceFunction
 from .base_with_context import is_if_holding_with
 from .coll_analysis import CollAnalysis
-from .camspork import camspork
+from . import camspork
 from .distributed_memory import ThreadIter
 from .loop_modes import Seq, CudaTasks, _CodegenPar
 from .timelines import Instr_tl, Qual_tl, Sync_tl
