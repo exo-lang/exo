@@ -27,35 +27,13 @@ def mkproc_wgmma_fence(
             for task in cuda_tasks(0, 4):
                 with CudaWarps(lo, hi):
                     for wg in cuda_threads(0, 1, unit=unit):
-                        with CudaAsync(wgmma_async):
-                            if have_fence:
-                                Fence(first_sync_tl, second_sync_tl)
+                        Fence(first_sync_tl, second_sync_tl)
 
     return simplify(test_proc)
 
 
 def test_wgmma_fence_positive(compiler, golden):
     compiler.cuda_cpu_test(mkproc_wgmma_fence, golden, sm="90a")
-
-
-def test_wgmma_fence_missing_prologue(compiler):
-    with pytest.raises(Exception) as exc:
-        compiler.cuda_cpu_test(mkproc_wgmma_fence, have_fence=False)
-    assert "missing prologue sync in CudaAsync(wgmma_async_instr)" in str(exc.value)
-
-
-def test_wgmma_fence_wrong_prologue(compiler):
-    with pytest.raises(Exception) as exc:
-        compiler.cuda_cpu_test(
-            mkproc_wgmma_fence,
-            first_sync_tl=cuda_temporal,
-            second_sync_tl=cuda_temporal,
-            unit=cuda_cta_in_cluster,
-            lo=0,
-            hi=12,
-            sm="90a",
-        )
-    assert "wrong prologue sync in CudaAsync(wgmma_async_instr)" in str(exc.value)
 
 
 def test_wgmma_fence_wrong_coll_unit_size(compiler):

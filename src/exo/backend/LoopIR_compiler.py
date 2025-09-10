@@ -53,7 +53,7 @@ from ..rewrite.range_analysis import IndexRangeEnvironment
 from ..spork.async_config import (
     BaseAsyncConfig,
     CudaDeviceFunction,
-    InstrTimelineAnalysis,
+    DeviceScopeAnalysis,
 )
 from ..spork.base_with_context import (
     BaseWithContext,
@@ -430,15 +430,15 @@ def ext_compile_to_strings(
                 p = PrecisionAnalysis().run(p)
                 p = WindowAnalysis().apply_proc(p)
                 p = MemoryAnalysis().run(p)
-                instr_tl_analysis = InstrTimelineAnalysis()
-                p = instr_tl_analysis.run(p)
+                device_analysis = DeviceScopeAnalysis()
+                p = device_analysis.run(p)
                 barrier_uses: Optional[Dict[Sym, BarrierUsage]]
                 barrier_uses = None
                 proc_uses_cuda = (
-                    timelines.cuda_in_order_instr in instr_tl_analysis.instr_tl_seen
+                    timelines.cuda_basic_device in device_analysis.devices_seen
                 )
                 coll_analysis = None
-                if proc_uses_cuda or instr_tl_analysis.contains_sync:
+                if proc_uses_cuda or device_analysis.contains_sync:
                     # Don't force non-CUDA Exo users to waste time here
                     barrier_usage_analysis = BarrierUsageAnalysis(p)
                     barrier_uses = barrier_usage_analysis.uses

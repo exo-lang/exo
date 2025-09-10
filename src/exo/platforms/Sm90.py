@@ -19,10 +19,12 @@ from ..spork.timelines import (
     cuda_async_proxy,
     cuda_async_proxy_wgmma,
     cuda_generic_and_async_proxy,
-    cuda_sync_rmem_usage,
-    cuda_ram_usage,
-    cuda_async_a_rmem_usage,
-    cuda_async_d_rmem_usage,
+    wgmma_async_rmem_a_qual,
+    wgmma_async_rmem_d_qual,
+    cuda_rmem_qual_tl_dict,
+    cuda_ram_qual_tl_dict,
+    wgmma_zero_instr,
+    wgmma_zero_qual,
 )
 
 __all__ = [
@@ -237,8 +239,10 @@ def Sm90_tensorMap(swizzle, *smem_box):
             return ""
 
         @classmethod
-        def default_usage_tl(cls, instr_tl):
-            return cuda_ram_usage
+        def device_permission(cls, device):
+            return CudaBasicDeviceVisible.host_allocated_impl(device, pinned=False)
+
+        qual_tl_dict = cuda_ram_qual_tl_dict
 
         @classmethod
         def source_memory_type(cls):
@@ -900,13 +904,7 @@ class WgmmaHelper:
 class Sm90_RmemMatrixA:
     # TODO implement this
 
-    @classmethod
-    def default_usage_tl(cls, instr_tl):
-        if instr_tl == wgmma_async_instr:
-            return cuda_async_a_rmem_usage
-        else:
-            assert instr_tl == cuda_in_order_instr
-            return cuda_sync_rmem_usage
+    qual_tl_dict = cuda_rmem_qual_tl_dict | {wgmma_async_instr: wgmma_async_rmem_a_qual}
 
 
 @memwin_template
@@ -919,17 +917,13 @@ def Sm90_RmemMatrixD(M, N):
         def global_(cls):
             return helper.rmem_d_struct_def()
 
-        @classmethod
-        def default_usage_tl(cls, instr_tl):
-            if instr_tl == wgmma_async_instr:
-                return cuda_async_d_rmem_usage
-            else:
-                assert instr_tl == cuda_in_order_instr
-                return cuda_sync_rmem_usage
+        qual_tl_dict = cuda_rmem_qual_tl_dict | {
+            wgmma_async_instr: [wgmma_async_rmem_d_qual, wgmma_zero_qual]
+        }
 
         @classmethod
-        def instr_tl_permission(cls, instr_tl, is_instr):
-            return cls.device_allocated_impl(instr_tl, is_instr)
+        def device_permission(cls, device):
+            return cls.device_allocated_impl(device)
 
         @classmethod
         def native_unit(cls):
@@ -1018,10 +1012,10 @@ class Sm90_zero_scale_d_f32:
                 d[m, n] = 0
 
     def instance(self, M, N):
-        # XXX cuda_in_order is completely wrong
-        self.instr_tl = cuda_in_order_instr
+        self.instr_tl = wgmma_zero_instr
         self.coll_unit = cuda_warpgroup
         self.access_info["d"].mem = Sm90_RmemMatrixD(M, N)
+        self.access_info["d"].out_of_order = False
 
     def codegen(self, args):
         return [f"{args.d.index()}.scale_d = 0;"]

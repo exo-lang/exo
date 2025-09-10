@@ -19,7 +19,7 @@ from ..core.LoopIR import (
 from .distributed_memory import ThreadIter, DistributedIdxFsm, DistributedAllocState
 from .timelines import Instr_tl, Sync_tl
 from . import timelines
-from .async_config import CudaDeviceFunction, CudaAsync
+from .async_config import CudaDeviceFunction
 from .barrier_usage import BarrierUsage, SyncInfo
 from .base_with_context import is_if_holding_with
 from .ext_with_context import ExtWithContext
@@ -349,12 +349,6 @@ class SubtreeScan(LoopIR_Do):
         self.apply_s(s)
         super().do_s(s)
 
-        # Special case (after recursion) for handling prologue/epilogue sync
-        if is_if_holding_with(s, LoopIR):
-            ctx = s.cond.val
-            if isinstance(ctx, CudaAsync):
-                self.post_inspect_cuda_async(s)
-
         # Restore state
         self._coll_tiling = old_coll_tiling
         self._current_warp_name = old_warp_name
@@ -428,43 +422,6 @@ class SubtreeScan(LoopIR_Do):
                     state,
                     self.thread_iters,
                 )
-
-    def expect_SyncStmt(self, async_block, is_epilogue, first_sync_tl, second_sync_tl):
-        # This is really strict, requires equality with expected sync-tl
-        # instead of just implements_first/implements_second(...)
-        ctx = async_block.cond.val
-        sync = async_block.body[-1] if is_epilogue else async_block.body[0]
-        verb = "missing"
-        if isinstance(sync, LoopIR.SyncStmt):
-            verb = "wrong"
-            sync_type = sync.sync_type
-            if sync_type.first_sync_tl == first_sync_tl:
-                if sync_type.second_sync_tl == second_sync_tl:
-                    return sync
-        noun = "epilogue" if is_epilogue else "prologue"
-        expected = SyncType(first_sync_tl, second_sync_tl, 1).format_stmt(["..."])
-        raise ValueError(
-            f"{async_block.srcinfo}: {verb} {noun} sync in {ctx} block; "
-            f"expect {expected}"
-        )
-
-    def post_inspect_cuda_async(self, s):
-        # Must be run after inspecting the body of the CudaAsync block
-        # since the barriers must have been scanned.
-        # We detect required prologue/epilogue sync here.
-        ctx = s.cond.val
-        assert isinstance(ctx, CudaAsync)
-        instr_tl = ctx.get_instr_tl()
-        assert instr_tl in timelines.cuda_async_instr_tl
-        assert s.body
-
-        def inspect(is_epilogue, L1, L2):
-            sync_stmt = self.expect_SyncStmt(s, is_epilogue, L1, L2)
-
-        # wgmma_async_instr requires prologue wgmma fence
-        if instr_tl == timelines.wgmma_async_instr:
-            inspect(False, timelines.wgmma_fence_1, timelines.wgmma_fence_2)
-        # Sm80_cp_async, tma_to_smem_async, tma_to_gmem_async have no prologue/epilogue
 
     def mark_sym_used(self, name: Sym):
         self._syms_needed.add(name)

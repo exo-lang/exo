@@ -1391,7 +1391,7 @@ class Parser:
                     try:
                         f = f(**kwargs)
                     except InstrTemplateError as e:
-                        self.err(s.func, str(e))
+                        self.err(s.func, str(e), e)
                 else:
                     self.err(
                         s.func,

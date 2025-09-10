@@ -5,13 +5,13 @@ from ..API import instr, InstrInfo
 from ..spork.timelines import (
     cpu_in_order,
     cpu_in_order_instr,
+    cpu_cuda_stream_instr,
     cuda_temporal,
     cuda_in_order,
     cuda_in_order_instr,
-    cuda_sync_rmem_usage,
-    cuda_ram_usage,
+    cuda_stream_sync,
 )
-from ..spork.async_config import CudaDeviceFunction, CudaAsync
+from ..spork.async_config import CudaDeviceFunction
 from ..spork.coll_algebra import (
     cuda_thread,
     cuda_quadpair,

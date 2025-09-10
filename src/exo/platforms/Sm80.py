@@ -8,16 +8,13 @@ from ..spork.timelines import (
     Sm80_cp_async,
     Sm80_cp_async_instr,
     Sm80_generic,
-    cuda_sync_rmem_usage,
-    cuda_ram_usage,
+    cuda_rmem_qual_tl_dict,
 )
 
 __all__ = [
     "Sm80_cp_async",
     "Sm80_cp_async_instr",
     "Sm80_generic",
-    "cuda_sync_rmem_usage",
-    "cuda_ram_usage",
 ]
 
 
@@ -107,16 +104,14 @@ class Sm80_BasicRmemMatrix(CudaBasicDeviceVisible):
         return ""
 
     @classmethod
-    def instr_tl_permission(cls, instr_tl, is_instr):
-        return cls.device_allocated_impl(instr_tl, is_instr)
+    def device_permission(cls, device):
+        return cls.device_allocated_impl(device)
+
+    qual_tl_dict = cuda_rmem_qual_tl_dict
 
     @classmethod
     def native_unit(cls):
         return cuda_warp
-
-    @classmethod
-    def default_usage_tl(cls, instr_tl):
-        return timelines.cuda_sync_rmem_usage
 
     @classmethod
     def packed_tensor_shape(cls, _):

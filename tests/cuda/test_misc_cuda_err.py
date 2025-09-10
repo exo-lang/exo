@@ -196,12 +196,11 @@ def mkproc_no_trailing_barrier():
                 bar: barrier @ CudaMbarrier
                 Await(bar, cuda_in_order, 1)
                 for tid in cuda_threads(0, 32):
-                    with CudaAsync(Sm80_cp_async):
-                        Sm80_cp_async_f32(
-                            smem[4 * tid : 4 * tid + 4],
-                            gmem[4 * tid : 4 * tid + 4],
-                            size=4,
-                        ) >> bar
+                    Sm80_cp_async_f32(
+                        smem[4 * tid : 4 * tid + 4],
+                        gmem[4 * tid : 4 * tid + 4],
+                        size=4,
+                    ) >> bar
                 Arrive(Sm80_cp_async, 1) >> bar
     return proc_no_trailing_barrier
     # fmt: on
@@ -213,21 +212,25 @@ def test_no_trailing_barrier(compiler):
     assert "does not take trailing barrier expression" in str(exc.value)
 
 
-def mkproc_wrong_CudaAsync():
+def mkproc_wrong_CudaDeviceFunction():
     @proc
-    def proc_wrong_CudaAsync():
-        with CudaAsync(Sm80_cp_async_instr):
-            pass
+    def proc_wrong_CudaDeviceFunction():
+        with CudaDeviceFunction(blockDim=128):
+            for task in cuda_tasks(0, 1):
+                for tid in cuda_threads(0, 128):
+                    with CudaDeviceFunction(blockDim=256):
+                        for task in cuda_tasks(0, 1):
+                            for tid in cuda_threads(0, 256):
+                                pass
 
-    return proc_wrong_CudaAsync
+    return proc_wrong_CudaDeviceFunction
 
 
-def test_wrong_CudaAsync(compiler):
+def test_wrong_CudaDeviceFunction(compiler):
     with pytest.raises(Exception) as exc:
-        compiler.cuda_cpu_test(mkproc_wrong_CudaAsync)
-    assert (
-        "CudaAsync(Sm80_cp_async_instr) requires instr-tl cuda_in_order_instr"
-        in str(exc.value)
+        compiler.cuda_cpu_test(mkproc_wrong_CudaDeviceFunction)
+    assert "CudaDeviceFunction(blockDim=256) requires cpu_basic_device" in str(
+        exc.value
     )
 
 
@@ -247,7 +250,9 @@ def mkproc_wrong_CudaDeviceFunction():
 def test_wrong_CudaDeviceFunction(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_wrong_CudaDeviceFunction)
-    assert "requires instr-tl cpu_in_order_instr" in str(exc.value)
+    assert "CudaDeviceFunction(blockDim=256) requires cpu_basic_device" in str(
+        exc.value
+    )
 
 
 def test_write_CudaGridConstant(compiler):
@@ -263,12 +268,12 @@ def test_write_CudaGridConstant(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(lambda: test_proc)
     assert (
-        "CudaGridConstant does not allow mutable access in a scope with instr-tl cuda_in_order_instr"
+        "CudaGridConstant does not allow mutable access in a scope using cuda_basic_device"
         in str(exc.value)
     )
 
 
-def test_reduce_wrong_instr_tl(compiler):
+def test_reduce_wrong_device(compiler):
     @proc
     def test_proc(gmem: f32 @ CudaGmemLinear):
         gmem += 5
@@ -276,12 +281,12 @@ def test_reduce_wrong_instr_tl(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(lambda: test_proc)
     assert (
-        "CudaGmemLinear does not allow any access in a scope with instr-tl cpu_in_order_instr"
+        "CudaGmemLinear does not allow any access in a scope using cpu_basic_device"
         in str(exc.value)
     )
 
 
-def test_read_wrong_instr_tl(compiler):
+def test_read_wrong_device(compiler):
     @proc
     def test_proc(gmem: f32 @ CudaGmemLinear):
         local: f32 @ DRAM
@@ -290,7 +295,7 @@ def test_read_wrong_instr_tl(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(lambda: test_proc)
     assert (
-        "CudaGmemLinear does not allow reads in a scope with instr-tl cpu_in_order_instr"
+        "CudaGmemLinear does not allow reads in a scope using cpu_basic_device"
         in str(exc.value)
     )
 
@@ -316,12 +321,12 @@ def test_gmem_in_cuda(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_alloc_in_cuda, test_mem=CudaGmemLinear)
     assert (
-        "CudaGmemLinear cannot be allocated in a scope with instr-tl cuda_in_order_instr"
+        "CudaGmemLinear cannot be allocated in a scope using cuda_basic_device"
         in str(exc.value)
     )
 
 
-def test_window_instr_tl(compiler):
+def test_window_device(compiler):
     @proc
     def test_proc(M: size, N: size, gmem: f32[M, N] @ CudaGmemLinear):
         with CudaDeviceFunction(blockDim=256):
@@ -331,23 +336,22 @@ def test_window_instr_tl(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(lambda: test_proc, sm="90a")
     assert (
-        "Sm90_tensorMap(128, 128, 256) cannot be constructed in a scope with instr-tl cuda_in_order_instr"
+        "Sm90_tensorMap(128, 128, 256) cannot be constructed in a scope using cuda_basic_device"
         in str(exc.value)
     )
 
 
-def test_call_instr_tl(compiler):
+def test_call_device(compiler):
     @proc
-    def test_proc(gmem: f32[32] @ CudaGmemLinear):
+    def test_proc(gmem: f32[32] @ CudaGmemLinear, sysmem: f32[32] @ DRAM):
         with CudaDeviceFunction(blockDim=128):
             for task in cuda_tasks(0, 1):
-                smem: f32[32] @ CudaSmemLinear
                 for tid in cuda_threads(0, 32):
-                    Sm80_cp_async_f32(smem[tid : tid + 1], gmem[tid : tid + 1], size=1)
+                    cudaMemcpyAsync_htod_1f32(32, gmem[:], sysmem[:])
 
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(lambda: test_proc, sm=80)
-    assert "requires instr-tl Sm80_cp_async_instr" in str(exc.value)
+    assert "not allowed in scope using cuda_basic_device" in str(exc.value)
 
 
 def test_pyparser_unexpected_shift():
@@ -403,7 +407,9 @@ def test_pyparser_multiple_with_item():
 
         @proc
         def test_proc(x: i32, y: i32):
-            with CudaDeviceFunction(blockDim=32) as a, CudaAsync(wgmma_async) as b:
+            with CudaDeviceFunction(blockDim=32) as a, CudaDeviceFunction(
+                blockDim=64
+            ) as b:
                 for task in cuda_tasks(0, 1):
                     pass
 

@@ -270,14 +270,11 @@ exo_CudaInline_test_wgmma_fence_positive::exo_Cuda0_test_proc::exo_deviceTask(
   if (int tmp_1 = threadIdx.x; tmp_1 >= 128) {
     // cuda_threads(0, 1, unit=cuda_warpgroup)
     if (int exo_128thr_wg = ((threadIdx.x - 128) / 128); exo_128thr_wg < 1) {
-      {
-        // CudaAsync(wgmma_async_instr)
-        // Fence(wgmma_fence_1, wgmma_fence_2)
-        asm volatile(
-          "wgmma.fence.sync.aligned;"
-        );
-        exo_excutLog.log_action(EXO_EXCUT_STR_ID(wgmma_fence_sync_aligned), 0, __LINE__);
-      }
+      // Fence(wgmma_fence_1, wgmma_fence_2)
+      asm volatile(
+        "wgmma.fence.sync.aligned;"
+      );
+      exo_excutLog.log_action(EXO_EXCUT_STR_ID(wgmma_fence_sync_aligned), 0, __LINE__);
     }
   }
 }

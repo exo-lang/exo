@@ -456,14 +456,13 @@ def mkproc_CudaWarps_in_loop(unit):
     def proc_CudaWarps_in_loop():
         with CudaDeviceFunction(clusterDim=2, warp_config=warp_config):
             for task in cuda_tasks(0, 1):
-                # The CudaAsync and seq-loop should have no effect on with CudaWarps.
-                with CudaAsync(Sm80_cp_async_instr):
-                    for seq_i in seq(0, 5):
-                        # This loop will mess up the CudaWarps if the unit is
-                        # sub-CTA, but not if it's inter-CTA.
-                        for par_i in cuda_threads(0, 2, unit=unit):
-                            with CudaWarps(name="abc"):
-                                pass
+                # The seq-loop should have no effect on with CudaWarps.
+                for seq_i in seq(0, 5):
+                    # This loop will mess up the CudaWarps if the unit is
+                    # sub-CTA, but not if it's inter-CTA.
+                    for par_i in cuda_threads(0, 2, unit=unit):
+                        with CudaWarps(name="abc"):
+                            pass
 
     return proc_CudaWarps_in_loop
 

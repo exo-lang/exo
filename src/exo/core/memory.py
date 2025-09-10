@@ -20,8 +20,15 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional, Set, Type
-from ..spork.timelines import cpu_in_order_instr, cpu_usage, Instr_tl, Usage_tl
+from typing import Optional, Set, Type, Dict
+from ..spork.timelines import (
+    Instr_tl,
+    cpu_in_order_instr,
+    DeviceScope,
+    cpu_basic_device,
+    Qual_tl,
+    cpu_in_order_qual,
+)
 from .prelude import ScalarInfo
 from .c_window import (
     WindowEncoder,
@@ -209,8 +216,8 @@ class MemWin(ABC):
         )
 
     @classmethod
-    def instr_tl_permission(cls, instr_tl: Instr_tl, is_instr):
-        """For a given instr_tl, return a string of permission letters.
+    def device_permission(cls, device: DeviceScope):
+        """For a given DeviceScope, return a string of permission letters.
 
         r: read
         w: write
@@ -219,21 +226,28 @@ class MemWin(ABC):
         The syntax similar to e.g. "rw" for opening a file
         NB for now, we expect 'r' if 'w' is given (i.e. no write-only mems)
 
-        is_instr is True iff the access is via calling an instr, and not
-        a scalar Read/Assign/Reduce statement. If is_instr is False,
-        whether a Read/Assign/Reduce will actually compile additionally
-        depends on the can_read/write/reduce member functions."""
-        if instr_tl == cpu_in_order_instr:
+        For non-instr access, whether a Read/Assign/Reduce will
+        actually compile additionally depends on the
+        can_read/write/reduce member functions.
+
+        """
+        if device == cpu_basic_device:
             return "rwc"
         else:
             return ""
 
-    @classmethod
-    def default_usage_tl(cls, instr_tl: Instr_tl):
-        assert (
-            instr_tl == cpu_in_order_instr
-        ), f"{cls} needs to implement default_usage_tl(instr_tl={instr_tl})"
-        return cpu_usage
+    """Defines per-instr qual-tl used to access a parameter (value @ mem)
+
+    with q = mem.qual_tl_dict[instr_tl] (instr_tl configured per-instr),
+    q: List[Qual_tl] is interpreted as initial_qual_tl = q[0], ext_qual_tl = q
+    Otherwise, initial_qual_tl = q; ext_qual_tl = [q]
+
+    NOTE: the qual-tl is evaluated based on the memory type of the caller's
+    input, not the memory type declared in the callee instruction.
+    This is needed to handle MemWin inheritance correctly.
+    """
+    qual_tl_dict: Dict[Instr_tl, Qual_tl | List[Qual_tl]]
+    qual_tl_dict = {cpu_in_order_instr: cpu_in_order_qual}
 
     @classmethod
     def packed_tensor_shape(cls, scalar_info: ScalarInfo) -> List[int]:

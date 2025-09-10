@@ -10,7 +10,7 @@ from .base_with_context import is_if_holding_with
 from .coll_analysis import CollAnalysis
 from . import camspork
 from .distributed_memory import ThreadIter
-from .loop_modes import Seq, CudaTasks, _CodegenPar
+from .loop_modes import Seq, CudaTasks, _CodegenPar, CudaThreads
 from .timelines import Instr_tl, Qual_tl, Sync_tl
 
 
@@ -128,7 +128,9 @@ class CamsporkDo(LoopIR_Do):
                     am_ctx = b.ThreadsFor(am_iter, am_lo, am_hi, dim_idx, offset, box)
             else:
                 assert not isinstance(loop_mode, CudaThreads), "Need CollAnalysis"
-                raise TypeError(f"Unsupported loop mode {loop_mode}")
+                raise TypeError(
+                    f"{s.srcinfo}: unexpected loop mode {loop_mode.loop_mode_name()}"
+                )
 
             if am_ctx is None:
                 self.do_stmts(s.body)

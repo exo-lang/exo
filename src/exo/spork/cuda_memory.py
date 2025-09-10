@@ -25,20 +25,24 @@ from .coll_algebra import (
 
 
 class CudaBasicDeviceVisible(Memory):
-    """All memory types allocatable in CUDA device code must inherit from this.
-    The LoopIR compiler expects this subclassing, and expects
-    the native_unit() function to be implemented if allocable on the device.
+    """All Memory types allocatable in CUDA device code must inherit from this.
+    The LoopIR compiler expects this subclassing.
 
     Converse is not true -- this class represents only that the
-    memory is device visible, not allocable. Subclasses should
-    implement instr_tl_permission in terms of one of the impl
-    functions based on the correct behavior (e.g. GMEM is
-    host allocable, device visible).
+    memory is device visible, not allocable. Subclasses implement:
+
+    * device_permission, using one of the _impl functions
+    * qual_tl_dict (usually timelines.cuda_ram_qual_tl_dict
+      or timelines.cuda_rmem_qual_tl_dict)
+    * native_unit, if allocable on the CUDA device.
+
+    NB SpecialWindow, BarrierType are not Memory.
+
     """
 
     @classmethod
     @abstractmethod
-    def instr_tl_permission(cls, instr_tl, is_instr):
+    def device_permission(cls, device):
         raise NotImplementedError()
 
     @classmethod
@@ -47,35 +51,29 @@ class CudaBasicDeviceVisible(Memory):
         raise NotImplementedError()
 
     @classmethod
-    def device_allocated_impl(cls, instr_tl, is_instr):
+    def device_allocated_impl(cls, device):
         """Only allocated and used on the CUDA device"""
-        if instr_tl == timelines.cuda_in_order_instr:
+        if device == timelines.cuda_basic_device:
             return "rwc"
-        elif instr_tl in timelines.cuda_async_instr_tl:
-            return "rwc" if is_instr else "c"
         else:
             return ""
 
     @classmethod
-    def host_allocated_impl(cls, instr_tl, is_instr, pinned):
+    def host_allocated_impl(cls, device, pinned):
         """Allocated on the CPU and accessed on the CUDA device"""
-        if instr_tl == timelines.cpu_in_order_instr:
+        if device == timelines.cpu_basic_device:
             return "rwc" if pinned else "c"
-        elif instr_tl == timelines.cuda_in_order_instr:
+        elif device == timelines.cuda_basic_device:
             return "rw"
-        elif instr_tl in timelines.cuda_async_instr_tl:
-            return "rw" if is_instr else ""
         else:
             return ""
 
     @classmethod
-    def grid_constant_impl(cls, instr_tl, is_instr):
-        if instr_tl == timelines.cpu_in_order_instr:
+    def grid_constant_impl(cls, device):
+        if device == timelines.cpu_basic_device:
             return "rwc"
-        elif instr_tl == timelines.cuda_in_order_instr:
+        elif device == timelines.cuda_basic_device:
             return "r"
-        elif instr_tl in timelines.cuda_async_instr_tl:
-            return "r" if is_instr else ""
         else:
             return ""
 
@@ -132,8 +130,8 @@ class CudaBasicSmem(CudaBasicDeviceVisible):
     All allocations can only be lowered if their shape is a constant."""
 
     @classmethod
-    def instr_tl_permission(cls, instr_tl, is_instr):
-        return cls.device_allocated_impl(instr_tl, is_instr)
+    def device_permission(cls, device):
+        return cls.device_allocated_impl(device)
 
     @classmethod
     def native_unit(cls):
@@ -160,9 +158,7 @@ class CudaBasicSmem(CudaBasicDeviceVisible):
         """Substitute for alloc/free. Return SmemConfig."""
         raise NotImplementedError()
 
-    @classmethod
-    def default_usage_tl(cls, instr_tl):
-        return timelines.cuda_ram_usage
+    qual_tl_dict = timelines.cuda_ram_qual_tl_dict
 
 
 class CudaDeviceVisibleLinear(CudaBasicDeviceVisible):
@@ -179,10 +175,6 @@ class CudaDeviceVisibleLinear(CudaBasicDeviceVisible):
     @classmethod
     def reduce(cls, s, lhs, rhs):
         return f"{lhs} += {rhs};"
-
-    @classmethod
-    def default_usage_tl(cls, instr_tl):
-        return timelines.cuda_ram_usage
 
 
 # TODO grid constants require special compiler support. Consider additional
@@ -217,15 +209,10 @@ class CudaGridConstant(CudaDeviceVisibleLinear, DRAM):
         return ""
 
     @classmethod
-    def instr_tl_permission(cls, instr_tl, is_instr):
-        return cls.grid_constant_impl(instr_tl, is_instr)
+    def device_permission(cls, device):
+        return cls.grid_constant_impl(device)
 
-    @classmethod
-    def default_usage_tl(cls, instr_tl):
-        if instr_tl == cpu_in_order_instr:
-            return timelines.cpu_usage
-        else:
-            return timelines.cuda_sync_rmem_usage
+    qual_tl_dict = timelines.cuda_ram_qual_tl_dict
 
 
 gmem_code = """
@@ -300,12 +287,10 @@ class CudaGmemLinear(CudaDeviceVisibleLinear):
         return f"exo_cudaFreeAsync({new_name}, exo_cudaStream);"
 
     @classmethod
-    def instr_tl_permission(cls, instr_tl, is_instr):
-        return cls.host_allocated_impl(instr_tl, is_instr, pinned=False)
+    def device_permission(cls, device):
+        return cls.host_allocated_impl(device, pinned=False)
 
-    @classmethod
-    def default_usage_tl(cls, instr_tl):
-        return timelines.cuda_ram_usage
+    qual_tl_dict = timelines.cuda_ram_qual_tl_dict
 
 
 class CudaSmemLinear(CudaDeviceVisibleLinear, CudaBasicSmem):
@@ -314,6 +299,8 @@ class CudaSmemLinear(CudaDeviceVisibleLinear, CudaBasicSmem):
     @classmethod
     def smem_config(cls, inputs: SmemConfigInputs) -> SmemConfig:
         return SmemConfig(inputs.make_reftype())
+
+    qual_tl_dict = timelines.cuda_ram_qual_tl_dict
 
 
 class CudaRmem(CudaDeviceVisibleLinear):
@@ -333,42 +320,29 @@ class CudaRmem(CudaDeviceVisibleLinear):
         return ""
 
     @classmethod
-    def instr_tl_permission(cls, instr_tl, is_instr):
-        return cls.device_allocated_impl(instr_tl, is_instr)
+    def device_permission(cls, device):
+        return cls.device_allocated_impl(device)
 
     @classmethod
     def native_unit(cls):
         return cuda_thread
 
-    @classmethod
-    def default_usage_tl(cls, instr_tl):
-        return timelines.cuda_sync_rmem_usage
+    qual_tl_dict = timelines.cuda_rmem_qual_tl_dict
 
 
+# TODO implement this.
 class CudaEvent(BarrierType):
     @classmethod
     def traits(cls) -> BarrierTypeTraits:
         return BarrierTypeTraits(requires_pairing=True, requires_arrive_first=True)
 
-    @classmethod
-    def default_usage_tl(cls, instr_tl):
-        return timelines.cpu_usage
-
 
 class CudaDeviceBarrier(BarrierType):
     @classmethod
-    def instr_tl_permission(cls, instr_tl, is_instr):
-        if (
-            instr_tl == timelines.cuda_in_order_instr
-            or instr_tl in timelines.cuda_async_instr_tl
-        ):
-            return "rwc"
-        else:
-            return ""
+    def device_permission(cls, device):
+        return "rwc" if device == timelines.cuda_basic_device else ""
 
-    @classmethod
-    def default_usage_tl(cls, instr_tl):
-        return timelines.cuda_ram_usage
+    qual_tl_dict = timelines.cuda_ram_qual_tl_dict
 
 
 class CudaMbarrier(CudaDeviceBarrier):

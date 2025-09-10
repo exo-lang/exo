@@ -40,16 +40,14 @@ from .prelude import Sym, SrcInfo
 
 from .instr_info import AccessInfo, InstrInfo
 from .LoopIR import LoopIR, SubstArgs, Identifier, get_writes_of_stmts
-from .memory import DRAM, BarrierType
+from .memory import MemWin, DRAM, BarrierType
 from ..frontend.pyparser import get_ast_from_python, Parser
 from ..spork import timelines
 from ..spork.coll_algebra import standalone_thread, CollUnit
 from ..spork.timelines import (
     Instr_tl,
-    Usage_tl,
-    Sync_tl,
+    Qual_tl,
     cpu_in_order_instr,
-    cuda_in_order_instr,
 )
 from .c_window import WindowFeatures, UtilInjector, WindowIndexerResult
 
@@ -355,10 +353,8 @@ class InstrTemplate:
         assert info.barrier_type is None or issubclass(info.barrier_type, BarrierType), clsname
         assert all(isinstance(unit, CollUnit) for unit in info.barrier_coll_units), clsname
 
-        # instr_tl (L^i) must be Instr_tl typed
-        instr_tl = info.instr_tl
-        assert not isinstance(instr_tl, Sync_tl), f"{clsname}: use {instr_tl}_instr, if it exists"
-        assert isinstance(instr_tl, Instr_tl), clsname
+        instr_tl = info.instr_tl.as_instr_tl()
+        info.instr_tl = instr_tl
         access_info = info.access_info
         # fmt: on
 
@@ -369,43 +365,20 @@ class InstrTemplate:
             arg_info = access_info[nm]
             if arg.mem is not None and arg.mem is not DRAM:
                 # fmt: off
-                assert arg.mem == arg_info.mem, f"{clsname}: cannot override mem for {nm} @ {arg.mem.name()}"
+                mem = arg.mem
+                assert mem == arg_info.mem, f"{clsname}: cannot override mem for {nm} @ {arg.mem.name()}"
                 # fmt: on
-
-            # Set usage_tl (L^u) if not explicitly given
-            if not isinstance(arg_info.usage_tl, Usage_tl):
-                assert arg_info.usage_tl is None, clsname
-                try:
-                    arg_info.usage_tl = arg_info.mem.default_usage_tl(instr_tl)
-                except Exception as e:
-                    raise ValueError(
-                        f"{nm} @ {arg.mem.name()} needs explicit usage_tl"
-                    ) from e
-            usage_tl = arg_info.usage_tl
-
-            # Set up ext_instr_tl (L_X^i) and ext_usage_tl (L_X^u) if not given.
-            # Currently they are just {L^i} and {L^u}.
-            # We may change this default later for certain Qual_tl(L^i, L^u).
-            if not arg_info.ext_instr_tl:
-                arg_info.ext_instr_tl = [instr_tl]
-            assert all(
-                isinstance(tl, Instr_tl) for tl in arg_info.ext_instr_tl
-            ), clsname
-            assert instr_tl in arg_info.ext_instr_tl, clsname
-
-            if not arg_info.ext_usage_tl:
-                arg_info.ext_usage_tl = [usage_tl]
-            assert all(
-                isinstance(tl, Usage_tl) for tl in arg_info.ext_usage_tl
-            ), clsname
-            assert usage_tl in arg_info.ext_usage_tl, clsname
+            else:
+                mem = arg_info.mem
+            assert issubclass(mem, MemWin)
 
             # Non-in-order instructions must set the OOO flag explicitly
-            if instr_tl not in (cpu_in_order_instr, cuda_in_order_instr):
+            if arg_info.out_of_order is None:
                 # fmt: off
-                assert (arg_info.out_of_order is not None), \
-                    f"{clsname}: need out_of_order flag for {nm} @ {arg.mem.name()}"
+                assert ("_in_order" in str(instr_tl)), \
+                    f"{clsname}: need out_of_order flag for {nm} @ {mem.name()}"
                 # fmt: on
+                arg_info.out_of_order = False
 
             # Distributed memory configuration checks
             # fmt: off

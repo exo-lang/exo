@@ -1,20 +1,30 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Set
 
 
 class Instr_tl(object):
+    """The instruction timeline (instr-tl) is a property of each Exo @instr.
+
+    This controls:
+      * Whether the instruction is allowed in a given scope (see DeviceScope)
+      * Qual_tl used for the instr parameters (function of Instr_tl x MemWin)
+
+    This is not a critical concept: Qual_tl and DeviceScope together are the
+    core of the timeline system. But in practice it's convenient for
+    explanation to have a per-instr property; I may reconsider later.
+
+    """
+
     __slots__ = ["_name"]
     _name: str
 
     def __init__(self, name: str):
+        assert name.endswith("_instr"), "naming convention"
         self._name = name
 
     def __repr__(self):
-        return f"<exo.spork.timelines.Instr_tl {self._name}>"
-
-    def __str__(self):
         return self._name
 
     def is_cuda_async(self):
@@ -26,8 +36,11 @@ class Instr_tl(object):
     # Use default hash and equality (id-equality) from object.
 
 
-"""Host CPU instructions"""
+"""Ordinary host CPU instructions"""
 cpu_in_order_instr = Instr_tl("cpu_in_order_instr")
+
+"""CPU calls CUDA API function that is stream ordered"""
+cpu_cuda_stream_instr = Instr_tl("cpu_cuda_stream_instr")
 
 """Classic CUDA instructions that operate on the generic proxy
 and follow the typical per-thread in-order execution abstraction.
@@ -48,79 +61,97 @@ tma_to_smem_async_instr = Instr_tl("tma_to_smem_async_instr")
 """cp{.reduce}.bulk.async instructions with global memory as destination"""
 tma_to_gmem_async_instr = Instr_tl("tma_to_gmem_async_instr")
 
-"""wgmma instructions"""
+"""wgmma.mma_async instructions"""
 wgmma_async_instr = Instr_tl("wgmma_async_instr")
+
+"""Sets scale-d = 0 for the next wgmma.mma_async instr"""
+wgmma_zero_instr = Instr_tl("wgmma_zero_instr")
+
+"""tcgen05 instructions (TODO)"""
+tcgen05_async_instr = Instr_tl("tcgen05_asyc_instr")
 
 cuda_async_instr_tl = [
     Sm80_cp_async_instr,
     tma_to_smem_async_instr,
     tma_to_gmem_async_instr,
     wgmma_async_instr,
+    tcgen05_async_instr,
 ]
 
+cuda_basic_instr_tl = [cuda_in_order_instr, wgmma_zero_instr] + cuda_async_instr_tl
 
-class Usage_tl(object):
-    __slots__ = ["_name"]
+
+class DeviceScope(object):
+    """The DeviceScope is a static property of each Exo stmt in a proc.
+
+    For now, all code is either CPU (cpu_basic_device) or CUDA (cuda_basic_device).
+    The DeviceScope controls:
+
+      * instructions allowed (based on the set of allowed instr-tl)
+      * whether non-instr ("procedure") calls are allowed (cpu_basic_device only)
+      * whether MemWin (memory type) allocation, read, write is allowed.
+      * Qual_tl for non-instr memory access (indirectly, by default_instr_tl).
+
+    """
+
+    __slots__ = ["_name", "_default_instr_tl", "_instr_tl_set"]
+
     _name: str
+    _default_instr_tl: Instr_tl
+    _instr_tl_set: Set[Instr_tl]
 
-    def __init__(self, name: str):
+    def __init__(self, name, default_instr_tl, instr_tl_set):
         self._name = name
+        self._default_instr_tl = default_instr_tl
+        self._instr_tl_set = set(instr_tl_set)
 
     def __repr__(self):
-        return f"<exo.spork.timelines.Usage_tl {self._name}>"
-
-    def __str__(self):
         return self._name
+
+    def allows_instr_tl(self, instr_tl: Instr_tl):
+        found = instr_tl in self._instr_tl_set
+        assert found or isinstance(instr_tl, Instr_tl)
+        return found
+
+    def get_default_instr_tl(self):
+        return self._default_instr_tl
 
     # Use default hash and equality (id-equality) from object.
 
 
-cpu_usage = Usage_tl("cpu_usage")
-cuda_ram_usage = Usage_tl("cuda_ram_usage")
-cuda_sync_rmem_usage = Usage_tl("cuda_sync_rmem_usage")
-cuda_async_a_rmem_usage = Usage_tl("cuda_async_a_rmem_usage")
-cuda_async_d_rmem_usage = Usage_tl("cuda_async_d_rmem_usage")
+cpu_basic_device = DeviceScope(
+    "cpu_basic_device", cpu_in_order_instr, (cpu_in_order_instr, cpu_cuda_stream_instr)
+)
+cuda_basic_device = DeviceScope(
+    "cuda_basic_device", cuda_in_order_instr, cuda_basic_instr_tl
+)
 
 
 class Qual_tl(object):
-    __slots__ = ["instr_tl", "usage_tl", "_bit_index", "_bit"]
-    instr_tl: Instr_tl
-    usage_tl: Usage_tl
+    """Property a specific access (read/mutate) on a memory location.
+
+    This is not a property of a memory type or allocation as a whole;
+    for example, SMEM could be written with tma_to_smem_async_qual
+    and then read with wgmma_async_smem_qual.
+
+    """
+
+    __slots__ = ["_bit_index", "_bit", "_name"]
     _bit_index: int
     _bit: int
+    _name: str
 
     _from_bit_index = []
-    _from_tuple = {}
 
-    @classmethod
-    def _alloc_bit(cls, _instr_tl: Instr_tl, _usage_tl: Usage_tl):
-        assert isinstance(_instr_tl, Instr_tl)
-        assert isinstance(_usage_tl, Usage_tl)
-        tup = (_instr_tl, _usage_tl)
-        assert tup not in cls._from_tuple
-
-        bit_index = len(cls._from_tuple)
-        _qual_tl = object.__new__(Qual_tl)
-        _qual_tl.instr_tl = _instr_tl
-        _qual_tl.usage_tl = _usage_tl
-        _qual_tl._bit_index = bit_index
-        _qual_tl._bit = 1 << bit_index
-        cls._from_bit_index.append(_qual_tl)
-        cls._from_tuple[tup] = _qual_tl
-
-        assert len(cls._from_bit_index) == len(cls._from_tuple)
-
-    def __new__(cls, _instr_tl: Instr_tl, _usage_tl: Usage_tl):
-        try:
-            return cls._from_tuple[(_instr_tl, _usage_tl)]
-        except KeyError:
-            assert isinstance(_instr_tl, Instr_tl)
-            assert isinstance(_usage_tl, Usage_tl)
-            # Implementors: register with qual_tl._alloc_bit if needed.
-            raise ValueError(f"Unsupported: Qual_tl({_instr_tl}, {_usage_tl})")
+    def __init__(self, name):
+        assert name.endswith("_qual"), "naming convention"
+        self._bit_index = len(self._from_bit_index)
+        assert self._bit_index <= 31, "camspork::qual_bits_t would overflow"
+        self._bit = 1 << self._bit_index
+        self._from_bit_index.append(self)
 
     def __repr__(self):
-        return f"Qual_tl({self.instr_tl}, {self.usage_tl})"
+        return self._name
 
     def as_bit(self):
         return self._bit
@@ -128,44 +159,84 @@ class Qual_tl(object):
     def as_bit_index(self):
         return self._bit_index
 
+    @staticmethod
+    def make_bits(q) -> int:
+        if isinstance(q, Qual_tl):
+            return q.as_bit()
+        else:
+            bits = 0
+            for qual_tl in q:
+                bits |= qual_tl.as_bit()
+            return bits
 
-Qual_tl._alloc_bit(cpu_in_order_instr, cpu_usage)
-Qual_tl._alloc_bit(cuda_in_order_instr, cuda_sync_rmem_usage)
-Qual_tl._alloc_bit(cuda_in_order_instr, cuda_ram_usage)
-Qual_tl._alloc_bit(Sm80_cp_async_instr, cuda_ram_usage)
-Qual_tl._alloc_bit(tma_to_smem_async_instr, cuda_ram_usage)
-Qual_tl._alloc_bit(tma_to_gmem_async_instr, cuda_ram_usage)
-Qual_tl._alloc_bit(wgmma_async_instr, cuda_async_a_rmem_usage)
-Qual_tl._alloc_bit(wgmma_async_instr, cuda_async_d_rmem_usage)
-Qual_tl._alloc_bit(wgmma_async_instr, cuda_ram_usage)
+    # Use default hash and equality (id-equality) from object.
 
 
-_cuda_in_order_qual = [
-    Qual_tl(cuda_in_order_instr, cuda_ram_usage),
-    Qual_tl(cuda_in_order_instr, cuda_sync_rmem_usage),
+cpu_in_order_qual = Qual_tl("cpu_in_order_qual")
+cpu_cuda_stream_qual = Qual_tl("cpu_cuda_stream_qual")
+cuda_in_order_rmem_qual = Qual_tl("cuda_in_order_rmem_qual")
+cuda_in_order_ram_qual = Qual_tl("cuda_in_order_ram_qual")
+Sm80_cp_async_qual = Qual_tl("Sm80_cp_async_qual")
+tma_to_smem_async_qual = Qual_tl("tma_to_smem_async_qual")
+tma_to_gmem_async_qual = Qual_tl("tma_to_gmem_async_qual")
+wgmma_async_rmem_a_qual = Qual_tl("wgmma_async_rmem_a_qual")
+wgmma_async_rmem_d_qual = Qual_tl("wgmma_async_rmem_d_qual")
+wgmma_async_smem_qual = Qual_tl("wgmma_async_smem_qual")
+wgmma_zero_qual = Qual_tl("wgmma_zero_qual")
+tcgen05_TODO_qual = Qual_tl("tcgen05_TODO_qual")
+
+
+cuda_rmem_qual_tl_dict = {
+    cuda_in_order_instr: cuda_in_order_rmem_qual,
+    Sm80_cp_async_instr: cuda_in_order_rmem_qual,
+    tma_to_smem_async_instr: cuda_in_order_rmem_qual,
+    tma_to_gmem_async_instr: cuda_in_order_rmem_qual,
+    wgmma_zero_instr: wgmma_zero_qual,  # wgmma a/d has to be handled specially.
+}
+
+cuda_ram_qual_tl_dict = {
+    cpu_in_order_instr: cpu_in_order_qual,
+    cpu_cuda_stream_instr: cpu_cuda_stream_qual,
+    cuda_in_order_instr: cuda_in_order_ram_qual,
+    Sm80_cp_async_instr: Sm80_cp_async_qual,
+    tma_to_smem_async_instr: tma_to_smem_async_qual,
+    tma_to_gmem_async_instr: tma_to_gmem_async_qual,
+    wgmma_async_instr: wgmma_async_smem_qual,
+}
+
+_cuda_in_order_quals = [
+    cuda_in_order_rmem_qual,
+    cuda_in_order_ram_qual,
 ]
-_Sm80_cp_async_qual = [Qual_tl(Sm80_cp_async_instr, cuda_ram_usage)]
-_tma_to_smem_async_qual = [Qual_tl(tma_to_smem_async_instr, cuda_ram_usage)]
-_tma_to_gmem_async_qual = [Qual_tl(tma_to_gmem_async_instr, cuda_ram_usage)]
-_wgmma_async_qual = [
-    Qual_tl(wgmma_async_instr, cuda_async_a_rmem_usage),
-    Qual_tl(wgmma_async_instr, cuda_async_d_rmem_usage),
-    Qual_tl(wgmma_async_instr, cuda_ram_usage),
+_Sm80_cp_async_quals = [Sm80_cp_async_qual]
+_tma_to_smem_async_quals = [tma_to_smem_async_qual]
+_tma_to_gmem_async_quals = [tma_to_gmem_async_qual]
+_wgmma_async_quals = [
+    wgmma_async_rmem_a_qual,
+    wgmma_async_rmem_d_qual,
+    wgmma_async_smem_qual,
 ]
-_cuda_device_qual = (
-    _cuda_in_order_qual
-    + _Sm80_cp_async_qual
-    + _tma_to_smem_async_qual
-    + _tma_to_gmem_async_qual
-    + _wgmma_async_qual
+_tcgen05_async_quals = [
+    tcgen05_TODO_qual,  # Placeholder, for future tcgen05 work.
+]
+_cuda_device_quals = (
+    _cuda_in_order_quals
+    + [cpu_cuda_stream_qual]
+    + _Sm80_cp_async_quals
+    + _tma_to_smem_async_quals
+    + _tma_to_gmem_async_quals
+    + _wgmma_async_quals
+    + _tcgen05_async_quals
 )
-_wgmma_rmem_qual = [
-    Qual_tl(wgmma_async_instr, cuda_async_a_rmem_usage),
-    Qual_tl(wgmma_async_instr, cuda_async_d_rmem_usage),
+_wgmma_rmem_quals = [
+    wgmma_async_rmem_a_qual,
+    wgmma_async_rmem_d_qual,
 ]
-_cuda_async_proxy_qual = [
-    Qual_tl(itl, cuda_ram_usage)
-    for itl in (tma_to_smem_async_instr, tma_to_gmem_async_instr, wgmma_async_instr)
+_cuda_async_proxy_quals = [
+    tma_to_smem_async_qual,
+    tma_to_gmem_async_qual,
+    wgmma_async_smem_qual,
+    tcgen05_TODO_qual,
 ]
 
 
@@ -267,13 +338,16 @@ class Sync_tl(object):
 
 empty_sync_tl = Sync_tl("empty_sync_tl", False, [])
 
-"""Host CPU instructions"""
+"""Host in-order CPU instructions"""
 cpu_in_order = Sync_tl(
     "cpu_in_order",
     True,
-    [Qual_tl(cpu_in_order_instr, cpu_usage)],
+    [cpu_in_order_qual],
     for_instr_tl=cpu_in_order_instr,
 )
+
+"""First sync-tl of a cudaStreamSynchronize"""
+cuda_stream_sync = Sync_tl("cuda_stream_sync", True, _cuda_device_quals)
 
 """Classic CUDA instructions that operate on the generic proxy
 and follow the typical per-thread in-order execution abstraction.
@@ -286,17 +360,17 @@ hazards)
 cuda_in_order = Sync_tl(
     "cuda_in_order",
     True,
-    _cuda_in_order_qual,
-    _cuda_device_qual,  # Temporal-only
+    _cuda_in_order_quals,
+    _cuda_device_quals,  # Temporal-only
     for_instr_tl=cuda_in_order_instr,
 )
 
 """Temporal-only CUDA device actions"""
-cuda_temporal = Sync_tl("cuda_temporal", False, [], _cuda_device_qual)
+cuda_temporal = Sync_tl("cuda_temporal", False, [], _cuda_device_quals)
 
 """Ampere cp.async instructions"""
 Sm80_cp_async = Sync_tl(
-    "Sm80_cp_async", False, _Sm80_cp_async_qual, for_instr_tl=Sm80_cp_async_instr
+    "Sm80_cp_async", False, _Sm80_cp_async_quals, for_instr_tl=Sm80_cp_async_instr
 )
 
 """CUDA classic + sm_80 cp.async
@@ -305,15 +379,15 @@ These are operations that sm_90a+ retroactively term the generic proxy"""
 Sm80_generic = Sync_tl(
     "Sm80_generic",
     False,
-    _cuda_in_order_qual + _Sm80_cp_async_qual,
-    _cuda_device_qual,  # Temporal-only
+    _cuda_in_order_quals + _Sm80_cp_async_quals,
+    _cuda_device_quals,  # Temporal-only
 )
 
 """cp.async.bulk instructions with cluster/block shared memory as destination"""
 tma_to_smem_async = Sync_tl(
     "tma_to_smem_async",
     False,
-    _tma_to_smem_async_qual,
+    _tma_to_smem_async_quals,
     for_instr_tl=tma_to_smem_async_instr,
 )
 
@@ -321,14 +395,12 @@ tma_to_smem_async = Sync_tl(
 tma_to_gmem_async = Sync_tl(
     "tma_to_gmem_async",
     False,
-    _tma_to_gmem_async_qual,
+    _tma_to_gmem_async_quals,
     for_instr_tl=tma_to_gmem_async_instr,
 )
 
 """wgmma instructions' actions on shared memory"""
-wgmma_async_smem = Sync_tl(
-    "wgmma_async_smem", False, [Qual_tl(wgmma_async_instr, cuda_ram_usage)]
-)
+wgmma_async_smem = Sync_tl("wgmma_async_smem", False, [wgmma_async_smem_qual])
 
 """actions on wgmma matrix tile registers, either by wgmma.async
 instructions or by ordinary cuda synchronous instructions;
@@ -336,30 +408,30 @@ this is the first sync-tl of wgmma.fence"""
 wgmma_fence_1 = Sync_tl(
     "wgmma_fence_1",
     False,
-    [Qual_tl(cuda_in_order_instr, cuda_sync_rmem_usage)] + _wgmma_rmem_qual,
+    [cuda_in_order_rmem_qual] + _wgmma_rmem_quals,
 )
 
 """wgmma instructions' actions on registers;
 this is the second sync-tl of wgmma.fence"""
-wgmma_fence_2 = Sync_tl("wgmma_fence_2", False, _wgmma_rmem_qual)
+wgmma_fence_2 = Sync_tl("wgmma_fence_2", False, _wgmma_rmem_quals)
 
 """wgmma instructions"""
 wgmma_async = Sync_tl(
-    "wgmma_async", False, _wgmma_async_qual, for_instr_tl=wgmma_async_instr
+    "wgmma_async", False, _wgmma_async_quals, for_instr_tl=wgmma_async_instr
 )
 
 """CUDA async proxy (TMA and wgmma, excluding register access)"""
-cuda_async_proxy = Sync_tl("cuda_async_proxy", False, _cuda_async_proxy_qual)
+cuda_async_proxy = Sync_tl("cuda_async_proxy", False, _cuda_async_proxy_quals)
 
 """CUDA async proxy + wgmma register access"""
 cuda_async_proxy_wgmma = Sync_tl(
-    "cuda_async_proxy_wgmma", False, _cuda_async_proxy_qual + _wgmma_rmem_qual
+    "cuda_async_proxy_wgmma", False, _cuda_async_proxy_quals + _wgmma_rmem_quals
 )
 
 """CUDA generic proxy + async proxy; temporal dependencies carried"""
 cuda_generic_and_async_proxy = Sync_tl(
     "cuda_generic_and_async_proxy",
     False,
-    _cuda_in_order_qual + _Sm80_cp_async_qual + _cuda_async_proxy_qual,
-    _cuda_device_qual,  # Temporal-only
+    _cuda_in_order_quals + _Sm80_cp_async_quals + _cuda_async_proxy_quals,
+    _cuda_device_quals,  # Temporal-only
 )

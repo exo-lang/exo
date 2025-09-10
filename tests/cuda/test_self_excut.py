@@ -58,13 +58,12 @@ def Sm80_test_proc():
             for cta in cuda_tasks(0, i * 2):
                 smem: f32[256] @ CudaSmemLinear
                 for tid in cuda_threads(0, 64):
-                    with CudaAsync(Sm80_cp_async_instr):
-                        # cp.async.cg.shared.global
-                        Sm80_cp_async_f32(
-                            smem[4 * tid : 4 * tid + 4],
-                            gmem[256 * cta + 4 * tid : 256 * cta + 4 * tid + 4],
-                            size=4,
-                        )
+                    # cp.async.cg.shared.global
+                    Sm80_cp_async_f32(
+                        smem[4 * tid : 4 * tid + 4],
+                        gmem[256 * cta + 4 * tid : 256 * cta + 4 * tid + 4],
+                        size=4,
+                    )
                 # barrier.cta.sync 0
                 Fence(cuda_in_order, cuda_in_order)
 

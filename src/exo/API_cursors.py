@@ -20,7 +20,7 @@ from .core.internal_cursors import InvalidCursorError
 from .core.LoopIR_pprint import _print_cursor
 from .rewrite.LoopIR_scheduling import SchedulingError
 
-from .spork.timelines import Instr_tl, Usage_tl, Sync_tl
+from .spork.timelines import Instr_tl, Sync_tl
 from .spork.sync_types import SyncType
 
 # --------------------------------------------------------------------------- #

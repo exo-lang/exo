@@ -144,27 +144,26 @@ def test_cp_async_fence_saxpy(compiler_Sm80):
                 scratch_y: f32[2, scratch_size] @ CudaSmemLinear
                 for i in seq(0, elements_per_task / 256 + 1):
                     if i < elements_per_task / scratch_size:
-                        with CudaAsync(Sm80_cp_async):
-                            with CudaWarps(0, 2):
-                                for tid in cuda_threads(0, 64, unit=cuda_thread):
-                                    Sm80_cp_async_f32(
-                                        scratch_x[i % 2, tid * 4 : tid * 4 + 4],
-                                        device_x[ task * 1024 + i *
-                                            256 + tid * 4 : task *
-                                            1024 + i * 256 + tid * 4 +
-                                            4 ],
-                                        size=4,  # Use size=1 (and omit syntax) for the talk example
-                                    )
-                            with CudaWarps(2, 4):
-                                for tid in cuda_threads(0, 64, unit=cuda_thread):
-                                    Sm80_cp_async_f32(
-                                        scratch_y[i % 2, tid * 4 : tid * 4 + 4],
-                                        device_y[ task * 1024 + i *
-                                            256 + tid * 4 : task *
-                                            1024 + i * 256 + tid * 4 +
-                                            4 ],
-                                        size=4,
-                                    )
+                        with CudaWarps(0, 2):
+                            for tid in cuda_threads(0, 64, unit=cuda_thread):
+                                Sm80_cp_async_f32(
+                                    scratch_x[i % 2, tid * 4 : tid * 4 + 4],
+                                    device_x[ task * 1024 + i *
+                                        256 + tid * 4 : task *
+                                        1024 + i * 256 + tid * 4 +
+                                        4 ],
+                                    size=4,  # Use size=1 (and omit syntax) for the talk example
+                                )
+                        with CudaWarps(2, 4):
+                            for tid in cuda_threads(0, 64, unit=cuda_thread):
+                                Sm80_cp_async_f32(
+                                    scratch_y[i % 2, tid * 4 : tid * 4 + 4],
+                                    device_y[ task * 1024 + i *
+                                        256 + tid * 4 : task *
+                                        1024 + i * 256 + tid * 4 +
+                                        4 ],
+                                    size=4,
+                                )
                     if i >= 1:
                         for j in seq(0, scratch_size / block_dim):
                             for tid in cuda_threads(0, 128, unit=cuda_thread):
@@ -607,23 +606,21 @@ def xgemm_Sm80_fence(M: size, N: size, K: size, A_host: f32[M,K], B_host: f32[K,
                 # 1 iteration delay between load and use.
                 for k1 in seq(0, K / K0 + 1):
                     if k1 < K / K0:
-                        with CudaAsync(Sm80_cp_async):
-                            # Load A tile
-                            for m1 in seq(0, M1 / 64):
-                                for m0 in cuda_threads(0, 64, unit=4 * cuda_thread):
-                                    for k0 in cuda_threads(0, 4, unit=cuda_thread):
-                                        Sm80_cp_async_f32(A_smem[k1 % 2, m1 * 64 + m0, 4 * k0 : 4 * k0 + 4],
-                                                          A[m2 * M1 + m1 * 64 + m0,
-                                                          k1 * K0 + k0 * 4 : k1 * K0 + k0 * 4 + 4], size=4)
+                        # Load A tile
+                        for m1 in seq(0, M1 / 64):
+                            for m0 in cuda_threads(0, 64, unit=4 * cuda_thread):
+                                for k0 in cuda_threads(0, 4, unit=cuda_thread):
+                                    Sm80_cp_async_f32(A_smem[k1 % 2, m1 * 64 + m0, 4 * k0 : 4 * k0 + 4],
+                                                      A[m2 * M1 + m1 * 64 + m0,
+                                                      k1 * K0 + k0 * 4 : k1 * K0 + k0 * 4 + 4], size=4)
 
-                            # Load B tile
-                            for k0_seq in seq(0, 4):
-                                for k0_par in cuda_threads(0, 4, unit=64 * cuda_thread):
-                                    for n0 in cuda_threads(0, 64, unit=cuda_thread):
-                                        Sm80_cp_async_f32(B_smem[k1 % 2, k0_seq * 4 + k0_par, 4 * n0 : 4 * n0 + 4],
-                                                          B[k1 * K0 + k0_seq * 4 + k0_par,
-                                                          n2 * N1 + 4 * n0 : n2 * N1 + 4 * n0 + 4], size=4)
-                        # end CudaAsync(Sm80_cp_async)
+                        # Load B tile
+                        for k0_seq in seq(0, 4):
+                            for k0_par in cuda_threads(0, 4, unit=64 * cuda_thread):
+                                for n0 in cuda_threads(0, 64, unit=cuda_thread):
+                                    Sm80_cp_async_f32(B_smem[k1 % 2, k0_seq * 4 + k0_par, 4 * n0 : 4 * n0 + 4],
+                                                      B[k1 * K0 + k0_seq * 4 + k0_par,
+                                                      n2 * N1 + 4 * n0 : n2 * N1 + 4 * n0 + 4], size=4)
                 # for-k1 (K tiles) loop continues
                     if k1 > 0:
                         for mw in cuda_threads(0, M1 / Mw, unit=(N1/Nw) * cuda_warp):
@@ -652,7 +649,7 @@ def xgemm_Sm80_fence(M: size, N: size, K: size, A_host: f32[M,K], B_host: f32[K,
                                                           A_rmem[k_seq,:,:],
                                                           B_rmem[k_seq,n_seq,:,:], K=MMA_K)
 
-                    # Sm80_generic actor kind = (cuda_in_order | Sm80_cp_async)
+                    # Sm80_generic sync-tl = (cuda_in_order | Sm80_cp_async)
                     Fence(Sm80_generic, Sm80_generic)
 
                 # for-k1 (K tiles) loop ends

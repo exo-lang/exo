@@ -25,7 +25,7 @@ from .prelude import (
     ScalarInfo,
 )
 
-from ..spork.timelines import Instr_tl, Usage_tl, cpu_in_order_instr
+from ..spork.timelines import Instr_tl, cpu_in_order_instr
 from ..spork.base_with_context import BaseWithContext
 from ..spork.coll_algebra import CollUnit, standalone_thread
 from ..spork.loop_modes import LoopMode
@@ -713,7 +713,7 @@ del is_barrier
 
 
 @extclass(LoopIR.proc)
-def proc_instr_tl(f):
+def proc_instr_tl(f) -> Instr_tl:
     """Return instr-tl in scope needed to call a proc.
 
     For now, any non-instr procs are assumed to require 1 CPU thread.

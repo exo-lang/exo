@@ -2,15 +2,12 @@ from dataclasses import dataclass
 from typing import Dict, List, Type, Optional
 from .memory import DRAM, MemWin, AllocableMemWin, Memory, SpecialWindow, BarrierType
 from ..spork.coll_algebra import CollUnit
-from ..spork.timelines import Instr_tl, Usage_tl
+from ..spork.timelines import Instr_tl
 
 
 @dataclass(slots=True)
 class AccessInfo:
     mem: Type[MemWin] = DRAM
-    usage_tl: Usage_tl = None
-    ext_instr_tl: List[Instr_tl] = tuple()
-    ext_usage_tl: List[Usage_tl] = tuple()
     out_of_order: bool = None
     access_by_owner_only: Optional[bool] = None
     const: bool = False
