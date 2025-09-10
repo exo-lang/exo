@@ -136,6 +136,7 @@ class ProgramPrinter
         print_tabs();
         *this << "b.MutateValue(" << node->name;
         print_idx(node);
+        binop_no_parens_flag = true;
         *this << ", \"" << node->op << "\", " << node->rhs << ")\n";
     }
 
@@ -230,6 +231,7 @@ class ProgramPrinter
     void operator() (const If* node)
     {
         print_tabs();
+        binop_no_parens_flag = true;
         *this << "with b.If(" << node->cond << "):\n";
         indent_levels++;
         *this << node->body;
@@ -243,7 +245,10 @@ class ProgramPrinter
     void operator() (const SeqFor* node)
     {
         print_tabs();
-        *this << "with b.SeqFor(" << node->iter << ", " << node->lo << ", " << node->hi << "):\n";
+        binop_no_parens_flag = true;
+        *this << "with b.SeqFor(" << node->iter << ", " << node->lo;
+        binop_no_parens_flag = true;
+        *this << ", " << node->hi << "):\n";
         indent_levels++;
         *this << node->body;
         indent_levels--;
@@ -252,7 +257,10 @@ class ProgramPrinter
     void operator() (const TasksFor* node)
     {
         print_tabs();
-        *this << "with b.TasksFor(" << node->iter << ", " << node->lo << ", " << node->hi << "):\n";
+        binop_no_parens_flag = true;
+        *this << "with b.TasksFor(" << node->iter << ", " << node->lo;
+        binop_no_parens_flag = true;
+        *this << ", " << node->hi << "):\n";
         indent_levels++;
         *this << node->body;
         indent_levels--;
@@ -261,8 +269,10 @@ class ProgramPrinter
     void operator() (const ThreadsFor* node)
     {
         print_tabs();
-        *this << "with b.ThreadsFor(" << node->iter << ", " << node->lo << ", " << node->hi
-               << ", " << node->dim_idx << ", " << node->offset << ", " << node->box << "):\n";
+        binop_no_parens_flag = true;
+        *this << "with b.ThreadsFor(" << node->iter << ", " << node->lo;
+        binop_no_parens_flag = true;
+        *this << ", " << node->hi << ", " << node->dim_idx << ", " << node->offset << ", " << node->box << "):\n";
         indent_levels++;
         *this << node->body;
         indent_levels--;
@@ -308,9 +318,7 @@ class ProgramPrinter
 
     ProgramPrinter<Stream, StmtRefRemarksCallback>& operator<<(ExprRef expr)
     {
-        binop_no_parens_flag = true;
         expr.dispatch(*this, buffer_size, program_buffer);
-        binop_no_parens_flag = false;
         return *this;
     }
 
@@ -367,8 +375,10 @@ class ProgramPrinter
 
         const uint32_t dim = node->camspork_vla_size;
         if (dim) {
+            binop_no_parens_flag = true;
             *this << "[" << get_e(0);
             for (uint32_t i = 1; i < dim; ++i) {
+                binop_no_parens_flag = true;
                 *this << ", " << get_e(i);
             }
             *this << "]";
