@@ -216,8 +216,8 @@ class MemWin(ABC):
         )
 
     @classmethod
-    def device_permission(cls, device: DeviceScope):
-        """For a given DeviceScope, return a string of permission letters.
+    def device_permission(cls, device: DeviceScope, instr_tl: Instr_tl):
+        """For a given DeviceScope + Instr_tl return a string of permission letters.
 
         r: read
         w: write

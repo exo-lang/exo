@@ -4,7 +4,7 @@ from warnings import warn
 
 from .timelines import (
     DeviceScope,
-    Sync_tl,
+    Instr_tl,
     cpu_basic_device,
     cuda_basic_device,
 )
@@ -230,16 +230,24 @@ class CudaDeviceFunction(BaseAsyncConfig):
 
 
 class DeviceScopeAnalysis(LoopIR_Rewrite):
-    __slots__ = ["device", "devices_seen", "sym_memwin", "contains_sync"]
+    __slots__ = [
+        "device",
+        "default_instr_tl",
+        "devices_seen",
+        "mem_env",
+        "contains_sync",
+    ]
 
     def __init__(self):
         self.device = cpu_basic_device  # Currently inspected scope's instr-tl
+        self.default_instr_tl = cpu_basic_device.get_default_instr_tl()
         self.devices_seen = {cpu_basic_device}
-        self.sym_memwin = dict()  # Sym -> MemWin type
+        self.mem_env = dict()  # Sym -> MemWin type
         self.contains_sync = False
 
     def map_s(self, s):
         old_device = self.device
+        old_default_instr_tl = self.default_instr_tl
 
         if is_if_holding_with(s, LoopIR):
             ctx = s.cond.val
@@ -253,11 +261,13 @@ class DeviceScopeAnalysis(LoopIR_Rewrite):
                 device = ctx.get_child_device()
                 self.device = device
                 self.devices_seen.add(device)
+                self.default_instr_tl = device.get_default_instr_tl()
         else:
             self.inspect_s(s)
 
         super().map_s(s)
         self.device = old_device
+        self.default_instr_tl = old_default_instr_tl
 
     def map_e(self, e):
         self.inspect_e(e)
@@ -268,41 +278,41 @@ class DeviceScopeAnalysis(LoopIR_Rewrite):
             if not s.type.is_numeric():
                 return
 
-            memwin = self.sym_memwin[s.name]
-            perm = memwin.device_permission(self.device)
+            mem = self.mem_env[s.name]
+            perm = mem.device_permission(self.device, self.default_instr_tl)
             if "w" in perm:
                 assert "r" in perm, "Not supported: write without read permission"
             else:
-                self.warn_weird_letters(memwin, perm)
+                self.warn_weird_letters(mem, perm)
                 action = "mutable access" if "r" in perm else "any access"
                 raise TypeError(
                     f"{s.srcinfo}: {s.name} @ "
-                    f"{memwin.name()} does not allow {action} in a "
+                    f"{mem.name()} does not allow {action} in a "
                     f"scope using {self.device}"
                 )
         elif isinstance(s, LoopIR.SyncStmt):
             self.contains_sync = True
             if s.sync_type.is_split():
                 for e in s.barriers:
-                    memwin = self.sym_memwin[e.name]
-                    perm = memwin.device_permission(self.device)
+                    mem = self.mem_env[e.name]
+                    perm = mem.device_permission(self.device, self.default_instr_tl)
                     if "w" in perm:
                         assert (
                             "r" in perm
                         ), "Not supported: write without read permission"
                     else:
-                        self.warn_weird_letters(memwin, perm)
+                        self.warn_weird_letters(mem, perm)
                         raise TypeError(
                             f"{s.srcinfo}: {e.name} (barrier type "
-                            f"{memwin.name()}) does not allow SyncStmt in a "
+                            f"{mem.name()}) does not allow SyncStmt in a "
                             f"scope using {self.device}"
                         )
         elif isinstance(s, LoopIR.Alloc):
             self.contains_sync |= s.type.is_barrier()
             mem = s.mem or DRAM
-            self.sym_memwin[s.name] = mem
+            self.mem_env[s.name] = mem
             assert issubclass(mem, AllocableMemWin)
-            perm = mem.device_permission(self.device)
+            perm = mem.device_permission(self.device, self.default_instr_tl)
             if "c" not in perm:
                 self.warn_weird_letters(mem, perm)
                 raise TypeError(
@@ -312,13 +322,13 @@ class DeviceScopeAnalysis(LoopIR_Rewrite):
                 )
         elif isinstance(s, LoopIR.WindowStmt):
             special_window = s.special_window
-            self.sym_memwin[s.name] = special_window or self.sym_memwin[s.rhs.name]
+            self.mem_env[s.name] = special_window or self.mem_env[s.rhs.name]
 
             if not special_window:
                 return
 
             assert issubclass(special_window, SpecialWindow)
-            perm = special_window.device_permission(self.device)
+            perm = special_window.device_permission(self.device, self.default_instr_tl)
             if "c" not in perm:
                 self.warn_weird_letters(special_window, perm)
                 raise TypeError(
@@ -328,33 +338,49 @@ class DeviceScopeAnalysis(LoopIR_Rewrite):
                 )
         elif isinstance(s, LoopIR.Call):
             callee = s.f
-            needed = callee.proc_instr_tl()
-            if not self.device.allows_instr_tl(needed):
+            instr_tl = callee.proc_instr_tl()
+            if not self.device.allows_instr_tl(instr_tl):
+                assert isinstance(instr_tl, Instr_tl)
                 raise TypeError(
-                    f"{s.srcinfo}: {callee.name}() has instr-tl {needed}; "
+                    f"{s.srcinfo}: {callee.name}() has instr-tl {instr_tl}; "
                     f"not allowed in scope using {self.device}"
                 )
-            # TODO validate per-parameter!
+            assert len(s.args) == len(callee.args)
+            if callee.instr:
+                for caller_a, callee_a in zip(s.args, callee.args):
+                    # NB not using memory types in callee; the permissions
+                    # may change due to inherintance.
+                    mem = self.mem_env[caller_a.name]
+                    is_const = callee.is_const_param(callee_a.name)
+                    perm = mem.device_permission(self.device, instr_tl)
+                    letter = "r" if is_const else "w"
+                    if letter not in perm:
+                        action = "mutable access" if "r" in perm else "any access"
+                        raise TypeError(
+                            f"{caller_a.srcinfo}: {caller_a} @ {mem.name()} "
+                            f"does not allow {action} in a scope using {self.device} "
+                            f"(in call to {callee.name} with instr-tl {instr_tl})"
+                        )
 
     def inspect_e(self, e):
         if isinstance(e, LoopIR.Read) and e.type.is_numeric():
-            memwin = self.sym_memwin[e.name]
-            perm = memwin.device_permission(self.device)
+            mem = self.mem_env[e.name]
+            perm = mem.device_permission(self.device, self.default_instr_tl)
             if "r" not in perm:
                 assert "w" not in perm, "Not supported: write without read permission"
                 raise TypeError(
                     f"{e.srcinfo}: {e.name} @ "
-                    f"{memwin.name()} does not allow reads in a "
+                    f"{mem.name()} does not allow reads in a "
                     f"scope using {self.device}"
                 )
 
     def run(self, proc):
         for arg in proc.args:
-            memwin = arg.mem or DRAM
-            self.sym_memwin[arg.name] = memwin
+            mem = arg.mem or DRAM
+            self.mem_env[arg.name] = mem
         return super().apply_proc(proc)
 
-    def warn_weird_letters(self, memwin, perm):
+    def warn_weird_letters(self, mem, perm):
         for c in perm:
             if c not in "rwc":
-                warn(f"{memwin.name()}.device_permission gave unknown letter {c!r}")
+                warn(f"{mem.name()}.device_permission gave unknown letter {c!r}")

@@ -239,8 +239,10 @@ def Sm90_tensorMap(swizzle, *smem_box):
             return ""
 
         @classmethod
-        def device_permission(cls, device):
-            return CudaBasicDeviceVisible.host_allocated_impl(device, pinned=False)
+        def device_permission(cls, device, instr_tl):
+            return CudaBasicDeviceVisible.host_allocated_impl(
+                device, instr_tl, pinned=False
+            )
 
         qual_tl_dict = cuda_ram_qual_tl_dict
 
@@ -922,8 +924,8 @@ def Sm90_RmemMatrixD(M, N):
         }
 
         @classmethod
-        def device_permission(cls, device):
-            return cls.device_allocated_impl(device)
+        def device_permission(cls, device, instr_tl):
+            return cls.device_allocated_impl(device, instr_tl)
 
         @classmethod
         def native_unit(cls):

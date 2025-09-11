@@ -104,8 +104,8 @@ class Sm80_BasicRmemMatrix(CudaBasicDeviceVisible):
         return ""
 
     @classmethod
-    def device_permission(cls, device):
-        return cls.device_allocated_impl(device)
+    def device_permission(cls, device, instr_tl):
+        return cls.device_allocated_impl(device, instr_tl)
 
     qual_tl_dict = cuda_rmem_qual_tl_dict
 

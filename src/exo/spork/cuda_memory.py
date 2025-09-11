@@ -42,7 +42,7 @@ class CudaBasicDeviceVisible(Memory):
 
     @classmethod
     @abstractmethod
-    def device_permission(cls, device):
+    def device_permission(cls, device, instr_tl):
         raise NotImplementedError()
 
     @classmethod
@@ -51,7 +51,7 @@ class CudaBasicDeviceVisible(Memory):
         raise NotImplementedError()
 
     @classmethod
-    def device_allocated_impl(cls, device):
+    def device_allocated_impl(cls, device, instr_tl):
         """Only allocated and used on the CUDA device"""
         if device == timelines.cuda_basic_device:
             return "rwc"
@@ -59,9 +59,11 @@ class CudaBasicDeviceVisible(Memory):
             return ""
 
     @classmethod
-    def host_allocated_impl(cls, device, pinned):
+    def host_allocated_impl(cls, device, instr_tl, pinned):
         """Allocated on the CPU and accessed on the CUDA device"""
-        if device == timelines.cpu_basic_device:
+        if instr_tl == timelines.cpu_cuda_stream_instr:
+            return "rwc"
+        elif device == timelines.cpu_basic_device:
             return "rwc" if pinned else "c"
         elif device == timelines.cuda_basic_device:
             return "rw"
@@ -69,7 +71,7 @@ class CudaBasicDeviceVisible(Memory):
             return ""
 
     @classmethod
-    def grid_constant_impl(cls, device):
+    def grid_constant_impl(cls, device, instr_tl):
         if device == timelines.cpu_basic_device:
             return "rwc"
         elif device == timelines.cuda_basic_device:
@@ -130,8 +132,8 @@ class CudaBasicSmem(CudaBasicDeviceVisible):
     All allocations can only be lowered if their shape is a constant."""
 
     @classmethod
-    def device_permission(cls, device):
-        return cls.device_allocated_impl(device)
+    def device_permission(cls, device, instr_tl):
+        return cls.device_allocated_impl(device, instr_tl)
 
     @classmethod
     def native_unit(cls):
@@ -209,8 +211,8 @@ class CudaGridConstant(CudaDeviceVisibleLinear, DRAM):
         return ""
 
     @classmethod
-    def device_permission(cls, device):
-        return cls.grid_constant_impl(device)
+    def device_permission(cls, device, instr_tl):
+        return cls.grid_constant_impl(device, instr_tl)
 
     qual_tl_dict = timelines.cuda_ram_qual_tl_dict
 
@@ -287,8 +289,8 @@ class CudaGmemLinear(CudaDeviceVisibleLinear):
         return f"exo_cudaFreeAsync({new_name}, exo_cudaStream);"
 
     @classmethod
-    def device_permission(cls, device):
-        return cls.host_allocated_impl(device, pinned=False)
+    def device_permission(cls, device, instr_tl):
+        return cls.host_allocated_impl(device, instr_tl, pinned=False)
 
     qual_tl_dict = timelines.cuda_ram_qual_tl_dict
 
@@ -320,8 +322,8 @@ class CudaRmem(CudaDeviceVisibleLinear):
         return ""
 
     @classmethod
-    def device_permission(cls, device):
-        return cls.device_allocated_impl(device)
+    def device_permission(cls, device, instr_tl):
+        return cls.device_allocated_impl(device, instr_tl)
 
     @classmethod
     def native_unit(cls):
@@ -339,7 +341,7 @@ class CudaEvent(BarrierType):
 
 class CudaDeviceBarrier(BarrierType):
     @classmethod
-    def device_permission(cls, device):
+    def device_permission(cls, device, instr_tl):
         return "rwc" if device == timelines.cuda_basic_device else ""
 
     qual_tl_dict = timelines.cuda_ram_qual_tl_dict

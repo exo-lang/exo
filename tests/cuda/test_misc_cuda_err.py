@@ -326,6 +326,57 @@ def test_gmem_in_cuda(compiler):
     )
 
 
+@instr
+class TestCopy4:
+    def behavior(
+        dst: [f32][4] @ CudaDeviceVisibleLinear, src: [f32][4] @ CudaDeviceVisibleLinear
+    ):
+        for i in seq(0, 4):
+            dst[i] = src[i]
+
+    def instance(self):
+        self.instr_tl = cuda_in_order_instr
+
+    def codegen(self, args: InstrArgs):
+        return [
+            f"{args.dst.index(0)} = {args.src.index(0)};",
+            f"{args.dst.index(1)} = {args.src.index(1)};",
+            f"{args.dst.index(2)} = {args.src.index(2)};",
+            f"{args.dst.index(3)} = {args.src.index(3)};",
+        ]
+
+
+def mkproc_CudaGridConstant_instr(DstMem, SrcMem):
+    @proc
+    def test_proc(dst: f32[4] @ DstMem, src: f32[4] @ SrcMem):
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                for tid in cuda_threads(0, 1):
+                    TestCopy4(dst[:], src[:])
+
+    return test_proc
+
+
+def test_CudaGridConstant_instr_positive(compiler):
+    compiler.cuda_cpu_test(
+        mkproc_CudaGridConstant_instr, DstMem=CudaGmemLinear, SrcMem=CudaGridConstant
+    )
+
+
+def test_CudaGridConstant_instr_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(
+            mkproc_CudaGridConstant_instr,
+            DstMem=CudaGridConstant,
+            SrcMem=CudaGmemLinear,
+        )
+    assert (
+        "CudaGridConstant does not allow mutable access in a scope using cuda_basic_device"
+        in str(exc.value)
+    )
+    assert "(in call to TestCopy4 with instr-tl cuda_in_order_instr)" in str(exc.value)
+
+
 def test_window_device(compiler):
     @proc
     def test_proc(M: size, N: size, gmem: f32[M, N] @ CudaGmemLinear):
