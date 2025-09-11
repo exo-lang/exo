@@ -19,7 +19,7 @@ class BuilderExpr:
         elif isinstance(item, ExprRef):
             return item
         else:
-            assert isinstance(item, BuilderExpr), "expected int, ExprRef, Varname, or BuilderExpr (consider tuple(...) if you intended multidimensional indexing)"
+            assert isinstance(item, BuilderExpr), f"{type(item)}, expected int, ExprRef, Varname, or BuilderExpr (consider tuple(...) if you intended multidimensional indexing)"
             return item
 
     def __add__(self, other):

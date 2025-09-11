@@ -10,7 +10,7 @@ BinOpNames::BinOpNames()
     names[static_cast<uint32_t>(binop::Add)] = "+";
     names[static_cast<uint32_t>(binop::Sub)] = "-";
     names[static_cast<uint32_t>(binop::Mul)] = "*";
-    names[static_cast<uint32_t>(binop::Div)] = "/";
+    names[static_cast<uint32_t>(binop::Div)] = "//";
     names[static_cast<uint32_t>(binop::Mod)] = "%";
     names[static_cast<uint32_t>(binop::Less)] = "<";
     names[static_cast<uint32_t>(binop::Leq)] = "<=";
@@ -29,6 +29,7 @@ BinOpTable::BinOpTable()
     entries_by_char['-'][0] = BinOpTableEntry{'\0', binop::Sub};
     entries_by_char['*'][0] = BinOpTableEntry{'\0', binop::Mul};
     entries_by_char['/'][0] = BinOpTableEntry{'\0', binop::Div};
+    entries_by_char['/'][1] = BinOpTableEntry{'/', binop::Div};
     entries_by_char['%'][0] = BinOpTableEntry{'\0', binop::Mod};
     entries_by_char['<'][0] = BinOpTableEntry{'\0', binop::Less};
     entries_by_char['<'][1] = BinOpTableEntry{'=', binop::Leq};

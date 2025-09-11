@@ -767,7 +767,9 @@ def chain_window_idx(idx0, idx1):
             e1 = idx1[i1]
             i1 += 1
             srcinfo = e1.srcinfo  # newer srcinfo likely more relevant
-            if isinstance(e1, LoopIR.Point):
+            if isinstance(e1, LoopIR.expr):
+                chained_idx[i0] = add_e(e0.lo, e1)
+            elif isinstance(e1, LoopIR.Point):
                 chained_idx[i0] = LoopIR.Point(add_e(e0.lo, e1.pt), srcinfo)
             else:
                 # Note e0.hi unused ... not responsibility here to do

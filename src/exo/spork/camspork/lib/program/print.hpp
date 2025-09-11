@@ -154,10 +154,10 @@ class ProgramPrinter
         *this << ", " << node->name;
         print_idx(node);
         const auto dim = node->camspork_vla_size;
+        // multicasts: transpose bits in multicast_per_expr to recover this.
+        *this << ", multicasts=(";
+        for (uint32_t expr_idx = 0; expr_idx < 32; ++expr_idx) {
         if (dim > 0) {
-            // multicasts: transpose bits in multicast_per_expr to recover this.
-            *this << ", multicasts=(";
-            for (uint32_t expr_idx = 0; expr_idx < 32; ++expr_idx) {
             CAMSPORK_REQUIRE_CMP(dim, <=, 32, "sorry, too many dims in Arrive to handle");
                 uint32_t multicast_flag_bits = 0;
                 for (uint32_t dim_idx = 0; dim_idx < dim; ++dim_idx) {
@@ -173,9 +173,8 @@ class ProgramPrinter
                     *this << "), ";
                 }
             }
-            *this << ")";
         }
-        *this << ")\n";
+        *this << "))\n";
     }
 
     void operator() (const Await* node)
@@ -183,7 +182,14 @@ class ProgramPrinter
         print_tabs();
         *this << "b.Await(" << node->name;
         print_idx(node);
-        *this << ", " << node->L2_full_qual_bits << ", " << node->L2_temporal_qual_bits << ", N=" << node->N << ")\n";
+        const auto N = node->N;
+        *this << ", " << node->L2_full_qual_bits << ", " << node->L2_temporal_qual_bits << ", N=";
+        if (N >= 0) {
+            *this << N << ")\n";
+        }
+        else {
+            *this << "~" << ~N << ")\n";
+        }
     }
 
     void operator() (const ValueEnvAlloc* node)

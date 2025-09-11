@@ -474,7 +474,7 @@ class CollAnalysis(LoopIR_Rewrite):
 
         self._current_warp_name = name
 
-        # (2/2) Ajdust CollTiling for lo/hi offset.
+        # (2/2) Adjust CollTiling for lo/hi offset.
         try:
             coll_tiling = coll_tiling.specialized(
                 cuda_warp, warps_lo, warps_hi, self._coll_env

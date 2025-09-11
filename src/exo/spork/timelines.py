@@ -204,6 +204,7 @@ cuda_ram_qual_tl_dict = {
     wgmma_async_instr: wgmma_async_smem_qual,
 }
 
+
 _cuda_in_order_quals = [
     cuda_in_order_rmem_qual,
     cuda_in_order_ram_qual,
@@ -219,6 +220,8 @@ _wgmma_async_quals = [
 _tcgen05_async_quals = [
     tcgen05_TODO_qual,  # Placeholder, for future tcgen05 work.
 ]
+
+# Intentionally excludes wgmma_zero_qual
 _cuda_device_quals = (
     _cuda_in_order_quals
     + [cpu_cuda_stream_qual]

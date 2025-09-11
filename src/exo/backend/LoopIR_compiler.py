@@ -444,6 +444,7 @@ def ext_compile_to_strings(
                     barrier_uses = barrier_usage_analysis.uses
                     coll_analysis = CollAnalysis(barrier_usage_analysis, debug_log)
                     p = coll_analysis.run(p)
+                    debug_log.log(p.name, "coll_analysis", p)
                     # TODO tmp
                     sync_syms = set(nm for (nm, typ) in get_writes_of_stmts(p.body))
                     camspork_program = sync_check.coll_analysis_to_camspork(
