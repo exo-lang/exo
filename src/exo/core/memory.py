@@ -24,10 +24,12 @@ from typing import Optional, Set, Type, Dict
 from ..spork.timelines import (
     Instr_tl,
     cpu_in_order_instr,
+    cpu_cuda_stream_instr,
     DeviceScope,
     cpu_basic_device,
     Qual_tl,
     cpu_in_order_qual,
+    cpu_cuda_stream_qual,
 )
 from .prelude import ScalarInfo
 from .c_window import (
@@ -247,7 +249,10 @@ class MemWin(ABC):
     This is needed to handle MemWin inheritance correctly.
     """
     qual_tl_dict: Dict[Instr_tl, Qual_tl | List[Qual_tl]]
-    qual_tl_dict = {cpu_in_order_instr: cpu_in_order_qual}
+    qual_tl_dict = {
+        cpu_in_order_instr: cpu_in_order_qual,
+        cpu_cuda_stream_instr: cpu_cuda_stream_qual,
+    }
 
     @classmethod
     def packed_tensor_shape(cls, scalar_info: ScalarInfo) -> List[int]:
