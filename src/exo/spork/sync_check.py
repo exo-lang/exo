@@ -237,17 +237,20 @@ class CamsporkDo(LoopIR_Do):
                 fnarg_type = callee_a.type
                 if not fnarg_type.is_numeric():
                     continue
+                if caller_a.name not in self._sync_syms:
+                    continue
                 arg_info: AccessInfo = instr.access_info[str(callee_a.name)]
                 dst_lo, extent = self.comp_fnarg(fnarg_type, caller_a, instr_tl)
-                initial_q, ext_q = self.get_qual_bits(caller_a, instr_tl)
-                b.SyncEnvAccess(
-                    dst_lo,
-                    initial_q,
-                    ext_q,
-                    is_mutate=not arg_info.const,
-                    is_ooo=arg_info.out_of_order,
-                    extent=extent,
-                )
+                if dst_lo is not None:
+                    initial_q, ext_q = self.get_qual_bits(caller_a, instr_tl)
+                    b.SyncEnvAccess(
+                        dst_lo,
+                        initial_q,
+                        ext_q,
+                        is_mutate=not arg_info.const,
+                        is_ooo=arg_info.out_of_order,
+                        extent=extent,
+                    )
                 # TODO distributed memory, trailing barrier, atomic
 
         else:
