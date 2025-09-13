@@ -348,6 +348,9 @@ class DeviceScopeAnalysis(LoopIR_Rewrite):
             assert len(s.args) == len(callee.args)
             if callee.instr:
                 for caller_a, callee_a in zip(s.args, callee.args):
+                    # Inspect only numeric (data) arguments, not control type arguments.
+                    if not callee_a.type.is_numeric():
+                        continue
                     # NB not using memory types in callee; the permissions
                     # may change due to inherintance.
                     mem = self.mem_env[caller_a.name]

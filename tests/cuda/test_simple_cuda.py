@@ -563,6 +563,11 @@ def xgemm_Sm80_fence(M: size, N: size, K: size, A_host: f32[M,K], B_host: f32[K,
     assert K % K0 == 0
     assert K % 32 == 0
 
+    # TODO we shouldn't need this (for commented out asserts in cudaMemcpyAsync)
+    assert stride(A_host, 0) == K
+    assert stride(B_host, 0) == N
+    assert stride(C_host, 0) == N
+
     A: f32[M, K] @ CudaGmemLinear
     B: f32[K, N] @ CudaGmemLinear
     C: f32[M, N] @ CudaGmemLinear
