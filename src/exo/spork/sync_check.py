@@ -50,7 +50,7 @@ class CamsporkDo(LoopIR_Do):
     ):
         self.proc = p
         self._builder = builder
-        self._coll_analysis = coll_analysis
+        self._coll_analysis = coll_analysis  # Remove if we never use this.
         self._value_syms = value_syms
         self._sync_syms = sync_syms
         self._envtyp = {}
@@ -167,37 +167,23 @@ class CamsporkDo(LoopIR_Do):
         elif isinstance(s, LoopIR.For):
             if s.iter not in self._value_syms:
                 b.add_variable(s.iter)
-            am_iter = b.get_varname(s.iter)
+            am_iter = b[s.iter]
             am_lo = self.comp_e(s.lo, True, instr_tl)
             am_hi = self.comp_e(s.hi, True, instr_tl)
             loop_mode = s.loop_mode
             if isinstance(loop_mode, Seq):
-                am_ctx = b.SeqFor(am_iter, am_lo, am_hi)
+                with b.SeqFor(am_iter, am_lo, am_hi):
+                    self.do_stmts(s.body)
             elif isinstance(loop_mode, CudaTasks):
-                am_ctx = b.TasksFor(am_iter, am_lo, am_hi)
+                with b.TasksFor(am_iter, am_lo, am_hi):
+                    self.do_stmts(s.body)
             elif isinstance(loop_mode, _CodegenPar):
-                thread_iter: ThreadIter = self._coll_analysis.thread_iters[s.iter]
-                coll_tiling = thread_iter.coll_tiling
-                # TODO CudaWarps wrong since it uses CollTiling.specialized(...) twice.
-                # assert not coll_tiling.split_idx_factors, "TODO DomainSplit"
-                dim_idx = coll_tiling.dim_idx
-                if dim_idx is None:
-                    am_ctx = b.SeqFor(am_iter, 0, 1)
-                else:
-                    offset = coll_tiling.offset_from_parent  # NOT offset[dim_idx]
-                    box = coll_tiling.box[dim_idx]
-                    am_ctx = b.ThreadsFor(am_iter, am_lo, am_hi, dim_idx, offset, box)
+                self.do_codegen_par(s, 0, am_iter, am_lo, am_hi)
             else:
                 assert not isinstance(loop_mode, CudaThreads), "Need CollAnalysis"
                 raise TypeError(
                     f"{s.srcinfo}: unexpected loop mode {loop_mode.loop_mode_name()}"
                 )
-
-            if am_ctx is None:
-                self.do_stmts(s.body)
-            else:
-                with am_ctx:
-                    self.do_stmts(s.body)
         elif isinstance(s, LoopIR.WindowStmt):
             self._envtyp[s.name] = s.rhs.type
             self._mem_env[s.name] = s.special_window or self._mem_env[s.rhs.name]
@@ -255,6 +241,24 @@ class CamsporkDo(LoopIR_Do):
 
         else:
             super().do_s(s)
+
+    def do_codegen_par(self, s: LoopIR.For, split_idx: int, am_iter, am_lo, am_hi):
+        b = self._builder
+        loop_mode = s.loop_mode
+        am_idx_factors = loop_mode.am_idx_factors
+        if split_idx < len(am_idx_factors):
+            dim_idx, split_factor = am_idx_factors[split_idx]
+            with b.DomainSplit(dim_idx, split_factor):
+                self.do_codegen_par(s, split_idx + 1, am_iter, am_lo, am_hi)
+        elif None is (dim_idx := loop_mode.am_dim_idx):
+            # Do-nothing parallel-for loop.
+            with b.SeqFor(am_iter, am_lo, am_hi):
+                self.do_stmts(s.body)
+        else:
+            with b.ThreadsFor(
+                am_iter, am_lo, am_hi, dim_idx, loop_mode.am_offset, loop_mode.am_box
+            ):
+                self.do_stmts(s.body)
 
     # We emit SyncEnvRead for all reads found (filtered by sync_syms)
     # and translate the LoopIR expr to a camspork.BuilderExpr.

@@ -406,6 +406,8 @@ class CollTiling(object):
     intra_box_exprs: Tuple[CollIndexExpr]
     tile_count: int
     tile_expr: CollIndexExpr
+
+    # See block comment.
     codegen_expr: CollIndexExpr
     codegen_lo: Optional[int]
     codegen_hi: Optional[int]
@@ -413,11 +415,15 @@ class CollTiling(object):
 
     # Advice for compiling to abstract machine ThreadsFor loop (am_threads).
     # Index of dimension to subdivide (ThreadsFor::dim_idx)
-    dim_idx: Optional[int]
+    # TODO this is really less-than-clear.
+    codegen_dim_idx: Optional[int]
     # DomainSplit (dim_idx, split_factor)
-    split_idx_factors: List[Tuple[int, int]]
+    codegen_idx_factors: List[Tuple[int, int]]
     # ThreadsFor::offset; not cumulative, unlike offset: Tuple[int]
-    offset_from_parent: int
+    # This is just diff
+    codegen_partial_offset: int
+    # ThreadsFor::box,
+    codegen_box: int
 
     """Advice for lowering a collective tiling or specialization:
 
@@ -482,9 +488,10 @@ class CollTiling(object):
         self.codegen_hi = codegen_hi
         self.thread_pitch = thread_pitch
 
-        self.dim_idx = None
-        self.split_idx_factors = ()
-        self.offset_from_parent = 0
+        self.codegen_dim_idx = None
+        self.codegen_idx_factors = ()
+        self.codegen_partial_offset = 0
+        self.codegen_box = 0
 
     def __repr__(self):
         return f"CollTiling({self.parent!r}, {self.iter!r}, {self.full_domain!r}, {self.tile!r}, {self.offset!r}, {self.box!r}, {self.intra_box_exprs!r}, {self.tile_count!r}, {self.tile_expr!r})"
@@ -547,6 +554,7 @@ class CollTiling(object):
         codegen_lo = None
         codegen_hi = None
         thread_pitch = 0
+        unit_box_coord = 0
         for dim_idx, unit_box_coord in enumerate(unit_completion.new_size(unit_box)):
             domain_coord = common_domain[dim_idx]
             box_coord = old_box[dim_idx]
@@ -607,9 +615,10 @@ class CollTiling(object):
             codegen_hi,
             thread_pitch,
         )
-        tiling.dim_idx = tiled_dim_idx
-        tiling.split_idx_factors = self_completion.idx_factors
-        tiling.offset_from_parent = 0
+        tiling.codegen_dim_idx = tiled_dim_idx
+        tiling.codegen_idx_factors = self_completion.idx_factors
+        tiling.codegen_partial_offset = 0
+        tiling.codegen_box = -1 if tiled_dim_idx is None else tiling.box[tiled_dim_idx]
         return tiling
 
     def specialized(
@@ -648,7 +657,7 @@ class CollTiling(object):
         tile_count = 1
         codegen_lo = None
         codegen_hi = None
-        offset_from_parent = 0
+        partial_offset = 0  # Additional offset introduced by this specialize(...)
         for dim_idx, unit_box_coord in enumerate(unit_completion.new_size(unit_box)):
             domain_coord = common_domain[dim_idx]
             box_coord = new_box[dim_idx]
@@ -666,11 +675,11 @@ class CollTiling(object):
                 if not (0 <= lo <= hi <= tile_count):
                     self.err(unit, hi, f"lo={lo}, hi={hi} invalid")
 
-                offset_from_parent = lo * unit_box_coord
+                partial_offset = lo * unit_box_coord
                 tiled_dim_idx = dim_idx
                 codegen_coll_index = new_exprs[dim_idx]  # before -= below
-                new_exprs[dim_idx] -= offset_from_parent
-                new_offset[dim_idx] += offset_from_parent
+                new_exprs[dim_idx] -= partial_offset
+                new_offset[dim_idx] += partial_offset  # +=, hence "partial"
                 new_box[dim_idx] = (hi - lo) * unit_box_coord
 
                 if lo != 0:
@@ -700,9 +709,10 @@ class CollTiling(object):
             codegen_hi,
             self.thread_pitch,
         )
-        tiling.dim_idx = tiled_dim_idx
-        tiling.split_idx_factors = self_completion.idx_factors
-        tiling.offset_from_parent = offset_from_parent
+        tiling.codegen_dim_idx = tiled_dim_idx
+        tiling.codegen_idx_factors = self_completion.idx_factors
+        tiling.codegen_partial_offset = partial_offset
+        tiling.codegen_box = -1 if tiled_dim_idx is None else tiling.box[tiled_dim_idx]
         return tiling
 
     def box_num_threads(self):

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional, Set, Tuple
+from typing import List, Optional, Set, Tuple
 
 from .coll_algebra import CollUnit, cuda_thread
 
@@ -67,31 +67,6 @@ class Par:
 par = Par()
 
 
-@loop_mode_class("_codegen_par", True)
-class _CodegenPar:
-    """Internal use loop mode for use in code generation of parallel loops
-
-    Contains a C string for the "index expression" (e.g. "threadIdx.x / 32")
-    and optional bounds"""
-
-    c_index: str
-    comment: Optional[str]
-    static_bounds: Optional[Tuple[int, int]]
-    warp_name_filter: Optional[str]
-
-    def __post_init__(self):
-        # Compiled C string giving index of parallel loop "iteration"
-        assert isinstance(self.c_index, str)
-
-        # Pair of optional ints, giving [lo, hi) for c_index to test against.
-        # None means no test needed.
-        # This is intentionally separate from the lo, hi of the loop itself
-        # since this may be used for underhanded purposes in codegen.
-        lo, hi = self.static_bounds
-        assert lo is None or isinstance(lo, int)
-        assert hi is None or isinstance(hi, int)
-
-
 @loop_mode_class("cuda_tasks", True)
 class CudaTasks:
     pass
@@ -123,3 +98,42 @@ def format_loop_cond(lo, hi, loop_mode: LoopMode):
             strings.append(f", {attr}={value!r}")
     strings.append(")")
     return "".join(strings)
+
+
+@loop_mode_class("_codegen_par", True)
+class _CodegenPar:
+    """Internal use loop mode for use in code generation of parallel loops"""
+
+    # C expr giving iterator value, plus optional comment.
+    c_index: str
+    comment: Optional[str]
+
+    # Test static_bounds[0] <= iter && iter < static_bounds[1]
+    # Omit test if a None bound is given.
+    static_bounds: Optional[Tuple[int, int]]
+
+    # If not None, subtree of code shall only be executed by warps
+    # whose name matches the str given.
+    warp_name_filter: Optional[str]
+
+    # Arguments for amspork DomainSplit, outer-to-inner.
+    am_idx_factors: List[Tuple[int, int]]
+
+    # Arguments for amspork ThreadsFor
+    # am_dim_idx=None when the ThreadsFor should be omitted
+    # due to no actual change to the CollTiling.
+    am_dim_idx: Optional[int]
+    am_offset: int
+    am_box: int
+
+    def __post_init__(self):
+        # Compiled C string giving index of parallel loop "iteration"
+        assert isinstance(self.c_index, str)
+
+        # Pair of optional ints, giving [lo, hi) for c_index to test against.
+        # None means no test needed.
+        # This is intentionally separate from the lo, hi of the loop itself
+        # since this may be used for underhanded purposes in codegen.
+        lo, hi = self.static_bounds
+        assert lo is None or isinstance(lo, int)
+        assert hi is None or isinstance(hi, int)
