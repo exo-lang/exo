@@ -1501,14 +1501,16 @@ struct SyncvTable
         template <bool IsMutate>
         void operator() (SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> vis_record_id)
         {
-            auto& node = env.get(vis_record_id);
-            CAMSPORK_REQUIRE(!node.is_forwarded(), "Unexpected modification of forwarding state VisRecord");
-            p_cuboid->to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi)
-                {
-                    const auto q = IsMutate ? L2_full_qual_bits : L2_temporal_qual_bits;
-                    env.union_tl_sig_interval(&node.base_data, TlSigInterval{tid_lo, tid_hi, {{q, q, q}}});
-                }
-            );
+            const auto q = IsMutate ? L2_full_qual_bits : L2_temporal_qual_bits;
+            if (q != 0) {
+                auto& node = env.get(vis_record_id);
+                CAMSPORK_REQUIRE(!node.is_forwarded(), "Unexpected modification of forwarding state VisRecord");
+                p_cuboid->to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi)
+                    {
+                        env.union_tl_sig_interval(&node.base_data, TlSigInterval{tid_lo, tid_hi, {{q, q, q}}});
+                    }
+                );
+            }
         }
     };
 
@@ -1568,6 +1570,7 @@ struct SyncvTable
         template <bool IsMutate>
         void update_for_sync(SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> vis_record_id)
         {
+            CAMSPORK_REQUIRE_CMP(L1_qual_bits, !=, 0, "should be if'd out in this case");
             auto& node = env.get(vis_record_id);
             CAMSPORK_REQUIRE(!node.is_forwarded(), "unexpected forwarding state");
             VisRecord* p_record = &node.base_data;
@@ -1781,7 +1784,10 @@ struct SyncvTable
             qual_bits_t L1_qual_bits,
             std::vector<pending_await_t> pending_awaits)
     {
-        if (transitive) {
+        if (L1_qual_bits == 0) {
+            // Do nothing.
+        }
+        else if (transitive) {
             ArriveUpdateCommand<true> command{&cuboid, L1_qual_bits, std::move(pending_awaits), {}};
             update_vis_records_for_sync_impl(command);
         }
