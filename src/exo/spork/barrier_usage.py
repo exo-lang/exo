@@ -34,6 +34,9 @@ class BarrierUsage:
     # Index using constants in SyncType or get_{front|back}_{arrive|await}.
     sync_info: List[Optional[SyncInfo]]
 
+    guards: Sym
+    guarded_by: Sym
+
     def __init__(self, s):
         self.decl_stmt = s
         self.sync_info = [None] * SyncType.n_info_idx
@@ -45,6 +48,8 @@ class BarrierUsage:
         else:
             assert isinstance(s, LoopIR.Alloc)
             self.barrier_type = s.mem
+            self.guards = s.name
+            self.guarded_by = s.name
             assert issubclass(s.mem, BarrierType)
 
     def get_srcinfo(self):
@@ -200,17 +205,20 @@ class BarrierUsage:
         self.sync_info[SyncType.front_await_idx] = SyncInfo(
             sync_type.second_sync_tl, [s], 0, 0, self.fence_multicasts
         )
+        self.guards = s.barriers[0].name
+        self.guarded_by = s.barriers[0].name
 
 
 class BarrierUsageAnalysis(LoopIR_Do):
-    __slots__ = ["proc", "uses"]
-
+    __slots__ = ["proc", "uses", "_explicit_guarded_by"]
     proc: LoopIR.proc
     uses: Dict[Sym, BarrierUsage]
+    _explicit_guarded_by: Dict[Sym, Optional[Sym]]
 
     def __init__(self, proc):
         self.proc = proc
         self.uses = {}
+        self._explicit_guarded_by = {}
         self.do_stmts(proc.body)
 
     def do_stmts(self, stmts):
@@ -234,6 +242,7 @@ class BarrierUsageAnalysis(LoopIR_Do):
                 assert mem and issubclass(mem, BarrierType)
                 assert s.name not in self.uses
                 self.uses[s.name] = BarrierUsage(s)
+                self.add_barrier_guard_edge(s)
                 return mem  # Indicates to do_stmts() that we found a barrier decl
         elif isinstance(s, LoopIR.SyncStmt):
             sync_type: SyncType = s.sync_type
@@ -268,6 +277,30 @@ class BarrierUsageAnalysis(LoopIR_Do):
 
     def do_e(self, e):
         return None  # speed things up
+
+    def add_barrier_guard_edge(self, s: LoopIR.Alloc):
+        gb = s.type.guarded_by
+        g_new = s.name
+        self._explicit_guarded_by[g_new] = gb
+        if gb is None:
+            return
+        gb_uses = self.uses[gb]
+        gs = gb_uses.guards
+        g_new_uses = self.uses[g_new]
+        gs_uses = self.uses[gs]
+        # We have an edge gb -> gs
+        # Replace with gb -> g_new -> gs
+        # Where x -> y means "x guards y"
+        g_new_uses.guards = gs
+        g_new_uses.guarded_by = gb
+        gs_original_gb = self._explicit_guarded_by[gs]
+        if gs_original_gb is not None:
+            raise ValueError(
+                f"{s.srcinfo}: {s}, cannot have guarded_by={gb} as it guards {gs} already"
+            )
+        assert gs_uses.guarded_by == gb
+        gb_uses.guards = g_new
+        gs_uses.guarded_by = g_new
 
     def check_split_barrier(
         self,

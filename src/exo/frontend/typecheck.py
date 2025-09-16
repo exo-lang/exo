@@ -702,16 +702,19 @@ class TypeChecker:
             sub_typ = self.check_t(node, typ.type)
             return T.Tensor(check_hi(), typ.is_window, sub_typ)
         elif isinstance(typ, UAST.Barrier):
-            guards = typ.guards
-            if guards is not None:
-                if isinstance(node, UAST.Alloc) and node.name == guards:
+            guarded_by = typ.guarded_by
+            if guarded_by is not None:
+                if isinstance(node, UAST.Alloc) and node.name == guarded_by:
                     self.err(
-                        node, f"barrier({guards}): {guards} must not reference itself"
+                        node,
+                        f"barrier({guarded_by}): {guarded_by} must not reference itself",
                     )
-                    guards = None
-                elif not self.env[guards].is_barrier():
-                    self.err(node, f"barrier({guards}): {guards} must name a barrier")
-                    guards = None
-            return T.Barrier(guards, check_hi())
+                    guarded_by = None
+                elif not self.env[guarded_by].is_barrier():
+                    self.err(
+                        node, f"barrier({guarded_by}): {guarded_by} must name a barrier"
+                    )
+                    guarded_by = None
+            return T.Barrier(guarded_by, check_hi())
         else:
             assert False, "bad case"

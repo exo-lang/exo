@@ -955,8 +955,8 @@ class Parser:
     def parse_alloc_type(self, node, is_arg=False):
         """Parse numeric type or barrier type
 
-        barrier type is of syntax barrier(guards)[hi...], where
-        (guards) and [hi...] are both optional.
+        barrier type is of syntax barrier(guarded_by)[hi...], where
+        (guarded_by) and [hi...] are both optional.
 
         """
         if isinstance(node, pyast.Call):
@@ -970,12 +970,12 @@ class Parser:
             a = node.args[0]
             if isinstance(a, pyast.Name):
                 try:
-                    guards = self.exo_locals[a.id]
+                    guarded_by = self.exo_locals[a.id]
                 except KeyError:
                     self.err(node, f"barrier({a.id}): unknown {a.id}")
             else:
                 self.err(node, "type barrier(...) takes a single identifier argument")
-            return UAST.Barrier(guards, [])
+            return UAST.Barrier(guarded_by, [])
         elif isinstance(node, pyast.Subscript):
             if isinstance(node.value, pyast.List):
                 if is_arg is not True:

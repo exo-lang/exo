@@ -115,7 +115,7 @@ module LoopIR {
                        sym src_buf, w_access *idx )
          -- Spork (Exo-GPU) extensions
          | WithContext()
-         | Barrier( sym? guards, expr* hi )
+         | Barrier( sym? guarded_by, expr* hi )
 
     -- Dense tensor: Tensor(is_window = False)
     -- Window parameter (of proc): Tensor(is_window = True)
@@ -219,7 +219,7 @@ module UAST {
             | Stride()
             | Tensor( expr *hi, bool is_window, type type )
             | WithContext()
-            | Barrier( sym? guards, expr *hi )
+            | Barrier( sym? guarded_by, expr *hi )
 } """,
     ext_types={
         "name": validators.instance_of(Identifier, convert=True),
