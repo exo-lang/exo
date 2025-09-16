@@ -953,8 +953,30 @@ class Parser:
         return typ, mem
 
     def parse_alloc_type(self, node, is_arg=False):
-        """Parse numeric type or barrier type"""
-        if isinstance(node, pyast.Subscript):
+        """Parse numeric type or barrier type
+
+        barrier type is of syntax barrier(guards)[hi...], where
+        (guards) and [hi...] are both optional.
+
+        """
+        if isinstance(node, pyast.Call):
+            f = node.func
+            if not isinstance(f, pyast.Name) or f.id != "barrier":
+                self.err(node, "Only barrier type takes ()")
+            if node.keywords:
+                self.err(node, "Unexpected keyword parameters")
+            if len(node.args) != 1:
+                self.err(node, "type barrier(...) takes exactly 1 parameter")
+            a = node.args[0]
+            if isinstance(a, pyast.Name):
+                try:
+                    guards = self.exo_locals[a.id]
+                except KeyError:
+                    self.err(node, f"barrier({a.id}): unknown {a.id}")
+            else:
+                self.err(node, "type barrier(...) takes a single identifier argument")
+            return UAST.Barrier(guards, [])
+        elif isinstance(node, pyast.Subscript):
             if isinstance(node.value, pyast.List):
                 if is_arg is not True:
                     self.err(
@@ -1010,14 +1032,14 @@ class Parser:
             if typ.shape():
                 self.err(node, "Use TypeName[x,y,...], not TypeName[x][y]...")
             elif isinstance(typ, UAST.Barrier):
-                typ = UAST.Barrier(exprs)
+                typ = typ.update(hi=exprs)
             else:
                 typ = UAST.Tensor(exprs, is_window, typ)
 
             return typ
 
         elif isinstance(node, pyast.Name) and node.id == "barrier":
-            return UAST.Barrier([])
+            return UAST.Barrier(None, [])
         elif isinstance(node, pyast.Name) and node.id in _prim_types:
             return _prim_types[node.id]
         elif isinstance(node, pyast.Name) and (

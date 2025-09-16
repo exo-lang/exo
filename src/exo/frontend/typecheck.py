@@ -107,7 +107,7 @@ class TypeChecker:
 
         args = []
         for a in proc.args:
-            typ = self.check_t(a.type)
+            typ = self.check_t(a, a.type)
             self.env[a.name] = typ
             mem = a.mem
             if mem is None:
@@ -310,9 +310,7 @@ class TypeChecker:
             else:
                 name = Sym("Fence")  # Sym as internal unique ID for Fence.
                 barriers = [
-                    LoopIR.BarrierExpr(
-                        name, False, [], LoopIR.Barrier([]), stmt.srcinfo
-                    )
+                    LoopIR.BarrierExpr(name, False, [], T.barrier, stmt.srcinfo)
                 ]
 
             return [LoopIR.SyncStmt(stmt.sync_type, barriers, stmt.srcinfo)]
@@ -362,7 +360,7 @@ class TypeChecker:
                 assert False, "bad case"
 
         elif isinstance(stmt, UAST.Alloc):
-            typ = self.check_t(stmt.type)
+            typ = self.check_t(stmt, stmt.type)
             self.env[stmt.name] = typ
             mem = stmt.mem
             if mem is None:
@@ -466,10 +464,8 @@ class TypeChecker:
                 )
                 return LoopIR.BarrierExpr(e.name, e.back, [], T.err, e.srcinfo)
             idx = [self.check_w_access(w, t) for w, t in zip(e.idx, in_shape)]
-            # Add shape to LoopIR.Barrier() if anything downstream needs it.
-            return LoopIR.BarrierExpr(
-                e.name, e.back, idx, LoopIR.Barrier([]), e.srcinfo
-            )
+            # Correct shape of in_typ if anything downstream needs it.
+            return LoopIR.BarrierExpr(e.name, e.back, idx, in_typ, e.srcinfo)
 
         elif isinstance(e, UAST.WindowExpr):
             in_typ = self.env[e.name]
@@ -688,7 +684,7 @@ class TypeChecker:
         else:
             assert False, "not a LoopIR in check_e"
 
-    def check_t(self, typ):
+    def check_t(self, node, typ):
         def check_hi():
             hi = [self.check_e(h, is_index=True) for h in typ.hi]
             for h in hi:
@@ -703,9 +699,19 @@ class TypeChecker:
         if type(typ) in TypeChecker._typ_table:
             return TypeChecker._typ_table[type(typ)]
         elif isinstance(typ, UAST.Tensor):
-            sub_typ = self.check_t(typ.type)
+            sub_typ = self.check_t(node, typ.type)
             return T.Tensor(check_hi(), typ.is_window, sub_typ)
         elif isinstance(typ, UAST.Barrier):
-            return T.Barrier(check_hi())
+            guards = typ.guards
+            if guards is not None:
+                if isinstance(node, UAST.Alloc) and node.name == guards:
+                    self.err(
+                        node, f"barrier({guards}): {guards} must not reference itself"
+                    )
+                    guards = None
+                elif not self.env[guards].is_barrier():
+                    self.err(node, f"barrier({guards}): {guards} must name a barrier")
+                    guards = None
+            return T.Barrier(guards, check_hi())
         else:
             assert False, "bad case"
