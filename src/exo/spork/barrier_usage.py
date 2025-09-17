@@ -277,6 +277,12 @@ class BarrierUsageAnalysis(LoopIR_Do):
         assert gs_uses.guarded_by == gb
         gb_uses.guards = g_new
         gs_uses.guarded_by = g_new
+        if gb_uses.barrier_type != g_new_uses.barrier_type:
+            raise ValueError(
+                f"{s.srcinfo}: {s}, cannot have guarded_by={gb} due to BarrierType mismatch:\n"
+                f"{g_new} @ {g_new_uses.barrier_type.name()}\n"
+                f"{gs} @ {gs_uses.barrier_type.name()}"
+            )
 
     def check_split_barrier(
         self,
@@ -310,44 +316,50 @@ class BarrierUsageAnalysis(LoopIR_Do):
         if _await is None:
             kvetch_missing(_arrive, f"Await(+{name}, ...)")
 
-        # XXX TODO FIXME
-        # # Check pairing requirements only if barrier type traits require it.
-        # if traits.requires_pairing:
-        #     self.check_pairing(name, traits, in_stmts, alloc_idx)
+        # Check pairing requirements only if barrier type traits require it.
+        if traits.requires_pairing:
+            self.check_pairing(name, traits, in_stmts)
 
     def check_pairing(
         self,
         name: Sym,
         traits: BarrierTypeTraits,
         in_stmts: List[LoopIR.stmt],
-        alloc_idx: int,
     ):
-        # XXX this needs to be rewritten XXX
         usage: BarrierUsage = self.uses[name]
-        has_back = usage.has_back_array()
+        guarded_by = usage.guarded_by
         await_first = None  # Set to True/False when we know.
-        nesting_level_if = 1  # Search for matched Arrive in if stmts, but not Await
-        nesting_level_for = 2  # Never search for matches in for stmts.
-
-        if has_back:
-            # We only support {+/-}Await -> {-/+}Arrive for 2-way barriers
+        if guarded_by != name:
             await_first = True
         if traits.requires_arrive_first:
             assert not await_first
             await_first = False
 
-        def paired_expected(s: LoopIR.SyncStmt):
-            back = s.barriers[0].back ^ has_back
-            sign = "-" if back else "+"
-            if s.sync_type.is_await():
-                return f"Arrive(...) >> {sign}{name}"
-            else:
-                return f"Await({sign}{name}, ...)"
+        def get_arrive_str():
+            return f"Arrive(...) >> {name}"
+
+        def get_await_str():
+            return f"Await({guarded_by}, ...)"
+
+        soi_arrive = 1
+        soi_await = 2
+        soi_call = 3  # Call where trailing_barrier_expr involves {name}
+
+        # Get statement of interest enum, or None if not of interest.
+        def get_soi(s: LoopIR.stmt):
+            if isinstance(s, LoopIR.Call):
+                e = s.trailing_barrier_expr
+                return soi_call if e and (e.name == name) else None
+            elif isinstance(s, LoopIR.SyncStmt):
+                sync_type = s.sync_type
+                if sync_type.is_arrive():
+                    return soi_arrive if s.barriers[0].name == name else None
+                if sync_type.is_await():
+                    e = s.barriers[0]
+                    return soi_await if s.barriers[0].name == guarded_by else None
 
         def recurse(
-            sub_stmts: List[LoopIR.stmt],
-            unmatched_sync: Optional[LoopIR.SyncStmt],
-            nesting,
+            sub_stmts: List[LoopIR.stmt], forbid_sync_due_to: Optional[LoopIR.stmt]
         ):
             nonlocal await_first
 
@@ -365,90 +377,85 @@ class BarrierUsageAnalysis(LoopIR_Do):
 
             add_flatten(sub_stmts)
 
-            # Inspect flattened stmts.
+            unpaired_arrive = None
+            unpaired_await = None
+            calls = []
+            example_arrive = None
+
             for s in flattened_stmts:
-                if is_if_holding_with(s, LoopIR):  # Before if case
-                    pass  # flattened
-                elif isinstance(s, LoopIR.If):
-                    sub_nesting = max(
-                        nesting, 0 if unmatched_sync is None else nesting_level_if
-                    )
-                    # NB |= and not short-circuit `or`,
-                    # as orelse body always needs to be scanned anyway
-                    found_match = recurse(s.body, unmatched_sync, sub_nesting)
-                    found_match |= recurse(s.orelse, unmatched_sync, sub_nesting)
-                    if found_match:
-                        unmatched_sync = None
+                s_if_forbid = s if (unpaired_arrive or unpaired_await) else None
+                if isinstance(s, LoopIR.If):
+                    assert not is_if_holding_with(s, LoopIR), "add_flatten failed"
+                    recurse(s.body, forbid_sync_due_to or s_if_forbid)
+                    recurse(s.orelse, forbid_sync_due_to or s_if_forbid)
                 elif isinstance(s, LoopIR.For):
-                    if s.loop_mode.is_par():
-                        pass  # flattened
-                    else:
-                        sub_nesting = max(
-                            nesting, 0 if unmatched_sync is None else nesting_level_for
+                    assert not s.loop_mode.is_par(), "add_flatten failed"
+                    recurse(s.body, forbid_sync_due_to or s_if_forbid)
+                elif soi := get_soi(s):
+                    if forbid_sync_due_to:
+                        forbid_txt = "???"
+                        if isinstance(forbid_sync_due_to, LoopIR.For):
+                            forbid_txt = f"sequential {forbid_sync_due_to.iter}-loop"
+                        elif isinstance(forbid_sync_due_to, LoopIR.If):
+                            forbid_txt = f"if {forbid_sync_due_to.cond}"
+                        raise ValueError(
+                            f"{s.srcinfo}:\n{s} forbidden here\n"
+                            f"when Await({guarded_by})->Arrive({name}) sees usage outside\n"
+                            f"{forbid_txt} @ {forbid_sync_due_to.srcinfo}"
                         )
-                        recurse(s.body, unmatched_sync, sub_nesting)
-                elif isinstance(s, LoopIR.SyncStmt) and s.barriers[0].name == name:
-                    # Inspect SyncStmt that uses the `name` barrier.
-                    sync_type = s.sync_type
-                    assert sync_type.is_split()
-
-                    # Nesting check (see comments)
-                    if nesting:
-                        # Forbid Arrive/Await in for loop when we had an unmatched sync outside
-                        if nesting == nesting_level_for:
-                            kwd = "for loop"
-                            ok = False
-                        # Forbid Await in if/else body when we had an unmatched sync outside
+                    if await_first is None:
+                        await_first = soi == soi_await
+                    if soi == soi_arrive:
+                        if (await_first and not unpaired_await) or unpaired_arrive:
+                            raise ValueError(
+                                f"{s.srcinfo}: expect {get_await_str()} before {s}"
+                            )
+                        if await_first:
+                            unpaired_await = None
                         else:
-                            assert nesting == nesting_level_if
-                            kwd = "if/else"
-                            ok = sync_type.is_arrive()
-                        if not ok:
+                            unpaired_arrive = s
+                        example_arrive = s
+                    if soi == soi_await:
+                        if unpaired_await or (not await_first and not unpaired_arrive):
                             raise ValueError(
-                                f"{s.srcinfo}: Invalid nesting; {s} inside {kwd} with unmatched {unmatched_sync} outside @ {unmatched_sync.srcinfo}"
+                                f"{s.srcinfo}: expect {get_arrive_str()} before {s}"
                             )
-
-                    # No unmatched statement.
-                    # Retain this as the unmatched_sync; and check/update await_first.
-                    if unmatched_sync is None:
-                        if await_first is None:
-                            await_first = sync_type.is_await()
-                        elif await_first != sync_type.is_await():
-                            expected = paired_expected(s)
+                        if await_first:
+                            unpaired_await = s
+                        else:
+                            unpaired_arrive = None
+                    if soi == soi_call:
+                        if (await_first and not unpaired_await) or unpaired_arrive:
                             raise ValueError(
-                                f"{s.srcinfo}: {s} not paired with previous {expected} (note: those guarded by if/seq-for don't count)"
+                                f"{s.srcinfo}: expect {get_await_str()} before {s}"
                             )
-                        unmatched_sync = s
-
-                    # Have unmatched statement (and nesting check OK)
-                    # Look for exact matching statement
-                    else:
-                        expected = paired_expected(unmatched_sync)
-                        matches = (
-                            sync_type.is_arrive() == unmatched_sync.sync_type.is_await()
-                        )
-                        if has_back:
-                            matches &= (
-                                s.barriers[0].back != unmatched_sync.barriers[0].back
-                            )
-                        if not matches:
-                            raise ValueError(
-                                f"{s.srcinfo}: expected {expected} to match {unmatched_sync} @ {unmatched_sync.srcinfo}"
-                            )
-                        unmatched_sync = None
-
-                else:
-                    assert not hasattr(s, "body")
+                        calls.append(s)
             # end for s in flattened_stmts
-
-            # Arrives must be matched with a subsequent Await,
-            # but we forgive unmatched Awaits.
-            # TODO rethink this if we stop supporting conditional Arrive.
-            if unmatched_sync is not None and unmatched_sync.sync_type.is_arrive():
+            if unpaired_await:
                 raise ValueError(
-                    f"{unmatched_sync.srcinfo}: {unmatched_sync} without corresponding Await({name}) in same block (not split by if/seq-for)"
+                    f"{s.srcinfo}: {s} without subsequent {get_arrive_str()} in body"
                 )
+            if unpaired_arrive:
+                raise ValueError(
+                    f"{s.srcinfo}: {s} without subsequent {get_await_str()} in body"
+                )
+            for s in calls:
+                if not example_arrive:
+                    raise ValueError(
+                        f"{s.srcinfo}: {s} without {get_arrive_str()} in body"
+                    )
+                e_call = s.trailing_barrier_expr
+                call_multicast_flags = e_call.multicast_flags()
+                arrive_multicasts = example_arrive.multicasts()
+                sat = False
+                for m in arrive_multicasts:
+                    assert len(m) == len(call_multicast_flags)
+                    sat |= all(mb or not mc for mb, mc in zip(m, call_multicast_flags))
+                if not sat:
+                    raise ValueError(
+                        f"{s.srcinfo}:\n{s.f.name} >> {e_call}\n"
+                        f"isn't naming a subset of barriers used in\n"
+                        f"{example_arrive} @ {example_arrive.srcinfo}"
+                    )
 
-            return unmatched_sync is None  # -> found_match
-
-        recurse(in_stmts[alloc_idx + 1 :], None, 0)
+        recurse(in_stmts, None)
