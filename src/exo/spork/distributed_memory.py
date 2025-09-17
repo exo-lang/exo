@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from math import prod
-from typing import Optional, List, Type, Dict, Tuple
+from typing import Optional, List, Type, Dict, Tuple, Callable
 
 from ..core.prelude import Sym
 from ..core.LoopIR import LoopIR
@@ -630,8 +630,8 @@ class DistributedIdxFsm:
         self,
         sync: LoopIR.SyncStmt,
         coll_tiling: CollTiling,
-        barrier_usage: BarrierUsage,
-        state: DistributedAllocState,
+        get_barrier_usage: Callable[[Sym], BarrierUsage],
+        get_state: Callable[[Sym], Optional[DistributedAllocState]],
     ):
         """Subsequent to check_store_state, for non-Fence SyncStmts,
         we additionally check requirements for the collective tiling
@@ -640,10 +640,16 @@ class DistributedIdxFsm:
         * Equivalent CollTiling for same action on same queue barrier array.
           action = Arrive/Await
         * If the barrier type has a pairing requirement, additionally,
-          check equivalent CollTilings for paired Arrive/Await; TODO.
+          check equivalent CollTilings for paired Arrive/Await.
 
         """
         assert isinstance(sync, LoopIR.SyncStmt)
+        nm = sync.barriers[0].name
+        barrier_usage = get_barrier_usage(nm)
+        state = get_state(nm)
+        assert isinstance(barrier_usage, BarrierUsage)
+        assert isinstance(state, DistributedAllocState)
+
         sync_type = sync.sync_type
         assert sync_type.is_split()
         # We will update state.arrive_coll_tiling or state.await_coll_tiling
@@ -677,17 +683,20 @@ class DistributedIdxFsm:
 
         if barrier_usage.barrier_type.traits().requires_pairing:
             # Will check equivalence with previous stmt of paired sync type
-            # XXX TODO REWRITE ME & remove TODO in earlier comment
-            pass
-            # paired_back = back ^ barrier_usage.has_back_array()
-            # sign = "-" if paired_back else "+"
-            # paired_info_idx = sync_type.info_idx(paired_back, swap=True)
-            # if sync_type.is_arrive():  # Arrive paired with Await
-            #     f_text = f"Await({sign}{name}, ...)"
-            # else:
-            #     f_text = f"Arrive(...) >> {sign}{name}"
-            # if old_coll_tiling := state.sync_coll_tilings[paired_info_idx]:
-            #     to_check.append((old_coll_tiling, f_text))
+            if sync_type.is_arrive():
+                guarded_by = barrier_usage.guarded_by
+                f_text = f"Await({guarded_by}, ...)"
+                other_state = get_state(guarded_by)
+                if other_state is not None:
+                    other_coll_tiling = other_state.await_coll_tiling
+            else:
+                guards = barrier_usage.guards
+                f_text = f"Arrive(...) >> {guards}"
+                other_state = get_state(guards)
+                if other_state is not None:
+                    other_coll_tiling = other_state.arrive_coll_tiling
+            if other_coll_tiling is not None:
+                to_check.append((other_coll_tiling, f_text))
 
         # Check equivalence (the code here only checks issues that wouldn't be
         # flagged by the primary distributed memory deduction, i.e., issues

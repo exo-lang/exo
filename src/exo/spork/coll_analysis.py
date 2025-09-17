@@ -218,7 +218,12 @@ class CollAnalysis(LoopIR_Rewrite):
                 # Store in DistributedAllocState if this is the first use, or check
                 # consistency (index equality) with prior uses.
                 fsm.check_store_state(s, state)
-                fsm.inspect_arrive_await(s, self._coll_tiling, usage, state)
+                fsm.inspect_arrive_await(
+                    s,
+                    self._coll_tiling,
+                    lambda nm: self._barrier_uses[nm],
+                    lambda nm: self.distributed_alloc_states.get(nm),
+                )
             else:
                 assert len(s.barriers) == 1
                 e = s.barriers[0]
