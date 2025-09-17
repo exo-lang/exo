@@ -181,7 +181,7 @@ class DistributedAllocState(object):
         the CollTiling root. e.g.
 
         for i0 in cuda_threads(0, 2, unit=cuda_warpgroup):
-            bar : barrier @ CudaMbarrier
+            bar : barrier[4] @ CudaMbarrier
             for i1 in cuda_threads(0, 4, unit=cuda_warp):
                 Arrive(cuda_classic, 1) >> bar[i1]
 

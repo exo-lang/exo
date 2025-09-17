@@ -65,8 +65,9 @@ class CudaDeviceFunction(BaseAsyncConfig):
         blocks_per_sm: int = 1,
         warp_config: Optional[List[CudaWarpConfig]] = None,
     ):
-        assert isinstance(clusterDim, int) and clusterDim > 0
         self.clusterDim = clusterDim
+        if clusterDim < 1 or ((clusterDim - 1) & clusterDim) != 0:
+            raise ValueError(f"clusterDim={clusterDim} not a power of 2")
         assert isinstance(blocks_per_sm, int) and blocks_per_sm > 0
         self.blocks_per_sm = blocks_per_sm
         self._warp_config_arg = warp_config
