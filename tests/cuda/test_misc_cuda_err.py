@@ -746,9 +746,9 @@ def mkproc_clusterDim(clusterDim_value):
 
 def test_clusterDim_values(compiler):
     for ncta in (1, 8):
-        compiler.cuda_cpu_test(mkproc_clusterDim, clusterDim_value=ncta, sm="90a")
+        compiler.cuda_cpu_test(mkproc_clusterDim, clusterDim_value=ncta)
     for ncta in (0, -2, 3):
         with pytest.raises(Exception) as exc:
-            compiler.cuda_cpu_test(mkproc_clusterDim, clusterDim_value=ncta, sm="90a")
+            compiler.cuda_cpu_test(mkproc_clusterDim, clusterDim_value=ncta)
         msg = str(exc.value)
         assert f"clusterDim={ncta} not a power of 2" in msg
