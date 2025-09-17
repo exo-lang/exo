@@ -118,7 +118,6 @@ class CamsporkDo(LoopIR_Do):
                 L2_full_bits = L2.get_full_timeline_set_bits()
                 L2_temporal_bits = L2.get_temporal_timeline_set_bits()
             if sync_type.is_arrive():
-                # TODO back barrier
                 # TODO add read effects
                 home = s.home_barrier_expr()
                 multicasts = s.multicasts()
