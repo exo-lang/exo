@@ -260,6 +260,7 @@ class BarrierUsageAnalysis(LoopIR_Do):
         self._explicit_guarded_by[g_new] = gb
         if gb is None:
             return
+        barrier_type = s.mem
         gb_uses = self.uses[gb]
         gs = gb_uses.guards
         g_new_uses = self.uses[g_new]
@@ -270,6 +271,10 @@ class BarrierUsageAnalysis(LoopIR_Do):
         g_new_uses.guards = gs
         g_new_uses.guarded_by = gb
         gs_original_gb = self._explicit_guarded_by[gs]
+        if not barrier_type.traits().supports_guards:
+            raise ValueError(
+                f"{s.srcinfo}: {s}, cannot have guarded_by={gb} as {barrier_type.name()} has supports_guards=False"
+            )
         if gs_original_gb is not None:
             raise ValueError(
                 f"{s.srcinfo}: {s}, cannot have guarded_by={gb} as it guards {gs} already"

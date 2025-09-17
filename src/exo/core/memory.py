@@ -368,6 +368,7 @@ class BarrierTypeTraits:
 
     requires_pairing: bool = False
     requires_arrive_first: bool = False
+    supports_guards: bool = False
 
     # Allow : in Arrive trailing queue barrier expr
     supports_arrive_multicast: bool = False
