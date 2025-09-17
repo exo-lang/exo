@@ -3,9 +3,9 @@ from __future__ import annotations
 # Note: no imports from the rest of Exo so it's easy to run side experiments
 # on coll_algebra and do demos of it as a sort of "type system"
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from fractions import Fraction
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, Set
 from math import prod
 
 
@@ -391,6 +391,235 @@ class CollIndexExpr(object):
 
 
 coll_index_0 = CollIndexExpr(0)
+
+
+@dataclass(slots=True, init=False)
+class CollCodegen:
+    dim_idx_factors: List[Tuple[int, int]]
+    dim_idx: Optional[int]
+    offset: Optional[int]
+    box: Optional[int]
+    tile_count: int
+    thread_pitch: int
+    codegen_expr: CollIndexExpr
+    codegen_static_lo: Optional[int]
+    codegen_static_hi: Optional[int]
+
+    def __init__(self):
+        # Initialized with defaults for a "do nothing" tiling i.e.
+        # for i in cuda_threads(0, 1, unit=current_coll_unit):
+        self.dim_idx_factors = []
+        self.dim_idx = None
+        self.offset = None
+        self.box = None
+        self.tile_count = 1
+        self.thread_pitch = 0
+        self.codegen_expr = coll_index_0
+        self.codegen_static_lo = None
+        self.codegen_static_hi = None
+
+
+@dataclass(slots=True, frozen=True)
+class CollDimOp:
+    iter: object
+    offset: int
+    box: int
+    tile_count: int
+    iter_expr: CollIndexExpr
+    intra_box_expr: CollIndexExpr
+    thread_pitch: int
+
+    def divided_by(self, factor):
+        old_offset = self.offset
+        old_box = self.box
+        new_offset, r_offset = divmod(old_offset, factor)
+        new_box, r_box = divmod(old_box, factor)
+        if r_offset or r_box:
+            # TODO this error isn't very good without context.
+            raise ValueError(
+                f"thread alignment issue, with thread_pitch={self.thread_pitch}, "
+                f"offset={old_offset}, box={old_box}, "
+                f"offset/box wasn't divisible by {factor}"
+            )
+        return replace(self, offset=new_offset, box=new_box)
+
+
+@dataclass(slots=True, frozen=True)
+class CollDim:
+    dim_extent: int
+    dim_thread_pitch: int
+    dim_ops: List[CollDimOp]
+    dim_iter_expr: CollIndexExpr
+
+    def get_box_coord(self) -> int:
+        if ops := self.dim_ops:
+            return ops[-1].box
+        return self.dim_extent
+
+    def get_leaf_intra_box_expr(self) -> CollIterExpr:
+        if ops := self.dim_ops:
+            return ops[-1].intra_box_expr
+        return self.dim_iter_expr
+
+
+def domain_from_thread_pitch_set(pitch_set: Set[int]) -> Tuple[int]:
+    pitch_set = sorted(pitch_set)
+    assert pitch_set[0] == 1
+
+    def div_impl(i):
+        n = pitch_set[i + 1]
+        d = pitch_set[i]
+        q, r = divmod(n, d)
+        assert r == 0
+        assert q > 1
+
+    return tuple(div_impl(i) for i in range(len(pitch_set) - 1))
+
+
+@dataclass(slots=True)
+class SeptTiling:
+    """Immutable collective tiling."""
+
+    _tree_depth: int
+    _codegen: CollCodegen
+    _dims: List[CollDim]
+
+    def get_domain(self) -> Tuple[int]:
+        return tuple(d.dim_extent for d in self._dims)
+
+    def get_box(self) -> Tuple[int]:
+        return tuple(d.get_box_coord() for d in self._dims)
+
+    def get_domain_num_threads(self) -> int:
+        return prod(d.dim_extent for d in self._dims)
+
+    def get_filtered_thread_pitch_set(self, dim_idxs: Set[int]):
+        pitch_set = {1, self.get_domain_num_threads()}
+        for i, d in enumerate(self._dims):
+            if i in dim_idxs:
+                pitch_set.add(d.dim_thread_pitch)
+                pitch_set.add(d.dim_thread_pitch * d.dim_extent)
+        pitch_set = sorted(pitch_set)
+
+    def err(self, unit: CollUnit, tile_count: int, msg: str):
+        raise CollTilingError(
+            f"Bad CollTiling ({msg}); "
+            f"box={self.box}, tried tiling {tile_count}-many {unit}, "
+            f"i.e. CollUnit({unit.domain}, {unit.box}, ...)"
+        )
+
+    def _apply_split_dim(self, dim_idx, factor):
+        assert dim_idx < len(self._dims)
+        self._codegen.dim_idx_factors.append((dim_idx, factor))
+        old_dim = self._dims[dim_idx]
+        old_iter_expr = old_dim.dim_iter_expr
+
+        outer_ops = []
+        for op in old_dim.dim_ops:
+            if op.box >= factor:
+                outer_ops = op.divided_by(factor)
+            else:
+                break
+        inner_ops = old_dim.dim_ops[len(outer_ops) :]
+
+        outer_dim = CollDim(
+            old_dim.dim_extent // factor,
+            old_dim.dim_thread_pitch * factor,
+            outer_ops,
+            old_iter_expr // factor,
+        )
+        inner_dim = CollDim(
+            factor, old_dim.dim_thread_pitch, inner_ops, old_iter_expr % factor
+        )
+        self._dims[dim_idx : dim_idx + 1] = [outer_dim, inner_dim]
+
+    def _make_derived(
+        self,
+        _iter: object,
+        unit: CollUnit,
+        lo: int,
+        hi: int,
+        env: Dict[CollParam, int],
+        is_tiled: bool,
+    ):
+        assert 0 <= lo <= hi
+        codegen = CollCodegen()  # Update later
+        new = SeptTiling(self._tree_depth + 1, codegen, list(self._dims))
+
+        # Translate unit domain and tiling to concrete integers
+        unit_original_domain = unit.int_domain(env)
+        unit_original_box = unit.int_box(env)
+
+        # Determine the common domain between us and the given unit,
+        # and translate the box size of the unit and self CollTiling.
+        self_domain = self.get_domain()
+        unit_completion = DomainCompletionOp(
+            unit_original_domain, self_domain, allow_partial_source=True
+        )
+        self_completion = DomainCompletionOp(
+            self_domain, unit_original_domain, allow_partial_source=False
+        )
+        new_domain = unit_completion.domain
+        self_box = self_completion.new_size(self.get_box())
+        unit_box = unit_completion.new_size(unit_original_box)
+        assert unit_completion.domain == self_completion.domain
+
+        # Update the new CollTiling in-place based on domain completion.
+        assert not self_competion.remove_idx
+        for dim_idx, split_factor in self_completion.idx_factors:
+            new._apply_split_dim(dim_idx, split_factor)
+        assert new.get_domain() == new_domain
+
+        # Select the unique dimension on which to tile or specialize,
+        # and overwrite the default codegen object if this dimension is found.
+        assert len(new_domain) == len(self_box) == len(unit_box)
+        tiled_dim_idx = None
+        for i in range(len(new_domain)):
+            domain_c = new_domain[i]
+            unit_c = unit_box[i]
+            self_c = self_box[i]
+
+            if unit_c == self_c or unit_c == domain_c:
+                continue
+            if tiled_dim_idx is not None:
+                self.err(unit, hi, "ambiguous dimension to tile")
+
+            new_dim = new._dims[i]  # This CollDim in `new` will be updated.
+
+            tiled_dim_idx = i
+            offset = lo * unit_c
+            box = unit_c if is_tiled else (hi - lo) * unit_c
+            tile_count = (hi - lo) if is_tiled else 1
+            thread_pitch = new_dim.dim_thread_pitch * unit_c
+            old_intra_box_expr = new_dim.get_leaf_intra_box_expr()
+            codegen_expr = old_intra_box_expr // unit_c
+            intra_box_expr = old_intra_box_expr - offset
+            if tile_count > 1:
+                intra_box_expr %= unit_c
+            box_size_needed = hi * unit_c
+            if box_size_needed > self_c:
+                self.err(unit, hi, "not enough threads available")
+
+            codegen.dim_idx = tiled_dim_idx
+            codegen.offset = offset
+            codegen.box = box
+            codegen.tile_count = tile_count
+            codegen.thread_pitch = thread_pitch
+            codegen.codegen_expr = iter_expr
+            codegen.codegen_static_lo = None if lo == 0 else lo
+            codegen.codegen_static_hi = None if self_c == box_size_needed else hi
+
+            op = CollDimOp(_iter, offset, box, tile_count, intra_box_expr, thread_pitch)
+            new_dim.dim_ops.append(op)
+
+        if tiled_dim_idx is None and (lo != 0 or hi != 1):
+            self.err(
+                unit,
+                hi,
+                f'expect lo=0, hi=1 when CollUnit matches current one in scope ("trivial tiling")',
+            )
+
+        return new
 
 
 @dataclass(slots=True, init=False)
