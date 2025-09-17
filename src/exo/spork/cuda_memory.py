@@ -353,7 +353,6 @@ class CudaMbarrier(CudaDeviceBarrier):
         return BarrierTypeTraits(
             negative_await_N=True,
             uniform_await_N=True,
-            supports_back_array=True,
             requires_pairing=True,
             requires_arrive_first=False,
             supports_arrive_multicast=True,

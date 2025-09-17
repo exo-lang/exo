@@ -77,7 +77,7 @@ module LoopIR {
          | USub( expr arg )  -- i.e.  -(...)
          | BinOp( binop op, expr lhs, expr rhs )
          | Extern( extern f, expr* args )
-         | BarrierExpr( sym name, bool back, w_access* idx )
+         | BarrierExpr( sym name, w_access* idx )
          | WindowExpr( sym name, w_access* idx )
          | StrideExpr( sym name, int dim )
          | ReadConfig( config config, string field )
@@ -193,7 +193,7 @@ module UAST {
             | USub    ( expr arg ) -- i.e.  -(...)
             | BinOp   ( op op, expr lhs, expr rhs )
             | Extern( extern f, expr* args )
-            | BarrierExpr( sym name, bool back, w_access* idx )
+            | BarrierExpr( sym name, w_access* idx )
             | WindowExpr( sym name, w_access* idx, special_window? special_window )
             | StrideExpr( sym name, int dim )
             | LoopRange( expr lo, expr hi, loop_mode loop_mode ) -- only use for loop cond
@@ -657,7 +657,6 @@ def home_barrier_expr(s) -> LoopIR.BarrierExpr:
 
     e0 = s.barriers[0]
     nm = e0.name
-    back = e0.back
     dim = len(e0.idx)
     idx = [None] * dim
 
@@ -666,10 +665,6 @@ def home_barrier_expr(s) -> LoopIR.BarrierExpr:
         if e.name != nm:
             raise ValueError(
                 f"{s.srcinfo}: cannot arrive on different queue barrier arrays {e} and {e0}"
-            )
-        if e.back != back:
-            raise ValueError(
-                f"{s.srcinfo}: cannot arrive on different queue barrier arrays {e} and {e0} (+/- mismatch)"
             )
         for dim_idx in range(dim):
             this_idx = e.idx[dim_idx]
@@ -693,7 +688,7 @@ def home_barrier_expr(s) -> LoopIR.BarrierExpr:
                 f"{s.srcinfo}: at least one trailing barrier expression must have idx[{dim_idx}] be a point, not an interval {s.barriers[0].idx[dim_idx]} (in {s})"
             )
 
-    return LoopIR.BarrierExpr(nm, back, idx, T.barrier, s.srcinfo)
+    return LoopIR.BarrierExpr(nm, idx, T.barrier, s.srcinfo)
 
 
 del home_barrier_expr
@@ -1349,10 +1344,8 @@ class LoopIR_Compare:
                 self.match_e(a1, a2) for a1, a2 in zip(e1.args, e2.args)
             )
         elif isinstance(e1, LoopIR.BarrierExpr):
-            return (
-                self.match_name(e1.name, e2.name)
-                and e1.back == e2.back
-                and all(self.match_w_access(w1, w2) for w1, w2 in zip(e1.idx, e2.idx))
+            return self.match_name(e1.name, e2.name) and all(
+                self.match_w_access(w1, w2) for w1, w2 in zip(e1.idx, e2.idx)
             )
         elif isinstance(e1, LoopIR.WindowExpr):
             return self.match_name(e1.name, e2.name) and all(

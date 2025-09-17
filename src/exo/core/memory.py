@@ -366,9 +366,6 @@ class BarrierTypeTraits:
     # Each Await stmt for same queue barrier array must use the same N
     uniform_await_N: bool = False
 
-    # Forbid back queue barrier array (-name)
-    supports_back_array: bool = False
-
     requires_pairing: bool = False
     requires_arrive_first: bool = False
 

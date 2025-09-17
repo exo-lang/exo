@@ -193,13 +193,13 @@ struct exo_Cuda0_test_mbarriers
   struct exo_SyncState
   {
     // baseline: barrier @ CudaMbarrier, ring=1, slice_count=8
-    // front mbarriers [0, 8]; arrive_count=8
-    static constexpr unsigned FrontArriveIdx0_baseline = 0;  // Trivial size-1 ring buffer
-    EXO_CUDA_INLINE uint32_t FrontArrive0_baseline(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 0 + 8*(slice * 1 + FrontArriveIdx0_baseline));
+    // mbarriers [0: 8]; arrive_count=8
+    static constexpr unsigned ArriveIdx0_baseline = 0;  // Trivial size-1 ring buffer
+    EXO_CUDA_INLINE uint32_t Arrive0_baseline(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + 0 + 8*(slice * 1 + ArriveIdx0_baseline));
       if (enable) {
         asm volatile(
-          "// FrontArrive0_baseline\n\t"
+          "// Arrive0_baseline\n\t"
           "mbarrier.arrive.shared::cta.b64 _, [%0];"
             :
             :"r"(mbarrier_u32)
@@ -209,16 +209,16 @@ struct exo_Cuda0_test_mbarriers
       }
       return mbarrier_u32;
     }
-    static constexpr unsigned FrontAwaitIdx0_baseline = 0;  // Trivial size-1 ring buffer
-    unsigned FrontParity0_baseline : 1 = 0;
-    EXO_CUDA_INLINE void FrontAwait0_baseline(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 0 + 8*(slice * 1 + FrontAwaitIdx0_baseline));
+    static constexpr unsigned AwaitIdx0_baseline = 0;  // Trivial size-1 ring buffer
+    unsigned Parity0_baseline : 1 = 0;
+    EXO_CUDA_INLINE void Await0_baseline(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice) {
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + 0 + 8*(slice * 1 + AwaitIdx0_baseline));
       const bool enable = true;
       if (enable) {
     #if __CUDA_ARCH__ < 900
         asm volatile(
           "{\n\t"
-          "// FrontAwait0_baseline\n\t"
+          "// Await0_baseline\n\t"
           ".reg.pred P1;\n\t"
           "EXO_BEFORE_WAIT:\n\t"
           "mbarrier.test_wait.parity.acquire.cta.shared::cta.b64 P1, [%0], %1;\n\t"
@@ -228,15 +228,15 @@ struct exo_Cuda0_test_mbarriers
           "}"
             :
             :"r"(mbarrier_u32),
-            "r"(1u & FrontParity0_baseline >> FrontAwaitIdx0_baseline)
+            "r"(1u & Parity0_baseline >> AwaitIdx0_baseline)
         );
         exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_test_wait_parity_acquire_cta_shared_cta_b64), 0, __LINE__);
         exo_excutLog.log_u32_arg(static_cast<uint32_t>(mbarrier_u32));
-        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & FrontParity0_baseline >> FrontAwaitIdx0_baseline));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & Parity0_baseline >> AwaitIdx0_baseline));
     #else
         asm volatile(
           "{\n\t"
-          "// FrontAwait0_baseline\n\t"
+          "// Await0_baseline\n\t"
           ".reg.pred P1;\n\t"
           "EXO_BEFORE_WAIT:\n\t"
           "mbarrier.try_wait.parity.acquire.cta.shared::cta.b64 P1, [%0], %1;\n\t"
@@ -246,92 +246,25 @@ struct exo_Cuda0_test_mbarriers
           "}"
             :
             :"r"(mbarrier_u32),
-            "r"(1u & FrontParity0_baseline >> FrontAwaitIdx0_baseline)
+            "r"(1u & Parity0_baseline >> AwaitIdx0_baseline)
         );
         exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_try_wait_parity_acquire_cta_shared_cta_b64), 0, __LINE__);
         exo_excutLog.log_u32_arg(static_cast<uint32_t>(mbarrier_u32));
-        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & FrontParity0_baseline >> FrontAwaitIdx0_baseline));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & Parity0_baseline >> AwaitIdx0_baseline));
     #endif
         // Flip parity
-        FrontParity0_baseline ^= 1u << FrontAwaitIdx0_baseline;
+        Parity0_baseline ^= 1u << AwaitIdx0_baseline;
       }
     }
-    // rc_bars: barrier @ CudaMbarrier, ring=2, slice_count=8
-    // front mbarriers [8, 24]; arrive_count=8
-    // back mbarriers [24, 40]; arrive_count=32
-    unsigned FrontArriveIdx0_rc_bars : 1 = 0;
-    EXO_CUDA_INLINE uint32_t FrontArrive0_rc_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 64 + 8*(slice * 2 + FrontArriveIdx0_rc_bars));
-      if (enable) {
-        asm volatile(
-          "// FrontArrive0_rc_bars\n\t"
-          "mbarrier.arrive.shared::cta.b64 _, [%0];"
-            :
-            :"r"(mbarrier_u32)
-        );
-        exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_arrive_shared_cta_b64), 0, __LINE__);
-        exo_excutLog.log_u32_arg(static_cast<uint32_t>(mbarrier_u32));
-        // Advance ring buffer state
-        FrontArriveIdx0_rc_bars = FrontArriveIdx0_rc_bars == 1 ? 0 : FrontArriveIdx0_rc_bars + 1;
-      }
-      return mbarrier_u32;
-    }
-    unsigned FrontAwaitIdx0_rc_bars : 1 = 0;
-    unsigned FrontParity0_rc_bars : 2 = 0;
-    EXO_CUDA_INLINE void FrontAwait0_rc_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 64 + 8*(slice * 2 + FrontAwaitIdx0_rc_bars));
-      const bool enable = true;
-      if (enable) {
-    #if __CUDA_ARCH__ < 900
-        asm volatile(
-          "{\n\t"
-          "// FrontAwait0_rc_bars\n\t"
-          ".reg.pred P1;\n\t"
-          "EXO_BEFORE_WAIT:\n\t"
-          "mbarrier.test_wait.parity.acquire.cta.shared::cta.b64 P1, [%0], %1;\n\t"
-          "@P1 bra.uni EXO_WAIT_DONE;\n\t"
-          "bra.uni EXO_BEFORE_WAIT;\n\t"
-          "EXO_WAIT_DONE:\n\t"
-          "}"
-            :
-            :"r"(mbarrier_u32),
-            "r"(1u & FrontParity0_rc_bars >> FrontAwaitIdx0_rc_bars)
-        );
-        exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_test_wait_parity_acquire_cta_shared_cta_b64), 0, __LINE__);
-        exo_excutLog.log_u32_arg(static_cast<uint32_t>(mbarrier_u32));
-        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & FrontParity0_rc_bars >> FrontAwaitIdx0_rc_bars));
-    #else
-        asm volatile(
-          "{\n\t"
-          "// FrontAwait0_rc_bars\n\t"
-          ".reg.pred P1;\n\t"
-          "EXO_BEFORE_WAIT:\n\t"
-          "mbarrier.try_wait.parity.acquire.cta.shared::cta.b64 P1, [%0], %1;\n\t"
-          "@P1 bra.uni EXO_WAIT_DONE;\n\t"
-          "bra.uni EXO_BEFORE_WAIT;\n\t"
-          "EXO_WAIT_DONE:\n\t"
-          "}"
-            :
-            :"r"(mbarrier_u32),
-            "r"(1u & FrontParity0_rc_bars >> FrontAwaitIdx0_rc_bars)
-        );
-        exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_try_wait_parity_acquire_cta_shared_cta_b64), 0, __LINE__);
-        exo_excutLog.log_u32_arg(static_cast<uint32_t>(mbarrier_u32));
-        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & FrontParity0_rc_bars >> FrontAwaitIdx0_rc_bars));
-    #endif
-        // Flip parity
-        FrontParity0_rc_bars ^= 1u << FrontAwaitIdx0_rc_bars;
-        // Advance ring buffer state
-        FrontAwaitIdx0_rc_bars = FrontAwaitIdx0_rc_bars == 1 ? 0 : FrontAwaitIdx0_rc_bars + 1;
-      }
-    }
-    unsigned BackArriveIdx0_rc_bars : 1 = 0;
-    EXO_CUDA_INLINE uint32_t BackArrive0_rc_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 192 + 8*(slice * 2 + BackArriveIdx0_rc_bars));
+    // b_rc_bars: barrier @ CudaMbarrier, ring=2, slice_count=8
+    // mbarriers [8: 24]; arrive_count=32
+    unsigned ArriveIdx0_b_rc_bars : 1 = 0;
+    EXO_CUDA_INLINE uint32_t Arrive0_b_rc_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + 64 + 8*(slice * 2 + ArriveIdx0_b_rc_bars));
       if (enable) {
         const unsigned cta_rank = blockIdx.x % 4;
         asm volatile(
-          "// BackArrive0_rc_bars\n\t"
+          "// Arrive0_b_rc_bars\n\t"
           "// cta_xor=0\n\t"
           "mbarrier.arrive.shared::cluster.b64 _, [%0];"
             :
@@ -340,7 +273,7 @@ struct exo_Cuda0_test_mbarriers
         exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_arrive_shared_cluster_b64), 0, __LINE__);
         exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_mapa_shared_cluster(mbarrier_u32, cta_rank ^ 0)));
         asm volatile(
-          "// BackArrive0_rc_bars\n\t"
+          "// Arrive0_b_rc_bars\n\t"
           "// cta_xor=1\n\t"
           "mbarrier.arrive.shared::cluster.b64 _, [%0];"
             :
@@ -349,7 +282,7 @@ struct exo_Cuda0_test_mbarriers
         exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_arrive_shared_cluster_b64), 0, __LINE__);
         exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_mapa_shared_cluster(mbarrier_u32, cta_rank ^ 1)));
         asm volatile(
-          "// BackArrive0_rc_bars\n\t"
+          "// Arrive0_b_rc_bars\n\t"
           "// cta_xor=2\n\t"
           "mbarrier.arrive.shared::cluster.b64 _, [%0];"
             :
@@ -358,7 +291,7 @@ struct exo_Cuda0_test_mbarriers
         exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_arrive_shared_cluster_b64), 0, __LINE__);
         exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_mapa_shared_cluster(mbarrier_u32, cta_rank ^ 2)));
         asm volatile(
-          "// BackArrive0_rc_bars\n\t"
+          "// Arrive0_b_rc_bars\n\t"
           "// cta_xor=3\n\t"
           "mbarrier.arrive.shared::cluster.b64 _, [%0];"
             :
@@ -367,21 +300,21 @@ struct exo_Cuda0_test_mbarriers
         exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_arrive_shared_cluster_b64), 0, __LINE__);
         exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_mapa_shared_cluster(mbarrier_u32, cta_rank ^ 3)));
         // Advance ring buffer state
-        BackArriveIdx0_rc_bars = BackArriveIdx0_rc_bars == 1 ? 0 : BackArriveIdx0_rc_bars + 1;
+        ArriveIdx0_b_rc_bars = ArriveIdx0_b_rc_bars == 1 ? 0 : ArriveIdx0_b_rc_bars + 1;
       }
       return mbarrier_u32;
     }
-    unsigned BackAwaitIdx0_rc_bars : 1 = 0;
-    unsigned BackParity0_rc_bars : 2 = 0;
-    unsigned BackSkips0_rc_bars : 2 = 0;
-    EXO_CUDA_INLINE void BackAwait0_rc_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, int initial_skips = 0) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 192 + 8*(slice * 2 + BackAwaitIdx0_rc_bars));
-      const bool enable = BackSkips0_rc_bars >= initial_skips;
+    unsigned AwaitIdx0_b_rc_bars : 1 = 0;
+    unsigned Parity0_b_rc_bars : 2 = 0;
+    unsigned Skips0_b_rc_bars : 2 = 0;
+    EXO_CUDA_INLINE void Await0_b_rc_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, int initial_skips = 0) {
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + 64 + 8*(slice * 2 + AwaitIdx0_b_rc_bars));
+      const bool enable = Skips0_b_rc_bars >= initial_skips;
       if (enable) {
     #if __CUDA_ARCH__ < 900
         asm volatile(
           "{\n\t"
-          "// BackAwait0_rc_bars\n\t"
+          "// Await0_b_rc_bars\n\t"
           ".reg.pred P1;\n\t"
           "EXO_BEFORE_WAIT:\n\t"
           "mbarrier.test_wait.parity.acquire.cta.shared::cta.b64 P1, [%0], %1;\n\t"
@@ -391,15 +324,15 @@ struct exo_Cuda0_test_mbarriers
           "}"
             :
             :"r"(mbarrier_u32),
-            "r"(1u & BackParity0_rc_bars >> BackAwaitIdx0_rc_bars)
+            "r"(1u & Parity0_b_rc_bars >> AwaitIdx0_b_rc_bars)
         );
         exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_test_wait_parity_acquire_cta_shared_cta_b64), 0, __LINE__);
         exo_excutLog.log_u32_arg(static_cast<uint32_t>(mbarrier_u32));
-        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & BackParity0_rc_bars >> BackAwaitIdx0_rc_bars));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & Parity0_b_rc_bars >> AwaitIdx0_b_rc_bars));
     #else
         asm volatile(
           "{\n\t"
-          "// BackAwait0_rc_bars\n\t"
+          "// Await0_b_rc_bars\n\t"
           ".reg.pred P1;\n\t"
           "EXO_BEFORE_WAIT:\n\t"
           "mbarrier.try_wait.parity.acquire.cta.shared::cta.b64 P1, [%0], %1;\n\t"
@@ -409,31 +342,99 @@ struct exo_Cuda0_test_mbarriers
           "}"
             :
             :"r"(mbarrier_u32),
-            "r"(1u & BackParity0_rc_bars >> BackAwaitIdx0_rc_bars)
+            "r"(1u & Parity0_b_rc_bars >> AwaitIdx0_b_rc_bars)
         );
         exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_try_wait_parity_acquire_cta_shared_cta_b64), 0, __LINE__);
         exo_excutLog.log_u32_arg(static_cast<uint32_t>(mbarrier_u32));
-        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & BackParity0_rc_bars >> BackAwaitIdx0_rc_bars));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & Parity0_b_rc_bars >> AwaitIdx0_b_rc_bars));
     #endif
         // Flip parity
-        BackParity0_rc_bars ^= 1u << BackAwaitIdx0_rc_bars;
+        Parity0_b_rc_bars ^= 1u << AwaitIdx0_b_rc_bars;
         // Advance ring buffer state
-        BackAwaitIdx0_rc_bars = BackAwaitIdx0_rc_bars == 1 ? 0 : BackAwaitIdx0_rc_bars + 1;
+        AwaitIdx0_b_rc_bars = AwaitIdx0_b_rc_bars == 1 ? 0 : AwaitIdx0_b_rc_bars + 1;
       }
       else {
-        // BackAwait(rc_bars) returns without waiting for mbarrier first <initial_skips> times
-        BackSkips0_rc_bars++;
+        // Await(b_rc_bars) returns without waiting for mbarrier first <initial_skips> times
+        Skips0_b_rc_bars++;
+      }
+    }
+    // f_rc_bars: barrier @ CudaMbarrier, ring=2, slice_count=8
+    // mbarriers [24: 40]; arrive_count=8
+    unsigned ArriveIdx0_f_rc_bars : 1 = 0;
+    EXO_CUDA_INLINE uint32_t Arrive0_f_rc_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + 192 + 8*(slice * 2 + ArriveIdx0_f_rc_bars));
+      if (enable) {
+        asm volatile(
+          "// Arrive0_f_rc_bars\n\t"
+          "mbarrier.arrive.shared::cta.b64 _, [%0];"
+            :
+            :"r"(mbarrier_u32)
+        );
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_arrive_shared_cta_b64), 0, __LINE__);
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(mbarrier_u32));
+        // Advance ring buffer state
+        ArriveIdx0_f_rc_bars = ArriveIdx0_f_rc_bars == 1 ? 0 : ArriveIdx0_f_rc_bars + 1;
+      }
+      return mbarrier_u32;
+    }
+    unsigned AwaitIdx0_f_rc_bars : 1 = 0;
+    unsigned Parity0_f_rc_bars : 2 = 0;
+    EXO_CUDA_INLINE void Await0_f_rc_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice) {
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + 192 + 8*(slice * 2 + AwaitIdx0_f_rc_bars));
+      const bool enable = true;
+      if (enable) {
+    #if __CUDA_ARCH__ < 900
+        asm volatile(
+          "{\n\t"
+          "// Await0_f_rc_bars\n\t"
+          ".reg.pred P1;\n\t"
+          "EXO_BEFORE_WAIT:\n\t"
+          "mbarrier.test_wait.parity.acquire.cta.shared::cta.b64 P1, [%0], %1;\n\t"
+          "@P1 bra.uni EXO_WAIT_DONE;\n\t"
+          "bra.uni EXO_BEFORE_WAIT;\n\t"
+          "EXO_WAIT_DONE:\n\t"
+          "}"
+            :
+            :"r"(mbarrier_u32),
+            "r"(1u & Parity0_f_rc_bars >> AwaitIdx0_f_rc_bars)
+        );
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_test_wait_parity_acquire_cta_shared_cta_b64), 0, __LINE__);
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(mbarrier_u32));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & Parity0_f_rc_bars >> AwaitIdx0_f_rc_bars));
+    #else
+        asm volatile(
+          "{\n\t"
+          "// Await0_f_rc_bars\n\t"
+          ".reg.pred P1;\n\t"
+          "EXO_BEFORE_WAIT:\n\t"
+          "mbarrier.try_wait.parity.acquire.cta.shared::cta.b64 P1, [%0], %1;\n\t"
+          "@P1 bra.uni EXO_WAIT_DONE;\n\t"
+          "bra.uni EXO_BEFORE_WAIT;\n\t"
+          "EXO_WAIT_DONE:\n\t"
+          "}"
+            :
+            :"r"(mbarrier_u32),
+            "r"(1u & Parity0_f_rc_bars >> AwaitIdx0_f_rc_bars)
+        );
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_try_wait_parity_acquire_cta_shared_cta_b64), 0, __LINE__);
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(mbarrier_u32));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & Parity0_f_rc_bars >> AwaitIdx0_f_rc_bars));
+    #endif
+        // Flip parity
+        Parity0_f_rc_bars ^= 1u << AwaitIdx0_f_rc_bars;
+        // Advance ring buffer state
+        AwaitIdx0_f_rc_bars = AwaitIdx0_f_rc_bars == 1 ? 0 : AwaitIdx0_f_rc_bars + 1;
       }
     }
     // all_bars: barrier @ CudaMbarrier, ring=1, slice_count=8
-    // front mbarriers [40, 48]; arrive_count=32
-    static constexpr unsigned FrontArriveIdx0_all_bars = 0;  // Trivial size-1 ring buffer
-    EXO_CUDA_INLINE uint32_t FrontArrive0_all_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 320 + 8*(slice * 1 + FrontArriveIdx0_all_bars));
+    // mbarriers [40: 48]; arrive_count=32
+    static constexpr unsigned ArriveIdx0_all_bars = 0;  // Trivial size-1 ring buffer
+    EXO_CUDA_INLINE uint32_t Arrive0_all_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + 320 + 8*(slice * 1 + ArriveIdx0_all_bars));
       if (enable) {
         const unsigned cta_rank = blockIdx.x % 4;
         asm volatile(
-          "// FrontArrive0_all_bars\n\t"
+          "// Arrive0_all_bars\n\t"
           "// cta_xor=0\n\t"
           "mbarrier.arrive.shared::cluster.b64 _, [%0];"
             :
@@ -442,7 +443,7 @@ struct exo_Cuda0_test_mbarriers
         exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_arrive_shared_cluster_b64), 0, __LINE__);
         exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_mapa_shared_cluster(mbarrier_u32, cta_rank ^ 0)));
         asm volatile(
-          "// FrontArrive0_all_bars\n\t"
+          "// Arrive0_all_bars\n\t"
           "// cta_xor=1\n\t"
           "mbarrier.arrive.shared::cluster.b64 _, [%0];"
             :
@@ -451,7 +452,7 @@ struct exo_Cuda0_test_mbarriers
         exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_arrive_shared_cluster_b64), 0, __LINE__);
         exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_mapa_shared_cluster(mbarrier_u32, cta_rank ^ 1)));
         asm volatile(
-          "// FrontArrive0_all_bars\n\t"
+          "// Arrive0_all_bars\n\t"
           "// cta_xor=2\n\t"
           "mbarrier.arrive.shared::cluster.b64 _, [%0];"
             :
@@ -460,7 +461,7 @@ struct exo_Cuda0_test_mbarriers
         exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_arrive_shared_cluster_b64), 0, __LINE__);
         exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_mapa_shared_cluster(mbarrier_u32, cta_rank ^ 2)));
         asm volatile(
-          "// FrontArrive0_all_bars\n\t"
+          "// Arrive0_all_bars\n\t"
           "// cta_xor=3\n\t"
           "mbarrier.arrive.shared::cluster.b64 _, [%0];"
             :
@@ -471,16 +472,16 @@ struct exo_Cuda0_test_mbarriers
       }
       return mbarrier_u32;
     }
-    static constexpr unsigned FrontAwaitIdx0_all_bars = 0;  // Trivial size-1 ring buffer
-    unsigned FrontParity0_all_bars : 1 = 0;
-    EXO_CUDA_INLINE void FrontAwait0_all_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 320 + 8*(slice * 1 + FrontAwaitIdx0_all_bars));
+    static constexpr unsigned AwaitIdx0_all_bars = 0;  // Trivial size-1 ring buffer
+    unsigned Parity0_all_bars : 1 = 0;
+    EXO_CUDA_INLINE void Await0_all_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice) {
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + 320 + 8*(slice * 1 + AwaitIdx0_all_bars));
       const bool enable = true;
       if (enable) {
     #if __CUDA_ARCH__ < 900
         asm volatile(
           "{\n\t"
-          "// FrontAwait0_all_bars\n\t"
+          "// Await0_all_bars\n\t"
           ".reg.pred P1;\n\t"
           "EXO_BEFORE_WAIT:\n\t"
           "mbarrier.test_wait.parity.acquire.cta.shared::cta.b64 P1, [%0], %1;\n\t"
@@ -490,15 +491,15 @@ struct exo_Cuda0_test_mbarriers
           "}"
             :
             :"r"(mbarrier_u32),
-            "r"(1u & FrontParity0_all_bars >> FrontAwaitIdx0_all_bars)
+            "r"(1u & Parity0_all_bars >> AwaitIdx0_all_bars)
         );
         exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_test_wait_parity_acquire_cta_shared_cta_b64), 0, __LINE__);
         exo_excutLog.log_u32_arg(static_cast<uint32_t>(mbarrier_u32));
-        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & FrontParity0_all_bars >> FrontAwaitIdx0_all_bars));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & Parity0_all_bars >> AwaitIdx0_all_bars));
     #else
         asm volatile(
           "{\n\t"
-          "// FrontAwait0_all_bars\n\t"
+          "// Await0_all_bars\n\t"
           ".reg.pred P1;\n\t"
           "EXO_BEFORE_WAIT:\n\t"
           "mbarrier.try_wait.parity.acquire.cta.shared::cta.b64 P1, [%0], %1;\n\t"
@@ -508,25 +509,25 @@ struct exo_Cuda0_test_mbarriers
           "}"
             :
             :"r"(mbarrier_u32),
-            "r"(1u & FrontParity0_all_bars >> FrontAwaitIdx0_all_bars)
+            "r"(1u & Parity0_all_bars >> AwaitIdx0_all_bars)
         );
         exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_try_wait_parity_acquire_cta_shared_cta_b64), 0, __LINE__);
         exo_excutLog.log_u32_arg(static_cast<uint32_t>(mbarrier_u32));
-        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & FrontParity0_all_bars >> FrontAwaitIdx0_all_bars));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & Parity0_all_bars >> AwaitIdx0_all_bars));
     #endif
         // Flip parity
-        FrontParity0_all_bars ^= 1u << FrontAwaitIdx0_all_bars;
+        Parity0_all_bars ^= 1u << AwaitIdx0_all_bars;
       }
     }
     // col_bars: barrier @ CudaMbarrier, ring=1, slice_count=8
-    // front mbarriers [48, 56]; arrive_count=32
-    static constexpr unsigned FrontArriveIdx0_col_bars = 0;  // Trivial size-1 ring buffer
-    EXO_CUDA_INLINE uint32_t FrontArrive0_col_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 384 + 8*(slice * 1 + FrontArriveIdx0_col_bars));
+    // mbarriers [48: 56]; arrive_count=32
+    static constexpr unsigned ArriveIdx0_col_bars = 0;  // Trivial size-1 ring buffer
+    EXO_CUDA_INLINE uint32_t Arrive0_col_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + 384 + 8*(slice * 1 + ArriveIdx0_col_bars));
       if (enable) {
         const unsigned cta_rank = blockIdx.x % 4;
         asm volatile(
-          "// FrontArrive0_col_bars\n\t"
+          "// Arrive0_col_bars\n\t"
           "// cta_xor=0\n\t"
           "mbarrier.arrive.shared::cluster.b64 _, [%0];"
             :
@@ -535,7 +536,7 @@ struct exo_Cuda0_test_mbarriers
         exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_arrive_shared_cluster_b64), 0, __LINE__);
         exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_mapa_shared_cluster(mbarrier_u32, cta_rank ^ 0)));
         asm volatile(
-          "// FrontArrive0_col_bars\n\t"
+          "// Arrive0_col_bars\n\t"
           "// cta_xor=1\n\t"
           "mbarrier.arrive.shared::cluster.b64 _, [%0];"
             :
@@ -544,7 +545,7 @@ struct exo_Cuda0_test_mbarriers
         exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_arrive_shared_cluster_b64), 0, __LINE__);
         exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_mapa_shared_cluster(mbarrier_u32, cta_rank ^ 1)));
         asm volatile(
-          "// FrontArrive0_col_bars\n\t"
+          "// Arrive0_col_bars\n\t"
           "// cta_xor=2\n\t"
           "mbarrier.arrive.shared::cluster.b64 _, [%0];"
             :
@@ -553,7 +554,7 @@ struct exo_Cuda0_test_mbarriers
         exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_arrive_shared_cluster_b64), 0, __LINE__);
         exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_mapa_shared_cluster(mbarrier_u32, cta_rank ^ 2)));
         asm volatile(
-          "// FrontArrive0_col_bars\n\t"
+          "// Arrive0_col_bars\n\t"
           "// cta_xor=3\n\t"
           "mbarrier.arrive.shared::cluster.b64 _, [%0];"
             :
@@ -564,16 +565,16 @@ struct exo_Cuda0_test_mbarriers
       }
       return mbarrier_u32;
     }
-    static constexpr unsigned FrontAwaitIdx0_col_bars = 0;  // Trivial size-1 ring buffer
-    unsigned FrontParity0_col_bars : 1 = 0;
-    EXO_CUDA_INLINE void FrontAwait0_col_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 384 + 8*(slice * 1 + FrontAwaitIdx0_col_bars));
+    static constexpr unsigned AwaitIdx0_col_bars = 0;  // Trivial size-1 ring buffer
+    unsigned Parity0_col_bars : 1 = 0;
+    EXO_CUDA_INLINE void Await0_col_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice) {
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + 384 + 8*(slice * 1 + AwaitIdx0_col_bars));
       const bool enable = true;
       if (enable) {
     #if __CUDA_ARCH__ < 900
         asm volatile(
           "{\n\t"
-          "// FrontAwait0_col_bars\n\t"
+          "// Await0_col_bars\n\t"
           ".reg.pred P1;\n\t"
           "EXO_BEFORE_WAIT:\n\t"
           "mbarrier.test_wait.parity.acquire.cta.shared::cta.b64 P1, [%0], %1;\n\t"
@@ -583,15 +584,15 @@ struct exo_Cuda0_test_mbarriers
           "}"
             :
             :"r"(mbarrier_u32),
-            "r"(1u & FrontParity0_col_bars >> FrontAwaitIdx0_col_bars)
+            "r"(1u & Parity0_col_bars >> AwaitIdx0_col_bars)
         );
         exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_test_wait_parity_acquire_cta_shared_cta_b64), 0, __LINE__);
         exo_excutLog.log_u32_arg(static_cast<uint32_t>(mbarrier_u32));
-        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & FrontParity0_col_bars >> FrontAwaitIdx0_col_bars));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & Parity0_col_bars >> AwaitIdx0_col_bars));
     #else
         asm volatile(
           "{\n\t"
-          "// FrontAwait0_col_bars\n\t"
+          "// Await0_col_bars\n\t"
           ".reg.pred P1;\n\t"
           "EXO_BEFORE_WAIT:\n\t"
           "mbarrier.try_wait.parity.acquire.cta.shared::cta.b64 P1, [%0], %1;\n\t"
@@ -601,24 +602,24 @@ struct exo_Cuda0_test_mbarriers
           "}"
             :
             :"r"(mbarrier_u32),
-            "r"(1u & FrontParity0_col_bars >> FrontAwaitIdx0_col_bars)
+            "r"(1u & Parity0_col_bars >> AwaitIdx0_col_bars)
         );
         exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_try_wait_parity_acquire_cta_shared_cta_b64), 0, __LINE__);
         exo_excutLog.log_u32_arg(static_cast<uint32_t>(mbarrier_u32));
-        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & FrontParity0_col_bars >> FrontAwaitIdx0_col_bars));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & Parity0_col_bars >> AwaitIdx0_col_bars));
     #endif
         // Flip parity
-        FrontParity0_col_bars ^= 1u << FrontAwaitIdx0_col_bars;
+        Parity0_col_bars ^= 1u << AwaitIdx0_col_bars;
       }
     }
     // row_bars: barrier @ CudaMbarrier, ring=1, slice_count=8
-    // front mbarriers [56, 64]; arrive_count=8
-    static constexpr unsigned FrontArriveIdx0_row_bars = 0;  // Trivial size-1 ring buffer
-    EXO_CUDA_INLINE uint32_t FrontArrive0_row_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 448 + 8*(slice * 1 + FrontArriveIdx0_row_bars));
+    // mbarriers [56: 64]; arrive_count=8
+    static constexpr unsigned ArriveIdx0_row_bars = 0;  // Trivial size-1 ring buffer
+    EXO_CUDA_INLINE uint32_t Arrive0_row_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + 448 + 8*(slice * 1 + ArriveIdx0_row_bars));
       if (enable) {
         asm volatile(
-          "// FrontArrive0_row_bars\n\t"
+          "// Arrive0_row_bars\n\t"
           "mbarrier.arrive.shared::cta.b64 _, [%0];"
             :
             :"r"(mbarrier_u32)
@@ -628,16 +629,16 @@ struct exo_Cuda0_test_mbarriers
       }
       return mbarrier_u32;
     }
-    static constexpr unsigned FrontAwaitIdx0_row_bars = 0;  // Trivial size-1 ring buffer
-    unsigned FrontParity0_row_bars : 1 = 0;
-    EXO_CUDA_INLINE void FrontAwait0_row_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 448 + 8*(slice * 1 + FrontAwaitIdx0_row_bars));
+    static constexpr unsigned AwaitIdx0_row_bars = 0;  // Trivial size-1 ring buffer
+    unsigned Parity0_row_bars : 1 = 0;
+    EXO_CUDA_INLINE void Await0_row_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice) {
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + 448 + 8*(slice * 1 + AwaitIdx0_row_bars));
       const bool enable = true;
       if (enable) {
     #if __CUDA_ARCH__ < 900
         asm volatile(
           "{\n\t"
-          "// FrontAwait0_row_bars\n\t"
+          "// Await0_row_bars\n\t"
           ".reg.pred P1;\n\t"
           "EXO_BEFORE_WAIT:\n\t"
           "mbarrier.test_wait.parity.acquire.cta.shared::cta.b64 P1, [%0], %1;\n\t"
@@ -647,15 +648,15 @@ struct exo_Cuda0_test_mbarriers
           "}"
             :
             :"r"(mbarrier_u32),
-            "r"(1u & FrontParity0_row_bars >> FrontAwaitIdx0_row_bars)
+            "r"(1u & Parity0_row_bars >> AwaitIdx0_row_bars)
         );
         exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_test_wait_parity_acquire_cta_shared_cta_b64), 0, __LINE__);
         exo_excutLog.log_u32_arg(static_cast<uint32_t>(mbarrier_u32));
-        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & FrontParity0_row_bars >> FrontAwaitIdx0_row_bars));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & Parity0_row_bars >> AwaitIdx0_row_bars));
     #else
         asm volatile(
           "{\n\t"
-          "// FrontAwait0_row_bars\n\t"
+          "// Await0_row_bars\n\t"
           ".reg.pred P1;\n\t"
           "EXO_BEFORE_WAIT:\n\t"
           "mbarrier.try_wait.parity.acquire.cta.shared::cta.b64 P1, [%0], %1;\n\t"
@@ -665,14 +666,14 @@ struct exo_Cuda0_test_mbarriers
           "}"
             :
             :"r"(mbarrier_u32),
-            "r"(1u & FrontParity0_row_bars >> FrontAwaitIdx0_row_bars)
+            "r"(1u & Parity0_row_bars >> AwaitIdx0_row_bars)
         );
         exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_try_wait_parity_acquire_cta_shared_cta_b64), 0, __LINE__);
         exo_excutLog.log_u32_arg(static_cast<uint32_t>(mbarrier_u32));
-        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & FrontParity0_row_bars >> FrontAwaitIdx0_row_bars));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & Parity0_row_bars >> AwaitIdx0_row_bars));
     #endif
         // Flip parity
-        FrontParity0_row_bars ^= 1u << FrontAwaitIdx0_row_bars;
+        Parity0_row_bars ^= 1u << AwaitIdx0_row_bars;
       }
     }
   };
@@ -759,23 +760,23 @@ exo_CudaInline_test_mbarriers_m4n1d0d2_temporal_to_wgmma_golden::exo_Cuda0_test_
       }
       for (int i = 0; i < 16; ++i) {
           asm volatile(
-            "mbarrier.init.shared::cta.b64 [%0], 8;"
+            "mbarrier.init.shared::cta.b64 [%0], 32;"
               :
               :"r"(exo_smemU32(exo_smem + 64 + 8*i))
           );
           exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_init_shared_cta_b64), 0, __LINE__);
           exo_excutLog.log_u32_arg(exo_smemU32(exo_smem + 64 + 8*i));
-          exo_excutLog.log_u32_arg(static_cast<uint32_t>(8));
+          exo_excutLog.log_u32_arg(static_cast<uint32_t>(32));
       }
       for (int i = 0; i < 16; ++i) {
           asm volatile(
-            "mbarrier.init.shared::cta.b64 [%0], 32;"
+            "mbarrier.init.shared::cta.b64 [%0], 8;"
               :
               :"r"(exo_smemU32(exo_smem + 192 + 8*i))
           );
           exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_init_shared_cta_b64), 0, __LINE__);
           exo_excutLog.log_u32_arg(exo_smemU32(exo_smem + 192 + 8*i));
-          exo_excutLog.log_u32_arg(static_cast<uint32_t>(32));
+          exo_excutLog.log_u32_arg(static_cast<uint32_t>(8));
       }
       for (int i = 0; i < 8; ++i) {
           asm volatile(
@@ -836,7 +837,8 @@ exo_CudaInline_test_mbarriers_m4n1d0d2_temporal_to_wgmma_golden::exo_Cuda0_test_
     // row_bars: barrier[4, 1, 2] @ CudaMbarrier
     // col_bars: barrier[4, 1, 2] @ CudaMbarrier
     // all_bars: barrier[4, 1, 2] @ CudaMbarrier
-    // rc_bars: barrier[4, 1, 2] @ CudaMbarrier
+    // f_rc_bars: barrier[4, 1, 2] @ CudaMbarrier
+    // b_rc_bars: barrier(f_rc_bars)[4, 1, 2] @ CudaMbarrier
     // baseline: barrier[4, 1, 2] @ CudaMbarrier
     for (int i = 0; i < 5; i++) {
       // cuda_threads(0, 2, unit=8 * cuda_thread)
@@ -845,40 +847,40 @@ exo_CudaInline_test_mbarriers_m4n1d0d2_temporal_to_wgmma_golden::exo_Cuda0_test_
         if ([[maybe_unused]] int exo_8thr_m_cta = (blockIdx.x % 4); 1) {
           // cuda_threads(0, 1, unit=cuda_cta_in_cluster)
           if (int exo_8thr_n_cta = 0; exo_8thr_n_cta < 1) {
-            // Arrive(cuda_in_order, 1) >> +baseline[m_cta, n_cta, t1]
+            // Arrive(cuda_in_order, 1) >> baseline[m_cta, n_cta, t1]
             // cta_mask: uint16_t(0x1 << (blockIdx.x & 0x3))
-            exo_syncState.FrontArrive0_baseline(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2, 1);
-            // Await(-rc_bars[m_cta, n_cta, t1], wgmma_async_smem, ~2)
-            exo_syncState.BackAwait0_rc_bars(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2, 2);
-            // Arrive(cuda_temporal, 1) >> +rc_bars[m_cta, n_cta, t1]
+            exo_syncState.Arrive0_baseline(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2, 1);
+            // Await(b_rc_bars[m_cta, n_cta, t1], wgmma_async_smem, ~2)
+            exo_syncState.Await0_b_rc_bars(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2, 2);
+            // Arrive(cuda_temporal, 1) >> f_rc_bars[m_cta, n_cta, t1]
             // cta_mask: uint16_t(0x1 << (blockIdx.x & 0x3))
-            exo_syncState.FrontArrive0_rc_bars(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2, 1);
-            // Arrive(cuda_temporal, 1) >> +row_bars[m_cta, n_cta, t1] >> +row_bars[m_cta, 0:1, t1]
+            exo_syncState.Arrive0_f_rc_bars(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2, 1);
+            // Arrive(cuda_temporal, 1) >> row_bars[m_cta, n_cta, t1] >> row_bars[m_cta, 0:1, t1]
             // cta_mask: uint16_t(0x1 << (blockIdx.x & 0x3))
             // cta_mask: uint16_t(0x1 << (blockIdx.x & 0x3))
-            exo_syncState.FrontArrive0_row_bars(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2, 1);
-            // Await(+row_bars[m_cta, n_cta, t1], wgmma_async_smem, ~0)
-            exo_syncState.FrontAwait0_row_bars(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2);
-            // Arrive(cuda_temporal, 1) >> +col_bars[m_cta, n_cta, t1] >> +col_bars[0:4, n_cta, t1]
-            // cta_mask: uint16_t(0x1 << (blockIdx.x & 0x3))
-            // cta_mask: uint16_t(0xf)
-            exo_syncState.FrontArrive0_col_bars(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2, 1);
-            // Await(+col_bars[m_cta, n_cta, t1], wgmma_async_smem, ~0)
-            exo_syncState.FrontAwait0_col_bars(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2);
-            // Arrive(cuda_temporal, 1) >> +all_bars[m_cta, n_cta, t1] >> +all_bars[0:4, 0:1, t1]
+            exo_syncState.Arrive0_row_bars(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2, 1);
+            // Await(row_bars[m_cta, n_cta, t1], wgmma_async_smem, ~0)
+            exo_syncState.Await0_row_bars(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2);
+            // Arrive(cuda_temporal, 1) >> col_bars[m_cta, n_cta, t1] >> col_bars[0:4, n_cta, t1]
             // cta_mask: uint16_t(0x1 << (blockIdx.x & 0x3))
             // cta_mask: uint16_t(0xf)
-            exo_syncState.FrontArrive0_all_bars(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2, 1);
-            // Await(+all_bars[m_cta, n_cta, t1], wgmma_async_smem, ~0)
-            exo_syncState.FrontAwait0_all_bars(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2);
-            // Await(+rc_bars[m_cta, n_cta, t1], wgmma_async_smem, ~0)
-            exo_syncState.FrontAwait0_rc_bars(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2);
-            // Arrive(cuda_temporal, 1) >> -rc_bars[m_cta, 0:1, t1] >> -rc_bars[0:4, n_cta, t1]
+            exo_syncState.Arrive0_col_bars(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2, 1);
+            // Await(col_bars[m_cta, n_cta, t1], wgmma_async_smem, ~0)
+            exo_syncState.Await0_col_bars(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2);
+            // Arrive(cuda_temporal, 1) >> all_bars[m_cta, n_cta, t1] >> all_bars[0:4, 0:1, t1]
             // cta_mask: uint16_t(0x1 << (blockIdx.x & 0x3))
             // cta_mask: uint16_t(0xf)
-            exo_syncState.BackArrive0_rc_bars(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2, 1);
-            // Await(+baseline[m_cta, n_cta, t1], cuda_in_order, ~0)
-            exo_syncState.FrontAwait0_baseline(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2);
+            exo_syncState.Arrive0_all_bars(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2, 1);
+            // Await(all_bars[m_cta, n_cta, t1], wgmma_async_smem, ~0)
+            exo_syncState.Await0_all_bars(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2);
+            // Await(f_rc_bars[m_cta, n_cta, t1], wgmma_async_smem, ~0)
+            exo_syncState.Await0_f_rc_bars(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2);
+            // Arrive(cuda_temporal, 1) >> b_rc_bars[m_cta, 0:1, t1] >> b_rc_bars[0:4, n_cta, t1]
+            // cta_mask: uint16_t(0x1 << (blockIdx.x & 0x3))
+            // cta_mask: uint16_t(0xf)
+            exo_syncState.Arrive0_b_rc_bars(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2, 1);
+            // Await(baseline[m_cta, n_cta, t1], cuda_in_order, ~0)
+            exo_syncState.Await0_baseline(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2);
           }
         }
       }

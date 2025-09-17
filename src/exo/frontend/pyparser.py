@@ -1635,18 +1635,6 @@ class Parser:
         return UAST.Interval(lo, hi, srcinfo)
 
     def parse_barrier_expr(self, e):
-        back = False
-        # Parse leading +/- if any
-        # + or missing means front (not back) queue barrier array.
-        # - means back queue barrier array.
-        if isinstance(e, pyast.UnaryOp):
-            if isinstance(e.op, pyast.UAdd):
-                pass
-            elif isinstance(e.op, pyast.USub):
-                back = True
-            else:
-                self.err(e, "Unexpected unary {type(e.op).__name__}")
-            e = e.operand
         # Parse WindowExpr-like expression and translate to BarrierExpr
         parsed = self.parse_expr(e)
         if isinstance(parsed, UAST.WindowExpr):
@@ -1656,8 +1644,8 @@ class Parser:
             nm = parsed.name
             idx = [UAST.Point(pt, pt.srcinfo) for pt in parsed.idx]
         else:
-            self.err(e, "expected window-like expression for barrier")
-        return UAST.BarrierExpr(nm, back, idx, parsed.srcinfo)
+            self.err(e, f"expected window-like expression for barrier, not {e}")
+        return UAST.BarrierExpr(nm, idx, parsed.srcinfo)
 
     # parse expressions, including values, indices, and booleans
     def parse_expr(self, e):

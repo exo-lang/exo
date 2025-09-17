@@ -274,9 +274,7 @@ class UAST_PPrinter:
 
             s = f"{self.get_name(e.name)}[{', '.join([pacc(w) for w in e.idx])}]"
 
-            if isinstance(e, UAST.BarrierExpr):
-                s = ("-" if e.back else "+") + s
-            elif memwin := e.special_window:
+            if memwin := e.special_window:
                 s += " @ " + memwin.name()
             return s
         elif isinstance(e, UAST.StrideExpr):
@@ -618,8 +616,7 @@ def _print_expr_impl(e, env: PrintEnv, prec: int) -> str:
 
     elif isinstance(e, LoopIR.BarrierExpr):
         name = env.get_name(e.name)
-        sign = "-" if e.back else "+"
-        s = f"{sign}{name}"
+        s = f"{name}"
         if e.idx:
             s += f"[{', '.join([_print_w_access(w, env) for w in e.idx])}]"
         return s

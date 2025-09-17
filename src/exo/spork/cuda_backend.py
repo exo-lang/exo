@@ -399,7 +399,7 @@ class SubtreeScan(LoopIR_Do):
             if s.type.is_barrier():
                 self.sync_state_builder.add_barrier(
                     s.name,
-                    self.get_barrier_usage(s.name),
+                    self.get_barrier_usage,  # Callable[[Sym], BarrierUsage]
                     self.distributed_alloc_states[s.name],
                     self.thread_iters,
                 )
@@ -418,7 +418,7 @@ class SubtreeScan(LoopIR_Do):
                 state = DistributedAllocState.from_fence(s, self._coll_tiling)
                 self.sync_state_builder.add_barrier(
                     e.name,
-                    self.get_barrier_usage(e.name),
+                    self.get_barrier_usage,  # Callable[[Sym], BarrierUsage]
                     state,
                     self.thread_iters,
                 )

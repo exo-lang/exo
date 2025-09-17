@@ -357,7 +357,7 @@ exo_CudaInline_test_garden_Sm90_golden::exo_Cuda0_test_proc::exo_deviceTask(
     }
   }
   // cluster_sync: barrier @ CudaClusterSync
-  // Arrive(Sm80_generic, 1) >> +cluster_sync
+  // Arrive(Sm80_generic, 1) >> cluster_sync
   asm volatile(
     "cp.async.wait_all;"
   );
@@ -366,7 +366,7 @@ exo_CudaInline_test_garden_Sm90_golden::exo_Cuda0_test_proc::exo_deviceTask(
     "barrier.cluster.arrive.aligned;"
   );
   exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cluster_arrive_aligned), 0, __LINE__);
-  // Await(+cluster_sync, cuda_in_order, 0)
+  // Await(cluster_sync, cuda_in_order, 0)
   asm volatile(
     "barrier.cluster.wait.aligned;"
   );

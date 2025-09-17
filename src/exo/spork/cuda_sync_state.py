@@ -64,11 +64,12 @@ class SyncStateBuilder:
     def add_barrier(
         self,
         name: Sym,
-        usage: BarrierUsage,  # Not to be confused with Usage_tl (sorry)
+        get_usage: Callable[[Sym], BarrierUsage],
         coll_tilings: DistributedAllocState,
         thread_iters: Dict[Sym, ThreadIter],
     ):
-        for info in usage.sync_info:
+        usage = get_usage(name)
+        for info in (usage.get_arrive(), usage.get_await()):
             if info is not None:
                 if not timelines.cuda_async_proxy.disjoint_full_timeline_set(
                     info.sync_tl
@@ -79,14 +80,14 @@ class SyncStateBuilder:
         barrier_type = usage.barrier_type
         suffix = self._assign_suffix(name)
         if usage.is_fence():
-            if usage.get_front_arrive().sync_tl == timelines.wgmma_fence_1:
+            if usage.get_arrive().sync_tl == timelines.wgmma_fence_1:
                 self.add_wgmma_fence(name, usage, coll_tilings, thread_iters, suffix)
             else:
                 self.add_garden_variety_or_cluster_sync(
                     name, usage, coll_tilings, thread_iters, suffix, False
                 )
         elif issubclass(barrier_type, CudaMbarrier):
-            self.add_mbarrier(name, usage, coll_tilings, thread_iters, suffix)
+            self.add_mbarrier(name, get_usage, coll_tilings, thread_iters, suffix)
         elif issubclass(barrier_type, CudaCommitGroup):
             self.add_commit_group(name, usage, coll_tilings, thread_iters, suffix)
         elif issubclass(barrier_type, CudaClusterSync):
@@ -107,8 +108,8 @@ class SyncStateBuilder:
         thread_iters: Dict[Sym, ThreadIter],
         suffix: str,
     ):
-        Arrive = usage.get_front_arrive()
-        Await = usage.get_front_await()
+        Arrive = usage.get_arrive()
+        Await = usage.get_await()
         L1 = Arrive.sync_tl
         L2 = Await.sync_tl
         srcinfo = Arrive.get_srcinfo()
@@ -118,9 +119,9 @@ class SyncStateBuilder:
                 f"{srcinfo}: wgmma fence needs second sync-tl wgmma_fence_2"
             )
 
-        coll_tiling = coll_tilings.get_front_arrive()
+        coll_tiling = coll_tilings.get_arrive()
         # Should be the case for a Fence
-        assert coll_tiling is coll_tilings.get_front_await()
+        assert coll_tiling is coll_tilings.get_await()
 
         if msg := coll_tiling.unit_mismatch(cuda_warpgroup, self._coll_env):
             raise ValueError(
@@ -154,15 +155,14 @@ class SyncStateBuilder:
 
         """
 
-        Arrive = usage.get_front_arrive()
-        Await = usage.get_front_await()
+        Arrive = usage.get_arrive()
+        Await = usage.get_await()
         L1 = Arrive.sync_tl
         L2 = Await.sync_tl
         srcinfo = usage.get_srcinfo()
         clusterDim = self._clusterDim()
-        coll_tiling = coll_tilings.get_front_arrive()
-        await_coll_tiling = coll_tilings.get_front_await()
-        assert not usage.has_back_array()
+        coll_tiling = coll_tilings.get_arrive()
+        await_coll_tiling = coll_tilings.get_await()
 
         mismatch_messages = []
 
@@ -269,14 +269,16 @@ class SyncStateBuilder:
     def add_mbarrier(
         self,
         name: Sym,
-        usage: BarrierUsage,
+        get_usage: Callable[[Sym], BarrierUsage],
         coll_tilings: DistributedAllocState,
         thread_iters: Dict[Sym, ThreadIter],
         suffix: str,
     ):
+        usage = get_usage(name)
+
         # Each queue barrier object (equiv, mbarrier ring buffer) must be
         # resident in 1 CTA only. NB any Arrive/Await will do here.
-        if msg := coll_tilings.get_front_arrive().unit_mismatch(
+        if msg := coll_tilings.get_arrive().unit_mismatch(
             cuda_agnostic_sub_cta, self._coll_env
         ):
             raise ValueError(
@@ -289,27 +291,34 @@ class SyncStateBuilder:
         nm_suffix = f"{suffix}_{name}"
 
         # Translate N to number of trivial Awaits (skip mbarrier wait)
-        def n_skips(info: SyncInfo):
+        def get_n_skips(info: SyncInfo):
             assert info.min_N == info.max_N
             return ~info.min_N
 
         # Calculate the size of the ring buffer (number of mbarriers)
         # and CTA indices to XOR with (cluster feature)
-        front_skips = n_skips(usage.get_front_await())
-        front_cta_xor_list = coll_tilings.cta_xor_list(
-            self._blockDim(), thread_iters, usage.get_front_arrive()
+        n_skips = get_n_skips(usage.get_await())
+        cta_xor_list = coll_tilings.cta_xor_list(
+            self._blockDim(), thread_iters, usage.get_arrive()
         )
-        if usage.has_back_array():
-            back_skips = n_skips(usage.get_back_await())
-            ring = front_skips + back_skips
-            back_cta_xor_list = coll_tilings.cta_xor_list(
-                self._blockDim(), thread_iters, usage.get_back_arrive()
-            )
-        else:
-            ring = front_skips + 1
+        ring = n_skips
+        names = [name]
+        # We have to look through the whole cycle of guarding mbarriers and sum up the number of skips.
+        guard_name = usage.guarded_by
+        while guard_name != name:
+            names.append(guard_name)
+            guard_usage = get_usage(guard_name)
+            ring += get_n_skips(guard_usage.get_await())
+            guard_name = guard_usage.guarded_by
+        if len(names) == 1:
+            # Needed for Arrive followed by Await to work, which is only
+            # allowed in the self-guarded case.
+            ring += 1
         if ring == 0:
+            names_str = "; ".join(str(s) for s in names)
             raise ValueError(
-                f"{usage.get_srcinfo()}: {name} must have some await with nonzero skips (e.g. set N = ~1)"
+                f"{usage.get_srcinfo()}: {names_str} must have some "
+                f"await with nonzero skips (e.g. set N = ~1)"
             )
 
         # Number of physical mbarriers is slice_count * ring, where
@@ -327,15 +336,13 @@ class SyncStateBuilder:
 
         # black formatting will ruin the readability of the generated C++ code below
         # fmt: off
-        def mbarrier_to_u32(lines, is_back, ringidx):
-            byte_offset = 8 * (mbarrier_offset + (ring * slice_count) if is_back else mbarrier_offset)
+        def mbarrier_to_u32(lines, ringidx):
+            byte_offset = 8 * mbarrier_offset
             idx = f"(slice * {ring} + {ringidx})"
             lines.append(f"  const auto mbarrier_u32 = exo_smemU32(exo_smem + {byte_offset} + 8*{idx});")
 
-        def generate_arrive(is_back):
-            b = "Back" if is_back else "Front"
-            info = usage.get_back_arrive() if is_back else usage.get_front_arrive()
-            cta_xor_list = back_cta_xor_list if is_back else front_cta_xor_list
+        def generate_arrive():
+            info = usage.get_arrive()
             sync_tl = info.sync_tl
 
             if timelines.Sm80_cp_async.implements_first(sync_tl):
@@ -352,13 +359,13 @@ class SyncStateBuilder:
                     f"not supported: need cuda_in_order or Sm80_cp_async")
 
             lines = self.SyncState_lines
-            idx = f"{b}ArriveIdx{nm_suffix}"
+            idx = f"ArriveIdx{nm_suffix}"
             if ring_bits > 0:
                 lines.append(f"unsigned {idx} : {ring_bits} = 0;")
             else:
                 lines.append(f"static constexpr unsigned {idx} = 0;  // Trivial size-1 ring buffer")
-            lines.append(f"EXO_CUDA_INLINE uint32_t {b}Arrive{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {{")
-            mbarrier_to_u32(lines, is_back, idx);
+            lines.append(f"EXO_CUDA_INLINE uint32_t Arrive{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {{")
+            mbarrier_to_u32(lines, idx);
             lines.append(f"  if (enable) {{")
 
             # Optional broadcast to other CTAs in cluster.
@@ -374,12 +381,12 @@ class SyncStateBuilder:
             # Issue arrives to each CTA (special code for 1-CTA case, so we
             # don't break sm_80, and don't waste time translating addresses)
             for cta_xor in cta_xor_list:
-                ptx_format = f"// {b}Arrive{nm_suffix}\n"
+                ptx_format = f"// Arrive{nm_suffix}\n"
                 if multicast:
                     ptx_format += f"// cta_xor={cta_xor}\n"
                 if is_Sm80_cp_async:
                     if cta_or_cluster != "cta":
-                        bad_stmt = usage.get_front_arrive().stmts[0]
+                        bad_stmt = usage.get_arrive().stmts[0]
                         raise ValueError(f"{bad_stmt.srcinfo}: Sm80_cp_async mbarrier must be within 1 CTA (in {bad_stmt})")
                     ptx_format += f"cp.async.mbarrier.arrive.noinc.shared::cta.b64 #0#;"
                 else:
@@ -398,9 +405,8 @@ class SyncStateBuilder:
             lines.append(f"  return mbarrier_u32;")
             lines.append(f"}}")
 
-        def generate_await(is_back, L1):
-            b = "Back" if is_back else "Front"
-            info = usage.get_back_await() if is_back else usage.get_front_await()
+        def generate_await(L1):
+            info = usage.get_await()
             L2 = info.sync_tl
 
             if timelines.cuda_temporal.implements_first(L1):
@@ -421,13 +427,9 @@ class SyncStateBuilder:
                     f"not supported ({remark})")
 
             lines = self.SyncState_lines
-            # If we have a back queue barrier array, the mbarriers for them
-            # are allocated right after those for the front queue barrier array.
-            offset = mbarrier_offset + ring if is_back else mbarrier_offset
-            idx = f"{b}AwaitIdx{nm_suffix}"
-            skips = f"{b}Skips{nm_suffix}"
-            parity_bits = f"{b}Parity{nm_suffix}"
-            n_skips = back_skips if is_back else front_skips
+            idx = f"AwaitIdx{nm_suffix}"
+            skips = f"Skips{nm_suffix}"
+            parity_bits = f"Parity{nm_suffix}"
             enable_skips = n_skips != 0
 
             # Define (register) exo_SyncState member variables: ring buffer
@@ -444,14 +446,14 @@ class SyncStateBuilder:
             # The initial_skips parameter is included iff skipping is enabled,
             # as a last line of defense against future Exo compiler bugs.
             if enable_skips:
-                lines.append(f"EXO_CUDA_INLINE void {b}Await{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, int initial_skips = 0) {{")
-                mbarrier_to_u32(lines, is_back, idx)
+                lines.append(f"EXO_CUDA_INLINE void Await{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, int initial_skips = 0) {{")
+                mbarrier_to_u32(lines, idx)
                 lines.append(f"  const bool enable = {skips} >= initial_skips;")
             else:
-                lines.append(f"EXO_CUDA_INLINE void {b}Await{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice) {{")
-                mbarrier_to_u32(lines, is_back, idx)
+                lines.append(f"EXO_CUDA_INLINE void Await{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice) {{")
+                mbarrier_to_u32(lines, idx)
                 lines.append(f"  const bool enable = true;")
-            comment = f"// {b}Await{nm_suffix}"
+            comment = f"// Await{nm_suffix}"
             lines.append(f"  if (enable) {{")
             # sm_90 needed for try_wait; condition on __CUDA_ARCH__
             def add_inline_ptx(try_or_test):
@@ -484,37 +486,26 @@ class SyncStateBuilder:
             lines.append(f"  }}")
             if enable_skips:
                 lines.append(f"  else {{")
-                lines.append(f"    // {b}Await({name}) returns without waiting for mbarrier first <initial_skips> times")
+                lines.append(f"    // Await({name}) returns without waiting for mbarrier first <initial_skips> times")
                 lines.append(f"    {skips}++;")
                 lines.append(f"  }}")
             lines.append(f"}}")
 
-        # mbarrier allocator: record mbarriers to initialize, first the front queue barrier
-        # array, then the optional back queue barrier array.
+        # mbarrier allocator: record mbarriers to initialize.
         RS = ring * slice_count
         lines = self.SyncState_lines
-        arrive_count = coll_tilings.get_front_arrive().box_num_threads() * len(front_cta_xor_list)
+        arrive_count = coll_tilings.get_arrive().box_num_threads() * len(cta_xor_list)
         self._mbarrier_pairs.append((RS, arrive_count))
         self.mbarrier_count += RS
         lines.append(f"// {name}: barrier @ CudaMbarrier, ring={ring}, slice_count={slice_count}")
-        lines.append(f"// front mbarriers [{mbarrier_offset}, {mbarrier_offset + RS}]; "
+        lines.append(f"// mbarriers [{mbarrier_offset}: {mbarrier_offset + RS}]; "
                      f"arrive_count={arrive_count}")
-
-        if usage.has_back_array():
-            arrive_count = coll_tilings.get_back_arrive().box_num_threads() * len(back_cta_xor_list)
-            self._mbarrier_pairs.append((RS, arrive_count))
-            self.mbarrier_count += RS
-            lines.append(f"// back mbarriers [{mbarrier_offset + RS}, {mbarrier_offset + RS * 2}]; "
-                         f"arrive_count={arrive_count}")
 
         # Generate Arrive and Await syntax
         # Awaits must be aware with the sync-tl
         # of the matched Arrive
-        generate_arrive(False)
-        generate_await(False, usage.get_front_arrive().sync_tl)
-        if usage.has_back_array():
-            generate_arrive(True)
-            generate_await(True, usage.get_back_arrive().sync_tl)
+        generate_arrive()
+        generate_await(usage.get_arrive().sync_tl)
 
         # Arrive/Await lowers to call to generated exo_syncState member function.
         Arrive_txt = f"Arrive{nm_suffix}(exo_smem, exo_excutLog"
@@ -540,17 +531,16 @@ class SyncStateBuilder:
             # hi_thread_pitch=blockDim.
             iter_syms = [None if multicast else idx.pt.name for multicast, idx in zip(e.multicast_flags(), e.idx)]
             slice = coll_tilings.codegen_slices_to_root(self._blockDim(), thread_iters, iter_syms)
-            b = "Back" if e.back else "Front"
 
             if is_arg:
-                return f"exo_syncState.{b}{Arrive_txt}, {slice}, 0)"
+                return f"exo_syncState.{Arrive_txt}, {slice}, 0)"
             elif sync_type.is_arrive():
                 assert sync_type.N == 1
                 lines = []
                 for e in node.barriers:
                     cta_mask = coll_tilings.codegen_cta_mask(self._blockDim(), thread_iters, e)
                     lines.append(f"// cta_mask: {cta_mask}")
-                lines.append(f"exo_syncState.{b}{Arrive_txt}, {slice}, 1);")
+                lines.append(f"exo_syncState.{Arrive_txt}, {slice}, 1);")
                 return lines
             else:
                 assert sync_type.is_await()
@@ -558,7 +548,7 @@ class SyncStateBuilder:
                 if skips := ~sync_type.N:
                     assert skips > 0, "should have been caught by BarrierUsageAnalysis"
                     skips_arg = f", {skips}"
-                return [f"exo_syncState.{b}Await{nm_suffix}(exo_smem, exo_excutLog, {slice}{skips_arg});"]
+                return [f"exo_syncState.Await{nm_suffix}(exo_smem, exo_excutLog, {slice}{skips_arg});"]
         lowered.codegen_sync_stmt = codegen
         lowered.codegen_barrier_arg = codegen
         lowered.codegen_cta_mask = lambda e: coll_tilings.codegen_cta_mask(self._blockDim(), thread_iters, e)
@@ -583,11 +573,10 @@ class SyncStateBuilder:
         #   * unsupported first sync-tl
         #   * incorrect second sync-tl given supported first sync-tl
         #   * incorrect collective unit given supported first sync-tl
-        assert not usage.has_back_array()
 
         solitary = True
-        L1 = usage.get_front_arrive().sync_tl
-        L2 = usage.get_front_await().sync_tl
+        L1 = usage.get_arrive().sync_tl
+        L2 = usage.get_await().sync_tl
 
         def check_coll_unit(coll_tiling, action_name, coll_unit):
             if msg := coll_tiling.unit_mismatch(coll_unit, self._coll_env):
@@ -605,8 +594,8 @@ class SyncStateBuilder:
                     f"expects Await({expect_L2}), "
                     f"not {L2} (wrong second sync-tl)"
                 )
-            check_coll_unit(coll_tilings.get_front_arrive(), "Arrive", coll_unit)
-            check_coll_unit(coll_tilings.get_front_await(), "Await", coll_unit)
+            check_coll_unit(coll_tilings.get_arrive(), "Arrive", coll_unit)
+            check_coll_unit(coll_tilings.get_await(), "Await", coll_unit)
 
         if timelines.Sm80_cp_async.implements_first(L1):
             # sm_80 non-bulk cp.async

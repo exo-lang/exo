@@ -342,6 +342,7 @@ def test_cluster_sync_unit_warp(compiler):
     assert "full cluster" in msg
 
 
+# TODO fix this broken test!
 def test_cluster_sync_unit_await(compiler):
     # Partial warps missing in Await for CudaClusterSync.
     with pytest.raises(Exception) as exc:
@@ -467,7 +468,8 @@ def mkproc_mbarriers(M_CTA: int, N_CTA: int, f_delay: int, b_delay: int, qc: Mba
                     row_bars: barrier[M_CTA, N_CTA, 2] @ CudaMbarrier
                     col_bars: barrier[M_CTA, N_CTA, 2] @ CudaMbarrier
                     all_bars: barrier[M_CTA, N_CTA, 2] @ CudaMbarrier
-                    rc_bars: barrier[M_CTA, N_CTA, 2] @ CudaMbarrier
+                    f_rc_bars: barrier[M_CTA, N_CTA, 2] @ CudaMbarrier
+                    b_rc_bars: barrier(f_rc_bars)[M_CTA, N_CTA, 2] @ CudaMbarrier
                     baseline: barrier[M_CTA, N_CTA, 2] @ CudaMbarrier
                     for i in seq(0, 5):
                         for t1 in cuda_threads(0, 2, unit=8 * cuda_thread):
@@ -476,10 +478,10 @@ def mkproc_mbarriers(M_CTA: int, N_CTA: int, f_delay: int, b_delay: int, qc: Mba
                                     # Note baseline mbarrier doesn't use delay or parameterized sync-tl
                                     Arrive(cuda_in_order, 1) >> baseline[m_cta, n_cta, t1]
 
-                                    # Only rc_bars uses the back queue barrier array (-rc_bars)
+                                    # Only f_rc_bars and b_rc_bars are guarding each other. 
                                     # Its ring buffer depth is f_delay + b_delay, instead of 1 + f_delay
-                                    Await(-rc_bars[m_cta, n_cta, t1], second_sync_tl, ~b_delay)
-                                    Arrive(first_sync_tl, 1) >> +rc_bars[m_cta, n_cta, t1]
+                                    Await(b_rc_bars[m_cta, n_cta, t1], second_sync_tl, ~b_delay)
+                                    Arrive(first_sync_tl, 1) >> f_rc_bars[m_cta, n_cta, t1]
 
                                     Arrive(first_sync_tl, 1) >> row_bars[m_cta, n_cta, t1] >> row_bars[m_cta, :, t1]
                                     Await(row_bars[m_cta, n_cta, t1], second_sync_tl, ~f_delay)
@@ -488,8 +490,8 @@ def mkproc_mbarriers(M_CTA: int, N_CTA: int, f_delay: int, b_delay: int, qc: Mba
                                     Arrive(first_sync_tl, 1) >> all_bars[m_cta, n_cta, t1] >> all_bars[:, :, t1]
                                     Await(all_bars[m_cta, n_cta, t1], second_sync_tl, ~f_delay)
 
-                                    Await(+rc_bars[m_cta, n_cta, t1], second_sync_tl, ~f_delay)
-                                    Arrive(first_sync_tl, 1) >> -rc_bars[m_cta, :, t1] >> -rc_bars[:, n_cta, t1]
+                                    Await(f_rc_bars[m_cta, n_cta, t1], second_sync_tl, ~f_delay)
+                                    Arrive(first_sync_tl, 1) >> b_rc_bars[m_cta, :, t1] >> b_rc_bars[:, n_cta, t1]
 
                                     Await(baseline[m_cta, n_cta, t1], cuda_in_order, ~0)
                 # Need for the test not to crash due to "Cluster target block not present"
@@ -777,7 +779,9 @@ def test_mbarriers_Sm80_cp_async_1_CTA(compiler):
 def test_mbarriers_invalid_0_delay(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_mbarriers, **mb_m1n1d0d0_Sm80_cp_async)
-    assert "rc_bars must have some await with nonzero skips" in str(exc.value)
+    assert "must have some await with nonzero skips" in str(exc.value)
+    assert "f_rc_bars" in str(exc.value)
+    assert "b_rc_bars" in str(exc.value)
 
 
 def mkproc_mbarrier_not_in_1_CTA():

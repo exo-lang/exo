@@ -130,11 +130,10 @@ class DistributedAllocState(object):
     # see DistributedIdxFsm.check_native_unit
     leaf_coll_tiling: Optional[CollTiling]
 
-    # Information for Arrive/Await statements, split by usage
-    # of front (+name) and back (-name) queue barrier array.
-    # Fence() stmts are decomposed as an front_arrive + front_await
-    # Index using constants in SyncType or get_{front|back}_{arrive|await}.
-    sync_coll_tilings: List[Optional[CollTiling]]
+    # Information for Arrive/Await statements, split by usage.
+    # Fence() stmts are decomposed as an arrive + await
+    arrive_coll_tiling: Optional[CollTiling]
+    await_coll_tiling: Optional[CollTiling]
 
     def __init__(self, alloc_coll_tiling, optional_native_unit):
         assert isinstance(alloc_coll_tiling, CollTiling)
@@ -146,30 +145,25 @@ class DistributedAllocState(object):
         self.alloc_coll_tiling = alloc_coll_tiling
         self.optional_native_unit = optional_native_unit
         self.leaf_coll_tiling = None
-        self.sync_coll_tilings = [None] * SyncType.n_info_idx
+        self.arrive_coll_tiling = None
+        self.await_coll_tiling = None
 
     def n_distributed_dims(self):
         return len(self.first_distributed_iters)
 
-    def get_front_arrive(self) -> Optional[CollTiling]:
-        return self.sync_coll_tilings[SyncType.front_arrive_idx]
+    def get_arrive(self) -> Optional[CollTiling]:
+        return self.arrive_coll_tiling
 
-    def get_front_await(self) -> Optional[CollTiling]:
-        return self.sync_coll_tilings[SyncType.front_await_idx]
-
-    def get_back_arrive(self) -> Optional[CollTiling]:
-        return self.sync_coll_tilings[SyncType.back_arrive_idx]
-
-    def get_back_await(self) -> Optional[CollTiling]:
-        return self.sync_coll_tilings[SyncType.back_await_idx]
+    def get_await(self) -> Optional[CollTiling]:
+        return self.await_coll_tiling
 
     @staticmethod
     def from_fence(s: LoopIR.SyncStmt, coll_tiling: CollTiling):
         assert not s.sync_type.is_split()
         result = DistributedAllocState(coll_tiling, None)
         result.first_usage_stmt = s
-        result.sync_coll_tilings[SyncType.front_arrive_idx] = coll_tiling
-        result.sync_coll_tilings[SyncType.front_await_idx] = coll_tiling
+        result.arrive_coll_tiling = coll_tiling
+        result.await_coll_tiling = coll_tiling
         return result
 
     def codegen_slices_to_root(
@@ -644,17 +638,15 @@ class DistributedIdxFsm:
 
         * Tile size of usage matches the leaf tiling.
         * Equivalent CollTiling for same action on same queue barrier array.
-          (+Arrive, +Await, -Arrive, -Await) +/- meaning front/back.
+          action = Arrive/Await
         * If the barrier type has a pairing requirement, additionally,
-          check equivalent CollTilings for paired +Arrive/+Await;
-          +Arrive/-Await, or -Arrive/+Await.
+          check equivalent CollTilings for paired Arrive/Await; TODO.
 
         """
         assert isinstance(sync, LoopIR.SyncStmt)
         sync_type = sync.sync_type
         assert sync_type.is_split()
-        # Update state.Arrive, state.Await,
-        # state.ReverseArrive, or state.ReverseAwait
+        # We will update state.arrive_coll_tiling or state.await_coll_tiling
         leaf_T = state.leaf_coll_tiling.tile_num_threads()
         sync_T = coll_tiling.tile_num_threads()
         if leaf_T != sync_T:
@@ -662,11 +654,12 @@ class DistributedIdxFsm:
             raise ValueError(
                 f"{sync.srcinfo}: {sync} executed with tile size {sync_T} threads; mismatches {leaf_T} threads deduced from {bar} (i.e. multiple thread collectives share the same index; missing indices)?"
             )
-        # Get CollTiling for Arrive >> +name, Await(+name), Arrive >> -name, or Await(-name)
+        # Get CollTiling for Arrive >> name or Await(name)
         name = sync.barriers[0].name
-        back = sync.barriers[0].back
-        info_idx = sync_type.info_idx(back)
-        old_coll_tiling = state.sync_coll_tilings[info_idx]
+        is_await = sync_type.is_await()
+        old_coll_tiling = (
+            state.await_coll_tiling if is_await else state.arrive_coll_tiling
+        )
 
         # CollTilings that need to be equivalent
         to_check: List[Tuple[CollTiling, str]] = []
@@ -677,19 +670,24 @@ class DistributedIdxFsm:
             to_check.append((old_coll_tiling, f_text))
         else:
             # Save new state
-            state.sync_coll_tilings[info_idx] = coll_tiling
+            if is_await:
+                state.await_coll_tiling = coll_tiling
+            else:
+                state.arrive_coll_tiling = coll_tiling
 
         if barrier_usage.barrier_type.traits().requires_pairing:
             # Will check equivalence with previous stmt of paired sync type
-            paired_back = back ^ barrier_usage.has_back_array()
-            sign = "-" if paired_back else "+"
-            paired_info_idx = sync_type.info_idx(paired_back, swap=True)
-            if sync_type.is_arrive():  # Arrive paired with Await
-                f_text = f"Await({sign}{name}, ...)"
-            else:
-                f_text = f"Arrive(...) >> {sign}{name}"
-            if old_coll_tiling := state.sync_coll_tilings[paired_info_idx]:
-                to_check.append((old_coll_tiling, f_text))
+            # XXX TODO REWRITE ME & remove TODO in earlier comment
+            pass
+            # paired_back = back ^ barrier_usage.has_back_array()
+            # sign = "-" if paired_back else "+"
+            # paired_info_idx = sync_type.info_idx(paired_back, swap=True)
+            # if sync_type.is_arrive():  # Arrive paired with Await
+            #     f_text = f"Await({sign}{name}, ...)"
+            # else:
+            #     f_text = f"Arrive(...) >> {sign}{name}"
+            # if old_coll_tiling := state.sync_coll_tilings[paired_info_idx]:
+            #     to_check.append((old_coll_tiling, f_text))
 
         # Check equivalence (the code here only checks issues that wouldn't be
         # flagged by the primary distributed memory deduction, i.e., issues

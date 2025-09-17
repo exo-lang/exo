@@ -28,18 +28,18 @@ class BarrierUsage:
 
     decl_stmt: LoopIR.stmt  # barrier alloc, or Fence
 
-    # Information for Arrive/Await statements, split by usage
-    # of front (+name) and back (-name) queue barrier array.
-    # Fence() stmts are decomposed as an front_arrive + front_await
-    # Index using constants in SyncType or get_{front|back}_{arrive|await}.
-    sync_info: List[Optional[SyncInfo]]
+    # Information for Arrive/Await statements, split by usage.
+    # Fence() stmts are decomposed as an Arrive + Await
+    Arrive: Optional[SyncInfo]
+    Await: Optional[SyncInfo]
 
     guards: Sym
     guarded_by: Sym
 
     def __init__(self, s):
         self.decl_stmt = s
-        self.sync_info = [None] * SyncType.n_info_idx
+        self.Arrive = None
+        self.Await = None
         if isinstance(s, LoopIR.SyncStmt):
             sync_type = s.sync_type
             assert not sync_type.is_split()
@@ -58,23 +58,11 @@ class BarrierUsage:
     def is_fence(self):
         return self.barrier_type is None
 
-    def has_back_array(self):
-        arrive_info = self.sync_info[SyncType.back_arrive_idx]
-        await_info = self.sync_info[SyncType.back_await_idx]
-        assert (arrive_info is None) == (await_info is None)
-        return arrive_info is not None
+    def get_arrive(self) -> Optional[SyncInfo]:
+        return self.Arrive
 
-    def get_front_arrive(self) -> Optional[SyncInfo]:
-        return self.sync_info[SyncType.front_arrive_idx]
-
-    def get_front_await(self) -> Optional[SyncInfo]:
-        return self.sync_info[SyncType.front_await_idx]
-
-    def get_back_arrive(self) -> Optional[SyncInfo]:
-        return self.sync_info[SyncType.back_arrive_idx]
-
-    def get_back_await(self) -> Optional[SyncInfo]:
-        return self.sync_info[SyncType.back_await_idx]
+    def get_await(self) -> Optional[SyncInfo]:
+        return self.Await
 
     def visit_Arrive(self, s: LoopIR.SyncStmt):
         # We do not enforce pairing, but we enforce other traits
@@ -88,7 +76,6 @@ class BarrierUsage:
         # home_barrier_expr() enforces usage of the same queue barrier array
         home_barrier = s.home_barrier_expr()
         nm = home_barrier.name
-        back = home_barrier.back
 
         traits = mem.traits()
         multicasts = s.multicasts()
@@ -104,11 +91,10 @@ class BarrierUsage:
         # Save new SyncInfo, or check with previously saved SyncInfo.
         # Must have identical sync-tl and multicasting as any
         # other Arrives to the same queue barrier array.
-        info_idx = sync_type.info_idx(back)
-        info = self.sync_info[info_idx]
+        info = self.Arrive
         if info is None:
             info = SyncInfo(sync_tl, [s], N, N, multicasts)
-            self.sync_info[info_idx] = info
+            self.Arrive = info
         else:
             old = info.stmts[0]
             info.stmts.append(info)
@@ -120,10 +106,6 @@ class BarrierUsage:
                 kvetch_incompatible("multicasts")
 
         # Enforce traits
-        if not traits.supports_back_array and back:
-            kvetch_invalid(
-                f"{mem.name()} does not support back queue barrier {home_barrier} (i.e. need + not -)"
-            )
         if not traits.supports_arrive_multicast:
             s.forbid_multicast(f"{mem.name()} does not support multicast")
 
@@ -143,7 +125,6 @@ class BarrierUsage:
         assert len(s.barriers) == 1
         e0 = s.home_barrier_expr()
         nm = e0.name
-        back = e0.back
         traits = mem.traits()
         multicasts = s.multicasts()
 
@@ -158,11 +139,10 @@ class BarrierUsage:
         # Save new SyncInfo, or check with previously saved SyncInfo.
         # Must have identical sync-tl as any
         # other Awaits to the same queue barrier array.
-        info_idx = sync_type.info_idx(back)
-        info = self.sync_info[info_idx]
+        info = self.Await
         if info is None:
             info = SyncInfo(sync_tl, [s], N, N, multicasts)
-            self.sync_info[info_idx] = info
+            self.Await = info
         else:
             old = info.stmts[0]
             info.stmts.append(info)
@@ -185,10 +165,6 @@ class BarrierUsage:
 
         if traits.uniform_await_N and info.min_N != info.max_N:
             kvetch_incompatible(f"N ({mem.name()} uniform-N requirement)")
-        if not traits.supports_back_array and back:
-            kvetch_invalid(
-                f"{mem.name()} does not support back queue barrier {e0} (i.e. need + not -)"
-            )
 
         # Enforce no multicast for any Await
         s.forbid_multicast("multicast is for Arrive, not Await")
@@ -199,10 +175,10 @@ class BarrierUsage:
         sync_type = s.sync_type
         assert not sync_type.is_split()
         # Decompose Fence
-        self.sync_info[SyncType.front_arrive_idx] = SyncInfo(
+        self.Arrive = SyncInfo(
             sync_type.first_sync_tl, [s], 1, 1, self.fence_multicasts
         )
-        self.sync_info[SyncType.front_await_idx] = SyncInfo(
+        self.Await = SyncInfo(
             sync_type.second_sync_tl, [s], 0, 0, self.fence_multicasts
         )
         self.guards = s.barriers[0].name
@@ -317,32 +293,27 @@ class BarrierUsageAnalysis(LoopIR_Do):
         traits: BarrierTypeTraits = barrier_type.traits()
 
         # Boilerplate for missing Arrive/Await pairs.
-        front_arrive = usage.get_front_arrive()
-        front_await = usage.get_front_await()
-        back_arrive = usage.get_back_arrive()
-        back_await = usage.get_back_await()
+        _arrive = usage.Arrive
+        _await = usage.Await
 
         def kvetch_missing(info, whats_missing: str):
             s = info.stmts[0]
             raise ValueError(f"{s.srcinfo}: missing {whats_missing} for {s}")
 
-        if front_arrive is None:
-            if front_await is None:
+        if _arrive is None:
+            if _await is None:
                 raise ValueError(
                     f"{alloc.srcinfo}: missing Arrive(...) >> +{name} and Await(+{name})"
                 )
             else:
-                kvetch_missing(front_await, f"Arrive(...) >> +{name}")
-        if front_await is None:
-            kvetch_missing(front_arrive, f"Await(+{name}, ...)")
-        if back_arrive is None and back_await is not None:
-            kvetch_missing(back_await, f"Arrive(...) >> -{name}")
-        if back_arrive is not None and back_await is None:
-            kvetch_missing(back_arrive, f"Await(-{name}, ...)")
+                kvetch_missing(_await, f"Arrive(...) >> +{name}")
+        if _await is None:
+            kvetch_missing(_arrive, f"Await(+{name}, ...)")
 
-        # Check pairing requirements only if barrier type traits require it.
-        if traits.requires_pairing:
-            self.check_pairing(name, traits, in_stmts, alloc_idx)
+        # XXX TODO FIXME
+        # # Check pairing requirements only if barrier type traits require it.
+        # if traits.requires_pairing:
+        #     self.check_pairing(name, traits, in_stmts, alloc_idx)
 
     def check_pairing(
         self,
@@ -351,6 +322,7 @@ class BarrierUsageAnalysis(LoopIR_Do):
         in_stmts: List[LoopIR.stmt],
         alloc_idx: int,
     ):
+        # XXX this needs to be rewritten XXX
         usage: BarrierUsage = self.uses[name]
         has_back = usage.has_back_array()
         await_first = None  # Set to True/False when we know.

@@ -838,7 +838,7 @@ class Compiler:
                 # then we wrap the error message with a srcinfo.
                 exc_str = str(exc)
                 if not re.findall(SrcInfo.stmt_id_pattern, exc_str):
-                    raise ValueError(f"{b.srcinfo}: {exc_str}")
+                    raise ValueError(f"{b.srcinfo}: {exc_str}") from exc
                 raise
 
     def comp_top(self):

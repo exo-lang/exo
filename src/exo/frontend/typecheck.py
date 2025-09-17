@@ -309,9 +309,7 @@ class TypeChecker:
                 assert stmt.sync_type.is_arrive() or len(barriers) == 1
             else:
                 name = Sym("Fence")  # Sym as internal unique ID for Fence.
-                barriers = [
-                    LoopIR.BarrierExpr(name, False, [], T.barrier, stmt.srcinfo)
-                ]
+                barriers = [LoopIR.BarrierExpr(name, [], T.barrier, stmt.srcinfo)]
 
             return [LoopIR.SyncStmt(stmt.sync_type, barriers, stmt.srcinfo)]
 
@@ -454,7 +452,7 @@ class TypeChecker:
                 self.err(
                     e, f"BarrierExpr requires barrier type, not {e.name}: {in_typ}"
                 )
-                return LoopIR.BarrierExpr(e.name, e.back, [], T.err, e.srcinfo)
+                return LoopIR.BarrierExpr(e.name, [], T.err, e.srcinfo)
             in_shape = in_typ.shape()
             if len(in_shape) != len(e.idx):
                 self.err(
@@ -462,10 +460,10 @@ class TypeChecker:
                     f"expected {len(in_shape)} indices for BarrierExpr "
                     f"but got {len(e.idx)}",
                 )
-                return LoopIR.BarrierExpr(e.name, e.back, [], T.err, e.srcinfo)
+                return LoopIR.BarrierExpr(e.name, [], T.err, e.srcinfo)
             idx = [self.check_w_access(w, t) for w, t in zip(e.idx, in_shape)]
             # Correct shape of in_typ if anything downstream needs it.
-            return LoopIR.BarrierExpr(e.name, e.back, idx, in_typ, e.srcinfo)
+            return LoopIR.BarrierExpr(e.name, idx, in_typ, e.srcinfo)
 
         elif isinstance(e, UAST.WindowExpr):
             in_typ = self.env[e.name]
