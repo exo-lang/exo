@@ -282,7 +282,7 @@ exo_CudaInline_test_simple_CudaWarps_golden::exo_Cuda0_proc_simple_CudaWarps::ex
     }
   }
   // CudaWarps(2, 5)
-  if (int tmp_1 = threadIdx.x; tmp_1 >= 64 && tmp_1 < 160) {
+  if (int CudaWarps_2_5_ = threadIdx.x; CudaWarps_2_5_ >= 64 && CudaWarps_2_5_ < 160) {
     // cuda_threads(0, 3, unit=cuda_warp)
     if ([[maybe_unused]] int exo_32thr_w = ((threadIdx.x - 64) / 32); 1) {
       // cuda_threads(0, 32, unit=cuda_thread)

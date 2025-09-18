@@ -348,7 +348,7 @@ exo_CudaInline_test_garden_Sm90_golden::exo_Cuda0_test_proc::exo_deviceTask(
       exo_excutLog.log_action(EXO_EXCUT_STR_ID(syncwarp), 0, __LINE__);
     }
     // CudaWarps(4, 8)
-    if (int tmp_1 = threadIdx.x; tmp_1 >= 128) {
+    if (int CudaWarps_4_8_ = threadIdx.x; CudaWarps_4_8_ >= 128) {
       // Fence(cuda_in_order, wgmma_async_smem)
       asm volatile(
         "fence.proxy.async;"

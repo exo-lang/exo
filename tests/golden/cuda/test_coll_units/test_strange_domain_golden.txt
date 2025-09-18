@@ -316,7 +316,7 @@ exo_CudaInline_test_strange_domain_golden::exo_Cuda0_proc_strange_domain::exo_de
         exo_excutLog.log_u32_arg(exo_1thr_z);
       }
       // CudaWarps(1, 2)
-      if (int tmp_1 = (threadIdx.x % 64); tmp_1 >= 32) {
+      if (int CudaWarps_1_2_ = (threadIdx.x % 64); CudaWarps_1_2_ >= 32) {
         // cuda_threads(0, 32, unit=cuda_thread)
         if ([[maybe_unused]] int exo_1thr_z = (threadIdx.x % 64 - 32); 1) {
           exo_excutLog.log_action(EXO_EXCUT_STR_ID(excut_trace_3index), 0, __LINE__);

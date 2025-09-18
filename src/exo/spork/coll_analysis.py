@@ -153,7 +153,7 @@ class CollAnalysis(LoopIR_Rewrite):
         self._cuda_device_function = old_cuda_device_function
         return stmts
 
-    def cuda_inspect_s(self, s) -> ThreadIter:
+    def cuda_inspect_s(self, s) -> Optional[ThreadIter]:
         thread_iter = None
         if isinstance(s, coll_idx_s_types):
             self.cuda_inspect_idx(s, s, ())
@@ -258,7 +258,9 @@ class CollAnalysis(LoopIR_Rewrite):
         stmts = self.map_stmts(s.body)
         if stmts is None:
             stmts = s.body
-        s2 = wrap_codegen_par(thread_iter.codegen_par, stmts, s.srcinfo)
+        s2 = wrap_codegen_par(
+            thread_iter.codegen_par, stmts, s.srcinfo, iter_sym=thread_iter.iter
+        )
         self.thread_iters[s2.iter] = thread_iter
         return [s2]
 
@@ -467,6 +469,7 @@ class CollAnalysis(LoopIR_Rewrite):
             # of threads in named warps in the deviceMainLoop. However, we will have
             # to handle changing values for the abstract machine (am_*).
             coll_tiling = coll_tiling.specialized(
+                Sym(f"CudaWarps_{name}"),
                 cuda_warp,
                 info.offset,
                 (info.offset + info.count),
@@ -497,8 +500,9 @@ class CollAnalysis(LoopIR_Rewrite):
 
         # (2/2) Adjust CollTiling for lo/hi offset.
         try:
+            _iter = Sym(f"CudaWarps_{ctx.lo}_{ctx.hi}_{name or ''}")
             coll_tiling = coll_tiling.specialized(
-                cuda_warp, warps_lo, warps_hi, self._coll_env
+                _iter, cuda_warp, warps_lo, warps_hi, self._coll_env
             )
         except AssertionError:
             raise

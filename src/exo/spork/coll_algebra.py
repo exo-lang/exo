@@ -395,6 +395,7 @@ coll_index_0 = CollIndexExpr(0)
 
 @dataclass(slots=True, init=False)
 class CollCodegen:
+    iter: object
     dim_idx_factors: List[Tuple[int, int]]
     dim_idx: Optional[int]
     offset: int
@@ -405,9 +406,10 @@ class CollCodegen:
     codegen_static_lo: Optional[int]
     codegen_static_hi: Optional[int]
 
-    def __init__(self):
+    def __init__(self, _iter):
         # Initialized with defaults for a "do nothing" tiling i.e.
         # for i in cuda_threads(0, 1, unit=current_coll_unit):
+        self.iter = _iter
         self.dim_idx_factors = []
         self.dim_idx = None
         self.offset = 0
@@ -515,6 +517,16 @@ class SeptTiling:
             f"i.e. CollUnit({unit.domain}, {unit.box}, ...)"
         )
 
+    def get_dim(**kwargs) -> Tuple[int, CollDim]:
+        assert len(kwargs) == 1
+        if thread_pitch := kwargs.get("thread_pitch"):
+            for idx_dim in enumerate(self._dims):
+                if idx_dim[1].dim_thread_pitch == thread_pitch:
+                    return idx_dim
+            raise KeyError(f"get_dim(thread_pitch={thread_pitch}) failed")
+        else:
+            assert 0, "Unknown argument for CollTiling.get_dim_idx"
+
     def _apply_split_dim(self, dim_idx, factor):
         assert dim_idx < len(self._dims)
         self._codegen.dim_idx_factors.append((dim_idx, factor))
@@ -551,7 +563,7 @@ class SeptTiling:
         is_tiled: bool,
     ):
         assert 0 <= lo <= hi
-        codegen = CollCodegen()  # Update later
+        codegen = CollCodegen(_iter)  # Update later
         new = SeptTiling(self._tree_depth + 1, codegen, list(self._dims))
 
         # Translate unit domain and tiling to concrete integers
@@ -652,7 +664,7 @@ def top_level_coll_tiling(domain: Tuple[int], intra_box_exprs: Tuple[CollIndexEx
         extent = domain[i]
         thread_pitch = prod(domain[i + 1 :])
         dims.append(CollDim(extent, thread_pitch, (), e))
-    tiling = SeptTiling(0, CollCodegen(), dims)
+    tiling = SeptTiling(0, CollCodegen(None), dims)
     return tiling
 
 
@@ -710,6 +722,19 @@ class CollTiling(object):
 
     def get_codegen(self) -> CollCodegen:
         return self.sept.get_codegen()
+
+    def get_iter(self):
+        return self.sept.get_iter()
+
+    def get_box(self):
+        return self.sept.get_box()
+
+    def box_num_threads(self):
+        """Total number of threads in the thread box"""
+        return prod(self.get_box())
+
+    # TODO: remove legacy CollTiling below and
+    # substitute SeptTiling as the new CollTiling
 
     def __init__(
         self,
@@ -893,7 +918,7 @@ class CollTiling(object):
         return tiling
 
     def specialized(
-        self, unit: CollUnit, lo: int, hi: int, env: Dict[CollParam, int]
+        self, _iter: object, unit: CollUnit, lo: int, hi: int, env: Dict[CollParam, int]
     ) -> "CollTiling":
         """Specialize the CollTiling
 
@@ -984,12 +1009,8 @@ class CollTiling(object):
         tiling.codegen_idx_factors = self_completion.idx_factors
         tiling.codegen_partial_offset = partial_offset
         tiling.codegen_box = -1 if tiled_dim_idx is None else tiling.box[tiled_dim_idx]
-        tiling.sept = self.sept._make_derived(None, unit, lo, hi, env, False)
+        tiling.sept = self.sept._make_derived(_iter, unit, lo, hi, env, False)
         return tiling
-
-    def box_num_threads(self):
-        """Total number of threads in the thread box"""
-        return prod(self.box)
 
     def tile_num_threads(self):
         """Total number of threads in the thread tile.

@@ -287,7 +287,7 @@ exo_CudaInline_test_matrix_in_CudaWarps_positive::exo_Cuda0_proc_matrix_in_CudaW
     thread_rmem = 14.0f;
   }
   // CudaWarps(3, 4)
-  if (int tmp_1 = threadIdx.x; tmp_1 >= 96 && tmp_1 < 128) {
+  if (int CudaWarps_3_4_ = threadIdx.x; CudaWarps_3_4_ >= 96 && CudaWarps_3_4_ < 128) {
     unsigned warp_rmem[4];
     exo_CudaUtil::Sm80_mma_zero_d(warp_rmem);
   }

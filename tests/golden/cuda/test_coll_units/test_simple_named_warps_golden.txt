@@ -294,7 +294,7 @@ exo_CudaInline_test_simple_named_warps_golden::exo_Cuda0_proc_named_warps::exo_d
     exo_excutLog.log_u32_arg(exo_1thr_t);
   }
   // CudaWarps(0, 16, name='abc')
-  if ([[maybe_unused]] int tmp_1 = threadIdx.x; 1) {
+  if ([[maybe_unused]] int CudaWarps_0_16_abc = threadIdx.x; 1) {
     // cuda_threads(0, 16, unit=cuda_warp)
     if ([[maybe_unused]] int exo_32thr_w = (threadIdx.x / 32); 1) {
       // cuda_threads(0, 32, unit=cuda_thread)
@@ -306,11 +306,11 @@ exo_CudaInline_test_simple_named_warps_golden::exo_Cuda0_proc_named_warps::exo_d
       }
     }
     // CudaWarps(2, 10, name='abc')
-    if (int tmp_2 = threadIdx.x; tmp_2 >= 64 && tmp_2 < 320) {
+    if (int CudaWarps_2_10_abc = threadIdx.x; CudaWarps_2_10_abc >= 64 && CudaWarps_2_10_abc < 320) {
       // cuda_threads(0, 4, unit=2 * cuda_warp)
       if ([[maybe_unused]] int exo_64thr_w2 = ((threadIdx.x - 64) / 64); 1) {
         // CudaWarps(1, 2)
-        if (int tmp_3 = (threadIdx.x % 64); tmp_3 >= 32) {
+        if (int CudaWarps_1_2_abc = (threadIdx.x % 64); CudaWarps_1_2_abc >= 32) {
           // cuda_threads(0, 17, unit=cuda_thread)
           if (int exo_1thr_t = (threadIdx.x % 64 - 32); exo_1thr_t < 17) {
             exo_excutLog.log_action(EXO_EXCUT_STR_ID(excut_trace_3index), 0, __LINE__);
@@ -350,7 +350,7 @@ exo_CudaInline_test_simple_named_warps_golden::exo_Cuda0_proc_named_warps::exo_d
   }
   ; // NO-OP
   // CudaWarps(name='xyz')
-  if ([[maybe_unused]] int tmp_1 = (threadIdx.x - 512); 1) {
+  if ([[maybe_unused]] int CudaWarps_None_None_xyz = (threadIdx.x - 512); 1) {
     // cuda_threads(0, 3, unit=cuda_warp)
     if (int exo_32thr_w = ((threadIdx.x - 512) / 32); exo_32thr_w < 3) {
       // cuda_threads(0, 10, unit=cuda_thread)
@@ -362,7 +362,7 @@ exo_CudaInline_test_simple_named_warps_golden::exo_Cuda0_proc_named_warps::exo_d
       }
     }
     // CudaWarps(1, 3, name='xyz')
-    if (int tmp_2 = (threadIdx.x - 512); tmp_2 >= 32 && tmp_2 < 96) {
+    if (int CudaWarps_1_3_xyz = (threadIdx.x - 512); CudaWarps_1_3_xyz >= 32 && CudaWarps_1_3_xyz < 96) {
       // cuda_threads(0, 2, unit=cuda_warp)
       if ([[maybe_unused]] int exo_32thr_w = ((threadIdx.x - 544) / 32); 1) {
         // cuda_threads(0, 32, unit=cuda_thread)
@@ -374,7 +374,7 @@ exo_CudaInline_test_simple_named_warps_golden::exo_Cuda0_proc_named_warps::exo_d
         }
       }
       // CudaWarps(1, 2)
-      if (int tmp_3 = (threadIdx.x - 544); tmp_3 >= 32) {
+      if (int CudaWarps_1_2_xyz = (threadIdx.x - 544); CudaWarps_1_2_xyz >= 32) {
         // cuda_threads(0, 32, unit=cuda_thread)
         if ([[maybe_unused]] int exo_1thr_t = (threadIdx.x - 576); 1) {
           exo_excutLog.log_action(EXO_EXCUT_STR_ID(excut_trace_3index), 0, __LINE__);
@@ -386,7 +386,7 @@ exo_CudaInline_test_simple_named_warps_golden::exo_Cuda0_proc_named_warps::exo_d
     }
   }
   // CudaWarps(1, 4, name='xyz')
-  if (int tmp_1 = (threadIdx.x - 512); tmp_1 >= 32) {
+  if (int CudaWarps_1_4_xyz = (threadIdx.x - 512); CudaWarps_1_4_xyz >= 32) {
     // cuda_threads(0, 32, unit=cuda_thread)
     if (int exo_1thr_t = (threadIdx.x - 544); exo_1thr_t < 32) {
       exo_excutLog.log_action(EXO_EXCUT_STR_ID(excut_trace_3index), 0, __LINE__);

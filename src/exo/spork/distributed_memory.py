@@ -31,6 +31,7 @@ class ThreadIter:
     child_tile_num_threads: int
     thread_pitch: int
     mangle: bool
+    iter: Sym
 
     def __init__(
         self,
@@ -79,6 +80,7 @@ class ThreadIter:
         self.child_tile_num_threads = coll_tiling.tile_num_threads()
         self.thread_pitch = coll_tiling.thread_pitch
         self.mangle = mangle
+        self.iter = coll_tiling.get_codegen().iter
 
     def cname(self, name):
         """Mangling convention for generated C variables"""

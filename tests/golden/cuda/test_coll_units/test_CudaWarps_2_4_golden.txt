@@ -275,7 +275,7 @@ exo_CudaInline_test_CudaWarps_2_4_golden::exo_Cuda0_test_proc::exo_deviceTask(
   // cuda_threads(0, 2, unit=cuda_warpgroup)
   if ([[maybe_unused]] int exo_128thr_wg = (threadIdx.x / 128); 1) {
     // CudaWarps(2, 4)
-    if (int tmp_1 = (threadIdx.x % 128); tmp_1 >= 64) {
+    if (int CudaWarps_2_4_ = (threadIdx.x % 128); CudaWarps_2_4_ >= 64) {
       // cuda_threads(0, 64, unit=cuda_thread)
       if ([[maybe_unused]] int exo_1thr_t = (threadIdx.x % 128 - 64); 1) {
         exo_excutLog.log_action(EXO_EXCUT_STR_ID(excut_trace_3index), 0, __LINE__);
