@@ -5,6 +5,7 @@ from typing import Optional, List, Type, Dict, Tuple, Callable
 from ..core.prelude import Sym
 from ..core.LoopIR import LoopIR
 from .coll_algebra import (
+    CollCodegen,
     CollTiling,
     CollUnit,
     CollIndexExpr,
@@ -43,15 +44,16 @@ class ThreadIter:
         prior_am_offset=0,
         prior_am_box=None,
     ):
-        dim_idx = coll_tiling.codegen_dim_idx
+        codegen: CollCodegen = coll_tiling.get_codegen()
+        dim_idx = codegen.dim_idx
         if prior_am_idx_factors:
             # Makes no sense for domain change to have to happen twice.
-            assert not coll_tiling.codegen_idx_factors
+            assert not coll_tiling.dim_idx_factors
         if dim_idx != prior_am_dim_idx:
             # CudaWarps should apply to the same domain always.
             assert dim_idx is None or prior_am_dim_idx is None
         if dim_idx is not None:
-            am_box = coll_tiling.codegen_box
+            am_box = codegen.box
         elif prior_am_dim_idx is not None:
             assert prior_am_box > 0
             am_box = prior_am_box
@@ -59,13 +61,13 @@ class ThreadIter:
             am_box = -1
 
         self.codegen_par = _CodegenPar(
-            coll_tiling.codegen_expr.codegen(),
+            codegen.codegen_expr.codegen(),
             comment,
-            (coll_tiling.codegen_lo, coll_tiling.codegen_hi),
+            (codegen.codegen_static_lo, codegen.codegen_static_hi),
             warp_name_filter,
-            prior_am_idx_factors or coll_tiling.codegen_idx_factors,
+            prior_am_idx_factors or codegen.dim_idx_factors,
             prior_am_dim_idx or dim_idx,
-            prior_am_offset + coll_tiling.codegen_partial_offset,
+            prior_am_offset + codegen.offset,
             am_box,
         )
         self.coll_index_expr = coll_tiling.tile_expr

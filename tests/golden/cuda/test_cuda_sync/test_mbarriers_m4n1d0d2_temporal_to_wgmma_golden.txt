@@ -846,7 +846,7 @@ exo_CudaInline_test_mbarriers_m4n1d0d2_temporal_to_wgmma_golden::exo_Cuda0_test_
         // cuda_threads(0, 4, unit=cuda_cta_in_cluster)
         if ([[maybe_unused]] int exo_8thr_m_cta = (blockIdx.x % 4); 1) {
           // cuda_threads(0, 1, unit=cuda_cta_in_cluster)
-          if (int exo_8thr_n_cta = 0; exo_8thr_n_cta < 1) {
+          if ([[maybe_unused]] int exo_8thr_n_cta = 0; 1) {
             // Arrive(cuda_in_order, 1) >> baseline[m_cta, n_cta, t1]
             // cta_mask: uint16_t(0x1 << (blockIdx.x & 0x3))
             exo_syncState.Arrive0_baseline(exo_smem, exo_excutLog, exo_32thr_t1 + 2*exo_64thr_t2, 1);

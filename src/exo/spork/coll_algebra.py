@@ -397,7 +397,7 @@ coll_index_0 = CollIndexExpr(0)
 class CollCodegen:
     dim_idx_factors: List[Tuple[int, int]]
     dim_idx: Optional[int]
-    offset: Optional[int]
+    offset: int
     box: Optional[int]
     tile_count: int
     thread_pitch: int
@@ -410,7 +410,7 @@ class CollCodegen:
         # for i in cuda_threads(0, 1, unit=current_coll_unit):
         self.dim_idx_factors = []
         self.dim_idx = None
-        self.offset = None
+        self.offset = 0
         self.box = None
         self.tile_count = 1
         self.thread_pitch = 0
@@ -434,6 +434,7 @@ class CollDimOp:
         old_box = self.box
         new_offset, r_offset = divmod(old_offset, factor)
         new_box, r_box = divmod(old_box, factor)
+        new_expr = self.intra_box_expr // factor
         if r_offset or r_box:
             # TODO this error isn't very good without context.
             raise ValueError(
@@ -441,7 +442,7 @@ class CollDimOp:
                 f"offset={old_offset}, box={old_box}, "
                 f"offset/box wasn't divisible by {factor}"
             )
-        return replace(self, offset=new_offset, box=new_box)
+        return replace(self, offset=new_offset, box=new_box, intra_box_expr=new_expr)
 
 
 @dataclass(slots=True, frozen=True)
@@ -486,6 +487,9 @@ class SeptTiling:
 
     def get_tree_depth(self) -> int:
         return self._tree_depth
+
+    def get_codegen(self) -> CollCodegen:
+        return self._codegen
 
     def get_domain(self) -> Tuple[int]:
         return tuple(d.dim_extent for d in self._dims)
@@ -596,7 +600,6 @@ class SeptTiling:
             tile_count = (hi - lo) if is_tiled else 1
             thread_pitch = mod_dim.dim_thread_pitch * unit_c
             old_intra_box_expr = mod_dim.get_leaf_intra_box_expr()
-            codegen_expr = old_intra_box_expr // unit_c
             intra_box_expr = old_intra_box_expr - offset
             if tile_count > 1:
                 intra_box_expr %= unit_c
@@ -609,9 +612,16 @@ class SeptTiling:
             codegen.box = box
             codegen.tile_count = tile_count
             codegen.thread_pitch = thread_pitch
-            codegen.codegen_expr = codegen_expr
-            codegen.codegen_static_lo = None if lo == 0 else lo
-            codegen.codegen_static_hi = None if self_c == box_size_needed else hi
+            if is_tiled:
+                codegen.codegen_expr = old_intra_box_expr // unit_c
+                codegen.codegen_static_lo = None if lo == 0 else lo
+                codegen.codegen_static_hi = None if self_c == box_size_needed else hi
+            else:
+                codegen.codegen_expr = old_intra_box_expr
+                codegen.codegen_static_lo = None if lo == 0 else lo * unit_c
+                codegen.codegen_static_hi = (
+                    None if self_c == box_size_needed else hi * unit_c
+                )
 
             op = CollDimOp(
                 _iter,
@@ -624,6 +634,7 @@ class SeptTiling:
             )
             new._dims[i] = replace(mod_dim, dim_ops=mod_dim.dim_ops + (op,))
 
+        # Should we support hi = 0 as well in this case?
         if tiled_dim_idx is None and (lo != 0 or hi != 1):
             self.err(
                 unit,
@@ -696,6 +707,9 @@ class CollTiling(object):
     thread_pitch = 0 when there are fewer than 2 tiles in the tiling.
 
     """
+
+    def get_codegen(self) -> CollCodegen:
+        return self.sept.get_codegen()
 
     def __init__(
         self,
@@ -1278,8 +1292,8 @@ class DomainCompletionOp:
 standalone_thread = CollUnit((1,), (1,), "standalone_thread", 0)
 cuda_thread = CollUnit((blockDim,), (1,), "cuda_thread", 0)
 cuda_quadpair = CollUnit((blockDim / 16, 16), (2, 4), "cuda_quadpair", None)
-cuda_warp = CollUnit((blockDim / 32, 32), (1, 32), "cuda_warp", 0)
-cuda_warpgroup = CollUnit((blockDim / 128, 128), (1, 128), "cuda_warpgroup", 0)
+cuda_warp = CollUnit((blockDim,), (32,), "cuda_warp", 0)
+cuda_warpgroup = CollUnit((blockDim,), (128,), "cuda_warpgroup", 0)
 cuda_cluster = CollUnit(
     (clusterDim, blockDim), (clusterDim, blockDim), "cuda_cluster", 0
 )
@@ -1296,7 +1310,7 @@ cuda_agnostic_intact_cta = CollUnit(
 
 # Questionable, these may change later
 cuda_warp_in_cluster = CollUnit(
-    (clusterDim, blockDim / 32, 32), (1, 1, 32), "cuda_warp_in_cluster", 0
+    (clusterDim, blockDim), (1, 32), "cuda_warp_in_cluster", 0
 )
 cuda_cta_in_cluster = CollUnit(
     (clusterDim * blockDim,), (blockDim,), "cuda_cta_in_cluster", 0
@@ -1316,5 +1330,5 @@ def cuda_cta_in_cluster_strided(cta_stride):
 def cuda_warp_in_cluster_strided(cta_stride):
     name = f"cuda_warp_in_cluster_strided({cta_stride})"
     return CollUnit(
-        (clusterDim / cta_stride, cta_stride, blockDim / 32, 32), (1, 1, 1, 32), name, 0
+        (clusterDim / cta_stride, cta_stride, blockDim), (1, 1, 32), name, 0
     )
