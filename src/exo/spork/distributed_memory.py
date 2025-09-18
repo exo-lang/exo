@@ -430,9 +430,14 @@ class DistributedIdxFsm:
                 self.bad_idx(node, f"expected 0:{const_extent}, not {idx_e}")
             iter_sym = Sym(f"CALLEE_DISTRIBUTED_IDX_{self.callee_unit_idx}")
             unit = self.callee_coll_units[self.callee_unit_idx]
-            self.callee_coll_tiling = self.callee_coll_tiling.tiled(
-                iter_sym, unit, const_extent, self.coll_env
-            )
+            try:
+                self.callee_coll_tiling = self.callee_coll_tiling.tiled(
+                    iter_sym, unit, const_extent, self.coll_env
+                )
+            except AssertionError:
+                raise
+            except Exception as e:
+                self.bad_idx(node, str(e))
             self.callee_unit_idx += 1
             # HACK: writing state of new synthetic Sym to thread_iters.
             # This may actually be used later, since it goes into

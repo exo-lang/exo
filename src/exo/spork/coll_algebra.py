@@ -425,9 +425,9 @@ class CollDimOp:
     offset: int
     box: int
     tile_count: int
-    iter_expr: CollIndexExpr
     intra_box_expr: CollIndexExpr
     thread_pitch: int
+    tree_depth: int
 
     def divided_by(self, factor):
         old_offset = self.offset
@@ -448,7 +448,7 @@ class CollDimOp:
 class CollDim:
     dim_extent: int
     dim_thread_pitch: int
-    dim_ops: List[CollDimOp]
+    dim_ops: Tuple[CollDimOp]
     dim_iter_expr: CollIndexExpr
 
     def get_box_coord(self) -> int:
@@ -484,6 +484,9 @@ class SeptTiling:
     _codegen: CollCodegen
     _dims: List[CollDim]
 
+    def get_tree_depth(self) -> int:
+        return self._tree_depth
+
     def get_domain(self) -> Tuple[int]:
         return tuple(d.dim_extent for d in self._dims)
 
@@ -504,7 +507,7 @@ class SeptTiling:
     def err(self, unit: CollUnit, tile_count: int, msg: str):
         raise CollTilingError(
             f"Bad CollTiling ({msg}); "
-            f"box={self.box}, tried tiling {tile_count}-many {unit}, "
+            f"box={self.get_box()}, tried tiling {tile_count}-many {unit}, "
             f"i.e. CollUnit({unit.domain}, {unit.box}, ...)"
         )
 
@@ -517,9 +520,10 @@ class SeptTiling:
         outer_ops = []
         for op in old_dim.dim_ops:
             if op.box >= factor:
-                outer_ops = op.divided_by(factor)
+                outer_ops.append(op.divided_by(factor))
             else:
                 break
+        outer_ops = tuple(outer_ops)
         inner_ops = old_dim.dim_ops[len(outer_ops) :]
 
         outer_dim = CollDim(
@@ -559,16 +563,16 @@ class SeptTiling:
         self_completion = DomainCompletionOp(
             self_domain, unit_original_domain, allow_partial_source=False
         )
-        new_domain = unit_completion.domain
+        new_domain = tuple(unit_completion.domain)
         self_box = self_completion.new_size(self.get_box())
         unit_box = unit_completion.new_size(unit_original_box)
         assert unit_completion.domain == self_completion.domain
 
         # Update the new CollTiling in-place based on domain completion.
-        assert not self_competion.remove_idx
+        assert not self_completion.remove_idx
         for dim_idx, split_factor in self_completion.idx_factors:
             new._apply_split_dim(dim_idx, split_factor)
-        assert new.get_domain() == new_domain
+        assert new.get_domain() == new_domain, f"{new.get_domain()} == {new_domain}"
 
         # Select the unique dimension on which to tile or specialize,
         # and overwrite the default codegen object if this dimension is found.
@@ -579,19 +583,19 @@ class SeptTiling:
             unit_c = unit_box[i]
             self_c = self_box[i]
 
-            if unit_c == self_c or unit_c == domain_c:
+            if unit_c == self_c or unit_c == domain_c or unit_c is None:
                 continue
             if tiled_dim_idx is not None:
                 self.err(unit, hi, "ambiguous dimension to tile")
 
-            new_dim = new._dims[i]  # This CollDim in `new` will be updated.
+            mod_dim = new._dims[i]  # This CollDim in `new` will be replaced.
 
             tiled_dim_idx = i
             offset = lo * unit_c
             box = unit_c if is_tiled else (hi - lo) * unit_c
             tile_count = (hi - lo) if is_tiled else 1
-            thread_pitch = new_dim.dim_thread_pitch * unit_c
-            old_intra_box_expr = new_dim.get_leaf_intra_box_expr()
+            thread_pitch = mod_dim.dim_thread_pitch * unit_c
+            old_intra_box_expr = mod_dim.get_leaf_intra_box_expr()
             codegen_expr = old_intra_box_expr // unit_c
             intra_box_expr = old_intra_box_expr - offset
             if tile_count > 1:
@@ -605,12 +609,20 @@ class SeptTiling:
             codegen.box = box
             codegen.tile_count = tile_count
             codegen.thread_pitch = thread_pitch
-            codegen.codegen_expr = iter_expr
+            codegen.codegen_expr = codegen_expr
             codegen.codegen_static_lo = None if lo == 0 else lo
             codegen.codegen_static_hi = None if self_c == box_size_needed else hi
 
-            op = CollDimOp(_iter, offset, box, tile_count, intra_box_expr, thread_pitch)
-            new_dim.dim_ops.append(op)
+            op = CollDimOp(
+                _iter,
+                offset,
+                box,
+                tile_count,
+                intra_box_expr,
+                thread_pitch,
+                new.get_tree_depth(),
+            )
+            new._dims[i] = replace(mod_dim, dim_ops=mod_dim.dim_ops + (op,))
 
         if tiled_dim_idx is None and (lo != 0 or hi != 1):
             self.err(
@@ -620,6 +632,17 @@ class SeptTiling:
             )
 
         return new
+
+
+def top_level_coll_tiling(domain: Tuple[int], intra_box_exprs: Tuple[CollIndexExpr]):
+    assert len(domain) == len(intra_box_exprs)
+    dims = []
+    for i, e in enumerate(intra_box_exprs):
+        extent = domain[i]
+        thread_pitch = prod(domain[i + 1 :])
+        dims.append(CollDim(extent, thread_pitch, (), e))
+    tiling = SeptTiling(0, CollCodegen(), dims)
+    return tiling
 
 
 @dataclass(slots=True, init=False)
@@ -653,6 +676,8 @@ class CollTiling(object):
     codegen_partial_offset: int
     # ThreadsFor::box,
     codegen_box: int
+
+    sept: SeptTiling
 
     """Advice for lowering a collective tiling or specialization:
 
@@ -721,6 +746,8 @@ class CollTiling(object):
         self.codegen_idx_factors = ()
         self.codegen_partial_offset = 0
         self.codegen_box = 0
+
+        self.sept = top_level_coll_tiling(full_domain, intra_box_exprs)
 
     def __repr__(self):
         return f"CollTiling({self.parent!r}, {self.iter!r}, {self.full_domain!r}, {self.tile!r}, {self.offset!r}, {self.box!r}, {self.intra_box_exprs!r}, {self.tile_count!r}, {self.tile_expr!r})"
@@ -848,6 +875,7 @@ class CollTiling(object):
         tiling.codegen_idx_factors = self_completion.idx_factors
         tiling.codegen_partial_offset = 0
         tiling.codegen_box = -1 if tiled_dim_idx is None else tiling.box[tiled_dim_idx]
+        tiling.sept = self.sept._make_derived(_iter, unit, 0, tiles_needed, env, True)
         return tiling
 
     def specialized(
@@ -942,6 +970,7 @@ class CollTiling(object):
         tiling.codegen_idx_factors = self_completion.idx_factors
         tiling.codegen_partial_offset = partial_offset
         tiling.codegen_box = -1 if tiled_dim_idx is None else tiling.box[tiled_dim_idx]
+        tiling.sept = self.sept._make_derived(None, unit, lo, hi, env, False)
         return tiling
 
     def box_num_threads(self):
@@ -1249,8 +1278,8 @@ class DomainCompletionOp:
 standalone_thread = CollUnit((1,), (1,), "standalone_thread", 0)
 cuda_thread = CollUnit((blockDim,), (1,), "cuda_thread", 0)
 cuda_quadpair = CollUnit((blockDim / 16, 16), (2, 4), "cuda_quadpair", None)
-cuda_warp = CollUnit((blockDim,), (32,), "cuda_warp", 0)
-cuda_warpgroup = CollUnit((blockDim,), (128,), "cuda_warpgroup", 0)
+cuda_warp = CollUnit((blockDim / 32, 32), (1, 32), "cuda_warp", 0)
+cuda_warpgroup = CollUnit((blockDim / 128, 128), (1, 128), "cuda_warpgroup", 0)
 cuda_cluster = CollUnit(
     (clusterDim, blockDim), (clusterDim, blockDim), "cuda_cluster", 0
 )
@@ -1267,7 +1296,7 @@ cuda_agnostic_intact_cta = CollUnit(
 
 # Questionable, these may change later
 cuda_warp_in_cluster = CollUnit(
-    (clusterDim, blockDim), (1, 32), "cuda_warp_in_cluster", 0
+    (clusterDim, blockDim / 32, 32), (1, 1, 32), "cuda_warp_in_cluster", 0
 )
 cuda_cta_in_cluster = CollUnit(
     (clusterDim * blockDim,), (blockDim,), "cuda_cta_in_cluster", 0
@@ -1287,5 +1316,5 @@ def cuda_cta_in_cluster_strided(cta_stride):
 def cuda_warp_in_cluster_strided(cta_stride):
     name = f"cuda_warp_in_cluster_strided({cta_stride})"
     return CollUnit(
-        (clusterDim / cta_stride, cta_stride, blockDim), (1, 1, 32), name, 0
+        (clusterDim / cta_stride, cta_stride, blockDim / 32, 32), (1, 1, 1, 32), name, 0
     )

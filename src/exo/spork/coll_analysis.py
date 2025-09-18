@@ -15,7 +15,7 @@ from .coll_algebra import (
     blockDim_param,
     CollIndexExpr,
     CollTiling,
-    cuda_warp,
+    cuda_thread,
     cuda_cta_in_cluster,
     cuda_agnostic_sub_cta,
     cuda_agnostic_intact_cta,
@@ -465,8 +465,12 @@ class CollAnalysis(LoopIR_Rewrite):
             # Codegen for CUDA C++ is discarded, since we handle testing the membership
             # of threads in named warps in the deviceMainLoop. However, we will have
             # to handle changing values for the abstract machine (am_*).
+            # NB see later note about 32 * cuda_thread vs cuda_warp.
             coll_tiling = coll_tiling.specialized(
-                cuda_warp, info.offset, info.offset + info.count, self._coll_env
+                32 * cuda_thread,
+                info.offset,
+                (info.offset + info.count),
+                self._coll_env,
             )
             top_am_idx_factors = coll_tiling.codegen_idx_factors
             top_am_dim_idx = coll_tiling.codegen_dim_idx
@@ -492,9 +496,13 @@ class CollAnalysis(LoopIR_Rewrite):
         self._current_warp_name = name
 
         # (2/2) Adjust CollTiling for lo/hi offset.
+        # NB we use (32 * cuda_thread) instead of cuda_warp since the latter
+        # implies an alignment requirement that we do not mean to enforce.
+        # e.g. cuda_warp would prevent for i in cuda_threads(0, 64) from
+        # compiling as it would be going across multiple warps.
         try:
             coll_tiling = coll_tiling.specialized(
-                cuda_warp, warps_lo, warps_hi, self._coll_env
+                32 * cuda_thread, warps_lo, warps_hi, self._coll_env
             )
         except AssertionError:
             raise
