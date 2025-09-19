@@ -121,6 +121,7 @@ class DistributedAllocState(object):
     # first_distributed_iters exactly.
     first_usage_stmt: Optional[LoopIR.stmt]
     first_distributed_iters: List[Sym]
+    first_usage_coll_tiling: Optional[CollTiling]
 
     # Deduced compile-time const shape of the array of distributed shards.
     # e.g. f32[8, 4, j] with 2 distributed dims gives [8, 4].
@@ -178,10 +179,12 @@ class DistributedAllocState(object):
                         f"Missing threads on dims[{i}] to match {optional_native_unit}\n"
                         f"domain={tmp.get_domain()}, box={box}; expected box={expected_box}"
                     )
+            self.new_alloc_coll_tiling = tmp
         else:
             self.new_alloc_coll_tiling = coll_tiling.sept  # TODO remove sept
         self.first_usage_stmt = None
         self.first_distributed_iters = []
+        self.first_usage_coll_tiling = None
         self.DISTRIBUTED_EXTENTS = []
         self.ALLOC_COLL_TILING = coll_tiling
         self.alloc_stmt = alloc_stmt
@@ -403,17 +406,22 @@ class DistributedIdxFsm:
     context_stmt: LoopIR.stmt
 
     # CollTiling at the point of allocation
-    alloc_coll_tiling: CollTiling
+    ALLOC_COLL_TILING: CollTiling
+    new_alloc_coll_tiling: CollTiling
+
+    # CollTiling at use site (completed for native_unit, if applicable);
+    # further tiled by any callee_coll_units provided.
+    usage_coll_tiling: CollTiling
 
     # Target collective unit for holding each slice (optional termination
     # condition; if not provided, is_done() must not be called).
-    optional_native_unit: Optional[CollUnit]
-    optional_native_num_threads: Optional[int]
+    OPTIONAL_NATIVE_UNIT: Optional[CollUnit]
+    OPTIONAL_NATIVE_NUM_THREADS: Optional[int]
 
     # CollTiling and loop iterator of the loop level at which the distributed
     # slices of the allocation are individually allocated at.
-    leaf_coll_tiling: CollTiling
-    leaf_iter: Optional[Sym]
+    LEAF_COLL_TILING: CollTiling
+    LEAF_ITER: Optional[Sym]
 
     # Environments from compiler
     loop_mode_name: str  # Expected LoopMode for thread iterators
@@ -421,23 +429,23 @@ class DistributedIdxFsm:
     coll_env: Dict[CollParam, int]
 
     # Iterators parsed in order as distributed indices
-    distributed_iters: List[Sym]
+    DISTRIBUTED_ITERS: List[Sym]
     DISTRIBUTED_EXTENTS: List[int]
 
     # Parsed iterators: parent_num_tile_threads -> (Sym, child_num_tile_threads)
-    t0_iter_t1: Dict[int, Tuple[Sym, int]]
+    T0_ITER_T1: Dict[int, Tuple[Sym, int]]
 
     # Progress of deduced tiling
-    cur_num_threads: int
-    alloc_box_num_threads: int
+    CUR_NUM_THREADS: int
+    ALLOC_BOX_NUM_THREADS: int
 
     # For analyzing intervals passed to instrs.
     # The CollTiling is initially that of the caller, and we create new
     # ones progressively, tiled by callee_coll_units[callee_unit_idx++]
     # for each distributed interval passed to the instr.
-    callee_coll_tiling: CollTiling
+    CALLEE_COLL_TILING: CollTiling
     callee_coll_units: List[CollUnit]
-    callee_unit_idx: int
+    CALLEE_UNIT_IDX: int
 
     def __init__(
         self,
@@ -450,30 +458,34 @@ class DistributedIdxFsm:
         callee_coll_units: List[CollUnit],
     ):
         self.context_stmt = context_stmt
-        self.alloc_coll_tiling = state.ALLOC_COLL_TILING
-        if state.optional_native_unit is None:
-            self.optional_native_unit = None
-            self.optional_native_num_threads = None
-        else:
-            assert isinstance(state.optional_native_unit, CollUnit)
-            self.optional_native_unit = state.optional_native_unit
-            self.optional_native_num_threads = state.optional_native_unit.int_threads(
-                coll_env
-            )
-        self.leaf_coll_tiling = state.ALLOC_COLL_TILING  # will be updated
-        self.leaf_iter = None
         self.loop_mode_name = loop_mode_name
         self.thread_iters = thread_iters  # must NOT be a copy
         self.coll_env = coll_env
-        self.distributed_iters = []
-        self.DISTRIBUTED_EXTENTS = []
-        self.t0_iter_t1 = {}
-        self.cur_num_threads = state.ALLOC_COLL_TILING.tile_num_threads()
-        self.alloc_box_num_threads = state.ALLOC_COLL_TILING.box_num_threads()
-        self.callee_coll_tiling = callee_coll_tiling
         self.callee_coll_units = callee_coll_units
-        self.callee_unit_idx = 0
+        self.new_alloc_coll_tiling = state.new_alloc_coll_tiling
 
+        # TODO REMOVE THIS
+        self.ALLOC_COLL_TILING = state.ALLOC_COLL_TILING
+        if state.optional_native_unit is None:
+            self.OPTIONAL_NATIVE_UNIT = None
+            self.OPTIONAL_NATIVE_NUM_THREADS = None
+        else:
+            assert isinstance(state.optional_native_unit, CollUnit)
+            self.OPTIONAL_NATIVE_UNIT = state.optional_native_unit
+            self.OPTIONAL_NATIVE_NUM_THREADS = state.optional_native_unit.int_threads(
+                coll_env
+            )
+        self.LEAF_COLL_TILING = state.ALLOC_COLL_TILING  # will be updated
+        self.LEAF_ITER = None
+        self.DISTRIBUTED_ITERS = []
+        self.DISTRIBUTED_EXTENTS = []
+        self.T0_ITER_T1 = {}
+        self.CUR_NUM_THREADS = state.ALLOC_COLL_TILING.tile_num_threads()
+        self.ALLOC_BOX_NUM_THREADS = state.ALLOC_COLL_TILING.box_num_threads()
+        self.CALLEE_COLL_TILING = callee_coll_tiling
+        self.CALLEE_UNIT_IDX = 0
+
+    # TODO REWRITE
     def consume_idx(self, node, typ: LoopIR.type, i: int):
         """Process node.idx[i] as the next distributed index"""
         shape = typ.shape()
@@ -487,7 +499,7 @@ class DistributedIdxFsm:
         elif isinstance(idx_e, LoopIR.Point) and isinstance(idx_e.pt, LoopIR.Read):
             iter_sym = idx_e.pt.name
         elif isinstance(idx_e, LoopIR.Interval):
-            if len(self.callee_coll_units) <= self.callee_unit_idx:
+            if len(self.callee_coll_units) <= self.CALLEE_UNIT_IDX:
                 self.bad_idx(node, f"expected point, not interval {idx_e}")
             if (
                 not isinstance(idx_e.lo, LoopIR.Const)
@@ -496,22 +508,22 @@ class DistributedIdxFsm:
                 or idx_e.hi.val != const_extent
             ):
                 self.bad_idx(node, f"expected 0:{const_extent}, not {idx_e}")
-            iter_sym = Sym(f"CALLEE_DISTRIBUTED_IDX_{self.callee_unit_idx}")
-            unit = self.callee_coll_units[self.callee_unit_idx]
+            iter_sym = Sym(f"CALLEE_DISTRIBUTED_IDX_{self.CALLEE_UNIT_IDX}")
+            unit = self.callee_coll_units[self.CALLEE_UNIT_IDX]
             try:
-                self.callee_coll_tiling = self.callee_coll_tiling.tiled(
+                self.CALLEE_COLL_TILING = self.CALLEE_COLL_TILING.tiled(
                     iter_sym, unit, const_extent, self.coll_env
                 )
             except AssertionError:
                 raise
             except Exception as e:
                 self.bad_idx(node, str(e))
-            self.callee_unit_idx += 1
+            self.CALLEE_UNIT_IDX += 1
             # HACK: writing state of new synthetic Sym to thread_iters.
             # This may actually be used later, since it goes into
-            # distributed_iters which could be really confusing.
+            # DISTRIBUTED_ITERS which could be really confusing.
             # Hence the note on how thread_iters may be modified.
-            self.thread_iters[iter_sym] = ThreadIter(self.callee_coll_tiling)
+            self.thread_iters[iter_sym] = ThreadIter(self.CALLEE_COLL_TILING)
         else:
             self.bad_idx(node, f"expected single variable name, not {idx_e}")
         iter_info: ThreadIter
@@ -533,15 +545,15 @@ class DistributedIdxFsm:
         t0 = iter_info.PARENT_TILE_NUM_THREADS
         t1 = iter_info.CHILD_TILE_NUM_THREADS
         if t0 != t1:
-            if t0 in self.t0_iter_t1:
+            if t0 in self.T0_ITER_T1:
                 self.bad_idx(
                     node, f"unexpected (repeated?) index {iter_sym} (duplicate t0={t0})"
                 )
-            self.t0_iter_t1[t0] = (iter_sym, t1)
-        if t1 < self.leaf_coll_tiling.tile_num_threads():
-            self.leaf_coll_tiling = iter_info.coll_tiling
-            self.leaf_iter = iter_sym
-        if (n := self.optional_native_num_threads) is not None:
+            self.T0_ITER_T1[t0] = (iter_sym, t1)
+        if t1 < self.LEAF_COLL_TILING.tile_num_threads():
+            self.LEAF_COLL_TILING = iter_info.coll_tiling
+            self.LEAF_ITER = iter_sym
+        if (n := self.OPTIONAL_NATIVE_NUM_THREADS) is not None:
             if t1 < n:
                 self.bad_idx(
                     node,
@@ -550,18 +562,18 @@ class DistributedIdxFsm:
 
         hi = iter_info.coll_tiling.tile_count
         assert isinstance(hi, int)
-        self.distributed_iters.append(iter_sym)
+        self.DISTRIBUTED_ITERS.append(iter_sym)
         self.DISTRIBUTED_EXTENTS.append(hi)
 
         # Each index variable subdivides a CollTiling, translating
         # a parent_num_tile_threads -> child_num_tile_threads.
         # Search for a valid chain from alloc_num_threads -> native_num_threads
         #
-        # We have to do this now, not separately, so cur_num_threads is updated
+        # We have to do this now, not separately, so CUR_NUM_THREADS is updated
         # and we don't try to parse non-distributed dims and give false errors.
-        while entry := self.t0_iter_t1.get(self.cur_num_threads):
+        while entry := self.T0_ITER_T1.get(self.CUR_NUM_THREADS):
             iter_sym, t1 = entry
-            self.cur_num_threads = entry[1]
+            self.CUR_NUM_THREADS = entry[1]
 
         return (const_extent, iter_sym)  # Internal use by consume_SyncStmt_idx
 
@@ -618,25 +630,27 @@ class DistributedIdxFsm:
                             f"{s.srcinfo} (SyncStmt: {sync_stmt})"
                         )
 
+    # TODO REWRITE
     def is_done(self, node):
         """True if we should not call consume_idx() again.
 
         This is the case when the tiling successfully suballocated
         slices to thread collectives with the stored native unit, but
         not the converse ... still have to call check_native_unit()"""
-        n = self.optional_native_num_threads
+        n = self.OPTIONAL_NATIVE_NUM_THREADS
         assert n is not None
         # TODO: explain this min(...) in coll_algebra.pdf
-        return min(self.cur_num_threads, self.alloc_box_num_threads) <= n
+        return min(self.CUR_NUM_THREADS, self.ALLOC_BOX_NUM_THREADS) <= n
 
+    # TODO REMOVE
     def check_native_unit(self, node):
         """Check that the leaf tiling matches the stored native unit"""
-        unit = self.optional_native_unit
+        unit = self.OPTIONAL_NATIVE_UNIT
         assert unit is not None
-        _iter = self.leaf_iter
+        _iter = self.LEAF_ITER
         is_distributed = _iter is not None
-        ignore_box = self.alloc_box_num_threads != self.optional_native_num_threads
-        if msg := self.leaf_coll_tiling.unit_mismatch(
+        ignore_box = self.ALLOC_BOX_NUM_THREADS != self.OPTIONAL_NATIVE_NUM_THREADS
+        if msg := self.LEAF_COLL_TILING.unit_mismatch(
             unit,
             self.coll_env,
             ignore_box=ignore_box,
@@ -651,6 +665,7 @@ class DistributedIdxFsm:
                     node, f"Wrong collective unit at point of allocation: {msg}"
                 )
 
+    # TODO REWRITE
     def check_store_state(self, node, state: DistributedAllocState):
         """Update the allocation state with analysis results
 
@@ -668,14 +683,14 @@ class DistributedIdxFsm:
 
         if state.first_usage_stmt is None:
             state.first_usage_stmt = self.context_stmt
-            state.first_distributed_iters = self.distributed_iters
+            state.first_distributed_iters = self.DISTRIBUTED_ITERS
             state.DISTRIBUTED_EXTENTS = self.DISTRIBUTED_EXTENTS
-            state.LEAF_COLL_TILING = self.leaf_coll_tiling
+            state.LEAF_COLL_TILING = self.LEAF_COLL_TILING
             return
 
         first_stmt = state.first_usage_stmt
         first_iters = state.first_distributed_iters
-        cur_iters = self.distributed_iters
+        cur_iters = self.DISTRIBUTED_ITERS
         if len(first_iters) != len(cur_iters):
             d1 = format_iters(first_iters)
             d2 = format_iters(cur_iters)
@@ -772,15 +787,16 @@ class DistributedIdxFsm:
                     f"{sync.srcinfo}: {sync} has inconsistent collective tiling with previous {f_text}: {msg}"
                 )
 
+    # TODO REMOVE
     def bad_idx(self, node, msg):
         iter_text = "".join(
-            f"\n{nm} {t0}->{t1}" for (t0, (nm, t1)) in self.t0_iter_t1.items()
+            f"\n{nm} {t0}->{t1}" for (t0, (nm, t1)) in self.T0_ITER_T1.items()
         )
-        if (n := self.optional_native_num_threads) is not None:
+        if (n := self.OPTIONAL_NATIVE_NUM_THREADS) is not None:
             native_suffix = f" to {n}"
         else:
             native_suffix = ""
-        alloc_num_threads = self.alloc_coll_tiling.tile_num_threads()
+        alloc_num_threads = self.ALLOC_COLL_TILING.tile_num_threads()
         raise ValueError(
             f"{node.srcinfo}: Distributed memory analysis "
             f"(from {alloc_num_threads} threads{native_suffix}) "
