@@ -3,7 +3,7 @@ from math import prod
 from typing import Optional, List, Type, Dict, Tuple, Callable
 
 from ..core.prelude import Sym
-from ..core.LoopIR import LoopIR
+from ..core.LoopIR import LoopIR, T
 from .coll_algebra import (
     CollCodegen,
     CollTiling,
@@ -126,7 +126,10 @@ class DistributedAllocState(object):
     # e.g. f32[8, 4, j] with 2 distributed dims gives [8, 4].
     # This is possible redundant (i.e. maybe we should just require the LoopIR
     # type of the indexed variable to be passed each time).
-    distributed_extents: List[int]
+    # TODO remove
+    DISTRIBUTED_EXTENTS: List[int]
+
+    alloc_type: LoopIR.type
 
     # TODO remove
     ALLOC_COLL_TILING: CollTiling
@@ -151,6 +154,7 @@ class DistributedAllocState(object):
 
     def __init__(
         self,
+        alloc_type: LoopIR.type,
         coll_tiling: CollTiling,
         optional_native_unit: Optional[CollUnit],
         env: Dict[CollParam, int],
@@ -173,12 +177,12 @@ class DistributedAllocState(object):
                             f"domain={tmp.get_domain()}, box={box}; expected box={expected_box}"
                         )
         else:
-            need_deduction = True
             self.new_alloc_coll_tiling = coll_tiling.sept  # TODO remove sept
         self.first_usage_stmt = None
         self.first_distributed_iters = []
-        self.distributed_extents = []
+        self.DISTRIBUTED_EXTENTS = []
         self.ALLOC_COLL_TILING = coll_tiling
+        self.alloc_type = alloc_type
         self.optional_native_unit = optional_native_unit
         self.LEAF_COLL_TILING = None
         self.arrive_coll_tiling = None
@@ -193,10 +197,25 @@ class DistributedAllocState(object):
     def get_await(self) -> Optional[CollTiling]:
         return self.await_coll_tiling
 
+    def get_distributed_extents(self) -> Tuple[int]:
+        return tuple(
+            self.get_const_shape_coord(i) for i in range(0, self.n_distributed_dims())
+        )
+
+    def get_const_shape_coord(self, i) -> int:
+        t = self.alloc_type
+        e = t.shape()[i]
+        if isinstance(e, LoopIR.Const):
+            return int(e.val)
+        raise ValueError(
+            f"{t.srcinfo}: distributed memory deduction failed for {t}\n"
+            f"shape[{i}] must be constant."
+        )
+
     @staticmethod
     def from_fence(s: LoopIR.SyncStmt, coll_tiling: CollTiling):
         assert not s.sync_type.is_split()
-        result = DistributedAllocState(coll_tiling, None, None)
+        result = DistributedAllocState(T.barrier, coll_tiling, None, None)
         result.first_usage_stmt = s
         result.arrive_coll_tiling = coll_tiling
         result.await_coll_tiling = coll_tiling
@@ -254,8 +273,9 @@ class DistributedAllocState(object):
             if distributed_iters is None
             else distributed_iters
         )
-        assert len(tmp_iters) == len(self.distributed_extents)
-        for nm, ext in zip(reversed(tmp_iters), reversed(self.distributed_extents)):
+        distributed_extents = self.get_distributed_extents()
+        assert len(tmp_iters) == len(distributed_extents)
+        for nm, ext in zip(reversed(tmp_iters), reversed(distributed_extents)):
             if nm is not None:
                 handle_idx(nm, ext)
 
@@ -395,7 +415,7 @@ class DistributedIdxFsm:
 
     # Iterators parsed in order as distributed indices
     distributed_iters: List[Sym]
-    distributed_extents: List[int]
+    DISTRIBUTED_EXTENTS: List[int]
 
     # Parsed iterators: parent_num_tile_threads -> (Sym, child_num_tile_threads)
     t0_iter_t1: Dict[int, Tuple[Sym, int]]
@@ -439,7 +459,7 @@ class DistributedIdxFsm:
         self.thread_iters = thread_iters  # must NOT be a copy
         self.coll_env = coll_env
         self.distributed_iters = []
-        self.distributed_extents = []
+        self.DISTRIBUTED_EXTENTS = []
         self.t0_iter_t1 = {}
         self.cur_num_threads = state.ALLOC_COLL_TILING.tile_num_threads()
         self.alloc_box_num_threads = state.ALLOC_COLL_TILING.box_num_threads()
@@ -524,7 +544,7 @@ class DistributedIdxFsm:
         hi = iter_info.coll_tiling.tile_count
         assert isinstance(hi, int)
         self.distributed_iters.append(iter_sym)
-        self.distributed_extents.append(hi)
+        self.DISTRIBUTED_EXTENTS.append(hi)
 
         # Each index variable subdivides a CollTiling, translating
         # a parent_num_tile_threads -> child_num_tile_threads.
@@ -642,7 +662,7 @@ class DistributedIdxFsm:
         if state.first_usage_stmt is None:
             state.first_usage_stmt = self.context_stmt
             state.first_distributed_iters = self.distributed_iters
-            state.distributed_extents = self.distributed_extents
+            state.DISTRIBUTED_EXTENTS = self.DISTRIBUTED_EXTENTS
             state.LEAF_COLL_TILING = self.leaf_coll_tiling
             return
 
@@ -670,7 +690,7 @@ class DistributedIdxFsm:
                     f"Usage 2: {self.context_stmt} : {node.srcinfo}"
                 )
 
-        assert self.distributed_extents == state.distributed_extents
+        assert self.DISTRIBUTED_EXTENTS == state.DISTRIBUTED_EXTENTS
 
     def inspect_arrive_await(
         self,

@@ -182,7 +182,7 @@ class CollAnalysis(LoopIR_Rewrite):
                 native_unit = s.mem.native_unit()
             try:
                 self.distributed_alloc_states[s.name] = DistributedAllocState(
-                    self._coll_tiling, native_unit, self._coll_env
+                    s.type, self._coll_tiling, native_unit, self._coll_env
                 )
             except CollTilingError as e:
                 raise CollTilingError(f"{s.srcinfo}: {e}")
