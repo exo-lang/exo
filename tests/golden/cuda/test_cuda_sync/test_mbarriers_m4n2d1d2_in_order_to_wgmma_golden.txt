@@ -946,7 +946,7 @@ exo_CudaInline_test_mbarriers_m4n2d1d2_in_order_to_wgmma_golden::exo_Cuda0_test_
 {
   namespace exo_CudaUtil = exo_CudaUtil_test_mbarriers_m4n2d1d2_in_order_to_wgmma_golden;
   // cuda_threads(0, 4, unit=16 * cuda_thread)
-  if ([[maybe_unused]] int exo_128thr_t2 = (threadIdx.x / 16); 1) {
+  if ([[maybe_unused]] int exo_16thr_t2 = (threadIdx.x / 16); 1) {
     // row_bars: barrier[4, 2, 2] @ CudaMbarrier
     // col_bars: barrier[4, 2, 2] @ CudaMbarrier
     // all_bars: barrier[4, 2, 2] @ CudaMbarrier
@@ -955,45 +955,45 @@ exo_CudaInline_test_mbarriers_m4n2d1d2_in_order_to_wgmma_golden::exo_Cuda0_test_
     // baseline: barrier[4, 2, 2] @ CudaMbarrier
     for (int i = 0; i < 5; i++) {
       // cuda_threads(0, 2, unit=8 * cuda_thread)
-      if ([[maybe_unused]] int exo_64thr_t1 = (threadIdx.x % 16 / 8); 1) {
+      if ([[maybe_unused]] int exo_8thr_t1 = (threadIdx.x % 16 / 8); 1) {
         // cuda_threads(0, 4, unit=2 * cuda_cta_in_cluster)
-        if ([[maybe_unused]] int exo_16thr_m_cta = (blockIdx.x % 8 / 2); 1) {
+        if ([[maybe_unused]] int exo_128thr_m_cta = (blockIdx.x % 8 / 2); 1) {
           // cuda_threads(0, 2, unit=cuda_cta_in_cluster)
-          if ([[maybe_unused]] int exo_8thr_n_cta = (blockIdx.x % 2); 1) {
+          if ([[maybe_unused]] int exo_64thr_n_cta = (blockIdx.x % 2); 1) {
             // Arrive(cuda_in_order, 1) >> baseline[m_cta, n_cta, t1]
             // cta_mask: uint16_t(0x1 << (blockIdx.x & 0x7))
-            exo_syncState.Arrive0_baseline(exo_smem, exo_excutLog, exo_64thr_t1 + 2*exo_128thr_t2, 1);
+            exo_syncState.Arrive0_baseline(exo_smem, exo_excutLog, exo_8thr_t1 + 2*exo_16thr_t2, 1);
             // Await(b_rc_bars[m_cta, n_cta, t1], wgmma_async_smem, ~2)
-            exo_syncState.Await0_b_rc_bars(exo_smem, exo_excutLog, exo_64thr_t1 + 2*exo_128thr_t2, 2);
+            exo_syncState.Await0_b_rc_bars(exo_smem, exo_excutLog, exo_8thr_t1 + 2*exo_16thr_t2, 2);
             // Arrive(cuda_in_order, 1) >> f_rc_bars[m_cta, n_cta, t1]
             // cta_mask: uint16_t(0x1 << (blockIdx.x & 0x7))
-            exo_syncState.Arrive0_f_rc_bars(exo_smem, exo_excutLog, exo_64thr_t1 + 2*exo_128thr_t2, 1);
+            exo_syncState.Arrive0_f_rc_bars(exo_smem, exo_excutLog, exo_8thr_t1 + 2*exo_16thr_t2, 1);
             // Arrive(cuda_in_order, 1) >> row_bars[m_cta, n_cta, t1] >> row_bars[m_cta, 0:2, t1]
             // cta_mask: uint16_t(0x1 << (blockIdx.x & 0x7))
             // cta_mask: uint16_t(0x3 << (blockIdx.x & 0x6))
-            exo_syncState.Arrive0_row_bars(exo_smem, exo_excutLog, exo_64thr_t1 + 2*exo_128thr_t2, 1);
+            exo_syncState.Arrive0_row_bars(exo_smem, exo_excutLog, exo_8thr_t1 + 2*exo_16thr_t2, 1);
             // Await(row_bars[m_cta, n_cta, t1], wgmma_async_smem, ~1)
-            exo_syncState.Await0_row_bars(exo_smem, exo_excutLog, exo_64thr_t1 + 2*exo_128thr_t2, 1);
+            exo_syncState.Await0_row_bars(exo_smem, exo_excutLog, exo_8thr_t1 + 2*exo_16thr_t2, 1);
             // Arrive(cuda_in_order, 1) >> col_bars[m_cta, n_cta, t1] >> col_bars[0:4, n_cta, t1]
             // cta_mask: uint16_t(0x1 << (blockIdx.x & 0x7))
             // cta_mask: uint16_t(0x55 << (blockIdx.x & 0x1))
-            exo_syncState.Arrive0_col_bars(exo_smem, exo_excutLog, exo_64thr_t1 + 2*exo_128thr_t2, 1);
+            exo_syncState.Arrive0_col_bars(exo_smem, exo_excutLog, exo_8thr_t1 + 2*exo_16thr_t2, 1);
             // Await(col_bars[m_cta, n_cta, t1], wgmma_async_smem, ~1)
-            exo_syncState.Await0_col_bars(exo_smem, exo_excutLog, exo_64thr_t1 + 2*exo_128thr_t2, 1);
+            exo_syncState.Await0_col_bars(exo_smem, exo_excutLog, exo_8thr_t1 + 2*exo_16thr_t2, 1);
             // Arrive(cuda_in_order, 1) >> all_bars[m_cta, n_cta, t1] >> all_bars[0:4, 0:2, t1]
             // cta_mask: uint16_t(0x1 << (blockIdx.x & 0x7))
             // cta_mask: uint16_t(0xff)
-            exo_syncState.Arrive0_all_bars(exo_smem, exo_excutLog, exo_64thr_t1 + 2*exo_128thr_t2, 1);
+            exo_syncState.Arrive0_all_bars(exo_smem, exo_excutLog, exo_8thr_t1 + 2*exo_16thr_t2, 1);
             // Await(all_bars[m_cta, n_cta, t1], wgmma_async_smem, ~1)
-            exo_syncState.Await0_all_bars(exo_smem, exo_excutLog, exo_64thr_t1 + 2*exo_128thr_t2, 1);
+            exo_syncState.Await0_all_bars(exo_smem, exo_excutLog, exo_8thr_t1 + 2*exo_16thr_t2, 1);
             // Await(f_rc_bars[m_cta, n_cta, t1], wgmma_async_smem, ~1)
-            exo_syncState.Await0_f_rc_bars(exo_smem, exo_excutLog, exo_64thr_t1 + 2*exo_128thr_t2, 1);
+            exo_syncState.Await0_f_rc_bars(exo_smem, exo_excutLog, exo_8thr_t1 + 2*exo_16thr_t2, 1);
             // Arrive(cuda_in_order, 1) >> b_rc_bars[m_cta, 0:2, t1] >> b_rc_bars[0:4, n_cta, t1]
             // cta_mask: uint16_t(0x3 << (blockIdx.x & 0x6))
             // cta_mask: uint16_t(0x55 << (blockIdx.x & 0x1))
-            exo_syncState.Arrive0_b_rc_bars(exo_smem, exo_excutLog, exo_64thr_t1 + 2*exo_128thr_t2, 1);
+            exo_syncState.Arrive0_b_rc_bars(exo_smem, exo_excutLog, exo_8thr_t1 + 2*exo_16thr_t2, 1);
             // Await(baseline[m_cta, n_cta, t1], cuda_in_order, ~0)
-            exo_syncState.Await0_baseline(exo_smem, exo_excutLog, exo_64thr_t1 + 2*exo_128thr_t2);
+            exo_syncState.Await0_baseline(exo_smem, exo_excutLog, exo_8thr_t1 + 2*exo_16thr_t2);
           }
         }
       }

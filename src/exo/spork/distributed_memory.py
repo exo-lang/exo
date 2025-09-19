@@ -84,8 +84,7 @@ class ThreadIter:
 
     def cname(self, name):
         """Mangling convention for generated C variables"""
-        N = self.child_tile_num_threads
-        return f"exo_{N}thr_{name}"
+        return f"exo_{self.thread_pitch}thr_{name}"
 
 
 @dataclass(slots=True)

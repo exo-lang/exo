@@ -772,9 +772,9 @@ exo_CudaInline_test_mbarriers_m1n1d3d2_Sm80_cp_async_golden::exo_Cuda0_test_mbar
       // cuda_threads(0, 2, unit=8 * cuda_thread)
       if ([[maybe_unused]] int exo_8thr_t1 = (threadIdx.x % 16 / 8); 1) {
         // cuda_threads(0, 1, unit=cuda_cta_in_cluster)
-        if ([[maybe_unused]] int exo_8thr_m_cta = 0; 1) {
+        if ([[maybe_unused]] int exo_0thr_m_cta = 0; 1) {
           // cuda_threads(0, 1, unit=cuda_cta_in_cluster)
-          if ([[maybe_unused]] int exo_8thr_n_cta = 0; 1) {
+          if ([[maybe_unused]] int exo_0thr_n_cta = 0; 1) {
             // Arrive(cuda_in_order, 1) >> baseline[m_cta, n_cta, t1]
             // cta_mask: uint16_t(0x1)
             exo_syncState.Arrive0_baseline(exo_smem, exo_excutLog, exo_8thr_t1 + 2*exo_16thr_t2, 1);

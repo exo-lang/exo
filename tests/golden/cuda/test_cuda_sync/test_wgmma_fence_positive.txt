@@ -269,7 +269,7 @@ exo_CudaInline_test_wgmma_fence_positive::exo_Cuda0_test_proc::exo_deviceTask(
   // CudaWarps(4, 12)
   if (int CudaWarps_4_12_ = threadIdx.x; CudaWarps_4_12_ >= 128) {
     // cuda_threads(0, 1, unit=cuda_warpgroup)
-    if (int exo_128thr_wg = ((threadIdx.x - 128) / 128); exo_128thr_wg < 1) {
+    if (int exo_0thr_wg = ((threadIdx.x - 128) / 128); exo_0thr_wg < 1) {
       // Fence(wgmma_fence_1, wgmma_fence_2)
       asm volatile(
         "wgmma.fence.sync.aligned;"
