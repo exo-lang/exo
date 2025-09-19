@@ -562,7 +562,7 @@ class excut_warpgroup_instr:
         ]
 
 
-def mkproc_warpgroup_align(abc_warps=8, xyz_warps=24):
+def mkproc_warpgroup_align(abc_warps=8, xyz_warps=24, loop_unit=8 * cuda_warp):
     warp_config = [CudaWarpConfig("abc", abc_warps), CudaWarpConfig("xyz", xyz_warps)]
 
     @proc
@@ -572,6 +572,9 @@ def mkproc_warpgroup_align(abc_warps=8, xyz_warps=24):
                 with CudaWarps(name="xyz"):
                     for wg in cuda_threads(0, 2, unit=cuda_warpgroup):
                         excut_warpgroup_instr(wg)
+                    for evil_iter in cuda_threads(0, 2, unit=loop_unit):
+                        for wg in cuda_threads(0, 2, unit=cuda_warpgroup):
+                            excut_warpgroup_instr(wg)
 
     return proc_warpgroup_align
 
@@ -582,6 +585,10 @@ def mkref_warpgroup_align(xrg: excut.ExcutReferenceGenerator):
     for wg in xrg.stride_threadIdx(2, stride=128, offset=abc_warps * 32):
         for t in xrg.stride_threadIdx(128):
             xrg("excut_warpgroup_instr", wg)
+    for evil_iter in xrg.stride_threadIdx(2, stride=256, offset=abc_warps * 32):
+        for wg in xrg.stride_threadIdx(2, stride=128):
+            for t in xrg.stride_threadIdx(128):
+                xrg("excut_warpgroup_instr", wg)
     xrg.end_cuda()
 
 
@@ -593,6 +600,14 @@ def test_warpgroup_align_negative(compiler):
     with pytest.raises(Exception) as exc:
         cu = compiler.cuda_cpu_test(mkproc_warpgroup_align, abc_warps=7, xyz_warps=25)
     assert "alignment" in str(exc.value)
+    assert "xyz" in str(exc.value)  # should complain about this being the culprit
+
+
+def test_warpgroup_align_negative_2(compiler):
+    with pytest.raises(Exception) as exc:
+        cu = compiler.cuda_cpu_test(mkproc_warpgroup_align, loop_unit=9 * cuda_warp)
+    assert "alignment" in str(exc.value)
+    assert "evil_iter" in str(exc.value)  # should complain about this being the culprit
 
 
 def mkproc_warpgroup_shape(unit0, unit1):

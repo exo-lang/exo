@@ -314,8 +314,7 @@ class CollAnalysis(LoopIR_Rewrite):
             box = self._coll_tiling.box
             offset = self._coll_tiling.offset
             raise TypeError(
-                f"{s.srcinfo}: wrong collective unit for {callee.name}():\n{msg},\n"
-                f"need {needed}, have threads in shape box={box}, offset={offset}, domain={domain}"
+                f"{s.srcinfo}: wrong collective unit (need {needed}) for {callee.name}(): {msg}"
             )
 
         # Inspect distributed indices of arguments (safer after above check)

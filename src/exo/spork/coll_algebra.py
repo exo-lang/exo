@@ -3,7 +3,8 @@ from __future__ import annotations
 # Note: no imports from the rest of Exo so it's easy to run side experiments
 # on coll_algebra and do demos of it as a sort of "type system"
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, replace, field
+from enum import Enum, auto
 from fractions import Fraction
 from typing import Dict, Optional, Tuple, Set
 from math import prod
@@ -429,6 +430,8 @@ class CollDimOp:
     tile_count: int
     intra_box_expr: CollIndexExpr
     thread_pitch: int
+    linearized_offset: int
+    linearized_box: int
     tree_depth: int
 
     def divided_by(self, factor):
@@ -439,12 +442,20 @@ class CollDimOp:
         new_expr = self.intra_box_expr // factor
         if r_offset or r_box:
             # TODO this error isn't very good without context.
-            raise ValueError(
-                f"thread alignment issue, with thread_pitch={self.thread_pitch}, "
+            raise DomainCompletionError(
+                f"thread alignment issue with {self.iter}-loop:\n"
+                f"with thread_pitch={self.thread_pitch}, "
                 f"offset={old_offset}, box={old_box}, "
-                f"offset/box wasn't divisible by {factor}"
+                f"offset or box wasn't divisible by {factor}"
             )
+        # linearized_offset, linearized_box not included.
         return replace(self, offset=new_offset, box=new_box, intra_box_expr=new_expr)
+
+
+class CollDimExpectation(Enum):
+    agnostic = auto()
+    full = auto()
+    subdiv = auto()
 
 
 @dataclass(slots=True, frozen=True)
@@ -453,6 +464,9 @@ class CollDim:
     dim_thread_pitch: int
     dim_ops: Tuple[CollDimOp]
     dim_iter_expr: CollIndexExpr
+
+    # Relevant when the CollTiling is completed for a certain unit.
+    dim_expectation: DimExpectation = CollDimExpectation.agnostic
 
     def get_box_coord(self) -> int:
         if ops := self.dim_ops:
@@ -464,8 +478,17 @@ class CollDim:
             return ops[-1].intra_box_expr
         return self.dim_iter_expr
 
+    def get_expected_box_coord(self) -> Optional[int]:
+        x = self.dim_expectation
+        if x == CollDimExpectation.subdiv:
+            return 1
+        if x == CollDimExpectation.full:
+            return self.dim_extent
+        return None
+
 
 def domain_from_thread_pitch_set(pitch_set: Set[int]) -> Tuple[int]:
+    # Why is this needed?
     pitch_set = sorted(pitch_set)
     assert pitch_set[0] == 1
 
@@ -486,6 +509,7 @@ class SeptTiling:
     _tree_depth: int
     _codegen: CollCodegen
     _dims: List[CollDim]
+    _unit_cache: dict = field(default_factory=dict)
 
     def get_tree_depth(self) -> int:
         return self._tree_depth
@@ -503,6 +527,7 @@ class SeptTiling:
         return prod(d.dim_extent for d in self._dims)
 
     def get_filtered_thread_pitch_set(self, dim_idxs: Set[int]):
+        # Why is this needed?
         pitch_set = {1, self.get_domain_num_threads()}
         for i, d in enumerate(self._dims):
             if i in dim_idxs:
@@ -526,6 +551,43 @@ class SeptTiling:
             raise KeyError(f"get_dim(thread_pitch={thread_pitch}) failed")
         else:
             assert 0, "Unknown argument for CollTiling.get_dim_idx"
+
+    def unit_completion(self, unit: CollUnit, env: Dict[CollParam, int]):
+        unit_domain = unit.int_domain(env)
+        unit_box = unit.int_box(env)
+        key = (unit_domain, unit_box)
+        try:
+            return self._unit_cache[key]
+        except KeyError:
+            new = self._unit_completion_impl(*key)
+            self._unit_cache[key] = new
+            return new
+
+    def unit_mismatch(
+        self,
+        unit: CollUnit,
+        env: Dict[CollParam, int],
+        *,
+        no_message=False,
+    ):
+        # Do domain completion on the current CollTiling to get completed new_tiling.
+        try:
+            new_tiling = self.unit_completion(unit, env)
+        except DomainCompletionError as e:
+            # TODO may make more sense with context
+            return no_message or str(e)
+
+        # Check that the box of the new_tiling is as expected.
+        actual_box = new_tiling.get_box()
+        expected_box = tuple(d.get_expected_box_coord() for d in new_tiling._dims)
+        assert len(actual_box) == len(expected_box)
+        for a, e in zip(actual_box, expected_box):
+            if e is not None and a != e:
+                return (
+                    no_message
+                    or f"domain={new_tiling.get_domain()}, box={actual_box} ({prod(actual_box)} threads); expected box={expected_box}"
+                )
+        return False  # i.e. no mismatch detected.
 
     def _apply_split_dim(self, dim_idx, factor):
         assert dim_idx < len(self._dims)
@@ -552,6 +614,64 @@ class SeptTiling:
             factor, old_dim.dim_thread_pitch, inner_ops, old_iter_expr % factor
         )
         self._dims[dim_idx : dim_idx + 1] = [outer_dim, inner_dim]
+
+    def _unit_completion_impl(
+        self, unit_original_domain: Tuple[int], unit_original_box: Tuple[int]
+    ):
+        # Create new CollTiling.
+        # We don't consider this a new level of tree depth, as no subdivision
+        # from an added variable occured. We just re-shaped the domain threads.
+        codegen = CollCodegen(None)
+        new = SeptTiling(self._tree_depth, codegen, list(self._dims))
+
+        # Create temporary collective unit based on input unit.
+        # It has all box coordinates either None, 1, or equal to the
+        # corresponding domain coordinate. This enforces alignment.
+        tmp_unit_domain = ()
+        tmp_unit_box = ()
+        assert len(unit_original_domain) == len(unit_original_box)
+        for domain_c, box_c in zip(unit_original_domain, unit_original_box):
+            if box_c is None or domain_c == box_c:
+                tmp_unit_domain += (domain_c,)
+                tmp_unit_box += (box_c,)
+            else:
+                if box_c is not None and domain_c % box_c != 0:
+                    raise DomainCompletionError(
+                        f"Invalid alignment for CollUnit({unit_original_domain}, {unit_original_box})\n"
+                        f"{box_c} doesn't divide {domain_c} (change clusterDim/blockDim?)"
+                    )
+                tmp_unit_domain += (domain_c // box_c, box_c)
+                tmp_unit_box += (1, box_c)
+
+        # Perform domain completion on the unit and new CollTiling.
+        self_original_domain = self.get_domain()
+        unit_completion = DomainCompletionOp(
+            tmp_unit_domain, self_original_domain, allow_partial_source=True
+        )
+        self_completion = DomainCompletionOp(
+            self_original_domain, tmp_unit_domain, allow_partial_source=False
+        )
+        assert unit_completion.domain == self_completion.domain
+        assert not self_completion.remove_idx
+        unit_box = unit_completion.new_size(tmp_unit_box)
+        for dim_idx, split_factor in self_completion.idx_factors:
+            new._apply_split_dim(dim_idx, split_factor)
+        new_domain = tuple(self_completion.domain)
+        assert new.get_domain() == new_domain, f"{new.get_domain()} == {new_domain}"
+
+        # Label dimensions as full, subdivided, or agnostic.
+        assert len(new._dims) == len(unit_box)
+        for i, unit_c in enumerate(unit_box):
+            if unit_c is None:
+                dim_expectation = CollDimExpectation.agnostic
+            elif unit_c == 1:
+                dim_expectation = CollDimExpectation.subdiv
+            else:
+                assert unit_c == new_domain[i]
+                dim_expectation = CollDimExpectation.full
+            new._dims[i] = replace(new._dims[i], dim_expectation=dim_expectation)
+
+        return new
 
     def _make_derived(
         self,
@@ -610,7 +730,10 @@ class SeptTiling:
             offset = lo * unit_c
             box = unit_c if is_tiled else (hi - lo) * unit_c
             tile_count = (hi - lo) if is_tiled else 1
-            thread_pitch = mod_dim.dim_thread_pitch * unit_c
+            if is_tiled and hi - lo > 1:
+                thread_pitch = mod_dim.dim_thread_pitch * unit_c
+            else:
+                thread_pitch = 0
             old_intra_box_expr = mod_dim.get_leaf_intra_box_expr()
             intra_box_expr = old_intra_box_expr - offset
             if tile_count > 1:
@@ -642,6 +765,8 @@ class SeptTiling:
                 tile_count,
                 intra_box_expr,
                 thread_pitch,
+                mod_dim.dim_thread_pitch * offset,  # linearized_offset
+                mod_dim.dim_thread_pitch * box,  # linearized_box
                 new.get_tree_depth(),
             )
             new._dims[i] = replace(mod_dim, dim_ops=mod_dim.dim_ops + (op,))
@@ -1039,6 +1164,10 @@ class CollTiling(object):
         specialization". TODO except for alignment check?
 
         """
+
+        if not ignore_box:
+            return self.sept.unit_mismatch(unit, env, no_message=no_message)
+
         assert isinstance(unit, CollUnit)
         f = format_tuple
 

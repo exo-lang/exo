@@ -25,10 +25,10 @@ class ThreadIter:
     """Information for an iter variable from a for-threads parallel loop (cuda_threads), or rewritten CudaWarps"""
 
     codegen_par: _CodegenPar
-    coll_index_expr: CollIndexExpr
+    coll_index_expr: CollIndexExpr  # TODO remove
     coll_tiling: CollTiling
-    parent_tile_num_threads: int
-    child_tile_num_threads: int
+    parent_tile_num_threads: int  # TODO remove
+    child_tile_num_threads: int  # TODO remove
     thread_pitch: int
     mangle: bool
     iter: Sym
