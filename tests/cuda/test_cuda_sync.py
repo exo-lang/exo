@@ -307,14 +307,15 @@ def test_mixed_syncs_mismatch_second_sync_tl(compiler):
     assert "wgmma_async" in msg
 
 
-def mkproc_cluster_sync_unit(unit, await_lo=0, await_hi=8):
+def mkproc_cluster_sync_unit(unit, arrive_lo=0, arrive_hi=8, await_lo=0, await_hi=8):
     @proc
     def test_proc():
         with CudaDeviceFunction(clusterDim=4, blockDim=256):
             for task in cuda_tasks(0, 1):
                 for u in cuda_threads(0, 1, unit=unit):
                     sync: barrier @ CudaClusterSync
-                    Arrive(cuda_in_order, 1) >> sync
+                    with CudaWarps(arrive_lo, arrive_hi):
+                        Arrive(cuda_in_order, 1) >> sync
                     with CudaWarps(await_lo, await_hi):
                         Await(sync, cuda_in_order, 0)
 
@@ -337,12 +338,13 @@ def test_cluster_sync_unit_cta(compiler):
 def test_cluster_sync_unit_warp(compiler):
     # Only 1 warp per CTA involved in CudaClusterSync, expect full cluster
     with pytest.raises(Exception) as exc:
-        compiler.cuda_cpu_test(mkproc_cluster_sync_unit, unit=cuda_warp, await_hi=1)
+        compiler.cuda_cpu_test(
+            mkproc_cluster_sync_unit, unit=cuda_warp, arrive_hi=1, await_hi=1
+        )
     msg = str(exc.value)
     assert "full cluster" in msg
 
 
-# TODO fix this broken test!
 def test_cluster_sync_unit_await(compiler):
     # Partial warps missing in Await for CudaClusterSync.
     with pytest.raises(Exception) as exc:
@@ -833,6 +835,49 @@ def test_mbarrier_missing_idx_negative(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_mbarrier_missing_idx, wrong=True)
     assert "missing indices" in str(exc.value)
+
+
+def mkproc_mbarrier_warps_match(warps0, warps1):
+    @proc
+    def test_proc():
+        with CudaDeviceFunction(blockDim=1024):
+            for task in cuda_tasks(0, 1):
+                mbarrier: barrier @ CudaMbarrier
+                with CudaWarps(*warps0):
+                    Arrive(cuda_in_order, 1) >> mbarrier
+                with CudaWarps(*warps1):
+                    Await(mbarrier, cuda_in_order, ~0)
+
+    return test_proc
+
+
+def test_mbarrier_warps_match_positive(compiler):
+    compiler.cuda_cpu_test(
+        mkproc_mbarrier_warps_match, warps0=(12, 16), warps1=(12, 16)
+    )
+
+
+def test_mbarrier_warps_match_negative_offset(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(
+            mkproc_mbarrier_warps_match, warps0=(11, 15), warps1=(12, 16)
+        )
+    msg = str(exc)
+    assert "11" in msg
+    assert "15" in msg
+    assert "12" in msg
+    assert "16" in msg
+
+
+def test_mbarrier_warps_match_negative_box(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(
+            mkproc_mbarrier_warps_match, warps0=(12, 18), warps1=(12, 16)
+        )
+    msg = str(exc)
+    assert "12" in msg
+    assert "18" in msg
+    assert "16" in msg
 
 
 # "garden" means "garden variety fence", but the shorter name makes

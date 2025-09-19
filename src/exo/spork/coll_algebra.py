@@ -532,6 +532,16 @@ class SeptTiling:
     def get_dim_ops(self) -> List[CollDimOp]:
         return [op for d in self._dims for op in d.dim_ops]
 
+    def get_subdiv_dim_ops(self) -> List[CollDimOp]:
+        def is_subdiv(d: CollDim):
+            x = d.dim_expectation
+            assert (
+                x != CollDimExpectation.agnostic
+            ), "need unit_completion(...) with non-agnostic unit"
+            return x == CollDimExpectation.subdiv
+
+        return [op for d in self._dims for op in d.dim_ops if is_subdiv(d)]
+
     def get_filtered_thread_pitch_set(self, dim_idxs: Set[int]):
         # Why is this needed?
         pitch_set = {1, self.get_domain_num_threads()}
@@ -565,7 +575,7 @@ class SeptTiling:
         env: Dict[CollParam, int],
         *,
         no_message=False,
-    ):
+    ) -> Optional[bool | str]:
         # Do domain completion on the current CollTiling to get completed new_tiling.
         try:
             new_tiling = self.unit_completion(unit, env)
@@ -584,6 +594,23 @@ class SeptTiling:
                     or f"domain={new_tiling.get_domain()}, box={actual_box} ({prod(actual_box)} threads); expected box={expected_box}"
                 )
         return False  # i.e. no mismatch detected.
+
+    def tiling_mismatch(self, other, *, distributed: bool) -> Optional[str]:
+        if distributed:
+            self_ops = self.get_subdiv_dim_ops()
+            other_ops = other.get_subdiv_dim_ops()
+        else:
+            self_ops = self.get_dim_ops()
+            other_ops = other.get_dim_ops()
+        for s_op, o_op in zip(self_ops, other_ops):
+            if (
+                s_op.linearized_offset != o_op.linearized_offset
+                or s_op.linearized_box != o_op.linearized_box
+            ):
+                return f"{s_op.iter} (in first usage) mismatches {o_op.iter} (in second usage)"
+        if len(self_ops) != len(other_ops):
+            return "non-equal depth of CollTiling"
+        return None
 
     def _apply_split_dim(self, dim_idx, factor):
         assert dim_idx < len(self._dims)
@@ -641,6 +668,8 @@ class SeptTiling:
                 tmp_unit_box += (1, box_c)
 
         # Perform domain completion on the unit and new CollTiling.
+        # Note partial_prepend=1; if the unit is subject to domain completion,
+        # we want any added dimensions to be 1, so the unit doesn't grow.
         self_original_domain = self.get_domain()
         unit_completion = DomainCompletionOp(
             tmp_unit_domain, self_original_domain, allow_partial_source=True
@@ -650,7 +679,7 @@ class SeptTiling:
         )
         assert unit_completion.domain == self_completion.domain
         assert not self_completion.remove_idx
-        unit_box = unit_completion.new_size(tmp_unit_box)
+        unit_box = unit_completion.new_size(tmp_unit_box, partial_prepend=1)
         for dim_idx, split_factor in self_completion.idx_factors:
             new._apply_split_dim(dim_idx, split_factor)
         new_domain = tuple(self_completion.domain)
@@ -859,6 +888,9 @@ class CollTiling(object):
 
     def get_dim_ops(self) -> List[CollDimOp]:
         return self.sept.get_dim_ops()
+
+    def tiling_mismatch(self, other, *, distributed: bool) -> Optional[str]:
+        return self.sept.tiling_mismatch(other.sept, distributed=distributed)
 
     # TODO: remove legacy CollTiling below and
     # substitute SeptTiling as the new CollTiling

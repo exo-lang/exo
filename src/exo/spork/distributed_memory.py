@@ -27,7 +27,7 @@ class ThreadIter:
     """Information for an iter variable from a for-threads parallel loop (cuda_threads), or rewritten CudaWarps"""
 
     codegen_par: _CodegenPar
-    COLL_INDEX_EXPR: CollIndexExpr  # TODO remove
+    coll_index_expr: CollIndexExpr
     coll_tiling: CollTiling
     PARENT_TILE_NUM_THREADS: int  # TODO remove
     CHILD_TILE_NUM_THREADS: int  # TODO remove
@@ -76,7 +76,7 @@ class ThreadIter:
         )
 
         # TODO REMOVE THIS BLOCK
-        self.COLL_INDEX_EXPR = coll_tiling.tile_expr
+        self.coll_index_expr = codegen.codegen_expr
         parent = coll_tiling.parent
         if parent is None:
             parent = coll_tiling
@@ -170,6 +170,9 @@ class DistributedAllocState(object):
             expected_box = tmp.get_expected_box()
             assert len(box) == len(expected_box)
             for i, expect_c in enumerate(expected_box):
+                assert (
+                    expect_c is not None
+                ), "shouldn't happen for non-agnostic unit and partial_prepend=1"
                 if expect_c > 1 and box[i] != expect_c:
                     raise CollTilingError(
                         f"Missing threads on dims[{i}] to match {optional_native_unit}\n"
@@ -682,8 +685,8 @@ class DistributedIdxFsm:
             )
 
         for i1, i2 in zip(first_iters, cur_iters):
-            c1 = self.thread_iters[i1].COLL_INDEX_EXPR
-            c2 = self.thread_iters[i2].COLL_INDEX_EXPR
+            c1 = self.thread_iters[i1].coll_index_expr
+            c2 = self.thread_iters[i2].coll_index_expr
             if not c1.equiv_index(c2):
                 d1 = format_iters(first_iters)
                 d2 = format_iters(cur_iters)
@@ -719,15 +722,9 @@ class DistributedIdxFsm:
         assert isinstance(barrier_usage, BarrierUsage)
         assert isinstance(state, DistributedAllocState)
 
+        # We will update state.arrive_coll_tiling or state.await_coll_tiling
         sync_type = sync.sync_type
         assert sync_type.is_split()
-        # We will update state.arrive_coll_tiling or state.await_coll_tiling
-        leaf_T = state.LEAF_COLL_TILING.tile_num_threads()
-        sync_T = coll_tiling.tile_num_threads()
-        if leaf_T != sync_T:
-            raise ValueError(
-                f"{sync.srcinfo}: {sync} executed with tile size {sync_T} threads; mismatches {leaf_T} threads deduced (i.e. multiple thread collectives share the same index; missing indices)?"
-            )
         # Get CollTiling for Arrive >> name or Await(name)
         name = sync.barriers[0].name
         is_await = sync_type.is_await()
@@ -770,21 +767,9 @@ class DistributedIdxFsm:
         # flagged by the primary distributed memory deduction, i.e., issues
         # related to masked-out threads, so we check box, offset).
         for old_coll_tiling, f_text in to_check:
-            old_completion = DomainCompletionOp(
-                old_coll_tiling.full_domain, coll_tiling.full_domain, False
-            )
-            new_completion = DomainCompletionOp(
-                coll_tiling.full_domain, old_coll_tiling.full_domain, False
-            )
-            box0 = old_completion.new_size(old_coll_tiling.box)
-            offset0 = old_completion.new_offset(old_coll_tiling.offset)
-            box1 = new_completion.new_size(coll_tiling.box)
-            offset1 = new_completion.new_offset(coll_tiling.offset)
-            if box0 != box1 or offset0 != offset1:
+            if msg := old_coll_tiling.tiling_mismatch(coll_tiling, distributed=False):
                 raise ValueError(
-                    f"{sync.srcinfo}: {sync} has inconsistent collective tiling with previous {f_text}\n"
-                    f"Saw box={box0}, offset={offset0}\n"
-                    f"Saw box={box1}, offset={offset1}"
+                    f"{sync.srcinfo}: {sync} has inconsistent collective tiling with previous {f_text}: {msg}"
                 )
 
     def bad_idx(self, node, msg):
