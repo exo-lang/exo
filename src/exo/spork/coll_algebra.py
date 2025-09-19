@@ -703,8 +703,10 @@ class SeptTiling:
             new._apply_split_dim(dim_idx, split_factor)
         assert new.get_domain() == new_domain, f"{new.get_domain()} == {new_domain}"
 
-        # Select the unique dimension on which to tile or specialize,
-        # and overwrite the default codegen object if this dimension is found.
+        # Select the unique dimension on which to tile or specialize.
+        # If this dimension is found, overwrite the default codegen object,
+        # and add the CollDimOp representing the thread box change caused
+        # by this tile/specialize.
         assert len(new_domain) == len(self_box) == len(unit_box)
         tiled_dim_idx = None
         for i in range(len(new_domain)):
