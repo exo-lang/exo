@@ -474,10 +474,11 @@ class CollAnalysis(LoopIR_Rewrite):
                 (info.offset + info.count),
                 self._coll_env,
             )
-            top_am_idx_factors = coll_tiling.codegen_idx_factors
-            top_am_dim_idx = coll_tiling.codegen_dim_idx
-            top_am_offset = coll_tiling.codegen_partial_offset
-            top_am_box = coll_tiling.codegen_box
+            codegen = coll_tiling.get_codegen()
+            top_am_idx_factors = codegen.dim_idx_factors
+            top_am_dim_idx = codegen.dim_idx
+            top_am_offset = codegen.offset
+            top_am_box = codegen.box
 
         # Nested CudaWarps: interpret lo/hi literally as the higher-level
         # CudaWarps will have already handled the named warp offset adjustment.
