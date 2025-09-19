@@ -526,6 +526,9 @@ class SeptTiling:
     def get_domain_num_threads(self) -> int:
         return prod(d.dim_extent for d in self._dims)
 
+    def get_dim_ops(self) -> List[CollDimOp]:
+        return [op for d in self._dims for op in d.dim_ops]
+
     def get_filtered_thread_pitch_set(self, dim_idxs: Set[int]):
         # Why is this needed?
         pitch_set = {1, self.get_domain_num_threads()}
@@ -541,16 +544,6 @@ class SeptTiling:
             f"box={self.get_box()}, tried tiling {tile_count}-many {unit}, "
             f"i.e. CollUnit({unit.domain}, {unit.box}, ...)"
         )
-
-    def get_dim(**kwargs) -> Tuple[int, CollDim]:
-        assert len(kwargs) == 1
-        if thread_pitch := kwargs.get("thread_pitch"):
-            for idx_dim in enumerate(self._dims):
-                if idx_dim[1].dim_thread_pitch == thread_pitch:
-                    return idx_dim
-            raise KeyError(f"get_dim(thread_pitch={thread_pitch}) failed")
-        else:
-            assert 0, "Unknown argument for CollTiling.get_dim_idx"
 
     def unit_completion(self, unit: CollUnit, env: Dict[CollParam, int]):
         unit_domain = unit.int_domain(env)
@@ -857,6 +850,9 @@ class CollTiling(object):
     def box_num_threads(self):
         """Total number of threads in the thread box"""
         return prod(self.get_box())
+
+    def get_dim_ops(self) -> List[CollDimOp]:
+        return self.sept.get_dim_ops()
 
     # TODO: remove legacy CollTiling below and
     # substitute SeptTiling as the new CollTiling

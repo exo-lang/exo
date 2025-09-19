@@ -10,6 +10,7 @@ from .coll_algebra import (
     CollUnit,
     CollIndexExpr,
     CollParam,
+    CollDimOp,
     clusterDim_param,
     blockDim_param,
     DomainCompletionOp,
@@ -29,6 +30,7 @@ class ThreadIter:
     coll_tiling: CollTiling
     parent_tile_num_threads: int  # TODO remove
     child_tile_num_threads: int  # TODO remove
+    tile_count: int
     thread_pitch: int
     mangle: bool
     iter: Sym
@@ -71,14 +73,19 @@ class ThreadIter:
             prior_am_offset + codegen.offset,
             am_box,
         )
+
+        # TODO REMOVE THIS BLOCK
         self.coll_index_expr = coll_tiling.tile_expr
-        self.coll_tiling = coll_tiling
         parent = coll_tiling.parent
         if parent is None:
             parent = coll_tiling
         self.parent_tile_num_threads = parent.tile_num_threads()
         self.child_tile_num_threads = coll_tiling.tile_num_threads()
-        self.thread_pitch = coll_tiling.thread_pitch
+        # END REMOVE
+
+        self.coll_tiling = coll_tiling
+        self.tile_count = codegen.tile_count
+        self.thread_pitch = codegen.thread_pitch
         self.mangle = mangle
         self.iter = coll_tiling.get_codegen().iter
 
@@ -183,9 +190,9 @@ class DistributedAllocState(object):
         iterators between the point-of-allocation of the barrier and
         the CollTiling root. e.g.
 
-        for i0 in cuda_threads(0, 2, unit=cuda_warpgroup):
+        for i0 in cuda_threads(0, 2, unit=cuda_warpgroup):  # implicit
             bar : barrier[4] @ CudaMbarrier
-            for i1 in cuda_threads(0, 4, unit=cuda_warp):
+            for i1 in cuda_threads(0, 4, unit=cuda_warp):  # explicit
                 Arrive(cuda_classic, 1) >> bar[i1]
 
         We need a total of 8 mbarriers for all i0 x i1 combinations, i0
@@ -215,6 +222,7 @@ class DistributedAllocState(object):
                         prods.append(f"{count}*{cname}")
                     count *= ext
 
+        # Handle explicit indices (given in index expression)
         tmp_iters = (
             self.first_distributed_iters
             if distributed_iters is None
@@ -224,12 +232,15 @@ class DistributedAllocState(object):
         for nm, ext in zip(reversed(tmp_iters), reversed(self.distributed_extents)):
             if nm is not None:
                 handle_idx(nm, ext)
-        coll_tiling = self.alloc_coll_tiling
-        while coll_tiling is not None:
-            if coll_tiling.tile_count != 1:
-                handle_idx(coll_tiling.iter, coll_tiling.tile_count)
-            coll_tiling = coll_tiling.parent
 
+        # Handle implicit indices; relevant cuda_threads iterators
+        # from the allocation point up to the root of the CudaDeviceFunction.
+        for op in self.alloc_coll_tiling.get_dim_ops():
+            op: CollDimOp
+            if op.tile_count > 1:
+                handle_idx(op.iter, op.tile_count)
+
+        # Return either typed result, as specified by the docstring.
         if distributed_iters is None:
             return count
         else:
@@ -257,7 +268,7 @@ class DistributedAllocState(object):
                 if flag:
                     info = thread_iters[sym]
                     thread_pitch = info.thread_pitch
-                    cta_count = info.coll_tiling.tile_count
+                    cta_count = info.tile_count
                     if cta_count >= 2:
                         if thread_pitch % blockDim != 0:
                             raise ValueError(
@@ -295,7 +306,7 @@ class DistributedAllocState(object):
                 # thread_pitch = 0: [0, 1] interval has no effect on CTA mask
                 # 0 < thread_pitch < blockDim: non-CTA index has no effect on CTA
                 continue
-            cta_count = info.coll_tiling.tile_count
+            cta_count = info.tile_count
             cta_pitch = thread_pitch // blockDim
             assert cta_pitch * blockDim == thread_pitch
             assert cta_count >= 2

@@ -465,6 +465,7 @@ def mkproc_mbarriers(M_CTA: int, N_CTA: int, f_delay: int, b_delay: int, qc: Mba
                     # to be, because of the t2(0, 4) loop above. This is one of
                     # the tricky cases being tested by this test case. Essentially the
                     # compiler "lifts" the array to [M_CTA, N_CTA, 4, 2].
+                    # 2025-09-18: handled with codegen_slices_to_root.
                     row_bars: barrier[M_CTA, N_CTA, 2] @ CudaMbarrier
                     col_bars: barrier[M_CTA, N_CTA, 2] @ CudaMbarrier
                     all_bars: barrier[M_CTA, N_CTA, 2] @ CudaMbarrier
