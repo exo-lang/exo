@@ -806,6 +806,35 @@ def test_mbarrier_not_in_1_CTA(compiler):
     )
 
 
+def mkproc_mbarrier_missing_idx(wrong):
+    @proc
+    def test_proc():
+        with CudaDeviceFunction(blockDim=256):
+            for task in cuda_tasks(0, 1):
+                bar: barrier[2] @ CudaMbarrier
+                for wg in cuda_threads(0, 2, unit=cuda_warpgroup):
+                    if wrong:
+                        for w in cuda_threads(0, 4, unit=cuda_warp):
+                            Arrive(cuda_in_order, 1) >> bar[wg]
+                            Await(bar[wg], cuda_in_order, ~0)
+                    else:
+                        for w in seq(0, 4):
+                            Arrive(cuda_in_order, 1) >> bar[wg]
+                            Await(bar[wg], cuda_in_order, ~0)
+
+    return simplify(test_proc)
+
+
+def test_mbarrier_missing_idx_positive(compiler):
+    compiler.cuda_cpu_test(mkproc_mbarrier_missing_idx, wrong=False)
+
+
+def test_mbarrier_missing_idx_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(mkproc_mbarrier_missing_idx, wrong=True)
+    assert "missing indices" in str(exc.value)
+
+
 # "garden" means "garden variety fence", but the shorter name makes
 # filenames in pytest /tmp dirs not be truncated as much.
 

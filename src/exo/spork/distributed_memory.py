@@ -706,7 +706,6 @@ class DistributedIdxFsm:
         """Subsequent to check_store_state, for non-Fence SyncStmts,
         we additionally check requirements for the collective tiling
 
-        * Tile size of usage matches the leaf tiling.
         * Equivalent CollTiling for same action on same queue barrier array.
           action = Arrive/Await
         * If the barrier type has a pairing requirement, additionally,
@@ -726,9 +725,8 @@ class DistributedIdxFsm:
         leaf_T = state.LEAF_COLL_TILING.tile_num_threads()
         sync_T = coll_tiling.tile_num_threads()
         if leaf_T != sync_T:
-            bar = f"{sync.name}[" + ", ".join(str(n) for n in sync.idx) + "]"
             raise ValueError(
-                f"{sync.srcinfo}: {sync} executed with tile size {sync_T} threads; mismatches {leaf_T} threads deduced from {bar} (i.e. multiple thread collectives share the same index; missing indices)?"
+                f"{sync.srcinfo}: {sync} executed with tile size {sync_T} threads; mismatches {leaf_T} threads deduced (i.e. multiple thread collectives share the same index; missing indices)?"
             )
         # Get CollTiling for Arrive >> name or Await(name)
         name = sync.barriers[0].name
