@@ -129,6 +129,7 @@ class DistributedAllocState(object):
     # TODO remove
     DISTRIBUTED_EXTENTS: List[int]
 
+    alloc_stmt: LoopIR.stmt
     alloc_type: LoopIR.type
 
     # TODO remove
@@ -154,7 +155,7 @@ class DistributedAllocState(object):
 
     def __init__(
         self,
-        alloc_type: LoopIR.type,
+        alloc_stmt: LoopIR.stmt,
         coll_tiling: CollTiling,
         optional_native_unit: Optional[CollUnit],
         env: Dict[CollParam, int],
@@ -169,20 +170,23 @@ class DistributedAllocState(object):
             expected_box = tmp.get_expected_box()
             assert len(box) == len(expected_box)
             for i, expect_c in enumerate(expected_box):
-                if expect_c > 1:
-                    box_c = box[i]
-                    if box_c != expect_c:
-                        raise CollTilingError(
-                            f"Missing threads on dims[{i}] to match {optional_native_unit}\n"
-                            f"domain={tmp.get_domain()}, box={box}; expected box={expected_box}"
-                        )
+                if expect_c > 1 and box[i] != expect_c:
+                    raise CollTilingError(
+                        f"Missing threads on dims[{i}] to match {optional_native_unit}\n"
+                        f"domain={tmp.get_domain()}, box={box}; expected box={expected_box}"
+                    )
         else:
             self.new_alloc_coll_tiling = coll_tiling.sept  # TODO remove sept
         self.first_usage_stmt = None
         self.first_distributed_iters = []
         self.DISTRIBUTED_EXTENTS = []
         self.ALLOC_COLL_TILING = coll_tiling
-        self.alloc_type = alloc_type
+        self.alloc_stmt = alloc_stmt
+        if isinstance(alloc_stmt, LoopIR.Alloc):
+            self.alloc_type = alloc_stmt.type
+        else:
+            assert isinstance(alloc_stmt, LoopIR.SyncStmt)
+            self.alloc_type = T.barrier
         self.optional_native_unit = optional_native_unit
         self.LEAF_COLL_TILING = None
         self.arrive_coll_tiling = None
@@ -208,14 +212,14 @@ class DistributedAllocState(object):
         if isinstance(e, LoopIR.Const):
             return int(e.val)
         raise ValueError(
-            f"{t.srcinfo}: distributed memory deduction failed for {t}\n"
+            f"{self.alloc_stmt.srcinfo}: distributed memory deduction failed for {t}\n"
             f"shape[{i}] must be constant."
         )
 
     @staticmethod
     def from_fence(s: LoopIR.SyncStmt, coll_tiling: CollTiling):
         assert not s.sync_type.is_split()
-        result = DistributedAllocState(T.barrier, coll_tiling, None, None)
+        result = DistributedAllocState(s, coll_tiling, None, None)
         result.first_usage_stmt = s
         result.arrive_coll_tiling = coll_tiling
         result.await_coll_tiling = coll_tiling
