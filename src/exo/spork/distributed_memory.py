@@ -27,10 +27,10 @@ class ThreadIter:
     """Information for an iter variable from a for-threads parallel loop (cuda_threads), or rewritten CudaWarps"""
 
     codegen_par: _CodegenPar
-    coll_index_expr: CollIndexExpr  # TODO remove
+    COLL_INDEX_EXPR: CollIndexExpr  # TODO remove
     coll_tiling: CollTiling
-    parent_tile_num_threads: int  # TODO remove
-    child_tile_num_threads: int  # TODO remove
+    PARENT_TILE_NUM_THREADS: int  # TODO remove
+    CHILD_TILE_NUM_THREADS: int  # TODO remove
     tile_count: int
     thread_pitch: int
     mangle: bool
@@ -76,12 +76,12 @@ class ThreadIter:
         )
 
         # TODO REMOVE THIS BLOCK
-        self.coll_index_expr = coll_tiling.tile_expr
+        self.COLL_INDEX_EXPR = coll_tiling.tile_expr
         parent = coll_tiling.parent
         if parent is None:
             parent = coll_tiling
-        self.parent_tile_num_threads = parent.tile_num_threads()
-        self.child_tile_num_threads = coll_tiling.tile_num_threads()
+        self.PARENT_TILE_NUM_THREADS = parent.tile_num_threads()
+        self.CHILD_TILE_NUM_THREADS = coll_tiling.tile_num_threads()
         # END REMOVE
 
         self.coll_tiling = coll_tiling
@@ -523,8 +523,8 @@ class DistributedIdxFsm:
         # this analysis, because we care about dividing the "ownership" of
         # slices, so warp specialization (box, offset) doesn't matter.
 
-        t0 = iter_info.parent_tile_num_threads
-        t1 = iter_info.child_tile_num_threads
+        t0 = iter_info.PARENT_TILE_NUM_THREADS
+        t1 = iter_info.CHILD_TILE_NUM_THREADS
         if t0 != t1:
             if t0 in self.t0_iter_t1:
                 self.bad_idx(
@@ -678,8 +678,8 @@ class DistributedIdxFsm:
             )
 
         for i1, i2 in zip(first_iters, cur_iters):
-            c1 = self.thread_iters[i1].coll_index_expr
-            c2 = self.thread_iters[i2].coll_index_expr
+            c1 = self.thread_iters[i1].COLL_INDEX_EXPR
+            c2 = self.thread_iters[i2].COLL_INDEX_EXPR
             if not c1.equiv_index(c2):
                 d1 = format_iters(first_iters)
                 d2 = format_iters(cur_iters)
