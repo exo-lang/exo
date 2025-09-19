@@ -14,6 +14,7 @@ from .coll_algebra import (
     clusterDim_param,
     blockDim_param,
     DomainCompletionOp,
+    CollTilingError,
 )
 from .barrier_usage import BarrierUsage, SyncInfo
 from .loop_modes import _CodegenPar
@@ -127,34 +128,59 @@ class DistributedAllocState(object):
     # type of the indexed variable to be passed each time).
     distributed_extents: List[int]
 
-    # CollTiling at the point of the Exo object code allocation
-    alloc_coll_tiling: CollTiling
+    # TODO remove
+    ALLOC_COLL_TILING: CollTiling
 
-    # Target native unit; we want
+    # CollTiling at the point of the Exo object code allocation
+    # TODO delete new_* prefix
+    new_alloc_coll_tiling: CollTiling
+
+    # Target native unit; we want to have one distributed shard resident
+    # in each active native-unit-shaped thread collective.
+    # If not specified, we want to have one distributed shard resident
+    # in each thread collective at the usage site (i.e. no sharing).
     optional_native_unit: Optional[CollUnit]
 
-    # Deduced suballocation. 1:1 mapping between thread collectives
-    # in the leaf CollTiling, and distributed slices.
-    # (ignoring unused indices/thread collectives)
-    # Should match the optional_native_unit, if supplied;
-    # see DistributedIdxFsm.check_native_unit
-    leaf_coll_tiling: Optional[CollTiling]
+    # TODO remove
+    LEAF_COLL_TILING: Optional[CollTiling]
 
     # Information for Arrive/Await statements, split by usage.
     # Fence() stmts are decomposed as an arrive + await
     arrive_coll_tiling: Optional[CollTiling]
     await_coll_tiling: Optional[CollTiling]
 
-    def __init__(self, alloc_coll_tiling, optional_native_unit):
-        assert isinstance(alloc_coll_tiling, CollTiling)
+    def __init__(
+        self,
+        coll_tiling: CollTiling,
+        optional_native_unit: Optional[CollUnit],
+        env: Dict[CollParam, int],
+    ):
+        assert isinstance(coll_tiling, CollTiling)
         if optional_native_unit is not None:
             assert isinstance(optional_native_unit, CollUnit)
+            assert not optional_native_unit.agnostic, optional_native_unit
+            tmp = coll_tiling.sept  # TODO remove sept
+            tmp = tmp.unit_completion(optional_native_unit, env)
+            box = tmp.get_box()
+            expected_box = tmp.get_expected_box()
+            assert len(box) == len(expected_box)
+            for i, expect_c in enumerate(expected_box):
+                if expect_c > 1:
+                    box_c = box[i]
+                    if box_c != expect_c:
+                        raise CollTilingError(
+                            f"Missing threads on dims[{i}] to match {optional_native_unit}\n"
+                            f"domain={tmp.get_domain()}, box={box}; expected box={expected_box}"
+                        )
+        else:
+            need_deduction = True
+            self.new_alloc_coll_tiling = coll_tiling.sept  # TODO remove sept
         self.first_usage_stmt = None
         self.first_distributed_iters = []
         self.distributed_extents = []
-        self.alloc_coll_tiling = alloc_coll_tiling
+        self.ALLOC_COLL_TILING = coll_tiling
         self.optional_native_unit = optional_native_unit
-        self.leaf_coll_tiling = None
+        self.LEAF_COLL_TILING = None
         self.arrive_coll_tiling = None
         self.await_coll_tiling = None
 
@@ -170,7 +196,7 @@ class DistributedAllocState(object):
     @staticmethod
     def from_fence(s: LoopIR.SyncStmt, coll_tiling: CollTiling):
         assert not s.sync_type.is_split()
-        result = DistributedAllocState(coll_tiling, None)
+        result = DistributedAllocState(coll_tiling, None, None)
         result.first_usage_stmt = s
         result.arrive_coll_tiling = coll_tiling
         result.await_coll_tiling = coll_tiling
@@ -235,7 +261,7 @@ class DistributedAllocState(object):
 
         # Handle implicit indices; relevant cuda_threads iterators
         # from the allocation point up to the root of the CudaDeviceFunction.
-        for op in self.alloc_coll_tiling.get_dim_ops():
+        for op in self.new_alloc_coll_tiling.get_dim_ops():
             op: CollDimOp
             if op.tile_count > 1:
                 handle_idx(op.iter, op.tile_count)
@@ -336,6 +362,7 @@ class DistributedAllocState(object):
             return f"uint16_t({hex(base_num)} << (blockIdx.x & {hex(shift_mask)}))"
 
 
+# TODO remove this!!!
 @dataclass(slots=True)  # convenient to auto-define repr for debugging
 class DistributedIdxFsm:
     """State-machine like object for analyzing distributed memory indexing
@@ -396,7 +423,7 @@ class DistributedIdxFsm:
         callee_coll_units: List[CollUnit],
     ):
         self.context_stmt = context_stmt
-        self.alloc_coll_tiling = state.alloc_coll_tiling
+        self.alloc_coll_tiling = state.ALLOC_COLL_TILING
         if state.optional_native_unit is None:
             self.optional_native_unit = None
             self.optional_native_num_threads = None
@@ -406,7 +433,7 @@ class DistributedIdxFsm:
             self.optional_native_num_threads = state.optional_native_unit.int_threads(
                 coll_env
             )
-        self.leaf_coll_tiling = state.alloc_coll_tiling  # will be updated
+        self.leaf_coll_tiling = state.ALLOC_COLL_TILING  # will be updated
         self.leaf_iter = None
         self.loop_mode_name = loop_mode_name
         self.thread_iters = thread_iters  # must NOT be a copy
@@ -414,8 +441,8 @@ class DistributedIdxFsm:
         self.distributed_iters = []
         self.distributed_extents = []
         self.t0_iter_t1 = {}
-        self.cur_num_threads = state.alloc_coll_tiling.tile_num_threads()
-        self.alloc_box_num_threads = state.alloc_coll_tiling.box_num_threads()
+        self.cur_num_threads = state.ALLOC_COLL_TILING.tile_num_threads()
+        self.alloc_box_num_threads = state.ALLOC_COLL_TILING.box_num_threads()
         self.callee_coll_tiling = callee_coll_tiling
         self.callee_coll_units = callee_coll_units
         self.callee_unit_idx = 0
@@ -616,7 +643,7 @@ class DistributedIdxFsm:
             state.first_usage_stmt = self.context_stmt
             state.first_distributed_iters = self.distributed_iters
             state.distributed_extents = self.distributed_extents
-            state.leaf_coll_tiling = self.leaf_coll_tiling
+            state.LEAF_COLL_TILING = self.leaf_coll_tiling
             return
 
         first_stmt = state.first_usage_stmt
@@ -672,7 +699,7 @@ class DistributedIdxFsm:
         sync_type = sync.sync_type
         assert sync_type.is_split()
         # We will update state.arrive_coll_tiling or state.await_coll_tiling
-        leaf_T = state.leaf_coll_tiling.tile_num_threads()
+        leaf_T = state.LEAF_COLL_TILING.tile_num_threads()
         sync_T = coll_tiling.tile_num_threads()
         if leaf_T != sync_T:
             bar = f"{sync.name}[" + ", ".join(str(n) for n in sync.idx) + "]"

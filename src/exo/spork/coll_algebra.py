@@ -523,6 +523,9 @@ class SeptTiling:
     def get_box(self) -> Tuple[int]:
         return tuple(d.get_box_coord() for d in self._dims)
 
+    def get_expected_box(self) -> Tuple[Optional[int]]:
+        return tuple(d.get_expected_box_coord() for d in self._dims)
+
     def get_domain_num_threads(self) -> int:
         return prod(d.dim_extent for d in self._dims)
 
@@ -572,7 +575,7 @@ class SeptTiling:
 
         # Check that the box of the new_tiling is as expected.
         actual_box = new_tiling.get_box()
-        expected_box = tuple(d.get_expected_box_coord() for d in new_tiling._dims)
+        expected_box = new_tiling.get_expected_box()
         assert len(actual_box) == len(expected_box)
         for a, e in zip(actual_box, expected_box):
             if e is not None and a != e:
@@ -631,7 +634,8 @@ class SeptTiling:
                 if box_c is not None and domain_c % box_c != 0:
                     raise DomainCompletionError(
                         f"Invalid alignment for CollUnit({unit_original_domain}, {unit_original_box})\n"
-                        f"{box_c} doesn't divide {domain_c} (change clusterDim/blockDim?)"
+                        f"{box_c} doesn't divide {domain_c} (change clusterDim/blockDim?)\n"
+                        f"domain={self.get_domain()}"
                     )
                 tmp_unit_domain += (domain_c // box_c, box_c)
                 tmp_unit_box += (1, box_c)

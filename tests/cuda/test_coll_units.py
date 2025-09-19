@@ -913,7 +913,8 @@ def test_smem_in_warp_positive(compiler):
 def test_smem_in_warp_negative(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_smem_in_warp, blockDim=128)
-    assert "Wrong collective unit at point of allocation" in str(exc.value)
+    assert "Missing threads" in str(exc.value)
+    assert "cuda_cta_in_cluster" in str(exc.value)
 
 
 @proc

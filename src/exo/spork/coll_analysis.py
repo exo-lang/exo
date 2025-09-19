@@ -15,6 +15,7 @@ from .coll_algebra import (
     blockDim_param,
     CollIndexExpr,
     CollTiling,
+    CollTilingError,
     cuda_thread,
     cuda_warp,
     cuda_cta_in_cluster,
@@ -179,9 +180,12 @@ class CollAnalysis(LoopIR_Rewrite):
             else:
                 assert issubclass(s.mem, CudaBasicDeviceVisible)
                 native_unit = s.mem.native_unit()
-            self.distributed_alloc_states[s.name] = DistributedAllocState(
-                self._coll_tiling, native_unit
-            )
+            try:
+                self.distributed_alloc_states[s.name] = DistributedAllocState(
+                    self._coll_tiling, native_unit, self._coll_env
+                )
+            except CollTilingError as e:
+                raise CollTilingError(f"{s.srcinfo}: {e}")
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if (n_threads := self._coll_tiling.box_num_threads()) != 1:
                 raise ValueError(
