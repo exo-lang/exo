@@ -200,6 +200,7 @@ class CollAnalysis(LoopIR_Rewrite):
                 assert isinstance(state, DistributedAllocState)
 
                 fsm = DistributedIdxFsm(
+                    s.home_barrier_expr(),
                     s,
                     state,
                     "cuda_threads",
@@ -282,6 +283,7 @@ class CollAnalysis(LoopIR_Rewrite):
         assert state.optional_native_unit is not None
 
         fsm = DistributedIdxFsm(
+            node,
             context_stmt,
             state,
             "cuda_threads",
@@ -337,16 +339,17 @@ class CollAnalysis(LoopIR_Rewrite):
             coll_units = instr_info.barrier_coll_units
             interval_count = 0
             for coord in bar_e.idx:
-                if isinstance(coord, LoopIR.Interval):
-                    interval_count += 1
+                interval_count += isinstance(coord, LoopIR.Interval)
             if interval_count != len(coll_units):
                 raise ValueError(
                     f"{s.srcinfo}: {callee.name} #intervals in barrier {bar_e} wrong; "
-                    f"have {interval_count}, need {len(coll_units)}"
+                    f"have {interval_count}, need {len(coll_units)}, "
+                    f"for barrier_coll_units={coll_units}"
                 )
 
             # Distributed memory deduction
             fsm = DistributedIdxFsm(
+                bar_e,
                 s,
                 state,
                 "cuda_threads",

@@ -76,14 +76,15 @@ class ThreadIter:
         )
 
         # TODO REMOVE THIS BLOCK
-        self.coll_index_expr = codegen.codegen_expr
-        parent = coll_tiling.parent
-        if parent is None:
-            parent = coll_tiling
-        self.PARENT_TILE_NUM_THREADS = parent.tile_num_threads()
-        self.CHILD_TILE_NUM_THREADS = coll_tiling.tile_num_threads()
+        if hasattr(coll_tiling, "parent"):
+            parent = coll_tiling.parent
+            if parent is None:
+                parent = coll_tiling
+            self.PARENT_TILE_NUM_THREADS = parent.tile_num_threads()
+            self.CHILD_TILE_NUM_THREADS = coll_tiling.tile_num_threads()
         # END REMOVE
 
+        self.coll_index_expr = codegen.codegen_expr
         self.coll_tiling = coll_tiling
         self.tile_count = codegen.tile_count
         self.thread_pitch = codegen.thread_pitch
@@ -402,7 +403,9 @@ class DistributedIdxFsm:
 
     """
 
-    # LoopIR stmt that contains the indexing
+    # LoopIR node that contains the idx to parse, and the LoopIR stmt that
+    # contains it (itself, if not idx_node is not an expr).
+    idx_node: LoopIR.stmt | LoopIR.expr
     context_stmt: LoopIR.stmt
 
     # CollTiling at the point of allocation
@@ -412,6 +415,10 @@ class DistributedIdxFsm:
     # CollTiling at use site (completed for native_unit, if applicable);
     # further tiled by any callee_coll_units provided.
     usage_coll_tiling: CollTiling
+
+    distributed_iters_needed: Dict[Sym, bool]
+    callee_distributed_iters: List[Sym]
+    new_callee_unit_idx: int
 
     # Target collective unit for holding each slice (optional termination
     # condition; if not provided, is_done() must not be called).
@@ -426,7 +433,7 @@ class DistributedIdxFsm:
     # Environments from compiler
     loop_mode_name: str  # Expected LoopMode for thread iterators
     thread_iters: Dict[Sym, ThreadIter]
-    coll_env: Dict[CollParam, int]
+    COLL_ENV: Dict[CollParam, int]
 
     # Iterators parsed in order as distributed indices
     DISTRIBUTED_ITERS: List[Sym]
@@ -444,25 +451,35 @@ class DistributedIdxFsm:
     # ones progressively, tiled by callee_coll_units[callee_unit_idx++]
     # for each distributed interval passed to the instr.
     CALLEE_COLL_TILING: CollTiling
-    callee_coll_units: List[CollUnit]
+    CALLEE_COLL_UNITS: List[CollUnit]
     CALLEE_UNIT_IDX: int
 
     def __init__(
         self,
+        idx_node: LoopIR.stmt | LoopIR.expr,
         context_stmt: LoopIR.stmt,
         state: DistributedAllocState,
         loop_mode_name: str,
         thread_iters: Dict[Sym, ThreadIter],  # May be modified
         coll_env: Dict[CollParam, int],
-        callee_coll_tiling: CollTiling,
+        coll_tiling_here: CollTiling,
         callee_coll_units: List[CollUnit],
     ):
+        distributed_iters_needed = {}
+        callee_distributed_iters = []
+        assert isinstance(context_stmt, LoopIR.stmt)
         self.context_stmt = context_stmt
+        self.idx_node = idx_node
         self.loop_mode_name = loop_mode_name
-        self.thread_iters = thread_iters  # must NOT be a copy
-        self.coll_env = coll_env
-        self.callee_coll_units = callee_coll_units
-        self.new_alloc_coll_tiling = state.new_alloc_coll_tiling
+        self.thread_iters = thread_iters
+        self.COLL_ENV = coll_env
+        self.CALLEE_COLL_UNITS = callee_coll_units
+        alloc_coll_tiling = state.new_alloc_coll_tiling
+        self.new_alloc_coll_tiling = alloc_coll_tiling
+        self.distributed_iters_needed = distributed_iters_needed
+        self.callee_distributed_iters = callee_distributed_iters
+        self.new_callee_unit_idx = 0
+        self.usage_coll_tiling = coll_tiling_here  # changed later
 
         # TODO REMOVE THIS
         self.ALLOC_COLL_TILING = state.ALLOC_COLL_TILING
@@ -482,8 +499,59 @@ class DistributedIdxFsm:
         self.T0_ITER_T1 = {}
         self.CUR_NUM_THREADS = state.ALLOC_COLL_TILING.tile_num_threads()
         self.ALLOC_BOX_NUM_THREADS = state.ALLOC_COLL_TILING.box_num_threads()
-        self.CALLEE_COLL_TILING = callee_coll_tiling
+        self.CALLEE_COLL_TILING = coll_tiling_here
         self.CALLEE_UNIT_IDX = 0
+        # TODO END REMOVE
+
+        tiling = coll_tiling_here.sept
+        native_unit = state.optional_native_unit
+        if native_unit is not None:
+            tiling = tiling.unit_completion(native_unit, coll_env)
+        assert len(callee_coll_units) <= 1, "manually check this works"
+        idx_i = -1
+        for unit_i, unit in enumerate(callee_coll_units):
+            # Search for the next interval in idx_node.idx to match with
+            # a callee distributed dimension.
+            idx = idx_node.idx
+            while True:
+                idx_i += 1
+                assert idx_i < len(idx), "Should have been caught by typecheck?"
+                if not isinstance(e := idx[idx_i], LoopIR.Interval):
+                    continue
+                break
+            const_extent = state.get_const_shape_coord(idx_i)
+            lo = e.lo
+            hi = e.hi
+            if (
+                not isinstance(lo, LoopIR.Const)
+                or lo.val != 0
+                or not isinstance(hi, LoopIR.Const)
+                or hi.val != const_extent
+            ):
+                self.bad_idx(
+                    idx_node, f"expected idx[{idx_i}]=0:{const_extent}, not {e}"
+                )
+            # Tile usage_coll_tiling using a new "synthetic" iterator variable.
+            # Store information about this inside thread_iters, as specified.
+            _iter = Sym(f"_{unit_i}_CALLEE_DISTRIBUTED")
+            callee_distributed_iters.append(_iter)
+            tiling = tiling.tiled(_iter, unit, const_extent, coll_env)
+            thread_iters[_iter] = ThreadIter(tiling)
+            distributed_iters_needed[_iter] = True
+
+        if native_unit is not None:
+            pass
+
+        alloc_tree_depth = alloc_coll_tiling.get_tree_depth()
+        dim_ops = (
+            tiling.get_dim_ops() if native_unit is None else tiling.get_subdiv_dim_ops()
+        )
+        for op in dim_ops:
+            op: CollDimOp
+            if op.tree_depth > alloc_tree_depth:
+                distributed_iters_needed[op.iter] = True
+
+        self.usage_coll_tiling = tiling
 
     # TODO REWRITE
     def consume_idx(self, node, typ: LoopIR.type, i: int):
@@ -499,7 +567,7 @@ class DistributedIdxFsm:
         elif isinstance(idx_e, LoopIR.Point) and isinstance(idx_e.pt, LoopIR.Read):
             iter_sym = idx_e.pt.name
         elif isinstance(idx_e, LoopIR.Interval):
-            if len(self.callee_coll_units) <= self.CALLEE_UNIT_IDX:
+            if len(self.CALLEE_COLL_UNITS) <= self.CALLEE_UNIT_IDX:
                 self.bad_idx(node, f"expected point, not interval {idx_e}")
             if (
                 not isinstance(idx_e.lo, LoopIR.Const)
@@ -509,10 +577,10 @@ class DistributedIdxFsm:
             ):
                 self.bad_idx(node, f"expected 0:{const_extent}, not {idx_e}")
             iter_sym = Sym(f"CALLEE_DISTRIBUTED_IDX_{self.CALLEE_UNIT_IDX}")
-            unit = self.callee_coll_units[self.CALLEE_UNIT_IDX]
+            unit = self.CALLEE_COLL_UNITS[self.CALLEE_UNIT_IDX]
             try:
                 self.CALLEE_COLL_TILING = self.CALLEE_COLL_TILING.tiled(
-                    iter_sym, unit, const_extent, self.coll_env
+                    iter_sym, unit, const_extent, self.COLL_ENV
                 )
             except AssertionError:
                 raise
@@ -652,7 +720,7 @@ class DistributedIdxFsm:
         ignore_box = self.ALLOC_BOX_NUM_THREADS != self.OPTIONAL_NATIVE_NUM_THREADS
         if msg := self.LEAF_COLL_TILING.unit_mismatch(
             unit,
-            self.coll_env,
+            self.COLL_ENV,
             ignore_box=ignore_box,
         ):
             if is_distributed:
@@ -787,7 +855,7 @@ class DistributedIdxFsm:
                     f"{sync.srcinfo}: {sync} has inconsistent collective tiling with previous {f_text}: {msg}"
                 )
 
-    # TODO REMOVE
+    # TODO REWRITE
     def bad_idx(self, node, msg):
         iter_text = "".join(
             f"\n{nm} {t0}->{t1}" for (t0, (nm, t1)) in self.T0_ITER_T1.items()

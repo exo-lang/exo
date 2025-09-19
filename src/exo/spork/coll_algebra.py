@@ -558,6 +558,15 @@ class SeptTiling:
             f"i.e. CollUnit({unit.domain}, {unit.box}, ...)"
         )
 
+    def tiled(
+        self,
+        _iter: object,
+        unit: CollUnit,
+        tiles_needed: int,
+        env: Dict[CollParam, int],
+    ):
+        return self._make_derived(_iter, unit, 0, tiles_needed, env, True)
+
     def unit_completion(self, unit: CollUnit, env: Dict[CollParam, int]):
         unit_domain = unit.int_domain(env)
         unit_box = unit.int_box(env)
