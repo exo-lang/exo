@@ -68,7 +68,7 @@ struct AssignmentRecordWindow
     const uint32_t* end_inner_extent;
 };
 
-struct SyncvQualTlInput
+struct SyncvAccessInfo
 {
     bool is_ooo;
     qual_bits_t initial_qual_bit;
@@ -90,16 +90,16 @@ SyncvTable* new_syncv_table(const syncv_init_t& init);
 SyncvTable* copy_syncv_table(const SyncvTable* table);
 void delete_syncv_table(SyncvTable* table);
 
-void on_r(SyncvTable*, assignment_record_id*, const ThreadCuboid&, SyncvQualTlInput, decltype(nullptr) = nullptr);
-void on_r(SyncvTable*, assignment_record_id*, const ThreadCuboid&, SyncvQualTlInput, const SyncvExcutRequest&);
-void on_r(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvQualTlInput, decltype(nullptr) = nullptr);
-void on_r(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvQualTlInput, const SyncvExcutRequest&);
-void on_rw(SyncvTable*, assignment_record_id*, const ThreadCuboid&, SyncvQualTlInput, decltype(nullptr) = nullptr);
-void on_rw(SyncvTable*, assignment_record_id*, const ThreadCuboid&, SyncvQualTlInput, const SyncvExcutRequest&);
-void on_rw(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvQualTlInput, decltype(nullptr) = nullptr);
-void on_rw(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvQualTlInput, const SyncvExcutRequest&);
-void on_check_free(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvQualTlInput, decltype(nullptr) = nullptr);
-void on_check_free(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvQualTlInput, const SyncvExcutRequest&);
+void on_r(SyncvTable*, assignment_record_id*, const ThreadCuboid&, SyncvAccessInfo, decltype(nullptr) = nullptr);
+void on_r(SyncvTable*, assignment_record_id*, const ThreadCuboid&, SyncvAccessInfo, const SyncvExcutRequest&);
+void on_r(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, decltype(nullptr) = nullptr);
+void on_r(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, const SyncvExcutRequest&);
+void on_rw(SyncvTable*, assignment_record_id*, const ThreadCuboid&, SyncvAccessInfo, decltype(nullptr) = nullptr);
+void on_rw(SyncvTable*, assignment_record_id*, const ThreadCuboid&, SyncvAccessInfo, const SyncvExcutRequest&);
+void on_rw(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, decltype(nullptr) = nullptr);
+void on_rw(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, const SyncvExcutRequest&);
+void on_check_free(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, decltype(nullptr) = nullptr);
+void on_check_free(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, const SyncvExcutRequest&);
 
 void clear_visibility(SyncvTable* table, size_t N, assignment_record_id* array);
 void alloc_barriers(SyncvTable* table, size_t N, barrier_id* barriers);

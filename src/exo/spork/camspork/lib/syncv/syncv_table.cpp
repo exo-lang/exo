@@ -667,19 +667,19 @@ struct SyncvTable
     // This will later need to be added to the memoization table.
     template <bool IsMutate>
     nodepool::id<VisRecordListNode<IsMutate>> alloc_visibility_record(
-            const ThreadCuboid& cuboid, SyncvQualTlInput q_input)
+            const ThreadCuboid& cuboid, SyncvAccessInfo access)
     {
         nodepool::id<VisRecordListNode<IsMutate>> vis_record_id;
         VisRecordListNode<IsMutate>& vis_record = alloc_default_node(&vis_record_id);
         vis_record.refcnt = 1;
-        vis_record.base_data.original_qual_tl = TlSigInterval::get_unique_qual_tl(q_input.initial_qual_bit);
+        vis_record.base_data.original_qual_tl = TlSigInterval::get_unique_qual_tl(access.initial_qual_bit);
         vis_record.base_data.forwarded_flag = 0;
         vis_record.base_data.visibility_set = {};
         vis_record.base_data.pending_awaits = {};
 
         // Initialize visibility set = linked list of intervals generated from the initial thread cuboid.
-        const qual_bits_t q = q_input.initial_qual_bit;
-        const QualBitsByVis qual_bits_by_vis{{q, q, q_input.is_ooo ? 0u : q}};
+        const qual_bits_t q = access.initial_qual_bit;
+        const QualBitsByVis qual_bits_by_vis{{q, q, access.is_ooo ? 0u : q}};
         nodepool::id<TlSigIntervalListNode>* p_node_id = &vis_record.base_data.visibility_set;
         cuboid.to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi)
         {
@@ -691,9 +691,9 @@ struct SyncvTable
         // Add "atomic-only" visibility across all possible threads, if applicable,
         // TODO add pending awaits.
         // All this must be done before trying to memoize.
-        if (q_input.atomic_qual_bits) {
+        if (access.atomic_qual_bits) {
             static_assert(sizeof(TlSigInterval::tid_hi) == 4);
-            const TlSigInterval atomic_interval{0, UINT32_MAX, {q_input.atomic_qual_bits, 0u, 0u}};
+            const TlSigInterval atomic_interval{0, UINT32_MAX, {access.atomic_qual_bits, 0u, 0u}};
             union_tl_sig_interval(&vis_record.base_data, atomic_interval);
         }
 
@@ -1314,10 +1314,10 @@ struct SyncvTable
     // The returned ID is an owning reference (ownership count given by added_refcnt).
     template <bool IsMutate>
     [[nodiscard]] nodepool::id<VisRecordListNode<IsMutate>> memoize_new_vis_record(
-            const ThreadCuboid& cuboid, SyncvQualTlInput q_input, uint32_t added_refcnt)
+            const ThreadCuboid& cuboid, SyncvAccessInfo access, uint32_t added_refcnt)
     {
         nodepool::id<VisRecordListNode<IsMutate>> new_vis_id =
-                alloc_visibility_record<IsMutate>(cuboid, q_input);
+                alloc_visibility_record<IsMutate>(cuboid, access);
         CAMSPORK_REQUIRE_CMP(get(new_vis_id).refcnt, ==, 1, "expected 1 refcnt initially");
         MemoizeVisRecordCommand<IsMutate> command{new_vis_id, get(new_vis_id).base_data};
 
@@ -1941,7 +1941,7 @@ struct SyncvTable
     void checked_on_access_impl(
             Input input,
             const ThreadCuboid& cuboid,
-            SyncvQualTlInput q_input,
+            SyncvAccessInfo access,
             Logger&& logger)
     {
         using node_id = nodepool::id<AssignmentRecord>;
@@ -1975,7 +1975,7 @@ struct SyncvTable
         nodepool::id<VisRecordListNode<IsMutate>> vis_record_id{};
         if (UpdateRecords && !census.empty()) {
             const uint32_t initial_refcnt = uint32_t(census.size());
-            vis_record_id = memoize_new_vis_record<IsMutate>(cuboid, q_input, initial_refcnt);
+            vis_record_id = memoize_new_vis_record<IsMutate>(cuboid, access, initial_refcnt);
         }
 
         logger.log_assignment_records(*this, input, vis_record_id,
@@ -1987,14 +1987,14 @@ struct SyncvTable
                 return;
             }
             const AssignmentRecord& assignment_record = get(id);
-            const auto vis_level_needed = q_input.atomic_qual_bits == 0 ? vis_level_ordered : vis_level_atomic_only;
+            const auto vis_level_needed = access.atomic_qual_bits == 0 ? vis_level_ordered : vis_level_atomic_only;
 
             // Check against previous mutate visibility records
             nodepool::id<AssignmentRecordMutateNode> mutate_id = assignment_record.mutate_vis_records_head_id;
             while (mutate_id) {
                 AssignmentRecordMutateNode& node = get(mutate_id);
                 const VisRecord& mutate_record = remove_forwarding(&node.vis_record_id);
-                if (!visible_to(mutate_record, cuboid, q_input.extended_qual_bits, vis_level_needed)) {
+                if (!visible_to(mutate_record, cuboid, access.extended_qual_bits, vis_level_needed)) {
                     throw SyncvCheckFail{IsMutate ? "WAW HAZARD" : "RAW HAZARD", linear_index};
                 }
                 mutate_id = node.camspork_next_id;
@@ -2006,7 +2006,7 @@ struct SyncvTable
                 while (read_id) {
                     AssignmentRecordReadNode& node = get(read_id);
                     const VisRecord& read_record = remove_forwarding(&node.vis_record_id);
-                    if (!visible_to(read_record, cuboid, q_input.extended_qual_bits, vis_level_needed)) {
+                    if (!visible_to(read_record, cuboid, access.extended_qual_bits, vis_level_needed)) {
                         throw SyncvCheckFail{"WAR HAZARD", linear_index};
                     }
                     read_id = node.camspork_next_id;
@@ -2055,7 +2055,7 @@ struct SyncvTable
                 nodepool::id<AssignmentRecordMutateNode> new_head_id;
                 AssignmentRecordMutateNode& node = alloc_default_node(&new_head_id);
                 node.vis_record_id = new_vis_record_id;
-                if (q_input.atomic_qual_bits != 0) {
+                if (access.atomic_qual_bits != 0) {
                     insert_next_node(&assignment_record.mutate_vis_records_head_id, new_head_id);
                     lazy_remove_duplicates(&assignment_record);  // << IMPORTANT for performance
                 }
@@ -2112,28 +2112,28 @@ struct SyncvTable
 
     // Expect Input = assignment_record_id* or AssignmentRecordWindow.
     template <typename Input, typename Logger>
-    void on_r(Input input, const ThreadCuboid& cuboid, SyncvQualTlInput q_input, Logger&& logger)
+    void on_r(Input input, const ThreadCuboid& cuboid, SyncvAccessInfo access, Logger&& logger)
     {
         if (no_checking_counter == 0) {
-            checked_on_access_impl<false, true>(input, cuboid, q_input, logger);
+            checked_on_access_impl<false, true>(input, cuboid, access, logger);
         }
     }
 
     // Expect Input = assignment_record_id* or AssignmentRecordWindow.
     template <typename Input, typename Logger>
-    void on_rw(Input input, const ThreadCuboid& cuboid, SyncvQualTlInput q_input, Logger&& logger)
+    void on_rw(Input input, const ThreadCuboid& cuboid, SyncvAccessInfo access, Logger&& logger)
     {
         if (no_checking_counter == 0) {
-            checked_on_access_impl<true, true>(input, cuboid, q_input, logger);
+            checked_on_access_impl<true, true>(input, cuboid, access, logger);
         }
     }
 
     // Expect Input = assignment_record_id* or AssignmentRecordWindow.
     template <typename Input, typename Logger>
-    void on_check_free(Input input, const ThreadCuboid& cuboid, SyncvQualTlInput q_input, Logger&& logger)
+    void on_check_free(Input input, const ThreadCuboid& cuboid, SyncvAccessInfo access, Logger&& logger)
     {
         if (no_checking_counter == 0) {
-            checked_on_access_impl<true, false>(input, cuboid, q_input, logger);
+            checked_on_access_impl<true, false>(input, cuboid, access, logger);
         }
     }
 
@@ -2843,91 +2843,91 @@ void SyncvTableDeleter::operator() (SyncvTable* victim) const
 
 void on_r(
         SyncvTable* table, assignment_record_id* input,
-        const ThreadCuboid& cuboid, SyncvQualTlInput q_input, decltype(nullptr))
+        const ThreadCuboid& cuboid, SyncvAccessInfo access, decltype(nullptr))
 {
     INTERFACE_PROLOGUE(table)
-    table->on_r(input, cuboid, q_input, SyncvTrivialLogger{});
+    table->on_r(input, cuboid, access, SyncvTrivialLogger{});
     INTERFACE_EPILOGUE(table)
 }
 
 void on_r(
         SyncvTable* table, assignment_record_id* input,
-        const ThreadCuboid& cuboid, SyncvQualTlInput q_input, const SyncvExcutRequest& excut)
+        const ThreadCuboid& cuboid, SyncvAccessInfo access, const SyncvExcutRequest& excut)
 {
     INTERFACE_PROLOGUE(table)
-    table->on_r(input, cuboid, q_input, SyncvExcutLogger(excut));
+    table->on_r(input, cuboid, access, SyncvExcutLogger(excut));
     INTERFACE_EPILOGUE(table)
 }
 
 void on_r(
         SyncvTable* table, AssignmentRecordWindow input,
-        const ThreadCuboid& cuboid, SyncvQualTlInput q_input, decltype(nullptr))
+        const ThreadCuboid& cuboid, SyncvAccessInfo access, decltype(nullptr))
 {
     INTERFACE_PROLOGUE(table)
-    table->on_r(input, cuboid, q_input, SyncvTrivialLogger{});
+    table->on_r(input, cuboid, access, SyncvTrivialLogger{});
     INTERFACE_EPILOGUE(table)
 }
 
 void on_r(
         SyncvTable* table, AssignmentRecordWindow input,
-        const ThreadCuboid& cuboid, SyncvQualTlInput q_input, const SyncvExcutRequest& excut)
+        const ThreadCuboid& cuboid, SyncvAccessInfo access, const SyncvExcutRequest& excut)
 {
     INTERFACE_PROLOGUE(table)
-    table->on_r(input, cuboid, q_input, SyncvExcutLogger(excut));
+    table->on_r(input, cuboid, access, SyncvExcutLogger(excut));
     INTERFACE_EPILOGUE(table)
 }
 
 void on_rw(
         SyncvTable* table, assignment_record_id* input,
-        const ThreadCuboid& cuboid, SyncvQualTlInput q_input, decltype(nullptr))
+        const ThreadCuboid& cuboid, SyncvAccessInfo access, decltype(nullptr))
 {
     INTERFACE_PROLOGUE(table)
-    table->on_rw(input, cuboid, q_input, SyncvTrivialLogger{});
+    table->on_rw(input, cuboid, access, SyncvTrivialLogger{});
     INTERFACE_EPILOGUE(table)
 }
 
 void on_rw(
         SyncvTable* table, assignment_record_id* input,
-        const ThreadCuboid& cuboid, SyncvQualTlInput q_input, const SyncvExcutRequest& excut)
+        const ThreadCuboid& cuboid, SyncvAccessInfo access, const SyncvExcutRequest& excut)
 {
     INTERFACE_PROLOGUE(table)
-    table->on_rw(input, cuboid, q_input, SyncvExcutLogger(excut));
+    table->on_rw(input, cuboid, access, SyncvExcutLogger(excut));
     INTERFACE_EPILOGUE(table)
 }
 
 void on_rw(
         SyncvTable* table, AssignmentRecordWindow input,
-        const ThreadCuboid& cuboid, SyncvQualTlInput q_input, decltype(nullptr))
+        const ThreadCuboid& cuboid, SyncvAccessInfo access, decltype(nullptr))
 {
     INTERFACE_PROLOGUE(table)
-    table->on_rw(input, cuboid, q_input, SyncvTrivialLogger{});
+    table->on_rw(input, cuboid, access, SyncvTrivialLogger{});
     INTERFACE_EPILOGUE(table)
 }
 
 void on_rw(
         SyncvTable* table, AssignmentRecordWindow input,
-        const ThreadCuboid& cuboid, SyncvQualTlInput q_input, const SyncvExcutRequest& excut)
+        const ThreadCuboid& cuboid, SyncvAccessInfo access, const SyncvExcutRequest& excut)
 {
     INTERFACE_PROLOGUE(table)
-    table->on_rw(input, cuboid, q_input, SyncvExcutLogger(excut));
+    table->on_rw(input, cuboid, access, SyncvExcutLogger(excut));
     INTERFACE_EPILOGUE(table)
 }
 
 void on_check_free(
         SyncvTable* table, AssignmentRecordWindow input,
-        const ThreadCuboid& cuboid, SyncvQualTlInput q_input, decltype(nullptr))
+        const ThreadCuboid& cuboid, SyncvAccessInfo access, decltype(nullptr))
 {
     INTERFACE_PROLOGUE(table)
-    table->on_check_free(input, cuboid, q_input, SyncvTrivialLogger{});
+    table->on_check_free(input, cuboid, access, SyncvTrivialLogger{});
     INTERFACE_EPILOGUE(table)
 }
 
 void on_check_free(
         SyncvTable* table, AssignmentRecordWindow input,
-        const ThreadCuboid& cuboid, SyncvQualTlInput q_input, const SyncvExcutRequest& excut)
+        const ThreadCuboid& cuboid, SyncvAccessInfo access, const SyncvExcutRequest& excut)
 {
     INTERFACE_PROLOGUE(table)
-    table->on_check_free(input, cuboid, q_input, SyncvExcutLogger(excut));
+    table->on_check_free(input, cuboid, access, SyncvExcutLogger(excut));
     INTERFACE_EPILOGUE(table)
 }
 
