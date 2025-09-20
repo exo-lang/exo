@@ -118,8 +118,7 @@ class DistributedAllocState(object):
     alloc_type: LoopIR.type
 
     # CollTiling at the point of the Exo object code allocation
-    # TODO delete new_* prefix
-    new_alloc_coll_tiling: CollTiling
+    alloc_coll_tiling: CollTiling
 
     # Target native unit; we want to have one distributed shard resident
     # in each active native-unit-shaped thread collective.
@@ -143,7 +142,7 @@ class DistributedAllocState(object):
         if optional_native_unit is not None:
             assert isinstance(optional_native_unit, CollUnit)
             assert not optional_native_unit.agnostic, optional_native_unit
-            tmp = coll_tiling.sept  # TODO remove sept
+            tmp = coll_tiling
             tmp = tmp.unit_completion(optional_native_unit, env)
             box = tmp.get_box()
             expected_box = tmp.get_expected_box()
@@ -157,9 +156,9 @@ class DistributedAllocState(object):
                         f"Missing threads on dims[{i}] to match {optional_native_unit}\n"
                         f"domain={tmp.get_domain()}, box={box}; expected box={expected_box}"
                     )
-            self.new_alloc_coll_tiling = tmp
+            self.alloc_coll_tiling = tmp
         else:
-            self.new_alloc_coll_tiling = coll_tiling.sept  # TODO remove sept
+            self.alloc_coll_tiling = coll_tiling
         self.first_usage_stmt = None
         self.first_distributed_iters = []
         self.first_usage_coll_tiling = None
@@ -266,7 +265,7 @@ class DistributedAllocState(object):
 
         # Handle implicit indices; relevant cuda_threads iterators
         # from the allocation point up to the root of the CudaDeviceFunction.
-        for op in self.new_alloc_coll_tiling.get_dim_ops():
+        for op in self.alloc_coll_tiling.get_dim_ops():
             op: CollDimOp
             if op.tile_count > 1:
                 handle_idx(op.iter, op.tile_count)
@@ -382,7 +381,7 @@ class DistributedIdxFsm:
     context_stmt: LoopIR.stmt
 
     # CollTiling at the point of allocation
-    new_alloc_coll_tiling: CollTiling
+    alloc_coll_tiling: CollTiling
 
     # CollTiling at use site (completed for native_unit, if applicable);
     # further tiled by any callee_coll_units provided.
@@ -422,8 +421,8 @@ class DistributedIdxFsm:
         self.idx_node = idx_node
         self.loop_mode_name = loop_mode_name
         self.thread_iters = thread_iters
-        alloc_coll_tiling = state.new_alloc_coll_tiling
-        self.new_alloc_coll_tiling = alloc_coll_tiling
+        alloc_coll_tiling = state.alloc_coll_tiling
+        self.alloc_coll_tiling = alloc_coll_tiling
         self.distributed_iters_needed = distributed_iters_needed
         self.callee_distributed_iters = callee_distributed_iters
         self.callee_distributed_idx = 0
@@ -431,7 +430,7 @@ class DistributedIdxFsm:
         self.usage_coll_tiling = coll_tiling_here  # changed later
 
         # Complete the collective tiling for the given native unit, if supplied.
-        tiling = coll_tiling_here.sept
+        tiling = coll_tiling_here
         native_unit = state.optional_native_unit
         if native_unit is not None:
             tiling = tiling.unit_completion(native_unit, coll_env)

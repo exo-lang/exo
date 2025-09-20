@@ -397,11 +397,35 @@ coll_index_0 = CollIndexExpr(0)
 
 @dataclass(slots=True, init=False)
 class CollCodegen:
+    """For lowering a collective tiling or specialization:
+
+    Translate the codegen_expr to C code, and test
+    codegen_expr >= codegen_static_lo [skip if None]
+    codegen_expr < codegen_static_hi [skip if None]
+
+    thread_pitch is the distance in # of threads 0th
+    thread in a thread collective and the 0th thread of the
+    next-adjacent thread collective in a tiling (Cf. "seat pitch")
+    This gives some notion of what "axis" the tiling is performed on,
+    separate from the size of the collective unit.  For example,
+    "adjacent warps in a CTA" has pitch 32, while
+    "warp 0 of each CTA in a cluster" has pitch blockDim.
+
+    thread_pitch = 0 when there are fewer than 2 tiles in the tiling.
+
+    """
+
+    # Iterator variable name
     iter: object
+
+    # Advice for compiling to abstract machine ThreadsFor loop (am_threads).
+    # DomainSplit (dim_idx, split_factor)
     dim_idx_factors: List[Tuple[int, int]]
+    # ThreadsFor(..., dim_idx, offset, box)
     dim_idx: Optional[int]
     offset: int
     box: Optional[int]
+
     tile_count: int
     thread_pitch: int
     codegen_expr: CollIndexExpr
@@ -488,23 +512,8 @@ class CollDim:
         return None
 
 
-def domain_from_thread_pitch_set(pitch_set: Set[int]) -> Tuple[int]:
-    # Why is this needed?
-    pitch_set = sorted(pitch_set)
-    assert pitch_set[0] == 1
-
-    def div_impl(i):
-        n = pitch_set[i + 1]
-        d = pitch_set[i]
-        q, r = divmod(n, d)
-        assert r == 0
-        assert q > 1
-
-    return tuple(div_impl(i) for i in range(len(pitch_set) - 1))
-
-
 @dataclass(slots=True)
-class SeptTiling:
+class CollTiling:
     """Immutable collective tiling."""
 
     _tree_depth: int
@@ -527,6 +536,9 @@ class SeptTiling:
     def get_expected_box(self) -> Tuple[Optional[int]]:
         return tuple(d.get_expected_box_coord() for d in self._dims)
 
+    def get_box_num_threads(self) -> int:
+        return prod(d.get_box_coord() for d in self._dims)
+
     def get_domain_num_threads(self) -> int:
         return prod(d.dim_extent for d in self._dims)
 
@@ -543,15 +555,6 @@ class SeptTiling:
 
         return [op for d in self._dims for op in d.dim_ops if is_subdiv(d)]
 
-    def get_filtered_thread_pitch_set(self, dim_idxs: Set[int]):
-        # Why is this needed?
-        pitch_set = {1, self.get_domain_num_threads()}
-        for i, d in enumerate(self._dims):
-            if i in dim_idxs:
-                pitch_set.add(d.dim_thread_pitch)
-                pitch_set.add(d.dim_thread_pitch * d.dim_extent)
-        pitch_set = sorted(pitch_set)
-
     def err(self, unit: CollUnit, tile_count: int, msg: str):
         raise CollTilingError(
             f"Bad CollTiling ({msg}); "
@@ -565,10 +568,42 @@ class SeptTiling:
         unit: CollUnit,
         tiles_needed: int,
         env: Dict[CollParam, int],
-    ):
+    ) -> "CollTiling":
+        """Tile the CollTiling with the given collective unit.
+
+        Returns a new CollTiling with a higher tree_depth.
+
+        Produces the given number of tiles (or throws if not possible).
+        The _iter is passed through to the generated CollTiling
+        ("iterator variable name").
+
+        """
         return self._make_derived(_iter, unit, 0, tiles_needed, env, True)
 
+    def specialized(
+        self, _iter: object, unit: CollUnit, lo: int, hi: int, env: Dict[CollParam, int]
+    ) -> "CollTiling":
+        """Specialize the CollTiling
+
+        Returns a new CollTiling with a higher tree_depth.
+
+        We add another level of "tiling", where the tiling just yields
+        one thread box of possibly fewer threads ("warp specialization")
+
+        """
+        return self._make_derived(_iter, unit, lo, hi, env, False)
+
     def unit_completion(self, unit: CollUnit, env: Dict[CollParam, int]):
+        """Return a new CollTiling with domain completion done for the unit.
+
+        For unit matching, each domain dimension will be labelled one of:
+
+        * subdiv: expect a box coordinate of 1 on this dimension.
+        * full: expect a box coordinate equal to the extent
+        * agnostic: no requirements
+
+        """
+
         unit_domain = unit.int_domain(env)
         unit_box = unit.int_box(env)
         key = (unit_domain, unit_box)
@@ -655,7 +690,7 @@ class SeptTiling:
         # We don't consider this a new level of tree depth, as no subdivision
         # from an added variable occured. We just re-shaped the domain threads.
         codegen = CollCodegen(None)
-        new = SeptTiling(self._tree_depth, codegen, list(self._dims))
+        new = CollTiling(self._tree_depth, codegen, list(self._dims))
 
         # Create temporary collective unit based on input unit.
         # It has all box coordinates either None, 1, or equal to the
@@ -720,7 +755,7 @@ class SeptTiling:
     ):
         assert 0 <= lo <= hi
         codegen = CollCodegen(_iter)  # Update later
-        new = SeptTiling(self._tree_depth + 1, codegen, list(self._dims))
+        new = CollTiling(self._tree_depth + 1, codegen, list(self._dims))
 
         # Translate unit domain and tiling to concrete integers
         unit_original_domain = unit.int_domain(env)
@@ -778,7 +813,11 @@ class SeptTiling:
                 intra_box_expr %= unit_c
             box_size_needed = hi * unit_c
             if box_size_needed > self_c:
-                self.err(unit, hi, "not enough threads available")
+                self.err(
+                    unit,
+                    hi,
+                    f"not enough threads available; max_tile_count={self_c // unit_c}",
+                )
 
             codegen.dim_idx = tiled_dim_idx
             codegen.offset = offset
@@ -820,466 +859,17 @@ class SeptTiling:
         return new
 
 
-def top_level_coll_tiling(domain: Tuple[int], intra_box_exprs: Tuple[CollIndexExpr]):
+def top_level_coll_tiling(
+    domain: Tuple[int], intra_box_exprs: Tuple[CollIndexExpr]
+) -> CollTiling:
     assert len(domain) == len(intra_box_exprs)
     dims = []
     for i, e in enumerate(intra_box_exprs):
         extent = domain[i]
         thread_pitch = prod(domain[i + 1 :])
         dims.append(CollDim(extent, thread_pitch, (), e))
-    tiling = SeptTiling(0, CollCodegen(None), dims)
+    tiling = CollTiling(0, CollCodegen(None), dims)
     return tiling
-
-
-@dataclass(slots=True, init=False)
-class CollTiling(object):
-    """Immutable collective tiling. See collective algebra documentation."""
-
-    parent: Optional[CollTiling]
-    iter: object
-    full_domain: Tuple[int]
-    tile: Tuple[int]
-    offset: Tuple[int]
-    box: Tuple[int]
-    intra_box_exprs: Tuple[CollIndexExpr]
-    tile_count: int
-    tile_expr: CollIndexExpr
-
-    # See block comment.
-    codegen_expr: CollIndexExpr
-    codegen_lo: Optional[int]
-    codegen_hi: Optional[int]
-    thread_pitch: int
-
-    # Advice for compiling to abstract machine ThreadsFor loop (am_threads).
-    # Index of dimension to subdivide (ThreadsFor::dim_idx)
-    # TODO this is really less-than-clear.
-    codegen_dim_idx: Optional[int]
-    # DomainSplit (dim_idx, split_factor)
-    codegen_idx_factors: List[Tuple[int, int]]
-    # ThreadsFor::offset; not cumulative, unlike offset: Tuple[int]
-    # This is just diff
-    codegen_partial_offset: int
-    # ThreadsFor::box,
-    codegen_box: int
-
-    sept: SeptTiling
-
-    """Advice for lowering a collective tiling or specialization:
-
-    Translate the tile_expr to C code, and test
-    codegen_expr >= codegen_lo  [skip if lo is None]
-    codegen_expr < codegen_hi [skip if hi is None]
-
-    thread_pitch is the distance in # of threads between the 0th
-    thread in a thread collective and the 0th thread of the
-    next-adjacent thread collective in a tiling (Cf. "seat pitch")
-    This gives some notion of what "axis" the tiling is performed on,
-    separate from the size of the collective unit.  For example,
-    "adjacent warps in a CTA" has pitch 32, while
-    "warp 0 of each CTA in a cluster" has pitch blockDim.
-
-    thread_pitch = 0 when there are fewer than 2 tiles in the tiling.
-
-    """
-
-    def get_codegen(self) -> CollCodegen:
-        return self.sept.get_codegen()
-
-    def get_iter(self):
-        return self.sept.get_iter()
-
-    def get_box(self):
-        return self.sept.get_box()
-
-    def box_num_threads(self):
-        """Total number of threads in the thread box"""
-        return prod(self.get_box())
-
-    def get_dim_ops(self) -> List[CollDimOp]:
-        return self.sept.get_dim_ops()
-
-    def tiling_mismatch(self, other, *, distributed: bool) -> Optional[str]:
-        return self.sept.tiling_mismatch(other.sept, distributed=distributed)
-
-    # TODO: remove legacy CollTiling below and
-    # substitute SeptTiling as the new CollTiling
-
-    def __init__(
-        self,
-        parent,
-        _iter,
-        full_domain,
-        tile,
-        offset,
-        box,
-        intra_box_exprs,
-        tile_count,
-        tile_expr,
-        codegen_expr=coll_index_0,
-        codegen_lo=None,
-        codegen_hi=None,
-        thread_pitch=0,
-    ):
-        assert parent is None or isinstance(parent, CollTiling)
-        self.parent = parent
-        self.iter = _iter
-        self.full_domain = tuple(full_domain)
-        self.tile = tuple(tile)
-        self.offset = tuple(offset)
-        self.box = tuple(box)
-        for tup in (full_domain, tile, offset, box):
-            assert all(isinstance(c, int) for c in tup)
-            assert len(tup) == len(full_domain)
-
-        for c in full_domain:
-            assert c >= 2, f"Need non-1 positive ints in domain {full_domain}"
-
-        self.intra_box_exprs = tuple(intra_box_exprs)
-        assert all(isinstance(c, CollIndexExpr) for c in intra_box_exprs)
-        assert len(intra_box_exprs) == len(box)
-
-        self.tile_count = tile_count
-        self.tile_expr = tile_expr
-        self.iter = _iter
-        assert isinstance(tile_count, int)
-        assert isinstance(tile_expr, CollIndexExpr)
-
-        self.codegen_expr = codegen_expr
-        self.codegen_lo = codegen_lo
-        self.codegen_hi = codegen_hi
-        self.thread_pitch = thread_pitch
-
-        self.codegen_dim_idx = None
-        self.codegen_idx_factors = ()
-        self.codegen_partial_offset = 0
-        self.codegen_box = 0
-
-        self.sept = top_level_coll_tiling(full_domain, intra_box_exprs)
-
-    def __repr__(self):
-        return f"CollTiling({self.parent!r}, {self.iter!r}, {self.full_domain!r}, {self.tile!r}, {self.offset!r}, {self.box!r}, {self.intra_box_exprs!r}, {self.tile_count!r}, {self.tile_expr!r})"
-
-    def err(self, unit: CollUnit, hi: int, msg: str):
-        raise CollTilingError(
-            f"Bad CollTiling ({msg}); "
-            f"box={self.box}, tried tiling {hi}-many {unit}, "
-            f"i.e. CollUnit({unit.domain}, {unit.box}, ...)"
-        )
-
-    def tiled(
-        self,
-        _iter: object,
-        unit: CollUnit,
-        tiles_needed: int,
-        env: Dict[CollParam, int],
-    ) -> "CollTiling":
-        """Tile the CollTiling with the given collective unit.
-
-        Returns a new CollTiling with self as its parent.
-
-        Produces the given number of tiles (or throws if not possible).
-        The _iter is passed through to the generated CollTiling
-        ("iterator variable name").
-
-        """
-
-        # Translate unit domain and tiling to concrete integers
-        unit_domain = unit.int_domain(env)
-        unit_box = unit.int_box(env)
-
-        # Determine the common domain between us and the given unit
-        unit_completion = DomainCompletionOp(
-            unit_domain, self.full_domain, allow_partial_source=True
-        )
-        self_completion = DomainCompletionOp(
-            self.full_domain, unit_domain, allow_partial_source=False
-        )
-        common_domain = unit_completion.domain
-        assert unit_completion.domain == self_completion.domain
-
-        # !!! TODO document non-equivalence of tile and box output
-        # in coll_algebra.pdf !!!
-
-        # Translate ourself to common domain
-        new_exprs = self_completion.new_intra_box_exprs(self.intra_box_exprs)
-        new_box = self_completion.new_size(self.box)  # May be modified later
-        new_tile = self_completion.new_size(self.tile)  # May be modified later
-        old_box = tuple(new_box)  # Constant
-        old_tile = tuple(new_tile)
-
-        # Tiling will be the same as the box dimension of the parent
-        # except along the dimension being tiled.
-        # Count tiles; we will check against tiles_needed later.
-        # Must only have change (tiling) on up to one dimension
-        tiled_dim_idx = None
-        max_tile_count = 1
-        tile_remainder = 0
-        codegen_lo = None
-        codegen_hi = None
-        thread_pitch = 0
-        unit_box_coord = 0
-        for dim_idx, unit_box_coord in enumerate(unit_completion.new_size(unit_box)):
-            domain_coord = common_domain[dim_idx]
-            box_coord = old_box[dim_idx]
-            if (
-                unit_box_coord is not None  # "agnostic dimension"
-                and unit_box_coord != domain_coord  # Tricky: keep up-to-date
-                and unit_box_coord != box_coord  # with coll_algebra.py
-            ):
-                if unit_box_coord > box_coord:
-                    self.err(unit, tiles_needed, "unit too big for box")
-                if tiled_dim_idx is not None:
-                    self.err(unit, tiles_needed, "ambiguous dimension to tile")
-                tiled_dim_idx = dim_idx
-                max_tile_count = box_coord // unit_box_coord
-                tile_remainder = box_coord % unit_box_coord
-                new_tile[dim_idx] = unit_box_coord
-                new_box[dim_idx] = unit_box_coord
-
-                coll_index = new_exprs[dim_idx] // unit_box_coord
-                new_exprs[dim_idx] = new_exprs[dim_idx] % unit_box_coord
-
-                if tile_remainder != 0 or max_tile_count != tiles_needed:
-                    codegen_hi = tiles_needed
-
-                if tiles_needed >= 2:
-                    thread_pitch = unit_box_coord * prod(
-                        common_domain[tiled_dim_idx + 1 :]
-                    )
-
-        if tiled_dim_idx is None:
-            coll_index = coll_index_0
-            codegen_hi = tiles_needed  # In case tiles_needed = 0
-
-        if max_tile_count < tiles_needed:
-            self.err(
-                unit,
-                tiles_needed,
-                f"needs too many threads; max_tile_count={max_tile_count}",
-            )
-
-        new_parent = self
-        new_offset = (0,) * len(common_domain)
-        new_tile = tuple(new_tile)
-        new_box = tuple(new_box)
-
-        tiling = CollTiling(
-            new_parent,
-            _iter,
-            common_domain,
-            new_tile,
-            new_offset,
-            new_box,
-            new_exprs,
-            tiles_needed,
-            coll_index,
-            coll_index,  # codegen_expr
-            codegen_lo,
-            codegen_hi,
-            thread_pitch,
-        )
-        tiling.codegen_dim_idx = tiled_dim_idx
-        tiling.codegen_idx_factors = self_completion.idx_factors
-        tiling.codegen_partial_offset = 0
-        tiling.codegen_box = -1 if tiled_dim_idx is None else tiling.box[tiled_dim_idx]
-        tiling.sept = self.sept._make_derived(_iter, unit, 0, tiles_needed, env, True)
-        return tiling
-
-    def specialized(
-        self, _iter: object, unit: CollUnit, lo: int, hi: int, env: Dict[CollParam, int]
-    ) -> "CollTiling":
-        """Specialize the CollTiling
-
-        self and the returned CollTiling share a common parent."""
-
-        # Translate unit domain and tiling to concrete integers
-        unit_domain = unit.int_domain(env)
-        unit_box = unit.int_box(env)
-
-        # Determine the common domain between us and the given unit
-        unit_completion = DomainCompletionOp(
-            unit_domain, self.full_domain, allow_partial_source=True
-        )
-        self_completion = DomainCompletionOp(
-            self.full_domain, unit_domain, allow_partial_source=False
-        )
-        common_domain = unit_completion.domain
-        assert unit_completion.domain == self_completion.domain
-
-        # Translate ourself to common domain
-        # These may be modified to get the derived CollTiling
-        new_exprs = self_completion.new_intra_box_exprs(self.intra_box_exprs)
-        new_offset = self_completion.new_offset(self.offset)
-        new_box = self_completion.new_size(self.box)
-
-        common_tile = tuple(self_completion.new_size(self.tile))
-
-        # Count tiles when tiled by unit
-        # Must only have change (tiling) on up to one dimension
-        tiled_dim_idx = None
-        stride = None
-        tile_count = 1
-        codegen_lo = None
-        codegen_hi = None
-        partial_offset = 0  # Additional offset introduced by this specialize(...)
-        for dim_idx, unit_box_coord in enumerate(unit_completion.new_size(unit_box)):
-            domain_coord = common_domain[dim_idx]
-            box_coord = new_box[dim_idx]
-            if (
-                unit_box_coord is not None
-                and unit_box_coord != domain_coord
-                and unit_box_coord != box_coord
-            ):
-                tile_count = box_coord // unit_box_coord
-                tile_remainder = box_coord % unit_box_coord
-
-                if tiled_dim_idx is not None:
-                    # Probably unreachable through public Exo-GPU interface
-                    self.err(unit, hi, "ambiguous dimension for tiling")
-                if not (0 <= lo <= hi <= tile_count):
-                    self.err(unit, hi, f"lo={lo}, hi={hi} invalid")
-
-                partial_offset = lo * unit_box_coord
-                tiled_dim_idx = dim_idx
-                codegen_coll_index = new_exprs[dim_idx]  # before -= below
-                new_exprs[dim_idx] -= partial_offset
-                new_offset[dim_idx] += partial_offset  # +=, hence "partial"
-                new_box[dim_idx] = (hi - lo) * unit_box_coord
-
-                if lo != 0:
-                    codegen_lo = lo * unit_box_coord
-                if hi != tile_count or tile_remainder != 0:
-                    codegen_hi = hi * unit_box_coord
-
-        if tiled_dim_idx is None:
-            codegen_coll_index = coll_index_0
-            if lo != 0 or hi != 1:
-                self.err(unit, hi, f"expect lo=0, hi=1 for trivial tiling")
-
-        new_parent = self.parent
-
-        tiling = CollTiling(
-            new_parent,
-            self.iter,
-            common_domain,
-            common_tile,
-            new_offset,
-            new_box,
-            new_exprs,
-            self.tile_count,
-            self.tile_expr,
-            codegen_coll_index,
-            codegen_lo,
-            codegen_hi,
-            self.thread_pitch,
-        )
-        tiling.codegen_dim_idx = tiled_dim_idx
-        tiling.codegen_idx_factors = self_completion.idx_factors
-        tiling.codegen_partial_offset = partial_offset
-        tiling.codegen_box = -1 if tiled_dim_idx is None else tiling.box[tiled_dim_idx]
-        tiling.sept = self.sept._make_derived(_iter, unit, lo, hi, env, False)
-        return tiling
-
-    def tile_num_threads(self):
-        """Total number of threads in the thread tile.
-
-        Unlike the box, this includes threads that are inactive
-        """
-        return prod(self.tile)
-
-    def unit_mismatch(
-        self,
-        unit: CollUnit,
-        env: Dict[CollParam, int],
-        *,
-        no_message=False,
-        ignore_box=False,
-    ):
-        """Return False iff the thread boxes match the given collective unit
-
-        Matching requires both size match and alignment match.
-
-        If mismatched, return a str reason, unless
-        no_message=True (return True if so).
-
-        ignore_box causes the offset and box (self) to be treated
-        as 0 and tile, respectively.  i.e. we ignore "warp
-        specialization". TODO except for alignment check?
-
-        """
-
-        if not ignore_box:
-            return self.sept.unit_mismatch(unit, env, no_message=no_message)
-
-        assert isinstance(unit, CollUnit)
-        f = format_tuple
-
-        try:
-            unit_box_raw = unit.int_box(env)
-            unit_domain = unit.int_domain(env)
-            box_n_threads = self.box_num_threads()
-
-            if not unit.agnostic and not ignore_box:
-                unit_n_threads = unit.int_threads(env)
-                if box_n_threads != unit_n_threads:
-                    return no_message or (
-                        f"Have {box_n_threads} threads {f(self.box)}; "
-                        f"expected {unit_n_threads} ({unit})"
-                    )
-
-            tiling = self
-            while tiling is not None:
-                unit_completion = DomainCompletionOp(
-                    unit_domain, tiling.full_domain, allow_partial_source=True
-                )
-                tiling_completion = DomainCompletionOp(
-                    tiling.full_domain, unit_domain, allow_partial_source=False
-                )
-                assert unit_completion.domain == tiling_completion.domain
-
-                new_unit_box = unit_completion.new_size(unit_box_raw, 1)
-
-                # Check box size for leaf CollTiling
-                # We have to handle None (agnostic) dimensions in the unit box
-                if self is tiling:
-                    compare_box = tiling_completion.new_size(
-                        tiling.tile if ignore_box else tiling.box
-                    )
-                    for unit_c, tile_c in zip(new_unit_box, compare_box):
-                        if unit_c is not None and unit_c != tile_c:
-                            return no_message or (
-                                f"Have threads in shape box={f(compare_box)}; "
-                                f"expected {f(new_unit_box)} "
-                                f"({unit}); domain={f(unit_completion.domain)}"
-                            )
-
-                # TODO explain logic for alignment check when ignore_box is True
-                new_tiling_offset = tiling_completion.new_offset(tiling.offset, 0)
-                new_tiling_box = tiling_completion.new_size(tiling.box, 0)
-                assert len(new_tiling_offset) == len(new_unit_box)
-                for off_c, tiling_box_c, unit_box_c in zip(
-                    new_tiling_offset, new_tiling_box, new_unit_box
-                ):
-                    if ignore_box and unit_box_c > tiling_box_c:
-                        continue
-                    if unit_box_c is not None and off_c % unit_box_c != 0:
-                        return (
-                            no_message
-                            or f"Incorrect alignment for {unit}, {off_c} % {unit_box_c} != 0 @ {tiling.iter}"
-                        )
-
-                # Traverse to root
-                tiling = tiling.parent
-
-        except DomainCompletionError as e:
-            # TODO no one is going to understand this failure mode...
-            return no_message or str(e)
-
-        except CollTilingError as e:
-            return no_message or "CollTilingError: " + str(e)
-
-        return False  # False => match
 
 
 class DomainCompletionError(CollTilingError):

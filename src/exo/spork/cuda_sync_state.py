@@ -494,7 +494,7 @@ class SyncStateBuilder:
         # mbarrier allocator: record mbarriers to initialize.
         RS = ring * slice_count
         lines = self.SyncState_lines
-        arrive_count = coll_tilings.get_arrive().box_num_threads() * len(cta_xor_list)
+        arrive_count = coll_tilings.get_arrive().get_box_num_threads() * len(cta_xor_list)
         self._mbarrier_pairs.append((RS, arrive_count))
         self.mbarrier_count += RS
         lines.append(f"// {name}: barrier @ CudaMbarrier, ring={ring}, slice_count={slice_count}")

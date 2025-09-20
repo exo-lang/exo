@@ -714,7 +714,7 @@ def test_bad_for_baseline(compiler):
 def test_bad_for_too_big(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_test_bad_for, sus_unit=2 * cuda_warpgroup)
-    assert "unit too big for box" in str(exc.value)
+    assert "not enough threads available" in str(exc.value)
     assert "2 * cuda_warpgroup" in str(exc.value)
     assert "sus_iter" in str(exc.value)
 

@@ -184,7 +184,7 @@ class CollAnalysis(LoopIR_Rewrite):
                 s, self._coll_tiling, native_unit, self._coll_env
             )
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
-            if (n_threads := self._coll_tiling.box_num_threads()) != 1:
+            if (n_threads := self._coll_tiling.get_box_num_threads()) != 1:
                 raise ValueError(
                     f"{s.srcinfo}: write must be executed by one "
                     f"thread only (current: {n_threads} threads)\n"

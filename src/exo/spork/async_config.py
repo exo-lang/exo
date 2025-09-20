@@ -9,7 +9,13 @@ from .timelines import (
     cuda_basic_device,
 )
 from .base_with_context import BaseWithContext, is_if_holding_with
-from .coll_algebra import clusterDim_param, blockDim_param, CollIndexExpr, CollTiling
+from .coll_algebra import (
+    clusterDim_param,
+    blockDim_param,
+    CollIndexExpr,
+    CollTiling,
+    top_level_coll_tiling,
+)
 from .cuda_warp_config import CudaWarpConfig, WarpLayoutInfo
 from ..core.LoopIR import LoopIR, LoopIR_Rewrite
 from ..core.memory import DRAM, Memory, SpecialWindow, AllocableMemWin
@@ -102,25 +108,13 @@ class CudaDeviceFunction(BaseAsyncConfig):
         assert clusterDim > 0 and isinstance(clusterDim, int)
         threadIdx_expr = CollIndexExpr("threadIdx.x", blockDim)
         if clusterDim == 1:
-            tlc_offset = (0,)
             tlc_box = (blockDim,)
             intra_box_exprs = (threadIdx_expr,)
         else:
-            tlc_offset = (0, 0)
             tlc_box = (clusterDim, blockDim)
             cta_expr = CollIndexExpr("blockIdx.x") % clusterDim
             intra_box_exprs = (cta_expr, threadIdx_expr)
-        return CollTiling(
-            None,  # parent
-            None,  # _iter
-            tlc_box,
-            tlc_box,
-            tlc_offset,
-            tlc_box,
-            intra_box_exprs,
-            1,
-            CollIndexExpr(0),
-        )
+        return top_level_coll_tiling(tlc_box, intra_box_exprs)
 
     def __repr__(self):
         args = []
