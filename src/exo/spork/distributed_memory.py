@@ -503,10 +503,16 @@ class DistributedIdxFsm:
         self.CALLEE_UNIT_IDX = 0
         # TODO END REMOVE
 
+        # Complete the collective tiling for the given native unit, if supplied.
         tiling = coll_tiling_here.sept
         native_unit = state.optional_native_unit
         if native_unit is not None:
             tiling = tiling.unit_completion(native_unit, coll_env)
+
+        # If the usage is as a parameter of an instr where the instruction
+        # expects multiple shards, we need to tile the usage_coll_tiling
+        # based on what's going on inside the instr, and save a "synthetic"
+        # ThreadIter used to identify this internal parallelization.
         assert len(callee_coll_units) <= 1, "manually check this works"
         idx_i = -1
         for unit_i, unit in enumerate(callee_coll_units):
@@ -537,19 +543,41 @@ class DistributedIdxFsm:
             callee_distributed_iters.append(_iter)
             tiling = tiling.tiled(_iter, unit, const_extent, coll_env)
             thread_iters[_iter] = ThreadIter(tiling)
-            distributed_iters_needed[_iter] = True
 
+        # If a native unit is provided, we need to make sure that the CollTiling
+        # is sufficiently subdivided to match. This is the complement to
+        # inside DistributedAllocState where we checked full dimensions instead
+        # of subdivided (here it's okay if those dimensions are now partial).
         if native_unit is not None:
-            pass
+            box = tiling.get_box()
+            expected_box = tiling.get_expected_box()
+            assert len(box) == len(expected_box)
+            for i, expect_c in enumerate(expected_box):
+                assert (
+                    expect_c is not None
+                ), "shouldn't happen for non-agnostic unit and partial_prepend=1"
+                if expect_c == 1 and box[i] != 1:
+                    raise CollTilingError(
+                        f"Missing subdivision on dims[{i}] to match {native_unit}\n"
+                        f"domain={tiling.get_domain()}, box={box}; expected box={expected_box}"
+                    )
 
+        # Take a census of all distributed iterator indices we expect to see.
+        # If no native unit, this is all non-trivial (tile_count > 1) iterators
+        # defined in parallel-for loops between the allocation point and usage point
+        # (such that no two thread collectives share a shard).
+        # If a native unit exists, we expect the same except only
+        # on subdivided coll dimensions.
         alloc_tree_depth = alloc_coll_tiling.get_tree_depth()
         dim_ops = (
             tiling.get_dim_ops() if native_unit is None else tiling.get_subdiv_dim_ops()
         )
         for op in dim_ops:
             op: CollDimOp
-            if op.tree_depth > alloc_tree_depth:
+            if op.tree_depth > alloc_tree_depth and op.tile_count > 1:
                 distributed_iters_needed[op.iter] = True
+
+        print(context_stmt.srcinfo, distributed_iters_needed)
 
         self.usage_coll_tiling = tiling
 
