@@ -765,8 +765,7 @@ def test_mismatched_distributed_dims_baseline(compiler):
 def test_mismatched_distributed_dims_count(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_mismatched_distributed_dims, wrong_count=True)
-    assert "[x, y]" in str(exc.value)
-    assert "[x, y, z]" in str(exc.value)
+    assert "Distributed memory deduction for vals failed" in str(exc.value)
 
 
 def test_mismatched_distributed_dims_extent(compiler):
@@ -878,17 +877,14 @@ def test_weird_cta_wrong_shape(compiler):
     with pytest.raises(Exception) as exc:
         cu = compiler.cuda_cpu_test(mkproc_weird_cta, wrong_shape=True)
     msg = str(exc.value)
-    assert "Tried to allocate under x loop" in msg
-    assert "(4, 64)" in msg
-    assert "(1, 256)" in msg
+    assert "x is not an expected distributed iterator" in msg
 
 
 def test_weird_cta_overshot(compiler):
     with pytest.raises(Exception) as exc:
         cu = compiler.cuda_cpu_test(mkproc_weird_cta, overshot=True)
     msg = str(exc.value)
-    assert "overshot" in msg
-    assert "1024->128" in msg
+    assert "x is not an expected distributed iterator" in msg
 
 
 def mkproc_smem_in_warp(blockDim):
@@ -936,7 +932,7 @@ def proc_matrix_in_CudaWarps_negative_0():
 def test_matrix_in_CudaWarps_negative_0(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(lambda: proc_matrix_in_CudaWarps_negative_0)
-    assert "expected point, not interval" in str(exc.value)
+    assert "Distributed memory deduction for warp_rmem failed" in str(exc.value)
 
 
 @proc
@@ -958,8 +954,8 @@ def proc_matrix_in_CudaWarps_negative_1():
 
 def test_matrix_in_CudaWarps_negative_1(compiler):
     with pytest.raises(Exception) as exc:
-        compiler.cuda_cpu_test(lambda: proc_matrix_in_CudaWarps_negative_0)
-    assert "expected point, not interval" in str(exc.value)
+        compiler.cuda_cpu_test(lambda: proc_matrix_in_CudaWarps_negative_1)
+    assert "Distributed memory deduction for warp_rmem failed" in str(exc.value)
 
 
 @proc
@@ -1178,7 +1174,7 @@ def mkproc_broken_chain():
 def test_broken_chain(compiler):
     with pytest.raises(Exception) as exc:
         cu = compiler.cuda_cpu_test(mkproc_broken_chain)
-    assert "128" in str(exc.value)
+    assert "Expected cuda_threads-loop iterator, not s" in str(exc.value)
 
 
 # fmt: off

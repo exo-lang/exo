@@ -214,13 +214,13 @@ class CollAnalysis(LoopIR_Rewrite):
                 e0 = s.barriers[0]
                 for i in range(len(e0.idx)):
                     fsm.consume_SyncStmt_idx(
-                        self._stmt_stack, s, self._envtyp[e0.name], i
+                        state, self._stmt_stack, s, self._envtyp[e0.name], i
                     )
 
                 # We now have the distributed indices in distributed_iters.
                 # Store in DistributedAllocState if this is the first use, or check
                 # consistency (index equality) with prior uses.
-                fsm.check_store_state(s, state)
+                fsm.check_store_state(state)
                 fsm.inspect_arrive_await(
                     s,
                     self._coll_tiling,
@@ -293,18 +293,14 @@ class CollAnalysis(LoopIR_Rewrite):
             distributed_coll_units,
         )
         for i in range(len(node.idx)):
-            if fsm.is_done(node):
+            if fsm.is_done():
                 break
-            fsm.consume_idx(node, self._envtyp[node.name], i)
-
-        # We only got the correct number of threads, not shape/alignment.
-        # Check that the leaf tiling has the correct collective unit.
-        fsm.check_native_unit(node)
+            fsm.consume_idx(state, i)
 
         # We now have the distributed indices in distributed_iters.
         # Store in DistributedAllocState if this is the first use, or check
-        # consistency (index equality) with prior uses.
-        fsm.check_store_state(node, state)
+        # consistency (CollTiling equivalence) with prior uses.
+        fsm.check_store_state(state)
 
     def cuda_map_call_stmt(self, s: LoopIR.Call):
         # Check collective unit.
@@ -361,12 +357,12 @@ class CollAnalysis(LoopIR_Rewrite):
             # There is no native_unit; we parse all indices as distributed
             assert state.optional_native_unit is None
             for i in range(len(bar_e.idx)):
-                fsm.consume_idx(bar_e, barrier_loopir_type, i)
+                fsm.consume_idx(state, i)
 
             # We now have the distributed indices in distributed_iters.
             # Store in DistributedAllocState if this is the first use, or check
-            # consistency (index equality) with prior uses.
-            fsm.check_store_state(s, state)
+            # consistency (CollTiling equivalence) with prior uses.
+            fsm.check_store_state(state)
 
         # Cannot use super().map_s(s) due to window handling
         return None

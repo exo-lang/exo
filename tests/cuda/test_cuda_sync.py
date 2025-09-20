@@ -816,11 +816,11 @@ def mkproc_mbarrier_missing_idx(wrong):
                 bar: barrier[2] @ CudaMbarrier
                 for wg in cuda_threads(0, 2, unit=cuda_warpgroup):
                     if wrong:
-                        for w in cuda_threads(0, 4, unit=cuda_warp):
+                        for WaRp in cuda_threads(0, 4, unit=cuda_warp):
                             Arrive(cuda_in_order, 1) >> bar[wg]
                             Await(bar[wg], cuda_in_order, ~0)
                     else:
-                        for w in seq(0, 4):
+                        for WaRp in seq(0, 4):
                             Arrive(cuda_in_order, 1) >> bar[wg]
                             Await(bar[wg], cuda_in_order, ~0)
 
@@ -834,7 +834,7 @@ def test_mbarrier_missing_idx_positive(compiler):
 def test_mbarrier_missing_idx_negative(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_mbarrier_missing_idx, wrong=True)
-    assert "missing indices" in str(exc.value)
+    assert "Missing: WaRp" in str(exc.value)
 
 
 def mkproc_mbarrier_warps_match(warps0, warps1):

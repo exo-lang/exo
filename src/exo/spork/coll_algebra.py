@@ -337,6 +337,7 @@ class CollIndexExpr(object):
         assert isinstance(result, int)
         return result
 
+    # TODO REMOVE
     def equiv_index(self, other):
         """Algebraic equivalence; intentionally not =="""
         assert isinstance(other, CollIndexExpr)
