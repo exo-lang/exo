@@ -86,10 +86,16 @@ ExprRef ProgramBuilder::add_BinOp(binop op, ExprRef lhs, ExprRef rhs)
     return nursery.add_node<ExprRef>(BinOp{op, lhs, rhs});
 }
 
+TrailingBarrierExprRef ProgramBuilder::add_TrailingBarrierExpr(Varname name, uint32_t num_idx, const ArriveIdx* idx)
+{
+    check_not_finished();
+    return nursery.add_node<TrailingBarrierExprRef>(TrailingBarrierExpr{name}, num_idx, idx);
+}
+
 StmtRef ProgramBuilder::add_SyncEnvAccess(
     Varname name, size_t num_idx, const ExprRef* idx,
     qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, qual_bits_t atomic_qual_bits,
-    uint32_t is_mutate, uint32_t is_ooo)
+    uint32_t is_mutate, uint32_t is_ooo, TrailingBarrierExprRef trailing_barrier_expr)
 {
     // Single access case, duplicated code as window case (sad).
     CAMSPORK_REQUIRE_CMP(is_mutate, <=, 1, "must be bool");
@@ -100,6 +106,7 @@ StmtRef ProgramBuilder::add_SyncEnvAccess(
         node.initial_qual_bit = initial_qual_bit;
         node.extended_qual_bits = extended_qual_bits;
         node.is_ooo = is_ooo;
+        node.trailing_barrier_expr = trailing_barrier_expr;
         if constexpr (node.is_mutate) {
             node.atomic_qual_bits = atomic_qual_bits;
         }
@@ -119,7 +126,7 @@ StmtRef ProgramBuilder::add_SyncEnvAccess(
 StmtRef ProgramBuilder::add_SyncEnvAccess(
     Varname name, size_t num_idx, const OffsetExtentExpr* idx,
     qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, qual_bits_t atomic_qual_bits,
-    uint32_t is_mutate, uint32_t is_ooo)
+    uint32_t is_mutate, uint32_t is_ooo, TrailingBarrierExprRef trailing_barrier_expr)
 {
     // Window case, duplicated code as single access case (sad).
     CAMSPORK_REQUIRE_CMP(is_mutate, <=, 1, "must be bool");
@@ -130,6 +137,7 @@ StmtRef ProgramBuilder::add_SyncEnvAccess(
         node.initial_qual_bit = initial_qual_bit;
         node.extended_qual_bits = extended_qual_bits;
         node.is_ooo = is_ooo;
+        node.trailing_barrier_expr = trailing_barrier_expr;
         if constexpr (node.is_mutate) {
             node.atomic_qual_bits = atomic_qual_bits;
         }
@@ -385,15 +393,24 @@ camspork::ExprRef camspork_add_BinOp(camspork::ProgramBuilder* p_builder,
     CAMSPORK_API_EPILOGUE(camspork::ExprRef())
 }
 
+camspork::TrailingBarrierExprRef camspork_add_TrailingBarrierExpr(camspork::ProgramBuilder* p_builder,
+    camspork::Varname name, uint32_t num_idx, const camspork::ArriveIdx* idx)
+{
+    CAMSPORK_API_PROLOGUE
+    return p_builder->add_TrailingBarrierExpr(name, num_idx, idx);
+    CAMSPORK_API_EPILOGUE(camspork::TrailingBarrierExprRef())
+}
+
 camspork::StmtRef camspork_add_SyncEnvAccessSingle(camspork::ProgramBuilder* p_builder,
     camspork::Varname name, uint32_t num_idx, const camspork::ExprRef* idx,
     camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t extended_qual_bits,
     camspork::qual_bits_t atomic_qual_bits,
-    uint32_t is_mutate, uint32_t is_ooo)
+    uint32_t is_mutate, uint32_t is_ooo, camspork::TrailingBarrierExprRef trailing_barrier_expr)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_SyncEnvAccess(
-            name, num_idx, idx, initial_qual_bit, extended_qual_bits, atomic_qual_bits, is_mutate, is_ooo);
+            name, num_idx, idx, initial_qual_bit, extended_qual_bits, atomic_qual_bits,
+            is_mutate, is_ooo, trailing_barrier_expr);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
@@ -401,11 +418,12 @@ camspork::StmtRef camspork_add_SyncEnvAccessWindow(camspork::ProgramBuilder* p_b
     camspork::Varname name, uint32_t num_idx, const camspork::OffsetExtentExpr* idx,
     camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t extended_qual_bits,
     camspork::qual_bits_t atomic_qual_bits,
-    uint32_t is_mutate, uint32_t is_ooo)
+    uint32_t is_mutate, uint32_t is_ooo, camspork::TrailingBarrierExprRef trailing_barrier_expr)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_SyncEnvAccess(
-            name, num_idx, idx, initial_qual_bit, extended_qual_bits, atomic_qual_bits, is_mutate, is_ooo);
+            name, num_idx, idx, initial_qual_bit, extended_qual_bits, atomic_qual_bits,
+            is_mutate, is_ooo, trailing_barrier_expr);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 

@@ -74,6 +74,8 @@ struct SyncvAccessInfo
     qual_bits_t initial_qual_bit;
     qual_bits_t extended_qual_bits;
     qual_bits_t atomic_qual_bits;
+    uint32_t barrier_count;
+    const barrier_id* trailing_barriers;
 };
 
 struct SyncvDebugValidateInput

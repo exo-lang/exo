@@ -448,6 +448,32 @@ struct OffsetExtentExpr
 };
 
 
+// ******************************************************************************************
+// Trailing barrier expr for read/mutate access (only 1 concrete type for now)
+// ******************************************************************************************
+
+// Note: definition duplicated as Python ctypes.
+struct ArriveIdx
+{
+    ExprRef idx;
+    uint32_t multicast_per_expr;  // bitfield
+
+    uint32_t operator[] (uint32_t expr_idx) const
+    {
+        return 1u & (multicast_per_expr >> expr_idx);
+    }
+};
+
+template <uint32_t TypeID>
+struct trailing_barrier_expr_impl
+{
+    Varname name;
+    CAMSPORK_NODE_VLA_MEMBER(ArriveIdx)
+};
+
+using TrailingBarrierExpr = trailing_barrier_expr_impl<0>;
+using TrailingBarrierExprRef = NodeRef<trailing_barrier_expr_impl, 1>;
+
 
 // ******************************************************************************************
 // Statement node types, all pointed to by polymorphic StmtRef object (which can be null)
@@ -468,6 +494,9 @@ struct SyncEnvAccessNodeData
     Varname name;
     qual_bits_t initial_qual_bit;
     qual_bits_t extended_qual_bits;
+    uint32_t is_ooo;
+    TrailingBarrierExprRef trailing_barrier_expr;
+
     static constexpr bool is_window = IsWindow;
     using IdxT = std::conditional_t<IsWindow, OffsetExtentExpr, ExprRef>;
     CAMSPORK_NODE_VLA_MEMBER(IdxT);
@@ -491,7 +520,6 @@ template <bool IsMutate, bool IsWindow>
 struct SyncEnvAccessNode : SyncEnvAccessNodeData<IsWindow>, CondAtomicQualBits<IsMutate>
 {
     static constexpr bool is_mutate = IsMutate;
-    uint32_t is_ooo;
 };
 
 // SyncEnvReadSingle(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, bool is_ooo, expr* offset)
@@ -543,18 +571,6 @@ struct stmt<5>
     qual_bits_t L2_full_qual_bits;
     qual_bits_t L2_temporal_qual_bits;
     CAMSPORK_NODE_NO_VLA()
-};
-
-// Note: definition duplicated as Python ctypes.
-struct ArriveIdx
-{
-    ExprRef idx;
-    uint32_t multicast_per_expr;  // bitfield
-
-    uint32_t operator[] (uint32_t expr_idx) const
-    {
-        return 1u & (multicast_per_expr >> expr_idx);
-    }
 };
 
 // Arrive(Varname name, bool V1_transitive, qual_tl* L1_qual_bits, ExprRef* idx, multicast_flag* multicasts)

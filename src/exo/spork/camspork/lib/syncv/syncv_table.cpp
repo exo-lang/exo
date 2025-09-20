@@ -666,8 +666,8 @@ struct SyncvTable
     // Allocate a new visibility record.
     // This will later need to be added to the memoization table.
     template <bool IsMutate>
-    nodepool::id<VisRecordListNode<IsMutate>> alloc_visibility_record(
-            const ThreadCuboid& cuboid, SyncvAccessInfo access)
+    VisRecordListNode<IsMutate>& alloc_vis_record(
+            const ThreadCuboid& cuboid, SyncvAccessInfo access, nodepool::id<VisRecordListNode<IsMutate>>* out)
     {
         nodepool::id<VisRecordListNode<IsMutate>> vis_record_id;
         VisRecordListNode<IsMutate>& vis_record = alloc_default_node(&vis_record_id);
@@ -688,8 +688,26 @@ struct SyncvTable
             p_node_id = &tl_sigs_node.camspork_next_id;
         });
 
+        // Add pending awaits
+        // NOTE: this is extremely inefficient if done many times, since we create a new PendingAwaitTreeNode
+        // each time, and this undermines memoization as it relies on ID-equality to work.
+        for (uint32_t i = 0; i < access.barrier_count; ++i) {
+            const auto barrier_index = get_barrier_index(access.trailing_barriers[i]);
+            BarrierState& state = barrier_states[barrier_index];
+            const pending_await_t info = pack_pending_await(barrier_index, state.arrive_count);
+            nodepool::id<PendingAwaitTreeNode> new_id;
+            PendingAwaitTreeNode& node = alloc_default_node(&new_id);
+            node.refcnt = 1;
+            node.await_id = info;
+            node.camspork_next_id = vis_record.base_data.pending_awaits;
+            vis_record.base_data.pending_awaits = new_id;
+            // This keeps a reference to the new VisRecord.
+            // If we improve memoization later, this wall cause the reference to be kept to a
+            // forwarding-state VisRecord, which isn't a well-tested code path probably.
+            extend_barrier_arrive_state(vis_record_id, info);
+        }
+
         // Add "atomic-only" visibility across all possible threads, if applicable,
-        // TODO add pending awaits.
         // All this must be done before trying to memoize.
         if (access.atomic_qual_bits) {
             static_assert(sizeof(TlSigInterval::tid_hi) == 4);
@@ -697,7 +715,8 @@ struct SyncvTable
             union_tl_sig_interval(&vis_record.base_data, atomic_interval);
         }
 
-        return vis_record_id;
+        *out = vis_record_id;
+        return vis_record;
     }
 
     // Union tl_sig interval into the visibility sets.
@@ -1316,9 +1335,11 @@ struct SyncvTable
     [[nodiscard]] nodepool::id<VisRecordListNode<IsMutate>> memoize_new_vis_record(
             const ThreadCuboid& cuboid, SyncvAccessInfo access, uint32_t added_refcnt)
     {
-        nodepool::id<VisRecordListNode<IsMutate>> new_vis_id =
-                alloc_visibility_record<IsMutate>(cuboid, access);
-        CAMSPORK_REQUIRE_CMP(get(new_vis_id).refcnt, ==, 1, "expected 1 refcnt initially");
+        nodepool::id<VisRecordListNode<IsMutate>> new_vis_id;
+        auto& vis_node = alloc_vis_record<IsMutate>(cuboid, access, &new_vis_id);
+        if (!vis_node.base_data.pending_awaits) {
+            CAMSPORK_REQUIRE_CMP(vis_node.refcnt, ==, 1, "expected 1 refcnt initially");
+        }
         MemoizeVisRecordCommand<IsMutate> command{new_vis_id, get(new_vis_id).base_data};
 
         const TlSigBucketKey key = cuboid.minimal_superset_interval();
@@ -1326,7 +1347,7 @@ struct SyncvTable
         CAMSPORK_REQUIRE(id, "BucketProcessType::Insert search should not have given null");
 
         // id is that of the found (!= new_vis_id) or inserted (== new_vis_id) VisRecord in the memoization table.
-        // We need to decref new_vis_id as the alloc_visibility_record had 1 as the initial refcnt.
+        // We need to decref new_vis_id as the alloc_vis_record had 1 as the initial refcnt.
         // If there was a hit in the memoization table, then this means the newly alloc'd VisRecord will be freed.
         // We have to bypass decref(...) since it assumes the value was memoized.
         CAMSPORK_REQUIRE_CMP(added_refcnt, !=, 0, "cannot memoize w/ zero refcnt");
@@ -1564,7 +1585,7 @@ struct SyncvTable
 
         // Used internally, to avoid creating redundant PendingAwaitTreeNode.
         // This also helps memoization ... VisRecord with equivalent sets of pending awaits
-        // will hopefull also use equivalent node ID for the pending_awaits list.
+        // will hopefully also use equivalent node ID for the pending_awaits list.
         Map<nodepool::id<PendingAwaitTreeNode>, nodepool::id<PendingAwaitTreeNode>> node_id_map;
 
         template <bool IsMutate>
@@ -1605,23 +1626,32 @@ struct SyncvTable
 
                 // Extend BarrierArriveState to hold the new VisRecord.
                 for (pending_await_t info : pending_awaits) {
-                    BarrierArriveState& state = env.get_barrier_arrive_state(info);
-                    nodepool::id<AssignmentRecordVisNode<IsMutate>> list_node_id{};
-                    auto& list_node = env.alloc_default_node(&list_node_id);
-                    list_node.vis_record_id = vis_record_id;
-                    env.incref(vis_record_id);
-                    if constexpr (IsMutate) {
-                        list_node.camspork_next_id = state.mutate_vis_records_head_id;
-                        state.mutate_vis_records_head_id = list_node_id;
-                    }
-                    else {
-                        list_node.camspork_next_id = state.read_vis_records_head_id;
-                        state.read_vis_records_head_id = list_node_id;
-                    }
+                    env.extend_barrier_arrive_state(vis_record_id, info);
                 }
             }
         }
     };
+
+    // Extend BarrierArriveState to hold the new VisRecord.
+    template <bool IsMutate>
+    void extend_barrier_arrive_state(
+        nodepool::id<VisRecordListNode<IsMutate>> vis_record_id,
+        pending_await_t info)
+    {
+        BarrierArriveState& state = get_barrier_arrive_state(info);
+        nodepool::id<AssignmentRecordVisNode<IsMutate>> list_node_id{};
+        auto& list_node = alloc_default_node(&list_node_id);
+        list_node.vis_record_id = vis_record_id;
+        incref(vis_record_id);
+        if constexpr (IsMutate) {
+            list_node.camspork_next_id = state.mutate_vis_records_head_id;
+            state.mutate_vis_records_head_id = list_node_id;
+        }
+        else {
+            list_node.camspork_next_id = state.read_vis_records_head_id;
+            state.read_vis_records_head_id = list_node_id;
+        }
+    }
 
     // Find all VisRecords referenced by the BarrierArriveState and remove corresponding pending awaits,
     // then clear the BarrierArriveState.

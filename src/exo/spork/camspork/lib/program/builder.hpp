@@ -118,17 +118,19 @@ class ProgramBuilder
     ExprRef add_USub(ExprRef arg);
     ExprRef add_BinOp(binop op, ExprRef lhs, ExprRef rhs);
 
+    TrailingBarrierExprRef add_TrailingBarrierExpr(Varname name, uint32_t num_idx, const ArriveIdx* idx);
+
     // ******************************************************************************************
     // Add statements that don't have a body to the program.
     // ******************************************************************************************
     StmtRef add_SyncEnvAccess(  // single
         Varname name, size_t num_idx, const ExprRef* idx,
         qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, qual_bits_t atomic_qual_bits,
-        uint32_t is_mutate, uint32_t is_ooo);
+        uint32_t is_mutate, uint32_t is_ooo, TrailingBarrierExprRef trailing_barrier_expr);
     StmtRef add_SyncEnvAccess(  // window
         Varname name, size_t num_idx, const OffsetExtentExpr* idx,
         qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, qual_bits_t atomic_qual_bits,
-        uint32_t is_mutate, uint32_t is_ooo);
+        uint32_t is_mutate, uint32_t is_ooo, TrailingBarrierExprRef trailing_barrier_expr);
     StmtRef add_MutateValue(Varname name, size_t num_idx, const ExprRef* idx, binop op, ExprRef rhs);
     StmtRef add_Fence(
         uint32_t V1_transitive, qual_bits_t L1_qual_bits,
@@ -194,16 +196,19 @@ CAMSPORK_EXPORT camspork::ExprRef camspork_add_USub(camspork::ProgramBuilder* p_
 CAMSPORK_EXPORT camspork::ExprRef camspork_add_BinOp(camspork::ProgramBuilder* p_builder,
     camspork::binop op, camspork::ExprRef lhs, camspork::ExprRef rhs);
 
+CAMSPORK_EXPORT camspork::TrailingBarrierExprRef camspork_add_TrailingBarrierExpr(camspork::ProgramBuilder* p_builder,
+    camspork::Varname name, uint32_t num_idx, const camspork::ArriveIdx* idx);
+
 CAMSPORK_EXPORT camspork::StmtRef camspork_add_SyncEnvAccessSingle(camspork::ProgramBuilder* p_builder,
     camspork::Varname name, uint32_t num_idx, const camspork::ExprRef* idx,
     camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t extended_qual_bits,
     camspork::qual_bits_t atomic_qual_bits,
-    uint32_t is_mutate, uint32_t is_ooo);
+    uint32_t is_mutate, uint32_t is_ooo, camspork::TrailingBarrierExprRef trailing_barrier_expr);
 CAMSPORK_EXPORT camspork::StmtRef camspork_add_SyncEnvAccessWindow(camspork::ProgramBuilder* p_builder,
     camspork::Varname name, uint32_t num_idx, const camspork::OffsetExtentExpr* idx,
     camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t extended_qual_bits,
     camspork::qual_bits_t atomic_qual_bits,
-    uint32_t is_mutate, uint32_t is_ooo);
+    uint32_t is_mutate, uint32_t is_ooo, camspork::TrailingBarrierExprRef trailing_barrier_expr);
 CAMSPORK_EXPORT camspork::StmtRef camspork_add_MutateValue(camspork::ProgramBuilder* p_builder,
     camspork::Varname name, uint32_t num_idx, const camspork::ExprRef* idx, camspork::binop op, camspork::ExprRef rhs);
 CAMSPORK_EXPORT camspork::StmtRef camspork_add_Fence(camspork::ProgramBuilder* p_builder,

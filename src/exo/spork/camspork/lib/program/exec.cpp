@@ -258,6 +258,11 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         exec_sync_env_impl(node, env.stmt_ref_from_ptr(node));
     }
 
+    void operator() (const TrailingBarrierExpr* node)
+    {
+        fill_tmp_offset_barriers(node);
+    }
+
     template <bool IsMutate, bool IsWindow>
     void exec_sync_env_impl(const SyncEnvAccessNode<IsMutate, IsWindow>* node, StmtRef stmt_ref)
     {
@@ -266,6 +271,15 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         access.initial_qual_bit = node->initial_qual_bit;
         access.extended_qual_bits = node->extended_qual_bits;
         access.atomic_qual_bits = node->get_atomic_qual_bits();
+        access.barrier_count = 0;
+        access.trailing_barriers = nullptr;
+
+        // Prepare tmp_all_barriers (this uses tmp_offset as well).
+        if (node->trailing_barrier_expr) {
+            node->trailing_barrier_expr.dispatch(*this, buffer_size, p_buffer);
+            access.barrier_count = uint32_t(tmp_all_barriers.size());
+            access.trailing_barriers = tmp_all_barriers.data();
+        }
 
         // Prepare input: window or single assignment record
         using Input = std::conditional_t<IsWindow, AssignmentRecordWindow, assignment_record_id*>;
@@ -335,6 +349,18 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
 
     void exec_impl(const Arrive* node)
     {
+        const barrier_id home_barrier = fill_tmp_offset_barriers(node);
+
+        // Pass to SyncvTable.
+        on_arrive(env.p_syncv_table.get(), home_barrier, uint32_t(tmp_all_barriers.size()), tmp_all_barriers.data(),
+                node->V1_transitive, env.prepare_thread_cuboid(), node->L1_qual_bits);
+        env.maybe_syncv_debug_validate();
+    }
+
+    template <typename Node>
+    barrier_id fill_tmp_offset_barriers(const Node* node)
+    {
+        // Fill tmp_offset and tmp_all_barriers. Return home barrier.
         VarSlotEntry<barrier_id>& slot = env.barrier_slot(node->name);
         const std::vector<extent_t>& extent = slot.extent();
         const uint32_t dim = node->camspork_vla_size;
@@ -365,11 +391,7 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
             }
         };
         fill_barriers(0, 0, ~uint32_t(0), fill_barriers);
-
-        // Pass to SyncvTable.
-        on_arrive(env.p_syncv_table.get(), home_barrier, uint32_t(tmp_all_barriers.size()), tmp_all_barriers.data(),
-                node->V1_transitive, env.prepare_thread_cuboid(), node->L1_qual_bits);
-        env.maybe_syncv_debug_validate();
+        return home_barrier;
     }
 
     void exec_impl(const Await* node)

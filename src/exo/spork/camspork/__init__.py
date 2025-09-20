@@ -93,6 +93,15 @@ class ExprRef(Structure, BuilderExpr):
     def build_expr(self, builder):
         return self
 
+class TrailingBarrierExprRef(Structure):
+    _fields_ = [("raw_data", c_uint32)]
+    def __bool__(self):
+        return self.raw_data != 0  # 0 used to signal error (use check_return)
+    def __repr__(self):
+        return "camspork.TrailingBarrierExprRef(%i)" % self.raw_data
+
+null_trailing_barrier_expr = TrailingBarrierExprRef(0)
+
 class StmtRef(Structure):
     _fields_ = [("raw_data", c_uint32)]
     def __bool__(self):
@@ -188,13 +197,17 @@ _add_BinOp = lib.camspork_add_BinOp
 _add_BinOp.restype = ExprRef
 _add_BinOp.argtypes = (c_void_p, binop, ExprRef, ExprRef)
 
+_add_TrailingBarrierExpr = lib.camspork_add_TrailingBarrierExpr
+_add_TrailingBarrierExpr.restype = TrailingBarrierExprRef
+_add_TrailingBarrierExpr.argtypes = (c_void_p, Varname, c_uint32, POINTER(ArriveIdx))
+
 _add_SyncEnvAccessSingle = lib.camspork_add_SyncEnvAccessSingle
 _add_SyncEnvAccessSingle.restype = StmtRef
-_add_SyncEnvAccessSingle.argtypes = (c_void_p, Varname, c_size_t, ptr_ExprRef, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32)
+_add_SyncEnvAccessSingle.argtypes = (c_void_p, Varname, c_size_t, ptr_ExprRef, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, TrailingBarrierExprRef)
 
 _add_SyncEnvAccessWindow = lib.camspork_add_SyncEnvAccessWindow
 _add_SyncEnvAccessWindow.restype = StmtRef
-_add_SyncEnvAccessWindow.argtypes = (c_void_p, Varname, c_size_t, ptr_OffsetExtentExpr, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32)
+_add_SyncEnvAccessWindow.argtypes = (c_void_p, Varname, c_size_t, ptr_OffsetExtentExpr, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, TrailingBarrierExprRef)
 
 _add_MutateValue = lib.camspork_add_MutateValue
 _add_MutateValue.restype = StmtRef
@@ -469,7 +482,14 @@ class ProgramBuilder:
     def SyncEnvAccess(
             self, dst: BuilderIndexExpr | Varname, initial_qual_bit: int, extended_qual_bits: int, *,
             is_mutate: bool, is_ooo: bool, extent: Optional[List[BuilderExpr]] = None,
-            atomic_qual_bits: int = 0) -> StmtRef:
+            atomic_qual_bits: int = 0,
+            barrier: Optional[BuilderIndexExpr | Varname] = None,
+            multicasts: Tuple[Tuple[bool]] = ()) -> StmtRef:
+        if barrier is not None:
+            barrier_name, barrier_dim, barrier_idx = self._unpack_barrier(barrier, multicasts)
+            trailing_barrier_expr = check_return(_add_TrailingBarrierExpr(self._builder, barrier_name, barrier_dim, barrier_idx))
+        else:
+            trailing_barrier_expr = null_trailing_barrier_expr
         var, dim, offsets = dst.c_var_dim_idxs(self._builder)
         if extent:
             # Window variant -- have to interleave offsets and extents (of window)
@@ -483,7 +503,7 @@ class ProgramBuilder:
             # Single value variant
             c_func = _add_SyncEnvAccessSingle
             idxs = offsets
-        return check_return(c_func(self._builder, var, dim, idxs, initial_qual_bit, extended_qual_bits, atomic_qual_bits, bool(is_mutate), bool(is_ooo)))
+        return check_return(c_func(self._builder, var, dim, idxs, initial_qual_bit, extended_qual_bits, atomic_qual_bits, bool(is_mutate), bool(is_ooo), trailing_barrier_expr))
 
     def MutateValue(self, dst: BuilderIndexExpr | Varname, op, rhs) -> StmtRef:
         var, dim, idxs = dst.c_var_dim_idxs(self._builder)
@@ -493,19 +513,7 @@ class ProgramBuilder:
         return check_return(_add_Fence(self._builder, V1_transitive, L1_qual_bits, L2_full_qual_bits, L2_temporal_qual_bits))
 
     def Arrive(self, V1_transitive: bool, L1_qual_bits: int, dst: BuilderIndexExpr | Varname, multicasts: Tuple[Tuple[bool]]):
-        dst = BuilderExpr.typecheck(dst)
-        var, dim, e_idxs = dst.c_var_dim_idxs(self._builder)
-        arrive_idx = (ArriveIdx * dim)()
-        for dim_idx in range(dim):
-            arrive_idx[dim_idx].idx = e_idxs[dim_idx]
-            arrive_idx[dim_idx].multicast_per_expr = 0
-        # Pack multicast_flags into multicast_per_expr flags ("transposed bits")
-        assert len(multicasts) < 32
-        for barrier_expr_idx, multicast_flags in enumerate(multicasts):
-            assert len(multicast_flags) == dim
-            for dim_idx, f in enumerate(multicast_flags):
-                if f:
-                    arrive_idx[dim_idx].multicast_per_expr |= 1 << barrier_expr_idx
+        var, dim, arrive_idx = self._unpack_barrier(dst, multicasts)
         return check_return(_add_Arrive(self._builder, V1_transitive, L1_qual_bits, var, dim, arrive_idx))
 
     def Await(self, dst: BuilderIndexExpr, L2_full_qual_bits: int, L2_temporal_qual_bits: int, N: int):
@@ -564,6 +572,22 @@ class ProgramBuilder:
         assert isinstance(dim_idx, int)
         assert isinstance(split_factor, int)
         return BodyCtx(self._builder, lambda builder: _push_DomainSplit(builder, dim_idx, split_factor))
+
+    def _unpack_barrier(self, dst: BuilderIndexExpr | Varname, multicasts: Tuple[Tuple[bool]]):
+        dst = BuilderExpr.typecheck(dst)
+        var, dim, e_idxs = dst.c_var_dim_idxs(self._builder)
+        arrive_idx = (ArriveIdx * dim)()
+        for dim_idx in range(dim):
+            arrive_idx[dim_idx].idx = e_idxs[dim_idx]
+            arrive_idx[dim_idx].multicast_per_expr = 0
+        # Pack multicast_flags into multicast_per_expr flags ("transposed bits")
+        assert len(multicasts) < 32
+        for barrier_expr_idx, multicast_flags in enumerate(multicasts):
+            assert len(multicast_flags) == dim
+            for dim_idx, f in enumerate(multicast_flags):
+                if f:
+                    arrive_idx[dim_idx].multicast_per_expr |= 1 << barrier_expr_idx
+        return var, dim, arrive_idx
 
 
 def program(pyfunc):
@@ -679,7 +703,7 @@ if __name__ == "__main__":
                     b.BarrierEnvAlloc(bars[4, 2, 2])
                     tid = b.add_variable("tid")
                     with b.ThreadsFor(tid, 0, 24, 0, 0, 1):
-                        b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 2, 2, is_mutate=True, is_ooo=True, atomic_qual_bits=8)
+                        b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 2, 2, is_mutate=True, is_ooo=True, atomic_qual_bits=8192, barrier=bars[m, n, k], multicasts=((True, False, False),))
                     with b.ThreadsFor(tid, 0, 1, 0, 0, 14):
                         b.Arrive(True, 3, bars[m, n, k], ((True, False, True), (True, True, False)))
                         b.Await(bars[m, n, k], 3, 3, N=0)
@@ -689,7 +713,7 @@ if __name__ == "__main__":
     env = ProgramEnv(foo_barrier)
     env.set_debug_validation_enable(b_validation)
     env.alloc_scalar_value("m", 0)
-    env.alloc_scalar_value("n", 0)
+    env.alloc_scalar_value("n", 1)
     env.alloc_scalar_value("k", 0)
     env.exec(excut_filename="foo_barrier_excut.json")
     env.set_debug_validation_enable(True)  # defer to later

@@ -112,6 +112,17 @@ class ProgramPrinter
         }
     }
 
+    void operator() (const TrailingBarrierExpr* node)
+    {
+        // Prints additional keyword arguments for SyncEnvAccess(...)
+        *this << ", barrier=";
+        *this << node->name;
+        print_idx(node);
+        *this << ", multicasts=(";
+        print_multicasts(node);
+        *this << ")";
+    }
+
     template <bool IsMutate, bool IsWindow>
     void operator() (const SyncEnvAccessNode<IsMutate, IsWindow>* node)
     {
@@ -127,6 +138,10 @@ class ProgramPrinter
         if constexpr (node->is_window) {
             *this << ", extent=";
             print_idx(node, false);  // print extent
+        }
+        if (node->trailing_barrier_expr) {
+            // Invoke callback to print the barrier-specific arguments.
+            node->trailing_barrier_expr.dispatch(*this, buffer_size, program_buffer);
         }
         *this << ")\n";
     }
@@ -153,27 +168,9 @@ class ProgramPrinter
         *this << "b.Arrive(" << (node->V1_transitive ? "True" : "False") << ", " << node->L1_qual_bits;
         *this << ", " << node->name;
         print_idx(node);
-        const auto dim = node->camspork_vla_size;
         // multicasts: transpose bits in multicast_per_expr to recover this.
         *this << ", multicasts=(";
-        for (uint32_t expr_idx = 0; expr_idx < 32; ++expr_idx) {
-        if (dim > 0) {
-            CAMSPORK_REQUIRE_CMP(dim, <=, 32, "sorry, too many dims in Arrive to handle");
-                uint32_t multicast_flag_bits = 0;
-                for (uint32_t dim_idx = 0; dim_idx < dim; ++dim_idx) {
-                    ArriveIdx arrive_idx = node_vla_get(node, dim_idx);
-                    multicast_flag_bits |= uint32_t(arrive_idx[expr_idx]) << dim_idx;
-                }
-                if (multicast_flag_bits) {
-                    *this << "(";
-                    for (uint32_t dim_idx = 0; dim_idx < dim; ++dim_idx) {
-                        const auto f = 1u & (multicast_flag_bits >> dim_idx);
-                        *this << (f ? "True, " : "False, ");
-                    }
-                    *this << "), ";
-                }
-            }
-        }
+        print_multicasts(node);
         *this << "))\n";
     }
 
@@ -396,6 +393,30 @@ class ProgramPrinter
         const int spaces = indent_levels * 2;
         for (int i = 0; i < spaces; ++i) {
             stream << ' ';
+        }
+    }
+
+    template <typename Node>
+    void print_multicasts(const Node* node)
+    {
+        const auto dim = node->camspork_vla_size;
+        for (uint32_t expr_idx = 0; expr_idx < 32; ++expr_idx) {
+        if (dim > 0) {
+            CAMSPORK_REQUIRE_CMP(dim, <=, 32, "sorry, too many dims in Arrive to handle");
+                uint32_t multicast_flag_bits = 0;
+                for (uint32_t dim_idx = 0; dim_idx < dim; ++dim_idx) {
+                    ArriveIdx arrive_idx = node_vla_get(node, dim_idx);
+                    multicast_flag_bits |= uint32_t(arrive_idx[expr_idx]) << dim_idx;
+                }
+                if (multicast_flag_bits) {
+                    *this << "(";
+                    for (uint32_t dim_idx = 0; dim_idx < dim; ++dim_idx) {
+                        const auto f = 1u & (multicast_flag_bits >> dim_idx);
+                        *this << (f ? "True, " : "False, ");
+                    }
+                    *this << "), ";
+                }
+            }
         }
     }
 };
