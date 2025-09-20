@@ -743,16 +743,27 @@ class DistributedIdxFsm:
             # Will check equivalence with previous stmt of paired sync type
             if sync_type.is_arrive():
                 guarded_by = barrier_usage.guarded_by
-                f_text = f"Await({guarded_by}, ...)"
+                f_text = f"Await({guarded_by}, ...) [guarded_by]"
                 other_state = get_state(guarded_by)
                 if other_state is not None:
                     other_coll_tiling = other_state.await_coll_tiling
             else:
                 guards = barrier_usage.guards
-                f_text = f"Arrive(...) >> {guards}"
+                f_text = f"Arrive(...) >> {guards} [guards]"
                 other_state = get_state(guards)
                 if other_state is not None:
                     other_coll_tiling = other_state.arrive_coll_tiling
+            if other_coll_tiling is not None:
+                to_check.append((other_coll_tiling, f_text))
+
+        if not barrier_usage.barrier_type.traits().different_arrive_await_threads:
+            # Will check equivalence between Arrive/Await.
+            if sync_type.is_arrive():
+                f_text = f"Await({nm}) [different_arrive_await_threads=False]"
+                other_coll_tiling = state.await_coll_tiling
+            else:
+                f_text = f"Arrive(...) >> {nm} [different_arrive_await_threads=False]"
+                other_coll_tiling = state.arrive_coll_tiling
             if other_coll_tiling is not None:
                 to_check.append((other_coll_tiling, f_text))
 

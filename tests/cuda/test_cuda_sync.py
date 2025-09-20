@@ -353,17 +353,31 @@ def test_cluster_sync_unit_await(compiler):
     assert "Await" in msg
 
 
-def mkproc_commit_group(first_sync_tl, second_sync_tl, unit):
+def mkproc_commit_group(
+    first_sync_tl, second_sync_tl, unit, await_first=False, different_warps=False
+):
+    warps_lo = 8 if different_warps else 4
+    warps_hi = 16 if different_warps else 12
+    arrive_first = not await_first
+
     @proc
     def test_proc():
-        with CudaDeviceFunction(blockDim=256):
+        with CudaDeviceFunction(blockDim=512):
             for task in cuda_tasks(0, 1):
                 cg: barrier[2] @ CudaCommitGroup
-                for t in cuda_threads(0, 2, unit=unit):
-                    Arrive(first_sync_tl, 1) >> cg[t]
-                    Await(cg[t], second_sync_tl, 0)
+                if arrive_first:
+                    with CudaWarps(4, 12):
+                        for t in cuda_threads(0, 2, unit=unit):
+                            Arrive(first_sync_tl, 1) >> cg[t]
+                with CudaWarps(warps_lo, warps_hi):
+                    for t in cuda_threads(0, 2, unit=unit):
+                        Await(cg[t], second_sync_tl, 1)
+                if await_first:
+                    with CudaWarps(4, 12):
+                        for t in cuda_threads(0, 2, unit=unit):
+                            Arrive(first_sync_tl, 1) >> cg[t]
 
-    return test_proc
+    return simplify(test_proc)
 
 
 def test_wgmma_commit_group_async_proxy(compiler, golden):
@@ -406,6 +420,58 @@ def test_bad_first_sync_tl_commit_group(compiler):
     assert "cg" in msg
     assert "Arrive" in msg
     assert "tma_to_smem_async" in msg
+
+
+def test_commit_group_await_first_positive(compiler, golden):
+    compiler.cuda_cpu_test(
+        mkproc_commit_group,
+        first_sync_tl=Sm80_cp_async,
+        second_sync_tl=cuda_in_order,
+        unit=cuda_thread,
+        await_first=True,
+        different_warps=False,
+        golden=golden,
+    )
+
+
+def test_commit_group_await_first_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(
+            mkproc_commit_group,
+            first_sync_tl=Sm80_cp_async,
+            second_sync_tl=cuda_in_order,
+            unit=cuda_thread,
+            await_first=True,
+            different_warps=True,
+        )
+    msg = str(exc.value)
+    assert "inconsistent collective tiling with previous Await" in msg
+
+
+def test_commit_group_arrive_first_positive(compiler, golden):
+    compiler.cuda_cpu_test(
+        mkproc_commit_group,
+        first_sync_tl=Sm80_cp_async,
+        second_sync_tl=cuda_in_order,
+        unit=cuda_thread,
+        await_first=False,
+        different_warps=False,
+        golden=golden,
+    )
+
+
+def test_commit_group_arrive_first_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(
+            mkproc_commit_group,
+            first_sync_tl=Sm80_cp_async,
+            second_sync_tl=cuda_in_order,
+            unit=cuda_thread,
+            await_first=False,
+            different_warps=True,
+        )
+    msg = str(exc.value)
+    assert "inconsistent collective tiling with previous Arrive" in msg
 
 
 @dataclass(slots=True)

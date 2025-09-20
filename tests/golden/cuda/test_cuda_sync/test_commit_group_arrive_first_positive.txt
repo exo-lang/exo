@@ -2,8 +2,8 @@
 // .h
 // ########################################################################
 #pragma once
-#ifndef TEST_WGMMA_COMMIT_GROUP_ASYNC_PROXY_H
-#define TEST_WGMMA_COMMIT_GROUP_ASYNC_PROXY_H
+#ifndef TEST_COMMIT_GROUP_ARRIVE_FIRST_POSITIVE_H
+#define TEST_COMMIT_GROUP_ARRIVE_FIRST_POSITIVE_H
 
 
 #include <stdint.h>
@@ -114,13 +114,13 @@ void exo_cudaLaunch0_test_proc(cudaStream_t exo_cudaStream, const struct exo_Cud
 #endif
 
 
-#endif  // TEST_WGMMA_COMMIT_GROUP_ASYNC_PROXY_H
+#endif  // TEST_COMMIT_GROUP_ARRIVE_FIRST_POSITIVE_H
 
 
 // ########################################################################
 // .c
 // ########################################################################
-#include "test_wgmma_commit_group_async_proxy.h"
+#include "test_commit_group_arrive_first_positive.h"
 
 /* Required by DRAM */
 #ifndef EXO_MEMORY_GLOBAL_DRAM
@@ -153,9 +153,9 @@ void test_proc( void *ctxt ) {
 // .cuh
 // ########################################################################
 #pragma once
-#include "test_wgmma_commit_group_async_proxy.h"
+#include "test_commit_group_arrive_first_positive.h"
 #if EXO_EXCUT_bENABLE_LOG
-#include "test_wgmma_commit_group_async_proxy.excut_str_table"
+#include "test_commit_group_arrive_first_positive.excut_str_table"
 #endif
 /* Required by DRAM */
 #ifndef EXO_MEMORY_GLOBAL_DRAM
@@ -165,9 +165,9 @@ void test_proc( void *ctxt ) {
 
 #endif
 
-namespace exo_CudaUtil_test_wgmma_commit_group_async_proxy {
-namespace exo_CudaUtil = ::exo_CudaUtil_test_wgmma_commit_group_async_proxy;
-}  // end namespace exo_CudaUtil_test_wgmma_commit_group_async_proxy
+namespace exo_CudaUtil_test_commit_group_arrive_first_positive {
+namespace exo_CudaUtil = ::exo_CudaUtil_test_commit_group_arrive_first_positive;
+}  // end namespace exo_CudaUtil_test_commit_group_arrive_first_positive
 // CUDA device function args -- duplicated in .c file
 struct exo_CudaDeviceArgs0_test_proc
 {
@@ -175,7 +175,7 @@ struct exo_CudaDeviceArgs0_test_proc
 };
 
 // We need this inline namespace to avoid ODR problems in pytest.
-inline namespace exo_CudaInline_test_wgmma_commit_group_async_proxy {
+inline namespace exo_CudaInline_test_commit_group_arrive_first_positive {
 struct exo_Cuda0_test_proc
 {
   using exo_DeviceArgs = exo_CudaDeviceArgs0_test_proc;
@@ -221,11 +221,11 @@ struct exo_Cuda0_test_proc
 }  // end inline namespace
 
 inline void
-exo_CudaInline_test_wgmma_commit_group_async_proxy::exo_Cuda0_test_proc::exo_cudaLaunch(
+exo_CudaInline_test_commit_group_arrive_first_positive::exo_Cuda0_test_proc::exo_cudaLaunch(
     cudaStream_t exo_cudaStream,
     const exo_DeviceArgs& exo_deviceArgs)
 {
-  namespace exo_CudaUtil = exo_CudaUtil_test_wgmma_commit_group_async_proxy;
+  namespace exo_CudaUtil = exo_CudaUtil_test_commit_group_arrive_first_positive;
   cudaFuncSetAttribute(exo_deviceFunction0_test_proc, cudaFuncAttributeMaxDynamicSharedMemorySize, exo_smemBytes);
   // TODO how expensive is it to query this every time?
   int exo_cudaDevice;
@@ -249,7 +249,7 @@ exo_CudaInline_test_wgmma_commit_group_async_proxy::exo_Cuda0_test_proc::exo_cud
 }
 
 __device__ __forceinline__ void
-exo_CudaInline_test_wgmma_commit_group_async_proxy::exo_Cuda0_test_proc::exo_deviceSetup(
+exo_CudaInline_test_commit_group_arrive_first_positive::exo_Cuda0_test_proc::exo_deviceSetup(
     char* exo_smem,
     const exo_DeviceArgs& exo_deviceArgs,
     exo_ExcutThreadLog exo_excutLog)
@@ -258,46 +258,46 @@ exo_CudaInline_test_wgmma_commit_group_async_proxy::exo_Cuda0_test_proc::exo_dev
 }
 
 __device__ __forceinline__ void
-exo_CudaInline_test_wgmma_commit_group_async_proxy::exo_Cuda0_test_proc::exo_deviceTask(
+exo_CudaInline_test_commit_group_arrive_first_positive::exo_Cuda0_test_proc::exo_deviceTask(
     char* exo_smem,
     exo_SyncState& exo_syncState,
     const exo_DeviceArgs& exo_deviceArgs,
     exo_Task exo_task,
     exo_ExcutThreadLog exo_excutLog)
 {
-  namespace exo_CudaUtil = exo_CudaUtil_test_wgmma_commit_group_async_proxy;
+  namespace exo_CudaUtil = exo_CudaUtil_test_commit_group_arrive_first_positive;
   // cg: barrier[2] @ CudaCommitGroup
   // CudaWarps(4, 12)
   if (int CudaWarps_4_12_ = threadIdx.x; CudaWarps_4_12_ >= 128 && CudaWarps_4_12_ < 384) {
-    // cuda_threads(0, 2, unit=cuda_warpgroup)
-    if ([[maybe_unused]] int exo_128thr_t = ((threadIdx.x - 128) / 128); 1) {
-      // Arrive(wgmma_async, 1) >> cg[t]
+    // cuda_threads(0, 2, unit=cuda_thread)
+    if (int exo_1thr_t = (threadIdx.x - 128); exo_1thr_t < 2) {
+      // Arrive(Sm80_cp_async, 1) >> cg[t]
       asm volatile(
-        "wgmma.commit_group.sync.aligned;"
+        "cp.async.commit_group;"
       );
-      exo_excutLog.log_action(EXO_EXCUT_STR_ID(wgmma_commit_group_sync_aligned), 0, __LINE__);
+      exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_commit_group), 0, __LINE__);
     }
   }
   // CudaWarps(4, 12)
   if (int CudaWarps_4_12_ = threadIdx.x; CudaWarps_4_12_ >= 128 && CudaWarps_4_12_ < 384) {
-    // cuda_threads(0, 2, unit=cuda_warpgroup)
-    if ([[maybe_unused]] int exo_128thr_t = ((threadIdx.x - 128) / 128); 1) {
-      // Await(cg[t], tma_to_gmem_async, 1)
+    // cuda_threads(0, 2, unit=cuda_thread)
+    if (int exo_1thr_t = (threadIdx.x - 128); exo_1thr_t < 2) {
+      // Await(cg[t], cuda_in_order, 1)
       asm volatile(
-        "wgmma.wait_group.sync.aligned 1;"
+        "cp.async.wait_group 1;"
       );
-      exo_excutLog.log_action(EXO_EXCUT_STR_ID(wgmma_wait_group_sync_aligned), 0, __LINE__);
+      exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_wait_group), 0, __LINE__);
       exo_excutLog.log_u32_arg(static_cast<uint32_t>(1));
     }
   }
 }
 __device__ __forceinline__ void
-exo_CudaInline_test_wgmma_commit_group_async_proxy::exo_Cuda0_test_proc::exo_deviceMainLoop(
+exo_CudaInline_test_commit_group_arrive_first_positive::exo_Cuda0_test_proc::exo_deviceMainLoop(
     char* exo_smem,
     const exo_DeviceArgs& exo_deviceArgs,
     exo_ExcutThreadLog exo_excutLog)
 {
-  namespace exo_CudaUtil = exo_CudaUtil_test_wgmma_commit_group_async_proxy;
+  namespace exo_CudaUtil = exo_CudaUtil_test_commit_group_arrive_first_positive;
   exo_SyncState exo_syncState{};
   unsigned exo_taskIndex = 0;
   int32_t nreg;
@@ -318,7 +318,7 @@ exo_CudaInline_test_wgmma_commit_group_async_proxy::exo_Cuda0_test_proc::exo_dev
 // ########################################################################
 // .cu
 // ########################################################################
-#include "test_wgmma_commit_group_async_proxy.cuh"
+#include "test_commit_group_arrive_first_positive.cuh"
 __launch_bounds__(512, 1)
 __global__ void
 exo_deviceFunction0_test_proc(__grid_constant__ const struct exo_CudaDeviceArgs0_test_proc exo_deviceArgs)
