@@ -337,31 +337,6 @@ class CollIndexExpr(object):
         assert isinstance(result, int)
         return result
 
-    # TODO REMOVE
-    def equiv_index(self, other):
-        """Algebraic equivalence; intentionally not =="""
-        assert isinstance(other, CollIndexExpr)
-        if self.base_expr != other.base_expr:
-            return False
-
-        lo0, hi0 = self._get_test_bounds()
-        lo1, hi1 = other._get_test_bounds()
-
-        # Test equality in the union of the two expr's test ranges.
-        # There's probably a smarter way to do this than brute force...
-        return all(self(n) == other(n) for n in range(min(lo0, lo1), max(hi0, hi1)))
-
-    def _get_test_bounds(self):
-        if self.base_hi is not None:
-            return (0, self.base_hi)
-        _ops = self.ops
-        if _ops and _ops[0][0] == "%":
-            # If the inner-most expression is var % M, then we can
-            # test var in [0, M-1] ... non-equalities from this simplification
-            # will be handled due "union of the two expr's test ranges" above.
-            return (0, _ops[0][1])
-        raise ValueError(f"Internal error: missing bounds for {self}")
-
     def codegen(self):
         """Assuming C for now. Should be usable downstream without further parenthesization"""
         simple = lambda s: all(c.isalnum() or c == "." for c in s)
