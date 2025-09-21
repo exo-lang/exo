@@ -421,7 +421,6 @@ class CollAnalysis(LoopIR_Rewrite):
         is_top_level = self._current_warp_name is None
         named_warps = self._cuda_device_function.named_warps
 
-        top_am_idx_factors = None
         top_am_dim_idx = None
         top_am_offset = -1
         top_am_box = -1
@@ -472,7 +471,6 @@ class CollAnalysis(LoopIR_Rewrite):
                 self._coll_env,
             )
             codegen = coll_tiling.get_codegen()
-            top_am_idx_factors = codegen.dim_idx_factors
             top_am_dim_idx = codegen.dim_idx
             top_am_offset = codegen.offset
             top_am_box = codegen.box
@@ -512,7 +510,6 @@ class CollAnalysis(LoopIR_Rewrite):
             str(ctx),
             name,
             mangle=False,
-            prior_am_idx_factors=top_am_idx_factors,
             prior_am_dim_idx=top_am_dim_idx,
             prior_am_offset=top_am_offset,
             prior_am_box=top_am_box,

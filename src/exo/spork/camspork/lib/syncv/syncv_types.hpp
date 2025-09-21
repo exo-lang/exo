@@ -93,31 +93,6 @@ struct ThreadCuboid
     uint32_t* box() { return box_data; }
     const uint32_t* box() const { return box_data; }
 
-    // domain[dim_idx: dim_idx + 1] = [domain_0, domain_1]
-    // offset[dim_idx: dim_idx + 1] = [offset_0, offset_1]
-    // box[dim_idx: dim_idx + 1] = [box_0, box_1]
-    void split_replace(
-        uint32_t dim_idx,
-        uint32_t domain_0, uint32_t domain_1,
-        uint32_t offset_0, uint32_t offset_1,
-        uint32_t box_0, uint32_t box_1)
-    {
-        const uint32_t new_dim = dim() + 1;
-        CAMSPORK_REQUIRE_CMP(new_dim, <=, max_dim, "implementation limit: ThreadCuboid::max_dim exceeded");
-        dim_data = new_dim;
-        for (uint32_t dst = new_dim - 1; dst > dim_idx; --dst) {
-            domain_data[dst] = domain_data[dst - 1];
-            offset_data[dst] = offset_data[dst - 1];
-            box_data[dst] = box_data[dst - 1];
-        }
-        domain_data[dim_idx] = domain_0;
-        domain_data[dim_idx + 1] = domain_1;
-        offset_data[dim_idx] = offset_0;
-        offset_data[dim_idx + 1] = offset_1;
-        box_data[dim_idx] = box_0;
-        box_data[dim_idx + 1] = box_1;
-    }
-
     uint32_t domain_num_threads() const
     {
         uint32_t prod = 1;
@@ -174,6 +149,57 @@ struct ThreadCuboid
             tid_hi_inclusive = tid_hi_inclusive * domain_c + (offset_c + box_c - 1u);
         }
         return {tid_lo, tid_hi_inclusive + 1u};
+    }
+
+    void reshape(uint32_t new_dim, const uint32_t* new_domain)
+    {
+        CAMSPORK_REQUIRE_CMP(new_dim, <=, max_dim, "Implementation limit exceeded: maximum DomainReshape dimensions");
+        CAMSPORK_REQUIRE_CMP(new_dim, >=, dim(), "Invalid reshape that reduces dimensionality");
+
+        uint32_t new_num_threads = 1;
+        for (uint32_t i = 0; i < new_dim; ++i) {
+            CAMSPORK_REQUIRE_CMP(new_domain[i], >=, 2, "Domain coordinate must be at least 2");
+            new_num_threads *= new_domain[i];
+        }
+        CAMSPORK_REQUIRE_CMP(new_num_threads, ==, domain_num_threads(), "wrong thread count for DomainReshape");
+
+        // Update offset & box for new domain.
+        // Each original coordinate splits into 1 or more new coordinates.
+        uint32_t new_i = new_dim;
+        for (uint32_t old_i = dim(); old_i > 0; ) {
+            --old_i;
+            const uint32_t old_box_c = box_data[old_i];
+            const uint32_t old_offset_c = offset_data[old_i];
+            const uint32_t old_domain_c = domain_data[old_i];
+
+            // This old dimension splits into 1 or more new dimensions.
+            uint32_t domain_prod = 1;
+            uint32_t box_quot = old_box_c;
+            uint32_t offset_quot = old_offset_c;
+            while (domain_prod < old_domain_c) {
+                CAMSPORK_REQUIRE_CMP(new_i, >, 0, "Shouldn't happen given earlier thread count check");
+                --new_i;
+                const uint32_t new_domain_c = new_domain[new_i];
+                domain_prod *= new_domain_c;
+
+                CAMSPORK_REQUIRE_CMP(new_i, >=, old_i, "In-place overwrite is unsafe");
+                if (box_quot <= new_domain_c) {
+                    box_data[new_i] = box_quot;
+                    box_quot = 1;
+                }
+                else {
+                    box_data[new_i] = new_domain_c;
+                    CAMSPORK_REQUIRE_CMP(box_quot % new_domain_c, ==, 0, "thread box misaligned for DomainReshape");
+                    box_quot = box_quot / new_domain_c;
+                }
+                offset_data[new_i] = offset_quot % new_domain_c;
+                offset_quot = offset_quot / new_domain_c;
+                domain_data[new_i] = new_domain_c;
+            }
+            CAMSPORK_REQUIRE_CMP(domain_prod, ==, old_domain_c, "DomainReshape can only split dimensions");
+        }
+
+        dim_data = new_dim;
     }
 };
 

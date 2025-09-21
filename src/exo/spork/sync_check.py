@@ -1,4 +1,4 @@
-from typing import Callable, Dict, Optional, Type, List, Set
+from typing import Callable, Dict, Optional, Type, List, Set, Tuple
 
 from ..core.memory import MemWin, BarrierType
 from ..core.prelude import Sym
@@ -27,6 +27,7 @@ class CamsporkDo(LoopIR_Do):
         "_device",
         "_default_instr_tl",
         "_tmp_call_args",
+        "_domain",
     ]
 
     _builder: camspork.ProgramBuilder
@@ -39,6 +40,7 @@ class CamsporkDo(LoopIR_Do):
     _device: DeviceScope
     _default_instr_tl: Instr_tl
     _tmp_call_args: Dict[Sym, LoopIR.expr]
+    _domain: Tuple[int]
 
     def __init__(
         self,
@@ -58,6 +60,7 @@ class CamsporkDo(LoopIR_Do):
         self._device = timelines.cpu_basic_device
         self._default_instr_tl = timelines.cpu_basic_device.get_default_instr_tl()
         self._tmp_call_args = {}
+        self._domain = ()
 
         b = self._builder
 
@@ -149,7 +152,10 @@ class CamsporkDo(LoopIR_Do):
                 # implicit cuda_stream -> cuda_stream sync after.
                 b.Fence(True, cpu_bit | cuda_bits, cuda_bits, cuda_bits)
                 with b.ParallelBlock(*domain):
+                    old_domain = self._domain
+                    self._domain = domain
                     self.do_stmts(s.body)
+                    self._domain = old_domain
                 b.Fence(True, cuda_bits, cuda_bits, cuda_bits)
             else:
                 self.do_stmts(s.body)
@@ -177,7 +183,7 @@ class CamsporkDo(LoopIR_Do):
                 with b.TasksFor(am_iter, am_lo, am_hi):
                     self.do_stmts(s.body)
             elif isinstance(loop_mode, _CodegenPar):
-                self.do_codegen_par(s, 0, am_iter, am_lo, am_hi)
+                self.do_codegen_par(s, am_iter, am_lo, am_hi)
             else:
                 assert not isinstance(loop_mode, CudaThreads), "Need CollAnalysis"
                 raise TypeError(
@@ -256,23 +262,28 @@ class CamsporkDo(LoopIR_Do):
                 idx[i] = LoopIR.Const(0, T.int, idx_e.srcinfo)
         return self.comp_index_expr(bar_e.name, idx, instr_tl), (multicast_flags,)
 
-    def do_codegen_par(self, s: LoopIR.For, split_idx: int, am_iter, am_lo, am_hi):
+    def do_codegen_par(self, s: LoopIR.For, am_iter, am_lo, am_hi):
         b = self._builder
         loop_mode = s.loop_mode
-        am_idx_factors = loop_mode.am_idx_factors
-        if split_idx < len(am_idx_factors):
-            dim_idx, split_factor = am_idx_factors[split_idx]
-            with b.DomainSplit(dim_idx, split_factor):
-                self.do_codegen_par(s, split_idx + 1, am_iter, am_lo, am_hi)
-        elif None is (dim_idx := loop_mode.am_dim_idx):
+        if None is (dim_idx := loop_mode.am_dim_idx):
             # Do-nothing parallel-for loop.
             with b.SeqFor(am_iter, am_lo, am_hi):
                 self.do_stmts(s.body)
         else:
-            with b.ThreadsFor(
+            loops_ctx = b.ThreadsFor(
                 am_iter, am_lo, am_hi, dim_idx, loop_mode.am_offset, loop_mode.am_box
-            ):
-                self.do_stmts(s.body)
+            )
+            new_domain = loop_mode.domain
+            if new_domain == self._domain:
+                with loops_ctx:
+                    self.do_stmts(s.body)
+            else:
+                old_domain = self._domain
+                self._domain = new_domain
+                with b.DomainReshape(*new_domain):
+                    with loops_ctx:
+                        self.do_stmts(s.body)
+                self._domain = old_domain
 
     # We emit SyncEnvRead for all reads found (filtered by sync_syms)
     # and translate the LoopIR expr to a camspork.BuilderExpr.

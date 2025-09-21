@@ -706,15 +706,13 @@ struct stmt<18>
     CAMSPORK_NODE_VLA_MEMBER(uint32_t)
 };
 
-// DomainSplit(stmt body, int dim_idx, int split_factor)
-using DomainSplit = stmt<19>;
+// DomainReshape(stmt body, int* domain)
+using DomainReshape = stmt<19>;
 template<>
 struct stmt<19>
 {
     StmtRef body;
-    uint32_t dim_idx;
-    uint32_t split_factor;
-    CAMSPORK_NODE_NO_VLA()
+    CAMSPORK_NODE_VLA_MEMBER(uint32_t)
 };
 
 // Update this if you add more stmt node types.

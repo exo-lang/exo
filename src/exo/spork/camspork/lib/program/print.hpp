@@ -294,10 +294,14 @@ class ProgramPrinter
         indent_levels--;
     }
 
-    void operator() (const DomainSplit* node)
+    void operator() (const DomainReshape* node)
     {
         print_tabs();
-        *this << "with b.DomainSplit(" << node->dim_idx << ", " << node->split_factor << "):\n";
+        *this << "with b.DomainReshape(";
+        for (uint32_t i = 0; i < node->camspork_vla_size; ++i) {
+            *this << node_vla_get(node, i) << ", ";
+        }
+        *this << "):\n";
         indent_levels++;
         *this << node->body;
         indent_levels--;

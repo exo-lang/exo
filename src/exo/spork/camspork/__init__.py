@@ -261,9 +261,9 @@ _push_ParallelBlock = lib.camspork_push_ParallelBlock
 _push_ParallelBlock.restype = StmtRef
 _push_ParallelBlock.argtypes = (c_void_p, c_uint32, ptr_uint32)
 
-_push_DomainSplit = lib.camspork_push_DomainSplit
-_push_DomainSplit.restype = StmtRef
-_push_DomainSplit.argtypes = (c_void_p, c_uint32, c_uint32)
+_push_DomainReshape = lib.camspork_push_DomainReshape
+_push_DomainReshape.restype = StmtRef
+_push_DomainReshape.argtypes = (c_void_p, c_uint32, ptr_uint32)
 
 _pop_body = lib.camspork_pop_body
 _pop_body.restype = c_int
@@ -356,6 +356,17 @@ class BodyCtx:
     orelse: StmtRef
 
     def __init__(self, builder, on_enter):
+        """Note this doesn't actually do anything until __enter__. This way
+
+        x = b.foo()
+        y = b.bar()
+        with y:
+            with x:
+                ...
+
+        works correctly (i.e. y is built second, but scoped first).
+
+        """
         self._builder = builder
         self._on_enter = on_enter
 
@@ -568,10 +579,10 @@ class ProgramBuilder:
         array = (c_uint32 * dim)(*coords)
         return BodyCtx(self._builder, lambda builder: _push_ParallelBlock(builder, dim, array))
 
-    def DomainSplit(self, dim_idx: int, split_factor: int) -> BodyCtx:
-        assert isinstance(dim_idx, int)
-        assert isinstance(split_factor, int)
-        return BodyCtx(self._builder, lambda builder: _push_DomainSplit(builder, dim_idx, split_factor))
+    def DomainReshape(self, *coords) -> BodyCtx:
+        dim = len(coords)
+        array = (c_uint32 * dim)(*coords)
+        return BodyCtx(self._builder, lambda builder: _push_DomainReshape(builder, dim, array))
 
     def _unpack_barrier(self, dst: BuilderIndexExpr | Varname, multicasts: Tuple[Tuple[bool]]):
         dst = BuilderExpr.typecheck(dst)

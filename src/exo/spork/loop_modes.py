@@ -116,8 +116,7 @@ class _CodegenPar:
     # whose name matches the str given.
     warp_name_filter: Optional[str]
 
-    # Arguments for amspork DomainSplit, outer-to-inner.
-    am_idx_factors: List[Tuple[int, int]]
+    domain: Tuple[int]
 
     # Arguments for amspork ThreadsFor
     # am_dim_idx=None when the ThreadsFor should be omitted

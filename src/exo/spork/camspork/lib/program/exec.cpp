@@ -614,43 +614,10 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         env.dirty_task_index = false;
     }
 
-    void exec_impl(const DomainSplit* node)
+    void exec_impl(const DomainReshape* node)
     {
         ThreadCuboid new_cuboid = env.prepare_thread_cuboid();  // Must update task_index here!
-        const uint32_t split_idx = node->dim_idx;
-        const uint32_t split_factor = node->split_factor;
-        CAMSPORK_REQUIRE_CMP(split_idx, <, new_cuboid.dim(), "out-of-range DomainSplit::dim_idx");
-        CAMSPORK_REQUIRE_CMP(split_factor, >=, 1, "invalid DomainSplit::split_factor");
-
-        const uint32_t domain_c = new_cuboid.domain()[split_idx];
-        if (domain_c == split_factor || split_factor == 1) {
-            // Unchanged.
-        }
-        else {
-            const uint32_t offset_c = new_cuboid.offset()[split_idx];
-            const uint32_t box_c = new_cuboid.box()[split_idx];
-            CAMSPORK_REQUIRE_CMP(domain_c % split_factor, ==, 0, "Invalid DomainSplit::split_factor for current env");
-            CAMSPORK_REQUIRE_CMP(offset_c % split_factor, ==, 0, "Invalid DomainSplit::split_factor for current env");
-
-            const uint32_t offset_0 = offset_c / split_factor;
-            const uint32_t offset_1 = 0;
-            const uint32_t domain_0 = domain_c / split_factor;
-            const uint32_t domain_1 = split_factor;
-            uint32_t box_0, box_1;
-            if (box_c < domain_c) {
-                box_0 = 1;
-                box_1 = box_c;
-            }
-            else {
-                CAMSPORK_REQUIRE_CMP(box_c % split_factor, ==, 0, "Invalid DomainSplit::split_factor for current env");
-                box_0 = box_c / split_factor;
-                box_1 = split_factor;
-            }
-
-            // Insert new domain/offset/box coordinates in place of the old ones.
-            new_cuboid.split_replace(split_idx, domain_0, domain_1, offset_0, offset_1, box_0, box_1);
-        }
-
+        new_cuboid.reshape(node->camspork_vla_size, &node_vla_get_unsafe(node, 0));
         // Execute body with new thread cuboid, and restore before returning (~SwapThreadCuboid).
         SwapThreadCuboid swap(&env.raw_thread_cuboid, new_cuboid);
         exec(node->body);

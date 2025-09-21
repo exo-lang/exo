@@ -57,7 +57,7 @@ struct BodyBuilder
     void operator() (TasksFor* node) { set_body_common(node); }
     void operator() (ThreadsFor* node) { set_body_common(node); }
     void operator() (ParallelBlock* node) { set_body_common(node); }
-    void operator() (DomainSplit* node) { set_body_common(node); }
+    void operator() (DomainReshape* node) { set_body_common(node); }
 
     void begin_orelse();
     StmtRef body_to_nursery() const;
@@ -156,7 +156,7 @@ class ProgramBuilder
     StmtRef push_TasksFor(Varname iter, ExprRef lo, ExprRef hi);
     StmtRef push_ThreadsFor(Varname iter, ExprRef lo, ExprRef hi, uint32_t dim_idx, uint32_t offset, uint32_t box);
     StmtRef push_ParallelBlock(size_t dim, const uint32_t* domain);
-    StmtRef push_DomainSplit(uint32_t dim_idx, uint32_t split_factor);
+    StmtRef push_DomainReshape(size_t dim, const uint32_t* domain);
 
   private:
     void check_not_finished() const;
@@ -240,7 +240,7 @@ CAMSPORK_EXPORT camspork::StmtRef camspork_push_ThreadsFor(camspork::ProgramBuil
     camspork::Varname iter, camspork::ExprRef lo, camspork::ExprRef hi, uint32_t dim_idx, uint32_t offset, uint32_t box);
 CAMSPORK_EXPORT camspork::StmtRef camspork_push_ParallelBlock(camspork::ProgramBuilder* p_builder,
     uint32_t dim, const uint32_t* domain);
-CAMSPORK_EXPORT camspork::StmtRef camspork_push_DomainSplit(camspork::ProgramBuilder* p_builder,
-    uint32_t dim_idx, uint32_t split_factor);
+CAMSPORK_EXPORT camspork::StmtRef camspork_push_DomainReshape(camspork::ProgramBuilder* p_builder,
+    uint32_t dim, const uint32_t* domain);
 CAMSPORK_EXPORT int camspork_pop_body(camspork::ProgramBuilder* p_builder,
     camspork::StmtRef* out_body, camspork::StmtRef* out_orelse);

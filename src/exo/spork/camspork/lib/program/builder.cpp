@@ -247,12 +247,9 @@ StmtRef ProgramBuilder::push_ParallelBlock(size_t dim, const uint32_t* domain)
     return push_impl(ParallelBlock{}, dim, domain);
 }
 
-StmtRef ProgramBuilder::push_DomainSplit(uint32_t dim_idx, uint32_t split_factor)
+StmtRef ProgramBuilder::push_DomainReshape(size_t dim, const uint32_t* domain)
 {
-    DomainSplit node;
-    node.dim_idx = dim_idx;
-    node.split_factor = split_factor;
-    return push_impl(node);
+    return push_impl(DomainReshape{}, dim, domain);
 }
 
 void ProgramBuilder::check_not_finished() const
@@ -534,11 +531,11 @@ camspork::StmtRef camspork_push_ParallelBlock(camspork::ProgramBuilder* p_builde
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
-camspork::StmtRef camspork_push_DomainSplit(camspork::ProgramBuilder* p_builder,
-    uint32_t dim_idx, uint32_t split_factor)
+camspork::StmtRef camspork_push_DomainReshape(camspork::ProgramBuilder* p_builder,
+    uint32_t dim, const uint32_t* domain)
 {
     CAMSPORK_API_PROLOGUE
-    return p_builder->push_DomainSplit(dim_idx, split_factor);
+    return p_builder->push_DomainReshape(dim, domain);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
