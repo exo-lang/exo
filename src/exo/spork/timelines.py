@@ -418,7 +418,15 @@ wgmma_fence_1 = Sync_tl(
 this is the second sync-tl of wgmma.fence"""
 wgmma_fence_2 = Sync_tl("wgmma_fence_2", False, _wgmma_rmem_quals)
 
-"""wgmma instructions, transitive"""
+"""wgmma instructions, transitive.
+
+The transitivity is needed to break WAW/WAR hazards with the 3 step cycle:
+
+TMA_to_smem -> wgmma            [producer->consumer mbarrier]
+wgmma -> cuda_in_order          [commit group]
+cuda_in_order -> TMA_to_smem    [consumer->producer mbarrier]
+
+"""
 wgmma_async = Sync_tl(
     "wgmma_async", True, _wgmma_async_quals, for_instr_tl=wgmma_async_instr
 )
