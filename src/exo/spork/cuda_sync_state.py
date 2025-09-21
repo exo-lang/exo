@@ -409,22 +409,24 @@ class SyncStateBuilder:
             info = usage.get_await()
             L2 = info.sync_tl
 
-            if timelines.cuda_temporal.implements_first(L1):
-                # No values from the first full visibility set are being made
-                # visible so no proxy fence regardless of second sync timeline.
-                proxy_fence = False
-            elif timelines.Sm80_generic.implements_second(L2):
+            if timelines.Sm80_generic.implements_second(L2):
                 proxy_fence = False
             elif timelines.cuda_generic_and_async_proxy.implements_second(L2):
                 proxy_fence = True
             else:
                 if L2 == timelines.wgmma_async:
-                    remark = "consider wgmma_async_smem"
+                    remark = "consider cuda_generic_and_async_proxy"
                 else:
                     remark = "at most CUDA generic+async proxy"
                 raise ValueError(
                     f"{info.get_srcinfo()}: mbarrier Await sync-tl {L2} "
                     f"not supported ({remark})")
+
+            if timelines.cuda_temporal.implements_first(L1):
+                # No values from the first full visibility set are being made
+                # visible so no proxy fence regardless of second sync timeline.
+                # This is done afterwards, to check invalid L2 above first.
+                proxy_fence = False
 
             lines = self.SyncState_lines
             idx = f"AwaitIdx{nm_suffix}"

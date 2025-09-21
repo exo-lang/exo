@@ -817,7 +817,7 @@ def test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden(compiler, golden):
 def test_mbarriers_wrong_wgmma(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_mbarriers, **mb_m1n4d2d2_wrong_wgmma)
-    assert "consider wgmma_async_smem" in str(exc.value)
+    assert "consider cuda_generic_and_async_proxy" in str(exc.value)
 
 
 def test_mbarriers_wrong_cpu1(compiler):
