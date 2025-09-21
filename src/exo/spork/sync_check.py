@@ -228,6 +228,7 @@ class CamsporkDo(LoopIR_Do):
                 dst_lo, extent = self.comp_fnarg(fnarg_type, caller_a, instr_tl)
                 if dst_lo is not None:
                     initial_q, ext_q = self.get_qual_bits(caller_a, instr_tl)
+                    barrier, multicasts = self.comp_trailing_barrier_expr(s, instr_tl)
                     b.SyncEnvAccess(
                         dst_lo,
                         initial_q,
@@ -235,11 +236,25 @@ class CamsporkDo(LoopIR_Do):
                         is_mutate=not arg_info.const,
                         is_ooo=arg_info.out_of_order,
                         extent=extent,
+                        barrier=barrier,
+                        multicasts=multicasts,
                     )
                 # TODO distributed memory, trailing barrier, atomic
 
         else:
             super().do_s(s)
+
+    def comp_trailing_barrier_expr(self, s: LoopIR.Call, instr_tl: Instr_tl):
+        b = self._builder
+        bar_e = s.trailing_barrier_expr
+        if bar_e is None:
+            return None, ()
+        idx = list(bar_e.idx)
+        multicast_flags = tuple(isinstance(e, LoopIR.Interval) for e in bar_e.idx)
+        for i, idx_e in enumerate(idx):
+            if isinstance(idx_e, LoopIR.Interval):
+                idx[i] = LoopIR.Const(0, T.int, idx_e.srcinfo)
+        return self.comp_index_expr(bar_e.name, idx, instr_tl), (multicast_flags,)
 
     def do_codegen_par(self, s: LoopIR.For, split_idx: int, am_iter, am_lo, am_hi):
         b = self._builder
