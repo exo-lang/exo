@@ -373,7 +373,7 @@ cuda_temporal = Sync_tl("cuda_temporal", False, [], _cuda_device_quals)
 
 """Ampere cp.async instructions"""
 Sm80_cp_async = Sync_tl(
-    "Sm80_cp_async", False, _Sm80_cp_async_quals, for_instr_tl=Sm80_cp_async_instr
+    "Sm80_cp_async", True, _Sm80_cp_async_quals, for_instr_tl=Sm80_cp_async_instr
 )
 
 """CUDA classic + sm_80 cp.async
@@ -381,7 +381,7 @@ Sm80_cp_async = Sync_tl(
 These are operations that sm_90a+ retroactively term the generic proxy"""
 Sm80_generic = Sync_tl(
     "Sm80_generic",
-    False,
+    True,
     _cuda_in_order_quals + _Sm80_cp_async_quals,
     _cuda_device_quals,  # Temporal-only
 )
@@ -418,23 +418,23 @@ wgmma_fence_1 = Sync_tl(
 this is the second sync-tl of wgmma.fence"""
 wgmma_fence_2 = Sync_tl("wgmma_fence_2", False, _wgmma_rmem_quals)
 
-"""wgmma instructions"""
+"""wgmma instructions, transitive"""
 wgmma_async = Sync_tl(
-    "wgmma_async", False, _wgmma_async_quals, for_instr_tl=wgmma_async_instr
+    "wgmma_async", True, _wgmma_async_quals, for_instr_tl=wgmma_async_instr
 )
 
 """CUDA async proxy (TMA and wgmma, excluding register access)"""
-cuda_async_proxy = Sync_tl("cuda_async_proxy", False, _cuda_async_proxy_quals)
+cuda_async_proxy = Sync_tl("cuda_async_proxy", True, _cuda_async_proxy_quals)
 
 """CUDA async proxy + wgmma register access"""
 cuda_async_proxy_wgmma = Sync_tl(
-    "cuda_async_proxy_wgmma", False, _cuda_async_proxy_quals + _wgmma_rmem_quals
+    "cuda_async_proxy_wgmma", True, _cuda_async_proxy_quals + _wgmma_rmem_quals
 )
 
 """CUDA generic proxy + async proxy; temporal dependencies carried"""
 cuda_generic_and_async_proxy = Sync_tl(
     "cuda_generic_and_async_proxy",
-    False,
+    True,
     _cuda_in_order_quals + _Sm80_cp_async_quals + _cuda_async_proxy_quals,
     _cuda_device_quals,  # Temporal-only
 )
