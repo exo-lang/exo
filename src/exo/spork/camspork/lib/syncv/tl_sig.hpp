@@ -17,24 +17,26 @@ using qual_bits_t = uint32_t;
 static constexpr int32_t vis_level_none = -1;
 static constexpr int32_t vis_level_atomic_only = 0;
 static constexpr int32_t vis_level_unordered = 1;
-static constexpr int32_t vis_level_ordered = 2;
+static constexpr int32_t vis_level_temporal_ordered = 2;
+static constexpr int32_t vis_level_full_ordered = 3;
 
 inline const char* vis_level_name(int32_t vis_level)
 {
     CAMSPORK_REQUIRE_CMP(vis_level, >=, -1, "Invalid vis_level enum");
-    CAMSPORK_REQUIRE_CMP(vis_level, <=, 2, "Invalid vis_level enum");
-    static const char* strs[4] = {
+    CAMSPORK_REQUIRE_CMP(vis_level, <=, 3, "Invalid vis_level enum");
+    static const char* strs[5] = {
         "vis_level_none",
         "vis_level_atomic_only",
         "vis_level_unordered",
-        "vis_level_ordered",
+        "vis_level_temporal_ordered",
+        "vis_level_full_ordered",
     };
     return strs[vis_level + 1];
 }
 
 struct QualBitsByVis
 {
-    qual_bits_t array[3];
+    qual_bits_t array[4];
 
     bool operator== (const QualBitsByVis& other) const
     {
@@ -48,7 +50,7 @@ struct QualBitsByVis
 
     QualBitsByVis& operator|= (const QualBitsByVis& other)
     {
-        for (uint32_t i = 0; i < 3; ++i) {
+        for (uint32_t i = 0; i < 4; ++i) {
             array[i] |= other.array[i];
         }
         return *this;
@@ -66,6 +68,7 @@ struct QualBitsByVis
         uint32_t diff = array[0] ^ other.array[0];
         diff |= array[1] ^ other.array[1];
         diff |= array[2] ^ other.array[2];
+        diff |= array[3] ^ other.array[3];
         return diff;
     }
 };
@@ -79,11 +82,12 @@ struct QualBitsByVis
 // where L is a set of qual-tl, delivered as a bitfield.
 //
 // For compactness, we store the three visibility sets together.
-// Given V_A \superset V_U \superset V_O [atomic-only, unordered, ordered],
+// Given V_A \superset V_U \superset V_T \superset V_F [atomic-only, unordered, temporal ordered, full ordered],
 // we have that
 //     V_A = union(val: TlSigInterval where L = qual_bits_by_vis.array[vis_level_atomic_only])
 //     V_U = union(val: TlSigInterval where L = qual_bits_by_vis.array[vis_level_unordered])
-//     V_O = union(val: TlSigInterval where L = qual_bits_by_vis.array[vis_level_ordered])
+//     V_T = union(val: TlSigInterval where L = qual_bits_by_vis.array[vis_level_temporal_ordered])
+//     V_F = union(val: TlSigInterval where L = qual_bits_by_vis.array[vis_level_full_ordered])
 //
 // LEGACY TERMS:
 //   sigthread = tl-sig (timeline signature)
@@ -99,7 +103,8 @@ struct TlSigInterval
 
     void assert_valid() const
     {
-        const uint32_t (&qual_tl_bits) [3] = qual_bits_by_vis.array;
+        const uint32_t (&qual_tl_bits) [4] = qual_bits_by_vis.array;
+        CAMSPORK_REQUIRE_CMP(qual_tl_bits[2] & qual_tl_bits[3], ==, qual_tl_bits[3], "TlSigInterval, invalid subset");
         CAMSPORK_REQUIRE_CMP(qual_tl_bits[1] & qual_tl_bits[2], ==, qual_tl_bits[2], "TlSigInterval, invalid subset");
         CAMSPORK_REQUIRE_CMP(qual_tl_bits[0] & qual_tl_bits[1], ==, qual_tl_bits[1], "TlSigInterval, invalid subset");
         CAMSPORK_REQUIRE_CMP(qual_tl_bits[0], !=, 0, "Invalid TlSigInterval empty qual-tl bits");

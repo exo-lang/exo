@@ -828,7 +828,7 @@ if __name__ == "__main__":
                 with b.ThreadsFor(tid, 0, 64, 0, 0, 1):
                     b.SyncEnvAccess(buf[tid], 1, 1, is_mutate=True, is_ooo=False)
                 with b.If(fence_enable):
-                    b.Fence(True, 1, 1, 1)
+                    b.Fence(True, 1, 1, 511)
                 with b.ThreadsFor(tid, 0, 64, 0, 0, 1):
                     s = b.add_variable("s")
                     with b.SeqFor(s, 0, 64):
@@ -841,7 +841,7 @@ if __name__ == "__main__":
     env.set_debug_validation_enable(b_validation)
     env.alloc_scalar_value("num_tasks", 1)
     env.alloc_scalar_value("fence_enable", 1)
-    env.exec()
+    env.exec(excut_filename="fence_excut.json")
     env.set_debug_validation_enable(True)  # defer to later
 
 

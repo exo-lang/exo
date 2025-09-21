@@ -68,7 +68,7 @@ struct TlSigIntervalListNode
     }
 };
 
-static_assert(sizeof(TlSigIntervalListNode) == 24, "Check that you meant to change this perf-critical struct");
+static_assert(sizeof(TlSigIntervalListNode) == 28, "Check that you meant to change this perf-critical struct");
 
 struct VisRecord
 {
@@ -87,6 +87,8 @@ struct VisRecord
     uint8_t tmp_is_duplicate;
 };
 
+// TODO consider removing IsMutate templatization, and separate memoization of read/mutate VisRecord objects.
+// This shouldn't be needed anymore after vis_level_temporal_ordered was added.
 template <bool IsMutate>
 struct VisRecordListNode
 {
@@ -679,7 +681,8 @@ struct SyncvTable
 
         // Initialize visibility set = linked list of intervals generated from the initial thread cuboid.
         const qual_bits_t q = access.initial_qual_bit;
-        const QualBitsByVis qual_bits_by_vis{{q, q, access.is_ooo ? 0u : q}};
+        const qual_bits_t q_if_ordered = access.is_ooo ? 0u : q;
+        const QualBitsByVis qual_bits_by_vis{{q, q, q_if_ordered, q_if_ordered}};
         nodepool::id<TlSigIntervalListNode>* p_node_id = &vis_record.base_data.visibility_set;
         cuboid.to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi)
         {
@@ -1522,16 +1525,19 @@ struct SyncvTable
         template <bool IsMutate>
         void operator() (SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> vis_record_id)
         {
-            const auto q = IsMutate ? L2_full_qual_bits : L2_temporal_qual_bits;
-            if (q != 0) {
-                auto& node = env.get(vis_record_id);
-                CAMSPORK_REQUIRE(!node.is_forwarded(), "Unexpected modification of forwarding state VisRecord");
-                p_cuboid->to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi)
-                    {
-                        env.union_tl_sig_interval(&node.base_data, TlSigInterval{tid_lo, tid_hi, {{q, q, q}}});
-                    }
-                );
-            }
+            auto& node = env.get(vis_record_id);
+            CAMSPORK_REQUIRE(!node.is_forwarded(), "Unexpected modification of forwarding state VisRecord");
+            p_cuboid->to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi)
+                {
+                    QualBitsByVis q_by_vis{};
+                    const auto q_temporal = L2_temporal_qual_bits;
+                    q_by_vis.array[vis_level_atomic_only] = q_temporal;
+                    q_by_vis.array[vis_level_unordered] = q_temporal;
+                    q_by_vis.array[vis_level_temporal_ordered] = q_temporal;
+                    q_by_vis.array[vis_level_full_ordered] = L2_full_qual_bits;
+                    env.union_tl_sig_interval(&node.base_data, TlSigInterval{tid_lo, tid_hi, q_by_vis});
+                }
+            );
         }
     };
 
@@ -2016,8 +2022,13 @@ struct SyncvTable
             if (!id) {
                 return;
             }
+
+            // TODO if the mutate is a reduction (read+write), we should require vis_level_full_ordered.
             const AssignmentRecord& assignment_record = get(id);
-            const auto vis_level_needed = access.atomic_qual_bits == 0 ? vis_level_ordered : vis_level_atomic_only;
+            const auto vis_level_needed = (
+                access.atomic_qual_bits != 0 ? vis_level_atomic_only :
+                IsMutate ? vis_level_temporal_ordered : vis_level_full_ordered
+            );
 
             // Check against previous mutate visibility records
             nodepool::id<AssignmentRecordMutateNode> mutate_id = assignment_record.mutate_vis_records_head_id;
@@ -2594,12 +2605,13 @@ struct SyncvTable
                         const TlSigIntervalListNode& node = get(interval_id);
                         interval_id = node.camspork_next_id;
                         const TlSigInterval data = node.data;
-                        fprintf(stderr, "[%u, %u, %u, %u, %u]\n",
+                        fprintf(stderr, "[%u, %u, %u, %u, %u, %u]\n",
                                 data.tid_lo,
                                 data.tid_hi,
                                 data.qual_bits_by_vis.array[vis_level_atomic_only],
                                 data.qual_bits_by_vis.array[vis_level_unordered],
-                                data.qual_bits_by_vis.array[vis_level_ordered]
+                                data.qual_bits_by_vis.array[vis_level_temporal_ordered],
+                                data.qual_bits_by_vis.array[vis_level_full_ordered]
                         );
                     }
                     throw;
@@ -2811,7 +2823,8 @@ struct SyncvExcutLogger
             p_excut_interval->tid_hi = node.data.tid_hi;
             p_excut_interval->atomic_only_qual_bits = node.data.qual_bits_by_vis.array[vis_level_atomic_only];
             p_excut_interval->unordered_qual_bits = node.data.qual_bits_by_vis.array[vis_level_unordered];
-            p_excut_interval->ordered_qual_bits = node.data.qual_bits_by_vis.array[vis_level_ordered];
+            p_excut_interval->temporal_ordered_qual_bits = node.data.qual_bits_by_vis.array[vis_level_temporal_ordered];
+            p_excut_interval->full_ordered_qual_bits = node.data.qual_bits_by_vis.array[vis_level_full_ordered];
             p_excut_interval->mutate_tag = mutate_tag;
             p_out->push_back(std::move(p_excut_interval));
         }
