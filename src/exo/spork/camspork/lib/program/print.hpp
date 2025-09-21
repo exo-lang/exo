@@ -205,9 +205,12 @@ class ProgramPrinter
         *this << ")\n";
     }
 
-    void operator() (const SyncEnvFreeShard*)
+    void operator() (const SyncEnvFreeShard* node)
     {
-        // TODO
+        print_tabs();
+        *this << "b.SyncEnvFreeShard(" << node->name;
+        print_idx(node);
+        *this << ", " << node->extended_qual_bits << ")\n";
     }
 
     void operator() (const BarrierEnvAlloc* node)

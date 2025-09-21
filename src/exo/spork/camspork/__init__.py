@@ -203,11 +203,15 @@ _add_TrailingBarrierExpr.argtypes = (c_void_p, Varname, c_uint32, POINTER(Arrive
 
 _add_SyncEnvAccessSingle = lib.camspork_add_SyncEnvAccessSingle
 _add_SyncEnvAccessSingle.restype = StmtRef
-_add_SyncEnvAccessSingle.argtypes = (c_void_p, Varname, c_size_t, ptr_ExprRef, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, TrailingBarrierExprRef)
+_add_SyncEnvAccessSingle.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, TrailingBarrierExprRef)
 
 _add_SyncEnvAccessWindow = lib.camspork_add_SyncEnvAccessWindow
 _add_SyncEnvAccessWindow.restype = StmtRef
-_add_SyncEnvAccessWindow.argtypes = (c_void_p, Varname, c_size_t, ptr_OffsetExtentExpr, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, TrailingBarrierExprRef)
+_add_SyncEnvAccessWindow.argtypes = (c_void_p, Varname, c_uint32, ptr_OffsetExtentExpr, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, TrailingBarrierExprRef)
+
+_add_SyncEnvFreeShard = lib.camspork_add_SyncEnvFreeShard
+_add_SyncEnvFreeShard.restype = StmtRef
+_add_SyncEnvFreeShard.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c_uint32)
 
 _add_MutateValue = lib.camspork_add_MutateValue
 _add_MutateValue.restype = StmtRef
@@ -515,6 +519,10 @@ class ProgramBuilder:
             c_func = _add_SyncEnvAccessSingle
             idxs = offsets
         return check_return(c_func(self._builder, var, dim, idxs, initial_qual_bit, extended_qual_bits, atomic_qual_bits, bool(is_mutate), bool(is_ooo), trailing_barrier_expr))
+
+    def SyncEnvFreeShard(self, dst: BuilderIndexExpr | Varname, extended_qual_bits: int):
+        var, dim, offsets = dst.c_var_dim_idxs(self._builder)
+        return check_return(_add_SyncEnvFreeShard(self._builder, var, dim, offsets, extended_qual_bits))
 
     def MutateValue(self, dst: BuilderIndexExpr | Varname, op, rhs) -> StmtRef:
         var, dim, idxs = dst.c_var_dim_idxs(self._builder)

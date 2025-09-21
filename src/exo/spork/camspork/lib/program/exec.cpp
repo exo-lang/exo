@@ -311,7 +311,7 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
             }
         }
 
-        // Call into syncv table
+        // Call into syncv table (a lot of duplicated code with SyncEnvFreeShard, not great)
         try {
             if constexpr (node->is_mutate) {
                 on_rw(env.p_syncv_table.get(), input, env.prepare_thread_cuboid(), access, logger);
@@ -328,6 +328,72 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
             s << exc.what() << " @ " << env.str_name(node->name);
             print_idx_helper(s, env._syncv_fail_idx);
             env.add_remark(stmt_ref, s.str());
+            throw;
+        }
+        env.maybe_syncv_debug_validate();
+    }
+
+    void exec_impl(const SyncEnvFreeShard* node)
+    {
+        SyncvAccessInfo access;
+        access.is_ooo = false;
+        access.initial_qual_bit = 0;
+        access.extended_qual_bits = node->extended_qual_bits;
+        access.atomic_qual_bits = 0;
+        access.barrier_count = 0;
+        access.trailing_barriers = nullptr;
+
+        // Translate given indices into a window.
+        // The given indices are "points" and the remainder are "intervals"
+        // comprising the full allocated extent on that dimension.
+        VarSlotEntry<assignment_record_id>& slot = env.sync_slot(node->name);
+        eval_tmp_offset(node);
+        const auto& alloc_extent = slot.extent();
+        const size_t alloc_dim = alloc_extent.size();
+        CAMSPORK_REQUIRE_CMP(tmp_offset.size(), <=, alloc_dim, "Too many dimensions for SyncEnvFreeShard");
+        std::unique_ptr<extent_t[]> p_data(new extent_t[2 * alloc_dim]);
+        extent_t* p_offset = &p_data[0];
+        extent_t* p_inner_extent = &p_data[alloc_dim];
+        for (size_t i = 0; i < alloc_dim; ++i) {
+            if (i < tmp_offset.size()) {
+                p_offset[i] = tmp_offset[i];
+                p_inner_extent[i] = 1;
+            }
+            else {
+                p_offset[i] = 0;
+                p_inner_extent[i] = alloc_extent[i];
+            }
+        }
+
+        // Prepare input window.
+        AssignmentRecordWindow input;
+        input.base = slot.data();
+        input.begin_outer_extent = &alloc_extent[0];
+        input.end_outer_extent = &alloc_extent[alloc_dim];
+        input.begin_offset = &p_offset[0];
+        input.end_offset = &p_offset[alloc_dim];
+        input.begin_inner_extent = &p_inner_extent[0];
+        input.end_inner_extent = &p_inner_extent[alloc_dim];
+
+        // Prepare excut debug logger if applicable.
+        using Logger = std::conditional_t<EnableExcutLog, SyncvExcutRequest, decltype(nullptr)>;
+        Logger logger{};
+        if constexpr (EnableExcutLog) {
+            logger.var_str_name = env.str_name(node->name);
+            logger.p_out = &this->excut_actions;
+        }
+
+        // Call into syncv table (a lot of duplicated code with SyncEnvAccessNode, not great).
+        try {
+            on_check_free(env.p_syncv_table.get(), input, env.prepare_thread_cuboid(), access, logger);
+        }
+        catch (const SyncvCheckFail& exc) {
+            env._syncv_fail_var = node->name;
+            env._syncv_fail_idx = slot.idx_from_linear(exc.linear_index_in_input());
+            std::stringstream s;
+            s << exc.what() << " @ " << env.str_name(node->name);
+            print_idx_helper(s, env._syncv_fail_idx);
+            env.add_remark(env.stmt_ref_from_ptr(node), s.str());
             throw;
         }
         env.maybe_syncv_debug_validate();
@@ -428,12 +494,6 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         eval_tmp_extent(node);
         slot.resize(tmp_extent);
         clear_visibility(env.p_syncv_table.get(), slot.size(), slot.data());
-        env.maybe_syncv_debug_validate();
-    }
-
-    void exec_impl(const SyncEnvFreeShard*)
-    {
-        CAMSPORK_REQUIRE(0, "TODO: implement SyncEnvFreeShard");
         env.maybe_syncv_debug_validate();
     }
 

@@ -615,13 +615,17 @@ struct stmt<9>
     CAMSPORK_NODE_VLA_MEMBER(ExprRef)
 };
 
-// SyncEnvFreeShard(Varname name, expr* offset, expr* extent)
+// SyncEnvFreeShard(Varname name, expr* idx, qual_tl* extended_qual_bits)
+//
+// Before-free checks for name[*idx, :, :...] where the number of : is equal to the
+// dimensionality of the named tensor minus the number of idx provided.
 using SyncEnvFreeShard = stmt<10>;
 template<>
 struct stmt<10>
 {
     Varname name;
-    CAMSPORK_NODE_VLA_MEMBER(OffsetExtentExpr)
+    qual_bits_t extended_qual_bits;
+    CAMSPORK_NODE_VLA_MEMBER(ExprRef)
 };
 
 // BarrierEnvAlloc(Varname name, expr* extent)

@@ -154,6 +154,13 @@ StmtRef ProgramBuilder::add_SyncEnvAccess(
     }
 }
 
+StmtRef ProgramBuilder::add_SyncEnvFreeShard(
+        Varname name, size_t num_idx, const ExprRef* idx, qual_bits_t extended_qual_bits)
+{
+    return append_impl(SyncEnvFreeShard{name, extended_qual_bits}, num_idx, idx);
+}
+
+
 StmtRef ProgramBuilder::add_MutateValue(Varname name, size_t num_idx, const ExprRef* idx, binop op, ExprRef rhs)
 {
     return append_impl(MutateValue{name, op, rhs}, num_idx, idx);
@@ -422,6 +429,14 @@ camspork::StmtRef camspork_add_SyncEnvAccessWindow(camspork::ProgramBuilder* p_b
             name, num_idx, idx, initial_qual_bit, extended_qual_bits, atomic_qual_bits,
             is_mutate, is_ooo, trailing_barrier_expr);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
+}
+
+camspork::StmtRef camspork_add_SyncEnvFreeShard(camspork::ProgramBuilder* p_builder,
+    camspork::Varname name, uint32_t num_idx, const camspork::ExprRef* idx, camspork::qual_bits_t extended_qual_bits)
+{
+    CAMSPORK_API_PROLOGUE
+    return p_builder->add_SyncEnvFreeShard(name, num_idx, idx, extended_qual_bits);
+    CAMSPORK_API_EPILOGUE(camspork::StmtRef());
 }
 
 camspork::StmtRef camspork_add_MutateValue(camspork::ProgramBuilder* p_builder,
