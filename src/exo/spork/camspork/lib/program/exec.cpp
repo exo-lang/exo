@@ -388,11 +388,13 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
             on_check_free(env.p_syncv_table.get(), input, env.prepare_thread_cuboid(), access, logger);
         }
         catch (const SyncvCheckFail& exc) {
+            // Unlike SyncEnvAccessNode, we wrap the error message with free(...)
             env._syncv_fail_var = node->name;
             env._syncv_fail_idx = slot.idx_from_linear(exc.linear_index_in_input());
             std::stringstream s;
-            s << exc.what() << " @ " << env.str_name(node->name);
+            s << exc.what() << " @ free(" << env.str_name(node->name);
             print_idx_helper(s, env._syncv_fail_idx);
+            s << ")";
             env.add_remark(env.stmt_ref_from_ptr(node), s.str());
             throw;
         }
