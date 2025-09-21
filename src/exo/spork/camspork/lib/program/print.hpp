@@ -224,7 +224,7 @@ class ProgramPrinter
     void operator() (const BarrierEnvFree* node)
     {
         print_tabs();
-        *this << "b.BarrierEnvAlloc(" << node->name << ")\n";
+        *this << "b.BarrierEnvFree(" << node->name << ")\n";
     }
 
     void operator() (const StmtBody* node)

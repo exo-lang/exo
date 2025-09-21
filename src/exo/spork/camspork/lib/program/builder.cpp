@@ -208,6 +208,11 @@ StmtRef ProgramBuilder::add_BarrierEnvAlloc(Varname name, size_t num_dims, const
     return append_impl(BarrierEnvAlloc{name}, num_dims, extent);
 }
 
+StmtRef ProgramBuilder::add_BarrierEnvFree(Varname name)
+{
+    return append_impl(BarrierEnvFree{name});
+}
+
 StmtRef ProgramBuilder::push_If(ExprRef cond)
 {
     return push_impl(If{cond, {}, {}});
@@ -495,6 +500,14 @@ camspork::StmtRef camspork_add_BarrierEnvAlloc(camspork::ProgramBuilder* p_build
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_BarrierEnvAlloc(name, num_dims, extent);
+    CAMSPORK_API_EPILOGUE(camspork::StmtRef())
+}
+
+camspork::StmtRef camspork_add_BarrierEnvFree(camspork::ProgramBuilder* p_builder,
+    camspork::Varname name)
+{
+    CAMSPORK_API_PROLOGUE
+    return p_builder->add_BarrierEnvFree(name);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 

@@ -1005,7 +1005,7 @@ struct SyncvTable
         CAMSPORK_REQUIRE(false, "Exceeded implementation limit (max number of barriers per program)");
     }
 
-    void free_barriers(size_t N, barrier_id* barriers)
+    void free_barriers(size_t N, barrier_id* barriers, bool check_arrive_await)
     {
         for (size_t i = 0; i < N; ++i) {
             if (!barriers[i]) {
@@ -1013,8 +1013,7 @@ struct SyncvTable
             }
             const auto barrier_index = get_barrier_index(barriers[i]);
             BarrierState& state = barrier_states[barrier_index];
-            if (true) {
-                // This checking should be optional, separate from free-ing physical resources.
+            if (check_arrive_await) {
                 if (state.arrive_count != state.await_count) {
                     std::string message =
                         "Arrive count (" + std::to_string(state.arrive_count) + ") != Await count ("
@@ -1023,7 +1022,7 @@ struct SyncvTable
                 }
             }
 
-            // Dicey: a "correct" (passes validation) abstract machine program shouldn't trigger
+            // Dicey: a "correct" (passes check_arrive_await) abstract machine program shouldn't trigger
             // this code path, but we implement this anyway, for incorrect programs.
             // Normally, retire_barrier_arrive augments VisRecords, but here we just pass no_op,
             // so the only intended effect is for us to free memory.
@@ -2988,10 +2987,10 @@ void alloc_barriers(SyncvTable* table, size_t N, barrier_id* barriers)
     INTERFACE_EPILOGUE(table)
 }
 
-void free_barriers(SyncvTable* table, size_t N, barrier_id* barriers)
+void free_barriers(SyncvTable* table, size_t N, barrier_id* barriers, bool check_arrive_await)
 {
     INTERFACE_PROLOGUE(table)
-    table->free_barriers(N, barriers);
+    table->free_barriers(N, barriers, check_arrive_await);
     INTERFACE_EPILOGUE(table)
 }
 

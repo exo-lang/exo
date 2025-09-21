@@ -105,7 +105,7 @@ void on_check_free(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, Syn
 
 void clear_visibility(SyncvTable* table, size_t N, assignment_record_id* array);
 void alloc_barriers(SyncvTable* table, size_t N, barrier_id* barriers);
-void free_barriers(SyncvTable* table, size_t N, barrier_id* barriers);
+void free_barriers(SyncvTable* table, size_t N, barrier_id* barriers, bool check_arrive_await);
 void on_fence(SyncvTable* table, bool transitive, const ThreadCuboid& cuboid,
         qual_bits_t L1_qual_bits, qual_bits_t L2_full_qual_bits, qual_bits_t L2_temporal_qual_bits);
 void on_arrive(SyncvTable* table, barrier_id home_barrier, uint32_t barrier_count, const barrier_id* all_barriers,

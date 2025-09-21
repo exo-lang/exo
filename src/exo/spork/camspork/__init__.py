@@ -241,6 +241,10 @@ _add_BarrierEnvAlloc = lib.camspork_add_BarrierEnvAlloc
 _add_BarrierEnvAlloc.restype = StmtRef
 _add_BarrierEnvAlloc.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef)
 
+_add_BarrierEnvFree = lib.camspork_add_BarrierEnvFree
+_add_BarrierEnvFree.restype = StmtRef
+_add_BarrierEnvFree.argtypes = (c_void_p, Varname)
+
 _push_If = lib.camspork_push_If
 _push_If.restype = StmtRef
 _push_If.argtypes = (c_void_p, ExprRef)
@@ -551,6 +555,9 @@ class ProgramBuilder:
     def _add_alloc(self, c_adder, e) -> StmtRef:
         var, dim, idxs = e.c_var_dim_idxs(self._builder)
         return check_return(c_adder(self._builder, var, dim, idxs))
+
+    def BarrierEnvFree(self, name) -> StmtRef:
+        return check_return(_add_BarrierEnvFree(self._builder, self[name]))
 
     def If(self, cond, allow_bool=False) -> BodyCtx:
         # Catches expressions like "not var" which Python reduces to constant bool.

@@ -504,7 +504,8 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         VarSlotEntry<barrier_id>& slot = env.barrier_slot(node->name);
 
         // This is needed to return memory to the syncv table.
-        free_barriers(env.p_syncv_table.get(), slot.size(), slot.data());
+        // We don't enforce arrive/await equality on this path.
+        free_barriers(env.p_syncv_table.get(), slot.size(), slot.data(), false);
         slot.mark_empty();
 
         // Resize if needed.
@@ -545,7 +546,7 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
     void exec_impl(const BarrierEnvFree* node)
     {
         VarSlotEntry<barrier_id>& slot = env.barrier_slot(node->name);
-        free_barriers(env.p_syncv_table.get(), slot.size(), slot.data());
+        free_barriers(env.p_syncv_table.get(), slot.size(), slot.data(), true);
         env.maybe_syncv_debug_validate();
     }
 

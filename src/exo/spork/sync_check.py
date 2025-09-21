@@ -65,7 +65,7 @@ class CamsporkDo(LoopIR_Do):
         b = self._builder
 
         explicit_syms = set(nm for _set in (value_syms, sync_syms) for nm in _set)
-        for nm in explicit_syms:
+        for nm in sorted(explicit_syms):
             b.add_variable(nm)
 
         for a in self.proc.args:
@@ -208,6 +208,14 @@ class CamsporkDo(LoopIR_Do):
                 b.SyncEnvAlloc(am_array)
             if want_value:
                 b.ValueEnvAlloc(am_array)
+        elif isinstance(s, LoopIR.Free):
+            want_barrier = issubclass(s.mem, BarrierType)
+            want_sync = s.name in self._sync_syms
+            if want_barrier:
+                b.BarrierEnvFree(s.name)
+            if want_sync:
+                # TODO
+                pass
         elif isinstance(s, LoopIR.Call):
             callee = s.f
             instr = callee.instr
