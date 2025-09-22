@@ -245,18 +245,21 @@ class CamsporkDo(LoopIR_Do):
                     loop_nest.append(b.DomainReshape(*target_domain))
                 for dim_idx, dim in enumerate(target_coll_tiling.get_dims()):
                     dim: CollDim
-                    # TODO this check is hard to explain.
-                    # Basically, this corresponds to dimensions not relevant
-                    # for the allocation (e.g. threads-in-CTA, for SMEM alloc).
-                    if dim.dim_expectation == CollDimExpectation.full:
-                        continue
-                    for op in dim.dim_ops:
+                    # Generate minimal loops for this dimension needed
+                    # to recover the distributed_iters. Avoids inappropriately
+                    # specializing on dimensions not relevant to the sharding
+                    # (e.g. checking only subset of CTA threads for SMEM free).
+                    num_ops = 0
+                    for op_i, op in enumerate(dim.dim_ops):
+                        if op.iter in distributed_iters:
+                            num_ops = op_i + 1
+                    for op in dim.dim_ops[:num_ops]:
                         # Only add loops for levels that correspond to code subtree
                         # rooted under the scope that the alloc is done.
                         if op.tree_depth <= alloc_coll_tiling.get_tree_depth():
                             continue
                         # KeyError hack: I'm unsure if the variable already exists
-                        # to the camspork program # due to the horribly confusing
+                        # in the camspork program due to the horribly confusing
                         # CALLEE_DISTRIBUTED "synthetic iterators" (I'm sorry).
                         try:
                             am_iter = b[op.iter]
@@ -268,10 +271,16 @@ class CamsporkDo(LoopIR_Do):
                             )
                         )
                 # Emit the generated loop nest (begin/end instead of with).
+                # Use 0 for iterators known to have tile_count=1, i.e. always 0.
+                # This is actually needed to avoid crashing for "trivial iterators"
+                # that won't appear in the CollTiling, and hence the loop nest.
                 for ctx in loop_nest:
                     ctx.begin()
-                dst = b[s.name][tuple(b[it] for it in distributed_iters)]
-                b.SyncEnvFreeShard(dst, Qual_tl.make_bits(free_qual_tl))
+                am_idx = tuple(
+                    0 if self._coll_analysis.thread_iters[it].tile_count == 1 else b[it]
+                    for it in distributed_iters
+                )
+                b.SyncEnvFreeShard(b[s.name][am_idx], Qual_tl.make_bits(free_qual_tl))
                 for ctx in reversed(loop_nest):
                     ctx.end()
         elif isinstance(s, LoopIR.Call):

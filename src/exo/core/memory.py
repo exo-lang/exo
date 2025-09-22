@@ -371,6 +371,11 @@ class AllocableMemWin(MemWin):
         """
         return None
 
+    @classmethod
+    def sync_exempt(cls) -> bool:
+        """No SyncEnv checks in spork abstract machine model if True."""
+        return True
+
 
 class Memory(AllocableMemWin):
     """Memory type for backing non-barrier allocations"""

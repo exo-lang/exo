@@ -44,6 +44,10 @@ class CudaBasicDeviceVisible(Memory):
     """
 
     @classmethod
+    def sync_exempt(cls) -> bool:
+        return False
+
+    @classmethod
     @abstractmethod
     def device_permission(cls, device, instr_tl):
         raise NotImplementedError()
@@ -202,6 +206,10 @@ class CudaGridConstant(CudaDeviceVisibleLinear, DRAM):
     """
 
     @classmethod
+    def sync_exempt(cls) -> bool:
+        return True
+
+    @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
         # Allocated "on the stack"
         for extent in shape:
@@ -349,6 +357,10 @@ class CudaEvent(BarrierType):
     def traits(cls) -> BarrierTypeTraits:
         return BarrierTypeTraits(requires_pairing=True, requires_arrive_first=True)
 
+    @classmethod
+    def sync_exempt(cls) -> bool:
+        return True
+
 
 class CudaDeviceBarrier(BarrierType):
     @classmethod
@@ -372,6 +384,10 @@ class CudaMbarrier(CudaDeviceBarrier):
         )
 
     @classmethod
+    def sync_exempt(cls) -> bool:
+        return False
+
+    @classmethod
     def free_pool_tag(cls):
         return full_scope_free_pool_tag
 
@@ -385,8 +401,16 @@ class CudaCommitGroup(CudaDeviceBarrier):
     def traits(cls) -> BarrierTypeTraits:
         return BarrierTypeTraits(non_negative_await_N=True)
 
+    @classmethod
+    def sync_exempt(cls) -> bool:
+        return True
+
 
 class CudaClusterSync(CudaDeviceBarrier):
     @classmethod
     def traits(cls) -> BarrierTypeTraits:
         return BarrierTypeTraits(requires_pairing=True, requires_arrive_first=True)
+
+    @classmethod
+    def sync_exempt(cls) -> bool:
+        return True

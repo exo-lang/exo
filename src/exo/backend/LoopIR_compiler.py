@@ -429,7 +429,8 @@ def ext_compile_to_strings(
                 p = ParallelAnalysis().run(p)
                 p = PrecisionAnalysis().run(p)
                 p = WindowAnalysis().apply_proc(p)
-                p = MemoryAnalysis().run(p)
+                mem_analysis = MemoryAnalysis()
+                p = mem_analysis.run(p)
                 device_analysis = DeviceScopeAnalysis()
                 p = device_analysis.run(p)
                 barrier_uses: Optional[Dict[Sym, BarrierUsage]]
@@ -447,7 +448,14 @@ def ext_compile_to_strings(
                     p = coll_analysis.run(p)
                     debug_log.log(p.name, "coll_analysis", p)
                     # TODO tmp
-                    sync_syms = set(nm for (nm, typ) in get_writes_of_stmts(p.body))
+                    sync_syms = set(
+                        nm
+                        for (nm, typ) in get_writes_of_stmts(p.body)
+                        if not mem_analysis.mem_env[nm].sync_exempt()
+                    )
+                    for nm, mem in mem_analysis.mem_env.items():
+                        if issubclass(mem, BarrierType) and not mem.sync_exempt():
+                            sync_syms.add(nm)
                     camspork_program = sync_check.coll_analysis_to_camspork(
                         coll_analysis, p, (), sync_syms
                     )
