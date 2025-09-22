@@ -395,6 +395,22 @@ class CudaMbarrier(CudaDeviceBarrier):
     def free_qual_tl(cls):
         return {timelines.cuda_in_order_ram_qual}
 
+    qual_tl_dict = timelines.cuda_ram_qual_tl_dict
+
+    # Bespoke functions (not really externalizable) for mbarrier, which
+    # is the only barrier type subject to synchronization checking.
+    # We give the qual_tl used to model the access associated with
+    # an arrive/await with the given Sync_tl parameter.
+    @classmethod
+    def arrive_qual_tl(cls, L1: timelines.Sync_tl):
+        if L1.get_full_timeline_set_bits() & timelines.Sm80_cp_async_qual.as_bit():
+            return timelines.Sm80_cp_async_qual
+        return timelines.cuda_in_order_ram_qual
+
+    @classmethod
+    def await_qual_tl(cls, L2: timelines.Sync_tl):
+        return timelines.cuda_in_order_ram_qual
+
 
 class CudaCommitGroup(CudaDeviceBarrier):
     @classmethod

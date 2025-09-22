@@ -129,15 +129,39 @@ class CamsporkDo(LoopIR_Do):
                 L2_full_bits = L2.get_full_timeline_set_bits()
                 L2_temporal_bits = L2.get_temporal_timeline_set_bits()
             if sync_type.is_arrive():
-                # TODO add read effects
                 home = s.home_barrier_expr()
                 multicasts = s.multicasts()
                 am_home_barrier = self.comp_index_expr(home.name, home.idx, instr_tl)
+                if home.name in self._sync_syms:
+                    # Model as "read" since concurrent access is allowed
+                    mem = self._mem_env[home.name]
+                    q_bit = mem.arrive_qual_tl(L1).as_bit()
+                    b.SyncEnvAccess(
+                        am_home_barrier,
+                        q_bit,
+                        q_bit,
+                        is_mutate=False,
+                        is_ooo=False,
+                        access_multicasts=multicasts,
+                        # TODO wouldn't it make more sense to use barrier
+                        # and barrier_multicasts so the paired await is
+                        # what makes the prior arrive "visible"?
+                    )
                 b.Arrive(transitive, L1_bits, am_home_barrier, multicasts)
             elif sync_type.is_await():
-                # TODO add read effects
                 home = s.home_barrier_expr()
                 am_home_barrier = self.comp_index_expr(home.name, home.idx, instr_tl)
+                if home.name in self._sync_syms:
+                    mem = self._mem_env[home.name]
+                    q_bit = mem.await_qual_tl(L2).as_bit()
+                    # Model as "read" since concurrent access is allowed
+                    b.SyncEnvAccess(
+                        am_home_barrier,
+                        q_bit,
+                        q_bit,
+                        is_mutate=False,
+                        is_ooo=False,
+                    )
                 b.Await(am_home_barrier, L2_full_bits, L2_temporal_bits, N=sync_type.N)
             else:
                 b.Fence(transitive, L1_bits, L2_full_bits, L2_temporal_bits)
@@ -299,6 +323,7 @@ class CamsporkDo(LoopIR_Do):
                 callee_a.name: caller_a
                 for caller_a, callee_a in zip(s.args, callee.args)
             }
+            barrier, barrier_multicasts = self.comp_trailing_barrier_expr(s, instr_tl)
             for caller_a, callee_a in zip(s.args, callee.args):
                 fnarg_type = callee_a.type
                 if fnarg_type.is_indexable():
@@ -313,9 +338,6 @@ class CamsporkDo(LoopIR_Do):
                 dst_lo, extent = self.comp_fnarg(fnarg_type, caller_a, instr_tl)
                 if dst_lo is not None:
                     initial_q, ext_q = self.get_qual_bits(caller_a, instr_tl)
-                    barrier, barrier_multicasts = self.comp_trailing_barrier_expr(
-                        s, instr_tl
-                    )
                     b.SyncEnvAccess(
                         dst_lo,
                         initial_q,
@@ -326,7 +348,19 @@ class CamsporkDo(LoopIR_Do):
                         barrier=barrier,
                         barrier_multicasts=barrier_multicasts,
                     )
-
+            if barrier and s.trailing_barrier_expr.name in self._sync_syms:
+                # Sync-check the trailing barrier itself.
+                initial_q, _ = self.get_qual_bits(s.trailing_barrier_expr, instr_tl)
+                b.SyncEnvAccess(
+                    barrier,
+                    initial_q,
+                    initial_q,
+                    is_mutate=False,
+                    is_ooo=False,
+                    access_multicasts=barrier_multicasts,
+                    barrier=barrier,
+                    barrier_multicasts=barrier_multicasts,
+                )
         else:
             super().do_s(s)
 

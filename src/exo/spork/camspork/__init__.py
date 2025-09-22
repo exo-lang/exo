@@ -140,6 +140,7 @@ ptr_uint32 = POINTER(c_uint32)
 ptr_StmtRef = POINTER(StmtRef)
 ptr_ExprRef = POINTER(ExprRef)
 ptr_OffsetExtentExpr = POINTER(OffsetExtentExpr)
+ptr_ArriveIdx = POINTER(ArriveIdx)
 
 _thread_local_message_c_str = lib.camspork_thread_local_message_c_str
 _thread_local_message_c_str.restype = c_char_p
@@ -199,7 +200,7 @@ _add_BinOp.argtypes = (c_void_p, binop, ExprRef, ExprRef)
 
 _add_TrailingBarrierExpr = lib.camspork_add_TrailingBarrierExpr
 _add_TrailingBarrierExpr.restype = TrailingBarrierExprRef
-_add_TrailingBarrierExpr.argtypes = (c_void_p, Varname, c_uint32, POINTER(ArriveIdx))
+_add_TrailingBarrierExpr.argtypes = (c_void_p, Varname, c_uint32, ptr_ArriveIdx)
 
 _add_SyncEnvAccessSingle = lib.camspork_add_SyncEnvAccessSingle
 _add_SyncEnvAccessSingle.restype = StmtRef
@@ -208,6 +209,10 @@ _add_SyncEnvAccessSingle.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c
 _add_SyncEnvAccessWindow = lib.camspork_add_SyncEnvAccessWindow
 _add_SyncEnvAccessWindow.restype = StmtRef
 _add_SyncEnvAccessWindow.argtypes = (c_void_p, Varname, c_uint32, ptr_OffsetExtentExpr, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, TrailingBarrierExprRef)
+
+_add_SyncEnvAccessMulticast = lib.camspork_add_SyncEnvAccessMulticast
+_add_SyncEnvAccessMulticast.restype = StmtRef
+_add_SyncEnvAccessMulticast.argtypes = (c_void_p, Varname, c_uint32, ptr_ArriveIdx, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, TrailingBarrierExprRef)
 
 _add_SyncEnvFreeShard = lib.camspork_add_SyncEnvFreeShard
 _add_SyncEnvFreeShard.restype = StmtRef
@@ -223,7 +228,7 @@ _add_Fence.argtypes = (c_void_p, c_uint32, c_uint32, c_uint32, c_uint32)
 
 _add_Arrive = lib.camspork_add_Arrive
 _add_Arrive.restype = StmtRef
-_add_Arrive.argtypes = (c_void_p, c_uint32, c_uint32, Varname, c_uint32, POINTER(ArriveIdx))
+_add_Arrive.argtypes = (c_void_p, c_uint32, c_uint32, Varname, c_uint32, ptr_ArriveIdx)
 
 _add_Await = lib.camspork_add_Await
 _add_Await.restype = StmtRef
