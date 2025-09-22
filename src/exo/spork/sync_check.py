@@ -28,6 +28,8 @@ class CamsporkDo(LoopIR_Do):
         "_default_instr_tl",
         "_tmp_call_args",
         "_domain",
+        "_saw_alloc",
+        "_saw_free",
     ]
 
     _builder: camspork.ProgramBuilder
@@ -41,6 +43,8 @@ class CamsporkDo(LoopIR_Do):
     _default_instr_tl: Instr_tl
     _tmp_call_args: Dict[Sym, LoopIR.expr]
     _domain: Tuple[int]
+    _saw_alloc: bool
+    _saw_free: bool
 
     def __init__(
         self,
@@ -61,6 +65,8 @@ class CamsporkDo(LoopIR_Do):
         self._default_instr_tl = timelines.cpu_basic_device.get_default_instr_tl()
         self._tmp_call_args = {}
         self._domain = ()
+        self._saw_alloc = False
+        self._saw_free = False
 
         b = self._builder
 
@@ -76,6 +82,7 @@ class CamsporkDo(LoopIR_Do):
             self._mem_env[nm] = a.mem
 
         self.do_stmts(self.proc.body)
+        assert self._saw_free or not self._saw_alloc, "Need MemAnalysis before"
 
     def get_qual_bits(self, node: LoopIR.expr | LoopIR.stmt, instr_tl: Instr_tl):
         nm = node.name
@@ -193,6 +200,7 @@ class CamsporkDo(LoopIR_Do):
             self._envtyp[s.name] = s.rhs.type
             self._mem_env[s.name] = s.special_window or self._mem_env[s.rhs.name]
         elif isinstance(s, LoopIR.Alloc):
+            self._saw_alloc = True
             self._envtyp[s.name] = s.type
             self._mem_env[s.name] = s.mem
             want_barrier = issubclass(s.mem, BarrierType)
@@ -209,6 +217,7 @@ class CamsporkDo(LoopIR_Do):
             if want_value:
                 b.ValueEnvAlloc(am_array)
         elif isinstance(s, LoopIR.Free):
+            self._saw_free = True
             want_barrier = issubclass(s.mem, BarrierType)
             want_sync = s.name in self._sync_syms
             if want_barrier:

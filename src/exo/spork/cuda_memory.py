@@ -13,6 +13,9 @@ from ..core.memory import (
     BarrierTypeTraits,
     MemIncludeC,
     MemGlobalC,
+    FreePoolTag,
+    cuda_smem_free_pool_tag,
+    full_scope_free_pool_tag,
 )
 from . import timelines
 from .coll_algebra import (
@@ -153,6 +156,10 @@ class CudaBasicSmem(CudaBasicDeviceVisible):
     @classmethod
     def free(cls, new_name, prim_type, shape, srcinfo):
         return ""
+
+    @classmethod
+    def free_pool_tag(cls):
+        return cuda_smem_free_pool_tag
 
     @classmethod
     @abstractmethod
@@ -359,6 +366,10 @@ class CudaMbarrier(CudaDeviceBarrier):
             supports_guards=True,
             supports_arrive_multicast=True,
         )
+
+    @classmethod
+    def free_pool_tag(cls):
+        return full_scope_free_pool_tag
 
 
 class CudaCommitGroup(CudaDeviceBarrier):

@@ -127,6 +127,36 @@ class MemGlobalC:
             self.depends_on = ()
 
 
+class FreePoolTag:
+    """Controls when Exo inserts the code for memory free.
+
+    If AllocableMemWin.free_pool_tag() is ...
+
+    * None, then the memory is freed immediately after its last use.
+
+    * full_scope_free_pool_tag, then the memory is not freed until
+      the end of the body (scope) in which it is allocated.
+
+    * any other FreePoolTag(), then the memory is freed sometime
+      after its last use, immediately before the next allocation
+      of a memory with the same free_pool_tag(), or the end
+      of the scope if this never occurs.
+
+    """
+
+    __slots__ = ["name"]
+
+    def __init__(self, name):
+        self.name = name
+
+    def __repr__(self):
+        return self.name
+
+
+full_scope_free_pool_tag = FreePoolTag("full_scope_free_pool_tag")
+cuda_smem_free_pool_tag = FreePoolTag("cuda_smem_free_pool_tag")
+
+
 def generate_offset(indices, strides):
     def index_expr(i, s):
         if s == "0" or i == "0":
@@ -327,7 +357,10 @@ class MemWin(ABC):
 
 
 class AllocableMemWin(MemWin):
-    pass
+    @classmethod
+    def free_pool_tag(cls) -> Optional[FreePoolTag]:
+        """See FreePoolTag documentation."""
+        return None
 
 
 class Memory(AllocableMemWin):

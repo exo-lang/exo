@@ -443,6 +443,7 @@ def ext_compile_to_strings(
                     barrier_usage_analysis = BarrierUsageAnalysis(p)
                     barrier_uses = barrier_usage_analysis.uses
                     coll_analysis = CollAnalysis(barrier_usage_analysis, debug_log)
+                    debug_log.log(p.name, "analysis", p)
                     p = coll_analysis.run(p)
                     debug_log.log(p.name, "coll_analysis", p)
                     # TODO tmp
@@ -485,7 +486,7 @@ def ext_compile_to_strings(
                     ext_lines.setdefault(ext, []).extend(snippets)
             except Exception as exc:
                 debug_log.remark(p.name, str(exc))
-                # Log the "error" with respect to whatever state the proc was in above
+                # Log with respect to whatever state the proc was in above
                 debug_log.log(p.name, f"error", p)
                 raise
 
