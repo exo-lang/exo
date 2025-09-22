@@ -362,6 +362,15 @@ class AllocableMemWin(MemWin):
         """See FreePoolTag documentation."""
         return None
 
+    @classmethod
+    def free_qual_tl(cls) -> Optional[Set[Qual_tl]]:
+        """Return a set of Qual_tl to enable SyncEnvFreeShard checks upon free.
+
+        The Qual_tl set given is the extended_qual_tl set for the free.
+
+        """
+        return None
+
 
 class Memory(AllocableMemWin):
     """Memory type for backing non-barrier allocations"""

@@ -520,6 +520,9 @@ class CollTiling:
     def get_dim_ops(self) -> List[CollDimOp]:
         return [op for d in self._dims for op in d.dim_ops]
 
+    def get_dims(self) -> Tuple[CollDim]:
+        return tuple(self._dims)
+
     def get_subdiv_dim_ops(self) -> List[CollDimOp]:
         def is_subdiv(d: CollDim):
             x = d.dim_expectation

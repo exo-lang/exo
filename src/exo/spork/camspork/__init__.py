@@ -374,22 +374,27 @@ class BodyCtx:
 
         works correctly (i.e. y is built second, but scoped first).
 
+        You may also use begin() and end() explicitly as an alternative to with:
+
         """
         self._builder = builder
         self._on_enter = on_enter
 
-    def __enter__(self, *a):
+    def begin(self, *a):
         node = check_return(self._on_enter(self._builder))
         assert isinstance(node, StmtRef)
         self.node = node
         return self
 
-    def __exit__(self, *a):
+    def end(self, *a):
         body = StmtRef()
         orelse = StmtRef()
         check_return(_pop_body(self._builder, byref(body), byref(orelse)))
         self.body = body
         self.orelse = orelse
+
+    __enter__ = begin
+    __exit__ = end
 
 
 @dataclass(slots=True)

@@ -10,7 +10,7 @@ class AccessInfo:
     mem: Type[MemWin] = DRAM
     out_of_order: bool = None
     access_by_owner_only: Optional[bool] = None
-    const: bool = False
+    const: bool = False  # Set automatically
 
     # For warp shuffles and TMA: identifies that the first
     # len(distributed_coll_units) dimensions of the window parameter

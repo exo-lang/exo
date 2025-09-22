@@ -162,6 +162,10 @@ class CudaBasicSmem(CudaBasicDeviceVisible):
         return cuda_smem_free_pool_tag
 
     @classmethod
+    def free_qual_tl(cls):
+        return {timelines.cuda_in_order_ram_qual}
+
+    @classmethod
     @abstractmethod
     def smem_config(cls, inputs: SmemConfigInputs) -> SmemConfig:
         """Substitute for alloc/free. Return SmemConfig."""
@@ -370,6 +374,10 @@ class CudaMbarrier(CudaDeviceBarrier):
     @classmethod
     def free_pool_tag(cls):
         return full_scope_free_pool_tag
+
+    @classmethod
+    def free_qual_tl(cls):
+        return {timelines.cuda_in_order_ram_qual}
 
 
 class CudaCommitGroup(CudaDeviceBarrier):

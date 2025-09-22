@@ -7,6 +7,7 @@ from ..core.LoopIR import T, LoopIR, LoopIR_Do, BaseCompilerDebugLog, chain_wind
 
 from .async_config import BaseAsyncConfig, CudaDeviceFunction
 from .base_with_context import is_if_holding_with
+from .coll_algebra import CollTiling, CollDim, CollDimOp, CollDimExpectation
 from .coll_analysis import CollAnalysis
 from . import camspork
 from .distributed_memory import ThreadIter
@@ -56,7 +57,7 @@ class CamsporkDo(LoopIR_Do):
     ):
         self.proc = p
         self._builder = builder
-        self._coll_analysis = coll_analysis  # Remove if we never use this.
+        self._coll_analysis = coll_analysis
         self._value_syms = value_syms
         self._sync_syms = sync_syms
         self._envtyp = {}
@@ -199,6 +200,7 @@ class CamsporkDo(LoopIR_Do):
         elif isinstance(s, LoopIR.WindowStmt):
             self._envtyp[s.name] = s.rhs.type
             self._mem_env[s.name] = s.special_window or self._mem_env[s.rhs.name]
+
         elif isinstance(s, LoopIR.Alloc):
             self._saw_alloc = True
             self._envtyp[s.name] = s.type
@@ -216,15 +218,62 @@ class CamsporkDo(LoopIR_Do):
                 b.SyncEnvAlloc(am_array)
             if want_value:
                 b.ValueEnvAlloc(am_array)
+
         elif isinstance(s, LoopIR.Free):
             self._saw_free = True
             want_barrier = issubclass(s.mem, BarrierType)
             want_sync = s.name in self._sync_syms
+            want_free_shards = False
+            if want_sync:
+                free_qual_tl = s.mem.free_qual_tl()
+                want_free_shards = not (free_qual_tl is None)
+
             if want_barrier:
                 b.BarrierEnvFree(s.name)
-            if want_sync:
-                # TODO
-                pass
+            if want_free_shards:
+                # Look up distributed memory information for the variable.
+                state = self._coll_analysis.distributed_alloc_states[s.name]
+                distributed_iters = state.first_distributed_iters
+                alloc_coll_tiling = state.alloc_coll_tiling
+                target_coll_tiling: CollTiling = state.first_usage_coll_tiling
+                target_domain = target_coll_tiling.get_domain()
+
+                # We will prepare a parallel-for loop nest for accessing
+                # each shard of the array. Also, possibly reshape domain.
+                loop_nest = []
+                if target_domain != self._domain:
+                    loop_nest.append(b.DomainReshape(*target_domain))
+                for dim_idx, dim in enumerate(target_coll_tiling.get_dims()):
+                    dim: CollDim
+                    # TODO this check is hard to explain.
+                    # Basically, this corresponds to dimensions not relevant
+                    # for the allocation (e.g. threads-in-CTA, for SMEM alloc).
+                    if dim.dim_expectation == CollDimExpectation.full:
+                        continue
+                    for op in dim.dim_ops:
+                        # Only add loops for levels that correspond to code subtree
+                        # rooted under the scope that the alloc is done.
+                        if op.tree_depth <= alloc_coll_tiling.get_tree_depth():
+                            continue
+                        # KeyError hack: I'm unsure if the variable already exists
+                        # to the camspork program # due to the horribly confusing
+                        # CALLEE_DISTRIBUTED "synthetic iterators" (I'm sorry).
+                        try:
+                            am_iter = b[op.iter]
+                        except KeyError:
+                            am_iter = b.add_variable(op.iter)
+                        loop_nest.append(
+                            b.ThreadsFor(
+                                am_iter, 0, op.tile_count, dim_idx, op.offset, op.box
+                            )
+                        )
+                # Emit the generated loop nest (begin/end instead of with).
+                for ctx in loop_nest:
+                    ctx.begin()
+                dst = b[s.name][tuple(b[it] for it in distributed_iters)]
+                b.SyncEnvFreeShard(dst, Qual_tl.make_bits(free_qual_tl))
+                for ctx in reversed(loop_nest):
+                    ctx.end()
         elif isinstance(s, LoopIR.Call):
             callee = s.f
             instr = callee.instr
@@ -248,6 +297,10 @@ class CamsporkDo(LoopIR_Do):
                 if caller_a.name not in self._sync_syms:
                     continue
                 arg_info: AccessInfo = instr.access_info[str(callee_a.name)]
+                assert (
+                    not arg_info.access_by_owner_only
+                ), "TODO generate ThreadsFor loop for shards of input"
+                # TODO atomics
                 dst_lo, extent = self.comp_fnarg(fnarg_type, caller_a, instr_tl)
                 if dst_lo is not None:
                     initial_q, ext_q = self.get_qual_bits(caller_a, instr_tl)
@@ -262,7 +315,6 @@ class CamsporkDo(LoopIR_Do):
                         barrier=barrier,
                         multicasts=multicasts,
                     )
-                # TODO distributed memory, trailing barrier, atomic
 
         else:
             super().do_s(s)
