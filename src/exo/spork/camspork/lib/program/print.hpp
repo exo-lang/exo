@@ -118,13 +118,13 @@ class ProgramPrinter
         *this << ", barrier=";
         *this << node->name;
         print_idx(node);
-        *this << ", multicasts=(";
+        *this << ", barrier_multicasts=(";
         print_multicasts(node);
         *this << ")";
     }
 
-    template <bool IsMutate, bool IsWindow>
-    void operator() (const SyncEnvAccessNode<IsMutate, IsWindow>* node)
+    template <bool IsMutate, bool IsWindow, bool IsMulticast>
+    void operator() (const SyncEnvAccessNode<IsMutate, IsWindow, IsMulticast>* node)
     {
         print_tabs();
         *this << "b.SyncEnvAccess(" << node->name;
@@ -138,6 +138,11 @@ class ProgramPrinter
         if constexpr (node->is_window) {
             *this << ", extent=";
             print_idx(node, false);  // print extent
+        }
+        if constexpr (node->is_multicast) {
+            *this << ", access_multicasts=(";
+            print_multicasts(node);
+            *this << ")";
         }
         if (node->trailing_barrier_expr) {
             // Invoke callback to print the barrier-specific arguments.
@@ -169,7 +174,7 @@ class ProgramPrinter
         *this << ", " << node->name;
         print_idx(node);
         // multicasts: transpose bits in multicast_per_expr to recover this.
-        *this << ", multicasts=(";
+        *this << ", barrier_multicasts=(";
         print_multicasts(node);
         *this << "))\n";
     }

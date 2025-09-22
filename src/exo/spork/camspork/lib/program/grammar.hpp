@@ -11,6 +11,7 @@
 #include "../util/api_util.hpp"
 #include "../util/require.hpp"
 
+// Advice: make this the last item in the struct, so camspork_vla_size default = 0 works for {}-init.
 #define CAMSPORK_NODE_VLA_MEMBER(T) \
     static constexpr bool camspork_vla_member = true; \
     uint32_t camspork_vla_size = 0; \
@@ -484,13 +485,15 @@ struct stmt
 {
 };
 
-static constexpr uint32_t NumStmtTypes = 20;
+static constexpr uint32_t NumStmtTypes = 22;
 
 using StmtRef = NodeRef<stmt, NumStmtTypes>;
 
-template <bool IsWindow>
+template <bool IsWindow, bool IsMulticast>
 struct SyncEnvAccessNodeData
 {
+    static_assert(!IsWindow || !IsMulticast);
+
     Varname name;
     qual_bits_t initial_qual_bit;
     qual_bits_t extended_qual_bits;
@@ -498,7 +501,8 @@ struct SyncEnvAccessNodeData
     TrailingBarrierExprRef trailing_barrier_expr;
 
     static constexpr bool is_window = IsWindow;
-    using IdxT = std::conditional_t<IsWindow, OffsetExtentExpr, ExprRef>;
+    static constexpr bool is_multicast = IsMulticast;
+    using IdxT = std::conditional_t<IsMulticast, ArriveIdx, std::conditional_t<IsWindow, OffsetExtentExpr, ExprRef>>;
     CAMSPORK_NODE_VLA_MEMBER(IdxT);
 };
 
@@ -516,8 +520,8 @@ struct CondAtomicQualBits<true>
     qual_bits_t get_atomic_qual_bits() const { return atomic_qual_bits; }
 };
 
-template <bool IsMutate, bool IsWindow>
-struct SyncEnvAccessNode : SyncEnvAccessNodeData<IsWindow>, CondAtomicQualBits<IsMutate>
+template <bool IsMutate, bool IsWindow, bool IsMulticast>
+struct SyncEnvAccessNode : SyncEnvAccessNodeData<IsWindow, IsMulticast>, CondAtomicQualBits<IsMutate>
 {
     static constexpr bool is_mutate = IsMutate;
 };
@@ -525,35 +529,64 @@ struct SyncEnvAccessNode : SyncEnvAccessNodeData<IsWindow>, CondAtomicQualBits<I
 // SyncEnvReadSingle(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, bool is_ooo, expr* offset)
 using SyncEnvReadSingle = stmt<0>;
 template <>
-struct stmt<0> : SyncEnvAccessNode<false, false>
+struct stmt<0> : SyncEnvAccessNode<false, false, false>
 {
 };
 
 // SyncEnvReadWindow(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, bool is_ooo, expr* offset, expr* extent)
 using SyncEnvReadWindow = stmt<1>;
 template <>
-struct stmt<1> : SyncEnvAccessNode<false, true>
+struct stmt<1> : SyncEnvAccessNode<false, true, false>
+{
+};
+
+// SyncEnvReadMulticast(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, bool is_ooo, expr* offset, multicast_flag* multicasts)
+using SyncEnvReadMulticast = stmt<2>;
+template <>
+struct stmt<2> : SyncEnvAccessNode<false, false, true>
 {
 };
 
 // SyncEnvMutateSingle(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, bool is_ooo, expr* offset)
-using SyncEnvMutateSingle = stmt<2>;
+using SyncEnvMutateSingle = stmt<3>;
 template <>
-struct stmt<2> : SyncEnvAccessNode<true, false>
+struct stmt<3> : SyncEnvAccessNode<true, false, false>
 {
 };
 
 // SyncEnvMutateWindow(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, bool is_ooo, expr* offset, expr* extent)
-using SyncEnvMutateWindow = stmt<3>;
+using SyncEnvMutateWindow = stmt<4>;
 template <>
-struct stmt<3> : SyncEnvAccessNode<true, true>
+struct stmt<4> : SyncEnvAccessNode<true, true, false>
 {
 };
 
-// MutateValue(Varname name, expr* idx, binop op, expr rhs)
-using MutateValue = stmt<4>;
+// SyncEnvMutateMulticast(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, bool is_ooo, expr* offset, multicast_flag* multicasts)
+using SyncEnvMutateMulticast = stmt<5>;
+template <>
+struct stmt<5> : SyncEnvAccessNode<true, false, true>
+{
+};
+
+
+// SyncEnvFreeShard(Varname name, expr* idx, qual_tl* extended_qual_bits)
+//
+// Before-free checks for name[*idx, :, :...] where the number of : is equal to the
+// dimensionality of the named tensor minus the number of idx provided.
+using SyncEnvFreeShard = stmt<6>;
 template<>
-struct stmt<4>
+struct stmt<6>
+{
+    Varname name;
+    qual_bits_t extended_qual_bits;
+    CAMSPORK_NODE_VLA_MEMBER(ExprRef)
+};
+
+
+// MutateValue(Varname name, expr* idx, binop op, expr rhs)
+using MutateValue = stmt<7>;
+template<>
+struct stmt<7>
 {
     Varname name;
     binop op;
@@ -562,9 +595,9 @@ struct stmt<4>
 };
 
 // Fence(qual_tl* L1_qual_bits, qual_tl* L2_full_qual_bits, qual_tl* L2_temporal_qual_bits)
-using Fence = stmt<5>;
+using Fence = stmt<8>;
 template<>
-struct stmt<5>
+struct stmt<8>
 {
     uint32_t V1_transitive;
     qual_bits_t L1_qual_bits;
@@ -575,9 +608,9 @@ struct stmt<5>
 
 // Arrive(Varname name, bool V1_transitive, qual_tl* L1_qual_bits, ExprRef* idx, multicast_flag* multicasts)
 // multicasts[expr_idx][dim_idx] = ArriveIdx[dim_idx][expr_idx]
-using Arrive = stmt<6>;
+using Arrive = stmt<9>;
 template<>
-struct stmt<6>
+struct stmt<9>
 {
     Varname name;
     uint32_t V1_transitive;
@@ -586,9 +619,9 @@ struct stmt<6>
 };
 
 // Await(Varname name, qual_tl* L2_full_qual_bits, qual_tl* L2_temporal_qual_bits, int32_t N, ExprRef* idx)
-using Await = stmt<7>;
+using Await = stmt<10>;
 template<>
-struct stmt<7>
+struct stmt<10>
 {
     Varname name;
     qual_bits_t L2_full_qual_bits;
@@ -598,38 +631,7 @@ struct stmt<7>
 };
 
 // ValueEnvAlloc(Varname name, expr* extent)
-using ValueEnvAlloc = stmt<8>;
-template<>
-struct stmt<8>
-{
-    Varname name;
-    CAMSPORK_NODE_VLA_MEMBER(ExprRef)
-};
-
-// SyncEnvAlloc(Varname name, expr* extent)
-using SyncEnvAlloc = stmt<9>;
-template<>
-struct stmt<9>
-{
-    Varname name;
-    CAMSPORK_NODE_VLA_MEMBER(ExprRef)
-};
-
-// SyncEnvFreeShard(Varname name, expr* idx, qual_tl* extended_qual_bits)
-//
-// Before-free checks for name[*idx, :, :...] where the number of : is equal to the
-// dimensionality of the named tensor minus the number of idx provided.
-using SyncEnvFreeShard = stmt<10>;
-template<>
-struct stmt<10>
-{
-    Varname name;
-    qual_bits_t extended_qual_bits;
-    CAMSPORK_NODE_VLA_MEMBER(ExprRef)
-};
-
-// BarrierEnvAlloc(Varname name, expr* extent)
-using BarrierEnvAlloc = stmt<11>;
+using ValueEnvAlloc = stmt<11>;
 template<>
 struct stmt<11>
 {
@@ -637,10 +639,28 @@ struct stmt<11>
     CAMSPORK_NODE_VLA_MEMBER(ExprRef)
 };
 
-// BarrierEnvFree(Varname name)
-using BarrierEnvFree = stmt<12>;
+// SyncEnvAlloc(Varname name, expr* extent)
+using SyncEnvAlloc = stmt<12>;
 template<>
 struct stmt<12>
+{
+    Varname name;
+    CAMSPORK_NODE_VLA_MEMBER(ExprRef)
+};
+
+// BarrierEnvAlloc(Varname name, expr* extent)
+using BarrierEnvAlloc = stmt<13>;
+template<>
+struct stmt<13>
+{
+    Varname name;
+    CAMSPORK_NODE_VLA_MEMBER(ExprRef)
+};
+
+// BarrierEnvFree(Varname name)
+using BarrierEnvFree = stmt<14>;
+template<>
+struct stmt<14>
 {
     Varname name;
     CAMSPORK_NODE_NO_VLA()
@@ -648,19 +668,19 @@ struct stmt<12>
 
 // StmtBody(stmt* body)
 // This is statement composition body[0] ; body[1] ; ...
-static constexpr uint32_t StmtBody_ID = 13;
-using StmtBody = stmt<13>;
+static constexpr uint32_t StmtBody_ID = 15;
+using StmtBody = stmt<15>;
 template<>
-struct stmt<13>
+struct stmt<15>
 {
     CAMSPORK_NODE_VLA_MEMBER(StmtRef);
 };
 
 // If(expr cond, stmt body, stmt orelse)
-static constexpr uint32_t If_ID = 14;
-using If = stmt<14>;
+static constexpr uint32_t If_ID = 16;
+using If = stmt<16>;
 template<>
-struct stmt<14>
+struct stmt<16>
 {
     ExprRef cond;
     StmtRef body;
@@ -678,23 +698,23 @@ struct BaseForStmt
 };
 
 // SeqFor(Varname iter, expr lo, expr hi, stmt body)
-using SeqFor = stmt<15>;
+using SeqFor = stmt<17>;
 template<>
-struct stmt<15> : BaseForStmt
+struct stmt<17> : BaseForStmt
 {
 };
 
 // TasksFor(Varname iter, expr lo, expr hi, stmt body)
-using TasksFor = stmt<16>;
+using TasksFor = stmt<18>;
 template<>
-struct stmt<16> : BaseForStmt
+struct stmt<18> : BaseForStmt
 {
 };
 
 // ThreadsFor(Varname iter, expr lo, expr hi, int dim_idx, int offset, int box, stmt body)
-using ThreadsFor = stmt<17>;
+using ThreadsFor = stmt<19>;
 template<>
-struct stmt<17> : BaseForStmt
+struct stmt<19> : BaseForStmt
 {
     uint32_t dim_idx;
     uint32_t offset;
@@ -702,25 +722,25 @@ struct stmt<17> : BaseForStmt
 };
 
 // ParallelBlock(stmt body, int* domain)
-using ParallelBlock = stmt<18>;
+using ParallelBlock = stmt<20>;
 template<>
-struct stmt<18>
+struct stmt<20>
 {
     StmtRef body;
     CAMSPORK_NODE_VLA_MEMBER(uint32_t)
 };
 
 // DomainReshape(stmt body, int* domain)
-using DomainReshape = stmt<19>;
+using DomainReshape = stmt<21>;
 template<>
-struct stmt<19>
+struct stmt<21>
 {
     StmtRef body;
     CAMSPORK_NODE_VLA_MEMBER(uint32_t)
 };
 
 // Update this if you add more stmt node types.
-static_assert(NumStmtTypes == 20);
+static_assert(NumStmtTypes == 22);
 
 
 // ******************************************************************************************

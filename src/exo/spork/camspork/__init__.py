@@ -507,16 +507,21 @@ class ProgramBuilder:
             self, dst: BuilderIndexExpr | Varname, initial_qual_bit: int, extended_qual_bits: int, *,
             is_mutate: bool, is_ooo: bool, extent: Optional[List[BuilderExpr]] = None,
             atomic_qual_bits: int = 0,
+            access_multicasts: Tuple[Tuple[bool]] = (),
             barrier: Optional[BuilderIndexExpr | Varname] = None,
-            multicasts: Tuple[Tuple[bool]] = ()) -> StmtRef:
+            barrier_multicasts: Tuple[Tuple[bool]] = ()) -> StmtRef:
         if barrier is not None:
-            barrier_name, barrier_dim, barrier_idx = self._unpack_barrier(barrier, multicasts)
+            barrier_name, barrier_dim, barrier_idx = self._unpack_multicast(barrier, barrier_multicasts)
             trailing_barrier_expr = check_return(_add_TrailingBarrierExpr(self._builder, barrier_name, barrier_dim, barrier_idx))
         else:
             trailing_barrier_expr = null_trailing_barrier_expr
-        var, dim, offsets = dst.c_var_dim_idxs(self._builder)
-        if extent:
+        if access_multicasts:
+            assert not extent, "Can't have extent and multicasts (without barrier)"
+            c_func = _add_SyncEnvAccessMulticast
+            var, dim, idxs = self._unpack_multicast(dst, access_multicasts)
+        elif extent:
             # Window variant -- have to interleave offsets and extents (of window)
+            var, dim, offsets = dst.c_var_dim_idxs(self._builder)
             assert len(extent) == dim
             c_func = _add_SyncEnvAccessWindow
             idxs = (OffsetExtentExpr * dim)()
@@ -525,6 +530,7 @@ class ProgramBuilder:
                 idxs[i].extent_e = self.build_expr(extent[i])
         else:
             # Single value variant
+            var, dim, offsets = dst.c_var_dim_idxs(self._builder)
             c_func = _add_SyncEnvAccessSingle
             idxs = offsets
         return check_return(c_func(self._builder, var, dim, idxs, initial_qual_bit, extended_qual_bits, atomic_qual_bits, bool(is_mutate), bool(is_ooo), trailing_barrier_expr))
@@ -540,8 +546,8 @@ class ProgramBuilder:
     def Fence(self, V1_transitive: bool, L1_qual_bits: int, L2_full_qual_bits: int, L2_temporal_qual_bits: int) -> StmtRef:
         return check_return(_add_Fence(self._builder, V1_transitive, L1_qual_bits, L2_full_qual_bits, L2_temporal_qual_bits))
 
-    def Arrive(self, V1_transitive: bool, L1_qual_bits: int, dst: BuilderIndexExpr | Varname, multicasts: Tuple[Tuple[bool]]):
-        var, dim, arrive_idx = self._unpack_barrier(dst, multicasts)
+    def Arrive(self, V1_transitive: bool, L1_qual_bits: int, dst: BuilderIndexExpr | Varname, barrier_multicasts: Tuple[Tuple[bool]]):
+        var, dim, arrive_idx = self._unpack_multicast(dst, barrier_multicasts)
         return check_return(_add_Arrive(self._builder, V1_transitive, L1_qual_bits, var, dim, arrive_idx))
 
     def Await(self, dst: BuilderIndexExpr, L2_full_qual_bits: int, L2_temporal_qual_bits: int, N: int):
@@ -604,7 +610,7 @@ class ProgramBuilder:
         array = (c_uint32 * dim)(*coords)
         return BodyCtx(self._builder, lambda builder: _push_DomainReshape(builder, dim, array))
 
-    def _unpack_barrier(self, dst: BuilderIndexExpr | Varname, multicasts: Tuple[Tuple[bool]]):
+    def _unpack_multicast(self, dst: BuilderIndexExpr | Varname, multicasts: Tuple[Tuple[bool]]):
         dst = BuilderExpr.typecheck(dst)
         var, dim, e_idxs = dst.c_var_dim_idxs(self._builder)
         arrive_idx = (ArriveIdx * dim)()
@@ -734,7 +740,7 @@ if __name__ == "__main__":
                     b.BarrierEnvAlloc(bars[4, 2, 2])
                     tid = b.add_variable("tid")
                     with b.ThreadsFor(tid, 0, 24, 0, 0, 1):
-                        b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 2, 2, is_mutate=True, is_ooo=True, atomic_qual_bits=8192, barrier=bars[m, n, k], multicasts=((True, False, False),))
+                        b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 2, 2, is_mutate=True, is_ooo=True, atomic_qual_bits=8192, barrier=bars[m, n, k], barrier_multicasts=((True, False, False),))
                     with b.ThreadsFor(tid, 0, 1, 0, 0, 14):
                         b.Arrive(True, 3, bars[m, n, k], ((True, False, True), (True, True, False)))
                         b.Await(bars[m, n, k], 3, 3, N=0)

@@ -313,7 +313,9 @@ class CamsporkDo(LoopIR_Do):
                 dst_lo, extent = self.comp_fnarg(fnarg_type, caller_a, instr_tl)
                 if dst_lo is not None:
                     initial_q, ext_q = self.get_qual_bits(caller_a, instr_tl)
-                    barrier, multicasts = self.comp_trailing_barrier_expr(s, instr_tl)
+                    barrier, barrier_multicasts = self.comp_trailing_barrier_expr(
+                        s, instr_tl
+                    )
                     b.SyncEnvAccess(
                         dst_lo,
                         initial_q,
@@ -322,7 +324,7 @@ class CamsporkDo(LoopIR_Do):
                         is_ooo=arg_info.out_of_order,
                         extent=extent,
                         barrier=barrier,
-                        multicasts=multicasts,
+                        barrier_multicasts=barrier_multicasts,
                     )
 
         else:

@@ -1,5 +1,6 @@
 #include "exec.hpp"
 
+#include <array>
 #include <errno.h>
 #include <sstream>
 #include <stdexcept>
@@ -248,6 +249,11 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         exec_sync_env_impl(node, env.stmt_ref_from_ptr(node));
     }
 
+    void exec_impl(const SyncEnvReadMulticast* node)
+    {
+        exec_sync_env_impl(node, env.stmt_ref_from_ptr(node));
+    }
+
     void exec_impl(const SyncEnvMutateSingle* node)
     {
         exec_sync_env_impl(node, env.stmt_ref_from_ptr(node));
@@ -258,13 +264,18 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         exec_sync_env_impl(node, env.stmt_ref_from_ptr(node));
     }
 
+    void exec_impl(const SyncEnvMutateMulticast* node)
+    {
+        exec_sync_env_impl(node, env.stmt_ref_from_ptr(node));
+    }
+
     void operator() (const TrailingBarrierExpr* node)
     {
         fill_tmp_offset_barriers(node);
     }
 
-    template <bool IsMutate, bool IsWindow>
-    void exec_sync_env_impl(const SyncEnvAccessNode<IsMutate, IsWindow>* node, StmtRef stmt_ref)
+    template <bool IsMutate, bool IsWindow, bool IsMulticast>
+    void exec_sync_env_impl(const SyncEnvAccessNode<IsMutate, IsWindow, IsMulticast>* node, StmtRef stmt_ref)
     {
         SyncvAccessInfo access;
         access.is_ooo = node->is_ooo;
@@ -281,13 +292,25 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
             access.trailing_barriers = tmp_all_barriers.data();
         }
 
-        // Prepare input: window or single assignment record
-        using Input = std::conditional_t<IsWindow, AssignmentRecordWindow, assignment_record_id*>;
-        Input input;
+        // Prepare input: window or single assignment record.
+        // If multicasting, the input is a list of individual assignment records to update.
+        using Input = std::conditional_t<node->is_window, AssignmentRecordWindow, assignment_record_id*>;
+        using InputList = std::conditional_t<node->is_multicast, std::vector<Input>, std::array<Input, 1>>;
+        InputList input_list;
         VarSlotEntry<assignment_record_id>& slot = env.sync_slot(node->name);
-        eval_tmp_offset(node);
-        if constexpr (node->is_window) {
+
+        if constexpr (node->is_multicast) {
+            static_assert(!node->is_window, "we can only multicast a single position");
+            auto callback = [&] (auto& callback_slot, auto linear_idx)
+            {
+                input_list.push_back(&callback_slot.data()[linear_idx]);
+            };
+            eval_tmp_offset_multicast(node, slot, callback);
+        }
+        else if constexpr (node->is_window) {
+            eval_tmp_offset(node);
             eval_tmp_extent(node);
+            AssignmentRecordWindow& input = input_list[0];
             input.base = slot.data();
             input.begin_outer_extent = &*slot.extent().begin();
             input.end_outer_extent = &*slot.extent().end();
@@ -297,38 +320,43 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
             input.end_inner_extent = &*tmp_extent.end();
         }
         else {
-            input = &slot.idx(tmp_offset.begin(), tmp_offset.end());
+            eval_tmp_offset(node);
+            input_list[0] = &slot.idx(tmp_offset.begin(), tmp_offset.end());
         }
 
-        // Prepare excut debug logger if applicable.
-        using Logger = std::conditional_t<EnableExcutLog, SyncvExcutRequest, decltype(nullptr)>;
-        Logger logger{};
-        if constexpr (EnableExcutLog) {
-            logger.var_str_name = env.str_name(node->name);
-            logger.p_out = &this->excut_actions;
-            if constexpr (!IsWindow) {
-                logger.idx_for_single = tmp_offset;
+        for (const Input& input : input_list) {
+            // Prepare excut debug logger if applicable.
+            using Logger = std::conditional_t<EnableExcutLog, SyncvExcutRequest, decltype(nullptr)>;
+            Logger logger{};
+            if constexpr (EnableExcutLog) {
+                logger.var_str_name = env.str_name(node->name);
+                logger.p_out = &this->excut_actions;
+                if constexpr (!node->is_window) {
+                    // TODO index is wrong for multicasting!
+                    logger.idx_for_single = tmp_offset;
+                }
             }
-        }
 
-        // Call into syncv table (a lot of duplicated code with SyncEnvFreeShard, not great)
-        try {
-            if constexpr (node->is_mutate) {
-                on_rw(env.p_syncv_table.get(), input, env.prepare_thread_cuboid(), access, logger);
+            // Call into syncv table (a lot of duplicated code with SyncEnvFreeShard, not great)
+            try {
+                if constexpr (node->is_mutate) {
+                    on_rw(env.p_syncv_table.get(), input, env.prepare_thread_cuboid(), access, logger);
+                }
+                else {
+                    on_r(env.p_syncv_table.get(), input, env.prepare_thread_cuboid(), access, logger);
+                }
             }
-            else {
-                on_r(env.p_syncv_table.get(), input, env.prepare_thread_cuboid(), access, logger);
+            catch (const SyncvCheckFail& exc) {
+                // If !is_window, we can't trust linear_index_in_input
+                // as we passed an already-offset pointer to SyncvTable.
+                env._syncv_fail_var = node->name;
+                env._syncv_fail_idx = node->is_window ? slot.idx_from_linear(exc.linear_index_in_input()) : tmp_offset;
+                std::stringstream s;
+                s << exc.what() << " @ " << env.str_name(node->name);
+                print_idx_helper(s, env._syncv_fail_idx);
+                env.add_remark(stmt_ref, s.str());
+                throw;
             }
-        }
-        catch (const SyncvCheckFail& exc) {
-            // If !IsWindow, we can't trust linear_index_in_input as we passed an already-offset pointer to SyncvTable.
-            env._syncv_fail_var = node->name;
-            env._syncv_fail_idx = IsWindow ? slot.idx_from_linear(exc.linear_index_in_input()) : tmp_offset;
-            std::stringstream s;
-            s << exc.what() << " @ " << env.str_name(node->name);
-            print_idx_helper(s, env._syncv_fail_idx);
-            env.add_remark(stmt_ref, s.str());
-            throw;
         }
         env.maybe_syncv_debug_validate();
     }
@@ -425,28 +453,26 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         env.maybe_syncv_debug_validate();
     }
 
-    template <typename Node>
-    barrier_id fill_tmp_offset_barriers(const Node* node)
+    template <typename Node, typename Slot, typename Callback>
+    void eval_tmp_offset_multicast(const Node* node, Slot& slot, Callback&& callback)
     {
-        // Fill tmp_offset and tmp_all_barriers. Return home barrier.
-        VarSlotEntry<barrier_id>& slot = env.barrier_slot(node->name);
+        // Requires Node has ArriveIdx as VLA type.
+        // Fill tmp_offset based on the index, and resolve multicasting.
+        // callback(slot, linear_idx) is called for each (linearized, C order) position
+        // covered by multicasting.
         const std::vector<extent_t>& extent = slot.extent();
         const uint32_t dim = node->camspork_vla_size;
-
         CAMSPORK_REQUIRE_CMP(dim, ==, extent.size(), "dimension mismatch");
 
-        // Evaluate concrete indices of home barrier.
+        // Evaluate concrete indices (for barriers this is the "home barrier" index).
         eval_tmp_offset(node);
-        const barrier_id home_barrier = slot.idx(tmp_offset.begin(), tmp_offset.end());
 
-        // Find all barriers matching at least one BarrierExpr.
-        tmp_all_barriers.clear();
-        auto fill_barriers = [&] (
+        auto recurse = [&] (
                 uint32_t dim_idx, uint32_t partial_idx, uint32_t equality_mask, auto recurse)
         {
             if (dim_idx >= dim) {
                 if (equality_mask != 0) {
-                    tmp_all_barriers.push_back(slot.data()[partial_idx]);
+                    callback(slot, partial_idx);
                 }
                 return;
             }
@@ -458,7 +484,24 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
                 recurse(dim_idx + 1, partial_idx * extent_coord + i, equality_mask & tmp_mask, recurse);
             }
         };
-        fill_barriers(0, 0, ~uint32_t(0), fill_barriers);
+        recurse(0, 0, ~uint32_t(0), recurse);
+    }
+
+    template <typename Node>
+    barrier_id fill_tmp_offset_barriers(const Node* node)
+    {
+        // Fill tmp_offset and tmp_all_barriers. Return home barrier.
+        VarSlotEntry<barrier_id>& _slot = env.barrier_slot(node->name);
+
+        // Find all barriers matching at least one BarrierExpr.
+        tmp_all_barriers.clear();
+        auto callback = [&] (auto& slot, auto linear_idx)
+        {
+            tmp_all_barriers.push_back(slot.data()[linear_idx]);
+        };
+        eval_tmp_offset_multicast(node, _slot, callback);
+
+        const barrier_id home_barrier = _slot.idx(tmp_offset.begin(), tmp_offset.end());
         return home_barrier;
     }
 
