@@ -332,8 +332,7 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
                 logger.var_str_name = env.str_name(node->name);
                 logger.p_out = &this->excut_actions;
                 if constexpr (!node->is_window) {
-                    // TODO index is wrong for multicasting!
-                    logger.idx_for_single = tmp_offset;
+                    logger.idx_for_single = slot.idx_from_linear(input - slot.data());
                 }
             }
 
@@ -349,8 +348,15 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
             catch (const SyncvCheckFail& exc) {
                 // If !is_window, we can't trust linear_index_in_input
                 // as we passed an already-offset pointer to SyncvTable.
+                size_t linear_index;
+                if constexpr (node->is_window) {
+                    linear_index = exc.linear_index_in_input();
+                }
+                else {
+                    linear_index = size_t(input - slot.data());
+                }
                 env._syncv_fail_var = node->name;
-                env._syncv_fail_idx = node->is_window ? slot.idx_from_linear(exc.linear_index_in_input()) : tmp_offset;
+                env._syncv_fail_idx = slot.idx_from_linear(linear_index);
                 std::stringstream s;
                 s << exc.what() << " @ " << env.str_name(node->name);
                 print_idx_helper(s, env._syncv_fail_idx);
