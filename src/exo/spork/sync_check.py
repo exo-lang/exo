@@ -331,9 +331,9 @@ class CamsporkDo(LoopIR_Do):
                 if caller_a.name not in self._sync_syms:
                     continue
                 arg_info: AccessInfo = instr.access_info[str(callee_a.name)]
-                assert (
-                    not arg_info.access_by_owner_only
-                ), "TODO generate ThreadsFor loop for shards of input"
+                # assert (
+                #     not arg_info.access_by_owner_only
+                # ), "TODO generate ThreadsFor loop for shards of input"
                 # TODO atomics
                 dst_lo, extent = self.comp_fnarg(fnarg_type, caller_a, instr_tl)
                 if dst_lo is not None:

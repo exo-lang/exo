@@ -657,9 +657,12 @@ class DistributedIdxFsm:
                 break
 
         if msg is None:
-            # I don't think this error state is reachable after the thread_pitch check.
-            # Write an error message for this if this turns out not to be true.
-            assert len(first_distributed_iters) == len(second_distributed_iters)
+            if len(first_distributed_iters) != len(second_distributed_iters):
+                msg = (
+                    "Different number of distributed dimensions deduced; "
+                    "possible reason, used iterator with tile_count=1 [(0, 1)-loop]"
+                )
+        if msg is None:
             if state.optional_native_unit is not None:
                 msg = first_usage_coll_tiling.tiling_mismatch(
                     second_usage_coll_tiling, distributed=True
@@ -777,7 +780,7 @@ class DistributedIdxFsm:
         distributed_iters.sort()
         txt = ", ".join(str(sym) for sym in distributed_iters)
         raise ValueError(
-            f"{node.srcinfo}: Distributed memory analysis "
+            f"{node.srcinfo}: Distributed memory deduction "
             f"for {node.name} failed:\n{msg}\n"
             f"(at {self.context_stmt}, searching for iterators [{txt}]) "
         )

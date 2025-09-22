@@ -1390,3 +1390,40 @@ def test_repeated_index_fixed(compiler):
     cuh = cu.cuh_src
     assert "float vals[16]" in cuh
     assert "vals[exo_16thr_m] = 0" in cuh
+
+
+def mkproc_wrong_extent(wrong_i0=False, wrong_i1=False):
+    I0 = 1 if wrong_i0 else 8
+    I1 = 1 if wrong_i1 else 8
+
+    @proc
+    def wrong_extent(out: f32[8, 8] @ CudaGmemLinear):
+        with CudaDeviceFunction(blockDim=64):
+            for task in cuda_tasks(0, 1):
+                evil_rmem: f32[8, 8] @ CudaRmem
+                for i0 in cuda_threads(0, I0, unit=8 * cuda_thread):
+                    for i1 in cuda_threads(0, I1, unit=cuda_thread):
+                        evil_rmem[i0, i1] = 1337
+                for i0 in cuda_threads(0, 8, unit=8 * cuda_thread):
+                    for i1 in cuda_threads(0, 8, unit=cuda_thread):
+                        out[i0, i1] = evil_rmem[i0, i1]
+
+    return wrong_extent
+
+
+def test_wrong_extent_positive(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_wrong_extent, golden=golden)
+
+
+def test_wrong_extent_negative_i0(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(mkproc_wrong_extent, wrong_i0=True)
+    msg = str(exc.value)
+    assert "Distributed memory deduction for evil_rmem failed" in msg
+
+
+def test_wrong_extent_negative_i1(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(mkproc_wrong_extent, wrong_i1=True)
+    msg = str(exc.value)
+    assert "Distributed memory deduction for evil_rmem failed" in msg

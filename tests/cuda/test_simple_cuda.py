@@ -690,3 +690,71 @@ def test_tmp_Sm80(compiler_Sm80):
 
     C_expected = A @ B
     assert np.array_equal(C_test, C_expected)
+
+
+# fmt: off
+gemv_blockDim = 128
+gemv_M0 = gemv_blockDim // 8
+@proc
+def gemv_warp_coop_8(M: size, K: size, h_A: f32[M, K], h_x: f32[K], h_y: f32[M]):
+    assert M % gemv_M0 == 0
+    assert K % 8 == 0
+    d_A: f32[M, K] @ CudaGmemLinear
+    d_x: f32[K] @ CudaGmemLinear
+    d_y: f32[M] @ CudaGmemLinear
+    cudaMemcpyAsync_htod_2f32(M, K, d_A, h_A)
+    cudaMemcpyAsync_htod_1f32(K, d_x, h_x)
+    with CudaDeviceFunction(blockDim=gemv_blockDim):
+        for m1 in cuda_tasks(0, M / gemv_M0):
+            for m0 in cuda_threads(0, gemv_M0, unit=8 * cuda_thread):
+                # Teams of 8 threads cooperate to fill one element of d_y[m]
+                # where m = m1 * gemv_M0 + m0.
+                # Each thread "owns" one spot in the [2, 2, 2] accumulator.
+                # Each thread sums up every 8th element in d_A[m, :] and h_x[:]
+                partial_sum: f32[2, 2, 2] @ CudaRmem
+                for k4 in cuda_threads(0, 2, unit=4 * cuda_thread):
+                    for k2 in cuda_threads(0, 2, unit=2 * cuda_thread):
+                        for k1 in cuda_threads(0, 2, unit=1 * cuda_thread):
+                            partial_sum[k4, k2, k1] = 0
+                            for k8 in seq(0, K / 8):
+                                partial_sum[k4, k2, k1] += (
+                                    d_A[m1 * gemv_M0 + m0, k8*8 + k4*4 + k2*2 + k1]
+                                  * d_x[k8*8 + k4*4 + k2*2 + k1]
+                                )
+                # XOR shuffle + sum to get totals.
+                tmp: f32[2, 2, 2] @ CudaRmem
+                for k2 in cuda_threads(0, 2, unit=2 * cuda_threads_strided(2, 4)):
+                    for k1 in cuda_threads(0, 2, unit=2 * cuda_threads_strided(1, 4)):
+                        cuda_shfl_xor_sync_1f32_sum(
+                            tmp[:, k2, k1], partial_sum[:, k2, k1], laneMask=4)
+                for k4 in cuda_threads(0, 2, unit=4 * cuda_thread):
+                    for k1 in cuda_threads(0, 2, unit=2 * cuda_threads_strided(1, 2)):
+                        cuda_shfl_xor_sync_1f32_sum(
+                            partial_sum[k4, :, k1], tmp[k4, :, k1], laneMask=2)
+                for k4 in cuda_threads(0, 2, unit=4 * cuda_thread):
+                    for k2 in cuda_threads(0, 2, unit=2 * cuda_thread):
+                        cuda_shfl_xor_sync_1f32_sum(
+                            tmp[k4, k2, :], partial_sum[k4, k2, :], laneMask=1)
+                        # Nominate one thread to write the output.
+                        # This is written strangely; we can't access tmp[0, 0, 0]
+                        # directly, due to distributed memory deduction rules.
+                        for k1 in cuda_threads(0, 2, unit=cuda_thread):
+                            if k4 == 0:
+                                if k2 == 0:
+                                    if k1 == 0:
+                                        d_y[m1 * gemv_M0 + m0] = tmp[k4, k2, k1]
+    cudaMemcpyAsync_dtoh_1f32(M, h_y, d_y)
+# fmt: on
+
+
+def test_gemv_warp_coop_8(compiler_Sm80):
+    cu = compiler_Sm80.cuda_test_context(gemv_warp_coop_8)
+
+    for M, K in ((512, 256), (256, 512), (128, 1024)):
+        A = np.ndarray(shape=(M, K), dtype=np.float32, order="C")
+        x = np.ndarray(shape=(K, 1), dtype=np.float32, order="C")
+        y = np.ndarray(shape=(M, 1), dtype=np.float32, order="C")
+
+        cu(None, M, K, A, x, y)
+        y_expected = A @ x
+        assert np.array_equal(y, y_expected)

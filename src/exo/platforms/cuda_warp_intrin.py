@@ -5,7 +5,7 @@ from math import prod
 __all__ = []
 
 
-class cuda_warp_shfl_impl(InstrInfo):
+class cuda_warp_broadcast_impl(InstrInfo):
     __slots__ = ["mask"]
 
     def instance_impl(self, *shape):
@@ -29,7 +29,7 @@ class cuda_warp_shfl_impl(InstrInfo):
 
 
 @instr
-class cuda_warp_broadcast_sync_1f32(cuda_warp_shfl_impl):
+class cuda_warp_broadcast_sync_1f32(cuda_warp_broadcast_impl):
     def behavior(size0: size, outputs: [f32][size0], inputs: [f32][size0], i0: index):
         assert i0 >= 0
         assert i0 < size0
@@ -49,7 +49,7 @@ __all__.append("cuda_warp_broadcast_sync_1f32")
 
 
 @instr
-class cuda_warp_broadcast_sync_2f32(cuda_warp_shfl_impl):
+class cuda_warp_broadcast_sync_2f32(cuda_warp_broadcast_impl):
     def behavior(
         size0: size,
         size1: size,
@@ -77,3 +77,55 @@ class cuda_warp_broadcast_sync_2f32(cuda_warp_shfl_impl):
 
 
 __all__.append("cuda_warp_broadcast_sync_2f32")
+
+
+class cuda_shfl_xor_sync_impl(InstrInfo):
+    __slots__ = ["laneMask", "mask"]
+
+    def instance(self, *, laneMask):
+        assert laneMask in (1, 2, 4, 8, 16), "Only support one bit for laneMask"
+        self.laneMask = laneMask
+        self.coll_unit = 2 * cuda_threads_strided(1, laneMask)
+        self.instr_tl = cuda_in_order_instr
+        distributed_coll_units = [cuda_thread]
+        for access_info in self.access_info.values():
+            access_info.mem = CudaRmem
+            access_info.access_by_owner_only = True
+            access_info.distributed_coll_units = distributed_coll_units
+        # Generate mask that includes just the two threads exchanging values.
+        mask_base = 1 << laneMask | 1
+        threadIdx_mask = 31 & ~laneMask
+        mask_shift = f"threadIdx.x & {threadIdx_mask}"
+        self.mask = f"{mask_base} << ({mask_shift})"
+
+
+@instr
+class cuda_shfl_xor_sync_1f32(cuda_shfl_xor_sync_impl):
+    def behavior(outputs: [f32][2], inputs: [f32][2]):
+        for i in seq(0, 2):
+            outputs[i] = inputs[1 - i]
+
+    def codegen(self, args):
+        inp = args.inputs.index()
+        out = args.outputs.index()
+        return [f"{out} = __shfl_xor_sync({self.mask}, {inp}, {self.laneMask});"]
+
+
+__all__.append("cuda_shfl_xor_sync_1f32")
+
+
+@instr
+class cuda_shfl_xor_sync_1f32_sum(cuda_shfl_xor_sync_impl):
+    def behavior(outputs: [f32][2], inputs: [f32][2]):
+        for i in seq(0, 2):
+            outputs[i] = inputs[0] + inputs[1]
+
+    def codegen(self, args):
+        inp = args.inputs.index()
+        out = args.outputs.index()
+        return [
+            f"{out} = {inp} + __shfl_xor_sync({self.mask}, {inp}, {self.laneMask});"
+        ]
+
+
+__all__.append("cuda_shfl_xor_sync_1f32_sum")

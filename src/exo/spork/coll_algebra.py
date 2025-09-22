@@ -1094,3 +1094,10 @@ def cuda_warp_in_cluster_strided(cta_stride):
     return CollUnit(
         (clusterDim / cta_stride, cta_stride, blockDim), (1, 1, 32), name, 0
     )
+
+
+def cuda_threads_strided(num_threads, thread_stride):
+    name = f"cuda_threads_strided({num_threads}, {thread_stride})"
+    return CollUnit(
+        (blockDim / thread_stride, thread_stride), (1, num_threads), name, 0
+    )
