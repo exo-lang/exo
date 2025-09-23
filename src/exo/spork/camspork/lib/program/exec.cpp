@@ -83,6 +83,8 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
     size_t buffer_size;
     const char* p_buffer;
     ProgramEnv& env;
+    SinglePositionFilter single_position_filter;
+    std::vector<extent_t> single_position_all_ones;  // [1 for x in single_position_filter.idx]
 
     std::vector<extent_t> tmp_extent;
     std::vector<extent_t> tmp_offset;
@@ -90,14 +92,19 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
     StmtRef current_stmt{};
 
   public:
-    ProgramExec(ProgramEnv* p_self)
+    ProgramExec(ProgramEnv* p_self, SinglePositionFilter _single_position_filter)
       : buffer_size(p_self->program_buffer_size)
       , p_buffer(p_self->p_program_buffer.get())
       , env(*p_self)
+      , single_position_filter(std::move(_single_position_filter))
     {
+        if (single_position_filter) {
+            single_position_all_ones = std::vector<extent_t>(single_position_filter.idx.size(), 1);
+        }
     }
 
-    ProgramExec(ProgramEnv* p_self, const char* p_excut_filename) : ProgramExec(p_self)
+    ProgramExec(ProgramEnv* p_self, const char* p_excut_filename, SinglePositionFilter _single_position_filter)
+      : ProgramExec(p_self, std::move(_single_position_filter))
     {
         static_assert(EnableExcutLog, "Can't open excut log file if C++ functionality not enabled");
         CAMSPORK_REQUIRE(p_excut_filename, "null ptr");
@@ -209,6 +216,55 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
         }
     }
 
+    template <typename Input>
+    [[nodiscard]] bool filter_single_position_input(Varname name, Input* p_input)
+    {
+        if (!single_position_filter) {
+            return true;
+        }
+        if (name.slot() != single_position_filter.name.slot()) {
+            return false;
+        }
+        VarSlotEntry<assignment_record_id>& slot = env.sync_slot(name);
+        const std::vector<extent_t>& extent = slot.extent();
+        const size_t dim = extent.size();
+        CAMSPORK_REQUIRE_CMP(dim, ==, single_position_filter.idx.size(),
+                             "Wrong dimensionality for indices of single_position_filter");
+        if constexpr (std::is_same_v<Input, AssignmentRecordWindow>) {
+            AssignmentRecordWindow& window = *p_input;
+            CAMSPORK_REQUIRE_CMP(size_t(window.end_offset - window.begin_offset), == , dim, "internal error");
+            CAMSPORK_REQUIRE_CMP(size_t(window.end_inner_extent - window.begin_inner_extent), == , dim, "internal error");
+            for (size_t dim_i = 0; dim_i < dim; ++dim_i) {
+                static_assert(std::is_unsigned_v<extent_t>, "Relies on wraparound to work");
+                const extent_t tmp = single_position_filter.idx[dim_i] - window.begin_offset[dim_i];
+                const bool in_bounds = tmp < window.begin_inner_extent[dim_i];
+                if (!in_bounds) {
+                    return false;
+                }
+            }
+            // Adjust the window so it only covers the single filtered position.
+            CAMSPORK_REQUIRE_CMP(single_position_all_ones.size(), ==, dim, "internal error");
+            window.begin_offset = &*single_position_filter.idx.begin();
+            window.end_offset = &*single_position_filter.idx.end();
+            window.begin_inner_extent = &*single_position_all_ones.begin();
+            window.end_inner_extent = &*single_position_all_ones.end();
+            return true;
+        }
+        else {
+            // Note, we do not assume in this code that the single_position_filter.idx is in-bounds
+            // for the current size of the allocation.
+            static_assert(std::is_same_v<Input, assignment_record_id*>);
+            assignment_record_id* p_id = *p_input;
+            size_t linear_index = size_t(p_id - slot.data());
+            size_t filter_linear_index = 0;
+            for (size_t dim_i = 0; dim_i < dim; ++dim_i) {
+                filter_linear_index *= extent[dim_i];
+                filter_linear_index += single_position_filter.idx[dim_i];
+            }
+            return linear_index == filter_linear_index;
+        }
+    }
+
 
     // ******************************************************************************************
     // EXECUTE STATEMENT
@@ -277,6 +333,8 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
     template <bool IsMutate, bool IsWindow, bool IsMulticast>
     void exec_sync_env_impl(const SyncEnvAccessNode<IsMutate, IsWindow, IsMulticast>* node, StmtRef stmt_ref)
     {
+        const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
+
         SyncvAccessInfo access;
         access.is_ooo = node->is_ooo;
         access.initial_qual_bit = node->initial_qual_bit;
@@ -324,7 +382,7 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
             input_list[0] = &slot.idx(tmp_offset.begin(), tmp_offset.end());
         }
 
-        for (const Input& input : input_list) {
+        for (Input& input : input_list) {
             // Prepare excut debug logger if applicable.
             using Logger = std::conditional_t<EnableExcutLog, SyncvExcutRequest, decltype(nullptr)>;
             Logger logger{};
@@ -338,11 +396,14 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
 
             // Call into syncv table (a lot of duplicated code with SyncEnvFreeShard, not great)
             try {
-                if constexpr (node->is_mutate) {
-                    on_rw(env.p_syncv_table.get(), input, env.prepare_thread_cuboid(), access, logger);
+                if (!filter_single_position_input(node->name, &input)) {
+                    // Skip if instructed to by SinglePositionFilter.
+                }
+                else if constexpr (node->is_mutate) {
+                    on_rw(env.p_syncv_table.get(), input, thread_cuboid, access, logger);
                 }
                 else {
-                    on_r(env.p_syncv_table.get(), input, env.prepare_thread_cuboid(), access, logger);
+                    on_r(env.p_syncv_table.get(), input, thread_cuboid, access, logger);
                 }
             }
             catch (const SyncvCheckFail& exc) {
@@ -369,6 +430,8 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
 
     void exec_impl(const SyncEnvFreeShard* node)
     {
+        const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
+
         SyncvAccessInfo access;
         access.is_ooo = false;
         access.initial_qual_bit = 0;
@@ -419,7 +482,12 @@ class ProgramExec : public ProgramExecExcutBase<EnableExcutLog>
 
         // Call into syncv table (a lot of duplicated code with SyncEnvAccessNode, not great).
         try {
-            on_check_free(env.p_syncv_table.get(), input, env.prepare_thread_cuboid(), access, logger);
+            if (!filter_single_position_input(node->name, &input)) {
+                // Skip if instructed to by SinglePositionFilter.
+            }
+            else {
+                on_check_free(env.p_syncv_table.get(), input, thread_cuboid, access, logger);
+            }
         }
         catch (const SyncvCheckFail& exc) {
             // Unlike SyncEnvAccessNode, we wrap the error message with free(...)
@@ -894,7 +962,7 @@ ProgramEnv::ProgramEnv(size_t buffer_size, std::shared_ptr<const char[]> buffer)
   , p_syncv_table(new_syncv_table(default_table_init))
   , raw_thread_cuboid(ThreadCuboid::full(&static_uint32_max, 1 + &static_uint32_max))
 {
-    ProgramExec<false>(this).init_vars(header.var_config_table);
+    ProgramExec<false>(this, no_single_position_filter).init_vars(header.var_config_table);
 };
 
 ProgramEnv::ProgramEnv(const ProgramBuilder& builder)
@@ -902,13 +970,13 @@ ProgramEnv::ProgramEnv(const ProgramBuilder& builder)
 {
 }
 
-void ProgramEnv::exec(StmtRef stmt, const char* p_excut_filename)
+void ProgramEnv::exec(StmtRef stmt, const char* p_excut_filename, SinglePositionFilter single_position_filter)
 {
     if (p_excut_filename) {
-        ProgramExec<true>(this, p_excut_filename).exec(stmt);
+        ProgramExec<true>(this, p_excut_filename, std::move(single_position_filter)).exec(stmt);
     }
     else {
-        ProgramExec<false>(this).exec(stmt);
+        ProgramExec<false>(this, std::move(single_position_filter)).exec(stmt);
     }
 }
 
@@ -976,18 +1044,22 @@ void camspork_delete_ProgramEnv(camspork::ProgramEnv* p_victim)
     delete p_victim;
 }
 
-int camspork_exec_top(camspork::ProgramEnv* p_env, const char* p_excut_filename)
+int camspork_exec_top(
+        camspork::ProgramEnv* p_env, const char* p_excut_filename,
+        camspork::Varname single_position_name, uint32_t dims, const camspork::extent_t* idx)
 {
     CAMSPORK_API_PROLOGUE
-    p_env->exec(p_excut_filename);
+    p_env->exec(p_excut_filename, camspork::SinglePositionFilter{single_position_name, {idx, idx + dims}});
     return 1;
     CAMSPORK_API_EPILOGUE(0)
 }
 
-int camspork_exec_stmt(camspork::ProgramEnv* p_env, camspork::StmtRef stmt, const char* p_excut_filename)
+int camspork_exec_stmt(
+        camspork::ProgramEnv* p_env, camspork::StmtRef stmt, const char* p_excut_filename,
+        camspork::Varname single_position_name, uint32_t dims, const camspork::extent_t* idx)
 {
     CAMSPORK_API_PROLOGUE
-    p_env->exec(stmt, p_excut_filename);
+    p_env->exec(stmt, p_excut_filename, camspork::SinglePositionFilter{single_position_name, {idx, idx + dims}});
     return 1;
     CAMSPORK_API_EPILOGUE(0)
 }

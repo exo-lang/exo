@@ -240,6 +240,22 @@ struct ProgramExecRemark
     std::string text;
 };
 
+struct SinglePositionFilter
+{
+    // If passed to exec(...), specify that we discard the synchronization environment effects
+    // associated with reads/mutates for all positions except for name[idx].
+    // This does NOT inhibit value and barrier env effects, or the effects of Fence, Arrive, Await.
+    Varname name;
+    std::vector<extent_t> idx;
+
+    explicit operator bool() const
+    {
+        return bool(name);
+    }
+};
+
+inline const SinglePositionFilter no_single_position_filter{Varname{0}, {}};
+
 class ProgramEnv
 {
     size_t program_buffer_size;
@@ -270,12 +286,17 @@ class ProgramEnv
     ProgramEnv& operator=(const ProgramEnv&) = default;
     ~ProgramEnv() = default;
 
-    void exec(const char* p_excut_filename = nullptr)
+    void exec(
+            const char* p_excut_filename = nullptr,
+            SinglePositionFilter single_position_filter = no_single_position_filter)
     {
-        exec(header.top_level_stmt, p_excut_filename);
+        exec(header.top_level_stmt, p_excut_filename, std::move(single_position_filter));
     }
 
-    void exec(StmtRef stmt, const char* p_excut_filename = nullptr);
+    void exec(
+            StmtRef stmt,
+            const char* p_excut_filename = nullptr,
+            SinglePositionFilter single_position_filter = no_single_position_filter);
 
     void alloc_values(Varname name, std::vector<extent_t> extent)
     {
@@ -409,8 +430,12 @@ CAMSPORK_EXPORT camspork::ProgramEnv* camspork_new_ProgramEnv(const camspork::Pr
 CAMSPORK_EXPORT camspork::ProgramEnv* camspork_copy_ProgramEnv(const camspork::ProgramEnv* p_original);
 CAMSPORK_EXPORT void camspork_delete_ProgramEnv(camspork::ProgramEnv* p_victim);
 
-CAMSPORK_EXPORT int camspork_exec_top(camspork::ProgramEnv* p_env, const char* p_excut_filename);
-CAMSPORK_EXPORT int camspork_exec_stmt(camspork::ProgramEnv* p_env, camspork::StmtRef stmt, const char* p_excut_filename);
+CAMSPORK_EXPORT int camspork_exec_top(
+        camspork::ProgramEnv* p_env, const char* p_excut_filename,
+        camspork::Varname single_position_name, uint32_t dims, const camspork::extent_t* idx);
+CAMSPORK_EXPORT int camspork_exec_stmt(
+        camspork::ProgramEnv* p_env, camspork::StmtRef stmt, const char* p_excut_filename,
+        camspork::Varname single_position_name, uint32_t dims, const camspork::extent_t* idx);
 
 CAMSPORK_EXPORT int camspork_alloc_values(
         camspork::ProgramEnv* p_env, camspork::Varname name, uint32_t dims, const camspork::extent_t* p_extent);

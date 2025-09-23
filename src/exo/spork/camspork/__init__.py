@@ -319,11 +319,11 @@ _delete_ProgramEnv.argtypes = (c_void_p,)
 
 _exec_top = lib.camspork_exec_top
 _exec_top.restype = c_int
-_exec_top.argtypes = (c_void_p, c_char_p)
+_exec_top.argtypes = (c_void_p, c_char_p, Varname, c_uint32, POINTER(extent_t))
 
 _exec_stmt = lib.camspork_exec_stmt
 _exec_stmt.restype = c_int
-_exec_stmt.argtypes = (c_void_p, StmtRef, c_char_p)
+_exec_stmt.argtypes = (c_void_p, StmtRef, c_char_p, Varname, c_uint32, POINTER(extent_t))
 
 _alloc_values = lib.camspork_alloc_values
 _alloc_values.restype = c_int
@@ -679,13 +679,20 @@ class ProgramEnv:
     def get_program(self) -> ProgramBuilder:
         return self._program
 
-    def exec(self, stmt: Optional[StmtRef] = None, *, excut_filename=None):
+    def exec(self, stmt: Optional[StmtRef] = None, *, excut_filename=None, filter_name=None, filter_idx=None):
         excut_filename_bytes = bytes(excut_filename, "utf-8") if excut_filename else None
+        if filter_name is not None:
+            filter_idx = filter_idx or ()
+            c_filter_idx = (extent_t * len(filter_idx))(*filter_idx)
+            c_name = self.get_varname(filter_name)
+            c_filter_position = (c_name, len(filter_idx), c_filter_idx)
+        else:
+            c_filter_position = (Varname(0), 0, None)
         if stmt is None:
-            check_return(_exec_top(self._env, excut_filename_bytes))
+            check_return(_exec_top(self._env, excut_filename_bytes, *c_filter_position))
         else:
             assert isinstance(stmt, StmtRef)
-            check_return(_exec_stmt(self._env, stmt, excut_filename_bytes))
+            check_return(_exec_stmt(self._env, stmt, excut_filename_bytes, *c_filter_position))
 
     def alloc_scalar_value(self, var, value: int):
         check_return(_alloc_scalar_value(self._env, self.get_varname(var), value))
