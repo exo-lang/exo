@@ -15,7 +15,7 @@
 #include <vector>
 
 #include "tl_sig.hpp"
-#include "../program/camspork_excut.hpp"
+#include "../program/log.hpp"
 #include "../util/bit_util.hpp"
 #include "../util/cuboid_util.hpp"
 #include "../util/node_pool.hpp"
@@ -2013,7 +2013,7 @@ struct SyncvTable
             vis_record_id = memoize_new_vis_record<IsMutate>(cuboid, access, initial_refcnt);
         }
 
-        logger.log_assignment_records(*this, input, vis_record_id,
+        logger.excut_log_assignment_records(*this, input, vis_record_id,
                 IsMutate ? ExcutMutateTag::Mutate : ExcutMutateTag::Read);
 
         auto check = [&] (node_id id, size_t linear_index)
@@ -2141,12 +2141,12 @@ struct SyncvTable
                     }
                 }
             );
-            logger.update_assignment_record_ids(census);
+            logger.excut_update_assignment_record_ids(census);
         }
         else {
             const nodepool::id<AssignmentRecord> new_id = census[0].second.new_node_id;
             input->node_id = new_id.id_bits;  // Where decltype(input) is assignment_record_id*
-            logger.update_assignment_record_ids(new_id);
+            logger.excut_update_assignment_record_ids(new_id);
         }
     }
 
@@ -2662,53 +2662,58 @@ struct SyncvTable
 struct SyncvTrivialLogger
 {
     template <typename Input, bool IsMutate>
-    void log_assignment_records(const SyncvTable&, Input, nodepool::id<VisRecordListNode<IsMutate>>, ExcutMutateTag)
+    void excut_log_assignment_records(
+            const SyncvTable&, Input, nodepool::id<VisRecordListNode<IsMutate>>, ExcutMutateTag)
     {
     }
 
-    void update_assignment_record_ids(const CensusMap&)
+    void excut_update_assignment_record_ids(const CensusMap&)
     {
     }
 
-    void update_assignment_record_ids(nodepool::id<AssignmentRecord>)
+    void excut_update_assignment_record_ids(nodepool::id<AssignmentRecord>)
     {
     }
 };
 
-struct SyncvExcutLogger
+struct SyncvRealLogger
 {
     std::string var_str_name;
-    std::vector<std::unique_ptr<ExcutBaseAction>>* p_out;
+    std::vector<std::unique_ptr<ExcutBaseAction>>* p_excut_actions;
     std::vector<extent_t> idx_for_single;
     std::vector<ExcutSyncEnvAccess*> actions_to_update;
 
-    explicit SyncvExcutLogger(const SyncvExcutRequest& request)
+    explicit SyncvRealLogger(const SyncvLogRequest& request)
       : var_str_name(request.var_str_name)
-      , p_out(request.p_out)
+      , p_excut_actions(request.p_excut_actions)
       , idx_for_single(request.idx_for_single)
       , actions_to_update{}
     {
     }
 
     template <bool IsMutate>
-    void log_assignment_records(
+    void excut_log_assignment_records(
             const SyncvTable& env, assignment_record_id* p_id, nodepool::id<VisRecordListNode<IsMutate>> new_vis_id,
             ExcutMutateTag mutate_tag)
     {
-        nodepool::id<AssignmentRecord> asn_id{p_id->node_id};
-        log_assignment_record_impl(env, asn_id, new_vis_id, idx_for_single, mutate_tag);
+        if (p_excut_actions) {
+            nodepool::id<AssignmentRecord> asn_id{p_id->node_id};
+            _excut_log_assignment_record_impl(env, asn_id, new_vis_id, idx_for_single, mutate_tag);
+        }
     }
 
     template <bool IsMutate>
-    void log_assignment_records(
+    void excut_log_assignment_records(
             const SyncvTable& env, AssignmentRecordWindow window, nodepool::id<VisRecordListNode<IsMutate>> new_vis_id,
             ExcutMutateTag mutate_tag)
     {
-        std::vector<extent_t> idx(window.end_outer_extent - window.begin_outer_extent);
-        recurse_log_window(env, window, idx, 0, 0, new_vis_id, mutate_tag);
+        if (p_excut_actions) {
+            std::vector<extent_t> idx(window.end_outer_extent - window.begin_outer_extent);
+            _excut_recurse_log_window(env, window, idx, 0, 0, new_vis_id, mutate_tag);
+        }
     }
 
-    void update_assignment_record_ids(const CensusMap& census)
+    void excut_update_assignment_record_ids(const CensusMap& census)
     {
         for (ExcutSyncEnvAccess* p : actions_to_update) {
             nodepool::id<AssignmentRecord> key{p->id_before};
@@ -2719,7 +2724,7 @@ struct SyncvExcutLogger
         }
     }
 
-    void update_assignment_record_ids(nodepool::id<AssignmentRecord> new_id)
+    void excut_update_assignment_record_ids(nodepool::id<AssignmentRecord> new_id)
     {
         for (ExcutSyncEnvAccess* p : actions_to_update) {
             p->id_after = new_id.id_bits;
@@ -2728,7 +2733,7 @@ struct SyncvExcutLogger
 
   private:
     template <bool IsMutate>
-    void recurse_log_window(
+    void _excut_recurse_log_window(
             const SyncvTable& env, const AssignmentRecordWindow& window, std::vector<extent_t>& idx,
             size_t dim_idx, size_t partial_linear_offset, nodepool::id<VisRecordListNode<IsMutate>> new_vis_id,
             ExcutMutateTag mutate_tag)
@@ -2736,7 +2741,7 @@ struct SyncvExcutLogger
         if (dim_idx >= idx.size()) {
             CAMSPORK_REQUIRE_CMP(idx.size(), ==, dim_idx, "overshot");
             nodepool::id<AssignmentRecord> asn_id{window.base[partial_linear_offset].node_id};
-            log_assignment_record_impl(env, asn_id, new_vis_id, idx, mutate_tag);
+            _excut_log_assignment_record_impl(env, asn_id, new_vis_id, idx, mutate_tag);
         }
         else {
             const extent_t outer_c = window.begin_outer_extent[dim_idx];
@@ -2746,13 +2751,13 @@ struct SyncvExcutLogger
             for (extent_t i = offset_c; i < end_c; ++i) {
                 idx[dim_idx] = i;
                 const auto new_linear_offset = partial_linear_offset * outer_c + i;
-                recurse_log_window(env, window, idx, dim_idx+1, new_linear_offset, new_vis_id, mutate_tag);
+                _excut_recurse_log_window(env, window, idx, dim_idx+1, new_linear_offset, new_vis_id, mutate_tag);
             }
         }
     }
 
     template <bool IsMutate>
-    void log_assignment_record_impl(
+    void _excut_log_assignment_record_impl(
             const SyncvTable& env,
             nodepool::id<AssignmentRecord> asn_id,
             nodepool::id<VisRecordListNode<IsMutate>> new_vis_id,
@@ -2764,12 +2769,12 @@ struct SyncvExcutLogger
         {
             auto p_info = std::make_unique<ExcutSyncEnvAccess>();
             p_info->id_before = asn_id.id_bits;
-            p_info->id_after = 0;  // See update_assignment_record_ids
+            p_info->id_after = 0;  // See excut_update_assignment_record_ids
             p_info->name = var_str_name;
             p_info->idx = std::move(idx);
             p_info->mutate_tag = mutate_tag;
             actions_to_update.push_back(p_info.get());
-            p_out->push_back(std::move(p_info));
+            p_excut_actions->push_back(std::move(p_info));
         }
 
         // Log existing VisRecords, tagged as WAR, WAW, or RAW, depending on the relation
@@ -2781,37 +2786,38 @@ struct SyncvExcutLogger
                 while (read_id) {
                     const AssignmentRecordReadNode& asn_node = env.get(read_id);
                     read_id = asn_node.camspork_next_id;
-                    log_vis_record(env, asn_node.vis_record_id, ExcutMutateTag::WAR);
+                    _excut_log_vis_record(env, asn_node.vis_record_id, ExcutMutateTag::WAR);
                 }
             }
             nodepool::id<AssignmentRecordMutateNode> mutate_id = asn_record.mutate_vis_records_head_id;
             while (mutate_id) {
                 const AssignmentRecordMutateNode& asn_node = env.get(mutate_id);
                 mutate_id = asn_node.camspork_next_id;
-                log_vis_record(env, asn_node.vis_record_id, IsMutate ? ExcutMutateTag::WAW : ExcutMutateTag::RAW);
+                _excut_log_vis_record(env, asn_node.vis_record_id, IsMutate ? ExcutMutateTag::WAW : ExcutMutateTag::RAW);
             }
         }
 
         // Log new VisRecord
         if (new_vis_id) {
-            log_vis_record(env, new_vis_id, mutate_tag);
+            _excut_log_vis_record(env, new_vis_id, mutate_tag);
         }
     }
 
     template <bool IsMutate>
-    void log_vis_record(const SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> id, ExcutMutateTag mutate_tag)
+    void _excut_log_vis_record(
+            const SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> id, ExcutMutateTag mutate_tag)
     {
         const VisRecord& vis_record = env.const_resolve_forwarding(id, &id);
         auto p_excut_vis_record = std::make_unique<ExcutVisRecord>();
         p_excut_vis_record->id = id.id_bits;
         p_excut_vis_record->original_qual_bit = uint32_t(1) << vis_record.original_qual_tl;
         p_excut_vis_record->mutate_tag = mutate_tag;
-        p_out->push_back(std::move(p_excut_vis_record));
+        p_excut_actions->push_back(std::move(p_excut_vis_record));
 
-        log_vis_record_data(env, vis_record, mutate_tag);
+        _excut_log_vis_record_data(env, vis_record, mutate_tag);
     }
 
-    void log_vis_record_data(const SyncvTable& env, const VisRecord& vis_record, ExcutMutateTag mutate_tag)
+    void _excut_log_vis_record_data(const SyncvTable& env, const VisRecord& vis_record, ExcutMutateTag mutate_tag)
     {
         nodepool::id<TlSigIntervalListNode> tl_id = vis_record.visibility_set;
         while (tl_id) {
@@ -2825,7 +2831,7 @@ struct SyncvExcutLogger
             p_excut_interval->temporal_ordered_qual_bits = node.data.qual_bits_by_vis.array[vis_level_temporal_ordered];
             p_excut_interval->full_ordered_qual_bits = node.data.qual_bits_by_vis.array[vis_level_full_ordered];
             p_excut_interval->mutate_tag = mutate_tag;
-            p_out->push_back(std::move(p_excut_interval));
+            p_excut_actions->push_back(std::move(p_excut_interval));
         }
 
         nodepool::id<PendingAwaitTreeNode> await_node_id = vis_record.pending_awaits;
@@ -2838,7 +2844,7 @@ struct SyncvExcutLogger
             p_excut_await->barrier_id = tmp_barrier_id.data;
             p_excut_await->arrive_count = pending_await_arrive_count(node.await_id);
             p_excut_await->mutate_tag = mutate_tag;
-            p_out->push_back(std::move(p_excut_await));
+            p_excut_actions->push_back(std::move(p_excut_await));
         }
     }
 };
@@ -2894,10 +2900,10 @@ void on_r(
 
 void on_r(
         SyncvTable* table, assignment_record_id* input,
-        const ThreadCuboid& cuboid, SyncvAccessInfo access, const SyncvExcutRequest& excut)
+        const ThreadCuboid& cuboid, SyncvAccessInfo access, const SyncvLogRequest& log)
 {
     INTERFACE_PROLOGUE(table)
-    table->on_r(input, cuboid, access, SyncvExcutLogger(excut));
+    table->on_r(input, cuboid, access, SyncvRealLogger(log));
     INTERFACE_EPILOGUE(table)
 }
 
@@ -2912,10 +2918,10 @@ void on_r(
 
 void on_r(
         SyncvTable* table, AssignmentRecordWindow input,
-        const ThreadCuboid& cuboid, SyncvAccessInfo access, const SyncvExcutRequest& excut)
+        const ThreadCuboid& cuboid, SyncvAccessInfo access, const SyncvLogRequest& log)
 {
     INTERFACE_PROLOGUE(table)
-    table->on_r(input, cuboid, access, SyncvExcutLogger(excut));
+    table->on_r(input, cuboid, access, SyncvRealLogger(log));
     INTERFACE_EPILOGUE(table)
 }
 
@@ -2930,10 +2936,10 @@ void on_rw(
 
 void on_rw(
         SyncvTable* table, assignment_record_id* input,
-        const ThreadCuboid& cuboid, SyncvAccessInfo access, const SyncvExcutRequest& excut)
+        const ThreadCuboid& cuboid, SyncvAccessInfo access, const SyncvLogRequest& log)
 {
     INTERFACE_PROLOGUE(table)
-    table->on_rw(input, cuboid, access, SyncvExcutLogger(excut));
+    table->on_rw(input, cuboid, access, SyncvRealLogger(log));
     INTERFACE_EPILOGUE(table)
 }
 
@@ -2948,10 +2954,10 @@ void on_rw(
 
 void on_rw(
         SyncvTable* table, AssignmentRecordWindow input,
-        const ThreadCuboid& cuboid, SyncvAccessInfo access, const SyncvExcutRequest& excut)
+        const ThreadCuboid& cuboid, SyncvAccessInfo access, const SyncvLogRequest& log)
 {
     INTERFACE_PROLOGUE(table)
-    table->on_rw(input, cuboid, access, SyncvExcutLogger(excut));
+    table->on_rw(input, cuboid, access, SyncvRealLogger(log));
     INTERFACE_EPILOGUE(table)
 }
 
@@ -2966,10 +2972,10 @@ void on_check_free(
 
 void on_check_free(
         SyncvTable* table, AssignmentRecordWindow input,
-        const ThreadCuboid& cuboid, SyncvAccessInfo access, const SyncvExcutRequest& excut)
+        const ThreadCuboid& cuboid, SyncvAccessInfo access, const SyncvLogRequest& log)
 {
     INTERFACE_PROLOGUE(table)
-    table->on_check_free(input, cuboid, access, SyncvExcutLogger(excut));
+    table->on_check_free(input, cuboid, access, SyncvRealLogger(log));
     INTERFACE_EPILOGUE(table)
 }
 

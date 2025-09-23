@@ -84,7 +84,7 @@ struct SyncvDebugValidateInput
     const assignment_record_id* p_records;
 };
 
-struct SyncvExcutRequest;
+struct SyncvLogRequest;
 
 
 // *** Primary Implemented Interface ***
@@ -93,15 +93,15 @@ SyncvTable* copy_syncv_table(const SyncvTable* table);
 void delete_syncv_table(SyncvTable* table);
 
 void on_r(SyncvTable*, assignment_record_id*, const ThreadCuboid&, SyncvAccessInfo, decltype(nullptr) = nullptr);
-void on_r(SyncvTable*, assignment_record_id*, const ThreadCuboid&, SyncvAccessInfo, const SyncvExcutRequest&);
+void on_r(SyncvTable*, assignment_record_id*, const ThreadCuboid&, SyncvAccessInfo, const SyncvLogRequest&);
 void on_r(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, decltype(nullptr) = nullptr);
-void on_r(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, const SyncvExcutRequest&);
+void on_r(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, const SyncvLogRequest&);
 void on_rw(SyncvTable*, assignment_record_id*, const ThreadCuboid&, SyncvAccessInfo, decltype(nullptr) = nullptr);
-void on_rw(SyncvTable*, assignment_record_id*, const ThreadCuboid&, SyncvAccessInfo, const SyncvExcutRequest&);
+void on_rw(SyncvTable*, assignment_record_id*, const ThreadCuboid&, SyncvAccessInfo, const SyncvLogRequest&);
 void on_rw(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, decltype(nullptr) = nullptr);
-void on_rw(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, const SyncvExcutRequest&);
+void on_rw(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, const SyncvLogRequest&);
 void on_check_free(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, decltype(nullptr) = nullptr);
-void on_check_free(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, const SyncvExcutRequest&);
+void on_check_free(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, const SyncvLogRequest&);
 
 void clear_visibility(SyncvTable* table, size_t N, assignment_record_id* array);
 void alloc_barriers(SyncvTable* table, size_t N, barrier_id* barriers);

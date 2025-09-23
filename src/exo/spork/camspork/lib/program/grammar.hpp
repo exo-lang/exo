@@ -7,6 +7,8 @@
 #include <type_traits>
 #include <vector>
 
+#include "int_types.hpp"
+
 #include "../syncv/tl_sig.hpp"
 #include "../util/api_util.hpp"
 #include "../util/require.hpp"
@@ -28,11 +30,6 @@
 
 namespace camspork
 {
-
-// Change or make polymorphic if needed!
-// Will have to update Python ctypes to match
-using extent_t = uint32_t;
-using value_t = int32_t;
 
 enum class binop : uint32_t
 {

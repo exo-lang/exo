@@ -86,11 +86,4 @@ struct ExcutBarrierAlloc : ExcutBaseAction
     virtual void write_args(FILE* file) const override;
 };
 
-struct SyncvExcutRequest
-{
-    std::string var_str_name;
-    std::vector<extent_t> idx_for_single;
-    std::vector<std::unique_ptr<ExcutBaseAction>>* p_out;
-};
-
 }
