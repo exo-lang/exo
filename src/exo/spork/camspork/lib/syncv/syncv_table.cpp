@@ -1463,10 +1463,11 @@ struct SyncvTable
     };
 
     // Given an existing visibility record in the base state that's not in the memoization table, either
-    //   * Add it to the memoization table, if it's unique.
+    //   * Add it to the memoization table, if it's unique. Return itself.
     //   * Put it in the forwarding state (discard existing state) and forward to equal already-memoized record.
+    //     Return ID of memoized record.
     template <bool IsMutate>
-    void memoize_or_forward(nodepool::id<VisRecordListNode<IsMutate>> id)
+    nodepool::id<VisRecordListNode<IsMutate>> memoize_or_forward(nodepool::id<VisRecordListNode<IsMutate>> id)
     {
         CAMSPORK_REQUIRE(id, "unexpected null");
         VisRecordListNode<IsMutate>& node = get(id);
@@ -1476,7 +1477,7 @@ struct SyncvTable
 
         MemoizeOrForwardCommand<IsMutate> command{id};
         auto bucket_key = minimal_superset_interval(node.base_data.visibility_set);
-        for_buckets<IsMutate, BucketProcessType::Insert>(bucket_key, command);
+        return for_buckets<IsMutate, BucketProcessType::Insert>(bucket_key, command);
     }
 
     template <bool IsMutate>
@@ -1503,16 +1504,16 @@ struct SyncvTable
             input_node.base_data.forwarded_flag = 1;
             CAMSPORK_REQUIRE(input_node.is_forwarded(), "should now be in forwarding state");
             incref(fwd_id);  // Forwarding reference is owning.
-            // fprintf(stderr, "FWD %u -> %u [IsMutate=%i]\n", command.input_id.id_bits, fwd_id.id_bits, IsMutate);
+            return fwd_id;
         }
         else {
             // Insert input node to memoization bucket. No refcnt changes needed for memoization.
             // IMPORTANT: this memoization is at the start of the bucket. This means if the caller of this function
             // is processing this bucket, the caller probably won't encounter this node. See process_buckets_for_sync.
             insert_next_node(p_bucket_head, command.input_id);
+            return command.input_id;
         }
 
-        return command.input_id;
     }
 
     struct AugmentVisRecordCallback
@@ -1851,7 +1852,6 @@ struct SyncvTable
         augment.p_cuboid = &cuboid;
         augment.L2_full_qual_bits = L2_full_qual_bits;
         augment.L2_temporal_qual_bits = L2_temporal_qual_bits;
-
 
         // Retire all BarrierArriveState with arrive_count <= max_arrive_count.
         CAMSPORK_C_BOUNDSCHECK(barrier_index, max_live_barriers);
