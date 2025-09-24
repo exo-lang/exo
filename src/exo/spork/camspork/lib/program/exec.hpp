@@ -372,6 +372,11 @@ class ProgramEnv
     void add_last_checked_read_history_remarks();
     void add_last_checked_mutate_history_remarks();
 
+    const std::vector<ProgramExecRemark>& get_remarks() const
+    {
+        return _remarks;
+    }
+
     __attribute__((always_inline))
     void maybe_syncv_debug_validate()
     {
@@ -469,8 +474,11 @@ CAMSPORK_EXPORT int camspork_set_qual_tl_name(camspork::ProgramEnv* p_env, uint3
 CAMSPORK_EXPORT int camspork_add_error_history_remarks(camspork::ProgramEnv* p_env);
 CAMSPORK_EXPORT int camspork_add_last_checked_read_history_remarks(camspork::ProgramEnv* p_env);
 CAMSPORK_EXPORT int camspork_add_last_checked_mutate_history_remarks(camspork::ProgramEnv* p_env);
+CAMSPORK_EXPORT const char* camspork_get_remark(
+        const camspork::ProgramEnv* p_env, uint32_t i, camspork::StmtRef* out_stmt);
 
 // These don't have error conditions; 0 signals "no syncv fail detected" or "0 dimensional".
+CAMSPORK_EXPORT int camspork_get_num_remarks(const camspork::ProgramEnv* p_env);
 CAMSPORK_EXPORT camspork::Varname camspork_syncv_fail_var(const camspork::ProgramEnv* p_env);
 CAMSPORK_EXPORT int camspork_syncv_fail_idx_dim(const camspork::ProgramEnv* p_env);
 CAMSPORK_EXPORT const camspork::extent_t* camspork_syncv_fail_idx_ptr(const camspork::ProgramEnv* p_env);

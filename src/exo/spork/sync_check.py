@@ -114,7 +114,14 @@ class CamsporkDo(LoopIR_Do):
                 am_dst = self.comp_index_expr(s.name, s.idx, instr_tl)
             if want_sync:
                 initial_q, ext_q = self.get_qual_bits(s, instr_tl)
-                b.SyncEnvAccess(am_dst, initial_q, ext_q, is_mutate=True, is_ooo=False)
+                b.SyncEnvAccess(
+                    am_dst,
+                    initial_q,
+                    ext_q,
+                    is_mutate=True,
+                    is_ooo=False,
+                    srcinfo=s.srcinfo,
+                )
             if want_value:
                 op = "=" if isinstance(s, LoopIR.Assign) else "+"
                 b.MutateValue(am_dst, op, am_rhs)
@@ -143,11 +150,14 @@ class CamsporkDo(LoopIR_Do):
                         is_mutate=False,
                         is_ooo=False,
                         access_multicasts=multicasts,
+                        srcinfo=s.srcinfo,
                         # TODO wouldn't it make more sense to use barrier
                         # and barrier_multicasts so the paired await is
                         # what makes the prior arrive "visible"?
                     )
-                b.Arrive(transitive, L1_bits, am_home_barrier, multicasts)
+                b.Arrive(
+                    transitive, L1_bits, am_home_barrier, multicasts, srcinfo=s.srcinfo
+                )
             elif sync_type.is_await():
                 home = s.home_barrier_expr()
                 am_home_barrier = self.comp_index_expr(home.name, home.idx, instr_tl)
@@ -161,10 +171,23 @@ class CamsporkDo(LoopIR_Do):
                         q_bit,
                         is_mutate=False,
                         is_ooo=False,
+                        srcinfo=s.srcinfo,
                     )
-                b.Await(am_home_barrier, L2_full_bits, L2_temporal_bits, N=sync_type.N)
+                b.Await(
+                    am_home_barrier,
+                    L2_full_bits,
+                    L2_temporal_bits,
+                    N=sync_type.N,
+                    srcinfo=s.srcinfo,
+                )
             else:
-                b.Fence(transitive, L1_bits, L2_full_bits, L2_temporal_bits)
+                b.Fence(
+                    transitive,
+                    L1_bits,
+                    L2_full_bits,
+                    L2_temporal_bits,
+                    srcinfo=s.srcinfo,
+                )
 
         elif is_if_holding_with(s, LoopIR):
             ctx = s.cond.val
@@ -183,7 +206,7 @@ class CamsporkDo(LoopIR_Do):
                 # Implicit (cpu, cuda_stream) -> cuda_stream sync before;
                 # implicit cuda_stream -> cuda_stream sync after.
                 b.Fence(True, cpu_bit | cuda_bits, cuda_bits, cuda_bits)
-                with b.ParallelBlock(*domain):
+                with b.ParallelBlock(*domain, srcinfo=s.srcinfo):
                     old_domain = self._domain
                     self._domain = domain
                     self.do_stmts(s.body)
@@ -196,7 +219,7 @@ class CamsporkDo(LoopIR_Do):
         # Must be after is_if_holding_with
         elif isinstance(s, LoopIR.If):
             am_cond = self.comp_e(s.cond, True, instr_tl)
-            with b.If(am_cond):
+            with b.If(am_cond, srcinfo=s.srcinfo):
                 self.do_stmts(s.body)
                 if s.orelse:
                     b.begin_orelse()
@@ -209,10 +232,10 @@ class CamsporkDo(LoopIR_Do):
             am_hi = self.comp_e(s.hi, True, instr_tl)
             loop_mode = s.loop_mode
             if isinstance(loop_mode, Seq):
-                with b.SeqFor(am_iter, am_lo, am_hi):
+                with b.SeqFor(am_iter, am_lo, am_hi, srcinfo=s.srcinfo):
                     self.do_stmts(s.body)
             elif isinstance(loop_mode, CudaTasks):
-                with b.TasksFor(am_iter, am_lo, am_hi):
+                with b.TasksFor(am_iter, am_lo, am_hi, srcinfo=s.srcinfo):
                     self.do_stmts(s.body)
             elif isinstance(loop_mode, _CodegenPar):
                 self.do_codegen_par(s, am_iter, am_lo, am_hi)
@@ -237,11 +260,11 @@ class CamsporkDo(LoopIR_Do):
             if want_barrier or want_sync or want_value:
                 am_array = self.comp_index_expr(s.name, s.type.shape(), instr_tl)
             if want_barrier:
-                b.BarrierEnvAlloc(am_array)
+                b.BarrierEnvAlloc(am_array, srcinfo=s.srcinfo)
             if want_sync:
-                b.SyncEnvAlloc(am_array)
+                b.SyncEnvAlloc(am_array, srcinfo=s.srcinfo)
             if want_value:
-                b.ValueEnvAlloc(am_array)
+                b.ValueEnvAlloc(am_array, srcinfo=s.srcinfo)
 
         elif isinstance(s, LoopIR.Free):
             self._saw_free = True
@@ -253,7 +276,7 @@ class CamsporkDo(LoopIR_Do):
                 want_free_shards = not (free_qual_tl is None)
 
             if want_barrier:
-                b.BarrierEnvFree(s.name)
+                b.BarrierEnvFree(s.name, srcinfo=s.srcinfo)
             if want_free_shards:
                 # Look up distributed memory information for the variable.
                 state = self._coll_analysis.distributed_alloc_states[s.name]
@@ -266,7 +289,7 @@ class CamsporkDo(LoopIR_Do):
                 # each shard of the array. Also, possibly reshape domain.
                 loop_nest = []
                 if target_domain != self._domain:
-                    loop_nest.append(b.DomainReshape(*target_domain))
+                    loop_nest.append(b.DomainReshape(*target_domain, srcinfo=s.srcinfo))
                 for dim_idx, dim in enumerate(target_coll_tiling.get_dims()):
                     dim: CollDim
                     # Generate minimal loops for this dimension needed
@@ -291,7 +314,13 @@ class CamsporkDo(LoopIR_Do):
                             am_iter = b.add_variable(op.iter)
                         loop_nest.append(
                             b.ThreadsFor(
-                                am_iter, 0, op.tile_count, dim_idx, op.offset, op.box
+                                am_iter,
+                                0,
+                                op.tile_count,
+                                dim_idx,
+                                op.offset,
+                                op.box,
+                                srcinfo=s.srcinfo,
                             )
                         )
                 # Emit the generated loop nest (begin/end instead of with).
@@ -304,7 +333,11 @@ class CamsporkDo(LoopIR_Do):
                     0 if self._coll_analysis.thread_iters[it].tile_count == 1 else b[it]
                     for it in distributed_iters
                 )
-                b.SyncEnvFreeShard(b[s.name][am_idx], Qual_tl.make_bits(free_qual_tl))
+                b.SyncEnvFreeShard(
+                    b[s.name][am_idx],
+                    Qual_tl.make_bits(free_qual_tl),
+                    srcinfo=s.srcinfo,
+                )
                 for ctx in reversed(loop_nest):
                     ctx.end()
         elif isinstance(s, LoopIR.Call):
@@ -335,6 +368,7 @@ class CamsporkDo(LoopIR_Do):
                 #     not arg_info.access_by_owner_only
                 # ), "TODO generate ThreadsFor loop for shards of input"
                 # TODO atomics
+                # TODO value environment
                 dst_lo, extent = self.comp_fnarg(fnarg_type, caller_a, instr_tl)
                 if dst_lo is not None:
                     initial_q, ext_q = self.get_qual_bits(caller_a, instr_tl)
@@ -347,6 +381,7 @@ class CamsporkDo(LoopIR_Do):
                         extent=extent,
                         barrier=barrier,
                         barrier_multicasts=barrier_multicasts,
+                        srcinfo=s.srcinfo,
                     )
             if barrier and s.trailing_barrier_expr.name in self._sync_syms:
                 # Sync-check the trailing barrier itself.
@@ -360,6 +395,7 @@ class CamsporkDo(LoopIR_Do):
                     access_multicasts=barrier_multicasts,
                     barrier=barrier,
                     barrier_multicasts=barrier_multicasts,
+                    srcinfo=s.srcinfo,
                 )
         else:
             super().do_s(s)
@@ -381,7 +417,7 @@ class CamsporkDo(LoopIR_Do):
         loop_mode = s.loop_mode
         if None is (dim_idx := loop_mode.am_dim_idx):
             # Do-nothing parallel-for loop.
-            with b.SeqFor(am_iter, am_lo, am_hi):
+            with b.SeqFor(am_iter, am_lo, am_hi, srcinfo=s.srcinfo):
                 self.do_stmts(s.body)
         else:
             loops_ctx = b.ThreadsFor(
@@ -394,7 +430,7 @@ class CamsporkDo(LoopIR_Do):
             else:
                 old_domain = self._domain
                 self._domain = new_domain
-                with b.DomainReshape(*new_domain):
+                with b.DomainReshape(*new_domain, srcinfo=s.srcinfo):
                     with loops_ctx:
                         self.do_stmts(s.body)
                 self._domain = old_domain
@@ -416,7 +452,14 @@ class CamsporkDo(LoopIR_Do):
                 am_src = self.comp_index_expr(e.name, e.idx, instr_tl)
             if want_sync:
                 initial_q, ext_q = self.get_qual_bits(e, instr_tl)
-                b.SyncEnvAccess(am_src, initial_q, ext_q, is_mutate=False, is_ooo=False)
+                b.SyncEnvAccess(
+                    am_src,
+                    initial_q,
+                    ext_q,
+                    is_mutate=False,
+                    is_ooo=False,
+                    srcinfo=e.srcinfo,
+                )
             if want_value:
                 return am_src
         elif isinstance(e, LoopIR.Const):

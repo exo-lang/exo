@@ -1237,6 +1237,23 @@ CAMSPORK_EXPORT int camspork_add_last_checked_mutate_history_remarks(camspork::P
     CAMSPORK_API_EPILOGUE(0)
 }
 
+CAMSPORK_EXPORT const char* camspork_get_remark(
+        const camspork::ProgramEnv* p_env, uint32_t i, camspork::StmtRef* out_stmt)
+{
+    CAMSPORK_API_PROLOGUE
+    const auto& remarks = p_env->get_remarks();
+    CAMSPORK_C_BOUNDSCHECK(i, remarks.size());
+    const camspork::ProgramExecRemark& remark = remarks[i];
+    *out_stmt = remark.stmt;
+    return remark.text.c_str();
+    CAMSPORK_API_EPILOGUE(nullptr)
+}
+
+CAMSPORK_EXPORT int camspork_get_num_remarks(const camspork::ProgramEnv* p_env)
+{
+    return int(p_env->get_remarks().size());
+}
+
 camspork::Varname camspork_syncv_fail_var(const camspork::ProgramEnv* p_env)
 {
     // No exception possible, I think.

@@ -108,6 +108,10 @@ class StmtRef(Structure):
         return self.raw_data != 0  # 0 used to signal error (use check_return)
     def __repr__(self):
         return "camspork.StmtRef(%i)" % self.raw_data
+    def __hash__(self):
+        return self.raw_data
+    def __eq__(self, other):
+        return isinstance(other, StmtRef) and other.raw_data == self.raw_data
 
 class Varname(Structure, BuilderExpr):
     _fields_ = [("slot_1_index", c_uint32)]
@@ -122,6 +126,15 @@ class Varname(Structure, BuilderExpr):
 
     def __getitem__(self, idxs):
         return BuilderIndexExpr(self, ())[idxs]
+
+    def __repr__(self):
+        return "camspork.Varname(%i)" % self.slot_1_index
+
+    def __hash__(self):
+        return self.slot_1_index
+
+    def __eq__(self, other):
+        return isinstance(other, Varname) and other.slot_1_index == self.slot_1_index
 
 class OffsetExtentExpr(Structure):
     _fields_ = [("offset_e", ExprRef), ("extent_e", ExprRef)]
@@ -369,6 +382,26 @@ _add_last_checked_mutate_history_remarks = lib.camspork_add_last_checked_mutate_
 _add_last_checked_mutate_history_remarks.restype = c_int
 _add_last_checked_mutate_history_remarks.argtypes = (c_void_p, )
 
+_get_remark = lib.camspork_get_remark
+_get_remark.restype = c_char_p
+_get_remark.argtypes = (c_void_p, c_uint32, ptr_StmtRef)
+
+_get_num_remarks = lib.camspork_get_num_remarks
+_get_num_remarks.restype = c_int
+_get_num_remarks.argtypes = (c_void_p, )
+
+_syncv_fail_var = lib.camspork_syncv_fail_var
+_syncv_fail_var.restype = Varname
+_syncv_fail_var.argtypes = (c_void_p, )
+
+_syncv_fail_idx_dim = lib.camspork_syncv_fail_idx_dim
+_syncv_fail_idx_dim.restype = c_int
+_syncv_fail_idx_dim.argtypes = (c_void_p, )
+
+_syncv_fail_idx_ptr = lib.camspork_syncv_fail_idx_ptr
+_syncv_fail_idx_ptr.restype = POINTER(extent_t)
+_syncv_fail_idx_ptr.argtypes = (c_void_p, )
+
 
 def to_binop(op):
     if isinstance(op, binop):
@@ -381,14 +414,16 @@ def to_binop(op):
 
 
 class BodyCtx:
-    __slots__ = ["_builder", "_on_enter", "node", "body", "orelse"]
+    __slots__ = ["_builder", "_on_enter", "node", "body", "orelse", "_srcinfo", "_srcinfo_dict"]
     _builder: VoidPtr
     _on_enter: Callable[[VoidPtr], None]
     node: StmtRef
     body: StmtRef
     orelse: StmtRef
+    _srcinfo: object
+    _srcinfo_dict: Dict[StmtRef, object]
 
-    def __init__(self, builder, on_enter):
+    def __init__(self, builder, srcinfo, srcinfo_dict, on_enter):
         """Note this doesn't actually do anything until __enter__. This way
 
         x = b.foo()
@@ -404,11 +439,14 @@ class BodyCtx:
         """
         self._builder = builder
         self._on_enter = on_enter
+        self._srcinfo = srcinfo
+        self._srcinfo_dict = srcinfo_dict
 
     def begin(self, *a):
         node = check_return(self._on_enter(self._builder))
         assert isinstance(node, StmtRef)
         self.node = node
+        self._srcinfo_dict[node] = self._srcinfo
         return self
 
     def end(self, *a):
@@ -482,14 +520,18 @@ class BuilderBinOp(BuilderExpr):
 
 
 class ProgramBuilder:
-    __slots__ = ["_builder", "_varname_dict"]
+    __slots__ = ["_builder", "_varname_dict", "_reverse_varname_dict", "_stmt_srcinfo"]
 
     _builder: VoidPtr
     _varname_dict: Dict[object, Varname]
+    _reverse_varname_dict: Dict[Varname, object]
+    _stmt_srcinfo: Dict[StmtRef, object]
 
     def __init__(self):
         self._builder = check_return(_new_ProgramBuilder())
         self._varname_dict = {}
+        self._reverse_varname_dict = {}
+        self._stmt_srcinfo = {}
 
     def __del__(self):
         _delete_ProgramBuilder(self._builder)
@@ -512,6 +554,7 @@ class ProgramBuilder:
         assert name not in self._varname_dict, f"Duplicate variable name {name!r}"
         varname = check_return(_add_variable(self._builder, to_ascii(name)))
         self._varname_dict[name] = varname
+        self._reverse_varname_dict[varname] = name
         return varname
 
     def add_variables(self, names, to_ascii=lambda name: bytes(str(name), "utf8")) -> List[Varname]:
@@ -525,8 +568,23 @@ class ProgramBuilder:
 
     get_varname = __getitem__
 
+    def translate_from_varname(self, name: Varname):
+        return self._reverse_varname_dict.get(name, name)
+
+    def get_stmt_srcinfo(self, stmt: StmtRef):
+        try:
+            return self._stmt_srcinfo[stmt]
+        except Exception:
+            assert isinstance(stmt, StmtRef)
+            raise
+
     def build_expr(self, e) -> ExprRef:
         return BuilderExpr.typecheck(e).build_expr(self._builder)
+
+    def check_stmt(self, srcinfo, s: StmtRef):
+        check_return(s)
+        self._stmt_srcinfo[s] = srcinfo
+        return s
 
     def SyncEnvAccess(
             self, dst: BuilderIndexExpr | Varname, initial_qual_bit: int, extended_qual_bits: int, *,
@@ -534,7 +592,8 @@ class ProgramBuilder:
             atomic_qual_bits: int = 0,
             access_multicasts: Tuple[Tuple[bool]] = (),
             barrier: Optional[BuilderIndexExpr | Varname] = None,
-            barrier_multicasts: Tuple[Tuple[bool]] = ()) -> StmtRef:
+            barrier_multicasts: Tuple[Tuple[bool]] = (),
+            srcinfo=None) -> StmtRef:
         if barrier is not None:
             barrier_name, barrier_dim, barrier_idx = self._unpack_multicast(barrier, barrier_multicasts)
             trailing_barrier_expr = check_return(_add_TrailingBarrierExpr(self._builder, barrier_name, barrier_dim, barrier_idx))
@@ -558,82 +617,121 @@ class ProgramBuilder:
             var, dim, offsets = dst.c_var_dim_idxs(self._builder)
             c_func = _add_SyncEnvAccessSingle
             idxs = offsets
-        return check_return(c_func(self._builder, var, dim, idxs, initial_qual_bit, extended_qual_bits, atomic_qual_bits, bool(is_mutate), bool(is_ooo), trailing_barrier_expr))
+        return self.check_stmt(srcinfo, c_func(
+            self._builder,
+            var,
+            dim,
+            idxs,
+            initial_qual_bit,
+            extended_qual_bits,
+            atomic_qual_bits,
+            bool(is_mutate),
+            bool(is_ooo),
+            trailing_barrier_expr,
+        ))
 
-    def SyncEnvFreeShard(self, dst: BuilderIndexExpr | Varname, extended_qual_bits: int):
+    def SyncEnvFreeShard(self, dst: BuilderIndexExpr | Varname, extended_qual_bits: int, *, srcinfo=None):
         var, dim, offsets = dst.c_var_dim_idxs(self._builder)
-        return check_return(_add_SyncEnvFreeShard(self._builder, var, dim, offsets, extended_qual_bits))
+        return self.check_stmt(srcinfo, _add_SyncEnvFreeShard(
+            self._builder,
+            var,
+            dim,
+            offsets,
+            extended_qual_bits,
+        ))
 
-    def MutateValue(self, dst: BuilderIndexExpr | Varname, op, rhs) -> StmtRef:
+    def MutateValue(self, dst: BuilderIndexExpr | Varname, op, rhs, *, srcinfo=None) -> StmtRef:
         var, dim, idxs = dst.c_var_dim_idxs(self._builder)
-        return check_return(_add_MutateValue(self._builder, var, dim, idxs, to_binop(op), self.build_expr(rhs)))
+        return self.check_stmt(srcinfo, _add_MutateValue(self._builder, var, dim, idxs, to_binop(op), self.build_expr(rhs)))
 
-    def Fence(self, V1_transitive: bool, L1_qual_bits: int, L2_full_qual_bits: int, L2_temporal_qual_bits: int) -> StmtRef:
-        return check_return(_add_Fence(self._builder, V1_transitive, L1_qual_bits, L2_full_qual_bits, L2_temporal_qual_bits))
+    def Fence(self, V1_transitive: bool, L1_qual_bits: int, L2_full_qual_bits: int, L2_temporal_qual_bits: int, *, srcinfo=None) -> StmtRef:
+        return self.check_stmt(srcinfo, _add_Fence(
+            self._builder,
+            V1_transitive,
+            L1_qual_bits,
+            L2_full_qual_bits,
+            L2_temporal_qual_bits,
+        ))
 
-    def Arrive(self, V1_transitive: bool, L1_qual_bits: int, dst: BuilderIndexExpr | Varname, barrier_multicasts: Tuple[Tuple[bool]]):
+    def Arrive(self, V1_transitive: bool, L1_qual_bits: int, dst: BuilderIndexExpr | Varname, barrier_multicasts: Tuple[Tuple[bool]], *, srcinfo=None):
         var, dim, arrive_idx = self._unpack_multicast(dst, barrier_multicasts)
-        return check_return(_add_Arrive(self._builder, V1_transitive, L1_qual_bits, var, dim, arrive_idx))
+        return self.check_stmt(srcinfo, _add_Arrive(
+            self._builder,
+            V1_transitive,
+            L1_qual_bits,
+            var,
+            dim,
+            arrive_idx,
+        ))
 
-    def Await(self, dst: BuilderIndexExpr, L2_full_qual_bits: int, L2_temporal_qual_bits: int, N: int):
+    def Await(self, dst: BuilderIndexExpr, L2_full_qual_bits: int, L2_temporal_qual_bits: int, N: int, *, srcinfo=None):
         var, dim, idxs = dst.c_var_dim_idxs(self._builder)
-        return check_return(_add_Await(self._builder, var, dim, idxs, L2_full_qual_bits, L2_temporal_qual_bits, N))
+        return self.check_stmt(srcinfo, _add_Await(
+            self._builder,
+            var,
+            dim,
+            idxs,
+            L2_full_qual_bits,
+            L2_temporal_qual_bits,
+            N,
+        ))
 
-    def ValueEnvAlloc(self, e: Varname | BuilderIndexExpr) -> StmtRef:
-        return self._add_alloc(_add_ValueEnvAlloc, e)
+    def ValueEnvAlloc(self, e: Varname | BuilderIndexExpr, *, srcinfo=None) -> StmtRef:
+        return self._add_alloc(_add_ValueEnvAlloc, e, srcinfo)
 
-    def SyncEnvAlloc(self, e: Varname | BuilderIndexExpr) -> StmtRef:
-        return self._add_alloc(_add_SyncEnvAlloc, e)
+    def SyncEnvAlloc(self, e: Varname | BuilderIndexExpr, *, srcinfo=None) -> StmtRef:
+        return self._add_alloc(_add_SyncEnvAlloc, e, srcinfo)
 
-    def BarrierEnvAlloc(self, e: Varname | BuilderIndexExpr) -> StmtRef:
-        return self._add_alloc(_add_BarrierEnvAlloc, e)
+    def BarrierEnvAlloc(self, e: Varname | BuilderIndexExpr, *, srcinfo=None) -> StmtRef:
+        return self._add_alloc(_add_BarrierEnvAlloc, e, srcinfo)
 
-    def _add_alloc(self, c_adder, e) -> StmtRef:
+    def _add_alloc(self, c_adder, e, srcinfo) -> StmtRef:
         var, dim, idxs = e.c_var_dim_idxs(self._builder)
-        return check_return(c_adder(self._builder, var, dim, idxs))
+        return self.check_stmt(srcinfo, c_adder(self._builder, var, dim, idxs))
 
-    def BarrierEnvFree(self, name) -> StmtRef:
-        return check_return(_add_BarrierEnvFree(self._builder, self[name]))
+    def BarrierEnvFree(self, name, *, srcinfo=None) -> StmtRef:
+        return self.check_stmt(srcinfo, _add_BarrierEnvFree(self._builder, self[name]))
 
-    def If(self, cond, allow_bool=False) -> BodyCtx:
+    def If(self, cond, allow_bool=False, *, srcinfo=None) -> BodyCtx:
         # Catches expressions like "not var" which Python reduces to constant bool.
         assert allow_bool or not isinstance(cond, bool), "Literal bool passed"
         cond = self.build_expr(cond)
-        return BodyCtx(self._builder, lambda builder: _push_If(builder, cond))
+        return BodyCtx(self._builder, srcinfo, self._stmt_srcinfo,
+            lambda builder: _push_If(builder, cond))
 
     def begin_orelse(self):
         check_return(_begin_orelse(self._builder))
 
-    def SeqFor(self, var, lo, hi) -> BodyCtx:
+    def SeqFor(self, var, lo, hi, *, srcinfo=None) -> BodyCtx:
         var = self.get_varname(var)
         lo = self.build_expr(lo)
         hi = self.build_expr(hi)
-        return BodyCtx(self._builder, lambda builder: _push_SeqFor(builder, var, lo, hi))
+        return BodyCtx(self._builder, srcinfo, self._stmt_srcinfo, lambda builder: _push_SeqFor(builder, var, lo, hi))
 
-    def TasksFor(self, var, lo, hi) -> BodyCtx:
+    def TasksFor(self, var, lo, hi, *, srcinfo=None) -> BodyCtx:
         var = self.get_varname(var)
         lo = self.build_expr(lo)
         hi = self.build_expr(hi)
-        return BodyCtx(self._builder, lambda builder: _push_TasksFor(builder, var, lo, hi))
+        return BodyCtx(self._builder, srcinfo, self._stmt_srcinfo, lambda builder: _push_TasksFor(builder, var, lo, hi))
 
-    def ThreadsFor(self, var, lo, hi, dim_idx: int, offset: int, box: int) -> BodyCtx:
+    def ThreadsFor(self, var, lo, hi, dim_idx: int, offset: int, box: int, *, srcinfo=None) -> BodyCtx:
         var = self.get_varname(var)
         lo = self.build_expr(lo)
         hi = self.build_expr(hi)
         assert isinstance(dim_idx, int)
         assert isinstance(offset, int)
         assert isinstance(box, int)
-        return BodyCtx(self._builder, lambda builder: _push_ThreadsFor(builder, var, lo, hi, dim_idx, offset, box))
+        return BodyCtx(self._builder, srcinfo, self._stmt_srcinfo, lambda builder: _push_ThreadsFor(builder, var, lo, hi, dim_idx, offset, box))
 
-    def ParallelBlock(self, *coords) -> BodyCtx:
+    def ParallelBlock(self, *coords, srcinfo=None) -> BodyCtx:
         dim = len(coords)
         array = (c_uint32 * dim)(*coords)
-        return BodyCtx(self._builder, lambda builder: _push_ParallelBlock(builder, dim, array))
+        return BodyCtx(self._builder, srcinfo, self._stmt_srcinfo, lambda builder: _push_ParallelBlock(builder, dim, array))
 
-    def DomainReshape(self, *coords) -> BodyCtx:
+    def DomainReshape(self, *coords, srcinfo=None) -> BodyCtx:
         dim = len(coords)
         array = (c_uint32 * dim)(*coords)
-        return BodyCtx(self._builder, lambda builder: _push_DomainReshape(builder, dim, array))
+        return BodyCtx(self._builder, srcinfo, self._stmt_srcinfo, lambda builder: _push_DomainReshape(builder, dim, array))
 
     def _unpack_multicast(self, dst: BuilderIndexExpr | Varname, multicasts: Tuple[Tuple[bool]]):
         dst = BuilderExpr.typecheck(dst)
@@ -670,11 +768,13 @@ camspork.ProgramBuilder = ProgramBuilder
 
 
 class ProgramEnv:
-    __slots__ = ["_program", "_env", "get_varname"]
+    __slots__ = ["_program", "_env", "get_varname", "get_stmt_srcinfo", "translate_from_varname"]
 
     _program: ProgramBuilder
     _env: VoidPtr
     get_varname: Callable[[object], Varname]
+    get_stmt_srcinfo: Callable[[StmtRef], object]
+    translate_from_varname: Callable[[Varname], object]
 
     def __init__(self, arg):
         if isinstance(arg, ProgramEnv):
@@ -685,6 +785,8 @@ class ProgramEnv:
             self._program = arg
             self._env = check_return(_new_ProgramEnv(arg._builder))
         self.get_varname = arg.get_varname
+        self.get_stmt_srcinfo = arg.get_stmt_srcinfo
+        self.translate_from_varname = arg.translate_from_varname
 
     def __del__(self):
         _delete_ProgramEnv(self._env)
@@ -758,7 +860,7 @@ class ProgramEnv:
 
     def add_last_checked_read_history_remarks(self):
         check_return(_add_last_checked_read_history_remarks(self._env))
-    
+
     def add_last_checked_mutate_history_remarks(self):
         check_return(_add_last_checked_mutate_history_remarks(self._env))
 
@@ -766,6 +868,23 @@ class ProgramEnv:
         check_return(_thread_local_print_program_with_remarks(self._env))
         return str(_thread_local_message_c_str(), "utf-8")
 
+    def get_remarks(self) -> List[Tuple[StmtRef, str]]:
+        n = _get_num_remarks(self._env)
+        remarks = []
+        for i in range(n):
+            s = StmtRef(0)
+            text = str(check_return(_get_remark(self._env, i, byref(s))), "utf-8")
+            remarks.append((s, text))
+        return remarks
+
+    def get_syncv_fail_var(self):
+        return self.translate_from_varname(_syncv_fail_var(self._env))
+
+    def get_syncv_fail_idx(self) -> List[int]:
+        dim = _syncv_fail_idx_dim(self._env)
+        idx = []
+        ptr = _syncv_fail_idx_ptr(self._env)
+        return [ptr[i] for i in range(dim)]
 
 if __name__ == "__main__":
     b_validation = False
