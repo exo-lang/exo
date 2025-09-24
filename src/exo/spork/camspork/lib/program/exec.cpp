@@ -1047,6 +1047,11 @@ void ProgramEnv::set_history_enable(bool flag)
     history_enable = flag;
 }
 
+void ProgramEnv::set_qual_tl_name(uint32_t qual_tl, std::string name)
+{
+    history_log.set_qual_tl_name(qual_tl, std::move(name));
+}
+
 void ProgramEnv::add_error_history_remarks()
 {
     history_log.add_error_remarks(this);
@@ -1196,6 +1201,14 @@ int camspork_set_history_enable(camspork::ProgramEnv* p_env, uint32_t flag)
 {
     CAMSPORK_API_PROLOGUE
     p_env->set_history_enable(flag);
+    return 1;
+    CAMSPORK_API_EPILOGUE(0)
+}
+
+int camspork_set_qual_tl_name(camspork::ProgramEnv* p_env, uint32_t qual_tl, const char* name)
+{
+    CAMSPORK_API_PROLOGUE
+    p_env->set_qual_tl_name(qual_tl, name);
     return 1;
     CAMSPORK_API_EPILOGUE(0)
 }

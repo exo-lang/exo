@@ -367,6 +367,7 @@ class ProgramEnv
 
     void set_debug_validation_enable(bool flag);
     void set_history_enable(bool flag);
+    void set_qual_tl_name(uint32_t qual_tl, std::string name);
     void add_error_history_remarks();
     void add_last_checked_read_history_remarks();
     void add_last_checked_mutate_history_remarks();
@@ -464,6 +465,7 @@ CAMSPORK_EXPORT int camspork_set_value(
 
 CAMSPORK_EXPORT int camspork_set_debug_validation_enable(camspork::ProgramEnv* p_env, uint32_t flag);
 CAMSPORK_EXPORT int camspork_set_history_enable(camspork::ProgramEnv* p_env, uint32_t flag);
+CAMSPORK_EXPORT int camspork_set_qual_tl_name(camspork::ProgramEnv* p_env, uint32_t qual_tl, const char* name);
 CAMSPORK_EXPORT int camspork_add_error_history_remarks(camspork::ProgramEnv* p_env);
 CAMSPORK_EXPORT int camspork_add_last_checked_read_history_remarks(camspork::ProgramEnv* p_env);
 CAMSPORK_EXPORT int camspork_add_last_checked_mutate_history_remarks(camspork::ProgramEnv* p_env);

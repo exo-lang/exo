@@ -49,48 +49,57 @@ void stream_sync_stmt_event(Stream& s, VisRecordHistoryLog& log, const LoggedSyn
 }
 
 template <typename Stream>
+void stream_tid(Stream& s, uint32_t tid, const ThreadCuboid& cuboid_for_domain)
+{
+    if (tid + 1 == 0) {
+        s << "...";
+        return;
+    }
+    std::vector<uint32_t> coords(cuboid_for_domain.dim());
+    const uint32_t domain_num_threads = cuboid_for_domain.domain_num_threads();
+    const uint32_t task_index = tid / domain_num_threads;
+    s << "task_index = " << task_index;
+    uint32_t tmp_tid = tid % domain_num_threads;
+    for (uint32_t dim_i = cuboid_for_domain.dim(); dim_i > 0; ) {
+        --dim_i;
+        const uint32_t domain_c = cuboid_for_domain.domain()[dim_i];
+        coords[dim_i] = tmp_tid % domain_c;
+        tmp_tid = tmp_tid / domain_c;
+    }
+    CAMSPORK_REQUIRE_CMP(coords.size(), !=, 0, "invalid empty domain");
+    s << " [" << coords[0];
+    for (size_t i = 1; i < coords.size(); ++i) {
+        s << ", " << coords[i];
+    }
+    s << ']';
+}
+
+template <typename Stream>
+void stream_domain(Stream& s, const ThreadCuboid& cuboid_for_domain)
+{
+    const uint32_t domain_dim = cuboid_for_domain.dim();
+    CAMSPORK_REQUIRE_CMP(domain_dim, >, 1, "invalid empty ThreadCuboid::domain");
+    s << '[';
+    s << cuboid_for_domain.domain()[0];
+    for (uint32_t dim_i = 1; dim_i < domain_dim; ++dim_i) {
+        s << ", " << cuboid_for_domain.domain()[dim_i];
+    }
+    s << ']';
+}
+
+template <typename Stream>
 void stream_vis_record(
         Stream& s, VisRecordHistoryLog& log, const ThreadCuboid& cuboid_for_domain, const LoggedVisRecordData& data)
 {
-    auto stream_tid = [&s, &cuboid_for_domain] (uint32_t tid)
-    {
-        if (tid + 1 == 0) {
-            s << "...";
-            return;
-        }
-        std::vector<uint32_t> coords(cuboid_for_domain.dim());
-        const uint32_t domain_num_threads = cuboid_for_domain.domain_num_threads();
-        const uint32_t task_index = tid / domain_num_threads;
-        s << "task_index = " << task_index;
-        uint32_t tmp_tid = tid % domain_num_threads;
-        for (uint32_t dim_i = cuboid_for_domain.dim(); dim_i > 0; ) {
-            --dim_i;
-            const uint32_t domain_c = cuboid_for_domain.domain()[dim_i];
-            coords[dim_i] = tmp_tid % domain_c;
-            tmp_tid = tmp_tid / domain_c;
-        }
-        CAMSPORK_REQUIRE_CMP(coords.size(), !=, 0, "invalid empty domain");
-        s << " [" << coords[0];
-        for (size_t i = 1; i < coords.size(); ++i) {
-            s << ", " << coords[i];
-        }
-        s << ']';
-    };
-
     s << "  original_qual_tl: " << log.lazy_get_qual_tl_name(data.original_qual_tl) << '\n';
     for (const TlSigInterval& t: data.visibility_set) {
         s << "  threads: [";
-        stream_tid(t.tid_lo);
+        stream_tid(s, t.tid_lo, cuboid_for_domain);
         s << ",\n            ";
-        stream_tid(t.tid_hi - 1);
-        s << "], inclusive, formatted w/ domain [";
-        const uint32_t domain_dim = cuboid_for_domain.dim();
-        CAMSPORK_REQUIRE_CMP(domain_dim, >, 1, "invalid empty ThreadCuboid::domain");
-        s << cuboid_for_domain.domain()[0];
-        for (uint32_t dim_i = 1; dim_i < domain_dim; ++dim_i) {
-            s << ", " << cuboid_for_domain.domain()[dim_i];
-        }
-        s << "]\n";
+        stream_tid(s, t.tid_hi - 1, cuboid_for_domain);
+        s << "], inclusive, formatted w/ domain ";
+        stream_domain(s, cuboid_for_domain);
+        s << '\n';
         for (uint32_t bit_index = 0; bit_index < log.num_qual_tl; ++bit_index) {
             static_assert(vis_level_full_ordered == 3, "update this code");
             static_assert(vis_level_none == -1, "update this code");
@@ -109,6 +118,10 @@ void stream_vis_record(
           next_qual_tl:
             continue;
         }
+    }
+    for (const LoggedPendingAwait& pending_await : data.pending_await_list) {
+        s << "  pending await: " << pending_await.barrier_name;
+        s << " arrive_count=" << pending_await.arrive_count << '\n';
     }
 }
 
@@ -206,12 +219,13 @@ void VisRecordHistoryLog::log_syncv_vis_record_checked(vis_record_id_t id, bool 
     }
 }
 
-void VisRecordHistoryLog::log_syncv_vis_record_error(vis_record_id_t id, TlSig fail_tl_sig)
+void VisRecordHistoryLog::log_syncv_vis_record_error(vis_record_id_t id, TlSig fail_tl_sig, int32_t vis_level_needed)
 {
     error_stmt_id_bits = current_stmt_id_bits;
     error_vis_record_version = current_version_id(id);
     error_tl_sig = fail_tl_sig;
     error_thread_cuboid = current_thread_cuboid;
+    error_vis_level_needed = vis_level_needed;
 }
 
 void VisRecordHistoryLog::add_error_remarks(ProgramEnv* p_env)
@@ -220,10 +234,19 @@ void VisRecordHistoryLog::add_error_remarks(ProgramEnv* p_env)
 
     // Add additional info about the error site.
     if (error_vis_record_version) {
+
+        std::stringstream s;
+        s << "VisRecord did not have " << vis_level_name(error_vis_level_needed) << " for\n";
+        s << "thread:  ";
+        stream_tid(s, error_tl_sig.tid, error_thread_cuboid);
+        s << "; domain=";
+        stream_domain(s, error_thread_cuboid);
+        s << "\nqual-tl: " << lazy_get_qual_tl_name(error_tl_sig.qual_tl) << '\n';
+
         const auto v_index = error_vis_record_version._1_index - 1;
         CAMSPORK_C_BOUNDSCHECK(v_index, version_data.size());
-        std::stringstream s;
-        // TODO
+        stream_vis_record(s, *this, error_thread_cuboid, version_data[v_index]);
+
         const StmtRef stmt{error_stmt_id_bits};
         static_assert(sizeof(error_stmt_id_bits) == sizeof(stmt));
         p_env->add_remark(stmt, std::move(s).str());

@@ -450,7 +450,7 @@ struct SyncvTrivialLogger
     }
 
     template <bool IsMutate>
-    void history_vis_record_error(nodepool::id<VisRecordListNode<IsMutate>>, TlSig)
+    void history_vis_record_error(nodepool::id<VisRecordListNode<IsMutate>>, TlSig, int32_t)
     {
     }
 };
@@ -2135,7 +2135,7 @@ struct SyncvTable
                 const VisRecord& mutate_record = remove_forwarding(&node.vis_record_id);
                 logger.history_vis_record_checked(node.vis_record_id);  // Logs memoized (base state) ID.
                 if (!visible_to(mutate_record, cuboid, access.extended_qual_bits, vis_level_needed, &fail_tl_sig)) {
-                    logger.history_vis_record_error(node.vis_record_id, fail_tl_sig);
+                    logger.history_vis_record_error(node.vis_record_id, fail_tl_sig, vis_level_needed);
                     throw SyncvCheckFail{IsMutate ? "WAW HAZARD" : "RAW HAZARD", linear_index};
                 }
                 mutate_id = node.camspork_next_id;
@@ -2149,7 +2149,7 @@ struct SyncvTable
                     const VisRecord& read_record = remove_forwarding(&node.vis_record_id);
                     logger.history_vis_record_checked(node.vis_record_id);  // Logs memoized (base state) ID.
                     if (!visible_to(read_record, cuboid, access.extended_qual_bits, vis_level_needed, &fail_tl_sig)) {
-                        logger.history_vis_record_error(node.vis_record_id, fail_tl_sig);
+                        logger.history_vis_record_error(node.vis_record_id, fail_tl_sig, vis_level_needed);
                         throw SyncvCheckFail{"WAR HAZARD", linear_index};
                     }
                     read_id = node.camspork_next_id;
@@ -3014,10 +3014,11 @@ struct SyncvRealLogger
     }
 
     template <bool IsMutate>
-    void history_vis_record_error(nodepool::id<VisRecordListNode<IsMutate>> id, TlSig fail_tl_sig)
+    void history_vis_record_error(
+            nodepool::id<VisRecordListNode<IsMutate>> id, TlSig fail_tl_sig, int32_t vis_level_needed)
     {
         if (p_history_log) {
-            p_history_log->log_syncv_vis_record_error(history_log_vis_record_id(id), fail_tl_sig);
+            p_history_log->log_syncv_vis_record_error(history_log_vis_record_id(id), fail_tl_sig, vis_level_needed);
         }
     }
   private:
