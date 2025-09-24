@@ -384,6 +384,77 @@ struct AssignmentRecordCensusEntry
 
 using CensusMap = Map<nodepool::id<AssignmentRecord>, AssignmentRecordCensusEntry>;
 
+struct history_log_vis_record_id
+{
+    VisRecordHistoryLog::vis_record_id_t data;
+
+    template <bool IsMutate>
+    history_log_vis_record_id(nodepool::id<VisRecordListNode<IsMutate>> node_id)
+    {
+        // This is weird ... since the node ID namespaces are separate for read (!IsMutate) and mutate VisRecord,
+        // we use the lowest bit to disambiguate. If we stop treating the two as separate types, we can just
+        // pass through the ID directly.
+        static_assert(sizeof(data) == 4);
+        CAMSPORK_REQUIRE_CMP(node_id.id_bits, <=, 0x7FFF'FFFF, "too many node IDs");
+        data = node_id.id_bits << 1 | IsMutate;
+    }
+
+    operator VisRecordHistoryLog::vis_record_id_t() const
+    {
+        return data;
+    }
+};
+
+struct SyncvTrivialLogger
+{
+    template <typename Input, bool IsMutate>
+    void excut_log_assignment_records(
+            const SyncvTable&, Input, nodepool::id<VisRecordListNode<IsMutate>>, ExcutMutateTag)
+    {
+    }
+
+    void excut_update_assignment_record_ids(const CensusMap&)
+    {
+    }
+
+    void excut_update_assignment_record_ids(nodepool::id<AssignmentRecord>)
+    {
+    }
+
+    void history_set_sync_stmt_info(const SyncvFence&)
+    {
+    }
+
+    void history_set_sync_stmt_info(const SyncvArrive&, const BarrierState&, uint32_t)
+    {
+    }
+
+    void history_set_sync_stmt_info(const SyncvAwait&, const BarrierState&, uint32_t)
+    {
+    }
+
+    template <bool IsMutate>
+    void history_new_vis_record(SyncvTable&, nodepool::id<VisRecordListNode<IsMutate>>)
+    {
+    }
+
+    template <bool IsMutate>
+    void history_vis_record_change(
+            SyncvTable&, nodepool::id<VisRecordListNode<IsMutate>>, nodepool::id<VisRecordListNode<IsMutate>>)
+    {
+    }
+
+    template <bool IsMutate>
+    void history_vis_record_checked(nodepool::id<VisRecordListNode<IsMutate>>)
+    {
+    }
+
+    template <bool IsMutate>
+    void history_vis_record_error(nodepool::id<VisRecordListNode<IsMutate>>, TlSig)
+    {
+    }
+};
+
 }  // end namespace
 
 
@@ -1035,7 +1106,7 @@ struct SyncvTable
                 BarrierArriveState& arrive = pair.second;
                 auto no_op = [] (auto, auto) {};
                 const pending_await_t await_id = pack_pending_await(barrier_index, arrive_count);
-                retire_barrier_arrive(&arrive, await_id, no_op);
+                retire_barrier_arrive(&arrive, await_id, no_op, SyncvTrivialLogger{});
             }
             state.arrive_states.clear();
 
@@ -1545,11 +1616,13 @@ struct SyncvTable
         }
     };
 
+    template <typename Logger>
     struct FenceUpdateCommand
     {
         const ThreadCuboid* p_cuboid;
         bool transitive;
         qual_bits_t L1_qual_bits, L2_full_qual_bits, L2_temporal_qual_bits;
+        Logger& logger;
 
         template <bool IsMutate>
         void update_for_sync(SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> vis_record_id) const
@@ -1586,12 +1659,14 @@ struct SyncvTable
         return it->second;
     }
 
+    template <typename Logger>
     struct ArriveUpdateCommand
     {
         const ThreadCuboid* p_cuboid;
         bool transitive;
         qual_bits_t L1_qual_bits;
         std::vector<pending_await_t> pending_awaits;
+        Logger& logger;
 
         // Used internally, to avoid creating redundant PendingAwaitTreeNode.
         // This also helps memoization ... VisRecord with equivalent sets of pending awaits
@@ -1666,8 +1741,9 @@ struct SyncvTable
     // Find all VisRecords referenced by the BarrierArriveState and remove corresponding pending awaits,
     // then clear the BarrierArriveState.
     // We run the supplied callback (likely AugmentVisRecordCallback) to modify each base-state VisRecord.
-    template <typename Callback>
-    void retire_barrier_arrive(BarrierArriveState* p_state, pending_await_t await_info, Callback&& callback)
+    template <typename Callback, typename Logger>
+    void retire_barrier_arrive(
+            BarrierArriveState* p_state, pending_await_t await_info, Callback&& callback, Logger&& logger)
     {
         auto retire_list = [&] (auto record_id)
         {
@@ -1707,7 +1783,8 @@ struct SyncvTable
                         p_await_node = &node.camspork_next_id;
                     }
 
-                    memoize_or_forward(vis_record_id);
+                    const auto new_id = memoize_or_forward(vis_record_id);
+                    logger.history_vis_record_change(*this, vis_record_id, new_id);
                 }
                 // Note, this could cause the newly-memoized VisRecord to be immediately destroyed.
                 decref(vis_record_id);
@@ -1777,7 +1854,8 @@ struct SyncvTable
 
             // This is where the node might get re-inserted to the memoization table.
             // *p_id might change value here again, but it's guaranteed p_id doesn't point inside &current_node.
-            memoize_or_forward(current_node_id);
+            const auto new_node_id = memoize_or_forward(current_node_id);
+            command.logger.history_vis_record_change(*this, current_node_id, new_node_id);
 
             // This part is dicey. We removed the node from the memoization table, then possibly re-inserted it,
             // either into another bucket, or at the head of this bucket. See the weird assert below.
@@ -1795,52 +1873,59 @@ struct SyncvTable
     }
 
     // Augment all visibility records that synchronize with the first visibility set of the fence.
-    void update_vis_records_for_fence(const ThreadCuboid& cuboid, const SyncvFence& fence)
+    template <typename Logger>
+    void update_vis_records_for_fence(const ThreadCuboid& cuboid, const SyncvFence& fence, Logger& logger)
     {
         // Augment V_A, V_U, and V_O.
-        FenceUpdateCommand command{
-                &cuboid, fence.transitive, fence.L1_qual_bits, fence.L2_full_qual_bits, fence.L2_temporal_qual_bits};
+        FenceUpdateCommand<Logger> command{
+                &cuboid, fence.transitive, fence.L1_qual_bits,
+                fence.L2_full_qual_bits, fence.L2_temporal_qual_bits, logger};
         update_vis_records_for_sync_impl(command);
     }
 
-    template <bool IsMutate>
+    template <bool IsMutate, typename Logger>
     void process_bucket(
             nodepool::id<VisRecordListNode<IsMutate>>* p_bucket_head,
-            const FenceUpdateCommand& command)
+            const FenceUpdateCommand<Logger>& command)
     {
         process_bucket_for_sync_impl(p_bucket_head, command);
     }
 
     // Save await_id into all visibility records that synchronize with the first visibility set of the arrive.
+    template <typename Logger>
     void update_vis_records_for_arrive(
             const ThreadCuboid& cuboid,
             bool transitive,
             qual_bits_t L1_qual_bits,
-            std::vector<pending_await_t> pending_awaits)
+            std::vector<pending_await_t> pending_awaits,
+            Logger& logger)
     {
         if (L1_qual_bits == 0) {
             // Do nothing.
         }
         else {
-            ArriveUpdateCommand command{&cuboid, transitive, L1_qual_bits, std::move(pending_awaits), {}};
+            ArriveUpdateCommand<Logger> command{
+                    &cuboid, transitive, L1_qual_bits, std::move(pending_awaits), logger, {}};
             update_vis_records_for_sync_impl(command);
         }
     }
 
-    template <bool IsMutate>
+    template <bool IsMutate, typename Logger>
     void process_bucket(
             nodepool::id<VisRecordListNode<IsMutate>>* p_bucket_head,
-            ArriveUpdateCommand& command)
+            ArriveUpdateCommand<Logger>& command)
     {
         process_bucket_for_sync_impl(p_bucket_head, command);
     }
 
+    template <typename Logger>
     void update_vis_records_for_await(
         uint32_t barrier_index,
         int32_t max_arrive_count,
         const ThreadCuboid& cuboid,
         qual_bits_t L2_full_qual_bits,
-        qual_bits_t L2_temporal_qual_bits)
+        qual_bits_t L2_temporal_qual_bits,
+        Logger& logger)
     {
         AugmentVisRecordCallback augment{};
         augment.p_cuboid = &cuboid;
@@ -1856,7 +1941,7 @@ struct SyncvTable
             if (int32_t(arrive_count) > max_arrive_count) {
                 break;
             }
-            retire_barrier_arrive(&pair.second, pack_pending_await(barrier_index, arrive_count), augment);
+            retire_barrier_arrive(&pair.second, pack_pending_await(barrier_index, arrive_count), augment, logger);
             arrive_map.erase(iter++);
         }
     }
@@ -1867,16 +1952,23 @@ struct SyncvTable
 
 
 
-    void on_fence(const ThreadCuboid& cuboid, const SyncvFence& fence)
+    template <typename Logger>
+    void on_fence(const ThreadCuboid& cuboid, const SyncvFence& fence, Logger&& logger)
     {
         augment_counter++;
-        update_vis_records_for_fence(cuboid, fence);
+        logger.history_set_sync_stmt_info(fence);
+        update_vis_records_for_fence(cuboid, fence, logger);
     }
 
-    void on_arrive(const ThreadCuboid& cuboid, const SyncvArrive& arrive)
+    template <typename Logger>
+    void on_arrive(const ThreadCuboid& cuboid, const SyncvArrive& arrive, Logger&& logger)
     {
+        // NB augment_counter not changed, as Arrive does not augment any VisRecords.
         const auto home_barrier_index = get_barrier_index(arrive.home_barrier);
         BarrierState& state = barrier_states[home_barrier_index];
+
+        const auto new_arrive_count = state.arrive_count + 1;
+        logger.history_set_sync_stmt_info(arrive, state, new_arrive_count);
 
         const auto count = arrive.barrier_count;
         std::vector<pending_await_t> pending_awaits(count);
@@ -1884,37 +1976,44 @@ struct SyncvTable
             pending_awaits[i] = pack_pending_await(get_barrier_index(arrive.all_barriers[i]), state.arrive_count);
         }
 
-        state.arrive_count++;
-        update_vis_records_for_arrive(cuboid, arrive.transitive, arrive.L1_qual_bits, std::move(pending_awaits));
+        state.arrive_count = new_arrive_count;
+        update_vis_records_for_arrive(
+                cuboid, arrive.transitive, arrive.L1_qual_bits, std::move(pending_awaits), logger);
     }
 
-    void on_await(const ThreadCuboid& cuboid, const SyncvAwait& await)
+    template <typename Logger>
+    void on_await(const ThreadCuboid& cuboid, const SyncvAwait& await, Logger&& logger)
     {
         augment_counter++;
 
         const auto barrier_index = get_barrier_index(await.bar);
         BarrierState& state = barrier_states[barrier_index];
 
+        auto new_await_count = state.await_count;
         const auto N = await.N;
         int32_t max_arrive_count;
         if (N >= 0) {
             // Arrive-indexed barrier.
             max_arrive_count = state.arrive_count - N - 1;
-            state.await_count = std::max(max_arrive_count + 1, state.await_count);
+            new_await_count = std::max(max_arrive_count + 1, state.await_count);
         }
         else {
             // Await-indexed barrier.
             int32_t lag = ~N;
             max_arrive_count = state.await_count - lag;
-            state.await_count++;
+            new_await_count = state.await_count + 1;
         }
+
+        logger.history_set_sync_stmt_info(await, state, new_await_count);
+        state.await_count = new_await_count;
 
         update_vis_records_for_await(
                 barrier_index,
                 max_arrive_count,
                 cuboid,
                 await.L2_full_qual_bits,
-                await.L2_temporal_qual_bits);
+                await.L2_temporal_qual_bits,
+                logger);
     }
 
 
@@ -1975,7 +2074,7 @@ struct SyncvTable
             Input input,
             const ThreadCuboid& cuboid,
             SyncvAccessInfo access,
-            Logger&& logger)
+            Logger& logger)
     {
         using node_id = nodepool::id<AssignmentRecord>;
 
@@ -2009,6 +2108,7 @@ struct SyncvTable
         if (UpdateRecords && !census.empty()) {
             const uint32_t initial_refcnt = uint32_t(census.size());
             vis_record_id = memoize_new_vis_record<IsMutate>(cuboid, access, initial_refcnt);
+            logger.history_new_vis_record(*this, vis_record_id);
         }
 
         logger.excut_log_assignment_records(*this, input, vis_record_id,
@@ -2033,7 +2133,9 @@ struct SyncvTable
             while (mutate_id) {
                 AssignmentRecordMutateNode& node = get(mutate_id);
                 const VisRecord& mutate_record = remove_forwarding(&node.vis_record_id);
+                logger.history_vis_record_checked(node.vis_record_id);  // Logs memoized (base state) ID.
                 if (!visible_to(mutate_record, cuboid, access.extended_qual_bits, vis_level_needed, &fail_tl_sig)) {
+                    logger.history_vis_record_error(node.vis_record_id, fail_tl_sig);
                     throw SyncvCheckFail{IsMutate ? "WAW HAZARD" : "RAW HAZARD", linear_index};
                 }
                 mutate_id = node.camspork_next_id;
@@ -2045,7 +2147,9 @@ struct SyncvTable
                 while (read_id) {
                     AssignmentRecordReadNode& node = get(read_id);
                     const VisRecord& read_record = remove_forwarding(&node.vis_record_id);
+                    logger.history_vis_record_checked(node.vis_record_id);  // Logs memoized (base state) ID.
                     if (!visible_to(read_record, cuboid, access.extended_qual_bits, vis_level_needed, &fail_tl_sig)) {
+                        logger.history_vis_record_error(node.vis_record_id, fail_tl_sig);
                         throw SyncvCheckFail{"WAR HAZARD", linear_index};
                     }
                     read_id = node.camspork_next_id;
@@ -2658,22 +2762,9 @@ struct SyncvTable
     }
 };
 
-struct SyncvTrivialLogger
-{
-    template <typename Input, bool IsMutate>
-    void excut_log_assignment_records(
-            const SyncvTable&, Input, nodepool::id<VisRecordListNode<IsMutate>>, ExcutMutateTag)
-    {
-    }
+namespace {
 
-    void excut_update_assignment_record_ids(const CensusMap&)
-    {
-    }
-
-    void excut_update_assignment_record_ids(nodepool::id<AssignmentRecord>)
-    {
-    }
-};
+struct SyncvTrivialLogger;  // Defined before SyncvTable; matches SyncvRealLogger interface.
 
 struct SyncvRealLogger
 {
@@ -2848,7 +2939,43 @@ struct SyncvRealLogger
             p_excut_actions->push_back(std::move(p_excut_await));
         }
     }
+
+  public:
+    void history_set_sync_stmt_info(const SyncvFence&)
+    {
+    }
+
+    void history_set_sync_stmt_info(const SyncvArrive&, const BarrierState&, uint32_t)
+    {
+    }
+
+    void history_set_sync_stmt_info(const SyncvAwait&, const BarrierState&, uint32_t)
+    {
+    }
+
+    template <bool IsMutate>
+    void history_new_vis_record(SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> node_id)
+    {
+    }
+
+    template <bool IsMutate>
+    void history_vis_record_change(
+            SyncvTable&, nodepool::id<VisRecordListNode<IsMutate>>, nodepool::id<VisRecordListNode<IsMutate>>)
+    {
+    }
+
+    template <bool IsMutate>
+    void history_vis_record_checked(nodepool::id<VisRecordListNode<IsMutate>>)
+    {
+    }
+
+    template <bool IsMutate>
+    void history_vis_record_error(nodepool::id<VisRecordListNode<IsMutate>>, TlSig)
+    {
+    }
 };
+
+}  // end namespace
 
 
 
@@ -3001,24 +3128,45 @@ void free_barriers(SyncvTable* table, size_t N, barrier_id* barriers, bool check
     INTERFACE_EPILOGUE(table)
 }
 
-void on_fence(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvFence& fence)
+void on_fence(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvFence& fence, const SyncvLogRequest& log)
 {
     INTERFACE_PROLOGUE(table)
-    table->on_fence(cuboid, fence);
+    table->on_fence(cuboid, fence, SyncvRealLogger(log));
     INTERFACE_EPILOGUE(table)
 }
 
-void on_arrive(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvArrive& arrive)
+void on_fence(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvFence& fence, decltype(nullptr))
 {
     INTERFACE_PROLOGUE(table)
-    table->on_arrive(cuboid, arrive);
+    table->on_fence(cuboid, fence, SyncvTrivialLogger{});
     INTERFACE_EPILOGUE(table)
 }
 
-void on_await(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvAwait& await)
+void on_arrive(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvArrive& arrive, const SyncvLogRequest& log)
 {
     INTERFACE_PROLOGUE(table)
-    table->on_await(cuboid, await);
+    table->on_arrive(cuboid, arrive, SyncvRealLogger(log));
+    INTERFACE_EPILOGUE(table)
+}
+
+void on_arrive(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvArrive& arrive, decltype(nullptr))
+{
+    INTERFACE_PROLOGUE(table)
+    table->on_arrive(cuboid, arrive, SyncvTrivialLogger{});
+    INTERFACE_EPILOGUE(table)
+}
+
+void on_await(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvAwait& await, const SyncvLogRequest& log)
+{
+    INTERFACE_PROLOGUE(table)
+    table->on_await(cuboid, await, SyncvRealLogger(log));
+    INTERFACE_EPILOGUE(table)
+}
+
+void on_await(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvAwait& await, decltype(nullptr))
+{
+    INTERFACE_PROLOGUE(table)
+    table->on_await(cuboid, await, SyncvTrivialLogger{});
     INTERFACE_EPILOGUE(table)
 }
 

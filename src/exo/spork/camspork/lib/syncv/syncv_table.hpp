@@ -131,9 +131,12 @@ void on_check_free(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, Syn
 void clear_visibility(SyncvTable* table, size_t N, assignment_record_id* array);
 void alloc_barriers(SyncvTable* table, size_t N, barrier_id* barriers);
 void free_barriers(SyncvTable* table, size_t N, barrier_id* barriers, bool check_arrive_await);
-void on_fence(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvFence& fence);
-void on_arrive(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvArrive& arrive);
-void on_await(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvAwait& await);
+void on_fence(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvFence& fence, const SyncvLogRequest&);
+void on_fence(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvFence& fence, decltype(nullptr) = nullptr);
+void on_arrive(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvArrive& arrive, const SyncvLogRequest&);
+void on_arrive(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvArrive& arrive, decltype(nullptr) = nullptr);
+void on_await(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvAwait& await, const SyncvLogRequest&);
+void on_await(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvAwait& await, decltype(nullptr) = nullptr);
 void begin_no_checking(SyncvTable* table);
 void end_no_checking(SyncvTable* table);
 

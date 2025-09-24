@@ -28,7 +28,7 @@ struct LoggedVisRecordData
 
 struct LoggedSyncStmtInfo
 {
-    barrier_id home_barrier_id;  // false for Fence.
+    barrier_id home_barrier_id;  // 0 for Fence.
     uint32_t L1_qual_bits;
     uint32_t L2_full_qual_bits;
     uint32_t L2_temporal_qual_bits;
