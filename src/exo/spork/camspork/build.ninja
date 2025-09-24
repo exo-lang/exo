@@ -14,7 +14,7 @@ build bin/lib/program/exec.o: cxx lib/program/exec.cpp
 build bin/lib/program/grammar.o: cxx lib/program/grammar.cpp
 build bin/lib/program/print.o: cxx lib/program/print.cpp
 
-build bin/libexospork.so: link_lib $
+build bin/libcamspork.so: link_lib $
     bin/lib/util/require.o $
     bin/lib/syncv/syncv_table.o $
     bin/lib/syncv/vis_record_history_log.o $
