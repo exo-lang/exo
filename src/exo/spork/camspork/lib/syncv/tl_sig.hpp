@@ -87,7 +87,7 @@ struct TlSig
 //     [tid_lo, tid_hi) \times L
 // where L is a set of qual-tl, delivered as a bitfield.
 //
-// For compactness, we store the three visibility sets together.
+// For compactness, we store the four visibility sets together.
 // Given V_A \superset V_U \superset V_T \superset V_F [atomic-only, unordered, temporal ordered, full ordered],
 // we have that
 //     V_A = union(val: TlSigInterval where L = qual_bits_by_vis.array[vis_level_atomic_only])

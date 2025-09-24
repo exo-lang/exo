@@ -21,17 +21,17 @@ struct vis_record_version_t
     }
 };
 
-struct LoggedPendingAwaits
+struct LoggedPendingAwait
 {
     std::string barrier_name;
-    uint32_t arrive_count;
+    int32_t arrive_count;
 };
 
 struct LoggedVisRecordData
 {
     uint8_t original_qual_tl;
     std::vector<TlSigInterval> visibility_set;
-    std::vector<LoggedPendingAwaits> pending_awaits;
+    std::vector<LoggedPendingAwait> pending_await_list;
 };
 
 struct LoggedSyncStmtValues
@@ -56,8 +56,7 @@ struct LoggedVisRecordOrigin
 {
     using stmt_id_bits_t = uint32_t;
     vis_record_version_t previous_version;  // 0 if no previous version
-    ThreadCuboid thread_cuboid;
-    LoggedSyncStmtEvent sync_stmt_event;  // only valid when previous_version is not 0.
+    LoggedSyncStmtEvent sync_stmt_event;  // Unused if previous_version = 0, except thread_cuboid.
     stmt_id_bits_t stmt_id_bits;  // Stmt that led to this VisRecord being created (access) or changing (sync).
 };
 
@@ -114,6 +113,7 @@ class VisRecordHistoryLog
     void set_qual_tl_name(uint32_t index, std::string name);
     void set_barrier_name(barrier_id bar, std::string name);
     const std::string& lazy_get_qual_tl_name(uint32_t i);
+    const std::string& get_barrier_name(barrier_id bar) const;
 
     // ******************************************************************************************
     // Callbacks intended for the syncv (synchronization validation) implementation.
@@ -151,7 +151,7 @@ class VisRecordHistoryLog
         return version_counter;
     }
 
-    void add_history_remarks(ProgramEnv*, vis_record_version_t version);
+    void add_history_remarks(ProgramEnv*, vis_record_version_t last_version);
 };
 
 }

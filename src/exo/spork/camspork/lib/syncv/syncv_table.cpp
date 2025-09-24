@@ -2985,22 +2985,57 @@ struct SyncvRealLogger
     template <bool IsMutate>
     void history_new_vis_record(SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> node_id)
     {
+        if (p_history_log) {
+            history_log_vis_record_id history_id(node_id);
+            p_history_log->log_syncv_new_vis_record(history_id, _get_history_vis_record_data(env, node_id));
+        }
     }
 
     template <bool IsMutate>
     void history_vis_record_change(
-            SyncvTable&, nodepool::id<VisRecordListNode<IsMutate>>, nodepool::id<VisRecordListNode<IsMutate>>)
+            SyncvTable& env,
+            nodepool::id<VisRecordListNode<IsMutate>> old_id,
+            nodepool::id<VisRecordListNode<IsMutate>> new_id)
     {
+        if (p_history_log) {
+            p_history_log->log_syncv_vis_record_change(
+                    history_log_vis_record_id(old_id),
+                    history_log_vis_record_id(new_id),
+                    _get_history_vis_record_data(env, new_id));
+        }
     }
 
     template <bool IsMutate>
-    void history_vis_record_checked(nodepool::id<VisRecordListNode<IsMutate>>)
+    void history_vis_record_checked(nodepool::id<VisRecordListNode<IsMutate>> id)
     {
+        if (p_history_log) {
+            p_history_log->log_syncv_vis_record_checked(history_log_vis_record_id(id), IsMutate);
+        }
     }
 
     template <bool IsMutate>
-    void history_vis_record_error(nodepool::id<VisRecordListNode<IsMutate>>, TlSig)
+    void history_vis_record_error(nodepool::id<VisRecordListNode<IsMutate>> id, TlSig fail_tl_sig)
     {
+        if (p_history_log) {
+            p_history_log->log_syncv_vis_record_error(history_log_vis_record_id(id), fail_tl_sig);
+        }
+    }
+  private:
+    template <bool IsMutate>
+    LoggedVisRecordData _get_history_vis_record_data(SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> node_id)
+    {
+        VisRecordDebugData debug;
+        env.debug_get_vis_record_data(node_id, &debug);
+        LoggedVisRecordData data{};
+        data.original_qual_tl = debug.original_qual_tl;
+        data.visibility_set = std::move(debug.visibility_set);
+        for (const pending_await_t await_id: debug.pending_await_list) {
+            barrier_id id;
+            env.set_barrier_index(&id, pending_await_barrier_index(await_id));
+            const auto arrive_count = pending_await_arrive_count(await_id);
+            data.pending_await_list.push_back(LoggedPendingAwait{p_history_log->get_barrier_name(id), arrive_count});
+        }
+        return data;
     }
 };
 

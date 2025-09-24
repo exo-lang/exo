@@ -1,6 +1,8 @@
 #include "vis_record_history_log.hpp"
 
 #include <sstream>
+#include <utility>
+#include <vector>
 
 #include "../util/require.hpp"
 
@@ -46,6 +48,70 @@ void stream_sync_stmt_event(Stream& s, VisRecordHistoryLog& log, const LoggedSyn
     }
 }
 
+template <typename Stream>
+void stream_vis_record(
+        Stream& s, VisRecordHistoryLog& log, const ThreadCuboid& cuboid_for_domain, const LoggedVisRecordData& data)
+{
+    auto stream_tid = [&s, &cuboid_for_domain] (uint32_t tid)
+    {
+        if (tid + 1 == 0) {
+            s << "...";
+            return;
+        }
+        std::vector<uint32_t> coords(cuboid_for_domain.dim());
+        const uint32_t domain_num_threads = cuboid_for_domain.domain_num_threads();
+        const uint32_t task_index = tid / domain_num_threads;
+        s << "task_index = " << task_index;
+        uint32_t tmp_tid = tid % domain_num_threads;
+        for (uint32_t dim_i = cuboid_for_domain.dim(); dim_i > 0; ) {
+            --dim_i;
+            const uint32_t domain_c = cuboid_for_domain.domain()[dim_i];
+            coords[dim_i] = tmp_tid % domain_c;
+            tmp_tid = tmp_tid / domain_c;
+        }
+        CAMSPORK_REQUIRE_CMP(coords.size(), !=, 0, "invalid empty domain");
+        s << " [" << coords[0];
+        for (size_t i = 1; i < coords.size(); ++i) {
+            s << ", " << coords[i];
+        }
+        s << ']';
+    };
+
+    s << "  original_qual_tl: " << log.lazy_get_qual_tl_name(data.original_qual_tl) << '\n';
+    for (const TlSigInterval& t: data.visibility_set) {
+        s << "  threads: [";
+        stream_tid(t.tid_lo);
+        s << ",\n            ";
+        stream_tid(t.tid_hi - 1);
+        s << "], inclusive, formatted w/ domain [";
+        const uint32_t domain_dim = cuboid_for_domain.dim();
+        CAMSPORK_REQUIRE_CMP(domain_dim, >, 1, "invalid empty ThreadCuboid::domain");
+        s << cuboid_for_domain.domain()[0];
+        for (uint32_t dim_i = 1; dim_i < domain_dim; ++dim_i) {
+            s << ", " << cuboid_for_domain.domain()[dim_i];
+        }
+        s << "]\n";
+        for (uint32_t bit_index = 0; bit_index < log.num_qual_tl; ++bit_index) {
+            static_assert(vis_level_full_ordered == 3, "update this code");
+            static_assert(vis_level_none == -1, "update this code");
+            for (int32_t vis_level = vis_level_full_ordered; vis_level != vis_level_none; --vis_level) {
+                // Print the highest vis_level for the qual-tl (don't print none)
+                if (1 & (t.qual_bits_by_vis.array[vis_level] >> bit_index)) {
+                    const std::string& name = log.lazy_get_qual_tl_name(bit_index);
+                    for (size_t i = name.size(); i < 30; ++i) {
+                        s << ' ';
+                    }
+                    s << name;
+                    s << " -> " << vis_level_name(vis_level) << '\n';
+                    goto next_qual_tl;
+                }
+            }
+          next_qual_tl:
+            continue;
+        }
+    }
+}
+
 }  // end anonymous namespace
 
 void VisRecordHistoryLog::set_qual_tl_name(uint32_t index, std::string name)
@@ -70,6 +136,18 @@ const std::string& VisRecordHistoryLog::lazy_get_qual_tl_name(uint32_t i)
     return name;
 }
 
+const std::string& VisRecordHistoryLog::get_barrier_name(barrier_id bar) const
+{
+    auto iter = barrier_name_map.find(bar);
+    if (iter == barrier_name_map.end()) {
+        static const std::string missing = "<missing barrier name>";
+        return missing;
+    }
+    else {
+        return iter->second;
+    }
+}
+
 void VisRecordHistoryLog::set_syncv_sync_stmt_info(barrier_id bar, LoggedSyncStmtValues values)
 {
     LoggedSyncStmtEvent& event = last_sync_stmt_map[current_stmt_id_bits];
@@ -87,7 +165,7 @@ void VisRecordHistoryLog::log_syncv_new_vis_record(vis_record_id_t id, LoggedVis
     version_data.push_back(std::move(data));
 
     origin.previous_version = vis_record_version_t{0};
-    origin.thread_cuboid = current_thread_cuboid;
+    origin.sync_stmt_event.thread_cuboid = current_thread_cuboid;
     origin.stmt_id_bits = current_stmt_id_bits;
 
     CAMSPORK_REQUIRE_CMP(version_data.size(), ==, version._1_index,
@@ -107,7 +185,6 @@ void VisRecordHistoryLog::log_syncv_vis_record_change(
     version_data.push_back(std::move(new_data));
 
     origin.previous_version = old_version;
-    origin.thread_cuboid = current_thread_cuboid;
     origin.stmt_id_bits = current_stmt_id_bits;
 
     origin.sync_stmt_event = current_sync_stmt_event;
@@ -139,8 +216,18 @@ void VisRecordHistoryLog::log_syncv_vis_record_error(vis_record_id_t id, TlSig f
 
 void VisRecordHistoryLog::add_error_remarks(ProgramEnv* p_env)
 {
-    // TODO add additional info about the error site.
     add_history_remarks(p_env, error_vis_record_version);
+
+    // Add additional info about the error site.
+    if (error_vis_record_version) {
+        const auto v_index = error_vis_record_version._1_index - 1;
+        CAMSPORK_C_BOUNDSCHECK(v_index, version_data.size());
+        std::stringstream s;
+        // TODO
+        const StmtRef stmt{error_stmt_id_bits};
+        static_assert(sizeof(error_stmt_id_bits) == sizeof(stmt));
+        p_env->add_remark(stmt, std::move(s).str());
+    }
 }
 
 void VisRecordHistoryLog::add_last_checked_read_remarks(ProgramEnv* p_env)
@@ -153,17 +240,61 @@ void VisRecordHistoryLog::add_last_checked_mutate_remarks(ProgramEnv* p_env)
     add_history_remarks(p_env, last_mutate_vis_record_version);
 }
 
-void VisRecordHistoryLog::add_history_remarks(ProgramEnv* p_env, vis_record_version_t version)
+void VisRecordHistoryLog::add_history_remarks(ProgramEnv* p_env, vis_record_version_t last_version)
 {
+    // Earlier remarks should appear higher than later remarks for the same stmt.
+    // We will first remark about the last executed sync for each sync stmt.
     for (const auto& pair : last_sync_stmt_map) {
         const uint32_t stmt_id_bits = pair.first;
         const LoggedSyncStmtEvent& event = pair.second;
         const StmtRef stmt{stmt_id_bits};
         static_assert(sizeof(stmt_id_bits) == sizeof(stmt));
         std::stringstream s;
-        s << "Last barrier recorded:\n";
+        s << "Last sync recorded:\n";
         stream_sync_stmt_event(s, *this, event);
-        p_env->add_remark(stmt, s.str());
+        p_env->add_remark(stmt, std::move(s).str());
+    }
+
+    // We will now remark on the history of the given VisRecord.
+    // We search back in time until we found when the VisRecord was originally created
+    // and remark on it + all transitions to the present state.
+    // We want old state to appear first, so we have to buffer remarks and reverse them.
+    std::vector<std::pair<StmtRef, std::string>> remarks_buffer;
+    vis_record_version_t tmp_v = last_version;
+    while (tmp_v) {
+        std::stringstream s;
+        const auto v_index = tmp_v._1_index - 1;
+        CAMSPORK_C_BOUNDSCHECK(v_index, version_data.size());
+        CAMSPORK_C_BOUNDSCHECK(v_index, version_origin.size());
+        const LoggedVisRecordData& data = version_data[v_index];
+        const LoggedVisRecordOrigin& origin = version_origin[v_index];
+
+        if (origin.previous_version) {
+            s << "Sync recorded, which caused VisRecord change:\n";
+            stream_sync_stmt_event(s, *this, origin.sync_stmt_event);
+            s << "BEFORE:\n";
+            const auto previous_v_index = origin.previous_version._1_index - 1;
+            CAMSPORK_C_BOUNDSCHECK(previous_v_index, version_data.size());
+            const LoggedVisRecordData& previous_data = version_data[previous_v_index];
+            stream_vis_record(s, *this, origin.sync_stmt_event.thread_cuboid, previous_data);
+            s << "AFTER:\n";
+        }
+        else {
+            s << "New VisRecord:\n";
+        }
+        stream_vis_record(s, *this, origin.sync_stmt_event.thread_cuboid, data);
+
+        const StmtRef stmt{origin.stmt_id_bits};
+        static_assert(sizeof(origin.stmt_id_bits) == sizeof(stmt));
+        remarks_buffer.emplace_back(stmt, std::move(s).str());
+
+        tmp_v = origin.previous_version;
+    }
+
+    while (!remarks_buffer.empty()) {
+        const auto& pair = remarks_buffer.back();
+        p_env->add_remark(pair.first, std::move(pair.second));
+        remarks_buffer.pop_back();
     }
 }
 
