@@ -13,6 +13,7 @@
 #include "grammar.hpp"
 #include "../syncv/syncv_table.hpp"
 #include "../syncv/syncv_types.hpp"
+#include "../syncv/vis_record_history_log.hpp"
 #include "../util/api_util.hpp"
 #include "../util/require.hpp"
 
@@ -256,6 +257,8 @@ struct SinglePositionFilter
 
 inline const SinglePositionFilter no_single_position_filter{Varname{0}, {}};
 
+class VisRecordHistoryLog;
+
 class ProgramEnv
 {
     size_t program_buffer_size;
@@ -266,12 +269,16 @@ class ProgramEnv
     std::vector<VarSlotEnvs> var_slots;
     bool dirty_task_index = false;
     bool debug_validation_enable = false;
+    bool history_enable = false;
 
     // This will grow forever, but the intention of remarks is just for small experiments or reporting errors.
     // Reconsider if needed.
     std::vector<ProgramExecRemark> _remarks;
     Varname _syncv_fail_var = {};
     std::vector<extent_t> _syncv_fail_idx;
+
+    // VisRecord history logging, toggle-able
+    VisRecordHistoryLog history_log;
 
   public:
     template <bool EnableExcutLog>
@@ -359,6 +366,10 @@ class ProgramEnv
     }
 
     void set_debug_validation_enable(bool flag);
+    void set_history_enable(bool flag);
+    void add_error_history_remarks();
+    void add_last_checked_read_history_remarks();
+    void add_last_checked_mutate_history_remarks();
 
     __attribute__((always_inline))
     void maybe_syncv_debug_validate()
@@ -452,6 +463,10 @@ CAMSPORK_EXPORT int camspork_set_value(
         camspork::value_t arg);
 
 CAMSPORK_EXPORT int camspork_set_debug_validation_enable(camspork::ProgramEnv* p_env, uint32_t flag);
+CAMSPORK_EXPORT int camspork_set_history_enable(camspork::ProgramEnv* p_env, uint32_t flag);
+CAMSPORK_EXPORT int camspork_add_error_history_remarks(camspork::ProgramEnv* p_env);
+CAMSPORK_EXPORT int camspork_add_last_checked_read_history_remarks(camspork::ProgramEnv* p_env);
+CAMSPORK_EXPORT int camspork_add_last_checked_mutate_history_remarks(camspork::ProgramEnv* p_env);
 
 // These don't have error conditions; 0 signals "no syncv fail detected" or "0 dimensional".
 CAMSPORK_EXPORT camspork::Varname camspork_syncv_fail_var(const camspork::ProgramEnv* p_env);

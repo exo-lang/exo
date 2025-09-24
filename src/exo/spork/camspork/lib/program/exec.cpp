@@ -14,8 +14,9 @@
 #include "builder.hpp"
 #include "camspork_excut.hpp"
 #include "grammar.hpp"
-#include "log.hpp"
+#include "log_request.hpp"
 #include "print.hpp"
+#include "../syncv/vis_record_history_log.hpp"
 #include "../util/cuboid_util.hpp"
 
 namespace camspork
@@ -108,13 +109,14 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
       : ProgramExec(p_self, std::move(_single_position_filter))
     {
         static_assert(AllowLog, "Can't open excut log file if C++ functionality not enabled");
-        CAMSPORK_REQUIRE(p_excut_filename, "null ptr");
-        FILE*& file = this->excut_file;
-        file = fopen(p_excut_filename, "w");
-        if (!file) {
-            throw std::runtime_error(std::string(p_excut_filename) + ": " + strerror(errno));
+        if (p_excut_filename) {
+            FILE*& file = this->excut_file;
+            file = fopen(p_excut_filename, "w");
+            if (!file) {
+                throw std::runtime_error(std::string(p_excut_filename) + ": " + strerror(errno));
+            }
+            fprintf(file, "[\n");
         }
-        fprintf(file, "[\n");
     }
 
     // ******************************************************************************************
@@ -266,6 +268,34 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         }
     }
 
+    template <typename Node>
+    auto prepare_logger(const Node* node, const ThreadCuboid& thread_cuboid, StmtRef stmt)
+    {
+        using Logger = std::conditional_t<AllowLog, SyncvLogRequest, decltype(nullptr)>;
+        Logger logger;
+        if constexpr (AllowLog) {
+            if (this->excut_file) {
+                logger.var_str_name = env.str_name(node->name);
+                if (this->excut_file) {
+                    logger.p_excut_actions = &this->excut_actions;
+                }
+            }
+            if (env.history_enable) {
+                static_assert(sizeof(VisRecordHistoryLog::stmt_id_bits_t) == sizeof(stmt.raw_data));
+                logger.p_history_log = &env.history_log;
+                logger.p_history_log->set_thread_cuboid(thread_cuboid);
+                logger.p_history_log->set_stmt_id_bits(stmt.raw_data);
+            }
+        }
+        return logger;
+    }
+
+    template <typename Node>
+    auto prepare_logger(const Node* node, const ThreadCuboid& thread_cuboid)
+    {
+        return prepare_logger(node, thread_cuboid, env.stmt_ref_from_ptr(node));
+    }
+
 
     // ******************************************************************************************
     // EXECUTE STATEMENT
@@ -385,17 +415,10 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
 
         for (Input& input : input_list) {
             // Prepare excut debug logger if applicable.
-            using Logger = std::conditional_t<AllowLog, SyncvLogRequest, decltype(nullptr)>;
-            Logger logger{};
+            auto logger = prepare_logger(node, thread_cuboid, stmt_ref);
             if constexpr (AllowLog) {
-                if (this->excut_file) {
-                    logger.var_str_name = env.str_name(node->name);
-                    if (this->excut_file) {
-                        logger.p_excut_actions = &this->excut_actions;
-                    }
-                    if constexpr (!node->is_window) {
-                        logger.idx_for_single = slot.idx_from_linear(input - slot.data());
-                    }
+                if constexpr (!node->is_window) {
+                    logger.idx_for_single = slot.idx_from_linear(input - slot.data());
                 }
             }
 
@@ -477,17 +500,8 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         input.begin_inner_extent = &p_inner_extent[0];
         input.end_inner_extent = &p_inner_extent[alloc_dim];
 
-        // Prepare excut debug logger if applicable.
-        using Logger = std::conditional_t<AllowLog, SyncvLogRequest, decltype(nullptr)>;
-        Logger logger{};
-        if constexpr (AllowLog) {
-            if (this->excut_file) {
-                logger.var_str_name = env.str_name(node->name);
-                if (this->excut_file) {
-                    logger.p_excut_actions = &this->excut_actions;
-                }
-            }
-        }
+        // Prepare debug logger if applicable.
+        auto logger = prepare_logger(node, thread_cuboid);
 
         // Call into syncv table (a lot of duplicated code with SyncEnvAccessNode, not great).
         try {
@@ -521,18 +535,27 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
 
     void exec_impl(const Fence* node)
     {
-        on_fence(env.p_syncv_table.get(), node->V1_transitive, env.prepare_thread_cuboid(),
-                node->L1_qual_bits, node->L2_full_qual_bits, node->L2_temporal_qual_bits);
+        SyncvFence param{};
+        param.transitive = bool(node->V1_transitive);
+        param.L1_qual_bits = node->L1_qual_bits;
+        param.L2_full_qual_bits = node->L2_full_qual_bits;
+        param.L2_temporal_qual_bits = node->L2_temporal_qual_bits;
+        on_fence(env.p_syncv_table.get(), env.prepare_thread_cuboid(), param);
         env.maybe_syncv_debug_validate();
     }
 
     void exec_impl(const Arrive* node)
     {
         const barrier_id home_barrier = fill_tmp_offset_barriers(node);
+        SyncvArrive param{};
+        param.home_barrier = home_barrier;
+        param.barrier_count = uint32_t(tmp_all_barriers.size());
+        param.all_barriers = tmp_all_barriers.data();
+        param.transitive = node->V1_transitive;
+        param.L1_qual_bits = node->L1_qual_bits;
 
         // Pass to SyncvTable.
-        on_arrive(env.p_syncv_table.get(), home_barrier, uint32_t(tmp_all_barriers.size()), tmp_all_barriers.data(),
-                node->V1_transitive, env.prepare_thread_cuboid(), node->L1_qual_bits);
+        on_arrive(env.p_syncv_table.get(), env.prepare_thread_cuboid(), param);
         env.maybe_syncv_debug_validate();
     }
 
@@ -591,13 +614,16 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
     void exec_impl(const Await* node)
     {
         // Evaluate concrete indices of barrier.
+        SyncvAwait param{};
         VarSlotEntry<barrier_id>& slot = env.barrier_slot(node->name);
         eval_tmp_offset(node);
-        const barrier_id bar = slot.idx(tmp_offset.begin(), tmp_offset.end());
+        param.bar = slot.idx(tmp_offset.begin(), tmp_offset.end());
+        param.N = node->N;
+        param.L2_full_qual_bits = node->L2_full_qual_bits;
+        param.L2_temporal_qual_bits = node->L2_temporal_qual_bits;
 
         // Pass to SyncvTable.
-        on_await(env.p_syncv_table.get(), bar, node->N, env.prepare_thread_cuboid(),
-                node->L2_full_qual_bits, node->L2_temporal_qual_bits);
+        on_await(env.p_syncv_table.get(), env.prepare_thread_cuboid(), param);
         env.maybe_syncv_debug_validate();
     }
 
@@ -658,6 +684,19 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
                     p_info->name = var_str_name;
                     p_info->idx = std::move(idx);
                     this->excut_actions.emplace_back(std::move(p_info));
+                }
+                if (env.history_enable) {
+                    std::stringstream s;
+                    s << var_str_name;
+                    if (idx.size()) {
+                        s << "[";
+                        s << idx[0];
+                        for (size_t i = 1; i < idx.size(); ++i) {
+                            s << ", " << idx[i];
+                        }
+                        s << "]";
+                    }
+                    env.history_log.set_barrier_name(id, s.str());
                 }
             }
             else {
@@ -985,7 +1024,7 @@ ProgramEnv::ProgramEnv(const ProgramBuilder& builder)
 
 void ProgramEnv::exec(StmtRef stmt, const char* p_excut_filename, SinglePositionFilter single_position_filter)
 {
-    if (p_excut_filename) {
+    if (p_excut_filename || history_enable) {
         ProgramExec<true>(this, p_excut_filename, std::move(single_position_filter)).exec(stmt);
     }
     else {
@@ -1000,6 +1039,26 @@ void ProgramEnv::set_debug_validation_enable(bool flag)
     if (will_check) {
         syncv_debug_validate();
     }
+}
+
+void ProgramEnv::set_history_enable(bool flag)
+{
+    history_enable = flag;
+}
+
+void ProgramEnv::add_error_history_remarks()
+{
+    history_log.add_error_remarks(this);
+}
+
+void ProgramEnv::add_last_checked_read_history_remarks()
+{
+    history_log.add_last_checked_read_remarks(this);
+}
+
+void ProgramEnv::add_last_checked_mutate_history_remarks()
+{
+    history_log.add_last_checked_mutate_remarks(this);
 }
 
 void ProgramEnv::syncv_debug_validate()
@@ -1128,6 +1187,38 @@ int camspork_set_debug_validation_enable(camspork::ProgramEnv* p_env, uint32_t f
 {
     CAMSPORK_API_PROLOGUE
     p_env->set_debug_validation_enable(flag);
+    return 1;
+    CAMSPORK_API_EPILOGUE(0)
+}
+
+int camspork_set_history_enable(camspork::ProgramEnv* p_env, uint32_t flag)
+{
+    CAMSPORK_API_PROLOGUE
+    p_env->set_history_enable(flag);
+    return 1;
+    CAMSPORK_API_EPILOGUE(0)
+}
+
+CAMSPORK_EXPORT int camspork_add_error_history_remarks(camspork::ProgramEnv* p_env)
+{
+    CAMSPORK_API_PROLOGUE
+    p_env->add_error_history_remarks();
+    return 1;
+    CAMSPORK_API_EPILOGUE(0)
+}
+
+CAMSPORK_EXPORT int camspork_add_last_checked_read_history_remarks(camspork::ProgramEnv* p_env)
+{
+    CAMSPORK_API_PROLOGUE
+    p_env->add_last_checked_read_history_remarks();
+    return 1;
+    CAMSPORK_API_EPILOGUE(0)
+}
+
+CAMSPORK_EXPORT int camspork_add_last_checked_mutate_history_remarks(camspork::ProgramEnv* p_env)
+{
+    CAMSPORK_API_PROLOGUE
+    p_env->add_last_checked_mutate_history_remarks();
     return 1;
     CAMSPORK_API_EPILOGUE(0)
 }

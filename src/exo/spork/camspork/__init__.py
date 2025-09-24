@@ -349,6 +349,22 @@ _set_debug_validation_enable = lib.camspork_set_debug_validation_enable
 _set_debug_validation_enable.restype = c_int
 _set_debug_validation_enable.argtypes = (c_void_p, c_uint32)
 
+_set_history_enable = lib.camspork_set_history_enable
+_set_history_enable.restype = c_int
+_set_history_enable.argtypes = (c_void_p, c_uint32)
+
+_add_error_history_remarks = lib.camspork_add_error_history_remarks
+_add_error_history_remarks.restype = c_int
+_add_error_history_remarks.argtypes = (c_void_p, )
+
+_add_last_checked_read_history_remarks = lib.camspork_add_last_checked_read_history_remarks
+_add_last_checked_read_history_remarks.restype = c_int
+_add_last_checked_read_history_remarks.argtypes = (c_void_p, )
+
+_add_last_checked_mutate_history_remarks = lib.camspork_add_last_checked_mutate_history_remarks
+_add_last_checked_mutate_history_remarks.restype = c_int
+_add_last_checked_mutate_history_remarks.argtypes = (c_void_p, )
+
 
 def to_binop(op):
     if isinstance(op, binop):
@@ -726,6 +742,18 @@ class ProgramEnv:
 
     def set_debug_validation_enable(self, flag):
         check_return(_set_debug_validation_enable(self._env, bool(flag)))
+
+    def set_history_enable(self, flag):
+        check_return(_set_history_enable(self._env, bool(flag)))
+
+    def add_error_history_remarks(self):
+        check_return(_add_error_history_remarks(self._env))
+
+    def add_last_checked_read_history_remarks(self):
+        check_return(_add_last_checked_read_history_remarks(self._env))
+    
+    def add_last_checked_mutate_history_remarks(self):
+        check_return(_add_last_checked_mutate_history_remarks(self._env))
 
     def program_with_remarks(self):
         check_return(_thread_local_print_program_with_remarks(self._env))

@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "grammar.hpp"
+#include "int_types.hpp"
 
 namespace camspork
 {

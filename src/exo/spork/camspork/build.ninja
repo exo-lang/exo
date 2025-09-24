@@ -7,6 +7,7 @@ rule link_lib
 
 build bin/lib/util/require.o: cxx lib/util/require.cpp
 build bin/lib/syncv/syncv_table.o: cxx lib/syncv/syncv_table.cpp
+build bin/lib/syncv/vis_record_history_log.o: cxx lib/syncv/vis_record_history_log.cpp
 build bin/lib/program/builder.o: cxx lib/program/builder.cpp
 build bin/lib/program/camspork_excut.o: cxx lib/program/camspork_excut.cpp
 build bin/lib/program/exec.o: cxx lib/program/exec.cpp
@@ -16,8 +17,10 @@ build bin/lib/program/print.o: cxx lib/program/print.cpp
 build bin/libexospork.so: link_lib $
     bin/lib/util/require.o $
     bin/lib/syncv/syncv_table.o $
+    bin/lib/syncv/vis_record_history_log.o $
     bin/lib/program/builder.o $
     bin/lib/program/camspork_excut.o $
     bin/lib/program/exec.o $
     bin/lib/program/grammar.o $
     bin/lib/program/print.o
+    

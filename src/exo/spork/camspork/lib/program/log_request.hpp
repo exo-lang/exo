@@ -9,6 +9,8 @@
 
 namespace camspork {
 
+class VisRecordHistoryLog;
+
 struct SyncvLogRequest
 {
     std::string var_str_name;
@@ -16,6 +18,9 @@ struct SyncvLogRequest
 
     // May be null
     std::vector<std::unique_ptr<ExcutBaseAction>>* p_excut_actions;
+
+    // May be null
+    VisRecordHistoryLog* p_history_log;
 };
 
 }

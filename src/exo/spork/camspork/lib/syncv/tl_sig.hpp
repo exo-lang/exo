@@ -73,8 +73,14 @@ struct QualBitsByVis
     }
 };
 
+struct TlSig
+{
+    uint32_t tid;
+    uint8_t qual_tl;
+};
+
 // A single timeline signature consists of a pair of
-// (thread ID, qual-tl) [qualitative timeline]. We don't store this directly.
+// (thread ID, qual-tl) [qualitative timeline]. We usually don't store this directly.
 // Instead, we work with sets of timeline signatures (tl-sig).
 //
 // A tl-sig interval is the cartesian product

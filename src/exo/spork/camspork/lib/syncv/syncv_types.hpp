@@ -30,6 +30,11 @@ struct barrier_id
     {
         return data != 0;
     }
+
+    bool operator<(barrier_id other) const
+    {
+        return data < other.data;
+    }
 };
 
 struct syncv_init_t
