@@ -11,7 +11,15 @@
 
 namespace camspork {
 
-using vis_record_version_t = uint64_t;
+struct vis_record_version_t
+{
+    uint64_t _1_index;
+
+    explicit operator bool() const
+    {
+        return _1_index != 0;
+    }
+};
 
 struct LoggedPendingAwaits
 {
@@ -26,9 +34,8 @@ struct LoggedVisRecordData
     std::vector<LoggedPendingAwaits> pending_awaits;
 };
 
-struct LoggedSyncStmtInfo
+struct LoggedSyncStmtValues
 {
-    barrier_id home_barrier_id;  // 0 for Fence.
     uint32_t L1_qual_bits;
     uint32_t L2_full_qual_bits;
     uint32_t L2_temporal_qual_bits;
@@ -38,12 +45,19 @@ struct LoggedSyncStmtInfo
     uint32_t await_count_after;
 };
 
+struct LoggedSyncStmtEvent
+{
+    LoggedSyncStmtValues values;
+    std::string barrier_name;  // empty for fence
+    ThreadCuboid thread_cuboid;
+};
+
 struct LoggedVisRecordOrigin
 {
     using stmt_id_bits_t = uint32_t;
     vis_record_version_t previous_version;  // 0 if no previous version
     ThreadCuboid thread_cuboid;
-    LoggedSyncStmtInfo sync_stmt_info;  // only valid when previous_version is not 0.
+    LoggedSyncStmtEvent sync_stmt_event;  // only valid when previous_version is not 0.
     stmt_id_bits_t stmt_id_bits;  // Stmt that led to this VisRecord being created (access) or changing (sync).
 };
 
@@ -54,35 +68,36 @@ class VisRecordHistoryLog
   public:
     using stmt_id_bits_t = LoggedVisRecordOrigin::stmt_id_bits_t;
     using vis_record_id_t = uint32_t;
+    static constexpr uint32_t num_qual_tl = 32;
 
   private:
     // State passed through to logged values.
-    stmt_id_bits_t stmt_id_bits = 0;
-    ThreadCuboid thread_cuboid{};
-    LoggedSyncStmtInfo sync_stmt_info{};
+    stmt_id_bits_t current_stmt_id_bits = 0;
+    ThreadCuboid current_thread_cuboid{};
+    LoggedSyncStmtEvent current_sync_stmt_event{};
 
     // Internal tables.
     // We store the history of each VisRecord ever recorded, so we have to translate vis_record_id_t
     // (which may be re-used) to vis_record_version_t (which refers to a specific snapshot of a VisRecord
     // independent of any future changes made to it).
     std::vector<vis_record_version_t> id_to_version;
-    vis_record_version_t version_counter = 0x1'0000'0001;  // Detect 32 bit truncation.
+    vis_record_version_t version_counter{0};
     std::map<barrier_id, std::string> barrier_name_map;
-    std::map<stmt_id_bits_t, LoggedSyncStmtInfo> last_sync_stmt_info_map;
-    std::map<vis_record_version_t, LoggedVisRecordData> data_map;
-    std::map<vis_record_version_t, LoggedVisRecordOrigin> origin_map;
-    std::string qual_tl_names[32];
+    std::map<stmt_id_bits_t, LoggedSyncStmtEvent> last_sync_stmt_map;
+    std::vector<LoggedVisRecordData> version_data;  // Indexed by [vis_record_version_t::_1_index - 1]
+    std::vector<LoggedVisRecordOrigin> version_origin;  // Indexed by [vis_record_version_t::_1_index - 1]
+    std::string qual_tl_names[num_qual_tl];
 
     // Error info, if detected.
     stmt_id_bits_t error_stmt_id_bits = 0;
-    vis_record_version_t error_vis_record_version = 0;
+    vis_record_version_t error_vis_record_version{};
     TlSig error_tl_sig{};
     ThreadCuboid error_thread_cuboid;
 
     // Last read VisRecord and mutate VisRecord that was checked, i.e.,
     // added by a read/mutate and then later encountered by a different mutate/read.
-    vis_record_version_t last_read_vis_record_version = 0;
-    vis_record_version_t last_mutate_vis_record_version = 0;
+    vis_record_version_t last_read_vis_record_version{};
+    vis_record_version_t last_mutate_vis_record_version{};
 
   public:
     // ******************************************************************************************
@@ -90,19 +105,20 @@ class VisRecordHistoryLog
     // ******************************************************************************************
     void set_stmt_id_bits(stmt_id_bits_t bits)
     {
-        stmt_id_bits = bits;
+        current_stmt_id_bits = bits;
     }
     void set_thread_cuboid(const ThreadCuboid& arg)
     {
-        thread_cuboid = arg;
+        current_thread_cuboid = arg;
     }
     void set_qual_tl_name(uint32_t index, std::string name);
     void set_barrier_name(barrier_id bar, std::string name);
+    const std::string& lazy_get_qual_tl_name(uint32_t i);
 
     // ******************************************************************************************
     // Callbacks intended for the syncv (synchronization validation) implementation.
     // ******************************************************************************************
-    void set_syncv_sync_stmt_info(LoggedSyncStmtInfo info);  // Applies to subsequent log_syncv_vis_record_change.
+    void set_syncv_sync_stmt_info(barrier_id, LoggedSyncStmtValues);  // Affects later log_syncv_vis_record_change.
     void log_syncv_new_vis_record(vis_record_id_t id, LoggedVisRecordData data);
     void log_syncv_vis_record_change(vis_record_id_t old_id, vis_record_id_t new_id, LoggedVisRecordData new_data);
     void log_syncv_vis_record_checked(vis_record_id_t id, bool is_mutate);
@@ -119,15 +135,19 @@ class VisRecordHistoryLog
     vis_record_version_t current_version_id(vis_record_id_t id)
     {
         CAMSPORK_REQUIRE_CMP(id, <, id_to_version.size(), "id never seen before");
-        return id_to_version[id];
+        const vis_record_version_t version = id_to_version[id];
+        CAMSPORK_REQUIRE(version, "id never seen before");
+        return version;
     }
 
+    // version_offset is the first version id allocated.
     vis_record_version_t new_version_id(vis_record_id_t id)
     {
-        if (id_to_version.size() < id) {
-            id_to_version.resize(id);
+        if (id_to_version.size() <= id) {
+            id_to_version.resize(id + 1);
         }
-        id_to_version[id] = ++version_counter;
+        ++version_counter._1_index;
+        id_to_version[id] = version_counter;
         return version_counter;
     }
 

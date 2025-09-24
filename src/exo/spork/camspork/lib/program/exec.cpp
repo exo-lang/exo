@@ -272,14 +272,12 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
     auto prepare_logger(const Node* node, const ThreadCuboid& thread_cuboid, StmtRef stmt)
     {
         using Logger = std::conditional_t<AllowLog, SyncvLogRequest, decltype(nullptr)>;
-        Logger logger;
+        Logger logger{};
         if constexpr (AllowLog) {
-            if (this->excut_file) {
+            if constexpr (!std::is_same_v<Node, Fence>) {
                 logger.var_str_name = env.str_name(node->name);
-                if (this->excut_file) {
-                    logger.p_excut_actions = &this->excut_actions;
-                }
             }
+            logger.p_excut_actions = this->excut_file ? &this->excut_actions : nullptr;
             if (env.history_enable) {
                 static_assert(sizeof(VisRecordHistoryLog::stmt_id_bits_t) == sizeof(stmt.raw_data));
                 logger.p_history_log = &env.history_log;
@@ -540,7 +538,8 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         param.L1_qual_bits = node->L1_qual_bits;
         param.L2_full_qual_bits = node->L2_full_qual_bits;
         param.L2_temporal_qual_bits = node->L2_temporal_qual_bits;
-        on_fence(env.p_syncv_table.get(), env.prepare_thread_cuboid(), param);
+        const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
+        on_fence(env.p_syncv_table.get(), thread_cuboid, param, prepare_logger(node, thread_cuboid));
         env.maybe_syncv_debug_validate();
     }
 
@@ -555,7 +554,8 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         param.L1_qual_bits = node->L1_qual_bits;
 
         // Pass to SyncvTable.
-        on_arrive(env.p_syncv_table.get(), env.prepare_thread_cuboid(), param);
+        const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
+        on_arrive(env.p_syncv_table.get(), thread_cuboid, param, prepare_logger(node, thread_cuboid));
         env.maybe_syncv_debug_validate();
     }
 
@@ -623,7 +623,8 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         param.L2_temporal_qual_bits = node->L2_temporal_qual_bits;
 
         // Pass to SyncvTable.
-        on_await(env.p_syncv_table.get(), env.prepare_thread_cuboid(), param);
+        const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
+        on_await(env.p_syncv_table.get(), thread_cuboid, param, prepare_logger(node, thread_cuboid));
         env.maybe_syncv_debug_validate();
     }
 

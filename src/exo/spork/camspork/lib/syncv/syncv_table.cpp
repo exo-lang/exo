@@ -2375,10 +2375,10 @@ struct SyncvTable
 
     // Get info for a given visibility record.
     template <bool IsMutate>
-    void debug_get_vis_record_data(uint32_t id, VisRecordDebugData* out) const
+    void debug_get_vis_record_data(nodepool::id<VisRecordListNode<IsMutate>> node_id, VisRecordDebugData* out) const
     {
-        CAMSPORK_REQUIRE(id, "unexpected null");
-        const VisRecord record = const_resolve_forwarding(nodepool::id<VisRecordListNode<IsMutate>>{id});
+        CAMSPORK_REQUIRE(node_id, "cannot read null VisRecord");
+        const VisRecord record = const_resolve_forwarding(node_id);
 
         out->original_qual_tl = record.original_qual_tl;
 
@@ -2941,16 +2941,45 @@ struct SyncvRealLogger
     }
 
   public:
-    void history_set_sync_stmt_info(const SyncvFence&)
+    void history_set_sync_stmt_info(const SyncvFence& fence)
     {
+        if (p_history_log) {
+            LoggedSyncStmtValues values{};
+            values.L1_qual_bits = fence.L1_qual_bits;
+            values.L2_full_qual_bits = fence.L2_full_qual_bits;
+            values.L2_temporal_qual_bits = fence.L2_temporal_qual_bits;
+            p_history_log->set_syncv_sync_stmt_info({}, values);
+        }
     }
 
-    void history_set_sync_stmt_info(const SyncvArrive&, const BarrierState&, uint32_t)
+    void history_set_sync_stmt_info(const SyncvArrive& arrive, const BarrierState& state, uint32_t new_arrive_count)
     {
+        if (p_history_log) {
+            LoggedSyncStmtValues values{};
+            values.L1_qual_bits = arrive.L1_qual_bits;
+            values.L2_full_qual_bits = 0;
+            values.L2_temporal_qual_bits = 0;
+            values.arrive_count_before = state.arrive_count;
+            values.arrive_count_after = new_arrive_count;
+            values.await_count_before = state.await_count;
+            values.await_count_after = state.await_count;
+            p_history_log->set_syncv_sync_stmt_info(arrive.home_barrier, values);
+        }
     }
 
-    void history_set_sync_stmt_info(const SyncvAwait&, const BarrierState&, uint32_t)
+    void history_set_sync_stmt_info(const SyncvAwait& await, const BarrierState& state, uint32_t new_await_count)
     {
+        if (p_history_log) {
+            LoggedSyncStmtValues values{};
+            values.L1_qual_bits = 0;
+            values.L2_full_qual_bits = await.L2_full_qual_bits;
+            values.L2_temporal_qual_bits = await.L2_temporal_qual_bits;
+            values.arrive_count_before = state.arrive_count;
+            values.arrive_count_after = state.arrive_count;
+            values.await_count_before = state.await_count;
+            values.await_count_after = new_await_count;
+            p_history_log->set_syncv_sync_stmt_info(await.bar, values);
+        }
     }
 
     template <bool IsMutate>
@@ -3189,12 +3218,12 @@ void end_no_checking(SyncvTable* table)
 
 void debug_get_read_vis_record_data(const SyncvTable* table, uint32_t id, VisRecordDebugData* out)
 {
-    table->debug_get_vis_record_data<false>(id, out);
+    table->debug_get_vis_record_data(nodepool::id<VisRecordListNode<false>>{id}, out);
 }
 
 void debug_get_mutate_vis_record_data(const SyncvTable* table, uint32_t id, VisRecordDebugData* out)
 {
-    table->debug_get_vis_record_data<true>(id, out);
+    table->debug_get_vis_record_data(nodepool::id<VisRecordListNode<true>>{id}, out);
 }
 
 void debug_validate_state(SyncvTable* table, size_t input_count, const SyncvDebugValidateInput* p_inputs)
