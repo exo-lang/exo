@@ -1,9 +1,19 @@
+from dataclasses import dataclass, field
 from typing import Callable, Dict, Optional, Type, List, Set, Tuple
+from warnings import warn
 
 from ..core.memory import MemWin, BarrierType
 from ..core.prelude import Sym
 from ..core.instr_info import AccessInfo, InstrInfo
-from ..core.LoopIR import T, LoopIR, LoopIR_Do, BaseCompilerDebugLog, chain_window_idx
+from ..core.LoopIR import (
+    T,
+    LoopIR,
+    LoopIR_Do,
+    BaseCompilerDebugLog,
+    chain_window_idx,
+    SubstArgs,
+    get_writes_of_stmts,
+)
 
 from .async_config import BaseAsyncConfig, CudaDeviceFunction
 from .base_with_context import is_if_holding_with
@@ -18,6 +28,8 @@ from . import timelines
 
 
 class CamsporkDo(LoopIR_Do):
+    """coll_analysis_to_camspork implementation."""
+
     __slots__ = [
         "_builder",
         "_coll_analysis",
@@ -50,6 +62,7 @@ class CamsporkDo(LoopIR_Do):
     def __init__(
         self,
         builder: camspork.ProgramBuilder,
+        mem_env: Dict[Sym, Type[LoopIR.type]],
         coll_analysis: CollAnalysis,
         p: LoopIR.proc,
         value_syms: Set[Sym],
@@ -61,7 +74,7 @@ class CamsporkDo(LoopIR_Do):
         self._value_syms = value_syms
         self._sync_syms = sync_syms
         self._envtyp = {}
-        self._mem_env = {}
+        self._mem_env = mem_env
         self._device = timelines.cpu_basic_device
         self._default_instr_tl = timelines.cpu_basic_device.get_default_instr_tl()
         self._tmp_call_args = {}
@@ -80,7 +93,8 @@ class CamsporkDo(LoopIR_Do):
             if nm not in explicit_syms:
                 b.add_variable(nm)
             self._envtyp[nm] = a.type
-            self._mem_env[nm] = a.mem
+            if a.type.is_numeric():
+                assert self._mem_env[nm] == a.mem
 
         self.do_stmts(self.proc.body)
         assert self._saw_free or not self._saw_alloc, "Need MemAnalysis before"
@@ -205,13 +219,18 @@ class CamsporkDo(LoopIR_Do):
                 domain = (clusterDim, blockDim) if clusterDim != 1 else (blockDim,)
                 # Implicit (cpu, cuda_stream) -> cuda_stream sync before;
                 # implicit cuda_stream -> cuda_stream sync after.
-                b.Fence(True, cpu_bit | cuda_bits, cuda_bits, cuda_bits)
+                b.Fence(
+                    True, cpu_bit | cuda_bits, cuda_bits, cuda_bits, srcinfo=s.srcinfo
+                )
                 with b.ParallelBlock(*domain, srcinfo=s.srcinfo):
                     old_domain = self._domain
                     self._domain = domain
                     self.do_stmts(s.body)
                     self._domain = old_domain
-                b.Fence(True, cuda_bits, cuda_bits, cuda_bits)
+                # TODO: this second fence will have remarks logged above the
+                # CudaDeviceFunction, which is misleading as it's after
+                # the device function launch.
+                b.Fence(True, cuda_bits, cuda_bits, cuda_bits, srcinfo=s.srcinfo)
             else:
                 self.do_stmts(s.body)
             self._device = old_device
@@ -242,7 +261,7 @@ class CamsporkDo(LoopIR_Do):
             else:
                 assert not isinstance(loop_mode, CudaThreads), "Need CollAnalysis"
                 raise TypeError(
-                    f"{s.srcinfo}: unexpected loop mode {loop_mode.loop_mode_name()}"
+                    f"{s.srcinfo}: sync_check doesn't support loop mode {loop_mode.loop_mode_name()}"
                 )
         elif isinstance(s, LoopIR.WindowStmt):
             self._envtyp[s.name] = s.rhs.type
@@ -251,7 +270,7 @@ class CamsporkDo(LoopIR_Do):
         elif isinstance(s, LoopIR.Alloc):
             self._saw_alloc = True
             self._envtyp[s.name] = s.type
-            self._mem_env[s.name] = s.mem
+            assert self._mem_env[s.name] == s.mem
             want_barrier = issubclass(s.mem, BarrierType)
             want_sync = s.name in self._sync_syms
             want_value = s.name in self._value_syms
@@ -534,12 +553,176 @@ class CamsporkDo(LoopIR_Do):
 
 
 def coll_analysis_to_camspork(
+    mem_env: Dict[Sym, Type[LoopIR.type]],
     coll_analysis: CollAnalysis,
     p: LoopIR.proc,
     value_syms: Set[Sym],
     sync_syms: Set[Sym],
-):
+) -> camspork.ProgramBuilder:
+    """Convert LoopIR.proc to a finished camspork program.
+
+    We require a pre-computed dict of memory types and that CollAnalysis
+    was applied to the proc (with the CollAnalysis object supplied).
+
+    We only add value env + sync env stmts for variables that are named in
+    the value_syms & sync_syms sets, respectively; except, for loop iterators
+    and proc params always have their value environment enabled.
+    The barrier environment is mandatory for barrier-type objects.
+
+    The value environment really only exists in case we want to extend
+    this for programs that don't have data-control type separation.
+
+    TODO, in a sense, it would be good to have an extra step, where
+    we convert to another LoopIR.proc holding "instrs" that are
+    camspork.program stmts. So that we can do program analysis
+    on the abstract machine program in a familiar environment.
+
+    """
     builder = camspork.ProgramBuilder()
-    CamsporkDo(builder, coll_analysis, p, value_syms, sync_syms)
+    CamsporkDo(builder, mem_env, coll_analysis, p, value_syms, sync_syms)
     builder.finish()
     return builder
+
+
+def proc_size_tuple(
+    p: LoopIR.proc, args_dict: Dict[str, int]
+) -> Tuple[Optional[int], ...]:
+    """Convert dictionary of argument values to tuple of Optional[int].
+
+    i-th proc arg has value result[i]; None if the user provided nothing.
+    We require values for all control values. For "future proofing" for
+    Chexo we optionally accept values for data as well.
+
+    """
+
+    def generator():
+        for a in p.args:
+            try:
+                strnm = str(a.name)
+                value = args_dict[strnm]
+                assert isinstance(value, int)
+                assert value >= 0
+                yield value
+            except KeyError:
+                if a.type.is_indexable():
+                    raise KeyError(f"Missing keyword argument {strnm}")
+                else:
+                    yield None
+
+    return tuple(generator())
+
+
+def make_buffer_sizes(
+    p: LoopIR.proc, size_tuple: Tuple[int, ...]
+) -> Dict[Sym, Tuple[int, ...]]:
+    """Use arg substitute to convert proc_size_tuple (above) to buffer sizes."""
+    return result
+
+
+def top_level_check(backend, args_dict: Dict[str, int]):
+    from ..backend.LoopIR_compiler import run_backend_checks, BackendChecks
+
+    backend: BackendChecks
+    p = backend.analyzed
+    debug_log = backend.debug_log
+
+    # Compile and log abstract machine program once
+    camspork_program = backend.lazy_camspork_program
+    if camspork_program is None:
+        backend.lazy_sync_syms = set(
+            nm
+            for (nm, typ) in get_writes_of_stmts(p.body)
+            if not backend.mem_env[nm].sync_exempt()
+        )
+        camspork_program = coll_analysis_to_camspork(
+            backend.mem_env,
+            backend.coll_analysis,
+            p,
+            (),
+            backend.lazy_sync_syms,
+        )
+        backend.lazy_camspork_program = camspork_program
+        debug_log.log(p.name, "camspork", str(camspork_program))
+    sync_syms = backend.lazy_sync_syms
+
+    # Evaluate buffer sizes for variables that are subject to sync-check.
+    size_tuple = proc_size_tuple(p, args_dict)
+    proc_name_with_sizes = "-".join(
+        [str(p.name)] + [str(sz) for sz in size_tuple if sz is not None]
+    )
+    binding = {}
+    for i, a in enumerate(p.args):
+        value = size_tuple[i]
+        if value is not None:
+            binding[a.name] = LoopIR.Const(size_tuple[i], a.type, a.srcinfo)
+    buffer_sizes = {}
+    for a in p.args:
+        if not a.name in sync_syms:
+            continue
+        functor = SubstArgs(a.type.shape(), binding)
+        concrete_shape = []
+        for node in functor.result():
+            assert isinstance(node, LoopIR.Const)
+            concrete_shape.append(node.val)
+        buffer_sizes[a.name] = tuple(concrete_shape)
+
+    # Create environment with sync-env buffers initialized to expected sizes
+    # and value environment initialized.
+    def make_env(single_sync_var):
+        env = camspork.ProgramEnv(camspork_program)
+        for i, loopir_arg in enumerate(p.args):
+            nm = loopir_arg.name
+            if single_sync_var is None or single_sync_var == nm:
+                if nm in sync_syms:
+                    extent = buffer_sizes[nm]
+                    env.alloc_sync(nm, *extent)
+            if (val := size_tuple[i]) is not None:
+                env.alloc_scalar_value(nm, val)
+        for bit_index, qual_tl in enumerate(Qual_tl.get_all()):
+            env.set_qual_tl_name(bit_index, str(qual_tl))
+        return env
+
+    # Run validation up to 2 times.
+    # First is with all checking enabled.
+    # If a syncv error is detected that is attributed to a specific var[idx],
+    # we run checking again on that var[idx] only with history logging.
+    # We debug log all remarks generated if an error occurs.
+    error_remarks = ()
+    single_sync_var = None
+    single_sync_idx = ()
+    try:
+        for i in range(2):
+            if i > 0 and single_sync_var is None:
+                break
+            env = make_env(single_sync_var)
+            try:
+                if single_sync_var is not None:
+                    env.set_history_enable(True)
+                env.exec(filter_name=single_sync_var, filter_idx=single_sync_idx)
+            except Exception:
+                if i == 0:
+                    # Insert remarks for the main debug log, prior to adding
+                    # more detailed remarks.
+                    for camspork_stmt, text in env.get_remarks():
+                        srcinfo = camspork_program.get_stmt_srcinfo(camspork_stmt)
+                        debug_log.remark(p.name, f"{srcinfo}:\n{text}")
+                env.add_error_history_remarks()
+                error_remarks = env.get_remarks()
+                single_sync_var = env.get_syncv_fail_var()
+                if i == 0 and single_sync_var is not None:
+                    # Do the second round of sync checking
+                    single_sync_idx = env.get_syncv_fail_idx()
+                else:
+                    debug_log.log(
+                        proc_name_with_sizes, "camspork", env.program_with_remarks()
+                    )
+                    raise
+    except Exception:
+        # We want to show something similar to the user's proc, but
+        # after mem_analysis so that free is visible. Insert detailed
+        # info to a separately-logged debug output proc.
+        debug_log.log(proc_name_with_sizes, "sync-error", backend.after_mem_analysis)
+        for camspork_stmt, text in error_remarks:
+            srcinfo = camspork_program.get_stmt_srcinfo(camspork_stmt)
+            debug_log.remark(proc_name_with_sizes, f"{srcinfo}:\n{text}")
+        raise

@@ -92,6 +92,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
     std::vector<extent_t> tmp_offset;
     std::vector<barrier_id> tmp_all_barriers;
     StmtRef current_stmt{};
+    bool added_error_remark = false;
 
   public:
     ProgramExec(ProgramEnv* p_self, SinglePositionFilter _single_position_filter)
@@ -310,18 +311,29 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
     void operator() (const Stmt* node)
     {
         // Specialized per-Stmt-type execution (exec_impl) wrapped with common code.
+        added_error_remark = false;
         const StmtRef stmt_before = current_stmt;
+        auto Finally = [stmt_before, this] {
+            current_stmt = stmt_before;
+            this->flush_excut_log();
+        };
         try {
             current_stmt = env.stmt_ref_from_ptr(node);
             exec_impl(node);
         }
-        catch (...) {
-            current_stmt = stmt_before;
-            flush_excut_log();
+        catch (const std::runtime_error& err) {
+            if (!added_error_remark) {
+                env.add_remark(env.stmt_ref_from_ptr(node), err.what());
+                added_error_remark = true;
+            }
+            Finally();
             throw;
         }
-        current_stmt = stmt_before;
-        flush_excut_log();
+        catch (...) {
+            Finally();
+            throw;
+        }
+        Finally();
     }
 
     void exec_impl(const SyncEnvReadSingle* node)
@@ -448,6 +460,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
                 s << exc.what() << " @ " << env.str_name(node->name);
                 print_idx_helper(s, env._syncv_fail_idx);
                 env.add_remark(stmt_ref, s.str());
+                added_error_remark = true;
                 throw;
             }
         }
@@ -519,6 +532,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
             print_idx_helper(s, env._syncv_fail_idx);
             s << ")";
             env.add_remark(env.stmt_ref_from_ptr(node), s.str());
+            added_error_remark = true;
             throw;
         }
         env.maybe_syncv_debug_validate();

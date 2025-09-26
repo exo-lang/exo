@@ -13,6 +13,8 @@ import exo
 
 from contextlib import contextmanager
 
+from exo.core.LoopIR import set_global_debug_log_path
+
 
 @contextmanager
 def pythonpath(path: Path):
@@ -81,6 +83,7 @@ def exocc(*args, name="exocc"):
             args.pythonpath = Path.cwd()
 
     with pythonpath(args.pythonpath):
+        set_global_debug_log_path(outdir)  # Before loading user's module
         library = [
             proc
             for mod in args.source
@@ -88,6 +91,7 @@ def exocc(*args, name="exocc"):
         ]
 
     exts = exo.ext_compile_procs(library, outdir, args.stem)
+
     # Exclude debug-only file from depfile
     try:
         exts.remove("excut_str_table")

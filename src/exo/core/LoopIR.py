@@ -1,4 +1,6 @@
+import atexit
 import re
+import sys
 from collections import ChainMap, defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -840,6 +842,9 @@ ProcDebugRemarks.empty = ProcDebugRemarks()
 class BaseCompilerDebugLog:
     __slots__ = []
 
+    def get_path(self):
+        return None
+
     def log(self, proc_name: str, suffix: str, subtree):
         pass
 
@@ -849,22 +854,31 @@ class BaseCompilerDebugLog:
     def get_proc_debug_remarks(self, proc_name: str) -> ProcDebugRemarks:
         return ProcDebugRemarks.empty
 
+    def enable_notify_user(self):
+        pass
+
 
 @dataclass(slots=True)
-class CompilerDebugLog(BaseCompilerDebugLog):
-    path: Path
-    names_to_subtree: Dict[Tuple[str, str], Union[LoopIR.stmt, LoopIR.proc]] = field(
+class CompilerDebugLogImpl(BaseCompilerDebugLog):
+    """Don't create this directly; use get_debug_log."""
+
+    _path: Path
+    _names_to_subtree: Dict[Tuple[str, str], Union[LoopIR.stmt, LoopIR.proc]] = field(
         default_factory=dict
     )
-    proc_debug_remarks: Dict[str, ProcDebugRemarks] = field(default_factory=dict)
+    _proc_debug_remarks: Dict[str, ProcDebugRemarks] = field(default_factory=dict)
+    _enable_notify_user: bool = False
+
+    def get_path(self):
+        return self._path
 
     def log(
         self, proc_name: str, suffix: str, subtree: Union[LoopIR.stmt, LoopIR.proc, str]
     ):
         names = (proc_name, suffix)
-        assert names not in self.names_to_subtree
+        assert names not in self._names_to_subtree, names
         assert isinstance(subtree, (LoopIR.proc, LoopIR.stmt, str))
-        self.names_to_subtree[names] = subtree
+        self._names_to_subtree[names] = subtree
 
     def remark(self, proc_name: str, remark: str):
         # This is rather hacky but I do what I must to retrofit this logging
@@ -877,9 +891,9 @@ class CompilerDebugLog(BaseCompilerDebugLog):
         # In the future, we could investigate more "structured"
         # exception handling that embeds the stmt_id/expr_id in the
         # error object but this is not that important.
-        remarks = self.proc_debug_remarks.get(proc_name)
+        remarks = self._proc_debug_remarks.get(proc_name)
         if remarks is None:
-            remarks = self.proc_debug_remarks.setdefault(proc_name, ProcDebugRemarks())
+            remarks = self._proc_debug_remarks.setdefault(proc_name, ProcDebugRemarks())
         lines = [line for line in remark.split("\n") if line]
         stmt_ids = [int(m) for m in re.findall(SrcInfo.stmt_id_pattern, remark)]
         expr_ids = [int(m) for m in re.findall(SrcInfo.expr_id_pattern, remark)]
@@ -894,20 +908,77 @@ class CompilerDebugLog(BaseCompilerDebugLog):
             remarks.expr_id_comment_set.add(e_id)
 
     def get_proc_debug_remarks(self, proc_name: str) -> ProcDebugRemarks:
-        return self.proc_debug_remarks.get(proc_name, ProcDebugRemarks.empty)
+        return self._proc_debug_remarks.get(proc_name, ProcDebugRemarks.empty)
 
-    def write_all(self):
-        debug_path = self.path / "debug"
+    def write_all_impl(self):
+        debug_path = self._path / "debug"
         debug_path.mkdir(exist_ok=True, parents=True)
-        for names, subtree in self.names_to_subtree.items():
+        for names, subtree in self._names_to_subtree.items():
             proc_name, suffix = names
-            ext = "txt" if isinstance(subtree, str) else "py"
-            fname = f"{proc_name}-{suffix}.{ext}"
-            if ext == "py":
+            out_path = debug_path / f"{proc_name}-{suffix}.py"
+            if isinstance(subtree, (LoopIR.proc, LoopIR.stmt)):
+                # str_with_remarks is part of the LoopIR pretty print infra
                 remarks = self.get_proc_debug_remarks(proc_name)
-                (debug_path / fname).write_text(subtree.str_with_remarks(remarks))
+                out_path.write_text(subtree.str_with_remarks(remarks))
             else:
-                (debug_path / fname).write_text(subtree)
+                out_path.write_text(str(subtree))
+            if self._enable_notify_user:
+                # We want this to appear prominently underneath the Python traceback.
+                # Currently this only works since write_all_impl is called atexit.
+                print(
+                    "\x1b[1m\x1b[35mDebug output:\x1b[0m",
+                    str(out_path),
+                    file=sys.stderr,
+                )
+
+    def enable_notify_user(self):
+        self._enable_notify_user = True
+
+
+_debug_log_dict = {}
+
+
+def get_debug_log(path: Optional[Path]) -> BaseCompilerDebugLog:
+    if path is None:
+        return BaseCompilerDebugLog()
+    assert isinstance(path, Path)
+    try:
+        log = _debug_log_dict[path]
+    except KeyError:
+        log = CompilerDebugLogImpl(path)
+        _debug_log_dict[path] = log
+    return log
+
+
+@atexit.register
+def _atexit_debug_log_write():
+    # Log isn't written until program exit, because we can't write
+    # remarks inline with an output file (based on printed LoopIR)
+    # until all future remarks are collected.
+    # This design will be a problem if one of our C modules segfaults.
+    for log in _debug_log_dict.values():
+        log.write_all_impl()
+
+
+# Global state; the exocc frontend or pytest config will set up the
+# debug directory, but we don't have a great way to communicate this to
+# the user's module or the large lib of existing test functions,
+# which may raise errors that we now wish to have nicely logged.
+_global_debug_log_path = None
+
+
+def get_global_debug_log():
+    return get_debug_log(_global_debug_log_path)
+
+
+def get_global_debug_log_path():
+    return _global_debug_log_path
+
+
+def set_global_debug_log_path(path: Optional[Path]):
+    assert path is None or isinstance(path, Path)
+    global _global_debug_log_path
+    _global_debug_log_path = path
 
 
 # --------------------------------------------------------------------------- #
@@ -1767,16 +1838,18 @@ class LoopIR_Add_ID(LoopIR_Rewrite):
     e_id: int
 
     def __init__(self):
-        self.s_id = 1
+        self.s_id = 10
         self.e_id = 1
 
     def map_s(self, s):
+        # Allocate stmt_id as multiples of 10 to make room for
+        # e.g. MemAnalysis giving a Free a different stmt id from an Alloc.
         stmts = super().map_s(s)
         if stmts:
             assert len(stmts) == 1
             s = stmts[0]
         info = s.srcinfo.update(stmt_id=self.s_id)
-        self.s_id += 1
+        self.s_id += 10
         return s.update(srcinfo=info)
 
     def map_e(self, e):

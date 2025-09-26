@@ -678,7 +678,7 @@ def xgemm_Sm80_fence(M: size, N: size, K: size, A_host: f32[M,K], B_host: f32[K,
 xgemm_Sm80_fence = simplify(xgemm_Sm80_fence)
 
 
-def test_tmp_Sm80(compiler_Sm80):
+def test_tmp_xgemm_Sm80(compiler_Sm80):
     cu = compiler_Sm80.cuda_test_context(xgemm_Sm80_fence)
 
     M, N, K = 192, 256, 64

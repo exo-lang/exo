@@ -615,6 +615,8 @@ class ProgramBuilder:
     get_varname = __getitem__
 
     def translate_from_varname(self, name: Varname):
+        if not name:
+            return None
         return self._reverse_varname_dict.get(name, name)
 
     def get_stmt_srcinfo(self, stmt: StmtRef):
@@ -1043,6 +1045,11 @@ class ProgramEnv:
         return remarks
 
     def get_syncv_fail_var(self):
+        """Variable associated with syncv failure detected, or None if no such error.
+
+        Note, not all errors are associated with a specific variable.
+
+        """
         return self.translate_from_varname(_syncv_fail_var(self._env))
 
     def get_syncv_fail_idx(self) -> List[int]:

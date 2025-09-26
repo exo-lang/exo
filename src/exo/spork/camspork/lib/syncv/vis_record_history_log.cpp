@@ -78,7 +78,7 @@ template <typename Stream>
 void stream_domain(Stream& s, const ThreadCuboid& cuboid_for_domain)
 {
     const uint32_t domain_dim = cuboid_for_domain.dim();
-    CAMSPORK_REQUIRE_CMP(domain_dim, >, 1, "invalid empty ThreadCuboid::domain");
+    CAMSPORK_REQUIRE_CMP(domain_dim, >=, 1, "invalid empty ThreadCuboid::domain");
     s << '[';
     s << cuboid_for_domain.domain()[0];
     for (uint32_t dim_i = 1; dim_i < domain_dim; ++dim_i) {

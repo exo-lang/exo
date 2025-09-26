@@ -19,7 +19,6 @@ from ..core.LoopIR import (
     get_writes_of_stmts,
     T,
     LoopIR_Add_ID,
-    CompilerDebugLog,
     BaseCompilerDebugLog,
 )
 from ..core.configs import ConfigError
@@ -101,6 +100,77 @@ op_prec = {
     # getattr
     ".": 80,
 }
+
+
+@dataclass(slots=True)
+class BackendChecks:
+    debug_log: BaseCompilerDebugLog
+    original: LoopIR.proc  # After LoopIR_Add_ID
+    after_mem_analysis: LoopIR.proc
+    analyzed: LoopIR.proc
+    proc_uses_cuda: bool
+    mem_env: Dict[Sym, Type[MemWin]]
+    barrier_uses: Optional[Dict[Sym, BarrierUsage]]
+    coll_analysis: Optional[CollAnalysis]
+    lazy_camspork_program: object = None  # for sync_check's usage
+    lazy_sync_syms: object = None  # for sync_check's usage
+
+
+_backend_check_dict = {}
+
+
+def run_backend_checks(
+    p: LoopIR.proc, debug_log: BaseCompilerDebugLog
+) -> BackendChecks:
+    key = (id(p), debug_log.get_path())
+    try:
+        return _backend_check_dict[key]
+    except KeyError:
+        pass
+
+    try:
+        p = LoopIR_Add_ID().apply_proc(p)
+        original_p = p
+        debug_log.log(p.name, f"scheduled", p)
+        p = ParallelAnalysis().run(p)
+        p = PrecisionAnalysis().run(p)
+        p = WindowAnalysis().apply_proc(p)
+        mem_analysis = MemoryAnalysis()
+        p = mem_analysis.run(p)
+        after_mem_analysis = p
+        device_analysis = DeviceScopeAnalysis()
+        p = device_analysis.run(p)
+
+        barrier_uses = None
+        proc_uses_cuda = timelines.cuda_basic_device in device_analysis.devices_seen
+        coll_analysis = None
+        debug_log.log(p.name, "analysis", p)
+    except Exception as exc:
+        debug_log.remark(p.name, str(exc))
+        # Log with respect to whatever state the proc was in above
+        debug_log.log(p.name, f"analysis", p)
+        raise
+
+    if proc_uses_cuda or device_analysis.contains_sync:
+        # Don't force non-CUDA Exo users to waste time here
+        barrier_usage_analysis = BarrierUsageAnalysis(p)
+        barrier_uses = barrier_usage_analysis.uses
+        coll_analysis = CollAnalysis(barrier_usage_analysis, debug_log)
+        p = coll_analysis.run(p)
+        debug_log.log(p.name, "coll_analysis", p)
+
+    value = BackendChecks(
+        debug_log,
+        original_p,
+        after_mem_analysis,
+        p,
+        proc_uses_cuda,
+        mem_analysis.mem_env,
+        barrier_uses,
+        coll_analysis,
+    )
+    _backend_check_dict[key] = value
+    return value
 
 
 def lift_to_cir(e, range_env):
@@ -348,7 +418,9 @@ def compile_to_strings(lib_name, proc_list):
 
 
 def ext_compile_to_strings(
-    lib_name, proc_list, debug_log: Optional[BaseCompilerDebugLog] = None
+    lib_name: str,
+    proc_list: List[LoopIR.proc],
+    debug_log: Optional[BaseCompilerDebugLog] = None,
 ):
     if debug_log is None:
         debug_log = BaseCompilerDebugLog()
@@ -422,60 +494,26 @@ def ext_compile_to_strings(
             seen_procs.add(p.name)
             is_public_decl = id(p) in orig_procs
 
-            p = LoopIR_Add_ID().apply_proc(p)
-            debug_log.log(p.name, f"scheduled", p)
+            # This is outside the try/catch since this does its own debug logging.
+            backend = run_backend_checks(p, debug_log)
+            p = backend.analyzed
 
             try:
-                p = ParallelAnalysis().run(p)
-                p = PrecisionAnalysis().run(p)
-                p = WindowAnalysis().apply_proc(p)
-                mem_analysis = MemoryAnalysis()
-                p = mem_analysis.run(p)
-                device_analysis = DeviceScopeAnalysis()
-                p = device_analysis.run(p)
-                barrier_uses: Optional[Dict[Sym, BarrierUsage]]
-                barrier_uses = None
-                proc_uses_cuda = (
-                    timelines.cuda_basic_device in device_analysis.devices_seen
-                )
-                coll_analysis = None
-                if proc_uses_cuda or device_analysis.contains_sync:
-                    # Don't force non-CUDA Exo users to waste time here
-                    barrier_usage_analysis = BarrierUsageAnalysis(p)
-                    barrier_uses = barrier_usage_analysis.uses
-                    coll_analysis = CollAnalysis(barrier_usage_analysis, debug_log)
-                    debug_log.log(p.name, "analysis", p)
-                    p = coll_analysis.run(p)
-                    debug_log.log(p.name, "coll_analysis", p)
-                    # TODO tmp
-                    sync_syms = set(
-                        nm
-                        for (nm, typ) in get_writes_of_stmts(p.body)
-                        if not mem_analysis.mem_env[nm].sync_exempt()
-                    )
-                    for nm, mem in mem_analysis.mem_env.items():
-                        if issubclass(mem, BarrierType) and not mem.sync_exempt():
-                            sync_syms.add(nm)
-                    camspork_program = sync_check.coll_analysis_to_camspork(
-                        coll_analysis, p, (), sync_syms
-                    )
-                    debug_log.log(p.name, "camspork", str(camspork_program))
-
                 comp = Compiler(
                     p,
                     lib_name,
                     ctxt_name,
-                    barrier_uses,
-                    proc_uses_cuda,
+                    backend.barrier_uses,
+                    backend.proc_uses_cuda,
                     util_injector,
                     mem_code_builder,
-                    coll_analysis,
+                    backend.coll_analysis,
                     debug_log,
                     is_public_decl=is_public_decl,
                 )
                 d, b = comp.comp_top()
                 needed_helpers |= comp.needed_helpers()
-                used_cuda |= proc_uses_cuda
+                used_cuda |= backend.proc_uses_cuda
 
                 if is_public_decl:
                     public_fwd_decls.append(d)
@@ -494,8 +532,6 @@ def ext_compile_to_strings(
                     ext_lines.setdefault(ext, []).extend(snippets)
             except Exception as exc:
                 debug_log.remark(p.name, str(exc))
-                # Log with respect to whatever state the proc was in above
-                debug_log.log(p.name, f"error", p)
                 raise
 
     memgen = mem_code_builder.generate_code(header_memwins)

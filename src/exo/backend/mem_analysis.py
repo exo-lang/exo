@@ -149,7 +149,9 @@ class MemoryAnalysis:
         for s in stmts:
             if isinstance(s, LoopIR.Alloc):
                 nm = s.name
-                free = LoopIR.Free(nm, s.type, s.mem, s.srcinfo.update(stmt_id=None))
+                free = LoopIR.Free(
+                    nm, s.type, s.mem, s.srcinfo.update(stmt_id=s.srcinfo.stmt_id + 1)
+                )
                 free_pool_tag = s.mem.free_pool_tag()
                 if free_pool_tag == full_scope_free_pool_tag:
                     frees_after_nth[-1] += (free,)

@@ -16,6 +16,7 @@ from .backend.LoopIR_compiler import (
     run_compile,
     compile_to_strings,
     ext_compile_to_strings,
+    run_backend_checks,
 )
 from .core.configs import Config
 from .frontend.boundscheck import CheckBounds
@@ -178,14 +179,15 @@ def ext_compile_procs(proc_list, basedir: Path, stem: str):
 
     Returns a sorted list of file extensions (without .) e.g. ["c", "h"]
     """
-    debug_log = LoopIR.CompilerDebugLog(basedir)
+    debug_log = LoopIR.get_debug_log(basedir)
     try:
         ext_snippets = ext_compile_procs_to_strings(proc_list, stem, debug_log)
         for ext, text in ext_snippets.items():
             (basedir / f"{stem}.{ext}").write_text(text)
         return sorted(ext_snippets)
-    finally:
-        debug_log.write_all()
+    except Exception:
+        debug_log.enable_notify_user()
+        raise
 
 
 def ext_compile_procs_to_strings(
@@ -437,3 +439,26 @@ class Procedure(ProcedureBase):
 
     def _root(self):
         return IC.Cursor.create(self._loopir_proc)
+
+    # ------------------------------- #
+    #     sync check
+    # ------------------------------- #
+    def sync_check(self, **kwargs):
+        """Perform sync check for a given concrete problem size.
+
+        All size/index argument values must be given as int keyword arguments.
+        This proc will be checked for the problem size given.
+
+        """
+
+        from exo.spork import sync_check
+        from exo.backend import LoopIR_compiler
+
+        debug_log = LoopIR.get_global_debug_log()
+        try:
+            backend = LoopIR_compiler.run_backend_checks(self._loopir_proc, debug_log)
+            # Should we check assertions?
+            sync_check.top_level_check(backend, kwargs)
+        except Exception:
+            debug_log.enable_notify_user()
+            raise

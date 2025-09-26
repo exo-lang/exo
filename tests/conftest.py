@@ -20,6 +20,7 @@ from _pytest.nodes import Node
 
 from exo import Procedure, compile_procs, ext_compile_procs
 from exo.spork import excut
+from exo.core.LoopIR import get_global_debug_log_path, set_global_debug_log_path
 
 
 class CudaRun(Enum):
@@ -282,6 +283,17 @@ class Compiler:
     workdir: Path
     basename: str
     cuda_sm: str
+
+    def __post_init__(self):
+        # Old-fashioned substitute for with context (which I can't make a
+        # test fixture behave as AFAIK) for setting debug log within one test case.
+        self._old_debug_path = get_global_debug_log_path()
+        set_global_debug_log_path(self.workdir)
+
+    def __del__(self):
+        # Old-fashioned substitute for with context (which I can't make a
+        # test fixture behave as AFAIK) for setting debug log within one test case.
+        set_global_debug_log_path(self._old_debug_path)
 
     def compile(
         self,

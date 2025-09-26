@@ -149,6 +149,7 @@ class Qual_tl(object):
         assert self._bit_index <= 31, "camspork::qual_bits_t would overflow"
         self._bit = 1 << self._bit_index
         self._from_bit_index.append(self)
+        self._name = name
 
     def __repr__(self):
         return self._name
@@ -168,6 +169,10 @@ class Qual_tl(object):
             for qual_tl in q:
                 bits |= qual_tl.as_bit()
             return bits
+
+    @classmethod
+    def get_all(cls) -> List[Qual_tl]:
+        return cls._from_bit_index
 
     # Use default hash and equality (id-equality) from object.
 
