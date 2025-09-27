@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 #include "require.hpp"
 
 namespace camspork {
@@ -37,12 +39,10 @@ void cuboid_to_intervals(
     CAMSPORK_REQUIRE_CMP(dim, ==, offset_end - offset_begin, "mismatched dimensions");
     CAMSPORK_REQUIRE_CMP(dim, ==, inner_end - inner_begin, "mismatched dimensions");
 
-    constexpr IntT discontinuity_sentinel = ~IntT(0);
-
     auto recurse = [&callback, outer_end, offset_end, inner_end] (
             IntT partial_offset,
             OuterIterator outer_iter, OffsetIterator offset_iter, InnerIterator inner_iter,
-            auto recurse) -> IntT
+            auto recurse) -> std::optional<IntT>
     {
         if (outer_iter == outer_end) {
             return IntT{1};
@@ -56,19 +56,23 @@ void cuboid_to_intervals(
             return IntT(0);
         }
 
-        const IntT leaf_size = recurse(partial_offset, outer_iter + 1, offset_iter + 1, inner_iter + 1, recurse);
+        // Empty optional indicates discontinuity (sentinel value)
+        // NB we used to use ~0 but that was a sloppy mistake in some cases.
+        const std::optional<IntT> continuous_leaf_size =
+                recurse(partial_offset, outer_iter + 1, offset_iter + 1, inner_iter + 1, recurse);
 
-        if (leaf_size == IntT(0)) {
-            return IntT(0);
-        }
-
-        if (leaf_size == discontinuity_sentinel) {
+        if (!continuous_leaf_size) {
             // Generate remaining intervals (skips i = 0 case already generated).
             for (IntT i = IntT(1); i < inner_coord; ++i) {
                 recurse(partial_offset + i, outer_iter + 1, offset_iter + 1, inner_iter + 1, recurse);
             }
             // Caller must also execute this case, to loop over the generation of all intervals.
-            return discontinuity_sentinel;
+            return std::optional<IntT>{};  // discontinuity sentinel
+        }
+
+        const IntT leaf_size = *continuous_leaf_size;
+        if (leaf_size == IntT(0)) {
+            return std::optional<IntT>{0};
         }
         else {
             if (offset_coord == 0) {
@@ -76,7 +80,7 @@ void cuboid_to_intervals(
                     // This dimension is full, and all dimensions to the right are full.
                     // Inform caller of the size of the product of all dimensions.
                     // Some caller will generate the actual interval, which is a superset of this.
-                    return leaf_size * inner_coord;
+                    return std::optional<IntT>{leaf_size * inner_coord};
                 }
             }
             else {
@@ -88,15 +92,17 @@ void cuboid_to_intervals(
             // We will invoke the callback at this level.
             const IntT scalar_offset = partial_offset * leaf_size;
             callback(scalar_offset, scalar_offset + leaf_size * inner_coord);
-            return discontinuity_sentinel;
+            return std::optional<IntT>{};  // discontinuity sentinel
         }
     };
 
-    const IntT leaf_size = recurse(IntT(0), outer_begin, offset_begin, inner_begin, recurse);
-    if (leaf_size != discontinuity_sentinel && leaf_size != 0) {
+    const std::optional<IntT> continuous_leaf_size =
+            recurse(IntT(0), outer_begin, offset_begin, inner_begin, recurse);
+    if (continuous_leaf_size && *continuous_leaf_size != 0) {
         // If all offsets were 0 and all inner extents equal outer extents, then no recursive function
         // calls generated any intervals and we have to handle that here.
-        callback(IntT(0), IntT(leaf_size));
+        // This is the case when no level of the recursion returned the discontinuity sentinel.
+        callback(IntT(0), IntT(*continuous_leaf_size));
     }
 }
 
