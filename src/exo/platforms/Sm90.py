@@ -554,6 +554,7 @@ class copy_tensor_to_smem_impl(InstrInfo):
         self.access_info["dst"].out_of_order = True
         self.access_info["src"].mem = Sm90_tensorMap(swizzle, *smem_box)
         self.access_info["src"].out_of_order = True
+        self.access_info["src"].allow_out_of_bounds = True  # GMEM special case
         self.instr_tl = tma_to_smem_async_instr
         self.coll_unit = cuda_warp
         self.cu_utils.append(copy_tensor_to_smem_util(rank, False))
@@ -675,6 +676,7 @@ class Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
         self.access_info["dst"].out_of_order = True
         self.access_info["src"].mem = Sm90_tensorMap(swizzle, *smem_box)
         self.access_info["src"].out_of_order = True
+        self.access_info["src"].allow_out_of_bounds = True  # GMEM special case
         self.instr_tl = tma_to_smem_async_instr
         self.coll_unit = n_cta * cuda_warp_in_cluster_strided(cta_stride)
         self.cu_utils.append(copy_tensor_to_smem_util(rank, True))
@@ -1079,12 +1081,16 @@ class Sm90_mma_write_d_col_major_tf32(Sm90_mma_write_d_impl):
     def behavior(
         M: size,
         N: size,
+        M_end: size,
+        N_end: size,
         dst: [f32][N, M] @ CudaDeviceVisibleLinear,
         src: [f32][M, N],  # Sm90_RmemMatrixD
     ):
         for m in seq(0, M):
-            for n in seq(0, N):
-                dst[n, m] = src[m, n]  # Transposed
+            if m < M_end:
+                for n in seq(0, N):
+                    if n < N_end:
+                        dst[n, m] = src[m, n]  # Transposed
 
     def instance(self, M, N):
         helper = WgmmaHelper(M, N, "f32", "tf32", "tf32")
@@ -1096,12 +1102,16 @@ class Sm90_mma_write_d_row_major_tf32(Sm90_mma_write_d_impl):
     def behavior(
         M: size,
         N: size,
+        M_end: size,
+        N_end: size,
         dst: [f32][M, N] @ CudaDeviceVisibleLinear,
         src: [f32][M, N],  # Sm90_RmemMatrixD
     ):
         for m in seq(0, M):
-            for n in seq(0, N):
-                dst[m, n] = src[m, n]
+            if m < M_end:
+                for n in seq(0, N):
+                    if n < N_end:
+                        dst[m, n] = src[m, n]
 
     def instance(self, M, N):
         helper = WgmmaHelper(M, N, "f32", "tf32", "tf32")

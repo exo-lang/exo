@@ -12,6 +12,11 @@ class AccessInfo:
     access_by_owner_only: Optional[bool] = None
     const: bool = False  # Set automatically
 
+    # UNSTABLE: for experiments on figuring out how to model TMA's
+    # zero-pad behavior (reading GMEM) and implied predication (writing GMEM)
+    # when out-of-bounds coordinates are given.
+    allow_out_of_bounds: bool = False
+
     # For warp shuffles and TMA: identifies that the first
     # len(distributed_coll_units) dimensions of the window parameter
     # are expected to be distributed dimensions, as if accessed with
