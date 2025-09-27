@@ -1020,14 +1020,17 @@ struct SyncvTable
                 // If the interval is after the interval of missing threads, we have found a gap
                 // [missing_threads_lo, data.tid_lo) that is not found. We fail at this point (break out of loop).
                 if (data.tid_lo > missing_threads_lo) {
-                    out_fail_tl_sig->tid = missing_threads_lo;
-                    out_fail_tl_sig->qual_tl = get_low_bit_index(want_qual_bits);
                     break;
                 }
                 missing_threads_lo = std::max(missing_threads_lo, data.tid_hi);
             }
             const bool local_visible = missing_threads_lo >= tid_hi;
-            all_visible &= local_visible;
+            if (!local_visible && all_visible) {
+                all_visible = false;
+                // Record missing tl-sig the first time a missing one is found.
+                out_fail_tl_sig->tid = missing_threads_lo;
+                out_fail_tl_sig->qual_tl = get_low_bit_index(want_qual_bits);
+            }
         });
         return all_visible;
     }

@@ -221,6 +221,7 @@ void VisRecordHistoryLog::log_syncv_vis_record_checked(vis_record_id_t id, bool 
 
 void VisRecordHistoryLog::log_syncv_vis_record_error(vis_record_id_t id, TlSig fail_tl_sig, int32_t vis_level_needed)
 {
+    CAMSPORK_REQUIRE_CMP(fail_tl_sig.qual_tl, <, num_qual_tl, "out of range qual-tl index");
     error_stmt_id_bits = current_stmt_id_bits;
     error_vis_record_version = current_version_id(id);
     error_tl_sig = fail_tl_sig;
