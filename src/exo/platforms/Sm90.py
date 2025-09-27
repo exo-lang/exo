@@ -713,17 +713,21 @@ __all__.append("Sm90_multicast_copy_tensor_to_smem_swizzled_2f32")
 
 
 # TODO support more than float
-store_d_util = """template <bool ColumnMajor, typename Window, typename Reg>
-EXO_CUDA_INLINE void exo_Sm90_store_d_reg(Window dst, Reg value, uint32_t m_offset, uint32_t reg_index)
+store_d_util = """template <bool ColumnMajor, int32_t RegIndex, typename Window, typename Reg>
+EXO_CUDA_INLINE void exo_Sm90_store_d_reg(
+        Window dst, Reg value,
+        int32_t m_offset, int32_t M_end, int32_t N_end)
 {
     const uint32_t tid = threadIdx.x % 128u;
-    const uint32_t r_base = (tid / 32u) * 16u + (tid % 32u) / 4u;
-    const uint32_t c_base = (tid % 4u) * 2u;
-    const uint32_t r = m_offset + r_base + ((reg_index % 4u) / 2u) * 8u;
-    const uint32_t c = c_base + (reg_index / 4u) * 8 + (reg_index % 2u);
+    const int32_t r_base = int32_t((tid / 32) * 16 + (tid % 32) / 4);
+    const int32_t c_base = int32_t(tid % 4) * 2;
+    const int32_t r = m_offset + r_base + ((RegIndex % 4) / 2) * 8;
+    const int32_t c = c_base + (RegIndex / 4) * 8 + (RegIndex % 2);
     auto dst_ptr = reinterpret_cast<Reg*>(
             &dst.data[c * dst.strides[!ColumnMajor] + r * dst.strides[ColumnMajor]]);
-    *dst_ptr = value;
+    if (int32_t(r) < M_end && int32_t(c) < N_end) {
+        *dst_ptr = value;
+    }
 }
 """
 
@@ -1068,11 +1072,16 @@ class Sm90_mma_write_d_impl(InstrInfo):
         lines = []
         dst = str(args.dst)
         src = args.src.index()
+        lines.append("{")
+        lines.append(f"  const auto exo_Sm90_dst = {dst};")
+        lines.append(f"  const int32_t exo_Sm90_M_end = int32_t({args.M_end});")
+        lines.append(f"  const int32_t exo_Sm90_N_end = int32_t({args.N_end});")
         for m in range(0, args.M, 64):
             for reg_index, reg_name in enumerate(self.helper.dreg_names(m=m)):
                 lines.append(
-                    f"exo_CudaUtil::exo_Sm90_store_d_reg<{self.col_major}>({dst}, {src}.{reg_name}, {m}, {reg_index});"
+                    f"  exo_CudaUtil::exo_Sm90_store_d_reg<{self.col_major}, {reg_index}>(exo_Sm90_dst, {src}.{reg_name}, {m}, exo_Sm90_M_end, exo_Sm90_N_end);"
                 )
+        lines.append("}")
         return lines
 
 
@@ -1081,8 +1090,8 @@ class Sm90_mma_write_d_col_major_tf32(Sm90_mma_write_d_impl):
     def behavior(
         M: size,
         N: size,
-        M_end: size,
-        N_end: size,
+        M_end: index,
+        N_end: index,
         dst: [f32][N, M] @ CudaDeviceVisibleLinear,
         src: [f32][M, N],  # Sm90_RmemMatrixD
     ):
@@ -1102,8 +1111,8 @@ class Sm90_mma_write_d_row_major_tf32(Sm90_mma_write_d_impl):
     def behavior(
         M: size,
         N: size,
-        M_end: size,
-        N_end: size,
+        M_end: index,
+        N_end: index,
         dst: [f32][M, N] @ CudaDeviceVisibleLinear,
         src: [f32][M, N],  # Sm90_RmemMatrixD
     ):
