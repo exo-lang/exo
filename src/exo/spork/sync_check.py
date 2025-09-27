@@ -388,6 +388,9 @@ class CamsporkDo(LoopIR_Do):
             barrier, barrier_multicasts = self.comp_trailing_barrier_expr(s, instr_tl)
             for caller_a, callee_a in zip(s.args, callee.args):
                 fnarg_type = callee_a.type
+                if not fnarg_type.is_numeric():
+                    # Avoids caller_a.name AttributeError for BinOp etc.
+                    continue
                 if caller_a.name not in self._sync_syms:
                     continue
                 arg_info: AccessInfo = instr.access_info[str(callee_a.name)]
