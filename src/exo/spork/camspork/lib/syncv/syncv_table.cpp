@@ -1101,8 +1101,6 @@ struct SyncvTable
                 }
             }
 
-            // Dicey: a "correct" (passes check_arrive_await) abstract machine program shouldn't trigger
-            // this code path, but we implement this anyway, for incorrect programs.
             // Normally, retire_barrier_arrive augments VisRecords, but here we just pass no_op,
             // so the only intended effect is for us to free memory.
             for (auto& pair : state.arrive_states) {
