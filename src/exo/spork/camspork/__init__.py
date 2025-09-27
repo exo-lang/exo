@@ -62,14 +62,13 @@ class BuilderExpr:
     def __ge__(self, other):
         return BuilderBinOp(binop_Geq, self, self.typecheck(other))
 
-    def __eq__(self, other):
-        return BuilderBinOp(binop_Eq, self, self.typecheck(other))
-
-    def __neq__(self, other):
-        return BuilderBinOp(binop_Neq, self, self.typecheck(other))
-
     def __neg__(self):
         return BuilderUSub(self)
+
+    # FOOTGUN: we don't overload == and !=
+    # because it's too easy for that to mean something else
+    # i.e. resolve to literal bool.
+    # See ProgramBuilder.Eq and ProgramBuilder.Neq
 
 
 class CamsporkError(ValueError):
@@ -629,6 +628,16 @@ class ProgramBuilder:
     def build_expr(self, e) -> ExprRef:
         return BuilderExpr.typecheck(e).build_expr(self._builder)
 
+    @staticmethod
+    def Eq(a, b):
+        check = BuilderExpr.typecheck
+        return BuilderBinOp(binop_Eq, check(a), check(b))
+
+    @staticmethod
+    def Neq(a, b):
+        check = BuilderExpr.typecheck
+        return BuilderBinOp(binop_Neq, check(a), check(b))
+
     def check_stmt(self, srcinfo, s: StmtRef):
         check_return(s)
         self._stmt_srcinfo[s] = srcinfo
@@ -805,6 +814,7 @@ class ProgramBuilder:
 
     def If(self, cond, allow_bool=False, *, srcinfo=None) -> BodyCtx:
         # Catches expressions like "not var" which Python reduces to constant bool.
+        # Also see the BuilderExpr footgun for == and != (use Eq/Neq functions).
         assert allow_bool or not isinstance(cond, bool), "Literal bool passed"
         cond = self.build_expr(cond)
         return BodyCtx(

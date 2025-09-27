@@ -103,12 +103,20 @@ class ProgramPrinter
         // Just parenthesize everything for now, except maybe for top-level BinOp (binop_no_parens_flag).
         const bool parens = !binop_no_parens_flag;
         binop_no_parens_flag = false;
-        if (parens) {
-            stream << "(";
+        if (node->op == binop::Eq) {
+            *this << "b.Eq(" << node->lhs << ", " << node->rhs << ")";
         }
-        *this << node->lhs << " " << node->op << " " << node->rhs;
-        if (parens) {
-            stream << ")";
+        else if (node->op == binop::Neq) {
+            *this << "b.Neq(" << node->lhs << ", " << node->rhs << ")";
+        }
+        else {
+            if (parens) {
+                stream << "(";
+            }
+            *this << node->lhs << " " << node->op << " " << node->rhs;
+            if (parens) {
+                stream << ")";
+            }
         }
     }
 
