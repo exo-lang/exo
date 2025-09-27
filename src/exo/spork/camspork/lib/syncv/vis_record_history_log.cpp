@@ -26,6 +26,9 @@ void stream_sync_stmt_event(Stream& s, VisRecordHistoryLog& log, const LoggedSyn
         s << "  barrier: " << event.barrier_name << '\n';
         s << "  arrive_count: " << v.arrive_count_before << " -> " << v.arrive_count_after << '\n';
         s << "  await_count:  " << v.await_count_before << " -> " << v.await_count_after << '\n';
+        if (is_await) {
+            s << "  > Updates pending awaits with arrive_count <= " << v.await_max_arrive_count << '\n';
+        }
     }
     if (!is_await) {
         s << "  First qual-tl set:\n";

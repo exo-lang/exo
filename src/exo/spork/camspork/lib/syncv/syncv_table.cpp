@@ -429,7 +429,7 @@ struct SyncvTrivialLogger
     {
     }
 
-    void history_set_sync_stmt_info(const SyncvAwait&, const BarrierState&, uint32_t)
+    void history_set_sync_stmt_info(const SyncvAwait&, const BarrierState&, uint32_t, uint32_t)
     {
     }
 
@@ -762,6 +762,7 @@ struct SyncvTable
             tl_sigs_node.data = TlSigInterval{tid_lo, tid_hi, qual_bits_by_vis};
             p_node_id = &tl_sigs_node.camspork_next_id;
         });
+        CAMSPORK_REQUIRE(vis_record.base_data.visibility_set, "buggy: empty visibility set");
 
         // Add pending awaits
         // NOTE: this is extremely inefficient if done many times, since we create a new PendingAwaitTreeNode
@@ -1137,6 +1138,7 @@ struct SyncvTable
         key.tid_lo = UINT32_MAX;
         key.tid_hi = 0u;
 
+        CAMSPORK_REQUIRE(id, "unsupported: empty interval");
         while (id) {
             const TlSigIntervalListNode& node = get(id);
             id = node.camspork_next_id;
@@ -2007,7 +2009,7 @@ struct SyncvTable
             new_await_count = state.await_count + 1;
         }
 
-        logger.history_set_sync_stmt_info(await, state, new_await_count);
+        logger.history_set_sync_stmt_info(await, state, new_await_count, max_arrive_count);
         state.await_count = new_await_count;
 
         update_vis_records_for_await(
@@ -2970,7 +2972,8 @@ struct SyncvRealLogger
         }
     }
 
-    void history_set_sync_stmt_info(const SyncvAwait& await, const BarrierState& state, uint32_t new_await_count)
+    void history_set_sync_stmt_info(
+            const SyncvAwait& await, const BarrierState& state, uint32_t new_await_count, uint32_t max_arrive_count)
     {
         if (p_history_log) {
             LoggedSyncStmtValues values{};
@@ -2981,6 +2984,7 @@ struct SyncvRealLogger
             values.arrive_count_after = state.arrive_count;
             values.await_count_before = state.await_count;
             values.await_count_after = new_await_count;
+            values.await_max_arrive_count = max_arrive_count;
             p_history_log->set_syncv_sync_stmt_info(await.bar, values);
         }
     }
