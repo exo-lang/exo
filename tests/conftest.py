@@ -310,7 +310,7 @@ class Compiler:
         if isinstance(procs, Procedure):
             procs = [procs]
 
-        file_exts = ext_compile_procs(procs, self.workdir, self.basename)
+        file_exts = ext_compile_procs(procs, self.workdir, self.basename, silent=True)
 
         atl = self.workdir / f"{self.basename}_pretty.atl"
         atl.write_text("\n".join(map(str, procs)))
@@ -364,7 +364,7 @@ class Compiler:
         if isinstance(procs, Procedure):
             procs = [procs]
 
-        file_exts = ext_compile_procs(procs, self.workdir, self.basename)
+        file_exts = ext_compile_procs(procs, self.workdir, self.basename, silent=False)
         assert file_exts == ["c", "cu", "cuh", "excut_str_table", "h"]
 
         # Directly use nvcc ($EXO_NVCC)
@@ -440,7 +440,7 @@ class Compiler:
         if isinstance(procs, Procedure):
             procs = [procs]
 
-        file_exts = ext_compile_procs(procs, self.workdir, self.basename)
+        file_exts = ext_compile_procs(procs, self.workdir, self.basename, silent=True)
         assert file_exts == ["c", "cu", "cuh", "excut_str_table", "h"]
         read_source = LibWrapper.read_source_by_ext
         sources = CudaTestSource(

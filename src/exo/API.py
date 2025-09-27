@@ -174,7 +174,7 @@ class FindDup(LoopIR.LoopIR_Do):
 #   Procedure Objects
 
 
-def ext_compile_procs(proc_list, basedir: Path, stem: str):
+def ext_compile_procs(proc_list, basedir: Path, stem: str, *, silent=False):
     """Compile procs to separate code files, written to {basedir}/{stem}.{ext}
 
     Returns a sorted list of file extensions (without .) e.g. ["c", "h"]
@@ -186,7 +186,8 @@ def ext_compile_procs(proc_list, basedir: Path, stem: str):
             (basedir / f"{stem}.{ext}").write_text(text)
         return sorted(ext_snippets)
     except Exception:
-        debug_log.enable_notify_user()
+        if not silent:
+            debug_log.enable_notify_user()
         raise
 
 
