@@ -143,7 +143,7 @@ class MemoryAnalysis:
 
         # Collect names of variables allocated at this level of the program.
         # Store their corresponding free stmt and FreePoolTag, except we
-        # immediately
+        # immediately schedule full_scope memory types to be freed at the end.
         alloc_dict = {}
         alloc_dict: Dict[Sym, Tuple[LoopIR.Free, Optional[FreePoolTag]]]
         for s in stmts:
@@ -154,7 +154,9 @@ class MemoryAnalysis:
                 )
                 free_pool_tag = s.mem.free_pool_tag()
                 if free_pool_tag == full_scope_free_pool_tag:
-                    frees_after_nth[-1] += (free,)
+                    # This order is needed to match the goldens of the old
+                    # mem_analysis. I don't want to take a needless risk.
+                    frees_after_nth[-1] = (free,) + frees_after_nth[-1]
                 else:
                     alloc_dict[nm] = (free, free_pool_tag)
 
@@ -175,7 +177,9 @@ class MemoryAnalysis:
                         # the same free pool, or at end-of-stmts if no such alloc yet.
                         # (i.e. not found in the dict; [0 - 1] = [-1])
                         free_idx = free_pool_alloc_idx.get(free_pool_tag, 0) - 1
-                    frees_after_nth[free_idx] += (free,)
+                    # This order is needed to match the goldens of the old
+                    # mem_analysis. I don't want to take a needless risk.
+                    frees_after_nth[free_idx] = (free,) + frees_after_nth[free_idx]
                     del alloc_dict[nm]
             for free_pool_tag in tags:
                 free_pool_alloc_idx[free_pool_tag] = n

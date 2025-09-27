@@ -65,7 +65,6 @@ from ..spork import timelines
 from ..spork.cuda_backend import loopir_lower_cuda, h_snippet_for_cuda
 from ..spork import excut
 from ..spork.coll_analysis import CollAnalysis
-from ..spork import sync_check
 
 
 def sanitize_str(s):
