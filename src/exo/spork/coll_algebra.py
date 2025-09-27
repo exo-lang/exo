@@ -393,9 +393,9 @@ class CollCodegen:
     # Iterator variable name
     iter: object
 
-    # Advice for compiling to abstract machine ThreadsFor loop (am_threads).
-    # DomainSplit (dim_idx, split_factor)
     dim_idx_factors: List[Tuple[int, int]]
+
+    # Advice for compiling to abstract machine ThreadsFor loop (am_threads).
     # ThreadsFor(..., dim_idx, offset, box)
     dim_idx: Optional[int]
     offset: int

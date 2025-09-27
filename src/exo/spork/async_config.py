@@ -99,7 +99,7 @@ class CudaDeviceFunction(BaseAsyncConfig):
     def coll_env(self):
         return {clusterDim_param: self.clusterDim, blockDim_param: self.blockDim}
 
-    def top_level_coll_tiling(self):
+    def top_level_coll_tiling(self) -> CollTiling:
         # We seed the analysis of the collective units with the tiling
         # for the top-level collective (clusterDim x blockDim,
         # with redundant clusterDim removed if clusterDim = 1).

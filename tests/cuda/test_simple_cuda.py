@@ -751,6 +751,7 @@ def test_gemv_warp_coop_8(compiler_Sm80):
     cu = compiler_Sm80.cuda_test_context(gemv_warp_coop_8)
 
     for M, K in ((512, 256), (256, 512), (128, 1024)):
+        gemv_warp_coop_8.sync_check(M=M, K=K)
         A = np.ndarray(shape=(M, K), dtype=np.float32, order="C")
         x = np.ndarray(shape=(K, 1), dtype=np.float32, order="C")
         y = np.ndarray(shape=(M, 1), dtype=np.float32, order="C")

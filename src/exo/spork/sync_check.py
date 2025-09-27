@@ -17,7 +17,7 @@ from ..core.LoopIR import (
 
 from .async_config import BaseAsyncConfig, CudaDeviceFunction
 from .base_with_context import is_if_holding_with
-from .coll_algebra import CollTiling, CollDim, CollDimOp, CollDimExpectation
+from .coll_algebra import CollTiling, CollDim, CollDimOp, CollDimExpectation, CollParam
 from .coll_analysis import CollAnalysis
 from . import camspork
 from .distributed_memory import ThreadIter
@@ -43,6 +43,8 @@ class CamsporkDo(LoopIR_Do):
         "_domain",
         "_saw_alloc",
         "_saw_free",
+        "_coll_tiling",
+        "_coll_env",
     ]
 
     _builder: camspork.ProgramBuilder
@@ -58,6 +60,8 @@ class CamsporkDo(LoopIR_Do):
     _domain: Tuple[int]
     _saw_alloc: bool
     _saw_free: bool
+    _coll_tiling: CollTiling
+    _coll_env: Dict[CollParam, int]
 
     def __init__(
         self,
@@ -81,6 +85,8 @@ class CamsporkDo(LoopIR_Do):
         self._domain = ()
         self._saw_alloc = False
         self._saw_free = False
+        self._coll_tiling = None
+        self._coll_env = None
 
         b = self._builder
 
@@ -212,6 +218,8 @@ class CamsporkDo(LoopIR_Do):
                 self._default_instr_tl = self._device.get_default_instr_tl()
             # CudaDeviceFunction handled as BaseAsyncConfig, and below.
             if isinstance(ctx, CudaDeviceFunction):
+                self._coll_tiling = ctx.top_level_coll_tiling()
+                self._coll_env = ctx.coll_env()
                 cuda_bits = timelines.cuda_stream_sync.get_full_timeline_set_bits()
                 cpu_bit = timelines.cpu_in_order_qual.as_bit()
                 clusterDim = ctx.clusterDim
@@ -257,7 +265,9 @@ class CamsporkDo(LoopIR_Do):
                 with b.TasksFor(am_iter, am_lo, am_hi, srcinfo=s.srcinfo):
                     self.do_stmts(s.body)
             elif isinstance(loop_mode, _CodegenPar):
+                old_coll_tiling = self._coll_tiling
                 self.do_codegen_par(s, am_iter, am_lo, am_hi)
+                self._coll_tiling = old_coll_tiling
             else:
                 assert not isinstance(loop_mode, CudaThreads), "Need CollAnalysis"
                 raise TypeError(
@@ -378,30 +388,30 @@ class CamsporkDo(LoopIR_Do):
             barrier, barrier_multicasts = self.comp_trailing_barrier_expr(s, instr_tl)
             for caller_a, callee_a in zip(s.args, callee.args):
                 fnarg_type = callee_a.type
-                if fnarg_type.is_indexable():
-                    continue
                 if caller_a.name not in self._sync_syms:
                     continue
                 arg_info: AccessInfo = instr.access_info[str(callee_a.name)]
-                # assert (
-                #     not arg_info.access_by_owner_only
-                # ), "TODO generate ThreadsFor loop for shards of input"
                 # TODO atomics
                 # TODO value environment
-                dst_lo, extent = self.comp_fnarg(fnarg_type, caller_a, instr_tl)
-                if dst_lo is not None:
-                    initial_q, ext_q = self.get_qual_bits(caller_a, instr_tl)
-                    b.SyncEnvAccess(
-                        dst_lo,
-                        initial_q,
-                        ext_q,
-                        is_mutate=not arg_info.const,
-                        is_ooo=arg_info.out_of_order,
-                        extent=extent,
-                        barrier=barrier,
-                        barrier_multicasts=barrier_multicasts,
-                        srcinfo=s.srcinfo,
-                    )
+                dst_lo, extent, loop_nest = self.comp_fnarg(
+                    fnarg_type, caller_a, arg_info, instr_tl
+                )
+                for ctx in loop_nest:
+                    ctx.begin()
+                initial_q, ext_q = self.get_qual_bits(caller_a, instr_tl)
+                b.SyncEnvAccess(
+                    dst_lo,
+                    initial_q,
+                    ext_q,
+                    is_mutate=not arg_info.const,
+                    is_ooo=arg_info.out_of_order,
+                    extent=extent,
+                    barrier=barrier,
+                    barrier_multicasts=barrier_multicasts,
+                    srcinfo=s.srcinfo,
+                )
+                for ctx in loop_nest:
+                    ctx.end()
             if barrier and s.trailing_barrier_expr.name in self._sync_syms:
                 # Sync-check the trailing barrier itself.
                 initial_q, _ = self.get_qual_bits(s.trailing_barrier_expr, instr_tl)
@@ -434,6 +444,7 @@ class CamsporkDo(LoopIR_Do):
     def do_codegen_par(self, s: LoopIR.For, am_iter, am_lo, am_hi):
         b = self._builder
         loop_mode = s.loop_mode
+        self._coll_tiling = self._coll_analysis.thread_iters[s.iter].coll_tiling
         if None is (dim_idx := loop_mode.am_dim_idx):
             # Do-nothing parallel-for loop.
             with b.SeqFor(am_iter, am_lo, am_hi, srcinfo=s.srcinfo):
@@ -521,22 +532,79 @@ class CamsporkDo(LoopIR_Do):
         am_name = self._builder.get_varname(name)
         return am_name[tuple(self.comp_e(e, True, instr_tl) for e in idx)]
 
-    def comp_fnarg(self, fnarg_type: LoopIR.type, e: LoopIR.expr, instr_tl: Instr_tl):
-        """Compile Read or WindowExpr to BuilderExpr + optional extent
+    def comp_fnarg(
+        self,
+        fnarg_type: LoopIR.type,
+        e: LoopIR.expr,
+        arg_info: AccessInfo,
+        instr_tl: Instr_tl,
+    ):
+        """Compile Read or WindowExpr to BuilderExpr + optional extent + loop nest.
 
         Similar policy on SyncEnvRead effects as comp_index_expr.
+        The loop nest is needed for the access_by_owner_only=True case,
+        where we have different input shards accessed by different threads
+        (hence must communicate this to the abstract machine with a ThreadsFor).
 
         """
+        b = self._builder
         if not isinstance(e, LoopIR.WindowExpr):
-            return self.comp_e(e, True, instr_tl), None
+            return self.comp_e(e, True, instr_tl), None, ()
         shape = fnarg_type.shape()
+
+        if arg_info.access_by_owner_only:
+            tiling = self._coll_tiling
+            assert isinstance(tiling, CollTiling)
+            loop_nest = []
+            coll_unit_stack = arg_info.distributed_coll_units[::-1]
+        else:
+            loop_nest = ()
+            coll_unit_stack = ()
+
         idx_lo = []
         extent = []
         shape_i = 0
-        for w in e.idx:
+        unit_i = 0
+        for w_idx, w in enumerate(e.idx):
             if isinstance(w, LoopIR.Interval):
-                idx_lo.append(w.lo)
-                extent.append(self.comp_e(shape[shape_i], True, instr_tl))
+                shape_coord = shape[shape_i]
+                if coll_unit_stack:
+                    # Distributed dimension with access_by_owner_only.
+                    # We program a parallel loop over the collective unit specifed by
+                    # the instruction, with each iteration accessing one slice.
+                    #
+                    # This is a much simplified version of what
+                    # distributed_memory.py (in CollAnalysis) is doing,
+                    # since at this point we assume the code is correct.
+                    unit = coll_unit_stack.pop()
+                    assert isinstance(shape_coord, LoopIR.Const)
+                    tmp_iter = Sym(f"_{unit_i}_CALLEE_DISTRIBUTED")
+                    tiling = tiling.tiled(
+                        tmp_iter, unit, shape_coord.val, self._coll_env
+                    )
+                    am_iter = b.add_variable(tmp_iter)
+                    codegen = tiling.get_codegen()
+                    idx_lo.append(LoopIR.Read(tmp_iter, [], T.index, w.srcinfo))
+                    extent.append(1)
+                    # Possible optimization: redundant DomainReshape may be removed.
+                    loop_nest.append(b.DomainReshape(*tiling.get_domain()))
+                    loop_nest.append(
+                        b.ThreadsFor(
+                            am_iter,
+                            0,
+                            shape_coord.val,
+                            codegen.dim_idx,
+                            codegen.offset,
+                            codegen.box,
+                            srcinfo=w.srcinfo,
+                        )
+                    )
+                    unit_i += 1
+                else:
+                    # Non-distributed dimension, or !access_by_owner_only.
+                    # So we program the access to span the entire extent of the dimension.
+                    idx_lo.append(w.lo)
+                    extent.append(self.comp_e(shape_coord, True, instr_tl))
                 shape_i += 1
             else:
                 assert isinstance(w, LoopIR.Point)
@@ -549,7 +617,7 @@ class CamsporkDo(LoopIR_Do):
 
         # If this is a read of a SpecialWindow, comp_index_expr takes
         # care of additional offset from the WindowStmt.
-        return (self.comp_index_expr(e.name, idx_lo, instr_tl), extent)
+        return (self.comp_index_expr(e.name, idx_lo, instr_tl), extent, loop_nest)
 
 
 def coll_analysis_to_camspork(
