@@ -755,6 +755,12 @@ def test_gemv_warp_coop_8(compiler_Sm80):
         x = np.ndarray(shape=(K, 1), dtype=np.float32, order="C")
         y = np.ndarray(shape=(M, 1), dtype=np.float32, order="C")
 
+        for m in range(M):
+            for k in range(K):
+                A[m, k] = ((m ^ 39) * (k ^ 14)) & 511
+        for k in range(K):
+            x[k] = k + 1
+
         cu(None, M, K, A, x, y)
         y_expected = A @ x
         assert np.array_equal(y, y_expected)
