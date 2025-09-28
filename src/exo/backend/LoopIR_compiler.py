@@ -104,7 +104,7 @@ op_prec = {
 @dataclass(slots=True)
 class BackendChecks:
     debug_log: BaseCompilerDebugLog
-    original: LoopIR.proc  # After LoopIR_Add_ID
+    original: LoopIR.proc
     after_mem_analysis: LoopIR.proc
     analyzed: LoopIR.proc
     proc_uses_cuda: bool
@@ -127,9 +127,9 @@ def run_backend_checks(
     except KeyError:
         pass
 
+    original_p = p
     try:
         p = LoopIR_Add_ID().apply_proc(p)
-        original_p = p
         debug_log.log(p.name, f"scheduled", p)
         p = ParallelAnalysis().run(p)
         p = PrecisionAnalysis().run(p)
@@ -168,6 +168,8 @@ def run_backend_checks(
         barrier_uses,
         coll_analysis,
     )
+    # original_p must be kept alive in BackendChecks to keep id key valid
+    assert key[0] == id(original_p)
     _backend_check_dict[key] = value
     return value
 
