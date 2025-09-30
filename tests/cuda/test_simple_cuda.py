@@ -695,10 +695,12 @@ def test_tmp_xgemm_Sm80(compiler_Sm80):
 # fmt: off
 gemv_blockDim = 128
 gemv_M0 = gemv_blockDim // 8
+gemv_max_K = 2048
 @proc
 def gemv_warp_coop_8(M: size, K: size, h_A: f32[M, K], h_x: f32[K], h_y: f32[M]):
     assert M % gemv_M0 == 0
     assert K % 8 == 0
+    assert K <= gemv_max_K
     d_A: f32[M, K] @ CudaGmemLinear
     d_x: f32[K] @ CudaGmemLinear
     d_y: f32[M] @ CudaGmemLinear
@@ -706,6 +708,12 @@ def gemv_warp_coop_8(M: size, K: size, h_A: f32[M, K], h_x: f32[K], h_y: f32[M])
     cudaMemcpyAsync_htod_1f32(K, d_x, h_x)
     with CudaDeviceFunction(blockDim=gemv_blockDim):
         for m1 in cuda_tasks(0, M / gemv_M0):
+            shared_x: f32[gemv_max_K] @ CudaSmemLinear
+            for i in seq(0, (K + gemv_blockDim - 1) / gemv_blockDim):
+                for tid in cuda_threads(0, gemv_blockDim):
+                    if i * gemv_blockDim + tid < K:
+                        shared_x[i * gemv_blockDim + tid] = d_x[i * gemv_blockDim + tid]
+            Fence(cuda_in_order, cuda_in_order)
             for m0 in cuda_threads(0, gemv_M0, unit=8 * cuda_thread):
                 # Teams of 8 threads cooperate to fill one element of d_y[m]
                 # where m = m1 * gemv_M0 + m0.
@@ -719,7 +727,7 @@ def gemv_warp_coop_8(M: size, K: size, h_A: f32[M, K], h_x: f32[K], h_y: f32[M])
                             for k8 in seq(0, K / 8):
                                 partial_sum[k4, k2, k1] += (
                                     d_A[m1 * gemv_M0 + m0, k8*8 + k4*4 + k2*2 + k1]
-                                  * d_x[k8*8 + k4*4 + k2*2 + k1]
+                                  * shared_x[k8*8 + k4*4 + k2*2 + k1]
                                 )
                 # XOR shuffle + sum to get totals.
                 tmp: f32[2, 2, 2] @ CudaRmem
@@ -743,6 +751,7 @@ def gemv_warp_coop_8(M: size, K: size, h_A: f32[M, K], h_x: f32[K], h_y: f32[M])
                                 if k2 == 0:
                                     if k1 == 0:
                                         d_y[m1 * gemv_M0 + m0] = tmp[k4, k2, k1]
+            Fence(cuda_in_order, cuda_in_order)
     cudaMemcpyAsync_dtoh_1f32(M, h_y, d_y)
 # fmt: on
 

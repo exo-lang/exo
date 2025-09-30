@@ -48,6 +48,7 @@ from .cuda_memory import (
     SmemConfigInputs,
     CudaGridConstant,
     CudaRmem,
+    SmemConfig,
 )
 from .lowered_barrier import LoweredBarrierType, LoweredBarrier
 from .cuda_sync_state import SyncStateBuilder
@@ -647,7 +648,6 @@ class SubtreeRewrite(LoopIR_Rewrite):
         self.smem_data_usage = mbarrier_smem_bytes
         # self.live_smem_ends = {8 * num_mbarriers}
         self.live_smem_ends = {mbarrier_smem_bytes}
-        # HACK: align mbarriers to 128 bytes for now
 
         # We override the C names of variables that appear in the
         # exo_DeviceArgs or exo_Task structs, or cuda_threads iterators.
@@ -870,16 +870,29 @@ class SubtreeRewrite(LoopIR_Rewrite):
                 inputs = smem_config_inputs(s)
                 config = s.mem.smem_config(inputs)
                 offset = max(self.live_smem_ends)
+                assert isinstance(config, SmemConfig), s.mem
 
-                # Allocate at current offset, rounded up for alignment
+                # Compute total bytes needed.
+                smem_bits = inputs.element_bits()
+                for n in inputs.const_shape:
+                    smem_bits *= n
+                assert smem_bits % 8 == 0, "TODO: error message for this"
+                smem_bytes = smem_bits // 8
+
+                # "Opportunistic alignment"
+                # Force alignment to largest power-of-2 multiple of alloc size,
+                # up to 128 bytes. Also consider SmemConfig.alignment.
                 alignment = config.alignment
-                element_bits = inputs.element_bits()
-                assert element_bits % 8 == 0, "TODO sub-byte scalar types"
-                if alignment * 8 < element_bits:
-                    alignment = element_bits // 8
                 assert 0 == (
                     alignment & (alignment - 1)
                 ), "SMEM alignment must be power of 2"
+                while alignment < 128:
+                    if (alignment - 1) & smem_bytes:
+                        break
+                    else:
+                        alignment <<= 1
+
+                # Allocate at current offset, rounded up for alignment
                 offset = (offset + alignment - 1) & ~(alignment - 1)
 
                 # Stack allocator reserves space for this allocation
@@ -888,9 +901,10 @@ class SubtreeRewrite(LoopIR_Rewrite):
                 # maybe are not strictly nested). Hence the max logic, a
                 # dead SMEM allocation stays reserved until all
                 # higher-on-the-stack SMEMs are also dead.
-                smem_bytes = element_bits // 8
-                for n in inputs.const_shape:
-                    smem_bytes *= n
+                # TODO: write a better allocator that wisely uses "holes"
+                # and doesn't have blind spots from greedy allocation,
+                # e.g. alloc(A), alloc(B), free(A), alloc(C), free(B), free(C)
+                # where sizeof(C) > sizeof(A)
                 smem_end = offset + smem_bytes
                 self.smem_data_usage = max(smem_end, self.smem_data_usage)
                 assert smem_end not in self.live_smem_ends

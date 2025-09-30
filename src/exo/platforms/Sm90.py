@@ -101,12 +101,22 @@ def Sm90_SmemSwizzled(swizzle):
             return f"""typedef struct {c_matrices} {{
     char matrix_bytes[{matrix_bytes * num_matrices}];
 #ifdef __CUDACC__
-    EXO_CUDA_INLINE {c_matrices}& byte_offset(unsigned bytes)
+    template <typename T>
+    EXO_CUDA_INLINE T& swizzled_element(unsigned linear_offset)
     {{
-        return reinterpret_cast<{c_matrices}&>(matrix_bytes[bytes]);
+        // Adapted from ThunderKittens appendix which actually documents CUDA correctly.
+        uintptr_t addr = reinterpret_cast<uintptr_t>(this) + sizeof(T) * linear_offset;
+        return *reinterpret_cast<T*>(addr ^ (((addr % sizeof(*this)) >> 7) << 4));
     }}
 
-    EXO_CUDA_INLINE uint64_t get_swizzle_bits() const
+    EXO_CUDA_INLINE {c_matrices}& raw_byte_offset(unsigned byte_offset)
+    {{
+        // Offset without swizzling, for passing to TMA/wgmma instruction.
+        // We further preserve the matrix type, for exo_matrix_descriptor to inspect.
+        return reinterpret_cast<{c_matrices}&>(matrix_bytes[byte_offset]);
+    }}
+
+    static constexpr uint64_t get_swizzle_bits()
     {{
         return {swizzle_bits};
     }}
@@ -115,7 +125,15 @@ def Sm90_SmemSwizzled(swizzle):
 
         @classmethod
         def can_read(cls):
-            return False
+            return True
+
+        @classmethod
+        def write(cls, s, lhs, rhs):
+            return f"{lhs} = {rhs};"
+
+        @classmethod
+        def reduce(cls, s, lhs, rhs):
+            return f"{lhs} += {rhs};"
 
         @classmethod
         def packed_tensor_shape(cls, scalar_info: ScalarInfo):
@@ -143,7 +161,7 @@ def Sm90_SmemSwizzled(swizzle):
 
 def Sm90_get_mma_smem(swizzle):
     if swizzle == 0:
-        return CudaSmemLinear  # XXX TODO 128 byte alignment
+        return CudaSmemLinear
     else:
         return Sm90_SmemSwizzled(swizzle)
 
@@ -198,7 +216,8 @@ class SwizzledEncoder(WindowEncoder):
 class SwizzledIndexer(WindowIndexer):
     __slots__ = []
 
-    def index(self, utils, features: WindowFeatures):
+    def index(self, utils, features: WindowFeatures, for_wgmma=False):
+        ctype = self.ctype()
         mem = features.get_mem()
 
         dataptr = features.get_dataptr()
@@ -209,12 +228,24 @@ class SwizzledIndexer(WindowIndexer):
             ) * features.get_array_stride_as_packed(i)
 
         assert features.n_packed_dims() == 2
-        features.get_packed_offset(0).exo_expect_int(0)  # Cannot offset packed M/N
         assert self.element_bits() >= 8, "TODO implement float4 etc."
-        byte_offset = features.get_packed_offset(1)  # Offset packed K
-        byte_offset *= self.element_bits() // 8
-
-        code = f"{dataptr}[{array_offset}].byte_offset({byte_offset})"
+        if for_wgmma:
+            # This passes a non-swizzled pointer to wgmma or TMA.
+            # wgmma cannot offset packed M/N.
+            features.get_packed_offset(0).exo_expect_int(0)
+            byte_offset = features.get_packed_offset(1)  # Offset packed K
+            byte_offset *= self.element_bits() // 8
+            code = f"{dataptr}[{array_offset}].raw_byte_offset({byte_offset})"
+        else:
+            # This path swizzles the pointer.
+            # Needed for access with normal scalar code.
+            packed_shape = features.packed_tensor_shape()
+            linear_offset = features.get_packed_offset(0) * packed_shape[
+                1
+            ] + features.get_packed_offset(1)
+            code = (
+                f"{dataptr}[{array_offset}].swizzled_element<{ctype}>({linear_offset})"
+            )
 
         return self.pack_result(code, False)
 
@@ -565,7 +596,7 @@ class copy_tensor_to_smem_impl(InstrInfo):
     def codegen(self, args: InstrArgs):
         box = self.smem_box
         lines = [f"exo_CudaUtil::exo_Sm90_tma_to_smem_{len(box)}d("]
-        smem_data = args.dst.index()
+        smem_data = args.dst.index(for_wgmma=True)
         CUtensorMap = args.src.get_separate_dataptr()
         src_struct = args.src.get_window()
         lines.append(f"  &{smem_data},")
@@ -691,7 +722,7 @@ class Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
         box = self.smem_box
         lines = [f"exo_CudaUtil::exo_Sm90_tma_to_smem_{len(box)}d_multicast("]
         cta_idx = args.exo_wrap_cir(f"(blockIdx.x / {args.cta_stride}) % {args.n_cta}")
-        smem_data = args.dst.index(cta_idx * (box[0] // 8))
+        smem_data = args.dst.index(cta_idx * (box[0] // 8), for_wgmma=True)
         CUtensorMap = args.src.get_separate_dataptr()
         src_struct = args.src[cta_idx * box[0] : (cta_idx + 1) * box[0]]
         lines.append(f"  &{smem_data},")
@@ -738,21 +769,22 @@ EXO_CUDA_INLINE uint64_t exo_matrix_descriptor_encode(uint32_t val)
 }
 
 template <typename PackedMatrix>
-EXO_CUDA_INLINE uint64_t exo_matrix_descriptor(PackedMatrix* ptr, uint32_t mn_stride_as_packed, uint32_t mn_offset = 0)
+EXO_CUDA_INLINE uint64_t exo_matrix_descriptor(
+    PackedMatrix* ptr, uint32_t mn_stride_as_packed, uint32_t mn_offset = 0)
 {
     static_assert(sizeof(PackedMatrix) > 8, "Write a new impl for non-swizzled stuff");
     uint64_t mn_stride = mn_stride_as_packed * sizeof(PackedMatrix);
     return exo_matrix_descriptor_encode(exo_smemU32(ptr) + (mn_offset / 8u) * mn_stride)
            | exo_matrix_descriptor_encode(16) << 16u
            | exo_matrix_descriptor_encode(mn_stride) << 32u
-           | uint64_t(ptr->get_swizzle_bits()) << 62;
+           | uint64_t(PackedMatrix::get_swizzle_bits()) << 62;
 }
 """
 
 
 @dataclass(slots=True)
 class WgmmaHelper:
-    # wgmma.mma_async.sync.aligned.m{M}n{N}k{K}.{ptx_dtype}.{ptx_atype}.{ptx.btype}
+    # wgmma.mma_async.sync.aligned.m{M}n{N}k{get_K()}.{ptx_dtype}.{ptx_atype}.{ptx.btype}
     M: int
     N: int
     ptx_dtype: str
@@ -990,12 +1022,12 @@ class mma_async_impl(InstrInfo):
         lines = []
         lines.append(f"{fname}(")
         for m in range(0, args.M, 64):
-            ref = args.a.index()
+            ref = args.a.index(for_wgmma=True)
             strides = args.a.to_strides_as_packed()
             lines.append(
                 f"  exo_CudaUtil::exo_matrix_descriptor(&{ref}, {strides[0]}, {m}),"
             )
-        ref = args.b.index()
+        ref = args.b.index(for_wgmma=True)
         strides = args.b.to_strides_as_packed()
         lines.append(f"  exo_CudaUtil::exo_matrix_descriptor(&{ref}, {strides[0]}),")
         d = args.d.index()

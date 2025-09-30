@@ -677,9 +677,8 @@ class SyncStateBuilder:
                 lines.extend(simple_ptx_c_lines("barrier.cluster.wait.aligned", tab="    "))
             else:
                 lines.extend(simple_ptx_c_lines("barrier.cta.sync", 0, tab="    "))
-        # HACK: align mbarriers to 128 bytes for now
         assert offset == self.mbarrier_count
-        smem_bytes = 128 * ((offset + 15) // 16)
+        smem_bytes = 8 * offset
         if lines:
             return "\n".join(lines), smem_bytes
         else:

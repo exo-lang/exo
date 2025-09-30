@@ -463,23 +463,27 @@ class InstrWindowArg:
     def get_raw_name(self) -> str:
         return self._features.get_raw_name()
 
-    def index_result(self, *idxs) -> WindowIndexerResult:
+    def get_raw_dataptr(self) -> str:
+        return str(self._features.get_dataptr())
+
+    def index_result(self, *idxs, **kwargs) -> WindowIndexerResult:
         new_features = self._features.new_window(
             idxs, [None] * len(idxs), self._srcinfo
         )
         indexed = self._features.get_indexer().index(
             self._indexer_utils,
             new_features,
+            **kwargs,
         )
         assert isinstance(indexed, WindowIndexerResult)
         return indexed
 
-    def index(self, *idxs) -> str:
-        r = self.index_result(*idxs)
+    def index(self, *idxs, **kwargs) -> str:
+        r = self.index_result(*idxs, **kwargs)
         return f"({r.code})[0]" if r.is_ptr else r.code
 
-    def index_ptr(self, *idxs) -> str:
-        r = self.index_result(*idxs)
+    def index_ptr(self, *idxs, **kwargs) -> str:
+        r = self.index_result(*idxs, **kwargs)
         return r.code if r.is_ptr else f"&{r.code}"
 
     def to_arg_strs(self):

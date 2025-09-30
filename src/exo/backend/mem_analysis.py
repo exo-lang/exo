@@ -295,12 +295,16 @@ class MemoryAnalysis:
             assert False, f"bad case {styp}"
 
     def check_window_expr(self, e, mem):
-        # Check intact packed dimensions
+        # Check points before intervals for packed dimensions
         scalar_info = e.type.basetype().scalar_info()
-        n_packed_dims = len(mem.packed_tensor_shape(scalar_info))
+        shape = mem.packed_tensor_shape(scalar_info)
+        n_packed_dims = len(shape)
         idxs = e.idx[-n_packed_dims:] if n_packed_dims else ()
+        saw_interval = False
         for idx in idxs:
-            if not isinstance(idx, LoopIR.Interval):
+            if isinstance(idx, LoopIR.Interval):
+                saw_interval = True
+            elif saw_interval:
                 raise ValueError(
-                    f"{e.srcinfo}: expected last {n_packed_dims} idx to be intervals to match {mem.name()}'s packed tensor shape (in {e})"
+                    f"{e.srcinfo}: expected last {n_packed_dims} idx to have points before intervals to match {mem.name()}'s packed tensor shape {shape} (in {e})"
                 )
