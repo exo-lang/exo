@@ -97,7 +97,9 @@ class SmemConfig:
         e.g. "float (&) [128]"
 
     alignment: minimum byte alignment (power of 2)
-        Will be implicitly increased if the scalar type needs it.
+        If the allocation size is divisible by a power of 2
+        up to 128, then the implementation implicitly aligns
+        at least to that power-of-2.
     """
 
     reftype: str
@@ -178,8 +180,10 @@ class CudaBasicSmem(CudaBasicDeviceVisible):
     qual_tl_dict = timelines.cuda_ram_qual_tl_dict
 
 
-class CudaDeviceVisibleLinear(CudaBasicDeviceVisible):
-    """Any memory in C array order visible to CUDA device"""
+class CudaDeviceVisibleAtomicity16B(CudaBasicDeviceVisible):
+    """Any memory in swizzled C array order visible to the CUDA device,
+    where the swizzle pattern keeps aligned groups of 16 bytes in the
+    unswizzled layout contiguous in the swizzled layout."""
 
     @classmethod
     def can_read(cls):
@@ -192,6 +196,12 @@ class CudaDeviceVisibleLinear(CudaBasicDeviceVisible):
     @classmethod
     def reduce(cls, s, lhs, rhs):
         return f"{lhs} += {rhs};"
+
+
+class CudaDeviceVisibleLinear(CudaDeviceVisibleAtomicity16B):
+    """Any memory in C array order visible to CUDA device"""
+
+    pass
 
 
 # TODO grid constants require special compiler support. Consider additional
@@ -314,7 +324,17 @@ class CudaGmemLinear(CudaDeviceVisibleLinear):
     qual_tl_dict = timelines.cuda_ram_qual_tl_dict
 
 
-class CudaSmemLinear(CudaDeviceVisibleLinear, CudaBasicSmem):
+class CudaSmemAtomicity16B(CudaDeviceVisibleAtomicity16B, CudaBasicSmem):
+    """Any shared memory with CudaDeviceVisibleAtomicity16B requirements met.
+
+    Abstract base class, not allocable.
+
+    """
+
+    pass
+
+
+class CudaSmemLinear(CudaDeviceVisibleLinear, CudaSmemAtomicity16B):
     """Shared memory in C array order"""
 
     @classmethod
