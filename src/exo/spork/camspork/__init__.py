@@ -236,15 +236,15 @@ _add_TrailingBarrierExpr.argtypes = (c_void_p, Varname, c_uint32, ptr_ArriveIdx)
 
 _add_SyncEnvAccessSingle = lib.camspork_add_SyncEnvAccessSingle
 _add_SyncEnvAccessSingle.restype = StmtRef
-_add_SyncEnvAccessSingle.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, TrailingBarrierExprRef)
+_add_SyncEnvAccessSingle.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c_uint32, c_uint32, c_uint32, c_uint32, TrailingBarrierExprRef)
 
 _add_SyncEnvAccessWindow = lib.camspork_add_SyncEnvAccessWindow
 _add_SyncEnvAccessWindow.restype = StmtRef
-_add_SyncEnvAccessWindow.argtypes = (c_void_p, Varname, c_uint32, ptr_OffsetExtentExpr, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, TrailingBarrierExprRef)
+_add_SyncEnvAccessWindow.argtypes = (c_void_p, Varname, c_uint32, ptr_OffsetExtentExpr, c_uint32, c_uint32, c_uint32, c_uint32, TrailingBarrierExprRef)
 
 _add_SyncEnvAccessMulticast = lib.camspork_add_SyncEnvAccessMulticast
 _add_SyncEnvAccessMulticast.restype = StmtRef
-_add_SyncEnvAccessMulticast.argtypes = (c_void_p, Varname, c_uint32, ptr_ArriveIdx, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, TrailingBarrierExprRef)
+_add_SyncEnvAccessMulticast.argtypes = (c_void_p, Varname, c_uint32, ptr_ArriveIdx, c_uint32, c_uint32, c_uint32, c_uint32, TrailingBarrierExprRef)
 
 _add_SyncEnvFreeShard = lib.camspork_add_SyncEnvFreeShard
 _add_SyncEnvFreeShard.restype = StmtRef
@@ -567,6 +567,10 @@ class ProgramBuilder:
     _reverse_varname_dict: Dict[Varname, object]
     _stmt_srcinfo: Dict[StmtRef, object]
 
+    ooo_flag = 1
+    convergent_flag = 2
+    mutate_flag = 4
+
     def __init__(self):
         self._builder = check_return(_new_ProgramBuilder())
         self._varname_dict = {}
@@ -652,9 +656,8 @@ class ProgramBuilder:
         dst: BuilderIndexExpr | Varname,
         initial_qual_bit: int,
         extended_qual_bits: int,
+        flags: int,
         *,
-        is_mutate: bool,
-        is_ooo: bool,
         extent: Optional[List[BuilderExpr]] = None,
         atomic_qual_bits: int = 0,
         access_multicasts: Tuple[Tuple[bool]] = (),
@@ -701,8 +704,7 @@ class ProgramBuilder:
                 initial_qual_bit,
                 extended_qual_bits,
                 atomic_qual_bits,
-                bool(is_mutate),
-                bool(is_ooo),
+                flags,
                 trailing_barrier_expr,
             ),
         )
@@ -1099,12 +1101,12 @@ if __name__ == "__main__":
                     b.BarrierEnvAlloc(bars[4, 2, 2])
                     tid = b.add_variable("tid")
                     with b.ThreadsFor(tid, 0, 24, 0, 0, 1):
-                        b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 2, 2, is_mutate=True, is_ooo=True, atomic_qual_bits=8192, barrier=bars[m, n, k], barrier_multicasts=((True, False, False),))
+                        b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 2, 2, b.mutate_flag | b.ooo_flag, atomic_qual_bits=8192, barrier=bars[m, n, k], barrier_multicasts=((True, False, False),))
                     with b.ThreadsFor(tid, 0, 1, 0, 0, 14):
                         b.Arrive(True, 3, bars[m, n, k], ((True, False, True), (True, True, False)))
                         b.Await(bars[m, n, k], 3, 3, N=0)
                     with b.ThreadsFor(tid, 0, 14, 0, 0, 1):
-                        b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 1, 1, is_mutate=False, is_ooo=False)
+                        b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 1, 1, 0)
     print(foo_barrier)
     env = ProgramEnv(foo_barrier)
     env.set_debug_validation_enable(b_validation)
@@ -1150,18 +1152,18 @@ if __name__ == "__main__":
         with b.ParallelBlock(4):
             tid = b.add_variable("tid")
             with b.ThreadsFor(tid, 0, 4, 0, 0, 1):
-                with b.If(tid == 0):
-                    b.SyncEnvAccess(buf[0, 1], 1, 1, is_mutate=False, is_ooo=False)
-                    b.SyncEnvAccess(buf[0, 2], 1, 1, is_mutate=False, is_ooo=False)
-                    b.SyncEnvAccess(buf[0, 3], 1, 1, is_mutate=False, is_ooo=False)
-                    b.SyncEnvAccess(buf[0, 4], 1, 1, is_mutate=False, is_ooo=False)
-                b.SyncEnvAccess(buf[tid, 2 * tid], 1, 1, is_mutate=False, is_ooo=False, extent=[6, 5])
+                with b.If(b.Eq(tid, 0)):
+                    b.SyncEnvAccess(buf[0, 1], 1, 1, 0)
+                    b.SyncEnvAccess(buf[0, 2], 1, 1, 0)
+                    b.SyncEnvAccess(buf[0, 3], 1, 1, 0)
+                    b.SyncEnvAccess(buf[0, 4], 1, 1, 0)
+                b.SyncEnvAccess(buf[tid, 2 * tid], 1, 1, 0, extent=[6, 5])
             b.Fence(True, 1, 1, 1)
             m = b.add_variable("m")
             n = b.add_variable("n")
             with b.SeqFor(m, 0, 10):
                 with b.SeqFor(n, 0, 16):
-                    b.SyncEnvAccess(buf[m, n], 1, 1, is_mutate=True, is_ooo=False)
+                    b.SyncEnvAccess(buf[m, n], 1, 1, b.mutate_flag)
     print(extent_test)
     env = ProgramEnv(extent_test)
     env.set_debug_validation_enable(b_validation)
@@ -1185,17 +1187,17 @@ if __name__ == "__main__":
                 s = b.add_variable("s")
                 with b.SeqFor(s, 0, 8):
                     with b.If(use_atomics):
-                        b.SyncEnvAccess(buf[s], 1, 1, is_mutate=True, is_ooo=False, atomic_qual_bits=1)
+                        b.SyncEnvAccess(buf[s], 1, 1, b.mutate_flag, atomic_qual_bits=1)
                         with b.If(wrong_tl):
-                            b.SyncEnvAccess(buf[s], 2, 2, is_mutate=True, is_ooo=False, atomic_qual_bits=2)
+                            b.SyncEnvAccess(buf[s], 2, 2, b.mutate_flag, atomic_qual_bits=2)
                             b.begin_orelse()
-                            b.SyncEnvAccess(buf[s], 1, 1, is_mutate=True, is_ooo=False, atomic_qual_bits=1)
+                            b.SyncEnvAccess(buf[s], 1, 1, b.mutate_flag, atomic_qual_bits=1)
                         b.begin_orelse()
-                        b.SyncEnvAccess(buf[s], 1, 1, is_mutate=True, is_ooo=False, atomic_qual_bits=0)
+                        b.SyncEnvAccess(buf[s], 1, 1, b.mutate_flag, atomic_qual_bits=0)
             with b.If(fence_enable):
                 b.Fence(True, 1, 5, 5)
             with b.ThreadsFor(tid, 0, 8, 0, 0, 1):
-                b.SyncEnvAccess(buf[tid], 1, 1, is_mutate=False, is_ooo=False)
+                b.SyncEnvAccess(buf[tid], 1, 1, 0)
 
     env = ProgramEnv(atomic_test)
     env.set_debug_validation_enable(b_validation)
@@ -1222,13 +1224,13 @@ if __name__ == "__main__":
             global tasks_for
             with b.TasksFor(task, 0, num_tasks) as tasks_for:
                 with b.ThreadsFor(tid, 0, 64, 0, 0, 1):
-                    b.SyncEnvAccess(buf[tid], 1, 1, is_mutate=True, is_ooo=False)
+                    b.SyncEnvAccess(buf[tid], 1, 1, b.mutate_flag)
                 with b.If(fence_enable):
                     b.Fence(True, 1, 1, 511)
                 with b.ThreadsFor(tid, 0, 64, 0, 0, 1):
                     s = b.add_variable("s")
                     with b.SeqFor(s, 0, 64):
-                        b.SyncEnvAccess(buf[s], 1, 1, is_mutate=False, is_ooo=False)
+                        b.SyncEnvAccess(buf[s], 1, 1, 0)
     print(fence_test)
     print(tasks_for.node)
     print(tasks_for.body)
@@ -1252,13 +1254,13 @@ if __name__ == "__main__":
                 b.SyncEnvAlloc(buf[2])
                 b.SyncEnvAlloc(scalar)
                 with b.ThreadsFor(tid, 0, 2, 0, 0, 1):
-                    b.SyncEnvAccess(buf[tid], 1, 1, is_mutate=True, is_ooo=False)
-                    b.SyncEnvAccess(buf[tid], 1, 1, is_mutate=True, is_ooo=False)
-                    with b.If(tid == 0):
-                      b.SyncEnvAccess(scalar, 1, 1, is_mutate=True, is_ooo=False)
+                    b.SyncEnvAccess(buf[tid], 1, 1, b.mutate_flag)
+                    b.SyncEnvAccess(buf[tid], 1, 1, b.mutate_flag)
+                    with b.If(b.Eq(tid, 0)):
+                      b.SyncEnvAccess(scalar, 1, 1, b.mutate_flag)
                 # b.Fence(True, 1, 1, 1)
                 with b.ThreadsFor(tid, 0, 2, 0, 0, 1):
-                    b.SyncEnvAccess(buf[tid], 1, 1, is_mutate=True, is_ooo=False)
+                    b.SyncEnvAccess(buf[tid], 1, 1, b.mutate_flag)
     print(realloc_test)
     env = ProgramEnv(realloc_test)
     env.exec(excut_filename="realloc_excut.json")

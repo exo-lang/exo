@@ -12,6 +12,9 @@ class AccessInfo:
     access_by_owner_only: Optional[bool] = None
     const: bool = False  # Set automatically
 
+    # TODO
+    convergent_access: bool = True
+
     # UNSTABLE: for experiments on figuring out how to model TMA's
     # zero-pad behavior (reading GMEM) and implied predication (writing GMEM)
     # when out-of-bounds coordinates are given.

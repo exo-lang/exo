@@ -71,6 +71,7 @@ struct AssignmentRecordWindow
 struct SyncvAccessInfo
 {
     bool is_ooo;
+    bool is_convergent;
     qual_bits_t initial_qual_bit;
     qual_bits_t extended_qual_bits;
     qual_bits_t atomic_qual_bits;

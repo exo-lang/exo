@@ -143,8 +143,7 @@ class CamsporkDo(LoopIR_Do):
                     am_dst,
                     initial_q,
                     ext_q,
-                    is_mutate=True,
-                    is_ooo=False,
+                    flags=b.mutate_flag | b.convergent_flag,
                     srcinfo=s.srcinfo,
                 )
             if want_value:
@@ -172,8 +171,7 @@ class CamsporkDo(LoopIR_Do):
                         am_home_barrier,
                         q_bit,
                         q_bit,
-                        is_mutate=False,
-                        is_ooo=False,
+                        flags=b.convergent_flag,
                         access_multicasts=multicasts,
                         srcinfo=s.srcinfo,
                         # TODO wouldn't it make more sense to use barrier
@@ -194,8 +192,7 @@ class CamsporkDo(LoopIR_Do):
                         am_home_barrier,
                         q_bit,
                         q_bit,
-                        is_mutate=False,
-                        is_ooo=False,
+                        flags=b.convergent_flag,
                         srcinfo=s.srcinfo,
                     )
                 b.Await(
@@ -407,12 +404,20 @@ class CamsporkDo(LoopIR_Do):
                 for ctx in loop_nest:
                     ctx.begin()
                 initial_q, ext_q = self.get_qual_bits(caller_a, instr_tl)
+                flags = 0
+                if not arg_info.const:
+                    flags |= b.mutate_flag
+                if arg_info.out_of_order:
+                    flags |= b.ooo_flag
+                assert type(arg_info.convergent_access) is bool
+                if arg_info.convergent_access:
+                    flags |= b.convergent_flag
+
                 b.SyncEnvAccess(
                     dst_lo,
                     initial_q,
                     ext_q,
-                    is_mutate=not arg_info.const,
-                    is_ooo=arg_info.out_of_order,
+                    flags=flags,
                     extent=extent,
                     barrier=barrier,
                     barrier_multicasts=barrier_multicasts,
@@ -427,8 +432,8 @@ class CamsporkDo(LoopIR_Do):
                     barrier,
                     initial_q,
                     initial_q,
-                    is_mutate=False,
-                    is_ooo=False,
+                    # model as in-order read since concurrent access is allowed
+                    flags=b.convergent_flag,
                     access_multicasts=barrier_multicasts,
                     barrier=barrier,
                     barrier_multicasts=barrier_multicasts,
@@ -496,12 +501,18 @@ class CamsporkDo(LoopIR_Do):
                 am_src = self.comp_index_expr(e.name, e.idx, instr_tl)
             if want_sync:
                 initial_q, ext_q = self.get_qual_bits(e, instr_tl)
+                if self._coll_tiling.get_box_num_threads() == 1:
+                    # convergent access makes no functional difference
+                    # when the thread count is 1, but I suspect the
+                    # implementation is faster if we set this flag.
+                    flags = b.convergent_access
+                else:
+                    flags = 0
                 b.SyncEnvAccess(
                     am_src,
                     initial_q,
                     ext_q,
-                    is_mutate=False,
-                    is_ooo=False,
+                    flags=flags,
                     srcinfo=e.srcinfo,
                 )
             if want_value:

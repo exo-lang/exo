@@ -138,8 +138,18 @@ class ProgramPrinter
         *this << "b.SyncEnvAccess(" << node->name;
         print_idx(node, true);  // print offset
         *this << ", " << node->initial_qual_bit << ", " << node->extended_qual_bits;
-        *this << ", is_mutate=" << (node->is_mutate ? "True" : "False");
-        *this << ", is_ooo=" << (node->is_ooo ? "True" : "False");
+        *this << ", flags=0";
+
+        static_assert(access_flag_all_bits == 7, "update me");
+        if (node->access_flags & access_flag_mutate) {
+            *this << " | b.mutate_flag";
+        }
+        if (node->access_flags & access_flag_ooo) {
+            *this << " | b.ooo_flag";
+        }
+        if (node->access_flags & access_flag_convergent) {
+            *this << " | b.convergent_flag";
+        }
         if (const qual_bits_t q = node->get_atomic_qual_bits()) {
             *this << ", atomic_qual_bits=" << q;
         }

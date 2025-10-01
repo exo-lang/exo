@@ -496,6 +496,11 @@ static constexpr uint32_t NumStmtTypes = 23;
 
 using StmtRef = NodeRef<stmt, NumStmtTypes>;
 
+constexpr uint32_t access_flag_ooo = 1;
+constexpr uint32_t access_flag_convergent = 2;
+constexpr uint32_t access_flag_mutate = 4;
+constexpr uint32_t access_flag_all_bits = 7;
+
 template <bool IsWindow, bool IsMulticast>
 struct SyncEnvAccessNodeData
 {
@@ -504,7 +509,7 @@ struct SyncEnvAccessNodeData
     Varname name;
     qual_bits_t initial_qual_bit;
     qual_bits_t extended_qual_bits;
-    uint32_t is_ooo;
+    uint32_t access_flags;  // access_flag_mutate must match with IsMutate template parameter (in subclass)
     TrailingBarrierExprRef trailing_barrier_expr;
 
     static constexpr bool is_window = IsWindow;

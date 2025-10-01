@@ -380,8 +380,12 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
             return;
         }
 
+        CAMSPORK_REQUIRE_CMP(IsMutate, ==, bool(node->access_flags & access_flag_mutate),
+                "implementation didn't set static IsMutate type to match requested mutate flag");
+
         SyncvAccessInfo access;
-        access.is_ooo = node->is_ooo;
+        access.is_ooo = node->access_flags & access_flag_ooo;
+        access.is_convergent = node->access_flags & access_flag_convergent;
         access.initial_qual_bit = node->initial_qual_bit;
         access.extended_qual_bits = node->extended_qual_bits;
         access.atomic_qual_bits = node->get_atomic_qual_bits();
