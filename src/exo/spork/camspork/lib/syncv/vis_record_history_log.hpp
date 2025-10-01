@@ -43,7 +43,7 @@ struct LoggedSyncStmtValues
     uint32_t arrive_count_after;
     uint32_t await_count_before;
     uint32_t await_count_after;
-    uint32_t await_max_arrive_count;
+    int32_t await_max_arrive_count;
 };
 
 struct LoggedSyncStmtEvent
