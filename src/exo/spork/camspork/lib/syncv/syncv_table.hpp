@@ -70,8 +70,13 @@ struct AssignmentRecordWindow
 
 struct SyncvAccessInfo
 {
+    // Init VisRecord to vis_level_unordered if is_ooo, otherwise vis_level_full_ordered
     bool is_ooo;
+
+    // If true: only one thread must have visibility, and we init with one VisRecord for all threads.
+    // If false: all threads must have visibility, and we init with a new VisRecord per thread.
     bool is_convergent;
+
     qual_bits_t initial_qual_bit;
     qual_bits_t extended_qual_bits;
     qual_bits_t atomic_qual_bits;
