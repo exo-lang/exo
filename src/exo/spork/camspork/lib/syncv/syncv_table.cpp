@@ -407,9 +407,9 @@ struct history_log_vis_record_id
 
 struct SyncvTrivialLogger
 {
-    template <typename Input, bool IsMutate>
+    template <typename Input, typename VisRecordList>
     void excut_log_assignment_records(
-            const SyncvTable&, Input, nodepool::id<VisRecordListNode<IsMutate>>, ExcutMutateTag)
+            const SyncvTable&, Input, const VisRecordList&, ExcutMutateTag)
     {
     }
 
@@ -739,9 +739,9 @@ struct SyncvTable
 
     // Allocate a new visibility record.
     // This will later need to be added to the memoization table.
-    template <bool IsMutate>
+    template <bool IsMutate, typename ThreadInit>
     VisRecordListNode<IsMutate>& alloc_vis_record(
-            const ThreadCuboid& cuboid, SyncvAccessInfo access, nodepool::id<VisRecordListNode<IsMutate>>* out)
+            const ThreadInit& thread_init, SyncvAccessInfo access, nodepool::id<VisRecordListNode<IsMutate>>* out)
     {
         nodepool::id<VisRecordListNode<IsMutate>> vis_record_id;
         VisRecordListNode<IsMutate>& vis_record = alloc_default_node(&vis_record_id);
@@ -751,12 +751,12 @@ struct SyncvTable
         vis_record.base_data.visibility_set = {};
         vis_record.base_data.pending_awaits = {};
 
-        // Initialize visibility set = linked list of intervals generated from the initial thread cuboid.
+        // Initialize visibility set = linked list of intervals generated from the initial thread / thread cuboid.
         const qual_bits_t q = access.initial_qual_bit;
         const qual_bits_t q_if_ordered = access.is_ooo ? 0u : q;
         const QualBitsByVis qual_bits_by_vis{{q, q, q_if_ordered, q_if_ordered}};
         nodepool::id<TlSigIntervalListNode>* p_node_id = &vis_record.base_data.visibility_set;
-        cuboid.to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi)
+        thread_init.to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi)
         {
             TlSigIntervalListNode& tl_sigs_node = alloc_default_node(p_node_id);
             tl_sigs_node.data = TlSigInterval{tid_lo, tid_hi, qual_bits_by_vis};
@@ -1459,18 +1459,18 @@ struct SyncvTable
     // Add a new visibility record, or return existing memoized one, constructed from the given thread cuboid
     // + qual_bits_by_vis (in TlSigInterval format).
     // The returned ID is an owning reference (ownership count given by added_refcnt).
-    template <bool IsMutate>
+    template <bool IsMutate, typename ThreadInit>
     [[nodiscard]] nodepool::id<VisRecordListNode<IsMutate>> memoize_new_vis_record(
-            const ThreadCuboid& cuboid, SyncvAccessInfo access, uint32_t added_refcnt)
+            const ThreadInit& thread_init, SyncvAccessInfo access, uint32_t added_refcnt)
     {
         nodepool::id<VisRecordListNode<IsMutate>> new_vis_id;
-        auto& vis_node = alloc_vis_record<IsMutate>(cuboid, access, &new_vis_id);
-        if (!vis_node.base_data.pending_awaits) {
-            CAMSPORK_REQUIRE_CMP(vis_node.refcnt, ==, 1, "expected 1 refcnt initially");
+        auto& new_vis = alloc_vis_record<IsMutate>(thread_init, access, &new_vis_id);
+        if (!new_vis.base_data.pending_awaits) {
+            CAMSPORK_REQUIRE_CMP(new_vis.refcnt, ==, 1, "expected 1 refcnt initially");
         }
         MemoizeVisRecordCommand<IsMutate> command{new_vis_id, get(new_vis_id).base_data};
 
-        const TlSigBucketKey key = cuboid.minimal_superset_interval();
+        const TlSigBucketKey key = thread_init.minimal_superset_interval();
         nodepool::id<VisRecordListNode<IsMutate>> id = for_buckets<IsMutate, BucketProcessType::Insert>(key, command);
         CAMSPORK_REQUIRE(id, "BucketProcessType::Insert search should not have given null");
 
@@ -1480,9 +1480,10 @@ struct SyncvTable
         // We have to bypass decref(...) since it assumes the value was memoized.
         CAMSPORK_REQUIRE_CMP(added_refcnt, !=, 0, "cannot memoize w/ zero refcnt");
         get(id).refcnt += added_refcnt;  // Must do this before decref.
-        auto& new_vis = get(new_vis_id);
         CAMSPORK_REQUIRE_CMP(new_vis.refcnt, >, 0, "unexpected 0 refcnt in new VisRecord");
-        if (0 == --new_vis.refcnt) {
+        new_vis.refcnt--;
+        if (id != new_vis_id) {
+            CAMSPORK_REQUIRE_CMP(new_vis.refcnt, ==, 0, "unexpected reference to duplicate VisRecord");
             free_single_vis_record(new_vis_id);
         }
         return id;
@@ -2154,15 +2155,41 @@ struct SyncvTable
             census[0].second.count = 1;
         }
 
-        // We will memoize the new visibility record once.
-        nodepool::id<VisRecordListNode<IsMutate>> vis_record_id{};
-        if (UpdateRecords && !census.empty()) {
-            const uint32_t initial_refcnt = uint32_t(census.size());
-            vis_record_id = memoize_new_vis_record<IsMutate>(cuboid, access, initial_refcnt);
-            logger.history_new_vis_record(*this, vis_record_id);
+        // We will memoize the new visibility record(s) once.
+        // 0 new records if !UpdateRecords
+        // 1 new record if IsConvergent
+        // any # new records if !IsConvergent
+        using VisRecordID = nodepool::id<VisRecordListNode<IsMutate>>;
+        using VisRecordList = std::conditional_t<
+            !UpdateRecords, std::array<VisRecordID, 0>,
+            std::conditional_t<IsConvergent, std::array<VisRecordID, 1>, std::vector<VisRecordID>>>;
+        VisRecordList new_vis_record_list{};
+        const uint32_t vis_record_refcnt = uint32_t(census.size());
+
+        if constexpr (!UpdateRecords) {
+        }
+        else if (census.empty()) {
+        }
+        else if constexpr (IsConvergent) {
+            const VisRecordID new_vis_record_id = memoize_new_vis_record<IsMutate>(cuboid, access, vis_record_refcnt);
+            logger.history_new_vis_record(*this, new_vis_record_id);
+            new_vis_record_list[0] = new_vis_record_id;
+        }
+        else {
+            cuboid.to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi) {
+                for (uint32_t tid = tid_lo; tid < tid_hi; ++tid) {
+                    const VisRecordID new_vis_record_id = memoize_new_vis_record<IsMutate>(
+                        SingleThreadInit{tid},
+                        access,
+                        vis_record_refcnt
+                    );
+                    logger.history_new_vis_record(*this, new_vis_record_id);
+                    new_vis_record_list.push_back(new_vis_record_id);
+                }
+            });
         }
 
-        logger.excut_log_assignment_records(*this, input, vis_record_id,
+        logger.excut_log_assignment_records(*this, input, new_vis_record_list,
                 IsMutate ? ExcutMutateTag::Mutate : ExcutMutateTag::Read);
 
         auto check = [&] (node_id id, size_t linear_index)
@@ -2212,10 +2239,20 @@ struct SyncvTable
             }
         };
 
+        auto extend_vis_records = [&] (nodepool::id<AssignmentRecordVisNode<IsMutate>>* p_list_head)
+        {
+            for (const VisRecordID vis_record_id : new_vis_record_list) {
+                nodepool::id<AssignmentRecordVisNode<IsMutate>> new_node_id;
+                AssignmentRecordVisNode<IsMutate>& node = alloc_default_node(&new_node_id);
+                node.vis_record_id = vis_record_id;
+                node.camspork_next_id = *p_list_head;
+                *p_list_head = new_node_id;
+            }
+        };
+
         auto copy_on_write_update = [&] (
                 node_id old_id,
-                AssignmentRecordCensusEntry& entry,
-                nodepool::id<VisRecordListNode<IsMutate>> new_vis_record_id)
+                AssignmentRecordCensusEntry& entry)
         {
             // If the old assignment record has ID 0 (doesn't exist ... was presumed empty, no reads, no mutates)
             // or its refcnt exceeds the use count, then we cannot modify the assignment record in-place.
@@ -2248,27 +2285,21 @@ struct SyncvTable
             if constexpr (IsMutate) {
                 // Clear out read visibility records upon write.
                 // If not atomic, clear mutate visibility records too.
-                // Add the single new mutate visibility record.
+                // Add the new mutate visibility records.
                 assignment_record_remove_vis_records(&assignment_record.read_vis_records_head_id);
-                nodepool::id<AssignmentRecordMutateNode> new_head_id;
-                AssignmentRecordMutateNode& node = alloc_default_node(&new_head_id);
-                node.vis_record_id = new_vis_record_id;
                 if (access.atomic_qual_bits != 0) {
-                    insert_next_node(&assignment_record.mutate_vis_records_head_id, new_head_id);
+                    extend_vis_records(&assignment_record.mutate_vis_records_head_id);
                     lazy_remove_duplicates(&assignment_record);  // << IMPORTANT for performance
                 }
                 else {
                     assignment_record_remove_vis_records(&assignment_record.mutate_vis_records_head_id);
-                    assignment_record.mutate_vis_records_head_id = new_head_id;
+                    extend_vis_records(&assignment_record.mutate_vis_records_head_id);
                     assignment_record.lazy_last_augment_counter_bits = get_augment_counter_bits();
                 }
             }
             else {
-                // Add the new visibility record to the list of read visibility records.
-                nodepool::id<AssignmentRecordReadNode> read_id;
-                AssignmentRecordReadNode& read_node = alloc_default_node(&read_id);
-                read_node.vis_record_id = new_vis_record_id;
-                insert_next_node(&assignment_record.read_vis_records_head_id, read_id);
+                // Add the new visibility records to the list of read visibility records.
+                extend_vis_records(&assignment_record.read_vis_records_head_id);
                 lazy_remove_duplicates(&assignment_record);  // << IMPORTANT for performance
             }
         };
@@ -2277,13 +2308,14 @@ struct SyncvTable
         for (auto& pair : census) {
             check(pair.first, pair.second.linear_index_in_input);
             if constexpr (UpdateRecords) {
-                copy_on_write_update(pair.first, pair.second, vis_record_id);
+                copy_on_write_update(pair.first, pair.second);
             }
         }
 
         // Write out new assignment record IDs. Reference counting is already taken care of.
         if constexpr (!UpdateRecords) {
-            CAMSPORK_REQUIRE(!vis_record_id, "Fix !UpdateRecords code path to not leak vis_record_id");
+            CAMSPORK_REQUIRE_CMP(new_vis_record_list.size(), ==, 0,
+                    "Fix !UpdateRecords code path to not leak vis_record_id");
         }
         else if constexpr (IsWindow) {
             cuboid_to_intervals<size_t>(
@@ -2853,25 +2885,25 @@ struct SyncvRealLogger
     {
     }
 
-    template <bool IsMutate>
+    template <typename VisRecordList>
     void excut_log_assignment_records(
-            const SyncvTable& env, assignment_record_id* p_id, nodepool::id<VisRecordListNode<IsMutate>> new_vis_id,
+            const SyncvTable& env, assignment_record_id* p_id, const VisRecordList& new_vis_record_list,
             ExcutMutateTag mutate_tag)
     {
         if (p_excut_actions) {
             nodepool::id<AssignmentRecord> asn_id{p_id->node_id};
-            _excut_log_assignment_record_impl(env, asn_id, new_vis_id, idx_for_single, mutate_tag);
+            _excut_log_assignment_record_impl(env, asn_id, new_vis_record_list, idx_for_single, mutate_tag);
         }
     }
 
-    template <bool IsMutate>
+    template <typename VisRecordList>
     void excut_log_assignment_records(
-            const SyncvTable& env, AssignmentRecordWindow window, nodepool::id<VisRecordListNode<IsMutate>> new_vis_id,
+            const SyncvTable& env, AssignmentRecordWindow window, const VisRecordList& new_vis_record_list,
             ExcutMutateTag mutate_tag)
     {
         if (p_excut_actions) {
             std::vector<extent_t> idx(window.end_outer_extent - window.begin_outer_extent);
-            _excut_recurse_log_window(env, window, idx, 0, 0, new_vis_id, mutate_tag);
+            _excut_recurse_log_window(env, window, idx, 0, 0, new_vis_record_list, mutate_tag);
         }
     }
 
@@ -2894,16 +2926,16 @@ struct SyncvRealLogger
     }
 
   private:
-    template <bool IsMutate>
+    template <typename VisRecordList>
     void _excut_recurse_log_window(
             const SyncvTable& env, const AssignmentRecordWindow& window, std::vector<extent_t>& idx,
-            size_t dim_idx, size_t partial_linear_offset, nodepool::id<VisRecordListNode<IsMutate>> new_vis_id,
+            size_t dim_idx, size_t partial_linear_offset, const VisRecordList& new_vis_record_list,
             ExcutMutateTag mutate_tag)
     {
         if (dim_idx >= idx.size()) {
             CAMSPORK_REQUIRE_CMP(idx.size(), ==, dim_idx, "overshot");
             nodepool::id<AssignmentRecord> asn_id{window.base[partial_linear_offset].node_id};
-            _excut_log_assignment_record_impl(env, asn_id, new_vis_id, idx, mutate_tag);
+            _excut_log_assignment_record_impl(env, asn_id, new_vis_record_list, idx, mutate_tag);
         }
         else {
             const extent_t outer_c = window.begin_outer_extent[dim_idx];
@@ -2913,19 +2945,22 @@ struct SyncvRealLogger
             for (extent_t i = offset_c; i < end_c; ++i) {
                 idx[dim_idx] = i;
                 const auto new_linear_offset = partial_linear_offset * outer_c + i;
-                _excut_recurse_log_window(env, window, idx, dim_idx+1, new_linear_offset, new_vis_id, mutate_tag);
+                _excut_recurse_log_window(
+                        env, window, idx, dim_idx+1, new_linear_offset, new_vis_record_list, mutate_tag);
             }
         }
     }
 
-    template <bool IsMutate>
+    template <typename VisRecordList>
     void _excut_log_assignment_record_impl(
             const SyncvTable& env,
             nodepool::id<AssignmentRecord> asn_id,
-            nodepool::id<VisRecordListNode<IsMutate>> new_vis_id,
+            const VisRecordList& new_vis_record_list,
             std::vector<extent_t> idx,
             ExcutMutateTag mutate_tag)
     {
+        constexpr bool IsMutate = VisRecordList::value_type::value_type::is_mutate;
+
         // Log top-level assignment record ID, name+idxs of access,
         // and remember to update this with the changed ID later.
         {
@@ -2960,7 +2995,7 @@ struct SyncvRealLogger
         }
 
         // Log new VisRecord
-        if (new_vis_id) {
+        for (nodepool::id<VisRecordListNode<IsMutate>> new_vis_id : new_vis_record_list) {
             _excut_log_vis_record(env, new_vis_id, mutate_tag);
         }
     }

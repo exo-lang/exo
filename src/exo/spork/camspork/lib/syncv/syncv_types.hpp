@@ -208,6 +208,24 @@ struct ThreadCuboid
     }
 };
 
+// ThreadCuboid-like interface for holding just a single thread.
+// Mainly for use by SyncvTable internally.
+struct SingleThreadInit
+{
+    uint32_t tid;
+
+    template <typename Callback>
+    void to_intervals(Callback&& callback) const
+    {
+        callback(tid, tid + 1);
+    }
+
+    TlSigBucketKey minimal_superset_interval() const
+    {
+        return {tid, tid + 1};
+    }
+};
+
 template <typename Stream>
 Stream&& operator<<(Stream&& s, const ThreadCuboid& cuboid)
 {
