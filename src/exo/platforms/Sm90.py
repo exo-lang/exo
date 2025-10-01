@@ -95,7 +95,7 @@ def Sm90_SmemSwizzled(swizzle):
 
     @window_encoder(SwizzledEncoder)
     @window_indexer(SwizzledIndexer)
-    class SwizzledImpl(CudaBasicSmem):
+    class SwizzledImpl(CudaSmemAtomicity16B):
         @classmethod
         def global_(cls):
             return f"""typedef struct {c_matrices} {{

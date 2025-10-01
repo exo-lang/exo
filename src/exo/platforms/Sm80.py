@@ -26,6 +26,7 @@ from ..API import (
     WindowIndexer,
     window_indexer,
     WindowIndexerResult,
+    InstrInfo,
 )
 from ..spork.cuda_memory import *
 from ..spork.timelines import cuda_in_order, cuda_in_order_instr
@@ -38,17 +39,14 @@ from ..spork.coll_algebra import cuda_warp
 # In Exo, we model this with instr_tl=Sm80_cp_async_instr.
 
 
-class cp_async_impl:
+class cp_async_impl(InstrInfo):
+    n_bytes: int
+
     def instance_impl(self, n_bytes):
         if n_bytes not in (4, 8, 16):
             raise ValueError(f"cp.async copies 4, 8, or 16 bytes, not {n_bytes}")
-        cg_ca = "cg" if n_bytes == 16 else "ca"
-        ptx = InlinePtxGen(f"cp.async.{cg_ca}.shared.global #0#;", volatile=True)
-        ptx.add_arg("&{smem_data}", constraint="smem", log_as="bits")
-        ptx.add_arg("&{gmem_data}", constraint="generic", log_as="bits")
-        ptx.add_arg(n_bytes, constraint="n", log_as="bits")
-        self.instr_format = ptx.as_c_lines(py_format=True)
         self.instr_tl = Sm80_cp_async_instr
+        self.n_bytes = n_bytes
 
 
 @instr
@@ -66,6 +64,14 @@ class Sm80_cp_async_f32(cp_async_impl):
         self.instance_impl(4 * size)
         self.access_info["smem"].out_of_order = True
         self.access_info["gmem"].out_of_order = True
+
+    def codegen(self, args):
+        cg_ca = "cg" if self.n_bytes == 16 else "ca"
+        ptx = InlinePtxGen(f"cp.async.{cg_ca}.shared.global #0#;", volatile=True)
+        ptx.add_arg(str(args.smem.index_ptr()), constraint="smem", log_as="bits")
+        ptx.add_arg(str(args.gmem.index_ptr()), constraint="generic", log_as="bits")
+        ptx.add_arg(self.n_bytes, constraint="n", log_as="bits")
+        return ptx.as_c_lines(py_format=False)
 
 
 __all__.append("Sm80_cp_async_f32")
@@ -191,13 +197,13 @@ class Sm80_mma_load_a_tf32:
         regs = str(args.rmem.index())
         src = args.src
         rhs_list = [
-            src.index("(exo_m + 0)", "(exo_k + 0)"),
-            src.index("(exo_m + 8)", "(exo_k + 0)"),
+            src.index("exo_m + 0", "exo_k + 0"),
+            src.index("exo_m + 8", "exo_k + 0"),
         ]
         if self.K == 8:
             rhs_list += [
-                src.index("(exo_m + 0)", "(exo_k + 4)"),
-                src.index("(exo_m + 8)", "(exo_k + 4)"),
+                src.index("exo_m + 0", "exo_k + 4"),
+                src.index("exo_m + 8", "exo_k + 4"),
             ]
         else:
             assert self.K == 4
@@ -207,6 +213,58 @@ class Sm80_mma_load_a_tf32:
 
 
 __all__.append("Sm80_mma_load_a_tf32")
+
+
+# "temporary"
+@instr
+class Sm80_mma_load_a_divided_tf32:
+    K: int
+
+    def behavior(
+        K: size,
+        rmem: [f32][16, K],
+        src: [f32][2, 8, K] @ CudaDeviceVisibleAtomicity16B,
+    ):
+        for mo in seq(0, 2):
+            for mi in seq(0, 8):
+                for k in seq(0, K):
+                    rmem[mo * 8 + mi, k] = src[mo, mi, k]
+
+    def instance(self, K):
+        self.instr_tl = cuda_in_order_instr
+        self.coll_unit = cuda_warp
+        if K != 4 and K != 8:
+            raise ValueError("Require K=4 or K=8")
+        self.K = K
+        self.access_info["rmem"].mem = Sm80_RmemMatrixA(16, K)
+
+    def codegen(self, args: InstrArgs):
+        # fmt: off
+        preamble = [
+          "{",
+          "  const unsigned exo_lane = threadIdx.x % 32;",
+          "  const unsigned exo_m = exo_lane / 4;",
+          "  const unsigned exo_k = exo_lane % 4;",
+        ]
+        regs = str(args.rmem.index())
+        src = args.src
+        rhs_list = [
+            src.index("exo_m / 8", "exo_m % 8", "exo_k"),
+            src.index("exo_m / 8 + 1", "exo_m % 8", "exo_k"),
+        ]
+        if self.K == 8:
+            rhs_list += [
+                src.index("exo_m / 8", "exo_m % 8", "exo_k + 4"),
+                src.index("exo_m / 8 + 1", "exo_m % 8", "exo_k + 4"),
+            ]
+        else:
+            assert self.K == 4
+        body = [f"  {regs}[{i}] = __float_as_uint({rhs});" for i, rhs in enumerate(rhs_list)]
+        return preamble + body + ["}"]
+        # fmt: on
+
+
+__all__.append("Sm80_mma_load_a_divided_tf32")
 
 
 @instr
