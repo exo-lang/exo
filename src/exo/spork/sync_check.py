@@ -60,7 +60,7 @@ class CamsporkDo(LoopIR_Do):
     _domain: Tuple[int]
     _saw_alloc: bool
     _saw_free: bool
-    _coll_tiling: CollTiling
+    _coll_tiling: Optional[CollTiling]
     _coll_env: Dict[CollParam, int]
 
     def __init__(
@@ -110,7 +110,14 @@ class CamsporkDo(LoopIR_Do):
         self.do_stmts(self.proc.body)
         assert self._saw_free or not self._saw_alloc, "Need MemAnalysis before"
 
-    def get_qual_bits(self, node: LoopIR.expr | LoopIR.stmt, instr_tl: Instr_tl):
+    def comp_qual_tl(self, node: LoopIR.expr | LoopIR.stmt, instr_tl: Instr_tl):
+        """Get initial Qual_tl, initial Qual_tl as bit, ext Qual_tl as bits.
+
+        Deduces the variable being accessed from node.name.
+        Computes the Qual_tl info as a function of the variable's memory
+        and the instr_tl of the instruction used to access the variable.
+
+        """
         nm = node.name
         mem = self._mem_env[nm]
         try:
@@ -124,7 +131,7 @@ class CamsporkDo(LoopIR_Do):
             initial_qual_tl = q
         else:
             initial_qual_tl = q[0]
-        return Qual_tl.make_bits(initial_qual_tl), Qual_tl.make_bits(q)
+        return initial_qual_tl, Qual_tl.make_bits(initial_qual_tl), Qual_tl.make_bits(q)
 
     def do_s(self, s: LoopIR.stmt):
         b = self._builder
@@ -138,7 +145,7 @@ class CamsporkDo(LoopIR_Do):
             if want_sync or want_value:
                 am_dst = self.comp_index_expr(s.name, s.idx, instr_tl)
             if want_sync:
-                initial_q, ext_q = self.get_qual_bits(s, instr_tl)
+                _, initial_q, ext_q = self.comp_qual_tl(s, instr_tl)
                 b.SyncEnvAccess(
                     am_dst,
                     initial_q,
@@ -403,20 +410,23 @@ class CamsporkDo(LoopIR_Do):
                 )
                 for ctx in loop_nest:
                     ctx.begin()
-                initial_q, ext_q = self.get_qual_bits(caller_a, instr_tl)
+                qual_tl, initial_qual_bits, ext_qual_bits = self.comp_qual_tl(
+                    caller_a, instr_tl
+                )
                 flags = 0
                 if not arg_info.const:
                     flags |= b.mutate_flag
                 if arg_info.out_of_order:
                     flags |= b.ooo_flag
-                assert type(arg_info.convergent_access) is bool
-                if arg_info.convergent_access:
+                if qual_tl.get_default_convergent_access():
                     flags |= b.convergent_flag
+                if qual_tl.get_force_shared_vis_record():
+                    flags |= b.force_shared_vis_record_flag
 
                 b.SyncEnvAccess(
                     dst_lo,
-                    initial_q,
-                    ext_q,
+                    initial_qual_bits,
+                    ext_qual_bits,
                     flags=flags,
                     extent=extent,
                     barrier=barrier,
@@ -427,11 +437,13 @@ class CamsporkDo(LoopIR_Do):
                     ctx.end()
             if barrier and s.trailing_barrier_expr.name in self._sync_syms:
                 # Sync-check the trailing barrier itself.
-                initial_q, _ = self.get_qual_bits(s.trailing_barrier_expr, instr_tl)
+                _, initial_qual_bits, _ = self.comp_qual_tl(
+                    s.trailing_barrier_expr, instr_tl
+                )
                 b.SyncEnvAccess(
                     barrier,
-                    initial_q,
-                    initial_q,
+                    initial_qual_bits,
+                    initial_qual_bits,
                     # model as in-order read since concurrent access is allowed
                     flags=b.convergent_flag,
                     access_multicasts=barrier_multicasts,
@@ -484,6 +496,9 @@ class CamsporkDo(LoopIR_Do):
                         self.do_stmts(s.body)
                 self._domain = old_domain
 
+    def is_single_threaded():
+        return self._coll_tiling is None or self._coll_tiling.get_box_num_threads() == 1
+
     # We emit SyncEnvRead for all reads found (filtered by sync_syms)
     # and translate the LoopIR expr to a camspork.BuilderExpr.
     # We completely ignore do_e; we don't want unexpected SyncEnvRead
@@ -500,8 +515,8 @@ class CamsporkDo(LoopIR_Do):
             if want_value or want_sync:
                 am_src = self.comp_index_expr(e.name, e.idx, instr_tl)
             if want_sync:
-                initial_q, ext_q = self.get_qual_bits(e, instr_tl)
-                if self._coll_tiling.get_box_num_threads() == 1:
+                _, initial_q, ext_q = self.comp_qual_tl(e, instr_tl)
+                if self.is_single_threaded():
                     # convergent access makes no functional difference
                     # when the thread count is 1, but I suspect the
                     # implementation is faster if we set this flag.

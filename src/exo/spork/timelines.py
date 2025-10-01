@@ -136,23 +136,40 @@ class Qual_tl(object):
 
     """
 
-    __slots__ = ["_bit_index", "_bit", "_name"]
+    __slots__ = [
+        "_bit_index",
+        "_bit",
+        "_name",
+        "_default_convergent_access",
+        "_hack_force_shared_vis_record",
+    ]
     _bit_index: int
     _bit: int
     _name: str
+    _default_convergent_access: bool
+    _hack_force_shared_vis_record: bool
 
     _from_bit_index = []
 
-    def __init__(self, name):
+    def __init__(self, name, default_convergent_access, hack=False):
         assert name.endswith("_qual"), "naming convention"
         self._bit_index = len(self._from_bit_index)
         assert self._bit_index <= 31, "camspork::qual_bits_t would overflow"
         self._bit = 1 << self._bit_index
         self._from_bit_index.append(self)
         self._name = name
+        self._default_convergent_access = default_convergent_access
+        assert isinstance(default_convergent_access, bool)
+        self._hack_force_shared_vis_record = hack
 
     def __repr__(self):
         return self._name
+
+    def get_default_convergent_access(self):
+        return self._default_convergent_access
+
+    def get_force_shared_vis_record(self):
+        return self._hack_force_shared_vis_record
 
     def as_bit(self):
         return self._bit
@@ -177,18 +194,19 @@ class Qual_tl(object):
     # Use default hash and equality (id-equality) from object.
 
 
-cpu_in_order_qual = Qual_tl("cpu_in_order_qual")
-cpu_cuda_stream_qual = Qual_tl("cpu_cuda_stream_qual")
-cuda_in_order_rmem_qual = Qual_tl("cuda_in_order_rmem_qual")
-cuda_in_order_ram_qual = Qual_tl("cuda_in_order_ram_qual")
-Sm80_cp_async_qual = Qual_tl("Sm80_cp_async_qual")
-tma_to_smem_async_qual = Qual_tl("tma_to_smem_async_qual")
-tma_to_gmem_async_qual = Qual_tl("tma_to_gmem_async_qual")
-wgmma_async_rmem_a_qual = Qual_tl("wgmma_async_rmem_a_qual")
-wgmma_async_rmem_d_qual = Qual_tl("wgmma_async_rmem_d_qual")
-wgmma_async_smem_qual = Qual_tl("wgmma_async_smem_qual")
-wgmma_zero_qual = Qual_tl("wgmma_zero_qual")
-tcgen05_TODO_qual = Qual_tl("tcgen05_TODO_qual")
+cpu_in_order_qual = Qual_tl("cpu_in_order_qual", True)
+cpu_cuda_stream_qual = Qual_tl("cpu_cuda_stream_qual", True)
+cuda_in_order_rmem_qual = Qual_tl("cuda_in_order_rmem_qual", True)
+cuda_in_order_ram_qual = Qual_tl("cuda_in_order_ram_qual", False)
+Sm80_cp_async_qual = Qual_tl("Sm80_cp_async_qual", False)
+tma_to_smem_async_qual = Qual_tl("tma_to_smem_async_qual", False, hack=True)
+tma_to_gmem_async_qual = Qual_tl("tma_to_gmem_async_qual", False)
+wgmma_async_rmem_a_qual = Qual_tl("wgmma_async_rmem_a_qual", True)
+wgmma_async_rmem_d_qual = Qual_tl("wgmma_async_rmem_d_qual", True)
+wgmma_async_smem_qual = Qual_tl("wgmma_async_smem_qual", False)
+wgmma_zero_qual = Qual_tl("wgmma_zero_qual", True)
+tcgen05_tmem_qual = Qual_tl("tcgen05_tmem_qual", True)
+tcgen05_smem_qual = Qual_tl("tcgen05_smem_qual", False)
 
 
 cuda_rmem_qual_tl_dict = {
@@ -223,7 +241,8 @@ _wgmma_async_quals = [
     wgmma_async_smem_qual,
 ]
 _tcgen05_async_quals = [
-    tcgen05_TODO_qual,  # Placeholder, for future tcgen05 work.
+    tcgen05_tmem_qual,
+    tcgen05_smem_qual,
 ]
 
 # Intentionally excludes wgmma_zero_qual
@@ -244,7 +263,15 @@ _cuda_async_proxy_quals = [
     tma_to_smem_async_qual,
     tma_to_gmem_async_qual,
     wgmma_async_smem_qual,
-    tcgen05_TODO_qual,
+    tcgen05_tmem_qual,
+    tcgen05_smem_qual,
+]
+_cuda_stream_quals = [
+    cpu_cuda_stream_qual,
+    cuda_in_order_ram_qual,
+    Sm80_cp_async_qual,
+    tma_to_smem_async_qual,
+    tma_to_gmem_async_qual,
 ]
 
 

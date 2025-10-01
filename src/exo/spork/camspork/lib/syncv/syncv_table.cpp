@@ -767,6 +767,7 @@ struct SyncvTable
         // Add pending awaits
         // NOTE: this is extremely inefficient if done many times, since we create a new PendingAwaitTreeNode
         // each time, and this undermines memoization as it relies on ID-equality to work.
+        // 2025-10-01: this interacts with SharedVisRecord.
         for (uint32_t i = 0; i < access.barrier_count; ++i) {
             const auto barrier_index = get_barrier_index(access.trailing_barriers[i]);
             BarrierState& state = barrier_states[barrier_index];
@@ -2176,7 +2177,13 @@ struct SyncvTable
             new_vis_record_list[0] = new_vis_record_id;
         }
         else {
+            // memoization falls flat as of 2025-10-01 in this case,
+            CAMSPORK_REQUIRE_CMP(access.barrier_count, ==, 0, "this'll work but is really slow right now.");
+
             cuboid.to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi) {
+                // We model the CPU as of 2025-10-01 as "[almost] all possible threads" [0, UINT32_MAX)
+                // and if we pass that here, we will create 4 billion VisRecords.
+                CAMSPORK_REQUIRE_CMP(tid_hi, <, UINT32_MAX, "Likely you meant to pass convergent_access_flag");
                 for (uint32_t tid = tid_lo; tid < tid_hi; ++tid) {
                     const VisRecordID new_vis_record_id = memoize_new_vis_record<IsMutate>(
                         SingleThreadInit{tid},

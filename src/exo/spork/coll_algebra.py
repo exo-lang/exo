@@ -88,6 +88,9 @@ class CollSizeExpr(object):
             s += f" / {self.scalar.denominator}"
         return s
 
+    def equals_const(self, c):
+        return not self.coll_params and self.scalar == c
+
 
 blockDim_param = CollParam("blockDim")
 blockDim = CollSizeExpr(1, (blockDim_param,))
@@ -200,6 +203,9 @@ class CollUnit(object):
         for c in self.box:
             n *= c(env)
         return n
+
+    def is_always_single_thread(self):
+        return all(c.equals_const(1) for c in self.box)
 
 
 class CollIndexExpr(object):
@@ -1101,3 +1107,9 @@ def cuda_threads_strided(num_threads, thread_stride):
     return CollUnit(
         (blockDim / thread_stride, thread_stride), (1, num_threads), name, 0
     )
+
+
+assert standalone_thread.is_always_single_thread()
+assert cuda_thread.is_always_single_thread()
+assert not cuda_warp.is_always_single_thread()
+assert not cuda_cta_in_cluster.is_always_single_thread()

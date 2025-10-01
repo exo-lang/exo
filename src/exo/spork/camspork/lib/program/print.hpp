@@ -138,20 +138,31 @@ class ProgramPrinter
         *this << "b.SyncEnvAccess(" << node->name;
         print_idx(node, true);  // print offset
         *this << ", " << node->initial_qual_bit << ", " << node->extended_qual_bits;
-        *this << ", flags=0";
+
 
         static_assert(access_flag_all_bits == 15, "update me");
-        if (node->access_flags & access_flag_mutate) {
-            *this << " | b.mutate_flag";
+        if (node->access_flags == 0) {
+            *this << ", flags=0";
         }
-        if (node->access_flags & access_flag_ooo) {
-            *this << " | b.ooo_flag";
-        }
-        if (node->access_flags & access_flag_convergent) {
-            *this << " | b.convergent_flag";
-        }
-        if (node->access_flags & access_flag_force_shared_vis_record) {
-            *this << " | b.force_shared_vis_record_flag";
+        else {
+            const char* op = ", flags=";
+            const char* or_op = " | ";
+            if (node->access_flags & access_flag_mutate) {
+                *this << op << "b.mutate_flag";
+                op = or_op;
+            }
+            if (node->access_flags & access_flag_ooo) {
+                *this << op << "b.ooo_flag";
+                op = or_op;
+            }
+            if (node->access_flags & access_flag_convergent) {
+                *this << op << "b.convergent_flag";
+                op = or_op;
+            }
+            if (node->access_flags & access_flag_force_shared_vis_record) {
+                *this << op << "b.force_shared_vis_record_flag";
+                op = or_op;
+            }
         }
         if (const qual_bits_t q = node->get_atomic_qual_bits()) {
             *this << ", atomic_qual_bits=" << q;
