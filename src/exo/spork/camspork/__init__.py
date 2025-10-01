@@ -274,6 +274,10 @@ _add_SyncEnvAlloc = lib.camspork_add_SyncEnvAlloc
 _add_SyncEnvAlloc.restype = StmtRef
 _add_SyncEnvAlloc.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef)
 
+_add_ExpectSyncEnvAlloc = lib.camspork_add_ExpectSyncEnvAlloc
+_add_ExpectSyncEnvAlloc.restype = StmtRef
+_add_ExpectSyncEnvAlloc.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef)
+
 _add_BarrierEnvAlloc = lib.camspork_add_BarrierEnvAlloc
 _add_BarrierEnvAlloc.restype = StmtRef
 _add_BarrierEnvAlloc.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef)
@@ -799,6 +803,11 @@ class ProgramBuilder:
 
     def SyncEnvAlloc(self, e: Varname | BuilderIndexExpr, *, srcinfo=None) -> StmtRef:
         return self._add_alloc(_add_SyncEnvAlloc, e, srcinfo)
+
+    def ExpectSyncEnvAlloc(
+        self, e: Varname | BuilderIndexExpr, *, srcinfo=None
+    ) -> StmtRef:
+        return self._add_alloc(_add_ExpectSyncEnvAlloc, e, srcinfo)
 
     def BarrierEnvAlloc(
         self, e: Varname | BuilderIndexExpr, *, srcinfo=None

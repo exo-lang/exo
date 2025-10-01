@@ -72,6 +72,8 @@ class CamsporkDo(LoopIR_Do):
         value_syms: Set[Sym],
         sync_syms: Set[Sym],
     ):
+        instr_tl = timelines.cpu_basic_device.get_default_instr_tl()
+
         self.proc = p
         self._builder = builder
         self._coll_analysis = coll_analysis
@@ -80,7 +82,7 @@ class CamsporkDo(LoopIR_Do):
         self._envtyp = {}
         self._mem_env = mem_env
         self._device = timelines.cpu_basic_device
-        self._default_instr_tl = timelines.cpu_basic_device.get_default_instr_tl()
+        self._default_instr_tl = instr_tl
         self._tmp_call_args = {}
         self._domain = ()
         self._saw_alloc = False
@@ -101,6 +103,9 @@ class CamsporkDo(LoopIR_Do):
             self._envtyp[nm] = a.type
             if a.type.is_numeric():
                 assert self._mem_env[nm] == a.mem
+            if nm in sync_syms:
+                am_array = self.comp_index_expr(nm, a.type.shape(), instr_tl)
+                b.ExpectSyncEnvAlloc(am_array, srcinfo=a.srcinfo)
 
         self.do_stmts(self.proc.body)
         assert self._saw_free or not self._saw_alloc, "Need MemAnalysis before"

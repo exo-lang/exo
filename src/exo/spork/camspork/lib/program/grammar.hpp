@@ -482,7 +482,7 @@ struct stmt
 {
 };
 
-static constexpr uint32_t NumStmtTypes = 22;
+static constexpr uint32_t NumStmtTypes = 23;
 
 using StmtRef = NodeRef<stmt, NumStmtTypes>;
 
@@ -736,8 +736,18 @@ struct stmt<21>
     CAMSPORK_NODE_VLA_MEMBER(uint32_t)
 };
 
+// ExpectSyncEnvAlloc(Varname name, expr* extent)
+using ExpectSyncEnvAlloc = stmt<22>;
+template<>
+struct stmt<22>
+{
+    Varname name;
+    CAMSPORK_NODE_VLA_MEMBER(ExprRef)
+};
+
+
 // Update this if you add more stmt node types.
-static_assert(NumStmtTypes == 22);
+static_assert(NumStmtTypes == 23);
 
 
 // ******************************************************************************************

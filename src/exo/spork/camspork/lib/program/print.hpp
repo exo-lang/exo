@@ -218,6 +218,14 @@ class ProgramPrinter
         *this << ")\n";
     }
 
+    void operator() (const ExpectSyncEnvAlloc* node)
+    {
+        print_tabs();
+        *this << "b.ExpectSyncEnvAlloc(" << node->name;
+        print_idx(node);
+        *this << ")\n";
+    }
+
     void operator() (const SyncEnvFreeShard* node)
     {
         print_tabs();

@@ -221,7 +221,8 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
     }
 
     template <typename Input>
-    [[nodiscard]] bool filter_single_position_input(Varname name, Input* p_input)
+    [[nodiscard]] bool filter_single_position_input(
+            Varname name, const VarSlotEntry<assignment_record_id>& slot, Input* p_input)
     {
         if (!single_position_filter) {
             return true;
@@ -229,7 +230,6 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         if (name.slot() != single_position_filter.name.slot()) {
             return false;
         }
-        VarSlotEntry<assignment_record_id>& slot = env.sync_slot(name);
         const std::vector<extent_t>& extent = slot.extent();
         const size_t dim = extent.size();
         CAMSPORK_REQUIRE_CMP(dim, ==, single_position_filter.idx.size(),
@@ -397,6 +397,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         using InputList = std::conditional_t<node->is_multicast, std::vector<Input>, std::array<Input, 1>>;
         InputList input_list;
         VarSlotEntry<assignment_record_id>& slot = env.sync_slot(node->name);
+        bool have_input = true;
 
         if constexpr (node->is_multicast) {
             static_assert(!node->is_window, "we can only multicast a single position");
@@ -407,8 +408,23 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
             eval_tmp_offset_multicast(node, slot, callback);
         }
         else if constexpr (node->is_window) {
+            const std::vector<extent_t>& alloc_extent = slot.extent();
+            const size_t dim = alloc_extent.size();
             eval_tmp_offset(node);
             eval_tmp_extent(node);
+            CAMSPORK_REQUIRE_CMP(tmp_extent.size(), ==, dim, "Wrong dimensionality for indexing");
+            CAMSPORK_REQUIRE_CMP(tmp_offset.size(), ==, dim, "Wrong dimensionality for indexing");
+
+            // Clip window to allocation.
+            for (size_t i = 0; i < dim; ++i) {
+                if (tmp_offset[i] >= alloc_extent[i]) {
+                    have_input = false;
+                }
+                else {
+                    tmp_extent[i] = std::min(tmp_extent[i], alloc_extent[i] - tmp_offset[i]);
+                }
+            }
+
             AssignmentRecordWindow& input = input_list[0];
             input.base = slot.data();
             input.begin_outer_extent = &*slot.extent().begin();
@@ -420,7 +436,21 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         }
         else {
             eval_tmp_offset(node);
-            input_list[0] = &slot.idx(tmp_offset.begin(), tmp_offset.end());
+            const std::vector<extent_t>& alloc_extent = slot.extent();
+            const size_t dim = alloc_extent.size();
+            CAMSPORK_REQUIRE_CMP(tmp_offset.size(), ==, dim, "Wrong dimensionality for indexing");
+
+            // Bounds check, and disable checking if out-of-bounds.
+            for (size_t i = 0; i < dim; ++i) {
+                have_input &= tmp_offset[i] < alloc_extent[i];
+            }
+            if (have_input) {
+                input_list[0] = &slot.idx(tmp_offset.begin(), tmp_offset.end());
+            }
+        }
+
+        if (!have_input) {
+            return;
         }
 
         for (Input& input : input_list) {
@@ -434,7 +464,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
 
             // Call into syncv table (a lot of duplicated code with SyncEnvFreeShard, not great)
             try {
-                if (!filter_single_position_input(node->name, &input)) {
+                if (!filter_single_position_input(node->name, slot, &input)) {
                     // Skip if instructed to by SinglePositionFilter.
                 }
                 else if constexpr (node->is_mutate) {
@@ -516,7 +546,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
 
         // Call into syncv table (a lot of duplicated code with SyncEnvAccessNode, not great).
         try {
-            if (!filter_single_position_input(node->name, &input)) {
+            if (!filter_single_position_input(node->name, slot, &input)) {
                 // Skip if instructed to by SinglePositionFilter.
             }
             else {
@@ -664,6 +694,16 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         slot.resize(tmp_extent);
         clear_visibility(env.p_syncv_table.get(), slot.size(), slot.data());
         env.maybe_syncv_debug_validate();
+    }
+
+    void exec_impl(const ExpectSyncEnvAlloc* node)
+    {
+        VarSlotEntry<assignment_record_id>& slot = env.sync_slot(node->name);
+
+        eval_tmp_extent(node);
+        if (slot.extent() != tmp_extent) {
+            CAMSPORK_REQUIRE(0, "ExpectSyncEnvAlloc saw wrong size for sync env allocation");
+        }
     }
 
     void exec_impl(const BarrierEnvAlloc* node)

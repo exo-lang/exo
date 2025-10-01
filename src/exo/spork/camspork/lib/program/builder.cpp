@@ -203,6 +203,11 @@ StmtRef ProgramBuilder::add_SyncEnvAlloc(Varname name, size_t num_dims, const Ex
     return append_impl(SyncEnvAlloc{name}, num_dims, extent);
 }
 
+StmtRef ProgramBuilder::add_ExpectSyncEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent)
+{
+    return append_impl(ExpectSyncEnvAlloc{name}, num_dims, extent);
+}
+
 StmtRef ProgramBuilder::add_BarrierEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent)
 {
     return append_impl(BarrierEnvAlloc{name}, num_dims, extent);
@@ -505,6 +510,14 @@ camspork::StmtRef camspork_add_SyncEnvAlloc(camspork::ProgramBuilder* p_builder,
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_SyncEnvAlloc(name, num_dims, extent);
+    CAMSPORK_API_EPILOGUE(camspork::StmtRef())
+}
+
+camspork::StmtRef camspork_add_ExpectSyncEnvAlloc(camspork::ProgramBuilder* p_builder,
+    camspork::Varname name, uint32_t num_dims, const camspork::ExprRef* extent)
+{
+    CAMSPORK_API_PROLOGUE
+    return p_builder->add_ExpectSyncEnvAlloc(name, num_dims, extent);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 

@@ -50,6 +50,7 @@ void cuboid_to_intervals(
         const IntT outer_coord = IntT(*outer_iter);
         const IntT offset_coord = IntT(*offset_iter);
         const IntT inner_coord = IntT(*inner_iter);
+        CAMSPORK_REQUIRE_CMP(offset_coord + inner_coord, <=, outer_coord, "out-of-bounds cuboid extent");
         partial_offset = partial_offset * outer_coord + offset_coord;
 
         if (inner_coord == IntT(0)) {
@@ -87,7 +88,6 @@ void cuboid_to_intervals(
                 // else case and > (instead of >=) prevents moronic "unsigned comparison with 0" warnings...
                 CAMSPORK_REQUIRE_CMP(offset_coord, >, 0, "Negative offset not allowed");
             }
-            CAMSPORK_REQUIRE_CMP(offset_coord + inner_coord, <=, outer_coord, "out-of-bounds cuboid extent");
             // This dimension introduces a discontinuity, but all dimensions to the right don't.
             // We will invoke the callback at this level.
             const IntT scalar_offset = partial_offset * leaf_size;

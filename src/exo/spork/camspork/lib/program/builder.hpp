@@ -149,6 +149,7 @@ class ProgramBuilder
         uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits, int32_t N);
     StmtRef add_ValueEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent);
     StmtRef add_SyncEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent);
+    StmtRef add_ExpectSyncEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent);
     StmtRef add_BarrierEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent);
     StmtRef add_BarrierEnvFree(Varname name);
 
@@ -242,6 +243,8 @@ CAMSPORK_EXPORT camspork::StmtRef camspork_add_Await(camspork::ProgramBuilder* p
 CAMSPORK_EXPORT camspork::StmtRef camspork_add_ValueEnvAlloc(camspork::ProgramBuilder* p_builder,
     camspork::Varname name, uint32_t num_dims, const camspork::ExprRef* extent);
 CAMSPORK_EXPORT camspork::StmtRef camspork_add_SyncEnvAlloc(camspork::ProgramBuilder* p_builder,
+    camspork::Varname name, uint32_t num_dims, const camspork::ExprRef* extent);
+CAMSPORK_EXPORT camspork::StmtRef camspork_add_ExpectSyncEnvAlloc(camspork::ProgramBuilder* p_builder,
     camspork::Varname name, uint32_t num_dims, const camspork::ExprRef* extent);
 CAMSPORK_EXPORT camspork::StmtRef camspork_add_BarrierEnvAlloc(camspork::ProgramBuilder* p_builder,
     camspork::Varname name, uint32_t num_dims, const camspork::ExprRef* extent);
