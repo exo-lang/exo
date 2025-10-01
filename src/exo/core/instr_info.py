@@ -31,7 +31,8 @@ class AccessInfo:
 
 @dataclass(init=False, slots=True)
 class InstrInfo:
-    instr_format: Optional[List[str]]  # Split by lines
+    # instr_format split by lines; strongly suggest codegen(..) instead.
+    instr_format: Optional[List[str]]
     c_utils: List[str]
     c_includes: List[str]
     cu_utils: List[str]

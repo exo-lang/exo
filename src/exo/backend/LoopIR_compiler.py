@@ -1051,6 +1051,7 @@ class Compiler:
             arg = self.comp_cir(e.arg, op_prec["."])
             return f"{arg}.{e.attr}"
         elif isinstance(e, CIR.Verbatim):
+            # As promised, we add parentheses.
             text = e.code
             if prec > 0 and not all(c == "_" or c == "." or c.isalnum() for c in text):
                 text = f"({text})"
