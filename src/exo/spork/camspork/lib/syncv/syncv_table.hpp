@@ -77,6 +77,12 @@ struct SyncvAccessInfo
     // If false: all threads must have visibility, and we init with a new VisRecord per thread.
     bool is_convergent;
 
+    // Alters is_convergent=false case; force init one VisRecord for all threads.
+    // This is a workaround for TMA only, because the trailing barrier is so expensive.
+    // Given waiting for the barrier is the only mechanism to wait for the results
+    // (thus the actual threads are not relevant), this simplification is OK.
+    bool force_shared_vis_record;
+
     qual_bits_t initial_qual_bit;
     qual_bits_t extended_qual_bits;
     qual_bits_t atomic_qual_bits;

@@ -570,6 +570,7 @@ class ProgramBuilder:
     ooo_flag = 1
     convergent_flag = 2
     mutate_flag = 4
+    force_shared_vis_record_flag = 8
 
     def __init__(self):
         self._builder = check_return(_new_ProgramBuilder())

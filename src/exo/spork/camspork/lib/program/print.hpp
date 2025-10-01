@@ -140,7 +140,7 @@ class ProgramPrinter
         *this << ", " << node->initial_qual_bit << ", " << node->extended_qual_bits;
         *this << ", flags=0";
 
-        static_assert(access_flag_all_bits == 7, "update me");
+        static_assert(access_flag_all_bits == 15, "update me");
         if (node->access_flags & access_flag_mutate) {
             *this << " | b.mutate_flag";
         }
@@ -149,6 +149,9 @@ class ProgramPrinter
         }
         if (node->access_flags & access_flag_convergent) {
             *this << " | b.convergent_flag";
+        }
+        if (node->access_flags & access_flag_force_shared_vis_record) {
+            *this << " | b.force_shared_vis_record_flag";
         }
         if (const qual_bits_t q = node->get_atomic_qual_bits()) {
             *this << ", atomic_qual_bits=" << q;

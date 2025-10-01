@@ -1073,12 +1073,11 @@ struct SyncvTable
         return any_visible;
     }
 
-    template <bool IsConvergent>
     bool visible_to(
             const VisRecord& vis_record, const ThreadCuboid& cuboid,
-            qual_bits_t want_qual_bits, int32_t vis_level, TlSig* out_fail_tl_sig)
+            qual_bits_t want_qual_bits, int32_t vis_level, TlSig* out_fail_tl_sig, bool is_convergent)
     {
-        if constexpr (IsConvergent) {
+        if (is_convergent) {
             return any_visible_to(vis_record, cuboid, want_qual_bits, vis_level, out_fail_tl_sig);
         }
         else {
@@ -2121,8 +2120,9 @@ struct SyncvTable
         return assignment_record;
     }
 
-    template <bool IsMutate, bool IsConvergent, bool UpdateRecords, typename Input, typename Logger>
+    template <bool IsMutate, bool SharedVisRecord, bool UpdateRecords, typename Input, typename Logger>
     void checked_on_access_impl(
+            bool is_convergent,
             Input input,
             const ThreadCuboid& cuboid,
             SyncvAccessInfo access,
@@ -2157,12 +2157,12 @@ struct SyncvTable
 
         // We will memoize the new visibility record(s) once.
         // 0 new records if !UpdateRecords
-        // 1 new record if IsConvergent
-        // any # new records if !IsConvergent
+        // 1 new record if SharedVisRecord
+        // any # new records if !SharedVisRecord
         using VisRecordID = nodepool::id<VisRecordListNode<IsMutate>>;
         using VisRecordList = std::conditional_t<
             !UpdateRecords, std::array<VisRecordID, 0>,
-            std::conditional_t<IsConvergent, std::array<VisRecordID, 1>, std::vector<VisRecordID>>>;
+            std::conditional_t<SharedVisRecord, std::array<VisRecordID, 1>, std::vector<VisRecordID>>>;
         VisRecordList new_vis_record_list{};
         const uint32_t vis_record_refcnt = uint32_t(census.size());
 
@@ -2170,7 +2170,7 @@ struct SyncvTable
         }
         else if (census.empty()) {
         }
-        else if constexpr (IsConvergent) {
+        else if constexpr (SharedVisRecord) {
             const VisRecordID new_vis_record_id = memoize_new_vis_record<IsMutate>(cuboid, access, vis_record_refcnt);
             logger.history_new_vis_record(*this, new_vis_record_id);
             new_vis_record_list[0] = new_vis_record_id;
@@ -2212,8 +2212,9 @@ struct SyncvTable
                 AssignmentRecordMutateNode& node = get(mutate_id);
                 const VisRecord& mutate_record = remove_forwarding(&node.vis_record_id);
                 logger.history_vis_record_checked(node.vis_record_id);  // Logs memoized (base state) ID.
-                const bool visible = visible_to<IsConvergent>(
-                        mutate_record, cuboid, access.extended_qual_bits, vis_level_needed, &fail_tl_sig);
+                const bool visible = visible_to(
+                        mutate_record, cuboid, access.extended_qual_bits, vis_level_needed,
+                        &fail_tl_sig, is_convergent);
                 if (!visible) {
                     logger.history_vis_record_error(node.vis_record_id, fail_tl_sig, vis_level_needed);
                     throw SyncvCheckFail{IsMutate ? "WAW HAZARD" : "RAW HAZARD", linear_index};
@@ -2228,8 +2229,9 @@ struct SyncvTable
                     AssignmentRecordReadNode& node = get(read_id);
                     const VisRecord& read_record = remove_forwarding(&node.vis_record_id);
                     logger.history_vis_record_checked(node.vis_record_id);  // Logs memoized (base state) ID.
-                    const bool visible = visible_to<IsConvergent>(
-                            read_record, cuboid, access.extended_qual_bits, vis_level_needed, &fail_tl_sig);
+                    const bool visible = visible_to(
+                            read_record, cuboid, access.extended_qual_bits, vis_level_needed,
+                            &fail_tl_sig, is_convergent);
                     if (!visible) {
                         logger.history_vis_record_error(node.vis_record_id, fail_tl_sig, vis_level_needed);
                         throw SyncvCheckFail{"WAR HAZARD", linear_index};
@@ -2346,11 +2348,11 @@ struct SyncvTable
     {
         if (no_checking_counter != 0) {
         }
-        else if (access.is_convergent) {
-            checked_on_access_impl<false, true, true>(input, cuboid, access, logger);
+        else if (access.is_convergent || access.force_shared_vis_record) {
+            checked_on_access_impl<false, true, true>(access.is_convergent, input, cuboid, access, logger);
         }
         else {
-            checked_on_access_impl<false, false, true>(input, cuboid, access, logger);
+            checked_on_access_impl<false, false, true>(access.is_convergent, input, cuboid, access, logger);
         }
     }
 
@@ -2360,11 +2362,11 @@ struct SyncvTable
     {
         if (no_checking_counter != 0) {
         }
-        else if (access.is_convergent) {
-            checked_on_access_impl<true, true, true>(input, cuboid, access, logger);
+        else if (access.is_convergent || access.force_shared_vis_record) {
+            checked_on_access_impl<true, true, true>(access.is_convergent, input, cuboid, access, logger);
         }
         else {
-            checked_on_access_impl<true, false, true>(input, cuboid, access, logger);
+            checked_on_access_impl<true, false, true>(access.is_convergent, input, cuboid, access, logger);
         }
     }
 
@@ -2374,11 +2376,9 @@ struct SyncvTable
     {
         if (no_checking_counter != 0) {
         }
-        else if (access.is_convergent) {
-            checked_on_access_impl<true, true, false>(input, cuboid, access, logger);
-        }
         else {
-            checked_on_access_impl<true, false, false>(input, cuboid, access, logger);
+            // SharedVisRecord doesn't matter when UpdateRecords=false.
+            checked_on_access_impl<true, true, false>(access.is_convergent, input, cuboid, access, logger);
         }
     }
 
