@@ -183,7 +183,7 @@ struct exo_Cuda0_test_mbarriers
   static constexpr uint32_t exo_blockDim = 64;
   static constexpr uint32_t exo_clusterDim = 1;
 
-  static constexpr unsigned exo_smemBytes = 1536;
+  static constexpr unsigned exo_smemBytes = 1472;
 
   struct exo_Task
   {
