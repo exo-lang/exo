@@ -20,7 +20,7 @@ module CIR {
             | Indexed ( expr ptr, expr idx )  -- ptr[idx]
             | GetAttr ( expr arg, str attr ) -- arg.attr
             | ReadSeparateDataptr ( sym name )
-            | Verbatim ( str code )
+            | Verbatim ( str code )  -- automatically parenthesized when used in BinOp.
 } """,
     ext_types={
         "bool": bool,
