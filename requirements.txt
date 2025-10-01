@@ -89,7 +89,7 @@ pytest-cov==7.0.0
 pytest-xdist==3.8.0
 pytokens==0.1.10
     # via black
-pyyaml==6.0.2
+pyyaml==6.0.3
     # via pre-commit
 tomli==2.2.1 ; python_full_version <= '3.11'
     # via
