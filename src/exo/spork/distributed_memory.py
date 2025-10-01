@@ -149,8 +149,8 @@ class DistributedAllocState(object):
                 ), "shouldn't happen for non-agnostic unit and partial_prepend=1"
                 if expect_c > 1 and box[i] != expect_c:
                     raise CollTilingError(
-                        f"Missing threads on dims[{i}] to match {optional_native_unit}\n"
-                        f"domain={tmp.get_domain()}, box={box}; expected box={expected_box}"
+                        f"Missing threads to match {optional_native_unit}\n"
+                        f"domain={tmp.get_domain()}, box={box}; expected box={expected_box} (wrong @ box[{i}])"
                     )
             self.alloc_coll_tiling = tmp
         else:

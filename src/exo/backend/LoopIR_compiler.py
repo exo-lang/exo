@@ -144,6 +144,8 @@ def run_backend_checks(
         proc_uses_cuda = timelines.cuda_basic_device in device_analysis.devices_seen
         coll_analysis = None
         debug_log.log(p.name, "analysis", p)
+    except AssertionError:
+        raise
     except Exception as exc:
         debug_log.remark(p.name, str(exc))
         # Log with respect to whatever state the proc was in above
@@ -151,12 +153,18 @@ def run_backend_checks(
         raise
 
     if proc_uses_cuda or device_analysis.contains_sync:
-        # Don't force non-CUDA Exo users to waste time here
-        barrier_usage_analysis = BarrierUsageAnalysis(p)
-        barrier_uses = barrier_usage_analysis.uses
-        coll_analysis = CollAnalysis(barrier_usage_analysis, debug_log)
-        p = coll_analysis.run(p)
-        debug_log.log(p.name, "coll_analysis", p)
+        try:
+            # Don't force non-CUDA Exo users to waste time here
+            barrier_usage_analysis = BarrierUsageAnalysis(p)
+            barrier_uses = barrier_usage_analysis.uses
+            coll_analysis = CollAnalysis(barrier_usage_analysis, debug_log)
+            p = coll_analysis.run(p)
+            debug_log.log(p.name, "coll_analysis", p)
+        except AssertionError:
+            raise
+        except Exception as exc:
+            debug_log.remark(p.name, str(exc))
+            raise
 
     value = BackendChecks(
         debug_log,

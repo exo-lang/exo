@@ -1,6 +1,7 @@
+import re
 from typing import Callable, Dict, Optional, Type, List
 
-from ..core.prelude import Sym
+from ..core.prelude import Sym, SrcInfo
 from ..core.instr_info import InstrInfo
 from ..core.LoopIR import T, LoopIR, LoopIR_Rewrite, BaseCompilerDebugLog
 
@@ -112,6 +113,26 @@ class CollAnalysis(LoopIR_Rewrite):
         old_warp_name = self._current_warp_name
         self._stmt_stack.append(s)
 
+        try:
+            stmts = self.map_s_impl(s)
+        except AssertionError:
+            raise
+        except Exception as exc:
+            # Re-raise all errors, but if the error doesn't seem to contain srcinfo
+            # then we wrap the error message with a srcinfo.
+            exc_str = str(exc)
+            if not re.findall(SrcInfo.stmt_id_pattern, exc_str):
+                raise ValueError(f"{s.srcinfo}: {exc_str}") from exc
+            raise
+
+        # Restore state
+        self._stmt_stack.pop()
+        self._current_warp_name = old_warp_name
+        self._coll_tiling = old_coll_tiling
+        self._cuda_device_function = old_cuda_device_function
+        return stmts
+
+    def map_s_impl(self, s):
         if isinstance(s, LoopIR.Alloc):
             self._envtyp[s.name] = s.type
         elif isinstance(s, LoopIR.WindowStmt):
@@ -146,12 +167,6 @@ class CollAnalysis(LoopIR_Rewrite):
             # cuda_map_call_stmt cannot use super().map_s(s) due to window handling.
         else:
             stmts = super().map_s(s)
-
-        # Restore state
-        self._stmt_stack.pop()
-        self._current_warp_name = old_warp_name
-        self._coll_tiling = old_coll_tiling
-        self._cuda_device_function = old_cuda_device_function
         return stmts
 
     def cuda_inspect_s(self, s) -> Optional[ThreadIter]:
