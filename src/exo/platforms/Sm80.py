@@ -438,7 +438,7 @@ class Sm80_mma_atomic_reduce_d_tf32:
     def instance(self):
         self.instr_tl = cuda_in_order_instr
         self.coll_unit = cuda_warp
-        self.access_info["dst"].atomicity = AtomicityInfo([cuda_in_order_rmem_qual])
+        self.access_info["dst"].atomicity = AtomicityInfo([cuda_in_order_ram_qual])
 
     def codegen(self, args: InstrArgs):
         return _codegen_Sm80_d_tf32(
