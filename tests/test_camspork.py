@@ -3,6 +3,9 @@ import pytest
 import exo.spork.camspork as camspork
 
 
+# TODO this is just a tiny placeholder for now.
+
+
 @camspork.program
 def very_simple_fence_program(b: camspork.ProgramBuilder):
     num_tasks = b.add_variable("num_tasks")
@@ -15,16 +18,14 @@ def very_simple_fence_program(b: camspork.ProgramBuilder):
         with b.TasksFor(task, 0, num_tasks):
             with b.ThreadsFor(tid, 0, 32, 0, 0, 1):
                 # If task_count > 1, then there is invalid WAW.
-                b.SyncEnvAccess(
-                    buf[tid], 1, 1, is_mutate=True, is_ooo=False, atomic_qual_bits=8
-                )
+                b.SyncEnvAccess(buf[tid], 1, 1, flags=b.mutate_flag, atomic_qual_bits=8)
             with b.If(fence_enable):
                 # If fence is skipped, the reads below are bogus.
                 b.Fence(True, 1, 1, 1)
             with b.ThreadsFor(tid, 0, 32, 0, 0, 1):
                 s = b.add_variable("s")
                 with b.SeqFor(s, 0, 32):
-                    b.SyncEnvAccess(buf[s], 1, 1, is_mutate=False, is_ooo=False)
+                    b.SyncEnvAccess(buf[s], 1, 1, flags=0)
 
 
 def impl_test_very_simple_fence(num_tasks, fence_enable, err_substr=None):

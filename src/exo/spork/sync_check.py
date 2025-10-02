@@ -496,7 +496,7 @@ class CamsporkDo(LoopIR_Do):
                         self.do_stmts(s.body)
                 self._domain = old_domain
 
-    def is_single_threaded():
+    def is_single_threaded(self):
         return self._coll_tiling is None or self._coll_tiling.get_box_num_threads() == 1
 
     # We emit SyncEnvRead for all reads found (filtered by sync_syms)
@@ -520,7 +520,7 @@ class CamsporkDo(LoopIR_Do):
                     # convergent access makes no functional difference
                     # when the thread count is 1, but I suspect the
                     # implementation is faster if we set this flag.
-                    flags = b.convergent_access
+                    flags = b.convergent_flag
                 else:
                     flags = 0
                 b.SyncEnvAccess(
