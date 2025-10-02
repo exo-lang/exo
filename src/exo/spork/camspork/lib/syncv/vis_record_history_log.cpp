@@ -54,7 +54,7 @@ void stream_sync_stmt_event(Stream& s, VisRecordHistoryLog& log, const LoggedSyn
 template <typename Stream>
 void stream_tid(Stream& s, uint32_t tid, const ThreadCuboid& cuboid_for_domain)
 {
-    if (tid + 1 == 0) {
+    if (tid + 2 <= 1) {
         s << "...";
         return;
     }

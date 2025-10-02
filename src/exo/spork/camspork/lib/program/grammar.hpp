@@ -354,6 +354,16 @@ struct Varname
     {
         return slot_1_index - 1;
     }
+
+    bool operator==(Varname other) const
+    {
+        return slot() == other.slot();
+    }
+
+    bool operator!=(Varname other) const
+    {
+        return slot() != other.slot();
+    }
 };
 
 template <uint32_t IgnoredTypeID>

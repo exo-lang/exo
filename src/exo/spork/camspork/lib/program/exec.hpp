@@ -253,6 +253,11 @@ struct SinglePositionFilter
     {
         return bool(name);
     }
+
+    bool accepts_name(Varname arg) const
+    {
+        return !name || name == arg;
+    }
 };
 
 inline const SinglePositionFilter no_single_position_filter{Varname{0}, {}};

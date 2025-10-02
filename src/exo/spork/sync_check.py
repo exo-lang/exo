@@ -459,7 +459,13 @@ class CamsporkDo(LoopIR_Do):
                 self.do_stmts(s.body)
         else:
             loops_ctx = b.ThreadsFor(
-                am_iter, am_lo, am_hi, dim_idx, loop_mode.am_offset, loop_mode.am_box
+                am_iter,
+                am_lo,
+                am_hi,
+                dim_idx,
+                loop_mode.am_offset,
+                loop_mode.am_box,
+                srcinfo=s.srcinfo,
             )
             new_domain = loop_mode.domain
             if new_domain == self._domain:

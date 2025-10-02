@@ -376,6 +376,10 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
     {
         const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
 
+        if (!single_position_filter.accepts_name(node->name)) {
+            return;
+        }
+
         SyncvAccessInfo access;
         access.is_ooo = node->is_ooo;
         access.initial_qual_bit = node->initial_qual_bit;
@@ -500,6 +504,10 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
     void exec_impl(const SyncEnvFreeShard* node)
     {
         const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
+
+        if (!single_position_filter.accepts_name(node->name)) {
+            return;
+        }
 
         SyncvAccessInfo access;
         access.is_ooo = false;
@@ -698,11 +706,13 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
 
     void exec_impl(const ExpectSyncEnvAlloc* node)
     {
-        VarSlotEntry<assignment_record_id>& slot = env.sync_slot(node->name);
+        if (single_position_filter.accepts_name(node->name)) {
+            VarSlotEntry<assignment_record_id>& slot = env.sync_slot(node->name);
 
-        eval_tmp_extent(node);
-        if (slot.extent() != tmp_extent) {
-            CAMSPORK_REQUIRE(0, "ExpectSyncEnvAlloc saw wrong size for sync env allocation");
+            eval_tmp_extent(node);
+            if (slot.extent() != tmp_extent) {
+                CAMSPORK_REQUIRE(0, "ExpectSyncEnvAlloc saw wrong size for sync env allocation");
+            }
         }
     }
 
