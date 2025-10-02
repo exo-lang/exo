@@ -403,7 +403,6 @@ class CamsporkDo(LoopIR_Do):
                 if caller_a.name not in self._sync_syms:
                     continue
                 arg_info: AccessInfo = instr.access_info[str(callee_a.name)]
-                # TODO atomics
                 # TODO value environment
                 dst_lo, extent, loop_nest = self.comp_fnarg(
                     fnarg_type, caller_a, arg_info, instr_tl
@@ -423,6 +422,12 @@ class CamsporkDo(LoopIR_Do):
                 if qual_tl.get_force_shared_vis_record():
                     flags |= b.force_shared_vis_record_flag
 
+                if (atomicity := arg_info.atomicity) is None:
+                    atomic_qual_bits = 0
+                else:
+                    atomic_qual_bits = Qual_tl.make_bits(atomicity.qual_tl_list)
+                    assert atomic_qual_bits != 0
+
                 b.SyncEnvAccess(
                     dst_lo,
                     initial_qual_bits,
@@ -431,6 +436,7 @@ class CamsporkDo(LoopIR_Do):
                     extent=extent,
                     barrier=barrier,
                     barrier_multicasts=barrier_multicasts,
+                    atomic_qual_bits=atomic_qual_bits,
                     srcinfo=s.srcinfo,
                 )
                 for ctx in loop_nest:

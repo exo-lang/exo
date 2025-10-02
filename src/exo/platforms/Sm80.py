@@ -9,6 +9,7 @@ from ..spork.timelines import (
     Sm80_cp_async_instr,
     Sm80_generic,
     cuda_rmem_qual_tl_dict,
+    cuda_in_order_rmem_qual,
 )
 
 __all__ = [
@@ -27,6 +28,7 @@ from ..API import (
     window_indexer,
     WindowIndexerResult,
     InstrInfo,
+    AtomicityInfo,
 )
 from ..spork.cuda_memory import *
 from ..spork.timelines import cuda_in_order, cuda_in_order_instr
@@ -360,6 +362,27 @@ class Sm80_mma_tf32:
 __all__.append("Sm80_mma_tf32")
 
 
+def _codegen_Sm80_d_tf32(args: InstrArgs, fmt: str):
+    # fmt: off
+    preamble = [
+      "{",
+      "  const unsigned exo_lane = threadIdx.x % 32;",
+      "  const unsigned exo_m = exo_lane / 4;",
+      "  const unsigned exo_n = (exo_lane % 4) * 2;",
+    ]
+    regs = str(args.rmem.index())
+    dst = args.dst
+    lhs_list = [
+        dst.index("exo_m + 0", "exo_n + 0"),
+        dst.index("exo_m + 0", "exo_n + 1"),
+        dst.index("exo_m + 8", "exo_n + 0"),
+        dst.index("exo_m + 8", "exo_n + 1"),
+    ]
+    body = [fmt.format(i=i, regs=regs, lhs=lhs) for i, lhs in enumerate(lhs_list)]
+    return preamble + body + ["}"]
+    # fmt: on
+
+
 @instr
 class Sm80_mma_store_d_tf32:
     def behavior(
@@ -373,13 +396,57 @@ class Sm80_mma_store_d_tf32:
     def instance(self):
         self.instr_tl = cuda_in_order_instr
         self.coll_unit = cuda_warp
-        self.cu_utils = [Sm80_mma_store_util]
 
     def codegen(self, args: InstrArgs):
-        return [f"exo_CudaUtil::Sm80_mma_store_d({args.dst}, {args.rmem.index()});"]
+        return _codegen_Sm80_d_tf32(args, "  {lhs} = __uint_as_float({regs}[{i}]);")
 
 
 __all__.append("Sm80_mma_store_d_tf32")
+
+
+@instr
+class Sm80_mma_reduce_d_tf32:
+    def behavior(
+        dst: [f32][16, 8] @ CudaDeviceVisibleLinear,
+        rmem: [f32][16, 8] @ Sm80_RmemMatrixD(16, 8),
+    ):
+        for m in seq(0, 16):
+            for n in seq(0, 8):
+                dst[m, n] += rmem[m, n]
+
+    def instance(self):
+        self.instr_tl = cuda_in_order_instr
+        self.coll_unit = cuda_warp
+
+    def codegen(self, args: InstrArgs):
+        return _codegen_Sm80_d_tf32(args, "  {lhs} += __uint_as_float({regs}[{i}]);")
+
+
+__all__.append("Sm80_mma_reduce_d_tf32")
+
+
+@instr
+class Sm80_mma_atomic_reduce_d_tf32:
+    def behavior(
+        dst: [f32][16, 8] @ CudaDeviceVisibleLinear,
+        rmem: [f32][16, 8] @ Sm80_RmemMatrixD(16, 8),
+    ):
+        for m in seq(0, 16):
+            for n in seq(0, 8):
+                dst[m, n] += rmem[m, n]
+
+    def instance(self):
+        self.instr_tl = cuda_in_order_instr
+        self.coll_unit = cuda_warp
+        self.access_info["dst"].atomicity = AtomicityInfo([cuda_in_order_rmem_qual])
+
+    def codegen(self, args: InstrArgs):
+        return _codegen_Sm80_d_tf32(
+            args, "  atomicAdd(&{lhs}, __uint_as_float({regs}[{i}]));"
+        )
+
+
+__all__.append("Sm80_mma_atomic_reduce_d_tf32")
 
 
 @instr
@@ -392,33 +459,15 @@ class Sm80_mma_zero_d_tf32:
     def instance(self):
         self.instr_tl = cuda_in_order_instr
         self.coll_unit = cuda_warp
-        self.cu_utils = [Sm80_mma_zero_util]
-        self.instr_format = ["exo_CudaUtil::Sm80_mma_zero_d({rmem_data});"]
+
+    def codegen(self, args):
+        regs = str(args.rmem.index())
+        return [
+            f"{regs}[0] = 0;",
+            f"{regs}[1] = 0;",
+            f"{regs}[2] = 0;",
+            f"{regs}[3] = 0;",
+        ]
 
 
 __all__.append("Sm80_mma_zero_d_tf32")
-
-
-Sm80_mma_store_util = r"""
-EXO_CUDA_INLINE void Sm80_mma_store_d(struct exo_win_2f32 dst, const unsigned rmem[4])
-{
-  const unsigned row_stride = dst.strides[0];
-  const unsigned col_stride = dst.strides[1];
-  const unsigned warp_lane = threadIdx.x % 32u;
-  float* gmem_thread_baseaddr = &dst.data[(warp_lane / 4u) * row_stride + (warp_lane % 4u) * 2u * col_stride];
-  gmem_thread_baseaddr[0] = __uint_as_float(rmem[0]);
-  gmem_thread_baseaddr[col_stride] = __uint_as_float(rmem[1]);
-  gmem_thread_baseaddr[8 * row_stride] = __uint_as_float(rmem[2]);
-  gmem_thread_baseaddr[8 * row_stride + col_stride] = __uint_as_float(rmem[3]);
-}
-"""
-
-Sm80_mma_zero_util = r"""
-EXO_CUDA_INLINE void Sm80_mma_zero_d(unsigned rmem[4])
-{
-  rmem[0] = 0;
-  rmem[1] = 0;
-  rmem[2] = 0;
-  rmem[3] = 0;
-}
-"""

@@ -38,7 +38,7 @@ from typing import Callable, Optional, Dict, List, Tuple, Type, Set
 
 from .prelude import Sym, SrcInfo
 
-from .instr_info import AccessInfo, InstrInfo
+from .instr_info import AtomicityInfo, AccessInfo, InstrInfo
 from .LoopIR import LoopIR, SubstArgs, Identifier, get_writes_of_stmts
 from .memory import MemWin, DRAM, BarrierType
 from ..frontend.pyparser import get_ast_from_python, Parser
@@ -379,6 +379,13 @@ class InstrTemplate:
                     f"{clsname}: need out_of_order flag for {nm} @ {mem.name()}"
                 # fmt: on
                 arg_info.out_of_order = False
+
+            if arg_info.atomicity is not None:
+                atomicity = arg_info.atomicity
+                # fmt: off
+                assert isinstance(atomicity, AtomicityInfo), f"{clsname}, {nm}"
+                assert all(isinstance(q, Qual_tl) for q in atomicity.qual_tl_list), f"{clsname}, {nm}"
+                # fmt: on
 
             # Distributed memory configuration checks
             # fmt: off

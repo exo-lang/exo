@@ -481,7 +481,7 @@ struct SyncvTable
     uint32_t no_checking_counter = 0;
 
     // Counters for operations
-    uint64_t augment_counter = 0;     // Number of fence+arrive
+    uint64_t augment_counter = 0;     // Number of fence+await
 
     auto get_augment_counter_bits() const
     {
@@ -2544,6 +2544,7 @@ struct SyncvTable
     // which could cause heisenbugs.
     void debug_validate_state(size_t input_count, const SyncvDebugValidateInput* p_inputs) const
     {
+        fprintf(stderr, "SyncvTable::debug_validate_state\n");
         std::tuple<
             RefcntDebug<AssignmentRecord>,
             RefcntDebug<TlSigIntervalListNode>,

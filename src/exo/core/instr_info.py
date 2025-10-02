@@ -2,7 +2,12 @@ from dataclasses import dataclass
 from typing import Dict, List, Type, Optional
 from .memory import DRAM, MemWin, AllocableMemWin, Memory, SpecialWindow, BarrierType
 from ..spork.coll_algebra import CollUnit
-from ..spork.timelines import Instr_tl
+from ..spork.timelines import Instr_tl, Qual_tl
+
+
+@dataclass(slots=True)
+class AtomicityInfo:
+    qual_tl_list: List[Qual_tl]
 
 
 @dataclass(slots=True)
@@ -27,6 +32,8 @@ class AccessInfo:
     #             # ...
     #             param[i0, i1, ... ]
     distributed_coll_units: List[CollUnit] = ()
+
+    atomicity: Optional[AtomicityInfo] = None
 
 
 @dataclass(init=False, slots=True)

@@ -23,6 +23,17 @@ class cudaMemcpyAsync_base:
         self.access_info["src"].out_of_order = False
 
 
+class cudaMemsetAsync0_base:
+    __slots__ = []
+
+    def instance_impl(self, size_fmt: str):
+        self.instr_tl = cpu_cuda_stream_instr
+        self.instr_format = [
+            "cudaMemsetAsync(&{dst_data}, 0, %s, exo_cudaStream);" % size_fmt
+        ]
+        self.access_info["dst"].out_of_order = False
+
+
 @instr
 class cudaMemcpyAsync_htod_1f32(cudaMemcpyAsync_base):
     def behavior(n: size, dst: [f32][n] @ CudaGmemLinear, src: [f32][n] @ DRAM):
@@ -48,6 +59,17 @@ class cudaMemcpyAsync_dtoh_1f32(cudaMemcpyAsync_base):
 
 
 @instr
+class cudaMemsetAsync0_1f32(cudaMemsetAsync0_base):
+    def behavior(n: size, dst: [f32][n] @ CudaGmemLinear):
+        assert stride(dst, 0) == 1
+        for i in seq(0, n):
+            dst[i] = 0
+
+    def instance(self):
+        self.instance_impl("4 * {n}")
+
+
+@instr
 class cudaMemcpyAsync_htod_1i32(cudaMemcpyAsync_base):
     def behavior(n: size, dst: [i32][n] @ CudaGmemLinear, src: [i32][n] @ DRAM):
         assert stride(dst, 0) == 1
@@ -66,6 +88,17 @@ class cudaMemcpyAsync_dtoh_1i32(cudaMemcpyAsync_base):
         assert stride(src, 0) == 1
         for i in seq(0, n):
             dst[i] = src[i]
+
+    def instance(self):
+        self.instance_impl("4 * {n}", htod=False)
+
+
+@instr
+class cudaMemsetAsync0_1i32(cudaMemsetAsync0_base):
+    def behavior(n: size, dst: [i32][n] @ CudaGmemLinear):
+        assert stride(dst, 0) == 1
+        for i in seq(0, n):
+            dst[i] = 0
 
     def instance(self):
         self.instance_impl("4 * {n}", htod=False)
@@ -106,6 +139,23 @@ class cudaMemcpyAsync_dtoh_2f32(cudaMemcpyAsync_base):
 
 
 @instr
+class cudaMemsetAsync0_2f32(cudaMemsetAsync0_base):
+    def behavior(
+        M: size,
+        N: size,
+        dst: [f32][M, N] @ CudaGmemLinear,
+    ):
+        # assert stride(dst, 0) == N
+        assert stride(dst, 1) == 1
+        for m in seq(0, M):
+            for n in seq(0, N):
+                dst[m, n] = 0
+
+    def instance(self):
+        self.instance_impl("4 * {M} * {N}")
+
+
+@instr
 class cudaMemcpyAsync_htod_2i32(cudaMemcpyAsync_base):
     def behavior(
         M: size, N: size, dst: [i32][M, N] @ CudaGmemLinear, src: [i32][M, N] @ DRAM
@@ -137,3 +187,20 @@ class cudaMemcpyAsync_dtoh_2i32(cudaMemcpyAsync_base):
 
     def instance(self):
         self.instance_impl("4 * {M} * {N}", htod=False)
+
+
+@instr
+class cudaMemsetAsync0_2i32(cudaMemsetAsync0_base):
+    def behavior(
+        M: size,
+        N: size,
+        dst: [i32][M, N] @ CudaGmemLinear,
+    ):
+        # assert stride(dst, 0) == N
+        assert stride(dst, 1) == 1
+        for m in seq(0, M):
+            for n in seq(0, N):
+                dst[m, n] = 0
+
+    def instance(self):
+        self.instance_impl("4 * {M} * {N}", htod=True)
