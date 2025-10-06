@@ -376,6 +376,7 @@ class ProgramEnv
     void add_error_history_remarks();
     void add_last_checked_read_history_remarks();
     void add_last_checked_mutate_history_remarks();
+    void add_debug_version_history_remarks(uint64_t version_id);
 
     const std::vector<ProgramExecRemark>& get_remarks() const
     {
@@ -479,6 +480,7 @@ CAMSPORK_EXPORT int camspork_set_qual_tl_name(camspork::ProgramEnv* p_env, uint3
 CAMSPORK_EXPORT int camspork_add_error_history_remarks(camspork::ProgramEnv* p_env);
 CAMSPORK_EXPORT int camspork_add_last_checked_read_history_remarks(camspork::ProgramEnv* p_env);
 CAMSPORK_EXPORT int camspork_add_last_checked_mutate_history_remarks(camspork::ProgramEnv* p_env);
+CAMSPORK_EXPORT int camspork_add_debug_version_history_remarks(camspork::ProgramEnv* p_env, uint64_t version_id);
 CAMSPORK_EXPORT const char* camspork_get_remark(
         const camspork::ProgramEnv* p_env, uint32_t i, camspork::StmtRef* out_stmt);
 

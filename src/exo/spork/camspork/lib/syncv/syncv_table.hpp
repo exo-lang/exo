@@ -52,6 +52,7 @@ struct VisRecordDebugData
     uint8_t original_qual_tl;
     std::vector<TlSigInterval> visibility_set;
     std::vector<pending_await_t> pending_await_list;
+    std::vector<uint32_t> pending_await_tree_nodes;
 };
 
 // Window into a multidimensional array of assignment records.

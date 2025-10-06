@@ -440,7 +440,7 @@ struct SyncvTrivialLogger
 
     template <bool IsMutate>
     void history_vis_record_change(
-            SyncvTable&, nodepool::id<VisRecordListNode<IsMutate>>, nodepool::id<VisRecordListNode<IsMutate>>)
+            SyncvTable&, nodepool::id<VisRecordListNode<IsMutate>>, nodepool::id<VisRecordListNode<IsMutate>>, bool)
     {
     }
 
@@ -1676,6 +1676,8 @@ struct SyncvTable
         qual_bits_t L1_qual_bits, L2_full_qual_bits, L2_temporal_qual_bits;
         Logger& logger;
 
+        static constexpr bool enable_debug_printf = true;
+
         template <bool IsMutate>
         void update_for_sync(SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> vis_record_id) const
         {
@@ -1724,6 +1726,11 @@ struct SyncvTable
         // This also helps memoization ... VisRecord with equivalent sets of pending awaits
         // will hopefully also use equivalent node ID for the pending_awaits list.
         Map<nodepool::id<PendingAwaitTreeNode>, nodepool::id<PendingAwaitTreeNode>> node_id_map;
+
+        static constexpr bool enable_debug_printf = false;
+
+        // node_id_map must not be moved or copied, otherwise we undermine the uniqueness it provides.
+        ArriveUpdateCommand(ArriveUpdateCommand&&) = delete;
 
         template <bool IsMutate>
         void update_for_sync(SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> vis_record_id)
@@ -1836,7 +1843,7 @@ struct SyncvTable
                     }
 
                     const auto new_id = memoize_or_forward(vis_record_id);
-                    logger.history_vis_record_change(*this, vis_record_id, new_id);
+                    logger.history_vis_record_change(*this, vis_record_id, new_id, false);
                 }
                 // Note, this could cause the newly-memoized VisRecord to be immediately destroyed.
                 decref(vis_record_id);
@@ -1907,7 +1914,8 @@ struct SyncvTable
             // This is where the node might get re-inserted to the memoization table.
             // *p_id might change value here again, but it's guaranteed p_id doesn't point inside &current_node.
             const auto new_node_id = memoize_or_forward(current_node_id);
-            command.logger.history_vis_record_change(*this, current_node_id, new_node_id);
+            const bool debug_printf = command.enable_debug_printf;
+            command.logger.history_vis_record_change(*this, current_node_id, new_node_id, debug_printf);
 
             // This part is dicey. We removed the node from the memoization table, then possibly re-inserted it,
             // either into another bucket, or at the head of this bucket. See the weird assert below.
@@ -2499,8 +2507,10 @@ struct SyncvTable
         }
 
         out->pending_await_list.clear();
+        out->pending_await_tree_nodes.clear();
         for (nodepool::id<PendingAwaitTreeNode> node_id = record.pending_awaits; node_id; ) {
             const PendingAwaitTreeNode& node = get(node_id);
+            out->pending_await_tree_nodes.push_back(node_id.id_bits);
             out->pending_await_list.push_back(node.await_id);
             node_id = node.camspork_next_id;
         }
@@ -3110,13 +3120,15 @@ struct SyncvRealLogger
     void history_vis_record_change(
             SyncvTable& env,
             nodepool::id<VisRecordListNode<IsMutate>> old_id,
-            nodepool::id<VisRecordListNode<IsMutate>> new_id)
+            nodepool::id<VisRecordListNode<IsMutate>> new_id,
+            bool debug_printf)
     {
         if (p_history_log) {
             p_history_log->log_syncv_vis_record_change(
                     history_log_vis_record_id(old_id),
                     history_log_vis_record_id(new_id),
-                    _get_history_vis_record_data(env, new_id));
+                    _get_history_vis_record_data(env, new_id),
+                    debug_printf);
         }
     }
 
@@ -3145,11 +3157,18 @@ struct SyncvRealLogger
         LoggedVisRecordData data{};
         data.original_qual_tl = debug.original_qual_tl;
         data.visibility_set = std::move(debug.visibility_set);
-        for (const pending_await_t await_id: debug.pending_await_list) {
+        const auto& pending_awaits = debug.pending_await_list;
+        const auto& id_list = debug.pending_await_tree_nodes;
+        CAMSPORK_REQUIRE_CMP(pending_awaits.size(), ==, id_list.size(), "internal error");
+        for (size_t i = 0; i < pending_awaits.size(); ++i) {
+            const pending_await_t await_id = pending_awaits[i];
             barrier_id id;
             env.set_barrier_index(&id, pending_await_barrier_index(await_id));
             const auto arrive_count = pending_await_arrive_count(await_id);
-            data.pending_await_list.push_back(LoggedPendingAwait{p_history_log->get_barrier_name(id), arrive_count});
+            const auto tree_node_id = id_list[i];
+            data.pending_await_list.push_back(
+                LoggedPendingAwait{p_history_log->get_barrier_name(id), arrive_count, tree_node_id}
+            );
         }
         return data;
     }

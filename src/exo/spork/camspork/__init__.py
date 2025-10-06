@@ -405,6 +405,10 @@ _add_last_checked_mutate_history_remarks = lib.camspork_add_last_checked_mutate_
 _add_last_checked_mutate_history_remarks.restype = c_int
 _add_last_checked_mutate_history_remarks.argtypes = (c_void_p, )
 
+_add_debug_version_history_remarks = lib.camspork_add_debug_version_history_remarks
+_add_debug_version_history_remarks.argtypes = (c_void_p, c_uint64)
+_add_debug_version_history_remarks.restype = c_int
+
 _get_remark = lib.camspork_get_remark
 _get_remark.restype = c_char_p
 _get_remark.argtypes = (c_void_p, c_uint32, ptr_StmtRef)
@@ -1052,6 +1056,9 @@ class ProgramEnv:
 
     def add_last_checked_mutate_history_remarks(self):
         check_return(_add_last_checked_mutate_history_remarks(self._env))
+
+    def add_debug_version_history_remarks(self, version_id: int):
+        check_return(_add_debug_version_history_remarks(self._env, version_id))
 
     def program_with_remarks(self):
         check_return(_thread_local_print_program_with_remarks(self._env))

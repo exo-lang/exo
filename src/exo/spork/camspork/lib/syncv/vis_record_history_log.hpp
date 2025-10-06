@@ -25,6 +25,7 @@ struct LoggedPendingAwait
 {
     std::string barrier_name;
     int32_t arrive_count;
+    uint32_t tree_node_id;
 };
 
 struct LoggedVisRecordData
@@ -100,6 +101,8 @@ class VisRecordHistoryLog
     vis_record_version_t last_read_vis_record_version{};
     vis_record_version_t last_mutate_vis_record_version{};
 
+    int debug_printf_counter = 0;
+
   public:
     // ******************************************************************************************
     // Callbacks intended for the program interpreter.
@@ -107,6 +110,7 @@ class VisRecordHistoryLog
     void set_stmt_id_bits(stmt_id_bits_t bits)
     {
         current_stmt_id_bits = bits;
+        debug_printf_counter++;
     }
     void set_thread_cuboid(const ThreadCuboid& arg)
     {
@@ -122,7 +126,8 @@ class VisRecordHistoryLog
     // ******************************************************************************************
     void set_syncv_sync_stmt_info(barrier_id, LoggedSyncStmtValues);  // Affects later log_syncv_vis_record_change.
     void log_syncv_new_vis_record(vis_record_id_t id, LoggedVisRecordData data);
-    void log_syncv_vis_record_change(vis_record_id_t old_id, vis_record_id_t new_id, LoggedVisRecordData new_data);
+    void log_syncv_vis_record_change(
+            vis_record_id_t old_id, vis_record_id_t new_id, LoggedVisRecordData new_data, bool debug_printf);
     void log_syncv_vis_record_checked(vis_record_id_t id, bool is_mutate);
     void log_syncv_vis_record_error(vis_record_id_t id, TlSig fail_tl_sig, int32_t vis_level_needed);
 
@@ -132,6 +137,7 @@ class VisRecordHistoryLog
     void add_error_remarks(ProgramEnv* p_env);
     void add_last_checked_read_remarks(ProgramEnv* p_env);
     void add_last_checked_mutate_remarks(ProgramEnv* p_env);
+    void add_history_remarks(ProgramEnv*, vis_record_version_t last_version);  // For debugging syncv impl
 
   private:
     vis_record_version_t current_version_id(vis_record_id_t id)
@@ -152,8 +158,6 @@ class VisRecordHistoryLog
         id_to_version[id] = version_counter;
         return version_counter;
     }
-
-    void add_history_remarks(ProgramEnv*, vis_record_version_t last_version);
 };
 
 }

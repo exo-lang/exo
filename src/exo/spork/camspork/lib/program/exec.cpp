@@ -1138,6 +1138,12 @@ void ProgramEnv::add_last_checked_mutate_history_remarks()
     history_log.add_last_checked_mutate_remarks(this);
 }
 
+void ProgramEnv::add_debug_version_history_remarks(uint64_t version_id)
+{
+    static_assert(sizeof(version_id) == sizeof(vis_record_version_t));
+    history_log.add_history_remarks(this, vis_record_version_t{version_id});
+}
+
 void ProgramEnv::syncv_debug_validate()
 {
     std::vector<SyncvDebugValidateInput> inputs;
@@ -1304,6 +1310,14 @@ CAMSPORK_EXPORT int camspork_add_last_checked_mutate_history_remarks(camspork::P
 {
     CAMSPORK_API_PROLOGUE
     p_env->add_last_checked_mutate_history_remarks();
+    return 1;
+    CAMSPORK_API_EPILOGUE(0)
+}
+
+CAMSPORK_EXPORT int camspork_add_debug_version_history_remarks(camspork::ProgramEnv* p_env, uint64_t version_id)
+{
+    CAMSPORK_API_PROLOGUE
+    p_env->add_debug_version_history_remarks(version_id);
     return 1;
     CAMSPORK_API_EPILOGUE(0)
 }

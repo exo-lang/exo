@@ -92,7 +92,11 @@ void stream_domain(Stream& s, const ThreadCuboid& cuboid_for_domain)
 
 template <typename Stream>
 void stream_vis_record(
-        Stream& s, VisRecordHistoryLog& log, const ThreadCuboid& cuboid_for_domain, const LoggedVisRecordData& data)
+        Stream& s,
+        VisRecordHistoryLog& log,
+        const ThreadCuboid& cuboid_for_domain,
+        const LoggedVisRecordData& data,
+        bool extra_data=false)
 {
     s << "  original_qual_tl: " << log.lazy_get_qual_tl_name(data.original_qual_tl) << '\n';
     for (const TlSigInterval& t: data.visibility_set) {
@@ -124,7 +128,11 @@ void stream_vis_record(
     }
     for (const LoggedPendingAwait& pending_await : data.pending_await_list) {
         s << "  pending await: " << pending_await.barrier_name;
-        s << " arrive_count=" << pending_await.arrive_count << '\n';
+        s << " arrive_count=" << pending_await.arrive_count;
+        if (extra_data) {
+            s << " tree_node_id=" << pending_await.tree_node_id;
+        }
+        s << '\n';
     }
 }
 
@@ -191,7 +199,7 @@ void VisRecordHistoryLog::log_syncv_new_vis_record(vis_record_id_t id, LoggedVis
 }
 
 void VisRecordHistoryLog::log_syncv_vis_record_change(
-        vis_record_id_t old_id, vis_record_id_t new_id, LoggedVisRecordData new_data)
+        vis_record_id_t old_id, vis_record_id_t new_id, LoggedVisRecordData new_data, bool debug_printf)
 {
     const vis_record_version_t old_version = current_version_id(old_id);
 
@@ -209,6 +217,21 @@ void VisRecordHistoryLog::log_syncv_vis_record_change(
             "new vis_record_version_t should refer to the last vector element");
     CAMSPORK_REQUIRE_CMP(version_origin.size(), ==, version._1_index,
             "new vis_record_version_t should refer to the last vector element");
+
+    if (debug_printf) {
+        std::stringstream before;
+        stream_vis_record(before, *this, current_thread_cuboid, version_data.at(old_version._1_index - 1), true);
+        std::stringstream after;
+        stream_vis_record(after, *this, current_thread_cuboid, version_data.back(), true);
+        if (false) {
+            printf("[%i] ID %s\n", debug_printf_counter, old_id == new_id ? "SAME" : "CHANGED");
+        }
+        else {
+            printf("[%i] %u -> %u\n", debug_printf_counter, unsigned(old_id), unsigned(new_id));
+            printf("vis_record_version_t(%llu)\n", static_cast<long long unsigned>(version._1_index));
+        }
+        printf("BEFORE:%s\nAFTER:%s\n", std::move(before).str().c_str(), std::move(after).str().c_str());
+    }
 }
 
 void VisRecordHistoryLog::log_syncv_vis_record_checked(vis_record_id_t id, bool is_mutate)
