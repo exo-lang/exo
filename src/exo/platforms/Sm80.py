@@ -9,7 +9,7 @@ from ..spork.timelines import (
     Sm80_cp_async_instr,
     Sm80_generic,
     cuda_rmem_qual_tl_dict,
-    cuda_in_order_rmem_qual,
+    cuda_in_order_ram_qual,
 )
 
 __all__ = [
