@@ -12,6 +12,7 @@ from ..spork.timelines import (
     cuda_in_order,
     tma_to_smem_async,
     tma_to_gmem_async,
+    tma_to_gmem_async_qual,
     wgmma_async,
     wgmma_async_smem,
     wgmma_fence_1,
@@ -59,6 +60,7 @@ from ..API import (
     UtilInjector,
     CIR_Wrapper,
     InstrInfo,
+    AtomicityInfo,
 )
 from ..spork.cuda_memory import *
 from ..spork.coll_algebra import (
@@ -567,6 +569,50 @@ exo_Sm90_tma_to_smem_{rank}d(void* dst, const CUtensorMap& tensorMap, WindowOffs
     # fmt: on
 
 
+def copy_tensor_to_gmem_util(rank: int, is_reduce: bool):
+    # fmt: off
+    elect_one_prefix = r"""// cute::elect_one_sync
+    uint32_t pred = 0;
+    uint32_t laneid = 0;
+    asm volatile(
+      "{\n"
+      ".reg .b32 %%rx;\n"
+      ".reg .pred %%px;\n"
+      "     elect.sync %%rx|%%px, %2;\n"
+      "@%%px mov.s32 %1, 1;\n"
+      "     mov.s32 %0, %%rx;\n"
+      "}\n"
+      : "+r"(laneid), "+r"(pred)
+      : "r"(0xFFFFFFFF));"""
+
+    vector_fmt = "{" + ", ".join(f"%{r+1}" for r in range(rank)) + "}"
+    ptx_fmt = f" [%0, {vector_fmt}], [%{rank+1}]"
+    vector_args = [f'"r"(window.C_offsets[{rank - 1 - r}])' for r in range(0, rank)]
+    vector_values = ", ".join(vector_args)
+    reduce_ = "reduce_" if is_reduce else ""
+    reduce_dot = "reduce." if is_reduce else ""
+    add_dot = "add." if is_reduce else ""
+
+    return f"""template <typename WindowOffsets>
+EXO_CUDA_INLINE void
+exo_Sm90_tma_to_gmem_{reduce_}{rank}d(const CUtensorMap& tensorMap, WindowOffsets window, const void* src)
+{{
+    {elect_one_prefix}
+    if (pred) {{
+        asm volatile(
+            "cp.{reduce_dot}async.bulk.tensor.{rank}d.global.shared::cta.{add_dot}tile.bulk_group"
+            "{ptx_fmt};"
+            :
+            : "l"(&tensorMap),
+              {vector_values},
+              "r"(exo_smemU32(src))
+            : "memory");
+    }}
+}}"""
+
+    # fmt: on
+
+
 class copy_tensor_to_smem_impl(InstrInfo):
     def instance_impl(self, smem_box, swizzled, element_bits):
         rank = len(smem_box)
@@ -591,12 +637,16 @@ class copy_tensor_to_smem_impl(InstrInfo):
         self.cu_utils.append(copy_tensor_to_smem_util(rank, False))
         self.barrier_type = CudaMbarrier
         self.smem_box = smem_box
+        self.swizzle = swizzle
         self.element_bits = element_bits
 
     def codegen(self, args: InstrArgs):
         box = self.smem_box
         lines = [f"exo_CudaUtil::exo_Sm90_tma_to_smem_{len(box)}d("]
-        smem_data = args.dst.index(for_wgmma=True)
+        if self.swizzle:
+            smem_data = args.dst.index(for_wgmma=True)
+        else:
+            smem_data = args.dst.index()
         CUtensorMap = args.src.get_separate_dataptr()
         src_struct = args.src.get_window()
         lines.append(f"  &{smem_data},")
@@ -604,6 +654,52 @@ class copy_tensor_to_smem_impl(InstrInfo):
         lines.append(f"  {src_struct},")
         lines.append(f"  {args.exo_barrier},")
         lines.append(f"  {prod(box) * self.element_bits // 8}")
+        lines.append(");")
+        return lines
+
+
+class copy_tensor_to_gmem_impl(InstrInfo):
+    def instance_impl(self, smem_box, swizzled, element_bits, is_reduce):
+        rank = len(smem_box)
+        assert rank > 0
+        if swizzled:
+            swizzle = smem_box[-1] * element_bits // 8
+            if swizzle not in (32, 64, 128):
+                raise ValueError(
+                    f"Invalid smem_box {smem_box}; "
+                    f"last dimension must lead to swizzle of "
+                    f"32, 64, or 128; not {swizzle}"
+                )
+        else:
+            swizzle = 0
+        self.access_info["src"].mem = Sm90_get_mma_smem(swizzle)
+        self.access_info["src"].out_of_order = True
+        self.access_info["dst"].mem = Sm90_tensorMap(swizzle, *smem_box)
+        self.access_info["dst"].out_of_order = True
+        self.access_info["dst"].allow_out_of_bounds = True  # GMEM special case
+        if is_reduce:
+            self.access_info["dst"].atomicity = AtomicityInfo([tma_to_gmem_async_qual])
+        self.instr_tl = tma_to_gmem_async_instr
+        self.coll_unit = cuda_warp
+        self.cu_utils.append(copy_tensor_to_gmem_util(rank, is_reduce))
+        self.smem_box = smem_box
+        self.element_bits = element_bits
+        self.swizzle = swizzle
+        self.is_reduce = is_reduce
+
+    def codegen(self, args: InstrArgs):
+        box = self.smem_box
+        reduce_ = "reduce_" if self.is_reduce else ""
+        lines = [f"exo_CudaUtil::exo_Sm90_tma_to_gmem_{reduce_}{len(box)}d("]
+        if self.swizzle:
+            smem_data = args.src.index(for_wgmma=True)
+        else:
+            smem_data = args.src.index()
+        CUtensorMap = args.dst.get_separate_dataptr()
+        dst_struct = args.dst.get_window()
+        lines.append(f"  {CUtensorMap},")
+        lines.append(f"  {dst_struct},")
+        lines.append(f"  &{smem_data}")
         lines.append(");")
         return lines
 
@@ -702,6 +798,7 @@ class Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
                     f"32, 64, or 128; not {swizzle}"
                 )
         else:
+            assert 0, "not implemented, non-swizzled SMEM for TMA multicast"
             swizzle = 0
         self.access_info["dst"].mem = Sm90_get_mma_smem(swizzle)
         self.access_info["dst"].out_of_order = True
@@ -714,6 +811,7 @@ class Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
         self.barrier_type = CudaMbarrier
         self.smem_box = smem_box
         self.element_bits = element_bits
+        self.swizzle = swizzle
         self.access_info["dst"].distributed_coll_units = [cuda_cta_in_cluster]
         self.access_info["dst"].access_by_owner_only = False
         self.barrier_coll_units = [cuda_cta_in_cluster]
@@ -722,7 +820,10 @@ class Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
         box = self.smem_box
         lines = [f"exo_CudaUtil::exo_Sm90_tma_to_smem_{len(box)}d_multicast("]
         cta_idx = args.exo_wrap_cir(f"(blockIdx.x / {args.cta_stride}) % {args.n_cta}")
-        smem_data = args.dst.index(cta_idx * (box[0] // 8), for_wgmma=True)
+        if self.swizzle:
+            smem_data = args.dst.index(cta_idx * (box[0] // 8), for_wgmma=True)
+        else:
+            assert 0, "not implemented: non-swizzled SMEM for TMA multicast"
         CUtensorMap = args.src.get_separate_dataptr()
         src_struct = args.src[cta_idx * box[0] : (cta_idx + 1) * box[0]]
         lines.append(f"  &{smem_data},")
@@ -736,6 +837,112 @@ class Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
 
 
 __all__.append("Sm90_multicast_copy_tensor_to_smem_swizzled_2f32")
+
+
+@instr
+class Sm90_copy_tensor_to_gmem_linear_2f32(copy_tensor_to_gmem_impl):
+    def behavior(
+        size0: size,
+        size1: size,
+        dst: [f32][size0, size1],
+        src: [f32][size0, size1],
+    ):
+        # We need to assert that the src is densely packed.
+        assert stride(src, 0) == size1
+        assert stride(src, 1) == 1
+        # dst must be densely packed in the last dimension (CUtensorMap requirement)
+        assert stride(dst, 1) == 1
+
+        for i0 in seq(0, size0):
+            for i1 in seq(0, size1):
+                dst[i0, i1] = src[i0, i1]
+
+    def instance(self, size0, size1):
+        self.instance_impl((size0, size1), False, 32, False)
+
+
+__all__.append("Sm90_copy_tensor_to_gmem_linear_2f32")
+
+
+@instr
+class Sm90_copy_tensor_to_gmem_swizzled_2f32(copy_tensor_to_gmem_impl):
+    def behavior(
+        size0: size,
+        size1: size,
+        dst: [f32][size0, size1],
+        src: [f32][size0 / 8, 8, size1],
+    ):
+        assert size0 % 8 == 0
+        assert size0 >= 8
+        # We need to assert that the SMEM src is densely packed.
+        assert stride(src, 2) == 1
+        assert stride(src, 1) == size1
+        assert stride(src, 0) == size1 * 8
+        # dst must be densely packed in last dimension
+        assert stride(dst, 1) == 1
+
+        for i0 in seq(0, size0):
+            for i1 in seq(0, size1):
+                dst[i0, i1] = src[i0 / 8, i0 % 8, i1]
+
+    def instance(self, size0, size1):
+        self.instance_impl((size0, size1), True, 32, False)
+
+
+__all__.append("Sm90_copy_tensor_to_gmem_swizzled_2f32")
+
+
+@instr
+class Sm90_reduce_tensor_to_gmem_linear_2f32(copy_tensor_to_gmem_impl):
+    def behavior(
+        size0: size,
+        size1: size,
+        dst: [f32][size0, size1],
+        src: [f32][size0, size1],
+    ):
+        # We need to assert that the src is densely packed.
+        assert stride(src, 0) == size1
+        assert stride(src, 1) == 1
+        # dst must be densely packed in the last dimension (CUtensorMap requirement)
+        assert stride(dst, 1) == 1
+
+        for i0 in seq(0, size0):
+            for i1 in seq(0, size1):
+                dst[i0, i1] += src[i0, i1]
+
+    def instance(self, size0, size1):
+        self.instance_impl((size0, size1), False, 32, True)
+
+
+__all__.append("Sm90_reduce_tensor_to_gmem_linear_2f32")
+
+
+@instr
+class Sm90_reduce_tensor_to_gmem_swizzled_2f32(copy_tensor_to_gmem_impl):
+    def behavior(
+        size0: size,
+        size1: size,
+        dst: [f32][size0, size1],
+        src: [f32][size0 / 8, 8, size1],
+    ):
+        assert size0 % 8 == 0
+        assert size0 >= 8
+        # We need to assert that the SMEM src is densely packed.
+        assert stride(src, 2) == 1
+        assert stride(src, 1) == size1
+        assert stride(src, 0) == size1 * 8
+        # dst must be densely packed in last dimension
+        assert stride(dst, 1) == 1
+
+        for i0 in seq(0, size0):
+            for i1 in seq(0, size1):
+                dst[i0, i1] += src[i0 / 8, i0 % 8, i1]
+
+    def instance(self, size0, size1):
+        self.instance_impl((size0, size1), True, 32, True)
+
+
+__all__.append("Sm90_reduce_tensor_to_gmem_swizzled_2f32")
 
 
 # --------------------------------------------------------------------------- #
@@ -1041,9 +1248,7 @@ class mma_async_impl(InstrInfo):
 # the NEXT wgmma.mma.async instruction will zero-initialize D.
 # This is modelled in Exo as a zero-clear, even though the effect
 # does not actually happen unless a subsequent mma.async occurs.
-# In the future, I may introduce a "wgmma zero" instr-tl to model this.
-#
-# TODO this still seems to be an issue.
+# We use the wgmma_zero_instr instr-tl to model this.
 @instr
 class Sm90_zero_scale_d_f32:
     def behavior(M: size, N: size, d: [f32][M, N]):

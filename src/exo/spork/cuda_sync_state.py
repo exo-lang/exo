@@ -606,8 +606,12 @@ class SyncStateBuilder:
             arrive_instr = "cp.async.commit_group"
             await_instr = "cp.async.wait_group"
         elif timelines.tma_to_gmem_async.implements_first(L1):
-            # sm_90a bulk cp.async SMEM->GMEM
-            check_L2_coll_unit(timelines.cuda_generic_and_async_proxy, cuda_thread)
+            # sm_90a bulk cp.async SMEM->GMEM (warp)
+            # NB PTX docs describe this as a thread instr but the hardware reality
+            # is this is a warp-level instruction, because all threads in the
+            # warp share the same "commit group" state.
+            # TBH this may be the case for Sm80_cp_async as well (???)
+            check_L2_coll_unit(timelines.cuda_generic_and_async_proxy, cuda_warp)
             lowered = LoweredBarrier(
                 solitary, LoweredBarrierType.tma_to_gmem_commit_group
             )
