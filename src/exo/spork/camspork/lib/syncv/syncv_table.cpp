@@ -38,18 +38,16 @@ namespace
 
 using refcnt_t = uint32_t;
 
-// We attach a "linked list" of pending awaits to a non-forwarded VisRecord.
-// However, two different linked lists may share the same tail, hence the "tree" name and the refcnt.
-struct PendingAwaitTreeNode
+// We attach a linked list of pending awaits to a non-forwarded VisRecord.
+// These used to be reference-counted, but are now uniquely owned (fix outdated comments if found).
+struct PendingAwaitNode
 {
-    // Owning reference to the next node in the list (may be shared tail).
-    nodepool::id<PendingAwaitTreeNode> camspork_next_id;
-    refcnt_t refcnt;
+    nodepool::id<PendingAwaitNode> camspork_next_id;
     pending_await_t await_id;
 
     refcnt_t get_refcnt() const
     {
-        return refcnt;
+        return 1;
     }
 };
 
@@ -77,7 +75,7 @@ struct VisRecord
     nodepool::id<TlSigIntervalListNode> visibility_set;
 
     // Owning reference to tree node.
-    nodepool::id<PendingAwaitTreeNode> pending_awaits;
+    nodepool::id<PendingAwaitNode> pending_awaits;
 
     uint8_t original_qual_tl;
 
@@ -335,9 +333,13 @@ struct IntervalBucket<IsMutate, 1> : IntervalBucketParentPointer<IsMutate, 1>
 };
 
 
-// TODO consider further sub-bucketing, e.g. by qual_bits.
-// If we do this, we have to be careful not to double-consider items when
-// moving between buckets. e.g. bucket by lowest to highest qual_bit count.
+// TODO memoization is horrible right now, move to hash-indexed buckets or something.
+// The hierarchical structure was created to optimize for avoiding redundancy for
+// Arrive/Fence statements, but overwhelmingly time is used for memoization lookup
+// for read/mutate statements. The latter use case entails horrible linear searches now.
+//
+// If we do this change, we have to be careful not to double-consider items when
+// moving between buckets.
 
 
 template <bool IsMutate, uint32_t BucketLevel>
@@ -494,7 +496,7 @@ struct SyncvTable
     std::tuple<
         nodepool::Pool<AssignmentRecord>,
         nodepool::Pool<TlSigIntervalListNode>,
-        nodepool::Pool<PendingAwaitTreeNode>,
+        nodepool::Pool<PendingAwaitNode>,
         nodepool::Pool<ReadVisRecordListNode>,
         nodepool::Pool<MutateVisRecordListNode>,
         nodepool::Pool<AssignmentRecordReadNode>,
@@ -660,37 +662,14 @@ struct SyncvTable
         }
     }
 
-    void incref(nodepool::id<PendingAwaitTreeNode> id)
-    {
-        PendingAwaitTreeNode& node = get(id);
-        CAMSPORK_REQUIRE_CMP(node.refcnt, !=, 0, "should not have started with 0 refcnt");
-        node.refcnt++;
-        CAMSPORK_REQUIRE_CMP(node.refcnt, !=, 0, "reference count overflow");
-    }
-
-    void decref(nodepool::id<PendingAwaitTreeNode> id)
-    {
-        PendingAwaitTreeNode& node = get(id);
-        if (0 != --node.refcnt) {
-            return;
-        }
-        auto victim_id = remove_next_node(&id);
-        extend_free_list(victim_id);
-        if (id) {
-            decref(id);
-        }
-    }
-
     void reset_vis_record_data(VisRecord* p_data)
     {
         static_assert(sizeof(*p_data) == 12, "update me");
         p_data->original_qual_tl = ~0;
         extend_free_list(p_data->visibility_set);
         p_data->visibility_set = {};
-        if (auto& id = p_data->pending_awaits) {
-            decref(id);
-            id = nodepool::id<PendingAwaitTreeNode>{};
-        }
+        extend_free_list(p_data->pending_awaits);
+        p_data->pending_awaits = {};
     }
 
     template <bool IsMutate>
@@ -765,21 +744,17 @@ struct SyncvTable
         CAMSPORK_REQUIRE(vis_record.base_data.visibility_set, "buggy: empty visibility set");
 
         // Add pending awaits
-        // NOTE: this is extremely inefficient if done many times, since we create a new PendingAwaitTreeNode
-        // each time, and this undermines memoization as it relies on ID-equality to work.
-        // 2025-10-01: this interacts with SharedVisRecord.
         for (uint32_t i = 0; i < access.barrier_count; ++i) {
             const auto barrier_index = get_barrier_index(access.trailing_barriers[i]);
             BarrierState& state = barrier_states[barrier_index];
             const pending_await_t info = pack_pending_await(barrier_index, state.arrive_count);
-            nodepool::id<PendingAwaitTreeNode> new_id;
-            PendingAwaitTreeNode& node = alloc_default_node(&new_id);
-            node.refcnt = 1;
+            nodepool::id<PendingAwaitNode> new_id;
+            PendingAwaitNode& node = alloc_default_node(&new_id);
             node.await_id = info;
             node.camspork_next_id = vis_record.base_data.pending_awaits;
             vis_record.base_data.pending_awaits = new_id;
             // This keeps a reference to the new VisRecord.
-            // If we improve memoization later, this wall cause the reference to be kept to a
+            // Memoization may cause the reference to change to a
             // forwarding-state VisRecord, which isn't a well-tested code path probably.
             extend_barrier_arrive_state(vis_record_id, info);
         }
@@ -959,9 +934,27 @@ struct SyncvTable
         }
 
         // Check equal pending awaits.
-        // NB false negative shouldn't happen but won't mess things up too badly.
-        // i.e. it'll be OK if the lists are equal, but didn't have the same ID.
-        return a.pending_awaits == b.pending_awaits;
+        {
+            using node_id = nodepool::id<PendingAwaitNode>;
+            node_id id_a = a.pending_awaits;
+            node_id id_b = b.pending_awaits;
+
+            while (id_a && id_b) {
+                const PendingAwaitNode& current_a = get(id_a);
+                const PendingAwaitNode& current_b = get(id_b);
+                id_a = current_a.camspork_next_id;
+                id_b = current_b.camspork_next_id;
+
+                if (current_a.await_id != current_b.await_id) {
+                    return false;
+                }
+            }
+
+            if (id_a != id_b) {
+                return false;  // Lists have different lengths.
+            }
+        }
+        return true;
     }
 
     bool synchronizes_with(
@@ -1676,7 +1669,7 @@ struct SyncvTable
         qual_bits_t L1_qual_bits, L2_full_qual_bits, L2_temporal_qual_bits;
         Logger& logger;
 
-        static constexpr bool enable_debug_printf = true;
+        static constexpr bool enable_debug_printf = false;
 
         template <bool IsMutate>
         void update_for_sync(SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> vis_record_id) const
@@ -1722,14 +1715,8 @@ struct SyncvTable
         std::vector<pending_await_t> pending_awaits;
         Logger& logger;
 
-        // Used internally, to avoid creating redundant PendingAwaitTreeNode.
-        // This also helps memoization ... VisRecord with equivalent sets of pending awaits
-        // will hopefully also use equivalent node ID for the pending_awaits list.
-        Map<nodepool::id<PendingAwaitTreeNode>, nodepool::id<PendingAwaitTreeNode>> node_id_map;
-
         static constexpr bool enable_debug_printf = false;
 
-        // node_id_map must not be moved or copied, otherwise we undermine the uniqueness it provides.
         ArriveUpdateCommand(ArriveUpdateCommand&&) = delete;
 
         template <bool IsMutate>
@@ -1742,31 +1729,17 @@ struct SyncvTable
 
             if (env.synchronizes_with(transitive, *p_record, *p_cuboid, L1_qual_bits)) {
                 // Extend pending_awaits list of the VisRecord.
-                const nodepool::id<PendingAwaitTreeNode> old_await_node = p_record->pending_awaits;
-                nodepool::id<PendingAwaitTreeNode>* p_map_value = &node_id_map[old_await_node];
-                if (auto new_await_node = *p_map_value) {
-                    // Recycle the list created in the else stmt.
-                    env.incref(new_await_node);
-                    if (old_await_node) {
-                        env.decref(old_await_node);  // critically after incref, in case the two nodes are the same.
-                    }
-                    p_record->pending_awaits = new_await_node;
+                const nodepool::id<PendingAwaitNode> old_await_node = p_record->pending_awaits;
+                nodepool::id<PendingAwaitNode> new_await_node = old_await_node;
+                // Add nodes to the head of the list.
+                for (auto iter = pending_awaits.rbegin(); iter != pending_awaits.rend(); ++iter) {
+                    const auto tmp_id = new_await_node;
+                    PendingAwaitNode& node = env.alloc_default_node(&new_await_node);
+                    node.camspork_next_id = tmp_id;
+                    node.await_id = *iter;
+                    // fprintf(stderr, "ADDING await_id %u\n", node.await_id);
                 }
-                else {
-                    new_await_node = old_await_node;
-                    // Add nodes to the head of the list.
-                    // Don't have to manipulate refcnt here, actually.
-                    for (auto iter = pending_awaits.rbegin(); iter != pending_awaits.rend(); ++iter) {
-                        const auto tmp_id = new_await_node;
-                        PendingAwaitTreeNode& node = env.alloc_default_node(&new_await_node);
-                        node.camspork_next_id = tmp_id;
-                        node.refcnt = 1;
-                        node.await_id = *iter;
-                        // fprintf(stderr, "ADDING await_id %u\n", node.await_id);
-                    }
-                    *p_map_value = new_await_node;
-                    p_record->pending_awaits = new_await_node;
-                }
+                p_record->pending_awaits = new_await_node;
 
                 // Extend BarrierArriveState to hold the new VisRecord.
                 for (pending_await_t info : pending_awaits) {
@@ -1812,7 +1785,7 @@ struct SyncvTable
                 record_id = record_node.camspork_next_id;
                 const nodepool::id<VisRecordListNode<IsMutate>> vis_record_id = record_node.vis_record_id;
                 VisRecordListNode<IsMutate>& vis_node = get(vis_record_id);
-                nodepool::id<PendingAwaitTreeNode>* p_await_node = &vis_node.base_data.pending_awaits;
+                nodepool::id<PendingAwaitNode>* p_await_node = &vis_node.base_data.pending_awaits;
                 if (vis_node.is_forwarded()) {
                     CAMSPORK_REQUIRE(!*p_await_node, "pending_awaits should be empty for forwarded VisRecord");
                 }
@@ -1822,26 +1795,18 @@ struct SyncvTable
                     CAMSPORK_REQUIRE_CMP(tmp, ==, vis_record_id, "memoization broken?");
                     callback(*this, vis_record_id);
 
-                    // Remove PendingAwaitTreeNode.
-                    // Note, although it would be nice to assert that we actually performed this remove, this isn't
-                    // feasible, due to the PendingAwaitTreeNode list tail sharing. The PendingAwaitTreeNode may
-                    // have been removed earlier on in the function.
+                    // Remove PendingAwaitNode.
+                    bool found = false;
                     while (*p_await_node) {
-                        PendingAwaitTreeNode& node = get(*p_await_node);
+                        PendingAwaitNode& node = get(*p_await_node);
                         if (node.await_id == await_info) {
-                            // remove_next_node would be inappropriate here due to tail sharing (the "tree").
-                            const auto removed_id = *p_await_node;
-                            const auto new_id = node.camspork_next_id;
-                            *p_await_node = new_id;
-                            if (new_id) {
-                                incref(new_id);
-                            }
-                            decref(removed_id);
+                            remove_and_free_next_node(p_await_node);
+                            found = true;
                             break;
                         }
                         p_await_node = &node.camspork_next_id;
                     }
-
+                    CAMSPORK_REQUIRE(found, "Remove PendingAwaitNode failed");
                     const auto new_id = memoize_or_forward(vis_record_id);
                     logger.history_vis_record_change(*this, vis_record_id, new_id, false);
                 }
@@ -1965,7 +1930,7 @@ struct SyncvTable
         }
         else {
             ArriveUpdateCommand<Logger> command{
-                    &cuboid, transitive, L1_qual_bits, std::move(pending_awaits), logger, {}};
+                    &cuboid, transitive, L1_qual_bits, std::move(pending_awaits), logger};
             update_vis_records_for_sync_impl(command);
         }
     }
@@ -2185,9 +2150,6 @@ struct SyncvTable
             new_vis_record_list[0] = new_vis_record_id;
         }
         else {
-            // memoization falls flat as of 2025-10-01 in this case,
-            CAMSPORK_REQUIRE_CMP(access.barrier_count, ==, 0, "this'll work but is really slow right now.");
-
             cuboid.to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi) {
                 // We model the CPU as of 2025-10-01 as "[almost] all possible threads" [0, UINT32_MAX)
                 // and if we pass that here, we will create 4 billion VisRecords.
@@ -2507,10 +2469,8 @@ struct SyncvTable
         }
 
         out->pending_await_list.clear();
-        out->pending_await_tree_nodes.clear();
-        for (nodepool::id<PendingAwaitTreeNode> node_id = record.pending_awaits; node_id; ) {
-            const PendingAwaitTreeNode& node = get(node_id);
-            out->pending_await_tree_nodes.push_back(node_id.id_bits);
+        for (nodepool::id<PendingAwaitNode> node_id = record.pending_awaits; node_id; ) {
+            const PendingAwaitNode& node = get(node_id);
             out->pending_await_list.push_back(node.await_id);
             node_id = node.camspork_next_id;
         }
@@ -2558,7 +2518,7 @@ struct SyncvTable
         std::tuple<
             RefcntDebug<AssignmentRecord>,
             RefcntDebug<TlSigIntervalListNode>,
-            RefcntDebug<PendingAwaitTreeNode>,
+            RefcntDebug<PendingAwaitNode>,
             RefcntDebug<ReadVisRecordListNode>,
             RefcntDebug<MutateVisRecordListNode>,
             RefcntDebug<AssignmentRecordReadNode>,
@@ -2570,7 +2530,7 @@ struct SyncvTable
         if (false) {
             fprintf(stderr, "AssignmentRecord: %u\n", debug_get_pool<AssignmentRecord>().size());
             fprintf(stderr, "TlSigIntervalListNode: %u\n", debug_get_pool<TlSigIntervalListNode>().size());
-            fprintf(stderr, "PendingAwaitTreeNode: %u\n", debug_get_pool<PendingAwaitTreeNode>().size());
+            fprintf(stderr, "PendingAwaitNode: %u\n", debug_get_pool<PendingAwaitNode>().size());
             fprintf(stderr, "ReadVisRecordListNode: %u\n", debug_get_pool<ReadVisRecordListNode>().size());
             fprintf(stderr, "MutateVisRecordListNode: %u\n", debug_get_pool<MutateVisRecordListNode>().size());
             fprintf(stderr, "AssignmentRecordReadNode: %u\n", debug_get_pool<AssignmentRecordReadNode>().size());
@@ -2650,8 +2610,8 @@ struct SyncvTable
             }
         }
 
-        // This handles references between PendingAwaitTreeNode
-        auto on_PendingAwaitTreeNode = [&] (nodepool::id<PendingAwaitTreeNode> id, auto recurse)
+        // This handles references between PendingAwaitNode
+        auto on_PendingAwaitNode = [&] (nodepool::id<PendingAwaitNode> id, auto recurse)
         {
             if (!id) {
                 return;
@@ -2666,7 +2626,7 @@ struct SyncvTable
 
         // Count ownership references from live VisRecordListNode objects to other objects:
         //   * TlSigIntervalListNode
-        //   * PendingAwaitTreeNode
+        //   * PendingAwaitNode
         //   * forwarded-to VisRecordListNodes
         // Furthermore we validate the following:
         //   * encoding for the visibility set is correct.
@@ -2701,14 +2661,14 @@ struct SyncvTable
                     }
                 }
 
-                // Record PendingAwaitTreeNode references.
-                on_PendingAwaitTreeNode(node.base_data.pending_awaits, on_PendingAwaitTreeNode);
+                // Record PendingAwaitNode references.
+                on_PendingAwaitNode(node.base_data.pending_awaits, on_PendingAwaitNode);
 
                 // Look for VisRecord reference in BarrierArriveState.
                 // The other half of this checking is done in check_BarrierArriveState_VisRecords.
-                nodepool::id<PendingAwaitTreeNode> await_node_id = node.base_data.pending_awaits;
+                nodepool::id<PendingAwaitNode> await_node_id = node.base_data.pending_awaits;
                 while (await_node_id) {
-                    const PendingAwaitTreeNode& await_node = get(await_node_id);
+                    const PendingAwaitNode& await_node = get(await_node_id);
                     await_node_id = await_node.camspork_next_id;
                     const BarrierArriveState& state = get_const_barrier_arrive_state(await_node.await_id);
                     constexpr bool IsMutate = node.is_mutate;
@@ -2858,10 +2818,10 @@ struct SyncvTable
                 if (vis_record.is_forwarded()) {
                     continue;
                 }
-                nodepool::id<PendingAwaitTreeNode> await_node_id = vis_record.base_data.pending_awaits;
+                nodepool::id<PendingAwaitNode> await_node_id = vis_record.base_data.pending_awaits;
                 while (true) {
                     CAMSPORK_REQUIRE(await_node_id, "BarrierArriveState references VisRecord without corresponding pending_await_id");
-                    const PendingAwaitTreeNode& await_node = get(await_node_id);
+                    const PendingAwaitNode& await_node = get(await_node_id);
                     await_node_id = await_node.camspork_next_id;
                     if (await_node.await_id == expected_await_id) {
                         break;
@@ -3049,9 +3009,9 @@ struct SyncvRealLogger
             p_excut_actions->push_back(std::move(p_excut_interval));
         }
 
-        nodepool::id<PendingAwaitTreeNode> await_node_id = vis_record.pending_awaits;
+        nodepool::id<PendingAwaitNode> await_node_id = vis_record.pending_awaits;
         while (await_node_id) {
-            const PendingAwaitTreeNode& node = env.get(await_node_id);
+            const PendingAwaitNode& node = env.get(await_node_id);
             await_node_id = node.camspork_next_id;
             auto p_excut_await = std::make_unique<ExcutPendingAwait>();
             barrier_id tmp_barrier_id;
@@ -3158,16 +3118,13 @@ struct SyncvRealLogger
         data.original_qual_tl = debug.original_qual_tl;
         data.visibility_set = std::move(debug.visibility_set);
         const auto& pending_awaits = debug.pending_await_list;
-        const auto& id_list = debug.pending_await_tree_nodes;
-        CAMSPORK_REQUIRE_CMP(pending_awaits.size(), ==, id_list.size(), "internal error");
         for (size_t i = 0; i < pending_awaits.size(); ++i) {
             const pending_await_t await_id = pending_awaits[i];
             barrier_id id;
             env.set_barrier_index(&id, pending_await_barrier_index(await_id));
             const auto arrive_count = pending_await_arrive_count(await_id);
-            const auto tree_node_id = id_list[i];
             data.pending_await_list.push_back(
-                LoggedPendingAwait{p_history_log->get_barrier_name(id), arrive_count, tree_node_id}
+                LoggedPendingAwait{p_history_log->get_barrier_name(id), arrive_count}
             );
         }
         return data;

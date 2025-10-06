@@ -25,7 +25,6 @@ struct LoggedPendingAwait
 {
     std::string barrier_name;
     int32_t arrive_count;
-    uint32_t tree_node_id;
 };
 
 struct LoggedVisRecordData

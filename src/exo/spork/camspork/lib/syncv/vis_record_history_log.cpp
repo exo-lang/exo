@@ -96,7 +96,7 @@ void stream_vis_record(
         VisRecordHistoryLog& log,
         const ThreadCuboid& cuboid_for_domain,
         const LoggedVisRecordData& data,
-        bool extra_data=false)
+        [[maybe_unused]] bool extra_data=false)
 {
     s << "  original_qual_tl: " << log.lazy_get_qual_tl_name(data.original_qual_tl) << '\n';
     for (const TlSigInterval& t: data.visibility_set) {
@@ -129,9 +129,6 @@ void stream_vis_record(
     for (const LoggedPendingAwait& pending_await : data.pending_await_list) {
         s << "  pending await: " << pending_await.barrier_name;
         s << " arrive_count=" << pending_await.arrive_count;
-        if (extra_data) {
-            s << " tree_node_id=" << pending_await.tree_node_id;
-        }
         s << '\n';
     }
 }
