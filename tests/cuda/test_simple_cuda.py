@@ -275,7 +275,7 @@ class gemm_init_pcg3d_mod:
     def behavior(
         M: size,
         K: size,
-        A: [f32][M, K] @ CudaGmemLinear,
+        A: [f32][1] @ CudaBasicDeviceVisible,
         m: index,
         k: index,
         seed: size,
@@ -283,9 +283,7 @@ class gemm_init_pcg3d_mod:
     ):
         assert m >= 0
         assert k >= 0
-        assert m < M
-        assert k < K
-        A[m, k] = 12345  # Lie to Exo since Exo can't express this prng
+        A[0] = 12345  # Lie to Exo since Exo can't express this prng
 
     def instance(self, seed, modulus):
         self.instr_tl = cuda_in_order_instr
@@ -293,10 +291,12 @@ class gemm_init_pcg3d_mod:
         self.cu_utils = [self._cu_util]
         self.instr_format = [self._line_format % (seed, modulus)]
 
-    _line_format = "exo_CudaUtil::gemm_init_pcg3d_mod({K}, {A}, {m}, {k}, %s, %s);"
+    _line_format = (
+        "exo_CudaUtil::gemm_init_pcg3d_mod({K}, &{A_data}, {m}, {k}, %s, %s);"
+    )
 
     _cu_util = """__device__ void gemm_init_pcg3d_mod(
-        uint32_t K, struct exo_win_2f32 A,
+        uint32_t K, float* A,
         uint32_t m, uint32_t k, uint32_t seed, uint32_t modulus)
 {
     uint32_t x = m;
@@ -324,7 +324,7 @@ class gemm_init_pcg3d_mod:
 
     float value = (float)((x + y + z) % modulus);
 
-    A.data[A.strides[0] * m + k] = value;
+    *A = value;
 }
 """
 
@@ -345,14 +345,18 @@ def test_cuda_simple_matmul(compiler_Sm80):
             for m in cuda_tasks(0, M):
                 for k_task in cuda_tasks(0, K / 32):
                     for k_seq in cuda_threads(0, 32):
-                        gemm_init_pcg3d_mod(M, K, A, m, k_task * 32 + k_seq, seed=1337, modulus=7)
+                        gemm_init_pcg3d_mod(
+                            M, K, A[m:m+1, k_task * 32 + k_seq],
+                            m, k_task * 32 + k_seq, seed=1337, modulus=7)
 
         # Cuda1: initialize B with "random" data
         with CudaDeviceFunction(blockDim=32):
             for n in cuda_tasks(0, N):
                 for k_task in cuda_tasks(0, K / 32):
                     for k_seq in cuda_threads(0, 32):
-                        gemm_init_pcg3d_mod(N, K, B, n, k_task * 32 + k_seq, seed=42, modulus=14)
+                        gemm_init_pcg3d_mod(
+                            N, K, B[n:n+1, k_task * 32 + k_seq],
+                            n, k_task * 32 + k_seq, seed=42, modulus=14)
 
         # Cuda2: C = A * B
         with CudaDeviceFunction(blockDim=256):
@@ -462,6 +466,7 @@ def test_cuda_simple_matmul(compiler_Sm80):
 
     cu = compiler_Sm80.cuda_test_context(gemm_test)
 
+    gemm_test.sync_check(M=128, N=128, K=128)
     for M in (512, 4096):
         for N in (512, 65536):
             for K in (512, 65536):
@@ -578,7 +583,9 @@ def xgemm_Sm80_fence(M: size, N: size, K: size, A_host: f32[M,K], B_host: f32[K,
             for k_task in cuda_tasks(0, K / 32):
                 for k_seq in cuda_threads(0, 32):
                     # Really tiny modulus to account for low tf32 precision
-                    gemm_init_pcg3d_mod(M, K, A, m, k_task * 32 + k_seq, seed=1337, modulus=5)
+                    gemm_init_pcg3d_mod(
+                        M, K, A[m:m+1, k_task * 32 + k_seq],
+                        m, k_task * 32 + k_seq, seed=1337, modulus=5)
 
     # Cuda1: initialize B with "random" data
     with CudaDeviceFunction(blockDim=32):
@@ -586,7 +593,9 @@ def xgemm_Sm80_fence(M: size, N: size, K: size, A_host: f32[M,K], B_host: f32[K,
             for k_task in cuda_tasks(0, K / 32):
                 for k_seq in cuda_threads(0, 32):
                     # Really tiny modulus to account for low tf32 precision
-                    gemm_init_pcg3d_mod(K, N, B, k_task * 32 + k_seq, n, seed=42, modulus=3)
+                    gemm_init_pcg3d_mod(
+                        K, N, B[k_task * 32 + k_seq, n:n+1],
+                        k_task * 32 + k_seq, n, seed=42, modulus=3)
 
     with CudaDeviceFunction(blockDim = 256, blocks_per_sm = 1):
         for m2 in cuda_tasks(0, M / M1):
@@ -686,6 +695,7 @@ def test_tmp_xgemm_Sm80(compiler_Sm80):
     B = np.ndarray(shape=(K, N), dtype=np.float32, order="C")
     C_test = np.ndarray(shape=(M, N), dtype=np.float32, order="C")
 
+    xgemm_Sm80_fence.sync_check(M=M, N=N, K=K)
     cu(None, M, N, K, A, B, C_test)
 
     C_expected = A @ B

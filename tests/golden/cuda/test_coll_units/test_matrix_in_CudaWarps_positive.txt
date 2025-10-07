@@ -138,7 +138,7 @@ struct exo_CudaDeviceArgs0_proc_matrix_in_CudaWarps_positive
 
 /* relying on the following instruction..."
 Sm80_mma_zero_d_tf32(rmem)
-exo_CudaUtil::Sm80_mma_zero_d({rmem_data});
+
 */
 // proc_matrix_in_CudaWarps_positive(
 
@@ -172,16 +172,6 @@ void proc_matrix_in_CudaWarps_positive( void *ctxt ) {
 
 namespace exo_CudaUtil_test_matrix_in_CudaWarps_positive {
 namespace exo_CudaUtil = ::exo_CudaUtil_test_matrix_in_CudaWarps_positive;
-/* Required by Sm80_mma_zero_d_tf32(rmem) */
-
-EXO_CUDA_INLINE void Sm80_mma_zero_d(unsigned rmem[4])
-{
-  rmem[0] = 0;
-  rmem[1] = 0;
-  rmem[2] = 0;
-  rmem[3] = 0;
-}
-
 }  // end namespace exo_CudaUtil_test_matrix_in_CudaWarps_positive
 // CUDA device function args -- duplicated in .c file
 struct exo_CudaDeviceArgs0_proc_matrix_in_CudaWarps_positive
@@ -289,7 +279,10 @@ exo_CudaInline_test_matrix_in_CudaWarps_positive::exo_Cuda0_proc_matrix_in_CudaW
   // CudaWarps(3, 4)
   if (int CudaWarps_3_4_ = threadIdx.x; CudaWarps_3_4_ >= 96 && CudaWarps_3_4_ < 128) {
     unsigned warp_rmem[4];
-    exo_CudaUtil::Sm80_mma_zero_d(warp_rmem);
+    warp_rmem[0] = 0;
+    warp_rmem[1] = 0;
+    warp_rmem[2] = 0;
+    warp_rmem[3] = 0;
   }
 }
 __device__ __forceinline__ void
