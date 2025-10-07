@@ -77,6 +77,7 @@ def tparams_from_signature(clsname: str, tproc: LoopIR.proc, signature):
     proc_tparam_syms = []
     proc_tparam_types = []
     extra_tparam_names = []
+    extra_tparam_defaults = {}
 
     for i, param in enumerate(signature.parameters.values()):
         nm = param.name
@@ -92,7 +93,10 @@ def tparams_from_signature(clsname: str, tproc: LoopIR.proc, signature):
         else:
             problem = f"cannot be {param.kind.name} argument"
         if param.default is not inspect._empty:
-            problem = "cannot have default value"
+            if is_proc_param:
+                problem = "cannot have default value"
+            else:
+                extra_tparam_defaults[str(nm)] = param.default
         # Look for matching parameter in behavior() and get its Sym
         for tproc_a in tproc.args:
             if tproc_a.name.name() == nm:
@@ -124,7 +128,12 @@ def tparams_from_signature(clsname: str, tproc: LoopIR.proc, signature):
         else:
             extra_tparam_names.append(str(nm))
 
-    return proc_tparam_syms, proc_tparam_types, extra_tparam_names
+    return (
+        proc_tparam_syms,
+        proc_tparam_types,
+        extra_tparam_names,
+        extra_tparam_defaults,
+    )
 
 
 def prefill_instr_info(info: InstrInfo, proc: LoopIR.proc):
@@ -169,6 +178,7 @@ class InstrTemplate:
     proc_tparam_types: List[LoopIR.type]
 
     extra_tparam_names: List[str]
+    extra_tparam_defaults: Dict[str, object]
 
     # "Template proc"; this is not an instr; this is directly parsed from
     # the user's cls.behavior Exo function.
@@ -202,6 +212,7 @@ class InstrTemplate:
             proc_tparam_syms,
             proc_tparam_types,
             extra_tparam_names,
+            extra_tparam_defaults,
         ) = tparams_from_signature(nm, tproc, instance_signature)
 
         # The user's cls.instance function will be used to initialize InstrInfo.
@@ -229,6 +240,7 @@ class InstrTemplate:
         self.proc_tparam_syms = proc_tparam_syms
         self.proc_tparam_types = proc_tparam_types
         self.extra_tparam_names = extra_tparam_names
+        self.extra_tparam_defaults = extra_tparam_defaults
         self.tproc = tproc
         self.info_cls = info_cls
         self.cache = {}
@@ -310,9 +322,14 @@ class InstrTemplate:
             else:
                 raise InstrTemplateError(f"{clsname}: {nm} must be int, not {type(v)}")
         extras = self.extra_tparam_names
+        num_defaults = 0
         for nm in extras:
             try:
-                v = tparam_dict[nm]
+                try:
+                    v = tparam_dict[nm]
+                except KeyError:
+                    v = self.extra_tparam_defaults[nm]
+                    num_defaults += 1
             except KeyError:
                 raise InstrTemplateError(f"{clsname}: missing template parameter {nm}")
             tparam_values.append(v)
@@ -320,7 +337,7 @@ class InstrTemplate:
         # Do this assert late as the "missing parameter"
         # message above has better clarity.
         # fmt: off
-        assert len(tparam_dict) == len(syms) + len(extras), f"{clsname}: excess arguments"
+        assert len(tparam_dict) + num_defaults == len(syms) + len(extras), f"{clsname}: excess arguments"
         # fmt: on
         return tuple(tparam_values)
 

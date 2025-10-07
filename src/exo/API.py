@@ -28,6 +28,7 @@ from .backend.LoopIR_compiler import (
 from .core.configs import Config
 from .frontend.boundscheck import CheckBounds
 from .core.c_window import (
+    WindowFeatures,
     WindowEncoder,
     WindowIndexer,
     WindowIndexerResult,

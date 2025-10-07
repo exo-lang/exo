@@ -54,12 +54,14 @@ from ..API import (
     MemGlobalC,
     MemIncludeC,
     SpecialWindow,
+    WindowFeatures,
     WindowEncoder,
     WindowIndexer,
     ScalarInfo,
     UtilInjector,
     CIR_Wrapper,
     InstrInfo,
+    InstrArgs,
     AtomicityInfo,
 )
 from ..spork.cuda_memory import *
@@ -261,6 +263,19 @@ class SwizzledIndexer(WindowIndexer):
 # that is constructed as a window to CudaGmemLinear.
 @memwin_template
 def Sm90_tensorMap(swizzle, *smem_box):
+    # Minimal SMEM box: we allow copies that reduce dimensionality
+    # where the removed dimensions have extent size 1.
+    # For example, for batched GEMM, we could have a GMEM window
+    # of size [1, Ms, Ks] copied to an SMEM tensor sized [Ms, Ks].
+    # The size of the destination window is the minimal SMEM box.
+    #
+    # To actually use this functionality, you have to pass smem_box
+    # to instrs explicitly as a keyword argument.
+    #
+    # TODO this consumes dims that count against the 5 dim limit.
+    # More flexible alternatives exist that don't map 1:1
+    # with CUDA (e.g. manually offset the ptr on the device???) but
+    # this interacts subtly with TMA's built-in bounds checking.
     rank = len(smem_box)
     assert 1 <= rank <= 5
     assert swizzle in (0, 32, 64, 128)
@@ -291,6 +306,10 @@ def Sm90_tensorMap(swizzle, *smem_box):
         def smem_box(cls):
             return smem_box
 
+        @classmethod
+        def rank(cls):
+            return rank
+
     return CUtensorMap
 
 
@@ -302,7 +321,7 @@ class TensorMapEncoder(WindowEncoder):
         return True
 
     def define_struct(self, depends_on: list):
-        rank = self.n_dims
+        rank = self.mem.rank()
         sdef = CUtensorMap_window_template.format(
             rank=rank, sname=self.exo_struct_name()
         )
@@ -318,7 +337,7 @@ class TensorMapEncoder(WindowEncoder):
         return sdef
 
     def supports_dim_change(self):
-        return False
+        return True
 
     def supports_special_dim_change(self):
         return True
@@ -327,13 +346,45 @@ class TensorMapEncoder(WindowEncoder):
         return "CUtensorMap"
 
     def encode_window(self, utils, features: WindowFeatures):
-        """Convert from one window struct to another; just encode offsets"""
+        """Convert from one window struct to another; just encode offsets
+
+        We have special handling allowing points to substitute for
+        intervals of size 1. All of this needs to be tested later.
+        For now, we require the input to have dimensionality
+        equal to that of the original SMEM box, i.e. if we window a window,
+        only the last window expression may have points.
+
+        WindowFeatures get_array_offset() needs to be clarified
+        and improved if we wish to lift this restriction.
+
+        """
+        mem = features.get_mem()
+        dim = features.n_array_dims()
+        smem_box = mem.smem_box()
+        if dim != len(smem_box):
+            raise ValueError(
+                f"{features.srcinfo()}: "
+                f"taking window of {dim}d tensor not supported given SMEM box {smem_box}; "
+                f"NOTE, window-of-window case should have points (non-intervals lo:hi) "
+                f"only for the final window expression"
+            )
+
+        for i in range(dim):
+            cir_size = features.get_array_interval_size(i)
+            if cir_size is None:
+                box_coord = smem_box[i]
+                if box_coord != 1:
+                    cir_off = features.get_array_offset(i)
+                    raise ValueError(
+                        f"{features.srcinfo()}: "
+                        f"Unexpected point expression {cir_off}; "
+                        f"not allowed for non-1 box size {box_coord} on dimension {dim} (0-indexed)"
+                    )
+
+        # This code also requires the above dim != ... check to function.
         init = (
             "{ {"
-            + ", ".join(
-                str(features.get_array_offset(i))
-                for i in range(features.n_array_dims())
-            )
+            + ", ".join(str(features.get_array_offset(i)) for i in range(dim))
             + "} }"
         )
         return f"({self.exo_struct_name()}) {init}"
@@ -402,6 +453,24 @@ class TensorMapEncoder(WindowEncoder):
 
     def decode_array_offset(self, utils, window: CIR_Wrapper, n: int):
         return window.C_offsets[n]
+
+
+def _validate_smem_box(
+    smem_box_arg: Optional[Tuple[int]], default_smem_box: Tuple[int]
+):
+    if smem_box_arg is None:
+        return default_smem_box
+    # fmt: off
+    assert all(isinstance(c, int) for c in smem_box_arg), "Non-integer smem_box given"
+    # fmt: on
+    minimal_arg = [c for c in smem_box_arg if c != 1]
+    minimal_expected = [c for c in default_smem_box if c != 1]
+    if minimal_arg != minimal_expected:
+        raise ValueError(
+            f"smem_box {smem_box_arg} isn't compatible with expected box "
+            f"{default_smem_box} (we allow extra 1's but that's it)"
+        )
+    return tuple(smem_box_arg)
 
 
 # str.format templates for CUtensorMap-related Exo window C definition
@@ -501,18 +570,7 @@ CUtensorMap_type_dict = {
     "u4": ("CU_TENSOR_MAP_DATA_TYPE_16U4_ALIGN8B", " / 2"),
 }
 
-
-def copy_tensor_to_smem_util(rank: int, multicast: bool):
-    cache_hint = 1152921504606846976  # copied from cutlass PTX
-    vector_fmt = "{" + ", ".join(f"%{r+2}" for r in range(rank)) + "}"
-    ptx_fmt = f" [%0], [%1, {vector_fmt}], [%{rank+2}], %{rank+3}"
-    if multicast:
-        ptx_fmt += f", %{rank+4}"
-    vector_args = [f'"r"(window.C_offsets[{rank - 1 - r}])' for r in range(0, rank)]
-    vector_values = ", ".join(vector_args)
-
-    # fmt: off
-    elect_one_prefix = r"""// cute::elect_one_sync
+_tma_elect_one_prefix = r"""// cute::elect_one_sync
     uint32_t pred = 0;
     uint32_t laneid = 0;
     asm volatile(
@@ -526,87 +584,117 @@ def copy_tensor_to_smem_util(rank: int, multicast: bool):
       : "+r"(laneid), "+r"(pred)
       : "r"(0xFFFFFFFF));"""
 
+_tma_get_rank_prefix = """constexpr auto rank = sizeof(window.C_offsets) / sizeof(window.C_offsets[0]);
+    static_assert(rank >= 1 && rank <= 5);"""
+
+
+def copy_tensor_to_smem_util(multicast: bool):
+    cache_hint = 1152921504606846976  # copied from cutlass PTX
+
+    # fmt: off
+    # Note: indentation of code-in-strings here is dictated by output C++ requirements.
     expect_tx = f'asm("mbarrier.expect_tx.shared::cta.b64 [%0], %1;" :: "r"(exo_tma_mbarrier), "r"(expect_tx));'
+
+    def rank_case(rank: int):
+        vector_fmt = "{" + ", ".join(f"%{r+2}" for r in range(rank)) + "}"
+        ptx_fmt = f" [%0], [%1, {vector_fmt}], [%{rank+2}], %{rank+3}"
+        if multicast:
+            ptx_fmt += f", %{rank+4}"
+        vector_args = [f'"r"(window.C_offsets[{rank - 1 - r}])' for r in range(0, rank)]
+        vector_values = ", ".join(vector_args)
+        if multicast:
+            return f"""if constexpr (rank == {rank}) {{
+            asm volatile(
+                "cp.async.bulk.tensor.{rank}d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.multicast::cluster.L2::cache_hint"
+                "{ptx_fmt};"
+                :
+                : "r"(exo_smemU32(dst)), "l"(&tensorMap), {vector_values},
+                  "r"(exo_tma_mbarrier), "h"(cta_mask), "n"({cache_hint})
+                : "memory");
+        }}"""
+        else:
+            return f"""if constexpr (rank == {rank}) {{
+            asm volatile(
+            "cp.async.bulk.tensor.{rank}d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
+            "{ptx_fmt};"
+            :
+            : "r"(exo_smemU32(dst)), "l"(&tensorMap), {vector_values},
+              "r"(exo_tma_mbarrier), "n"({cache_hint})
+            : "memory");
+        }}"""
 
     if multicast:
         return f"""template <typename WindowOffsets>
 EXO_CUDA_INLINE void
-exo_Sm90_tma_to_smem_{rank}d_multicast(void* dst, const CUtensorMap& tensorMap, WindowOffsets window,
-                       uint32_t exo_tma_mbarrier, uint32_t expect_tx, uint16_t cta_mask)
+exo_Sm90_tma_to_smem_multicast(
+        void* dst, const CUtensorMap& tensorMap, WindowOffsets window,
+        uint32_t exo_tma_mbarrier, uint32_t expect_tx, uint16_t cta_mask)
 {{
-    {elect_one_prefix}
+    {_tma_get_rank_prefix}
+    {_tma_elect_one_prefix}
     if (pred) {{
         {expect_tx}
-        asm volatile(
-            "cp.async.bulk.tensor.{rank}d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.multicast::cluster.L2::cache_hint"
-            "{ptx_fmt};"
-            :
-            : "r"(exo_smemU32(dst)), "l"(&tensorMap),
-              {vector_values},
-              "r"(exo_tma_mbarrier), "h"(cta_mask), "n"({cache_hint})
-            : "memory");
+        {rank_case(1)}
+        {rank_case(2)}
+        {rank_case(3)}
+        {rank_case(4)}
+        {rank_case(5)}
     }}
 }}"""
     else:
         return f"""template <typename WindowOffsets>
 EXO_CUDA_INLINE void
-exo_Sm90_tma_to_smem_{rank}d(void* dst, const CUtensorMap& tensorMap, WindowOffsets window,
-                        uint32_t exo_tma_mbarrier, uint32_t expect_tx)
+exo_Sm90_tma_to_smem(
+        void* dst, const CUtensorMap& tensorMap, WindowOffsets window,
+        uint32_t exo_tma_mbarrier, uint32_t expect_tx)
 {{
-    {elect_one_prefix}
+    {_tma_get_rank_prefix}
+    {_tma_elect_one_prefix}
     if (pred) {{
         {expect_tx}
-        asm volatile(
-            "cp.async.bulk.tensor.{rank}d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
-            "{ptx_fmt};"
-            :
-            : "r"(exo_smemU32(dst)), "l"(&tensorMap),
-              {vector_values},
-              "r"(exo_tma_mbarrier), "n"({cache_hint})
-            : "memory");
+        {rank_case(1)}
+        {rank_case(2)}
+        {rank_case(3)}
+        {rank_case(4)}
+        {rank_case(5)}
     }}
 }}"""
     # fmt: on
 
 
-def copy_tensor_to_gmem_util(rank: int, is_reduce: bool):
+def copy_tensor_to_gmem_util(is_reduce: bool):
     # fmt: off
-    elect_one_prefix = r"""// cute::elect_one_sync
-    uint32_t pred = 0;
-    uint32_t laneid = 0;
-    asm volatile(
-      "{\n"
-      ".reg .b32 %%rx;\n"
-      ".reg .pred %%px;\n"
-      "     elect.sync %%rx|%%px, %2;\n"
-      "@%%px mov.s32 %1, 1;\n"
-      "     mov.s32 %0, %%rx;\n"
-      "}\n"
-      : "+r"(laneid), "+r"(pred)
-      : "r"(0xFFFFFFFF));"""
-
-    vector_fmt = "{" + ", ".join(f"%{r+1}" for r in range(rank)) + "}"
-    ptx_fmt = f" [%0, {vector_fmt}], [%{rank+1}]"
-    vector_args = [f'"r"(window.C_offsets[{rank - 1 - r}])' for r in range(0, rank)]
-    vector_values = ", ".join(vector_args)
+    def rank_case(rank: int):
+        vector_fmt = "{" + ", ".join(f"%{r+1}" for r in range(rank)) + "}"
+        ptx_fmt = f" [%0, {vector_fmt}], [%{rank+1}]"
+        vector_args = [f'"r"(window.C_offsets[{rank - 1 - r}])' for r in range(0, rank)]
+        vector_values = ", ".join(vector_args)
+        return f"""if constexpr (rank == {rank}) {{
+            asm volatile(
+                "cp.{reduce_dot}async.bulk.tensor.{rank}d.global.shared::cta.{add_dot}tile.bulk_group"
+                "{ptx_fmt};"
+                :
+                : "l"(&tensorMap),
+                  {vector_values},
+                  "r"(exo_smemU32(src))
+                : "memory");
+        }}"""
     reduce_ = "reduce_" if is_reduce else ""
     reduce_dot = "reduce." if is_reduce else ""
     add_dot = "add." if is_reduce else ""
 
     return f"""template <typename WindowOffsets>
 EXO_CUDA_INLINE void
-exo_Sm90_tma_to_gmem_{reduce_}{rank}d(const CUtensorMap& tensorMap, WindowOffsets window, const void* src)
+exo_Sm90_tma_to_gmem_{reduce_}(const CUtensorMap& tensorMap, WindowOffsets window, const void* src)
 {{
-    {elect_one_prefix}
+    {_tma_get_rank_prefix}
+    {_tma_elect_one_prefix}
     if (pred) {{
-        asm volatile(
-            "cp.{reduce_dot}async.bulk.tensor.{rank}d.global.shared::cta.{add_dot}tile.bulk_group"
-            "{ptx_fmt};"
-            :
-            : "l"(&tensorMap),
-              {vector_values},
-              "r"(exo_smemU32(src))
-            : "memory");
+        {rank_case(1)}
+        {rank_case(2)}
+        {rank_case(3)}
+        {rank_case(4)}
+        {rank_case(5)}
     }}
 }}"""
 
@@ -634,7 +722,7 @@ class copy_tensor_to_smem_impl(InstrInfo):
         self.access_info["src"].allow_out_of_bounds = True  # GMEM special case
         self.instr_tl = tma_to_smem_async_instr
         self.coll_unit = cuda_warp
-        self.cu_utils.append(copy_tensor_to_smem_util(rank, False))
+        self.cu_utils.append(copy_tensor_to_smem_util(False))
         self.barrier_type = CudaMbarrier
         self.smem_box = smem_box
         self.swizzle = swizzle
@@ -642,7 +730,7 @@ class copy_tensor_to_smem_impl(InstrInfo):
 
     def codegen(self, args: InstrArgs):
         box = self.smem_box
-        lines = [f"exo_CudaUtil::exo_Sm90_tma_to_smem_{len(box)}d("]
+        lines = [f"exo_CudaUtil::exo_Sm90_tma_to_smem("]
         if self.swizzle:
             smem_data = args.dst.index(for_wgmma=True)
         else:
@@ -681,7 +769,7 @@ class copy_tensor_to_gmem_impl(InstrInfo):
             self.access_info["dst"].atomicity = AtomicityInfo([tma_to_gmem_async_qual])
         self.instr_tl = tma_to_gmem_async_instr
         self.coll_unit = cuda_warp
-        self.cu_utils.append(copy_tensor_to_gmem_util(rank, is_reduce))
+        self.cu_utils.append(copy_tensor_to_gmem_util(is_reduce))
         self.smem_box = smem_box
         self.element_bits = element_bits
         self.swizzle = swizzle
@@ -690,7 +778,7 @@ class copy_tensor_to_gmem_impl(InstrInfo):
     def codegen(self, args: InstrArgs):
         box = self.smem_box
         reduce_ = "reduce_" if self.is_reduce else ""
-        lines = [f"exo_CudaUtil::exo_Sm90_tma_to_gmem_{reduce_}{len(box)}d("]
+        lines = [f"exo_CudaUtil::exo_Sm90_tma_to_gmem_{reduce_}("]
         if self.swizzle:
             smem_data = args.src.index(for_wgmma=True)
         else:
@@ -719,8 +807,9 @@ class Sm90_copy_tensor_to_smem_linear_2f32(copy_tensor_to_smem_impl):
             for i1 in seq(0, size1):
                 dst[i0, i1] = src[i0, i1]
 
-    def instance(self, size0, size1):
-        self.instance_impl((size0, size1), False, 32)
+    def instance(self, size0, size1, *, smem_box: Optional[Tuple[int]] = None):
+        smem_box = _validate_smem_box(smem_box, (size0, size1))
+        self.instance_impl(smem_box, False, 32)
 
 
 __all__.append("Sm90_copy_tensor_to_smem_linear_2f32")
@@ -747,8 +836,9 @@ class Sm90_copy_tensor_to_smem_swizzled_2f32(copy_tensor_to_smem_impl):
             for i1 in seq(0, size1):
                 dst[i0 / 8, i0 % 8, i1] = src[i0, i1]
 
-    def instance(self, size0, size1):
-        self.instance_impl((size0, size1), True, 32)
+    def instance(self, size0, size1, *, smem_box: Optional[Tuple[int]] = None):
+        smem_box = _validate_smem_box(smem_box, (size0, size1))
+        self.instance_impl(smem_box, True, 32)
 
 
 __all__.append("Sm90_copy_tensor_to_smem_swizzled_2f32")
@@ -759,6 +849,7 @@ class Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
     smem_box: Tuple[int]
     swizzle: int
     element_bits: int
+    coop_stride: int
 
     def behavior(
         n_cta: size,
@@ -781,11 +872,19 @@ class Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
                 for i1 in seq(0, size1):
                     dst[cta, i0 / 8, i0 % 8, i1] = src[i0, i1]
 
-    def instance(self, size0, size1, n_cta, *, cta_stride):
+    def instance(
+        self, size0, size1, n_cta, *, cta_stride, smem_box: Optional[Tuple[int]] = None
+    ):
         assert size0 % (8 * n_cta) == 0
-        self.instance_impl((size0 // n_cta, size1), True, 32, n_cta, cta_stride)
+        # The (size0, size1) copy is implemented as
+        # n_cta-many (coop_stride, size1) copies.
+        coop_stride = size0 // n_cta
+        smem_box = _validate_smem_box(smem_box, (coop_stride, size1))
+        self.instance_impl(smem_box, True, 32, n_cta, cta_stride, coop_stride)
 
-    def instance_impl(self, smem_box, swizzled, element_bits, n_cta, cta_stride):
+    def instance_impl(
+        self, smem_box, swizzled, element_bits, n_cta, cta_stride, coop_stride
+    ):
         element_bits = 32
         rank = len(smem_box)
         assert rank > 0
@@ -807,30 +906,43 @@ class Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
         self.access_info["src"].allow_out_of_bounds = True  # GMEM special case
         self.instr_tl = tma_to_smem_async_instr
         self.coll_unit = n_cta * cuda_warp_in_cluster_strided(cta_stride)
-        self.cu_utils.append(copy_tensor_to_smem_util(rank, True))
+        self.cu_utils.append(copy_tensor_to_smem_util(True))
         self.barrier_type = CudaMbarrier
         self.smem_box = smem_box
         self.element_bits = element_bits
+        self.coop_stride = coop_stride
         self.swizzle = swizzle
         self.access_info["dst"].distributed_coll_units = [cuda_cta_in_cluster]
         self.access_info["dst"].access_by_owner_only = False
         self.barrier_coll_units = [cuda_cta_in_cluster]
 
     def codegen(self, args: InstrArgs):
-        box = self.smem_box
-        lines = [f"exo_CudaUtil::exo_Sm90_tma_to_smem_{len(box)}d_multicast("]
+        coop_stride = self.coop_stride
+        lines = [f"exo_CudaUtil::exo_Sm90_tma_to_smem_multicast("]
         cta_idx = args.exo_wrap_cir(f"(blockIdx.x / {args.cta_stride}) % {args.n_cta}")
         if self.swizzle:
-            smem_data = args.dst.index(cta_idx * (box[0] // 8), for_wgmma=True)
+            # dst[n_cta, size0 / 8, 8, size1]
+            # [n_cta] corresponds to a distributed dimension, not indexed here
+            # so per-CTA we have dst[size0 / 8, 8, size1]
+            # We want to offset on the size0 dimension by (cta_idx * coop_stride)
+            # which we have to divide by 8 due to the split dim.
+            assert self.coop_stride % 8 == 0
+            smem_data = args.dst.index(cta_idx * (coop_stride // 8), for_wgmma=True)
         else:
             assert 0, "not implemented: non-swizzled SMEM for TMA multicast"
         CUtensorMap = args.src.get_separate_dataptr()
-        src_struct = args.src[cta_idx * box[0] : (cta_idx + 1) * box[0]]
+        # src[size0, size1]
+        # Each CTA handles
+        # src[cta_idx * coop_stride : cta_idx * coop_stride + coop_stride, :]
+        # Note, if src is a window taken from a tensor of higher dimensionality,
+        # the WindowFeatures infrastructure ensures the (cta_idx * ...) offset
+        # is applied to the correct dimension.
+        src_struct = args.src[cta_idx * coop_stride : (cta_idx + 1) * coop_stride]
         lines.append(f"  &{smem_data},")
         lines.append(f"  {CUtensorMap},")
         lines.append(f"  {src_struct},")
         lines.append(f"  {args.exo_barrier},")
-        lines.append(f"  {args.n_cta * prod(box) * self.element_bits // 8},")
+        lines.append(f"  {args.n_cta * prod(self.smem_box) * self.element_bits // 8},")
         lines.append(f"  {args.exo_cta_mask}")
         lines.append(");")
         return lines
@@ -857,8 +969,9 @@ class Sm90_copy_tensor_to_gmem_linear_2f32(copy_tensor_to_gmem_impl):
             for i1 in seq(0, size1):
                 dst[i0, i1] = src[i0, i1]
 
-    def instance(self, size0, size1):
-        self.instance_impl((size0, size1), False, 32, False)
+    def instance(self, size0, size1, *, smem_box: Optional[Tuple[int]] = None):
+        smem_box = _validate_smem_box(smem_box, (size0, size1))
+        self.instance_impl(smem_box, False, 32, False)
 
 
 __all__.append("Sm90_copy_tensor_to_gmem_linear_2f32")
@@ -885,8 +998,9 @@ class Sm90_copy_tensor_to_gmem_swizzled_2f32(copy_tensor_to_gmem_impl):
             for i1 in seq(0, size1):
                 dst[i0, i1] = src[i0 / 8, i0 % 8, i1]
 
-    def instance(self, size0, size1):
-        self.instance_impl((size0, size1), True, 32, False)
+    def instance(self, size0, size1, *, smem_box: Optional[Tuple[int]] = None):
+        smem_box = _validate_smem_box(smem_box, (size0, size1))
+        self.instance_impl(smem_box, True, 32, False)
 
 
 __all__.append("Sm90_copy_tensor_to_gmem_swizzled_2f32")
@@ -910,8 +1024,9 @@ class Sm90_reduce_tensor_to_gmem_linear_2f32(copy_tensor_to_gmem_impl):
             for i1 in seq(0, size1):
                 dst[i0, i1] += src[i0, i1]
 
-    def instance(self, size0, size1):
-        self.instance_impl((size0, size1), False, 32, True)
+    def instance(self, size0, size1, *, smem_box: Optional[Tuple[int]] = None):
+        smem_box = _validate_smem_box(smem_box, (size0, size1))
+        self.instance_impl(smem_box, False, 32, True)
 
 
 __all__.append("Sm90_reduce_tensor_to_gmem_linear_2f32")
@@ -938,8 +1053,9 @@ class Sm90_reduce_tensor_to_gmem_swizzled_2f32(copy_tensor_to_gmem_impl):
             for i1 in seq(0, size1):
                 dst[i0, i1] += src[i0 / 8, i0 % 8, i1]
 
-    def instance(self, size0, size1):
-        self.instance_impl((size0, size1), True, 32, True)
+    def instance(self, size0, size1, *, smem_box: Optional[Tuple[int]] = None):
+        smem_box = _validate_smem_box(smem_box, (size0, size1))
+        self.instance_impl(smem_box, True, 32, True)
 
 
 __all__.append("Sm90_reduce_tensor_to_gmem_swizzled_2f32")

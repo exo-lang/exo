@@ -1669,6 +1669,10 @@ class Compiler:
         # because of the new_window(...) or copy()) with encoder based on the
         # called function's window dimensionality, memory type, and constness
         # (all of which can differ subtly compared to the input).
+        # XXX changing window encoder hasn't got a well-thought-out interaction
+        # with memory inheritance. Currently we encode based on the callee's
+        # memory type (since the instr may be a function expecting an exact struct)
+        # and just hope the (derived) caller's memory type encodes successfully.
         features._encoder = None
         if encoder_mem.has_window_encoder():
             typ = str(e.type.basetype())

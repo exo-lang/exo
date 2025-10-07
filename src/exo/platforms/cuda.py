@@ -155,6 +155,27 @@ class cudaMemsetAsync0_2f32(cudaMemsetAsync0_base):
         self.instance_impl("4 * {M} * {N}")
 
 
+# TODO we really need to write a script for generating all possibilities.
+@instr
+class cudaMemsetAsync0_3f32(cudaMemsetAsync0_base):
+    def behavior(
+        L: size,
+        M: size,
+        N: size,
+        dst: [f32][L, M, N] @ CudaGmemLinear,
+    ):
+        # assert stride(dst, 0) == M * N
+        # assert stride(dst, 1) == N
+        assert stride(dst, 2) == 1
+        for batch in seq(0, L):
+            for m in seq(0, M):
+                for n in seq(0, N):
+                    dst[batch, m, n] = 0
+
+    def instance(self):
+        self.instance_impl("4 * {L} * {M} * {N}")
+
+
 @instr
 class cudaMemcpyAsync_htod_2i32(cudaMemcpyAsync_base):
     def behavior(

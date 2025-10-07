@@ -719,7 +719,9 @@ def proc_size_tuple(
                 yield value
             except KeyError:
                 if a.type.is_indexable():
-                    raise KeyError(f"Missing keyword argument {strnm}")
+                    raise KeyError(
+                        f"{p.name}.sync_check: missing keyword argument {strnm}"
+                    )
                 else:
                     yield None
 
