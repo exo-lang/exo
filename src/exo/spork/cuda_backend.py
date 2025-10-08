@@ -57,6 +57,8 @@ from .loop_modes import CudaTasks, CudaThreads, Seq, seq, _CodegenPar
 from .sync_types import SyncType
 from .with_cuda_warps import CudaWarps
 
+from ..backend.compiler_fwd import SporkLoweringCtx
+
 
 def loopir_lower_cuda(s, ctx: SporkLoweringCtx):
     """Top level function to call.
@@ -215,7 +217,7 @@ class SubtreeScan(LoopIR_Do):
             raise ValueError(f"{first_stmt.srcinfo}: missing cuda_tasks loop")
 
         # Prepare exo_Task struct (struct of task loop iteration variables)
-        # They will be named exo_task_* in deviceMainLoop
+        # They will be named exo_task_* in deviceMainLoop (TODO change this)
         # and exo_task.* in deviceTask.
         self.fmt_dict["task_args"] = ", ".join(
             "exo_task_" + str(sym) for sym in self.task_iter_syms

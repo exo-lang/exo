@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 from typing import Callable, Dict, Optional, Type, List, Set, Tuple
 from warnings import warn
 
+from ..backend.LoopIR_compiler import run_backend_checks, BackendChecks
+
 from ..core.memory import MemWin, BarrierType
 from ..core.prelude import Sym
 from ..core.instr_info import AccessInfo, InstrInfo
@@ -736,8 +738,6 @@ def make_buffer_sizes(
 
 
 def top_level_check(backend, args_dict: Dict[str, int]):
-    from ..backend.LoopIR_compiler import run_backend_checks, BackendChecks
-
     backend: BackendChecks
     p = backend.analyzed
     debug_log = backend.debug_log
