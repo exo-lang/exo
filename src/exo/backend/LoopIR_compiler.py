@@ -59,14 +59,20 @@ from ..spork.base_with_context import (
     is_if_holding_with,
 )
 from ..spork.ext_with_context import ExtWithContext
-from ..spork.loop_modes import LoopMode, Seq, Par, _CodegenPar
+from ..spork.loop_modes import LoopMode, Seq, Par, _CodegenPar, CudaTasks
 from ..spork.barrier_usage import BarrierUsage, BarrierUsageAnalysis, SyncInfo
 from ..spork import timelines
 from ..spork.cuda_backend import loopir_lower_cuda, h_snippet_for_cuda
 from ..spork import excut
 from ..spork.coll_analysis import CollAnalysis
 
-from .compiler_fwd import BackendChecks, SporkLoweringCtx, dataptr_name
+from .compiler_fwd import (
+    BackendChecks,
+    SporkLoweringCtx,
+    dataptr_name,
+    cuda_tasks_lo_cname,
+    cuda_tasks_hi_cname,
+)
 
 
 def sanitize_str(s):
@@ -1503,12 +1509,19 @@ class Compiler:
                     f"if ({maybe_unused}int {itr} = {loop_mode.c_index}; {cond}) {{"
                 )
                 emit_loop = False
+            elif isinstance(loop_mode, CudaTasks) and self._in_cuda_function:
+                assert itr == str(s.iter)
+                self.add_line("{")
+                self.add_line(f"  {T.index.ctype()} {cuda_tasks_lo_cname(itr)} = {lo};")
+                self.add_line(f"  {T.index.ctype()} {cuda_tasks_hi_cname(itr)} = {hi};")
+                emit_loop = False
             else:
                 raise TypeError(
                     f"{s.srcinfo}: unexpected loop mode {loop_mode.loop_mode_name()} in {s.iter} loop"
                 )
 
             if emit_loop:
+                # TODO fix this.
                 ctype = "int" if self._in_cuda_function else "int_fast32_t"
                 self.add_line(f"for ({ctype} {itr} = {lo}; {itr} < {hi}; {itr}++) {{")
 

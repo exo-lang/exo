@@ -111,3 +111,15 @@ class SporkLoweringCtx(object):
         analysis = self._compiler._coll_analysis
         assert isinstance(analysis, CollAnalysis)
         return analysis
+
+
+def cuda_tasks_lo_cname(nm: str):
+    return f"exo_cudaTasksLo_{nm}"
+
+
+def cuda_tasks_hi_cname(nm: str):
+    return f"exo_cudaTasksHi_{nm}"
+
+
+def cuda_tasks_num_cname(nm: str):
+    return f"exo_cudaTasksNum_{nm}"

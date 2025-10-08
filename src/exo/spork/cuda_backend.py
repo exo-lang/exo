@@ -57,7 +57,12 @@ from .loop_modes import CudaTasks, CudaThreads, Seq, seq, _CodegenPar
 from .sync_types import SyncType
 from .with_cuda_warps import CudaWarps
 
-from ..backend.compiler_fwd import SporkLoweringCtx
+from ..backend.compiler_fwd import (
+    SporkLoweringCtx,
+    cuda_tasks_lo_cname,
+    cuda_tasks_hi_cname,
+    cuda_tasks_num_cname,
+)
 
 
 def loopir_lower_cuda(s, ctx: SporkLoweringCtx):
@@ -87,7 +92,7 @@ class SubtreeScan(LoopIR_Do):
         "thread_iters",
         "fmt_dict",
         "named_warp_used_syms",
-        "task_loop_depth",
+        "task_loop_bounds",
         "task_iter_syms",
         "device_args_syms",
         "grid_constant_syms",
@@ -113,7 +118,7 @@ class SubtreeScan(LoopIR_Do):
     # path for that warp. Needed to remove unused variables.
     named_warp_used_syms: Dict[str, Set[Sym]]
 
-    task_loop_depth: int  # Depth of if stmts + cuda_tasks loops
+    task_loop_bounds: List[Tuple[LoopIR.expr, LoopIR.expr]]  # (lo, hi)
     task_iter_syms: List[Sym]
     device_args_syms: List[Sym]
     grid_constant_syms: Set[Sym]
@@ -162,8 +167,7 @@ class SubtreeScan(LoopIR_Do):
             ] = launchConfig_clusterDim_snippet
 
         # Validate top-level form of cuda kernel
-        # Must be nest of 1+ cuda_tasks loops, and optional if statements
-        # with no else block.
+        # Must be nest of 1+ cuda_tasks loops.
         self.task_iter_syms = []
         task_iter_strs = set()
         valid_sync = False
@@ -171,7 +175,7 @@ class SubtreeScan(LoopIR_Do):
         if len(s.body) != 1:
             raise ValueError(f"{s.srcinfo}: expected cuda_tasks loop alone")
 
-        self.task_loop_depth = 0
+        self.task_loop_bounds = []
         task_loop_body = s.body
         found_task_loop = False
         first_stmt = s
@@ -190,6 +194,7 @@ class SubtreeScan(LoopIR_Do):
                         )
                     task_iter_strs.add(str(first_stmt.iter))
                     self.task_iter_syms.append(first_stmt.iter)
+                    self.task_loop_bounds.append((first_stmt.lo, first_stmt.hi))
                     # Validate no extra statements, then recurse in
                     if len(task_loop_body) != 1:
                         raise ValueError(
@@ -197,34 +202,81 @@ class SubtreeScan(LoopIR_Do):
                         )
                     else:
                         found_task_loop = True
-                        self.task_loop_depth += 1
                         task_loop_body = task_loop_body[0].body
                         continue
 
-            # single if stmt with no orelse
-            elif not is_if_holding_with(first_stmt, LoopIR) and isinstance(
-                first_stmt, LoopIR.If
-            ):
-                if len(task_loop_body) == 1 and not first_stmt.orelse:
-                    self.task_loop_depth += 1
-                    task_loop_body = task_loop_body[0].body
-                    continue
-
-            # End when encountering first non-cuda_tasks, non-simple if stmt.
+            # End when encountering first non-cuda_tasks loop.
             break
 
         if not found_task_loop:
             raise ValueError(f"{first_stmt.srcinfo}: missing cuda_tasks loop")
 
         # Prepare exo_Task struct (struct of task loop iteration variables)
-        # They will be named exo_task_* in deviceMainLoop (TODO change this)
-        # and exo_task.* in deviceTask.
-        self.fmt_dict["task_args"] = ", ".join(
-            "exo_task_" + str(sym) for sym in self.task_iter_syms
+        # They will be named exo_task.* in deviceTask.
+        # In exo_deviceMainLoop, these are represented by lo/hi variable pairs.
+        assert len(self.task_iter_syms) == len(self.task_loop_bounds)
+        self.fmt_dict["task_cuboid_args"] = "\n".join(
+            f"    {cuda_tasks_lo_cname(str(sym))}, {cuda_tasks_hi_cname(str(sym))},"
+            for sym in self.task_iter_syms
         )
         self.fmt_dict["task_struct_body"] = "\n".join(
-            f"    int_fast32_t {str(sym)};" for sym in self.task_iter_syms
+            f"    {T.index.ctype()} {str(sym)};" for sym in self.task_iter_syms
         )
+
+        # Prepare exo_TaskGenerator struct.
+        # TODO better algorithms than lexicographical.
+        # fmt: off
+        idx_t = T.index.ctype()
+        task_generator_lines = []
+        # Member variables: task index, count, lo/hi for each cuda_tasks iterator.
+        task_generator_lines.append("uint32_t exo_taskIndex;")
+        task_generator_lines.append("uint32_t exo_numClusters;")
+        task_generator_lines.append("uint32_t exo_taskCount;")
+        for sym in self.task_iter_syms:
+            c_lo = cuda_tasks_lo_cname(str(sym))
+            c_num = cuda_tasks_num_cname(str(sym))
+            task_generator_lines.append(f"{idx_t} {c_lo};")
+            task_generator_lines.append(f"uint32_t {c_num};")
+        # Constructor: initialize variables and compute task count.
+        task_generator_lines.append("EXO_CUDA_INLINE exo_TaskGenerator(")
+        task_generator_lines.append("    uint32_t cluster_index, uint32_t num_clusters,")
+        for sym in self.task_iter_syms:
+            c_lo = cuda_tasks_lo_cname(str(sym))
+            c_hi = cuda_tasks_hi_cname(str(sym))
+            task_generator_lines.append(f"    {idx_t} _{c_lo}, {idx_t} _{c_hi},")
+        task_generator_lines.append("    const exo_DeviceArgs&)")
+        task_generator_lines.append("{")
+        task_generator_lines.append("  exo_taskIndex = cluster_index;")
+        task_generator_lines.append("  exo_numClusters = num_clusters;")
+        task_generator_lines.append("  exo_taskCount = 1;")
+        for sym in self.task_iter_syms:
+            c_lo = cuda_tasks_lo_cname(str(sym))
+            c_hi = cuda_tasks_hi_cname(str(sym))
+            c_num = cuda_tasks_num_cname(str(sym))
+            task_generator_lines.append(f"  {c_lo} = _{c_lo};")
+            task_generator_lines.append(f"  {c_num} = static_cast<uint32_t>(_{c_hi} - _{c_lo});")
+            task_generator_lines.append(f"  exo_taskCount *= {c_num};")
+        task_generator_lines.append("}")
+        # prepare_next_task
+        task_generator_lines.append("[[nodiscard]] EXO_CUDA_INLINE bool prepare_next_task()")
+        task_generator_lines.append("{")
+        task_generator_lines.append("  return exo_taskIndex < exo_taskCount;")
+        task_generator_lines.append("}")
+        # get_next_task
+        task_generator_lines.append("EXO_CUDA_INLINE exo_Task get_next_task()")
+        task_generator_lines.append("{")
+        task_generator_lines.append("  exo_Task exo_task;")
+        task_generator_lines.append("  uint32_t exo_tmp = exo_taskIndex;")
+        task_generator_lines.append("  exo_taskIndex += exo_numClusters;")
+        for sym in reversed(self.task_iter_syms):
+            c_lo = cuda_tasks_lo_cname(str(sym))
+            c_num = cuda_tasks_num_cname(str(sym))
+            task_generator_lines.append(f"  exo_task.{sym} = {c_lo} + static_cast<{idx_t}>(exo_tmp % {c_num});")
+            task_generator_lines.append(f"  exo_tmp /= {c_num};")
+        task_generator_lines.append("  return exo_task;")
+        task_generator_lines.append("}")
+        self.fmt_dict["task_generator_body"] = "\n".join("    " + line for line in task_generator_lines)
+        # fmt: on
 
         # Scan the subtree
         # We seed the analysis of the collective units with the tiling
@@ -381,6 +433,8 @@ class SubtreeScan(LoopIR_Do):
                     raise ValueError(
                         f"{s.srcinfo}: cuda_tasks loop must appear only in top level nest of CudaDeviceFunction"
                     )
+                # The CudaTasks loop nest must be a cuboid (all we support for now)
+                # TODO enforce this.
             elif isinstance(loop_mode, _CodegenPar):
                 self._coll_tiling = self.thread_iters[s.iter].coll_tiling
                 if (warp_name := loop_mode.warp_name_filter) is not None:
@@ -483,13 +537,15 @@ class MainLoopRewrite(LoopIR_Rewrite):
         self.named_warp_used_syms = scan.named_warp_used_syms
         self.lowered_body = lowered_body
 
-        # Manually rewrite the cuda_tasks loops to use seq(...) mode,
-        # and rely on LoopIR_Rewrite to filter the per-warp-name task body,
+        # Rewrite the body of the inner-most cuda_tasks loop.
+        # Rely on LoopIR_Rewrite to filter the per-warp-name task body,
         # which is wrapped with the task_context to put the code into
         # exo_deviceTask{warp_cname}.
-        assert scan.task_loop_depth > 0
+        assert scan.task_loop_bounds
 
-        def rewrite_task_loop(loop, warp_name, depth_left=scan.task_loop_depth):
+        def rewrite_task_loop(loop, warp_name, depth_left=len(scan.task_loop_bounds)):
+            assert isinstance(loop, LoopIR.For)
+            assert isinstance(loop.loop_mode, CudaTasks)
             if depth_left == 1:
                 # Phase B: filter rewritten CUDA task body down to per-named-warp code
                 self._current_warp_name = warp_name
@@ -505,13 +561,7 @@ class MainLoopRewrite(LoopIR_Rewrite):
             else:
                 body = [rewrite_task_loop(loop.body[0], warp_name, depth_left - 1)]
 
-            if isinstance(loop, LoopIR.For):
-                assert isinstance(loop.loop_mode, CudaTasks)
-                return loop.update(loop_mode=seq, body=body)
-            else:
-                assert isinstance(loop, LoopIR.If)
-                assert not loop.orelse
-                return loop.update(body=body)
+            return loop.update(body=body)
 
         # Assemble body of exo_deviceMainLoop
         #
@@ -656,7 +706,9 @@ class SubtreeRewrite(LoopIR_Rewrite):
         main_loop_force_names = {}
         task_force_names = {}
         for sym in scan.task_iter_syms:
-            main_loop_force_names[sym] = "exo_task_" + str(sym)
+            # Never mangle in main loop
+            # so that exo_cudaTasksLo_{nm} and exo_cudaTasksHi_{nm} works.
+            main_loop_force_names[sym] = str(sym)
             task_force_names[sym] = "exo_task." + str(sym)
         for sym in scan.device_args_syms:
             new_name = "exo_deviceArgs." + ctx.sym_c_name(sym)
@@ -691,7 +743,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
         # Phase A: Extract and rewrite the body of the CUDA task (body of
         # inner-most cuda_tasks loop), except for named cuda warps filtering.
         task_loop = s
-        for i in range(scan.task_loop_depth):
+        for bounds in scan.task_loop_bounds:
             task_loop = task_loop.body[0]
         rewritten_task_body = self.map_stmts(task_loop.body) or task_loop.body
 
@@ -1096,6 +1148,11 @@ struct exo_Cuda{N}_{proc}
 {task_struct_body}
   }};
 
+  struct exo_TaskGenerator
+  {{
+{task_generator_body}
+  }};
+
   struct exo_SyncState
   {{
 {SyncState_body}
@@ -1181,8 +1238,7 @@ exo_CudaInline_{lib_name}::exo_Cuda{N}_{proc}::exo_deviceMainLoop(
     exo_ExcutThreadLog exo_excutLog)
 {{
   namespace exo_CudaUtil = exo_CudaUtil_{lib_name};
-  exo_SyncState exo_syncState{{}};
-  unsigned exo_taskIndex = 0;"""
+  exo_SyncState exo_syncState{{}};"""
 
 device_task_prefix_fmt = """__device__ __forceinline__ void
 exo_CudaInline_{lib_name}::exo_Cuda{N}_{proc}::exo_deviceTask{warp_cname}(
@@ -1202,10 +1258,13 @@ cuda_launch_fmt = """{{
   exo_cudaLaunch{N}_{proc}(exo_cudaStream, &exo_deviceArgs);
 }}"""
 
-task_launch_fmt = """if (exo_taskIndex++ % (gridDim.x / exo_clusterDim) == blockIdx.x / exo_clusterDim) {{
-    exo_deviceTask{warp_cname}(exo_smem, exo_syncState, exo_deviceArgs,
-        (struct exo_Task) {{ {task_args} }},
-        exo_excutLog);
+task_launch_fmt = """exo_TaskGenerator exo_taskGenerator(
+    blockIdx.x / exo_clusterDim,
+    gridDim.x / exo_clusterDim,
+{task_cuboid_args}
+    exo_deviceArgs);
+while (exo_taskGenerator.prepare_next_task()) {{
+  exo_deviceTask{warp_cname}(exo_smem, exo_syncState, exo_deviceArgs, exo_taskGenerator.get_next_task(), exo_excutLog);
 }}"""
 
 # Paste this into the C header (.h) if any proc uses cuda.

@@ -87,7 +87,11 @@ cuda_threads = CudaThreads()
 
 
 def format_loop_cond(lo, hi, loop_mode: LoopMode):
-    """loop_mode(lo, hi, kwarg1=value1, kwarg2=value2,...)"""
+    """loop_mode(lo, hi, kwarg1=value1, kwarg2=value2,...)
+
+    Also a member function of LoopMode.
+
+    """
     strings = [loop_mode.loop_mode_name(), "(", str(lo), ", ", str(hi)]
     for attr in loop_mode.__slots__:
         value = getattr(loop_mode, attr)
