@@ -679,13 +679,13 @@ def copy_tensor_to_gmem_util(is_reduce: bool):
                   "r"(exo_smemU32(src))
                 : "memory");
         }}"""
-    reduce_ = "reduce_" if is_reduce else ""
+    _reduce = "_reduce" if is_reduce else ""
     reduce_dot = "reduce." if is_reduce else ""
     add_dot = "add." if is_reduce else ""
 
     return f"""template <typename WindowOffsets>
 EXO_CUDA_INLINE void
-exo_Sm90_tma_to_gmem_{reduce_}(const CUtensorMap& tensorMap, WindowOffsets window, const void* src)
+exo_Sm90_tma_to_gmem{_reduce}(const CUtensorMap& tensorMap, WindowOffsets window, const void* src)
 {{
     {_tma_get_rank_prefix}
     {_tma_elect_one_prefix}
@@ -777,8 +777,8 @@ class copy_tensor_to_gmem_impl(InstrInfo):
 
     def codegen(self, args: InstrArgs):
         box = self.smem_box
-        reduce_ = "reduce_" if self.is_reduce else ""
-        lines = [f"exo_CudaUtil::exo_Sm90_tma_to_gmem_{reduce_}("]
+        _reduce = "_reduce" if self.is_reduce else ""
+        lines = [f"exo_CudaUtil::exo_Sm90_tma_to_gmem{_reduce}("]
         if self.swizzle:
             smem_data = args.src.index(for_wgmma=True)
         else:
