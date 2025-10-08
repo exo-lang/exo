@@ -626,12 +626,12 @@ struct SyncvTable
 
     // Increment reference count of visibility record.
     template <bool IsMutate>
-    void incref(nodepool::id<VisRecordListNode<IsMutate>> id)
+    void incref(nodepool::id<VisRecordListNode<IsMutate>> id, uint32_t added_refcnt = 1)
     {
         VisRecordListNode<IsMutate>& node = get(id);
         CAMSPORK_REQUIRE_CMP(node.refcnt, !=, 0, "should not have started with 0 refcnt");
-        node.refcnt++;
-        CAMSPORK_REQUIRE_CMP(node.refcnt, !=, 0, "reference count overflow");
+        node.refcnt += added_refcnt;
+        CAMSPORK_REQUIRE_CMP(node.refcnt, >, added_refcnt, "reference count overflow");
     }
 
     // Decrement reference count of visibility record,
@@ -1442,13 +1442,6 @@ struct SyncvTable
         return nullptr;
     }
 
-    template <bool IsMutate>
-    struct MemoizeVisRecordCommand
-    {
-        nodepool::id<VisRecordListNode<IsMutate>> new_vis_id;
-        const VisRecord& new_vis_record;
-    };
-
     // Add a new visibility record, or return existing memoized one, constructed from the given thread cuboid
     // + qual_bits_by_vis (in TlSigInterval format).
     // The returned ID is an owning reference (ownership count given by added_refcnt).
@@ -1461,48 +1454,21 @@ struct SyncvTable
         if (!new_vis.base_data.pending_awaits) {
             CAMSPORK_REQUIRE_CMP(new_vis.refcnt, ==, 1, "expected 1 refcnt initially");
         }
-        MemoizeVisRecordCommand<IsMutate> command{new_vis_id, get(new_vis_id).base_data};
 
-        const TlSigBucketKey key = thread_init.minimal_superset_interval();
-        nodepool::id<VisRecordListNode<IsMutate>> id = for_buckets<IsMutate, BucketProcessType::Insert>(key, command);
-        CAMSPORK_REQUIRE(id, "BucketProcessType::Insert search should not have given null");
-
-        // id is that of the found (!= new_vis_id) or inserted (== new_vis_id) VisRecord in the memoization table.
-        // We need to decref new_vis_id as the alloc_vis_record had 1 as the initial refcnt.
-        // If there was a hit in the memoization table, then this means the newly alloc'd VisRecord will be freed.
-        // We have to bypass decref(...) since it assumes the value was memoized.
-        CAMSPORK_REQUIRE_CMP(added_refcnt, !=, 0, "cannot memoize w/ zero refcnt");
-        get(id).refcnt += added_refcnt;  // Must do this before decref.
-        CAMSPORK_REQUIRE_CMP(new_vis.refcnt, >, 0, "unexpected 0 refcnt in new VisRecord");
-        new_vis.refcnt--;
-        if (id != new_vis_id) {
-            CAMSPORK_REQUIRE_CMP(new_vis.refcnt, ==, 0, "unexpected reference to duplicate VisRecord");
-            free_single_vis_record(new_vis_id);
-        }
-        return id;
-    }
-
-    template <bool IsMutate>
-    nodepool::id<VisRecordListNode<IsMutate>> process_bucket(nodepool::id<VisRecordListNode<IsMutate>>* p_bucket_head,
-                                                             MemoizeVisRecordCommand<IsMutate> command)
-    {
-        auto lambda = [this, command] (const VisRecord& record) {
-            return equal(record, command.new_vis_record);
-        };
-        nodepool::id<VisRecordListNode<IsMutate>>* p_found_id = bucket_search(p_bucket_head, lambda);
-
-        if (p_found_id) {
-            // Existing memoized entry found.
-            CAMSPORK_REQUIRE(*p_found_id, "unexpected null from memoization table");
-            return *p_found_id;
-        }
-        else {
-            // Add memoized base visibility set entry to bucket of memoization table.
-            CAMSPORK_REQUIRE(!get(command.new_vis_id).camspork_next_id, "should have been initialized to null");
-            CAMSPORK_REQUIRE(!get(command.new_vis_id).is_forwarded(), "should not be initialized in forwarding state");
-            insert_next_node(p_bucket_head, command.new_vis_id);
-            return command.new_vis_id;
-        }
+        // Either insert into memoization, or forward to existing duplicate.
+        // result_id gains added_refcnt-many references, while the originally created
+        // VisRecord (which may be the same one, if not a duplicate) loses the 1 refcnt
+        // that it was initially created with.
+        //
+        // In most cases, for a duplicate, the decref leads to the duplicate being deleted.
+        // However, this is not the case if alloc_vis_record caused the VisRecord to gain
+        // additional references (due to pending awaits).
+        // It would be more efficient (but riskier) to defer adding those pending await
+        // references until after we know this is not a duplicate, so we can free instantly.
+        const auto result_id = memoize_or_forward(new_vis_id);
+        incref(result_id, added_refcnt);
+        decref(new_vis_id);
+        return result_id;
     }
 
     template <bool IsMutate>

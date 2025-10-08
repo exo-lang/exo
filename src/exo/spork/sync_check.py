@@ -745,11 +745,17 @@ def top_level_check(backend, args_dict: Dict[str, int]):
     # Compile and log abstract machine program once
     camspork_program = backend.lazy_camspork_program
     if camspork_program is None:
-        backend.lazy_sync_syms = set(
-            nm
-            for (nm, typ) in get_writes_of_stmts(p.body)
-            if not backend.mem_env[nm].sync_exempt()
-        )
+        # Exclude from sync checking any variables that either
+        #   * are in sync-exempt memory, or
+        #   * are non-barrier types and are only read from
+        mutable_syms = set(nm for (nm, typ) in get_writes_of_stmts(p.body))
+        sync_check_syms = set()
+        for nm, mem in backend.mem_env.items():
+            if nm in mutable_syms or issubclass(mem, BarrierType):
+                # SpecialWindow doesn't implement this; has to be inner if.
+                if not mem.sync_exempt():
+                    sync_check_syms.add(nm)
+        backend.lazy_sync_syms = sync_check_syms
         camspork_program = coll_analysis_to_camspork(
             backend.mem_env,
             backend.coll_analysis,
