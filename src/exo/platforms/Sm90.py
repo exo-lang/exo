@@ -1410,7 +1410,7 @@ class Sm90_mma_async_tf32(mma_async_impl):
 __all__.append("Sm90_mma_async_tf32")
 
 
-class Sm90_mma_write_d_impl(InstrInfo):
+class Sm90_mma_store_d_impl(InstrInfo):
     __slots__ = ["helper", "col_major"]
 
     def instance_impl(self, helper, col_major):
@@ -1439,7 +1439,7 @@ class Sm90_mma_write_d_impl(InstrInfo):
 
 
 @instr
-class Sm90_mma_write_d_col_major_tf32(Sm90_mma_write_d_impl):
+class Sm90_mma_store_d_col_major_tf32(Sm90_mma_store_d_impl):
     def behavior(
         M: size,
         N: size,
@@ -1460,7 +1460,7 @@ class Sm90_mma_write_d_col_major_tf32(Sm90_mma_write_d_impl):
 
 
 @instr
-class Sm90_mma_write_d_row_major_tf32(Sm90_mma_write_d_impl):
+class Sm90_mma_store_d_row_major_tf32(Sm90_mma_store_d_impl):
     def behavior(
         M: size,
         N: size,
@@ -1480,5 +1480,5 @@ class Sm90_mma_write_d_row_major_tf32(Sm90_mma_write_d_impl):
         self.instance_impl(helper, False)
 
 
-__all__.append("Sm90_mma_write_d_col_major_tf32")
-__all__.append("Sm90_mma_write_d_row_major_tf32")
+__all__.append("Sm90_mma_store_d_col_major_tf32")
+__all__.append("Sm90_mma_store_d_row_major_tf32")
