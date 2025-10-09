@@ -186,6 +186,10 @@ def ext_compile_procs(proc_list, basedir: Path, stem: str, *, silent=False):
     """Compile procs to separate code files, written to {basedir}/{stem}.{ext}
 
     Returns a sorted list of file extensions (without .) e.g. ["c", "h"]
+
+    This determinism actually matters, e.g. the ninja build tool expects
+    the order of depfile outputs to match that of the ninja file.
+    We should explain this somewhere...
     """
     debug_log = LoopIR.get_debug_log(basedir)
     try:
