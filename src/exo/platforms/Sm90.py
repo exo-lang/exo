@@ -852,10 +852,10 @@ class Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
     coop_stride: int
 
     def behavior(
-        n_cta: size,
+        ncta: size,
         size0: size,
         size1: size,
-        dst: [f32][n_cta, size0 / 8, 8, size1],
+        dst: [f32][ncta, size0 / 8, 8, size1],
         src: [f32][size0, size1],
     ):
         assert size0 % 8 == 0
@@ -867,23 +867,23 @@ class Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
         # src must be densely packed in last dimension
         assert stride(src, 1) == 1
 
-        for cta in seq(0, n_cta):
+        for cta in seq(0, ncta):
             for i0 in seq(0, size0):
                 for i1 in seq(0, size1):
                     dst[cta, i0 / 8, i0 % 8, i1] = src[i0, i1]
 
     def instance(
-        self, size0, size1, n_cta, *, cta_stride, smem_box: Optional[Tuple[int]] = None
+        self, size0, size1, ncta, *, cta_stride, smem_box: Optional[Tuple[int]] = None
     ):
-        assert size0 % (8 * n_cta) == 0
+        assert size0 % (8 * ncta) == 0
         # The (size0, size1) copy is implemented as
-        # n_cta-many (coop_stride, size1) copies.
-        coop_stride = size0 // n_cta
+        # ncta-many (coop_stride, size1) copies.
+        coop_stride = size0 // ncta
         smem_box = _validate_smem_box(smem_box, (coop_stride, size1))
-        self.instance_impl(smem_box, True, 32, n_cta, cta_stride, coop_stride)
+        self.instance_impl(smem_box, True, 32, ncta, cta_stride, coop_stride)
 
     def instance_impl(
-        self, smem_box, swizzled, element_bits, n_cta, cta_stride, coop_stride
+        self, smem_box, swizzled, element_bits, ncta, cta_stride, coop_stride
     ):
         element_bits = 32
         rank = len(smem_box)
@@ -905,7 +905,7 @@ class Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
         self.access_info["src"].out_of_order = True
         self.access_info["src"].allow_out_of_bounds = True  # GMEM special case
         self.instr_tl = tma_to_smem_async_instr
-        self.coll_unit = n_cta * cuda_warp_in_cluster_strided(cta_stride)
+        self.coll_unit = ncta * cuda_warp_in_cluster_strided(cta_stride)
         self.cu_utils.append(copy_tensor_to_smem_util(True))
         self.barrier_type = CudaMbarrier
         self.smem_box = smem_box
@@ -919,10 +919,10 @@ class Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
     def codegen(self, args: InstrArgs):
         coop_stride = self.coop_stride
         lines = [f"exo_CudaUtil::exo_Sm90_tma_to_smem_multicast("]
-        cta_idx = args.exo_wrap_cir(f"(blockIdx.x / {args.cta_stride}) % {args.n_cta}")
+        cta_idx = args.exo_wrap_cir(f"(blockIdx.x / {args.cta_stride}) % {args.ncta}")
         if self.swizzle:
-            # dst[n_cta, size0 / 8, 8, size1]
-            # [n_cta] corresponds to a distributed dimension, not indexed here
+            # dst[ncta, size0 / 8, 8, size1]
+            # [ncta] corresponds to a distributed dimension, not indexed here
             # so per-CTA we have dst[size0 / 8, 8, size1]
             # We want to offset on the size0 dimension by (cta_idx * coop_stride)
             # which we have to divide by 8 due to the split dim.
@@ -942,7 +942,7 @@ class Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
         lines.append(f"  {CUtensorMap},")
         lines.append(f"  {src_struct},")
         lines.append(f"  {args.exo_barrier},")
-        lines.append(f"  {args.n_cta * prod(self.smem_box) * self.element_bits // 8},")
+        lines.append(f"  {args.ncta * prod(self.smem_box) * self.element_bits // 8},")
         lines.append(f"  {args.exo_cta_mask}")
         lines.append(");")
         return lines
