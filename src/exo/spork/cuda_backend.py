@@ -194,7 +194,21 @@ class SubtreeScan(LoopIR_Do):
                         )
                     task_iter_strs.add(str(first_stmt.iter))
                     self.task_iter_syms.append(first_stmt.iter)
-                    self.task_loop_bounds.append((first_stmt.lo, first_stmt.hi))
+                    bounds = (first_stmt.lo, first_stmt.hi)
+                    self.task_loop_bounds.append(bounds)
+                    # The CudaTasks loop nest must be a cuboid (all we support for now)
+                    for bdd in bounds:
+                        getter = GetReads()
+                        getter.do_e(bdd)
+                        for nm, _ in getter.reads:
+                            if nm in self.task_iter_syms:
+                                txt = f"for {first_stmt.iter} in {first_stmt.loop_mode.format_loop_cond(*bounds)}"
+                                raise ValueError(
+                                    f"{first_stmt.srcinfo}: "
+                                    f"non-cuboid cuda_tasks loop nest unimplemented; "
+                                    f"{txt} has dependence on {nm} iterator of previous cuda_tasks loop."
+                                )
+
                     # Validate no extra statements, then recurse in
                     if len(task_loop_body) != 1:
                         raise ValueError(
@@ -433,8 +447,6 @@ class SubtreeScan(LoopIR_Do):
                     raise ValueError(
                         f"{s.srcinfo}: cuda_tasks loop must appear only in top level nest of CudaDeviceFunction"
                     )
-                # The CudaTasks loop nest must be a cuboid (all we support for now)
-                # TODO enforce this.
             elif isinstance(loop_mode, _CodegenPar):
                 self._coll_tiling = self.thread_iters[s.iter].coll_tiling
                 if (warp_name := loop_mode.warp_name_filter) is not None:

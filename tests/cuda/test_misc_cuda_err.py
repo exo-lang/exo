@@ -119,6 +119,28 @@ def test_invalid_cuda_threads(compiler):
     assert "unexpected loop mode cuda_threads in x loop" in str(exc.value)
 
 
+def mkproc_triangular_cuda_tasks():
+    @proc
+    def proc_triangular_cuda_tasks(M: size, foo: f32[M, M, 32] @ CudaGmemLinear):
+        with CudaDeviceFunction(blockDim=32):
+            for triangle_bounds in cuda_tasks(0, M):
+                for xyzzy in cuda_tasks(0, triangle_bounds):
+                    for i in cuda_threads(0, 32):
+                        foo[triangle_bounds, xyzzy, i] = 37
+
+    return proc_triangular_cuda_tasks
+
+
+# This test enforces a limitation of Exo cuda_tasks lowering.
+# Remove me if we implement this sort of cuda_tasks loop.
+def test_invalid_triangular_cuda_tasks(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(mkproc_triangular_cuda_tasks)
+    msg = str(exc.value)
+    assert "for xyzzy" in msg
+    assert "triangle_bounds iterator" in msg
+
+
 def mkproc_grid_constant_window(is_window=False, is_window_stmt=False):
     @proc
     def test_proc(gc: [f32][8] @ CudaGridConstant, x: f32 @ CudaGmemLinear):
