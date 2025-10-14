@@ -12,6 +12,20 @@ from .LoopIR import UAST, LoopIR
 from .internal_cursors import Node, Gap, Block, Cursor, InvalidCursorError, GapType
 from .prelude import *
 
+
+def _format_code(code):
+    # See the following file for customization options:
+    # https://github.com/google/yapf/blob/main/yapf/yapflib/style.py
+    code, _ = FormatCode(
+        code,
+        style_config={
+            "based_on_style": "pep8",
+            "column_limit": 160,
+        },
+    )
+    return code.rstrip("\n")
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 #   Notes on Layout Schemes...
@@ -110,10 +124,7 @@ class UAST_PPrinter:
             assert len(self._lines) == 1
             return self._lines[0]
 
-        fmtstr, linted = FormatCode("\n".join(self._lines))
-        if isinstance(self._node, LoopIR.proc):
-            assert linted, "generated unlinted code..."
-        return fmtstr
+        return _format_code("\n".join(self._lines))
 
     def push(self, only=None):
         if only is None:
@@ -319,10 +330,6 @@ class UAST_PPrinter:
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # LoopIR Pretty Printing
-
-
-def _format_code(code):
-    return FormatCode(code)[0].rstrip("\n")
 
 
 @extclass(LoopIR.proc)

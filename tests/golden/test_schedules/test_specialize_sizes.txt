@@ -1,5 +1,4 @@
-def gemm(M: size, N: size, K: size, C: f32[M, N] @ DRAM, A: f32[M, K] @ DRAM,
-         B: f32[K, N] @ DRAM, alpha: f32 @ DRAM):
+def gemm(M: size, N: size, K: size, C: f32[M, N] @ DRAM, A: f32[M, K] @ DRAM, B: f32[K, N] @ DRAM, alpha: f32 @ DRAM):
     if N <= 64:
         for i in seq(0, M):
             for j in seq(0, N):
