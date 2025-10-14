@@ -82,6 +82,7 @@ from ..API_scheduling import (
     remove_loop,
     add_loop,
     unroll_loop,
+    wrap_with_context,
     #
     # guard rewriting
     lift_scope,

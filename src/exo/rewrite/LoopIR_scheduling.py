@@ -43,7 +43,7 @@ from ..frontend.pattern_match import match_pattern
 from ..core.memory import DRAM
 from ..frontend.typecheck import check_call_types
 from ..spork.loop_modes import LoopMode, seq, par
-from ..spork.base_with_context import is_if_holding_with
+from ..spork.base_with_context import is_if_holding_with, BaseWithContext
 
 from functools import partial
 
@@ -2721,6 +2721,26 @@ def DoAddLoop(stmt_cursor, var, hi, guard, unsafe_disable_check):
         )
 
     ir, fwd = stmt_cursor.as_block()._wrap(wrapper, "body")
+    return ir, fwd
+
+
+def DoWrapWithContext(
+    block_cursor: ic.Block, with_context: BaseWithContext, srcinfo: SrcInfo
+):
+    # stmt_cursor should be a block cursor!!!
+    proc = block_cursor.get_root()
+
+    def wrapper(body):
+        with_stmt = LoopIR.If(
+            LoopIR.Const(with_context, T.with_context, srcinfo),
+            body,
+            [],
+            srcinfo,
+        )
+        assert is_if_holding_with(with_stmt, LoopIR)
+        return with_stmt
+
+    ir, fwd = block_cursor._wrap(wrapper, "body")
     return ir, fwd
 
 

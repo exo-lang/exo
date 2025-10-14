@@ -5,6 +5,8 @@ class BaseWithContext(object):
     BaseWithContext() can also be used as a hole in pattern matching.
     This is a "temporary" hack until with statement handling in LoopIR
     is fixed (i.e. not smuggling them as if statements).
+    TODO this doesn't seem to exist anymore.
+
     """
 
     __slots__ = []

@@ -20,6 +20,7 @@ from .core.memory import Memory
 from .frontend.parse_fragment import parse_fragment
 from .core.prelude import *
 from .core import internal_cursors as ic
+from .spork.base_with_context import BaseWithContext
 from .spork.loop_modes import LoopMode
 
 
@@ -207,6 +208,19 @@ class BoolA(ArgumentProcessor):
         if not isinstance(bval, bool):
             self.err("expected a bool")
         return bval
+
+
+class InternalSrcInfoA(ArgumentProcessor):
+    def __call__(self, srcinfo, all_args):
+        assert isinstance(srcinfo, SrcInfo), "internal error"
+        return srcinfo
+
+
+class WithContextA(ArgumentProcessor):
+    def __call__(self, with_context, all_args):
+        if not isinstance(with_context, BaseWithContext):
+            self.err("expected a BaseWithContext")
+        return with_context
 
 
 class LoopModeA(ArgumentProcessor):
@@ -2238,6 +2252,33 @@ def add_loop(
     ir, fwd = scheduling.DoAddLoop(
         stmt_c, iter_name, hi_expr, guard, unsafe_disable_check
     )
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+def wrap_with_context(proc, block_cursor, with_context):
+    """
+    Add a with statement around some block of statements.
+    This operation is always allowable (incorrect usage
+    of the with statement may get flagged when compiling to C).
+
+    args:
+        block_cursor    - cursor pointing to the block to wrap in a loop
+        with_context    - BaseWithContext object.
+
+    rewrite:
+        `s`  <--- block_cursor
+        ->
+        `with with_context:`
+        `    s`
+    """
+    return _wrap_with_context_impl(
+        proc, block_cursor, with_context, get_srcinfo(depth=2)
+    )
+
+
+@sched_op([BlockCursorA, WithContextA, InternalSrcInfoA])
+def _wrap_with_context_impl(proc, block_cursor, with_context, srcinfo):
+    ir, fwd = scheduling.DoWrapWithContext(block_cursor._impl, with_context, srcinfo)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
