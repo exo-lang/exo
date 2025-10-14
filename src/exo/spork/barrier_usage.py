@@ -261,6 +261,10 @@ class BarrierUsageAnalysis(LoopIR_Do):
         if gb is None:
             return
         barrier_type = s.mem
+        # This situtation possibly could happen for some scheduling operators?
+        # Since we didn't update the entire library to account for hidden
+        # usage of a variable as guarded_by.
+        assert gb in self.uses, f"{s.srcinfo}: guarded_by nonexistent barrier {gb}?"
         gb_uses = self.uses[gb]
         gs = gb_uses.guards
         g_new_uses = self.uses[g_new]
