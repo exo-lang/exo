@@ -8,12 +8,15 @@ from ..core.LoopIR import (
     T,
     UAST,
     LoopIR,
+    LoopIR_Fence,
     LoopIR_Dependencies,
     get_writeconfigs,
     get_loop_iters,
     create_window_type,
     loopir_from_uast_type_table,
 )
+
+from ..spork.sync_types import SyncType, fence_type
 
 
 # --------------------------------------------------------------------------- #
@@ -307,11 +310,15 @@ class TypeChecker:
                 barriers = [self.check_e(e) for e in stmt.barriers]
                 assert all(isinstance(e, LoopIR.BarrierExpr) for e in barriers)
                 assert stmt.sync_type.is_arrive() or len(barriers) == 1
+                return [LoopIR.SyncStmt(stmt.sync_type, barriers, stmt.srcinfo)]
             else:
-                name = Sym("Fence")  # Sym as internal unique ID for Fence.
-                barriers = [LoopIR.BarrierExpr(name, [], T.barrier, stmt.srcinfo)]
-
-            return [LoopIR.SyncStmt(stmt.sync_type, barriers, stmt.srcinfo)]
+                return [
+                    LoopIR_Fence(
+                        stmt.sync_type.first_sync_tl,
+                        stmt.sync_type.second_sync_tl,
+                        stmt.srcinfo,
+                    )
+                ]
 
         elif isinstance(stmt, UAST.If):
             cond = self.check_e(stmt.cond, is_index=True)

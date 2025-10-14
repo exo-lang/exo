@@ -22,6 +22,7 @@ from .core.prelude import *
 from .core import internal_cursors as ic
 from .spork.base_with_context import BaseWithContext
 from .spork.loop_modes import LoopMode
+from .spork.timelines import Sync_tl, Qual_tl, Instr_tl
 
 
 def is_subclass_obj(x, cls):
@@ -230,6 +231,17 @@ class LoopModeA(ArgumentProcessor):
         if not isinstance(loop_mode, LoopMode):
             self.err("expected a LoopMode")
         return loop_mode
+
+
+class Sync_tlA(ArgumentProcessor):
+    def __call__(self, sync_tl, all_args):
+        if isinstance(sync_tl, Sync_tl):
+            return sync_tl
+        if isinstance(sync_tl, Qual_tl):
+            self.err(f"expected a Sync_tl, not {sync_tl}: Qual_tl")
+        if isinstance(sync_tl, Instr_tl):
+            self.err(f"expected a Sync_tl, not {sync_tl}: Instr_tl")
+        self.err("expected a Sync_tl")
 
 
 class OptionalA(ArgumentProcessor):
@@ -884,6 +896,25 @@ def insert_noop_call(proc, gap_cursor, instr, args):
         raise TypeError("Function argument count mismatch")
 
     ir, fwd = scheduling.DoInsertNoopCall(gap_cursor._impl, instr._loopir_proc, args)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([GapCursorA, Sync_tlA, Sync_tlA])
+def insert_fence(proc, gap_cursor, first_sync_tl: Sync_tl, second_sync_tl: Sync_tl):
+    """
+    Insert `Fence(first_sync_tl, second_sync_tl)` at the indicated position.
+
+    args:
+        gap_cursor      - where to insert the new `Fence` statement
+        first_sync_tl   - first synchronization timeline
+        second_sync_tl  - second synchronization timeline
+
+    rewrite:
+        `s1 ; s2` <--- gap_cursor pointed at the semi-colon
+        -->
+        `s1 ; Fence(first_sync_tl, second_sync_tl) ; s2`
+    """
+    ir, fwd = scheduling.DoInsertFence(gap_cursor._impl, first_sync_tl, second_sync_tl)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 

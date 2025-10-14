@@ -36,6 +36,8 @@ from ..API_scheduling import (
     replace,
     call_eqv,
     insert_noop_call,
+    # sync
+    insert_fence,
     #
     # precision, memory, and window annotation setting
     set_precision,

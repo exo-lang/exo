@@ -4,6 +4,7 @@ from typing import List, Tuple, Optional
 
 from ..core.LoopIR import (
     LoopIR,
+    LoopIR_Fence,
     LoopIR_Rewrite,
     Alpha_Rename,
     LoopIR_Do,
@@ -2752,6 +2753,12 @@ def DoWrapWithContext(
 def DoInsertPass(gap):
     srcinfo = gap.parent()._node.srcinfo
     ir, fwd = gap._insert([LoopIR.Pass(srcinfo=srcinfo)])
+    return ir, fwd
+
+
+def DoInsertFence(gap, L1, L2):
+    srcinfo = gap.parent()._node.srcinfo
+    ir, fwd = gap._insert([LoopIR_Fence(L1, L2, srcinfo)])
     return ir, fwd
 
 

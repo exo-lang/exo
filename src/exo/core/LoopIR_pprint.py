@@ -1,3 +1,4 @@
+import os
 import re
 from collections import ChainMap
 from dataclasses import dataclass, field
@@ -16,6 +17,8 @@ from .internal_cursors import Node, Gap, Block, Cursor, InvalidCursorError, GapT
 from .prelude import *
 from ..spork.loop_modes import format_loop_cond
 from ..spork.base_with_context import is_if_holding_with
+
+enable_yapf = os.environ.get("EXO_YAPF", "1") != "0"
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -350,13 +353,14 @@ def _format_code(code):
     """
     had_newline = "\n" in code
     try:
-        text = FormatCode(code)[0].rstrip("\n")
-        if not had_newline and "\n" in text:
-            text = " ".join(line.strip() for line in text.split("\n"))
-        return text
+        if enable_yapf:
+            text = FormatCode(code)[0].rstrip("\n")
+            if not had_newline and "\n" in text:
+                text = " ".join(line.strip() for line in text.split("\n"))
+            return text
     except Exception as e:
         warn(f"YAPF FAILED: {e}")
-        return code
+    return code
 
 
 @extclass(LoopIR.proc)

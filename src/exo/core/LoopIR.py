@@ -27,11 +27,11 @@ from .prelude import (
     ScalarInfo,
 )
 
-from ..spork.timelines import Instr_tl, cpu_in_order_instr
+from ..spork.timelines import Instr_tl, cpu_in_order_instr, Sync_tl
 from ..spork.base_with_context import BaseWithContext
 from ..spork.coll_algebra import CollUnit, standalone_thread
 from ..spork.loop_modes import LoopMode
-from ..spork.sync_types import SyncType
+from ..spork.sync_types import SyncType, fence_type
 
 
 # TODO fix typo...
@@ -619,6 +619,12 @@ def strip_leading_dims(t, n: int):
     else:
         assert n == 0
     return t
+
+
+def LoopIR_Fence(L1: Sync_tl, L2: Sync_tl, srcinfo: SrcInfo):
+    name = Sym("Fence")  # Sym as internal unique ID for Fence.
+    barriers = [LoopIR.BarrierExpr(name, [], T.barrier, srcinfo)]
+    return LoopIR.SyncStmt(fence_type(L1, L2), barriers, srcinfo)
 
 
 @extclass(LoopIR.BarrierExpr)
