@@ -20,6 +20,7 @@ from .core.memory import Memory
 from .frontend.parse_fragment import parse_fragment
 from .core.prelude import *
 from .core import internal_cursors as ic
+from .spork.loop_modes import LoopMode
 
 
 def is_subclass_obj(x, cls):
@@ -206,6 +207,15 @@ class BoolA(ArgumentProcessor):
         if not isinstance(bval, bool):
             self.err("expected a bool")
         return bval
+
+
+class LoopModeA(ArgumentProcessor):
+    def __call__(self, loop_mode, all_args):
+        if isinstance(loop_mode, type):
+            loop_mode = loop_mode()
+        if not isinstance(loop_mode, LoopMode):
+            self.err("expected a LoopMode")
+        return loop_mode
 
 
 class OptionalA(ArgumentProcessor):
@@ -899,6 +909,27 @@ def parallelize_loop(proc, loop_cursor):
     loop = loop_cursor._impl
 
     ir, fwd = scheduling.DoParallelizeLoop(loop)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([ForCursorA, LoopModeA])
+def set_loop_mode(proc, loop_cursor, loop_mode):
+    loop = loop_cursor._impl
+
+    ir, fwd = scheduling.DoParallelizeLoop(loop, loop_mode)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+def update_loop_mode(proc, loop_cursor, **kwargs):
+    return _update_loop_mode_impl(proc, loop_cursor, kwargs)
+
+
+@sched_op([ForCursorA, DictA])
+def _update_loop_mode_impl(proc, loop_cursor, user_kwargs):
+    loop = loop_cursor._impl
+    loop_mode = loop_cursor.loop_mode().update(**user_kwargs)
+
+    ir, fwd = scheduling.DoParallelizeLoop(loop, loop_mode)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 

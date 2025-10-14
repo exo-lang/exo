@@ -382,8 +382,9 @@ def DoReorderStmt(f_cursor, s_cursor):
     return ir, fwd
 
 
-def DoParallelizeLoop(loop_cursor):
-    return loop_cursor._child_node("loop_mode")._replace(par)
+def DoParallelizeLoop(loop_cursor, loop_mode: LoopMode = par):
+    assert isinstance(loop_mode, LoopMode)
+    return loop_cursor._child_node("loop_mode")._replace(loop_mode)
 
 
 def DoJoinLoops(loop1_c, loop2_c):

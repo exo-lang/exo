@@ -20,6 +20,7 @@ from .core.internal_cursors import InvalidCursorError
 from .core.LoopIR_pprint import _print_cursor
 from .rewrite.LoopIR_scheduling import SchedulingError
 
+from .spork.loop_modes import LoopMode
 from .spork.timelines import Instr_tl, Sync_tl
 from .spork.sync_types import SyncType
 
@@ -612,7 +613,7 @@ class ForCursor(StmtCursor):
 
         return BlockCursor(self._impl._child_block("body"), self._proc)
 
-    def loop_mode(self):
+    def loop_mode(self) -> LoopMode:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.For)
         return self._impl._node.loop_mode

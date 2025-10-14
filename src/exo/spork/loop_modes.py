@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as dataclass_replace
 from typing import List, Optional, Set, Tuple
 
 from .coll_algebra import CollUnit, cuda_thread
@@ -20,6 +20,9 @@ class LoopMode(object):
 
     def format_loop_cond(self, lo, hi):
         return format_loop_cond(lo, hi, self)
+
+    def update(self, **kwargs):
+        return dataclass_replace(self, **kwargs)
 
 
 def loop_mode_class(_loop_mode_name, _is_par):
