@@ -41,7 +41,7 @@ from ..core.proc_eqv import get_strictest_eqv_proc
 import exo.core.internal_cursors as ic
 import exo.API as api
 from ..frontend.pattern_match import match_pattern
-from ..core.memory import DRAM
+from ..core.memory import DRAM, SpecialWindow, AllocableMemWin
 from ..frontend.typecheck import check_call_types
 from ..spork.loop_modes import LoopMode, seq, par
 from ..spork.base_with_context import is_if_holding_with, BaseWithContext
@@ -322,6 +322,10 @@ def extract_env(c: ic.Cursor) -> List[Tuple[Sym, ic.Cursor]]:
             syms_env.append((s.iter, T.index, None))
         elif isinstance(s, LoopIR.Alloc):
             syms_env.append((s.name, s.type, s.mem))
+        elif isinstance(s, LoopIR.WindowStmt):
+            # XXX David Akeley: not sure the consequences of this.
+            if s.special_window is not None:
+                syms_env.append((s.name, s.rhs.type, s.special_window))
         cur_c = move_back(cur_c)
 
     proc = c.get_root()
@@ -3908,7 +3912,14 @@ def DoFoldBuffer(alloc_cursor, dim_idx, new_size):
     return ir, fwd
 
 
-def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
+def DoStageMem(
+    block_cursor,
+    buf_name,
+    w_exprs,
+    new_name,
+    use_accum_zero=False,
+    input_memory_type=None,
+):
     new_name = Sym(new_name)
 
     def get_typ_mem():
@@ -3918,8 +3929,17 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
                 return name, typ, mem
         assert False, "Must find the symbol in env"
 
-    buf_name, buf_typ, mem = get_typ_mem()
+    buf_name, buf_typ, default_mem = get_typ_mem()
     buf_typ = buf_typ if not isinstance(buf_typ, T.Window) else buf_typ.as_tensor
+
+    if input_memory_type is None:
+        if not issubclass(default_mem, AllocableMemWin):
+            raise SchedulingError(
+                f"Need explicit memory_type for staging from SpecialWindow '{buf_name}'"
+            )
+        alloc_mem = default_mem
+    else:
+        alloc_mem = input_memory_type
 
     if len(w_exprs) != len(buf_typ.shape()):
         raise SchedulingError(
@@ -3978,7 +3998,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
     basetyp = new_typ.basetype() if isinstance(new_typ, T.Tensor) else new_typ
     srcinfo = block[0].srcinfo
 
-    new_alloc = [LoopIR.Alloc(new_name, new_typ, mem, srcinfo)]
+    new_alloc = [LoopIR.Alloc(new_name, new_typ, alloc_mem, srcinfo)]
     ir, fwd = block_cursor[0].before()._insert(new_alloc)
 
     def get_inner_stmt(loop_nest_c):

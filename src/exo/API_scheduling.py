@@ -16,7 +16,7 @@ from .API_types import ExoType
 from .rewrite.LoopIR_unification import DoReplace, UnificationError
 from .core.configs import Config
 from .core.instr_class import old_style_instr_info
-from .core.memory import Memory
+from .core.memory import Memory, SpecialWindow, AllocableMemWin
 from .frontend.parse_fragment import parse_fragment
 from .core.prelude import *
 from .core import internal_cursors as ic
@@ -153,10 +153,10 @@ class ProcA(ArgumentProcessor):
         return proc
 
 
-class MemoryA(ArgumentProcessor):
+class AllocableMemWinA(ArgumentProcessor):
     def __call__(self, mem, all_args):
-        if not is_subclass_obj(mem, Memory):
-            self.err("expected a Memory subclass")
+        if not is_subclass_obj(mem, AllocableMemWin):
+            self.err("expected an AllocableMemWin subclass")
         return mem
 
 
@@ -1239,7 +1239,7 @@ def set_window(proc, cursor, is_window=True):
 
 
 # TODO support SpecialWindow for arg cursor (but not alloc)
-@sched_op([ArgOrAllocCursorA, MemoryA])
+@sched_op([ArgOrAllocCursorA, AllocableMemWinA])
 def set_memory(proc, cursor, memory_type):
     """
     Set the memory annotation on a given buffer to the provided memory.
@@ -1681,8 +1681,18 @@ def inline_window(proc, winstmt_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([BlockCursorA, CustomWindowExprA("block_cursor"), NameA, BoolA])
-def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
+@sched_op(
+    [
+        BlockCursorA,
+        CustomWindowExprA("block_cursor"),
+        NameA,
+        BoolA,
+        OptionalA(AllocableMemWinA),
+    ]
+)
+def stage_mem(
+    proc, block_cursor, win_expr, new_buf_name, accum=False, memory_type=None
+):
     """
     Stage the window of memory specified by `win_expr` into a new buffer
     before the indicated code block and move the memory back after the
@@ -1731,7 +1741,12 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
     """
     buf_name, w_exprs = win_expr
     ir, fwd = scheduling.DoStageMem(
-        block_cursor._impl, buf_name, w_exprs, new_buf_name, use_accum_zero=accum
+        block_cursor._impl,
+        buf_name,
+        w_exprs,
+        new_buf_name,
+        use_accum_zero=accum,
+        input_memory_type=memory_type,
     )
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
