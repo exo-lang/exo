@@ -2345,6 +2345,29 @@ def DoRemoveLoop(loop, unsafe_disable_check):
     return ir, fwd
 
 
+def DoUnsafeRemoveIf(stmt_c, recursive):
+    s = stmt_c._node
+
+    ir, fwd = stmt_c.get_root(), lambda x: x
+    if recursive and hasattr(s, "body"):
+        for child in stmt_c.body():
+            ir, fwd_child = DoUnsafeRemoveIf(child, True)
+        fwd = _compose(fwd_child, fwd)
+
+    if isinstance(s, LoopIR.If):
+        if s.orelse:
+            raise SchedulingError("Cannot remove if with orelse statements")
+        ir, fwd_move = fwd(stmt_c).body()._move(fwd(stmt_c).after())
+        fwd = _compose(fwd_move, fwd)
+        ir, fwd_del = fwd(stmt_c)._delete()
+        fwd = _compose(fwd_del, fwd)
+    else:
+        if not recursive:
+            raise SchedulingError("Expected cursor to if statement")
+
+    return ir, fwd
+
+
 # This is same as original FissionAfter, except that
 # this does not remove loop. We have separate remove_loop
 # operator for that purpose.
@@ -4411,6 +4434,7 @@ __all__ = [
     "DoShiftLoop",
     "DoProductLoop",
     "DoRemoveLoop",
+    "DoUnsafeRemoveIf",
     "DoSinkAlloc",
     "DoLiftAllocSimple",
     "DoLiftConstant",

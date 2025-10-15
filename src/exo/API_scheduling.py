@@ -2359,6 +2359,28 @@ def remove_loop(proc, loop_cursor, unsafe_disable_check=False):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
+@sched_op([StmtCursorA, BoolA])
+def unsafe_remove_if(proc, if_cursor, recursive):
+    """
+    Remove the if around some block of statements.
+    This operation is not checked for correctness,
+    and may lead to out-of-bounds accesses.
+
+    If recursive, the if statements in the body are removed as well.
+
+    args:
+        if_cursor     - cursor pointing to the if to remove
+
+    rewrite:
+        `if _:`
+        `    s`
+            ->
+        `s`
+    """
+    ir, fwd = scheduling.DoUnsafeRemoveIf(if_cursor._impl, recursive)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
 @sched_op([BlockCursorA, NameA, NewExprA("block_cursor"), BoolA, BoolA])
 def add_loop(
     proc, block_cursor, iter_name, hi_expr, guard=False, unsafe_disable_check=False
