@@ -2757,7 +2757,6 @@ def DoAddLoop(stmt_cursor, var, hi, guard, unsafe_disable_check):
 def DoWrapWithContext(
     block_cursor: ic.Block, with_context: BaseWithContext, srcinfo: SrcInfo
 ):
-    # stmt_cursor should be a block cursor!!!
     proc = block_cursor.get_root()
 
     def wrapper(body):
@@ -2769,6 +2768,23 @@ def DoWrapWithContext(
         )
         assert is_if_holding_with(with_stmt, LoopIR)
         return with_stmt
+
+    ir, fwd = block_cursor._wrap(wrapper, "body")
+    return ir, fwd
+
+
+def DoAddIf(
+    block_cursor: ic.Block,
+    cond: LoopIR.expr,
+    unsafe_disable_check: bool,
+    srcinfo: SrcInfo,
+):
+    proc = block_cursor.get_root()
+
+    assert unsafe_disable_check, "not implemented"
+
+    def wrapper(body):
+        return LoopIR.If(cond, body, [], srcinfo)
 
     ir, fwd = block_cursor._wrap(wrapper, "body")
     return ir, fwd
@@ -4429,6 +4445,8 @@ __all__ = [
     "DoDivideLoop",
     "DoUnroll",
     "DoAddLoop",
+    "DoWrapWithContext",
+    "DoAddIf",
     "DoCutLoop",
     "DoJoinLoops",
     "DoShiftLoop",

@@ -2424,7 +2424,7 @@ def wrap_with_context(proc, block_cursor, with_context):
     of the with statement may get flagged when compiling to C).
 
     args:
-        block_cursor    - cursor pointing to the block to wrap in a loop
+        block_cursor    - cursor pointing to the block to wrap
         with_context    - BaseWithContext object.
 
     rewrite:
@@ -2441,6 +2441,39 @@ def wrap_with_context(proc, block_cursor, with_context):
 @sched_op([BlockCursorA, WithContextA, InternalSrcInfoA])
 def _wrap_with_context_impl(proc, block_cursor, with_context, srcinfo):
     ir, fwd = scheduling.DoWrapWithContext(block_cursor._impl, with_context, srcinfo)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+def add_if(proc, block_cursor, cond, unsafe_disable_check=False):
+    """
+    Add an if statement around some block of statements.
+    TODO: we could check the safety of this, by seeing
+    that there are no writes or write configs inside.
+
+    args:
+        block_cursor    - cursor pointing to the block to wrap
+        cond            - text, becomes if condition
+
+    rewrite:
+        `s`  <--- block_cursor
+        ->
+        `if cond:`
+        `    s`
+    """
+    return _add_if_impl(
+        proc,
+        block_cursor,
+        cond,
+        unsafe_disable_check,
+        get_srcinfo(depth=2),
+    )
+
+
+@sched_op([BlockCursorA, NewExprA("block_cursor"), BoolA, InternalSrcInfoA])
+def _add_if_impl(proc, block_cursor, cond, unsafe_disable_check, srcinfo):
+    ir, fwd = scheduling.DoAddIf(
+        block_cursor._impl, cond, unsafe_disable_check, srcinfo
+    )
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
