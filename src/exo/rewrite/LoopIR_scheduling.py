@@ -2830,9 +2830,9 @@ def DoInsertArrive(
     first_sync_tl: Sync_tl,
     barrier_expr_tuples: List[Tuple[str, List[Optional[LoopIR.expr]]]],
 ):
-    srcinfo = gap.parent()._node.srcinfo
+    srcinfo = gap.anchor()._node.srcinfo
     sync_type = arrive_type(first_sync_tl, 1)
-    barriers = comp_barrier_exprs(gap.parent(), barrier_expr_tuples)
+    barriers = comp_barrier_exprs(gap.anchor(), barrier_expr_tuples)
     ir, fwd = gap._insert([LoopIR.SyncStmt(sync_type, barriers, srcinfo)])
     return ir, fwd
 
@@ -2843,9 +2843,9 @@ def DoInsertAwait(
     second_sync_tl: Sync_tl,
     N: int,
 ):
-    srcinfo = gap.parent()._node.srcinfo
+    srcinfo = gap.anchor()._node.srcinfo
     sync_type = await_type(second_sync_tl, N)
-    barriers = comp_barrier_exprs(gap.parent(), [barrier_expr_tuple])
+    barriers = comp_barrier_exprs(gap.anchor(), [barrier_expr_tuple])
     ir, fwd = gap._insert([LoopIR.SyncStmt(sync_type, barriers, srcinfo)])
     return ir, fwd
 
