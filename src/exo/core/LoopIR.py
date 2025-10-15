@@ -79,7 +79,7 @@ module LoopIR {
          | USub( expr arg )  -- i.e.  -(...)
          | BinOp( binop op, expr lhs, expr rhs )
          | Extern( extern f, expr* args )
-         | BarrierExpr( sym name, w_access* idx )
+         | BarrierExpr( sym name, w_access* idx ) -- Should we replace with WindowExpr alone?
          | WindowExpr( sym name, w_access* idx )
          | StrideExpr( sym name, int dim )
          | ReadConfig( config config, string field )
@@ -657,9 +657,9 @@ def forbid_multicast(s, reason):
 def home_barrier_expr(s) -> LoopIR.BarrierExpr:
     """Give expression for the home barrier, e.g.
 
-    Arrive(...) >> -foo[a, :] >> -foo[:, b]
+    Arrive(...) >> foo[a, :] >> foo[:, b]
 
-    becomes -foo[a, b]"""
+    becomes foo[a, b]"""
     if not s.barriers:
         raise ValueError(f"{s.srcinfo}: {s} missing >> trailing barrier exprs")
 

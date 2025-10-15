@@ -5,7 +5,7 @@ import re
 
 # import types
 from dataclasses import dataclass
-from typing import Any, List, Tuple
+from typing import Any, List, Tuple, Optional
 
 from .API import Procedure
 import exo.API_cursors as PC
@@ -16,7 +16,7 @@ from .API_types import ExoType
 from .rewrite.LoopIR_unification import DoReplace, UnificationError
 from .core.configs import Config
 from .core.instr_class import old_style_instr_info
-from .core.memory import Memory, SpecialWindow, AllocableMemWin
+from .core.memory import Memory, SpecialWindow, AllocableMemWin, BarrierType
 from .frontend.parse_fragment import parse_fragment
 from .core.prelude import *
 from .core import internal_cursors as ic
@@ -157,6 +157,20 @@ class AllocableMemWinA(ArgumentProcessor):
     def __call__(self, mem, all_args):
         if not is_subclass_obj(mem, AllocableMemWin):
             self.err("expected an AllocableMemWin subclass")
+        return mem
+
+
+class MemoryA(ArgumentProcessor):
+    def __call__(self, mem, all_args):
+        if not is_subclass_obj(mem, Memory):
+            self.err("expected a Memory subclass")
+        return mem
+
+
+class BarrierTypeA(ArgumentProcessor):
+    def __call__(self, mem, all_args):
+        if not is_subclass_obj(mem, BarrierType):
+            self.err("expected a BarrierType subclass")
         return mem
 
 
@@ -799,6 +813,47 @@ class CustomWindowExprA(NewExprA):
         return buf_name, args
 
 
+# Like CustomWindowExprA except we expect naked : instead of lo:hi.
+# These : are used to indicate multicasting, and are returned as None.
+class CustomBarrierExprA(NewExprA):
+    def __call__(self, expr_str, all_args) -> Tuple[str, List[Optional[LoopIR.expr]]]:
+        proc = all_args["proc"]
+        ctxt_stmt = self._get_ctxt_stmt(all_args)
+
+        # degenerate case of a scalar value
+        if is_valid_name(expr_str):
+            return expr_str, []
+
+        # otherwise, we have multiple dimensions
+        match = re.match(r"(\w+)\[([^\]]+)\]", expr_str)
+        if not match:
+            raise ValueError(
+                f"expected windowing string of the form "
+                f"'name[args]', but got '{expr_str}'"
+            )
+        buf_name, args = match.groups()
+        if not is_valid_name(buf_name):
+            raise ValueError(f"'{buf_name}' is not a valid name")
+
+        loopir = proc._loopir_proc
+
+        def parse_arg(a):
+            # a.strip() to remove whitespace
+            a = a.strip()
+            if ":" in a:
+                if a != ":":
+                    raise ValueError(f"'{a}'; expected plain : for barrier expr")
+                return None
+            else:
+                e = parse_fragment(loopir, a, ctxt_stmt)
+                assert isinstance(e, LoopIR.expr)
+                return e
+
+        args = [parse_arg(a) for a in args.split(",")]
+
+        return buf_name, args
+
+
 class NewExprOrCustomWindowExprA(NewExprA):
     def __call__(self, expr_str, all_args):
         try:
@@ -915,6 +970,44 @@ def insert_fence(proc, gap_cursor, first_sync_tl: Sync_tl, second_sync_tl: Sync_
         `s1 ; Fence(first_sync_tl, second_sync_tl) ; s2`
     """
     ir, fwd = scheduling.DoInsertFence(gap_cursor._impl, first_sync_tl, second_sync_tl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([GapCursorA, NameA, OptionalA(AllocCursorA), ListA(PosIntA), BarrierTypeA])
+def insert_barrier_alloc(proc, gap_cursor, name, guarded_by, hi, barrier_type):
+    """
+    Insert allocation of new barrier variable at the indicated position.
+
+    args:
+        gap_cursor      - where to insert the new barrier
+        name            - name of the new barrier
+        guarded_by      - barrier(...) parameter (may be None)
+        hi              - positive integer extents of barrier array.
+        barrier_type    - memory type of the barrier, e.g. CudaMbarrier
+
+    rewrite:
+        `s1 ; s2` <--- gap_cursor pointed at the semi-colon
+        -->
+        `s1 ; name: barrier(guarded_by)[*hi] @ barrier_type ; s2`
+    """
+    guarded_by_cursor = None if guarded_by is None else guarded_by._impl
+    ir, fwd = scheduling.DoInsertBarrierAlloc(
+        gap_cursor._impl, name, guarded_by_cursor, hi, barrier_type
+    )
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([GapCursorA, Sync_tlA, ListOrElemA(CustomBarrierExprA("gap_cursor"))])
+def insert_arrive(proc, gap_cursor, first_sync_tl: Sync_tl, barrier_exprs):
+    ir, fwd = scheduling.DoInsertArrive(gap_cursor._impl, first_sync_tl, barrier_exprs)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([GapCursorA, CustomBarrierExprA("gap_cursor"), Sync_tlA, IntA])
+def insert_await(proc, gap_cursor, barrier_expr, second_sync_tl: Sync_tl, N):
+    ir, fwd = scheduling.DoInsertAwait(
+        gap_cursor._impl, barrier_expr, second_sync_tl, N
+    )
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1687,7 +1780,7 @@ def inline_window(proc, winstmt_cursor):
         CustomWindowExprA("block_cursor"),
         NameA,
         BoolA,
-        OptionalA(AllocableMemWinA),
+        OptionalA(MemoryA),
     ]
 )
 def stage_mem(

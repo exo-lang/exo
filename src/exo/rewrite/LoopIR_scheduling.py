@@ -1,6 +1,6 @@
 import re
 from collections import ChainMap
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Type
 
 from ..core.LoopIR import (
     LoopIR,
@@ -41,10 +41,12 @@ from ..core.proc_eqv import get_strictest_eqv_proc
 import exo.core.internal_cursors as ic
 import exo.API as api
 from ..frontend.pattern_match import match_pattern
-from ..core.memory import DRAM, SpecialWindow, AllocableMemWin
+from ..core.memory import DRAM, SpecialWindow, AllocableMemWin, BarrierType
 from ..frontend.typecheck import check_call_types
+from ..spork.sync_types import arrive_type, await_type
 from ..spork.loop_modes import LoopMode, seq, par
 from ..spork.base_with_context import is_if_holding_with, BaseWithContext
+from ..spork.timelines import Sync_tl
 
 from functools import partial
 
@@ -2766,6 +2768,88 @@ def DoInsertFence(gap, L1, L2):
     return ir, fwd
 
 
+def DoInsertBarrierAlloc(
+    gap,
+    name: str,
+    guarded_by: Optional[ic.Node],
+    hi: List[int],
+    barrier_type: Type[BarrierType],
+):
+    srcinfo = gap.parent()._node.srcinfo
+    if guarded_by is not None:
+        guard_node = guarded_by._node
+        assert isinstance(guard_node, LoopIR.Alloc)
+        guarded_by = guarded_by._node.name
+        if not isinstance(guard_node.type, LoopIR.Barrier):
+            raise SchedulingError(
+                f"Cannot use non-barrier {guarded_by}: {guard_node.type} as guarded_by"
+            )
+    hi = [LoopIR.Const(n, T.size, srcinfo) for n in hi]
+    typ = LoopIR.Barrier(guarded_by, hi)
+    ir, fwd = gap._insert([LoopIR.Alloc(Sym(name), typ, barrier_type, srcinfo)])
+    return ir, fwd
+
+
+def comp_barrier_exprs(
+    c: ic.Cursor, barrier_expr_tuples: List[Tuple[str, List[Optional[LoopIR.expr]]]]
+) -> List[LoopIR.BarrierExpr]:
+    srcinfo = c._node.srcinfo
+    syms_env = extract_env(c)
+
+    def get_typ_mem(barrier_name):
+        for name, typ, mem in syms_env:
+            if str(name) == barrier_name:
+                return name, typ, mem
+        assert False, f"Must find the symbol {barrier_name} in env"
+
+    E = []
+    for strnm, idxs in barrier_expr_tuples:
+        sym, typ, _ = get_typ_mem(strnm)
+        if not isinstance(typ, LoopIR.Barrier):
+            raise SchedulingError(f"{sym}: {typ} is not a barrier")
+        if len(typ.hi) != len(idxs):
+            raise SchedulingError(
+                f"{sym}: indexed with {len(idxs)} indices, expected {len(typ.hi)}"
+            )
+        comp_idx = []
+        for dim_idx, idx_e in enumerate(idxs):
+            if idx_e is None:
+                # Translate None (:) into 0:hi
+                _0 = LoopIR.Const(0, T.index, srcinfo)
+                _hi = typ.hi[dim_idx]
+                comp_idx.append(LoopIR.Interval(_0, _hi, srcinfo))
+            else:
+                assert isinstance(idx_e, LoopIR.expr)
+                comp_idx.append(LoopIR.Point(idx_e, srcinfo))
+        E.append(LoopIR.BarrierExpr(sym, comp_idx, T.barrier, srcinfo))
+    return E
+
+
+def DoInsertArrive(
+    gap,
+    first_sync_tl: Sync_tl,
+    barrier_expr_tuples: List[Tuple[str, List[Optional[LoopIR.expr]]]],
+):
+    srcinfo = gap.parent()._node.srcinfo
+    sync_type = arrive_type(first_sync_tl, 1)
+    barriers = comp_barrier_exprs(gap.parent(), barrier_expr_tuples)
+    ir, fwd = gap._insert([LoopIR.SyncStmt(sync_type, barriers, srcinfo)])
+    return ir, fwd
+
+
+def DoInsertAwait(
+    gap,
+    barrier_expr_tuple: Tuple[str, List[Optional[LoopIR.expr]]],
+    second_sync_tl: Sync_tl,
+    N: int,
+):
+    srcinfo = gap.parent()._node.srcinfo
+    sync_type = await_type(second_sync_tl, N)
+    barriers = comp_barrier_exprs(gap.parent(), [barrier_expr_tuple])
+    ir, fwd = gap._insert([LoopIR.SyncStmt(sync_type, barriers, srcinfo)])
+    return ir, fwd
+
+
 def DoInsertNoopCall(gap, proc, args):
     srcinfo = gap.parent()._node.srcinfo
 
@@ -4311,6 +4395,10 @@ __all__ = [
     "DoSimplify",
     "DoSetTypAndMem",
     "DoInsertPass",
+    "DoInsertFence",
+    "DoInsertBarrierAlloc",
+    "DoInsertArrive",
+    "DoInsertAwait",
     "DoReorderStmt",
     "DoCommuteExpr",
     "DoLeftReassociateExpr",

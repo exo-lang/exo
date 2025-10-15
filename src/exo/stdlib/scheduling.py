@@ -38,6 +38,9 @@ from ..API_scheduling import (
     insert_noop_call,
     # sync
     insert_fence,
+    insert_barrier_alloc,
+    insert_arrive,
+    insert_await,
     #
     # precision, memory, and window annotation setting
     set_precision,
