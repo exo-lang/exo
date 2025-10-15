@@ -1723,6 +1723,7 @@ def stage_mem(
                           (32, i), (32, i+1), (32, i+2), or (32, i+3)
         new_buf_name    - the name of the newly created staging buffer
         accum           - (optional, bool) see above
+        memory_type     - (optional) memory type for new buffer.
 
     rewrite:
         stage_mem(..., 'x[0:n,j-1:j]', 'xtmp')
