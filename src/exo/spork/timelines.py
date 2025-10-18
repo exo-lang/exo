@@ -255,6 +255,9 @@ _cuda_device_quals = (
     + _wgmma_async_quals
     + _tcgen05_async_quals
 )
+
+_cuda_temporal_quals = _cuda_device_quals + [wgmma_zero_qual]
+
 _wgmma_rmem_quals = [
     wgmma_async_rmem_a_qual,
     wgmma_async_rmem_d_qual,
@@ -396,12 +399,12 @@ cuda_in_order = Sync_tl(
     "cuda_in_order",
     True,
     _cuda_in_order_quals,
-    _cuda_device_quals,  # Temporal-only
+    _cuda_temporal_quals,  # Temporal-only
     for_instr_tl=cuda_in_order_instr,
 )
 
 """Temporal-only CUDA device actions"""
-cuda_temporal = Sync_tl("cuda_temporal", False, [], _cuda_device_quals)
+cuda_temporal = Sync_tl("cuda_temporal", False, [], _cuda_temporal_quals)
 
 """Ampere cp.async instructions"""
 Sm80_cp_async = Sync_tl(
@@ -415,7 +418,7 @@ Sm80_generic = Sync_tl(
     "Sm80_generic",
     False,
     _cuda_in_order_quals + _Sm80_cp_async_quals,
-    _cuda_device_quals,  # Temporal-only
+    _cuda_temporal_quals,  # Temporal-only
 )
 
 """cp.async.bulk instructions with cluster/block shared memory as destination"""
@@ -468,5 +471,59 @@ cuda_generic_and_async_proxy = Sync_tl(
     "cuda_generic_and_async_proxy",
     False,
     _cuda_in_order_quals + _Sm80_cp_async_quals + _cuda_async_proxy_quals,
-    _cuda_device_quals,  # Temporal-only
+    _cuda_temporal_quals,  # Temporal-only
 )
+
+
+def generate_latex_table(out_file):
+    sync_tl_list = [
+        empty_sync_tl,
+        cpu_in_order,
+        cuda_stream_sync,
+        cuda_in_order,
+        cuda_temporal,
+        Sm80_cp_async,
+        Sm80_generic,
+        tma_to_smem_async,
+        tma_to_gmem_async,
+        wgmma_async_smem,
+        wgmma_fence_1,
+        wgmma_fence_2,
+        wgmma_async,
+        cuda_async_proxy,
+        cuda_async_proxy_wgmma,
+        cuda_generic_and_async_proxy,
+    ]
+    out_file.write(
+        r"""\begin{tabular}{r|l|l l|l l|l l l| l l l l|}
+\hline
+$\tau_s$ & transitive? & cpu & cpu & cuda & cuda & Sm80 & tma & tma & wgmma & wgmma & wgmma & wgmma \\
+\hline
+"""
+    )
+    for tau_s in sync_tl_list:
+        out_file.write("\\texttt{")
+        out_file.write(str(tau_s).replace("_", "\\_"))
+        out_file.write("} & %s" % ("transitive" if tau_s.is_V1_transitive() else ""))
+        for q in (
+            cpu_in_order_qual,
+            cpu_cuda_stream_qual,
+            cuda_in_order_rmem_qual,
+            cuda_in_order_ram_qual,
+            Sm80_cp_async_qual,
+            tma_to_smem_async_qual,
+            tma_to_gmem_async_qual,
+            wgmma_async_rmem_a_qual,
+            wgmma_async_rmem_d_qual,
+            wgmma_async_smem_qual,
+            wgmma_zero_qual,
+        ):
+            q_bit = q.as_bit()
+            if q_bit & tau_s.get_full_timeline_set_bits():
+                out_file.write(" & full")
+            elif q_bit & tau_s.get_temporal_timeline_set_bits():
+                out_file.write(" & temp.")
+            else:
+                out_file.write(" & ")
+        out_file.write("\\\\\n")
+    out_file.write("\\hline\n\end{tabular}\n")
