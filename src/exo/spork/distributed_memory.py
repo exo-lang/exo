@@ -280,7 +280,7 @@ class DistributedAllocState(object):
         Compile the arrive statement with the given
         SyncStmt.multicasts() value (list of multicast flags)
         to a series of arrives on the CTAs with ranks
-        [(blockIdx.x % clusterDim) ^ m for m in cta_xor_list(..)]
+        [(cluster_ctarank % clusterDim) ^ m for m in cta_xor_list(..)]
 
         """
         stmt = sync_info.stmts[0]
