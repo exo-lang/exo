@@ -1065,7 +1065,7 @@ cuda_warpgroup = CollUnit((blockDim,), (128,), "cuda_warpgroup", 0)
 
 # Matches collective units that reside within one CTA
 cuda_agnostic_sub_cta = CollUnit(
-    (clusterDim, blockDim), (1, None), "cuda_agnonstic_sub_cta", None
+    (clusterDim, blockDim), (1, None), "cuda_agnostic_sub_cta", None
 )
 
 # Matches collective units that consist of any number of non-subdivided CTAs
