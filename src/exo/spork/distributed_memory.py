@@ -768,9 +768,10 @@ class DistributedIdxFsm:
             if other_coll_tiling is not None:
                 to_check.append((other_coll_tiling, f_text))
 
-        # Check equivalence (the code here only checks issues that wouldn't be
-        # flagged by the primary distributed memory deduction, i.e., issues
-        # related to masked-out threads, so we check box, offset).
+        # Check equivalence; distributed=False case is stricter, checking perfect
+        # equality of all executing thread sets. (We still rely on the rest of
+        # distributed memory analysis to reason that the thread sets are assigned
+        # to barrier array elements consistently).
         for old_coll_tiling, f_text in to_check:
             if msg := old_coll_tiling.tiling_mismatch(coll_tiling, distributed=False):
                 raise ValueError(
