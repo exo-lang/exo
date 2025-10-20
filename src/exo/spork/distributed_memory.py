@@ -705,6 +705,8 @@ class DistributedIdxFsm:
           action = Arrive/Await
         * If the barrier type has a pairing requirement, additionally,
           check equivalent CollTilings for paired Arrive/Await.
+        * If the barrier type requires the same threads for Arrive/Await,
+          check equivalent CollTilings for same-barrier Arrive/Await.
 
         """
         assert isinstance(sync, LoopIR.SyncStmt)
