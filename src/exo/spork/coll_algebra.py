@@ -431,8 +431,8 @@ class CollCodegen:
 @dataclass(slots=True, frozen=True)
 class CollDimOp:
     iter: object
-    offset: int
-    box: int
+    offset: int  # linearized_offset / CollDim.dim_thread_pitch
+    box: int  # linearized_box / CollDim.dim_thread_pitch
     tile_count: int
     intra_box_expr: CollIndexExpr
     thread_pitch: int
@@ -473,6 +473,12 @@ class CollDim:
 
     # Relevant when the CollTiling is completed for a certain unit.
     dim_expectation: DimExpectation = CollDimExpectation.agnostic
+
+    def __post_init__(self):
+        p = self.dim_thread_pitch
+        for op in self.dim_ops:
+            assert op.box * p == op.linearized_box
+            assert op.offset * p == op.linearized_offset
 
     def get_box_coord(self) -> int:
         if ops := self.dim_ops:
