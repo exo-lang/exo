@@ -560,21 +560,21 @@ struct stmt<2> : SyncEnvAccessNode<false, false, true>
 {
 };
 
-// SyncEnvMutateSingle(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, bool is_ooo, expr* offset)
+// SyncEnvMutateSingle(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, qual_tl* atomic_qual_bits, bool is_ooo, expr* offset)
 using SyncEnvMutateSingle = stmt<3>;
 template <>
 struct stmt<3> : SyncEnvAccessNode<true, false, false>
 {
 };
 
-// SyncEnvMutateWindow(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, bool is_ooo, expr* offset, expr* extent)
+// SyncEnvMutateWindow(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, qual_tl* atomic_qual_bits, bool is_ooo, expr* offset, expr* extent)
 using SyncEnvMutateWindow = stmt<4>;
 template <>
 struct stmt<4> : SyncEnvAccessNode<true, true, false>
 {
 };
 
-// SyncEnvMutateMulticast(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, bool is_ooo, expr* offset, multicast_flag* multicasts)
+// SyncEnvMutateMulticast(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, qual_tl* atomic_qual_bits, bool is_ooo, expr* offset, multicast_flag* multicasts)
 using SyncEnvMutateMulticast = stmt<5>;
 template <>
 struct stmt<5> : SyncEnvAccessNode<true, false, true>
