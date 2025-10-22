@@ -607,7 +607,7 @@ struct stmt<7>
     CAMSPORK_NODE_VLA_MEMBER(ExprRef)
 };
 
-// Fence(qual_tl* L1_qual_bits, qual_tl* L2_full_qual_bits, qual_tl* L2_temporal_qual_bits)
+// Fence(bool V1_transitive, qual_tl* L1_qual_bits, qual_tl* L2_full_qual_bits, qual_tl* L2_temporal_qual_bits)
 using Fence = stmt<8>;
 template<>
 struct stmt<8>
