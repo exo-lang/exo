@@ -573,7 +573,7 @@ class BufVar:
                     idx.append(LoopIR.Interval(lo, hi, srcinfo))
                     win_shape.append(subtract(hi, lo))
 
-            as_tensor = T.Tensor(win_shape, True, buf_typ.type)
+            as_tensor = T.Tensor(win_shape, True, buf_typ.basetype())
             w_typ = T.Window(buf_typ, as_tensor, buf, idx)
             return LoopIR.WindowExpr(buf, idx, w_typ, srcinfo)
 
