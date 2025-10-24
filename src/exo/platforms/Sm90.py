@@ -76,8 +76,11 @@ from ..spork.coll_algebra import (
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Swizzled shared memory, as used by wgmma and TMA (cp.async.bulk).
-# The rightmost 2 dimensions correspond to 2, 4, or 8 swizzled matrices.
-# Any other dimensions are not swizzled (C order)
+# This is a "position dependent swizzle layout" in Cutlass terminology.
+# What this means is we swizzle (xor) the raw pointer, not the array offsets.
+# Each {swizzle}-byte section is re-arranged depending on its position in SMEM.
+# So if we shift a tensor allocation's location in memory, the swizzle pattern
+# for the Nth section (relative to the base address) won't be the same.
 @memwin_template
 def Sm90_SmemSwizzled(swizzle):
     if swizzle not in (32, 64, 128):
@@ -85,47 +88,37 @@ def Sm90_SmemSwizzled(swizzle):
 
     swizzle_bits = 1 if swizzle == 128 else 2 if swizzle == 64 else 3
 
-    # As I understand it 2, 4, or 8 "core matrices" (128 bytes per matrix)
-    # are swizzled together for 32B, 64B, 128B swizzle mode, respectively.
-    # Each core matrix has M or N = 8 (outer dimension) and
-    # K = 16 / sizeof(T) (inner dimension).
-    #
-    # Unfortunately it seems the term "core matrices" was later expunged from
-    # the wgmma documentation so none of this makes sense anymore.
-    matrix_mn = 8
-    num_matrices = swizzle // 16
-    matrix_bytes = 128
-    c_matrices = f"Sm90_SmemMatrices_SW{swizzle}"
-
-    @window_encoder(SwizzledEncoder)
     @window_indexer(SwizzledIndexer)
     class SwizzledImpl(CudaSmemAtomicity16B):
         @classmethod
         def global_(cls):
-            return f"""typedef struct {c_matrices} {{
-    char matrix_bytes[{matrix_bytes * num_matrices}];
+            return f"""
 #ifdef __CUDACC__
-    template <typename T>
-    EXO_CUDA_INLINE T& swizzled_element(unsigned linear_offset)
+template <typename T>
+struct exo_Sm90_SW{swizzle} {{
+    typedef T* pointer;
+    T data;
+
+    static EXO_CUDA_INLINE T& exo_Sm90_SW{swizzle}_get(pointer linear_ptr)
     {{
         // Adapted from ThunderKittens appendix which actually documents CUDA correctly.
-        uintptr_t addr = reinterpret_cast<uintptr_t>(this) + sizeof(T) * linear_offset;
-        return *reinterpret_cast<T*>(addr ^ (((addr % sizeof(*this)) >> 7) << 4));
+        uintptr_t addr = reinterpret_cast<uintptr_t>(linear_ptr);
+        addr = (addr ^ (((addr % {swizzle * 8}) >> 7) << 4));
+        return reinterpret_cast<pointer>(addr)->data;
     }}
 
-    EXO_CUDA_INLINE {c_matrices}& raw_byte_offset(unsigned byte_offset)
+    static EXO_CUDA_INLINE const T& exo_Sm90_SW{swizzle}_get(const exo_Sm90_SW{swizzle}<T>* linear_ptr)
     {{
-        // Offset without swizzling, for passing to TMA/wgmma instruction.
-        // We further preserve the matrix type, for exo_matrix_descriptor to inspect.
-        return reinterpret_cast<{c_matrices}&>(matrix_bytes[byte_offset]);
+        return swizzled_element(const_cast<exo_Sm90_SW{swizzle}<T>*>(linear_ptr));
     }}
 
     static constexpr uint64_t get_swizzle_bits()
     {{
         return {swizzle_bits};
     }}
+}};
 #endif
-}} {c_matrices};"""
+"""
 
         @classmethod
         def can_read(cls):
@@ -140,17 +133,11 @@ def Sm90_SmemSwizzled(swizzle):
             return f"{lhs} += {rhs};"
 
         @classmethod
-        def packed_tensor_shape(cls, scalar_info: ScalarInfo):
-            # 2, 4, or 8 core matrices
-            return (matrix_mn, num_matrices * cls.get_matrix_k(scalar_info))
-
-        @classmethod
         def smem_config(cls, inputs: SmemConfigInputs) -> SmemConfig:
-            return SmemConfig(f"{c_matrices} (&)[]", 128)
-
-        @classmethod
-        def get_matrix_k(cls, scalar_info):
-            return 128 // ScalarInfo(scalar_info).bits
+            ctype = f"exo_Sm90_SW{swizzle}<{inputs.ctype()}>"
+            return SmemConfig(
+                f"{ctype} (&)[]", swizzle
+            )  # 32, 64, or 128 byte alignment.
 
         @classmethod
         def get_swizzle_bits(cls):
@@ -176,45 +163,9 @@ __all__.append("Sm90_get_mma_smem")
 
 window_struct_template = """\
 struct {sname} {{
-    {const_keyword}Sm90_SmemMatrices_SW{swizzle}* data;
+    {const_keyword}exo_Sm90_SW{swizzle}<{ctype}>* data;
     int32_t strides[{n_dims}];
 }};"""
-
-
-class SwizzledEncoder(WindowEncoder):
-    __slots__ = []
-
-    def define_struct(self, depends_on: list) -> str:
-        sname = self.exo_struct_name()
-        const_keyword = "const " if self.const else ""
-        return window_struct_template.format(
-            sname=sname,
-            swizzle=self.mem.get_swizzle(),
-            n_dims=self.n_dims,
-            const_keyword=const_keyword,
-        )
-
-    def supports_dim_change(self) -> bool:
-        return True
-
-    def encode_window(self, utils: UtilInjector, features: WindowFeatures) -> str:
-        sname = self.exo_struct_name()
-        mem = features.get_mem()
-        n_dims = features.n_array_dims()
-
-        dataptr, filtered_strides = features.strided_window_helper()
-        strides = "{" + ", ".join(str(s) for s in filtered_strides) + "}"
-        return f"(struct {sname}) {{ {dataptr}, {strides} }}"
-
-    def decode_array_offset(
-        self, utils: UtilInjector, window: CIR_Wrapper, n: int
-    ) -> int:
-        return 0
-
-    def decode_array_stride_as_packed(
-        self, utils: UtilInjector, window: CIR_Wrapper, n: int
-    ) -> CIR_Wrapper:
-        return window.strides[n]
 
 
 class SwizzledIndexer(WindowIndexer):
@@ -223,33 +174,24 @@ class SwizzledIndexer(WindowIndexer):
     def index(self, utils, features: WindowFeatures, for_wgmma=False):
         ctype = self.ctype()
         mem = features.get_mem()
+        swizzle = mem.get_swizzle()
 
         dataptr = features.get_dataptr()
         array_offset = 0
         for i in range(features.n_array_dims()):
-            array_offset += features.get_array_offset(
-                i
-            ) * features.get_array_stride_as_packed(i)
+            dim_offset = features.get_array_offset(i)
+            dim_stride = features.get_array_stride_as_packed(i)
+            array_offset += dim_offset * dim_stride
 
-        assert features.n_packed_dims() == 2
         assert self.element_bits() >= 8, "TODO implement float4 etc."
+
         if for_wgmma:
             # This passes a non-swizzled pointer to wgmma or TMA.
-            # wgmma cannot offset packed M/N.
-            features.get_packed_offset(0).exo_expect_int(0)
-            byte_offset = features.get_packed_offset(1)  # Offset packed K
-            byte_offset *= self.element_bits() // 8
-            code = f"{dataptr}[{array_offset}].raw_byte_offset({byte_offset})"
+            code = f"{dataptr}[{array_offset}]"
         else:
             # This path swizzles the pointer.
             # Needed for access with normal scalar code.
-            packed_shape = features.packed_tensor_shape()
-            linear_offset = features.get_packed_offset(0) * packed_shape[
-                1
-            ] + features.get_packed_offset(1)
-            code = (
-                f"{dataptr}[{array_offset}].swizzled_element<{ctype}>({linear_offset})"
-            )
+            code = f"exo_Sm90_SW{swizzle}_get({dataptr}[{array_offset}])"
 
         return self.pack_result(code, False)
 
@@ -820,21 +762,20 @@ class Sm90_copy_tensor_to_smem_swizzled_2f32(copy_tensor_to_smem_impl):
     def behavior(
         size0: size,
         size1: size,
-        dst: [f32][size0 / 8, 8, size1],
+        dst: [f32][size0, size1],
         src: [f32][size0, size1],
     ):
         assert size0 % 8 == 0
         assert size0 >= 8
         # We need to assert that the dst is densely packed.
-        assert stride(dst, 2) == 1
-        assert stride(dst, 1) == size1
-        assert stride(dst, 0) == size1 * 8
+        assert stride(dst, 1) == 1
+        assert stride(dst, 0) == size1
         # src must be densely packed in last dimension
         assert stride(src, 1) == 1
 
         for i0 in seq(0, size0):
             for i1 in seq(0, size1):
-                dst[i0 / 8, i0 % 8, i1] = src[i0, i1]
+                dst[i0, i1] = src[i0, i1]
 
     def instance(self, size0, size1, *, smem_box: Optional[Tuple[int]] = None):
         smem_box = _validate_smem_box(smem_box, (size0, size1))
@@ -855,22 +796,21 @@ class Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
         ncta: size,
         size0: size,
         size1: size,
-        dst: [f32][ncta, size0 / 8, 8, size1],
+        dst: [f32][ncta, size0, size1],
         src: [f32][size0, size1],
     ):
         assert size0 % 8 == 0
         assert size0 >= 8
         # We need to assert that the dst is densely packed.
-        assert stride(dst, 3) == 1
-        assert stride(dst, 2) == size1
-        assert stride(dst, 1) == size1 * 8
+        assert stride(dst, 2) == 1
+        assert stride(dst, 1) == size1
         # src must be densely packed in last dimension
         assert stride(src, 1) == 1
 
         for cta in seq(0, ncta):
             for i0 in seq(0, size0):
                 for i1 in seq(0, size1):
-                    dst[cta, i0 / 8, i0 % 8, i1] = src[i0, i1]
+                    dst[cta, i0, i1] = src[i0, i1]
 
     def instance(
         self, size0, size1, ncta, *, cta_stride, smem_box: Optional[Tuple[int]] = None
@@ -921,13 +861,13 @@ class Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
         lines = [f"exo_CudaUtil::exo_Sm90_tma_to_smem_multicast("]
         cta_idx = args.exo_wrap_cir(f"(blockIdx.x / {args.cta_stride}) % {args.ncta}")
         if self.swizzle:
-            # dst[ncta, size0 / 8, 8, size1]
+            # dst[ncta, size0, size1]
             # [ncta] corresponds to a distributed dimension, not indexed here
-            # so per-CTA we have dst[size0 / 8, 8, size1]
+            # so per-CTA we have dst[size0, size1]
             # We want to offset on the size0 dimension by (cta_idx * coop_stride)
-            # which we have to divide by 8 due to the split dim.
+            # which (for now) we have to have divisible by 8.
             assert self.coop_stride % 8 == 0
-            smem_data = args.dst.index(cta_idx * (coop_stride // 8), for_wgmma=True)
+            smem_data = args.dst.index(cta_idx * coop_stride, for_wgmma=True)
         else:
             assert 0, "not implemented: non-swizzled SMEM for TMA multicast"
         CUtensorMap = args.src.get_separate_dataptr()
@@ -983,20 +923,19 @@ class Sm90_copy_tensor_to_gmem_swizzled_2f32(copy_tensor_to_gmem_impl):
         size0: size,
         size1: size,
         dst: [f32][size0, size1],
-        src: [f32][size0 / 8, 8, size1],
+        src: [f32][size0, size1],
     ):
         assert size0 % 8 == 0
         assert size0 >= 8
         # We need to assert that the SMEM src is densely packed.
-        assert stride(src, 2) == 1
-        assert stride(src, 1) == size1
-        assert stride(src, 0) == size1 * 8
+        assert stride(src, 1) == 1
+        assert stride(src, 0) == size1
         # dst must be densely packed in last dimension
         assert stride(dst, 1) == 1
 
         for i0 in seq(0, size0):
             for i1 in seq(0, size1):
-                dst[i0, i1] = src[i0 / 8, i0 % 8, i1]
+                dst[i0, i1] = src[i0, i1]
 
     def instance(self, size0, size1, *, smem_box: Optional[Tuple[int]] = None):
         smem_box = _validate_smem_box(smem_box, (size0, size1))
@@ -1038,20 +977,19 @@ class Sm90_reduce_tensor_to_gmem_swizzled_2f32(copy_tensor_to_gmem_impl):
         size0: size,
         size1: size,
         dst: [f32][size0, size1],
-        src: [f32][size0 / 8, 8, size1],
+        src: [f32][size0, size1],
     ):
         assert size0 % 8 == 0
         assert size0 >= 8
         # We need to assert that the SMEM src is densely packed.
-        assert stride(src, 2) == 1
-        assert stride(src, 1) == size1
-        assert stride(src, 0) == size1 * 8
+        assert stride(src, 1) == 1
+        assert stride(src, 0) == size1
         # dst must be densely packed in last dimension
         assert stride(dst, 1) == 1
 
         for i0 in seq(0, size0):
             for i1 in seq(0, size1):
-                dst[i0, i1] += src[i0 / 8, i0 % 8, i1]
+                dst[i0, i1] += src[i0, i1]
 
     def instance(self, size0, size1, *, smem_box: Optional[Tuple[int]] = None):
         smem_box = _validate_smem_box(smem_box, (size0, size1))
@@ -1091,16 +1029,15 @@ EXO_CUDA_INLINE uint64_t exo_matrix_descriptor_encode(uint32_t val)
     return (val & 0x3FFFF) >> 4;
 }
 
-template <typename PackedMatrix>
+template <typename SwizzledElement>
 EXO_CUDA_INLINE uint64_t exo_matrix_descriptor(
-    PackedMatrix* ptr, uint32_t mn_stride_as_packed, uint32_t mn_offset = 0)
+    SwizzledElement* ptr, uint32_t mn_stride_elements, uint32_t mn_offset = 0)
 {
-    static_assert(sizeof(PackedMatrix) > 8, "Write a new impl for non-swizzled stuff");
-    uint64_t mn_stride = mn_stride_as_packed * sizeof(PackedMatrix);
-    return exo_matrix_descriptor_encode(exo_smemU32(ptr) + (mn_offset / 8u) * mn_stride)
+    uint64_t mn_stride_bytes = mn_stride_elements * sizeof(SwizzledElement);
+    return exo_matrix_descriptor_encode(exo_smemU32(ptr) + mn_offset * mn_stride_bytes)
            | exo_matrix_descriptor_encode(16) << 16u
-           | exo_matrix_descriptor_encode(mn_stride) << 32u
-           | uint64_t(PackedMatrix::get_swizzle_bits()) << 62;
+           | exo_matrix_descriptor_encode(8 * mn_stride_bytes) << 32u
+           | uint64_t(SwizzledElement::get_swizzle_bits()) << 62;
 }
 """
 
@@ -1391,17 +1328,26 @@ class Sm90_mma_async_tf32(mma_async_impl):
         M: size,
         N: size,
         d: [f32][M, N],  # @ Sm90_RmemMatrixD
-        a: [f32][M / 8, 8, 8] @ Sm90_SmemSwizzled(128),
-        b: [f32][N / 8, 8, 8] @ Sm90_SmemSwizzled(128),
+        a: [f32][M, 8] @ Sm90_SmemSwizzled(128),
+        b: [f32][N, 8] @ Sm90_SmemSwizzled(128),
     ):
         assert M >= 64
         assert M % 64 == 0
         assert N >= 8
         assert N % 8 == 0
+        assert stride(a, 1) == 1
+        assert stride(b, 1) == 1
+
+        # The 32 is swizzle / sizeof(Element)
+        # Basically, this has to match the inner 2 dimensions of a TMA copy.
+        # This would get harder if we parameterize this.
+        assert stride(a, 0) == 32
+        assert stride(b, 0) == 32
+
         for m in seq(0, M):
             for n in seq(0, N):
                 for k in seq(0, 8):
-                    d[m, n] += a[m / 8, m % 8, k] * b[n / 8, n % 8, k]
+                    d[m, n] += a[m, k] * b[n, k]
 
     def instance(self, M, N):
         self.instance_impl(M, N, "f32", "tf32", "tf32")
