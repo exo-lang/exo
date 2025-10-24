@@ -19,14 +19,15 @@
     uint32_t camspork_vla_size = 0; \
     using camspork_vla_type = T; \
     static_assert(alignof(T) <= 4); \
-    /* Bytes needed for variable-length-array, rounded up to 4 */ \
-    uint32_t camspork_vla_bytes() const { return (sizeof(T) * camspork_vla_size + 3) & ~uint32_t(3); } \
-    uint32_t camspork_total_bytes() const { return sizeof(*this) + camspork_vla_bytes(); }
+    /* Bytes needed for variable-length-array */ \
+    uint32_t camspork_vla_bytes() const { return uint32_t(sizeof(T) * camspork_vla_size); } \
+    /* Total bytes needed, rounded up to multiple of 4. */ \
+    uint32_t camspork_total_bytes() const { return uint32_t(sizeof(*this) + camspork_vla_bytes() + 3) & ~uint32_t(3); }
 
 #define CAMSPORK_NODE_NO_VLA() \
     static constexpr bool camspork_vla_member = false; \
     uint32_t camspork_vla_bytes() const { return 0; } \
-    uint32_t camspork_total_bytes() const { return sizeof(*this) + camspork_vla_bytes(); }
+    uint32_t camspork_total_bytes() const { return sizeof(*this); }
 
 namespace camspork
 {
@@ -237,6 +238,13 @@ const typename Node::camspork_vla_type& node_vla_get_unsafe(const Node* p_node, 
 // Binary builder object.
 // Use add_node<NodeRefT>(...) to write a struct (plus the trailing VLA if it exists)
 // to the binary. Unfortunately, the NodeRefT type must be given explicitly.
+//
+// XXX this is an incredibly dangerous regrettable design.
+// Because of the use of realloc(...), if the nursery is resized while we hold a ptr to
+// a Node, the Node pointer may become invalid, and this sort of bug is very hard to
+// see or reproduce. Ultimately the reason this exists is because I originally wanted programs
+// to be easy to serialize. If we drop this goal, we can make stmt/expr just pointers
+// instead of my ID-based system.
 // ******************************************************************************************
 class NodeNursery
 {
@@ -290,10 +298,10 @@ class NodeNursery
     uint32_t add_blob(size_t bytes, const void* p_blob)
     {
         const uint32_t offset = nursery_size;
-        CAMSPORK_REQUIRE_CMP(bytes % 4, ==, 0, "internal error, expected 32 bit alignment");
+        CAMSPORK_REQUIRE_CMP(offset % 4, ==, 0, "internal error, expected 32 bit alignment");
         reserve_bytes(nursery_size + bytes);
         memcpy(p_nursery_data + nursery_size, p_blob, bytes);
-        size_t new_size = nursery_size + bytes;
+        size_t new_size = (nursery_size + bytes + 3) & ~size_t(3);  // Round to multiple of 4
         CAMSPORK_REQUIRE_CMP(new_size, <=, UINT32_MAX, "NodeNursery: 32-bit overflow");
         nursery_size = uint32_t(new_size);
         return offset;
@@ -317,6 +325,7 @@ class NodeNursery
   private:
     void reserve_bytes(size_t bytes)
     {
+        const auto original_capacity = nursery_capacity;
         if (bytes > nursery_capacity) {
             // Note: realloc is potentially massively more efficient than C++ due to page remapping.
             bytes = (bytes + 4095) & ~size_t(4095);
@@ -327,6 +336,7 @@ class NodeNursery
             p_nursery_data = p_new;
             CAMSPORK_REQUIRE_CMP(bytes, <=, UINT32_MAX, "NodeNursery: 32-bit overflow");
             nursery_capacity = uint32_t(bytes);
+            memset(p_nursery_data + original_capacity, 0xDD, nursery_capacity - original_capacity);
         }
     }
 };

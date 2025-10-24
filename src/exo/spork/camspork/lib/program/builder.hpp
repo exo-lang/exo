@@ -15,9 +15,11 @@ class ProgramBuilder;
 
 struct BodyBuilder
 {
-    // When dispatched, this sets the vector of stmts to be the body of the body_of statement,
-    // unless is_orelse is true, then we set the vector to be the orelse of the body_of If statement.
-    ProgramBuilder* p_program_builder;
+    // save_body_to_nursery sets the vector of stmts to be saved_body unless is_orelse is true, then it's saved_orelse.
+    // Then dispatching the BodyBuilder updates the body/orelse of the body_of node.
+    //
+    // IMPORTANT: the two-step design is due to a weakness in the nursery design with realloc.
+    // If you call body_to_nursery(...) while holding a Node*, the Node* may be invalidated.
     StmtRef body_of;
     std::vector<StmtRef> stmts;
     bool is_orelse = false;
@@ -25,42 +27,37 @@ struct BodyBuilder
     StmtRef saved_orelse={};
 
     template <uint32_t StmtType>
-    void operator() (stmt<StmtType>*)
+    void operator() (stmt<StmtType>*) const
     {
         // Fallback for node types not specifically targetted below.
         CAMSPORK_REQUIRE_CMP(StmtType, ==, -1, "Internal error: invalid node type for BodyBuilder");
     }
 
-    void operator() (If* node)
+    void operator() (If* node) const
     {
-        StmtRef s = body_to_nursery();
         if (is_orelse) {
-            node->orelse = s;
-            saved_orelse = s;
+            node->orelse = saved_orelse;
         }
         else {
-            node->body = s;
-            saved_body = s;
+            node->body = saved_body;
         }
     }
 
     template <typename Node>
-    void set_body_common(Node* node)
+    void set_body_common(Node* node) const
     {
-        StmtRef s = body_to_nursery();
         CAMSPORK_REQUIRE(!is_orelse, "Only If statements may have an orelse");
-        node->body = s;
-        saved_body = s;
+        node->body = saved_body;
     }
 
-    void operator() (SeqFor* node) { set_body_common(node); }
-    void operator() (TasksFor* node) { set_body_common(node); }
-    void operator() (ThreadsFor* node) { set_body_common(node); }
-    void operator() (ParallelBlock* node) { set_body_common(node); }
-    void operator() (DomainReshape* node) { set_body_common(node); }
+    void operator() (SeqFor* node) const { set_body_common(node); }
+    void operator() (TasksFor* node) const { set_body_common(node); }
+    void operator() (ThreadsFor* node) const { set_body_common(node); }
+    void operator() (ParallelBlock* node) const { set_body_common(node); }
+    void operator() (DomainReshape* node) const { set_body_common(node); }
 
-    void begin_orelse();
-    StmtRef body_to_nursery() const;
+    void begin_orelse(ProgramBuilder* p_program_builder);
+    StmtRef save_body_to_nursery(ProgramBuilder* p_program_builder);
 };
 
 class ProgramBuilder

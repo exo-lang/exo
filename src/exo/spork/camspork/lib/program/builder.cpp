@@ -7,7 +7,7 @@
 namespace camspork
 {
 
-void BodyBuilder::begin_orelse()
+void BodyBuilder::begin_orelse(ProgramBuilder* p_program_builder)
 {
     CAMSPORK_REQUIRE(!is_orelse, "Already called begin_orelse.");
     CAMSPORK_REQUIRE(body_of.type_id() == If_ID, "Must be defining If-statement body to call begin_orelse");
@@ -16,9 +16,11 @@ void BodyBuilder::begin_orelse()
     is_orelse = true;
 }
 
-StmtRef BodyBuilder::body_to_nursery() const
+StmtRef BodyBuilder::save_body_to_nursery(ProgramBuilder* p_program_builder)
 {
-    return p_program_builder->body_to_nursery(stmts);
+    StmtRef body = p_program_builder->body_to_nursery(stmts);
+    *(is_orelse ? &saved_orelse : &saved_body) = body;
+    return body;
 }
 
 ProgramBuilder::ProgramBuilder()
@@ -31,7 +33,7 @@ ProgramBuilder::ProgramBuilder()
     nursery.add_blob(sizeof header_template, &header_template);
 
     // Top-level BodyBuilder is special; we never pop it, and it is for building the top-level stmt body.
-    body_stack.push_back({this, {}, {}});
+    body_stack.push_back({{}, {}});
 }
 
 void ProgramBuilder::finish()
@@ -225,7 +227,7 @@ StmtRef ProgramBuilder::push_If(ExprRef cond)
 
 void ProgramBuilder::begin_orelse()
 {
-    body_stack.back().begin_orelse();
+    body_stack.back().begin_orelse(this);
 }
 
 StmtRef ProgramBuilder::push_SeqFor(Varname iter, ExprRef lo, ExprRef hi)
@@ -289,7 +291,7 @@ StmtRef ProgramBuilder::push_impl(Args... a)
     check_not_finished();
     StmtRef body_of = nursery.add_node<StmtRef>(a...);
     body_stack.back().stmts.push_back(body_of);
-    body_stack.push_back({this, body_of, {}});
+    body_stack.push_back({body_of, {}});
     return body_of;
 }
 
@@ -310,11 +312,13 @@ void ProgramBuilder::pop_body(StmtRef* out_body, StmtRef* out_orelse)
 void ProgramBuilder::end_body_builder(BodyBuilder& builder)
 {
     CAMSPORK_REQUIRE(builder.body_of, "Internal error, null builder.body_of");
+    builder.save_body_to_nursery(this);
     builder.body_of.dispatch(builder, nursery.size(), nursery.data());
 };
 
 StmtRef ProgramBuilder::body_to_nursery(const std::vector<StmtRef>& stmts)
 {
+    // XXX this could cause the nursery to realloc, which invalidates all Node pointers.
     check_not_finished();
     if (stmts.size() == 1) {
         return stmts[0];
@@ -323,6 +327,7 @@ StmtRef ProgramBuilder::body_to_nursery(const std::vector<StmtRef>& stmts)
         return StmtRef{};
     }
     else {
+        // XXX note above is due to this.
         return nursery.add_node<StmtRef>(StmtBody{}, stmts);
     }
 }
