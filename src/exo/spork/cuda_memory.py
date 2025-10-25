@@ -168,8 +168,8 @@ class CudaBasicSmem(CudaBasicDeviceVisible):
         return cuda_smem_free_pool_tag
 
     @classmethod
-    def free_qual_tl(cls):
-        return {timelines.cuda_in_order_ram_qual}
+    def is_cuda_smem(cls):
+        return True
 
     @classmethod
     @abstractmethod
@@ -412,8 +412,8 @@ class CudaMbarrier(CudaDeviceBarrier):
         return full_scope_free_pool_tag
 
     @classmethod
-    def free_qual_tl(cls):
-        return {timelines.cuda_in_order_ram_qual}
+    def is_cuda_smem(cls):
+        return True
 
     qual_tl_dict = timelines.cuda_ram_qual_tl_dict
 

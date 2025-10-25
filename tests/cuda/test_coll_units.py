@@ -6,6 +6,7 @@ import pytest
 from exo import proc
 from exo.platforms.cuda import *
 from exo.platforms.Sm80 import *
+from exo.platforms.Sm90 import *
 from exo.stdlib.scheduling import *
 
 from exo.spork import excut
@@ -1427,3 +1428,48 @@ def test_wrong_extent_negative_i1(compiler):
         compiler.cuda_cpu_test(mkproc_wrong_extent, wrong_i1=True)
     msg = str(exc.value)
     assert "Distributed memory deduction for evil_rmem failed" in msg
+
+
+def mkproc_per_cta_alloc(cta_count, mem):
+    @proc
+    def per_cta_alloc_proc():
+        with CudaDeviceFunction(clusterDim=cta_count, blockDim=256):
+            for task in cuda_tasks(0, 1):
+                for cta in cuda_threads(0, cta_count, unit=cuda_cta_in_cluster):
+                    the_mem: f32[16, 16] @ mem
+                    for y in cuda_threads(0, 16, unit=16 * cuda_thread):
+                        for x in cuda_threads(0, 16, unit=cuda_thread):
+                            the_mem[y, x] = 3
+                    Fence(cuda_in_order, cuda_in_order)
+
+    return per_cta_alloc_proc
+
+
+def test_smem_linear_per_cta_positive(compiler, golden):
+    p = mkproc_per_cta_alloc(cta_count=1, mem=CudaSmemLinear)
+    p.sync_check()
+    compiler.cuda_cpu_test(lambda: p, golden=golden)
+
+
+def test_smem_linear_per_cta_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        p = mkproc_per_cta_alloc(cta_count=2, mem=CudaSmemLinear)
+        p.sync_check()
+    msg = str(exc.value)
+    assert "cluster" in msg
+    assert "CudaSmemLinear" in msg
+
+
+def test_smem_swizzle_per_cta_positive(compiler, golden):
+    p = mkproc_per_cta_alloc(cta_count=1, mem=Sm90_SmemSwizzled(128))
+    p.sync_check()
+    compiler.cuda_cpu_test(lambda: p, golden=golden)
+
+
+def test_smem_swizzle_per_cta_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        p = mkproc_per_cta_alloc(cta_count=2, mem=Sm90_SmemSwizzled(128))
+        p.sync_check()
+    msg = str(exc.value)
+    assert "cluster" in msg
+    assert "Sm90_SmemSwizzled" in msg

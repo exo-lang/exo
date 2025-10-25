@@ -311,13 +311,33 @@ class CamsporkDo(LoopIR_Do):
             want_barrier = issubclass(s.mem, BarrierType)
             want_sync = s.name in self._sync_syms
             want_free_shards = False
-            if want_sync:
-                free_qual_tl = s.mem.free_qual_tl()
-                want_free_shards = not (free_qual_tl is None)
 
             if want_barrier:
                 b.BarrierEnvFree(s.name, srcinfo=s.srcinfo)
+            if want_sync and s.mem.is_cuda_smem():
+                # fmt: off
+                assert isinstance(self._coll_tiling, CollTiling), "SMEM outside CUDA scope?"
+                # fmt: on
+                box = self._coll_tiling.get_box()
+                domain = self._coll_tiling.get_domain()
+                if box != domain:
+                    # This over-approximation is because when we "free" SMEM in a CTA,
+                    # it goes into a free pool that could be used for future allocs,
+                    # and those could be the target of a multicast. So all threads
+                    # in the CLUSTER must have visibility to the SMEM, not just CTA.
+                    raise ValueError(
+                        f"{s.srcinfo}: Sorry, sync-check for {s.name} @ {s.mem.name()} "
+                        f"(SMEM) allocated outside cluster scope not implemented; "
+                        f"currently have box={box} of {domain} threads active in cluster."
+                    )
+                b.SyncEnvFreeShard(
+                    b[s.name],
+                    timelines.cuda_in_order_ram_qual.as_bit(),
+                    srcinfo=s.srcinfo,
+                )
+
             if want_free_shards:
+                # XXX dead code for now, but could be important later.
                 # Look up distributed memory information for the variable.
                 state = self._coll_analysis.distributed_alloc_states[s.name]
                 distributed_iters = state.first_distributed_iters
@@ -380,6 +400,7 @@ class CamsporkDo(LoopIR_Do):
                 )
                 for ctx in reversed(loop_nest):
                     ctx.end()
+
         elif isinstance(s, LoopIR.Call):
             callee = s.f
             instr = callee.instr

@@ -363,18 +363,14 @@ class AllocableMemWin(MemWin):
         return None
 
     @classmethod
-    def free_qual_tl(cls) -> Optional[Set[Qual_tl]]:
-        """Return a set of Qual_tl to enable SyncEnvFreeShard checks upon free.
-
-        The Qual_tl set given is the extended_qual_tl set for the free.
-
-        """
-        return None
-
-    @classmethod
     def sync_exempt(cls) -> bool:
         """No SyncEnv checks in spork abstract machine model if True."""
         return True
+
+    @classmethod
+    def is_cuda_smem(cls) -> bool:
+        """Somewhat "temporary", for special cases is sync_check and CollAnalysis"""
+        return False
 
 
 class Memory(AllocableMemWin):
