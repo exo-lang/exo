@@ -317,8 +317,13 @@ class Block(Cursor):
         idx_update = lambda i: i + n_diff * (i >= del_range.stop)
 
         def fwd_node(attr, i):
+            # David Zhao Akeley 2025-10-24: NEW forwarding function that
+            # forwards everything in the block cursor to the replaced
+            # statement if it's a single statement, so DoReplace isn't broken.
             if i in del_range:
-                raise InvalidCursorError("node no longer exists")
+                if n_ins != 1:
+                    raise InvalidCursorError("node no longer exists")
+                return [(attr, del_range.start)]
             return [(attr, idx_update(i))]
 
         def fwd_block(attr, rng):
