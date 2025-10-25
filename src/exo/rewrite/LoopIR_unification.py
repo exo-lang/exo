@@ -78,7 +78,7 @@ def Get_Live_Variables(stmt_cursor):
     return live_vars
 
 
-def DoReplace(subproc, block_cursor):
+def DoReplace(subproc, block_cursor: ic.Block):
     n_stmts = len(subproc.body)
     if len(block_cursor) < n_stmts:
         raise SchedulingError("Not enough statements to match")

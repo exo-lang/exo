@@ -2431,7 +2431,11 @@ def DoFissionAfterSimple(stmt_cursor, n_lifts, unsafe_disable_checks):
             # and the body is idempotent
 
             def wrapper(body):
-                return par_s.update(body=body)
+                # Rename the loop iter to a new Sym.
+                new_iter = Sym(str(par_s.iter))
+                bind = {par_s.iter: LoopIR.Read(new_iter, [], T.index, par_s.srcinfo)}
+                new_body = SubstArgs(body, bind).result()
+                return par_s.update(body=new_body, iter=new_iter)
 
             ir, fwd_wrap = post_c._wrap(wrapper, "body")
             fwd = _compose(fwd_wrap, fwd)
@@ -2884,9 +2888,21 @@ def DoInsertAwait(
 ):
     srcinfo = gap.anchor()._node.srcinfo
     sync_type = await_type(second_sync_tl, N)
-    barriers = comp_barrier_exprs(gap.anchor(), [barrier_expr_tuple])
+    barriers = comp_barrier_exprs(gap.anchor(), (barrier_expr_tuple,))
     ir, fwd = gap._insert([LoopIR.SyncStmt(sync_type, barriers, srcinfo)])
     return ir, fwd
+
+
+def DoSetTrailingBarrierExpr(
+    call_cursor: ic.Node,
+    barrier_expr_tuple: Optional[Tuple[str, List[Optional[LoopIR.expr]]]],
+):
+    old_s = call_cursor._node
+    bar_e = None
+    if barrier_expr_tuple is not None:
+        barriers = comp_barrier_exprs(call_cursor, (barrier_expr_tuple,))
+        bar_e = barriers[0]
+    return call_cursor._child_node("trailing_barrier_expr")._replace(bar_e)
 
 
 def DoInsertNoopCall(gap, proc, args):
@@ -4438,6 +4454,7 @@ __all__ = [
     "DoInsertBarrierAlloc",
     "DoInsertArrive",
     "DoInsertAwait",
+    "DoSetTrailingBarrierExpr",
     "DoReorderStmt",
     "DoCommuteExpr",
     "DoLeftReassociateExpr",

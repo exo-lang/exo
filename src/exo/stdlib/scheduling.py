@@ -41,6 +41,7 @@ from ..API_scheduling import (
     insert_barrier_alloc,
     insert_arrive,
     insert_await,
+    set_trailing_barrier_expr,
     #
     # precision, memory, and window annotation setting
     set_precision,

@@ -815,6 +815,8 @@ class CustomWindowExprA(NewExprA):
 
 # Like CustomWindowExprA except we expect naked : instead of lo:hi.
 # These : are used to indicate multicasting, and are returned as None.
+# So we get a tuple of (barrier name, list of idxs)
+# where None indicates a :, and actual LoopIR.expr indicates a point expression.
 class CustomBarrierExprA(NewExprA):
     def __call__(self, expr_str, all_args) -> Tuple[str, List[Optional[LoopIR.expr]]]:
         proc = all_args["proc"]
@@ -999,15 +1001,62 @@ def insert_barrier_alloc(proc, gap_cursor, name, guarded_by, hi, barrier_type):
 
 @sched_op([GapCursorA, Sync_tlA, ListOrElemA(CustomBarrierExprA("gap_cursor"))])
 def insert_arrive(proc, gap_cursor, first_sync_tl: Sync_tl, barrier_exprs):
+    """
+    Insert Arrive statement at the indicated position.
+
+    args:
+        gap_cursor      - where to insert the Arrive stmt
+        first_sync_tl   - Arrive SyncTL (filters interaction with async instrs)
+        barrier_exprs   - str or list of strs carrying barrier expressions
+
+    rewrite:
+        `s1 ; s2` <--- gap_cursor pointed at the semi-colon
+        -->
+        `s1 ; Arrive(first_sync_tl) >> barrier_exprs ; s2`
+    """
     ir, fwd = scheduling.DoInsertArrive(gap_cursor._impl, first_sync_tl, barrier_exprs)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
 @sched_op([GapCursorA, CustomBarrierExprA("gap_cursor"), Sync_tlA, IntA])
 def insert_await(proc, gap_cursor, barrier_expr, second_sync_tl: Sync_tl, N):
+    """
+    Insert Await statement at the indicated position.
+
+    args:
+        gap_cursor      - where to insert the Await stmt
+        barrier_expr    - str carrying barrier expression
+        second_sync_tl  - Await SyncTL (filters interaction with async instrs)
+        N               - integer, controls delay
+
+    rewrite:
+        `s1 ; s2` <--- gap_cursor pointed at the semi-colon
+        -->
+        `s1 ; Await(barrier_expr, second_sync_tl, N) ; s2`
+    """
     ir, fwd = scheduling.DoInsertAwait(
         gap_cursor._impl, barrier_expr, second_sync_tl, N
     )
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([CallCursorA, OptionalA(CustomBarrierExprA("call_cursor"))])
+def set_trailing_barrier_expr(proc, call_cursor, barrier_expr):
+    """
+    Set the trailing barrier expr for a Call (intended for CUDA TMA).
+    Overwrites whatever trailing barrier expr was there before.
+
+    args:
+        call_cursor     - points to call
+        barrier_expr    - None or str carrying barrier expression
+
+    rewrite:
+        `foo(bar) <-- call_cursor
+        -->
+        `foo(bar) >> barrier_expr`
+        `
+    """
+    ir, fwd = scheduling.DoSetTrailingBarrierExpr(call_cursor._impl, barrier_expr)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 

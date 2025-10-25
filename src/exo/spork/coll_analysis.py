@@ -413,7 +413,7 @@ class CollAnalysis(LoopIR_Rewrite):
         self._coll_tiling = new_tiling
 
         # We will advise replacing the loop mode with _CodegenPar
-        assert s.iter not in self.thread_iters
+        assert s.iter not in self.thread_iters, f"{s.srcinfo}"
         thread_iter = ThreadIter(
             self._coll_tiling,
             s.loop_mode.format_loop_cond(lo_int, hi_int),
