@@ -140,7 +140,7 @@ class ProgramPrinter
         *this << ", " << node->initial_qual_bit << ", " << node->extended_qual_bits;
 
 
-        static_assert(access_flag_all_bits == 15, "update me");
+        static_assert(access_flag_all_bits == 31, "update me");
         if (node->access_flags == 0) {
             *this << ", flags=0";
         }
@@ -161,6 +161,10 @@ class ProgramPrinter
             }
             if (node->access_flags & access_flag_force_shared_vis_record) {
                 *this << op << "b.force_shared_vis_record_flag";
+                op = or_op;
+            }
+            if (node->access_flags & access_flag_write_only) {
+                *this << op << "b.write_only_flag";
                 op = or_op;
             }
         }

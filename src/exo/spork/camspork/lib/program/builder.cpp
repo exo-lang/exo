@@ -100,7 +100,7 @@ StmtRef ProgramBuilder::add_SyncEnvAccess_impl(
     qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, qual_bits_t atomic_qual_bits,
     uint32_t access_flags, TrailingBarrierExprRef trailing_barrier_expr)
 {
-    static_assert(access_flag_all_bits == 15, "update me");
+    static_assert(access_flag_all_bits == 31, "update me");
     CAMSPORK_REQUIRE_CMP(access_flags, <=, access_flag_all_bits, "unknown access_flags bit set");
     const bool is_mutate = 0 != (access_flags & access_flag_mutate);
     auto impl = [&] (auto node)

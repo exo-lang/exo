@@ -77,6 +77,8 @@ struct SyncvAccessInfo
     // If false: all threads must have visibility, and we init with a new VisRecord per thread.
     bool is_convergent;
 
+    bool is_write_only;
+
     // Alters is_convergent=false case; force init one VisRecord for all threads.
     // This is a workaround for TMA only, because the trailing barrier is so expensive.
     // Given waiting for the barrier is the only mechanism to wait for the results

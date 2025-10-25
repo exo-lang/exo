@@ -1069,7 +1069,7 @@ struct SyncvTable
 
     bool visible_to(
             const VisRecord& vis_record, const ThreadCuboid& cuboid,
-            qual_bits_t want_qual_bits, int32_t vis_level, TlSig* out_fail_tl_sig, bool is_convergent)
+            qual_bits_t want_qual_bits, int32_t vis_level, bool is_convergent, TlSig* out_fail_tl_sig)
     {
         if (is_convergent) {
             return any_visible_to(vis_record, cuboid, want_qual_bits, vis_level, out_fail_tl_sig);
@@ -2143,9 +2143,9 @@ struct SyncvTable
 
             // TODO if the mutate is a reduction (read+write), we should require vis_level_full_ordered.
             const AssignmentRecord& assignment_record = get(id);
-            const auto vis_level_needed = (
+            const auto mut_vis_level_needed = (
                 access.atomic_qual_bits != 0 ? vis_level_atomic_only :
-                IsMutate ? vis_level_temporal_ordered : vis_level_full_ordered
+                access.is_write_only ? vis_level_temporal_ordered : vis_level_full_ordered
             );
 
             // Check against previous mutate visibility records
@@ -2156,10 +2156,10 @@ struct SyncvTable
                 const VisRecord& mutate_record = remove_forwarding(&node.vis_record_id);
                 logger.history_vis_record_checked(node.vis_record_id);  // Logs memoized (base state) ID.
                 const bool visible = visible_to(
-                        mutate_record, cuboid, access.extended_qual_bits, vis_level_needed,
-                        &fail_tl_sig, is_convergent);
+                        mutate_record, cuboid, access.extended_qual_bits, mut_vis_level_needed,
+                         is_convergent, &fail_tl_sig);
                 if (!visible) {
-                    logger.history_vis_record_error(node.vis_record_id, fail_tl_sig, vis_level_needed);
+                    logger.history_vis_record_error(node.vis_record_id, fail_tl_sig, mut_vis_level_needed);
                     throw SyncvCheckFail{IsMutate ? "WAW HAZARD" : "RAW HAZARD", linear_index};
                 }
                 mutate_id = node.camspork_next_id;
@@ -2173,10 +2173,10 @@ struct SyncvTable
                     const VisRecord& read_record = remove_forwarding(&node.vis_record_id);
                     logger.history_vis_record_checked(node.vis_record_id);  // Logs memoized (base state) ID.
                     const bool visible = visible_to(
-                            read_record, cuboid, access.extended_qual_bits, vis_level_needed,
-                            &fail_tl_sig, is_convergent);
+                            read_record, cuboid, access.extended_qual_bits, vis_level_temporal_ordered,
+                            is_convergent, &fail_tl_sig);
                     if (!visible) {
-                        logger.history_vis_record_error(node.vis_record_id, fail_tl_sig, vis_level_needed);
+                        logger.history_vis_record_error(node.vis_record_id, fail_tl_sig, vis_level_temporal_ordered);
                         throw SyncvCheckFail{"WAR HAZARD", linear_index};
                     }
                     read_id = node.camspork_next_id;
@@ -3174,6 +3174,8 @@ void on_r(
     table->on_r(input, cuboid, access, SyncvRealLogger(log));
     INTERFACE_EPILOGUE(table)
 }
+
+// on_rw is a bit of a misnomer now that is_write_only is a thing.
 
 void on_rw(
         SyncvTable* table, assignment_record_id* input,

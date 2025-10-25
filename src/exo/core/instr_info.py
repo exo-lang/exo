@@ -16,6 +16,7 @@ class AccessInfo:
     out_of_order: bool = None
     access_by_owner_only: Optional[bool] = None
     const: bool = False  # Set automatically
+    write_only: bool = False  # Set automatically
 
     # UNSTABLE: for experiments on figuring out how to model TMA's
     # zero-pad behavior (reading GMEM) and implied predication (writing GMEM)

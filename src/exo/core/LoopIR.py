@@ -1471,9 +1471,18 @@ class GetReads(LoopIR_Do):
         self.reads = []
 
     def do_e(self, e):
+        # XXX this is an over-approximation for Call.
+        # If a parameter is write-only, it's still counted as a read here.
         if hasattr(e, "name"):
             self.reads.append((e.name, e.type))
         super().do_e(e)
+
+
+class GetReadsWithReduce(GetReads):
+    def do_s(self, s):
+        if isinstance(s, LoopIR.Reduce):
+            self.reads.append((s.name, s.type))
+        super().do_s(s)
 
 
 class GetReadConfigs(LoopIR_Do):
@@ -1492,8 +1501,9 @@ def get_reads_of_expr(e):
     return gr.reads
 
 
-def get_reads_of_stmts(stmts):
-    gr = GetReads()
+def get_reads_of_stmts(stmts, include_reduce=False):
+    # XXX this doesn't account for WindowStmt.
+    gr = GetReadsWithReduce() if include_reduce else GetReads()
     for stmt in stmts:
         gr.do_s(stmt)
     return gr.reads

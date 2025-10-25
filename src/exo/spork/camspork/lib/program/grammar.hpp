@@ -510,7 +510,8 @@ constexpr uint32_t access_flag_ooo = 1;
 constexpr uint32_t access_flag_convergent = 2;
 constexpr uint32_t access_flag_mutate = 4;
 constexpr uint32_t access_flag_force_shared_vis_record = 8;
-constexpr uint32_t access_flag_all_bits = 15;
+constexpr uint32_t access_flag_write_only = 16;
+constexpr uint32_t access_flag_all_bits = 31;
 
 template <bool IsWindow, bool IsMulticast>
 struct SyncEnvAccessNodeData

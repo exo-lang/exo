@@ -148,11 +148,14 @@ class CamsporkDo(LoopIR_Do):
                 am_dst = self.comp_index_expr(s.name, s.idx, instr_tl)
             if want_sync:
                 _, initial_q, ext_q = self.comp_qual_tl(s, instr_tl)
+                flags = b.mutate_flag | b.convergent_flag
+                if isinstance(s, LoopIR.Reduce):
+                    flags |= b.write_only_flag
                 b.SyncEnvAccess(
                     am_dst,
                     initial_q,
                     ext_q,
-                    flags=b.mutate_flag | b.convergent_flag,
+                    flags=flags,
                     srcinfo=s.srcinfo,
                 )
             if want_value:
@@ -438,6 +441,8 @@ class CamsporkDo(LoopIR_Do):
                 flags = 0
                 if not arg_info.const:
                     flags |= b.mutate_flag
+                    if arg_info.write_only:
+                        flags |= b.write_only_flag
                 if arg_info.out_of_order:
                     flags |= b.ooo_flag
                 if qual_tl.get_default_convergent_access():

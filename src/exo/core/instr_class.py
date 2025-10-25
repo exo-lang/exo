@@ -39,7 +39,13 @@ from typing import Callable, Optional, Dict, List, Tuple, Type, Set
 from .prelude import Sym, SrcInfo
 
 from .instr_info import AtomicityInfo, AccessInfo, InstrInfo
-from .LoopIR import LoopIR, SubstArgs, Identifier, get_writes_of_stmts
+from .LoopIR import (
+    LoopIR,
+    SubstArgs,
+    Identifier,
+    get_writes_of_stmts,
+    get_reads_of_stmts,
+)
 from .memory import MemWin, DRAM, BarrierType
 from ..frontend.pyparser import get_ast_from_python, Parser
 from ..spork import timelines
@@ -52,7 +58,9 @@ from ..spork.timelines import (
 from .c_window import WindowFeatures, UtilInjector, WindowIndexerResult
 
 
-def proc_default_access_info(proc: LoopIR.proc, write_syms: Set[Sym]):
+def proc_default_access_info(
+    proc: LoopIR.proc, write_syms: Set[Sym], read_syms: Set[Sym]
+):
     access_info = {}
     for arg in proc.args:
         if not arg.type.is_numeric():
@@ -62,6 +70,7 @@ def proc_default_access_info(proc: LoopIR.proc, write_syms: Set[Sym]):
         access = AccessInfo()
         access.mem = mem
         access.const = arg.name not in write_syms
+        access.write_only = arg.name not in read_syms
         access_info[nm] = access
 
     return access_info
@@ -138,6 +147,7 @@ def tparams_from_signature(clsname: str, tproc: LoopIR.proc, signature):
 
 def prefill_instr_info(info: InstrInfo, proc: LoopIR.proc):
     write_syms = set(x for x, _ in get_writes_of_stmts(proc.body))
+    read_syms = set(x for x, _ in get_reads_of_stmts(proc.body, include_reduce=True))
     info.instr_format = None
     info.c_utils = []
     info.c_includes = []
@@ -145,7 +155,7 @@ def prefill_instr_info(info: InstrInfo, proc: LoopIR.proc):
     info.cu_includes = []
     info.coll_unit = standalone_thread
     info.instr_tl = cpu_in_order_instr
-    info.access_info = proc_default_access_info(proc, write_syms)
+    info.access_info = proc_default_access_info(proc, write_syms, read_syms)
     info.barrier_type = None
     info.barrier_coll_units = ()
     info._tparam_dict = {}
