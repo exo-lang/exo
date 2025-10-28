@@ -190,6 +190,40 @@ struct exo_Cuda0_test_mbarriers
     int_fast32_t task;
   };
 
+  struct exo_TaskGenerator
+  {
+    uint32_t exo_taskIndex;
+    uint32_t exo_numClusters;
+    uint32_t exo_taskCount;
+    int_fast32_t exo_cudaTasksLo_task;
+    uint32_t exo_cudaTasksNum_task;
+    EXO_CUDA_INLINE exo_TaskGenerator(
+        uint32_t cluster_index, uint32_t num_clusters,
+        int_fast32_t _exo_cudaTasksLo_task, int_fast32_t _exo_cudaTasksHi_task,
+        const exo_DeviceArgs&)
+    {
+      exo_taskIndex = cluster_index;
+      exo_numClusters = num_clusters;
+      exo_taskCount = 1;
+      exo_cudaTasksLo_task = _exo_cudaTasksLo_task;
+      exo_cudaTasksNum_task = static_cast<uint32_t>(_exo_cudaTasksHi_task - _exo_cudaTasksLo_task);
+      exo_taskCount *= exo_cudaTasksNum_task;
+    }
+    [[nodiscard]] EXO_CUDA_INLINE bool prepare_next_task()
+    {
+      return exo_taskIndex < exo_taskCount;
+    }
+    EXO_CUDA_INLINE exo_Task get_next_task()
+    {
+      exo_Task exo_task;
+      uint32_t exo_tmp = exo_taskIndex;
+      exo_taskIndex += exo_numClusters;
+      exo_task.task = exo_cudaTasksLo_task + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_task);
+      exo_tmp /= exo_cudaTasksNum_task;
+      return exo_task;
+    }
+  };
+
   struct exo_SyncState
   {
     // baseline: barrier @ CudaMbarrier, ring=1, slice_count=8
@@ -829,16 +863,20 @@ exo_CudaInline_test_mbarriers_m1n1d1d2_Sm80_cp_async_golden::exo_Cuda0_test_mbar
 {
   namespace exo_CudaUtil = exo_CudaUtil_test_mbarriers_m1n1d1d2_Sm80_cp_async_golden;
   exo_SyncState exo_syncState{};
-  unsigned exo_taskIndex = 0;
   int32_t nreg;
   nreg = ((int32_t) 0);
   if (nreg == ((int32_t) 0)) {
     if (int tmp = threadIdx.x; tmp >= 0 && tmp < 64) {
-      for (int exo_task_task = 0; exo_task_task < 2; exo_task_task++) {
-        if (exo_taskIndex++ % (gridDim.x / exo_clusterDim) == blockIdx.x / exo_clusterDim) {
-            exo_deviceTask(exo_smem, exo_syncState, exo_deviceArgs,
-                (struct exo_Task) { exo_task_task },
-                exo_excutLog);
+      {
+        int_fast32_t exo_cudaTasksLo_task = 0;
+        int_fast32_t exo_cudaTasksHi_task = 2;
+        exo_TaskGenerator exo_taskGenerator(
+            blockIdx.x / exo_clusterDim,
+            gridDim.x / exo_clusterDim,
+            exo_cudaTasksLo_task, exo_cudaTasksHi_task,
+            exo_deviceArgs);
+        while (exo_taskGenerator.prepare_next_task()) {
+          exo_deviceTask(exo_smem, exo_syncState, exo_deviceArgs, exo_taskGenerator.get_next_task(), exo_excutLog);
         }
       }
     }

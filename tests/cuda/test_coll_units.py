@@ -530,7 +530,7 @@ def mkproc_warp_instr(unit=cuda_warp):
             for task in cuda_tasks(0, 1):
                 d: f32[16, 8] @ Sm80_RmemMatrixD(16, 8)
                 for i in cuda_threads(0, 1, unit=unit):
-                    Sm80_mma_store_d_tf32(dst[:, :], d[:, :])
+                    Sm80_mma_store_d_row_major_tf32(dst[:, :], d[:, :])
 
     return proc_warp_instr
 

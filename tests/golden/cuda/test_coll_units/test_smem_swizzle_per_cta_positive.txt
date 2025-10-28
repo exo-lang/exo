@@ -136,25 +136,28 @@ void exo_cudaLaunch0_per_cta_alloc_proc(cudaStream_t exo_cudaStream, const struc
 #ifdef __CUDACC__
 template <typename T>
 struct exo_Sm90_SW128 {
-    typedef T* pointer;
     T data;
 
-    static EXO_CUDA_INLINE T& exo_Sm90_SW128_get(pointer linear_ptr)
+    static EXO_CUDA_INLINE exo_Sm90_SW128<T>* swizzle_pointer(uintptr_t addr)
     {
         // Adapted from ThunderKittens appendix which actually documents CUDA correctly.
-        uintptr_t addr = reinterpret_cast<uintptr_t>(linear_ptr);
         addr = (addr ^ (((addr % 1024) >> 7) << 4));
-        return reinterpret_cast<pointer>(addr)->data;
-    }
-
-    static EXO_CUDA_INLINE const T& exo_Sm90_SW128_get(const exo_Sm90_SW128<T>* linear_ptr)
-    {
-        return swizzled_element(const_cast<exo_Sm90_SW128<T>*>(linear_ptr));
+        return reinterpret_cast<exo_Sm90_SW128*>(addr);
     }
 
     static constexpr uint64_t get_swizzle_bits()
     {
         return 1;
+    }
+
+    EXO_CUDA_INLINE const T& swizzle_get() const
+    {
+        return swizzle_pointer(reinterpret_cast<uintptr_t>(&data))->data;
+    }
+
+    EXO_CUDA_INLINE T& swizzle_get()
+    {
+        return swizzle_pointer(reinterpret_cast<uintptr_t>(&data))->data;
     }
 };
 #endif
@@ -202,25 +205,28 @@ void per_cta_alloc_proc( void *ctxt ) {
 #ifdef __CUDACC__
 template <typename T>
 struct exo_Sm90_SW128 {
-    typedef T* pointer;
     T data;
 
-    static EXO_CUDA_INLINE T& exo_Sm90_SW128_get(pointer linear_ptr)
+    static EXO_CUDA_INLINE exo_Sm90_SW128<T>* swizzle_pointer(uintptr_t addr)
     {
         // Adapted from ThunderKittens appendix which actually documents CUDA correctly.
-        uintptr_t addr = reinterpret_cast<uintptr_t>(linear_ptr);
         addr = (addr ^ (((addr % 1024) >> 7) << 4));
-        return reinterpret_cast<pointer>(addr)->data;
-    }
-
-    static EXO_CUDA_INLINE const T& exo_Sm90_SW128_get(const exo_Sm90_SW128<T>* linear_ptr)
-    {
-        return swizzled_element(const_cast<exo_Sm90_SW128<T>*>(linear_ptr));
+        return reinterpret_cast<exo_Sm90_SW128*>(addr);
     }
 
     static constexpr uint64_t get_swizzle_bits()
     {
         return 1;
+    }
+
+    EXO_CUDA_INLINE const T& swizzle_get() const
+    {
+        return swizzle_pointer(reinterpret_cast<uintptr_t>(&data))->data;
+    }
+
+    EXO_CUDA_INLINE T& swizzle_get()
+    {
+        return swizzle_pointer(reinterpret_cast<uintptr_t>(&data))->data;
     }
 };
 #endif
@@ -369,7 +375,7 @@ exo_CudaInline_test_smem_swizzle_per_cta_positive::exo_Cuda0_per_cta_alloc_proc:
     if ([[maybe_unused]] int exo_16thr_y = (threadIdx.x / 16); 1) {
       // cuda_threads(0, 16, unit=cuda_thread)
       if ([[maybe_unused]] int exo_1thr_x = (threadIdx.x % 16); 1) {
-        exo_Sm90_SW128_get(the_mem[exo_16thr_y * 16 + exo_1thr_x]) = 3.0f;
+        the_mem[exo_16thr_y * 16 + exo_1thr_x].swizzle_get() = 3.0f;
       }
     }
     // Fence(cuda_in_order, cuda_in_order)
