@@ -526,4 +526,4 @@ $\tau_s$ & transitive? & cpu & cpu & cuda & cuda & Sm80 & tma & tma & wgmma & wg
             else:
                 out_file.write(" & ")
         out_file.write("\\\\\n")
-    out_file.write("\\hline\n\end{tabular}\n")
+    out_file.write("\\hline\n\\end{tabular}\n")
