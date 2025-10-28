@@ -875,6 +875,8 @@ class ProgramBuilder:
         assert isinstance(dim_idx, int)
         assert isinstance(offset, int)
         assert isinstance(box, int)
+        assert offset >= 0
+        assert box > 0
         return BodyCtx(
             self._builder,
             srcinfo,

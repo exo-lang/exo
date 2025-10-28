@@ -217,7 +217,7 @@ class Sm80_mma_load_a_row_major_tf32(Sm80_mma_load_base):
     def behavior(
         K: size,
         rmem: [f32][16, K],
-        src: [f32][16, K] @ CudaDeviceVisibleLinear,
+        src: [f32][16, K] @ CudaDeviceVisibleAtomicity16B,
     ):
         for m in seq(0, 16):
             for k in seq(0, K):
@@ -240,7 +240,7 @@ class Sm80_mma_load_a_col_major_tf32(Sm80_mma_load_base):
     def behavior(
         K: size,
         rmem: [f32][16, K],
-        src: [f32][K, 16] @ CudaDeviceVisibleLinear,
+        src: [f32][K, 16] @ CudaDeviceVisibleAtomicity16B,
     ):
         for m in seq(0, 16):
             for k in seq(0, K):
@@ -263,7 +263,7 @@ class Sm80_mma_load_b_row_major_tf32(Sm80_mma_load_base):
     def behavior(
         K: size,
         rmem: [f32][K, 8],
-        src: [f32][K, 8] @ CudaDeviceVisibleLinear,
+        src: [f32][K, 8] @ CudaDeviceVisibleAtomicity16B,
     ):
         for k in seq(0, K):
             for n in seq(0, 8):
@@ -286,7 +286,7 @@ class Sm80_mma_load_b_col_major_tf32(Sm80_mma_load_base):
     def behavior(
         K: size,
         rmem: [f32][K, 8],
-        src: [f32][8, K] @ CudaDeviceVisibleLinear,
+        src: [f32][8, K] @ CudaDeviceVisibleAtomicity16B,
     ):
         for k in seq(0, K):
             for n in seq(0, 8):
@@ -300,58 +300,6 @@ class Sm80_mma_load_b_col_major_tf32(Sm80_mma_load_base):
 
 
 __all__.append("Sm80_mma_load_b_col_major_tf32")
-
-
-# "temporary"
-@instr
-class Sm80_mma_load_a_row_major_divided_tf32:
-    K: int
-
-    def behavior(
-        K: size,
-        rmem: [f32][16, K],
-        src: [f32][2, 8, K] @ CudaDeviceVisibleAtomicity16B,
-    ):
-        for mo in seq(0, 2):
-            for mi in seq(0, 8):
-                for k in seq(0, K):
-                    rmem[mo * 8 + mi, k] = src[mo, mi, k]
-
-    def instance(self, K):
-        self.instr_tl = cuda_in_order_instr
-        self.coll_unit = cuda_warp
-        if K != 4 and K != 8:
-            raise ValueError("Require K=4 or K=8")
-        self.K = K
-        self.access_info["rmem"].mem = Sm80_RmemMatrixA(16, K)
-
-    def codegen(self, args: InstrArgs):
-        # fmt: off
-        preamble = [
-          "{",
-          "  const unsigned exo_lane = threadIdx.x % 32;",
-          "  const unsigned exo_m = exo_lane / 4;",
-          "  const unsigned exo_k = exo_lane % 4;",
-        ]
-        regs = str(args.rmem.index())
-        src = args.src
-        rhs_list = [
-            src.index("exo_m / 8", "exo_m % 8", "exo_k"),
-            src.index("exo_m / 8 + 1", "exo_m % 8", "exo_k"),
-        ]
-        if self.K == 8:
-            rhs_list += [
-                src.index("exo_m / 8", "exo_m % 8", "exo_k + 4"),
-                src.index("exo_m / 8 + 1", "exo_m % 8", "exo_k + 4"),
-            ]
-        else:
-            assert self.K == 4
-        body = [f"  {regs}[{i}] = __float_as_uint({rhs});" for i, rhs in enumerate(rhs_list)]
-        return preamble + body + ["}"]
-        # fmt: on
-
-
-__all__.append("Sm80_mma_load_a_row_major_divided_tf32")
 
 
 @instr
@@ -406,14 +354,14 @@ def _codegen_Sm80_d_tf32(args: InstrArgs, fmt: str, *, row_major: bool):
       "  const unsigned exo_m = exo_lane / 4;",
       "  const unsigned exo_n = (exo_lane % 4) * 2;",
     ]
-    
+
     if row_major:
         def index(m, n):
             return dst.index(m, n)
     else:
         def index(m, n):
             return dst.index(n, m)
-    
+
     regs = str(args.rmem.index())
     dst = args.dst
     lhs_list = [
@@ -430,7 +378,7 @@ def _codegen_Sm80_d_tf32(args: InstrArgs, fmt: str, *, row_major: bool):
 @instr
 class Sm80_mma_store_d_row_major_tf32:
     def behavior(
-        dst: [f32][16, 8] @ CudaDeviceVisibleLinear,
+        dst: [f32][16, 8] @ CudaDeviceVisibleAtomicity16B,
         rmem: [f32][16, 8] @ Sm80_RmemMatrixD(16, 8),
     ):
         for m in seq(0, 16):
@@ -453,7 +401,7 @@ __all__.append("Sm80_mma_store_d_row_major_tf32")
 @instr
 class Sm80_mma_reduce_d_row_major_tf32:
     def behavior(
-        dst: [f32][16, 8] @ CudaDeviceVisibleLinear,
+        dst: [f32][16, 8] @ CudaDeviceVisibleAtomicity16B,
         rmem: [f32][16, 8] @ Sm80_RmemMatrixD(16, 8),
     ):
         for m in seq(0, 16):
@@ -476,7 +424,7 @@ __all__.append("Sm80_mma_reduce_d_row_major_tf32")
 @instr
 class Sm80_mma_atomic_reduce_d_row_major_tf32:
     def behavior(
-        dst: [f32][16, 8] @ CudaDeviceVisibleLinear,
+        dst: [f32][16, 8] @ CudaDeviceVisibleAtomicity16B,
         rmem: [f32][16, 8] @ Sm80_RmemMatrixD(16, 8),
     ):
         for m in seq(0, 16):
@@ -502,7 +450,7 @@ __all__.append("Sm80_mma_atomic_reduce_d_row_major_tf32")
 @instr
 class Sm80_mma_store_d_col_major_tf32:
     def behavior(
-        dst: [f32][8, 16] @ CudaDeviceVisibleLinear,
+        dst: [f32][8, 16] @ CudaDeviceVisibleAtomicity16B,
         rmem: [f32][16, 8] @ Sm80_RmemMatrixD(16, 8),
     ):
         for m in seq(0, 16):
@@ -525,7 +473,7 @@ __all__.append("Sm80_mma_store_d_col_major_tf32")
 @instr
 class Sm80_mma_reduce_d_col_major_tf32:
     def behavior(
-        dst: [f32][8, 16] @ CudaDeviceVisibleLinear,
+        dst: [f32][8, 16] @ CudaDeviceVisibleAtomicity16B,
         rmem: [f32][16, 8] @ Sm80_RmemMatrixD(16, 8),
     ):
         for m in seq(0, 16):
@@ -548,7 +496,7 @@ __all__.append("Sm80_mma_reduce_d_col_major_tf32")
 @instr
 class Sm80_mma_atomic_reduce_d_col_major_tf32:
     def behavior(
-        dst: [f32][8, 16] @ CudaDeviceVisibleLinear,
+        dst: [f32][8, 16] @ CudaDeviceVisibleAtomicity16B,
         rmem: [f32][16, 8] @ Sm80_RmemMatrixD(16, 8),
     ):
         for m in seq(0, 16):

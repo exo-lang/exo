@@ -96,25 +96,28 @@ def Sm90_SmemSwizzled(swizzle):
 #ifdef __CUDACC__
 template <typename T>
 struct exo_Sm90_SW{swizzle} {{
-    typedef T* pointer;
     T data;
 
-    static EXO_CUDA_INLINE T& exo_Sm90_SW{swizzle}_get(pointer linear_ptr)
+    static EXO_CUDA_INLINE exo_Sm90_SW{swizzle}<T>* swizzle_pointer(uintptr_t addr)
     {{
         // Adapted from ThunderKittens appendix which actually documents CUDA correctly.
-        uintptr_t addr = reinterpret_cast<uintptr_t>(linear_ptr);
         addr = (addr ^ (((addr % {swizzle * 8}) >> 7) << 4));
-        return reinterpret_cast<pointer>(addr)->data;
-    }}
-
-    static EXO_CUDA_INLINE const T& exo_Sm90_SW{swizzle}_get(const exo_Sm90_SW{swizzle}<T>* linear_ptr)
-    {{
-        return swizzled_element(const_cast<exo_Sm90_SW{swizzle}<T>*>(linear_ptr));
+        return reinterpret_cast<exo_Sm90_SW{swizzle}*>(addr);
     }}
 
     static constexpr uint64_t get_swizzle_bits()
     {{
         return {swizzle_bits};
+    }}
+
+    EXO_CUDA_INLINE const T& swizzle_get() const
+    {{
+        return swizzle_pointer(reinterpret_cast<uintptr_t>(&data))->data;
+    }}
+
+    EXO_CUDA_INLINE T& swizzle_get()
+    {{
+        return swizzle_pointer(reinterpret_cast<uintptr_t>(&data))->data;
     }}
 }};
 #endif
@@ -191,7 +194,7 @@ class SwizzledIndexer(WindowIndexer):
         else:
             # This path swizzles the pointer.
             # Needed for access with normal scalar code.
-            code = f"exo_Sm90_SW{swizzle}_get({dataptr}[{array_offset}])"
+            code = f"{dataptr}[{array_offset}].swizzle_get()"
 
         return self.pack_result(code, False)
 

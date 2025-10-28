@@ -437,8 +437,8 @@ class CollAnalysis(LoopIR_Rewrite):
         named_warps = self._cuda_device_function.named_warps
 
         top_am_dim_idx = None
-        top_am_offset = -1
-        top_am_box = -1
+        top_am_offset = 0
+        top_am_box = None
 
         # Top-level CudaWarps: adjust CollTiling to account for offset of named warps.
         # We ignore the codegen here ... because of how the deviceTask is specialized
