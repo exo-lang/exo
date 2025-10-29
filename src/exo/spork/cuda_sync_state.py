@@ -568,7 +568,7 @@ class SyncStateBuilder:
         # Commit groups
         #
         # Sm80_cp_async -> Sm80_generic; 1 thread
-        # tma_to_gmem_async -> cuda_generic_and_async_proxy; 1 thread
+        # tma_to_gmem_async -> cuda_generic_and_async_proxy; 32 threads
         # wgmma_async -> cuda_generic_and_async_proxy; 128 threads
         #
         # Can fail due to
