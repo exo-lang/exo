@@ -37,7 +37,7 @@ filelock==3.19.1
     # via
     #   tox
     #   virtualenv
-identify==2.6.14
+identify==2.6.15
     # via pre-commit
 importlib-metadata==8.7.0 ; python_full_version < '3.10.2'
     # via build
