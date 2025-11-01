@@ -100,7 +100,7 @@ tomli==2.2.1 ; python_full_version <= '3.11'
     #   pytest
     #   tox
     #   yapf
-tox==4.30.2
+tox==4.30.3
 typing-extensions==4.15.0 ; python_full_version < '3.11'
     # via
     #   black
