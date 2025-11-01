@@ -107,7 +107,7 @@ typing-extensions==4.15.0 ; python_full_version < '3.11'
     #   exceptiongroup
     #   tox
     #   virtualenv
-virtualenv==20.34.0
+virtualenv==20.35.4
     # via
     #   pre-commit
     #   tox
