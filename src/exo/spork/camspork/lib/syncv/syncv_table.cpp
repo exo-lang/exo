@@ -1638,7 +1638,7 @@ struct SyncvTable
         static constexpr bool enable_debug_printf = false;
 
         template <bool IsMutate>
-        void update_for_sync(SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> vis_record_id) const
+        bool update_for_sync(SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> vis_record_id) const
         {
             auto& node = env.get(vis_record_id);
             CAMSPORK_REQUIRE(!node.is_forwarded(), "unexpected forwarding state");
@@ -1649,9 +1649,11 @@ struct SyncvTable
             augment.L2_full_qual_bits = L2_full_qual_bits;
             augment.L2_temporal_qual_bits = L2_temporal_qual_bits;
 
-            if (env.synchronizes_with(transitive, *p_record, *p_cuboid, L1_qual_bits)) {
+            const bool syncs = env.synchronizes_with(transitive, *p_record, *p_cuboid, L1_qual_bits);
+            if (syncs) {
                 augment(env, vis_record_id);
             }
+            return syncs;
         };
     };
 
@@ -1686,14 +1688,15 @@ struct SyncvTable
         ArriveUpdateCommand(ArriveUpdateCommand&&) = delete;
 
         template <bool IsMutate>
-        void update_for_sync(SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> vis_record_id)
+        bool update_for_sync(SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> vis_record_id)
         {
             CAMSPORK_REQUIRE_CMP(L1_qual_bits, !=, 0, "should be if'd out in this case");
             auto& node = env.get(vis_record_id);
             CAMSPORK_REQUIRE(!node.is_forwarded(), "unexpected forwarding state");
             VisRecord* p_record = &node.base_data;
 
-            if (env.synchronizes_with(transitive, *p_record, *p_cuboid, L1_qual_bits)) {
+            const bool syncs = env.synchronizes_with(transitive, *p_record, *p_cuboid, L1_qual_bits);
+            if (syncs) {
                 // Extend pending_awaits list of the VisRecord.
                 const nodepool::id<PendingAwaitNode> old_await_node = p_record->pending_awaits;
                 nodepool::id<PendingAwaitNode> new_await_node = old_await_node;
@@ -1712,6 +1715,7 @@ struct SyncvTable
                     env.extend_barrier_arrive_state(vis_record_id, info);
                 }
             }
+            return syncs;
         }
     };
 
@@ -1839,14 +1843,16 @@ struct SyncvTable
             CAMSPORK_REQUIRE(!current_node.is_forwarded(), "forwarding state memoized?");
 
             // Update the visibility record stored in the node.
-            command.update_for_sync(*this, modified_id);
+            const bool syncs = command.update_for_sync(*this, modified_id);
             CAMSPORK_REQUIRE_CMP(p_id, !=, &current_node.camspork_next_id, "something happened");
 
             // This is where the node might get re-inserted to the memoization table.
             // *p_id might change value here again, but it's guaranteed p_id doesn't point inside &current_node.
             const auto new_node_id = memoize_or_forward(current_node_id);
             const bool debug_printf = command.enable_debug_printf;
-            command.logger.history_vis_record_change(*this, current_node_id, new_node_id, debug_printf);
+            if (syncs) {
+                command.logger.history_vis_record_change(*this, current_node_id, new_node_id, debug_printf);
+            }
 
             // This part is dicey. We removed the node from the memoization table, then possibly re-inserted it,
             // either into another bucket, or at the head of this bucket. See the weird assert below.
