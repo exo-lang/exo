@@ -614,12 +614,13 @@ class DistributedIdxFsm:
         """True if we should not call consume_idx() again."""
         return not any(self.distributed_iters_needed.values())
 
-    def check_store_state(self, state: DistributedAllocState):
+    def check_store_state(self, state: DistributedAllocState) -> bool:
         """Update the allocation state with analysis results
 
         If this distributed memory analysis is not the first for the
         allocation, we check that the usage pattern is compatible with
         that of the first usage.
+        Returns whether this is the first usage seen.
 
         We could have stored `state` in the constructor, but I want to
         make the mutation more explicit at the call site.
@@ -637,7 +638,7 @@ class DistributedIdxFsm:
             state.first_usage_stmt = self.context_stmt
             state.first_distributed_iters = self.distributed_iters
             state.first_usage_coll_tiling = self.usage_coll_tiling
-            return
+            return True
 
         first_distributed_iters = state.first_distributed_iters
         first_usage_coll_tiling = state.first_usage_coll_tiling
@@ -690,6 +691,7 @@ class DistributedIdxFsm:
                     f"  {sym2} = {info.coll_index_expr.codegen()}; thread_pitch={info.thread_pitch}"
                 )
             raise ValueError("\n".join(lines))
+        return False
 
     def inspect_arrive_await(
         self,

@@ -235,7 +235,8 @@ class CollAnalysis(LoopIR_Rewrite):
                 # We now have the distributed indices in distributed_iters.
                 # Store in DistributedAllocState if this is the first use, or check
                 # consistency (index equality) with prior uses.
-                fsm.check_store_state(state)
+                if fsm.check_store_state(state):
+                    self.remark_distributed_alloc_state(state)
                 fsm.inspect_arrive_await(
                     s,
                     self._coll_tiling,
@@ -315,7 +316,8 @@ class CollAnalysis(LoopIR_Rewrite):
         # We now have the distributed indices in distributed_iters.
         # Store in DistributedAllocState if this is the first use, or check
         # consistency (CollTiling equivalence) with prior uses.
-        fsm.check_store_state(state)
+        if fsm.check_store_state(state):
+            self.remark_distributed_alloc_state(state)
 
     def cuda_map_call_stmt(self, s: LoopIR.Call):
         # Check collective unit.
@@ -377,7 +379,8 @@ class CollAnalysis(LoopIR_Rewrite):
             # We now have the distributed indices in distributed_iters.
             # Store in DistributedAllocState if this is the first use, or check
             # consistency (CollTiling equivalence) with prior uses.
-            fsm.check_store_state(state)
+            if fsm.check_store_state(state):
+                self.remark_distributed_alloc_state(state)
 
         # Cannot use super().map_s(s) due to window handling
         return None
@@ -423,7 +426,10 @@ class CollAnalysis(LoopIR_Rewrite):
 
         log_lhs = thread_iter.cname(s.iter)
         log_rhs = thread_iter.codegen_par.c_index
-        self._debug_log.remark(self._proc_name, f"{log_lhs} = {log_rhs} @ {s.srcinfo}")
+        self._debug_log.remark(
+            self._proc_name,
+            f"thread_pitch={thread_iter.thread_pitch}; {log_lhs} = {log_rhs} @ {s.srcinfo}",
+        )
 
         self.thread_iters[s.iter] = thread_iter
         return thread_iter
@@ -528,4 +534,14 @@ class CollAnalysis(LoopIR_Rewrite):
             prior_am_dim_idx=top_am_dim_idx,
             prior_am_offset=top_am_offset,
             prior_am_box=top_am_box,
+        )
+
+    def remark_distributed_alloc_state(self, state: DistributedAllocState):
+        thread_iters = self.thread_iters
+        distributed_iters = state.first_distributed_iters
+        tup = tuple(thread_iters[it].thread_pitch for it in distributed_iters)
+        s = state.alloc_stmt
+        self._debug_log.remark(
+            self._proc_name,
+            f"distributed dims: {len(tup)}, thread pitch tuple {tup} @ {s.srcinfo}",
         )
