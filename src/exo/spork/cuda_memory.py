@@ -375,7 +375,7 @@ class CudaRmem(CudaDeviceVisibleLinear):
 class CudaEvent(BarrierType):
     @classmethod
     def traits(cls) -> BarrierTypeTraits:
-        return BarrierTypeTraits(requires_pairing=True, requires_arrive_first=True)
+        return BarrierTypeTraits(requires_guarding=True, requires_arrive_first=True)
 
     @classmethod
     def sync_exempt(cls) -> bool:
@@ -397,7 +397,7 @@ class CudaMbarrier(CudaDeviceBarrier):
             negative_await_N=True,
             uniform_await_N=True,
             different_arrive_await_threads=True,
-            requires_pairing=True,
+            requires_guarding=True,
             requires_arrive_first=False,
             supports_guards=True,
             supports_arrive_multicast=True,
@@ -445,7 +445,7 @@ class CudaCommitGroup(CudaDeviceBarrier):
 class CudaClusterSync(CudaDeviceBarrier):
     @classmethod
     def traits(cls) -> BarrierTypeTraits:
-        return BarrierTypeTraits(requires_pairing=True, requires_arrive_first=True)
+        return BarrierTypeTraits(requires_guarding=True, requires_arrive_first=True)
 
     @classmethod
     def sync_exempt(cls) -> bool:

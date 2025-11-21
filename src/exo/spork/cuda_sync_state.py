@@ -179,8 +179,8 @@ class SyncStateBuilder:
                     f"{srcinfo}: Arrive for {name} must be by full cluster ({msg})"
                 )
             # If the Arrive passed, then so should the Await, since the
-            # pairing requirement enforces identical coll units.
-            assert CudaClusterSync.traits().requires_pairing
+            # guarding requirement enforces identical coll units.
+            assert CudaClusterSync.traits().requires_guarding
             assert not await_coll_tiling.unit_mismatch(cuda_cluster, self._coll_env)
         else:
             is_cluster_sync = self._clusterDim() > 1 and match_unit(cuda_cluster)

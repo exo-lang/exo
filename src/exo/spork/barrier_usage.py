@@ -65,7 +65,7 @@ class BarrierUsage:
         return self.Await
 
     def visit_Arrive(self, s: LoopIR.SyncStmt):
-        # We do not enforce pairing, but we enforce other traits
+        # We do not enforce guarding, but we enforce other traits
         mem = self.barrier_type
         assert mem
         sync_type = s.sync_type
@@ -114,7 +114,7 @@ class BarrierUsage:
             kvetch_invalid("Need N = 1")
 
     def visit_Await(self, s: LoopIR.SyncStmt):
-        # We do not enforce requirements on pairing, but we enforce other traits
+        # We do not enforce requirements on guarding, but we enforce other traits
         mem = self.barrier_type
         assert mem
         sync_type = s.sync_type
@@ -325,11 +325,11 @@ class BarrierUsageAnalysis(LoopIR_Do):
         if _await is None:
             kvetch_missing(_arrive, f"Await(+{name}, ...)")
 
-        # Check pairing requirements only if barrier type traits require it.
-        if traits.requires_pairing:
-            self.check_pairing(name, traits, in_stmts)
+        # Check guarding requirements only if barrier type traits require it.
+        if traits.requires_guarding:
+            self.check_guarding(name, traits, in_stmts)
 
-    def check_pairing(
+    def check_guarding(
         self,
         name: Sym,
         traits: BarrierTypeTraits,
@@ -386,13 +386,13 @@ class BarrierUsageAnalysis(LoopIR_Do):
 
             add_flatten(sub_stmts)
 
-            unpaired_arrive = None
-            unpaired_await = None
+            unmatched_arrive = None
+            unmatched_await = None
             calls = []
             example_arrive = None
 
             for s in flattened_stmts:
-                s_if_forbid = s if (unpaired_arrive or unpaired_await) else None
+                s_if_forbid = s if (unmatched_arrive or unmatched_await) else None
                 if isinstance(s, LoopIR.If):
                     assert not is_if_holding_with(s, LoopIR), "add_flatten failed"
                     recurse(s.body, forbid_sync_due_to or s_if_forbid)
@@ -415,36 +415,38 @@ class BarrierUsageAnalysis(LoopIR_Do):
                     if await_first is None:
                         await_first = soi == soi_await
                     if soi == soi_arrive:
-                        if (await_first and not unpaired_await) or unpaired_arrive:
+                        if (await_first and not unmatched_await) or unmatched_arrive:
                             raise ValueError(
                                 f"{s.srcinfo}: expect {get_await_str()} before {s}"
                             )
                         if await_first:
-                            unpaired_await = None
+                            unmatched_await = None
                         else:
-                            unpaired_arrive = s
+                            unmatched_arrive = s
                         example_arrive = s
                     if soi == soi_await:
-                        if unpaired_await or (not await_first and not unpaired_arrive):
+                        if unmatched_await or (
+                            not await_first and not unmatched_arrive
+                        ):
                             raise ValueError(
                                 f"{s.srcinfo}: expect {get_arrive_str()} before {s}"
                             )
                         if await_first:
-                            unpaired_await = s
+                            unmatched_await = s
                         else:
-                            unpaired_arrive = None
+                            unmatched_arrive = None
                     if soi == soi_call:
-                        if (await_first and not unpaired_await) or unpaired_arrive:
+                        if (await_first and not unmatched_await) or unmatched_arrive:
                             raise ValueError(
                                 f"{s.srcinfo}: expect {get_await_str()} before {s}"
                             )
                         calls.append(s)
             # end for s in flattened_stmts
-            if unpaired_await:
+            if unmatched_await:
                 raise ValueError(
                     f"{s.srcinfo}: {s} without subsequent {get_arrive_str()} in body"
                 )
-            if unpaired_arrive:
+            if unmatched_arrive:
                 raise ValueError(
                     f"{s.srcinfo}: {s} without subsequent {get_await_str()} in body"
                 )

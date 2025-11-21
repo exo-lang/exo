@@ -705,8 +705,8 @@ class DistributedIdxFsm:
 
         * Equivalent CollTiling for same action on same queue barrier array.
           action = Arrive/Await
-        * If the barrier type has a pairing requirement, additionally,
-          check equivalent CollTilings for paired Arrive/Await.
+        * If the barrier type has a guarding requirement, additionally,
+          check equivalent CollTilings for matched Arrive/Await.
         * If the barrier type requires the same threads for Arrive/Await,
           check equivalent CollTilings for same-barrier Arrive/Await.
 
@@ -742,8 +742,8 @@ class DistributedIdxFsm:
             else:
                 state.arrive_coll_tiling = coll_tiling
 
-        if barrier_usage.barrier_type.traits().requires_pairing:
-            # Will check equivalence with previous stmt of paired sync type
+        if barrier_usage.barrier_type.traits().requires_guarding:
+            # Will check equivalence with previous stmt of matched sync type
             if sync_type.is_arrive():
                 guarded_by = barrier_usage.guarded_by
                 f_text = f"Await({guarded_by}, ...) [guarded_by]"

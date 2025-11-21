@@ -410,7 +410,7 @@ class BarrierTypeTraits:
     uniform_await_N: bool = False
 
     different_arrive_await_threads: bool = False
-    requires_pairing: bool = False
+    requires_guarding: bool = False
     requires_arrive_first: bool = False
     supports_guards: bool = False
 
