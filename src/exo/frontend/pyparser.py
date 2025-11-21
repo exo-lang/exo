@@ -1950,9 +1950,15 @@ class Parser:
             barriers = []
 
         elif func_id == "Arrive":
-            if len(ast_call.args) != 2:
+            n_args = len(ast_call.args)
+            if n_args == 1:
+                N = 1
+            elif n_args == 2:
+                N = self.eval_expr(ast_call.args[1])
+                if N != 1:
+                    raise ValueError("Expect N=1 for Arrive")
+            else:
                 self.err(ast_call, f"{func_id} expects 2 arguments")
-            N = self.eval_expr(ast_call.args[1])
             if not isinstance(N, int):
                 self.err(ast_call, f"{func_id} N={N!r}; expected int")
             sync_type = arrive_type(eval_sync_tl(ast_call.args[0]), N)

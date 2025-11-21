@@ -101,7 +101,7 @@ def fence_type(first_sync_tl: Sync_tl, second_sync_tl: Sync_tl):
     return SyncType(first_sync_tl, second_sync_tl, 0)
 
 
-def arrive_type(first_sync_tl: Sync_tl, N):
+def arrive_type(first_sync_tl: Sync_tl, N=1):
     assert isinstance(first_sync_tl, Sync_tl)
     assert first_sync_tl
     return SyncType(first_sync_tl, None, N)
