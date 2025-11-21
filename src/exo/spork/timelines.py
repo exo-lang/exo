@@ -214,7 +214,8 @@ cuda_rmem_qual_tl_dict = {
     Sm80_cp_async_instr: cuda_in_order_rmem_qual,
     tma_to_smem_async_instr: cuda_in_order_rmem_qual,
     tma_to_gmem_async_instr: cuda_in_order_rmem_qual,
-    wgmma_zero_instr: wgmma_zero_qual,  # wgmma a/d has to be handled specially.
+    wgmma_zero_instr: [wgmma_zero_qual, wgmma_async_rmem_d_qual],
+    # wgmma a/d has to be handled specially.
 }
 
 cuda_ram_qual_tl_dict = {
