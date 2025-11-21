@@ -494,30 +494,41 @@ def generate_latex_table(out_file):
         cuda_async_proxy_wgmma,
         cuda_generic_and_async_proxy,
     ]
+    # fmt: off
+    qual_tl_info = [
+        (cpu_in_order_qual, "cpu", r"accessed by non-explicitly-async CPU instruction"),
+        (cpu_cuda_stream_qual, "strm", r"accessed by stream-ordered CUDA API call (e.g. \lighttt{cudaMemcpyAsync})"),
+        (cuda_in_order_rmem_qual, "cuda1", r"register accessed by non-explicitly-async CUDA instruction"),
+        (cuda_in_order_ram_qual, "cuda2", r"non-register accessed by non-explicitly-async CUDA instruction"),
+        (Sm80_cp_async_qual, "Sm80", r"accessed by \lighttt{cp.async} instruction (non-bulk, i.e. not TMA)"),
+        (tma_to_smem_async_qual, "tmaS", r"accessed by \lighttt{cp.async.bulk} ``load'' instruction (GMEM$\to$SMEM)"),
+        (tma_to_gmem_async_qual, "tmaG", r"accessed by \lighttt{cp.async.bulk} ``store instruction (SMEM$\to$GMEM)"),
+        (wgmma_async_rmem_a_qual, "wgA", r"$A$ parameter in registers accessed by \lighttt{wgmma.mma\_async}"),
+        (wgmma_async_rmem_d_qual, "wgD", r"$D$ parameter in registers accessed by \lighttt{wgmma.mma\_async}"),
+        (wgmma_async_smem_qual, "wgS", r"$A$ or $B$ parameter in SMEM accessed by \lighttt{wgmma.mma\_async}"),
+        (wgmma_zero_qual, "wg0", r"Special case for modeling \textsf{scale-d = 0}"),
+    ]
+    # fmt: on
+
+    for q, abbrev, text in qual_tl_info:
+        name = str(q).replace("_", "\\_")
+        out_file.write(r"\texttt{%s} (%s): %s\\" % (name, abbrev, text))
+        out_file.write("\n")
+
     out_file.write(
-        r"""\begin{tabular}{r|l|l l|l l|l l l| l l l l|}
+        r"""\begin{tabular}{|r|l l|l l|l l l| l l l l|}
 \hline
-$\tau_s$ & transitive? & cpu & cpu & cuda & cuda & Sm80 & tma & tma & wgmma & wgmma & wgmma & wgmma \\
+$\tau_s$ & cpu & strm & cuda1 & cuda2 & Sm80 & tmaS & tmaG & wgA & wgD & wgS & wg0 \\
 \hline
 """
     )
     for tau_s in sync_tl_list:
         out_file.write("\\texttt{")
         out_file.write(str(tau_s).replace("_", "\\_"))
-        out_file.write("} & %s" % ("transitive" if tau_s.is_V1_transitive() else ""))
-        for q in (
-            cpu_in_order_qual,
-            cpu_cuda_stream_qual,
-            cuda_in_order_rmem_qual,
-            cuda_in_order_ram_qual,
-            Sm80_cp_async_qual,
-            tma_to_smem_async_qual,
-            tma_to_gmem_async_qual,
-            wgmma_async_rmem_a_qual,
-            wgmma_async_rmem_d_qual,
-            wgmma_async_smem_qual,
-            wgmma_zero_qual,
-        ):
+        out_file.write("}")
+        if tau_s.is_V1_transitive():
+            out_file.write(" (transitive)")
+        for q, _, _ in qual_tl_info:
             q_bit = q.as_bit()
             if q_bit & tau_s.get_full_timeline_set_bits():
                 out_file.write(" & full")
