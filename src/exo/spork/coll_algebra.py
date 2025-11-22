@@ -937,23 +937,23 @@ class DomainCompletionOp:
         # "split the (current) i-th dimension by f".
         idx_factors = []
 
-        def cumulative_thread_counts(domain):
+        def thread_pitch_tuple(domain):
             tmp = [1]
             for c in domain[::-1]:
                 tmp.append(tmp[-1] * c)
             tmp.reverse()
             return tmp
 
-        cumulative_s = cumulative_thread_counts(source_domain)
-        cumulative_t = cumulative_thread_counts(target_domain)
+        thread_pitch_s = thread_pitch_tuple(source_domain)
+        thread_pitch_t = thread_pitch_tuple(target_domain)
 
         for i_s in range(len(source_domain) - 1, -1, -1):
-            s0 = cumulative_s[i_s] if i_s >= 0 else float("inf")
-            s1 = cumulative_s[i_s + 1]
+            s0 = thread_pitch_s[i_s] if i_s >= 0 else float("inf")
+            s1 = thread_pitch_s[i_s + 1]
             for i_t in range(len(target_domain) - 1, -1, -1):
-                t0 = cumulative_t[i_t]
+                t0 = thread_pitch_t[i_t]
                 if s0 > t0 > s1:
-                    t1 = cumulative_t[i_t + 1]
+                    t1 = thread_pitch_t[i_t + 1]
                     divisor = max(t1, s1)
                     split = t0 // divisor
                     if i_s >= 0:
