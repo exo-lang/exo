@@ -159,6 +159,7 @@ class CollAnalysis(LoopIR_Rewrite):
             elif isinstance(cuda_device_function := s.cond.val, CudaDeviceFunction):
                 assert not self.in_cuda()
                 self.apply_cuda_device_function(cuda_device_function)
+                self.remark_coll_tiling_in_body(s, self._coll_tiling)
                 stmts = super().map_s(s)
             else:
                 stmts = super().map_s(s)
@@ -430,6 +431,7 @@ class CollAnalysis(LoopIR_Rewrite):
             self._proc_name,
             f"thread_pitch={thread_iter.thread_pitch}; {log_lhs} = {log_rhs} @ {s.srcinfo}",
         )
+        self.remark_coll_tiling_in_body(s, new_tiling)
 
         self.thread_iters[s.iter] = thread_iter
         return thread_iter
@@ -526,6 +528,7 @@ class CollAnalysis(LoopIR_Rewrite):
             raise ValueError(f"{s.srcinfo}: failed to compile {ctx}: {e}") from e
 
         self._coll_tiling = coll_tiling
+        self.remark_coll_tiling_in_body(s, coll_tiling)
         return ThreadIter(
             coll_tiling,
             str(ctx),
@@ -545,3 +548,16 @@ class CollAnalysis(LoopIR_Rewrite):
             self._proc_name,
             f"distributed dims: {len(tup)}, thread pitch tuple {tup} @ {s.srcinfo}",
         )
+
+    def remark_coll_tiling_in_body(self, s: LoopIR.stmt, coll_tiling: CollTiling):
+        assert hasattr(s, "body")
+        assert isinstance(coll_tiling, CollTiling)
+        if s.body:
+
+            def fmt_tup(t):
+                return "[" + ",".join("%4i" % n for n in t) + "]"
+
+            D = fmt_tup(coll_tiling.get_domain())
+            B = fmt_tup(coll_tiling.get_box())
+            remark = f"Domain (ω.D) = {D}\n   Box (ω.B) = {B} @ {s.body[0].srcinfo}"
+            self._debug_log.remark(self._proc_name, remark)
