@@ -545,11 +545,30 @@ class CollTiling:
 
         return [op for d in self._dims for op in d.dim_ops if is_subdiv(d)]
 
-    def err(self, unit: CollUnit, tile_count: int, msg: str):
+    def err(
+        self,
+        unit: CollUnit,
+        tile_count: int,
+        msg: str,
+        new_domain: Optional[Tuple[int, ...]] = None,
+        new_self_box: Optional[Tuple[int, ...]] = None,
+        new_unit_box: Optional[Tuple[int, ...]] = None,
+    ):
+        def fmt_tup(t):
+            return "[" + ",".join("%4i" % n for n in t) + "]"
+
+        suffix = ""
+        if new_domain is not None:
+            assert len(new_domain) == len(new_self_box) == len(new_unit_box)
+            suffix = f"""
+  D = {fmt_tup(new_domain)}
+ω.B = {fmt_tup(new_self_box)}
+δ.B = {fmt_tup(new_unit_box)}"""
+
         raise CollTilingError(
             f"Bad CollTiling ({msg}); "
             f"box={self.get_box()}, tried tiling {tile_count}-many {unit}, "
-            f"i.e. CollUnit({unit.domain}, {unit.box}, ...)"
+            f"i.e. CollUnit({unit.domain}, {unit.box}, ...)" + suffix
         )
 
     def tiled(
@@ -785,7 +804,14 @@ class CollTiling:
             if unit_c == self_c or unit_c == domain_c or unit_c is None:
                 continue
             if tiled_dim_idx is not None:
-                self.err(unit, hi, "ambiguous dimension to tile")
+                self.err(
+                    unit,
+                    hi,
+                    "ambiguous dimension to tile",
+                    new_domain,
+                    self_box,
+                    unit_box,
+                )
 
             mod_dim = new._dims[i]  # This CollDim in `new` will be replaced.
 
@@ -807,6 +833,9 @@ class CollTiling:
                     unit,
                     hi,
                     f"not enough threads available; max_tile_count={self_c // unit_c}",
+                    new_domain,
+                    self_box,
+                    unit_box,
                 )
 
             codegen.dim_idx = tiled_dim_idx
