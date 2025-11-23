@@ -869,7 +869,12 @@ def top_level_check(backend, args_dict: Dict[str, int]):
         # We want to show something similar to the user's proc, but
         # after mem_analysis so that free is visible. Insert detailed
         # info to a separately-logged debug output proc.
-        debug_log.log(proc_name_with_sizes, "sync-error", backend.after_mem_analysis)
+        debug_log.log(
+            proc_name_with_sizes,
+            "sync-error",
+            backend.after_mem_analysis,
+            preferred=True,
+        )
         for camspork_stmt, text in error_remarks:
             srcinfo = camspork_program.get_stmt_srcinfo(camspork_stmt)
             debug_log.remark(proc_name_with_sizes, f"{srcinfo}:\n{text}")

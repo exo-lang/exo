@@ -851,7 +851,7 @@ class BaseCompilerDebugLog:
     def get_path(self):
         return None
 
-    def log(self, proc_name: str, suffix: str, subtree):
+    def log(self, proc_name: str, suffix: str, subtree, preferred=False):
         pass
 
     def remark(self, proc_name: str, remark: str):
@@ -874,18 +874,25 @@ class CompilerDebugLogImpl(BaseCompilerDebugLog):
     )
     _proc_debug_remarks: Dict[str, ProcDebugRemarks] = field(default_factory=dict)
     _enable_notify_user: bool = False
+    _preferred_names: Set[Tuple[str, str]] = field(default_factory=set)
 
     def get_path(self):
         return self._path
 
     def log(
-        self, proc_name: str, suffix: str, subtree: Union[LoopIR.stmt, LoopIR.proc, str]
+        self,
+        proc_name: str,
+        suffix: str,
+        subtree: Union[LoopIR.stmt, LoopIR.proc, str],
+        preferred=False,
     ):
         names = (proc_name, suffix)
         # This assert was too fragile in pytest!
         # assert names not in self._names_to_subtree, names
         assert isinstance(subtree, (LoopIR.proc, LoopIR.stmt, str))
         self._names_to_subtree[names] = subtree
+        if preferred:
+            self._preferred_names.add(names)
 
     def remark(self, proc_name: str, remark: str):
         # This is rather hacky but I do what I must to retrofit this logging
@@ -930,10 +937,13 @@ class CompilerDebugLogImpl(BaseCompilerDebugLog):
             else:
                 out_path.write_text(str(subtree))
             if self._enable_notify_user:
+                color_prefix = ""
+                if names in self._preferred_names:
+                    color_prefix = "\x1b[1m\x1b[35m"
                 # We want this to appear prominently underneath the Python traceback.
                 # Currently this only works since write_all_impl is called atexit.
                 print(
-                    "\x1b[1m\x1b[35mDebug output:\x1b[0m",
+                    f"{color_prefix}Debug output:\x1b[0m",
                     str(out_path),
                     file=sys.stderr,
                 )

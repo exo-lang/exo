@@ -137,13 +137,13 @@ def run_backend_checks(
         barrier_uses = None
         proc_uses_cuda = timelines.cuda_basic_device in device_analysis.devices_seen
         coll_analysis = None
-        debug_log.log(p.name, "analysis", p)
+        debug_log.log(p.name, "analysis", p, preferred=True)
     except AssertionError:
         raise
     except Exception as exc:
         debug_log.remark(p.name, str(exc))
         # Log with respect to whatever state the proc was in above
-        debug_log.log(p.name, f"analysis", p)
+        debug_log.log(p.name, f"analysis", p, preferred=True)
         raise
 
     if proc_uses_cuda or device_analysis.contains_sync:
