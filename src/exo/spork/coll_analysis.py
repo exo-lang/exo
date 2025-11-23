@@ -286,7 +286,12 @@ class CollAnalysis(LoopIR_Rewrite):
     def apply_cuda_device_function(self, cuda_device_function: CudaDeviceFunction):
         self._coll_tiling = cuda_device_function.top_level_coll_tiling()
         self._coll_env = cuda_device_function.coll_env()
-        self._current_warp_name = None
+        named_warps = cuda_device_function.named_warps
+        if len(named_warps) == 1:
+            # Special case required for apply_with_cuda_warps.
+            self._current_warp_name = tuple(named_warps.keys())[0]
+        else:
+            self._current_warp_name = None
         self._cuda_device_function = cuda_device_function
 
     def cuda_inspect_idx(self, node, context_stmt, distributed_coll_units):
@@ -456,7 +461,8 @@ class CollAnalysis(LoopIR_Rewrite):
         # NB it's important that this is skipped when the user doesn't
         # use named warps (fallback len-1 case) because the (***)
         # restriction must not be enforced.
-        if is_top_level and len(named_warps) > 1:
+        if is_top_level:
+            assert len(named_warps) > 1
             name = "" if ctx.name is None else ctx.name
             if (info := named_warps.get(name)) is None:
                 known_names = sorted(named_warps)
