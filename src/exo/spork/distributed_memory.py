@@ -569,7 +569,12 @@ class DistributedIdxFsm:
         typ: LoopIR.type,
         i: int,
     ):
-        """Process sync_stmt.barriers[n].idx[i] for all n"""
+        """Process sync_stmt.barriers[n].idx[i] for all n
+
+        Assumes that the DistributedIdxFsm was initialized with
+        idx_node=s.home_barrier_expr().
+
+        """
         const_extent, iter_sym = self.consume_idx(state, i)
 
         # Range check for intervals
