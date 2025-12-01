@@ -457,7 +457,7 @@ class CollDimOp:
 
 class CollDimExpectation(Enum):
     agnostic = auto()
-    full = auto()
+    intact = auto()
     subdiv = auto()
 
 
@@ -480,7 +480,7 @@ class CollDim:
             assert (
                 x != CollDimExpectation.agnostic
             ), "need unit_completion(...) with non-agnostic unit"
-            if x == CollDimExpectation.full:
+            if x == CollDimExpectation.intact:
                 return 0
         return sum(op.offset for op in self.dim_ops)
 
@@ -495,7 +495,7 @@ class CollDim:
             assert (
                 x != CollDimExpectation.agnostic
             ), "need unit_completion(...) with non-agnostic unit"
-            if x == CollDimExpectation.full:
+            if x == CollDimExpectation.intact:
                 return self.dim_extent
         return self.get_box_coord()
 
@@ -508,7 +508,7 @@ class CollDim:
         x = self.dim_expectation
         if x == CollDimExpectation.subdiv:
             return 1
-        if x == CollDimExpectation.full:
+        if x == CollDimExpectation.intact:
             return self.dim_extent
         return None
 
@@ -628,7 +628,7 @@ class CollTiling:
         For unit matching, each domain dimension will be labelled one of:
 
         * subdiv: expect a box coordinate of 1 on this dimension.
-        * full: expect a box coordinate equal to the extent
+        * intact: expect a box coordinate equal to the extent
         * agnostic: no requirements
 
         """
@@ -793,7 +793,7 @@ class CollTiling:
         new_domain = tuple(self_completion.domain)
         assert new.get_domain() == new_domain, f"{new.get_domain()} == {new_domain}"
 
-        # Label dimensions as full, subdivided, or agnostic.
+        # Label dimensions as intact, subdivided, or agnostic.
         assert len(new._dims) == len(unit_box)
         for i, unit_c in enumerate(unit_box):
             if unit_c is None:
@@ -802,7 +802,7 @@ class CollTiling:
                 dim_expectation = CollDimExpectation.subdiv
             else:
                 assert unit_c == new_domain[i]
-                dim_expectation = CollDimExpectation.full
+                dim_expectation = CollDimExpectation.intact
             new._dims[i] = replace(new._dims[i], dim_expectation=dim_expectation)
 
         return new
