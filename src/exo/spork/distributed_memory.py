@@ -665,8 +665,8 @@ class DistributedIdxFsm:
                 )
         if msg is None:
             if state.optional_native_unit is not None:
-                msg = first_usage_coll_tiling.tiling_mismatch(
-                    second_usage_coll_tiling, distributed=True
+                msg = first_usage_coll_tiling.base_mismatch(
+                    second_usage_coll_tiling, subdiv_only=True
                 )
 
         if msg is not None:
@@ -770,12 +770,12 @@ class DistributedIdxFsm:
             if other_coll_tiling is not None:
                 to_check.append((other_coll_tiling, f_text))
 
-        # Check equivalence; distributed=False case is stricter, checking perfect
+        # Check equivalence; subdiv_only=False case is stricter, checking perfect
         # equality of all executing thread sets. (We still rely on the rest of
         # distributed memory analysis to reason that the thread sets are assigned
         # to barrier array elements consistently).
         for old_coll_tiling, f_text in to_check:
-            if msg := old_coll_tiling.tiling_mismatch(coll_tiling, distributed=False):
+            if msg := old_coll_tiling.base_mismatch(coll_tiling, subdiv_only=False):
                 raise ValueError(
                     f"{sync.srcinfo}: {sync} has inconsistent collective tiling with previous {f_text}: {msg}"
                 )

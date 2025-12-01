@@ -906,7 +906,7 @@ def test_mbarrier_missing_idx_negative(compiler):
 def mkproc_mbarrier_warps_match(warps0, warps1):
     @proc
     def test_proc():
-        with CudaDeviceFunction(blockDim=1024):
+        with CudaDeviceFunction(blockDim=768):
             for task in cuda_tasks(0, 1):
                 mbarrier: barrier @ CudaMbarrier
                 with CudaWarps(*warps0):
@@ -923,27 +923,24 @@ def test_mbarrier_warps_match_positive(compiler):
     )
 
 
-def test_mbarrier_warps_match_negative_offset(compiler):
+def test_offset_mbarrier_warps_match_negative(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(
             mkproc_mbarrier_warps_match, warps0=(11, 15), warps1=(12, 16)
         )
-    msg = str(exc)
-    assert "11" in msg
-    assert "15" in msg
-    assert "12" in msg
-    assert "16" in msg
+    msg = str(exc.value)
+    assert "Incompatible offsets" in msg
+    assert "Incompatible box size" not in msg
 
 
-def test_mbarrier_warps_match_negative_box(compiler):
+def test_box_mbarrier_warps_match_negative(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(
             mkproc_mbarrier_warps_match, warps0=(12, 18), warps1=(12, 16)
         )
-    msg = str(exc)
-    assert "12" in msg
-    assert "18" in msg
-    assert "16" in msg
+    msg = str(exc.value)
+    assert "Incompatible offsets" not in msg
+    assert "Incompatible box size" in msg
 
 
 # "garden" means "garden variety fence", but the shorter name makes

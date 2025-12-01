@@ -431,13 +431,11 @@ class CollCodegen:
 @dataclass(slots=True, frozen=True)
 class CollDimOp:
     iter: object
-    offset: int  # linearized_offset / CollDim.dim_thread_pitch
-    box: int  # linearized_box / CollDim.dim_thread_pitch
+    offset: int
+    box: int
     tile_count: int
     intra_box_expr: CollIndexExpr
     thread_pitch: int
-    linearized_offset: int
-    linearized_box: int
     tree_depth: int
 
     def divided_by(self, factor):
@@ -454,7 +452,6 @@ class CollDimOp:
                 f"offset={old_offset}, box={old_box}, "
                 f"offset or box wasn't divisible by {factor}"
             )
-        # linearized_offset, linearized_box not included.
         return replace(self, offset=new_offset, box=new_box, intra_box_expr=new_expr)
 
 
@@ -476,14 +473,31 @@ class CollDim:
 
     def __post_init__(self):
         p = self.dim_thread_pitch
-        for op in self.dim_ops:
-            assert op.box * p == op.linearized_box
-            assert op.offset * p == op.linearized_offset
+
+    def get_base_offset_coord(self, subdiv_only: bool) -> int:
+        if subdiv_only:
+            x = self.dim_expectation
+            assert (
+                x != CollDimExpectation.agnostic
+            ), "need unit_completion(...) with non-agnostic unit"
+            if x == CollDimExpectation.full:
+                return 0
+        return sum(op.offset for op in self.dim_ops)
 
     def get_box_coord(self) -> int:
         if ops := self.dim_ops:
             return ops[-1].box
         return self.dim_extent
+
+    def get_base_box_coord(self, subdiv_only: bool) -> int:
+        if subdiv_only:
+            x = self.dim_expectation
+            assert (
+                x != CollDimExpectation.agnostic
+            ), "need unit_completion(...) with non-agnostic unit"
+            if x == CollDimExpectation.full:
+                return self.dim_extent
+        return self.get_box_coord()
 
     def get_leaf_intra_box_expr(self) -> CollIterExpr:
         if ops := self.dim_ops:
@@ -517,8 +531,14 @@ class CollTiling:
     def get_domain(self) -> Tuple[int]:
         return tuple(d.dim_extent for d in self._dims)
 
+    def get_base_offset(self, subdiv_only: bool) -> Tuple[int]:
+        return tuple(d.get_base_offset_coord(subdiv_only) for d in self._dims)
+
     def get_box(self) -> Tuple[int]:
         return tuple(d.get_box_coord() for d in self._dims)
+
+    def get_base_box(self, subdiv_only: bool) -> Tuple[int]:
+        return tuple(d.get_base_box_coord(subdiv_only) for d in self._dims)
 
     def get_expected_box(self) -> Tuple[Optional[int]]:
         return tuple(d.get_expected_box_coord() for d in self._dims)
@@ -629,7 +649,12 @@ class CollTiling:
         env: Dict[CollParam, int],
         *,
         no_message=False,
-    ) -> Optional[bool | str]:
+    ) -> Optional[str]:
+        """Unpack the CollUnit with alignment and 1-padding to get δ (collective type).
+        Are statements with this CollTiling at δ-scope?
+        If so, return None, else, give a reason this is not the case.
+        """
+
         # Do domain completion on the current CollTiling to get completed new_tiling.
         try:
             new_tiling = self.unit_completion(unit, env)
@@ -647,24 +672,53 @@ class CollTiling:
                     no_message
                     or f"domain={new_tiling.get_domain()}, box={actual_box} ({prod(actual_box)} threads); expected box={expected_box}"
                 )
-        return False  # i.e. no mismatch detected.
+        return None  # i.e. no mismatch detected.
 
-    def tiling_mismatch(self, other, *, distributed: bool) -> Optional[str]:
-        if distributed:
-            self_ops = self.get_subdiv_dim_ops()
-            other_ops = other.get_subdiv_dim_ops()
-        else:
-            self_ops = self.get_dim_ops()
-            other_ops = other.get_dim_ops()
-        for s_op, o_op in zip(self_ops, other_ops):
-            if (
-                s_op.linearized_offset != o_op.linearized_offset
-                or s_op.linearized_box != o_op.linearized_box
-            ):
-                return f"{s_op.iter} (in first usage) mismatches {o_op.iter} (in second usage)"
-        if len(self_ops) != len(other_ops):
-            return "non-equal depth of CollTiling"
-        return None
+    def base_mismatch(self, other, *, subdiv_only: bool) -> Optional[str]:
+        """Check that the two CollTiling have the same 0th thread collective.
+
+        Assume that all control values are 0.
+        Do the two CollTiling instances generate the same thread collective?
+        If so, return None, else, give a reason this is not the case.
+
+        """
+        first_domain = self.get_domain()
+        first_box = self.get_base_box(subdiv_only)
+        first_offset = self.get_base_offset(subdiv_only)
+        second_domain = other.get_domain()
+        second_box = other.get_base_box(subdiv_only)
+        second_offset = other.get_base_offset(subdiv_only)
+
+        def linear_offset(domain, offset):
+            n = 0
+            for dc, oc in zip(domain, offset):
+                n *= dc
+                n += oc
+            return n
+
+        try:
+            # Check base offset equality.
+            first_linear_offset = linear_offset(first_domain, first_offset)
+            second_linear_offset = linear_offset(second_domain, second_offset)
+            if first_linear_offset != second_linear_offset:
+                raise CollTilingError("Incompatible offsets")
+            # Check base box equality, with domain completion.
+            op1 = DomainCompletionOp(
+                first_domain, second_domain, allow_partial_source=False
+            )
+            op2 = DomainCompletionOp(
+                second_domain, first_domain, allow_partial_source=False
+            )
+            assert op1.domain == op2.domain
+            if op1.new_size(first_box) != op2.new_size(second_box):
+                raise CollTilingError("Incompatible box size")
+
+        except CollTilingError as e:
+            return f"""{e}
+    First  domain={first_domain}, base_offset={first_offset}, base_box={first_box}
+    Second domain={second_domain}, base_offset={second_offset}, base_box={second_box}"""
+
+        return None  # i.e. no mismatch detected.
 
     def _apply_split_dim(self, dim_idx, factor):
         assert dim_idx < len(self._dims)
@@ -861,8 +915,6 @@ class CollTiling:
                 tile_count,
                 intra_box_expr,
                 thread_pitch,
-                mod_dim.dim_thread_pitch * offset,  # linearized_offset
-                mod_dim.dim_thread_pitch * box,  # linearized_box
                 new.get_tree_depth(),
             )
             new._dims[i] = replace(mod_dim, dim_ops=mod_dim.dim_ops + (op,))
