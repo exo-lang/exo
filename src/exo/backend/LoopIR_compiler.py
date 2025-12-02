@@ -32,7 +32,7 @@ from ..core.memory import (
     AllocableMemWin,
     Memory,
     SpecialWindow,
-    BarrierType,
+    BarrierMechanism,
     DRAM,
     StaticMemory,
 )
@@ -1542,7 +1542,7 @@ class Compiler:
                 line = mem.alloc(name, ctype, shape_strs, s.srcinfo)
                 self.add_line(line)
             else:
-                assert issubclass(s.mem, BarrierType)
+                assert issubclass(s.mem, BarrierMechanism)
                 lines = self._lowered_barriers[s.name].codegen_alloc(s)
                 assert not isinstance(lines, str), "Expect List[str]"
                 for line in lines:

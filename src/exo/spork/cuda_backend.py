@@ -5,7 +5,7 @@ from math import prod
 from typing import Callable, Dict, Optional, Type, List
 from warnings import warn
 
-from ..core.memory import MemGenError, memwin_template, DRAM, BarrierType
+from ..core.memory import MemGenError, memwin_template, DRAM, BarrierMechanism
 from ..core.instr_info import AccessInfo, InstrInfo
 from ..core.prelude import Sym, SrcInfo
 from ..core.LoopIR import (

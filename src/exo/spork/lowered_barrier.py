@@ -20,7 +20,7 @@ class LoweredBarrier:
     # cannot be live at the same time.
     solitary: bool
 
-    # More specific than the BarrierType (specialized by sync-tl).
+    # More specific than the BarrierMechanism (specialized by sync-tl).
     # Also applies to Fence(...), which has no associated barrier object.
     type_enum: LoweredBarrierType
 

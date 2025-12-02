@@ -16,7 +16,7 @@ from .API_types import ExoType
 from .rewrite.LoopIR_unification import DoReplace, UnificationError
 from .core.configs import Config
 from .core.instr_class import old_style_instr_info
-from .core.memory import Memory, SpecialWindow, AllocableMemWin, BarrierType
+from .core.memory import Memory, SpecialWindow, AllocableMemWin, BarrierMechanism
 from .frontend.parse_fragment import parse_fragment
 from .core.prelude import *
 from .core import internal_cursors as ic
@@ -167,10 +167,10 @@ class MemoryA(ArgumentProcessor):
         return mem
 
 
-class BarrierTypeA(ArgumentProcessor):
+class BarrierMechanismA(ArgumentProcessor):
     def __call__(self, mem, all_args):
-        if not is_subclass_obj(mem, BarrierType):
-            self.err("expected a BarrierType subclass")
+        if not is_subclass_obj(mem, BarrierMechanism):
+            self.err("expected a BarrierMechanism subclass")
         return mem
 
 
@@ -975,26 +975,28 @@ def insert_fence(proc, gap_cursor, first_sync_tl: Sync_tl, second_sync_tl: Sync_
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([GapCursorA, NameA, OptionalA(AllocCursorA), ListA(PosIntA), BarrierTypeA])
-def insert_barrier_alloc(proc, gap_cursor, name, guarded_by, hi, barrier_type):
+@sched_op(
+    [GapCursorA, NameA, OptionalA(AllocCursorA), ListA(PosIntA), BarrierMechanismA]
+)
+def insert_barrier_alloc(proc, gap_cursor, name, guarded_by, hi, barrier_mechanism):
     """
     Insert allocation of new barrier variable at the indicated position.
 
     args:
-        gap_cursor      - where to insert the new barrier
-        name            - name of the new barrier
-        guarded_by      - barrier(...) parameter (may be None)
-        hi              - positive integer extents of barrier array.
-        barrier_type    - memory type of the barrier, e.g. CudaMbarrier
+        gap_cursor        - where to insert the new barrier
+        name              - name of the new barrier
+        guarded_by        - barrier(...) parameter (may be None)
+        hi                - positive integer extents of barrier array.
+        barrier_mechanism - "memory type" of the barrier, e.g. CudaMbarrier
 
     rewrite:
         `s1 ; s2` <--- gap_cursor pointed at the semi-colon
         -->
-        `s1 ; name: barrier(guarded_by)[*hi] @ barrier_type ; s2`
+        `s1 ; name: barrier(guarded_by)[*hi] @ barrier_mechanism ; s2`
     """
     guarded_by_cursor = None if guarded_by is None else guarded_by._impl
     ir, fwd = scheduling.DoInsertBarrierAlloc(
-        gap_cursor._impl, name, guarded_by_cursor, hi, barrier_type
+        gap_cursor._impl, name, guarded_by_cursor, hi, barrier_mechanism
     )
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 

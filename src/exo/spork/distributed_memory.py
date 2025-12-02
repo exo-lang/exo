@@ -747,7 +747,7 @@ class DistributedIdxFsm:
             else:
                 state.arrive_coll_tiling = coll_tiling
 
-        if barrier_usage.barrier_type.traits().requires_guarding:
+        if barrier_usage.barrier_mechanism.traits().requires_guarding:
             # Will check equivalence with previous stmt of matched sync type
             if sync_type.is_arrive():
                 guarded_by = barrier_usage.guarded_by
@@ -764,7 +764,7 @@ class DistributedIdxFsm:
             if other_coll_tiling is not None:
                 to_check.append((other_coll_tiling, f_text))
 
-        if not barrier_usage.barrier_type.traits().different_arrive_await_threads:
+        if not barrier_usage.barrier_mechanism.traits().different_arrive_await_threads:
             # Will check equivalence between Arrive/Await.
             if sync_type.is_arrive():
                 f_text = f"Await({nm}) [different_arrive_await_threads=False]"

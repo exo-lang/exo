@@ -253,13 +253,13 @@ class MemoryAnalysis:
             # Check trailing barrier expression
             bar: LoopIR.BarrierExpr = s.trailing_barrier_expr
             instr_info: InstrInfo = s.f.instr
-            bar_type = None
+            barrier_mechanism = None
             if instr_info is not None:
-                bar_type = instr_info.barrier_type
+                barrier_mechanism = instr_info.barrier_mechanism
             assert bar is None or isinstance(
                 bar, LoopIR.BarrierExpr
             ), "typecheck should have caught this"
-            if bar_type is None:
+            if barrier_mechanism is None:
                 if bar is not None:
                     raise TypeError(
                         f"{s.srcinfo}: {s.f.name} does not take trailing barrier expression >> {bar}"
@@ -268,11 +268,13 @@ class MemoryAnalysis:
                 wrong = None
                 if bar is None:
                     wrong = "<missing BarrierExpr>"
-                elif not issubclass(actual_type := self.mem_env[bar.name], bar_type):
+                elif not issubclass(
+                    actual_type := self.mem_env[bar.name], barrier_mechanism
+                ):
                     wrong = f">> {bar} @ {actual_type.name()}"
                 if wrong:
                     raise TypeError(
-                        f"{s.srcinfo}: {s.f.name} requires trailing barrier expression in {bar_type.name()}, not {wrong}"
+                        f"{s.srcinfo}: {s.f.name} requires trailing barrier expression in {barrier_mechanism.name()}, not {wrong}"
                     )
 
             return s

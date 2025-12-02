@@ -1,6 +1,13 @@
 from dataclasses import dataclass
 from typing import Dict, List, Type, Optional
-from .memory import DRAM, MemWin, AllocableMemWin, Memory, SpecialWindow, BarrierType
+from .memory import (
+    DRAM,
+    MemWin,
+    AllocableMemWin,
+    Memory,
+    SpecialWindow,
+    BarrierMechanism,
+)
 from ..spork.coll_algebra import CollUnit
 from ..spork.timelines import Instr_tl, Qual_tl
 
@@ -49,10 +56,11 @@ class InstrInfo:
     instr_tl: Instr_tl
     access_info: Dict[str, AccessInfo]
 
-    # The instr expects a trailing barrier expr iff barrier_type is not None.
+    # The instr expects a trailing barrier expr iff barrier_mechanism is not None.
     # barrier_coll_units is akin to AccessInfo.distributed_coll_units.
-    # The barrier must be allocated in barrier_type and have dim len(barrier_coll_units).
-    barrier_type: Optional[Type[BarrierType]]
+    # The barrier must be allocated @ barrier_mechanism and
+    # have dim len(barrier_coll_units).
+    barrier_mechanism: Optional[Type[BarrierMechanism]]
     barrier_coll_units: List[CollUnit]
 
     # For internal use

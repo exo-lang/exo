@@ -668,7 +668,7 @@ class copy_tensor_to_smem_impl(InstrInfo):
         self.instr_tl = tma_to_smem_async_instr
         self.coll_unit = cuda_warp
         self.cu_utils.append(copy_tensor_to_smem_util(False))
-        self.barrier_type = CudaMbarrier
+        self.barrier_mechanism = CudaMbarrier
         self.smem_box = smem_box
         self.swizzle = swizzle
         self.element_bits = element_bits
@@ -850,7 +850,7 @@ class Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
         self.instr_tl = tma_to_smem_async_instr
         self.coll_unit = ncta * cuda_warp_in_cluster_strided(cta_stride)
         self.cu_utils.append(copy_tensor_to_smem_util(True))
-        self.barrier_type = CudaMbarrier
+        self.barrier_mechanism = CudaMbarrier
         self.smem_box = smem_box
         self.element_bits = element_bits
         self.coop_stride = coop_stride

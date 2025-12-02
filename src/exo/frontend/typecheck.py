@@ -379,7 +379,7 @@ class TypeChecker:
                     )
 
             if typ.is_barrier():
-                expect_subclass(BarrierType)
+                expect_subclass(BarrierMechanism)
             else:
                 expect_subclass(Memory)
             return [LoopIR.Alloc(stmt.name, typ, mem, stmt.srcinfo)]

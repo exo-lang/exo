@@ -391,7 +391,7 @@ class Memory(AllocableMemWin):
 
 
 @dataclass(slots=True)
-class BarrierTypeTraits:
+class BarrierMechanismTraits:
     """Bare minimum vocab to describe valid barrier usage patterns
 
     Describes differences between cudaEvent_t, commit_group, mbarrier
@@ -418,12 +418,12 @@ class BarrierTypeTraits:
     supports_arrive_multicast: bool = False
 
 
-class BarrierType(AllocableMemWin):
+class BarrierMechanism(AllocableMemWin):
     """MemWin type for backing barrier allocations
 
     The user parameterizes barrier allocations with `@ type`, in a manner
     similar to memory type annotations. The type must be one of the
-    subclasses of BarrierType already defined by the Exo stdlib.
+    subclasses of BarrierMechanism already defined by the Exo stdlib.
 
     Unlike memory, we currently do not have an interface for externalizing
     barrier types. Much of the logic is by-cases within the Exo->C compiler.
@@ -432,7 +432,7 @@ class BarrierType(AllocableMemWin):
     """
 
     @classmethod
-    def traits(cls) -> BarrierTypeTraits:
+    def traits(cls) -> BarrierMechanismTraits:
         raise NotImplementedError()
 
 

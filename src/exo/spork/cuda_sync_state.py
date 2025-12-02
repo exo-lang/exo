@@ -77,7 +77,7 @@ class SyncStateBuilder:
                     self._uses_async_proxy = True
 
         srcinfo = usage.decl_stmt.srcinfo
-        barrier_type = usage.barrier_type
+        barrier_mechanism = usage.barrier_mechanism
         suffix = self._assign_suffix(name)
         if usage.is_fence():
             if usage.get_arrive().sync_tl == timelines.wgmma_fence_1:
@@ -86,17 +86,17 @@ class SyncStateBuilder:
                 self.add_garden_variety_or_cluster_sync(
                     name, usage, coll_tilings, thread_iters, suffix, False
                 )
-        elif issubclass(barrier_type, CudaMbarrier):
+        elif issubclass(barrier_mechanism, CudaMbarrier):
             self.add_mbarrier(name, get_usage, coll_tilings, thread_iters, suffix)
-        elif issubclass(barrier_type, CudaCommitGroup):
+        elif issubclass(barrier_mechanism, CudaCommitGroup):
             self.add_commit_group(name, usage, coll_tilings, thread_iters, suffix)
-        elif issubclass(barrier_type, CudaClusterSync):
+        elif issubclass(barrier_mechanism, CudaClusterSync):
             self.add_garden_variety_or_cluster_sync(
                 name, usage, coll_tilings, thread_iters, suffix, True
             )
         else:
             raise TypeError(
-                f"{srcinfo}: {barrier_type.name()} "
+                f"{srcinfo}: {barrier_mechanism.name()} "
                 f"not supported in CUDA device function"
             )
 

@@ -4,7 +4,7 @@ from warnings import warn
 
 from ..backend.LoopIR_compiler import run_backend_checks, BackendChecks
 
-from ..core.memory import MemWin, BarrierType
+from ..core.memory import MemWin, BarrierMechanism
 from ..core.prelude import Sym
 from ..core.instr_info import AccessInfo, InstrInfo
 from ..core.LoopIR import (
@@ -295,7 +295,7 @@ class CamsporkDo(LoopIR_Do):
             self._saw_alloc = True
             self._envtyp[s.name] = s.type
             assert self._mem_env[s.name] == s.mem
-            want_barrier = issubclass(s.mem, BarrierType)
+            want_barrier = issubclass(s.mem, BarrierMechanism)
             want_sync = s.name in self._sync_syms
             want_value = s.name in self._value_syms
             if want_barrier and not want_sync and not want_value:
@@ -311,7 +311,7 @@ class CamsporkDo(LoopIR_Do):
 
         elif isinstance(s, LoopIR.Free):
             self._saw_free = True
-            want_barrier = issubclass(s.mem, BarrierType)
+            want_barrier = issubclass(s.mem, BarrierMechanism)
             want_sync = s.name in self._sync_syms
             want_free_shards = False
 
@@ -777,7 +777,7 @@ def top_level_check(backend, args_dict: Dict[str, int]):
         mutable_syms = set(nm for (nm, typ) in get_writes_of_stmts(p.body))
         sync_check_syms = set()
         for nm, mem in backend.mem_env.items():
-            if nm in mutable_syms or issubclass(mem, BarrierType):
+            if nm in mutable_syms or issubclass(mem, BarrierMechanism):
                 # SpecialWindow doesn't implement this; has to be inner if.
                 if not mem.sync_exempt():
                     sync_check_syms.add(nm)

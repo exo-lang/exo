@@ -9,8 +9,8 @@ from ..core.memory import (
     Memory,
     MemGenError,
     DRAM,
-    BarrierType,
-    BarrierTypeTraits,
+    BarrierMechanism,
+    BarrierMechanismTraits,
     MemIncludeC,
     MemGlobalC,
     FreePoolTag,
@@ -39,7 +39,7 @@ class CudaBasicDeviceVisible(Memory):
       or timelines.cuda_rmem_qual_tl_dict)
     * native_unit, if allocable on the CUDA device.
 
-    NB SpecialWindow, BarrierType are not Memory.
+    NB SpecialWindow, BarrierMechanism are not Memory.
 
     """
 
@@ -372,17 +372,19 @@ class CudaRmem(CudaDeviceVisibleLinear):
 
 
 # TODO implement this.
-class CudaEvent(BarrierType):
+class CudaEvent(BarrierMechanism):
     @classmethod
-    def traits(cls) -> BarrierTypeTraits:
-        return BarrierTypeTraits(requires_guarding=True, requires_arrive_first=True)
+    def traits(cls) -> BarrierMechanismTraits:
+        return BarrierMechanismTraits(
+            requires_guarding=True, requires_arrive_first=True
+        )
 
     @classmethod
     def sync_exempt(cls) -> bool:
         return True
 
 
-class CudaDeviceBarrier(BarrierType):
+class CudaDeviceBarrier(BarrierMechanism):
     @classmethod
     def device_permission(cls, device, instr_tl):
         return "rwc" if device == timelines.cuda_basic_device else ""
@@ -392,8 +394,8 @@ class CudaDeviceBarrier(BarrierType):
 
 class CudaMbarrier(CudaDeviceBarrier):
     @classmethod
-    def traits(cls) -> BarrierTypeTraits:
-        return BarrierTypeTraits(
+    def traits(cls) -> BarrierMechanismTraits:
+        return BarrierMechanismTraits(
             negative_await_N=True,
             uniform_await_N=True,
             different_arrive_await_threads=True,
@@ -434,8 +436,8 @@ class CudaMbarrier(CudaDeviceBarrier):
 
 class CudaCommitGroup(CudaDeviceBarrier):
     @classmethod
-    def traits(cls) -> BarrierTypeTraits:
-        return BarrierTypeTraits(non_negative_await_N=True)
+    def traits(cls) -> BarrierMechanismTraits:
+        return BarrierMechanismTraits(non_negative_await_N=True)
 
     @classmethod
     def sync_exempt(cls) -> bool:
@@ -444,8 +446,10 @@ class CudaCommitGroup(CudaDeviceBarrier):
 
 class CudaClusterSync(CudaDeviceBarrier):
     @classmethod
-    def traits(cls) -> BarrierTypeTraits:
-        return BarrierTypeTraits(requires_guarding=True, requires_arrive_first=True)
+    def traits(cls) -> BarrierMechanismTraits:
+        return BarrierMechanismTraits(
+            requires_guarding=True, requires_arrive_first=True
+        )
 
     @classmethod
     def sync_exempt(cls) -> bool:

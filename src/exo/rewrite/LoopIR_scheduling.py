@@ -41,7 +41,7 @@ from ..core.proc_eqv import get_strictest_eqv_proc
 import exo.core.internal_cursors as ic
 import exo.API as api
 from ..frontend.pattern_match import match_pattern
-from ..core.memory import DRAM, SpecialWindow, AllocableMemWin, BarrierType
+from ..core.memory import DRAM, SpecialWindow, AllocableMemWin, BarrierMechanism
 from ..frontend.typecheck import check_call_types
 from ..spork.sync_types import arrive_type, await_type
 from ..spork.loop_modes import LoopMode, seq, par
@@ -2816,7 +2816,7 @@ def DoInsertBarrierAlloc(
     name: str,
     guarded_by: Optional[ic.Node],
     hi: List[int],
-    barrier_type: Type[BarrierType],
+    barrier_mechanism: Type[BarrierMechanism],
 ):
     srcinfo = gap.parent()._node.srcinfo
     if guarded_by is not None:
@@ -2829,7 +2829,7 @@ def DoInsertBarrierAlloc(
             )
     hi = [LoopIR.Const(n, T.size, srcinfo) for n in hi]
     typ = LoopIR.Barrier(guarded_by, hi)
-    ir, fwd = gap._insert([LoopIR.Alloc(Sym(name), typ, barrier_type, srcinfo)])
+    ir, fwd = gap._insert([LoopIR.Alloc(Sym(name), typ, barrier_mechanism, srcinfo)])
     return ir, fwd
 
 

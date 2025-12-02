@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Optional, List, Dict, Type, Tuple
 
 from ..core.LoopIR import LoopIR, LoopIR_Do
-from ..core.memory import BarrierType, BarrierTypeTraits
+from ..core.memory import BarrierMechanism, BarrierMechanismTraits
 from ..core.prelude import Sym
 from .base_with_context import is_if_holding_with
 from .sync_types import SyncType
@@ -24,7 +24,7 @@ class SyncInfo:
 @dataclass(slots=True)
 class BarrierUsage:
     # None iff this barrier is a Fence()
-    barrier_type: Optional[Type[BarrierType]]
+    barrier_mechanism: Optional[Type[BarrierMechanism]]
 
     decl_stmt: LoopIR.stmt  # barrier alloc, or Fence
 
@@ -43,20 +43,20 @@ class BarrierUsage:
         if isinstance(s, LoopIR.SyncStmt):
             sync_type = s.sync_type
             assert not sync_type.is_split()
-            self.barrier_type = None
+            self.barrier_mechanism = None
             self._init_Fence_impl(s)
         else:
             assert isinstance(s, LoopIR.Alloc)
-            self.barrier_type = s.mem
+            self.barrier_mechanism = s.mem
             self.guards = s.name
             self.guarded_by = s.name
-            assert issubclass(s.mem, BarrierType)
+            assert issubclass(s.mem, BarrierMechanism)
 
     def get_srcinfo(self):
         return self.decl_stmt.srcinfo
 
     def is_fence(self):
-        return self.barrier_type is None
+        return self.barrier_mechanism is None
 
     def get_arrive(self) -> Optional[SyncInfo]:
         return self.Arrive
@@ -66,7 +66,7 @@ class BarrierUsage:
 
     def visit_Arrive(self, s: LoopIR.SyncStmt):
         # We do not enforce guarding, but we enforce other traits
-        mem = self.barrier_type
+        mem = self.barrier_mechanism
         assert mem
         sync_type = s.sync_type
         sync_tl = sync_type.first_sync_tl
@@ -115,7 +115,7 @@ class BarrierUsage:
 
     def visit_Await(self, s: LoopIR.SyncStmt):
         # We do not enforce requirements on guarding, but we enforce other traits
-        mem = self.barrier_type
+        mem = self.barrier_mechanism
         assert mem
         sync_type = s.sync_type
         sync_tl = sync_type.second_sync_tl
@@ -200,22 +200,22 @@ class BarrierUsageAnalysis(LoopIR_Do):
     def do_stmts(self, stmts):
         barriers_here = []
         for i, s in enumerate(stmts):
-            barrier_type = self.do_s(s)
-            if barrier_type is not None:
-                barriers_here.append((s.name, barrier_type, i))
+            barrier_mechanism = self.do_s(s)
+            if barrier_mechanism is not None:
+                barriers_here.append((s.name, barrier_mechanism, i))
 
         # Check barriers declared in this scope now that the full
         # scope has been scanned. Ignore Fence(s) which are trivially
         # correct for our purposes here (only later in CUDA code
         # lowering can we meaningfully inspect sync-tl, CollTiling).
-        for name, barrier_type, i in barriers_here:
-            self.check_split_barrier(name, barrier_type, stmts, i)
+        for name, barrier_mechanism, i in barriers_here:
+            self.check_split_barrier(name, barrier_mechanism, stmts, i)
 
     def do_s(self, s):
         if isinstance(s, LoopIR.Alloc):
             if s.type.is_barrier():
                 mem = s.mem
-                assert mem and issubclass(mem, BarrierType)
+                assert mem and issubclass(mem, BarrierMechanism)
                 assert s.name not in self.uses
                 self.uses[s.name] = BarrierUsage(s)
                 self.add_barrier_guard_edge(s)
@@ -260,7 +260,7 @@ class BarrierUsageAnalysis(LoopIR_Do):
         self._explicit_guarded_by[g_new] = gb
         if gb is None:
             return
-        barrier_type = s.mem
+        barrier_mechanism = s.mem
         # This situtation possibly could happen for some scheduling operators?
         # Since we didn't update the entire library to account for hidden
         # usage of a variable as guarded_by.
@@ -275,9 +275,9 @@ class BarrierUsageAnalysis(LoopIR_Do):
         g_new_uses.guards = gs
         g_new_uses.guarded_by = gb
         gs_original_gb = self._explicit_guarded_by[gs]
-        if not barrier_type.traits().supports_guards:
+        if not barrier_mechanism.traits().supports_guards:
             raise ValueError(
-                f"{s.srcinfo}: {s}, cannot have guarded_by={gb} as {barrier_type.name()} has supports_guards=False"
+                f"{s.srcinfo}: {s}, cannot have guarded_by={gb} as {barrier_mechanism.name()} has supports_guards=False"
             )
         if gs_original_gb is not None:
             raise ValueError(
@@ -286,17 +286,17 @@ class BarrierUsageAnalysis(LoopIR_Do):
         assert gs_uses.guarded_by == gb
         gb_uses.guards = g_new
         gs_uses.guarded_by = g_new
-        if gb_uses.barrier_type != g_new_uses.barrier_type:
+        if gb_uses.barrier_mechanism != g_new_uses.barrier_mechanism:
             raise ValueError(
-                f"{s.srcinfo}: {s}, cannot have guarded_by={gb} due to BarrierType mismatch:\n"
-                f"{g_new} @ {g_new_uses.barrier_type.name()}\n"
-                f"{gs} @ {gs_uses.barrier_type.name()}"
+                f"{s.srcinfo}: {s}, cannot have guarded_by={gb} due to BarrierMechanism mismatch:\n"
+                f"{g_new} @ {g_new_uses.barrier_mechanism.name()}\n"
+                f"{gs} @ {gs_uses.barrier_mechanism.name()}"
             )
 
     def check_split_barrier(
         self,
         name: Sym,
-        barrier_type: Type[BarrierType],
+        barrier_mechanism: Type[BarrierMechanism],
         in_stmts: List[LoopIR.stmt],
         alloc_idx: int,
     ):
@@ -305,7 +305,7 @@ class BarrierUsageAnalysis(LoopIR_Do):
         alloc = in_stmts[alloc_idx]
         assert isinstance(alloc, LoopIR.Alloc)
         assert alloc.name == name
-        traits: BarrierTypeTraits = barrier_type.traits()
+        traits: BarrierMechanismTraits = barrier_mechanism.traits()
 
         # Boilerplate for missing Arrive/Await pairs.
         _arrive = usage.Arrive
@@ -332,7 +332,7 @@ class BarrierUsageAnalysis(LoopIR_Do):
     def check_guarding(
         self,
         name: Sym,
-        traits: BarrierTypeTraits,
+        traits: BarrierMechanismTraits,
         in_stmts: List[LoopIR.stmt],
     ):
         usage: BarrierUsage = self.uses[name]

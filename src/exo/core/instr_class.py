@@ -46,7 +46,7 @@ from .LoopIR import (
     get_writes_of_stmts,
     get_reads_of_stmts,
 )
-from .memory import MemWin, DRAM, BarrierType
+from .memory import MemWin, DRAM, BarrierMechanism
 from ..frontend.pyparser import get_ast_from_python, Parser
 from ..spork import timelines
 from ..spork.coll_algebra import standalone_thread, CollUnit
@@ -156,7 +156,7 @@ def prefill_instr_info(info: InstrInfo, proc: LoopIR.proc):
     info.coll_unit = standalone_thread
     info.instr_tl = cpu_in_order_instr
     info.access_info = proc_default_access_info(proc, write_syms, read_syms)
-    info.barrier_type = None
+    info.barrier_mechanism = None
     info.barrier_coll_units = ()
     info._tparam_dict = {}
     info._formatted_tparam_kwargs = ""
@@ -377,7 +377,7 @@ class InstrTemplate:
         assert all(isinstance(s, str) for s in info.cu_utils), clsname
         assert all(isinstance(s, str) for s in info.cu_includes), clsname
         assert isinstance(info.coll_unit, CollUnit), clsname
-        assert info.barrier_type is None or issubclass(info.barrier_type, BarrierType), clsname
+        assert info.barrier_mechanism is None or issubclass(info.barrier_mechanism, BarrierMechanism), clsname
         assert all(isinstance(unit, CollUnit) for unit in info.barrier_coll_units), clsname
 
         instr_tl = info.instr_tl.as_instr_tl()
