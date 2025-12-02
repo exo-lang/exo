@@ -174,6 +174,15 @@ ptr_ExprRef = POINTER(ExprRef)
 ptr_OffsetExtentExpr = POINTER(OffsetExtentExpr)
 ptr_ArriveIdx = POINTER(ArriveIdx)
 
+_need_lib_version = 1
+try:
+    _get_lib_version = lib.camspork_get_lib_version
+    _lib_version = _get_lib_version()
+except Exception:
+    _lib_version = 0
+if _lib_version != _need_lib_version:
+    raise ValueError(f"Recompile libcamspork. Need version {_need_lib_version}, have {_lib_version}")
+
 _thread_local_message_c_str = lib.camspork_thread_local_message_c_str
 _thread_local_message_c_str.restype = c_char_p
 _thread_local_message_c_str.argtypes = ()

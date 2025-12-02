@@ -807,5 +807,6 @@ struct hash<camspork::NodeRef<NodeType, NumTypes>>
 };
 }  // end namespace std
 
+CAMSPORK_EXPORT int camspork_get_lib_version();
 CAMSPORK_EXPORT camspork::binop camspork_binop_from_str(const char* p_str);
 CAMSPORK_EXPORT const char* camspork_binop_to_str(camspork::binop op);
