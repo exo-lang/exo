@@ -484,6 +484,8 @@ struct SyncvTable
 
     // Counters for operations
     uint64_t augment_counter = 0;     // Number of fence+await
+    uint64_t bucket_search_call_counter = 0;
+    uint64_t bucket_search_iter_counter = 0;
 
     auto get_augment_counter_bits() const
     {
@@ -1426,10 +1428,12 @@ struct SyncvTable
             nodepool::id<VisRecordListNode<IsMutate>>* p_bucket_head,
             Lambda&& lambda)
     {
+        bucket_search_call_counter++;
         using node_id = nodepool::id<VisRecordListNode<IsMutate>>;
         node_id* p_id = p_bucket_head;
 
         for (node_id id; (id = *p_id); ) {
+            bucket_search_iter_counter++;
             VisRecordListNode<IsMutate>& node = get(id);
             CAMSPORK_REQUIRE(!node.is_forwarded(), "Should not be in memoization table.");
 
@@ -3137,6 +3141,12 @@ SyncvTable* copy_syncv_table(const SyncvTable* table)
 
 void delete_syncv_table(SyncvTable* table)
 {
+#if 1
+    fprintf(stderr, "bucket_search_call_counter = %llu\n", (long long unsigned)table->bucket_search_call_counter);
+    fprintf(stderr, "bucket_search_iter_counter = %llu\n", (long long unsigned)table->bucket_search_iter_counter);
+    fprintf(stderr, "ratio = %.1f\n",
+            (double)table->bucket_search_iter_counter / (double)table->bucket_search_call_counter);
+#endif
     delete table;
 }
 
