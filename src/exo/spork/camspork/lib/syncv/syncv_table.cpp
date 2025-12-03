@@ -3146,6 +3146,10 @@ void delete_syncv_table(SyncvTable* table)
     fprintf(stderr, "bucket_search_iter_counter = %llu\n", (long long unsigned)table->bucket_search_iter_counter);
     fprintf(stderr, "ratio = %.1f\n",
             (double)table->bucket_search_iter_counter / (double)table->bucket_search_call_counter);
+    fprintf(stderr, "Read   VisRecord capacity = %llu\n",
+            (long long unsigned)table->debug_get_pool<VisRecordListNode<false>>().size());
+    fprintf(stderr, "Mutate VisRecord capacity = %llu\n",
+            (long long unsigned)table->debug_get_pool<VisRecordListNode<true>>().size());
 #endif
     delete table;
 }
