@@ -49,7 +49,6 @@ inline pending_await_t pack_pending_await(uint32_t barrier_index, uint32_t arriv
 
 struct VisRecordDebugData
 {
-    uint8_t original_qual_tl;
     std::vector<TlSigInterval> visibility_set;
     std::vector<pending_await_t> pending_await_list;
 };

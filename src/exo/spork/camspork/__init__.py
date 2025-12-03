@@ -6,6 +6,7 @@ from typing import Callable, Dict, List, Tuple, Optional
 lib = cdll.LoadLibrary(os.path.join(os.path.split(__file__)[0], "bin/libcamspork.so"))
 extent_t = c_uint32
 value_t = c_int32
+_need_lib_version = 2
 
 
 class BuilderExpr:
@@ -174,7 +175,6 @@ ptr_ExprRef = POINTER(ExprRef)
 ptr_OffsetExtentExpr = POINTER(OffsetExtentExpr)
 ptr_ArriveIdx = POINTER(ArriveIdx)
 
-_need_lib_version = 1
 try:
     _get_lib_version = lib.camspork_get_lib_version
     _lib_version = _get_lib_version()

@@ -107,23 +107,32 @@ void stream_vis_record(
         s << "], inclusive, formatted w/ domain ";
         stream_domain(s, cuboid_for_domain);
         s << '\n';
-        for (uint32_t bit_index = 0; bit_index < log.num_qual_tl; ++bit_index) {
-            static_assert(vis_level_full_ordered == 3, "update this code");
-            static_assert(vis_level_none == -1, "update this code");
-            for (int32_t vis_level = vis_level_full_ordered; vis_level != vis_level_none; --vis_level) {
-                // Print the highest vis_level for the qual-tl (don't print none)
-                if (1 & (t.qual_bits_by_vis.array[vis_level] >> bit_index)) {
-                    const std::string& name = log.lazy_get_qual_tl_name(bit_index);
-                    for (size_t i = name.size(); i < 30; ++i) {
-                        s << ' ';
-                    }
-                    s << name;
-                    s << " -> " << vis_level_name(vis_level) << '\n';
-                    goto next_qual_tl;
+        for (uint32_t q_bit_index = 0; q_bit_index < log.num_qual_tl; ++q_bit_index) {
+            int32_t vis_flags = 0;
+            for (int32_t i = 0; i < num_vis_flags; ++i) {
+                if ((t.qual_bits_by_vis.array[i] >> q_bit_index) & 1) {
+                    vis_flags |= 1 << i;
                 }
             }
-          next_qual_tl:
-            continue;
+            if (vis_flags != 0) {
+                // Print the vis flags for the qual-tl (don't print if empty)
+                const std::string& name = log.lazy_get_qual_tl_name(q_bit_index);
+                for (size_t i = name.size(); i < 30; ++i) {
+                    s << ' ';
+                }
+                s << name;
+                s << " ->";
+                for (int i = 0; i < num_vis_flags; ++i) {
+                    int32_t vis_flag = 1 << i;
+                    const char* v_name = vis_flag_name(vis_flag);
+                    bool v_true = 0 != (vis_flag & vis_flags);
+                    s << ' ';
+                    while (char c = *v_name++) {
+                        s << (v_true ? c : '.');
+                    }
+                }
+                s << '\n';
+            }
         }
     }
     for (const LoggedPendingAwait& pending_await : data.pending_await_list) {
@@ -242,14 +251,13 @@ void VisRecordHistoryLog::log_syncv_vis_record_checked(vis_record_id_t id, bool 
     }
 }
 
-void VisRecordHistoryLog::log_syncv_vis_record_error(vis_record_id_t id, TlSig fail_tl_sig, int32_t vis_level_needed)
+void VisRecordHistoryLog::log_syncv_vis_record_error(vis_record_id_t id, TlSig fail_tl_sig)
 {
     CAMSPORK_REQUIRE_CMP(fail_tl_sig.qual_tl, <, num_qual_tl, "out of range qual-tl index");
     error_stmt_id_bits = current_stmt_id_bits;
     error_vis_record_version = current_version_id(id);
     error_tl_sig = fail_tl_sig;
     error_thread_cuboid = current_thread_cuboid;
-    error_vis_level_needed = vis_level_needed;
 }
 
 void VisRecordHistoryLog::add_error_remarks(ProgramEnv* p_env)
@@ -258,9 +266,8 @@ void VisRecordHistoryLog::add_error_remarks(ProgramEnv* p_env)
 
     // Add additional info about the error site.
     if (error_vis_record_version) {
-
         std::stringstream s;
-        s << "VisRecord did not have " << vis_level_name(error_vis_level_needed) << " for\n";
+        s << "VisRecord did not have vis flag \"" << vis_flag_name(error_tl_sig.vis_flag) << "\" for\n";
         s << "thread:  ";
         stream_tid(s, error_tl_sig.tid, error_thread_cuboid);
         s << "; domain=";

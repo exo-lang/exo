@@ -93,7 +93,6 @@ class VisRecordHistoryLog
     vis_record_version_t error_vis_record_version{};
     TlSig error_tl_sig{};
     ThreadCuboid error_thread_cuboid{};
-    int32_t error_vis_level_needed{};
 
     // Last read VisRecord and mutate VisRecord that was checked, i.e.,
     // added by a read/mutate and then later encountered by a different mutate/read.
@@ -128,7 +127,7 @@ class VisRecordHistoryLog
     void log_syncv_vis_record_change(
             vis_record_id_t old_id, vis_record_id_t new_id, LoggedVisRecordData new_data, bool debug_printf);
     void log_syncv_vis_record_checked(vis_record_id_t id, bool is_mutate);
-    void log_syncv_vis_record_error(vis_record_id_t id, TlSig fail_tl_sig, int32_t vis_level_needed);
+    void log_syncv_vis_record_error(vis_record_id_t id, TlSig fail_tl_sig);
 
     // ******************************************************************************************
     // Insert remarks tracking the history of a certain VisRecord.

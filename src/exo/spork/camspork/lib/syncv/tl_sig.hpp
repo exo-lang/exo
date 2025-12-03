@@ -14,29 +14,25 @@ namespace camspork
 // on a per-program basis, as it's unlikely a single program needs more than 32 QualTL.
 using qual_bits_t = uint32_t;
 
-static constexpr int32_t vis_level_none = -1;
-static constexpr int32_t vis_level_atomic_only = 0;
-static constexpr int32_t vis_level_unordered = 1;
-static constexpr int32_t vis_level_temporal_ordered = 2;
-static constexpr int32_t vis_level_full_ordered = 3;
+static constexpr int32_t vis_flag_atomic_only = 1;
+static constexpr int32_t vis_flag_temporal = 2;
+static constexpr int32_t vis_flag_full = 4;
+static constexpr int32_t vis_flag_issue = 8;
+static constexpr int32_t num_vis_flags = 4;
+static constexpr int32_t vis_flags_all = (1 << num_vis_flags) - 1;
 
-inline const char* vis_level_name(int32_t vis_level)
+inline const char* vis_flag_name(int32_t vis_flag)
 {
-    CAMSPORK_REQUIRE_CMP(vis_level, >=, -1, "Invalid vis_level enum");
-    CAMSPORK_REQUIRE_CMP(vis_level, <=, 3, "Invalid vis_level enum");
-    static const char* strs[5] = {
-        "vis_level_none",
-        "vis_level_atomic_only",
-        "vis_level_unordered",
-        "vis_level_temporal_ordered",
-        "vis_level_full_ordered",
-    };
-    return strs[vis_level + 1];
+    static const char* table[num_vis_flags] = {"atomic-only", "temporal", "full", "issue"};
+    const int vis_flag_index = get_low_bit_index(vis_flag);
+    CAMSPORK_REQUIRE_CMP(vis_flag, ==, (1 << vis_flag_index), "not a vis flag");
+    CAMSPORK_REQUIRE_CMP(vis_flag_index, <, num_vis_flags, "not a vis flag");
+    return table[vis_flag_index];
 }
 
 struct QualBitsByVis
 {
-    qual_bits_t array[4];
+    qual_bits_t array[num_vis_flags];
 
     bool operator== (const QualBitsByVis& other) const
     {
@@ -50,7 +46,7 @@ struct QualBitsByVis
 
     QualBitsByVis& operator|= (const QualBitsByVis& other)
     {
-        for (uint32_t i = 0; i < 4; ++i) {
+        for (uint32_t i = 0; i < num_vis_flags; ++i) {
             array[i] |= other.array[i];
         }
         return *this;
@@ -65,41 +61,55 @@ struct QualBitsByVis
 
     uint32_t diff_bits(const QualBitsByVis& other) const
     {
-        uint32_t diff = array[0] ^ other.array[0];
-        diff |= array[1] ^ other.array[1];
-        diff |= array[2] ^ other.array[2];
-        diff |= array[3] ^ other.array[3];
+        auto diff = array[0] ^ other.array[0];
+        for (int32_t i = 1; i < num_vis_flags; ++i) {
+            diff |= array[i] ^ other.array[i];
+        }
         return diff;
+    }
+
+    bool intersects(const QualBitsByVis& other) const
+    {
+        auto q_mask = array[0] & other.array[0];
+        for (int32_t i = 1; i < num_vis_flags; ++i) {
+            q_mask |= array[i] & other.array[i];
+        }
+        return q_mask != 0;
     }
 };
 
+inline QualBitsByVis qual_vis_product(qual_bits_t qual_bits, int32_t vis_flags)
+{
+    QualBitsByVis qv;
+    for (int32_t i = 0; i < num_vis_flags; ++i) {
+        qual_bits_t mask = qual_bits_t(0) - qual_bits_t(1 & (vis_flags >> i));
+        qv.array[i] = qual_bits & mask;
+    }
+    return qv;
+}
+
+// See TlSigInterval for most uses.
+// This is mainly used for formatting debug and error messages.
 struct TlSig
 {
     uint32_t tid;
     uint8_t qual_tl;
+    int32_t vis_flag;
 };
 
-// A single timeline signature consists of a pair of
-// (thread ID, qual-tl) [qualitative timeline]. We usually don't store this directly.
-// Instead, we work with sets of timeline signatures (tl-sig).
+// A single timeline signature is the 3-tuple (thread ID, qual-tl, visibility flag)
+// We usually don't store this directly. Instead, we work with sets of tl-sig.
+// A TlSigInterval encodes the subset of timeline signatures (t, q, v) where
 //
-// A tl-sig interval is the cartesian product
-//     [tid_lo, tid_hi) \times L
-// where L is a set of qual-tl, delivered as a bitfield.
-//
-// For compactness, we store the four visibility sets together.
-// Given V_A \superset V_U \superset V_T \superset V_F [atomic-only, unordered, temporal ordered, full ordered],
-// we have that
-//     V_A = union(val: TlSigInterval where L = qual_bits_by_vis.array[vis_level_atomic_only])
-//     V_U = union(val: TlSigInterval where L = qual_bits_by_vis.array[vis_level_unordered])
-//     V_T = union(val: TlSigInterval where L = qual_bits_by_vis.array[vis_level_temporal_ordered])
-//     V_F = union(val: TlSigInterval where L = qual_bits_by_vis.array[vis_level_full_ordered])
+// tid_lo <= t < tid_hi
+// 0 != ((1 << q) & qual_bits_by_vis.array[get_low_bit_index(v)]
 //
 // LEGACY TERMS:
-//   sigthread = tl-sig (timeline signature)
+//   sigthread = tl-sig (before visibility flag was invented)
 //   actor signature = qual-tl (qualitative timeline)
 //   async visibility = unordered visibility
 //   sigbits = qual_bits
+//   visibility level = visibility flag
 struct TlSigInterval
 {
     // Thread index range [tid_lo, tid_hi)
@@ -109,28 +119,8 @@ struct TlSigInterval
 
     void assert_valid() const
     {
-        const uint32_t (&qual_tl_bits) [4] = qual_bits_by_vis.array;
-        CAMSPORK_REQUIRE_CMP(qual_tl_bits[2] & qual_tl_bits[3], ==, qual_tl_bits[3], "TlSigInterval, invalid subset");
-        CAMSPORK_REQUIRE_CMP(qual_tl_bits[1] & qual_tl_bits[2], ==, qual_tl_bits[2], "TlSigInterval, invalid subset");
-        CAMSPORK_REQUIRE_CMP(qual_tl_bits[0] & qual_tl_bits[1], ==, qual_tl_bits[1], "TlSigInterval, invalid subset");
-        CAMSPORK_REQUIRE_CMP(qual_tl_bits[0], !=, 0, "Invalid TlSigInterval empty qual-tl bits");
+        CAMSPORK_REQUIRE(qual_bits_by_vis.intersects(qual_bits_by_vis), "Empty qual_bits_by_vis");
         CAMSPORK_REQUIRE_CMP(tid_lo, <=, tid_hi, "Invalid TlSigInterval");
-    }
-
-    // Requires that exactly one qual-tl bit is set.
-    // Return the bit index of that qual-tl (e.g. 8 -> 3)
-    uint8_t get_unique_qual_tl() const
-    {
-        // TODO explain why we choose vis_level_unordered.
-        return get_unique_qual_tl(qual_bits_by_vis.array[vis_level_unordered]);
-    }
-
-    static uint8_t get_unique_qual_tl(uint32_t qual_bits)
-    {
-        CAMSPORK_REQUIRE_CMP(qual_bits, !=, 0, "Require exactly one qual-tl bit set");
-        uint8_t bit_index = get_low_bit_index(qual_bits);
-        CAMSPORK_REQUIRE_CMP(qual_bits, ==, 1u << bit_index, "Require exactly one qual-tl bit set");
-        return bit_index;
     }
 
     bool operator==(TlSigInterval other) const
@@ -146,13 +136,11 @@ struct TlSigInterval
         return !(*this == other);
     }
 
-    bool unordered_intersects(const TlSigInterval& other, uint32_t qual_bits_mask) const
+    bool intersects(const TlSigInterval& other) const
     {
         // <= due to tid_hi being an exclusive bound.
         const bool tid_disjoint = tid_hi <= other.tid_lo || other.tid_hi <= tid_lo;
-        uint32_t this_qual_bits = qual_bits_by_vis.array[vis_level_unordered];
-        uint32_t other_qual_bits = other.qual_bits_by_vis.array[vis_level_unordered];
-        return !tid_disjoint && 0 != (this_qual_bits & other_qual_bits & qual_bits_mask);
+        return !tid_disjoint && qual_bits_by_vis.intersects(other.qual_bits_by_vis);
     }
 };
 

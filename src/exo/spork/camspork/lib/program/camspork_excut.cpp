@@ -31,7 +31,7 @@ const char* ExcutVisRecord::action_name() const
 
 void ExcutVisRecord::write_args(FILE* file) const
 {
-    fprintf(file, "[\"int:%u\", \"int:%u\"]", id, original_qual_bit);
+    fprintf(file, "[\"int:%u\"]", id);
 }
 
 const char* ExcutTlSigInterval::action_name() const
@@ -41,9 +41,14 @@ const char* ExcutTlSigInterval::action_name() const
 
 void ExcutTlSigInterval::write_args(FILE* file) const
 {
+    static_assert(num_vis_flags == 4);
+    static_assert(sizeof(qual_bits_by_vis.array[0]) == 4);
     fprintf(file, "[\"int:%u\", \"int:%u\", \"int:%u\", \"int:%u\", \"int:%u\", \"int:%u\"]",
             tid_lo, tid_hi,
-            atomic_only_qual_bits, unordered_qual_bits, temporal_ordered_qual_bits, full_ordered_qual_bits);
+            qual_bits_by_vis.array[0],
+            qual_bits_by_vis.array[1],
+            qual_bits_by_vis.array[2],
+            qual_bits_by_vis.array[3]);
 }
 
 const char* ExcutPendingAwait::action_name() const

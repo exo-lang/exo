@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "int_types.hpp"
+#include "../syncv/tl_sig.hpp"
 
 namespace camspork
 {
@@ -45,7 +46,6 @@ struct ExcutSyncEnvAccess : ExcutBaseAction
 struct ExcutVisRecord : ExcutBaseAction
 {
     uint32_t id;
-    uint32_t original_qual_bit;
     ExcutMutateTag mutate_tag;
 
     virtual const char* action_name() const override;
@@ -56,10 +56,7 @@ struct ExcutTlSigInterval : ExcutBaseAction
 {
     uint32_t tid_lo;
     uint32_t tid_hi;
-    uint32_t atomic_only_qual_bits;
-    uint32_t unordered_qual_bits;
-    uint32_t temporal_ordered_qual_bits;
-    uint32_t full_ordered_qual_bits;
+    QualBitsByVis qual_bits_by_vis;
     ExcutMutateTag mutate_tag;
 
     virtual const char* action_name() const override;
