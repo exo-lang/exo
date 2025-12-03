@@ -768,6 +768,10 @@ def top_level_check(backend, args_dict: Dict[str, int]):
     p = backend.analyzed
     debug_log = backend.debug_log
 
+    # Kills perf when true
+    debug_on_exit = False
+    debug_always = False
+
     # Compile and log abstract machine program once
     camspork_program = backend.lazy_camspork_program
     if camspork_program is None:
@@ -828,6 +832,7 @@ def top_level_check(backend, args_dict: Dict[str, int]):
                 env.alloc_scalar_value(nm, val)
         for bit_index, qual_tl in enumerate(Qual_tl.get_all()):
             env.set_qual_tl_name(bit_index, str(qual_tl))
+        env.set_debug_validation_enable(debug_always)
         return env
 
     # Run validation up to 2 times.
@@ -847,6 +852,7 @@ def top_level_check(backend, args_dict: Dict[str, int]):
                 if single_sync_var is not None:
                     env.set_history_enable(True)
                 env.exec(filter_name=single_sync_var, filter_idx=single_sync_idx)
+                env.set_debug_validation_enable(debug_on_exit | debug_always)
             except Exception:
                 if i == 0:
                     # Insert remarks for the main debug log, prior to adding
