@@ -13,12 +13,18 @@ namespace camspork
 // However, a better way may be to change Exo to allow assigning different bits to stand for different QualTL
 // on a per-program basis, as it's unlikely a single program needs more than 32 QualTL.
 using qual_bits_t = uint32_t;
+static constexpr uint32_t num_qual_tl = 32;
 
-static constexpr int32_t vis_flag_atomic_only = 1;
-static constexpr int32_t vis_flag_temporal = 2;
-static constexpr int32_t vis_flag_full = 4;
-static constexpr int32_t vis_flag_issue = 8;
+static constexpr int32_t vis_flag_index_atomic_only = 0;
+static constexpr int32_t vis_flag_index_temporal = 1;
+static constexpr int32_t vis_flag_index_full = 2;
+static constexpr int32_t vis_flag_index_issue = 3;
 static constexpr int32_t num_vis_flags = 4;
+
+static constexpr int32_t vis_flag_atomic_only = 1 << vis_flag_index_atomic_only;
+static constexpr int32_t vis_flag_temporal = 1 << vis_flag_index_temporal;
+static constexpr int32_t vis_flag_full = 1 << vis_flag_index_full;
+static constexpr int32_t vis_flag_issue = 1 << vis_flag_index_issue;
 static constexpr int32_t vis_flags_all = (1 << num_vis_flags) - 1;
 
 inline const char* vis_flag_name(int32_t vis_flag)
@@ -141,6 +147,28 @@ struct TlSigInterval
         // <= due to tid_hi being an exclusive bound.
         const bool tid_disjoint = tid_hi <= other.tid_lo || other.tid_hi <= tid_lo;
         return !tid_disjoint && qual_bits_by_vis.intersects(other.qual_bits_by_vis);
+    }
+
+    bool is_atomic_only() const
+    {
+        // TlSigInterval contains only (t, q, v) where v = vis_flag_atomic_only?
+        static_assert(vis_flag_index_atomic_only == 0, "Hard-wired code for skipping atomic-only");
+        auto q_bits = qual_bits_by_vis.array[1];
+        for (int i = 2; i < num_vis_flags; ++i) {
+            q_bits |= popcount(qual_bits_by_vis.array[i]);
+        }
+        return q_bits == 0;
+    }
+
+    uint64_t num_non_atomic_timeline_signatures() const
+    {
+        // Count of (t, q, v) in TlSigInterval where v != vis_flag_atomic_only.
+        uint64_t pop = 0;
+        static_assert(vis_flag_index_atomic_only == 0, "Hard-wired code for skipping atomic-only");
+        for (int i = 1; i < num_vis_flags; ++i) {
+            pop += popcount(qual_bits_by_vis.array[i]);
+        }
+        return pop * (tid_hi - tid_lo);
     }
 };
 

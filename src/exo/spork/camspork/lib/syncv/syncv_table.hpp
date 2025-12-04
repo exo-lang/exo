@@ -159,6 +159,5 @@ void end_no_checking(SyncvTable* table);
 void debug_get_read_vis_record_data(const SyncvTable* table, uint32_t id, VisRecordDebugData* out);
 void debug_get_mutate_vis_record_data(const SyncvTable* table, uint32_t id, VisRecordDebugData* out);
 void debug_validate_state(SyncvTable* table, size_t input_count, const SyncvDebugValidateInput* p_inputs);
-void debug_pre_delete_check(SyncvTable* table);
 
 }

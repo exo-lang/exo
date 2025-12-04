@@ -5,6 +5,16 @@
 namespace camspork
 {
 
+inline uint8_t popcount(int32_t n)
+{
+    return uint8_t(__builtin_popcount(int(n)));
+}
+
+inline uint8_t popcount(uint32_t n)
+{
+    return uint8_t(__builtin_popcount(int(n)));
+}
+
 inline uint8_t get_low_bit_index(uint32_t n)
 {
     return uint8_t(__builtin_ctz(n));

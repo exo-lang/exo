@@ -19,6 +19,9 @@
 #include "../syncv/vis_record_history_log.hpp"
 #include "../util/cuboid_util.hpp"
 
+#define CAMSPORK_EXEC_ALWAYS_INLINE __attribute__((always_inline))
+// #define CAMSPORK_EXEC_ALWAYS_INLINE
+
 namespace camspork
 {
 
@@ -299,7 +302,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
     // ******************************************************************************************
     // EXECUTE STATEMENT
     // ******************************************************************************************
-    __attribute__((always_inline))
+    CAMSPORK_EXEC_ALWAYS_INLINE
     void exec(StmtRef s)
     {
         if (s) {
@@ -963,7 +966,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
     // ******************************************************************************************
     // EVALUATE EXPR
     // ******************************************************************************************
-    __attribute__((always_inline))
+    CAMSPORK_EXEC_ALWAYS_INLINE
     value_t eval(ExprRef e) const
     {
         return e.dispatch(*this, buffer_size, p_buffer);
@@ -976,13 +979,13 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         return extent_t(v);
     }
 
-    __attribute__((always_inline))
+    CAMSPORK_EXEC_ALWAYS_INLINE
     value_t operator() (const ReadValue* node) const
     {
         return env.value_slot(node->name).idx(expr_vla_begin(node), expr_vla_end(node));
     }
 
-    __attribute__((always_inline))
+    CAMSPORK_EXEC_ALWAYS_INLINE
     value_t operator() (const Const* node) const
     {
         return node->value;

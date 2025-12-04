@@ -2,12 +2,14 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cassert>
 #include <functional>
 #include <memory>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <tuple>
 #include <type_traits>
 #include <typeinfo>
@@ -77,11 +79,17 @@ struct VisRecord
     // Owning reference to tree node.
     nodepool::id<PendingAwaitNode> pending_awaits;
 
-    uint8_t forwarded_flag;
+    static constexpr uint32_t num_memoize_hash_bits = 62;
+
+    uint64_t forwarded_flag: 1;
 
     // This has nothing to do with the main purpose of the struct; only needed for assignment_record_remove_duplicates.
     // This should be in AssignmentRecordVisNode conceptually, but that would waste 4 bytes.
-    uint8_t tmp_is_duplicate;
+    uint64_t tmp_is_duplicate: 1;
+
+    // Calculated by memoize_or_forward.
+    // Used to speed up equal(...); therefore, it is not safe to call equal before a VisRecord is memoized.
+    uint64_t memoize_hash_bits: num_memoize_hash_bits;
 };
 
 // TODO consider removing IsMutate templatization, and separate memoization of read/mutate VisRecord objects.
@@ -119,7 +127,7 @@ struct VisRecordListNode
 using ReadVisRecordListNode = VisRecordListNode<false>;
 using MutateVisRecordListNode = VisRecordListNode<true>;
 
-static_assert(sizeof(ReadVisRecordListNode) == 20, "Check that you meant to change this perf-critical struct");
+static_assert(sizeof(ReadVisRecordListNode) == 24, "Check that you meant to change this perf-critical struct");
 
 template <bool IsMutate>
 struct AssignmentRecordVisNode
@@ -192,188 +200,6 @@ struct BarrierState
     BinaryTree<int32_t, BarrierArriveState> arrive_states;
 };
 
-template <uint32_t Level> constexpr uint64_t bucket_level_size = 0;
-template<> constexpr uint64_t bucket_level_size<0> = 1;
-template<> constexpr uint64_t bucket_level_size<1> = 32;
-template<> constexpr uint64_t bucket_level_size<2> = 128;
-template<> constexpr uint64_t bucket_level_size<3> = 256;
-template<> constexpr uint64_t bucket_level_size<4> = 1024;
-template<> constexpr uint64_t bucket_level_size<5> = 4096;
-template<> constexpr uint64_t bucket_level_size<6> = 16384;
-template<> constexpr uint64_t bucket_level_size<7> = 0x10'0000;
-template<> constexpr uint64_t bucket_level_size<8> = 0x400'0000;
-template<> constexpr uint64_t bucket_level_size<9> = 0x1'0000'0000;
-constexpr uint32_t bucket_level_count = 10;
-
-template <bool IsMutate, uint32_t BucketLevel> struct IntervalBucket;
-
-template <bool IsMutate, uint32_t BucketLevel>
-struct IntervalBucketParentPointer
-{
-    static_assert(BucketLevel < bucket_level_count);
-    uint32_t child_index_in_parent = 0;
-    IntervalBucket<IsMutate, BucketLevel + 1>* p_parent = nullptr;
-
-    void update_parent_pointer(
-        const IntervalBucketParentPointer& other, IntervalBucket<IsMutate, BucketLevel + 1>* new_parent)
-    {
-        child_index_in_parent = other.child_index_in_parent;
-        p_parent = new_parent;
-        CAMSPORK_REQUIRE(new_parent, "Expected parent pointer");
-    }
-};
-
-template <bool IsMutate>
-struct IntervalBucketParentPointer<IsMutate, bucket_level_count - 1>
-{
-};
-
-// Let Sz = bucket_level_size<BucketLevel>; an interval bucket for a given
-// BucketLevel encompasses the interval of thread IDs [I * Sz, (I+1) * Sz - 1]
-// for some index I. The idea is to store visibility records in the smallest
-// possible (i.e. most specific) bucket that is still a superset.
-//
-// Unless BucketLevel == 0 (single thread buckets),
-// the bucket has child interval buckets of one lower level,
-// with the original interval evenly subdivided into N-many child buckets
-// owned by the parent bucket.
-//
-// All buckets except the top-level bucket store a back pointer to
-// their parent; see IntervalBucketParentPointer (This is a non-owning
-// back ptr; child can't outlive parent).
-//
-// Buckets should be removed from the tree when empty, see
-// delete_interval_bucket_if_empty.
-template <bool IsMutate, uint32_t BucketLevel>
-struct IntervalBucket : IntervalBucketParentPointer<IsMutate, BucketLevel>
-{
-    static_assert(BucketLevel != 0, "BucketLevel = 0 for illustration only");
-    static_assert(BucketLevel != 1, "Should be template specialization");
-    static_assert(BucketLevel < bucket_level_count);
-
-    static constexpr uint32_t bucket_level = BucketLevel;
-    static constexpr uint32_t child_count = bucket_level_size<BucketLevel> / bucket_level_size<BucketLevel - 1>;
-    using child_t = IntervalBucket<IsMutate, BucketLevel - 1>;
-    std::unique_ptr<child_t> child_interval_buckets[child_count];
-
-    // Nth bit is set iff child_interval_buckets[N] isn't empty.
-    uint64_t nonempty_child_flags = 0;
-
-    // Bucket for this interval.
-    // Note: we don't have to deep copy this because it's just indices into the node pool, which is deep copied.
-    nodepool::id<VisRecordListNode<IsMutate>> bucket = {0};
-
-    // For making code re-entrant (prevent de-allocation while being visited).
-    uint32_t visitor_count = 0;
-
-    IntervalBucket() = default;
-
-    // Deep copy
-    IntervalBucket(const IntervalBucket& other, IntervalBucket<IsMutate, bucket_level + 1>* new_parent)
-    {
-        this->update_parent_pointer(other, new_parent);
-        this->copy_impl(other);
-    };
-
-    IntervalBucket(const IntervalBucket& other)
-    {
-        static_assert(BucketLevel == bucket_level_count - 1, "Non-top-level bucket must have parent pointer");
-        this->copy_impl(other);
-    }
-
-  private:
-    void copy_impl(const IntervalBucket& other)
-    {
-        for (uint32_t i = 0; i < child_count; ++i) {
-            const child_t* p_child = other.child_interval_buckets[i].get();
-            if (p_child) {
-                child_interval_buckets[i].reset(new child_t(*p_child, this));
-            }
-        }
-        nonempty_child_flags = other.nonempty_child_flags;
-        bucket = other.bucket;
-        visitor_count = other.visitor_count;
-        CAMSPORK_REQUIRE_CMP(visitor_count, ==, 0, "Not sure copying is OK while being traversed.");
-    }
-};
-
-template <bool IsMutate>
-struct IntervalBucket<IsMutate, 1> : IntervalBucketParentPointer<IsMutate, 1>
-{
-    static constexpr uint32_t bucket_level = 1;
-    static constexpr uint32_t child_count = bucket_level_size<1>;
-    nodepool::id<VisRecordListNode<IsMutate>> child_interval_buckets[child_count] = {};
-
-    // Nth bit is set iff child_interval_buckets[N] isn't empty.
-    uint64_t nonempty_child_flags = 0;
-
-    // Bucket for this interval.
-    // Note: we don't have to deep copy this because it's just indices into the node pool, which is deep copied.
-    nodepool::id<VisRecordListNode<IsMutate>> bucket = {0};
-
-    // For making code re-entrant (prevent de-allocation while being visited).
-    uint32_t visitor_count = 0;
-
-    IntervalBucket() = default;
-
-    // Deep copy
-    IntervalBucket(const IntervalBucket& other, IntervalBucket<IsMutate, bucket_level + 1>* new_parent)
-    {
-        this->update_parent_pointer(other, new_parent);
-        for (uint32_t i = 0; i < child_count; ++i) {
-            child_interval_buckets[i] = other.child_interval_buckets[i];
-        }
-        nonempty_child_flags = other.nonempty_child_flags;
-        bucket = other.bucket;
-        visitor_count = other.visitor_count;
-        CAMSPORK_REQUIRE_CMP(visitor_count, ==, 0, "Not sure copying is OK while being traversed.");
-    }
-};
-
-
-// TODO memoization is horrible right now, move to hash-indexed buckets or something.
-// The hierarchical structure was created to optimize for avoiding redundancy for
-// Arrive/Fence statements, but overwhelmingly time is used for memoization lookup
-// for read/mutate statements. The latter use case entails horrible linear searches now.
-//
-// If we do this change, we have to be careful not to double-consider items when
-// moving between buckets.
-
-
-template <bool IsMutate, uint32_t BucketLevel>
-bool interval_bucket_is_empty(const IntervalBucket<IsMutate, BucketLevel>& bucket) noexcept
-{
-    return bucket.nonempty_child_flags == 0 && !bucket.bucket && !bucket.visitor_count;
-}
-
-// De-allocate the given bucket if it's empty and not the top-level bucket.
-// We presume that the bucket is owned by its parent (unique_ptr tree).
-//
-// We do not make any modifications to the parent except for nulling out the pointer.
-// In particular, we don't change nonempty_child_flags, or handle deleting the parent
-// if it too is now empty.
-template <bool IsMutate, uint32_t BucketLevel>
-void delete_interval_bucket_if_empty(IntervalBucket<IsMutate, BucketLevel>* p)
-{
-    if (interval_bucket_is_empty(*p)) {
-        for (const auto& child : p->child_interval_buckets) {
-            CAMSPORK_REQUIRE(!child, "nonempty_child_flags was wrong.");
-        }
-
-        if constexpr (BucketLevel < bucket_level_count - 1) {
-            // Parent pointer should be correct.
-            IntervalBucket<IsMutate, BucketLevel + 1>* p_parent = p->p_parent;
-            CAMSPORK_REQUIRE(p_parent, "missing parent ptr");
-            const uint32_t child_index = p->child_index_in_parent;
-            CAMSPORK_REQUIRE_CMP(child_index, <, p_parent->child_count, "child_index out-of-range");
-            CAMSPORK_REQUIRE_CMP(p_parent->nonempty_child_flags, >, 0, "should have been deallocated");
-
-            // p is invalidated after this (unique_ptr reset).
-            CAMSPORK_REQUIRE_CMP(p_parent->child_interval_buckets[child_index].get(), ==, p, "???");
-            p_parent->child_interval_buckets[child_index].reset();
-        }
-    }
-}
 
 struct AssignmentRecordCensusEntry
 {
@@ -507,10 +333,10 @@ struct SyncvTable
     uint64_t live_barrier_bits[max_live_barriers / 64] = {0};
     BarrierState barrier_states[max_live_barriers];
 
-    // Memoization table state (requires special deep copy support implemented in IntervalBucket).
-    IntervalBucket<false, bucket_level_count - 1> read_top_level_bucket;
-    IntervalBucket<true, bucket_level_count - 1> mutate_top_level_bucket;
-
+    // Memoization table state.
+    static constexpr uint32_t num_buckets = 64 * 32 + 1;
+    std::array<nodepool::id<VisRecordListNode<false>>, num_buckets> read_table_buckets = {};
+    std::array<nodepool::id<VisRecordListNode<true>>, num_buckets> mutate_table_buckets = {};
 
 
     // *** Memory Pool Allocators; Linked List Manipulation ***
@@ -664,11 +490,12 @@ struct SyncvTable
 
     void reset_vis_record_data(VisRecord* p_data)
     {
-        static_assert(sizeof(*p_data) == 12, "update me");
+        static_assert(sizeof(*p_data) == 16, "update me");
         extend_free_list(p_data->visibility_set);
         p_data->visibility_set = {};
         extend_free_list(p_data->pending_awaits);
         p_data->pending_awaits = {};
+        p_data->memoize_hash_bits = 0;
     }
 
     template <bool IsMutate>
@@ -777,7 +604,8 @@ struct SyncvTable
     {
         // Non-empty input check (cartesian product of non-empty thread interval and non-empty qual-tl set).
         CAMSPORK_REQUIRE_CMP(input.tid_hi, >, input.tid_lo, "non-empty input check");
-        CAMSPORK_REQUIRE_CMP(0, !=, input.qual_bits_by_vis.array[0], "non-empty input check");
+        CAMSPORK_REQUIRE_CMP(0, !=, input.qual_bits_by_vis.array[0], "non-empty input check");  // why atomic-only?
+        CAMSPORK_REQUIRE_CMP(0, ==, input.qual_bits_by_vis.array[vis_flag_index_issue], "See make_bucket_key");
         using node_id = nodepool::id<TlSigIntervalListNode>;
 
         // Modify and/or add intervals.
@@ -902,7 +730,12 @@ struct SyncvTable
     // Check if visibility records are equal.
     bool equal(const VisRecord& a, const VisRecord& b) const
     {
-        static_assert(sizeof(a) == 12, "Update me");
+        static_assert(sizeof(a) == 16, "Update me");
+
+        // Risky: won't work correctly if memoize_or_forward wasn't called.
+        if (a.memoize_hash_bits != b.memoize_hash_bits) {
+            return false;
+        }
 
         // Check equal intervals. We rely on (and enforce) the non-redundant encoding requirement.
         {
@@ -1169,33 +1002,111 @@ struct SyncvTable
 
 
 
-    // Get the smallest possible tl_sig interval that is a superset of the visibility set (ignoring atomic-only).
-    // This is needed to index into the correct bucket (the smallest one possible containing the visibility set).
-    // Note, at time of writing the qual_bits_by_vis aren't used for bucketing, but maybe they should be.
-    TlSigBucketKey minimal_superset_interval(nodepool::id<TlSigIntervalListNode> id) const
-    {
-        TlSigBucketKey key;
-        key.tid_lo = UINT32_MAX;
-        key.tid_hi = 0u;
+    static constexpr uint32_t num_kicker_bits = 6;
 
-        CAMSPORK_REQUIRE(id, "unsupported: empty interval");
-        while (id) {
-            const TlSigIntervalListNode& node = get(id);
-            id = node.camspork_next_id;
-            const TlSigInterval data = node.data;
-            static_assert(vis_flag_atomic_only == 1, "hard-wired here we skip qual_bits_by_vis[0]");
-            auto q_bits = data.qual_bits_by_vis.array[1];
-            for (int32_t i = 2; i < num_vis_flags; ++i) {
-                q_bits |= data.qual_bits_by_vis.array[i];
-            }
-            if (q_bits != 0) {
-                key.tid_lo = std::min(key.tid_lo, data.tid_lo);
-                key.tid_hi = std::max(key.tid_hi, data.tid_hi);
+    // For a visibility set VS, let S = { (t, q, v) | v = vis_flag_issue }
+    // initial_qual_bit = 0 for the special case where no such timeline signatures exist.
+    // Otherwise, currently all q must be the same, and we base the bucket key on
+    // initial_qual_bit = 1 << q; tid_lo = min of t.
+    //
+    // Note given the assumption that no (t, q, v) with v = vis_flag_isuse are ever added,
+    // the bucket a VisRecord lives in will never change. Enforced in union_tl_sig_interval.
+    uint32_t make_bucket_key(qual_bits_t initial_qual_bit, uint32_t tid_lo) const
+    {
+        uint32_t qual_tl, kicker;
+        if (initial_qual_bit == 0) {
+            qual_tl = num_qual_tl;
+            kicker = 0;
+        }
+        else {
+            qual_tl = get_low_bit_index(initial_qual_bit);
+            kicker = tid_lo >> get_low_bit_index(tid_lo);
+            CAMSPORK_REQUIRE_CMP(initial_qual_bit >> qual_tl, ==, 1, "initial_qual_bit not a single bit");
+        }
+        // 64 buckets per qual-tl (32), plus extra for initial_qual_bit = 0.
+        static_assert(num_kicker_bits == 6);
+        static_assert(num_buckets == (num_qual_tl << num_kicker_bits) + 1);
+        uint32_t bucket_key = qual_tl << num_kicker_bits | (kicker & 63u);
+        CAMSPORK_REQUIRE_CMP(bucket_key, <, num_buckets, "out-of-range bucket_key generated?");
+        return bucket_key;
+    }
+
+    // Transitive barriers need to inspect all buckets, could update all VisRecords.
+    static uint32_t transitive_bucket_key()
+    {
+        return 0;
+    }
+
+    static uint32_t transitive_bucket_count()
+    {
+        return num_buckets;
+    }
+
+    // Non-transitive barriers need to inspect buckets corresponding to initial_qual_bit = 1 << qual_tl
+    // where initial_qual_bit is one of the qual-tl bits set in the first sync timeline.
+    // The loop for this is not here.
+    static uint32_t non_transitive_bucket_key(uint8_t qual_tl)
+    {
+        return uint32_t(qual_tl) << num_kicker_bits;
+    }
+
+    static uint32_t non_transitive_bucket_count(uint8_t)
+    {
+        return 1u << num_kicker_bits;
+    }
+
+    uint64_t vis_record_hash_bits(const VisRecord& vis_record) const
+    {
+        // 62-bit hash
+        // (hi)
+        // 31 bits: # non-atomic timeline signatures as fp32, exclude sign.
+        // 1 bit: contains pending await?
+        // 1 bit: contains atomic-only?
+        // 16 bits: low 17 bits of tid_lo.
+        // 12 bits: bucket key.
+        // (lo)
+        static_assert(VisRecord::num_memoize_hash_bits == 62);
+        uint32_t has_pending_await = !!vis_record.pending_awaits;
+        uint32_t has_atomic_only = 0;
+        uint64_t total_tl_sig = 0;
+        uint32_t issue_tid_lo = 0xFFFF'FFFF;
+        qual_bits_t initial_qual_bit = 0;
+
+        const nodepool::id<TlSigIntervalListNode>* p_id = &vis_record.visibility_set;
+        while (*p_id) {
+            const TlSigIntervalListNode& node = get(*p_id);
+            const TlSigInterval tl_sigs = node.data;
+            p_id = &node.camspork_next_id;
+            const bool tl_sigs_atomic_only = tl_sigs.is_atomic_only();
+            has_atomic_only |= tl_sigs_atomic_only;
+            total_tl_sig += tl_sigs.num_non_atomic_timeline_signatures();
+            if (const auto q_tmp = tl_sigs.qual_bits_by_vis.array[vis_flag_index_issue]) {
+                initial_qual_bit = q_tmp;
+                issue_tid_lo = std::min(issue_tid_lo, tl_sigs.tid_lo);
             }
         }
-        CAMSPORK_REQUIRE_CMP(key.tid_hi, !=, 0, "unsupported: empty interval");  // akeley98/camspork_0_threads
-        return key;
+
+        uint64_t hash = 0;
+        float tl_sig_fp32 = float(total_tl_sig);
+        uint32_t tl_sig_fp32_bits;
+        memcpy(&tl_sig_fp32_bits, &tl_sig_fp32, 4);
+        hash |= uint64_t(tl_sig_fp32_bits) << 31;
+        hash |= has_pending_await << 30;
+        hash |= has_atomic_only << 29;
+        hash |= (issue_tid_lo & 0x1FFFF) << 12;
+        hash |= make_bucket_key(initial_qual_bit, issue_tid_lo);
+        static_assert(num_buckets == (1 << 11) + 1);  // 12th bit needed for the extra initial_qual_bit = 0 bucket.
+
+        return hash;
     }
+
+    static uint32_t bucket_key_from_hash(uint64_t hash)
+    {
+        static_assert(num_buckets == (1 << 11) + 1);
+        return uint32_t(hash & ((1 << 12) - 1));
+    }
+
+
 
     // "Remove forwarding"; replace ID of forwarded visibility record
     // with ID of base visibility record that the original record forwarded to.
@@ -1255,13 +1166,6 @@ struct SyncvTable
     }
 
 
-    enum class BucketProcessType
-    {
-        Find = 0,
-        Insert = 1,
-        MapAll = 2,
-    };
-
     // Skeleton code for modifying the memoization table, while maintaining
     // internal consistency.
     // This is based on this function being available
@@ -1269,180 +1173,66 @@ struct SyncvTable
     //     this->process_bucket(nodepool::id<VisRecordListNode<IsMutate>>*, Command)
     //
     // which may modify or delete the bucket (linked list) that has been passed.
-    //
-    // Only buckets that intersect the minimal_superset are processed.
-    // Furthermore, if the operation is "exact", only the smallest bucket
-    // containing the minimal_superset is processed.
-    //
-    // The operation details depend on BucketProcessType:
-    //
-    // Find: exact; callback skipped if bucket empty.
-    //   Returns ID given by process_bucket.
-    //
-    // Insert: exact; create and process new empty child bucket if needed.
-    //   Returns ID given by process_bucket.
-    //
-    // MapAll: not exact; returns 0 ID.
-    //   We process smaller buckets after larger buckets, on the assumption
-    //   that process_bucket may move items from smaller to larger buckets
-    //   (so we need to avoid double-processing). This is a subtle thing to
-    //   account for if we modify the bucketing scheme.
-    //   TODO: is this reasoning correct?
-    template <bool IsMutate, BucketProcessType Type, typename Command>
-    nodepool::id<VisRecordListNode<IsMutate>> for_buckets(TlSigBucketKey minimal_superset, Command&& command)
+    // The linked list must be sorted by memoize_hash_bits.
+    // Only the buckets in range [bucket_index, bucket_index + bucket_count - 1] are processed.
+    template <bool IsMutate, typename Command>
+    void for_buckets(uint32_t bucket_index, uint32_t bucket_count, Command&& command)
     {
+        CAMSPORK_REQUIRE_CMP(bucket_index, <, num_buckets, "bucket_index out-of-range");
+        CAMSPORK_REQUIRE_CMP(bucket_index + bucket_count, <=, num_buckets, "bucket_count out-of-range");
+        nodepool::id<VisRecordListNode<IsMutate>>* p_buckets;
         if constexpr (IsMutate) {
-            return this->for_buckets_impl<Type>(&mutate_top_level_bucket,
-                                                minimal_superset.tid_lo,
-                                                minimal_superset.tid_hi, command);
+            p_buckets = &mutate_table_buckets[bucket_index];
         }
         else {
-            return this->for_buckets_impl<Type>(&read_top_level_bucket,
-                                                minimal_superset.tid_lo,
-                                                minimal_superset.tid_hi, command);
+            p_buckets = &read_table_buckets[bucket_index];
+        }
+        for (uint32_t i = 0; i < bucket_count; ++i) {
+            this->process_bucket(p_buckets + i, command);
         }
     }
 
-    template <BucketProcessType Type, uint32_t BucketLevel, typename Command, bool IsMutate>
-    nodepool::id<VisRecordListNode<IsMutate>> for_buckets_impl(
-            IntervalBucket<IsMutate, BucketLevel>* p_bucket,
-            int64_t relative_tid_lo,
-            int64_t relative_tid_hi,
-            Command&& command)
+    // Variation of for_buckets that only inspects one bucket and returns the command output.
+    template <bool IsMutate, typename Command>
+    auto for_single_bucket(uint32_t bucket_index, Command&& command)
     {
-        if constexpr (Type != BucketProcessType::Insert && BucketLevel < bucket_level_count - 1) {
-            CAMSPORK_REQUIRE(!interval_bucket_is_empty(*p_bucket), "Left behind empty bucket that should have been de-allocated.");
+        CAMSPORK_REQUIRE_CMP(bucket_index, <, num_buckets, "bucket_index out-of-range");
+        nodepool::id<VisRecordListNode<IsMutate>>* p_buckets;
+        if constexpr (IsMutate) {
+            p_buckets = &mutate_table_buckets[bucket_index];
         }
-
-        CAMSPORK_REQUIRE_CMP(relative_tid_lo, <, relative_tid_hi, "Input interval needs to be non-empty");
-        constexpr bool ExactType = Type != BucketProcessType::MapAll;
-        nodepool::id<VisRecordListNode<IsMutate>> result_id{};
-
-        // Calculate inclusive range of child buckets that intersect the input interval.
-        constexpr uint32_t child_size{bucket_level_size<BucketLevel - 1>};
-        const uint32_t child_min_index = relative_tid_lo < 0 ? 0u : uint32_t(relative_tid_lo) / child_size;
-        const uint32_t child_max_index = std::min(uint32_t(relative_tid_hi - 1) / child_size,
-                                                  uint32_t(p_bucket->child_count - 1));
-
-        auto visit_child = [this, p_bucket, relative_tid_lo, relative_tid_hi, &command] (uint32_t child_index)
-        {
-            nodepool::id<VisRecordListNode<IsMutate>> lambda_result_id = {};
-            CAMSPORK_REQUIRE_CMP(child_index, <, p_bucket->child_count, "out-of-range child_index");
-            auto& child_ref = p_bucket->child_interval_buckets[child_index];
-
-            if (!child_ref && Type != BucketProcessType::Insert) {
-                // Skip empty bucket if not inserting.
-                return lambda_result_id;
-            }
-
-            try {
-                if (!child_ref && Type == BucketProcessType::Insert) {
-                    // Speculate that the child bucket will be filled.
-                    // We will undo this later if wrong.
-                    static_assert(p_bucket->child_count <= 64);
-                    p_bucket->nonempty_child_flags |= uint64_t(1) << child_index;
-
-                    if constexpr (BucketLevel != 1) {
-                        // Create child interval bucket (unique_ptr).
-                        child_ref.reset(new IntervalBucket<IsMutate, BucketLevel - 1>);
-                        child_ref->p_parent = p_bucket;
-                        child_ref->child_index_in_parent = child_index;
-                    }
-                    else {
-                        // Bottom-level interval bucket is just a node list.
-                    }
-                }
-
-                // Process the child bucket.
-                // This may result in child_ref being nulled out.
-                if constexpr (BucketLevel == 1) {
-                    if constexpr (ExactType) {
-                        lambda_result_id = this->process_bucket(&child_ref, command);
-                    }
-                    else {
-                        this->process_bucket(&child_ref, command);
-                    }
-                }
-                else {
-                    const uint64_t offset = child_index * child_size;
-                    lambda_result_id = this->for_buckets_impl<Type>(child_ref.get(),
-                                                                    relative_tid_lo - offset, relative_tid_hi - offset,
-                                                                    command);
-                }
-            }
-            catch (...) {
-                if (!child_ref) {
-                    CAMSPORK_REQUIRE_CMP(p_bucket->nonempty_child_flags, >, 0, "should have been deleted");
-                    static_assert(p_bucket->child_count <= 64);
-                    p_bucket->nonempty_child_flags &= ~(uint64_t(1) << child_index);
-                }
-                throw;
-            }
-
-            // Child bucket may have been deallocated for being empty.
-            // Note, flags used to be count, this failed because it wasn't re-entrant.
-            if (!child_ref) {
-                CAMSPORK_REQUIRE_CMP(p_bucket->nonempty_child_flags, >, 0, "should have been deleted");
-                static_assert(p_bucket->child_count <= 64);
-                p_bucket->nonempty_child_flags &= ~(uint64_t(1) << child_index);
-            }
-            return lambda_result_id;
-        };
-
-        try {
-            p_bucket->visitor_count++;
-
-            if constexpr (ExactType) {
-                if (child_min_index == child_max_index) {
-                    // tid interval fits in child bucket; visit it.
-                    result_id = visit_child(child_min_index);
-                }
-                else if (Type == BucketProcessType::Insert || p_bucket->bucket) {
-                    // tid interval doesn't fit in child, so the current bucket is the correct (exact) one.
-                    result_id = this->process_bucket(&p_bucket->bucket, command);
-                }
-            }
-            else {
-                // Non-exact; we process smaller (child) buckets after larger (this level's) buckets.
-                if (p_bucket->bucket) {
-                    this->process_bucket(&p_bucket->bucket, command);
-                }
-                for (uint32_t child_index = child_min_index; child_index <= child_max_index; ++child_index) {
-                    visit_child(child_index);
-                }
-            }
+        else {
+            p_buckets = &read_table_buckets[bucket_index];
         }
-        catch (...) {
-            // For the most part, I don't care for exception safety in this code
-            // but I make a defensive exception here.
-            p_bucket->visitor_count--;
-            delete_interval_bucket_if_empty(p_bucket);
-            throw;
-        }
-
-        p_bucket->visitor_count--;
-        delete_interval_bucket_if_empty(p_bucket);
-        return result_id;
+        return this->process_bucket(p_buckets, command);
     }
 
-    // Find visibility record in memoization bucket for which lambda(const VisRecord&) returns true.
+    // Find visibility record in memoization bucket that is equal to match_node.
     // Returns pointer to ID of record found (non-owning), or null if not found.
-    template <bool IsMutate, typename Lambda>
+    template <bool IsMutate>
     nodepool::id<VisRecordListNode<IsMutate>>* bucket_search(
             nodepool::id<VisRecordListNode<IsMutate>>* p_bucket_head,
-            Lambda&& lambda)
+            const VisRecordListNode<IsMutate>& match_node)
     {
         bucket_search_call_counter++;
         using node_id = nodepool::id<VisRecordListNode<IsMutate>>;
         node_id* p_id = p_bucket_head;
+        uint64_t last_hash_bits = 0;
 
         for (node_id id; (id = *p_id); ) {
             bucket_search_iter_counter++;
             VisRecordListNode<IsMutate>& node = get(id);
             CAMSPORK_REQUIRE(!node.is_forwarded(), "Should not be in memoization table.");
 
-            if (lambda(node.base_data)) {
+            if (equal(node.base_data, match_node.base_data)) {
                 return p_id;
+            }
+
+            // Relying on sorted-ness to exit early.
+            CAMSPORK_REQUIRE_CMP(node.base_data.memoize_hash_bits, >=, last_hash_bits, "Not sorted by hash");
+            last_hash_bits = node.base_data.memoize_hash_bits;
+            if (last_hash_bits > match_node.base_data.memoize_hash_bits) {
+                break;
             }
 
             p_id = &node.camspork_next_id;
@@ -1495,8 +1285,8 @@ struct SyncvTable
         CAMSPORK_REQUIRE(!p_node->is_forwarded(), "forwarding state VisRecord would not be memoized");
 
         RemoveMemoizedCommand<IsMutate> command{p_node};
-        auto bucket_key = minimal_superset_interval(p_node->base_data.visibility_set);
-        return for_buckets<IsMutate, BucketProcessType::Find>(bucket_key, command);
+        auto bucket_key = bucket_key_from_hash(p_node->base_data.memoize_hash_bits);
+        return for_single_bucket<IsMutate>(bucket_key, command);
     }
 
     // Find and remove node in bucket.
@@ -1504,10 +1294,7 @@ struct SyncvTable
     nodepool::id<VisRecordListNode<IsMutate>> process_bucket(nodepool::id<VisRecordListNode<IsMutate>>* p_bucket_head,
                                                              RemoveMemoizedCommand<IsMutate> command)
     {
-        auto lambda = [this, command] (const VisRecord& record) {
-            return equal(record, command.p_node->base_data);
-        };
-        nodepool::id<VisRecordListNode<IsMutate>>* p_id = bucket_search(p_bucket_head, lambda);
+        nodepool::id<VisRecordListNode<IsMutate>>* p_id = bucket_search(p_bucket_head, *command.p_node);
         if (p_id) {
             return remove_next_node(p_id);
         }
@@ -1529,8 +1316,8 @@ struct SyncvTable
         CAMSPORK_REQUIRE(!p_node->is_forwarded(), "forwarding state VisRecord would not be memoized");
 
         FindMemoizedCommand<IsMutate> command{p_node};
-        auto bucket_key = minimal_superset_interval(p_node->base_data.visibility_set);
-        return const_cast<SyncvTable*>(this)->for_buckets<IsMutate, BucketProcessType::Find>(bucket_key, command);
+        const auto bucket_key = bucket_key_from_hash(p_node->base_data.memoize_hash_bits);
+        return const_cast<SyncvTable*>(this)->for_single_bucket<IsMutate>(bucket_key, command);
     }
 
     template <bool IsMutate>
@@ -1538,10 +1325,7 @@ struct SyncvTable
             nodepool::id<VisRecordListNode<IsMutate>>* p_bucket_head,
             FindMemoizedCommand<IsMutate> command)
     {
-        auto lambda = [this, command] (const VisRecord& record) {
-            return equal(record, command.p_node->base_data);
-        };
-        nodepool::id<VisRecordListNode<IsMutate>>* p_id = bucket_search(p_bucket_head, lambda);
+        nodepool::id<VisRecordListNode<IsMutate>>* p_id = bucket_search(p_bucket_head, *command.p_node);
         if (p_id) {
             return *p_id;
         }
@@ -1560,6 +1344,7 @@ struct SyncvTable
     //   * Add it to the memoization table, if it's unique. Return itself.
     //   * Put it in the forwarding state (discard existing state) and forward to equal already-memoized record.
     //     Return ID of memoized record.
+    // This initializes VisRecord::memoize_hash_bits, as specified by the documentation for that data member.
     template <bool IsMutate>
     nodepool::id<VisRecordListNode<IsMutate>> memoize_or_forward(nodepool::id<VisRecordListNode<IsMutate>> id)
     {
@@ -1569,9 +1354,12 @@ struct SyncvTable
         CAMSPORK_REQUIRE(!node.is_forwarded(), "should not already be forwarded");
         CAMSPORK_REQUIRE(!node.camspork_next_id, "shouldn't be in any linked list (memoization bucket or forwarded?)");
 
+        const auto hash = vis_record_hash_bits(node.base_data);
+        node.base_data.memoize_hash_bits = hash;  // No way to silence stupid bitfield truncation warning!
+
         MemoizeOrForwardCommand<IsMutate> command{id};
-        auto bucket_key = minimal_superset_interval(node.base_data.visibility_set);
-        return for_buckets<IsMutate, BucketProcessType::Insert>(bucket_key, command);
+        auto bucket_key = bucket_key_from_hash(hash);
+        return for_single_bucket<IsMutate>(bucket_key, command);
     }
 
     template <bool IsMutate>
@@ -1580,13 +1368,8 @@ struct SyncvTable
             MemoizeOrForwardCommand<IsMutate> command)
     {
         VisRecordListNode<IsMutate>& input_node = get(command.input_id);
-        VisRecord input_vis_record = input_node.base_data;
 
-        auto lambda = [this, input_vis_record] (const VisRecord& record) {
-            return equal(record, input_vis_record);
-        };
-
-        nodepool::id<VisRecordListNode<IsMutate>>* p_id = bucket_search(p_bucket_head, lambda);
+        nodepool::id<VisRecordListNode<IsMutate>>* p_id = bucket_search(p_bucket_head, input_node);
         if (p_id) {
             // If equivalent memoized node found in bucket, forward input node to it.
             const nodepool::id fwd_id = *p_id;
@@ -1602,9 +1385,16 @@ struct SyncvTable
         }
         else {
             // Insert input node to memoization bucket. No refcnt changes needed for memoization.
-            // IMPORTANT: this memoization is at the start of the bucket. This means if the caller of this function
-            // is processing this bucket, the caller probably won't encounter this node. See process_buckets_for_sync.
-            insert_next_node(p_bucket_head, command.input_id);
+            // Must maintain sorted order. Somewhat wasteful we don't fuse this with bucket_search.
+            auto* p_insert = p_bucket_head;
+            while (*p_insert) {
+                VisRecordListNode<IsMutate>& node = get(*p_insert);
+                if (node.base_data.memoize_hash_bits > input_node.base_data.memoize_hash_bits) {
+                    break;
+                }
+                p_insert = &node.camspork_next_id;
+            }
+            insert_next_node(p_insert, command.input_id);
             return command.input_id;
         }
 
@@ -1625,9 +1415,9 @@ struct SyncvTable
                 {
                     QualBitsByVis q_by_vis{};
                     const auto q_temporal = L2_temporal_qual_bits;
-                    q_by_vis.array[get_low_bit_index(vis_flag_atomic_only)] = q_temporal;
-                    q_by_vis.array[get_low_bit_index(vis_flag_temporal)] = q_temporal;
-                    q_by_vis.array[get_low_bit_index(vis_flag_full)] = L2_full_qual_bits;
+                    q_by_vis.array[vis_flag_index_atomic_only] = q_temporal;
+                    q_by_vis.array[vis_flag_index_temporal] = q_temporal;
+                    q_by_vis.array[vis_flag_index_full] = L2_full_qual_bits;
                     env.union_tl_sig_interval(&node.base_data, TlSigInterval{tid_lo, tid_hi, q_by_vis});
                 }
             );
@@ -1812,66 +1602,44 @@ struct SyncvTable
     template <typename Command>
     void update_vis_records_for_sync_impl(Command&& command)
     {
-        // Only records with unordered visibility sets that intersect the first visibility set (V1)
-        // can be updated by this sync. TODO this vocabulary will change.
-        const TlSigBucketKey minimal_superset = command.p_cuboid->minimal_superset_interval();
-        for_buckets<false, BucketProcessType::MapAll>(minimal_superset, command);
-        for_buckets<true, BucketProcessType::MapAll>(minimal_superset, command);
+        if (command.transitive) {
+            for_buckets<false>(transitive_bucket_key(), transitive_bucket_count(), command);
+            for_buckets<true>(transitive_bucket_key(), transitive_bucket_count(), command);
+        }
+        else {
+            uint32_t qual_bits = command.L1_qual_bits;
+            while (qual_bits) {
+                uint8_t qual_tl = pop_low_bit_index(&qual_bits);
+                for_buckets<false>(non_transitive_bucket_key(qual_tl), non_transitive_bucket_count(qual_tl), command);
+                for_buckets<true>(non_transitive_bucket_key(qual_tl), non_transitive_bucket_count(qual_tl), command);
+            }
+        }
     }
 
     template <bool IsMutate, typename Command>
     void process_bucket_for_sync_impl(nodepool::id<VisRecordListNode<IsMutate>>* p_bucket_head, Command&& command)
     {
-        // The bucket update process for handling the effects of synchronization on visibility records is quite
-        // risky actually. When we modify a visibility record, we temporarily remove it from the memoization bucket,
-        // modify it, then attempt to re-insert it. This is fundamentally needed since the modification may
-        // cause a duplicate to be created, or a node to be in the wrong bucket.
-        //
-        // However, this re-insertion may cause the memoization table to be modified unexpectedly.
-        // We have to be very careful when traversing the bucket's linked list, and this also explains
-        // the IntervalBucket::visitor_count value, if it still exists; (see for_buckets_impl).
-        //
+        // To avoid risky in-place modification, We move the whole bucket to the side and reset the bucket to empty.
+        // After modifying each node in the side bucket, we attempt to re-insert it.
         // Note, everything will be left in an inconsistent state in case an exception is thrown.
-
         using node_id = nodepool::id<VisRecordListNode<IsMutate>>;
-        node_id* p_id = p_bucket_head;
+        node_id side_bucket = *p_bucket_head;
+        *p_bucket_head = {};
 
-        // This might be really confusing. p_id is a pointer to a node ID.
-        // It could be a pointer to the bucket (itself the ID of the head of the bucket node list) or it
-        // could be the pointer to the camspork_next_id member of the PREVIOUS node (relative to current_node).
-        while (node_id current_node_id = *p_id) {
-            // Now temporarily remove the current node from the bucket linked list.
-            // ("next_node" reflects the "pointer to previous node" viewpoint explained above).
-            // *p_id will now be the ID of the node that formerly was after current_node, which (if not ID = 0)
-            // is the node that we should process on the next iteration.
-            const node_id modified_id = remove_next_node(p_id);
+        while (side_bucket) {
+            const node_id modified_id = remove_next_node(&side_bucket);
             VisRecordListNode<IsMutate>& current_node = get(modified_id);
             CAMSPORK_REQUIRE(!current_node.camspork_next_id, "Should have been removed from list.");
             CAMSPORK_REQUIRE(!current_node.is_forwarded(), "forwarding state memoized?");
 
             // Update the visibility record stored in the node.
             const bool syncs = command.update_for_sync(*this, modified_id);
-            CAMSPORK_REQUIRE_CMP(p_id, !=, &current_node.camspork_next_id, "something happened");
 
             // This is where the node might get re-inserted to the memoization table.
-            // *p_id might change value here again, but it's guaranteed p_id doesn't point inside &current_node.
-            const auto new_node_id = memoize_or_forward(current_node_id);
+            const auto new_node_id = memoize_or_forward(modified_id);
             const bool debug_printf = command.enable_debug_printf;
             if (syncs) {
-                command.logger.history_vis_record_change(*this, current_node_id, new_node_id, debug_printf);
-            }
-
-            // This part is dicey. We removed the node from the memoization table, then possibly re-inserted it,
-            // either into another bucket, or at the head of this bucket. See the weird assert below.
-            // Also see process_bucket(, MemoizeOrForwardCommand).
-            // It's possible we re-inserted exactly into its old place, so we need to do some special logic
-            // to avoid getting stuck in an infinite loop.
-            if (*p_id == current_node_id) {
-                // I'm fairly sure this is the only reason this branch should happen, due to how we insert nodes
-                // only at the head of buckets. If this assert goes off, the code may still be correct;
-                // this is just a warning-to-self to check that my mental model is correct.
-                CAMSPORK_REQUIRE_CMP(p_id, ==, p_bucket_head, "see source code note above");
-                p_id = &get(current_node_id).camspork_next_id;
+                command.logger.history_vis_record_change(*this, modified_id, new_node_id, debug_printf);
             }
         }
     }
@@ -1880,7 +1648,6 @@ struct SyncvTable
     template <typename Logger>
     void update_vis_records_for_fence(const ThreadCuboid& cuboid, const SyncvFence& fence, Logger& logger)
     {
-        // Augment V_A, V_U, and V_O.
         FenceUpdateCommand<Logger> command{
                 &cuboid, fence.transitive, fence.L1_qual_bits,
                 fence.L2_full_qual_bits, fence.L2_temporal_qual_bits, logger};
@@ -2361,8 +2128,7 @@ struct SyncvTable
         // Importantly, we are clearing this flag for base-state VisRecord, not forwarded ones.
         for (node_id id = *p_list_head; id; ) {
             AssignmentRecordVisNode<IsMutate>& node = get(id);
-            uint8_t& is_duplicate = remove_forwarding(&node.vis_record_id).tmp_is_duplicate;
-            is_duplicate = 0;
+            remove_forwarding(&node.vis_record_id).tmp_is_duplicate = 0;
             id = node.camspork_next_id;
         }
 
@@ -2372,9 +2138,8 @@ struct SyncvTable
             AssignmentRecordVisNode<IsMutate>& next_node = get(next_id);
             VisRecordListNode<IsMutate>& vis_record_node = get(next_node.vis_record_id);
             CAMSPORK_REQUIRE(!vis_record_node.is_forwarded(), "should have resolved forwarding above");
-            uint8_t& is_duplicate = vis_record_node.base_data.tmp_is_duplicate;
 
-            if (is_duplicate) {
+            if (vis_record_node.base_data.tmp_is_duplicate) {
                 // Duplicate, remove next node from list (decrements refcount for duplicated vis record).
                 // This causes (next_id = *p_read_id) to change, so we don't have to update p_read_id.
                 // i.e. since we removed the next node, we're ready to process a new next node next iteration.
@@ -2386,7 +2151,7 @@ struct SyncvTable
             }
             else {
                 // If next node survives, remember the visibility set ID and move on.
-                is_duplicate = 1;
+                vis_record_node.base_data.tmp_is_duplicate = 1;
                 p_read_id = &get(next_id).camspork_next_id;
             }
         }
@@ -2688,53 +2453,29 @@ struct SyncvTable
         // A VisRecord should be in the memoization table iff it's alive and in the base state.
 
         // (VisRecord in memoization table -> alive and in base state)
-        // We also check that no empty IntervalBucket(s) left behind (besides the top level bucket)
-        // and that the tree state is consistent (correct back pointer to parent, correct non-empty child counts).
-        auto validate_bucket_linked_list = [this] (auto id)
+        // Also check correct hash keys and bucket sorting.
+
+        auto validate_bucket_linked_list = [this] (auto id, uint32_t bucket_key)
         {
+            uint64_t last_hash_bits = 0;
             while (id) {
                 // VisRecordListNode<IsMutate>
                 const auto& node = get(id);
+                const auto expect_hash_bits = vis_record_hash_bits(node.base_data);
                 CAMSPORK_REQUIRE_CMP(node.refcnt, !=, 0, "all memoized VisRecord should have nonzero refcnt");
                 CAMSPORK_REQUIRE(!node.is_forwarded(), "forwarding state VisRecord should not be memoized");
+                CAMSPORK_REQUIRE_CMP(node.base_data.memoize_hash_bits, ==, expect_hash_bits, "wrong hash");
+                CAMSPORK_REQUIRE_CMP(bucket_key_from_hash(expect_hash_bits), ==, bucket_key, "wrong bucket");
+                CAMSPORK_REQUIRE_CMP(last_hash_bits, <=, expect_hash_bits, "Not sorted");
+                last_hash_bits = expect_hash_bits;
                 id = node.camspork_next_id;
             }
         };
 
-        auto validate_child_buckets = [this, validate_bucket_linked_list] (const auto& bucket, auto validate)
-        {
-            CAMSPORK_REQUIRE_CMP(bucket.visitor_count, ==, 0, "Should always be 0 outside for_buckets<...>(...) otherwise the bucket is immortal.");
-            uint64_t real_nonempty_child_flags = 0;
-
-            for (uint32_t child_index = 0; child_index < bucket.child_count; ++child_index) {
-                const auto& child_bucket_id_or_ptr = bucket.child_interval_buckets[child_index];
-                if (child_bucket_id_or_ptr) {
-                    CAMSPORK_REQUIRE_CMP(child_index, <, 64, "need to use more than 64 bit flags");
-                    real_nonempty_child_flags |= uint64_t(1) << child_index;
-                }
-                if constexpr (bucket.bucket_level != 1) {
-                    if (child_bucket_id_or_ptr) {
-                        auto& child_bucket = *child_bucket_id_or_ptr;
-                        CAMSPORK_REQUIRE_CMP(child_bucket.p_parent, ==, &bucket, "wrong parent ptr");
-                        CAMSPORK_REQUIRE_CMP(child_bucket.child_index_in_parent, ==, child_index, "wrong child_index");
-                        CAMSPORK_REQUIRE(!interval_bucket_is_empty(child_bucket), "should have been deallocated");
-                        validate(child_bucket, validate);
-                    }
-                }
-                else {
-                    // Level 1 bucket holds level 0 buckets directly (rather than with an extra wrapper
-                    // IntervalBucket<0> structure).
-                    validate_bucket_linked_list(child_bucket_id_or_ptr);
-                }
-            }
-
-            CAMSPORK_REQUIRE_CMP(bucket.nonempty_child_flags, ==, real_nonempty_child_flags, "wrong child flags");
-            validate_bucket_linked_list(bucket.bucket);
-        };
-        validate_child_buckets(read_top_level_bucket, validate_child_buckets);
-        validate_bucket_linked_list(read_top_level_bucket.bucket);
-        validate_child_buckets(mutate_top_level_bucket, validate_child_buckets);
-        validate_bucket_linked_list(mutate_top_level_bucket.bucket);
+        for (uint32_t bucket_key = 0; bucket_key < num_buckets; ++bucket_key) {
+            validate_bucket_linked_list(read_table_buckets[bucket_key], bucket_key);
+            validate_bucket_linked_list(mutate_table_buckets[bucket_key], bucket_key);
+        }
 
 
         // (VisRecord in memoization table <- alive and in base state)
@@ -3138,7 +2879,7 @@ SyncvTable* copy_syncv_table(const SyncvTable* table)
 
 void delete_syncv_table(SyncvTable* table)
 {
-#if 1
+#if 0
     fprintf(stderr, "bucket_search_call_counter = %llu\n", (long long unsigned)table->bucket_search_call_counter);
     fprintf(stderr, "bucket_search_iter_counter = %llu\n", (long long unsigned)table->bucket_search_iter_counter);
     fprintf(stderr, "ratio = %.1f\n",
@@ -3341,15 +3082,6 @@ void debug_get_mutate_vis_record_data(const SyncvTable* table, uint32_t id, VisR
 void debug_validate_state(SyncvTable* table, size_t input_count, const SyncvDebugValidateInput* p_inputs)
 {
     table->debug_validate_state(input_count, p_inputs);
-}
-
-void debug_pre_delete_check(SyncvTable* table)
-{
-    // This could go off due to the user not free-ing their own stuff, which I consider valid
-    // (if suboptimal) usage, since deleting SyncvTable cleans up all physical memory allocations anyway.
-    const bool all_empty = interval_bucket_is_empty(table->read_top_level_bucket)
-            && interval_bucket_is_empty(table->mutate_top_level_bucket);
-    assert(table->failed || all_empty);
 }
 
 

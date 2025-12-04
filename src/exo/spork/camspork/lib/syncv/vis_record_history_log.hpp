@@ -68,7 +68,6 @@ class VisRecordHistoryLog
   public:
     using stmt_id_bits_t = LoggedVisRecordOrigin::stmt_id_bits_t;
     using vis_record_id_t = uint32_t;
-    static constexpr uint32_t num_qual_tl = 32;
 
   private:
     // State passed through to logged values.

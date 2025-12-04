@@ -32,7 +32,7 @@ void stream_sync_stmt_event(Stream& s, VisRecordHistoryLog& log, const LoggedSyn
     }
     if (!is_await) {
         s << "  First qual-tl set:\n";
-        for (uint32_t bit_index = 0; bit_index < log.num_qual_tl; ++bit_index) {
+        for (uint32_t bit_index = 0; bit_index < num_qual_tl; ++bit_index) {
             if (1 & (v.L1_qual_bits >> bit_index)) {
                 s << "               " << log.lazy_get_qual_tl_name(bit_index) << '\n';
             }
@@ -40,7 +40,7 @@ void stream_sync_stmt_event(Stream& s, VisRecordHistoryLog& log, const LoggedSyn
     }
     if (!is_arrive) {
         s << "  Second qual-tl set:\n";
-        for (uint32_t bit_index = 0; bit_index < log.num_qual_tl; ++bit_index) {
+        for (uint32_t bit_index = 0; bit_index < num_qual_tl; ++bit_index) {
             if (1 & (v.L2_full_qual_bits >> bit_index)) {
                 s << "               " << log.lazy_get_qual_tl_name(bit_index) << '\n';
             }
@@ -107,7 +107,7 @@ void stream_vis_record(
         s << "], inclusive, formatted w/ domain ";
         stream_domain(s, cuboid_for_domain);
         s << '\n';
-        for (uint32_t q_bit_index = 0; q_bit_index < log.num_qual_tl; ++q_bit_index) {
+        for (uint32_t q_bit_index = 0; q_bit_index < num_qual_tl; ++q_bit_index) {
             int32_t vis_flags = 0;
             for (int32_t i = 0; i < num_vis_flags; ++i) {
                 if ((t.qual_bits_by_vis.array[i] >> q_bit_index) & 1) {
