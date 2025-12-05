@@ -92,12 +92,18 @@ struct VisRecord
     uint64_t memoize_hash_bits: num_memoize_hash_bits;
 };
 
-// TODO consider removing IsMutate templatization, and separate memoization of read/mutate VisRecord objects.
-// This shouldn't be needed anymore after vis_flag_temporal was added.
-template <bool IsMutate>
+enum class VisRecordKind
+{
+    Default,
+};
+
+// Note, VisRecordKind currently serves no purpose.
+// It used to separately encode VisRecord for Reads and Mutates,
+// but these cases were unified due to the advent of vis_flag_temporal.
+template <VisRecordKind K>
 struct VisRecordListNode
 {
-    static constexpr bool is_mutate = IsMutate;
+    static constexpr VisRecordKind vis_record_kind = K;
 
     // Count of owning references.
     // AssignmentRecord references (and AssignmentRecordVisNode) are owning.
@@ -107,7 +113,7 @@ struct VisRecordListNode
 
     // If in base state, this is the next node in the memoization bucket.
     // If in the forwarding state, this is an owning reference to the forwarded-to visibility record.
-    nodepool::id<VisRecordListNode<IsMutate>> camspork_next_id;
+    nodepool::id<VisRecordListNode<K>> camspork_next_id;
 
     // If the visibility record is in the base state, this is the valid data.
     // If the visibility record is in the forwarding state, the data is that of the record at get(camspork_next_id).
@@ -124,20 +130,19 @@ struct VisRecordListNode
     }
 };
 
-using ReadVisRecordListNode = VisRecordListNode<false>;
-using MutateVisRecordListNode = VisRecordListNode<true>;
+using DefaultVisRecordListNode = VisRecordListNode<VisRecordKind::Default>;
 
-static_assert(sizeof(ReadVisRecordListNode) == 24, "Check that you meant to change this perf-critical struct");
+static_assert(sizeof(DefaultVisRecordListNode) == 24, "Check that you meant to change this perf-critical struct");
 
-template <bool IsMutate>
+template <VisRecordKind K>
 struct AssignmentRecordVisNode
 {
+    static constexpr VisRecordKind vis_record_kind = K;
+
     // Linked list of read/mutate vis records for an assignment record.
     // Don't use the camspork_next_id in the VisRecord itself ... that is for the memoization table's usage.
-    nodepool::id<VisRecordListNode<IsMutate>> vis_record_id;
-    nodepool::id<AssignmentRecordVisNode<IsMutate>> camspork_next_id;
-
-    static constexpr bool is_mutate = IsMutate;
+    nodepool::id<VisRecordListNode<K>> vis_record_id;
+    nodepool::id<AssignmentRecordVisNode<K>> camspork_next_id;
 
     refcnt_t get_refcnt() const
     {
@@ -145,8 +150,7 @@ struct AssignmentRecordVisNode
     }
 };
 
-using AssignmentRecordReadNode = AssignmentRecordVisNode<false>;
-using AssignmentRecordMutateNode = AssignmentRecordVisNode<true>;
+using DefaultAssignmentRecordVisNode = AssignmentRecordVisNode<VisRecordKind::Default>;
 
 // Assignment record: collection of mutate visibility records + collection of read visibility records.
 // This is associated for each position (scalar, or value in a tensor)
@@ -162,10 +166,10 @@ struct AssignmentRecord
 
     // Zero or more mutate visibility records.
     // I think multiple mutate visibility records are needed only for atomics.
-    nodepool::id<AssignmentRecordMutateNode> mutate_vis_records_head_id{0};
+    nodepool::id<DefaultAssignmentRecordVisNode> mutate_vis_records_head_id{0};
 
     // Zero or more read visibility records.
-    nodepool::id<AssignmentRecordReadNode> read_vis_records_head_id{0};
+    nodepool::id<DefaultAssignmentRecordVisNode> read_vis_records_head_id{0};
 
     // See assignment_record_remove_duplicates.
     // This can become a bitfield if we need the space for something else, but I had issues with -Wconversion.
@@ -184,9 +188,8 @@ struct BarrierArriveState
     // A base-state VisRecord is in a list iff the VisRecord has (parent, arrive_count) in its pending_awaits.
     // Forwarding-state VisRecords may be in the lists as well ... ignore them if found.
     //
-    // Re-use of "assignment record" structs is just pragmatic (maybe confusing).
-    nodepool::id<AssignmentRecordMutateNode> mutate_vis_records_head_id{0};
-    nodepool::id<AssignmentRecordReadNode> read_vis_records_head_id{0};
+    // Re-use of "assignment record" struct is just pragmatic (maybe confusing).
+    nodepool::id<DefaultAssignmentRecordVisNode> vis_records_head_id{0};
 };
 
 
@@ -214,15 +217,15 @@ struct history_log_vis_record_id
 {
     VisRecordHistoryLog::vis_record_id_t data;
 
-    template <bool IsMutate>
-    history_log_vis_record_id(nodepool::id<VisRecordListNode<IsMutate>> node_id)
+    template <VisRecordKind K>
+    history_log_vis_record_id(nodepool::id<VisRecordListNode<K>> node_id)
     {
-        // This is weird ... since the node ID namespaces are separate for read (!IsMutate) and mutate VisRecord,
-        // we use the lowest bit to disambiguate. If we stop treating the two as separate types, we can just
-        // pass through the ID directly.
+        // We currently pass through the ID directly.
+        // If multiple VisRecordKind are added, then we have to add some bits to disambiguate.
         static_assert(sizeof(data) == 4);
-        CAMSPORK_REQUIRE_CMP(node_id.id_bits, <=, 0x7FFF'FFFF, "too many node IDs");
-        data = node_id.id_bits << 1 | IsMutate;
+        data = node_id.id_bits;
+        // This used to be: data = node_id.id_bits << 1 | IsMutate;
+        // CAMSPORK_REQUIRE_CMP(node_id.id_bits, <=, 0x7FFF'FFFF, "too many node IDs");
     }
 
     operator VisRecordHistoryLog::vis_record_id_t() const
@@ -235,7 +238,7 @@ struct SyncvTrivialLogger
 {
     template <typename Input, typename VisRecordList>
     void excut_log_assignment_records(
-            const SyncvTable&, Input, const VisRecordList&, ExcutMutateTag)
+            const SyncvTable&, Input, const VisRecordList&, bool)
     {
     }
 
@@ -259,24 +262,24 @@ struct SyncvTrivialLogger
     {
     }
 
-    template <bool IsMutate>
-    void history_new_vis_record(SyncvTable&, nodepool::id<VisRecordListNode<IsMutate>>)
+    template <VisRecordKind K>
+    void history_new_vis_record(SyncvTable&, nodepool::id<VisRecordListNode<K>>)
     {
     }
 
-    template <bool IsMutate>
+    template <VisRecordKind K>
     void history_vis_record_change(
-            SyncvTable&, nodepool::id<VisRecordListNode<IsMutate>>, nodepool::id<VisRecordListNode<IsMutate>>, bool)
+            SyncvTable&, nodepool::id<VisRecordListNode<K>>, nodepool::id<VisRecordListNode<K>>, bool)
     {
     }
 
-    template <bool IsMutate>
-    void history_vis_record_checked(nodepool::id<VisRecordListNode<IsMutate>>)
+    template <VisRecordKind K>
+    void history_vis_record_checked(nodepool::id<VisRecordListNode<K>>, bool)
     {
     }
 
-    template <bool IsMutate>
-    void history_vis_record_error(nodepool::id<VisRecordListNode<IsMutate>>, TlSig)
+    template <VisRecordKind K>
+    void history_vis_record_error(nodepool::id<VisRecordListNode<K>>, TlSig)
     {
     }
 };
@@ -323,10 +326,8 @@ struct SyncvTable
         nodepool::Pool<AssignmentRecord>,
         nodepool::Pool<TlSigIntervalListNode>,
         nodepool::Pool<PendingAwaitNode>,
-        nodepool::Pool<ReadVisRecordListNode>,
-        nodepool::Pool<MutateVisRecordListNode>,
-        nodepool::Pool<AssignmentRecordReadNode>,
-        nodepool::Pool<AssignmentRecordMutateNode>> pool_tuple;
+        nodepool::Pool<DefaultVisRecordListNode>,
+        nodepool::Pool<DefaultAssignmentRecordVisNode>> pool_tuple;
 
     // Barrier state.
     // The Nth bit is 1 if N is allocated as a barrier ID.
@@ -335,8 +336,7 @@ struct SyncvTable
 
     // Memoization table state.
     static constexpr uint32_t num_buckets = 64 * 32 + 1;
-    std::array<nodepool::id<VisRecordListNode<false>>, num_buckets> read_table_buckets = {};
-    std::array<nodepool::id<VisRecordListNode<true>>, num_buckets> mutate_table_buckets = {};
+    std::array<nodepool::id<DefaultVisRecordListNode>, num_buckets> vis_record_table_buckets = {};
 
 
     // *** Memory Pool Allocators; Linked List Manipulation ***
@@ -451,10 +451,10 @@ struct SyncvTable
     }
 
     // Increment reference count of visibility record.
-    template <bool IsMutate>
-    void incref(nodepool::id<VisRecordListNode<IsMutate>> id, uint32_t added_refcnt = 1)
+    template <VisRecordKind K>
+    void incref(nodepool::id<VisRecordListNode<K>> id, uint32_t added_refcnt = 1)
     {
-        VisRecordListNode<IsMutate>& node = get(id);
+        VisRecordListNode<K>& node = get(id);
         CAMSPORK_REQUIRE_CMP(node.refcnt, !=, 0, "should not have started with 0 refcnt");
         node.refcnt += added_refcnt;
         CAMSPORK_REQUIRE_CMP(node.refcnt, >, added_refcnt, "reference count overflow");
@@ -464,11 +464,11 @@ struct SyncvTable
     // and handle necessary free-ing in case of 0 refcnt.
     // NB this is not used in memoize_new_vis_record, since we assert here that the deleted VisRecord
     // is memoized, which isn't the case there. This check is lifesaving for sanity in other cases!
-    template <bool IsMutate>
-    void decref(nodepool::id<VisRecordListNode<IsMutate>> id)
+    template <VisRecordKind K>
+    void decref(nodepool::id<VisRecordListNode<K>> id)
     {
         CAMSPORK_REQUIRE(id, "decref(0)");
-        VisRecordListNode<IsMutate>& node = get(id);
+        VisRecordListNode<K>& node = get(id);
         if (0 == --node.refcnt) {
             if (node.is_forwarded()) {
                 // Add physical storage of victim visibility record to free chain,
@@ -498,25 +498,25 @@ struct SyncvTable
         p_data->memoize_hash_bits = 0;
     }
 
-    template <bool IsMutate>
-    void free_single_vis_record(nodepool::id<VisRecordListNode<IsMutate>> id)
+    template <VisRecordKind K>
+    void free_single_vis_record(nodepool::id<VisRecordListNode<K>> id)
     {
         CAMSPORK_REQUIRE(id, "unexpected 0 id");
-        VisRecordListNode<IsMutate>& node = get(id);
+        VisRecordListNode<K>& node = get(id);
         CAMSPORK_REQUIRE_CMP(node.refcnt, ==, 0, "unexpected nonzero refcnt");
         reset_vis_record_data(&node.base_data);
         node.camspork_next_id = {};  // Avoid freeing entire list.
         extend_free_list(id);
     }
 
-    template <bool IsMutate>
-    void assignment_record_remove_vis_records(nodepool::id<AssignmentRecordVisNode<IsMutate>>* p_head_id)
+    template <VisRecordKind K>
+    void assignment_record_remove_vis_records(nodepool::id<AssignmentRecordVisNode<K>>* p_head_id)
     {
         // Decref visibility records
         const auto head_id = *p_head_id;
         auto id = head_id;
         while (id) {
-            AssignmentRecordVisNode<IsMutate>& node = get(id);
+            AssignmentRecordVisNode<K>& node = get(id);
             decref(node.vis_record_id);
             id = node.camspork_next_id;
         }
@@ -544,12 +544,12 @@ struct SyncvTable
 
     // Allocate a new visibility record.
     // This will later need to be added to the memoization table.
-    template <bool IsMutate, typename ThreadInit>
-    VisRecordListNode<IsMutate>& alloc_vis_record(
-            const ThreadInit& thread_init, SyncvAccessInfo access, nodepool::id<VisRecordListNode<IsMutate>>* out)
+    template <VisRecordKind K, typename ThreadInit>
+    VisRecordListNode<K>& alloc_vis_record(
+            const ThreadInit& thread_init, SyncvAccessInfo access, nodepool::id<VisRecordListNode<K>>* out)
     {
-        nodepool::id<VisRecordListNode<IsMutate>> vis_record_id;
-        VisRecordListNode<IsMutate>& vis_record = alloc_default_node(&vis_record_id);
+        nodepool::id<VisRecordListNode<K>> vis_record_id;
+        VisRecordListNode<K>& vis_record = alloc_default_node(&vis_record_id);
         vis_record.refcnt = 1;
         vis_record.base_data.forwarded_flag = 0;
         vis_record.base_data.visibility_set = {};
@@ -1112,13 +1112,13 @@ struct SyncvTable
     // with ID of base visibility record that the original record forwarded to.
     // Assumes the given ID is intended as an owning ID.
     // Return record data.
-    template <bool IsMutate>
-    VisRecord& remove_forwarding(nodepool::id<VisRecordListNode<IsMutate>>* p_id)
+    template <VisRecordKind K>
+    VisRecord& remove_forwarding(nodepool::id<VisRecordListNode<K>>* p_id)
     {
-        const nodepool::id<VisRecordListNode<IsMutate>> old_id = *p_id;
-        nodepool::id<VisRecordListNode<IsMutate>> id = old_id;
+        const nodepool::id<VisRecordListNode<K>> old_id = *p_id;
+        nodepool::id<VisRecordListNode<K>> id = old_id;
         CAMSPORK_REQUIRE(id, "null input to remove_forwarding");
-        VisRecordListNode<IsMutate>* p_node = &get(id);
+        VisRecordListNode<K>* p_node = &get(id);
         CAMSPORK_REQUIRE_CMP(p_node->refcnt, !=, 0, "unexpected 0 refcnt");
 
         if (!p_node->is_forwarded()) {
@@ -1143,13 +1143,13 @@ struct SyncvTable
 
     // Like remove_forwarding but non-destructive, i.e., don't actually replace the ID of a forwarding visibility
     // record with that of the forwarded-to base visibility record.
-    template <bool IsMutate>
+    template <VisRecordKind K>
     VisRecord const_resolve_forwarding(
-            nodepool::id<VisRecordListNode<IsMutate>> id,
-            nodepool::id<VisRecordListNode<IsMutate>>* p_out_id=nullptr) const
+            nodepool::id<VisRecordListNode<K>> id,
+            nodepool::id<VisRecordListNode<K>>* p_out_id=nullptr) const
     {
         CAMSPORK_REQUIRE(id, "null input to const_resolve_forwarding");
-        const VisRecordListNode<IsMutate>* p_node = &get(id);
+        const VisRecordListNode<K>* p_node = &get(id);
         CAMSPORK_REQUIRE_CMP(p_node->refcnt, !=, 0, "unexpected 0 refcnt");
 
         while (p_node->is_forwarded()) {
@@ -1170,40 +1170,28 @@ struct SyncvTable
     // internal consistency.
     // This is based on this function being available
     //
-    //     this->process_bucket(nodepool::id<VisRecordListNode<IsMutate>>*, Command)
+    //     this->process_bucket(nodepool::id<VisRecordListNode<K>>*, Command)
     //
     // which may modify or delete the bucket (linked list) that has been passed.
     // The linked list must be sorted by memoize_hash_bits.
     // Only the buckets in range [bucket_index, bucket_index + bucket_count - 1] are processed.
-    template <bool IsMutate, typename Command>
+    template <VisRecordKind K, typename Command>
     void for_buckets(uint32_t bucket_index, uint32_t bucket_count, Command&& command)
     {
         CAMSPORK_REQUIRE_CMP(bucket_index, <, num_buckets, "bucket_index out-of-range");
         CAMSPORK_REQUIRE_CMP(bucket_index + bucket_count, <=, num_buckets, "bucket_count out-of-range");
-        nodepool::id<VisRecordListNode<IsMutate>>* p_buckets;
-        if constexpr (IsMutate) {
-            p_buckets = &mutate_table_buckets[bucket_index];
-        }
-        else {
-            p_buckets = &read_table_buckets[bucket_index];
-        }
+        nodepool::id<VisRecordListNode<K>>* p_buckets = &vis_record_table_buckets[bucket_index];
         for (uint32_t i = 0; i < bucket_count; ++i) {
             this->process_bucket(p_buckets + i, command);
         }
     }
 
     // Variation of for_buckets that only inspects one bucket and returns the command output.
-    template <bool IsMutate, typename Command>
+    template <VisRecordKind K, typename Command>
     auto for_single_bucket(uint32_t bucket_index, Command&& command)
     {
         CAMSPORK_REQUIRE_CMP(bucket_index, <, num_buckets, "bucket_index out-of-range");
-        nodepool::id<VisRecordListNode<IsMutate>>* p_buckets;
-        if constexpr (IsMutate) {
-            p_buckets = &mutate_table_buckets[bucket_index];
-        }
-        else {
-            p_buckets = &read_table_buckets[bucket_index];
-        }
+        nodepool::id<VisRecordListNode<K>>* p_buckets = &vis_record_table_buckets[bucket_index];
         return this->process_bucket(p_buckets, command);
     }
 
@@ -1211,22 +1199,22 @@ struct SyncvTable
 
     // Find visibility record in memoization bucket that is equal to match_node.
     // Returns pointer to ID of record found (non-owning), or null if not found.
-    template <bool IsMutate>
-    nodepool::id<VisRecordListNode<IsMutate>>* bucket_search(
-            nodepool::id<VisRecordListNode<IsMutate>>* p_bucket_head,
-            const VisRecordListNode<IsMutate>& match_node)
+    template <VisRecordKind K>
+    nodepool::id<VisRecordListNode<K>>* bucket_search(
+            nodepool::id<VisRecordListNode<K>>* p_bucket_head,
+            const VisRecordListNode<K>& match_node)
     {
         bucket_search_call_counter++;
-        using node_id = nodepool::id<VisRecordListNode<IsMutate>>;
+        using node_id = nodepool::id<VisRecordListNode<K>>;
         node_id* p_id = p_bucket_head;
         uint64_t last_hash_bits = 0;
-        nodepool::id<VisRecordListNode<IsMutate>>* p_result = nullptr;
+        nodepool::id<VisRecordListNode<K>>* p_result = nullptr;
         uint32_t debug_iter_count = 0;
 
         for (node_id id; (id = *p_id); ) {
             bucket_search_iter_counter++;
             debug_iter_count++;
-            VisRecordListNode<IsMutate>& node = get(id);
+            VisRecordListNode<K>& node = get(id);
             CAMSPORK_REQUIRE(!node.is_forwarded(), "Should not be in memoization table.");
 
             if (equal(node.base_data, match_node.base_data)) {
@@ -1253,12 +1241,12 @@ struct SyncvTable
     // Add a new visibility record, or return existing memoized one, constructed from the given thread cuboid
     // + qual_bits_by_vis (in TlSigInterval format).
     // The returned ID is an owning reference (ownership count given by added_refcnt).
-    template <bool IsMutate, typename ThreadInit>
-    [[nodiscard]] nodepool::id<VisRecordListNode<IsMutate>> memoize_new_vis_record(
+    template <VisRecordKind K, typename ThreadInit>
+    [[nodiscard]] nodepool::id<VisRecordListNode<K>> memoize_new_vis_record(
             const ThreadInit& thread_init, SyncvAccessInfo access, uint32_t added_refcnt)
     {
-        nodepool::id<VisRecordListNode<IsMutate>> new_vis_id;
-        auto& new_vis = alloc_vis_record<IsMutate>(thread_init, access, &new_vis_id);
+        nodepool::id<VisRecordListNode<K>> new_vis_id;
+        auto& new_vis = alloc_vis_record<K>(thread_init, access, &new_vis_id);
         if (!new_vis.base_data.pending_awaits) {
             CAMSPORK_REQUIRE_CMP(new_vis.refcnt, ==, 1, "expected 1 refcnt initially");
         }
@@ -1279,32 +1267,33 @@ struct SyncvTable
         return result_id;
     }
 
-    template <bool IsMutate>
+    template <VisRecordKind K>
     struct RemoveMemoizedCommand
     {
-        const VisRecordListNode<IsMutate>* p_node;
+        const VisRecordListNode<K>* p_node;
     };
 
     // This removes the given node from the memoization table, but does not decrement the reference count or free it.
     // Recall that the memoization table does not own (reference count) the VisRecords contained.
-    template <bool IsMutate>
-    [[nodiscard]] nodepool::id<VisRecordListNode<IsMutate>> remove_memoized(
-            const VisRecordListNode<IsMutate>* p_node)
+    template <VisRecordKind K>
+    [[nodiscard]] nodepool::id<VisRecordListNode<K>> remove_memoized(
+            const VisRecordListNode<K>* p_node)
     {
         CAMSPORK_REQUIRE(p_node, "unexpected null");
         CAMSPORK_REQUIRE(!p_node->is_forwarded(), "forwarding state VisRecord would not be memoized");
 
-        RemoveMemoizedCommand<IsMutate> command{p_node};
+        RemoveMemoizedCommand<K> command{p_node};
         auto bucket_key = bucket_key_from_hash(p_node->base_data.memoize_hash_bits);
-        return for_single_bucket<IsMutate>(bucket_key, command);
+        return for_single_bucket<K>(bucket_key, command);
     }
 
     // Find and remove node in bucket.
-    template <bool IsMutate>
-    nodepool::id<VisRecordListNode<IsMutate>> process_bucket(nodepool::id<VisRecordListNode<IsMutate>>* p_bucket_head,
-                                                             RemoveMemoizedCommand<IsMutate> command)
+    template <VisRecordKind K>
+    nodepool::id<VisRecordListNode<K>> process_bucket(
+            nodepool::id<VisRecordListNode<K>>* p_bucket_head,
+            RemoveMemoizedCommand<K> command)
     {
-        nodepool::id<VisRecordListNode<IsMutate>>* p_id = bucket_search(p_bucket_head, *command.p_node);
+        nodepool::id<VisRecordListNode<K>>* p_id = bucket_search(p_bucket_head, *command.p_node);
         if (p_id) {
             return remove_next_node(p_id);
         }
@@ -1313,29 +1302,29 @@ struct SyncvTable
         }
     }
 
-    template <bool IsMutate>
+    template <VisRecordKind K>
     struct FindMemoizedCommand
     {
-        const VisRecordListNode<IsMutate>* p_node;
+        const VisRecordListNode<K>* p_node;
     };
 
-    template <bool IsMutate>
-    nodepool::id<VisRecordListNode<IsMutate>> find_memoized(const VisRecordListNode<IsMutate>* p_node) const
+    template <VisRecordKind K>
+    nodepool::id<VisRecordListNode<K>> find_memoized(const VisRecordListNode<K>* p_node) const
     {
         CAMSPORK_REQUIRE(p_node, "unexpected null");
         CAMSPORK_REQUIRE(!p_node->is_forwarded(), "forwarding state VisRecord would not be memoized");
 
-        FindMemoizedCommand<IsMutate> command{p_node};
+        FindMemoizedCommand<K> command{p_node};
         const auto bucket_key = bucket_key_from_hash(p_node->base_data.memoize_hash_bits);
-        return const_cast<SyncvTable*>(this)->for_single_bucket<IsMutate>(bucket_key, command);
+        return const_cast<SyncvTable*>(this)->for_single_bucket<K>(bucket_key, command);
     }
 
-    template <bool IsMutate>
-    nodepool::id<VisRecordListNode<IsMutate>> process_bucket(
-            nodepool::id<VisRecordListNode<IsMutate>>* p_bucket_head,
-            FindMemoizedCommand<IsMutate> command)
+    template <VisRecordKind K>
+    nodepool::id<VisRecordListNode<K>> process_bucket(
+            nodepool::id<VisRecordListNode<K>>* p_bucket_head,
+            FindMemoizedCommand<K> command)
     {
-        nodepool::id<VisRecordListNode<IsMutate>>* p_id = bucket_search(p_bucket_head, *command.p_node);
+        nodepool::id<VisRecordListNode<K>>* p_id = bucket_search(p_bucket_head, *command.p_node);
         if (p_id) {
             return *p_id;
         }
@@ -1344,10 +1333,10 @@ struct SyncvTable
         }
     }
 
-    template <bool IsMutate>
+    template <VisRecordKind K>
     struct MemoizeOrForwardCommand
     {
-        nodepool::id<VisRecordListNode<IsMutate>> input_id;
+        nodepool::id<VisRecordListNode<K>> input_id;
     };
 
     // Given an existing visibility record in the base state that's not in the memoization table, either
@@ -1355,11 +1344,11 @@ struct SyncvTable
     //   * Put it in the forwarding state (discard existing state) and forward to equal already-memoized record.
     //     Return ID of memoized record.
     // This initializes VisRecord::memoize_hash_bits, as specified by the documentation for that data member.
-    template <bool IsMutate>
-    nodepool::id<VisRecordListNode<IsMutate>> memoize_or_forward(nodepool::id<VisRecordListNode<IsMutate>> id)
+    template <VisRecordKind K>
+    nodepool::id<VisRecordListNode<K>> memoize_or_forward(nodepool::id<VisRecordListNode<K>> id)
     {
         CAMSPORK_REQUIRE(id, "unexpected null");
-        VisRecordListNode<IsMutate>& node = get(id);
+        VisRecordListNode<K>& node = get(id);
         CAMSPORK_REQUIRE_CMP(node.refcnt, !=, 0, "should have nonzero refcnt");
         CAMSPORK_REQUIRE(!node.is_forwarded(), "should not already be forwarded");
         CAMSPORK_REQUIRE(!node.camspork_next_id, "shouldn't be in any linked list (memoization bucket or forwarded?)");
@@ -1367,19 +1356,19 @@ struct SyncvTable
         const auto hash = vis_record_hash_bits(node.base_data);
         node.base_data.memoize_hash_bits = hash;  // No way to silence stupid bitfield truncation warning!
 
-        MemoizeOrForwardCommand<IsMutate> command{id};
+        MemoizeOrForwardCommand<K> command{id};
         auto bucket_key = bucket_key_from_hash(hash);
-        return for_single_bucket<IsMutate>(bucket_key, command);
+        return for_single_bucket<K>(bucket_key, command);
     }
 
-    template <bool IsMutate>
-    nodepool::id<VisRecordListNode<IsMutate>> process_bucket(
-            nodepool::id<VisRecordListNode<IsMutate>>* p_bucket_head,
-            MemoizeOrForwardCommand<IsMutate> command)
+    template <VisRecordKind K>
+    nodepool::id<VisRecordListNode<K>> process_bucket(
+            nodepool::id<VisRecordListNode<K>>* p_bucket_head,
+            MemoizeOrForwardCommand<K> command)
     {
-        VisRecordListNode<IsMutate>& input_node = get(command.input_id);
+        VisRecordListNode<K>& input_node = get(command.input_id);
 
-        nodepool::id<VisRecordListNode<IsMutate>>* p_id = bucket_search(p_bucket_head, input_node);
+        nodepool::id<VisRecordListNode<K>>* p_id = bucket_search(p_bucket_head, input_node);
         if (p_id) {
             // If equivalent memoized node found in bucket, forward input node to it.
             const nodepool::id fwd_id = *p_id;
@@ -1398,7 +1387,7 @@ struct SyncvTable
             // Must maintain sorted order. Somewhat wasteful we don't fuse this with bucket_search.
             auto* p_insert = p_bucket_head;
             while (*p_insert) {
-                VisRecordListNode<IsMutate>& node = get(*p_insert);
+                VisRecordListNode<K>& node = get(*p_insert);
                 if (node.base_data.memoize_hash_bits > input_node.base_data.memoize_hash_bits) {
                     break;
                 }
@@ -1416,8 +1405,8 @@ struct SyncvTable
         qual_bits_t L2_full_qual_bits;
         qual_bits_t L2_temporal_qual_bits;
 
-        template <bool IsMutate>
-        void operator() (SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> vis_record_id)
+        template <VisRecordKind K>
+        void operator() (SyncvTable& env, nodepool::id<VisRecordListNode<K>> vis_record_id)
         {
             auto& node = env.get(vis_record_id);
             CAMSPORK_REQUIRE(!node.is_forwarded(), "Unexpected modification of forwarding state VisRecord");
@@ -1444,8 +1433,8 @@ struct SyncvTable
 
         static constexpr bool enable_debug_printf = false;
 
-        template <bool IsMutate>
-        bool update_for_sync(SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> vis_record_id) const
+        template <VisRecordKind K>
+        bool update_for_sync(SyncvTable& env, nodepool::id<VisRecordListNode<K>> vis_record_id) const
         {
             auto& node = env.get(vis_record_id);
             CAMSPORK_REQUIRE(!node.is_forwarded(), "unexpected forwarding state");
@@ -1494,8 +1483,8 @@ struct SyncvTable
 
         ArriveUpdateCommand(ArriveUpdateCommand&&) = delete;
 
-        template <bool IsMutate>
-        bool update_for_sync(SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> vis_record_id)
+        template <VisRecordKind K>
+        bool update_for_sync(SyncvTable& env, nodepool::id<VisRecordListNode<K>> vis_record_id)
         {
             CAMSPORK_REQUIRE_CMP(L1_qual_bits, !=, 0, "should be if'd out in this case");
             auto& node = env.get(vis_record_id);
@@ -1527,24 +1516,18 @@ struct SyncvTable
     };
 
     // Extend BarrierArriveState to hold the new VisRecord.
-    template <bool IsMutate>
+    template <VisRecordKind K>
     void extend_barrier_arrive_state(
-        nodepool::id<VisRecordListNode<IsMutate>> vis_record_id,
+        nodepool::id<VisRecordListNode<K>> vis_record_id,
         pending_await_t info)
     {
         BarrierArriveState& state = get_barrier_arrive_state(info);
-        nodepool::id<AssignmentRecordVisNode<IsMutate>> list_node_id{};
+        nodepool::id<AssignmentRecordVisNode<K>> list_node_id{};
         auto& list_node = alloc_default_node(&list_node_id);
         list_node.vis_record_id = vis_record_id;
         incref(vis_record_id);
-        if constexpr (IsMutate) {
-            list_node.camspork_next_id = state.mutate_vis_records_head_id;
-            state.mutate_vis_records_head_id = list_node_id;
-        }
-        else {
-            list_node.camspork_next_id = state.read_vis_records_head_id;
-            state.read_vis_records_head_id = list_node_id;
-        }
+        list_node.camspork_next_id = state.vis_records_head_id;
+        state.vis_records_head_id = list_node_id;
     }
 
     // Find all VisRecords referenced by the BarrierArriveState and remove corresponding pending awaits,
@@ -1556,12 +1539,12 @@ struct SyncvTable
     {
         auto retire_list = [&] (auto record_id)
         {
-            constexpr bool IsMutate = decltype(record_id)::value_type::is_mutate;
+            constexpr VisRecordKind K = decltype(record_id)::value_type::vis_record_kind;
             while (record_id) {
-                AssignmentRecordVisNode<IsMutate>& record_node = get(record_id);
+                AssignmentRecordVisNode<K>& record_node = get(record_id);
                 record_id = record_node.camspork_next_id;
-                const nodepool::id<VisRecordListNode<IsMutate>> vis_record_id = record_node.vis_record_id;
-                VisRecordListNode<IsMutate>& vis_node = get(vis_record_id);
+                const nodepool::id<VisRecordListNode<K>> vis_record_id = record_node.vis_record_id;
+                VisRecordListNode<K>& vis_node = get(vis_record_id);
                 nodepool::id<PendingAwaitNode>* p_await_node = &vis_node.base_data.pending_awaits;
                 if (vis_node.is_forwarded()) {
                     CAMSPORK_REQUIRE(!*p_await_node, "pending_awaits should be empty for forwarded VisRecord");
@@ -1593,15 +1576,10 @@ struct SyncvTable
             }
         };
 
-        nodepool::id<AssignmentRecordMutateNode>& mutate_id = p_state->mutate_vis_records_head_id;
-        retire_list(mutate_id);
-        extend_free_list(mutate_id);
-        mutate_id = {};
-
-        nodepool::id<AssignmentRecordReadNode>& read_id = p_state->read_vis_records_head_id;
-        retire_list(read_id);
-        extend_free_list(read_id);
-        read_id = {};
+        nodepool::id<DefaultAssignmentRecordVisNode>& head_id = p_state->vis_records_head_id;
+        retire_list(head_id);
+        extend_free_list(head_id);
+        head_id = {};
     }
 
     // Big payoff for all this code: function that performs the effects of a synchronization statement with the given
@@ -1613,32 +1591,30 @@ struct SyncvTable
     void update_vis_records_for_sync_impl(Command&& command)
     {
         if (command.transitive) {
-            for_buckets<false>(transitive_bucket_key(), transitive_bucket_count(), command);
-            for_buckets<true>(transitive_bucket_key(), transitive_bucket_count(), command);
+            for_buckets<VisRecordKind::Default>(transitive_bucket_key(), transitive_bucket_count(), command);
         }
         else {
             uint32_t qual_bits = command.L1_qual_bits;
             while (qual_bits) {
                 uint8_t qual_tl = pop_low_bit_index(&qual_bits);
-                for_buckets<false>(non_transitive_bucket_key(qual_tl), non_transitive_bucket_count(qual_tl), command);
-                for_buckets<true>(non_transitive_bucket_key(qual_tl), non_transitive_bucket_count(qual_tl), command);
+                for_buckets<VisRecordKind::Default>(non_transitive_bucket_key(qual_tl), non_transitive_bucket_count(qual_tl), command);
             }
         }
     }
 
-    template <bool IsMutate, typename Command>
-    void process_bucket_for_sync_impl(nodepool::id<VisRecordListNode<IsMutate>>* p_bucket_head, Command&& command)
+    template <VisRecordKind K, typename Command>
+    void process_bucket_for_sync_impl(nodepool::id<VisRecordListNode<K>>* p_bucket_head, Command&& command)
     {
         // To avoid risky in-place modification, We move the whole bucket to the side and reset the bucket to empty.
         // After modifying each node in the side bucket, we attempt to re-insert it.
         // Note, everything will be left in an inconsistent state in case an exception is thrown.
-        using node_id = nodepool::id<VisRecordListNode<IsMutate>>;
+        using node_id = nodepool::id<VisRecordListNode<K>>;
         node_id side_bucket = *p_bucket_head;
         *p_bucket_head = {};
 
         while (side_bucket) {
             const node_id modified_id = remove_next_node(&side_bucket);
-            VisRecordListNode<IsMutate>& current_node = get(modified_id);
+            VisRecordListNode<K>& current_node = get(modified_id);
             CAMSPORK_REQUIRE(!current_node.camspork_next_id, "Should have been removed from list.");
             CAMSPORK_REQUIRE(!current_node.is_forwarded(), "forwarding state memoized?");
 
@@ -1664,9 +1640,9 @@ struct SyncvTable
         update_vis_records_for_sync_impl(command);
     }
 
-    template <bool IsMutate, typename Logger>
+    template <VisRecordKind K, typename Logger>
     void process_bucket(
-            nodepool::id<VisRecordListNode<IsMutate>>* p_bucket_head,
+            nodepool::id<VisRecordListNode<K>>* p_bucket_head,
             const FenceUpdateCommand<Logger>& command)
     {
         process_bucket_for_sync_impl(p_bucket_head, command);
@@ -1691,9 +1667,9 @@ struct SyncvTable
         }
     }
 
-    template <bool IsMutate, typename Logger>
+    template <VisRecordKind K, typename Logger>
     void process_bucket(
-            nodepool::id<VisRecordListNode<IsMutate>>* p_bucket_head,
+            nodepool::id<VisRecordListNode<K>>* p_bucket_head,
             ArriveUpdateCommand<Logger>& command)
     {
         process_bucket_for_sync_impl(p_bucket_head, command);
@@ -1825,19 +1801,19 @@ struct SyncvTable
     }
 
     // Copy one of the linked lists of VisRecord references in an AssignmentRecord.
-    template <bool IsMutate>
-    nodepool::id<AssignmentRecordVisNode<IsMutate>> copy(nodepool::id<AssignmentRecordVisNode<IsMutate>> input_id)
+    template <VisRecordKind K>
+    nodepool::id<AssignmentRecordVisNode<K>> copy(nodepool::id<AssignmentRecordVisNode<K>> input_id)
     {
-        nodepool::id<AssignmentRecordVisNode<IsMutate>> output_id{};
+        nodepool::id<AssignmentRecordVisNode<K>> output_id{};
         if (input_id) {
-            nodepool::id<AssignmentRecordVisNode<IsMutate>>* p_tail = &output_id;
+            nodepool::id<AssignmentRecordVisNode<K>>* p_tail = &output_id;
             while (input_id) {
-                const AssignmentRecordVisNode<IsMutate>& input_node = get(input_id);
-                AssignmentRecordVisNode<IsMutate>& output_node = alloc_default_node(p_tail);
+                const AssignmentRecordVisNode<K>& input_node = get(input_id);
+                AssignmentRecordVisNode<K>& output_node = alloc_default_node(p_tail);
                 p_tail = &output_node.camspork_next_id;
                 input_id = input_node.camspork_next_id;
 
-                nodepool::id<VisRecordListNode<IsMutate>> vis_record_id = input_node.vis_record_id;
+                nodepool::id<VisRecordListNode<K>> vis_record_id = input_node.vis_record_id;
                 output_node.vis_record_id = vis_record_id;
                 incref(vis_record_id);
             }
@@ -1866,6 +1842,7 @@ struct SyncvTable
             Logger& logger)
     {
         using node_id = nodepool::id<AssignmentRecord>;
+        static constexpr VisRecordKind K = VisRecordKind::Default;
 
         // If the input is a window, take a census of all assignment record IDs in the input window.
         static constexpr bool IsWindow = std::is_same_v<decltype(input), AssignmentRecordWindow>;
@@ -1896,7 +1873,7 @@ struct SyncvTable
         // 0 new records if !UpdateRecords
         // 1 new record if SharedVisRecord
         // any # new records if !SharedVisRecord
-        using VisRecordID = nodepool::id<VisRecordListNode<IsMutate>>;
+        using VisRecordID = nodepool::id<VisRecordListNode<K>>;
         using VisRecordList = std::conditional_t<
             !UpdateRecords, std::array<VisRecordID, 0>,
             std::conditional_t<SharedVisRecord, std::array<VisRecordID, 1>, std::vector<VisRecordID>>>;
@@ -1908,7 +1885,7 @@ struct SyncvTable
         else if (census.empty()) {
         }
         else if constexpr (SharedVisRecord) {
-            const VisRecordID new_vis_record_id = memoize_new_vis_record<IsMutate>(cuboid, access, vis_record_refcnt);
+            const VisRecordID new_vis_record_id = memoize_new_vis_record<K>(cuboid, access, vis_record_refcnt);
             logger.history_new_vis_record(*this, new_vis_record_id);
             new_vis_record_list[0] = new_vis_record_id;
         }
@@ -1918,7 +1895,7 @@ struct SyncvTable
                 // and if we pass that here, we will create 4 billion VisRecords.
                 CAMSPORK_REQUIRE_CMP(tid_hi, <, UINT32_MAX, "Likely you meant to pass convergent_access_flag");
                 for (uint32_t tid = tid_lo; tid < tid_hi; ++tid) {
-                    const VisRecordID new_vis_record_id = memoize_new_vis_record<IsMutate>(
+                    const VisRecordID new_vis_record_id = memoize_new_vis_record<K>(
                         SingleThreadInit{tid},
                         access,
                         vis_record_refcnt
@@ -1929,8 +1906,7 @@ struct SyncvTable
             });
         }
 
-        logger.excut_log_assignment_records(*this, input, new_vis_record_list,
-                IsMutate ? ExcutMutateTag::Mutate : ExcutMutateTag::Read);
+        logger.excut_log_assignment_records(*this, input, new_vis_record_list, IsMutate);
 
         auto check = [&] (node_id id, size_t linear_index)
         {
@@ -1947,11 +1923,11 @@ struct SyncvTable
 
             // Check against previous mutate visibility records
             TlSig fail_tl_sig{};
-            nodepool::id<AssignmentRecordMutateNode> mutate_id = assignment_record.mutate_vis_records_head_id;
+            nodepool::id<DefaultAssignmentRecordVisNode> mutate_id = assignment_record.mutate_vis_records_head_id;
             while (mutate_id) {
-                AssignmentRecordMutateNode& node = get(mutate_id);
+                DefaultAssignmentRecordVisNode& node = get(mutate_id);
                 const VisRecord& mutate_record = remove_forwarding(&node.vis_record_id);
-                logger.history_vis_record_checked(node.vis_record_id);  // Logs memoized (base state) ID.
+                logger.history_vis_record_checked(node.vis_record_id, IsMutate);  // Logs memoized (base state) ID.
                 const bool visible = visible_to(
                         mutate_record, cuboid, access.extended_qual_bits, mut_vis_flag_needed,
                         is_convergent, &fail_tl_sig);
@@ -1964,11 +1940,11 @@ struct SyncvTable
 
             // If the access is a mutate, also check against the list of previous read visibility records.
             if constexpr (IsMutate) {
-                nodepool::id<AssignmentRecordReadNode> read_id = assignment_record.read_vis_records_head_id;
+                nodepool::id<DefaultAssignmentRecordVisNode> read_id = assignment_record.read_vis_records_head_id;
                 while (read_id) {
-                    AssignmentRecordReadNode& node = get(read_id);
+                    DefaultAssignmentRecordVisNode& node = get(read_id);
                     const VisRecord& read_record = remove_forwarding(&node.vis_record_id);
-                    logger.history_vis_record_checked(node.vis_record_id);  // Logs memoized (base state) ID.
+                    logger.history_vis_record_checked(node.vis_record_id, IsMutate);  // Logs memoized (base state) ID.
                     const bool visible = visible_to(
                             read_record, cuboid, access.extended_qual_bits, vis_flag_temporal,
                             is_convergent, &fail_tl_sig);
@@ -1981,11 +1957,11 @@ struct SyncvTable
             }
         };
 
-        auto extend_vis_records = [&] (nodepool::id<AssignmentRecordVisNode<IsMutate>>* p_list_head)
+        auto extend_vis_records = [&] (nodepool::id<AssignmentRecordVisNode<K>>* p_list_head)
         {
             for (const VisRecordID vis_record_id : new_vis_record_list) {
-                nodepool::id<AssignmentRecordVisNode<IsMutate>> new_node_id;
-                AssignmentRecordVisNode<IsMutate>& node = alloc_default_node(&new_node_id);
+                nodepool::id<DefaultAssignmentRecordVisNode> new_node_id;
+                DefaultAssignmentRecordVisNode& node = alloc_default_node(&new_node_id);
                 node.vis_record_id = vis_record_id;
                 node.camspork_next_id = *p_list_head;
                 *p_list_head = new_node_id;
@@ -2136,15 +2112,15 @@ struct SyncvTable
     // Resolve forwarding and remove duplicate visibility records.
     // Removing forwarding causes two equivalent visibility records to have identical IDs
     // (both referring to the shared entry in the memoization table).
-    template <bool IsMutate>
-    void remove_duplicates(nodepool::id<AssignmentRecordVisNode<IsMutate>>* p_list_head)
+    template <VisRecordKind K>
+    void remove_duplicates(nodepool::id<AssignmentRecordVisNode<K>>* p_list_head)
     {
-        using node_id = nodepool::id<AssignmentRecordVisNode<IsMutate>>;
+        using node_id = nodepool::id<AssignmentRecordVisNode<K>>;
 
         // Remove forwarding (unique ID iff unique record), and clear tmp_is_duplicate to 0.
         // Importantly, we are clearing this flag for base-state VisRecord, not forwarded ones.
         for (node_id id = *p_list_head; id; ) {
-            AssignmentRecordVisNode<IsMutate>& node = get(id);
+            AssignmentRecordVisNode<K>& node = get(id);
             remove_forwarding(&node.vis_record_id).tmp_is_duplicate = 0;
             id = node.camspork_next_id;
         }
@@ -2152,8 +2128,8 @@ struct SyncvTable
         // Remove duplicates, using tmp_is_duplicate to recognize duplicates.
         node_id* p_read_id = p_list_head;
         while (node_id next_id = *p_read_id) {
-            AssignmentRecordVisNode<IsMutate>& next_node = get(next_id);
-            VisRecordListNode<IsMutate>& vis_record_node = get(next_node.vis_record_id);
+            AssignmentRecordVisNode<K>& next_node = get(next_id);
+            VisRecordListNode<K>& vis_record_node = get(next_node.vis_record_id);
             CAMSPORK_REQUIRE(!vis_record_node.is_forwarded(), "should have resolved forwarding above");
 
             if (vis_record_node.base_data.tmp_is_duplicate) {
@@ -2205,17 +2181,17 @@ struct SyncvTable
     void debug_get_read_vis_record_ids(const AssignmentRecord& record, std::vector<uint32_t>* out) const
     {
         out->clear();
-        nodepool::id<AssignmentRecordReadNode> id = record.read_vis_records_head_id;
+        nodepool::id<DefaultAssignmentRecordVisNode> id = record.read_vis_records_head_id;
         while (id) {
-            const AssignmentRecordReadNode& node = get(id);
+            const DefaultAssignmentRecordVisNode& node = get(id);
             out->push_back(node.vis_record_id.id_bits);
             id = node.camspork_next_id;
         }
     }
 
     // Get info for a given visibility record.
-    template <bool IsMutate>
-    void debug_get_vis_record_data(nodepool::id<VisRecordListNode<IsMutate>> node_id, VisRecordDebugData* out) const
+    template <VisRecordKind K>
+    void debug_get_vis_record_data(nodepool::id<VisRecordListNode<K>> node_id, VisRecordDebugData* out) const
     {
         CAMSPORK_REQUIRE(node_id, "cannot read null VisRecord");
         const VisRecord record = const_resolve_forwarding(node_id);
@@ -2278,22 +2254,18 @@ struct SyncvTable
             RefcntDebug<AssignmentRecord>,
             RefcntDebug<TlSigIntervalListNode>,
             RefcntDebug<PendingAwaitNode>,
-            RefcntDebug<ReadVisRecordListNode>,
-            RefcntDebug<MutateVisRecordListNode>,
-            RefcntDebug<AssignmentRecordReadNode>,
-            RefcntDebug<AssignmentRecordMutateNode>>
+            RefcntDebug<DefaultVisRecordListNode>,
+            RefcntDebug<DefaultAssignmentRecordVisNode>>
         debug_refcnts(
-            *this, *this, *this, *this, *this, *this, *this
+            *this, *this, *this, *this, *this
         );
 
         if (false) {
             fprintf(stderr, "AssignmentRecord: %u\n", debug_get_pool<AssignmentRecord>().size());
             fprintf(stderr, "TlSigIntervalListNode: %u\n", debug_get_pool<TlSigIntervalListNode>().size());
             fprintf(stderr, "PendingAwaitNode: %u\n", debug_get_pool<PendingAwaitNode>().size());
-            fprintf(stderr, "ReadVisRecordListNode: %u\n", debug_get_pool<ReadVisRecordListNode>().size());
-            fprintf(stderr, "MutateVisRecordListNode: %u\n", debug_get_pool<MutateVisRecordListNode>().size());
-            fprintf(stderr, "AssignmentRecordReadNode: %u\n", debug_get_pool<AssignmentRecordReadNode>().size());
-            fprintf(stderr, "AssignmentRecordMutateNode: %u\n", debug_get_pool<AssignmentRecordMutateNode>().size());
+            fprintf(stderr, "DefaultVisRecordListNode: %u\n", debug_get_pool<DefaultVisRecordListNode>().size());
+            fprintf(stderr, "DefaultAssignmentRecordVisNode: %u\n", debug_get_pool<DefaultAssignmentRecordVisNode>().size());
         }
 
         auto check_all_refcnts = [&]
@@ -2303,8 +2275,6 @@ struct SyncvTable
             std::get<2>(debug_refcnts).check_refcnts(*this);
             std::get<3>(debug_refcnts).check_refcnts(*this);
             std::get<4>(debug_refcnts).check_refcnts(*this);
-            std::get<5>(debug_refcnts).check_refcnts(*this);
-            std::get<6>(debug_refcnts).check_refcnts(*this);
         };
 
         auto record_owning = [&] (auto id) -> bool  // First time flag
@@ -2338,9 +2308,9 @@ struct SyncvTable
             }
             const AssignmentRecord& record = get(id);
 
-            const nodepool::id<AssignmentRecordMutateNode> mutate_id = record.mutate_vis_records_head_id;
+            const nodepool::id<DefaultAssignmentRecordVisNode> mutate_id = record.mutate_vis_records_head_id;
             process_assignment_record_list(mutate_id);
-            const nodepool::id<AssignmentRecordReadNode> read_id = record.read_vis_records_head_id;
+            const nodepool::id<DefaultAssignmentRecordVisNode> read_id = record.read_vis_records_head_id;
             process_assignment_record_list(read_id);
 
             recurse(record.camspork_next_id, recurse);
@@ -2362,10 +2332,8 @@ struct SyncvTable
         for (uint32_t barrier_index = 0; barrier_index < max_live_barriers; ++barrier_index) {
             const BarrierState& state = barrier_states[barrier_index];
             for (const auto& pair : state.arrive_states) {
-                const nodepool::id<AssignmentRecordMutateNode> mutate_id = pair.second.mutate_vis_records_head_id;
-                process_assignment_record_list(mutate_id);
-                const nodepool::id<AssignmentRecordReadNode> read_id = pair.second.read_vis_records_head_id;
-                process_assignment_record_list(read_id);
+                const nodepool::id<DefaultAssignmentRecordVisNode> head_id = pair.second.vis_records_head_id;
+                process_assignment_record_list(head_id);
             }
         }
 
@@ -2430,14 +2398,8 @@ struct SyncvTable
                     const PendingAwaitNode& await_node = get(await_node_id);
                     await_node_id = await_node.camspork_next_id;
                     const BarrierArriveState& state = get_const_barrier_arrive_state(await_node.await_id);
-                    constexpr bool IsMutate = node.is_mutate;
-                    nodepool::id<AssignmentRecordVisNode<IsMutate>> record_node_id;
-                    if constexpr (node.is_mutate) {
-                        record_node_id = state.mutate_vis_records_head_id;
-                    }
-                    else {
-                        record_node_id = state.read_vis_records_head_id;
-                    }
+                    constexpr VisRecordKind K = node.vis_record_kind;
+                    nodepool::id<AssignmentRecordVisNode<K>> record_node_id = state.vis_records_head_id;
                     while (1) {
                         CAMSPORK_REQUIRE(record_node_id, "Missing VisRecord reference in BarrierArriveState");
                         const auto& record_node = get(record_node_id);
@@ -2459,8 +2421,7 @@ struct SyncvTable
             }
         };
 
-        process_all_vis_records(nodepool::id<ReadVisRecordListNode>{});
-        process_all_vis_records(nodepool::id<MutateVisRecordListNode>{});
+        process_all_vis_records(nodepool::id<DefaultVisRecordListNode>{});
 
         // Check that reference counts are correct.
         // For node types without refcnt, the refcnt should just be 0 or 1 (unique ownership).
@@ -2476,7 +2437,7 @@ struct SyncvTable
         {
             uint64_t last_hash_bits = 0;
             while (id) {
-                // VisRecordListNode<IsMutate>
+                // VisRecordListNode<K>
                 const auto& node = get(id);
                 const auto expect_hash_bits = vis_record_hash_bits(node.base_data);
                 CAMSPORK_REQUIRE_CMP(node.refcnt, !=, 0, "all memoized VisRecord should have nonzero refcnt");
@@ -2490,8 +2451,7 @@ struct SyncvTable
         };
 
         for (uint32_t bucket_key = 0; bucket_key < num_buckets; ++bucket_key) {
-            validate_bucket_linked_list(read_table_buckets[bucket_key], bucket_key);
-            validate_bucket_linked_list(mutate_table_buckets[bucket_key], bucket_key);
+            validate_bucket_linked_list(vis_record_table_buckets[bucket_key], bucket_key);
         }
 
 
@@ -2536,8 +2496,7 @@ struct SyncvTable
                 }
             }
         };
-        memoize_self_check(nodepool::id<ReadVisRecordListNode>{});
-        memoize_self_check(nodepool::id<MutateVisRecordListNode>{});
+        memoize_self_check(nodepool::id<DefaultVisRecordListNode>{});
 
         // Check correct BarrierArriveState.
         // A base state VisRecord is pointed to by BarrierArriveState iff it contains a corresponding pending await.
@@ -2546,11 +2505,11 @@ struct SyncvTable
         auto check_BarrierArriveState_VisRecords = [&] (auto record_node_id, pending_await_t expected_await_id)
         {
             while (record_node_id) {
-                constexpr bool IsMutate = decltype(record_node_id)::value_type::is_mutate;
-                const AssignmentRecordVisNode<IsMutate>& record_node = get(record_node_id);
+                constexpr VisRecordKind K = decltype(record_node_id)::value_type::vis_record_kind;
+                const AssignmentRecordVisNode<K>& record_node = get(record_node_id);
                 record_node_id = record_node.camspork_next_id;
-                const nodepool::id<VisRecordListNode<IsMutate>> vis_record_id = record_node.vis_record_id;
-                const VisRecordListNode<IsMutate>& vis_record = get(vis_record_id);
+                const nodepool::id<VisRecordListNode<K>> vis_record_id = record_node.vis_record_id;
+                const VisRecordListNode<K>& vis_record = get(vis_record_id);
                 if (vis_record.is_forwarded()) {
                     continue;
                 }
@@ -2569,10 +2528,8 @@ struct SyncvTable
             const BarrierState& state = barrier_states[barrier_index];
             for (const auto& pair : state.arrive_states) {
                 pending_await_t info = pack_pending_await(barrier_index, pair.first);
-                const nodepool::id<AssignmentRecordMutateNode> mutate_id = pair.second.mutate_vis_records_head_id;
-                check_BarrierArriveState_VisRecords(mutate_id, info);
-                const nodepool::id<AssignmentRecordReadNode> read_id = pair.second.read_vis_records_head_id;
-                check_BarrierArriveState_VisRecords(read_id, info);
+                const nodepool::id<DefaultAssignmentRecordVisNode> head_id = pair.second.vis_records_head_id;
+                check_BarrierArriveState_VisRecords(head_id, info);
             }
         }
     }
@@ -2601,23 +2558,21 @@ struct SyncvRealLogger
 
     template <typename VisRecordList>
     void excut_log_assignment_records(
-            const SyncvTable& env, assignment_record_id* p_id, const VisRecordList& new_vis_record_list,
-            ExcutMutateTag mutate_tag)
+            const SyncvTable& env, assignment_record_id* p_id, const VisRecordList& new_vis_record_list, bool is_mutate)
     {
         if (p_excut_actions) {
             nodepool::id<AssignmentRecord> asn_id{p_id->node_id};
-            _excut_log_assignment_record_impl(env, asn_id, new_vis_record_list, idx_for_single, mutate_tag);
+            _excut_log_assignment_record_impl(env, asn_id, new_vis_record_list, idx_for_single, is_mutate);
         }
     }
 
     template <typename VisRecordList>
     void excut_log_assignment_records(
-            const SyncvTable& env, AssignmentRecordWindow window, const VisRecordList& new_vis_record_list,
-            ExcutMutateTag mutate_tag)
+            const SyncvTable& env, AssignmentRecordWindow window, const VisRecordList& new_vis_record_list, bool is_mutate)
     {
         if (p_excut_actions) {
             std::vector<extent_t> idx(window.end_outer_extent - window.begin_outer_extent);
-            _excut_recurse_log_window(env, window, idx, 0, 0, new_vis_record_list, mutate_tag);
+            _excut_recurse_log_window(env, window, idx, 0, 0, new_vis_record_list, is_mutate);
         }
     }
 
@@ -2643,13 +2598,12 @@ struct SyncvRealLogger
     template <typename VisRecordList>
     void _excut_recurse_log_window(
             const SyncvTable& env, const AssignmentRecordWindow& window, std::vector<extent_t>& idx,
-            size_t dim_idx, size_t partial_linear_offset, const VisRecordList& new_vis_record_list,
-            ExcutMutateTag mutate_tag)
+            size_t dim_idx, size_t partial_linear_offset, const VisRecordList& new_vis_record_list, bool is_mutate)
     {
         if (dim_idx >= idx.size()) {
             CAMSPORK_REQUIRE_CMP(idx.size(), ==, dim_idx, "overshot");
             nodepool::id<AssignmentRecord> asn_id{window.base[partial_linear_offset].node_id};
-            _excut_log_assignment_record_impl(env, asn_id, new_vis_record_list, idx, mutate_tag);
+            _excut_log_assignment_record_impl(env, asn_id, new_vis_record_list, idx, is_mutate);
         }
         else {
             const extent_t outer_c = window.begin_outer_extent[dim_idx];
@@ -2660,7 +2614,7 @@ struct SyncvRealLogger
                 idx[dim_idx] = i;
                 const auto new_linear_offset = partial_linear_offset * outer_c + i;
                 _excut_recurse_log_window(
-                        env, window, idx, dim_idx+1, new_linear_offset, new_vis_record_list, mutate_tag);
+                        env, window, idx, dim_idx+1, new_linear_offset, new_vis_record_list, is_mutate);
             }
         }
     }
@@ -2671,9 +2625,9 @@ struct SyncvRealLogger
             nodepool::id<AssignmentRecord> asn_id,
             const VisRecordList& new_vis_record_list,
             std::vector<extent_t> idx,
-            ExcutMutateTag mutate_tag)
+            bool is_mutate)
     {
-        constexpr bool IsMutate = VisRecordList::value_type::value_type::is_mutate;
+        constexpr VisRecordKind K = VisRecordList::value_type::value_type::vis_record_kind;
 
         // Log top-level assignment record ID, name+idxs of access,
         // and remember to update this with the changed ID later.
@@ -2683,7 +2637,7 @@ struct SyncvRealLogger
             p_info->id_after = 0;  // See excut_update_assignment_record_ids
             p_info->name = var_str_name;
             p_info->idx = std::move(idx);
-            p_info->mutate_tag = mutate_tag;
+            p_info->mutate_tag = is_mutate ? ExcutMutateTag::Mutate : ExcutMutateTag::Read;
             actions_to_update.push_back(p_info.get());
             p_excut_actions->push_back(std::move(p_info));
         }
@@ -2692,31 +2646,31 @@ struct SyncvRealLogger
         // between the prior VisRecords and the current SyncEnvAccess action.
         if (asn_id) {
             const AssignmentRecord& asn_record = env.get(asn_id);
-            if constexpr (IsMutate) {
-                nodepool::id<AssignmentRecordReadNode> read_id = asn_record.read_vis_records_head_id;
+            if (is_mutate) {
+                nodepool::id<DefaultAssignmentRecordVisNode> read_id = asn_record.read_vis_records_head_id;
                 while (read_id) {
-                    const AssignmentRecordReadNode& asn_node = env.get(read_id);
+                    const DefaultAssignmentRecordVisNode& asn_node = env.get(read_id);
                     read_id = asn_node.camspork_next_id;
                     _excut_log_vis_record(env, asn_node.vis_record_id, ExcutMutateTag::WAR);
                 }
             }
-            nodepool::id<AssignmentRecordMutateNode> mutate_id = asn_record.mutate_vis_records_head_id;
+            nodepool::id<DefaultAssignmentRecordVisNode> mutate_id = asn_record.mutate_vis_records_head_id;
             while (mutate_id) {
-                const AssignmentRecordMutateNode& asn_node = env.get(mutate_id);
+                const DefaultAssignmentRecordVisNode& asn_node = env.get(mutate_id);
                 mutate_id = asn_node.camspork_next_id;
-                _excut_log_vis_record(env, asn_node.vis_record_id, IsMutate ? ExcutMutateTag::WAW : ExcutMutateTag::RAW);
+                _excut_log_vis_record(env, asn_node.vis_record_id, is_mutate ? ExcutMutateTag::WAW : ExcutMutateTag::RAW);
             }
         }
 
         // Log new VisRecord
-        for (nodepool::id<VisRecordListNode<IsMutate>> new_vis_id : new_vis_record_list) {
-            _excut_log_vis_record(env, new_vis_id, mutate_tag);
+        for (nodepool::id<VisRecordListNode<K>> new_vis_id : new_vis_record_list) {
+            _excut_log_vis_record(env, new_vis_id, is_mutate ? ExcutMutateTag::Mutate : ExcutMutateTag::Read);
         }
     }
 
-    template <bool IsMutate>
+    template <VisRecordKind K>
     void _excut_log_vis_record(
-            const SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> id, ExcutMutateTag mutate_tag)
+            const SyncvTable& env, nodepool::id<VisRecordListNode<K>> id, ExcutMutateTag mutate_tag)
     {
         const VisRecord& vis_record = env.const_resolve_forwarding(id, &id);
         auto p_excut_vis_record = std::make_unique<ExcutVisRecord>();
@@ -2799,8 +2753,8 @@ struct SyncvRealLogger
         }
     }
 
-    template <bool IsMutate>
-    void history_new_vis_record(SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> node_id)
+    template <VisRecordKind K>
+    void history_new_vis_record(SyncvTable& env, nodepool::id<VisRecordListNode<K>> node_id)
     {
         if (p_history_log) {
             history_log_vis_record_id history_id(node_id);
@@ -2808,11 +2762,11 @@ struct SyncvRealLogger
         }
     }
 
-    template <bool IsMutate>
+    template <VisRecordKind K>
     void history_vis_record_change(
             SyncvTable& env,
-            nodepool::id<VisRecordListNode<IsMutate>> old_id,
-            nodepool::id<VisRecordListNode<IsMutate>> new_id,
+            nodepool::id<VisRecordListNode<K>> old_id,
+            nodepool::id<VisRecordListNode<K>> new_id,
             bool debug_printf)
     {
         if (p_history_log) {
@@ -2824,25 +2778,25 @@ struct SyncvRealLogger
         }
     }
 
-    template <bool IsMutate>
-    void history_vis_record_checked(nodepool::id<VisRecordListNode<IsMutate>> id)
+    template <VisRecordKind K>
+    void history_vis_record_checked(nodepool::id<VisRecordListNode<K>> id, bool is_mutate)
     {
         if (p_history_log) {
-            p_history_log->log_syncv_vis_record_checked(history_log_vis_record_id(id), IsMutate);
+            p_history_log->log_syncv_vis_record_checked(history_log_vis_record_id(id), is_mutate);
         }
     }
 
-    template <bool IsMutate>
+    template <VisRecordKind K>
     void history_vis_record_error(
-            nodepool::id<VisRecordListNode<IsMutate>> id, TlSig fail_tl_sig)
+            nodepool::id<VisRecordListNode<K>> id, TlSig fail_tl_sig)
     {
         if (p_history_log) {
             p_history_log->log_syncv_vis_record_error(history_log_vis_record_id(id), fail_tl_sig);
         }
     }
   private:
-    template <bool IsMutate>
-    LoggedVisRecordData _get_history_vis_record_data(SyncvTable& env, nodepool::id<VisRecordListNode<IsMutate>> node_id)
+    template <VisRecordKind K>
+    LoggedVisRecordData _get_history_vis_record_data(SyncvTable& env, nodepool::id<VisRecordListNode<K>> node_id)
     {
         VisRecordDebugData debug;
         env.debug_get_vis_record_data(node_id, &debug);
@@ -2901,10 +2855,8 @@ void delete_syncv_table(SyncvTable* table)
     fprintf(stderr, "bucket_search_iter_counter = %llu\n", (long long unsigned)table->bucket_search_iter_counter);
     fprintf(stderr, "ratio = %.1f\n",
             (double)table->bucket_search_iter_counter / (double)table->bucket_search_call_counter);
-    fprintf(stderr, "Read   VisRecord capacity = %llu\n",
-            (long long unsigned)table->debug_get_pool<VisRecordListNode<false>>().size());
-    fprintf(stderr, "Mutate VisRecord capacity = %llu\n",
-            (long long unsigned)table->debug_get_pool<VisRecordListNode<true>>().size());
+    fprintf(stderr, "       VisRecord capacity = %llu\n",
+            (long long unsigned)table->debug_get_pool<DefaultVisRecordListNode>().size());
 #endif
     delete table;
 }
@@ -3100,14 +3052,9 @@ void end_no_checking(SyncvTable* table)
 
 
 
-void debug_get_read_vis_record_data(const SyncvTable* table, uint32_t id, VisRecordDebugData* out)
+void debug_get_vis_record_data(const SyncvTable* table, uint32_t id, VisRecordDebugData* out)
 {
-    table->debug_get_vis_record_data(nodepool::id<VisRecordListNode<false>>{id}, out);
-}
-
-void debug_get_mutate_vis_record_data(const SyncvTable* table, uint32_t id, VisRecordDebugData* out)
-{
-    table->debug_get_vis_record_data(nodepool::id<VisRecordListNode<true>>{id}, out);
+    table->debug_get_vis_record_data(nodepool::id<VisRecordListNode<VisRecordKind::Default>>{id}, out);
 }
 
 void debug_validate_state(SyncvTable* table, size_t input_count, const SyncvDebugValidateInput* p_inputs)
