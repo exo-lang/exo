@@ -150,6 +150,8 @@ void on_arrive(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvArrive&
 void on_arrive(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvArrive& arrive, decltype(nullptr) = nullptr);
 void on_await(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvAwait& await, const SyncvLogRequest&);
 void on_await(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvAwait& await, decltype(nullptr) = nullptr);
+void on_join_threads(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvLogRequest&);
+void on_join_threads(SyncvTable* table, const ThreadCuboid& cuboid, decltype(nullptr) = nullptr);
 void begin_no_checking(SyncvTable* table);
 void end_no_checking(SyncvTable* table);
 

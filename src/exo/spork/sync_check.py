@@ -23,7 +23,7 @@ from .coll_algebra import CollTiling, CollDim, CollDimOp, CollDimExpectation, Co
 from .coll_analysis import CollAnalysis
 from . import camspork
 from .distributed_memory import ThreadIter
-from .loop_modes import Seq, CudaTasks, _CodegenPar, CudaThreads
+from .loop_modes import Seq, CudaTasks, cuda_tasks, _CodegenPar, CudaThreads
 from .sync_types import SyncType
 from .timelines import DeviceScope, Instr_tl, Qual_tl, Sync_tl
 from . import timelines
@@ -240,6 +240,7 @@ class CamsporkDo(LoopIR_Do):
                 blockDim = ctx.blockDim
                 domain = (clusterDim, blockDim) if clusterDim != 1 else (blockDim,)
                 # Implicit (cpu, cuda_stream) -> cuda_stream sync before;
+                # End CudaDeviceFunction with JoinThreads.
                 # implicit cuda_stream -> cuda_stream sync after.
                 b.Fence(
                     True, cpu_bit | cuda_bits, cuda_bits, cuda_bits, srcinfo=s.srcinfo
@@ -249,9 +250,10 @@ class CamsporkDo(LoopIR_Do):
                     self._domain = domain
                     self.do_stmts(s.body)
                     self._domain = old_domain
-                # TODO: this second fence will have remarks logged above the
+                # TODO: the join and second fence will have remarks logged above the
                 # CudaDeviceFunction, which is misleading as it's after
                 # the device function launch.
+                b.JoinThreads()
                 b.Fence(True, cuda_bits, cuda_bits, cuda_bits, srcinfo=s.srcinfo)
             else:
                 self.do_stmts(s.body)
@@ -278,6 +280,11 @@ class CamsporkDo(LoopIR_Do):
             elif isinstance(loop_mode, CudaTasks):
                 with b.TasksFor(am_iter, am_lo, am_hi, srcinfo=s.srcinfo):
                     self.do_stmts(s.body)
+
+                    # End device task with JoinThreads
+                    is_device_task = cuda_tasks.validate_loop(s)
+                    if is_device_task:
+                        b.JoinThreads()
             elif isinstance(loop_mode, _CodegenPar):
                 old_coll_tiling = self._coll_tiling
                 self.do_codegen_par(s, am_iter, am_lo, am_hi)

@@ -307,7 +307,7 @@ struct SyncvTable
     uint32_t no_checking_counter = 0;
 
     // Counters for operations
-    uint64_t augment_counter = 0;     // Number of fence+await
+    uint64_t augment_counter = 0;     // Number of Fence+Await+ThreadJoin
     uint64_t bucket_search_call_counter = 0;
     uint64_t bucket_search_iter_counter = 0;
 
@@ -1797,6 +1797,13 @@ struct SyncvTable
                 logger);
     }
 
+    template <typename Logger>
+    void on_join_threads(const ThreadCuboid& cuboid, Logger&& logger)
+    {
+        augment_counter++;
+        // TODO
+    }
+
 
 
     // *** Access Safety Checking (read/write safety) ***
@@ -3059,6 +3066,20 @@ void on_await(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvAwait& a
 {
     INTERFACE_PROLOGUE(table)
     table->on_await(cuboid, await, SyncvTrivialLogger{});
+    INTERFACE_EPILOGUE(table)
+}
+
+void on_join_threads(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvLogRequest& log)
+{
+    INTERFACE_PROLOGUE(table)
+    table->on_join_threads(cuboid, SyncvRealLogger(log));
+    INTERFACE_EPILOGUE(table)
+}
+
+void on_join_threads(SyncvTable* table, const ThreadCuboid& cuboid, decltype(nullptr))
+{
+    INTERFACE_PROLOGUE(table)
+    table->on_join_threads(cuboid, SyncvTrivialLogger{});
     INTERFACE_EPILOGUE(table)
 }
 

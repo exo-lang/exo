@@ -13,21 +13,33 @@ TestTensorMap = Sm90_tensorMap(128, 256, 128)
 
 
 def mkproc_cuda_tasks(
-    missing_cuda_tasks=False, extra_stmt_before=False, extra_stmt_after=False
+    missing_cuda_tasks=False,
+    extra_stmt_before_top=False,
+    extra_stmt_before_nested=False,
+    extra_stmt_after_top=False,
+    extra_stmt_after_nested=False,
 ):
     have_cuda_tasks = not missing_cuda_tasks
 
     @proc
     def test_proc(ptr: f32[4] @ CudaGmemLinear):
         with CudaDeviceFunction(blockDim=32):
-            if extra_stmt_before:
+            if extra_stmt_before_top:
                 for t in cuda_threads(0, 1):
                     ptr[0] = 100
             if have_cuda_tasks:
                 for a in cuda_tasks(0, 4):
+                    if extra_stmt_after_nested:
+                        for b in cuda_tasks(0, 5):
+                            for t in cuda_threads(0, 1):
+                                ptr[a] = 3
                     for t in cuda_threads(0, 1):
                         ptr[a] = 3
-                if extra_stmt_after:
+                    if extra_stmt_before_nested:
+                        for b in cuda_tasks(0, 5):
+                            for t in cuda_threads(0, 1):
+                                ptr[a] = 3
+                if extra_stmt_after_top:
                     for t in cuda_threads(0, 1):
                         ptr[0] = 100
 
@@ -37,19 +49,31 @@ def mkproc_cuda_tasks(
 def test_missing_cuda_tasks(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_cuda_tasks, missing_cuda_tasks=True)
-    assert "cuda_tasks" in str(exc.value)
+    assert "Invalid cuda_tasks" in str(exc.value)
 
 
 def test_alone_cuda_tasks_0(compiler):
     with pytest.raises(Exception) as exc:
-        compiler.cuda_cpu_test(mkproc_cuda_tasks, extra_stmt_before=True)
-    assert "cuda_tasks" in str(exc.value)
+        compiler.cuda_cpu_test(mkproc_cuda_tasks, extra_stmt_before_top=True)
+    assert "Invalid cuda_tasks" in str(exc.value)
 
 
 def test_alone_cuda_tasks_1(compiler):
     with pytest.raises(Exception) as exc:
-        compiler.cuda_cpu_test(mkproc_cuda_tasks, extra_stmt_after=True)
+        compiler.cuda_cpu_test(mkproc_cuda_tasks, extra_stmt_after_top=True)
+    assert "Invalid cuda_tasks" in str(exc.value)
+
+
+def test_alone_cuda_tasks_2(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(mkproc_cuda_tasks, extra_stmt_before_nested=True)
     assert "cuda_tasks" in str(exc.value)
+
+
+def test_alone_cuda_tasks_3(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(mkproc_cuda_tasks, extra_stmt_after_nested=True)
+    assert "Invalid cuda_tasks" in str(exc.value)
 
 
 def mkproc_duplicate_cuda_tasks_name():

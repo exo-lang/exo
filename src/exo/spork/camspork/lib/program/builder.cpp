@@ -225,6 +225,11 @@ StmtRef ProgramBuilder::add_BarrierFree(Varname name)
     return append_impl(BarrierFree{name});
 }
 
+StmtRef ProgramBuilder::add_JoinThreads()
+{
+    return append_impl(JoinThreads{});
+}
+
 StmtRef ProgramBuilder::push_If(ExprRef cond)
 {
     return push_impl(If{cond, {}, {}});
@@ -552,6 +557,13 @@ camspork::StmtRef camspork_add_BarrierFree(camspork::ProgramBuilder* p_builder,
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_BarrierFree(name);
+    CAMSPORK_API_EPILOGUE(camspork::StmtRef())
+}
+
+camspork::StmtRef camspork_add_JoinThreads(camspork::ProgramBuilder* p_builder)
+{
+    CAMSPORK_API_PROLOGUE
+    return p_builder->add_JoinThreads();
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 

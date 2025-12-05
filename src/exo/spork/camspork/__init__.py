@@ -6,7 +6,7 @@ from typing import Callable, Dict, List, Tuple, Optional
 lib = cdll.LoadLibrary(os.path.join(os.path.split(__file__)[0], "bin/libcamspork.so"))
 extent_t = c_uint32
 value_t = c_int32
-_need_lib_version = 3
+_need_lib_version = 4
 
 
 class BuilderExpr:
@@ -298,6 +298,10 @@ _add_DataFree.argtypes = (c_void_p, Varname)
 _add_BarrierFree = lib.camspork_add_BarrierFree
 _add_BarrierFree.restype = StmtRef
 _add_BarrierFree.argtypes = (c_void_p, Varname)
+
+_add_JoinThreads = lib.camspork_add_JoinThreads
+_add_JoinThreads.restype = StmtRef
+_add_JoinThreads.argtypes = (c_void_p,)
 
 _push_If = lib.camspork_push_If
 _push_If.restype = StmtRef
@@ -844,6 +848,9 @@ class ProgramBuilder:
 
     def BarrierFree(self, name, *, srcinfo=None) -> StmtRef:
         return self.check_stmt(srcinfo, _add_BarrierFree(self._builder, self[name]))
+
+    def JoinThreads(self, *, srcinfo=None) -> StmtRef:
+        return self.check_stmt(srcinfo, _add_JoinThreads(self._builder))
 
     def If(self, cond, allow_bool=False, *, srcinfo=None) -> BodyCtx:
         # Catches expressions like "not var" which Python reduces to constant bool.

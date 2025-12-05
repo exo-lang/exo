@@ -72,7 +72,30 @@ par = Par()
 
 @loop_mode_class("cuda_tasks", True)
 class CudaTasks:
-    pass
+    def validate_loop(self, s) -> bool:
+        """Inspect stmt as cuda_tasks loop and give tri-state result.
+
+        Invalid/not a cuda_tasks loop: raise
+        cuda_tasks loop whose body is device task: True
+        cuda_tasks loop otherwise: False
+        """
+        if not s.is_loop() or not isinstance(s.loop_mode, CudaTasks):
+            raise ValueError(
+                f"{s.srcinfo}: Invalid cuda_tasks loop, not a cuda_tasks loop"
+            )
+        n_stmts = len(s.body)
+
+        assert n_stmts > 0
+
+        child = s.body[0]
+        if child.is_loop() and isinstance(child.loop_mode, CudaTasks):
+            if n_stmts > 1:
+                raise ValueError(
+                    f"{child.srcinfo}: Invalid cuda_tasks loop, unexpected stmt after"
+                )
+            return False
+
+        return True
 
 
 cuda_tasks = CudaTasks()

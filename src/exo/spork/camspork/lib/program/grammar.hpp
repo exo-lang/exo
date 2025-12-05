@@ -502,7 +502,7 @@ struct stmt
 {
 };
 
-static constexpr uint32_t NumStmtTypes = 24;
+static constexpr uint32_t NumStmtTypes = 25;
 
 using StmtRef = NodeRef<stmt, NumStmtTypes>;
 
@@ -785,8 +785,16 @@ struct stmt<23>
     CAMSPORK_NODE_NO_VLA()
 };
 
+// JoinThreads()
+using JoinThreads = stmt<24>;
+template<>
+struct stmt<24>
+{
+    CAMSPORK_NODE_NO_VLA()
+};
+
 // Update this if you add more stmt node types.
-static_assert(NumStmtTypes == 24);
+static_assert(NumStmtTypes == 25);
 
 
 // ******************************************************************************************

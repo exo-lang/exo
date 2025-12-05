@@ -150,6 +150,7 @@ class ProgramBuilder
     StmtRef add_BarrierEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent);
     StmtRef add_DataFree(Varname name);
     StmtRef add_BarrierFree(Varname name);
+    StmtRef add_JoinThreads();
 
     // ******************************************************************************************
     // Add statements with a body to the program.
@@ -250,6 +251,7 @@ CAMSPORK_EXPORT camspork::StmtRef camspork_add_DataFree(camspork::ProgramBuilder
     camspork::Varname name);
 CAMSPORK_EXPORT camspork::StmtRef camspork_add_BarrierFree(camspork::ProgramBuilder* p_builder,
     camspork::Varname name);
+CAMSPORK_EXPORT camspork::StmtRef camspork_add_JoinThreads(camspork::ProgramBuilder* p_builder);
 
 CAMSPORK_EXPORT camspork::StmtRef camspork_push_If(camspork::ProgramBuilder* p_builder,
     camspork::ExprRef cond);

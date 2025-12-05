@@ -715,6 +715,19 @@ def is_barrier(t):
 del is_barrier
 
 
+@extclass(LoopIR.stmt)
+def is_loop(s):
+    return False
+
+
+@extclass(LoopIR.For)
+def is_loop(s):
+    return True
+
+
+del is_loop
+
+
 @extclass(LoopIR.proc)
 def proc_instr_tl(f) -> Instr_tl:
     """Return instr-tl in scope needed to call a proc.

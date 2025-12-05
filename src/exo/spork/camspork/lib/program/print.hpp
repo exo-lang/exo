@@ -282,6 +282,12 @@ class ProgramPrinter
         *this << "b.BarrierFree(" << node->name << ")\n";
     }
 
+    void operator() (const JoinThreads*)
+    {
+        print_tabs();
+        *this << "b.JoinThreads()\n";
+    }
+
     void operator() (const StmtBody* node)
     {
         for (uint32_t i = 0; i < node->camspork_vla_size; ++i) {

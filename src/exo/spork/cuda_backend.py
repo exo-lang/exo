@@ -53,7 +53,7 @@ from .cuda_memory import (
 from .lowered_barrier import LoweredBarrierType, LoweredBarrier
 from .cuda_sync_state import SyncStateBuilder
 from .cuda_warp_config import WarpLayoutInfo
-from .loop_modes import CudaTasks, CudaThreads, Seq, seq, _CodegenPar
+from .loop_modes import CudaTasks, CudaThreads, Seq, seq, _CodegenPar, cuda_tasks
 from .sync_types import SyncType
 from .with_cuda_warps import CudaWarps
 
@@ -168,62 +168,53 @@ class SubtreeScan(LoopIR_Do):
 
         # Validate top-level form of cuda kernel
         # Must be nest of 1+ cuda_tasks loops.
+        # Record task_loop_bounds and task_iter_syms
         self.task_iter_syms = []
         task_iter_strs = set()
         valid_sync = False
 
         if len(s.body) != 1:
-            raise ValueError(f"{s.srcinfo}: expected cuda_tasks loop alone")
+            # Usually we rely on cuda_tasks.validate_loop but it has this blind spot.
+            assert s.body, "Unexpected empty CudaDeviceFunction"
+            raise ValueError(
+                f"{s.srcinfo}: Invalid cuda_tasks loop, expected cuda_tasks loop alone in CudaDeviceFunction"
+            )
 
         self.task_loop_bounds = []
         task_loop_body = s.body
-        found_task_loop = False
-        first_stmt = s
-        while True:
-            if len(task_loop_body) == 0:
-                break
+        found_device_task = False
+
+        while not found_device_task:
             first_stmt = task_loop_body[0]
+            found_device_task = cuda_tasks.validate_loop(first_stmt)
 
-            # single cuda_tasks loop
-            if isinstance(first_stmt, LoopIR.For):
-                if isinstance(first_stmt.loop_mode, CudaTasks):
-                    # Record cuda_tasks iteration variable
-                    if str(first_stmt.iter) in task_iter_strs:
+            # Record cuda_tasks iteration variable
+            if str(first_stmt.iter) in task_iter_strs:
+                raise ValueError(
+                    f"{s.srcinfo}: Invalid cuda_tasks loop, duplicate cuda_tasks iter variable name {first_stmt.iter}"
+                )
+            task_iter_strs.add(str(first_stmt.iter))
+            self.task_iter_syms.append(first_stmt.iter)
+            # Record cuda_tasks loop bounds
+            bounds = (first_stmt.lo, first_stmt.hi)
+            self.task_loop_bounds.append(bounds)
+            # The CudaTasks loop nest must be a cuboid (all we support for now)
+            for bdd in bounds:
+                getter = GetReads()
+                getter.do_e(bdd)
+                for nm, _ in getter.reads:
+                    if nm in self.task_iter_syms:
+                        txt = f"for {first_stmt.iter} in {first_stmt.loop_mode.format_loop_cond(*bounds)}"
                         raise ValueError(
-                            f"{s.srcinfo}: unsupported, duplicate cuda_tasks iter variable name {first_stmt.iter}"
+                            f"{first_stmt.srcinfo}: Invalid cuda_tasks loop,"
+                            f"non-cuboid cuda_tasks loop nest unimplemented; "
+                            f"{txt} has dependence on {nm} iterator of previous cuda_tasks loop."
                         )
-                    task_iter_strs.add(str(first_stmt.iter))
-                    self.task_iter_syms.append(first_stmt.iter)
-                    bounds = (first_stmt.lo, first_stmt.hi)
-                    self.task_loop_bounds.append(bounds)
-                    # The CudaTasks loop nest must be a cuboid (all we support for now)
-                    for bdd in bounds:
-                        getter = GetReads()
-                        getter.do_e(bdd)
-                        for nm, _ in getter.reads:
-                            if nm in self.task_iter_syms:
-                                txt = f"for {first_stmt.iter} in {first_stmt.loop_mode.format_loop_cond(*bounds)}"
-                                raise ValueError(
-                                    f"{first_stmt.srcinfo}: "
-                                    f"non-cuboid cuda_tasks loop nest unimplemented; "
-                                    f"{txt} has dependence on {nm} iterator of previous cuda_tasks loop."
-                                )
 
-                    # Validate no extra statements, then recurse in
-                    if len(task_loop_body) != 1:
-                        raise ValueError(
-                            f"{task_loop_body[1].srcinfo}: invalid statement after cuda_tasks loop"
-                        )
-                    else:
-                        found_task_loop = True
-                        task_loop_body = task_loop_body[0].body
-                        continue
-
-            # End when encountering first non-cuda_tasks loop.
-            break
-
-        if not found_task_loop:
-            raise ValueError(f"{first_stmt.srcinfo}: missing cuda_tasks loop")
+            # Recurse into cuda_tasks loop.
+            # If task_loop_body is not itself a cuda_tasks loop,
+            # then found_device_task=True and the loop will terminate.
+            task_loop_body = first_stmt.body
 
         # Prepare exo_Task struct (struct of task loop iteration variables)
         # They will be named exo_task.* in deviceTask.
@@ -445,7 +436,7 @@ class SubtreeScan(LoopIR_Do):
             elif isinstance(loop_mode, CudaTasks):
                 if s.iter not in self.task_iter_syms:
                     raise ValueError(
-                        f"{s.srcinfo}: cuda_tasks loop must appear only in top level nest of CudaDeviceFunction"
+                        f"{s.srcinfo}: Invalid cuda_tasks loop, must appear only in top level nest of CudaDeviceFunction"
                     )
             elif isinstance(loop_mode, _CodegenPar):
                 self._coll_tiling = self.thread_iters[s.iter].coll_tiling

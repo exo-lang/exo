@@ -278,7 +278,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         using Logger = std::conditional_t<AllowLog, SyncvLogRequest, decltype(nullptr)>;
         Logger logger{};
         if constexpr (AllowLog) {
-            if constexpr (!std::is_same_v<Node, Fence>) {
+            if constexpr (!std::is_same_v<Node, Fence> && !std::is_same_v<Node, JoinThreads>) {
                 logger.var_str_name = env.str_name(node->name);
             }
             logger.p_excut_actions = this->excut_file ? &this->excut_actions : nullptr;
@@ -689,6 +689,12 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
         on_await(env.p_syncv_table.get(), thread_cuboid, param, prepare_logger(node, thread_cuboid));
         env.maybe_syncv_debug_validate();
+    }
+
+    void exec_impl(const JoinThreads* node)
+    {
+        const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
+        on_join_threads(env.p_syncv_table.get(), thread_cuboid, prepare_logger(node, thread_cuboid));
     }
 
     void exec_impl(const ValueEnvAlloc* node)
