@@ -270,10 +270,16 @@ class ProgramPrinter
         *this << ")\n";
     }
 
-    void operator() (const BarrierEnvFree* node)
+    void operator() (const DataFree* node)
     {
         print_tabs();
-        *this << "b.BarrierEnvFree(" << node->name << ")\n";
+        *this << "b.DataFree(" << node->name << ")\n";
+    }
+
+    void operator() (const BarrierFree* node)
+    {
+        print_tabs();
+        *this << "b.BarrierFree(" << node->name << ")\n";
     }
 
     void operator() (const StmtBody* node)

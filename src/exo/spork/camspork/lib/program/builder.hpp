@@ -148,7 +148,8 @@ class ProgramBuilder
     StmtRef add_SyncEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent);
     StmtRef add_ExpectSyncEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent);
     StmtRef add_BarrierEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent);
-    StmtRef add_BarrierEnvFree(Varname name);
+    StmtRef add_DataFree(Varname name);
+    StmtRef add_BarrierFree(Varname name);
 
     // ******************************************************************************************
     // Add statements with a body to the program.
@@ -245,7 +246,9 @@ CAMSPORK_EXPORT camspork::StmtRef camspork_add_ExpectSyncEnvAlloc(camspork::Prog
     camspork::Varname name, uint32_t num_dims, const camspork::ExprRef* extent);
 CAMSPORK_EXPORT camspork::StmtRef camspork_add_BarrierEnvAlloc(camspork::ProgramBuilder* p_builder,
     camspork::Varname name, uint32_t num_dims, const camspork::ExprRef* extent);
-CAMSPORK_EXPORT camspork::StmtRef camspork_add_BarrierEnvFree(camspork::ProgramBuilder* p_builder,
+CAMSPORK_EXPORT camspork::StmtRef camspork_add_DataFree(camspork::ProgramBuilder* p_builder,
+    camspork::Varname name);
+CAMSPORK_EXPORT camspork::StmtRef camspork_add_BarrierFree(camspork::ProgramBuilder* p_builder,
     camspork::Varname name);
 
 CAMSPORK_EXPORT camspork::StmtRef camspork_push_If(camspork::ProgramBuilder* p_builder,

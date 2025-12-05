@@ -702,17 +702,18 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
     void exec_impl(const SyncEnvAlloc* node)
     {
         VarSlotEntry<assignment_record_id>& slot = env.sync_slot(node->name);
-
-        // Clear every entry.
-        // This is needed to return memory to the syncv table.
-        clear_visibility(env.p_syncv_table.get(), slot.size(), slot.data());
-        slot.mark_empty();
+        slot.clear_sync_env(env.p_syncv_table.get());
 
         // Resize if needed.
         eval_tmp_extent(node);
         slot.resize(tmp_extent);
-        clear_visibility(env.p_syncv_table.get(), slot.size(), slot.data());
         env.maybe_syncv_debug_validate();
+
+        // We rely on the 0-init constructor here.
+        // This only runs if the resize(...) caused a reallocation, so we also rely on
+        // clear_sync_env calling clear_visibility to 0 things.
+        // This is OK even if size < capacity, since the ones in [size, capacity) would have been 0'd in the past
+        // at some point, since it was either never used (0-init by alloc) or free'd after last use (clear_sync_env).
     }
 
     void exec_impl(const ExpectSyncEnvAlloc* node)
@@ -733,8 +734,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
 
         // This is needed to return memory to the syncv table.
         // We don't enforce arrive/await equality on this path.
-        free_barriers(env.p_syncv_table.get(), slot.size(), slot.data(), false);
-        slot.mark_empty();
+        slot.clear_barrier_env(env.p_syncv_table.get(), false);
 
         // Resize if needed.
         eval_tmp_extent(node);
@@ -786,11 +786,19 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         }
     }
 
-    void exec_impl(const BarrierEnvFree* node)
+    void exec_impl(const DataFree* node)
+    {
+        env.value_slot(node->name).clear_value_env();
+        env.sync_slot(node->name).clear_sync_env(env.p_syncv_table.get());
+    }
+
+    void exec_impl(const BarrierFree* node)
     {
         VarSlotEntry<barrier_id>& slot = env.barrier_slot(node->name);
-        free_barriers(env.p_syncv_table.get(), slot.size(), slot.data(), true);
+        slot.clear_barrier_env(env.p_syncv_table.get(), true);
         env.maybe_syncv_debug_validate();
+
+        env.sync_slot(node->name).clear_sync_env(env.p_syncv_table.get());
     }
 
     struct BodyExecImpl

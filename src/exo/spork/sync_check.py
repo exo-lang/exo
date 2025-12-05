@@ -315,8 +315,6 @@ class CamsporkDo(LoopIR_Do):
             want_sync = s.name in self._sync_syms
             want_free_shards = False
 
-            if want_barrier:
-                b.BarrierEnvFree(s.name, srcinfo=s.srcinfo)
             if want_sync and s.mem.is_cuda_smem():
                 # fmt: off
                 assert isinstance(self._coll_tiling, CollTiling), "SMEM outside CUDA scope?"
@@ -403,6 +401,13 @@ class CamsporkDo(LoopIR_Do):
                 )
                 for ctx in reversed(loop_nest):
                     ctx.end()
+
+            # Must be after SyncEnvFreeShards,
+            # since this deletes the SyncEnv data for the variable.
+            if want_barrier:
+                b.BarrierFree(s.name, srcinfo=s.srcinfo)
+            elif want_sync:
+                b.DataFree(s.name, srcinfo=s.srcinfo)
 
         elif isinstance(s, LoopIR.Call):
             callee = s.f

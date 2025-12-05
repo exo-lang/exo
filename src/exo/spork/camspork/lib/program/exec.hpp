@@ -142,6 +142,25 @@ class VarSlotEntry
         CAMSPORK_REQUIRE_CMP(size(), ==, 0, "should be seen as empty now");
     }
 
+    void clear_value_env()
+    {
+        mark_empty();
+    }
+
+    void clear_sync_env(SyncvTable* table)
+    {
+        // Clear every entry.
+        // This is needed to return memory to the syncv table.
+        clear_visibility(table, size(), data());
+        mark_empty();
+    }
+
+    void clear_barrier_env(SyncvTable* table, bool check_arrive_await)
+    {
+        free_barriers(table, size(), data(), check_arrive_await);
+        mark_empty();
+    }
+
     std::vector<extent_t> idx_from_linear(size_t linear_index) const
     {
         const size_t dim = _extent.size();

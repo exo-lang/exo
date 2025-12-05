@@ -502,7 +502,7 @@ struct stmt
 {
 };
 
-static constexpr uint32_t NumStmtTypes = 23;
+static constexpr uint32_t NumStmtTypes = 24;
 
 using StmtRef = NodeRef<stmt, NumStmtTypes>;
 
@@ -597,6 +597,8 @@ struct stmt<5> : SyncEnvAccessNode<true, false, true>
 //
 // Before-free checks for name[*idx, :, :...] where the number of : is equal to the
 // dimensionality of the named tensor minus the number of idx provided.
+//
+// This does not "free" data in the abstract machine implementation; see DataFree.
 using SyncEnvFreeShard = stmt<6>;
 template<>
 struct stmt<6>
@@ -681,14 +683,16 @@ struct stmt<13>
     CAMSPORK_NODE_VLA_MEMBER(ExprRef)
 };
 
-// BarrierEnvFree(Varname name)
-using BarrierEnvFree = stmt<14>;
+// BarrierFree(Varname name)
+using BarrierFree = stmt<14>;
 template<>
 struct stmt<14>
 {
     Varname name;
     CAMSPORK_NODE_NO_VLA()
 };
+
+// see also DataFree (added later).
 
 // StmtBody(stmt* body)
 // This is statement composition body[0] ; body[1] ; ...
@@ -772,9 +776,17 @@ struct stmt<22>
     CAMSPORK_NODE_VLA_MEMBER(ExprRef)
 };
 
+// DataFree(Varname name)
+using DataFree = stmt<23>;
+template<>
+struct stmt<23>
+{
+    Varname name;
+    CAMSPORK_NODE_NO_VLA()
+};
 
 // Update this if you add more stmt node types.
-static_assert(NumStmtTypes == 23);
+static_assert(NumStmtTypes == 24);
 
 
 // ******************************************************************************************

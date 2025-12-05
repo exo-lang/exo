@@ -1207,6 +1207,8 @@ struct SyncvTable
         return this->process_bucket(p_buckets, command);
     }
 
+    uint32_t bucket_iter_max = 0;
+
     // Find visibility record in memoization bucket that is equal to match_node.
     // Returns pointer to ID of record found (non-owning), or null if not found.
     template <bool IsMutate>
@@ -1218,14 +1220,18 @@ struct SyncvTable
         using node_id = nodepool::id<VisRecordListNode<IsMutate>>;
         node_id* p_id = p_bucket_head;
         uint64_t last_hash_bits = 0;
+        nodepool::id<VisRecordListNode<IsMutate>>* p_result = nullptr;
+        uint32_t debug_iter_count = 0;
 
         for (node_id id; (id = *p_id); ) {
             bucket_search_iter_counter++;
+            debug_iter_count++;
             VisRecordListNode<IsMutate>& node = get(id);
             CAMSPORK_REQUIRE(!node.is_forwarded(), "Should not be in memoization table.");
 
             if (equal(node.base_data, match_node.base_data)) {
-                return p_id;
+                p_result = p_id;
+                break;
             }
 
             // Relying on sorted-ness to exit early.
@@ -1237,7 +1243,11 @@ struct SyncvTable
 
             p_id = &node.camspork_next_id;
         }
-        return nullptr;
+        if (debug_iter_count > bucket_iter_max) {
+            printf("debug_iter_count = %u\n", debug_iter_count);
+            bucket_iter_max = debug_iter_count;
+        }
+        return p_result;
     }
 
     // Add a new visibility record, or return existing memoized one, constructed from the given thread cuboid

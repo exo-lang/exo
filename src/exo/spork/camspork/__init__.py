@@ -6,7 +6,7 @@ from typing import Callable, Dict, List, Tuple, Optional
 lib = cdll.LoadLibrary(os.path.join(os.path.split(__file__)[0], "bin/libcamspork.so"))
 extent_t = c_uint32
 value_t = c_int32
-_need_lib_version = 2
+_need_lib_version = 3
 
 
 class BuilderExpr:
@@ -291,9 +291,13 @@ _add_BarrierEnvAlloc = lib.camspork_add_BarrierEnvAlloc
 _add_BarrierEnvAlloc.restype = StmtRef
 _add_BarrierEnvAlloc.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef)
 
-_add_BarrierEnvFree = lib.camspork_add_BarrierEnvFree
-_add_BarrierEnvFree.restype = StmtRef
-_add_BarrierEnvFree.argtypes = (c_void_p, Varname)
+_add_DataFree = lib.camspork_add_DataFree
+_add_DataFree.restype = StmtRef
+_add_DataFree.argtypes = (c_void_p, Varname)
+
+_add_BarrierFree = lib.camspork_add_BarrierFree
+_add_BarrierFree.restype = StmtRef
+_add_BarrierFree.argtypes = (c_void_p, Varname)
 
 _push_If = lib.camspork_push_If
 _push_If.restype = StmtRef
@@ -835,8 +839,11 @@ class ProgramBuilder:
         var, dim, idxs = e.c_var_dim_idxs(self._builder)
         return self.check_stmt(srcinfo, c_adder(self._builder, var, dim, idxs))
 
-    def BarrierEnvFree(self, name, *, srcinfo=None) -> StmtRef:
-        return self.check_stmt(srcinfo, _add_BarrierEnvFree(self._builder, self[name]))
+    def DataFree(self, name, *, srcinfo=None) -> StmtRef:
+        return self.check_stmt(srcinfo, _add_DataFree(self._builder, self[name]))
+
+    def BarrierFree(self, name, *, srcinfo=None) -> StmtRef:
+        return self.check_stmt(srcinfo, _add_BarrierFree(self._builder, self[name]))
 
     def If(self, cond, allow_bool=False, *, srcinfo=None) -> BodyCtx:
         # Catches expressions like "not var" which Python reduces to constant bool.
