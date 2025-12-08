@@ -200,24 +200,23 @@ class PrecisionAnalysis(LoopIR_Rewrite):
             return LoopIR.BinOp(e.op, lhs, rhs, typ, e.srcinfo)
 
         elif isinstance(e, LoopIR.Extern):
+            new_args = [self.apply_e(a) for a in e.args]
+
             typ = T.R
-            for a in e.args:
+            for a in new_args:
                 if a.type != T.R:
                     typ = a.type
 
-            new_args = []
-            for a in e.args:
-                a = self.apply_e(a)
+            for i, a in enumerate(new_args):
                 if typ != a.type:
                     # coerce if const and real
                     if a.type == T.R:
-                        a = self.coerce_e(a, typ)
+                        new_args[i] = self.coerce_e(a, typ)
                     else:
                         self.err(
                             e,
                             f"all extern arguments must have a same type, got {typ} and {a.type}",
                         )
-                new_args.append(a)
 
             return LoopIR.Extern(e.f, new_args, typ, e.srcinfo)
 
