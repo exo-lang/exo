@@ -31,6 +31,7 @@
 template <typename K, typename V> using BinaryTree = std::map<K, V>;
 template <typename K, typename V> using Map = std::unordered_map<K, V>;
 template <typename V> using Set = std::unordered_set<V>;
+template <typename V> using MultiSet = std::unordered_multiset<V>;
 
 namespace camspork
 {
@@ -186,7 +187,8 @@ struct AssignmentRecord
 struct BarrierArriveState
 {
     // Linked lists of owning references to VisRecord.
-    // A base-state VisRecord is in a list iff the VisRecord has (parent, arrive_count) in its pending_awaits.
+    // A base-state VisRecord is in the list N-many times iff the VisRecord has
+    // (parent, arrive_count) N-many times in its pending_awaits.
     // Forwarding-state VisRecords may be in the lists as well ... ignore them if found.
     //
     // Re-use of "assignment record" struct is just pragmatic (maybe confusing).
@@ -1685,7 +1687,7 @@ struct SyncvTable
                     debug_print(stderr, await_info);
                 }
                 found = true;
-                // Don't break; there could be duplicates to remove.
+                break;
             }
             else {
                 p_await_node = &node.camspork_next_id;
@@ -1720,10 +1722,9 @@ struct SyncvTable
                             await_info,
                             callback,
                             logger};
-                    for_vis_record_hash_bounds({hash, hash}, command);
-                    // Note, the above may legitimately do nothing (memoization table miss) due to a combination
-                    // of IDs being duplicated and the fact that VisRecords are removed from the memoization upon
-                    // modification, until the next memoize_modified(...).
+                    const auto modified_id = for_vis_record_hash_bounds({hash, hash}, command);
+                    CAMSPORK_REQUIRE_CMP(modified_id, ==, vis_record_id, "Internal error, EditOne failed");
+                    memoize_modified();
                 }
                 decref(vis_record_id);
                 record_node.vis_record_id = {};  // to make things clearer in the debugger.
@@ -1734,8 +1735,6 @@ struct SyncvTable
         retire_list(head_id);
         extend_free_list(head_id);
         head_id = {};
-
-        memoize_modified();
     }
 
     // Big payoff for all this code: function that performs the effects of a synchronization statement with the given
@@ -2523,11 +2522,15 @@ struct SyncvTable
 
                 // Look for VisRecord reference in BarrierArriveState.
                 // The other half of this checking is done in check_BarrierArriveState_VisRecords.
+                MultiSet<decltype(PendingAwaitNode::await_id)> await_id_multiset;
                 nodepool::id<PendingAwaitNode> await_node_id = node.base_data.pending_awaits;
                 while (await_node_id) {
                     const PendingAwaitNode& await_node = get(await_node_id);
                     await_node_id = await_node.camspork_next_id;
-                    const BarrierArriveState* p_state = get_const_barrier_arrive_state(await_node.await_id);
+                    await_id_multiset.insert(await_node.await_id);
+                }
+                for (auto await_id : await_id_multiset) {
+                    const BarrierArriveState* p_state = get_const_barrier_arrive_state(await_id);
                     if (!p_state) {
                         fprintf(stderr, "%u\n", id.id_bits);
                     }
@@ -2535,14 +2538,14 @@ struct SyncvTable
                     const BarrierArriveState& state = *p_state;
                     constexpr VisRecordKind K = node.vis_record_kind;
                     nodepool::id<AssignmentRecordVisNode<K>> record_node_id = state.vis_records_head_id;
-                    while (1) {
-                        CAMSPORK_REQUIRE(record_node_id, "Missing VisRecord reference in BarrierArriveState");
+                    size_t count = 0;
+                    while (record_node_id) {
                         const auto& record_node = get(record_node_id);
-                        if (record_node.vis_record_id == id) {
-                            break;
-                        }
+                        count += (record_node.vis_record_id == id);
                         record_node_id = record_node.camspork_next_id;
                     }
+                    CAMSPORK_REQUIRE_CMP(count, ==, await_id_multiset.count(await_id),
+                        "Expect 1:1 VisRecord->PendingAwait and PendingAwait->VisRecord references");
                 }
             }
         };
