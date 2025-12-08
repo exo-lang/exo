@@ -285,19 +285,20 @@ struct SyncvTrivialLogger
     }
 };
 
-struct VisRecordChunkMinHash
+struct VisRecordChunkMaxHash
 {
-    uint64_t min_hash;  // Min of memoize_hash_bits of VisRecords in chunk.
+    uint64_t max_hash;  // Max of memoize_hash_bits of VisRecords in chunk.
 
-    bool operator< (const VisRecordChunkMinHash& other)
+    bool operator< (const VisRecordChunkMaxHash& other)
     {
-        return min_hash < other.min_hash;
+        return max_hash < other.max_hash;
     }
 };
 
 template <VisRecordKind K>
-struct VisRecordChunk : VisRecordChunkMinHash
+struct VisRecordChunk : VisRecordChunkMaxHash
 {
+    static constexpr VisRecordKind vis_record_kind = K;
     std::vector<nodepool::id<VisRecordListNode<K> > > nodes;
 };
 
@@ -1093,16 +1094,30 @@ struct SyncvTable
     void update_hash(VisRecordChunk<K>& chunk) const
     {
         CAMSPORK_REQUIRE(!chunk.nodes.empty(), "empty VisRecord chunk");
-        chunk.min_hash = read_hash_helper(chunk.nodes[0]);
+        chunk.max_hash = read_hash_helper(chunk.nodes.back());
     }
 
     enum class MemoizeAction
     {
+        // Return id of matching VisRecord, or 0 if not found. Read-only operation.
         Find,
+
+        // If matching VisRecord found, remove it from table and return its id; else return 0.
         Remove,
+
+        // If matching VisRecord found, set the command VisRecord to the forwarding state pointing to the matching
+        // VisRecord. Return the ID of the matching VisRecord in the memoization table.
+        // Otherwise, add the command VisRecord to the memoization table.
+        // Recall that the memoization table does not own its reference to the VisRecord.
         MemoizeOrForward,
-        EditOne,
+
+        // Run callback for all memoized VisRecords with hash values in the inclusive hash_bounds range.
+        // Any modified VisRecord are removed from the table and added to modified_vis_records.
+        // Must call memoize_modified() afterwards.
         EditAll,
+
+        // Like EditAll but only applies to the matching VisRecord.
+        EditOne,
     };
 
     // Skeleton function for a variety of functions interacting with the memoization table.
@@ -1111,7 +1126,9 @@ struct SyncvTable
     //
     //     static constexpr MemoizeAction memoize_action;
     //
-    //     nodepool::id<VisRecordListNode<K>> node_id  // not needed for EditAll; must not be forwarded.
+    //     // "matching VisRecord" is one that is equal(...) to this one.
+    //     // The hash of the VisRecord must be in the inclusive bounds of hash_bounds.
+    //     nodepool::id<VisRecordListNode<K>> node_id;
     //
     //     bool operator() (SyncvTable& env, nodepool::id<VisRecordListNode<K>> vis_record_id)
     //         // needed for EditOne and EditAll.
@@ -1124,6 +1141,7 @@ struct SyncvTable
         constexpr VisRecordKind K = VisRecordKind::Default;
         const uint64_t hash_lo = hash_bounds.first;
         const uint64_t hash_hi = hash_bounds.second;
+        CAMSPORK_REQUIRE_CMP(hash_lo, <=, hash_hi, "Invalid hash bounds");
 
         constexpr MemoizeAction memoize_action = command.memoize_action;
         const size_t max_chunk_size = 2 + vis_record_table.size() / 2u;
@@ -1132,13 +1150,16 @@ struct SyncvTable
         if constexpr (memoize_action != MemoizeAction::EditAll) {
             p_command_node = &get(command.node_id);
             CAMSPORK_REQUIRE(!p_command_node->is_forwarded(), "command input node must not be forwarded");
+            const uint64_t command_hash = p_command_node->base_data.memoize_hash_bits;
+            CAMSPORK_REQUIRE_CMP(command_hash, >=, hash_lo, "Incorrect hash bounds");
+            CAMSPORK_REQUIRE_CMP(command_hash, <=, hash_hi, "Incorrect hash bounds");
         }
 
         // Find the first chunk containing hashes at least hash_lo.
         const auto first_chunk_iter = std::lower_bound(
             vis_record_table.begin(),
             vis_record_table.end(),
-            VisRecordChunkMinHash{hash_lo});
+            VisRecordChunkMaxHash{hash_lo});
 
         size_t intra_chunk_index = 0, chunk_index = vis_record_table.size();
         if (first_chunk_iter != vis_record_table.end()) {
@@ -1157,8 +1178,10 @@ struct SyncvTable
 
         // Inspect VisRecord objects.
         uint64_t debug_hash = hash_lo;
-        while (chunk_index < vis_record_table.size()) {
+        for (; chunk_index < vis_record_table.size(); chunk_index++) {
             VisRecordChunk<K>& chunk = vis_record_table[chunk_index];
+            nodepool::id<VisRecordListNode<K>> return_id{};
+
             for (; intra_chunk_index < chunk.nodes.size(); intra_chunk_index++) {
                 nodepool::id<VisRecordListNode<K>> cur_id = chunk.nodes[intra_chunk_index];
                 const VisRecordListNode<K>& cur_node = get(cur_id);
@@ -1174,7 +1197,13 @@ struct SyncvTable
                         chunk.nodes.insert(chunk.nodes.begin() + intra_chunk_index, command.node_id);
                         if (chunk.nodes.size() > max_chunk_size) {
                             // Split the chunk in half if it's too big.
-                            size_t halfway = chunk.nodes.size() / 2;
+                            const size_t halfway = chunk.nodes.size() / 2;
+
+                            if (false) {
+                                fprintf(stderr, "Split chunk %lu [0, %lu, %lu]\n",
+                                    chunk_index, halfway, chunk.nodes.size());
+                            }
+
                             VisRecordChunk<K> new_chunk;
                             new_chunk.nodes = std::vector<nodepool::id<VisRecordListNode<K> > >(
                                     chunk.nodes.begin() + halfway, chunk.nodes.end());
@@ -1187,21 +1216,23 @@ struct SyncvTable
                             // chunk is not usable after this.
                             vis_record_table.insert(vis_record_table.begin() + chunk_index + 1, std::move(new_chunk));
                         }
+                        // Splitting special case, don't go to finalize_chunk_edit.
                         return command.node_id;
                     }
-                    return {};
+                    goto finalize_chunk_edit;
                 }
 
                 // Main work by cases.
                 if constexpr (memoize_action == MemoizeAction::Find) {
                     if (equal(p_command_node->base_data, cur_node.base_data)) {
-                        return cur_id;
+                        return cur_id;  // Return now; we didn't edit the table.
                     }
                 }
                 else if constexpr (memoize_action == MemoizeAction::Remove) {
                     if (equal(p_command_node->base_data, cur_node.base_data)) {
                         chunk.nodes.erase(chunk.nodes.begin() + intra_chunk_index);
-                        return cur_id;
+                        return_id = cur_id;
+                        goto finalize_chunk_edit;
                     }
                 }
                 else if constexpr (memoize_action == MemoizeAction::MemoizeOrForward) {
@@ -1217,7 +1248,7 @@ struct SyncvTable
                         command_node.base_data.forwarded_flag = 1;
                         CAMSPORK_REQUIRE(command_node.is_forwarded(), "should now be in forwarding state");
                         incref(fwd_id);  // Forwarding reference is owning.
-                        return fwd_id;
+                        return fwd_id;   // Return now; we didn't edit the table.
                     }
                 }
                 else {
@@ -1250,27 +1281,40 @@ struct SyncvTable
                         }
 
                         if constexpr (memoize_action == MemoizeAction::EditOne) {
-                            return command.node_id;
+                            return_id = command.node_id;
+                            goto finalize_chunk_edit;
                         }
                     }
                 }
             }
 
+            // Inspect all chunks starting from index 0 except for the first one inspected
+            // which the second std::lower_bound allowed us to skip some work in.
+            intra_chunk_index = 0;
+
+            if (memoize_action == MemoizeAction::EditAll) {
+                goto finalize_chunk_edit;
+            }
+            continue;
+
+            // EditAll always runs this code per chunk.
+            // Other code paths go here only just before returning the result.
+          finalize_chunk_edit:
             // Remove empty chunks
             if (memoize_action != MemoizeAction::Find && chunk.nodes.empty()) {
+                // fprintf(stderr, "Removed empty chunk\n");
                 vis_record_table.erase(vis_record_table.begin() + chunk_index);
-                chunk_index += 0;
+                chunk_index--;
             }
+            // Update hash of chunks
             else {
                 if (memoize_action != MemoizeAction::Find) {
                     this->update_hash(chunk);
                 }
-                chunk_index += 1;
             }
-
-            // Inspect all chunks starting from index 0 except for the first one inspected
-            // which the second std::lower_bound allowed us to skip some work in.
-            intra_chunk_index = 0;
+            if constexpr (memoize_action != MemoizeAction::EditAll) {
+                return return_id;
+            }
         }
 
         // If we are doing memoize-or-forward and we are still not returned here,
@@ -1282,6 +1326,7 @@ struct SyncvTable
             VisRecordChunk<K>& chunk = vis_record_table.back();
             chunk.nodes.push_back(command.node_id);
             this->update_hash(chunk);
+            return command.node_id;
         }
 
         return {};
@@ -1453,6 +1498,15 @@ struct SyncvTable
 
         MemoizeOrForwardCommand<K> command{id};
         return for_vis_record_hash_bounds({hash, hash}, command);
+    }
+
+    void memoize_modified()
+    {
+        for (nodepool::id<VisRecordListNode<VisRecordKind::Default>> id : modified_vis_records) {
+            memoize_or_forward(id);
+            decref(id);
+        }
+        modified_vis_records.clear();
     }
 
     struct AugmentVisRecordCallback
@@ -1656,7 +1710,8 @@ struct SyncvTable
                             await_info,
                             callback,
                             logger};
-                    for_vis_record_hash_bounds({hash, hash}, command);
+                    const auto modified_id = for_vis_record_hash_bounds({hash, hash}, command);
+                    CAMSPORK_REQUIRE_CMP(modified_id, ==, vis_record_id, "Internal error EditOne didn't work");
                 }
                 decref(vis_record_id);
                 record_node.vis_record_id = {};  // to make things clearer in the debugger.
@@ -1784,6 +1839,7 @@ struct SyncvTable
         augment_counter++;
         logger.history_set_sync_stmt_info(fence);
         update_vis_records_for_fence(cuboid, fence, logger);
+        memoize_modified();
     }
 
     template <typename Logger>
@@ -1805,6 +1861,7 @@ struct SyncvTable
         state.arrive_count = new_arrive_count;
         update_vis_records_for_arrive(
                 cuboid, arrive.transitive, arrive.L1_qual_bits, std::move(pending_awaits), logger);
+        memoize_modified();
     }
 
     template <typename Logger>
@@ -1840,6 +1897,7 @@ struct SyncvTable
                 await.L2_full_qual_bits,
                 await.L2_temporal_qual_bits,
                 logger);
+        memoize_modified();
     }
 
     template <typename Logger>
@@ -1847,6 +1905,7 @@ struct SyncvTable
     {
         augment_counter++;
         // TODO
+        memoize_modified();
     }
 
 
@@ -2319,6 +2378,9 @@ struct SyncvTable
     void debug_validate_state(size_t input_count, const SyncvDebugValidateInput* p_inputs) const
     {
         fprintf(stderr, "SyncvTable::debug_validate_state\n");
+
+        CAMSPORK_REQUIRE_CMP(modified_vis_records.size(), ==, 0, "internal error, missing memoize_modified()");
+
         std::tuple<
             RefcntDebug<AssignmentRecord>,
             RefcntDebug<TlSigIntervalListNode>,
@@ -2499,73 +2561,70 @@ struct SyncvTable
         // Memoization Validation
         // A VisRecord should be in the memoization table iff it's alive and in the base state.
 
-        // // (VisRecord in memoization table -> alive and in base state)
-        // // Also check correct hash keys and bucket sorting.
+        // (VisRecord in memoization table -> alive and in base state)
+        // Also check correct hash keys and bucket sorting.
+        uint64_t last_hash_bits = 0;
 
-        // auto validate_bucket_linked_list = [this] (auto id, uint32_t bucket_key)
-        // {
-        //     uint64_t last_hash_bits = 0;
-        //     while (id) {
-        //         // VisRecordListNode<K>
-        //         const auto& node = get(id);
-        //         const auto expect_hash_bits = vis_record_hash_bits(node.base_data);
-        //         CAMSPORK_REQUIRE_CMP(node.refcnt, !=, 0, "all memoized VisRecord should have nonzero refcnt");
-        //         CAMSPORK_REQUIRE(!node.is_forwarded(), "forwarding state VisRecord should not be memoized");
-        //         CAMSPORK_REQUIRE_CMP(node.base_data.memoize_hash_bits, ==, expect_hash_bits, "wrong hash");
-        //         CAMSPORK_REQUIRE_CMP(bucket_key_from_hash(expect_hash_bits), ==, bucket_key, "wrong bucket");
-        //         CAMSPORK_REQUIRE_CMP(last_hash_bits, <=, expect_hash_bits, "Not sorted");
-        //         last_hash_bits = expect_hash_bits;
-        //         id = node.camspork_next_id;
-        //     }
-        // };
+        auto validate_chunk = [this, &last_hash_bits] (const auto& chunk)
+        {
+            static constexpr VisRecordKind K = chunk.vis_record_kind;
+            CAMSPORK_REQUIRE(!chunk.nodes.empty(), "Empty chunk left behind");
+            CAMSPORK_REQUIRE_CMP(read_hash_helper(chunk.nodes.back()), ==, chunk.max_hash, "Wrong chunk.max_hash");
+            for (nodepool::id<VisRecordListNode<K>> id : chunk.nodes) {
+                // VisRecordListNode<K>
+                const VisRecordListNode<K>& node = get(id);
+                const auto expect_hash_bits = vis_record_hash_bits(node.base_data);
+                CAMSPORK_REQUIRE_CMP(node.refcnt, !=, 0, "all memoized VisRecord should have nonzero refcnt");
+                CAMSPORK_REQUIRE(!node.is_forwarded(), "forwarding state VisRecord should not be memoized");
+                CAMSPORK_REQUIRE(!node.camspork_next_id, "unexpected linked list next");
+                CAMSPORK_REQUIRE_CMP(node.base_data.memoize_hash_bits, ==, expect_hash_bits, "wrong hash");
+                CAMSPORK_REQUIRE_CMP(last_hash_bits, <=, expect_hash_bits, "Not sorted");
+                last_hash_bits = expect_hash_bits;
+            }
+        };
 
-        // for (uint32_t bucket_key = 0; bucket_key < num_buckets; ++bucket_key) {
-        //     validate_bucket_linked_list(vis_record_table_buckets[bucket_key], bucket_key);
-        // }
+        last_hash_bits = 0;
+        for (const VisRecordChunk<VisRecordKind::Default>& chunk : vis_record_table) {
+            validate_chunk(chunk);
+        }
 
 
-        // // (VisRecord in memoization table <- alive and in base state)
-        // // Each VisRecord should be able to find itself in the table; if we fail, it could be because we
-        // // forgot to memoize it, or something is wrong with the bucket search or equality function.
-        // auto memoize_self_check = [&] (auto id_for_typing)
-        // {
-        //     using ListNode = typename decltype(id_for_typing)::value_type;
-        //     RefcntDebug<ListNode>& debug = std::get<RefcntDebug<ListNode>>(debug_refcnts);
-        //     for (nodepool::id<ListNode> id : debug_get_pool<ListNode>()) {
-        //         const bool live = debug.refcnts[id.node_index()] != 0;
-        //         if (!live) {
-        //             continue;
-        //         }
-        //         const auto& node = get(id);
-        //         if (node.is_forwarded()) {
-        //             continue;
-        //         }
+        // (VisRecord in memoization table <- alive and in base state)
+        // Each VisRecord should be able to find itself in the table; if we fail, it could be because we
+        // forgot to memoize it, or something is wrong with the bucket search or equality function.
+        auto memoize_self_check = [&] (auto id_for_typing)
+        {
+            using ListNode = typename decltype(id_for_typing)::value_type;
+            RefcntDebug<ListNode>& debug = std::get<RefcntDebug<ListNode>>(debug_refcnts);
+            for (nodepool::id<ListNode> id : debug_get_pool<ListNode>()) {
+                const bool live = debug.refcnts[id.node_index()] != 0;
+                if (!live) {
+                    continue;
+                }
+                const auto& node = get(id);
+                if (node.is_forwarded()) {
+                    continue;
+                }
 
-        //         try {
-        //             CAMSPORK_REQUIRE_CMP(id, ==, find_memoized(&node), "memoization lookup is buggy");
-        //         }
-        //         catch (...) {
-        //             VisRecord record = node.base_data;
-        //             nodepool::id<TlSigIntervalListNode> interval_id = record.visibility_set;
-        //             while (interval_id) {
-        //                 const TlSigIntervalListNode& node = get(interval_id);
-        //                 interval_id = node.camspork_next_id;
-        //                 const TlSigInterval data = node.data;
-        //                 fprintf(stderr, "[%u, %u, %u, %u, %u, %u]\n",
-        //                         data.tid_lo,
-        //                         data.tid_hi,
-        //                         data.qual_bits_by_vis.array[0],
-        //                         data.qual_bits_by_vis.array[1],
-        //                         data.qual_bits_by_vis.array[2],
-        //                         data.qual_bits_by_vis.array[3]
-        //                 );
-        //             }
-        //             static_assert(num_vis_flags == 4);
-        //             throw;
-        //         }
-        //     }
-        // };
-        // memoize_self_check(nodepool::id<DefaultVisRecordListNode>{});
+                CAMSPORK_REQUIRE_CMP(read_hash_helper(id), ==, vis_record_hash_bits(node.base_data), "dirty hash");
+                try {
+                    CAMSPORK_REQUIRE_CMP(id, ==, find_memoized(id), "memoization lookup is buggy");
+                }
+                catch (...) {
+                    for (size_t  chunk_index = 0; chunk_index < vis_record_table.size(); ++chunk_index) {
+                        fprintf(stderr, "\n === CHUNK %u ===\n", (unsigned)chunk_index);
+                        for (auto id : vis_record_table[chunk_index].nodes) {
+                            debug_print(stderr, get(id).base_data);
+                        }
+                    }
+                    fprintf(stderr, "\n === LOOKING FOR ===\n");
+                    VisRecord record = node.base_data;
+                    debug_print(stderr, record);
+                    throw;
+                }
+            }
+        };
+        memoize_self_check(nodepool::id<DefaultVisRecordListNode>{});
 
         // Check correct BarrierArriveState.
         // A base state VisRecord is pointed to by BarrierArriveState iff it contains a corresponding pending await.
@@ -2600,6 +2659,35 @@ struct SyncvTable
                 const nodepool::id<DefaultAssignmentRecordVisNode> head_id = pair.second.vis_records_head_id;
                 check_BarrierArriveState_VisRecords(head_id, info);
             }
+        }
+    }
+
+    void debug_print(FILE* f, const VisRecord& record) const
+    {
+        const unsigned long long ull_hash = record.memoize_hash_bits;
+        fprintf(f, "HASH=%llu (0x%llX)\n", ull_hash, ull_hash);
+        nodepool::id<TlSigIntervalListNode> interval_id = record.visibility_set;
+        while (interval_id) {
+            const TlSigIntervalListNode& node = get(interval_id);
+            interval_id = node.camspork_next_id;
+            const TlSigInterval data = node.data;
+            fprintf(f, "[%u, %u, %u, %u, %u, %u]\n",
+                    data.tid_lo,
+                    data.tid_hi,
+                    data.qual_bits_by_vis.array[0],
+                    data.qual_bits_by_vis.array[1],
+                    data.qual_bits_by_vis.array[2],
+                    data.qual_bits_by_vis.array[3]
+            );
+        }
+        static_assert(num_vis_flags == 4);
+        nodepool::id<PendingAwaitNode> await_id = record.pending_awaits;
+        while (await_id) {
+            const PendingAwaitNode& node = get(await_id);
+            await_id = node.camspork_next_id;
+            fprintf(f, "PendingAwait(barrier_index=%i, arrive_count=%i)\n",
+                    int(pending_await_barrier_index(node.await_id)),
+                    int(pending_await_arrive_count(node.await_id)));
         }
     }
 };
@@ -2899,6 +2987,7 @@ try { \
     CAMSPORK_REQUIRE(!table->failed, "Cannot continue using env after failure detected");
 
 #define INTERFACE_EPILOGUE(table) \
+    CAMSPORK_REQUIRE_CMP(table->modified_vis_records.size(), ==, 0, "internal error, missing memoize_modified()"); \
 } \
 catch (...) { \
     table->failed = true; \

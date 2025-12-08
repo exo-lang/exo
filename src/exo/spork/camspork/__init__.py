@@ -1119,6 +1119,31 @@ if __name__ == "__main__":
     b_validation = False
 
     @camspork.program
+    def foo_fence(b: camspork.ProgramBuilder):
+        with b.ParallelBlock(64):
+            bar = b.add_variable("bar")
+            buf = b.add_variable("buf")
+            task = b.add_variable("task")
+            tid = b.add_variable("tid")
+            i = b.add_variable("i")
+            with b.TasksFor(task, 0, 4):
+                b.BarrierEnvAlloc(bar)
+                b.SyncEnvAlloc(buf[64])
+                with b.ThreadsFor(tid, 0, 64, 0, 0, 1):
+                    b.SyncEnvAccess(buf[tid], 2, 2, b.mutate_flag)
+                # b.Fence(True, 2, 2, 2)
+                b.Arrive(True, 2, bar, ())
+                b.Await(bar, 2, 2, N=0)
+                with b.ThreadsFor(tid, 0, 64, 0, 0, 1):
+                    with b.SeqFor(i, 0, 64):
+                        b.SyncEnvAccess(buf[i], 2, 2, 0)
+    print(foo_fence)
+    env = ProgramEnv(foo_fence)
+    env.set_debug_validation_enable(b_validation)
+    env.exec()
+    env.set_debug_validation_enable(True)
+
+    @camspork.program
     def foo_barrier(b: camspork.ProgramBuilder):
         bars = b.add_variable("bars")
         m = b.add_variable("m")
