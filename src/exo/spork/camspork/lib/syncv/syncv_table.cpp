@@ -304,6 +304,59 @@ struct VisRecordChunk : VisRecordChunkMaxHash
     std::vector<nodepool::id<VisRecordListNode<K> > > nodes;
 };
 
+struct VisRecordEntropy
+{
+    uint32_t x = 0x19980724;
+    uint32_t y = 0x20010106;
+
+    // Copied pseudo random number generation code.
+    // http://www.jcgt.org/published/0009/03/02/
+    // Hash Functions for GPU Rendering, Mark Jarzynski, Marc Olano, NVIDIA
+    void pcg3d_z(uint32_t z)
+    {
+        x = x*1664525u + 1013904223u;
+        y = y*1664525u + 1013904223u;
+        z = z*1664525u + 1013904223u;
+
+        x += y*z;
+        y += z*x;
+        z += x*y;
+
+        x ^= x >> 16u;
+        y ^= y >> 16u;
+        z ^= z >> 16u;
+
+        x += y*z;
+        y += z*x;
+        z += x*y;
+    }
+
+    void pcg3d_z(uint64_t) = delete;
+
+    void operator() (TlSigInterval interval)
+    {
+        pcg3d_z(interval.tid_lo);
+        pcg3d_z(interval.tid_hi);
+        for (qual_bits_t q : interval.qual_bits_by_vis.array) {
+            pcg3d_z(q);
+        }
+    }
+
+    void operator() (pending_await_t await_id)
+    {
+        pcg3d_z(await_id);
+    }
+
+    uint32_t get() const
+    {
+        // Note, comment out below lines to test edge cases.
+        // return 0;
+        // return UINT32_MAX;
+
+        return x * 137 + y * 19;
+    }
+};
+
 }  // end namespace
 
 
@@ -1023,7 +1076,7 @@ struct SyncvTable
 
     // *** Memoization ***
 
-    uint64_t vis_record_hash_bits(const VisRecord& vis_record) const
+    uint64_t hash_vis_record(const VisRecord& vis_record) const
     {
         // 62-bit hash
         // (hi)
@@ -1036,7 +1089,7 @@ struct SyncvTable
         static_assert(num_qual_tl == 32, "Need more than 6 bits to encode QualTL + sentinel");
         uint32_t non_atomic_max_tid = 0;
         qual_bits_t issue_qual_bits = 0;
-        uint32_t entropy = vis_record.pending_awaits ? 0xFFFF'FFFE : 0;  // TODO real hash function.
+        VisRecordEntropy entropy{};
 
         const nodepool::id<TlSigIntervalListNode>* p_id = &vis_record.visibility_set;
 
@@ -1046,12 +1099,20 @@ struct SyncvTable
             p_id = &node.camspork_next_id;
 
             const bool tl_sigs_atomic_only = tl_sigs.is_atomic_only();
-            entropy |= tl_sigs_atomic_only;
             if (const auto q_tmp = tl_sigs.qual_bits_by_vis.array[vis_flag_index_issue]) {
                 issue_qual_bits |= q_tmp;
             }
             // Convert exclusive tid_hi to inclusive non_atomic_max_tid.
             non_atomic_max_tid = std::max(non_atomic_max_tid, tl_sigs_atomic_only ? uint32_t(0) : tl_sigs.tid_hi - 1u);
+
+            entropy(tl_sigs);
+        }
+
+        nodepool::id<PendingAwaitNode> await_node_id = vis_record.pending_awaits;
+        while (await_node_id) {
+            const PendingAwaitNode& node = get(await_node_id);
+            entropy(node.await_id);
+            await_node_id = node.camspork_next_id;
         }
 
         uint32_t qual_tl = num_qual_tl;
@@ -1060,7 +1121,7 @@ struct SyncvTable
             CAMSPORK_REQUIRE_CMP((issue_qual_bits >> qual_tl), ==, 1, "multiple issue QualTL");
         }
 
-        uint64_t hash = entropy & 0xFF'FFFF;
+        uint64_t hash = entropy.get() & 0xFF'FFFF;
         hash |= uint64_t(non_atomic_max_tid) << 24;
         hash |= uint64_t(qual_tl) << (32 + 24);
         return hash;
@@ -1493,7 +1554,7 @@ struct SyncvTable
         CAMSPORK_REQUIRE(!node.camspork_next_id, "shouldn't be in any linked list (forwarded?)");
 
         // Calculate hash here as promised in the comment for the memoize_hash_bits member variable.
-        const auto hash = vis_record_hash_bits(node.base_data);
+        const auto hash = hash_vis_record(node.base_data);
         node.base_data.memoize_hash_bits = hash;  // No way to silence stupid bitfield truncation warning!
 
         const uint64_t real_hash = node.base_data.memoize_hash_bits;
@@ -2580,7 +2641,7 @@ struct SyncvTable
             for (nodepool::id<VisRecordListNode<K>> id : chunk.nodes) {
                 // VisRecordListNode<K>
                 const VisRecordListNode<K>& node = get(id);
-                const auto expect_hash_bits = vis_record_hash_bits(node.base_data);
+                const auto expect_hash_bits = hash_vis_record(node.base_data);
                 CAMSPORK_REQUIRE_CMP(node.refcnt, !=, 0, "all memoized VisRecord should have nonzero refcnt");
                 CAMSPORK_REQUIRE(!node.is_forwarded(), "forwarding state VisRecord should not be memoized");
                 CAMSPORK_REQUIRE(!node.camspork_next_id, "unexpected linked list next");
@@ -2613,7 +2674,7 @@ struct SyncvTable
                     continue;
                 }
 
-                CAMSPORK_REQUIRE_CMP(read_hash_helper(id), ==, vis_record_hash_bits(node.base_data), "dirty hash");
+                CAMSPORK_REQUIRE_CMP(read_hash_helper(id), ==, hash_vis_record(node.base_data), "dirty hash");
                 try {
                     CAMSPORK_REQUIRE_CMP(id, ==, find_memoized(id), "memoization lookup is buggy");
                 }
