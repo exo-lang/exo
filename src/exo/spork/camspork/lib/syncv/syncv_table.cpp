@@ -1014,6 +1014,7 @@ struct SyncvTable
             word &= ~bit;
             barriers[i].data = 0;
         }
+        memoize_modified();
     }
 
 
@@ -1238,7 +1239,7 @@ struct SyncvTable
                 else if constexpr (memoize_action == MemoizeAction::MemoizeOrForward) {
                     VisRecordListNode<K>& command_node = *p_command_node;
                     if (equal(command_node.base_data, cur_node.base_data)) {
-                        // If equivalent memoized node found in bucket, forward input node to it.
+                        // If equivalent memoized node found, forward input node to it.
                         const nodepool::id fwd_id = cur_id;
                         CAMSPORK_REQUIRE(fwd_id, "unexpected null");
                         CAMSPORK_REQUIRE_CMP(fwd_id, !=, command.node_id, "Trying to memoize something already in the memoization table.");
@@ -1572,14 +1573,17 @@ struct SyncvTable
         return barrier_states[barrier_index].arrive_states[arrive_count];
     }
 
-    const BarrierArriveState& get_const_barrier_arrive_state(pending_await_t info) const
+    const BarrierArriveState* get_const_barrier_arrive_state(pending_await_t info) const
     {
         const auto barrier_index = pending_await_barrier_index(info);
         const auto arrive_count = pending_await_arrive_count(info);
         const auto& map = barrier_states[barrier_index].arrive_states;
         auto it = map.find(arrive_count);
-        CAMSPORK_REQUIRE(it != map.end(), "Missing BarrierArriveState");
-        return it->second;
+        if (it == map.end()) {
+            debug_print(stderr, info);
+            return nullptr;
+        }
+        return &it->second;
     }
 
     template <typename Logger>
@@ -1676,10 +1680,16 @@ struct SyncvTable
             PendingAwaitNode& node = get(*p_await_node);
             if (node.await_id == await_info) {
                 remove_and_free_next_node(p_await_node);
+                if (false) {
+                    fprintf(stderr, "%u, remove ", vis_record_id.id_bits);
+                    debug_print(stderr, await_info);
+                }
                 found = true;
-                break;
+                // Don't break; there could be duplicates to remove.
             }
-            p_await_node = &node.camspork_next_id;
+            else {
+                p_await_node = &node.camspork_next_id;
+            }
         }
         CAMSPORK_REQUIRE(found, "Remove PendingAwaitNode failed");
     }
@@ -1710,8 +1720,10 @@ struct SyncvTable
                             await_info,
                             callback,
                             logger};
-                    const auto modified_id = for_vis_record_hash_bounds({hash, hash}, command);
-                    CAMSPORK_REQUIRE_CMP(modified_id, ==, vis_record_id, "Internal error EditOne didn't work");
+                    for_vis_record_hash_bounds({hash, hash}, command);
+                    // Note, the above may legitimately do nothing (memoization table miss) due to a combination
+                    // of IDs being duplicated and the fact that VisRecords are removed from the memoization upon
+                    // modification, until the next memoize_modified(...).
                 }
                 decref(vis_record_id);
                 record_node.vis_record_id = {};  // to make things clearer in the debugger.
@@ -1722,6 +1734,8 @@ struct SyncvTable
         retire_list(head_id);
         extend_free_list(head_id);
         head_id = {};
+
+        memoize_modified();
     }
 
     // Big payoff for all this code: function that performs the effects of a synchronization statement with the given
@@ -1764,14 +1778,6 @@ struct SyncvTable
         update_vis_records_for_sync_impl(command);
     }
 
-    template <VisRecordKind K, typename Logger>
-    void process_bucket(
-            nodepool::id<VisRecordListNode<K>>* p_bucket_head,
-            const FenceUpdateCommand<Logger>& command)
-    {
-        process_bucket_for_sync_impl(p_bucket_head, command);
-    }
-
     // Save await_id into all visibility records that synchronize with the first visibility set of the arrive.
     template <typename Logger>
     void update_vis_records_for_arrive(
@@ -1789,14 +1795,6 @@ struct SyncvTable
                     &cuboid, transitive, L1_qual_bits, std::move(pending_awaits), logger};
             update_vis_records_for_sync_impl(command);
         }
-    }
-
-    template <VisRecordKind K, typename Logger>
-    void process_bucket(
-            nodepool::id<VisRecordListNode<K>>* p_bucket_head,
-            ArriveUpdateCommand<Logger>& command)
-    {
-        process_bucket_for_sync_impl(p_bucket_head, command);
     }
 
     template <typename Logger>
@@ -1867,6 +1865,7 @@ struct SyncvTable
     template <typename Logger>
     void on_await(const ThreadCuboid& cuboid, const SyncvAwait& await, Logger&& logger)
     {
+        // fprintf(stderr, "\x1b[31mon_await\n\x1b[0m");
         augment_counter++;
 
         const auto barrier_index = get_barrier_index(await.bar);
@@ -1897,7 +1896,7 @@ struct SyncvTable
                 await.L2_full_qual_bits,
                 await.L2_temporal_qual_bits,
                 logger);
-        memoize_modified();
+        // memoize_modified inside retire_barrier_arrive.
     }
 
     template <typename Logger>
@@ -2528,7 +2527,12 @@ struct SyncvTable
                 while (await_node_id) {
                     const PendingAwaitNode& await_node = get(await_node_id);
                     await_node_id = await_node.camspork_next_id;
-                    const BarrierArriveState& state = get_const_barrier_arrive_state(await_node.await_id);
+                    const BarrierArriveState* p_state = get_const_barrier_arrive_state(await_node.await_id);
+                    if (!p_state) {
+                        fprintf(stderr, "%u\n", id.id_bits);
+                    }
+                    CAMSPORK_REQUIRE(p_state, "Missing BarrierArriveState");
+                    const BarrierArriveState& state = *p_state;
                     constexpr VisRecordKind K = node.vis_record_kind;
                     nodepool::id<AssignmentRecordVisNode<K>> record_node_id = state.vis_records_head_id;
                     while (1) {
@@ -2562,7 +2566,7 @@ struct SyncvTable
         // A VisRecord should be in the memoization table iff it's alive and in the base state.
 
         // (VisRecord in memoization table -> alive and in base state)
-        // Also check correct hash keys and bucket sorting.
+        // Also check correct hash keys and hash sorting.
         uint64_t last_hash_bits = 0;
 
         auto validate_chunk = [this, &last_hash_bits] (const auto& chunk)
@@ -2591,7 +2595,7 @@ struct SyncvTable
 
         // (VisRecord in memoization table <- alive and in base state)
         // Each VisRecord should be able to find itself in the table; if we fail, it could be because we
-        // forgot to memoize it, or something is wrong with the bucket search or equality function.
+        // forgot to memoize it, or something is wrong with the hash search or equality function.
         auto memoize_self_check = [&] (auto id_for_typing)
         {
             using ListNode = typename decltype(id_for_typing)::value_type;
@@ -2685,10 +2689,15 @@ struct SyncvTable
         while (await_id) {
             const PendingAwaitNode& node = get(await_id);
             await_id = node.camspork_next_id;
-            fprintf(f, "PendingAwait(barrier_index=%i, arrive_count=%i)\n",
-                    int(pending_await_barrier_index(node.await_id)),
-                    int(pending_await_arrive_count(node.await_id)));
+            debug_print(f, node.await_id);
         }
+    }
+
+    void debug_print(FILE* f, pending_await_t await_id) const
+    {
+        fprintf(f, "PendingAwait(barrier_index=%i, arrive_count=%i)\n",
+                int(pending_await_barrier_index(await_id)),
+                int(pending_await_arrive_count(await_id)));
     }
 };
 

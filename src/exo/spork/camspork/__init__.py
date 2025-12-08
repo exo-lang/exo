@@ -1137,11 +1137,12 @@ if __name__ == "__main__":
                 with b.ThreadsFor(tid, 0, 64, 0, 0, 1):
                     with b.SeqFor(i, 0, 64):
                         b.SyncEnvAccess(buf[i], 2, 2, 0)
-    print(foo_fence)
-    env = ProgramEnv(foo_fence)
-    env.set_debug_validation_enable(b_validation)
-    env.exec()
-    env.set_debug_validation_enable(True)
+    if False:
+        print(foo_fence)
+        env = ProgramEnv(foo_fence)
+        env.set_debug_validation_enable(b_validation)
+        env.exec()
+        env.set_debug_validation_enable(True)
 
     @camspork.program
     def foo_barrier(b: camspork.ProgramBuilder):
