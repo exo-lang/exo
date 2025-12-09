@@ -694,8 +694,9 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
 
     void exec_impl(const JoinThreads* node)
     {
+        SyncvJoinThreads param{};
         const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
-        on_join_threads(env.p_syncv_table.get(), thread_cuboid, prepare_logger(node, thread_cuboid));
+        on_join_threads(env.p_syncv_table.get(), thread_cuboid, param, prepare_logger(node, thread_cuboid));
     }
 
     void exec_impl(const ValueEnvAlloc* node)

@@ -149,6 +149,13 @@ struct TlSigInterval
         return !tid_disjoint && qual_bits_by_vis.intersects(other.qual_bits_by_vis);
     }
 
+    bool intersects_threads(uint32_t arg_tid_lo, uint32_t arg_tid_hi)
+    {
+        // <= due to tid_hi being an exclusive bound.
+        const bool tid_disjoint = tid_hi <= arg_tid_lo || arg_tid_hi <= tid_lo;
+        return !tid_disjoint;
+    }
+
     bool is_atomic_only() const
     {
         // TlSigInterval contains only (t, q, v) where v = vis_flag_atomic_only?

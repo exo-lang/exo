@@ -253,7 +253,7 @@ class CamsporkDo(LoopIR_Do):
                 # TODO: the join and second fence will have remarks logged above the
                 # CudaDeviceFunction, which is misleading as it's after
                 # the device function launch.
-                b.JoinThreads()
+                b.JoinThreads(srcinfo=s.srcinfo)
                 b.Fence(True, cuda_bits, cuda_bits, cuda_bits, srcinfo=s.srcinfo)
             else:
                 self.do_stmts(s.body)
@@ -284,7 +284,8 @@ class CamsporkDo(LoopIR_Do):
                     # End device task with JoinThreads
                     is_device_task = cuda_tasks.validate_loop(s)
                     if is_device_task:
-                        b.JoinThreads()
+                        # TODO put remark at end of task loop?
+                        b.JoinThreads(srcinfo=s.srcinfo)
             elif isinstance(loop_mode, _CodegenPar):
                 old_coll_tiling = self._coll_tiling
                 self.do_codegen_par(s, am_iter, am_lo, am_hi)

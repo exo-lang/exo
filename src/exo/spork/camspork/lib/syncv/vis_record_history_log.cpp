@@ -98,7 +98,6 @@ void stream_vis_record(
         const LoggedVisRecordData& data,
         [[maybe_unused]] bool extra_data=false)
 {
-    s << "  original_qual_tl: " << log.lazy_get_qual_tl_name(data.original_qual_tl) << '\n';
     for (const TlSigInterval& t: data.visibility_set) {
         s << "  threads: [";
         stream_tid(s, t.tid_lo, cuboid_for_domain);

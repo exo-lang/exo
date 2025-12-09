@@ -148,7 +148,7 @@ const ProgramHeader& ProgramHeader::validate(size_t buffer_size, const char* buf
 
 int camspork_get_lib_version()
 {
-    return 4;
+    return 5;
 }
 
 camspork::binop camspork_binop_from_str(const char* p_str)

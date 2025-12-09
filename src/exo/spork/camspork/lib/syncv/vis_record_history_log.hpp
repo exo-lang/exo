@@ -29,7 +29,6 @@ struct LoggedPendingAwait
 
 struct LoggedVisRecordData
 {
-    uint8_t original_qual_tl;
     std::vector<TlSigInterval> visibility_set;
     std::vector<LoggedPendingAwait> pending_await_list;
 };
