@@ -1263,6 +1263,7 @@ struct SyncvTable
                 if (cur_node.base_data.memoize_hash_bits > hash_hi) {
                     if constexpr (memoize_action == MemoizeAction::MemoizeOrForward) {
                         chunk.nodes.insert(chunk.nodes.begin() + intra_chunk_index, command.node_id);
+                        return_id = command.node_id;
                         if (chunk.nodes.size() > max_chunk_size) {
                             // Split the chunk in half if it's too big.
                             const size_t halfway = chunk.nodes.size() / 2;
@@ -1283,9 +1284,10 @@ struct SyncvTable
                             // !!! Caution iterator invalidation !!!
                             // chunk is not usable after this.
                             vis_record_table.insert(vis_record_table.begin() + chunk_index + 1, std::move(new_chunk));
+
+                            // Splitting special case, don't go to finalize_chunk_edit.
+                            return return_id;
                         }
-                        // Splitting special case, don't go to finalize_chunk_edit.
-                        return command.node_id;
                     }
                     goto finalize_chunk_edit;
                 }
