@@ -148,7 +148,10 @@ const ProgramHeader& ProgramHeader::validate(size_t buffer_size, const char* buf
 
 int camspork_get_lib_version()
 {
-    return 6;
+    int
+    #include "../../polyglot_camspork_version.py"
+    ;
+    return lib_version;
 }
 
 camspork::binop camspork_binop_from_str(const char* p_str)
