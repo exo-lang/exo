@@ -22,7 +22,7 @@ void stream_sync_stmt_event(Stream& s, VisRecordHistoryLog& log, const LoggedSyn
     const bool is_await = v.L1_qual_bits == 0;
     const bool is_arrive = v.L2_temporal_qual_bits == 0;
     s << "  thread cuboid: " << event.thread_cuboid << '\n';
-    if (is_arrive || is_await) {
+    if (is_arrive ^ is_await) {
         s << "  barrier: " << event.barrier_name << '\n';
         s << "  arrive_count: " << v.arrive_count_before << " -> " << v.arrive_count_after << '\n';
         s << "  await_count:  " << v.await_count_before << " -> " << v.await_count_after << '\n';
@@ -180,7 +180,7 @@ const std::string& VisRecordHistoryLog::get_barrier_name(barrier_id bar) const
 void VisRecordHistoryLog::set_syncv_sync_stmt_info(barrier_id bar, LoggedSyncStmtValues values)
 {
     LoggedSyncStmtEvent& event = last_sync_stmt_map[current_stmt_id_bits];
-    event.values = values;
+    event.values = std::move(values);
     event.barrier_name = barrier_name_map[bar];
     event.thread_cuboid = current_thread_cuboid;
     current_sync_stmt_event = event;
@@ -323,7 +323,7 @@ void VisRecordHistoryLog::add_history_remarks(ProgramEnv* p_env, vis_record_vers
         const LoggedVisRecordOrigin& origin = version_origin[v_index];
 
         if (origin.previous_version) {
-            s << "Sync recorded, which caused VisRecord change:\n";
+            s << origin.sync_stmt_event.values.sync_stmt_name << " recorded, which caused VisRecord change:\n";
             stream_sync_stmt_event(s, *this, origin.sync_stmt_event);
             s << "BEFORE:\n";
             const auto previous_v_index = origin.previous_version._1_index - 1;

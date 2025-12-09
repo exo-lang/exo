@@ -3023,7 +3023,8 @@ struct SyncvRealLogger
             values.L1_qual_bits = fence.L1_qual_bits;
             values.L2_full_qual_bits = fence.L2_full_qual_bits;
             values.L2_temporal_qual_bits = fence.L2_temporal_qual_bits;
-            p_history_log->set_syncv_sync_stmt_info({}, values);
+            values.sync_stmt_name = "Fence";
+            p_history_log->set_syncv_sync_stmt_info({}, std::move(values));
         }
     }
 
@@ -3038,7 +3039,8 @@ struct SyncvRealLogger
             values.arrive_count_after = new_arrive_count;
             values.await_count_before = state.await_count;
             values.await_count_after = state.await_count;
-            p_history_log->set_syncv_sync_stmt_info(arrive.home_barrier, values);
+            values.sync_stmt_name = "Arrive";
+            p_history_log->set_syncv_sync_stmt_info(arrive.home_barrier, std::move(values));
         }
     }
 
@@ -3055,7 +3057,8 @@ struct SyncvRealLogger
             values.await_count_before = state.await_count;
             values.await_count_after = new_await_count;
             values.await_max_arrive_count = max_arrive_count;
-            p_history_log->set_syncv_sync_stmt_info(await.bar, values);
+            values.sync_stmt_name = "Await";
+            p_history_log->set_syncv_sync_stmt_info(await.bar, std::move(values));
         }
     }
 
@@ -3063,7 +3066,8 @@ struct SyncvRealLogger
     {
         if (p_history_log) {
             LoggedSyncStmtValues values{};
-            p_history_log->set_syncv_sync_stmt_info({}, values);
+            values.sync_stmt_name = "JoinThreads";
+            p_history_log->set_syncv_sync_stmt_info({}, std::move(values));
         }
     }
 
