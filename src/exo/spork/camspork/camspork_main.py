@@ -266,11 +266,11 @@ _add_MutateValue.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, binop, Ex
 
 _add_Fence = lib.camspork_add_Fence
 _add_Fence.restype = StmtRef
-_add_Fence.argtypes = (c_void_p, c_uint32, c_uint32, c_uint32, c_uint32)
+_add_Fence.argtypes = (c_void_p, c_uint32, c_uint32, c_uint32)
 
 _add_Arrive = lib.camspork_add_Arrive
 _add_Arrive.restype = StmtRef
-_add_Arrive.argtypes = (c_void_p, c_uint32, c_uint32, Varname, c_uint32, ptr_ArriveIdx)
+_add_Arrive.argtypes = (c_void_p, c_uint32, Varname, c_uint32, ptr_ArriveIdx)
 
 _add_Await = lib.camspork_add_Await
 _add_Await.restype = StmtRef
@@ -761,7 +761,6 @@ class ProgramBuilder:
 
     def Fence(
         self,
-        V1_transitive: bool,
         L1_qual_bits: int,
         L2_full_qual_bits: int,
         L2_temporal_qual_bits: int,
@@ -772,7 +771,6 @@ class ProgramBuilder:
             srcinfo,
             _add_Fence(
                 self._builder,
-                V1_transitive,
                 L1_qual_bits,
                 L2_full_qual_bits,
                 L2_temporal_qual_bits,
@@ -781,7 +779,6 @@ class ProgramBuilder:
 
     def Arrive(
         self,
-        V1_transitive: bool,
         L1_qual_bits: int,
         dst: BuilderIndexExpr | Varname,
         barrier_multicasts: Tuple[Tuple[bool]],
@@ -793,7 +790,6 @@ class ProgramBuilder:
             srcinfo,
             _add_Arrive(
                 self._builder,
-                V1_transitive,
                 L1_qual_bits,
                 var,
                 dim,
@@ -1132,8 +1128,8 @@ if __name__ == "__main__":
                 b.SyncEnvAlloc(buf[64])
                 with b.ThreadsFor(tid, 0, 64, 0, 0, 1):
                     b.SyncEnvAccess(buf[tid], 2, 2, b.mutate_flag)
-                # b.Fence(True, 2, 2, 2)
-                b.Arrive(True, 2, bar, ())
+                # b.Fence(2, 2, 2)
+                b.Arrive(2, bar, ())
                 b.Await(bar, 2, 2, N=0)
                 with b.ThreadsFor(tid, 0, 64, 0, 0, 1):
                     with b.SeqFor(i, 0, 64):
@@ -1164,7 +1160,7 @@ if __name__ == "__main__":
                     with b.ThreadsFor(tid, 0, 24, 0, 0, 1):
                         b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 2, 2, b.mutate_flag | b.ooo_flag, atomic_qual_bits=8192, barrier=bars[m, n, k], barrier_multicasts=((True, False, False),))
                     with b.ThreadsFor(tid, 0, 1, 0, 0, 14):
-                        b.Arrive(True, 3, bars[m, n, k], ((True, False, True), (True, True, False)))
+                        b.Arrive(3, bars[m, n, k], ((True, False, True), (True, True, False)))
                         b.Await(bars[m, n, k], 3, 3, N=0)
                     with b.ThreadsFor(tid, 0, 14, 0, 0, 1):
                         b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 1, 1, 0)
@@ -1219,7 +1215,7 @@ if __name__ == "__main__":
                     b.SyncEnvAccess(buf[0, 3], 1, 1, 0)
                     b.SyncEnvAccess(buf[0, 4], 1, 1, 0)
                 b.SyncEnvAccess(buf[tid, 2 * tid], 1, 1, 0, extent=[6, 5])
-            b.Fence(True, 1, 1, 1)
+            b.Fence(1, 1, 1)
             m = b.add_variable("m")
             n = b.add_variable("n")
             with b.SeqFor(m, 0, 10):
@@ -1256,7 +1252,7 @@ if __name__ == "__main__":
                         b.begin_orelse()
                         b.SyncEnvAccess(buf[s], 1, 1, b.mutate_flag, atomic_qual_bits=0)
             with b.If(fence_enable):
-                b.Fence(True, 1, 5, 5)
+                b.Fence(1, 5, 5)
             with b.ThreadsFor(tid, 0, 8, 0, 0, 1):
                 b.SyncEnvAccess(buf[tid], 1, 1, 0)
 
@@ -1287,7 +1283,7 @@ if __name__ == "__main__":
                 with b.ThreadsFor(tid, 0, 64, 0, 0, 1):
                     b.SyncEnvAccess(buf[tid], 1, 1, b.mutate_flag)
                 with b.If(fence_enable):
-                    b.Fence(True, 1, 1, 511)
+                    b.Fence(1, 1, 511)
                 with b.ThreadsFor(tid, 0, 64, 0, 0, 1):
                     s = b.add_variable("s")
                     with b.SeqFor(s, 0, 64):
@@ -1319,7 +1315,7 @@ if __name__ == "__main__":
                     b.SyncEnvAccess(buf[tid], 1, 1, b.mutate_flag)
                     with b.If(b.Eq(tid, 0)):
                       b.SyncEnvAccess(scalar, 1, 1, b.mutate_flag)
-                # b.Fence(True, 1, 1, 1)
+                # b.Fence(1, 1, 1)
                 with b.ThreadsFor(tid, 0, 2, 0, 0, 1):
                     b.SyncEnvAccess(buf[tid], 1, 1, b.mutate_flag)
     print(realloc_test)

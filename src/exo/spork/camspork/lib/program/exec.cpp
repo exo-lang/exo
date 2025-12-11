@@ -597,7 +597,6 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
     void exec_impl(const Fence* node)
     {
         SyncvFence param{};
-        param.transitive = bool(node->V1_transitive);
         param.L1_qual_bits = node->L1_qual_bits;
         param.L2_full_qual_bits = node->L2_full_qual_bits;
         param.L2_temporal_qual_bits = node->L2_temporal_qual_bits;
@@ -613,7 +612,6 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         param.home_barrier = home_barrier;
         param.barrier_count = uint32_t(tmp_all_barriers.size());
         param.all_barriers = tmp_all_barriers.data();
-        param.transitive = node->V1_transitive;
         param.L1_qual_bits = node->L1_qual_bits;
 
         // Pass to SyncvTable.

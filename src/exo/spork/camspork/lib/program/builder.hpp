@@ -136,10 +136,10 @@ class ProgramBuilder
         Varname name, size_t num_idx, const ExprRef* idx, qual_bits_t extended_qual_bits);
     StmtRef add_MutateValue(Varname name, size_t num_idx, const ExprRef* idx, binop op, ExprRef rhs);
     StmtRef add_Fence(
-        uint32_t V1_transitive, qual_bits_t L1_qual_bits,
+        qual_bits_t L1_qual_bits,
         qual_bits_t L2_full_qual_bits, qual_bits_t L2_temporal_qual_bits);
     StmtRef add_Arrive(
-        uint32_t V1_transitive, qual_bits_t L1_qual_bits,
+        qual_bits_t L1_qual_bits,
         Varname name, uint32_t num_idx, const ArriveIdx* idx);
     StmtRef add_Await(
         Varname name, uint32_t num_idx, const ExprRef* idx,
@@ -231,10 +231,10 @@ CAMSPORK_EXPORT camspork::StmtRef camspork_add_SyncEnvFreeShard(camspork::Progra
 CAMSPORK_EXPORT camspork::StmtRef camspork_add_MutateValue(camspork::ProgramBuilder* p_builder,
     camspork::Varname name, uint32_t num_idx, const camspork::ExprRef* idx, camspork::binop op, camspork::ExprRef rhs);
 CAMSPORK_EXPORT camspork::StmtRef camspork_add_Fence(camspork::ProgramBuilder* p_builder,
-    uint32_t V1_transitive, camspork::qual_bits_t L1_qual_bits,
+    camspork::qual_bits_t L1_qual_bits,
     camspork::qual_bits_t L2_full_qual_bits, camspork::qual_bits_t L2_temporal_qual_bits);
 CAMSPORK_EXPORT camspork::StmtRef camspork_add_Arrive(camspork::ProgramBuilder* p_builder,
-    uint32_t V1_transitive, camspork::qual_bits_t L1_qual_bits,
+    camspork::qual_bits_t L1_qual_bits,
     camspork::Varname name, uint32_t num_idx, const camspork::ArriveIdx* idx);
 CAMSPORK_EXPORT camspork::StmtRef camspork_add_Await(camspork::ProgramBuilder* p_builder,
     camspork::Varname name, uint32_t num_idx, const camspork::ExprRef* idx,

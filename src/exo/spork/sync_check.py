@@ -166,7 +166,6 @@ class CamsporkDo(LoopIR_Do):
             L1 = sync_type.first_sync_tl
             L2 = sync_type.second_sync_tl
             if L1 is not None:
-                transitive = True  # TODO remove
                 L1_bits = L1.get_full_timeline_set_bits()
             if L2 is not None:
                 L2_full_bits = L2.get_full_timeline_set_bits()
@@ -190,9 +189,7 @@ class CamsporkDo(LoopIR_Do):
                         # and barrier_multicasts so the paired await is
                         # what makes the prior arrive "visible"?
                     )
-                b.Arrive(
-                    transitive, L1_bits, am_home_barrier, multicasts, srcinfo=s.srcinfo
-                )
+                b.Arrive(L1_bits, am_home_barrier, multicasts, srcinfo=s.srcinfo)
             elif sync_type.is_await():
                 home = s.home_barrier_expr()
                 am_home_barrier = self.comp_index_expr(home.name, home.idx, instr_tl)
@@ -216,7 +213,6 @@ class CamsporkDo(LoopIR_Do):
                 )
             else:
                 b.Fence(
-                    transitive,
                     L1_bits,
                     L2_full_bits,
                     L2_temporal_bits,
@@ -242,9 +238,7 @@ class CamsporkDo(LoopIR_Do):
                 # Implicit (cpu, cuda_stream) -> cuda_stream sync before;
                 # End CudaDeviceFunction with JoinThreads.
                 # implicit cuda_stream -> cuda_stream sync after.
-                b.Fence(
-                    True, cpu_bit | cuda_bits, cuda_bits, cuda_bits, srcinfo=s.srcinfo
-                )
+                b.Fence(cpu_bit | cuda_bits, cuda_bits, cuda_bits, srcinfo=s.srcinfo)
                 with b.ParallelBlock(*domain, srcinfo=s.srcinfo):
                     old_domain = self._domain
                     self._domain = domain
@@ -254,7 +248,7 @@ class CamsporkDo(LoopIR_Do):
                 # CudaDeviceFunction, which is misleading as it's after
                 # the device function launch.
                 b.JoinThreads(srcinfo=s.srcinfo)
-                b.Fence(True, cuda_bits, cuda_bits, cuda_bits, srcinfo=s.srcinfo)
+                b.Fence(cuda_bits, cuda_bits, cuda_bits, srcinfo=s.srcinfo)
             else:
                 self.do_stmts(s.body)
             self._device = old_device

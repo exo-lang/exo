@@ -101,7 +101,6 @@ struct SyncvLogRequest;
 
 struct SyncvFence
 {
-    bool transitive;
     qual_bits_t L1_qual_bits;
     qual_bits_t L2_full_qual_bits;
     qual_bits_t L2_temporal_qual_bits;
@@ -109,7 +108,6 @@ struct SyncvFence
 
 struct SyncvArrive
 {
-    bool transitive;
     barrier_id home_barrier;
     uint32_t barrier_count;
     const barrier_id* all_barriers;

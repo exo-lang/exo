@@ -199,14 +199,14 @@ class ProgramPrinter
     void operator() (const Fence* node)
     {
         print_tabs();
-        *this << "b.Fence(" << (node->V1_transitive ? "True" : "False") << ", " << node->L1_qual_bits;
+        *this << "b.Fence(" << node->L1_qual_bits;
         *this << ", " << node->L2_full_qual_bits << ", " << node->L2_temporal_qual_bits << ")\n";
     }
 
     void operator() (const Arrive* node)
     {
         print_tabs();
-        *this << "b.Arrive(" << (node->V1_transitive ? "True" : "False") << ", " << node->L1_qual_bits;
+        *this << "b.Arrive(" << node->L1_qual_bits;
         *this << ", " << node->name;
         print_idx(node);
         // multicasts: transpose bits in multicast_per_expr to recover this.

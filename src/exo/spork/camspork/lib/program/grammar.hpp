@@ -620,26 +620,24 @@ struct stmt<7>
     CAMSPORK_NODE_VLA_MEMBER(ExprRef)
 };
 
-// Fence(bool V1_transitive, qual_tl* L1_qual_bits, qual_tl* L2_full_qual_bits, qual_tl* L2_temporal_qual_bits)
+// Fence(qual_tl* L1_qual_bits, qual_tl* L2_full_qual_bits, qual_tl* L2_temporal_qual_bits)
 using Fence = stmt<8>;
 template<>
 struct stmt<8>
 {
-    uint32_t V1_transitive;
     qual_bits_t L1_qual_bits;
     qual_bits_t L2_full_qual_bits;
     qual_bits_t L2_temporal_qual_bits;
     CAMSPORK_NODE_NO_VLA()
 };
 
-// Arrive(Varname name, bool V1_transitive, qual_tl* L1_qual_bits, ExprRef* idx, multicast_flag* multicasts)
+// Arrive(Varname name, qual_tl* L1_qual_bits, ExprRef* idx, multicast_flag* multicasts)
 // multicasts[expr_idx][dim_idx] = ArriveIdx[dim_idx][expr_idx]
 using Arrive = stmt<9>;
 template<>
 struct stmt<9>
 {
     Varname name;
-    uint32_t V1_transitive;
     qual_bits_t L1_qual_bits;
     CAMSPORK_NODE_VLA_MEMBER(ArriveIdx)
 };

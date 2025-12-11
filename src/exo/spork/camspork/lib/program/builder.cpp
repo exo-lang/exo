@@ -169,21 +169,19 @@ StmtRef ProgramBuilder::add_MutateValue(Varname name, size_t num_idx, const Expr
 }
 
 StmtRef ProgramBuilder::add_Fence(
-    uint32_t V1_transitive, qual_bits_t L1_qual_bits,
+    qual_bits_t L1_qual_bits,
     qual_bits_t L2_full_qual_bits, qual_bits_t L2_temporal_qual_bits)
 {
-    CAMSPORK_REQUIRE_CMP(V1_transitive, <=, 1, "must be bool");
     CAMSPORK_REQUIRE_CMP(L2_full_qual_bits, ==, L2_full_qual_bits & L2_temporal_qual_bits,
                          "L2_full_qual_bits must be a subset of L2_temporal_qual_bits");
-    return append_impl(Fence{V1_transitive, L1_qual_bits, L2_full_qual_bits, L2_temporal_qual_bits});
+    return append_impl(Fence{L1_qual_bits, L2_full_qual_bits, L2_temporal_qual_bits});
 }
 
 StmtRef ProgramBuilder::add_Arrive(
-        uint32_t V1_transitive, qual_bits_t L1_qual_bits,
+        qual_bits_t L1_qual_bits,
         Varname name, uint32_t num_idx, const ArriveIdx* idx)
 {
-    CAMSPORK_REQUIRE_CMP(V1_transitive, <=, 1, "must be bool");
-    return append_impl(Arrive{name, V1_transitive, L1_qual_bits}, num_idx, idx);
+    return append_impl(Arrive{name, L1_qual_bits}, num_idx, idx);
 }
 
 StmtRef ProgramBuilder::add_Await(
@@ -486,20 +484,20 @@ camspork::StmtRef camspork_add_MutateValue(camspork::ProgramBuilder* p_builder,
 }
 
 camspork::StmtRef camspork_add_Fence(camspork::ProgramBuilder* p_builder,
-    uint32_t V1_transitive, camspork::qual_bits_t L1_qual_bits,
+    camspork::qual_bits_t L1_qual_bits,
     camspork::qual_bits_t L2_full_qual_bits, camspork::qual_bits_t L2_temporal_qual_bits)
 {
     CAMSPORK_API_PROLOGUE
-    return p_builder->add_Fence(V1_transitive, L1_qual_bits, L2_full_qual_bits, L2_temporal_qual_bits);
+    return p_builder->add_Fence(L1_qual_bits, L2_full_qual_bits, L2_temporal_qual_bits);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
 camspork::StmtRef camspork_add_Arrive(camspork::ProgramBuilder* p_builder,
-        uint32_t V1_transitive, camspork::qual_bits_t L1_qual_bits,
+        camspork::qual_bits_t L1_qual_bits,
         camspork::Varname name, uint32_t num_idx, const camspork::ArriveIdx* idx)
 {
     CAMSPORK_API_PROLOGUE
-    return p_builder->add_Arrive(V1_transitive, L1_qual_bits, name, num_idx, idx);
+    return p_builder->add_Arrive(L1_qual_bits, name, num_idx, idx);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
