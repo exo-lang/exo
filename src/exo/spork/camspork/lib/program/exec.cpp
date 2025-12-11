@@ -518,7 +518,6 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
             return;
         }
 
-        constexpr bool IsMutate = true;
         SyncvAccessInfo access{};
         access.is_ooo = false;
         access.is_convergent = false;  // All threads must be prepared to free the memory.
