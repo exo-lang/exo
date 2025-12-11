@@ -689,7 +689,13 @@ struct SyncvTable
     {
         // Non-empty input check (cartesian product of non-empty thread interval and non-empty qual-tl set).
         CAMSPORK_REQUIRE_CMP(input.tid_hi, >, input.tid_lo, "non-empty input check");
-        CAMSPORK_REQUIRE_CMP(0, !=, input.qual_bits_by_vis.array[0], "non-empty input check");  // why atomic-only?
+        {
+            qual_bits_t q_bits_all = 0;
+            for (qual_bits_t q_bits: input.qual_bits_by_vis.array) {
+                q_bits_all |= q_bits;
+            }
+            CAMSPORK_REQUIRE_CMP(0, !=, q_bits_all, "non-empty input check");
+        }
         using node_id = nodepool::id<TlSigIntervalListNode>;
 
         // Modify and/or add intervals.
@@ -1563,9 +1569,10 @@ struct SyncvTable
     {
         QualBitsByVis q_by_vis{};
         const auto q_temporal = L2_temporal_qual_bits;
-        q_by_vis.array[vis_flag_index_atomic_only] = q_temporal;
+        q_by_vis.array[vis_flag_index_atomic_only] = L2_full_qual_bits;
         q_by_vis.array[vis_flag_index_temporal] = q_temporal;
         q_by_vis.array[vis_flag_index_full] = L2_full_qual_bits;
+        q_by_vis.array[vis_flag_index_issue] = L2_full_qual_bits;
         return q_by_vis;
     }
 
