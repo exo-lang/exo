@@ -71,7 +71,7 @@ class SyncStateBuilder:
         usage = get_usage(name)
         for info in (usage.get_arrive(), usage.get_await()):
             if info is not None:
-                if not timelines.cuda_async_proxy.disjoint_full_timeline_set(
+                if not timelines.internal_cuda_async_proxy_detection.disjoint_full_timeline_set(
                     info.sync_tl
                 ):
                     self._uses_async_proxy = True
@@ -146,12 +146,12 @@ class SyncStateBuilder:
         """Do up to 3 things
 
         - wait_all if first sync-tl includes Sm80_cp_async
-        - barrier arrive/await if more than 1 thread, or special exception (*)
+        - barrier arrive/await if more than 1 thread
         - fence.proxy.async if second sync-tl includes any async proxy
 
-        (*) special exception, if thread collective is a warpgroup and
-        the second sync-tl only includes wgmma_async_smem, we can elide
-        the barrier. This relies on wgmma_async_smem not being V1-transitive.
+        Q: should we have a special case for generic->wgmma fence in a warpgroup?
+        i.e. if 128 threads generate input data for the wgmma, then issue the wgmma,
+        is it required to synchronize the threads?
 
         """
 
@@ -207,18 +207,10 @@ class SyncStateBuilder:
             )
 
         # Insert cross-thread sync if needed
-        assert not timelines.wgmma_async_smem.is_V1_transitive()
-        wgmma_special_case = timelines.wgmma_async_smem.implements_second(
-            L2
-        ) and match_unit(cuda_warpgroup)
-
-        if not wgmma_special_case:
-            mismatch_messages.append("warpgroup with second sync-tl=wgmma_async_smem")
-
         if is_cluster_sync:
             arrive_lines.extend(simple_ptx_c_lines("barrier.cluster.arrive.aligned"))
             await_lines.extend(simple_ptx_c_lines("barrier.cluster.wait.aligned"))
-        elif wgmma_special_case or match_unit(cuda_thread):
+        elif match_unit(cuda_thread):
             pass
         elif match_unit(cuda_warp):
             arrive_lines.append("__syncwarp();")
@@ -242,15 +234,19 @@ class SyncStateBuilder:
             # No values from the first full visibility set are being made
             # visible so no proxy fence regardless of second sync timeline.
             proxy_fence = False
-        elif timelines.Sm80_generic.implements_second(L2):
+        elif timelines.cuda_in_order.implements_second(L2):
             # Second sync-tl is purely in generic proxy.
             pass
+        elif timelines.Sm80_generic.implements_second(L2):
+            raise ValueError(
+                "Sm80_cp_async not supported as second sync-tl; use cuda_in_order"
+            )
         elif timelines.cuda_generic_and_async_proxy.implements_second(L2):
             await_lines.extend(simple_ptx_c_lines("fence.proxy.async"))
         else:
             raise ValueError(
                 f"{srcinfo}: Fence second sync-tl {L2} not "
-                f"supported (at most CUDA generic+async proxy)"
+                f"supported (at most cuda_generic_and_async_proxy)"
             )
 
         def codegen(sync_stmt: LoopIR.SyncStmt):
@@ -409,15 +405,17 @@ class SyncStateBuilder:
             info = usage.get_await()
             L2 = info.sync_tl
 
-            if timelines.Sm80_generic.implements_second(L2):
+            if timelines.cuda_in_order.implements_second(L2):
                 proxy_fence = False
             elif timelines.cuda_generic_and_async_proxy.implements_second(L2):
                 proxy_fence = True
             else:
                 if L2 == timelines.wgmma_async:
                     remark = "consider cuda_generic_and_async_proxy"
+                elif L2.implements_second(timelines.Sm80_cp_async):
+                    remark = "Sm80_cp_async not supported in second sync-tl; use cuda_in_order"
                 else:
-                    remark = "at most CUDA generic+async proxy"
+                    remark = "at most cuda_generic_and_async_proxy"
                 raise ValueError(
                     f"{info.get_srcinfo()}: mbarrier Await sync-tl {L2} "
                     f"not supported ({remark})")
@@ -567,7 +565,7 @@ class SyncStateBuilder:
     ):
         # Commit groups
         #
-        # Sm80_cp_async -> Sm80_generic; 1 thread
+        # Sm80_cp_async -> cuda_in_order; 1 thread
         # tma_to_gmem_async -> cuda_generic_and_async_proxy; 32 threads
         # wgmma_async -> cuda_generic_and_async_proxy; 128 threads
         #
@@ -601,7 +599,7 @@ class SyncStateBuilder:
 
         if timelines.Sm80_cp_async.implements_first(L1):
             # sm_80 non-bulk cp.async
-            check_L2_coll_unit(timelines.Sm80_generic, cuda_thread)
+            check_L2_coll_unit(timelines.cuda_in_order, cuda_thread)
             lowered = LoweredBarrier(solitary, LoweredBarrierType.Sm80_commit_group)
             arrive_instr = "cp.async.commit_group"
             await_instr = "cp.async.wait_group"

@@ -1048,7 +1048,7 @@ exo_CudaInline_test_tma_tester_proc_SW128_golden::exo_Cuda0_tma_tester_SW128::ex
   // Arrive(cuda_in_order, 1) >> war
   // cta_mask: uint16_t(0x1)
   exo_syncState.Arrive0_war(exo_smem, exo_excutLog, 0, 1);
-  // Fence(cuda_in_order, tma_to_gmem_async)
+  // Fence(cuda_in_order, cuda_generic_and_async_proxy)
   asm volatile(
     "barrier.cta.sync 0;"
   );

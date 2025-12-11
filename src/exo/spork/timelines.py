@@ -205,6 +205,7 @@ wgmma_async_rmem_a_qual = Qual_tl("wgmma_async_rmem_a_qual", True)
 wgmma_async_rmem_d_qual = Qual_tl("wgmma_async_rmem_d_qual", True)
 wgmma_async_smem_qual = Qual_tl("wgmma_async_smem_qual", False)
 wgmma_zero_qual = Qual_tl("wgmma_zero_qual", True)
+cuda_async_proxy_retired_qual = Qual_tl("cuda_async_proxy_retired_qual", False)
 tcgen05_tmem_qual = Qual_tl("tcgen05_tmem_qual", True)
 tcgen05_smem_qual = Qual_tl("tcgen05_smem_qual", False)
 
@@ -222,10 +223,10 @@ cuda_ram_qual_tl_dict = {
     cpu_in_order_instr: cpu_in_order_qual,
     cpu_cuda_stream_instr: cpu_cuda_stream_qual,
     cuda_in_order_instr: cuda_in_order_ram_qual,
-    Sm80_cp_async_instr: Sm80_cp_async_qual,
-    tma_to_smem_async_instr: tma_to_smem_async_qual,
-    tma_to_gmem_async_instr: tma_to_gmem_async_qual,
-    wgmma_async_instr: wgmma_async_smem_qual,
+    Sm80_cp_async_instr: [Sm80_cp_async_qual, cuda_in_order_ram_qual],
+    tma_to_smem_async_instr: [tma_to_smem_async_qual, cuda_async_proxy_retired_qual],
+    tma_to_gmem_async_instr: [tma_to_gmem_async_qual, cuda_async_proxy_retired_qual],
+    wgmma_async_instr: [wgmma_async_smem_qual, cuda_async_proxy_retired_qual],
 }
 
 
@@ -246,10 +247,18 @@ _tcgen05_async_quals = [
     tcgen05_smem_qual,
 ]
 
+_cuda_async_proxy_detection_quals = (
+    [cuda_async_proxy_retired_qual]
+    + _tma_to_smem_async_quals
+    + _tma_to_gmem_async_quals
+    + _wgmma_async_quals
+    + _tcgen05_async_quals
+)
+
 # Intentionally excludes wgmma_zero_qual
 _cuda_device_quals = (
     _cuda_in_order_quals
-    + [cpu_cuda_stream_qual]
+    + [cpu_cuda_stream_qual, cuda_async_proxy_retired_qual]
     + _Sm80_cp_async_quals
     + _tma_to_smem_async_quals
     + _tma_to_gmem_async_quals
@@ -263,13 +272,7 @@ _wgmma_rmem_quals = [
     wgmma_async_rmem_a_qual,
     wgmma_async_rmem_d_qual,
 ]
-_cuda_async_proxy_quals = [
-    tma_to_smem_async_qual,
-    tma_to_gmem_async_qual,
-    wgmma_async_smem_qual,
-    tcgen05_tmem_qual,
-    tcgen05_smem_qual,
-]
+
 _cuda_stream_quals = [
     cpu_cuda_stream_qual,
     cuda_in_order_ram_qual,
@@ -282,13 +285,11 @@ _cuda_stream_quals = [
 class Sync_tl(object):
     __slots__ = [
         "_name",
-        "_V1_transitive",
         "_full_timeline_set_bits",
         "_temporal_timeline_set_bits",
         "_as_instr_tl",
     ]
     _name: str
-    _V1_transitive: bool
     _full_timeline_set_bits: int
     _temporal_timeline_set_bits: int
     _as_instr_tl: Optional[Instr_tl]
@@ -296,14 +297,12 @@ class Sync_tl(object):
     def __init__(
         self,
         name: str,
-        V1_transitive: bool,
         full_timeline_set: List[qual_tl],
         additional_temporal_timeline_set: List[qual_tl] = [],
         *,
         for_instr_tl: Optional[Instr_tl] = None,
     ):
         self._name = str(name)
-        self._V1_transitive = bool(V1_transitive)
 
         tmp_bits = 0
         for tl in full_timeline_set:
@@ -327,9 +326,6 @@ class Sync_tl(object):
             raise TypeError(f"{self} is not an instr-tl")
         return self._as_instr_tl
 
-    def is_V1_transitive(self):
-        return self._V1_transitive
-
     def get_full_timeline_set_bits(self):
         return self._full_timeline_set_bits
 
@@ -348,9 +344,7 @@ class Sync_tl(object):
 
         """
         assert isinstance(other, Sync_tl)
-        return self.implements_second(other) and (
-            self._V1_transitive or not other._V1_transitive
-        )
+        return self.implements_second(other)
 
     def implements_second(self, other):
         """Is other "less-or-equally-featureful" than self as a second sync-tl?
@@ -375,18 +369,17 @@ class Sync_tl(object):
         return 0 == (self._full_timeline_set_bits & other._full_timeline_set_bits)
 
 
-empty_sync_tl = Sync_tl("empty_sync_tl", False, [])
+empty_sync_tl = Sync_tl("empty_sync_tl", [])
 
 """Host in-order CPU instructions"""
 cpu_in_order = Sync_tl(
     "cpu_in_order",
-    True,
     [cpu_in_order_qual],
     for_instr_tl=cpu_in_order_instr,
 )
 
 """First sync-tl of a cudaStreamSynchronize"""
-cuda_stream_sync = Sync_tl("cuda_stream_sync", True, _cuda_device_quals)
+cuda_stream_sync = Sync_tl("cuda_stream_sync", _cuda_device_quals)
 
 """Classic CUDA instructions that operate on the generic proxy
 and follow the typical per-thread in-order execution abstraction.
@@ -398,26 +391,24 @@ hazards)
 """
 cuda_in_order = Sync_tl(
     "cuda_in_order",
-    True,
     _cuda_in_order_quals,
     _cuda_temporal_quals,  # Temporal-only
     for_instr_tl=cuda_in_order_instr,
 )
 
 """Temporal-only CUDA device actions"""
-cuda_temporal = Sync_tl("cuda_temporal", False, [], _cuda_temporal_quals)
+cuda_temporal = Sync_tl("cuda_temporal", [], _cuda_temporal_quals)
 
 """Ampere cp.async instructions"""
 Sm80_cp_async = Sync_tl(
-    "Sm80_cp_async", False, _Sm80_cp_async_quals, for_instr_tl=Sm80_cp_async_instr
+    "Sm80_cp_async", _Sm80_cp_async_quals, for_instr_tl=Sm80_cp_async_instr
 )
 
-"""CUDA classic + sm_80 cp.async
+"""CUDA in-order instructions + sm_80 cp.async
 
 These are operations that sm_90a+ retroactively term the generic proxy"""
 Sm80_generic = Sync_tl(
     "Sm80_generic",
-    False,
     _cuda_in_order_quals + _Sm80_cp_async_quals,
     _cuda_temporal_quals,  # Temporal-only
 )
@@ -425,7 +416,6 @@ Sm80_generic = Sync_tl(
 """cp.async.bulk instructions with cluster/block shared memory as destination"""
 tma_to_smem_async = Sync_tl(
     "tma_to_smem_async",
-    False,
     _tma_to_smem_async_quals,
     for_instr_tl=tma_to_smem_async_instr,
 )
@@ -433,46 +423,39 @@ tma_to_smem_async = Sync_tl(
 """cp{.reduce}.bulk.async instructions with global memory as destination"""
 tma_to_gmem_async = Sync_tl(
     "tma_to_gmem_async",
-    False,
     _tma_to_gmem_async_quals,
     for_instr_tl=tma_to_gmem_async_instr,
 )
 
 """wgmma instructions' actions on shared memory"""
-wgmma_async_smem = Sync_tl("wgmma_async_smem", False, [wgmma_async_smem_qual])
+wgmma_async_smem = Sync_tl("wgmma_async_smem", [wgmma_async_smem_qual])
 
 """actions on wgmma matrix tile registers, either by wgmma.async
 instructions or by ordinary cuda synchronous instructions;
 this is the first sync-tl of wgmma.fence"""
 wgmma_fence_1 = Sync_tl(
     "wgmma_fence_1",
-    False,
     [cuda_in_order_rmem_qual] + _wgmma_rmem_quals,
 )
 
 """wgmma instructions' actions on registers;
 this is the second sync-tl of wgmma.fence"""
-wgmma_fence_2 = Sync_tl("wgmma_fence_2", False, _wgmma_rmem_quals)
+wgmma_fence_2 = Sync_tl("wgmma_fence_2", _wgmma_rmem_quals)
 
 """wgmma instructions"""
-wgmma_async = Sync_tl(
-    "wgmma_async", False, _wgmma_async_quals, for_instr_tl=wgmma_async_instr
-)
+wgmma_async = Sync_tl("wgmma_async", _wgmma_async_quals, for_instr_tl=wgmma_async_instr)
 
-"""CUDA async proxy (TMA and wgmma, excluding register access)"""
-cuda_async_proxy = Sync_tl("cuda_async_proxy", False, _cuda_async_proxy_quals)
-
-"""CUDA async proxy + wgmma register access"""
-cuda_async_proxy_wgmma = Sync_tl(
-    "cuda_async_proxy_wgmma", False, _cuda_async_proxy_quals + _wgmma_rmem_quals
-)
 
 """CUDA generic proxy + async proxy; temporal dependencies carried"""
 cuda_generic_and_async_proxy = Sync_tl(
     "cuda_generic_and_async_proxy",
-    False,
-    _cuda_in_order_quals + _Sm80_cp_async_quals + _cuda_async_proxy_quals,
+    _cuda_in_order_quals + [cuda_async_proxy_retired_qual],
     _cuda_temporal_quals,  # Temporal-only
+)
+
+internal_cuda_async_proxy_detection = Sync_tl(
+    "internal_cuda_async_proxy_detection",
+    _cuda_async_proxy_detection_quals,
 )
 
 
@@ -491,8 +474,6 @@ def generate_latex_table(out_file):
         wgmma_fence_1,
         wgmma_fence_2,
         wgmma_async,
-        cuda_async_proxy,
-        cuda_async_proxy_wgmma,
         cuda_generic_and_async_proxy,
     ]
     # fmt: off
@@ -508,6 +489,7 @@ def generate_latex_table(out_file):
         (wgmma_async_rmem_d_qual, "wgD", r"$D$ parameter in registers accessed by \lighttt{wgmma.mma\_async}"),
         (wgmma_async_smem_qual, "wgS", r"$A$ or $B$ parameter in SMEM accessed by \lighttt{wgmma.mma\_async}"),
         (wgmma_zero_qual, "wg0", r"Special case for modeling \textsf{scale-d = 0}"),
+        (cuda_async_proxy_retired_qual, "async", r"retired memory access made visible to the async proxy"),
     ]
     # fmt: on
 
@@ -517,9 +499,9 @@ def generate_latex_table(out_file):
         out_file.write("\n")
 
     out_file.write(
-        r"""\begin{tabular}{|r|l l|l l|l l l| l l l l|}
+        r"""\begin{tabular}{|l l|l l|l l l| l l l l|l|}
 \hline
-$\tau_s$ & cpu & strm & cuda1 & cuda2 & Sm80 & tmaS & tmaG & wgA & wgD & wgS & wg0 \\
+$\tau_s$ & cpu & strm & cuda1 & cuda2 & Sm80 & tmaS & tmaG & wgA & wgD & wgS & wg0 & async \\
 \hline
 """
     )
@@ -527,8 +509,6 @@ $\tau_s$ & cpu & strm & cuda1 & cuda2 & Sm80 & tmaS & tmaG & wgA & wgD & wgS & w
         out_file.write("\\texttt{")
         out_file.write(str(tau_s).replace("_", "\\_"))
         out_file.write("}")
-        if tau_s.is_V1_transitive():
-            out_file.write(" (transitive)")
         for q, _, _ in qual_tl_info:
             q_bit = q.as_bit()
             if q_bit & tau_s.get_full_timeline_set_bits():

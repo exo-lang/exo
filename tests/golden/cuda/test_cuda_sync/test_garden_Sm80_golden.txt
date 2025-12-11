@@ -320,7 +320,7 @@ exo_CudaInline_test_garden_Sm80_golden::exo_Cuda0_test_proc::exo_deviceTask(
     __syncwarp();
     exo_excutLog.log_action(EXO_EXCUT_STR_ID(syncwarp), 0, __LINE__);
   }
-  // Fence(cuda_in_order, Sm80_cp_async)
+  // Fence(cuda_in_order, cuda_in_order)
   asm volatile(
     "barrier.cta.sync 0;"
   );

@@ -87,7 +87,7 @@ def mkproc_tma_tester(swizzle: int):
                     Arrive(cuda_in_order, 1) >> war
 
                     # Warp 0 copies sum to GMEM using TMA.
-                    Fence(cuda_in_order, tma_to_gmem_async)
+                    Fence(cuda_in_order, cuda_generic_and_async_proxy)
                     with CudaWarps(0, 1):
                         if swizzle == 0:
                             Sm90_copy_tensor_to_gmem_linear_2f32(sum_tensorMap[

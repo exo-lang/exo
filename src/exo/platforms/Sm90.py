@@ -17,8 +17,6 @@ from ..spork.timelines import (
     wgmma_async_smem,
     wgmma_fence_1,
     wgmma_fence_2,
-    cuda_async_proxy,
-    cuda_async_proxy_wgmma,
     cuda_generic_and_async_proxy,
     wgmma_async_rmem_a_qual,
     wgmma_async_rmem_d_qual,
@@ -38,8 +36,6 @@ __all__ = [
     "wgmma_async_smem",
     "wgmma_fence_1",
     "wgmma_fence_2",
-    "cuda_async_proxy",
-    "cuda_async_proxy_wgmma",
     "cuda_generic_and_async_proxy",
 ]
 

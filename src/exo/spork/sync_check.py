@@ -166,7 +166,7 @@ class CamsporkDo(LoopIR_Do):
             L1 = sync_type.first_sync_tl
             L2 = sync_type.second_sync_tl
             if L1 is not None:
-                transitive = L1.is_V1_transitive()
+                transitive = True  # TODO remove
                 L1_bits = L1.get_full_timeline_set_bits()
             if L2 is not None:
                 L2_full_bits = L2.get_full_timeline_set_bits()

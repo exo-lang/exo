@@ -171,9 +171,7 @@ def test_cp_async_fence_saxpy(compiler_Sm80):
                                     scratch_y[(i - 1) % 2, j * 128 + tid] * device_a
                                     + scratch_x[(i - 1) % 2, j * 128 + tid]
                                 )
-                    # Same as Fence(Sm80_generic, Sm80_generic)
-                    Fence(Sm80_cp_async, cuda_in_order)  # RAW
-                    Fence(cuda_in_order, Sm80_cp_async)  # WAR
+                    Fence(Sm80_generic, cuda_in_order)
         cudaMemcpyAsync_dtoh_1f32(n, y, device_y)
 
     impl_test_saxpy(compiler_Sm80, saxpy, 1024)
@@ -666,7 +664,7 @@ def xgemm_Sm80_fence(M: size, N: size, K: size, A_host: f32[M,K], B_host: f32[K,
                                                           B_rmem[k_seq,n_seq,:,:], K=MMA_K)
 
                     # Sm80_generic sync-tl = (cuda_in_order | Sm80_cp_async)
-                    Fence(Sm80_generic, Sm80_generic)
+                    Fence(Sm80_generic, cuda_in_order)
 
                 # for-k1 (K tiles) loop ends
 

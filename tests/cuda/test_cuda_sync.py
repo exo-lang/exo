@@ -381,11 +381,11 @@ def mkproc_commit_group(
 
 
 def test_wgmma_commit_group_async_proxy(compiler, golden):
-    # wgmma -> TMA is OK (wgmma is already in the async proxy)
+    # wgmma -> async proxy is OK (wgmma is already in the async proxy)
     compiler.cuda_cpu_test(
         mkproc_commit_group,
         first_sync_tl=wgmma_async,
-        second_sync_tl=tma_to_gmem_async,
+        second_sync_tl=cuda_generic_and_async_proxy,
         unit=cuda_warpgroup,
         golden=golden,
     )
@@ -495,15 +495,18 @@ mbarrier_Sm90a_cp_async_qc = MbarrierQualConfig(
     Sm80_cp_async, cuda_temporal, "try", True, False, False
 )
 
-# cuda_in_order -> wgmma requires generic -> async proxy fence
+# cuda_in_order -> cuda_generic_and_async_proxy
+# requires generic -> async proxy fence
 mbarrier_in_order_to_wgmma_qc = MbarrierQualConfig(
-    cuda_in_order, wgmma_async_smem, "try", False, True, True
+    cuda_in_order, cuda_generic_and_async_proxy, "try", False, True, True
 )
 
-# cuda_temporal -> wgmma doesn't require the fence after the await (cuda_temporal
-# resolves only WAR hazards), but we still need the proxy fence at startup.
+# cuda_temporal -> cuda_generic_and_async_proxy
+# doesn't require the fence after the await
+# (cuda_temporal resolves only WAR hazards),
+# but we still need the proxy fence at startup.
 mbarrier_temporal_to_wgmma_qc = MbarrierQualConfig(
-    cuda_temporal, wgmma_async_smem, "try", False, False, True
+    cuda_temporal, cuda_generic_and_async_proxy, "try", False, False, True
 )
 
 mbarrier_wrong_wgmma_qc = MbarrierQualConfig(
@@ -547,7 +550,7 @@ def mkproc_mbarriers(M_CTA: int, N_CTA: int, f_delay: int, b_delay: int, qc: Mba
                                     # Note baseline mbarrier doesn't use delay or parameterized sync-tl
                                     Arrive(cuda_in_order, 1) >> baseline[m_cta, n_cta, t1]
 
-                                    # Only f_rc_bars and b_rc_bars are guarding each other. 
+                                    # Only f_rc_bars and b_rc_bars are guarding each other.
                                     # Its ring buffer depth is f_delay + b_delay, instead of 1 + f_delay
                                     Await(b_rc_bars[m_cta, n_cta, t1], second_sync_tl, ~b_delay)
                                     Arrive(first_sync_tl, 1) >> f_rc_bars[m_cta, n_cta, t1]
@@ -960,7 +963,7 @@ def mkproc_garden_Sm80():
                     Fence(Sm80_generic, cuda_temporal)
 
                 # barrier.cta.sync only
-                Fence(cuda_in_order, Sm80_cp_async)
+                Fence(cuda_in_order, cuda_in_order)
 
     return test_proc
 
@@ -1026,13 +1029,13 @@ def mkproc_garden_Sm90(
         with CudaDeviceFunction(clusterDim=4, blockDim=256):
             for task in cuda_tasks(0, 1):
                 # cluster: generic->async proxy
-                Fence(cuda_in_order, tma_to_smem_async)
+                Fence(cuda_in_order, cuda_generic_and_async_proxy)
 
                 # We use the __syncwarp to separate blocks of code in mkref
                 # and also for the (non-CUDA-device) invalid sync-tl tests.
                 for cta in cuda_threads(0, 4, unit=cuda_cta_in_cluster):
                     # No proxy fence, as first-sync-tl is temporal-only
-                    Fence(cuda_temporal, wgmma_async_smem)
+                    Fence(cuda_temporal, cuda_generic_and_async_proxy)
                     for w in cuda_threads(0, 8, unit=cuda_warp):
                         Fence(test_first_sync_tl, test_second_sync_tl)
 
@@ -1046,8 +1049,8 @@ def mkproc_garden_Sm90(
                     for w in cuda_threads(0, 8, unit=cuda_warp):
                         Fence(test_first_sync_tl, test_second_sync_tl)
 
-                    # Proxy fence for generic->wgmma_async
-                    Fence(cuda_in_order, wgmma_async_smem)
+                    # Proxy fence for generic->async
+                    Fence(cuda_in_order, cuda_generic_and_async_proxy)
                     for w in cuda_threads(0, 8, unit=cuda_warp):
                         Fence(test_first_sync_tl, test_second_sync_tl)
 
@@ -1106,6 +1109,7 @@ def mkref_garden_Sm90(
             xrg("__syncwarp")
 
             if 32 * special_lo <= threadIdx < 32 * special_hi:
+                # NB currently this is disabled
                 # Testing special case; warpgroup
                 # cuda_in_order->wgmma_async_smem
                 xrg("fence.proxy.async")
@@ -1117,14 +1121,19 @@ def mkref_garden_Sm90(
     xrg.end_cuda()
 
 
-def test_garden_Sm90_excut(compiler_Sm90a):
-    compiler_Sm90a.excut_test(
-        mkproc_garden_Sm90, mkref_garden_Sm90, special_lo=4, special_hi=8
-    )
+# Adapt and re-enable these tests if we wish to support the special case
+# for a warpgroup generating stuff in the generic proxy, then using
+# that data in future wgmma instrs with ONLY a proxy fence, no cross-thread sync.
+# I'm not sure if this is valid CUDA usage.
+if False:
 
+    def test_garden_Sm90_excut(compiler_Sm90a):
+        compiler_Sm90a.excut_test(
+            mkproc_garden_Sm90, mkref_garden_Sm90, special_lo=4, special_hi=8
+        )
 
-def test_garden_Sm90_golden(compiler, golden):
-    compiler.cuda_cpu_test(mkproc_garden_Sm90, golden, special_lo=4, special_hi=8)
+    def test_garden_Sm90_golden(compiler, golden):
+        compiler.cuda_cpu_test(mkproc_garden_Sm90, golden, special_lo=4, special_hi=8)
 
 
 def test_garden_wrong_L1(compiler):
@@ -1149,7 +1158,7 @@ def test_garden_wrong_L2(compiler):
             test_second_sync_tl=cpu_in_order,
         )
     msg = str(exc.value)
-    assert "at most CUDA generic+async proxy" in msg
+    assert "at most cuda_generic_and_async_proxy" in msg
     assert "cpu_in_order" in msg
 
 
@@ -1165,6 +1174,6 @@ def test_garden_wrong_special_case_L2(compiler):
             mkproc_garden_Sm90,
             special_lo=4,
             special_hi=8,
-            special_second_sync_tl=tma_to_gmem_async,
+            special_second_sync_tl=cuda_in_order,
         )
     assert "collective unit matched no known case" in str(exc.value)
