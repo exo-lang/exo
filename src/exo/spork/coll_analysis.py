@@ -565,5 +565,10 @@ class CollAnalysis(LoopIR_Rewrite):
 
             D = fmt_tup(coll_tiling.get_domain())
             B = fmt_tup(coll_tiling.get_box())
-            remark = f"Domain (ω.D) = {D}\n   Box (ω.B) = {B} @ {s.body[0].srcinfo}"
+            a = coll_tiling.get_pow2_thread_alignment()
+            remark = (
+                f"Domain (ω.D) = {D}\n"
+                f"   Box (ω.B) = {B}\n"
+                f"  pow2 align = {a} @ {s.body[0].srcinfo}"
+            )
             self._debug_log.remark(self._proc_name, remark)
