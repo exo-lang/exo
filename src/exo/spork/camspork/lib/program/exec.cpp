@@ -19,8 +19,8 @@
 #include "../syncv/vis_record_history_log.hpp"
 #include "../util/cuboid_util.hpp"
 
-// #define CAMSPORK_EXEC_ALWAYS_INLINE __attribute__((always_inline))
-#define CAMSPORK_EXEC_ALWAYS_INLINE
+#define CAMSPORK_EXEC_ALWAYS_INLINE __attribute__((always_inline))
+// #define CAMSPORK_EXEC_ALWAYS_INLINE
 
 namespace camspork
 {

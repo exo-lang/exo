@@ -1,4 +1,4 @@
 # if 0
 # Also included as C++ file.
 # endif
-lib_version = 10
+lib_version = 11
