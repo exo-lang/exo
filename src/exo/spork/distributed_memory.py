@@ -64,7 +64,7 @@ class ThreadIter:
             (codegen.codegen_static_lo, codegen.codegen_static_hi),
             warp_name_filter,
             coll_tiling.get_domain(),
-            prior_am_dim_idx or dim_idx,
+            prior_am_dim_idx if prior_am_dim_idx is not None else dim_idx,
             prior_am_offset + codegen.offset,
             am_box,
         )
