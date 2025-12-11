@@ -126,7 +126,7 @@ struct TlSigInterval
     void assert_valid() const
     {
         CAMSPORK_REQUIRE(qual_bits_by_vis.intersects(qual_bits_by_vis), "Empty qual_bits_by_vis");
-        CAMSPORK_REQUIRE_CMP(tid_lo, <=, tid_hi, "Invalid TlSigInterval");
+        CAMSPORK_REQUIRE_CMP(tid_lo, <, tid_hi, "Invalid TlSigInterval");
     }
 
     bool operator==(TlSigInterval other) const
@@ -162,7 +162,7 @@ struct TlSigInterval
         static_assert(vis_flag_index_atomic_only == 0, "Hard-wired code for skipping atomic-only");
         auto q_bits = qual_bits_by_vis.array[1];
         for (int i = 2; i < num_vis_flags; ++i) {
-            q_bits |= popcount(qual_bits_by_vis.array[i]);
+            q_bits |= qual_bits_by_vis.array[i];
         }
         return q_bits == 0;
     }

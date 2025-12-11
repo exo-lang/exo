@@ -1084,15 +1084,12 @@ struct SyncvTable
     {
         // 62-bit hash
         // (hi)
-        // 6 bits: issue QualTL i.e. unique q such that (tid, q, vis_flag_issue) exists (num_qual_tl if no such q).
         // 32 bits: max tid of timeline signatures (tid, q, v) with v != atomic-only; 0 if no such tid.
-        // 24 bits: entropy, TODO.
+        // 30 bits: entropy
         // (lo)
         //
         static_assert(VisRecord::num_memoize_hash_bits == 62);
-        static_assert(num_qual_tl == 32, "Need more than 6 bits to encode QualTL + sentinel");
         uint32_t non_atomic_max_tid = 0;
-        qual_bits_t issue_qual_bits = 0;
         VisRecordEntropy entropy{};
 
         const nodepool::id<TlSigIntervalListNode>* p_id = &vis_record.visibility_set;
@@ -1103,9 +1100,6 @@ struct SyncvTable
             p_id = &node.camspork_next_id;
 
             const bool tl_sigs_atomic_only = tl_sigs.is_atomic_only();
-            if (const auto q_tmp = tl_sigs.qual_bits_by_vis.array[vis_flag_index_issue]) {
-                issue_qual_bits |= q_tmp;
-            }
             // Convert exclusive tid_hi to inclusive non_atomic_max_tid.
             non_atomic_max_tid = std::max(non_atomic_max_tid, tl_sigs_atomic_only ? uint32_t(0) : tl_sigs.tid_hi - 1u);
 
@@ -1119,42 +1113,26 @@ struct SyncvTable
             await_node_id = node.camspork_next_id;
         }
 
-        uint32_t qual_tl = num_qual_tl;
-        if (issue_qual_bits != 0) {
-            qual_tl = get_low_bit_index(issue_qual_bits);
-            CAMSPORK_REQUIRE_CMP((issue_qual_bits >> qual_tl), ==, 1, "multiple issue QualTL");
-        }
-
-        uint64_t hash = entropy.get() & 0xFF'FFFF;
-        hash |= uint64_t(non_atomic_max_tid) << 24;
-        hash |= uint64_t(qual_tl) << (32 + 24);
+        uint64_t hash = entropy.get() & ((1u << 30) - 1);
+        hash |= uint64_t(non_atomic_max_tid) << 30;
         return hash;
     }
 
-    static uint8_t issue_qual_tl_from_hash(uint64_t hash)
-    {
-        return uint8_t(hash >> (32 + 24));
-    }
 
     static uint32_t max_non_atomic_tid_from_hash(uint64_t hash)
     {
-        return uint32_t(hash >> 24);
+        return uint32_t(hash >> 30);
     }
 
     // Get inclusive range of possible hash values of VisRecord that
-    // could theoretically be modified when interpreting a non-transitive Arrive with the given QualTL
-    // as the only QualTL in its SyncTL, and with the minimum tid_lo in the ThreadCuboid being min_tid_lo.
-    //
-    // For the transitive case, this has to be done for all qual_tl values, including qual-tl = num_qual_tl
-    // indicating no issue QualTL.
-    static std::pair<uint64_t, uint64_t> hash_bounds_for_arrive(uint8_t qual_tl, uint32_t min_tid_lo)
+    // could theoretically be modified when interpreting a non-transitive Arrive with the
+    // minimum tid_lo in the ThreadCuboid being min_tid_lo.
+    static std::pair<uint64_t, uint64_t> hash_bounds_for_arrive(uint32_t min_tid_lo)
     {
         // max_tid must be at least min_tid_lo.
         // NB max_tid is inclusive, unlike exclusive tid_hi.
-        CAMSPORK_REQUIRE_CMP(qual_tl, <=, num_qual_tl, "Out-of-range qual-tl");
-        uint64_t qual_hash = uint64_t(qual_tl) << (32 + 24);
-        uint64_t hash_lo = qual_hash | uint64_t(min_tid_lo) << 24;
-        uint64_t hash_hi = qual_hash | ((uint64_t(1) << (32 + 24)) - 1u);
+        uint64_t hash_lo = uint64_t(min_tid_lo) << 30;
+        uint64_t hash_hi = ~uint64_t(0);
         return {hash_lo, hash_hi};
     }
 
@@ -1875,25 +1853,9 @@ struct SyncvTable
     template <typename Command>
     void update_vis_records_for_sync_impl(Command&& command)
     {
-        auto per_qual_tl = [&] (uint8_t qual_tl)
-        {
-            const auto tid_lo = command.p_cuboid->minimal_superset_interval().tid_lo;
-            std::pair<uint64_t, uint64_t> hash_bounds = hash_bounds_for_arrive(qual_tl, tid_lo);
-            for_vis_record_hash_bounds(hash_bounds, command);
-        };
-        if (command.transitive) {
-            for (uint8_t qual_tl = 0; qual_tl <= num_qual_tl; ++qual_tl) {
-                // qual_tl = num_qual_tl is a special case.
-                per_qual_tl(qual_tl);
-            }
-        }
-        else {
-            uint32_t qual_bits = command.L1_qual_bits;
-            while (qual_bits) {
-                uint8_t qual_tl = pop_low_bit_index(&qual_bits);
-                per_qual_tl(qual_tl);
-            }
-        }
+        const auto tid_lo = command.p_cuboid->minimal_superset_interval().tid_lo;
+        std::pair<uint64_t, uint64_t> hash_bounds = hash_bounds_for_arrive(tid_lo);
+        for_vis_record_hash_bounds(hash_bounds, command);
     }
 
     // Augment all visibility records that synchronize with the first visibility set of the fence.
@@ -2626,6 +2588,7 @@ struct SyncvTable
         // Furthermore we validate the following:
         //   * encoding for the visibility set is correct.
         //   * VisRecords are properly stored in BarrierArriveState.
+        //   * stored hash is correct (could be wrong if we forgot to memoize on change).
         auto process_vis_record_impl = [&] (auto id, const auto& free_vis_ids)
         {
             if (free_vis_ids.count(id)) {
@@ -2640,10 +2603,23 @@ struct SyncvTable
                 CAMSPORK_REQUIRE(!node.base_data.pending_awaits, "state should have been cleared upon forwarding");
             }
             else {
+                const auto stored_hash = read_hash_helper(id);
+                CAMSPORK_REQUIRE_CMP(stored_hash, ==, hash_vis_record(node.base_data), "dirty hash");
+
+                uint32_t max_non_atomic_tid = 0;
                 for (nodepool::id<TlSigIntervalListNode> node_id = node.base_data.visibility_set; node_id; ) {
                     record_owning(node_id);
                     TlSigIntervalListNode this_node = get(node_id);
                     this_node.data.assert_valid();
+
+                    CAMSPORK_REQUIRE_CMP(this_node.data.tid_hi, >, 0, "Invalid tid_hi");
+                    const auto q = this_node.data.qual_bits_by_vis;
+                    for (uint32_t vis_flag_index = 0; vis_flag_index < num_vis_flags; ++vis_flag_index) {
+                        const auto q_bits = q.array[vis_flag_index];
+                        if (vis_flag_index != vis_flag_index_atomic_only && q_bits != 0) {
+                            max_non_atomic_tid = std::max(max_non_atomic_tid, this_node.data.tid_hi - 1u);
+                        }
+                    }
 
                     auto next_id = this_node.camspork_next_id;
                     if (next_id) {
@@ -2655,6 +2631,8 @@ struct SyncvTable
                         break;
                     }
                 }
+                CAMSPORK_REQUIRE_CMP(max_non_atomic_tid_from_hash(stored_hash), ==, max_non_atomic_tid,
+                    "Hash didn't encode max non-atomic tid as intended");
 
                 // Record PendingAwaitNode references.
                 on_PendingAwaitNode(node.base_data.pending_awaits, on_PendingAwaitNode);
@@ -2752,12 +2730,11 @@ struct SyncvTable
                     continue;
                 }
 
-                CAMSPORK_REQUIRE_CMP(read_hash_helper(id), ==, hash_vis_record(node.base_data), "dirty hash");
                 try {
                     CAMSPORK_REQUIRE_CMP(id, ==, find_memoized(id), "memoization lookup is buggy");
                 }
                 catch (...) {
-                    for (size_t  chunk_index = 0; chunk_index < vis_record_table.size(); ++chunk_index) {
+                    for (size_t chunk_index = 0; chunk_index < vis_record_table.size(); ++chunk_index) {
                         fprintf(stderr, "\n === CHUNK %u ===\n", (unsigned)chunk_index);
                         for (auto id : vis_record_table[chunk_index].nodes) {
                             debug_print(stderr, get(id).base_data);
