@@ -141,17 +141,15 @@ class Qual_tl(object):
         "_bit",
         "_name",
         "_default_convergent_access",
-        "_hack_force_shared_vis_record",
     ]
     _bit_index: int
     _bit: int
     _name: str
     _default_convergent_access: bool
-    _hack_force_shared_vis_record: bool
 
     _from_bit_index = []
 
-    def __init__(self, name, default_convergent_access, hack=False):
+    def __init__(self, name, default_convergent_access):
         assert name.endswith("_qual"), "naming convention"
         self._bit_index = len(self._from_bit_index)
         assert self._bit_index <= 31, "camspork::qual_bits_t would overflow"
@@ -160,16 +158,12 @@ class Qual_tl(object):
         self._name = name
         self._default_convergent_access = default_convergent_access
         assert isinstance(default_convergent_access, bool)
-        self._hack_force_shared_vis_record = hack
 
     def __repr__(self):
         return self._name
 
     def get_default_convergent_access(self):
         return self._default_convergent_access
-
-    def get_force_shared_vis_record(self):
-        return self._hack_force_shared_vis_record
 
     def as_bit(self):
         return self._bit
@@ -199,7 +193,7 @@ cpu_cuda_stream_qual = Qual_tl("cpu_cuda_stream_qual", True)
 cuda_in_order_rmem_qual = Qual_tl("cuda_in_order_rmem_qual", True)
 cuda_in_order_ram_qual = Qual_tl("cuda_in_order_ram_qual", False)
 Sm80_cp_async_qual = Qual_tl("Sm80_cp_async_qual", False)
-tma_to_smem_async_qual = Qual_tl("tma_to_smem_async_qual", False, hack=True)
+tma_to_smem_async_qual = Qual_tl("tma_to_smem_async_qual", False)
 tma_to_gmem_async_qual = Qual_tl("tma_to_gmem_async_qual", False)
 wgmma_async_rmem_a_qual = Qual_tl("wgmma_async_rmem_a_qual", True)
 wgmma_async_rmem_d_qual = Qual_tl("wgmma_async_rmem_d_qual", True)
@@ -285,12 +279,16 @@ _cuda_stream_quals = [
 class Sync_tl(object):
     __slots__ = [
         "_name",
+        "_full_timeline_set",
         "_full_timeline_set_bits",
+        "_temporal_timeline_set",
         "_temporal_timeline_set_bits",
         "_as_instr_tl",
     ]
     _name: str
+    _full_timeline_set: Set[Qual_tl]
     _full_timeline_set_bits: int
+    _temporal_timeline_set: Set[Qual_tl]
     _temporal_timeline_set_bits: int
     _as_instr_tl: Optional[Instr_tl]
 
@@ -313,6 +311,10 @@ class Sync_tl(object):
         self._temporal_timeline_set_bits = tmp_bits
         self._as_instr_tl = for_instr_tl
         assert for_instr_tl is None or isinstance(for_instr_tl, Instr_tl)
+        self._full_timeline_set = set(full_timeline_set)
+        self._temporal_timeline_set = self._full_timeline_set | set(
+            additional_temporal_timeline_set
+        )
 
     def __repr__(self):
         return f"<exo.spork.timelines.Sync_tl {self._name}>"
@@ -326,10 +328,16 @@ class Sync_tl(object):
             raise TypeError(f"{self} is not an instr-tl")
         return self._as_instr_tl
 
-    def get_full_timeline_set_bits(self):
+    def get_full_timeline_set(self) -> Set[Qual_tl]:
+        return self._full_timeline_set
+
+    def get_full_timeline_set_bits(self) -> int:
         return self._full_timeline_set_bits
 
-    def get_temporal_timeline_set_bits(self):
+    def get_temporal_timeline_set(self) -> Set[Qual_tl]:
+        return self._temporal_timeline_set
+
+    def get_temporal_timeline_set_bits(self) -> int:
         return self._temporal_timeline_set_bits
 
     def implements_first(self, other):

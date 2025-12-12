@@ -78,15 +78,35 @@ struct SyncvAccessInfo
 
     bool is_write_only;
 
-    // Alters is_convergent=false case; force init one VisRecord for all threads.
-    // This is a workaround for TMA only, because the trailing barrier is so expensive.
-    // Given waiting for the barrier is the only mechanism to wait for the results
-    // (thus the actual threads are not relevant), this simplification is OK.
-    bool force_shared_vis_record;
-
     qual_bits_t initial_qual_bit;
     qual_bits_t extended_qual_bits;
     qual_bits_t atomic_qual_bits;
+
+    // thread_access_granularity is for out-of-order non-convergent abstract machine optimization.
+    //
+    // Only valid for is_ooo=true cases.
+    // By the official semantics, in the is_convergent=false case, we need to add a VisRecord for each thread
+    // in the ThreadCuboid. If is_ooo=false, the VisRecords only have timeline signatures with vis_flag_issue,
+    // and vis_flag_issue is only used for synchronizes_with for Fence and Arrive (and technically JoinThreads as well).
+    //
+    // The effect of thread_access_granularity > 1 is to replace the per-thread VisRecord with
+    // VisRecords for aligned groups of thread_access_granularity-many threads
+    // (rounding down tid_lo and rounding up tid_hi), e.g. threads 2, 3, 4, 5, 6, 7, 8 wit thread_access_granularity=4
+    // gives VisRecords for [0, 3], [4, 7], [8, 11].
+    //
+    // If we know that we always have thread_access_granularity dividing the tid_lo and tid_hi
+    // of all thread intervals executing a Fence or Arrive with the access's initial qual-tl in the sync's first sync-tl,
+    // then the modification is harmless, as it's immaterial which threads in each aligned group
+    // of thread_access_granularity-many threads is considered active.
+    //
+    // For JoinThreads, this should be safe since we in practice only use that to join tasks (CUDA clusters) and
+    // the full CUDA grid, so just make sure thread_access_granularity divides the cluster thread count.
+    //
+    // This is a critical optimization for keeping the size of the VisRecord memoization table managable; however,
+    // it's only applicable for is_ooo=true, as otherwise this modification would also affect vis_flag_full,
+    // which isn't at all legitimate to do.
+    // Note this really is a pure performance hack, not actually meaningful semantics in any way.
+    uint32_t thread_access_granularity;
     uint32_t barrier_count;
     const barrier_id* trailing_barriers;
 };

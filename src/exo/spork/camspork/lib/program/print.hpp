@@ -140,7 +140,7 @@ class ProgramPrinter
         *this << ", " << node->initial_qual_bit << ", " << node->extended_qual_bits;
 
 
-        static_assert(access_flag_all_bits == 31, "update me");
+        static_assert(access_flag_all_bits == 15, "update me");
         if (node->access_flags == 0) {
             *this << ", flags=0";
         }
@@ -159,10 +159,6 @@ class ProgramPrinter
                 *this << op << "b.convergent_flag";
                 op = or_op;
             }
-            if (node->access_flags & access_flag_force_shared_vis_record) {
-                *this << op << "b.force_shared_vis_record_flag";
-                op = or_op;
-            }
             if (node->access_flags & access_flag_write_only) {
                 *this << op << "b.write_only_flag";
                 op = or_op;
@@ -174,6 +170,9 @@ class ProgramPrinter
         if constexpr (node->is_window) {
             *this << ", extent=";
             print_idx(node, false);  // print extent
+        }
+        if (const auto g = node->thread_access_granularity; g != 1) {
+            *this << ", thread_access_granularity=" << g;
         }
         if constexpr (node->is_multicast) {
             *this << ", access_multicasts=(";

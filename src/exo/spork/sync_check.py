@@ -446,16 +446,19 @@ class CamsporkDo(LoopIR_Do):
                     caller_a, instr_tl
                 )
                 flags = 0
+                thread_access_granularity = 1
                 if not arg_info.const:
                     flags |= b.mutate_flag
                     if arg_info.write_only:
                         flags |= b.write_only_flag
                 if arg_info.out_of_order:
                     flags |= b.ooo_flag
+                    # out-of-order non-convergent abstract machine optimization
+                    thread_access_granularity = (
+                        self._coll_analysis.get_qual_tl_thread_alignment(qual_tl)
+                    )
                 if qual_tl.get_default_convergent_access():
                     flags |= b.convergent_flag
-                if qual_tl.get_force_shared_vis_record():
-                    flags |= b.force_shared_vis_record_flag
 
                 if (atomicity := arg_info.atomicity) is None:
                     atomic_qual_bits = 0
@@ -472,6 +475,7 @@ class CamsporkDo(LoopIR_Do):
                     barrier=barrier,
                     barrier_multicasts=barrier_multicasts,
                     atomic_qual_bits=atomic_qual_bits,
+                    thread_access_granularity=thread_access_granularity,
                     srcinfo=s.srcinfo,
                 )
                 for ctx in loop_nest:

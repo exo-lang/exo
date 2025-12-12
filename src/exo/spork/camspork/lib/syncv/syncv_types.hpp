@@ -208,21 +208,21 @@ struct ThreadCuboid
     }
 };
 
-// ThreadCuboid-like interface for holding just a single thread.
+// ThreadCuboid-like interface for holding a continuous thread range.
 // Mainly for use by SyncvTable internally.
-struct SingleThreadInit
+struct SimpleThreadInit
 {
-    uint32_t tid;
+    uint32_t tid_lo, tid_hi;
 
     template <typename Callback>
     void to_intervals(Callback&& callback) const
     {
-        callback(tid, tid + 1);
+        callback(tid_lo, tid_hi);
     }
 
     TlSigBucketKey minimal_superset_interval() const
     {
-        return {tid, tid + 1};
+        return {tid_lo, tid_hi};
     }
 };
 

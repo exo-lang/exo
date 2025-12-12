@@ -26,6 +26,7 @@ from .coll_algebra import (
 from .cuda_memory import CudaBasicDeviceVisible
 from .cuda_warp_config import WarpLayoutInfo
 from .loop_modes import CudaThreads, _CodegenPar
+from .timelines import Qual_tl, Sync_tl
 from .with_cuda_warps import CudaWarps
 
 
@@ -61,6 +62,8 @@ class CollAnalysis(LoopIR_Rewrite):
         "_barrier_uses",
         "_debug_log",
         "_proc_name",
+        "_qual_tl_thread_alignments",
+        "_qual_tl_fallback_thread_alignment",
     ]
 
     # Public variables
@@ -76,6 +79,9 @@ class CollAnalysis(LoopIR_Rewrite):
     _barrier_uses: Dict[Sym, BarrierUsage]
     _debug_log: BaseCompilerDebugLog
     _proc_name: str
+    _qual_tl_thread_alignments: Dict[Qual_tl, int]
+    _qual_tl_fallback_thread_aligment: int
+    # Update __slots__ above if you add more.
 
     # TODO barrier_usage_analysis only needed to check barrier guarding.
     # Consider making this an optional feature.
@@ -94,6 +100,8 @@ class CollAnalysis(LoopIR_Rewrite):
         self._cuda_device_function = None
         self._barrier_uses = barrier_usage_analysis.uses
         self._debug_log = debug_log
+        self._qual_tl_thread_alignments = {}
+        self._qual_tl_fallback_thread_alignment = 1 << 31
 
     def run(self, proc):
         self._proc_name = proc.name
@@ -105,6 +113,14 @@ class CollAnalysis(LoopIR_Rewrite):
     def map_fnarg(self, a):
         self._envtyp[a.name] = a.type
         return None
+
+    def get_qual_tl_thread_alignment(self, qual_tl: Qual_tl) -> int:
+        """For out-of-order non-convergent abstract machine optimization"""
+        try:
+            return self._qual_tl_thread_alignments[qual_tl]
+        except KeyError:
+            assert isinstance(qual_tl, Qual_tl)
+            return self._qual_tl_fallback_thread_alignment
 
     def map_s(self, s):
         # Save state
@@ -160,6 +176,10 @@ class CollAnalysis(LoopIR_Rewrite):
                 assert not self.in_cuda()
                 self.apply_cuda_device_function(cuda_device_function)
                 self.remark_coll_tiling_in_body(s, self._coll_tiling)
+                self._qual_tl_fallback_thread_alignment = min(
+                    self._qual_tl_fallback_thread_alignment,
+                    self._coll_tiling.get_pow2_thread_alignment(),
+                )
                 stmts = super().map_s(s)
             else:
                 stmts = super().map_s(s)
@@ -207,6 +227,14 @@ class CollAnalysis(LoopIR_Rewrite):
                     f"stmt: {s}"
                 )
         elif isinstance(s, LoopIR.SyncStmt):
+            # Update per-Qual_tl thread alignment for
+            # out-of-order non-convergent abstract machine optimization
+            if (L1 := s.sync_type.first_sync_tl) is not None:
+                align = self._coll_tiling.get_pow2_thread_alignment()
+                for qual_tl in L1.get_full_timeline_set():
+                    _dict = self._qual_tl_thread_alignments
+                    _dict[qual_tl] = min(align, _dict.get(qual_tl, 1 << 31))
+
             # Distributed memory analysis and CollTiling for Fence/Arrive/Await
             if s.sync_type.is_split():
                 assert len(s.barriers) >= 1

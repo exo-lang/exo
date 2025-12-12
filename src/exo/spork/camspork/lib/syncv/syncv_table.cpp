@@ -2124,9 +2124,16 @@ struct SyncvTable
                 // We model the CPU as of 2025-10-01 as "[almost] all possible threads" [0, UINT32_MAX)
                 // and if we pass that here, we will create 4 billion VisRecords.
                 CAMSPORK_REQUIRE_CMP(tid_hi, <, UINT32_MAX, "Likely you meant to pass convergent_access_flag");
-                for (uint32_t tid = tid_lo; tid < tid_hi; ++tid) {
+
+                const uint32_t granularity = access.thread_access_granularity;
+                CAMSPORK_REQUIRE_CMP(granularity, >, 0, "Must be positive power of 2");
+                CAMSPORK_REQUIRE_CMP((granularity - 1) & granularity, ==, 0, "Must be positive power of 2");
+                CAMSPORK_REQUIRE(access.is_ooo || granularity == 1,
+                        "out-of-order non-convergent abstract machine optimization not applicable when !is_ooo");
+
+                for (uint32_t tid = tid_lo & ~(granularity - 1); tid < tid_hi; tid += granularity) {
                     const VisRecordID new_vis_record_id = memoize_new_vis_record<K>(
-                        SingleThreadInit{tid},
+                        SimpleThreadInit{tid, tid + granularity},
                         access,
                         vis_record_refcnt
                     );
@@ -2294,7 +2301,7 @@ struct SyncvTable
     {
         if (no_checking_counter != 0) {
         }
-        else if (access.is_convergent || access.force_shared_vis_record) {
+        else if (access.is_convergent) {
             checked_on_access_impl<false, true, true>(access.is_convergent, input, cuboid, access, logger);
         }
         else {
@@ -2308,7 +2315,7 @@ struct SyncvTable
     {
         if (no_checking_counter != 0) {
         }
-        else if (access.is_convergent || access.force_shared_vis_record) {
+        else if (access.is_convergent) {
             checked_on_access_impl<true, true, true>(access.is_convergent, input, cuboid, access, logger);
         }
         else {

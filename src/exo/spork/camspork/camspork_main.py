@@ -246,15 +246,15 @@ _add_TrailingBarrierExpr.argtypes = (c_void_p, Varname, c_uint32, ptr_ArriveIdx)
 
 _add_SyncEnvAccessSingle = lib.camspork_add_SyncEnvAccessSingle
 _add_SyncEnvAccessSingle.restype = StmtRef
-_add_SyncEnvAccessSingle.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c_uint32, c_uint32, c_uint32, c_uint32, TrailingBarrierExprRef)
+_add_SyncEnvAccessSingle.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, TrailingBarrierExprRef)
 
 _add_SyncEnvAccessWindow = lib.camspork_add_SyncEnvAccessWindow
 _add_SyncEnvAccessWindow.restype = StmtRef
-_add_SyncEnvAccessWindow.argtypes = (c_void_p, Varname, c_uint32, ptr_OffsetExtentExpr, c_uint32, c_uint32, c_uint32, c_uint32, TrailingBarrierExprRef)
+_add_SyncEnvAccessWindow.argtypes = (c_void_p, Varname, c_uint32, ptr_OffsetExtentExpr, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, TrailingBarrierExprRef)
 
 _add_SyncEnvAccessMulticast = lib.camspork_add_SyncEnvAccessMulticast
 _add_SyncEnvAccessMulticast.restype = StmtRef
-_add_SyncEnvAccessMulticast.argtypes = (c_void_p, Varname, c_uint32, ptr_ArriveIdx, c_uint32, c_uint32, c_uint32, c_uint32, TrailingBarrierExprRef)
+_add_SyncEnvAccessMulticast.argtypes = (c_void_p, Varname, c_uint32, ptr_ArriveIdx, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, TrailingBarrierExprRef)
 
 _add_SyncEnvFreeShard = lib.camspork_add_SyncEnvFreeShard
 _add_SyncEnvFreeShard.restype = StmtRef
@@ -592,8 +592,7 @@ class ProgramBuilder:
     ooo_flag = 1
     convergent_flag = 2
     mutate_flag = 4
-    force_shared_vis_record_flag = 8
-    write_only_flag = 16
+    write_only_flag = 8
 
     def __init__(self):
         self._builder = check_return(_new_ProgramBuilder())
@@ -684,6 +683,7 @@ class ProgramBuilder:
         *,
         extent: Optional[List[BuilderExpr]] = None,
         atomic_qual_bits: int = 0,
+        thread_access_granularity: int = 1,
         access_multicasts: Tuple[Tuple[bool]] = (),
         barrier: Optional[BuilderIndexExpr | Varname] = None,
         barrier_multicasts: Tuple[Tuple[bool]] = (),
@@ -728,6 +728,7 @@ class ProgramBuilder:
                 initial_qual_bit,
                 extended_qual_bits,
                 atomic_qual_bits,
+                thread_access_granularity,
                 flags,
                 trailing_barrier_expr,
             ),

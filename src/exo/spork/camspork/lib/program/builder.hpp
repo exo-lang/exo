@@ -123,15 +123,15 @@ class ProgramBuilder
     StmtRef add_SyncEnvAccess(  // single
         Varname name, size_t num_idx, const ExprRef* idx,
         qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, qual_bits_t atomic_qual_bits,
-        uint32_t access_flags, TrailingBarrierExprRef trailing_barrier_expr);
+        uint32_t thread_access_granularity, uint32_t access_flags, TrailingBarrierExprRef trailing_barrier_expr);
     StmtRef add_SyncEnvAccess(  // window
         Varname name, size_t num_idx, const OffsetExtentExpr* idx,
         qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, qual_bits_t atomic_qual_bits,
-        uint32_t access_flags, TrailingBarrierExprRef trailing_barrier_expr);
+        uint32_t thread_access_granularity, uint32_t access_flags, TrailingBarrierExprRef trailing_barrier_expr);
     StmtRef add_SyncEnvAccess(  // multicast
         Varname name, size_t num_idx, const ArriveIdx* idx,
         qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, qual_bits_t atomic_qual_bits,
-        uint32_t access_flags, TrailingBarrierExprRef trailing_barrier_expr);
+        uint32_t thread_access_granularity, uint32_t access_flags, TrailingBarrierExprRef trailing_barrier_expr);
     StmtRef add_SyncEnvFreeShard(
         Varname name, size_t num_idx, const ExprRef* idx, qual_bits_t extended_qual_bits);
     StmtRef add_MutateValue(Varname name, size_t num_idx, const ExprRef* idx, binop op, ExprRef rhs);
@@ -178,7 +178,7 @@ class ProgramBuilder
     StmtRef add_SyncEnvAccess_impl(
         Varname name, size_t num_idx, const IdxType* idx,
         qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, qual_bits_t atomic_qual_bits,
-        uint32_t access_flags, TrailingBarrierExprRef trailing_barrier_expr);
+        uint32_t thread_access_granularity, uint32_t access_flags, TrailingBarrierExprRef trailing_barrier_expr);
   public:
     void pop_body(StmtRef* out_body=nullptr, StmtRef* out_orelse=nullptr);
 
@@ -214,17 +214,17 @@ CAMSPORK_EXPORT camspork::TrailingBarrierExprRef camspork_add_TrailingBarrierExp
 CAMSPORK_EXPORT camspork::StmtRef camspork_add_SyncEnvAccessSingle(camspork::ProgramBuilder* p_builder,
     camspork::Varname name, uint32_t num_idx, const camspork::ExprRef* idx,
     camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t extended_qual_bits,
-    camspork::qual_bits_t atomic_qual_bits,
+    camspork::qual_bits_t atomic_qual_bits, uint32_t thread_access_granularity,
     uint32_t access_flags, camspork::TrailingBarrierExprRef trailing_barrier_expr);
 CAMSPORK_EXPORT camspork::StmtRef camspork_add_SyncEnvAccessWindow(camspork::ProgramBuilder* p_builder,
     camspork::Varname name, uint32_t num_idx, const camspork::OffsetExtentExpr* idx,
     camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t extended_qual_bits,
-    camspork::qual_bits_t atomic_qual_bits,
+    camspork::qual_bits_t atomic_qual_bits, uint32_t thread_access_granularity,
     uint32_t access_flags, camspork::TrailingBarrierExprRef trailing_barrier_expr);
 CAMSPORK_EXPORT camspork::StmtRef camspork_add_SyncEnvAccessMulticast(camspork::ProgramBuilder* p_builder,
     camspork::Varname name, uint32_t num_idx, const camspork::ArriveIdx* idx,
     camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t extended_qual_bits,
-    camspork::qual_bits_t atomic_qual_bits,
+    camspork::qual_bits_t atomic_qual_bits, uint32_t thread_access_granularity,
     uint32_t access_flags, camspork::TrailingBarrierExprRef trailing_barrier_expr);
 CAMSPORK_EXPORT camspork::StmtRef camspork_add_SyncEnvFreeShard(camspork::ProgramBuilder* p_builder,
     camspork::Varname name, uint32_t num_idx, const camspork::ExprRef* idx, camspork::qual_bits_t extended_qual_bits);

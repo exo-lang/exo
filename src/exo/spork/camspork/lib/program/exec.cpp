@@ -390,10 +390,10 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         access.is_ooo = bool(node->access_flags & access_flag_ooo);
         access.is_convergent = bool(node->access_flags & access_flag_convergent);
         access.is_write_only = bool(node->access_flags & access_flag_write_only);
-        access.force_shared_vis_record = bool(node->access_flags & access_flag_force_shared_vis_record);
         access.initial_qual_bit = node->initial_qual_bit;
         access.extended_qual_bits = node->extended_qual_bits;
         access.atomic_qual_bits = node->get_atomic_qual_bits();
+        access.thread_access_granularity = node->thread_access_granularity;
         access.barrier_count = 0;
         access.trailing_barriers = nullptr;
 
@@ -521,10 +521,10 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         SyncvAccessInfo access{};
         access.is_ooo = false;
         access.is_convergent = false;  // All threads must be prepared to free the memory.
-        access.force_shared_vis_record = false;
         access.initial_qual_bit = 0;
         access.extended_qual_bits = node->extended_qual_bits;
         access.atomic_qual_bits = 0;
+        access.thread_access_granularity = 1;
         access.barrier_count = 0;
         access.trailing_barriers = nullptr;
 
