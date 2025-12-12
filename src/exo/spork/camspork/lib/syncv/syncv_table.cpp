@@ -81,17 +81,6 @@ struct VisRecord
     nodepool::id<PendingAwaitNode> pending_awaits;
 
     static constexpr uint32_t num_memoize_hash_bits = 62;
-
-    // TODO move these to VisRecordListNode.
-
-    uint64_t forwarded_flag: 1;
-
-    // This has nothing to do with the main purpose of the struct; only needed for assignment_record_remove_duplicates.
-    // This should be in AssignmentRecordVisNode conceptually, but that would waste 4 bytes.
-    uint64_t tmp_is_duplicate: 1;
-
-    // Calculated by memoize_or_forward.
-    uint64_t memoize_hash_bits: num_memoize_hash_bits;
 };
 
 enum class VisRecordKind
@@ -117,13 +106,21 @@ struct VisRecordListNode
     // If in the forwarding state, this is an owning reference to the forwarded-to visibility record.
     nodepool::id<VisRecordListNode<K>> camspork_next_id;
 
+    uint64_t forwarded_flag: 1;
+
+    // This has nothing to do with the main purpose of the struct; only needed for assignment_record_remove_duplicates.
+    uint64_t tmp_is_duplicate: 1;
+
+    // Calculated by memoize_or_forward.
+    uint64_t memoize_hash_bits: VisRecord::num_memoize_hash_bits;
+
     // If the visibility record is in the base state, this is the valid data.
     // If the visibility record is in the forwarding state, the data is that of the record at get(camspork_next_id).
     VisRecord base_data;
 
     bool is_forwarded() const
     {
-        return base_data.forwarded_flag;
+        return forwarded_flag;
     }
 
     refcnt_t get_refcnt() const
@@ -575,12 +572,11 @@ struct SyncvTable
 
     void reset_vis_record_data(VisRecord* p_data)
     {
-        static_assert(sizeof(*p_data) == 16, "update me");
+        static_assert(sizeof(*p_data) == 8, "update me");
         extend_free_list(p_data->visibility_set);
         p_data->visibility_set = {};
         extend_free_list(p_data->pending_awaits);
         p_data->pending_awaits = {};
-        p_data->memoize_hash_bits = 0;
     }
 
     template <VisRecordKind K>
@@ -636,7 +632,7 @@ struct SyncvTable
         nodepool::id<VisRecordListNode<K>> vis_record_id;
         VisRecordListNode<K>& vis_record = alloc_default_node(&vis_record_id);
         vis_record.refcnt = 1;
-        vis_record.base_data.forwarded_flag = 0;
+        vis_record.forwarded_flag = 0;
         vis_record.base_data.visibility_set = {};
         vis_record.base_data.pending_awaits = {};
 
@@ -820,7 +816,7 @@ struct SyncvTable
     // Check if visibility records are equal.
     bool equal(const VisRecord& a, const VisRecord& b) const
     {
-        static_assert(sizeof(a) == 16, "Update me");
+        static_assert(sizeof(a) == 8, "Update me");
 
         // Check equal intervals. We rely on (and enforce) the non-redundant encoding requirement.
         {
@@ -1202,7 +1198,7 @@ struct SyncvTable
         if constexpr (memoize_action != MemoizeAction::EditAll) {
             p_command_node = &get(command.node_id);
             CAMSPORK_REQUIRE(!p_command_node->is_forwarded(), "command input node must not be forwarded");
-            const uint64_t command_hash = p_command_node->base_data.memoize_hash_bits;
+            const uint64_t command_hash = p_command_node->memoize_hash_bits;
             CAMSPORK_REQUIRE_CMP(command_hash, >=, hash_lo, "Incorrect hash bounds");
             CAMSPORK_REQUIRE_CMP(command_hash, <=, hash_hi, "Incorrect hash bounds");
         }
@@ -1239,12 +1235,12 @@ struct SyncvTable
                 const VisRecordListNode<K>& cur_node = get(cur_id);
                 CAMSPORK_REQUIRE(!cur_node.is_forwarded(), "Forwarded VisRecord should not be memoized?");
 
-                CAMSPORK_REQUIRE_CMP(debug_hash, <=, cur_node.base_data.memoize_hash_bits, "VisRecord sorting bug");
-                debug_hash = cur_node.base_data.memoize_hash_bits;
+                CAMSPORK_REQUIRE_CMP(debug_hash, <=, cur_node.memoize_hash_bits, "VisRecord sorting bug");
+                debug_hash = cur_node.memoize_hash_bits;
 
                 // Exit when hash seen is above range given.
                 // If memoizing, insert the new VisRecord here.
-                if (cur_node.base_data.memoize_hash_bits > hash_hi) {
+                if (cur_node.memoize_hash_bits > hash_hi) {
                     if constexpr (memoize_action == MemoizeAction::MemoizeOrForward) {
                         chunk.nodes.insert(chunk.nodes.begin() + intra_chunk_index, command.node_id);
                         return_id = command.node_id;
@@ -1299,7 +1295,7 @@ struct SyncvTable
 
                         reset_vis_record_data(&command_node.base_data);
                         command_node.camspork_next_id = fwd_id;
-                        command_node.base_data.forwarded_flag = 1;
+                        command_node.forwarded_flag = 1;
                         CAMSPORK_REQUIRE(command_node.is_forwarded(), "should now be in forwarding state");
                         incref(fwd_id);  // Forwarding reference is owning.
                         return fwd_id;   // Return now; we didn't edit the table.
@@ -1394,7 +1390,7 @@ struct SyncvTable
     template <VisRecordKind K>
     uint64_t read_hash_helper(nodepool::id<VisRecordListNode<K>> id) const
     {
-        return get(id).base_data.memoize_hash_bits;
+        return get(id).memoize_hash_bits;
     }
 
 
@@ -1406,6 +1402,12 @@ struct SyncvTable
     template <VisRecordKind K>
     VisRecord& remove_forwarding(nodepool::id<VisRecordListNode<K>>* p_id)
     {
+        return remove_forwarding_node(p_id).base_data;
+    }
+
+    template <VisRecordKind K>
+    VisRecordListNode<K>& remove_forwarding_node(nodepool::id<VisRecordListNode<K>>* p_id)
+    {
         const nodepool::id<VisRecordListNode<K>> old_id = *p_id;
         nodepool::id<VisRecordListNode<K>> id = old_id;
         CAMSPORK_REQUIRE(id, "null input to remove_forwarding");
@@ -1413,7 +1415,7 @@ struct SyncvTable
         CAMSPORK_REQUIRE_CMP(p_node->refcnt, !=, 0, "unexpected 0 refcnt");
 
         if (!p_node->is_forwarded()) {
-            return p_node->base_data;  // No ID change
+            return *p_node;  // No ID change
         }
 
         // Resolve the forwarding.
@@ -1429,7 +1431,7 @@ struct SyncvTable
         decref(old_id);  // Will take care of deallocating chain of forwarding if needed.
         CAMSPORK_REQUIRE_CMP(*p_id, ==, old_id, "unexpected modification of *p_id");
         *p_id = id;
-        return p_node->base_data;
+        return *p_node;
     }
 
     // Like remove_forwarding but non-destructive, i.e., don't actually replace the ID of a forwarding visibility
@@ -1533,7 +1535,7 @@ struct SyncvTable
     //   * Add it to the memoization table, if it's unique. Return itself.
     //   * Put it in the forwarding state (discard existing state) and forward to equal already-memoized record.
     //     Return ID of memoized record.
-    // This initializes VisRecord::memoize_hash_bits, as specified by the documentation for that data member.
+    // This initializes VisRecordListNode::memoize_hash_bits, as specified by the documentation for that data member.
     template <VisRecordKind K>
     nodepool::id<VisRecordListNode<K>> memoize_or_forward(nodepool::id<VisRecordListNode<K>> id)
     {
@@ -1545,9 +1547,9 @@ struct SyncvTable
 
         // Calculate hash here as promised in the comment for the memoize_hash_bits member variable.
         const auto hash = hash_vis_record(node.base_data);
-        node.base_data.memoize_hash_bits = hash;  // No way to silence stupid bitfield truncation warning!
+        node.memoize_hash_bits = hash;  // No way to silence stupid bitfield truncation warning!
 
-        const uint64_t real_hash = node.base_data.memoize_hash_bits;
+        const uint64_t real_hash = node.memoize_hash_bits;
         CAMSPORK_REQUIRE_CMP(hash, ==, real_hash, "hash bitfield truncation");
 
         MemoizeOrForwardCommand<K> command{id};
@@ -2358,7 +2360,7 @@ struct SyncvTable
         // Importantly, we are clearing this flag for base-state VisRecord, not forwarded ones.
         for (node_id id = *p_list_head; id; ) {
             AssignmentRecordVisNode<K>& node = get(id);
-            remove_forwarding(&node.vis_record_id).tmp_is_duplicate = 0;
+            remove_forwarding_node(&node.vis_record_id).tmp_is_duplicate = 0;
             id = node.camspork_next_id;
         }
 
@@ -2369,7 +2371,7 @@ struct SyncvTable
             VisRecordListNode<K>& vis_record_node = get(next_node.vis_record_id);
             CAMSPORK_REQUIRE(!vis_record_node.is_forwarded(), "should have resolved forwarding above");
 
-            if (vis_record_node.base_data.tmp_is_duplicate) {
+            if (vis_record_node.tmp_is_duplicate) {
                 // Duplicate, remove next node from list (decrements refcount for duplicated vis record).
                 // This causes (next_id = *p_read_id) to change, so we don't have to update p_read_id.
                 // i.e. since we removed the next node, we're ready to process a new next node next iteration.
@@ -2381,7 +2383,7 @@ struct SyncvTable
             }
             else {
                 // If next node survives, remember the visibility set ID and move on.
-                vis_record_node.base_data.tmp_is_duplicate = 1;
+                vis_record_node.tmp_is_duplicate = 1;
                 p_read_id = &get(next_id).camspork_next_id;
             }
         }
@@ -2711,7 +2713,7 @@ struct SyncvTable
                 CAMSPORK_REQUIRE_CMP(node.refcnt, !=, 0, "all memoized VisRecord should have nonzero refcnt");
                 CAMSPORK_REQUIRE(!node.is_forwarded(), "forwarding state VisRecord should not be memoized");
                 CAMSPORK_REQUIRE(!node.camspork_next_id, "unexpected linked list next");
-                CAMSPORK_REQUIRE_CMP(node.base_data.memoize_hash_bits, ==, expect_hash_bits, "wrong hash");
+                CAMSPORK_REQUIRE_CMP(node.memoize_hash_bits, ==, expect_hash_bits, "wrong hash");
                 CAMSPORK_REQUIRE_CMP(last_hash_bits, <=, expect_hash_bits, "Not sorted");
                 last_hash_bits = expect_hash_bits;
             }
@@ -2747,12 +2749,13 @@ struct SyncvTable
                     for (size_t chunk_index = 0; chunk_index < vis_record_table.size(); ++chunk_index) {
                         fprintf(stderr, "\n === CHUNK %u ===\n", (unsigned)chunk_index);
                         for (auto id : vis_record_table[chunk_index].nodes) {
-                            debug_print(stderr, get(id).base_data);
+                            const auto& node = get(id);
+                            debug_print(stderr, node.base_data, node.memoize_hash_bits);
                         }
                     }
                     fprintf(stderr, "\n === LOOKING FOR ===\n");
                     VisRecord record = node.base_data;
-                    debug_print(stderr, record);
+                    debug_print(stderr, record, node.memoize_hash_bits);
                     throw;
                 }
             }
@@ -2795,10 +2798,9 @@ struct SyncvTable
         }
     }
 
-    void debug_print(FILE* f, const VisRecord& record) const
+    void debug_print(FILE* f, const VisRecord& record, unsigned long long hash) const
     {
-        const unsigned long long ull_hash = record.memoize_hash_bits;
-        fprintf(f, "HASH=%llu (0x%llX)\n", ull_hash, ull_hash);
+        fprintf(f, "HASH=%llu (0x%llX)\n", hash, hash);
         nodepool::id<TlSigIntervalListNode> interval_id = record.visibility_set;
         while (interval_id) {
             const TlSigIntervalListNode& node = get(interval_id);
