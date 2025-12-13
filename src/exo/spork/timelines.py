@@ -260,7 +260,12 @@ _cuda_device_quals = (
     + _tcgen05_async_quals
 )
 
-_cuda_temporal_quals = _cuda_device_quals + [wgmma_zero_qual]
+_cuda_temporal_quals = [
+    cuda_in_order_rmem_qual,
+    cuda_in_order_ram_qual,
+    cuda_async_proxy_retired_qual,
+    wgmma_zero_qual,
+]
 
 _wgmma_rmem_quals = [
     wgmma_async_rmem_a_qual,
