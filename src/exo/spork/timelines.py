@@ -507,7 +507,7 @@ def generate_latex_table(out_file):
         out_file.write("\n")
 
     out_file.write(
-        r"""\begin{tabular}{|l l|l l|l l l| l l l l|l|}
+        r"""\begin{tabular}{|r|l l|l l|l l l| l l l l|l|}
 \hline
 $\tau_s$ & cpu & strm & cuda1 & cuda2 & Sm80 & tmaS & tmaG & wgA & wgD & wgS & wg0 & async \\
 \hline
