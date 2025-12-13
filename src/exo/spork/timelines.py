@@ -68,7 +68,7 @@ wgmma_async_instr = Instr_tl("wgmma_async_instr")
 wgmma_zero_instr = Instr_tl("wgmma_zero_instr")
 
 """tcgen05 instructions (TODO)"""
-tcgen05_async_instr = Instr_tl("tcgen05_asyc_instr")
+tcgen05_async_instr = Instr_tl("tcgen05_async_instr")
 
 cuda_async_instr_tl = [
     Sm80_cp_async_instr,
