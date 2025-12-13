@@ -250,9 +250,8 @@ void VisRecordHistoryLog::log_syncv_vis_record_checked(vis_record_id_t id, bool 
     }
 }
 
-void VisRecordHistoryLog::log_syncv_vis_record_error(vis_record_id_t id, TlSig fail_tl_sig)
+void VisRecordHistoryLog::log_syncv_vis_record_error(vis_record_id_t id, LoggedMissingTlSig fail_tl_sig)
 {
-    CAMSPORK_REQUIRE_CMP(fail_tl_sig.qual_tl, <, num_qual_tl, "out of range qual-tl index");
     error_stmt_id_bits = current_stmt_id_bits;
     error_vis_record_version = current_version_id(id);
     error_tl_sig = fail_tl_sig;
@@ -266,12 +265,19 @@ void VisRecordHistoryLog::add_error_remarks(ProgramEnv* p_env)
     // Add additional info about the error site.
     if (error_vis_record_version) {
         std::stringstream s;
-        s << "VisRecord did not have vis flag \"" << vis_flag_name(error_tl_sig.vis_flag) << "\" for\n";
-        s << "thread:  ";
+        s << "VisRecord did not have vis flag \"" << vis_flag_index_name(error_tl_sig.vis_flag_index) << "\" for\n";
+        s << "  thread:  ";
         stream_tid(s, error_tl_sig.tid, error_thread_cuboid);
         s << "; domain=";
         stream_domain(s, error_thread_cuboid);
-        s << "\nqual-tl: " << lazy_get_qual_tl_name(error_tl_sig.qual_tl) << '\n';
+        auto tmp_qual_bits = error_tl_sig.qual_bits;
+        s << "\n  qual-tl: ";
+        const char* p_sep = "";
+        while (tmp_qual_bits) {
+            s << p_sep << lazy_get_qual_tl_name(pop_low_bit_index(&tmp_qual_bits));
+            p_sep = " OR ";
+        }
+        s << "\nVisRecord info:\n";
 
         const auto v_index = error_vis_record_version._1_index - 1;
         CAMSPORK_C_BOUNDSCHECK(v_index, version_data.size());

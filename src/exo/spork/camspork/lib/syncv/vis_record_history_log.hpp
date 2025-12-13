@@ -21,6 +21,13 @@ struct vis_record_version_t
     }
 };
 
+struct LoggedMissingTlSig
+{
+    uint32_t tid;
+    qual_bits_t qual_bits;
+    int32_t vis_flag_index;
+};
+
 struct LoggedPendingAwait
 {
     std::string barrier_name;
@@ -90,7 +97,7 @@ class VisRecordHistoryLog
     // Error info, if detected.
     stmt_id_bits_t error_stmt_id_bits = 0;
     vis_record_version_t error_vis_record_version{};
-    TlSig error_tl_sig{};
+    LoggedMissingTlSig error_tl_sig{};
     ThreadCuboid error_thread_cuboid{};
 
     // Last read VisRecord and mutate VisRecord that was checked, i.e.,
@@ -126,7 +133,7 @@ class VisRecordHistoryLog
     void log_syncv_vis_record_change(
             vis_record_id_t old_id, vis_record_id_t new_id, LoggedVisRecordData new_data, bool debug_printf);
     void log_syncv_vis_record_checked(vis_record_id_t id, bool is_mutate);
-    void log_syncv_vis_record_error(vis_record_id_t id, TlSig fail_tl_sig);
+    void log_syncv_vis_record_error(vis_record_id_t id, LoggedMissingTlSig fail_tl_sig);
 
     // ******************************************************************************************
     // Insert remarks tracking the history of a certain VisRecord.

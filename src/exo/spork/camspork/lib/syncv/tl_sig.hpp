@@ -27,13 +27,18 @@ static constexpr int32_t vis_flag_full = 1 << vis_flag_index_full;
 static constexpr int32_t vis_flag_issue = 1 << vis_flag_index_issue;
 static constexpr int32_t vis_flags_all = (1 << num_vis_flags) - 1;
 
-inline const char* vis_flag_name(int32_t vis_flag)
+inline const char* vis_flag_index_name(int32_t vis_flag_index)
 {
     static const char* table[num_vis_flags] = {"atomic-only", "temporal", "full", "issue"};
+    CAMSPORK_REQUIRE_CMP(size_t(vis_flag_index), <, size_t(num_vis_flags), "invalid vis flag index");
+    return table[vis_flag_index];
+}
+
+inline const char* vis_flag_name(int32_t vis_flag)
+{
     const int vis_flag_index = get_low_bit_index(vis_flag);
     CAMSPORK_REQUIRE_CMP(vis_flag, ==, (1 << vis_flag_index), "not a vis flag");
-    CAMSPORK_REQUIRE_CMP(vis_flag_index, <, num_vis_flags, "not a vis flag");
-    return table[vis_flag_index];
+    return vis_flag_index_name(vis_flag_index);
 }
 
 struct QualBitsByVis
@@ -94,21 +99,13 @@ inline QualBitsByVis qual_vis_product(qual_bits_t qual_bits, int32_t vis_flags)
     return qv;
 }
 
-// See TlSigInterval for most uses.
-// This is mainly used for formatting debug and error messages.
-struct TlSig
-{
-    uint32_t tid;
-    uint8_t qual_tl;
-    int32_t vis_flag;
-};
 
-// A single timeline signature is the 3-tuple (thread ID, qual-tl, visibility flag)
+// A single timeline signature (tl-sig) is the 3-tuple (thread ID, qual-tl, visibility flag)
 // We usually don't store this directly. Instead, we work with sets of tl-sig.
 // A TlSigInterval encodes the subset of timeline signatures (t, q, v) where
 //
 // tid_lo <= t < tid_hi
-// 0 != ((1 << q) & qual_bits_by_vis.array[get_low_bit_index(v)]
+// 0 != ((1 << q) & qual_bits_by_vis.array[get_low_bit_index(v)])
 //
 // LEGACY TERMS:
 //   sigthread = tl-sig (before visibility flag was invented)
