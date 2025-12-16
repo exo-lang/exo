@@ -392,18 +392,18 @@ def test_wgmma_commit_group_async_proxy(compiler, golden):
 
 
 def test_Sm80_commit_group_async_proxy(compiler):
-    # Sm80_cp_async -> TMA is not OK (Sm80_cp_async is in the generic proxy)
+    # Sm80_cp_async -> async proxy is not OK (Sm80_cp_async is in the generic proxy)
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(
             mkproc_commit_group,
             first_sync_tl=Sm80_cp_async,
-            second_sync_tl=tma_to_gmem_async,
+            second_sync_tl=cuda_generic_and_async_proxy,
             unit=cuda_thread,
         )
     msg = str(exc.value)
     assert "cg" in msg
     assert "Await" in msg
-    assert "tma_to_gmem_async" in msg
+    assert "cuda_generic_and_async_proxy" in msg
 
 
 def test_bad_first_sync_tl_commit_group(compiler):
