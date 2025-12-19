@@ -29,6 +29,31 @@ from .timelines import DeviceScope, Instr_tl, Qual_tl, Sync_tl
 from . import timelines
 
 
+"""
+*******************************************************************************
+Problems as of 2025-12-19
+*******************************************************************************
+SyncEnvFreeShard is not actually used to check-free shards, only the entire tensor.
+We keep this around because a more fine-grained approach will almost certainly
+be needed at some future time.
+
+access_by_owner_only = True is basically abandonware, and not documented much.
+
+The paper describes the abstract machine as an alternative to Exo value
+semantics, where we have a sync env instead of a value environment.
+In reality, I view this as an augmentation of value semantics.
+libcamspork supports a value environment, which by default is never used
+other than for control variables.
+If we were to support Chexo (no more strict data vs control variable split),
+then enabling the value environment for data will be useful, but the
+code paths for this (expanding the _value_syms set) is incomplete and not tested.
+In particular, value semantics for functions (param substitution) aren't
+implemented, and there may be tricky cases regarding reads to non-sync-exempt
+memory being required to calculate index values.
+
+"""
+
+
 class CamsporkDo(LoopIR_Do):
     """coll_analysis_to_camspork implementation."""
 

@@ -21,7 +21,7 @@ class AtomicityInfo:
 class AccessInfo:
     mem: Type[MemWin] = DRAM
     out_of_order: bool = None
-    access_by_owner_only: Optional[bool] = None
+    access_by_owner_only: Optional[bool] = None  # See distributed_coll_units
     const: bool = False  # Set automatically
     write_only: bool = False  # Set automatically
 
@@ -39,6 +39,11 @@ class AccessInfo:
     #         for i1 in cuda_threads(0, sz1, unit=distributed_coll_units[1]):
     #             # ...
     #             param[i0, i1, ... ]
+    #
+    # access_by_owner_only=True is poorly-maintained, may be removed.
+    # If false, each element is modelled as accessed by the calling thread collective Tc.
+    # If true, each element is modelled as-if it were accessed in the above loop
+    # literally, i.e. with To being the owner of the shard, the access is by Tc \cap To.
     distributed_coll_units: List[CollUnit] = ()
 
     atomicity: Optional[AtomicityInfo] = None
