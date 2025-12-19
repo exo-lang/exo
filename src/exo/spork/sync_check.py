@@ -464,7 +464,10 @@ class CamsporkDo(LoopIR_Do):
                     atomic_qual_bits = 0
                 else:
                     atomic_qual_bits = Qual_tl.make_bits(atomicity.qual_tl_list)
-                    assert atomic_qual_bits != 0
+                    # fmt: off
+                    assert atomic_qual_bits != 0, s.f.name
+                    assert (flags & b.mutate_flag), f"unimplemented, in atomic read {s.f.name}"
+                    # fmt: on
 
                 b.SyncEnvAccess(
                     dst_lo,
