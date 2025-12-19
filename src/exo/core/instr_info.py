@@ -21,7 +21,7 @@ class AtomicityInfo:
 class AccessInfo:
     mem: Type[MemWin] = DRAM
     out_of_order: bool = None
-    access_by_owner_only: Optional[bool] = None  # See distributed_coll_units
+    access_by_owner_only: Optional[bool] = False  # See distributed_coll_units
     const: bool = False  # Set automatically
     write_only: bool = False  # Set automatically
 
