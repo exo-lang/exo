@@ -233,8 +233,6 @@ def Sm90_tensorMap(swizzle, *smem_box):
                 device, instr_tl, pinned=False
             )
 
-        qual_tl_dict = cuda_ram_qual_tl_dict
-
         @classmethod
         def source_memory_type(cls):
             return CudaGmemLinear

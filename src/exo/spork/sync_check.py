@@ -4,7 +4,7 @@ from warnings import warn
 
 from ..backend.LoopIR_compiler import run_backend_checks, BackendChecks
 
-from ..core.memory import MemWin, BarrierMechanism
+from ..core.memory import MemWin, BarrierMechanism, SpecialWindow
 from ..core.prelude import Sym
 from ..core.instr_info import AccessInfo, InstrInfo
 from ..core.LoopIR import (
@@ -147,6 +147,7 @@ class CamsporkDo(LoopIR_Do):
         """
         nm = node.name
         mem = self._mem_env[nm]
+        assert not issubclass(mem, SpecialWindow)
         try:
             q = mem.qual_tl_dict[instr_tl]
         except KeyError:

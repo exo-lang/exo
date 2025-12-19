@@ -268,22 +268,6 @@ class MemWin(ABC):
         else:
             return ""
 
-    """Defines per-instr qual-tl used to access a parameter (value @ mem)
-
-    with q = mem.qual_tl_dict[instr_tl] (instr_tl configured per-instr),
-    q: List[Qual_tl] is interpreted as initial_qual_tl = q[0], ext_qual_tl = q
-    Otherwise, initial_qual_tl = q; ext_qual_tl = [q]
-
-    NOTE: the qual-tl is evaluated based on the memory type of the caller's
-    input, not the memory type declared in the callee instruction.
-    This is needed to handle MemWin inheritance correctly.
-    """
-    qual_tl_dict: Dict[Instr_tl, Qual_tl | List[Qual_tl]]
-    qual_tl_dict = {
-        cpu_in_order_instr: cpu_in_order_qual,
-        cpu_cuda_stream_instr: cpu_cuda_stream_qual,
-    }
-
     @classmethod
     def packed_tensor_shape(cls, scalar_info: ScalarInfo) -> List[int]:
         return ()
@@ -371,6 +355,25 @@ class AllocableMemWin(MemWin):
     def is_cuda_smem(cls) -> bool:
         """Somewhat "temporary", for special cases is sync_check and CollAnalysis"""
         return False
+
+    """Defines per-instr qual-tl used to access a parameter (value @ mem)
+
+    with q = mem.qual_tl_dict[instr_tl] (instr_tl configured per-instr),
+    q: List[Qual_tl] is interpreted as initial_qual_tl = q[0], ext_qual_tl = q
+    Otherwise, initial_qual_tl = q; ext_qual_tl = [q]
+
+    NOTE: the qual-tl is evaluated based on the memory type of the
+    caller's input (actual parameter), not the memory type declared in
+    the callee instruction (formal parameter).
+
+    This is needed to handle MemWin inheritance correctly.
+
+    """
+    qual_tl_dict: Dict[Instr_tl, Qual_tl | List[Qual_tl]]
+    qual_tl_dict = {
+        cpu_in_order_instr: cpu_in_order_qual,
+        cpu_cuda_stream_instr: cpu_cuda_stream_qual,
+    }
 
 
 class Memory(AllocableMemWin):
