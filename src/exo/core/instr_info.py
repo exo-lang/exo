@@ -51,14 +51,21 @@ class AccessInfo:
 
 @dataclass(init=False, slots=True)
 class InstrInfo:
-    # instr_format split by lines; strongly suggest codegen(..) instead.
+    # instr_format split by lines; strongly suggest InstrInfo.codegen(...) instead.
     instr_format: Optional[List[str]]
-    c_utils: List[str]
-    c_includes: List[str]
-    cu_utils: List[str]
-    cu_includes: List[str]
+
+    # Duplicate utils or includes will be removed during codegen,
+    # even if the duplicates are from different instructions.
+    c_utils: List[str]  # Added into .c files before compiled procs
+    c_includes: List[str]  # Included into .c files before utils and procs
+    cu_utils: List[str]  # Added into .cuh files in exo_CudaUtil namespace
+    cu_includes: List[str]  # Included into .cuh files before utils and procs
+
     coll_unit: CollUnit
     instr_tl: Instr_tl
+
+    # For each formal parameter x, the InstrInfo.instance function must
+    # initialize the attributes of access_info[str(x)]: AccessInfo.
     access_info: Dict[str, AccessInfo]
 
     # The instr expects a trailing barrier expr iff barrier_mechanism is not None.
