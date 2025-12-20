@@ -38,6 +38,7 @@ from typing import Callable, Optional, Dict, List, Tuple, Type, Set
 
 from .prelude import Sym, SrcInfo
 
+from .cir import CIR_Wrapper
 from .instr_info import AtomicityInfo, AccessInfo, InstrInfo
 from .LoopIR import (
     LoopIR,
@@ -513,10 +514,17 @@ class InstrWindowArg:
         return indexed
 
     def index(self, *idxs, **kwargs) -> str:
+        """Give expression for C++ reference to window[*idxs].
+
+        Missing indices are implicitly 0.
+        Any keyword arguments given are passed-through to
+        the underlying MemWin type's window_indexer.
+        """
         r = self.index_result(*idxs, **kwargs)
         return f"({r.code})[0]" if r.is_ptr else r.code
 
     def index_ptr(self, *idxs, **kwargs) -> str:
+        """Give expression for pointer to window[*idxs], similar to index(...)"""
         r = self.index_result(*idxs, **kwargs)
         return r.code if r.is_ptr else f"&{r.code}"
 
@@ -624,7 +632,7 @@ class InstrArgs:
     def __iter__(self):
         return iter(self._exo_args_dict.items())
 
-    def exo_wrap_cir(self, n):
+    def exo_wrap_cir(self, n) -> CIR_Wrapper:
         return self._compiler.wrap_cir(n, "(from InstrArgs.exo_wrap_cir)")
 
 

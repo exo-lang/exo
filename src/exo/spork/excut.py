@@ -923,6 +923,8 @@ class InlinePtxGen:
     Each character sequence of the form #N#, N:int, is a "placeholder"
     which gets filled with arguments given by add_arg. Generating PTX
     placeholders (%5...) and arguments ("f"(foo)) is automatic.
+    Note, in practice #0# seems to be all you need and all arguments
+    are pasted in-place of #0# in the order they were added.
 
     Logging: each line of ptx_format that contains a placeholder will
     generate excut logging. We use the first whitespace-separated
@@ -980,13 +982,13 @@ class InlinePtxGen:
             log_action = None
             if have_args:
                 # This will fail if a placeholder starts the line or
-                # the start of the line is otherwise weired
+                # the start of the line is otherwise weird
                 log_action = fragments[0].split()[0]
             self.parsed_lines.append(InlinePtxParsedLine(fragments, log_action))
 
         assert (
             self.placeholder_args
-        ), "ptx_lines must have at least on placeholder, e.g. #0#"
+        ), "ptx_lines must have at least one placeholder, e.g. #0#"
 
     def add_arg(
         self,
@@ -1174,11 +1176,13 @@ class InlinePtxGen:
             s = s.replace("{", "{{").replace("}", "}}")
         return s
 
-    def as_c_lines(self, *, py_format: bool, tab="") -> List[str]:
+    def as_c_lines(self, *, py_format=False, tab="") -> List[str]:
         """Compile to list of C source code lines.
 
-        If py_format is True, then we double all { and } in ptx_format
-        so the generated code is usable in str.format. However; we do
+        py_format=False is the expected path to use.
+
+        The legacy py_format=True mode doubles all { and } in ptx_format
+        so the generated code is usable in str.format. However, we do
         not do this transformation for anything passed to add_arg.
 
         LIMITATION: log_as="str_id" will not work well if PTX args are

@@ -119,6 +119,24 @@ def simplify_cir(e):
 
 @dataclass(slots=True)
 class CIR_Wrapper:
+    """This wraps a CIR object, which encodes a C expression.
+
+    New wrapped expressions may be constructed by
+      * using overloaded +, -, *, /, % operators to encode C arithmetic.
+      * indexing with square brackets (__getitem__) to encode array indexing.
+      * attribute lookup (__getattr__) to encode struct/union member access.
+        The attribute name can't start with "exo_" or "_exo_".
+      * calling exo_address_of.
+    and these will be translated to C with correct parenthesization.
+
+    In reality, there is no literal C expression wrapped.
+    Only the LoopIR compiler can actually translate CIR to C code,
+    since only it knows the real names of variables (Syms).
+    This is particularly tricky in cases where the same variable
+    has a different C name in CPU code and CUDA code.
+
+    """
+
     _exo_ir: CIR.expr
     _exo_compiler: "Compiler"
     _exo_origin_story: str
