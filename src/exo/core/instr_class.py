@@ -446,12 +446,12 @@ class InstrWindowArg:
     _srcinfo: SrcInfo
 
     def __str__(self):
-        return self.get_window()
-
-    def get_window(self):
         return self._get_window_impl()
 
-    def __getitem__(self, pos):
+    def get_window(self) -> str:
+        return self._get_window_impl()
+
+    def __getitem__(self, pos) -> str:
         """Array indexing used to encode window struct to sub-window.
 
         Currently only support slices with explicit lo and hi, e.g. win[lo:hi].
@@ -491,7 +491,7 @@ class InstrWindowArg:
             do_encode = features.get_encoder().encode_separate_dataptr
         return str(do_encode(self._encoder_utils, features))
 
-    def separate_dataptr(self):
+    def separate_dataptr(self) -> bool:
         return self._features.separate_dataptr()
 
     def get_raw_name(self) -> str:
@@ -520,7 +520,7 @@ class InstrWindowArg:
         r = self.index_result(*idxs, **kwargs)
         return r.code if r.is_ptr else f"&{r.code}"
 
-    def to_arg_strs(self):
+    def to_arg_strs(self) -> List[str]:
         if self.separate_dataptr():
             return [self.get_separate_dataptr(), self.get_window()]
         else:
@@ -529,7 +529,7 @@ class InstrWindowArg:
     def to_strides_as_packed(self):
         return self._features.interval_array_strides_as_packed()
 
-    def srcinfo(self):
+    def srcinfo(self) -> SrcInfo:
         return self._srcinfo
 
     # The _special args are hacky: for @instr, we don't ever convert
@@ -584,7 +584,6 @@ class InstrNonWindowArg:
     _srcinfo: SrcInfo
 
     def __str__(self):
-
         """Backwards-compatibility hack"""
         return self.index_ptr() if self._defaults_to_ptr else self.index()
 
@@ -598,14 +597,14 @@ class InstrNonWindowArg:
         code = self._code
         return code if self._is_ptr else f"&{code}"
 
-    def separate_dataptr(self):
+    def separate_dataptr(self) -> bool:
         """For compatibility with InstrWindowArg"""
         return False
 
-    def to_arg_strs(self):
+    def to_arg_strs(self) -> List[str]:
         return [str(self)]
 
-    def srcinfo(self):
+    def srcinfo(self) -> SrcInfo:
         return self._srcinfo
 
 
