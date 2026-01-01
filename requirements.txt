@@ -87,7 +87,7 @@ pytest==8.4.2
     #   pytest-xdist
 pytest-cov==7.0.0
 pytest-xdist==3.8.0
-pytokens==0.1.10
+pytokens==0.3.0
     # via black
 pyyaml==6.0.2
     # via pre-commit
