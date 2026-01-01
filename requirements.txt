@@ -113,7 +113,7 @@ virtualenv==20.35.4
     #   tox
 yapf==0.43.0
     # via exo-lang
-z3-solver==4.15.3.0
+z3-solver==4.15.4.0
     # via exo-lang
 zipp==3.23.0 ; python_full_version < '3.10.2'
     # via importlib-metadata
