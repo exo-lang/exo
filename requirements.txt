@@ -18,7 +18,7 @@ click==8.1.8 ; python_full_version < '3.10'
     # via black
 click==8.3.0 ; python_full_version >= '3.10'
     # via black
-cmake==4.1.0
+cmake==4.2.1
 colorama==0.4.6
     # via
     #   build
