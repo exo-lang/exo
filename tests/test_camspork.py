@@ -21,7 +21,7 @@ def very_simple_fence_program(b: camspork.ProgramBuilder):
                 b.SyncEnvAccess(buf[tid], 1, 1, flags=b.mutate_flag, atomic_qual_bits=8)
             with b.If(fence_enable):
                 # If fence is skipped, the reads below are bogus.
-                b.Fence(True, 1, 1, 1)
+                b.Fence(1, 1, 1)
             with b.ThreadsFor(tid, 0, 32, 0, 0, 1):
                 s = b.add_variable("s")
                 with b.SeqFor(s, 0, 32):
