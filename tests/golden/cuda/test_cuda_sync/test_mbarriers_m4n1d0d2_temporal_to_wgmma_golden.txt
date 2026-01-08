@@ -184,6 +184,12 @@ struct exo_Cuda0_test_mbarriers
   static constexpr uint32_t exo_clusterDim = 4;
 
   static constexpr unsigned exo_smemBytes = 512;
+  static constexpr unsigned exo_smemOffset0_baseline = 0;  // 64-byte allocation
+  static constexpr unsigned exo_smemOffset1_b_rc_bars = 64;  // 128-byte allocation
+  static constexpr unsigned exo_smemOffset2_f_rc_bars = 192;  // 128-byte allocation
+  static constexpr unsigned exo_smemOffset3_all_bars = 320;  // 64-byte allocation
+  static constexpr unsigned exo_smemOffset4_col_bars = 384;  // 64-byte allocation
+  static constexpr unsigned exo_smemOffset5_row_bars = 448;  // 64-byte allocation
 
   struct exo_Task
   {
@@ -227,10 +233,10 @@ struct exo_Cuda0_test_mbarriers
   struct exo_SyncState
   {
     // baseline: barrier @ CudaMbarrier, ring=1, slice_count=8
-    // mbarriers [0: 8]; arrive_count=8
+    // num_per_cta=8; arrive_count=8
     static constexpr unsigned ArriveIdx0_baseline = 0;  // Trivial size-1 ring buffer
     EXO_CUDA_INLINE uint32_t Arrive0_baseline(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 0 + 8*(slice * 1 + ArriveIdx0_baseline));
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + exo_smemOffset0_baseline + 8*(slice * 1 + ArriveIdx0_baseline));
       if (enable) {
         asm volatile(
           "// Arrive0_baseline\n\t"
@@ -246,7 +252,7 @@ struct exo_Cuda0_test_mbarriers
     static constexpr unsigned AwaitIdx0_baseline = 0;  // Trivial size-1 ring buffer
     unsigned Parity0_baseline : 1 = 0;
     EXO_CUDA_INLINE void Await0_baseline(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 0 + 8*(slice * 1 + AwaitIdx0_baseline));
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + exo_smemOffset0_baseline + 8*(slice * 1 + AwaitIdx0_baseline));
       const bool enable = true;
       if (enable) {
     #if __CUDA_ARCH__ < 900
@@ -291,10 +297,10 @@ struct exo_Cuda0_test_mbarriers
       }
     }
     // b_rc_bars: barrier @ CudaMbarrier, ring=2, slice_count=8
-    // mbarriers [8: 24]; arrive_count=32
+    // num_per_cta=16; arrive_count=32
     unsigned ArriveIdx0_b_rc_bars : 1 = 0;
     EXO_CUDA_INLINE uint32_t Arrive0_b_rc_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 64 + 8*(slice * 2 + ArriveIdx0_b_rc_bars));
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + exo_smemOffset1_b_rc_bars + 8*(slice * 2 + ArriveIdx0_b_rc_bars));
       if (enable) {
         const unsigned cta_rank = blockIdx.x % 4;
         asm volatile(
@@ -342,7 +348,7 @@ struct exo_Cuda0_test_mbarriers
     unsigned Parity0_b_rc_bars : 2 = 0;
     unsigned Skips0_b_rc_bars : 2 = 0;
     EXO_CUDA_INLINE void Await0_b_rc_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, int initial_skips = 0) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 64 + 8*(slice * 2 + AwaitIdx0_b_rc_bars));
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + exo_smemOffset1_b_rc_bars + 8*(slice * 2 + AwaitIdx0_b_rc_bars));
       const bool enable = Skips0_b_rc_bars >= initial_skips;
       if (enable) {
     #if __CUDA_ARCH__ < 900
@@ -393,10 +399,10 @@ struct exo_Cuda0_test_mbarriers
       }
     }
     // f_rc_bars: barrier @ CudaMbarrier, ring=2, slice_count=8
-    // mbarriers [24: 40]; arrive_count=8
+    // num_per_cta=16; arrive_count=8
     unsigned ArriveIdx0_f_rc_bars : 1 = 0;
     EXO_CUDA_INLINE uint32_t Arrive0_f_rc_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 192 + 8*(slice * 2 + ArriveIdx0_f_rc_bars));
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + exo_smemOffset2_f_rc_bars + 8*(slice * 2 + ArriveIdx0_f_rc_bars));
       if (enable) {
         asm volatile(
           "// Arrive0_f_rc_bars\n\t"
@@ -414,7 +420,7 @@ struct exo_Cuda0_test_mbarriers
     unsigned AwaitIdx0_f_rc_bars : 1 = 0;
     unsigned Parity0_f_rc_bars : 2 = 0;
     EXO_CUDA_INLINE void Await0_f_rc_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 192 + 8*(slice * 2 + AwaitIdx0_f_rc_bars));
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + exo_smemOffset2_f_rc_bars + 8*(slice * 2 + AwaitIdx0_f_rc_bars));
       const bool enable = true;
       if (enable) {
     #if __CUDA_ARCH__ < 900
@@ -461,10 +467,10 @@ struct exo_Cuda0_test_mbarriers
       }
     }
     // all_bars: barrier @ CudaMbarrier, ring=1, slice_count=8
-    // mbarriers [40: 48]; arrive_count=32
+    // num_per_cta=8; arrive_count=32
     static constexpr unsigned ArriveIdx0_all_bars = 0;  // Trivial size-1 ring buffer
     EXO_CUDA_INLINE uint32_t Arrive0_all_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 320 + 8*(slice * 1 + ArriveIdx0_all_bars));
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + exo_smemOffset3_all_bars + 8*(slice * 1 + ArriveIdx0_all_bars));
       if (enable) {
         const unsigned cta_rank = blockIdx.x % 4;
         asm volatile(
@@ -509,7 +515,7 @@ struct exo_Cuda0_test_mbarriers
     static constexpr unsigned AwaitIdx0_all_bars = 0;  // Trivial size-1 ring buffer
     unsigned Parity0_all_bars : 1 = 0;
     EXO_CUDA_INLINE void Await0_all_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 320 + 8*(slice * 1 + AwaitIdx0_all_bars));
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + exo_smemOffset3_all_bars + 8*(slice * 1 + AwaitIdx0_all_bars));
       const bool enable = true;
       if (enable) {
     #if __CUDA_ARCH__ < 900
@@ -554,10 +560,10 @@ struct exo_Cuda0_test_mbarriers
       }
     }
     // col_bars: barrier @ CudaMbarrier, ring=1, slice_count=8
-    // mbarriers [48: 56]; arrive_count=32
+    // num_per_cta=8; arrive_count=32
     static constexpr unsigned ArriveIdx0_col_bars = 0;  // Trivial size-1 ring buffer
     EXO_CUDA_INLINE uint32_t Arrive0_col_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 384 + 8*(slice * 1 + ArriveIdx0_col_bars));
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + exo_smemOffset4_col_bars + 8*(slice * 1 + ArriveIdx0_col_bars));
       if (enable) {
         const unsigned cta_rank = blockIdx.x % 4;
         asm volatile(
@@ -602,7 +608,7 @@ struct exo_Cuda0_test_mbarriers
     static constexpr unsigned AwaitIdx0_col_bars = 0;  // Trivial size-1 ring buffer
     unsigned Parity0_col_bars : 1 = 0;
     EXO_CUDA_INLINE void Await0_col_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 384 + 8*(slice * 1 + AwaitIdx0_col_bars));
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + exo_smemOffset4_col_bars + 8*(slice * 1 + AwaitIdx0_col_bars));
       const bool enable = true;
       if (enable) {
     #if __CUDA_ARCH__ < 900
@@ -647,10 +653,10 @@ struct exo_Cuda0_test_mbarriers
       }
     }
     // row_bars: barrier @ CudaMbarrier, ring=1, slice_count=8
-    // mbarriers [56: 64]; arrive_count=8
+    // num_per_cta=8; arrive_count=8
     static constexpr unsigned ArriveIdx0_row_bars = 0;  // Trivial size-1 ring buffer
     EXO_CUDA_INLINE uint32_t Arrive0_row_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 448 + 8*(slice * 1 + ArriveIdx0_row_bars));
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + exo_smemOffset5_row_bars + 8*(slice * 1 + ArriveIdx0_row_bars));
       if (enable) {
         asm volatile(
           "// Arrive0_row_bars\n\t"
@@ -666,7 +672,7 @@ struct exo_Cuda0_test_mbarriers
     static constexpr unsigned AwaitIdx0_row_bars = 0;  // Trivial size-1 ring buffer
     unsigned Parity0_row_bars : 1 = 0;
     EXO_CUDA_INLINE void Await0_row_bars(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice) {
-      const auto mbarrier_u32 = exo_smemU32(exo_smem + 448 + 8*(slice * 1 + AwaitIdx0_row_bars));
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + exo_smemOffset5_row_bars + 8*(slice * 1 + AwaitIdx0_row_bars));
       const bool enable = true;
       if (enable) {
     #if __CUDA_ARCH__ < 900
@@ -781,80 +787,80 @@ exo_CudaInline_test_mbarriers_m4n1d0d2_temporal_to_wgmma_golden::exo_Cuda0_test_
     const exo_DeviceArgs& exo_deviceArgs,
     exo_ExcutThreadLog exo_excutLog)
 {
-    if (threadIdx.x == 0) {
-      for (int i = 0; i < 8; ++i) {
-          asm volatile(
-            "mbarrier.init.shared::cta.b64 [%0], 8;"
-              :
-              :"r"(exo_smemU32(exo_smem + 0 + 8*i))
-          );
-          exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_init_shared_cta_b64), 0, __LINE__);
-          exo_excutLog.log_u32_arg(exo_smemU32(exo_smem + 0 + 8*i));
-          exo_excutLog.log_u32_arg(static_cast<uint32_t>(8));
-      }
-      for (int i = 0; i < 16; ++i) {
-          asm volatile(
-            "mbarrier.init.shared::cta.b64 [%0], 32;"
-              :
-              :"r"(exo_smemU32(exo_smem + 64 + 8*i))
-          );
-          exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_init_shared_cta_b64), 0, __LINE__);
-          exo_excutLog.log_u32_arg(exo_smemU32(exo_smem + 64 + 8*i));
-          exo_excutLog.log_u32_arg(static_cast<uint32_t>(32));
-      }
-      for (int i = 0; i < 16; ++i) {
-          asm volatile(
-            "mbarrier.init.shared::cta.b64 [%0], 8;"
-              :
-              :"r"(exo_smemU32(exo_smem + 192 + 8*i))
-          );
-          exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_init_shared_cta_b64), 0, __LINE__);
-          exo_excutLog.log_u32_arg(exo_smemU32(exo_smem + 192 + 8*i));
-          exo_excutLog.log_u32_arg(static_cast<uint32_t>(8));
-      }
-      for (int i = 0; i < 8; ++i) {
-          asm volatile(
-            "mbarrier.init.shared::cta.b64 [%0], 32;"
-              :
-              :"r"(exo_smemU32(exo_smem + 320 + 8*i))
-          );
-          exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_init_shared_cta_b64), 0, __LINE__);
-          exo_excutLog.log_u32_arg(exo_smemU32(exo_smem + 320 + 8*i));
-          exo_excutLog.log_u32_arg(static_cast<uint32_t>(32));
-      }
-      for (int i = 0; i < 8; ++i) {
-          asm volatile(
-            "mbarrier.init.shared::cta.b64 [%0], 32;"
-              :
-              :"r"(exo_smemU32(exo_smem + 384 + 8*i))
-          );
-          exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_init_shared_cta_b64), 0, __LINE__);
-          exo_excutLog.log_u32_arg(exo_smemU32(exo_smem + 384 + 8*i));
-          exo_excutLog.log_u32_arg(static_cast<uint32_t>(32));
-      }
-      for (int i = 0; i < 8; ++i) {
-          asm volatile(
-            "mbarrier.init.shared::cta.b64 [%0], 8;"
-              :
-              :"r"(exo_smemU32(exo_smem + 448 + 8*i))
-          );
-          exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_init_shared_cta_b64), 0, __LINE__);
-          exo_excutLog.log_u32_arg(exo_smemU32(exo_smem + 448 + 8*i));
-          exo_excutLog.log_u32_arg(static_cast<uint32_t>(8));
-      }
-      asm volatile(
-        "fence.proxy.async;"
-      );
-      exo_excutLog.log_action(EXO_EXCUT_STR_ID(fence_proxy_async), 0, __LINE__);
+  if (threadIdx.x == 0) {
+    for (int i = 0; i < 8; ++i) {
+        asm volatile(
+          "mbarrier.init.shared::cta.b64 [%0], 8;"
+            :
+            :"r"(exo_smemU32(exo_smem + exo_smemOffset0_baseline + 8*i))
+        );
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_init_shared_cta_b64), 0, __LINE__);
+        exo_excutLog.log_u32_arg(exo_smemU32(exo_smem + exo_smemOffset0_baseline + 8*i));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(8));
+    }
+    for (int i = 0; i < 16; ++i) {
+        asm volatile(
+          "mbarrier.init.shared::cta.b64 [%0], 32;"
+            :
+            :"r"(exo_smemU32(exo_smem + exo_smemOffset1_b_rc_bars + 8*i))
+        );
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_init_shared_cta_b64), 0, __LINE__);
+        exo_excutLog.log_u32_arg(exo_smemU32(exo_smem + exo_smemOffset1_b_rc_bars + 8*i));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(32));
+    }
+    for (int i = 0; i < 16; ++i) {
+        asm volatile(
+          "mbarrier.init.shared::cta.b64 [%0], 8;"
+            :
+            :"r"(exo_smemU32(exo_smem + exo_smemOffset2_f_rc_bars + 8*i))
+        );
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_init_shared_cta_b64), 0, __LINE__);
+        exo_excutLog.log_u32_arg(exo_smemU32(exo_smem + exo_smemOffset2_f_rc_bars + 8*i));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(8));
+    }
+    for (int i = 0; i < 8; ++i) {
+        asm volatile(
+          "mbarrier.init.shared::cta.b64 [%0], 32;"
+            :
+            :"r"(exo_smemU32(exo_smem + exo_smemOffset3_all_bars + 8*i))
+        );
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_init_shared_cta_b64), 0, __LINE__);
+        exo_excutLog.log_u32_arg(exo_smemU32(exo_smem + exo_smemOffset3_all_bars + 8*i));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(32));
+    }
+    for (int i = 0; i < 8; ++i) {
+        asm volatile(
+          "mbarrier.init.shared::cta.b64 [%0], 32;"
+            :
+            :"r"(exo_smemU32(exo_smem + exo_smemOffset4_col_bars + 8*i))
+        );
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_init_shared_cta_b64), 0, __LINE__);
+        exo_excutLog.log_u32_arg(exo_smemU32(exo_smem + exo_smemOffset4_col_bars + 8*i));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(32));
+    }
+    for (int i = 0; i < 8; ++i) {
+        asm volatile(
+          "mbarrier.init.shared::cta.b64 [%0], 8;"
+            :
+            :"r"(exo_smemU32(exo_smem + exo_smemOffset5_row_bars + 8*i))
+        );
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_init_shared_cta_b64), 0, __LINE__);
+        exo_excutLog.log_u32_arg(exo_smemU32(exo_smem + exo_smemOffset5_row_bars + 8*i));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(8));
     }
     asm volatile(
-      "barrier.cluster.arrive.aligned;"
+      "fence.proxy.async;"
     );
-    exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cluster_arrive_aligned), 0, __LINE__);
-    asm volatile(
-      "barrier.cluster.wait.aligned;"
-    );
-    exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cluster_wait_aligned), 0, __LINE__);
+    exo_excutLog.log_action(EXO_EXCUT_STR_ID(fence_proxy_async), 0, __LINE__);
+  }
+  asm volatile(
+    "barrier.cluster.arrive.aligned;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cluster_arrive_aligned), 0, __LINE__);
+  asm volatile(
+    "barrier.cluster.wait.aligned;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cluster_wait_aligned), 0, __LINE__);
 }
 
 __device__ __forceinline__ void

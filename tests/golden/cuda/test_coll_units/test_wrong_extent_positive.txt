@@ -240,6 +240,7 @@ struct exo_Cuda0_wrong_extent
 
   static constexpr unsigned exo_smemBytes = 0;
 
+
   struct exo_Task
   {
     int_fast32_t task;

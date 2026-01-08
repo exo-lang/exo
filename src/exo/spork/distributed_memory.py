@@ -1,7 +1,9 @@
 from dataclasses import dataclass
 from math import prod
 from typing import Optional, List, Type, Dict, Tuple, Callable
+from warnings import warn
 
+from ..core.memory import MemGenError, memwin_template, DRAM, BarrierMechanism
 from ..core.prelude import Sym
 from ..core.LoopIR import LoopIR, T
 from .coll_algebra import (
@@ -168,8 +170,31 @@ class DistributedAllocState(object):
         self.arrive_coll_tiling = None
         self.await_coll_tiling = None
 
-    def n_distributed_dims(self):
+    def n_distributed_dims(self) -> int:
         return len(self.first_distributed_iters)
+
+    def shard_type(self) -> LoopIR.type:
+        n = self.n_distributed_dims()
+        s = self.alloc_stmt
+        assert isinstance(s, LoopIR.Alloc)
+        if not self.first_usage_stmt:
+            # Distributed memory analysis isn't run for unused variables...
+            warn(
+                f"{s.srcinfo}: Unused allocation {s.name} @ {(s.mem or DRAM).name()} "
+                f"in CUDA code may not lower correctly"
+            )
+
+        # Remove distributed dimensions
+        n = self.n_distributed_dims()
+        typ = s.type
+        if n > 0:  # Guard is required in case s.type is a scalar!
+            if len(typ.hi) == n:
+                # All dimensions removed; reduce to scalar
+                typ = typ.basetype()
+            else:
+                assert n < len(typ.hi)
+                typ = typ.update(hi=typ.hi[n:])
+        return typ
 
     def get_arrive(self) -> Optional[CollTiling]:
         return self.arrive_coll_tiling

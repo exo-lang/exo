@@ -23,6 +23,10 @@ from .coll_algebra import (
     cuda_cluster,
     cuda_agnostic_sub_cta,
 )
+from .cuda_device_setup_builder import (
+    CudaDeviceSetupBuilder,
+    CudaDeviceSetupInfo,
+)
 from .cuda_memory import (
     CudaCommitGroup,
     CudaMbarrier,
@@ -43,6 +47,7 @@ class SyncStateBuilder:
     # LoweredBarrier for each barrier lowered, indexed by name
     lowered: Dict[Sym, LoweredBarrier] = field(default_factory=dict)
 
+    # TODO remove
     # tuples (mbarrier_count, arrive_count)
     # to initialize in SMEM, e.g. (8, 64), (2, 384) means initialize an
     # array of 10 mbarriers in SMEM with the first 8 having
@@ -59,14 +64,13 @@ class SyncStateBuilder:
     # enough to be unique just within the barrier's scope in Exo object code.
     _sym_counters: Dict[Sym, int] = field(default_factory=dict)
 
-    _uses_async_proxy: bool = False
-
     def add_barrier(
         self,
         name: Sym,
         get_usage: Callable[[Sym], BarrierUsage],
         coll_tilings: DistributedAllocState,
         thread_iters: Dict[Sym, ThreadIter],
+        device_setup_builder: CudaDeviceSetupBuilder,
     ):
         usage = get_usage(name)
         for info in (usage.get_arrive(), usage.get_await()):
@@ -74,7 +78,7 @@ class SyncStateBuilder:
                 if not timelines.internal_cuda_async_proxy_detection.disjoint_full_timeline_set(
                     info.sync_tl
                 ):
-                    self._uses_async_proxy = True
+                    device_setup_builder.require_proxy_fence()
 
         srcinfo = usage.decl_stmt.srcinfo
         barrier_mechanism = usage.barrier_mechanism
@@ -87,7 +91,14 @@ class SyncStateBuilder:
                     name, usage, coll_tilings, thread_iters, suffix, False
                 )
         elif issubclass(barrier_mechanism, CudaMbarrier):
-            self.add_mbarrier(name, get_usage, coll_tilings, thread_iters, suffix)
+            self.add_mbarrier(
+                name,
+                get_usage,
+                coll_tilings,
+                thread_iters,
+                suffix,
+                device_setup_builder,
+            )
         elif issubclass(barrier_mechanism, CudaCommitGroup):
             self.add_commit_group(name, usage, coll_tilings, thread_iters, suffix)
         elif issubclass(barrier_mechanism, CudaClusterSync):
@@ -269,6 +280,7 @@ class SyncStateBuilder:
         coll_tilings: DistributedAllocState,
         thread_iters: Dict[Sym, ThreadIter],
         suffix: str,
+        device_setup_builder: CudaDeviceSetupBuilder,
     ):
         usage = get_usage(name)
 
@@ -281,9 +293,8 @@ class SyncStateBuilder:
                 f"{usage.get_srcinfo()}: {name} must be distributed so each mbarrier is resident in 1 CTA only ({msg})"
             )
 
-        # Reserve C name and space for mbarriers in SMEM
         lowered = LoweredBarrier(False, LoweredBarrierType.mbarrier)
-        mbarrier_offset = self.mbarrier_count
+        mbarrier_offset = self.mbarrier_count  # TODO remove
         nm_suffix = f"{suffix}_{name}"
 
         # Translate N to number of trivial Awaits (skip mbarrier wait)
@@ -330,12 +341,27 @@ class SyncStateBuilder:
         # This value will not be used if skipping is not actually enabled.
         skip_bits = ring.bit_length()
 
+        # mbarrier allocator: record mbarriers to initialize.
+        num_per_cta = ring * slice_count
+        lines = self.SyncState_lines
+        arrive_count = coll_tilings.get_arrive().get_box_num_threads() * len(
+            cta_xor_list
+        )
+        smem_offset_name = device_setup_builder.add_mbarriers(
+            name, num_per_cta, arrive_count
+        )
+        self._mbarrier_pairs.append((num_per_cta, arrive_count))  # TODO remove
+        self.mbarrier_count += num_per_cta  # TODO remove
+        lines.append(
+            f"// {name}: barrier @ CudaMbarrier, ring={ring}, slice_count={slice_count}"
+        )
+        lines.append(f"// num_per_cta={num_per_cta}; arrive_count={arrive_count}")
+
         # black formatting will ruin the readability of the generated C++ code below
         # fmt: off
         def mbarrier_to_u32(lines, ringidx):
-            byte_offset = 8 * mbarrier_offset
             idx = f"(slice * {ring} + {ringidx})"
-            lines.append(f"  const auto mbarrier_u32 = exo_smemU32(exo_smem + {byte_offset} + 8*{idx});")
+            lines.append(f"  const auto mbarrier_u32 = exo_smemU32(exo_smem + {smem_offset_name} + 8*{idx});")
 
         def generate_arrive():
             info = usage.get_arrive()
@@ -491,16 +517,6 @@ class SyncStateBuilder:
                 lines.append(f"  }}")
             lines.append(f"}}")
 
-        # mbarrier allocator: record mbarriers to initialize.
-        RS = ring * slice_count
-        lines = self.SyncState_lines
-        arrive_count = coll_tilings.get_arrive().get_box_num_threads() * len(cta_xor_list)
-        self._mbarrier_pairs.append((RS, arrive_count))
-        self.mbarrier_count += RS
-        lines.append(f"// {name}: barrier @ CudaMbarrier, ring={ring}, slice_count={slice_count}")
-        lines.append(f"// mbarriers [{mbarrier_offset}: {mbarrier_offset + RS}]; "
-                     f"arrive_count={arrive_count}")
-
         # Generate Arrive and Await syntax
         # Awaits must be aware with the sync-tl
         # of the matched Arrive
@@ -651,41 +667,6 @@ class SyncStateBuilder:
             if line:
                 lines.append("    " + line)
         return "\n".join(lines)
-
-    def generate_device_setup(self):
-        """Generate body of exo_deviceSetup function.
-
-        Return (body text, SMEM bytes needed)
-
-        """
-        # fmt: off
-        lines = []
-        offset = 0
-        if self._mbarrier_pairs:
-            lines.append("    if (threadIdx.x == 0) {")
-            for mbarrier_count, arrive_count in self._mbarrier_pairs:
-                lines.append(f"      for (int i = 0; i < {mbarrier_count}; ++i) {{")
-                ptx = InlinePtxGen("mbarrier.init.shared::cta.b64 #0#;", volatile=True)
-                ptx.add_arg(f"exo_smem + {8*offset} + 8*i", constraint="smem", log_as="bits")
-                ptx.add_arg(arrive_count, constraint="n", log_as="bits")
-                lines.extend(ptx.as_c_lines(py_format=False, tab="          "))
-                lines.append(f"      }}")
-                offset += mbarrier_count
-            if self._uses_async_proxy:
-                lines.extend(simple_ptx_c_lines("fence.proxy.async", tab="      "))
-            lines.append("    }")
-            if self._clusterDim() > 1:
-                lines.extend(simple_ptx_c_lines("barrier.cluster.arrive.aligned", tab="    "))
-                lines.extend(simple_ptx_c_lines("barrier.cluster.wait.aligned", tab="    "))
-            else:
-                lines.extend(simple_ptx_c_lines("barrier.cta.sync", 0, tab="    "))
-        assert offset == self.mbarrier_count
-        smem_bytes = 8 * offset
-        if lines:
-            return "\n".join(lines), smem_bytes
-        else:
-            return "  // No mbarriers used", 0
-        # fmt: on
 
     def _assign_suffix(self, barrier_name):
         assert isinstance(barrier_name, Sym)

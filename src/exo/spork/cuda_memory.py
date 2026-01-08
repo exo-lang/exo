@@ -99,11 +99,14 @@ class SmemConfig:
     alignment: minimum byte alignment (power of 2)
         If the allocation size is divisible by a power of 2
         up to 128, then the implementation implicitly aligns
-        at least to that power-of-2.
+        at least to that power-of-2 (opportunistic alignment)
     """
 
     reftype: str
     alignment: int = 1
+
+
+SmemConfig.opportunistic_alignment = 128
 
 
 @dataclass(slots=True)

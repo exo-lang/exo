@@ -42,6 +42,10 @@ from .coll_analysis import (
     coll_idx_s_types as idx_s_types,
     wrap_codegen_par,
 )
+from .cuda_device_setup_builder import (
+    CudaDeviceSetupBuilder,
+    CudaDeviceSetupInfo,
+)
 from .cuda_memory import (
     CudaBasicDeviceVisible,
     CudaBasicSmem,
@@ -87,8 +91,11 @@ def loopir_lower_cuda(s, ctx: SporkLoweringCtx):
 class SubtreeScan(LoopIR_Do):
     __slots__ = [
         "ctx",
+        "cuda_device_function",
         "sync_state_builder",
+        "device_setup_builder",
         "distributed_alloc_states",
+        "codegen_smem",
         "thread_iters",
         "fmt_dict",
         "named_warp_used_syms",
@@ -108,8 +115,11 @@ class SubtreeScan(LoopIR_Do):
 
     ctx: SporkLoweringCtx
 
+    cuda_device_function: CudaDeviceFunction
     sync_state_builder: SyncStateBuilder
+    device_setup_builder: CudaDeviceSetupBuilder
     distributed_alloc_states: Dict[Sym, DistributedAllocState]
+    codegen_smem: Dict[Sym, Type[CudaBasicSmem]]
     thread_iters: Dict[Sym, ThreadIter]  # Info on iterators of cuda_threads loops
 
     fmt_dict: Dict
@@ -142,8 +152,11 @@ class SubtreeScan(LoopIR_Do):
         clusterDim = cuda_device_function.clusterDim
 
         self.ctx = ctx
+        self.cuda_device_function = cuda_device_function
         self.sync_state_builder = SyncStateBuilder(cuda_device_function.coll_env())
+        self.device_setup_builder = CudaDeviceSetupBuilder()
         self.distributed_alloc_states = ctx.coll_analysis().distributed_alloc_states
+        self.codegen_smem = {}
         self.thread_iters = ctx.coll_analysis().thread_iters
         self.fmt_dict = {
             "proc": ctx.proc_name(),
@@ -455,6 +468,8 @@ class SubtreeScan(LoopIR_Do):
             self._local_envtyp[s.name] = s.rhs.type
         elif isinstance(s, LoopIR.Alloc):
             self._local_envtyp[s.name] = s.type
+            if issubclass(s.mem, CudaBasicSmem):
+                self.device_setup_builder.begin_smem_alloc(s.name)
         elif isinstance(s, LoopIR.Free):
             if s.type.is_barrier():
                 self.sync_state_builder.add_barrier(
@@ -462,7 +477,31 @@ class SubtreeScan(LoopIR_Do):
                     self.get_barrier_usage,  # Callable[[Sym], BarrierUsage]
                     self.distributed_alloc_states[s.name],
                     self.thread_iters,
+                    self.device_setup_builder,
                 )
+            elif issubclass(s.mem, CudaBasicSmem):
+                # End SMEM lifetime.
+                offset_name = self.device_setup_builder.end_smem_alloc(s.name)
+
+                # Remove distributed dimensions (temporarily)
+                alloc_state = self.distributed_alloc_states[s.name]
+                assert isinstance(alloc_state, DistributedAllocState)
+                s = s.update(type=alloc_state.shard_type())
+
+                # Record required alloc size
+                inputs: SmemConfigInputs = smem_config_inputs(s)
+                config: SmemConfig = s.mem.smem_config(inputs)
+                smem_bits = inputs.element_bits() * prod(inputs.const_shape)
+                assert smem_bits % 8 == 0, "TODO: error message for this"
+                smem_bytes = smem_bits // 8
+                self.device_setup_builder.set_smem_alloc_size(
+                    s.name, smem_bytes, config.alignment
+                )
+
+                # Store wrapped CodegenSmem type for later rewrite.
+                mem = CodegenSmem(offset_name, config.reftype, s.mem)
+                self.codegen_smem[s.name] = mem
+
         elif isinstance(s, LoopIR.SyncStmt):
             # Distributed memory analysis and CollTiling for Fence/Arrive/Await
             if s.sync_type.is_split():
@@ -481,6 +520,7 @@ class SubtreeScan(LoopIR_Do):
                     self.get_barrier_usage,  # Callable[[Sym], BarrierUsage]
                     state,
                     self.thread_iters,
+                    self.device_setup_builder,
                 )
 
     def mark_sym_used(self, name: Sym):
@@ -665,14 +705,13 @@ class MainLoopRewrite(LoopIR_Rewrite):
 class SubtreeRewrite(LoopIR_Rewrite):
     __slots__ = [
         "scan",
+        "device_setup_info",
         "fmt_dict",
         "distributed_alloc_states",
         "thread_iters",
         "sync_state_builder",
+        "codegen_smem",
         "live_solitary_barrier_names",
-        "live_smem_ends",  # SMEM stack allocator
-        "smem_data_usage",  # SMEM stack allocator
-        "codegen_smem",  # SMEM stack allocator helper
         "_result",
     ]
 
@@ -681,28 +720,27 @@ class SubtreeRewrite(LoopIR_Rewrite):
     def __init__(self, s, scan: SubtreeScan, ctx: SporkLoweringCtx):
         fmt_dict = scan.fmt_dict
         self.scan = scan
+        self.device_setup_info = scan.device_setup_builder.make_info(
+            scan.cuda_device_function.clusterDim
+        )
         self.fmt_dict = fmt_dict
         self.distributed_alloc_states = scan.distributed_alloc_states
         self.thread_iters = scan.thread_iters
         self.sync_state_builder = scan.sync_state_builder
+        self.codegen_smem = scan.codegen_smem
+
         fmt_dict["SyncState_body"] = scan.sync_state_builder.generate_SyncState_body()
 
-        # Prepare mbarriers in SMEM
-        (
-            fmt_dict["device_setup_body"],
-            mbarrier_smem_bytes,
-        ) = scan.sync_state_builder.generate_device_setup()
+        setup = self.device_setup_info
+        fmt_dict["smem_bytes"] = setup.smem_bytes
+        fmt_dict["device_setup_body"] = "\n".join("  " + ln for ln in setup.setup_lines)
+        fmt_dict["device_setup_decls"] = "\n".join(
+            "  " + ln for ln in setup.static_decls
+        )
 
         # Dict mapping LoweredBarrierType -> Sym
         # only includes live lowered barriers with solitary flag set.
         self.live_solitary_barrier_names = {}
-
-        # Prepare SMEM stack allocator
-        # Base of SMEM allocation is reserved for mbarriers
-        self.codegen_smem = {}
-        self.smem_data_usage = mbarrier_smem_bytes
-        # self.live_smem_ends = {8 * num_mbarriers}
-        self.live_smem_ends = {mbarrier_smem_bytes}
 
         # We override the C names of variables that appear in the
         # exo_DeviceArgs or exo_Task structs, or cuda_threads iterators.
@@ -758,12 +796,6 @@ class SubtreeRewrite(LoopIR_Rewrite):
         # ExoWithContext object for diverting lowered code into
         # exo_deviceMainLoop(), and putting the required strings
         # into the .cu, .cuh, .h files.
-        # Only at this point do we know the SMEM usage of the kernel,
-        # which we load into fmt_dict at the last moment.
-        assert (
-            len(self.live_smem_ends) == 1
-        ), "SMEM stack allocator should have returned to initial state"
-        fmt_dict["smem_bytes"] = self.smem_data_usage
         main_loop_context = ExtWithContext(
             format(cuda_launch_fmt),
             format(device_main_loop_prefix_fmt),
@@ -901,84 +933,15 @@ class SubtreeRewrite(LoopIR_Rewrite):
     def update_numeric_alloc_free(self, s):
         alloc_state = self.distributed_alloc_states[s.name]
         assert isinstance(alloc_state, DistributedAllocState)
-        if not alloc_state.first_usage_stmt:
-            # Distributed memory analysis isn't run for unused variables...
-            warn(
-                f"{s.srcinfo}: Unused allocation {s.name} @ {(s.mem or DRAM).name()} "
-                f"in CUDA code may not lower correctly"
-            )
 
         # Remove distributed dimensions
-        n = alloc_state.n_distributed_dims()
-        typ = s.type
-        if n > 0:
-            if len(typ.hi) == n:
-                # All dimensions removed; reduce to scalar
-                typ = typ.basetype()
-            else:
-                assert n < len(typ.hi)
-                typ = typ.update(hi=typ.hi[n:])
-            s = s.update(type=typ)
+        s = s.update(type=alloc_state.shard_type())
 
-        # SMEM offset lowering (crucially after removing distributed dimensions)
+        # SMEM offset lowering
         if issubclass(s.mem, CudaBasicSmem):
-            if isinstance(s, LoopIR.Alloc):
-                # Get SMEM memory config
-                inputs = smem_config_inputs(s)
-                config = s.mem.smem_config(inputs)
-                offset = max(self.live_smem_ends)
-                assert isinstance(config, SmemConfig), s.mem
-
-                # Compute total bytes needed.
-                smem_bits = inputs.element_bits()
-                for n in inputs.const_shape:
-                    smem_bits *= n
-                assert smem_bits % 8 == 0, "TODO: error message for this"
-                smem_bytes = smem_bits // 8
-
-                # "Opportunistic alignment"
-                # Force alignment to largest power-of-2 multiple of alloc size,
-                # up to 128 bytes. Also consider SmemConfig.alignment.
-                alignment = config.alignment
-                assert 0 == (
-                    alignment & (alignment - 1)
-                ), "SMEM alignment must be power of 2"
-                while alignment < 128:
-                    if (alignment - 1) & smem_bytes:
-                        break
-                    else:
-                        alignment <<= 1
-
-                # Allocate at current offset, rounded up for alignment
-                offset = (offset + alignment - 1) & ~(alignment - 1)
-
-                # Stack allocator reserves space for this allocation
-                # It's not truly a "stack" allocator because of how LoopIR
-                # can free an alloc as soon as it's dead (and so lifetimes
-                # maybe are not strictly nested). Hence the max logic, a
-                # dead SMEM allocation stays reserved until all
-                # higher-on-the-stack SMEMs are also dead.
-                # TODO: write a better allocator that wisely uses "holes"
-                # and doesn't have blind spots from greedy allocation,
-                # e.g. alloc(A), alloc(B), free(A), alloc(C), free(B), free(C)
-                # where sizeof(C) > sizeof(A)
-                smem_end = offset + smem_bytes
-                self.smem_data_usage = max(smem_end, self.smem_data_usage)
-                assert smem_end not in self.live_smem_ends
-                self.live_smem_ends.add(smem_end)
-
-                # Wrap user-specified memory type with SMEM offset,
-                # C++ reference type.
-                assert isinstance(config.reftype, str)
-                mem = CodegenSmem(offset, smem_end, config.reftype, s.mem)
-                self.codegen_smem[s.name] = mem  # for rewriting Free, below
-            else:
-                # Rewrite Free Memory type to match corresponding Alloc
-                # and restore stack allocator state
-                mem = self.codegen_smem.get(s.name)
-                assert mem
-                self.live_smem_ends.remove(mem.smem_end())
+            mem = self.codegen_smem[s.name]
             s = s.update(mem=mem)
+
         return s
 
     def on_barrier_alloc(self, s):
@@ -1035,14 +998,13 @@ def type_const_shape(t: LoopIR.type, usage_str, name, srcinfo: SrcInfo):
     return [as_int(c) for c in shape]
 
 
-def smem_config_inputs(s: LoopIR.Alloc):
-    assert isinstance(s, LoopIR.Alloc)
+def smem_config_inputs(s: LoopIR.Alloc | LoopIR.Free):
     scalar_info = s.type.basetype().scalar_info()
     const_shape = type_const_shape(s.type, "SMEM allocation", s.name, s.srcinfo)
     return SmemConfigInputs(scalar_info, const_shape, s.srcinfo, s.mem)
 
 
-def CodegenSmem(byte_offset, byte_end, reftype, wrapped_smem_type):
+def CodegenSmem(offset_name, reftype, wrapped_smem_type):
     """When rewriting the subtree for the CUDA device function,
     wrap all SMEM memory types with this, which includes the
     exact byte [offset,end) for the allocation in the SMEM segment"""
@@ -1055,11 +1017,7 @@ def CodegenSmem(byte_offset, byte_end, reftype, wrapped_smem_type):
             # We call the wrapped alloc() method to allow the memory class to raise errors.
             wrapped_alloc = wrapped_smem_type.alloc(new_name, prim_type, shape, srcinfo)
             assert wrapped_alloc == ""
-            return f"auto& {new_name} = reinterpret_cast<{reftype}>(exo_smem[{byte_offset}]);"
-
-        @classmethod
-        def smem_end(cls):
-            return byte_end
+            return f"auto& {new_name} = reinterpret_cast<{reftype}>(exo_smem[{offset_name}]);"
 
         @classmethod
         def wrapped_smem_type(cls):
@@ -1145,6 +1103,7 @@ struct exo_Cuda{N}_{proc}
   static constexpr uint32_t exo_clusterDim = {clusterDim};
 
   static constexpr unsigned exo_smemBytes = {smem_bytes};
+{device_setup_decls}
 
   struct exo_Task
   {{

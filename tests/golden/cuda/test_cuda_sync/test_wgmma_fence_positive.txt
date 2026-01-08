@@ -185,6 +185,7 @@ struct exo_Cuda0_test_proc
 
   static constexpr unsigned exo_smemBytes = 0;
 
+
   struct exo_Task
   {
     int_fast32_t task;
@@ -289,6 +290,12 @@ exo_CudaInline_test_wgmma_fence_positive::exo_Cuda0_test_proc::exo_deviceSetup(
     exo_ExcutThreadLog exo_excutLog)
 {
   // No mbarriers used
+  if (threadIdx.x == 0) {
+    asm volatile(
+      "fence.proxy.async;"
+    );
+    exo_excutLog.log_action(EXO_EXCUT_STR_ID(fence_proxy_async), 0, __LINE__);
+  }
 }
 
 __device__ __forceinline__ void

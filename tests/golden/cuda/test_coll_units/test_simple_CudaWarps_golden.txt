@@ -190,6 +190,7 @@ struct exo_Cuda0_proc_simple_CudaWarps
 
   static constexpr unsigned exo_smemBytes = 0;
 
+
   struct exo_Task
   {
     int_fast32_t task;
