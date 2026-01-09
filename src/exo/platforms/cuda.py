@@ -155,6 +155,120 @@ class cudaMemsetAsync0_2f32(cudaMemsetAsync0_base):
         self.instance_impl("4 * {M} * {N}")
 
 
+@instr
+class cudaMemcpyAsync_htod_2f16(cudaMemcpyAsync_base):
+    def behavior(
+        M: size,
+        N: size,
+        dst: [cu_f16][M, N] @ CudaGmemLinear,
+        src: [cu_f16][M, N] @ DRAM,
+    ):
+        # assert stride(dst, 0) == N
+        # assert stride(src, 0) == N
+        assert stride(dst, 1) == 1
+        assert stride(src, 1) == 1
+        for m in seq(0, M):
+            for n in seq(0, N):
+                dst[m, n] = src[m, n]
+
+    def instance(self):
+        self.instance_impl("2 * {M} * {N}", htod=True)
+
+
+@instr
+class cudaMemcpyAsync_dtoh_2f16(cudaMemcpyAsync_base):
+    def behavior(
+        M: size,
+        N: size,
+        dst: [cu_f16][M, N] @ DRAM,
+        src: [cu_f16][M, N] @ CudaGmemLinear,
+    ):
+        # assert stride(dst, 0) == N
+        # assert stride(src, 0) == N
+        assert stride(dst, 1) == 1
+        assert stride(src, 1) == 1
+        for m in seq(0, M):
+            for n in seq(0, N):
+                dst[m, n] = src[m, n]
+
+    def instance(self):
+        self.instance_impl("2 * {M} * {N}", htod=False)
+
+
+@instr
+class cudaMemsetAsync0_2f16(cudaMemsetAsync0_base):
+    def behavior(
+        M: size,
+        N: size,
+        dst: [cu_f16][M, N] @ CudaGmemLinear,
+    ):
+        # assert stride(dst, 0) == N
+        assert stride(dst, 1) == 1
+        for m in seq(0, M):
+            for n in seq(0, N):
+                dst[m, n] = 0
+
+    def instance(self):
+        self.instance_impl("2 * {M} * {N}")
+
+
+@instr
+class cudaMemcpyAsync_htod_2bf16(cudaMemcpyAsync_base):
+    def behavior(
+        M: size,
+        N: size,
+        dst: [cu_bf16][M, N] @ CudaGmemLinear,
+        src: [cu_bf16][M, N] @ DRAM,
+    ):
+        # assert stride(dst, 0) == N
+        # assert stride(src, 0) == N
+        assert stride(dst, 1) == 1
+        assert stride(src, 1) == 1
+        for m in seq(0, M):
+            for n in seq(0, N):
+                dst[m, n] = src[m, n]
+
+    def instance(self):
+        self.instance_impl("2 * {M} * {N}", htod=True)
+
+
+@instr
+class cudaMemcpyAsync_dtoh_2bf16(cudaMemcpyAsync_base):
+    def behavior(
+        M: size,
+        N: size,
+        dst: [cu_bf16][M, N] @ DRAM,
+        src: [cu_bf16][M, N] @ CudaGmemLinear,
+    ):
+        # assert stride(dst, 0) == N
+        # assert stride(src, 0) == N
+        assert stride(dst, 1) == 1
+        assert stride(src, 1) == 1
+        for m in seq(0, M):
+            for n in seq(0, N):
+                dst[m, n] = src[m, n]
+
+    def instance(self):
+        self.instance_impl("2 * {M} * {N}", htod=False)
+
+
+@instr
+class cudaMemsetAsync0_2bf16(cudaMemsetAsync0_base):
+    def behavior(
+        M: size,
+        N: size,
+        dst: [cu_bf16][M, N] @ CudaGmemLinear,
+    ):
+        # assert stride(dst, 0) == N
+        assert stride(dst, 1) == 1
+        for m in seq(0, M):
+            for n in seq(0, N):
+                dst[m, n] = 0
+
+    def instance(self):
+        self.instance_impl("2 * {M} * {N}")
+
+
 # TODO we really need to write a script for generating all possibilities.
 @instr
 class cudaMemsetAsync0_3f32(cudaMemsetAsync0_base):

@@ -8,6 +8,7 @@ from typing import Dict, List, Tuple, Type, Optional, Union, Set
 
 from asdl_adt import ADT, validators
 
+from ..API_types import ExoType
 from .extern import Extern
 from .configs import Config
 from .instr_info import InstrInfo
@@ -91,6 +92,8 @@ module LoopIR {
              attributes( srcinfo srcinfo )
 
     type = Num()
+         | CU_f16()
+         | CU_bf16()
          | F16()
          | F32()
          | F64()
@@ -144,6 +147,8 @@ module LoopIR {
     },
     memoize={
         "Num",
+        "CU_f16",
+        "CU_bf16",
         "F16",
         "F32",
         "F64",
@@ -207,6 +212,8 @@ module UAST {
             attributes( srcinfo srcinfo )
 
     type    = Num   ()
+            | CU_f16()
+            | CU_bf16()
             | F16   ()
             | F32   ()
             | F64   ()
@@ -239,6 +246,8 @@ module UAST {
     },
     memoize={
         "Num",
+        "CU_f16",
+        "CU_bf16",
         "F16",
         "F32",
         "F64",
@@ -302,6 +311,8 @@ module PAST {
 
 class T:
     Num = LoopIR.Num
+    CU_f16 = LoopIR.CU_f16
+    CU_bf16 = LoopIR.CU_bf16
     F16 = LoopIR.F16
     F32 = LoopIR.F32
     F64 = LoopIR.F64
@@ -321,6 +332,8 @@ class T:
     WithContextT = LoopIR.WithContext
     type = LoopIR.type
     R = Num()
+    cu_f16 = CU_f16()
+    cu_bf16 = CU_bf16()
     f16 = F16()
     f32 = F32()
     int8 = INT8()
@@ -363,7 +376,7 @@ uast_concrete_scalar_metatypes: Type[UAST.type] = []
 loopir_concrete_scalar_metatypes: Type[LoopIR.type] = []
 
 
-# ScalarInfo will override this for concrete scalar types
+# ScalarInfo.extclass will override this for concrete scalar types
 @extclass(LoopIR.type)
 def scalar_info(t):
     raise TypeError(f"No scalar_info for {t}")
@@ -374,15 +387,17 @@ del scalar_info
 
 # To add new concrete scalar types, you have to add more entries
 # here, then unfortunately manually edit the LoopIR and UAST and T
-# class definitions to add the type to the grammar.
+# and ExoType class definitions to add the type to the grammar.
 # fmt: off
-ScalarInfo.extclass(UAST.F16(),         T.f16,          "f16",          "_Float16",     16)
-ScalarInfo.extclass(UAST.F32(),         T.f32,          "f32",          "float",        32)
-ScalarInfo.extclass(UAST.F64(),         T.f64,          "f64",          "double",       64)
-ScalarInfo.extclass(UAST.INT8(),        T.i8,           "i8",           "int8_t",       8)
-ScalarInfo.extclass(UAST.UINT8(),       T.ui8,          "ui8",          "uint8_t",      8)
-ScalarInfo.extclass(UAST.UINT16(),      T.ui16,         "ui16",         "uint16_t",     16)
-ScalarInfo.extclass(UAST.INT32(),       T.i32,          "i32",          "int32_t",      32)
+ScalarInfo.extclass(UAST.CU_f16(),      T.cu_f16,       ExoType.CU_f16, "cu_f16",       "exo_cu_f16",   16)
+ScalarInfo.extclass(UAST.CU_bf16(),     T.cu_bf16,      ExoType.CU_bf16,"cu_bf16",      "exo_cu_bf16",  16)
+ScalarInfo.extclass(UAST.F16(),         T.f16,          ExoType.F16,    "f16",          "_Float16",     16)
+ScalarInfo.extclass(UAST.F32(),         T.f32,          ExoType.F32,    "f32",          "float",        32)
+ScalarInfo.extclass(UAST.F64(),         T.f64,          ExoType.F64,    "f64",          "double",       64)
+ScalarInfo.extclass(UAST.INT8(),        T.i8,           ExoType.I8,     "i8",           "int8_t",       8)
+ScalarInfo.extclass(UAST.UINT8(),       T.ui8,          ExoType.UI8,    "ui8",          "uint8_t",      8)
+ScalarInfo.extclass(UAST.UINT16(),      T.ui16,         ExoType.UI16,   "ui16",         "uint16_t",     16)
+ScalarInfo.extclass(UAST.INT32(),       T.i32,          ExoType.I32,    "i32",          "int32_t",      32)
 # fmt: on
 
 

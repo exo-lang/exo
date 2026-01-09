@@ -361,38 +361,18 @@ class EnumA(ArgumentProcessor):
 
 
 class TypeAbbrevA(ArgumentProcessor):
-    _shorthand = {
-        "R": T.R,
-        ExoType.R: T.R,
-        "f16": T.f16,
-        ExoType.F16: T.f16,
-        "f32": T.f32,
-        ExoType.F32: T.f32,
-        "f64": T.f64,
-        ExoType.F64: T.f64,
-        "i8": T.int8,
-        ExoType.I8: T.i8,
-        "ui8": T.uint8,
-        ExoType.UI8: T.uint8,
-        "ui16": T.uint16,
-        ExoType.UI16: T.ui16,
-        "i32": T.int32,
-        ExoType.I32: T.i32,
-    }
-
     def __call__(self, typ, all_args):
         if not isinstance(typ, (str, ExoType)):
             self.err(
                 f"expected an instance of {ExoType} or {str} specifying the precision",
                 TypeError,
             )
-        assert not isinstance(typ, ExoType) or typ in TypeAbbrevA._shorthand
-        if typ in TypeAbbrevA._shorthand:
-            return TypeAbbrevA._shorthand[typ]
-        else:
-            precisions = ", ".join(
-                [t for t in TypeAbbrevA._shorthand if type(t) is str]
-            )
+        try:
+            return ScalarInfo(typ).loopir
+        except KeyError:
+            if typ == "R" or typ == ExoType.R:
+                return T.R
+            precisions = ", ".join(["R"] + ScalarInfo.get_scalar_names())
             self.err(
                 f"expected an instance of {ExoType} or one of the following strings specifying "
                 f"precision: {precisions}",

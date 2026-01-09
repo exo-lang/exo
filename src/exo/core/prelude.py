@@ -1,7 +1,10 @@
 from inspect import currentframe as _curr_frame, getframeinfo as _get_frame_info
 from re import compile as _re_compile
 from dataclasses import dataclass as _dataclass, replace as _replace
-from typing import Optional as _Optional
+from typing import Optional as _Optional, List as _List
+
+
+from ..API_types import ExoType as _ExoType
 
 
 def is_pos_int(obj):
@@ -163,22 +166,25 @@ class ScalarInfo:
     bits: int  # bit width, e.g. 64
     uast: "UAST.type"
     loopir: "LoopIR.type"
+    exotype: _ExoType
 
     def __new__(cls, arg):
-        """From ScalarInfo (no-op), Exo name, C name, or (internal) LoopIR type"""
+        """From ScalarInfo (no-op), Exo name, C name, or UAST/LoopIR/ExoType"""
         if isinstance(arg, ScalarInfo):
             return arg
-        if isinstance(arg, str):
+        if isinstance(arg, (str, _ExoType)):
             return _scalar_info_dict[arg]
+        if isinstance(arg, type):
+            return _scalar_info_dict[arg]
+
         from .LoopIR import LoopIR, UAST
 
         if isinstance(arg, (LoopIR.type, UAST.type)):
             return _scalar_info_dict[type(arg)]
-        if isinstance(arg, type):
-            return _scalar_info_dict[arg]
-        assert 0, "Expect str, ScalarInfo, or LoopIR.type"
 
-    def extclass(uast, t, shorthand, ctype, bits):
+        assert 0, "Expect str, ScalarInfo, or ExoType"  # or internal LoopIR or UAST
+
+    def extclass(uast, t, exotype, shorthand, ctype, bits):
         from .LoopIR import (
             LoopIR,
             UAST,
@@ -188,20 +194,25 @@ class ScalarInfo:
             loopir_concrete_scalar_metatypes,
         )
 
+        assert shorthand != "R" and ctype != "R"
         assert isinstance(uast, UAST.type)
         assert isinstance(t, LoopIR.type)
+        assert isinstance(exotype, _ExoType)
         info = object.__new__(ScalarInfo)
         info.shorthand = shorthand
         info.ctype = ctype
         info.bits = bits
         info.uast = uast
         info.loopir = t
+        info.exotype = exotype
         loopir_metatype = type(t)
         uast_metatype = type(uast)
         _scalar_info_dict[shorthand] = info
         _scalar_info_dict[ctype] = info
         _scalar_info_dict[loopir_metatype] = info
         _scalar_info_dict[uast_metatype] = info
+        _scalar_info_dict[exotype] = info
+        _ExoType.numerics_set.add(exotype)
         uast_prim_types[shorthand] = uast
         loopir_from_uast_metatype_table[uast_metatype] = t
         uast_concrete_scalar_metatypes.append(uast_metatype)
@@ -210,3 +221,7 @@ class ScalarInfo:
         @extclass(type(t))
         def scalar_info(t):
             return info
+
+    @staticmethod
+    def get_scalar_names() -> _List[str]:
+        return sorted(s for s in _scalar_info_dict if isinstance(s, str))
