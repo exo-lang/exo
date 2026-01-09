@@ -161,6 +161,8 @@ class ScalarInfo:
     shorthand: str  # Exo name, e.g. f64
     ctype: str  # C name, e.g. double
     bits: int  # bit width, e.g. 64
+    uast: "UAST.type"
+    loopir: "LoopIR.type"
 
     def __new__(cls, arg):
         """From ScalarInfo (no-op), Exo name, C name, or (internal) LoopIR type"""
@@ -177,7 +179,14 @@ class ScalarInfo:
         assert 0, "Expect str, ScalarInfo, or LoopIR.type"
 
     def extclass(uast, t, shorthand, ctype, bits):
-        from .LoopIR import LoopIR, UAST, uast_prim_types, loopir_from_uast_type_table
+        from .LoopIR import (
+            LoopIR,
+            UAST,
+            uast_prim_types,
+            loopir_from_uast_metatype_table,
+            uast_concrete_scalar_metatypes,
+            loopir_concrete_scalar_metatypes,
+        )
 
         assert isinstance(uast, UAST.type)
         assert isinstance(t, LoopIR.type)
@@ -185,12 +194,18 @@ class ScalarInfo:
         info.shorthand = shorthand
         info.ctype = ctype
         info.bits = bits
+        info.uast = uast
+        info.loopir = t
+        loopir_metatype = type(t)
+        uast_metatype = type(uast)
         _scalar_info_dict[shorthand] = info
         _scalar_info_dict[ctype] = info
-        _scalar_info_dict[type(t)] = info
-        _scalar_info_dict[type(uast)] = info
+        _scalar_info_dict[loopir_metatype] = info
+        _scalar_info_dict[uast_metatype] = info
         uast_prim_types[shorthand] = uast
-        loopir_from_uast_type_table[type(uast)] = t
+        loopir_from_uast_metatype_table[uast_metatype] = t
+        uast_concrete_scalar_metatypes.append(uast_metatype)
+        loopir_concrete_scalar_metatypes.append(loopir_metatype)
 
         @extclass(type(t))
         def scalar_info(t):

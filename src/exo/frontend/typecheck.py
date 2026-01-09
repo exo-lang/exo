@@ -13,7 +13,7 @@ from ..core.LoopIR import (
     get_writeconfigs,
     get_loop_iters,
     create_window_type,
-    loopir_from_uast_type_table,
+    loopir_from_uast_metatype_table,
 )
 
 from ..spork.sync_types import SyncType, fence_type
@@ -101,7 +101,7 @@ def check_call_types(err_handler, args, call_args):
 
 
 class TypeChecker:
-    _typ_table = loopir_from_uast_type_table
+    _typ_table = loopir_from_uast_metatype_table
 
     def __init__(self, proc):
         self.uast_proc = proc
@@ -703,6 +703,8 @@ class TypeChecker:
 
         if type(typ) in TypeChecker._typ_table:
             return TypeChecker._typ_table[type(typ)]
+        elif isinstance(typ, UAST.Bool):
+            return T.bool
         elif isinstance(typ, UAST.Tensor):
             sub_typ = self.check_t(node, typ.type)
             return T.Tensor(check_hi(), typ.is_window, sub_typ)

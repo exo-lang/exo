@@ -296,50 +296,6 @@ module PAST {
 
 
 # --------------------------------------------------------------------------- #
-# Extension methods
-# --------------------------------------------------------------------------- #
-
-
-@extclass(UAST.Tensor)
-@extclass(UAST.Num)
-@extclass(UAST.F16)
-@extclass(UAST.F32)
-@extclass(UAST.F64)
-@extclass(UAST.INT8)
-@extclass(UAST.UINT8)
-@extclass(UAST.UINT16)
-@extclass(UAST.INT32)
-@extclass(UAST.Barrier)
-def shape(t):
-    shp = t.hi if isinstance(t, (UAST.Tensor, UAST.Barrier)) else []
-    return shp
-
-
-del shape
-
-
-@extclass(UAST.type)
-def basetype(t):
-    if isinstance(t, UAST.Tensor):
-        t = t.type
-    elif isinstance(t, UAST.Barrier):
-        t = UAST.Barrier([])
-    return t
-
-
-del basetype
-
-
-# make proc be a hashable object
-@extclass(LoopIR.proc)
-def __hash__(self):
-    return id(self)
-
-
-del __hash__
-
-
-# --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Types
 
@@ -385,6 +341,103 @@ class T:
     # Spork extensions
     with_context = WithContextT()
     barrier = LoopIR.Barrier(None, [])
+
+
+# str to UAST type instance (see ScalarInfo, it adds to this)
+uast_prim_types = {
+    "R": UAST.Num(),
+}
+
+
+# UAST to LoopIR scalars (see ScalarInfo, it adds to this)
+loopir_from_uast_metatype_table = {
+    UAST.Num: T.R,
+    UAST.Int: T.int,
+    UAST.Size: T.size,
+    UAST.Index: T.index,
+    UAST.Stride: T.stride,
+}
+
+# ScalarInfo.extclass adds to this
+uast_concrete_scalar_metatypes: Type[UAST.type] = []
+loopir_concrete_scalar_metatypes: Type[LoopIR.type] = []
+
+
+# ScalarInfo will override this for concrete scalar types
+@extclass(LoopIR.type)
+def scalar_info(t):
+    raise TypeError(f"No scalar_info for {t}")
+
+
+del scalar_info
+
+
+# To add new concrete scalar types, you have to add more entries
+# here, then unfortunately manually edit the LoopIR and UAST and T
+# class definitions to add the type to the grammar.
+# fmt: off
+ScalarInfo.extclass(UAST.F16(),         T.f16,          "f16",          "_Float16",     16)
+ScalarInfo.extclass(UAST.F32(),         T.f32,          "f32",          "float",        32)
+ScalarInfo.extclass(UAST.F64(),         T.f64,          "f64",          "double",       64)
+ScalarInfo.extclass(UAST.INT8(),        T.i8,           "i8",           "int8_t",       8)
+ScalarInfo.extclass(UAST.UINT8(),       T.ui8,          "ui8",          "uint8_t",      8)
+ScalarInfo.extclass(UAST.UINT16(),      T.ui16,         "ui16",         "uint16_t",     16)
+ScalarInfo.extclass(UAST.INT32(),       T.i32,          "i32",          "int32_t",      32)
+# fmt: on
+
+
+# extclass for all concrete scalar types
+# Only define this after ScalarInfo.extclass populated needed tables.
+
+
+def extclass_LoopIR_concrete_scalars(f):
+    for t in loopir_concrete_scalar_metatypes:
+        f = extclass(t)(f)
+    return f
+
+
+def extclass_UAST_concrete_scalars(f):
+    for t in uast_concrete_scalar_metatypes:
+        f = extclass(t)(f)
+    return f
+
+
+# --------------------------------------------------------------------------- #
+# Extension methods
+# --------------------------------------------------------------------------- #
+
+
+@extclass(UAST.Tensor)
+@extclass(UAST.Num)
+@extclass(UAST.Barrier)
+@extclass_UAST_concrete_scalars
+def shape(t):
+    shp = t.hi if isinstance(t, (UAST.Tensor, UAST.Barrier)) else []
+    return shp
+
+
+del shape
+
+
+@extclass(UAST.type)
+def basetype(t):
+    if isinstance(t, UAST.Tensor):
+        t = t.type
+    elif isinstance(t, UAST.Barrier):
+        t = UAST.Barrier([])
+    return t
+
+
+del basetype
+
+
+# make proc be a hashable object
+@extclass(LoopIR.proc)
+def __hash__(self):
+    return id(self)
+
+
+del __hash__
 
 
 # --------------------------------------------------------------------------- #
@@ -435,13 +488,7 @@ def shape(t):
 
 
 @extclass(T.Num)
-@extclass(T.F16)
-@extclass(T.F32)
-@extclass(T.F64)
-@extclass(T.INT8)
-@extclass(T.UINT8)
-@extclass(T.UINT16)
-@extclass(T.INT32)
+@extclass_LoopIR_concrete_scalars
 def shape(t):
     return []
 
@@ -449,9 +496,14 @@ def shape(t):
 del shape
 
 
-@extclass(T.type)
+@extclass_LoopIR_concrete_scalars
 def ctype(t):
     return t.scalar_info().ctype
+
+
+@extclass(T.Bool)
+def ctype(t):
+    return "bool"
 
 
 @extclass(T.Num)
@@ -470,51 +522,19 @@ def ctype(t):
 del ctype
 
 
-# str to UAST type instance (see ScalarInfo too)
-uast_prim_types = {
-    "R": UAST.Num(),
-}
-
-
-# UAST to LoopIR scalars (see ScalarInfo too)
-loopir_from_uast_type_table = {
-    UAST.Num: T.R,
-    UAST.Int: T.int,
-    UAST.Size: T.size,
-    UAST.Index: T.index,
-    UAST.Stride: T.stride,
-}
-
-
-@extclass(LoopIR.type)
-def scalar_info(t):
-    raise TypeError(f"No scalar_info for {t}")
-
-
-# fmt: off
-ScalarInfo.extclass(UAST.F16(),         T.f16,          "f16",          "_Float16",     16)
-ScalarInfo.extclass(UAST.F32(),         T.f32,          "f32",          "float",        32)
-ScalarInfo.extclass(UAST.F64(),         T.f64,          "f64",          "double",       64)
-ScalarInfo.extclass(UAST.INT8(),        T.i8,           "i8",           "int8_t",       8)
-ScalarInfo.extclass(UAST.UINT8(),       T.ui8,          "ui8",          "uint8_t",      8)
-ScalarInfo.extclass(UAST.UINT16(),      T.ui16,         "ui16",         "uint16_t",     16)
-ScalarInfo.extclass(UAST.INT32(),       T.i32,          "i32",          "int32_t",      32)
-ScalarInfo.extclass(UAST.Bool(),        T.bool,         "bool",         "bool",         1)
-# fmt: on
-
-
-del scalar_info
-
-
 def scalar_bits(ctype):
     return ScalarInfo(ctype).bits
 
 
 @extclass(LoopIR.type)
 def is_real_scalar(t):
-    return isinstance(
-        t, (T.Num, T.F16, T.F32, T.F64, T.INT8, T.UINT8, T.UINT16, T.INT32)
-    )
+    return False
+
+
+@extclass(LoopIR.Num)
+@extclass_LoopIR_concrete_scalars
+def is_real_scalar(t):
+    return True
 
 
 del is_real_scalar

@@ -295,20 +295,6 @@ class UAST_PPrinter:
     def ptype(self, t):
         if isinstance(t, UAST.Num):
             return "R"
-        elif isinstance(t, UAST.F16):
-            return "f16"
-        elif isinstance(t, UAST.F32):
-            return "f32"
-        elif isinstance(t, UAST.F64):
-            return "f64"
-        elif isinstance(t, UAST.INT8):
-            return "i8"
-        elif isinstance(t, UAST.UINT8):
-            return "ui8"
-        elif isinstance(t, UAST.UINT16):
-            return "ui16"
-        elif isinstance(t, UAST.INT32):
-            return "i32"
         elif isinstance(t, UAST.Bool):
             return "bool"
         elif isinstance(t, UAST.Int):
@@ -331,7 +317,8 @@ class UAST_PPrinter:
             rngs = ",".join([self.pexpr(r) for r in t.shape()])
             return f"{base}[{rngs}]"
         else:
-            assert False, "impossible type case"
+            scalar_info = ScalarInfo(t)
+            return scalar_info.shorthand
 
 
 # --------------------------------------------------------------------------- #
@@ -647,20 +634,6 @@ def _print_expr_impl(e, env: PrintEnv, prec: int) -> str:
 def _print_type(t, env: PrintEnv) -> str:
     if isinstance(t, T.Num):
         return "R"
-    elif isinstance(t, T.F16):
-        return "f16"
-    elif isinstance(t, T.F32):
-        return "f32"
-    elif isinstance(t, T.F64):
-        return "f64"
-    elif isinstance(t, T.INT8):
-        return "i8"
-    elif isinstance(t, T.UINT8):
-        return "ui8"
-    elif isinstance(t, T.UINT16):
-        return "ui16"
-    elif isinstance(t, T.INT32):
-        return "i32"
     elif isinstance(t, T.Bool):
         return "bool"
     elif isinstance(t, T.Int):
@@ -696,8 +669,9 @@ def _print_type(t, env: PrintEnv) -> str:
             return f"barrier{guarded_by_s}[{ranges}]"
         else:
             return f"barrier{guarded_by_s}"
-
-    assert False, f"impossible type {type(t)}"
+    else:
+        scalar_info = ScalarInfo(t)
+        return scalar_info.shorthand
 
 
 def _print_w_access(node, env: PrintEnv) -> str:
