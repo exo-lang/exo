@@ -151,18 +151,6 @@ def mkproc_naive_gemm(typA, typB, typC):
     return p
 
 
-def test_golden_naive_cu_f16_gemm(compiler, golden):
-    compiler.cuda_cpu_test(
-        mkproc_naive_gemm, golden=golden, typA="cu_f16", typB="cu_f16", typC="f32"
-    )
-
-
-def test_golden_naive_cu_bf16_gemm(compiler, golden):
-    compiler.cuda_cpu_test(
-        mkproc_naive_gemm, golden=golden, typA="cu_bf16", typB="cu_bf16", typC="f32"
-    )
-
-
 def naive_gemm_test_impl(compiler_Sm80, typA, typB, typC):
     assert typA in ("cu_f16", "cu_bf16")
     assert typB in ("cu_f16", "cu_bf16")
@@ -200,9 +188,166 @@ def naive_gemm_test_impl(compiler_Sm80, typA, typB, typC):
         assert np.array_equal(C_f32_result, C_f32_expected)
 
 
+def test_golden_naive_cu_f16_gemm(compiler, golden):
+    compiler.cuda_cpu_test(
+        mkproc_naive_gemm, golden=golden, typA="cu_f16", typB="cu_f16", typC="f32"
+    )
+
+
+def test_golden_naive_cu_bf16_gemm(compiler, golden):
+    compiler.cuda_cpu_test(
+        mkproc_naive_gemm, golden=golden, typA="cu_bf16", typB="cu_bf16", typC="f32"
+    )
+
+
 def test_run_naive_cu_f16_gemm(compiler_Sm80):
     naive_gemm_test_impl(compiler_Sm80, "cu_f16", "cu_f16", "f32")
 
 
 def test_run_naive_cu_bf16_gemm(compiler_Sm80):
     naive_gemm_test_impl(compiler_Sm80, "cu_bf16", "cu_bf16", "f32")
+
+
+def mkproc_vec_add(in_typ):
+    if in_typ == "cu_f16":
+        memcpy = cudaMemcpyAsync_htod_1f16()
+        ld = cuda_packed_load_f16()
+        num_packed = 2
+    elif in_typ == "cu_bf16":
+        memcpy = cudaMemcpyAsync_htod_1bf16()
+        ld = cuda_packed_load_bf16()
+        num_packed = 2
+    elif in_typ == "f32":
+        memcpy = cudaMemcpyAsync_htod_1f32()
+        ld = cuda_packed_load_f32()
+        num_packed = 1
+    elif in_typ == "i32":
+        memcpy = cudaMemcpyAsync_htod_1i32()
+        ld = cuda_packed_load_i32()
+        num_packed = 1
+    else:
+        assert 0, in_typ
+
+    task_size = 256 * num_packed
+
+    @proc
+    def p(N: size, h_x: f32[N], h_y: f32[N], h_out: f32[N]):
+        assert N % task_size == 0
+
+        d_x: f32[N] @ CudaGmemLinear
+        d_y: f32[N] @ CudaGmemLinear
+        d_out: f32[N] @ CudaGmemLinear
+
+        for d_x_init_n in seq(0, N):
+            d_x[d_x_init_n] = h_x[d_x_init_n]
+        for d_y_init_n in seq(0, N):
+            d_y[d_y_init_n] = h_y[d_y_init_n]
+
+        with CudaDeviceFunction(blockDim=256):
+            for task in cuda_tasks(0, N / task_size):
+                rmem_x: f32[256, num_packed] @ CudaRmemPacked32
+                for tid in cuda_threads(0, 256):
+                    for pack_ld_x in seq(0, num_packed):
+                        rmem_x[tid, pack_ld_x] = d_x[
+                            task * task_size + tid * num_packed + pack_ld_x
+                        ]
+                    rmem_y: f32[num_packed] @ CudaRmemPacked32
+                    for pack_ld_y in seq(0, num_packed):
+                        rmem_y[pack_ld_y] = d_y[
+                            task * task_size + tid * num_packed + pack_ld_y
+                        ]
+                    for pack_st_out in seq(0, num_packed):
+                        d_out[task * task_size + tid * num_packed + pack_st_out] = (
+                            rmem_x[tid, pack_st_out] + rmem_y[pack_st_out]
+                        )
+
+        cudaMemcpyAsync_dtoh_1f32(N, h_out[:], d_out[:])
+
+    p = set_precision(p, "h_x", in_typ)
+    p = set_precision(p, "d_x", in_typ)
+    p = set_precision(p, "rmem_x", in_typ)
+    p = set_precision(p, "h_y", in_typ)
+    p = set_precision(p, "d_y", in_typ)
+    p = set_precision(p, "rmem_y", in_typ)
+
+    p = replace(p, p.find_loop("d_x_init_n"), memcpy)
+    p = replace(p, p.find_loop("d_y_init_n"), memcpy)
+    p = replace(p, p.find_loop("pack_ld_x"), ld)
+    p = replace(p, p.find_loop("pack_ld_y"), ld)
+    p = rename(p, f"cu_f16_test_vec_add_{in_typ}")
+    p = simplify(p)
+    return p
+
+
+def vec_add_test_impl(compiler_Sm80, in_typ):
+    cu = compiler_Sm80.cuda_test_context(mkproc_vec_add(in_typ=in_typ))
+    N = 2048
+    x_f32 = np.ndarray(shape=(N,), dtype=np.float32)
+    y_f32 = np.ndarray(shape=(N,), dtype=np.float32)
+    z_result = np.ndarray(shape=(N,), dtype=np.float32)
+
+    rand = random.Random(3090)
+
+    if in_typ == "cu_f16" or in_typ == "cu_bf16":
+        table = f16_table if in_typ == "cu_f16" else bf16_table
+        x_bits = np.ndarray(shape=(N,), dtype=np.uint16)
+        y_bits = np.ndarray(shape=(N,), dtype=np.uint16)
+        for n in range(N):
+            value, bits = rand.choice(table)
+            x_f32[n] = value
+            x_bits[n] = bits
+            value, bits = rand.choice(table)
+            y_f32[n] = value
+            y_bits[n] = bits
+    elif in_typ == "f32" or in_typ == "i32":
+        for n in range(N):
+            x_f32[n] = rand.randrange(-4095, 4096)
+            y_f32[n] = rand.randrange(-4095, 4096)
+        if in_typ == "f32":
+            x_bits = x_f32
+            y_bits = y_f32
+        else:
+            x_bits = np.ndarray(shape=(N,), dtype=np.int32)
+            y_bits = np.ndarray(shape=(N,), dtype=np.int32)
+            for n in range(N):
+                x_bits[n] = int(x_f32[n])
+                y_bits[n] = int(y_f32[n])
+    else:
+        assert 0, in_typ
+
+    cu(None, N, x_bits, y_bits, z_result)
+    z_expected = x_f32 + y_f32
+
+    assert np.array_equal(z_result, z_expected)
+
+
+def test_golden_vec_add_f16(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_vec_add, golden=golden, in_typ="cu_f16")
+
+
+def test_run_vec_add_f16(compiler_Sm80):
+    vec_add_test_impl(compiler_Sm80, in_typ="cu_f16")
+
+
+def test_golden_vec_add_bf16(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_vec_add, golden=golden, in_typ="cu_bf16")
+
+
+def test_run_vec_add_bf16(compiler_Sm80):
+    vec_add_test_impl(compiler_Sm80, in_typ="cu_bf16")
+
+
+def test_golden_vec_add_f32(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_vec_add, golden=golden, in_typ="f32")
+
+
+def test_run_vec_add_f32(compiler_Sm80):
+    vec_add_test_impl(compiler_Sm80, in_typ="f32")
+
+
+def test_golden_vec_add_i32(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_vec_add, golden=golden, in_typ="i32")
+
+
+def test_run_vec_add_i32(compiler_Sm80):
+    vec_add_test_impl(compiler_Sm80, in_typ="i32")

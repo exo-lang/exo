@@ -739,7 +739,9 @@ class Unification:
                 elif isinstance(e.rhs, LoopIR.Const):
                     return UEq.Scale(e.rhs.val, self.to_ueq(e.lhs, insp))
                 else:
-                    assert False, "unexpected multiplication; improve the code here"
+                    assert (
+                        False
+                    ), f"{e} unexpected multiplication; improve the code here"
             elif e.op == "/" or e.op == "%":
                 if in_subproc:
                     raise UnificationError(

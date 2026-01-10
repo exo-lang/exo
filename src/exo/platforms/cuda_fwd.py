@@ -35,6 +35,7 @@ from ..spork.cuda_memory import (
     CudaGmemLinear,
     CudaSmemLinear,
     CudaRmem,
+    CudaRmemPacked32,
     CudaEvent,
     CudaMbarrier,
     CudaCommitGroup,

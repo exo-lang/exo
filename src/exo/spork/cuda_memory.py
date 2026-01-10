@@ -6,6 +6,7 @@ from math import prod
 from ..core.LoopIR import scalar_bits
 from ..core.prelude import SrcInfo, ScalarInfo
 from ..core.memory import (
+    ScalarInfo,
     Memory,
     MemGenError,
     DRAM,
@@ -16,6 +17,11 @@ from ..core.memory import (
     FreePoolTag,
     cuda_smem_free_pool_tag,
     full_scope_free_pool_tag,
+    WindowFeatures,
+    window_indexer,
+    WindowIndexer,
+    WindowIndexerResult,
+    UtilInjector,
 )
 from . import timelines
 from .coll_algebra import (
@@ -362,6 +368,109 @@ class CudaRmem(CudaDeviceVisibleLinear):
     @classmethod
     def free(cls, new_name, prim_type, shape, srcinfo):
         return ""
+
+    @classmethod
+    def device_permission(cls, device, instr_tl):
+        return cls.device_allocated_impl(device, instr_tl)
+
+    @classmethod
+    def native_unit(cls):
+        return cuda_thread
+
+    qual_tl_dict = timelines.cuda_rmem_qual_tl_dict
+
+
+global_CudaRmemPacked32 = MemGlobalC(
+    "exo_CudaRmemPacked32",
+    """
+#ifdef __CUDACC__
+
+template <typename PtxType, typename Scalar, typename PackedStruct>
+struct exo_CudaRmemPacked32
+{
+    static_assert(sizeof(PtxType) == sizeof(PackedStruct));
+    PtxType ptx_data;
+
+    template <typename Index>
+    __device__ auto operator[] (Index i) const -> Scalar
+    {
+        if constexpr (sizeof(Scalar) == 4)
+            return ptx_data;
+        else if (i == 0)
+            return reinterpret_cast<const PackedStruct*>(&ptx_data)->x;
+        else
+            return reinterpret_cast<const PackedStruct*>(&ptx_data)->y;
+    }
+};
+
+using exo_CudaRmemPacked32_f32 = exo_CudaRmemPacked32<float, float, float>;
+using exo_CudaRmemPacked32_i32 = exo_CudaRmemPacked32<int32_t, int32_t, int32_t>;
+using exo_CudaRmemPacked32_cu_f16 = exo_CudaRmemPacked32<int32_t, __half, __half2>;
+using exo_CudaRmemPacked32_cu_bf16 = exo_CudaRmemPacked32<int32_t, __nv_bfloat16, __nv_bfloat162>;
+
+#endif
+""",
+    [MemIncludeC("string.h")],
+)
+
+
+class CudaRmemPacked32_Indexer(WindowIndexer):
+    def index(self, utils: UtilInjector, features: WindowFeatures, *, ptx_data=False):
+        expr = features.get_dataptr()
+        # All non-packed indices resolve to multidimensional array indexing.
+        for i in range(features.n_array_dims()):
+            expr = expr[features.get_array_offset(i)]
+        # If the caller requested the raw ptx_data, give the 32-bit word directly.
+        if ptx_data:
+            expr = expr.ptx_data
+        # Otherwise, we defer to the overloaded operator[]
+        else:
+            expr = expr[features.get_packed_offset(0)]
+        return self.pack_result(expr, False)
+
+
+@window_indexer(CudaRmemPacked32_Indexer)
+class CudaRmemPacked32(CudaBasicDeviceVisible):
+    """Per-thread registers, with scalar data packed as 32 bit words.
+
+    The rightmost dimension must be 4 / sizeof(ElementType).
+    This includes the degenerate case of float or int32_t
+    (where only one scalar is "packed" per word) for consistency.
+
+    Currently scalar code (non-instr) may only read, not write.
+
+    """
+
+    allowed_types = {"f32", "i32", "cu_f16", "cu_bf16"}
+
+    @classmethod
+    def global_(cls):
+        return global_CudaRmemPacked32
+
+    @classmethod
+    def alloc(cls, new_name, prim_type, shape, srcinfo):
+        assert shape
+        const_shape = cls.as_const_shape(new_name, shape, srcinfo)
+        scalar_info = ScalarInfo(prim_type)
+        gpuir_name = scalar_info.shorthand
+        if gpuir_name not in cls.allowed_types:
+            assert gpuir_name != "f16", "use cu_f16"
+            raise TypeError(f"CudaRmemPacked32 doesn't support {gpuir_name}")
+        # Don't generate array dimensions for final (bit-packed) dimension.
+        dims = [f"[{n}]" for n in const_shape[:-1]]
+        return f'exo_CudaRmemPacked32_{gpuir_name} {new_name}{"".join(dims)};'
+
+    @classmethod
+    def free(cls, new_name, prim_type, shape, srcinfo):
+        return ""
+
+    @classmethod
+    def can_read(cls):
+        return True
+
+    @classmethod
+    def packed_tensor_shape(cls, scalar_info: ScalarInfo):
+        return (32 // scalar_info.bits,)
 
     @classmethod
     def device_permission(cls, device, instr_tl):

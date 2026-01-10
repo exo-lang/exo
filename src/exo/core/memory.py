@@ -35,10 +35,13 @@ from .prelude import ScalarInfo
 from .c_window import (
     WindowEncoder,
     WindowEncoderArgs,
+    WindowFeatures,
     WindowIndexer,
+    WindowIndexerResult,
     WindowIndexerArgs,
     FallbackWindowEncoder,
     FallbackWindowIndexer,
+    UtilInjector,
 )
 
 """
@@ -221,6 +224,7 @@ class MemWin(ABC):
 
     @classmethod
     def window(cls, basetyp, baseptr, indices, strides, srcinfo):
+        """Legacy method, ignored if you provide @window_encoder"""
         offset = generate_offset(indices, strides)
 
         if basetyp.is_win():

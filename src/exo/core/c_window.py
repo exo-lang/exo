@@ -81,6 +81,7 @@ class WindowFeatures:
         return self._mem.name()
 
     def get_raw_name(self) -> str:
+        """Needed mostly for legacy reasons"""
         return str(self._varname)
 
     def get_dataptr(self) -> CIR_Wrapper:
@@ -514,14 +515,13 @@ class WindowIndexer:
     def index(
         self, utils: UtilInjector, features: WindowFeatures
     ) -> WindowIndexerResult:
-        """Return WindowIndexerResult(code, is_ptr)
+        """Return WindowIndexerResult(code, is_ptr) using self.pack_result(...)
 
         code must be a str or CIR_Wrapper giving a C expression
-        delivering the window window/scalar implied by the given features.
-        (The result is a scalar if all indices are points, not intervals).
-
-        This "delivery" isn't necessarily in struct form; how the requested
-        data gets delivered is up to the MemWin type author to specify.
+        delivering the scalar implied by the dataptr and offsets
+        of the given features, e.g. this could be
+                features.get_dataptr()[features.get_array_offset(0)...]
+        where we use the overloaded CIR_Wrapper operator[] here
 
         is_ptr determines whether the result resolves to C type
         `ctype*` (true) or `ctype` (false).  This is only relevant if

@@ -70,6 +70,76 @@ class cudaMemsetAsync0_1f32(cudaMemsetAsync0_base):
 
 
 @instr
+class cudaMemcpyAsync_htod_1f16(cudaMemcpyAsync_base):
+    def behavior(n: size, dst: [cu_f16][n] @ CudaGmemLinear, src: [cu_f16][n] @ DRAM):
+        assert stride(dst, 0) == 1
+        assert stride(src, 0) == 1
+        for i in seq(0, n):
+            dst[i] = src[i]
+
+    def instance(self):
+        self.instance_impl("2 * {n}", htod=True)
+
+
+@instr
+class cudaMemcpyAsync_dtoh_1f16(cudaMemcpyAsync_base):
+    def behavior(n: size, dst: [cu_f16][n] @ DRAM, src: [cu_f16][n] @ CudaGmemLinear):
+        assert stride(dst, 0) == 1
+        assert stride(src, 0) == 1
+        for i in seq(0, n):
+            dst[i] = src[i]
+
+    def instance(self):
+        self.instance_impl("2 * {n}", htod=False)
+
+
+@instr
+class cudaMemsetAsync0_1f16(cudaMemsetAsync0_base):
+    def behavior(n: size, dst: [cu_f16][n] @ CudaGmemLinear):
+        assert stride(dst, 0) == 1
+        for i in seq(0, n):
+            dst[i] = 0
+
+    def instance(self):
+        self.instance_impl("2 * {n}")
+
+
+@instr
+class cudaMemcpyAsync_htod_1bf16(cudaMemcpyAsync_base):
+    def behavior(n: size, dst: [cu_bf16][n] @ CudaGmemLinear, src: [cu_bf16][n] @ DRAM):
+        assert stride(dst, 0) == 1
+        assert stride(src, 0) == 1
+        for i in seq(0, n):
+            dst[i] = src[i]
+
+    def instance(self):
+        self.instance_impl("2 * {n}", htod=True)
+
+
+@instr
+class cudaMemcpyAsync_dtoh_1bf16(cudaMemcpyAsync_base):
+    def behavior(n: size, dst: [cu_bf16][n] @ DRAM, src: [cu_bf16][n] @ CudaGmemLinear):
+        assert stride(dst, 0) == 1
+        assert stride(src, 0) == 1
+        for i in seq(0, n):
+            dst[i] = src[i]
+
+    def instance(self):
+        self.instance_impl("2 * {n}", htod=False)
+
+
+@instr
+class cudaMemsetAsync0_1bf16(cudaMemsetAsync0_base):
+    def behavior(n: size, dst: [cu_bf16][n] @ CudaGmemLinear):
+        assert stride(dst, 0) == 1
+        for i in seq(0, n):
+            dst[i] = 0
+
+    def instance(self):
+        self.instance_impl("2 * {n}")
+
+
+@instr
 class cudaMemcpyAsync_htod_1i32(cudaMemcpyAsync_base):
     def behavior(n: size, dst: [i32][n] @ CudaGmemLinear, src: [i32][n] @ DRAM):
         assert stride(dst, 0) == 1
@@ -339,3 +409,55 @@ class cudaMemsetAsync0_2i32(cudaMemsetAsync0_base):
 
     def instance(self):
         self.instance_impl("4 * {M} * {N}", htod=True)
+
+
+class cuda_packed_load_base(InstrInfo):
+    __slots__ = []
+
+    def instance(self):
+        self.instr_tl = cuda_in_order_instr
+
+    def codegen(self, args):
+        dst_ptr = args.dst.index_ptr(ptx_data=True)
+        src_ptr = args.src.index_ptr()
+        return [f"memcpy({dst_ptr}, {src_ptr}, 4);"]
+
+
+@instr
+class cuda_packed_load_f32(cuda_packed_load_base):
+    def behavior(
+        dst: [f32][1] @ CudaRmemPacked32, src: [f32][1] @ CudaBasicDeviceVisible
+    ):
+        for i in seq(0, 1):
+            dst[i] = src[i]
+
+
+@instr
+class cuda_packed_load_i32(cuda_packed_load_base):
+    def behavior(
+        dst: [i32][1] @ CudaRmemPacked32, src: [i32][1] @ CudaBasicDeviceVisible
+    ):
+        for i in seq(0, 1):
+            dst[i] = src[i]
+
+
+@instr
+class cuda_packed_load_f16(cuda_packed_load_base):
+    def behavior(
+        dst: [cu_f16][2] @ CudaRmemPacked32, src: [cu_f16][2] @ CudaBasicDeviceVisible
+    ):
+        assert stride(dst, 0) == 1
+        assert stride(src, 0) == 1
+        for i in seq(0, 2):
+            dst[i] = src[i]
+
+
+@instr
+class cuda_packed_load_bf16(cuda_packed_load_base):
+    def behavior(
+        dst: [cu_bf16][2] @ CudaRmemPacked32, src: [cu_bf16][2] @ CudaBasicDeviceVisible
+    ):
+        assert stride(dst, 0) == 1
+        assert stride(src, 0) == 1
+        for i in seq(0, 2):
+            dst[i] = src[i]
