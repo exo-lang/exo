@@ -105,7 +105,7 @@ class Sm80_BasicRmemMatrix(CudaBasicDeviceVisible):
         # Last array dimension corresponds to uint32_t-encoded matrix tile
         # Leading dimensions correspond to the Exo user's array dimensions.
         leading = "".join(f"[{c}]" for c in shape[:-2])
-        return f"unsigned {new_name}{leading}[{regcount}];"
+        return f"float {new_name}{leading}[{regcount}];"
 
     @classmethod
     def free(cls, new_name, prim_type, shape, srcinfo):
@@ -205,7 +205,7 @@ class Sm80_mma_load_base(InstrInfo):
             rhs_list.append(index("exo_mn + 0", "exo_k + 4"))
             if matrix_name == "A":
                 rhs_list.append(index("exo_mn + 8", "exo_k + 4"))
-        body = [f"  {regs}[{i}] = __float_as_uint({rhs});" for i, rhs in enumerate(rhs_list)]
+        body = [f"  {regs}[{i}] = {rhs};" for i, rhs in enumerate(rhs_list)]
         return preamble + body + ["}"]
         # fmt: on
 
@@ -326,16 +326,20 @@ class Sm80_mma_tf32:
         A_nreg = K // 2
         B_nreg = K // 4
         ptx.add_arg(
-            [f"{{D_data}}[{i}]" for i in range(D_nreg)], log_as=None, constraint="=r"
+            [f"{{D_data}}[{i}]" for i in range(D_nreg)], log_as=None, constraint="=f"
         )
         ptx.add_arg(
-            [f"{{A_data}}[{i}]" for i in range(A_nreg)], log_as=None, constraint="r"
+            [f"__float_as_uint({{A_data}}[{i}])" for i in range(A_nreg)],
+            log_as=None,
+            constraint="r",
         )
         ptx.add_arg(
-            [f"{{B_data}}[{i}]" for i in range(B_nreg)], log_as=None, constraint="r"
+            [f"__float_as_uint({{B_data}}[{i}])" for i in range(B_nreg)],
+            log_as=None,
+            constraint="r",
         )
         ptx.add_arg(
-            [f"{{D_data}}[{i}]" for i in range(D_nreg)], log_as=None, constraint="r"
+            [f"{{D_data}}[{i}]" for i in range(D_nreg)], log_as=None, constraint="f"
         )
         self.instr_format = ptx.as_c_lines(py_format=True)
         self.access_info["D"].mem = Sm80_RmemMatrixD(16, 8)
@@ -390,9 +394,7 @@ class Sm80_mma_store_d_row_major_tf32:
         self.coll_unit = cuda_warp
 
     def codegen(self, args: InstrArgs):
-        return _codegen_Sm80_d_tf32(
-            args, "  {lhs} = __uint_as_float({regs}[{i}]);", row_major=True
-        )
+        return _codegen_Sm80_d_tf32(args, "  {lhs} = {regs}[{i}];", row_major=True)
 
 
 __all__.append("Sm80_mma_store_d_row_major_tf32")
@@ -413,9 +415,7 @@ class Sm80_mma_reduce_d_row_major_tf32:
         self.coll_unit = cuda_warp
 
     def codegen(self, args: InstrArgs):
-        return _codegen_Sm80_d_tf32(
-            args, "  {lhs} += __uint_as_float({regs}[{i}]);", row_major=True
-        )
+        return _codegen_Sm80_d_tf32(args, "  {lhs} += {regs}[{i}];", row_major=True)
 
 
 __all__.append("Sm80_mma_reduce_d_row_major_tf32")
@@ -439,7 +439,7 @@ class Sm80_mma_atomic_reduce_d_row_major_tf32:
     def codegen(self, args: InstrArgs):
         return _codegen_Sm80_d_tf32(
             args,
-            "  atomicAdd(&{lhs}, __uint_as_float({regs}[{i}]));",
+            "  atomicAdd(&{lhs}, {regs}[{i}]);",
             row_major=True,
         )
 
@@ -462,9 +462,7 @@ class Sm80_mma_store_d_col_major_tf32:
         self.coll_unit = cuda_warp
 
     def codegen(self, args: InstrArgs):
-        return _codegen_Sm80_d_tf32(
-            args, "  {lhs} = __uint_as_float({regs}[{i}]);", row_major=False
-        )
+        return _codegen_Sm80_d_tf32(args, "  {lhs} = {regs}[{i}];", row_major=False)
 
 
 __all__.append("Sm80_mma_store_d_col_major_tf32")
@@ -485,9 +483,7 @@ class Sm80_mma_reduce_d_col_major_tf32:
         self.coll_unit = cuda_warp
 
     def codegen(self, args: InstrArgs):
-        return _codegen_Sm80_d_tf32(
-            args, "  {lhs} += __uint_as_float({regs}[{i}]);", row_major=False
-        )
+        return _codegen_Sm80_d_tf32(args, "  {lhs} += {regs}[{i}];", row_major=False)
 
 
 __all__.append("Sm80_mma_reduce_d_col_major_tf32")
@@ -511,7 +507,7 @@ class Sm80_mma_atomic_reduce_d_col_major_tf32:
     def codegen(self, args: InstrArgs):
         return _codegen_Sm80_d_tf32(
             args,
-            "  atomicAdd(&{lhs}, __uint_as_float({regs}[{i}]));",
+            "  atomicAdd(&{lhs}, {regs}[{i}]);",
             row_major=False,
         )
 
