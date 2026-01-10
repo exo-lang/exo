@@ -6,7 +6,7 @@ from typing import List, Dict, Optional, Tuple, Type
 
 from .cir import CIR, CIR_Wrapper, cast_to_cir
 from . import LoopIR
-from .prelude import SrcInfo
+from .prelude import SrcInfo, ScalarInfo
 
 
 class UtilInjector:
@@ -292,7 +292,7 @@ class WindowFeatures:
 @dataclass(slots=True)
 class WindowEncoderArgs:
     mem: type
-    scalar_info: object  # ScalarInfo
+    scalar_info: ScalarInfo
     n_dims: int  # Number of dimensions
     const: bool
     base_memwin_name: str
@@ -302,7 +302,7 @@ class WindowEncoderArgs:
 class WindowEncoder:
     # Filled by __init__ (if you don't override it)
     mem: type
-    scalar_info: object  # ScalarInfo
+    scalar_info: ScalarInfo
     n_dims: int
     const: bool
     _exo_base_memwin_name: str
@@ -487,7 +487,7 @@ class WindowIndexerResult:
 @dataclass(slots=True)
 class WindowIndexer:
     # Filled by __init__ (if you don't override it)
-    scalar_info: object  # ScalarInfo
+    scalar_info: ScalarInfo
     n_dims: int
     const: bool
     _exo_struct_name: Optional[str]
