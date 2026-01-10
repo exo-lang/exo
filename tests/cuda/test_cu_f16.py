@@ -148,6 +148,8 @@ def mkproc_naive_gemm(typA, typB, typC):
     p = replace(p, p.find_loop("memcpy_n"), memcpyB)
 
     p = rename(p, f"cu_f16_naive_gemm_{typA}_{typB}_{typC}")
+    p.sync_check(M=256, N=128, K=64)
+
     return p
 
 
