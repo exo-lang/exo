@@ -1100,7 +1100,7 @@ class Compiler:
             if self._in_cuda_function:
                 cuda_note = " (distributed dimensions removed)"
             raise MemGenError(
-                f"{srcinfo}: {typ} @ {mem.name()}{cuda_note} is invalid: {message}"
+                f"{srcinfo}: {symbol}: {typ} @ {mem.name()}{cuda_note} is invalid: {message}"
             )
 
         def wrap_cir(obj, attr, idx):
@@ -1128,6 +1128,7 @@ class Compiler:
             simplify_cir(lift_to_cir(e, self.range_env)) for e in shape[n_array_dims:]
         ]
 
+        # Check requirement documented in MemWin.packed_tensor_shape
         packed_const_shape: List[int] = []
         for c in cir_packed_interval_sizes:
             if isinstance(c, CIR.Const):

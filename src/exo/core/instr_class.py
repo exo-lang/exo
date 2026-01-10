@@ -446,6 +446,21 @@ class InstrWindowArg:
     _features: WindowFeatures
     _srcinfo: SrcInfo
 
+    def __post_init__(self):
+        # Check intact packed dimensions
+        # We documented we did this in MemWin.packed_tensor_shape
+        features = self._features
+        packed_tensor_shape = features.packed_tensor_shape()
+        assert features.n_packed_dims() == len(packed_tensor_shape)
+        for i, c in enumerate(packed_tensor_shape):
+            sz = features.get_packed_interval_size(i)
+            if sz is None:
+                raise ValueError(
+                    f"{features.get_raw_name()} must not have point expressions for packed dimensions (last {features.n_packed_dims()})"
+                )
+            features.get_packed_offset(i).exo_expect_int(0)
+            sz.exo_expect_int(c)
+
     def __str__(self):
         return self._get_window_impl()
 
@@ -547,19 +562,6 @@ class InstrWindowArg:
     def _get_window_impl(self, _special=False, _offsets=(), _interval_sizes=()) -> str:
         features = self._features.new_window(_offsets, _interval_sizes, self._srcinfo)
         encoder = features.get_encoder()
-
-        # Check intact packed dimensions
-        mem = features.get_mem()
-        packed_tensor_shape = features.packed_tensor_shape()
-        assert features.n_packed_dims() == len(packed_tensor_shape)
-        for i, c in enumerate(packed_tensor_shape):
-            features.get_packed_offset(i).exo_expect_int(0)
-            sz = features.get_packed_interval_size(i)
-            if sz is None:
-                raise ValueError(
-                    f"{features.get_raw_name()} must not have point expressions for packed dimensions (last {features.n_packed_dims()})"
-                )
-            sz.exo_expect_int(c)
 
         # Conditionally forbid dimensionality change
         can_change_dim = (

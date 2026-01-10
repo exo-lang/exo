@@ -274,6 +274,20 @@ class MemWin(ABC):
 
     @classmethod
     def packed_tensor_shape(cls, scalar_info: ScalarInfo) -> List[int]:
+        """Define the packed dimensions of an allocation (default, 0 dims)
+
+        The last N := len(packed_tensor_shape)-many dimensions of an allocation
+        of this memory type are packed dimensions. This imposes requirements:
+
+        * The last N-many extents of the allocated tensor size must be constant
+          integers that match the respective packed_tensor_shape elements
+          (implemented in Compiler.init_window_features)
+
+        * Window expressions for instr params or window statements
+          must use : as the last N-many index expressions
+          (implemented in InstrWindowArg.__post_init__)
+
+        """
         return ()
 
     @classmethod
