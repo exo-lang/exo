@@ -364,13 +364,14 @@ uast_prim_types = {
 }
 
 
-# UAST to LoopIR scalars (see ScalarInfo, it adds to this)
+# UAST to LoopIR non-parameterized types (see ScalarInfo, it adds to this)
 loopir_from_uast_metatype_table = {
     UAST.Num: T.R,
     UAST.Int: T.int,
     UAST.Size: T.size,
     UAST.Index: T.index,
     UAST.Stride: T.stride,
+    UAST.Bool: T.bool,
 }
 
 # ScalarInfo.extclass adds to this

@@ -1,7 +1,7 @@
-from . import LoopIR
-
 from weakref import WeakKeyDictionary
 from .prelude import *
+
+# CAUTION: cannot import LoopIR here due to circular inclusion.
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -18,34 +18,6 @@ class ConfigError(Exception):
 # nice front-end syntax for these using pyparser-style hijacking
 # Instead, we will specify a creation/factory function here
 
-# Because of the recursive inclusion, we cannot use ctype in LoopIR here..
-#
-# David Zhao Akeley 2026-01-11: This reasoning seems bogus.
-# Although LoopIR.type.ctype is not defined at the time this
-# module is loaded, it probably will be defined at the time this
-# runs in Config.c_struct_def, correct???
-def ctyp(typ):
-    if isinstance(typ, LoopIR.T.F16):
-        return "_Float16"
-    elif isinstance(typ, LoopIR.T.F32):
-        return "float"
-    elif isinstance(typ, LoopIR.T.F64):
-        return "double"
-    elif isinstance(typ, LoopIR.T.INT8):
-        return "int8_t"
-    elif isinstance(typ, LoopIR.T.INT32):
-        return "int32_t"
-    elif isinstance(typ, LoopIR.T.Bool):
-        return "bool"
-    elif (
-        isinstance(typ, LoopIR.T.Index)
-        or isinstance(typ, LoopIR.T.Size)
-        or isinstance(typ, LoopIR.T.Stride)
-    ):
-        return "int_fast32_t"
-    else:
-        assert False, f"bad case! {typ}"
-
 
 _reverse_symbol_lookup = WeakKeyDictionary()
 
@@ -60,22 +32,9 @@ class Config:
         self._fields = fields
         self._rw_ok = not disable_rw
 
-        uast_to_type = {
-            LoopIR.UAST.Size(): LoopIR.T.size,
-            LoopIR.UAST.Bool(): LoopIR.T.bool,
-            LoopIR.UAST.Index(): LoopIR.T.index,
-            LoopIR.UAST.Stride(): LoopIR.T.stride,
-            LoopIR.UAST.F16(): LoopIR.T.f16,
-            LoopIR.UAST.F32(): LoopIR.T.f32,
-            LoopIR.UAST.F64(): LoopIR.T.f64,
-            LoopIR.UAST.INT8(): LoopIR.T.i8,
-            LoopIR.UAST.INT32(): LoopIR.T.i32,
-        }
+        from .LoopIR import loopir_from_uast_metatype_table as table
 
-        for nm, typ in fields:
-            assert typ in uast_to_type
-
-        self._lookup = {nm: uast_to_type[typ] for nm, typ in fields}
+        self._lookup = {nm: table[type(typ)] for nm, typ in fields}
 
         self._field_syms = {nm: Sym(f"{name}_{nm}") for nm, typ in fields}
         for fname, sym in self._field_syms.items():
@@ -104,6 +63,6 @@ class Config:
         lines += [f"struct {self._name} {{"]
         for f in self._fields:
             ltyp = self.lookup_type(f[0])
-            lines += [f"    {ctyp(ltyp)} {f[0]};"]
+            lines += [f"    {ltyp.ctype()} {f[0]};"]
         lines += [f"}} {self._name};"]
         return lines
