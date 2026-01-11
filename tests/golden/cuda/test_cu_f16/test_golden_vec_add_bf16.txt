@@ -12,16 +12,8 @@
 #ifndef EXO_CUDA_HEADER_COMMON
 #define EXO_CUDA_HEADER_COMMON
 #include <cuda_runtime.h>
-
-#ifdef __cplusplus
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
-typedef __half exo_cu_f16;
-typedef __nv_bfloat16 exo_cu_bf16;
-#else
-typedef struct { short bits; } exo_cu_f16;
-typedef struct { short bits; } exo_cu_bf16;
-#endif
 
 #ifdef __CUDACC__
 #define EXO_CUDA_INLINE __device__ __forceinline__
@@ -108,12 +100,24 @@ extern "C" {
 #include <stdlib.h>
 
 #endif
+/* Required by CudaGmemLinear */
+/* Required by CudaRmemPacked32 */
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_exo_bf16
+#define EXO_MEMORY_GLOBAL_exo_bf16
+#ifdef __CUDACC__
+using exo_bf16 = __nv_bfloat16;
+#else
+typedef struct { short bits; } exo_bf16;
+#endif
+
+#endif
 /* Required by CudaBasicDeviceVisible */
 /* Required by DRAM */
-#ifndef EXO_MEMORY_GLOBAL_exo_win_1cu_bf16c
-#define EXO_MEMORY_GLOBAL_exo_win_1cu_bf16c
-struct exo_win_1cu_bf16c {
-    const exo_cu_bf16 * const data;
+#ifndef EXO_WIN_1BF16C
+#define EXO_WIN_1BF16C
+struct exo_win_1bf16c {
+    const exo_bf16 * const data;
     const int_fast32_t strides[1];
 };
 #endif
@@ -126,22 +130,22 @@ struct exo_win_1f32 {
     const int_fast32_t strides[1];
 };
 #endif
-// cu_f16_test_vec_add_cu_bf16(
+// f16_test_vec_add_bf16(
 //     N : size,
-//     h_x : cu_bf16[N] @DRAM,
-//     h_y : cu_bf16[N] @DRAM,
+//     h_x : bf16[N] @DRAM,
+//     h_y : bf16[N] @DRAM,
 //     h_out : f32[N] @DRAM
 // )
-void cu_f16_test_vec_add_cu_bf16( void *ctxt, int_fast32_t N, const exo_cu_bf16* h_x, const exo_cu_bf16* h_y, float* h_out );
+void f16_test_vec_add_bf16( void *ctxt, int_fast32_t N, const exo_bf16* h_x, const exo_bf16* h_y, float* h_out );
 
 
 
-struct exo_CudaDeviceArgs0_cu_f16_test_vec_add_cu_bf16;
+struct exo_CudaDeviceArgs0_f16_test_vec_add_bf16;
 
 #ifdef __CUDACC__
-__global__ void exo_deviceFunction0_cu_f16_test_vec_add_cu_bf16(__grid_constant__ const struct exo_CudaDeviceArgs0_cu_f16_test_vec_add_cu_bf16 exo_deviceArgs);
+__global__ void exo_deviceFunction0_f16_test_vec_add_bf16(__grid_constant__ const struct exo_CudaDeviceArgs0_f16_test_vec_add_bf16 exo_deviceArgs);
 #endif
-void exo_cudaLaunch0_cu_f16_test_vec_add_cu_bf16(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0_cu_f16_test_vec_add_cu_bf16* exo_deviceArgs);
+void exo_cudaLaunch0_f16_test_vec_add_bf16(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0_f16_test_vec_add_bf16* exo_deviceArgs);
 
 
 
@@ -208,10 +212,10 @@ inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
 
 #endif
 /* Required by CudaGmemLinear */
-#ifndef EXO_MEMORY_GLOBAL_exo_win_1cu_bf16
-#define EXO_MEMORY_GLOBAL_exo_win_1cu_bf16
-struct exo_win_1cu_bf16 {
-    exo_cu_bf16 * const data;
+#ifndef EXO_WIN_1BF16
+#define EXO_WIN_1BF16
+struct exo_win_1bf16 {
+    exo_bf16 * const data;
     const int_fast32_t strides[1];
 };
 #endif
@@ -241,8 +245,8 @@ struct exo_CudaRmemPacked32
 
 using exo_CudaRmemPacked32_f32 = exo_CudaRmemPacked32<float, float, float>;
 using exo_CudaRmemPacked32_i32 = exo_CudaRmemPacked32<int32_t, int32_t, int32_t>;
-using exo_CudaRmemPacked32_cu_f16 = exo_CudaRmemPacked32<int32_t, __half, __half2>;
-using exo_CudaRmemPacked32_cu_bf16 = exo_CudaRmemPacked32<int32_t, __nv_bfloat16, __nv_bfloat162>;
+using exo_CudaRmemPacked32_f16 = exo_CudaRmemPacked32<int32_t, __half, __half2>;
+using exo_CudaRmemPacked32_bf16 = exo_CudaRmemPacked32<int32_t, __nv_bfloat16, __nv_bfloat162>;
 
 #endif
 
@@ -256,39 +260,14 @@ struct exo_win_1f32c {
 };
 #endif
 // CUDA device function args -- duplicated in .cuh file
-struct exo_CudaDeviceArgs0_cu_f16_test_vec_add_cu_bf16
+struct exo_CudaDeviceArgs0_f16_test_vec_add_bf16
 {
     int_fast32_t N;  // N : size
-    exo_cu_bf16* d_x;  // d_x : cu_bf16[N] @CudaGmemLinear
-    exo_cu_bf16* d_y;  // d_y : cu_bf16[N] @CudaGmemLinear
+    exo_bf16* d_x;  // d_x : bf16[N] @CudaGmemLinear
+    exo_bf16* d_y;  // d_y : bf16[N] @CudaGmemLinear
     float* d_out;  // d_out : f32[N] @CudaGmemLinear
     EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
 };
-
-// cu_f16_test_vec_add_cu_bf16(
-//     N : size,
-//     h_x : cu_bf16[N] @DRAM,
-//     h_y : cu_bf16[N] @DRAM,
-//     h_out : f32[N] @DRAM
-// )
-void cu_f16_test_vec_add_cu_bf16( void *ctxt, int_fast32_t N, const exo_cu_bf16* h_x, const exo_cu_bf16* h_y, float* h_out ) {
-EXO_ASSUME(N % 512 == 0);
-exo_cu_bf16 *d_x = (exo_cu_bf16*) exo_cudaMallocAsync(N * sizeof(*d_x), exo_cudaStream);
-exo_cu_bf16 *d_y = (exo_cu_bf16*) exo_cudaMallocAsync(N * sizeof(*d_y), exo_cudaStream);
-float *d_out = (float*) exo_cudaMallocAsync(N * sizeof(*d_out), exo_cudaStream);
-cudaMemcpyAsync(&d_x[0], &h_x[0], 2 * N, cudaMemcpyHostToDevice, exo_cudaStream);
-cudaMemcpyAsync(&d_y[0], &h_y[0], 2 * N, cudaMemcpyHostToDevice, exo_cudaStream);
-{
-  struct exo_CudaDeviceArgs0_cu_f16_test_vec_add_cu_bf16 exo_deviceArgs = {
-    N, d_x, d_y, d_out, exo_excut_get_device_log()
-  };
-  exo_cudaLaunch0_cu_f16_test_vec_add_cu_bf16(exo_cudaStream, &exo_deviceArgs);
-}
-exo_cudaFreeAsync(d_y, exo_cudaStream);
-exo_cudaFreeAsync(d_x, exo_cudaStream);
-cudaMemcpyAsync(&h_out[0], &d_out[0], 4 * N, cudaMemcpyDeviceToHost, exo_cudaStream);
-exo_cudaFreeAsync(d_out, exo_cudaStream);
-}
 
 
 /* relying on the following instruction..."
@@ -305,6 +284,31 @@ cudaMemcpyAsync(&{dst_data}, &{src_data}, 2 * {n}, cudaMemcpyHostToDevice, exo_c
 cuda_packed_load_bf16(dst,src)
 
 */
+// f16_test_vec_add_bf16(
+//     N : size,
+//     h_x : bf16[N] @DRAM,
+//     h_y : bf16[N] @DRAM,
+//     h_out : f32[N] @DRAM
+// )
+void f16_test_vec_add_bf16( void *ctxt, int_fast32_t N, const exo_bf16* h_x, const exo_bf16* h_y, float* h_out ) {
+EXO_ASSUME(N % 512 == 0);
+exo_bf16 *d_x = (exo_bf16*) exo_cudaMallocAsync(N * sizeof(*d_x), exo_cudaStream);
+exo_bf16 *d_y = (exo_bf16*) exo_cudaMallocAsync(N * sizeof(*d_y), exo_cudaStream);
+float *d_out = (float*) exo_cudaMallocAsync(N * sizeof(*d_out), exo_cudaStream);
+cudaMemcpyAsync(&d_x[0], &h_x[0], 2 * N, cudaMemcpyHostToDevice, exo_cudaStream);
+cudaMemcpyAsync(&d_y[0], &h_y[0], 2 * N, cudaMemcpyHostToDevice, exo_cudaStream);
+{
+  struct exo_CudaDeviceArgs0_f16_test_vec_add_bf16 exo_deviceArgs = {
+    N, d_x, d_y, d_out, exo_excut_get_device_log()
+  };
+  exo_cudaLaunch0_f16_test_vec_add_bf16(exo_cudaStream, &exo_deviceArgs);
+}
+exo_cudaFreeAsync(d_y, exo_cudaStream);
+exo_cudaFreeAsync(d_x, exo_cudaStream);
+cudaMemcpyAsync(&h_out[0], &d_out[0], 4 * N, cudaMemcpyDeviceToHost, exo_cudaStream);
+exo_cudaFreeAsync(d_out, exo_cudaStream);
+}
+
 
 
 // ########################################################################
@@ -364,10 +368,10 @@ inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
 
 #endif
 /* Required by CudaGmemLinear */
-#ifndef EXO_MEMORY_GLOBAL_exo_win_1cu_bf16
-#define EXO_MEMORY_GLOBAL_exo_win_1cu_bf16
-struct exo_win_1cu_bf16 {
-    exo_cu_bf16 * const data;
+#ifndef EXO_WIN_1BF16
+#define EXO_WIN_1BF16
+struct exo_win_1bf16 {
+    exo_bf16 * const data;
     const int_fast32_t strides[1];
 };
 #endif
@@ -397,8 +401,8 @@ struct exo_CudaRmemPacked32
 
 using exo_CudaRmemPacked32_f32 = exo_CudaRmemPacked32<float, float, float>;
 using exo_CudaRmemPacked32_i32 = exo_CudaRmemPacked32<int32_t, int32_t, int32_t>;
-using exo_CudaRmemPacked32_cu_f16 = exo_CudaRmemPacked32<int32_t, __half, __half2>;
-using exo_CudaRmemPacked32_cu_bf16 = exo_CudaRmemPacked32<int32_t, __nv_bfloat16, __nv_bfloat162>;
+using exo_CudaRmemPacked32_f16 = exo_CudaRmemPacked32<int32_t, __half, __half2>;
+using exo_CudaRmemPacked32_bf16 = exo_CudaRmemPacked32<int32_t, __nv_bfloat16, __nv_bfloat162>;
 
 #endif
 
@@ -416,20 +420,20 @@ namespace exo_CudaUtil_test_golden_vec_add_bf16 {
 namespace exo_CudaUtil = ::exo_CudaUtil_test_golden_vec_add_bf16;
 }  // end namespace exo_CudaUtil_test_golden_vec_add_bf16
 // CUDA device function args -- duplicated in .c file
-struct exo_CudaDeviceArgs0_cu_f16_test_vec_add_cu_bf16
+struct exo_CudaDeviceArgs0_f16_test_vec_add_bf16
 {
     int_fast32_t N;  // N : size
-    exo_cu_bf16* d_x;  // d_x : cu_bf16[N] @CudaGmemLinear
-    exo_cu_bf16* d_y;  // d_y : cu_bf16[N] @CudaGmemLinear
+    exo_bf16* d_x;  // d_x : bf16[N] @CudaGmemLinear
+    exo_bf16* d_y;  // d_y : bf16[N] @CudaGmemLinear
     float* d_out;  // d_out : f32[N] @CudaGmemLinear
     EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
 };
 
 // We need this inline namespace to avoid ODR problems in pytest.
 inline namespace exo_CudaInline_test_golden_vec_add_bf16 {
-struct exo_Cuda0_cu_f16_test_vec_add_cu_bf16
+struct exo_Cuda0_f16_test_vec_add_bf16
 {
-  using exo_DeviceArgs = exo_CudaDeviceArgs0_cu_f16_test_vec_add_cu_bf16;
+  using exo_DeviceArgs = exo_CudaDeviceArgs0_f16_test_vec_add_bf16;
 
   static constexpr uint32_t exo_blockDim = 256;
   static constexpr uint32_t exo_clusterDim = 1;
@@ -507,12 +511,12 @@ struct exo_Cuda0_cu_f16_test_vec_add_cu_bf16
 }  // end inline namespace
 
 inline void
-exo_CudaInline_test_golden_vec_add_bf16::exo_Cuda0_cu_f16_test_vec_add_cu_bf16::exo_cudaLaunch(
+exo_CudaInline_test_golden_vec_add_bf16::exo_Cuda0_f16_test_vec_add_bf16::exo_cudaLaunch(
     cudaStream_t exo_cudaStream,
     const exo_DeviceArgs& exo_deviceArgs)
 {
   namespace exo_CudaUtil = exo_CudaUtil_test_golden_vec_add_bf16;
-  cudaFuncSetAttribute(exo_deviceFunction0_cu_f16_test_vec_add_cu_bf16, cudaFuncAttributeMaxDynamicSharedMemorySize, exo_smemBytes);
+  cudaFuncSetAttribute(exo_deviceFunction0_f16_test_vec_add_bf16, cudaFuncAttributeMaxDynamicSharedMemorySize, exo_smemBytes);
   // TODO how expensive is it to query this every time?
   int exo_cudaDevice;
   cudaGetDevice(&exo_cudaDevice);
@@ -526,7 +530,7 @@ exo_CudaInline_test_golden_vec_add_bf16::exo_Cuda0_cu_f16_test_vec_add_cu_bf16::
   exo_launchConfig.dynamicSmemBytes = exo_smemBytes;
   exo_launchConfig.stream = exo_cudaStream;
 
-  cudaLaunchKernelEx(&exo_launchConfig, exo_deviceFunction0_cu_f16_test_vec_add_cu_bf16, exo_deviceArgs);
+  cudaLaunchKernelEx(&exo_launchConfig, exo_deviceFunction0_f16_test_vec_add_bf16, exo_deviceArgs);
 
   exo_excut_flush_device_log(
       exo_cudaStream, exo_gridDim, exo_blockDim,
@@ -535,7 +539,7 @@ exo_CudaInline_test_golden_vec_add_bf16::exo_Cuda0_cu_f16_test_vec_add_cu_bf16::
 }
 
 __device__ __forceinline__ void
-exo_CudaInline_test_golden_vec_add_bf16::exo_Cuda0_cu_f16_test_vec_add_cu_bf16::exo_deviceSetup(
+exo_CudaInline_test_golden_vec_add_bf16::exo_Cuda0_f16_test_vec_add_bf16::exo_deviceSetup(
     char* exo_smem,
     const exo_DeviceArgs& exo_deviceArgs,
     exo_ExcutThreadLog exo_excutLog)
@@ -544,7 +548,7 @@ exo_CudaInline_test_golden_vec_add_bf16::exo_Cuda0_cu_f16_test_vec_add_cu_bf16::
 }
 
 __device__ __forceinline__ void
-exo_CudaInline_test_golden_vec_add_bf16::exo_Cuda0_cu_f16_test_vec_add_cu_bf16::exo_deviceTask(
+exo_CudaInline_test_golden_vec_add_bf16::exo_Cuda0_f16_test_vec_add_bf16::exo_deviceTask(
     char* exo_smem,
     exo_SyncState& exo_syncState,
     const exo_DeviceArgs& exo_deviceArgs,
@@ -552,11 +556,11 @@ exo_CudaInline_test_golden_vec_add_bf16::exo_Cuda0_cu_f16_test_vec_add_cu_bf16::
     exo_ExcutThreadLog exo_excutLog)
 {
   namespace exo_CudaUtil = exo_CudaUtil_test_golden_vec_add_bf16;
-  exo_CudaRmemPacked32_cu_bf16 rmem_x;
+  exo_CudaRmemPacked32_bf16 rmem_x;
   // cuda_threads(0, 256, unit=cuda_thread)
   if ([[maybe_unused]] int exo_1thr_tid = threadIdx.x; 1) {
     memcpy(&rmem_x.ptx_data, &exo_deviceArgs.d_x[2 * exo_1thr_tid + 512 * exo_task.task], 4);
-    exo_CudaRmemPacked32_cu_bf16 rmem_y;
+    exo_CudaRmemPacked32_bf16 rmem_y;
     memcpy(&rmem_y.ptx_data, &exo_deviceArgs.d_y[2 * exo_1thr_tid + 512 * exo_task.task], 4);
     for (int pack_st_out = 0; pack_st_out < 2; pack_st_out++) {
       exo_deviceArgs.d_out[pack_st_out + 2 * exo_1thr_tid + 512 * exo_task.task] = (float)(rmem_x[pack_st_out] + rmem_y[pack_st_out]);
@@ -564,7 +568,7 @@ exo_CudaInline_test_golden_vec_add_bf16::exo_Cuda0_cu_f16_test_vec_add_cu_bf16::
   }
 }
 __device__ __forceinline__ void
-exo_CudaInline_test_golden_vec_add_bf16::exo_Cuda0_cu_f16_test_vec_add_cu_bf16::exo_deviceMainLoop(
+exo_CudaInline_test_golden_vec_add_bf16::exo_Cuda0_f16_test_vec_add_bf16::exo_deviceMainLoop(
     char* exo_smem,
     const exo_DeviceArgs& exo_deviceArgs,
     exo_ExcutThreadLog exo_excutLog)
@@ -597,17 +601,17 @@ exo_CudaInline_test_golden_vec_add_bf16::exo_Cuda0_cu_f16_test_vec_add_cu_bf16::
 #include "test_golden_vec_add_bf16.cuh"
 __launch_bounds__(256, 1)
 __global__ void
-exo_deviceFunction0_cu_f16_test_vec_add_cu_bf16(__grid_constant__ const struct exo_CudaDeviceArgs0_cu_f16_test_vec_add_cu_bf16 exo_deviceArgs)
+exo_deviceFunction0_f16_test_vec_add_bf16(__grid_constant__ const struct exo_CudaDeviceArgs0_f16_test_vec_add_bf16 exo_deviceArgs)
 {
   extern __shared__ char exo_smem[];
   exo_ExcutThreadLog exo_excutLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
-  exo_Cuda0_cu_f16_test_vec_add_cu_bf16::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
-  exo_Cuda0_cu_f16_test_vec_add_cu_bf16::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda0_f16_test_vec_add_bf16::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda0_f16_test_vec_add_bf16::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
 }
 
 void
-exo_cudaLaunch0_cu_f16_test_vec_add_cu_bf16(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0_cu_f16_test_vec_add_cu_bf16* exo_deviceArgs)
+exo_cudaLaunch0_f16_test_vec_add_bf16(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0_f16_test_vec_add_bf16* exo_deviceArgs)
 {
-  exo_Cuda0_cu_f16_test_vec_add_cu_bf16::exo_cudaLaunch(exo_cudaStream, *exo_deviceArgs);
+  exo_Cuda0_f16_test_vec_add_bf16::exo_cudaLaunch(exo_cudaStream, *exo_deviceArgs);
 }
 

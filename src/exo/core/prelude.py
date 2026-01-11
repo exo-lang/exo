@@ -2,6 +2,7 @@ from inspect import currentframe as _curr_frame, getframeinfo as _get_frame_info
 from re import compile as _re_compile
 from dataclasses import dataclass as _dataclass, replace as _replace
 from typing import Optional as _Optional, List as _List
+from warnings import warn
 
 
 from ..API_types import ExoType as _ExoType
@@ -217,6 +218,9 @@ class ScalarInfo:
         loopir_from_uast_metatype_table[uast_metatype] = t
         uast_concrete_scalar_metatypes.append(uast_metatype)
         loopir_concrete_scalar_metatypes.append(loopir_metatype)
+
+        if shorthand == "f16":
+            _scalar_info_dict["_Float16"] = info
 
         @extclass(type(t))
         def scalar_info(t):

@@ -1230,20 +1230,14 @@ while (exo_taskGenerator.prepare_next_task()) {{
 }}"""
 
 # Paste this into the C header (.h) if any proc uses cuda.
+# TODO cuda_fp16.h and cuda_bf16.h always included even if f16/bf16 isn't used
+# but this is harder to fix than it may appear at first.
 h_snippet_for_cuda = r"""
 #ifndef EXO_CUDA_HEADER_COMMON
 #define EXO_CUDA_HEADER_COMMON
 #include <cuda_runtime.h>
-
-#ifdef __cplusplus
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
-typedef __half exo_cu_f16;
-typedef __nv_bfloat16 exo_cu_bf16;
-#else
-typedef struct { short bits; } exo_cu_f16;
-typedef struct { short bits; } exo_cu_bf16;
-#endif
 
 #ifdef __CUDACC__
 #define EXO_CUDA_INLINE __device__ __forceinline__

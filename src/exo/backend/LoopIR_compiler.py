@@ -942,7 +942,7 @@ class Compiler:
         else:
             mem = DRAM
         self.mems[symbol] = mem
-        self._mem_code_builder.register_memwin(mem)
+        self._mem_code_builder.register_memwin(mem, typ)
 
         return strnm
 
@@ -1861,12 +1861,14 @@ class MemCodeBuilder(object):
     # List of MemGlobal.name in the order received.
     code_name_order: List[str] = field(default_factory=list)
 
-    def register_memwin(self, mem: Type[MemWin]):
+    def register_memwin(self, mem: Type[MemWin], typ: LoopIR.type):
         glob = mem.global_()
         mem_name = mem.mangled_name()
         if isinstance(glob, str):
             glob = MemGlobalC(mem_name, glob)
         self._add_global(mem, glob)
+        if typ_glob := typ.scalar_mem_global():
+            self._add_global(mem, typ_glob)
 
     def register_window_encoder(self, encoder: WindowEncoder):
         depends_on = []

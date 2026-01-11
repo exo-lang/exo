@@ -12,7 +12,15 @@ from ..API_types import ExoType
 from .extern import Extern
 from .configs import Config
 from .instr_info import InstrInfo
-from .memory import DRAM, MemWin, AllocableMemWin, Memory, SpecialWindow
+from .memory import (
+    DRAM,
+    MemWin,
+    AllocableMemWin,
+    Memory,
+    SpecialWindow,
+    MemGlobalC,
+    MemIncludeC,
+)
 
 from .prelude import (
     Sym,
@@ -92,8 +100,7 @@ module LoopIR {
              attributes( srcinfo srcinfo )
 
     type = Num()
-         | CU_f16()
-         | CU_bf16()
+         | BF16()
          | F16()
          | F32()
          | F64()
@@ -147,8 +154,7 @@ module LoopIR {
     },
     memoize={
         "Num",
-        "CU_f16",
-        "CU_bf16",
+        "BF16",
         "F16",
         "F32",
         "F64",
@@ -212,8 +218,7 @@ module UAST {
             attributes( srcinfo srcinfo )
 
     type    = Num   ()
-            | CU_f16()
-            | CU_bf16()
+            | BF16()
             | F16   ()
             | F32   ()
             | F64   ()
@@ -246,8 +251,7 @@ module UAST {
     },
     memoize={
         "Num",
-        "CU_f16",
-        "CU_bf16",
+        "BF16",
         "F16",
         "F32",
         "F64",
@@ -311,8 +315,7 @@ module PAST {
 
 class T:
     Num = LoopIR.Num
-    CU_f16 = LoopIR.CU_f16
-    CU_bf16 = LoopIR.CU_bf16
+    BF16 = LoopIR.BF16
     F16 = LoopIR.F16
     F32 = LoopIR.F32
     F64 = LoopIR.F64
@@ -332,8 +335,7 @@ class T:
     WithContextT = LoopIR.WithContext
     type = LoopIR.type
     R = Num()
-    cu_f16 = CU_f16()
-    cu_bf16 = CU_bf16()
+    bf16 = BF16()
     f16 = F16()
     f32 = F32()
     int8 = INT8()
@@ -389,9 +391,8 @@ del scalar_info
 # here, then unfortunately manually edit the LoopIR and UAST and T
 # and ExoType class definitions to add the type to the grammar.
 # fmt: off
-ScalarInfo.extclass(UAST.CU_f16(),      T.cu_f16,       ExoType.CU_f16, "cu_f16",       "exo_cu_f16",   16)
-ScalarInfo.extclass(UAST.CU_bf16(),     T.cu_bf16,      ExoType.CU_bf16,"cu_bf16",      "exo_cu_bf16",  16)
-ScalarInfo.extclass(UAST.F16(),         T.f16,          ExoType.F16,    "f16",          "_Float16",     16)
+ScalarInfo.extclass(UAST.BF16(),        T.bf16,         ExoType.BF16,   "bf16",         "exo_bf16",     16)
+ScalarInfo.extclass(UAST.F16(),         T.f16,          ExoType.F16,    "f16",          "exo_f16",      16)
 ScalarInfo.extclass(UAST.F32(),         T.f32,          ExoType.F32,    "f32",          "float",        32)
 ScalarInfo.extclass(UAST.F64(),         T.f64,          ExoType.F64,    "f64",          "double",       64)
 ScalarInfo.extclass(UAST.INT8(),        T.i8,           ExoType.I8,     "i8",           "int8_t",       8)
@@ -415,6 +416,52 @@ def extclass_UAST_concrete_scalars(f):
     for t in uast_concrete_scalar_metatypes:
         f = extclass(t)(f)
     return f
+
+
+# MemGlobalC will double-duty as a way to inject optional f16/bf16 typedefs.
+# This is not very well thought out.
+# Can be improved if we have to add more not-so-portable types besides f16/bf16.
+
+
+@extclass(LoopIR.type)
+def scalar_mem_global(t):
+    return None
+
+
+@extclass(T.BF16)
+def scalar_mem_global(t):
+    code = """#ifdef __CUDACC__
+using exo_bf16 = __nv_bfloat16;
+#else
+typedef struct { short bits; } exo_bf16;
+#endif
+"""
+    return MemGlobalC("exo_bf16", code, ())
+    # Crappy issue: we don't include cuda_fp16.h or cuda_bf16.h here, because
+    # MemGlobalC appears in extern "C", and using MemIncludeC will force the include
+    # even if cuda isn't used (which would force dependence on cuda toolkit)
+    #
+    # Further issue, could be host/device C++ mangling issues due to not
+    # having the same underlying type for host and device code.
+
+
+@extclass(T.F16)
+def scalar_mem_global(t):
+    code = """#ifdef __CUDACC__
+using exo_f16 = __half;
+#elif defined(__STDCPP_FLOAT16_T__)
+typedef _Float16 exo_f16;
+#else
+typedef struct { short bits; } exo_f16;
+#endif
+"""
+    return MemGlobalC("exo_f16", code, ())
+
+
+@extclass(T.Tensor)
+@extclass(T.Window)
+def scalar_mem_global(t):
+    return t.basetype().scalar_mem_global()
 
 
 # --------------------------------------------------------------------------- #

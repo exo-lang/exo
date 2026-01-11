@@ -19,6 +19,11 @@ class ConfigError(Exception):
 # Instead, we will specify a creation/factory function here
 
 # Because of the recursive inclusion, we cannot use ctype in LoopIR here..
+#
+# David Zhao Akeley 2026-01-11: This reasoning seems bogus.
+# Although LoopIR.type.ctype is not defined at the time this
+# module is loaded, it probably will be defined at the time this
+# runs in Config.c_struct_def, correct???
 def ctyp(typ):
     if isinstance(typ, LoopIR.T.F16):
         return "_Float16"

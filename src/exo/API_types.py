@@ -10,8 +10,7 @@ class ProcedureBase:
 
 
 class ExoType(Enum):
-    CU_f16 = auto()
-    CU_bf16 = auto()
+    BF16 = auto()
     F16 = auto()
     F32 = auto()
     F64 = auto()

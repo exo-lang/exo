@@ -12,16 +12,8 @@
 #ifndef EXO_CUDA_HEADER_COMMON
 #define EXO_CUDA_HEADER_COMMON
 #include <cuda_runtime.h>
-
-#ifdef __cplusplus
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
-typedef __half exo_cu_f16;
-typedef __nv_bfloat16 exo_cu_bf16;
-#else
-typedef struct { short bits; } exo_cu_f16;
-typedef struct { short bits; } exo_cu_bf16;
-#endif
 
 #ifdef __CUDACC__
 #define EXO_CUDA_INLINE __device__ __forceinline__
@@ -323,7 +315,7 @@ exo_CudaInline_test_matrix_in_CudaWarps_positive::exo_Cuda0_proc_matrix_in_CudaW
   }
   // CudaWarps(3, 4)
   if (int CudaWarps_3_4_ = threadIdx.x; CudaWarps_3_4_ >= 96 && CudaWarps_3_4_ < 128) {
-    unsigned warp_rmem[4];
+    float warp_rmem[4];
     warp_rmem[0] = 0;
     warp_rmem[1] = 0;
     warp_rmem[2] = 0;

@@ -405,8 +405,8 @@ struct exo_CudaRmemPacked32
 
 using exo_CudaRmemPacked32_f32 = exo_CudaRmemPacked32<float, float, float>;
 using exo_CudaRmemPacked32_i32 = exo_CudaRmemPacked32<int32_t, int32_t, int32_t>;
-using exo_CudaRmemPacked32_cu_f16 = exo_CudaRmemPacked32<int32_t, __half, __half2>;
-using exo_CudaRmemPacked32_cu_bf16 = exo_CudaRmemPacked32<int32_t, __nv_bfloat16, __nv_bfloat162>;
+using exo_CudaRmemPacked32_f16 = exo_CudaRmemPacked32<int32_t, __half, __half2>;
+using exo_CudaRmemPacked32_bf16 = exo_CudaRmemPacked32<int32_t, __nv_bfloat16, __nv_bfloat162>;
 
 #endif
 """,
@@ -441,7 +441,7 @@ class CudaRmemPacked32(CudaBasicDeviceVisible):
 
     """
 
-    allowed_types = {"f32", "i32", "cu_f16", "cu_bf16"}
+    allowed_types = {"f32", "i32", "f16", "bf16"}
 
     @classmethod
     def global_(cls):
@@ -454,7 +454,6 @@ class CudaRmemPacked32(CudaBasicDeviceVisible):
         scalar_info = ScalarInfo(prim_type)
         gpuir_name = scalar_info.shorthand
         if gpuir_name not in cls.allowed_types:
-            assert gpuir_name != "f16", "use cu_f16"
             raise TypeError(f"CudaRmemPacked32 doesn't support {gpuir_name}")
         # Don't generate array dimensions for final (bit-packed) dimension.
         dims = [f"[{n}]" for n in const_shape[:-1]]

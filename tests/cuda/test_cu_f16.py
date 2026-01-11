@@ -68,16 +68,16 @@ def mkproc_naive_gemm(typA, typB, typC):
         M: size,
         N: size,
         K: size,
-        h_A: cu_f16[M, K] @ DRAM,
-        h_B: cu_f16[N, K] @ DRAM,
+        h_A: f16[M, K] @ DRAM,
+        h_B: f16[N, K] @ DRAM,
         h_C: f32[N, M] @ DRAM,
     ):
         assert M % 128 == 0
         assert N % 128 == 0
         assert K % 32 == 0
 
-        d_A: cu_f16[M, K] @ CudaGmemLinear
-        d_B: cu_f16[N, K] @ CudaGmemLinear
+        d_A: f16[M, K] @ CudaGmemLinear
+        d_B: f16[N, K] @ CudaGmemLinear
         d_C: f32[N, M] @ CudaGmemLinear
 
         # Replaced with cudaMemcpyAsync_htod_2{b}f16
@@ -91,8 +91,8 @@ def mkproc_naive_gemm(typA, typB, typC):
         with CudaDeviceFunction(blockDim=128, blocks_per_sm=3):
             for m_cta in cuda_tasks(0, M / 128):
                 for n_cta in cuda_tasks(0, N / 128):
-                    s_A: cu_f16[128, 32] @ Sm90_SmemSwizzled(128)
-                    s_B: cu_f16[128, 32] @ CudaSmemLinear
+                    s_A: f16[128, 32] @ Sm90_SmemSwizzled(128)
+                    s_B: f16[128, 32] @ CudaSmemLinear
                     r_C: f32[128, 128] @ CudaRmem
 
                     for m in cuda_threads(0, 128):
@@ -136,26 +136,26 @@ def mkproc_naive_gemm(typA, typB, typC):
     p = set_precision(p, "d_C", typC)
     p = set_precision(p, "h_C", typC)  # Leave r_C as f32
 
-    if typA == "cu_f16":
+    if typA == "f16":
         memcpyA = cudaMemcpyAsync_htod_2f16()
     else:
         memcpyA = cudaMemcpyAsync_htod_2bf16()
-    if typB == "cu_f16":
+    if typB == "f16":
         memcpyB = cudaMemcpyAsync_htod_2f16()
     else:
         memcpyB = cudaMemcpyAsync_htod_2bf16()
     p = replace(p, p.find_loop("memcpy_m"), memcpyA)
     p = replace(p, p.find_loop("memcpy_n"), memcpyB)
 
-    p = rename(p, f"cu_f16_naive_gemm_{typA}_{typB}_{typC}")
+    p = rename(p, f"f16_naive_gemm_{typA}_{typB}_{typC}")
     p.sync_check(M=256, N=128, K=64)
 
     return p
 
 
 def naive_gemm_test_impl(compiler_Sm80, typA, typB, typC):
-    assert typA in ("cu_f16", "cu_bf16")
-    assert typB in ("cu_f16", "cu_bf16")
+    assert typA in ("f16", "bf16")
+    assert typB in ("f16", "bf16")
     assert typC == "f32"
 
     cu = compiler_Sm80.cuda_test_context(
@@ -171,13 +171,13 @@ def naive_gemm_test_impl(compiler_Sm80, typA, typB, typC):
 
         rand = random.Random(3090)
 
-        table = f16_table if typA == "cu_f16" else bf16_table
+        table = f16_table if typA == "f16" else bf16_table
         for m in range(0, M):
             for k in range(0, K):
                 value, bits = rand.choice(table)
                 A_f32[m, k] = value
                 A_bits16[m, k] = bits
-        table = f16_table if typB == "cu_f16" else bf16_table
+        table = f16_table if typB == "f16" else bf16_table
         for n in range(0, N):
             for k in range(0, K):
                 value, bits = rand.choice(table)
@@ -190,32 +190,32 @@ def naive_gemm_test_impl(compiler_Sm80, typA, typB, typC):
         assert np.array_equal(C_f32_result, C_f32_expected)
 
 
-def test_golden_naive_cu_f16_gemm(compiler, golden):
+def test_golden_naive_f16_gemm(compiler, golden):
     compiler.cuda_cpu_test(
-        mkproc_naive_gemm, golden=golden, typA="cu_f16", typB="cu_f16", typC="f32"
+        mkproc_naive_gemm, golden=golden, typA="f16", typB="f16", typC="f32"
     )
 
 
-def test_golden_naive_cu_bf16_gemm(compiler, golden):
+def test_golden_naive_bf16_gemm(compiler, golden):
     compiler.cuda_cpu_test(
-        mkproc_naive_gemm, golden=golden, typA="cu_bf16", typB="cu_bf16", typC="f32"
+        mkproc_naive_gemm, golden=golden, typA="bf16", typB="bf16", typC="f32"
     )
 
 
-def test_run_naive_cu_f16_gemm(compiler_Sm80):
-    naive_gemm_test_impl(compiler_Sm80, "cu_f16", "cu_f16", "f32")
+def test_run_naive_f16_gemm(compiler_Sm80):
+    naive_gemm_test_impl(compiler_Sm80, "f16", "f16", "f32")
 
 
-def test_run_naive_cu_bf16_gemm(compiler_Sm80):
-    naive_gemm_test_impl(compiler_Sm80, "cu_bf16", "cu_bf16", "f32")
+def test_run_naive_bf16_gemm(compiler_Sm80):
+    naive_gemm_test_impl(compiler_Sm80, "bf16", "bf16", "f32")
 
 
 def mkproc_vec_add(in_typ):
-    if in_typ == "cu_f16":
+    if in_typ == "f16":
         memcpy = cudaMemcpyAsync_htod_1f16()
         ld = cuda_packed_load_f16()
         num_packed = 2
-    elif in_typ == "cu_bf16":
+    elif in_typ == "bf16":
         memcpy = cudaMemcpyAsync_htod_1bf16()
         ld = cuda_packed_load_bf16()
         num_packed = 2
@@ -276,7 +276,7 @@ def mkproc_vec_add(in_typ):
     p = replace(p, p.find_loop("d_y_init_n"), memcpy)
     p = replace(p, p.find_loop("pack_ld_x"), ld)
     p = replace(p, p.find_loop("pack_ld_y"), ld)
-    p = rename(p, f"cu_f16_test_vec_add_{in_typ}")
+    p = rename(p, f"f16_test_vec_add_{in_typ}")
     p = simplify(p)
     return p
 
@@ -290,8 +290,8 @@ def vec_add_test_impl(compiler_Sm80, in_typ):
 
     rand = random.Random(3090)
 
-    if in_typ == "cu_f16" or in_typ == "cu_bf16":
-        table = f16_table if in_typ == "cu_f16" else bf16_table
+    if in_typ == "f16" or in_typ == "bf16":
+        table = f16_table if in_typ == "f16" else bf16_table
         x_bits = np.ndarray(shape=(N,), dtype=np.uint16)
         y_bits = np.ndarray(shape=(N,), dtype=np.uint16)
         for n in range(N):
@@ -324,19 +324,19 @@ def vec_add_test_impl(compiler_Sm80, in_typ):
 
 
 def test_golden_vec_add_f16(compiler, golden):
-    compiler.cuda_cpu_test(mkproc_vec_add, golden=golden, in_typ="cu_f16")
+    compiler.cuda_cpu_test(mkproc_vec_add, golden=golden, in_typ="f16")
 
 
 def test_run_vec_add_f16(compiler_Sm80):
-    vec_add_test_impl(compiler_Sm80, in_typ="cu_f16")
+    vec_add_test_impl(compiler_Sm80, in_typ="f16")
 
 
 def test_golden_vec_add_bf16(compiler, golden):
-    compiler.cuda_cpu_test(mkproc_vec_add, golden=golden, in_typ="cu_bf16")
+    compiler.cuda_cpu_test(mkproc_vec_add, golden=golden, in_typ="bf16")
 
 
 def test_run_vec_add_bf16(compiler_Sm80):
-    vec_add_test_impl(compiler_Sm80, in_typ="cu_bf16")
+    vec_add_test_impl(compiler_Sm80, in_typ="bf16")
 
 
 def test_golden_vec_add_f32(compiler, golden):
