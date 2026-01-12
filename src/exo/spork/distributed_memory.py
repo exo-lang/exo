@@ -460,7 +460,6 @@ class DistributedIdxFsm:
         # expects multiple shards, we need to tile the usage_coll_tiling
         # based on what's going on inside the instr, and save a "synthetic"
         # ThreadIter used to identify this internal parallelization.
-        assert len(callee_coll_units) <= 1, "manually check this works"
         idx_i = -1
         for unit_i, unit in enumerate(callee_coll_units):
             # Search for the next interval in idx_node.idx to match with
