@@ -84,7 +84,8 @@ class SyncStateBuilder:
         barrier_mechanism = usage.barrier_mechanism
         suffix = self._assign_suffix(name)
         if usage.is_fence():
-            if usage.get_arrive().sync_tl == timelines.wgmma_fence_1:
+            L1 = usage.get_arrive().sync_tl
+            if L1 == timelines.wgmma_fence_1:
                 self.add_wgmma_fence(name, usage, coll_tilings, thread_iters, suffix)
             else:
                 self.add_garden_variety_or_cluster_sync(
@@ -371,6 +372,8 @@ class SyncStateBuilder:
                 is_Sm80_cp_async = True
             elif timelines.cuda_in_order.implements_first(sync_tl):
                 is_Sm80_cp_async = False
+            elif timelines.tcgen05_commit.implements_first(sync_tl):
+                assert 0, "Luca needs to implement this"
             elif timelines.tma_to_smem_async.implements_first(sync_tl):
                 raise ValueError(
                     f"{info.get_srcinfo()}: mbarrier Arrive sync-tl {sync_tl} "
@@ -378,7 +381,7 @@ class SyncStateBuilder:
             else:
                 raise ValueError(
                     f"{info.get_srcinfo()}: mbarrier Arrive sync-tl {sync_tl} "
-                    f"not supported: need cuda_in_order or Sm80_cp_async")
+                    f"not supported: need cuda_in_order, Sm80_cp_async, or tcgen05_commit")
 
             lines = self.SyncState_lines
             idx = f"ArriveIdx{nm_suffix}"
@@ -435,6 +438,14 @@ class SyncStateBuilder:
                 proxy_fence = False
             elif timelines.cuda_generic_and_async_proxy.implements_second(L2):
                 proxy_fence = True
+                if timelines.cuda_temporal.implements_first(L1):
+                    # No values from the first full visibility set are being made
+                    # visible so no proxy fence regardless of second sync timeline.
+                    # This is done afterwards, to check invalid L2 above first.
+                    proxy_fence = False
+                if timelines.tcgen05_commit.implements_first(L1):
+                    # tcgen05 actions are already in the async proxy, so no proxy fence.
+                    proxy_fence = False
             else:
                 if L2 == timelines.wgmma_async:
                     remark = "consider cuda_generic_and_async_proxy"
@@ -445,12 +456,6 @@ class SyncStateBuilder:
                 raise ValueError(
                     f"{info.get_srcinfo()}: mbarrier Await sync-tl {L2} "
                     f"not supported ({remark})")
-
-            if timelines.cuda_temporal.implements_first(L1):
-                # No values from the first full visibility set are being made
-                # visible so no proxy fence regardless of second sync timeline.
-                # This is done afterwards, to check invalid L2 above first.
-                proxy_fence = False
 
             lines = self.SyncState_lines
             idx = f"AwaitIdx{nm_suffix}"
