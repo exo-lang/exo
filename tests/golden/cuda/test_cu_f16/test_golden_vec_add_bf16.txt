@@ -105,10 +105,12 @@ extern "C" {
 /* Required by DRAM */
 #ifndef EXO_MEMORY_GLOBAL_exo_bf16
 #define EXO_MEMORY_GLOBAL_exo_bf16
+#ifndef exo_bf16  /* Define before inclusion to override exo_bf16 */
 #ifdef __CUDACC__
 using exo_bf16 = __nv_bfloat16;
 #else
 typedef struct { short bits; } exo_bf16;
+#endif
 #endif
 
 #endif

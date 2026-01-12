@@ -431,10 +431,12 @@ def scalar_mem_global(t):
 
 @extclass(T.BF16)
 def scalar_mem_global(t):
-    code = """#ifdef __CUDACC__
+    code = """#ifndef exo_bf16  /* Define before inclusion to override exo_bf16 */
+#ifdef __CUDACC__
 using exo_bf16 = __nv_bfloat16;
 #else
 typedef struct { short bits; } exo_bf16;
+#endif
 #endif
 """
     return MemGlobalC("exo_bf16", code, ())
@@ -448,12 +450,14 @@ typedef struct { short bits; } exo_bf16;
 
 @extclass(T.F16)
 def scalar_mem_global(t):
-    code = """#ifdef __CUDACC__
+    code = """#ifndef exo_f16  /* Define before inclusion to override exo_f16 */
+#ifdef __CUDACC__
 using exo_f16 = __half;
 #elif defined(__STDCPP_FLOAT16_T__)
 typedef _Float16 exo_f16;
 #else
 typedef struct { short bits; } exo_f16;
+#endif
 #endif
 """
     return MemGlobalC("exo_f16", code, ())

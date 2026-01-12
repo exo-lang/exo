@@ -10,12 +10,14 @@
 /* Required by DRAM */
 #ifndef EXO_MEMORY_GLOBAL_exo_f16
 #define EXO_MEMORY_GLOBAL_exo_f16
+#ifndef exo_f16  /* Define before inclusion to override exo_f16 */
 #ifdef __CUDACC__
 using exo_f16 = __half;
 #elif defined(__STDCPP_FLOAT16_T__)
 typedef _Float16 exo_f16;
 #else
 typedef struct { short bits; } exo_f16;
+#endif
 #endif
 
 #endif
