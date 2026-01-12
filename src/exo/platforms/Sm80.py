@@ -49,6 +49,16 @@ class cp_async_impl(InstrInfo):
             raise ValueError(f"cp.async copies 4, 8, or 16 bytes, not {n_bytes}")
         self.instr_tl = Sm80_cp_async_instr
         self.n_bytes = n_bytes
+        self.access_info["smem"].out_of_order = True
+        self.access_info["gmem"].out_of_order = True
+
+    def codegen(self, args):
+        cg_ca = "cg" if self.n_bytes == 16 else "ca"
+        ptx = InlinePtxGen(f"cp.async.{cg_ca}.shared.global #0#;", volatile=True)
+        ptx.add_arg(str(args.smem.index_ptr()), constraint="smem", log_as="bits")
+        ptx.add_arg(str(args.gmem.index_ptr()), constraint="generic", log_as="bits")
+        ptx.add_arg(self.n_bytes, constraint="n", log_as="bits")
+        return ptx.as_c_lines(py_format=False)
 
 
 @instr
@@ -65,16 +75,6 @@ class Sm80_cp_async_f32(cp_async_impl):
 
     def instance(self, size):
         self.instance_impl(4 * size)
-        self.access_info["smem"].out_of_order = True
-        self.access_info["gmem"].out_of_order = True
-
-    def codegen(self, args):
-        cg_ca = "cg" if self.n_bytes == 16 else "ca"
-        ptx = InlinePtxGen(f"cp.async.{cg_ca}.shared.global #0#;", volatile=True)
-        ptx.add_arg(str(args.smem.index_ptr()), constraint="smem", log_as="bits")
-        ptx.add_arg(str(args.gmem.index_ptr()), constraint="generic", log_as="bits")
-        ptx.add_arg(self.n_bytes, constraint="n", log_as="bits")
-        return ptx.as_c_lines(py_format=False)
 
 
 __all__.append("Sm80_cp_async_f32")
