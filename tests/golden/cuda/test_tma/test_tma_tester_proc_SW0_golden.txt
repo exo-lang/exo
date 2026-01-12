@@ -245,7 +245,7 @@ struct exo_win_1f32 {
     const int_fast32_t strides[1];
 };
 #endif
-/* Required by CudaGmemLinear */
+/* Required by CudaGmemAtomicity16B */
 #ifndef EXO_WIN_1F32C
 #define EXO_WIN_1F32C
 struct exo_win_1f32c {
@@ -464,7 +464,7 @@ struct exo_win_1f32 {
     const int_fast32_t strides[1];
 };
 #endif
-/* Required by CudaGmemLinear */
+/* Required by CudaGmemAtomicity16B */
 #ifndef EXO_WIN_1F32C
 #define EXO_WIN_1F32C
 struct exo_win_1f32c {

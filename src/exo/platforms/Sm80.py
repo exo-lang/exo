@@ -56,9 +56,10 @@ class Sm80_cp_async_f32(cp_async_impl):
     def behavior(
         size: size,
         smem: [f32][size] @ CudaSmemAtomicity16B,
-        gmem: [f32][size] @ CudaGmemLinear,
+        gmem: [f32][size] @ CudaGmemAtomicity16B,
     ):
         assert stride(smem, 0) == 1
+        assert stride(gmem, 0) == 1
         for i in seq(0, size):
             smem[i] = gmem[i]
 

@@ -299,7 +299,17 @@ inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
 """
 
 
-class CudaGmemLinear(CudaDeviceVisibleLinear):
+class CudaGmemAtomicity16B(CudaDeviceVisibleAtomicity16B):
+    """Any shared memory with CudaDeviceVisibleAtomicity16B requirements met.
+
+    Abstract base class, not allocable.
+
+    """
+
+    pass
+
+
+class CudaGmemLinear(CudaDeviceVisibleLinear, CudaGmemAtomicity16B):
     """Global memory in C array order
 
     Consider CudaDeviceVisibleLinear when you do not truly need this
