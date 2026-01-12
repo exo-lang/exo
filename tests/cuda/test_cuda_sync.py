@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import random
 import numpy as np
 import pytest
 
@@ -1177,3 +1178,218 @@ def test_garden_wrong_special_case_L2(compiler):
             special_second_sync_tl=cuda_in_order,
         )
     assert "collective unit matched no known case" in str(exc.value)
+
+
+def mkproc_cp_async_commit_group(ring, ntid, scale, K_tile, M=0, K=0, sync_check=False):
+    # Overcomplicated kernel that sets h_out = scale * h_in.
+    # M, K ignored (compatibility with mkref_cp_async_commit_group).
+    del M
+    del K
+
+    @proc
+    def p(M: size, K: size, h_out: f32[M, K], h_in: f32[M, K]):
+        assert M % ntid == 0
+        assert K % K_tile == 0
+        d_in: f32[M, K] @ CudaGmemLinear
+        d_out: f32[M, K] @ CudaGmemLinear
+        cudaMemcpyAsync_htod_2f32(M, K, d_in[:, :], h_in[:, :])
+
+        # fmt: off
+        with CudaDeviceFunction(blockDim=ntid):
+            for m_task in cuda_tasks(0, M / ntid):
+                cg: barrier[ntid] @ CudaCommitGroup
+                smem: f32[ring, ntid, K_tile] @ CudaSmemLinear
+                # Load K tiles 0, ..., ring - 2
+                for warmup in seq(0, ring - 2):
+                    for tid in cuda_threads(0, ntid):
+                        if warmup < K / K_tile:
+                            for k_cp in seq(0, K_tile / 4):
+                                Sm80_cp_async_f32(
+                                    smem[warmup, tid, 4 * k_cp : 4 * k_cp + 4],
+                                    d_in[m_task * ntid + tid,
+                                        K_tile * warmup + 4 * k_cp
+                                      : K_tile * warmup + 4 * k_cp + 4],
+                                                  size=4)
+                        Arrive(Sm80_cp_async) >> cg[tid]
+                for k_iter in seq(0, K / K_tile):
+                    for tid in cuda_threads(0, ntid):
+                        # Load K tile k_iter + ring - 2
+                        if k_iter + (ring - 2) < K / K_tile:
+                            for k_cp in seq(0, K_tile / 4):
+                                Sm80_cp_async_f32(smem[(k_iter + ring - 2) % ring, tid, 4 * k_cp : 4 * k_cp + 4],
+                                                  d_in[m_task * ntid + tid,
+                                                      K_tile * (k_iter + ring - 2) + 4 * k_cp
+                                                    : K_tile * (k_iter + ring - 2) + 4 * k_cp + 4],
+                                                  size=4)
+                        Arrive(Sm80_cp_async) >> cg[tid]
+                        Await(cg[tid], cuda_in_order, ring - 2)
+                    Fence(cuda_in_order, cuda_in_order)
+                    for ms in seq(0, K_tile):
+                        # Write out scaled version of K tile number k_iter
+                        for mt in cuda_threads(0, ntid / K_tile, unit=K_tile*cuda_thread):
+                            for k in cuda_threads(0, K_tile):
+                                d_out[
+                                    m_task * ntid + ms * (ntid / K_tile) + mt,
+                                    k_iter * K_tile + k] = (scale *
+                                        smem[k_iter % ring,
+                                             ms * (ntid / K_tile) + mt,
+                                             k])
+
+                # Required to de-allocate SMEM safely.
+                for tid in cuda_threads(0, ntid):
+                    Await(cg[tid], cuda_in_order, 0)
+                Fence(cuda_in_order, cuda_in_order)
+
+        cudaMemcpyAsync_dtoh_2f32(M, K, h_out[:,:], d_out[:,:])
+
+    p = simplify(p)
+    p = rename(p, f"_{ring}_{ntid}_{K_tile}_cp_async_commit_group")
+    if sync_check:
+        p.sync_check(M=ntid * 2, K=K_tile * (ring + 2))
+    return p
+
+
+def cp_async_commit_group_test_value_impl(
+    compiler_Sm80, ring, ntid, scale, K_tile, M, K
+):
+    cu = compiler_Sm80.cuda_test_context(
+        mkproc_cp_async_commit_group(ring=ring, ntid=ntid, scale=scale, K_tile=K_tile)
+    )
+    h_in = np.ndarray(shape=(M, K), dtype=np.float32)
+    h_out = np.ndarray(shape=(M, K), dtype=np.float32)
+
+    rand = random.Random(5000)
+    for m in range(0, M):
+        for k in range(0, K):
+            h_in[m, k] = rand.randrange(-10000, 10000)
+
+    expected = scale * h_in
+    cu(None, M, K, h_out, h_in)
+    assert np.array_equal(h_out, expected)
+
+
+def mkref_cp_async_commit_group(
+    xrg: excut.ExcutReferenceGenerator,
+    ring,
+    ntid,
+    scale,
+    K_tile,
+    M,
+    K,
+    sync_check=False,
+):
+    # scale, sync_check unused (compatibility with mkproc_cp_async_commit_group)
+    cp_async_seq_len = K_tile // 4
+
+    def log_cp_async_seq():
+        for k_cp in range(0, cp_async_seq_len):
+            xrg("cp.async.cg.shared.global", excut.sink, excut.sink, excut.sink)
+
+    xrg.begin_cuda()
+    for m_task in xrg.stride_blockIdx(M // ntid):
+        # Load K tiles 0, ..., ring - 2
+        for warmup in range(0, ring - 2):
+            for tid in xrg.stride_threadIdx(ntid):
+                if warmup < K // K_tile:
+                    log_cp_async_seq()
+                xrg("cp.async.commit_group")
+        for k_iter in range(0, K // K_tile):
+            for tid in xrg.stride_threadIdx(ntid):
+                # Load K tile k_iter + ring - 2
+                if k_iter + (ring - 2) < K / K_tile:
+                    log_cp_async_seq()
+                xrg("cp.async.commit_group")
+                xrg("cp.async.wait_group", ring - 2)
+                xrg("barrier.cta.sync", 0)
+            # Write out scaled version of K tile number k_iter
+            # No excut logging done here (that we care about).
+        # Required to de-allocate SMEM safely.
+        for tid in xrg.stride_threadIdx(ntid):
+            xrg("cp.async.wait_group", 0)
+            xrg("barrier.cta.sync", 0)
+    xrg.end_cuda()
+
+
+cp_async_commit_group_A_args = dict(
+    ring=4,
+    ntid=128,
+    scale=3,
+    K_tile=32,
+)
+
+cp_async_commit_group_B_args = dict(
+    ring=6,
+    ntid=256,
+    scale=3,
+    K_tile=8,
+)
+
+
+def test_golden_A_cp_async_commit_group(compiler, golden):
+    compiler.cuda_cpu_test(
+        mkproc_cp_async_commit_group,
+        sync_check=True,
+        golden=golden,
+        M=1024,
+        K=1536,
+        **cp_async_commit_group_A_args,
+    )
+
+
+def test_golden_B_cp_async_commit_group(compiler, golden):
+    compiler.cuda_cpu_test(
+        mkproc_cp_async_commit_group,
+        sync_check=True,
+        golden=golden,
+        M=1536,
+        K=1024,
+        **cp_async_commit_group_B_args,
+    )
+
+
+def test_value_A_cp_async_commit_group(compiler_Sm80):
+    cp_async_commit_group_test_value_impl(
+        compiler_Sm80, M=1024, K=1536, **cp_async_commit_group_A_args
+    )
+
+
+def test_value_B_cp_async_commit_group(compiler_Sm80):
+    cp_async_commit_group_test_value_impl(
+        compiler_Sm80, M=1536, K=1024, **cp_async_commit_group_B_args
+    )
+
+
+def test_excut_A_cp_async_commit_group(compiler_Sm80):
+    M = 256
+    K = 192
+    h_in = np.ndarray(shape=(M, K), dtype=np.float32)
+    h_out = np.ndarray(shape=(M, K), dtype=np.float32)
+    compiler_Sm80.excut_test(
+        mkproc_cp_async_commit_group,
+        mkref_cp_async_commit_group,
+        M,
+        K,
+        h_out,
+        h_in,
+        M=M,
+        K=K,
+        **cp_async_commit_group_A_args,
+    )
+
+
+def test_excut_B_cp_async_commit_group(compiler_Sm80):
+    M = 256
+    K = 192
+    h_in = np.ndarray(shape=(M, K), dtype=np.float32)
+    h_out = np.ndarray(shape=(M, K), dtype=np.float32)
+    compiler_Sm80.excut_test(
+        mkproc_cp_async_commit_group,
+        mkref_cp_async_commit_group,
+        M,
+        K,
+        h_out,
+        h_in,
+        M=M,
+        K=K,
+        **cp_async_commit_group_B_args,
+    )
