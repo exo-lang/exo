@@ -67,15 +67,31 @@ wgmma_async_instr = Instr_tl("wgmma_async_instr")
 """Sets scale-d = 0 for the next wgmma.mma_async instr"""
 wgmma_zero_instr = Instr_tl("wgmma_zero_instr")
 
-"""tcgen05 instructions (TODO)"""
-tcgen05_async_instr = Instr_tl("tcgen05_async_instr")
+"""tcgen05.mma instructions"""
+tcgen05_mma_instr = Instr_tl("tcgen05_mma_instr")
+
+"""tcgen05.cp instructions"""
+tcgen05_cp_instr = Instr_tl("tcgen05_cp_instr")
+
+"""tcgen05.cp instructions"""
+tcgen05_shift_instr = Instr_tl("tcgen05_shift_instr")
+
+"""tcgen05.ld instructions"""
+tcgen05_ld_instr = Instr_tl("tcgen05_ld_instr")
+
+"""tcgen05.st instructions"""
+tcgen05_st_instr = Instr_tl("tcgen05_st_instr")
 
 cuda_async_instr_tl = [
     Sm80_cp_async_instr,
     tma_to_smem_async_instr,
     tma_to_gmem_async_instr,
     wgmma_async_instr,
-    tcgen05_async_instr,
+    tcgen05_mma_instr,
+    tcgen05_cp_instr,
+    tcgen05_shift_instr,
+    tcgen05_ld_instr,
+    tcgen05_st_instr,
 ]
 
 cuda_basic_instr_tl = [cuda_in_order_instr, wgmma_zero_instr] + cuda_async_instr_tl
@@ -200,8 +216,12 @@ wgmma_async_rmem_d_qual = Qual_tl("wgmma_async_rmem_d_qual", True)
 wgmma_async_smem_qual = Qual_tl("wgmma_async_smem_qual", False)
 wgmma_zero_qual = Qual_tl("wgmma_zero_qual", True)
 cuda_async_proxy_retired_qual = Qual_tl("cuda_async_proxy_retired_qual", False)
-tcgen05_tmem_qual = Qual_tl("tcgen05_tmem_qual", True)
 tcgen05_smem_qual = Qual_tl("tcgen05_smem_qual", False)
+tcgen05_mma_tmem_qual = Qual_tl("tcgen05_mma_tmem_qual", True)
+tcgen05_cp_tmem_qual = Qual_tl("tcgen05_cp_tmem_qual", True)
+tcgen05_shift_qual = Qual_tl("tcgen05_shift_qual", True)
+tcgen05_ld_qual = Qual_tl("tcgen05_ld_qual", True)
+tcgen05_st_qual = Qual_tl("tcgen05_st_qual", True)
 
 
 cuda_rmem_qual_tl_dict = {
@@ -211,6 +231,11 @@ cuda_rmem_qual_tl_dict = {
     tma_to_gmem_async_instr: cuda_in_order_rmem_qual,
     wgmma_zero_instr: [wgmma_zero_qual, wgmma_async_rmem_d_qual],
     # wgmma a/d has to be handled specially.
+    #
+    # cuda_in_order_rmem_qual is in the extended timeline set for tcgen05 access
+    # so that we can wait for a prior read/write to a register to finish normally.
+    tcgen05_ld_instr: [tcgen05_ld_qual, cuda_in_order_rmem_qual],
+    tcgen05_st_instr: [tcgen05_st_qual, cuda_in_order_rmem_qual],
 }
 
 cuda_ram_qual_tl_dict = {
@@ -221,6 +246,25 @@ cuda_ram_qual_tl_dict = {
     tma_to_smem_async_instr: [tma_to_smem_async_qual, cuda_async_proxy_retired_qual],
     tma_to_gmem_async_instr: [tma_to_gmem_async_qual, cuda_async_proxy_retired_qual],
     wgmma_async_instr: [wgmma_async_smem_qual, cuda_async_proxy_retired_qual],
+    tcgen05_mma_instr: [tcgen05_smem_qual, cuda_async_proxy_retired_qual],
+    tcgen05_cp_instr: [tcgen05_smem_qual, cuda_async_proxy_retired_qual],
+}
+
+# Somewhat broken qual-tl dict for tcgen05 TMEM (tensor memory).
+# We use the extended timeline set to model implicit pipelining.
+cuda_tmem_qual_tl_dict = {
+    tcgen05_mma_instr: [
+        tcgen05_mma_tmem_qual,  # tcgen05.mma -> tcgen05.mma
+        tcgen05_cp_tmem_qual,  #  tcgen05.mma -> tcgen05.cp
+        tcgen05_shift_qual,  #    tcgen05.mma -> tcgen05.shift
+    ],
+    tcgen05_cp_instr: [
+        tcgen05_cp_tmem_qual,  #  Falsely implies tcgen05.cp -> tcgen05.cp pipelining
+    ],
+    tcgen05_shift_instr: [
+        tcgen05_shift_instr,  #   Falsely implies tcgen05.shift -> tcgen05.shift
+        tcgen05_mma_instr,  #     tcgen05.mma -> tcgen05.shift
+    ],
 }
 
 
@@ -237,8 +281,17 @@ _wgmma_async_quals = [
     wgmma_async_smem_qual,
 ]
 _tcgen05_async_quals = [
-    tcgen05_tmem_qual,
-    tcgen05_smem_qual,
+    tcgen05_mma_tmem_qual,
+    tcgen05_cp_tmem_qual,
+    tcgen05_shift_qual,
+    tcgen05_ld_qual,
+    tcgen05_st_qual,
+]
+
+_tcgen05_commit_quals = [
+    tcgen05_mma_tmem_qual,
+    tcgen05_cp_tmem_qual,
+    tcgen05_shift_qual,
 ]
 
 _cuda_async_proxy_detection_quals = (
@@ -246,7 +299,7 @@ _cuda_async_proxy_detection_quals = (
     + _tma_to_smem_async_quals
     + _tma_to_gmem_async_quals
     + _wgmma_async_quals
-    + _tcgen05_async_quals
+    + [tcgen05_smem_qual]
 )
 
 # Intentionally excludes wgmma_zero_qual
@@ -457,6 +510,15 @@ wgmma_fence_2 = Sync_tl("wgmma_fence_2", _wgmma_rmem_quals)
 
 """wgmma instructions"""
 wgmma_async = Sync_tl("wgmma_async", _wgmma_async_quals, for_instr_tl=wgmma_async_instr)
+
+"""tcgen05.commit"""
+tcgen05_commit = Sync_tl("tcgen05_commit", _tcgen05_commit_quals)
+
+"""tcgen05.wait::ld"""
+tcgen05_ld = Sync_tl("tcgen05_ld", [tcgen05_ld_qual], for_instr_tl=tcgen05_ld_instr)
+
+"""tcgen05.wait::st"""
+tcgen05_st = Sync_tl("tcgen05_st", [tcgen05_st_qual], for_instr_tl=tcgen05_st_instr)
 
 
 """CUDA generic proxy + async proxy; temporal dependencies carried"""
