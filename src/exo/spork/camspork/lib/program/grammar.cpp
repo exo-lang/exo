@@ -1,57 +1,54 @@
 #include "grammar.hpp"
 
-namespace camspork
-{
+namespace camspork {
 
-BinOpNames::BinOpNames()
-{
-    names[0] = "<error>";
-    names[static_cast<uint32_t>(binop::Assign)] = "=";
-    names[static_cast<uint32_t>(binop::Add)] = "+";
-    names[static_cast<uint32_t>(binop::Sub)] = "-";
-    names[static_cast<uint32_t>(binop::Mul)] = "*";
-    names[static_cast<uint32_t>(binop::Div)] = "//";
-    names[static_cast<uint32_t>(binop::Mod)] = "%";
-    names[static_cast<uint32_t>(binop::Less)] = "<";
-    names[static_cast<uint32_t>(binop::Leq)] = "<=";
-    names[static_cast<uint32_t>(binop::Greater)] = ">";
-    names[static_cast<uint32_t>(binop::Geq)] = ">=";
-    names[static_cast<uint32_t>(binop::Eq)] = "==";
-    names[static_cast<uint32_t>(binop::Neq)] = "!=";
+BinOpNames::BinOpNames() {
+  names[0] = "<error>";
+  names[static_cast<uint32_t>(binop::Assign)] = "=";
+  names[static_cast<uint32_t>(binop::Add)] = "+";
+  names[static_cast<uint32_t>(binop::Sub)] = "-";
+  names[static_cast<uint32_t>(binop::Mul)] = "*";
+  names[static_cast<uint32_t>(binop::Div)] = "//";
+  names[static_cast<uint32_t>(binop::Mod)] = "%";
+  names[static_cast<uint32_t>(binop::Less)] = "<";
+  names[static_cast<uint32_t>(binop::Leq)] = "<=";
+  names[static_cast<uint32_t>(binop::Greater)] = ">";
+  names[static_cast<uint32_t>(binop::Geq)] = ">=";
+  names[static_cast<uint32_t>(binop::Eq)] = "==";
+  names[static_cast<uint32_t>(binop::Neq)] = "!=";
 }
 
 const BinOpNames binop_names;
 
-BinOpTable::BinOpTable()
-{
-    entries_by_char['='][0] = BinOpTableEntry{'\0', binop::Assign};
-    entries_by_char['+'][0] = BinOpTableEntry{'\0', binop::Add};
-    entries_by_char['-'][0] = BinOpTableEntry{'\0', binop::Sub};
-    entries_by_char['*'][0] = BinOpTableEntry{'\0', binop::Mul};
-    entries_by_char['/'][0] = BinOpTableEntry{'\0', binop::Div};
-    entries_by_char['/'][1] = BinOpTableEntry{'/', binop::Div};
-    entries_by_char['%'][0] = BinOpTableEntry{'\0', binop::Mod};
-    entries_by_char['<'][0] = BinOpTableEntry{'\0', binop::Less};
-    entries_by_char['<'][1] = BinOpTableEntry{'=', binop::Leq};
-    entries_by_char['>'][0] = BinOpTableEntry{'\0', binop::Greater};
-    entries_by_char['>'][1] = BinOpTableEntry{'=', binop::Geq};
-    entries_by_char['='][1] = BinOpTableEntry{'=', binop::Eq};
-    entries_by_char['!'][1] = BinOpTableEntry{'=', binop::Neq};
+BinOpTable::BinOpTable() {
+  entries_by_char['='][0] = BinOpTableEntry{'\0', binop::Assign};
+  entries_by_char['+'][0] = BinOpTableEntry{'\0', binop::Add};
+  entries_by_char['-'][0] = BinOpTableEntry{'\0', binop::Sub};
+  entries_by_char['*'][0] = BinOpTableEntry{'\0', binop::Mul};
+  entries_by_char['/'][0] = BinOpTableEntry{'\0', binop::Div};
+  entries_by_char['/'][1] = BinOpTableEntry{'/', binop::Div};
+  entries_by_char['%'][0] = BinOpTableEntry{'\0', binop::Mod};
+  entries_by_char['<'][0] = BinOpTableEntry{'\0', binop::Less};
+  entries_by_char['<'][1] = BinOpTableEntry{'=', binop::Leq};
+  entries_by_char['>'][0] = BinOpTableEntry{'\0', binop::Greater};
+  entries_by_char['>'][1] = BinOpTableEntry{'=', binop::Geq};
+  entries_by_char['='][1] = BinOpTableEntry{'=', binop::Eq};
+  entries_by_char['!'][1] = BinOpTableEntry{'=', binop::Neq};
 }
 
-binop BinOpTable::get(const char* p_str) const
-{
-    uint8_t first_char = uint8_t(p_str[0]);
-    // String length must be 1 or 2 to match anything.
-    if (first_char != 0 && (p_str[1] == 0 || p_str[2] == 0)) {
-        int second_char = int(uint8_t(p_str[1]));
-        for (BinOpTableEntry entry : entries_by_char[first_char]) {
-            if (second_char == entry.second_char) {
-                return entry.op;
-            }
-        }
+binop BinOpTable::get(const char *p_str) const {
+  uint8_t first_char = uint8_t(p_str[0]);
+  // String length must be 1 or 2 to match anything.
+  if (first_char != 0 && (p_str[1] == 0 || p_str[2] == 0)) {
+    int second_char = int(uint8_t(p_str[1]));
+    for (BinOpTableEntry entry : entries_by_char[first_char]) {
+      if (second_char == entry.second_char) {
+        return entry.op;
+      }
     }
-    throw std::runtime_error(std::string("BinOpTable::get, unknown: \"") + p_str + "\"");
+  }
+  throw std::runtime_error(
+      std::string("BinOpTable::get, unknown: \"") + p_str + "\"");
 }
 
 const BinOpTable binop_table;
@@ -131,39 +128,38 @@ const uint32_t ProgramHeader::expected_magic_numbers[] = {
     0xFFFFFFFF,
 };
 
-static_assert(sizeof(ProgramHeader::magic_numbers) == sizeof(ProgramHeader::expected_magic_numbers));
+static_assert(sizeof(ProgramHeader::magic_numbers) ==
+              sizeof(ProgramHeader::expected_magic_numbers));
 
-const ProgramHeader& ProgramHeader::validate(size_t buffer_size, const char* buffer)
-{
-    CAMSPORK_C_BOUNDSCHECK(sizeof(ProgramHeader), buffer_size + 1);
-    const auto& header = reinterpret_cast<const ProgramHeader&>(buffer[0]);
-    for (const uint32_t& expected_magic : expected_magic_numbers) {
-        const uint32_t magic = header.magic_numbers[&expected_magic - &expected_magic_numbers[0]];
-        CAMSPORK_REQUIRE_CMP(magic, ==, expected_magic, "incorrect magic number");
-    }
-    return header;
+const ProgramHeader &ProgramHeader::validate(
+    size_t buffer_size, const char *buffer) {
+  CAMSPORK_C_BOUNDSCHECK(sizeof(ProgramHeader), buffer_size + 1);
+  const auto &header = reinterpret_cast<const ProgramHeader &>(buffer[0]);
+  for (const uint32_t &expected_magic : expected_magic_numbers) {
+    const uint32_t magic =
+        header.magic_numbers[&expected_magic - &expected_magic_numbers[0]];
+    CAMSPORK_REQUIRE_CMP(magic, ==, expected_magic, "incorrect magic number");
+  }
+  return header;
 }
 
+}  // namespace camspork
+
+int camspork_get_lib_version() {
+  int
+#include "../../polyglot_camspork_version.py"
+      ;
+  return lib_version;
 }
 
-int camspork_get_lib_version()
-{
-    int
-    #include "../../polyglot_camspork_version.py"
-    ;
-    return lib_version;
+camspork::binop camspork_binop_from_str(const char *p_str) {
+  CAMSPORK_API_PROLOGUE
+  return camspork::binop_table.get(p_str);
+  CAMSPORK_API_EPILOGUE(static_cast<camspork::binop>(0));
 }
 
-camspork::binop camspork_binop_from_str(const char* p_str)
-{
-    CAMSPORK_API_PROLOGUE
-    return camspork::binop_table.get(p_str);
-    CAMSPORK_API_EPILOGUE(static_cast<camspork::binop>(0));
-}
-
-const char* camspork_binop_to_str(camspork::binop op)
-{
-    CAMSPORK_API_PROLOGUE
-    return camspork::binop_names.get(op);
-    CAMSPORK_API_EPILOGUE(nullptr);
+const char *camspork_binop_to_str(camspork::binop op) {
+  CAMSPORK_API_PROLOGUE
+  return camspork::binop_names.get(op);
+  CAMSPORK_API_EPILOGUE(nullptr);
 }
