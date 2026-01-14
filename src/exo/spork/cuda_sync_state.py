@@ -47,14 +47,6 @@ class SyncStateBuilder:
     # LoweredBarrier for each barrier lowered, indexed by name
     lowered: Dict[Sym, LoweredBarrier] = field(default_factory=dict)
 
-    # TODO remove
-    # tuples (mbarrier_count, arrive_count)
-    # to initialize in SMEM, e.g. (8, 64), (2, 384) means initialize an
-    # array of 10 mbarriers in SMEM with the first 8 having
-    # arrive_count=64, last 2 arrive_count=384
-    _mbarrier_pairs: List[Tuple[int, int]] = field(default_factory=list)
-    mbarrier_count: int = 0
-
     # C++ lines to join into exo_SyncState struct
     SyncState_lines: List[str] = field(default_factory=list)
 
@@ -295,7 +287,6 @@ class SyncStateBuilder:
             )
 
         lowered = LoweredBarrier(False, LoweredBarrierType.mbarrier)
-        mbarrier_offset = self.mbarrier_count  # TODO remove
         nm_suffix = f"{suffix}_{name}"
 
         # Translate N to number of trivial Awaits (skip mbarrier wait)
@@ -351,8 +342,6 @@ class SyncStateBuilder:
         smem_offset_name = device_setup_builder.add_mbarriers(
             name, num_per_cta, arrive_count
         )
-        self._mbarrier_pairs.append((num_per_cta, arrive_count))  # TODO remove
-        self.mbarrier_count += num_per_cta  # TODO remove
         lines.append(
             f"// {name}: barrier @ CudaMbarrier, ring={ring}, slice_count={slice_count}"
         )
