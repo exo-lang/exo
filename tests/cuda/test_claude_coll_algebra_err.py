@@ -56,37 +56,40 @@ def test_coll_unit_scaled_by_float():
     assert "positive" in msg.lower() or "int" in msg.lower()
 
 
-# =============================================================================
-# Thread alignment issues in cuda_threads loop
-# =============================================================================
+# Claude made up this requirement.
+# The generated test proc doesn't compile, but it's due to not enough threads
+# in the inner loop, not any alignment issue.
+# # =============================================================================
+# # Thread alignment issues in cuda_threads loop
+# # =============================================================================
 
 
-def mkproc_thread_alignment_issue():
-    """cuda_threads loop with misaligned thread count"""
+# def mkproc_thread_alignment_issue():
+#     """cuda_threads loop with misaligned thread count"""
 
-    @proc
-    def test_proc(foo: f32[100] @ CudaGmemLinear):
-        with CudaDeviceFunction(blockDim=64):
-            for task in cuda_tasks(0, 1):
-                # Try to tile by 7 threads - doesn't divide evenly
-                for outer in cuda_threads(0, 7, unit=cuda_thread):
-                    for inner in cuda_threads(0, 9, unit=cuda_thread):
-                        pass
+#     @proc
+#     def test_proc(foo: f32[100] @ CudaGmemLinear):
+#         with CudaDeviceFunction(blockDim=64):
+#             for task in cuda_tasks(0, 1):
+#                 # Try to tile by 7 threads - doesn't divide evenly
+#                 for outer in cuda_threads(0, 7, unit=cuda_thread):
+#                     for inner in cuda_threads(0, 9, unit=cuda_thread):
+#                         pass
 
-    return simplify(test_proc)
+#     return simplify(test_proc)
 
 
-def test_thread_alignment_issue(compiler):
-    with pytest.raises(Exception) as exc:
-        compiler.cuda_cpu_test(mkproc_thread_alignment_issue)
-    msg = str(exc.value)
-    # Should fail due to alignment/tiling issues
-    assert (
-        "alignment" in msg.lower()
-        or "divide" in msg.lower()
-        or "tile" in msg.lower()
-        or "thread" in msg.lower()
-    )
+# def test_thread_alignment_issue(compiler):
+#     with pytest.raises(Exception) as exc:
+#         compiler.cuda_cpu_test(mkproc_thread_alignment_issue)
+#     msg = str(exc.value)
+#     # Should fail due to alignment/tiling issues
+#     assert (
+#         "alignment" in msg.lower()
+#         or "divide" in msg.lower()
+#         or "tile" in msg.lower()
+#         or "thread" in msg.lower()
+#     )
 
 
 # =============================================================================
@@ -94,12 +97,12 @@ def test_thread_alignment_issue(compiler):
 # =============================================================================
 
 
-def mkproc_not_enough_threads():
+def mkproc_not_enough_threads(blockDim=32):
     """Request more threads than available in collective unit"""
 
     @proc
     def test_proc(foo: f32 @ CudaGmemLinear):
-        with CudaDeviceFunction(blockDim=32):
+        with CudaDeviceFunction(blockDim=blockDim):
             for task in cuda_tasks(0, 1):
                 # Only have 32 threads, but request 64
                 for tid in cuda_threads(0, 64):
@@ -108,7 +111,7 @@ def mkproc_not_enough_threads():
     return simplify(test_proc)
 
 
-def test_not_enough_threads(compiler):
+def test_not_enough_threads_negative(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_not_enough_threads)
     msg = str(exc.value)
@@ -118,6 +121,10 @@ def test_not_enough_threads(compiler):
         or "max" in msg.lower()
         or "not enough" in msg.lower()
     )
+
+
+def test_not_enough_threads_positive(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_not_enough_threads, blockDim=64, golden=golden)
 
 
 # =============================================================================
@@ -140,6 +147,11 @@ def test_ambiguous_tile_dimension():
 # =============================================================================
 # Invalid alignment for CollUnit domain completion
 # =============================================================================
+
+
+# David: this test fails because blockDim=100 fails under any circumstance.
+# Not due to the cuda_warp loop.
+# Again Claude incorrectly believes there to be an alignment requirement.
 
 
 def mkproc_invalid_coll_unit_alignment():
