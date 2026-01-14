@@ -318,7 +318,7 @@ def test_missing_CudaWarps_lo(compiler):
     assert " lo " in str(exc.value)
 
 
-def test_missing_CudaWarps_lo(compiler):
+def test_missing_CudaWarps_hi(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_named_warps, missing_hi=True)
     assert " hi " in str(exc.value)
