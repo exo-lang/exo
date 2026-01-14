@@ -1,11 +1,12 @@
 #include "test.h"
 
-#include <stdio.h>
-#include <stdlib.h>
-
+/* Required by SVE_VLS */
+#ifndef EXO_MEMORY_GLOBAL_SVE_VLS
+#define EXO_MEMORY_GLOBAL_SVE_VLS
 #include <arm_sve.h>
 typedef svfloat32_t svfloat32_vls_t __attribute__((arm_sve_vector_bits(512)));
 typedef svfloat64_t svfloat64_vls_t __attribute__((arm_sve_vector_bits(512)));
+#endif
 
 /* relying on the following instruction..."
 svld1_f32(dst,src)

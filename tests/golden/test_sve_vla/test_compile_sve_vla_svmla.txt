@@ -1,9 +1,7 @@
 #include "test.h"
 
+/* Required by svmla_n_f32_x_vla(N,dst,src1,src2) */
 #include "exo_arm_sve.h"
-#include <stdio.h>
-#include <stdlib.h>
-
 // svmla(
 //     N : size,
 //     C : f32[N] @DRAM,
