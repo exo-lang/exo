@@ -126,7 +126,9 @@ def mkproc_cuda_warps_subdivided_cta(subdivide_first=True):
 
 
 def test_cuda_warps_no_subdivide_positive(compiler, golden):
-    compiler.cuda_cpu_test(mkproc_cuda_warps_subdivided_cta, golden, subdivide_first=False)
+    compiler.cuda_cpu_test(
+        mkproc_cuda_warps_subdivided_cta, golden, subdivide_first=False
+    )
 
 
 def test_cuda_warps_subdivided_cta_negative(compiler):
