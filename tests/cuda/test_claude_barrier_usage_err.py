@@ -25,14 +25,16 @@ def mkproc_guarded_by_unsupported():
     def test_proc(foo: f32[128] @ CudaGmemLinear):
         with CudaDeviceFunction(blockDim=32):
             for task in cuda_tasks(0, 1):
-                bar1: barrier @ CudaCommitGroup
-                # Try to create bar2 guarded by bar1, but CudaCommitGroup
-                # doesn't support guarding
-                # Syntax: barrier(guarded_by_name) @ BarrierMechanism
-                bar2: barrier(bar1) @ CudaCommitGroup
                 for tid in cuda_threads(0, 32):
+                    bar1: barrier @ CudaCommitGroup
+                    # Try to create bar2 guarded by bar1, but CudaCommitGroup
+                    # doesn't support guarding
+                    # Syntax: barrier(guarded_by_name) @ BarrierMechanism
+                    bar2: barrier(bar1) @ CudaCommitGroup
                     Arrive(Sm80_cp_async, 1) >> bar1
                     Await(bar1, cuda_in_order, 0)
+                    Arrive(Sm80_cp_async, 1) >> bar2
+                    Await(bar2, cuda_in_order, 0)
 
     return simplify(test_proc)
 
