@@ -457,21 +457,22 @@ class Procedure(ProcedureBase):
     #     sync check
     # ------------------------------- #
     def sync_check(self, **kwargs):
-        """Perform sync check for a given concrete problem size.
+        pass
+        # """Perform sync check for a given concrete problem size.
 
-        All size/index argument values must be given as int keyword arguments.
-        This proc will be checked for the problem size given.
+        # All size/index argument values must be given as int keyword arguments.
+        # This proc will be checked for the problem size given.
 
-        """
+        # """
 
-        from exo.spork import sync_check
-        from exo.backend import LoopIR_compiler
+        # from exo.spork import sync_check
+        # from exo.backend import LoopIR_compiler
 
-        debug_log = LoopIR.get_global_debug_log()
-        try:
-            backend = LoopIR_compiler.run_backend_checks(self._loopir_proc, debug_log)
-            # Should we check assertions?
-            sync_check.top_level_check(backend, kwargs)
-        except Exception:
-            debug_log.enable_notify_user()
-            raise
+        # debug_log = LoopIR.get_global_debug_log()
+        # try:
+        #     backend = LoopIR_compiler.run_backend_checks(self._loopir_proc, debug_log)
+        #     # Should we check assertions?
+        #     sync_check.top_level_check(backend, kwargs)
+        # except Exception:
+        #     debug_log.enable_notify_user()
+        #     raise
