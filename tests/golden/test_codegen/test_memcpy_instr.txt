@@ -8,7 +8,7 @@
 //     src : f32[n] @DRAM
 // )
 void bar( void *ctxt, int_fast32_t n, float* dst, const float* src ) {
-memcpy(dst, src, (n + 0) * sizeof(float));
+memcpy((dst), (src), ((n + 0)) * sizeof(float));
 }
 
 

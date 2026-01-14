@@ -247,7 +247,7 @@ EXO_ASSUME(M % 256 == 0);
 EXO_ASSUME(K % 8 == 0);
 float *d_in = (float*) exo_cudaMallocAsync(M * K * sizeof(*d_in), exo_cudaStream);
 float *d_out = (float*) exo_cudaMallocAsync(M * K * sizeof(*d_out), exo_cudaStream);
-cudaMemcpyAsync(&d_in[0], &h_in[0], 4 * M * K, cudaMemcpyHostToDevice, exo_cudaStream);
+cudaMemcpyAsync(&d_in[0], &h_in[0], 4 * (M) * (K), cudaMemcpyHostToDevice, exo_cudaStream);
 {
   struct exo_CudaDeviceArgs0__6_256_8_cp_async_commit_group exo_deviceArgs = {
     M, K, d_in, d_out, exo_excut_get_device_log()
@@ -255,7 +255,7 @@ cudaMemcpyAsync(&d_in[0], &h_in[0], 4 * M * K, cudaMemcpyHostToDevice, exo_cudaS
   exo_cudaLaunch0__6_256_8_cp_async_commit_group(exo_cudaStream, &exo_deviceArgs);
 }
 exo_cudaFreeAsync(d_in, exo_cudaStream);
-cudaMemcpyAsync(&h_out[0], &d_out[0], 4 * M * K, cudaMemcpyDeviceToHost, exo_cudaStream);
+cudaMemcpyAsync(&h_out[0], &d_out[0], 4 * (M) * (K), cudaMemcpyDeviceToHost, exo_cudaStream);
 exo_cudaFreeAsync(d_out, exo_cudaStream);
 }
 

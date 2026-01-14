@@ -381,8 +381,8 @@ void tma_tester_SW64( void *ctxt, float* h_sum, const float* h_x, const float* h
 float *d_x = (float*) exo_cudaMallocAsync(744 * 64 * sizeof(*d_x), exo_cudaStream);
 float *d_y = (float*) exo_cudaMallocAsync(744 * 64 * sizeof(*d_y), exo_cudaStream);
 float *d_sum = (float*) exo_cudaMallocAsync(744 * 64 * sizeof(*d_sum), exo_cudaStream);
-cudaMemcpyAsync(&d_x[0], &h_x[0], 4 * 744 * 64, cudaMemcpyHostToDevice, exo_cudaStream);
-cudaMemcpyAsync(&d_y[0], &h_y[0], 4 * 744 * 64, cudaMemcpyHostToDevice, exo_cudaStream);
+cudaMemcpyAsync(&d_x[0], &h_x[0], 4 * (744) * (64), cudaMemcpyHostToDevice, exo_cudaStream);
+cudaMemcpyAsync(&d_y[0], &h_y[0], 4 * (744) * (64), cudaMemcpyHostToDevice, exo_cudaStream);
 CUtensorMap exo_data_x_tensorMap = exo_win_2f32_Sm90_tensorMap_64_248_16_encode(&d_x[0], (exo_Sm90_CUtensorMap_2_strides){ {64, 1} }, (exo_Sm90_CUtensorMap_2_dim){ {744, 64} });
 struct exo_win_2f32_Sm90_tensorMap_64_248_16 x_tensorMap = (exo_win_2f32_Sm90_tensorMap_64_248_16) { {0, 0} };
 CUtensorMap exo_data_sum_tensorMap = exo_win_2f32_Sm90_tensorMap_64_248_16_encode(&d_sum[0], (exo_Sm90_CUtensorMap_2_strides){ {64, 1} }, (exo_Sm90_CUtensorMap_2_dim){ {744, 64} });
@@ -395,7 +395,7 @@ struct exo_win_2f32_Sm90_tensorMap_64_248_16 sum_tensorMap = (exo_win_2f32_Sm90_
 }
 exo_cudaFreeAsync(d_y, exo_cudaStream);
 exo_cudaFreeAsync(d_x, exo_cudaStream);
-cudaMemcpyAsync(&h_sum[0], &d_sum[0], 4 * 744 * 64, cudaMemcpyDeviceToHost, exo_cudaStream);
+cudaMemcpyAsync(&h_sum[0], &d_sum[0], 4 * (744) * (64), cudaMemcpyDeviceToHost, exo_cudaStream);
 exo_cudaFreeAsync(d_sum, exo_cudaStream);
 }
 

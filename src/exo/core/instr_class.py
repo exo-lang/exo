@@ -648,13 +648,15 @@ class OldStyleInstrInfo(InstrInfo):
             if isinstance(value, InstrWindowArg):
                 mem = self.access_info[name].mem
                 if mem.has_window_encoder():
-                    d[name] = str(value)
+                    # Must be parenthesized in case this is used as a macro
+                    # parameter (commas in the struct will cause problems)
+                    d[name] = f"({str(value)})"
                 if mem.has_window_indexer():
                     d[name + "_data"] = value.index()
                 d[name + "_int"] = value.get_raw_name()
             else:
                 # Non-window; Exo 1 defines {name}_data; unclear why.
-                s_value = str(value)
+                s_value = f"({str(value)})"
                 d[name] = s_value
                 d[name + "_data"] = s_value
         return [line.format(**d) for line in self.instr_format]

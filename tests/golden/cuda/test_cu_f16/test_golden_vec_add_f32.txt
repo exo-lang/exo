@@ -268,8 +268,8 @@ EXO_ASSUME(N % 256 == 0);
 float *d_x = (float*) exo_cudaMallocAsync(N * sizeof(*d_x), exo_cudaStream);
 float *d_y = (float*) exo_cudaMallocAsync(N * sizeof(*d_y), exo_cudaStream);
 float *d_out = (float*) exo_cudaMallocAsync(N * sizeof(*d_out), exo_cudaStream);
-cudaMemcpyAsync(&d_x[0], &h_x[0], 4 * N, cudaMemcpyHostToDevice, exo_cudaStream);
-cudaMemcpyAsync(&d_y[0], &h_y[0], 4 * N, cudaMemcpyHostToDevice, exo_cudaStream);
+cudaMemcpyAsync(&d_x[0], &h_x[0], 4 * (N), cudaMemcpyHostToDevice, exo_cudaStream);
+cudaMemcpyAsync(&d_y[0], &h_y[0], 4 * (N), cudaMemcpyHostToDevice, exo_cudaStream);
 {
   struct exo_CudaDeviceArgs0_f16_test_vec_add_f32 exo_deviceArgs = {
     N, d_x, d_y, d_out, exo_excut_get_device_log()
@@ -278,7 +278,7 @@ cudaMemcpyAsync(&d_y[0], &h_y[0], 4 * N, cudaMemcpyHostToDevice, exo_cudaStream)
 }
 exo_cudaFreeAsync(d_y, exo_cudaStream);
 exo_cudaFreeAsync(d_x, exo_cudaStream);
-cudaMemcpyAsync(&h_out[0], &d_out[0], 4 * N, cudaMemcpyDeviceToHost, exo_cudaStream);
+cudaMemcpyAsync(&h_out[0], &d_out[0], 4 * (N), cudaMemcpyDeviceToHost, exo_cudaStream);
 exo_cudaFreeAsync(d_out, exo_cudaStream);
 }
 

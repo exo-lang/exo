@@ -151,7 +151,7 @@ void bar( void *ctxt, int_fast32_t n, float* y );
 //     y : f32[n] @DRAM
 // )
 void bar( void *ctxt, int_fast32_t n, float* y ) {
-foo(NULL, (n + 0), y);
+foo(NULL, ((n + 0)), (y));
 }
 
 
