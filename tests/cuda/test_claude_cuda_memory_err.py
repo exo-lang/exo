@@ -19,6 +19,7 @@ from exo.stdlib.scheduling import *
 
 def mkproc_scalar_gmem_alloc():
     """CudaGmemLinear does not support scalar allocation"""
+    # David: feel free to remove this test if the restriction is fixed.
 
     @proc
     def test_proc():
@@ -104,7 +105,9 @@ def test_grid_constant_dynamic_shape_negative(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_grid_constant_dynamic_shape, use_dynamic=True)
     msg = str(exc.value)
-    assert "CudaGridConstant" in msg or "constant" in msg.lower() or "shape" in msg.lower()
+    assert (
+        "CudaGridConstant" in msg or "constant" in msg.lower() or "shape" in msg.lower()
+    )
 
 
 def test_grid_constant_static_shape_positive(compiler):
