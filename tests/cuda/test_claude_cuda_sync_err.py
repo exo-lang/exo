@@ -59,9 +59,16 @@ def test_mbarrier_arrive_tma_to_smem(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_mbarrier_arrive_tma_to_smem)
     msg = str(exc.value)
-    assert "tma_to_smem" in msg.lower() or "sync-tl" in msg.lower() or "cuda_temporal" in msg
+    assert (
+        "tma_to_smem" in msg.lower()
+        or "sync-tl" in msg.lower()
+        or "cuda_temporal" in msg
+    )
 
 
+# Claude totally didn't get it here.
+# The test doesn't even multicast to different CTAs, and fails because of errors in
+# distributed memory (and Sm80_cp_async_f32 does not take trailing barrier expression)
 # =============================================================================
 # Sm80_cp_async mbarrier must be within 1 CTA (cluster case)
 # =============================================================================
@@ -79,11 +86,14 @@ def mkproc_sm80_cp_async_mbarrier_cross_cta():
                 # Try to use Sm80_cp_async with multicast to multiple CTAs
                 for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
                     for tid in cuda_threads(0, 32):
-                        Sm80_cp_async_f32(
-                            smem[4 * tid : 4 * tid + 4],
-                            gmem[4 * tid : 4 * tid + 4],
-                            size=4,
-                        ) >> bar[cta]
+                        (
+                            Sm80_cp_async_f32(
+                                smem[4 * tid : 4 * tid + 4],
+                                gmem[4 * tid : 4 * tid + 4],
+                                size=4,
+                            )
+                            >> bar[cta]
+                        )
                     Arrive(Sm80_cp_async, 1) >> bar[cta]
                 for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
                     Await(bar[cta], cuda_in_order, ~1)
@@ -96,7 +106,9 @@ def test_sm80_cp_async_mbarrier_cross_cta(compiler):
         compiler.cuda_cpu_test(mkproc_sm80_cp_async_mbarrier_cross_cta)
     msg = str(exc.value)
     # May fail for different reasons in cluster setup, accept various errors
-    assert "Sm80" in msg or "CTA" in msg or "mbarrier" in msg or "cluster" in msg.lower()
+    assert (
+        "Sm80" in msg or "CTA" in msg or "mbarrier" in msg or "cluster" in msg.lower()
+    )
 
 
 # =============================================================================
