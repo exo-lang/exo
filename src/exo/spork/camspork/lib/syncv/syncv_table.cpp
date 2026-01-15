@@ -2789,9 +2789,9 @@ struct SyncvTable {
             nodepool::id<PendingAwaitNode> await_node_id =
                 vis_record.base_data.pending_awaits;
             while (true) {
-              CAMSPORK_REQUIRE(
-                  await_node_id, "BarrierArriveState references VisRecord "
-                                 "without corresponding pending_await_id");
+              CAMSPORK_REQUIRE(await_node_id,
+                  "BarrierArriveState references VisRecord "
+                  "without corresponding pending_await_id");
               const PendingAwaitNode &await_node = get(await_node_id);
               await_node_id = await_node.camspork_next_id;
               if (await_node.await_id == expected_await_id) {
