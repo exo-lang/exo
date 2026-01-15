@@ -1,4 +1,5 @@
 import atexit
+import functools
 import re
 import sys
 from collections import ChainMap, defaultdict
@@ -512,17 +513,17 @@ del __hash__
 
 
 @extclass(LoopIR.proc)
+@functools.cache  # Must cache before extclass
+def get_cached_const_param_dict(proc: LoopIR.proc) -> Dict[Sym, bool]:
+    # NB the proc becomes un-garbage-collectable due to the cache?
+    mut_syms = set(x for x, _ in get_writes_of_stmts(proc.body))
+    return {a.name: a.name not in mut_syms for a in proc.args}
+
+
+@extclass(LoopIR.proc)
 def is_const_param(proc, sym: Sym):
     assert isinstance(sym, Sym)
-    assert sym in (a.name for a in proc.args)
-    if proc.instr is None:
-        # This is really expensive, we should cache this
-        write_syms = set(x for x, _ in get_writes_of_stmts(proc.body))
-        return sym not in write_syms
-    else:
-        access = proc.instr.access_info.get(str(sym))
-        if access is not None:
-            return access.const
+    return proc.get_cached_const_param_dict()[sym]
 
 
 @extclass(T.Tensor)
@@ -1612,7 +1613,9 @@ def get_reads_of_expr(e):
 
 
 def get_reads_of_stmts(stmts, include_reduce=False):
-    # XXX this doesn't account for WindowStmt.
+    # XXX David Zhao Akeley 2026-01-15 WindowStmt not handled specially.
+    # I think currently, w = x[:] will result in x always being
+    # counted as a read, even if x and w are only ever written to.
     gr = GetReadsWithReduce() if include_reduce else GetReads()
     for stmt in stmts:
         gr.do_s(stmt)
@@ -1637,9 +1640,8 @@ class GetWrites(LoopIR_Do):
             sym = s.name
             self.writes.append((self.window_dict.get(sym, sym), s.type))
         elif isinstance(s, LoopIR.Call):
-            writes_in_subproc = [a for a, _ in get_writes_of_stmts(s.f.body)]
             for arg, call_arg in zip(s.args, s.f.args):
-                if call_arg.name in writes_in_subproc:
+                if not s.f.is_const_param(call_arg.name):
                     if isinstance(
                         arg, (LoopIR.Read, LoopIR.WindowExpr, LoopIR.StrideExpr)
                     ):
