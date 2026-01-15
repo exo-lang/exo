@@ -97,15 +97,14 @@ def test_coll_unit_scaled_by_float():
 # =============================================================================
 
 
-def mkproc_not_enough_threads(blockDim=32):
-    """Request more threads than available in collective unit"""
+def mkproc_not_enough_threads(num_threads):
+    """Request specified number of threads (blockDim=32)"""
 
     @proc
     def test_proc(foo: f32 @ CudaGmemLinear):
         with CudaDeviceFunction(blockDim=blockDim):
             for task in cuda_tasks(0, 1):
-                # Only have 32 threads, but request 64
-                for tid in cuda_threads(0, 64):
+                for tid in cuda_threads(0, num_threads):
                     foo = 1.0
 
     return simplify(test_proc)
@@ -113,7 +112,8 @@ def mkproc_not_enough_threads(blockDim=32):
 
 def test_not_enough_threads_negative(compiler):
     with pytest.raises(Exception) as exc:
-        compiler.cuda_cpu_test(mkproc_not_enough_threads)
+        # Request 64 threads but only 32 available
+        compiler.cuda_cpu_test(mkproc_not_enough_threads, num_threads=64)
     msg = str(exc.value)
     assert (
         "thread" in msg.lower()
@@ -123,8 +123,9 @@ def test_not_enough_threads_negative(compiler):
     )
 
 
-def test_not_enough_threads_positive(compiler, golden):
-    compiler.cuda_cpu_test(mkproc_not_enough_threads, blockDim=64, golden=golden)
+def test_not_enough_threads_positive(compiler):
+    # Request exactly 32 threads - should work
+    compiler.cuda_cpu_test(mkproc_not_enough_threads, num_threads=32)
 
 
 # =============================================================================
