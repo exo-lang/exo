@@ -9,4 +9,4 @@ namespace camspork {
 using extent_t = uint32_t;
 using value_t = int32_t;
 
-}
+}  // namespace camspork
