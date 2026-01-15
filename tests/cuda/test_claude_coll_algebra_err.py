@@ -102,7 +102,7 @@ def mkproc_not_enough_threads(num_threads):
 
     @proc
     def test_proc(foo: f32 @ CudaGmemLinear):
-        with CudaDeviceFunction(blockDim=blockDim):
+        with CudaDeviceFunction(blockDim=32):
             for task in cuda_tasks(0, 1):
                 for tid in cuda_threads(0, num_threads):
                     foo = 1.0
