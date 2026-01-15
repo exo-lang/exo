@@ -1,3 +1,8 @@
+# NOTE: these are the oldest tests for CUDA written, and some of them
+# don't follow conventions of Exo CUDA tests. However, some of them
+# (contrary to the "simple" name) test corner cases of Exo, like
+# grid constants, so these are actually pretty important tests.
+
 from __future__ import annotations
 
 import math
@@ -58,11 +63,7 @@ def impl_test_saxpy(compiler_Sm80, saxpy_proc, min_divisibility):
             assert np.array_equal(y, y_expected)
 
 
-def test_cuda_simple_saxpy(compiler_Sm80):
-    """
-    Compute y = ay + x
-    """
-
+def mkproc_saxpy():
     @proc
     def saxpy(n: size, a: f32[1], y: f32[n], x: f32[n]):
         assert n % 128 == 0
@@ -83,16 +84,24 @@ def test_cuda_simple_saxpy(compiler_Sm80):
                     )
         cudaMemcpyAsync_dtoh_1f32(n, y, device_y)
 
-    impl_test_saxpy(compiler_Sm80, saxpy, 128)
+    return saxpy
 
 
-def test_cuda_two_device_functions(compiler_Sm80):
+def test_cuda_simple_saxpy(compiler_Sm80):
     """
-    Compute y = ay + x but really inefficiently, using 2 cuda kernels
+    Compute y = ay + x
     """
 
+    impl_test_saxpy(compiler_Sm80, mkproc_saxpy(), 128)
+
+
+def test_cuda_simple_saxpy_golden(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_saxpy, golden=golden)
+
+
+def mkproc_saxpy_2():
     @proc
-    def saxpy(n: size, a: f32[1], y: f32[n], x: f32[n]):
+    def saxpy_2(n: size, a: f32[1], y: f32[n], x: f32[n]):
         assert n % 128 == 0
         device_x: f32[n] @ CudaGmemLinear
         device_y: f32[n] @ CudaGmemLinear
@@ -114,10 +123,22 @@ def test_cuda_two_device_functions(compiler_Sm80):
 
         cudaMemcpyAsync_dtoh_1f32(n, y, device_y)
 
-    impl_test_saxpy(compiler_Sm80, saxpy, 128)
+    return saxpy_2
 
 
-def test_cp_async_fence_saxpy(compiler_Sm80):
+def test_cuda_two_device_functions(compiler_Sm80):
+    """
+    Compute y = ay + x but really inefficiently, using 2 cuda kernels
+    """
+
+    impl_test_saxpy(compiler_Sm80, mkproc_saxpy_2(), 128)
+
+
+def test_cuda_two_device_functions_golden(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_saxpy_2, golden=golden)
+
+
+def mkproc_cp_async_fence_saxpy():
     """
     Compute y = ay + x with cp.async
     """
@@ -128,7 +149,7 @@ def test_cp_async_fence_saxpy(compiler_Sm80):
     block_dim = 128
 
     @proc
-    def saxpy(n: size, a: f32[1], y: f32[n], x: f32[n]):
+    def saxpy_cp_async(n: size, a: f32[1], y: f32[n], x: f32[n]):
         assert n % elements_per_task == 20
         device_x: f32[n] @ CudaGmemLinear
         device_y: f32[n] @ CudaGmemLinear
@@ -174,11 +195,19 @@ def test_cp_async_fence_saxpy(compiler_Sm80):
                     Fence(Sm80_generic, cuda_in_order)
         cudaMemcpyAsync_dtoh_1f32(n, y, device_y)
 
-    impl_test_saxpy(compiler_Sm80, saxpy, 1024)
+    return saxpy_cp_async
     # fmt: on
 
 
-def test_grid_constants_windows(compiler_Sm80):
+def test_cp_async_fence_saxpy(compiler_Sm80):
+    impl_test_saxpy(compiler_Sm80, mkproc_cp_async_fence_saxpy(), 1024)
+
+
+def test_cp_async_fence_golden(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_cp_async_fence_saxpy, golden=golden)
+
+
+def mkproc_grid_constants_windows():
     """
     Test tricky parts of CUDA code lowering
       * Windows passed from host to device
@@ -237,7 +266,11 @@ def test_grid_constants_windows(compiler_Sm80):
 
         cudaMemcpyAsync_dtoh_2i32(N, N, test_out[:, :], test_mem[:, :])
 
-    cu = compiler_Sm80.cuda_test_context(weird_windows)
+    return weird_windows
+
+
+def test_grid_constants_windows(compiler_Sm80):
+    cu = compiler_Sm80.cuda_test_context(mkproc_grid_constants_windows())
 
     for N in (10,):
         test_scalar = np.array([137], dtype=np.int32)
@@ -255,6 +288,10 @@ def test_grid_constants_windows(compiler_Sm80):
                 )
 
         assert np.array_equal(test_out, ref_out)
+
+
+def test_grid_constants_windows_golden(compiler, golden):
+    cu = compiler.cuda_cpu_test(mkproc_grid_constants_windows, golden=golden)
 
     # Test the test i.e. that it actually tests what it's supposed to.
     # These could fail if the compiler outputs change substantially, but the
@@ -329,7 +366,7 @@ class gemm_init_pcg3d_mod:
 """
 
 
-def test_cuda_simple_matmul(compiler_Sm80):
+def mkproc_cuda_simple_matmul():
     """
     Initialize A, B with data, and compute C = A * B
     """
@@ -464,6 +501,11 @@ def test_cuda_simple_matmul(compiler_Sm80):
         cudaMemcpyAsync_dtoh_2f32(N, K, B_cpu, B)
         cudaMemcpyAsync_dtoh_2f32(N, M, C_cpu, C)
 
+    return gemm_test
+
+
+def test_cuda_simple_matmul(compiler_Sm80):
+    gemm_test = mkproc_cuda_simple_matmul()
     cu = compiler_Sm80.cuda_test_context(gemm_test)
 
     gemm_test.sync_check(M=128, N=128, K=128)
@@ -482,7 +524,11 @@ def test_cuda_simple_matmul(compiler_Sm80):
                 assert np.array_equal(C_test, C_expected)
 
 
-def test_cuda_arrays(compiler_Sm80):
+def test_cuda_simple_matmul_golden(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_cuda_simple_matmul, golden=golden)
+
+
+def mkproc_cuda_arrays():
     """Test correct behavior of passing arrays from host to device:
 
     * grid constant support
@@ -521,6 +567,11 @@ def test_cuda_arrays(compiler_Sm80):
             exo_ZZ0a + exo_ZZ0b, exo_ZZ1a + exo_ZZ1b, exo_ZZ2, exo_ZZ2_device
         )
 
+    return array_test
+
+
+def test_cuda_arrays(compiler_Sm80):
+    array_test = mkproc_cuda_arrays()
     cu = compiler_Sm80.cuda_test_context(array_test)
 
     ZZ0a = 129
@@ -535,6 +586,9 @@ def test_cuda_arrays(compiler_Sm80):
     for i in range(4):
         assert ZZ2[ZZ0a + i, ZZ1a + 4 - i] == ZZ3[i] + ZZ4[i]
 
+
+def test_cuda_arrays_golden(compiler, golden):
+    cu = compiler.cuda_cpu_test(mkproc_cuda_arrays, golden=golden)
     cuh_src = cu.cuh_src
     assert "exo_user_exo_ZZ0a" in cuh_src
     assert "exo_user_exo_ZZ0b" in cuh_src
@@ -546,6 +600,7 @@ def test_cuda_arrays(compiler_Sm80):
 
 
 # TODO seperate Sm80 test
+# Also this gemm is not great by our standards anymore.
 from exo.stdlib.scheduling import *
 from exo.platforms.cuda import *
 from exo.platforms.Sm80 import *
@@ -704,6 +759,10 @@ def test_tmp_xgemm_Sm80(compiler_Sm80):
     assert np.array_equal(C_test, C_expected)
 
 
+def test_tmp_xgemm_Sm80_golden(compiler, golden):
+    compiler.cuda_cpu_test(lambda: xgemm_Sm80_fence, golden=golden)
+
+
 # fmt: off
 gemv_blockDim = 128
 gemv_M0 = gemv_blockDim // 8
@@ -786,3 +845,7 @@ def test_gemv_warp_coop_8(compiler_Sm80):
         cu(None, M, K, A, x, y)
         y_expected = A @ x
         assert np.array_equal(y, y_expected)
+
+
+def test_gemv_warp_coop_8_golden(compiler, golden):
+    compiler.cuda_cpu_test(lambda: gemv_warp_coop_8, golden=golden)
