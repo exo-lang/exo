@@ -10,6 +10,7 @@ import pytest
 from exo import proc
 from exo.platforms.cuda import *
 from exo.platforms.Sm80 import *
+from exo.platforms.Sm90 import *
 from exo.stdlib.scheduling import *
 
 
@@ -57,36 +58,45 @@ def test_coll_unit_scaled_by_float():
 
 
 # =============================================================================
-# Thread alignment issues in cuda_threads loop
+# Warpgroup alignment issues for wgmma operations
 # =============================================================================
 
 
-def mkproc_thread_alignment_issue():
-    """cuda_threads loop with misaligned thread count"""
+def mkproc_warpgroup_alignment(warp_lo):
+    """Test warpgroup alignment - wgmma fence requires warps aligned to warpgroup boundary.
+
+    Alignment is NOT required for plain cuda_threads loops. It IS required when
+    doing warp or warpgroup operations like wgmma fence.
+
+    Use CudaWarps(lo, hi) to control which warps execute the operation.
+    For warpgroup alignment, lo must be a multiple of 4 (warpgroup = 4 warps).
+    """
+    device_fn = CudaDeviceFunction(blockDim=256)
+    # CudaWarps can be defined outside @proc and used inside
+    warps = CudaWarps(warp_lo, warp_lo + 4)  # 4 warps = 1 warpgroup
 
     @proc
-    def test_proc(foo: f32[100] @ CudaGmemLinear):
-        with CudaDeviceFunction(blockDim=64):
+    def test_proc(foo: f32 @ CudaGmemLinear):
+        with device_fn:
             for task in cuda_tasks(0, 1):
-                # Try to tile by 7 threads - doesn't divide evenly
-                for outer in cuda_threads(0, 7, unit=cuda_thread):
-                    for inner in cuda_threads(0, 9, unit=cuda_thread):
-                        pass
+                with warps:
+                    for wg in cuda_threads(0, 1, unit=cuda_warpgroup):
+                        Fence(wgmma_fence_1, wgmma_fence_2)
 
     return simplify(test_proc)
 
 
-def test_thread_alignment_issue(compiler):
+def test_warpgroup_alignment_positive(compiler):
+    # Aligned: warp_lo=0 is aligned to warpgroup boundary (multiple of 4)
+    compiler.cuda_cpu_test(mkproc_warpgroup_alignment, warp_lo=0)
+
+
+def test_warpgroup_alignment_negative(compiler):
     with pytest.raises(Exception) as exc:
-        compiler.cuda_cpu_test(mkproc_thread_alignment_issue)
+        # Misaligned: warp_lo=1 is NOT aligned to warpgroup boundary
+        compiler.cuda_cpu_test(mkproc_warpgroup_alignment, warp_lo=1)
     msg = str(exc.value)
-    # Should fail due to alignment/tiling issues
-    assert (
-        "alignment" in msg.lower()
-        or "divide" in msg.lower()
-        or "tile" in msg.lower()
-        or "thread" in msg.lower()
-    )
+    assert "alignment" in msg.lower()
 
 
 # =============================================================================

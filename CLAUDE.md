@@ -216,12 +216,39 @@ def mkproc_wgmma_fence(use_warpgroup_unit=True):
 ```
 
 Key points:
-- **Maximize shared code** - CudaDeviceFunction, integers, sync-tl objects, and memory types can be assigned outside `@proc` and used inside
+- **Maximize shared code** - CudaDeviceFunction, CudaWarps, integers, sync-tl objects, and memory types can be assigned outside `@proc` and used inside
 - `mkproc_*` functions return a proc, taking parameters that control valid/invalid code paths
 - `compiler.cuda_cpu_test(mkproc_fn, **kwargs)` compiles and optionally runs the proc
 - Positive tests use the `golden` fixture to compare generated code against expected output
 - Negative tests use `pytest.raises` and assert on specific error message substrings
 - Parameters to `mkproc_fn` are passed as kwargs to `cuda_cpu_test`
+
+**CudaWarps for controlling thread/warp execution:**
+```python
+def mkproc_warpgroup_alignment(warp_lo):
+    """Use CudaWarps to control which warps execute the operation."""
+    device_fn = CudaDeviceFunction(blockDim=256)
+    warps = CudaWarps(warp_lo, warp_lo + 4)  # 4 warps = 1 warpgroup
+
+    @proc
+    def test_proc(foo: f32 @ CudaGmemLinear):
+        with device_fn:
+            for task in cuda_tasks(0, 1):
+                with warps:  # Use CudaWarps with 'with' statement inside proc
+                    for wg in cuda_threads(0, 1, unit=cuda_warpgroup):
+                        Fence(wgmma_fence_1, wgmma_fence_2)
+    return simplify(test_proc)
+
+def test_positive(compiler):
+    compiler.cuda_cpu_test(mkproc_warpgroup_alignment, warp_lo=0)  # Aligned: 0 % 4 == 0
+
+def test_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(mkproc_warpgroup_alignment, warp_lo=1)  # Misaligned: 1 % 4 != 0
+    assert "alignment" in str(exc.value).lower()
+```
+
+Note: For warpgroup operations (like wgmma fence), warp alignment IS checked at compile time. The `lo` parameter to CudaWarps must be aligned to warpgroup boundaries (multiples of 4 warps).
 
 ### CUDA Error Testing Pitfalls
 
