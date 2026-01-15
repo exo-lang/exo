@@ -886,8 +886,13 @@ class Compiler:
                 # Re-raise all errors, but if the error doesn't seem to contain srcinfo
                 # then we wrap the error message with a srcinfo.
                 exc_str = str(exc)
+                old_exc = exc
                 if not re.findall(SrcInfo.stmt_id_pattern, exc_str):
-                    raise ValueError(f"{b.srcinfo}: {exc_str}") from exc
+                    try:
+                        exc = type(exc)(f"{b.srcinfo}: {exc_str}")
+                    except Exception:
+                        pass
+                    raise exc from old_exc
                 raise
 
     def comp_top(self):
