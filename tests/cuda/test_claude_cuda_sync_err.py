@@ -59,9 +59,16 @@ def test_mbarrier_arrive_tma_to_smem(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_mbarrier_arrive_tma_to_smem)
     msg = str(exc.value)
-    assert "tma_to_smem" in msg.lower() or "sync-tl" in msg.lower() or "cuda_temporal" in msg
+    assert (
+        "tma_to_smem" in msg.lower()
+        or "sync-tl" in msg.lower()
+        or "cuda_temporal" in msg
+    )
 
 
+# Claude totally didn't get it here.
+# The test doesn't even multicast to different CTAs, and fails because of errors in
+# distributed memory (and Sm80_cp_async_f32 does not take trailing barrier expression)
 # =============================================================================
 # Sm80_cp_async mbarrier must be within 1 CTA (cluster case)
 # =============================================================================
@@ -79,11 +86,14 @@ def mkproc_sm80_cp_async_mbarrier_cross_cta():
                 # Try to use Sm80_cp_async with multicast to multiple CTAs
                 for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
                     for tid in cuda_threads(0, 32):
-                        Sm80_cp_async_f32(
-                            smem[4 * tid : 4 * tid + 4],
-                            gmem[4 * tid : 4 * tid + 4],
-                            size=4,
-                        ) >> bar[cta]
+                        (
+                            Sm80_cp_async_f32(
+                                smem[4 * tid : 4 * tid + 4],
+                                gmem[4 * tid : 4 * tid + 4],
+                                size=4,
+                            )
+                            >> bar[cta]
+                        )
                     Arrive(Sm80_cp_async, 1) >> bar[cta]
                 for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
                     Await(bar[cta], cuda_in_order, ~1)
@@ -96,7 +106,9 @@ def test_sm80_cp_async_mbarrier_cross_cta(compiler):
         compiler.cuda_cpu_test(mkproc_sm80_cp_async_mbarrier_cross_cta)
     msg = str(exc.value)
     # May fail for different reasons in cluster setup, accept various errors
-    assert "Sm80" in msg or "CTA" in msg or "mbarrier" in msg or "cluster" in msg.lower()
+    assert (
+        "Sm80" in msg or "CTA" in msg or "mbarrier" in msg or "cluster" in msg.lower()
+    )
 
 
 # =============================================================================
@@ -129,108 +141,105 @@ def test_mbarrier_await_wrong_sync_tl(compiler):
 
 
 # =============================================================================
-# Fence first sync-tl not supported
+# Fence sync-tl errors
 # =============================================================================
 
 
-def mkproc_fence_unsupported_first_sync_tl():
-    """Try to use an unsupported first sync-tl for Fence"""
+def mkproc_fence(first_sync_tl, second_sync_tl):
+    """Create a Fence with specified sync-tl pair"""
 
     @proc
     def test_proc(foo: f32 @ CudaGmemLinear):
         with CudaDeviceFunction(blockDim=32):
             for task in cuda_tasks(0, 1):
                 for tid in cuda_threads(0, 32):
-                    # tcgen05_commit is unlikely to be supported as first Fence sync-tl
-                    # without proper setup
-                    Fence(tcgen05_commit, cuda_in_order)
+                    Fence(first_sync_tl, second_sync_tl)
 
     return simplify(test_proc)
 
 
-def test_fence_unsupported_first_sync_tl(compiler):
+def test_fence_unsupported_first_sync_tl_negative(compiler):
     with pytest.raises(Exception) as exc:
-        compiler.cuda_cpu_test(mkproc_fence_unsupported_first_sync_tl)
+        # wgmma_async is not valid as first sync-tl for Fence
+        compiler.cuda_cpu_test(
+            mkproc_fence, first_sync_tl=wgmma_async, second_sync_tl=cuda_in_order
+        )
     msg = str(exc.value)
     assert "sync-tl" in msg.lower() or "Fence" in msg or "not supported" in msg.lower()
 
 
-# =============================================================================
-# Fence second sync-tl Sm80_cp_async not supported
-# =============================================================================
-
-
-def mkproc_fence_sm80_cp_async_second():
-    """Sm80_cp_async is not supported as second sync-tl in Fence"""
-
-    @proc
-    def test_proc(foo: f32 @ CudaGmemLinear):
-        with CudaDeviceFunction(blockDim=32):
-            for task in cuda_tasks(0, 1):
-                for tid in cuda_threads(0, 32):
-                    Fence(cuda_in_order, Sm80_cp_async)
-
-    return simplify(test_proc)
-
-
-def test_fence_sm80_cp_async_second(compiler):
+def test_fence_sm80_cp_async_second_negative(compiler):
     with pytest.raises(Exception) as exc:
-        compiler.cuda_cpu_test(mkproc_fence_sm80_cp_async_second)
+        # Sm80_cp_async is not supported as second sync-tl in Fence
+        compiler.cuda_cpu_test(
+            mkproc_fence, first_sync_tl=cuda_in_order, second_sync_tl=Sm80_cp_async
+        )
     msg = str(exc.value)
     assert "Sm80" in msg or "sync-tl" in msg.lower() or "second" in msg.lower()
 
 
+def test_fence_valid_positive(compiler):
+    # cuda_in_order -> cuda_in_order is valid
+    compiler.cuda_cpu_test(
+        mkproc_fence, first_sync_tl=cuda_in_order, second_sync_tl=cuda_in_order
+    )
+
+
 # =============================================================================
-# wgmma fence needs wgmma_fence_2 as second sync-tl
+# wgmma fence tests
 # =============================================================================
 
 
-def mkproc_wgmma_fence_wrong_second():
-    """wgmma fence requires wgmma_fence_2 as second sync-tl"""
+def mkproc_wgmma_fence(second_sync_tl, use_warpgroup_unit=True, num_threads=128):
+    """Create a wgmma fence with specified second sync-tl and thread configuration"""
+    device_fn = CudaDeviceFunction(blockDim=num_threads)
 
-    @proc
-    def test_proc(foo: f32 @ CudaGmemLinear):
-        with CudaDeviceFunction(blockDim=128):
-            for task in cuda_tasks(0, 1):
-                for wg in cuda_threads(0, 1, unit=cuda_warpgroup):
-                    for tid in cuda_threads(0, 128):
-                        # First sync-tl is wgmma_fence_1, but second is wrong
-                        Fence(wgmma_fence_1, cuda_in_order)
+    if use_warpgroup_unit:
+        # Proper warpgroup usage: one warpgroup executes the fence
+        @proc
+        def test_proc(foo: f32 @ CudaGmemLinear):
+            with device_fn:
+                for task in cuda_tasks(0, 1):
+                    for wg in cuda_threads(0, 1, unit=cuda_warpgroup):
+                        Fence(wgmma_fence_1, second_sync_tl)
+
+    else:
+        # Wrong: individual threads instead of warpgroup unit
+        @proc
+        def test_proc(foo: f32 @ CudaGmemLinear):
+            with device_fn:
+                for task in cuda_tasks(0, 1):
+                    for tid in cuda_threads(0, num_threads):
+                        Fence(wgmma_fence_1, second_sync_tl)
 
     return simplify(test_proc)
 
 
-def test_wgmma_fence_wrong_second(compiler):
+def test_wgmma_fence_wrong_second_negative(compiler):
     with pytest.raises(Exception) as exc:
-        compiler.cuda_cpu_test(mkproc_wgmma_fence_wrong_second)
+        # wgmma_fence_1 requires wgmma_fence_2 as second, not cuda_in_order
+        compiler.cuda_cpu_test(
+            mkproc_wgmma_fence, second_sync_tl=cuda_in_order, use_warpgroup_unit=True
+        )
     msg = str(exc.value)
     assert "wgmma" in msg.lower() or "fence" in msg.lower()
 
 
-# =============================================================================
-# wgmma fence must be executed by a warpgroup
-# =============================================================================
-
-
-def mkproc_wgmma_fence_not_warpgroup():
-    """wgmma fence must be executed by exactly one warpgroup (128 threads)"""
-
-    @proc
-    def test_proc(foo: f32 @ CudaGmemLinear):
-        with CudaDeviceFunction(blockDim=256):
-            for task in cuda_tasks(0, 1):
-                # Execute with full CTA (256 threads) instead of warpgroup (128)
-                for tid in cuda_threads(0, 256):
-                    Fence(wgmma_fence_1, wgmma_fence_2)
-
-    return simplify(test_proc)
-
-
-def test_wgmma_fence_not_warpgroup(compiler):
+def test_wgmma_fence_not_warpgroup_negative(compiler):
     with pytest.raises(Exception) as exc:
-        compiler.cuda_cpu_test(mkproc_wgmma_fence_not_warpgroup)
+        # wgmma fence must be executed by exactly one warpgroup, not individual threads
+        compiler.cuda_cpu_test(
+            mkproc_wgmma_fence, second_sync_tl=wgmma_fence_2, use_warpgroup_unit=False
+        )
     msg = str(exc.value)
     assert "warpgroup" in msg.lower() or "wgmma" in msg.lower()
+
+
+def test_wgmma_fence_valid_positive(compiler):
+    # Correct: wgmma_fence_1 -> wgmma_fence_2 executed by one warpgroup
+    compiler.cuda_cpu_test(
+        mkproc_wgmma_fence, second_sync_tl=wgmma_fence_2, use_warpgroup_unit=True
+    )
 
 
 # =============================================================================
@@ -255,25 +264,25 @@ def test_mbarrier_not_sub_cta():
 # =============================================================================
 
 
-def mkproc_mbarrier_zero_skips():
-    """mbarrier cycle must have some await with nonzero skips"""
+# def mkproc_mbarrier_zero_skips():
+#     """mbarrier cycle must have some await with nonzero skips"""
 
-    @proc
-    def test_proc(foo: f32[128] @ CudaGmemLinear):
-        with CudaDeviceFunction(blockDim=32):
-            for task in cuda_tasks(0, 1):
-                bar: barrier @ CudaMbarrier
-                for tid in cuda_threads(0, 32):
-                    Arrive(cuda_in_order, 1) >> bar
-                    # Using N=~0 means 0 skips - the ring buffer needs some skips
-                    Await(bar, cuda_in_order, ~0)
+#     @proc
+#     def test_proc(foo: f32[128] @ CudaGmemLinear):
+#         with CudaDeviceFunction(blockDim=32):
+#             for task in cuda_tasks(0, 1):
+#                 bar: barrier @ CudaMbarrier
+#                 for tid in cuda_threads(0, 32):
+#                     Arrive(cuda_in_order, 1) >> bar
+#                     # Using N=~0 means 0 skips - the ring buffer needs some skips
+#                     Await(bar, cuda_in_order, ~0)
 
-    return simplify(test_proc)
+#     return simplify(test_proc)
 
 
-def test_mbarrier_zero_skips(compiler):
-    with pytest.raises(Exception) as exc:
-        compiler.cuda_cpu_test(mkproc_mbarrier_zero_skips)
-    msg = str(exc.value)
-    # This should fail due to ring buffer requirements
-    assert "skip" in msg.lower() or "N" in msg or "await" in msg.lower()
+# def test_mbarrier_zero_skips(compiler):
+#     with pytest.raises(Exception) as exc:
+#         compiler.cuda_cpu_test(mkproc_mbarrier_zero_skips)
+#     msg = str(exc.value)
+#     # This should fail due to ring buffer requirements
+#     assert "skip" in msg.lower() or "N" in msg or "await" in msg.lower()

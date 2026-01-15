@@ -148,39 +148,156 @@ p = p.parallelize(cursor)
 
 ### CUDA Error Testing Pattern
 
-For testing CUDA error conditions, use the `mkproc` pattern with parameterized positive/negative cases:
+For testing CUDA error conditions, use the `mkproc` pattern with parameterized positive/negative cases. **Share as much common code as possible** between positive and negative paths to ensure any error is due to the specific thing being tested, not an unrelated mistake.
 
+**Preferred: Parameterize values used inside a single proc**
 ```python
-def mkproc_feature(valid_param=True, invalid_option=False):
+def mkproc_feature(num_threads):
+    """Test thread count limits - parameterize the value, not the structure"""
     @proc
-    def test_proc(...):
-        with CudaDeviceFunction(blockDim=256):
+    def test_proc(foo: f32 @ CudaGmemLinear):
+        with CudaDeviceFunction(blockDim=32):
             for task in cuda_tasks(0, 1):
-                if invalid_option:
-                    # Code that triggers an error
-                    ...
-                else:
-                    # Valid code path
-                    ...
-    return test_proc
+                for tid in cuda_threads(0, num_threads):  # Parameter controls behavior
+                    foo = 1.0
+    return simplify(test_proc)
 
-# Positive test: valid proc, compare against golden output
-def test_feature_positive(compiler, golden):
-    compiler.cuda_cpu_test(mkproc_feature, golden)
+def test_feature_positive(compiler):
+    compiler.cuda_cpu_test(mkproc_feature, num_threads=32)  # Valid: 32 <= blockDim
 
-# Negative test: invalid proc, check error message
 def test_feature_negative(compiler):
     with pytest.raises(Exception) as exc:
-        compiler.cuda_cpu_test(mkproc_feature, invalid_option=True)
-    assert "expected error substring" in str(exc.value)
+        compiler.cuda_cpu_test(mkproc_feature, num_threads=64)  # Invalid: 64 > blockDim
+    assert "thread" in str(exc.value).lower()
+```
+
+**Also good: Parameterize sync-tl, memory types, or other Exo objects**
+```python
+def mkproc_fence(first_sync_tl, second_sync_tl):
+    """Test Fence sync-tl combinations - objects defined outside @proc work inside"""
+    @proc
+    def test_proc(foo: f32 @ CudaGmemLinear):
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                for tid in cuda_threads(0, 32):
+                    Fence(first_sync_tl, second_sync_tl)  # Parameters from outside
+    return simplify(test_proc)
+
+def test_fence_valid_positive(compiler):
+    compiler.cuda_cpu_test(mkproc_fence, first_sync_tl=cuda_in_order, second_sync_tl=cuda_in_order)
+
+def test_fence_invalid_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(mkproc_fence, first_sync_tl=wgmma_async, second_sync_tl=cuda_in_order)
+    assert "sync-tl" in str(exc.value).lower()
+```
+
+**Last resort: Different proc structures (only when code paths must differ)**
+```python
+def mkproc_wgmma_fence(use_warpgroup_unit=True):
+    """Only use separate branches when structure must differ"""
+    device_fn = CudaDeviceFunction(blockDim=128)  # Share what you can
+
+    if use_warpgroup_unit:
+        @proc
+        def test_proc(foo: f32 @ CudaGmemLinear):
+            with device_fn:
+                for task in cuda_tasks(0, 1):
+                    for wg in cuda_threads(0, 1, unit=cuda_warpgroup):  # Correct unit
+                        Fence(wgmma_fence_1, wgmma_fence_2)
+    else:
+        @proc
+        def test_proc(foo: f32 @ CudaGmemLinear):
+            with device_fn:
+                for task in cuda_tasks(0, 1):
+                    for tid in cuda_threads(0, 128):  # Wrong: individual threads
+                        Fence(wgmma_fence_1, wgmma_fence_2)
+    return simplify(test_proc)
 ```
 
 Key points:
+- **Maximize shared code** - CudaDeviceFunction, integers, sync-tl objects, and memory types can be assigned outside `@proc` and used inside
 - `mkproc_*` functions return a proc, taking parameters that control valid/invalid code paths
 - `compiler.cuda_cpu_test(mkproc_fn, **kwargs)` compiles and optionally runs the proc
 - Positive tests use the `golden` fixture to compare generated code against expected output
 - Negative tests use `pytest.raises` and assert on specific error message substrings
 - Parameters to `mkproc_fn` are passed as kwargs to `cuda_cpu_test`
+
+### CUDA Error Testing Pitfalls
+
+Common mistakes when writing CUDA error tests:
+
+1. **Variables must be used** - Declaring a variable is not enough; dead code elimination removes unused allocations before type/memory checks run. Always read from or write to the variable:
+   ```python
+   # BAD: packed is never used, type check never runs
+   packed: i8[4] @ CudaRmemPacked32
+
+   # GOOD: using the variable triggers the type check
+   packed: i8[4] @ CudaRmemPacked32
+   packed[0] = 0
+   ```
+
+2. **Barriers need distribution dimensions** - Use `barrier[N]` with matching thread tiling to avoid distributed memory errors:
+   ```python
+   # BAD: barrier not distributed, causes "distributed memory deduction failed"
+   bar: barrier @ CudaMbarrier
+   for tid in cuda_threads(0, 32):
+       Arrive(...) >> bar
+
+   # GOOD: barrier dimension matches thread tiling
+   bar: barrier[1] @ CudaMbarrier
+   for wg in cuda_threads(0, 1, unit=cuda_warpgroup):
+       Arrive(...) >> bar[wg]
+   ```
+
+3. **CudaGridConstant is read-only on device** - Can only read from it in device code:
+   ```python
+   # BAD: writing causes "mutable access" error
+   gc: f32[16] @ CudaGridConstant
+   gc[0] = 1.0
+
+   # GOOD: read from gc, write to different buffer
+   dst[0] = gc[0]
+   ```
+
+4. **guarded_by syntax** - Use `barrier(guard_name)`, not subscript syntax:
+   ```python
+   # BAD: invalid Python syntax
+   bar2: barrier @ CudaMbarrier[guarded_by=bar1]
+
+   # GOOD: guarded_by in parentheses
+   bar2: barrier(bar1) @ CudaMbarrier
+   ```
+
+5. **Proc definitions in parameterized mkproc (last resort)** - If you must have different proc structures (not just different parameter values), define procs inside if/else branches to avoid both being created. **Prefer parameterizing values over branching structures** (see CUDA Error Testing Pattern above):
+   ```python
+   # BAD: both procs created regardless of parameter
+   def mkproc(use_valid=True):
+       @proc
+       def invalid_proc(): ...  # Always created!
+       @proc
+       def valid_proc(): ...
+       return valid_proc if use_valid else invalid_proc
+
+   # ACCEPTABLE (when structure must differ): only requested proc is created
+   def mkproc(use_valid=True):
+       device_fn = CudaDeviceFunction(blockDim=128)  # Share what you can!
+       if use_valid:
+           @proc
+           def test_proc(): ...  # Valid version
+       else:
+           @proc
+           def test_proc(): ...  # Invalid version
+       return simplify(test_proc)
+
+   # PREFERRED: parameterize values, not structure (see examples above)
+   def mkproc(num_threads):
+       @proc
+       def test_proc(): ...  # Single proc, behavior controlled by parameter
+       return simplify(test_proc)
+   ```
+
+6. **Test the right error** - Ensure test structure is valid first; structural errors mask the error you're testing for. If you get unexpected errors about distributed memory or bounds, fix the test structure before asserting on error messages.
 
 ## Dependencies
 
