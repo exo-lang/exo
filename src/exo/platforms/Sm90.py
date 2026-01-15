@@ -101,7 +101,7 @@ struct exo_Sm90_SW{swizzle} {{
         return reinterpret_cast<exo_Sm90_SW{swizzle}*>(addr);
     }}
 
-    static constexpr uint64_t get_swizzle_bits()
+    static __host__ __device__ constexpr uint64_t get_swizzle_bits()
     {{
         return {swizzle_bits};
     }}

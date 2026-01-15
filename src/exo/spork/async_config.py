@@ -260,7 +260,10 @@ class DeviceScopeAnalysis(LoopIR_Rewrite):
         else:
             self.inspect_s(s)
 
-        super().map_s(s)
+        # Call has special checking rules.
+        if not isinstance(s, LoopIR.Call):
+            super().map_s(s)
+
         self.device = old_device
         self.default_instr_tl = old_default_instr_tl
 
@@ -341,6 +344,8 @@ class DeviceScopeAnalysis(LoopIR_Rewrite):
                     f"not allowed in scope using {self.device}"
                 )
             assert len(s.args) == len(callee.args)
+            # Non-instr will just be assumed correct here.
+            # The Exo body of the non-instr proc will do its own checking.
             if callee.instr:
                 for caller_a, callee_a in zip(s.args, callee.args):
                     # Inspect only numeric (data) arguments, not control type arguments.
