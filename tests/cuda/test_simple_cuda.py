@@ -185,6 +185,7 @@ def test_grid_constants_windows(compiler_Sm80):
       * Grid constants
       * Re-used variable names
       * Two device functions
+      * Window of grid constant
     """
 
     @proc
@@ -216,8 +217,9 @@ def test_grid_constants_windows(compiler_Sm80):
                 with CudaDeviceFunction(blockDim=32):
                     for task in cuda_tasks(0, 1):
                         for tid in cuda_threads(0, 1):
+                            const_vector_window = const_vector[N:]
                             test_mem[i, N] = (
-                                const_scalar * const_vector[N] * input_window[N]
+                                const_scalar * const_vector_window[0] * input_window[N]
                             )
 
         # for i in [0, N), j in [4, N)

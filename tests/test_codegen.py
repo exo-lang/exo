@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 from PIL import Image
+from random import Random
 
 from exo import proc, instr, Procedure, DRAM, compile_procs_to_strings
 from exo.libs.memories import MDRAM, MemGenError, StaticMemory, DRAM_STACK
@@ -107,6 +108,78 @@ def test_const_local_window(golden, compiler):
     assert f"{hh}{cc}" == golden
 
     compiler.compile(caller)
+
+
+# Const tests, regression test from ExoBLAS.
+# We (I mean I, it's David's fault) had bugs with chains
+# of procs calling procs "forgetting" something is const.
+# Test both LoopIR.Read and LoopIR.WindowExpr cases.
+
+
+@proc
+def exoblas_const_regress_leaf(
+    M: size, N: size, A: [f32][N, M], x: [f32][N], y: [f32][M]
+):
+    for j in seq(0, N):
+        for i in seq(0, M):
+            y[i] += A[j, i] * x[j]
+
+
+@proc
+def exoblas_const_regress_middle(
+    M: size, N: size, A: [f32][N, M], x: [f32][N], y: [f32][M]
+):
+    exoblas_const_regress_leaf(M, N, A, x, y)
+
+
+@proc
+def exoblas_const_regress_middle_w(
+    M: size, N: size, A: [f32][N, M], x: [f32][N], y: [f32][M]
+):
+    exoblas_const_regress_leaf(M, N, A[:, :], x[:], y[:])
+
+
+@proc
+def exoblas_const_regress_entry(M: size, N: size, A: f32[N, M], x: f32[N], y: f32[M]):
+    exoblas_const_regress_middle(M, N, A, x, y)
+
+
+@proc
+def exoblas_const_regress_entry_w(M: size, N: size, A: f32[N, M], x: f32[N], y: f32[M]):
+    exoblas_const_regress_middle_w(M, N, A[:, :], x[:], y[:])
+
+
+def impl_test_exoblas_const_regress(golden, compiler, use_window):
+    p = exoblas_const_regress_entry_w if use_window else exoblas_const_regress_entry
+    cc, hh = compile_procs_to_strings([p], "test.h")
+    assert f"{hh}{cc}" == golden
+
+    lib = compiler.compile(p)
+    M = 100
+    N = 50
+    A = np.ndarray(shape=(M, N), dtype=np.float32, order="F")
+    x = np.ndarray(shape=(N,), dtype=np.float32, order="F")
+    y = np.ndarray(shape=(M,), dtype=np.float32, order="F")
+    y_before = np.ndarray(shape=(M,), dtype=np.float32, order="F")
+    rand = Random(2700)
+    for j in range(N):
+        x[j] = rand.randrange(100)
+    for i in range(M):
+        y[i] = rand.randrange(100)
+        y_before[i] = y[i]
+    for j in range(N):
+        for i in range(M):
+            A[i, j] = rand.randrange(10)
+    lib(None, M, N, A, x, y)
+    assert np.array_equal(y, y_before + A @ x)
+
+
+def test_exoblas_const_regress(golden, compiler):
+    impl_test_exoblas_const_regress(golden, compiler, False)
+
+
+def test_exoblas_const_regress_w(golden, compiler):
+    impl_test_exoblas_const_regress(golden, compiler, True)
 
 
 # --- Start Blur Test ---
