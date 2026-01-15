@@ -147,7 +147,8 @@ def tparams_from_signature(clsname: str, tproc: LoopIR.proc, signature):
 
 
 def prefill_instr_info(info: InstrInfo, proc: LoopIR.proc):
-    write_syms = set(x for x, _ in get_writes_of_stmts(proc.body))
+    const_dict = proc.get_cached_const_param_dict()
+    write_syms = set(x for x, const in const_dict.items() if not const)
     read_syms = set(x for x, _ in get_reads_of_stmts(proc.body, include_reduce=True))
     info.instr_format = None
     info.c_utils = []

@@ -1616,9 +1616,7 @@ class Compiler:
         assert isinstance(fn, LoopIR.proc)
         mem = fn.args[i].mem
         is_const = None
-        if isinstance(e, LoopIR.WindowExpr):
-            callee_buf = fn.args[i].name
-            is_const = fn.is_const_param(callee_buf)
+        is_const = fn.is_const_param(fn.args[i].name)
         return self.comp_fnarg_impl(e, mem, is_const, force_pass_by_value)
 
     def comp_fnarg_impl(self, e, mem, is_const, force_pass_by_value):
