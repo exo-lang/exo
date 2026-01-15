@@ -381,6 +381,7 @@ class Compiler:
             f"-arch=compute_{sm}",
             f"-code=sm_{sm},compute_{sm}",
             "-std=c++20",
+            "--expt-relaxed-constexpr",
             "-lineinfo",
             "-O3",
             str(self.workdir / (self.basename + ".c")),
