@@ -44,13 +44,14 @@ def mkproc_mbarrier_arrive_tma_to_smem():
 
     @proc
     def test_proc(foo: f32[128] @ CudaGmemLinear):
-        with CudaDeviceFunction(blockDim=32):
+        with CudaDeviceFunction(blockDim=128):
             for task in cuda_tasks(0, 1):
-                bar: barrier @ CudaMbarrier
-                for tid in cuda_threads(0, 32):
+                # Barrier must be distributed per warpgroup to avoid distributed memory errors
+                bar: barrier[1] @ CudaMbarrier
+                for wg in cuda_threads(0, 1, unit=cuda_warpgroup):
                     # tma_to_smem_async should not be directly used as Arrive sync-tl
-                    Arrive(tma_to_smem_async, 1) >> bar
-                    Await(bar, cuda_in_order, ~1)
+                    Arrive(tma_to_smem_async, 1) >> bar[wg]
+                    Await(bar[wg], cuda_in_order, ~1)
 
     return simplify(test_proc)
 
@@ -59,23 +60,16 @@ def test_mbarrier_arrive_tma_to_smem(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_mbarrier_arrive_tma_to_smem)
     msg = str(exc.value)
-    assert (
-        "tma_to_smem" in msg.lower()
-        or "sync-tl" in msg.lower()
-        or "cuda_temporal" in msg
-    )
+    assert "tma_to_smem_async" in msg and "Arrive" in msg
 
 
-# Claude totally didn't get it here.
-# The test doesn't even multicast to different CTAs, and fails because of errors in
-# distributed memory (and Sm80_cp_async_f32 does not take trailing barrier expression)
 # =============================================================================
-# Sm80_cp_async mbarrier must be within 1 CTA (cluster case)
+# Sm80_cp_async_f32 does not take trailing barrier expression
 # =============================================================================
 
 
-def mkproc_sm80_cp_async_mbarrier_cross_cta():
-    """Sm80_cp_async with mbarrier cannot be used across CTAs in a cluster"""
+def mkproc_sm80_cp_async_trailing_barrier():
+    """Sm80_cp_async_f32 instruction does not support trailing barrier syntax"""
 
     @proc
     def test_proc(gmem: f32[128] @ CudaGmemLinear):
@@ -83,9 +77,9 @@ def mkproc_sm80_cp_async_mbarrier_cross_cta():
             for task in cuda_tasks(0, 1):
                 smem: f32[128] @ CudaSmemLinear
                 bar: barrier[2] @ CudaMbarrier
-                # Try to use Sm80_cp_async with multicast to multiple CTAs
                 for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
                     for tid in cuda_threads(0, 32):
+                        # Sm80_cp_async_f32 does NOT support >> bar trailing syntax
                         (
                             Sm80_cp_async_f32(
                                 smem[4 * tid : 4 * tid + 4],
@@ -101,14 +95,11 @@ def mkproc_sm80_cp_async_mbarrier_cross_cta():
     return simplify(test_proc)
 
 
-def test_sm80_cp_async_mbarrier_cross_cta(compiler):
+def test_sm80_cp_async_trailing_barrier(compiler):
     with pytest.raises(Exception) as exc:
-        compiler.cuda_cpu_test(mkproc_sm80_cp_async_mbarrier_cross_cta)
+        compiler.cuda_cpu_test(mkproc_sm80_cp_async_trailing_barrier)
     msg = str(exc.value)
-    # May fail for different reasons in cluster setup, accept various errors
-    assert (
-        "Sm80" in msg or "CTA" in msg or "mbarrier" in msg or "cluster" in msg.lower()
-    )
+    assert "Sm80_cp_async_f32" in msg and "trailing barrier" in msg.lower()
 
 
 # =============================================================================
@@ -137,7 +128,7 @@ def test_mbarrier_await_wrong_sync_tl(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_mbarrier_await_wrong_sync_tl)
     msg = str(exc.value)
-    assert "sync-tl" in msg.lower() or "wgmma" in msg.lower() or "Await" in msg
+    assert "mbarrier" in msg.lower() and "Await" in msg and "sync-tl" in msg.lower()
 
 
 # =============================================================================
@@ -165,7 +156,7 @@ def test_fence_unsupported_first_sync_tl_negative(compiler):
             mkproc_fence, first_sync_tl=wgmma_async, second_sync_tl=cuda_in_order
         )
     msg = str(exc.value)
-    assert "sync-tl" in msg.lower() or "Fence" in msg or "not supported" in msg.lower()
+    assert "Fence" in msg and "first" in msg.lower() and "sync-tl" in msg.lower()
 
 
 def test_fence_sm80_cp_async_second_negative(compiler):
@@ -175,7 +166,9 @@ def test_fence_sm80_cp_async_second_negative(compiler):
             mkproc_fence, first_sync_tl=cuda_in_order, second_sync_tl=Sm80_cp_async
         )
     msg = str(exc.value)
-    assert "Sm80" in msg or "sync-tl" in msg.lower() or "second" in msg.lower()
+    assert (
+        "Sm80_cp_async" in msg and "second" in msg.lower() and "sync-tl" in msg.lower()
+    )
 
 
 def test_fence_valid_positive(compiler):
@@ -222,7 +215,7 @@ def test_wgmma_fence_wrong_second_negative(compiler):
             mkproc_wgmma_fence, second_sync_tl=cuda_in_order, use_warpgroup_unit=True
         )
     msg = str(exc.value)
-    assert "wgmma" in msg.lower() or "fence" in msg.lower()
+    assert "wgmma" in msg.lower() and "fence" in msg.lower() and "second" in msg.lower()
 
 
 def test_wgmma_fence_not_warpgroup_negative(compiler):
@@ -232,7 +225,7 @@ def test_wgmma_fence_not_warpgroup_negative(compiler):
             mkproc_wgmma_fence, second_sync_tl=wgmma_fence_2, use_warpgroup_unit=False
         )
     msg = str(exc.value)
-    assert "warpgroup" in msg.lower() or "wgmma" in msg.lower()
+    assert "wgmma" in msg.lower() and "warpgroup" in msg.lower()
 
 
 def test_wgmma_fence_valid_positive(compiler):

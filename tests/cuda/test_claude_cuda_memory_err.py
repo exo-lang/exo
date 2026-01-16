@@ -33,7 +33,7 @@ def test_scalar_gmem_alloc(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_scalar_gmem_alloc)
     msg = str(exc.value)
-    assert "scalar" in msg.lower() or "CudaGmemLinear" in msg
+    assert "CudaGmemLinear" in msg and "access" in msg.lower()
 
 
 # =============================================================================
@@ -106,7 +106,9 @@ def test_grid_constant_dynamic_shape_negative(compiler):
         compiler.cuda_cpu_test(mkproc_grid_constant_dynamic_shape, use_dynamic=True)
     msg = str(exc.value)
     assert (
-        "CudaGridConstant" in msg or "constant" in msg.lower() or "shape" in msg.lower()
+        "CudaGridConstant" in msg
+        and "constant" in msg.lower()
+        and "shape" in msg.lower()
     )
 
 
@@ -126,23 +128,26 @@ def mkproc_smem_non_const_shape(use_dynamic=True):
     if use_dynamic:
 
         @proc
-        def test_proc(N: size):
+        def test_proc(N: size, gmem: f32[128] @ CudaGmemLinear):
             with CudaDeviceFunction(blockDim=32):
                 for task in cuda_tasks(0, 1):
+                    # Dynamic shape N - should fail because SMEM needs constant size
                     smem: f32[N] @ CudaSmemLinear
                     for tid in cuda_threads(0, 32):
-                        smem[tid] = 1.0
+                        # Read from smem to avoid dead code elimination
+                        # Use gmem[0] to avoid bounds issues with N
+                        gmem[0] = smem[0]
 
         return simplify(test_proc)
     else:
 
         @proc
-        def test_proc():
+        def test_proc(gmem: f32[128] @ CudaGmemLinear):
             with CudaDeviceFunction(blockDim=32):
                 for task in cuda_tasks(0, 1):
                     smem: f32[64] @ CudaSmemLinear
                     for tid in cuda_threads(0, 32):
-                        smem[tid] = 1.0
+                        gmem[0] = smem[0]
 
         return simplify(test_proc)
 
@@ -152,7 +157,7 @@ def test_smem_non_const_shape_negative(compiler):
         compiler.cuda_cpu_test(mkproc_smem_non_const_shape, use_dynamic=True)
     msg = str(exc.value)
     # Error message should mention the non-constant dimension
-    assert "N" in msg or "constant" in msg.lower() or "shape" in msg.lower()
+    assert "SMEM" in msg and "constant" in msg.lower() and "shape" in msg.lower()
 
 
 def test_smem_const_shape_positive(compiler):

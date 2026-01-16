@@ -43,7 +43,7 @@ def test_guarded_by_unsupported(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_guarded_by_unsupported)
     msg = str(exc.value)
-    assert "guarded_by" in msg or "supports_guards" in msg
+    assert "guarded_by" in msg and "supports_guards" in msg
 
 
 # =============================================================================
@@ -76,7 +76,7 @@ def test_guarded_by_already_guards(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_guarded_by_already_guards)
     msg = str(exc.value)
-    assert "guarded_by" in msg or "guards" in msg
+    assert "guarded_by" in msg and "guards" in msg
 
 
 # =============================================================================
