@@ -679,36 +679,6 @@ def basetype(t):
 del basetype
 
 
-@extclass(LoopIR.type)
-def strip_leading_dims(t, n: int):
-    if isinstance(t, LoopIR.Tensor):
-        if len(t.hi) == n:
-            # All dimensions removed; reduce to scalar
-            t = t.basetype()
-        else:
-            assert n < len(t.hi)
-            t = t.update(hi=t.hi[n:])
-    elif isinstance(t, LoopIR.WindowType):
-        assert len(t.idx) == len(t.as_tensor.hi)
-        if len(t.idx) == n:
-            # All dimensions removed; reduce to scalar.
-            # Sketchy, this will probably not work as intended...
-            t = t.basetype()
-        else:
-            assert n < len(t.idx)
-            t = t.update(
-                src_type=t.src_type.strip_leading_dims(n),
-                as_tensor=t.as_tensor.strip_leading_dims(n),
-                idx=t.idx[n:],
-            )
-    elif isinstance(t, T.Barrier):
-        assert n < len(t.hi)
-        t = t.update(hi=t.hi[n:])
-    else:
-        assert n == 0
-    return t
-
-
 def LoopIR_Fence(L1: Sync_tl, L2: Sync_tl, srcinfo: SrcInfo):
     name = Sym("Fence")  # Sym as internal unique ID for Fence.
     barriers = [LoopIR.BarrierExpr(name, [], T.barrier, srcinfo)]

@@ -21,20 +21,13 @@ class CollParam(object):
     via a collective environment (just env in this module).
     This is Dict[CollParam, int]"""
 
-    __slots__ = ["name", "hash"]
+    __slots__ = ["name"]
 
     def __init__(self, name):
         self.name = name
-        self.hash = hash(name)
 
     def __repr__(self):
         return self.name + "_param"
-
-    def __eq__(self, param):
-        return isinstance(param, CollParam) and self.name == param.name
-
-    def __hash__(self):
-        return self.hash
 
 
 class CollSizeExpr(object):
@@ -119,10 +112,6 @@ def int_size_tuple(tup: Tuple[Optional[CollSizeExpr]], env: Dict[CollParam, int]
     return tuple(None if n is None else n(env) for n in tup)
 
 
-def format_tuple(tup: Tuple[Optional[CollSizeExpr]]):
-    return "(" + ", ".join("*" if n is None else str(n) for n in tup) + ")"
-
-
 class CollUnit(object):
     """Collective unit, e.g. a cuda warp, cuda CTA
 
@@ -196,13 +185,6 @@ class CollUnit(object):
 
     def int_box(self, env: Dict[CollParam, int]):
         return int_size_tuple(self.box, env)
-
-    def int_threads(self, env: Dict[CollParam, int]):
-        assert not self.agnostic
-        n = 1
-        for c in self.box:
-            n *= c(env)
-        return n
 
     def is_always_single_thread(self):
         return all(c.equals_const(1) for c in self.box)
@@ -325,23 +307,6 @@ class CollIndexExpr(object):
                 continue
             break
         return CollIndexExpr(self.base_expr, self.base_hi, _range, ops + (("%", v),))
-
-    def __call__(self, var_value):
-        base_expr = self.base_expr
-        if isinstance(base_expr, int):
-            return base_expr
-        assert isinstance(base_expr, str)
-        result = var_value
-        for op, v in self.ops:
-            if op == "%":
-                result %= v
-            elif op == "-":
-                result -= v
-            else:
-                assert op == "/"
-                result //= v
-        assert isinstance(result, int)
-        return result
 
     def codegen(self):
         """Assuming C for now. Should be usable downstream without further parenthesization"""
@@ -1106,28 +1071,6 @@ class DomainCompletionOp:
         return self._new_coords(
             size, outer_op, inner_op, 1, partial_prepend=partial_prepend
         )
-
-    def new_offset(self, offset: Tuple, partial_prepend=None):
-        def outer_op(c, factor):
-            return c // factor
-
-        def inner_op(c, factor):
-            self.require_divides(c, factor)
-            return 0
-
-        return self._new_coords(
-            offset, outer_op, inner_op, 0, partial_prepend=partial_prepend
-        )
-
-    def new_intra_box_exprs(self, coords: Tuple):
-        def outer_op(c, factor):
-            return c // factor
-
-        def inner_op(c, factor):
-            return c % factor
-
-        # NB rely on CollIndexExpr(...) % 1 to be 0 for expected_removed_coord
-        return self._new_coords(coords, outer_op, inner_op, coll_index_0)
 
     def _new_coords(
         self,
