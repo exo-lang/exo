@@ -542,7 +542,7 @@ class InstrWindowArg:
     def index_ptr(self, *idxs, **kwargs) -> str:
         """Give expression for pointer to window[*idxs], similar to index(...)"""
         r = self.index_result(*idxs, **kwargs)
-        return r.code if r.is_ptr else f"&{r.code}"
+        return r.code if r.is_ptr else f"(&{r.code})"
 
     def to_arg_strs(self) -> List[str]:
         if self.separate_dataptr():
@@ -606,7 +606,7 @@ class InstrNonWindowArg:
     def index_ptr(self) -> str:
         """For compatibility with InstrWindowArg"""
         code = self._code
-        return code if self._is_ptr else f"&{code}"
+        return code if self._is_ptr else f"(&{code})"
 
     def separate_dataptr(self) -> bool:
         """For compatibility with InstrWindowArg"""

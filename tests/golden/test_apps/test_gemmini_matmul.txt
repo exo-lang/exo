@@ -350,9 +350,9 @@ void cpu_matmul_14( test_case_Context *ctxt, const float* scale, bool act, const
       int32_t src_tmp;
       src_tmp = res;
       float tmp_res1;
-      &tmp_res1[0] = ACC_SCALE(&src_tmp[0], scale[0]);
+      (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], scale[0]);
       int8_t tmp_res2;
-      clamp(ctxt, &tmp_res1, &tmp_res2);
+      clamp(ctxt, (&tmp_res1), (&tmp_res2));
       if (act == true) {
         tmp_res2 = _relu_int8_t((int8_t)tmp_res2);
       }
@@ -387,9 +387,9 @@ void cpu_matmul_16( test_case_Context *ctxt, const float* scale, bool act, const
       int32_t src_tmp;
       src_tmp = res;
       float tmp_res1;
-      &tmp_res1[0] = ACC_SCALE(&src_tmp[0], scale[0]);
+      (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], scale[0]);
       int8_t tmp_res2;
-      clamp(ctxt, &tmp_res1, &tmp_res2);
+      clamp(ctxt, (&tmp_res1), (&tmp_res2));
       if (act == true) {
         tmp_res2 = _relu_int8_t((int8_t)tmp_res2);
       }
@@ -424,9 +424,9 @@ void cpu_matmul_27( test_case_Context *ctxt, const float* scale, bool act, const
       int32_t src_tmp;
       src_tmp = res;
       float tmp_res1;
-      &tmp_res1[0] = ACC_SCALE(&src_tmp[0], scale[0]);
+      (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], scale[0]);
       int8_t tmp_res2;
-      clamp(ctxt, &tmp_res1, &tmp_res2);
+      clamp(ctxt, (&tmp_res1), (&tmp_res2));
       if (act == true) {
         tmp_res2 = _relu_int8_t((int8_t)tmp_res2);
       }
@@ -461,9 +461,9 @@ void cpu_matmul_4( test_case_Context *ctxt, const float* scale, bool act, const 
       int32_t src_tmp;
       src_tmp = res;
       float tmp_res1;
-      &tmp_res1[0] = ACC_SCALE(&src_tmp[0], scale[0]);
+      (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], scale[0]);
       int8_t tmp_res2;
-      clamp(ctxt, &tmp_res1, &tmp_res2);
+      clamp(ctxt, (&tmp_res1), (&tmp_res2));
       if (act == true) {
         tmp_res2 = _relu_int8_t((int8_t)tmp_res2);
       }
@@ -498,9 +498,9 @@ void cpu_matmul_512x512x512( test_case_Context *ctxt, const float* scale, bool a
       int32_t src_tmp;
       src_tmp = res;
       float tmp_res1;
-      &tmp_res1[0] = ACC_SCALE(&src_tmp[0], scale[0]);
+      (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], scale[0]);
       int8_t tmp_res2;
-      clamp(ctxt, &tmp_res1, &tmp_res2);
+      clamp(ctxt, (&tmp_res1), (&tmp_res2));
       if (act == true) {
         tmp_res2 = _relu_int8_t((int8_t)tmp_res2);
       }
@@ -535,9 +535,9 @@ void cpu_matmul_6( test_case_Context *ctxt, const float* scale, bool act, const 
       int32_t src_tmp;
       src_tmp = res;
       float tmp_res1;
-      &tmp_res1[0] = ACC_SCALE(&src_tmp[0], scale[0]);
+      (&tmp_res1)[0] = ACC_SCALE((&src_tmp)[0], scale[0]);
       int8_t tmp_res2;
-      clamp(ctxt, &tmp_res1, &tmp_res2);
+      clamp(ctxt, (&tmp_res1), (&tmp_res2));
       if (act == true) {
         tmp_res2 = _relu_int8_t((int8_t)tmp_res2);
       }

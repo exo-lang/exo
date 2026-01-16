@@ -563,9 +563,9 @@ exo_CudaInline_test_golden_vec_add_f16::exo_Cuda0_f16_test_vec_add_f16::exo_devi
   exo_CudaRmemPacked32_f16 rmem_x;
   // cuda_threads(0, 256, unit=cuda_thread)
   if ([[maybe_unused]] int exo_1thr_tid = threadIdx.x; 1) {
-    memcpy(&rmem_x.ptx_data, &exo_deviceArgs.d_x[2 * exo_1thr_tid + 512 * exo_task.task], 4);
+    memcpy((&rmem_x.ptx_data), (&exo_deviceArgs.d_x[2 * exo_1thr_tid + 512 * exo_task.task]), 4);
     exo_CudaRmemPacked32_f16 rmem_y;
-    memcpy(&rmem_y.ptx_data, &exo_deviceArgs.d_y[2 * exo_1thr_tid + 512 * exo_task.task], 4);
+    memcpy((&rmem_y.ptx_data), (&exo_deviceArgs.d_y[2 * exo_1thr_tid + 512 * exo_task.task]), 4);
     for (int pack_st_out = 0; pack_st_out < 2; pack_st_out++) {
       exo_deviceArgs.d_out[pack_st_out + 2 * exo_1thr_tid + 512 * exo_task.task] = (float)(rmem_x[pack_st_out] + rmem_y[pack_st_out]);
     }

@@ -1034,12 +1034,12 @@ exo_CudaInline_test_tmp_xgemm_Sm80_golden::exo_Cuda2_xgemm_Sm80_fence::exo_devic
             asm volatile(
               "cp.async.cg.shared.global [%0], [%1], 16;"
                 :
-                :"r"(exo_smemU32(&A_smem[(k1 % 2) * (3072) + (exo_4thr_m0 + 64 * m1) * (16) + 4 * exo_1thr_k0])),
-                "l"(&exo_deviceArgs.A[(exo_4thr_m0 + 64 * m1 + 192 * exo_task.m2) * (exo_deviceArgs.K) + 4 * exo_1thr_k0 + 16 * k1])
+                :"r"(exo_smemU32((&A_smem[(k1 % 2) * (3072) + (exo_4thr_m0 + 64 * m1) * (16) + 4 * exo_1thr_k0]))),
+                "l"((&exo_deviceArgs.A[(exo_4thr_m0 + 64 * m1 + 192 * exo_task.m2) * (exo_deviceArgs.K) + 4 * exo_1thr_k0 + 16 * k1]))
             );
             exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_cg_shared_global), 0, __LINE__);
-            exo_excutLog.log_u32_arg(exo_smemU32(&A_smem[(k1 % 2) * (3072) + (exo_4thr_m0 + 64 * m1) * (16) + 4 * exo_1thr_k0]));
-            exo_excutLog.log_ptr_arg(&exo_deviceArgs.A[(exo_4thr_m0 + 64 * m1 + 192 * exo_task.m2) * (exo_deviceArgs.K) + 4 * exo_1thr_k0 + 16 * k1]);
+            exo_excutLog.log_u32_arg(exo_smemU32((&A_smem[(k1 % 2) * (3072) + (exo_4thr_m0 + 64 * m1) * (16) + 4 * exo_1thr_k0])));
+            exo_excutLog.log_ptr_arg((&exo_deviceArgs.A[(exo_4thr_m0 + 64 * m1 + 192 * exo_task.m2) * (exo_deviceArgs.K) + 4 * exo_1thr_k0 + 16 * k1]));
             exo_excutLog.log_u32_arg(static_cast<uint32_t>(16));
           }
         }
@@ -1052,12 +1052,12 @@ exo_CudaInline_test_tmp_xgemm_Sm80_golden::exo_Cuda2_xgemm_Sm80_fence::exo_devic
             asm volatile(
               "cp.async.cg.shared.global [%0], [%1], 16;"
                 :
-                :"r"(exo_smemU32(&B_smem[(k1 % 2) * (4096) + (exo_64thr_k0_par + 4 * k0_seq) * (256) + 4 * exo_1thr_n0])),
-                "l"(&exo_deviceArgs.B[(exo_64thr_k0_par + 4 * k0_seq + 16 * k1) * (exo_deviceArgs.N) + 4 * exo_1thr_n0 + 256 * exo_task.n2])
+                :"r"(exo_smemU32((&B_smem[(k1 % 2) * (4096) + (exo_64thr_k0_par + 4 * k0_seq) * (256) + 4 * exo_1thr_n0]))),
+                "l"((&exo_deviceArgs.B[(exo_64thr_k0_par + 4 * k0_seq + 16 * k1) * (exo_deviceArgs.N) + 4 * exo_1thr_n0 + 256 * exo_task.n2]))
             );
             exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_cg_shared_global), 0, __LINE__);
-            exo_excutLog.log_u32_arg(exo_smemU32(&B_smem[(k1 % 2) * (4096) + (exo_64thr_k0_par + 4 * k0_seq) * (256) + 4 * exo_1thr_n0]));
-            exo_excutLog.log_ptr_arg(&exo_deviceArgs.B[(exo_64thr_k0_par + 4 * k0_seq + 16 * k1) * (exo_deviceArgs.N) + 4 * exo_1thr_n0 + 256 * exo_task.n2]);
+            exo_excutLog.log_u32_arg(exo_smemU32((&B_smem[(k1 % 2) * (4096) + (exo_64thr_k0_par + 4 * k0_seq) * (256) + 4 * exo_1thr_n0])));
+            exo_excutLog.log_ptr_arg((&exo_deviceArgs.B[(exo_64thr_k0_par + 4 * k0_seq + 16 * k1) * (exo_deviceArgs.N) + 4 * exo_1thr_n0 + 256 * exo_task.n2]));
             exo_excutLog.log_u32_arg(static_cast<uint32_t>(16));
           }
         }

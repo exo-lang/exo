@@ -500,12 +500,12 @@ exo_CudaInline_test_golden_B_cp_async_commit_group::exo_Cuda0__6_256_8_cp_async_
           asm volatile(
             "cp.async.cg.shared.global [%0], [%1], 16;"
               :
-              :"r"(exo_smemU32(&smem[(warmup) * (2048) + (exo_1thr_tid) * 8 + 4 * k_cp])),
-              "l"(&exo_deviceArgs.d_in[(exo_1thr_tid + 256 * exo_task.m_task) * (exo_deviceArgs.K) + 4 * k_cp + 8 * warmup])
+              :"r"(exo_smemU32((&smem[(warmup) * (2048) + (exo_1thr_tid) * 8 + 4 * k_cp]))),
+              "l"((&exo_deviceArgs.d_in[(exo_1thr_tid + 256 * exo_task.m_task) * (exo_deviceArgs.K) + 4 * k_cp + 8 * warmup]))
           );
           exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_cg_shared_global), 0, __LINE__);
-          exo_excutLog.log_u32_arg(exo_smemU32(&smem[(warmup) * (2048) + (exo_1thr_tid) * 8 + 4 * k_cp]));
-          exo_excutLog.log_ptr_arg(&exo_deviceArgs.d_in[(exo_1thr_tid + 256 * exo_task.m_task) * (exo_deviceArgs.K) + 4 * k_cp + 8 * warmup]);
+          exo_excutLog.log_u32_arg(exo_smemU32((&smem[(warmup) * (2048) + (exo_1thr_tid) * 8 + 4 * k_cp])));
+          exo_excutLog.log_ptr_arg((&exo_deviceArgs.d_in[(exo_1thr_tid + 256 * exo_task.m_task) * (exo_deviceArgs.K) + 4 * k_cp + 8 * warmup]));
           exo_excutLog.log_u32_arg(static_cast<uint32_t>(16));
         }
       }
@@ -524,12 +524,12 @@ exo_CudaInline_test_golden_B_cp_async_commit_group::exo_Cuda0__6_256_8_cp_async_
           asm volatile(
             "cp.async.cg.shared.global [%0], [%1], 16;"
               :
-              :"r"(exo_smemU32(&smem[((4 + k_iter) % 6) * (2048) + (exo_1thr_tid) * 8 + 4 * k_cp])),
-              "l"(&exo_deviceArgs.d_in[(exo_1thr_tid + 256 * exo_task.m_task) * (exo_deviceArgs.K) + 32 + 4 * k_cp + 8 * k_iter])
+              :"r"(exo_smemU32((&smem[((4 + k_iter) % 6) * (2048) + (exo_1thr_tid) * 8 + 4 * k_cp]))),
+              "l"((&exo_deviceArgs.d_in[(exo_1thr_tid + 256 * exo_task.m_task) * (exo_deviceArgs.K) + 32 + 4 * k_cp + 8 * k_iter]))
           );
           exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_cg_shared_global), 0, __LINE__);
-          exo_excutLog.log_u32_arg(exo_smemU32(&smem[((4 + k_iter) % 6) * (2048) + (exo_1thr_tid) * 8 + 4 * k_cp]));
-          exo_excutLog.log_ptr_arg(&exo_deviceArgs.d_in[(exo_1thr_tid + 256 * exo_task.m_task) * (exo_deviceArgs.K) + 32 + 4 * k_cp + 8 * k_iter]);
+          exo_excutLog.log_u32_arg(exo_smemU32((&smem[((4 + k_iter) % 6) * (2048) + (exo_1thr_tid) * 8 + 4 * k_cp])));
+          exo_excutLog.log_ptr_arg((&exo_deviceArgs.d_in[(exo_1thr_tid + 256 * exo_task.m_task) * (exo_deviceArgs.K) + 32 + 4 * k_cp + 8 * k_iter]));
           exo_excutLog.log_u32_arg(static_cast<uint32_t>(16));
         }
       }
