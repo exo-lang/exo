@@ -326,6 +326,17 @@ Common mistakes when writing CUDA error tests:
 
 6. **Test the right error** - Ensure test structure is valid first; structural errors mask the error you're testing for. If you get unexpected errors about distributed memory or bounds, fix the test structure before asserting on error messages.
 
+## Documentation Resources
+
+### AI-Optimized Spork Documentation
+The Exo-GPU (Spork) documentation is available in an AI-friendly format at `/home/mantissa/Documents/spork/docs/spork_b/`. This documentation is structured for optimal context window usage:
+
+- **Sections and definitions**: Stored in `*.tex` files (one per section/definition)
+- **Code listings**: Plain text code stored in `*.0.txt` files (preferred for reading)
+- **LaTeX-formatted code**: `*.0.tex` files (avoid reading - hard to parse, auto-generated)
+
+When looking up Spork concepts (e.g., "Split Barrier Basic Requirements", sync-tl semantics, barrier mechanisms), check this documentation directory for the relevant `.tex` and `.0.txt` files.
+
 ## Dependencies
 
 - Python 3.9+
