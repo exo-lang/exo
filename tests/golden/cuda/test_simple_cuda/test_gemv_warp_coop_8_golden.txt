@@ -243,7 +243,7 @@ cudaMemcpyAsync(&{dst_data}, &{src_data}, 4 * {M} * {N}, cudaMemcpyHostToDevice,
 */
 
 /* relying on the following instruction..."
-cuda_shfl_xor_sync_1f32_sum(outputs,inputs,laneMask=4)
+cuda_shfl_xor_sync_1f32_sum(outputs,inputs,laneMask=1)
 
 */
 
@@ -253,7 +253,7 @@ cuda_shfl_xor_sync_1f32_sum(outputs,inputs,laneMask=2)
 */
 
 /* relying on the following instruction..."
-cuda_shfl_xor_sync_1f32_sum(outputs,inputs,laneMask=1)
+cuda_shfl_xor_sync_1f32_sum(outputs,inputs,laneMask=4)
 
 */
 // gemv_warp_coop_8(
@@ -264,24 +264,24 @@ cuda_shfl_xor_sync_1f32_sum(outputs,inputs,laneMask=1)
 //     h_y : f32[M] @DRAM
 // )
 void gemv_warp_coop_8( void *ctxt, int_fast32_t M, int_fast32_t K, const float* h_A, const float* h_x, float* h_y ) {
-EXO_ASSUME(M % 16 == 0);
-EXO_ASSUME(K % 8 == 0);
-EXO_ASSUME(K <= 2048);
-float *d_A = (float*) exo_cudaMallocAsync(M * K * sizeof(*d_A), exo_cudaStream);
-float *d_x = (float*) exo_cudaMallocAsync(K * sizeof(*d_x), exo_cudaStream);
-float *d_y = (float*) exo_cudaMallocAsync(M * sizeof(*d_y), exo_cudaStream);
-cudaMemcpyAsync(&d_A[0], &h_A[0], 4 * (M) * (K), cudaMemcpyHostToDevice, exo_cudaStream);
-cudaMemcpyAsync(&d_x[0], &h_x[0], 4 * (K), cudaMemcpyHostToDevice, exo_cudaStream);
-{
-  struct exo_CudaDeviceArgs0_gemv_warp_coop_8 exo_deviceArgs = {
-    M, K, d_A, d_x, d_y, exo_excut_get_device_log()
-  };
-  exo_cudaLaunch0_gemv_warp_coop_8(exo_cudaStream, &exo_deviceArgs);
-}
-exo_cudaFreeAsync(d_x, exo_cudaStream);
-exo_cudaFreeAsync(d_A, exo_cudaStream);
-cudaMemcpyAsync(&h_y[0], &d_y[0], 4 * (M), cudaMemcpyDeviceToHost, exo_cudaStream);
-exo_cudaFreeAsync(d_y, exo_cudaStream);
+  EXO_ASSUME(M % 16 == 0);
+  EXO_ASSUME(K % 8 == 0);
+  EXO_ASSUME(K <= 2048);
+  float *d_A = (float*) exo_cudaMallocAsync(M * K * sizeof(*d_A), exo_cudaStream);
+  float *d_x = (float*) exo_cudaMallocAsync(K * sizeof(*d_x), exo_cudaStream);
+  float *d_y = (float*) exo_cudaMallocAsync(M * sizeof(*d_y), exo_cudaStream);
+  cudaMemcpyAsync(&d_A[0], &h_A[0], 4 * M * K, cudaMemcpyHostToDevice, exo_cudaStream);
+  cudaMemcpyAsync(&d_x[0], &h_x[0], 4 * K, cudaMemcpyHostToDevice, exo_cudaStream);
+  {
+    struct exo_CudaDeviceArgs0_gemv_warp_coop_8 exo_deviceArgs = {
+      M, K, d_A, d_x, d_y, exo_excut_get_device_log()
+    };
+    exo_cudaLaunch0_gemv_warp_coop_8(exo_cudaStream, &exo_deviceArgs);
+  }
+  exo_cudaFreeAsync(d_x, exo_cudaStream);
+  exo_cudaFreeAsync(d_A, exo_cudaStream);
+  cudaMemcpyAsync(&h_y[0], &d_y[0], 4 * M, cudaMemcpyDeviceToHost, exo_cudaStream);
+  exo_cudaFreeAsync(d_y, exo_cudaStream);
 }
 
 

@@ -6,9 +6,9 @@
 //     y : i8[16] @DRAM
 // )
 void foo( void *ctxt, const int8_t* x, int8_t* y ) {
-for (int_fast32_t i = 0; i < 16; i++) {
-  y[i] = expf((int8_t)(x[i] + y[i]));
-}
+  for (int_fast32_t i = 0; i < 16; i++) {
+    y[i] = expf((int8_t)(x[i] + y[i]));
+  }
 }
 
 #pragma once

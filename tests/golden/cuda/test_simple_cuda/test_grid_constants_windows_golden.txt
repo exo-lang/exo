@@ -270,39 +270,39 @@ cudaMemcpyAsync(&{dst_data}, &{src_data}, 4 * {n}, cudaMemcpyHostToDevice, exo_c
 //     test_out : i32[N, N] @DRAM
 // )
 void weird_windows( void *ctxt, int_fast32_t N, const int32_t* test_scalar, const int32_t* test_vector, int32_t* test_out ) {
-EXO_ASSUME(N > 4);
-int32_t *test_mem = (int32_t*) exo_cudaMallocAsync(N * N * sizeof(*test_mem), exo_cudaStream);
-int32_t const_scalar;
-const_scalar = *test_scalar;
-int32_t const_vector[4];
-for (int_fast32_t i = 0; i < 4; i++) {
-  const_vector[i] = test_vector[i];
-}
-int32_t *test_vector_gmem = (int32_t*) exo_cudaMallocAsync(8 * sizeof(*test_vector_gmem), exo_cudaStream);
-cudaMemcpyAsync(&test_vector_gmem[0], &test_vector[0], 4 * (8), cudaMemcpyHostToDevice, exo_cudaStream);
-struct exo_win_1i32 input_window = (struct exo_win_1i32) { &test_vector_gmem[4], {1} };
-for (int_fast32_t i = 0; i < N; i++) {
-  for (int_fast32_t N_1 = 0; N_1 < 4; N_1++) {
-    {
-      struct exo_CudaDeviceArgs0_weird_windows exo_deviceArgs = {
-        N, test_mem, const_scalar, {const_vector[0], const_vector[1], const_vector[2], const_vector[3]}, (struct exo_win_1i32) { &input_window.data[0], {input_window.strides[0]} }, i, N_1, exo_excut_get_device_log()
-      };
-      exo_cudaLaunch0_weird_windows(exo_cudaStream, &exo_deviceArgs);
+  EXO_ASSUME(N > 4);
+  int32_t *test_mem = (int32_t*) exo_cudaMallocAsync(N * N * sizeof(*test_mem), exo_cudaStream);
+  int32_t const_scalar;
+  const_scalar = *test_scalar;
+  int32_t const_vector[4];
+  for (int_fast32_t i = 0; i < 4; i++) {
+    const_vector[i] = test_vector[i];
+  }
+  int32_t *test_vector_gmem = (int32_t*) exo_cudaMallocAsync(8 * sizeof(*test_vector_gmem), exo_cudaStream);
+  cudaMemcpyAsync(&test_vector_gmem[0], &test_vector[0], 4 * 8, cudaMemcpyHostToDevice, exo_cudaStream);
+  struct exo_win_1i32 input_window = (struct exo_win_1i32) { &test_vector_gmem[4], {1} };
+  for (int_fast32_t i = 0; i < N; i++) {
+    for (int_fast32_t N_1 = 0; N_1 < 4; N_1++) {
+      {
+        struct exo_CudaDeviceArgs0_weird_windows exo_deviceArgs = {
+          N, test_mem, const_scalar, {const_vector[0], const_vector[1], const_vector[2], const_vector[3]}, (struct exo_win_1i32) { &input_window.data[0], {input_window.strides[0]} }, i, N_1, exo_excut_get_device_log()
+        };
+        exo_cudaLaunch0_weird_windows(exo_cudaStream, &exo_deviceArgs);
+      }
     }
   }
-}
-for (int_fast32_t col = 4; col < N; col++) {
-  struct exo_win_1i32 col_window = (struct exo_win_1i32) { &test_mem[col], {N} };
-  {
-    struct exo_CudaDeviceArgs1_weird_windows exo_deviceArgs = {
-      N, {const_vector[0], const_vector[1], const_vector[2], const_vector[3]}, test_vector_gmem, (struct exo_win_1i32) { &input_window.data[0], {input_window.strides[0]} }, col, (struct exo_win_1i32) { &col_window.data[0], {col_window.strides[0]} }, exo_excut_get_device_log()
-    };
-    exo_cudaLaunch1_weird_windows(exo_cudaStream, &exo_deviceArgs);
+  for (int_fast32_t col = 4; col < N; col++) {
+    struct exo_win_1i32 col_window = (struct exo_win_1i32) { &test_mem[col], {N} };
+    {
+      struct exo_CudaDeviceArgs1_weird_windows exo_deviceArgs = {
+        N, {const_vector[0], const_vector[1], const_vector[2], const_vector[3]}, test_vector_gmem, (struct exo_win_1i32) { &input_window.data[0], {input_window.strides[0]} }, col, (struct exo_win_1i32) { &col_window.data[0], {col_window.strides[0]} }, exo_excut_get_device_log()
+      };
+      exo_cudaLaunch1_weird_windows(exo_cudaStream, &exo_deviceArgs);
+    }
   }
-}
-exo_cudaFreeAsync(test_vector_gmem, exo_cudaStream);
-cudaMemcpyAsync(&test_out[0], &test_mem[0], 4 * (N) * (N), cudaMemcpyDeviceToHost, exo_cudaStream);
-exo_cudaFreeAsync(test_mem, exo_cudaStream);
+  exo_cudaFreeAsync(test_vector_gmem, exo_cudaStream);
+  cudaMemcpyAsync(&test_out[0], &test_mem[0], 4 * N * N, cudaMemcpyDeviceToHost, exo_cudaStream);
+  exo_cudaFreeAsync(test_mem, exo_cudaStream);
 }
 
 

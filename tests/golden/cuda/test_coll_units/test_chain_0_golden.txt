@@ -149,12 +149,12 @@ struct exo_CudaDeviceArgs0_chain_0
 
 // )
 void chain_0( void *ctxt ) {
-{
-  struct exo_CudaDeviceArgs0_chain_0 exo_deviceArgs = {
-    exo_excut_get_device_log()
-  };
-  exo_cudaLaunch0_chain_0(exo_cudaStream, &exo_deviceArgs);
-}
+  {
+    struct exo_CudaDeviceArgs0_chain_0 exo_deviceArgs = {
+      exo_excut_get_device_log()
+    };
+    exo_cudaLaunch0_chain_0(exo_cudaStream, &exo_deviceArgs);
+  }
 }
 
 

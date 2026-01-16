@@ -146,12 +146,12 @@ excut_trace_3index(i0,i1,i2)
 
 // )
 void proc_simple_coll_units( void *ctxt ) {
-{
-  struct exo_CudaDeviceArgs0_proc_simple_coll_units exo_deviceArgs = {
-    exo_excut_get_device_log()
-  };
-  exo_cudaLaunch0_proc_simple_coll_units(exo_cudaStream, &exo_deviceArgs);
-}
+  {
+    struct exo_CudaDeviceArgs0_proc_simple_coll_units exo_deviceArgs = {
+      exo_excut_get_device_log()
+    };
+    exo_cudaLaunch0_proc_simple_coll_units(exo_cudaStream, &exo_deviceArgs);
+  }
 }
 
 

@@ -19,10 +19,10 @@ struct exo_win_1i8c {
 //     x : i8[10] @DRAM
 // )
 void foo( void *ctxt, int8_t* x ) {
-#pragma omp parallel for
-for (int_fast32_t i = 0; i < 10; i++) {
-  int8_t y[10];
-  x[i] = y[i];
-}
+  #pragma omp parallel for
+  for (int_fast32_t i = 0; i < 10; i++) {
+    int8_t y[10];
+    x[i] = y[i];
+  }
 }
 

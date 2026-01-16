@@ -9,6 +9,6 @@ C:
 //     b : i32 @DRAM
 // )
 void foo( void *ctxt, const int32_t* a, int32_t* b ) {
-*b = *a;
+  *b = *a;
 }
 

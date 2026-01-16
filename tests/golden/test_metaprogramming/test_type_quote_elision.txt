@@ -10,7 +10,7 @@ C:
 //     x : i8[2] @DRAM
 // )
 void foo( void *ctxt, int8_t* a, const int8_t* x ) {
-*a += x[0];
-*a += x[1];
+  *a += x[0];
+  *a += x[1];
 }
 

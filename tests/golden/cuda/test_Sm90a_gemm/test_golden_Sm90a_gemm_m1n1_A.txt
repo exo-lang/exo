@@ -503,17 +503,17 @@ Sm90_zero_scale_d_f32(d,M=64, N=256)
 //     C : f32[L, N, M] @DRAM
 // )
 void cpu_gemm_wrapper( void *ctxt, int_fast32_t L, int_fast32_t M, int_fast32_t N, int_fast32_t K_split, int_fast32_t cluster_K, const float* A, const float* B, float* C ) {
-EXO_ASSUME(cluster_K % 4 == 0);
-float *d_A = (float*) exo_cudaMallocAsync(L * M * K_split * cluster_K * sizeof(*d_A), exo_cudaStream);
-float *d_B = (float*) exo_cudaMallocAsync(L * N * K_split * cluster_K * sizeof(*d_B), exo_cudaStream);
-float *d_C = (float*) exo_cudaMallocAsync(L * N * M * sizeof(*d_C), exo_cudaStream);
-cudaMemcpyAsync(&d_A[0], &A[0], 4 * (L) * (M) * (K_split) * (cluster_K), cudaMemcpyHostToDevice, exo_cudaStream);
-cudaMemcpyAsync(&d_B[0], &B[0], 4 * (L) * (N) * (K_split) * (cluster_K), cudaMemcpyHostToDevice, exo_cudaStream);
-xgemm_Sm90a_r4_m1n1_m128n256_rmemC(ctxt, L, M, N, K_split, cluster_K, d_A, d_B, d_C);
-exo_cudaFreeAsync(d_B, exo_cudaStream);
-exo_cudaFreeAsync(d_A, exo_cudaStream);
-cudaMemcpyAsync(&C[0], &d_C[0], 4 * (L) * (N) * (M), cudaMemcpyDeviceToHost, exo_cudaStream);
-exo_cudaFreeAsync(d_C, exo_cudaStream);
+  EXO_ASSUME(cluster_K % 4 == 0);
+  float *d_A = (float*) exo_cudaMallocAsync(L * M * K_split * cluster_K * sizeof(*d_A), exo_cudaStream);
+  float *d_B = (float*) exo_cudaMallocAsync(L * N * K_split * cluster_K * sizeof(*d_B), exo_cudaStream);
+  float *d_C = (float*) exo_cudaMallocAsync(L * N * M * sizeof(*d_C), exo_cudaStream);
+  cudaMemcpyAsync(&d_A[0], &A[0], 4 * L * M * K_split * cluster_K, cudaMemcpyHostToDevice, exo_cudaStream);
+  cudaMemcpyAsync(&d_B[0], &B[0], 4 * L * N * K_split * cluster_K, cudaMemcpyHostToDevice, exo_cudaStream);
+  xgemm_Sm90a_r4_m1n1_m128n256_rmemC(ctxt, L, M, N, K_split, cluster_K, d_A, d_B, d_C);
+  exo_cudaFreeAsync(d_B, exo_cudaStream);
+  exo_cudaFreeAsync(d_A, exo_cudaStream);
+  cudaMemcpyAsync(&C[0], &d_C[0], 4 * L * N * M, cudaMemcpyDeviceToHost, exo_cudaStream);
+  exo_cudaFreeAsync(d_C, exo_cudaStream);
 }
 
 
@@ -537,21 +537,21 @@ cudaMemcpyAsync(&{dst_data}, &{src_data}, 4 * {L} * {M} * {N} * {K}, cudaMemcpyH
 //     C : f32[L, N, M] @CudaGmemLinear
 // )
 static void xgemm_Sm90a_r4_m1n1_m128n256_rmemC( void *ctxt, int_fast32_t L, int_fast32_t M, int_fast32_t N, int_fast32_t K_split, int_fast32_t cluster_K, const float* A, const float* B, float* C ) {
-EXO_ASSUME(L > 0);
-EXO_ASSUME(M > 0);
-EXO_ASSUME(N > 0);
-EXO_ASSUME(cluster_K > 0);
-EXO_ASSUME(cluster_K % 4 == 0);
-CUtensorMap exo_data_A_tensorMap = exo_win_4f32_Sm90_tensorMap_128_1_128_1_32_encode(&A[0], (exo_Sm90_CUtensorMap_4_strides){ {M * K_split * cluster_K, K_split * cluster_K, cluster_K, 1} }, (exo_Sm90_CUtensorMap_4_dim){ {L, M, K_split, cluster_K} });
-struct exo_win_4f32_Sm90_tensorMap_128_1_128_1_32 A_tensorMap = (exo_win_4f32_Sm90_tensorMap_128_1_128_1_32) { {0, 0, 0, 0} };
-CUtensorMap exo_data_B_tensorMap = exo_win_4f32_Sm90_tensorMap_128_1_256_1_32_encode(&B[0], (exo_Sm90_CUtensorMap_4_strides){ {N * K_split * cluster_K, K_split * cluster_K, cluster_K, 1} }, (exo_Sm90_CUtensorMap_4_dim){ {L, N, K_split, cluster_K} });
-struct exo_win_4f32_Sm90_tensorMap_128_1_256_1_32 B_tensorMap = (exo_win_4f32_Sm90_tensorMap_128_1_256_1_32) { {0, 0, 0, 0} };
-{
-  struct exo_CudaDeviceArgs0_xgemm_Sm90a_r4_m1n1_m128n256_rmemC exo_deviceArgs = {
-    L, M, N, K_split, cluster_K, C, exo_data_A_tensorMap, (exo_win_4f32_Sm90_tensorMap_128_1_128_1_32) { {A_tensorMap.C_offsets[0], A_tensorMap.C_offsets[1], A_tensorMap.C_offsets[2], A_tensorMap.C_offsets[3]} }, exo_data_B_tensorMap, (exo_win_4f32_Sm90_tensorMap_128_1_256_1_32) { {B_tensorMap.C_offsets[0], B_tensorMap.C_offsets[1], B_tensorMap.C_offsets[2], B_tensorMap.C_offsets[3]} }, exo_excut_get_device_log()
-  };
-  exo_cudaLaunch0_xgemm_Sm90a_r4_m1n1_m128n256_rmemC(exo_cudaStream, &exo_deviceArgs);
-}
+  EXO_ASSUME(L > 0);
+  EXO_ASSUME(M > 0);
+  EXO_ASSUME(N > 0);
+  EXO_ASSUME(cluster_K > 0);
+  EXO_ASSUME(cluster_K % 4 == 0);
+  CUtensorMap exo_data_A_tensorMap = exo_win_4f32_Sm90_tensorMap_128_1_128_1_32_encode(&A[0], (exo_Sm90_CUtensorMap_4_strides){ {M * K_split * cluster_K, K_split * cluster_K, cluster_K, 1} }, (exo_Sm90_CUtensorMap_4_dim){ {L, M, K_split, cluster_K} });
+  struct exo_win_4f32_Sm90_tensorMap_128_1_128_1_32 A_tensorMap = (exo_win_4f32_Sm90_tensorMap_128_1_128_1_32) { {0, 0, 0, 0} };
+  CUtensorMap exo_data_B_tensorMap = exo_win_4f32_Sm90_tensorMap_128_1_256_1_32_encode(&B[0], (exo_Sm90_CUtensorMap_4_strides){ {N * K_split * cluster_K, K_split * cluster_K, cluster_K, 1} }, (exo_Sm90_CUtensorMap_4_dim){ {L, N, K_split, cluster_K} });
+  struct exo_win_4f32_Sm90_tensorMap_128_1_256_1_32 B_tensorMap = (exo_win_4f32_Sm90_tensorMap_128_1_256_1_32) { {0, 0, 0, 0} };
+  {
+    struct exo_CudaDeviceArgs0_xgemm_Sm90a_r4_m1n1_m128n256_rmemC exo_deviceArgs = {
+      L, M, N, K_split, cluster_K, C, exo_data_A_tensorMap, (exo_win_4f32_Sm90_tensorMap_128_1_128_1_32) { {A_tensorMap.C_offsets[0], A_tensorMap.C_offsets[1], A_tensorMap.C_offsets[2], A_tensorMap.C_offsets[3]} }, exo_data_B_tensorMap, (exo_win_4f32_Sm90_tensorMap_128_1_256_1_32) { {B_tensorMap.C_offsets[0], B_tensorMap.C_offsets[1], B_tensorMap.C_offsets[2], B_tensorMap.C_offsets[3]} }, exo_excut_get_device_log()
+    };
+    exo_cudaLaunch0_xgemm_Sm90a_r4_m1n1_m128n256_rmemC(exo_cudaStream, &exo_deviceArgs);
+  }
 }
 
 

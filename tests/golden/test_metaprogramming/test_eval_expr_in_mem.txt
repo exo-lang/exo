@@ -8,6 +8,6 @@ C:
 //     a : f32 @DRAM
 // )
 void foo( void *ctxt, const float* a ) {
-; // NO-OP
+  ; // NO-OP
 }
 

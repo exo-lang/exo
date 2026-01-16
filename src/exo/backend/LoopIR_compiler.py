@@ -434,7 +434,9 @@ def ext_compile_to_strings(
     def from_lines(x):
         return "\n".join(x)
 
-    proc_list = list(sorted(find_all_subprocs(proc_list), key=lambda x: x.name))
+    proc_list = list(
+        sorted(find_all_subprocs(proc_list), key=lambda x: x.proc_name_with_args())
+    )
 
     # Header contents
     ctxt_name, ctxt_def = _compile_context_struct(find_all_configs(proc_list), lib_name)
@@ -464,11 +466,7 @@ def ext_compile_to_strings(
     for p in proc_list:
         # don't compile instruction procedures, but add a comment.
         if instr := p.instr:
-            arg_list = [str(a.name) for a in p.args]
-            if kwargs := instr._formatted_tparam_kwargs:
-                arg_list.append(kwargs)
-            argstr = ",".join(arg_list)
-            instr_name = f"{p.name}({argstr})"
+            instr_name = p.proc_name_with_args()
             proc_bodies.extend(
                 [
                     "",
@@ -688,7 +686,7 @@ class Compiler:
         self.envtyp = dict()
         self.env_window_features = dict()  # Sym -> WindowFeatures
         self.mems = dict()
-        self._tab = ""
+        self._tab = "  "
         self._lines = []
         self._scalar_refs = set()
         self._needed_helpers = set()
@@ -1661,6 +1659,8 @@ class Compiler:
         elif isinstance(e, LoopIR.WindowExpr):
             return self.comp_fnarg_window(e, mem, is_const)
         else:
+            # op_prec["."] causes any binary ops to be parenthesized.
+            # See also OldStyleInstrInfo
             return InstrNonWindowArg(
                 self.comp_e(e, op_prec["."]), False, False, e.srcinfo
             )
@@ -1818,7 +1818,7 @@ def make_utility_lines(
             lines.append(f"namespace exo_CudaUtil = ::{cu_namespace};")
 
     for tags, content in combined:
-        for tag in tags:
+        for tag in sorted(tags):
             lines.append(f"/* Required by {tag} */")
         if is_includes:
             lines.append(f"#include <{content}>")

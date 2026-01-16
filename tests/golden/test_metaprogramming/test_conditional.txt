@@ -12,15 +12,15 @@ C:
 //     a : i8 @DRAM
 // )
 void bar1( void *ctxt, const int8_t* a ) {
-int8_t b;
-b += ((int8_t) 1);
+  int8_t b;
+  b += ((int8_t) 1);
 }
 
 // bar2(
 //     a : i8 @DRAM
 // )
 void bar2( void *ctxt, const int8_t* a ) {
-int8_t b;
-b = ((int8_t) 0);
+  int8_t b;
+  b = ((int8_t) 0);
 }
 

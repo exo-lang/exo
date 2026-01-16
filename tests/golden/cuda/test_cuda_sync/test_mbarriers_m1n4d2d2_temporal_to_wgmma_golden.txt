@@ -141,12 +141,12 @@ struct exo_CudaDeviceArgs0_test_mbarriers
 
 // )
 void test_mbarriers( void *ctxt ) {
-{
-  struct exo_CudaDeviceArgs0_test_mbarriers exo_deviceArgs = {
-    exo_excut_get_device_log()
-  };
-  exo_cudaLaunch0_test_mbarriers(exo_cudaStream, &exo_deviceArgs);
-}
+  {
+    struct exo_CudaDeviceArgs0_test_mbarriers exo_deviceArgs = {
+      exo_excut_get_device_log()
+    };
+    exo_cudaLaunch0_test_mbarriers(exo_cudaStream, &exo_deviceArgs);
+  }
 }
 
 

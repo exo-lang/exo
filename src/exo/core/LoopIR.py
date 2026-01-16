@@ -844,6 +844,17 @@ def proc_coll_unit(f):
 del proc_coll_unit
 
 
+@extclass(LoopIR.proc)
+def proc_name_with_args(p):
+    arg_list = [str(a.name) for a in p.args]
+    instr: InstrInfo
+    if instr := p.instr:
+        if kwargs := instr._formatted_tparam_kwargs:
+            arg_list.append(kwargs)
+    argstr = ",".join(arg_list)
+    return f"{p.name}({argstr})"
+
+
 def chain_window_idx(idx0, idx1):
     """Given
 

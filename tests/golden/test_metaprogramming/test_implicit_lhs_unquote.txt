@@ -10,7 +10,7 @@ C:
 //     b : i32 @DRAM
 // )
 void foo( void *ctxt, int32_t* a, int32_t* b ) {
-*a += ((int32_t) 1);
-*b += ((int32_t) 1);
+  *a += ((int32_t) 1);
+  *b += ((int32_t) 1);
 }
 

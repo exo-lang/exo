@@ -11,9 +11,9 @@ float _relu_float(float x) {
 //     z : f32[16] @DRAM
 // )
 void foo( void *ctxt, const float* x, const float* y, float* z ) {
-for (int_fast32_t i = 0; i < 16; i++) {
-  z[i] = _relu_float((float)x[i] + y[i]);
-}
+  for (int_fast32_t i = 0; i < 16; i++) {
+    z[i] = _relu_float((float)x[i] + y[i]);
+  }
 }
 
 #pragma once

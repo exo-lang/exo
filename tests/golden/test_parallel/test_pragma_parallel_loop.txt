@@ -4,9 +4,9 @@
 //     x : i8[10] @DRAM
 // )
 void foo( void *ctxt, int8_t* x ) {
-#pragma omp parallel for
-for (int_fast32_t i = 0; i < 10; i++) {
-  x[i] = ((int8_t) 1.0);
-}
+  #pragma omp parallel for
+  for (int_fast32_t i = 0; i < 10; i++) {
+    x[i] = ((int8_t) 1.0);
+  }
 }
 

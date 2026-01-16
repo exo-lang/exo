@@ -245,23 +245,23 @@ struct exo_CudaDeviceArgs0_array_test
 //     exo_user_exo_ZZ4 : f32[4] @DRAM
 // )
 void array_test( void *ctxt, int_fast32_t exo_user_exo_ZZ0a, int_fast32_t exo_user_exo_ZZ0b, int_fast32_t exo_user_exo_ZZ1a, int_fast32_t exo_user_exo_ZZ1b, int32_t* exo_user_exo_ZZ2, const float* exo_user_exo_ZZ3, const float* exo_user_exo_ZZ4 ) {
-EXO_ASSUME(exo_user_exo_ZZ0b > 4);
-EXO_ASSUME(exo_user_exo_ZZ1b > 4);
-int32_t *exo_user_exo_ZZ2_device = (int32_t*) exo_cudaMallocAsync((exo_user_exo_ZZ0a + exo_user_exo_ZZ0b) * (exo_user_exo_ZZ1a + exo_user_exo_ZZ1b) * sizeof(*exo_user_exo_ZZ2_device), exo_cudaStream);
-float exo_user_exo_ZZ3_device[4];
-float exo_user_exo_ZZ4_device[4];
-for (int_fast32_t i = 0; i < 4; i++) {
-  exo_user_exo_ZZ3_device[i] = exo_user_exo_ZZ3[i];
-  exo_user_exo_ZZ4_device[i] = exo_user_exo_ZZ4[i];
-}
-{
-  struct exo_CudaDeviceArgs0_array_test exo_deviceArgs = {
-    exo_user_exo_ZZ0a, exo_user_exo_ZZ0b, exo_user_exo_ZZ1a, exo_user_exo_ZZ1b, exo_user_exo_ZZ2_device, {exo_user_exo_ZZ3_device[0], exo_user_exo_ZZ3_device[1], exo_user_exo_ZZ3_device[2], exo_user_exo_ZZ3_device[3]}, {exo_user_exo_ZZ4_device[0], exo_user_exo_ZZ4_device[1], exo_user_exo_ZZ4_device[2], exo_user_exo_ZZ4_device[3]}, exo_excut_get_device_log()
-  };
-  exo_cudaLaunch0_array_test(exo_cudaStream, &exo_deviceArgs);
-}
-cudaMemcpyAsync(&exo_user_exo_ZZ2[0], &exo_user_exo_ZZ2_device[0], 4 * ((exo_user_exo_ZZ0a + exo_user_exo_ZZ0b)) * ((exo_user_exo_ZZ1a + exo_user_exo_ZZ1b)), cudaMemcpyDeviceToHost, exo_cudaStream);
-exo_cudaFreeAsync(exo_user_exo_ZZ2_device, exo_cudaStream);
+  EXO_ASSUME(exo_user_exo_ZZ0b > 4);
+  EXO_ASSUME(exo_user_exo_ZZ1b > 4);
+  int32_t *exo_user_exo_ZZ2_device = (int32_t*) exo_cudaMallocAsync((exo_user_exo_ZZ0a + exo_user_exo_ZZ0b) * (exo_user_exo_ZZ1a + exo_user_exo_ZZ1b) * sizeof(*exo_user_exo_ZZ2_device), exo_cudaStream);
+  float exo_user_exo_ZZ3_device[4];
+  float exo_user_exo_ZZ4_device[4];
+  for (int_fast32_t i = 0; i < 4; i++) {
+    exo_user_exo_ZZ3_device[i] = exo_user_exo_ZZ3[i];
+    exo_user_exo_ZZ4_device[i] = exo_user_exo_ZZ4[i];
+  }
+  {
+    struct exo_CudaDeviceArgs0_array_test exo_deviceArgs = {
+      exo_user_exo_ZZ0a, exo_user_exo_ZZ0b, exo_user_exo_ZZ1a, exo_user_exo_ZZ1b, exo_user_exo_ZZ2_device, {exo_user_exo_ZZ3_device[0], exo_user_exo_ZZ3_device[1], exo_user_exo_ZZ3_device[2], exo_user_exo_ZZ3_device[3]}, {exo_user_exo_ZZ4_device[0], exo_user_exo_ZZ4_device[1], exo_user_exo_ZZ4_device[2], exo_user_exo_ZZ4_device[3]}, exo_excut_get_device_log()
+    };
+    exo_cudaLaunch0_array_test(exo_cudaStream, &exo_deviceArgs);
+  }
+  cudaMemcpyAsync(&exo_user_exo_ZZ2[0], &exo_user_exo_ZZ2_device[0], 4 * (exo_user_exo_ZZ0a + exo_user_exo_ZZ0b) * (exo_user_exo_ZZ1a + exo_user_exo_ZZ1b), cudaMemcpyDeviceToHost, exo_cudaStream);
+  exo_cudaFreeAsync(exo_user_exo_ZZ2_device, exo_cudaStream);
 }
 
 

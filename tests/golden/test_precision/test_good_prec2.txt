@@ -70,10 +70,10 @@ static void dot( void *ctxt, int_fast32_t m, const float* x, const float* y, flo
 //     r : f32 @DRAM
 // )
 static void dot( void *ctxt, int_fast32_t m, const float* x, const float* y, float* r ) {
-*r = 0.0f;
-for (int_fast32_t i = 0; i < m; i++) {
-  *r += x[i] * y[i];
-}
+  *r = 0.0f;
+  for (int_fast32_t i = 0; i < m; i++) {
+    *r += x[i] * y[i];
+  }
 }
 
 // hoge(
@@ -82,7 +82,7 @@ for (int_fast32_t i = 0; i < m; i++) {
 //     y : f32[n] @DRAM
 // )
 void hoge( void *ctxt, int_fast32_t n, const float* x, const float* y ) {
-float xy;
-dot(ctxt, n, x, y, &xy);
+  float xy;
+  dot(ctxt, n, x, y, &xy);
 }
 

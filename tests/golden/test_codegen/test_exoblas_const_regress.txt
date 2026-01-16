@@ -107,7 +107,7 @@ static void exoblas_const_regress_middle( void *ctxt, int_fast32_t M, int_fast32
 //     y : f32[M] @DRAM
 // )
 void exoblas_const_regress_entry( void *ctxt, int_fast32_t M, int_fast32_t N, const float* A, const float* x, float* y ) {
-exoblas_const_regress_middle(ctxt, M, N, (struct exo_win_2f32c) { &A[0], {M, 1} }, (struct exo_win_1f32c) { &x[0], {1} }, (struct exo_win_1f32) { &y[0], {1} });
+  exoblas_const_regress_middle(ctxt, M, N, (struct exo_win_2f32c) { &A[0], {M, 1} }, (struct exo_win_1f32c) { &x[0], {1} }, (struct exo_win_1f32) { &y[0], {1} });
 }
 
 // exoblas_const_regress_leaf(
@@ -118,11 +118,11 @@ exoblas_const_regress_middle(ctxt, M, N, (struct exo_win_2f32c) { &A[0], {M, 1} 
 //     y : [f32][M] @DRAM
 // )
 static void exoblas_const_regress_leaf( void *ctxt, int_fast32_t M, int_fast32_t N, struct exo_win_2f32c A, struct exo_win_1f32c x, struct exo_win_1f32 y ) {
-for (int_fast32_t j = 0; j < N; j++) {
-  for (int_fast32_t i = 0; i < M; i++) {
-    y.data[(i) * (y.strides[0])] += A.data[(j) * (A.strides[0]) + (i) * (A.strides[1])] * x.data[(j) * (x.strides[0])];
+  for (int_fast32_t j = 0; j < N; j++) {
+    for (int_fast32_t i = 0; i < M; i++) {
+      y.data[(i) * (y.strides[0])] += A.data[(j) * (A.strides[0]) + (i) * (A.strides[1])] * x.data[(j) * (x.strides[0])];
+    }
   }
-}
 }
 
 // exoblas_const_regress_middle(
@@ -133,6 +133,6 @@ for (int_fast32_t j = 0; j < N; j++) {
 //     y : [f32][M] @DRAM
 // )
 static void exoblas_const_regress_middle( void *ctxt, int_fast32_t M, int_fast32_t N, struct exo_win_2f32c A, struct exo_win_1f32c x, struct exo_win_1f32 y ) {
-exoblas_const_regress_leaf(ctxt, M, N, (struct exo_win_2f32c) { &A.data[0], {A.strides[0], A.strides[1]} }, (struct exo_win_1f32c) { &x.data[0], {x.strides[0]} }, (struct exo_win_1f32) { &y.data[0], {y.strides[0]} });
+  exoblas_const_regress_leaf(ctxt, M, N, (struct exo_win_2f32c) { &A.data[0], {A.strides[0], A.strides[1]} }, (struct exo_win_1f32c) { &x.data[0], {x.strides[0]} }, (struct exo_win_1f32) { &y.data[0], {y.strides[0]} });
 }
 

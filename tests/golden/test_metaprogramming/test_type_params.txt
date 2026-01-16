@@ -21,14 +21,14 @@ C:
 //     b : i8 @DRAM
 // )
 void bar1( void *ctxt, int32_t* a, const int8_t* b ) {
-int32_t *c = (int32_t*) malloc(4 * sizeof(*c));
-for (int_fast32_t i = 0; i < 3; i++) {
-  int32_t d;
-  d = (int32_t)(*b);
-  c[i + 1] = *a + c[i] * d;
-}
-*a = c[3];
-free(c);
+  int32_t *c = (int32_t*) malloc(4 * sizeof(*c));
+  for (int_fast32_t i = 0; i < 3; i++) {
+    int32_t d;
+    d = (int32_t)(*b);
+    c[i + 1] = *a + c[i] * d;
+  }
+  *a = c[3];
+  free(c);
 }
 
 // bar2(
@@ -36,13 +36,13 @@ free(c);
 //     b : f64 @DRAM
 // )
 void bar2( void *ctxt, double* a, const double* b ) {
-double *c = (double*) malloc(4 * sizeof(*c));
-for (int_fast32_t i = 0; i < 3; i++) {
-  double d;
-  d = *b;
-  c[i + 1] = *a + c[i] * d;
-}
-*a = c[3];
-free(c);
+  double *c = (double*) malloc(4 * sizeof(*c));
+  for (int_fast32_t i = 0; i < 3; i++) {
+    double d;
+    d = *b;
+    c[i + 1] = *a + c[i] * d;
+  }
+  *a = c[3];
+  free(c);
 }
 

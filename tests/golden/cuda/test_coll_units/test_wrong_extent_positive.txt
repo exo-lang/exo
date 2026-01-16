@@ -195,12 +195,12 @@ struct exo_CudaDeviceArgs0_wrong_extent
 //     out : f32[8, 8] @CudaGmemLinear
 // )
 void wrong_extent( void *ctxt, float* out ) {
-{
-  struct exo_CudaDeviceArgs0_wrong_extent exo_deviceArgs = {
-    out, exo_excut_get_device_log()
-  };
-  exo_cudaLaunch0_wrong_extent(exo_cudaStream, &exo_deviceArgs);
-}
+  {
+    struct exo_CudaDeviceArgs0_wrong_extent exo_deviceArgs = {
+      out, exo_excut_get_device_log()
+    };
+    exo_cudaLaunch0_wrong_extent(exo_cudaStream, &exo_deviceArgs);
+  }
 }
 
 

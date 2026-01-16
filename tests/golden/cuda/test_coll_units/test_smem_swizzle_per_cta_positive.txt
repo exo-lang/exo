@@ -175,12 +175,12 @@ struct exo_CudaDeviceArgs0_per_cta_alloc_proc
 
 // )
 void per_cta_alloc_proc( void *ctxt ) {
-{
-  struct exo_CudaDeviceArgs0_per_cta_alloc_proc exo_deviceArgs = {
-    exo_excut_get_device_log()
-  };
-  exo_cudaLaunch0_per_cta_alloc_proc(exo_cudaStream, &exo_deviceArgs);
-}
+  {
+    struct exo_CudaDeviceArgs0_per_cta_alloc_proc exo_deviceArgs = {
+      exo_excut_get_device_log()
+    };
+    exo_cudaLaunch0_per_cta_alloc_proc(exo_cudaStream, &exo_deviceArgs);
+  }
 }
 
 

@@ -11,7 +11,7 @@
 
 // )
 void foo( void *ctxt ) {
-float a;
-a = a + 3.0f;
+  float a;
+  a = a + 3.0f;
 }
 

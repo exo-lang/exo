@@ -259,13 +259,13 @@ cudaMemcpyAsync(&{dst_data}, &{src_data}, 4 * {M} * {N}, cudaMemcpyDeviceToHost,
 */
 
 /* relying on the following instruction..."
-gemm_init_pcg3d_mod(M,K,A,m,k,seed=42, modulus=14)
-exo_CudaUtil::gemm_init_pcg3d_mod({K}, &{A_data}, {m}, {k}, 42, 14);
+gemm_init_pcg3d_mod(M,K,A,m,k,seed=1337, modulus=7)
+exo_CudaUtil::gemm_init_pcg3d_mod({K}, &{A_data}, {m}, {k}, 1337, 7);
 */
 
 /* relying on the following instruction..."
-gemm_init_pcg3d_mod(M,K,A,m,k,seed=1337, modulus=7)
-exo_CudaUtil::gemm_init_pcg3d_mod({K}, &{A_data}, {m}, {k}, 1337, 7);
+gemm_init_pcg3d_mod(M,K,A,m,k,seed=42, modulus=14)
+exo_CudaUtil::gemm_init_pcg3d_mod({K}, &{A_data}, {m}, {k}, 42, 14);
 */
 // gemm_test(
 //     M : size,
@@ -276,33 +276,33 @@ exo_CudaUtil::gemm_init_pcg3d_mod({K}, &{A_data}, {m}, {k}, 1337, 7);
 //     C_cpu : f32[N, M] @DRAM
 // )
 void gemm_test( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, float* A_cpu, float* B_cpu, float* C_cpu ) {
-float *A = (float*) exo_cudaMallocAsync(M * K * sizeof(*A), exo_cudaStream);
-float *B = (float*) exo_cudaMallocAsync(N * K * sizeof(*B), exo_cudaStream);
-float *C = (float*) exo_cudaMallocAsync(N * M * sizeof(*C), exo_cudaStream);
-{
-  struct exo_CudaDeviceArgs0_gemm_test exo_deviceArgs = {
-    M, K, A, exo_excut_get_device_log()
-  };
-  exo_cudaLaunch0_gemm_test(exo_cudaStream, &exo_deviceArgs);
-}
-{
-  struct exo_CudaDeviceArgs1_gemm_test exo_deviceArgs = {
-    N, K, B, exo_excut_get_device_log()
-  };
-  exo_cudaLaunch1_gemm_test(exo_cudaStream, &exo_deviceArgs);
-}
-{
-  struct exo_CudaDeviceArgs2_gemm_test exo_deviceArgs = {
-    M, N, K, A, B, C, exo_excut_get_device_log()
-  };
-  exo_cudaLaunch2_gemm_test(exo_cudaStream, &exo_deviceArgs);
-}
-cudaMemcpyAsync(&A_cpu[0], &A[0], 4 * (M) * (K), cudaMemcpyDeviceToHost, exo_cudaStream);
-exo_cudaFreeAsync(A, exo_cudaStream);
-cudaMemcpyAsync(&B_cpu[0], &B[0], 4 * (N) * (K), cudaMemcpyDeviceToHost, exo_cudaStream);
-exo_cudaFreeAsync(B, exo_cudaStream);
-cudaMemcpyAsync(&C_cpu[0], &C[0], 4 * (N) * (M), cudaMemcpyDeviceToHost, exo_cudaStream);
-exo_cudaFreeAsync(C, exo_cudaStream);
+  float *A = (float*) exo_cudaMallocAsync(M * K * sizeof(*A), exo_cudaStream);
+  float *B = (float*) exo_cudaMallocAsync(N * K * sizeof(*B), exo_cudaStream);
+  float *C = (float*) exo_cudaMallocAsync(N * M * sizeof(*C), exo_cudaStream);
+  {
+    struct exo_CudaDeviceArgs0_gemm_test exo_deviceArgs = {
+      M, K, A, exo_excut_get_device_log()
+    };
+    exo_cudaLaunch0_gemm_test(exo_cudaStream, &exo_deviceArgs);
+  }
+  {
+    struct exo_CudaDeviceArgs1_gemm_test exo_deviceArgs = {
+      N, K, B, exo_excut_get_device_log()
+    };
+    exo_cudaLaunch1_gemm_test(exo_cudaStream, &exo_deviceArgs);
+  }
+  {
+    struct exo_CudaDeviceArgs2_gemm_test exo_deviceArgs = {
+      M, N, K, A, B, C, exo_excut_get_device_log()
+    };
+    exo_cudaLaunch2_gemm_test(exo_cudaStream, &exo_deviceArgs);
+  }
+  cudaMemcpyAsync(&A_cpu[0], &A[0], 4 * M * K, cudaMemcpyDeviceToHost, exo_cudaStream);
+  exo_cudaFreeAsync(A, exo_cudaStream);
+  cudaMemcpyAsync(&B_cpu[0], &B[0], 4 * N * K, cudaMemcpyDeviceToHost, exo_cudaStream);
+  exo_cudaFreeAsync(B, exo_cudaStream);
+  cudaMemcpyAsync(&C_cpu[0], &C[0], 4 * N * M, cudaMemcpyDeviceToHost, exo_cudaStream);
+  exo_cudaFreeAsync(C, exo_cudaStream);
 }
 
 
@@ -380,8 +380,8 @@ struct exo_win_2f32c {
 
 namespace exo_CudaUtil_test_cuda_simple_matmul_golden {
 namespace exo_CudaUtil = ::exo_CudaUtil_test_cuda_simple_matmul_golden;
-/* Required by gemm_init_pcg3d_mod(M,K,A,m,k,seed=42, modulus=14) */
 /* Required by gemm_init_pcg3d_mod(M,K,A,m,k,seed=1337, modulus=7) */
+/* Required by gemm_init_pcg3d_mod(M,K,A,m,k,seed=42, modulus=14) */
 __device__ void gemm_init_pcg3d_mod(
         uint32_t K, float* A,
         uint32_t m, uint32_t k, uint32_t seed, uint32_t modulus)
@@ -562,7 +562,7 @@ exo_CudaInline_test_cuda_simple_matmul_golden::exo_Cuda0_gemm_test::exo_deviceTa
   namespace exo_CudaUtil = exo_CudaUtil_test_cuda_simple_matmul_golden;
   // cuda_threads(0, 32, unit=cuda_thread)
   if ([[maybe_unused]] int exo_1thr_k_seq = threadIdx.x; 1) {
-    exo_CudaUtil::gemm_init_pcg3d_mod((exo_deviceArgs.K), &exo_deviceArgs.A[(exo_task.m) * (exo_deviceArgs.K) + exo_task.k_task * 32 + exo_1thr_k_seq], (exo_task.m), ((exo_task.k_task * 32 + exo_1thr_k_seq)), 1337, 7);
+    exo_CudaUtil::gemm_init_pcg3d_mod(exo_deviceArgs.K, &exo_deviceArgs.A[(exo_task.m) * (exo_deviceArgs.K) + exo_task.k_task * 32 + exo_1thr_k_seq], exo_task.m, (exo_task.k_task * 32 + exo_1thr_k_seq), 1337, 7);
   }
 }
 __device__ __forceinline__ void
@@ -744,7 +744,7 @@ exo_CudaInline_test_cuda_simple_matmul_golden::exo_Cuda1_gemm_test::exo_deviceTa
   namespace exo_CudaUtil = exo_CudaUtil_test_cuda_simple_matmul_golden;
   // cuda_threads(0, 32, unit=cuda_thread)
   if ([[maybe_unused]] int exo_1thr_k_seq = threadIdx.x; 1) {
-    exo_CudaUtil::gemm_init_pcg3d_mod((exo_deviceArgs.K), &exo_deviceArgs.B[(exo_task.n) * (exo_deviceArgs.K) + exo_task.k_task * 32 + exo_1thr_k_seq], (exo_task.n), ((exo_task.k_task * 32 + exo_1thr_k_seq)), 42, 14);
+    exo_CudaUtil::gemm_init_pcg3d_mod(exo_deviceArgs.K, &exo_deviceArgs.B[(exo_task.n) * (exo_deviceArgs.K) + exo_task.k_task * 32 + exo_1thr_k_seq], exo_task.n, (exo_task.k_task * 32 + exo_1thr_k_seq), 42, 14);
   }
 }
 __device__ __forceinline__ void

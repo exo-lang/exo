@@ -657,7 +657,9 @@ class OldStyleInstrInfo(InstrInfo):
                 d[name + "_int"] = value.get_raw_name()
             else:
                 # Non-window; Exo 1 defines {name}_data; unclear why.
-                s_value = f"({str(value)})"
+                # value should have been initialized with self.comp_e(e, op_prec["."])
+                # to avoid extra parens (which new-style instrs rely on).
+                s_value = str(value)
                 d[name] = s_value
                 d[name + "_data"] = s_value
         return [line.format(**d) for line in self.instr_format]

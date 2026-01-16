@@ -11,9 +11,9 @@ int8_t _select_int8_t(int8_t x,int8_t v,int8_t y,int8_t z) {
 //     z : i8[16] @DRAM
 // )
 void foo( void *ctxt, const int8_t* x, const int8_t* y, int8_t* z ) {
-for (int_fast32_t i = 0; i < 16; i++) {
-  z[i] = _select_int8_t((int8_t)x[i] * ((int8_t) 2), (int8_t)y[i], (int8_t)z[i] + y[i], (int8_t)-x[i]);
-}
+  for (int_fast32_t i = 0; i < 16; i++) {
+    z[i] = _select_int8_t((int8_t)x[i] * ((int8_t) 2), (int8_t)y[i], (int8_t)z[i] + y[i], (int8_t)-x[i]);
+  }
 }
 
 #pragma once

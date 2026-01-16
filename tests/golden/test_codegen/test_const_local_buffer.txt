@@ -73,17 +73,17 @@ static void callee( void *ctxt, int_fast32_t N, struct exo_win_1f32 A );
 //     A : [f32][N] @DRAM
 // )
 static void callee( void *ctxt, int_fast32_t N, struct exo_win_1f32 A ) {
-for (int_fast32_t i = 0; i < N; i++) {
-  A.data[(i) * (A.strides[0])] = 0.0f;
-}
+  for (int_fast32_t i = 0; i < N; i++) {
+    A.data[(i) * (A.strides[0])] = 0.0f;
+  }
 }
 
 // caller(
 
 // )
 void caller( void *ctxt ) {
-float *A = (float*) malloc(10 * sizeof(*A));
-callee(ctxt, 10, (struct exo_win_1f32) { &A[0], {1} });
-free(A);
+  float *A = (float*) malloc(10 * sizeof(*A));
+  callee(ctxt, 10, (struct exo_win_1f32) { &A[0], {1} });
+  free(A);
 }
 

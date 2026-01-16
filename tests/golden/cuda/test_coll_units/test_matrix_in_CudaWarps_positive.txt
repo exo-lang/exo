@@ -146,12 +146,12 @@ Sm80_mma_zero_d_tf32(rmem)
 
 // )
 void proc_matrix_in_CudaWarps_positive( void *ctxt ) {
-{
-  struct exo_CudaDeviceArgs0_proc_matrix_in_CudaWarps_positive exo_deviceArgs = {
-    exo_excut_get_device_log()
-  };
-  exo_cudaLaunch0_proc_matrix_in_CudaWarps_positive(exo_cudaStream, &exo_deviceArgs);
-}
+  {
+    struct exo_CudaDeviceArgs0_proc_matrix_in_CudaWarps_positive exo_deviceArgs = {
+      exo_excut_get_device_log()
+    };
+    exo_cudaLaunch0_proc_matrix_in_CudaWarps_positive(exo_cudaStream, &exo_deviceArgs);
+  }
 }
 
 

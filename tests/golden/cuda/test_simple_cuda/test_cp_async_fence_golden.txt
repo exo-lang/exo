@@ -246,22 +246,22 @@ cudaMemcpyAsync(&{dst_data}, &{src_data}, 4 * {n}, cudaMemcpyHostToDevice, exo_c
 //     x : f32[n] @DRAM
 // )
 void saxpy_cp_async( void *ctxt, int_fast32_t n, const float* a, float* y, const float* x ) {
-EXO_ASSUME(n % 1024 == 20);
-float *device_x = (float*) exo_cudaMallocAsync(n * sizeof(*device_x), exo_cudaStream);
-float *device_y = (float*) exo_cudaMallocAsync(n * sizeof(*device_y), exo_cudaStream);
-float device_a;
-device_a = a[0];
-cudaMemcpyAsync(&device_x[0], &x[0], 4 * (n), cudaMemcpyHostToDevice, exo_cudaStream);
-cudaMemcpyAsync(&device_y[0], &y[0], 4 * (n), cudaMemcpyHostToDevice, exo_cudaStream);
-{
-  struct exo_CudaDeviceArgs0_saxpy_cp_async exo_deviceArgs = {
-    n, device_x, device_y, device_a, exo_excut_get_device_log()
-  };
-  exo_cudaLaunch0_saxpy_cp_async(exo_cudaStream, &exo_deviceArgs);
-}
-exo_cudaFreeAsync(device_x, exo_cudaStream);
-cudaMemcpyAsync(&y[0], &device_y[0], 4 * (n), cudaMemcpyDeviceToHost, exo_cudaStream);
-exo_cudaFreeAsync(device_y, exo_cudaStream);
+  EXO_ASSUME(n % 1024 == 20);
+  float *device_x = (float*) exo_cudaMallocAsync(n * sizeof(*device_x), exo_cudaStream);
+  float *device_y = (float*) exo_cudaMallocAsync(n * sizeof(*device_y), exo_cudaStream);
+  float device_a;
+  device_a = a[0];
+  cudaMemcpyAsync(&device_x[0], &x[0], 4 * n, cudaMemcpyHostToDevice, exo_cudaStream);
+  cudaMemcpyAsync(&device_y[0], &y[0], 4 * n, cudaMemcpyHostToDevice, exo_cudaStream);
+  {
+    struct exo_CudaDeviceArgs0_saxpy_cp_async exo_deviceArgs = {
+      n, device_x, device_y, device_a, exo_excut_get_device_log()
+    };
+    exo_cudaLaunch0_saxpy_cp_async(exo_cudaStream, &exo_deviceArgs);
+  }
+  exo_cudaFreeAsync(device_x, exo_cudaStream);
+  cudaMemcpyAsync(&y[0], &device_y[0], 4 * n, cudaMemcpyDeviceToHost, exo_cudaStream);
+  exo_cudaFreeAsync(device_y, exo_cudaStream);
 }
 
 

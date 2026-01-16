@@ -246,28 +246,28 @@ cudaMemcpyAsync(&{dst_data}, &{src_data}, 4 * {n}, cudaMemcpyHostToDevice, exo_c
 //     x : f32[n] @DRAM
 // )
 void saxpy_2( void *ctxt, int_fast32_t n, const float* a, float* y, const float* x ) {
-EXO_ASSUME(n % 128 == 0);
-float *device_x = (float*) exo_cudaMallocAsync(n * sizeof(*device_x), exo_cudaStream);
-float *device_y = (float*) exo_cudaMallocAsync(n * sizeof(*device_y), exo_cudaStream);
-float device_a;
-device_a = a[0];
-cudaMemcpyAsync(&device_x[0], &x[0], 4 * (n), cudaMemcpyHostToDevice, exo_cudaStream);
-cudaMemcpyAsync(&device_y[0], &y[0], 4 * (n), cudaMemcpyHostToDevice, exo_cudaStream);
-{
-  struct exo_CudaDeviceArgs0_saxpy_2 exo_deviceArgs = {
-    n, device_y, device_a, exo_excut_get_device_log()
-  };
-  exo_cudaLaunch0_saxpy_2(exo_cudaStream, &exo_deviceArgs);
-}
-{
-  struct exo_CudaDeviceArgs1_saxpy_2 exo_deviceArgs = {
-    n, device_x, device_y, exo_excut_get_device_log()
-  };
-  exo_cudaLaunch1_saxpy_2(exo_cudaStream, &exo_deviceArgs);
-}
-exo_cudaFreeAsync(device_x, exo_cudaStream);
-cudaMemcpyAsync(&y[0], &device_y[0], 4 * (n), cudaMemcpyDeviceToHost, exo_cudaStream);
-exo_cudaFreeAsync(device_y, exo_cudaStream);
+  EXO_ASSUME(n % 128 == 0);
+  float *device_x = (float*) exo_cudaMallocAsync(n * sizeof(*device_x), exo_cudaStream);
+  float *device_y = (float*) exo_cudaMallocAsync(n * sizeof(*device_y), exo_cudaStream);
+  float device_a;
+  device_a = a[0];
+  cudaMemcpyAsync(&device_x[0], &x[0], 4 * n, cudaMemcpyHostToDevice, exo_cudaStream);
+  cudaMemcpyAsync(&device_y[0], &y[0], 4 * n, cudaMemcpyHostToDevice, exo_cudaStream);
+  {
+    struct exo_CudaDeviceArgs0_saxpy_2 exo_deviceArgs = {
+      n, device_y, device_a, exo_excut_get_device_log()
+    };
+    exo_cudaLaunch0_saxpy_2(exo_cudaStream, &exo_deviceArgs);
+  }
+  {
+    struct exo_CudaDeviceArgs1_saxpy_2 exo_deviceArgs = {
+      n, device_x, device_y, exo_excut_get_device_log()
+    };
+    exo_cudaLaunch1_saxpy_2(exo_cudaStream, &exo_deviceArgs);
+  }
+  exo_cudaFreeAsync(device_x, exo_cudaStream);
+  cudaMemcpyAsync(&y[0], &device_y[0], 4 * n, cudaMemcpyDeviceToHost, exo_cudaStream);
+  exo_cudaFreeAsync(device_y, exo_cudaStream);
 }
 
 

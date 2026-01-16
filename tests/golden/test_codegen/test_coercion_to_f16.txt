@@ -25,7 +25,7 @@ typedef struct { short bits; } exo_f16;
 
 // )
 void foo( void *ctxt ) {
-exo_f16 a;
-a = a + ((exo_f16) 3);
+  exo_f16 a;
+  a = a + ((exo_f16) 3);
 }
 

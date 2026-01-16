@@ -11,7 +11,7 @@
 
 // )
 void foo( void *ctxt ) {
-double a;
-a = a + 3.0;
+  double a;
+  a = a + 3.0;
 }
 
