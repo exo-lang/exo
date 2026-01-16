@@ -25,7 +25,7 @@ def test_coll_unit_cannot_be_scaled():
     with pytest.raises(Exception) as exc:
         _ = 4 * cuda_quadpair
     msg = str(exc.value)
-    assert "cannot be scaled" in msg.lower() or "quadpair" in msg.lower()
+    assert "cannot be scaled" in msg.lower() and "quadpair" in msg.lower()
 
 
 # =============================================================================
@@ -38,7 +38,7 @@ def test_coll_unit_scaled_by_zero():
     with pytest.raises(Exception) as exc:
         _ = 0 * cuda_thread
     msg = str(exc.value)
-    assert "positive" in msg.lower() or "int" in msg.lower()
+    assert "positive int" in msg.lower() and "0" in msg
 
 
 def test_coll_unit_scaled_by_negative():
@@ -46,7 +46,7 @@ def test_coll_unit_scaled_by_negative():
     with pytest.raises(Exception) as exc:
         _ = (-2) * cuda_thread
     msg = str(exc.value)
-    assert "positive" in msg.lower() or "int" in msg.lower()
+    assert "positive int" in msg.lower() and "-2" in msg
 
 
 def test_coll_unit_scaled_by_float():
@@ -54,7 +54,7 @@ def test_coll_unit_scaled_by_float():
     with pytest.raises(Exception) as exc:
         _ = 2.5 * cuda_thread
     msg = str(exc.value)
-    assert "positive" in msg.lower() or "int" in msg.lower()
+    assert "positive int" in msg.lower() and "2.5" in msg
 
 
 # =============================================================================
@@ -122,12 +122,7 @@ def test_not_enough_threads_negative(compiler):
         # Request 64 threads but only 32 available
         compiler.cuda_cpu_test(mkproc_not_enough_threads, num_threads=64)
     msg = str(exc.value)
-    assert (
-        "thread" in msg.lower()
-        or "available" in msg.lower()
-        or "max" in msg.lower()
-        or "not enough" in msg.lower()
-    )
+    assert "not enough threads available" in msg.lower()
 
 
 def test_not_enough_threads_positive(compiler):
@@ -153,43 +148,11 @@ def test_ambiguous_tile_dimension():
 
 
 # =============================================================================
-# Invalid alignment for CollUnit domain completion
-# =============================================================================
-
-
-def mkproc_invalid_coll_unit_alignment():
-    """Try to use a collective unit that doesn't align with blockDim"""
-
-    @proc
-    def test_proc(foo: f32 @ CudaGmemLinear):
-        # blockDim=100 is not divisible by 32 (warp size)
-        with CudaDeviceFunction(blockDim=100):
-            for task in cuda_tasks(0, 1):
-                # Try to use cuda_warp which expects blockDim divisible by 32
-                for w in cuda_threads(0, 3, unit=cuda_warp):
-                    for tid in cuda_threads(0, 32):
-                        foo = 1.0
-
-    return simplify(test_proc)
-
-
-def test_invalid_coll_unit_alignment(compiler):
-    with pytest.raises(Exception) as exc:
-        compiler.cuda_cpu_test(mkproc_invalid_coll_unit_alignment)
-    msg = str(exc.value)
-    # Should fail at CudaDeviceFunction creation (blockDim must be multiple of 32)
-    # or at collective unit alignment check
-    assert (
-        "blockDim" in msg
-        or "32" in msg
-        or "alignment" in msg.lower()
-        or "divide" in msg.lower()
-    )
-
-
-# =============================================================================
 # Domain completion divisibility issues
 # =============================================================================
+# NOTE: Removed test_invalid_coll_unit_alignment - it was testing blockDim constraints
+# rather than proper warp/warpgroup alignment. For alignment tests, use CudaWarps
+# to control which warps execute code (see test_warpgroup_alignment above).
 
 
 def mkproc_domain_completion_divisibility():

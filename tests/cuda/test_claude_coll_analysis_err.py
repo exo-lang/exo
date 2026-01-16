@@ -79,7 +79,7 @@ def test_cuda_warps_invalid_name_negative(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_cuda_warps_name, warp_name="nonexistent")
     msg = str(exc.value)
-    assert "nonexistent" in msg or "warp name" in msg.lower()
+    assert "nonexistent" in msg and "warp name" in msg.lower()
 
 
 # =============================================================================
@@ -126,14 +126,16 @@ def mkproc_cuda_warps_subdivided_cta(subdivide_first=True):
 
 
 def test_cuda_warps_no_subdivide_positive(compiler, golden):
-    compiler.cuda_cpu_test(mkproc_cuda_warps_subdivided_cta, golden, subdivide_first=False)
+    compiler.cuda_cpu_test(
+        mkproc_cuda_warps_subdivided_cta, golden, subdivide_first=False
+    )
 
 
 def test_cuda_warps_subdivided_cta_negative(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_cuda_warps_subdivided_cta, subdivide_first=True)
     msg = str(exc.value)
-    assert "subdivided" in msg.lower() or "CudaWarps" in msg
+    assert "subdivided" in msg.lower() and "CudaWarps" in msg
 
 
 # =============================================================================
@@ -164,7 +166,7 @@ def test_cuda_warps_hi_out_of_range_negative(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_cuda_warps_hi, hi_value=10)
     msg = str(exc.value)
-    assert "out-of-range" in msg or "10" in msg or "producer" in msg
+    assert "out-of-range" in msg and "CudaWarps" in msg
 
 
 # =============================================================================
@@ -196,7 +198,7 @@ def test_nested_cuda_warps_change_name_negative(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_nested_cuda_warps, inner_name="consumer")
     msg = str(exc.value)
-    assert "nested" in msg.lower() or "change" in msg.lower() or "producer" in msg
+    assert "nested" in msg.lower() and "change" in msg.lower()
 
 
 # =============================================================================
@@ -250,4 +252,4 @@ def test_nested_cuda_warps_missing_hi_negative(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_nested_cuda_warps_lo_hi, provide_hi=False)
     msg = str(exc.value)
-    assert "nested" in msg.lower() or "lo" in msg.lower() or "hi" in msg.lower()
+    assert "CudaWarps" in msg and "hi" in msg.lower()
