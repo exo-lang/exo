@@ -775,3 +775,127 @@ def test_guarding_unmatched_arrive_negative(compiler):
     msg = str(exc.value)
     # Error should be "expect Await(...) before ..."
     assert "expect" in msg.lower() and "Await" in msg and "before" in msg.lower()
+
+
+# =============================================================================
+# Home barrier expression errors (LoopIR.py home_barrier_expr)
+# =============================================================================
+
+
+def mkproc_home_barrier_different_arrays(same_array):
+    """Test that all barrier expressions must use the same barrier variable.
+
+    With multicast syntax, all >> bar[...] expressions must reference the same barrier.
+
+    same_array=True: >> bar[m, n] >> bar[m, :] (valid - same barrier)
+    same_array=False: >> bar1[m, n] >> bar2[m, :] (invalid - different barriers)
+    """
+    M_CTA = 2
+    N_CTA = 2
+    device_fn = CudaDeviceFunction(clusterDim=M_CTA * N_CTA, blockDim=32)
+
+    if same_array:
+
+        @proc
+        def test_proc():
+            with device_fn:
+                for task in cuda_tasks(0, 1):
+                    bar: barrier[M_CTA, N_CTA] @ CudaMbarrier
+                    for m_cta in cuda_threads(
+                        0, M_CTA, unit=N_CTA * cuda_cta_in_cluster
+                    ):
+                        for n_cta in cuda_threads(0, N_CTA, unit=cuda_cta_in_cluster):
+                            # Valid: same barrier array in both expressions
+                            (
+                                Arrive(cuda_in_order, 1)
+                                >> bar[m_cta, n_cta]
+                                >> bar[m_cta, :]
+                            )
+                            Await(bar[m_cta, n_cta], cuda_in_order, ~0)
+
+    else:
+
+        @proc
+        def test_proc():
+            with device_fn:
+                for task in cuda_tasks(0, 1):
+                    bar1: barrier[M_CTA, N_CTA] @ CudaMbarrier
+                    bar2: barrier[M_CTA, N_CTA] @ CudaMbarrier
+                    for m_cta in cuda_threads(
+                        0, M_CTA, unit=N_CTA * cuda_cta_in_cluster
+                    ):
+                        for n_cta in cuda_threads(0, N_CTA, unit=cuda_cta_in_cluster):
+                            # Invalid: different barrier arrays
+                            (
+                                Arrive(cuda_in_order, 1)
+                                >> bar1[m_cta, n_cta]
+                                >> bar2[m_cta, :]
+                            )
+                            Await(bar1[m_cta, n_cta], cuda_in_order, ~0)
+                            Await(bar2[m_cta, n_cta], cuda_in_order, ~0)
+
+    return simplify(test_proc)
+
+
+def test_home_barrier_different_arrays_positive(compiler):
+    # Valid: same barrier array in multicast
+    compiler.cuda_cpu_test(mkproc_home_barrier_different_arrays, same_array=True)
+
+
+def test_home_barrier_different_arrays_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        # Invalid: different barrier arrays in multicast
+        compiler.cuda_cpu_test(mkproc_home_barrier_different_arrays, same_array=False)
+    msg = str(exc.value)
+    assert "different" in msg.lower() and "barrier" in msg.lower()
+
+
+def mkproc_home_barrier_mismatched_points(matching_points):
+    """Test that point indices at the same dimension must match across barrier expressions.
+
+    When multiple barrier expressions provide a point for the same dimension,
+    they must use the same variable.
+
+    matching_points=True: >> bar[m, n] >> bar[m, :] (valid - m matches)
+    matching_points=False: >> bar[m, :] >> bar[n, :] (invalid - m != n at index 0)
+    """
+    M_CTA = 2
+    N_CTA = 2
+    device_fn = CudaDeviceFunction(clusterDim=M_CTA * N_CTA, blockDim=32)
+
+    @proc
+    def test_proc():
+        with device_fn:
+            for task in cuda_tasks(0, 1):
+                bar: barrier[M_CTA, N_CTA] @ CudaMbarrier
+                for m_cta in cuda_threads(0, M_CTA, unit=N_CTA * cuda_cta_in_cluster):
+                    for n_cta in cuda_threads(0, N_CTA, unit=cuda_cta_in_cluster):
+                        if matching_points:
+                            # Valid: m_cta matches in both expressions at index 0
+                            (
+                                Arrive(cuda_in_order, 1)
+                                >> bar[m_cta, n_cta]
+                                >> bar[m_cta, :]
+                            )
+                        else:
+                            # Invalid: m_cta vs n_cta at index 0
+                            # (both are points, but different variables)
+                            Arrive(cuda_in_order, 1) >> bar[m_cta, :] >> bar[n_cta, :]
+                        Await(bar[m_cta, n_cta], cuda_in_order, ~0)
+
+    return simplify(test_proc)
+
+
+def test_home_barrier_mismatched_points_positive(compiler):
+    # Valid: point indices match
+    compiler.cuda_cpu_test(mkproc_home_barrier_mismatched_points, matching_points=True)
+
+
+def test_home_barrier_mismatched_points_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        # Invalid: mismatched point variables at same index
+        compiler.cuda_cpu_test(
+            mkproc_home_barrier_mismatched_points, matching_points=False
+        )
+    msg = str(exc.value)
+    assert "mismatch" in msg.lower() and "idx" in msg.lower()
