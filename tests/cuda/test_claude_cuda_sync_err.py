@@ -240,16 +240,42 @@ def test_wgmma_fence_valid_positive(compiler):
 # =============================================================================
 
 
-def mkproc_mbarrier_not_sub_cta():
-    """TODO: mbarrier must be distributed within a single CTA.
-    This error is raised when mbarrier is distributed across CTAs in a cluster.
+def mkproc_mbarrier_not_sub_cta(bar_count, cta_unit_scale):
+    """Test that mbarrier must be distributed so each is resident in 1 CTA only.
+
+    In a cluster with multiple CTAs, mbarrier elements must not span multiple CTAs.
+
+    bar_count=4, cta_unit_scale=1: one barrier per CTA (valid)
+    bar_count=2, cta_unit_scale=2: each barrier spans 2 CTAs (invalid)
     """
-    pass
+    device_fn = CudaDeviceFunction(clusterDim=4, blockDim=256)
+    unit = cta_unit_scale * cuda_cta_in_cluster
+
+    @proc
+    def test_proc():
+        with device_fn:
+            for task in cuda_tasks(0, 1):
+                bar: barrier[bar_count] @ CudaMbarrier
+                for cta in cuda_threads(0, bar_count, unit=unit):
+                    Arrive(cuda_in_order, 1) >> bar[cta]
+                    Await(bar[cta], cuda_in_order, ~1)
+
+    return simplify(test_proc)
 
 
-def test_mbarrier_not_sub_cta():
-    # TODO: Need to figure out exact setup to trigger this error
-    pytest.skip("Complex cluster setup required to trigger this error")
+def test_mbarrier_not_sub_cta_positive(compiler):
+    # Valid: 4 barriers, one per CTA (unit=1*cuda_cta_in_cluster)
+    compiler.cuda_cpu_test(mkproc_mbarrier_not_sub_cta, bar_count=4, cta_unit_scale=1)
+
+
+def test_mbarrier_not_sub_cta_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        # Invalid: 2 barriers spanning 2 CTAs each (unit=2*cuda_cta_in_cluster)
+        compiler.cuda_cpu_test(
+            mkproc_mbarrier_not_sub_cta, bar_count=2, cta_unit_scale=2
+        )
+    msg = str(exc.value)
+    assert "mbarrier" in msg.lower() and "resident in 1 CTA" in msg
 
 
 # =============================================================================
@@ -257,25 +283,95 @@ def test_mbarrier_not_sub_cta():
 # =============================================================================
 
 
-# def mkproc_mbarrier_zero_skips():
-#     """mbarrier cycle must have some await with nonzero skips"""
+def mkproc_mbarrier_zero_skips(has_nonzero_skips):
+    """Test that mbarrier ring buffer cycle must have some await with nonzero skips.
 
-#     @proc
-#     def test_proc(foo: f32[128] @ CudaGmemLinear):
-#         with CudaDeviceFunction(blockDim=32):
-#             for task in cuda_tasks(0, 1):
-#                 bar: barrier @ CudaMbarrier
-#                 for tid in cuda_threads(0, 32):
-#                     Arrive(cuda_in_order, 1) >> bar
-#                     # Using N=~0 means 0 skips - the ring buffer needs some skips
-#                     Await(bar, cuda_in_order, ~0)
+    For guarded barrier pairs (bar1 guards bar2), the total skips across
+    the guard cycle must be > 0. If both Awaits use N=~0 (0 skips), error.
 
-#     return simplify(test_proc)
+    has_nonzero_skips=True: At least one Await has N=~1 (valid)
+    has_nonzero_skips=False: Both Awaits have N=~0, total skips=0 (invalid)
+    """
+
+    @proc
+    def test_proc():
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                bar1: barrier[1] @ CudaMbarrier
+                bar2: barrier(bar1)[1] @ CudaMbarrier
+                for w in cuda_threads(0, 1, unit=cuda_warp):
+                    if has_nonzero_skips:
+                        # Valid: at least one Await has nonzero skips
+                        Await(bar2[w], cuda_in_order, ~1)  # 1 skip
+                        Arrive(cuda_in_order, 1) >> bar1[w]
+                        Await(bar1[w], cuda_in_order, ~0)  # 0 skips, but total=1
+                        Arrive(cuda_in_order, 1) >> bar2[w]
+                    else:
+                        # Invalid: both Awaits have 0 skips, total=0
+                        Await(bar2[w], cuda_in_order, ~0)  # 0 skips
+                        Arrive(cuda_in_order, 1) >> bar1[w]
+                        Await(bar1[w], cuda_in_order, ~0)  # 0 skips
+                        Arrive(cuda_in_order, 1) >> bar2[w]
+
+    return simplify(test_proc)
 
 
-# def test_mbarrier_zero_skips(compiler):
-#     with pytest.raises(Exception) as exc:
-#         compiler.cuda_cpu_test(mkproc_mbarrier_zero_skips)
-#     msg = str(exc.value)
-#     # This should fail due to ring buffer requirements
-#     assert "skip" in msg.lower() or "N" in msg or "await" in msg.lower()
+def test_mbarrier_zero_skips_positive(compiler):
+    # Valid: at least one Await has nonzero skips
+    compiler.cuda_cpu_test(mkproc_mbarrier_zero_skips, has_nonzero_skips=True)
+
+
+def test_mbarrier_zero_skips_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        # Invalid: total skips across guard cycle is 0
+        compiler.cuda_cpu_test(mkproc_mbarrier_zero_skips, has_nonzero_skips=False)
+    msg = str(exc.value)
+    assert "nonzero skips" in msg.lower() and ("bar1" in msg or "bar2" in msg)
+
+
+# =============================================================================
+# Sm80_cp_async mbarrier must be within 1 CTA (no cluster multicast)
+# =============================================================================
+
+
+def mkproc_sm80_cp_async_mbarrier_cluster(use_multicast):
+    """Test that Sm80_cp_async mbarrier must be within 1 CTA.
+
+    When using Sm80_cp_async as the Arrive sync-tl, the mbarrier cannot
+    use cluster multicast (must stay within a single CTA).
+
+    use_multicast=False: single CTA, no multicast (valid)
+    use_multicast=True: multicast across CTAs (invalid)
+    """
+    device_fn = CudaDeviceFunction(clusterDim=2, blockDim=32)
+
+    @proc
+    def test_proc():
+        with device_fn:
+            for task in cuda_tasks(0, 1):
+                bar: barrier[2] @ CudaMbarrier
+                for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+                    if use_multicast:
+                        # Invalid: Sm80_cp_async with multicast to other CTA
+                        Arrive(Sm80_cp_async, 1) >> bar[cta] >> bar[:]
+                    else:
+                        # Valid: Sm80_cp_async within single CTA (no multicast)
+                        Arrive(Sm80_cp_async, 1) >> bar[cta]
+                    Await(bar[cta], cuda_in_order, ~1)
+
+    return simplify(test_proc)
+
+
+def test_sm80_cp_async_mbarrier_cluster_positive(compiler):
+    # Valid: Sm80_cp_async within single CTA
+    compiler.cuda_cpu_test(mkproc_sm80_cp_async_mbarrier_cluster, use_multicast=False)
+
+
+def test_sm80_cp_async_mbarrier_cluster_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        # Invalid: Sm80_cp_async with cluster multicast
+        compiler.cuda_cpu_test(
+            mkproc_sm80_cp_async_mbarrier_cluster, use_multicast=True
+        )
+    msg = str(exc.value)
+    assert "Sm80_cp_async" in msg and "1 CTA" in msg

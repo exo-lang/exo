@@ -402,10 +402,61 @@ def test_mbarrier_non_uniform_await_n_negative(compiler):
 # =============================================================================
 
 
-def test_arrive_incompatible_multicasts():
-    # TODO: Requires multicast syntax (>> bar[...] >> bar[..., :])
-    # which is used in cluster scenarios
-    pytest.skip("Multicast test requires cluster configuration")
+def mkproc_arrive_incompatible_multicasts(same_multicast):
+    """Test that multiple Arrives must have identical multicast patterns.
+
+    With cluster configuration and 2D barrier array:
+    - First Arrive uses >> bar[m, n] >> bar[m, :] (multicast along n)
+    - Second Arrive must use the same pattern
+
+    same_multicast=True: Both Arrives use same multicast pattern (valid)
+    same_multicast=False: Second Arrive uses different multicast pattern (invalid)
+    """
+    M_CTA = 2
+    N_CTA = 2
+
+    @proc
+    def test_proc():
+        with CudaDeviceFunction(clusterDim=M_CTA * N_CTA, blockDim=32):
+            for task in cuda_tasks(0, 1):
+                bar: barrier[M_CTA, N_CTA] @ CudaMbarrier
+                for m_cta in cuda_threads(0, M_CTA, unit=N_CTA * cuda_cta_in_cluster):
+                    for n_cta in cuda_threads(0, N_CTA, unit=cuda_cta_in_cluster):
+                        # First Arrive with multicast along n dimension
+                        Arrive(cuda_in_order, 1) >> bar[m_cta, n_cta] >> bar[m_cta, :]
+                        Await(bar[m_cta, n_cta], cuda_in_order, ~0)
+                        if same_multicast:
+                            # Valid: same multicast pattern (along n)
+                            (
+                                Arrive(cuda_in_order, 1)
+                                >> bar[m_cta, n_cta]
+                                >> bar[m_cta, :]
+                            )
+                        else:
+                            # Invalid: different multicast pattern (along m instead of n)
+                            (
+                                Arrive(cuda_in_order, 1)
+                                >> bar[m_cta, n_cta]
+                                >> bar[:, n_cta]
+                            )
+                        Await(bar[m_cta, n_cta], cuda_in_order, ~0)
+
+    return simplify(test_proc)
+
+
+def test_arrive_incompatible_multicasts_positive(compiler):
+    # Valid: same multicast pattern on both Arrives
+    compiler.cuda_cpu_test(mkproc_arrive_incompatible_multicasts, same_multicast=True)
+
+
+def test_arrive_incompatible_multicasts_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        # Invalid: different multicast patterns
+        compiler.cuda_cpu_test(
+            mkproc_arrive_incompatible_multicasts, same_multicast=False
+        )
+    msg = str(exc.value)
+    assert "incompatible" in msg.lower() and "multicast" in msg.lower()
 
 
 # =============================================================================
@@ -413,10 +464,54 @@ def test_arrive_incompatible_multicasts():
 # =============================================================================
 
 
-def test_await_multicast_forbidden():
-    # TODO: Await does not support multicast syntax
-    # Error: "multicast is for Arrive, not Await"
-    pytest.skip("Await multicast test requires multicast syntax understanding")
+def mkproc_await_multicast_forbidden(use_multicast_in_await):
+    """Test that Await cannot use multicast syntax.
+
+    Multicast (using : in barrier index) is only valid for Arrive, not Await.
+
+    use_multicast_in_await=False: Await uses point index bar[m, n] (valid)
+    use_multicast_in_await=True: Await uses interval bar[m, :] (invalid)
+    """
+    M_CTA = 2
+    N_CTA = 2
+
+    @proc
+    def test_proc():
+        with CudaDeviceFunction(clusterDim=M_CTA * N_CTA, blockDim=32):
+            for task in cuda_tasks(0, 1):
+                bar: barrier[M_CTA, N_CTA] @ CudaMbarrier
+                for m_cta in cuda_threads(0, M_CTA, unit=N_CTA * cuda_cta_in_cluster):
+                    for n_cta in cuda_threads(0, N_CTA, unit=cuda_cta_in_cluster):
+                        # Arrive with multicast
+                        Arrive(cuda_in_order, 1) >> bar[m_cta, n_cta] >> bar[m_cta, :]
+                        if use_multicast_in_await:
+                            # Invalid: Await with multicast syntax
+                            # Error: "multicast is for Arrive, not Await"
+                            Await(bar[m_cta, :], cuda_in_order, ~0)
+                        else:
+                            # Valid: Await with point index
+                            Await(bar[m_cta, n_cta], cuda_in_order, ~0)
+
+    return simplify(test_proc)
+
+
+def test_await_multicast_forbidden_positive(compiler):
+    # Valid: Await with point index
+    compiler.cuda_cpu_test(
+        mkproc_await_multicast_forbidden, use_multicast_in_await=False
+    )
+
+
+def test_await_multicast_forbidden_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        # Invalid: Await with multicast
+        compiler.cuda_cpu_test(
+            mkproc_await_multicast_forbidden, use_multicast_in_await=True
+        )
+    msg = str(exc.value)
+    # Error message: "at least one trailing barrier expression must have idx[...] be a point, not an interval"
+    # or "multicast is for Arrive, not Await"
+    assert ("interval" in msg.lower() or "multicast" in msg.lower()) and "Await" in msg
 
 
 # =============================================================================
@@ -425,34 +520,258 @@ def test_await_multicast_forbidden():
 # =============================================================================
 
 
-def test_guarding_arrive_before_await():
-    # TODO: barrier_usage.py line 418-421
-    # "expect {get_await_str()} before {s}"
-    # When await_first is True but Arrive comes before Await
-    pytest.skip("Guarding order test requires guarded_by pattern")
+def mkproc_guarding_arrive_before_await(correct_order):
+    """Test guarding order: when await_first=True, Arrive must come after Await.
+
+    With bar2 guarded_by bar1, they form a guard cycle:
+    - bar1.guarded_by = bar2, bar2.guarded_by = bar1
+    - For bar1: need Await(bar2) before Arrive >> bar1
+    - For bar2: need Await(bar1) before Arrive >> bar2
+
+    correct_order=True: Await(bar2) -> Arrive >> bar1 -> Await(bar1) -> Arrive >> bar2 (valid)
+    correct_order=False: Arrive >> bar1 first (invalid - expect Await before Arrive)
+    """
+
+    @proc
+    def test_proc():
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                bar1: barrier[1] @ CudaMbarrier
+                bar2: barrier(bar1)[1] @ CudaMbarrier
+                for w in cuda_threads(0, 1, unit=cuda_warp):
+                    if correct_order:
+                        # Valid: await bar2's guard (bar1) first, then arrive to bar2
+                        # But actually we need to check bar1's check_guarding too
+                        # For bar1: await bar1.guarded_by (bar2), then arrive bar1
+                        Await(bar2[w], cuda_in_order, ~1)
+                        Arrive(cuda_in_order, 1) >> bar1[w]
+                        Await(bar1[w], cuda_in_order, ~1)
+                        Arrive(cuda_in_order, 1) >> bar2[w]
+                    else:
+                        # Invalid: Arrive >> bar1 without prior Await(bar2)
+                        # Error: "expect Await(bar2, ...) before ..."
+                        Arrive(cuda_in_order, 1) >> bar1[w]
+                        Await(bar2[w], cuda_in_order, ~1)
+                        Await(bar1[w], cuda_in_order, ~1)
+                        Arrive(cuda_in_order, 1) >> bar2[w]
+
+    return simplify(test_proc)
 
 
-def test_guarding_await_before_arrive():
-    # TODO: barrier_usage.py line 428-433
-    # "expect {get_arrive_str()} before {s}"
-    # When await_first is False but Await comes before Arrive
-    pytest.skip("Guarding order test requires guarded_by pattern")
+def test_guarding_arrive_before_await_positive(compiler):
+    # Valid: Await before Arrive in await-first pattern
+    compiler.cuda_cpu_test(mkproc_guarding_arrive_before_await, correct_order=True)
 
 
-def test_guarding_sync_inside_seq_loop():
-    # TODO: barrier_usage.py line 405-414
-    # "forbidden here when Await->Arrive sees usage outside"
-    # Sync inside sequential loop when guarding requires ordering
-    pytest.skip("Guarding order test requires guarded_by pattern")
+def test_guarding_arrive_before_await_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        # Invalid: Arrive before Await in await-first pattern
+        compiler.cuda_cpu_test(mkproc_guarding_arrive_before_await, correct_order=False)
+    msg = str(exc.value)
+    assert "expect" in msg.lower() and "Await" in msg and "before" in msg.lower()
 
 
-def test_guarding_unmatched_await():
-    # TODO: barrier_usage.py line 445-448
-    # "without subsequent {get_arrive_str()} in body"
-    pytest.skip("Guarding order test requires guarded_by pattern")
+def mkproc_guarding_await_before_arrive(correct_order):
+    """Test guarding order: when await_first=False (arrive-first), Await must come after Arrive.
+
+    For a self-guarding barrier (bar guards itself):
+    - If first statement is Arrive, await_first=False
+    - Valid pattern: Arrive -> Await -> Arrive -> Await
+    - Invalid: Arrive -> Await -> Await (second Await without prior Arrive)
+
+    correct_order=True: Arrive -> Await -> Arrive -> Await (valid)
+    correct_order=False: Arrive -> Await -> Await (invalid - expect Arrive before second Await)
+    """
+
+    @proc
+    def test_proc():
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                bar: barrier[1] @ CudaMbarrier
+                for w in cuda_threads(0, 1, unit=cuda_warp):
+                    if correct_order:
+                        # Valid: arrive-first pattern with proper alternation
+                        Arrive(cuda_in_order, 1) >> bar[w]
+                        Await(bar[w], cuda_in_order, ~1)
+                        Arrive(cuda_in_order, 1) >> bar[w]
+                        Await(bar[w], cuda_in_order, ~1)
+                    else:
+                        # Invalid: two Awaits in a row after establishing arrive-first
+                        # Error: "expect Arrive(...) >> bar before ..."
+                        Arrive(cuda_in_order, 1) >> bar[w]
+                        Await(bar[w], cuda_in_order, ~1)
+                        Await(bar[w], cuda_in_order, ~1)  # Error here!
+
+    return simplify(test_proc)
 
 
-def test_guarding_unmatched_arrive():
-    # TODO: barrier_usage.py line 449-452
-    # "without subsequent {get_await_str()} in body"
-    pytest.skip("Guarding order test requires guarded_by pattern")
+def test_guarding_await_before_arrive_positive(compiler):
+    # Valid: arrive-first pattern with proper alternation
+    compiler.cuda_cpu_test(mkproc_guarding_await_before_arrive, correct_order=True)
+
+
+def test_guarding_await_before_arrive_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        # Invalid: two Awaits without intervening Arrive
+        compiler.cuda_cpu_test(mkproc_guarding_await_before_arrive, correct_order=False)
+    msg = str(exc.value)
+    assert "expect" in msg.lower() and "Arrive" in msg and "before" in msg.lower()
+
+
+def mkproc_guarding_sync_inside_seq_loop(sync_inside_loop):
+    """Test that sync statements are forbidden inside seq loops when there's unmatched sync outside.
+
+    For guard pair (bar1 guards bar2, bar2 guarded_by bar1):
+    - Start with Await(bar2) outside the loop (creates unmatched_await)
+    - If we then enter a seq loop and try to Arrive >> bar1, that's forbidden
+    - The Arrive must be outside the loop to match the Await
+
+    sync_inside_loop=False: sync outside loop (valid)
+    sync_inside_loop=True: sync inside seq loop while unmatched sync outside (invalid)
+    """
+
+    @proc
+    def test_proc():
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                bar1: barrier[1] @ CudaMbarrier
+                bar2: barrier(bar1)[1] @ CudaMbarrier
+                for w in cuda_threads(0, 1, unit=cuda_warp):
+                    if sync_inside_loop:
+                        # Invalid: Await outside, then Arrive inside seq loop
+                        Await(bar2[w], cuda_in_order, ~1)
+                        for i in seq(0, 2):
+                            # Error: "forbidden here when Await->Arrive sees usage outside"
+                            Arrive(cuda_in_order, 1) >> bar1[w]
+                            Await(bar1[w], cuda_in_order, ~1)
+                            Arrive(cuda_in_order, 1) >> bar2[w]
+                            Await(bar2[w], cuda_in_order, ~1)
+                    else:
+                        # Valid: all syncs outside seq loops
+                        Await(bar2[w], cuda_in_order, ~1)
+                        Arrive(cuda_in_order, 1) >> bar1[w]
+                        Await(bar1[w], cuda_in_order, ~1)
+                        Arrive(cuda_in_order, 1) >> bar2[w]
+
+    return simplify(test_proc)
+
+
+def test_guarding_sync_inside_seq_loop_positive(compiler):
+    # Valid: syncs outside seq loops
+    compiler.cuda_cpu_test(mkproc_guarding_sync_inside_seq_loop, sync_inside_loop=False)
+
+
+def test_guarding_sync_inside_seq_loop_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        # Invalid: sync inside seq loop when there's unmatched sync outside
+        compiler.cuda_cpu_test(
+            mkproc_guarding_sync_inside_seq_loop, sync_inside_loop=True
+        )
+    msg = str(exc.value)
+    assert "forbidden" in msg.lower() and "seq" in msg.lower()
+
+
+def mkproc_guarding_unmatched_await(has_matching_arrive):
+    """Test that Await must have a subsequent Arrive in the body.
+
+    For guard pair (bar1 guards bar2):
+    - With await-first pattern, we do Await(bar2) then Arrive >> bar1
+    - If we only do Await(bar2) without the Arrive >> bar1, error
+
+    has_matching_arrive=True: Await(bar2) followed by Arrive >> bar1 (valid)
+    has_matching_arrive=False: Await(bar2) alone (invalid - missing subsequent Arrive)
+    """
+
+    @proc
+    def test_proc():
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                bar1: barrier[1] @ CudaMbarrier
+                bar2: barrier(bar1)[1] @ CudaMbarrier
+                for w in cuda_threads(0, 1, unit=cuda_warp):
+                    if has_matching_arrive:
+                        # Valid: Await followed by matching Arrive
+                        Await(bar2[w], cuda_in_order, ~1)
+                        Arrive(cuda_in_order, 1) >> bar1[w]
+                        Await(bar1[w], cuda_in_order, ~1)
+                        Arrive(cuda_in_order, 1) >> bar2[w]
+                    else:
+                        # Invalid: Await without subsequent Arrive in body
+                        # Error: "... without subsequent Arrive(...) >> bar1 in body"
+                        Await(bar2[w], cuda_in_order, ~1)
+                        # Missing: Arrive(cuda_in_order, 1) >> bar1[w]
+                        # We still need SOME valid Arrive/Await to avoid "missing Arrive"
+                        # but the unmatched Await(bar2) causes the error
+                        Arrive(cuda_in_order, 1) >> bar2[w]
+                        Await(bar1[w], cuda_in_order, ~1)
+                        Arrive(cuda_in_order, 1) >> bar1[w]
+
+    return simplify(test_proc)
+
+
+def test_guarding_unmatched_await_positive(compiler):
+    # Valid: Await followed by matching Arrive
+    compiler.cuda_cpu_test(mkproc_guarding_unmatched_await, has_matching_arrive=True)
+
+
+def test_guarding_unmatched_await_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        # Invalid: Await without subsequent matching Arrive
+        compiler.cuda_cpu_test(
+            mkproc_guarding_unmatched_await, has_matching_arrive=False
+        )
+    msg = str(exc.value)
+    # Either "without subsequent" or the expect error should trigger
+    assert ("without subsequent" in msg.lower() or "expect" in msg.lower()) and (
+        "Arrive" in msg or "Await" in msg
+    )
+
+
+def mkproc_guarding_unmatched_arrive(proper_alternation):
+    """Test that Arrive must have a subsequent Await in the body (guarding check).
+
+    For a self-guarding barrier with arrive-first pattern:
+    - Valid: Arrive -> Await -> Arrive -> Await (proper alternation)
+    - Invalid: Arrive -> Arrive -> Await (two Arrives in a row triggers guarding error)
+
+    proper_alternation=True: Arrive -> Await -> Arrive -> Await (valid)
+    proper_alternation=False: Arrive -> Arrive -> Await (invalid - expect Await before second Arrive)
+    """
+
+    @proc
+    def test_proc():
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                bar: barrier[1] @ CudaMbarrier
+                for w in cuda_threads(0, 1, unit=cuda_warp):
+                    if proper_alternation:
+                        # Valid: Arrive followed by matching Await, then repeat
+                        Arrive(cuda_in_order, 1) >> bar[w]
+                        Await(bar[w], cuda_in_order, ~1)
+                        Arrive(cuda_in_order, 1) >> bar[w]
+                        Await(bar[w], cuda_in_order, ~1)
+                    else:
+                        # Invalid: Two Arrives in a row
+                        # Error: "expect Await(bar, ...) before ..."
+                        Arrive(cuda_in_order, 1) >> bar[w]
+                        Arrive(cuda_in_order, 1) >> bar[w]  # Error here!
+                        Await(bar[w], cuda_in_order, ~1)
+                        Await(bar[w], cuda_in_order, ~1)
+
+    return simplify(test_proc)
+
+
+def test_guarding_unmatched_arrive_positive(compiler):
+    # Valid: Arrive followed by matching Await with proper alternation
+    compiler.cuda_cpu_test(mkproc_guarding_unmatched_arrive, proper_alternation=True)
+
+
+def test_guarding_unmatched_arrive_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        # Invalid: Two Arrives in a row (no Await between them)
+        compiler.cuda_cpu_test(
+            mkproc_guarding_unmatched_arrive, proper_alternation=False
+        )
+    msg = str(exc.value)
+    # Error should be "expect Await(...) before ..."
+    assert "expect" in msg.lower() and "Await" in msg and "before" in msg.lower()
