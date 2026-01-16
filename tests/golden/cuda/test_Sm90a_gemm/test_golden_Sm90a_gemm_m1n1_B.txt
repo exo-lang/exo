@@ -507,12 +507,12 @@ EXO_ASSUME(cluster_K % 4 == 0);
 float *d_A = (float*) exo_cudaMallocAsync(L * M * K_split * cluster_K * sizeof(*d_A), exo_cudaStream);
 float *d_B = (float*) exo_cudaMallocAsync(L * N * K_split * cluster_K * sizeof(*d_B), exo_cudaStream);
 float *d_C = (float*) exo_cudaMallocAsync(L * N * M * sizeof(*d_C), exo_cudaStream);
-cudaMemcpyAsync(&d_A[0], &A[0], 4 * L * M * K_split * cluster_K, cudaMemcpyHostToDevice, exo_cudaStream);
-cudaMemcpyAsync(&d_B[0], &B[0], 4 * L * N * K_split * cluster_K, cudaMemcpyHostToDevice, exo_cudaStream);
+cudaMemcpyAsync(&d_A[0], &A[0], 4 * (L) * (M) * (K_split) * (cluster_K), cudaMemcpyHostToDevice, exo_cudaStream);
+cudaMemcpyAsync(&d_B[0], &B[0], 4 * (L) * (N) * (K_split) * (cluster_K), cudaMemcpyHostToDevice, exo_cudaStream);
 xgemm_Sm90a_r4_m1n1_m256n192_rmemC(ctxt, L, M, N, K_split, cluster_K, d_A, d_B, d_C);
 exo_cudaFreeAsync(d_B, exo_cudaStream);
 exo_cudaFreeAsync(d_A, exo_cudaStream);
-cudaMemcpyAsync(&C[0], &d_C[0], 4 * L * N * M, cudaMemcpyDeviceToHost, exo_cudaStream);
+cudaMemcpyAsync(&C[0], &d_C[0], 4 * (L) * (N) * (M), cudaMemcpyDeviceToHost, exo_cudaStream);
 exo_cudaFreeAsync(d_C, exo_cudaStream);
 }
 

@@ -243,12 +243,12 @@ cudaMemcpyAsync(&{dst_data}, &{src_data}, 4 * {M} * {N}, cudaMemcpyHostToDevice,
 */
 
 /* relying on the following instruction..."
-cuda_shfl_xor_sync_1f32_sum(outputs,inputs,laneMask=2)
+cuda_shfl_xor_sync_1f32_sum(outputs,inputs,laneMask=4)
 
 */
 
 /* relying on the following instruction..."
-cuda_shfl_xor_sync_1f32_sum(outputs,inputs,laneMask=4)
+cuda_shfl_xor_sync_1f32_sum(outputs,inputs,laneMask=2)
 
 */
 

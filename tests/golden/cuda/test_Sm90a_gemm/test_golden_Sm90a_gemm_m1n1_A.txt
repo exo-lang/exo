@@ -479,12 +479,12 @@ Sm90_mma_store_d_col_major_tf32(M_end,N_end,dst,src,M=64, N=256)
 */
 
 /* relying on the following instruction..."
-Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(dst,src,size0=256, size1=32, ncta=1, cta_stride=1, smem_box=(1, 256, 1, 32))
+Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(dst,src,size0=128, size1=32, ncta=1, cta_stride=1, smem_box=(1, 128, 1, 32))
 
 */
 
 /* relying on the following instruction..."
-Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(dst,src,size0=128, size1=32, ncta=1, cta_stride=1, smem_box=(1, 128, 1, 32))
+Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(dst,src,size0=256, size1=32, ncta=1, cta_stride=1, smem_box=(1, 256, 1, 32))
 
 */
 
@@ -507,12 +507,12 @@ EXO_ASSUME(cluster_K % 4 == 0);
 float *d_A = (float*) exo_cudaMallocAsync(L * M * K_split * cluster_K * sizeof(*d_A), exo_cudaStream);
 float *d_B = (float*) exo_cudaMallocAsync(L * N * K_split * cluster_K * sizeof(*d_B), exo_cudaStream);
 float *d_C = (float*) exo_cudaMallocAsync(L * N * M * sizeof(*d_C), exo_cudaStream);
-cudaMemcpyAsync(&d_A[0], &A[0], 4 * L * M * K_split * cluster_K, cudaMemcpyHostToDevice, exo_cudaStream);
-cudaMemcpyAsync(&d_B[0], &B[0], 4 * L * N * K_split * cluster_K, cudaMemcpyHostToDevice, exo_cudaStream);
+cudaMemcpyAsync(&d_A[0], &A[0], 4 * (L) * (M) * (K_split) * (cluster_K), cudaMemcpyHostToDevice, exo_cudaStream);
+cudaMemcpyAsync(&d_B[0], &B[0], 4 * (L) * (N) * (K_split) * (cluster_K), cudaMemcpyHostToDevice, exo_cudaStream);
 xgemm_Sm90a_r4_m1n1_m128n256_rmemC(ctxt, L, M, N, K_split, cluster_K, d_A, d_B, d_C);
 exo_cudaFreeAsync(d_B, exo_cudaStream);
 exo_cudaFreeAsync(d_A, exo_cudaStream);
-cudaMemcpyAsync(&C[0], &d_C[0], 4 * L * N * M, cudaMemcpyDeviceToHost, exo_cudaStream);
+cudaMemcpyAsync(&C[0], &d_C[0], 4 * (L) * (N) * (M), cudaMemcpyDeviceToHost, exo_cudaStream);
 exo_cudaFreeAsync(d_C, exo_cudaStream);
 }
 
@@ -797,8 +797,8 @@ EXO_CUDA_INLINE void exo_Sm90_mma_async_ss_m64n256_f32_tf32_tf32(uint64_t a_desc
   : "l"(a_descriptor_m0), "l"(b_descriptor), "r"(scale_d)
   );
 }
-/* Required by Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(dst,src,size0=256, size1=32, ncta=1, cta_stride=1, smem_box=(1, 256, 1, 32)) */
 /* Required by Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(dst,src,size0=128, size1=32, ncta=1, cta_stride=1, smem_box=(1, 128, 1, 32)) */
+/* Required by Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(dst,src,size0=256, size1=32, ncta=1, cta_stride=1, smem_box=(1, 256, 1, 32)) */
 template <typename WindowOffsets>
 EXO_CUDA_INLINE void
 exo_Sm90_tma_to_smem_multicast(

@@ -251,7 +251,7 @@ struct exo_Sm90_SW128 {
         return reinterpret_cast<exo_Sm90_SW128*>(addr);
     }
 
-    static constexpr uint64_t get_swizzle_bits()
+    static __host__ __device__ constexpr uint64_t get_swizzle_bits()
     {
         return 1;
     }
@@ -504,7 +504,7 @@ struct exo_Sm90_SW128 {
         return reinterpret_cast<exo_Sm90_SW128*>(addr);
     }
 
-    static constexpr uint64_t get_swizzle_bits()
+    static __host__ __device__ constexpr uint64_t get_swizzle_bits()
     {
         return 1;
     }
