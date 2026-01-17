@@ -223,6 +223,39 @@ Key points:
 - Negative tests use `pytest.raises` and assert on specific error message substrings
 - Parameters to `mkproc_fn` are passed as kwargs to `cuda_cpu_test`
 
+**What CAN be parameterized in mkproc functions:**
+- Integer values for loop ranges: `cuda_threads(0, num_warps, unit=cuda_warp)`
+- Integer values for array shapes: `data: f32[num_warps, 32] @ CudaRmem`
+- CollUnit objects: `cuda_threads(0, 2, unit=thread_unit)` where `thread_unit` is `cuda_thread` or `cuda_warp`
+- CudaDeviceFunction with computed values: `CudaDeviceFunction(blockDim=blockDim)`
+- Sync-tl objects, memory types, CudaWarps objects
+
+**Clever parameterization trick - use blockDim to control warp count:**
+```python
+def mkproc_smem_in_warp_loop(blockDim):
+    """blockDim=32: 1 warp, valid. blockDim=128: 4 warps, invalid."""
+    device_fn = CudaDeviceFunction(blockDim=blockDim)
+    num_warps = blockDim // 32
+
+    @proc
+    def test_proc():
+        with device_fn:
+            for task in cuda_tasks(0, 1):
+                for w in cuda_threads(0, num_warps, unit=cuda_warp):
+                    smem: f32[32] @ CudaSmemLinear  # Needs all CTA threads
+                    for t in cuda_threads(0, 32):
+                        smem[t] = 1.0
+    return simplify(test_proc)
+
+# blockDim=32: 1 warp loop iteration, all 32 CTA threads available -> valid
+# blockDim=128: 4 warp loop iterations, only 32 of 128 threads available -> error
+```
+
+**What CANNOT be parameterized:**
+- Index expressions inside subscripts: `arr[cta]` vs `arr[1 - cta]` requires if/else branches
+- Loop structure differences: cuda_threads vs seq loop nesting requires if/else branches
+- Constants in indices: `arr[w, t]` vs `arr[w, 0]` requires if/else branches
+
 **CudaWarps for controlling thread/warp execution:**
 ```python
 def mkproc_warpgroup_alignment(warp_lo):
@@ -325,6 +358,64 @@ Common mistakes when writing CUDA error tests:
    ```
 
 6. **Test the right error** - Ensure test structure is valid first; structural errors mask the error you're testing for. If you get unexpected errors about distributed memory or bounds, fix the test structure before asserting on error messages.
+
+7. **Permitted index expressions** - Distributed memory indices must be plain variable reads of `cuda_threads` iterators:
+   ```python
+   # BAD: expression instead of plain variable
+   smem[1 - cta, tid] = 1.0  # Error: "Expected single variable name, not 1 - cta"
+
+   # BAD: constant instead of variable
+   data[w, 0, i] = 1.0  # Error: "Expected single variable name, not 0"
+
+   # BAD: seq iterator instead of cuda_threads
+   for j in seq(0, 2):
+       data[j, t, i] = 1.0  # Error: "Expected cuda_threads-loop iterator, not j"
+
+   # GOOD: plain variable reads of cuda_threads iterators
+   for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+       for tid in cuda_threads(0, 32):
+           smem[cta, tid] = 1.0
+   ```
+
+8. **tile_count must match array extent** - Iterator range must match distributed dimension:
+   ```python
+   # BAD: array has 4 elements but iterator only covers 2
+   data: f32[4, 32, 2] @ CudaRmem
+   for w in cuda_threads(0, 2, unit=cuda_warp):  # Error: "w.tile_count = 2; must be 4"
+       data[w, t, i] = 1.0
+
+   # GOOD: iterator range matches array dimension
+   data: f32[4, 32, 2] @ CudaRmem
+   for w in cuda_threads(0, 4, unit=cuda_warp):
+       data[w, t, i] = 1.0
+   ```
+
+### Distributed Memory Concepts
+
+**Permitted index expression**: A plain read of:
+1. A **required iterator** (cuda_threads iterator with tile_count > 1 and thread_pitch != 0), OR
+2. A cuda_threads iterator with **0 thread pitch** (tile_count = 1, e.g., `cuda_threads(0, 1, unit=...)`)
+
+The 0-thread-pitch iterators are no-ops for distribution - they're permitted but not required.
+
+**Thread pitch**: The difference in thread indices between consecutive loop iterations:
+- `cuda_threads(0, N)` with no unit: pitch = 1
+- `cuda_threads(0, N, unit=cuda_warp)`: pitch = 32
+- `cuda_threads(0, N, unit=cuda_warpgroup)`: pitch = 128
+- `cuda_threads(0, N, unit=cuda_cta_in_cluster)`: pitch = blockDim
+
+**Native unit**: Memory types have a native collective unit that determines distribution requirements:
+- `CudaRmem`: native unit is `cuda_thread` (must subdivide to individual threads)
+- `CudaSmemLinear`: native unit is `cuda_cta_in_cluster` (can distribute by CTA in cluster)
+
+**Common distributed memory errors**:
+| Error Message | Cause |
+|--------------|-------|
+| `Expected single variable name, not X` | Index is expression/constant, not plain variable |
+| `Expected cuda_threads-loop iterator, not X` | Index variable is from seq loop, not cuda_threads |
+| `X.tile_count = N; must be M` | Iterator range doesn't match array dimension |
+| `Missing subdivision on dims[N]` | Memory's native unit requires finer thread distribution |
+| `X.thread_pitch (A) != Y.thread_pitch (B)` | Inconsistent thread pitches across usages |
 
 ## Documentation Resources
 
