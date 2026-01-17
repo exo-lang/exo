@@ -375,3 +375,55 @@ def test_sm80_cp_async_mbarrier_cluster_negative(compiler):
         )
     msg = str(exc.value)
     assert "Sm80_cp_async" in msg and "1 CTA" in msg
+
+
+# =============================================================================
+# mbarrier multicast on intra-CTA dimension (not allowed)
+# =============================================================================
+
+
+def mkproc_mbarrier_intra_cta_multicast(multicast_on_warp):
+    """Test that mbarrier multicast cannot be on intra-CTA dimensions.
+
+    Multicast (using ':' interval syntax) is only allowed for CTA-level
+    dimensions (thread_pitch >= blockDim). Trying to multicast on warp or
+    thread dimensions within a CTA should fail.
+
+    multicast_on_warp=False: multicast on CTA dimension (valid)
+    multicast_on_warp=True: multicast on warp dimension (invalid)
+    """
+    device_fn = CudaDeviceFunction(clusterDim=2, blockDim=64)
+
+    @proc
+    def test_proc():
+        with device_fn:
+            for task in cuda_tasks(0, 1):
+                # 2D barrier: [cta, warp]
+                bar: barrier[2, 2] @ CudaMbarrier
+                for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+                    for w in cuda_threads(0, 2, unit=cuda_warp):
+                        if multicast_on_warp:
+                            # Invalid: multicast on warp dimension (intra-CTA)
+                            Arrive(cuda_in_order, 1) >> bar[cta, w] >> bar[cta, :]
+                        else:
+                            # Valid: multicast on CTA dimension (inter-CTA)
+                            Arrive(cuda_in_order, 1) >> bar[cta, w] >> bar[:, w]
+                        Await(bar[cta, w], cuda_in_order, ~1)
+
+    return simplify(test_proc)
+
+
+def test_mbarrier_intra_cta_multicast_positive(compiler):
+    # Valid: multicast on CTA dimension
+    compiler.cuda_cpu_test(mkproc_mbarrier_intra_cta_multicast, multicast_on_warp=False)
+
+
+def test_mbarrier_intra_cta_multicast_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        # Invalid: multicast on warp dimension (intra-CTA)
+        compiler.cuda_cpu_test(
+            mkproc_mbarrier_intra_cta_multicast, multicast_on_warp=True
+        )
+    msg = str(exc.value)
+    # Error: thread_pitch not divisible by blockDim; cannot be multicast
+    assert "cannot be multicast" in msg.lower() or "thread_pitch" in msg
