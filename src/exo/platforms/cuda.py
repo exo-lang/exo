@@ -472,9 +472,11 @@ class cuda_packed_load_base(InstrInfo):
         self.instr_tl = cuda_in_order_instr
 
     def codegen(self, args):
-        dst_ptr = args.dst.index_ptr(ptx_data=True)
+        dst = args.dst.index(ptx_data=True)
         src_ptr = args.src.index_ptr()
-        return [f"memcpy({dst_ptr}, {src_ptr}, 4);"]
+        # We have no choice but to accept the strict aliasing violation.
+        # When I use memcpy, I get insanely slow {ld|st}.{shared|global}.u8 usage.
+        return [f"{dst} = *reinterpret_cast<const decltype({dst})*>({src_ptr});"]
 
 
 class cuda_packed_store_base(InstrInfo):
@@ -484,9 +486,13 @@ class cuda_packed_store_base(InstrInfo):
         self.instr_tl = cuda_in_order_instr
 
     def codegen(self, args):
+        # Theoretical issue, src could be const (very unlikely for a register)
+        # causing the decltype to be const as well.
         dst_ptr = args.dst.index_ptr()
-        src_ptr = args.src.index_ptr(ptx_data=True)
-        return [f"memcpy({dst_ptr}, {src_ptr}, 4);"]
+        src = args.src.index(ptx_data=True)
+        # We have no choice but to accept the strict aliasing violation.
+        # When I use memcpy, I get insanely slow {ld|st}.{shared|global}.u8 usage.
+        return [f"*reinterpret_cast<decltype({src})*>({dst_ptr}) = {src};"]
 
 
 @instr

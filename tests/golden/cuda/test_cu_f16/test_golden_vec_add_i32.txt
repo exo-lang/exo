@@ -151,8 +151,6 @@ void exo_cudaLaunch0_f16_test_vec_add_i32(cudaStream_t exo_cudaStream, const str
 // ########################################################################
 #include "test_golden_vec_add_i32.h"
 
-/* Required by CudaRmemPacked32 */
-#include "string.h"
 /* Required by CudaGmemLinear */
 #ifndef EXO_MEMORY_GLOBAL_CudaGmemLinear
 #define EXO_MEMORY_GLOBAL_CudaGmemLinear
@@ -307,8 +305,6 @@ void f16_test_vec_add_i32( void *ctxt, int_fast32_t N, const int32_t* h_x, const
 #if EXO_EXCUT_bENABLE_LOG
 #include "test_golden_vec_add_i32.excut_str_table"
 #endif
-/* Required by CudaRmemPacked32 */
-#include "string.h"
 /* Required by CudaGmemLinear */
 #ifndef EXO_MEMORY_GLOBAL_CudaGmemLinear
 #define EXO_MEMORY_GLOBAL_CudaGmemLinear
@@ -547,9 +543,9 @@ exo_CudaInline_test_golden_vec_add_i32::exo_Cuda0_f16_test_vec_add_i32::exo_devi
   exo_CudaRmemPacked32_i32 rmem_x;
   // cuda_threads(0, 256, unit=cuda_thread)
   if ([[maybe_unused]] int exo_1thr_tid = threadIdx.x; 1) {
-    memcpy((&rmem_x.ptx_data), (&exo_deviceArgs.d_x[exo_1thr_tid + 256 * exo_task.task]), 4);
+    rmem_x.ptx_data = *reinterpret_cast<const decltype(rmem_x.ptx_data)*>((&exo_deviceArgs.d_x[exo_1thr_tid + 256 * exo_task.task]));
     exo_CudaRmemPacked32_i32 rmem_y;
-    memcpy((&rmem_y.ptx_data), (&exo_deviceArgs.d_y[exo_1thr_tid + 256 * exo_task.task]), 4);
+    rmem_y.ptx_data = *reinterpret_cast<const decltype(rmem_y.ptx_data)*>((&exo_deviceArgs.d_y[exo_1thr_tid + 256 * exo_task.task]));
     for (int pack_st_out = 0; pack_st_out < 1; pack_st_out++) {
       exo_deviceArgs.d_out[pack_st_out + exo_1thr_tid + 256 * exo_task.task] = (float)(rmem_x[pack_st_out] + rmem_y[pack_st_out]);
     }
