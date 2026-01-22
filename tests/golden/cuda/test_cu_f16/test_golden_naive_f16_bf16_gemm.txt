@@ -192,8 +192,6 @@ void exo_cudaLaunch0_f16_naive_gemm_f16_bf16_f32(cudaStream_t exo_cudaStream, co
 // ########################################################################
 #include "test_golden_naive_f16_bf16_gemm.h"
 
-/* Required by CudaRmemPacked32 */
-#include "string.h"
 /* Required by CudaGmemLinear */
 #ifndef EXO_MEMORY_GLOBAL_CudaGmemLinear
 #define EXO_MEMORY_GLOBAL_CudaGmemLinear
@@ -457,8 +455,6 @@ void f16_naive_gemm_f16_bf16_f32( void *ctxt, int_fast32_t M, int_fast32_t N, in
 #if EXO_EXCUT_bENABLE_LOG
 #include "test_golden_naive_f16_bf16_gemm.excut_str_table"
 #endif
-/* Required by CudaRmemPacked32 */
-#include "string.h"
 /* Required by CudaGmemLinear */
 #ifndef EXO_MEMORY_GLOBAL_CudaGmemLinear
 #define EXO_MEMORY_GLOBAL_CudaGmemLinear
@@ -808,10 +804,10 @@ exo_CudaInline_test_golden_naive_f16_bf16_gemm::exo_Cuda0_f16_naive_gemm_f16_bf1
         if ([[maybe_unused]] int exo_1thr_kt = (threadIdx.x % 16); 1) {
           exo_CudaRmemPacked32_f16 tmp_A;
           exo_CudaRmemPacked32_bf16 tmp_B;
-          memcpy((&tmp_A.ptx_data), (&d_A_tile.data[(exo_16thr_mt + 8 * ms) * (d_A_tile.strides[0]) + (2 * exo_1thr_kt) * (d_A_tile.strides[1])]), 4);
-          memcpy((&tmp_B.ptx_data), (&d_B_tile.data[(exo_16thr_mt + 8 * ms) * (d_B_tile.strides[0]) + (2 * exo_1thr_kt) * (d_B_tile.strides[1])]), 4);
-          memcpy((&s_A[(exo_16thr_mt + 8 * ms) * 32 + 2 * exo_1thr_kt].swizzle_get()), (&tmp_A.ptx_data), 4);
-          memcpy((&s_B[(exo_16thr_mt + 8 * ms) * (32) + 2 * exo_1thr_kt]), (&tmp_B.ptx_data), 4);
+          tmp_A.ptx_data = *reinterpret_cast<const decltype(tmp_A.ptx_data)*>((&d_A_tile.data[(exo_16thr_mt + 8 * ms) * (d_A_tile.strides[0]) + (2 * exo_1thr_kt) * (d_A_tile.strides[1])]));
+          tmp_B.ptx_data = *reinterpret_cast<const decltype(tmp_B.ptx_data)*>((&d_B_tile.data[(exo_16thr_mt + 8 * ms) * (d_B_tile.strides[0]) + (2 * exo_1thr_kt) * (d_B_tile.strides[1])]));
+          *reinterpret_cast<decltype(tmp_A.ptx_data)*>((&s_A[(exo_16thr_mt + 8 * ms) * 32 + 2 * exo_1thr_kt].swizzle_get())) = tmp_A.ptx_data;
+          *reinterpret_cast<decltype(tmp_B.ptx_data)*>((&s_B[(exo_16thr_mt + 8 * ms) * (32) + 2 * exo_1thr_kt])) = tmp_B.ptx_data;
         }
       }
     }

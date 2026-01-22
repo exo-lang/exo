@@ -420,7 +420,6 @@ using exo_CudaRmemPacked32_bf16 = exo_CudaRmemPacked32<int32_t, __nv_bfloat16, _
 
 #endif
 """,
-    [MemIncludeC("string.h")],
 )
 
 
