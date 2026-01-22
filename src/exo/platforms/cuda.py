@@ -8,6 +8,7 @@ from .cuda_warp_intrin import *
 
 # TODO spork.sync_types, needed for scheduling
 
+
 # XXX temporary cudaMemcpyAsync: we need this for testing for now.
 class cudaMemcpyAsync_base:
     __slots__ = []
@@ -390,58 +391,6 @@ class cudaMemsetAsync0_2i32(cudaMemsetAsync0_base):
         self.instance_impl("4 * {M} * {N}", htod=True)
 
 
-class cuda_packed_load_base(InstrInfo):
-    __slots__ = []
-
-    def instance(self):
-        self.instr_tl = cuda_in_order_instr
-
-    def codegen(self, args):
-        dst_ptr = args.dst.index_ptr(ptx_data=True)
-        src_ptr = args.src.index_ptr()
-        return [f"memcpy({dst_ptr}, {src_ptr}, 4);"]
-
-
-@instr
-class cuda_packed_load_f32(cuda_packed_load_base):
-    def behavior(
-        dst: [f32][1] @ CudaRmemPacked32, src: [f32][1] @ CudaBasicDeviceVisible
-    ):
-        for i in seq(0, 1):
-            dst[i] = src[i]
-
-
-@instr
-class cuda_packed_load_i32(cuda_packed_load_base):
-    def behavior(
-        dst: [i32][1] @ CudaRmemPacked32, src: [i32][1] @ CudaBasicDeviceVisible
-    ):
-        for i in seq(0, 1):
-            dst[i] = src[i]
-
-
-@instr
-class cuda_packed_load_f16(cuda_packed_load_base):
-    def behavior(
-        dst: [f16][2] @ CudaRmemPacked32, src: [f16][2] @ CudaBasicDeviceVisible
-    ):
-        assert stride(dst, 0) == 1
-        assert stride(src, 0) == 1
-        for i in seq(0, 2):
-            dst[i] = src[i]
-
-
-@instr
-class cuda_packed_load_bf16(cuda_packed_load_base):
-    def behavior(
-        dst: [bf16][2] @ CudaRmemPacked32, src: [bf16][2] @ CudaBasicDeviceVisible
-    ):
-        assert stride(dst, 0) == 1
-        assert stride(src, 0) == 1
-        for i in seq(0, 2):
-            dst[i] = src[i]
-
-
 # TODO we really need to write a script for generating all possibilities.
 @instr
 class cudaMemsetAsync0_3f32(cudaMemsetAsync0_base):
@@ -511,3 +460,110 @@ class cudaMemcpyAsync_htod_4f32(cudaMemcpyAsync_base):
 
     def instance(self):
         self.instance_impl("4 * {L} * {M} * {N} * {K}", htod=True)
+
+
+# Packed register load/store.
+
+
+class cuda_packed_load_base(InstrInfo):
+    __slots__ = []
+
+    def instance(self):
+        self.instr_tl = cuda_in_order_instr
+
+    def codegen(self, args):
+        dst_ptr = args.dst.index_ptr(ptx_data=True)
+        src_ptr = args.src.index_ptr()
+        return [f"memcpy({dst_ptr}, {src_ptr}, 4);"]
+
+
+class cuda_packed_store_base(InstrInfo):
+    __slots__ = []
+
+    def instance(self):
+        self.instr_tl = cuda_in_order_instr
+
+    def codegen(self, args):
+        dst_ptr = args.dst.index_ptr()
+        src_ptr = args.src.index_ptr(ptx_data=True)
+        return [f"memcpy({dst_ptr}, {src_ptr}, 4);"]
+
+
+@instr
+class cuda_packed_load_f32(cuda_packed_load_base):
+    def behavior(
+        dst: [f32][1] @ CudaRmemPacked32, src: [f32][1] @ CudaBasicDeviceVisible
+    ):
+        for i in seq(0, 1):
+            dst[i] = src[i]
+
+
+@instr
+class cuda_packed_load_i32(cuda_packed_load_base):
+    def behavior(
+        dst: [i32][1] @ CudaRmemPacked32, src: [i32][1] @ CudaBasicDeviceVisible
+    ):
+        for i in seq(0, 1):
+            dst[i] = src[i]
+
+
+@instr
+class cuda_packed_load_f16(cuda_packed_load_base):
+    def behavior(
+        dst: [f16][2] @ CudaRmemPacked32, src: [f16][2] @ CudaBasicDeviceVisible
+    ):
+        assert stride(dst, 0) == 1
+        assert stride(src, 0) == 1
+        for i in seq(0, 2):
+            dst[i] = src[i]
+
+
+@instr
+class cuda_packed_load_bf16(cuda_packed_load_base):
+    def behavior(
+        dst: [bf16][2] @ CudaRmemPacked32, src: [bf16][2] @ CudaBasicDeviceVisible
+    ):
+        assert stride(dst, 0) == 1
+        assert stride(src, 0) == 1
+        for i in seq(0, 2):
+            dst[i] = src[i]
+
+
+@instr
+class cuda_packed_store_f32(cuda_packed_store_base):
+    def behavior(
+        dst: [f32][1] @ CudaBasicDeviceVisible, src: [f32][1] @ CudaRmemPacked32
+    ):
+        for i in seq(0, 1):
+            dst[i] = src[i]
+
+
+@instr
+class cuda_packed_store_i32(cuda_packed_store_base):
+    def behavior(
+        dst: [i32][1] @ CudaBasicDeviceVisible, src: [i32][1] @ CudaRmemPacked32
+    ):
+        for i in seq(0, 1):
+            dst[i] = src[i]
+
+
+@instr
+class cuda_packed_store_f16(cuda_packed_store_base):
+    def behavior(
+        dst: [f16][2] @ CudaBasicDeviceVisible, src: [f16][2] @ CudaRmemPacked32
+    ):
+        assert stride(dst, 0) == 1
+        assert stride(src, 0) == 1
+        for i in seq(0, 2):
+            dst[i] = src[i]
+
+
+@instr
+class cuda_packed_store_bf16(cuda_packed_store_base):
+    def behavior(
+        dst: [bf16][2] @ CudaBasicDeviceVisible, src: [bf16][2] @ CudaRmemPacked32
+    ):
+        assert stride(dst, 0) == 1
+        assert stride(src, 0) == 1
+        for i in seq(0, 2):
+            dst[i] = src[i]
