@@ -96,9 +96,9 @@ class VarSlotEntry
         size_t linear_idx = 0;
         for (IdxIterator iter = begin ; iter != end; ++iter) {
             const auto dim = iter - begin;
-            const size_t idx = *iter;
-            CAMSPORK_REQUIRE_CMP(idx, <, _extent[dim], "out-of-bounds access in abstract machine program");
-            linear_idx = linear_idx * _extent[dim] + idx;
+            const size_t idx = size_t(*iter);
+            CAMSPORK_REQUIRE_CMP(idx, <, size_t(_extent[dim]), "out-of-bounds access in abstract machine program");
+            linear_idx = linear_idx * size_t(_extent[dim]) + idx;
         }
         return p_data[linear_idx];
     }
@@ -314,7 +314,7 @@ class ProgramEnv
 
     // Currently moves are the same as copies.
     ProgramEnv(const ProgramEnv&) = default;
-    ProgramEnv& operator=(const ProgramEnv&) = default;
+    ProgramEnv& operator=(const ProgramEnv&) = delete;  // Fix this if we have to.
     ~ProgramEnv() = default;
 
     void exec(
@@ -505,7 +505,7 @@ CAMSPORK_EXPORT const char* camspork_get_remark(
 
 // These don't have error conditions; 0 signals "no syncv fail detected" or "0 dimensional".
 CAMSPORK_EXPORT int camspork_get_num_remarks(const camspork::ProgramEnv* p_env);
-CAMSPORK_EXPORT camspork::Varname camspork_syncv_fail_var(const camspork::ProgramEnv* p_env);
+CAMSPORK_EXPORT camspork_RawVarname camspork_syncv_fail_var(const camspork::ProgramEnv* p_env);
 CAMSPORK_EXPORT int camspork_syncv_fail_idx_dim(const camspork::ProgramEnv* p_env);
 CAMSPORK_EXPORT const camspork::extent_t* camspork_syncv_fail_idx_ptr(const camspork::ProgramEnv* p_env);
 

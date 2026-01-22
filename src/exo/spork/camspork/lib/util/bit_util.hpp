@@ -7,22 +7,22 @@ namespace camspork
 
 inline uint8_t popcount(int32_t n)
 {
-    return uint8_t(__builtin_popcount(int(n)));
+    return uint8_t(__builtin_popcount(uint32_t(n)));
 }
 
 inline uint8_t popcount(uint32_t n)
 {
-    return uint8_t(__builtin_popcount(int(n)));
+    return uint8_t(__builtin_popcount(uint32_t(n)));
 }
 
 inline uint8_t get_low_bit_index(uint32_t n)
 {
-    return uint8_t(__builtin_ctz(n));
+    return uint8_t(__builtin_ctz(uint32_t(n)));
 }
 
 inline uint8_t get_low_bit_index(int32_t n)
 {
-    return uint8_t(__builtin_ctz(n));
+    return uint8_t(__builtin_ctz(uint32_t(n)));
 }
 
 inline uint8_t get_low_bit_index(uint64_t n)
@@ -32,7 +32,7 @@ inline uint8_t get_low_bit_index(uint64_t n)
 
 inline uint8_t get_low_bit_index(int64_t n)
 {
-    return uint8_t(__builtin_ctzl(n));
+    return uint8_t(__builtin_ctzl(uint64_t(n)));
 }
 
 template <typename Int_T>

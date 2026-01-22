@@ -91,7 +91,7 @@ constexpr uint32_t pack_id_bits(uint32_t node_index, uint8_t debug_bits)
 constexpr uint32_t pack_id_bits(uint32_t node_index, uint32_t debug_bits) = delete;
 
 template <typename ListNode>
-class AllNodesIterator;
+struct AllNodesIterator;
 
 // Non-threadsafe memory pool for allocating singly-linked list nodes.
 // Each node is referenced by integer index, rather than pointer;

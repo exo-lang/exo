@@ -292,7 +292,7 @@ struct VisRecordChunkMaxHash
 {
     uint64_t max_hash;  // Max of memoize_hash_bits of VisRecords in chunk.
 
-    bool operator< (const VisRecordChunkMaxHash& other)
+    bool operator< (const VisRecordChunkMaxHash& other) const
     {
         return max_hash < other.max_hash;
     }
@@ -1191,7 +1191,7 @@ struct SyncvTable
         const uint64_t hash_hi = hash_bounds.second;
         CAMSPORK_REQUIRE_CMP(hash_lo, <=, hash_hi, "Invalid hash bounds");
 
-        constexpr MemoizeAction memoize_action = command.memoize_action;
+        constexpr MemoizeAction memoize_action = std::remove_reference_t<Command&&>::memoize_action;
         const size_t max_chunk_size = 2 + vis_record_table.size() / 2u;
 
         VisRecordListNode<K>* p_command_node = nullptr;
@@ -2607,6 +2607,7 @@ struct SyncvTable
                 return;  // Exit lambda: ignore non-allocated VisRecordListNode.
             }
             const auto& node = get(id);
+            using NodeType = std::remove_reference_t<decltype(node)>;
 
             if (node.is_forwarded()) {
                 CAMSPORK_REQUIRE(node.camspork_next_id, "in forwarding state, but forwarded-to node is null");
@@ -2665,7 +2666,7 @@ struct SyncvTable
                     }
                     CAMSPORK_REQUIRE(p_state, "Missing BarrierArriveState");
                     const BarrierArriveState& state = *p_state;
-                    constexpr VisRecordKind K = node.vis_record_kind;
+                    constexpr VisRecordKind K = NodeType::vis_record_kind;
                     nodepool::id<AssignmentRecordVisNode<K>> record_node_id = state.vis_records_head_id;
                     size_t count = 0;
                     while (record_node_id) {
@@ -2703,7 +2704,8 @@ struct SyncvTable
 
         auto validate_chunk = [this, &last_hash_bits] (const auto& chunk)
         {
-            static constexpr VisRecordKind K = chunk.vis_record_kind;
+            using NodeType = std::remove_reference_t<decltype(chunk)>;
+            static constexpr VisRecordKind K = NodeType::vis_record_kind;
             CAMSPORK_REQUIRE(!chunk.nodes.empty(), "Empty chunk left behind");
             CAMSPORK_REQUIRE_CMP(read_hash_helper(chunk.nodes.back()), ==, chunk.max_hash, "Wrong chunk.max_hash");
             for (nodepool::id<VisRecordListNode<K>> id : chunk.nodes) {

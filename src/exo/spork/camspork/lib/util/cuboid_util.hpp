@@ -39,7 +39,7 @@ void cuboid_to_intervals(
     CAMSPORK_REQUIRE_CMP(dim, ==, offset_end - offset_begin, "mismatched dimensions");
     CAMSPORK_REQUIRE_CMP(dim, ==, inner_end - inner_begin, "mismatched dimensions");
 
-    auto recurse = [&callback, outer_end, offset_end, inner_end] (
+    auto recurse = [&callback, outer_end] (
             IntT partial_offset,
             OuterIterator outer_iter, OffsetIterator offset_iter, InnerIterator inner_iter,
             auto recurse) -> std::optional<IntT>

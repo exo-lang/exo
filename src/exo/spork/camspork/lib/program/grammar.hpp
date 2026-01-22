@@ -29,6 +29,20 @@
     uint32_t camspork_vla_bytes() const { return 0; } \
     uint32_t camspork_total_bytes() const { return sizeof(*this); }
 
+struct camspork_RawVarname
+{
+    uint32_t slot_1_index;  // slot index + 1
+};
+
+struct camspork_RawNodeRef
+{
+    uint32_t raw_data;
+};
+
+typedef camspork_RawNodeRef camspork_RawExprRef;
+typedef camspork_RawNodeRef camspork_RawStmtRef;
+typedef camspork_RawNodeRef camspork_RawTrailingBarrierExprRef;
+
 namespace camspork
 {
 
@@ -82,7 +96,6 @@ class BinOpTable
 
 extern const BinOpTable binop_table;
 
-
 // ******************************************************************************************
 // Polymorphic node reference.
 // The program object will be delivered as a flat buffer of char (must be 32-bit aligned)
@@ -99,9 +112,29 @@ extern const BinOpTable binop_table;
 template <template<uint32_t> typename NodeType, uint32_t NumTypes>
 struct NodeRef
 {
+    uint32_t raw_data;
+
     static_assert(NumTypes <= 32);
 
-    uint32_t raw_data = 0;
+    NodeRef()
+    {
+        raw_data = 0;
+    }
+
+    explicit NodeRef(uint32_t i)
+    {
+        raw_data = i;
+    }
+
+    NodeRef(camspork_RawNodeRef raw)
+    {
+        raw_data = raw.raw_data;
+    }
+
+    operator camspork_RawNodeRef() const
+    {
+        return camspork_RawNodeRef{raw_data};
+    }
 
     // Bottom 5 bits holds the ID of the node type.
     uint32_t type_id() const
@@ -353,7 +386,22 @@ class NodeNursery
 // Note: definition duplicated as Python ctypes
 struct Varname
 {
-    uint32_t slot_1_index = 0;  // slot index + 1
+    uint32_t slot_1_index;  // slot index + 1
+
+    Varname()
+    {
+        slot_1_index = 0;
+    }
+
+    explicit Varname(uint32_t i)
+    {
+        slot_1_index = i;
+    }
+
+    Varname(camspork_RawVarname raw)
+    {
+        slot_1_index = raw.slot_1_index;
+    }
 
     explicit operator bool() const
     {
@@ -373,6 +421,11 @@ struct Varname
     bool operator!=(Varname other) const
     {
         return slot() != other.slot();
+    }
+
+    operator camspork_RawVarname() const
+    {
+        return camspork_RawVarname{slot_1_index};
     }
 };
 

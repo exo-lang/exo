@@ -4,6 +4,8 @@
 #include "../syncv/tl_sig.hpp"
 #include "../util/require.hpp"
 
+#include <stdio.h>
+
 namespace camspork
 {
 
@@ -382,22 +384,22 @@ const char* camspork_ProgramBuilder_data(camspork::ProgramBuilder* p_builder)
     CAMSPORK_API_EPILOGUE(nullptr)
 }
 
-camspork::Varname camspork_add_variable(camspork::ProgramBuilder* p_builder, const char* p_name)
+camspork_RawVarname camspork_add_variable(camspork::ProgramBuilder* p_builder, const char* p_name)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_variable(p_name);
     CAMSPORK_API_EPILOGUE(camspork::Varname())
 }
 
-camspork::ExprRef camspork_add_ReadValue(camspork::ProgramBuilder* p_builder,
-    camspork::Varname name, uint32_t num_idx, const camspork::ExprRef* idx)
+camspork_RawExprRef camspork_add_ReadValue(camspork::ProgramBuilder* p_builder,
+    camspork_RawVarname name, uint32_t num_idx, const camspork::ExprRef* idx)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_ReadValue(name, num_idx, idx);
     CAMSPORK_API_EPILOGUE(camspork::ExprRef())
 }
 
-camspork::ExprRef camspork_add_Const(camspork::ProgramBuilder* p_builder,
+camspork_RawExprRef camspork_add_Const(camspork::ProgramBuilder* p_builder,
     camspork::value_t value)
 {
     CAMSPORK_API_PROLOGUE
@@ -405,86 +407,92 @@ camspork::ExprRef camspork_add_Const(camspork::ProgramBuilder* p_builder,
     CAMSPORK_API_EPILOGUE(camspork::ExprRef())
 }
 
-camspork::ExprRef camspork_add_USub(camspork::ProgramBuilder* p_builder,
-    camspork::ExprRef arg)
+camspork_RawExprRef camspork_add_USub(camspork::ProgramBuilder* p_builder,
+    camspork_RawExprRef arg)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_USub(arg);
     CAMSPORK_API_EPILOGUE(camspork::ExprRef())
 }
 
-camspork::ExprRef camspork_add_BinOp(camspork::ProgramBuilder* p_builder,
-    camspork::binop op, camspork::ExprRef lhs, camspork::ExprRef rhs)
+camspork_RawExprRef camspork_add_BinOp(camspork::ProgramBuilder* p_builder,
+    camspork::binop op, camspork_RawExprRef lhs, camspork_RawExprRef rhs)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_BinOp(op, lhs, rhs);
     CAMSPORK_API_EPILOGUE(camspork::ExprRef())
 }
 
-camspork::TrailingBarrierExprRef camspork_add_TrailingBarrierExpr(camspork::ProgramBuilder* p_builder,
-    camspork::Varname name, uint32_t num_idx, const camspork::ArriveIdx* idx)
+camspork_RawTrailingBarrierExprRef camspork_add_TrailingBarrierExpr(camspork::ProgramBuilder* p_builder,
+    camspork_RawVarname name, uint32_t num_idx, const camspork::ArriveIdx* idx)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_TrailingBarrierExpr(name, num_idx, idx);
     CAMSPORK_API_EPILOGUE(camspork::TrailingBarrierExprRef())
 }
 
-camspork::StmtRef camspork_add_SyncEnvAccessSingle(camspork::ProgramBuilder* p_builder,
-    camspork::Varname name, uint32_t num_idx, const camspork::ExprRef* idx,
+static camspork::TrailingBarrierExprRef get_trailing_barrier_expr(
+    const camspork::TrailingBarrierExprRef* trailing_barrier_expr)
+{
+    return trailing_barrier_expr ? *trailing_barrier_expr : camspork::TrailingBarrierExprRef();
+}
+
+camspork_RawStmtRef camspork_add_SyncEnvAccessSingle(camspork::ProgramBuilder* p_builder,
+    camspork_RawVarname name, uint32_t num_idx, const camspork::ExprRef* idx,
     camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t extended_qual_bits,
     camspork::qual_bits_t atomic_qual_bits, uint32_t thread_access_granularity,
-    uint32_t access_flags, camspork::TrailingBarrierExprRef trailing_barrier_expr)
+    uint32_t access_flags, const camspork::TrailingBarrierExprRef* trailing_barrier_expr)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_SyncEnvAccess(
             name, num_idx, idx, initial_qual_bit, extended_qual_bits, atomic_qual_bits,
-            thread_access_granularity, access_flags, trailing_barrier_expr);
+            thread_access_granularity, access_flags, get_trailing_barrier_expr(trailing_barrier_expr));
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
-camspork::StmtRef camspork_add_SyncEnvAccessWindow(camspork::ProgramBuilder* p_builder,
-    camspork::Varname name, uint32_t num_idx, const camspork::OffsetExtentExpr* idx,
+camspork_RawStmtRef camspork_add_SyncEnvAccessWindow(camspork::ProgramBuilder* p_builder,
+    camspork_RawVarname name, uint32_t num_idx, const camspork::OffsetExtentExpr* idx,
     camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t extended_qual_bits,
     camspork::qual_bits_t atomic_qual_bits, uint32_t thread_access_granularity,
-    uint32_t access_flags, camspork::TrailingBarrierExprRef trailing_barrier_expr)
+    uint32_t access_flags, const camspork::TrailingBarrierExprRef* trailing_barrier_expr)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_SyncEnvAccess(
             name, num_idx, idx, initial_qual_bit, extended_qual_bits, atomic_qual_bits,
-            thread_access_granularity, access_flags, trailing_barrier_expr);
+            thread_access_granularity, access_flags, get_trailing_barrier_expr(trailing_barrier_expr));
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
-camspork::StmtRef camspork_add_SyncEnvAccessMulticast(camspork::ProgramBuilder* p_builder,
-    camspork::Varname name, uint32_t num_idx, const camspork::ArriveIdx* idx,
+camspork_RawStmtRef camspork_add_SyncEnvAccessMulticast(camspork::ProgramBuilder* p_builder,
+    camspork_RawVarname name, uint32_t num_idx, const camspork::ArriveIdx* idx,
     camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t extended_qual_bits,
     camspork::qual_bits_t atomic_qual_bits, uint32_t thread_access_granularity,
-    uint32_t access_flags, camspork::TrailingBarrierExprRef trailing_barrier_expr)
+    uint32_t access_flags, const camspork::TrailingBarrierExprRef* trailing_barrier_expr)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_SyncEnvAccess(
             name, num_idx, idx, initial_qual_bit, extended_qual_bits, atomic_qual_bits,
-            thread_access_granularity, access_flags, trailing_barrier_expr);
+            thread_access_granularity, access_flags, get_trailing_barrier_expr(trailing_barrier_expr));
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
-camspork::StmtRef camspork_add_SyncEnvFreeShard(camspork::ProgramBuilder* p_builder,
-    camspork::Varname name, uint32_t num_idx, const camspork::ExprRef* idx, camspork::qual_bits_t extended_qual_bits)
+camspork_RawStmtRef camspork_add_SyncEnvFreeShard(camspork::ProgramBuilder* p_builder,
+    camspork_RawVarname name, uint32_t num_idx, const camspork::ExprRef* idx, camspork::qual_bits_t extended_qual_bits)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_SyncEnvFreeShard(name, num_idx, idx, extended_qual_bits);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef());
 }
 
-camspork::StmtRef camspork_add_MutateValue(camspork::ProgramBuilder* p_builder,
-    camspork::Varname name, uint32_t num_idx, const camspork::ExprRef* idx, camspork::binop op, camspork::ExprRef rhs)
+camspork_RawStmtRef camspork_add_MutateValue(camspork::ProgramBuilder* p_builder,
+    camspork_RawVarname name, uint32_t num_idx, const camspork::ExprRef* idx, camspork::binop op, camspork::ExprRef rhs)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_MutateValue(name, num_idx, idx, op, rhs);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
-camspork::StmtRef camspork_add_Fence(camspork::ProgramBuilder* p_builder,
+camspork_RawStmtRef camspork_add_Fence(camspork::ProgramBuilder* p_builder,
     camspork::qual_bits_t L1_qual_bits,
     camspork::qual_bits_t L2_full_qual_bits, camspork::qual_bits_t L2_temporal_qual_bits)
 {
@@ -493,17 +501,17 @@ camspork::StmtRef camspork_add_Fence(camspork::ProgramBuilder* p_builder,
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
-camspork::StmtRef camspork_add_Arrive(camspork::ProgramBuilder* p_builder,
+camspork_RawStmtRef camspork_add_Arrive(camspork::ProgramBuilder* p_builder,
         camspork::qual_bits_t L1_qual_bits,
-        camspork::Varname name, uint32_t num_idx, const camspork::ArriveIdx* idx)
+        camspork_RawVarname name, uint32_t num_idx, const camspork::ArriveIdx* idx)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_Arrive(L1_qual_bits, name, num_idx, idx);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
-camspork::StmtRef camspork_add_Await(camspork::ProgramBuilder* p_builder,
-    camspork::Varname name, uint32_t num_idx, const camspork::ExprRef* idx,
+camspork_RawStmtRef camspork_add_Await(camspork::ProgramBuilder* p_builder,
+    camspork_RawVarname name, uint32_t num_idx, const camspork::ExprRef* idx,
     uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits, int32_t N)
 {
     CAMSPORK_API_PROLOGUE
@@ -511,62 +519,62 @@ camspork::StmtRef camspork_add_Await(camspork::ProgramBuilder* p_builder,
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
-camspork::StmtRef camspork_add_ValueEnvAlloc(camspork::ProgramBuilder* p_builder,
-    camspork::Varname name, uint32_t num_dims, const camspork::ExprRef* extent)
+camspork_RawStmtRef camspork_add_ValueEnvAlloc(camspork::ProgramBuilder* p_builder,
+    camspork_RawVarname name, uint32_t num_dims, const camspork::ExprRef* extent)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_ValueEnvAlloc(name, num_dims, extent);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
-camspork::StmtRef camspork_add_SyncEnvAlloc(camspork::ProgramBuilder* p_builder,
-    camspork::Varname name, uint32_t num_dims, const camspork::ExprRef* extent)
+camspork_RawStmtRef camspork_add_SyncEnvAlloc(camspork::ProgramBuilder* p_builder,
+    camspork_RawVarname name, uint32_t num_dims, const camspork::ExprRef* extent)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_SyncEnvAlloc(name, num_dims, extent);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
-camspork::StmtRef camspork_add_ExpectSyncEnvAlloc(camspork::ProgramBuilder* p_builder,
-    camspork::Varname name, uint32_t num_dims, const camspork::ExprRef* extent)
+camspork_RawStmtRef camspork_add_ExpectSyncEnvAlloc(camspork::ProgramBuilder* p_builder,
+    camspork_RawVarname name, uint32_t num_dims, const camspork::ExprRef* extent)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_ExpectSyncEnvAlloc(name, num_dims, extent);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
-camspork::StmtRef camspork_add_BarrierEnvAlloc(camspork::ProgramBuilder* p_builder,
-    camspork::Varname name, uint32_t num_dims, const camspork::ExprRef* extent)
+camspork_RawStmtRef camspork_add_BarrierEnvAlloc(camspork::ProgramBuilder* p_builder,
+    camspork_RawVarname name, uint32_t num_dims, const camspork::ExprRef* extent)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_BarrierEnvAlloc(name, num_dims, extent);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
-camspork::StmtRef camspork_add_DataFree(camspork::ProgramBuilder* p_builder,
-    camspork::Varname name)
+camspork_RawStmtRef camspork_add_DataFree(camspork::ProgramBuilder* p_builder,
+    camspork_RawVarname name)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_DataFree(name);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
-camspork::StmtRef camspork_add_BarrierFree(camspork::ProgramBuilder* p_builder,
-    camspork::Varname name)
+camspork_RawStmtRef camspork_add_BarrierFree(camspork::ProgramBuilder* p_builder,
+    camspork_RawVarname name)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_BarrierFree(name);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
-camspork::StmtRef camspork_add_JoinThreads(camspork::ProgramBuilder* p_builder)
+camspork_RawStmtRef camspork_add_JoinThreads(camspork::ProgramBuilder* p_builder)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_JoinThreads();
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
-camspork::StmtRef camspork_push_If(camspork::ProgramBuilder* p_builder,
+camspork_RawStmtRef camspork_push_If(camspork::ProgramBuilder* p_builder,
     camspork::ExprRef cond)
 {
     CAMSPORK_API_PROLOGUE
@@ -582,31 +590,31 @@ int camspork_begin_orelse(camspork::ProgramBuilder* p_builder)
     CAMSPORK_API_EPILOGUE(0)
 }
 
-camspork::StmtRef camspork_push_SeqFor(camspork::ProgramBuilder* p_builder,
-    camspork::Varname iter, camspork::ExprRef lo, camspork::ExprRef hi)
+camspork_RawStmtRef camspork_push_SeqFor(camspork::ProgramBuilder* p_builder,
+    camspork_RawVarname iter, camspork::ExprRef lo, camspork::ExprRef hi)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->push_SeqFor(iter, lo, hi);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
-camspork::StmtRef camspork_push_TasksFor(camspork::ProgramBuilder* p_builder,
-    camspork::Varname iter, camspork::ExprRef lo, camspork::ExprRef hi)
+camspork_RawStmtRef camspork_push_TasksFor(camspork::ProgramBuilder* p_builder,
+    camspork_RawVarname iter, camspork::ExprRef lo, camspork::ExprRef hi)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->push_TasksFor(iter, lo, hi);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
-camspork::StmtRef camspork_push_ThreadsFor(camspork::ProgramBuilder* p_builder,
-    camspork::Varname iter, camspork::ExprRef lo, camspork::ExprRef hi, uint32_t dim_idx, uint32_t offset, uint32_t box)
+camspork_RawStmtRef camspork_push_ThreadsFor(camspork::ProgramBuilder* p_builder,
+    camspork_RawVarname iter, camspork::ExprRef lo, camspork::ExprRef hi, uint32_t dim_idx, uint32_t offset, uint32_t box)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->push_ThreadsFor(iter, lo, hi, dim_idx, offset, box);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
-camspork::StmtRef camspork_push_ParallelBlock(camspork::ProgramBuilder* p_builder,
+camspork_RawStmtRef camspork_push_ParallelBlock(camspork::ProgramBuilder* p_builder,
     uint32_t dim, const uint32_t* domain)
 {
     CAMSPORK_API_PROLOGUE
@@ -614,7 +622,7 @@ camspork::StmtRef camspork_push_ParallelBlock(camspork::ProgramBuilder* p_builde
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
-camspork::StmtRef camspork_push_DomainReshape(camspork::ProgramBuilder* p_builder,
+camspork_RawStmtRef camspork_push_DomainReshape(camspork::ProgramBuilder* p_builder,
     uint32_t dim, const uint32_t* domain)
 {
     CAMSPORK_API_PROLOGUE

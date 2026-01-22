@@ -403,24 +403,25 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
             access.barrier_count = uint32_t(tmp_all_barriers.size());
             access.trailing_barriers = tmp_all_barriers.data();
         }
+        using NodeType = std::remove_reference_t<decltype(*node)>;
 
         // Prepare input: window or single assignment record.
         // If multicasting, the input is a list of individual assignment records to update.
-        using Input = std::conditional_t<node->is_window, AssignmentRecordWindow, assignment_record_id*>;
-        using InputList = std::conditional_t<node->is_multicast, std::vector<Input>, std::array<Input, 1>>;
+        using Input = std::conditional_t<NodeType::is_window, AssignmentRecordWindow, assignment_record_id*>;
+        using InputList = std::conditional_t<NodeType::is_multicast, std::vector<Input>, std::array<Input, 1>>;
         InputList input_list;
         VarSlotEntry<assignment_record_id>& slot = env.sync_slot(node->name);
         bool have_input = true;
 
-        if constexpr (node->is_multicast) {
-            static_assert(!node->is_window, "we can only multicast a single position");
+        if constexpr (NodeType::is_multicast) {
+            static_assert(not NodeType::is_window, "we can only multicast a single position");
             auto callback = [&] (auto& callback_slot, auto linear_idx)
             {
                 input_list.push_back(&callback_slot.data()[linear_idx]);
             };
             eval_tmp_offset_multicast(node, slot, callback);
         }
-        else if constexpr (node->is_window) {
+        else if constexpr (NodeType::is_window) {
             const std::vector<extent_t>& alloc_extent = slot.extent();
             const size_t dim = alloc_extent.size();
             eval_tmp_offset(node);
@@ -470,8 +471,8 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
             // Prepare excut debug logger if applicable.
             auto logger = prepare_logger(node, thread_cuboid, stmt_ref);
             if constexpr (AllowLog) {
-                if constexpr (!node->is_window) {
-                    logger.idx_for_single = slot.idx_from_linear(input - slot.data());
+                if constexpr (not NodeType::is_window) {
+                    logger.idx_for_single = slot.idx_from_linear(size_t(input - slot.data()));
                 }
             }
 
@@ -480,7 +481,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
                 if (!filter_single_position_input(node->name, slot, &input)) {
                     // Skip if instructed to by SinglePositionFilter.
                 }
-                else if constexpr (node->is_mutate) {
+                else if constexpr (NodeType::is_mutate) {
                     on_rw(env.p_syncv_table.get(), input, thread_cuboid, access, logger);
                 }
                 else {
@@ -491,7 +492,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
                 // If !is_window, we can't trust linear_index_in_input
                 // as we passed an already-offset pointer to SyncvTable.
                 size_t linear_index;
-                if constexpr (node->is_window) {
+                if constexpr (NodeType::is_window) {
                     linear_index = exc.linear_index_in_input();
                 }
                 else {
@@ -1356,7 +1357,7 @@ CAMSPORK_EXPORT int camspork_get_num_remarks(const camspork::ProgramEnv* p_env)
     return int(p_env->get_remarks().size());
 }
 
-camspork::Varname camspork_syncv_fail_var(const camspork::ProgramEnv* p_env)
+camspork_RawVarname camspork_syncv_fail_var(const camspork::ProgramEnv* p_env)
 {
     // No exception possible, I think.
     return p_env->syncv_fail_var();

@@ -4,6 +4,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include "grammar.hpp"
@@ -138,7 +139,7 @@ class ProgramPrinter
         *this << "b.SyncEnvAccess(" << node->name;
         print_idx(node, true);  // print offset
         *this << ", " << node->initial_qual_bit << ", " << node->extended_qual_bits;
-
+        using NodeType = std::remove_reference_t<decltype(*node)>;
 
         static_assert(access_flag_all_bits == 15, "update me");
         if (node->access_flags == 0) {
@@ -167,14 +168,14 @@ class ProgramPrinter
         if (const qual_bits_t q = node->get_atomic_qual_bits()) {
             *this << ", atomic_qual_bits=" << q;
         }
-        if constexpr (node->is_window) {
+        if constexpr (NodeType::is_window) {
             *this << ", extent=";
             print_idx(node, false);  // print extent
         }
         if (const auto g = node->thread_access_granularity; g != 1) {
             *this << ", thread_access_granularity=" << g;
         }
-        if constexpr (node->is_multicast) {
+        if constexpr (NodeType::is_multicast) {
             *this << ", access_multicasts=(";
             print_multicasts(node);
             *this << ")";
@@ -429,7 +430,7 @@ class ProgramPrinter
     template <typename Node>
     void print_idx(const Node* node, bool print_offset=false)
     {
-        auto get_e = [&] (auto i)
+        auto get_e = [&] (uint32_t i)
         {
             auto e = node_vla_get(node, i);
             if constexpr (std::is_same_v<decltype(e), OffsetExtentExpr>) {

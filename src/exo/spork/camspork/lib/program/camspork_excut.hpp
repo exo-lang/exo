@@ -29,6 +29,10 @@ struct ExcutBaseAction
 
     // Write list of actions in JSON list syntax.
     virtual void write_args(FILE* file) const = 0;
+
+    virtual ~ExcutBaseAction()
+    {
+    }
 };
 
 struct ExcutSyncEnvAccess : ExcutBaseAction

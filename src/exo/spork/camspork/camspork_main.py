@@ -108,9 +108,6 @@ class TrailingBarrierExprRef(Structure):
         return "camspork.TrailingBarrierExprRef(%i)" % self.raw_data
 
 
-null_trailing_barrier_expr = TrailingBarrierExprRef(0)
-
-
 class StmtRef(Structure):
     _fields_ = [("raw_data", c_uint32)]
 
@@ -175,6 +172,7 @@ ptr_StmtRef = POINTER(StmtRef)
 ptr_ExprRef = POINTER(ExprRef)
 ptr_OffsetExtentExpr = POINTER(OffsetExtentExpr)
 ptr_ArriveIdx = POINTER(ArriveIdx)
+ptr_TrailingBarrierExprRef = POINTER(TrailingBarrierExprRef)
 
 try:
     _get_lib_version = lib.camspork_get_lib_version
@@ -246,15 +244,15 @@ _add_TrailingBarrierExpr.argtypes = (c_void_p, Varname, c_uint32, ptr_ArriveIdx)
 
 _add_SyncEnvAccessSingle = lib.camspork_add_SyncEnvAccessSingle
 _add_SyncEnvAccessSingle.restype = StmtRef
-_add_SyncEnvAccessSingle.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, TrailingBarrierExprRef)
+_add_SyncEnvAccessSingle.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, ptr_TrailingBarrierExprRef)
 
 _add_SyncEnvAccessWindow = lib.camspork_add_SyncEnvAccessWindow
 _add_SyncEnvAccessWindow.restype = StmtRef
-_add_SyncEnvAccessWindow.argtypes = (c_void_p, Varname, c_uint32, ptr_OffsetExtentExpr, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, TrailingBarrierExprRef)
+_add_SyncEnvAccessWindow.argtypes = (c_void_p, Varname, c_uint32, ptr_OffsetExtentExpr, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, ptr_TrailingBarrierExprRef)
 
 _add_SyncEnvAccessMulticast = lib.camspork_add_SyncEnvAccessMulticast
 _add_SyncEnvAccessMulticast.restype = StmtRef
-_add_SyncEnvAccessMulticast.argtypes = (c_void_p, Varname, c_uint32, ptr_ArriveIdx, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, TrailingBarrierExprRef)
+_add_SyncEnvAccessMulticast.argtypes = (c_void_p, Varname, c_uint32, ptr_ArriveIdx, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, ptr_TrailingBarrierExprRef)
 
 _add_SyncEnvFreeShard = lib.camspork_add_SyncEnvFreeShard
 _add_SyncEnvFreeShard.restype = StmtRef
@@ -693,13 +691,15 @@ class ProgramBuilder:
             barrier_name, barrier_dim, barrier_idx = self._unpack_multicast(
                 barrier, barrier_multicasts
             )
-            trailing_barrier_expr = check_return(
-                _add_TrailingBarrierExpr(
-                    self._builder, barrier_name, barrier_dim, barrier_idx
+            trailing_barrier_expr = byref(
+                check_return(
+                    _add_TrailingBarrierExpr(
+                        self._builder, barrier_name, barrier_dim, barrier_idx
+                    )
                 )
             )
         else:
-            trailing_barrier_expr = null_trailing_barrier_expr
+            trailing_barrier_expr = None
         if access_multicasts:
             assert not extent, "Can't have extent and multicasts (without barrier)"
             c_func = _add_SyncEnvAccessMulticast
