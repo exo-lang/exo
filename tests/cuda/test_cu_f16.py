@@ -62,7 +62,7 @@ bf16_table = (
 )
 
 
-def mkproc_naive_gemm(typA, typB, typC):
+def mkproc_naive_gemm(typA, typB, typC, sync_check=False):
     @proc
     def p(
         M: size,
@@ -100,15 +100,25 @@ def mkproc_naive_gemm(typA, typB, typC):
                             r_C[m, n] = 0
 
                     for ks in seq(0, K / 32):
-                        for ms in seq(0, 32):
-                            for mt in cuda_threads(0, 4, unit=32 * cuda_thread):
-                                for k in cuda_threads(0, 32):
-                                    s_A[ms * 4 + mt, k] = d_A[
-                                        m_cta * 128 + ms * 4 + mt, ks * 32 + k
-                                    ]
-                                    s_B[ms * 4 + mt, k] = d_B[
-                                        n_cta * 128 + ms * 4 + mt, ks * 32 + k
-                                    ]
+                        # May as well gently test WindowStmt while we're at it.
+                        d_A_tile = d_A[m_cta * 128 :, ks * 32 :]
+                        d_B_tile = d_B[n_cta * 128 :, ks * 32 :]
+                        for ms in seq(0, 16):
+                            for mt in cuda_threads(0, 8, unit=16 * cuda_thread):
+                                for kt in cuda_threads(0, 16):
+                                    # fmt: off
+                                    # We will replace these statements with packed 32-bit
+                                    # loads GMEM -> RMEM and stores RMEM -> GMEM.
+                                    tmp_A: f16[2] @ CudaRmemPacked32
+                                    tmp_B: f16[2] @ CudaRmemPacked32
+                                    for kB_ld_A in seq(0, 2):
+                                        tmp_A[kB_ld_A] = d_A_tile[ms * 8 + mt, kt * 2 + kB_ld_A]
+                                    for kB_ld_B in seq(0, 2):
+                                        tmp_B[kB_ld_B] = d_B_tile[ms * 8 + mt, kt * 2 + kB_ld_B]
+                                    for kB_st_A in seq(0, 2):
+                                        s_A[ms * 8 + mt, kt * 2 + kB_st_A] = tmp_A[kB_st_A]
+                                    for kB_st_B in seq(0, 2):
+                                        s_B[ms * 8 + mt, kt * 2 + kB_st_B] = tmp_B[kB_st_B]
                         Fence(cuda_in_order, cuda_in_order)
 
                         for m in cuda_threads(0, 128):
@@ -130,25 +140,42 @@ def mkproc_naive_gemm(typA, typB, typC):
     p = set_precision(p, "h_A", typA)
     p = set_precision(p, "d_A", typA)
     p = set_precision(p, "s_A", typA)
+    p = set_precision(p, "tmp_A", typA)
     p = set_precision(p, "h_B", typB)
     p = set_precision(p, "d_B", typB)
     p = set_precision(p, "s_B", typB)
+    p = set_precision(p, "tmp_B", typB)
     p = set_precision(p, "d_C", typC)
     p = set_precision(p, "h_C", typC)  # Leave r_C as f32
 
     if typA == "f16":
         memcpyA = cudaMemcpyAsync_htod_2f16()
+        ldA = cuda_packed_load_f16()
+        stA = cuda_packed_store_f16()
     else:
         memcpyA = cudaMemcpyAsync_htod_2bf16()
+        ldA = cuda_packed_load_bf16()
+        stA = cuda_packed_store_bf16()
     if typB == "f16":
         memcpyB = cudaMemcpyAsync_htod_2f16()
+        ldB = cuda_packed_load_f16()
+        stB = cuda_packed_store_f16()
     else:
         memcpyB = cudaMemcpyAsync_htod_2bf16()
+        ldB = cuda_packed_load_bf16()
+        stB = cuda_packed_store_bf16()
     p = replace(p, p.find_loop("memcpy_m"), memcpyA)
     p = replace(p, p.find_loop("memcpy_n"), memcpyB)
+    p = replace(p, p.find_loop("kB_ld_A"), ldA)
+    p = replace(p, p.find_loop("kB_ld_B"), ldB)
+    p = replace(p, p.find_loop("kB_st_A"), stA)
+    p = replace(p, p.find_loop("kB_st_B"), stB)
 
     p = rename(p, f"f16_naive_gemm_{typA}_{typB}_{typC}")
-    p.sync_check(M=256, N=128, K=64)
+    p = simplify(p)
+
+    if sync_check:
+        p.sync_check(M=256, N=128, K=64)
 
     return p
 
@@ -196,6 +223,17 @@ def test_golden_naive_f16_gemm(compiler, golden):
     )
 
 
+def test_golden_naive_f16_bf16_gemm(compiler, golden):
+    compiler.cuda_cpu_test(
+        mkproc_naive_gemm,
+        golden=golden,
+        typA="f16",
+        typB="bf16",
+        typC="f32",
+        sync_check=True,
+    )
+
+
 def test_golden_naive_bf16_gemm(compiler, golden):
     compiler.cuda_cpu_test(
         mkproc_naive_gemm, golden=golden, typA="bf16", typB="bf16", typC="f32"
@@ -204,6 +242,10 @@ def test_golden_naive_bf16_gemm(compiler, golden):
 
 def test_run_naive_f16_gemm(compiler_Sm80):
     naive_gemm_test_impl(compiler_Sm80, "f16", "f16", "f32")
+
+
+def test_run_naive_f16_bf16_gemm(compiler_Sm80):
+    naive_gemm_test_impl(compiler_Sm80, "f16", "bf16", "f32")
 
 
 def test_run_naive_bf16_gemm(compiler_Sm80):

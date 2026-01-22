@@ -101,6 +101,7 @@ extern "C" {
 
 #endif
 /* Required by CudaGmemLinear */
+/* Required by CudaRmemPacked32 */
 /* Required by CudaSmemLinear */
 /* Required by DRAM */
 /* Required by Sm90_SmemSwizzled(128,) */
@@ -169,6 +170,8 @@ void exo_cudaLaunch0_f16_naive_gemm_f16_f16_f32(cudaStream_t exo_cudaStream, con
 // ########################################################################
 #include "test_golden_naive_f16_gemm.h"
 
+/* Required by CudaRmemPacked32 */
+#include "string.h"
 /* Required by CudaGmemLinear */
 #ifndef EXO_MEMORY_GLOBAL_CudaGmemLinear
 #define EXO_MEMORY_GLOBAL_CudaGmemLinear
@@ -266,6 +269,54 @@ struct exo_win_1f32 {
     const int_fast32_t strides[1];
 };
 #endif
+/* Required by CudaRmemPacked32 */
+#ifndef EXO_MEMORY_GLOBAL_exo_CudaRmemPacked32
+#define EXO_MEMORY_GLOBAL_exo_CudaRmemPacked32
+
+#ifdef __CUDACC__
+
+template <typename PtxType, typename Scalar, typename PackedStruct>
+struct exo_CudaRmemPacked32
+{
+    static_assert(sizeof(PtxType) == sizeof(PackedStruct));
+    PtxType ptx_data;
+
+    template <typename Index>
+    __device__ auto operator[] (Index i) const -> Scalar
+    {
+        if constexpr (sizeof(Scalar) == 4)
+            return ptx_data;
+        else if (i == 0)
+            return reinterpret_cast<const PackedStruct*>(&ptx_data)->x;
+        else
+            return reinterpret_cast<const PackedStruct*>(&ptx_data)->y;
+    }
+};
+
+using exo_CudaRmemPacked32_f32 = exo_CudaRmemPacked32<float, float, float>;
+using exo_CudaRmemPacked32_i32 = exo_CudaRmemPacked32<int32_t, int32_t, int32_t>;
+using exo_CudaRmemPacked32_f16 = exo_CudaRmemPacked32<int32_t, __half, __half2>;
+using exo_CudaRmemPacked32_bf16 = exo_CudaRmemPacked32<int32_t, __nv_bfloat16, __nv_bfloat162>;
+
+#endif
+
+#endif
+/* Required by CudaBasicDeviceVisible */
+#ifndef EXO_WIN_1F16C
+#define EXO_WIN_1F16C
+struct exo_win_1f16c {
+    const exo_f16 * const data;
+    const int_fast32_t strides[1];
+};
+#endif
+/* Required by CudaBasicDeviceVisible */
+#ifndef EXO_WIN_1F16
+#define EXO_WIN_1F16
+struct exo_win_1f16 {
+    exo_f16 * const data;
+    const int_fast32_t strides[1];
+};
+#endif
 /* Required by CudaGmemLinear */
 #ifndef EXO_WIN_2F32C
 #define EXO_WIN_2F32C
@@ -296,6 +347,16 @@ cudaMemcpyAsync(&{dst_data}, &{src_data}, 4 * {M} * {N}, cudaMemcpyDeviceToHost,
 cudaMemcpyAsync_htod_2f16(M,N,dst,src)
 cudaMemcpyAsync(&{dst_data}, &{src_data}, 2 * {M} * {N}, cudaMemcpyHostToDevice, exo_cudaStream);
 */
+
+/* relying on the following instruction..."
+cuda_packed_load_f16(dst,src)
+
+*/
+
+/* relying on the following instruction..."
+cuda_packed_store_f16(dst,src)
+
+*/
 // f16_naive_gemm_f16_f16_f32(
 //     M : size,
 //     N : size,
@@ -311,8 +372,8 @@ void f16_naive_gemm_f16_f16_f32( void *ctxt, int_fast32_t M, int_fast32_t N, int
   exo_f16 *d_A = (exo_f16*) exo_cudaMallocAsync(M * K * sizeof(*d_A), exo_cudaStream);
   exo_f16 *d_B = (exo_f16*) exo_cudaMallocAsync(N * K * sizeof(*d_B), exo_cudaStream);
   float *d_C = (float*) exo_cudaMallocAsync(N * M * sizeof(*d_C), exo_cudaStream);
-  cudaMemcpyAsync(&d_A[0], &h_A[0], 2 * (M + 0) * (K + 0), cudaMemcpyHostToDevice, exo_cudaStream);
-  cudaMemcpyAsync(&d_B[0], &h_B[0], 2 * (N + 0) * (K + 0), cudaMemcpyHostToDevice, exo_cudaStream);
+  cudaMemcpyAsync(&d_A[0], &h_A[0], 2 * M * K, cudaMemcpyHostToDevice, exo_cudaStream);
+  cudaMemcpyAsync(&d_B[0], &h_B[0], 2 * N * K, cudaMemcpyHostToDevice, exo_cudaStream);
   {
     struct exo_CudaDeviceArgs0_f16_naive_gemm_f16_f16_f32 exo_deviceArgs = {
       M, N, K, d_A, d_B, d_C, exo_excut_get_device_log()
@@ -335,6 +396,8 @@ void f16_naive_gemm_f16_f16_f32( void *ctxt, int_fast32_t M, int_fast32_t N, int
 #if EXO_EXCUT_bENABLE_LOG
 #include "test_golden_naive_f16_gemm.excut_str_table"
 #endif
+/* Required by CudaRmemPacked32 */
+#include "string.h"
 /* Required by CudaGmemLinear */
 #ifndef EXO_MEMORY_GLOBAL_CudaGmemLinear
 #define EXO_MEMORY_GLOBAL_CudaGmemLinear
@@ -429,6 +492,54 @@ struct exo_Sm90_SW128 {
 #define EXO_WIN_1F32
 struct exo_win_1f32 {
     float * const data;
+    const int_fast32_t strides[1];
+};
+#endif
+/* Required by CudaRmemPacked32 */
+#ifndef EXO_MEMORY_GLOBAL_exo_CudaRmemPacked32
+#define EXO_MEMORY_GLOBAL_exo_CudaRmemPacked32
+
+#ifdef __CUDACC__
+
+template <typename PtxType, typename Scalar, typename PackedStruct>
+struct exo_CudaRmemPacked32
+{
+    static_assert(sizeof(PtxType) == sizeof(PackedStruct));
+    PtxType ptx_data;
+
+    template <typename Index>
+    __device__ auto operator[] (Index i) const -> Scalar
+    {
+        if constexpr (sizeof(Scalar) == 4)
+            return ptx_data;
+        else if (i == 0)
+            return reinterpret_cast<const PackedStruct*>(&ptx_data)->x;
+        else
+            return reinterpret_cast<const PackedStruct*>(&ptx_data)->y;
+    }
+};
+
+using exo_CudaRmemPacked32_f32 = exo_CudaRmemPacked32<float, float, float>;
+using exo_CudaRmemPacked32_i32 = exo_CudaRmemPacked32<int32_t, int32_t, int32_t>;
+using exo_CudaRmemPacked32_f16 = exo_CudaRmemPacked32<int32_t, __half, __half2>;
+using exo_CudaRmemPacked32_bf16 = exo_CudaRmemPacked32<int32_t, __nv_bfloat16, __nv_bfloat162>;
+
+#endif
+
+#endif
+/* Required by CudaBasicDeviceVisible */
+#ifndef EXO_WIN_1F16C
+#define EXO_WIN_1F16C
+struct exo_win_1f16c {
+    const exo_f16 * const data;
+    const int_fast32_t strides[1];
+};
+#endif
+/* Required by CudaBasicDeviceVisible */
+#ifndef EXO_WIN_1F16
+#define EXO_WIN_1F16
+struct exo_win_1f16 {
+    exo_f16 * const data;
     const int_fast32_t strides[1];
 };
 #endif
@@ -603,13 +714,19 @@ exo_CudaInline_test_golden_naive_f16_gemm::exo_Cuda0_f16_naive_gemm_f16_f16_f32:
     }
   }
   for (int ks = 0; ks < ((exo_deviceArgs.K) / (32)); ks++) {
-    for (int ms = 0; ms < 32; ms++) {
-      // cuda_threads(0, 4, unit=32 * cuda_thread)
-      if ([[maybe_unused]] int exo_32thr_mt = (threadIdx.x / 32); 1) {
-        // cuda_threads(0, 32, unit=cuda_thread)
-        if ([[maybe_unused]] int exo_1thr_k = (threadIdx.x % 32); 1) {
-          s_A[(ms * 4 + exo_32thr_mt) * 32 + exo_1thr_k].swizzle_get() = exo_deviceArgs.d_A[(exo_task.m_cta * 128 + ms * 4 + exo_32thr_mt) * (exo_deviceArgs.K) + ks * 32 + exo_1thr_k];
-          s_B[(ms * 4 + exo_32thr_mt) * (32) + exo_1thr_k] = exo_deviceArgs.d_B[(exo_task.n_cta * 128 + ms * 4 + exo_32thr_mt) * (exo_deviceArgs.K) + ks * 32 + exo_1thr_k];
+    struct exo_win_2f16 d_A_tile = (struct exo_win_2f16) { &exo_deviceArgs.d_A[(128 * exo_task.m_cta) * (exo_deviceArgs.K) + 32 * ks], {exo_deviceArgs.K, 1} };
+    struct exo_win_2f16 d_B_tile = (struct exo_win_2f16) { &exo_deviceArgs.d_B[(128 * exo_task.n_cta) * (exo_deviceArgs.K) + 32 * ks], {exo_deviceArgs.K, 1} };
+    for (int ms = 0; ms < 16; ms++) {
+      // cuda_threads(0, 8, unit=16 * cuda_thread)
+      if ([[maybe_unused]] int exo_16thr_mt = (threadIdx.x / 16); 1) {
+        // cuda_threads(0, 16, unit=cuda_thread)
+        if ([[maybe_unused]] int exo_1thr_kt = (threadIdx.x % 16); 1) {
+          exo_CudaRmemPacked32_f16 tmp_A;
+          exo_CudaRmemPacked32_f16 tmp_B;
+          memcpy((&tmp_A.ptx_data), (&d_A_tile.data[(exo_16thr_mt + 8 * ms) * (d_A_tile.strides[0]) + (2 * exo_1thr_kt) * (d_A_tile.strides[1])]), 4);
+          memcpy((&tmp_B.ptx_data), (&d_B_tile.data[(exo_16thr_mt + 8 * ms) * (d_B_tile.strides[0]) + (2 * exo_1thr_kt) * (d_B_tile.strides[1])]), 4);
+          memcpy((&s_A[(exo_16thr_mt + 8 * ms) * 32 + 2 * exo_1thr_kt].swizzle_get()), (&tmp_A.ptx_data), 4);
+          memcpy((&s_B[(exo_16thr_mt + 8 * ms) * (32) + 2 * exo_1thr_kt]), (&tmp_B.ptx_data), 4);
         }
       }
     }
@@ -641,7 +758,7 @@ exo_CudaInline_test_golden_naive_f16_gemm::exo_Cuda0_f16_naive_gemm_f16_f16_f32:
   // cuda_threads(0, 128, unit=cuda_thread)
   if ([[maybe_unused]] int exo_1thr_m = threadIdx.x; 1) {
     for (int n = 0; n < 128; n++) {
-      exo_deviceArgs.d_C[(exo_task.n_cta * 128 + n) * (exo_deviceArgs.M) + exo_task.m_cta * 128 + exo_1thr_m] = r_C[n];
+      exo_deviceArgs.d_C[(n + 128 * exo_task.n_cta) * (exo_deviceArgs.M) + exo_1thr_m + 128 * exo_task.m_cta] = r_C[n];
     }
   }
 }
