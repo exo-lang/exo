@@ -1028,6 +1028,13 @@ class Compiler:
                     isinstance(e.lhs, CIR.Const) and e.lhs.val > 0
                 ):
                     return f"({lhs} / {rhs})"
+                # David Zhao Akeley 2026-01-23: Manually converting divisior by power-of-2
+                # to right shift seems to be the only cross-platform reliable way of
+                # getting optimal floor-divide semantics from the underlying C compiler.
+                elif None is not (shift := e.rhs.const_pow2_shift()):
+                    # Extra parens added around {lhs} since local_prec is wrong for >>
+                    assert isinstance(shift, int), repr(shift)
+                    return f"(({lhs}) >> {shift})"
                 else:
                     return self._call_static_helper("exo_floor_div", lhs, rhs)
 
