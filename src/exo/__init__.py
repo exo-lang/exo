@@ -6,6 +6,8 @@ from .API import (
     compile_procs_to_strings,
     proc,
     instr,
+    InstrArgs,
+    InstrInfo,
     config,
     ExoType,
 )
@@ -35,6 +37,8 @@ __all__ = [
     "compile_procs_to_strings",
     "proc",
     "instr",
+    "InstrArgs",
+    "InstrInfo",
     "config",
     "Config",
     "MemWin",

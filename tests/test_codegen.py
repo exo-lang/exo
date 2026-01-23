@@ -7,7 +7,7 @@ import pytest
 from PIL import Image
 from random import Random
 
-from exo import proc, instr, Procedure, DRAM, compile_procs_to_strings
+from exo import proc, instr, Procedure, DRAM, compile_procs_to_strings, InstrInfo
 from exo.libs.memories import MDRAM, MemGenError, StaticMemory, DRAM_STACK
 from exo.libs.externs import *
 from exo.stdlib.scheduling import *
@@ -31,6 +31,62 @@ class MOCK(DRAM):
         global mock_registers
         mock_registers -= 1
         return ""
+
+
+# Tests for handling non-associativity of minus.
+
+
+@instr
+class NonAssocMinus(InstrInfo):
+    def behavior(x: f32 @ DRAM, y: f32 @ DRAM, z: f32 @ DRAM, c: f32 @ DRAM):
+        c = x - (y - z)
+
+    def instance(self):
+        pass
+
+    def codegen(self, args: InstrArgs):
+        cir_x = args.exo_wrap_cir(args.x.index())
+        cir_y = args.exo_wrap_cir(args.y.index())
+        cir_z = args.exo_wrap_cir(args.z.index())
+        cir_c = args.exo_wrap_cir(args.c.index())
+        return [str(cir_c) + " = " + str(cir_x - (cir_y - cir_z)) + ";"]
+
+
+def test_non_assoc_minus_instr_golden(compiler, golden):
+    @proc
+    def non_assoc_foo(x: f32 @ DRAM, y: f32 @ DRAM, z: f32 @ DRAM, c: f32 @ DRAM):
+        NonAssocMinus(x, y, z, c)
+
+    cc, hh = compile_procs_to_strings([non_assoc_foo], "non_assoc_foo.h")
+    assert f"{hh}{cc}" == golden
+
+
+def test_non_assoc_minus_instr_run(compiler):
+    @proc
+    def non_assoc_foo(x: f32 @ DRAM, y: f32 @ DRAM, z: f32 @ DRAM, c: f32 @ DRAM):
+        NonAssocMinus(x, y, z, c)
+
+    lib = compiler.compile(non_assoc_foo)
+    x = np.array([9], dtype=np.float32)
+    y = np.array([1], dtype=np.float32)
+    z = np.array([4], dtype=np.float32)
+    c = np.array([0], dtype=np.float32)
+    lib(None, x, y, z, c)
+    assert c[0] == x[0] - (y[0] - z[0])
+
+
+def test_non_assoc_minus_expr_run(compiler):
+    @proc
+    def non_assoc_bar(x: f32 @ DRAM, y: f32 @ DRAM, z: f32 @ DRAM, c: f32 @ DRAM):
+        c = x - (y - z)
+
+    lib = compiler.compile(non_assoc_bar)
+    x = np.array([9], dtype=np.float32)
+    y = np.array([1], dtype=np.float32)
+    z = np.array([4], dtype=np.float32)
+    c = np.array([0], dtype=np.float32)
+    lib(None, x, y, z, c)
+    assert c[0] == x[0] - (y[0] - z[0])
 
 
 # Testing to make sure free is inserted correctly

@@ -36,6 +36,18 @@ def exo_get_cir(self):
     return self
 
 
+@extclass(CIR.expr)
+def const_pow2_shift(self) -> Optional[int]:
+    """If the expr is a constant power of 2, return log2(expr), else return None"""
+    if isinstance(self, CIR.Const):
+        divisor = self.val
+        if isinstance(divisor, int):
+            if divisor > 0:
+                if ((divisor - 1) & divisor) == 0:
+                    return divisor.bit_length() - 1
+    return None
+
+
 def cast_to_cir(n):
     if isinstance(n, int):
         return CIR.Const(n)
