@@ -1027,14 +1027,16 @@ class Compiler:
             # to right shift seems to be the only cross-platform reliable way of
             # getting optimal floor-divide semantics from the underlying C compiler.
             if op == "/" and None is not (shift := e.rhs.const_pow2_shift()):
+                # op_prec["."] forces parenthesization of operands to & and >>
+                # we need this due to compiler warnings about x + y >> z or such.
                 op = ">>"
                 local_prec = op_prec[op]
-                lhs = self.comp_cir(e.lhs, local_prec)
+                lhs = self.comp_cir(e.lhs, op_prec["."])
                 rhs = str(shift)
             elif op == "%" and None is not (shift := e.rhs.const_pow2_shift()):
                 op = "&"
                 local_prec = op_prec[op]
-                lhs = self.comp_cir(e.lhs, local_prec)
+                lhs = self.comp_cir(e.lhs, op_prec["."])
                 rhs = str((1 << shift) - 1)  # e.g. x % 8 -> x & 7
             else:
                 # local_prec + 1 parenthesizes the rhs if its op is the same
