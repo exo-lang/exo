@@ -703,7 +703,7 @@ exo_CudaInline_test_grid_constants_windows_golden::exo_Cuda1_weird_windows::exo_
   namespace exo_CudaUtil = exo_CudaUtil_test_grid_constants_windows_golden;
   // cuda_threads(0, 1, unit=cuda_thread)
   if (int exo_0thr_tid = threadIdx.x; exo_0thr_tid < 1) {
-    exo_deviceArgs.col_window.data[(exo_task.task) * (exo_deviceArgs.col_window.strides[0])] = exo_deviceArgs.input_window.data[(exo_task.task % 4) * (exo_deviceArgs.input_window.strides[0])] * exo_deviceArgs.const_vector[exo_deviceArgs.col % 4] + exo_deviceArgs.test_vector_gmem[exo_task.task % 4];
+    exo_deviceArgs.col_window.data[(exo_task.task) * (exo_deviceArgs.col_window.strides[0])] = exo_deviceArgs.input_window.data[(exo_task.task & 3) * (exo_deviceArgs.input_window.strides[0])] * exo_deviceArgs.const_vector[exo_deviceArgs.col & 3] + exo_deviceArgs.test_vector_gmem[exo_task.task & 3];
   }
 }
 __device__ __forceinline__ void

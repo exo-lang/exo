@@ -52,7 +52,7 @@ class NonAssocMinus(InstrInfo):
         return [str(cir_c) + " = " + str(cir_x - (cir_y - cir_z)) + ";"]
 
 
-def test_non_assoc_minus_instr_golden(compiler, golden):
+def test_non_assoc_minus_instr_golden(golden):
     @proc
     def non_assoc_foo(x: f32 @ DRAM, y: f32 @ DRAM, z: f32 @ DRAM, c: f32 @ DRAM):
         NonAssocMinus(x, y, z, c)
@@ -87,6 +87,52 @@ def test_non_assoc_minus_expr_run(compiler):
     c = np.array([0], dtype=np.float32)
     lib(None, x, y, z, c)
     assert c[0] == x[0] - (y[0] - z[0])
+
+
+def mkproc_mul_mod_parens(divisor):
+    @proc
+    def mul_mod_parens_proc(x: f32[1000], cw: index):
+        assert cw >= 0
+        assert cw < 10
+        x[64 * (cw % divisor)] = 1
+        x[64 * (cw / divisor) + 12] = 2
+
+    return mul_mod_parens_proc
+
+
+def run_mul_mod_parens_test(compiler, divisor):
+    p = mkproc_mul_mod_parens(divisor)
+    lib = compiler.compile([p])
+    x = np.zeros([1000], dtype=np.float32)
+    cw = 6
+    lib(None, x, cw)
+    assert x[64 * cw % divisor] == 0  # Should have been left as 0
+    assert x[64 * (cw % divisor)] == 1
+    assert x[64 * cw // divisor + 12] == 0
+    assert x[64 * (cw // divisor) + 12] == 2
+
+
+# Regression test from Jason Ng's bug
+def test_mul_mod_4_parens_golden(golden):
+    p = mkproc_mul_mod_parens(4)
+    cc, hh = compile_procs_to_strings([p], "non_assoc_foo.h")
+    assert f"{hh}{cc}" == golden
+
+
+def test_mul_mod_5_parens_golden(golden):
+    p = mkproc_mul_mod_parens(5)
+    cc, hh = compile_procs_to_strings([p], "non_assoc_foo.h")
+    assert f"{hh}{cc}" == golden
+    assert "64 * (cw % 5)" in golden
+    assert "64 * cw % 5" not in golden
+
+
+def test_mul_mod_4_parens_run(compiler):
+    run_mul_mod_parens_test(compiler, 4)
+
+
+def test_mul_mod_5_parens_run(compiler):
+    run_mul_mod_parens_test(compiler, 5)
 
 
 # Testing to make sure free is inserted correctly
