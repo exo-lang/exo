@@ -164,13 +164,13 @@ void exo_unsharp( void *ctxt, int_fast32_t W, int_fast32_t H, float* output, con
     }
     for (int_fast32_t yi = 0; yi < 32; yi++) {
       for (int_fast32_t x = 0; x < 6 + W; x++) {
-        gray[((6 + yi) % 8) * (6 + W) + x] = r_to_gray[0] * input[(6 + yi + 32 * y) * (W + 6) + x] + g_to_gray[0] * input[(H + 6) * (W + 6) + (6 + yi + 32 * y) * (W + 6) + x] + b_to_gray[0] * input[(2) * ((H + 6) * (W + 6)) + (6 + yi + 32 * y) * (W + 6) + x];
+        gray[(6 + yi & 7) * (6 + W) + x] = r_to_gray[0] * input[(6 + yi + 32 * y) * (W + 6) + x] + g_to_gray[0] * input[(H + 6) * (W + 6) + (6 + yi + 32 * y) * (W + 6) + x] + b_to_gray[0] * input[(2) * ((H + 6) * (W + 6)) + (6 + yi + 32 * y) * (W + 6) + x];
       }
       for (int_fast32_t x = 0; x < 6 + W; x++) {
-        blur_y[x] = k0[0] * gray[((3 + yi) % 8) * (6 + W) + x] + k1[0] * (gray[((2 + yi) % 8) * (6 + W) + x] + gray[((4 + yi) % 8) * (6 + W) + x]) + k2[0] * (gray[((1 + yi) % 8) * (6 + W) + x] + gray[((5 + yi) % 8) * (6 + W) + x]) + k3[0] * (gray[(yi % 8) * (6 + W) + x] + gray[((6 + yi) % 8) * (6 + W) + x]);
+        blur_y[x] = k0[0] * gray[(3 + yi & 7) * (6 + W) + x] + k1[0] * (gray[(2 + yi & 7) * (6 + W) + x] + gray[(4 + yi & 7) * (6 + W) + x]) + k2[0] * (gray[(1 + yi & 7) * (6 + W) + x] + gray[(5 + yi & 7) * (6 + W) + x]) + k3[0] * (gray[(yi & 7) * (6 + W) + x] + gray[(6 + yi & 7) * (6 + W) + x]);
       }
       for (int_fast32_t x = 0; x < W; x++) {
-        ratio[x] = (two[0] * gray[((3 + yi) % 8) * (6 + W) + 3 + x] - (k0[0] * blur_y[3 + x] + k1[0] * (blur_y[2 + x] + blur_y[4 + x]) + k2[0] * (blur_y[1 + x] + blur_y[5 + x]) + k3[0] * (blur_y[x] + blur_y[6 + x]))) / gray[((3 + yi) % 8) * (6 + W) + 3 + x];
+        ratio[x] = (two[0] * gray[(3 + yi & 7) * (6 + W) + 3 + x] - (k0[0] * blur_y[3 + x] + k1[0] * (blur_y[2 + x] + blur_y[4 + x]) + k2[0] * (blur_y[1 + x] + blur_y[5 + x]) + k3[0] * (blur_y[x] + blur_y[6 + x]))) / gray[(3 + yi & 7) * (6 + W) + 3 + x];
       }
       for (int_fast32_t c = 0; c < 3; c++) {
         for (int_fast32_t x = 0; x < W; x++) {
@@ -409,7 +409,7 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
         var21 = _mm256_loadu_ps(&input[(2) * ((H + 6) * (W + 6)) + (6 + yi + 32 * y) * (W + 6) + 8 * xo]);
         var19 = _mm256_mul_ps(var20, var21);
         var11 = _mm256_add_ps(var12, var19);
-        _mm256_storeu_ps(&gray[((6 + yi) % 8) * (6 + W) + 8 * xo], var11);
+        _mm256_storeu_ps(&gray[(6 + yi & 7) * (6 + W) + 8 * xo], var11);
       }
       for (int_fast32_t xo = ((13 + W) / (8)) - 1; xo < ((13 + W) / (8)); xo++) {
         __m256 var11;
@@ -501,7 +501,7 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
         __m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
         __m256i prefix = _mm256_set1_epi32((6 - 8 * xo + W));
         __m256i cmp = _mm256_cmpgt_epi32(prefix, indices);
-        _mm256_maskstore_ps(&gray[((6 + yi) % 8) * (6 + W) + 8 * xo], cmp, var11);
+        _mm256_maskstore_ps(&gray[(6 + yi & 7) * (6 + W) + 8 * xo], cmp, var11);
         }
       }
       for (int_fast32_t xo = 0; xo < ((13 + W) / (8)) - 1; xo++) {
@@ -527,23 +527,23 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
         __m256 var41;
         __m256 var42;
         var26 = _mm256_broadcast_ss(&k0[0]);
-        var27 = _mm256_loadu_ps(&gray[((3 + yi) % 8) * (6 + W) + 8 * xo]);
+        var27 = _mm256_loadu_ps(&gray[(3 + yi & 7) * (6 + W) + 8 * xo]);
         var25 = _mm256_mul_ps(var26, var27);
         var29 = _mm256_broadcast_ss(&k1[0]);
-        var31 = _mm256_loadu_ps(&gray[((2 + yi) % 8) * (6 + W) + 8 * xo]);
-        var32 = _mm256_loadu_ps(&gray[((4 + yi) % 8) * (6 + W) + 8 * xo]);
+        var31 = _mm256_loadu_ps(&gray[(2 + yi & 7) * (6 + W) + 8 * xo]);
+        var32 = _mm256_loadu_ps(&gray[(4 + yi & 7) * (6 + W) + 8 * xo]);
         var30 = _mm256_add_ps(var31, var32);
         var28 = _mm256_mul_ps(var29, var30);
         var24 = _mm256_add_ps(var25, var28);
         var34 = _mm256_broadcast_ss(&k2[0]);
-        var36 = _mm256_loadu_ps(&gray[((1 + yi) % 8) * (6 + W) + 8 * xo]);
-        var37 = _mm256_loadu_ps(&gray[((5 + yi) % 8) * (6 + W) + 8 * xo]);
+        var36 = _mm256_loadu_ps(&gray[(1 + yi & 7) * (6 + W) + 8 * xo]);
+        var37 = _mm256_loadu_ps(&gray[(5 + yi & 7) * (6 + W) + 8 * xo]);
         var35 = _mm256_add_ps(var36, var37);
         var33 = _mm256_mul_ps(var34, var35);
         var23 = _mm256_add_ps(var24, var33);
         var39 = _mm256_broadcast_ss(&k3[0]);
-        var41 = _mm256_loadu_ps(&gray[(yi % 8) * (6 + W) + 8 * xo]);
-        var42 = _mm256_loadu_ps(&gray[((6 + yi) % 8) * (6 + W) + 8 * xo]);
+        var41 = _mm256_loadu_ps(&gray[(yi & 7) * (6 + W) + 8 * xo]);
+        var42 = _mm256_loadu_ps(&gray[(6 + yi & 7) * (6 + W) + 8 * xo]);
         var40 = _mm256_add_ps(var41, var42);
         var38 = _mm256_mul_ps(var39, var40);
         var22 = _mm256_add_ps(var23, var38);
@@ -582,7 +582,7 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
         __m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
         __m256i prefix = _mm256_set1_epi32((6 - 8 * xo + W));
         __m256i cmp = _mm256_cmpgt_epi32(prefix, indices);
-        var27 = _mm256_maskload_ps(&gray[((3 + yi) % 8) * (6 + W) + 8 * xo], cmp);
+        var27 = _mm256_maskload_ps(&gray[(3 + yi & 7) * (6 + W) + 8 * xo], cmp);
         }
         {
         __m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
@@ -602,13 +602,13 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
         __m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
         __m256i prefix = _mm256_set1_epi32((6 - 8 * xo + W));
         __m256i cmp = _mm256_cmpgt_epi32(prefix, indices);
-        var31 = _mm256_maskload_ps(&gray[((2 + yi) % 8) * (6 + W) + 8 * xo], cmp);
+        var31 = _mm256_maskload_ps(&gray[(2 + yi & 7) * (6 + W) + 8 * xo], cmp);
         }
         {
         __m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
         __m256i prefix = _mm256_set1_epi32((6 - 8 * xo + W));
         __m256i cmp = _mm256_cmpgt_epi32(prefix, indices);
-        var32 = _mm256_maskload_ps(&gray[((4 + yi) % 8) * (6 + W) + 8 * xo], cmp);
+        var32 = _mm256_maskload_ps(&gray[(4 + yi & 7) * (6 + W) + 8 * xo], cmp);
         }
         {
         __m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
@@ -642,13 +642,13 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
         __m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
         __m256i prefix = _mm256_set1_epi32((6 - 8 * xo + W));
         __m256i cmp = _mm256_cmpgt_epi32(prefix, indices);
-        var36 = _mm256_maskload_ps(&gray[((1 + yi) % 8) * (6 + W) + 8 * xo], cmp);
+        var36 = _mm256_maskload_ps(&gray[(1 + yi & 7) * (6 + W) + 8 * xo], cmp);
         }
         {
         __m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
         __m256i prefix = _mm256_set1_epi32((6 - 8 * xo + W));
         __m256i cmp = _mm256_cmpgt_epi32(prefix, indices);
-        var37 = _mm256_maskload_ps(&gray[((5 + yi) % 8) * (6 + W) + 8 * xo], cmp);
+        var37 = _mm256_maskload_ps(&gray[(5 + yi & 7) * (6 + W) + 8 * xo], cmp);
         }
         {
         __m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
@@ -682,13 +682,13 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
         __m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
         __m256i prefix = _mm256_set1_epi32((6 - 8 * xo + W));
         __m256i cmp = _mm256_cmpgt_epi32(prefix, indices);
-        var41 = _mm256_maskload_ps(&gray[(yi % 8) * (6 + W) + 8 * xo], cmp);
+        var41 = _mm256_maskload_ps(&gray[(yi & 7) * (6 + W) + 8 * xo], cmp);
         }
         {
         __m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
         __m256i prefix = _mm256_set1_epi32((6 - 8 * xo + W));
         __m256i cmp = _mm256_cmpgt_epi32(prefix, indices);
-        var42 = _mm256_maskload_ps(&gray[((6 + yi) % 8) * (6 + W) + 8 * xo], cmp);
+        var42 = _mm256_maskload_ps(&gray[(6 + yi & 7) * (6 + W) + 8 * xo], cmp);
         }
         {
         __m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
@@ -747,7 +747,7 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
         __m256 var68;
         __m256 var69;
         var46 = _mm256_broadcast_ss(&two[0]);
-        var47 = _mm256_loadu_ps(&gray[((3 + yi) % 8) * (6 + W) + 3 + 8 * xo]);
+        var47 = _mm256_loadu_ps(&gray[(3 + yi & 7) * (6 + W) + 3 + 8 * xo]);
         var45 = _mm256_mul_ps(var46, var47);
         var52 = _mm256_broadcast_ss(&k0[0]);
         var53 = _mm256_loadu_ps(&blur_y[3 + 8 * xo]);
@@ -771,7 +771,7 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
         var64 = _mm256_mul_ps(var65, var66);
         var48 = _mm256_add_ps(var49, var64);
         var44 = _mm256_sub_ps(var45, var48);
-        var69 = _mm256_loadu_ps(&gray[((3 + yi) % 8) * (6 + W) + 3 + 8 * xo]);
+        var69 = _mm256_loadu_ps(&gray[(3 + yi & 7) * (6 + W) + 3 + 8 * xo]);
         var43 = _mm256_div_ps(var44, var69);
         _mm256_storeu_ps(&ratio[8 * xo], var43);
       }
@@ -814,7 +814,7 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
         __m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
         __m256i prefix = _mm256_set1_epi32((-(8 * xo) + W));
         __m256i cmp = _mm256_cmpgt_epi32(prefix, indices);
-        var47 = _mm256_maskload_ps(&gray[((3 + yi) % 8) * (6 + W) + 3 + 8 * xo], cmp);
+        var47 = _mm256_maskload_ps(&gray[(3 + yi & 7) * (6 + W) + 3 + 8 * xo], cmp);
         }
         {
         __m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
@@ -974,7 +974,7 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
         __m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);
         __m256i prefix = _mm256_set1_epi32((-(8 * xo) + W));
         __m256i cmp = _mm256_cmpgt_epi32(prefix, indices);
-        var69 = _mm256_maskload_ps(&gray[((3 + yi) % 8) * (6 + W) + 3 + 8 * xo], cmp);
+        var69 = _mm256_maskload_ps(&gray[(3 + yi & 7) * (6 + W) + 3 + 8 * xo], cmp);
         }
         {
         __m256i indices = _mm256_set_epi32(7, 6, 5, 4, 3, 2, 1, 0);

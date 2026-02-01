@@ -84,10 +84,13 @@ def sanitize_str(s):
 
 CacheDict = lambda: defaultdict(CacheDict)
 
+# Note, we perturb these by +1 to handle non-associative operators
+# hence the multiplication by 10.
 op_prec = {
     "or": 10,
     #
     "and": 20,
+    "&": 20,
     #
     "==": 30,
     #
@@ -96,16 +99,19 @@ op_prec = {
     "<=": 40,
     ">=": 40,
     #
-    "+": 50,
-    "-": 50,
+    "<<": 50,
+    ">>": 50,
     #
-    "*": 60,
-    "/": 60,
-    "%": 60,
+    "+": 60,
+    "-": 60,
+    #
+    "*": 70,
+    "/": 70,
+    "%": 70,
     # unary minus
-    "~": 70,
+    "~": 80,
     # getattr
-    ".": 80,
+    ".": 90,
 }
 
 
@@ -1015,30 +1021,48 @@ class Compiler:
             return str(e.val)
 
         elif isinstance(e, CIR.BinOp):
-            local_prec = op_prec[e.op]
+            op = e.op
 
-            lhs = self.comp_cir(e.lhs, local_prec)
-            rhs = self.comp_cir(e.rhs, local_prec)
+            # David Zhao Akeley 2026-01-23: Manually converting division by power-of-2
+            # to right shift seems to be the only cross-platform reliable way of
+            # getting optimal floor-divide semantics from the underlying C compiler.
+            if op == "/" and None is not (shift := e.rhs.const_pow2_shift()):
+                op = ">>"
+                local_prec = op_prec[op]
+                lhs = self.comp_cir(e.lhs, local_prec)
+                rhs = str(shift)
+            elif op == "%" and None is not (shift := e.rhs.const_pow2_shift()):
+                op = "&"
+                local_prec = op_prec[op]
+                lhs = self.comp_cir(e.lhs, local_prec)
+                rhs = str((1 << shift) - 1)  # e.g. x % 8 -> x & 7
+            else:
+                # local_prec + 1 parenthesizes the rhs if its op is the same
+                # precedence as us. This ensures non-associative ops like
+                # x - (y - z) or x * (y % z) don't have parens dropped.
+                # To preserve output readability, we avoid redundant parens in
+                # the special cases of (x + y + z) and (x * y * z).
+                local_prec = op_prec[op]
+                rhs_child_prec = local_prec + 1
+                if op == "+" or op == "*":
+                    if isinstance(e.rhs, CIR.BinOp) and e.rhs.op == op:
+                        rhs_child_prec = local_prec
+                lhs = self.comp_cir(e.lhs, local_prec)
+                rhs = self.comp_cir(e.rhs, rhs_child_prec)
 
-            if isinstance(e.rhs, CIR.BinOp) and (e.op == "-" or e.op == "/"):
-                rhs = f"({rhs})"
-
-            if e.op == "/":
+            if op == "/":
                 if (isinstance(e.lhs, (CIR.Read, CIR.BinOp)) and e.lhs.is_non_neg) or (
                     isinstance(e.lhs, CIR.Const) and e.lhs.val > 0
                 ):
                     return f"({lhs} / {rhs})"
-                # David Zhao Akeley 2026-01-23: Manually converting divisior by power-of-2
-                # to right shift seems to be the only cross-platform reliable way of
-                # getting optimal floor-divide semantics from the underlying C compiler.
-                elif None is not (shift := e.rhs.const_pow2_shift()):
-                    # Extra parens added around {lhs} since local_prec is wrong for >>
-                    assert isinstance(shift, int), repr(shift)
-                    return f"(({lhs}) >> {shift})"
                 else:
+                    # David Zhao Akeley 2026-02-01: This is really broken but
+                    # I preserve it. It doesn't work on the GPU, and there's
+                    # no exo_floor_mod to complement this.
                     return self._call_static_helper("exo_floor_div", lhs, rhs)
 
-            s = f"{lhs} {e.op} {rhs}"
+            # Not using e.op since it may have been replaced with >>
+            s = f"{lhs} {op} {rhs}"
             if local_prec < prec:
                 s = f"({s})"
 

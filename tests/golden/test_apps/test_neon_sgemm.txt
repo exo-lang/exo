@@ -217,13 +217,13 @@ void sgemm_exo( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, cons
     for (int_fast32_t io = 0; io < ((M) / (64)); io++) {
       for (int_fast32_t jm = 0; jm < ((N) / (16)) % 4; jm++) {
         for (int_fast32_t im = 0; im < 16; im++) {
-          neon_microkernel(ctxt, 64, (struct exo_win_2f32c) { &A[(4 * im + 64 * io) * K + 64 * ko], {K, 1} }, (struct exo_win_2f32c) { &B[(64 * ko) * N + 16 * (jm + (N / 64) * 4)], {N, 1} }, (struct exo_win_2f32) { &C[(4 * im + 64 * io) * N + 16 * (jm + (N / 64) * 4)], {N, 1} });
+          neon_microkernel(ctxt, 64, (struct exo_win_2f32c) { &A[(4 * im + 64 * io) * K + 64 * ko], {K, 1} }, (struct exo_win_2f32c) { &B[(64 * ko) * N + 16 * (jm + (N >> 6) * 4)], {N, 1} }, (struct exo_win_2f32) { &C[(4 * im + 64 * io) * N + 16 * (jm + (N >> 6) * 4)], {N, 1} });
         }
       }
     }
     for (int_fast32_t jo = 0; jo < ((N) / (16)); jo++) {
       for (int_fast32_t im = 0; im < ((M) / (4)) % 16; im++) {
-        neon_microkernel(ctxt, 64, (struct exo_win_2f32c) { &A[(4 * (im + (M / 64) * 16)) * K + 64 * ko], {K, 1} }, (struct exo_win_2f32c) { &B[(64 * ko) * N + 16 * jo], {N, 1} }, (struct exo_win_2f32) { &C[(4 * (im + (M / 64) * 16)) * N + 16 * jo], {N, 1} });
+        neon_microkernel(ctxt, 64, (struct exo_win_2f32c) { &A[(4 * (im + (M >> 6) * 16)) * K + 64 * ko], {K, 1} }, (struct exo_win_2f32c) { &B[(64 * ko) * N + 16 * jo], {N, 1} }, (struct exo_win_2f32) { &C[(4 * (im + (M >> 6) * 16)) * N + 16 * jo], {N, 1} });
       }
     }
   }
@@ -233,7 +233,7 @@ void sgemm_exo( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, cons
         for (int_fast32_t ji = 0; ji < 16; ji++) {
           if (K % 64 > 0) {
             for (int_fast32_t ki = 0; ki < K % 64; ki++) {
-              C[(ii + 4 * io) * N + ji + 16 * jo] += A[(ii + 4 * io) * K + ki + (K / 64) * 64] * B[(ki + (K / 64) * 64) * N + ji + 16 * jo];
+              C[(ii + 4 * io) * N + ji + 16 * jo] += A[(ii + 4 * io) * K + ki + (K >> 6) * 64] * B[(ki + (K >> 6) * 64) * N + ji + 16 * jo];
             }
           }
         }
@@ -245,7 +245,7 @@ void sgemm_exo( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, cons
       if (N % 16 > 0) {
         for (int_fast32_t ji = 0; ji < N % 16; ji++) {
           for (int_fast32_t k = 0; k < K; k++) {
-            C[(ii + 4 * io) * N + ji + (N / 16) * 16] += A[(ii + 4 * io) * K + k] * B[(k) * N + ji + (N / 16) * 16];
+            C[(ii + 4 * io) * N + ji + (N >> 4) * 16] += A[(ii + 4 * io) * K + k] * B[(k) * N + ji + (N >> 4) * 16];
           }
         }
       }
@@ -255,7 +255,7 @@ void sgemm_exo( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, cons
     for (int_fast32_t ii = 0; ii < M % 4; ii++) {
       for (int_fast32_t j = 0; j < N; j++) {
         for (int_fast32_t k = 0; k < K; k++) {
-          C[(ii + (M / 4) * 4) * N + j] += A[(ii + (M / 4) * 4) * K + k] * B[(k) * N + j];
+          C[(ii + (M >> 2) * 4) * N + j] += A[(ii + (M >> 2) * 4) * K + k] * B[(k) * N + j];
         }
       }
     }
