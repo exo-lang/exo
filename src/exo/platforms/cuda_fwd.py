@@ -47,5 +47,5 @@ from ..spork.cuda_memory import (
 from ..spork.coll_algebra import CollUnit, blockDim, clusterDim
 from ..spork.cuda_warp_config import CudaWarpConfig
 from ..spork.excut import InlinePtxGen, simple_ptx_c_lines
-from ..spork.loop_modes import CudaTasks, CudaThreads
+from ..spork.loop_modes import Seq, Par, CudaTasks, CudaThreads
 from ..spork.with_cuda_warps import CudaWarps
