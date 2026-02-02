@@ -31,6 +31,7 @@ from ..spork.cuda_memory import (
     SmemConfigInputs,
     CudaBasicSmem,
     CudaDeviceVisibleLinear,
+    CudaDeviceVisibleAtomicity16B,
     CudaGridConstant,
     CudaGmemAtomicity16B,
     CudaGmemLinear,

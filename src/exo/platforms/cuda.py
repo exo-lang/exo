@@ -573,3 +573,39 @@ class cuda_packed_store_bf16(cuda_packed_store_base):
         assert stride(src, 0) == 1
         for i in seq(0, 2):
             dst[i] = src[i]
+
+
+class cuda_packed_store_v_base(InstrInfo):
+    __slots__ = ["is_smem", "is_f32"]
+
+    def instance_impl(self, is_smem, is_f32):
+        self.instr_tl = cuda_in_order_instr
+        self.is_smem = is_smem
+        self.is_f32 = is_f32
+
+    def codegen(self, args: InstrArgs):
+        dst_ptr = args.dst.index_ptr()
+        src_vec = [args.src.index(i, ptx_data=True) for i in range(args.v)]
+        t = "f32" if self.is_f32 else "u32"
+        constraint = "f" if self.is_f32 else "r"
+        mem = "shared" if self.is_smem else "global"
+        ptx = InlinePtxGen(f"st.{mem}.v{args.v}.{t} #0#;", volatile=True)
+        ptx.add_arg(dst_ptr, constraint="generic", log_as="bits")
+        ptx.add_arg(src_vec, constraint=constraint, log_as=None)
+        return ptx.as_c_lines()
+
+
+@instr
+class cuda_packed_store_global_f16(cuda_packed_store_v_base):
+    def behavior(
+        v: size,
+        dst: [f16][2 * v] @ CudaDeviceVisibleAtomicity16B,
+        src: [f16][v, 2] @ CudaRmemPacked32,
+    ):
+        for i in seq(0, v):
+            for j in seq(0, 2):
+                dst[2 * i + j] = src[i, j]
+
+    def instance(self, v):
+        assert v in (2, 4), "Only support v2 or v4"
+        self.instance_impl(is_smem=False, is_f32=False)
