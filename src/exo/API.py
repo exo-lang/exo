@@ -334,6 +334,7 @@ class Procedure(ProcedureBase):
         Find the most specific possible cursor for the given pattern.
         For example, a pattern matching a single assignment statement
         will return an AssignCursor, not a StmtCursor or BlockCursor.
+        To search within a subtree, consider the Cursor.find member function.
 
         If the optional parameter `many` is set to True, then return a list,
         potentially containing more than one Cursor.
