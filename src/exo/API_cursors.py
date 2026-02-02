@@ -144,6 +144,10 @@ class Cursor(ABC):
         new_path = new_path_prefix + self._impl._path[len(new_path_prefix) :]
         return lift_cursor(C.Node(self._impl._root, new_path), self._proc)
 
+    def only_child(self, dist=1):
+        assert dist == 0, "only_child: dist too high"
+        return self
+
 
 class InvalidCursor(Cursor):
     # noinspection PyMissingConstructor
@@ -579,6 +583,15 @@ class IfCursor(StmtCursor):
         orelse = self._impl._child_block("orelse")
         return BlockCursor(orelse, self._proc) if len(orelse) > 0 else InvalidCursor()
 
+    def only_child(self, dist=1):
+        if dist == 0:
+            return self
+        assert dist >= 1
+        node = self._impl._node
+        assert len(node.body) == 1, f"only_child: Multiple body statements:\n{node}"
+        assert not node.orelse, f"only_child: has else:\n{node}"
+        return self.body()[0].only_child(dist - 1)
+
 
 class ForCursor(StmtCursor):
     """
@@ -617,6 +630,14 @@ class ForCursor(StmtCursor):
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.For)
         return self._impl._node.loop_mode
+
+    def only_child(self, dist=1):
+        if dist == 0:
+            return self
+        assert dist >= 1
+        node = self._impl._node
+        assert len(node.body) == 1, f"only_child: Multiple body statements:\n{node}"
+        return self.body()[0].only_child(dist - 1)
 
 
 class AllocCursor(StmtCursor):

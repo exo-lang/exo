@@ -112,11 +112,11 @@ def schedule_Sm90a_gemm(config: Sm90aGemmConfig, ncta_M, ncta_N):
     gemm = set_loop_mode(gemm, task_k_loop, CudaTasks)
     gemm = divide_loop(gemm, m_loop, cluster_M, ("task_m", "sub_task_m"), tail="guard")
     task_m_loop = gemm.forward(m_loop)
-    sub_task_m_loop = task_m_loop.body()[0]
+    sub_task_m_loop = task_m_loop.only_child()
     gemm = set_loop_mode(gemm, task_m_loop, CudaTasks)
     gemm = divide_loop(gemm, n_loop, cluster_N, ("task_n", "sub_task_n"), tail="guard")
     task_n_loop = gemm.forward(n_loop)
-    sub_task_n_loop = task_n_loop.body()[0]
+    sub_task_n_loop = task_n_loop.only_child()
     gemm = set_loop_mode(gemm, task_n_loop, CudaTasks)
     gemm = wrap_with_context(gemm, batch_loop, cuda_device_function_ctx)
 
@@ -132,7 +132,7 @@ def schedule_Sm90a_gemm(config: Sm90aGemmConfig, ncta_M, ncta_N):
     # task_m/task_n have constant bounds cluster_M, cluster_N.
     gemm = divide_loop(gemm, sub_task_m_loop, smem_M, ("cta_m", "sub_cta_m"), perfect=True)
     cta_m_loop = gemm.forward(sub_task_m_loop)
-    pre_fission_sub_cta_m_loop = cta_m_loop.body()[0]
+    pre_fission_sub_cta_m_loop = cta_m_loop.only_child()
     gemm = set_loop_mode(gemm, cta_m_loop, CudaThreads(unit=ncta_N * cuda_cta_in_cluster))
     gemm = divide_loop(gemm, sub_task_n_loop, smem_N, ("cta_n", "sub_cta_n"), perfect=True)
     n_cta_loop = gemm.forward(sub_task_n_loop)
@@ -168,7 +168,7 @@ def schedule_Sm90a_gemm(config: Sm90aGemmConfig, ncta_M, ncta_N):
     # zero padding makes the extra K loads safe (D += 0 is no-op).
     gemm = divide_loop(gemm, k_loop, smem_K, ("iter_k", "sub_iter_k"), tail="guard")
     iter_k_loop = gemm.forward(k_loop)
-    sub_iter_k_loop = iter_k_loop.body()[0]
+    sub_iter_k_loop = iter_k_loop.only_child()
     k_lifts = 0
     parent = iter_k_loop.parent()
     while True:
@@ -197,7 +197,7 @@ def schedule_Sm90a_gemm(config: Sm90aGemmConfig, ncta_M, ncta_N):
     # We can't rely on the old cursor since it's forwarded to
     # the wrong loop after fission.
     # TODO sucky that we have to use f-strings here; PAST can't get local variables???
-    wg_m_main_loop = iter_k_loop.body()[0].body()[0].body()[0]
+    wg_m_main_loop = iter_k_loop.only_child(3)
     gemm = stage_mem(gemm, wg_m_main_loop,
         f"A_tensorMap[batch, "
         f"(task_m * {ncta_M} + cta_m) * {smem_M} : (task_m * {ncta_M} + cta_m + 1) * {smem_M}, "
@@ -300,7 +300,7 @@ def schedule_Sm90a_gemm(config: Sm90aGemmConfig, ncta_M, ncta_N):
     # Wrap these future wgmma instrs with wgmma.fence before, cg arrive after
     gemm = divide_loop(gemm, sub_iter_k_loop, 8, ("mma_k", "sub_mma_k"), perfect=True)
     mma_k_loop = gemm.forward(sub_iter_k_loop)
-    sub_mma_k_loop = mma_k_loop.body()[0]
+    sub_mma_k_loop = mma_k_loop.only_child()
     # Loop structure
     # Fence(wgmma_fence_1, wgmma_fence_2)
     # for mma_k_loop in seq(0, 4):  # Lifted out below
@@ -311,7 +311,7 @@ def schedule_Sm90a_gemm(config: Sm90aGemmConfig, ncta_M, ncta_N):
     for i in range(4):  # TODO again inelegant
         gemm = lift_scope(gemm, mma_k_loop)
     mma_k_loop = gemm.forward(mma_k_loop)
-    wgmma_cursor = mma_k_loop.body()[0]
+    wgmma_cursor = mma_k_loop.only_child()
     gemm = unsafe_remove_if(gemm, wgmma_cursor, True)
     gemm = replace(gemm, wgmma_cursor, Sm90_mma_async_tf32(M=wg_M, N=smem_N))
     gemm = insert_fence(gemm, mma_k_loop.before(), wgmma_fence_1, wgmma_fence_2)
@@ -336,7 +336,7 @@ def schedule_Sm90a_gemm(config: Sm90aGemmConfig, ncta_M, ncta_N):
     D_zero = gemm.forward(D_zero)
     zero_m_loop = D_zero.parent().parent().parent().parent().parent()  # TODO better way?
     gemm = wrap_with_context(gemm, zero_m_loop, CudaWarps(name="consumer"))
-    sub_wg_m_loop = gemm.forward(zero_m_loop).body()[0]
+    sub_wg_m_loop = gemm.forward(zero_m_loop).only_child()
     gemm = unsafe_remove_if(gemm, sub_wg_m_loop, True)
     gemm = replace(gemm, sub_wg_m_loop, Sm90_zero_scale_d_f32(M=wg_M, N=wg_N))
 

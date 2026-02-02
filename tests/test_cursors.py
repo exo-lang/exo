@@ -761,3 +761,59 @@ def test_cursor_print(golden):
 
     with pytest.raises(InvalidCursorError, match="Trying to print the Invalid Cursor!"):
         print(i_loop1.parent())
+
+
+def test_only_child():
+    @proc
+    def foo():
+        x: f32 @ DRAM
+        for i in seq(0, 8):
+            if i >= 1:
+                for k in seq(0, 9):
+                    x = 1
+                    for l in seq(0, 100):
+                        for m in seq(0, 100):
+                            for n in seq(0, 8):
+                                x = 2
+
+    i_loop = foo.find("for i in _: _")
+    assert i_loop.only_child(0).name() == "i"
+
+    if_stmt = i_loop.only_child()
+    assert isinstance(if_stmt, IfCursor)
+    k_loop = i_loop.only_child(2)
+    assert isinstance(k_loop, ForCursor)
+    assert k_loop.name() == "k"
+
+    with pytest.raises(AssertionError, match="Multiple"):
+        i_loop.only_child(3)
+
+    l_loop = k_loop.body()[1]
+    assert l_loop.name() == "l"
+
+    x2 = l_loop.only_child(3)
+    assert isinstance(x2, AssignCursor)
+    assert x2.name() == "x"
+    assert x2.only_child(0).name() == "x"
+
+    with pytest.raises(AssertionError, match="dist too high"):
+        l_loop.only_child(4)
+
+    @proc
+    def bar():
+        x: f32 @ DRAM
+        for i0 in seq(0, 8):
+            if i0 >= 1:
+                x = 1
+        for i1 in seq(0, 8):
+            if i1 >= 1:
+                x = 2
+            else:
+                x = 3
+
+    i0_loop = bar.find_loop("i0")
+    i1_loop = bar.find_loop("i1")
+    assert i0_loop.only_child(2).name() == "x"
+
+    with pytest.raises(AssertionError, match="else"):
+        i1_loop.only_child(2)
