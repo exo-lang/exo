@@ -56,6 +56,7 @@ from .frontend.typecheck import TypeChecker
 
 from . import API_cursors as C
 from .core import internal_cursors as IC
+from .core.cursor_tags import CursorTag, empty_dict as _empty_cursor_tag_dict
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -241,6 +242,7 @@ class Procedure(ProcedureBase):
         _forward=None,
         _mod_config=None,
         _c_instr_global=None,
+        _cursor_tag_dict=_empty_cursor_tag_dict,
     ):
         super().__init__()
 
@@ -276,6 +278,7 @@ class Procedure(ProcedureBase):
         self._loopir_proc = proc
         self._provenance_eq_Procedure = _provenance_eq_Procedure
         self._forward = _forward
+        self._cursor_tag_dict = _cursor_tag_dict
 
     def forward(self, cur: C.Cursor):
         p = self
@@ -284,11 +287,31 @@ class Procedure(ProcedureBase):
             fwds.append(p._forward)
             p = p._provenance_eq_Procedure
 
-        ir = cur._impl
+        impl_cursor = cur._impl
         for fn in reversed(fwds):
-            ir = fn(ir)
+            impl_cursor = fn(impl_cursor)
 
-        return C.lift_cursor(ir, self)
+        return C.lift_cursor(impl_cursor, self)
+
+    def tagged_cursor(self, cursor_tag: CursorTag):
+        """Get cursor by cursor tag.
+
+        Suppose a prior scheduling rewrite that created this proc
+        created a cursor tagged with cursor_tag.
+        This returns the most recent such cursor,
+        forwarded so that refers to the IR of this proc.
+
+        KeyError raised if no such cursor.
+
+        """
+        p = self
+        while p is not None:
+            impl_cursor = p._cursor_tag_dict.find(cursor_tag)
+            if impl_cursor is not None:
+                api_cursor = C.lift_cursor(impl_cursor, p)
+                return self.forward(api_cursor)
+            p = p._provenance_eq_Procedure
+        raise KeyError
 
     def __str__(self):
         return str(self._loopir_proc)

@@ -2371,7 +2371,9 @@ def DoUnsafeRemoveIf(stmt_c, recursive):
 # This is same as original FissionAfter, except that
 # this does not remove loop. We have separate remove_loop
 # operator for that purpose.
-def DoFissionAfterSimple(stmt_cursor, n_lifts, unsafe_disable_checks):
+def DoFissionAfterSimple(
+    stmt_cursor, n_lifts, unsafe_disable_checks, before_tag, after_tag
+):
     tgt_stmt = stmt_cursor._node
     assert isinstance(tgt_stmt, LoopIR.stmt)
     assert is_pos_int(n_lifts)
