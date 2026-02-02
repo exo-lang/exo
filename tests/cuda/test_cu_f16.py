@@ -395,3 +395,58 @@ def test_golden_vec_add_i32(compiler, golden):
 
 def test_run_vec_add_i32(compiler_Sm80):
     vec_add_test_impl(compiler_Sm80, in_typ="i32")
+
+
+def mkproc_test_packed_store_global_f16(v: int):
+    @proc
+    def foo(h_dst: f16[64], h_src: f16[64]):
+        d_dst: f16[64] @ CudaGmemLinear
+        d_src: f16[64] @ CudaGmemLinear
+        cudaMemcpyAsync_htod_1f16(64, d_src[:], h_src[:])
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                rmem: f16[64 / v / 2, v, 2] @ CudaRmemPacked32
+                for tid in cuda_threads(0, 64 / v / 2):
+                    for i in seq(0, v):
+                        cuda_packed_load_f16(
+                            rmem[tid, i, :],
+                            d_src[2 * v * tid + 2 * i : 2 * v * tid + 2 * i + 2],
+                        )
+                    cuda_packed_store_global_f16(
+                        d_dst[2 * v * tid : 2 * v * tid + 2 * v],
+                        rmem[tid, :, :],
+                        v=v,
+                    )
+        cudaMemcpyAsync_dtoh_1f16(64, h_dst[:], d_dst[:])
+
+    return simplify(foo)
+
+
+def run_packed_store_global_f16_test(compiler_Sm80, v):
+    cu = compiler_Sm80.cuda_test_context(mkproc_test_packed_store_global_f16(v=v))
+
+    h_src = np.ndarray(shape=(64,), dtype=np.uint16, order="C")
+    h_dst = np.ndarray(shape=(64,), dtype=np.uint16, order="C")
+    for i in range(64):
+        h_src[i] = i * i
+
+    cu(None, h_dst, h_src)
+
+    for i in range(64):
+        assert h_dst[i] == h_src[i]
+
+
+def test_packed_store_global_v2_f16_golden(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_test_packed_store_global_f16, v=2, golden=golden)
+
+
+def test_packed_store_global_v2_f16_run(compiler_Sm80):
+    run_packed_store_global_f16_test(compiler_Sm80, v=2)
+
+
+def test_packed_store_global_v4_f16_golden(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_test_packed_store_global_f16, v=4, golden=golden)
+
+
+def test_packed_store_global_v4_f16_run(compiler_Sm80):
+    run_packed_store_global_f16_test(compiler_Sm80, v=4)
