@@ -106,14 +106,14 @@ void vec_double_optimized( void *ctxt, int_fast32_t N, const float* inp, float* 
     float *out_vec = (float*) malloc(8 * sizeof(*out_vec));
     float *inp_vec = (float*) malloc(8 * sizeof(*inp_vec));
     for (int_fast32_t i0 = 0; i0 < 8; i0++) {
-      inp_vec[i0] = inp[i0 + 8 * io];
+      inp_vec[i0] = inp[(i0 + 8 * io)];
     }
     for (int_fast32_t ii = 0; ii < 8; ii++) {
       out_vec[ii] = two_vec[ii] * inp_vec[ii];
     }
     free(inp_vec);
     for (int_fast32_t i0 = 0; i0 < 8; i0++) {
-      out[i0 + 8 * io] = out_vec[i0];
+      out[(i0 + 8 * io)] = out_vec[i0];
     }
     free(out_vec);
   }

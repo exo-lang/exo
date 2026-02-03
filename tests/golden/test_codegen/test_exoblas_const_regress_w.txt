@@ -120,7 +120,7 @@ void exoblas_const_regress_entry_w( void *ctxt, int_fast32_t M, int_fast32_t N, 
 static void exoblas_const_regress_leaf( void *ctxt, int_fast32_t M, int_fast32_t N, struct exo_win_2f32c A, struct exo_win_1f32c x, struct exo_win_1f32 y ) {
   for (int_fast32_t j = 0; j < N; j++) {
     for (int_fast32_t i = 0; i < M; i++) {
-      y.data[(i) * (y.strides[0])] += A.data[(j) * (A.strides[0]) + (i) * (A.strides[1])] * x.data[(j) * (x.strides[0])];
+      y.data[i * y.strides[0]] += A.data[j * A.strides[0] + i * A.strides[1]] * x.data[j * x.strides[0]];
     }
   }
 }

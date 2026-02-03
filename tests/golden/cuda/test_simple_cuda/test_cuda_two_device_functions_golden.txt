@@ -475,7 +475,7 @@ exo_CudaInline_test_cuda_two_device_functions_golden::exo_Cuda0_saxpy_2::exo_dev
   namespace exo_CudaUtil = exo_CudaUtil_test_cuda_two_device_functions_golden;
   // cuda_threads(0, 128, unit=cuda_thread)
   if ([[maybe_unused]] int exo_1thr_tid = threadIdx.x; 1) {
-    exo_deviceArgs.device_y[exo_task.task * 128 + exo_1thr_tid] = exo_deviceArgs.device_y[exo_task.task * 128 + exo_1thr_tid] * exo_deviceArgs.device_a;
+    exo_deviceArgs.device_y[(exo_task.task * 128 + exo_1thr_tid)] = exo_deviceArgs.device_y[(exo_task.task * 128 + exo_1thr_tid)] * exo_deviceArgs.device_a;
   }
 }
 __device__ __forceinline__ void
@@ -643,7 +643,7 @@ exo_CudaInline_test_cuda_two_device_functions_golden::exo_Cuda1_saxpy_2::exo_dev
   namespace exo_CudaUtil = exo_CudaUtil_test_cuda_two_device_functions_golden;
   // cuda_threads(0, 64, unit=cuda_thread)
   if ([[maybe_unused]] int exo_1thr_tid = threadIdx.x; 1) {
-    exo_deviceArgs.device_y[exo_task.task * 64 + exo_1thr_tid] += exo_deviceArgs.device_x[exo_task.task * 64 + exo_1thr_tid];
+    exo_deviceArgs.device_y[(exo_task.task * 64 + exo_1thr_tid)] += exo_deviceArgs.device_x[(exo_task.task * 64 + exo_1thr_tid)];
   }
 }
 __device__ __forceinline__ void

@@ -710,8 +710,8 @@ exo_CudaInline_test_golden_naive_f16_gemm::exo_Cuda0_f16_naive_gemm_f16_f16_f32:
     }
   }
   for (int ks = 0; ks < ((exo_deviceArgs.K) / (32)); ks++) {
-    struct exo_win_2f16 d_A_tile = (struct exo_win_2f16) { &exo_deviceArgs.d_A[(128 * exo_task.m_cta) * (exo_deviceArgs.K) + 32 * ks], {exo_deviceArgs.K, 1} };
-    struct exo_win_2f16 d_B_tile = (struct exo_win_2f16) { &exo_deviceArgs.d_B[(128 * exo_task.n_cta) * (exo_deviceArgs.K) + 32 * ks], {exo_deviceArgs.K, 1} };
+    struct exo_win_2f16 d_A_tile = (struct exo_win_2f16) { &exo_deviceArgs.d_A[(128 * exo_task.m_cta) * exo_deviceArgs.K + (32 * ks)], {exo_deviceArgs.K, 1} };
+    struct exo_win_2f16 d_B_tile = (struct exo_win_2f16) { &exo_deviceArgs.d_B[(128 * exo_task.n_cta) * exo_deviceArgs.K + (32 * ks)], {exo_deviceArgs.K, 1} };
     for (int ms = 0; ms < 16; ms++) {
       // cuda_threads(0, 8, unit=16 * cuda_thread)
       if ([[maybe_unused]] int exo_16thr_mt = (threadIdx.x / 16); 1) {
@@ -719,10 +719,10 @@ exo_CudaInline_test_golden_naive_f16_gemm::exo_Cuda0_f16_naive_gemm_f16_f16_f32:
         if ([[maybe_unused]] int exo_1thr_kt = (threadIdx.x % 16); 1) {
           exo_CudaRmemPacked32_f16 tmp_A;
           exo_CudaRmemPacked32_f16 tmp_B;
-          tmp_A.ptx_data = *reinterpret_cast<const decltype(tmp_A.ptx_data)*>((&d_A_tile.data[(exo_16thr_mt + 8 * ms) * (d_A_tile.strides[0]) + (2 * exo_1thr_kt) * (d_A_tile.strides[1])]));
-          tmp_B.ptx_data = *reinterpret_cast<const decltype(tmp_B.ptx_data)*>((&d_B_tile.data[(exo_16thr_mt + 8 * ms) * (d_B_tile.strides[0]) + (2 * exo_1thr_kt) * (d_B_tile.strides[1])]));
-          *reinterpret_cast<decltype(tmp_A.ptx_data)*>((&s_A[(exo_16thr_mt + 8 * ms) * 32 + 2 * exo_1thr_kt].swizzle_get())) = tmp_A.ptx_data;
-          *reinterpret_cast<decltype(tmp_B.ptx_data)*>((&s_B[(exo_16thr_mt + 8 * ms) * (32) + 2 * exo_1thr_kt])) = tmp_B.ptx_data;
+          tmp_A.ptx_data = *reinterpret_cast<const decltype(tmp_A.ptx_data)*>((&d_A_tile.data[(exo_16thr_mt + 8 * ms) * d_A_tile.strides[0] + (2 * exo_1thr_kt) * d_A_tile.strides[1]]));
+          tmp_B.ptx_data = *reinterpret_cast<const decltype(tmp_B.ptx_data)*>((&d_B_tile.data[(exo_16thr_mt + 8 * ms) * d_B_tile.strides[0] + (2 * exo_1thr_kt) * d_B_tile.strides[1]]));
+          *reinterpret_cast<decltype(tmp_A.ptx_data)*>((&s_A[((exo_16thr_mt + 8 * ms) * 32 + 2 * exo_1thr_kt)].swizzle_get())) = tmp_A.ptx_data;
+          *reinterpret_cast<decltype(tmp_B.ptx_data)*>((&s_B[(exo_16thr_mt + 8 * ms) * 32 + (2 * exo_1thr_kt)])) = tmp_B.ptx_data;
         }
       }
     }
@@ -738,8 +738,8 @@ exo_CudaInline_test_golden_naive_f16_gemm::exo_Cuda0_f16_naive_gemm_f16_f16_f32:
         for (int k = 0; k < 32; k++) {
           float a_f32;
           float b_f32;
-          a_f32 = (float)(s_A[exo_1thr_m * 32 + k].swizzle_get());
-          b_f32 = (float)(s_B[(n) * (32) + k]);
+          a_f32 = (float)(s_A[(exo_1thr_m * 32 + k)].swizzle_get());
+          b_f32 = (float)(s_B[n * 32 + k]);
           r_C[n] += a_f32 * b_f32;
         }
       }
@@ -754,7 +754,7 @@ exo_CudaInline_test_golden_naive_f16_gemm::exo_Cuda0_f16_naive_gemm_f16_f16_f32:
   // cuda_threads(0, 128, unit=cuda_thread)
   if ([[maybe_unused]] int exo_1thr_m = threadIdx.x; 1) {
     for (int n = 0; n < 128; n++) {
-      exo_deviceArgs.d_C[(n + 128 * exo_task.n_cta) * (exo_deviceArgs.M) + exo_1thr_m + 128 * exo_task.m_cta] = r_C[n];
+      exo_deviceArgs.d_C[(n + 128 * exo_task.n_cta) * exo_deviceArgs.M + (exo_1thr_m + 128 * exo_task.m_cta)] = r_C[n];
     }
   }
 }

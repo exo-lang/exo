@@ -488,12 +488,12 @@ exo_CudaInline_test_cp_async_fence_golden::exo_Cuda0_saxpy_cp_async::exo_deviceT
           asm volatile(
             "cp.async.cg.shared.global [%0], [%1], 16;"
               :
-              :"r"(exo_smemU32((&scratch_x[(i & 1) * (256) + exo_1thr_tid * 4]))),
-              "l"((&exo_deviceArgs.device_x[exo_task.task * 1024 + i * 256 + exo_1thr_tid * 4]))
+              :"r"(exo_smemU32((&scratch_x[(i & 1) * 256 + (exo_1thr_tid * 4)]))),
+              "l"((&exo_deviceArgs.device_x[(exo_task.task * 1024 + i * 256 + exo_1thr_tid * 4)]))
           );
           exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_cg_shared_global), 0, __LINE__);
-          exo_excutLog.log_u32_arg(exo_smemU32((&scratch_x[(i & 1) * (256) + exo_1thr_tid * 4])));
-          exo_excutLog.log_ptr_arg((&exo_deviceArgs.device_x[exo_task.task * 1024 + i * 256 + exo_1thr_tid * 4]));
+          exo_excutLog.log_u32_arg(exo_smemU32((&scratch_x[(i & 1) * 256 + (exo_1thr_tid * 4)])));
+          exo_excutLog.log_ptr_arg((&exo_deviceArgs.device_x[(exo_task.task * 1024 + i * 256 + exo_1thr_tid * 4)]));
           exo_excutLog.log_u32_arg(static_cast<uint32_t>(16));
         }
       }
@@ -504,12 +504,12 @@ exo_CudaInline_test_cp_async_fence_golden::exo_Cuda0_saxpy_cp_async::exo_deviceT
           asm volatile(
             "cp.async.cg.shared.global [%0], [%1], 16;"
               :
-              :"r"(exo_smemU32((&scratch_y[(i & 1) * (256) + exo_1thr_tid * 4]))),
-              "l"((&exo_deviceArgs.device_y[exo_task.task * 1024 + i * 256 + exo_1thr_tid * 4]))
+              :"r"(exo_smemU32((&scratch_y[(i & 1) * 256 + (exo_1thr_tid * 4)]))),
+              "l"((&exo_deviceArgs.device_y[(exo_task.task * 1024 + i * 256 + exo_1thr_tid * 4)]))
           );
           exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_cg_shared_global), 0, __LINE__);
-          exo_excutLog.log_u32_arg(exo_smemU32((&scratch_y[(i & 1) * (256) + exo_1thr_tid * 4])));
-          exo_excutLog.log_ptr_arg((&exo_deviceArgs.device_y[exo_task.task * 1024 + i * 256 + exo_1thr_tid * 4]));
+          exo_excutLog.log_u32_arg(exo_smemU32((&scratch_y[(i & 1) * 256 + (exo_1thr_tid * 4)])));
+          exo_excutLog.log_ptr_arg((&exo_deviceArgs.device_y[(exo_task.task * 1024 + i * 256 + exo_1thr_tid * 4)]));
           exo_excutLog.log_u32_arg(static_cast<uint32_t>(16));
         }
       }
@@ -518,7 +518,7 @@ exo_CudaInline_test_cp_async_fence_golden::exo_Cuda0_saxpy_cp_async::exo_deviceT
       for (int j = 0; j < ((256) / (128)); j++) {
         // cuda_threads(0, 128, unit=cuda_thread)
         if ([[maybe_unused]] int exo_1thr_tid = threadIdx.x; 1) {
-          exo_deviceArgs.device_y[exo_task.task * 1024 + (i - 1) * 256 + j * 128 + exo_1thr_tid] = scratch_y[((i - 1) & 1) * (256) + j * 128 + exo_1thr_tid] * exo_deviceArgs.device_a + scratch_x[((i - 1) & 1) * (256) + j * 128 + exo_1thr_tid];
+          exo_deviceArgs.device_y[(exo_task.task * 1024 + (i - 1) * 256 + j * 128 + exo_1thr_tid)] = scratch_y[((i - 1) & 1) * 256 + (j * 128 + exo_1thr_tid)] * exo_deviceArgs.device_a + scratch_x[((i - 1) & 1) * 256 + (j * 128 + exo_1thr_tid)];
         }
       }
     }

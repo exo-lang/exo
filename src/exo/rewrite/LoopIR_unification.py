@@ -84,7 +84,7 @@ def DoReplace(call_gen: ProcCallGen, block_cursor: ic.Block):
 
     # Extract the functional specification. In Exo 1.0 this is just
     # a proc, but it's more complicated now due to InstrTemplate.
-    behavior = call_gen.ProcCallGen_behavior()
+    behavior: LoopIR.proc = call_gen.ProcCallGen_behavior()
 
     # prevent name clashes between the statement block and sub-proc
     behavior = Alpha_Rename(behavior).result()

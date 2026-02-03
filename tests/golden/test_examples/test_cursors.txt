@@ -96,7 +96,7 @@ void gemv( void *ctxt, int_fast32_t M, int_fast32_t N, const float* A, const flo
     for (int_fast32_t jo = 0; jo < ((N) / (8)); jo++) {
       for (int_fast32_t ii = 0; ii < 8; ii++) {
         for (int_fast32_t ji = 0; ji < 8; ji++) {
-          y[8 * io + ii] += A[(8 * io + ii) * N + 8 * jo + ji] * x[8 * jo + ji];
+          y[(8 * io + ii)] += A[(8 * io + ii) * N + (8 * jo + ji)] * x[(8 * jo + ji)];
         }
       }
     }

@@ -75,7 +75,7 @@ static int exo_floor_div(int num, int quot) {
 void mul_mod_parens_proc( void *ctxt, float* x, int_fast32_t cw ) {
   EXO_ASSUME(cw >= 0);
   EXO_ASSUME(cw < 10);
-  x[64 * (cw % 5)] = 1.0f;
-  x[64 * exo_floor_div(cw, 5) + 12] = 2.0f;
+  x[(64 * (cw % 5))] = 1.0f;
+  x[(64 * exo_floor_div(cw, 5) + 12)] = 2.0f;
 }
 

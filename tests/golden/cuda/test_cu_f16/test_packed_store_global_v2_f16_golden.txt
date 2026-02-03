@@ -523,16 +523,16 @@ exo_CudaInline_test_packed_store_global_v2_f16_golden::exo_Cuda0_foo::exo_device
   // cuda_threads(0, 16, unit=cuda_thread)
   if (int exo_1thr_tid = threadIdx.x; exo_1thr_tid < 16) {
     for (int i = 0; i < 2; i++) {
-      rmem[i].ptx_data = *reinterpret_cast<const decltype(rmem[i].ptx_data)*>((&exo_deviceArgs.d_src[2 * i + 4 * exo_1thr_tid]));
+      rmem[i].ptx_data = *reinterpret_cast<const decltype(rmem[i].ptx_data)*>((&exo_deviceArgs.d_src[(2 * i + 4 * exo_1thr_tid)]));
     }
     asm volatile(
       "st.global.v2.u32 [%0], {%1, %2};"
         :
-        :"l"((&exo_deviceArgs.d_dst[4 * exo_1thr_tid])),
+        :"l"((&exo_deviceArgs.d_dst[(4 * exo_1thr_tid)])),
         "r"(rmem[0].ptx_data), "r"(rmem[1].ptx_data)
     );
     exo_excutLog.log_action(EXO_EXCUT_STR_ID(st_global_v2_u32), 0, __LINE__);
-    exo_excutLog.log_ptr_arg((&exo_deviceArgs.d_dst[4 * exo_1thr_tid]));
+    exo_excutLog.log_ptr_arg((&exo_deviceArgs.d_dst[(4 * exo_1thr_tid)]));
   }
 }
 __device__ __forceinline__ void

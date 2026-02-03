@@ -70,11 +70,11 @@ void foo( void *ctxt, int_fast32_t n, float* x );
 void foo( void *ctxt, int_fast32_t n, float* x ) {
   for (int_fast32_t io = 0; io < ((n) / (4)); io++) {
     for (int_fast32_t ii = 0; ii < 4; ii++) {
-      x[4 * io + ii] = 1.0f;
+      x[(4 * io + ii)] = 1.0f;
     }
   }
   for (int_fast32_t ii = 0; ii < n % 4; ii++) {
-    x[ii + (n >> 2) * 4] = 1.0f;
+    x[(ii + (n >> 2) * 4)] = 1.0f;
   }
 }
 

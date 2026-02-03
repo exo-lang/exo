@@ -495,7 +495,7 @@ exo_CudaInline_test_gemv_warp_coop_8_golden::exo_Cuda0_gemv_warp_coop_8::exo_dev
     // cuda_threads(0, 128, unit=cuda_thread)
     if ([[maybe_unused]] int exo_1thr_tid = threadIdx.x; 1) {
       if (i * 128 + exo_1thr_tid < exo_deviceArgs.K) {
-        shared_x[i * 128 + exo_1thr_tid] = exo_deviceArgs.d_x[i * 128 + exo_1thr_tid];
+        shared_x[(i * 128 + exo_1thr_tid)] = exo_deviceArgs.d_x[(i * 128 + exo_1thr_tid)];
       }
     }
   }
@@ -516,7 +516,7 @@ exo_CudaInline_test_gemv_warp_coop_8_golden::exo_Cuda0_gemv_warp_coop_8::exo_dev
         if ([[maybe_unused]] int exo_1thr_k1 = (threadIdx.x % 2); 1) {
           partial_sum = 0.0f;
           for (int k8 = 0; k8 < ((exo_deviceArgs.K) / (8)); k8++) {
-            partial_sum += exo_deviceArgs.d_A[(exo_task.m1 * 16 + exo_8thr_m0) * (exo_deviceArgs.K) + k8 * 8 + exo_4thr_k4 * 4 + exo_2thr_k2 * 2 + exo_1thr_k1] * shared_x[k8 * 8 + exo_4thr_k4 * 4 + exo_2thr_k2 * 2 + exo_1thr_k1];
+            partial_sum += exo_deviceArgs.d_A[(exo_task.m1 * 16 + exo_8thr_m0) * exo_deviceArgs.K + (k8 * 8 + exo_4thr_k4 * 4 + exo_2thr_k2 * 2 + exo_1thr_k1)] * shared_x[(k8 * 8 + exo_4thr_k4 * 4 + exo_2thr_k2 * 2 + exo_1thr_k1)];
           }
         }
       }
@@ -546,7 +546,7 @@ exo_CudaInline_test_gemv_warp_coop_8_golden::exo_Cuda0_gemv_warp_coop_8::exo_dev
           if (exo_4thr_k4 == 0) {
             if (exo_2thr_k2 == 0) {
               if (exo_1thr_k1 == 0) {
-                exo_deviceArgs.d_y[exo_task.m1 * 16 + exo_8thr_m0] = tmp_1;
+                exo_deviceArgs.d_y[(exo_task.m1 * 16 + exo_8thr_m0)] = tmp_1;
               }
             }
           }

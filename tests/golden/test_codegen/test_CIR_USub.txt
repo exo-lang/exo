@@ -69,7 +69,7 @@ void foo( void *ctxt, int_fast32_t N, float* x );
 // )
 void foo( void *ctxt, int_fast32_t N, float* x ) {
   for (int_fast32_t i = 0; i < N; i++) {
-    x[-i + N - 1] = 0.0f;
+    x[(-i + N - 1)] = 0.0f;
   }
 }
 

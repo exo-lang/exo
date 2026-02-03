@@ -370,7 +370,7 @@ exo_CudaInline_test_wrong_extent_positive::exo_Cuda0_wrong_extent::exo_deviceTas
   if ([[maybe_unused]] int exo_8thr_i0 = (threadIdx.x / 8); 1) {
     // cuda_threads(0, 8, unit=cuda_thread)
     if ([[maybe_unused]] int exo_1thr_i1 = (threadIdx.x % 8); 1) {
-      exo_deviceArgs.out[(exo_8thr_i0) * 8 + exo_1thr_i1] = evil_rmem;
+      exo_deviceArgs.out[exo_8thr_i0 * 8 + exo_1thr_i1] = evil_rmem;
     }
   }
 }

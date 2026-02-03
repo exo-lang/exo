@@ -284,6 +284,33 @@ def test_exoblas_const_regress_w(golden, compiler):
     impl_test_exoblas_const_regress(golden, compiler, True)
 
 
+# Another regression test.
+
+
+@proc
+def exoblas_2d_mod_regress_proc(M: size, N: size, i: index, j: index, C: f32[M, N]):
+    assert N >= 8
+    assert i >= 0
+    assert i < M
+    # i * N + (j & 7)
+    # Will fail if parens are droppend, yielding computation (i * N + j) & 7
+    C[i, j % 8] = 1
+
+
+def test_exoblas_2d_mod_regress(compiler):
+    p = exoblas_2d_mod_regress_proc
+    cc, hh = compile_procs_to_strings([p], "exoblas_2d_mod_regress.h")
+    lib = compiler.compile(p)
+    M, N = 80, 20
+    i, j = 9, 12
+    C = np.zeros(shape=(M, N), dtype=np.float32)
+    C_ref = np.zeros(shape=(M, N), dtype=np.float32)
+    C_ref[i, j % 8] = 1
+    lib(None, M, N, i, j, C)
+    assert np.array_equal(C, C_ref)
+    assert "C[i * N + (j & 7)]" in cc, "manually update this if needed"
+
+
 # --- Start Blur Test ---
 
 
