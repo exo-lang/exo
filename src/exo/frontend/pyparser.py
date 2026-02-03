@@ -1407,9 +1407,9 @@ class Parser:
                     self.err(s.func, "Cannot take keyword arguments")
             else:
                 # circular import
-                from ..core.instr_class import InstrTemplate, InstrTemplateError
+                from ..core.instr_class import InstrTemplateBase, InstrTemplateError
 
-                if isinstance(f, InstrTemplate):
+                if isinstance(f, InstrTemplateBase):
                     try:
                         f = f(**kwargs)
                     except InstrTemplateError as e:

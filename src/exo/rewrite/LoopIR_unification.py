@@ -16,6 +16,7 @@ from ..core.LoopIR import (
     comparision_ops,
     LoopIR_Dependencies,
 )
+from ..core.instr_class import ProcCallGen
 from .LoopIR_scheduling import SchedulingError
 from ..core.prelude import *
 from .new_eff import Check_Aliasing
@@ -78,19 +79,27 @@ def Get_Live_Variables(stmt_cursor):
     return live_vars
 
 
-def DoReplace(subproc, block_cursor: ic.Block):
-    n_stmts = len(subproc.body)
+def DoReplace(call_gen: ProcCallGen, block_cursor: ic.Block):
+    assert isinstance(call_gen, ProcCallGen)
+
+    # Extract the functional specification. In Exo 1.0 this is just
+    # a proc, but it's more complicated now due to InstrTemplate.
+    behavior = call_gen.ProcCallGen_behavior()
+
+    # prevent name clashes between the statement block and sub-proc
+    behavior = Alpha_Rename(behavior).result()
+    n_stmts = len(behavior.body)
     if len(block_cursor) < n_stmts:
         raise SchedulingError("Not enough statements to match")
 
-    # prevent name clashes between the statement block and sub-proc
-    temp_subproc = Alpha_Rename(subproc).result()
     stmts = [c._node for c in block_cursor[:n_stmts]]
     live_vars = Get_Live_Variables(block_cursor[0])
-    new_args = Unification(temp_subproc, stmts, live_vars).result()
+    new_args = Unification(behavior, stmts, live_vars).result()
 
-    # but don't use a different LoopIR.proc for the callsite itself
-    new_call = LoopIR.Call(subproc, new_args, None, stmts[0].srcinfo)
+    # Ignore Alpha_Rename'd proc now, i.e.
+    # don't use a different LoopIR.proc for the callsite itself
+    new_call = call_gen.ProcCallGen_make_call(new_args, stmts[0].srcinfo)
+    assert isinstance(new_call, LoopIR.Call)
 
     ir, fwd = block_cursor._replace([new_call])
     Check_Aliasing(ir)

@@ -15,6 +15,7 @@ from .core.instr_class import (
     AtomicityInfo,
     AccessInfo,
     InstrInfo,
+    ProcCallGen,
     InstrTemplate,
     old_style_instr_info,
     InstrArgs,
@@ -233,7 +234,7 @@ def compile_procs_to_strings(proc_list, h_file_name: str):
     return ext_snippets["c"], ext_snippets["h"]
 
 
-class Procedure(ProcedureBase):
+class Procedure(ProcedureBase, ProcCallGen):
     def __init__(
         self,
         proc,
@@ -479,3 +480,16 @@ class Procedure(ProcedureBase):
         except Exception as e:
             debug_log.enable_notify_user()
             raise
+
+    # ------------------------------- #
+    #     ProcCallGen -- internal
+    # ------------------------------- #
+    def ProcCallGen_behavior(self) -> LoopIR.LoopIR.proc:
+        return self._loopir_proc
+
+    def ProcCallGen_make_call(
+        self,
+        args: List[LoopIR.LoopIR.expr],
+        srcinfo,
+    ) -> LoopIR.LoopIR.Call:
+        return LoopIR.LoopIR.Call(self._loopir_proc, args, None, srcinfo)

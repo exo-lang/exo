@@ -185,6 +185,12 @@ class ScalarInfo:
 
         assert 0, "Expect str, ScalarInfo, or ExoType"  # or internal LoopIR or UAST
 
+    def __eq__(self, other):
+        return self is other
+
+    def __hash__(self):
+        return id(self)
+
     def extclass(uast, t, exotype, shorthand, ctype, bits):
         from .LoopIR import (
             LoopIR,

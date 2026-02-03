@@ -267,6 +267,8 @@ def schedule_Sm90a_gemm(config: Sm90aGemmConfig, ncta_M, ncta_N):
     gemm = replace(
         gemm,
         A_tma,
+        # Most explicit way to use an instruction template.
+        # We give explicit values for all template parameters.
         Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(
             ncta=ncta_N,
             cta_stride=1,
@@ -280,11 +282,13 @@ def schedule_Sm90a_gemm(config: Sm90aGemmConfig, ncta_M, ncta_N):
     gemm = replace(
         gemm,
         B_tma,
-        Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(
-            ncta=ncta_M,
+        # replace should be able to deduce the commented-out arguments.
+        # We use partial evaluation to provide the minimum information.
+        Sm90_multicast_copy_tensor_to_smem_swizzled_2f32.partial(
+            # ncta=ncta_M,
             cta_stride=ncta_N,
-            size0=smem_N,
-            size1=smem_K,
+            # size0=smem_N,
+            # size1=smem_K,
             smem_box=smem_box_B,
         )
     )
@@ -313,7 +317,7 @@ def schedule_Sm90a_gemm(config: Sm90aGemmConfig, ncta_M, ncta_N):
     mma_k_loop = gemm.forward(mma_k_loop)
     wgmma_cursor = mma_k_loop.only_child()
     gemm = unsafe_remove_if(gemm, wgmma_cursor, True)
-    gemm = replace(gemm, wgmma_cursor, Sm90_mma_async_tf32(M=wg_M, N=smem_N))
+    gemm = replace(gemm, wgmma_cursor, Sm90_mma_async_tf32)
     gemm = insert_fence(gemm, mma_k_loop.before(), wgmma_fence_1, wgmma_fence_2)
     # Arrive(wgmma_async, 1) >> cg[cta_m, cta_n, wg_m]
     # if k_iter >= 1:
@@ -338,7 +342,7 @@ def schedule_Sm90a_gemm(config: Sm90aGemmConfig, ncta_M, ncta_N):
     gemm = wrap_with_context(gemm, zero_m_loop, CudaWarps(name="consumer"))
     sub_wg_m_loop = gemm.forward(zero_m_loop).only_child()
     gemm = unsafe_remove_if(gemm, sub_wg_m_loop, True)
-    gemm = replace(gemm, sub_wg_m_loop, Sm90_zero_scale_d_f32(M=wg_M, N=wg_N))
+    gemm = replace(gemm, sub_wg_m_loop, Sm90_zero_scale_d_f32)
 
     # Finalize write-to-C epilogue.
     # Need to wait for wgmma beforehand.
@@ -378,7 +382,7 @@ def schedule_Sm90a_gemm(config: Sm90aGemmConfig, ncta_M, ncta_N):
         gemm = insert_fence(gemm, C_smem.before(), cuda_in_order, cuda_in_order)
         gemm = insert_fence(gemm, inner_task_loop.body().after(), cuda_in_order, cuda_in_order)
     else:
-        gemm = replace(gemm, assign_sub_wg_m_loop, Sm90_mma_store_d_col_major_tf32(M=wg_M, N=wg_N))
+        gemm = replace(gemm, assign_sub_wg_m_loop, Sm90_mma_store_d_col_major_tf32)
         # Surround store_d loop with cluster arrive/await
         inner_task_loop = gemm.forward(inner_task_loop)
         cluster_arrive_here = inner_task_loop.body().after().anchor().before()
@@ -389,7 +393,7 @@ def schedule_Sm90a_gemm(config: Sm90aGemmConfig, ncta_M, ncta_N):
 
     # Substitute cuda memset for 0-init.
     if enable_split_k:
-        gemm = replace(gemm, gemm.find_loop("memset_batch"), cudaMemsetAsync0_3f32())
+        gemm = replace(gemm, gemm.find_loop("memset_batch"), cudaMemsetAsync0_3f32)
 
     # Specialize initial iteration of iter_k loop.
     # NB this doubles the size of the proc ... you can eliminate this
@@ -399,4 +403,7 @@ def schedule_Sm90a_gemm(config: Sm90aGemmConfig, ncta_M, ncta_N):
 
     gemm = simplify(gemm)
     print(gemm)
+
+    # TODO test cursors
+
     return gemm
