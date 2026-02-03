@@ -167,8 +167,12 @@ class CIR_Wrapper:
         return f"CIR_Wrapper({self._exo_ir}, {self._exo_compiler}, {self._exo_origin_story})"
 
     def __str__(self):
+        # Will always be parenthesized if this is a bin op.
+        # This may be fed to naive code like f"{x} * {y}"
+        # that exists outside the CIR_Wrapper abstraction.
+        # Not to mention pesky C macros just waiting to ruin your day.
         self.exo_simplify()
-        return self._exo_compiler.comp_cir(self._exo_ir, 0)
+        return self._exo_compiler.comp_cir(self._exo_ir)
 
     def __getattr__(self, attr):
         assert not attr.startswith(

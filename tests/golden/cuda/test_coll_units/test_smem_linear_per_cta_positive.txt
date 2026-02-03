@@ -326,7 +326,7 @@ exo_CudaInline_test_smem_linear_per_cta_positive::exo_Cuda0_per_cta_alloc_proc::
     if ([[maybe_unused]] int exo_16thr_y = (threadIdx.x / 16); 1) {
       // cuda_threads(0, 16, unit=cuda_thread)
       if ([[maybe_unused]] int exo_1thr_x = (threadIdx.x % 16); 1) {
-        the_mem[(exo_16thr_y) * (16) + exo_1thr_x] = 3.0f;
+        the_mem[exo_16thr_y * 16 + exo_1thr_x] = 3.0f;
       }
     }
     // Fence(cuda_in_order, cuda_in_order)

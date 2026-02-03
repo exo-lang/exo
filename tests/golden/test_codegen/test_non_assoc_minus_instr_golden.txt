@@ -68,6 +68,6 @@ NonAssocMinus(x,y,z,c)
 //     c : f32 @DRAM
 // )
 void non_assoc_foo( void *ctxt, const float* x, const float* y, const float* z, float* c ) {
-  (c)[0] = ((x)[0]) - (((y)[0]) - ((z)[0]));
+  ((c)[0]) = (((x)[0]) - (((y)[0]) - ((z)[0])));
 }
 

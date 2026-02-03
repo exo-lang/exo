@@ -161,6 +161,10 @@ cuda_smem_free_pool_tag = FreePoolTag("cuda_smem_free_pool_tag")
 
 
 def generate_offset(indices, strides):
+    # David Zhao Akeley 2026-02-03: for this to work, we have to
+    # rely on CIR_Wrapper conservatively parenthesizing all index
+    # and stride values that are ultimately fed to this legacy
+    # function through the layers of legacy window machinery.
     def index_expr(i, s):
         if s == "0" or i == "0":
             return ""
@@ -170,10 +174,7 @@ def generate_offset(indices, strides):
         if i == "1":
             return s
 
-        if len(s) == 1:
-            return f"({i}) * {s}"
-        else:
-            return f"({i}) * ({s})"
+        return f"{i} * {s}"
 
     exprs = [e for i, s in zip(indices, strides) if (e := index_expr(i, s)) != ""]
 

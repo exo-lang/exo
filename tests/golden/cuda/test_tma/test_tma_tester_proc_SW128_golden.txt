@@ -1011,7 +1011,7 @@ exo_CudaInline_test_tma_tester_proc_SW128_golden::exo_Cuda0_tma_tester_SW128::ex
     exo_CudaUtil::exo_Sm90_tma_to_smem(
       &smem_x[0],
       exo_deviceArgs.exo_data_x_tensorMap,
-      (exo_win_2f32_Sm90_tensorMap_128_248_32) { {exo_deviceArgs.x_tensorMap.C_offsets[0] + 248 * exo_task.task_m, exo_deviceArgs.x_tensorMap.C_offsets[1] + 32 * exo_task.task_k} },
+      (exo_win_2f32_Sm90_tensorMap_128_248_32) { {(exo_deviceArgs.x_tensorMap.C_offsets[0] + 248 * exo_task.task_m), (exo_deviceArgs.x_tensorMap.C_offsets[1] + 32 * exo_task.task_k)} },
       exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, 0, 0),
       31744
     );
@@ -1025,12 +1025,12 @@ exo_CudaInline_test_tma_tester_proc_SW128_golden::exo_Cuda0_tma_tester_SW128::ex
       asm volatile(
         "cp.async.cg.shared.global [%0], [%1], 16;"
           :
-          :"r"(exo_smemU32((&smem_y[exo_1thr_m * 32 + 4 * ko].swizzle_get()))),
-          "l"((&exo_deviceArgs.d_y[(exo_1thr_m + 248 * exo_task.task_m) * (128) + 4 * ko + 32 * exo_task.task_k]))
+          :"r"(exo_smemU32((&smem_y[(exo_1thr_m * 32 + 4 * ko)].swizzle_get()))),
+          "l"((&exo_deviceArgs.d_y[(exo_1thr_m + 248 * exo_task.task_m) * 128 + (4 * ko + 32 * exo_task.task_k)]))
       );
       exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_cg_shared_global), 0, __LINE__);
-      exo_excutLog.log_u32_arg(exo_smemU32((&smem_y[exo_1thr_m * 32 + 4 * ko].swizzle_get())));
-      exo_excutLog.log_ptr_arg((&exo_deviceArgs.d_y[(exo_1thr_m + 248 * exo_task.task_m) * (128) + 4 * ko + 32 * exo_task.task_k]));
+      exo_excutLog.log_u32_arg(exo_smemU32((&smem_y[(exo_1thr_m * 32 + 4 * ko)].swizzle_get())));
+      exo_excutLog.log_ptr_arg((&exo_deviceArgs.d_y[(exo_1thr_m + 248 * exo_task.task_m) * 128 + (4 * ko + 32 * exo_task.task_k)]));
       exo_excutLog.log_u32_arg(static_cast<uint32_t>(16));
     }
   }
@@ -1049,7 +1049,7 @@ exo_CudaInline_test_tma_tester_proc_SW128_golden::exo_Cuda0_tma_tester_SW128::ex
   // cuda_threads(0, 248, unit=cuda_thread)
   if (int exo_1thr_m = threadIdx.x; exo_1thr_m < 248) {
     for (int k = 0; k < 32; k++) {
-      smem_sum[exo_1thr_m * 32 + k].swizzle_get() = smem_x[exo_1thr_m * 32 + k].swizzle_get() + smem_y[exo_1thr_m * 32 + k].swizzle_get();
+      smem_sum[(exo_1thr_m * 32 + k)].swizzle_get() = smem_x[(exo_1thr_m * 32 + k)].swizzle_get() + smem_y[(exo_1thr_m * 32 + k)].swizzle_get();
     }
   }
   // Arrive(cuda_in_order, 1) >> war
@@ -1069,7 +1069,7 @@ exo_CudaInline_test_tma_tester_proc_SW128_golden::exo_Cuda0_tma_tester_SW128::ex
   if (int CudaWarps_0_1_ = threadIdx.x; CudaWarps_0_1_ < 32) {
     exo_CudaUtil::exo_Sm90_tma_to_gmem(
       exo_deviceArgs.exo_data_sum_tensorMap,
-      (exo_win_2f32_Sm90_tensorMap_128_248_32) { {exo_deviceArgs.sum_tensorMap.C_offsets[0] + 248 * exo_task.task_m, exo_deviceArgs.sum_tensorMap.C_offsets[1] + 32 * exo_task.task_k} },
+      (exo_win_2f32_Sm90_tensorMap_128_248_32) { {(exo_deviceArgs.sum_tensorMap.C_offsets[0] + 248 * exo_task.task_m), (exo_deviceArgs.sum_tensorMap.C_offsets[1] + 32 * exo_task.task_k)} },
       &smem_sum[0]
     );
     // cg: barrier @ CudaCommitGroup

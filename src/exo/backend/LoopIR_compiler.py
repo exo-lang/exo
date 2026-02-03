@@ -113,6 +113,7 @@ op_prec = {
     # getattr
     ".": 90,
 }
+# NOTE, historically, code used 100 to mean an out-of-range precedence...
 
 
 _backend_check_dict = {}
@@ -1009,7 +1010,10 @@ class Compiler:
             w_idxs.append(self.wrap_cir(lo, f"{e.name} offsets", i))
         return w_idxs, w_intervals, e.srcinfo
 
-    def comp_cir(self, e, prec) -> str:
+    # With no prec given, this conservatively parenthesizes the output C expr
+    # because op_prec["."] is the maximum precedence. This is relied upon
+    # when bridging CIR_Wrapper with older str.format code.
+    def comp_cir(self, e, prec=op_prec["."]) -> str:
         env = self.env
         if isinstance(e, CIR.Read):
             return env[e.name]
@@ -1083,10 +1087,8 @@ class Compiler:
             return f"{arg}.{e.attr}"
         elif isinstance(e, CIR.Verbatim):
             # As promised, we add parentheses.
-            text = e.code
-            if prec > 0 and not all(c == "_" or c == "." or c.isalnum() for c in text):
-                text = f"({text})"
-            return text
+            # 2026-02-03: this used to be conditional, but why take a chance?
+            return f"({e.code})"
         else:
             assert False, "bad case!"
 
@@ -1110,7 +1112,7 @@ class Compiler:
             code = f"*({code})"
         return code
 
-    def shape_strs(self, shape, prec=100) -> str:
+    def shape_strs(self, shape, prec=op_prec["."]) -> str:
         comp_res = [
             self.comp_cir(simplify_cir(lift_to_cir(i, self.range_env)), prec)
             for i in shape

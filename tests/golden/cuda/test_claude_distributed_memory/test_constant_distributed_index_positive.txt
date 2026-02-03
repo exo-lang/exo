@@ -149,12 +149,12 @@ struct exo_CudaDeviceArgs0_test_proc
 
 // )
 void test_proc( void *ctxt ) {
-{
-  struct exo_CudaDeviceArgs0_test_proc exo_deviceArgs = {
-    exo_excut_get_device_log()
-  };
-  exo_cudaLaunch0_test_proc(exo_cudaStream, &exo_deviceArgs);
-}
+  {
+    struct exo_CudaDeviceArgs0_test_proc exo_deviceArgs = {
+      exo_excut_get_device_log()
+    };
+    exo_cudaLaunch0_test_proc(exo_cudaStream, &exo_deviceArgs);
+  }
 }
 
 

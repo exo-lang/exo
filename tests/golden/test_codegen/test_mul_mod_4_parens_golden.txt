@@ -69,7 +69,7 @@ void mul_mod_parens_proc( void *ctxt, float* x, int_fast32_t cw );
 void mul_mod_parens_proc( void *ctxt, float* x, int_fast32_t cw ) {
   EXO_ASSUME(cw >= 0);
   EXO_ASSUME(cw < 10);
-  x[64 * (cw & 3)] = 1.0f;
-  x[64 * (cw >> 2) + 12] = 2.0f;
+  x[(64 * (cw & 3))] = 1.0f;
+  x[(64 * (cw >> 2) + 12)] = 2.0f;
 }
 

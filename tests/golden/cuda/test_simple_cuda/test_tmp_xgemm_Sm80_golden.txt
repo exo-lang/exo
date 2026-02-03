@@ -641,7 +641,7 @@ exo_CudaInline_test_tmp_xgemm_Sm80_golden::exo_Cuda0_xgemm_Sm80_fence::exo_devic
   namespace exo_CudaUtil = exo_CudaUtil_test_tmp_xgemm_Sm80_golden;
   // cuda_threads(0, 32, unit=cuda_thread)
   if ([[maybe_unused]] int exo_1thr_k_seq = threadIdx.x; 1) {
-    exo_CudaUtil::gemm_init_pcg3d_mod(exo_deviceArgs.K, &exo_deviceArgs.A[(exo_task.m) * (exo_deviceArgs.K) + exo_1thr_k_seq + 32 * exo_task.k_task], exo_task.m, (exo_1thr_k_seq + 32 * exo_task.k_task), 1337, 5);
+    exo_CudaUtil::gemm_init_pcg3d_mod(exo_deviceArgs.K, &exo_deviceArgs.A[exo_task.m * exo_deviceArgs.K + (exo_1thr_k_seq + 32 * exo_task.k_task)], exo_task.m, (exo_1thr_k_seq + 32 * exo_task.k_task), 1337, 5);
   }
 }
 __device__ __forceinline__ void
@@ -823,7 +823,7 @@ exo_CudaInline_test_tmp_xgemm_Sm80_golden::exo_Cuda1_xgemm_Sm80_fence::exo_devic
   namespace exo_CudaUtil = exo_CudaUtil_test_tmp_xgemm_Sm80_golden;
   // cuda_threads(0, 32, unit=cuda_thread)
   if ([[maybe_unused]] int exo_1thr_k_seq = threadIdx.x; 1) {
-    exo_CudaUtil::gemm_init_pcg3d_mod(exo_deviceArgs.N, &exo_deviceArgs.B[(exo_1thr_k_seq + 32 * exo_task.k_task) * (exo_deviceArgs.N) + exo_task.n], (exo_1thr_k_seq + 32 * exo_task.k_task), exo_task.n, 42, 3);
+    exo_CudaUtil::gemm_init_pcg3d_mod(exo_deviceArgs.N, &exo_deviceArgs.B[(exo_1thr_k_seq + 32 * exo_task.k_task) * exo_deviceArgs.N + exo_task.n], (exo_1thr_k_seq + 32 * exo_task.k_task), exo_task.n, 42, 3);
   }
 }
 __device__ __forceinline__ void
@@ -1034,12 +1034,12 @@ exo_CudaInline_test_tmp_xgemm_Sm80_golden::exo_Cuda2_xgemm_Sm80_fence::exo_devic
             asm volatile(
               "cp.async.cg.shared.global [%0], [%1], 16;"
                 :
-                :"r"(exo_smemU32((&A_smem[(k1 & 1) * (3072) + (exo_4thr_m0 + 64 * m1) * (16) + 4 * exo_1thr_k0]))),
-                "l"((&exo_deviceArgs.A[(exo_4thr_m0 + 64 * m1 + 192 * exo_task.m2) * (exo_deviceArgs.K) + 4 * exo_1thr_k0 + 16 * k1]))
+                :"r"(exo_smemU32((&A_smem[(k1 & 1) * 3072 + (exo_4thr_m0 + 64 * m1) * 16 + (4 * exo_1thr_k0)]))),
+                "l"((&exo_deviceArgs.A[(exo_4thr_m0 + 64 * m1 + 192 * exo_task.m2) * exo_deviceArgs.K + (4 * exo_1thr_k0 + 16 * k1)]))
             );
             exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_cg_shared_global), 0, __LINE__);
-            exo_excutLog.log_u32_arg(exo_smemU32((&A_smem[(k1 & 1) * (3072) + (exo_4thr_m0 + 64 * m1) * (16) + 4 * exo_1thr_k0])));
-            exo_excutLog.log_ptr_arg((&exo_deviceArgs.A[(exo_4thr_m0 + 64 * m1 + 192 * exo_task.m2) * (exo_deviceArgs.K) + 4 * exo_1thr_k0 + 16 * k1]));
+            exo_excutLog.log_u32_arg(exo_smemU32((&A_smem[(k1 & 1) * 3072 + (exo_4thr_m0 + 64 * m1) * 16 + (4 * exo_1thr_k0)])));
+            exo_excutLog.log_ptr_arg((&exo_deviceArgs.A[(exo_4thr_m0 + 64 * m1 + 192 * exo_task.m2) * exo_deviceArgs.K + (4 * exo_1thr_k0 + 16 * k1)]));
             exo_excutLog.log_u32_arg(static_cast<uint32_t>(16));
           }
         }
@@ -1052,12 +1052,12 @@ exo_CudaInline_test_tmp_xgemm_Sm80_golden::exo_Cuda2_xgemm_Sm80_fence::exo_devic
             asm volatile(
               "cp.async.cg.shared.global [%0], [%1], 16;"
                 :
-                :"r"(exo_smemU32((&B_smem[(k1 & 1) * (4096) + (exo_64thr_k0_par + 4 * k0_seq) * (256) + 4 * exo_1thr_n0]))),
-                "l"((&exo_deviceArgs.B[(exo_64thr_k0_par + 4 * k0_seq + 16 * k1) * (exo_deviceArgs.N) + 4 * exo_1thr_n0 + 256 * exo_task.n2]))
+                :"r"(exo_smemU32((&B_smem[(k1 & 1) * 4096 + (exo_64thr_k0_par + 4 * k0_seq) * 256 + (4 * exo_1thr_n0)]))),
+                "l"((&exo_deviceArgs.B[(exo_64thr_k0_par + 4 * k0_seq + 16 * k1) * exo_deviceArgs.N + (4 * exo_1thr_n0 + 256 * exo_task.n2)]))
             );
             exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_cg_shared_global), 0, __LINE__);
-            exo_excutLog.log_u32_arg(exo_smemU32((&B_smem[(k1 & 1) * (4096) + (exo_64thr_k0_par + 4 * k0_seq) * (256) + 4 * exo_1thr_n0])));
-            exo_excutLog.log_ptr_arg((&exo_deviceArgs.B[(exo_64thr_k0_par + 4 * k0_seq + 16 * k1) * (exo_deviceArgs.N) + 4 * exo_1thr_n0 + 256 * exo_task.n2]));
+            exo_excutLog.log_u32_arg(exo_smemU32((&B_smem[(k1 & 1) * 4096 + (exo_64thr_k0_par + 4 * k0_seq) * 256 + (4 * exo_1thr_n0)])));
+            exo_excutLog.log_ptr_arg((&exo_deviceArgs.B[(exo_64thr_k0_par + 4 * k0_seq + 16 * k1) * exo_deviceArgs.N + (4 * exo_1thr_n0 + 256 * exo_task.n2)]));
             exo_excutLog.log_u32_arg(static_cast<uint32_t>(16));
           }
         }
@@ -1077,8 +1077,8 @@ exo_CudaInline_test_tmp_xgemm_Sm80_golden::exo_Cuda2_xgemm_Sm80_fence::exo_devic
                 const unsigned exo_lane = threadIdx.x % 32;
                 const unsigned exo_mn = exo_lane / 4;
                 const unsigned exo_k = exo_lane % 4;
-                B_rmem[k_seq][n_seq][0] = B_smem[(1 - (k1 & 1)) * (4096) + (8 * k_seq + (exo_k + 0)) * (256) + 8 * n_seq + 64 * exo_32thr_nw + (exo_mn + 0)];
-                B_rmem[k_seq][n_seq][1] = B_smem[(1 - (k1 & 1)) * (4096) + (8 * k_seq + (exo_k + 4)) * (256) + 8 * n_seq + 64 * exo_32thr_nw + (exo_mn + 0)];
+                B_rmem[k_seq][n_seq][0] = B_smem[(1 - (k1 & 1)) * 4096 + (8 * k_seq + (exo_k + 0)) * 256 + (8 * n_seq + 64 * exo_32thr_nw + (exo_mn + 0))];
+                B_rmem[k_seq][n_seq][1] = B_smem[(1 - (k1 & 1)) * 4096 + (8 * k_seq + (exo_k + 4)) * 256 + (8 * n_seq + 64 * exo_32thr_nw + (exo_mn + 0))];
               }
             }
           }
@@ -1091,10 +1091,10 @@ exo_CudaInline_test_tmp_xgemm_Sm80_golden::exo_Cuda2_xgemm_Sm80_fence::exo_devic
                 const unsigned exo_lane = threadIdx.x % 32;
                 const unsigned exo_mn = exo_lane / 4;
                 const unsigned exo_k = exo_lane % 4;
-                A_rmem[k_seq][0] = A_smem[(1 - (k1 & 1)) * (3072) + (16 * m_seq + 96 * exo_128thr_mw + (exo_mn + 0)) * (16) + 8 * k_seq + (exo_k + 0)];
-                A_rmem[k_seq][1] = A_smem[(1 - (k1 & 1)) * (3072) + (16 * m_seq + 96 * exo_128thr_mw + (exo_mn + 8)) * (16) + 8 * k_seq + (exo_k + 0)];
-                A_rmem[k_seq][2] = A_smem[(1 - (k1 & 1)) * (3072) + (16 * m_seq + 96 * exo_128thr_mw + (exo_mn + 0)) * (16) + 8 * k_seq + (exo_k + 4)];
-                A_rmem[k_seq][3] = A_smem[(1 - (k1 & 1)) * (3072) + (16 * m_seq + 96 * exo_128thr_mw + (exo_mn + 8)) * (16) + 8 * k_seq + (exo_k + 4)];
+                A_rmem[k_seq][0] = A_smem[(1 - (k1 & 1)) * 3072 + (16 * m_seq + 96 * exo_128thr_mw + (exo_mn + 0)) * 16 + (8 * k_seq + (exo_k + 0))];
+                A_rmem[k_seq][1] = A_smem[(1 - (k1 & 1)) * 3072 + (16 * m_seq + 96 * exo_128thr_mw + (exo_mn + 8)) * 16 + (8 * k_seq + (exo_k + 0))];
+                A_rmem[k_seq][2] = A_smem[(1 - (k1 & 1)) * 3072 + (16 * m_seq + 96 * exo_128thr_mw + (exo_mn + 0)) * 16 + (8 * k_seq + (exo_k + 4))];
+                A_rmem[k_seq][3] = A_smem[(1 - (k1 & 1)) * 3072 + (16 * m_seq + 96 * exo_128thr_mw + (exo_mn + 8)) * 16 + (8 * k_seq + (exo_k + 4))];
               }
             }
             #pragma unroll
@@ -1138,10 +1138,10 @@ exo_CudaInline_test_tmp_xgemm_Sm80_golden::exo_Cuda2_xgemm_Sm80_fence::exo_devic
             const unsigned exo_lane = threadIdx.x % 32;
             const unsigned exo_m = exo_lane / 4;
             const unsigned exo_n = (exo_lane % 4) * 2;
-            exo_deviceArgs.C[(16 * m_seq + 96 * exo_128thr_mw + 192 * exo_task.m2 + (exo_m + 0)) * (exo_deviceArgs.N) + 8 * n_seq + 64 * exo_32thr_nw + 256 * exo_task.n2 + (exo_n + 0)] = D_rmem[m_seq][n_seq][0];
-            exo_deviceArgs.C[(16 * m_seq + 96 * exo_128thr_mw + 192 * exo_task.m2 + (exo_m + 0)) * (exo_deviceArgs.N) + 8 * n_seq + 64 * exo_32thr_nw + 256 * exo_task.n2 + (exo_n + 1)] = D_rmem[m_seq][n_seq][1];
-            exo_deviceArgs.C[(16 * m_seq + 96 * exo_128thr_mw + 192 * exo_task.m2 + (exo_m + 8)) * (exo_deviceArgs.N) + 8 * n_seq + 64 * exo_32thr_nw + 256 * exo_task.n2 + (exo_n + 0)] = D_rmem[m_seq][n_seq][2];
-            exo_deviceArgs.C[(16 * m_seq + 96 * exo_128thr_mw + 192 * exo_task.m2 + (exo_m + 8)) * (exo_deviceArgs.N) + 8 * n_seq + 64 * exo_32thr_nw + 256 * exo_task.n2 + (exo_n + 1)] = D_rmem[m_seq][n_seq][3];
+            exo_deviceArgs.C[(16 * m_seq + 96 * exo_128thr_mw + 192 * exo_task.m2 + (exo_m + 0)) * exo_deviceArgs.N + (8 * n_seq + 64 * exo_32thr_nw + 256 * exo_task.n2 + (exo_n + 0))] = D_rmem[m_seq][n_seq][0];
+            exo_deviceArgs.C[(16 * m_seq + 96 * exo_128thr_mw + 192 * exo_task.m2 + (exo_m + 0)) * exo_deviceArgs.N + (8 * n_seq + 64 * exo_32thr_nw + 256 * exo_task.n2 + (exo_n + 1))] = D_rmem[m_seq][n_seq][1];
+            exo_deviceArgs.C[(16 * m_seq + 96 * exo_128thr_mw + 192 * exo_task.m2 + (exo_m + 8)) * exo_deviceArgs.N + (8 * n_seq + 64 * exo_32thr_nw + 256 * exo_task.n2 + (exo_n + 0))] = D_rmem[m_seq][n_seq][2];
+            exo_deviceArgs.C[(16 * m_seq + 96 * exo_128thr_mw + 192 * exo_task.m2 + (exo_m + 8)) * exo_deviceArgs.N + (8 * n_seq + 64 * exo_32thr_nw + 256 * exo_task.n2 + (exo_n + 1))] = D_rmem[m_seq][n_seq][3];
           }
         }
       }
