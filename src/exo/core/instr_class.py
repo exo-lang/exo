@@ -176,8 +176,26 @@ def old_style_instr_info(proc: LoopIR.proc, c_instr: str, c_global: str):
     return info
 
 
+class ProcCallGen:
+    __slots__ = []
+
+    def ProcCallGen_behavior(self) -> LoopIR.proc:
+        raise NotImplementedError
+
+    def ProcCallGen_make_call(self, args: List[LoopIR.expr], srcinfo) -> LoopIR.Call:
+        raise NotImplementedError
+
+
+class InstrTemplateBase(ProcCallGen):
+    __slots__ = []
+
+    def partial(self, **tparam_dict):
+        """Partial evaluation"""
+        return PartialInstrTemplate(self, tparam_dict)
+
+
 @dataclass(slots=True)
-class InstrTemplate:
+class InstrTemplate(InstrTemplateBase):
     """Templatized instruction -- call operator yields Procedure instr"""
 
     # Avoid circular modules: proc -> Procedure
@@ -258,6 +276,7 @@ class InstrTemplate:
         self.cache = {}
 
     def __call__(self, **tparam_dict):
+        # NB see also partial(...)
         # Try to get cached result
         tparam_values = self._tparam_values(**tparam_dict)
         procedure = self.cache.get(tparam_values)
@@ -438,6 +457,74 @@ class InstrTemplate:
         info._formatted_tparam_kwargs = self._format_tparam_kwargs(
             self._tparam_values(**tparam_dict)
         )
+
+    def ProcCallGen_behavior(self) -> LoopIR.proc:
+        return self.tproc
+
+    def ProcCallGen_make_call(
+        self, args: List[LoopIR.expr], srcinfo, partial_tparams: dict = {}
+    ) -> LoopIR.Call:
+        """Callback from LoopIR unification.
+
+        The unification wants to call the behavior function with the given arguments.
+        We need to filter the arguments into template and non-template parameters,
+        instantiate a real proc with the template parameters, and generate
+        a call stmt using the real proc and the non-template parameters.
+
+        """
+        clsname = self.info_cls.__name__
+        tproc = self.tproc
+        assert len(args) == len(tproc.args)
+
+        # Separate destinations for template and non-template parameters.
+        # The None(s) will be replaced soon.
+        tparam_dict = {str(nm): None for nm in self.proc_tparam_syms}
+        call_args = []
+        for a, fa in zip(args, tproc.args):
+            strnm = str(fa.name)
+            if strnm in tparam_dict:
+                # TODO not sure if Unification will generate stuff like `2 + 0`
+                if not isinstance(a, LoopIR.Const):
+                    InstrTemplateError(
+                        f"{clsname}: non-constant template parameter {strnm}={a}"
+                    )
+                tparam_dict[strnm] = a.val
+            else:
+                call_args.append(a)
+
+        # Add in the template parameters given by the user.
+        for k, v in partial_tparams.items():
+            real_value = tparam_dict.get(k, v)
+            # fmt: off
+            assert v == real_value, f"{clsname}: deduced {k}={real_value} mismatches InstrTemplate.partial({k}={v})"
+            tparam_dict[k] = real_value
+
+        # Generate Call
+        api_proc = self(**tparam_dict)
+        call_proc = api_proc.ProcCallGen_behavior()
+        assert len(call_proc.args) == len(call_args)
+        return LoopIR.Call(call_proc, call_args, None, srcinfo)
+
+
+# Note, we don't use functools.partial because the LoopIR
+# unification needs the ProcCallGen base class to work.
+@dataclass(slots=True)
+class PartialInstrTemplate(InstrTemplateBase):
+    _from: InstrTemplateBase
+    _partial_tparams: dict
+
+    def __call__(self, **tparam_dict):
+        merged = self._partial_tparams | tparam_dict
+        return self._from(**merged)
+
+    def ProcCallGen_behavior(self) -> LoopIR.proc:
+        return self._from.ProcCallGen_behavior()
+
+    def ProcCallGen_make_call(
+        self, args: List[LoopIR.expr], srcinfo, partial_tparams: dict = {}
+    ) -> LoopIR.Call:
+        merged = self._partial_tparams | partial_tparams
+        return self._from.ProcCallGen_make_call(args, srcinfo, merged)
 
 
 @dataclass(slots=True)

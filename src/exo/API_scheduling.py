@@ -15,7 +15,7 @@ from .API_types import ExoType
 
 from .rewrite.LoopIR_unification import DoReplace, UnificationError
 from .core.configs import Config
-from .core.instr_class import old_style_instr_info
+from .core.instr_class import old_style_instr_info, InstrTemplate, ProcCallGen
 from .core.memory import Memory, SpecialWindow, AllocableMemWin, BarrierMechanism
 from .frontend.parse_fragment import parse_fragment
 from .core.prelude import *
@@ -150,6 +150,13 @@ class ProcA(ArgumentProcessor):
     def __call__(self, proc, all_args):
         if not isinstance(proc, Procedure):
             self.err("expected a Procedure object")
+        return proc
+
+
+class ProcCallGenA(ArgumentProcessor):
+    def __call__(self, proc, all_args):
+        if not isinstance(proc, ProcCallGen):
+            self.err("expected a Procedure or InstrTemplate object")
         return proc
 
 
@@ -1275,7 +1282,7 @@ def inline(proc, call_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([BlockCursorA, ProcA, BoolA])
+@sched_op([BlockCursorA, ProcCallGenA, BoolA])
 def replace(proc, block_cursor, subproc, quiet=False):
     """
     Attempt to match the supplied `subproc` against the supplied
@@ -1285,12 +1292,16 @@ def replace(proc, block_cursor, subproc, quiet=False):
     args:
         block_cursor    - Cursor or pattern pointing to block of statements
         subproc         - Procedure object to replace this block with a
-                          call to
+                          call to, or InstrTemplate (instr class).
         quiet           - (bool) control how much this operation prints
                           out debug info
+
+    If an InstrTemplate is given, Exo will try its best to deduce constant
+    values for all template parameters (this is experimental).
+    If it fails, pass InstrTemplate.partial(foo=bar) for failed values foo.
     """
     try:
-        ir, fwd = DoReplace(subproc._loopir_proc, block_cursor._impl)
+        ir, fwd = DoReplace(subproc, block_cursor._impl)
         return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
     except UnificationError:
         if quiet:
