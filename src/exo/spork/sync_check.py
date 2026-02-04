@@ -21,12 +21,19 @@ from .async_config import BaseAsyncConfig, CudaDeviceFunction
 from .base_with_context import is_if_holding_with
 from .coll_algebra import CollTiling, CollDim, CollDimOp, CollDimExpectation, CollParam
 from .coll_analysis import CollAnalysis
-from . import camspork
 from .distributed_memory import ThreadIter
 from .loop_modes import Seq, CudaTasks, cuda_tasks, _CodegenPar, CudaThreads
 from .sync_types import SyncType
 from .timelines import DeviceScope, Instr_tl, Qual_tl, Sync_tl
 from . import timelines
+
+try:
+    import camspork
+except ImportError as e:
+    raise ImportError(
+        "For sync_check, \x1b[35m\x1b[1mplease install:\x1b[0m "
+        "https://github.com/exo-lang/exo/tree/main/camspork"
+    ) from e
 
 
 """

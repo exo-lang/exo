@@ -1,0 +1,13 @@
+libcamspork/bin/
+
+*.so
+venv/
+dist/
+
+*.egg-info/
+src/*.egg-info/
+
+build
+
+.ninja_log
+compile_commands.json

@@ -5,7 +5,7 @@ from typing import Callable, Dict, List, Tuple, Optional
 
 from .polyglot_camspork_version import lib_version as _need_lib_version
 
-lib = cdll.LoadLibrary(os.path.join(os.path.split(__file__)[0], "bin/libcamspork.so"))
+lib = cdll.LoadLibrary(os.path.join(os.path.split(__file__)[0], "libcamspork.so"))
 extent_t = c_uint32
 value_t = c_int32
 

@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "camspork"
+version = "0.1.0"
+description = 'C++ abstract machine ("spork") interpreter for Exo-GPU'
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    {name = "David Zhao Akeley", email = "akeley98@mit.edu"}
+]
+classifiers = [
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: C++",
+]
+
+[project.urls]
+Homepage = "https://github.com/exo-lang/exo"
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,3 @@
+include README.md
+include LICENSE
+recursive-include libcamspork/ *.cpp *.c *.h *.hpp *.cuh *.cu *.so *.dylib *.dll

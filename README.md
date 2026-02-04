@@ -58,6 +58,8 @@ Finally, you can build and install Exo.
 (exo) $ pip install dist/*.whl
 ```
 
+If you are using Exo-GPU `sync_check` functionality, you need to enter the `camspork` directory and follow the brief installation instructions there as well.
+
 ## PySMT
 
 Depending on your setup, getting PySMT to work correctly may be difficult. You
