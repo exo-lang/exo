@@ -183,7 +183,11 @@ class ScalarInfo:
         if isinstance(arg, (LoopIR.type, UAST.type)):
             return _scalar_info_dict[type(arg)]
 
-        assert 0, "Expect str, ScalarInfo, or ExoType"  # or internal LoopIR or UAST
+        raise TypeError("Expect str, ScalarInfo, or ExoType")
+        # or internal LoopIR or UAST
+
+    def __repr__(self):
+        return self.shorthand
 
     def __eq__(self, other):
         return self is other
@@ -232,6 +236,29 @@ class ScalarInfo:
         def scalar_info(t):
             return info
 
+        return info
+
     @staticmethod
     def get_scalar_names() -> _List[str]:
         return sorted(s for s in _scalar_info_dict if isinstance(s, str))
+
+    def get_scale_bytes_suffix(self):
+        bits = self.bits
+        if bits == 4:
+            return " / 2"
+        elif bits == 8:
+            return ""
+        else:
+            assert bits % 8 == 0
+            return " * " + str(bits // 8)
+
+    class same:
+        __slots__ = []
+
+        def __contains__(self, tup):
+            t0 = tup[0]
+            assert isinstance(t0, ScalarInfo)
+            return all(t == t0 for t in tup)
+
+        def __str__(self):
+            return "tuple of identical types"

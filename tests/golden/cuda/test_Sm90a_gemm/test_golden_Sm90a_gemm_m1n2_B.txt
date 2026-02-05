@@ -507,24 +507,39 @@ void cpu_gemm_wrapper( void *ctxt, int_fast32_t L, int_fast32_t M, int_fast32_t 
   float *d_A = (float*) exo_cudaMallocAsync(L * M * K_split * cluster_K * sizeof(*d_A), exo_cudaStream);
   float *d_B = (float*) exo_cudaMallocAsync(L * N * K_split * cluster_K * sizeof(*d_B), exo_cudaStream);
   float *d_C = (float*) exo_cudaMallocAsync(L * N * M * sizeof(*d_C), exo_cudaStream);
-  cudaMemcpyAsync(&d_A[0], &A[0], 4 * L * M * K_split * cluster_K, cudaMemcpyHostToDevice, exo_cudaStream);
-  cudaMemcpyAsync(&d_B[0], &B[0], 4 * L * N * K_split * cluster_K, cudaMemcpyHostToDevice, exo_cudaStream);
+  cudaMemcpyAsync(
+    (&d_A[0]),
+    (&A[0]),
+    L * M * K_split * cluster_K * 4,
+    cudaMemcpyHostToDevice,
+    exo_cudaStream);
+  cudaMemcpyAsync(
+    (&d_B[0]),
+    (&B[0]),
+    L * N * K_split * cluster_K * 4,
+    cudaMemcpyHostToDevice,
+    exo_cudaStream);
   xgemm_Sm90a_r4_m1n2_m256n192_rmemC(ctxt, L, M, N, K_split, cluster_K, d_A, d_B, d_C);
   exo_cudaFreeAsync(d_B, exo_cudaStream);
   exo_cudaFreeAsync(d_A, exo_cudaStream);
-  cudaMemcpyAsync(&C[0], &d_C[0], 4 * L * N * M, cudaMemcpyDeviceToHost, exo_cudaStream);
+  cudaMemcpyAsync(
+    (&C[0]),
+    (&d_C[0]),
+    L * N * M * 4,
+    cudaMemcpyDeviceToHost,
+    exo_cudaStream);
   exo_cudaFreeAsync(d_C, exo_cudaStream);
 }
 
 
 /* relying on the following instruction..."
-cudaMemcpyAsync_dtoh_3f32(L,M,N,dst,src)
-cudaMemcpyAsync(&{dst_data}, &{src_data}, 4 * {L} * {M} * {N}, cudaMemcpyDeviceToHost, exo_cudaStream);
+cudaMemcpyAsync_dtoh_3d(size0,size1,size2,dst,src,dst=f32, src=f32)
+
 */
 
 /* relying on the following instruction..."
-cudaMemcpyAsync_htod_4f32(L,M,N,K,dst,src)
-cudaMemcpyAsync(&{dst_data}, &{src_data}, 4 * {L} * {M} * {N} * {K}, cudaMemcpyHostToDevice, exo_cudaStream);
+cudaMemcpyAsync_htod_4d(size0,size1,size2,size3,dst,src,dst=f32, src=f32)
+
 */
 // xgemm_Sm90a_r4_m1n2_m256n192_rmemC(
 //     L : size,

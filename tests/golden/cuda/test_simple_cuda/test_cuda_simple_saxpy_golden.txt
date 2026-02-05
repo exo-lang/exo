@@ -216,13 +216,13 @@ struct exo_CudaDeviceArgs0_saxpy
 
 
 /* relying on the following instruction..."
-cudaMemcpyAsync_dtoh_1f32(n,dst,src)
-cudaMemcpyAsync(&{dst_data}, &{src_data}, 4 * {n}, cudaMemcpyDeviceToHost, exo_cudaStream);
+cudaMemcpyAsync_dtoh_1d(size0,dst,src,dst=f32, src=f32)
+
 */
 
 /* relying on the following instruction..."
-cudaMemcpyAsync_htod_1f32(n,dst,src)
-cudaMemcpyAsync(&{dst_data}, &{src_data}, 4 * {n}, cudaMemcpyHostToDevice, exo_cudaStream);
+cudaMemcpyAsync_htod_1d(size0,dst,src,dst=f32, src=f32)
+
 */
 // saxpy(
 //     n : size,
@@ -236,8 +236,18 @@ void saxpy( void *ctxt, int_fast32_t n, const float* a, float* y, const float* x
   float *device_y = (float*) exo_cudaMallocAsync(n * sizeof(*device_y), exo_cudaStream);
   float device_a;
   device_a = a[0];
-  cudaMemcpyAsync(&device_x[0], &x[0], 4 * n, cudaMemcpyHostToDevice, exo_cudaStream);
-  cudaMemcpyAsync(&device_y[0], &y[0], 4 * n, cudaMemcpyHostToDevice, exo_cudaStream);
+  cudaMemcpyAsync(
+    (&device_x[0]),
+    (&x[0]),
+    n * 4,
+    cudaMemcpyHostToDevice,
+    exo_cudaStream);
+  cudaMemcpyAsync(
+    (&device_y[0]),
+    (&y[0]),
+    n * 4,
+    cudaMemcpyHostToDevice,
+    exo_cudaStream);
   {
     struct exo_CudaDeviceArgs0_saxpy exo_deviceArgs = {
       n, device_x, device_y, device_a, exo_excut_get_device_log()
@@ -245,7 +255,12 @@ void saxpy( void *ctxt, int_fast32_t n, const float* a, float* y, const float* x
     exo_cudaLaunch0_saxpy(exo_cudaStream, &exo_deviceArgs);
   }
   exo_cudaFreeAsync(device_x, exo_cudaStream);
-  cudaMemcpyAsync(&y[0], &device_y[0], 4 * n, cudaMemcpyDeviceToHost, exo_cudaStream);
+  cudaMemcpyAsync(
+    (&y[0]),
+    (&device_y[0]),
+    n * 4,
+    cudaMemcpyDeviceToHost,
+    exo_cudaStream);
   exo_cudaFreeAsync(device_y, exo_cudaStream);
 }
 

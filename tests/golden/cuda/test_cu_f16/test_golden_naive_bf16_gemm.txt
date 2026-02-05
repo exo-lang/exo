@@ -335,22 +335,22 @@ struct exo_CudaDeviceArgs0_f16_naive_gemm_bf16_bf16_f32
 
 
 /* relying on the following instruction..."
-cudaMemcpyAsync_dtoh_2f32(M,N,dst,src)
-cudaMemcpyAsync(&{dst_data}, &{src_data}, 4 * {M} * {N}, cudaMemcpyDeviceToHost, exo_cudaStream);
-*/
-
-/* relying on the following instruction..."
-cudaMemcpyAsync_htod_2bf16(M,N,dst,src)
-cudaMemcpyAsync(&{dst_data}, &{src_data}, 2 * {M} * {N}, cudaMemcpyHostToDevice, exo_cudaStream);
-*/
-
-/* relying on the following instruction..."
-cuda_packed_load_bf16(dst,src)
+cudaMemcpyAsync_dtoh_2d(size0,size1,dst,src,dst=f32, src=f32)
 
 */
 
 /* relying on the following instruction..."
-cuda_packed_store_bf16(dst,src)
+cudaMemcpyAsync_htod_2d(size0,size1,dst,src,dst=bf16, src=bf16)
+
+*/
+
+/* relying on the following instruction..."
+cuda_packed32_load(dst,src,dst=bf16, src=bf16, pack=2)
+
+*/
+
+/* relying on the following instruction..."
+cuda_packed32_store(dst,src,dst=bf16, src=bf16, pack=2)
 
 */
 // f16_naive_gemm_bf16_bf16_f32(
@@ -368,8 +368,18 @@ void f16_naive_gemm_bf16_bf16_f32( void *ctxt, int_fast32_t M, int_fast32_t N, i
   exo_bf16 *d_A = (exo_bf16*) exo_cudaMallocAsync(M * K * sizeof(*d_A), exo_cudaStream);
   exo_bf16 *d_B = (exo_bf16*) exo_cudaMallocAsync(N * K * sizeof(*d_B), exo_cudaStream);
   float *d_C = (float*) exo_cudaMallocAsync(N * M * sizeof(*d_C), exo_cudaStream);
-  cudaMemcpyAsync(&d_A[0], &h_A[0], 2 * M * K, cudaMemcpyHostToDevice, exo_cudaStream);
-  cudaMemcpyAsync(&d_B[0], &h_B[0], 2 * N * K, cudaMemcpyHostToDevice, exo_cudaStream);
+  cudaMemcpyAsync(
+    (&d_A[0]),
+    (&h_A[0]),
+    M * K * 2,
+    cudaMemcpyHostToDevice,
+    exo_cudaStream);
+  cudaMemcpyAsync(
+    (&d_B[0]),
+    (&h_B[0]),
+    N * K * 2,
+    cudaMemcpyHostToDevice,
+    exo_cudaStream);
   {
     struct exo_CudaDeviceArgs0_f16_naive_gemm_bf16_bf16_f32 exo_deviceArgs = {
       M, N, K, d_A, d_B, d_C, exo_excut_get_device_log()
@@ -378,7 +388,12 @@ void f16_naive_gemm_bf16_bf16_f32( void *ctxt, int_fast32_t M, int_fast32_t N, i
   }
   exo_cudaFreeAsync(d_B, exo_cudaStream);
   exo_cudaFreeAsync(d_A, exo_cudaStream);
-  cudaMemcpyAsync(&h_C[0], &d_C[0], 4 * N * M, cudaMemcpyDeviceToHost, exo_cudaStream);
+  cudaMemcpyAsync(
+    (&h_C[0]),
+    (&d_C[0]),
+    N * M * 4,
+    cudaMemcpyDeviceToHost,
+    exo_cudaStream);
   exo_cudaFreeAsync(d_C, exo_cudaStream);
 }
 

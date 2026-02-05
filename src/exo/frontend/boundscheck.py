@@ -792,7 +792,7 @@ class CheckBounds:
                 elif expr.lhs.type.is_stridable() and expr.rhs.type.is_stridable():
                     return SMT.Equals(lhs, rhs)
                 else:
-                    assert False, "bad case"
+                    assert False, f"bad case {expr!r}"
             elif expr.op == "and":
                 return SMT.And(lhs, rhs)
             elif expr.op == "or":

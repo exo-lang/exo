@@ -1,0 +1,4 @@
+# Public, optional exo.scalars module.
+# Defines f16, f32, etc. objects of ScalarInfo type.
+
+from .core.LoopIR import ScalarInfo, bf16, f16, f32, f64, i8, ui8, ui16, i32

@@ -332,13 +332,13 @@ Sm90_copy_tensor_to_smem_linear_2f32(dst,src,size0=248, size1=32, smem_box=None)
 */
 
 /* relying on the following instruction..."
-cudaMemcpyAsync_dtoh_2f32(M,N,dst,src)
-cudaMemcpyAsync(&{dst_data}, &{src_data}, 4 * {M} * {N}, cudaMemcpyDeviceToHost, exo_cudaStream);
+cudaMemcpyAsync_dtoh_2d(size0,size1,dst,src,dst=f32, src=f32)
+
 */
 
 /* relying on the following instruction..."
-cudaMemcpyAsync_htod_2f32(M,N,dst,src)
-cudaMemcpyAsync(&{dst_data}, &{src_data}, 4 * {M} * {N}, cudaMemcpyHostToDevice, exo_cudaStream);
+cudaMemcpyAsync_htod_2d(size0,size1,dst,src,dst=f32, src=f32)
+
 */
 // tma_tester_SW0(
 //     h_sum : f32[744, 128] @DRAM,
@@ -349,8 +349,18 @@ void tma_tester_SW0( void *ctxt, float* h_sum, const float* h_x, const float* h_
   float *d_x = (float*) exo_cudaMallocAsync(744 * 128 * sizeof(*d_x), exo_cudaStream);
   float *d_y = (float*) exo_cudaMallocAsync(744 * 128 * sizeof(*d_y), exo_cudaStream);
   float *d_sum = (float*) exo_cudaMallocAsync(744 * 128 * sizeof(*d_sum), exo_cudaStream);
-  cudaMemcpyAsync(&d_x[0], &h_x[0], 4 * 744 * 128, cudaMemcpyHostToDevice, exo_cudaStream);
-  cudaMemcpyAsync(&d_y[0], &h_y[0], 4 * 744 * 128, cudaMemcpyHostToDevice, exo_cudaStream);
+  cudaMemcpyAsync(
+    (&d_x[0]),
+    (&h_x[0]),
+    744 * 128 * 4,
+    cudaMemcpyHostToDevice,
+    exo_cudaStream);
+  cudaMemcpyAsync(
+    (&d_y[0]),
+    (&h_y[0]),
+    744 * 128 * 4,
+    cudaMemcpyHostToDevice,
+    exo_cudaStream);
   CUtensorMap exo_data_x_tensorMap = exo_win_2f32_Sm90_tensorMap_0_248_32_encode(&d_x[0], (exo_Sm90_CUtensorMap_2_strides){ {128, 1} }, (exo_Sm90_CUtensorMap_2_dim){ {744, 128} });
   struct exo_win_2f32_Sm90_tensorMap_0_248_32 x_tensorMap = (exo_win_2f32_Sm90_tensorMap_0_248_32) { {0, 0} };
   CUtensorMap exo_data_sum_tensorMap = exo_win_2f32_Sm90_tensorMap_0_248_32_encode(&d_sum[0], (exo_Sm90_CUtensorMap_2_strides){ {128, 1} }, (exo_Sm90_CUtensorMap_2_dim){ {744, 128} });
@@ -363,7 +373,12 @@ void tma_tester_SW0( void *ctxt, float* h_sum, const float* h_x, const float* h_
   }
   exo_cudaFreeAsync(d_y, exo_cudaStream);
   exo_cudaFreeAsync(d_x, exo_cudaStream);
-  cudaMemcpyAsync(&h_sum[0], &d_sum[0], 4 * 744 * 128, cudaMemcpyDeviceToHost, exo_cudaStream);
+  cudaMemcpyAsync(
+    (&h_sum[0]),
+    (&d_sum[0]),
+    744 * 128 * 4,
+    cudaMemcpyDeviceToHost,
+    exo_cudaStream);
   exo_cudaFreeAsync(d_sum, exo_cudaStream);
 }
 

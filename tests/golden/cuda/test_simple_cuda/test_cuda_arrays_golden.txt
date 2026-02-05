@@ -260,14 +260,19 @@ void array_test( void *ctxt, int_fast32_t exo_user_exo_ZZ0a, int_fast32_t exo_us
     };
     exo_cudaLaunch0_array_test(exo_cudaStream, &exo_deviceArgs);
   }
-  cudaMemcpyAsync(&exo_user_exo_ZZ2[0], &exo_user_exo_ZZ2_device[0], 4 * (exo_user_exo_ZZ0a + exo_user_exo_ZZ0b) * (exo_user_exo_ZZ1a + exo_user_exo_ZZ1b), cudaMemcpyDeviceToHost, exo_cudaStream);
+  cudaMemcpyAsync(
+    (&exo_user_exo_ZZ2[0]),
+    (&exo_user_exo_ZZ2_device[0]),
+    (exo_user_exo_ZZ0a + exo_user_exo_ZZ0b) * (exo_user_exo_ZZ1a + exo_user_exo_ZZ1b) * 4,
+    cudaMemcpyDeviceToHost,
+    exo_cudaStream);
   exo_cudaFreeAsync(exo_user_exo_ZZ2_device, exo_cudaStream);
 }
 
 
 /* relying on the following instruction..."
-cudaMemcpyAsync_dtoh_2i32(M,N,dst,src)
-cudaMemcpyAsync(&{dst_data}, &{src_data}, 4 * {M} * {N}, cudaMemcpyDeviceToHost, exo_cudaStream);
+cudaMemcpyAsync_dtoh_2d(size0,size1,dst,src,dst=i32, src=i32)
+
 */
 
 

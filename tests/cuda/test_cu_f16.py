@@ -10,7 +10,7 @@ from exo.platforms.cuda import *
 from exo.platforms.Sm80 import *
 from exo.platforms.Sm90 import *
 from exo.stdlib.scheduling import *
-
+from exo.scalars import *
 
 import random
 
@@ -146,30 +146,15 @@ def mkproc_naive_gemm(typA, typB, typC, sync_check=False):
     p = set_precision(p, "s_B", typB)
     p = set_precision(p, "tmp_B", typB)
     p = set_precision(p, "d_C", typC)
-    p = set_precision(p, "h_C", typC)  # Leave r_C as f32
+    p = set_precision(p, "h_C", typC)
+    # Leave r_C as f32
 
-    if typA == "f16":
-        memcpyA = cudaMemcpyAsync_htod_2f16()
-        ldA = cuda_packed_load_f16()
-        stA = cuda_packed_store_f16()
-    else:
-        memcpyA = cudaMemcpyAsync_htod_2bf16()
-        ldA = cuda_packed_load_bf16()
-        stA = cuda_packed_store_bf16()
-    if typB == "f16":
-        memcpyB = cudaMemcpyAsync_htod_2f16()
-        ldB = cuda_packed_load_f16()
-        stB = cuda_packed_store_f16()
-    else:
-        memcpyB = cudaMemcpyAsync_htod_2bf16()
-        ldB = cuda_packed_load_bf16()
-        stB = cuda_packed_store_bf16()
-    p = replace(p, p.find_loop("memcpy_m"), memcpyA)
-    p = replace(p, p.find_loop("memcpy_n"), memcpyB)
-    p = replace(p, p.find_loop("kB_ld_A"), ldA)
-    p = replace(p, p.find_loop("kB_ld_B"), ldB)
-    p = replace(p, p.find_loop("kB_st_A"), stA)
-    p = replace(p, p.find_loop("kB_st_B"), stB)
+    p = replace(p, p.find_loop("memcpy_m"), cudaMemcpyAsync_htod_2d)
+    p = replace(p, p.find_loop("memcpy_n"), cudaMemcpyAsync_htod_2d)
+    p = replace(p, p.find_loop("kB_ld_A"), cuda_packed32_load)
+    p = replace(p, p.find_loop("kB_ld_B"), cuda_packed32_load)
+    p = replace(p, p.find_loop("kB_st_A"), cuda_packed32_store)
+    p = replace(p, p.find_loop("kB_st_B"), cuda_packed32_store)
 
     p = rename(p, f"f16_naive_gemm_{typA}_{typB}_{typC}")
     p = simplify(p)
@@ -254,24 +239,17 @@ def test_run_naive_bf16_gemm(compiler_Sm80):
 
 def mkproc_vec_add(in_typ):
     if in_typ == "f16":
-        memcpy = cudaMemcpyAsync_htod_1f16()
-        ld = cuda_packed_load_f16()
         num_packed = 2
     elif in_typ == "bf16":
-        memcpy = cudaMemcpyAsync_htod_1bf16()
-        ld = cuda_packed_load_bf16()
         num_packed = 2
     elif in_typ == "f32":
-        memcpy = cudaMemcpyAsync_htod_1f32()
-        ld = cuda_packed_load_f32()
         num_packed = 1
     elif in_typ == "i32":
-        memcpy = cudaMemcpyAsync_htod_1i32()
-        ld = cuda_packed_load_i32()
         num_packed = 1
     else:
         assert 0, in_typ
 
+    memcpy = cudaMemcpyAsync_htod_1d
     task_size = 256 * num_packed
 
     @proc
@@ -316,8 +294,8 @@ def mkproc_vec_add(in_typ):
 
     p = replace(p, p.find_loop("d_x_init_n"), memcpy)
     p = replace(p, p.find_loop("d_y_init_n"), memcpy)
-    p = replace(p, p.find_loop("pack_ld_x"), ld)
-    p = replace(p, p.find_loop("pack_ld_y"), ld)
+    p = replace(p, p.find_loop("pack_ld_x"), cuda_packed32_load)
+    p = replace(p, p.find_loop("pack_ld_y"), cuda_packed32_load)
     p = rename(p, f"f16_test_vec_add_{in_typ}")
     p = simplify(p)
     return p
@@ -398,26 +376,31 @@ def test_run_vec_add_i32(compiler_Sm80):
 
 
 def mkproc_test_packed_store_global_f16(v: int):
+    my_f16 = f16
+
     @proc
-    def foo(h_dst: f16[64], h_src: f16[64]):
-        d_dst: f16[64] @ CudaGmemLinear
-        d_src: f16[64] @ CudaGmemLinear
-        cudaMemcpyAsync_htod_1f16(64, d_src[:], h_src[:])
+    def foo(h_dst: my_f16[64], h_src: f16[64]):
+        d_dst: my_f16[64] @ CudaGmemLinear
+        d_src: my_f16[64] @ CudaGmemLinear
+        cudaMemcpyAsync_htod_1d(64, d_src[:], h_src[:], dst=f16, src=f16)
         with CudaDeviceFunction(blockDim=32):
             for task in cuda_tasks(0, 1):
                 rmem: f16[64 / v / 2, v, 2] @ CudaRmemPacked32
                 for tid in cuda_threads(0, 64 / v / 2):
                     for i in seq(0, v):
-                        cuda_packed_load_f16(
+                        cuda_packed32_load(
                             rmem[tid, i, :],
                             d_src[2 * v * tid + 2 * i : 2 * v * tid + 2 * i + 2],
+                            dst=f16,
+                            src=f16,
+                            pack=2,
                         )
                     cuda_packed_store_global_f16(
                         d_dst[2 * v * tid : 2 * v * tid + 2 * v],
                         rmem[tid, :, :],
                         v=v,
                     )
-        cudaMemcpyAsync_dtoh_1f16(64, h_dst[:], d_dst[:])
+        cudaMemcpyAsync_dtoh_1d(64, h_dst[:], d_dst[:], dst=f16, src=f16)
 
     return simplify(foo)
 

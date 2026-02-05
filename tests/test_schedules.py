@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from exo import ParseFragmentError, proc, DRAM, Procedure, config
+import exo.scalars
 from exo.libs.memories import GEMM_SCRATCH
 from exo.stdlib.scheduling import *
 from exo.platforms.x86 import *
@@ -2061,7 +2062,7 @@ def test_simple_typ_and_mem(golden):
         A[0] += 1.0
 
     A = bar.args()[1]
-    bar = set_precision(bar, A, "i32")
+    bar = set_precision(bar, A, exo.scalars.i32)
     bar = set_memory(bar, A, GEMM_SCRATCH)
     bar = set_window(bar, "A", True)
 
@@ -2128,7 +2129,7 @@ def test_set_precision_illegal_precision_value():
 
     with pytest.raises(
         ValueError,
-        match="expected an instance of <enum 'ExoType'> or one of the following strings",
+        match="expected an instance of ExoType, ScalarInfo, or one of the following strings",
     ):
         bar = set_precision(bar, bar.args()[1], "Z")
 
@@ -2140,7 +2141,7 @@ def test_set_precision_illegal_precision_type():
 
     with pytest.raises(
         TypeError,
-        match="expected an instance of <enum 'ExoType'> or <class 'str'> specifying the precision",
+        match="expected an instance of ExoType, ScalarInfo, or str specifying the precision",
     ):
         bar = set_precision(bar, bar.args()[1], bar)
 

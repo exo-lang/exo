@@ -254,8 +254,8 @@ struct exo_CudaDeviceArgs2_gemm_test
 
 
 /* relying on the following instruction..."
-cudaMemcpyAsync_dtoh_2f32(M,N,dst,src)
-cudaMemcpyAsync(&{dst_data}, &{src_data}, 4 * {M} * {N}, cudaMemcpyDeviceToHost, exo_cudaStream);
+cudaMemcpyAsync_dtoh_2d(size0,size1,dst,src,dst=f32, src=f32)
+
 */
 
 /* relying on the following instruction..."
@@ -297,11 +297,26 @@ void gemm_test( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, floa
     };
     exo_cudaLaunch2_gemm_test(exo_cudaStream, &exo_deviceArgs);
   }
-  cudaMemcpyAsync(&A_cpu[0], &A[0], 4 * M * K, cudaMemcpyDeviceToHost, exo_cudaStream);
+  cudaMemcpyAsync(
+    (&A_cpu[0]),
+    (&A[0]),
+    M * K * 4,
+    cudaMemcpyDeviceToHost,
+    exo_cudaStream);
   exo_cudaFreeAsync(A, exo_cudaStream);
-  cudaMemcpyAsync(&B_cpu[0], &B[0], 4 * N * K, cudaMemcpyDeviceToHost, exo_cudaStream);
+  cudaMemcpyAsync(
+    (&B_cpu[0]),
+    (&B[0]),
+    N * K * 4,
+    cudaMemcpyDeviceToHost,
+    exo_cudaStream);
   exo_cudaFreeAsync(B, exo_cudaStream);
-  cudaMemcpyAsync(&C_cpu[0], &C[0], 4 * N * M, cudaMemcpyDeviceToHost, exo_cudaStream);
+  cudaMemcpyAsync(
+    (&C_cpu[0]),
+    (&C[0]),
+    N * M * 4,
+    cudaMemcpyDeviceToHost,
+    exo_cudaStream);
   exo_cudaFreeAsync(C, exo_cudaStream);
 }
 

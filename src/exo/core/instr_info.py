@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from typing import Dict, List, Type, Optional
+from .prelude import ScalarInfo
 from .memory import (
     DRAM,
     MemWin,
@@ -26,6 +27,7 @@ class AccessInfo:
     # Set automatically, don't edit.
     const: bool = False
     write_only: bool = False
+    scalar_info: ScalarInfo = None
 
     # UNSTABLE: for experiments on figuring out how to model TMA's
     # zero-pad behavior (reading GMEM) and implied predication (writing GMEM)
@@ -66,8 +68,9 @@ class InstrInfo:
     coll_unit: CollUnit
     instr_tl: Instr_tl
 
-    # For each formal parameter x, the InstrInfo.instance function must
-    # initialize the attributes of access_info[str(x)]: AccessInfo.
+    # For each runtime parameter x not of control type,
+    # the InstrInfo.instance function must initialize the attributes of
+    # access_info[str(x)]: AccessInfo.
     access_info: Dict[str, AccessInfo]
 
     # The instr expects a trailing barrier expr iff barrier_mechanism is not None.

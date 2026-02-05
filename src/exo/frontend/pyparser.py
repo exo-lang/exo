@@ -11,6 +11,7 @@ from collections import ChainMap
 from asdl_adt.validators import ValidationError
 
 from ..API_types import ProcedureBase
+from .. import scalars as scalars_module
 from ..core.configs import Config
 from ..core.LoopIR import UAST, PAST, front_ops
 from ..core.LoopIR import uast_prim_types as _prim_types
@@ -736,6 +737,17 @@ class Parser:
             self.exo_locals,
         ).interpret_unquote_expr(expr)
 
+    def eval_scalar_info_or_expr(self, expr):
+        # If it's "f16", "f32", etc., return ScalarInfo.
+        # We do this first. The user is not allowed to play games like f32=f64.
+        if isinstance(expr, pyast.Name):
+            _id = expr.id
+            if hasattr(scalars_module, _id):
+                scalar_info = getattr(scalars_module, _id)
+                if isinstance(scalar_info, ScalarInfo):
+                    return scalar_info
+        return self.eval_expr(expr)
+
     # - # - # - # - # - # - # - # - # - # - # - # - # - # - # - #
     # structural parsing rules...
 
@@ -1052,8 +1064,12 @@ class Parser:
             unquote_eval_result = self.try_eval_unquote(node)
             if len(unquote_eval_result) == 1:
                 unquoted = unquote_eval_result[0]
-                if isinstance(unquoted, str) and unquoted in _prim_types:
-                    return _prim_types[unquoted]
+                try:
+                    return ScalarInfo(unquoted).uast
+                except AssertionError:
+                    raise
+                except Exception as e:
+                    self.err(node, f"{node.id} not a valid type name", origin=e)
             if isinstance(node, pyast.Name):
                 self.err(node, f"{node.id} not a valid type name")
             else:
@@ -1401,15 +1417,18 @@ class Parser:
                 return PAST.Call(fname, args, self.getsrcinfo(s))
         else:
             f = self.eval_expr(s.func)
-            kwargs = {kw.arg: self.eval_expr(kw.value) for kw in s.keywords}
             if isinstance(f, ProcedureBase):
-                if kwargs:
+                if s.keywords:
                     self.err(s.func, "Cannot take keyword arguments")
             else:
                 # circular import
                 from ..core.instr_class import InstrTemplateBase, InstrTemplateError
 
                 if isinstance(f, InstrTemplateBase):
+                    kwargs = {
+                        kw.arg: self.eval_scalar_info_or_expr(kw.value)
+                        for kw in s.keywords
+                    }
                     try:
                         f = f(**kwargs)
                     except InstrTemplateError as e:

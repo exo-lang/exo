@@ -369,9 +369,9 @@ class EnumA(ArgumentProcessor):
 
 class TypeAbbrevA(ArgumentProcessor):
     def __call__(self, typ, all_args):
-        if not isinstance(typ, (str, ExoType)):
+        if not isinstance(typ, (str, ExoType, ScalarInfo)):
             self.err(
-                f"expected an instance of {ExoType} or {str} specifying the precision",
+                f"expected an instance of ExoType, ScalarInfo, or str specifying the precision",
                 TypeError,
             )
         try:
@@ -381,7 +381,7 @@ class TypeAbbrevA(ArgumentProcessor):
                 return T.R
             precisions = ", ".join(["R"] + ScalarInfo.get_scalar_names())
             self.err(
-                f"expected an instance of {ExoType} or one of the following strings specifying "
+                f"expected an instance of ExoType, ScalarInfo, or one of the following strings specifying "
                 f"precision: {precisions}",
                 ValueError,
             )

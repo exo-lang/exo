@@ -383,7 +383,7 @@ loopir_concrete_scalar_metatypes: Type[LoopIR.type] = []
 # ScalarInfo.extclass will override this for concrete scalar types
 @extclass(LoopIR.type)
 def scalar_info(t):
-    raise TypeError(f"No scalar_info for {t}")
+    raise TypeError(f"No scalar_info for {t!r}")
 
 
 del scalar_info
@@ -393,14 +393,14 @@ del scalar_info
 # here, then unfortunately manually edit the LoopIR and UAST and T
 # and ExoType class definitions to add the type to the grammar.
 # fmt: off
-ScalarInfo.extclass(UAST.BF16(),        T.bf16,         ExoType.BF16,   "bf16",         "exo_bf16",     16)
-ScalarInfo.extclass(UAST.F16(),         T.f16,          ExoType.F16,    "f16",          "exo_f16",      16)
-ScalarInfo.extclass(UAST.F32(),         T.f32,          ExoType.F32,    "f32",          "float",        32)
-ScalarInfo.extclass(UAST.F64(),         T.f64,          ExoType.F64,    "f64",          "double",       64)
-ScalarInfo.extclass(UAST.INT8(),        T.i8,           ExoType.I8,     "i8",           "int8_t",       8)
-ScalarInfo.extclass(UAST.UINT8(),       T.ui8,          ExoType.UI8,    "ui8",          "uint8_t",      8)
-ScalarInfo.extclass(UAST.UINT16(),      T.ui16,         ExoType.UI16,   "ui16",         "uint16_t",     16)
-ScalarInfo.extclass(UAST.INT32(),       T.i32,          ExoType.I32,    "i32",          "int32_t",      32)
+bf16 =  ScalarInfo.extclass(UAST.BF16(),        T.bf16,         ExoType.BF16,   "bf16",         "exo_bf16",     16)
+f16 =   ScalarInfo.extclass(UAST.F16(),         T.f16,          ExoType.F16,    "f16",          "exo_f16",      16)
+f32 =   ScalarInfo.extclass(UAST.F32(),         T.f32,          ExoType.F32,    "f32",          "float",        32)
+f64 =   ScalarInfo.extclass(UAST.F64(),         T.f64,          ExoType.F64,    "f64",          "double",       64)
+i8 =    ScalarInfo.extclass(UAST.INT8(),        T.i8,           ExoType.I8,     "i8",           "int8_t",       8)
+ui8 =   ScalarInfo.extclass(UAST.UINT8(),       T.ui8,          ExoType.UI8,    "ui8",          "uint8_t",      8)
+ui16 =  ScalarInfo.extclass(UAST.UINT16(),      T.ui16,         ExoType.UI16,   "ui16",         "uint16_t",     16)
+i32 =   ScalarInfo.extclass(UAST.INT32(),       T.i32,          ExoType.I32,    "i32",          "int32_t",      32)
 # fmt: on
 
 
@@ -677,6 +677,29 @@ def basetype(t):
 
 
 del basetype
+
+
+@extclass(LoopIR.type)
+def with_basetype(typ, basetyp):
+    assert typ.is_numeric() == basetyp.is_numeric()
+    return basetyp  # Specialized below for Barrier, Tensor, Window
+
+
+@extclass(LoopIR.Barrier)
+def with_basetype(typ, basetyp):
+    assert 0, "Cannot set basetype of barrier"
+
+
+@extclass(LoopIR.Tensor)
+def with_basetype(typ, basetyp):
+    return typ.update(type=basetyp)
+
+
+@extclass(LoopIR.WindowType)
+def with_basetype(typ, basetyp):
+    new_src_type = typ.src_type.update(type=basetyp)
+    new_as_tensor = typ.as_tensor.update(type=basetyp)
+    return typ.update(src_type=new_src_type, as_tensor=new_as_tensor)
 
 
 def LoopIR_Fence(L1: Sync_tl, L2: Sync_tl, srcinfo: SrcInfo):
@@ -1940,6 +1963,53 @@ class SubstArgs(LoopIR_Rewrite):
                 return (t2 or t).update(src_buf=src_buf.name)
 
         return t2
+
+
+class ReplacePrecision(LoopIR_Rewrite):
+    __slots__ = ["nodes", "rewrites"]
+
+    def __init__(self, nodes, rewrites: Dict[Sym, LoopIR.type]):
+        self.nodes = []
+        self.rewrites = rewrites
+
+        for sym, basetyp in rewrites.items():
+            assert isinstance(sym, Sym)
+            assert basetyp.is_real_scalar()
+
+        for n in nodes:
+            if isinstance(n, LoopIR.stmt):
+                self.nodes += self.apply_s(n)
+            elif isinstance(n, LoopIR.expr):
+                self.nodes += [self.apply_e(n)]
+            elif isinstance(n, LoopIR.fnarg):
+                self.nodes.append(self.map_fnarg(n) or n)
+            else:
+                assert False, "expected stmt or expr"
+
+    def result(self):
+        return self.nodes
+
+    def map_s(self, s):
+        if hasattr(s, "type"):
+            if basetyp := self.rewrites.get(s.name):
+                return [s.update(type=s.type.with_basetype(basetyp))]
+
+        return super().map_s(s)
+
+    def map_e(self, e):
+        if isinstance(e, (LoopIR.Read, LoopIR.WindowExpr, LoopIR.BarrierExpr)):
+            if basetyp := self.rewrites.get(e.name):
+                return e.update(type=e.type.with_basetype(basetyp))
+        else:
+            assert isinstance(e, LoopIR.StrideExpr) or not hasattr(e, "name")
+
+        return super().map_e(e)
+
+    def map_fnarg(self, a):
+        if basetyp := self.rewrites.get(a.name):
+            return a.update(type=a.type.with_basetype(basetyp))
+
+        return super().map_fnarg(a)
 
 
 class LoopIR_Add_ID(LoopIR_Rewrite):

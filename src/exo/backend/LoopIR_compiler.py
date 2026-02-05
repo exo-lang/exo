@@ -1372,7 +1372,9 @@ class Compiler:
                 # self.debug_comment_window_features(out_features)
 
                 utils = self._util_injector.with_tag(output_winmem.name())
-                helper = InstrWindowArg(utils, None, in_features, s.srcinfo)
+                helper = InstrWindowArg(
+                    utils, None, in_features, rhs.type.basetype(), s.srcinfo
+                )
 
                 # Initialize separate dataptr
                 if out_encoder.separate_dataptr():
@@ -1660,19 +1662,24 @@ class Compiler:
     def comp_fnarg_impl(self, e, mem, is_const, force_pass_by_value):
         """Returns InstrWindowArg or InstrNonWindowArg"""
         defaults_to_ptr = not force_pass_by_value
+        basetyp = e.type.basetype()
         if isinstance(e, LoopIR.Read):
             rtyp = self.envtyp[e.name]
             cname = self.env[e.name]
             if rtyp.is_indexable() or rtyp is T.bool or rtyp is T.stride:
                 assert not e.idx
-                return InstrNonWindowArg(cname, False, False, e.srcinfo)
+                return InstrNonWindowArg(cname, False, False, basetyp, e.srcinfo)
             if rtyp.is_dense_tensor() and not e.idx:
-                return InstrNonWindowArg(cname, True, True, e.srcinfo)
+                return InstrNonWindowArg(cname, True, True, basetyp, e.srcinfo)
             if e.name in self._scalar_refs:
                 assert not e.idx
-                return InstrNonWindowArg(cname, True, defaults_to_ptr, e.srcinfo)
+                return InstrNonWindowArg(
+                    cname, True, defaults_to_ptr, basetyp, e.srcinfo
+                )
             if rtyp.is_real_scalar():
-                return InstrNonWindowArg(cname, False, defaults_to_ptr, e.srcinfo)
+                return InstrNonWindowArg(
+                    cname, False, defaults_to_ptr, basetyp, e.srcinfo
+                )
             assert rtyp.is_tensor_or_window()
             window_arg: InstrWindowArg
             window_arg = self.comp_fnarg_window(e, mem, is_const)
@@ -1684,7 +1691,11 @@ class Compiler:
                 assert len(e.idx) == len(rtyp.shape())
                 index_result = window_arg.index_result()
                 return InstrNonWindowArg(
-                    index_result.code, index_result.is_ptr, defaults_to_ptr, e.srcinfo
+                    index_result.code,
+                    index_result.is_ptr,
+                    defaults_to_ptr,
+                    basetyp,
+                    e.srcinfo,
                 )
             else:
                 # Since the tensor/window is not "derefererenced" with indices,
@@ -1697,7 +1708,11 @@ class Compiler:
             # op_prec["."] causes any binary ops to be parenthesized.
             # See also OldStyleInstrInfo
             return InstrNonWindowArg(
-                self.comp_e(e, op_prec["."]), False, False, e.srcinfo
+                self.comp_e(e, op_prec["."]),
+                False,
+                False,
+                basetyp,
+                e.srcinfo,
             )
 
     def comp_fnarg_window(
@@ -1728,6 +1743,7 @@ class Compiler:
             self._util_injector.with_tag(encoder_mem.name()),
             self._util_injector.with_tag(indexer_mem.name()),
             features,
+            e.type.basetype(),
             e.srcinfo,
         )
 

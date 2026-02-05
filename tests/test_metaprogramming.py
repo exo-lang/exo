@@ -6,6 +6,7 @@ import pytest
 import warnings
 from exo.libs.externs import *
 from exo.platforms.x86 import DRAM
+import exo.scalars as scalars
 
 
 def test_unrolling(golden):
@@ -307,6 +308,18 @@ def test_unquote_err():
         @proc
         def foo(a: T):
             a += 1
+
+
+def test_unquote_ScalarInfo():
+    T = scalars.f64
+    N = 100
+
+    @proc
+    def foo():
+        a: T[N]
+
+    text = str(foo)
+    assert "a: f64[100]" in text
 
 
 def test_quote_complex_expr(golden):

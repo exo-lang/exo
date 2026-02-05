@@ -116,7 +116,7 @@ typedef struct { short bits; } exo_f16;
 #endif
 
 #endif
-/* Required by CudaDeviceVisibleAtomicity16B */
+/* Required by CudaGmemAtomicity16B */
 /* Required by CudaGmemLinear */
 /* Required by DRAM */
 #ifndef EXO_WIN_1F16
@@ -255,22 +255,22 @@ struct exo_CudaDeviceArgs0_foo
 
 
 /* relying on the following instruction..."
-cudaMemcpyAsync_dtoh_1f16(n,dst,src)
-cudaMemcpyAsync(&{dst_data}, &{src_data}, 2 * {n}, cudaMemcpyDeviceToHost, exo_cudaStream);
-*/
-
-/* relying on the following instruction..."
-cudaMemcpyAsync_htod_1f16(n,dst,src)
-cudaMemcpyAsync(&{dst_data}, &{src_data}, 2 * {n}, cudaMemcpyHostToDevice, exo_cudaStream);
-*/
-
-/* relying on the following instruction..."
-cuda_packed_load_f16(dst,src)
+cudaMemcpyAsync_dtoh_1d(size0,dst,src,dst=f16, src=f16)
 
 */
 
 /* relying on the following instruction..."
-cuda_packed_store_global_f16(dst,src,v=4)
+cudaMemcpyAsync_htod_1d(size0,dst,src,dst=f16, src=f16)
+
+*/
+
+/* relying on the following instruction..."
+cuda_packed32_load(dst,src,dst=f16, src=f16, pack=2)
+
+*/
+
+/* relying on the following instruction..."
+cuda_packed32_storev_16b(dst,src,dst=f16, src=f16, v=4, mem='global')
 
 */
 // foo(
@@ -280,7 +280,12 @@ cuda_packed_store_global_f16(dst,src,v=4)
 void foo( void *ctxt, exo_f16* h_dst, const exo_f16* h_src ) {
   exo_f16 *d_dst = (exo_f16*) exo_cudaMallocAsync(64 * sizeof(*d_dst), exo_cudaStream);
   exo_f16 *d_src = (exo_f16*) exo_cudaMallocAsync(64 * sizeof(*d_src), exo_cudaStream);
-  cudaMemcpyAsync(&d_src[0], &h_src[0], 2 * 64, cudaMemcpyHostToDevice, exo_cudaStream);
+  cudaMemcpyAsync(
+    (&d_src[0]),
+    (&h_src[0]),
+    64 * 2,
+    cudaMemcpyHostToDevice,
+    exo_cudaStream);
   {
     struct exo_CudaDeviceArgs0_foo exo_deviceArgs = {
       d_dst, d_src, exo_excut_get_device_log()
@@ -288,7 +293,12 @@ void foo( void *ctxt, exo_f16* h_dst, const exo_f16* h_src ) {
     exo_cudaLaunch0_foo(exo_cudaStream, &exo_deviceArgs);
   }
   exo_cudaFreeAsync(d_src, exo_cudaStream);
-  cudaMemcpyAsync(&h_dst[0], &d_dst[0], 2 * 64, cudaMemcpyDeviceToHost, exo_cudaStream);
+  cudaMemcpyAsync(
+    (&h_dst[0]),
+    (&d_dst[0]),
+    64 * 2,
+    cudaMemcpyDeviceToHost,
+    exo_cudaStream);
   exo_cudaFreeAsync(d_dst, exo_cudaStream);
 }
 

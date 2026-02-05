@@ -1,33 +1,86 @@
-"""
-Module for "new" class-based instr
+"""Module for "new" class-based instruction template (InstrTemplate)
+
+Each instruction template is parameterized with
+
+* Control value template parameters (int).
+  These substitute concrete values for control parameters in the instr behavior.
+
+* Precision template parameters (Exo ScalarInfo)
+  These substitute for R (generic Num) in the type signature of runtime parameters.
+
+* Extra template parameters, any user-defined object type.
+  These may be used to customize the instr in freeform ways.
+
+An InstrTemplate is callable with the template parameters as
+keyword arguments, yielding a concrete instr Procedure object.
 
     @instr
-        class instr_name:
-            def behavior(arg_a: Ta, arg_b: Tb, ...):
-                # Exo code specifies instr behavior
+    class instr_name(InstrInfo):
+        def behavior(arg_a: Ta, arg_b: Tb, ...):
+            # Exo code specifies instr behavior
+            #
+            # When the InstrTemplate is instantiated, any parameters
+            # matching the name of a control value template parameter
+            # is deleted; the remaining parameters are runtime parameters.
+            #
+            # Each parameter of base type R (generic Num) will cause
+            # the InstrTemplate to take a precision template parameter
+            # of the same name; this substitutes for R for the concrete instr.
 
-            def instance(self, proc_tparam..., *, extra_tparam...):
-                # Python code configures instruction
-                self.instr_format = ...
+        def instance(self, control_tparams..., *, extra_tparams...):
+            # Python code configures instruction
+            #
+            # control_tparam are named control value template parameters
+            # extra_tparams are named precision template parameters
+            #
+            # Precision parameters are not here, they may be accessed by
+            # * self.access_info[<param_name>: str].scalar_info
+            # * args.<param_name>.get_scalar_info()
+            #
+            self.instr_tl = ...
 
-            # Each proc_tparam (proc template parameter) in the instance()
-            # must match a parameter in behavior(), and causes that parameter
-            # to become a template parameter. The extra_tparam names must not
-            # match any argument in behavior()
+        # Each control_tparam name must match a parameter of behavior()
+        # Each extra_tparam name must NOT match a parameter of behavior()
+        # The precision template
 
-            def codegen(self, args: InstrArgs) -> List[str]:
-                # Each non-template param x in behavior becomes args.x of type
-                # InstrWindowArg or InstrNonWindowArg. Template params y will
-                # be kept as their literal Python types (often int) as args.y
-                #
-                # Return list of C lines
-                # codegen() is optional if you define self.instr_format
+        def codegen(self, args: InstrArgs) -> List[str]:
+            # Each runtime param x in behavior becomes args.x of type
+            # InstrWindowArg or InstrNonWindowArg, with precision
+            # given by args.x.scalar_info.
+            # Template parameters y (except for precision template parameters)
+            # be kept as their literal Python types (often int) as args.y
+            #
+            # Return list of C lines
+            # codegen() is optional if you define self.instr_format
+
+        valid_num_types: Set[Tuple[ScalarInfo]], or object with __contains__
+        # This is not needed if no generic Num parameters exist.
+        #
+        # The tuple of substituted precision template parameters
+        # (ordered by the order the corresponding runtime parameters in behavior())
+        # must be in valid_num_types. e.g. an mma(accum, A, B) supporting
+        # f32 accum and bf16/f16/f32 A and B can have
+        # {(f32, bf16, bf16), (f32, f16, f16), (f32, f32, f32)}
+        #
+        # ScalarInfo objects are defined in the exo.scalars module.
+        # Or use ScalarInfo.same() to accept any tuple of identical types.
 
 For context, the "old" instr is like
 
     @instr(instr_format[0])
     def instr_name(arg_a: Ta, arg_b: Tb, ...):
         # Exo code specifies instr behavior
+
+Within Exo object code, the syntax for calling an InstrTemplate
+contains both positional and keyword parameters.
+The positional parameters are the runtime parameters,
+and the keyword parameters are the template parameters, e.g.
+
+    Sm90_mma_async(
+        D_rmem[...], A_rmem[...], B_rmem[...],  # Runtime parameters
+        M=64, N=256,  # Control value template parameters
+        A=f16, B=f16, C=f32,  # Precision template parameters
+    )
 
 """
 
@@ -36,13 +89,14 @@ import inspect
 from dataclasses import dataclass
 from typing import Callable, Optional, Dict, List, Tuple, Type, Set
 
-from .prelude import Sym, SrcInfo
+from .prelude import Sym, SrcInfo, ScalarInfo
 
 from .cir import CIR_Wrapper
 from .instr_info import AtomicityInfo, AccessInfo, InstrInfo
 from .LoopIR import (
     LoopIR,
     SubstArgs,
+    ReplacePrecision,
     Identifier,
     get_writes_of_stmts,
     get_reads_of_stmts,
@@ -72,6 +126,9 @@ def proc_default_access_info(
         access.mem = mem
         access.const = arg.name not in write_syms
         access.write_only = arg.name not in read_syms
+        basetype = arg.type.basetype()
+        if not isinstance(basetype, LoopIR.Num):
+            access.scalar_info = ScalarInfo(basetype)
         access_info[nm] = access
 
     return access_info
@@ -84,8 +141,8 @@ class InstrTemplateError(Exception):
 def tparams_from_signature(clsname: str, tproc: LoopIR.proc, signature):
     assert isinstance(tproc, LoopIR.proc)
 
-    proc_tparam_syms = []
-    proc_tparam_types = []
+    control_tparam_syms = []
+    control_tparam_types = []
     extra_tparam_names = []
     extra_tparam_defaults = {}
 
@@ -97,34 +154,35 @@ def tparams_from_signature(clsname: str, tproc: LoopIR.proc, signature):
             continue
         problem = None
         if param.kind.name == "POSITIONAL_OR_KEYWORD":
-            is_proc_param = True
+            is_control_param = True
         elif param.kind.name == "KEYWORD_ONLY":
-            is_proc_param = False
+            is_control_param = False
         else:
             problem = f"cannot be {param.kind.name} argument"
         if param.default is not inspect._empty:
-            if is_proc_param:
+            if is_control_param:
                 problem = "cannot have default value"
             else:
                 extra_tparam_defaults[str(nm)] = param.default
         # Look for matching parameter in behavior() and get its Sym
         for tproc_a in tproc.args:
             if tproc_a.name.name() == nm:
-                if not is_proc_param:
+                if not is_control_param:
                     problem = (
                         f"name conflict with {clsname}.behavior parameter "
                         f"(note, move before * if intended)"
                     )
                 sym = tproc_a.name
                 typ = tproc_a.type
-                if not typ.is_indexable():
+                if typ.is_numeric():
                     raise TypeError(
                         f"{clsname}.instance: parameter {nm} "
-                        f"must refer to index type, not {typ}"
+                        f"must refer to control type, not {typ} "
+                        f"(Precision parameters are passed implicitly in self.access_info)"
                     )
                 break
         else:
-            if is_proc_param:
+            if is_control_param:
                 problem = (
                     f"does not refer to any parameter of {clsname}.behavior "
                     f"(note, move after *, i.e. make keyword-only, if intended)"
@@ -132,15 +190,15 @@ def tparams_from_signature(clsname: str, tproc: LoopIR.proc, signature):
 
         if problem:
             raise ValueError(f"{clsname}.instance: parameter {nm} {problem}")
-        if is_proc_param:
-            proc_tparam_syms.append(sym)
-            proc_tparam_types.append(typ)
+        if is_control_param:
+            control_tparam_syms.append(sym)
+            control_tparam_types.append(typ)
         else:
             extra_tparam_names.append(str(nm))
 
     return (
-        proc_tparam_syms,
-        proc_tparam_types,
+        control_tparam_syms,
+        control_tparam_types,
         extra_tparam_names,
         extra_tparam_defaults,
     )
@@ -201,18 +259,23 @@ class InstrTemplate(InstrTemplateBase):
     # Avoid circular modules: proc -> Procedure
     make_procedure: Callable[[object], "Procedure"]
 
-    # Syms of tproc paremeters that are template parameters
-    proc_tparam_syms: List[Sym]
-
-    # LoopIR types of proc template parameters
-    proc_tparam_types: List[LoopIR.type]
-
-    extra_tparam_names: List[str]
-    extra_tparam_defaults: Dict[str, object]
-
     # "Template proc"; this is not an instr; this is directly parsed from
     # the user's cls.behavior Exo function.
     tproc: LoopIR.proc
+
+    # Syms of tproc parameters that also name precision template parameters
+    prec_tparam_syms: List[Sym]
+
+    # Syms of tproc parameters that are control value template parameters
+    control_tparam_syms: List[Sym]
+
+    # LoopIR types of control value template parameters
+    control_tparam_types: List[LoopIR.type]
+
+    # Extra template parameters, named by str, not Sym, since they don't
+    # correspond to any tproc (behavior) parameters.
+    extra_tparam_names: List[str]
+    extra_tparam_defaults: Dict[str, object]
 
     # Subtype of InstrInfo defined by the user.
     info_cls: Type[InstrInfo]
@@ -220,7 +283,7 @@ class InstrTemplate(InstrTemplateBase):
     # Cache of Procedures.
     # When we substitute template parameters, we cache the resulting Procedure
     # here indexed by a tuple of tparam values
-    # (order = proc_tparam_syms + extra_tparam_names)
+    # (order = prec_tparam_syms + control_tparam_syms + extra_tparam_names)
     cache: Dict[tuple, "Procedure"]
 
     def __init__(self, cls, make_procedure, parent_scope):
@@ -237,10 +300,18 @@ class InstrTemplate(InstrTemplateBase):
         uast_tproc = parser.result().update(name=Identifier(nm))
         tproc = make_procedure(uast_tproc)._loopir_proc
 
-        # Deduce the (Sym) names of tparams based on cls.instance
+        prec_tparam_syms = [
+            fa.name for fa in tproc.args if isinstance(fa.type.basetype(), LoopIR.Num)
+        ]
+
+        if prec_tparam_syms:
+            # fmt: off
+            assert hasattr(cls, "valid_num_types"), f"Missing {nm}.valid_num_types (consider ScalarInfo.same())"
+
+        # Deduce the names of tparams based on cls.instance
         (
-            proc_tparam_syms,
-            proc_tparam_types,
+            control_tparam_syms,
+            control_tparam_types,
             extra_tparam_names,
             extra_tparam_defaults,
         ) = tparams_from_signature(nm, tproc, instance_signature)
@@ -248,7 +319,11 @@ class InstrTemplate(InstrTemplateBase):
         # The user's cls.instance function will be used to initialize InstrInfo.
         def info_init(info, **tparam_dict):
             prefill_instr_info(info, tproc)
-            info.instance(**tparam_dict)
+            if self.prec_tparam_syms:
+                instance_params = self._check_prec_parameters(info, tparam_dict, cls)
+            else:
+                instance_params = tparam_dict
+            info.instance(**instance_params)
             self._postprocess_instr_info(tproc, info, tparam_dict, has_custom_codegen)
 
         # The user-provided class gets converted to a subclass of InstrInfo.
@@ -267,11 +342,12 @@ class InstrTemplate(InstrTemplateBase):
         info_cls = type(nm, tuple(info_bases), info_dict)
 
         self.make_procedure = make_procedure
-        self.proc_tparam_syms = proc_tparam_syms
-        self.proc_tparam_types = proc_tparam_types
+        self.tproc = tproc
+        self.prec_tparam_syms = prec_tparam_syms
+        self.control_tparam_syms = control_tparam_syms
+        self.control_tparam_types = control_tparam_types
         self.extra_tparam_names = extra_tparam_names
         self.extra_tparam_defaults = extra_tparam_defaults
-        self.tproc = tproc
         self.info_cls = info_cls
         self.cache = {}
 
@@ -297,28 +373,53 @@ class InstrTemplate(InstrTemplateBase):
                 f"Failed to instantiate {clsname}({kwargs_str}): {e}"
             ) from e
 
+        n_prec = len(self.prec_tparam_syms)
+        n_control = len(self.control_tparam_syms)
+        n_extras = len(self.extra_tparam_names)
+        assert len(tparam_values) == n_prec + n_control + n_extras
+
+        prec_tparam_values = tparam_values[:n_prec]
+        control_tparam_values = tparam_values[n_prec : n_prec + n_control]
+
         # Convert template proc (tproc) to instanced proc (iproc) by
         #   * Substituting concrete values in place of template params (tparams)
-        #   * Removing fnargs that correspond to tparams
+        #   * Removing fnargs that correspond to control value template parameters
+        #   * Rewriting fnargs using precision template parameters
         #   * Adding the InstrInfo; set fnarg.mem as needed from InstrInfo
-        # zip note: tparam_values contains proc tparams before extra tparams
         tproc = self.tproc
-        binding = {}
-        n_extras = len(self.extra_tparam_names)
-        assert len(self.proc_tparam_syms) + n_extras == len(tparam_values)
-        assert len(self.proc_tparam_types) + n_extras == len(tparam_values)
-        for sym, v, typ in zip(
-            self.proc_tparam_syms, tparam_values, self.proc_tparam_types
-        ):
-            binding[sym] = LoopIR.Const(v, typ, tproc.srcinfo)
-        iproc_preds = SubstArgs(tproc.preds, binding).result()
-        iproc_body = SubstArgs(tproc.body, binding).result()
-        iproc_args = [a for a in tproc.args if a.name not in self.proc_tparam_syms]
-        assert len(iproc_args) + len(self.proc_tparam_syms) == len(tproc.args)
+        iproc_args = tproc.args
+        iproc_preds = tproc.preds
+        iproc_body = tproc.body
+        if control_tparam_values:
+            assert len(self.control_tparam_syms) == n_control
+            assert len(self.control_tparam_types) == n_control
+            binding = {
+                sym: LoopIR.Const(v, typ, tproc.srcinfo)
+                for sym, v, typ in zip(
+                    self.control_tparam_syms,
+                    control_tparam_values,
+                    self.control_tparam_types,
+                )
+            }
+            iproc_preds = SubstArgs(iproc_preds, binding).result()
+            iproc_body = SubstArgs(iproc_body, binding).result()
+            iproc_args = [
+                a for a in iproc_args if a.name not in self.control_tparam_syms
+            ]
+            iproc_args = SubstArgs(iproc_args, binding).result()
+        if prec_tparam_values:
+            assert len(self.prec_tparam_syms) == len(prec_tparam_values)
+            prec_rewrites = {
+                sym: scalar_info.loopir
+                for sym, scalar_info in zip(self.prec_tparam_syms, prec_tparam_values)
+            }
+            iproc_args = ReplacePrecision(iproc_args, prec_rewrites).result()
+            iproc_preds = ReplacePrecision(iproc_preds, prec_rewrites).result()
+            iproc_body = ReplacePrecision(iproc_body, prec_rewrites).result()
         for i, a in enumerate(iproc_args):
             if (access := instr_info.access_info.get(str(a.name))) is not None:
                 iproc_args[i] = a.update(mem=access.mem)
-        iproc_args = SubstArgs(iproc_args, binding).result()
+        assert len(iproc_args) + len(self.control_tparam_syms) == len(tproc.args)
         iproc = LoopIR.proc(
             tproc.name, iproc_args, iproc_preds, iproc_body, instr_info, tproc.srcinfo
         )
@@ -334,15 +435,31 @@ class InstrTemplate(InstrTemplateBase):
     def _tparam_values(self, **tparam_dict):
         """Convert kwargs dict into tuple of template parameter values
 
-        The args are ordered to correspond with proc_tparam_syms followed by
-        extra_tparam_names; i.e., syntactically this is the same order as
-        that of the instance(...) function.
+        The args are ordered to correspond to the concatenation of
+          * prec_tparam_syms
+          * control_tparam_syms
+          * extra_tparam_syms
+        The last two are the same order as args in the instance(...) function.
 
         """
+
         clsname = self.info_cls.__name__
-        syms = self.proc_tparam_syms
         tparam_values = []
-        for sym in syms:
+        for sym in self.prec_tparam_syms:
+            assert isinstance(sym, Sym)
+            nm = sym.name()
+            try:
+                # Have to cast to ScalarInfo in case the caller provided "f32" or such.
+                tmp = tparam_dict[nm]
+                scalar_info = ScalarInfo(tmp)
+            except KeyError:
+                raise InstrTemplateError(f"{clsname}: missing template parameter {nm}")
+            except Exception as e:
+                raise InstrTemplateError(
+                    f"{clsname}: expected {nm}: ScalarInfo, not {tmp}"
+                ) from e
+            tparam_values.append(scalar_info)
+        for sym in self.control_tparam_syms:
             assert isinstance(sym, Sym)
             nm = sym.name()
             v = tparam_dict.get(nm)
@@ -368,14 +485,17 @@ class InstrTemplate(InstrTemplateBase):
         # Do this assert late as the "missing parameter"
         # message above has better clarity.
         # fmt: off
-        assert len(tparam_dict) + num_defaults == len(syms) + len(extras), f"{clsname}: excess arguments"
+        num_formal = len(self.prec_tparam_syms) + len(self.control_tparam_syms) + len(extras)
+        assert len(tparam_dict) + num_defaults == num_formal, f"{clsname}: excess template parameters"
         # fmt: on
         return tuple(tparam_values)
 
     def _format_tparam_kwargs(self, tparam_values):
-        all_names = self.proc_tparam_syms + self.extra_tparam_names
+        all_names = (
+            self.prec_tparam_syms + self.control_tparam_syms + self.extra_tparam_names
+        )
         assert len(tparam_values) == len(all_names)
-        return ", ".join(f"{nm}={v}" for nm, v in zip(all_names, tparam_values))
+        return ", ".join(f"{nm}={v!r}" for nm, v in zip(all_names, tparam_values))
 
     def _postprocess_instr_info(
         self, proc: LoopIR.proc, info: InstrInfo, tparam_dict, has_custom_codegen: bool
@@ -458,6 +578,31 @@ class InstrTemplate(InstrTemplateBase):
             self._tparam_values(**tparam_dict)
         )
 
+    def _check_prec_parameters(self, info: InstrInfo, tparam_dict: dict, cls: type):
+        """Precision template parameters helper.
+
+        * Update InstrInfo with ScalarInfo precision template parameters,
+        * Delete precision template parameters from a copy of the dict
+          (instance(...) forbids them)
+        * Check valid_num_types is OK with the precision template parameters
+
+        """
+        assert self.prec_tparam_syms
+        valid_num_types = cls.valid_num_types
+        str_tparam_names = [str(nm) for nm in self.prec_tparam_syms]
+        # Have to cast to ScalarInfo in case the caller provided "f32" or such.
+        key = tuple(ScalarInfo(tparam_dict[s]) for s in str_tparam_names)
+        if key not in valid_num_types:
+            precs = ", ".join(f"{a}={v}" for (a, v) in zip(self.prec_tparam_syms, key))
+            raise TypeError(
+                f"{cls.__name__}: unsupported precision {precs}; valid: {valid_num_types}"
+            )
+        instance_params = tparam_dict.copy()  # not deepcopy
+        for a, k in zip(str_tparam_names, key):
+            del instance_params[a]
+            info.access_info[a].scalar_info = k
+        return instance_params
+
     def ProcCallGen_behavior(self) -> LoopIR.proc:
         return self.tproc
 
@@ -467,28 +612,34 @@ class InstrTemplate(InstrTemplateBase):
         """Callback from LoopIR unification.
 
         The unification wants to call the behavior function with the given arguments.
-        We need to filter the arguments into template and non-template parameters,
+        We need to filter the arguments into template and runtime parameters,
         instantiate a real proc with the template parameters, and generate
-        a call stmt using the real proc and the non-template parameters.
+        a call stmt using the real proc and the runtime parameters.
 
         """
         clsname = self.info_cls.__name__
         tproc = self.tproc
         assert len(args) == len(tproc.args)
 
-        # Separate destinations for template and non-template parameters.
-        # The None(s) will be replaced soon.
-        tparam_dict = {str(nm): None for nm in self.proc_tparam_syms}
+        # Separate destinations for template and runtime parameters.
+        control_dict = {str(nm): None for nm in self.control_tparam_syms}
+        tparam_dict = {}
+        prec_names = {str(nm) for nm in self.prec_tparam_syms}
+        control_names = {str(nm) for nm in self.control_tparam_syms}
         call_args = []
         for a, fa in zip(args, tproc.args):
             strnm = str(fa.name)
-            if strnm in tparam_dict:
+            if strnm in control_names:
                 # TODO not sure if Unification will generate stuff like `2 + 0`
                 if not isinstance(a, LoopIR.Const):
                     InstrTemplateError(
-                        f"{clsname}: non-constant template parameter {strnm}={a}"
+                        f"{clsname}: non-constant control value template parameter {strnm}={a}"
                     )
-                tparam_dict[strnm] = a.val
+                tparam_dict[strnm] = int(a.val)
+                # Not a runtime parameter; skip call_args.append(a)
+            elif strnm in prec_names:
+                tparam_dict[strnm] = a.type.basetype()  # Cast to ScalarInfo internally
+                call_args.append(a)
             else:
                 call_args.append(a)
 
@@ -532,6 +683,7 @@ class InstrWindowArg:
     _encoder_utils: UtilInjector
     _indexer_utils: UtilInjector
     _features: WindowFeatures
+    _scalar_info_input: object
     _srcinfo: SrcInfo
 
     def __post_init__(self):
@@ -551,6 +703,9 @@ class InstrWindowArg:
 
     def __str__(self):
         return self._get_window_impl()
+
+    def get_scalar_info(self) -> ScalarInfo:
+        return ScalarInfo(self._scalar_info_input)
 
     def get_window(self) -> str:
         return self._get_window_impl()
@@ -679,6 +834,7 @@ class InstrNonWindowArg:
     _code: str
     _is_ptr: bool
     _defaults_to_ptr: bool
+    _scalar_info_input: object
     _srcinfo: SrcInfo
 
     def __str__(self):
@@ -701,6 +857,10 @@ class InstrNonWindowArg:
 
     def to_arg_strs(self) -> List[str]:
         return [str(self)]
+
+    def get_scalar_info(self) -> ScalarInfo:
+        # Lazy evaluate because not all types have a valid ScalarInfo.
+        return ScalarInfo(self._scalar_info_input)
 
     def srcinfo(self) -> SrcInfo:
         return self._srcinfo

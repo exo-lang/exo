@@ -242,17 +242,17 @@ struct exo_CudaDeviceArgs0_f16_test_vec_add_f32
 
 
 /* relying on the following instruction..."
-cudaMemcpyAsync_dtoh_1f32(n,dst,src)
-cudaMemcpyAsync(&{dst_data}, &{src_data}, 4 * {n}, cudaMemcpyDeviceToHost, exo_cudaStream);
+cudaMemcpyAsync_dtoh_1d(size0,dst,src,dst=f32, src=f32)
+
 */
 
 /* relying on the following instruction..."
-cudaMemcpyAsync_htod_1f32(n,dst,src)
-cudaMemcpyAsync(&{dst_data}, &{src_data}, 4 * {n}, cudaMemcpyHostToDevice, exo_cudaStream);
+cudaMemcpyAsync_htod_1d(size0,dst,src,dst=f32, src=f32)
+
 */
 
 /* relying on the following instruction..."
-cuda_packed_load_f32(dst,src)
+cuda_packed32_load(dst,src,dst=f32, src=f32, pack=1)
 
 */
 // f16_test_vec_add_f32(
@@ -266,8 +266,18 @@ void f16_test_vec_add_f32( void *ctxt, int_fast32_t N, const float* h_x, const f
   float *d_x = (float*) exo_cudaMallocAsync(N * sizeof(*d_x), exo_cudaStream);
   float *d_y = (float*) exo_cudaMallocAsync(N * sizeof(*d_y), exo_cudaStream);
   float *d_out = (float*) exo_cudaMallocAsync(N * sizeof(*d_out), exo_cudaStream);
-  cudaMemcpyAsync(&d_x[0], &h_x[0], 4 * N, cudaMemcpyHostToDevice, exo_cudaStream);
-  cudaMemcpyAsync(&d_y[0], &h_y[0], 4 * N, cudaMemcpyHostToDevice, exo_cudaStream);
+  cudaMemcpyAsync(
+    (&d_x[0]),
+    (&h_x[0]),
+    N * 4,
+    cudaMemcpyHostToDevice,
+    exo_cudaStream);
+  cudaMemcpyAsync(
+    (&d_y[0]),
+    (&h_y[0]),
+    N * 4,
+    cudaMemcpyHostToDevice,
+    exo_cudaStream);
   {
     struct exo_CudaDeviceArgs0_f16_test_vec_add_f32 exo_deviceArgs = {
       N, d_x, d_y, d_out, exo_excut_get_device_log()
@@ -276,7 +286,12 @@ void f16_test_vec_add_f32( void *ctxt, int_fast32_t N, const float* h_x, const f
   }
   exo_cudaFreeAsync(d_y, exo_cudaStream);
   exo_cudaFreeAsync(d_x, exo_cudaStream);
-  cudaMemcpyAsync(&h_out[0], &d_out[0], 4 * N, cudaMemcpyDeviceToHost, exo_cudaStream);
+  cudaMemcpyAsync(
+    (&h_out[0]),
+    (&d_out[0]),
+    N * 4,
+    cudaMemcpyDeviceToHost,
+    exo_cudaStream);
   exo_cudaFreeAsync(d_out, exo_cudaStream);
 }
 
