@@ -22,6 +22,10 @@ from exo import Procedure, compile_procs, ext_compile_procs
 from exo.spork import excut
 from exo.core.LoopIR import get_global_debug_log_path, set_global_debug_log_path
 
+import exo.spork.camspork.jit as camspork_jit
+
+camspork_jit.pytest_compiler_count = 0
+
 
 class CudaRun(Enum):
     cpu = auto()
@@ -105,7 +109,7 @@ def golden(request):
 
 
 @pytest.fixture
-def compiler(tmp_path, request):
+def compiler(tmp_path_factory, tmp_path, request):
     """C and (optional) CUDA compiler test fixture
 
     Use this test fixture for all tests requiring compiling C, as well as tests
@@ -115,27 +119,36 @@ def compiler(tmp_path, request):
 
     cuda_run = request.config.getoption("cuda_run")
     if not cuda_run or CudaRun.cpu in cuda_run:
-        return Compiler(tmp_path, request.node.name, None)
+        compiler = Compiler(tmp_path_factory, tmp_path, request.node.name, None)
+        compiler.before_test()
+        yield compiler
+        compiler.after_test()
     else:
         pytest.skip("--cuda-run-cpu not given")
 
 
 @pytest.fixture
-def compiler_Sm80(tmp_path, request):
+def compiler_Sm80(tmp_path_factory, tmp_path, request):
     """Test fixture for compiling and executing code for sm_80 CUDA devices"""
     cuda_run = request.config.getoption("cuda_run")
     if cuda_run and CudaRun.Sm80 in cuda_run:
-        return Compiler(tmp_path, request.node.name, "80")
+        compiler = Compiler(tmp_path_factory, tmp_path, request.node.name, "80")
+        compiler.before_test()
+        yield compiler
+        compiler.after_test()
     else:
         pytest.skip("--cuda-run-Sm80 not given")
 
 
 @pytest.fixture
-def compiler_Sm90a(tmp_path, request):
+def compiler_Sm90a(tmp_path_factory, tmp_path, request):
     """Test fixture for compiling and executing code for sm_90a CUDA devices"""
     cuda_run = request.config.getoption("cuda_run")
     if cuda_run and CudaRun.Sm90a in cuda_run:
-        return Compiler(tmp_path, request.node.name, "90a")
+        compiler = Compiler(tmp_path_factory, tmp_path, request.node.name, "90a")
+        compiler.before_test()
+        yield compiler
+        compiler.after_test()
     else:
         pytest.skip("--cuda-run-Sm90a not given")
 
@@ -279,20 +292,27 @@ class CudaTestSource:
 
 @dataclass
 class Compiler:
+    tmp_path_factory: Path
     workdir: Path
     basename: str
     cuda_sm: str
 
-    def __post_init__(self):
-        # Old-fashioned substitute for with context (which I can't make a
-        # test fixture behave as AFAIK) for setting debug log within one test case.
+    def before_test(self):
+        # Set debug log within one test case.
         self._old_debug_path = get_global_debug_log_path()
         set_global_debug_log_path(self.workdir)
 
-    def __del__(self):
-        # Old-fashioned substitute for with context (which I can't make a
-        # test fixture behave as AFAIK) for setting debug log within one test case.
+        # Initialize JIT directory for camspork
+        # We need no concurrent access to the JIT directory, so append pid
+        # This will go poorly if someone tries to multithread pytest.
+        jit_path = self.tmp_path_factory.getbasetemp() / f"jit-{os.getpid()}"
+        camspork_jit.set_jit_dir(jit_path)
+        camspork_jit.pytest_compiler_count += 1
+
+    def after_test(self):
+        # Restore old debug log.
         set_global_debug_log_path(self._old_debug_path)
+        camspork_jit.pytest_compiler_count -= 1
 
     def compile(
         self,

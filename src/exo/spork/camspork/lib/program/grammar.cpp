@@ -149,7 +149,7 @@ const ProgramHeader& ProgramHeader::validate(size_t buffer_size, const char* buf
 int camspork_get_lib_version()
 {
     int
-    #include "../../src/camspork/polyglot_camspork_version.py"
+    #include "../../polyglot_camspork_version.py"
     ;
     return lib_version;
 }

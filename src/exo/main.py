@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 import exo
+import exo.spork.camspork.jit
 from exo.core.LoopIR import set_global_debug_log_path
 
 from contextlib import contextmanager
@@ -83,7 +84,14 @@ def exocc(*args, name="exocc"):
             args.pythonpath = Path.cwd()
 
     with pythonpath(args.pythonpath):
-        set_global_debug_log_path(outdir)  # Before loading user's module
+        # Before loading user's module,
+        #   * Configure output directory for all debug logs
+        #   * Prepare temporary directory for camspork.
+        #     We compile with 1 thread since exocc may itself be parallelized
+        #     across cores by the user's build command.
+        set_global_debug_log_path(outdir)
+        exo.spork.camspork.jit.set_jit_dir(outdir / "jit")
+        exo.spork.camspork.jit.set_single_threaded(True)
         library = [
             proc
             for mod in args.source

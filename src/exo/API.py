@@ -466,9 +466,18 @@ class Procedure(ProcedureBase, ProcCallGen):
 
         """
 
+        # Enforce for Exo pytest only that sync_check cannot be used without
+        # a compiler test fixture, since this fixture inits the JIT dir.
+        import exo.spork.camspork.jit as camspork_jit
+
+        assert camspork_jit.pytest_compiler_count >= 1, "Missing compiler fixture"
+
+        # We don't import sync_check until now because this module requires
+        # C++ compilation, and we don't want this hard dependency unless needed.
         from exo.spork import sync_check
         from exo.backend import LoopIR_compiler
 
+        # Actual checking
         debug_log = LoopIR.get_global_debug_log()
         try:
             backend = LoopIR_compiler.run_backend_checks(self._loopir_proc, debug_log)

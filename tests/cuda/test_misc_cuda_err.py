@@ -504,9 +504,10 @@ def test_pyparser_multiple_with_item():
 
         @proc
         def test_proc(x: i32, y: i32):
-            with CudaDeviceFunction(blockDim=32) as a, CudaDeviceFunction(
-                blockDim=64
-            ) as b:
+            with (
+                CudaDeviceFunction(blockDim=32) as a,
+                CudaDeviceFunction(blockDim=64) as b,
+            ):
                 for task in cuda_tasks(0, 1):
                     pass
 
@@ -798,3 +799,19 @@ def test_clusterDim_values(compiler):
             compiler.cuda_cpu_test(mkproc_clusterDim, clusterDim_value=ncta)
         msg = str(exc.value)
         assert f"clusterDim={ncta} not a power of 2" in msg
+
+
+def test_missing_compiler_fixture_sync_check():
+    # Meta test, testing the tests.
+    # Something may be wrong with compiler fixture after_test() if this fails.
+    @proc
+    def p(M: size, A: f32[M] @ CudaGmemLinear):
+        assert M >= 128
+        with CudaDeviceFunction(blockDim=128):
+            for task in cuda_tasks(0, 1):
+                for tid in cuda_threads(0, 128):
+                    A[tid] = 0
+
+    with pytest.raises(AssertionError) as exc:
+        p.sync_check(M=128)
+    assert "compiler fixture" in str(exc.value)
