@@ -1393,3 +1393,237 @@ def test_excut_B_cp_async_commit_group(compiler_Sm80):
         K=K,
         **cp_async_commit_group_B_args,
     )
+
+
+def mkproc_no_trailing_barrier():
+    # fmt: off
+    @proc
+    def proc_no_trailing_barrier(gmem: f32[128] @ CudaGmemLinear):
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                smem: f32[128] @ CudaSmemLinear
+                bar: barrier @ CudaMbarrier
+                Await(bar, cuda_in_order, 1)
+                for tid in cuda_threads(0, 32):
+                    Sm80_cp_async_f32(
+                        smem[4 * tid : 4 * tid + 4],
+                        gmem[4 * tid : 4 * tid + 4],
+                        size=4,
+                    ) >> bar
+                Arrive(Sm80_cp_async, 1) >> bar
+    return proc_no_trailing_barrier
+    # fmt: on
+
+
+def test_no_trailing_barrier(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(mkproc_no_trailing_barrier)
+    assert "does not take trailing barrier expression" in str(exc.value)
+
+
+def test_pyparser_unexpected_shift():
+    with pytest.raises(Exception) as exc:
+
+        @proc
+        def test_proc(x: i32, y: i32):
+            x >> y
+
+    assert ">>" in str(exc.value)
+
+
+def test_pyparser_unexpected_plus():
+    with pytest.raises(Exception) as exc:
+
+        @proc
+        def test_proc(x: i32, y: i32):
+            x * y
+
+    assert ">>" in str(exc.value)
+
+
+def test_pyparser_fence_trailing_barrier_exprs():
+    with pytest.raises(Exception) as exc:
+
+        @proc
+        def test_proc(x: i32, y: i32):
+            with CudaDeviceFunction(blockDim=32):
+                for task in cuda_tasks(0, 1):
+                    bar: barrier @ CudaMbarrier
+                    Fence(cuda_in_order, cuda_in_order) >> bar
+
+    assert "Fence" in str(exc.value)
+    assert ">>" in str(exc.value)
+
+
+def test_pyparser_await_trailing_barrier_exprs():
+    with pytest.raises(Exception) as exc:
+
+        @proc
+        def test_proc(x: i32, y: i32):
+            with CudaDeviceFunction(blockDim=32):
+                for task in cuda_tasks(0, 1):
+                    bar: barrier @ CudaMbarrier
+                    Await(bar, cuda_in_order, 0) >> bar
+
+    assert "Await" in str(exc.value)
+    assert ">>" in str(exc.value)
+
+
+@instr
+class bogus_test_instr:
+    def behavior():
+        pass
+
+    def instance(self):
+        self.coll_unit = cuda_thread
+        self.instr_tl = cuda_in_order_instr
+        self.instr_format = ["// bogus_test_instr"]
+
+
+def test_pyparser_too_many_BarrierExpr():
+    with pytest.raises(Exception) as exc:
+
+        @proc
+        def test_proc():
+            with CudaDeviceFunction(blockDim=32):
+                for task in cuda_tasks(0, 1):
+                    for tid in cuda_threads(0, 32):
+                        bar: barrier @ CudaMbarrier
+                        Arrive(cuda_in_order, 1) >> bar
+                        bogus_test_instr() >> bar >> bar
+                        Await(bar, cuda_in_order, 0)
+
+    assert "bogus_test_instr cannot have more than 1 trailing barrier expr" in str(
+        exc.value
+    )
+
+
+def test_pyparser_suggest_sync_tl():
+    with pytest.raises(Exception) as exc:
+
+        @proc
+        def test_proc():
+            with CudaDeviceFunction(blockDim=32):
+                for task in cuda_tasks(0, 1):
+                    Fence(Sm80_cp_async_instr, cuda_in_order)
+
+    assert "Sm80_cp_async?" in str(exc.value)
+
+
+def test_pyparser_not_sync_tl():
+    with pytest.raises(Exception) as exc:
+
+        @proc
+        def test_proc():
+            with CudaDeviceFunction(blockDim=32):
+                for task in cuda_tasks(0, 1):
+                    Fence("xyzzy", cuda_in_order)
+
+    assert "xyzzy" in str(exc.value)
+
+
+def test_pyparser_Arrive_kwarg():
+    with pytest.raises(Exception) as exc:
+
+        @proc
+        def test_proc():
+            with CudaDeviceFunction(blockDim=32):
+                for task in cuda_tasks(0, 1):
+                    bar: barrier @ CudaMbarrier
+                    Arrive(cuda_in_order, 1, bogus_kwarg=19) >> bar
+                    Await(bar, cuda_in_order, 0)
+
+    assert "bogus_kwarg" in str(exc.value)
+
+
+def test_pyparser_Arrive_wrong_arg_count():
+    with pytest.raises(Exception) as exc:
+
+        @proc
+        def test_proc():
+            with CudaDeviceFunction(blockDim=32):
+                for task in cuda_tasks(0, 1):
+                    bar: barrier @ CudaMbarrier
+                    Arrive(cuda_in_order, 1, 19) >> bar
+                    Await(bar, cuda_in_order, 0)
+
+    assert "Arrive expects 2 arguments" in str(exc.value)
+
+
+def test_pyparser_Await_wrong_arg_count():
+    with pytest.raises(Exception) as exc:
+
+        @proc
+        def test_proc():
+            with CudaDeviceFunction(blockDim=32):
+                for task in cuda_tasks(0, 1):
+                    bar: barrier @ CudaMbarrier
+                    Arrive(cuda_in_order, 1) >> bar
+                    Await(bar, cuda_in_order)
+
+    assert "Await expects 3 arguments" in str(exc.value)
+
+
+def test_pyparser_Fence_wrong_arg_count():
+    with pytest.raises(Exception) as exc:
+
+        @proc
+        def test_proc():
+            with CudaDeviceFunction(blockDim=32):
+                for task in cuda_tasks(0, 1):
+                    Fence()
+
+    assert "Fence expects 2 arguments" in str(exc.value)
+
+
+def test_pyparser_Await_N_not_int():
+    with pytest.raises(Exception) as exc:
+
+        @proc
+        def test_proc():
+            with CudaDeviceFunction(blockDim=32):
+                for task in cuda_tasks(0, 1):
+                    bar: barrier @ CudaMbarrier
+                    Arrive(cuda_in_order, 1) >> bar
+                    Await(bar, cuda_in_order, 0.75)
+
+    assert "Await" in str(exc.value)
+    assert "0.75" in str(exc.value)
+
+
+def test_pyparser_unexpected_BarrierType():
+    with pytest.raises(Exception) as exc:
+
+        @proc
+        def test_proc(x: f32 @ CudaMbarrier):
+            pass
+
+    msg = str(exc.value)
+    assert "CudaMbarrier" in msg
+
+
+def test_typecheck_barrier_type():
+    with pytest.raises(Exception) as exc:
+
+        @proc
+        def test_proc(xyzzy: f32):
+            Arrive(cuda_in_order, 1) >> xyzzy
+
+    msg = str(exc.value)
+    assert "requires barrier type" in msg
+    assert "xyzzy: f32" in msg
+
+
+def test_typecheck_barrier_indices():
+    with pytest.raises(Exception) as exc:
+
+        @proc
+        def test_proc(xyzzy: f32):
+            with CudaDeviceFunction(clusterDim=8, blockDim=256):
+                for task in cuda_tasks(0, 4):
+                    bars: barrier[2, 4] @ CudaMbarrier
+                    for m in cuda_threads(0, 2, unit=4 * cuda_cta_in_cluster):
+                        Arrive(cuda_in_order, 1) >> bars[m]
+
+    msg = str(exc.value)
+    assert "expected 2 indices" in msg
