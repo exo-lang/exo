@@ -9,7 +9,13 @@ from exo.platforms.Sm80 import *
 from exo.platforms.Sm90 import *
 from exo.stdlib.scheduling import *
 
+from exo.core.LoopIR import get_global_debug_log
+
 from exo.spork import excut
+
+
+# David Zhao Akeley 2026-02-06
+# Note, all the TeX: remarks are really old and can be removed.
 
 
 @instr
@@ -657,7 +663,7 @@ def mkproc_cuda_threads_bounds(lo=0, variable_bounds=False):
     return simplify(proc_cuda_threads_bounds)
 
 
-def test_cuda_threads_bounds_postive(compiler):
+def test_cuda_threads_bounds_positive(compiler):
     compiler.cuda_cpu_test(mkproc_cuda_threads_bounds)
 
 
@@ -667,10 +673,19 @@ def test_cuda_threads_bounds_wrong_lo(compiler):
     assert "test_iter" in str(exc.value)
 
 
-def test_cuda_threads_bounds_variable(compiler):
+def test_cuda_threads_bounds_variable(compiler, golden):
     with pytest.raises(Exception) as exc:
         cu = compiler.cuda_cpu_test(mkproc_cuda_threads_bounds, variable_bounds=True)
     assert "test_iter" in str(exc.value)
+
+    # Also weird debug logging test; this case is interesting since an expression
+    # ID will be referenced as the cause of the failure, not a stmt ID.
+    debug_log = get_global_debug_log()
+    debug_log.write_all_impl()
+    with open(
+        str(compiler.workdir / "debug" / "proc_cuda_threads_bounds-analysis.py")
+    ) as f:
+        assert f.read() == golden
 
 
 def mkproc_coll_unit_divisibility(concrete_blockDim):
@@ -1018,7 +1033,7 @@ def test_invalid_index_expression(compiler):
 # fmt: off
 def mkproc_mismatched_CollIndexExpr():
     @proc
-    def mismatched():
+    def proc_mismatched():
         # TeX: version mismatched 1
         # TeX: begin mismatched[0]
         with CudaDeviceFunction(blockDim=256):
@@ -1052,22 +1067,31 @@ def mkproc_mismatched_CollIndexExpr():
                     # TeX: color line *
                     #   b
                     for s in seq(0, 4):
+                        r: f32 @ CudaRmem
                         # TeX: color line *
-                        #    y  b         yyyyyyyyyyyyyyyyy   b
-                        vals[t, s] = 0  # t: $256\mapsto 1$;  s not distributed
+                        #        y  b     yyyyyyyyyyyyyyyyy   b
+                        r = vals[t, s]  # t: $256\mapsto 1$;  s not distributed
                 # TeX: color line *
                 #                       rrrrrrrrrrr  y
                 # Mismatched deduction: threadIdx.x (t)  [1 dims != 2 dims]
         # TeX: end mismatched[0]
-    return mismatched
+    return proc_mismatched
 # fmt: on
 
 
-def test_mismatched_CollIndexExpr(compiler):
+def test_mismatched_CollIndexExpr(compiler, golden):
     with pytest.raises(Exception) as exc:
         cu = compiler.cuda_cpu_test(mkproc_mismatched_CollIndexExpr)
     assert "(threadIdx.x - 32) / 4" in str(exc.value)
     assert "threadIdx.x / 4" in str(exc.value)
+
+    # This is a very fragile test.
+    # Anytime we add more logging, the golden will change.
+    # We just want to force some testing code coverage.
+    debug_log = get_global_debug_log()
+    debug_log.write_all_impl()
+    with open(str(compiler.workdir / "debug" / "proc_mismatched-analysis.py")) as f:
+        assert f.read() == golden
 
 
 # fmt: off

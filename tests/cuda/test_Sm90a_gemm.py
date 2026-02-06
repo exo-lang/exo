@@ -11,6 +11,8 @@ from exo.platforms.cuda import *
 from exo.platforms.Sm80 import *
 from exo.platforms.Sm90 import *
 
+from exo.core.LoopIR import get_global_debug_log
+
 # TODO find a better home for these than exo.platforms
 # For now they're there in order to piggyback off exo's package structure.
 # I don't have patience to deal with "attempted relative input without XXX" BS.
@@ -121,3 +123,20 @@ test_run_Sm90a_gemm_m2n2_K = mktest_run(config_K, 2, 2, False, K_split=2)
 
 test_golden_Sm90a_sch_gemm_m1n2_B = mktest_golden(config_B, 1, 2, True)
 test_run_Sm90a_sch_gemm_m1n2_B = mktest_run(config_B, 1, 2, True, K_split=1)
+
+
+def test_Sm90a_gemm_remarks(compiler, golden):
+    # This is a very fragile test.
+    # Anytime we add more logging, the golden will change.
+    # We just want to force some testing code coverage.
+
+    def mkproc():
+        gpu_gemm = make_Sm90a_gemm(config_K, 2, 1)
+        gpu_gemm = rename(gpu_gemm, "gpu_gemm")
+        return gpu_gemm
+
+    compiler.cuda_cpu_test(mkproc)
+    debug_log = get_global_debug_log()
+    debug_log.write_all_impl()
+    with open(str(compiler.workdir / "debug" / "gpu_gemm-analysis.py")) as f:
+        assert f.read() == golden

@@ -1,0 +1,15 @@
+def proc_cuda_threads_bounds(N: size, dst: i32[N] @ CudaGmemLinear):
+    with CudaDeviceFunction(blockDim=256):
+        # Domain (ω.D) = [ 256]
+        #    Box (ω.B) = [ 256]
+        #   pow2 align = 256 @ /home/mantissa/Documents/exo/tests/cuda/test_coll_units.py:653:12:(s40)
+        for task in cuda_tasks(0, N):
+            for seq in seq(0, N):
+                for test_iter in cuda_threads(
+                        0,
+                    (
+                        N  # :(e8)
+                    ),
+                        unit=cuda_thread):
+                    # /home/mantissa/Documents/exo/tests/cuda/test_coll_units.py:656:58:(s10):(e8): expected literal int value for hi of test_iter loop (rewrite with simplify(...) if needed)
+                    dst[test_iter] = 0
