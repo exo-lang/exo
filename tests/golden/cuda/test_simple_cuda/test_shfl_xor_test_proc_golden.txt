@@ -2,8 +2,8 @@
 // .h
 // ########################################################################
 #pragma once
-#ifndef TEST_GEMV_WARP_COOP_8_GOLDEN_H
-#define TEST_GEMV_WARP_COOP_8_GOLDEN_H
+#ifndef TEST_SHFL_XOR_TEST_PROC_GOLDEN_H
+#define TEST_SHFL_XOR_TEST_PROC_GOLDEN_H
 
 
 #include <stdint.h>
@@ -100,12 +100,14 @@ extern "C" {
 #include <stdlib.h>
 
 #endif
+/* Required by CudaGmemLinear */
+/* Required by CudaRmem */
 /* Required by DRAM */
-#ifndef EXO_WIN_2F32C
-#define EXO_WIN_2F32C
-struct exo_win_2f32c {
-    const float * const data;
-    const int_fast32_t strides[2];
+#ifndef EXO_WIN_1F32
+#define EXO_WIN_1F32
+struct exo_win_1f32 {
+    float * const data;
+    const int_fast32_t strides[1];
 };
 #endif
 /* Required by CudaGmemLinear */
@@ -117,33 +119,19 @@ struct exo_win_1f32c {
     const int_fast32_t strides[1];
 };
 #endif
-/* Required by CudaGmemLinear */
-/* Required by CudaSmemLinear */
-/* Required by DRAM */
-#ifndef EXO_WIN_1F32
-#define EXO_WIN_1F32
-struct exo_win_1f32 {
-    float * const data;
-    const int_fast32_t strides[1];
-};
-#endif
-// gemv_warp_coop_8(
-//     M : size,
-//     K : size,
-//     h_A : f32[M, K] @DRAM,
-//     h_x : f32[K] @DRAM,
-//     h_y : f32[M] @DRAM
+// shfl_xor_test_proc(
+//     h_A : f32[256] @DRAM
 // )
-void gemv_warp_coop_8( void *ctxt, int_fast32_t M, int_fast32_t K, const float* h_A, const float* h_x, float* h_y );
+void shfl_xor_test_proc( void *ctxt, float* h_A );
 
 
 
-struct exo_CudaDeviceArgs0_gemv_warp_coop_8;
+struct exo_CudaDeviceArgs0_shfl_xor_test_proc;
 
 #ifdef __CUDACC__
-__global__ void exo_deviceFunction0_gemv_warp_coop_8(__grid_constant__ const struct exo_CudaDeviceArgs0_gemv_warp_coop_8 exo_deviceArgs);
+__global__ void exo_deviceFunction0_shfl_xor_test_proc(__grid_constant__ const struct exo_CudaDeviceArgs0_shfl_xor_test_proc exo_deviceArgs);
 #endif
-void exo_cudaLaunch0_gemv_warp_coop_8(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0_gemv_warp_coop_8* exo_deviceArgs);
+void exo_cudaLaunch0_shfl_xor_test_proc(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0_shfl_xor_test_proc* exo_deviceArgs);
 
 
 
@@ -153,13 +141,13 @@ void exo_cudaLaunch0_gemv_warp_coop_8(cudaStream_t exo_cudaStream, const struct 
 #endif
 
 
-#endif  // TEST_GEMV_WARP_COOP_8_GOLDEN_H
+#endif  // TEST_SHFL_XOR_TEST_PROC_GOLDEN_H
 
 
 // ########################################################################
 // .c
 // ########################################################################
-#include "test_gemv_warp_coop_8_golden.h"
+#include "test_shfl_xor_test_proc_golden.h"
 
 /* Required by CudaGmemLinear */
 #ifndef EXO_MEMORY_GLOBAL_CudaGmemLinear
@@ -207,22 +195,26 @@ inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
 #endif
 
 #endif
-/* Required by CudaGmemLinear */
-#ifndef EXO_WIN_2F32
-#define EXO_WIN_2F32
-struct exo_win_2f32 {
+/* Required by CudaRmem */
+#ifndef EXO_WIN_0F32
+#define EXO_WIN_0F32
+struct exo_win_0f32 {
     float * const data;
-    const int_fast32_t strides[2];
+    const int_fast32_t strides[0];
+};
+#endif
+/* Required by CudaRmem */
+#ifndef EXO_WIN_0F32C
+#define EXO_WIN_0F32C
+struct exo_win_0f32c {
+    const float * const data;
+    const int_fast32_t strides[0];
 };
 #endif
 // CUDA device function args -- duplicated in .cuh file
-struct exo_CudaDeviceArgs0_gemv_warp_coop_8
+struct exo_CudaDeviceArgs0_shfl_xor_test_proc
 {
-    int_fast32_t M;  // M : size
-    int_fast32_t K;  // K : size
-    float* d_A;  // d_A : f32[M, K] @CudaGmemLinear
-    float* d_x;  // d_x : f32[K] @CudaGmemLinear
-    float* d_y;  // d_y : f32[M] @CudaGmemLinear
+    float* d_A;  // d_A : f32[256] @CudaGmemLinear
     EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
 };
 
@@ -238,65 +230,38 @@ cudaMemcpyAsync_htod_1d(size0,dst,src,dst=f32, src=f32)
 */
 
 /* relying on the following instruction..."
-cudaMemcpyAsync_htod_2d(size0,size1,dst,src,dst=f32, src=f32)
+cuda_shfl_xor_sync_1d(dst,src,dst=f32, src=f32, laneMask=1)
 
 */
 
 /* relying on the following instruction..."
-cuda_shfl_xor_sync_sum_1d(dst,src,dst=f32, src=f32, laneMask=1)
+cuda_shfl_xor_sync_1d(dst,src,dst=f32, src=f32, laneMask=2)
 
 */
-
-/* relying on the following instruction..."
-cuda_shfl_xor_sync_sum_1d(dst,src,dst=f32, src=f32, laneMask=2)
-
-*/
-
-/* relying on the following instruction..."
-cuda_shfl_xor_sync_sum_1d(dst,src,dst=f32, src=f32, laneMask=4)
-
-*/
-// gemv_warp_coop_8(
-//     M : size,
-//     K : size,
-//     h_A : f32[M, K] @DRAM,
-//     h_x : f32[K] @DRAM,
-//     h_y : f32[M] @DRAM
+// shfl_xor_test_proc(
+//     h_A : f32[256] @DRAM
 // )
-void gemv_warp_coop_8( void *ctxt, int_fast32_t M, int_fast32_t K, const float* h_A, const float* h_x, float* h_y ) {
-  EXO_ASSUME(M % 16 == 0);
-  EXO_ASSUME(K % 8 == 0);
-  EXO_ASSUME(K <= 2048);
-  float *d_A = (float*) exo_cudaMallocAsync(M * K * sizeof(*d_A), exo_cudaStream);
-  float *d_x = (float*) exo_cudaMallocAsync(K * sizeof(*d_x), exo_cudaStream);
-  float *d_y = (float*) exo_cudaMallocAsync(M * sizeof(*d_y), exo_cudaStream);
+void shfl_xor_test_proc( void *ctxt, float* h_A ) {
+  float *d_A = (float*) exo_cudaMallocAsync(256 * sizeof(*d_A), exo_cudaStream);
   cudaMemcpyAsync(
     (&d_A[0]),
     (&h_A[0]),
-    M * K * 4,
-    cudaMemcpyHostToDevice,
-    exo_cudaStream);
-  cudaMemcpyAsync(
-    (&d_x[0]),
-    (&h_x[0]),
-    K * 4,
+    256 * 4,
     cudaMemcpyHostToDevice,
     exo_cudaStream);
   {
-    struct exo_CudaDeviceArgs0_gemv_warp_coop_8 exo_deviceArgs = {
-      M, K, d_A, d_x, d_y, exo_excut_get_device_log()
+    struct exo_CudaDeviceArgs0_shfl_xor_test_proc exo_deviceArgs = {
+      d_A, exo_excut_get_device_log()
     };
-    exo_cudaLaunch0_gemv_warp_coop_8(exo_cudaStream, &exo_deviceArgs);
+    exo_cudaLaunch0_shfl_xor_test_proc(exo_cudaStream, &exo_deviceArgs);
   }
-  exo_cudaFreeAsync(d_x, exo_cudaStream);
-  exo_cudaFreeAsync(d_A, exo_cudaStream);
   cudaMemcpyAsync(
-    (&h_y[0]),
-    (&d_y[0]),
-    M * 4,
+    (&h_A[0]),
+    (&d_A[0]),
+    256 * 4,
     cudaMemcpyDeviceToHost,
     exo_cudaStream);
-  exo_cudaFreeAsync(d_y, exo_cudaStream);
+  exo_cudaFreeAsync(d_A, exo_cudaStream);
 }
 
 
@@ -305,9 +270,9 @@ void gemv_warp_coop_8( void *ctxt, int_fast32_t M, int_fast32_t K, const float* 
 // .cuh
 // ########################################################################
 #pragma once
-#include "test_gemv_warp_coop_8_golden.h"
+#include "test_shfl_xor_test_proc_golden.h"
 #if EXO_EXCUT_bENABLE_LOG
-#include "test_gemv_warp_coop_8_golden.excut_str_table"
+#include "test_shfl_xor_test_proc_golden.excut_str_table"
 #endif
 /* Required by CudaGmemLinear */
 #ifndef EXO_MEMORY_GLOBAL_CudaGmemLinear
@@ -355,44 +320,48 @@ inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
 #endif
 
 #endif
-/* Required by CudaGmemLinear */
-#ifndef EXO_WIN_2F32
-#define EXO_WIN_2F32
-struct exo_win_2f32 {
+/* Required by CudaRmem */
+#ifndef EXO_WIN_0F32
+#define EXO_WIN_0F32
+struct exo_win_0f32 {
     float * const data;
-    const int_fast32_t strides[2];
+    const int_fast32_t strides[0];
+};
+#endif
+/* Required by CudaRmem */
+#ifndef EXO_WIN_0F32C
+#define EXO_WIN_0F32C
+struct exo_win_0f32c {
+    const float * const data;
+    const int_fast32_t strides[0];
 };
 #endif
 
-namespace exo_CudaUtil_test_gemv_warp_coop_8_golden {
-namespace exo_CudaUtil = ::exo_CudaUtil_test_gemv_warp_coop_8_golden;
-}  // end namespace exo_CudaUtil_test_gemv_warp_coop_8_golden
+namespace exo_CudaUtil_test_shfl_xor_test_proc_golden {
+namespace exo_CudaUtil = ::exo_CudaUtil_test_shfl_xor_test_proc_golden;
+}  // end namespace exo_CudaUtil_test_shfl_xor_test_proc_golden
 // CUDA device function args -- duplicated in .c file
-struct exo_CudaDeviceArgs0_gemv_warp_coop_8
+struct exo_CudaDeviceArgs0_shfl_xor_test_proc
 {
-    int_fast32_t M;  // M : size
-    int_fast32_t K;  // K : size
-    float* d_A;  // d_A : f32[M, K] @CudaGmemLinear
-    float* d_x;  // d_x : f32[K] @CudaGmemLinear
-    float* d_y;  // d_y : f32[M] @CudaGmemLinear
+    float* d_A;  // d_A : f32[256] @CudaGmemLinear
     EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
 };
 
 // We need this inline namespace to avoid ODR problems in pytest.
-inline namespace exo_CudaInline_test_gemv_warp_coop_8_golden {
-struct exo_Cuda0_gemv_warp_coop_8
+inline namespace exo_CudaInline_test_shfl_xor_test_proc_golden {
+struct exo_Cuda0_shfl_xor_test_proc
 {
-  using exo_DeviceArgs = exo_CudaDeviceArgs0_gemv_warp_coop_8;
+  using exo_DeviceArgs = exo_CudaDeviceArgs0_shfl_xor_test_proc;
 
-  static constexpr uint32_t exo_blockDim = 128;
+  static constexpr uint32_t exo_blockDim = 64;
   static constexpr uint32_t exo_clusterDim = 1;
 
-  static constexpr unsigned exo_smemBytes = 8192;
-  static constexpr unsigned exo_smemOffset0_shared_x = 0;  // 8192-byte allocation
+  static constexpr unsigned exo_smemBytes = 0;
+
 
   struct exo_Task
   {
-    int_fast32_t m1;
+    int_fast32_t task;
   };
 
   struct exo_TaskGenerator
@@ -400,19 +369,19 @@ struct exo_Cuda0_gemv_warp_coop_8
     uint32_t exo_taskIndex;
     uint32_t exo_numClusters;
     uint32_t exo_taskCount;
-    int_fast32_t exo_cudaTasksLo_m1;
-    uint32_t exo_cudaTasksNum_m1;
+    int_fast32_t exo_cudaTasksLo_task;
+    uint32_t exo_cudaTasksNum_task;
     EXO_CUDA_INLINE exo_TaskGenerator(
         uint32_t cluster_index, uint32_t num_clusters,
-        int_fast32_t _exo_cudaTasksLo_m1, int_fast32_t _exo_cudaTasksHi_m1,
+        int_fast32_t _exo_cudaTasksLo_task, int_fast32_t _exo_cudaTasksHi_task,
         const exo_DeviceArgs&)
     {
       exo_taskIndex = cluster_index;
       exo_numClusters = num_clusters;
       exo_taskCount = 1;
-      exo_cudaTasksLo_m1 = _exo_cudaTasksLo_m1;
-      exo_cudaTasksNum_m1 = static_cast<uint32_t>(_exo_cudaTasksHi_m1 - _exo_cudaTasksLo_m1);
-      exo_taskCount *= exo_cudaTasksNum_m1;
+      exo_cudaTasksLo_task = _exo_cudaTasksLo_task;
+      exo_cudaTasksNum_task = static_cast<uint32_t>(_exo_cudaTasksHi_task - _exo_cudaTasksLo_task);
+      exo_taskCount *= exo_cudaTasksNum_task;
     }
     [[nodiscard]] EXO_CUDA_INLINE bool prepare_next_task()
     {
@@ -423,8 +392,8 @@ struct exo_Cuda0_gemv_warp_coop_8
       exo_Task exo_task;
       uint32_t exo_tmp = exo_taskIndex;
       exo_taskIndex += exo_numClusters;
-      exo_task.m1 = exo_cudaTasksLo_m1 + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_m1);
-      exo_tmp /= exo_cudaTasksNum_m1;
+      exo_task.task = exo_cudaTasksLo_task + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_task);
+      exo_tmp /= exo_cudaTasksNum_task;
       return exo_task;
     }
   };
@@ -460,12 +429,12 @@ struct exo_Cuda0_gemv_warp_coop_8
 }  // end inline namespace
 
 inline void
-exo_CudaInline_test_gemv_warp_coop_8_golden::exo_Cuda0_gemv_warp_coop_8::exo_cudaLaunch(
+exo_CudaInline_test_shfl_xor_test_proc_golden::exo_Cuda0_shfl_xor_test_proc::exo_cudaLaunch(
     cudaStream_t exo_cudaStream,
     const exo_DeviceArgs& exo_deviceArgs)
 {
-  namespace exo_CudaUtil = exo_CudaUtil_test_gemv_warp_coop_8_golden;
-  cudaFuncSetAttribute(exo_deviceFunction0_gemv_warp_coop_8, cudaFuncAttributeMaxDynamicSharedMemorySize, exo_smemBytes);
+  namespace exo_CudaUtil = exo_CudaUtil_test_shfl_xor_test_proc_golden;
+  cudaFuncSetAttribute(exo_deviceFunction0_shfl_xor_test_proc, cudaFuncAttributeMaxDynamicSharedMemorySize, exo_smemBytes);
   // TODO how expensive is it to query this every time?
   int exo_cudaDevice;
   cudaGetDevice(&exo_cudaDevice);
@@ -479,7 +448,7 @@ exo_CudaInline_test_gemv_warp_coop_8_golden::exo_Cuda0_gemv_warp_coop_8::exo_cud
   exo_launchConfig.dynamicSmemBytes = exo_smemBytes;
   exo_launchConfig.stream = exo_cudaStream;
 
-  cudaLaunchKernelEx(&exo_launchConfig, exo_deviceFunction0_gemv_warp_coop_8, exo_deviceArgs);
+  cudaLaunchKernelEx(&exo_launchConfig, exo_deviceFunction0_shfl_xor_test_proc, exo_deviceArgs);
 
   exo_excut_flush_device_log(
       exo_cudaStream, exo_gridDim, exo_blockDim,
@@ -488,7 +457,7 @@ exo_CudaInline_test_gemv_warp_coop_8_golden::exo_Cuda0_gemv_warp_coop_8::exo_cud
 }
 
 __device__ __forceinline__ void
-exo_CudaInline_test_gemv_warp_coop_8_golden::exo_Cuda0_gemv_warp_coop_8::exo_deviceSetup(
+exo_CudaInline_test_shfl_xor_test_proc_golden::exo_Cuda0_shfl_xor_test_proc::exo_deviceSetup(
     char* exo_smem,
     const exo_DeviceArgs& exo_deviceArgs,
     exo_ExcutThreadLog exo_excutLog)
@@ -497,104 +466,73 @@ exo_CudaInline_test_gemv_warp_coop_8_golden::exo_Cuda0_gemv_warp_coop_8::exo_dev
 }
 
 __device__ __forceinline__ void
-exo_CudaInline_test_gemv_warp_coop_8_golden::exo_Cuda0_gemv_warp_coop_8::exo_deviceTask(
+exo_CudaInline_test_shfl_xor_test_proc_golden::exo_Cuda0_shfl_xor_test_proc::exo_deviceTask(
     char* exo_smem,
     exo_SyncState& exo_syncState,
     const exo_DeviceArgs& exo_deviceArgs,
     exo_Task exo_task,
     exo_ExcutThreadLog exo_excutLog)
 {
-  namespace exo_CudaUtil = exo_CudaUtil_test_gemv_warp_coop_8_golden;
-  auto& shared_x = reinterpret_cast<float (&) [2048]>(exo_smem[exo_smemOffset0_shared_x]);
-  for (int i = 0; i < ((exo_deviceArgs.K + 128 - 1) / (128)); i++) {
-    // cuda_threads(0, 128, unit=cuda_thread)
-    if ([[maybe_unused]] int exo_1thr_tid = threadIdx.x; 1) {
-      if (i * 128 + exo_1thr_tid < exo_deviceArgs.K) {
-        shared_x[(i * 128 + exo_1thr_tid)] = exo_deviceArgs.d_x[(i * 128 + exo_1thr_tid)];
-      }
-    }
-  }
-  // Fence(cuda_in_order, cuda_in_order)
-  asm volatile(
-    "barrier.cta.sync 0;"
-  );
-  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cta_sync), 0, __LINE__);
-  exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
-  // cuda_threads(0, 16, unit=8 * cuda_thread)
-  if ([[maybe_unused]] int exo_8thr_m0 = (threadIdx.x / 8); 1) {
-    float partial_sum;
-    // cuda_threads(0, 2, unit=4 * cuda_thread)
-    if ([[maybe_unused]] int exo_4thr_k4 = (threadIdx.x % 8 / 4); 1) {
+  namespace exo_CudaUtil = exo_CudaUtil_test_shfl_xor_test_proc_golden;
+  float rmemA[4];
+  float tmp_1[4];
+  for (int s = 0; s < 4; s++) {
+    // cuda_threads(0, 16, unit=4 * cuda_thread)
+    if ([[maybe_unused]] int exo_4thr_t4 = (threadIdx.x / 4); 1) {
       // cuda_threads(0, 2, unit=2 * cuda_thread)
-      if ([[maybe_unused]] int exo_2thr_k2 = (threadIdx.x % 4 / 2); 1) {
+      if ([[maybe_unused]] int exo_2thr_t2 = (threadIdx.x % 4 / 2); 1) {
         // cuda_threads(0, 2, unit=cuda_thread)
-        if ([[maybe_unused]] int exo_1thr_k1 = (threadIdx.x % 2); 1) {
-          partial_sum = 0.0f;
-          for (int k8 = 0; k8 < ((exo_deviceArgs.K) / (8)); k8++) {
-            partial_sum += exo_deviceArgs.d_A[(exo_task.m1 * 16 + exo_8thr_m0) * exo_deviceArgs.K + (k8 * 8 + exo_4thr_k4 * 4 + exo_2thr_k2 * 2 + exo_1thr_k1)] * shared_x[(k8 * 8 + exo_4thr_k4 * 4 + exo_2thr_k2 * 2 + exo_1thr_k1)];
-          }
+        if ([[maybe_unused]] int exo_1thr_t1 = (threadIdx.x % 2); 1) {
+          rmemA[s] = exo_deviceArgs.d_A[(exo_4thr_t4 * 4 + exo_2thr_t2 * 2 + exo_1thr_t1 + s * 64)];
         }
       }
     }
-    float tmp_1;
-    // cuda_threads(0, 2, unit=2 * cuda_threads_strided(2, 4))
-    if ([[maybe_unused]] int exo_2thr_k2 = (threadIdx.x % 4 / 2); 1) {
-      // cuda_threads(0, 2, unit=2 * cuda_threads_strided(1, 4))
-      if ([[maybe_unused]] int exo_1thr_k1 = (threadIdx.x % 2); 1) {
-        tmp_1 = partial_sum + __shfl_xor_sync(17 << (threadIdx.x & 27), partial_sum, 4);
+  }
+  for (int s = 0; s < 4; s++) {
+    // cuda_threads(0, 16, unit=4 * cuda_thread)
+    if ([[maybe_unused]] int exo_4thr_t4 = (threadIdx.x / 4); 1) {
+      // cuda_threads(0, 2, unit=2 * cuda_thread)
+      if ([[maybe_unused]] int exo_2thr_t2 = (threadIdx.x % 4 / 2); 1) {
+        tmp_1[s] = __shfl_xor_sync(3 << (threadIdx.x & 30), rmemA[s], 1);
       }
-    }
-    // cuda_threads(0, 2, unit=4 * cuda_thread)
-    if ([[maybe_unused]] int exo_4thr_k4 = (threadIdx.x % 8 / 4); 1) {
       // cuda_threads(0, 2, unit=2 * cuda_threads_strided(1, 2))
-      if ([[maybe_unused]] int exo_1thr_k1 = (threadIdx.x % 2); 1) {
-        partial_sum = tmp_1 + __shfl_xor_sync(5 << (threadIdx.x & 29), tmp_1, 2);
+      if ([[maybe_unused]] int exo_1thr_t1 = (threadIdx.x % 2); 1) {
+        rmemA[s] = __shfl_xor_sync(5 << (threadIdx.x & 29), tmp_1[s], 2);
       }
     }
-    // cuda_threads(0, 2, unit=4 * cuda_thread)
-    if ([[maybe_unused]] int exo_4thr_k4 = (threadIdx.x % 8 / 4); 1) {
+  }
+  for (int s = 0; s < 4; s++) {
+    // cuda_threads(0, 16, unit=4 * cuda_thread)
+    if ([[maybe_unused]] int exo_4thr_t4 = (threadIdx.x / 4); 1) {
       // cuda_threads(0, 2, unit=2 * cuda_thread)
-      if ([[maybe_unused]] int exo_2thr_k2 = (threadIdx.x % 4 / 2); 1) {
-        tmp_1 = partial_sum + __shfl_xor_sync(3 << (threadIdx.x & 30), partial_sum, 1);
+      if ([[maybe_unused]] int exo_2thr_t2 = (threadIdx.x % 4 / 2); 1) {
         // cuda_threads(0, 2, unit=cuda_thread)
-        if ([[maybe_unused]] int exo_1thr_k1 = (threadIdx.x % 2); 1) {
-          if (exo_4thr_k4 == 0) {
-            if (exo_2thr_k2 == 0) {
-              if (exo_1thr_k1 == 0) {
-                exo_deviceArgs.d_y[(exo_task.m1 * 16 + exo_8thr_m0)] = tmp_1;
-              }
-            }
-          }
+        if ([[maybe_unused]] int exo_1thr_t1 = (threadIdx.x % 2); 1) {
+          exo_deviceArgs.d_A[(exo_4thr_t4 * 4 + exo_2thr_t2 * 2 + exo_1thr_t1 + s * 64)] = rmemA[s];
         }
       }
     }
   }
-  // Fence(cuda_in_order, cuda_in_order)
-  asm volatile(
-    "barrier.cta.sync 0;"
-  );
-  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cta_sync), 0, __LINE__);
-  exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
 }
 __device__ __forceinline__ void
-exo_CudaInline_test_gemv_warp_coop_8_golden::exo_Cuda0_gemv_warp_coop_8::exo_deviceMainLoop(
+exo_CudaInline_test_shfl_xor_test_proc_golden::exo_Cuda0_shfl_xor_test_proc::exo_deviceMainLoop(
     char* exo_smem,
     const exo_DeviceArgs& exo_deviceArgs,
     exo_ExcutThreadLog exo_excutLog)
 {
-  namespace exo_CudaUtil = exo_CudaUtil_test_gemv_warp_coop_8_golden;
+  namespace exo_CudaUtil = exo_CudaUtil_test_shfl_xor_test_proc_golden;
   exo_SyncState exo_syncState{};
   int32_t nreg;
   nreg = ((int32_t) 0);
   if (nreg == ((int32_t) 0)) {
-    if (int tmp = threadIdx.x; tmp >= 0 && tmp < 128) {
+    if (int tmp = threadIdx.x; tmp >= 0 && tmp < 64) {
       {
-        int_fast32_t exo_cudaTasksLo_m1 = 0;
-        int_fast32_t exo_cudaTasksHi_m1 = ((exo_deviceArgs.M) / (16));
+        int_fast32_t exo_cudaTasksLo_task = 0;
+        int_fast32_t exo_cudaTasksHi_task = 1;
         exo_TaskGenerator exo_taskGenerator(
             blockIdx.x / exo_clusterDim,
             gridDim.x / exo_clusterDim,
-            exo_cudaTasksLo_m1, exo_cudaTasksHi_m1,
+            exo_cudaTasksLo_task, exo_cudaTasksHi_task,
             exo_deviceArgs);
         while (exo_taskGenerator.prepare_next_task()) {
           exo_deviceTask(exo_smem, exo_syncState, exo_deviceArgs, exo_taskGenerator.get_next_task(), exo_excutLog);
@@ -607,20 +545,20 @@ exo_CudaInline_test_gemv_warp_coop_8_golden::exo_Cuda0_gemv_warp_coop_8::exo_dev
 // ########################################################################
 // .cu
 // ########################################################################
-#include "test_gemv_warp_coop_8_golden.cuh"
-__launch_bounds__(128, 1)
+#include "test_shfl_xor_test_proc_golden.cuh"
+__launch_bounds__(64, 1)
 __global__ void
-exo_deviceFunction0_gemv_warp_coop_8(__grid_constant__ const struct exo_CudaDeviceArgs0_gemv_warp_coop_8 exo_deviceArgs)
+exo_deviceFunction0_shfl_xor_test_proc(__grid_constant__ const struct exo_CudaDeviceArgs0_shfl_xor_test_proc exo_deviceArgs)
 {
   extern __shared__ char exo_smem[];
   exo_ExcutThreadLog exo_excutLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
-  exo_Cuda0_gemv_warp_coop_8::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
-  exo_Cuda0_gemv_warp_coop_8::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda0_shfl_xor_test_proc::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda0_shfl_xor_test_proc::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
 }
 
 void
-exo_cudaLaunch0_gemv_warp_coop_8(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0_gemv_warp_coop_8* exo_deviceArgs)
+exo_cudaLaunch0_shfl_xor_test_proc(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0_shfl_xor_test_proc* exo_deviceArgs)
 {
-  exo_Cuda0_gemv_warp_coop_8::exo_cudaLaunch(exo_cudaStream, *exo_deviceArgs);
+  exo_Cuda0_shfl_xor_test_proc::exo_cudaLaunch(exo_cudaStream, *exo_deviceArgs);
 }
 

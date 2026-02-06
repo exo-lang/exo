@@ -764,6 +764,37 @@ def test_tmp_xgemm_Sm80_golden(compiler, golden):
 
 
 # fmt: off
+@proc
+def shfl_xor_test_proc(h_A: f32[256]):
+    # Reverses the order of each group of 4 values in a really weird way.
+    # Besides testing shfl, it also stresses a corner case in the compiler
+    # where distributed dimensions removal causes a window expression to
+    # decay to a scalar read.
+    d_A: f32[256] @ CudaGmemLinear
+    cudaMemcpyAsync_htod_1d(256, d_A[:], h_A[:], dst="f32", src="f32")
+    with CudaDeviceFunction(blockDim=64):
+        for task in cuda_tasks(0, 1):
+            rmemA: f32[16, 2, 2, 4] @ CudaRmem
+            tmp: f32[16, 2, 2, 4] @ CudaRmem
+            for s in seq(0, 4):
+                for t4 in cuda_threads(0, 16, unit=cuda_thread * 4):
+                    for t2 in cuda_threads(0, 2, unit=cuda_thread * 2):
+                        for t1 in cuda_threads(0, 2, unit=cuda_thread * 1):
+                            rmemA[t4, t2, t1, s] = d_A[t4 * 4 + t2 * 2 + t1 * 1 + s * 64]
+            for s in seq(0, 4):
+                for t4 in cuda_threads(0, 16, unit=cuda_thread * 4):
+                    for t2 in cuda_threads(0, 2, unit=cuda_thread * 2):
+                        cuda_shfl_xor_sync_1f32(tmp[t4, t2, :, s], rmemA[t4, t2, :, s], laneMask=1)
+                    for t1 in cuda_threads(0, 2, unit=2 * cuda_threads_strided(1, 2)):
+                        cuda_shfl_xor_sync_1f32(rmemA[t4, :, t1, s], tmp[t4, :, t1, s], laneMask=2)
+            for s in seq(0, 4):
+                for t4 in cuda_threads(0, 16, unit=cuda_thread * 4):
+                    for t2 in cuda_threads(0, 2, unit=cuda_thread * 2):
+                        for t1 in cuda_threads(0, 2, unit=cuda_thread * 1):
+                            d_A[t4 * 4 + t2 * 2 + t1 * 1 + s * 64] = rmemA[t4, t2, t1, s]
+    cudaMemcpyAsync_dtoh_1d(256, h_A[:], d_A[:], dst="f32", src="f32")
+
+
 gemv_blockDim = 128
 gemv_M0 = gemv_blockDim // 8
 gemv_max_K = 2048
@@ -804,15 +835,15 @@ def gemv_warp_coop_8(M: size, K: size, h_A: f32[M, K], h_x: f32[K], h_y: f32[M])
                 tmp: f32[2, 2, 2] @ CudaRmem
                 for k2 in cuda_threads(0, 2, unit=2 * cuda_threads_strided(2, 4)):
                     for k1 in cuda_threads(0, 2, unit=2 * cuda_threads_strided(1, 4)):
-                        cuda_shfl_xor_sync_1f32_sum(
+                        cuda_shfl_xor_sync_sum_1f32(
                             tmp[:, k2, k1], partial_sum[:, k2, k1], laneMask=4)
                 for k4 in cuda_threads(0, 2, unit=4 * cuda_thread):
                     for k1 in cuda_threads(0, 2, unit=2 * cuda_threads_strided(1, 2)):
-                        cuda_shfl_xor_sync_1f32_sum(
+                        cuda_shfl_xor_sync_sum_1f32(
                             partial_sum[k4, :, k1], tmp[k4, :, k1], laneMask=2)
                 for k4 in cuda_threads(0, 2, unit=4 * cuda_thread):
                     for k2 in cuda_threads(0, 2, unit=2 * cuda_thread):
-                        cuda_shfl_xor_sync_1f32_sum(
+                        cuda_shfl_xor_sync_sum_1f32(
                             tmp[k4, k2, :], partial_sum[k4, k2, :], laneMask=1)
                         # Nominate one thread to write the output.
                         # This is written strangely; we can't access tmp[0, 0, 0]
@@ -827,7 +858,22 @@ def gemv_warp_coop_8(M: size, K: size, h_A: f32[M, K], h_x: f32[K], h_y: f32[M])
 # fmt: on
 
 
-def test_gemv_warp_coop_8(compiler_Sm80):
+def test_shfl_xor_test_proc_run(compiler_Sm80):
+    cu = compiler_Sm80.cuda_test_context(shfl_xor_test_proc)
+    A = np.ndarray(shape=(256,), dtype=np.float32)
+    for i in range(0, 256):
+        A[i] = float(i)
+    cu(None, A)
+    for i in range(0, 256):
+        assert A[i] == float(i ^ 3)
+
+
+def test_shfl_xor_test_proc_golden(compiler, golden):
+    shfl_xor_test_proc.sync_check()
+    compiler.cuda_cpu_test(lambda: shfl_xor_test_proc, golden=golden)
+
+
+def test_gemv_warp_coop_8_run(compiler_Sm80):
     cu = compiler_Sm80.cuda_test_context(gemv_warp_coop_8)
 
     for M, K in ((512, 256), (256, 512), (128, 1024)):

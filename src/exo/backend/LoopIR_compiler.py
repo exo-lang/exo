@@ -1684,6 +1684,7 @@ class Compiler:
             window_arg: InstrWindowArg
             window_arg = self.comp_fnarg_window(e, mem, is_const)
             if e.idx:
+                # 2026-02-05 David Zhao Akeley: unreachable except with __shfl_sync
                 # This is a really roundabout way of extracting a scalar from a
                 # tensor/window. We compile it as a "window", then extract the
                 # 0th element (index_result) from the "window", and repackage
