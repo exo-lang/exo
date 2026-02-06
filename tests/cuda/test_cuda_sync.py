@@ -308,10 +308,12 @@ def test_mixed_syncs_mismatch_second_sync_tl(compiler):
     assert "wgmma_async" in msg
 
 
-def mkproc_cluster_sync_unit(unit, arrive_lo=0, arrive_hi=8, await_lo=0, await_hi=8):
+def mkproc_cluster_sync_unit(
+    unit, arrive_lo=0, arrive_hi=8, await_lo=0, await_hi=8, clusterDim=4
+):
     @proc
     def test_proc():
-        with CudaDeviceFunction(clusterDim=4, blockDim=256):
+        with CudaDeviceFunction(clusterDim=clusterDim, blockDim=256):
             for task in cuda_tasks(0, 1):
                 for u in cuda_threads(0, 1, unit=unit):
                     sync: barrier @ CudaClusterSync
@@ -326,6 +328,14 @@ def mkproc_cluster_sync_unit(unit, arrive_lo=0, arrive_hi=8, await_lo=0, await_h
 def test_cluster_sync_unit_baseline(compiler):
     # Correct usage of CudaClusterSync
     compiler.cuda_cpu_test(mkproc_cluster_sync_unit, unit=cuda_cluster, sm="90a")
+
+
+def test_force_cluster_sync(compiler, golden):
+    src = compiler.cuda_cpu_test(
+        mkproc_cluster_sync_unit, unit=cuda_cluster, clusterDim=1, golden=golden
+    )
+    assert "cluster.arrive" in src.cuh_src
+    assert "cluster.wait" in src.cuh_src
 
 
 def test_cluster_sync_unit_cta(compiler):
@@ -1627,3 +1637,180 @@ def test_typecheck_barrier_indices():
 
     msg = str(exc.value)
     assert "expected 2 indices" in msg
+
+
+multicast_await_bug = 1
+multicast_commit_group_bug = 2
+home_barrier_different_barriers_bug = 3
+home_barrier_binop_bug = 4
+home_barrier_different_idxs_bug = 5
+home_barrier_missing_vars_bug = 6
+arrive_no_barriers_bug = 7
+
+
+def mkproc_broken_barrier_exprs(bug):
+    @proc
+    def proc_broken_barrier_exprs():
+        with CudaDeviceFunction(clusterDim=4, blockDim=128):
+            for task in cuda_tasks(0, 4):
+                mbar_a: barrier[2, 2] @ CudaMbarrier
+                mbar_b: barrier[2, 2] @ CudaMbarrier
+                for m_cta in cuda_threads(0, 2, unit=2 * cuda_cta_in_cluster):
+                    for n_cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+                        if bug == home_barrier_missing_vars_bug:
+                            Arrive(cuda_in_order) >> mbar_a[m_cta, :]
+                        else:
+                            (
+                                Arrive(cuda_in_order)
+                                >> mbar_a[m_cta, :]
+                                >> mbar_a[m_cta, n_cta]
+                            )
+                        if bug == multicast_await_bug:
+                            Await(mbar_a[m_cta, :], cuda_in_order, ~0)
+                        else:
+                            Await(mbar_a[m_cta, n_cta], cuda_in_order, ~0)
+
+                        cg: barrier[128] @ CudaCommitGroup
+                        for tid in cuda_threads(0, 128):
+                            if bug == multicast_commit_group_bug:
+                                Arrive(Sm80_cp_async) >> cg[tid] >> cg[:]
+                            else:
+                                Arrive(Sm80_cp_async) >> cg[tid]
+                            Await(cg[tid], cuda_in_order, 0)
+
+                        if bug == home_barrier_different_idxs_bug:
+                            (
+                                Arrive(cuda_in_order)
+                                >> mbar_b[m_cta, n_cta]
+                                >> mbar_b[:, m_cta]
+                            )
+                        else:
+                            (
+                                Arrive(cuda_in_order)
+                                >> mbar_b[m_cta, n_cta]
+                                >> mbar_b[:, n_cta]
+                            )
+
+                        if bug == home_barrier_binop_bug:
+                            Await(mbar_b[m_cta, n_cta / 2], cuda_in_order, ~0)
+                        else:
+                            Await(mbar_b[m_cta, n_cta], cuda_in_order, ~0)
+
+                        if bug == home_barrier_different_barriers_bug:
+                            (
+                                Arrive(cuda_in_order)
+                                >> mbar_a[m_cta, n_cta]
+                                >> mbar_b[m_cta, n_cta]
+                            )
+                        if bug == arrive_no_barriers_bug:
+                            Arrive(cuda_in_order)
+
+    return simplify(proc_broken_barrier_exprs)
+
+
+def test_home_barrier_expr_positive(compiler):
+    compiler.cuda_cpu_test(mkproc_broken_barrier_exprs, bug=0)
+
+
+def test_forbid_multicast_await(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(mkproc_broken_barrier_exprs, bug=multicast_await_bug)
+    msg = str(exc.value)
+    assert "Unsupported multicast" in msg
+    assert "Await" in msg
+
+
+def test_forbid_multicast_commit_group(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(
+            mkproc_broken_barrier_exprs, bug=multicast_commit_group_bug
+        )
+    msg = str(exc.value)
+    assert "Unsupported multicast" in msg
+    assert "CudaCommitGroup" in msg
+
+
+def test_home_barrier_different_barriers(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(
+            mkproc_broken_barrier_exprs, bug=home_barrier_different_barriers_bug
+        )
+    msg = str(exc.value)
+    assert "different barrier variables" in msg
+    assert "mbar_a" in msg
+    assert "mbar_b" in msg
+    assert "cg" not in msg
+
+
+def test_home_barrier_binop(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(mkproc_broken_barrier_exprs, bug=home_barrier_binop_bug)
+    msg = str(exc.value)
+    assert "plain variable" in msg
+    assert "n_cta / 2" in msg
+
+
+def test_home_barrier_different_idxs(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(
+            mkproc_broken_barrier_exprs, bug=home_barrier_different_idxs_bug
+        )
+    msg = str(exc.value)
+    assert "mismatches" in msg
+    assert "m_cta" in msg
+    assert "n_cta" in msg
+
+
+def test_home_barrier_missing_vars(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(
+            mkproc_broken_barrier_exprs, bug=home_barrier_missing_vars_bug
+        )
+    msg = str(exc.value)
+    assert "not an interval" in msg
+
+
+def test_arrive_no_barriers(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(mkproc_broken_barrier_exprs, bug=arrive_no_barriers_bug)
+    msg = str(exc.value)
+    assert "missing >>" in msg
+
+
+def mkproc_await_wrong_N(barrier_mechanism, N):
+    first_sync_tl = (
+        tma_to_gmem_async if barrier_mechanism == CudaCommitGroup else cuda_in_order
+    )
+
+    @proc
+    def proc_await_wrong_N():
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                bar: barrier @ barrier_mechanism
+                Arrive(first_sync_tl) >> bar
+                Await(bar, cuda_generic_and_async_proxy, N)
+
+    return proc_await_wrong_N
+
+
+def test_await_wrong_N(compiler):
+    mkproc = mkproc_await_wrong_N
+
+    def helper(barrier_mechanism, N, err):
+        if not err:
+            compiler.cuda_cpu_test(mkproc, barrier_mechanism=barrier_mechanism, N=N)
+        else:
+            with pytest.raises(Exception) as exc:
+                compiler.cuda_cpu_test(mkproc, barrier_mechanism=barrier_mechanism, N=N)
+            msg = str(exc.value)
+            assert err in msg
+
+    helper(CudaClusterSync, -1, "N = 0")
+    helper(CudaClusterSync, 0, None)
+    helper(CudaClusterSync, +1, "N = 0")
+    helper(CudaMbarrier, -1, None)
+    helper(CudaMbarrier, 0, "N < 0 (e.g. N = ~0)")
+    helper(CudaMbarrier, 1, "N < 0 (e.g. N = ~0)")
+    helper(CudaCommitGroup, -1, "N >= 0")
+    helper(CudaCommitGroup, 0, None)
+    helper(CudaCommitGroup, 0, None)

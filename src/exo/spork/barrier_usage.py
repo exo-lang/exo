@@ -122,6 +122,9 @@ class BarrierUsage:
         N = sync_type.N
         assert sync_type.is_await()
 
+        # Enforce no multicast for any Await
+        s.forbid_multicast("multicast is for Arrive, not Await")
+
         assert len(s.barriers) == 1
         e0 = s.home_barrier_expr()
         nm = e0.name
@@ -165,9 +168,6 @@ class BarrierUsage:
 
         if traits.uniform_await_N and info.min_N != info.max_N:
             kvetch_incompatible(f"N ({mem.name()} uniform-N requirement)")
-
-        # Enforce no multicast for any Await
-        s.forbid_multicast("multicast is for Arrive, not Await")
 
     fence_multicasts = (False,)
 

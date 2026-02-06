@@ -753,7 +753,7 @@ def home_barrier_expr(s) -> LoopIR.BarrierExpr:
         e = s.barriers[expr_idx]
         if e.name != nm:
             raise ValueError(
-                f"{s.srcinfo}: cannot arrive on different queue barrier arrays {e} and {e0}"
+                f"{s.srcinfo}: cannot arrive on different barrier variables {e} and {e0}"
             )
         for dim_idx in range(dim):
             this_idx = e.idx[dim_idx]
