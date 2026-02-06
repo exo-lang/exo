@@ -307,6 +307,7 @@ class Compiler:
         # This will go poorly if someone tries to multithread pytest.
         jit_path = self.tmp_path_factory.getbasetemp() / f"jit-{os.getpid()}"
         camspork_jit.set_jit_dir(jit_path)
+        camspork_jit.set_single_threaded(False)
         camspork_jit.pytest_compiler_count += 1
 
     def after_test(self):

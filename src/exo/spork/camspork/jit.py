@@ -24,9 +24,13 @@ import shlex
 import subprocess
 
 _camspork_jit_directory_name = None
-_env_var_name = "CAMSPORK_JIT_DIR"
+_dir_env_var_name = "CAMSPORK_JIT_DIR"
 _ninja_single_threaded = False
-pytest_compiler_count = 1  # For Exo pytest use
+
+# For Exo pytest use, refcounts number of compilers and forbids
+# usage when 0 compilers exist (i.e. JIT may be uninitialized for
+# certain orders of running tests). Always 1 (allowed) outside pytest.
+pytest_compiler_count = 1
 
 
 def set_jit_dir(dirname):
@@ -46,10 +50,10 @@ def set_single_threaded(flag):
 
 
 def get_jit_dir():
-    name = os.environ.get(_env_var_name, _camspork_jit_directory_name)
+    name = os.environ.get(_dir_env_var_name, _camspork_jit_directory_name)
     if name is None:
         raise ValueError(
-            f"Export the {_env_var_name} environment variable to name "
+            f"Export the {_dir_env_var_name} environment variable to name "
             f"a directory for compiling temporary C++. "
             f"Concurrent processes should not share this directory."
         )
@@ -183,7 +187,7 @@ def compile_libcamspork():
 if __name__ == "__main__":
     if len(sys.argv) == 2:
         set_jit_dir(sys.argv[1])
-    elif len(sys.argv) == 1 and _env_var_name in os.environ:
+    elif len(sys.argv) == 1 and _dir_env_var_name in os.environ:
         pass
     else:
         sys.stderr.write("Wrapper for build, run with build directory name\n")
