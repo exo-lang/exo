@@ -59,6 +59,7 @@ exclude = ["exo.cmake"]
 
 [tool.setuptools.package-data]
 "exo.libs" = ["*.c", "*.h"]
+"exo.spork.camspork" = ["lib/**"]
 
 [tool.setuptools.data-files]
 "share/exo/cmake" = ["src/exo/cmake/*.cmake"]

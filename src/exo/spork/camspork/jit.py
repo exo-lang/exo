@@ -18,6 +18,7 @@ then invokes the ninja build tool to compile the binaries.
 
 """
 
+import sys
 import os
 import shlex
 import subprocess
@@ -67,7 +68,7 @@ def get_libcamspork_path():
 def get_ninja_cmd_path():
     ninja = os.environ.get("EXO_NINJA") or "ninja"
     try:
-        subprocess.check_call(["which", ninja])
+        subprocess.check_call(["which", ninja], stdout=sys.stderr)
     except Exception as e:
         raise ValueError(
             f"\x1b[31m\x1b[1msync_check:\x1b[0m missing ninja-build {ninja!r}; "
@@ -87,7 +88,7 @@ def get_bin_path():
 def get_cxx():
     cxx = os.environ.get("EXO_CXX") or os.environ.get("CXX") or "c++"
     try:
-        subprocess.check_call(["which", cxx])
+        subprocess.check_call(["which", cxx], stdout=sys.stderr)
     except Exception as e:
         raise ValueError(
             f"\x1b[31m\x1b[1msync_check:\x1b[0m missing C++ compiler {cxx!r}; "
@@ -112,12 +113,16 @@ def Qpath(s):
 
 
 def get_src_file_paths():
+    src_root = get_src_path()
     src_paths = []
-    for dname, _, fnames in os.walk(get_src_path()):
+    for dname, _, fnames in os.walk(src_root):
         for fname in fnames:
             if fname.endswith(".cpp") or fname.endswith(".cu"):
                 full_path = os.path.join(dname, fname)
                 src_paths.append(full_path)
+
+    assert src_paths, f"Exo packaging bug? No source files found in {src_root!r}"
+
     # NB sorting is really important for sanity in tricky C++ cases
     # involving ODR violations and weak symbols.
     src_paths.sort()
@@ -176,8 +181,6 @@ def compile_libcamspork():
 
 
 if __name__ == "__main__":
-    import sys
-
     if len(sys.argv) == 2:
         set_jit_dir(sys.argv[1])
     elif len(sys.argv) == 1 and _env_var_name in os.environ:

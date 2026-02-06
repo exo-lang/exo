@@ -1,3 +1,6 @@
+# Don't import this module until the camspork JIT is initialized.
+# exocc and the Exo pytest tests should handle this early during init.
+
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Optional, Type, List, Set, Tuple
 from warnings import warn
