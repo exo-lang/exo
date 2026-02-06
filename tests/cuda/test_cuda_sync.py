@@ -1777,7 +1777,7 @@ def test_arrive_no_barriers(compiler):
     assert "missing >>" in msg
 
 
-def mkproc_await_wrong_N(barrier_mechanism, N):
+def mkproc_await_wrong_N(barrier_mechanism, N, N2):
     first_sync_tl = (
         tma_to_gmem_async if barrier_mechanism == CudaCommitGroup else cuda_in_order
     )
@@ -1789,6 +1789,8 @@ def mkproc_await_wrong_N(barrier_mechanism, N):
                 bar: barrier @ barrier_mechanism
                 Arrive(first_sync_tl) >> bar
                 Await(bar, cuda_generic_and_async_proxy, N)
+                Arrive(first_sync_tl) >> bar
+                Await(bar, cuda_generic_and_async_proxy, N2)
 
     return proc_await_wrong_N
 
@@ -1796,21 +1798,28 @@ def mkproc_await_wrong_N(barrier_mechanism, N):
 def test_await_wrong_N(compiler):
     mkproc = mkproc_await_wrong_N
 
-    def helper(barrier_mechanism, N, err):
+    def helper(barrier_mechanism, N, N2, err):
         if not err:
-            compiler.cuda_cpu_test(mkproc, barrier_mechanism=barrier_mechanism, N=N)
+            compiler.cuda_cpu_test(
+                mkproc, barrier_mechanism=barrier_mechanism, N=N, N2=N2
+            )
         else:
             with pytest.raises(Exception) as exc:
-                compiler.cuda_cpu_test(mkproc, barrier_mechanism=barrier_mechanism, N=N)
+                compiler.cuda_cpu_test(
+                    mkproc, barrier_mechanism=barrier_mechanism, N=N, N2=N2
+                )
             msg = str(exc.value)
             assert err in msg
 
-    helper(CudaClusterSync, -1, "N = 0")
-    helper(CudaClusterSync, 0, None)
-    helper(CudaClusterSync, +1, "N = 0")
-    helper(CudaMbarrier, -1, None)
-    helper(CudaMbarrier, 0, "N < 0 (e.g. N = ~0)")
-    helper(CudaMbarrier, 1, "N < 0 (e.g. N = ~0)")
-    helper(CudaCommitGroup, -1, "N >= 0")
-    helper(CudaCommitGroup, 0, None)
-    helper(CudaCommitGroup, 0, None)
+    helper(CudaClusterSync, -1, -1, "N = 0")
+    helper(CudaClusterSync, 0, 0, None)
+    helper(CudaClusterSync, +1, +1, "N = 0")
+    helper(CudaMbarrier, -1, -1, None)
+    helper(CudaMbarrier, 0, 0, "N < 0 (e.g. N = ~0)")
+    helper(CudaMbarrier, +1, +1, "N < 0 (e.g. N = ~0)")
+    helper(CudaCommitGroup, -1, -1, "N >= 0")
+    helper(CudaCommitGroup, 0, 0, None)
+    helper(CudaCommitGroup, +1, +1, None)
+
+    helper(CudaCommitGroup, +1, +2, None)
+    helper(CudaMbarrier, ~1, ~2, "uniform-N")
