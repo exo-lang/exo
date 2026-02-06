@@ -1304,6 +1304,9 @@ exo_CudaInline_test_golden_Sm90a_gemm_m2n1_A::exo_Cuda0_xgemm_Sm90a_r4_m2n1_m128
     "barrier.cluster.wait.aligned;"
   );
   exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cluster_wait_aligned), 0, __LINE__);
+  // free(cluster_sync)
+  // free(war)
+  // free(raw)
 }
 __device__ __forceinline__ void
 exo_CudaInline_test_golden_Sm90a_gemm_m2n1_A::exo_Cuda0_xgemm_Sm90a_r4_m2n1_m128n256_rmemC::exo_deviceTask_unused(
@@ -1364,6 +1367,7 @@ exo_CudaInline_test_golden_Sm90a_gemm_m2n1_A::exo_Cuda0_xgemm_Sm90a_r4_m2n1_m128
   exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cluster_wait_aligned), 0, __LINE__);
   ; // NO-OP
   ; // NO-OP
+  // free(cluster_sync)
   ; // NO-OP
   ; // NO-OP
 }
@@ -1507,6 +1511,7 @@ exo_CudaInline_test_golden_Sm90a_gemm_m2n1_A::exo_Cuda0_xgemm_Sm90a_r4_m2n1_m128
       }
     }
   }
+  // free(cg)
   // cluster_sync: barrier @ CudaClusterSync
   // Arrive(cuda_in_order, 1) >> cluster_sync
   asm volatile(
@@ -1663,6 +1668,9 @@ exo_CudaInline_test_golden_Sm90a_gemm_m2n1_A::exo_Cuda0_xgemm_Sm90a_r4_m2n1_m128
     "barrier.cluster.wait.aligned;"
   );
   exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cluster_wait_aligned), 0, __LINE__);
+  // free(cluster_sync)
+  // free(war)
+  // free(raw)
 }
 __device__ __forceinline__ void
 exo_CudaInline_test_golden_Sm90a_gemm_m2n1_A::exo_Cuda0_xgemm_Sm90a_r4_m2n1_m128n256_rmemC::exo_deviceMainLoop(

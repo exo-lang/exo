@@ -1,0 +1,48 @@
+def that_cuda_proc():
+    with CudaDeviceFunction(clusterDim=8,
+                            warp_config=[
+                                CudaWarpConfig(name='producer',
+                                               count=1,
+                                               setmaxnreg_dec=40,
+                                               setmaxnreg_inc=None),
+                                CudaWarpConfig(name='unused',
+                                               count=3,
+                                               setmaxnreg_dec=40,
+                                               setmaxnreg_inc=None),
+                                CudaWarpConfig(name='consumer',
+                                               count=8,
+                                               setmaxnreg_dec=None,
+                                               setmaxnreg_inc=232)
+                            ]):
+        for task in cuda_tasks(0, 1):
+            raw: barrier[4, 2] @ CudaMbarrier
+            war: barrier(raw)[4, 2] @ CudaMbarrier
+            for iter_k in seq(0, 100):
+                with CudaWarps(name='producer'):
+                    for cta_m in cuda_threads(0,
+                                              4,
+                                              unit=2 * cuda_cta_in_cluster):
+                        for cta_n in cuda_threads(0,
+                                                  2,
+                                                  unit=cuda_cta_in_cluster):
+                            Await(war[cta_m, cta_n], cuda_temporal, ~2)
+                    for cta_n in cuda_threads(0,
+                                              2,
+                                              unit=4 *
+                                              cuda_cta_in_cluster_strided(2)):
+                        for cta_m in cuda_threads(0,
+                                                  4,
+                                                  unit=cuda_cta_in_cluster):
+                            Arrive(cuda_temporal,
+                                   1) >> raw[cta_m, :] >> raw[:, cta_n]
+                with CudaWarps(name='consumer'):
+                    for cta_m in cuda_threads(0,
+                                              4,
+                                              unit=2 * cuda_cta_in_cluster):
+                        for cta_n in cuda_threads(0,
+                                                  2,
+                                                  unit=cuda_cta_in_cluster):
+                            Await(raw[cta_m, cta_n],
+                                  cuda_generic_and_async_proxy, ~0)
+                            Arrive(cuda_in_order,
+                                   1) >> war[cta_m, :] >> war[:, cta_n]

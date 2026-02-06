@@ -12,7 +12,7 @@ from typing import List, Tuple, Optional, Dict, Set, Type, Callable, Union
 from .reserved_names import is_exo_reserved_name
 from ..core.cir import CIR, CIR_Wrapper, simplify_cir, cast_to_cir
 from ..core.c_window import WindowFeatures
-from ..core.instr_class import InstrWindowArg, InstrNonWindowArg, InstrArgs
+from ..core.instr_class import InstrWindowArg, InstrNonWindowArg, InstrArgs, InstrInfo
 from ..core.LoopIR import (
     LoopIR,
     LoopIR_Do,
@@ -473,6 +473,7 @@ def ext_compile_to_strings(
     for p in proc_list:
         # don't compile instruction procedures, but add a comment.
         if instr := p.instr:
+            instr: InstrInfo
             instr_name = p.proc_name_with_args()
             proc_bodies.extend(
                 [
@@ -894,9 +895,10 @@ class Compiler:
                 old_exc = exc
                 if not re.findall(SrcInfo.stmt_id_pattern, exc_str):
                     try:
+                        # Try to change the exception type to match the original.
                         exc = type(exc)(f"{b.srcinfo}: {exc_str}")
                     except Exception:
-                        pass
+                        pass  # Preserve the original exc if above casting failed.
                     raise exc from old_exc
                 raise
 
@@ -1294,10 +1296,7 @@ class Compiler:
                 b.name == nm for b in s.barriers
             ), f"{s.srcinfo}: Should have caught inconsistent barrier names earlier"
             self.add_line(f"// {s.sync_type.format_stmt(s.barriers)}")
-            try:
-                barrier_lines = self._lowered_barriers[nm].codegen_sync_stmt(s)
-            except Exception as e:
-                raise ValueError(f"{s.srcinfo}: {e}") from e
+            barrier_lines = self._lowered_barriers[nm].codegen_sync_stmt(s)
             assert not isinstance(barrier_lines, str), "expect List[str]"
             for line in barrier_lines:
                 self.add_line(line)
@@ -1368,8 +1367,9 @@ class Compiler:
                 )
                 # Change encoder of in_features (private copy due to new_window)
                 in_features._encoder = out_encoder
-                # self.debug_comment_window_features(in_features)
-                # self.debug_comment_window_features(out_features)
+                if str(s.name).find("debug") >= 0:
+                    self.debug_comment_window_features(in_features)
+                    self.debug_comment_window_features(out_features)
 
                 utils = self._util_injector.with_tag(output_winmem.name())
                 helper = InstrWindowArg(
@@ -1480,15 +1480,6 @@ class Compiler:
                 self.comp_stmts([lowered])
                 self._cuda_kernel_count += 1
                 self._in_cuda_function = False
-
-            # Must appear last (fallback case)
-            elif isinstance(ctx, BaseAsyncConfig):
-                self.add_line("{")
-                self.push()
-                self.add_line(f"// {ctx}")
-                self.comp_stmts(s.body)
-                self.pop()
-                self.add_line("}")
 
             else:
                 assert 0, f"Unknown with stmt context type {type(ctx)}"

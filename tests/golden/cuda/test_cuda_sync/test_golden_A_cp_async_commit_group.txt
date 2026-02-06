@@ -580,6 +580,7 @@ exo_CudaInline_test_golden_A_cp_async_commit_group::exo_Cuda0__4_128_32_cp_async
     exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_wait_group), 0, __LINE__);
     exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
   }
+  // free(cg)
   // Fence(cuda_in_order, cuda_in_order)
   asm volatile(
     "barrier.cta.sync 0;"

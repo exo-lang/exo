@@ -855,6 +855,12 @@ exo_CudaInline_test_mbarriers_m1n1d1d2_Sm80_cp_async_golden::exo_Cuda0_test_mbar
         }
       }
     }
+    // free(baseline)
+    // free(b_rc_bars)
+    // free(f_rc_bars)
+    // free(all_bars)
+    // free(col_bars)
+    // free(row_bars)
   }
   // Fence(cuda_temporal, cuda_temporal)
   asm volatile(

@@ -327,6 +327,7 @@ exo_CudaInline_test_commit_group_arrive_first_positive::exo_Cuda0_test_proc::exo
       exo_excutLog.log_u32_arg(static_cast<uint32_t>(1));
     }
   }
+  // free(cg)
 }
 __device__ __forceinline__ void
 exo_CudaInline_test_commit_group_arrive_first_positive::exo_Cuda0_test_proc::exo_deviceMainLoop(

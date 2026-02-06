@@ -1040,6 +1040,12 @@ exo_CudaInline_test_mbarriers_m4n2d1d2_in_order_to_wgmma_golden::exo_Cuda0_test_
         }
       }
     }
+    // free(baseline)
+    // free(b_rc_bars)
+    // free(f_rc_bars)
+    // free(all_bars)
+    // free(col_bars)
+    // free(row_bars)
   }
   // Fence(cuda_temporal, cuda_temporal)
   asm volatile(

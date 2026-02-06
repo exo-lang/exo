@@ -340,10 +340,10 @@ static inline CUtensorMap exo_win_2f32_Sm90_tensorMap_64_248_16_encode(
 struct exo_CudaDeviceArgs0_tma_tester_SW64
 {
     float* d_y;  // d_y : f32[744, 64] @CudaGmemLinear
-    CUtensorMap exo_data_x_tensorMap;  //     (Separate window data pointer)
-    struct exo_win_2f32_Sm90_tensorMap_64_248_16 x_tensorMap;  // x_tensorMap : Window(src_type=f32[744, 64], as_tensor=[f32][744, 64], src_buf=d_x, idx='[0:744, 0:64]') @Sm90_tensorMap(64, 248, 16)
-    CUtensorMap exo_data_sum_tensorMap;  //     (Separate window data pointer)
-    struct exo_win_2f32_Sm90_tensorMap_64_248_16 sum_tensorMap;  // sum_tensorMap : Window(src_type=f32[744, 64], as_tensor=[f32][744, 64], src_buf=d_sum, idx='[0:744, 0:64]') @Sm90_tensorMap(64, 248, 16)
+    CUtensorMap exo_data_x_tensorMap_debug;  //     (Separate window data pointer)
+    struct exo_win_2f32_Sm90_tensorMap_64_248_16 x_tensorMap_debug;  // x_tensorMap_debug : Window(src_type=f32[744, 64], as_tensor=[f32][744, 64], src_buf=d_x, idx='[0:744, 0:64]') @Sm90_tensorMap(64, 248, 16)
+    CUtensorMap exo_data_sum_tensorMap_debug;  //     (Separate window data pointer)
+    struct exo_win_2f32_Sm90_tensorMap_64_248_16 sum_tensorMap_debug;  // sum_tensorMap_debug : Window(src_type=f32[744, 64], as_tensor=[f32][744, 64], src_buf=d_sum, idx='[0:744, 0:64]') @Sm90_tensorMap(64, 248, 16)
     EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
 };
 
@@ -393,13 +393,53 @@ void tma_tester_SW64( void *ctxt, float* h_sum, const float* h_x, const float* h
     744 * 64 * 4,
     cudaMemcpyHostToDevice,
     exo_cudaStream);
-  CUtensorMap exo_data_x_tensorMap = exo_win_2f32_Sm90_tensorMap_64_248_16_encode(&d_x[0], (exo_Sm90_CUtensorMap_2_strides){ {64, 1} }, (exo_Sm90_CUtensorMap_2_dim){ {744, 64} });
-  struct exo_win_2f32_Sm90_tensorMap_64_248_16 x_tensorMap = (exo_win_2f32_Sm90_tensorMap_64_248_16) { {0, 0} };
-  CUtensorMap exo_data_sum_tensorMap = exo_win_2f32_Sm90_tensorMap_64_248_16_encode(&d_sum[0], (exo_Sm90_CUtensorMap_2_strides){ {64, 1} }, (exo_Sm90_CUtensorMap_2_dim){ {744, 64} });
-  struct exo_win_2f32_Sm90_tensorMap_64_248_16 sum_tensorMap = (exo_win_2f32_Sm90_tensorMap_64_248_16) { {0, 0} };
+  /*
+  mem = CudaGmemLinear
+  packed_tensor_shape = ()
+  raw_name = 'd_x'
+  dataptr = d_x
+  array[0]: 0, 744, 64
+  array[1]: 0, 64, 1
+  encoder: TensorMapEncoder
+  indexer: FallbackWindowIndexer
+  */
+  /*
+  mem = Sm90_tensorMap(64, 248, 16)
+  packed_tensor_shape = ()
+  raw_name = 'x_tensorMap_debug'
+  dataptr = exo_data_x_tensorMap_debug
+  array[0]: x_tensorMap_debug.C_offsets[0], 744, None
+  array[1]: x_tensorMap_debug.C_offsets[1], 64, None
+  encoder: TensorMapEncoder
+  indexer: NoneType
+  */
+  CUtensorMap exo_data_x_tensorMap_debug = exo_win_2f32_Sm90_tensorMap_64_248_16_encode(&d_x[0], (exo_Sm90_CUtensorMap_2_strides){ {64, 1} }, (exo_Sm90_CUtensorMap_2_dim){ {744, 64} });
+  struct exo_win_2f32_Sm90_tensorMap_64_248_16 x_tensorMap_debug = (exo_win_2f32_Sm90_tensorMap_64_248_16) { {0, 0} };
+  /*
+  mem = CudaGmemLinear
+  packed_tensor_shape = ()
+  raw_name = 'd_sum'
+  dataptr = d_sum
+  array[0]: 0, 744, 64
+  array[1]: 0, 64, 1
+  encoder: TensorMapEncoder
+  indexer: FallbackWindowIndexer
+  */
+  /*
+  mem = Sm90_tensorMap(64, 248, 16)
+  packed_tensor_shape = ()
+  raw_name = 'sum_tensorMap_debug'
+  dataptr = exo_data_sum_tensorMap_debug
+  array[0]: sum_tensorMap_debug.C_offsets[0], 744, None
+  array[1]: sum_tensorMap_debug.C_offsets[1], 64, None
+  encoder: TensorMapEncoder
+  indexer: NoneType
+  */
+  CUtensorMap exo_data_sum_tensorMap_debug = exo_win_2f32_Sm90_tensorMap_64_248_16_encode(&d_sum[0], (exo_Sm90_CUtensorMap_2_strides){ {64, 1} }, (exo_Sm90_CUtensorMap_2_dim){ {744, 64} });
+  struct exo_win_2f32_Sm90_tensorMap_64_248_16 sum_tensorMap_debug = (exo_win_2f32_Sm90_tensorMap_64_248_16) { {0, 0} };
   {
     struct exo_CudaDeviceArgs0_tma_tester_SW64 exo_deviceArgs = {
-      d_y, exo_data_x_tensorMap, (exo_win_2f32_Sm90_tensorMap_64_248_16) { {x_tensorMap.C_offsets[0], x_tensorMap.C_offsets[1]} }, exo_data_sum_tensorMap, (exo_win_2f32_Sm90_tensorMap_64_248_16) { {sum_tensorMap.C_offsets[0], sum_tensorMap.C_offsets[1]} }, exo_excut_get_device_log()
+      d_y, exo_data_x_tensorMap_debug, (exo_win_2f32_Sm90_tensorMap_64_248_16) { {x_tensorMap_debug.C_offsets[0], x_tensorMap_debug.C_offsets[1]} }, exo_data_sum_tensorMap_debug, (exo_win_2f32_Sm90_tensorMap_64_248_16) { {sum_tensorMap_debug.C_offsets[0], sum_tensorMap_debug.C_offsets[1]} }, exo_excut_get_device_log()
     };
     exo_cudaLaunch0_tma_tester_SW64(exo_cudaStream, &exo_deviceArgs);
   }
@@ -705,10 +745,10 @@ exo_Sm90_tma_to_smem(
 struct exo_CudaDeviceArgs0_tma_tester_SW64
 {
     float* d_y;  // d_y : f32[744, 64] @CudaGmemLinear
-    CUtensorMap exo_data_x_tensorMap;  //     (Separate window data pointer)
-    struct exo_win_2f32_Sm90_tensorMap_64_248_16 x_tensorMap;  // x_tensorMap : Window(src_type=f32[744, 64], as_tensor=[f32][744, 64], src_buf=d_x, idx='[0:744, 0:64]') @Sm90_tensorMap(64, 248, 16)
-    CUtensorMap exo_data_sum_tensorMap;  //     (Separate window data pointer)
-    struct exo_win_2f32_Sm90_tensorMap_64_248_16 sum_tensorMap;  // sum_tensorMap : Window(src_type=f32[744, 64], as_tensor=[f32][744, 64], src_buf=d_sum, idx='[0:744, 0:64]') @Sm90_tensorMap(64, 248, 16)
+    CUtensorMap exo_data_x_tensorMap_debug;  //     (Separate window data pointer)
+    struct exo_win_2f32_Sm90_tensorMap_64_248_16 x_tensorMap_debug;  // x_tensorMap_debug : Window(src_type=f32[744, 64], as_tensor=[f32][744, 64], src_buf=d_x, idx='[0:744, 0:64]') @Sm90_tensorMap(64, 248, 16)
+    CUtensorMap exo_data_sum_tensorMap_debug;  //     (Separate window data pointer)
+    struct exo_win_2f32_Sm90_tensorMap_64_248_16 sum_tensorMap_debug;  // sum_tensorMap_debug : Window(src_type=f32[744, 64], as_tensor=[f32][744, 64], src_buf=d_sum, idx='[0:744, 0:64]') @Sm90_tensorMap(64, 248, 16)
     EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
 };
 
@@ -1025,8 +1065,8 @@ exo_CudaInline_test_tma_tester_proc_SW64_golden::exo_Cuda0_tma_tester_SW64::exo_
     exo_syncState.Await0_war(exo_smem, exo_excutLog, 0, 1);
     exo_CudaUtil::exo_Sm90_tma_to_smem(
       &smem_x[0],
-      exo_deviceArgs.exo_data_x_tensorMap,
-      (exo_win_2f32_Sm90_tensorMap_64_248_16) { {(exo_deviceArgs.x_tensorMap.C_offsets[0] + 248 * exo_task.task_m), (exo_deviceArgs.x_tensorMap.C_offsets[1] + 16 * exo_task.task_k)} },
+      exo_deviceArgs.exo_data_x_tensorMap_debug,
+      (exo_win_2f32_Sm90_tensorMap_64_248_16) { {(exo_deviceArgs.x_tensorMap_debug.C_offsets[0] + 248 * exo_task.task_m), (exo_deviceArgs.x_tensorMap_debug.C_offsets[1] + 16 * exo_task.task_k)} },
       exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, 0, 0),
       15872
     );
@@ -1083,8 +1123,8 @@ exo_CudaInline_test_tma_tester_proc_SW64_golden::exo_Cuda0_tma_tester_SW64::exo_
   // CudaWarps(0, 1)
   if (int CudaWarps_0_1_ = threadIdx.x; CudaWarps_0_1_ < 32) {
     exo_CudaUtil::exo_Sm90_tma_to_gmem(
-      exo_deviceArgs.exo_data_sum_tensorMap,
-      (exo_win_2f32_Sm90_tensorMap_64_248_16) { {(exo_deviceArgs.sum_tensorMap.C_offsets[0] + 248 * exo_task.task_m), (exo_deviceArgs.sum_tensorMap.C_offsets[1] + 16 * exo_task.task_k)} },
+      exo_deviceArgs.exo_data_sum_tensorMap_debug,
+      (exo_win_2f32_Sm90_tensorMap_64_248_16) { {(exo_deviceArgs.sum_tensorMap_debug.C_offsets[0] + 248 * exo_task.task_m), (exo_deviceArgs.sum_tensorMap_debug.C_offsets[1] + 16 * exo_task.task_k)} },
       &smem_sum[0]
     );
     // cg: barrier @ CudaCommitGroup
@@ -1099,6 +1139,7 @@ exo_CudaInline_test_tma_tester_proc_SW64_golden::exo_Cuda0_tma_tester_SW64::exo_
     );
     exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_bulk_wait_group), 0, __LINE__);
     exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
+    // free(cg)
   }
   // Fence(cuda_in_order, cuda_in_order)
   asm volatile(
@@ -1106,6 +1147,8 @@ exo_CudaInline_test_tma_tester_proc_SW64_golden::exo_Cuda0_tma_tester_SW64::exo_
   );
   exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cta_sync), 0, __LINE__);
   exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
+  // free(war)
+  // free(raw)
 }
 __device__ __forceinline__ void
 exo_CudaInline_test_tma_tester_proc_SW64_golden::exo_Cuda0_tma_tester_SW64::exo_deviceMainLoop(

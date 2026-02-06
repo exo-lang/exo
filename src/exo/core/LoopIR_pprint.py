@@ -4,7 +4,7 @@ from collections import ChainMap
 from dataclasses import dataclass, field
 from warnings import warn
 from pathlib import Path
-from typing import Set
+from typing import Set, Union
 
 # google python formatting project to save myself the trouble of being overly
 # clever run the function FormatCode to transform one string into a formatted
@@ -82,6 +82,20 @@ def __str__(self):
 del __str__
 
 
+def pcall_impl(stmt: Union[LoopIR.Call, UAST.Call], pexpr):
+    p = stmt.f
+    name = p.name or "_anon_"
+    args = [pexpr(a) for a in stmt.args]
+    instr = stmt.f.instr
+    if instr:
+        if kwargs := instr._formatted_tparam_kwargs:
+            args.append(kwargs)
+    trailing_bar = ""
+    if e := stmt.trailing_barrier_expr:
+        trailing_bar = " >> " + pexpr(e)
+    return f"{name}({', '.join(args)}){trailing_bar}"
+
+
 class UAST_PPrinter:
     def __init__(self, node):
         self._node = node
@@ -117,7 +131,10 @@ class UAST_PPrinter:
             assert len(self._lines) == 1
             return self._lines[0]
 
-        fmtstr, linted = FormatCode("\n".join(self._lines))
+        fmtstr = "\n".join(self._lines)
+        if not enable_yapf:
+            return fmtstr
+        fmtstr, linted = FormatCode(fmtstr)
         if isinstance(self._node, LoopIR.proc):
             assert linted, "generated unlinted code..."
         return fmtstr
@@ -184,7 +201,8 @@ class UAST_PPrinter:
             if isinstance(stmt, UAST.Pass):
                 self.addline("pass")
             elif isinstance(stmt, UAST.SyncStmt):
-                self.addline(stmt.sync_type.format_stmt(stmt.barriers))
+                barrier_strs = [self.pexpr(e) for e in stmt.barriers]
+                self.addline(stmt.sync_type.format_stmt(barrier_strs))
             elif isinstance(stmt, UAST.Assign) or isinstance(stmt, UAST.Reduce):
                 op = "=" if isinstance(stmt, UAST.Assign) else "+="
 
@@ -210,9 +228,7 @@ class UAST_PPrinter:
                     f"{self.new_name(stmt.name)} : {self.ptype(stmt.type)}{mem}"
                 )
             elif isinstance(stmt, UAST.Call):
-                pname = stmt.f.name or "_anon_"
-                args = [self.pexpr(a) for a in stmt.args]
-                self.addline(f"{pname}({','.join(args)})")
+                self.addline(pcall_impl(stmt, lambda e: self.pexpr(e)))
             elif is_if_holding_with(stmt, UAST):  # must be before .If case
                 ctx = self.pexpr(stmt.cond)
                 self.addline(f"with {ctx}:")
@@ -263,23 +279,19 @@ class UAST_PPrinter:
             return f"-{self.pexpr(e.arg, prec=op_prec['~'])}"
         elif isinstance(e, UAST.LoopRange):
             return format_loop_cond(self.pexpr(e.lo), self.pexpr(e.hi), e.loop_mode)
-        elif isinstance(e, (UAST.BarrierExpr, UAST.WindowExpr)):
+        elif isinstance(e, UAST.WindowExpr):
+            s = f"{self.get_name(e.name)}[{', '.join([self.pacc(w) for w in e.idx])}]"
 
-            def pacc(w):
-                if isinstance(w, UAST.Point):
-                    return self.pexpr(w.pt)
-                elif isinstance(w, UAST.Interval):
-                    lo = self.pexpr(w.lo) if w.lo else ""
-                    hi = self.pexpr(w.hi) if w.hi else ""
-                    return f"{lo}:{hi}"
-                else:
-                    assert False, "bad case"
-
-            s = f"{self.get_name(e.name)}[{', '.join([pacc(w) for w in e.idx])}]"
-
+            # This is so tricky, because UAST handles WindowStmt w/ special_window
+            # differently from LoopIR.
             if memwin := e.special_window:
                 s += " @ " + memwin.name()
             return s
+        elif isinstance(e, UAST.BarrierExpr):
+            if e.idx:
+                return f"{self.get_name(e.name)}[{', '.join([self.pacc(w) for w in e.idx])}]"
+            else:
+                return self.get_name(e.name)
         elif isinstance(e, UAST.StrideExpr):
             return f"stride({self.get_name(e.name)}, {e.dim})"
         elif isinstance(e, UAST.Extern):
@@ -291,6 +303,16 @@ class UAST_PPrinter:
             return f"{cname}.{e.field}"
         else:
             assert False, "unrecognized expr type"
+
+    def pacc(self, w):
+        if isinstance(w, UAST.Point):
+            return self.pexpr(w.pt)
+        elif isinstance(w, UAST.Interval):
+            lo = self.pexpr(w.lo) if w.lo else ""
+            hi = self.pexpr(w.hi) if w.hi else ""
+            return f"{lo}:{hi}"
+        else:
+            assert False, "bad case"
 
     def ptype(self, t):
         if isinstance(t, UAST.Num):
@@ -487,10 +509,11 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
 
     elif isinstance(stmt, LoopIR.SyncStmt):
         s = f"{indent}{stmt.sync_type.format_stmt(stmt.barriers)}"
-        if not stmt.sync_type.is_split():
-            assert len(stmt.barriers) == 1
-            nm = stmt.barriers[0].name
-            s += f"  # {nm!r}"
+        # For debugging, show hidden Sym of Fence (tricky case in Alpha_rename)
+        # if not stmt.sync_type.is_split():
+        #     assert len(stmt.barriers) == 1
+        #     nm = stmt.barriers[0].name
+        #     s += f"  # {nm!r}"
         return [s]
 
     elif isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
@@ -526,15 +549,7 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
         return [f"{indent}free({env.get_name(stmt.name)})"]
 
     elif isinstance(stmt, LoopIR.Call):
-        args = [_print_expr(a, env) for a in stmt.args]
-        instr = stmt.f.instr
-        if instr:
-            if kwargs := instr._formatted_tparam_kwargs:
-                args.append(kwargs)
-        trailing_bar = ""
-        if e := stmt.trailing_barrier_expr:
-            trailing_bar = " >> " + _print_expr(e, env)
-        return [f"{indent}{stmt.f.name}({', '.join(args)}){trailing_bar}"]
+        return [indent + pcall_impl(stmt, lambda e: _print_expr(e, env))]
 
     elif is_if_holding_with(stmt, LoopIR):  # must be before .If case
         ctx = _print_expr(stmt.cond, env)

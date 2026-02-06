@@ -928,3 +928,21 @@ def test_window_of_window_codegen(compiler):
         for n in range(0, 2):
             expected[3, 3, 5 + n] = 137.0
         np.testing.assert_almost_equal(dst, expected)
+
+
+def test_proc_name_collision(compiler):
+    @proc
+    def foo():
+        pass
+
+    foo1 = foo
+
+    @proc
+    def foo():
+        pass
+
+    with pytest.raises(Exception, match="multiple non-instr procs named foo"):
+        compile_procs_to_strings([foo, foo1], "foo.h")
+
+    foo1 = rename(foo1, "foo1")
+    compile_procs_to_strings([foo, foo1], "foo.h")

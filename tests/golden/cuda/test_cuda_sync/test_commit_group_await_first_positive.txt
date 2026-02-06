@@ -327,6 +327,7 @@ exo_CudaInline_test_commit_group_await_first_positive::exo_Cuda0_test_proc::exo_
       exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_commit_group), 0, __LINE__);
     }
   }
+  // free(cg)
 }
 __device__ __forceinline__ void
 exo_CudaInline_test_commit_group_await_first_positive::exo_Cuda0_test_proc::exo_deviceMainLoop(

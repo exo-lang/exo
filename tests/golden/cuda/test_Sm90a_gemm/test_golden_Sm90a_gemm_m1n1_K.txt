@@ -1643,6 +1643,7 @@ exo_CudaInline_test_golden_Sm90a_gemm_m1n1_K::exo_Cuda0_xgemm_Sm90a_r4_m1n1_m256
         );
         exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_bulk_wait_group), 0, __LINE__);
         exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
+        // free(tma_cg)
       }
     }
   }
@@ -1653,6 +1654,8 @@ exo_CudaInline_test_golden_Sm90a_gemm_m1n1_K::exo_Cuda0_xgemm_Sm90a_r4_m1n1_m256
   );
   exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cta_sync), 0, __LINE__);
   exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
+  // free(war)
+  // free(raw)
 }
 __device__ __forceinline__ void
 exo_CudaInline_test_golden_Sm90a_gemm_m1n1_K::exo_Cuda0_xgemm_Sm90a_r4_m1n1_m256n192_splitK::exo_deviceTask_unused(
@@ -1872,6 +1875,7 @@ exo_CudaInline_test_golden_Sm90a_gemm_m1n1_K::exo_Cuda0_xgemm_Sm90a_r4_m1n1_m256
       }
     }
   }
+  // free(cg)
   // Fence(cuda_in_order, cuda_in_order)
   asm volatile(
     "barrier.cta.sync 0;"
@@ -2105,6 +2109,8 @@ exo_CudaInline_test_golden_Sm90a_gemm_m1n1_K::exo_Cuda0_xgemm_Sm90a_r4_m1n1_m256
   );
   exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cta_sync), 0, __LINE__);
   exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
+  // free(war)
+  // free(raw)
 }
 __device__ __forceinline__ void
 exo_CudaInline_test_golden_Sm90a_gemm_m1n1_K::exo_Cuda0_xgemm_Sm90a_r4_m1n1_m256n192_splitK::exo_deviceMainLoop(

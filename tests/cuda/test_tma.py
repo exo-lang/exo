@@ -42,8 +42,10 @@ def mkproc_tma_tester(swizzle: int):
         cudaMemcpyAsync_htod_2f32(M, K, d_x[:, :], h_x[:, :])
         cudaMemcpyAsync_htod_2f32(M, K, d_y[:, :], h_y[:, :])
 
-        x_tensorMap = d_x[:, :] @ Sm90_tensorMap(swizzle, smem_M, smem_K)
-        sum_tensorMap = d_sum[:, :] @ Sm90_tensorMap(swizzle, smem_M, smem_K)
+        # Backdoor for testing, _debug is supposed to trigger writing out the
+        # WindowFeatures as comments in the generated C++
+        x_tensorMap_debug = d_x[:, :] @ Sm90_tensorMap(swizzle, smem_M, smem_K)
+        sum_tensorMap_debug = d_sum[:, :] @ Sm90_tensorMap(swizzle, smem_M, smem_K)
 
         with CudaDeviceFunction(blockDim=256):
             for task_m in cuda_tasks(0, tma_tester_tasks_M):
@@ -58,12 +60,12 @@ def mkproc_tma_tester(swizzle: int):
                     with CudaWarps(0, 1):
                         Await(war, cuda_temporal, ~1)
                         if swizzle == 0:
-                            Sm90_copy_tensor_to_smem_linear_2f32(smem_x[:, :], x_tensorMap[
+                            Sm90_copy_tensor_to_smem_linear_2f32(smem_x[:, :], x_tensorMap_debug[
                                 task_m * smem_M : task_m * smem_M + smem_M,
                                 task_k * smem_K : task_k * smem_K + smem_K],
                                 size0=smem_M, size1=smem_K) >> raw
                         else:
-                            Sm90_copy_tensor_to_smem_swizzled_2f32(smem_x[:, :], x_tensorMap[
+                            Sm90_copy_tensor_to_smem_swizzled_2f32(smem_x[:, :], x_tensorMap_debug[
                                 task_m * smem_M : task_m * smem_M + smem_M,
                                 task_k * smem_K : task_k * smem_K + smem_K],
                                 size0=smem_M, size1=smem_K) >> raw
@@ -90,12 +92,12 @@ def mkproc_tma_tester(swizzle: int):
                     Fence(cuda_in_order, cuda_generic_and_async_proxy)
                     with CudaWarps(0, 1):
                         if swizzle == 0:
-                            Sm90_copy_tensor_to_gmem_linear_2f32(sum_tensorMap[
+                            Sm90_copy_tensor_to_gmem_linear_2f32(sum_tensorMap_debug[
                                 task_m * smem_M : task_m * smem_M + smem_M,
                                 task_k * smem_K : task_k * smem_K + smem_K,
                             ], smem_sum[:, :], size0=smem_M, size1=smem_K)
                         else:
-                            Sm90_copy_tensor_to_gmem_swizzled_2f32(sum_tensorMap[
+                            Sm90_copy_tensor_to_gmem_swizzled_2f32(sum_tensorMap_debug[
                                 task_m * smem_M : task_m * smem_M + smem_M,
                                 task_k * smem_K : task_k * smem_K + smem_K,
                             ], smem_sum[:, :], size0=smem_M, size1=smem_K)

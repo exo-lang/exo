@@ -1078,7 +1078,12 @@ def _atexit_debug_log_write():
     # remarks inline with an output file (based on printed LoopIR)
     # until all future remarks are collected.
     # This design will be a problem if one of our C modules segfaults.
-    for log in _debug_log_dict.values():
+    import sys
+
+    logs = _debug_log_dict.values()
+    if len(logs) > 100:
+        sys.stderr.write(f"Writing out {len(logs)} debug logs...\n")
+    for log in logs:
         log.write_all_impl()
 
 

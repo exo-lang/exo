@@ -400,6 +400,7 @@ exo_CudaInline_test_barrier_non_plain_index_positive::exo_Cuda0_test_proc::exo_d
     // Await(bar[w], cuda_in_order, ~1)
     exo_syncState.Await0_bar(exo_smem, exo_excutLog, exo_32thr_w, 1);
   }
+  // free(bar)
 }
 __device__ __forceinline__ void
 exo_CudaInline_test_barrier_non_plain_index_positive::exo_Cuda0_test_proc::exo_deviceMainLoop(
