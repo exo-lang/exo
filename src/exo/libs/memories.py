@@ -1,4 +1,12 @@
-from exo.core.memory import Memory, DRAM, StaticMemory, MemGenError, generate_offset
+from exo.core.memory import (
+    Memory,
+    DRAM,
+    StaticMemory,
+    MemGenError,
+    generate_offset,
+    MemGlobalC,
+    MemIncludeC,
+)
 
 
 def _is_const_size(sz, c):

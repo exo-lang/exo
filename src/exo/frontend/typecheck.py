@@ -494,13 +494,6 @@ class TypeChecker:
                         f"WindowStmt (W = t[idx...] @ SpecialWindow)",
                     )
                     return LoopIR.WindowExpr(e.name, [], T.err, e.srcinfo)
-                elif not in_typ.is_dense_tensor():
-                    self.err(
-                        e,
-                        "Can only create SpecialWindow from a dense "
-                        "tensor, not another window",
-                    )
-                    return LoopIR.WindowExpr(e.name, [], T.err, e.srcinfo)
 
             in_shape = in_typ.shape()
             if len(in_shape) != len(e.idx):

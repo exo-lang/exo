@@ -8,9 +8,10 @@ from PIL import Image
 from random import Random
 
 from exo import proc, instr, Procedure, DRAM, compile_procs_to_strings, InstrInfo
-from exo.libs.memories import MDRAM, MemGenError, StaticMemory, DRAM_STACK
+from exo.libs.memories import MDRAM, MemGenError, StaticMemory, DRAM_STACK, MemGlobalC
 from exo.libs.externs import *
 from exo.stdlib.scheduling import *
+from exo.platforms.cuda import *
 
 mock_registers = 0
 
@@ -946,3 +947,60 @@ def test_proc_name_collision(compiler):
 
     foo1 = rename(foo1, "foo1")
     compile_procs_to_strings([foo, foo1], "foo.h")
+
+
+@instr
+class cuda_test_instr:
+    def behavior():
+        pass
+
+    def instance(self):
+        self.instr_tl = cuda_in_order
+        self.coll_unit = cuda_cta_in_cluster
+        self.c_utils = ["// CudaTestInstr c_utils"]
+        self.cu_utils = ["// CudaTestInstr cu_utils"]
+        self.c_includes = ["CudaTestInstr_c_includes.h"]
+        self.cu_includes = ["CudaTestInstr_cu_includes.h"]
+
+    def codegen(self, args):
+        return []
+
+
+def test_instr_utils(compiler):
+    @proc
+    def foo():
+        with CudaDeviceFunction(blockDim=128):
+            for task in cuda_tasks(0, 1):
+                cuda_test_instr()
+
+    src = compiler.cuda_cpu_test(lambda: foo)
+    print(src.c_src)
+    assert "// CudaTestInstr c_utils" in src.c_src
+    assert "// CudaTestInstr c_utils" not in src.cuh_src
+    assert "// CudaTestInstr cu_utils" in src.cuh_src
+    assert "// CudaTestInstr cu_utils" not in src.c_src
+    assert "#include <CudaTestInstr_c_includes.h>" in src.c_src
+    assert "#include <CudaTestInstr_c_includes.h>" not in src.cuh_src
+    assert "#include <CudaTestInstr_cu_includes.h>" not in src.c_src
+    assert "#include <CudaTestInstr_cu_includes.h>" in src.cuh_src
+
+
+class NameCollisionMemory(DRAM):
+    @classmethod
+    def global_(cls):
+        return MemGlobalC(
+            "NameCollisionMemory",
+            "// abc",
+            [MemGlobalC("NameCollisionMemory", "// def")],
+        )
+
+
+def test_name_collision_memory():
+    @proc
+    def foo(a: f32, b: f32):
+        f: f32 @ NameCollisionMemory
+        f = a
+        b = f
+
+    with pytest.raises(Exception, match="different code with same name"):
+        compile_procs_to_strings([foo], "foo.h")

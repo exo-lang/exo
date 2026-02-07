@@ -450,6 +450,7 @@ class InstrTemplate(InstrTemplateBase):
             nm = sym.name()
             try:
                 # Have to cast to ScalarInfo in case the caller provided "f32" or such.
+                # Have to do this before caching, else we could get duplicate instrs.
                 tmp = tparam_dict[nm]
                 scalar_info = ScalarInfo(tmp)
             except KeyError:

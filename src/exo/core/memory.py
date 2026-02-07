@@ -106,8 +106,8 @@ class MemGlobalC:
     The code goes into the header file only if it's required by some
     MemWin type that's part of a public proc's interface.
 
-    For two MemGlobalC instances a and b with a.code, b.code both not empty,
-    Exo requires that (a.name == b.name) iff (a.code == b.code)
+    For two MemGlobalC instances a and b, Exo requires that
+    (a.name == b.name) implies (a.code == b.code)
 
     Any code in the self.depends_on list will get injected before self.code.
 
