@@ -1,18 +1,11 @@
-def tma_tester_proc(h_sum: f32[744, 128], h_x: f32[744, 128], h_y: f32[744,
-                                                                       128]):
-    d_x: f32[744, 128 + 64] @ CudaGmemLinear
-    d_y: f32[744, 128] @ CudaGmemLinear
-    d_sum: f32[1 + 744, 128] @ CudaGmemLinear
-    for m in seq(0, 128):
-        cudaMemcpyAsync_htod_1d(128,
-                                d_x[m, 0:128],
-                                h_x[m, 0:128],
-                                dst=f32,
-                                src=f32)
-    cudaMemcpyAsync_htod_2d(744, 128, d_y[:, :], h_y[:, :], dst=f32, src=f32)
-    x_tensorMap_debug = d_x[:, 0:128] @ Sm90_tensorMap(128, 248, 32)
-    sum_tensorMap_debug = d_sum[:, :] @ Sm90_tensorMap(128, 248, 32)
-    sum_tensorMap_window = sum_tensorMap_debug[1:, :]
+def tma_tester_gpu_proc(
+        sum_tensorMap_window: [f32][744, 128] @ Sm90_tensorMap(128, 248, 32),
+        d_x: [f32][744, 128] @ CudaGmemLinear,
+        d_y: f32[744, 128] @ CudaGmemLinear):
+    assert stride(d_x, 1) == 1
+    assert stride(d_y, 1) == 1
+    assert stride(sum_tensorMap_window, 1) == 1
+    x_tensorMap_debug = d_x[:, :] @ Sm90_tensorMap(128, 248, 32)
     with CudaDeviceFunction(blockDim=256):
         for task_m in cuda_tasks(0, 3):
             for task_k in cuda_tasks(0, 4):
@@ -54,29 +47,25 @@ def tma_tester_proc(h_sum: f32[744, 128], h_x: f32[744, 128], h_y: f32[744,
                         smem_sum[m, k] = smem_x[m, k] + smem_y[m, k]
                 Arrive(cuda_in_order, 1) >> war
                 Fence(cuda_in_order, cuda_generic_and_async_proxy)
-                tma_window = sum_tensorMap_window[task_m * 248:task_m * 248 +
-                                                  248,
-                                                  task_k * 32:task_k * 32 + 32]
                 with CudaWarps(0, 1):
+                    tma_window = sum_tensorMap_window[task_m *
+                                                      248:task_m * 248 + 248,
+                                                      task_k * 32:task_k * 32 +
+                                                      32]
                     if 128 == 0:
-                        Sm90_copy_tensor_to_gmem_linear_2f32(tma_window,
+                        Sm90_copy_tensor_to_gmem_linear_2f32(tma_window[:, :],
                                                              smem_sum[:, :],
                                                              size0=248,
                                                              size1=32,
                                                              smem_box=None)
                     else:
-                        Sm90_copy_tensor_to_gmem_swizzled_2f32(tma_window,
-                                                               smem_sum[:, :],
-                                                               size0=248,
-                                                               size1=32,
-                                                               smem_box=None)
+                        Sm90_copy_tensor_to_gmem_swizzled_2f32(
+                            tma_window[:, :],
+                            smem_sum[:, :],
+                            size0=248,
+                            size1=32,
+                            smem_box=None)
                     cg: barrier @ CudaCommitGroup
                     Arrive(tma_to_gmem_async, 1) >> cg
                     Await(cg, cuda_in_order, 0)
                 Fence(cuda_in_order, cuda_in_order)
-    cudaMemcpyAsync_dtoh_2d(744,
-                            128,
-                            h_sum[:, :],
-                            d_sum[1:, :],
-                            dst=f32,
-                            src=f32)

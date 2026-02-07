@@ -468,6 +468,16 @@ class SpecialWindow(MemWin):
         """Return memory type expected as input to window statement"""
         raise NotImplementedError()
 
+    @classmethod
+    def sync_exempt(cls) -> bool:
+        # Originally we were supposed to check if something is sync exempt
+        # based on the memory type of the underlying tensor referenced.
+        # However, this fails if a SpecialWindow is passed through a proc
+        # boundary. So we have this fallback. As of now, it's undefined
+        # what happens if this disagrees with the underlying Memory
+        # (due e.g. to inheritance)
+        return cls.source_memory_type().sync_exempt()
+
     # Remember to implement everything in base class MemWin as well
 
 

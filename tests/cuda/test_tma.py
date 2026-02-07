@@ -35,27 +35,18 @@ def mkproc_tma_tester(swizzle: int, sync_check):
     # Futhermore the fact that we have smem_M = 248 (weird number) is testing
     # that the non-aligned-to-1024B memory (smem_y, smem_sum) isn't causing problems.
     @proc
-    def tma_tester_proc(h_sum: f32[M, K], h_x: f32[M, K], h_y: f32[M, K]):
+    def tma_tester_gpu_proc(
+        sum_tensorMap_window: [f32][M, K] @ Sm90_tensorMap(swizzle, smem_M, smem_K),
+        d_x: [f32][M, K] @ CudaGmemLinear,
+        d_y: f32[M, K] @ CudaGmemLinear,
+    ):
+        assert stride(d_x, 1) == 1
+        assert stride(d_y, 1) == 1
+        assert stride(sum_tensorMap_window, 1) == 1
         # fmt: off
-        d_x: f32[M, K + 64] @ CudaGmemLinear
-        d_y: f32[M, K] @ CudaGmemLinear
-        d_sum: f32[1 + M, K] @ CudaGmemLinear
-
-        for m in seq(0, M):
-            cudaMemcpyAsync_htod_1f32(K, d_x[m, 0:K], h_x[m, 0:K])
-        cudaMemcpyAsync_htod_2f32(M, K, d_y[:, :], h_y[:, :])
-
-        # NB with the K + 64 in d_x, we are testing what happens if
-        # you create a tensorMap that is not densely packed.
-
         # Backdoor for testing, _debug is supposed to trigger writing out the
         # WindowFeatures as comments in the generated C++
-        x_tensorMap_debug = d_x[:, 0:K] @ Sm90_tensorMap(swizzle, smem_M, smem_K)
-        sum_tensorMap_debug = d_sum[:, :] @ Sm90_tensorMap(swizzle, smem_M, smem_K)
-
-        # We skip d_sum[0, :]
-        # This is testing TMA WindowStmt on the CPU.
-        sum_tensorMap_window_debug = sum_tensorMap_debug[1:, :]
+        x_tensorMap_debug = d_x[:, :] @ Sm90_tensorMap(swizzle, smem_M, smem_K)
 
         with CudaDeviceFunction(blockDim=256):
             for task_m in cuda_tasks(0, tma_tester_tasks_M):
@@ -101,25 +92,57 @@ def mkproc_tma_tester(swizzle: int, sync_check):
 
                     # Warp 0 copies sum to GMEM using TMA.
                     Fence(cuda_in_order, cuda_generic_and_async_proxy)
-                    tma_window = sum_tensorMap_window_debug[
-                        task_m * smem_M : task_m * smem_M + smem_M,
-                        task_k * smem_K : task_k * smem_K + smem_K,
-                    ]
                     with CudaWarps(0, 1):
+                        tma_window = sum_tensorMap_window[
+                            task_m * smem_M : task_m * smem_M + smem_M,
+                            task_k * smem_K : task_k * smem_K + smem_K,
+                        ]
                         if swizzle == 0:
-                            Sm90_copy_tensor_to_gmem_linear_2f32(tma_window, smem_sum[:, :], size0=smem_M, size1=smem_K)
+                            Sm90_copy_tensor_to_gmem_linear_2f32(
+                                tma_window[:, :], smem_sum[:, :],
+                                size0=smem_M, size1=smem_K
+                            )
                         else:
-                            Sm90_copy_tensor_to_gmem_swizzled_2f32(tma_window, smem_sum[:, :], size0=smem_M, size1=smem_K)
+                            Sm90_copy_tensor_to_gmem_swizzled_2f32(
+                                tma_window[:, :], smem_sum[:, :],
+                                size0=smem_M, size1=smem_K
+                            )
                         cg: barrier @ CudaCommitGroup
                         Arrive(tma_to_gmem_async, 1) >> cg
                         Await(cg, cuda_in_order, 0)
                     Fence(cuda_in_order, cuda_in_order)
 
+    tma_tester_gpu_proc = simplify(tma_tester_gpu_proc)
+    tma_tester_gpu_proc = rename(
+        tma_tester_gpu_proc, "tma_tester_gpu_SW" + str(swizzle)
+    )
+
+    @proc
+    def tma_tester_proc(h_sum: f32[M, K], h_x: f32[M, K], h_y: f32[M, K]):
+        # NB with the K + 64 in d_x, we are testing what happens if
+        # you create a tensorMap that is not densely packed.
+        d_x: f32[M, K + 64] @ CudaGmemLinear
+        d_y: f32[M, K] @ CudaGmemLinear
+        d_sum: f32[1 + M, K] @ CudaGmemLinear
+
+        for m in seq(0, M):
+            cudaMemcpyAsync_htod_1f32(K, d_x[m, 0:K], h_x[m, 0:K])
+        cudaMemcpyAsync_htod_2f32(M, K, d_y[:, :], h_y[:, :])
+
+        sum_tensorMap = d_sum[:, :] @ Sm90_tensorMap(swizzle, smem_M, smem_K)
+
+        # We skip d_sum[0, :]
+        # This is testing TMA WindowStmt on the CPU.
+        sum_tensorMap_window = sum_tensorMap[1:, :]
+
+        # This is testing passing a tensormap through a C function boundary.
+        tma_tester_gpu_proc(sum_tensorMap_window[:, :], d_x[:, 0:K], d_y)
+
         cudaMemcpyAsync_dtoh_2f32(M, K, h_sum[:, :], d_sum[1:, :])
 
     tma_tester_proc = simplify(tma_tester_proc)
     if sync_check:
-        tma_tester_proc.sync_check()
+        tma_tester_gpu_proc.sync_check()
     tma_tester_proc = rename(tma_tester_proc, "tma_tester_SW" + str(swizzle))
     return tma_tester_proc
 

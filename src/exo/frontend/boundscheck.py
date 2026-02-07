@@ -532,6 +532,7 @@ def loopir_subst(e, subst):
 class CheckBounds:
     def __init__(self, proc):
         self.orig_proc = proc
+        self.call_depth = 0
 
         # Map sym to z3 variable
         self.env = ChainMap()
@@ -1018,6 +1019,7 @@ class CheckBounds:
 
             elif isinstance(stmt, LoopIR.Call):
                 self.push()
+                self.call_depth += 1
 
                 bind = dict()
                 subst = dict()
@@ -1059,7 +1061,8 @@ class CheckBounds:
                         sig_shape = [
                             lift_expr(loopir_subst(s, subst)) for s in sig.type.shape()
                         ]
-                        self.check_call_shape_eqv(arg_shape, sig_shape, arg)
+                        if self.call_depth == 1:
+                            self.check_call_shape_eqv(arg_shape, sig_shape, arg)
 
                         # Prep for allow_out_of_bounds exception.
                         if access_info:
@@ -1084,19 +1087,26 @@ class CheckBounds:
                             eff = self.translate_eff(eff, sig.name, arg.type, type_env)
 
                 # Check that asserts are correct
-                for p in stmt.f.preds:
-                    p_subst = loopir_subst(p, subst)
-                    smt_pred = self.expr_to_smt(lift_expr(p_subst))
-                    if not self.solver.is_valid(smt_pred):
-                        eg = self.counter_example()
-                        self.err(
-                            stmt,
-                            f"Could not verify assertion {p} in "
-                            f"{stmt.f.name} at {p.srcinfo}."
-                            f" Assertion is false when:\n  {eg}",
-                        )
+                # David Zhao Akeley 2026-02-06: This code did not work correctly
+                # for procs calling procs calling instrs in tricky cases.
+                # The inner proc already had its asserts validated internally.
+                # Therefore to work around the issue, skip validating asserts
+                # in the inner function.
+                if self.call_depth == 1:
+                    for p in stmt.f.preds:
+                        p_subst = loopir_subst(p, subst)
+                        smt_pred = self.expr_to_smt(lift_expr(p_subst))
+                        if not self.solver.is_valid(smt_pred):
+                            eg = self.counter_example()
+                            self.err(
+                                stmt,
+                                f"Could not verify assertion {p} in "
+                                f"{stmt.f.name} at {p.srcinfo}."
+                                f" Assertion is false when:\n  {eg}",
+                            )
 
                 self.pop()
+                self.call_depth -= 1
 
                 body_eff = eff_concat(eff, body_eff)
 

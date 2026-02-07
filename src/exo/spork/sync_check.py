@@ -825,7 +825,6 @@ def top_level_check(backend, args_dict: Dict[str, int]):
         sync_check_syms = set()
         for nm, mem in backend.mem_env.items():
             if nm in mutable_syms or issubclass(mem, BarrierMechanism):
-                # SpecialWindow doesn't implement this; has to be inner if.
                 if not mem.sync_exempt():
                     sync_check_syms.add(nm)
         backend.lazy_sync_syms = sync_check_syms
