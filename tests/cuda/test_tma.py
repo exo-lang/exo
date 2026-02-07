@@ -18,7 +18,7 @@ tma_tester_tasks_M = 3
 tma_tester_tasks_K = 4
 
 
-def mkproc_tma_tester(swizzle: int):
+def mkproc_tma_tester(swizzle: int, sync_check):
     smem_M = tma_tester_smem_M
     smem_K = tma_tester_smem_K_dict[swizzle]
     M = smem_M * tma_tester_tasks_M
@@ -41,7 +41,7 @@ def mkproc_tma_tester(swizzle: int):
         d_y: f32[M, K] @ CudaGmemLinear
         d_sum: f32[1 + M, K] @ CudaGmemLinear
 
-        for m in seq(0, K):
+        for m in seq(0, M):
             cudaMemcpyAsync_htod_1f32(K, d_x[m, 0:K], h_x[m, 0:K])
         cudaMemcpyAsync_htod_2f32(M, K, d_y[:, :], h_y[:, :])
 
@@ -55,7 +55,7 @@ def mkproc_tma_tester(swizzle: int):
 
         # We skip d_sum[0, :]
         # This is testing TMA WindowStmt on the CPU.
-        sum_tensorMap_window = sum_tensorMap_debug[1:, :]
+        sum_tensorMap_window_debug = sum_tensorMap_debug[1:, :]
 
         with CudaDeviceFunction(blockDim=256):
             for task_m in cuda_tasks(0, tma_tester_tasks_M):
@@ -101,7 +101,7 @@ def mkproc_tma_tester(swizzle: int):
 
                     # Warp 0 copies sum to GMEM using TMA.
                     Fence(cuda_in_order, cuda_generic_and_async_proxy)
-                    tma_window = sum_tensorMap_window[
+                    tma_window = sum_tensorMap_window_debug[
                         task_m * smem_M : task_m * smem_M + smem_M,
                         task_k * smem_K : task_k * smem_K + smem_K,
                     ]
@@ -118,31 +118,38 @@ def mkproc_tma_tester(swizzle: int):
         cudaMemcpyAsync_dtoh_2f32(M, K, h_sum[:, :], d_sum[1:, :])
 
     tma_tester_proc = simplify(tma_tester_proc)
-    tma_tester_proc.sync_check()
+    if sync_check:
+        tma_tester_proc.sync_check()
     tma_tester_proc = rename(tma_tester_proc, "tma_tester_SW" + str(swizzle))
     return tma_tester_proc
 
 
 def test_tma_tester_proc_SW0_golden(compiler, golden):
-    compiler.cuda_cpu_test(mkproc_tma_tester, swizzle=0, golden=golden)
+    compiler.cuda_cpu_test(mkproc_tma_tester, swizzle=0, golden=golden, sync_check=True)
 
 
 def test_tma_tester_proc_SW32_golden(compiler, golden):
-    compiler.cuda_cpu_test(mkproc_tma_tester, swizzle=32, golden=golden)
+    compiler.cuda_cpu_test(
+        mkproc_tma_tester, swizzle=32, golden=golden, sync_check=True
+    )
 
 
 def test_tma_tester_proc_SW64_golden(compiler, golden):
-    compiler.cuda_cpu_test(mkproc_tma_tester, swizzle=64, golden=golden)
+    compiler.cuda_cpu_test(
+        mkproc_tma_tester, swizzle=64, golden=golden, sync_check=True
+    )
 
 
 def test_tma_tester_proc_SW128_golden(compiler, golden):
-    compiler.cuda_cpu_test(mkproc_tma_tester, swizzle=128, golden=golden, sm="90a")
+    compiler.cuda_cpu_test(
+        mkproc_tma_tester, swizzle=128, golden=golden, sync_check=True
+    )
 
 
 def test_tma_Sm90a(compiler_Sm90a):
     # Compile them all together to make sure there's no symbol name conflicts
     # when using different swizzle modes.
-    procs = [mkproc_tma_tester(sw) for sw in (0, 32, 64, 128)]
+    procs = [mkproc_tma_tester(sw, sync_check=False) for sw in (0, 32, 64, 128)]
     cu = compiler_Sm90a.cuda_test_context(procs)
 
     for swizzle in (0, 32, 64, 128):

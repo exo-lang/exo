@@ -825,8 +825,8 @@ class InstrWindowArg:
         do_encode = encoder.encode_special_window if _special else encoder.encode_window
         return str(do_encode(self._encoder_utils, features))
 
-    def _compiler_encode_special_window(self):
-        return self._get_window_impl(_special=True)
+    def _compiler_encode_special_window(self, special):
+        return self._get_window_impl(_special=special)
 
 
 @dataclass(slots=True)
