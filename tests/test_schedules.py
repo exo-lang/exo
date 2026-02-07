@@ -6,6 +6,9 @@ from exo import ParseFragmentError, proc, DRAM, Procedure, config
 import exo.scalars
 from exo.libs.memories import GEMM_SCRATCH
 from exo.stdlib.scheduling import *
+from exo.platforms.cuda import *
+from exo.platforms.Sm80 import *
+from exo.platforms.Sm90 import *
 from exo.platforms.x86 import *
 from exo.API_types import *
 
@@ -3821,6 +3824,184 @@ def test_join_loops_fail_equal_bounds():
         match=r"expected the first loop upper bound n to be the same as the second loop lower bound n \+ 1",
     ):
         foo = join_loops(foo, foo.find_loop("i"), foo.find_loop("i #1"))
+
+
+# David Zhao Akeley 2026-02-06: Exo 1.0 failed to correctly stop join_loop
+# for loops with different length bodies.
+def test_join_loops_fail_body_len():
+    def mkproc(fail):
+        @proc
+        def foo(n: size, x: f32):
+            for i in seq(0, 2):
+                for j in seq(0, 100):
+                    x += 2
+                    if fail == 2:
+                        x += 3
+            for i in seq(2, 4):
+                for j in seq(0, 100):
+                    x += 2
+                    if fail == 1:
+                        x += 3
+
+        return simplify(foo)
+
+    foo = mkproc(0)
+    join_loops(foo, foo.find_loop("i"), foo.find_loop("i #1"))
+
+    foo = mkproc(1)
+    with pytest.raises(SchedulingError) as exc:
+        join_loops(foo, foo.find_loop("i"), foo.find_loop("i #1"))
+    msg = str(exc.value)
+    assert "s1: None" in msg
+    assert "s2: x += 3" in msg
+
+    foo = mkproc(2)
+    with pytest.raises(SchedulingError) as exc:
+        join_loops(foo, foo.find_loop("i"), foo.find_loop("i #1"))
+    msg = str(exc.value)
+    assert "s1: x += 3" in msg
+    assert "s2: None" in msg
+    # The message should give the tightest stmt possible, not the for j loop.
+
+
+join_loops_wrong_loop_mode_bug = 1
+join_loops_fence_arrive_bug = 2
+join_loops_fence_await_bug = 3
+join_loops_wrong_first_sync_tl_bug = 4
+join_loops_wrong_second_sync_tl_bug = 5
+
+join_loops_different_barrier_expr_bug = 6
+join_loops_missing_barrier_expr_bug = 7
+
+join_loops_wrong_await_N_bug = 8
+join_loops_wrong_await_sync_tl_bug = 9
+
+
+def mkproc_join_loops_cuda(bug):
+    # These tests check LoopIR_Compare for SyncStmt, which is new in Exo-GPU
+
+    if bug == join_loops_wrong_loop_mode_bug:
+        test_unit = cuda_cta_in_cluster
+    else:
+        test_unit = 2 * cuda_cta_in_cluster
+
+    @proc
+    def foo(n: size):
+        with CudaDeviceFunction(clusterDim=4, blockDim=128):
+            bar: barrier[2, 2] @ CudaMbarrier
+            for i in cuda_tasks(0, n):
+                for m_cta in cuda_threads(0, 2, unit=2 * cuda_cta_in_cluster):
+                    for n_cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+                        # (A)
+                        Fence(Sm80_cp_async, cuda_in_order)
+                        # (B)
+                        Arrive(cuda_in_order) >> bar[m_cta, :] >> bar[:, n_cta]
+                        # (C)
+                        Await(bar[m_cta, n_cta], cuda_in_order, ~0)
+            for i in cuda_tasks(n, n + 2):
+                for m_cta in cuda_threads(0, 2, unit=test_unit):
+                    for n_cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
+                        # (A) Fence(Sm80_cp_async, cuda_in_order)
+                        if bug == join_loops_fence_arrive_bug:
+                            Arrive(Sm80_cp_async) >> bar[m_cta, n_cta]
+                        elif bug == join_loops_fence_await_bug:
+                            Await(bar[m_cta, n_cta], cuda_in_order, ~0)
+                        elif bug == join_loops_wrong_first_sync_tl_bug:
+                            Fence(cuda_in_order, cuda_in_order)
+                        elif bug == join_loops_wrong_second_sync_tl_bug:
+                            Fence(cuda_in_order, cuda_generic_and_async_proxy)
+                        else:
+                            Fence(Sm80_cp_async, cuda_in_order)
+                        # (B) Arrive(cuda_in_order) >> bar[m_cta, :] >> bar[:, n_cta]
+                        if bug == join_loops_different_barrier_expr_bug:
+                            Arrive(cuda_in_order) >> bar[m_cta, :] >> bar[m_cta, n_cta]
+                        elif bug == join_loops_missing_barrier_expr_bug:
+                            Arrive(cuda_in_order) >> bar[m_cta, :]
+                        else:
+                            Arrive(cuda_in_order) >> bar[m_cta, :] >> bar[:, n_cta]
+                        # (C) Await(bar[m_cta, n_cta], cuda_in_order, ~0)
+                        if bug == join_loops_wrong_await_N_bug:
+                            Await(bar[m_cta, n_cta], cuda_in_order, ~1)
+                        elif bug == join_loops_wrong_await_sync_tl_bug:
+                            Await(bar[m_cta, n_cta], cuda_generic_and_async_proxy, ~0)
+                        else:
+                            Await(bar[m_cta, n_cta], cuda_in_order, ~0)
+
+    return simplify(foo)
+
+
+def mktest_join_loops_cuda(bug, s1="", s2=""):
+    def the_test():
+        p = mkproc_join_loops_cuda(bug)
+        if not bug:
+            print(p)
+            p = join_loops(p, p.find_loop("i"), p.find_loop("i #1"))
+        else:
+            with pytest.raises(SchedulingError) as exc:
+                p = join_loops(p, p.find_loop("i"), p.find_loop("i #1"))
+            msg = str(exc.value)
+            assert f"s1: {s1}" in msg
+            assert f"s2: {s2}" in msg
+
+    return the_test
+
+
+test_join_loops_cuda_positive = mktest_join_loops_cuda(0)
+
+test_join_loops_wrong_loop_mode = mktest_join_loops_cuda(
+    join_loops_wrong_loop_mode_bug,
+    "for m_cta in cuda_threads(0, 2, unit=2 * cuda_cta_in_cluster):",
+    "for m_cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):",
+)
+
+test_join_loops_fence_arrive = mktest_join_loops_cuda(
+    join_loops_fence_arrive_bug,
+    "Fence(Sm80_cp_async, cuda_in_order)",
+    "Arrive(Sm80_cp_async, 1) >> bar[m_cta, n_cta]",
+)
+
+test_join_loops_fence_await = mktest_join_loops_cuda(
+    join_loops_fence_await_bug,
+    "Fence(Sm80_cp_async, cuda_in_order)",
+    "Await(bar[m_cta, n_cta], cuda_in_order, ~0)",
+)
+
+test_join_loops_wrong_first_sync_tl = mktest_join_loops_cuda(
+    join_loops_wrong_first_sync_tl_bug,
+    "Fence(Sm80_cp_async, cuda_in_order)",
+    "Fence(cuda_in_order, cuda_in_order)",
+)
+
+test_join_loops_wrong_second_sync_tl = mktest_join_loops_cuda(
+    join_loops_wrong_second_sync_tl_bug,
+    "Fence(Sm80_cp_async, cuda_in_order)",
+    "Fence(cuda_in_order, cuda_generic_and_async_proxy)",
+)
+
+test_join_loops_different_barrier_expr = mktest_join_loops_cuda(
+    join_loops_different_barrier_expr_bug,
+    "Arrive(cuda_in_order, 1) >> bar[m_cta, 0:2] >> bar[0:2, n_cta]",
+    "Arrive(cuda_in_order, 1) >> bar[m_cta, 0:2] >> bar[m_cta, n_cta]",
+)
+
+test_join_loops_missing_barrier_expr = mktest_join_loops_cuda(
+    join_loops_missing_barrier_expr_bug,
+    "Arrive(cuda_in_order, 1) >> bar[m_cta, 0:2] >> bar[0:2, n_cta]",
+    "Arrive(cuda_in_order, 1) >> bar[m_cta, 0:2]",
+)
+
+test_join_loops_wrong_await_N = mktest_join_loops_cuda(
+    join_loops_wrong_await_N_bug,
+    "Await(bar[m_cta, n_cta], cuda_in_order, ~0)",
+    "Await(bar[m_cta, n_cta], cuda_in_order, ~1)",
+)
+
+test_join_loops_wrong_await_sync_tl = mktest_join_loops_cuda(
+    join_loops_wrong_await_sync_tl_bug,
+    "Await(bar[m_cta, n_cta], cuda_in_order, ~0)",
+    "Await(bar[m_cta, n_cta], cuda_generic_and_async_proxy, ~0)",
+)
+# End GPU tests
 
 
 def test_replace_once(golden):

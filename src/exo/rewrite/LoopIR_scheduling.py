@@ -410,7 +410,11 @@ def DoJoinLoops(loop1_c, loop2_c):
 
     compare_ir = LoopIR_Compare()
     if not compare_ir.match_stmts(loop1.body, loop2.body):
-        raise SchedulingError("expected the two loops to have identical bodies")
+        raise SchedulingError(
+            f"""expected the two loops to have identical bodies:
+s1: {compare_ir.s1}
+s2: {compare_ir.s2}"""
+        )
 
     ir, fwd = loop1_c._child_node("hi")._replace(loop2.hi)
     ir, fwd_del = fwd(loop2_c)._delete()

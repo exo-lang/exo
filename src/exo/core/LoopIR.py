@@ -1458,10 +1458,33 @@ class LoopIR_Do:
 
 class LoopIR_Compare:
     def __init__(self):
-        pass
+        self.s1 = None
+        self.s2 = None
+
+    def store_mismatch(self, s1, s2):
+        assert isinstance(s1, LoopIR.stmt) or s1 is None
+        assert isinstance(s2, LoopIR.stmt) or s2 is None
+        if self.s1 is None and self.s2 is None:
+            self.s1 = s1
+            self.s2 = s2
 
     def match_stmts(self, stmts1, stmts2):
-        return all(self.match_s(s1, s2) for s1, s2 in zip(stmts1, stmts2))
+        # Updated from Exo 1.0 in two ways:
+        #   * Fix bug where different length lists won't be
+        #   * If mismatched, indirectly return mismatched stmts self.s1 and self.s2
+        n1 = len(stmts1)
+        n2 = len(stmts2)
+        if n1 > n2:
+            self.store_mismatch(stmts1[n2], None)
+            return False
+        if n2 > n1:
+            self.store_mismatch(None, stmts2[n1])
+            return False
+        for s1, s2 in zip(stmts1, stmts2):
+            if not self.match_s(s1, s2):
+                self.store_mismatch(s1, s2)
+                return False
+        return True
 
     def match_s(self, s1, s2):
         if type(s1) is not type(s2):
@@ -1485,12 +1508,14 @@ class LoopIR_Compare:
             return True
         elif isinstance(s1, LoopIR.SyncStmt):
             # TODO test this
-            return (
-                s1.sync_type == s2.sync_type
-                and len(s1.barriers) == len(s2.barriers)
-                and all(
-                    self.match_e(i1, i2) for i1, i2 in zip(s1.barriers, s2.barriers)
-                )
+            if s1.sync_type != s2.sync_type:
+                return False
+            if not s1.sync_type.is_split():
+                # Fence only requires sync_type equality.
+                # The hidden Sym (which is unique) should not stop equality.
+                return True
+            return len(s1.barriers) == len(s2.barriers) and all(
+                self.match_e(i1, i2) for i1, i2 in zip(s1.barriers, s2.barriers)
             )
         elif isinstance(s1, LoopIR.If):
             return (
@@ -1504,6 +1529,7 @@ class LoopIR_Compare:
                 and self.match_e(s1.lo, s2.lo)
                 and self.match_e(s1.hi, s2.hi)
                 and self.match_stmts(s1.body, s2.body)
+                and s1.loop_mode == s2.loop_mode
             )
         elif isinstance(s1, LoopIR.Alloc):
             return self.match_name(s1.name, s2.name) and self.match_t(s1.type, s2.type)
@@ -1555,7 +1581,7 @@ class LoopIR_Compare:
             # TODO: check configfield equality
             return e1.config == e2.config and e1.field == e2.field
         elif e1 is None:
-            return e2 is None
+            return e2 is None  # Trailing barrier expr needs this
         else:
             assert False, "bad case"
 
@@ -1566,7 +1592,9 @@ class LoopIR_Compare:
         return n1.name() == n2.name()
 
     def match_w_access(self, w1, w2):
-        if isinstance(w1, LoopIR.Interval):
+        if type(w1) != type(w2):
+            return False
+        elif isinstance(w1, LoopIR.Interval):
             return self.match_e(w1.lo, w2.lo) and self.match_e(w1.hi, w2.hi)
         elif isinstance(w1, LoopIR.Point):
             return self.match_e(w1.pt, w2.pt)

@@ -30,21 +30,19 @@ class CollParam(object):
         return self.name + "_param"
 
 
-class CollSizeExpr(object):
+@dataclass(slots=True, frozen=True)  # Hashable equality object
+class CollSizeExpr:
     """Scalar coordinate type for CollUnit (collective unit)
 
     Product of CollParam(s) and a fraction.
     You should not create this directly, but use overloaded * and /
     e.g. clusterDim * blockDim * 3 / 4"""
 
-    __slots__ = ["scalar", "coll_params"]
-
     scalar: Fraction
     coll_params: Tuple[CollParam]
 
-    def __init__(self, scalar: Fraction | int, coll_params: Tuple[CollParam] = ()):
-        self.scalar = Fraction(scalar)
-        self.coll_params = coll_params
+    def __post_init__(self):
+        object.__setattr__(self, "scalar", Fraction(self.scalar))
 
     def __call__(self, env: Dict[CollParam, int]):
         n = self.scalar.numerator
@@ -89,6 +87,13 @@ blockDim_param = CollParam("blockDim")
 blockDim = CollSizeExpr(1, (blockDim_param,))
 clusterDim_param = CollParam("clusterDim")
 clusterDim = CollSizeExpr(1, (clusterDim_param,))
+
+
+# Equality operator self-chick
+_tmp_set = {blockDim * 3 / 4, clusterDim}
+assert blockDim / 8 * 6 in _tmp_set
+assert clusterDim * 1 in _tmp_set
+assert blockDim not in _tmp_set
 
 
 def coll_size_tuple_helper(tup):
@@ -148,6 +153,16 @@ class CollUnit(object):
         if scaled_dim_idx is not None:
             assert scaled_dim_idx < len(box)
             assert box[scaled_dim_idx] is not None
+
+    def __eq__(self, other):
+        return (
+            type(other) is CollUnit
+            and self.domain == other.domain
+            and self.box == other.box
+        )
+
+    def __hash__(self):
+        return hash((self.domain, self.box))
 
     def scaled(self, scale):
         try:
@@ -1166,3 +1181,14 @@ assert standalone_thread.is_always_single_thread()
 assert cuda_thread.is_always_single_thread()
 assert not cuda_warp.is_always_single_thread()
 assert not cuda_cta_in_cluster.is_always_single_thread()
+
+
+# Equality self-check
+assert cuda_thread == cuda_thread
+assert cuda_thread != cuda_warp
+assert cuda_warp == 32 * cuda_thread
+assert cuda_agnostic_sub_cta != cuda_cta_in_cluster
+assert cuda_warpgroup == cuda_warp * 4
+_tmp_coll_units = {cuda_thread * 32}
+assert cuda_warp in _tmp_coll_units
+assert cuda_thread not in _tmp_coll_units
