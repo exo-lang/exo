@@ -989,7 +989,7 @@ def DoSetTypAndMem(cursor, basetyp=None, win=None, mem=None):
     oldtyp = s.type
     assert oldtyp.is_numeric()
 
-    if basetyp:
+    if basetyp is not None:
         assert basetyp.is_real_scalar()
 
         if oldtyp.is_real_scalar():
@@ -1015,7 +1015,7 @@ def DoSetTypAndMem(cursor, basetyp=None, win=None, mem=None):
             ir, fwd = _replace_writes(ir, fwd, c, s.name, update_typ)
 
         return ir, fwd
-    elif win:
+    elif win is not None:
         if not oldtyp.is_tensor_or_window():
             raise SchedulingError(
                 "cannot change windowing of a " "non-tensor/window argument"
@@ -1025,7 +1025,7 @@ def DoSetTypAndMem(cursor, basetyp=None, win=None, mem=None):
         assert isinstance(win, bool)
 
         return cursor._child_node("type")._replace(oldtyp.update(is_window=win))
-    elif mem:
+    elif mem is not None:
         return cursor._child_node("mem")._replace(mem)
 
 
