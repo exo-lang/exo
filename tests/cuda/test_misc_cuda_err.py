@@ -569,6 +569,7 @@ def test_clusterDim_values(compiler):
 
 def test_missing_compiler_fixture_sync_check():
     # Meta test, testing the tests.
+    # The test harness should detect attempting to run sync_check without a compiler.
     # Something may be wrong with compiler fixture after_test() if this fails.
     @proc
     def p(M: size, A: f32[M] @ CudaGmemLinear):
@@ -581,3 +582,119 @@ def test_missing_compiler_fixture_sync_check():
     with pytest.raises(AssertionError) as exc:
         p.sync_check(M=128)
     assert "compiler fixture" in str(exc.value)
+
+
+def mkproc_packed_dims(shape, mem, unit):
+    @proc
+    def proc_packed_dims(variable_size: size):
+        with CudaDeviceFunction(blockDim=128):
+            for task in cuda_tasks(0, 1):
+                for tid in cuda_threads(0, 1, unit=unit):
+                    test_rmem: f32 @ mem
+                    # The below is totally incorrect but required to
+                    # not optimize out unused variables.
+                    # But the error messages we are looking for should
+                    # trigger upon test_rmem allocation.
+                    for tid2 in cuda_threads(0, 1, unit=cuda_thread):
+                        test_rmem = 0
+
+    p = proc_packed_dims
+    for coord in shape[::-1]:
+        p = expand_dim(p, "test_rmem", coord, "0")
+    return p
+
+
+def test_packed_dims_err(compiler):
+    packed_t = CudaRmemPacked32
+    Sm90_t = Sm90_RmemMatrixD(64, 256)
+
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(
+            mkproc_packed_dims, shape=[], mem=packed_t, unit=cuda_thread
+        )
+    msg = str(exc.value)
+    assert "must be at least 1-dimensional" in msg
+    assert f"test_rmem: f32 @ {packed_t.name()}" in msg
+
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(
+            mkproc_packed_dims, shape=[256], mem=Sm90_t, unit=cuda_warpgroup
+        )
+    msg = str(exc.value)
+    assert "must be at least 2-dimensional" in msg
+    assert f"test_rmem: f32[256] @ {Sm90_t.name()}" in msg
+
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(
+            mkproc_packed_dims,
+            shape=["variable_size", 256],
+            mem=Sm90_t,
+            unit=cuda_warpgroup,
+        )
+    msg = str(exc.value)
+    assert "Required constant packed tensor shape" in msg
+    assert f"test_rmem: f32[variable_size, 256] @ {Sm90_t.name()}" in msg
+
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(
+            mkproc_packed_dims, shape=[137, 256], mem=Sm90_t, unit=cuda_warpgroup
+        )
+    msg = str(exc.value)
+    assert "packed tensor shape not supported" in msg
+    assert f"test_rmem: f32[137, 256] @ {Sm90_t.name()}" in msg
+
+
+def mkproc_packed_dims_point_expr_err(wrong):
+    @proc
+    def proc_foo():
+        with CudaDeviceFunction(blockDim=128):
+            for task in cuda_tasks(0, 1):
+                D_rmem: f32[64, 64, 256] @ Sm90_RmemMatrixD(64, 256)
+                for s in seq(0, 64):
+                    for m in seq(0, 64):
+                        for n in seq(0, 256):
+                            D_rmem[s, m, n] = 0
+
+    p = proc_foo
+    if wrong:
+        p = rearrange_dim(p, "D_rmem", [1, 0, 2])
+    p = replace(p, p.find_loop("m"), Sm90_zero_scale_d_f32)
+    return p
+
+    # If the dims are reordered, you get
+    # Sm90_zero_scale_d_f32(D_rmem[:, s, :])
+    # which is not valid.
+
+
+def test_packed_dims_point_expr_positive(compiler):
+    compiler.cuda_cpu_test(mkproc_packed_dims_point_expr_err, wrong=False)
+
+
+def test_packed_dims_point_expr_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(mkproc_packed_dims_point_expr_err, wrong=True)
+    msg = str(exc.value)
+    assert "point expression" in msg
+
+
+def mkproc_test_no_window_encoder(mem):
+    @proc
+    def no_window_encoder(foo: [f32][64, 256] @ mem):
+        with CudaDeviceFunction(blockDim=256):
+            for task in cuda_tasks(0, 1):
+                pass
+
+    return no_window_encoder
+
+
+def test_no_window_encoder_positive(compiler):
+    compiler.cuda_cpu_test(mkproc_test_no_window_encoder, mem=DRAM)
+
+
+def test_no_window_encoder_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(
+            mkproc_test_no_window_encoder, mem=Sm90_RmemMatrixD(64, 256)
+        )
+    msg = str(exc.value)
+    assert "WindowEncoder" in msg

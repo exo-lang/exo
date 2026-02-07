@@ -547,6 +547,7 @@ class cuda_packed32_loadv_16b(_new_packed32_v_base(16, store=False)):
         dst: [R][v, 2] @ CudaRmemPacked32,
         src: [R][v * 2],  # Cuda?memAtomicity16B
     ):
+        assert stride(src, 0) == 1
         for iv in seq(0, v):
             for ip in seq(0, 2):
                 dst[iv, ip] = src[iv * 2 + ip]
@@ -559,6 +560,7 @@ class cuda_packed32_loadv_32b(_new_packed32_v_base(32, store=False)):
         dst: [R][v, 1] @ CudaRmemPacked32,
         src: [R][v * 1],  # Cuda?memAtomicity16B
     ):
+        assert stride(src, 0) == 1
         for iv in seq(0, v):
             for ip in seq(0, 1):
                 dst[iv, ip] = src[iv * 1 + ip]
@@ -571,6 +573,7 @@ class cuda_packed32_storev_16b(_new_packed32_v_base(16, store=True)):
         dst: [R][v * 2],  # Cuda?memAtomicity16B
         src: [R][v, 2] @ CudaRmemPacked32,
     ):
+        assert stride(dst, 0) == 1
         for iv in seq(0, v):
             for ip in seq(0, 2):
                 dst[iv * 2 + ip] = src[iv, ip]
@@ -583,6 +586,7 @@ class cuda_packed32_storev_32b(_new_packed32_v_base(32, store=True)):
         dst: [R][v * 1],  # Cuda?memAtomicity16B
         src: [R][v, 1] @ CudaRmemPacked32,
     ):
+        assert stride(dst, 0) == 1
         for iv in seq(0, v):
             for ip in seq(0, 1):
                 dst[iv * 1 + ip] = src[iv, ip]

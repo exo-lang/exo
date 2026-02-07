@@ -1124,16 +1124,15 @@ class Compiler:
     def init_window_features(self, node, symbol):
         """Init env_window_features for variable and add global memory code"""
         typ = self.envtyp[symbol]
-        if not typ.is_tensor_or_window():
-            return
-        strnm = self.env[symbol]
-        mem = self.mems[symbol]
 
-        srcinfo = node.srcinfo
+        if not typ.is_numeric():
+            return
+
         basetype = typ.basetype()
         scalar_info = basetype.scalar_info()
-        const = self.is_const(symbol)
-        utils = self._util_injector.with_tag(mem.name())
+        strnm = self.env[symbol]
+        mem = self.mems[symbol]
+        srcinfo = node.srcinfo
 
         def kvetch(message):
             cuda_note = ""
@@ -1143,14 +1142,9 @@ class Compiler:
                 f"{srcinfo}: {symbol}: {typ} @ {mem.name()}{cuda_note} is invalid: {message}"
             )
 
-        def wrap_cir(obj, attr, idx):
-            if isinstance(obj, int):
-                obj = CIR.Const(obj)
-            else:
-                obj = obj.exo_get_cir()
-            return CIR_Wrapper(obj, self, f"{symbol} {attr}[{idx}]")
-
         # Analyze packed tensor shape
+        # This must be done before exiting for non-tensor/non-window
+        # because otherwise we would not detect the n_dims == 0 failure.
         shape = typ.shape()
         n_dims = len(shape)
         packed_tensor_shape = mem.packed_tensor_shape(scalar_info)
@@ -1160,6 +1154,19 @@ class Compiler:
             kvetch(
                 f"must be at least {n_packed_dims}-dimensional (for packed tensor shape {packed_tensor_shape})"
             )
+
+        if not typ.is_tensor_or_window():
+            return
+
+        const = self.is_const(symbol)
+        utils = self._util_injector.with_tag(mem.name())
+
+        def wrap_cir(obj, attr, idx):
+            if isinstance(obj, int):
+                obj = CIR.Const(obj)
+            else:
+                obj = obj.exo_get_cir()
+            return CIR_Wrapper(obj, self, f"{symbol} {attr}[{idx}]")
 
         cir_array_interval_sizes = [
             simplify_cir(lift_to_cir(e, self.range_env)) for e in shape[:n_array_dims]
@@ -1175,7 +1182,9 @@ class Compiler:
                 packed_const_shape.append(c.val)
             else:
                 actual = [str(c) for c in cir_packed_interval_sizes]
-                kvetch(f"Required constant packed tensor shape, not {actual}")
+                kvetch(
+                    f"Required constant packed tensor shape (for packed tensor shape {packed_tensor_shape})"
+                )
         if tuple(packed_const_shape) != tuple(packed_tensor_shape):
             kvetch(
                 f"{packed_const_shape} packed tensor shape not supported; expect {packed_tensor_shape}"
