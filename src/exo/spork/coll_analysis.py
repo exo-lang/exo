@@ -213,11 +213,17 @@ class CollAnalysis(LoopIR_Rewrite):
         elif isinstance(s, LoopIR.Alloc):
             if s.type.is_barrier():
                 native_unit = None
+                separate_await = s.mem.traits().different_arrive_await_threads
             else:
                 assert issubclass(s.mem, CudaBasicDeviceVisible)
                 native_unit = s.mem.native_unit()
+                separate_await = False
             self.distributed_alloc_states[s.name] = DistributedAllocState(
-                s, self._coll_tiling, native_unit, self._coll_env
+                s,
+                self._coll_tiling,
+                native_unit,
+                self._coll_env,
+                separate_await,
             )
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             if (n_threads := self._coll_tiling.get_box_num_threads()) != 1:
@@ -264,11 +270,12 @@ class CollAnalysis(LoopIR_Rewrite):
                 # We now have the distributed indices in distributed_iters.
                 # Store in DistributedAllocState if this is the first use, or check
                 # consistency (index equality) with prior uses.
-                if fsm.check_store_state(state):
-                    self.remark_distributed_alloc_state(state)
+                if remark_state := fsm.check_store_state(state):
+                    self.remark_distributed_alloc_state(remark_state, s)
                 fsm.inspect_arrive_await(
                     s,
                     self._coll_tiling,
+                    self.thread_iters,
                     lambda nm: self._barrier_uses[nm],
                     lambda nm: self.distributed_alloc_states.get(nm),
                 )
@@ -350,8 +357,8 @@ class CollAnalysis(LoopIR_Rewrite):
         # We now have the distributed indices in distributed_iters.
         # Store in DistributedAllocState if this is the first use, or check
         # consistency (CollTiling equivalence) with prior uses.
-        if fsm.check_store_state(state):
-            self.remark_distributed_alloc_state(state)
+        if remark_state := fsm.check_store_state(state):
+            self.remark_distributed_alloc_state(remark_state, context_stmt)
 
     def cuda_map_call_stmt(self, s: LoopIR.Call):
         # Check collective unit.
@@ -413,8 +420,8 @@ class CollAnalysis(LoopIR_Rewrite):
             # We now have the distributed indices in distributed_iters.
             # Store in DistributedAllocState if this is the first use, or check
             # consistency (CollTiling equivalence) with prior uses.
-            if fsm.check_store_state(state):
-                self.remark_distributed_alloc_state(state)
+            if remark_state := fsm.check_store_state(state):
+                self.remark_distributed_alloc_state(remark_state, s)
 
         # Cannot use super().map_s(s) due to window handling
         return None
@@ -573,14 +580,21 @@ class CollAnalysis(LoopIR_Rewrite):
             prior_am_box=top_am_box,
         )
 
-    def remark_distributed_alloc_state(self, state: DistributedAllocState):
+    def remark_distributed_alloc_state(
+        self, state: DistributedAllocState, context_stmt: LoopIR.stmt
+    ):
         thread_iters = self.thread_iters
         distributed_iters = state.first_distributed_iters
         tup = tuple(thread_iters[it].thread_pitch for it in distributed_iters)
         s = state.alloc_stmt
+        _from = ""
+        if isinstance(context_stmt, LoopIR.SyncStmt):
+            _from = (
+                "from Arrive " if context_stmt.sync_type.is_arrive() else "from Await "
+            )
         self._debug_log.remark(
             self._proc_name,
-            f"distributed dims: {len(tup)}, thread pitch tuple {tup} @ {s.srcinfo}",
+            f"distributed dims: {len(tup)}, thread pitch tuple {tup} {_from}@ {s.srcinfo}",
         )
 
     def remark_coll_tiling_in_body(self, s: LoopIR.stmt, coll_tiling: CollTiling):

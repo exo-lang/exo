@@ -124,10 +124,14 @@ class DistributedAllocState(object):
     # in each thread collective at the usage site (i.e. no sharing).
     optional_native_unit: Optional[CollUnit]
 
-    # Information for Arrive/Await statements, split by usage.
-    # Fence() stmts are decomposed as an arrive + await
-    arrive_coll_tiling: Optional[CollTiling]
-    await_coll_tiling: Optional[CollTiling]
+    # Information for Arrive/Await statements.
+    sync_coll_tiling: Optional[CollTiling]
+
+    # Special case, if this state is for a barrier variable that supports
+    # different_arrive_await_threads, the top-level state object records
+    # only Arrive usages, and this sub-object records Await usages.
+    # TODO this is a really hacky solution.
+    separate_await_state: Optional["DistributedAllocState"]
 
     def __init__(
         self,
@@ -135,6 +139,7 @@ class DistributedAllocState(object):
         coll_tiling: CollTiling,
         optional_native_unit: Optional[CollUnit],
         env: Dict[CollParam, int],
+        separate_await: bool,
     ):
         assert isinstance(coll_tiling, CollTiling)
         if optional_native_unit is not None:
@@ -167,8 +172,15 @@ class DistributedAllocState(object):
             assert isinstance(alloc_stmt, LoopIR.SyncStmt)
             self.alloc_type = T.barrier
         self.optional_native_unit = optional_native_unit
-        self.arrive_coll_tiling = None
-        self.await_coll_tiling = None
+        self.sync_coll_tiling = None
+
+        # Done last: initialize separate_await_state with a copy of self
+        # if appropriate for the barrier mechanism (which is handled outside).
+        self.separate_await_state = None
+        if separate_await:
+            self.separate_await_state = DistributedAllocState(
+                alloc_stmt, coll_tiling, optional_native_unit, env, False
+            )
 
     def n_distributed_dims(self) -> int:
         return len(self.first_distributed_iters)
@@ -197,10 +209,19 @@ class DistributedAllocState(object):
         return typ
 
     def get_arrive(self) -> Optional[CollTiling]:
-        return self.arrive_coll_tiling
+        # TODO should be get_arrive_coll_tiling
+        return self.sync_coll_tiling
+
+    def get_arrive_state(self):
+        return self
 
     def get_await(self) -> Optional[CollTiling]:
-        return self.await_coll_tiling
+        # TODO should be get_await_coll_tiling
+        state = self.separate_await_state or self
+        return state.sync_coll_tiling
+
+    def get_await_state(self):
+        return self.separate_await_state or self
 
     def get_distributed_extents(self) -> Tuple[int]:
         return tuple(
@@ -217,13 +238,36 @@ class DistributedAllocState(object):
             f"shape[{i}] must be constant."
         )
 
+    def thread_pitch_mismatch(
+        self, thread_iters: Dict[Sym, ThreadIter], second_distributed_iters: List[Sym]
+    ) -> Optional[str]:
+        # Give an error message if thread pitch tuple doesn't match, or None if OK.
+        first_distributed_iters = self.first_distributed_iters
+        assert first_distributed_iters is not None
+
+        for sym1, sym2 in zip(first_distributed_iters, second_distributed_iters):
+            info1 = thread_iters[sym1]
+            info2 = thread_iters[sym2]
+            if info1.thread_pitch != info2.thread_pitch:
+                return (
+                    f"{sym1}.thread_pitch ({info1.thread_pitch}) != "
+                    f"{sym2}.thread_pitch ({info2.thread_pitch})"
+                )
+
+        if len(first_distributed_iters) != len(second_distributed_iters):
+            return (
+                "Different number of distributed dimensions deduced; "
+                "possible reason, used iterator with tile_count=1 [(0, 1)-loop]"
+            )
+
+        return None
+
     @staticmethod
     def from_fence(s: LoopIR.SyncStmt, coll_tiling: CollTiling):
         assert not s.sync_type.is_split()
-        result = DistributedAllocState(s, coll_tiling, None, None)
+        result = DistributedAllocState(s, coll_tiling, None, None, False)
         result.first_usage_stmt = s
-        result.arrive_coll_tiling = coll_tiling
-        result.await_coll_tiling = coll_tiling
+        result.sync_coll_tiling = coll_tiling
         return result
 
     def codegen_slices_to_root(
@@ -643,18 +687,27 @@ class DistributedIdxFsm:
         """True if we should not call consume_idx() again."""
         return not any(self.distributed_iters_needed.values())
 
-    def check_store_state(self, state: DistributedAllocState) -> bool:
+    def check_store_state(
+        self, state: DistributedAllocState
+    ) -> Optional[DistributedAllocState]:
         """Update the allocation state with analysis results
 
         If this distributed memory analysis is not the first for the
         allocation, we check that the usage pattern is compatible with
         that of the first usage.
-        Returns whether this is the first usage seen.
+
+        For logging purposes, returns the DistributedAllocState the
+        first time it's modified.
 
         We could have stored `state` in the constructor, but I want to
         make the mutation more explicit at the call site.
 
         """
+        if state.separate_await_state is not None:
+            sync = self.context_stmt
+            if isinstance(sync, LoopIR.SyncStmt) and sync.sync_type.is_await():
+                return self.check_store_state(state.separate_await_state)
+
         missing = [
             _iter for _iter, needed in self.distributed_iters_needed.items() if needed
         ]
@@ -667,31 +720,16 @@ class DistributedIdxFsm:
             state.first_usage_stmt = self.context_stmt
             state.first_distributed_iters = self.distributed_iters
             state.first_usage_coll_tiling = self.usage_coll_tiling
-            return True
+            return state
 
         first_distributed_iters = state.first_distributed_iters
         first_usage_coll_tiling = state.first_usage_coll_tiling
         second_distributed_iters = self.distributed_iters
         second_usage_coll_tiling = self.usage_coll_tiling
         thread_iters = self.thread_iters
-        msg = None
 
-        for sym1, sym2 in zip(first_distributed_iters, second_distributed_iters):
-            info1 = thread_iters[sym1]
-            info2 = thread_iters[sym2]
-            if info1.thread_pitch != info2.thread_pitch:
-                msg = (
-                    f"{sym1}.thread_pitch ({info1.thread_pitch}) != "
-                    f"{sym2}.thread_pitch ({info2.thread_pitch})"
-                )
-                break
+        msg = state.thread_pitch_mismatch(thread_iters, second_distributed_iters)
 
-        if msg is None:
-            if len(first_distributed_iters) != len(second_distributed_iters):
-                msg = (
-                    "Different number of distributed dimensions deduced; "
-                    "possible reason, used iterator with tile_count=1 [(0, 1)-loop]"
-                )
         if msg is None:
             if state.optional_native_unit is not None:
                 msg = first_usage_coll_tiling.base_mismatch(
@@ -720,12 +758,13 @@ class DistributedIdxFsm:
                     f"  {sym2} = {info.coll_index_expr.codegen()}; thread_pitch={info.thread_pitch}"
                 )
             raise ValueError("\n".join(lines))
-        return False
+        return None
 
     def inspect_arrive_await(
         self,
         sync: LoopIR.SyncStmt,
         coll_tiling: CollTiling,
+        thread_iters: Dict[Sym, ThreadIter],
         get_barrier_usage: Callable[[Sym], BarrierUsage],
         get_state: Callable[[Sym], Optional[DistributedAllocState]],
     ):
@@ -739,74 +778,86 @@ class DistributedIdxFsm:
         * If the barrier type requires the same threads for Arrive/Await,
           check equivalent CollTilings for same-barrier Arrive/Await.
 
+        Equivalent here means an identical thread pitch tuple
+        and base thread equality between the CollTiling recorded.
+
         """
         assert isinstance(sync, LoopIR.SyncStmt)
+        assert sync is self.context_stmt
         nm = sync.barriers[0].name
         barrier_usage = get_barrier_usage(nm)
         state = get_state(nm)
+
+        # separate_await_state should be initialized iff the barrier mechanism
+        # supports different thread sets for Arrive and Await.
+        # fmt: off
+        assert (state.separate_await_state is None) == (not barrier_usage.barrier_mechanism.traits().different_arrive_await_threads)
+        # fmt: on
+
+        if sync.sync_type.is_arrive():
+            state = state.get_arrive_state()
+        else:
+            state = state.get_await_state()
+
+        return self._inspect_arrive_await_impl(
+            sync, coll_tiling, thread_iters, barrier_usage, state, get_state
+        )
+
+    def _inspect_arrive_await_impl(
+        self,
+        sync: LoopIR.SyncStmt,
+        coll_tiling: CollTiling,
+        thread_iters: Dict[Sym, ThreadIter],
+        barrier_usage: BarrierUsage,
+        state: DistributedAllocState,
+        get_state: Callable[[Sym], Optional[DistributedAllocState]],
+    ):
+        nm = sync.barriers[0].name
         assert isinstance(barrier_usage, BarrierUsage)
         assert isinstance(state, DistributedAllocState)
 
-        # We will update state.arrive_coll_tiling or state.await_coll_tiling
+        # We will update state.sync_coll_tiling after the checks
         sync_type = sync.sync_type
         assert sync_type.is_split()
-        # Get CollTiling for Arrive >> name or Await(name)
-        name = sync.barriers[0].name
-        is_await = sync_type.is_await()
-        old_coll_tiling = (
-            state.await_coll_tiling if is_await else state.arrive_coll_tiling
-        )
 
-        # CollTilings that need to be equivalent
-        to_check: List[Tuple[CollTiling, str]] = []
+        # DistributedAllocState that need to be equivalent
+        to_check: List[Tuple[DistributedAllocState, str]] = []
 
-        if old_coll_tiling is not None:
-            # Will check equivalence with previous stmt of same sync type
-            f_text = str(sync)
-            to_check.append((old_coll_tiling, f_text))
+        if state.sync_coll_tiling is None:
+            # Only set the first time.
+            # This way subsequent mismatches will be detected.
+            state.sync_coll_tiling = coll_tiling
         else:
-            # Save new state
-            if is_await:
-                state.await_coll_tiling = coll_tiling
-            else:
-                state.arrive_coll_tiling = coll_tiling
+            # Will check equivalence with previous stmt
+            f_text = str(state.first_usage_stmt)
+            to_check.append((state, f_text))
 
         if barrier_usage.barrier_mechanism.traits().requires_guarding:
             # Will check equivalence with previous stmt of matched sync type
             if sync_type.is_arrive():
                 guarded_by = barrier_usage.guarded_by
                 f_text = f"Await({guarded_by}, ...) [guarded_by]"
-                other_state = get_state(guarded_by)
-                if other_state is not None:
-                    other_coll_tiling = other_state.await_coll_tiling
+                other_state = get_state(guarded_by).get_await_state()
             else:
                 guards = barrier_usage.guards
                 f_text = f"Arrive(...) >> {guards} [guards]"
-                other_state = get_state(guards)
-                if other_state is not None:
-                    other_coll_tiling = other_state.arrive_coll_tiling
-            if other_coll_tiling is not None:
-                to_check.append((other_coll_tiling, f_text))
-
-        if not barrier_usage.barrier_mechanism.traits().different_arrive_await_threads:
-            # Will check equivalence between Arrive/Await.
-            if sync_type.is_arrive():
-                f_text = f"Await({nm}) [different_arrive_await_threads=False]"
-                other_coll_tiling = state.await_coll_tiling
-            else:
-                f_text = f"Arrive(...) >> {nm} [different_arrive_await_threads=False]"
-                other_coll_tiling = state.arrive_coll_tiling
-            if other_coll_tiling is not None:
-                to_check.append((other_coll_tiling, f_text))
+                other_state = get_state(guards).get_arrive_state()
+            if other_state.sync_coll_tiling is not None:
+                to_check.append((other_state, f_text))
 
         # Check equivalence; subdiv_only=False case is stricter, checking perfect
-        # equality of all executing thread sets. (We still rely on the rest of
-        # distributed memory analysis to reason that the thread sets are assigned
-        # to barrier array elements consistently).
-        for old_coll_tiling, f_text in to_check:
+        # equality of all executing thread sets.
+        for old_state, f_text in to_check:
+            old_coll_tiling = old_state.sync_coll_tiling
             if msg := old_coll_tiling.base_mismatch(coll_tiling, subdiv_only=False):
                 raise ValueError(
                     f"{sync.srcinfo}: {sync} has inconsistent collective tiling with previous {f_text}: {msg}"
+                )
+            if msg := old_state.thread_pitch_mismatch(
+                thread_iters, state.first_distributed_iters
+            ):
+                raise ValueError(
+                    f"{sync.srcinfo}: {sync} has inconsistent thread pitch with previous {f_text}:\n{msg}"
                 )
 
     def bad_idx(self, node, msg):

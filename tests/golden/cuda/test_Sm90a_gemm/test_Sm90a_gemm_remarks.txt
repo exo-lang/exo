@@ -71,10 +71,14 @@ def gpu_gemm(L: size, M: size, N: size, K_split: size, cluster_K: size,
                                                               M=128,
                                                               N=192)
                         # distributed dims: 2, thread pitch tuple (384, 0) @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:96:20:(s110)
+                        #
+                        # distributed dims: 2, thread pitch tuple (384, 0) from Await @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:96:20:(s110)
                         raw: barrier[2, 1] @ CudaMbarrier
-                        # distributed dims: 2, thread pitch tuple (384, 0) @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:97:20:(s120)
+                        # distributed dims: 2, thread pitch tuple (384, 0) from Await @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:97:20:(s120)
+                        #
+                        # distributed dims: 2, thread pitch tuple (384, 0) from Arrive @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:97:20:(s120)
                         war: barrier(raw)[2, 1] @ CudaMbarrier
-                        # distributed dims: 3, thread pitch tuple (384, 0, 128) @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:98:20:(s130)
+                        # distributed dims: 3, thread pitch tuple (384, 0, 128) from Arrive @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:98:20:(s130)
                         cg: barrier[2, 1, 2] @ CudaCommitGroup
                         # distributed dims: 1, thread pitch tuple (384,) @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:100:20:(s140)
                         A_smem: f32[2, 1, 4, 256, 32] @ Sm90_SmemSwizzled(
@@ -395,7 +399,7 @@ def gpu_gemm(L: size, M: size, N: size, K_split: size, cluster_K: size,
                                         size0=192,
                                         size1=256,
                                         smem_box=(1, 192, 256))
-                                    # distributed dims: 0, thread pitch tuple () @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:188:36:(s720)
+                                    # distributed dims: 0, thread pitch tuple () from Arrive @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:188:36:(s720)
                                     tma_cg: barrier @ CudaCommitGroup
                                     Arrive(tma_to_gmem_async, 1) >> tma_cg
                                     Await(tma_cg, cuda_in_order, 0)
