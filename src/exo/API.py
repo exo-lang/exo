@@ -277,6 +277,7 @@ class Procedure(ProcedureBase, ProcCallGen):
         self._loopir_proc = proc
         self._provenance_eq_Procedure = _provenance_eq_Procedure
         self._forward = _forward
+        self._hack_no_smem_free_check = False  # TODO remove
 
     def forward(self, cur: C.Cursor):
         p = self
@@ -482,7 +483,9 @@ class Procedure(ProcedureBase, ProcCallGen):
         try:
             backend = LoopIR_compiler.run_backend_checks(self._loopir_proc, debug_log)
             # Should we check assertions?
-            sync_check.top_level_check(backend, kwargs)
+            sync_check.top_level_check(
+                backend, kwargs, no_smem_free_check=self._hack_no_smem_free_check
+            )
         except Exception as e:
             debug_log.enable_notify_user()
             raise

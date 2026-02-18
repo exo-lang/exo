@@ -75,6 +75,7 @@ class CamsporkDo(LoopIR_Do):
         "_saw_free",
         "_coll_tiling",
         "_coll_env",
+        "_no_smem_free_check",
     ]
 
     _builder: camspork.ProgramBuilder
@@ -92,6 +93,7 @@ class CamsporkDo(LoopIR_Do):
     _saw_free: bool
     _coll_tiling: Optional[CollTiling]
     _coll_env: Dict[CollParam, int]
+    _no_smem_free_check: bool
 
     def __init__(
         self,
@@ -101,6 +103,8 @@ class CamsporkDo(LoopIR_Do):
         p: LoopIR.proc,
         value_syms: Set[Sym],
         sync_syms: Set[Sym],
+        *,
+        no_smem_free_check=False,
     ):
         instr_tl = timelines.cpu_basic_device.get_default_instr_tl()
 
@@ -119,6 +123,7 @@ class CamsporkDo(LoopIR_Do):
         self._saw_free = False
         self._coll_tiling = None
         self._coll_env = None
+        self._no_smem_free_check = no_smem_free_check
 
         b = self._builder
 
@@ -346,7 +351,7 @@ class CamsporkDo(LoopIR_Do):
             want_sync = s.name in self._sync_syms
             want_free_shards = False
 
-            if want_sync and s.mem.is_cuda_smem():
+            if want_sync and s.mem.is_cuda_smem() and not self._no_smem_free_check:
                 # fmt: off
                 assert isinstance(self._coll_tiling, CollTiling), "SMEM outside CUDA scope?"
                 # fmt: on
@@ -743,6 +748,8 @@ def coll_analysis_to_camspork(
     p: LoopIR.proc,
     value_syms: Set[Sym],
     sync_syms: Set[Sym],
+    *,
+    no_smem_free_check: bool,
 ) -> camspork.ProgramBuilder:
     """Convert LoopIR.proc to a finished camspork program.
 
@@ -764,7 +771,15 @@ def coll_analysis_to_camspork(
 
     """
     builder = camspork.ProgramBuilder()
-    CamsporkDo(builder, mem_env, coll_analysis, p, value_syms, sync_syms)
+    CamsporkDo(
+        builder,
+        mem_env,
+        coll_analysis,
+        p,
+        value_syms,
+        sync_syms,
+        no_smem_free_check=no_smem_free_check,
+    )
     builder.finish()
     return builder
 
@@ -806,7 +821,7 @@ def make_buffer_sizes(
     return result
 
 
-def top_level_check(backend, args_dict: Dict[str, int]):
+def top_level_check(backend, args_dict: Dict[str, int], *, no_smem_free_check=False):
     backend: BackendChecks
     p = backend.analyzed
     debug_log = backend.debug_log
@@ -834,6 +849,7 @@ def top_level_check(backend, args_dict: Dict[str, int]):
             p,
             (),
             backend.lazy_sync_syms,
+            no_smem_free_check=no_smem_free_check,
         )
         backend.lazy_camspork_program = camspork_program
         debug_log.log(p.name, "camspork", str(camspork_program))
