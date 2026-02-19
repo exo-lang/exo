@@ -26,6 +26,10 @@ keyword arguments, yielding a concrete instr Procedure object.
             # Each parameter of base type R (generic Num) will cause
             # the InstrTemplate to take a precision template parameter
             # of the same name; this substitutes for R for the concrete instr.
+            #
+            # IMPORTANT: somewhat broken if defined in a base class, since
+            # the parser runs ``at the wrong time'' (using locals in scope
+            # when the subclass is defined, not the parent class).
 
         def instance(self, control_tparams..., *, extra_tparams...):
             # Python code configures instruction
