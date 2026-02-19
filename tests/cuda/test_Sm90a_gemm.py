@@ -128,7 +128,7 @@ test_run_Sm90a_sch_gemm_m1n2_B = mktest_run(config_B, 1, 2, True, K_split=1)
 def test_Sm90a_gemm_remarks(compiler, golden):
     # This is a very fragile test.
     # Anytime we add more logging, the golden will change.
-    # We just want to force some testing code coverage.
+    # We just want to force some logging code coverage.
 
     def mkproc():
         gpu_gemm = make_Sm90a_gemm(config_K, 2, 1)

@@ -849,15 +849,15 @@ class DistributedIdxFsm:
         # equality of all executing thread sets.
         for old_state, f_text in to_check:
             old_coll_tiling = old_state.sync_coll_tiling
-            if msg := old_coll_tiling.base_mismatch(coll_tiling, subdiv_only=False):
-                raise ValueError(
-                    f"{sync.srcinfo}: {sync} has inconsistent collective tiling with previous {f_text}: {msg}"
-                )
             if msg := old_state.thread_pitch_mismatch(
                 thread_iters, state.first_distributed_iters
             ):
                 raise ValueError(
                     f"{sync.srcinfo}: {sync} has inconsistent thread pitch with previous {f_text}:\n{msg}"
+                )
+            if msg := old_coll_tiling.base_mismatch(coll_tiling, subdiv_only=False):
+                raise ValueError(
+                    f"{sync.srcinfo}: {sync} has inconsistent collective tiling with previous {f_text}: {msg}"
                 )
 
     def bad_idx(self, node, msg):

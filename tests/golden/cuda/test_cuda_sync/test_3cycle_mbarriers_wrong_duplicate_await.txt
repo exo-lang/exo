@@ -1,0 +1,95 @@
+def proc_3cycle_mbarriers():
+    with CudaDeviceFunction(warp_config=[
+            CudaWarpConfig(
+                name='A', count=2, setmaxnreg_dec=None, setmaxnreg_inc=None),
+            CudaWarpConfig(
+                name='B', count=2, setmaxnreg_dec=None, setmaxnreg_inc=None),
+            CudaWarpConfig(
+                name='C', count=8, setmaxnreg_dec=None, setmaxnreg_inc=None)
+    ]):
+        # Domain (ω.D) = [ 384]
+        #    Box (ω.B) = [ 384]
+        #   pow2 align = 128 @ /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1871:12:(s250)
+        for task in cuda_tasks(0, 1):
+            # distributed dims: 1, thread pitch tuple (32,) from Await @ /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1872:16:(s10)
+            #
+            # distributed dims: 1, thread pitch tuple (1,) from Arrive @ /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1872:16:(s10)
+            AtoB: barrier[2] @ CudaMbarrier
+            # distributed dims: 1, thread pitch tuple (32,) from Arrive @ /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1873:16:(s20)
+            #
+            # distributed dims: 1, thread pitch tuple (128,) from Await @ /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1873:16:(s20)
+            BtoC: barrier(AtoB)[2] @ CudaMbarrier
+            # distributed dims: 1, thread pitch tuple (128,) from Arrive @ /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1874:16:(s30)
+            #
+            # distributed dims: 1, thread pitch tuple (1,) from Await @ /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1874:16:(s30)
+            CtoA: barrier(BtoC)[2] @ CudaMbarrier
+            for n in seq(0, 25):
+                with CudaWarps(name='B'):
+                    # Domain (ω.D) = [ 384]
+                    #    Box (ω.B) = [  64]
+                    #   pow2 align = 64 @ /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1877:24:(s60)
+                    #
+                    # thread_pitch=32; exo_32thr_w = ((threadIdx.x - 64) / 32) @ /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1877:24:(s60)
+                    for w in cuda_threads(0, 2, unit=cuda_warp):
+                        # Domain (ω.D) = [ 384]
+                        #    Box (ω.B) = [  32]
+                        #   pow2 align = 32 @ /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1878:28:(s40)
+                        Await(AtoB[w], cuda_in_order, ~2)
+                        Arrive(cuda_in_order, 1) >> BtoC[w]
+                with CudaWarps(name='C'):
+                    # Domain (ω.D) = [ 384]
+                    #    Box (ω.B) = [ 256]
+                    #   pow2 align = 128 @ /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1881:24:(s100)
+                    #
+                    # thread_pitch=128; exo_128thr_wg = ((threadIdx.x - 128) / 128) @ /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1881:24:(s100)
+                    for wg in cuda_threads(0, 2, unit=cuda_warpgroup):
+                        # Domain (ω.D) = [ 384]
+                        #    Box (ω.B) = [ 128]
+                        #   pow2 align = 128 @ /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1882:28:(s90)
+                        with CudaWarps(2, 4):
+                            # Domain (ω.D) = [ 384]
+                            #    Box (ω.B) = [  64]
+                            #   pow2 align = 64 @ /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1883:32:(s80)
+                            Await(BtoC[wg], cuda_in_order, ~3)
+                    # thread_pitch=128; exo_128thr_wg = ((threadIdx.x - 128) / 128) @ /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1884:24:(s130)
+                    for wg in cuda_threads(0, 2, unit=cuda_warpgroup):
+                        # Domain (ω.D) = [ 384]
+                        #    Box (ω.B) = [ 128]
+                        #   pow2 align = 128 @ /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1885:28:(s120)
+                        with CudaWarps(2, 4):
+                            # Domain (ω.D) = [ 384]
+                            #    Box (ω.B) = [  64]
+                            #   pow2 align = 64 @ /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1886:32:(s110)
+                            Arrive(cuda_in_order, 1) >> CtoA[wg]
+                with CudaWarps(name='A'):
+                    # Domain (ω.D) = [ 384]
+                    #    Box (ω.B) = [  64]
+                    #   pow2 align = 64 @ /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1889:24:(s220)
+                    if n == 0:
+                        # thread_pitch=1; exo_1thr_tid = threadIdx.x @ /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1890:28:(s170)
+                        for tid in cuda_threads(0, 2, unit=cuda_thread):
+                            # Domain (ω.D) = [ 384]
+                            #    Box (ω.B) = [   1]
+                            #   pow2 align = 1 @ /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1891:32:(s150)
+                            Await(CtoA[tid], cuda_in_order, ~1)
+                            Arrive(cuda_in_order, 1) >> AtoB[tid]
+                    else:
+                        with CudaWarps(1, 2):
+                            # Domain (ω.D) = [ 384]
+                            #    Box (ω.B) = [  32]
+                            #   pow2 align = 32 @ /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1895:32:(s200)
+                            #
+                            # thread_pitch=1; exo_1thr_tid = (threadIdx.x - 32) @ /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1895:32:(s200)
+                            for tid in cuda_threads(0, 2, unit=cuda_thread):
+                                # Domain (ω.D) = [ 384]
+                                #    Box (ω.B) = [   1]
+                                #   pow2 align = 1 @ /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1896:36:(s180)
+                                #
+                                # /home/mantissa/Documents/exo/tests/cuda/test_cuda_sync.py:1896:36:(s180): Await(CtoA[tid], cuda_in_order, ~1) has inconsistent collective tiling with previous Await(CtoA[tid], cuda_in_order, ~1): Incompatible offsets
+                                #     First  domain=(384,), base_offset=(0,), base_box=(1,)
+                                #     Second domain=(384,), base_offset=(32,), base_box=(1,)
+                                Await(CtoA[tid], cuda_in_order, ~1)
+                                Arrive(cuda_in_order, 1) >> AtoB[tid]
+            free(CtoA)
+            free(BtoC)
+            free(AtoB)
