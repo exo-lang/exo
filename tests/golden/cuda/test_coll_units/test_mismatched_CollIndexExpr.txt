@@ -27,6 +27,7 @@ def proc_mismatched():
                     #   m = (threadIdx.x / 4); thread_pitch=4
                     #   n = (threadIdx.x % 4); thread_pitch=1
                     # Second usage: r = vals[m, n] @ /home/mantissa/Documents/exo/tests/cuda/test_coll_units.py:1034:28:(s60)
+                    # Second distributed iterators: [m, n]
                     #   m = ((threadIdx.x - 32) / 4); thread_pitch=4
                     #   n = (threadIdx.x % 4); thread_pitch=1
                     vals[m, n] = 0
@@ -58,6 +59,7 @@ def proc_mismatched():
                         #   m = (threadIdx.x / 4); thread_pitch=4
                         #   n = (threadIdx.x % 4); thread_pitch=1
                         # Second usage: r = vals[m, n] @ /home/mantissa/Documents/exo/tests/cuda/test_coll_units.py:1034:28:(s60)
+                        # Second distributed iterators: [m, n]
                         #   m = ((threadIdx.x - 32) / 4); thread_pitch=4
                         #   n = (threadIdx.x % 4); thread_pitch=1
                         r = vals[m, n]

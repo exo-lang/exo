@@ -752,6 +752,7 @@ class DistributedIdxFsm:
                 )
             lines.append(f"Second usage: {s2} @ {s2.srcinfo}")
             txt = ", ".join(str(sym2) for sym2 in second_distributed_iters)
+            lines.append(f"Second distributed iterators: [{txt}]")
             for sym2 in second_distributed_iters:
                 info = thread_iters[sym2]
                 lines.append(
