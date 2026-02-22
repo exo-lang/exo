@@ -730,9 +730,9 @@ class Compiler:
 
         # Register new variables
         for a in proc.args:
-            mem = a.mem if a.type.is_numeric() else None
+            mem = a.mem if a.type.has_Memory() else None
             self.new_varname(a.name, typ=a.type, mem=mem)
-            if a.type.is_real_scalar():
+            if a.type.is_Memory_scalar():
                 self._scalar_refs.add(a.name)
 
         # Compile preds in two steps
@@ -813,16 +813,16 @@ class Compiler:
           * type comments
         """
         assert isinstance(a, LoopIR.fnarg)
-        mem = a.mem if a.type.is_numeric() else None
+        mem = a.mem if a.type.has_Memory() else None
         if a.type in (T.size, T.index, T.bool, T.stride):
             arg_strs.append(f"{a.type.ctype()} {name_arg}")
             typ_comments.append(f"{name_arg} : {a.type}")
         # setup, arguments
         else:
-            assert a.type.is_numeric()
+            assert a.type.has_Memory()
             assert a.type.basetype() != T.R
             is_const = self.is_const(a.name)
-            if a.type.is_real_scalar():
+            if a.type.is_Memory_scalar():
                 if force_pass_by_value:
                     arg_strs.append(f"{a.type.ctype()} {name_arg}")
                 else:
@@ -1125,7 +1125,7 @@ class Compiler:
         """Init env_window_features for variable and add global memory code"""
         typ = self.envtyp[symbol]
 
-        if not typ.is_numeric():
+        if not typ.has_Memory():
             return
 
         basetype = typ.basetype()
@@ -1312,7 +1312,7 @@ class Compiler:
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             typ = self.envtyp[s.name]
             idx = []
-            if not typ.is_real_scalar():
+            if not typ.is_Memory_scalar():
                 idx = s.idx
             lhs = self.access_str(s.name, idx, s.srcinfo)
             rhs = self.comp_e(s.rhs)
@@ -1321,9 +1321,6 @@ class Compiler:
             lbtyp = s.type.basetype()
             rbtyp = s.rhs.type.basetype()
             if lbtyp != rbtyp:
-                assert s.type.is_real_scalar()
-                assert s.rhs.type.is_real_scalar()
-
                 rhs = f"({lbtyp.ctype()})({rhs})"
 
             mem: MemWin = self.mems[s.name]
@@ -1345,9 +1342,6 @@ class Compiler:
             ltyp = s.config.lookup_type(s.field)
             rtyp = s.rhs.type
             if ltyp != rtyp and not ltyp.is_indexable():
-                assert ltyp.is_real_scalar()
-                assert rtyp.is_real_scalar()
-
                 rhs = f"({ltyp.ctype()})({rhs})"
 
             self.add_line(f"ctxt->{nm}.{s.field} = {rhs};")
@@ -1574,7 +1568,7 @@ class Compiler:
             name = self.new_varname(s.name, typ=s.type, mem=s.mem)
             self.init_window_features(s, s.name)
             if not s.type.is_barrier():
-                assert s.type.basetype().is_real_scalar()
+                assert s.type.basetype().is_Memory_scalar()
                 assert s.type.basetype() != T.R
                 ctype = s.type.basetype().ctype()
                 shape_strs = self.shape_strs(s.type.shape())
@@ -1595,7 +1589,7 @@ class Compiler:
                 for line in lines:
                     self.add_line(line)
             else:
-                assert s.type.basetype().is_real_scalar()
+                assert s.type.basetype().is_Memory_scalar()
                 ctype = s.type.basetype().ctype()
                 mem = s.mem or DRAM
                 line = mem.free(name, ctype, self.shape_strs(s.type.shape()), s.srcinfo)
@@ -1675,7 +1669,7 @@ class Compiler:
                 return InstrNonWindowArg(
                     cname, True, defaults_to_ptr, basetyp, e.srcinfo
                 )
-            if rtyp.is_real_scalar():
+            if rtyp.is_Memory_scalar():
                 return InstrNonWindowArg(
                     cname, False, defaults_to_ptr, basetyp, e.srcinfo
                 )

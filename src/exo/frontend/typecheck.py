@@ -56,6 +56,7 @@ def check_call_types(err_handler, args, call_args):
                     f"but got type {call_a.type}",
                 )
 
+        # bool8/bool32 handled by has_Memory case.
         elif sig_a.type is T.bool:
             if not call_a.type is T.bool:
                 err_handler(
@@ -70,8 +71,8 @@ def check_call_types(err_handler, args, call_args):
                     "expected stride-type variable, " f"but got type {call_a.type}",
                 )
 
-        elif sig_a.type.is_numeric():
-            if call_a.type.is_numeric():
+        elif sig_a.type.has_Memory():
+            if call_a.type.has_Memory():
                 if len(call_a.type.shape()) != len(sig_a.type.shape()):
                     err_handler(
                         call_a,
@@ -81,7 +82,7 @@ def check_call_types(err_handler, args, call_args):
 
                 # ensure scalars are simply variable names
                 elif (
-                    call_a.type.is_real_scalar()
+                    not call_a.type.shape()
                     and not isinstance(call_a, LoopIR.ReadConfig)
                     and not (isinstance(call_a, LoopIR.Read) and len(call_a.idx) == 0)
                 ):
@@ -179,7 +180,7 @@ class TypeChecker:
         typ = self.env[nm]
         if typ is T.err:
             pass
-        elif typ.is_numeric():
+        elif typ.has_Memory():
             if len(idx) > len(typ.shape()):
                 self.err(
                     node,
@@ -247,11 +248,15 @@ class TypeChecker:
 
         if isinstance(stmt, (UAST.Assign, UAST.Reduce)):
             rhs = self.check_e(stmt.rhs)
-            if rhs.type != T.err and not rhs.type.is_real_scalar():
-                self.err(rhs, f"cannot assign/reduce a '{rhs.type}' type value")
+            if rhs.type != T.err and not rhs.type.is_numeric_scalar():
+                bool_exception = (
+                    isinstance(stmt, UAST.Assign) and rhs.type.is_bool_scalar()
+                )
+                if not bool_exception:
+                    self.err(rhs, f"cannot assign/reduce a '{rhs.type}' type value")
 
             idx, typ = self.check_access(stmt, stmt.name, stmt.idx, lvalue=True)
-            assert typ.is_real_scalar() or typ is T.err
+            assert typ.is_Memory_scalar() or typ is T.err
 
             IRnode = LoopIR.Assign if isinstance(stmt, UAST.Assign) else LoopIR.Reduce
             return [IRnode(stmt.name, typ, idx, rhs, stmt.srcinfo)]
@@ -272,8 +277,8 @@ class TypeChecker:
             )
 
             if rhs.type != T.err:
-                if ftyp.is_real_scalar():
-                    if not rhs.type.is_real_scalar():
+                if ftyp.is_numeric_scalar():
+                    if not rhs.type.is_numeric_scalar():
                         self.err(
                             rhs,
                             f"expected a real scalar value, but "
@@ -324,7 +329,7 @@ class TypeChecker:
             cond = self.check_e(stmt.cond, is_index=True)
             if (
                 cond.type != T.err
-                and cond.type != T.bool
+                and not cond.type.is_bool_scalar()
                 and cond.type != T.with_context
             ):
                 self.err(cond, f"expected a bool expression")
@@ -529,7 +534,7 @@ class TypeChecker:
 
         elif isinstance(e, UAST.USub):
             arg = self.check_e(e.arg, is_index=is_index)
-            if arg.type.is_real_scalar() or arg.type.is_indexable():
+            if arg.type.is_numeric_scalar() or arg.type.is_indexable():
                 if isinstance(arg, LoopIR.Const):
                     return LoopIR.Const(-arg.val, arg.type, e.srcinfo)
                 else:
@@ -546,7 +551,7 @@ class TypeChecker:
                 typ = T.err
             elif e.op in ("and", "or"):
                 for operand in (lhs, rhs):
-                    if operand.type is not T.bool:
+                    if not operand.type.is_bool_scalar():
                         self.err(operand, "expected 'bool' argument to logical op")
                 typ = T.bool
             elif e.op == "==" and (
@@ -568,8 +573,8 @@ class TypeChecker:
                         )
                 typ = T.bool
             elif e.op in ("+", "-", "*", "/", "%"):
-                if lhs.type.is_real_scalar():
-                    if not rhs.type.is_real_scalar():
+                if lhs.type.is_numeric_scalar():
+                    if not rhs.type.is_numeric_scalar():
                         self.err(rhs, "expected scalar type")
                         typ = T.err
                     elif e.op == "%":
@@ -577,14 +582,14 @@ class TypeChecker:
                         typ = T.err
                     else:
                         typ = lhs.type
-                elif rhs.type.is_real_scalar():
+                elif rhs.type.is_numeric_scalar():
                     self.err(lhs, "expected scalar type")
-                elif lhs.type == T.bool or rhs.type == T.bool:
-                    node = lhs if lhs.type == T.bool else rhs
+                elif lhs.type.is_bool_based() or rhs.type.is_bool_based():
+                    node = lhs if lhs.type.is_bool_based() else rhs
                     self.err(node, "cannot perform arithmetic on 'bool' values")
                     typ = T.err
                 elif lhs.type == T.stride or rhs.type == T.stride:
-                    node = lhs if lhs.type == T.bool else rhs
+                    node = lhs if lhs.type == T.stride else rhs
                     self.err(node, "cannot perform arithmetic on 'stride' values")
                     typ = T.err
                 elif lhs.type.is_tensor_or_window() or rhs.type.is_tensor_or_window():

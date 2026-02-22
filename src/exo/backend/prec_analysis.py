@@ -62,7 +62,7 @@ class PrecisionAnalysis(LoopIR_Rewrite):
             return self._types[name]
 
     def splice_type(self, t, bt):
-        if t.is_real_scalar():
+        if t.is_numeric_scalar():
             return bt
         elif isinstance(t, T.Tensor):
             return T.Tensor(t.hi, t.is_window, self.splice_type(t.type, bt))
@@ -162,7 +162,7 @@ class PrecisionAnalysis(LoopIR_Rewrite):
             if not e.type.is_numeric():
                 return LoopIR.USub(arg, e.type, e.srcinfo)
 
-            assert arg.type.is_real_scalar() or arg.type == T.err
+            assert arg.type.is_numeric_scalar() or arg.type == T.err
             return LoopIR.USub(arg, arg.type, e.srcinfo)
 
         elif isinstance(e, LoopIR.BinOp):
@@ -174,8 +174,8 @@ class PrecisionAnalysis(LoopIR_Rewrite):
             if not e.type.is_numeric():
                 return LoopIR.BinOp(e.op, lhs, rhs, e.type, e.srcinfo)
 
-            assert (lhs.type == T.err or lhs.type.is_real_scalar()) and (
-                rhs.type == T.err or rhs.type.is_real_scalar()
+            assert (lhs.type == T.err or lhs.type.is_numeric_scalar()) and (
+                rhs.type == T.err or rhs.type.is_numeric_scalar()
             )
             if lhs.type == T.err or rhs.type == T.err:
                 typ = T.err

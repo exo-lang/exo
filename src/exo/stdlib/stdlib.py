@@ -986,7 +986,7 @@ def check_call_site(proc, call_cursor):
     obs_stmts = get_observed_stmts(call_cursor)
     allocs = filter(lambda s: isinstance(s, AllocCursor), obs_stmts)
     for s in list(proc.args()) + list(allocs):
-        if s.type().is_numeric():
+        if s.type().has_Memory():
             mem = s.mem()
             env[s.name()] = (mem, s.type())
     ###################################################################
@@ -996,7 +996,7 @@ def check_call_site(proc, call_cursor):
     callee_parameters = call_cursor.subproc().args()
     for arg, par in zip(call_args, callee_parameters):
         par_type = par.type()
-        if par_type.is_numeric():
+        if par_type.has_Memory():
             par_mem = par.mem()
             arg_mem, arg_type = env[arg.name()]
             if not issubclass(arg_mem, par_mem) or arg_type is not par_type:

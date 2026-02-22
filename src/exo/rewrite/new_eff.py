@@ -335,14 +335,9 @@ def lift_e(e):
         strides = [A.Stride(e.name, i, T.stride, e.srcinfo) for i in range(len(e.idx))]
         return AWin(e.name, [lift_w(w) for w in e.idx], strides)
     else:
-        if (
-            e.type.is_indexable()
-            or e.type.is_stridable()
-            or e.type == T.bool
-            or e.type == T.with_context
-        ):
+        if not e.type.has_Memory():
             if isinstance(e, LoopIR.Read):
-                assert len(e.idx) == 0
+                assert len(e.idx) == 0, f"{e}: {e.type}"
                 return A.Var(e.name, e.type, e.srcinfo)
             elif isinstance(e, LoopIR.Const):
                 return A.Const(e.val, e.type, e.srcinfo)
@@ -358,8 +353,7 @@ def lift_e(e):
             else:
                 f"bad case: {type(e)}"
         else:
-            assert e.type.is_numeric()
-            if e.type.is_real_scalar():
+            if not e.type.shape():
                 if isinstance(e, LoopIR.Const):
                     return A.Const(e.val, e.type, e.srcinfo)
                 elif isinstance(e, LoopIR.Read):
@@ -599,7 +593,7 @@ def call_bindings(call_args, sig_args):
     assert len(call_args) == len(sig_args)
     aenvs = []
     for a, fa in zip(call_args, sig_args):
-        if fa.type.is_numeric():
+        if fa.type.has_Memory():
             if isinstance(a, LoopIR.WindowExpr):
                 aenvs.append(AEnv(fa.name, lift_e(a)))
             elif isinstance(a, LoopIR.ReadConfig):
@@ -1108,7 +1102,7 @@ def get_changing_globset(env):
 
 def expr_effs(e):
     if isinstance(e, LoopIR.Read):
-        if e.type.is_numeric():
+        if e.type.has_Memory():
             return [E.Read(e.name, lift_es(e.idx))]
         else:
             return []
@@ -1178,9 +1172,9 @@ def stmts_effs(stmts):
             # Must also filter out numeric ReadConfigs, since those are
             # likewise being passed by reference, not being accessed
             for fa, a in zip(s.f.args, s.args):
-                if fa.type.is_numeric() and isinstance(a, LoopIR.Read):
+                if fa.type.has_Memory() and isinstance(a, LoopIR.Read):
                     pass  # this is the case we want to skip
-                elif fa.type.is_numeric() and isinstance(a, LoopIR.ReadConfig):
+                elif fa.type.has_Memory() and isinstance(a, LoopIR.ReadConfig):
                     pass
                 else:
                     effs += expr_effs(a)
@@ -1246,7 +1240,7 @@ def get_changing_scalars(stmts, changeset=None, aliases=None):
             get_changing_scalars(s.body, changeset, aliases)
         elif isinstance(s, LoopIR.Call):
             for fa, a in zip(s.f.args, s.args):
-                if fa.type.is_numeric():
+                if fa.type.has_Memory():
                     if isinstance(a, (LoopIR.Read, LoopIR.WindowExpr)):
                         aliases[fa.name] = a.name
                     else:
@@ -2235,7 +2229,7 @@ def Check_CodeIsDead(proc, stmts):
     # overapproximates the set of locations that might have been written
     # and are all memory locations visible after the lifetime of `proc`
     globs = {pt.name: pt.typ for pt in get_point_exprs(WGp)}
-    args = {fa.name: len(fa.type.shape()) for fa in proc.args if fa.type.is_numeric()}
+    args = {fa.name: len(fa.type.shape()) for fa in proc.args if fa.type.has_Memory()}
     # now we'll construct a location set out of these
     Outside = LS.Empty()
     for gnm, typ in globs.items():
@@ -2310,7 +2304,7 @@ class _OverApproxEffects(LoopIR_Do):
             for fa, a in zip(s.f.args, s.args):
                 # treat numeric arguments as aliases rather than
                 # accesses to the corresponding expressions
-                if fa.type.is_numeric():
+                if fa.type.has_Memory():
                     if isinstance(a, (LoopIR.Read, LoopIR.WindowExpr)):
                         self._aliases[fa.name] = a.name
                         if isinstance(a, LoopIR.Read):
@@ -2375,7 +2369,7 @@ class _Check_Aliasing_Helper(LoopIR_Do):
                 if isinstance(a, (LoopIR.Read, LoopIR.WindowExpr))
             }
             for fa, a in zip(s.f.args, s.args):
-                if fa.type.is_numeric():
+                if fa.type.has_Memory():
                     if isinstance(a, (LoopIR.Read, LoopIR.WindowExpr)):
                         name = self.translate(a.name)
                         if name in passed_buffers:

@@ -1004,3 +1004,47 @@ def test_name_collision_memory():
 
     with pytest.raises(Exception, match="different code with same name"):
         compile_procs_to_strings([foo], "foo.h")
+
+
+def test_bool32_copy_if(compiler):
+    @proc
+    def copy_if(X: size, Y: size, dst: f64[X, Y], src: f64[X, Y], mask: bool32[X, Y]):
+        assert X % 4 == 0
+        assert Y % 4 == 0
+        for x in seq(0, X):
+            for y in seq(0, Y):
+                if mask[x, y]:
+                    dst[x, y] = src[x, y]
+
+    copy_if = divide_loop(copy_if, "x", 4, ("xo", "xi"), perfect=True)
+    copy_if = divide_loop(copy_if, "y", 4, ("yo", "yi"), perfect=True)
+    print(copy_if)
+    xi_loop = copy_if.find("for xi in _:_")
+    copy_if = reorder_loops(copy_if, xi_loop)
+    copy_if = stage_mem(
+        copy_if, xi_loop, "mask[xo * 4 : xo * 4 + 4, yo * 4 : yo * 4 + 4]", "mask_tmp"
+    )
+
+    fn = compiler.compile(copy_if)
+
+    X = 16
+    Y = 32
+    dst = np.ndarray(shape=(X, Y), dtype=np.float64)
+    src = np.ndarray(shape=(X, Y), dtype=np.float64)
+    mask = np.ndarray(shape=(X, Y), dtype=np.int32)
+    expected = np.ndarray(shape=(X, Y), dtype=np.float64)
+
+    rng = Random()
+    for x in range(0, X):
+        for y in range(0, Y):
+            d = rng.random()
+            s = rng.random()
+            m = 1 if rng.random() > 0.5 else 0
+            dst[x, y] = d
+            src[x, y] = s
+            mask[x, y] = m
+            expected[x, y] = s if m else d
+
+    fn(None, X, Y, dst, src, mask)
+
+    assert np.array_equal(dst, expected)

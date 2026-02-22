@@ -175,9 +175,9 @@ class SubtreeScan(LoopIR_Do):
         # Only set clusterDim if not 1, not only for pre-H100 compatibility,
         # but also this avoids mysterious performance loss.
         if clusterDim != 1:
-            self.fmt_dict[
-                "launchConfig_clusterDim_snippet"
-            ] = launchConfig_clusterDim_snippet
+            self.fmt_dict["launchConfig_clusterDim_snippet"] = (
+                launchConfig_clusterDim_snippet
+            )
 
         # Validate top-level form of cuda kernel
         # Must be nest of 1+ cuda_tasks loops.
@@ -334,7 +334,7 @@ class SubtreeScan(LoopIR_Do):
             self.device_args_syms.append(sym)
             if issubclass(ctx.sym_mem(sym), CudaGridConstant):
                 self.grid_constant_syms.add(sym)
-            elif self.sym_type(sym).is_real_scalar():
+            elif self.sym_type(sym).is_Memory_scalar():
                 # elif ensures not added if grid constant
                 self.scalar_ref_syms.add(sym)
 
@@ -659,7 +659,7 @@ class MainLoopRewrite(LoopIR_Rewrite):
         # }
         from .setmaxnreg import unsafe_setmaxnreg
 
-        for (nreg, is_inc) in [(0, False)] + sorted(scan.setmaxnreg_is_inc.items()):
+        for nreg, is_inc in [(0, False)] + sorted(scan.setmaxnreg_is_inc.items()):
             body = []
             if nreg != 0:
                 instr = unsafe_setmaxnreg(
@@ -827,14 +827,14 @@ class SubtreeRewrite(LoopIR_Rewrite):
             assert isinstance(s.cond.val, CudaAsync)
 
         elif isinstance(s, LoopIR.Alloc):
-            if s.type.is_numeric():
-                s = self.update_numeric_alloc_free(s)
+            if s.type.has_Memory():
+                s = self.update_Memory_alloc_free(s)
             elif s.type.is_barrier():
                 self.on_barrier_alloc(s)
 
         elif isinstance(s, LoopIR.Free):
-            if s.type.is_numeric():
-                s = self.update_numeric_alloc_free(s)
+            if s.type.has_Memory():
+                s = self.update_Memory_alloc_free(s)
             elif s.type.is_barrier():
                 self.on_barrier_free(s)
 
@@ -930,7 +930,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
                     return node.update(idx=new_idx)
         return None
 
-    def update_numeric_alloc_free(self, s):
+    def update_Memory_alloc_free(self, s):
         alloc_state = self.distributed_alloc_states[s.name]
         assert isinstance(alloc_state, DistributedAllocState)
 

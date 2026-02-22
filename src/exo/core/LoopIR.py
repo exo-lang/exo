@@ -109,6 +109,8 @@ module LoopIR {
          | UINT8()
          | UINT16()
          | INT32()
+         | Bool32()
+         | Bool8()
          | Bool()
          | Int()
          | Index()
@@ -161,8 +163,10 @@ module LoopIR {
         "F64",
         "INT8",
         "UINT8",
+        "Bool8",
         "UINT16",
         "INT32",
+        "Bool32",
         "Bool",
         "Int",
         "Index",
@@ -227,6 +231,8 @@ module UAST {
             | UINT8  ()
             | UINT16 ()
             | INT32 ()
+            | Bool8 ()
+            | Bool32 ()
             | Bool  ()
             | Int   ()
             | Size  ()
@@ -260,6 +266,8 @@ module UAST {
         "UINT8",
         "UINT16",
         "INT32",
+        "Bool8",
+        "Bool32",
         "Bool",
         "Int",
         "Size",
@@ -324,6 +332,8 @@ class T:
     UINT8 = LoopIR.UINT8
     UINT16 = LoopIR.UINT16
     INT32 = LoopIR.INT32
+    Bool8 = LoopIR.Bool8
+    Bool32 = LoopIR.Bool32
     Bool = LoopIR.Bool
     Int = LoopIR.Int
     Index = LoopIR.Index
@@ -348,6 +358,8 @@ class T:
     int32 = INT32()
     i32 = INT32()
     f64 = F64()
+    bool8 = Bool8()
+    bool32 = Bool32()
     bool = Bool()  # note: accessed as T.bool outside this module
     int = Int()
     index = Index()
@@ -376,8 +388,8 @@ loopir_from_uast_metatype_table = {
 }
 
 # ScalarInfo.extclass adds to this
-uast_concrete_scalar_metatypes: Type[UAST.type] = []
-loopir_concrete_scalar_metatypes: Type[LoopIR.type] = []
+loopir_concrete_numeric_scalar_metatypes: Type[LoopIR.type] = []
+loopir_concrete_bool_scalar_metatypes: Type[LoopIR.type] = []
 
 
 # ScalarInfo.extclass will override this for concrete scalar types
@@ -393,14 +405,16 @@ del scalar_info
 # here, then unfortunately manually edit the LoopIR and UAST and T
 # and ExoType class definitions to add the type to the grammar.
 # fmt: off
-bf16 =  ScalarInfo.extclass(UAST.BF16(),        T.bf16,         ExoType.BF16,   "bf16",         "exo_bf16",     16)
-f16 =   ScalarInfo.extclass(UAST.F16(),         T.f16,          ExoType.F16,    "f16",          "exo_f16",      16)
-f32 =   ScalarInfo.extclass(UAST.F32(),         T.f32,          ExoType.F32,    "f32",          "float",        32)
-f64 =   ScalarInfo.extclass(UAST.F64(),         T.f64,          ExoType.F64,    "f64",          "double",       64)
-i8 =    ScalarInfo.extclass(UAST.INT8(),        T.i8,           ExoType.I8,     "i8",           "int8_t",       8)
-ui8 =   ScalarInfo.extclass(UAST.UINT8(),       T.ui8,          ExoType.UI8,    "ui8",          "uint8_t",      8)
-ui16 =  ScalarInfo.extclass(UAST.UINT16(),      T.ui16,         ExoType.UI16,   "ui16",         "uint16_t",     16)
-i32 =   ScalarInfo.extclass(UAST.INT32(),       T.i32,          ExoType.I32,    "i32",          "int32_t",      32)
+bf16 =  ScalarInfo.extclass(UAST.BF16(),        T.bf16,         ExoType.BF16,   "bf16",         "exo_bf16",     16, True)
+f16 =   ScalarInfo.extclass(UAST.F16(),         T.f16,          ExoType.F16,    "f16",          "exo_f16",      16, True)
+f32 =   ScalarInfo.extclass(UAST.F32(),         T.f32,          ExoType.F32,    "f32",          "float",        32, True)
+f64 =   ScalarInfo.extclass(UAST.F64(),         T.f64,          ExoType.F64,    "f64",          "double",       64, True)
+i8 =    ScalarInfo.extclass(UAST.INT8(),        T.i8,           ExoType.I8,     "i8",           "int8_t",       8, True)
+ui8 =   ScalarInfo.extclass(UAST.UINT8(),       T.ui8,          ExoType.UI8,    "ui8",          "uint8_t",      8, True)
+ui16 =  ScalarInfo.extclass(UAST.UINT16(),      T.ui16,         ExoType.UI16,   "ui16",         "uint16_t",     16, True)
+i32 =   ScalarInfo.extclass(UAST.INT32(),       T.i32,          ExoType.I32,    "i32",          "int32_t",      32, True)
+bool8 = ScalarInfo.extclass(UAST.Bool8(),       T.bool8,        ExoType.Bool8,  "bool8",        "exo_bool8",    8, False)
+bool32= ScalarInfo.extclass(UAST.Bool32(),      T.bool32,       ExoType.Bool32, "bool32",       "exo_bool32",   32, False)
 # fmt: on
 
 
@@ -408,14 +422,14 @@ i32 =   ScalarInfo.extclass(UAST.INT32(),       T.i32,          ExoType.I32,    
 # Only define this after ScalarInfo.extclass populated needed tables.
 
 
-def extclass_LoopIR_concrete_scalars(f):
-    for t in loopir_concrete_scalar_metatypes:
+def extclass_LoopIR_concrete_numeric_scalars(f):
+    for t in loopir_concrete_numeric_scalar_metatypes:
         f = extclass(t)(f)
     return f
 
 
-def extclass_UAST_concrete_scalars(f):
-    for t in uast_concrete_scalar_metatypes:
+def extclass_LoopIR_concrete_bool_scalars(f):
+    for t in loopir_concrete_bool_scalar_metatypes:
         f = extclass(t)(f)
     return f
 
@@ -464,6 +478,24 @@ typedef struct { short bits; } exo_f16;
     return MemGlobalC("exo_f16", code, ())
 
 
+@extclass(T.Bool8)
+def scalar_mem_global(t):
+    code = """#ifndef exo_bool8  /* Define before inclusion to override exo_bool8 */
+typedef bool exo_bool8;
+#endif
+"""
+    return MemGlobalC("exo_bool8", code, ())
+
+
+@extclass(T.Bool32)
+def scalar_mem_global(t):
+    code = """#ifndef exo_bool32  /* Define before inclusion to override exo_bool32 */
+typedef int32_t exo_bool32;
+#endif
+"""
+    return MemGlobalC("exo_bool32", code, ())
+
+
 @extclass(T.Tensor)
 @extclass(T.Window)
 def scalar_mem_global(t):
@@ -475,10 +507,7 @@ def scalar_mem_global(t):
 # --------------------------------------------------------------------------- #
 
 
-@extclass(UAST.Tensor)
-@extclass(UAST.Num)
-@extclass(UAST.Barrier)
-@extclass_UAST_concrete_scalars
+@extclass(UAST.type)
 def shape(t):
     shp = t.hi if isinstance(t, (UAST.Tensor, UAST.Barrier)) else []
     return shp
@@ -539,6 +568,11 @@ def as_tensor_type(t):
 del as_tensor_type
 
 
+@extclass(LoopIR.type)
+def shape(t):
+    return []
+
+
 @extclass(T.Tensor)
 def shape(t):
     assert not isinstance(t.type, T.Tensor), "expect no nesting"
@@ -555,16 +589,11 @@ def shape(t):
     return t.as_tensor.shape()
 
 
-@extclass(T.Num)
-@extclass_LoopIR_concrete_scalars
-def shape(t):
-    return []
-
-
 del shape
 
 
-@extclass_LoopIR_concrete_scalars
+@extclass_LoopIR_concrete_numeric_scalars
+@extclass_LoopIR_concrete_bool_scalars
 def ctype(t):
     return t.scalar_info().ctype
 
@@ -595,17 +624,17 @@ def scalar_bits(ctype):
 
 
 @extclass(LoopIR.type)
-def is_real_scalar(t):
+def is_numeric_scalar(t):
     return False
 
 
 @extclass(LoopIR.Num)
-@extclass_LoopIR_concrete_scalars
-def is_real_scalar(t):
+@extclass_LoopIR_concrete_numeric_scalars
+def is_numeric_scalar(t):
     return True
 
 
-del is_real_scalar
+del is_numeric_scalar
 
 
 @extclass(LoopIR.type)
@@ -634,20 +663,47 @@ def is_dense_tensor(t):
 del is_dense_tensor
 
 
+# Also known as data type (not control type)
 @extclass(LoopIR.type)
 def is_numeric(t):
-    return t.is_real_scalar() or isinstance(t, (T.Tensor, T.Window))
+    return t.basetype().is_numeric_scalar()
 
 
 del is_numeric
 
 
+# Numeric types and explicit-width bools (bool8/bool32) are stored in memory.
+# This does not include barrier (BarrierMechanism is not a Memory).
 @extclass(LoopIR.type)
-def is_bool(t):
-    return isinstance(t, (T.Bool))
+def has_Memory(t):
+    return t.is_numeric() or (t.is_bool_based() and t != T.bool)
 
 
-del is_bool
+del has_Memory
+
+
+# Scalar type that is stored in explicit Memory.
+@extclass(LoopIR.type)
+def is_Memory_scalar(t):
+    return t.has_Memory() and not t.shape()
+
+
+del is_Memory_scalar
+
+
+@extclass(LoopIR.type)
+def is_bool_scalar(t):
+    return isinstance(t, (T.Bool, T.Bool8, T.Bool32))
+
+
+assert len(ExoType.bool_set) == 3, "update is_bool_scalar"
+del is_bool_scalar
+
+
+# Bool, or Tensor of bool
+@extclass(LoopIR.type)
+def is_bool_based(t):
+    return isinstance(t, T.Bool) or t.basetype().is_bool_scalar()
 
 
 @extclass(LoopIR.type)
@@ -2007,7 +2063,7 @@ class ReplacePrecision(LoopIR_Rewrite):
 
         for sym, basetyp in rewrites.items():
             assert isinstance(sym, Sym)
-            assert basetyp.is_real_scalar()
+            assert not basetyp.shape()
 
         for n in nodes:
             if isinstance(n, LoopIR.stmt):

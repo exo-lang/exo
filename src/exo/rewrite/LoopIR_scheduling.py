@@ -953,7 +953,7 @@ class DoPartialEval(LoopIR_Rewrite):
         # Validate env:
         arg_types = {x.name: x.type for x in p.args}
         for k, v in self.env.items():
-            if not arg_types[k].is_indexable() and not arg_types[k].is_bool():
+            if not arg_types[k].is_indexable() and not arg_types[k].is_bool_scalar():
                 raise SchedulingError(
                     "cannot partially evaluate numeric (non-index, non-bool) arguments"
                 )
@@ -972,7 +972,7 @@ class DoPartialEval(LoopIR_Rewrite):
                 assert len(e.idx) == 0
                 if e.name in self.env:
                     return LoopIR.Const(self.env[e.name], T.int, e.srcinfo)
-            elif e.type.is_bool():
+            elif e.type.is_bool_scalar():
                 if e.name in self.env:
                     return LoopIR.Const(self.env[e.name], T.bool, e.srcinfo)
 
@@ -987,15 +987,19 @@ class DoPartialEval(LoopIR_Rewrite):
 def DoSetTypAndMem(cursor, basetyp=None, win=None, mem=None):
     s = cursor._node
     oldtyp = s.type
-    assert oldtyp.is_numeric()
+    assert oldtyp.has_Memory()
 
     if basetyp is not None:
-        assert basetyp.is_real_scalar()
+        assert not basetyp.shape(), "must be scalar"
 
-        if oldtyp.is_real_scalar():
+        if oldtyp.is_numeric() != basetyp.is_numeric():
+            raise SchedulingError(
+                f"Replacing {oldtyp} with {basetyp} mixes data and control types"
+            )
+
+        if not oldtyp.shape():
             ir, fwd = cursor._child_node("type")._replace(basetyp)
         elif isinstance(oldtyp, T.Tensor):
-            assert oldtyp.type.is_real_scalar()
             ir, fwd = cursor._child_node("type")._child_node("type")._replace(basetyp)
         else:
             assert False, "bad case"
@@ -1251,7 +1255,7 @@ def DoBindExpr(new_name, expr_cursors):
 
     expr = expr_cursors[0]._node
     assert isinstance(expr, LoopIR.expr)
-    assert expr.type.is_numeric()
+    assert expr.type.has_Memory()
 
     expr_reads = [name for (name, typ) in get_reads_of_expr(expr)]
     # TODO: dirty hack. need real CSE-equality (i.e. modulo srcinfo)
@@ -2105,7 +2109,7 @@ class DoLiftAlloc(Cursor_Rewrite):
                 return None
 
             # if self._in_call_arg:
-            if e.type.is_real_scalar():
+            if e.type.is_Memory_scalar():
                 idx = self.idx_mode(
                     [LoopIR.Read(i, [], T.index, e.srcinfo) for i in self.access_idxs],
                     e.idx,

@@ -136,7 +136,7 @@ class CamsporkDo(LoopIR_Do):
             if nm not in explicit_syms:
                 b.add_variable(nm)
             self._envtyp[nm] = a.type
-            if a.type.is_numeric():
+            if a.type.has_Memory():
                 assert self._mem_env[nm] == a.mem
             if nm in sync_syms:
                 am_array = self.comp_index_expr(nm, a.type.shape(), instr_tl)
@@ -464,7 +464,7 @@ class CamsporkDo(LoopIR_Do):
             barrier, barrier_multicasts = self.comp_trailing_barrier_expr(s, instr_tl)
             for caller_a, callee_a in zip(s.args, callee.args):
                 fnarg_type = callee_a.type
-                if not fnarg_type.is_numeric():
+                if not fnarg_type.has_Memory():
                     # Avoids caller_a.name AttributeError for BinOp etc.
                     continue
                 if caller_a.name not in self._sync_syms:
