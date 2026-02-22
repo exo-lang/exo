@@ -122,7 +122,7 @@ def proc_default_access_info(
 ):
     access_info = {}
     for arg in proc.args:
-        if not arg.type.is_numeric():
+        if not arg.type.has_Memory():
             continue
         nm = arg.name.name()
         mem = DRAM if arg.mem is None else arg.mem
@@ -178,7 +178,7 @@ def tparams_from_signature(clsname: str, tproc: LoopIR.proc, signature):
                     )
                 sym = tproc_a.name
                 typ = tproc_a.type
-                if typ.is_numeric():
+                if typ.has_Memory():
                     raise TypeError(
                         f"{clsname}.instance: parameter {nm} "
                         f"must refer to control type, not {typ} "
@@ -532,7 +532,7 @@ class InstrTemplate(InstrTemplateBase):
         # fmt: on
 
         for arg in proc.args:
-            if not arg.type.is_numeric():
+            if not arg.type.has_Memory():
                 continue
             nm = arg.name.name()
             arg_info = access_info[nm]

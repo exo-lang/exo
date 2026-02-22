@@ -1418,7 +1418,8 @@ def bind_config(proc, var_cursor, config, field):
     if not isinstance(e, LoopIR.Read):
         raise TypeError("expected a cursor to a single variable Read")
 
-    if not (e.type.is_real_scalar() and len(e.idx) == 0) and not e.type.is_bool():
+    is_bool = e.type.is_bool_scalar()
+    if not (e.type.is_numeric_scalar() and len(e.idx) == 0) and not is_bool:
         raise TypeError(
             f"cannot bind non-real-scalar non-boolean value {e} to configuration states, since index and size expressions may depend on loop iteration"
         )
@@ -1474,8 +1475,8 @@ def write_config(proc, gap_cursor, config, field, rhs):
 
     if isinstance(rhs, LoopIR.Read):
         if (
-            not (rhs.type.is_real_scalar() and len(rhs.idx) == 0)
-            and not rhs.type.is_bool()
+            not (rhs.type.is_numeric_scalar() and len(rhs.idx) == 0)
+            and not rhs.type.is_bool_scalar()
         ):
             raise TypeError(
                 f"cannot write non-real-scalar non-boolean value {rhs} to configuration states, since index and size expressions may depend on loop iteration"

@@ -38,7 +38,7 @@ class MemoryAnalysis:
         self.mem_env = {}
 
         for a in proc.args:
-            if a.type.is_numeric():
+            if a.type.has_Memory():
                 mem = a.mem
                 assert issubclass(mem, MemWin)
                 self.mem_env[a.name] = mem
@@ -237,7 +237,7 @@ class MemoryAnalysis:
         elif styp is LoopIR.Call:
             # check memory & window consistency at call boundaries
             for ca, sa in zip(s.args, s.f.args):
-                if sa.type.is_numeric():
+                if sa.type.has_Memory():
                     smem = sa.mem
                     assert issubclass(smem, MemWin)
                     cmem = self.get_e_mem(ca)

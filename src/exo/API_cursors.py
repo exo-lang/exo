@@ -796,9 +796,9 @@ class LiteralCursor(ExprCursor):
 
         n = self._impl._node
         assert (
-            (n.type.is_bool() and type(n.val) == bool)
+            (n.type.is_bool_scalar() and type(n.val) == bool)
             or (n.type.is_indexable() and type(n.val) == int)
-            or (n.type.is_real_scalar() and type(n.val) == float)
+            or (n.type.is_numeric_scalar() and type(n.val) == float)
         )
         return n.val
 

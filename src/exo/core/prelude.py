@@ -195,20 +195,21 @@ class ScalarInfo:
     def __hash__(self):
         return id(self)
 
-    def extclass(uast, t, exotype, shorthand, ctype, bits):
+    def extclass(uast, t, exotype, shorthand, ctype, bits, numeric):
         from .LoopIR import (
             LoopIR,
             UAST,
             uast_prim_types,
             loopir_from_uast_metatype_table,
-            uast_concrete_scalar_metatypes,
-            loopir_concrete_scalar_metatypes,
+            loopir_concrete_bool_scalar_metatypes,
+            loopir_concrete_numeric_scalar_metatypes,
         )
 
         assert shorthand != "R" and ctype != "R"
         assert isinstance(uast, UAST.type)
         assert isinstance(t, LoopIR.type)
         assert isinstance(exotype, _ExoType)
+        assert isinstance(numeric, bool)
         info = object.__new__(ScalarInfo)
         info.shorthand = shorthand
         info.ctype = ctype
@@ -223,11 +224,14 @@ class ScalarInfo:
         _scalar_info_dict[loopir_metatype] = info
         _scalar_info_dict[uast_metatype] = info
         _scalar_info_dict[exotype] = info
-        _ExoType.numerics_set.add(exotype)
         uast_prim_types[shorthand] = uast
         loopir_from_uast_metatype_table[uast_metatype] = t
-        uast_concrete_scalar_metatypes.append(uast_metatype)
-        loopir_concrete_scalar_metatypes.append(loopir_metatype)
+        if numeric:
+            _ExoType.numerics_set.add(exotype)
+            loopir_concrete_numeric_scalar_metatypes.append(loopir_metatype)
+        else:
+            _ExoType.bool_set.add(exotype)
+            loopir_concrete_bool_scalar_metatypes.append(loopir_metatype)
 
         if shorthand == "f16":
             _scalar_info_dict["_Float16"] = info

@@ -273,9 +273,6 @@ class DeviceScopeAnalysis(LoopIR_Rewrite):
 
     def inspect_s(self, s):
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
-            if not s.type.is_numeric():
-                return
-
             mem = self.mem_env[s.name]
             perm = mem.device_permission(self.device, self.default_instr_tl)
             if "w" in perm:
@@ -348,8 +345,8 @@ class DeviceScopeAnalysis(LoopIR_Rewrite):
             # The Exo body of the non-instr proc will do its own checking.
             if callee.instr:
                 for caller_a, callee_a in zip(s.args, callee.args):
-                    # Inspect only numeric (data) arguments, not control type arguments.
-                    if not callee_a.type.is_numeric():
+                    # Don't inspect control type arguments that aren't in Memory.
+                    if not callee_a.type.has_Memory():
                         continue
                     # NB not using memory types in callee; the permissions
                     # may change due to inherintance.
@@ -366,7 +363,7 @@ class DeviceScopeAnalysis(LoopIR_Rewrite):
                         )
 
     def inspect_e(self, e):
-        if isinstance(e, LoopIR.Read) and e.type.is_numeric():
+        if isinstance(e, LoopIR.Read) and e.type.has_Memory():
             mem = self.mem_env[e.name]
             perm = mem.device_permission(self.device, self.default_instr_tl)
             if "r" not in perm:

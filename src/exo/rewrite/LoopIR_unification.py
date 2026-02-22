@@ -603,7 +603,7 @@ class Unification:
         self.buf_holes = {
             fa.name: BufVar(fa.name, fa.type, fa.type.is_win())
             for fa in subproc.args
-            if fa.type.is_numeric()
+            if fa.type.has_Memory()
         }
         self.bool_holes = {fa.name: False for fa in subproc.args if fa.type == T.bool}
 
@@ -653,7 +653,7 @@ class Unification:
             add_fv(x)
 
         # block-side buffer types
-        self.bbuf_types = {x: self.FV[x] for x in self.FV if self.FV[x].is_numeric()}
+        self.bbuf_types = {x: self.FV[x] for x in self.FV if self.FV[x].has_Memory()}
 
         # self.node_syms  = None
         # self.sym_nodes  = None
@@ -712,7 +712,7 @@ class Unification:
                 else:
                     raise UnificationError(f"stride argument {fa.name}" + " unused")
             else:
-                assert fa.type.is_numeric()
+                assert fa.type.has_Memory()
                 bufvar = self.buf_holes[fa.name]
                 return bufvar.get_solution(self, solutions, stmt_block[0].srcinfo)
 
@@ -1006,7 +1006,7 @@ class Unification:
 
         # otherwise, we can be sure that everything has been
         # accessed all the way down to a particular scalar value
-        assert pnode.type.is_real_scalar() and bnode.type.is_real_scalar()
+        assert not pnode.type.shape() and not bnode.type.shape()
 
         # How to unify accesses when there is no intermediate windowing
         if not pvar.use_win:
@@ -1067,7 +1067,7 @@ class Unification:
             self.equations.append(cases)
 
     def unify_types(self, pt, bt, pnode, bnode):
-        if pt.is_real_scalar() and bt.is_real_scalar():
+        if pt.is_Memory_scalar() and bt.is_Memory_scalar():
             return  # success
         elif pt.is_indexable() and bt.is_indexable():
             return  # success
@@ -1147,7 +1147,7 @@ class Unification:
                 f"a {type(be)} expression (@{be.srcinfo})"
             )
         elif isinstance(pe, LoopIR.Read):
-            assert pe.type.is_numeric(), "unhandled expression type...?"
+            assert pe.type.has_Memory(), "unhandled expression type...?"
             self.unify_accesses(pe, be)
         elif isinstance(pe, LoopIR.Const):
             if pe.val != be.val:

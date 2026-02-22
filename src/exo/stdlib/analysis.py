@@ -75,7 +75,7 @@ def check_call_mem_types(call_cursor):
 
     # Add proc parameters to env
     for arg in caller.args():
-        if arg.type().is_numeric():
+        if arg.type().has_Memory():
             mem = arg.mem()
             env[arg.name()] = mem
 
@@ -92,7 +92,7 @@ def check_call_mem_types(call_cursor):
     call_args = call_cursor.args()
     callee_parameters = call_cursor.subproc().args()
     for ca, sa in zip(call_args, callee_parameters):
-        if sa.type().is_numeric():
+        if sa.type().has_Memory():
             smem = sa.mem()
             cmem = env[ca.name()]
             # Check if the argument memory type is a subclass of the callee's parameter

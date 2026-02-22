@@ -20,6 +20,8 @@ class ExoType(Enum):
     I32 = auto()
     R = auto()
     Index = auto()
+    Bool8 = auto()
+    Bool32 = auto()
     Bool = auto()
     Size = auto()
     Int = auto()
@@ -32,11 +34,17 @@ class ExoType(Enum):
         return self in self.numerics_set
 
     def is_bool(self):
-        return self == ExoType.Bool
+        return self in self.bool_set
+
+    def has_Memory(self):
+        # Numeric (data) types, and explicit-width bool types,
+        # are allocated with an explicit memory type (@ Memory)
+        return self.is_numeric() or (self.is_bool() and self != ExoType.Bool)
 
 
 # Will be updated by ScalarInfo.extclass for fixed-width types
 ExoType.numerics_set = {ExoType.R}
+ExoType.bool_set = {ExoType.Bool}
 
 
 def loopir_type_to_exotype(typ: "LoopIR.type") -> ExoType:

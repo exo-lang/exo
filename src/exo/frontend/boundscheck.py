@@ -62,7 +62,9 @@ module Effects {
 # convert from LoopIR.expr to E.expr
 def lift_expr(e):
     if isinstance(e, LoopIR.Read):
-        assert len(e.idx) == 0
+        # For reads from tensors of bools, just treat it as a single unknown variable.
+        # This is not disciplined.
+        assert len(e.idx) == 0 or e.type.is_bool_based()
         return E.Var(e.name, e.type, e.srcinfo)
 
     elif isinstance(e, LoopIR.Const):
@@ -102,8 +104,7 @@ del negate
 
 
 def negate_expr(e):
-    Tbool = T.bool
-    assert e.type == Tbool, "can only negate predicates"
+    assert e.type.is_bool_scalar(), "can only negate predicates"
     if isinstance(e, E.Const):
         return E.Const(not e.val, e.type, e.srcinfo)
     elif isinstance(e, E.Var) or isinstance(e, E.ConfigField):
@@ -128,13 +129,13 @@ def negate_expr(e):
         elif e.op == "<=":
             return change_op(">")
         elif e.op == "==":
-            if e.lhs.type is Tbool and e.rhs.type is Tbool:
-                l = E.BinOp("and", e.lhs, negate_expr(e.rhs), Tbool, e.srcinfo)
-                r = E.BinOp("and", negate_expr(e.lhs), e.rhs, Tbool, e.srcinfo)
+            if e.lhs.type.is_bool_scalar() and e.rhs.type.is_bool_scalar():
+                l = E.BinOp("and", e.lhs, negate_expr(e.rhs), T.bool, e.srcinfo)
+                r = E.BinOp("and", negate_expr(e.lhs), e.rhs, T.bool, e.srcinfo)
 
-                return E.BinOp("or", l, r, Tbool, e.srcinfo)
+                return E.BinOp("or", l, r, T.bool, e.srcinfo)
             elif e.lhs.type.is_indexable() and e.rhs.type.is_indexable():
-                return E.BinOp("or", change_op("<"), change_op(">"), Tbool, e.srcinfo)
+                return E.BinOp("or", change_op("<"), change_op(">"), T.bool, e.srcinfo)
             else:
                 assert False, "TODO: add != support explicitly..."
     elif isinstance(e, E.Select):
@@ -569,7 +570,7 @@ class CheckBounds:
         body_eff = self.map_stmts(proc.body, self.rec_proc_types(proc), ())
 
         for arg in proc.args:
-            if arg.type.is_numeric():
+            if arg.type.has_Memory():
                 shape = [lift_expr(s) for s in arg.type.shape()]
                 # check that all sizes/indices are positive
                 for s in shape:
@@ -642,7 +643,7 @@ class CheckBounds:
         if sym not in self.env:
             if typ.is_indexable() or typ.is_stridable():
                 self.env[sym] = SMT.Symbol(repr(sym), SMT.INT)
-            elif typ is T.bool:
+            elif typ.is_bool_based():
                 self.env[sym] = SMT.Symbol(repr(sym), SMT.BOOL)
         return self.env[sym]
 
@@ -651,7 +652,7 @@ class CheckBounds:
         if c not in self.config_env:
             if typ.is_indexable() or typ.is_stridable():
                 self.config_env[c] = SMT.Symbol(f"{config.name()}_{field}", SMT.INT)
-            elif typ is T.bool:
+            elif typ.is_bool_based():
                 self.config_env[c] = SMT.Symbol(f"{config.name()}_{field}", SMT.BOOL)
             elif typ.is_scalar():
                 self.config_env[c] = SMT.Symbol(f"{config.name()}_{field}", SMT.REAL)
@@ -662,7 +663,7 @@ class CheckBounds:
     def expr_to_smt(self, expr):
         assert isinstance(expr, E.expr), "expected Effects.expr"
         if isinstance(expr, E.Const):
-            if expr.type == T.bool:
+            if expr.type.is_bool_based():
                 return SMT.Bool(expr.val)
             elif expr.type.is_indexable():
                 return SMT.Int(expr.val)
@@ -786,7 +787,7 @@ class CheckBounds:
             elif expr.op == ">=":
                 return SMT.GE(lhs, rhs)
             elif expr.op == "==":
-                if expr.lhs.type == T.bool and expr.rhs.type == T.bool:
+                if expr.lhs.type.is_bool_based() and expr.rhs.type.is_bool_based():
                     return SMT.Iff(lhs, rhs)
                 elif expr.lhs.type.is_indexable() and expr.rhs.type.is_indexable():
                     return SMT.Equals(lhs, rhs)
@@ -1047,7 +1048,7 @@ class CheckBounds:
                     # bind potential window-expression
                     subst[sig.name] = arg
 
-                    if sig.type.is_numeric():
+                    if sig.type.has_Memory():
                         if isinstance(arg, LoopIR.Read):
                             bind[sig.name] = arg.name
 
@@ -1082,7 +1083,7 @@ class CheckBounds:
 
                 # translate effects occurring on windowed arguments
                 for sig, arg in zip(stmt.f.args, stmt.args):
-                    if sig.type.is_numeric():
+                    if sig.type.has_Memory():
                         if isinstance(arg.type, T.Window):
                             eff = self.translate_eff(eff, sig.name, arg.type, type_env)
 
@@ -1121,9 +1122,9 @@ class CheckBounds:
     # extract effects from this expression; return E.effect
     def eff_e(self, e, type_env, exempt_names):
         if isinstance(e, LoopIR.Read):
-            if e.type.is_numeric() and e.name not in exempt_names:
+            if e.type.has_Memory() and e.name not in exempt_names:
                 # we may assume that we're not in a call-argument position
-                assert e.type.is_real_scalar()
+                assert e.type.is_Memory_scalar()
                 loc = [lift_expr(idx) for idx in e.idx]
                 eff = eff_read(e.name, loc, e.srcinfo)
 

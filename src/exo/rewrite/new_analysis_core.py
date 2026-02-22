@@ -36,6 +36,11 @@ def is_type_bound(val):
     raise ValidationError(Union[tuple, LoopIR.type], type(val))
 
 
+def is_bool_based(val):
+    # Extra isinstance check due to the above
+    return isinstance(val, LoopIR.type) and val.is_bool_based()
+
+
 class AOp(str):
     front_ops = {
         "+",
@@ -842,18 +847,18 @@ class SMTSolver:
             if self.Z3_MODE:
                 if typ.is_indexable() or typ.is_stridable():
                     self.env[sym] = Z3.Int(repr(sym))
-                elif typ is T.bool:
+                elif is_bool_based(typ):
                     self.env[sym] = Z3.Bool(repr(sym))
-                elif typ.is_real_scalar():
+                elif typ.is_numeric_scalar():
                     self.env[sym] = Z3.Int(repr(sym))
                 else:
                     assert False, f"bad type: {typ}"
             else:
                 if typ.is_indexable() or typ.is_stridable():
                     self.env[sym] = SMT.Symbol(repr(sym), SMT.INT)
-                elif typ is T.bool:
+                elif is_bool_based(typ):
                     self.env[sym] = SMT.Symbol(repr(sym), SMT.BOOL)
-                elif typ.is_real_scalar():
+                elif typ.is_numeric_scalar():
                     self.env[sym] = SMT.Symbol(repr(sym), SMT.INT)
                 else:
                     assert False, f"bad type: {typ}"
@@ -863,7 +868,7 @@ class SMTSolver:
         """make sure that we have a new distinct copy of this name."""
         nm = repr(sym) if sym not in self.env else repr(sym.copy())
         if self.Z3_MODE:
-            smt_typ = Z3.Bool if typ == T.bool else Z3.Int
+            smt_typ = Z3.Bool if is_bool_based(typ) else Z3.Int
 
             smt_sym = smt_typ(nm)
             if ternary:
@@ -872,7 +877,7 @@ class SMTSolver:
                 self.env[sym] = smt_sym
             return self.env[sym]
         else:
-            smt_typ = SMT.BOOL if typ == T.bool else SMT.INT
+            smt_typ = SMT.BOOL if is_bool_based(typ) else SMT.INT
 
             smt_sym = SMT.Symbol(nm, smt_typ)
             if ternary:
@@ -885,10 +890,10 @@ class SMTSolver:
         self.mod_div_tmp_bins[-1].append((new_sym, eq))
 
     def _lower(self, e):
-        if e.type == T.bool:
+        if is_bool_based(e.type):
             self.mod_div_tmp_bins.append([])
         smt_e = self._lower_body(e)
-        if e.type == T.bool:
+        if is_bool_based(e.type):
             tmp_bin = self.mod_div_tmp_bins.pop()
             # possibly wrap some definitions of temporaries
             if len(tmp_bin) > 0:
@@ -910,7 +915,7 @@ class SMTSolver:
 
     def _lower_body(self, e):
         if isinstance(e, A.Const):
-            if e.type == T.bool:
+            if is_bool_based(e.type):
                 if self.Z3_MODE:
                     return Z3.BoolVal(e.val)
                 else:
@@ -920,25 +925,25 @@ class SMTSolver:
                     return Z3.IntVal(e.val)
                 else:
                     return SMT.Int(e.val)
-            elif e.type.is_real_scalar():
+            elif e.type.is_numeric_scalar():
                 return self._get_real_const(e.val)
             else:
                 assert False, f"unrecognized const type: {type(e.val)}"
         elif isinstance(e, A.ConstSym):
             # convert constant symbol to a unique integer for this symbol
-            assert e.type.is_real_scalar()
+            assert e.type.is_Memory_scalar()
             return self._getvar(self._get_const_sym(e.name))
         elif isinstance(e, A.Var):
             return self._getvar(e.name, e.type)
         elif isinstance(e, A.Unk):
             if self.Z3_MODE:
-                val = Z3.BoolVal(False) if e.type == T.bool else Z3.IntVal(0)
+                val = Z3.BoolVal(False) if is_bool_based(e.type) else Z3.IntVal(0)
                 return TernVal(val, Z3.BoolVal(False))
             else:
-                val = SMT.Bool(False) if e.type == T.bool else SMT.Int(0)
+                val = SMT.Bool(False) if is_bool_based(e.type) else SMT.Int(0)
                 return TernVal(val, SMT.Bool(False))
         elif isinstance(e, A.Not):
-            assert e.arg.type == T.bool
+            assert is_bool_based(e.arg.type)
             a = self._lower(e.arg)
             NOT = Z3.Not if self.Z3_MODE else SMT.Not
             if is_ternary(a):
@@ -969,7 +974,7 @@ class SMTSolver:
             self.internal_pop()
             return body
         elif isinstance(e, A.Select):
-            assert e.cond.type == T.bool
+            assert is_bool_based(e.cond.type)
             cond = self._lower(e.cond)
             tcase = self._lower(e.tcase)
             fcase = self._lower(e.fcase)
@@ -991,7 +996,7 @@ class SMTSolver:
                 else:
                     return SMT.Ite(cond, tcase, fcase)
         elif isinstance(e, (A.ForAll, A.Exists)):
-            assert e.arg.type == T.bool
+            assert is_bool_based(e.arg.type)
             self.internal_push()
             nm = self._newvar(e.name)
             a = self._lower(e.arg)
@@ -1021,7 +1026,7 @@ class SMTSolver:
                 else:
                     return OP([nm], a)
         elif isinstance(e, (A.Definitely, A.Maybe)):
-            assert e.arg.type == T.bool
+            assert is_bool_based(e.arg.type)
             a = self._lower(e.arg)
             if is_ternary(a):
                 if self.Z3_MODE:
@@ -1115,14 +1120,14 @@ class SMTSolver:
             elif e.op == ">=":
                 val = (lhs >= rhs) if self.Z3_MODE else SMT.GE(lhs, rhs)
             elif e.op == "==":
-                if e.lhs.type == T.bool and e.rhs.type == T.bool:
+                if e.lhs.type.is_bool_based() and e.rhs.type.is_bool_based():
                     val = (lhs == rhs) if self.Z3_MODE else SMT.Iff(lhs, rhs)
                 elif e.lhs.type.is_indexable() and e.rhs.type.is_indexable():
                     val = (lhs == rhs) if self.Z3_MODE else SMT.Equals(lhs, rhs)
                 elif e.lhs.type.is_stridable() and e.rhs.type.is_stridable():
                     val = (lhs == rhs) if self.Z3_MODE else SMT.Equals(lhs, rhs)
                 elif e.lhs.type == e.rhs.type:
-                    assert e.lhs.type.is_real_scalar()
+                    assert e.lhs.type.is_numeric_scalar()
                     val = (lhs == rhs) if self.Z3_MODE else SMT.Equals(lhs, rhs)
                 else:
                     assert False, "bad case"
@@ -1164,7 +1169,7 @@ class Z3SubProc:
         return "\n".join([line for frame in self.stack_lines for line in frame])
 
     def add_var(self, varname, vartyp):
-        sort = "Bool" if vartyp == T.bool else "Int"
+        sort = "Bool" if vartyp.is_bool_based() else "Int"
         self.stack_lines[-1].append(f"(declare-const {varname} {sort})")
 
     def add_assertion(self, smt_formula):

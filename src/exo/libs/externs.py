@@ -10,7 +10,7 @@ class _Sin(Extern):
             raise _EErr(f"expected 1 argument, got {len(args)}")
 
         atyp = args[0].type
-        if not atyp.is_real_scalar():
+        if not atyp.is_numeric_scalar():
             raise _EErr(
                 f"expected argument 1 to be a real scalar value, but "
                 f"got type {atyp}"
@@ -39,7 +39,7 @@ class _Relu(Extern):
             raise _EErr(f"expected 1 argument, got {len(args)}")
 
         atyp = args[0].type
-        if not atyp.is_real_scalar():
+        if not atyp.is_numeric_scalar():
             raise _EErr(
                 f"expected argument 1 to be a real scalar value, but "
                 f"got type {atyp}"
@@ -78,7 +78,7 @@ class _Select(Extern):
 
         for i in range(len(args)):
             atyp = args[i].type
-            if not atyp.is_real_scalar():
+            if not atyp.is_numeric_scalar():
                 raise _EErr(
                     f"expected argument {i+1} to be a real scalar value, but "
                     f"got type {atyp}"
@@ -121,7 +121,7 @@ class _Expf(Extern):
             raise _EErr(f"expected 1 argument, got {len(args)}")
 
         atyp = args[0].type
-        if not atyp.is_real_scalar():
+        if not atyp.is_numeric_scalar():
             raise _EErr(
                 f"expected argument 1 to be a real scalar value, but "
                 f"got type {atyp}"
@@ -151,7 +151,7 @@ class _FmaxF(Extern):
 
         for i in range(len(args)):
             atyp = args[i].type
-            if not atyp.is_real_scalar():
+            if not atyp.is_numeric_scalar():
                 raise _EErr(
                     f"expected argument {i+1} to be a real scalar value, but "
                     f"got type {atyp}"
@@ -180,7 +180,7 @@ class _Sigmoid(Extern):
             raise _EErr(f"expected 1 argument, got {len(args)}")
 
         atyp = args[0].type
-        if not atyp.is_real_scalar():
+        if not atyp.is_numeric_scalar():
             raise _EErr(
                 f"expected argument 1 to be a real scalar value, but "
                 f"got type {atyp}"
@@ -214,7 +214,7 @@ class _Sqrt(Extern):
             raise _EErr(f"expected 1 argument, got {len(args)}")
 
         atyp = args[0].type
-        if not atyp.is_real_scalar():
+        if not atyp.is_numeric_scalar():
             raise _EErr(
                 f"expected argument 1 to be a real scalar value, but "
                 f"got type {atyp}"
