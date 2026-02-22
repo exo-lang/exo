@@ -290,6 +290,33 @@ def test_const_bool():
             x = True
 
 
+def mkproc_bool_int_mixed_assign(lhs_type, rhs_type):
+    @proc
+    def bool_int_mixed_assign(M: size, lhs: lhs_type[M], rhs: rhs_type[M]):
+        for m in seq(0, M):
+            lhs[m] = rhs[m]
+
+    return bool_int_mixed_assign
+
+
+def test_bool_int_mixed_assign():
+    with pytest.raises(
+        TypeError, match="cannot assign/reduce a 'i32' type value to 'bool32'"
+    ):
+        mkproc_bool_int_mixed_assign("bool32", "i32")
+
+
+def test_bool_int_mixed_assign():
+    with pytest.raises(
+        TypeError, match="cannot assign/reduce a 'bool8' type value to 'i8'"
+    ):
+        mkproc_bool_int_mixed_assign("i8", "bool8")
+
+
+def test_bool_bool_mixed_assign():
+    mkproc_bool_int_mixed_assign("bool8", "bool32")  # Should pass
+
+
 def test_usub():
     @proc
     def hoge(x: R):

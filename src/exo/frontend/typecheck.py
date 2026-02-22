@@ -258,6 +258,13 @@ class TypeChecker:
             idx, typ = self.check_access(stmt, stmt.name, stmt.idx, lvalue=True)
             assert typ.is_Memory_scalar() or typ is T.err
 
+            if typ != T.err and rhs.type != T.err:
+                if typ.is_numeric() != rhs.type.is_numeric():
+                    self.err(
+                        rhs,
+                        f"cannot assign/reduce a '{rhs.type}' type value to '{typ}'",
+                    )
+
             IRnode = LoopIR.Assign if isinstance(stmt, UAST.Assign) else LoopIR.Reduce
             return [IRnode(stmt.name, typ, idx, rhs, stmt.srcinfo)]
 
