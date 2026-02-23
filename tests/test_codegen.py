@@ -1024,6 +1024,7 @@ def test_bool32_copy_if(compiler):
     copy_if = stage_mem(
         copy_if, xi_loop, "mask[xo * 4 : xo * 4 + 4, yo * 4 : yo * 4 + 4]", "mask_tmp"
     )
+    copy_if = simplify(copy_if)
 
     fn = compiler.compile(copy_if)
 
