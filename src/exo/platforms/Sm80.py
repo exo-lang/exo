@@ -2,6 +2,8 @@
 # All names exported by this module contain Sm80_
 from __future__ import annotations
 
+import math
+
 # Currently we import from the exo.spork directory,
 # which users shouldn't import directly.
 from ..spork.timelines import (
@@ -27,12 +29,15 @@ from ..API import (
     WindowIndexer,
     window_indexer,
     WindowIndexerResult,
+    InstrArgs,
     InstrInfo,
     AtomicityInfo,
 )
 from ..spork.cuda_memory import *
 from ..spork.timelines import cuda_in_order, cuda_in_order_instr
 from ..spork.coll_algebra import cuda_warp
+
+from exo.scalars import ScalarInfo, f32, f16, bf16, i32
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -41,50 +46,101 @@ from ..spork.coll_algebra import cuda_warp
 # In Exo, we model this with instr_tl=Sm80_cp_async_instr.
 
 
-class cp_async_impl(InstrInfo):
+class Sm80_cp_async_base(InstrInfo):
+    __slots__ = ["n_bytes"]
     n_bytes: int
 
-    def instance_impl(self, n_bytes):
+    def instance_impl(self, *size_tuple):
+        scalar_info: ScalarInfo = self.access_info["dst"].scalar_info
+        n_bytes = scalar_info.bits * math.prod(size_tuple) // 8
         if n_bytes not in (4, 8, 16):
-            raise ValueError(f"cp.async copies 4, 8, or 16 bytes, not {n_bytes}")
+            typ = f"{scalar_info.shorthand}{list(size_tuple)}"
+            raise ValueError(
+                f"cp.async copies 4, 8, or 16 bytes, not {n_bytes} ({typ})"
+            )
         self.instr_tl = Sm80_cp_async_instr
         self.n_bytes = n_bytes
-        self.access_info["smem"].out_of_order = True
-        self.access_info["gmem"].out_of_order = True
+        self.access_info["dst"].out_of_order = True
+        self.access_info["src"].out_of_order = True
 
     def codegen(self, args):
         cg_ca = "cg" if self.n_bytes == 16 else "ca"
         ptx = InlinePtxGen(f"cp.async.{cg_ca}.shared.global #0#;", volatile=True)
-        ptx.add_arg(str(args.smem.index_ptr()), constraint="smem", log_as="bits")
-        ptx.add_arg(str(args.gmem.index_ptr()), constraint="generic", log_as="bits")
+        ptx.add_arg(str(args.dst.index_ptr()), constraint="smem", log_as="bits")
+        ptx.add_arg(str(args.src.index_ptr()), constraint="generic", log_as="bits")
         ptx.add_arg(self.n_bytes, constraint="n", log_as="bits")
         return ptx.as_c_lines(py_format=False)
 
+    valid_num_types = ScalarInfo.same()
+
 
 @instr
-class Sm80_cp_async_f32(cp_async_impl):
+class Sm80_cp_async_1d(Sm80_cp_async_base):
+    def behavior(
+        size0: size,
+        dst: [R][size0] @ CudaSmemAtomicity16B,
+        src: [R][size0] @ CudaGmemAtomicity16B,
+    ):
+        assert stride(dst, 0) == 1
+        assert stride(src, 0) == 1
+        for i0 in seq(0, size0):
+            dst[i0] = src[i0]
+
+    def instance(self, size0):
+        self.instance_impl(size0)
+
+
+# TODO test
+@instr
+class Sm80_cp_async_2d(Sm80_cp_async_base):
+    def behavior(
+        size0: size,
+        size1: size,
+        dst: [R][size0, size1] @ CudaSmemAtomicity16B,
+        src: [R][size0, size1] @ CudaSmemAtomicity16B,
+    ):
+        assert stride(dst, 0) == size1
+        assert stride(src, 0) == size1
+        assert stride(dst, 1) == 1
+        assert stride(src, 1) == 1
+        for i0 in seq(0, size0):
+            for i1 in seq(0, size1):
+                dst[i0, i1] = src[i0, i1]
+
+    def instance(self, size0, size1):
+        self.instance_impl(size0, size1)
+
+
+# Legacy
+@instr
+class Sm80_cp_async_f32(Sm80_cp_async_base):
     def behavior(
         size: size,
-        smem: [f32][size] @ CudaSmemAtomicity16B,
-        gmem: [f32][size] @ CudaGmemAtomicity16B,
+        dst: [f32][size] @ CudaSmemAtomicity16B,
+        src: [f32][size] @ CudaGmemAtomicity16B,
     ):
-        assert stride(smem, 0) == 1
-        assert stride(gmem, 0) == 1
+        assert stride(dst, 0) == 1
+        assert stride(src, 0) == 1
         for i in seq(0, size):
-            smem[i] = gmem[i]
+            dst[i] = src[i]
 
     def instance(self, size):
-        self.instance_impl(4 * size)
+        self.instance_impl(size)
 
 
+__all__.append("Sm80_cp_async_base")
+__all__.append("Sm80_cp_async_1d")
+__all__.append("Sm80_cp_async_2d")
 __all__.append("Sm80_cp_async_f32")
 
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
-# Matrix tiles for sm_80 MMA instructions
-# 32 threads' registers collectively store a matrix tile for a problem size
-# m16n8k4 or m16n8k8
+# mma.sync.m16n8k? instructions, wrapped as Sm80_mma_m16n8
+# These take A and B operands in CudaRmemPacked32.
+# The C/D operand lives in a special opaque Sm80_RmemMatrixD(16, 8) type.
+# In principle it could also be CudaRmemPacked32, but this
+# made instruction unification too hard.
 
 
 class Sm80_RmemMatrixIndexer(WindowIndexer):
@@ -99,14 +155,25 @@ class Sm80_RmemMatrixIndexer(WindowIndexer):
 class Sm80_BasicRmemMatrix(CudaBasicDeviceVisible):
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
+        scalar_info: ScalarInfo = ScalarInfo(prim_type)
         tile_shape = cls.mma_packed_tensor_shape
-        assert prim_type == "float"  # TODO
-        regcount = tile_shape[0] * tile_shape[1] // 32
 
-        # Last array dimension corresponds to uint32_t-encoded matrix tile
+        if scalar_info == f16:
+            regcount = tile_shape[0] * tile_shape[1] // 64
+            regtype = "int32_t"
+        elif scalar_info == f32:
+            regcount = tile_shape[0] * tile_shape[1] // 32
+            regtype = "float"
+        elif scalar_info == i32:
+            regcount = tile_shape[0] * tile_shape[1] // 32
+            regtype = "int32_t"
+        else:
+            raise TypeError(f"Sm80_BasicRmemMatrix doesn't support {scalar_info}")
+
+        # Last array dimension corresponds to encoded matrix tile.
         # Leading dimensions correspond to the Exo user's array dimensions.
         leading = "".join(f"[{c}]" for c in shape[:-2])
-        return f"float {new_name}{leading}[{regcount}];"
+        return f"{regtype} {new_name}{leading}[{regcount}];"
 
     @classmethod
     def free(cls, new_name, prim_type, shape, srcinfo):
@@ -128,6 +195,178 @@ class Sm80_BasicRmemMatrix(CudaBasicDeviceVisible):
 
 
 @memwin_template
+def Sm80_RmemMatrixD(M: int, N: int):
+    class Sm80_RmemMatrixD(Sm80_BasicRmemMatrix):
+        """Matrix tile for sm_80+ warp MMA accumulator (C, D) operands"""
+
+        mma_packed_tensor_shape = (M, N)
+
+    return Sm80_RmemMatrixD
+
+
+# Note, no other shapes are currently supported.
+# This is a bit of a holdover from Exo-GPU development.
+Sm80_RmemMatrixD_m16n8 = Sm80_RmemMatrixD(16, 8)
+
+
+__all__ += ["Sm80_RmemMatrixD", "Sm80_RmemMatrixD_m16n8"]
+
+
+AB_ptx_names = {
+    f32: "f32",
+    f16: "f16",
+    bf16: "bf16",
+    i32: "s32",
+}
+
+
+CD_ptx_names = {
+    f32: "f32",
+    f16: "f16",
+    bf16: "bf16",
+    i32: "s32",
+}
+
+
+@instr
+class Sm80_mma_m16n8(InstrInfo):
+    valid_num_types = {
+        (f32, f32, f32),
+        (f32, bf16, bf16),
+        (f32, f16, f16),
+        (f16, f16, f16),
+        (i32, i32, i32),
+    }
+
+    def behavior(
+        K_pack: size,
+        # D: opaque tile of 16 x 8
+        D: [R][16, 8] @ Sm80_RmemMatrixD_m16n8,
+        # A: [4 threads in 32, 1 thread in 4, 2 registers, bit packing]
+        A: [R][8, 4, 2, K_pack] @ CudaRmemPacked32,
+        # B: [4 threads in 32, 1 thread in 4, bit packing]
+        B: [R][8, 4, K_pack] @ CudaRmemPacked32,
+    ):
+        for m_reg in seq(0, 2):
+            for m_thread in seq(0, 8):
+                for n_thread in seq(0, 8):
+                    for k_thread in seq(0, 4):
+                        for k_pack in seq(0, K_pack):
+                            D[m_reg * 8 + m_thread, n_thread] += (
+                                A[m_thread, k_thread, m_reg, k_pack]
+                                * B[n_thread, k_thread, k_pack]
+                            )
+
+    def instance(self: InstrInfo, K_pack: int):
+        Dtype: ScalarInfo = self.access_info["D"].scalar_info
+        Atype: ScalarInfo = self.access_info["A"].scalar_info
+        Btype: ScalarInfo = self.access_info["B"].scalar_info
+        assert Atype == Btype
+
+        if Atype.bits * K_pack != 32:
+            raise ValueError(
+                f"A={Atype} requires K_pack=32 // {Atype.bits}, not {K_pack}"
+            )
+
+        self.instr_tl = cuda_in_order_instr
+        self.coll_unit = cuda_warp
+        distributed_coll_units = [4 * cuda_thread, cuda_thread]
+        self.access_info["A"].distributed_coll_units = distributed_coll_units
+        self.access_info["B"].distributed_coll_units = distributed_coll_units
+
+    def codegen(self: InstrInfo, args: InstrArgs):
+        Dtype = args.D.get_scalar_info()
+        Atype = args.A.get_scalar_info()
+        Btype = args.B.get_scalar_info()
+        K = 4 * args.K_pack
+
+        Dt = CD_ptx_names[Dtype]
+        At = AB_ptx_names[Atype]
+        Bt = AB_ptx_names[Btype]
+        fmt = f"mma.sync.aligned.m16n8k{K}.row.col.{Dt}.{At}.{Bt}.{Dt} #0#;"
+        ptx = InlinePtxGen(fmt, volatile=False)
+
+        CD_nreg = args.D.get_scalar_info().bits // 8
+        CD_data = args.D.index()
+        CD_args = [f"{CD_data}[{n}]" for n in range(CD_nreg)]
+        CD_constraint = "f" if Dtype == f32 else "r"
+
+        # D vector of registers, passed as "f" if f32 else "r"
+        ptx.add_arg(CD_args, constraint="=" + CD_constraint, log_as=None)
+        # A vector of registers, always force passed as int32_t
+        ptx.add_arg(
+            [
+                f"*reinterpret_cast<const int32_t*>({args.A.index_ptr(0, ptx_data=True)})",
+                f"*reinterpret_cast<const int32_t*>({args.A.index_ptr(1, ptx_data=True)})",
+            ],
+            constraint="r",
+            log_as=None,
+        )
+        # B vector of registers, always force passed as int32_t
+        ptx.add_arg(
+            [
+                f"*reinterpret_cast<const int32_t*>({args.B.index_ptr(ptx_data=True)})",
+            ],
+            constraint="r",
+            log_as=None,
+        )
+        # C vector of registers, passed as "f" if f32 else "r"
+        ptx.add_arg(CD_args, constraint=CD_constraint, log_as=None)
+        # Note, CUDA requires tf32 to be treated as int32_t bits.
+
+        return ptx.as_c_lines(py_format=False)
+
+
+__all__.append("Sm80_mma_m16n8")
+Sm80_mma_m16n8k4_f32_tf32 = Sm80_mma_m16n8(K_pack=1, D=f32, A=f32, B=f32)
+__all__.append("Sm80_mma_m16n8k4_f32_tf32")
+Sm80_mma_m16n8k8_f32_bf16 = Sm80_mma_m16n8(K_pack=2, D=f32, A=bf16, B=bf16)
+__all__.append("Sm80_mma_m16n8k8_f32_bf16")
+Sm80_mma_m16n8k8_f32_f16 = Sm80_mma_m16n8(K_pack=2, D=f32, A=f16, B=f16)
+__all__.append("Sm80_mma_m16n8k8_f32_f16")
+Sm80_mma_m16n8k8_f16_f16 = Sm80_mma_m16n8(K_pack=2, D=f16, A=f16, B=f16)
+__all__.append("Sm80_mma_m16n8k8_f16_f16")
+Sm80_mma_m16n8k4_s32_s32 = Sm80_mma_m16n8(K_pack=1, D=i32, A=i32, B=i32)
+__all__.append("Sm80_mma_m16n8k4_s32_s32")
+
+
+# The Sm80_RmemMatrixD_m16n8 is an opaque per-warp value.
+# Convert to/from per-thread registers or 0 with these instrs.
+# For scheduling, you can use stage_mem and use these
+# to replace the generated load loops.
+
+
+@instr
+class Sm80_mma_m16n8_zero(InstrInfo):
+    valid_num_types = ScalarInfo.same()
+
+    def behavior(D: [R][16, 8] @ Sm80_RmemMatrixD_m16n8):
+        for m in seq(0, 16):
+            for n in seq(0, 8):
+                D[m, n] = 0
+
+    def instance(self):
+        self.coll_unit = cuda_warp
+        self.instr_tl = cuda_in_order
+
+    def codegen(self, args):
+        regcount = args.D.get_scalar_info().bits // 8
+        D_data = args.D.index()
+        return [f"{D_data}[{n}] = 0;" for n in range(regcount)]
+
+
+__all__.append("Sm80_mma_m16n8_zero")
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# LEGACY MMA EVERYTHING SHOULD BE REMOVED
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+
+
+# TODO remove
+@memwin_template
 def Sm80_RmemMatrixA(M: int, K: int):
     class Sm80_RmemMatrixA(Sm80_BasicRmemMatrix):
         """Matrix tile for sm_80+ warp MMA A operand"""
@@ -137,6 +376,7 @@ def Sm80_RmemMatrixA(M: int, K: int):
     return Sm80_RmemMatrixA
 
 
+# TODO remove
 @memwin_template
 def Sm80_RmemMatrixB(N: int, K: int):
     class Sm80_RmemMatrixB(Sm80_BasicRmemMatrix):
@@ -148,17 +388,7 @@ def Sm80_RmemMatrixB(N: int, K: int):
     return Sm80_RmemMatrixB
 
 
-@memwin_template
-def Sm80_RmemMatrixD(M: int, N: int):
-    class Sm80_RmemMatrixD(Sm80_BasicRmemMatrix):
-        """Matrix tile for sm_80+ warp MMA accumulator (C, D) operands"""
-
-        mma_packed_tensor_shape = (M, N)
-
-    return Sm80_RmemMatrixD
-
-
-__all__ += ["Sm80_RmemMatrixA", "Sm80_RmemMatrixB", "Sm80_RmemMatrixD"]
+__all__ += ["Sm80_RmemMatrixA", "Sm80_RmemMatrixB"]
 
 
 # --------------------------------------------------------------------------- #
@@ -168,6 +398,7 @@ __all__ += ["Sm80_RmemMatrixA", "Sm80_RmemMatrixB", "Sm80_RmemMatrixD"]
 # In exo terminology, these operate with instr_tl=cuda_in_order_instr
 
 
+# TODO remove
 class Sm80_mma_load_base(InstrInfo):
     def instance_impl(self, K: int, matrix_name: str):
         self.instr_tl = cuda_in_order_instr
@@ -211,6 +442,7 @@ class Sm80_mma_load_base(InstrInfo):
         # fmt: on
 
 
+# TODO remove
 @instr
 class Sm80_mma_load_a_row_major_tf32(Sm80_mma_load_base):
     K: int
@@ -234,6 +466,7 @@ class Sm80_mma_load_a_row_major_tf32(Sm80_mma_load_base):
 __all__.append("Sm80_mma_load_a_row_major_tf32")
 
 
+# TODO remove
 @instr
 class Sm80_mma_load_a_col_major_tf32(Sm80_mma_load_base):
     K: int
@@ -257,6 +490,7 @@ class Sm80_mma_load_a_col_major_tf32(Sm80_mma_load_base):
 __all__.append("Sm80_mma_load_a_col_major_tf32")
 
 
+# TODO remove
 @instr
 class Sm80_mma_load_b_row_major_tf32(Sm80_mma_load_base):
     K: int
@@ -280,6 +514,7 @@ class Sm80_mma_load_b_row_major_tf32(Sm80_mma_load_base):
 __all__.append("Sm80_mma_load_b_row_major_tf32")
 
 
+# TODO remove
 @instr
 class Sm80_mma_load_b_col_major_tf32(Sm80_mma_load_base):
     K: int
@@ -303,6 +538,7 @@ class Sm80_mma_load_b_col_major_tf32(Sm80_mma_load_base):
 __all__.append("Sm80_mma_load_b_col_major_tf32")
 
 
+# TODO remove
 @instr
 class Sm80_mma_tf32:
     def behavior(
@@ -351,6 +587,7 @@ class Sm80_mma_tf32:
 __all__.append("Sm80_mma_tf32")
 
 
+# TODO remove
 def _codegen_Sm80_d_tf32(args: InstrArgs, fmt: str, *, row_major: bool):
     # fmt: off
     preamble = [
@@ -380,6 +617,7 @@ def _codegen_Sm80_d_tf32(args: InstrArgs, fmt: str, *, row_major: bool):
     # fmt: on
 
 
+# TODO remove
 @instr
 class Sm80_mma_store_d_row_major_tf32:
     def behavior(
@@ -401,6 +639,7 @@ class Sm80_mma_store_d_row_major_tf32:
 __all__.append("Sm80_mma_store_d_row_major_tf32")
 
 
+# TODO remove
 @instr
 class Sm80_mma_reduce_d_row_major_tf32:
     def behavior(
@@ -422,6 +661,7 @@ class Sm80_mma_reduce_d_row_major_tf32:
 __all__.append("Sm80_mma_reduce_d_row_major_tf32")
 
 
+# TODO remove
 @instr
 class Sm80_mma_atomic_reduce_d_row_major_tf32:
     def behavior(
@@ -448,6 +688,7 @@ class Sm80_mma_atomic_reduce_d_row_major_tf32:
 __all__.append("Sm80_mma_atomic_reduce_d_row_major_tf32")
 
 
+# TODO remove
 @instr
 class Sm80_mma_store_d_col_major_tf32:
     def behavior(
@@ -469,6 +710,7 @@ class Sm80_mma_store_d_col_major_tf32:
 __all__.append("Sm80_mma_store_d_col_major_tf32")
 
 
+# TODO remove
 @instr
 class Sm80_mma_reduce_d_col_major_tf32:
     def behavior(
@@ -490,6 +732,7 @@ class Sm80_mma_reduce_d_col_major_tf32:
 __all__.append("Sm80_mma_reduce_d_col_major_tf32")
 
 
+# TODO remove
 @instr
 class Sm80_mma_atomic_reduce_d_col_major_tf32:
     def behavior(
@@ -516,6 +759,7 @@ class Sm80_mma_atomic_reduce_d_col_major_tf32:
 __all__.append("Sm80_mma_atomic_reduce_d_col_major_tf32")
 
 
+# TODO remove
 @instr
 class Sm80_mma_zero_d_tf32:
     def behavior(rmem: [f32][16, 8] @ Sm80_RmemMatrixD(16, 8)):
