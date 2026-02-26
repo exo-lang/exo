@@ -178,7 +178,7 @@ class Sm80_ldmatrix_base(InstrInfo):
 
 
 @instr
-class Sm80_ldmatrix_16bit(Sm80_ldmatrix_base):
+class Sm80_ldmatrix_16b(Sm80_ldmatrix_base):
     valid_num_types = {(f16, f16), (bf16, bf16)}
 
     # fmt: off
@@ -207,7 +207,7 @@ class Sm80_ldmatrix_16bit(Sm80_ldmatrix_base):
 
 
 @instr
-class Sm80_ldmatrix_32bit(Sm80_ldmatrix_base):
+class Sm80_ldmatrix_32b(Sm80_ldmatrix_base):
     valid_num_types = {(f32, f32), (i32, i32)}
 
     # fmt: off
@@ -233,14 +233,14 @@ class Sm80_ldmatrix_32bit(Sm80_ldmatrix_base):
                             dst[oT, iT, oR, iR, iB] = src[8 * oR + oT, 8 * iR + iT + iB]
 
 
-Sm80_ldmatrix_f32 = Sm80_ldmatrix_32bit.partial(dst=f32, src=f32)
-Sm80_ldmatrix_f16 = Sm80_ldmatrix_16bit.partial(dst=f16, src=f16)
-Sm80_ldmatrix_bf16 = Sm80_ldmatrix_16bit.partial(dst=bf16, src=bf16)
-Sm80_ldmatrix_i32 = Sm80_ldmatrix_32bit.partial(dst=i32, src=i32)
+Sm80_ldmatrix_f32 = Sm80_ldmatrix_32b.partial(dst=f32, src=f32)
+Sm80_ldmatrix_f16 = Sm80_ldmatrix_16b.partial(dst=f16, src=f16)
+Sm80_ldmatrix_bf16 = Sm80_ldmatrix_16b.partial(dst=bf16, src=bf16)
+Sm80_ldmatrix_i32 = Sm80_ldmatrix_32b.partial(dst=i32, src=i32)
 
 
-__all__.append("Sm80_ldmatrix_16bit")
-__all__.append("Sm80_ldmatrix_32bit")
+__all__.append("Sm80_ldmatrix_16b")
+__all__.append("Sm80_ldmatrix_32b")
 __all__.append("Sm80_ldmatrix_f32")
 __all__.append("Sm80_ldmatrix_f16")
 __all__.append("Sm80_ldmatrix_bf16")
