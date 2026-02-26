@@ -9,6 +9,13 @@ __all__ = []  # append stuff to this to export it.
 
 ########################################################################
 # Packed 32-bit register load/store, not vectorized
+#
+# This is maximally generic, we can read or write to shared memory,
+# swizzled SMEM, global memory, or even non-packed32 registers.
+# These are all subtypes of CudaDeviceVisibleAtomicity16B.
+#
+# If you define your own CudaDeviceVisibleAtomicity16B, this might
+# not work unless the codegen returns a valid pointer.
 ########################################################################
 
 
@@ -17,7 +24,7 @@ class cuda_packed32_load(InstrInfo):
     def behavior(
         pack: size,
         dst: [R][pack] @ CudaRmemPacked32,
-        src: [R][pack] @ CudaBasicDeviceVisible,
+        src: [R][pack] @ CudaDeviceVisibleAtomicity16B,
     ):
         assert stride(dst, 0) == 1
         assert stride(src, 0) == 1
@@ -48,7 +55,7 @@ __all__.append("cuda_packed32_load")
 class cuda_packed32_store(InstrInfo):
     def behavior(
         pack: size,
-        dst: [R][pack] @ CudaBasicDeviceVisible,
+        dst: [R][pack] @ CudaDeviceVisibleAtomicity16B,
         src: [R][pack] @ CudaRmemPacked32,
     ):
         assert stride(dst, 0) == 1

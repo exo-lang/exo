@@ -157,7 +157,8 @@ class DistributedAllocState(object):
                 if expect_c > 1 and box[i] != expect_c:
                     raise CollTilingError(
                         f"Missing threads to match {optional_native_unit}\n"
-                        f"domain={tmp.get_domain()}, box={box}; expected box={expected_box} (wrong @ box[{i}])"
+                        f"domain={tmp.get_domain()}, box={box}; expected box={expected_box} (wrong @ box[{i}])\n"
+                        f"Analyzing usage of {self.alloc_stmt}"
                     )
             self.alloc_coll_tiling = tmp
         else:
@@ -549,7 +550,8 @@ class DistributedIdxFsm:
                 if expect_c == 1 and box[i] != 1:
                     raise CollTilingError(
                         f"Missing subdivision on dims[{i}] to match {native_unit}\n"
-                        f"domain={tiling.get_domain()}, box={box}; expected box={expected_box}"
+                        f"domain={tiling.get_domain()}, box={box}; expected box={expected_box}\n"
+                        f"Analyzing usage of {state.alloc_stmt}"
                     )
 
         # Take a census of all distributed iterator indices we expect to see.

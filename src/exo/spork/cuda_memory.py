@@ -363,8 +363,20 @@ class CudaSmemLinear(CudaDeviceVisibleLinear, CudaSmemAtomicity16B):
     qual_tl_dict = timelines.cuda_ram_qual_tl_dict
 
 
-class CudaRmem(CudaDeviceVisibleLinear):
-    """Per-thread registers"""
+class CudaRmemLinear(CudaDeviceVisibleLinear):
+    """Per-thread registers
+
+    This is declared like a normal array in C. Hence, it can
+    be used in places where a pointer to a C-order array is expected,
+    so this class is pragmatically a subclass of CudaDeviceVisibleLinear.
+
+    However, if you actually use it this way, you risk the cuda
+    compiler lowering this to local memory instead of registers.
+
+    The sister type CudaRmemPacked32 doesn't have this behavior.
+    Consider it for <32-bit types and high-stakes use cases.
+
+    """
 
     @classmethod
     def alloc(cls, new_name, prim_type, shape, srcinfo):
@@ -388,6 +400,9 @@ class CudaRmem(CudaDeviceVisibleLinear):
         return cuda_thread
 
     qual_tl_dict = timelines.cuda_rmem_qual_tl_dict
+
+
+CudaRmem = CudaRmemLinear  # TODO consider removing alias
 
 
 global_CudaRmemPacked32 = MemGlobalC(
