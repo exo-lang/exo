@@ -465,6 +465,8 @@ class CudaRmemPacked32(CudaBasicDeviceVisible):
 
     """
 
+    # If you add more, you need to update the exo_CudaRmemPacked32_* C++ typedef
+    # and you need to update src/exo/platforms/cuda_packed32_instr.py
     allowed_types = {"f32", "i32", "f16", "bf16"}
 
     @classmethod

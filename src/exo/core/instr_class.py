@@ -491,7 +491,7 @@ class InstrTemplate(InstrTemplateBase):
         # message above has better clarity.
         # fmt: off
         num_formal = len(self.prec_tparam_syms) + len(self.control_tparam_syms) + len(extras)
-        assert len(tparam_dict) + num_defaults == num_formal, f"{clsname}: excess template parameters"
+        assert len(tparam_dict) + num_defaults == num_formal, f"{clsname}: excess template parameters {tparam_dict}"
         # fmt: on
         return tuple(tparam_values)
 

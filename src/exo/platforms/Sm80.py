@@ -136,6 +136,119 @@ __all__.append("Sm80_cp_async_f32")
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
+# ldmatrix, 4 matrix version
+#
+# The CUDA description for this instruction is incredibly misleading because
+# they use "row" and "column" without defining the majorness of the matrix.
+# I use "L-row" to mean what the PTX docs call a "row".
+# A single L-row is 16 aligned bytes of data.
+# So if the matrix is column-major (B usually is), then an L-row is a column!!!
+# A "matrix" (here, L-matrix) is 8 L-rows.
+#
+# ldmatrix loads four L-matrices from SMEM into RMEM.
+# Each L-matrix lives inside one register of each thread in a warp.
+
+
+class Sm80_ldmatrix_base(InstrInfo):
+    def instance(self: InstrInfo, nmat0: int, nmat1: int):
+        if nmat0 * nmat1 != 4:
+            raise ValueError(f"Need nmat0={nmat0} * nmat1={nmat1} == 4")
+        self.instr_tl = cuda_in_order_instr
+        self.coll_unit = cuda_warp
+        self.access_info["dst"].distributed_coll_units = [4 * cuda_thread, cuda_thread]
+
+    def codegen(self, args):
+        ptx = InlinePtxGen(
+            "ldmatrix.sync.aligned.x4.m8n8.shared.b16 #0#;", volatile=True
+        )
+        registers = [
+            args.dst.index(i // args.nmat1, i % args.nmat1, ptx_data=True)
+            for i in range(4)
+        ]
+        matrix_index = args.exo_wrap_cir(f"threadIdx.x") % 32 / 8
+        matrix0_index = matrix_index / args.nmat1
+        matrix1_index = matrix_index % args.nmat1
+        l_row_index = args.exo_wrap_cir("threadIdx.x % 8")
+        smem_expr = args.src.index_ptr(
+            8 * matrix0_index + l_row_index, 8 * matrix1_index
+        )
+        ptx.add_arg(registers, constraint="=r", log_as=None)
+        ptx.add_arg(smem_expr, constraint="smem", log_as="bits")
+        return ptx.as_c_lines()
+
+
+@instr
+class Sm80_ldmatrix_16bit(Sm80_ldmatrix_base):
+    valid_num_types = {(f16, f16), (bf16, bf16)}
+
+    # fmt: off
+    def behavior(
+            nmat0: size, nmat1: size,  # Substitute constants so nmat0 * nmat1 == 4
+            dst: [R][
+                8,          # 8 L-rows, distributed by 4*cuda_thread
+                4,          # 4 registers per L-row, distributed by cuda_thread
+                nmat0,      # Number of L-matrices in the outer dimension (M or N, usually)
+                nmat1,      # Number of L-matrices in the inner dimenision (K, usually)
+                2]          # 2 f16 values per register
+                @ CudaRmemPacked32,
+            src: [R][8 * nmat0, 8 * nmat1] @ CudaSmemAtomicity16B):
+        # Iterate over L-rows (ldmatrix PTX docs assumes row major)
+        # Distributed by register index and threads (thread pitch 4)
+        for oR in seq(0, nmat0):
+            for oT in seq(0, 8):
+                # "columns"
+                # Distributed by register index, threads (thread pitch 1), bit pack
+                for iR in seq(0, nmat1):
+                    for iT in seq(0, 4):
+                        for iB in seq(0, 2):
+                            dst[oT, iT, oR, iR, iB] = src[8 * oR + oT, 8 * iR + 2 * iT + iB]
+                            # NOTE: the 2 * iT is what makes it impossible currently
+                            # to make this generic between 16-bit and 32-bit types.
+
+
+@instr
+class Sm80_ldmatrix_32bit(Sm80_ldmatrix_base):
+    valid_num_types = {(f32, f32), (i32, i32)}
+
+    # fmt: off
+    def behavior(
+            nmat0: size, nmat1: size,  # Substitute constants so nmat0 * nmat1 == 4
+            dst: [R][
+                8,          # 8 L-rows, distributed by 4*cuda_thread
+                4,          # 4 registers per L-row, distributed by cuda_thread
+                nmat0,      # Number of L-matrices in the outer dimension (M or N, usually)
+                nmat1,      # Number of L-matrices in the inner dimenision (K, usually)
+                1]          # 1 f32 values per register
+                @ CudaRmemPacked32,
+            src: [R][8 * nmat0, 8 * nmat1] @ CudaSmemAtomicity16B):
+        # Iterate over L-rows (ldmatrix PTX docs assumes row major)
+        # Distributed by register index and threads (thread pitch 4)
+        for oR in seq(0, nmat0):
+            for oT in seq(0, 8):
+                # "columns"
+                # Distributed by register index, threads (thread pitch 1), bit pack
+                for iR in seq(0, nmat1):
+                    for iT in seq(0, 4):
+                        for iB in seq(0, 1):
+                            dst[oT, iT, oR, iR, iB] = src[8 * oR + oT, 8 * iR + iT + iB]
+
+
+Sm80_ldmatrix_f32 = Sm80_ldmatrix_32bit.partial(dst=f32, src=f32)
+Sm80_ldmatrix_f16 = Sm80_ldmatrix_16bit.partial(dst=f16, src=f16)
+Sm80_ldmatrix_bf16 = Sm80_ldmatrix_16bit.partial(dst=bf16, src=bf16)
+Sm80_ldmatrix_i32 = Sm80_ldmatrix_32bit.partial(dst=i32, src=i32)
+
+
+__all__.append("Sm80_ldmatrix_16bit")
+__all__.append("Sm80_ldmatrix_32bit")
+__all__.append("Sm80_ldmatrix_f32")
+__all__.append("Sm80_ldmatrix_f16")
+__all__.append("Sm80_ldmatrix_bf16")
+__all__.append("Sm80_ldmatrix_i32")
+
+
+# --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
 # mma.sync.m16n8k? instructions, wrapped as Sm80_mma_m16n8
 # These take A and B operands in CudaRmemPacked32.
 # The C/D operand lives in a special opaque Sm80_RmemMatrixD(16, 8) type.
@@ -330,7 +443,7 @@ Sm80_mma_m16n8k4_s32_s32 = Sm80_mma_m16n8(K_pack=1, D=i32, A=i32, B=i32)
 __all__.append("Sm80_mma_m16n8k4_s32_s32")
 
 
-# The Sm80_RmemMatrixD_m16n8 is an opaque per-warp value.
+# The Sm80_RmemMatrixD_m16n8 is an opaque per-warp tile.
 # Convert to/from per-thread registers or 0 with these instrs.
 # For scheduling, you can use stage_mem and use these
 # to replace the generated load loops.
