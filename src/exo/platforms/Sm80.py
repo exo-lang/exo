@@ -351,24 +351,36 @@ class Sm80_mma_m16n8(InstrInfo):
         (i32, i32, i32),
     }
 
+    # fmt: off
     def behavior(
         K_pack: size,
         # D: opaque tile of 16 x 8
         D: [R][16, 8] @ Sm80_RmemMatrixD_m16n8,
-        # A: [4 threads in 32, 1 thread in 4, 2 registers, bit packing]
-        A: [R][8, 4, 2, K_pack] @ CudaRmemPacked32,
-        # B: [4 threads in 32, 1 thread in 4, bit packing]
-        B: [R][8, 4, K_pack] @ CudaRmemPacked32,
+        A: [R][
+            8,       # M-inner: warp, thread pitch 4
+            4,       # K-middle: 4 threads, thread pitch 1
+            2,       # M-outer: 2 registers
+            2,       # K-outer: 2 registers
+            K_pack,  # K inner: 1-f32 or 2-f16 packed into a register
+        ] @ CudaRmemPacked32,
+        B: [R][
+            8,       # N: warp, thread pitch 4
+            4,       # K-middle: 4 threads, thread pitch 1
+            2,       # K-outer: 2 registers
+            K_pack,  # K-inner: 1-f32 or 2-f16 packed into a register
+        ] @ CudaRmemPacked32,
     ):
         for m_reg in seq(0, 2):
             for m_thread in seq(0, 8):
                 for n_thread in seq(0, 8):
-                    for k_thread in seq(0, 4):
-                        for k_pack in seq(0, K_pack):
-                            D[m_reg * 8 + m_thread, n_thread] += (
-                                A[m_thread, k_thread, m_reg, k_pack]
-                                * B[n_thread, k_thread, k_pack]
-                            )
+                    for k_reg in seq(0, 2):
+                        for k_thread in seq(0, 4):
+                            for k_pack in seq(0, K_pack):
+                                D[m_reg * 8 + m_thread, n_thread] += (
+                                    A[m_thread, k_thread, m_reg, k_reg, k_pack]
+                                    * B[n_thread, k_thread, k_reg, k_pack]
+                                )
+    # fmt: on
 
     def instance(self: InstrInfo, K_pack: int):
         Dtype: ScalarInfo = self.access_info["D"].scalar_info
@@ -391,7 +403,7 @@ class Sm80_mma_m16n8(InstrInfo):
         Dtype = args.D.get_scalar_info()
         Atype = args.A.get_scalar_info()
         Btype = args.B.get_scalar_info()
-        K = 4 * args.K_pack
+        K = 8 * args.K_pack
 
         Dt = CD_ptx_names[Dtype]
         At = AB_ptx_names[Atype]
@@ -409,8 +421,10 @@ class Sm80_mma_m16n8(InstrInfo):
         # A vector of registers, always force passed as int32_t
         ptx.add_arg(
             [
-                f"*reinterpret_cast<const int32_t*>({args.A.index_ptr(0, ptx_data=True)})",
-                f"*reinterpret_cast<const int32_t*>({args.A.index_ptr(1, ptx_data=True)})",
+                f"*reinterpret_cast<const int32_t*>({args.A.index_ptr(0, 0, ptx_data=True)})",
+                f"*reinterpret_cast<const int32_t*>({args.A.index_ptr(1, 0, ptx_data=True)})",
+                f"*reinterpret_cast<const int32_t*>({args.A.index_ptr(0, 1, ptx_data=True)})",
+                f"*reinterpret_cast<const int32_t*>({args.A.index_ptr(1, 1, ptx_data=True)})",
             ],
             constraint="r",
             log_as=None,
@@ -418,7 +432,8 @@ class Sm80_mma_m16n8(InstrInfo):
         # B vector of registers, always force passed as int32_t
         ptx.add_arg(
             [
-                f"*reinterpret_cast<const int32_t*>({args.B.index_ptr(ptx_data=True)})",
+                f"*reinterpret_cast<const int32_t*>({args.B.index_ptr(0, ptx_data=True)})",
+                f"*reinterpret_cast<const int32_t*>({args.B.index_ptr(1, ptx_data=True)})",
             ],
             constraint="r",
             log_as=None,
@@ -431,16 +446,16 @@ class Sm80_mma_m16n8(InstrInfo):
 
 
 __all__.append("Sm80_mma_m16n8")
-Sm80_mma_m16n8k4_f32_tf32 = Sm80_mma_m16n8(K_pack=1, D=f32, A=f32, B=f32)
-__all__.append("Sm80_mma_m16n8k4_f32_tf32")
-Sm80_mma_m16n8k8_f32_bf16 = Sm80_mma_m16n8(K_pack=2, D=f32, A=bf16, B=bf16)
-__all__.append("Sm80_mma_m16n8k8_f32_bf16")
-Sm80_mma_m16n8k8_f32_f16 = Sm80_mma_m16n8(K_pack=2, D=f32, A=f16, B=f16)
-__all__.append("Sm80_mma_m16n8k8_f32_f16")
-Sm80_mma_m16n8k8_f16_f16 = Sm80_mma_m16n8(K_pack=2, D=f16, A=f16, B=f16)
-__all__.append("Sm80_mma_m16n8k8_f16_f16")
-Sm80_mma_m16n8k4_s32_s32 = Sm80_mma_m16n8(K_pack=1, D=i32, A=i32, B=i32)
-__all__.append("Sm80_mma_m16n8k4_s32_s32")
+Sm80_mma_m16n8k8_f32_tf32 = Sm80_mma_m16n8(K_pack=1, D=f32, A=f32, B=f32)
+__all__.append("Sm80_mma_m16n8k8_f32_tf32")
+Sm80_mma_m16n8k16_f32_bf16 = Sm80_mma_m16n8(K_pack=2, D=f32, A=bf16, B=bf16)
+__all__.append("Sm80_mma_m16n8k16_f32_bf16")
+Sm80_mma_m16n8k16_f32_f16 = Sm80_mma_m16n8(K_pack=2, D=f32, A=f16, B=f16)
+__all__.append("Sm80_mma_m16n8k16_f32_f16")
+Sm80_mma_m16n8k16_f16_f16 = Sm80_mma_m16n8(K_pack=2, D=f16, A=f16, B=f16)
+__all__.append("Sm80_mma_m16n8k16_f16_f16")
+Sm80_mma_m16n8k8_s32_s32 = Sm80_mma_m16n8(K_pack=1, D=i32, A=i32, B=i32)
+__all__.append("Sm80_mma_m16n8k8_s32_s32")
 
 
 # The Sm80_RmemMatrixD_m16n8 is an opaque per-warp tile.
