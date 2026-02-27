@@ -161,17 +161,36 @@ class Sm80_ldmatrix_base(InstrInfo):
         ptx = InlinePtxGen(
             "ldmatrix.sync.aligned.x4.m8n8.shared.b16 #0#;", volatile=True
         )
-        registers = [
-            args.dst.index(i // args.nmat1, i % args.nmat1, ptx_data=True)
-            for i in range(4)
-        ]
-        matrix_index = args.exo_wrap_cir(f"threadIdx.x") % 32 / 8
-        matrix0_index = matrix_index / args.nmat1
-        matrix1_index = matrix_index % args.nmat1
+
+        # TODO test these paths
         l_row_index = args.exo_wrap_cir("threadIdx.x % 8")
-        smem_expr = args.src.index_ptr(
-            8 * matrix0_index + l_row_index, 8 * matrix1_index
-        )
+        if args.nmat1 == 1:
+            smem_expr = args.src.index_ptr(args.exo_wrap_cir("threadIdx.x") % 32, 0)
+            registers = [args.dst.index(r, 0, ptx_data=True) for r in range(4)]
+        elif args.nmat0 == 1:
+            matrix1_index = args.exo_wrap_cir("threadIdx.x") % 32 / 8
+            smem_expr = args.src.index_ptr(l_row_index, 8 * matrix1_index)
+            registers = [args.dst.index(0, r, ptx_data=True) for r in range(4)]
+        else:
+            # The worst path.
+            # Note the registers are in transposed order.
+            # This is to match how MMA expects the A registers to be passed.
+            # If we don't do this, ptxas will have to swizzle groups of 4
+            # registers to adapt our data to what mma expects.
+            assert args.nmat0 == 2 and args.nmat1 == 2
+            matrix0_index = args.exo_wrap_cir("threadIdx.x") / 8 % 2
+            matrix1_index = args.exo_wrap_cir("threadIdx.x") / 16 % 2
+            smem_expr = args.src.index_ptr(
+                l_row_index + 8 * matrix0_index,
+                8 * matrix1_index,
+            )
+            registers = [
+                args.dst.index(0, 0, ptx_data=True),
+                args.dst.index(1, 0, ptx_data=True),
+                args.dst.index(0, 1, ptx_data=True),
+                args.dst.index(1, 1, ptx_data=True),
+            ]
+
         ptx.add_arg(registers, constraint="=r", log_as=None)
         ptx.add_arg(smem_expr, constraint="smem", log_as="bits")
         return ptx.as_c_lines()
