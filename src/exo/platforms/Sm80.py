@@ -150,12 +150,15 @@ __all__.append("Sm80_cp_async_f32")
 
 
 class Sm80_ldmatrix_base(InstrInfo):
-    def instance(self: InstrInfo, nmat0: int, nmat1: int):
+    def instance(self: InstrInfo, nmat0: int, nmat1: int, *, operand=None):
         if nmat0 * nmat1 != 4:
             raise ValueError(f"Need nmat0={nmat0} * nmat1={nmat1} == 4")
         self.instr_tl = cuda_in_order_instr
         self.coll_unit = cuda_warp
         self.access_info["dst"].distributed_coll_units = [4 * cuda_thread, cuda_thread]
+        if nmat0 != 1 and nmat1 != 1:
+            # fmt: off
+            assert operand in ("A", "B"), "Must specify operand A or B for register packing purposes"
 
     def codegen(self, args):
         ptx = InlinePtxGen(
@@ -173,24 +176,26 @@ class Sm80_ldmatrix_base(InstrInfo):
             registers = [args.dst.index(0, r, ptx_data=True) for r in range(4)]
         else:
             # The worst path.
-            # Note the registers are in transposed order.
+            # The registers are in transposed order for operand A.
             # This is to match how MMA expects the A registers to be passed.
             # If we don't do this, ptxas will have to swizzle groups of 4
             # registers to adapt our data to what mma expects.
             assert args.nmat0 == 2 and args.nmat1 == 2
-            matrix0_index = args.exo_wrap_cir("threadIdx.x") / 8 % 2
-            matrix1_index = args.exo_wrap_cir("threadIdx.x") / 16 % 2
+            registers = [
+                args.dst.index(0, 0, ptx_data=True),
+                args.dst.index(0, 1, ptx_data=True),
+                args.dst.index(1, 0, ptx_data=True),
+                args.dst.index(1, 1, ptx_data=True),
+            ]
+            matrix0_index = args.exo_wrap_cir("threadIdx.x") / 16 % 2
+            matrix1_index = args.exo_wrap_cir("threadIdx.x") / 8 % 2
+            if args.operand == "A":
+                registers[1], registers[2] = registers[2], registers[1]
+                matrix0_index, matrix1_index = matrix1_index, matrix0_index
             smem_expr = args.src.index_ptr(
                 l_row_index + 8 * matrix0_index,
                 8 * matrix1_index,
             )
-            registers = [
-                args.dst.index(0, 0, ptx_data=True),
-                args.dst.index(1, 0, ptx_data=True),
-                args.dst.index(0, 1, ptx_data=True),
-                args.dst.index(1, 1, ptx_data=True),
-            ]
-
         ptx.add_arg(registers, constraint="=r", log_as=None)
         ptx.add_arg(smem_expr, constraint="smem", log_as="bits")
         return ptx.as_c_lines()
