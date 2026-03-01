@@ -83,6 +83,7 @@ def Sm90_SmemSwizzled(swizzle):
         raise ValueError(f"swizzle must be 32, 64, or 128 bytes, not {swizzle}")
 
     swizzle_bits = 1 if swizzle == 128 else 2 if swizzle == 64 else 3
+    mask = 0x70 if swizzle == 128 else 0x30 if swizzle == 64 else 0x10
 
     @window_indexer(SwizzledIndexer)
     class SwizzledImpl(CudaSmemAtomicity16B):
@@ -97,7 +98,9 @@ struct exo_Sm90_SW{swizzle} {{
     static EXO_CUDA_INLINE exo_Sm90_SW{swizzle}<T>* swizzle_pointer(uintptr_t addr)
     {{
         // Adapted from ThunderKittens appendix which actually documents CUDA correctly.
-        addr = (addr ^ (((addr % {swizzle * 8}) >> 7) << 4));
+        uint32_t shr = uint32_t(addr) >> 3;
+        const uint32_t mask = {mask};
+        addr = addr ^ (shr & mask);
         return reinterpret_cast<exo_Sm90_SW{swizzle}*>(addr);
     }}
 
