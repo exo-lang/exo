@@ -1917,8 +1917,10 @@ class MemCodeBuilder(object):
 
     def register_memwin(self, mem: Type[MemWin], typ: LoopIR.type):
         glob = mem.global_()
-        mem_name = mem.mangled_name()
         if isinstance(glob, str):
+            # Don't call mem.mangled_name() unless required,
+            # so we don't fail needlessly for mangling limitations.
+            mem_name = mem.mangled_name()
             glob = MemGlobalC(mem_name, glob)
         self._add_global(mem, glob)
         if typ_glob := typ.scalar_mem_global():

@@ -8,7 +8,15 @@ from PIL import Image
 from random import Random
 
 from exo import proc, instr, Procedure, DRAM, compile_procs_to_strings, InstrInfo
-from exo.libs.memories import MDRAM, MemGenError, StaticMemory, DRAM_STACK, MemGlobalC
+from exo.libs.memories import (
+    MDRAM,
+    MemGenError,
+    StaticMemory,
+    DRAM_STACK,
+    MemGlobalC,
+    memwin_template,
+    Memory,
+)
 from exo.libs.externs import *
 from exo.stdlib.scheduling import *
 from exo.platforms.cuda import *
@@ -1004,3 +1012,18 @@ def test_name_collision_memory():
 
     with pytest.raises(Exception, match="different code with same name"):
         compile_procs_to_strings([foo], "foo.h")
+
+
+@memwin_template
+def MemWinMangleTester(a, b, c):
+    class TestMem(Memory):
+        pass
+
+    return TestMem
+
+
+def test_memwin_mangled_name():
+    mem = MemWinMangleTester(-10, (1, (2, 3, 4), False, True), (0, -20))
+    name = mem.mangled_name()
+    # Negative 10, 4-tuple of (1, 3-tuple of (2, 3, 4), 0, 1), 2-tuple of (0, negative 20)
+    assert name == "MemWinMangleTester_n10_t4_1_t3_2_3_4_0_1_t2_0_n20"

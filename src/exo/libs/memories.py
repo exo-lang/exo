@@ -6,6 +6,7 @@ from exo.core.memory import (
     generate_offset,
     MemGlobalC,
     MemIncludeC,
+    memwin_template,
 )
 
 

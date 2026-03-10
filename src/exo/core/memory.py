@@ -209,11 +209,25 @@ class MemWin(ABC):
         """Unique C identifier for (MemWin, template parameters) combination"""
         fragments = [base_name or cls.base_name()]
         mangle_parameters = cls.memwin_template_parameters
+
+        def append_fragments(p):
+            if isinstance(p, int):
+                if p < 0:
+                    fragments.append("n" + str(-p))
+                else:
+                    fragments.append(str(int(p)))  # convert bool to int
+            else:
+                try:
+                    tup = tuple(p)
+                except TypeError:
+                    # fmt: off
+                    assert 0, f"{fragments[0]}.mangled_name supports only int or tuple of ... of tuple of int, not {type(p)}"
+                fragments.append(f"t{len(tup)}")
+                for p in tup:
+                    append_fragments(p)
+
         for p in mangle_parameters:
-            assert isinstance(
-                p, int
-            ), f"{cls.name()}: only support mangled names for ints, not {p}"
-            fragments.append(f"{p}" if p >= 0 else "n{-p}")
+            append_fragments(p)
         return "_".join(fragments)
 
     @classmethod
