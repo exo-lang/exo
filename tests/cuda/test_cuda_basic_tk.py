@@ -4,10 +4,35 @@ import pytest
 import numpy as np
 
 from exo import *
+from exo.scalars import *
 from exo.stdlib.scheduling import *
 from exo.platforms.cuda import *
 from exo.platforms.cuda_tk import *
 from exo.platforms.Sm90 import *
+
+
+def test_tk_load_rs_advice_simple():
+    size0, size1 = 160, 64
+    advice = get_tk_load_rs_advice(size0, size1, dst=f16, src=f32, swizzle=128)
+    assert f16.bits == 16
+    assert f32.bits == 32
+    assert advice.rmem == CudaTkWarpTile(size0, size1, "row")
+    assert advice.smem == Sm90_SmemSwizzled(128)
+    assert advice.swizzle_elements == 32
+    # fmt: off
+    assert advice.instr == tk_load_rs_inner_cols_32(outer_cols=size1 // 32, rows=size0, dst=f16, src=f32)
+
+
+def test_tk_store_rs_advice_simple():
+    size0, size1 = 160, 64
+    advice = get_tk_store_rs_advice(size0, size1, dst=f16, src=f32, swizzle=32)
+    assert f16.bits == 16
+    assert f32.bits == 32
+    assert advice.rmem == CudaTkWarpTile(size0, size1, "row")
+    assert advice.smem == Sm90_SmemSwizzled(32)
+    assert advice.swizzle_elements == 16
+    # fmt: off
+    assert advice.instr == tk_store_rs_inner_cols_16(outer_cols=size1 // 16, rows=size0, dst=f16, src=f32)
 
 
 def test_tk_load_rs_simple(compiler_Sm80):

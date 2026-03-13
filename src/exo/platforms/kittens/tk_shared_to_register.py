@@ -5,18 +5,56 @@
 ######################################################################
 from __future__ import annotations
 from exo.API import instr
+from exo.scalars import ScalarInfo
 
 from .tk_shared_to_register_impl import (
     make_tk_load_rs_base,
     make_tk_store_rs_base,
-    get_tk_load_rs_instr_impl,
-    get_tk_store_rs_instr_impl,
+    get_tk_rs_instr_advice_impl,
 )
 
 tk_load_rs_instr_dict = {}
 tk_store_rs_instr_dict = {}
 
 __all__ = []
+
+def get_tk_load_rs_advice(
+    size0: int,
+    size1: int, *,
+    dst: ScalarInfo,
+    src: ScalarInfo,
+    swizzle: int
+):
+    return get_tk_rs_instr_advice_impl(
+        size0,
+        size1,
+        dst,
+        src,
+        swizzle,
+        tk_load_rs_instr_dict,
+        False,
+    )
+
+def get_tk_store_rs_advice(
+    size0: int,
+    size1: int, *,
+    dst: ScalarInfo,
+    src: ScalarInfo,
+    swizzle: int
+):
+    return get_tk_rs_instr_advice_impl(
+        size0,
+        size1,
+        dst,
+        src,
+        swizzle,
+        tk_store_rs_instr_dict,
+        True,
+    )
+
+__all__.append("get_tk_load_rs_advice")
+__all__.append("get_tk_store_rs_advice")
+
 
 
 ######################################################################

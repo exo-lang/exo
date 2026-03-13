@@ -17,6 +17,7 @@ from .core.instr_class import (
     InstrInfo,
     ProcCallGen,
     InstrTemplate,
+    PartialInstrTemplate,
     old_style_instr_info,
     InstrArgs,
 )
