@@ -10,7 +10,81 @@ from exo.platforms.cuda_tk import *
 from exo.platforms.Sm90 import *
 
 
-def test_tk_load_sg(compiler_Sm80):
+def test_tk_load_rs_simple(compiler_Sm80):
+    R, C = 192, 128
+
+    @proc
+    def p(h_dst: f32[R, C] @ DRAM, h_src: f32[R, C] @ DRAM):
+        d_dst: f32[R, C] @ CudaGmemLinear
+        d_src: f32[R, C] @ CudaGmemLinear
+        cudaMemcpyAsync_htod_2f32(R, C, d_src[:, :], h_src[:, :])
+
+        with CudaDeviceFunction(blockDim=128):
+            for task in cuda_tasks(0, 1):
+                smem: f32[C / 32, R, 32] @ Sm90_SmemSwizzled(128)
+                # Manually load GMEM tile to SMEM
+                for co in seq(0, C / 32):
+                    for r in seq(0, R):
+                        for ci in cuda_threads(0, 32):
+                            smem[co, r, ci] = d_src[r, co * 32 + ci]
+                # Overwrite one entry to 137
+                Fence(cuda_in_order, cuda_in_order)
+                for tid in cuda_threads(0, 1, unit=cuda_thread):
+                    smem[1, 3, 7] = 137
+                # Copy SMEM tile to RMEM, then back to SMEM.
+                # Conversion to bf16 will truncate some bits!
+                Fence(cuda_in_order, cuda_in_order)
+                for w in cuda_threads(0, 4, unit=cuda_warp):
+                    tile: bf16[R / 4, C] @ CudaTkWarpTile(R // 4, C, "row")
+                    tk_load_rs_inner_cols_32(
+                        tile[:, :],
+                        smem[:, R / 4 * w : R / 4 * w + R / 4, :],
+                        dst=bf16,
+                        src=f32,
+                        rows=R // 4,
+                        outer_cols=C // 32,
+                    )
+                    Fence(cuda_in_order, cuda_in_order)
+                    tk_store_rs_inner_cols_32(
+                        smem[:, R / 4 * w : R / 4 * w + R / 4, :],
+                        tile[:, :],
+                        dst=f32,
+                        src=bf16,
+                        rows=R // 4,
+                        outer_cols=C // 32,
+                    )
+                Fence(cuda_in_order, cuda_in_order)
+                # Manually store SMEM tile to GMEM
+                for co in seq(0, C / 32):
+                    for r in seq(0, R):
+                        for ci in cuda_threads(0, 32):
+                            d_dst[r, co * 32 + ci] = smem[co, r, ci]
+                Fence(cuda_in_order, cuda_in_order)
+
+        cudaMemcpyAsync_dtoh_2f32(R, C, h_dst[:, :], d_dst[:, :])
+
+    p = simplify(p)
+    lib = compiler_Sm80.nvcc_compile(p)
+    # p.sync_check()
+
+    h_dst = np.ndarray(shape=(R, C), dtype=np.float32)
+    h_ref = np.ndarray(shape=(R, C), dtype=np.float32)
+    h_src = np.ndarray(shape=(R, C), dtype=np.float32)
+
+    for r in range(0, R):
+        for c in range(0, C):
+            test_bits = ((r * 3) + (c * 5)) & 127
+            h_src[r, c] = 513 + test_bits * 4
+            h_ref[r, c] = 512 + test_bits * 4  # Bit 0 should be truncated f32->bf16
+            if r == 3 and c == 32 + 7:
+                h_ref[r, c] = 137
+
+    lib(None, h_dst, h_src)
+
+    assert np.array_equal(h_dst, h_ref)
+
+
+def test_tk_load_sg_simple(compiler_Sm80):
     @proc
     def p(h_dst: f32[192, 128] @ DRAM, h_src: f32[192, 128] @ DRAM):
         d_dst: f32[192, 128] @ CudaGmemLinear
@@ -53,7 +127,7 @@ def test_tk_load_sg(compiler_Sm80):
     assert np.array_equal(h_src, h_dst)
 
 
-def test_tk_store_sg(compiler_Sm80):
+def test_tk_store_sg_simple(compiler_Sm80):
     R = 160
     C = 32
 

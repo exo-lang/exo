@@ -8,6 +8,9 @@ from .tk_types import *
 from ..Sm90 import Sm90_SmemSwizzled, Sm90_SmemSwizzled_from_smem_box
 
 
+__all__ = ["tk_load_sg", "tk_store_sg"]
+
+
 @instr
 class tk_load_sg(InstrInfo):
     """Wrapper around ThunderKittens SMEM-from-GMEM load, using 16-byte aligned copies.

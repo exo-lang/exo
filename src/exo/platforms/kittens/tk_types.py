@@ -1,6 +1,14 @@
 from ..cuda import *
 
-from exo.API import instr
+from exo.API import (
+    instr,
+    WindowFeatures,
+    WindowEncoder,
+    WindowIndexer,
+    WindowIndexerResult,
+    UtilInjector,
+    window_indexer,
+)
 from exo.scalars import ScalarInfo, f16, bf16, f32
 from exo.core.memory import memwin_template
 
@@ -32,8 +40,24 @@ cuda_tk_tile_layout_names = ["all", "row", "col"]
 cuda_tk_vec_layout_names = ["all", "align", "ortho", "naive"]
 
 
+cuda_tk_valid_num_types_all_pairs = {
+    (dst, src) for dst in cuda_tk_typename_table for src in cuda_tk_typename_table
+}
+
+
 __all__.append("cuda_tk_tile_layout_names")
 __all__.append("cuda_tk_vec_layout_names")
+__all__.append("cuda_tk_valid_num_types_all_pairs")
+
+
+class _CudaTkWarpIndexer(WindowIndexer):
+    def index(self, utils: UtilInjector, features: WindowFeatures):
+        utils.add_cu_include("kittens.cuh")
+        c_expr = features.get_dataptr()
+        # All non-packed indices resolve to multidimensional array indexing.
+        for i in range(features.n_array_dims()):
+            c_expr = c_expr[features.get_array_offset(i)]
+        return self.pack_result(c_expr, False)
 
 
 @memwin_template
@@ -56,12 +80,9 @@ def CudaTkWarpTile(r, c, layout):
     is the only type ThunderKittens supports both A and D for.
     (f32 is only supported for D; tf32 operand support is omitted).
 
-    NOTE: due to exo.MemGlobalC limitations, we rely on all instrs that
-    use this to include kittens.cuh for us.
-
     """
-    assert r % 16 == 0
-    assert c % 16 == 0
+    assert r % 16 == 0, f"CudaTkWarpTile requires r={r} to be divisible by 16"
+    assert c % 16 == 0, f"CudaTkWarpTile requires c={c} to be divisible by 16"
     assert layout in cuda_tk_tile_layout_names
 
     if layout == "all":
@@ -69,6 +90,7 @@ def CudaTkWarpTile(r, c, layout):
     else:
         base = CudaTkWarpTile(r, c, "all")
 
+    @window_indexer(_CudaTkWarpIndexer)
     class Tile(base):
         @classmethod
         def alloc(cls, new_name, prim_type, shape, srcinfo):
@@ -79,8 +101,6 @@ def CudaTkWarpTile(r, c, layout):
                 raise TypeError(
                     f"CudaTkWarpTile currently does not support {scalar_info}"
                 )
-            assert shape[-2] == r
-            assert shape[-1] == c
             array_dims = "".join(f"[{n}]" for n in shape[:-2])
             # fmt: off
             return f"::kittens::rt_{suffix}<{r}, {c}, ::kittens::ducks::rt_layout::{layout}> {new_name}{array_dims};"
@@ -105,7 +125,7 @@ def CudaTkWarpTile(r, c, layout):
         def native_unit(cls):
             return cuda_warp
 
-        qual_tl_dict = timelines.cuda_rmem_qual_tl_dict
+        qual_tl_dict = cuda_rmem_qual_tl_dict
 
     return Tile
 
@@ -126,7 +146,9 @@ def CudaTkWarpVec(length, layout):
     use this to include kittens.cuh for us.
 
     """
-    assert length % 16 == 0
+    # fmt: off
+    assert length % 16 == 0, f"CudaTkWarpVec requires length={length} to be divisible by 16"
+    # fmt: on
     assert layout in cuda_tk_vec_layout_names
 
     if layout == "all":
@@ -134,6 +156,7 @@ def CudaTkWarpVec(length, layout):
     else:
         base = CudaTkWarpVec(length, "all")
 
+    @window_indexer(_CudaTkWarpIndexer)
     class Vec(base):
         @classmethod
         def alloc(cls, new_name, prim_type, shape, srcinfo):
@@ -170,7 +193,7 @@ def CudaTkWarpVec(length, layout):
         def native_unit(cls):
             return cuda_warp
 
-        qual_tl_dict = timelines.cuda_rmem_qual_tl_dict
+        qual_tl_dict = cuda_rmem_qual_tl_dict
 
     return Vec
 

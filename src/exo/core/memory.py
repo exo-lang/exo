@@ -216,6 +216,10 @@ class MemWin(ABC):
                     fragments.append("n" + str(-p))
                 else:
                     fragments.append(str(int(p)))  # convert bool to int
+            elif isinstance(p, str):
+                # fmt: off
+                assert p.isalnum(), f"{fragments[0]}.mangled_name cannot manglge {p!r}"
+                fragments.append(f"S{p}")
             else:
                 try:
                     tup = tuple(p)
@@ -223,8 +227,10 @@ class MemWin(ABC):
                     # fmt: off
                     assert 0, f"{fragments[0]}.mangled_name supports only int or tuple of ... of tuple of int, not {type(p)}"
                 fragments.append(f"t{len(tup)}")
-                for p in tup:
-                    append_fragments(p)
+                for p0 in tup:
+                    # fmt: off
+                    assert type(p) != type(p0), f"{fragments[0]}.mangled_name supports only int or tuple of ... of tuple of int, not {type(p)}"
+                    append_fragments(p0)
 
         for p in mangle_parameters:
             append_fragments(p)
