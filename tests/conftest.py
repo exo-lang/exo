@@ -395,6 +395,12 @@ class Compiler:
                 raise ValueError("Define EXO_NVCC environment variable")
             else:
                 pytest.skip("EXO_NVCC environment variable not defined")
+        else:
+            kittens = os.getenv("EXO_KITTENS", default=None)
+            if kittens is None:
+                raise ValueError(
+                    "Define EXO_KITTENS environment variable to ThunderKittens include dir"
+                )
         artifact_path = str(self.workdir / (self.basename + ".so"))
         args = [
             nvcc,
@@ -417,6 +423,13 @@ class Compiler:
         if ccbin := os.getenv("EXO_CCBIN", default=None):
             args.append("-ccbin")
             args.append(ccbin)
+        args.append("--extended-lambda")  # ThunderKittens needs this.
+        args.append("-I")
+        args.append(kittens)
+        if str(sm) in ("90", "90a"):
+            args.append("-DKITTENS_HOPPER=1")
+        if str(sm) in ("100a", "101a", "100", "101", "100f", "120"):
+            args.append("-DKITTENS_BLACKWELL=1")
         if include_dir is not None:
             args.append("-I")
             args.append(include_dir)

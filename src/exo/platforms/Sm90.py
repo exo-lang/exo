@@ -67,6 +67,10 @@ from ..spork.coll_algebra import (
     cuda_warp_in_cluster,
     cuda_warp_in_cluster_strided,
 )
+from .kittens.tk_types import cuda_tk_type_suffix_table, CudaTkWarpTile
+
+
+__all__.append("CudaTkWarpTile")
 
 
 # --------------------------------------------------------------------------- #
@@ -87,6 +91,10 @@ def Sm90_SmemSwizzled(swizzle):
 
     @window_indexer(SwizzledIndexer)
     class SwizzledImpl(CudaSmemAtomicity16B):
+        @classmethod
+        def get_swizzle_bytes(cls):
+            return swizzle
+
         @classmethod
         def global_(cls):
             return f"""
@@ -109,6 +117,11 @@ struct exo_Sm90_SW{swizzle} {{
         return {swizzle_bits};
     }}
 
+    static __host__ __device__ constexpr int get_swizzle_bytes()
+    {{
+        return {swizzle};
+    }}
+
     EXO_CUDA_INLINE const T& swizzle_get() const
     {{
         return swizzle_pointer(reinterpret_cast<uintptr_t>(&data))->data;
@@ -119,6 +132,41 @@ struct exo_Sm90_SW{swizzle} {{
         return swizzle_pointer(reinterpret_cast<uintptr_t>(&data))->data;
     }}
 }};
+
+template <typename T, int major_size, int minor_size>
+struct exo_Sm90_SW{swizzle}_tiled: exo_Sm90_SW{swizzle}<T>
+{{
+    static __host__ __device__ constexpr int get_major_size()
+    {{
+        return major_size;
+    }}
+
+    static __host__ __device__ constexpr int get_minor_size()
+    {{
+        return minor_size;
+    }}
+
+    template <int Wr, int Wc, template <int, int, bool, int> class st_typed, typename IntT>
+    EXO_CUDA_INLINE auto as_tk_subtile(IntT row_offset, IntT col_offset) const
+    {{
+        static_assert(
+            minor_size * sizeof(T) == {swizzle},
+            "Exo-GPU didn't assert strides properly."
+            " This is needed to match kittens swizzle automation"
+        );
+        using st_t = st_typed<major_size, minor_size, true, 0>;
+        st_t* p_tile = const_cast<st_t*>(reinterpret_cast<const st_t*>(this));
+        // Note, subtile implicitly multiplies (r, c) by the subtile size.
+        // We have to work around this!
+        // Also, can't mention ::kittens here, because it may not be included.
+        // Also also, explicit swizzle is broken in this function.
+        auto subtile = p_tile->template subtile<Wr, Wc>(int2(0, 0));
+        subtile.row_offset = static_cast<int>(row_offset);
+        subtile.col_offset = static_cast<int>(col_offset);
+        return subtile;
+    }}
+}};
+
 #endif
 """
 
@@ -136,7 +184,14 @@ struct exo_Sm90_SW{swizzle} {{
 
         @classmethod
         def smem_config(cls, inputs: SmemConfigInputs) -> SmemConfig:
-            ctype = f"exo_Sm90_SW{swizzle}<{inputs.ctype()}>"
+            shape = inputs.const_shape
+            if len(shape) >= 2:
+                r = shape[-2]
+                c = shape[-1]
+            else:
+                r = 1
+                c = 1
+            ctype = f"exo_Sm90_SW{swizzle}_tiled<{inputs.ctype()}, {r}, {c}>"
             return SmemConfig(
                 f"{ctype} (&)[]", swizzle
             )  # 32, 64, or 128 byte alignment.
@@ -159,35 +214,65 @@ def Sm90_get_mma_smem(swizzle):
         return Sm90_SmemSwizzled(swizzle)
 
 
+def Sm90_SmemSwizzled_from_smem_box(scalar_info: ScalarInfo, smem_box: Tuple[int, ...]):
+    scalar_info = ScalarInfo(scalar_info)
+    swizzle = smem_box[-1] * scalar_info.bits // 8
+    if swizzle not in (32, 64, 128):
+        raise ValueError(
+            f"Invalid smem_box {smem_box}; "
+            f"last dimension must lead to swizzle of "
+            f"32, 64, or 128; not {swizzle}"
+        )
+    return Sm90_SmemSwizzled(swizzle)
+
+
 __all__.append("Sm90_SmemSwizzled")
 __all__.append("Sm90_get_mma_smem")
-
-
-window_struct_template = """\
-struct {sname} {{
-    {const_keyword}exo_Sm90_SW{swizzle}<{ctype}>* data;
-    int32_t strides[{n_dims}];
-}};"""
+__all__.append("Sm90_SmemSwizzled_from_smem_box")
 
 
 class SwizzledIndexer(WindowIndexer):
     __slots__ = []
 
-    def index(self, utils, features: WindowFeatures, for_wgmma=False):
+    def index(
+        self, utils, features: WindowFeatures, for_wgmma=False, as_tk_subtile=None
+    ):
         ctype = self.ctype()
         mem = features.get_mem()
         swizzle = mem.get_swizzle()
 
+        n_dims = features.n_array_dims()
+        if as_tk_subtile:
+            assert len(as_tk_subtile) == 2
+            subtile_rows, subtile_cols = as_tk_subtile
+            assert isinstance(subtile_rows, int)
+            assert isinstance(subtile_cols, int)
+            assert n_dims >= 2
+            assert features.get_array_interval_size(n_dims - 2) is not None
+            assert features.get_array_interval_size(n_dims - 1) is not None
+            subtile_r_idx = features.get_array_offset(n_dims - 2)
+            subtile_c_idx = features.get_array_offset(n_dims - 1)
+            n_strided_dims = n_dims - 2
+        else:
+            n_strided_dims = n_dims
+
         dataptr = features.get_dataptr()
         array_offset = 0
-        for i in range(features.n_array_dims()):
+        for i in range(n_strided_dims):
             dim_offset = features.get_array_offset(i)
             dim_stride = features.get_array_stride_as_packed(i)
             array_offset += dim_offset * dim_stride
 
         assert self.element_bits() >= 8, "TODO implement float4 etc."
 
-        if for_wgmma:
+        if as_tk_subtile:
+            suffix = cuda_tk_type_suffix_table[self.scalar_info]
+            code = (
+                f"{dataptr}[{array_offset}].template as_tk_subtile"
+                f"<{subtile_rows}, {subtile_cols}, ::kittens::st_{suffix}>"
+                f"({subtile_r_idx}, {subtile_c_idx})"
+            )
+        elif for_wgmma:
             # This passes a non-swizzled pointer to wgmma or TMA.
             code = f"{dataptr}[{array_offset}]"
         else:
@@ -644,17 +729,14 @@ exo_Sm90_tma_to_gmem{_reduce}(const CUtensorMap& tensorMap, WindowOffsets window
 
 
 class copy_tensor_to_smem_impl(InstrInfo):
-    def instance_impl(self, smem_box, swizzled, element_bits):
+    def instance_impl(self, smem_box, swizzled):
+        scalar_info = self.access_info["dst"].scalar_info
         rank = len(smem_box)
         assert rank > 0
         if swizzled:
-            swizzle = smem_box[-1] * element_bits // 8
-            if swizzle not in (32, 64, 128):
-                raise ValueError(
-                    f"Invalid smem_box {smem_box}; "
-                    f"last dimension must lead to swizzle of "
-                    f"32, 64, or 128; not {swizzle}"
-                )
+            swizzle = Sm90_SmemSwizzled_from_smem_box(
+                scalar_info, smem_box
+            ).get_swizzle_bytes()
         else:
             swizzle = 0
         self.access_info["dst"].mem = Sm90_get_mma_smem(swizzle)
@@ -668,7 +750,7 @@ class copy_tensor_to_smem_impl(InstrInfo):
         self.barrier_mechanism = CudaMbarrier
         self.smem_box = smem_box
         self.swizzle = swizzle
-        self.element_bits = element_bits
+        self.element_bits = scalar_info.bits
 
     def codegen(self, args: InstrArgs):
         box = self.smem_box
@@ -689,17 +771,14 @@ class copy_tensor_to_smem_impl(InstrInfo):
 
 
 class copy_tensor_to_gmem_impl(InstrInfo):
-    def instance_impl(self, smem_box, swizzled, element_bits, is_reduce):
+    def instance_impl(self, smem_box, swizzled, is_reduce):
+        scalar_info = self.access_info["dst"].scalar_info
         rank = len(smem_box)
         assert rank > 0
         if swizzled:
-            swizzle = smem_box[-1] * element_bits // 8
-            if swizzle not in (32, 64, 128):
-                raise ValueError(
-                    f"Invalid smem_box {smem_box}; "
-                    f"last dimension must lead to swizzle of "
-                    f"32, 64, or 128; not {swizzle}"
-                )
+            swizzle = Sm90_SmemSwizzled_from_smem_box(
+                scalar_info, smem_box
+            ).get_swizzle_bytes()
         else:
             swizzle = 0
         self.access_info["src"].mem = Sm90_get_mma_smem(swizzle)
@@ -713,7 +792,7 @@ class copy_tensor_to_gmem_impl(InstrInfo):
         self.coll_unit = cuda_warp
         self.cu_utils.append(copy_tensor_to_gmem_util(is_reduce))
         self.smem_box = smem_box
-        self.element_bits = element_bits
+        self.element_bits = scalar_info.bits
         self.swizzle = swizzle
         self.is_reduce = is_reduce
 
@@ -751,7 +830,7 @@ class Sm90_copy_tensor_to_smem_linear_2f32(copy_tensor_to_smem_impl):
 
     def instance(self, size0, size1, *, smem_box: Optional[Tuple[int]] = None):
         smem_box = _validate_smem_box(smem_box, (size0, size1))
-        self.instance_impl(smem_box, False, 32)
+        self.instance_impl(smem_box, False)
 
 
 __all__.append("Sm90_copy_tensor_to_smem_linear_2f32")
@@ -779,7 +858,7 @@ class Sm90_copy_tensor_to_smem_swizzled_2f32(copy_tensor_to_smem_impl):
 
     def instance(self, size0, size1, *, smem_box: Optional[Tuple[int]] = None):
         smem_box = _validate_smem_box(smem_box, (size0, size1))
-        self.instance_impl(smem_box, True, 32)
+        self.instance_impl(smem_box, True)
 
 
 __all__.append("Sm90_copy_tensor_to_smem_swizzled_2f32")
@@ -820,22 +899,16 @@ class Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
         # ncta-many (coop_stride, size1) copies.
         coop_stride = size0 // ncta
         smem_box = _validate_smem_box(smem_box, (coop_stride, size1))
-        self.instance_impl(smem_box, True, 32, ncta, cta_stride, coop_stride)
+        self.instance_impl(smem_box, True, ncta, cta_stride, coop_stride)
 
-    def instance_impl(
-        self, smem_box, swizzled, element_bits, ncta, cta_stride, coop_stride
-    ):
-        element_bits = 32
+    def instance_impl(self, smem_box, swizzled, ncta, cta_stride, coop_stride):
+        scalar_info = self.access_info["dst"].scalar_info
         rank = len(smem_box)
         assert rank > 0
         if swizzled:
-            swizzle = smem_box[-1] * element_bits // 8
-            if swizzle not in (32, 64, 128):
-                raise ValueError(
-                    f"Invalid smem_box {smem_box}; "
-                    f"last dimension must lead to swizzle of "
-                    f"32, 64, or 128; not {swizzle}"
-                )
+            swizzle = Sm90_SmemSwizzled_from_smem_box(
+                scalar_info, smem_box
+            ).get_swizzle_bytes()
         else:
             assert 0, "not implemented, non-swizzled SMEM for TMA multicast"
             swizzle = 0
@@ -849,7 +922,7 @@ class Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(InstrInfo):
         self.cu_utils.append(copy_tensor_to_smem_util(True))
         self.barrier_mechanism = CudaMbarrier
         self.smem_box = smem_box
-        self.element_bits = element_bits
+        self.element_bits = scalar_info.bits
         self.coop_stride = coop_stride
         self.swizzle = swizzle
         self.access_info["dst"].distributed_coll_units = [cuda_cta_in_cluster]
@@ -911,7 +984,7 @@ class Sm90_copy_tensor_to_gmem_linear_2f32(copy_tensor_to_gmem_impl):
 
     def instance(self, size0, size1, *, smem_box: Optional[Tuple[int]] = None):
         smem_box = _validate_smem_box(smem_box, (size0, size1))
-        self.instance_impl(smem_box, False, 32, False)
+        self.instance_impl(smem_box, False, False)
 
 
 __all__.append("Sm90_copy_tensor_to_gmem_linear_2f32")
@@ -939,7 +1012,7 @@ class Sm90_copy_tensor_to_gmem_swizzled_2f32(copy_tensor_to_gmem_impl):
 
     def instance(self, size0, size1, *, smem_box: Optional[Tuple[int]] = None):
         smem_box = _validate_smem_box(smem_box, (size0, size1))
-        self.instance_impl(smem_box, True, 32, False)
+        self.instance_impl(smem_box, True, False)
 
 
 __all__.append("Sm90_copy_tensor_to_gmem_swizzled_2f32")
@@ -965,7 +1038,7 @@ class Sm90_reduce_tensor_to_gmem_linear_2f32(copy_tensor_to_gmem_impl):
 
     def instance(self, size0, size1, *, smem_box: Optional[Tuple[int]] = None):
         smem_box = _validate_smem_box(smem_box, (size0, size1))
-        self.instance_impl(smem_box, False, 32, True)
+        self.instance_impl(smem_box, False, True)
 
 
 __all__.append("Sm90_reduce_tensor_to_gmem_linear_2f32")
@@ -993,7 +1066,7 @@ class Sm90_reduce_tensor_to_gmem_swizzled_2f32(copy_tensor_to_gmem_impl):
 
     def instance(self, size0, size1, *, smem_box: Optional[Tuple[int]] = None):
         smem_box = _validate_smem_box(smem_box, (size0, size1))
-        self.instance_impl(smem_box, True, 32, True)
+        self.instance_impl(smem_box, True, True)
 
 
 __all__.append("Sm90_reduce_tensor_to_gmem_swizzled_2f32")
@@ -1037,6 +1110,9 @@ EXO_CUDA_INLINE uint64_t exo_matrix_descriptor(
     return exo_matrix_descriptor_encode(exo_smemU32(ptr) + mn_offset * mn_stride_bytes)
            | exo_matrix_descriptor_encode(16) << 16u
            | exo_matrix_descriptor_encode(8 * mn_stride_bytes) << 32u
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 100
+           | uint64_t(1) << 46  // Bit-field 46-48, Fixed constant value of 0b001 on Blackwell (?!!?)
+#endif
            | uint64_t(SwizzledElement::get_swizzle_bits()) << 62;
 }
 """
@@ -1231,7 +1307,6 @@ def Sm90_RmemMatrixD(M, N):
 
         @classmethod
         def alloc(cls, new_name, prim_type, shape, srcinfo):
-            element_bits = scalar_bits(prim_type)
             shape = cls.as_const_shape(new_name, shape, srcinfo, min_dim=2)
             array_shape = shape[:-2]
             assert prim_type == "float"  # TODO

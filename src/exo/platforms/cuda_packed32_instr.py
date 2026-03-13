@@ -4,6 +4,13 @@ from .cuda_fwd import *
 import exo.scalars as scalars
 
 
+########################################################################
+# Be advised, CudaRmemPacked32 is mostly abandoned in favor of using
+# ThunderKittens tiles.
+# See exo.cuda_tk.CudaTkWarpTile
+########################################################################
+
+
 __all__ = []  # append stuff to this to export it.
 
 

@@ -373,8 +373,7 @@ class CudaRmemLinear(CudaDeviceVisibleLinear):
     However, if you actually use it this way, you risk the cuda
     compiler lowering this to local memory instead of registers.
 
-    The sister type CudaRmemPacked32 doesn't have this behavior.
-    Consider it for <32-bit types and high-stakes use cases.
+    Consider also exo.cuda_tk.CudaTkWarpTile
 
     """
 
@@ -456,6 +455,9 @@ class CudaRmemPacked32_Indexer(WindowIndexer):
 @window_indexer(CudaRmemPacked32_Indexer)
 class CudaRmemPacked32(CudaBasicDeviceVisible):
     """Per-thread registers, with scalar data packed as 32 bit words.
+
+    NOTE, this is mostly abandoned in favor of using ThunderKittens tiles.
+    See exo.cuda_tk.CudaTkWarpTile
 
     The rightmost dimension must be 4 / sizeof(ElementType).
     This includes the degenerate case of float or int32_t
