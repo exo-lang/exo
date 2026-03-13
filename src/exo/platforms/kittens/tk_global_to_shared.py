@@ -45,7 +45,7 @@ class tk_load_sg(InstrInfo):
         # fmt: off
         tk_t = cuda_tk_typename_table[args.src.get_scalar_info()]
         src_c = f"exo_CudaUtil::exo_tk_gl2_window<{tk_t}, {args.size0}>({args.src})"
-        dst_c = args.dst.index(as_tk_subtile=(args.size0, args.size1))
+        dst_c = args.dst.index(as_tk_subtile=(1, args.size0, args.size1))
         return [
             "{  // Place dst/src handles in named temporaries, because ThunderKittens is not const-correct.",
             f"  auto exo_tk_dst = {dst_c};",
@@ -93,7 +93,7 @@ class tk_store_sg(InstrInfo):
     def codegen(self: InstrInfo, args: InstrArgs):
         # fmt: off
         tk_t = cuda_tk_typename_table[args.dst.get_scalar_info()]
-        src_c = args.src.index(as_tk_subtile=(args.size0, args.size1))
+        src_c = args.src.index(as_tk_subtile=(1, args.size0, args.size1))
         dst_c = f"exo_CudaUtil::exo_tk_gl2_window<{tk_t}, {args.size0}>({args.dst})"
         return [
             "{  // Place dst/src handles in named temporaries, because ThunderKittens is not const-correct.",

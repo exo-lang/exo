@@ -1406,7 +1406,7 @@ class Compiler:
                 )
             except Exception as e:
                 raise ValueError(
-                    f"{s.srcinfo}: Failed to compile {s}; this could be invalid usage, or a bug in the {output_winmem.name()} implementation: {e}"
+                    f"{s.srcinfo}: Failed to compile {s}; this could be invalid usage, or a bug in the {output_winmem.name()} implementation: {e!r}"
                 ) from e
 
         elif is_if_holding_with(s, LoopIR):  # must be before .If case
@@ -1639,7 +1639,7 @@ class Compiler:
                         self.add_line(line)
                 except Exception as e:
                     raise ValueError(
-                        f"{s.srcinfo}: Failed to compile {s}; this could be invalid usage, or a bug in the @instr implementation: {e}"
+                        f"{s.srcinfo}: Failed to compile {s}; this could be invalid usage, or a bug in the @instr implementation: {e!r}"
                     ) from e
             else:
                 args = ["ctxt"]

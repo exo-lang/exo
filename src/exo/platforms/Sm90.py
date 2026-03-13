@@ -133,36 +133,66 @@ struct exo_Sm90_SW{swizzle} {{
     }}
 }};
 
-template <typename T, int major_size, int minor_size>
-struct exo_Sm90_SW{swizzle}_tiled: exo_Sm90_SW{swizzle}<T>
+// Element type for Sm90_SmemSwizzled({swizzle}) allocations where the
+// last 3 array extents are [TileOuterCols, TileRows, TileInnerCols]
+// (left-padded with 1 for 0D, 1D, 2D allocations).
+template <typename T, int TileOuterCols, int TileRows, int TileInnerCols>
+struct exo_Sm90_SW{swizzle}_tiled: public exo_Sm90_SW{swizzle}<T>
 {{
-    static __host__ __device__ constexpr int get_major_size()
-    {{
-        return major_size;
-    }}
-
-    static __host__ __device__ constexpr int get_minor_size()
-    {{
-        return minor_size;
-    }}
-
-    template <int Wr, int Wc, template <int, int, bool, int> class st_typed, typename IntT>
-    EXO_CUDA_INLINE auto as_tk_subtile(IntT row_offset, IntT col_offset) const
+    // Reinterpret-cast to kittens::st_subtile view of this shared memory.
+    //
+    // For better or worse, kittens 2D tile is expressed as a 3D tile in Exo-GPU.
+    // `this` is assumed to point-to the NON-SWIZZLED base address of a complete
+    // 3D tile. This returns a subtile view whose
+    //
+    // * size/extents are given by the Subtile template parameters
+    //
+    // * base offset from the `this` tile is given by runtime int offsets
+    //
+    // Assume for this discussion that the tile is row-major. Then,
+    //
+    // * Let swizzle_elements = {swizzle} / sizeof(T)
+    //
+    // * The 3D Exo-GPU tile is of size [TileOuterCols, TileRows, TileInnerCols],
+    //   where TileInnerCols == swizzle_elements. If not, then this tile
+    //   is incompatible with ThunderKittens, TMA, and wgmma.
+    //
+    // * The value at coordinates (r, c) in the 2D [Rows, Cols] tile is stored at
+    //   address swizzle_pointer(
+    //          tile_base_addr
+    //          + sizeof(T) * (c / TileInnerCols) * TileRows * TileInnerCols
+    //          + sizeof(T) * (r) * TileInnerCols
+    //          + sizeof(T) * (c % TileInnerCols))
+    //   Basically, the column is simultaneously the fastest (%) and slowest (/) dimension
+    //
+    // TMA: If TileOuterCols != 1, then ThunderKittens is capable of doing a single TMA
+    // copy to load/store the tile, but Exo-GPU may have to issue multiple.
+    template <
+        int SubtileOuterCols,
+        int SubtileRows,
+        int SubtileInnerCols,
+        template <int, int, bool, int> class st_typed>
+    EXO_CUDA_INLINE auto as_tk_subtile(int col_outer_offset, int row_offset, int col_inner_offset) const
     {{
         static_assert(
-            minor_size * sizeof(T) == {swizzle},
-            "Exo-GPU didn't assert strides properly."
+            TileInnerCols * sizeof(T) == {swizzle},
+            "Exo-GPU instr didn't assert strides properly."
             " This is needed to match kittens swizzle automation"
         );
-        using st_t = st_typed<major_size, minor_size, true, 0>;
+        static_assert(
+            SubtileInnerCols == TileInnerCols || SubtileOuterCols == 1,
+            "Exo-GPU instr used wrong SubtileInnerCols (window size last dimension)."
+            " This is needed for Exo-GPU and kittens to agree on column tiling"
+        );
+        using st_t = st_typed<TileRows, TileOuterCols * TileInnerCols, true, 0>;
         st_t* p_tile = const_cast<st_t*>(reinterpret_cast<const st_t*>(this));
         // Note, subtile implicitly multiplies (r, c) by the subtile size.
         // We have to work around this!
         // Also, can't mention ::kittens here, because it may not be included.
-        // Also also, explicit swizzle is broken in this function.
-        auto subtile = p_tile->template subtile<Wr, Wc>(int2(0, 0));
+        // Also also, explicit kittens swizzle is broken in this function.
+        auto subtile = p_tile->template subtile<SubtileRows, SubtileOuterCols * SubtileInnerCols>(int2(0, 0));
         subtile.row_offset = static_cast<int>(row_offset);
-        subtile.col_offset = static_cast<int>(col_offset);
+        subtile.col_offset = static_cast<int>(col_outer_offset) * TileInnerCols + static_cast<int>(col_inner_offset);
         return subtile;
     }}
 }};
@@ -185,16 +215,18 @@ struct exo_Sm90_SW{swizzle}_tiled: exo_Sm90_SW{swizzle}<T>
         @classmethod
         def smem_config(cls, inputs: SmemConfigInputs) -> SmemConfig:
             shape = inputs.const_shape
-            if len(shape) >= 2:
-                r = shape[-2]
-                c = shape[-1]
-            else:
-                r = 1
-                c = 1
-            ctype = f"exo_Sm90_SW{swizzle}_tiled<{inputs.ctype()}, {r}, {c}>"
+            shape_dims = len(shape)
+            # fmt: off
+            # Left-pad 3D tile size by 1 as promised.
+            TileOuterCols = 1 if shape_dims < 3 else shape[-3]
+            TileRows      = 1 if shape_dims < 2 else shape[-2]
+            TileInnerCols = 1 if shape_dims < 1 else shape[-1]
+            ctype = f"exo_Sm90_SW{swizzle}_tiled<{inputs.ctype()}, {TileOuterCols}, {TileRows}, {TileInnerCols}>"
             return SmemConfig(
-                f"{ctype} (&)[]", swizzle
-            )  # 32, 64, or 128 byte alignment.
+                f"{ctype} (&)[]",
+                swizzle,  # Force 32, 64, or 128 byte alignment.
+            )
+            # fmt: on
 
         @classmethod
         def get_swizzle_bits(cls):
@@ -243,16 +275,22 @@ class SwizzledIndexer(WindowIndexer):
 
         n_dims = features.n_array_dims()
         if as_tk_subtile:
-            assert len(as_tk_subtile) == 2
-            subtile_rows, subtile_cols = as_tk_subtile
-            assert isinstance(subtile_rows, int)
-            assert isinstance(subtile_cols, int)
-            assert n_dims >= 2
-            assert features.get_array_interval_size(n_dims - 2) is not None
-            assert features.get_array_interval_size(n_dims - 1) is not None
-            subtile_r_idx = features.get_array_offset(n_dims - 2)
-            subtile_c_idx = features.get_array_offset(n_dims - 1)
-            n_strided_dims = n_dims - 2
+            assert len(as_tk_subtile) == 3
+            col_outer_offset, row_offset, col_inner_offset = 0, 0, 0
+            SubtileOuterCols, SubtileRows, SubtileInnerCols = as_tk_subtile
+            if n_dims >= 3:
+                # fmt: off
+                assert SubtileOuterCols == 1 or features.get_array_interval_size(n_dims - 3) is not None
+                col_outer_offset = features.get_array_offset(n_dims - 3)
+            if n_dims >= 2:
+                # fmt: off
+                assert features.get_array_interval_size(n_dims - 2) is not None
+                row_offset = features.get_array_offset(n_dims - 2)
+            if n_dims >= 1:
+                # fmt: off
+                assert features.get_array_interval_size(n_dims - 1) is not None
+                col_inner_offset = features.get_array_offset(n_dims - 1)
+            n_strided_dims = max(0, n_dims - 3)
         else:
             n_strided_dims = n_dims
 
@@ -269,8 +307,8 @@ class SwizzledIndexer(WindowIndexer):
             suffix = cuda_tk_type_suffix_table[self.scalar_info]
             code = (
                 f"{dataptr}[{array_offset}].template as_tk_subtile"
-                f"<{subtile_rows}, {subtile_cols}, ::kittens::st_{suffix}>"
-                f"({subtile_r_idx}, {subtile_c_idx})"
+                f"<{SubtileOuterCols}, {SubtileRows}, {SubtileInnerCols}, ::kittens::st_{suffix}>"
+                f"({col_outer_offset}, {row_offset}, {col_inner_offset})"
             )
         elif for_wgmma:
             # This passes a non-swizzled pointer to wgmma or TMA.

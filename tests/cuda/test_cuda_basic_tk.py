@@ -3,6 +3,8 @@ from __future__ import annotations
 import pytest
 import numpy as np
 
+from exo import *
+from exo.stdlib.scheduling import *
 from exo.platforms.cuda import *
 from exo.platforms.cuda_tk import *
 from exo.platforms.Sm90 import *
@@ -10,42 +12,92 @@ from exo.platforms.Sm90 import *
 
 def test_tk_load_sg(compiler_Sm80):
     @proc
-    def p(h_dst: f32[64, 128] @ DRAM, h_src: f32[64, 128] @ DRAM):
-        d_src: f32[64, 128] @ CudaGmemLinear
-        d_dst: f32[64, 128] @ CudaGmemLinear
-        cudaMemcpyAsync_htod_2f32(64, 128, d_src[:, :], h_src[:, :])
+    def p(h_dst: f32[192, 128] @ DRAM, h_src: f32[192, 128] @ DRAM):
+        d_dst: f32[192, 128] @ CudaGmemLinear
+        d_src: f32[192, 128] @ CudaGmemLinear
+        cudaMemcpyAsync_htod_2f32(192, 128, d_src[:, :], h_src[:, :])
 
         with CudaDeviceFunction(blockDim=128):
             for task in cuda_tasks(0, 1):
-                smem: f32[4, 64, 32] @ Sm90_SmemSwizzled(128)
+                smem: f32[128 / 32, 192, 32] @ Sm90_SmemSwizzled(128)
                 for col in cuda_threads(0, 4, unit=cuda_warp):
                     for s in seq(0, 2):  # Test offsetting
                         tk_load_sg(
-                            smem[col, 32 * s : 32 * s + 32, :],
-                            d_src[s * 32 : s * 32 + 32 :, 32 * col : 32 * col + 32],
+                            smem[col, 96 * s : 96 * s + 96, :],
+                            d_src[s * 96 : s * 96 + 96 :, 32 * col : 32 * col + 32],
                             dst=f32,
                             src=f32,
-                            size0=32,
+                            size0=96,
                             size1=32,
                         )
                 Fence(cuda_in_order, cuda_in_order)
-                for r in seq(0, 64):
+                for r in seq(0, 192):
                     for c in cuda_threads(0, 128):
                         d_dst[r, c] = smem[c / 32, r, c % 32]
                 Fence(cuda_in_order, cuda_in_order)
 
-        cudaMemcpyAsync_dtoh_2f32(64, 128, h_dst[:, :], d_dst[:, :])
+        cudaMemcpyAsync_dtoh_2f32(192, 128, h_dst[:, :], d_dst[:, :])
 
+    p = simplify(p)
     lib = compiler_Sm80.nvcc_compile(p)
-    h_dst = np.ndarray(shape=(64, 128), dtype=np.float32)
-    h_src = np.ndarray(shape=(64, 128), dtype=np.float32)
+    # p.sync_check()
 
-    for r in range(64):
+    h_dst = np.ndarray(shape=(192, 128), dtype=np.float32)
+    h_src = np.ndarray(shape=(192, 128), dtype=np.float32)
+
+    for r in range(192):
         for c in range(128):
             h_src[r, c] = 100 * c + r
     lib(None, h_dst, h_src)
 
-    print([int(h_src[r, 0]) for r in range(64)])
-    print([int(h_dst[r, 0]) for r in range(64)])
+    assert np.array_equal(h_src, h_dst)
+
+
+def test_tk_store_sg(compiler_Sm80):
+    R = 160
+    C = 32
+
+    @proc
+    def p(h_dst: f16[R, C] @ DRAM, h_src: f16[R, C] @ DRAM):
+        d_dst: f16[R, C] @ CudaGmemLinear
+        d_src: f16[R, C] @ CudaGmemLinear
+        cudaMemcpyAsync_htod_2d(R, C, d_src[:, :], h_src[:, :], dst=f16, src=f16)
+
+        with CudaDeviceFunction(blockDim=64):
+            for task in cuda_tasks(0, 1):
+                # Here we DON'T have a 3D tile.
+                # Test that this code path also works (requires C = 64/sizeof(*smem))
+                smem: f16[R, C] @ Sm90_SmemSwizzled(64)
+
+                for r in seq(0, R):
+                    for c in cuda_threads(0, C, unit=cuda_thread):
+                        smem[r, c] = d_src[r, c]
+
+                Fence(cuda_in_order, cuda_in_order)
+
+                for row in cuda_threads(0, 2, unit=cuda_warp):
+                    tk_store_sg(
+                        d_dst[R / 2 * row : R / 2 * row + R / 2, :],
+                        smem[R / 2 * row : R / 2 * row + R / 2, :],
+                        dst=f16,
+                        src=f16,
+                        size0=R // 2,
+                        size1=C,
+                    )
+                Fence(cuda_in_order, cuda_in_order)
+
+        cudaMemcpyAsync_dtoh_2d(R, C, h_dst[:, :], d_dst[:, :], dst=f16, src=f16)
+
+    p = simplify(p)
+    lib = compiler_Sm80.nvcc_compile(p)
+    p.sync_check()
+
+    h_dst = np.ndarray(shape=(R, C), dtype=np.int16)  # i16 is good enough
+    h_src = np.ndarray(shape=(R, C), dtype=np.int16)
+
+    for r in range(R):
+        for c in range(C):
+            h_src[r, c] = 100 * c + r
+    lib(None, h_dst, h_src)
 
     assert np.array_equal(h_src, h_dst)
