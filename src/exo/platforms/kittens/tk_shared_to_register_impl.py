@@ -87,7 +87,7 @@ class CudaTkRsInstrAdvice:
     inner_cols: int  # Same as swizzle_elements
 
 
-def get_tk_rs_instr_advice_impl(size0, size1, dst, src, swizzle, instr_dict, is_store):
+def cuda_tk_rs_instr_advice_impl(size0, size1, dst, src, swizzle, instr_dict, is_store):
     assert size0 % 16 == 0
     assert size1 % 16 == 0
 

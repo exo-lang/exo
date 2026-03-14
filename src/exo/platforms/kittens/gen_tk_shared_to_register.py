@@ -36,50 +36,50 @@ from exo.scalars import ScalarInfo
 from .tk_shared_to_register_impl import (
     make_tk_load_rs_base,
     make_tk_store_rs_base,
-    get_tk_rs_instr_advice_impl,
+    cuda_tk_rs_instr_advice_impl,
 )
 
-tk_load_rs_instr_dict = {}
-tk_store_rs_instr_dict = {}
+_load_rs_instr_dict = {}
+_store_rs_instr_dict = {}
 
 __all__ = []
 
-def get_tk_load_rs_advice(
+def cuda_tk_load_rs_advice(
     size0: int,
     size1: int, *,
     dst: ScalarInfo,
     src: ScalarInfo,
     swizzle: int
 ):
-    return get_tk_rs_instr_advice_impl(
+    return cuda_tk_rs_instr_advice_impl(
         size0,
         size1,
         dst,
         src,
         swizzle,
-        tk_load_rs_instr_dict,
+        _load_rs_instr_dict,
         False,
     )
 
-def get_tk_store_rs_advice(
+def cuda_tk_store_rs_advice(
     size0: int,
     size1: int, *,
     dst: ScalarInfo,
     src: ScalarInfo,
     swizzle: int
 ):
-    return get_tk_rs_instr_advice_impl(
+    return cuda_tk_rs_instr_advice_impl(
         size0,
         size1,
         dst,
         src,
         swizzle,
-        tk_store_rs_instr_dict,
+        _store_rs_instr_dict,
         True,
     )
 
-__all__.append("get_tk_load_rs_advice")
-__all__.append("get_tk_store_rs_advice")
+__all__.append("cuda_tk_load_rs_advice")
+__all__.append("cuda_tk_store_rs_advice")
 
 ''')
 
@@ -87,7 +87,7 @@ __all__.append("get_tk_store_rs_advice")
 for inner_cols in (8, 16, 32, 64, 128):
     write_chunk(f'''\
 @instr
-class tk_load_rs_inner_cols_{inner_cols}(make_tk_load_rs_base({inner_cols})):
+class cuda_tk_load_rs_inner_cols_{inner_cols}(make_tk_load_rs_base({inner_cols})):
     """Warp copies 2D [rows, outer_cols * {inner_cols}] RMEM tile to SMEM.
 
     The SMEM tile is a swizzled 3D [outer_cols, rows, {inner_cols}] tile,
@@ -107,7 +107,7 @@ class tk_load_rs_inner_cols_{inner_cols}(make_tk_load_rs_base({inner_cols})):
                     dst[row, outer_col * {inner_cols} + inner_col] = src[outer_col, row, inner_col]
 
 @instr
-class tk_store_rs_inner_cols_{inner_cols}(make_tk_store_rs_base({inner_cols})):
+class cuda_tk_store_rs_inner_cols_{inner_cols}(make_tk_store_rs_base({inner_cols})):
     """Warp copies 2D [rows, outer_cols * {inner_cols}] RMEM tile from SMEM.
 
     The SMEM tile is a swizzled 3D [outer_cols, rows, {inner_cols}] tile,
@@ -126,10 +126,10 @@ class tk_store_rs_inner_cols_{inner_cols}(make_tk_store_rs_base({inner_cols})):
                 for inner_col in seq(0, {inner_cols}):
                     dst[outer_col, row, inner_col] = src[row, outer_col * {inner_cols} + inner_col]
 
-__all__.append("tk_load_rs_inner_cols_{inner_cols}")
-__all__.append("tk_store_rs_inner_cols_{inner_cols}")
-tk_load_rs_instr_dict[{inner_cols}] = tk_load_rs_inner_cols_{inner_cols}
-tk_store_rs_instr_dict[{inner_cols}] = tk_store_rs_inner_cols_{inner_cols}
+__all__.append("cuda_tk_load_rs_inner_cols_{inner_cols}")
+__all__.append("cuda_tk_store_rs_inner_cols_{inner_cols}")
+_load_rs_instr_dict[{inner_cols}] = cuda_tk_load_rs_inner_cols_{inner_cols}
+_store_rs_instr_dict[{inner_cols}] = cuda_tk_store_rs_inner_cols_{inner_cols}
 ''')
 
 

@@ -8,11 +8,11 @@ from .tk_types import *
 from ..Sm90 import Sm90_SmemSwizzled, Sm90_SmemSwizzled_from_smem_box
 
 
-__all__ = ["tk_load_sg", "tk_store_sg"]
+__all__ = ["cuda_tk_load_sg", "cuda_tk_store_sg"]
 
 
 @instr
-class tk_load_sg(InstrInfo):
+class cuda_tk_load_sg(InstrInfo):
     """Wrapper around ThunderKittens SMEM-from-GMEM load, using non-async 16-byte aligned copies.
 
     Must be called using a single warp.
@@ -67,7 +67,7 @@ class tk_load_sg(InstrInfo):
 
 
 @instr
-class tk_store_sg(InstrInfo):
+class cuda_tk_store_sg(InstrInfo):
     """Wrapper around ThunderKittens SMEM-to-GMEM store, using non-async 16-byte aligned copies.
 
     Must be called using a single warp.

@@ -13,26 +13,34 @@ from exo.platforms.Sm90 import *
 
 def test_tk_load_rs_advice_simple():
     size0, size1 = 160, 64
-    advice = get_tk_load_rs_advice(size0, size1, dst=f16, src=f32, swizzle=128)
+    advice = cuda_tk_load_rs_advice(size0, size1, dst=f16, src=f32, swizzle=128)
+
+    expected_instr = cuda_tk_load_rs_inner_cols_32(
+        outer_cols=size1 // 32, rows=size0, dst=f16, src=f32
+    )
+
     assert f16.bits == 16
     assert f32.bits == 32
     assert advice.rmem == CudaTkWarpTile(size0, size1, "row")
     assert advice.smem == Sm90_SmemSwizzled(128)
     assert advice.swizzle_elements == 32
-    # fmt: off
-    assert advice.instr == tk_load_rs_inner_cols_32(outer_cols=size1 // 32, rows=size0, dst=f16, src=f32)
+    assert advice.instr == expected_instr
 
 
 def test_tk_store_rs_advice_simple():
     size0, size1 = 160, 64
-    advice = get_tk_store_rs_advice(size0, size1, dst=f16, src=f32, swizzle=32)
+    advice = cuda_tk_store_rs_advice(size0, size1, dst=f16, src=f32, swizzle=32)
+
+    expected_instr = cuda_tk_store_rs_inner_cols_16(
+        outer_cols=size1 // 16, rows=size0, dst=f16, src=f32
+    )
+
     assert f16.bits == 16
     assert f32.bits == 32
     assert advice.rmem == CudaTkWarpTile(size0, size1, "row")
     assert advice.smem == Sm90_SmemSwizzled(32)
     assert advice.swizzle_elements == 16
-    # fmt: off
-    assert advice.instr == tk_store_rs_inner_cols_16(outer_cols=size1 // 16, rows=size0, dst=f16, src=f32)
+    assert advice.instr == expected_instr
 
 
 def test_tk_load_store_rs_simple(compiler_Sm80):
@@ -67,7 +75,7 @@ def test_tk_load_store_rs_simple(compiler_Sm80):
                 Fence(cuda_in_order, cuda_in_order)
                 for w in cuda_threads(0, 4, unit=cuda_warp):
                     tile: bf16[R / 4, C] @ CudaTkWarpTile(R // 4, C, "row")
-                    tk_load_rs_inner_cols_32(
+                    cuda_tk_load_rs_inner_cols_32(
                         tile[:, :],
                         smem[:, R / 4 * w : R / 4 * w + R / 4, :],
                         dst=bf16,
@@ -76,7 +84,7 @@ def test_tk_load_store_rs_simple(compiler_Sm80):
                         outer_cols=C // 32,
                     )
                     Fence(cuda_in_order, cuda_in_order)
-                    tk_store_rs_inner_cols_32(
+                    cuda_tk_store_rs_inner_cols_32(
                         smem[:, R / 4 * w : R / 4 * w + R / 4, :],
                         tile[:, :],
                         dst=f32,
@@ -127,7 +135,7 @@ def test_tk_load_sg_simple(compiler_Sm80):
                 smem: f32[128 / 32, 192, 32] @ Sm90_SmemSwizzled(128)
                 for col in cuda_threads(0, 4, unit=cuda_warp):
                     for s in seq(0, 2):  # Test offsetting
-                        tk_load_sg(
+                        cuda_tk_load_sg(
                             smem[col, 96 * s : 96 * s + 96, :],
                             d_src[s * 96 : s * 96 + 96 :, 32 * col : 32 * col + 32],
                             dst=f32,
@@ -181,7 +189,7 @@ def test_tk_store_sg_simple(compiler_Sm80):
                 Fence(cuda_in_order, cuda_in_order)
 
                 for row in cuda_threads(0, 2, unit=cuda_warp):
-                    tk_store_sg(
+                    cuda_tk_store_sg(
                         d_dst[R / 2 * row : R / 2 * row + R / 2, :],
                         smem[R / 2 * row : R / 2 * row + R / 2, :],
                         dst=f16,
