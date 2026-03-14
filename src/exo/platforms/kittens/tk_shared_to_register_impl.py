@@ -21,7 +21,6 @@ def make_tk_load_rs_base(inner_cols):
         valid_num_types = cuda_tk_valid_num_types_all_pairs
 
         def instance(self: InstrInfo, rows: int, outer_cols: int):
-            self.cu_includes.append("cuda_runtime.h")
             self.cu_includes.append("kittens.cuh")
             self.coll_unit = cuda_warp
             self.instr_tl = cuda_in_order_instr
@@ -51,7 +50,6 @@ def make_tk_store_rs_base(inner_cols):
         valid_num_types = cuda_tk_valid_num_types_all_pairs
 
         def instance(self: InstrInfo, rows: int, outer_cols: int):
-            self.cu_includes.append("cuda_runtime.h")
             self.cu_includes.append("kittens.cuh")
             self.coll_unit = cuda_warp
             self.instr_tl = cuda_in_order_instr

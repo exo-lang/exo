@@ -35,7 +35,7 @@ def test_tk_store_rs_advice_simple():
     assert advice.instr == tk_store_rs_inner_cols_16(outer_cols=size1 // 16, rows=size0, dst=f16, src=f32)
 
 
-def test_tk_load_rs_simple(compiler_Sm80):
+def test_tk_load_store_rs_simple(compiler_Sm80):
     R, C = 192, 128
 
     @proc
@@ -46,16 +46,22 @@ def test_tk_load_rs_simple(compiler_Sm80):
 
         with CudaDeviceFunction(blockDim=128):
             for task in cuda_tasks(0, 1):
+                # dummy_semm forces allocation not aligned to 1024B boundary.
+                dummy_smem: f32[1] @ CudaSmemLinear
+
                 smem: f32[C / 32, R, 32] @ Sm90_SmemSwizzled(128)
-                # Manually load GMEM tile to SMEM
+                # Manually (inefficently) load GMEM tile to SMEM
                 for co in seq(0, C / 32):
                     for r in seq(0, R):
                         for ci in cuda_threads(0, 32):
                             smem[co, r, ci] = d_src[r, co * 32 + ci]
                 # Overwrite one entry to 137
+                # Along with manual loads, this tests that ThunderKittens
+                # and Exo-GPU are indexing SMEM the same way.
                 Fence(cuda_in_order, cuda_in_order)
                 for tid in cuda_threads(0, 1, unit=cuda_thread):
                     smem[1, 3, 7] = 137
+                    dummy_smem[0] = 0  # Prevent compiler warning
                 # Copy SMEM tile to RMEM, then back to SMEM.
                 # Conversion to bf16 will truncate some bits!
                 Fence(cuda_in_order, cuda_in_order)
@@ -79,7 +85,7 @@ def test_tk_load_rs_simple(compiler_Sm80):
                         outer_cols=C // 32,
                     )
                 Fence(cuda_in_order, cuda_in_order)
-                # Manually store SMEM tile to GMEM
+                # Manually (inefficently) store SMEM tile to GMEM
                 for co in seq(0, C / 32):
                     for r in seq(0, R):
                         for ci in cuda_threads(0, 32):
@@ -200,3 +206,66 @@ def test_tk_store_sg_simple(compiler_Sm80):
     lib(None, h_dst, h_src)
 
     assert np.array_equal(h_src, h_dst)
+
+
+def test_load_store_rg_simple(compiler_Sm80):
+    R = 160
+    C = 192 + 100
+
+    @proc
+    def p(h_inout: f32[R, C] @ DRAM):
+        d_inout: f32[R, C] @ CudaGmemLinear
+        cudaMemcpyAsync_htod_2d(R, C, d_inout[:, :], h_inout[:, :], dst=f32, src=f32)
+
+        with CudaDeviceFunction(blockDim=320):
+            for task in cuda_tasks(0, 1):
+                tiles: bf16[10, 4, 16, 48] @ CudaTkWarpTile(16, 48, "row")
+
+                for w in cuda_threads(0, 10, unit=cuda_warp):
+                    for s in seq(0, 4):
+                        cuda_tk_load_rg(
+                            tiles[w, s, :, :],
+                            d_inout[16 * w : 16 * w + 16, 48 * s : 48 * s + 48],
+                            dst=bf16,
+                            src=f32,
+                            size0=16,
+                            size1=48,
+                        )
+                Fence(cuda_in_order, cuda_in_order)
+                # Copy it back shifted by +100 columns
+                for w in cuda_threads(0, 10, unit=cuda_warp):
+                    for s in seq(0, 4):
+                        cuda_tk_store_rg(
+                            d_inout[16 * w : 16 * w + 16, 48 * s + 100 : 48 * s + 148],
+                            tiles[w, s, :, :],
+                            dst=f32,
+                            src=bf16,
+                            size0=16,
+                            size1=48,
+                        )
+
+        cudaMemcpyAsync_dtoh_2d(R, C, h_inout[:, :], d_inout[:, :], dst=f32, src=f32)
+
+    p = simplify(p)
+    lib = compiler_Sm80.nvcc_compile(p)
+    # p.sync_check()
+
+    h_inout = np.ndarray(shape=(R, C), dtype=np.float32)
+    h_ref = np.ndarray(shape=(R, C), dtype=np.float32)
+
+    for r in range(R):
+        for c in range(C):
+            test_bits = ((r * 3) + (c * 5)) & 127
+            h_inout[r, c] = 513 + test_bits * 4
+            h_ref[r, c] = 513 + test_bits * 4
+
+    # The copy should do two things
+    # * Copy [0:64, 0:192] tile shifted +100 columns.
+    # * Truncate bottom bit (due to bf16 conversion)
+    assert C == 192 + 100
+    for r in range(R):
+        for c in range(192):
+            h_ref[r, c + 100] = int(h_inout[r, c]) & ~1
+
+    lib(None, h_inout)
+    assert np.array_equal(h_inout, h_ref)

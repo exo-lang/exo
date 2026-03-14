@@ -19,10 +19,10 @@ __all__ = [
 
 
 # Translate Exo ScalarInfo to suffixes for ThunderKittens convenience typedefs.
-# NOTE: we can use, e.g. st<float, ...> for st_fl<...>
-# However, doing things this way breaks the dependency between exo_f16, exo_bf16,
-# and the ThunderKittens versions of f16/bf16. It's not guaranteed they are
-# the same (although this possibility is not really tested).
+# NOTE: we can in principle use, e.g. st<exo_f16, ...> for st_hf<...>
+# However, this assumes exo_f16/exo_bf16 are the same as the ThunderKittens types.
+# This is not guaranteed (although this possibility is not really tested),
+# so we use the official st_fl, st_hf, st_bf names.
 cuda_tk_type_suffix_table = {
     f32: "fl",
     f16: "hf",

@@ -13,11 +13,16 @@ __all__ = ["tk_load_sg", "tk_store_sg"]
 
 @instr
 class tk_load_sg(InstrInfo):
-    """Wrapper around ThunderKittens SMEM-from-GMEM load, using 16-byte aligned copies.
+    """Wrapper around ThunderKittens SMEM-from-GMEM load, using non-async 16-byte aligned copies.
+
+    Must be called using a single warp.
+    Distribute work yourself to warps within the CTA.
 
     Generally, use size1=128 / sizeof(T) and dst @ Sm90_SmemSwizzled(128)
 
     """
+
+    valid_num_types = ScalarInfo.same()
 
     def behavior(
         size0: size,
@@ -32,8 +37,11 @@ class tk_load_sg(InstrInfo):
             for i1 in seq(0, size1):
                 dst[i0, i1] = src[i0, i1]
 
-    def instance(self: InstrInfo, size0, size1):
-        self.cu_includes.append("cuda_runtime.h")
+    def instance(self: InstrInfo, size0: int, size1: int):
+        # fmt: off
+        assert size0 % 16 == 0, f"Thunderkittens requires size0 ({size0}) to be divisible by 16"
+        assert size1 % 16 == 0, f"Thunderkittens requires size1 ({size1}) to be divisible by 16"
+        # fmt: on
         self.cu_includes.append("kittens.cuh")
         self.cu_utils.append(cuda_tk_gl2_window_util)
         self.coll_unit = cuda_warp
@@ -57,16 +65,19 @@ class tk_load_sg(InstrInfo):
             "}",
         ]
 
-    valid_num_types = ScalarInfo.same()
-
 
 @instr
 class tk_store_sg(InstrInfo):
-    """Wrapper around ThunderKittens SMEM-to-GMEM store, using 16-byte aligned copies.
+    """Wrapper around ThunderKittens SMEM-to-GMEM store, using non-async 16-byte aligned copies.
+
+    Must be called using a single warp.
+    Distribute work yourself to warps within the CTA.
 
     Generally, use size1=128 / sizeof(T) and src @ Sm90_SmemSwizzled(128)
 
     """
+
+    valid_num_types = ScalarInfo.same()
 
     def behavior(
         size0: size,
@@ -82,7 +93,6 @@ class tk_store_sg(InstrInfo):
                 dst[i0, i1] = src[i0, i1]
 
     def instance(self: InstrInfo, size0, size1):
-        self.cu_includes.append("cuda_runtime.h")
         self.cu_includes.append("kittens.cuh")
         self.cu_utils.append(cuda_tk_gl2_window_util)
         self.coll_unit = cuda_warp
@@ -105,5 +115,3 @@ class tk_store_sg(InstrInfo):
             f"  ::kittens::warp::store(exo_tk_dst, exo_tk_src, ::kittens::coord(0, 0, 0, 0));",
             "}",
         ]
-
-    valid_num_types = ScalarInfo.same()
