@@ -74,6 +74,7 @@ class tk_load_rs_inner_cols_8(make_tk_load_rs_base(8)):
         dst: [R][rows, 8 * outer_cols], # @ CudaTkWarpTile(rows, cols, "row")
         src: [R][outer_cols, rows, 8],  # @ Sm90_SmemSwizzled(8 * sizeof(R))
     ):
+        assert stride(src, 1) == 8
         for row in seq(0, rows):
             for outer_col in seq(0, outer_cols):
                 for inner_col in seq(0, 8):
@@ -93,6 +94,7 @@ class tk_store_rs_inner_cols_8(make_tk_store_rs_base(8)):
         dst: [R][outer_cols, rows, 8],  # @ Sm90_SmemSwizzled(8 * sizeof(R))
         src: [R][rows, 8 * outer_cols], # @ CudaTkWarpTile(rows, cols, "row")
     ):
+        assert stride(dst, 1) == 8
         for row in seq(0, rows):
             for outer_col in seq(0, outer_cols):
                 for inner_col in seq(0, 8):
@@ -121,6 +123,7 @@ class tk_load_rs_inner_cols_16(make_tk_load_rs_base(16)):
         dst: [R][rows, 16 * outer_cols], # @ CudaTkWarpTile(rows, cols, "row")
         src: [R][outer_cols, rows, 16],  # @ Sm90_SmemSwizzled(16 * sizeof(R))
     ):
+        assert stride(src, 1) == 16
         for row in seq(0, rows):
             for outer_col in seq(0, outer_cols):
                 for inner_col in seq(0, 16):
@@ -140,6 +143,7 @@ class tk_store_rs_inner_cols_16(make_tk_store_rs_base(16)):
         dst: [R][outer_cols, rows, 16],  # @ Sm90_SmemSwizzled(16 * sizeof(R))
         src: [R][rows, 16 * outer_cols], # @ CudaTkWarpTile(rows, cols, "row")
     ):
+        assert stride(dst, 1) == 16
         for row in seq(0, rows):
             for outer_col in seq(0, outer_cols):
                 for inner_col in seq(0, 16):
@@ -168,6 +172,7 @@ class tk_load_rs_inner_cols_32(make_tk_load_rs_base(32)):
         dst: [R][rows, 32 * outer_cols], # @ CudaTkWarpTile(rows, cols, "row")
         src: [R][outer_cols, rows, 32],  # @ Sm90_SmemSwizzled(32 * sizeof(R))
     ):
+        assert stride(src, 1) == 32
         for row in seq(0, rows):
             for outer_col in seq(0, outer_cols):
                 for inner_col in seq(0, 32):
@@ -187,6 +192,7 @@ class tk_store_rs_inner_cols_32(make_tk_store_rs_base(32)):
         dst: [R][outer_cols, rows, 32],  # @ Sm90_SmemSwizzled(32 * sizeof(R))
         src: [R][rows, 32 * outer_cols], # @ CudaTkWarpTile(rows, cols, "row")
     ):
+        assert stride(dst, 1) == 32
         for row in seq(0, rows):
             for outer_col in seq(0, outer_cols):
                 for inner_col in seq(0, 32):
@@ -215,6 +221,7 @@ class tk_load_rs_inner_cols_64(make_tk_load_rs_base(64)):
         dst: [R][rows, 64 * outer_cols], # @ CudaTkWarpTile(rows, cols, "row")
         src: [R][outer_cols, rows, 64],  # @ Sm90_SmemSwizzled(64 * sizeof(R))
     ):
+        assert stride(src, 1) == 64
         for row in seq(0, rows):
             for outer_col in seq(0, outer_cols):
                 for inner_col in seq(0, 64):
@@ -234,6 +241,7 @@ class tk_store_rs_inner_cols_64(make_tk_store_rs_base(64)):
         dst: [R][outer_cols, rows, 64],  # @ Sm90_SmemSwizzled(64 * sizeof(R))
         src: [R][rows, 64 * outer_cols], # @ CudaTkWarpTile(rows, cols, "row")
     ):
+        assert stride(dst, 1) == 64
         for row in seq(0, rows):
             for outer_col in seq(0, outer_cols):
                 for inner_col in seq(0, 64):
@@ -262,6 +270,7 @@ class tk_load_rs_inner_cols_128(make_tk_load_rs_base(128)):
         dst: [R][rows, 128 * outer_cols], # @ CudaTkWarpTile(rows, cols, "row")
         src: [R][outer_cols, rows, 128],  # @ Sm90_SmemSwizzled(128 * sizeof(R))
     ):
+        assert stride(src, 1) == 128
         for row in seq(0, rows):
             for outer_col in seq(0, outer_cols):
                 for inner_col in seq(0, 128):
@@ -281,6 +290,7 @@ class tk_store_rs_inner_cols_128(make_tk_store_rs_base(128)):
         dst: [R][outer_cols, rows, 128],  # @ Sm90_SmemSwizzled(128 * sizeof(R))
         src: [R][rows, 128 * outer_cols], # @ CudaTkWarpTile(rows, cols, "row")
     ):
+        assert stride(dst, 1) == 128
         for row in seq(0, rows):
             for outer_col in seq(0, outer_cols):
                 for inner_col in seq(0, 128):

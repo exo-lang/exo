@@ -100,6 +100,7 @@ class tk_load_rs_inner_cols_{inner_cols}(make_tk_load_rs_base({inner_cols})):
         dst: [R][rows, {inner_cols} * outer_cols], # @ CudaTkWarpTile(rows, cols, "row")
         src: [R][outer_cols, rows, {inner_cols}],  # @ Sm90_SmemSwizzled({inner_cols} * sizeof(R))
     ):
+        assert stride(src, 1) == {inner_cols}
         for row in seq(0, rows):
             for outer_col in seq(0, outer_cols):
                 for inner_col in seq(0, {inner_cols}):
@@ -119,6 +120,7 @@ class tk_store_rs_inner_cols_{inner_cols}(make_tk_store_rs_base({inner_cols})):
         dst: [R][outer_cols, rows, {inner_cols}],  # @ Sm90_SmemSwizzled({inner_cols} * sizeof(R))
         src: [R][rows, {inner_cols} * outer_cols], # @ CudaTkWarpTile(rows, cols, "row")
     ):
+        assert stride(dst, 1) == {inner_cols}
         for row in seq(0, rows):
             for outer_col in seq(0, outer_cols):
                 for inner_col in seq(0, {inner_cols}):
