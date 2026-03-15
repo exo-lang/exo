@@ -12,6 +12,10 @@ from .Sm90_internal_util import *
 __all__ = []  # Will be appended to
 
 
+class Sm90_tensorMap_base(SpecialWindow):
+    pass
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # CUtensorMap
@@ -21,6 +25,31 @@ __all__ = []  # Will be appended to
 # that is constructed as a window to CudaGmemLinear.
 @memwin_template
 def Sm90_tensorMap(swizzle, *smem_box):
+    """Represents CUtensorMap (bounds-checked multidimensional GMEM view)
+
+    The Exo object language syntax is
+
+        window_name = gmem[...] @ Sm90_tensorMap(swizzle, *smem_box)
+
+    where the dimensionality of the resulting window is equal to
+    the length of smem_box. The extent of the N-th interval of
+    window expressions of the tensorMap must match the N-th smem_box coordinate,
+    with point expressions counting as size 1. e.g.,
+
+        window_name[x, 100:200, 0:1, y:y+32]  # `x` is a point expression.
+
+    is compatible with Sm90_tensorMap(swizzle, 1, 100, 1, 32)
+
+    The SMEM window must be stored in CudaSmemLinear if swizzle == 0,
+    otherwise Sm90_SmemSwizzled(swizzle).
+    If swizzled, the right-most smem_box coordinate must be
+    swizzle / sizeof(Element).
+
+    EXCEPTION: multicast TMA changes the smem_box size requirements.
+    See those instructions for specific documentation.
+
+    """
+
     # Minimal SMEM box: we allow copies that reduce dimensionality
     # where the removed dimensions have extent size 1.
     # For example, for batched GEMM, we could have a GMEM window
@@ -39,7 +68,7 @@ def Sm90_tensorMap(swizzle, *smem_box):
     assert swizzle in (0, 32, 64, 128)
 
     @window_encoder(TensorMapEncoder)
-    class CUtensorMap(SpecialWindow):
+    class CUtensorMap(Sm90_tensorMap_base):
         @classmethod
         def global_(cls):
             return ""
@@ -154,7 +183,8 @@ class TensorMapEncoder(WindowEncoder):
         The window struct is just 0-initialized
 
         """
-        init = "{ {" + ", ".join("0" for i in range(features.n_array_dims())) + "} }"
+        mem = features.get_mem()
+        init = "{ {" + ", ".join("0" for i in range(self.n_dims)) + "} }"
         return f"({self.exo_struct_name()}) {init}"
 
     def encode_special_separate_dataptr(
@@ -164,10 +194,17 @@ class TensorMapEncoder(WindowEncoder):
         sname = self.exo_struct_name()
         rank = self.n_dims
         swizzle = self.mem.swizzle()
+        box = self.mem.smem_box()
         if swizzle == 0:
             cu_swizzle = "CU_TENSOR_MAP_SWIZZLE_NONE"
         else:
             cu_swizzle = f"CU_TENSOR_MAP_SWIZZLE_{swizzle}B"
+            expected_coord = swizzle * 8 // self.scalar_info.bits
+            if box[-1] != expected_coord:
+                raise ValueError(
+                    f"smem_box={box}; expect last coordinate {expected_coord} "
+                    f"= swizzle / sizeof({self.scalar_info}) with swizzle={swizzle}"
+                )
         # CUDA boxDim in opposite order as Exo smem_box
         cu_boxDim = "{ " + ", ".join(str(n) for n in self.mem.smem_box()[::-1]) + " }"
         try:

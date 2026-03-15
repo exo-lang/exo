@@ -171,6 +171,8 @@ def append_instr(a_mode: str, b_mode: str):
     else:
         lines.append(indent + f"  * B[{n}, k]")
     lines.append(indent + ")")
+
+    # Push definitions to lists, to be written out at the end of the script.
     _all.append(instr_name)
     _instr_defs.append("\n".join(lines))
 
