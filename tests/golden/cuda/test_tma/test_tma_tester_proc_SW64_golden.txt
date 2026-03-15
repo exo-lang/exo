@@ -265,13 +265,20 @@ struct exo_Sm90_SW64 {
     static EXO_CUDA_INLINE exo_Sm90_SW64<T>* swizzle_pointer(uintptr_t addr)
     {
         // Adapted from ThunderKittens appendix which actually documents CUDA correctly.
-        addr = (addr ^ (((addr % 512) >> 7) << 4));
+        uint32_t shr = uint32_t(addr) >> 3;
+        const uint32_t mask = 48;
+        addr = addr ^ (shr & mask);
         return reinterpret_cast<exo_Sm90_SW64*>(addr);
     }
 
     static __host__ __device__ constexpr uint64_t get_swizzle_bits()
     {
         return 2;
+    }
+
+    static __host__ __device__ constexpr int get_swizzle_bytes()
+    {
+        return 64;
     }
 
     EXO_CUDA_INLINE const T& swizzle_get() const
@@ -284,6 +291,71 @@ struct exo_Sm90_SW64 {
         return swizzle_pointer(reinterpret_cast<uintptr_t>(&data))->data;
     }
 };
+
+// Element type for Sm90_SmemSwizzled(64) allocations where the
+// last 3 array extents are [TileOuterCols, TileRows, TileInnerCols]
+// (left-padded with 1 for 0D, 1D, 2D allocations).
+template <typename T, int TileOuterCols, int TileRows, int TileInnerCols>
+struct exo_Sm90_SW64_tiled: public exo_Sm90_SW64<T>
+{
+    // Reinterpret-cast to kittens::st_subtile view of this shared memory.
+    //
+    // For better or worse, kittens 2D tile is expressed as a 3D tile in Exo-GPU.
+    // `this` is assumed to point-to the NON-SWIZZLED base address of a complete
+    // 3D tile. This returns a subtile view whose
+    //
+    // * size/extents are given by the Subtile template parameters
+    //
+    // * base offset from the `this` tile is given by runtime int offsets
+    //
+    // Assume for this discussion that the tile is row-major. Then,
+    //
+    // * Let swizzle_elements = 64 / sizeof(T)
+    //
+    // * The 3D Exo-GPU tile is of size [TileOuterCols, TileRows, TileInnerCols],
+    //   where TileInnerCols == swizzle_elements. If not, then this tile
+    //   is incompatible with ThunderKittens, TMA, and wgmma.
+    //
+    // * The value at coordinates (r, c) in the 2D [Rows, Cols] tile is stored at
+    //   address swizzle_pointer(
+    //          tile_base_addr
+    //          + sizeof(T) * (c / TileInnerCols) * TileRows * TileInnerCols
+    //          + sizeof(T) * (r) * TileInnerCols
+    //          + sizeof(T) * (c % TileInnerCols))
+    //   Basically, the column is simultaneously the fastest (%) and slowest (/) dimension
+    //
+    // TMA: If TileOuterCols != 1, then ThunderKittens is capable of doing a single TMA
+    // copy to load/store the tile, but Exo-GPU may have to issue multiple.
+    template <
+        int SubtileOuterCols,
+        int SubtileRows,
+        int SubtileInnerCols,
+        template <int, int, bool, int> class st_typed>
+    EXO_CUDA_INLINE auto as_tk_subtile(int col_outer_offset, int row_offset, int col_inner_offset) const
+    {
+        static_assert(
+            TileInnerCols * sizeof(T) == 64,
+            "Exo-GPU instr didn't assert strides properly."
+            " This is needed to match kittens swizzle automation"
+        );
+        static_assert(
+            SubtileInnerCols == TileInnerCols || SubtileOuterCols == 1,
+            "Exo-GPU instr used wrong SubtileInnerCols (window size last dimension)."
+            " This is needed for Exo-GPU and kittens to agree on column tiling"
+        );
+        using st_t = st_typed<TileRows, TileOuterCols * TileInnerCols, true, 0>;
+        st_t* p_tile = const_cast<st_t*>(reinterpret_cast<const st_t*>(this));
+        // Note, subtile implicitly multiplies (r, c) by the subtile size.
+        // We have to work around this!
+        // Also, can't mention ::kittens here, because it may not be included.
+        // Also also, explicit kittens swizzle is broken in this function.
+        auto subtile = p_tile->template subtile<SubtileRows, SubtileOuterCols * SubtileInnerCols>(int2(0, 0));
+        subtile.row_offset = static_cast<int>(row_offset);
+        subtile.col_offset = static_cast<int>(col_outer_offset) * TileInnerCols + static_cast<int>(col_inner_offset);
+        return subtile;
+    }
+};
+
 #endif
 
 #endif
@@ -359,17 +431,17 @@ static void tma_tester_gpu_SW64( void *ctxt, CUtensorMap exo_data_sum_tensorMap_
 
 
 /* relying on the following instruction..."
-Sm80_cp_async_f32(smem,gmem,size=4)
+Sm80_cp_async_f32(dst,src,size=4)
 
 */
 
 /* relying on the following instruction..."
-Sm90_copy_tensor_to_gmem_swizzled_2f32(dst,src,size0=248, size1=16, smem_box=None)
+Sm90_tma_load_2d(dst,src,dst=f32, src=f32, size0=248, size1=16, smem_box=None, swizzle=64)
 
 */
 
 /* relying on the following instruction..."
-Sm90_copy_tensor_to_smem_swizzled_2f32(dst,src,size0=248, size1=16, smem_box=None)
+Sm90_tma_store_2d(dst,src,dst=f32, src=f32, size0=248, size1=16, smem_box=None, swizzle=64)
 
 */
 
@@ -576,13 +648,20 @@ struct exo_Sm90_SW64 {
     static EXO_CUDA_INLINE exo_Sm90_SW64<T>* swizzle_pointer(uintptr_t addr)
     {
         // Adapted from ThunderKittens appendix which actually documents CUDA correctly.
-        addr = (addr ^ (((addr % 512) >> 7) << 4));
+        uint32_t shr = uint32_t(addr) >> 3;
+        const uint32_t mask = 48;
+        addr = addr ^ (shr & mask);
         return reinterpret_cast<exo_Sm90_SW64*>(addr);
     }
 
     static __host__ __device__ constexpr uint64_t get_swizzle_bits()
     {
         return 2;
+    }
+
+    static __host__ __device__ constexpr int get_swizzle_bytes()
+    {
+        return 64;
     }
 
     EXO_CUDA_INLINE const T& swizzle_get() const
@@ -595,13 +674,149 @@ struct exo_Sm90_SW64 {
         return swizzle_pointer(reinterpret_cast<uintptr_t>(&data))->data;
     }
 };
+
+// Element type for Sm90_SmemSwizzled(64) allocations where the
+// last 3 array extents are [TileOuterCols, TileRows, TileInnerCols]
+// (left-padded with 1 for 0D, 1D, 2D allocations).
+template <typename T, int TileOuterCols, int TileRows, int TileInnerCols>
+struct exo_Sm90_SW64_tiled: public exo_Sm90_SW64<T>
+{
+    // Reinterpret-cast to kittens::st_subtile view of this shared memory.
+    //
+    // For better or worse, kittens 2D tile is expressed as a 3D tile in Exo-GPU.
+    // `this` is assumed to point-to the NON-SWIZZLED base address of a complete
+    // 3D tile. This returns a subtile view whose
+    //
+    // * size/extents are given by the Subtile template parameters
+    //
+    // * base offset from the `this` tile is given by runtime int offsets
+    //
+    // Assume for this discussion that the tile is row-major. Then,
+    //
+    // * Let swizzle_elements = 64 / sizeof(T)
+    //
+    // * The 3D Exo-GPU tile is of size [TileOuterCols, TileRows, TileInnerCols],
+    //   where TileInnerCols == swizzle_elements. If not, then this tile
+    //   is incompatible with ThunderKittens, TMA, and wgmma.
+    //
+    // * The value at coordinates (r, c) in the 2D [Rows, Cols] tile is stored at
+    //   address swizzle_pointer(
+    //          tile_base_addr
+    //          + sizeof(T) * (c / TileInnerCols) * TileRows * TileInnerCols
+    //          + sizeof(T) * (r) * TileInnerCols
+    //          + sizeof(T) * (c % TileInnerCols))
+    //   Basically, the column is simultaneously the fastest (%) and slowest (/) dimension
+    //
+    // TMA: If TileOuterCols != 1, then ThunderKittens is capable of doing a single TMA
+    // copy to load/store the tile, but Exo-GPU may have to issue multiple.
+    template <
+        int SubtileOuterCols,
+        int SubtileRows,
+        int SubtileInnerCols,
+        template <int, int, bool, int> class st_typed>
+    EXO_CUDA_INLINE auto as_tk_subtile(int col_outer_offset, int row_offset, int col_inner_offset) const
+    {
+        static_assert(
+            TileInnerCols * sizeof(T) == 64,
+            "Exo-GPU instr didn't assert strides properly."
+            " This is needed to match kittens swizzle automation"
+        );
+        static_assert(
+            SubtileInnerCols == TileInnerCols || SubtileOuterCols == 1,
+            "Exo-GPU instr used wrong SubtileInnerCols (window size last dimension)."
+            " This is needed for Exo-GPU and kittens to agree on column tiling"
+        );
+        using st_t = st_typed<TileRows, TileOuterCols * TileInnerCols, true, 0>;
+        st_t* p_tile = const_cast<st_t*>(reinterpret_cast<const st_t*>(this));
+        // Note, subtile implicitly multiplies (r, c) by the subtile size.
+        // We have to work around this!
+        // Also, can't mention ::kittens here, because it may not be included.
+        // Also also, explicit kittens swizzle is broken in this function.
+        auto subtile = p_tile->template subtile<SubtileRows, SubtileOuterCols * SubtileInnerCols>(int2(0, 0));
+        subtile.row_offset = static_cast<int>(row_offset);
+        subtile.col_offset = static_cast<int>(col_outer_offset) * TileInnerCols + static_cast<int>(col_inner_offset);
+        return subtile;
+    }
+};
+
 #endif
 
 #endif
 
 namespace exo_CudaUtil_test_tma_tester_proc_SW64_golden {
 namespace exo_CudaUtil = ::exo_CudaUtil_test_tma_tester_proc_SW64_golden;
-/* Required by Sm90_copy_tensor_to_gmem_swizzled_2f32(dst,src,size0=248, size1=16, smem_box=None) */
+/* Required by Sm90_tma_load_2d(dst,src,dst=f32, src=f32, size0=248, size1=16, smem_box=None, swizzle=64) */
+template <typename WindowOffsets>
+EXO_CUDA_INLINE void
+exo_Sm90_tma_to_smem(
+        void* dst, const CUtensorMap& tensorMap, WindowOffsets window,
+        uint32_t exo_tma_mbarrier, uint32_t expect_tx)
+{
+    constexpr auto rank = sizeof(window.C_offsets) / sizeof(window.C_offsets[0]);
+    static_assert(rank >= 1 && rank <= 5);
+    // cute::elect_one_sync
+    uint32_t pred = 0;
+    uint32_t laneid = 0;
+    asm volatile(
+      "{\n"
+      ".reg .b32 %%rx;\n"
+      ".reg .pred %%px;\n"
+      "     elect.sync %%rx|%%px, %2;\n"
+      "@%%px mov.s32 %1, 1;\n"
+      "     mov.s32 %0, %%rx;\n"
+      "}\n"
+      : "+r"(laneid), "+r"(pred)
+      : "r"(0xFFFFFFFF));
+    if (pred) {
+        asm("mbarrier.expect_tx.shared::cta.b64 [%0], %1;" :: "r"(exo_tma_mbarrier), "r"(expect_tx));
+        if constexpr (rank == 1) {
+            asm volatile(
+            "cp.async.bulk.tensor.1d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
+            " [%0], [%1, {%2}], [%3], %4;"
+            :
+            : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[0]),
+              "r"(exo_tma_mbarrier), "n"(1152921504606846976)
+            : "memory");
+        }
+        if constexpr (rank == 2) {
+            asm volatile(
+            "cp.async.bulk.tensor.2d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
+            " [%0], [%1, {%2, %3}], [%4], %5;"
+            :
+            : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
+              "r"(exo_tma_mbarrier), "n"(1152921504606846976)
+            : "memory");
+        }
+        if constexpr (rank == 3) {
+            asm volatile(
+            "cp.async.bulk.tensor.3d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
+            " [%0], [%1, {%2, %3, %4}], [%5], %6;"
+            :
+            : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
+              "r"(exo_tma_mbarrier), "n"(1152921504606846976)
+            : "memory");
+        }
+        if constexpr (rank == 4) {
+            asm volatile(
+            "cp.async.bulk.tensor.4d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
+            " [%0], [%1, {%2, %3, %4, %5}], [%6], %7;"
+            :
+            : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[3]), "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
+              "r"(exo_tma_mbarrier), "n"(1152921504606846976)
+            : "memory");
+        }
+        if constexpr (rank == 5) {
+            asm volatile(
+            "cp.async.bulk.tensor.5d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
+            " [%0], [%1, {%2, %3, %4, %5, %6}], [%7], %8;"
+            :
+            : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[4]), "r"(window.C_offsets[3]), "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
+              "r"(exo_tma_mbarrier), "n"(1152921504606846976)
+            : "memory");
+        }
+    }
+}
+/* Required by Sm90_tma_store_2d(dst,src,dst=f32, src=f32, size0=248, size1=16, smem_box=None, swizzle=64) */
 template <typename WindowOffsets>
 EXO_CUDA_INLINE void
 exo_Sm90_tma_to_gmem(const CUtensorMap& tensorMap, WindowOffsets window, const void* src)
@@ -671,77 +886,6 @@ exo_Sm90_tma_to_gmem(const CUtensorMap& tensorMap, WindowOffsets window, const v
                   "r"(window.C_offsets[4]), "r"(window.C_offsets[3]), "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
                   "r"(exo_smemU32(src))
                 : "memory");
-        }
-    }
-}
-/* Required by Sm90_copy_tensor_to_smem_swizzled_2f32(dst,src,size0=248, size1=16, smem_box=None) */
-template <typename WindowOffsets>
-EXO_CUDA_INLINE void
-exo_Sm90_tma_to_smem(
-        void* dst, const CUtensorMap& tensorMap, WindowOffsets window,
-        uint32_t exo_tma_mbarrier, uint32_t expect_tx)
-{
-    constexpr auto rank = sizeof(window.C_offsets) / sizeof(window.C_offsets[0]);
-    static_assert(rank >= 1 && rank <= 5);
-    // cute::elect_one_sync
-    uint32_t pred = 0;
-    uint32_t laneid = 0;
-    asm volatile(
-      "{\n"
-      ".reg .b32 %%rx;\n"
-      ".reg .pred %%px;\n"
-      "     elect.sync %%rx|%%px, %2;\n"
-      "@%%px mov.s32 %1, 1;\n"
-      "     mov.s32 %0, %%rx;\n"
-      "}\n"
-      : "+r"(laneid), "+r"(pred)
-      : "r"(0xFFFFFFFF));
-    if (pred) {
-        asm("mbarrier.expect_tx.shared::cta.b64 [%0], %1;" :: "r"(exo_tma_mbarrier), "r"(expect_tx));
-        if constexpr (rank == 1) {
-            asm volatile(
-            "cp.async.bulk.tensor.1d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
-            " [%0], [%1, {%2}], [%3], %4;"
-            :
-            : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[0]),
-              "r"(exo_tma_mbarrier), "n"(1152921504606846976)
-            : "memory");
-        }
-        if constexpr (rank == 2) {
-            asm volatile(
-            "cp.async.bulk.tensor.2d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
-            " [%0], [%1, {%2, %3}], [%4], %5;"
-            :
-            : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
-              "r"(exo_tma_mbarrier), "n"(1152921504606846976)
-            : "memory");
-        }
-        if constexpr (rank == 3) {
-            asm volatile(
-            "cp.async.bulk.tensor.3d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
-            " [%0], [%1, {%2, %3, %4}], [%5], %6;"
-            :
-            : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
-              "r"(exo_tma_mbarrier), "n"(1152921504606846976)
-            : "memory");
-        }
-        if constexpr (rank == 4) {
-            asm volatile(
-            "cp.async.bulk.tensor.4d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
-            " [%0], [%1, {%2, %3, %4, %5}], [%6], %7;"
-            :
-            : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[3]), "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
-              "r"(exo_tma_mbarrier), "n"(1152921504606846976)
-            : "memory");
-        }
-        if constexpr (rank == 5) {
-            asm volatile(
-            "cp.async.bulk.tensor.5d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
-            " [%0], [%1, {%2, %3, %4, %5, %6}], [%7], %8;"
-            :
-            : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[4]), "r"(window.C_offsets[3]), "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
-              "r"(exo_tma_mbarrier), "n"(1152921504606846976)
-            : "memory");
         }
     }
 }
@@ -1059,9 +1203,9 @@ exo_CudaInline_test_tma_tester_proc_SW64_golden::exo_Cuda0_tma_tester_gpu_SW64::
     exo_ExcutThreadLog exo_excutLog)
 {
   namespace exo_CudaUtil = exo_CudaUtil_test_tma_tester_proc_SW64_golden;
-  auto& smem_x = reinterpret_cast<exo_Sm90_SW64<float> (&)[]>(exo_smem[exo_smemOffset0_smem_x]);
-  auto& smem_y = reinterpret_cast<exo_Sm90_SW64<float> (&)[]>(exo_smem[exo_smemOffset1_smem_y]);
-  auto& smem_sum = reinterpret_cast<exo_Sm90_SW64<float> (&)[]>(exo_smem[exo_smemOffset2_smem_sum]);
+  auto& smem_x = reinterpret_cast<exo_Sm90_SW64_tiled<float, 1, 248, 16> (&)[]>(exo_smem[exo_smemOffset0_smem_x]);
+  auto& smem_y = reinterpret_cast<exo_Sm90_SW64_tiled<float, 1, 248, 16> (&)[]>(exo_smem[exo_smemOffset1_smem_y]);
+  auto& smem_sum = reinterpret_cast<exo_Sm90_SW64_tiled<float, 1, 248, 16> (&)[]>(exo_smem[exo_smemOffset2_smem_sum]);
   // raw: barrier @ CudaMbarrier
   // war: barrier(raw) @ CudaMbarrier
   // CudaWarps(0, 1)
@@ -1071,11 +1215,11 @@ exo_CudaInline_test_tma_tester_proc_SW64_golden::exo_Cuda0_tma_tester_gpu_SW64::
     CUtensorMap const& exo_data_x_input = exo_deviceArgs.exo_data_x_tensorMap_debug;
     struct exo_win_2f32_Sm90_tensorMap_64_248_16 x_input = (exo_win_2f32_Sm90_tensorMap_64_248_16) { {(exo_deviceArgs.x_tensorMap_debug.C_offsets[0] + 248 * exo_task.task_m), (exo_deviceArgs.x_tensorMap_debug.C_offsets[1] + 16 * exo_task.task_k)} };
     exo_CudaUtil::exo_Sm90_tma_to_smem(
-      &smem_x[0],
-      exo_data_x_input,
-      (exo_win_2f32_Sm90_tensorMap_64_248_16) { {x_input.C_offsets[0], x_input.C_offsets[1]} },
-      exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, 0, 0),
-      15872
+        (&smem_x[0])
+      , exo_data_x_input
+      , (exo_win_2f32_Sm90_tensorMap_64_248_16) { {x_input.C_offsets[0], x_input.C_offsets[1]} }
+      , exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, 0, 0)
+      , 15872
     );
     // Arrive(cuda_temporal, 1) >> raw
     // cta_mask: uint16_t(0x1)
@@ -1132,9 +1276,9 @@ exo_CudaInline_test_tma_tester_proc_SW64_golden::exo_Cuda0_tma_tester_gpu_SW64::
     CUtensorMap const& exo_data_tma_window = exo_deviceArgs.exo_data_sum_tensorMap_window;
     struct exo_win_2f32_Sm90_tensorMap_64_248_16 tma_window = (exo_win_2f32_Sm90_tensorMap_64_248_16) { {(exo_deviceArgs.sum_tensorMap_window.C_offsets[0] + 248 * exo_task.task_m), (exo_deviceArgs.sum_tensorMap_window.C_offsets[1] + 16 * exo_task.task_k)} };
     exo_CudaUtil::exo_Sm90_tma_to_gmem(
-      exo_data_tma_window,
-      (exo_win_2f32_Sm90_tensorMap_64_248_16) { {tma_window.C_offsets[0], tma_window.C_offsets[1]} },
-      &smem_sum[0]
+        exo_data_tma_window
+      , (exo_win_2f32_Sm90_tensorMap_64_248_16) { {tma_window.C_offsets[0], tma_window.C_offsets[1]} }
+      , (&smem_sum[0])
     );
     // cg: barrier @ CudaCommitGroup
     // Arrive(tma_to_gmem_async, 1) >> cg
