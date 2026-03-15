@@ -52,7 +52,8 @@ keyword arguments, yielding a concrete instr Procedure object.
             # InstrWindowArg or InstrNonWindowArg, with precision
             # given by args.x.scalar_info.
             # Template parameters y (except for precision template parameters)
-            # be kept as their literal Python types (often int) as args.y
+            # are kept as their literal Python types (often int) as args.y
+            # XXX default arguments aren't correctly passed.
             #
             # Return list of C lines
             # codegen() is optional if you define self.instr_format

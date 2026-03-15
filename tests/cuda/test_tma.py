@@ -65,12 +65,9 @@ def mkproc_tma_tester(swizzle: int, sync_check):
                             task_m * smem_M : task_m * smem_M + smem_M,
                             task_k * smem_K : task_k * smem_K + smem_K,
                         ]
-                        if swizzle == 0:
-                            Sm90_copy_tensor_to_smem_linear_2f32(smem_x[:, :], x_input,
-                                size0=smem_M, size1=smem_K) >> raw
-                        else:
-                            Sm90_copy_tensor_to_smem_swizzled_2f32(smem_x[:, :], x_input,
-                                size0=smem_M, size1=smem_K) >> raw
+                        Sm90_tma_load_2d(smem_x[:, :], x_input,
+                            size0=smem_M, size1=smem_K, dst=f32, src=f32, swizzle=swizzle,
+                        ) >> raw
                         Arrive(cuda_temporal, 1) >> raw
 
                     # All warps copy y to SMEM using cp.async (lazy threading)
@@ -97,16 +94,10 @@ def mkproc_tma_tester(swizzle: int, sync_check):
                             task_m * smem_M : task_m * smem_M + smem_M,
                             task_k * smem_K : task_k * smem_K + smem_K,
                         ]
-                        if swizzle == 0:
-                            Sm90_copy_tensor_to_gmem_linear_2f32(
-                                tma_window[:, :], smem_sum[:, :],
-                                size0=smem_M, size1=smem_K
-                            )
-                        else:
-                            Sm90_copy_tensor_to_gmem_swizzled_2f32(
-                                tma_window[:, :], smem_sum[:, :],
-                                size0=smem_M, size1=smem_K
-                            )
+                        Sm90_tma_store_2d(
+                            tma_window[:, :], smem_sum[:, :],
+                            size0=smem_M, size1=smem_K, dst=f32, src=f32, swizzle=swizzle,
+                        )
                         cg: barrier @ CudaCommitGroup
                         Arrive(tma_to_gmem_async, 1) >> cg
                         Await(cg, cuda_in_order, 0)

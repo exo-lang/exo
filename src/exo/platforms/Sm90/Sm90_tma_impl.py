@@ -125,7 +125,7 @@ _tma_get_rank_prefix = """constexpr auto rank = sizeof(window.C_offsets) / sizeo
     static_assert(rank >= 1 && rank <= 5);"""
 
 
-def tma_to_smem_util(multicast: bool):
+def tma_to_smem_util(is_multicast: bool):
     cache_hint = 1152921504606846976  # copied from cutlass PTX
 
     # fmt: off
@@ -135,11 +135,11 @@ def tma_to_smem_util(multicast: bool):
     def rank_case(rank: int):
         vector_fmt = "{" + ", ".join(f"%{r+2}" for r in range(rank)) + "}"
         ptx_fmt = f" [%0], [%1, {vector_fmt}], [%{rank+2}], %{rank+3}"
-        if multicast:
+        if is_multicast:
             ptx_fmt += f", %{rank+4}"
         vector_args = [f'"r"(window.C_offsets[{rank - 1 - r}])' for r in range(0, rank)]
         vector_values = ", ".join(vector_args)
-        if multicast:
+        if is_multicast:
             return f"""if constexpr (rank == {rank}) {{
             asm volatile(
                 "cp.async.bulk.tensor.{rank}d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.multicast::cluster.L2::cache_hint"
@@ -160,7 +160,7 @@ def tma_to_smem_util(multicast: bool):
             : "memory");
         }}"""
 
-    if multicast:
+    if is_multicast:
         return f"""template <typename WindowOffsets>
 EXO_CUDA_INLINE void
 exo_Sm90_tma_to_smem_multicast(
@@ -242,7 +242,7 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
     assert 1 <= n_dims <= 5, n_dims
 
     class Base(InstrInfo):
-        __slots__ = []
+        __slots__ = ["ncta", "sizes", "smem_box", "cta_stride", "swizzle"]
 
         valid_num_types = ScalarInfo.same()
 
@@ -272,6 +272,12 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
             cta_stride: int,
             swizzle: int,
         ):
+            self.ncta = ncta
+            self.sizes = sizes
+            self.smem_box = smem_box
+            self.cta_stride = cta_stride
+            self.swizzle = swizzle
+
             if to_gmem:
                 gmem = self.access_info["dst"]
                 smem = self.access_info["src"]
@@ -312,12 +318,12 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
                     # Same as 1 * cuda_warp_in_cluster_strided(1),
                     # but just use cuda_warp here to reduce user confusion.
                     self.coll_unit = cuda_warp
-                self.cu_utils.append(tma_to_smem_util(multicast))
+                self.cu_utils.append(tma_to_smem_util(is_multicast))
                 self.barrier_mechanism = CudaMbarrier
 
         def codegen(self: InstrInfo, args: InstrArgs):
             # fmt: off
-            box = args.smem_box
+            box = self.smem_box
             gmem: InstrWindowArg
             smem: InstrWindowArg
             if to_gmem:
@@ -337,7 +343,7 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
             gmem_tensorMap = gmem.get_separate_dataptr()
             gmem_offsets = gmem.get_window()
 
-            if args.swizzle:
+            if self.swizzle:
                 smem_ptr = smem.index_ptr(for_wgmma=True)
             else:
                 smem_ptr = smem.index_ptr()
@@ -357,7 +363,7 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
             lines = [f"exo_CudaUtil::{fname}("]
             for i, c_arg in enumerate(c_args):
                 prefix = "    " if i == 0 else "  , "
-                lines.append(prefix + c_arg)
+                lines.append(f"{prefix}{c_arg}")
             lines.append(");")
             return lines
 

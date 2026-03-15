@@ -154,7 +154,7 @@ def append_instr(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bool
         cta_stride: int, smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,
     ):
         smem_box = self._validate_smem_box(smem_box, ({sizes_ncta_csv}, ))
-        self.instance_impl(self, ncta, ({sizes_csv}, ), smem_box, cta_stride, swizzle)
+        self.instance_impl(ncta, ({sizes_csv}, ), smem_box, cta_stride, swizzle)
 """)
     else:
         lines.append(f"""
@@ -166,7 +166,7 @@ def append_instr(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bool
         smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,
     ):
         smem_box = self._validate_smem_box(smem_box, ({sizes_csv}, ))
-        self.instance_impl(self, 1, ({sizes_csv}, ), smem_box, 1, swizzle)
+        self.instance_impl(1, ({sizes_csv}, ), smem_box, 1, swizzle)
 """)
 
     # Push definitions to lists, to be written out at the end of the script.
