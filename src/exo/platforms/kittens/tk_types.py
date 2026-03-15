@@ -12,10 +12,10 @@ from exo.API import (
 from exo.scalars import ScalarInfo, f16, bf16, f32
 from exo.core.memory import memwin_template
 
-__all__ = [
-    "cuda_tk_type_suffix_table",
-    "cuda_tk_typename_table",
-]  # Will be appended to.
+# Don't import from Sm90 here to avoid circular imports
+
+
+__all__ = []  # Will be appended to
 
 
 # Translate Exo ScalarInfo to suffixes for ThunderKittens convenience typedefs.
@@ -45,6 +45,8 @@ cuda_tk_valid_num_types_all_pairs = {
 }
 
 
+__all__.append("cuda_tk_type_suffix_table")
+__all__.append("cuda_tk_typename_table")
 __all__.append("cuda_tk_tile_layout_names")
 __all__.append("cuda_tk_vec_layout_names")
 __all__.append("cuda_tk_valid_num_types_all_pairs")

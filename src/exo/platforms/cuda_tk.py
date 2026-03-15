@@ -19,3 +19,5 @@ from .kittens.tk_global_to_shared import *
 # TODO MMA template, support transpose f16/bf16, and wgmma A
 # Also support tf32 for SMEM only
 # TODO TMA template
+
+from .Sm90 import Sm90_SmemSwizzled
