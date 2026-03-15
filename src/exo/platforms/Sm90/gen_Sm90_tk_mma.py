@@ -28,14 +28,10 @@ _all = ["CudaTkWarpTile", "Sm90_TkRmemTileA", "Sm90_TkRmemTileD"]
 _instr_defs = []
 
 
-def append_instr(a_mode: str, b_mode: str, m64: bool):
-    _m64 = "_m64" * m64
-    instr_name = f"Sm90_tk_mma_{a_mode}_{b_mode}{_m64}"
+def append_instr(a_mode: str, b_mode: str):
+    instr_name = f"Sm90_tk_mma_{a_mode}_{b_mode}"
 
-    if not m64:
-        M = "64 * M64"
-    else:
-        M = "64"
+    M = "64"
     if a_mode == "rmem":
         A_comment = "register tiles"
     elif a_mode == "row":
@@ -54,14 +50,12 @@ def append_instr(a_mode: str, b_mode: str, m64: bool):
     lines.append(f"# A in {A_comment}, B in {B_comment}")
 
     lines.append("@instr")
-    lines.append(f"class {instr_name}(make_basic_mma({a_mode!r}, {b_mode!r}, {m64})):")
+    lines.append(f"class {instr_name}(make_basic_mma({a_mode!r}, {b_mode!r})):")
     lines.append("    def behavior(")
 
     indent = "        "
 
-    # M/N/K instance template parameters.
-    if not m64:
-        lines.append(indent + "M64: size,  # M / 64")
+    # N/K instance template parameters.
     if b_mode == "row":
         lines.append(indent + "N64: size,  # N / 64")
     else:
@@ -69,33 +63,20 @@ def append_instr(a_mode: str, b_mode: str, m64: bool):
     lines.append(indent + "K: size,")
 
     # D parameter
-    if m64:
-        lines.append(indent + "# D @ Sm90_TkRmemTileD(N), split on M dim into 4 warps")
-        lines.append(indent + f"D: [R][4, 16, {N}],")
-    else:
-        lines.append(indent + "# D @ Sm90_TkRmemTileD(N), indexed as [w, m // 64, m % 16, n]")
-        lines.append(indent + "# where `w` is the index of the warp in the warpgroup,")
-        lines.append(indent + "# which owns rows with 16 * w <= (m % 64) <= 16 * w + 15")
-        lines.append(indent + f"D: [R][4, M64, 16, {N}],")
+    lines.append(indent + "# D @ Sm90_TkRmemTileD(N), split on M dim into 4 warps")
+    lines.append(indent + f"D: [R][4, 16, {N}],")
 
     # A parameter
     if a_mode == "row":
         lines.append(indent + "# A @ Sm90_SmemSwizzled(swizzle), indexed as [m, k]")
         lines.append(indent + f"A: [R][{M}, K],")
     elif a_mode == "col":
-        assert m64
         lines.append(indent + "# A @ Sm90_SmemSwizzled(128), indexed as [k, m]")
         lines.append(indent + "A: [R][K, 64] @ Sm90_SmemSwizzled(128),")
-    elif m64:
+    else:
         assert a_mode == "rmem"
         lines.append(indent + "# A @ Sm90_TkRmemTileA(K), split on M dim into 4 warps")
         lines.append(indent + "A: [R][4, 16, K],")
-    else:
-        assert a_mode == "rmem"
-        lines.append(indent + "# A @ Sm90_TkRmemTileA(K), indexed as [w, m // 64, m % 16, k]")
-        lines.append(indent + "# where `w` is the index of the warp in the warpgroup,")
-        lines.append(indent + "# which owns rows with 16 * w <= (m % 64) <= 16 * w + 15")
-        lines.append(indent + "A: [R][4, M64, 16, K],")
 
     # B parameter
     if b_mode == "row":
@@ -115,12 +96,7 @@ def append_instr(a_mode: str, b_mode: str, m64: bool):
     lines.append(indent + '# i.e. swizzle / sizeof(Element) elements.')
 
     # Define behavior loop nest.
-    if m64:
-        m = "m_warp * 16 + mi"
-    else:
-        lines.append(indent + "for mo in seq(0, M64):")
-        indent += "    "
-        m = "mo * 64 + m_warp * 16 + mi"
+    m = "m_warp * 16 + mi"
     lines.append(indent + "for m_warp in seq(0, 4):")
     indent += "    "
     lines.append(indent + "for mi in seq(0, 16):")
@@ -139,20 +115,14 @@ def append_instr(a_mode: str, b_mode: str, m64: bool):
     indent += "    "
 
     # Define behavior += stmt.
-    if m64:
-        lines.append(indent + f"D[m_warp, mi, {n}] += (")
-    else:
-        lines.append(indent + f"D[m_warp, mo, mi, {n}] += (")
+    lines.append(indent + f"D[m_warp, mi, {n}] += (")
     if a_mode == "row":
         lines.append(indent + f"    A[{m}, k]")
     elif a_mode == "col":
         lines.append(indent + f"    A[k, {m}]")
-    elif m64:
-        assert a_mode == "rmem"
-        lines.append(indent + f"    A[m_warp, mi, k]")
     else:
         assert a_mode == "rmem"
-        lines.append(indent + f"    A[m_warp, mo, mi, k]")
+        lines.append(indent + f"    A[m_warp, mi, k]")
     if b_mode == "row":
         lines.append(indent + f"  * B[no, k, ni]")
     else:
@@ -164,10 +134,7 @@ def append_instr(a_mode: str, b_mode: str, m64: bool):
 
 for b_mode in ("col", "row"):
     for a_mode in ("row", "rmem", "col"):
-        for m64 in (True, False):
-            if a_mode == "col" and not m64:
-                continue
-            append_instr(a_mode, b_mode, m64)
+        append_instr(a_mode, b_mode)
 
 
 write_chunk('''

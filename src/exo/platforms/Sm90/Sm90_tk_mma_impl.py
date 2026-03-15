@@ -29,13 +29,9 @@ def Sm90_TkRmemTileD(N: int):
     return Tile
 
 
-def make_basic_mma(a_mode, b_mode, m64):
+def make_basic_mma(a_mode, b_mode):
     assert a_mode in ("row", "col", "rmem")
     assert b_mode in ("row", "col")
-    assert isinstance(m64, bool)
-
-    if a_mode == "col":
-        assert m64, "trans_a requires M=64"
 
     # f16/f16/f16 supports everything
     _valid_num_types = {(f16, f16, f16)}
@@ -111,29 +107,15 @@ def make_basic_mma(a_mode, b_mode, m64):
             b_access.out_of_order = True
             b_access.mem = Sm90_SmemSwizzled(swizzle)
 
-        # m64=True omits M64 instance template parameter
-        if m64:
-            if b_mode == "col":
+        if b_mode == "col":
 
-                def instance(self, N, K, *, swizzle=128):
-                    self.instance_impl(64, N, K, swizzle)
+            def instance(self, N, K, *, swizzle=128):
+                self.instance_impl(64, N, K, swizzle)
 
-            else:
-                # MN-major B requires N divisible by 64 (Exo-GPU restriction)
-                def instance(self, N64, K, *, swizzle=128):
-                    self.instance_impl(64, 64 * N64, K, swizzle)
-
-        # m64=False includes M64 instance template parameter
         else:
-            if b_mode == "col":
-
-                def instance(self, M64, N, K, *, swizzle=128):
-                    self.instance_impl(64 * M64, N, K, swizzle)
-
-            else:
-
-                def instance(self, M64, N64, K, *, swizzle=128):
-                    self.instance_impl(64 * M64, 64 * N64, K, swizzle)
+            # MN-major B requires N divisible by 64 (Exo-GPU restriction)
+            def instance(self, N64, K, *, swizzle=128):
+                self.instance_impl(64, 64 * N64, K, swizzle)
 
         def codegen(self: InstrInfo, args):
             return []  # TODO
