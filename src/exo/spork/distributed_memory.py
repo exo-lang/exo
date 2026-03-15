@@ -158,7 +158,7 @@ class DistributedAllocState(object):
                     raise CollTilingError(
                         f"Missing threads to match {optional_native_unit}\n"
                         f"domain={tmp.get_domain()}, box={box}; expected box={expected_box} (wrong @ box[{i}])\n"
-                        f"Analyzing usage of {self.alloc_stmt}"
+                        f"Analyzing usage of {alloc_stmt}"
                     )
             self.alloc_coll_tiling = tmp
         else:
