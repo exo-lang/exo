@@ -47,7 +47,6 @@ class cuda_tk_load_sg(InstrInfo):
         self.coll_unit = cuda_warp
         self.instr_tl = cuda_in_order_instr
         scalar_info: ScalarInfo = self.access_info["dst"].scalar_info
-        self.access_info["src"].allow_out_of_bounds = True
         self.access_info["dst"].mem = Sm90_SmemSwizzled_from_smem_box(
             scalar_info, (size0, size1)
         )
@@ -101,7 +100,6 @@ class cuda_tk_store_sg(InstrInfo):
         self.access_info["src"].mem = Sm90_SmemSwizzled_from_smem_box(
             scalar_info, (size0, size1)
         )
-        self.access_info["dst"].allow_out_of_bounds = True
 
     def codegen(self: InstrInfo, args: InstrArgs):
         # fmt: off
