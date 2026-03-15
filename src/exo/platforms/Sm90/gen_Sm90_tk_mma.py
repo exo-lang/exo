@@ -98,7 +98,7 @@ def append_instr(a_mode: str, b_mode: str):
 
     indent = "        "
 
-    # N/K instance template parameters.
+    # N/K control value template parameters.
     if b_mode == "row":
         lines.append(indent + "N64: size,  # N / 64")
     else:

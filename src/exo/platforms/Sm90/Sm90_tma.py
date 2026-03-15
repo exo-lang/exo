@@ -64,7 +64,7 @@ class Sm90_tma_load_1d(make_basic_tma(n_dims=1, to_gmem=False, is_multicast=Fals
 
     def instance(
         self,
-        # Instance template parameters
+        # Control value template parameters
         size0, *,
         # Extra template parameters; usually swizzle=128.
         smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,
@@ -106,7 +106,7 @@ class Sm90_tma_load_multicast_1d(make_basic_tma(n_dims=1, to_gmem=False, is_mult
 
     def instance(
         self,
-        # Instance template parameters
+        # Control value template parameters
         ncta, size0, *,
         # Extra template parameters; usually swizzle=128.
         cta_stride: int, smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,
@@ -138,7 +138,7 @@ class Sm90_tma_store_1d(make_basic_tma(n_dims=1, to_gmem=True, is_multicast=Fals
 
     def instance(
         self,
-        # Instance template parameters
+        # Control value template parameters
         size0, *,
         # Extra template parameters; usually swizzle=128.
         smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,
@@ -170,7 +170,7 @@ class Sm90_tma_reduce_add_1d(make_basic_tma(n_dims=1, to_gmem=True, is_multicast
 
     def instance(
         self,
-        # Instance template parameters
+        # Control value template parameters
         size0, *,
         # Extra template parameters; usually swizzle=128.
         smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,
@@ -206,7 +206,7 @@ class Sm90_tma_load_2d(make_basic_tma(n_dims=2, to_gmem=False, is_multicast=Fals
 
     def instance(
         self,
-        # Instance template parameters
+        # Control value template parameters
         size0, size1, *,
         # Extra template parameters; usually swizzle=128.
         smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,
@@ -252,7 +252,7 @@ class Sm90_tma_load_multicast_2d(make_basic_tma(n_dims=2, to_gmem=False, is_mult
 
     def instance(
         self,
-        # Instance template parameters
+        # Control value template parameters
         ncta, size0, size1, *,
         # Extra template parameters; usually swizzle=128.
         cta_stride: int, smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,
@@ -288,7 +288,7 @@ class Sm90_tma_store_2d(make_basic_tma(n_dims=2, to_gmem=True, is_multicast=Fals
 
     def instance(
         self,
-        # Instance template parameters
+        # Control value template parameters
         size0, size1, *,
         # Extra template parameters; usually swizzle=128.
         smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,
@@ -324,7 +324,7 @@ class Sm90_tma_reduce_add_2d(make_basic_tma(n_dims=2, to_gmem=True, is_multicast
 
     def instance(
         self,
-        # Instance template parameters
+        # Control value template parameters
         size0, size1, *,
         # Extra template parameters; usually swizzle=128.
         smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,
@@ -363,7 +363,7 @@ class Sm90_tma_load_3d(make_basic_tma(n_dims=3, to_gmem=False, is_multicast=Fals
 
     def instance(
         self,
-        # Instance template parameters
+        # Control value template parameters
         size0, size1, size2, *,
         # Extra template parameters; usually swizzle=128.
         smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,
@@ -412,7 +412,7 @@ class Sm90_tma_load_multicast_3d(make_basic_tma(n_dims=3, to_gmem=False, is_mult
 
     def instance(
         self,
-        # Instance template parameters
+        # Control value template parameters
         ncta, size0, size1, size2, *,
         # Extra template parameters; usually swizzle=128.
         cta_stride: int, smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,
@@ -451,7 +451,7 @@ class Sm90_tma_store_3d(make_basic_tma(n_dims=3, to_gmem=True, is_multicast=Fals
 
     def instance(
         self,
-        # Instance template parameters
+        # Control value template parameters
         size0, size1, size2, *,
         # Extra template parameters; usually swizzle=128.
         smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,
@@ -490,7 +490,7 @@ class Sm90_tma_reduce_add_3d(make_basic_tma(n_dims=3, to_gmem=True, is_multicast
 
     def instance(
         self,
-        # Instance template parameters
+        # Control value template parameters
         size0, size1, size2, *,
         # Extra template parameters; usually swizzle=128.
         smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,
@@ -531,7 +531,7 @@ class Sm90_tma_load_4d(make_basic_tma(n_dims=4, to_gmem=False, is_multicast=Fals
 
     def instance(
         self,
-        # Instance template parameters
+        # Control value template parameters
         size0, size1, size2, size3, *,
         # Extra template parameters; usually swizzle=128.
         smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,
@@ -582,7 +582,7 @@ class Sm90_tma_load_multicast_4d(make_basic_tma(n_dims=4, to_gmem=False, is_mult
 
     def instance(
         self,
-        # Instance template parameters
+        # Control value template parameters
         ncta, size0, size1, size2, size3, *,
         # Extra template parameters; usually swizzle=128.
         cta_stride: int, smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,
@@ -623,7 +623,7 @@ class Sm90_tma_store_4d(make_basic_tma(n_dims=4, to_gmem=True, is_multicast=Fals
 
     def instance(
         self,
-        # Instance template parameters
+        # Control value template parameters
         size0, size1, size2, size3, *,
         # Extra template parameters; usually swizzle=128.
         smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,
@@ -664,7 +664,7 @@ class Sm90_tma_reduce_add_4d(make_basic_tma(n_dims=4, to_gmem=True, is_multicast
 
     def instance(
         self,
-        # Instance template parameters
+        # Control value template parameters
         size0, size1, size2, size3, *,
         # Extra template parameters; usually swizzle=128.
         smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,
@@ -707,7 +707,7 @@ class Sm90_tma_load_5d(make_basic_tma(n_dims=5, to_gmem=False, is_multicast=Fals
 
     def instance(
         self,
-        # Instance template parameters
+        # Control value template parameters
         size0, size1, size2, size3, size4, *,
         # Extra template parameters; usually swizzle=128.
         smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,
@@ -760,7 +760,7 @@ class Sm90_tma_load_multicast_5d(make_basic_tma(n_dims=5, to_gmem=False, is_mult
 
     def instance(
         self,
-        # Instance template parameters
+        # Control value template parameters
         ncta, size0, size1, size2, size3, size4, *,
         # Extra template parameters; usually swizzle=128.
         cta_stride: int, smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,
@@ -803,7 +803,7 @@ class Sm90_tma_store_5d(make_basic_tma(n_dims=5, to_gmem=True, is_multicast=Fals
 
     def instance(
         self,
-        # Instance template parameters
+        # Control value template parameters
         size0, size1, size2, size3, size4, *,
         # Extra template parameters; usually swizzle=128.
         smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,
@@ -846,7 +846,7 @@ class Sm90_tma_reduce_add_5d(make_basic_tma(n_dims=5, to_gmem=True, is_multicast
 
     def instance(
         self,
-        # Instance template parameters
+        # Control value template parameters
         size0, size1, size2, size3, size4, *,
         # Extra template parameters; usually swizzle=128.
         smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,

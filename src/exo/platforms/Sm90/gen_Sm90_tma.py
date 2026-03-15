@@ -77,7 +77,7 @@ def append_instr(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bool
         "size0 // ncta" if n == 0 else f"size{n}" for n in range(0, n_dims)
     )
 
-    # Size parameters (template instance parameters)
+    # Size parameters (template control value parameters)
     if is_multicast:
         lines.append(indent + "ncta: size,")
     for n in range(n_dims):
@@ -148,7 +148,7 @@ def append_instr(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bool
         lines.append(f"""
     def instance(
         self,
-        # Instance template parameters
+        # Control value template parameters
         ncta, {sizes_csv}, *,
         # Extra template parameters; usually swizzle=128.
         cta_stride: int, smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,
@@ -160,7 +160,7 @@ def append_instr(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bool
         lines.append(f"""
     def instance(
         self,
-        # Instance template parameters
+        # Control value template parameters
         {sizes_csv}, *,
         # Extra template parameters; usually swizzle=128.
         smem_box: Optional[Tuple[int]] = None, swizzle: int = 128,
