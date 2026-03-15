@@ -478,7 +478,7 @@ class TypeChecker:
                 self.err(
                     e,
                     f"cannot perform windowing on non-tensor, "
-                    f"non-window type {in_type} defined by {e}",
+                    f"non-window type {in_typ} defined by {e}",
                 )
                 return LoopIR.WindowExpr(e.name, [], T.err, e.srcinfo)
 

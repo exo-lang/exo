@@ -786,7 +786,7 @@ class ExcutStringTable:
         # then we remove duplicate, leading, trailing underscores.
         cleaned = "".join(c if c.isalnum() else " " for c in name)
         s_name = "_".join(cleaned.split())
-        assert s_name
+        assert s_name, name
 
         # Only up to 24 bits available for ID.
         id_table = self._str_to_id

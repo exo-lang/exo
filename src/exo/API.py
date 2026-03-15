@@ -20,6 +20,8 @@ from .core.instr_class import (
     PartialInstrTemplate,
     old_style_instr_info,
     InstrArgs,
+    InstrWindowArg,
+    InstrNonWindowArg,
 )
 from .backend.LoopIR_compiler import (
     run_compile,

@@ -24,8 +24,51 @@ def write_chunk(chunk):
 f.write("# fmt: off\n")
 
 
-_all = ["CudaTkWarpTile", "Sm90_TkRmemTileA", "Sm90_TkRmemTileD"]
+write_chunk('''
+from __future__ import annotations
+
+from .Sm90_fwd import *
+from .Sm90_smem import *
+
+from exo.API import *
+from exo.platforms.cuda import *
+from exo.platforms.cuda_tk import CudaTkWarpTile
+from exo.scalars import f16, f32
+
+from .Sm90_tk_mma_impl import Sm90_TkRmemTileA, Sm90_TkRmemTileD, make_basic_mma
+
+''')
+
+
+
+_all = ["CudaTkWarpTile", "Sm90_TkRmemTileA", "Sm90_TkRmemTileD", "Sm90_tk_zero_scale_d"]
 _instr_defs = []
+
+
+write_chunk('''
+@instr
+class Sm90_tk_zero_scale_d(InstrInfo):
+    """Triggers the tile to be zeroed in the next mma instruction.
+
+    """
+    valid_num_types = {(f16, ), (f32, )}
+
+    def behavior(N: size, D: [R][4, 16, N]):
+        for m_warp in seq(0, 4):
+            for mi in seq(0, 16):
+                for n in seq(0, N):
+                    D[m_warp, mi, n] = 0
+
+    def instance(self, N):
+        self.instr_tl = wgmma_zero_instr
+        self.coll_unit = cuda_warpgroup
+        self.access_info["D"].mem = Sm90_TkRmemTileD(N)
+        self.access_info["D"].out_of_order = False
+        self.access_info["D"].distributed_coll_units = (cuda_warp, )
+
+    def codegen(self, args):
+        return [f"{args.D.index()}.scale_d = 0;"]
+''')
 
 
 def append_instr(a_mode: str, b_mode: str):
@@ -46,11 +89,11 @@ def append_instr(a_mode: str, b_mode: str):
         B_comment = "column-major SMEM"
 
     lines = []
-    lines.append(f"# m({M}) x n({N}) x k(K) matrix multiply-accumulate")
-    lines.append(f"# A in {A_comment}, B in {B_comment}")
-
     lines.append("@instr")
     lines.append(f"class {instr_name}(make_basic_mma({a_mode!r}, {b_mode!r})):")
+    lines.append(f'    """"m({M}) x n({N}) x k(K) matrix multiply-accumulate')
+    lines.append("")
+    lines.append(f'    A in {A_comment}, B in {B_comment}"""')
     lines.append("    def behavior(")
 
     indent = "        "
@@ -136,20 +179,6 @@ for b_mode in ("col", "row"):
     for a_mode in ("row", "rmem", "col"):
         append_instr(a_mode, b_mode)
 
-
-write_chunk('''
-from __future__ import annotations
-
-from .Sm90_fwd import *
-from .Sm90_smem import *
-
-from exo.API import *
-from exo.platforms.cuda import *
-from exo.platforms.cuda_tk import CudaTkWarpTile
-
-from .Sm90_tk_mma_impl import Sm90_TkRmemTileA, Sm90_TkRmemTileD, make_basic_mma
-
-''')
 
 write_chunk(
 "__all__ = [\n    " + ",\n    ".join(repr(n) for n in _all) + "\n]\n"

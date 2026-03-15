@@ -1,4 +1,5 @@
 from .Sm90_fwd import *
+from .Sm90_internal_util import *
 
 from exo.platforms.cuda import *
 from exo.API import *
@@ -6,10 +7,15 @@ from exo.API import *
 from .Sm90_internal_util import *
 
 
+from ..kittens.tk_types import cuda_tk_type_suffix_table
+
+
 __all__ = [
     "Sm90_SmemSwizzled",
     "Sm90_get_mma_smem",
     "Sm90_SmemSwizzled_from_smem_box",
+    "Sm90_codegen_smem_descriptor",
+    "Sm90_codegen_smem_descriptor_util",
 ]
 
 
@@ -254,3 +260,66 @@ class SwizzledIndexer(WindowIndexer):
             code = f"{dataptr}[{array_offset}].swizzle_get()"
 
         return self.pack_result(code, False)
+
+
+def Sm90_codegen_smem_descriptor(
+    swizzle: int, arg: InstrWindowArg, K_major: bool, k: int
+):
+    assert swizzle in (32, 64, 128)
+    element_strides: List[CIR_Wrapper] = arg.to_strides_as_packed()
+
+    # 2D tile is [stride dimension, leading dimension]
+    # expecting strides [expected_middle_stride, 1]
+    #
+    # 3D tile is [leading dimension // (?), stride dimension, leading dimension % (?)]
+    # expecting strides [_, expected_middle_stride, 1]
+    # and where (?) is expected_middle_stride.
+
+    if len(element_strides) == 3:
+        outer_stride = element_strides[-3].exo_to_int("constant")
+    else:
+        outer_stride = 1
+        assert len(element_strides) == 2
+    middle_stride = element_strides[-2].exo_to_int("constant")
+    inner_stride = element_strides[-1].exo_to_int("constant")
+
+    scalar_info: ScalarInfo = arg.get_scalar_info()
+
+    expected_middle_stride = swizzle * 8 // scalar_info.bits
+    if middle_stride != expected_middle_stride or inner_stride != 1:
+        # TODO test me
+        raise ValueError(
+            f"Expected element strides of 2D {scalar_info} tile to be "
+            f"[{expected_middle_stride}, 1], not [{middle_stride}, {inner_stride}]"
+        )
+    indices = [0 for _ in element_strides]
+    if K_major:
+        indices[-1] = k
+    else:
+        indices[-2] = k
+    ptr = arg.index_ptr(*indices, for_wgmma=True)
+    return f"exo_CudaUtil::exo_Sm90_smem_descriptor({ptr}, {outer_stride}, {8 * middle_stride})"
+
+
+Sm90_codegen_smem_descriptor_util = """
+EXO_CUDA_INLINE uint64_t exo_Sm90_matrix_descriptor_encode(uint32_t val)
+{
+    return (val & 0x3FFFF) >> 4;
+}
+
+template <typename SwizzledElement>
+EXO_CUDA_INLINE
+uint64_t exo_Sm90_smem_descriptor(SwizzledElement* ptr, uint32_t leading_stride_elements, uint32_t stride_stride_elements)
+{
+    uint32_t element_size = sizeof(SwizzledElement);
+    return (
+        exo_Sm90_matrix_descriptor_encode(exo_smemU32(ptr))
+      | exo_Sm90_matrix_descriptor_encode(leading_stride_elements * element_size) << 16u
+      | exo_Sm90_matrix_descriptor_encode(stride_stride_elements * element_size) << 32u
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 100
+      | uint64_t(1) << 46  // Bit-field 46-48, Fixed constant value of 0b001 on Blackwell (?!!?)
+#endif
+      | uint64_t(SwizzledElement::get_swizzle_bits()) << 62
+  );
+}
+"""
