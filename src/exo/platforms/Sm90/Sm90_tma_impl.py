@@ -278,6 +278,8 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
             self.cta_stride = cta_stride
             self.swizzle = swizzle
 
+            assert ncta == 1 or is_multicast
+
             if to_gmem:
                 gmem = self.access_info["dst"]
                 smem = self.access_info["src"]
@@ -352,7 +354,7 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
                 c_args = [gmem_tensorMap, gmem_offsets, smem_ptr]
             else:
                 mbarrier = args.exo_barrier  # Magical
-                tx = prod(box) * 8 // smem.get_scalar_info().bits
+                tx = self.ncta * prod(box) * smem.get_scalar_info().bits // 8
                 c_args = [smem_ptr, gmem_tensorMap, gmem_offsets, mbarrier, tx]
                 if is_multicast:
                     # Also magical, poorly-documented argument that
