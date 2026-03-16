@@ -96,7 +96,8 @@ class Sm90_tma_load_multicast_1d(make_basic_tma(n_dims=1, to_gmem=False, is_mult
         src: [R][size0],
     ):
         # Must be tightly-packed on inner-most dimension
-        assert stride(dst, 0) == 1
+        # NB multicast asserts skip left-most dim of SMEM (the CTA dimension)
+        assert stride(dst, 1) == 1
         assert stride(src, 0) == 1
 
         # seq vs cuda_threads has no effect here; just for clarity.
@@ -130,8 +131,8 @@ class Sm90_tma_store_1d(make_basic_tma(n_dims=1, to_gmem=True, is_multicast=Fals
         src: [R][size0],
     ):
         # Must be tightly-packed on inner-most dimension
-        assert stride(dst, 0) == 1
         assert stride(src, 0) == 1
+        assert stride(dst, 0) == 1
 
         for i0 in seq(0, size0):
             dst[i0] = src[i0]
@@ -162,8 +163,8 @@ class Sm90_tma_reduce_add_1d(make_basic_tma(n_dims=1, to_gmem=True, is_multicast
         src: [R][size0],
     ):
         # Must be tightly-packed on inner-most dimension
-        assert stride(dst, 0) == 1
         assert stride(src, 0) == 1
+        assert stride(dst, 0) == 1
 
         for i0 in seq(0, size0):
             dst[i0] += src[i0]
@@ -239,10 +240,11 @@ class Sm90_tma_load_multicast_2d(make_basic_tma(n_dims=2, to_gmem=False, is_mult
         src: [R][size0, size1],
     ):
         # Must be tightly-packed on inner-most dimension
-        assert stride(dst, 1) == 1
+        # NB multicast asserts skip left-most dim of SMEM (the CTA dimension)
+        assert stride(dst, 2) == 1
         assert stride(src, 1) == 1
         # SMEM must be tightly-packed on all dimensions
-        assert stride(dst, 0) == size1
+        assert stride(dst, 1) == size1
 
         # seq vs cuda_threads has no effect here; just for clarity.
         for cta in cuda_threads(0, ncta, unit=cuda_cta_in_cluster):
@@ -277,8 +279,8 @@ class Sm90_tma_store_2d(make_basic_tma(n_dims=2, to_gmem=True, is_multicast=Fals
         src: [R][size0, size1],
     ):
         # Must be tightly-packed on inner-most dimension
-        assert stride(dst, 1) == 1
         assert stride(src, 1) == 1
+        assert stride(dst, 1) == 1
         # SMEM must be tightly-packed on all dimensions
         assert stride(src, 0) == size1
 
@@ -313,8 +315,8 @@ class Sm90_tma_reduce_add_2d(make_basic_tma(n_dims=2, to_gmem=True, is_multicast
         src: [R][size0, size1],
     ):
         # Must be tightly-packed on inner-most dimension
-        assert stride(dst, 1) == 1
         assert stride(src, 1) == 1
+        assert stride(dst, 1) == 1
         # SMEM must be tightly-packed on all dimensions
         assert stride(src, 0) == size1
 
@@ -397,11 +399,12 @@ class Sm90_tma_load_multicast_3d(make_basic_tma(n_dims=3, to_gmem=False, is_mult
         src: [R][size0, size1, size2],
     ):
         # Must be tightly-packed on inner-most dimension
-        assert stride(dst, 2) == 1
+        # NB multicast asserts skip left-most dim of SMEM (the CTA dimension)
+        assert stride(dst, 3) == 1
         assert stride(src, 2) == 1
         # SMEM must be tightly-packed on all dimensions
         # XXX Exo cannot do this assert for > 2 dimensions
-        assert stride(dst, 1) == size2
+        assert stride(dst, 2) == size2
 
         # seq vs cuda_threads has no effect here; just for clarity.
         for cta in cuda_threads(0, ncta, unit=cuda_cta_in_cluster):
@@ -438,8 +441,8 @@ class Sm90_tma_store_3d(make_basic_tma(n_dims=3, to_gmem=True, is_multicast=Fals
         src: [R][size0, size1, size2],
     ):
         # Must be tightly-packed on inner-most dimension
-        assert stride(dst, 2) == 1
         assert stride(src, 2) == 1
+        assert stride(dst, 2) == 1
         # SMEM must be tightly-packed on all dimensions
         # XXX Exo cannot do this assert for > 2 dimensions
         assert stride(src, 1) == size2
@@ -477,8 +480,8 @@ class Sm90_tma_reduce_add_3d(make_basic_tma(n_dims=3, to_gmem=True, is_multicast
         src: [R][size0, size1, size2],
     ):
         # Must be tightly-packed on inner-most dimension
-        assert stride(dst, 2) == 1
         assert stride(src, 2) == 1
+        assert stride(dst, 2) == 1
         # SMEM must be tightly-packed on all dimensions
         # XXX Exo cannot do this assert for > 2 dimensions
         assert stride(src, 1) == size2
@@ -566,11 +569,12 @@ class Sm90_tma_load_multicast_4d(make_basic_tma(n_dims=4, to_gmem=False, is_mult
         src: [R][size0, size1, size2, size3],
     ):
         # Must be tightly-packed on inner-most dimension
-        assert stride(dst, 3) == 1
+        # NB multicast asserts skip left-most dim of SMEM (the CTA dimension)
+        assert stride(dst, 4) == 1
         assert stride(src, 3) == 1
         # SMEM must be tightly-packed on all dimensions
         # XXX Exo cannot do this assert for > 2 dimensions
-        assert stride(dst, 2) == size3
+        assert stride(dst, 3) == size3
 
         # seq vs cuda_threads has no effect here; just for clarity.
         for cta in cuda_threads(0, ncta, unit=cuda_cta_in_cluster):
@@ -609,8 +613,8 @@ class Sm90_tma_store_4d(make_basic_tma(n_dims=4, to_gmem=True, is_multicast=Fals
         src: [R][size0, size1, size2, size3],
     ):
         # Must be tightly-packed on inner-most dimension
-        assert stride(dst, 3) == 1
         assert stride(src, 3) == 1
+        assert stride(dst, 3) == 1
         # SMEM must be tightly-packed on all dimensions
         # XXX Exo cannot do this assert for > 2 dimensions
         assert stride(src, 2) == size3
@@ -650,8 +654,8 @@ class Sm90_tma_reduce_add_4d(make_basic_tma(n_dims=4, to_gmem=True, is_multicast
         src: [R][size0, size1, size2, size3],
     ):
         # Must be tightly-packed on inner-most dimension
-        assert stride(dst, 3) == 1
         assert stride(src, 3) == 1
+        assert stride(dst, 3) == 1
         # SMEM must be tightly-packed on all dimensions
         # XXX Exo cannot do this assert for > 2 dimensions
         assert stride(src, 2) == size3
@@ -743,11 +747,12 @@ class Sm90_tma_load_multicast_5d(make_basic_tma(n_dims=5, to_gmem=False, is_mult
         src: [R][size0, size1, size2, size3, size4],
     ):
         # Must be tightly-packed on inner-most dimension
-        assert stride(dst, 4) == 1
+        # NB multicast asserts skip left-most dim of SMEM (the CTA dimension)
+        assert stride(dst, 5) == 1
         assert stride(src, 4) == 1
         # SMEM must be tightly-packed on all dimensions
         # XXX Exo cannot do this assert for > 2 dimensions
-        assert stride(dst, 3) == size4
+        assert stride(dst, 4) == size4
 
         # seq vs cuda_threads has no effect here; just for clarity.
         for cta in cuda_threads(0, ncta, unit=cuda_cta_in_cluster):
@@ -788,8 +793,8 @@ class Sm90_tma_store_5d(make_basic_tma(n_dims=5, to_gmem=True, is_multicast=Fals
         src: [R][size0, size1, size2, size3, size4],
     ):
         # Must be tightly-packed on inner-most dimension
-        assert stride(dst, 4) == 1
         assert stride(src, 4) == 1
+        assert stride(dst, 4) == 1
         # SMEM must be tightly-packed on all dimensions
         # XXX Exo cannot do this assert for > 2 dimensions
         assert stride(src, 3) == size4
@@ -831,8 +836,8 @@ class Sm90_tma_reduce_add_5d(make_basic_tma(n_dims=5, to_gmem=True, is_multicast
         src: [R][size0, size1, size2, size3, size4],
     ):
         # Must be tightly-packed on inner-most dimension
-        assert stride(dst, 4) == 1
         assert stride(src, 4) == 1
+        assert stride(dst, 4) == 1
         # SMEM must be tightly-packed on all dimensions
         # XXX Exo cannot do this assert for > 2 dimensions
         assert stride(src, 3) == size4

@@ -88,25 +88,6 @@ static inline CUtensorMap {sname}_encode(
 """
 
 
-# Translate type shorthand to CUDA enum + stride suffix
-# where f"element_count {stride suffix}" is C syntax for byte count for
-# element_count many values.
-# NB not all shorthands here are implemented in Exo ... David just implemented
-# them anyway so things will "just work" in the future.
-CUtensorMap_type_dict = {
-    "ui8": ("CU_TENSOR_MAP_DATA_TYPE_UINT8", ""),
-    "ui16": ("CU_TENSOR_MAP_DATA_TYPE_UINT16", " * 2"),
-    "ui32": ("CU_TENSOR_MAP_DATA_TYPE_UINT32", " * 4"),
-    "i32": ("CU_TENSOR_MAP_DATA_TYPE_INT32", " * 4"),
-    "u64": ("CU_TENSOR_MAP_DATA_TYPE_UINT64", " * 8"),
-    "i64": ("CU_TENSOR_MAP_DATA_TYPE_INT64", " * 8"),
-    "f16": ("CU_TENSOR_MAP_DATA_TYPE_FLOAT16", " * 2"),
-    "f32": ("CU_TENSOR_MAP_DATA_TYPE_FLOAT32", " * 4"),
-    "f64": ("CU_TENSOR_MAP_DATA_TYPE_FLOAT64", " * 8"),
-    "bf16": ("CU_TENSOR_MAP_DATA_TYPE_BFLOAT16", " * 2"),
-    "u4": ("CU_TENSOR_MAP_DATA_TYPE_16U4_ALIGN8B", " / 2"),
-}
-
 _tma_elect_one_prefix = r"""// cute::elect_one_sync
     uint32_t pred = 0;
     uint32_t laneid = 0;
@@ -280,6 +261,11 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
 
             assert ncta == 1 or is_multicast
 
+            if sizes[0] % ncta != 0:
+                raise ValueError(
+                    f"Multicast TMA requires size0={sizes[0]} to be divisible by ncta={ncta}"
+                )
+
             if to_gmem:
                 gmem = self.access_info["dst"]
                 smem = self.access_info["src"]
@@ -314,6 +300,7 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
                     self.coll_unit = ncta * cuda_warp_in_cluster_strided(cta_stride)
                     # We are writing to an SMEM window of size [ncta, size0, size1,...]
                     # and each [size0, size1, ...] shard is owned by 1 CTA.
+                    self.barrier_coll_units = (cuda_cta_in_cluster,)
                     smem.distributed_coll_units = (cuda_cta_in_cluster,)
                     smem.access_by_owner_only = False
                 else:
@@ -339,16 +326,28 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
                 gmem = args.src
                 smem = args.dst
 
+            # For multicasting, we divide the (size0, size1, ...)
+            # tile into (size0 // ncta, size1, ...) sized tiles, one
+            # assigned to each CTA to copy.
+            coop_size0 = args.size0 // self.ncta
+            if self.ncta > 1:
+                coop_cta_idx = (args.exo_wrap_cir("blockIdx.x") / self.cta_stride) % self.ncta
+                coop_dim0_offset = coop_size0 * coop_cta_idx
+            else:
+                assert self.ncta == 1
+                coop_cta_idx = 0
+                coop_dim0_offset = 0
+
             # The GMEM argument is passed as a window struct with a
             # "separate dataptr". The separate dataptr is a CUtensorMap
             # blob, and the window struct encodes just offset coordinates.
             gmem_tensorMap = gmem.get_separate_dataptr()
-            gmem_offsets = gmem.get_window()
+            gmem_offsets = gmem[coop_dim0_offset : coop_dim0_offset + coop_size0]
 
             if self.swizzle:
-                smem_ptr = smem.index_ptr(for_wgmma=True)
+                smem_ptr = smem.index_ptr(coop_dim0_offset, for_wgmma=True)
             else:
-                smem_ptr = smem.index_ptr()
+                smem_ptr = smem.index_ptr(coop_dim0_offset, )
 
             if to_gmem:
                 c_args = [gmem_tensorMap, gmem_offsets, smem_ptr]

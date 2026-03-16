@@ -116,13 +116,15 @@ def append_instr(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bool
 
     # Add stride assertions.
     lines.append(indent + "# Must be tightly-packed on inner-most dimension")
-    lines.append(indent + f"assert stride(dst, {n_dims-1}) == 1")
-    lines.append(indent + f"assert stride(src, {n_dims-1}) == 1")
+    if is_multicast:
+        lines.append(indent + "# NB multicast asserts skip left-most dim of SMEM (the CTA dimension)")
+    lines.append(indent + f"assert stride({smem_name}, {n_dims - 1 + is_multicast}) == 1")
+    lines.append(indent + f"assert stride({gmem_name}, {n_dims - 1}) == 1")
     if n_dims > 1:
         lines.append(indent + "# SMEM must be tightly-packed on all dimensions")
         if n_dims > 2:
             lines.append(indent + "# XXX Exo cannot do this assert for > 2 dimensions")
-        lines.append(indent + f"assert stride({smem_name}, {n_dims-2}) == size{n_dims-1}")
+        lines.append(indent + f"assert stride({smem_name}, {n_dims - 2 + is_multicast}) == size{n_dims-1}")
 
     # Define loop nest
     lines.append("")

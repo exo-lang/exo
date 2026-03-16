@@ -168,9 +168,10 @@ def make_basic_mma(a_mode, b_mode):
                     assert a_mode == "row"
                     trailing_args += ", 0"  # K-major = A row major
             if self.b_type.bits == 16:
-                if a_mode == "col":
+                if b_mode == "col":
                     trailing_args += ", 0"  # K-major = B col major
                 else:
+                    assert b_mode == "row"
                     trailing_args += ", 1"
 
             instr_fmt = f"""{{
