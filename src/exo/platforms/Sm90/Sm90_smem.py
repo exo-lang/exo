@@ -7,7 +7,7 @@ from exo.API import *
 from .Sm90_internal_util import *
 
 
-from ..kittens.tk_types import cuda_tk_type_suffix_table
+from ..kittens_impl.tk_types import cuda_tk_type_suffix_table
 
 
 __all__ = [
