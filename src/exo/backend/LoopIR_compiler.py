@@ -1869,7 +1869,7 @@ def make_utility_lines(
             lines.append(f"namespace exo_CudaUtil = ::{cu_namespace};")
 
     for tags, content in combined:
-        for tag in sorted(tags):
+        for tag in sorted(set(tags)):
             lines.append(f"/* Required by {tag} */")
         if is_includes:
             lines.append(f"#include <{content}>")
