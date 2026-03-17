@@ -314,8 +314,12 @@ class PatternMatch:
         if not isinstance(e, (LoopIR.WindowExpr,) + tuple(_PAST_to_LoopIR[type(pat)])):
             # Special case B: David Zhao Akeley 2026-03-17
             # UNHINGED support for matching "inf" with infinity.
-            val = e.val
-            if isinstance(e, LoopIR.Const) and isinstance(val, float) and isinf(val):
+            if (
+                isinstance(e, LoopIR.Const)
+                and isinstance(e.val, float)
+                and isinf(e.val)
+            ):
+                val = e.val
                 if isinstance(pat, PAST.USub):
                     if val > 0:
                         return False  # Don't match e=inf with pat="-inf"
