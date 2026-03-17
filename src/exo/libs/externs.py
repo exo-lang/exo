@@ -141,6 +141,93 @@ class _Expf(Extern):
 expf = _Expf()
 
 
+class _Exp2f(Extern):
+    def __init__(self):
+        super().__init__("exp2f")
+
+    def typecheck(self, args):
+        if len(args) != 1:
+            raise _EErr(f"expected 1 argument, got {len(args)}")
+
+        atyp = args[0].type
+        if not atyp.is_real_scalar():
+            raise _EErr(
+                f"expected argument 1 to be a real scalar value, but "
+                f"got type {atyp}"
+            )
+        return atyp
+
+    def globl(self, prim_type):
+        return "#include <math.h>"
+
+    #    def interpret(self, args):
+    #        return math.exp2f(args[0])
+
+    def compile(self, args, prim_type):
+        return f"exp2f(({prim_type})({args[0]}))"
+
+
+exp2f = _Exp2f()
+
+
+class _Logf(Extern):
+    def __init__(self):
+        super().__init__("logf")
+
+    def typecheck(self, args):
+        if len(args) != 1:
+            raise _EErr(f"expected 1 argument, got {len(args)}")
+
+        atyp = args[0].type
+        if not atyp.is_real_scalar():
+            raise _EErr(
+                f"expected argument 1 to be a real scalar value, but "
+                f"got type {atyp}"
+            )
+        return atyp
+
+    def globl(self, prim_type):
+        return "#include <math.h>"
+
+    #    def interpret(self, args):
+    #        return math.logf(args[0])
+
+    def compile(self, args, prim_type):
+        return f"logf(({prim_type})({args[0]}))"
+
+
+logf = _Logf()
+
+
+class _Log2f(Extern):
+    def __init__(self):
+        super().__init__("log2f")
+
+    def typecheck(self, args):
+        if len(args) != 1:
+            raise _EErr(f"expected 1 argument, got {len(args)}")
+
+        atyp = args[0].type
+        if not atyp.is_real_scalar():
+            raise _EErr(
+                f"expected argument 1 to be a real scalar value, but "
+                f"got type {atyp}"
+            )
+        return atyp
+
+    def globl(self, prim_type):
+        return "#include <math.h>"
+
+    #    def interpret(self, args):
+    #        return math.log2f(args[0])
+
+    def compile(self, args, prim_type):
+        return f"log2f(({prim_type})({args[0]}))"
+
+
+log2f = _Log2f()
+
+
 class _FmaxF(Extern):
     def __init__(self):
         super().__init__("fmaxf")

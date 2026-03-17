@@ -6,6 +6,8 @@ from exo import proc, DRAM, Procedure, config, compile_procs_to_strings
 from exo.libs.externs import *
 from exo.stdlib.scheduling import SchedulingError
 
+import numpy as np
+
 
 def test_relu(golden, compiler):
     @proc
@@ -141,6 +143,34 @@ def test_expf2():
         @proc
         def foo(x: i8[16], y: i8[16]):
             y[0] = expf(True)
+
+
+def test_run_expf(compiler):
+    @proc
+    def foo(dst: f32[2], src: f32):
+        dst[0] = expf(src)
+        dst[1] = exp2f(src)
+
+    fn = compiler.compile(foo)
+    src = np.array((3,), dtype=np.float32)
+    dst = np.array((0, 0), dtype=np.float32)
+    fn(None, dst, src)
+    assert 20.08 < dst[0] < 20.09
+    assert dst[1] == 8.0
+
+
+def test_run_logf(compiler):
+    @proc
+    def foo(dst: f32[2], src: f32):
+        dst[0] = logf(src)
+        dst[1] = log2f(src)
+
+    fn = compiler.compile(foo)
+    src = np.array((8,), dtype=np.float32)
+    dst = np.array((0, 0), dtype=np.float32)
+    fn(None, dst, src)
+    assert 2.07 < dst[0] < 2.09
+    assert dst[1] == 3.0
 
 
 def test_fmaxf(golden, compiler):
