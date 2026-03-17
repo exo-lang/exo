@@ -1027,3 +1027,25 @@ def test_memwin_mangled_name():
     name = mem.mangled_name()
     # Negative 10, 4-tuple of (1, 3-tuple of (2, 3, 4), 0, 1), 2-tuple of (0, negative 20)
     assert name == "MemWinMangleTester_n10_t4_1_t3_2_3_4_0_1_t2_0_n20"
+
+
+def test_infinity(compiler):
+    from exo.scalars import inf
+    from math import isinf
+
+    @proc
+    def inf_tester(a: f32, b: f64[2]):
+        a = inf
+        b[0] = 1337
+        b[1] = -inf
+
+    a = np.zeros(shape=(1,), dtype=np.float32)
+    b = np.zeros(shape=(2,), dtype=np.float64)
+
+    fn = compiler.compile(inf_tester)
+    fn(None, a, b)
+    assert isinf(a[0])
+    assert a[0] > 0
+    assert b[0] == 1337
+    assert isinf(b[1])
+    assert b[1] < 0

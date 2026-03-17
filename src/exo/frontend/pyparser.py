@@ -1689,6 +1689,8 @@ class Parser:
                 if len(idxs) == 0 and nm == "_":
                     return PAST.E_Hole(self.getsrcinfo(e))
                 else:
+                    # Note, in case nm="inf", there is an UNHINGED HACK
+                    # in pattern_match.py just for it!!!
                     return PAST.Read(nm, idxs, self.getsrcinfo(e))
             else:
                 if nm_node.id in self.exo_locals:

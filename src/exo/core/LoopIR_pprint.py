@@ -17,6 +17,7 @@ from .internal_cursors import Node, Gap, Block, Cursor, InvalidCursorError, GapT
 from .prelude import *
 from ..spork.loop_modes import format_loop_cond
 from ..spork.base_with_context import is_if_holding_with
+from math import isinf
 
 enable_yapf = os.environ.get("EXO_YAPF", "1") != "0"
 

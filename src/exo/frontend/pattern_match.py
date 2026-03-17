@@ -4,6 +4,7 @@ import inspect
 import re
 from typing import Optional, Iterable
 from collections import ChainMap
+from math import isinf
 
 import exo.frontend.pyparser as pyparser
 from exo.core.LoopIR import LoopIR, PAST
@@ -311,6 +312,19 @@ class PatternMatch:
         # first ensure that the pattern and statement
         # are the same constructor
         if not isinstance(e, (LoopIR.WindowExpr,) + tuple(_PAST_to_LoopIR[type(pat)])):
+            # Special case B: David Zhao Akeley 2026-03-17
+            # UNHINGED support for matching "inf" with infinity.
+            val = e.val
+            if isinstance(e, LoopIR.Const) and isinstance(val, float) and isinf(val):
+                if isinstance(pat, PAST.USub):
+                    if val > 0:
+                        return False  # Don't match e=inf with pat="-inf"
+                    pat = pat.arg
+                elif val < 0:
+                    return False  # Don't match e=-inf with pat="inf"
+                if isinstance(pat, PAST.Read) and not pat.idx:
+                    if pat.name == "inf":
+                        return True
             return False
 
         if isinstance(e, LoopIR.Read):

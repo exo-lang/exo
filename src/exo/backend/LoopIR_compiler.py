@@ -5,7 +5,7 @@ import warnings
 from collections import ChainMap
 from collections import defaultdict
 from dataclasses import dataclass, field
-from math import prod
+from math import prod, isinf, isnan
 from pathlib import Path
 from typing import List, Tuple, Optional, Dict, Set, Type, Callable, Union
 
@@ -1775,12 +1775,21 @@ class Compiler:
                 return "true" if e.val else "false"
             elif e.type.is_indexable():
                 return f"{int(e.val)}"
+            elif e.type == T.with_context:
+                assert False, "should be handled when compiling LoopIR.If"
+            elif not (0 == e.val - e.val):
+                assert isinf(e.val), f"{e.srcinfo}: {e.val} not supported (NaN?)"
+                c_str = "(-(HUGE_VAL))" if e.val < 0 else "HUGE_VAL"
+                injector = self._util_injector.with_tag("infinity")
+                if self._in_cuda_function:
+                    injector.add_cu_include("math.h")
+                else:
+                    injector.add_c_include("math.h")
+                return f"(({e.type.ctype()}) {c_str})"
             elif e.type == T.f64:
                 return f"{float(e.val)}"
             elif e.type == T.f32:
                 return f"{float(e.val)}f"
-            elif e.type == T.with_context:
-                assert False, "should be handled when compiling LoopIR.If"
             else:
                 return f"(({e.type.ctype()}) {str(e.val)})"
 

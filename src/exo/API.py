@@ -61,6 +61,11 @@ from .frontend.typecheck import TypeChecker
 from . import API_cursors as C
 from .core import internal_cursors as IC
 
+# Note, import exo.scalars to get type names (ScalarInfo) f16, f32, i32, etc.
+# and also the inf literal. This is not imported by default to avoid
+# namespace pollution with short, likely-to-conflict names.
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Top-level decorator

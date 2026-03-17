@@ -817,3 +817,35 @@ def test_only_child():
 
     with pytest.raises(AssertionError, match="else"):
         i1_loop.only_child(2)
+
+
+def test_inf_cursors():
+    from exo.scalars import inf
+
+    renamed_inf_should_match = inf
+
+    @proc
+    def wtaf(a: f32, b: f32, c: f32, d: f32, e: f32):
+        a = 1337
+        b = renamed_inf_should_match
+        c = -renamed_inf_should_match
+        d = renamed_inf_should_match
+        e = -2
+
+    def find_all(pattern):
+        # David Zhao Akeley 2026-03-17
+        # Was it against someone's religion to return an empty list??????
+        try:
+            return wtaf.find_all(pattern)
+        except SchedulingError as e:
+            return ()
+
+    assert len(find_all("_ = inf")) == 2
+    assert len(find_all("_ = -inf")) == 1
+    assert len(find_all("_ = -2")) == 1
+    assert len(find_all("a = inf")) == 0
+    assert len(find_all("a = -inf")) == 0
+    assert len(find_all("b = -inf")) == 0
+    assert len(find_all("b = inf")) == 1
+    assert len(find_all("c = -inf")) == 1
+    assert len(find_all("c = inf")) == 0
