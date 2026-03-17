@@ -351,6 +351,9 @@ static inline CUtensorMap {sname}_encode(
 # them anyway so things will "just work" in the future.
 CUtensorMap_type_dict = {
     "ui8": ("CU_TENSOR_MAP_DATA_TYPE_UINT8", ""),
+    "e4m3": ("CU_TENSOR_MAP_DATA_TYPE_UINT8", ""),
+    "e5m2": ("CU_TENSOR_MAP_DATA_TYPE_UINT8", ""),
+    "e8m0": ("CU_TENSOR_MAP_DATA_TYPE_UINT8", ""),
     "ui16": ("CU_TENSOR_MAP_DATA_TYPE_UINT16", " * 2"),
     "ui32": ("CU_TENSOR_MAP_DATA_TYPE_UINT32", " * 4"),
     "i32": ("CU_TENSOR_MAP_DATA_TYPE_INT32", " * 4"),

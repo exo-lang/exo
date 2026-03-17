@@ -9,7 +9,7 @@ from exo.API import (
     UtilInjector,
     window_indexer,
 )
-from exo.scalars import ScalarInfo, f16, bf16, f32
+from exo.scalars import ScalarInfo, e4m3, e5m2, e8m0, f16, bf16, f32
 from exo.core.memory import memwin_template
 
 # Don't import from Sm90 here to avoid circular imports
@@ -27,12 +27,18 @@ cuda_tk_type_suffix_table = {
     f32: "fl",
     f16: "hf",
     bf16: "bf",
+    e4m3: "fp8e4m3",
+    e5m2: "fp8e5m2",
+    e8m0: "fp8e8m0",
 }
 
 cuda_tk_typename_table = {
     f32: "float",
     f16: "::kittens::half",
     bf16: "::kittens::bf16",
+    e4m3: "::kittens::e4m3",
+    e5m2: "::kittens::e5m2",
+    e8m0: "::kittens::e8m0",
 }
 
 

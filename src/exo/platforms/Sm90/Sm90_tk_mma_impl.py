@@ -4,7 +4,7 @@ from .Sm90_smem import *
 from exo.API import *
 from exo.platforms.cuda import *
 from exo.platforms.cuda_tk import CudaTkWarpTile, cuda_tk_typename_table
-from exo.scalars import f16, f32
+from exo.scalars import e4m3, e5m2, f16, bf16, f32
 
 from .Sm90_internal_util import *
 
@@ -58,20 +58,29 @@ def make_basic_mma(a_mode, b_mode):
     assert a_mode in ("row", "col", "rmem")
     assert b_mode in ("row", "col")
 
-    # f16/f16/f16 supports everything
-    _valid_num_types = {(f16, f16, f16)}
+    _valid_num_types = set()
 
-    # D=f32/AB/AB support, with rules:
-    #   * "Transpose" (MN-major) requires 16-bit AB type
-    #     Exo-GPU further requires 128-bit swizzle (enforced later).
-    #   * ThunderKittens doesn't allow tf32 register operands.
-    for AB in cuda_tk_typename_table:
-        if a_mode == "col" or b_mode == "row":
-            if AB.bits != 16:
-                continue
-        if AB.bits > 16 and a_mode == "rmem":
-            continue
-        _valid_num_types.add((f32, AB, AB))
+    # Valid D/A/B types, restrictions (with culprit identified)
+    #   * CUDA: f16 D cannot be used with bf16 or tf32 A/B.
+    #   * CUDA: "Transpose" (MN-major) requires 16-bit AB type.
+    #   * CUDA: Cannot mix different A/B types unless both are fp8.
+    #   * Exo-GPU: further requires 128-bit swizzle for transpose (enforced later).
+    #   * ThunderKittens: doesn't allow tf32 register operands.
+    #   * ThunderKittens: no support for integer types at all.
+    for D in (f16, f32):
+        for A in (e4m3, e5m2, f16, bf16, f32):
+            for B in (e4m3, e5m2, f16, bf16, f32):
+                if a_mode == "col" or b_mode == "row":
+                    if A.bits != 16 or B.bits != 16:
+                        continue  # Unsupported A/B for transpose
+                if D == f16 and (A == bf16 or A == f32):
+                    continue  # Unsupported A/B for D == f16
+                if A.bits != 8 or B.bits != 8:
+                    if A != B:
+                        continue  # Mixed A/B rule
+                if A.bits == 32 and a_mode == "rmem":
+                    continue  # ThunderKittens no tf32 A in registers
+                _valid_num_types.add((D, A, B))
 
     class WgmmaBase(InstrInfo):
         # All of these can be looked up when needed, but it's more clear
@@ -245,6 +254,7 @@ def make_basic_mma(a_mode, b_mode):
                 lines.extend(ptx.as_c_lines())
                 lines.append(d_arg + ".scale_d = 1;")
                 lines.append("}")
+            # End for k in range(K_iters)
             return lines
 
     return WgmmaBase

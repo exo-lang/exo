@@ -101,6 +101,9 @@ module LoopIR {
              attributes( srcinfo srcinfo )
 
     type = Num()
+         | E4M3()
+         | E5M2()
+         | E8M0()
          | BF16()
          | F16()
          | F32()
@@ -155,6 +158,9 @@ module LoopIR {
     },
     memoize={
         "Num",
+        "E4M3",
+        "E5M2",
+        "E8M0",
         "BF16",
         "F16",
         "F32",
@@ -219,6 +225,9 @@ module UAST {
             attributes( srcinfo srcinfo )
 
     type    = Num   ()
+            | E4M3()
+            | E5M2()
+            | E8M0()
             | BF16()
             | F16   ()
             | F32   ()
@@ -252,6 +261,9 @@ module UAST {
     },
     memoize={
         "Num",
+        "E4M3",
+        "E5M2",
+        "E8M0",
         "BF16",
         "F16",
         "F32",
@@ -316,6 +328,9 @@ module PAST {
 
 class T:
     Num = LoopIR.Num
+    E4M3 = LoopIR.E4M3
+    E5M2 = LoopIR.E5M2
+    E8M0 = LoopIR.E8M0
     BF16 = LoopIR.BF16
     F16 = LoopIR.F16
     F32 = LoopIR.F32
@@ -336,6 +351,9 @@ class T:
     WithContextT = LoopIR.WithContext
     type = LoopIR.type
     R = Num()
+    e4m3 = E4M3()
+    e5m2 = E5M2()
+    e8m0 = E8M0()
     bf16 = BF16()
     f16 = F16()
     f32 = F32()
@@ -393,6 +411,9 @@ del scalar_info
 # here, then unfortunately manually edit the LoopIR and UAST and T
 # and ExoType class definitions to add the type to the grammar.
 # fmt: off
+e4m3 =  ScalarInfo.extclass(UAST.E4M3(),        T.e4m3,         ExoType.E4M3,   "e4m3",         "exo_e4m3",     8)
+e5m2 =  ScalarInfo.extclass(UAST.E5M2(),        T.e5m2,         ExoType.E5M2,   "e5m2",         "exo_e5m2",     8)
+e8m0 =  ScalarInfo.extclass(UAST.E8M0(),        T.e8m0,         ExoType.E8M0,   "e8m0",         "exo_e8m0",     8)
 bf16 =  ScalarInfo.extclass(UAST.BF16(),        T.bf16,         ExoType.BF16,   "bf16",         "exo_bf16",     16)
 f16 =   ScalarInfo.extclass(UAST.F16(),         T.f16,          ExoType.F16,    "f16",          "exo_f16",      16)
 f32 =   ScalarInfo.extclass(UAST.F32(),         T.f32,          ExoType.F32,    "f32",          "float",        32)
@@ -462,6 +483,25 @@ typedef struct { short bits; } exo_f16;
 #endif
 """
     return MemGlobalC("exo_f16", code, ())
+
+
+@extclass(T.E4M3)
+@extclass(T.E5M2)
+@extclass(T.E8M0)
+def scalar_mem_global(t):
+    nm = str(t)
+    assert len(nm) == 4
+    code = f"""#ifndef exo_{nm}  /* Define before inclusion to override exo_{nm} */
+#ifdef __CUDACC__
+using exo_{nm} = __nv_fp8_{nm};
+#else
+typedef __nv_fp8_storage_t exo_{nm};
+#endif
+#endif
+"""
+    # Unlike f16, there's no non-CUDA equivalent of 8-bit float that Exo
+    # supports, so we happily include cuda_fp8.h here.
+    return MemGlobalC(f"exo_{nm}", code, [MemIncludeC("cuda_fp8.h")])
 
 
 @extclass(T.Tensor)
