@@ -11,6 +11,8 @@ from .Sm90_internal_util import *
 
 @memwin_template
 def Sm90_TkRmemTileA(K: int):
+    """Specialized (16 x K) ThunderKittens warp tile. wgmma.mma_async A operand"""
+
     class Tile(CudaTkWarpTile(16, K, "row")):
         qual_tl_dict = cuda_rmem_qual_tl_dict | {
             wgmma_async_instr: wgmma_async_rmem_a_qual
@@ -21,6 +23,8 @@ def Sm90_TkRmemTileA(K: int):
 
 @memwin_template
 def Sm90_TkRmemTileD(N: int):
+    """Specialized (16 x N) ThunderKittens warp tile. wgmma.mma_async D operand"""
+
     class Tile(CudaTkWarpTile(16, N, "row")):
         qual_tl_dict = cuda_rmem_qual_tl_dict | {
             wgmma_async_instr: [wgmma_async_rmem_d_qual, wgmma_zero_qual],
