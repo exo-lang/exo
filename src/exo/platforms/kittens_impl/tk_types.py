@@ -69,10 +69,8 @@ class _CudaTkWarpIndexer(WindowIndexer):
 
 
 @memwin_template
-def CudaTkWarpTile(r, c, layout):
+def CudaTkWarpTile(r, c, layout="row"):
     """Wrapper for kittens::rt<?, r, c, layout> (Per-warp register tile)
-
-    Usually, you want layout="row".
 
     Use layout="all" to get a common base class for all tiles of a
     given size with unknown layout. However, such tiles cannot be allocated.
@@ -91,7 +89,7 @@ def CudaTkWarpTile(r, c, layout):
     """
     assert r % 16 == 0, f"CudaTkWarpTile requires r={r} to be divisible by 16"
     assert c % 16 == 0, f"CudaTkWarpTile requires c={c} to be divisible by 16"
-    assert layout in cuda_tk_tile_layout_names
+    assert layout in cuda_tk_tile_layout_names, layout
 
     if layout == "all":
         base = CudaBasicDeviceVisible
@@ -135,6 +133,14 @@ def CudaTkWarpTile(r, c, layout):
 
         qual_tl_dict = cuda_rmem_qual_tl_dict
 
+        if layout == "row":
+            row_vec = CudaTkWarpVec(c, "align")
+            col_vec = CudaTkWarpVec(r, "ortho")
+        if layout == "col":
+            # Not really tested.
+            row_vec = CudaTkWarpVec(c, "ortho")
+            col_vec = CudaTkWarpVec(r, "align")
+
     return Tile
 
 
@@ -149,15 +155,13 @@ def CudaTkWarpVec(length, layout):
     given length with unknown layout. However, such vectors cannot be allocated.
 
     layout must be in ("all", "align", "ortho", "naive")
-
-    NOTE: due to exo.MemGlobalC limitations, we rely on all instrs that
-    use this to include kittens.cuh for us.
+    but consider using CudaTkWarpTile(...).row_vec or col_vec for clarity.
 
     """
     # fmt: off
     assert length % 16 == 0, f"CudaTkWarpVec requires length={length} to be divisible by 16"
     # fmt: on
-    assert layout in cuda_tk_vec_layout_names
+    assert layout in cuda_tk_vec_layout_names, layout
 
     if layout == "all":
         base = CudaBasicDeviceVisible
@@ -269,3 +273,13 @@ struct exo_tk_gl2_window
 
 
 __all__.append("cuda_tk_gl2_window_util")
+
+
+# Quick check class structure went as planned.
+assert CudaTkWarpTile(16, 256) == CudaTkWarpTile(16, 256, "row")
+assert issubclass(CudaTkWarpTile(16, 256, "row"), CudaTkWarpTile(16, 256, "all"))
+assert not issubclass(CudaTkWarpTile(16, 256, "all"), CudaTkWarpTile(16, 256, "row"))
+assert CudaTkWarpTile(16, 256, "row").row_vec == CudaTkWarpVec(256, "align")
+assert CudaTkWarpTile(16, 256, "row").col_vec == CudaTkWarpVec(16, "ortho")
+assert CudaTkWarpTile(16, 256, "col").row_vec == CudaTkWarpVec(256, "ortho")
+assert CudaTkWarpTile(16, 256, "col").col_vec == CudaTkWarpVec(16, "align")

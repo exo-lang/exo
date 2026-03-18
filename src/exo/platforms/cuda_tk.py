@@ -1,10 +1,7 @@
 # Register tile and vector kittens types
 from .kittens_impl.tk_types import *
 
-# Register-to-register copy/conversion instructions
-from .kittens_impl.tk_register_copy import *
-
-# Register tile non-trivial operations
+# Register-to-register tile conversion, maps, reductions
 from .kittens_impl.tk_tile_ops import *
 
 # RMEM/SMEM instructions
