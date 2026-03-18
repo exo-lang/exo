@@ -220,7 +220,7 @@ class MemWin(ABC):
                     fragments.append(str(int(p)))  # convert bool to int
             elif isinstance(p, str):
                 # fmt: off
-                assert p.isalnum(), f"{fragments[0]}.mangled_name cannot manglge {p!r}"
+                assert p.isalnum(), f"{fragments[0]}.mangled_name cannot mangle {p!r}"
                 fragments.append(f"S{p}")
             else:
                 try:
@@ -231,7 +231,8 @@ class MemWin(ABC):
                 fragments.append(f"t{len(tup)}")
                 for p0 in tup:
                     # fmt: off
-                    assert type(p) != type(p0), f"{fragments[0]}.mangled_name supports only int or tuple of ... of tuple of int, not {type(p)}"
+                    # This gives a better message in case of infinite descent.
+                    assert p != p0, f"{fragments[0]}.mangled_name supports only int or tuple of ... of tuple of int, not {p}"
                     append_fragments(p0)
 
         for p in mangle_parameters:
@@ -515,6 +516,10 @@ def memwin_template(class_factory, *, is_smem_wrapper=False):
 
     The parameter tuple is injected to the class as memwin_template_parameters
 
+    This has support for default positional arguments, and recursion
+    of the class_factory. In the recursive case, the MemWin class is
+    named based on the parameters of the inner class_factory.
+
     Usage:
 
     @memwin_template
@@ -524,6 +529,7 @@ def memwin_template(class_factory, *, is_smem_wrapper=False):
         class MemoryImpl(Memory):  # class name is ignored
             ...implement memory normally
         return MemoryImpl
+
     """
 
     # Handle default arguments
@@ -554,14 +560,19 @@ def memwin_template(class_factory, *, is_smem_wrapper=False):
         if not cls:
             cls = class_factory(*parameters)
             assert cls, f"forgot return from {class_factory}?"
-            cls_name = f"{class_factory.__name__}{parameters}"
             _memwin_template_cache[cache_key] = cls
-            if is_smem_wrapper:
+            if cls in _memwin_template_names:
+                # If class_factory calls class_factory, the outer
+                # class_factory will pass through the cls unchanged.
+                pass
+            elif is_smem_wrapper:
                 # Hacky, we try to hide the existence of the CUDA Smem wrapper
                 wrapped = cls.wrapped_smem_type()
                 _memwin_template_names[cls] = wrapped.name()
                 _memwin_template_base_names[cls] = wrapped.base_name()
             else:
+                # Common case
+                cls_name = f"{class_factory.__name__}{parameters}"
                 _memwin_template_names[cls] = cls_name
                 _memwin_template_base_names[cls] = class_factory.__name__
                 cls.memwin_template_parameters = parameters

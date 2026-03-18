@@ -1029,6 +1029,26 @@ def test_memwin_mangled_name():
     assert name == "MemWinMangleTester_n10_t4_1_t3_2_3_4_0_1_t2_0_n20"
 
 
+@memwin_template
+def MemWinRec(n):
+    if n == 1:
+
+        class TestMem(Memory):
+            pass
+
+        return TestMem
+    if n % 2 == 0:
+        return MemWinRec(n // 2)
+    else:
+        return MemWinRec(3 * n + 1)
+
+
+def test_memwin_recursive_mangled_name():
+    mem = MemWinRec(101)
+    name = mem.mangled_name()
+    assert name == "MemWinRec_1"
+
+
 def test_infinity(compiler):
     from exo.scalars import inf
     from math import isinf
