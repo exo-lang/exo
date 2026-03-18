@@ -544,15 +544,11 @@ def memwin_template(class_factory, *, is_smem_wrapper=False):
     defaults = tuple(defaults)
 
     def class_factory_wrapper(*parameters, **kwargs):
-        if not (min_args <= len(parameters) <= max_args):
-            # Rely on the function to give the error.
-            class_factory(*parameters)
-            assert 0
-
-        parameters = parameters + defaults[len(parameters) - min_args :]
-        assert len(parameters) == max_args, parameters
-
         assert not kwargs, "No support for keyword template parameters"
+
+        if len(parameters) < max_args:
+            parameters = parameters + defaults[len(parameters) - min_args :]
+
         cache_key = (id(class_factory), parameters)
         cls = _memwin_template_cache.get(cache_key)
         if not cls:
