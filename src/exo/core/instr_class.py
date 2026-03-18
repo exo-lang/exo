@@ -223,6 +223,7 @@ def prefill_instr_info(info: InstrInfo, proc: LoopIR.proc):
     info.access_info = proc_default_access_info(proc, write_syms, read_syms)
     info.barrier_mechanism = None
     info.barrier_coll_units = ()
+    info.allow_aliasing = False
     info._tparam_dict = {}
     info._formatted_tparam_kwargs = ""
 

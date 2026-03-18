@@ -888,6 +888,14 @@ def proc_name_with_args(p):
     return f"{p.name}({argstr})"
 
 
+@extclass(LoopIR.proc)
+def proc_allows_aliasing(p):
+    instr: InstrInfo
+    if instr := p.instr:
+        return instr.allow_aliasing
+    return False
+
+
 def chain_window_idx(idx0, idx1):
     """Given
 
