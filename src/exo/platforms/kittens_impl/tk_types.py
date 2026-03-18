@@ -134,12 +134,14 @@ def CudaTkWarpTile(r, c, layout="row"):
         qual_tl_dict = cuda_rmem_qual_tl_dict
 
         if layout == "row":
-            row_vec = CudaTkWarpVec(c, "align")
-            col_vec = CudaTkWarpVec(r, "ortho")
+            # fmt: off
+            row_vec = CudaTkWarpVec(c, "align")  # dst mem for column reductions -> R[cols]
+            col_vec = CudaTkWarpVec(r, "ortho")  # dst mem for row reductions -> R[rows]
         if layout == "col":
             # Not really tested.
-            row_vec = CudaTkWarpVec(c, "ortho")
-            col_vec = CudaTkWarpVec(r, "align")
+            # fmt: off
+            row_vec = CudaTkWarpVec(c, "ortho")  # dst mem for column reductions -> R[cols]
+            col_vec = CudaTkWarpVec(r, "align")  # dst mem for row reductions -> R[rows]
 
     return Tile
 

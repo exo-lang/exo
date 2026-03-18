@@ -228,6 +228,35 @@ class _Log2f(Extern):
 log2f = _Log2f()
 
 
+class _FabsF(Extern):
+    def __init__(self):
+        super().__init__("fabsf")
+
+    def typecheck(self, args):
+        if len(args) != 1:
+            raise _EErr(f"expected 1 argument, got {len(args)}")
+
+        atyp = args[0].type
+        if not atyp.is_real_scalar():
+            raise _EErr(
+                f"expected argument 1 to be a real scalar value, but "
+                f"got type {atyp}"
+            )
+        return atyp
+
+    def globl(self, prim_type):
+        return "#include <math.h>"
+
+    #    def interpret(self, args):
+    #        return math.fabsf(args[0])
+
+    def compile(self, args, prim_type):
+        return f"fabsf(({prim_type})({args[0]}))"
+
+
+fabsf = _FabsF()
+
+
 class _FmaxF(Extern):
     def __init__(self):
         super().__init__("fmaxf")
@@ -256,6 +285,36 @@ class _FmaxF(Extern):
 
 
 fmaxf = _FmaxF()
+
+
+class _FminF(Extern):
+    def __init__(self):
+        super().__init__("fminf")
+
+    def typecheck(self, args):
+        if len(args) != 2:
+            raise _EErr(f"expected 2 argument, got {len(args)}")
+
+        for i in range(len(args)):
+            atyp = args[i].type
+            if not atyp.is_real_scalar():
+                raise _EErr(
+                    f"expected argument {i+1} to be a real scalar value, but "
+                    f"got type {atyp}"
+                )
+        return atyp
+
+    def globl(self, prim_type):
+        return "#include <math.h>"
+
+    #    def interpret(self, args):
+    #        return math.fminf(args[0], args[1])
+
+    def compile(self, args, prim_type):
+        return f"fminf(({prim_type})({args[0]}), ({prim_type})({args[1]}))"
+
+
+fminf = _FminF()
 
 
 class _Sigmoid(Extern):
