@@ -18,6 +18,8 @@
 """
 from __future__ import annotations
 
+import inspect
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Optional, Set, Type, Dict
@@ -524,7 +526,32 @@ def memwin_template(class_factory, *, is_smem_wrapper=False):
         return MemoryImpl
     """
 
+    # Handle default arguments
+    # AFAIK functools doesn't do this correctly.
+    # Hence rolling our own cache.
+    # We NEED the cache to be 100% reliable for de-duplication!!!
+
+    defaults = []
+    signature = inspect.signature(class_factory)
+    max_args = len(signature.parameters.values())
+    for param in signature.parameters.values():
+        kind_name = param.kind.name
+        if kind_name != "VAR_POSITIONAL" and kind_name != "POSITIONAL_OR_KEYWORD":
+            raise TypeError(f"memwin_template cannot take {kind_name} parameters")
+        if param.default is not inspect._empty:
+            defaults.append(param.default)
+    min_args = max_args - len(defaults)
+    defaults = tuple(defaults)
+
     def class_factory_wrapper(*parameters, **kwargs):
+        if not (min_args <= len(parameters) <= max_args):
+            # Rely on the function to give the error.
+            class_factory(*parameters)
+            assert 0
+
+        parameters = parameters + defaults[len(parameters) - min_args :]
+        assert len(parameters) == max_args, parameters
+
         assert not kwargs, "No support for keyword template parameters"
         cache_key = (id(class_factory), parameters)
         cls = _memwin_template_cache.get(cache_key)
