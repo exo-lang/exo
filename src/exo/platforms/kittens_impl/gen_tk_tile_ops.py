@@ -38,6 +38,7 @@ from exo.libs.externs import fabsf, fminf, fmaxf, relu, expf, exp2f, logf, log2f
 
 from .tk_tile_ops_impl import (
     basic_0ary_tile_op,
+    basic_make_causal_op,
     basic_unary_tile_op,
     basic_binary_tile_op,
     basic_binary_lhs_tile_op,
@@ -58,10 +59,12 @@ def gen_instr(
     kittens_op_name,
     body_stmt,
     arg_names: List[str],
+    *,
     row_vec_names: List[str] = (),
     col_vec_names: List[str] = (),
     valid_num_types="ScalarInfo.same()",
     prefix_lines: List[str] = (),
+    kittens_constant_name: str = "",
 ):
     args = []
     for nm in arg_names:
@@ -76,11 +79,16 @@ def gen_instr(
             comment += ".col_vec"
         args.append(f"\n        {nm}: {typ},  # {comment}")
 
+    kittens_constant_name_line = ""
+    if kittens_constant_name:
+        kittens_constant_name_line = (
+            f'\n    kittens_constant_name = "{kittens_constant_name}"'
+        )
     prefix = "".join(p + "\n        " for p in prefix_lines)
 
     _def = f"""@instr
-class {name}({base_name}):
-    kittens_op_name = {kittens_op_name!r}
+class {name}({base_name}):{kittens_constant_name_line}
+    kittens_op_name = \"{kittens_op_name}\"
     valid_num_types = {valid_num_types}
 
     def behavior(
@@ -97,7 +105,7 @@ class {name}({base_name}):
     _instr_defs.append(_def)
 
 
-# 0-ary ops
+# 0-ary ops: fill constant, make causal, make causal transpose
 for name, value in (
     ("zero", "0"),
     ("one", "1"),
@@ -111,13 +119,35 @@ for name, value in (
         f"dst[r, c] = {value}",
         ("dst",),
     )
-    # TODO make_causal
+    # TODO kittens_constant_name
+    gen_instr(
+        f"cuda_tk_make_causal_{name}",
+        "basic_make_causal_op",
+        "make_causal",
+        f"if r < c:\n                    dst[r, c] = {value}",
+        ("dst",),
+        kittens_constant_name=name,
+    )
+    gen_instr(
+        f"cuda_tk_make_causal_t_{name}",
+        "basic_make_causal_op",
+        "make_causal_t",
+        f"if r > c:\n                    dst[r, c] = {value}",
+        ("dst",),
+        kittens_constant_name=name,
+    )
 
 
 for nm in ("pos_inf", "neg_inf"):
     _all.append(f"cuda_tk_tile_{nm}")
     _all_comments.append("For consistency with exo.inf")
     _instr_defs.append(f"cuda_tk_tile_{nm} = cuda_tk_tile_{nm}ty")
+    _all.append(f"cuda_tk_make_causal_{nm}")
+    _all_comments.append("For consistency with exo.inf")
+    _instr_defs.append(f"cuda_tk_make_causal_{nm} = cuda_tk_make_causal_{nm}ty")
+    _all.append(f"cuda_tk_make_causal_t_{nm}")
+    _all_comments.append("For consistency with exo.inf")
+    _instr_defs.append(f"cuda_tk_make_causal_t_{nm} = cuda_tk_make_causal_t_{nm}ty")
 
 
 # Unary tile ops

@@ -30,6 +30,15 @@ class basic_0ary_tile_op(basic_map_tile_op):
         return [f"::kittens::{self.kittens_op_name}({dst_c});"]
 
 
+class basic_make_causal_op(basic_map_tile_op):
+    def codegen(self: InstrInfo, args: InstrArgs):
+        dst_c = args.dst.index()
+        return [
+            f"::kittens::{self.kittens_op_name}({dst_c}, {dst_c},",
+            f"    ::kittens::base_types::constants<{ctype}>::{self.kittens_constant_name}());",
+        ]
+
+
 class basic_unary_tile_op(basic_map_tile_op):
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
