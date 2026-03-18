@@ -111,6 +111,7 @@ for name, value in (
         f"dst[r, c] = {value}",
         ("dst",),
     )
+    # TODO make_causal
 
 
 for nm in ("pos_inf", "neg_inf"):
@@ -140,16 +141,16 @@ for name, extern in unary_name_externs:
 
 # Binary tile ops, multiple forms
 # dst = lhs op rhs
-# lhs = lhs op rhs
-# rhs = lhs op rhs
-# lhs += rhs
+# dst = dst op src
+# dst = src op dst
+# dst += src
 binary_name_stmt = [
-    ("max", "{dst}[r, c] = fmaxf(lhs[r, c], rhs[r, c])"),
-    ("min", "{dst}[r, c] = fminf(lhs[r, c], rhs[r, c])"),
-    ("add", "{dst}[r, c] = lhs[r, c] + rhs[r, c]"),
-    ("sub", "{dst}[r, c] = lhs[r, c] - rhs[r, c]"),
-    ("mul", "{dst}[r, c] = lhs[r, c] * rhs[r, c]"),
-    ("div", "{dst}[r, c] = lhs[r, c] / rhs[r, c]"),
+    ("max", "{dst}[r, c] = fmaxf({lhs}[r, c], {rhs}[r, c])"),
+    ("min", "{dst}[r, c] = fminf({lhs}[r, c], {rhs}[r, c])"),
+    ("add", "{dst}[r, c] = {lhs}[r, c] + {rhs}[r, c]"),
+    ("sub", "{dst}[r, c] = {lhs}[r, c] - {rhs}[r, c]"),
+    ("mul", "{dst}[r, c] = {lhs}[r, c] * {rhs}[r, c]"),
+    ("div", "{dst}[r, c] = {lhs}[r, c] / {rhs}[r, c]"),
 ]
 
 for name, stmt_fmt in binary_name_stmt:
@@ -157,7 +158,7 @@ for name, stmt_fmt in binary_name_stmt:
         f"cuda_tk_tile_{name}",
         "basic_binary_tile_op",
         name,
-        stmt_fmt.format(dst="dst"),
+        stmt_fmt.format(dst="dst", lhs="lhs", rhs="rhs"),
         ("dst", "lhs", "rhs"),
     )
     if name == "add":
@@ -165,22 +166,22 @@ for name, stmt_fmt in binary_name_stmt:
             f"cuda_tk_tile_{name}_reduce",
             "basic_binary_lhs_tile_op",
             name,
-            "lhs[r, c] += rhs[r, c]",
-            ("lhs", "rhs"),
+            "dst[r, c] += src[r, c]",
+            ("dst", "src"),
         )
     gen_instr(
         f"cuda_tk_tile_{name}_lhs",
         "basic_binary_lhs_tile_op",
         name,
-        stmt_fmt.format(dst="lhs"),
-        ("lhs", "rhs"),
+        stmt_fmt.format(dst="dst", lhs="dst", rhs="src"),
+        ("dst", "src"),
     )
     gen_instr(
         f"cuda_tk_tile_{name}_rhs",
         "basic_binary_rhs_tile_op",
         name,
-        stmt_fmt.format(dst="rhs"),
-        ("lhs", "rhs"),
+        stmt_fmt.format(dst="dst", lhs="src", rhs="dst"),
+        ("src", "dst"),
     )
 
 

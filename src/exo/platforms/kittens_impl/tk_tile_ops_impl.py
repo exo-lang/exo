@@ -7,7 +7,7 @@ from ..cuda import *
 from .tk_types import *
 
 
-class basic_tile_op(InstrInfo):
+class basic_map_tile_op(InstrInfo):
     def instance(
         self: InstrInfo,
         rows: int,
@@ -24,20 +24,20 @@ class basic_tile_op(InstrInfo):
             access_info.out_of_order = False
 
 
-class basic_0ary_tile_op(basic_tile_op):
+class basic_0ary_tile_op(basic_map_tile_op):
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         return [f"::kittens::{self.kittens_op_name}({dst_c});"]
 
 
-class basic_unary_tile_op(basic_tile_op):
+class basic_unary_tile_op(basic_map_tile_op):
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         src_c = args.src.index()
         return [f"::kittens::{self.kittens_op_name}({dst_c}, {src_c});"]
 
 
-class basic_binary_tile_op(basic_tile_op):
+class basic_binary_tile_op(basic_map_tile_op):
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         lhs_c = args.lhs.index()
@@ -45,18 +45,18 @@ class basic_binary_tile_op(basic_tile_op):
         return [f"::kittens::{self.kittens_op_name}({dst_c}, {lhs_c}, {rhs_c});"]
 
 
-class basic_binary_lhs_tile_op(basic_tile_op):
+class basic_binary_lhs_tile_op(basic_map_tile_op):
     def codegen(self: InstrInfo, args: InstrArgs):
-        lhs_c = args.lhs.index()
-        rhs_c = args.rhs.index()
-        return [f"::kittens::{self.kittens_op_name}({lhs_c}, {lhs_c}, {rhs_c});"]
+        dst_c = args.dst.index()
+        src_c = args.src.index()
+        return [f"::kittens::{self.kittens_op_name}({dst_c}, {dst_c}, {src_c});"]
 
 
-class basic_binary_rhs_tile_op(basic_tile_op):
+class basic_binary_rhs_tile_op(basic_map_tile_op):
     def codegen(self: InstrInfo, args: InstrArgs):
-        lhs_c = args.lhs.index()
-        rhs_c = args.rhs.index()
-        return [f"::kittens::{self.kittens_op_name}({rhs_c}, {lhs_c}, {rhs_c});"]
+        dst_c = args.dst.index()
+        src_c = args.src.index()
+        return [f"::kittens::{self.kittens_op_name}({dst_c}, {src_c}, {dst_c});"]
 
 
 class basic_row_reduce_op(InstrInfo):
