@@ -33,6 +33,7 @@ class basic_0ary_tile_op(basic_map_tile_op):
 class basic_make_causal_op(basic_map_tile_op):
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
+        ctype = cuda_tk_typename_table[args.dst.get_scalar_info()]
         return [
             f"::kittens::warp::{self.kittens_op_name}({dst_c}, {dst_c},",
             f"    ::kittens::base_types::constants<{ctype}>::{self.kittens_constant_name}());",
