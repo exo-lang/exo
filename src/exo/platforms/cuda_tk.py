@@ -45,5 +45,5 @@ from .kittens_impl.tk_global_to_register import *
 # SMEM/GMEM tile copies
 from .kittens_impl.tk_global_to_shared import *
 
-
+from .cuda_fwd import CudaSmemLinear
 from .Sm90 import Sm90_SmemSwizzled
