@@ -80,15 +80,6 @@ class InstrInfo:
     barrier_mechanism: Optional[Type[BarrierMechanism]]
     barrier_coll_units: List[CollUnit]
 
-    # Default False
-    # Set to True to inhibit Exo's checks that no arguments use the same buffer
-    # name. This is only safe for "vectorization-like" instructions that
-    #   1. have no cross-lane dependencies
-    #   2. by some mechanism, cannot take partially aliased arguments
-    #   3. do not read from inputs after modifying outputs
-    # None of these criteria are enforced.
-    allow_aliasing: bool
-
     # For internal use
     _tparam_dict: dict
     _formatted_tparam_kwargs: str

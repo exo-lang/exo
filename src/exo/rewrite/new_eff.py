@@ -2366,7 +2366,7 @@ class _Check_Aliasing_Helper(LoopIR_Do):
             return name
 
     def do_s(self, s):
-        if isinstance(s, LoopIR.Call) and not s.f.proc_allows_aliasing():
+        if isinstance(s, LoopIR.Call):
             # check for duplicate buffer argument names
             passed_buffers = set()
             argnames = {
