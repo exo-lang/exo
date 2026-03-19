@@ -277,3 +277,81 @@ def test_load_store_rg_simple(compiler_Sm80):
 
     lib(None, h_inout)
     assert np.array_equal(h_inout, h_ref)
+
+
+def test_rmem_smem_vec_simple(compiler_Sm80):
+    subtrahend = 64
+    length = 7 * 256
+
+    @proc
+    def p(h_inout: f32[length]):
+        d_inout: f32[length] @ CudaGmemLinear
+
+        cudaMemcpyAsync_htod_1f32(length, d_inout[:], h_inout[:])
+
+        with CudaDeviceFunction(blockDim=128):
+            for task in cuda_tasks(0, 1):
+                in_smem: f32[length] @ CudaSmemLinear
+                out_smem: f16[length] @ CudaSmemLinear
+
+                for io in seq(0, length / 128):
+                    for ii in cuda_threads(0, 128):
+                        in_smem[io * 128 + ii] = d_inout[io * 128 + ii] - subtrahend
+
+                Fence(cuda_in_order, cuda_in_order)
+
+                rmem: f16[4, 2, length / 8] @ CudaTkWarpVec(length // 8, "naive")
+                for w in cuda_threads(0, 4, unit=cuda_warp):
+                    for s in seq(0, 2):
+                        cuda_tk_load_vec_rs(
+                            rmem[w, s, :],
+                            in_smem[
+                                (w + s * 4)
+                                * (length / 8) : (w + s * 4 + 1)
+                                * (length / 8),
+                            ],
+                            dst=f16,
+                            src=f32,
+                            length=length // 8,
+                            layout="naive",
+                        )
+                        cuda_tk_store_vec_rs(
+                            out_smem[
+                                (w + s * 4)
+                                * (length / 8) : (w + s * 4 + 1)
+                                * (length / 8),
+                            ],
+                            rmem[w, s, :],
+                            dst=f16,
+                            src=f16,
+                            length=length // 8,
+                            layout="naive",
+                        )
+
+                Fence(cuda_in_order, cuda_in_order)
+
+                for io in seq(0, length / 128):
+                    for ii in cuda_threads(0, 128):
+                        d_inout[io * 128 + ii] = out_smem[io * 128 + ii]
+
+                Fence(cuda_in_order, cuda_in_order)
+
+        cudaMemcpyAsync_dtoh_1f32(length, h_inout[:], d_inout[:])
+
+    p = simplify(p)
+    p.sync_check()
+    lib = compiler_Sm80.nvcc_compile(p)
+
+    h_inout = np.ndarray(shape=(length,), dtype=np.float32)
+    h_ref = np.ndarray(shape=(length,), dtype=np.float32)
+
+    for i in range(length):
+        if i % 6 == 0:
+            h_inout[i] = 100000  # Becomes inf upon f16 conversion
+            h_ref[i] = inf
+        else:
+            h_inout[i] = i
+            h_ref[i] = i - subtrahend
+
+    lib(None, h_inout)
+    assert np.array_equal(h_inout, h_ref)

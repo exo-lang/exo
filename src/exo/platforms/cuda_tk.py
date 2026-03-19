@@ -32,6 +32,10 @@ from .kittens_impl.tk_types import *
 # Register-to-register tile copy, conversion, maps, reduction-to-vector
 from .kittens_impl.tk_tile_ops import *
 
+# RMEM/SMEM vec copies
+# Note, we currently don't support GMEM vectors.
+from .kittens_impl.tk_shared_to_register_vec import *
+
 # RMEM/SMEM tile copies
 from .kittens_impl.tk_shared_to_register import *
 

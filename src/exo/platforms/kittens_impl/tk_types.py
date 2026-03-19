@@ -192,7 +192,6 @@ def CudaTkWarpVec(length, layout):
                 raise TypeError(
                     f"CudaTkWarpTile currently does not support {scalar_info}"
                 )
-            assert shape[-1] == _length
             array_dims = "".join(f"[{n}]" for n in shape[:-1])
             # fmt: off
             assert _layout != "all", "Cannot allocate vector with 'all' layout"
@@ -230,6 +229,7 @@ def CudaTkWarpVec(length, layout):
 __all__.append("CudaTkWarpVec")
 
 
+# Add a corresponding cuda_tk_gl1_util if we support GMEM vec.
 cuda_tk_gl2_window_util = """\
 // Adapted code from ThunderKittens
 // https://github.com/HazyResearch/ThunderKittens
@@ -290,6 +290,22 @@ struct exo_tk_gl2_window
 
 
 __all__.append("cuda_tk_gl2_window_util")
+
+
+cuda_tk_cast_sv_util = """\
+template <int _length, typename _T>
+EXO_CUDA_INLINE
+::kittens::sv<_T, _length>&
+exo_tk_cast_sv(const _T* smem_ptr)
+{
+    using vec_t = ::kittens::sv<_T, _length>;
+    static_assert(sizeof(vec_t) == _length * sizeof(_T));
+    return *reinterpret_cast<vec_t*>(const_cast<_T*>(smem_ptr));
+}
+"""
+
+
+__all__.append("cuda_tk_cast_sv_util")
 
 
 # Quick check class structure went as planned.
