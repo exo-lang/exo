@@ -27,14 +27,14 @@ class basic_map_tile_op(InstrInfo):
 class basic_0ary_tile_op(basic_map_tile_op):
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
-        return [f"::kittens::{self.kittens_op_name}({dst_c});"]
+        return [f"::kittens::warp::{self.kittens_op_name}({dst_c});"]
 
 
 class basic_make_causal_op(basic_map_tile_op):
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         return [
-            f"::kittens::{self.kittens_op_name}({dst_c}, {dst_c},",
+            f"::kittens::warp::{self.kittens_op_name}({dst_c}, {dst_c},",
             f"    ::kittens::base_types::constants<{ctype}>::{self.kittens_constant_name}());",
         ]
 
@@ -43,7 +43,7 @@ class basic_unary_tile_op(basic_map_tile_op):
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         src_c = args.src.index()
-        return [f"::kittens::{self.kittens_op_name}({dst_c}, {src_c});"]
+        return [f"::kittens::warp::{self.kittens_op_name}({dst_c}, {src_c});"]
 
 
 class basic_binary_tile_op(basic_map_tile_op):
@@ -51,21 +51,21 @@ class basic_binary_tile_op(basic_map_tile_op):
         dst_c = args.dst.index()
         lhs_c = args.lhs.index()
         rhs_c = args.rhs.index()
-        return [f"::kittens::{self.kittens_op_name}({dst_c}, {lhs_c}, {rhs_c});"]
+        return [f"::kittens::warp::{self.kittens_op_name}({dst_c}, {lhs_c}, {rhs_c});"]
 
 
 class basic_binary_lhs_tile_op(basic_map_tile_op):
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         src_c = args.src.index()
-        return [f"::kittens::{self.kittens_op_name}({dst_c}, {dst_c}, {src_c});"]
+        return [f"::kittens::warp::{self.kittens_op_name}({dst_c}, {dst_c}, {src_c});"]
 
 
 class basic_binary_rhs_tile_op(basic_map_tile_op):
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         src_c = args.src.index()
-        return [f"::kittens::{self.kittens_op_name}({dst_c}, {src_c}, {dst_c});"]
+        return [f"::kittens::warp::{self.kittens_op_name}({dst_c}, {src_c}, {dst_c});"]
 
 
 class basic_row_reduce_op(InstrInfo):
@@ -91,7 +91,7 @@ class basic_row_reduce_op(InstrInfo):
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         src_c = args.src.index()
-        return [f"::kittens::{self.kittens_op_name}({dst_c}, {src_c});"]
+        return [f"::kittens::warp::{self.kittens_op_name}({dst_c}, {src_c});"]
 
 
 class basic_col_reduce_op(InstrInfo):
@@ -117,7 +117,7 @@ class basic_col_reduce_op(InstrInfo):
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         src_c = args.src.index()
-        return [f"::kittens::{self.kittens_op_name}({dst_c}, {src_c});"]
+        return [f"::kittens::warp::{self.kittens_op_name}({dst_c}, {src_c});"]
 
 
 class basic_broadcast_row_op(InstrInfo):
@@ -143,7 +143,7 @@ class basic_broadcast_row_op(InstrInfo):
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         src_c = args.src.index()
-        return [f"::kittens::{self.kittens_op_name}({dst_c}, {src_c});"]
+        return [f"::kittens::warp::{self.kittens_op_name}({dst_c}, {src_c});"]
 
 
 class basic_broadcast_col_op(InstrInfo):
@@ -169,4 +169,4 @@ class basic_broadcast_col_op(InstrInfo):
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         src_c = args.src.index()
-        return [f"::kittens::{self.kittens_op_name}({dst_c}, {src_c});"]
+        return [f"::kittens::warp::{self.kittens_op_name}({dst_c}, {src_c});"]

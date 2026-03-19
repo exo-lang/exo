@@ -36,6 +36,8 @@ from exo.scalars import ScalarInfo, inf
 
 from exo.libs.externs import fabsf, fminf, fmaxf, relu, expf, exp2f, logf, log2f
 
+from .tk_types import *
+
 from .tk_tile_ops_impl import (
     basic_0ary_tile_op,
     basic_make_causal_op,
@@ -103,6 +105,17 @@ class {name}({base_name}):{kittens_constant_name_line}
     _all.append(name)
     _all_comments.append(str(body_stmt))
     _instr_defs.append(_def)
+
+
+# Tile copy with optional type/precision conversion.
+gen_instr(
+    "cuda_tk_tile_copy",
+    "basic_unary_tile_op",
+    "copy",
+    "dst[r, c] = src[r, c]",
+    ("dst", "src"),
+    valid_num_types="cuda_tk_valid_num_types_all_pairs",
+)
 
 
 # 0-ary ops: fill constant, make causal, make causal transpose
