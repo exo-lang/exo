@@ -280,17 +280,17 @@ for name, stmt_fmt in broadcast_name_stmt:
         f"cuda_tk_{name}_row",
         "basic_broadcast_row_op",
         f"{name}_row",
-        stmt_fmt.format(axis="c"),
+        stmt_fmt.format(axis="r"),
         ("dst", "src"),
-        row_vec_names=("src",),
+        col_vec_names=("src",),
     )
     gen_instr(
         f"cuda_tk_{name}_col",
         "basic_broadcast_col_op",
         f"{name}_col",
-        stmt_fmt.format(axis="r"),
+        stmt_fmt.format(axis="c"),
         ("dst", "src"),
-        col_vec_names=("src",),
+        row_vec_names=("src",),
     )
 
 

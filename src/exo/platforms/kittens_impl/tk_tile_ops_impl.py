@@ -133,7 +133,7 @@ class basic_broadcast_row_op(InstrInfo):
         self.coll_unit = cuda_warp
         self.instr_tl = cuda_in_order_instr
         tile_mem = CudaTkWarpTile(rows, cols, layout)
-        vec_mem = tile_mem.row_vec
+        vec_mem = tile_mem.col_vec
         dst = self.access_info["dst"]
         src = self.access_info["src"]
         src.mem = vec_mem
@@ -144,7 +144,12 @@ class basic_broadcast_row_op(InstrInfo):
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         src_c = args.src.index()
-        return [f"::kittens::warp::{self.kittens_op_name}({dst_c}, {src_c});"]
+        if "broadcast" in self.kittens_op_name:
+            return [f"::kittens::warp::{self.kittens_op_name}({dst_c}, {src_c});"]
+        else:
+            return [
+                f"::kittens::warp::{self.kittens_op_name}({dst_c}, {dst_c}, {src_c});"
+            ]
 
 
 class basic_broadcast_col_op(InstrInfo):
@@ -159,7 +164,7 @@ class basic_broadcast_col_op(InstrInfo):
         self.coll_unit = cuda_warp
         self.instr_tl = cuda_in_order_instr
         tile_mem = CudaTkWarpTile(rows, cols, layout)
-        vec_mem = tile_mem.col_vec
+        vec_mem = tile_mem.row_vec
         dst = self.access_info["dst"]
         src = self.access_info["src"]
         src.mem = vec_mem
@@ -170,4 +175,9 @@ class basic_broadcast_col_op(InstrInfo):
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         src_c = args.src.index()
-        return [f"::kittens::warp::{self.kittens_op_name}({dst_c}, {src_c});"]
+        if "broadcast" in self.kittens_op_name:
+            return [f"::kittens::warp::{self.kittens_op_name}({dst_c}, {src_c});"]
+        else:
+            return [
+                f"::kittens::warp::{self.kittens_op_name}({dst_c}, {dst_c}, {src_c});"
+            ]

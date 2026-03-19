@@ -6,6 +6,7 @@ import numpy as np
 from dataclasses import dataclass
 from random import Random
 from typing import List, Tuple, Set, Dict, Optional, Callable
+import operator
 
 from exo import *
 from exo.API import InstrTemplate
@@ -45,6 +46,111 @@ class TileTester:
     only: bool
     T_dst: ScalarInfo
     T_src: ScalarInfo
+
+
+def make_broadcast_tester(
+    instr_name,
+    tile_base_type,
+    py_op,
+    only=False,
+):
+    # Tester for tile = tile op vec.
+    # Compared against: tile_value = py_op(tile_value, vec_value)
+    T = tile_base_type
+    tile_instr = getattr(ops_module, instr_name)
+    rng = Random(instr_name)
+
+    rows = 32 * rng.randrange(2, 6)
+    cols = 32 * rng.randrange(2, 6)
+    tile_rmem = CudaTkWarpTile(rows, cols)
+
+    if instr_name.endswith("_row"):
+        is_row_op = True
+        length = rows
+        vec_rmem = tile_rmem.col_vec
+    else:
+        assert instr_name.endswith("_col")
+        is_row_op = False
+        length = cols
+        vec_rmem = tile_rmem.row_vec
+
+    @proc
+    def p(
+        h_cpu_inout: f32[rows, cols],
+        h_cuda_inout: f32[rows, cols],
+        h_src: f32[length],
+    ):
+        # fmt: off
+        # This will be inlined, unpacking the CUDA instr's behavior as CPU code.
+        # The test works by comparing the CPU output generated here to CUDA.
+        tile_instr(h_cpu_inout[:, :], h_src[:], rows=rows, cols=cols, dst=f32, src=f32)
+
+        d_src: f32[length] @ CudaGmemLinear
+        d_inout: f32[rows, cols] @ CudaGmemLinear
+
+        cudaMemcpyAsync_htod_1f32(length, d_src[:], h_src[:])
+        cudaMemcpyAsync_htod_2f32(rows, cols, d_inout[:, :], h_cuda_inout[:, :])
+
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                r_inout: T[rows, cols] @ tile_rmem
+                r_src: T[length] @ vec_rmem
+                s_src: f32[length] @ CudaSmemLinear
+                for s in seq(0, length / 32):
+                    for tid in cuda_threads(0, 32):
+                        s_src[s * 32 + tid] = d_src[s * 32 + tid]
+                cuda_tk_load_rg(r_inout[:, :], d_inout[:, :], size0=rows, size1=cols, dst=T, src=f32)
+                Fence(cuda_in_order, cuda_in_order)
+                cuda_tk_load_vec_rs(r_src[:], s_src[:], length=length, layout=vec_rmem.layout, dst=T, src=f32)
+                tile_instr(r_inout[:, :], r_src[:], rows=rows, cols=cols, dst=T, src=T)
+                cuda_tk_store_rg(d_inout[:, :], r_inout[:, :], size0=rows, size1=cols, dst=f32, src=T)
+                Fence(cuda_in_order, cuda_in_order)
+
+        cudaMemcpyAsync_dtoh_2f32(rows, cols, h_cuda_inout[:, :], d_inout[:, :])
+
+    name = f"tester_{T}_{instr_name}"
+    p = inline(p, p.body()[0])
+    p = simplify(p)
+    p = rename(p, name)
+
+    if "_div_" in instr_name:
+        rng_start = 0.25
+        rng_end = 0.75
+    else:
+        rng_start = -20
+        rng_end = 20
+
+    def run(cu: CudaTestContext):
+        h_cpu_inout = np.zeros((rows, cols), dtype=np.float32)
+        h_cuda_inout = np.zeros((rows, cols), dtype=np.float32)
+        h_src = np.zeros((length,), dtype=np.float32)
+        for r in range(0, rows):
+            for c in range(0, cols):
+                init = 0.25 * rng.randrange(int(rng_start * 4), int(rng_end * 4))
+                h_cpu_inout[r, c] = init
+                h_cuda_inout[r, c] = init
+        for i in range(0, length):
+            h_src[i] = 0.25 * rng.randrange(int(rng_start * 4), int(rng_end * 4))
+
+        h_ref = np.zeros((rows, cols), dtype=np.float32)
+        if is_row_op:
+            for r in range(0, rows):
+                for c in range(0, cols):
+                    h_ref[r, c] = py_op(h_cpu_inout[r, c], h_src[r])
+        else:
+            for r in range(0, rows):
+                for c in range(0, cols):
+                    h_ref[r, c] = py_op(h_cpu_inout[r, c], h_src[c])
+
+        cu.run(name, None, h_cpu_inout, h_cuda_inout, h_src)
+
+        # Exact comparisons here.
+        for r in range(0, rows):
+            for c in range(0, cols):
+                assert h_cuda_inout[r, c] == h_ref[r, c], name
+                assert h_cuda_inout[r, c] == h_cpu_inout[r, c], name
+
+    return TileTester(p, run, instr_name, only, T, T)
 
 
 def make_reduce_tester(
@@ -473,6 +579,23 @@ def test_tk_tile_ops(compiler_Sm80):
     # Pass only=True to one of the testers to select just that sub-test to run.
     # fmt: off
     testers = [
+        #
+        make_broadcast_tester("cuda_tk_add_row", f32, operator.add),
+        make_broadcast_tester("cuda_tk_add_col", f32, operator.add),
+        make_broadcast_tester("cuda_tk_sub_row", f32, operator.sub),
+        make_broadcast_tester("cuda_tk_sub_col", f32, operator.sub),
+        make_broadcast_tester("cuda_tk_mul_row", f32, operator.mul),
+        make_broadcast_tester("cuda_tk_mul_col", f32, operator.mul),
+        make_broadcast_tester("cuda_tk_div_row", f32, operator.truediv),
+        make_broadcast_tester("cuda_tk_div_col", f32, operator.truediv),
+        make_broadcast_tester("cuda_tk_broadcast_row", f32, lambda _, a: a),
+        make_broadcast_tester("cuda_tk_broadcast_col", f32, lambda _, a: a),
+        #
+        make_broadcast_tester("cuda_tk_sub_row", f16, operator.sub),
+        make_broadcast_tester("cuda_tk_sub_row", bf16, operator.sub),
+        make_broadcast_tester("cuda_tk_div_col", f16, operator.truediv),
+        make_broadcast_tester("cuda_tk_broadcast_row", f16, lambda _, a: a),
+        make_broadcast_tester("cuda_tk_broadcast_col", bf16, lambda _, a: a),
         #
         make_reduce_tester("cuda_tk_row_sum", f32, np.add),
         make_reduce_tester("cuda_tk_col_sum", f32, np.add),
