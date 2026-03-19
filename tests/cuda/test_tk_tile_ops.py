@@ -11,7 +11,7 @@ from exo import *
 from exo.API import InstrTemplate
 from exo.platforms.cuda import *
 from exo.platforms.cuda_tk import *
-from exo.scalars import inf, f16, bf16, f32
+from exo.scalars import inf, f16, bf16, f32, e4m3, e5m2
 from exo.stdlib.scheduling import *
 
 # Not intended as a public module, but we do this to autogenerate
@@ -90,7 +90,10 @@ def make_unary_tester(
     p = simplify(p)
     p = rename(p, name)
 
-    if "_log" in instr_name:
+    if T_src.bits <= 8 or T_dst.bits <= 8:
+        rng_start = -1
+        rng_end = 1
+    elif "_log" in instr_name:
         rng_start = 0.25
         rng_end = 125.0
     elif "_exp" in instr_name:
@@ -287,6 +290,12 @@ def test_tk_tile_ops(compiler_Sm80):
         make_unary_tester("cuda_tk_tile_copy", f16, f32, expected_tuple=(inf, 102400.125)),
         make_unary_tester("cuda_tk_tile_copy", f32, f16, expected_tuple=(-1280, -1280)),
         make_unary_tester("cuda_tk_tile_copy", f32, bf16, expected_tuple=(-1280, -1280)),
+        # TODO test these on Hopper
+        # make_unary_tester("cuda_tk_tile_copy", e4m3, f32, only=True, expected_tuple=(15, 15.1)),
+        # make_unary_tester("cuda_tk_tile_copy", e5m2, f32, only=True, expected_tuple=(16, 15.1)),
+        # make_unary_tester("cuda_tk_tile_copy", f32, e4m3, only=True),
+        # make_unary_tester("cuda_tk_tile_copy", f32, e5m2, only=True),
+        # make_unary_tester("cuda_tk_tile_copy", e4m3, f16, only=True),
         #
         make_unary_tester("cuda_tk_tile_exp", f16),
         make_unary_tester("cuda_tk_tile_exp2", f16, expected_tuple=(8, 3)),
