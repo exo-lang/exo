@@ -47,6 +47,105 @@ class TileTester:
     T_src: ScalarInfo
 
 
+def make_reduce_tester(
+    instr_name,
+    tile_base_type,
+    np_reduce,
+    only=False,
+):
+    # Tester for tile -> vector row/col reductions.
+    T = tile_base_type
+    tile_instr = getattr(ops_module, instr_name)
+    rng = Random(instr_name)
+
+    if "_prod" in instr_name:
+        rng_start = 1
+        rng_end = 4
+        rows = 32
+        cols = 32
+    elif T.bits <= 8:
+        rng_start = -3
+        rng_end = +3
+        rows = 32 * rng.randrange(1, 4)
+        cols = 32 * rng.randrange(1, 4)
+    else:
+        rng_start = -10
+        rng_end = 10
+        rows = 32 * rng.randrange(1, 4)
+        cols = 32 * rng.randrange(1, 4)
+
+    tile_rmem = CudaTkWarpTile(rows, cols, "row")
+
+    if instr_name.startswith("cuda_tk_row_"):
+        axis = 1
+        length = rows
+        vec_rmem = tile_rmem.col_vec
+    else:
+        assert instr_name.startswith("cuda_tk_col_")
+        axis = 0
+        length = cols
+        vec_rmem = tile_rmem.row_vec
+
+    @proc
+    def p(
+        h_cpu_dst: f32[length],
+        h_cuda_dst: f32[length],
+        h_src: f32[rows, cols],
+    ):
+        # fmt: off
+        # This will be inlined, unpacking the CUDA instr's behavior as CPU code.
+        # The test works by comparing the CPU output generated here to CUDA.
+        tile_instr(h_cpu_dst[:], h_src[:, :], rows=rows, cols=cols, dst=f32, src=f32)
+
+        d_src: f32[rows, cols] @ CudaGmemLinear
+        d_dst: f32[length] @ CudaGmemLinear
+
+        cudaMemcpyAsync_htod_2f32(rows, cols, d_src[:, :], h_src[:, :])
+
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                r_dst: T[length] @ vec_rmem
+                r_src: T[rows, cols] @ tile_rmem
+                cuda_tk_load_rg(r_src[:, :], d_src[:, :], size0=rows, size1=cols, dst=T, src=f32)
+                tile_instr(r_dst[:], r_src[:, :], rows=rows, cols=cols, dst=T, src=T)
+                s_dst: f32[length] @ CudaSmemLinear
+                cuda_tk_store_vec_rs(s_dst[:], r_dst[:], length=length, layout=vec_rmem.layout, dst=f32, src=T)
+                Fence(cuda_in_order, cuda_in_order)
+                for s in seq(0, length / 32):
+                    for tid in cuda_threads(0, 32):
+                        d_dst[s * 32 + tid] = s_dst[s * 32 + tid]
+                Fence(cuda_in_order, cuda_in_order)
+
+        cudaMemcpyAsync_dtoh_1f32(length, h_cuda_dst[:], d_dst[:])
+
+    name = f"tester_{T}_{instr_name}"
+    p = inline(p, p.body()[0])
+    p = simplify(p)
+    p = rename(p, name)
+
+    def run(cu: CudaTestContext):
+        h_cpu_dst = np.zeros((length,), dtype=np.float32)
+        h_cuda_dst = np.zeros((length,), dtype=np.float32)
+        h_ref = np.zeros((length,), dtype=np.float32)
+        h_src = np.zeros((rows, cols), dtype=np.float32)
+        for r in range(0, rows):
+            for c in range(0, cols):
+                h_src[r, c] = rng.randrange(rng_start, rng_end)
+
+        h_ref = np_reduce.reduce(h_src, axis=axis, dtype=np.float32)
+
+        cu.run(name, None, h_cpu_dst, h_cuda_dst, h_src)
+
+        # Exact comparisons here.
+        # This should work for everything except low-precision product
+        # (so we don't test that).
+        for i in range(0, length):
+            assert h_cuda_dst[i] == h_ref[i], (name, i)
+            assert h_cuda_dst[i] == h_cpu_dst[i], (name, i)
+
+    return TileTester(p, run, instr_name, only, T, T)
+
+
 def make_0ary_tester(
     instr_name,
     tile_base_type,
@@ -71,7 +170,7 @@ def make_0ary_tester(
         # fmt: off
         # This will be inlined, unpacking the CUDA instr's behavior as CPU code.
         # The test works by comparing the CPU output generated here to CUDA.
-        tile_instr(h_cpu_inout[:, :], rows=rows, cols=cols, dst=T)
+        tile_instr(h_cpu_inout[:, :], rows=rows, cols=cols, dst=f32)
 
         d_inout: f32[rows, cols] @ CudaGmemLinear
 
@@ -87,7 +186,7 @@ def make_0ary_tester(
 
         cudaMemcpyAsync_dtoh_2f32(rows, cols, h_cuda_inout[:, :], d_inout[:, :])
 
-    name = f"tester_{T}_" + instr_name
+    name = f"tester_{T}_{instr_name}"
     p = inline(p, p.body()[0])
     p = simplify(p)
     p = rename(p, name)
@@ -173,7 +272,7 @@ def make_unary_tester(
 
         cudaMemcpyAsync_dtoh_2f32(rows, cols, h_cuda_dst[:, :], d_dst[:, :])
 
-    name = f"tester_{T_dst}_{T_src}_" + instr_name
+    name = f"tester_{T_dst}_{T_src}_{instr_name}"
     p = inline(p, p.body()[0])
     p = simplify(p)
     p = rename(p, name)
@@ -290,7 +389,7 @@ def make_binary_tester_3(
                 cuda_tk_store_rg(d_dst[:, :], r_dst[:, :], size0=rows, size1=cols, dst=f32, src=T)
         cudaMemcpyAsync_dtoh_2f32(rows, cols, h_cuda_dst[:, :], d_dst[:, :])
 
-    proc_name = f"tester_{T}_" + instr_name
+    proc_name = f"tester_{T}_{instr_name}"
 
     p = inline(p, p.body()[0])
     p = simplify(p)
@@ -355,7 +454,7 @@ def make_binary_tester_2(
                     cuda_tk_store_rg(d_dst[:, :], r_lhs[:, :], size0=rows, size1=cols, dst=f32, src=T)
         cudaMemcpyAsync_dtoh_2f32(rows, cols, h_cuda_dst[:, :], d_dst[:, :])
 
-    proc_name = f"tester_{T}_" + instr_name
+    proc_name = f"tester_{T}_{instr_name}"
 
     p = inline(p, p.body()[0])
     p = simplify(p)
@@ -374,6 +473,21 @@ def test_tk_tile_ops(compiler_Sm80):
     # Pass only=True to one of the testers to select just that sub-test to run.
     # fmt: off
     testers = [
+        #
+        make_reduce_tester("cuda_tk_row_sum", f32, np.add),
+        make_reduce_tester("cuda_tk_col_sum", f32, np.add),
+        make_reduce_tester("cuda_tk_row_prod", f32, np.multiply),
+        make_reduce_tester("cuda_tk_col_prod", f32, np.multiply),
+        make_reduce_tester("cuda_tk_row_max", f32, np.maximum),
+        make_reduce_tester("cuda_tk_col_max", f32, np.maximum),
+        make_reduce_tester("cuda_tk_row_min", f32, np.minimum),
+        make_reduce_tester("cuda_tk_col_min", f32, np.minimum),
+        #
+        make_reduce_tester("cuda_tk_row_sum", f16, np.add),
+        make_reduce_tester("cuda_tk_row_max", f16, np.maximum),
+        make_reduce_tester("cuda_tk_row_max", bf16, np.maximum),
+        make_reduce_tester("cuda_tk_col_max", f16, np.maximum),
+        make_reduce_tester("cuda_tk_col_max", bf16, np.maximum),
         #
         make_0ary_tester("cuda_tk_tile_zero", f32, {(1, 3): (0, 1337)}),
         make_0ary_tester("cuda_tk_tile_one", f32, {(1, 3): (1, 1337)}),
