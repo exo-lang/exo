@@ -96,6 +96,8 @@ def CudaTkWarpTile(r, c, layout="row"):
     else:
         base = CudaTkWarpTile(r, c, "all")
 
+    _layout = layout
+
     @window_indexer(_CudaTkWarpIndexer)
     class Tile(base):
         @classmethod
@@ -109,7 +111,8 @@ def CudaTkWarpTile(r, c, layout="row"):
                 )
             array_dims = "".join(f"[{n}]" for n in shape[:-2])
             # fmt: off
-            return f"::kittens::rt_{suffix}<{r}, {c}, ::kittens::ducks::rt_layout::{layout}> {new_name}{array_dims};"
+            assert _layout != "all", "Cannot allocate tile with 'all' layout"
+            return f"::kittens::rt_{suffix}<{r}, {c}, ::kittens::ducks::rt_layout::{_layout}> {new_name}{array_dims};"
 
         @classmethod
         def free(cls, new_name, prim_type, shape, srcinfo):
@@ -133,11 +136,16 @@ def CudaTkWarpTile(r, c, layout="row"):
 
         qual_tl_dict = cuda_rmem_qual_tl_dict
 
-        if layout == "row":
+        # Convenience attributes for the user
+        rows = r
+        cols = c
+        layout = _layout
+
+        if _layout == "row":
             # fmt: off
             row_vec = CudaTkWarpVec(c, "align")  # dst mem for column reductions -> R[cols]
             col_vec = CudaTkWarpVec(r, "ortho")  # dst mem for row reductions -> R[rows]
-        if layout == "col":
+        if _layout == "col":
             # Not really tested.
             # fmt: off
             row_vec = CudaTkWarpVec(c, "ortho")  # dst mem for column reductions -> R[cols]
@@ -170,6 +178,9 @@ def CudaTkWarpVec(length, layout):
     else:
         base = CudaTkWarpVec(length, "all")
 
+    _layout = layout
+    _length = length
+
     @window_indexer(_CudaTkWarpIndexer)
     class Vec(base):
         @classmethod
@@ -181,11 +192,11 @@ def CudaTkWarpVec(length, layout):
                 raise TypeError(
                     f"CudaTkWarpTile currently does not support {scalar_info}"
                 )
-            assert shape[-1] == length
+            assert shape[-1] == _length
             array_dims = "".join(f"[{n}]" for n in shape[:-1])
             # fmt: off
-            assert layout != "all", "Cannot allocate vector with 'all' layout"
-            return f"::kittens::rv_{suffix}<{length}, ::kittens::ducks::rv_layout::{layout}> {new_name}{array_dims};"
+            assert _layout != "all", "Cannot allocate vector with 'all' layout"
+            return f"::kittens::rv_{suffix}<{_length}, ::kittens::ducks::rv_layout::{_layout}> {new_name}{array_dims};"
 
         @classmethod
         def free(cls, new_name, prim_type, shape, srcinfo):
@@ -197,7 +208,7 @@ def CudaTkWarpVec(length, layout):
 
         @classmethod
         def packed_tensor_shape(cls, scalar_info: ScalarInfo):
-            return (length,)
+            return (_length,)
 
         @classmethod
         def device_permission(cls, device, instr_tl):
@@ -208,6 +219,10 @@ def CudaTkWarpVec(length, layout):
             return cuda_warp
 
         qual_tl_dict = cuda_rmem_qual_tl_dict
+
+        # Convenience attributes for the user
+        length = _length
+        layout = _layout
 
     return Vec
 
@@ -281,7 +296,16 @@ __all__.append("cuda_tk_gl2_window_util")
 assert CudaTkWarpTile(16, 256) == CudaTkWarpTile(16, 256, "row")
 assert issubclass(CudaTkWarpTile(16, 256, "row"), CudaTkWarpTile(16, 256, "all"))
 assert not issubclass(CudaTkWarpTile(16, 256, "all"), CudaTkWarpTile(16, 256, "row"))
+assert not issubclass(CudaTkWarpTile(16, 256, "col"), CudaTkWarpTile(16, 256, "row"))
 assert CudaTkWarpTile(16, 256, "row").row_vec == CudaTkWarpVec(256, "align")
 assert CudaTkWarpTile(16, 256, "row").col_vec == CudaTkWarpVec(16, "ortho")
 assert CudaTkWarpTile(16, 256, "col").row_vec == CudaTkWarpVec(256, "ortho")
 assert CudaTkWarpTile(16, 256, "col").col_vec == CudaTkWarpVec(16, "align")
+assert issubclass(CudaTkWarpVec(256, "align"), CudaTkWarpVec(256, "all"))
+assert not issubclass(CudaTkWarpVec(256, "all"), CudaTkWarpVec(256, "align"))
+assert not issubclass(CudaTkWarpVec(256, "ortho"), CudaTkWarpVec(256, "align"))
+assert CudaTkWarpTile(32, 256).rows == 32
+assert CudaTkWarpTile(32, 256).cols == 256
+assert CudaTkWarpTile(32, 256).layout == "row"
+assert CudaTkWarpVec(128, "naive").length == 128
+assert CudaTkWarpVec(128, "naive").layout == "naive"
