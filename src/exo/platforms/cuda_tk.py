@@ -2,7 +2,7 @@
 """Top-level module for Exo-GPU wrappers of ThunderKittens
 
 We have focused on wrapping tile ops and tile-to-vec reductions.
-Vector support is limited but could be added.
+Vector support is limited but could be expanded.
 
 For register (RMEM) storage, we wrap the ThunderKittens tile and vec types
 as Exo-GPU Memory classes. Use CudaTkWarpTile(rows, cols, layout="row")
@@ -31,6 +31,9 @@ from .kittens_impl.tk_types import *
 
 # Register-to-register tile copy, conversion, maps, reduction-to-vector
 from .kittens_impl.tk_tile_ops import *
+
+# Some vector operations
+from .kittens_impl.tk_vec_ops import *
 
 # RMEM/SMEM vec copies
 # Note, we currently don't support GMEM vectors.
