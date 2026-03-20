@@ -162,6 +162,76 @@ for name, extern in unary_name_externs:
     )
 
 
+# Binary vec ops, multiple forms
+# dst = lhs op rhs [rhs could be a scalar]
+# dst = dst op src [src could be a scalar]
+# dst = src op dst
+# dst += src [src could be a scalar]
+binary_name_stmt = [
+    ("max", "{dst}[i] = fmaxf({lhs}[i], {rhs}{rhs_idx})"),
+    ("min", "{dst}[i] = fminf({lhs}[i], {rhs}{rhs_idx})"),
+    ("add", "{dst}[i] = {lhs}[i] + {rhs}{rhs_idx}"),
+    ("sub", "{dst}[i] = {lhs}[i] - {rhs}{rhs_idx}"),
+    ("mul", "{dst}[i] = {lhs}[i] * {rhs}{rhs_idx}"),
+    ("div", "{dst}[i] = {lhs}[i] / {rhs}{rhs_idx}"),
+]
+
+for name, stmt_fmt in binary_name_stmt:
+    gen_instr(
+        f"cuda_tk_vec_{name}_3op",
+        "basic_binary_3op_vec_op",
+        name,
+        stmt_fmt.format(dst="dst", lhs="lhs", rhs="rhs", rhs_idx="[i]"),
+        ("dst", "lhs", "rhs"),
+    )
+    gen_instr(
+        f"cuda_tk_vec_{name}_3op_scalar",
+        "basic_binary_3op_vec_scalar_op",
+        name,
+        stmt_fmt.format(dst="dst", lhs="lhs", rhs="rhs", rhs_idx=""),
+        ("dst", "lhs", "rhs"),
+        scalar_names=("rhs",),
+    )
+    if name == "add":
+        gen_instr(
+            f"cuda_tk_vec_{name}_reduce",
+            "basic_binary_lhs_vec_op",
+            name,
+            "dst[i] += src[i]",
+            ("dst", "src"),
+        )
+        gen_instr(
+            f"cuda_tk_vec_{name}_reduce_scalar",
+            "basic_binary_lhs_vec_scalar_op",
+            name,
+            "dst[i] += src",
+            ("dst", "src"),
+            scalar_names=("src",),
+        )
+    gen_instr(
+        f"cuda_tk_vec_{name}_lhs",
+        "basic_binary_lhs_vec_op",
+        name,
+        stmt_fmt.format(dst="dst", lhs="dst", rhs="src", rhs_idx="[i]"),
+        ("dst", "src"),
+    )
+    gen_instr(
+        f"cuda_tk_vec_{name}_lhs_scalar",
+        "basic_binary_lhs_vec_scalar_op",
+        name,
+        stmt_fmt.format(dst="dst", lhs="dst", rhs="src", rhs_idx=""),
+        ("dst", "src"),
+        scalar_names=("src",),
+    )
+    gen_instr(
+        f"cuda_tk_vec_{name}_rhs",
+        "basic_binary_rhs_vec_op",
+        name,
+        stmt_fmt.format(dst="dst", lhs="src", rhs="dst", rhs_idx="[i]"),
+        ("src", "dst"),
+    )
+
+
 #############################################################################
 # Finalize file contents
 #############################################################################

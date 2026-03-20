@@ -35,7 +35,7 @@ for attr in sorted(dir(ops_module)):
             vec_instr_names.append(attr)
 
 
-# assert len(tile_instr_names) >= 56, "Add or remove test coverage"
+assert len(vec_instr_names) >= 44, "Add or remove test coverage"
 
 
 @dataclass(slots=True)
@@ -245,6 +245,220 @@ def make_unary_tester(instr_name, T, only=False, *, expected_tuple=None):
     return VecTester(p, run, instr_name, only)
 
 
+def make_binary_tester(instr_name, T, only=False, *, expected_tuple):
+    rng = Random(instr_name + str(T))
+    length = 32 * rng.randrange(1, 4)
+    layout = rng.choice(("align", "ortho", "naive"))
+
+    fragments = instr_name.split("_")
+    if fragments[-1] == "3op":
+        instr_name_2op = "_".join(fragments[:-1]) + "_lhs"
+        instr_name_3op = instr_name
+        writes_lhs = False
+        writes_rhs = False
+    else:
+        instr_name_2op = instr_name
+        instr_name_3op = "_".join(fragments[:-1]) + "_3op"
+        assert fragments[-1] in ("lhs", "rhs", "reduce")
+        writes_lhs = fragments[-1] != "rhs"
+        writes_rhs = fragments[-1] == "rhs"
+    vec_instr_2op = getattr(ops_module, instr_name_2op)
+    vec_instr_3op = getattr(ops_module, instr_name_3op)
+
+    @proc
+    def p(
+        h_cpu_dst: f32[length],
+        h_cuda_dst: f32[length],
+        h_lhs: f32[length],
+        h_rhs: f32[length],
+    ):
+        # fmt: off
+        # This will be inlined, unpacking the CUDA instr's behavior as CPU code.
+        # The test works by comparing the CPU output generated here to CUDA.
+        vec_instr_3op(
+            h_cpu_dst[:], h_lhs[:], h_rhs[:],
+            length=length, dst=f32, lhs=f32, rhs=f32, layout=layout,
+        )
+
+        d_dst: f32[length] @ CudaGmemLinear
+        d_lhs: f32[length] @ CudaGmemLinear
+        d_rhs: f32[length] @ CudaGmemLinear
+        cudaMemcpyAsync_htod_1f32(length, d_lhs[:], h_lhs[:])
+        cudaMemcpyAsync_htod_1f32(length, d_rhs[:], h_rhs[:])
+
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                s_lhs: f32[length] @ CudaSmemLinear
+                s_rhs: f32[length] @ CudaSmemLinear
+                for s in seq(0, length / 32):
+                    for tid in cuda_threads(0, 32):
+                        s_lhs[s * 32 + tid] = d_lhs[s * 32 + tid]
+                        s_rhs[s * 32 + tid] = d_rhs[s * 32 + tid]
+                Fence(cuda_in_order, cuda_in_order)
+                r_lhs: T[length] @ CudaTkWarpVec(length, layout)
+                r_rhs: T[length] @ CudaTkWarpVec(length, layout)
+                r_dst: T[length] @ CudaTkWarpVec(length, layout)
+                s_dst: f32[length] @ CudaSmemLinear
+                cuda_tk_load_vec_rs(r_lhs[:], s_lhs[:], length=length, layout=layout, dst=T, src=f32)
+                cuda_tk_load_vec_rs(r_rhs[:], s_rhs[:], length=length, layout=layout, dst=T, src=f32)
+
+                if writes_lhs:
+                    cuda_tk_vec_copy(r_dst[:], r_lhs[:], length=length, layout=layout, dst=T, src=T)
+                    vec_instr_2op(r_dst[:], r_rhs[:], length=length, layout=layout, dst=T, src=T)
+                elif writes_rhs:
+                    cuda_tk_vec_copy(r_dst[:], r_rhs[:], length=length, layout=layout, dst=T, src=T)
+                    vec_instr_2op(r_lhs[:], r_dst[:], length=length, layout=layout, dst=T, src=T)
+                else:
+                    vec_instr_3op(r_dst[:], r_lhs[:], r_rhs[:], length=length, layout=layout, dst=T, lhs=T, rhs=T)
+
+                cuda_tk_store_vec_rs(s_dst[:], r_dst[:], length=length, layout=layout, dst=f32, src=T)
+                Fence(cuda_in_order, cuda_in_order)
+                for s in seq(0, length / 32):
+                    for tid in cuda_threads(0, 32):
+                        d_dst[s * 32 + tid] = s_dst[s * 32 + tid]
+                Fence(cuda_in_order, cuda_in_order)
+
+        cudaMemcpyAsync_dtoh_1f32(length, h_cuda_dst[:], d_dst[:])
+
+    proc_name = f"tester_{instr_name}_{T}{layout}"
+    p = inline(p, p.body()[0])
+    p = simplify(p)
+    p = rename(p, proc_name)
+
+    lhs_magn = 128 if T.bits >= 32 else 8
+    rhs_magn = 129 if T.bits >= 32 else 5
+
+    def run(cu: CudaTestContext):
+        h_cpu_dst = np.zeros((length,), dtype=np.float32)
+        h_cuda_dst = np.zeros((length,), dtype=np.float32)
+        h_lhs = np.zeros((length,), dtype=np.float32)
+        h_rhs = np.zeros((length,), dtype=np.float32)
+        for i in range(length):
+            h_lhs[i] = rng.randrange(-lhs_magn, lhs_magn)
+            h_rhs[i] = rng.randrange(1, rhs_magn)
+
+        assert len(expected_tuple) == 3
+        h_lhs[29] = expected_tuple[1]
+        h_rhs[29] = expected_tuple[2]
+
+        cu.run(proc_name, None, h_cpu_dst, h_cuda_dst, h_lhs, h_rhs)
+
+        for i in range(0, length):
+            if i == 29 and expected_tuple:
+                # Exact comparison
+                assert h_cuda_dst[i] == expected_tuple[0], proc_name
+            else:
+                assert math.fabs(h_cpu_dst[i] - h_cuda_dst[i]) <= 0.0625, proc_name
+
+    return VecTester(p, run, instr_name, only)
+
+
+def make_binary_vec_scalar_tester(instr_name, T, only=False, *, expected_tuple):
+    rng = Random(instr_name + str(T))
+    length = 32 * rng.randrange(1, 4)
+    layout = rng.choice(("align", "ortho", "naive"))
+
+    fragments = instr_name.split("_")
+    assert len(fragments) >= 2
+    assert fragments[-1] == "scalar"
+    if fragments[-2] == "3op":
+        instr_name_2op = "_".join(fragments[:-2]) + "_lhs_scalar"
+        instr_name_3op = instr_name
+        writes_lhs = False
+    else:
+        instr_name_2op = instr_name
+        instr_name_3op = "_".join(fragments[:-2]) + "_3op_scalar"
+        assert fragments[-2] in ("lhs", "reduce")
+        writes_lhs = True
+    vec_instr_2op = getattr(ops_module, instr_name_2op)
+    vec_instr_3op = getattr(ops_module, instr_name_3op)
+
+    @proc
+    def p(
+        h_cpu_dst: f32[length],
+        h_cuda_dst: f32[length],
+        h_lhs: f32[length],
+        h_cpu_rhs: f32,
+        h_cuda_rhs: T,
+    ):
+        # fmt: off
+        # This will be inlined, unpacking the CUDA instr's behavior as CPU code.
+        # The test works by comparing the CPU output generated here to CUDA.
+        vec_instr_3op(
+            h_cpu_dst[:], h_lhs[:], h_cpu_rhs,
+            length=length, dst=f32, lhs=f32, rhs=f32, layout=layout,
+        )
+
+
+        d_dst: f32[length] @ CudaGmemLinear
+        d_lhs: f32[length] @ CudaGmemLinear
+        d_rhs: T @ CudaGridConstant
+        cudaMemcpyAsync_htod_1f32(length, d_lhs[:], h_lhs[:])
+        d_rhs = h_cuda_rhs
+
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                s_lhs: f32[length] @ CudaSmemLinear
+                for s in seq(0, length / 32):
+                    for tid in cuda_threads(0, 32):
+                        s_lhs[s * 32 + tid] = d_lhs[s * 32 + tid]
+                Fence(cuda_in_order, cuda_in_order)
+                r_lhs: T[length] @ CudaTkWarpVec(length, layout)
+                r_dst: T[length] @ CudaTkWarpVec(length, layout)
+                s_dst: f32[length] @ CudaSmemLinear
+                cuda_tk_load_vec_rs(r_lhs[:], s_lhs[:], length=length, layout=layout, dst=T, src=f32)
+
+                if writes_lhs:
+                    cuda_tk_vec_copy(r_dst[:], r_lhs[:], length=length, layout=layout, dst=T, src=T)
+                    vec_instr_2op(r_dst[:], d_rhs, length=length, layout=layout, dst=T, src=T)
+                else:
+                    vec_instr_3op(r_dst[:], r_lhs[:], d_rhs, length=length, layout=layout, dst=T, lhs=T, rhs=T)
+
+                cuda_tk_store_vec_rs(s_dst[:], r_dst[:], length=length, layout=layout, dst=f32, src=T)
+                Fence(cuda_in_order, cuda_in_order)
+                for s in seq(0, length / 32):
+                    for tid in cuda_threads(0, 32):
+                        d_dst[s * 32 + tid] = s_dst[s * 32 + tid]
+                Fence(cuda_in_order, cuda_in_order)
+
+        cudaMemcpyAsync_dtoh_1f32(length, h_cuda_dst[:], d_dst[:])
+
+    proc_name = f"tester_{instr_name}_{T}{layout}"
+    p = inline(p, p.body()[0])
+    p = simplify(p)
+    p = rename(p, proc_name)
+
+    lhs_magn = 128 if T.bits >= 32 else 8
+    rhs_magn = 129 if T.bits >= 32 else 5
+
+    def run(cu: CudaTestContext):
+        h_cpu_dst = np.zeros((length,), dtype=np.float32)
+        h_cuda_dst = np.zeros((length,), dtype=np.float32)
+        h_lhs = np.zeros((length,), dtype=np.float32)
+        for i in range(length):
+            h_lhs[i] = rng.randrange(-lhs_magn, lhs_magn)
+
+        assert len(expected_tuple) == 3
+        h_lhs[29] = expected_tuple[1]
+        h_cpu_rhs = np.array((expected_tuple[2],), dtype=np.float32)
+        if T == f32:
+            h_cuda_rhs = np.array((expected_tuple[2],), dtype=np.float32)
+        else:
+            assert T in (f16, f32)
+            h_cuda_rhs = np.array((expected_tuple[2],), dtype=np.float16)
+
+        cu.run(proc_name, None, h_cpu_dst, h_cuda_dst, h_lhs, h_cpu_rhs, h_cuda_rhs)
+
+        for i in range(0, length):
+            if i == 29 and expected_tuple:
+                # Exact comparison
+                assert h_cuda_dst[i] == expected_tuple[0], proc_name
+            else:
+                assert math.fabs(h_cpu_dst[i] - h_cuda_dst[i]) <= 0.0625, proc_name
+
+    return VecTester(p, run, instr_name, only)
+
+
 def test_tk_vec_ops(compiler_Sm80):
     # Note, because ThunderKittens takes so long to compile, we amortize
     # the time by compiling all the tests together.
@@ -293,6 +507,61 @@ def test_tk_vec_ops(compiler_Sm80):
         make_unary_tester("cuda_tk_vec_abs", f32, expected_tuple=(19.125, -19.125)),
         make_unary_tester("cuda_tk_vec_relu", f32, expected_tuple=(19.125, 19.125)),
         #
+        make_binary_tester("cuda_tk_vec_add_3op", f32, expected_tuple=(9, 3, 6)),
+        make_binary_tester("cuda_tk_vec_sub_3op", f32, expected_tuple=(-3, 3, 6)),
+        make_binary_tester("cuda_tk_vec_mul_3op", f32, expected_tuple=(18, 3, 6)),
+        make_binary_tester("cuda_tk_vec_div_3op", f32, expected_tuple=(0.375, 3, 8)),
+        make_binary_tester("cuda_tk_vec_max_3op", f32, expected_tuple=(8, 3, 8)),
+        make_binary_tester("cuda_tk_vec_min_3op", f32, expected_tuple=(3, 3, 8)),
+        #
+        make_binary_vec_scalar_tester("cuda_tk_vec_add_3op_scalar", f32, expected_tuple=(9, 3, 6)),
+        make_binary_vec_scalar_tester("cuda_tk_vec_sub_3op_scalar", f32, expected_tuple=(-3, 3, 6)),
+        make_binary_vec_scalar_tester("cuda_tk_vec_mul_3op_scalar", f32, expected_tuple=(18, 3, 6)),
+        make_binary_vec_scalar_tester("cuda_tk_vec_div_3op_scalar", f32, expected_tuple=(0.375, 3, 8)),
+        make_binary_vec_scalar_tester("cuda_tk_vec_max_3op_scalar", f32, expected_tuple=(8, 3, 8)),
+        make_binary_vec_scalar_tester("cuda_tk_vec_min_3op_scalar", f32, expected_tuple=(3, 3, 8)),
+        #
+        make_binary_tester("cuda_tk_vec_add_reduce", f32, expected_tuple=(9, 3, 6)),
+        make_binary_tester("cuda_tk_vec_add_lhs", f32, expected_tuple=(9, 3, 6)),
+        make_binary_tester("cuda_tk_vec_sub_lhs", f32, expected_tuple=(-3, 3, 6)),
+        make_binary_tester("cuda_tk_vec_mul_lhs", f32, expected_tuple=(18, 3, 6)),
+        make_binary_tester("cuda_tk_vec_div_lhs", f32, expected_tuple=(0.375, 3, 8)),
+        make_binary_tester("cuda_tk_vec_max_lhs", f32, expected_tuple=(8, 3, 8)),
+        make_binary_tester("cuda_tk_vec_min_lhs", f32, expected_tuple=(3, 3, 8)),
+        #
+        make_binary_vec_scalar_tester("cuda_tk_vec_add_reduce_scalar", f32, expected_tuple=(9, 3, 6)),
+        make_binary_vec_scalar_tester("cuda_tk_vec_add_lhs_scalar", f32, expected_tuple=(9, 3, 6)),
+        make_binary_vec_scalar_tester("cuda_tk_vec_sub_lhs_scalar", f32, expected_tuple=(-3, 3, 6)),
+        make_binary_vec_scalar_tester("cuda_tk_vec_mul_lhs_scalar", f32, expected_tuple=(18, 3, 6)),
+        make_binary_vec_scalar_tester("cuda_tk_vec_div_lhs_scalar", f32, expected_tuple=(0.375, 3, 8)),
+        make_binary_vec_scalar_tester("cuda_tk_vec_max_lhs_scalar", f32, expected_tuple=(8, 3, 8)),
+        make_binary_vec_scalar_tester("cuda_tk_vec_min_lhs_scalar", f32, expected_tuple=(3, 3, 8)),
+        #
+        make_binary_tester("cuda_tk_vec_add_rhs", f32, expected_tuple=(9, 3, 6)),
+        make_binary_tester("cuda_tk_vec_sub_rhs", f32, expected_tuple=(-3, 3, 6)),
+        make_binary_tester("cuda_tk_vec_mul_rhs", f32, expected_tuple=(18, 3, 6)),
+        make_binary_tester("cuda_tk_vec_div_rhs", f32, expected_tuple=(0.375, 3, 8)),
+        make_binary_tester("cuda_tk_vec_max_rhs", f32, expected_tuple=(8, 3, 8)),
+        make_binary_tester("cuda_tk_vec_min_rhs", f32, expected_tuple=(3, 3, 8)),
+        #
+        make_binary_tester("cuda_tk_vec_add_3op", f16, expected_tuple=(9, 3, 6)),
+        make_binary_tester("cuda_tk_vec_sub_3op", f16, expected_tuple=(-3, 3, 6)),
+        make_binary_tester("cuda_tk_vec_mul_3op", f16, expected_tuple=(18, 3, 6)),
+        make_binary_tester("cuda_tk_vec_div_3op", f16, expected_tuple=(0.375, 3, 8)),
+        make_binary_tester("cuda_tk_vec_max_3op", f16, expected_tuple=(8, 3, 8)),
+        make_binary_tester("cuda_tk_vec_min_3op", f16, expected_tuple=(3, 3, 8)),
+        #
+        make_binary_tester("cuda_tk_vec_add_lhs", bf16, expected_tuple=(9, 3, 6)),
+        make_binary_tester("cuda_tk_vec_sub_lhs", bf16, expected_tuple=(-3, 3, 6)),
+        make_binary_tester("cuda_tk_vec_mul_lhs", bf16, expected_tuple=(18, 3, 6)),
+        make_binary_tester("cuda_tk_vec_div_lhs", bf16, expected_tuple=(0.375, 3, 8)),
+        make_binary_tester("cuda_tk_vec_max_lhs", bf16, expected_tuple=(8, 3, 8)),
+        make_binary_tester("cuda_tk_vec_min_lhs", bf16, expected_tuple=(3, 3, 8)),
+        #
+        make_binary_vec_scalar_tester("cuda_tk_vec_add_3op_scalar", f16, expected_tuple=(9, 3, 6)),
+        make_binary_vec_scalar_tester("cuda_tk_vec_mul_3op_scalar", f16, expected_tuple=(18, 3, 6)),
+        make_binary_vec_scalar_tester("cuda_tk_vec_add_reduce_scalar", f16, expected_tuple=(9, 3, 6)),
+        make_binary_vec_scalar_tester("cuda_tk_vec_mul_lhs_scalar", f16, expected_tuple=(18, 3, 6)),
     ]
     # fmt: on
 
