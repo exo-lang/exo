@@ -825,7 +825,7 @@ def test_distributed_dims_non_const(compiler):
 def test_rmem_non_const(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_non_const_rmem, distributed=False)
-    assert "CudaRmem requires constant shape" in str(exc.value)
+    assert "CudaRmemLinear requires constant shape" in str(exc.value)
     assert "not_a_constant" in str(exc.value)
 
 
