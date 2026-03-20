@@ -141,7 +141,6 @@ for name, value in (
         f"dst[r, c] = {value}",
         ("dst",),
     )
-    # TODO kittens_constant_name
     gen_instr(
         f"cuda_tk_make_causal_{name}",
         "basic_make_causal_op",

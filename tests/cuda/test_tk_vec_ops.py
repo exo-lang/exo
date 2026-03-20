@@ -124,6 +124,45 @@ def make_copy_tester(
     return VecTester(p, run, instr_name, only)
 
 
+def make_0ary_tester(instr_name, T, only=False, *, expected_value):
+    rng = Random(instr_name + str(T))
+    length = 32 * rng.randrange(1, 4)
+    layout = rng.choice(("align", "ortho", "naive"))
+    vec_instr = getattr(ops_module, instr_name)
+
+    @proc
+    def p(h_dst: f32[length]):
+        # fmt: off
+        d_dst: f32[length] @ CudaGmemLinear
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                r_dst: T[length] @ CudaTkWarpVec(length, layout)
+                vec_instr(r_dst[:], dst=T, length=length, layout=layout)
+                s_dst: f32[length] @ CudaSmemLinear
+                cuda_tk_store_vec_rs(s_dst[:], r_dst[:], length=length, layout=layout, dst=f32, src=T)
+                Fence(cuda_in_order, cuda_in_order)
+                for s in seq(0, length / 32):
+                    for tid in cuda_threads(0, 32):
+                        d_dst[s * 32 + tid] = s_dst[s * 32 + tid]
+                Fence(cuda_in_order, cuda_in_order)
+        cudaMemcpyAsync_dtoh_1f32(length, h_dst[:], d_dst[:])
+
+    proc_name = f"tester_{instr_name}_{T}{layout}"
+    p = simplify(p)
+    p = rename(p, proc_name)
+
+    def run(cu: CudaTestContext):
+        h_dst = np.zeros((length,), dtype=np.float32)
+        h_dst[0] = 1234
+
+        cu.run(proc_name, None, h_dst)
+
+        for i in range(0, length):
+            assert h_dst[i] == expected_value, proc_name
+
+    return VecTester(p, run, instr_name, only)
+
+
 def test_tk_vec_ops(compiler_Sm80):
     # Note, because ThunderKittens takes so long to compile, we amortize
     # the time by compiling all the tests together.
@@ -149,6 +188,14 @@ def test_tk_vec_ops(compiler_Sm80):
         make_copy_tester("align", "ortho", f16, f32, expected_tuple=(inf, 102400.125)),
         make_copy_tester("align", "ortho", bf16, f32, expected_tuple=(102400, 102400.125)),
         #
+        make_0ary_tester("cuda_tk_vec_zero", f32, expected_value=0),
+        make_0ary_tester("cuda_tk_vec_one", f32, expected_value=1),
+        make_0ary_tester("cuda_tk_vec_pos_infty", f32, expected_value=inf),
+        make_0ary_tester("cuda_tk_vec_neg_infty", f32, expected_value=-inf),
+        make_0ary_tester("cuda_tk_vec_zero", f16, expected_value=0),
+        make_0ary_tester("cuda_tk_vec_one", bf16, expected_value=1),
+        make_0ary_tester("cuda_tk_vec_pos_infty", f16, expected_value=inf),
+        make_0ary_tester("cuda_tk_vec_neg_infty", bf16, expected_value=-inf),
     ]
     # fmt: on
 

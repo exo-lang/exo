@@ -122,6 +122,26 @@ gen_instr(
     separate_layout=True,
 )
 
+# 0-ary ops (set to zero/one/neg_infty/pos_infty)
+for name, value in (
+    ("zero", "0"),
+    ("one", "1"),
+    ("pos_infty", "inf"),
+    ("neg_infty", "-inf"),
+):
+    gen_instr(
+        f"cuda_tk_vec_{name}",
+        "basic_0ary_vec_op",
+        name,
+        f"dst[i] = {value}",
+        ("dst",),
+    )
+
+
+for nm in ("pos_inf", "neg_inf"):
+    _all.append(f"cuda_tk_vec_{nm}")
+    _all_comments.append("For consistency with exo.inf")
+    _instr_defs.append(f"cuda_tk_vec_{nm} = cuda_tk_vec_{nm}ty")
 
 #############################################################################
 # Finalize file contents
