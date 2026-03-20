@@ -23,16 +23,16 @@ import exo.platforms.kittens_impl.tk_tile_ops as ops_module
 tile_instr_names = []
 
 
-for name in sorted(dir(ops_module)):
-    obj = getattr(ops_module, name)
+for attr in sorted(dir(ops_module)):
+    obj = getattr(ops_module, attr)
     if isinstance(obj, InstrTemplate):
-        if name.endswith("_inf"):
+        if attr.endswith("_inf"):
             # Ignore convenience pos_infty -> pos_inf renames
-            assert hasattr(ops_module, name + "ty")
+            assert hasattr(ops_module, attr + "ty")
         else:
-            assert name.startswith("cuda_tk_"), name
-            assert hasattr(exo.platforms.cuda_tk, name), name
-            tile_instr_names.append(name)
+            assert attr.startswith("cuda_tk_"), attr
+            assert hasattr(exo.platforms.cuda_tk, attr), attr
+            tile_instr_names.append(attr)
 
 
 assert len(tile_instr_names) >= 56, "Add or remove test coverage"
@@ -108,10 +108,10 @@ def make_broadcast_tester(
 
         cudaMemcpyAsync_dtoh_2f32(rows, cols, h_cuda_inout[:, :], d_inout[:, :])
 
-    name = f"tester_{T}_{instr_name}"
+    proc_name = f"tester_{T}_{instr_name}"
     p = inline(p, p.body()[0])
     p = simplify(p)
-    p = rename(p, name)
+    p = rename(p, proc_name)
 
     if "_div_" in instr_name:
         rng_start = 0.25
@@ -142,13 +142,13 @@ def make_broadcast_tester(
                 for c in range(0, cols):
                     h_ref[r, c] = py_op(h_cpu_inout[r, c], h_src[c])
 
-        cu.run(name, None, h_cpu_inout, h_cuda_inout, h_src)
+        cu.run(proc_name, None, h_cpu_inout, h_cuda_inout, h_src)
 
         # Exact comparisons here.
         for r in range(0, rows):
             for c in range(0, cols):
-                assert h_cuda_inout[r, c] == h_ref[r, c], name
-                assert h_cuda_inout[r, c] == h_cpu_inout[r, c], name
+                assert h_cuda_inout[r, c] == h_ref[r, c], proc_name
+                assert h_cuda_inout[r, c] == h_cpu_inout[r, c], proc_name
 
     return TileTester(p, run, instr_name, only, T, T)
 
@@ -233,10 +233,10 @@ def make_reduce_tester(
 
         cudaMemcpyAsync_dtoh_1f32(length, h_cuda_inout[:], d_inout[:])
 
-    name = f"tester_{T}_{instr_name}"
+    proc_name = f"tester_{T}_{instr_name}"
     p = inline(p, p.body()[0])
     p = simplify(p)
-    p = rename(p, name)
+    p = rename(p, proc_name)
 
     def run(cu: CudaTestContext):
         h_cpu_inout = np.zeros((length,), dtype=np.float32)
@@ -254,7 +254,7 @@ def make_reduce_tester(
         h_ref = np_reduce.reduce(h_src, axis=axis, dtype=np.float32)
         np_reduce(h_ref, h_cpu_inout, out=h_ref)
 
-        cu.run(name, None, h_cpu_inout, h_cuda_inout, h_src)
+        cu.run(proc_name, None, h_cpu_inout, h_cuda_inout, h_src)
 
         # Exact comparisons here.
         # This should work for everything except low-precision product
@@ -306,10 +306,10 @@ def make_0ary_tester(
 
         cudaMemcpyAsync_dtoh_2f32(rows, cols, h_cuda_inout[:, :], d_inout[:, :])
 
-    name = f"tester_{T}_{instr_name}"
+    proc_name = f"tester_{T}_{instr_name}"
     p = inline(p, p.body()[0])
     p = simplify(p)
-    p = rename(p, name)
+    p = rename(p, proc_name)
 
     if T.bits <= 8:
         rng_start = -1
@@ -332,20 +332,20 @@ def make_0ary_tester(
                 h_cpu_inout[r, c] = init
                 h_cuda_inout[r, c] = init
 
-        cu.run(name, None, h_cpu_inout, h_cuda_inout)
+        cu.run(proc_name, None, h_cpu_inout, h_cuda_inout)
 
         for r in range(0, rows):
             for c in range(0, cols):
                 try:
                     pair = coordinate_values[r, c]
                     # Exact comparison
-                    assert h_cpu_inout[r, c] == pair[0], name
+                    assert h_cpu_inout[r, c] == pair[0], proc_name
                 except KeyError:
                     # Weird inf-tolerant comparison that still rejects NaN.
                     # Note != is not the same thing as not == for NaN.
                     if not (h_cpu_inout[r, c] == h_cuda_inout[r, c]):
                         # fmt: off
-                        assert math.fabs(h_cpu_inout[r, c] - h_cuda_inout[r, c]) <= 0.0625, name
+                        assert math.fabs(h_cpu_inout[r, c] - h_cuda_inout[r, c]) <= 0.0625, proc_name
 
     return TileTester(p, run, instr_name, only, T, T)
 
@@ -392,10 +392,10 @@ def make_unary_tester(
 
         cudaMemcpyAsync_dtoh_2f32(rows, cols, h_cuda_dst[:, :], d_dst[:, :])
 
-    name = f"tester_{T_dst}_{T_src}_{instr_name}"
+    proc_name = f"tester_{T_dst}_{T_src}_{instr_name}"
     p = inline(p, p.body()[0])
     p = simplify(p)
-    p = rename(p, name)
+    p = rename(p, proc_name)
 
     if T_src.bits <= 8 or T_dst.bits <= 8:
         rng_start = -1
@@ -422,20 +422,22 @@ def make_unary_tester(
             assert len(expected_tuple) == 2
             h_src[42, 49] = expected_tuple[1]
 
-        cu.run(name, None, h_cpu_dst, h_cuda_dst, h_src)
+        cu.run(proc_name, None, h_cpu_dst, h_cuda_dst, h_src)
 
         for r in range(0, rows):
             for c in range(0, cols):
                 if r == 42 and c == 49 and expected_tuple:
                     # Exact comparison
-                    assert h_cuda_dst[42, 49] == expected_tuple[0], name
+                    assert h_cuda_dst[42, 49] == expected_tuple[0], proc_name
                 else:
-                    assert math.fabs(h_cpu_dst[r, c] - h_cuda_dst[r, c]) <= 0.0625, name
+                    assert (
+                        math.fabs(h_cpu_dst[r, c] - h_cuda_dst[r, c]) <= 0.0625
+                    ), proc_name
 
     return TileTester(p, run, instr_name, only, T_dst, T_src)
 
 
-def make_binary_run(name, rows, cols, lhs_magn, rhs_magn, expected_tuple):
+def make_binary_run(proc_name, rows, cols, lhs_magn, rhs_magn, expected_tuple):
     def run(cu: CudaTestContext):
         rng = Random(20010106)
 
@@ -453,15 +455,17 @@ def make_binary_run(name, rows, cols, lhs_magn, rhs_magn, expected_tuple):
             h_lhs[42, 49] = expected_tuple[1]
             h_rhs[42, 49] = expected_tuple[2]
 
-        cu.run(name, None, h_cpu_dst, h_cuda_dst, h_lhs, h_rhs)
+        cu.run(proc_name, None, h_cpu_dst, h_cuda_dst, h_lhs, h_rhs)
 
         for r in range(0, rows):
             for c in range(0, cols):
                 if r == 42 and c == 49 and expected_tuple:
                     # Exact comparison
-                    assert h_cuda_dst[42, 49] == expected_tuple[0], name
+                    assert h_cuda_dst[42, 49] == expected_tuple[0], proc_name
                 else:
-                    assert math.fabs(h_cpu_dst[r, c] - h_cuda_dst[r, c]) <= 0.0625, name
+                    assert (
+                        math.fabs(h_cpu_dst[r, c] - h_cuda_dst[r, c]) <= 0.0625
+                    ), proc_name
 
     return run
 
