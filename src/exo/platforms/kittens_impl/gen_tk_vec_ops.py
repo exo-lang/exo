@@ -137,11 +137,30 @@ for name, value in (
         ("dst",),
     )
 
-
 for nm in ("pos_inf", "neg_inf"):
     _all.append(f"cuda_tk_vec_{nm}")
     _all_comments.append("For consistency with exo.inf")
     _instr_defs.append(f"cuda_tk_vec_{nm} = cuda_tk_vec_{nm}ty")
+
+
+# Unary vec ops
+unary_name_externs = [
+    ("exp", "expf"),
+    ("exp2", "exp2f"),
+    ("log", "logf"),
+    ("log2", "log2f"),
+    ("abs", "fabsf"),
+    ("relu", "relu"),
+]
+for name, extern in unary_name_externs:
+    gen_instr(
+        f"cuda_tk_vec_{name}",
+        "basic_unary_vec_op",
+        name,
+        f"dst[i] = {extern}(src[i])",
+        ("dst", "src"),
+    )
+
 
 #############################################################################
 # Finalize file contents

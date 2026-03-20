@@ -163,6 +163,88 @@ def make_0ary_tester(instr_name, T, only=False, *, expected_value):
     return VecTester(p, run, instr_name, only)
 
 
+def make_unary_tester(instr_name, T, only=False, *, expected_tuple=None):
+    rng = Random(instr_name + str(T))
+    length = 32 * rng.randrange(1, 4)
+    layout = rng.choice(("align", "ortho", "naive"))
+    vec_instr = getattr(ops_module, instr_name)
+
+    @proc
+    def p(
+        h_cpu_dst: f32[length],
+        h_cuda_dst: f32[length],
+        h_src: f32[length],
+    ):
+        # fmt: off
+        # This will be inlined, unpacking the CUDA instr's behavior as CPU code.
+        # The test works by comparing the CPU output generated here to CUDA.
+        vec_instr(h_cpu_dst[:], h_src[:], length=length, dst=f32, src=f32, layout=layout)
+
+        d_dst: f32[length] @ CudaGmemLinear
+        d_src: f32[length] @ CudaGmemLinear
+        cudaMemcpyAsync_htod_1f32(length, d_src[:], h_src[:])
+
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                s_src: f32[length] @ CudaSmemLinear
+                for s in seq(0, length / 32):
+                    for tid in cuda_threads(0, 32):
+                        s_src[s * 32 + tid] = d_src[s * 32 + tid]
+                Fence(cuda_in_order, cuda_in_order)
+                r_src: T[length] @ CudaTkWarpVec(length, layout)
+                r_dst: T[length] @ CudaTkWarpVec(length, layout)
+                s_dst: f32[length] @ CudaSmemLinear
+                cuda_tk_load_vec_rs(r_src[:], s_src[:], length=length, layout=layout, dst=T, src=f32)
+                vec_instr(r_dst[:], r_src[:], length=length, layout=layout, dst=T, src=T)
+                cuda_tk_store_vec_rs(s_dst[:], r_dst[:], length=length, layout=layout, dst=f32, src=T)
+                Fence(cuda_in_order, cuda_in_order)
+                for s in seq(0, length / 32):
+                    for tid in cuda_threads(0, 32):
+                        d_dst[s * 32 + tid] = s_dst[s * 32 + tid]
+                Fence(cuda_in_order, cuda_in_order)
+
+        cudaMemcpyAsync_dtoh_1f32(length, h_cuda_dst[:], d_dst[:])
+
+    proc_name = f"tester_{instr_name}_{T}{layout}"
+    p = inline(p, p.body()[0])
+    p = simplify(p)
+    p = rename(p, proc_name)
+
+    if T.bits <= 8:
+        rng_start = -1
+        rng_end = 1
+    elif "_log" in instr_name:
+        rng_start = 0.25
+        rng_end = 125.0
+    elif "_exp" in instr_name:
+        rng_start = -10
+        rng_end = 3
+    else:
+        rng_start = -15
+        rng_end = 15
+
+    def run(cu: CudaTestContext):
+        h_cpu_dst = np.zeros((length,), dtype=np.float32)
+        h_cuda_dst = np.zeros((length,), dtype=np.float32)
+        h_src = np.zeros((length,), dtype=np.float32)
+        for i in range(0, length):
+            h_src[i] = 0.25 * rng.randrange(int(4 * rng_start), int(4 * rng_end))
+        if expected_tuple:
+            assert len(expected_tuple) == 2
+            h_src[29] = expected_tuple[1]
+
+        cu.run(proc_name, None, h_cpu_dst, h_cuda_dst, h_src)
+
+        for i in range(0, length):
+            if i == 29 and expected_tuple:
+                # Exact comparison
+                assert h_cuda_dst[i] == expected_tuple[0], proc_name
+            else:
+                assert math.fabs(h_cpu_dst[i] - h_cuda_dst[i]) <= 0.0625, proc_name
+
+    return VecTester(p, run, instr_name, only)
+
+
 def test_tk_vec_ops(compiler_Sm80):
     # Note, because ThunderKittens takes so long to compile, we amortize
     # the time by compiling all the tests together.
@@ -196,6 +278,21 @@ def test_tk_vec_ops(compiler_Sm80):
         make_0ary_tester("cuda_tk_vec_one", bf16, expected_value=1),
         make_0ary_tester("cuda_tk_vec_pos_infty", f16, expected_value=inf),
         make_0ary_tester("cuda_tk_vec_neg_infty", bf16, expected_value=-inf),
+        #
+        make_unary_tester("cuda_tk_vec_exp", f16),
+        make_unary_tester("cuda_tk_vec_exp2", f16, expected_tuple=(8, 3)),
+        make_unary_tester("cuda_tk_vec_log", f16),
+        make_unary_tester("cuda_tk_vec_log2", f16, expected_tuple=(3, 8)),
+        make_unary_tester("cuda_tk_vec_abs", f16, expected_tuple=(inf, -100000)),
+        make_unary_tester("cuda_tk_vec_relu", f16, expected_tuple=(0, -19.125)),
+        #
+        make_unary_tester("cuda_tk_vec_exp", f32),
+        make_unary_tester("cuda_tk_vec_exp2", f32, expected_tuple=(8, 3)),
+        make_unary_tester("cuda_tk_vec_log", f32),
+        make_unary_tester("cuda_tk_vec_log2", f32, expected_tuple=(3, 8)),
+        make_unary_tester("cuda_tk_vec_abs", f32, expected_tuple=(19.125, -19.125)),
+        make_unary_tester("cuda_tk_vec_relu", f32, expected_tuple=(19.125, 19.125)),
+        #
     ]
     # fmt: on
 
