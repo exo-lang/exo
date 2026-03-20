@@ -164,6 +164,9 @@ def make_reduce_tester(
     tile_instr = getattr(ops_module, instr_name)
     rng = Random(instr_name)
 
+    vec_rng_start = -2
+    vec_rng_end = 1
+
     if "_prod" in instr_name:
         rng_start = 1
         rng_end = 4
@@ -194,35 +197,41 @@ def make_reduce_tester(
 
     @proc
     def p(
-        h_cpu_dst: f32[length],
-        h_cuda_dst: f32[length],
+        h_cpu_inout: f32[length],
+        h_cuda_inout: f32[length],
         h_src: f32[rows, cols],
     ):
         # fmt: off
         # This will be inlined, unpacking the CUDA instr's behavior as CPU code.
         # The test works by comparing the CPU output generated here to CUDA.
-        tile_instr(h_cpu_dst[:], h_src[:, :], rows=rows, cols=cols, dst=f32, src=f32)
+        tile_instr(h_cpu_inout[:], h_src[:, :], rows=rows, cols=cols, dst=f32, src=f32)
 
         d_src: f32[rows, cols] @ CudaGmemLinear
-        d_dst: f32[length] @ CudaGmemLinear
+        d_inout: f32[length] @ CudaGmemLinear
 
         cudaMemcpyAsync_htod_2f32(rows, cols, d_src[:, :], h_src[:, :])
+        cudaMemcpyAsync_htod_1f32(length, d_inout[:], h_cuda_inout[:])
 
         with CudaDeviceFunction(blockDim=32):
             for task in cuda_tasks(0, 1):
-                r_dst: T[length] @ vec_rmem
+                s_inout: f32[length] @ CudaSmemLinear
+                r_inout: T[length] @ vec_rmem
+                for s in seq(0, length / 32):
+                    for tid in cuda_threads(0, 32):
+                        s_inout[s * 32 + tid] = d_inout[s * 32 + tid]
+                Fence(cuda_in_order, cuda_in_order)
+                cuda_tk_load_vec_rs(r_inout[:], s_inout[:], length=length, layout=vec_rmem.layout, dst=T, src=f32)
                 r_src: T[rows, cols] @ tile_rmem
                 cuda_tk_load_rg(r_src[:, :], d_src[:, :], size0=rows, size1=cols, dst=T, src=f32)
-                tile_instr(r_dst[:], r_src[:, :], rows=rows, cols=cols, dst=T, src=T)
-                s_dst: f32[length] @ CudaSmemLinear
-                cuda_tk_store_vec_rs(s_dst[:], r_dst[:], length=length, layout=vec_rmem.layout, dst=f32, src=T)
+                tile_instr(r_inout[:], r_src[:, :], rows=rows, cols=cols, dst=T, src=T)
+                cuda_tk_store_vec_rs(s_inout[:], r_inout[:], length=length, layout=vec_rmem.layout, dst=f32, src=T)
                 Fence(cuda_in_order, cuda_in_order)
                 for s in seq(0, length / 32):
                     for tid in cuda_threads(0, 32):
-                        d_dst[s * 32 + tid] = s_dst[s * 32 + tid]
+                        d_inout[s * 32 + tid] = s_inout[s * 32 + tid]
                 Fence(cuda_in_order, cuda_in_order)
 
-        cudaMemcpyAsync_dtoh_1f32(length, h_cuda_dst[:], d_dst[:])
+        cudaMemcpyAsync_dtoh_1f32(length, h_cuda_inout[:], d_inout[:])
 
     name = f"tester_{T}_{instr_name}"
     p = inline(p, p.body()[0])
@@ -230,24 +239,29 @@ def make_reduce_tester(
     p = rename(p, name)
 
     def run(cu: CudaTestContext):
-        h_cpu_dst = np.zeros((length,), dtype=np.float32)
-        h_cuda_dst = np.zeros((length,), dtype=np.float32)
+        h_cpu_inout = np.zeros((length,), dtype=np.float32)
+        h_cuda_inout = np.zeros((length,), dtype=np.float32)
         h_ref = np.zeros((length,), dtype=np.float32)
         h_src = np.zeros((rows, cols), dtype=np.float32)
         for r in range(0, rows):
             for c in range(0, cols):
                 h_src[r, c] = rng.randrange(rng_start, rng_end)
+        for i in range(0, length):
+            init = rng.randrange(vec_rng_start, vec_rng_end)
+            h_cpu_inout[i] = init
+            h_cuda_inout[i] = init
 
         h_ref = np_reduce.reduce(h_src, axis=axis, dtype=np.float32)
+        np_reduce(h_ref, h_cpu_inout, out=h_ref)
 
-        cu.run(name, None, h_cpu_dst, h_cuda_dst, h_src)
+        cu.run(name, None, h_cpu_inout, h_cuda_inout, h_src)
 
         # Exact comparisons here.
         # This should work for everything except low-precision product
         # (so we don't test that).
         for i in range(0, length):
-            assert h_cuda_dst[i] == h_ref[i], (name, i)
-            assert h_cuda_dst[i] == h_cpu_dst[i], (name, i)
+            assert h_cuda_inout[i] == h_ref[i], (name, i)
+            assert h_cuda_inout[i] == h_cpu_inout[i], (name, i)
 
     return TileTester(p, run, instr_name, only, T, T)
 
@@ -456,7 +470,7 @@ def make_binary_tester_3(
     instr_name, tile_base_type, only=False, *, expected_tuple=None
 ):
     # Tester for 3 operand tile instructions `dst = lhs op rhs`
-    tile_instr_3operand = getattr(ops_module, instr_name)
+    tile_instr_3op = getattr(ops_module, instr_name)
     tile_instr = getattr(ops_module, instr_name)
     T = tile_base_type
 
@@ -474,7 +488,7 @@ def make_binary_tester_3(
         # fmt: off
         # This will be inlined, unpacking the CUDA instr's behavior as CPU code.
         # The test works by comparing the CPU output generated here to CUDA.
-        tile_instr_3operand(
+        tile_instr_3op(
             h_cpu_dst[:, :], h_lhs[:, :], h_rhs[:, :],
             rows=rows, cols=cols, dst=f32, lhs=f32, rhs=f32,
         )
@@ -518,8 +532,8 @@ def make_binary_tester_2(
     else:
         modifies_rhs = False
         assert fragments[-1] == "lhs" or fragments[-1] == "reduce"
-    instr_name_3operand = "_".join(fragments[:-1])
-    tile_instr_3operand = getattr(ops_module, instr_name_3operand)
+    instr_name_3op = "_".join(fragments[:-1]) + "_3op"
+    tile_instr_3op = getattr(ops_module, instr_name_3op)
     tile_instr = getattr(ops_module, instr_name)
     T = tile_base_type
 
@@ -537,7 +551,7 @@ def make_binary_tester_2(
         # fmt: off
         # This will be inlined, unpacking the CUDA instr's behavior as CPU code.
         # The test works by comparing the CPU output generated here to CUDA.
-        tile_instr_3operand(
+        tile_instr_3op(
             h_cpu_dst[:, :], h_lhs[:, :], h_rhs[:, :],
             rows=rows, cols=cols, dst=f32, lhs=f32, rhs=f32,
         )
@@ -570,6 +584,109 @@ def make_binary_tester_2(
     rhs_magn = 129 if T.bits >= 32 else 5
 
     run = make_binary_run(p.name(), rows, cols, lhs_magn, rhs_magn, expected_tuple)
+    return TileTester(p, run, instr_name, only, T, T)
+
+
+def make_binary_tile_scalar_tester(
+    instr_name, tile_base_type, only=False, *, expected_tuple
+):
+    # Tester for `dst = lhs op rhs` where rhs is a scalar.
+    # Also can test 2 operand form `dst = dst op src` where src is a scalar.
+    fragments = instr_name.split("_")
+    assert len(fragments) >= 2
+    assert fragments[-1] == "scalar"
+    if fragments[-2] == "3op":
+        test_3op = True
+        instr_name_3op = instr_name
+        instr_name_2op = "_".join(fragments[:-2]) + "_lhs_scalar"
+    else:
+        assert fragments[-2] in ("lhs", "reduce")
+        test_3op = False
+        instr_name_2op = instr_name
+        instr_name_3op = "_".join(fragments[:-2]) + "_3op_scalar"
+    tile_instr_3op = getattr(ops_module, instr_name_3op)
+    tile_instr_2op = getattr(ops_module, instr_name_2op)
+    T = tile_base_type
+
+    rng = Random(instr_name)
+    rows = 16 * rng.randrange(3, 6)
+    cols = 16 * rng.randrange(4, 6)
+
+    @proc
+    def p(
+        h_cpu_dst: f32[rows, cols],
+        h_cuda_dst: f32[rows, cols],
+        h_lhs: f32[rows, cols],
+        h_cpu_rhs: f32,
+        h_cuda_rhs: T,
+    ):
+        # fmt: off
+        # This will be inlined, unpacking the CUDA instr's behavior as CPU code.
+        # The test works by comparing the CPU output generated here to CUDA.
+        tile_instr_3op(
+            h_cpu_dst[:, :], h_lhs[:, :], h_cpu_rhs,
+            rows=rows, cols=cols, dst=f32, lhs=f32, rhs=f32,
+        )
+
+        d_lhs: f32[rows, cols] @ CudaGmemLinear
+        d_rhs: T @ CudaGridConstant
+        d_dst: f32[rows, cols] @ CudaGmemLinear
+        cudaMemcpyAsync_htod_2f32(rows, cols, d_lhs[:, :], h_lhs[:, :])
+        d_rhs = h_cuda_rhs
+
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                r_dst: T[rows, cols] @ CudaTkWarpTile(rows, cols)
+                r_lhs: T[rows, cols] @ CudaTkWarpTile(rows, cols)
+                cuda_tk_load_rg(r_lhs[:, :], d_lhs[:, :], size0=rows, size1=cols, dst=T, src=f32)
+                if test_3op:
+                    tile_instr_3op(r_dst[:, :], r_lhs[:, :], d_rhs, rows=rows, cols=cols, dst=T, lhs=T, rhs=T)
+                else:
+                    cuda_tk_tile_copy(r_dst[:, :], r_lhs[:, :], rows=rows, cols=cols, dst=T, src=T)
+                    tile_instr_2op(r_dst[:, :], d_rhs, rows=rows, cols=cols, dst=T, src=T)
+                cuda_tk_store_rg(d_dst[:, :], r_dst[:, :], size0=rows, size1=cols, dst=f32, src=T)
+        cudaMemcpyAsync_dtoh_2f32(rows, cols, h_cuda_dst[:, :], d_dst[:, :])
+
+    proc_name = f"tester_{T}_{instr_name}"
+
+    p = inline(p, p.body()[0])
+    p = simplify(p)
+    p = rename(p, proc_name)
+
+    lhs_magn = 128 if T.bits >= 32 else 8
+    rhs_magn = 129 if T.bits >= 32 else 5
+
+    def run(cu: CudaTestContext):
+        h_cpu_dst = np.zeros((rows, cols), dtype=np.float32)
+        h_cuda_dst = np.zeros((rows, cols), dtype=np.float32)
+        h_lhs = np.zeros((rows, cols), dtype=np.float32)
+        h_cpu_rhs = np.zeros((1,), dtype=np.float32)
+        if T == f32:
+            h_cuda_rhs = np.zeros((1,), dtype=np.float32)
+        else:
+            assert T in (f16, f32)
+            h_cuda_rhs = np.zeros((1,), dtype=np.float16)
+        for r in range(0, rows):
+            for c in range(0, cols):
+                h_lhs[r, c] = rng.randrange(-lhs_magn, lhs_magn)
+
+        assert len(expected_tuple) == 3
+        h_lhs[42, 49] = expected_tuple[1]
+        h_cpu_rhs[0] = expected_tuple[2]
+        h_cuda_rhs[0] = expected_tuple[2]
+
+        cu.run(proc_name, None, h_cpu_dst, h_cuda_dst, h_lhs, h_cpu_rhs, h_cuda_rhs)
+
+        for r in range(0, rows):
+            for c in range(0, cols):
+                if r == 42 and c == 49 and expected_tuple:
+                    # Exact comparison
+                    assert h_cuda_dst[42, 49] == expected_tuple[0], proc_name
+                else:
+                    assert (
+                        math.fabs(h_cpu_dst[r, c] - h_cuda_dst[r, c]) <= 0.0625
+                    ), proc_name
+
     return TileTester(p, run, instr_name, only, T, T)
 
 
@@ -657,12 +774,19 @@ def test_tk_tile_ops(compiler_Sm80):
         make_unary_tester("cuda_tk_tile_abs", f32, expected_tuple=(19.125, -19.125)),
         make_unary_tester("cuda_tk_tile_relu", f32, expected_tuple=(19.125, 19.125)),
         #
-        make_binary_tester_3("cuda_tk_tile_add", f32, expected_tuple=(9, 3, 6)),
-        make_binary_tester_3("cuda_tk_tile_sub", f32, expected_tuple=(-3, 3, 6)),
-        make_binary_tester_3("cuda_tk_tile_mul", f32, expected_tuple=(18, 3, 6)),
-        make_binary_tester_3("cuda_tk_tile_div", f32, expected_tuple=(0.375, 3, 8)),
-        make_binary_tester_3("cuda_tk_tile_max", f32, expected_tuple=(8, 3, 8)),
-        make_binary_tester_3("cuda_tk_tile_min", f32, expected_tuple=(3, 3, 8)),
+        make_binary_tester_3("cuda_tk_tile_add_3op", f32, expected_tuple=(9, 3, 6)),
+        make_binary_tester_3("cuda_tk_tile_sub_3op", f32, expected_tuple=(-3, 3, 6)),
+        make_binary_tester_3("cuda_tk_tile_mul_3op", f32, expected_tuple=(18, 3, 6)),
+        make_binary_tester_3("cuda_tk_tile_div_3op", f32, expected_tuple=(0.375, 3, 8)),
+        make_binary_tester_3("cuda_tk_tile_max_3op", f32, expected_tuple=(8, 3, 8)),
+        make_binary_tester_3("cuda_tk_tile_min_3op", f32, expected_tuple=(3, 3, 8)),
+        #
+        make_binary_tile_scalar_tester("cuda_tk_tile_add_3op_scalar", f32, expected_tuple=(9, 3, 6)),
+        make_binary_tile_scalar_tester("cuda_tk_tile_sub_3op_scalar", f32, expected_tuple=(-3, 3, 6)),
+        make_binary_tile_scalar_tester("cuda_tk_tile_mul_3op_scalar", f32, expected_tuple=(18, 3, 6)),
+        make_binary_tile_scalar_tester("cuda_tk_tile_div_3op_scalar", f32, expected_tuple=(0.375, 3, 8)),
+        make_binary_tile_scalar_tester("cuda_tk_tile_max_3op_scalar", f32, expected_tuple=(8, 3, 8)),
+        make_binary_tile_scalar_tester("cuda_tk_tile_min_3op_scalar", f32, expected_tuple=(3, 3, 8)),
         #
         make_binary_tester_2("cuda_tk_tile_add_reduce", f32, expected_tuple=(9, 3, 6)),
         make_binary_tester_2("cuda_tk_tile_add_lhs", f32, expected_tuple=(9, 3, 6)),
@@ -672,6 +796,14 @@ def test_tk_tile_ops(compiler_Sm80):
         make_binary_tester_2("cuda_tk_tile_max_lhs", f32, expected_tuple=(8, 3, 8)),
         make_binary_tester_2("cuda_tk_tile_min_lhs", f32, expected_tuple=(3, 3, 8)),
         #
+        make_binary_tile_scalar_tester("cuda_tk_tile_add_reduce_scalar", f32, expected_tuple=(9, 3, 6)),
+        make_binary_tile_scalar_tester("cuda_tk_tile_add_lhs_scalar", f32, expected_tuple=(9, 3, 6)),
+        make_binary_tile_scalar_tester("cuda_tk_tile_sub_lhs_scalar", f32, expected_tuple=(-3, 3, 6)),
+        make_binary_tile_scalar_tester("cuda_tk_tile_mul_lhs_scalar", f32, expected_tuple=(18, 3, 6)),
+        make_binary_tile_scalar_tester("cuda_tk_tile_div_lhs_scalar", f32, expected_tuple=(0.375, 3, 8)),
+        make_binary_tile_scalar_tester("cuda_tk_tile_max_lhs_scalar", f32, expected_tuple=(8, 3, 8)),
+        make_binary_tile_scalar_tester("cuda_tk_tile_min_lhs_scalar", f32, expected_tuple=(3, 3, 8)),
+        #
         make_binary_tester_2("cuda_tk_tile_add_rhs", f32, expected_tuple=(9, 3, 6)),
         make_binary_tester_2("cuda_tk_tile_sub_rhs", f32, expected_tuple=(-3, 3, 6)),
         make_binary_tester_2("cuda_tk_tile_mul_rhs", f32, expected_tuple=(18, 3, 6)),
@@ -679,12 +811,12 @@ def test_tk_tile_ops(compiler_Sm80):
         make_binary_tester_2("cuda_tk_tile_max_rhs", f32, expected_tuple=(8, 3, 8)),
         make_binary_tester_2("cuda_tk_tile_min_rhs", f32, expected_tuple=(3, 3, 8)),
         #
-        make_binary_tester_3("cuda_tk_tile_add", f16, expected_tuple=(9, 3, 6)),
-        make_binary_tester_3("cuda_tk_tile_sub", f16, expected_tuple=(-3, 3, 6)),
-        make_binary_tester_3("cuda_tk_tile_mul", f16, expected_tuple=(18, 3, 6)),
-        make_binary_tester_3("cuda_tk_tile_div", f16, expected_tuple=(0.375, 3, 8)),
-        make_binary_tester_3("cuda_tk_tile_max", f16, expected_tuple=(8, 3, 8)),
-        make_binary_tester_3("cuda_tk_tile_min", f16, expected_tuple=(3, 3, 8)),
+        make_binary_tester_3("cuda_tk_tile_add_3op", f16, expected_tuple=(9, 3, 6)),
+        make_binary_tester_3("cuda_tk_tile_sub_3op", f16, expected_tuple=(-3, 3, 6)),
+        make_binary_tester_3("cuda_tk_tile_mul_3op", f16, expected_tuple=(18, 3, 6)),
+        make_binary_tester_3("cuda_tk_tile_div_3op", f16, expected_tuple=(0.375, 3, 8)),
+        make_binary_tester_3("cuda_tk_tile_max_3op", f16, expected_tuple=(8, 3, 8)),
+        make_binary_tester_3("cuda_tk_tile_min_3op", f16, expected_tuple=(3, 3, 8)),
         #
         make_binary_tester_2("cuda_tk_tile_add_lhs", bf16, expected_tuple=(9, 3, 6)),
         make_binary_tester_2("cuda_tk_tile_sub_lhs", bf16, expected_tuple=(-3, 3, 6)),
@@ -692,6 +824,11 @@ def test_tk_tile_ops(compiler_Sm80):
         make_binary_tester_2("cuda_tk_tile_div_lhs", bf16, expected_tuple=(0.375, 3, 8)),
         make_binary_tester_2("cuda_tk_tile_max_lhs", bf16, expected_tuple=(8, 3, 8)),
         make_binary_tester_2("cuda_tk_tile_min_lhs", bf16, expected_tuple=(3, 3, 8)),
+        #
+        make_binary_tile_scalar_tester("cuda_tk_tile_add_3op_scalar", f16, expected_tuple=(9, 3, 6)),
+        make_binary_tile_scalar_tester("cuda_tk_tile_mul_3op_scalar", f16, expected_tuple=(18, 3, 6)),
+        make_binary_tile_scalar_tester("cuda_tk_tile_add_reduce_scalar", f16, expected_tuple=(9, 3, 6)),
+        make_binary_tile_scalar_tester("cuda_tk_tile_mul_lhs_scalar", f16, expected_tuple=(18, 3, 6)),
     ]
 
     # fmt: on

@@ -47,7 +47,7 @@ class basic_unary_tile_op(basic_map_tile_op):
         return [f"::kittens::warp::{self.kittens_op_name}({dst_c}, {src_c});"]
 
 
-class basic_binary_tile_op(basic_map_tile_op):
+class basic_binary_3op_tile_op(basic_map_tile_op):
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         lhs_c = args.lhs.index()
@@ -67,6 +67,43 @@ class basic_binary_rhs_tile_op(basic_map_tile_op):
         dst_c = args.dst.index()
         src_c = args.src.index()
         return [f"::kittens::warp::{self.kittens_op_name}({dst_c}, {src_c}, {dst_c});"]
+
+
+class basic_binary_tile_scalar_op(InstrInfo):
+    def instance(
+        self: InstrInfo,
+        rows: int,
+        cols: int,
+        *,
+        layout: str = "row",
+    ):
+        self.cu_includes.append("kittens.cuh")
+        self.coll_unit = cuda_warp
+        self.instr_tl = cuda_in_order_instr
+
+        dst = self.access_info["dst"]
+        dst.mem = CudaTkWarpTile(rows, cols, layout)
+        dst.out_of_order = False
+
+        if "lhs" in self.access_info:
+            lhs = self.access_info["lhs"]
+            lhs.mem = CudaTkWarpTile(rows, cols, layout)
+            lhs.out_of_order = False
+
+
+class basic_binary_3op_tile_scalar_op(basic_binary_tile_scalar_op):
+    def codegen(self: InstrInfo, args: InstrArgs):
+        dst_c = args.dst.index()
+        lhs_c = args.lhs.index()
+        rhs_c = args.rhs.index()
+        return [f"::kittens::warp::{self.kittens_op_name}({dst_c}, {lhs_c}, {rhs_c});"]
+
+
+class basic_binary_lhs_tile_scalar_op(basic_binary_tile_scalar_op):
+    def codegen(self: InstrInfo, args: InstrArgs):
+        dst_c = args.dst.index()
+        src_c = args.src.index()
+        return [f"::kittens::warp::{self.kittens_op_name}({dst_c}, {dst_c}, {src_c});"]
 
 
 class basic_row_reduce_op(InstrInfo):

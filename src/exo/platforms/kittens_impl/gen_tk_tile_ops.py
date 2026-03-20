@@ -42,14 +42,18 @@ from .tk_tile_ops_impl import (
     basic_0ary_tile_op,
     basic_make_causal_op,
     basic_unary_tile_op,
-    basic_binary_tile_op,
+    basic_binary_3op_tile_op,
     basic_binary_lhs_tile_op,
     basic_binary_rhs_tile_op,
+    basic_binary_3op_tile_scalar_op,
+    basic_binary_lhs_tile_scalar_op,
     basic_row_reduce_op,
     basic_col_reduce_op,
     basic_broadcast_row_op,
     basic_broadcast_col_op,
 )
+
+from ..cuda import CudaBasicDeviceVisible
 
 """
 )
@@ -64,14 +68,19 @@ def gen_instr(
     *,
     row_vec_names: List[str] = (),
     col_vec_names: List[str] = (),
+    scalar_names: List[str] = (),
     valid_num_types="ScalarInfo.same()",
     prefix_lines: List[str] = (),
     kittens_constant_name: str = "",
 ):
     args = []
     for nm in arg_names:
-        comment = '@ CudaTkWarpTile(rows, cols, layout="row")'
-        typ = "[R][rows, cols]"
+        if nm in scalar_names:
+            comment = ""
+            typ = "R @ CudaBasicDeviceVisible"
+        else:
+            comment = '  # @ CudaTkWarpTile(rows, cols, layout="row")'
+            typ = "[R][rows, cols]"
         if nm in row_vec_names:
             typ = "[R][cols]"
             comment += ".row_vec"
@@ -79,7 +88,7 @@ def gen_instr(
             assert not nm in row_vec_names
             typ = "[R][rows]"
             comment += ".col_vec"
-        args.append(f"\n        {nm}: {typ},  # {comment}")
+        args.append(f"\n        {nm}: {typ},{comment}")
 
     kittens_constant_name_line = ""
     if kittens_constant_name:
@@ -183,26 +192,34 @@ for name, extern in unary_name_externs:
 
 
 # Binary tile ops, multiple forms
-# dst = lhs op rhs
-# dst = dst op src
+# dst = lhs op rhs [rhs could be a scalar]
+# dst = dst op src [src could be a scalar]
 # dst = src op dst
-# dst += src
+# dst += src [src could be a scalar]
 binary_name_stmt = [
-    ("max", "{dst}[r, c] = fmaxf({lhs}[r, c], {rhs}[r, c])"),
-    ("min", "{dst}[r, c] = fminf({lhs}[r, c], {rhs}[r, c])"),
-    ("add", "{dst}[r, c] = {lhs}[r, c] + {rhs}[r, c]"),
-    ("sub", "{dst}[r, c] = {lhs}[r, c] - {rhs}[r, c]"),
-    ("mul", "{dst}[r, c] = {lhs}[r, c] * {rhs}[r, c]"),
-    ("div", "{dst}[r, c] = {lhs}[r, c] / {rhs}[r, c]"),
+    ("max", "{dst}[r, c] = fmaxf({lhs}[r, c], {rhs}{rhs_idx})"),
+    ("min", "{dst}[r, c] = fminf({lhs}[r, c], {rhs}{rhs_idx})"),
+    ("add", "{dst}[r, c] = {lhs}[r, c] + {rhs}{rhs_idx}"),
+    ("sub", "{dst}[r, c] = {lhs}[r, c] - {rhs}{rhs_idx}"),
+    ("mul", "{dst}[r, c] = {lhs}[r, c] * {rhs}{rhs_idx}"),
+    ("div", "{dst}[r, c] = {lhs}[r, c] / {rhs}{rhs_idx}"),
 ]
 
 for name, stmt_fmt in binary_name_stmt:
     gen_instr(
-        f"cuda_tk_tile_{name}",
-        "basic_binary_tile_op",
+        f"cuda_tk_tile_{name}_3op",
+        "basic_binary_3op_tile_op",
         name,
-        stmt_fmt.format(dst="dst", lhs="lhs", rhs="rhs"),
+        stmt_fmt.format(dst="dst", lhs="lhs", rhs="rhs", rhs_idx="[r, c]"),
         ("dst", "lhs", "rhs"),
+    )
+    gen_instr(
+        f"cuda_tk_tile_{name}_3op_scalar",
+        "basic_binary_3op_tile_scalar_op",
+        name,
+        stmt_fmt.format(dst="dst", lhs="lhs", rhs="rhs", rhs_idx=""),
+        ("dst", "lhs", "rhs"),
+        scalar_names=("rhs",),
     )
     if name == "add":
         gen_instr(
@@ -212,18 +229,34 @@ for name, stmt_fmt in binary_name_stmt:
             "dst[r, c] += src[r, c]",
             ("dst", "src"),
         )
+        gen_instr(
+            f"cuda_tk_tile_{name}_reduce_scalar",
+            "basic_binary_lhs_tile_scalar_op",
+            name,
+            "dst[r, c] += src",
+            ("dst", "src"),
+            scalar_names=("src",),
+        )
     gen_instr(
         f"cuda_tk_tile_{name}_lhs",
         "basic_binary_lhs_tile_op",
         name,
-        stmt_fmt.format(dst="dst", lhs="dst", rhs="src"),
+        stmt_fmt.format(dst="dst", lhs="dst", rhs="src", rhs_idx="[r, c]"),
         ("dst", "src"),
+    )
+    gen_instr(
+        f"cuda_tk_tile_{name}_lhs_scalar",
+        "basic_binary_lhs_tile_scalar_op",
+        name,
+        stmt_fmt.format(dst="dst", lhs="dst", rhs="src", rhs_idx=""),
+        ("dst", "src"),
+        scalar_names=("src",),
     )
     gen_instr(
         f"cuda_tk_tile_{name}_rhs",
         "basic_binary_rhs_tile_op",
         name,
-        stmt_fmt.format(dst="dst", lhs="src", rhs="dst"),
+        stmt_fmt.format(dst="dst", lhs="src", rhs="dst", rhs_idx="[r, c]"),
         ("src", "dst"),
     )
 
