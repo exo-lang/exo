@@ -70,7 +70,7 @@ def gen_instr(
     args = []
     for nm in arg_names:
         if nm in scalar_names:
-            comment = ""
+            comment = "  # Often, CudaRmemUniform(32)"
             typ = "R @ CudaBasicDeviceVisible"
         else:
             layout_prefix = f"{nm}_" if separate_layout else ""

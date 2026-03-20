@@ -1399,3 +1399,173 @@ def test_missing_subdivision_negative(compiler):
     print(f"ACTUAL ERROR: {msg}")
     # Error: Missing subdivision on dims[0] to match cuda_thread
     assert "Missing subdivision" in msg and "cuda_thread" in msg
+
+
+def mkproc_rmem_uniform_tester(
+    blockDim, uniform_threads, use_grid_constant, wrong_rmem, wrong_gmem
+):
+    assert blockDim % uniform_threads == 0
+    src_length = blockDim // uniform_threads
+    dst_length = blockDim
+    src_mem = CudaGridConstant if use_grid_constant else CudaGmemLinear
+
+    @proc
+    def test_rmem_uniform_proc(h_dst: f32[dst_length], h_src: f32[src_length]):
+        d_src: f32[src_length] @ src_mem
+        d_dst: f32[dst_length] @ CudaGmemLinear
+        for memcpy_i in seq(0, src_length):
+            d_src[memcpy_i] = h_src[memcpy_i]
+        with CudaDeviceFunction(blockDim=256):
+            for task in cuda_tasks(0, 1):
+                src_rmem: f32[src_length] @ CudaRmemUniform(uniform_threads)
+                for g in cuda_threads(
+                    0, src_length, unit=uniform_threads * cuda_thread
+                ):
+                    # Convergent /read/ to d_src must be accepted by Exo-GPU.
+                    src_rmem[g] = d_src[g]
+                    if wrong_gmem:
+                        d_dst[g] = 3  # Should be rejected
+                for g in cuda_threads(
+                    0, src_length, unit=uniform_threads * cuda_thread
+                ):
+                    for t in cuda_threads(0, uniform_threads):
+                        dst_value: f32 @ CudaRmemLinear
+                        dst_value = 0
+                        if t % 2 == 0:
+                            dst_value = (
+                                src_rmem[g] * 10
+                            )  # Per-thread /read/ of src_rmem is OK
+                        d_dst[g * uniform_threads + t] = dst_value
+                        if wrong_rmem:
+                            src_rmem[g] = 10  # Should be rejected
+        cudaMemcpyAsync_dtoh_1f32(dst_length, h_dst[:], d_dst[:])
+
+    p = simplify(test_rmem_uniform_proc)
+    if not use_grid_constant:
+        p = replace(p, p.find_loop("memcpy_i"), cudaMemcpyAsync_htod_1d)
+
+    if not wrong_rmem and not wrong_gmem:
+        p.sync_check()
+
+    return p
+
+
+def test_rmem_uniform_wrong_rmem(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(
+            mkproc_rmem_uniform_tester,
+            blockDim=256,
+            uniform_threads=64,
+            use_grid_constant=False,
+            wrong_rmem=True,
+            wrong_gmem=False,
+        )
+    msg = str(exc.value)
+    assert "src_rmem" in msg
+    assert "64 * cuda_thread" in msg
+    assert "CudaRmemUniform(64" in msg
+
+
+def test_rmem_uniform_wrong_gmem(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(
+            mkproc_rmem_uniform_tester,
+            blockDim=256,
+            uniform_threads=64,
+            use_grid_constant=False,
+            wrong_rmem=False,
+            wrong_gmem=True,
+        )
+    msg = str(exc.value)
+    assert "d_dst" in msg
+    assert "CudaGmemLinear" in msg
+
+
+def test_rmem_uniform_one_thread_golden(compiler, golden):
+    compiler.cuda_cpu_test(
+        mkproc_rmem_uniform_tester,
+        golden=golden,
+        blockDim=256,
+        uniform_threads=1,
+        use_grid_constant=False,
+        wrong_rmem=False,
+        wrong_gmem=False,
+    )
+
+
+def test_rmem_uniform_gmem_golden(compiler, golden):
+    compiler.cuda_cpu_test(
+        mkproc_rmem_uniform_tester,
+        golden=golden,
+        blockDim=256,
+        uniform_threads=64,
+        use_grid_constant=False,
+        wrong_rmem=False,
+        wrong_gmem=False,
+    )
+
+
+def test_rmem_uniform_grid_constant_golden(compiler, golden):
+    compiler.cuda_cpu_test(
+        mkproc_rmem_uniform_tester,
+        golden=golden,
+        blockDim=256,
+        uniform_threads=32,
+        use_grid_constant=True,
+        wrong_rmem=False,
+        wrong_gmem=False,
+    )
+
+
+def run_test_rmem_uniform(cu: CudaTestContext, blockDim: int, uniform_threads: int):
+    src_length = blockDim // uniform_threads
+    h_src = np.array(range(1, src_length + 1), dtype=np.float32)
+    h_dst = np.zeros((blockDim,), dtype=np.float32)
+
+    cu(None, h_dst, h_src)
+
+    for g in range(src_length):
+        for t in range(0, uniform_threads):
+            dst_value = 0
+            if t % 2 == 0:
+                dst_value = h_src[g] * 10
+            assert h_dst[g * uniform_threads + t] == dst_value
+
+
+def test_rmem_uniform_one_thread_run(compiler_Sm80):
+    blockDim, uniform_threads = 256, 1
+    p = mkproc_rmem_uniform_tester(
+        blockDim=blockDim,
+        uniform_threads=uniform_threads,
+        use_grid_constant=False,
+        wrong_rmem=False,
+        wrong_gmem=False,
+    )
+    cu = compiler_Sm80.cuda_test_context(p)
+    run_test_rmem_uniform(cu, blockDim=blockDim, uniform_threads=uniform_threads)
+
+
+def test_rmem_uniform_gmem_run(compiler_Sm80):
+    blockDim, uniform_threads = 256, 64
+    p = mkproc_rmem_uniform_tester(
+        blockDim=blockDim,
+        uniform_threads=uniform_threads,
+        use_grid_constant=False,
+        wrong_rmem=False,
+        wrong_gmem=False,
+    )
+    cu = compiler_Sm80.cuda_test_context(p)
+    run_test_rmem_uniform(cu, blockDim=blockDim, uniform_threads=uniform_threads)
+
+
+def test_rmem_uniform_grid_constant_run(compiler_Sm80):
+    blockDim, uniform_threads = 256, 32
+    p = mkproc_rmem_uniform_tester(
+        blockDim=blockDim,
+        uniform_threads=uniform_threads,
+        use_grid_constant=True,
+        wrong_rmem=False,
+        wrong_gmem=False,
+    )
+    cu = compiler_Sm80.cuda_test_context(p)
+    run_test_rmem_uniform(cu, blockDim=blockDim, uniform_threads=uniform_threads)

@@ -22,6 +22,7 @@ from ..core.memory import (
     WindowIndexer,
     WindowIndexerResult,
     UtilInjector,
+    memwin_template,
 )
 from . import timelines
 from .coll_algebra import (
@@ -402,6 +403,58 @@ class CudaRmemLinear(CudaDeviceVisibleLinear):
 
 
 CudaRmem = CudaRmemLinear  # TODO consider removing alias
+
+
+@memwin_template
+def CudaRmemUniform(n_threads):
+    """Registers, holding a value shared in aligned groups of threads.
+
+    Usually, n_threads=32.
+    You may only modify the value at (n_threads * cuda_thread)-scope.
+
+    NB may be possible to bypass this using an instr???
+
+    """
+
+    if n_threads == 1:
+        # We do not inherit from CudaRmemLinear unless n_threads == 1.
+        # Otherwise, instrs expecting CudaRmemLinear may cause the
+        # uniform scope check to be bypassed.
+        base = CudaRmemLinear
+    else:
+        base = CudaDeviceVisibleLinear
+
+    coll_unit = n_threads * cuda_thread
+
+    class Impl(base):
+        @classmethod
+        def alloc(cls, new_name, prim_type, shape, srcinfo):
+            if not shape:
+                return f"{prim_type} {new_name};"
+
+            const_shape = cls.as_const_shape(new_name, shape, srcinfo)
+
+            return f'{prim_type} {new_name}[{" * ".join(shape)}];'
+
+        @classmethod
+        def free(cls, new_name, prim_type, shape, srcinfo):
+            return ""
+
+        @classmethod
+        def device_permission(cls, device, instr_tl):
+            return cls.device_allocated_impl(device, instr_tl)
+
+        @classmethod
+        def native_unit(cls):
+            return coll_unit
+
+        @classmethod
+        def mutate_unit(cls):
+            return coll_unit
+
+        qual_tl_dict = timelines.cuda_rmem_qual_tl_dict
+
+    return Impl
 
 
 global_CudaRmemPacked32 = MemGlobalC(

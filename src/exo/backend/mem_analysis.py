@@ -54,6 +54,16 @@ class MemoryAnalysis:
             proc.srcinfo,
         )
 
+    def get_sym_mem(self, nm: Sym) -> Type[MemWin]:
+        """Public interface for querying MemWin class of variable.
+
+        If the name of a WindowStmt lhs is given, the returned type is a subclass
+        of SpecialWindow if the WindowStmt defined a SpecialWindow.
+        Otherwise, it's the Memory of the underlying tensor being windowed.
+
+        """
+        return self.mem_env[nm]
+
     def mem_stmts(self, stmts: List[LoopIR.stmt]) -> List[LoopIR.stmt]:
         """Return a copy of stmts with each stmt checked & modified, and with Free inserted."""
         if len(stmts) == 0:

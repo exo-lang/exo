@@ -158,7 +158,9 @@ def run_backend_checks(
             # Don't force non-CUDA Exo users to waste time here
             barrier_usage_analysis = BarrierUsageAnalysis(p)
             barrier_uses = barrier_usage_analysis.uses
-            coll_analysis = CollAnalysis(barrier_usage_analysis, debug_log)
+            coll_analysis = CollAnalysis(
+                mem_analysis, barrier_usage_analysis, debug_log
+            )
             p = coll_analysis.run(p)
             debug_log.log(p.name, "coll_analysis", p)
         except AssertionError:

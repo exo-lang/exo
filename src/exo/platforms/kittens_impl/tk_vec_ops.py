@@ -298,7 +298,7 @@ class cuda_tk_vec_max_3op_scalar(basic_binary_3op_vec_scalar_op):
         length: size,
         dst: [R][length],  # @ CudaTkWarpVec(length, layout)
         lhs: [R][length],  # @ CudaTkWarpVec(length, layout)
-        rhs: R @ CudaBasicDeviceVisible,
+        rhs: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for i in seq(0, length):
             dst[i] = fmaxf(lhs[i], rhs)
@@ -330,7 +330,7 @@ class cuda_tk_vec_max_lhs_scalar(basic_binary_lhs_vec_scalar_op):
     def behavior(
         length: size,
         dst: [R][length],  # @ CudaTkWarpVec(length, layout)
-        src: R @ CudaBasicDeviceVisible,
+        src: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for i in seq(0, length):
             dst[i] = fmaxf(dst[i], src)
@@ -380,7 +380,7 @@ class cuda_tk_vec_min_3op_scalar(basic_binary_3op_vec_scalar_op):
         length: size,
         dst: [R][length],  # @ CudaTkWarpVec(length, layout)
         lhs: [R][length],  # @ CudaTkWarpVec(length, layout)
-        rhs: R @ CudaBasicDeviceVisible,
+        rhs: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for i in seq(0, length):
             dst[i] = fminf(lhs[i], rhs)
@@ -412,7 +412,7 @@ class cuda_tk_vec_min_lhs_scalar(basic_binary_lhs_vec_scalar_op):
     def behavior(
         length: size,
         dst: [R][length],  # @ CudaTkWarpVec(length, layout)
-        src: R @ CudaBasicDeviceVisible,
+        src: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for i in seq(0, length):
             dst[i] = fminf(dst[i], src)
@@ -462,7 +462,7 @@ class cuda_tk_vec_add_3op_scalar(basic_binary_3op_vec_scalar_op):
         length: size,
         dst: [R][length],  # @ CudaTkWarpVec(length, layout)
         lhs: [R][length],  # @ CudaTkWarpVec(length, layout)
-        rhs: R @ CudaBasicDeviceVisible,
+        rhs: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for i in seq(0, length):
             dst[i] = lhs[i] + rhs
@@ -494,7 +494,7 @@ class cuda_tk_vec_add_reduce_scalar(basic_binary_lhs_vec_scalar_op):
     def behavior(
         length: size,
         dst: [R][length],  # @ CudaTkWarpVec(length, layout)
-        src: R @ CudaBasicDeviceVisible,
+        src: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for i in seq(0, length):
             dst[i] += src
@@ -526,7 +526,7 @@ class cuda_tk_vec_add_lhs_scalar(basic_binary_lhs_vec_scalar_op):
     def behavior(
         length: size,
         dst: [R][length],  # @ CudaTkWarpVec(length, layout)
-        src: R @ CudaBasicDeviceVisible,
+        src: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for i in seq(0, length):
             dst[i] = dst[i] + src
@@ -576,7 +576,7 @@ class cuda_tk_vec_sub_3op_scalar(basic_binary_3op_vec_scalar_op):
         length: size,
         dst: [R][length],  # @ CudaTkWarpVec(length, layout)
         lhs: [R][length],  # @ CudaTkWarpVec(length, layout)
-        rhs: R @ CudaBasicDeviceVisible,
+        rhs: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for i in seq(0, length):
             dst[i] = lhs[i] - rhs
@@ -608,7 +608,7 @@ class cuda_tk_vec_sub_lhs_scalar(basic_binary_lhs_vec_scalar_op):
     def behavior(
         length: size,
         dst: [R][length],  # @ CudaTkWarpVec(length, layout)
-        src: R @ CudaBasicDeviceVisible,
+        src: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for i in seq(0, length):
             dst[i] = dst[i] - src
@@ -658,7 +658,7 @@ class cuda_tk_vec_mul_3op_scalar(basic_binary_3op_vec_scalar_op):
         length: size,
         dst: [R][length],  # @ CudaTkWarpVec(length, layout)
         lhs: [R][length],  # @ CudaTkWarpVec(length, layout)
-        rhs: R @ CudaBasicDeviceVisible,
+        rhs: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for i in seq(0, length):
             dst[i] = lhs[i] * rhs
@@ -690,7 +690,7 @@ class cuda_tk_vec_mul_lhs_scalar(basic_binary_lhs_vec_scalar_op):
     def behavior(
         length: size,
         dst: [R][length],  # @ CudaTkWarpVec(length, layout)
-        src: R @ CudaBasicDeviceVisible,
+        src: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for i in seq(0, length):
             dst[i] = dst[i] * src
@@ -740,7 +740,7 @@ class cuda_tk_vec_div_3op_scalar(basic_binary_3op_vec_scalar_op):
         length: size,
         dst: [R][length],  # @ CudaTkWarpVec(length, layout)
         lhs: [R][length],  # @ CudaTkWarpVec(length, layout)
-        rhs: R @ CudaBasicDeviceVisible,
+        rhs: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for i in seq(0, length):
             dst[i] = lhs[i] / rhs
@@ -772,7 +772,7 @@ class cuda_tk_vec_div_lhs_scalar(basic_binary_lhs_vec_scalar_op):
     def behavior(
         length: size,
         dst: [R][length],  # @ CudaTkWarpVec(length, layout)
-        src: R @ CudaBasicDeviceVisible,
+        src: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for i in seq(0, length):
             dst[i] = dst[i] / src

@@ -76,7 +76,7 @@ def gen_instr(
     args = []
     for nm in arg_names:
         if nm in scalar_names:
-            comment = ""
+            comment = "  # Often, CudaRmemUniform(32)"
             typ = "R @ CudaBasicDeviceVisible"
         else:
             comment = '  # @ CudaTkWarpTile(rows, cols, layout="row")'

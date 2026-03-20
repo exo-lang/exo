@@ -1,6 +1,9 @@
 import re
 from typing import Callable, Dict, Optional, Type, List
 
+from ..backend.mem_analysis import MemoryAnalysis
+
+from ..core.memory import MemWin
 from ..core.prelude import Sym, SrcInfo
 from ..core.instr_info import InstrInfo
 from ..core.LoopIR import T, LoopIR, LoopIR_Rewrite, BaseCompilerDebugLog
@@ -64,6 +67,7 @@ class CollAnalysis(LoopIR_Rewrite):
         "_proc_name",
         "_qual_tl_thread_alignments",
         "_qual_tl_fallback_thread_alignment",
+        "_get_sym_mem",
     ]
 
     # Public variables
@@ -81,12 +85,14 @@ class CollAnalysis(LoopIR_Rewrite):
     _proc_name: str
     _qual_tl_thread_alignments: Dict[Qual_tl, int]
     _qual_tl_fallback_thread_aligment: int
+    _get_sym_mem: Callable[[Sym], Type[MemWin]]
     # Update __slots__ above if you add more.
 
     # TODO barrier_usage_analysis only needed to check barrier guarding.
     # Consider making this an optional feature.
     def __init__(
         self,
+        mem_analysis: MemoryAnalysis,
         barrier_usage_analysis: BarrierUsageAnalysis,
         debug_log: BaseCompilerDebugLog = BaseCompilerDebugLog(),
     ):
@@ -102,6 +108,7 @@ class CollAnalysis(LoopIR_Rewrite):
         self._debug_log = debug_log
         self._qual_tl_thread_alignments = {}
         self._qual_tl_fallback_thread_alignment = 1 << 31
+        self._get_sym_mem = mem_analysis.get_sym_mem
 
     def run(self, proc):
         self._proc_name = proc.name
@@ -226,10 +233,12 @@ class CollAnalysis(LoopIR_Rewrite):
                 separate_await,
             )
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
-            if (n_threads := self._coll_tiling.get_box_num_threads()) != 1:
+            mem = self._get_sym_mem(s.name)
+            mutate_unit = mem.mutate_unit()
+            if msg := self._coll_tiling.unit_mismatch(mutate_unit, self._coll_env):
                 raise ValueError(
-                    f"{s.srcinfo}: write must be executed by one "
-                    f"thread only (current: {n_threads} threads)\n"
+                    f"{s.srcinfo}: write to {mem.name()} must be executed by "
+                    f"{mutate_unit}: {msg}.\n"
                     f"stmt: {s}"
                 )
         elif isinstance(s, LoopIR.SyncStmt):

@@ -508,7 +508,7 @@ class cuda_tk_tile_max_3op_scalar(basic_binary_3op_tile_scalar_op):
         cols: size,
         dst: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
         lhs: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
-        rhs: R @ CudaBasicDeviceVisible,
+        rhs: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for r in seq(0, rows):
             for c in seq(0, cols):
@@ -544,7 +544,7 @@ class cuda_tk_tile_max_lhs_scalar(basic_binary_lhs_tile_scalar_op):
         rows: size,
         cols: size,
         dst: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
-        src: R @ CudaBasicDeviceVisible,
+        src: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for r in seq(0, rows):
             for c in seq(0, cols):
@@ -600,7 +600,7 @@ class cuda_tk_tile_min_3op_scalar(basic_binary_3op_tile_scalar_op):
         cols: size,
         dst: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
         lhs: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
-        rhs: R @ CudaBasicDeviceVisible,
+        rhs: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for r in seq(0, rows):
             for c in seq(0, cols):
@@ -636,7 +636,7 @@ class cuda_tk_tile_min_lhs_scalar(basic_binary_lhs_tile_scalar_op):
         rows: size,
         cols: size,
         dst: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
-        src: R @ CudaBasicDeviceVisible,
+        src: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for r in seq(0, rows):
             for c in seq(0, cols):
@@ -692,7 +692,7 @@ class cuda_tk_tile_add_3op_scalar(basic_binary_3op_tile_scalar_op):
         cols: size,
         dst: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
         lhs: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
-        rhs: R @ CudaBasicDeviceVisible,
+        rhs: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for r in seq(0, rows):
             for c in seq(0, cols):
@@ -728,7 +728,7 @@ class cuda_tk_tile_add_reduce_scalar(basic_binary_lhs_tile_scalar_op):
         rows: size,
         cols: size,
         dst: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
-        src: R @ CudaBasicDeviceVisible,
+        src: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for r in seq(0, rows):
             for c in seq(0, cols):
@@ -764,7 +764,7 @@ class cuda_tk_tile_add_lhs_scalar(basic_binary_lhs_tile_scalar_op):
         rows: size,
         cols: size,
         dst: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
-        src: R @ CudaBasicDeviceVisible,
+        src: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for r in seq(0, rows):
             for c in seq(0, cols):
@@ -820,7 +820,7 @@ class cuda_tk_tile_sub_3op_scalar(basic_binary_3op_tile_scalar_op):
         cols: size,
         dst: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
         lhs: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
-        rhs: R @ CudaBasicDeviceVisible,
+        rhs: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for r in seq(0, rows):
             for c in seq(0, cols):
@@ -856,7 +856,7 @@ class cuda_tk_tile_sub_lhs_scalar(basic_binary_lhs_tile_scalar_op):
         rows: size,
         cols: size,
         dst: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
-        src: R @ CudaBasicDeviceVisible,
+        src: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for r in seq(0, rows):
             for c in seq(0, cols):
@@ -912,7 +912,7 @@ class cuda_tk_tile_mul_3op_scalar(basic_binary_3op_tile_scalar_op):
         cols: size,
         dst: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
         lhs: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
-        rhs: R @ CudaBasicDeviceVisible,
+        rhs: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for r in seq(0, rows):
             for c in seq(0, cols):
@@ -948,7 +948,7 @@ class cuda_tk_tile_mul_lhs_scalar(basic_binary_lhs_tile_scalar_op):
         rows: size,
         cols: size,
         dst: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
-        src: R @ CudaBasicDeviceVisible,
+        src: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for r in seq(0, rows):
             for c in seq(0, cols):
@@ -1004,7 +1004,7 @@ class cuda_tk_tile_div_3op_scalar(basic_binary_3op_tile_scalar_op):
         cols: size,
         dst: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
         lhs: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
-        rhs: R @ CudaBasicDeviceVisible,
+        rhs: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for r in seq(0, rows):
             for c in seq(0, cols):
@@ -1040,7 +1040,7 @@ class cuda_tk_tile_div_lhs_scalar(basic_binary_lhs_tile_scalar_op):
         rows: size,
         cols: size,
         dst: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
-        src: R @ CudaBasicDeviceVisible,
+        src: R @ CudaBasicDeviceVisible,  # Often, CudaRmemUniform(32)
     ):
         for r in seq(0, rows):
             for c in seq(0, cols):

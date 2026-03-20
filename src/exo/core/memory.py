@@ -33,6 +33,7 @@ from ..spork.timelines import (
     cpu_in_order_qual,
     cpu_cuda_stream_qual,
 )
+from ..spork.coll_algebra import standalone_thread
 from .prelude import ScalarInfo
 from .c_window import (
     WindowEncoder,
@@ -274,6 +275,11 @@ class MemWin(ABC):
             f"{s.srcinfo}: cannot reduce to buffer "
             f"'{s.name}' in memory '{cls.name()}'"
         )
+
+    @classmethod
+    def mutate_unit(cls) -> CollUnit:
+        """Assign/Reduce to memory must occur at mutate_unit-scope"""
+        return standalone_thread
 
     @classmethod
     def device_permission(cls, device: DeviceScope, instr_tl: Instr_tl):
