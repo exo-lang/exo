@@ -237,13 +237,20 @@ struct exo_Sm90_SW128 {
     static EXO_CUDA_INLINE exo_Sm90_SW128<T>* swizzle_pointer(uintptr_t addr)
     {
         // Adapted from ThunderKittens appendix which actually documents CUDA correctly.
-        addr = (addr ^ (((addr % 1024) >> 7) << 4));
+        uint32_t shr = uint32_t(addr) >> 3;
+        const uint32_t mask = 112;
+        addr = addr ^ (shr & mask);
         return reinterpret_cast<exo_Sm90_SW128*>(addr);
     }
 
     static __host__ __device__ constexpr uint64_t get_swizzle_bits()
     {
         return 1;
+    }
+
+    static __host__ __device__ constexpr int get_swizzle_bytes()
+    {
+        return 128;
     }
 
     EXO_CUDA_INLINE const T& swizzle_get() const
@@ -256,10 +263,75 @@ struct exo_Sm90_SW128 {
         return swizzle_pointer(reinterpret_cast<uintptr_t>(&data))->data;
     }
 };
+
+// Element type for Sm90_SmemSwizzled(128) allocations where the
+// last 3 array extents are [TileOuterCols, TileRows, TileInnerCols]
+// (left-padded with 1 for 0D, 1D, 2D allocations).
+template <typename T, int TileOuterCols, int TileRows, int TileInnerCols>
+struct exo_Sm90_SW128_tiled: public exo_Sm90_SW128<T>
+{
+    // Reinterpret-cast to kittens::st_subtile view of this shared memory.
+    //
+    // For better or worse, kittens 2D tile is expressed as a 3D tile in Exo-GPU.
+    // `this` is assumed to point-to the NON-SWIZZLED base address of a complete
+    // 3D tile. This returns a subtile view whose
+    //
+    // * size/extents are given by the Subtile template parameters
+    //
+    // * base offset from the `this` tile is given by runtime int offsets
+    //
+    // Assume for this discussion that the tile is row-major. Then,
+    //
+    // * Let swizzle_elements = 128 / sizeof(T)
+    //
+    // * The 3D Exo-GPU tile is of size [TileOuterCols, TileRows, TileInnerCols],
+    //   where TileInnerCols == swizzle_elements. If not, then this tile
+    //   is incompatible with ThunderKittens, TMA, and wgmma.
+    //
+    // * The value at coordinates (r, c) in the 2D [Rows, Cols] tile is stored at
+    //   address swizzle_pointer(
+    //          tile_base_addr
+    //          + sizeof(T) * (c / TileInnerCols) * TileRows * TileInnerCols
+    //          + sizeof(T) * (r) * TileInnerCols
+    //          + sizeof(T) * (c % TileInnerCols))
+    //   Basically, the column is simultaneously the fastest (%) and slowest (/) dimension
+    //
+    // TMA: If TileOuterCols != 1, then ThunderKittens is capable of doing a single TMA
+    // copy to load/store the tile, but Exo-GPU may have to issue multiple.
+    template <
+        int SubtileOuterCols,
+        int SubtileRows,
+        int SubtileInnerCols,
+        template <int, int, bool, int> class st_typed>
+    EXO_CUDA_INLINE auto as_tk_subtile(int col_outer_offset, int row_offset, int col_inner_offset) const
+    {
+        static_assert(
+            TileInnerCols * sizeof(T) == 128,
+            "Exo-GPU instr didn't assert strides properly."
+            " This is needed to match kittens swizzle automation"
+        );
+        static_assert(
+            SubtileInnerCols == TileInnerCols || SubtileOuterCols == 1,
+            "Exo-GPU instr used wrong SubtileInnerCols (window size last dimension)."
+            " This is needed for Exo-GPU and kittens to agree on column tiling"
+        );
+        using st_t = st_typed<TileRows, TileOuterCols * TileInnerCols, true, 0>;
+        st_t* p_tile = const_cast<st_t*>(reinterpret_cast<const st_t*>(this));
+        // Note, subtile implicitly multiplies (r, c) by the subtile size.
+        // We have to work around this!
+        // Also, can't mention ::kittens here, because it may not be included.
+        // Also also, explicit kittens swizzle is broken in this function.
+        auto subtile = p_tile->template subtile<SubtileRows, SubtileOuterCols * SubtileInnerCols>(int2(0, 0));
+        subtile.row_offset = static_cast<int>(row_offset);
+        subtile.col_offset = static_cast<int>(col_outer_offset) * TileInnerCols + static_cast<int>(col_inner_offset);
+        return subtile;
+    }
+};
+
 #endif
 
 #endif
-/* Required by CudaRmem */
+/* Required by CudaRmemLinear */
 #ifndef EXO_WIN_1F32
 #define EXO_WIN_1F32
 struct exo_win_1f32 {
@@ -299,7 +371,7 @@ using exo_CudaRmemPacked32_bf16 = exo_CudaRmemPacked32<int32_t, __nv_bfloat16, _
 #endif
 
 #endif
-/* Required by CudaBasicDeviceVisible */
+/* Required by CudaDeviceVisibleAtomicity16B */
 #ifndef EXO_WIN_1F16C
 #define EXO_WIN_1F16C
 struct exo_win_1f16c {
@@ -307,7 +379,7 @@ struct exo_win_1f16c {
     const int_fast32_t strides[1];
 };
 #endif
-/* Required by CudaBasicDeviceVisible */
+/* Required by CudaDeviceVisibleAtomicity16B */
 #ifndef EXO_WIN_1F16
 #define EXO_WIN_1F16
 struct exo_win_1f16 {
@@ -476,13 +548,20 @@ struct exo_Sm90_SW128 {
     static EXO_CUDA_INLINE exo_Sm90_SW128<T>* swizzle_pointer(uintptr_t addr)
     {
         // Adapted from ThunderKittens appendix which actually documents CUDA correctly.
-        addr = (addr ^ (((addr % 1024) >> 7) << 4));
+        uint32_t shr = uint32_t(addr) >> 3;
+        const uint32_t mask = 112;
+        addr = addr ^ (shr & mask);
         return reinterpret_cast<exo_Sm90_SW128*>(addr);
     }
 
     static __host__ __device__ constexpr uint64_t get_swizzle_bits()
     {
         return 1;
+    }
+
+    static __host__ __device__ constexpr int get_swizzle_bytes()
+    {
+        return 128;
     }
 
     EXO_CUDA_INLINE const T& swizzle_get() const
@@ -495,10 +574,75 @@ struct exo_Sm90_SW128 {
         return swizzle_pointer(reinterpret_cast<uintptr_t>(&data))->data;
     }
 };
+
+// Element type for Sm90_SmemSwizzled(128) allocations where the
+// last 3 array extents are [TileOuterCols, TileRows, TileInnerCols]
+// (left-padded with 1 for 0D, 1D, 2D allocations).
+template <typename T, int TileOuterCols, int TileRows, int TileInnerCols>
+struct exo_Sm90_SW128_tiled: public exo_Sm90_SW128<T>
+{
+    // Reinterpret-cast to kittens::st_subtile view of this shared memory.
+    //
+    // For better or worse, kittens 2D tile is expressed as a 3D tile in Exo-GPU.
+    // `this` is assumed to point-to the NON-SWIZZLED base address of a complete
+    // 3D tile. This returns a subtile view whose
+    //
+    // * size/extents are given by the Subtile template parameters
+    //
+    // * base offset from the `this` tile is given by runtime int offsets
+    //
+    // Assume for this discussion that the tile is row-major. Then,
+    //
+    // * Let swizzle_elements = 128 / sizeof(T)
+    //
+    // * The 3D Exo-GPU tile is of size [TileOuterCols, TileRows, TileInnerCols],
+    //   where TileInnerCols == swizzle_elements. If not, then this tile
+    //   is incompatible with ThunderKittens, TMA, and wgmma.
+    //
+    // * The value at coordinates (r, c) in the 2D [Rows, Cols] tile is stored at
+    //   address swizzle_pointer(
+    //          tile_base_addr
+    //          + sizeof(T) * (c / TileInnerCols) * TileRows * TileInnerCols
+    //          + sizeof(T) * (r) * TileInnerCols
+    //          + sizeof(T) * (c % TileInnerCols))
+    //   Basically, the column is simultaneously the fastest (%) and slowest (/) dimension
+    //
+    // TMA: If TileOuterCols != 1, then ThunderKittens is capable of doing a single TMA
+    // copy to load/store the tile, but Exo-GPU may have to issue multiple.
+    template <
+        int SubtileOuterCols,
+        int SubtileRows,
+        int SubtileInnerCols,
+        template <int, int, bool, int> class st_typed>
+    EXO_CUDA_INLINE auto as_tk_subtile(int col_outer_offset, int row_offset, int col_inner_offset) const
+    {
+        static_assert(
+            TileInnerCols * sizeof(T) == 128,
+            "Exo-GPU instr didn't assert strides properly."
+            " This is needed to match kittens swizzle automation"
+        );
+        static_assert(
+            SubtileInnerCols == TileInnerCols || SubtileOuterCols == 1,
+            "Exo-GPU instr used wrong SubtileInnerCols (window size last dimension)."
+            " This is needed for Exo-GPU and kittens to agree on column tiling"
+        );
+        using st_t = st_typed<TileRows, TileOuterCols * TileInnerCols, true, 0>;
+        st_t* p_tile = const_cast<st_t*>(reinterpret_cast<const st_t*>(this));
+        // Note, subtile implicitly multiplies (r, c) by the subtile size.
+        // We have to work around this!
+        // Also, can't mention ::kittens here, because it may not be included.
+        // Also also, explicit kittens swizzle is broken in this function.
+        auto subtile = p_tile->template subtile<SubtileRows, SubtileOuterCols * SubtileInnerCols>(int2(0, 0));
+        subtile.row_offset = static_cast<int>(row_offset);
+        subtile.col_offset = static_cast<int>(col_outer_offset) * TileInnerCols + static_cast<int>(col_inner_offset);
+        return subtile;
+    }
+};
+
 #endif
 
 #endif
-/* Required by CudaRmem */
+/* Required by CudaRmemLinear */
 #ifndef EXO_WIN_1F32
 #define EXO_WIN_1F32
 struct exo_win_1f32 {
@@ -538,7 +682,7 @@ using exo_CudaRmemPacked32_bf16 = exo_CudaRmemPacked32<int32_t, __nv_bfloat16, _
 #endif
 
 #endif
-/* Required by CudaBasicDeviceVisible */
+/* Required by CudaDeviceVisibleAtomicity16B */
 #ifndef EXO_WIN_1F16C
 #define EXO_WIN_1F16C
 struct exo_win_1f16c {
@@ -546,7 +690,7 @@ struct exo_win_1f16c {
     const int_fast32_t strides[1];
 };
 #endif
-/* Required by CudaBasicDeviceVisible */
+/* Required by CudaDeviceVisibleAtomicity16B */
 #ifndef EXO_WIN_1F16
 #define EXO_WIN_1F16
 struct exo_win_1f16 {
@@ -715,7 +859,7 @@ exo_CudaInline_test_golden_naive_f16_gemm::exo_Cuda0_f16_naive_gemm_f16_f16_f32:
     exo_ExcutThreadLog exo_excutLog)
 {
   namespace exo_CudaUtil = exo_CudaUtil_test_golden_naive_f16_gemm;
-  auto& s_A = reinterpret_cast<exo_Sm90_SW128<exo_f16> (&)[]>(exo_smem[exo_smemOffset0_s_A]);
+  auto& s_A = reinterpret_cast<exo_Sm90_SW128_tiled<exo_f16, 1, 128, 32> (&)[]>(exo_smem[exo_smemOffset0_s_A]);
   auto& s_B = reinterpret_cast<exo_f16 (&) [4096]>(exo_smem[exo_smemOffset1_s_B]);
   float r_C[128];
   // cuda_threads(0, 128, unit=cuda_thread)

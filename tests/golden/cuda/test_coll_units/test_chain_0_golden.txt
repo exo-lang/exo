@@ -131,7 +131,7 @@ void exo_cudaLaunch0_chain_0(cudaStream_t exo_cudaStream, const struct exo_CudaD
 #include <stdlib.h>
 
 #endif
-/* Required by CudaRmem */
+/* Required by CudaRmemLinear */
 #ifndef EXO_WIN_1F32
 #define EXO_WIN_1F32
 struct exo_win_1f32 {
@@ -179,7 +179,7 @@ excut_trace_3index(i0,i1,i2)
 #include <stdlib.h>
 
 #endif
-/* Required by CudaRmem */
+/* Required by CudaRmemLinear */
 #ifndef EXO_WIN_1F32
 #define EXO_WIN_1F32
 struct exo_win_1f32 {

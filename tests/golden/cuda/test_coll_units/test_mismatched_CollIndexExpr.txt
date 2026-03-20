@@ -5,7 +5,7 @@ def proc_mismatched():
         #   pow2 align = 256 @ /home/mantissa/Documents/exo/tests/cuda/test_coll_units.py:1016:12:(s140)
         for task in cuda_tasks(0, 1):
             # distributed dims: 2, thread pitch tuple (4, 1) @ /home/mantissa/Documents/exo/tests/cuda/test_coll_units.py:1017:16:(s10)
-            vals: f32[16, 4] @ CudaRmem
+            vals: f32[16, 4] @ CudaRmemLinear
             # thread_pitch=4; exo_4thr_m = (threadIdx.x / 4) @ /home/mantissa/Documents/exo/tests/cuda/test_coll_units.py:1018:16:(s40)
             for m in cuda_threads(0, 16, unit=4 * cuda_thread):
                 # Domain (ω.D) = [ 256]
@@ -49,7 +49,7 @@ def proc_mismatched():
                         #   pow2 align = 1 @ /home/mantissa/Documents/exo/tests/cuda/test_coll_units.py:1033:28:(s50)
                         #
                         # distributed dims: 0, thread pitch tuple () @ /home/mantissa/Documents/exo/tests/cuda/test_coll_units.py:1033:28:(s50)
-                        r: f32 @ CudaRmem
+                        r: f32 @ CudaRmemLinear
                         # Distributed memory deduction for vals failed
                         # Incompatible offsets
                         #     First  domain=(256,), base_offset=(0,), base_box=(1,)
@@ -66,7 +66,7 @@ def proc_mismatched():
                         free(r)
             for t in cuda_threads(0, 16, unit=cuda_thread):
                 for s in seq(0, 4):
-                    r: f32 @ CudaRmem
+                    r: f32 @ CudaRmemLinear
                     r = vals[t, s]
                     free(r)
             free(vals)

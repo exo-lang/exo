@@ -101,7 +101,7 @@ extern "C" {
 
 #endif
 /* Required by CudaGmemLinear */
-/* Required by CudaRmem */
+/* Required by CudaRmemLinear */
 /* Required by DRAM */
 #ifndef EXO_WIN_1F32
 #define EXO_WIN_1F32
@@ -195,7 +195,7 @@ inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
 #endif
 
 #endif
-/* Required by CudaRmem */
+/* Required by CudaRmemLinear */
 #ifndef EXO_WIN_0F32
 #define EXO_WIN_0F32
 struct exo_win_0f32 {
@@ -203,7 +203,7 @@ struct exo_win_0f32 {
     const int_fast32_t strides[0];
 };
 #endif
-/* Required by CudaRmem */
+/* Required by CudaRmemLinear */
 #ifndef EXO_WIN_0F32C
 #define EXO_WIN_0F32C
 struct exo_win_0f32c {
@@ -320,7 +320,7 @@ inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
 #endif
 
 #endif
-/* Required by CudaRmem */
+/* Required by CudaRmemLinear */
 #ifndef EXO_WIN_0F32
 #define EXO_WIN_0F32
 struct exo_win_0f32 {
@@ -328,7 +328,7 @@ struct exo_win_0f32 {
     const int_fast32_t strides[0];
 };
 #endif
-/* Required by CudaRmem */
+/* Required by CudaRmemLinear */
 #ifndef EXO_WIN_0F32C
 #define EXO_WIN_0F32C
 struct exo_win_0f32c {

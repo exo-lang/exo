@@ -101,7 +101,7 @@ extern "C" {
 
 #endif
 /* Required by CudaGmemLinear */
-/* Required by CudaRmem */
+/* Required by CudaRmemLinear */
 /* Required by CudaSmemLinear */
 /* Required by DRAM */
 #ifndef EXO_WIN_2F32

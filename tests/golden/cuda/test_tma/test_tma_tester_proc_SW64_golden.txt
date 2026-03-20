@@ -162,9 +162,7 @@ void exo_cudaLaunch0_tma_tester_gpu_SW64(cudaStream_t exo_cudaStream, const stru
 /* Required by Sm90_tensorMap(64, 248, 16) */
 #include "cuda.h"
 /* Required by Sm90_tensorMap(64, 248, 16) */
-/* Required by Sm90_tensorMap(64, 248, 16) */
 #include <assert.h>
-/* Required by Sm90_tensorMap(64, 248, 16) */
 /* Required by Sm90_tensorMap(64, 248, 16) */
 #include <stdio.h>
 /* Required by CudaGmemLinear */
@@ -359,7 +357,6 @@ struct exo_Sm90_SW64_tiled: public exo_Sm90_SW64<T>
 #endif
 
 #endif
-/* Required by Sm90_tensorMap(64, 248, 16) */
 /* Required by Sm90_tensorMap(64, 248, 16) */
 static inline CUtensorMap exo_win_2f32_Sm90_tensorMap_64_248_16_encode(
         // Window dataptr, strides

@@ -100,7 +100,7 @@ extern "C" {
 #include <stdlib.h>
 
 #endif
-/* Required by CudaBasicDeviceVisible */
+/* Required by CudaDeviceVisibleAtomicity16B */
 /* Required by DRAM */
 #ifndef EXO_WIN_1I32C
 #define EXO_WIN_1I32C

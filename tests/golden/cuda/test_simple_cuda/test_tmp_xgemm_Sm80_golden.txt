@@ -271,7 +271,7 @@ struct exo_CudaDeviceArgs2_xgemm_Sm80_fence
 
 
 /* relying on the following instruction..."
-Sm80_cp_async_f32(smem,gmem,size=4)
+Sm80_cp_async_f32(dst,src,size=4)
 
 */
 

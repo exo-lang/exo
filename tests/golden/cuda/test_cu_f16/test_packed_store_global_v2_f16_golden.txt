@@ -126,7 +126,7 @@ struct exo_win_1f16 {
     const int_fast32_t strides[1];
 };
 #endif
-/* Required by CudaBasicDeviceVisible */
+/* Required by CudaDeviceVisibleAtomicity16B */
 /* Required by CudaGmemLinear */
 /* Required by DRAM */
 #ifndef EXO_WIN_1F16C

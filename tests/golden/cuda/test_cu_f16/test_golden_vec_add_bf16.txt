@@ -114,7 +114,7 @@ typedef struct { short bits; } exo_bf16;
 #endif
 
 #endif
-/* Required by CudaBasicDeviceVisible */
+/* Required by CudaDeviceVisibleAtomicity16B */
 /* Required by DRAM */
 #ifndef EXO_WIN_1BF16C
 #define EXO_WIN_1BF16C
