@@ -92,7 +92,7 @@ class basic_row_reduce_op(InstrInfo):
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         src_c = args.src.index()
-        return [f"::kittens::warp::{self.kittens_op_name}({dst_c}, {src_c});"]
+        return [f"::kittens::warp::{self.kittens_op_name}({dst_c}, {src_c}, {dst_c});"]
 
 
 class basic_col_reduce_op(InstrInfo):
@@ -118,7 +118,7 @@ class basic_col_reduce_op(InstrInfo):
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         src_c = args.src.index()
-        return [f"::kittens::warp::{self.kittens_op_name}({dst_c}, {src_c});"]
+        return [f"::kittens::warp::{self.kittens_op_name}({dst_c}, {src_c}, {dst_c});"]
 
 
 class basic_broadcast_row_op(InstrInfo):

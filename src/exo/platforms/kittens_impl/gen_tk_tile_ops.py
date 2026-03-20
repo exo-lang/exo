@@ -229,14 +229,14 @@ for name, stmt_fmt in binary_name_stmt:
 
 
 # Tile -> vec reductions
-reduce_name_stmt_identity = [
-    ("max", "dst[{axis}] = fmaxf(dst[{axis}], src[r, c])", "-inf"),
-    ("min", "dst[{axis}] = fminf(dst[{axis}], src[r, c])", "inf"),
-    ("sum", "dst[{axis}] += src[r, c]", "0"),
-    ("prod", "dst[{axis}] = dst[{axis}] * src[r, c]", "1"),
+reduce_name_stmt = [
+    ("max", "dst[{axis}] = fmaxf(dst[{axis}], src[r, c])"),
+    ("min", "dst[{axis}] = fminf(dst[{axis}], src[r, c])"),
+    ("sum", "dst[{axis}] += src[r, c]"),
+    ("prod", "dst[{axis}] = dst[{axis}] * src[r, c]"),
 ]
 
-for name, stmt_fmt, identity in reduce_name_stmt_identity:
+for name, stmt_fmt in reduce_name_stmt:
     # Reduce each row -> get a column vector
     gen_instr(
         f"cuda_tk_row_{name}",
@@ -245,10 +245,6 @@ for name, stmt_fmt, identity in reduce_name_stmt_identity:
         stmt_fmt.format(axis="r"),
         ("dst", "src"),
         col_vec_names=("dst",),
-        prefix_lines=(
-            "for r in seq(0, rows):",
-            f"    dst[r] = {identity}",
-        ),
     )
 
     # Reduce each column -> get a row vector
@@ -259,10 +255,6 @@ for name, stmt_fmt, identity in reduce_name_stmt_identity:
         stmt_fmt.format(axis="c"),
         ("dst", "src"),
         row_vec_names=("dst",),
-        prefix_lines=(
-            "for c in seq(0, cols):",
-            f"    dst[c] = {identity}",
-        ),
     )
 
 

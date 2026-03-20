@@ -822,8 +822,6 @@ class cuda_tk_row_max(basic_row_reduce_op):
         src: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
     ):
         for r in seq(0, rows):
-            dst[r] = -inf
-        for r in seq(0, rows):
             for c in seq(0, cols):
                 dst[r] = fmaxf(dst[r], src[r, c])
 
@@ -841,8 +839,6 @@ class cuda_tk_col_max(basic_col_reduce_op):
         dst: [R][cols],  # @ CudaTkWarpTile(rows, cols, layout="row").row_vec
         src: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
     ):
-        for c in seq(0, cols):
-            dst[c] = -inf
         for r in seq(0, rows):
             for c in seq(0, cols):
                 dst[c] = fmaxf(dst[c], src[r, c])
@@ -862,8 +858,6 @@ class cuda_tk_row_min(basic_row_reduce_op):
         src: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
     ):
         for r in seq(0, rows):
-            dst[r] = inf
-        for r in seq(0, rows):
             for c in seq(0, cols):
                 dst[r] = fminf(dst[r], src[r, c])
 
@@ -881,8 +875,6 @@ class cuda_tk_col_min(basic_col_reduce_op):
         dst: [R][cols],  # @ CudaTkWarpTile(rows, cols, layout="row").row_vec
         src: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
     ):
-        for c in seq(0, cols):
-            dst[c] = inf
         for r in seq(0, rows):
             for c in seq(0, cols):
                 dst[c] = fminf(dst[c], src[r, c])
@@ -902,8 +894,6 @@ class cuda_tk_row_sum(basic_row_reduce_op):
         src: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
     ):
         for r in seq(0, rows):
-            dst[r] = 0
-        for r in seq(0, rows):
             for c in seq(0, cols):
                 dst[r] += src[r, c]
 
@@ -921,8 +911,6 @@ class cuda_tk_col_sum(basic_col_reduce_op):
         dst: [R][cols],  # @ CudaTkWarpTile(rows, cols, layout="row").row_vec
         src: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
     ):
-        for c in seq(0, cols):
-            dst[c] = 0
         for r in seq(0, rows):
             for c in seq(0, cols):
                 dst[c] += src[r, c]
@@ -942,8 +930,6 @@ class cuda_tk_row_prod(basic_row_reduce_op):
         src: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
     ):
         for r in seq(0, rows):
-            dst[r] = 1
-        for r in seq(0, rows):
             for c in seq(0, cols):
                 dst[r] = dst[r] * src[r, c]
 
@@ -961,8 +947,6 @@ class cuda_tk_col_prod(basic_col_reduce_op):
         dst: [R][cols],  # @ CudaTkWarpTile(rows, cols, layout="row").row_vec
         src: [R][rows, cols],  # @ CudaTkWarpTile(rows, cols, layout="row")
     ):
-        for c in seq(0, cols):
-            dst[c] = 1
         for r in seq(0, rows):
             for c in seq(0, cols):
                 dst[c] = dst[c] * src[r, c]
