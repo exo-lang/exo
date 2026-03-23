@@ -8,6 +8,8 @@ from .tk_types import *
 
 
 class basic_map_tile_op(InstrInfo):
+    __slots__ = []
+
     def instance(
         self: InstrInfo,
         rows: int,
@@ -25,22 +27,45 @@ class basic_map_tile_op(InstrInfo):
 
 
 class basic_0ary_tile_op(basic_map_tile_op):
+    __slots__ = []
+
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         return [f"::kittens::warp::{self.kittens_op_name}({dst_c});"]
 
 
 class basic_make_causal_op(basic_map_tile_op):
+    __slots__ = []
+
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         ctype = cuda_tk_typename_table[args.dst.get_scalar_info()]
+        # fmt: off
+        # ThunderKittens for whatever reason doesn't have a causal-with-offset op.
+        # They just decomp to 16x16 tiles and use these pragma unroll loops wherever
+        # they need to do this (which is always), so we emulate that here.
+        # Note, 8-bit types don't use 16x16 tile size;
+        # this would have to be changed in that case.
         return [
-            f"::kittens::warp::{self.kittens_op_name}({dst_c}, {dst_c},",
-            f"    ::kittens::base_types::constants<{ctype}>::{self.kittens_constant_name}());",
+            f"#pragma unroll",
+            f"for (int exo_causal_r = 0; exo_causal_r < {args.rows >> 4}; ++exo_causal_r) {{",
+            f"  #pragma unroll",
+            f"  for (int exo_causal_c = 0; exo_causal_c < {args.cols >> 4}; ++exo_causal_c) {{",
+            f"    int exo_causal_delta = exo_causal_r * 16 - exo_causal_c * 16 + static_cast<int>({args.col_offset} - {args.row_offset});",
+            f"    ::kittens::rt<{ctype}, 16, 16> exo_causal_subtile;",
+            f"    exo_causal_subtile.tiles[0][0] = {dst_c}.tiles[exo_causal_r][exo_causal_c];",
+            f"    const auto exo_causal_identity = ::kittens::base_types::constants<{ctype}>::{self.kittens_constant_name}();",
+            f"    if (exo_causal_delta {self.cmp_op} 0) ::kittens::warp::{self.kittens_constant_name}(exo_causal_subtile);",
+            f"    if (exo_causal_delta == 0) ::kittens::warp::{self.kittens_op_name}(exo_causal_subtile, exo_causal_subtile, exo_causal_identity);",
+            f"    {dst_c}.tiles[exo_causal_r][exo_causal_c] = exo_causal_subtile.tiles[0][0];",
+            f"  }}",
+            f"}}",
         ]
 
 
 class basic_unary_tile_op(basic_map_tile_op):
+    __slots__ = []
+
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         src_c = args.src.index()
@@ -48,6 +73,8 @@ class basic_unary_tile_op(basic_map_tile_op):
 
 
 class basic_binary_3op_tile_op(basic_map_tile_op):
+    __slots__ = []
+
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         lhs_c = args.lhs.index()
@@ -56,6 +83,8 @@ class basic_binary_3op_tile_op(basic_map_tile_op):
 
 
 class basic_binary_lhs_tile_op(basic_map_tile_op):
+    __slots__ = []
+
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         src_c = args.src.index()
@@ -63,6 +92,8 @@ class basic_binary_lhs_tile_op(basic_map_tile_op):
 
 
 class basic_binary_rhs_tile_op(basic_map_tile_op):
+    __slots__ = []
+
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         src_c = args.src.index()
@@ -70,6 +101,8 @@ class basic_binary_rhs_tile_op(basic_map_tile_op):
 
 
 class basic_binary_tile_scalar_op(InstrInfo):
+    __slots__ = []
+
     def instance(
         self: InstrInfo,
         rows: int,
@@ -92,6 +125,8 @@ class basic_binary_tile_scalar_op(InstrInfo):
 
 
 class basic_binary_3op_tile_scalar_op(basic_binary_tile_scalar_op):
+    __slots__ = []
+
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         lhs_c = args.lhs.index()
@@ -100,6 +135,8 @@ class basic_binary_3op_tile_scalar_op(basic_binary_tile_scalar_op):
 
 
 class basic_binary_lhs_tile_scalar_op(basic_binary_tile_scalar_op):
+    __slots__ = []
+
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
         src_c = args.src.index()
@@ -107,6 +144,8 @@ class basic_binary_lhs_tile_scalar_op(basic_binary_tile_scalar_op):
 
 
 class basic_row_reduce_op(InstrInfo):
+    __slots__ = []
+
     def instance(
         self: InstrInfo,
         rows: int,
@@ -133,6 +172,8 @@ class basic_row_reduce_op(InstrInfo):
 
 
 class basic_col_reduce_op(InstrInfo):
+    __slots__ = []
+
     def instance(
         self: InstrInfo,
         rows: int,
@@ -159,6 +200,8 @@ class basic_col_reduce_op(InstrInfo):
 
 
 class basic_broadcast_row_op(InstrInfo):
+    __slots__ = []
+
     def instance(
         self: InstrInfo,
         rows: int,
@@ -190,6 +233,8 @@ class basic_broadcast_row_op(InstrInfo):
 
 
 class basic_broadcast_col_op(InstrInfo):
+    __slots__ = []
+
     def instance(
         self: InstrInfo,
         rows: int,

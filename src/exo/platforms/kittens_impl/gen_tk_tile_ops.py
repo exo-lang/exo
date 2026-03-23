@@ -32,7 +32,7 @@ write_chunk(
     """\
 from __future__ import annotations
 from exo.API import instr
-from exo.scalars import ScalarInfo, inf
+from exo.scalars import ScalarInfo, inf, bf16, f16, f32
 
 from exo.libs.externs import fabsf, fminf, fmaxf, relu, expf, exp2f, logf, log2f
 
@@ -69,18 +69,25 @@ def gen_instr(
     row_vec_names: List[str] = (),
     col_vec_names: List[str] = (),
     scalar_names: List[str] = (),
+    index_names: List[str] = (),
     valid_num_types="ScalarInfo.same()",
     prefix_lines: List[str] = (),
     kittens_constant_name: str = "",
+    cmp_op: str = "",
 ):
     args = []
     for nm in arg_names:
-        if nm in scalar_names:
+        if nm in index_names:
+            comment = "  # Runtime index (not template parameter)"
+            typ = "index"
+        elif nm in scalar_names:
             comment = "  # Often, CudaRmemUniform(32)"
             typ = "R @ CudaBasicDeviceVisible"
         else:
             comment = '  # @ CudaTkWarpTile(rows, cols, layout="row")'
             typ = "[R][rows, cols]"
+
+        # Row/col vec arguments are modifications of tile arguments.
         if nm in row_vec_names:
             typ = "[R][cols]"
             comment += ".row_vec"
@@ -95,16 +102,19 @@ def gen_instr(
         kittens_constant_name_line = (
             f'\n    kittens_constant_name = "{kittens_constant_name}"'
         )
+    cmp_op_line = ""
+    if cmp_op:
+        cmp_op_line = f'\n    cmp_op = "{cmp_op}"'
     prefix = "".join(p + "\n        " for p in prefix_lines)
 
     _def = f"""@instr
-class {name}({base_name}):{kittens_constant_name_line}
+class {name}({base_name}):{kittens_constant_name_line}{cmp_op_line}
     kittens_op_name = \"{kittens_op_name}\"
     valid_num_types = {valid_num_types}
 
     def behavior(
-        rows: size,
-        cols: size,{''.join(args)}
+        rows: size,  # Template control value parameter
+        cols: size,  # Template control value parameter{''.join(args)}
     ):
         {prefix}for r in seq(0, rows):
             for c in seq(0, cols):
@@ -141,21 +151,34 @@ for name, value in (
         f"dst[r, c] = {value}",
         ("dst",),
     )
+    causal_assert_lines = ["assert row_offset % 16 == 0", "assert col_offset % 16 == 0"]
+    causal_valid_num_types = "{(bf16,), (f16,), (f32,),}"
+    # fmt: off
     gen_instr(
         f"cuda_tk_make_causal_{name}",
         "basic_make_causal_op",
         "make_causal",
-        f"if r < c:\n                    dst[r, c] = {value}",
-        ("dst",),
+        f"""if r - row_offset < c - col_offset:
+                    dst[r, c] = {value}""",
+        ("row_offset", "col_offset", "dst"),
         kittens_constant_name=name,
+        prefix_lines=causal_assert_lines,
+        index_names=("row_offset", "col_offset"),
+        valid_num_types=causal_valid_num_types,
+        cmp_op="<",
     )
     gen_instr(
         f"cuda_tk_make_causal_t_{name}",
         "basic_make_causal_op",
         "make_causal_t",
-        f"if r > c:\n                    dst[r, c] = {value}",
-        ("dst",),
+        f"""if r - row_offset > c - col_offset:
+                    dst[r, c] = {value}""",
+        ("row_offset", "col_offset", "dst"),
         kittens_constant_name=name,
+        index_names=("row_offset", "col_offset"),
+        prefix_lines=causal_assert_lines,
+        valid_num_types=causal_valid_num_types,
+        cmp_op=">",
     )
 
 

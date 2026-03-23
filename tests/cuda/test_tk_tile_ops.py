@@ -350,6 +350,95 @@ def make_0ary_tester(
     return TileTester(p, run, instr_name, only, T, T)
 
 
+def make_causal_tester(
+    instr_name,
+    tile_base_type,
+    only=False,
+):
+    # Tester for make_causal operators that overwrite tiles in-place.
+    T = tile_base_type
+    tile_instr = getattr(ops_module, instr_name)
+
+    rng = Random(instr_name)
+    rows = 16 * rng.randrange(3, 6)
+    cols = 16 * rng.randrange(4, 6)
+
+    @proc
+    def p(
+        row_offset: index,
+        col_offset: index,
+        h_cpu_inout: f32[rows, cols],
+        h_cuda_inout: f32[rows, cols],
+    ):
+        assert row_offset % 16 == 0
+        assert col_offset % 16 == 0
+        # fmt: off
+        # This will be inlined, unpacking the CUDA instr's behavior as CPU code.
+        # The test works by comparing the CPU output generated here to CUDA.
+        tile_instr(row_offset, col_offset, h_cpu_inout[:, :], rows=rows, cols=cols, dst=f32)
+
+        d_inout: f32[rows, cols] @ CudaGmemLinear
+
+        cudaMemcpyAsync_htod_2f32(rows, cols, d_inout[:, :], h_cuda_inout[:, :])
+
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, 1):
+                r_inout: T[rows, cols] @ CudaTkWarpTile(rows, cols)
+                cuda_tk_load_rg(r_inout[:, :], d_inout[:, :], size0=rows, size1=cols, dst=T, src=f32)
+                tile_instr(row_offset, col_offset, r_inout[:, :], rows=rows, cols=cols, dst=T)
+                Fence(cuda_in_order, cuda_in_order)
+                cuda_tk_store_rg(d_inout[:, :], r_inout[:, :], size0=rows, size1=cols, dst=f32, src=T)
+
+        cudaMemcpyAsync_dtoh_2f32(rows, cols, h_cuda_inout[:, :], d_inout[:, :])
+
+    proc_name = f"tester_{T}_{instr_name}"
+    p = inline(p, p.body()[0])
+    p = simplify(p)
+    p = rename(p, proc_name)
+
+    if "_zero" in instr_name:
+        identity = 0
+    elif "_one" in instr_name:
+        identity = 1
+    elif "_pos_inf" in instr_name:
+        identity = inf
+    elif "_neg_inf" in instr_name:
+        identity = -inf
+    else:
+        assert 0, instr_name
+
+    rng_start = -15
+    rng_end = 15
+    cmp_op = operator.gt if "make_causal_t" in instr_name else operator.lt
+
+    def run(cu: CudaTestContext):
+        h_cpu_inout = np.zeros((rows, cols), dtype=np.float32)
+        h_cuda_inout = np.zeros((rows, cols), dtype=np.float32)
+        for r in range(0, rows):
+            for c in range(0, cols):
+                init = 0.25 * rng.randrange(int(4 * rng_start), int(4 * rng_end))
+                h_cpu_inout[r, c] = init
+                h_cuda_inout[r, c] = init
+
+        row_offset = rng.choice((-32, -16, 0, 16))
+        col_offset = rng.choice((-32, -16, 0, 16))
+        cu.run(proc_name, None, row_offset, col_offset, h_cpu_inout, h_cuda_inout)
+
+        for r in range(0, rows):
+            for c in range(0, cols):
+                if cmp_op(r - row_offset, c - col_offset):
+                    assert h_cuda_inout[r, c] == identity, proc_name
+                else:
+                    assert not math.isinf(h_cuda_inout[r, c]), proc_name
+                # Weird inf-tolerant comparison that still rejects NaN.
+                # Note != is not the same thing as not == for NaN.
+                if not (h_cpu_inout[r, c] == h_cuda_inout[r, c]):
+                    # fmt: off
+                    assert math.fabs(h_cpu_inout[r, c] - h_cuda_inout[r, c]) <= 0.0625, proc_name
+
+    return TileTester(p, run, instr_name, only, T, T)
+
+
 def make_unary_tester(
     instr_name, T_dst, T_src=None, only=False, *, expected_tuple=None
 ):
@@ -738,19 +827,19 @@ def test_tk_tile_ops(compiler_Sm80):
         make_0ary_tester("cuda_tk_tile_pos_infty", f32, {(1, 3): (inf, 1337)}),
         make_0ary_tester("cuda_tk_tile_neg_infty", f32, {(1, 3): (-inf, 1337)}),
         #
-        make_0ary_tester("cuda_tk_make_causal_zero", f32, {(20, 40): (0, 2), (40, 20): (2, 2)}),
-        make_0ary_tester("cuda_tk_make_causal_one", f32, {(20, 40): (1, 2), (40, 20): (2, 2)}),
-        make_0ary_tester("cuda_tk_make_causal_pos_infty", f32, {(20, 40): (inf, 2), (40, 20): (2, 2)}),
-        make_0ary_tester("cuda_tk_make_causal_neg_infty", f32, {(20, 40): (-inf, 2), (40, 20): (2, 2)}),
-        make_0ary_tester("cuda_tk_make_causal_t_zero", f32, {(40, 30): (0, 2), (10, 30): (2, 2)}),
-        make_0ary_tester("cuda_tk_make_causal_t_one", f32, {(40, 30): (1, 2), (10, 30): (2, 2)}),
-        make_0ary_tester("cuda_tk_make_causal_t_pos_infty", f32, {(40, 30): (inf, 2), (10, 30): (2, 2)}),
-        make_0ary_tester("cuda_tk_make_causal_t_neg_infty", f32, {(40, 30): (-inf, 2), (10, 30): (2, 2)}),
+        make_causal_tester("cuda_tk_make_causal_zero", f32),
+        make_causal_tester("cuda_tk_make_causal_one", f32),
+        make_causal_tester("cuda_tk_make_causal_pos_infty", f32),
+        make_causal_tester("cuda_tk_make_causal_neg_infty", f32),
+        make_causal_tester("cuda_tk_make_causal_t_zero", f32),
+        make_causal_tester("cuda_tk_make_causal_t_one", f32),
+        make_causal_tester("cuda_tk_make_causal_t_pos_infty", f32),
+        make_causal_tester("cuda_tk_make_causal_t_neg_infty", f32),
         #
         make_0ary_tester("cuda_tk_tile_one", f16, {(1, 3): (1, 1337)}),
         make_0ary_tester("cuda_tk_tile_neg_infty", bf16, {(1, 3): (-inf, 1337)}),
-        make_0ary_tester("cuda_tk_make_causal_pos_infty", f16, {(20, 40): (inf, 2), (40, 20): (2, 2)}),
-        make_0ary_tester("cuda_tk_make_causal_t_zero", bf16, {(40, 30): (0, 2), (10, 30): (2, 2)}),
+        make_causal_tester("cuda_tk_make_causal_pos_infty", f16),
+        make_causal_tester("cuda_tk_make_causal_t_zero", bf16),
         #
         make_unary_tester("cuda_tk_tile_copy", f32, f32, expected_tuple=(102400.125, 102400.125)),
         make_unary_tester("cuda_tk_tile_copy", bf16, f32, expected_tuple=(102400, 102400.125)),
