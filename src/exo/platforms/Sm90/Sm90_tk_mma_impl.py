@@ -199,7 +199,7 @@ def make_basic_mma(a_mode, b_mode):
             for k in range(K_iters):
                 lines.append("{")
                 if K_iters != 1:
-                    lines.append(f"// K = {k * K_native} out of {self.K}")
+                    lines.append(f"  // K = {k * K_native} out of {self.K}")
                 d_arg = args.D.index()
                 ptx = InlinePtxGen(instr_fmt, volatile=True)
 
@@ -244,19 +244,19 @@ def make_basic_mma(a_mode, b_mode):
                 else:
                     A_K_major = a_mode == "row"
                     desc_A = Sm90_codegen_smem_descriptor(self.swizzle, args.A, A_K_major, k * K_native)
-                    lines.append(f"const uint64_t exo_descA = {desc_A};")
+                    lines.append(f"  const uint64_t exo_descA = {desc_A};")
                     ptx.add_arg("exo_descA", constraint="l", log_as=None)
 
                 # Add B argument
                 B_K_major = b_mode == "col"
                 desc_B = Sm90_codegen_smem_descriptor(self.swizzle, args.B, B_K_major, k * K_native)
-                lines.append(f"const uint64_t exo_descB = {desc_B};")
+                lines.append(f"  const uint64_t exo_descB = {desc_B};")
                 ptx.add_arg("exo_descB", constraint="l", log_as=None)
 
                 # Write out the code for this K iteration.
                 # Implicitly reset scale_d flag after wgmma.
-                lines.extend(ptx.as_c_lines())
-                lines.append(d_arg + ".scale_d = 1;")
+                lines.extend(ptx.as_c_lines(tab="  "))
+                lines.append(f"  {d_arg}.scale_d = 1;")
                 lines.append("}")
             # End for k in range(K_iters)
             return lines
