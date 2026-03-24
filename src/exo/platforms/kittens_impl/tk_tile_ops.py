@@ -32,17 +32,17 @@ from ..cuda import CudaBasicDeviceVisible
 __all__ = [
     "cuda_tk_tile_copy",                    # dst[r, c] = src[r, c]
     "cuda_tk_tile_zero",                    # dst[r, c] = 0
-    "cuda_tk_make_causal_zero",             # if r - row_offset < c - col_offset: dst[r, c] = 0
-    "cuda_tk_make_causal_t_zero",           # if r - row_offset > c - col_offset: dst[r, c] = 0
+    "cuda_tk_make_causal_zero",             # if r + row_offset < c + col_offset: dst[r, c] = 0
+    "cuda_tk_make_causal_t_zero",           # if r + row_offset > c + col_offset: dst[r, c] = 0
     "cuda_tk_tile_one",                     # dst[r, c] = 1
-    "cuda_tk_make_causal_one",              # if r - row_offset < c - col_offset: dst[r, c] = 1
-    "cuda_tk_make_causal_t_one",            # if r - row_offset > c - col_offset: dst[r, c] = 1
+    "cuda_tk_make_causal_one",              # if r + row_offset < c + col_offset: dst[r, c] = 1
+    "cuda_tk_make_causal_t_one",            # if r + row_offset > c + col_offset: dst[r, c] = 1
     "cuda_tk_tile_pos_infty",               # dst[r, c] = inf
-    "cuda_tk_make_causal_pos_infty",        # if r - row_offset < c - col_offset: dst[r, c] = inf
-    "cuda_tk_make_causal_t_pos_infty",      # if r - row_offset > c - col_offset: dst[r, c] = inf
+    "cuda_tk_make_causal_pos_infty",        # if r + row_offset < c + col_offset: dst[r, c] = inf
+    "cuda_tk_make_causal_t_pos_infty",      # if r + row_offset > c + col_offset: dst[r, c] = inf
     "cuda_tk_tile_neg_infty",               # dst[r, c] = -inf
-    "cuda_tk_make_causal_neg_infty",        # if r - row_offset < c - col_offset: dst[r, c] = -inf
-    "cuda_tk_make_causal_t_neg_infty",      # if r - row_offset > c - col_offset: dst[r, c] = -inf
+    "cuda_tk_make_causal_neg_infty",        # if r + row_offset < c + col_offset: dst[r, c] = -inf
+    "cuda_tk_make_causal_t_neg_infty",      # if r + row_offset > c + col_offset: dst[r, c] = -inf
     "cuda_tk_tile_pos_inf",                 # For consistency with exo.inf
     "cuda_tk_make_causal_pos_inf",          # For consistency with exo.inf
     "cuda_tk_make_causal_t_pos_inf",        # For consistency with exo.inf
@@ -162,7 +162,7 @@ class cuda_tk_make_causal_zero(basic_make_causal_op):
         assert col_offset % 16 == 0
         for r in seq(0, rows):
             for c in seq(0, cols):
-                if r - row_offset < c - col_offset:
+                if r + row_offset < c + col_offset:
                     dst[r, c] = 0
 
 
@@ -186,7 +186,7 @@ class cuda_tk_make_causal_t_zero(basic_make_causal_op):
         assert col_offset % 16 == 0
         for r in seq(0, rows):
             for c in seq(0, cols):
-                if r - row_offset > c - col_offset:
+                if r + row_offset > c + col_offset:
                     dst[r, c] = 0
 
 
@@ -227,7 +227,7 @@ class cuda_tk_make_causal_one(basic_make_causal_op):
         assert col_offset % 16 == 0
         for r in seq(0, rows):
             for c in seq(0, cols):
-                if r - row_offset < c - col_offset:
+                if r + row_offset < c + col_offset:
                     dst[r, c] = 1
 
 
@@ -251,7 +251,7 @@ class cuda_tk_make_causal_t_one(basic_make_causal_op):
         assert col_offset % 16 == 0
         for r in seq(0, rows):
             for c in seq(0, cols):
-                if r - row_offset > c - col_offset:
+                if r + row_offset > c + col_offset:
                     dst[r, c] = 1
 
 
@@ -292,7 +292,7 @@ class cuda_tk_make_causal_pos_infty(basic_make_causal_op):
         assert col_offset % 16 == 0
         for r in seq(0, rows):
             for c in seq(0, cols):
-                if r - row_offset < c - col_offset:
+                if r + row_offset < c + col_offset:
                     dst[r, c] = inf
 
 
@@ -316,7 +316,7 @@ class cuda_tk_make_causal_t_pos_infty(basic_make_causal_op):
         assert col_offset % 16 == 0
         for r in seq(0, rows):
             for c in seq(0, cols):
-                if r - row_offset > c - col_offset:
+                if r + row_offset > c + col_offset:
                     dst[r, c] = inf
 
 
@@ -357,7 +357,7 @@ class cuda_tk_make_causal_neg_infty(basic_make_causal_op):
         assert col_offset % 16 == 0
         for r in seq(0, rows):
             for c in seq(0, cols):
-                if r - row_offset < c - col_offset:
+                if r + row_offset < c + col_offset:
                     dst[r, c] = -inf
 
 
@@ -381,7 +381,7 @@ class cuda_tk_make_causal_t_neg_infty(basic_make_causal_op):
         assert col_offset % 16 == 0
         for r in seq(0, rows):
             for c in seq(0, cols):
-                if r - row_offset > c - col_offset:
+                if r + row_offset > c + col_offset:
                     dst[r, c] = -inf
 
 

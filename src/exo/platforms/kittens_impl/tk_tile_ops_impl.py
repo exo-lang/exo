@@ -51,7 +51,7 @@ class basic_make_causal_op(basic_map_tile_op):
             f"for (int exo_causal_r = 0; exo_causal_r < {args.rows >> 4}; ++exo_causal_r) {{",
             f"  #pragma unroll",
             f"  for (int exo_causal_c = 0; exo_causal_c < {args.cols >> 4}; ++exo_causal_c) {{",
-            f"    int exo_causal_delta = exo_causal_r * 16 - exo_causal_c * 16 + static_cast<int>({args.col_offset} - {args.row_offset});",
+            f"    int exo_causal_delta = exo_causal_r * 16 - exo_causal_c * 16 + static_cast<int>({args.row_offset} - {args.col_offset});",
             f"    ::kittens::rt<{ctype}, 16, 16> exo_causal_subtile;",
             f"    exo_causal_subtile.tiles[0][0] = {dst_c}.tiles[exo_causal_r][exo_causal_c];",
             f"    const auto exo_causal_identity = ::kittens::base_types::constants<{ctype}>::{self.kittens_constant_name}();",

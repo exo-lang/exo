@@ -158,7 +158,7 @@ for name, value in (
         f"cuda_tk_make_causal_{name}",
         "basic_make_causal_op",
         "make_causal",
-        f"""if r - row_offset < c - col_offset:
+        f"""if r + row_offset < c + col_offset:
                     dst[r, c] = {value}""",
         ("row_offset", "col_offset", "dst"),
         kittens_constant_name=name,
@@ -171,7 +171,7 @@ for name, value in (
         f"cuda_tk_make_causal_t_{name}",
         "basic_make_causal_op",
         "make_causal_t",
-        f"""if r - row_offset > c - col_offset:
+        f"""if r + row_offset > c + col_offset:
                     dst[r, c] = {value}""",
         ("row_offset", "col_offset", "dst"),
         kittens_constant_name=name,

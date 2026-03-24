@@ -426,7 +426,7 @@ def make_causal_tester(
 
         for r in range(0, rows):
             for c in range(0, cols):
-                if cmp_op(r - row_offset, c - col_offset):
+                if cmp_op(r + row_offset, c + col_offset):
                     assert h_cuda_inout[r, c] == identity, proc_name
                 else:
                     assert not math.isinf(h_cuda_inout[r, c]), proc_name
