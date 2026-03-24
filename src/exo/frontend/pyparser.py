@@ -1005,13 +1005,9 @@ class Parser:
 
                 base = node.value.elts[0]
                 if not isinstance(base, pyast.Name) or base.id not in _prim_types:
-                    self.err(
-                        node,
-                        "expected window type to be of "
-                        "the form '[R][...]', '[f32][...]', etc.",
-                    )
-
-                typ = _prim_types[base.id]
+                    typ = self.parse_alloc_type(base)
+                else:
+                    typ = _prim_types[base.id]
                 is_window = True
             elif isinstance(node.value, pyast.Name) and node.value.id in _prim_types:
                 typ = _prim_types[node.value.id]

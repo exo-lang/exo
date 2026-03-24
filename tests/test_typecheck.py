@@ -9,6 +9,9 @@ from exo.frontend.pyparser import ParseError
 from exo.libs.externs import *
 
 
+from exo.scalars import bf16, ScalarInfo
+
+
 # --- Typechecking tests ---
 
 
@@ -543,6 +546,17 @@ def test_window_dim():
         @proc
         def foo(t: f32[8, 8]):
             bar(t[4:])
+
+
+def test_window_of_ScalarInfo():
+    mytyp = bf16
+
+    @proc
+    def foo(a: [mytyp][128]):
+        pass
+
+    arg_cursor = foo.find_alloc_or_arg("a")
+    assert ScalarInfo(arg_cursor.type()) == bf16
 
 
 def test_window_of_window():
