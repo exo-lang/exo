@@ -30,33 +30,7 @@ def Sm90_TkRmemTileD(N: int):
             wgmma_async_instr: [wgmma_async_rmem_d_qual, wgmma_zero_qual],
         }
 
-        @classmethod
-        def alloc(cls, new_name, prim_type, shape, srcinfo):
-            scalar_info = ScalarInfo(prim_type)
-            try:
-                tk_typename = cuda_tk_typename_table[scalar_info]
-            except KeyError:
-                raise TypeError(
-                    f"CudaTkWarpTile currently does not support {scalar_info}"
-                )
-            array_dims = "".join(f"[{n}]" for n in shape[:-2])
-            # fmt: off
-            # Unfortunately, we have to rely on the wgmma instr to add the needed cu_util.
-            apology = "Sorry, will not compile if Exo wgmma instr never uses this!"
-            return f"exo_CudaUtil::exo_Sm90_TkRmemTileD<{tk_typename}, {N}> {new_name}{array_dims};  // {apology}"
-
     return Tile
-
-
-Sm90_TkRmemTileD_util = """
-template <typename T, int N>
-struct exo_Sm90_TkRmemTileD: public ::kittens::rt<T, 16, N, ::kittens::ducks::rt_layout::row>
-{
-    // Set to 0 to trigger a zero-clear on the next wgmma instr.
-    // Each wgmma instr resets this to 1.
-    int scale_d = 1;
-};
-"""
 
 
 def make_basic_mma(a_mode, b_mode):
@@ -122,7 +96,6 @@ def make_basic_mma(a_mode, b_mode):
             self.coll_unit = cuda_warpgroup
             self.instr_tl = wgmma_async_instr
             self.cu_includes.append("kittens.cuh")
-            self.cu_utils.append(Sm90_TkRmemTileD_util)
             self.cu_utils.append(Sm90_codegen_smem_descriptor_util)
 
             # Each underlying wgmma.mma_async instr
@@ -202,10 +175,11 @@ def make_basic_mma(a_mode, b_mode):
                 if K_iters != 1:
                     lines.append(f"  // K = {k * K_native} out of {self.K}")
                 d_arg = args.D.index()
+                scale_d_arg = args.D.index(get_scale_d=True)
                 ptx = InlinePtxGen(instr_fmt, volatile=True)
 
                 # p=scale_d arg to wgmma
-                ptx.add_arg(d_arg + ".scale_d", constraint="r", log_as=None, N=1)
+                ptx.add_arg(scale_d_arg, constraint="r", log_as=None, N=1)
 
                 # Add vector of registers (D argument)
                 if self.d_type == f32:
@@ -257,7 +231,7 @@ def make_basic_mma(a_mode, b_mode):
                 # Write out the code for this K iteration.
                 # Implicitly reset scale_d flag after wgmma.
                 lines.extend(ptx.as_c_lines(tab="  "))
-                lines.append(f"  {d_arg}.scale_d = 1;")
+                lines.append(f"  {scale_d_arg} = 1;")
                 lines.append("}")
             # End for k in range(K_iters)
             return lines

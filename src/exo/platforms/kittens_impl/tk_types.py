@@ -8,9 +8,11 @@ from exo.API import (
     WindowIndexerResult,
     UtilInjector,
     window_indexer,
+    memwin_template,
+    MemGlobalC,
+    MemIncludeC,
 )
 from exo.scalars import ScalarInfo, e4m3, e5m2, e8m0, f16, bf16, f32
-from exo.core.memory import memwin_template
 
 # Don't import from Sm90 here to avoid circular imports
 
@@ -58,7 +60,37 @@ __all__.append("cuda_tk_vec_layout_names")
 __all__.append("cuda_tk_valid_num_types_all_pairs")
 
 
-class _CudaTkWarpIndexer(WindowIndexer):
+_cuda_tk_scale_d_code = """\
+#ifdef __cplusplus
+template <typename Tile>
+struct exo_CudaTkScaleD: public Tile
+{
+    // Set to 0 to trigger a zero-clear on the next async mma instr.
+    // Each async mma instr resets this to 1.
+    int scale_d = 1;
+    Tile tile;
+};
+#endif
+"""
+
+_cuda_tk_scale_d_global = MemGlobalC("exo_CudaTkScaleD", _cuda_tk_scale_d_code, [])
+
+
+class _CudaTkWarpTileIndexer(WindowIndexer):
+    def index(self, utils: UtilInjector, features: WindowFeatures, get_scale_d=False):
+        utils.add_cu_include("kittens.cuh")
+        c_expr = features.get_dataptr()
+        # All non-packed indices resolve to multidimensional array indexing.
+        for i in range(features.n_array_dims()):
+            c_expr = c_expr[features.get_array_offset(i)]
+        if get_scale_d:
+            c_expr = c_expr.scale_d  # Get scale_d attribute
+        else:
+            c_expr = c_expr.tile
+        return self.pack_result(c_expr, False)
+
+
+class _CudaTkWarpVecIndexer(WindowIndexer):
     def index(self, utils: UtilInjector, features: WindowFeatures):
         utils.add_cu_include("kittens.cuh")
         c_expr = features.get_dataptr()
@@ -86,6 +118,10 @@ def CudaTkWarpTile(r, c, layout="row"):
     is the only type ThunderKittens supports both A and D for.
     (f32 is only supported for D; tf32 operand support is omitted).
 
+    If implementing an instruction, use arg.index() to get a reference
+    to the tile, and arg.index(get_scale_d=True) to get a reference
+    to the magic scale_d member.
+
     """
     assert r % 16 == 0, f"CudaTkWarpTile requires r={r} to be divisible by 16"
     assert c % 16 == 0, f"CudaTkWarpTile requires c={c} to be divisible by 16"
@@ -98,8 +134,12 @@ def CudaTkWarpTile(r, c, layout="row"):
 
     _layout = layout
 
-    @window_indexer(_CudaTkWarpIndexer)
+    @window_indexer(_CudaTkWarpTileIndexer)
     class Tile(base):
+        @classmethod
+        def global_(cls):
+            return _cuda_tk_scale_d_global
+
         @classmethod
         def alloc(cls, new_name, prim_type, shape, srcinfo):
             scalar_info = ScalarInfo(prim_type)
@@ -112,7 +152,7 @@ def CudaTkWarpTile(r, c, layout="row"):
             array_dims = "".join(f"[{n}]" for n in shape[:-2])
             # fmt: off
             assert _layout != "all", "Cannot allocate tile with 'all' layout"
-            return f"::kittens::rt_{suffix}<{r}, {c}, ::kittens::ducks::rt_layout::{_layout}> {new_name}{array_dims};"
+            return f"exo_CudaTkScaleD<::kittens::rt_{suffix}<{r}, {c}, ::kittens::ducks::rt_layout::{_layout}> > {new_name}{array_dims};"
 
         @classmethod
         def free(cls, new_name, prim_type, shape, srcinfo):
@@ -181,7 +221,7 @@ def CudaTkWarpVec(length, layout):
     _layout = layout
     _length = length
 
-    @window_indexer(_CudaTkWarpIndexer)
+    @window_indexer(_CudaTkWarpVecIndexer)
     class Vec(base):
         @classmethod
         def alloc(cls, new_name, prim_type, shape, srcinfo):
