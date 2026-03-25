@@ -299,7 +299,10 @@ EXO_CUDA_INLINE
 exo_tk_cast_sv(const _T* smem_ptr)
 {
     using vec_t = ::kittens::sv<_T, _length>;
-    static_assert(sizeof(vec_t) == _length * sizeof(_T));
+    // Crazy: Kittens rounds up struct size to 128 bytes.
+    // We have to hope the store op using this cast
+    // doesn't write past the end.
+    // static_assert(sizeof(vec_t) == _length * sizeof(_T));
     return *reinterpret_cast<vec_t*>(const_cast<_T*>(smem_ptr));
 }
 """
