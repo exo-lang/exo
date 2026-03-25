@@ -149,7 +149,7 @@ class TensorMapEncoder(WindowEncoder):
         if dim != len(smem_box):
             raise ValueError(
                 f"{features.srcinfo()}: "
-                f"taking window of {dim}d tensor not supported given SMEM box {smem_box}; "
+                f"taking window of {dim}d tensor not supported given {len(smem_box)}d SMEM box {smem_box}; "
                 f"NOTE, window-of-window case should have points (non-intervals lo:hi) "
                 f"only for the final window expression"
             )
@@ -183,7 +183,6 @@ class TensorMapEncoder(WindowEncoder):
         The window struct is just 0-initialized
 
         """
-        mem = features.get_mem()
         init = "{ {" + ", ".join("0" for i in range(self.n_dims)) + "} }"
         return f"({self.exo_struct_name()}) {init}"
 
@@ -229,6 +228,15 @@ class TensorMapEncoder(WindowEncoder):
         assert features.n_packed_dims() == 0
         assert len(cw_strides) == rank
         assert len(cw_dim) == rank
+
+        if rank != len(box):
+            better_box = (1,) * max(0, rank - len(box)) + tuple(box)
+            raise ValueError(
+                f"{features.srcinfo()}: "
+                f"{rank}d window constructed does not match {len(box)}d smem_box={box}. "
+                f"Consider left-padding smem_box with 1s, and update tma instrs with "
+                f"template parameter smem_box={better_box}."
+            )
 
         strides = (
             f"(exo_Sm90_CUtensorMap_{rank}_strides)"
