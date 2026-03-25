@@ -42,7 +42,8 @@ def Sm90_TkRmemTileD(N: int):
             array_dims = "".join(f"[{n}]" for n in shape[:-2])
             # fmt: off
             # Unfortunately, we have to rely on the wgmma instr to add the needed cu_util.
-            return f"exo_CudaUtil::exo_Sm90_TkRmemTileD<{tk_typename}, {N}> {new_name}{array_dims};"
+            apology = "Sorry, will not compile if Exo wgmma instr never uses this!"
+            return f"exo_CudaUtil::exo_Sm90_TkRmemTileD<{tk_typename}, {N}> {new_name}{array_dims};  // {apology}"
 
     return Tile
 
