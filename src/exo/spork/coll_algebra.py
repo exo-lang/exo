@@ -89,7 +89,7 @@ clusterDim_param = CollParam("clusterDim")
 clusterDim = CollSizeExpr(1, (clusterDim_param,))
 
 
-# Equality operator self-chick
+# Equality operator self-check
 _tmp_set = {blockDim * 3 / 4, clusterDim}
 assert blockDim / 8 * 6 in _tmp_set
 assert clusterDim * 1 in _tmp_set
