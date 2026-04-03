@@ -148,7 +148,10 @@ class BarrierUsage:
                 kvetch_incompatible(f"sync-tl ({sync_tl})")
 
         # Enforce traits
-        if not traits.zero_await_N:
+        if traits.negative_await_N:  # TODO remove
+            if N >= 0:
+                kvetch_invalid(f"{mem.name()} requires N < 0")
+        elif not traits.zero_await_N:
             if N < 0:
                 kvetch_invalid(f"{mem.name()} requires N >= 0")
         else:

@@ -270,15 +270,6 @@ class SyncStateBuilder:
     ):
         usage = get_usage(name)
 
-        # Each queue barrier object (equiv, mbarrier ring buffer) must be
-        # resident in 1 CTA only. NB any Arrive/Await will do here.
-        if msg := coll_tilings.get_arrive().unit_mismatch(
-            cuda_agnostic_sub_cta, self._coll_env
-        ):
-            raise ValueError(
-                f"{usage.get_srcinfo()}: {name} must be distributed so each mbarrier is resident in 1 CTA only ({msg})"
-            )
-
         lowered = LoweredBarrier(False, LoweredBarrierType.mbarrier)
         nm_suffix = f"{suffix}_{name}"
 
@@ -287,31 +278,13 @@ class SyncStateBuilder:
             assert info.min_N == info.max_N
             return ~info.min_N
 
-        # Calculate the size of the ring buffer (number of mbarriers)
-        # and CTA indices to XOR with (cluster feature)
         n_skips = get_n_skips(usage.get_await())
+
+        # Calculate CTA indices to XOR with (cluster feature)
         cta_xor_list = coll_tilings.cta_xor_list(
             self._blockDim(), thread_iters, usage.get_arrive()
         )
-        ring = n_skips
-        names = [name]
-        # We have to look through the whole cycle of guarding mbarriers and sum up the number of skips.
-        guard_name = usage.guarded_by
-        while guard_name != name:
-            names.append(guard_name)
-            guard_usage = get_usage(guard_name)
-            ring += get_n_skips(guard_usage.get_await())
-            guard_name = guard_usage.guarded_by
-        if len(names) == 1:
-            # Needed for Arrive followed by Await to work, which is only
-            # allowed in the self-guarded case.
-            ring += 1
-        if ring == 0:
-            names_str = "; ".join(str(s) for s in names)
-            raise ValueError(
-                f"{usage.get_srcinfo()}: {names_str} must have some "
-                f"await with nonzero skips (e.g. set N = ~1)"
-            )
+        ring = 16  # XXX
 
         # Number of physical mbarriers is slice_count * ring, where
         # slice_count is the number of logical Exo queue barrier objects per CTA
@@ -329,9 +302,7 @@ class SyncStateBuilder:
         # mbarrier allocator: record mbarriers to initialize.
         num_per_cta = ring * slice_count
         lines = self.SyncState_lines
-        arrive_count = coll_tilings.get_arrive().get_box_num_threads() * len(
-            cta_xor_list
-        )
+        arrive_count = coll_tilings.arrive_thread_count * len(cta_xor_list)
         smem_offset_name = device_setup_builder.add_mbarriers(
             name, num_per_cta, arrive_count
         )

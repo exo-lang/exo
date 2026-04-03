@@ -774,9 +774,9 @@ class DistributedIdxFsm:
                 )
             if traits.consistent_arrive_thread_count:
                 this_count = coll_tiling.get_box_num_threads()
-                prev_count = self.arrive_thread_count
+                prev_count = state.arrive_thread_count
                 if prev_count is None:
-                    self.arrive_thread_count = this_count
+                    state.arrive_thread_count = this_count
                 else:
                     if prev_count != this_count:
                         raise ValueError(
