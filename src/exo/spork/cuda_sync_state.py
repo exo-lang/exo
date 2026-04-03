@@ -28,9 +28,12 @@ from .cuda_device_setup_builder import (
     CudaDeviceSetupInfo,
 )
 from .cuda_memory import (
-    CudaCommitGroup,
+    Sm80_CommitGroup,
+    Sm90_TmaCommitGroup,
+    Sm90_WgmmaCommitGroup,
     CudaMbarrier,
     CudaClusterSync,
+    CudaBasicCommitGroup,
 )
 from .distributed_memory import DistributedAllocState, ThreadIter
 from .excut import InlinePtxGen, simple_ptx_c_lines, excut_c_str_id
@@ -92,7 +95,7 @@ class SyncStateBuilder:
                 suffix,
                 device_setup_builder,
             )
-        elif issubclass(barrier_mechanism, CudaCommitGroup):
+        elif issubclass(barrier_mechanism, CudaBasicCommitGroup):
             self.add_commit_group(name, usage, coll_tilings, thread_iters, suffix)
         elif issubclass(barrier_mechanism, CudaClusterSync):
             self.add_garden_variety_or_cluster_sync(
@@ -123,9 +126,7 @@ class SyncStateBuilder:
                 f"{srcinfo}: wgmma fence needs second sync-tl wgmma_fence_2"
             )
 
-        coll_tiling = coll_tilings.get_arrive()
-        # Should be the case for a Fence
-        assert coll_tiling is coll_tilings.get_await()
+        coll_tiling = coll_tilings.alloc_coll_tiling
 
         if msg := coll_tiling.unit_mismatch(cuda_warpgroup, self._coll_env):
             raise ValueError(
@@ -165,8 +166,7 @@ class SyncStateBuilder:
         L2 = Await.sync_tl
         srcinfo = usage.get_srcinfo()
         clusterDim = self._clusterDim()
-        coll_tiling = coll_tilings.get_arrive()
-        await_coll_tiling = coll_tilings.get_await()
+        coll_tiling = coll_tilings.alloc_coll_tiling
 
         mismatch_messages = []
 
@@ -182,15 +182,8 @@ class SyncStateBuilder:
                 raise ValueError(
                     f"{srcinfo}: Arrive for {name} must be by full cluster ({msg})"
                 )
-            # If the Arrive passed, then so should the Await, since the
-            # guarding requirement enforces identical coll units.
-            assert CudaClusterSync.traits().requires_guarding
-            assert not await_coll_tiling.unit_mismatch(cuda_cluster, self._coll_env)
         else:
             is_cluster_sync = self._clusterDim() > 1 and match_unit(cuda_cluster)
-            assert (
-                coll_tiling is await_coll_tiling
-            ), "Expected Fence to have identical Arrive/Await tiling"
         if is_cluster_sync:
             # solitary=True as there's only one built-in cluster sync per cluster
             lowered = LoweredBarrier(True, LoweredBarrierType.cluster_sync)
@@ -582,21 +575,12 @@ class SyncStateBuilder:
         # Can fail due to
         #   * unsupported first sync-tl
         #   * incorrect second sync-tl given supported first sync-tl
-        #   * incorrect collective unit given supported first sync-tl
 
         solitary = True
         L1 = usage.get_arrive().sync_tl
         L2 = usage.get_await().sync_tl
 
-        def check_coll_unit(coll_tiling, action_name, coll_unit):
-            if msg := coll_tiling.unit_mismatch(coll_unit, self._coll_env):
-                raise TypeError(  # XXX srcinfo should be of location
-                    f"{usage.get_srcinfo()}: {action_name} of CudaCommitGroup "
-                    f"{name} with Arrive({L1}) "
-                    f"expects collective unit {coll_unit}: {msg}"
-                )
-
-        def check_L2_coll_unit(expect_L2, coll_unit):
+        def check_L2_mechanism(expect_L2, expect_barrier_mechanism):
             if not expect_L2.implements_second(L2):
                 raise TypeError(
                     f"{usage.get_srcinfo()}: commit group "
@@ -604,12 +588,16 @@ class SyncStateBuilder:
                     f"expects Await({expect_L2}), "
                     f"not {L2} (wrong second sync-tl)"
                 )
-            check_coll_unit(coll_tilings.get_arrive(), "Arrive", coll_unit)
-            check_coll_unit(coll_tilings.get_await(), "Await", coll_unit)
+            if not issubclass(usage.barrier_mechanism, expect_barrier_mechanism):
+                raise TypeError(
+                    f"{usage.get_srcinfo()}: commit group "
+                    f"{name} with Arrive({L1}) "
+                    f"expects barrier mechanism {expect_barrier_mechanism.name()}"
+                )
 
         if timelines.Sm80_cp_async.implements_first(L1):
             # sm_80 non-bulk cp.async
-            check_L2_coll_unit(timelines.cuda_in_order, cuda_thread)
+            check_L2_mechanism(timelines.cuda_in_order, Sm80_CommitGroup)
             lowered = LoweredBarrier(solitary, LoweredBarrierType.Sm80_commit_group)
             arrive_instr = "cp.async.commit_group"
             await_instr = "cp.async.wait_group"
@@ -619,15 +607,19 @@ class SyncStateBuilder:
             # is this is a warp-level instruction, because all threads in the
             # warp share the same "commit group" state.
             # TBH this may be the case for Sm80_cp_async as well (???)
-            check_L2_coll_unit(timelines.cuda_generic_and_async_proxy, cuda_warp)
+            check_L2_mechanism(
+                timelines.cuda_generic_and_async_proxy, Sm90_TmaCommitGroup
+            )
             lowered = LoweredBarrier(
                 solitary, LoweredBarrierType.tma_to_gmem_commit_group
             )
             arrive_instr = "cp.async.bulk.commit_group"
             await_instr = "cp.async.bulk.wait_group"
         elif timelines.wgmma_async.implements_first(L1):
-            # sm_90a wgmma; note unit is now warpgroup and not a single thread.
-            check_L2_coll_unit(timelines.cuda_generic_and_async_proxy, cuda_warpgroup)
+            # sm_90a wgmma
+            check_L2_mechanism(
+                timelines.cuda_generic_and_async_proxy, Sm90_WgmmaCommitGroup
+            )
             lowered = LoweredBarrier(solitary, LoweredBarrierType.wgmma_commit_group)
             arrive_instr = "wgmma.commit_group.sync.aligned"
             await_instr = "wgmma.wait_group.sync.aligned"

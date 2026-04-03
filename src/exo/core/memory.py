@@ -453,20 +453,19 @@ class BarrierMechanismTraits:
     """
 
     # N = 1 always for an Arrive as of 2025-06-27
-    # N = 0 for Await if neither of the following:
-    non_negative_await_N: bool = False  # Require N >= 0 if true
-    negative_await_N: bool = False  # Require N < 0 if true
-
-    # Each Await stmt for same queue barrier array must use the same N
-    uniform_await_N: bool = False
-
-    different_arrive_await_threads: bool = False
-    requires_guarding: bool = False
-    requires_arrive_first: bool = False
-    supports_guards: bool = False
+    # N >= 0 for Await as of 2026-04-02 Hamster changes
+    zero_await_N: bool = True  # Require N == 0 if true
 
     # Allow : in Arrive trailing queue barrier expr
     supports_arrive_multicast: bool = False
+
+    # All Arrive statements must have the same thread count.
+    consistent_arrive_thread_count: bool = False
+
+    # Sync-check allows exactly one arrive/await in the lifetime
+    # of each barrier array element if the corresponding flag is set.
+    one_shot_arrive: bool = False
+    one_shot_await: bool = False
 
 
 class BarrierMechanism(AllocableMemWin):

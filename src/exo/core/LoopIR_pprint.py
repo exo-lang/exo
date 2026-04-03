@@ -327,12 +327,11 @@ class UAST_PPrinter:
         elif isinstance(t, UAST.Size):
             return "size"
         elif isinstance(t, UAST.Barrier):
-            guarded_by_s = "" if t.guarded_by is None else f"({t.guarded_by})"
             rngs = ",".join([self.pexpr(r) for r in t.shape()])
             if rngs:
-                return f"barrier{guarded_by_s}[{rngs}]"
+                return f"barrier[{rngs}]"
             else:
-                return f"barrier{guarded_by_s}"
+                return f"barrier"
         elif isinstance(t, UAST.Tensor):
             base = str(t.basetype())
             if t.is_window:
@@ -679,12 +678,11 @@ def _print_type(t, env: PrintEnv) -> str:
     elif isinstance(t, T.Stride):
         return "stride"
     elif isinstance(t, T.Barrier):
-        guarded_by_s = "" if t.guarded_by is None else f"({t.guarded_by})"
         ranges = ", ".join([_print_expr(r, env) for r in t.shape()])
         if ranges:
-            return f"barrier{guarded_by_s}[{ranges}]"
+            return f"barrier[{ranges}]"
         else:
-            return f"barrier{guarded_by_s}"
+            return f"barrier"
     else:
         scalar_info = ScalarInfo(t)
         return scalar_info.shorthand

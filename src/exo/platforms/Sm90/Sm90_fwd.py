@@ -21,3 +21,4 @@ from exo.spork.timelines import (
     wgmma_zero_instr,
     wgmma_zero_qual,
 )
+from exo.spork.cuda_memory import Sm90_TmaCommitGroup, Sm90_WgmmaCommitGroup

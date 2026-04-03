@@ -175,9 +175,9 @@ class SubtreeScan(LoopIR_Do):
         # Only set clusterDim if not 1, not only for pre-H100 compatibility,
         # but also this avoids mysterious performance loss.
         if clusterDim != 1:
-            self.fmt_dict[
-                "launchConfig_clusterDim_snippet"
-            ] = launchConfig_clusterDim_snippet
+            self.fmt_dict["launchConfig_clusterDim_snippet"] = (
+                launchConfig_clusterDim_snippet
+            )
 
         # Validate top-level form of cuda kernel
         # Must be nest of 1+ cuda_tasks loops.
@@ -486,7 +486,7 @@ class SubtreeScan(LoopIR_Do):
                 # Remove distributed dimensions (temporarily)
                 alloc_state = self.distributed_alloc_states[s.name]
                 assert isinstance(alloc_state, DistributedAllocState)
-                s = s.update(type=alloc_state.shard_type())
+                s = s.update(type=alloc_state.get_shard_type())
 
                 # Record required alloc size
                 inputs: SmemConfigInputs = smem_config_inputs(s)
@@ -659,7 +659,7 @@ class MainLoopRewrite(LoopIR_Rewrite):
         # }
         from .setmaxnreg import unsafe_setmaxnreg
 
-        for (nreg, is_inc) in [(0, False)] + sorted(scan.setmaxnreg_is_inc.items()):
+        for nreg, is_inc in [(0, False)] + sorted(scan.setmaxnreg_is_inc.items()):
             body = []
             if nreg != 0:
                 instr = unsafe_setmaxnreg(
@@ -935,7 +935,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
         assert isinstance(alloc_state, DistributedAllocState)
 
         # Remove distributed dimensions
-        s = s.update(type=alloc_state.shard_type())
+        s = s.update(type=alloc_state.get_shard_type())
 
         # SMEM offset lowering
         if issubclass(s.mem, CudaBasicSmem):
@@ -947,6 +947,16 @@ class SubtreeRewrite(LoopIR_Rewrite):
     def on_barrier_alloc(self, s):
         lowered = self.sync_state_builder.lowered[s.name]
         if lowered.solitary:
+            alloc_state = self.distributed_alloc_states[s.name]
+            shard_type = alloc_state.get_shard_type()
+            assert isinstance(shard_type, LoopIR.Barrier)
+            # TODO test this
+            for extent in shard_type.hi:
+                if not (isinstance(extent, LoopIR.Const) and extent.val == 1):
+                    raise ValueError(
+                        f"{s.srcinfo}: {s}, expected all dimensions to be distributed.\n"
+                        f"Have shard type {shard_type}, deduced from {alloc_state.native_unit}"
+                    )
             self.check_solitary_barrier(s, lowered)
             self.live_solitary_barrier_names[lowered.type_enum] = s.name
 

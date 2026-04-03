@@ -965,30 +965,8 @@ class Parser:
         return typ, mem
 
     def parse_alloc_type(self, node, is_arg=False):
-        """Parse numeric type or barrier type
-
-        barrier type is of syntax barrier(guarded_by)[hi...], where
-        (guarded_by) and [hi...] are both optional.
-
-        """
-        if isinstance(node, pyast.Call):
-            f = node.func
-            if not isinstance(f, pyast.Name) or f.id != "barrier":
-                self.err(node, "Only barrier type takes ()")
-            if node.keywords:
-                self.err(node, "Unexpected keyword parameters")
-            if len(node.args) != 1:
-                self.err(node, "type barrier(...) takes exactly 1 parameter")
-            a = node.args[0]
-            if isinstance(a, pyast.Name):
-                try:
-                    guarded_by = self.exo_locals[a.id]
-                except KeyError:
-                    self.err(node, f"barrier({a.id}): unknown {a.id}")
-            else:
-                self.err(node, "type barrier(...) takes a single identifier argument")
-            return UAST.Barrier(guarded_by, [])
-        elif isinstance(node, pyast.Subscript):
+        """Parse numeric type or barrier type"""
+        if isinstance(node, pyast.Subscript):
             if isinstance(node.value, pyast.List):
                 if is_arg is not True:
                     self.err(
