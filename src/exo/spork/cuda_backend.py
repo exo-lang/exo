@@ -166,6 +166,7 @@ class SubtreeScan(LoopIR_Do):
             "clusterDim": clusterDim,
             "launchConfig_clusterDim_snippet": "",
             "blocks_per_sm": cuda_device_function.blocks_per_sm,
+            "exo_smem_align": SmemConfig.opportunistic_alignment,
         }
         self.named_warps = cuda_device_function.named_warps
         self.setmaxnreg_is_inc = cuda_device_function.setmaxnreg_is_inc
@@ -1190,7 +1191,7 @@ __launch_bounds__({blockDim}, {blocks_per_sm})
 __global__ void
 exo_deviceFunction{N}_{proc}(__grid_constant__ const struct exo_CudaDeviceArgs{N}_{proc} exo_deviceArgs)
 {{
-  extern __shared__ char exo_smem[];
+  extern __shared__ __align__({exo_smem_align}) char exo_smem[];
   exo_ExcutThreadLog exo_excutLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
   exo_Cuda{N}_{proc}::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
   exo_Cuda{N}_{proc}::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
