@@ -33,9 +33,6 @@ class BarrierUsage:
     Arrive: Optional[SyncInfo]
     Await: Optional[SyncInfo]
 
-    guards: Sym
-    guarded_by: Sym
-
     def __init__(self, s):
         self.decl_stmt = s
         self.Arrive = None
@@ -48,8 +45,6 @@ class BarrierUsage:
         else:
             assert isinstance(s, LoopIR.Alloc)
             self.barrier_mechanism = s.mem
-            self.guards = s.name
-            self.guarded_by = s.name
             assert issubclass(s.mem, BarrierMechanism)
 
     def get_srcinfo(self):
@@ -65,7 +60,6 @@ class BarrierUsage:
         return self.Await
 
     def visit_Arrive(self, s: LoopIR.SyncStmt):
-        # We do not enforce guarding, but we enforce other traits
         mem = self.barrier_mechanism
         assert mem
         sync_type = s.sync_type
@@ -114,7 +108,6 @@ class BarrierUsage:
             kvetch_invalid("Need N = 1")
 
     def visit_Await(self, s: LoopIR.SyncStmt):
-        # We do not enforce requirements on guarding, but we enforce other traits
         mem = self.barrier_mechanism
         assert mem
         sync_type = s.sync_type
@@ -155,19 +148,12 @@ class BarrierUsage:
                 kvetch_incompatible(f"sync-tl ({sync_tl})")
 
         # Enforce traits
-        if traits.negative_await_N:
-            assert not traits.non_negative_await_N
-            if N >= 0:
-                kvetch_invalid(f"{mem.name()} requires N < 0 (e.g. N = ~0)")
-        elif traits.non_negative_await_N:
-            if N < 0:
-                kvetch_invalid(f"{mem.name()} requires N >= 0")
-        else:
+        if traits.zero_await_N:
             if N != 0:
                 kvetch_invalid(f"{mem.name()} requires N = 0")
-
-        if traits.uniform_await_N and info.min_N != info.max_N:
-            kvetch_incompatible(f"N ({mem.name()} uniform-N requirement)")
+        else:
+            if N < 0:
+                kvetch_invalid(f"{mem.name()} requires N >= 0")
 
     fence_multicasts = (False,)
 
@@ -181,20 +167,16 @@ class BarrierUsage:
         self.Await = SyncInfo(
             sync_type.second_sync_tl, [s], 0, 0, self.fence_multicasts
         )
-        self.guards = s.barriers[0].name
-        self.guarded_by = s.barriers[0].name
 
 
 class BarrierUsageAnalysis(LoopIR_Do):
-    __slots__ = ["proc", "uses", "_explicit_guarded_by"]
+    __slots__ = ["proc", "uses"]
     proc: LoopIR.proc
     uses: Dict[Sym, BarrierUsage]
-    _explicit_guarded_by: Dict[Sym, Optional[Sym]]
 
     def __init__(self, proc):
         self.proc = proc
         self.uses = {}
-        self._explicit_guarded_by = {}
         self.do_stmts(proc.body)
 
     def do_stmts(self, stmts):
@@ -218,7 +200,6 @@ class BarrierUsageAnalysis(LoopIR_Do):
                 assert mem and issubclass(mem, BarrierMechanism)
                 assert s.name not in self.uses
                 self.uses[s.name] = BarrierUsage(s)
-                self.add_barrier_guard_edge(s)
                 return mem  # Indicates to do_stmts() that we found a barrier decl
         elif isinstance(s, LoopIR.SyncStmt):
             sync_type: SyncType = s.sync_type
@@ -254,45 +235,6 @@ class BarrierUsageAnalysis(LoopIR_Do):
     def do_e(self, e):
         return None  # speed things up
 
-    def add_barrier_guard_edge(self, s: LoopIR.Alloc):
-        gb = s.type.guarded_by
-        g_new = s.name
-        self._explicit_guarded_by[g_new] = gb
-        if gb is None:
-            return
-        barrier_mechanism = s.mem
-        # This situtation possibly could happen for some scheduling operators?
-        # Since we didn't update the entire library to account for hidden
-        # usage of a variable as guarded_by.
-        assert gb in self.uses, f"{s.srcinfo}: guarded_by nonexistent barrier {gb}?"
-        gb_uses = self.uses[gb]
-        gs = gb_uses.guards
-        g_new_uses = self.uses[g_new]
-        gs_uses = self.uses[gs]
-        # We have an edge gb -> gs
-        # Replace with gb -> g_new -> gs
-        # Where x -> y means "x guards y"
-        g_new_uses.guards = gs
-        g_new_uses.guarded_by = gb
-        gs_original_gb = self._explicit_guarded_by[gs]
-        if not barrier_mechanism.traits().supports_guards:
-            raise ValueError(
-                f"{s.srcinfo}: {s}, cannot have guarded_by={gb} as {barrier_mechanism.name()} has supports_guards=False"
-            )
-        if gs_original_gb is not None:
-            raise ValueError(
-                f"{s.srcinfo}: {s}, cannot have guarded_by={gb} as it guards {gs} already"
-            )
-        assert gs_uses.guarded_by == gb
-        gb_uses.guards = g_new
-        gs_uses.guarded_by = g_new
-        if gb_uses.barrier_mechanism != g_new_uses.barrier_mechanism:
-            raise ValueError(
-                f"{s.srcinfo}: {s}, cannot have guarded_by={gb} due to BarrierMechanism mismatch:\n"
-                f"{g_new} @ {g_new_uses.barrier_mechanism.name()}\n"
-                f"{gs} @ {gs_uses.barrier_mechanism.name()}"
-            )
-
     def check_split_barrier(
         self,
         name: Sym,
@@ -324,149 +266,3 @@ class BarrierUsageAnalysis(LoopIR_Do):
                 kvetch_missing(_await, f"Arrive(...) >> +{name}")
         if _await is None:
             kvetch_missing(_arrive, f"Await(+{name}, ...)")
-
-        # Check guarding requirements only if barrier type traits require it.
-        if traits.requires_guarding:
-            self.check_guarding(name, traits, in_stmts)
-
-    def check_guarding(
-        self,
-        name: Sym,
-        traits: BarrierMechanismTraits,
-        in_stmts: List[LoopIR.stmt],
-    ):
-        usage: BarrierUsage = self.uses[name]
-        guarded_by = usage.guarded_by
-        await_first = None  # Set to True/False when we know.
-        if guarded_by != name:
-            await_first = True
-        if traits.requires_arrive_first:
-            assert not await_first
-            await_first = False
-
-        def get_arrive_str():
-            return f"Arrive(...) >> {name}"
-
-        def get_await_str():
-            return f"Await({guarded_by}, ...)"
-
-        soi_arrive = 1
-        soi_await = 2
-        soi_call = 3  # Call where trailing_barrier_expr involves {name}
-
-        # Get statement of interest enum, or None if not of interest.
-        def get_soi(s: LoopIR.stmt):
-            if isinstance(s, LoopIR.Call):
-                e = s.trailing_barrier_expr
-                return soi_call if e and (e.name == name) else None
-            elif isinstance(s, LoopIR.SyncStmt):
-                sync_type = s.sync_type
-                if sync_type.is_arrive():
-                    return soi_arrive if s.barriers[0].name == name else None
-                if sync_type.is_await():
-                    e = s.barriers[0]
-                    return soi_await if s.barriers[0].name == guarded_by else None
-
-        def recurse(
-            sub_stmts: List[LoopIR.stmt], forbid_sync_due_to: Optional[LoopIR.stmt]
-        ):
-            nonlocal await_first
-
-            # with statement and parallel-for loop bodies are inlined into the surrounding body.
-            flattened_stmts = []
-
-            def add_flatten(stmts):
-                for s in stmts:
-                    if is_if_holding_with(s, LoopIR):
-                        add_flatten(s.body)
-                    elif isinstance(s, LoopIR.For) and s.loop_mode.is_par():
-                        add_flatten(s.body)
-                    else:
-                        flattened_stmts.append(s)
-
-            add_flatten(sub_stmts)
-
-            unmatched_arrive = None
-            unmatched_await = None
-            calls = []
-            example_arrive = None
-
-            for s in flattened_stmts:
-                s_if_forbid = s if (unmatched_arrive or unmatched_await) else None
-                if isinstance(s, LoopIR.If):
-                    assert not is_if_holding_with(s, LoopIR), "add_flatten failed"
-                    recurse(s.body, forbid_sync_due_to or s_if_forbid)
-                    recurse(s.orelse, forbid_sync_due_to or s_if_forbid)
-                elif isinstance(s, LoopIR.For):
-                    assert not s.loop_mode.is_par(), "add_flatten failed"
-                    recurse(s.body, forbid_sync_due_to or s_if_forbid)
-                elif soi := get_soi(s):
-                    if forbid_sync_due_to:
-                        forbid_txt = "???"
-                        if isinstance(forbid_sync_due_to, LoopIR.For):
-                            forbid_txt = f"sequential {forbid_sync_due_to.iter}-loop"
-                        elif isinstance(forbid_sync_due_to, LoopIR.If):
-                            forbid_txt = f"if {forbid_sync_due_to.cond}"
-                        raise ValueError(
-                            f"{s.srcinfo}:\n{s} forbidden here\n"
-                            f"when Await({guarded_by})->Arrive({name}) sees usage outside\n"
-                            f"{forbid_txt} @ {forbid_sync_due_to.srcinfo}"
-                        )
-                    if await_first is None:
-                        await_first = soi == soi_await
-                    if soi == soi_arrive:
-                        if (await_first and not unmatched_await) or unmatched_arrive:
-                            raise ValueError(
-                                f"{s.srcinfo}: expect {get_await_str()} before {s}"
-                            )
-                        if await_first:
-                            unmatched_await = None
-                        else:
-                            unmatched_arrive = s
-                        example_arrive = s
-                    if soi == soi_await:
-                        if unmatched_await or (
-                            not await_first and not unmatched_arrive
-                        ):
-                            raise ValueError(
-                                f"{s.srcinfo}: expect {get_arrive_str()} before {s}"
-                            )
-                        if await_first:
-                            unmatched_await = s
-                        else:
-                            unmatched_arrive = None
-                    if soi == soi_call:
-                        if (await_first and not unmatched_await) or unmatched_arrive:
-                            raise ValueError(
-                                f"{s.srcinfo}: expect {get_await_str()} before {s}"
-                            )
-                        calls.append(s)
-            # end for s in flattened_stmts
-            if unmatched_await:
-                raise ValueError(
-                    f"{s.srcinfo}: {s} without subsequent {get_arrive_str()} in body"
-                )
-            if unmatched_arrive:
-                raise ValueError(
-                    f"{s.srcinfo}: {s} without subsequent {get_await_str()} in body"
-                )
-            for s in calls:
-                if not example_arrive:
-                    raise ValueError(
-                        f"{s.srcinfo}: {s} without {get_arrive_str()} in body"
-                    )
-                e_call = s.trailing_barrier_expr
-                call_multicast_flags = e_call.multicast_flags()
-                arrive_multicasts = example_arrive.multicasts()
-                sat = False
-                for m in arrive_multicasts:
-                    assert len(m) == len(call_multicast_flags)
-                    sat |= all(mb or not mc for mb, mc in zip(m, call_multicast_flags))
-                if not sat:
-                    raise ValueError(
-                        f"{s.srcinfo}:\n{s.f.name} >> {e_call}\n"
-                        f"isn't naming a subset of barriers used in\n"
-                        f"{example_arrive} @ {example_arrive.srcinfo}"
-                    )
-
-        recurse(in_stmts, None)

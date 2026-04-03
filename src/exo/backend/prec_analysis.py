@@ -65,7 +65,9 @@ class PrecisionAnalysis(LoopIR_Rewrite):
         if t.is_real_scalar():
             return bt
         elif isinstance(t, T.Tensor):
-            return T.Tensor(t.hi, t.is_window, self.splice_type(t.type, bt))
+            return T.Tensor(
+                t.hi, t.is_window, self.splice_type(t.type, bt), t.get_ring_guarded_by()
+            )
         elif isinstance(t, T.Window):
             return T.Window(
                 self.splice_type(t.src_type, bt),

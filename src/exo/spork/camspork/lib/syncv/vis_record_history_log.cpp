@@ -258,6 +258,14 @@ void VisRecordHistoryLog::log_syncv_vis_record_error(vis_record_id_t id, LoggedM
     error_thread_cuboid = current_thread_cuboid;
 }
 
+void VisRecordHistoryLog::log_syncv_missing_free_on_arrive(vis_record_id_t id, barrier_id free_on_arrive)
+{
+    error_stmt_id_bits = current_stmt_id_bits;
+    error_vis_record_version = current_version_id(id);
+    error_missing_free_on_arrive = free_on_arrive;
+    error_thread_cuboid = current_thread_cuboid;
+}
+
 void VisRecordHistoryLog::add_error_remarks(ProgramEnv* p_env)
 {
     add_history_remarks(p_env, error_vis_record_version);
@@ -265,17 +273,23 @@ void VisRecordHistoryLog::add_error_remarks(ProgramEnv* p_env)
     // Add additional info about the error site.
     if (error_vis_record_version) {
         std::stringstream s;
-        s << "VisRecord did not have vis flag \"" << vis_flag_index_name(error_tl_sig.vis_flag_index) << "\" for\n";
-        s << "  thread:  ";
-        stream_tid(s, error_tl_sig.tid, error_thread_cuboid);
-        s << "; domain=";
-        stream_domain(s, error_thread_cuboid);
-        auto tmp_qual_bits = error_tl_sig.qual_bits;
-        s << "\n  qual-tl: ";
-        const char* p_sep = "";
-        while (tmp_qual_bits) {
-            s << p_sep << lazy_get_qual_tl_name(pop_low_bit_index(&tmp_qual_bits));
-            p_sep = " OR ";
+        if (error_missing_free_on_arrive) {
+            s << "Managed ring buffer error: VisRecord did not sync-with barrier ";
+            s << barrier_name_map[error_missing_free_on_arrive];
+        }
+        else {
+            s << "VisRecord did not have vis flag \"" << vis_flag_index_name(error_tl_sig.vis_flag_index) << "\" for\n";
+            s << "  thread:  ";
+            stream_tid(s, error_tl_sig.tid, error_thread_cuboid);
+            s << "; domain=";
+            stream_domain(s, error_thread_cuboid);
+            auto tmp_qual_bits = error_tl_sig.qual_bits;
+            s << "\n  qual-tl: ";
+            const char* p_sep = "";
+            while (tmp_qual_bits) {
+                s << p_sep << lazy_get_qual_tl_name(pop_low_bit_index(&tmp_qual_bits));
+                p_sep = " OR ";
+            }
         }
         s << "\nVisRecord info:\n";
 

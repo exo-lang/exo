@@ -1,13 +1,19 @@
 # Don't import this module until the camspork JIT is initialized.
 # exocc and the Exo pytest tests should handle this early during init.
 
+import itertools
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Optional, Type, List, Set, Tuple
 from warnings import warn
 
 from ..backend.LoopIR_compiler import run_backend_checks, BackendChecks
 
-from ..core.memory import MemWin, BarrierMechanism, SpecialWindow
+from ..core.memory import (
+    MemWin,
+    BarrierMechanism,
+    SpecialWindow,
+    BarrierMechanismTraits,
+)
 from ..core.prelude import Sym
 from ..core.instr_info import AccessInfo, InstrInfo
 from ..core.LoopIR import (
@@ -22,7 +28,14 @@ from ..core.LoopIR import (
 
 from .async_config import BaseAsyncConfig, CudaDeviceFunction
 from .base_with_context import is_if_holding_with
-from .coll_algebra import CollTiling, CollDim, CollDimOp, CollDimExpectation, CollParam
+from .coll_algebra import (
+    CollTiling,
+    CollDim,
+    CollDimOp,
+    CollDimExpectation,
+    CollParam,
+    clusterDim_param,
+)
 from .coll_analysis import CollAnalysis
 from .distributed_memory import ThreadIter
 from .loop_modes import Seq, CudaTasks, cuda_tasks, _CodegenPar, CudaThreads
@@ -158,7 +171,7 @@ class CamsporkDo(LoopIR_Do):
         return nm in set or (isinstance(typ, LoopIR.WindowType) and typ.src_buf in set)
 
     def comp_qual_tl(self, node: LoopIR.expr | LoopIR.stmt, instr_tl: Instr_tl):
-        """Get initial Qual_tl, initial Qual_tl as bit, ext Qual_tl as bits.
+        """Get initial Qual_tl, initial Qual_tl as bit, ext Qual_tl as bits, qual_tl_mask bits
 
         Deduces the variable being accessed from node.name.
         Computes the Qual_tl info as a function of the variable's memory
@@ -185,7 +198,13 @@ class CamsporkDo(LoopIR_Do):
             initial_qual_tl = q
         else:
             initial_qual_tl = q[0]
-        return initial_qual_tl, Qual_tl.make_bits(initial_qual_tl), Qual_tl.make_bits(q)
+        qual_tl_mask = mem.make_qual_tl_mask()
+        return (
+            initial_qual_tl,
+            Qual_tl.make_bits(initial_qual_tl),
+            Qual_tl.make_bits(q),
+            qual_tl_mask,
+        )
 
     def do_s(self, s: LoopIR.stmt):
         b = self._builder
@@ -199,7 +218,7 @@ class CamsporkDo(LoopIR_Do):
             if want_sync or want_value:
                 am_dst = self.comp_index_expr(s.name, s.idx, instr_tl)
             if want_sync:
-                _, initial_q, ext_q = self.comp_qual_tl(s, instr_tl)
+                _, initial_q, ext_q, qual_tl_mask = self.comp_qual_tl(s, instr_tl)
                 flags = b.mutate_flag | b.convergent_flag
                 if isinstance(s, LoopIR.Reduce):
                     flags |= b.write_only_flag
@@ -207,6 +226,7 @@ class CamsporkDo(LoopIR_Do):
                     am_dst,
                     initial_q,
                     ext_q,
+                    qual_tl_mask,
                     flags=flags,
                     srcinfo=s.srcinfo,
                 )
@@ -229,12 +249,19 @@ class CamsporkDo(LoopIR_Do):
                 if self.want_sync(home.name):
                     # Model as "read" since concurrent access is allowed
                     mem = self._mem_env[home.name]
-                    q_bit = mem.arrive_qual_tl(L1).as_bit()
+                    qual_tl = mem.arrive_qual_tl(L1)
+                    q_bit = qual_tl.as_bit()
+                    flags = (
+                        b.convergent_flag
+                        if qual_tl.get_default_convergent_access()
+                        else 0
+                    )
                     b.SyncEnvAccess(
                         am_home_barrier,
                         q_bit,
                         q_bit,
-                        flags=b.convergent_flag,
+                        self._mem_env[home.name].make_qual_tl_mask(),
+                        flags=flags,
                         access_multicasts=multicasts,
                         srcinfo=s.srcinfo,
                         # TODO wouldn't it make more sense to use barrier
@@ -253,6 +280,7 @@ class CamsporkDo(LoopIR_Do):
                         am_home_barrier,
                         q_bit,
                         q_bit,
+                        self._mem_env[home.name].make_qual_tl_mask(),
                         flags=b.convergent_flag,
                         srcinfo=s.srcinfo,
                     )
@@ -357,107 +385,155 @@ class CamsporkDo(LoopIR_Do):
             want_value = self.want_value(s.name)
             if want_barrier and not want_sync and not want_value:
                 b.add_variable(s.name)
+
+            # Add alloc statement
             if want_barrier or want_sync or want_value:
                 am_array = self.comp_index_expr(s.name, s.type.shape(), instr_tl)
             if want_barrier:
-                b.BarrierEnvAlloc(am_array, srcinfo=s.srcinfo)
+                flags = 0
+                traits: BarrierMechanismTraits
+                traits = s.mem.traits()
+                if traits.one_shot_arrive:
+                    flags |= b.one_shot_arrive_flag
+                if traits.one_shot_await:
+                    flags |= b.one_shot_await_flag
+                b.BarrierEnvAlloc(am_array, flags=flags, srcinfo=s.srcinfo)
             if want_sync:
                 b.SyncEnvAlloc(am_array, srcinfo=s.srcinfo)
             if want_value:
                 b.ValueEnvAlloc(am_array, srcinfo=s.srcinfo)
 
+            ring_dim_idx, ring_depth = s.get_managed_ring_buffer_dimension_depth()
+
+            # Add Arrives for barriers that specify a pre-arrive.
+            if want_barrier and (pre_arrive := s.mem.get_pre_arrive()):
+                if ring_dim_idx is None:
+                    raise ValueError(
+                        f"{s.srcinfo}: {s} has pre_arrive={pre_arrive} but missing managed ring buffer dimension."
+                    )
+                if pre_arrive > ring_depth:
+                    raise ValueError(
+                        f"{s.srcinfo}: {s} has pre_arrive={pre_arrive} which exceeds ring_depth={ring_depth}."
+                    )
+
+                pre_arrive_shape = list(s.type.shape())
+                pre_arrive_shape[ring_dim_idx] = LoopIR.Const(
+                    ring_depth, T.plain_size, s.srcinfo
+                )
+                assert all(
+                    isinstance(extent, LoopIR.Const) for extent in pre_arrive_shape
+                )
+                ranges = [range(0, extent.val) for extent in pre_arrive_shape]
+
+                # Issue pre-Arrive
+                multicasts = [(False,) * len(pre_arrive_shape)]
+                barrier_name = b.get_varname(s.name)
+                for idx in itertools.product(*ranges):
+                    if idx[ring_dim_idx] < pre_arrive:
+                        b.Arrive(0, barrier_name[idx], multicasts, srcinfo=s.srcinfo)
+
+            # Set up managed ring buffer, if applicable.
+            if ring_dim_idx is not None:
+                guarded_by = s.type.get_ring_guarded_by()
+                if want_barrier:
+                    if guarded_by is not None:
+                        raise ValueError(
+                            f"{s.srcinfo}: shouldn't have .ring_guarded by for barrier {s}"
+                        )
+                    guarded_by = s.name
+                    guard_typ = s.type
+                    barrier_multicasts = ()
+                else:
+                    if guarded_by is None:
+                        raise ValueError(
+                            f"{s.srcinfo}: managed ring buffer missing .ring_guarded_by {s}"
+                        )
+                    guarded_by = guarded_by.name
+                    guard_typ = self._envtyp.get(guarded_by)
+                    barrier_multicasts = self._coll_analysis.distributed_alloc_states[
+                        guarded_by
+                    ].barrier_multicasts
+                # fmt: off
+                assert isinstance(guard_typ, LoopIR.Barrier), s.srcinfo
+                buffer_shape = s.type.shape()
+                buffer_num_dims = len(buffer_shape)
+                guard_shape = guard_typ.shape()
+                guard_num_dims = len(guard_shape)
+                guard_ring_dim_idx, _ = guard_typ.get_managed_ring_buffer_dimension_depth()
+                # fmt: on
+                if buffer_num_dims < guard_num_dims:
+                    raise ValueError(
+                        f"{s.srcinfo}: {guarded_by}: {guard_typ} has too many dimensions to match {s}"
+                    )
+                if guard_ring_dim_idx != ring_dim_idx:
+                    raise ValueError(
+                        f"{s.srcinfo}: {guarded_by}: {guard_typ} has incorrect managed ring buffer dimension index to match {s}"
+                    )
+                tmp_vars = tuple(
+                    b.add_variable(f"_ring{i}_{s.name}") for i in range(guard_num_dims)
+                )
+                loop_nest = [
+                    b.SeqFor(
+                        tmp_vars[i],
+                        0,
+                        self.comp_e(coord, True, instr_tl),
+                        srcinfo=s.srcinfo,
+                    )
+                    for i, coord in enumerate(buffer_shape[:guard_num_dims])
+                ]
+                for for_node in loop_nest:
+                    for_node.begin()
+                assert all(
+                    all(isinstance(f, bool) for f in flags)
+                    for flags in barrier_multicasts
+                )
+                b.SyncEnvManageRingBuffer(
+                    s.mem.make_qual_tl_mask(),
+                    b.get_varname(guarded_by)[tmp_vars],
+                    b.get_varname(s.name),
+                    ring_dim_idx,
+                    ring_depth,
+                    barrier_multicasts,
+                    srcinfo=s.srcinfo,
+                )
+                for for_node in reversed(loop_nest):
+                    for_node.end()
+
         elif isinstance(s, LoopIR.Free):
             self._saw_free = True
             want_barrier = issubclass(s.mem, BarrierMechanism)
-            want_free_shards = False
             want_sync = self.want_sync(s.name)
 
             if want_sync and s.mem.is_cuda_smem() and not self._no_smem_free_check:
                 # fmt: off
                 assert isinstance(self._coll_tiling, CollTiling), "SMEM outside CUDA scope?"
                 # fmt: on
-                box = self._coll_tiling.get_box()
-                domain = self._coll_tiling.get_domain()
-                if box != domain:
-                    # This over-approximation is because when we "free" SMEM in a CTA,
-                    # it goes into a free pool that could be used for future allocs,
-                    # and those could be the target of a multicast. So all threads
-                    # in the CLUSTER must have visibility to the SMEM, not just CTA.
-                    raise ValueError(
-                        f"{s.srcinfo}: Sorry, sync-check for {s.name} @ {s.mem.name()} "
-                        f"(SMEM) allocated outside cluster scope not implemented; "
-                        f"currently have box={box} of {domain} threads active in cluster."
-                    )
-                b.SyncEnvFreeShard(
-                    b[s.name],
-                    timelines.cuda_in_order_ram_qual.as_bit(),
-                    srcinfo=s.srcinfo,
-                )
+                ring_dim_idx, ring_depth = s.get_managed_ring_buffer_dimension_depth()
 
-            if want_free_shards:
-                # XXX dead code for now, but could be important later.
-                # Look up distributed memory information for the variable.
-                state = self._coll_analysis.distributed_alloc_states[s.name]
-                distributed_iters = state.first_distributed_iters
-                alloc_coll_tiling = state.alloc_coll_tiling
-                target_coll_tiling: CollTiling = state.first_usage_coll_tiling
-                target_domain = target_coll_tiling.get_domain()
-
-                # We will prepare a parallel-for loop nest for accessing
-                # each shard of the array. Also, possibly reshape domain.
-                loop_nest = []
-                if target_domain != self._domain:
-                    loop_nest.append(b.DomainReshape(*target_domain, srcinfo=s.srcinfo))
-                for dim_idx, dim in enumerate(target_coll_tiling.get_dims()):
-                    dim: CollDim
-                    # Generate minimal loops for this dimension needed
-                    # to recover the distributed_iters. Avoids inappropriately
-                    # specializing on dimensions not relevant to the sharding
-                    # (e.g. checking only subset of CTA threads for SMEM free).
-                    num_ops = 0
-                    for op_i, op in enumerate(dim.dim_ops):
-                        if op.iter in distributed_iters:
-                            num_ops = op_i + 1
-                    for op in dim.dim_ops[:num_ops]:
-                        # Only add loops for levels that correspond to code subtree
-                        # rooted under the scope that the alloc is done.
-                        if op.tree_depth <= alloc_coll_tiling.get_tree_depth():
-                            continue
-                        # KeyError hack: I'm unsure if the variable already exists
-                        # in the camspork program due to the horribly confusing
-                        # CALLEE_DISTRIBUTED "synthetic iterators" (I'm sorry).
-                        try:
-                            am_iter = b[op.iter]
-                        except KeyError:
-                            am_iter = b.add_variable(op.iter)
-                        loop_nest.append(
-                            b.ThreadsFor(
-                                am_iter,
-                                0,
-                                op.tile_count,
-                                dim_idx,
-                                op.offset,
-                                op.box,
-                                srcinfo=s.srcinfo,
-                            )
+                if ring_dim_idx is None:
+                    # Not a managed ring buffer.
+                    box = self._coll_tiling.get_box()
+                    domain = self._coll_tiling.get_domain()
+                    if box != domain:
+                        # This over-approximation is because when we "free" SMEM in a CTA,
+                        # it goes into a free pool that could be used for future allocs,
+                        # and those could be the target of a multicast. So all threads
+                        # in the CLUSTER must have visibility to the SMEM, not just CTA.
+                        raise ValueError(
+                            f"{s.srcinfo}: Sorry, sync-check for {s.name} @ {s.mem.name()} "
+                            f"(SMEM) allocated outside cluster scope not implemented; "
+                            f"currently have box={box} of {domain} threads active in cluster."
                         )
-                # Emit the generated loop nest (begin/end instead of with).
-                # Use 0 for iterators known to have tile_count=1, i.e. always 0.
-                # This is actually needed to avoid crashing for "trivial iterators"
-                # that won't appear in the CollTiling, and hence the loop nest.
-                for ctx in loop_nest:
-                    ctx.begin()
-                am_idx = tuple(
-                    0 if self._coll_analysis.thread_iters[it].tile_count == 1 else b[it]
-                    for it in distributed_iters
-                )
-                b.SyncEnvFreeShard(
-                    b[s.name][am_idx],
-                    Qual_tl.make_bits(free_qual_tl),
-                    srcinfo=s.srcinfo,
-                )
-                for ctx in reversed(loop_nest):
-                    ctx.end()
+                    _, _, ext_qual_bits, _ = self.comp_qual_tl(
+                        s, self._default_instr_tl
+                    )
+                    b.SyncEnvFreeShard(
+                        b[s.name],
+                        ext_qual_bits,
+                        srcinfo=s.srcinfo,
+                    )
+                else:
+                    b.SyncEnvFreeManagedRingBuffer(b[s.name], srcinfo=s.srcinfo)
 
             # Must be after SyncEnvFreeShards,
             # since this deletes the SyncEnv data for the variable.
@@ -500,8 +576,8 @@ class CamsporkDo(LoopIR_Do):
                 )
                 for ctx in loop_nest:
                     ctx.begin()
-                qual_tl, initial_qual_bits, ext_qual_bits = self.comp_qual_tl(
-                    caller_a, instr_tl
+                qual_tl, initial_qual_bits, ext_qual_bits, qual_tl_mask = (
+                    self.comp_qual_tl(caller_a, instr_tl)
                 )
                 flags = 0
                 thread_access_granularity = 1
@@ -531,6 +607,7 @@ class CamsporkDo(LoopIR_Do):
                     dst_lo,
                     initial_qual_bits,
                     ext_qual_bits,
+                    qual_tl_mask,
                     flags=flags,
                     extent=extent,
                     barrier=barrier,
@@ -543,13 +620,14 @@ class CamsporkDo(LoopIR_Do):
                     ctx.end()
             if barrier and self.want_sync(s.trailing_barrier_expr.name):
                 # Sync-check the trailing barrier itself.
-                _, initial_qual_bits, _ = self.comp_qual_tl(
+                _, initial_qual_bits, ext_qual_bits, qual_tl_mask = self.comp_qual_tl(
                     s.trailing_barrier_expr, instr_tl
                 )
                 b.SyncEnvAccess(
                     barrier,
                     initial_qual_bits,
-                    initial_qual_bits,
+                    ext_qual_bits,
+                    qual_tl_mask,
                     # model as in-order read since concurrent access is allowed
                     flags=b.convergent_flag,
                     access_multicasts=barrier_multicasts,
@@ -621,7 +699,7 @@ class CamsporkDo(LoopIR_Do):
             if want_value or want_sync:
                 am_src = self.comp_index_expr(e.name, e.idx, instr_tl)
             if want_sync:
-                _, initial_q, ext_q = self.comp_qual_tl(e, instr_tl)
+                _, initial_q, ext_q, qual_tl_mask = self.comp_qual_tl(e, instr_tl)
                 if self.is_single_threaded():
                     # convergent access makes no functional difference
                     # when the thread count is 1, but I suspect the
@@ -633,6 +711,7 @@ class CamsporkDo(LoopIR_Do):
                     am_src,
                     initial_q,
                     ext_q,
+                    qual_tl_mask,
                     flags=flags,
                     srcinfo=e.srcinfo,
                 )
@@ -696,10 +775,11 @@ class CamsporkDo(LoopIR_Do):
         where we have different input shards accessed by different threads
         (hence must communicate this to the abstract machine with a ThreadsFor).
 
+        NB access_by_owner_only is disused.
+
         """
         b = self._builder
-        if not isinstance(e, LoopIR.WindowExpr):
-            return self.comp_e(e, True, instr_tl), None, ()
+        assert isinstance(e, (LoopIR.WindowExpr, LoopIR.Read))
         shape = fnarg_type.shape()
 
         if arg_info.access_by_owner_only:
@@ -758,8 +838,11 @@ class CamsporkDo(LoopIR_Do):
                     extent.append(self.comp_e(shape_coord, True, instr_tl))
                 shape_i += 1
             else:
-                assert isinstance(w, LoopIR.Point)
-                idx_lo.append(w.pt)
+                if isinstance(w, LoopIR.Point):
+                    pt = w.pt
+                else:
+                    pt = w
+                idx_lo.append(pt)
                 extent.append(1)
         assert shape_i == len(shape)
 
@@ -928,37 +1011,38 @@ def top_level_check(backend, args_dict: Dict[str, int], *, no_smem_free_check=Fa
     # If a syncv error is detected that is attributed to a specific var[idx],
     # we run checking again on that var[idx] only with history logging.
     # We debug log all remarks generated if an error occurs.
+
     error_remarks = ()
-    single_sync_var = None
-    single_sync_idx = ()
-    try:
-        for i in range(2):
-            if i > 0 and single_sync_var is None:
-                break
-            env = make_env(single_sync_var)
-            try:
-                if single_sync_var is not None:
-                    env.set_history_enable(True)
-                env.exec(filter_name=single_sync_var, filter_idx=single_sync_idx)
-                env.set_debug_validation_enable(debug_on_exit | debug_always)
-            except Exception:
-                if i == 0:
-                    # Insert remarks for the main debug log, prior to adding
-                    # more detailed remarks.
-                    for camspork_stmt, text in env.get_remarks():
-                        srcinfo = camspork_program.get_stmt_srcinfo(camspork_stmt)
-                        debug_log.remark(p.name, f"{srcinfo}:\n{text}")
-                env.add_error_history_remarks()
-                error_remarks = env.get_remarks()
+
+    def runner(single_sync_var, single_sync_idx):
+        nonlocal error_remarks
+        env = make_env(single_sync_var)
+        try:
+            if single_sync_var is not None:
+                env.set_history_enable(True)
+            env.exec(filter_name=single_sync_var, filter_idx=single_sync_idx)
+            env.set_debug_validation_enable(debug_on_exit | debug_always)
+        except Exception:
+            if single_sync_var is None:
+                # Insert remarks for the main debug log, prior to adding
+                # more detailed remarks.
+                for camspork_stmt, text in env.get_remarks():
+                    srcinfo = camspork_program.get_stmt_srcinfo(camspork_stmt)
+                    debug_log.remark(p.name, f"{srcinfo}:\n{text}")
+            env.add_error_history_remarks()
+            error_remarks = env.get_remarks()
+            if single_sync_var is None:
                 single_sync_var = env.get_syncv_fail_var()
-                if i == 0 and single_sync_var is not None:
-                    # Do the second round of sync checking
+                if single_sync_var is not None:
+                    # Do the second round of sync checking.
+                    # If this fails to raise, we still raise the original exception.
                     single_sync_idx = env.get_syncv_fail_idx()
-                else:
-                    debug_log.log(
-                        proc_name_with_sizes, "camspork", env.program_with_remarks()
-                    )
-                    raise
+                    runner(single_sync_var, single_sync_idx)
+            debug_log.log(proc_name_with_sizes, "camspork", env.program_with_remarks())
+            raise
+
+    try:
+        runner(None, ())
     except Exception:
         # We want to show something similar to the user's proc, but
         # after mem_analysis so that free is visible. Insert detailed

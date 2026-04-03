@@ -358,7 +358,8 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
                 if is_multicast:
                     # Also magical, poorly-documented argument that
                     # LoopIR_compiler inserts just for us.
-                    cta_mask = args.exo_cta_mask
+                    clusterDim = args.exo_clusterDim
+                    cta_mask = self.codegen_cta_mask(clusterDim, self.ncta, self.cta_stride)
                     c_args.append(cta_mask)
 
             lines = [f"exo_CudaUtil::{fname}("]
@@ -367,5 +368,26 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
                 lines.append(f"{prefix}{c_arg}")
             lines.append(");")
             return lines
+
+        def codegen_cta_mask(self, clusterDim, cta_count, cta_pitch):
+            shift_mask = clusterDim - 1
+
+            # CUDA model fundamentally assumes power-of-2 CTA counts
+            cta_count_log2 = cta_count.bit_length() - 1
+            cta_pitch_log2 = cta_pitch.bit_length() - 1
+            assert cta_count == 1 << cta_count_log2
+            assert cta_pitch == 1 << cta_pitch_log2
+
+            for bit_idx in range(cta_pitch_log2, cta_pitch_log2 + cta_count_log2):
+                shift_mask &= ~(1 << bit_idx)
+
+            base_num = 1
+            for i in range(1, cta_count):
+                base_num = base_num << cta_pitch | 1
+
+            if shift_mask == 0:
+                return f"uint16_t({hex(base_num)})"
+            else:
+                return f"uint16_t({hex(base_num)} << (blockIdx.x & {hex(shift_mask)}))"
 
     return Base

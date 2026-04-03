@@ -1591,7 +1591,7 @@ def DoExpandDim(alloc_cursor, alloc_dim, indexing):
     if isinstance(old_typ, T.Tensor):
         new_rngs += old_typ.shape()
     basetyp = old_typ.basetype()
-    new_typ = T.Tensor(new_rngs, False, basetyp)
+    new_typ = T.Tensor(new_rngs, False, basetyp, old_typ.get_ring_guarded_by())
     new_alloc = alloc_s.update(type=new_typ)
 
     ir, fwd = alloc_cursor._child_node("type")._replace(new_typ)
@@ -1712,10 +1712,11 @@ def DoRearrangeDim(decl_cursor, permute_vector):
                 return False
         return True
 
+    old_type = decl_s.type
     # construct new_hi
-    new_hi = permute(decl_s.name, decl_s.type.hi)
+    new_hi = permute(decl_s.name, old_type.hi)
     # construct new_type
-    new_type = LoopIR.Tensor(new_hi, decl_s.type.is_window, decl_s.type.type)
+    new_type = old_type.update(hi=new_hi)
     ir, fwd = decl_cursor._child_node("type")._replace(new_type)
 
     def mk_read(c):
@@ -1789,7 +1790,9 @@ def DoDivideDim(alloc_cursor, dim_idx, quotient):
         ]
         + old_shp[dim_idx + 1 :]
     )
-    new_typ = T.Tensor(new_shp, False, old_typ.basetype())
+    new_typ = T.Tensor(
+        new_shp, False, old_typ.basetype(), old_typ.get_ring_guarded_by()
+    )
 
     ir, fwd = alloc_cursor._child_node("type")._replace(new_typ)
 
@@ -1850,7 +1853,7 @@ def DoMultiplyDim(alloc_cursor, hi_idx, lo_idx):
     prod = LoopIR.BinOp("*", lo_dim, hi_dim, hi_dim.type, hi_dim.srcinfo)
     shp[hi_idx] = prod
     del shp[lo_idx]
-    new_typ = T.Tensor(shp, False, old_typ.basetype())
+    new_typ = T.Tensor(shp, False, old_typ.basetype(), old_typ.get_ring_guarded_by())
 
     ir, fwd = alloc_cursor._child_node("type")._replace(new_typ)
 
@@ -2052,7 +2055,9 @@ class DoLiftAlloc(Cursor_Rewrite):
                 new_typ = new_typ.basetype()
 
             if len(new_rngs) > 0:
-                new_typ = T.Tensor(new_rngs, False, new_typ)
+                new_typ = T.Tensor(
+                    new_rngs, False, new_typ, s.type.get_ring_guarded_by()
+                )
 
             # effect remains null
             self.lifted_stmt = LoopIR.Alloc(s.name, new_typ, s.mem, s.srcinfo)
@@ -2822,7 +2827,7 @@ def DoInsertBarrierAlloc(
             raise SchedulingError(
                 f"Cannot use non-barrier {guarded_by}: {guard_node.type} as guarded_by"
             )
-    hi = [LoopIR.Const(n, T.size, srcinfo) for n in hi]
+    hi = [LoopIR.Const(n, T.plain_size, srcinfo) for n in hi]
     typ = LoopIR.Barrier(guarded_by, hi)
     ir, fwd = gap._insert([LoopIR.Alloc(Sym(name), typ, barrier_mechanism, srcinfo)])
     return ir, fwd
@@ -2932,7 +2937,7 @@ def DoInsertNoopCall(gap, proc, args):
             else:
                 idxs.append(LoopIR.Point(w_e, srcinfo))
 
-        as_tensor = T.Tensor(win_shape, True, typ.basetype())
+        as_tensor = T.Tensor(win_shape, True, typ.basetype(), typ.get_ring_guarded_by())
         w_typ = T.Window(typ, as_tensor, name, idxs)
         return LoopIR.WindowExpr(name, idxs, w_typ, srcinfo)
 
@@ -3368,7 +3373,10 @@ class _DoNormalize(Cursor_Rewrite):
 
     def map_e(self, e):
         if e.type.is_indexable():
-            return self.index_start(e)
+            e_new = self.index_start(e)
+            if ann := e.get_size_annotation():
+                e_new = e_new.update(type=LoopIR.Size(ann))
+            return e_new
 
         return super().map_e(e)
 
@@ -3607,6 +3615,12 @@ class DoSimplify(Cursor_Rewrite):
         return LoopIR.BinOp(e.op, lhs, rhs, e.type, e.srcinfo)
 
     def map_e(self, e):
+        e_new = self.map_e_impl(e)
+        if e_new is not None and (ann := e.get_size_annotation()):
+            e_new = e_new.update(type=LoopIR.Size(ann))
+        return e_new
+
+    def map_e_impl(self, e):
         # If we get a match, then replace it with the known constant right away.
         # No need to run further simplify steps on this node.
         if const := self.is_known_constant(e):
@@ -4092,7 +4106,7 @@ def DoStageMem(
     if all(isinstance(w, LoopIR.expr) for w in w_exprs):
         new_typ = buf_typ.basetype()
     else:
-        new_typ = T.Tensor(shape, False, buf_typ.basetype())
+        new_typ = T.Tensor(shape, False, buf_typ.basetype(), None)
 
     def rewrite_idx(idx):
         assert len(idx) == len(w_exprs)
@@ -4418,7 +4432,7 @@ def DoUnrollBuffer(alloc_cursor, dim):
     new_shape = alloc_stmt.type.shape().copy()
     del new_shape[dim]
     if len(new_shape):
-        new_type = LoopIR.Tensor(new_shape, False, alloc_stmt.type.basetype())
+        new_type = LoopIR.Tensor(new_shape, False, alloc_stmt.type.basetype(), None)
     else:
         new_type = alloc_stmt.type.basetype()
 

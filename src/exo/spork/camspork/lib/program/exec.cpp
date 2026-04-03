@@ -94,6 +94,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
     std::vector<extent_t> tmp_extent;
     std::vector<extent_t> tmp_offset;
     std::vector<barrier_id> tmp_all_barriers;
+    Varname tmp_barrier_name;
     StmtRef current_stmt{};
     bool added_error_remark = false;
 
@@ -279,7 +280,12 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         Logger logger{};
         if constexpr (AllowLog) {
             if constexpr (!std::is_same_v<Node, Fence> && !std::is_same_v<Node, JoinThreads>) {
-                logger.var_str_name = env.str_name(node->name);
+                if constexpr (std::is_same_v<Node, SyncEnvManageRingBuffer>) {
+                    logger.var_str_name = env.str_name(node->buffer);
+                }
+                else {
+                    logger.var_str_name = env.str_name(node->name);
+                }
             }
             logger.p_excut_actions = this->excut_file ? &this->excut_actions : nullptr;
             if (env.history_enable) {
@@ -408,6 +414,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         access.is_write_only = bool(node->access_flags & access_flag_write_only);
         access.initial_qual_bit = node->initial_qual_bit;
         access.extended_qual_bits = node->extended_qual_bits;
+        access.qual_tl_mask = node->qual_tl_mask;
         access.atomic_qual_bits = node->get_atomic_qual_bits();
         access.thread_access_granularity = node->thread_access_granularity;
         access.barrier_count = 0;
@@ -523,6 +530,10 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
                 added_error_remark = true;
                 throw;
             }
+            catch (const SyncvBarrierFail& exc) {
+                on_barrier_fail(exc, stmt_ref, tmp_barrier_name);
+                throw;
+            }
         }
         env.maybe_syncv_debug_validate();
     }
@@ -541,6 +552,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         access.is_write_only = true;  // Only require temporal sync.
         access.initial_qual_bit = 0;
         access.extended_qual_bits = node->extended_qual_bits;
+        access.qual_tl_mask = 0;
         access.atomic_qual_bits = 0;
         access.thread_access_granularity = 1;
         access.barrier_count = 0;
@@ -634,7 +646,13 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
 
         // Pass to SyncvTable.
         const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
-        on_arrive(env.p_syncv_table.get(), thread_cuboid, param, prepare_logger(node, thread_cuboid));
+        try {
+            on_arrive(env.p_syncv_table.get(), thread_cuboid, param, prepare_logger(node, thread_cuboid));
+        }
+        catch (const SyncvBarrierFail& exc) {
+            on_barrier_fail(exc, env.stmt_ref_from_ptr(node), node->name);
+            throw;
+        }
         env.maybe_syncv_debug_validate();
     }
 
@@ -645,12 +663,18 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         // Fill tmp_offset based on the index, and resolve multicasting.
         // callback(slot, linear_idx) is called for each (linearized, C order) position
         // covered by multicasting.
-        const std::vector<extent_t>& extent = slot.extent();
-        const uint32_t dim = node->camspork_vla_size;
-        CAMSPORK_REQUIRE_CMP(dim, ==, extent.size(), "dimension mismatch");
 
         // Evaluate concrete indices (for barriers this is the "home barrier" index).
         eval_tmp_offset(node);
+        eval_multicast(node, slot, callback, tmp_offset);
+    }
+
+    template <typename Node, typename Slot, typename Callback>
+    static void eval_multicast(const Node* node, Slot& slot, Callback&& callback, const std::vector<extent_t>& offset)
+    {
+        const std::vector<extent_t>& extent = slot.extent();
+        const uint32_t dim = node->camspork_vla_size;
+        CAMSPORK_REQUIRE_CMP(dim, ==, extent.size(), "dimension mismatch");
 
         auto recurse = [&] (
                 uint32_t dim_idx, uint32_t partial_idx, uint32_t equality_mask, auto recurse)
@@ -662,7 +686,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
                 return;
             }
             const extent_t extent_coord = extent[dim_idx];
-            const extent_t var_value = tmp_offset[dim_idx];
+            const extent_t var_value = offset[dim_idx];
             const ArriveIdx arrive_idx = node_vla_get(node, dim_idx);
             for (extent_t i = 0; i < extent_coord; ++i) {
                 const uint32_t tmp_mask = (i == var_value) ? ~uint32_t(0) : arrive_idx.multicast_per_expr;
@@ -677,6 +701,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
     {
         // Fill tmp_offset and tmp_all_barriers. Return home barrier.
         VarSlotEntry<barrier_id>& _slot = env.barrier_slot(node->name);
+        tmp_barrier_name = node->name;
 
         // Find all barriers matching at least one BarrierExpr.
         tmp_all_barriers.clear();
@@ -703,7 +728,13 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
 
         // Pass to SyncvTable.
         const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
-        on_await(env.p_syncv_table.get(), thread_cuboid, param, prepare_logger(node, thread_cuboid));
+        try {
+            on_await(env.p_syncv_table.get(), thread_cuboid, param, prepare_logger(node, thread_cuboid));
+        }
+        catch (const SyncvBarrierFail& exc) {
+            on_barrier_fail(exc, env.stmt_ref_from_ptr(node), node->name);
+            throw;
+        }
         env.maybe_syncv_debug_validate();
     }
 
@@ -751,12 +782,164 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         }
     }
 
+    void exec_impl(const SyncEnvManageRingBuffer* node)
+    {
+        const Varname guard_name = node->guard;
+        const Varname buffer_name = node->buffer;
+        const uint32_t buffer_depth = node->buffer_depth;
+        const uint32_t M = node->managed_ring_buffer_dim_idx;
+        const bool self_guarded = guard_name == buffer_name;
+
+        // We use the BarrierEnv state from the guard variable and
+        // the SyncEnv state from the buffer variable. For the purposes of filtering,
+        // we filter based on the SyncEnv state modified, i.e. the buffer variable.
+        if (!single_position_filter.accepts_name(buffer_name)) {
+            return;
+        }
+
+        eval_tmp_offset(node);
+        const std::vector<extent_t> this_idx = tmp_offset;
+        CAMSPORK_REQUIRE_CMP(
+                node->managed_ring_buffer_dim_idx, <, this_idx.size(),
+                "managed_ring_buffer_dim_idx out-of-range"
+        );
+
+        // Set up the to-be-modified window of the buffer's SyncEnv.
+        // This is [this_idx[0], this_idx[1], ..., this_idx[this_idx.size() - 1], :, :, :]
+        // So offset = this_idx, extent = 1 on point dimensions
+        // and offset = 0, extent = buffer_extent[...] on interval (:) dimensions.
+        VarSlotEntry<assignment_record_id>& buffer_slot = env.sync_slot(buffer_name);
+        const auto& buffer_extent = buffer_slot.extent();
+        const size_t buffer_dim = buffer_extent.size();
+        std::vector<extent_t> window_offset(this_idx);
+        std::vector<extent_t> window_extent(this_idx.size(), 1);
+
+        CAMSPORK_REQUIRE_CMP(buffer_extent.size(), >=, this_idx.size(), "Buffer dimensionality lower than guard barrier");
+        for (size_t dim_i = this_idx.size(); dim_i < buffer_extent.size(); ++dim_i) {
+            window_offset.push_back(0);
+            window_extent.push_back(buffer_extent[dim_i]);
+        }
+        AssignmentRecordWindow input;
+        input.base = buffer_slot.data();
+        input.begin_outer_extent = &buffer_extent[0];
+        input.end_outer_extent = &buffer_extent[buffer_dim];
+        input.begin_offset = &window_offset[0];
+        input.end_offset = &window_offset[buffer_dim];
+        input.begin_inner_extent = &window_extent[0];
+        input.end_inner_extent = &window_extent[buffer_dim];
+
+        buffer_slot.idx(window_offset.begin(), window_offset.end());  // Convenient bounds-check helper.
+
+        if (!filter_single_position_input(buffer_name, buffer_slot, &input)) {
+            return;
+        }
+
+        // Figure out the alloc_on_await and free_on_arrive barriers.
+        VarSlotEntry<barrier_id>& guard_slot = env.barrier_slot(guard_name);
+        std::vector<barrier_id> alloc_on_await_barriers;
+        std::vector<extent_t> alloc_on_await_idx = this_idx;
+
+        guard_slot.idx(this_idx.begin(), this_idx.end());  // Convenient bounds & dim check helper
+
+        auto append_barrier = [&alloc_on_await_barriers] (VarSlotEntry<barrier_id>& slot, uint32_t linear_idx)
+        {
+            alloc_on_await_barriers.push_back(slot.data()[linear_idx]);
+        };
+        if (self_guarded) {
+            if (alloc_on_await_idx[M] < buffer_depth) {
+                // Out of bounds, don't init any alloc_on_await_barriers.
+            }
+            else {
+                alloc_on_await_idx[M] -= buffer_depth;
+                eval_multicast(node, guard_slot, append_barrier, alloc_on_await_idx);
+            }
+        }
+        else {
+            eval_multicast(node, guard_slot, append_barrier, alloc_on_await_idx);
+        }
+
+        std::vector<extent_t> free_on_arrive_idx = this_idx;
+        free_on_arrive_idx[M] += buffer_depth;
+        barrier_id free_on_arrive_barrier{};
+        if (self_guarded && free_on_arrive_idx[M] >= guard_slot.extent()[M]) {
+            // Out of bounds, don't init free_on_arrive
+        }
+        else {
+            free_on_arrive_barrier = guard_slot.idx(free_on_arrive_idx.begin(), free_on_arrive_idx.end());
+        }
+
+        // Finally update the syncv_table state.
+        set_managed_ring_buffer_barriers(
+            env.p_syncv_table.get(),
+            node->qual_tl_mask,
+            input,
+            uint32_t(alloc_on_await_barriers.size()),
+            alloc_on_await_barriers.data(),
+            free_on_arrive_barrier,
+            prepare_logger(node, env.prepare_thread_cuboid())
+        );
+    }
+
+    void exec_impl(const SyncEnvFreeManagedRingBuffer* node)
+    {
+        if (!single_position_filter.accepts_name(node->name)) {
+            return;
+        }
+
+        VarSlotEntry<assignment_record_id>& slot = env.sync_slot(node->name);
+        const auto& alloc_extent = slot.extent();
+        const size_t alloc_dim = alloc_extent.size();
+        std::unique_ptr<extent_t[]> p_data(new extent_t[2 * alloc_dim]);
+        extent_t* p_offset = &p_data[0];
+        extent_t* p_inner_extent = &p_data[alloc_dim];
+        for (size_t i = 0; i < alloc_dim; ++i) {
+            p_offset[i] = 0;
+            p_inner_extent[i] = alloc_extent[i];
+        }
+
+        // Prepare input window.
+        AssignmentRecordWindow input;
+        input.base = slot.data();
+        input.begin_outer_extent = &alloc_extent[0];
+        input.end_outer_extent = &alloc_extent[alloc_dim];
+        input.begin_offset = &p_offset[0];
+        input.end_offset = &p_offset[alloc_dim];
+        input.begin_inner_extent = &p_inner_extent[0];
+        input.end_inner_extent = &p_inner_extent[alloc_dim];
+
+        // Prepare debug logger if applicable.
+        const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
+        auto logger = prepare_logger(node, thread_cuboid);
+
+        try {
+            if (!filter_single_position_input(node->name, slot, &input)) {
+                // Skip if instructed to by SinglePositionFilter.
+            }
+            else {
+                on_check_free_on_arrive(env.p_syncv_table.get(), input, logger);
+            }
+        }
+        catch (const SyncvCheckFail& exc) {
+            // Unlike SyncEnvAccessNode, we wrap the error message with free(...)
+            env._syncv_fail_var = node->name;
+            env._syncv_fail_idx = slot.idx_from_linear(exc.linear_index_in_input());
+            std::stringstream s;
+            s << exc.what() << " @ free(" << env.str_name(node->name);
+            print_idx_helper(s, env._syncv_fail_idx);
+            s << ")";
+            env.add_remark(env.stmt_ref_from_ptr(node), s.str());
+            added_error_remark = true;
+            throw;
+        }
+        env.maybe_syncv_debug_validate();
+    }
+
     void exec_impl(const BarrierEnvAlloc* node)
     {
         VarSlotEntry<barrier_id>& slot = env.barrier_slot(node->name);
 
         // This is needed to return memory to the syncv table.
-        // We don't enforce arrive/await equality on this path.
+        // We don't enforce one-shot-arrive/one-shot-await on this path.
         slot.clear_barrier_env(env.p_syncv_table.get(), false);
 
         // Resize if needed.
@@ -764,13 +947,13 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         slot.resize(tmp_extent);
 
         // Allocate new barrier IDs.
-        alloc_barriers(env.p_syncv_table.get(), slot.size(), slot.data());
+        alloc_barriers(env.p_syncv_table.get(), slot.size(), slot.data(), node->flags);
         log_barrier_helper(env.str_name(node->name), slot, {});
         env.maybe_syncv_debug_validate();
     }
 
     void log_barrier_helper(
-            const std::string& var_str_name, const VarSlotEntry<barrier_id>& slot, std::vector<extent_t> idx)
+            const std::string& var_str_name, const VarSlotEntry<barrier_id>& slot, const std::vector<extent_t>& idx)
     {
         // Recursively log newly allocated barriers' IDs.
         const std::vector<extent_t>& extent = slot.extent();
@@ -781,7 +964,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
                     auto p_info = std::make_unique<ExcutBarrierAlloc>();
                     p_info->id = id.data;
                     p_info->name = var_str_name;
-                    p_info->idx = std::move(idx);
+                    p_info->idx = idx;
                     this->excut_actions.emplace_back(std::move(p_info));
                 }
                 if (env.history_enable) {
@@ -800,10 +983,11 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
             }
             else {
                 const uint32_t c = extent[idx.size()];
+                std::vector<extent_t> new_idx = idx;
+                new_idx.push_back(0);
                 for (uint32_t i = 0; i < c; ++i) {
-                    std::vector<extent_t> new_idx = idx;
-                    new_idx.push_back(i);
-                    log_barrier_helper(var_str_name, slot, new_idx);
+                    new_idx.back() = i;
+                    log_barrier_helper(var_str_name, slot, std::move(new_idx));
                 }
             }
         }
@@ -818,7 +1002,13 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
     void exec_impl(const BarrierFree* node)
     {
         VarSlotEntry<barrier_id>& slot = env.barrier_slot(node->name);
-        slot.clear_barrier_env(env.p_syncv_table.get(), true);
+        try {
+            slot.clear_barrier_env(env.p_syncv_table.get(), true);
+        }
+        catch (const SyncvBarrierFail& exc) {
+            on_barrier_fail(exc, env.stmt_ref_from_ptr(node), node->name);
+            throw;
+        }
         env.maybe_syncv_debug_validate();
 
         env.sync_slot(node->name).clear_sync_env(env.p_syncv_table.get());
@@ -968,6 +1158,26 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
                 actions.clear();
             }
         }
+    }
+
+    void on_barrier_fail(const SyncvBarrierFail& exc, StmtRef stmt_ref, Varname barrier_name)
+    {
+        VarSlotEntry<barrier_id>& slot = env.barrier_slot(barrier_name);
+        std::vector<extent_t> idx;
+        const bool found = slot.find_idx(exc.hamster_barrier_id(), idx);
+
+        env._syncv_fail_var = barrier_name;
+        env._syncv_fail_idx = idx;
+        std::stringstream s;
+        s << exc.what() << " @ " << env.str_name(barrier_name);
+        print_idx_helper(s, env._syncv_fail_idx);
+        env.add_remark(stmt_ref, s.str());
+        added_error_remark = true;
+
+        if (!found) {
+            env.add_remark(stmt_ref, "(also, oops, could not translate barrier_id to index)");
+        }
+        throw;
     }
 
     // ******************************************************************************************
@@ -1166,7 +1376,11 @@ void ProgramEnv::syncv_debug_validate()
     for (const VarSlotEnvs& slot : var_slots) {
         const VarSlotEntry<assignment_record_id>* p_sync_env = &slot.sync;
         if (const auto sz = p_sync_env->size()) {
-            inputs.push_back({sz, p_sync_env->data()});
+            inputs.push_back({sz, p_sync_env->data(), nullptr});
+        }
+        const VarSlotEntry<barrier_id>* p_barrier_env = &slot.barrier;
+        if (const auto sz = p_barrier_env->size()) {
+            inputs.push_back({sz, nullptr, p_barrier_env->data()});
         }
     }
     debug_validate_state(p_syncv_table.get(), inputs.size(), inputs.data());

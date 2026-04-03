@@ -10,6 +10,7 @@ from .API import (
     InstrInfo,
     config,
     ExoType,
+    ring_buffer_by,
 )
 from .rewrite.LoopIR_scheduling import SchedulingError
 from .frontend.parse_fragment import ParseFragmentError
@@ -53,4 +54,5 @@ __all__ = [
     "stdlib",
     "ExoType",
     "standalone_thread",
+    "ring_buffer_by",
 ]

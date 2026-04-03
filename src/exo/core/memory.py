@@ -387,6 +387,17 @@ class MemWin(ABC):
         """Do not override; used in the compiler internally"""
         return cls
 
+    @classmethod
+    def get_pre_arrive(cls):
+        return 0
+
+    @classmethod
+    def make_qual_tl_mask(cls):
+        bits = 0
+        for v in cls.qual_tl_dict.values():
+            bits |= Qual_tl.make_bits(v)
+        return bits
+
 
 class AllocableMemWin(MemWin):
     @classmethod
@@ -401,7 +412,7 @@ class AllocableMemWin(MemWin):
 
     @classmethod
     def is_cuda_smem(cls) -> bool:
-        """Somewhat "temporary", for special cases is sync_check and CollAnalysis"""
+        """Somewhat "temporary", for special cases in sync_check and CollAnalysis"""
         return False
 
     """Defines per-instr qual-tl used to access a parameter (value @ mem)
@@ -409,6 +420,9 @@ class AllocableMemWin(MemWin):
     with q = mem.qual_tl_dict[instr_tl] (instr_tl configured per-instr),
     q: List[Qual_tl] is interpreted as initial_qual_tl = q[0], ext_qual_tl = q
     Otherwise, initial_qual_tl = q; ext_qual_tl = [q]
+
+    The qual-tl mask is the union of all qual-tl that are used as a value
+    for any instr-tl key.
 
     NOTE: the qual-tl is evaluated based on the memory type of the
     caller's input (actual parameter), not the memory type declared in
@@ -453,20 +467,21 @@ class BarrierMechanismTraits:
     """
 
     # N = 1 always for an Arrive as of 2025-06-27
-    # N = 0 for Await if neither of the following:
-    non_negative_await_N: bool = False  # Require N >= 0 if true
-    negative_await_N: bool = False  # Require N < 0 if true
-
-    # Each Await stmt for same queue barrier array must use the same N
-    uniform_await_N: bool = False
-
-    different_arrive_await_threads: bool = False
-    requires_guarding: bool = False
-    requires_arrive_first: bool = False
-    supports_guards: bool = False
+    # N >= 0 for Await as of 2026-04-02 Hamster changes
+    zero_await_N: bool = True  # Require N == 0 if true
 
     # Allow : in Arrive trailing queue barrier expr
     supports_arrive_multicast: bool = False
+
+    # All Arrive statements must have the same thread count.
+    consistent_arrive_thread_count: bool = False
+
+    # Sync-check allows exactly one arrive/await in the lifetime
+    # of each barrier array element if the corresponding flag is set.
+    one_shot_arrive: bool = False
+    one_shot_await: bool = False
+
+    negative_await_N: bool = False  # TODO remove
 
 
 class BarrierMechanism(AllocableMemWin):

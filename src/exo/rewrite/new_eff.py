@@ -1277,7 +1277,7 @@ class ContextExtraction:
         assumed = AAnd(*[lift_e(p) for p in self.proc.preds])
         # collect assumptions that size arguments are positive
         pos_sizes = AAnd(
-            *[AInt(a.name) > AInt(0) for a in self.proc.args if a.type == T.size]
+            *[AInt(a.name) > AInt(0) for a in self.proc.args if a.type.is_size()]
         )
         ctrlp = self.ctrlp_stmts(self.proc.body)
         return AAnd(assumed, pos_sizes, ctrlp)

@@ -26,7 +26,7 @@ from .coll_algebra import (
     cuda_agnostic_sub_cta,
     cuda_agnostic_intact_cta,
 )
-from .cuda_memory import CudaBasicDeviceVisible
+from .cuda_memory import CudaBasicDeviceVisible, CudaBasicDeviceBarrier
 from .cuda_warp_config import WarpLayoutInfo
 from .loop_modes import CudaThreads, _CodegenPar
 from .timelines import Qual_tl, Sync_tl
@@ -88,8 +88,6 @@ class CollAnalysis(LoopIR_Rewrite):
     _get_sym_mem: Callable[[Sym], Type[MemWin]]
     # Update __slots__ above if you add more.
 
-    # TODO barrier_usage_analysis only needed to check barrier guarding.
-    # Consider making this an optional feature.
     def __init__(
         self,
         mem_analysis: MemoryAnalysis,
@@ -218,19 +216,17 @@ class CollAnalysis(LoopIR_Rewrite):
             # See WindowExpr case for remove_distributed_idx.
             pass
         elif isinstance(s, LoopIR.Alloc):
+            assert issubclass(s.mem, (CudaBasicDeviceVisible, CudaBasicDeviceBarrier))
+            native_unit = s.mem.native_unit()
+            barrier_multicasts = ()
             if s.type.is_barrier():
-                native_unit = None
-                separate_await = s.mem.traits().different_arrive_await_threads
-            else:
-                assert issubclass(s.mem, CudaBasicDeviceVisible)
-                native_unit = s.mem.native_unit()
-                separate_await = False
+                barrier_multicasts = self._barrier_uses[s.name].Arrive.multicasts
             self.distributed_alloc_states[s.name] = DistributedAllocState(
                 s,
                 self._coll_tiling,
                 native_unit,
                 self._coll_env,
-                separate_await,
+                barrier_multicasts,
             )
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             mem = self._get_sym_mem(s.name)
@@ -268,10 +264,10 @@ class CollAnalysis(LoopIR_Rewrite):
                     self._coll_tiling,
                     (),
                 )
-                # There is no native_unit; we parse all indices as distributed
-                assert state.optional_native_unit is None
                 e0 = s.barriers[0]
                 for i in range(len(e0.idx)):
+                    if fsm.is_done():
+                        break
                     fsm.consume_SyncStmt_idx(
                         state, self._stmt_stack, s, self._envtyp[e0.name], i
                     )
@@ -346,8 +342,6 @@ class CollAnalysis(LoopIR_Rewrite):
         if state is None:
             return  # Allocated outside CUDA, or not numeric
 
-        assert state.optional_native_unit is not None
-
         fsm = DistributedIdxFsm(
             node,
             context_stmt,
@@ -421,9 +415,9 @@ class CollAnalysis(LoopIR_Rewrite):
                 self._coll_tiling,
                 coll_units,
             )
-            # There is no native_unit; we parse all indices as distributed
-            assert state.optional_native_unit is None
             for i in range(len(bar_e.idx)):
+                if fsm.is_done():
+                    break
                 fsm.consume_idx(state, i)
 
             # We now have the distributed indices in distributed_iters.

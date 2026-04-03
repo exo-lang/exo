@@ -7,7 +7,13 @@ namespace camspork {
 #define RETURN_MUTATE_TAGGED(name) \
     const uint32_t idx = static_cast<uint32_t>(mutate_tag); \
     CAMSPORK_REQUIRE_CMP(idx, <, 5, "invalid ExcutMutateTag"); \
-    static const char* table[] = {name "::Read", name "::Mutate", name "::RAW", name "::WAR", name "::WAW"}; \
+    static const char* table[] = { \
+        name "::Read", \
+        name "::Mutate", \
+        name "::RAW", \
+        name "::WAR", \
+        name "::WAW", \
+    }; \
     return table[idx];
 
 const char* ExcutSyncEnvAccess::action_name() const
@@ -32,6 +38,16 @@ const char* ExcutVisRecord::action_name() const
 void ExcutVisRecord::write_args(FILE* file) const
 {
     fprintf(file, "[\"int:%u\"]", id);
+}
+
+const char* ExcutVisRecordFreeOnArrive::action_name() const
+{
+    RETURN_MUTATE_TAGGED("VisRecordFreeOnArrive");
+}
+
+void ExcutVisRecordFreeOnArrive::write_args(FILE* file) const
+{
+    fprintf(file, "[\"int:%u\"]", this->hamster_barrier_id);
 }
 
 const char* ExcutTlSigInterval::action_name() const

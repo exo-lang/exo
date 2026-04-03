@@ -138,7 +138,7 @@ class ProgramPrinter
         print_tabs();
         *this << "b.SyncEnvAccess(" << node->name;
         print_idx(node, true);  // print offset
-        *this << ", " << node->initial_qual_bit << ", " << node->extended_qual_bits;
+        *this << ", " << node->initial_qual_bit << ", " << node->extended_qual_bits << ", " << node->qual_tl_mask;
         using NodeType = std::remove_reference_t<decltype(*node)>;
 
         static_assert(access_flag_all_bits == 15, "update me");
@@ -235,7 +235,7 @@ class ProgramPrinter
         print_tabs();
         *this << "b.ValueEnvAlloc(" << node->name;
         print_idx(node);
-        *this << ")\n";
+        *this << ", flags=" << node->flags << ")\n";
     }
 
     void operator() (const SyncEnvAlloc* node)
@@ -243,7 +243,7 @@ class ProgramPrinter
         print_tabs();
         *this << "b.SyncEnvAlloc(" << node->name;
         print_idx(node);
-        *this << ")\n";
+        *this << ", flags=" << node->flags << ")\n";
     }
 
     void operator() (const ExpectSyncEnvAlloc* node)
@@ -267,7 +267,7 @@ class ProgramPrinter
         print_tabs();
         *this << "b.BarrierEnvAlloc(" << node->name;
         print_idx(node);
-        *this << ")\n";
+        *this << ", flags=" << node->flags << ")\n";
     }
 
     void operator() (const DataFree* node)
@@ -286,6 +286,28 @@ class ProgramPrinter
     {
         print_tabs();
         *this << "b.JoinThreads()\n";
+    }
+
+    void operator() (const SyncEnvManageRingBuffer* node)
+    {
+        print_tabs();
+        *this << "b.SyncEnvManageRingBuffer(";
+        *this << node->qual_tl_mask;
+        *this << ", " << node->guard;
+        print_idx(node);
+        *this << ", " << node->buffer;
+        *this << ", " << node->managed_ring_buffer_dim_idx;
+        *this << ", " << node->buffer_depth;
+        // multicasts: transpose bits in multicast_per_expr to recover this.
+        *this << ", barrier_multicasts=(";
+        print_multicasts(node);
+        *this << "))\n";
+    }
+
+    void operator() (const SyncEnvFreeManagedRingBuffer* node)
+    {
+        print_tabs();
+        *this << "b.SyncEnvFreeManagedRingBuffer(" << node->name << ");\n";
     }
 
     void operator() (const StmtBody* node)

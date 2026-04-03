@@ -56,6 +56,16 @@ struct ExcutVisRecord : ExcutBaseAction
     virtual void write_args(FILE* file) const override;
 };
 
+// TODO use this thing
+struct ExcutVisRecordFreeOnArrive : ExcutBaseAction
+{
+    uint32_t hamster_barrier_id;
+    ExcutMutateTag mutate_tag;
+
+    virtual const char* action_name() const override;
+    virtual void write_args(FILE* file) const override;
+};
+
 struct ExcutTlSigInterval : ExcutBaseAction
 {
     uint32_t tid_lo;

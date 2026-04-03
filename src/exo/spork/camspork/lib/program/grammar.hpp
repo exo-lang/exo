@@ -557,7 +557,7 @@ struct stmt
 {
 };
 
-static constexpr uint32_t NumStmtTypes = 25;
+static constexpr uint32_t NumStmtTypes = 27;
 
 using StmtRef = NodeRef<stmt, NumStmtTypes>;
 
@@ -575,6 +575,7 @@ struct SyncEnvAccessNodeData
     Varname name;
     qual_bits_t initial_qual_bit;
     qual_bits_t extended_qual_bits;
+    qual_bits_t qual_tl_mask;
     uint32_t thread_access_granularity;
     uint32_t access_flags;  // access_flag_mutate must match with IsMutate template parameter (in subclass)
     TrailingBarrierExprRef trailing_barrier_expr;
@@ -605,42 +606,42 @@ struct SyncEnvAccessNode : SyncEnvAccessNodeData<IsWindow, IsMulticast>, CondAto
     static constexpr bool is_mutate = IsMutate;
 };
 
-// SyncEnvReadSingle(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, int thread_access_granularity, bool is_ooo, expr* offset)
+// SyncEnvReadSingle(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, qual_tl* qual_tl_mask, int thread_access_granularity, bool is_ooo, expr* offset)
 using SyncEnvReadSingle = stmt<0>;
 template <>
 struct stmt<0> : SyncEnvAccessNode<false, false, false>
 {
 };
 
-// SyncEnvReadWindow(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, int thread_access_granularity, bool is_ooo, expr* offset, expr* extent)
+// SyncEnvReadWindow(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, qual_tl* qual_tl_mask, int thread_access_granularity, bool is_ooo, expr* offset, expr* extent)
 using SyncEnvReadWindow = stmt<1>;
 template <>
 struct stmt<1> : SyncEnvAccessNode<false, true, false>
 {
 };
 
-// SyncEnvReadMulticast(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, int thread_access_granularity, bool is_ooo, expr* offset, multicast_flag* multicasts)
+// SyncEnvReadMulticast(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, qual_tl* qual_tl_mask, int thread_access_granularity, bool is_ooo, expr* offset, multicast_flag* multicasts)
 using SyncEnvReadMulticast = stmt<2>;
 template <>
 struct stmt<2> : SyncEnvAccessNode<false, false, true>
 {
 };
 
-// SyncEnvMutateSingle(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, qual_tl* atomic_qual_bits, int thread_access_granularity, bool is_ooo, expr* offset)
+// SyncEnvMutateSingle(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, qual_tl* qual_tl_mask, qual_tl* atomic_qual_bits, int thread_access_granularity, bool is_ooo, expr* offset)
 using SyncEnvMutateSingle = stmt<3>;
 template <>
 struct stmt<3> : SyncEnvAccessNode<true, false, false>
 {
 };
 
-// SyncEnvMutateWindow(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, qual_tl* atomic_qual_bits, int thread_access_granularity, bool is_ooo, expr* offset, expr* extent)
+// SyncEnvMutateWindow(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, qual_tl* qual_tl_mask, qual_tl* atomic_qual_bits, int thread_access_granularity, bool is_ooo, expr* offset, expr* extent)
 using SyncEnvMutateWindow = stmt<4>;
 template <>
 struct stmt<4> : SyncEnvAccessNode<true, true, false>
 {
 };
 
-// SyncEnvMutateMulticast(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, qual_tl* atomic_qual_bits, int thread_access_granularity, bool is_ooo, expr* offset, multicast_flag* multicasts)
+// SyncEnvMutateMulticast(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, qual_tl* qual_tl_mask, qual_tl* atomic_qual_bits, int thread_access_granularity, bool is_ooo, expr* offset, multicast_flag* multicasts)
 using SyncEnvMutateMulticast = stmt<5>;
 template <>
 struct stmt<5> : SyncEnvAccessNode<true, false, true>
@@ -709,30 +710,33 @@ struct stmt<10>
     CAMSPORK_NODE_VLA_MEMBER(ExprRef)
 };
 
-// ValueEnvAlloc(Varname name, expr* extent)
+// ValueEnvAlloc(Varname name, uint32_t flags, expr* extent)
 using ValueEnvAlloc = stmt<11>;
 template<>
 struct stmt<11>
 {
     Varname name;
+    uint32_t flags;
     CAMSPORK_NODE_VLA_MEMBER(ExprRef)
 };
 
-// SyncEnvAlloc(Varname name, expr* extent)
+// SyncEnvAlloc(Varname name, uint32_t flags, expr* extent)
 using SyncEnvAlloc = stmt<12>;
 template<>
 struct stmt<12>
 {
     Varname name;
+    uint32_t flags;
     CAMSPORK_NODE_VLA_MEMBER(ExprRef)
 };
 
-// BarrierEnvAlloc(Varname name, expr* extent)
+// BarrierEnvAlloc(Varname name, uint32_t flags, expr* extent)
 using BarrierEnvAlloc = stmt<13>;
 template<>
 struct stmt<13>
 {
     Varname name;
+    uint32_t flags;
     CAMSPORK_NODE_VLA_MEMBER(ExprRef)
 };
 
@@ -846,8 +850,62 @@ struct stmt<24>
     CAMSPORK_NODE_NO_VLA()
 };
 
+// SyncEnvManageRingBuffer(
+//     qual_bits_t qual_tl_mask,
+//     Varname guard,
+//     Varname buffer,
+//     int managed_ring_buffer_dim_idx,
+//     int buffer_depth,
+//     expr* idx,
+//     multicast_flag* multicasts)
+// multicasts[expr_idx][dim_idx] = ArriveIdx[dim_idx][expr_idx]
+//
+// Let V be the vector (0 ... 0, buffer_depth, 0 ... 0)
+// where buffer_depth is on the managed_ring_buffer_dim_idx-th dimension.
+//
+// Let multicast_group(guard[idx]) be the set of barriers referenced by
+// guard[idx] with multicasting on dimensions implied by multicasts.
+// (TODO should define this more clearly in spork_b.pdf)
+//
+// If guard == buffer (self-guarded), then
+//   * alloc_on_await_barriers = multicast_group(guard[idx - V]); empty if out-of-bounds
+//   * buffer_shard = guard[idx]
+//   * free_on_arrive = guard[idx + V]; null if out-of-bounds
+// If guard != buffer, then
+//   * alloc_on_await_barriers = multicast_group(guard[idx])
+//   * buffer_shard = buffer[idx, :...]
+//   * free_on_arrive = guard[idx + V]
+//
+// Each AssignmentRecord in the buffer_shard window is initialized to have the
+// specified free_on_arrive value, and a Mutate VisRecord with an empty visibility
+// set, and PendingAwaits with arrive_count = 0 for each barrier in alloc_on_await_barriers.
+using SyncEnvManageRingBuffer = stmt<25>;
+template<>
+struct stmt<25>
+{
+    qual_bits_t qual_tl_mask;
+    Varname guard;
+    Varname buffer;
+    uint32_t managed_ring_buffer_dim_idx;
+    uint32_t buffer_depth;
+    CAMSPORK_NODE_VLA_MEMBER(ArriveIdx)
+};
+
+// SyncEnvFreeManagedRingBuffer(Varname name)
+//
+// Check that all VisRecord that had free_on_arrive set (by SyncEnvManageRingBuffer)
+// have correctly been freed. This won't occur for VisRecord(s) that failed to
+// sync-with the needed Arrive.
+using SyncEnvFreeManagedRingBuffer = stmt<26>;
+template<>
+struct stmt<26>
+{
+    Varname name;
+    CAMSPORK_NODE_NO_VLA()
+};
+
 // Update this if you add more stmt node types.
-static_assert(NumStmtTypes == 25);
+static_assert(NumStmtTypes == 27);
 
 
 // ******************************************************************************************

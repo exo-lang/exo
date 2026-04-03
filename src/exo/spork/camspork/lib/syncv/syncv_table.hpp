@@ -14,43 +14,52 @@ namespace camspork
 
 struct SyncvTable;
 
-// We record pending barrier awaits as (barrier index, counter) pairs.
-// barrier_index_bits many bits are used for the index,
-// where this is used for a lookup in an internal table.
-// (32 - barrier_index_bits) bits are used for the counter.
-//
-// This limits the number of live barriers and the number of times
-// a barrier can be used. The latter is capped in a real CUDA program
-// by the number of times an mbarrier can be used: pow(2, 20).
-constexpr uint32_t barrier_index_bits = 10;
-constexpr uint32_t max_live_barriers = 1u << barrier_index_bits;
-using pending_await_t = uint32_t;
-
-inline uint32_t pending_await_barrier_index(pending_await_t id)
+struct PendingAwait
 {
-    return id & ((1u << barrier_index_bits) - 1u);
+    barrier_id hamster_barrier_id;
+    int32_t arrive_count;
+
+    bool operator== (PendingAwait other) const
+    {
+        return hamster_barrier_id == other.hamster_barrier_id && arrive_count == other.arrive_count;
+    }
+
+    bool operator!= (PendingAwait other) const
+    {
+        return !(*this == other);
+    }
+};
+
+inline bool operator< (PendingAwait lhs, barrier_id rhs) { return lhs.hamster_barrier_id < rhs; }
+inline bool operator< (barrier_id lhs, PendingAwait rhs) { return lhs < rhs.hamster_barrier_id; }
+inline bool operator< (PendingAwait lhs, PendingAwait rhs) { return lhs.hamster_barrier_id < rhs.hamster_barrier_id; }
+inline bool operator== (barrier_id lhs, PendingAwait rhs) { return lhs == rhs.hamster_barrier_id; }
+inline bool operator== (PendingAwait lhs, barrier_id rhs) { return lhs.hamster_barrier_id == rhs; }
+inline bool operator!= (barrier_id lhs, PendingAwait rhs) { return lhs != rhs.hamster_barrier_id; }
+inline bool operator!= (PendingAwait lhs, barrier_id rhs) { return lhs.hamster_barrier_id != rhs; }
+
+// Adapters for old code using pre-Hamster barriers.
+using pending_await_t = PendingAwait;
+
+inline uint32_t pending_await_barrier_index(PendingAwait id)
+{
+    return id.hamster_barrier_id.data;
 }
 
-inline int32_t pending_await_arrive_count(pending_await_t id)
+inline int32_t pending_await_arrive_count(PendingAwait id)
 {
-    return int32_t(id >> barrier_index_bits);
+    return id.arrive_count;
 }
 
-inline pending_await_t pack_pending_await(uint32_t barrier_index, int32_t arrive_count)
+inline PendingAwait pack_pending_await(uint32_t barrier_index, int32_t arrive_count)
 {
-    const uint32_t id = barrier_index | uint32_t(arrive_count) << barrier_index_bits;
-    CAMSPORK_REQUIRE_CMP(pending_await_barrier_index(id), ==, barrier_index, "implementation limit: barrier_index overflow");
-    CAMSPORK_REQUIRE_CMP(pending_await_arrive_count(id), ==, arrive_count, "implementation limit: arrive_count overflow");
-    return id;
+    return PendingAwait{barrier_id{barrier_index}, arrive_count};
 }
-
-// Use signed values for arrive_count.
-inline pending_await_t pack_pending_await(uint32_t barrier_index, uint32_t arrive_count) = delete;
 
 struct VisRecordDebugData
 {
     std::vector<TlSigInterval> visibility_set;
-    std::vector<pending_await_t> pending_await_list;
+    std::vector<PendingAwait> pending_await_list;
 };
 
 // Window into a multidimensional array of assignment records.
@@ -81,6 +90,7 @@ struct SyncvAccessInfo
     qual_bits_t initial_qual_bit;
     qual_bits_t extended_qual_bits;
     qual_bits_t atomic_qual_bits;
+    qual_bits_t qual_tl_mask;
 
     // thread_access_granularity is for out-of-order non-convergent abstract machine optimization.
     //
@@ -113,8 +123,12 @@ struct SyncvAccessInfo
 
 struct SyncvDebugValidateInput
 {
+    // For memory leak checking, we need to know what are the root objects from outside the syncv_table.
+    // The type of array passed here is based on which pointer is not null.
+    // Sloppy, replace if we have 3 or more types.
     size_t size;
     const assignment_record_id* p_records;
+    const barrier_id* p_barriers;
 };
 
 struct SyncvLogRequest;
@@ -162,9 +176,27 @@ void on_rw(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccess
 void on_rw(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, const SyncvLogRequest&);
 void on_check_free(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, decltype(nullptr) = nullptr);
 void on_check_free(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, const SyncvLogRequest&);
+void set_managed_ring_buffer_barriers(
+        SyncvTable*,
+        qual_bits_t,
+        AssignmentRecordWindow,
+        uint32_t alloc_on_await_count,
+        const barrier_id* alloc_on_await_barriers,
+        barrier_id free_on_arrive,
+        decltype(nullptr) = nullptr);
+void set_managed_ring_buffer_barriers(
+        SyncvTable*,
+        qual_bits_t,
+        AssignmentRecordWindow,
+        uint32_t alloc_on_await_count,
+        const barrier_id* alloc_on_await_barriers,
+        barrier_id free_on_arrive,
+        const SyncvLogRequest&);
+void on_check_free_on_arrive(SyncvTable*, AssignmentRecordWindow, decltype(nullptr) = nullptr);
+void on_check_free_on_arrive(SyncvTable*, AssignmentRecordWindow, const SyncvLogRequest&);
 
 void clear_visibility(SyncvTable* table, size_t N, assignment_record_id* array);
-void alloc_barriers(SyncvTable* table, size_t N, barrier_id* barriers);
+void alloc_barriers(SyncvTable* table, size_t N, barrier_id* barriers, uint32_t flags);
 void free_barriers(SyncvTable* table, size_t N, barrier_id* barriers, bool check_arrive_await);
 void on_fence(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvFence& fence, const SyncvLogRequest&);
 void on_fence(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvFence& fence, decltype(nullptr) = nullptr);

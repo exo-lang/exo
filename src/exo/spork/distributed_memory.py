@@ -24,6 +24,16 @@ from .sync_types import SyncType
 from .base_with_context import is_if_holding_with
 
 
+@dataclass(slots=True)
+class CodegenCtaInfo:
+    # Each distributed dimension of the mbarrier BarrierExpr
+    # that is not of extent 1 gets converted to a CodegenCtaInfo.
+    # The BarrierExpr is encoded as multicast_flags: List[bool]
+    is_multicast: bool
+    cta_count: int
+    cta_pitch: int
+
+
 @dataclass(slots=True, init=False)
 class ThreadIter:
     """Information for an iter variable from a for-threads parallel loop (cuda_threads), or rewritten CudaWarps"""
@@ -115,38 +125,36 @@ class DistributedAllocState(object):
     alloc_stmt: LoopIR.Alloc | LoopIR.SyncStmt
     alloc_type: LoopIR.type
 
-    # CollTiling at the point of the Exo object code allocation
+    # CollTiling at the point of the Exo object code allocation, or Fence.
     alloc_coll_tiling: CollTiling
 
     # Target native unit; we want to have one distributed shard resident
     # in each active native-unit-shaped thread collective.
-    # If not specified, we want to have one distributed shard resident
-    # in each thread collective at the usage site (i.e. no sharing).
-    optional_native_unit: Optional[CollUnit]
+    # Omitted for Fences only (this used to be so for all barriers, but not anymore).
+    native_unit: Optional[CollUnit]
 
-    # Information for Arrive/Await statements.
-    sync_coll_tiling: Optional[CollTiling]
+    # Set if BarrierMechanismTraits.consistent_arrive_thread_count
+    arrive_thread_count: Optional[int]
 
-    # Special case, if this state is for a barrier variable that supports
-    # different_arrive_await_threads, the top-level state object records
-    # only Arrive usages, and this sub-object records Await usages.
-    # TODO this is a really hacky solution.
-    separate_await_state: Optional["DistributedAllocState"]
+    # For barrier types
+    barrier_multicasts: Tuple[Tuple[bool, ...], ...]
 
     def __init__(
         self,
         alloc_stmt: LoopIR.stmt,
         coll_tiling: CollTiling,
-        optional_native_unit: Optional[CollUnit],
+        native_unit: CollUnit,
         env: Dict[CollParam, int],
-        separate_await: bool,
+        barrier_multicasts: Tuple[Tuple[bool, ...], ...],
     ):
         assert isinstance(coll_tiling, CollTiling)
-        if optional_native_unit is not None:
-            assert isinstance(optional_native_unit, CollUnit)
-            assert not optional_native_unit.agnostic, optional_native_unit
+        if native_unit is None:
+            self.alloc_coll_tiling = coll_tiling
+        else:
+            assert isinstance(native_unit, CollUnit)
+            assert not native_unit.agnostic, native_unit
             tmp = coll_tiling
-            tmp = tmp.unit_completion(optional_native_unit, env)
+            tmp = tmp.unit_completion(native_unit, env)
             box = tmp.get_box()
             expected_box = tmp.get_expected_box()
             assert len(box) == len(expected_box)
@@ -156,13 +164,11 @@ class DistributedAllocState(object):
                 ), "shouldn't happen for non-agnostic unit and partial_prepend=1"
                 if expect_c > 1 and box[i] != expect_c:
                     raise CollTilingError(
-                        f"Missing threads to match {optional_native_unit}\n"
+                        f"Missing threads to match {native_unit}\n"
                         f"domain={tmp.get_domain()}, box={box}; expected box={expected_box} (wrong @ box[{i}])\n"
                         f"Analyzing usage of {alloc_stmt}"
                     )
             self.alloc_coll_tiling = tmp
-        else:
-            self.alloc_coll_tiling = coll_tiling
         self.first_usage_stmt = None
         self.first_distributed_iters = []
         self.first_usage_coll_tiling = None
@@ -172,21 +178,17 @@ class DistributedAllocState(object):
         else:
             assert isinstance(alloc_stmt, LoopIR.SyncStmt)
             self.alloc_type = T.barrier
-        self.optional_native_unit = optional_native_unit
-        self.sync_coll_tiling = None
-
-        # Done last: initialize separate_await_state with a copy of self
-        # if appropriate for the barrier mechanism (which is handled outside).
-        self.separate_await_state = None
-        if separate_await:
-            self.separate_await_state = DistributedAllocState(
-                alloc_stmt, coll_tiling, optional_native_unit, env, False
-            )
+        self.native_unit = native_unit
+        self.arrive_thread_count = None
+        self.barrier_multicasts = barrier_multicasts
+        assert all(
+            all(isinstance(f, bool) for f in flags) for flags in barrier_multicasts
+        )
 
     def n_distributed_dims(self) -> int:
         return len(self.first_distributed_iters)
 
-    def shard_type(self) -> LoopIR.type:
+    def get_shard_type(self) -> LoopIR.type:
         n = self.n_distributed_dims()
         s = self.alloc_stmt
         assert isinstance(s, LoopIR.Alloc)
@@ -209,20 +211,10 @@ class DistributedAllocState(object):
                 typ = typ.update(hi=typ.hi[n:])
         return typ
 
-    def get_arrive(self) -> Optional[CollTiling]:
-        # TODO should be get_arrive_coll_tiling
-        return self.sync_coll_tiling
-
-    def get_arrive_state(self):
-        return self
-
-    def get_await(self) -> Optional[CollTiling]:
-        # TODO should be get_await_coll_tiling
-        state = self.separate_await_state or self
-        return state.sync_coll_tiling
-
-    def get_await_state(self):
-        return self.separate_await_state or self
+    def get_arrive_thread_count(self) -> int:
+        count = self.arrive_thread_count
+        assert isinstance(count, int), count
+        return count
 
     def get_distributed_extents(self) -> Tuple[int]:
         return tuple(
@@ -266,81 +258,33 @@ class DistributedAllocState(object):
     @staticmethod
     def from_fence(s: LoopIR.SyncStmt, coll_tiling: CollTiling):
         assert not s.sync_type.is_split()
-        result = DistributedAllocState(s, coll_tiling, None, None, False)
+        result = DistributedAllocState(s, coll_tiling, None, None, ())
         result.first_usage_stmt = s
-        result.sync_coll_tiling = coll_tiling
         return result
 
-    def codegen_slices_to_root(
-        self,
-        hi_thread_pitch: int,
-        thread_iters: Dict[Sym, ThreadIter],
-        distributed_iters: Optional[List[Optional[Sym]]] = None,
-    ):
-        """Function needed to codegen mbarriers and mbarrier-like objects.
+    def _codegen_cta_info(
+        self, blockDim: int, thread_iters: Dict[Sym, ThreadIter], multicast_flags
+    ) -> List[CodegenCtaInfo]:
+        result = []
+        cta_iters: List[Sym] = self.first_distributed_iters
+        assert len(cta_iters) <= len(multicast_flags)
+        for iter_name, is_multicast in zip(cta_iters, multicast_flags):
+            # Unlike most zips, implicit truncation of multicast_flags is desired.
+            # We only care to inspect the indices on distributed dimensions.
+            iter_name: Sym
+            thread_iter = thread_iters.get(iter_name)
+            thread_iter: ThreadIter
+            assert isinstance(thread_iter, ThreadIter)
+            cta_count = thread_iter.tile_count
 
-        Ignoring clusters, we need to generate a unique index for each
-        logically-separate mbarrier object to put in shared memory.
-        This is based on the explicit distributed indices, plus thread
-        iterators between the point-of-allocation of the barrier and
-        the CollTiling root. e.g.
+            if cta_count == 1:
+                continue
 
-        for i0 in cuda_threads(0, 2, unit=cuda_warpgroup):  # implicit
-            bar : barrier[4] @ CudaMbarrier
-            for i1 in cuda_threads(0, 4, unit=cuda_warp):  # explicit
-                Arrive(cuda_classic, 1) >> bar[i1]
-
-        We need a total of 8 mbarriers for all i0 x i1 combinations, i0
-        being the implicit to-root index and i1 the explicit distributed index.
-
-        This needs to ignore tiling in the CTA-in-cluster dimension, so we
-        ignore iterators that have a thread pitch >= hi_thread_pitch.
-        (intended usage hi_thread_pitch=blockDim, but I generalize this here)
-
-        If distributed_iters is given, return C++ index expr: str
-        Else, return the total number of slices: int.
-
-        """
-        count = 1
-        prods = []
-
-        def handle_idx(nm, ext):
-            nonlocal count
-            info = thread_iters[nm]
-            if 0 < info.thread_pitch < hi_thread_pitch:
-                assert ext >= 1
-                if ext > 1:
-                    cname = info.cname(nm.name())
-                    if count == 1:
-                        prods.append(cname)
-                    else:
-                        prods.append(f"{count}*{cname}")
-                    count *= ext
-
-        # Handle explicit indices (given in index expression)
-        tmp_iters = (
-            self.first_distributed_iters
-            if distributed_iters is None
-            else distributed_iters
-        )
-        distributed_extents = self.get_distributed_extents()
-        assert len(tmp_iters) == len(distributed_extents)
-        for nm, ext in zip(reversed(tmp_iters), reversed(distributed_extents)):
-            if nm is not None:
-                handle_idx(nm, ext)
-
-        # Handle implicit indices; relevant cuda_threads iterators
-        # from the allocation point up to the root of the CudaDeviceFunction.
-        for op in self.alloc_coll_tiling.get_dim_ops():
-            op: CollDimOp
-            if op.tile_count > 1:
-                handle_idx(op.iter, op.tile_count)
-
-        # Return either typed result, as specified by the docstring.
-        if distributed_iters is None:
-            return count
-        else:
-            return " + ".join(prods) if prods else "0"
+            cta_pitch = thread_iter.thread_pitch // blockDim
+            assert cta_pitch >= 1
+            assert cta_pitch * blockDim == thread_iter.thread_pitch
+            result.append(CodegenCtaInfo(is_multicast, cta_count, cta_pitch))
+        return result
 
     def cta_xor_list(
         self, blockDim: int, thread_iters: Dict[Sym, ThreadIter], sync_info: SyncInfo
@@ -357,25 +301,18 @@ class DistributedAllocState(object):
         multicasts = sync_info.multicasts
         mask_bits = 0
         iterators: List[Sym] = self.first_distributed_iters
+
         for multicast_flags in multicasts:
-            assert len(multicast_flags) == len(iterators)
+            info_list = self._codegen_cta_info(blockDim, thread_iters, multicast_flags)
             tmp_bits = 1
-            for flag, sym in zip(multicast_flags, iterators):
-                if flag:
-                    info = thread_iters[sym]
-                    thread_pitch = info.thread_pitch
-                    cta_count = info.tile_count
-                    if cta_count >= 2:
-                        if thread_pitch % blockDim != 0:
-                            raise ValueError(
-                                f"{stmt.srcinfo}: {sym} thread_pitch {thread_pitch} not divisible by blockDim ({blockDim}); cannot be multicast (in {stmt})"
-                            )
-                        cta_pitch = thread_pitch // blockDim
-                        new_bits = 0
-                        for n in range(cta_count):
-                            new_bits |= tmp_bits << (n * cta_pitch)
-                        tmp_bits = new_bits
+            for info in info_list:
+                if info.is_multicast:
+                    new_bits = 0
+                    for n in range(info.cta_count):
+                        new_bits |= tmp_bits << (n * info.cta_pitch)
+                    tmp_bits = new_bits
             mask_bits |= tmp_bits
+
         xor_list = [
             bit_index
             for bit_index in range(mask_bits.bit_length())
@@ -386,25 +323,24 @@ class DistributedAllocState(object):
         return xor_list
 
     def codegen_cta_mask(
-        self, blockDim: int, thread_iters: Dict[Sym, ThreadIter], e: LoopIR.BarrierExpr
+        self,
+        blockDim: int,
+        thread_iters: Dict[Sym, ThreadIter],
+        multicast_flags: List[bool],
     ) -> str:
-        """Translate BarrierExpr to CTA mask"""
-        assert isinstance(e, LoopIR.BarrierExpr)
+        """Translate BarrierExpr's multicast_flags to CTA mask
+
+        CAUTION: this must be sourced from before the cuda_backend strips
+        distributed dimensions. So ideally from sync_info.multicasts.
+
+        """
         base_num = 1
         shift_mask = 0
-        iterators: List[Sym] = self.first_distributed_iters
-        flags = e.multicast_flags()
-        assert len(iterators) == len(flags)
-        for multicast, sym in zip(flags, iterators):
-            info = thread_iters[sym]
-            thread_pitch = info.thread_pitch
-            if thread_pitch < blockDim:
-                # thread_pitch = 0: [0, 1] interval has no effect on CTA mask
-                # 0 < thread_pitch < blockDim: non-CTA index has no effect on CTA
-                continue
-            cta_count = info.tile_count
-            cta_pitch = thread_pitch // blockDim
-            assert cta_pitch * blockDim == thread_pitch
+        flags = multicast_flags
+
+        for info in self._codegen_cta_info(blockDim, thread_iters, flags):
+            cta_count = info.cta_count
+            cta_pitch = info.cta_pitch
             assert cta_count >= 2
 
             # CUDA model fundamentally assumes power-of-2 CTA counts
@@ -413,7 +349,7 @@ class DistributedAllocState(object):
             assert cta_count == 1 << cta_count_log2
             assert cta_pitch == 1 << cta_pitch_log2
 
-            if multicast:
+            if info.is_multicast:
                 tmp = 1
                 for i in range(1, cta_count):
                     tmp = (tmp << cta_pitch) | 1
@@ -468,6 +404,7 @@ class DistributedIdxFsm:
     # Environments from compiler
     loop_mode_name: str  # Expected LoopMode for thread iterators
     thread_iters: Dict[Sym, ThreadIter]
+    coll_env: Dict[CollParam, int]
 
     def __init__(
         self,
@@ -494,12 +431,13 @@ class DistributedIdxFsm:
         self.callee_distributed_idx = 0
         self.distributed_iters = []
         self.usage_coll_tiling = coll_tiling_here  # changed later
+        self.coll_env = coll_env
 
         # Complete the collective tiling for the given native unit, if supplied.
         tiling = coll_tiling_here
-        native_unit = state.optional_native_unit
-        if native_unit is not None:
-            tiling = tiling.unit_completion(native_unit, coll_env)
+        native_unit = state.native_unit
+        assert isinstance(native_unit, CollUnit)
+        tiling = tiling.unit_completion(native_unit, coll_env)
 
         # If the usage is as a parameter of an instr where the instruction
         # expects multiple shards, we need to tile the usage_coll_tiling
@@ -535,24 +473,23 @@ class DistributedIdxFsm:
             tiling = tiling.tiled(_iter, unit, const_extent, coll_env)
             thread_iters[_iter] = ThreadIter(tiling)
 
-        # If a native unit is provided, we need to make sure that the CollTiling
+        # For the native unit provided, we need to make sure that the CollTiling
         # is sufficiently subdivided to match. This is the complement to
         # inside DistributedAllocState where we checked full dimensions instead
         # of subdivided (here it's okay if those dimensions are now partial).
-        if native_unit is not None:
-            box = tiling.get_box()
-            expected_box = tiling.get_expected_box()
-            assert len(box) == len(expected_box)
-            for i, expect_c in enumerate(expected_box):
-                assert (
-                    expect_c is not None
-                ), "shouldn't happen for non-agnostic unit and partial_prepend=1"
-                if expect_c == 1 and box[i] != 1:
-                    raise CollTilingError(
-                        f"Missing subdivision on dims[{i}] to match {native_unit}\n"
-                        f"domain={tiling.get_domain()}, box={box}; expected box={expected_box}\n"
-                        f"Analyzing usage of {state.alloc_stmt}"
-                    )
+        box = tiling.get_box()
+        expected_box = tiling.get_expected_box()
+        assert len(box) == len(expected_box)
+        for i, expect_c in enumerate(expected_box):
+            assert (
+                expect_c is not None
+            ), "shouldn't happen for non-agnostic unit and partial_prepend=1"
+            if expect_c == 1 and box[i] != 1:
+                raise CollTilingError(
+                    f"Missing subdivision on dims[{i}] to match {native_unit}\n"
+                    f"domain={tiling.get_domain()}, box={box}; expected box={expected_box}\n"
+                    f"Analyzing usage of {state.alloc_stmt}"
+                )
 
         # Take a census of all distributed iterator indices we expect to see.
         # If no native unit, this is all non-trivial (tile_count > 1) iterators
@@ -705,10 +642,6 @@ class DistributedIdxFsm:
         make the mutation more explicit at the call site.
 
         """
-        if state.separate_await_state is not None:
-            sync = self.context_stmt
-            if isinstance(sync, LoopIR.SyncStmt) and sync.sync_type.is_await():
-                return self.check_store_state(state.separate_await_state)
 
         missing = [
             _iter for _iter, needed in self.distributed_iters_needed.items() if needed
@@ -733,10 +666,9 @@ class DistributedIdxFsm:
         msg = state.thread_pitch_mismatch(thread_iters, second_distributed_iters)
 
         if msg is None:
-            if state.optional_native_unit is not None:
-                msg = first_usage_coll_tiling.base_mismatch(
-                    second_usage_coll_tiling, subdiv_only=True
-                )
+            msg = first_usage_coll_tiling.base_mismatch(
+                second_usage_coll_tiling, subdiv_only=True
+            )
 
         if msg is not None:
             s1 = state.first_usage_stmt
@@ -774,12 +706,8 @@ class DistributedIdxFsm:
         """Subsequent to check_store_state, for non-Fence SyncStmts,
         we additionally check requirements for the collective tiling
 
-        * Equivalent CollTiling for same action on same queue barrier array.
-          action = Arrive/Await
-        * If the barrier type has a guarding requirement, additionally,
-          check equivalent CollTilings for matched Arrive/Await.
-        * If the barrier type requires the same threads for Arrive/Await,
-          check equivalent CollTilings for same-barrier Arrive/Await.
+        * Check correct Arrive/Await collective unit.
+        * Check & store equivalent thread counts for all Arrive, if applicable.
 
         Equivalent here means an identical thread pitch tuple
         and base thread equality between the CollTiling recorded.
@@ -788,79 +716,43 @@ class DistributedIdxFsm:
         assert isinstance(sync, LoopIR.SyncStmt)
         assert sync is self.context_stmt
         nm = sync.barriers[0].name
+        barrier_usage: BarrierUsage
         barrier_usage = get_barrier_usage(nm)
         state = get_state(nm)
+        barrier_mechanism = barrier_usage.barrier_mechanism
+        traits = barrier_mechanism.traits()
 
-        # separate_await_state should be initialized iff the barrier mechanism
-        # supports different thread sets for Arrive and Await.
-        # fmt: off
-        assert (state.separate_await_state is None) == (not barrier_usage.barrier_mechanism.traits().different_arrive_await_threads)
-        # fmt: on
-
-        if sync.sync_type.is_arrive():
-            state = state.get_arrive_state()
-        else:
-            state = state.get_await_state()
-
-        return self._inspect_arrive_await_impl(
-            sync, coll_tiling, thread_iters, barrier_usage, state, get_state
-        )
-
-    def _inspect_arrive_await_impl(
-        self,
-        sync: LoopIR.SyncStmt,
-        coll_tiling: CollTiling,
-        thread_iters: Dict[Sym, ThreadIter],
-        barrier_usage: BarrierUsage,
-        state: DistributedAllocState,
-        get_state: Callable[[Sym], Optional[DistributedAllocState]],
-    ):
         nm = sync.barriers[0].name
         assert isinstance(barrier_usage, BarrierUsage)
         assert isinstance(state, DistributedAllocState)
 
-        # We will update state.sync_coll_tiling after the checks
         sync_type = sync.sync_type
         assert sync_type.is_split()
 
-        # DistributedAllocState that need to be equivalent
-        to_check: List[Tuple[DistributedAllocState, str]] = []
-
-        if state.sync_coll_tiling is None:
-            # Only set the first time.
-            # This way subsequent mismatches will be detected.
-            state.sync_coll_tiling = coll_tiling
-        else:
-            # Will check equivalence with previous stmt
-            f_text = str(state.first_usage_stmt)
-            to_check.append((state, f_text))
-
-        if barrier_usage.barrier_mechanism.traits().requires_guarding:
-            # Will check equivalence with previous stmt of matched sync type
-            if sync_type.is_arrive():
-                guarded_by = barrier_usage.guarded_by
-                f_text = f"Await({guarded_by}, ...) [guarded_by]"
-                other_state = get_state(guarded_by).get_await_state()
-            else:
-                guards = barrier_usage.guards
-                f_text = f"Arrive(...) >> {guards} [guards]"
-                other_state = get_state(guards).get_arrive_state()
-            if other_state.sync_coll_tiling is not None:
-                to_check.append((other_state, f_text))
-
-        # Check equivalence; subdiv_only=False case is stricter, checking perfect
-        # equality of all executing thread sets.
-        for old_state, f_text in to_check:
-            old_coll_tiling = old_state.sync_coll_tiling
-            if msg := old_state.thread_pitch_mismatch(
-                thread_iters, state.first_distributed_iters
-            ):
+        if sync_type.is_arrive():
+            assert sync.multicasts() == state.barrier_multicasts
+            unit = barrier_mechanism.arrive_coll_unit()
+            if msg := coll_tiling.unit_mismatch(unit, self.coll_env):
                 raise ValueError(
-                    f"{sync.srcinfo}: {sync} has inconsistent thread pitch with previous {f_text}:\n{msg}"
+                    f"{sync.srcinfo}: {sync} @ {barrier_mechanism.name()} requires {unit}: {msg}"
                 )
-            if msg := old_coll_tiling.base_mismatch(coll_tiling, subdiv_only=False):
+            if traits.consistent_arrive_thread_count:
+                this_count = coll_tiling.get_box_num_threads()
+                prev_count = state.arrive_thread_count
+                if prev_count is None:
+                    state.arrive_thread_count = this_count
+                else:
+                    if prev_count != this_count:
+                        raise ValueError(
+                            f"{sync.srcinfo}: {sync} @ {barrier_mechanism.name()} has "
+                            f"inconsistent thread count, {this_count} here, "
+                            f"previously {prev_count}"
+                        )
+        else:
+            unit = barrier_mechanism.await_coll_unit()
+            if msg := coll_tiling.unit_mismatch(unit, self.coll_env):
                 raise ValueError(
-                    f"{sync.srcinfo}: {sync} has inconsistent collective tiling with previous {f_text}: {msg}"
+                    f"{sync.srcinfo}: {sync} @ {barrier_mechanism.name()} requires {unit}: {msg}"
                 )
 
     def bad_idx(self, node, msg):

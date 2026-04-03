@@ -2,6 +2,7 @@ from ..core.memory import *
 
 from ..core.extern import Extern_Typecheck_Error
 from ..core.prelude import Sym
+from ..core.size_annotation import NoSizeAnnotation
 from ..spork.base_with_context import BaseWithContext
 
 from ..core.LoopIR import (
@@ -47,7 +48,7 @@ def check_call_types(err_handler, args, call_args):
     for call_a, sig_a in zip(args, call_args):
         if call_a.type == T.err:
             pass
-        elif sig_a.type is T.size or sig_a.type is T.index:
+        elif sig_a.type.is_size() or sig_a.type is T.index:
             if not call_a.type.is_indexable():
                 err_handler(
                     call_a,
@@ -393,7 +394,10 @@ class TypeChecker:
                 )
             args = [
                 self.check_e(
-                    call_a, is_index=sig_a.type in (T.size, T.index, T.stride, T.bool)
+                    call_a,
+                    is_index=isinstance(
+                        sig_a.type, (T.Size, T.Index, T.Stride, T.Bool)
+                    ),
                 )
                 for call_a, sig_a in zip(stmt.args, stmt.f.args)
             ]
@@ -431,7 +435,12 @@ class TypeChecker:
 
             return LoopIR.Interval(lo, hi, e.srcinfo)
 
-    def check_e(self, e, is_index=False, allow_special_window=False):
+    def check_e(
+        self, e, is_index=False, allow_special_window=False, is_ring_guarded_by=False
+    ):
+        if is_ring_guarded_by and not isinstance(e, UAST.BarrierExpr):
+            self.err(e, f"ring_guarded_by mult be a BarrierExpr")
+            return LoopIR.BarrierExpr(Sym("error"), [], T.err, e.srcinfo)
         if isinstance(e, UAST.Read):
             typ = self.env[e.name]
             # if we only partially accessed the base tensor/window,
@@ -461,7 +470,7 @@ class TypeChecker:
                 )
                 return LoopIR.BarrierExpr(e.name, [], T.err, e.srcinfo)
             in_shape = in_typ.shape()
-            if len(in_shape) != len(e.idx):
+            if (0 if is_ring_guarded_by else len(in_shape)) != len(e.idx):
                 self.err(
                     e,
                     f"expected {len(in_shape)} indices for BarrierExpr "
@@ -625,8 +634,8 @@ class TypeChecker:
                     else:  # + or -
                         if lhs.type == T.index or rhs.type == T.index:
                             typ = T.index
-                        elif lhs.type == T.size or rhs.type == T.size:
-                            typ = T.size
+                        elif lhs.type.is_size() and rhs.type.is_size():
+                            typ = T.plain_size
                         else:
                             typ = T.int
 
@@ -684,37 +693,39 @@ class TypeChecker:
 
     def check_t(self, node, typ):
         def check_hi():
+            if isinstance(node, UAST.Alloc):
+                size_annotations = node.zip_size_annotations
+            else:
+                size_annotations = [None] * len(typ.hi)
+            assert len(size_annotations) == len(typ.hi)
             hi = [self.check_e(h, is_index=True) for h in typ.hi]
-            for h in hi:
+            for dim_idx, h in enumerate(hi):
                 if not h.type.is_indexable():
                     self.err(
                         h,
                         "expected array size expression "
                         "to have type 'size' or type 'index'",
                     )
+                if ann := size_annotations[dim_idx]:
+                    hi[dim_idx] = h.update(type=LoopIR.Size(ann))
             return hi
 
         if type(typ) in TypeChecker._typ_table:
             return TypeChecker._typ_table[type(typ)]
+        elif isinstance(typ, UAST.Size):
+            return T.Size(None)
         elif isinstance(typ, UAST.Bool):
             return T.bool
         elif isinstance(typ, UAST.Tensor):
+            ring_guarded_by = typ.ring_guarded_by
+            if ring_guarded_by is not None:
+                ring_guarded_by = self.check_e(ring_guarded_by, is_ring_guarded_by=True)
             sub_typ = self.check_t(node, typ.type)
-            return T.Tensor(check_hi(), typ.is_window, sub_typ)
+            return T.Tensor(check_hi(), typ.is_window, sub_typ, ring_guarded_by)
         elif isinstance(typ, UAST.Barrier):
-            guarded_by = typ.guarded_by
-            if guarded_by is not None:
-                if isinstance(node, UAST.Alloc) and node.name == guarded_by:
-                    self.err(
-                        node,
-                        f"barrier({guarded_by}): {guarded_by} must not reference itself",
-                    )
-                    guarded_by = None
-                elif not self.env[guarded_by].is_barrier():
-                    self.err(
-                        node, f"barrier({guarded_by}): {guarded_by} must name a barrier"
-                    )
-                    guarded_by = None
-            return T.Barrier(guarded_by, check_hi())
+            ring_guarded_by = typ.ring_guarded_by
+            if ring_guarded_by is not None:
+                ring_guarded_by = self.check_e(ring_guarded_by, is_ring_guarded_by=True)
+            return T.Barrier(ring_guarded_by, check_hi())
         else:
             assert False, "bad case"

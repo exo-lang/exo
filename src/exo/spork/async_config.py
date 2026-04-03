@@ -53,6 +53,7 @@ class CudaDeviceFunction(BaseAsyncConfig):
         "_warp_config_arg",
         "named_warps",
         "setmaxnreg_is_inc",
+        "unsafe_no_shutdown_cluster_sync",
     ]
 
     blockDim: int
@@ -63,6 +64,7 @@ class CudaDeviceFunction(BaseAsyncConfig):
     # Census of CudaWarpConfig setmaxnreg requests, and whether that register
     # count corresponds to setmaxnreg.inc (or setmaxnreg.dec)
     setmaxnreg_is_inc: Dict[int, bool]
+    unsafe_no_shutdown_cluster_sync: bool
 
     def __init__(
         self,
@@ -70,6 +72,7 @@ class CudaDeviceFunction(BaseAsyncConfig):
         clusterDim: int = 1,
         blocks_per_sm: int = 1,
         warp_config: Optional[List[CudaWarpConfig]] = None,
+        unsafe_no_shutdown_cluster_sync=False,
     ):
         self.clusterDim = clusterDim
         if clusterDim < 1 or ((clusterDim - 1) & clusterDim) != 0:
@@ -77,6 +80,7 @@ class CudaDeviceFunction(BaseAsyncConfig):
         assert isinstance(blocks_per_sm, int) and blocks_per_sm > 0
         self.blocks_per_sm = blocks_per_sm
         self._warp_config_arg = warp_config
+        self.unsafe_no_shutdown_cluster_sync = unsafe_no_shutdown_cluster_sync
 
         if blockDim is None:
             assert (
@@ -126,6 +130,8 @@ class CudaDeviceFunction(BaseAsyncConfig):
             args.append(f"blocks_per_sm={self.blocks_per_sm}")
         if self._warp_config_arg:
             args.append(f"warp_config={self._warp_config_arg}")
+        if self.unsafe_no_shutdown_cluster_sync:
+            args.append(f"unsafe_no_shutdown_cluster_sync=True")
 
         return f"CudaDeviceFunction({', '.join(args)})"
 

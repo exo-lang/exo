@@ -15,6 +15,7 @@ from .. import scalars as scalars_module
 from ..core.configs import Config
 from ..core.LoopIR import UAST, PAST, front_ops
 from ..core.LoopIR import uast_prim_types as _prim_types
+from ..core.size_annotation import SizeAnnotation, to_size_annotation
 from ..core.prelude import *
 from ..core.extern import Extern
 from ..core.memory import MemWin, AllocableMemWin, Memory, SpecialWindow
@@ -941,7 +942,7 @@ class Parser:
 
             return typ, mem
 
-    def parse_alloc_typmem(self, node):
+    def parse_alloc_typmem(self, node, zip_size_annotations=None):
         if isinstance(node, pyast.BinOp) and isinstance(node.op, pyast.MatMult):
             # node.right == Name
             # x[n] @ DRAM
@@ -957,38 +958,18 @@ class Parser:
                 self.err(node, f"@{mem.__name__} must be AllocableMemWin subclass")
         else:
             mem = None
-        typ = self.parse_alloc_type(node)
+        typ = self.parse_alloc_type(node, zip_size_annotations=zip_size_annotations)
         if typ is None:
             # Catch-all error, shouldn't be handled here, but we do as a last
             # resort so we don't give an incomprehensible error.
             self.err(node, f"Failed to parse as allocation (name : type @ mem)")
         return typ, mem
 
-    def parse_alloc_type(self, node, is_arg=False):
-        """Parse numeric type or barrier type
-
-        barrier type is of syntax barrier(guarded_by)[hi...], where
-        (guarded_by) and [hi...] are both optional.
-
-        """
-        if isinstance(node, pyast.Call):
-            f = node.func
-            if not isinstance(f, pyast.Name) or f.id != "barrier":
-                self.err(node, "Only barrier type takes ()")
-            if node.keywords:
-                self.err(node, "Unexpected keyword parameters")
-            if len(node.args) != 1:
-                self.err(node, "type barrier(...) takes exactly 1 parameter")
-            a = node.args[0]
-            if isinstance(a, pyast.Name):
-                try:
-                    guarded_by = self.exo_locals[a.id]
-                except KeyError:
-                    self.err(node, f"barrier({a.id}): unknown {a.id}")
-            else:
-                self.err(node, "type barrier(...) takes a single identifier argument")
-            return UAST.Barrier(guarded_by, [])
-        elif isinstance(node, pyast.Subscript):
+    def parse_alloc_type(
+        self, node, is_arg=False, ring_guarded_by=None, zip_size_annotations=None
+    ):
+        """Parse numeric type or barrier type"""
+        if isinstance(node, pyast.Subscript):
             if isinstance(node.value, pyast.List):
                 if is_arg is not True:
                     self.err(
@@ -1005,7 +986,7 @@ class Parser:
 
                 base = node.value.elts[0]
                 if not isinstance(base, pyast.Name) or base.id not in _prim_types:
-                    typ = self.parse_alloc_type(base)
+                    typ = self.parse_alloc_type(base, ring_guarded_by=ring_guarded_by)
                 else:
                     typ = _prim_types[base.id]
                 is_window = True
@@ -1013,7 +994,7 @@ class Parser:
                 typ = _prim_types[node.value.id]
                 is_window = False
             else:
-                typ = self.parse_alloc_type(node.value)
+                typ = self.parse_alloc_type(node.value, ring_guarded_by=ring_guarded_by)
                 is_window = False
 
             if sys.version_info[:3] >= (3, 9):
@@ -1036,19 +1017,32 @@ class Parser:
                         dims = [node.slice.value]
 
             # convert the dimension list into a full tensor type
-            exprs = [self.parse_expr(idx) for idx in dims]
+            if zip_size_annotations is None:
+                exprs = [self.parse_expr(idx) for idx in dims]
+            else:
+                exprs = []
+                assert len(zip_size_annotations) == 0
+                for idx in dims:
+                    u_idx, ann = self.parse_expr_with_size_annotation(idx)
+                    exprs.append(u_idx)
+                    zip_size_annotations.append(ann)
             if typ.shape():
                 self.err(node, "Use TypeName[x,y,...], not TypeName[x][y]...")
             elif isinstance(typ, UAST.Barrier):
-                typ = typ.update(hi=exprs)
+                typ = typ.update(ring_guarded_by=ring_guarded_by, hi=exprs)
             else:
-                typ = UAST.Tensor(exprs, is_window, typ)
+                typ = UAST.Tensor(exprs, is_window, typ, ring_guarded_by)
 
             return typ
 
         elif isinstance(node, pyast.Name) and node.id == "barrier":
-            return UAST.Barrier(None, [])
+            return UAST.Barrier(ring_guarded_by, [])
         elif isinstance(node, pyast.Name) and node.id in _prim_types:
+            if ring_guarded_by is not None:
+                self.err(
+                    ring_guarded_by,
+                    f"Unexpected .guarded_by({ring_guarded_by}) for scalar type",
+                )
             return _prim_types[node.id]
         elif isinstance(node, pyast.Name) and (
             _is_size(node) or _is_stride(node) or _is_index(node) or _is_bool(node)
@@ -1057,6 +1051,29 @@ class Parser:
                 node, f"Cannot allocate an intermediate value of type {node.id}"
             )
         else:
+            if isinstance(node, pyast.Call):
+                f = node.func
+                if isinstance(f, pyast.Attribute):
+                    if f.attr == "ring_guarded_by":
+                        if len(node.args) != 1:
+                            self.err(f, "ring_guarded_by takes one argument")
+                        ring_guarded_by = self.parse_barrier_expr(node.args[0])
+                        u_type = self.parse_alloc_type(
+                            f.value,
+                            is_arg=is_arg,
+                            ring_guarded_by=ring_guarded_by,
+                            zip_size_annotations=zip_size_annotations,
+                        )
+                        if not isinstance(u_type, (UAST.Barrier, UAST.Tensor)):
+                            self.err(
+                                node, "Only Barrier and Tensor allow ring_guarded_by"
+                            )
+                        return u_type
+                    else:
+                        srcinfo = self.getsrcinfo(f)
+                        warnings.warn(
+                            f"{srcinfo}: Unrecognized name; did you mean ring_guarded_by?"
+                        )
             unquote_eval_result = self.try_eval_unquote(node)
             if len(unquote_eval_result) == 1:
                 unquoted = unquote_eval_result[0]
@@ -1227,8 +1244,15 @@ class Parser:
                     if isinstance(s, pyast.AnnAssign):
                         nm = Sym(name_node.id)
                         self.exo_locals[name_node.id] = nm
-                        typ, mem = self.parse_alloc_typmem(s.annotation)
-                        rstmts.append(UAST.Alloc(nm, typ, mem, self.getsrcinfo(s)))
+                        zip_size_annotations = []
+                        typ, mem = self.parse_alloc_typmem(
+                            s.annotation, zip_size_annotations=zip_size_annotations
+                        )
+                        rstmts.append(
+                            UAST.Alloc(
+                                nm, typ, mem, zip_size_annotations, self.getsrcinfo(s)
+                            )
+                        )
 
                     do_fresh_assignment = False
 
@@ -1662,6 +1686,14 @@ class Parser:
             self.err(e, f"expected window-like expression for barrier, not {e}")
         return UAST.BarrierExpr(nm, idx, parsed.srcinfo)
 
+    def parse_expr_with_size_annotation(self, e):
+        """e @ ann -> (e, ann); e -> (e, None)"""
+        if isinstance(e, pyast.BinOp) and isinstance(e.op, pyast.MatMult):
+            ann = to_size_annotation(self.eval_expr(e.right))
+            return self.parse_expr(e.left), ann
+        else:
+            return self.parse_expr(e), to_size_annotation(None)
+
     # parse expressions, including values, indices, and booleans
     def parse_expr(self, e):
         unquote_eval_result = self.try_eval_unquote(e)
@@ -1781,6 +1813,13 @@ class Parser:
                 ):
                     self.err(e, "expected @win with win a subclass of SpecialWindow")
                 return lhs.update(special_window=special_window)
+
+            if isinstance(e.op, pyast.MatMult):
+                self.err(
+                    e,
+                    f"Unexpected @ size_annotation; not inside Tensor alloc stmt, or precedence error with *?",
+                )
+                return lhs
 
             rhs = self.parse_expr(e.right)
             if isinstance(e.op, pyast.Add):

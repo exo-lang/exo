@@ -204,6 +204,19 @@ class VarSlotEntry
         return res;
     }
 
+    bool find_idx(T find_me, std::vector<extent_t>& out)
+    {
+        const size_t linear_size = size();
+        for (size_t i = 0; i < linear_size; ++i) {
+            if (find_me == p_data[i]) {
+                out = idx_from_linear(i);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
   private:
     static size_t get_alloc_size(const std::vector<extent_t>& extent_arg)
     {

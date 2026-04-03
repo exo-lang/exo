@@ -6,7 +6,6 @@ from typing import Callable, Dict, Optional, Type, List
 from warnings import warn
 
 from ..core.memory import MemGenError, memwin_template, DRAM, BarrierMechanism
-from ..core.instr_info import AccessInfo, InstrInfo
 from ..core.prelude import Sym, SrcInfo
 from ..core.LoopIR import (
     LoopIR,
@@ -17,7 +16,7 @@ from ..core.LoopIR import (
 )
 
 from .distributed_memory import ThreadIter, DistributedIdxFsm, DistributedAllocState
-from .timelines import Instr_tl, Sync_tl
+from .timelines import Instr_tl, Sync_tl, cuda_in_order_instr
 from . import timelines
 from .async_config import CudaDeviceFunction
 from .barrier_usage import BarrierUsage, SyncInfo
@@ -54,7 +53,7 @@ from .cuda_memory import (
     CudaRmem,
     SmemConfig,
 )
-from .lowered_barrier import LoweredBarrierType, LoweredBarrier
+from .lowered_barrier import LoweredBarrierType, LoweredBarrier, AddBarrierCtx
 from .cuda_sync_state import SyncStateBuilder
 from .cuda_warp_config import WarpLayoutInfo
 from .loop_modes import CudaTasks, CudaThreads, Seq, seq, _CodegenPar, cuda_tasks
@@ -76,10 +75,197 @@ def loopir_lower_cuda(s, ctx: SporkLoweringCtx):
     with-statement node holding ExtWithContext, ready for final
     code lowering with the main LoopIR-to-C compiler.
     """
-    scan = SubtreeScan(s, ctx)
+
+    dim_rewrite = DimensionRewrite(ctx.coll_analysis().distributed_alloc_states)
+    if s_rewrite := dim_rewrite.map_s(s):
+        assert len(s_rewrite) == 1
+        s = s_rewrite[0]
+
+    scan = SubtreeScan(s, dim_rewrite, ctx)
     # Scanner validates correctness and passes advice from "global analysis"
     # to the subtree rewriter on how to substitute certain stmts/expressions.
-    return SubtreeRewrite(s, scan, ctx).result()
+    return SubtreeRewrite(s, dim_rewrite, scan, ctx).result()
+
+
+# =========== PHASE 0: distributed & managed ring buffer rewrites ===========
+# Erase distributed dimensions, and rewrite managed ring buffer dimensions
+
+
+@dataclass(slots=True)
+class ManagedRingBufferEntry:
+    dim_idx: int  # This index should be after distributed dimension removal
+    ring_depth: int
+    syncState_varname: str
+
+
+class DimensionRewrite(LoopIR_Rewrite):
+    distributed_alloc_states: Dict[Sym, DistributedAllocState]
+    managed_ring_buffer_entries: Dict[Sym, ManagedRingBufferEntry]
+    varname_counter: int
+    ring_buffer_consumption_varnames: List[str]
+
+    def __init__(self, distributed_alloc_states):
+        assert isinstance(distributed_alloc_states, dict)
+        self.distributed_alloc_states = distributed_alloc_states
+        self.managed_ring_buffer_entries = {}
+        self.varname_counter = 0
+        self.ring_buffer_consumption_varnames = []
+
+    def map_s(self, s):
+        s_rewrite = super().map_s(s)
+        if s_rewrite:
+            assert len(s_rewrite) == 1
+            s = s_rewrite[0]
+        else:
+            s_rewrite = None
+        if isinstance(s, idx_s_types):
+            if tmp := self.rewrite_idx(s):
+                s_rewrite = [tmp]
+        if isinstance(s, (LoopIR.Alloc, LoopIR.Free)):
+            s_rewrite = self.map_alloc_free(s) or [s]
+        return s_rewrite
+
+    def map_e(self, e):
+        # Remove distributed dimensions
+        # HACK: for instructions that take windows with distributed dimensions,
+        # the resulting program will no longer typecheck, since the
+        # dimensionality of the passed window won't match the fnarg anymore!
+        e_rewrite = super().map_e(e)
+        e = e_rewrite or e
+        if isinstance(e, LoopIR.BarrierExpr):
+            e_rewrite = self.rewrite_idx(e)
+        if isinstance(e, idx_e_types):
+            e_rewrite = self.rewrite_idx(e)
+        return e_rewrite
+
+    def get_managed_ring_buffer_dim_idx(self, nm: Sym) -> Optional[int]:
+        assert isinstance(nm, Sym)
+        entry = self.managed_ring_buffer_entries.get(nm)
+        return None if entry is None else entry.dim_idx
+
+    def map_alloc_free(self, s):
+        orig_s = s
+        s = s.update(type=self.distributed_alloc_states[s.name].get_shard_type())
+
+        if isinstance(s, LoopIR.Alloc):
+            entry = None
+            ring_dim_idx, ring_depth = s.get_managed_ring_buffer_dimension_depth()
+            if ring_depth is not None:
+                assert ring_depth > 0
+                assert isinstance(ring_depth, int)
+                count = self.varname_counter
+                varname = f"ring_consumption_{count}_{s.name}"
+                self.varname_counter += 1
+                entry = ManagedRingBufferEntry(ring_dim_idx, ring_depth, varname)
+                self.managed_ring_buffer_entries[s.name] = entry
+                self.ring_buffer_consumption_varnames.append(varname)
+        else:
+            entry = self.managed_ring_buffer_entries.get(s.name)
+
+        if entry:
+            ring_dim_idx = entry.dim_idx
+            ring_depth = entry.ring_depth
+            typ = s.type
+            consumption_e = typ.hi[ring_dim_idx]
+            # Replace managed ring buffer dimension extent with
+            # constant ring buffer depth, but still increment the ring
+            # buffer consumption (after the Free) by the original extent.
+            hi = typ.hi[:]  # Don't mutate original list
+            hi[ring_dim_idx] = LoopIR.Const(ring_depth, T.plain_size, s.srcinfo)
+            s = s.update(type=typ.update(hi=hi))
+            if isinstance(s, LoopIR.Free):
+                from .codegen_instr import IncrementRingBuffer
+
+                incr = IncrementRingBuffer(
+                    syncState_varname=entry.syncState_varname,
+                    pre_arrive=s.mem.get_pre_arrive(),
+                )
+                return [s, incr.ProcCallGen_make_call([consumption_e], s.srcinfo)]
+
+        return [s]
+
+    def rewrite_idx(self, node):
+        node = self.remove_distributed_idx(node) or node
+
+        if node.idx and (entry := self.managed_ring_buffer_entries.get(node.name)):
+            # Rewrite the index expression on the managed ring buffer dimension
+            # to be (idx[ring_dim_idx] + consumption) % ring_depth.
+            ring_dim_idx = entry.dim_idx
+            ring_depth = entry.ring_depth
+            assert ring_depth > 0
+            assert isinstance(ring_depth, int)
+            ring_idx = node.idx[ring_dim_idx]
+            is_window = False
+
+            if isinstance(ring_idx, LoopIR.Interval):
+                raise ValueError(
+                    f"{ring_idx.srcinfo}: cannot have interval {ring_idx} "
+                    "on managed ring buffer dimension (in {node})"
+                )
+            if isinstance(ring_idx, LoopIR.Point):
+                is_window = True
+                ring_idx = ring_idx.pt
+
+            ring_idx = LoopIR.ManagedRingBufferIdx(
+                ring_idx,
+                ring_depth,
+                "exo_syncState." + entry.syncState_varname,
+                ring_idx.type,
+                ring_idx.srcinfo,
+            )
+
+            # Update the index
+            new_idxs = node.idx[:]  # Don't mutate original list
+            if is_window:
+                new_idxs[ring_dim_idx] = new_idxs[ring_dim_idx].update(pt=ring_idx)
+            else:
+                new_idxs[ring_dim_idx] = ring_idx
+            node = node.update(idx=new_idxs)
+
+        return node
+
+    def remove_distributed_idx(self, node):
+        alloc_state = self.distributed_alloc_states.get(node.name)
+        if alloc_state is not None:
+            assert isinstance(alloc_state, DistributedAllocState)
+            n = alloc_state.n_distributed_dims()
+            if n > 0:
+                old_idx = node.idx
+                new_idx = node.idx[n:]
+                if isinstance(node, LoopIR.WindowExpr):
+                    # Remove the first n coordinates of the idx expression.
+                    # If any removed coordinates were intervals, this reduces
+                    # the dimensionality of the resulting window type.
+                    n_intervals_removed = sum(
+                        isinstance(coord, LoopIR.Interval) for coord in old_idx[:n]
+                    )
+                    old_type = node.type
+                    old_src_type = old_type.src_type
+                    old_as_tensor = old_type.as_tensor
+                    assert (
+                        old_type.src_buf == node.name
+                    ), "See WindowStmt case for SubtreeScan.apply_s"
+                    assert isinstance(old_type, LoopIR.WindowType)
+                    new_hi = old_as_tensor.hi[n_intervals_removed:]
+                    if not new_hi:
+                        # Decayed to scalar
+                        return LoopIR.Read(
+                            node.name,
+                            [coord.pt for coord in new_idx],
+                            node.type.basetype(),
+                            node.srcinfo,
+                        )
+                    new_type = old_type.update(
+                        src_type=old_src_type.update(hi=old_src_type.hi[n:]),
+                        as_tensor=old_as_tensor.update(hi=new_hi),
+                        idx=new_idx,
+                    )
+                    return node.update(idx=new_idx, type=new_type)
+                else:
+                    # fmt: off
+                    assert isinstance(node, (LoopIR.Read, LoopIR.stmt, LoopIR.BarrierExpr)), node
+                    return node.update(idx=new_idx)
+        return None
 
 
 # ========================   PHASE 1: subtree scan   ========================
@@ -111,6 +297,7 @@ class SubtreeScan(LoopIR_Do):
         "_current_warp_name",
         "named_warps",
         "setmaxnreg_is_inc",
+        "_get_managed_ring_buffer_dim_idx",
     ]
 
     ctx: SporkLoweringCtx
@@ -143,7 +330,7 @@ class SubtreeScan(LoopIR_Do):
 
     # Edit __slots__ if you add more attributes
 
-    def __init__(self, s, ctx: SporkLoweringCtx):
+    def __init__(self, s, dim_rewrite: DimensionRewrite, ctx: SporkLoweringCtx):
         assert is_if_holding_with(s, LoopIR)
         cuda_device_function: CudaDeviceFunction = s.cond.val
         assert isinstance(cuda_device_function, CudaDeviceFunction)
@@ -151,10 +338,13 @@ class SubtreeScan(LoopIR_Do):
         blockDim = cuda_device_function.blockDim
         clusterDim = cuda_device_function.clusterDim
 
+        self._get_managed_ring_buffer_dim_idx = (
+            dim_rewrite.get_managed_ring_buffer_dim_idx
+        )
         self.ctx = ctx
         self.cuda_device_function = cuda_device_function
         self.sync_state_builder = SyncStateBuilder(cuda_device_function.coll_env())
-        self.device_setup_builder = CudaDeviceSetupBuilder()
+        self.device_setup_builder = CudaDeviceSetupBuilder(cuda_device_function)
         self.distributed_alloc_states = ctx.coll_analysis().distributed_alloc_states
         self.codegen_smem = {}
         self.thread_iters = ctx.coll_analysis().thread_iters
@@ -176,9 +366,9 @@ class SubtreeScan(LoopIR_Do):
         # Only set clusterDim if not 1, not only for pre-H100 compatibility,
         # but also this avoids mysterious performance loss.
         if clusterDim != 1:
-            self.fmt_dict[
-                "launchConfig_clusterDim_snippet"
-            ] = launchConfig_clusterDim_snippet
+            self.fmt_dict["launchConfig_clusterDim_snippet"] = (
+                launchConfig_clusterDim_snippet
+            )
 
         # Validate top-level form of cuda kernel
         # Must be nest of 1+ cuda_tasks loops.
@@ -474,20 +664,22 @@ class SubtreeScan(LoopIR_Do):
         elif isinstance(s, LoopIR.Free):
             if s.type.is_barrier():
                 self.sync_state_builder.add_barrier(
-                    s.name,
-                    self.get_barrier_usage,  # Callable[[Sym], BarrierUsage]
-                    self.distributed_alloc_states[s.name],
-                    self.thread_iters,
-                    self.device_setup_builder,
+                    AddBarrierCtx(
+                        s.name,
+                        self.get_barrier_usage,  # Callable[[Sym], BarrierUsage]
+                        self.distributed_alloc_states[s.name],
+                        self.thread_iters,
+                        self.device_setup_builder,
+                        type_const_shape(s.type, "barrier", s.name, s.srcinfo),
+                        self._get_managed_ring_buffer_dim_idx(s.name),
+                    )
                 )
             elif issubclass(s.mem, CudaBasicSmem):
                 # End SMEM lifetime.
                 offset_name = self.device_setup_builder.end_smem_alloc(s.name)
-
-                # Remove distributed dimensions (temporarily)
-                alloc_state = self.distributed_alloc_states[s.name]
-                assert isinstance(alloc_state, DistributedAllocState)
-                s = s.update(type=alloc_state.shard_type())
+                if self._get_managed_ring_buffer_dim_idx(s.name) is not None:
+                    # Managed ring buffer allocations are persistent.
+                    self.device_setup_builder.make_persistent(s.name)
 
                 # Record required alloc size
                 inputs: SmemConfigInputs = smem_config_inputs(s)
@@ -517,11 +709,15 @@ class SubtreeScan(LoopIR_Do):
                 assert isinstance(e, LoopIR.BarrierExpr)
                 state = DistributedAllocState.from_fence(s, self._coll_tiling)
                 self.sync_state_builder.add_barrier(
-                    e.name,
-                    self.get_barrier_usage,  # Callable[[Sym], BarrierUsage]
-                    state,
-                    self.thread_iters,
-                    self.device_setup_builder,
+                    AddBarrierCtx(
+                        e.name,
+                        self.get_barrier_usage,  # Callable[[Sym], BarrierUsage]
+                        state,
+                        self.thread_iters,
+                        self.device_setup_builder,
+                        (),
+                        None,
+                    )
                 )
 
     def mark_sym_used(self, name: Sym):
@@ -658,9 +854,9 @@ class MainLoopRewrite(LoopIR_Rewrite):
         #        main loop for that warp name
         #     }
         # }
-        from .setmaxnreg import unsafe_setmaxnreg
+        from .codegen_instr import unsafe_setmaxnreg
 
-        for (nreg, is_inc) in [(0, False)] + sorted(scan.setmaxnreg_is_inc.items()):
+        for nreg, is_inc in [(0, False)] + sorted(scan.setmaxnreg_is_inc.items()):
             body = []
             if nreg != 0:
                 instr = unsafe_setmaxnreg(
@@ -718,23 +914,28 @@ class SubtreeRewrite(LoopIR_Rewrite):
 
     # Edit __slots__ if you add more attributes
 
-    def __init__(self, s, scan: SubtreeScan, ctx: SporkLoweringCtx):
+    def __init__(
+        self, s, dim_rewrite: DimensionRewrite, scan: SubtreeScan, ctx: SporkLoweringCtx
+    ):
         fmt_dict = scan.fmt_dict
         self.scan = scan
-        self.device_setup_info = scan.device_setup_builder.make_info(
-            scan.cuda_device_function.clusterDim
-        )
+        self.device_setup_info = scan.device_setup_builder.make_info()
         self.fmt_dict = fmt_dict
         self.distributed_alloc_states = scan.distributed_alloc_states
         self.thread_iters = scan.thread_iters
         self.sync_state_builder = scan.sync_state_builder
         self.codegen_smem = scan.codegen_smem
 
-        fmt_dict["SyncState_body"] = scan.sync_state_builder.generate_SyncState_body()
+        fmt_dict["SyncState_body"] = scan.sync_state_builder.generate_SyncState_body(
+            dim_rewrite.ring_buffer_consumption_varnames
+        )
 
         setup = self.device_setup_info
         fmt_dict["smem_bytes"] = setup.smem_bytes
         fmt_dict["device_setup_body"] = "\n".join("  " + ln for ln in setup.setup_lines)
+        fmt_dict["device_shutdown_body"] = "\n".join(
+            "  " + ln for ln in setup.shutdown_lines
+        )
         fmt_dict["device_setup_decls"] = "\n".join(
             "  " + ln for ln in setup.static_decls
         )
@@ -839,10 +1040,6 @@ class SubtreeRewrite(LoopIR_Rewrite):
             elif s.type.is_barrier():
                 self.on_barrier_free(s)
 
-        elif isinstance(s, idx_s_types):
-            # Remove distributed dimensions for tensor indexing expression
-            s = self.remove_distributed_idx(s)
-
         elif isinstance(s, LoopIR.SyncStmt):
             s = self.update_check_sync_stmt(s)
 
@@ -869,13 +1066,6 @@ class SubtreeRewrite(LoopIR_Rewrite):
     def map_e(self, e):
         e_rewrite = None
 
-        # Remove distributed dimensions
-        # HACK: for instructions that take windows with distributed dimensions,
-        # the resulting program will no longer typecheck, since the
-        # dimensionality of the passed window won't match the fnarg anymore!
-        if isinstance(e, idx_e_types):
-            e_rewrite = self.remove_distributed_idx(e)
-
         # Use superclass to recurse and rewrite subtree
         # We have to have logic to handle None being used to indicate
         # "no change"; if the superclass makes no changes, we still have
@@ -889,55 +1079,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
             else:
                 return super_rewritten
 
-    def remove_distributed_idx(self, node):
-        alloc_state = self.distributed_alloc_states.get(node.name)
-        if alloc_state is not None:
-            assert isinstance(alloc_state, DistributedAllocState)
-            n = alloc_state.n_distributed_dims()
-            if n > 0:
-                old_idx = node.idx
-                new_idx = node.idx[n:]
-                if isinstance(node, LoopIR.WindowExpr):
-                    # Remove the first n coordinates of the idx expression.
-                    # If any removed coordinates were intervals, this reduces
-                    # the dimensionality of the resulting window type.
-                    n_intervals_removed = sum(
-                        isinstance(coord, LoopIR.Interval) for coord in old_idx[:n]
-                    )
-                    old_type = node.type
-                    old_src_type = old_type.src_type
-                    old_as_tensor = old_type.as_tensor
-                    assert (
-                        old_type.src_buf == node.name
-                    ), "See WindowStmt case for SubtreeScan.apply_s"
-                    assert isinstance(old_type, LoopIR.WindowType)
-                    new_hi = old_as_tensor.hi[n_intervals_removed:]
-                    if not new_hi:
-                        # Decayed to scalar
-                        return LoopIR.Read(
-                            node.name,
-                            [coord.pt for coord in new_idx],
-                            node.type.basetype(),
-                            node.srcinfo,
-                        )
-                    new_type = old_type.update(
-                        src_type=old_src_type.update(hi=old_src_type.hi[n:]),
-                        as_tensor=old_as_tensor.update(hi=new_hi),
-                        idx=new_idx,
-                    )
-                    return node.update(idx=new_idx, type=new_type)
-                else:
-                    assert isinstance(node, (LoopIR.Read, LoopIR.stmt))
-                    return node.update(idx=new_idx)
-        return None
-
     def update_numeric_alloc_free(self, s):
-        alloc_state = self.distributed_alloc_states[s.name]
-        assert isinstance(alloc_state, DistributedAllocState)
-
-        # Remove distributed dimensions
-        s = s.update(type=alloc_state.shard_type())
-
         # SMEM offset lowering
         if issubclass(s.mem, CudaBasicSmem):
             mem = self.codegen_smem[s.name]
@@ -948,6 +1090,16 @@ class SubtreeRewrite(LoopIR_Rewrite):
     def on_barrier_alloc(self, s):
         lowered = self.sync_state_builder.lowered[s.name]
         if lowered.solitary:
+            alloc_state = self.distributed_alloc_states[s.name]
+            shard_type = s.type
+            assert isinstance(shard_type, LoopIR.Barrier)
+            # TODO test this
+            for extent in shard_type.hi:
+                if not (isinstance(extent, LoopIR.Const) and extent.val == 1):
+                    raise ValueError(
+                        f"{s.srcinfo}: {s}, expected all dimensions to be distributed.\n"
+                        f"Have shard type {shard_type}, deduced from {alloc_state.native_unit}"
+                    )
             self.check_solitary_barrier(s, lowered)
             self.live_solitary_barrier_names[lowered.type_enum] = s.name
 
@@ -1134,6 +1286,9 @@ struct exo_Cuda{N}_{proc}
   exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={{}});
 
   static __device__ __forceinline__ void
+  exo_deviceShutdown(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={{}});
+
+  static __device__ __forceinline__ void
   exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={{}});
 {deviceTask_decls}}};
 }}  // end inline namespace
@@ -1174,6 +1329,15 @@ exo_CudaInline_{lib_name}::exo_Cuda{N}_{proc}::exo_deviceSetup(
 {{
 {device_setup_body}
 }}
+
+__device__ __forceinline__ void
+exo_CudaInline_{lib_name}::exo_Cuda{N}_{proc}::exo_deviceShutdown(
+    char* exo_smem,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_ExcutThreadLog exo_excutLog)
+{{
+{device_shutdown_body}
+}}
 """
 
 cu_snippet_fmt = """\
@@ -1185,6 +1349,7 @@ exo_deviceFunction{N}_{proc}(__grid_constant__ const struct exo_CudaDeviceArgs{N
   exo_ExcutThreadLog exo_excutLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
   exo_Cuda{N}_{proc}::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
   exo_Cuda{N}_{proc}::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda{N}_{proc}::exo_deviceShutdown(exo_smem, exo_deviceArgs, exo_excutLog);
 }}
 
 void

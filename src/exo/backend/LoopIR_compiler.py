@@ -69,6 +69,7 @@ from ..spork.coll_analysis import CollAnalysis
 from .compiler_fwd import (
     BackendChecks,
     SporkLoweringCtx,
+    SyncCodegenCtx,
     dataptr_name,
     cuda_tasks_lo_cname,
     cuda_tasks_hi_cname,
@@ -183,26 +184,6 @@ def run_backend_checks(
     assert key[0] == id(original_p)
     _backend_check_dict[key] = value
     return value
-
-
-def lift_to_cir(e, range_env):
-    assert e.type.is_indexable(), "why are you here?"
-
-    is_non_neg = lambda e: range_env.check_expr_bound(0, IndexRangeEnvironment.leq, e)
-
-    if isinstance(e, LoopIR.Read):
-        return CIR.Read(e.name, is_non_neg(e))
-    elif isinstance(e, LoopIR.Const):
-        return CIR.Const(e.val)
-    elif isinstance(e, LoopIR.BinOp):
-        lhs = lift_to_cir(e.lhs, range_env)
-        rhs = lift_to_cir(e.rhs, range_env)
-        return CIR.BinOp(e.op, lhs, rhs, is_non_neg(e))
-    elif isinstance(e, LoopIR.USub):
-        arg = lift_to_cir(e.arg, range_env)
-        return CIR.USub(arg, is_non_neg(e))
-    else:
-        assert False, "bad case!"
 
 
 class LoopIR_SubProcs(LoopIR_Do):
@@ -704,6 +685,7 @@ class Compiler:
         self._used_cuda = used_cuda
         self._known_strides = {}
         self._in_cuda_function = False
+        self._clusterDim = None
         self._cuda_kernel_count = 0
         self._util_injector = util_injector
         self._mem_code_builder = mem_code_builder
@@ -816,7 +798,7 @@ class Compiler:
         """
         assert isinstance(a, LoopIR.fnarg)
         mem = a.mem if a.type.is_numeric() else None
-        if a.type in (T.size, T.index, T.bool, T.stride):
+        if not a.type.is_numeric():
             arg_strs.append(f"{a.type.ctype()} {name_arg}")
             typ_comments.append(f"{name_arg} : {a.type}")
         # setup, arguments
@@ -981,9 +963,35 @@ class Compiler:
         self.names = self.names.parents
         self._tab = self._tab[:-2]
 
+    def lift_to_cir(self, e):
+        assert e.type.is_indexable(), "why are you here?"
+        range_env = self.range_env
+
+        is_non_neg = lambda e: range_env.check_expr_bound(
+            0, IndexRangeEnvironment.leq, e
+        )
+
+        if isinstance(e, LoopIR.Read):
+            return CIR.Read(e.name, is_non_neg(e))
+        elif isinstance(e, LoopIR.Const):
+            return CIR.Const(e.val)
+        elif isinstance(e, LoopIR.BinOp):
+            lhs = self.lift_to_cir(e.lhs)
+            rhs = self.lift_to_cir(e.rhs)
+            return CIR.BinOp(e.op, lhs, rhs, is_non_neg(e))
+        elif isinstance(e, LoopIR.USub):
+            arg = self.lift_to_cir(e.arg)
+            return CIR.USub(arg, is_non_neg(e))
+        elif isinstance(e, LoopIR.ManagedRingBufferIdx):
+            arg = self.lift_to_cir(e.arg)
+            numerator = self.wrap_cir(e.c_consumption, "managed ring buffer") + arg
+            return (numerator % e.ring_depth).exo_get_cir()
+        else:
+            assert False, "bad case!"
+
     def wrap_cir(self, e, origin_story, origin_index=None) -> CIR_Wrapper:
         if isinstance(e, LoopIR.expr):
-            e = lift_to_cir(e, self.range_env)
+            e = self.lift_to_cir(e)
         else:
             e = cast_to_cir(e)
         assert isinstance(e, CIR.expr)
@@ -1005,7 +1013,7 @@ class Compiler:
                 lo = w.lo
                 w_intervals.append(
                     self.wrap_cir(w.hi, f"{e.name} interval_sizes", i)
-                    - lift_to_cir(w.lo, self.range_env)
+                    - self.lift_to_cir(w.lo)
                 )
             else:
                 assert isinstance(e, LoopIR.Read)
@@ -1061,8 +1069,10 @@ class Compiler:
                 rhs = self.comp_cir(e.rhs, rhs_child_prec)
 
             if op == "/":
-                if (isinstance(e.lhs, (CIR.Read, CIR.BinOp)) and e.lhs.is_non_neg) or (
-                    isinstance(e.lhs, CIR.Const) and e.lhs.val > 0
+                if (
+                    self._in_cuda_function
+                    or (isinstance(e.lhs, (CIR.Read, CIR.BinOp)) and e.lhs.is_non_neg)
+                    or (isinstance(e.lhs, CIR.Const) and e.lhs.val > 0)
                 ):
                     return f"({lhs} / {rhs})"
                 else:
@@ -1117,9 +1127,16 @@ class Compiler:
         return code
 
     def shape_strs(self, shape, prec=op_prec["."]) -> str:
+        for e in shape:
+            # The cuda_backend is supposed to strip the size_annotation.
+            # If this isn't done, there could be a compiler bug,
+            # or the user put this outside the CUDA code.
+            if ann := e.type.get_size_annotation():
+                raise ValueError(
+                    f"{e.srcinfo}: Unexpected size annotation {ann} (outside of CUDA context)?"
+                )
         comp_res = [
-            self.comp_cir(simplify_cir(lift_to_cir(i, self.range_env)), prec)
-            for i in shape
+            self.comp_cir(simplify_cir(self.lift_to_cir(i)), prec) for i in shape
         ]
         return comp_res
 
@@ -1171,10 +1188,10 @@ class Compiler:
             return CIR_Wrapper(obj, self, f"{symbol} {attr}[{idx}]")
 
         cir_array_interval_sizes = [
-            simplify_cir(lift_to_cir(e, self.range_env)) for e in shape[:n_array_dims]
+            simplify_cir(self.lift_to_cir(e)) for e in shape[:n_array_dims]
         ]
         cir_packed_interval_sizes = [
-            simplify_cir(lift_to_cir(e, self.range_env)) for e in shape[n_array_dims:]
+            simplify_cir(self.lift_to_cir(e)) for e in shape[n_array_dims:]
         ]
 
         # Check requirement documented in MemWin.packed_tensor_shape
@@ -1295,6 +1312,43 @@ class Compiler:
         self.add_line(f"indexer: {type(features._indexer).__name__}")
         self.add_line("*/")
 
+    def comp_sync_codegen_ctx(
+        self, home_barrier_expr: LoopIR.BarrierExpr
+    ) -> SyncCodegenCtx:
+        idxs = []
+        ring_buffer_dim_idx = None
+        ring_buffer_c_consumption = None
+        ring_buffer_depth = None
+        for dim_i, e in enumerate(home_barrier_expr.idx):
+            if isinstance(e, LoopIR.Interval):
+                # Expression should be free of intervals, except for the weird
+                # 0:1 special case resulting from distributed memory deduction
+                # for clusters of shape M x N with N=1.
+                # fmt: off
+                assert str(e.lo) == "0", f"{e.srcinfo}: Internal compiler error, unexpected interval in {home_barrier_expr}"
+                assert str(e.hi) == "1", f"{e.srcinfo}: Internal compiler error, unexpected interval in {home_barrier_expr}"
+                pt = e.lo  # Convenient const 0
+            else:
+                pt = e.pt
+            if isinstance(pt, LoopIR.ManagedRingBufferIdx):
+                if ring_buffer_dim_idx is not None:
+                    raise ValueError(
+                        f"{e.srcinfo}: Unexpected multiple managed ring buffer dimensions in {home_barrier_expr}"
+                    )
+                arg = self.lift_to_cir(pt.arg)
+                ring_buffer_dim_idx = dim_i
+                ring_buffer_c_consumption = pt.c_consumption
+                ring_buffer_depth = pt.ring_depth
+            else:
+                arg = self.lift_to_cir(pt)
+            idxs.append(self.wrap_cir(arg, "barrier index expr"))
+        return SyncCodegenCtx(
+            tuple(idxs),
+            ring_buffer_dim_idx,
+            ring_buffer_c_consumption,
+            ring_buffer_depth,
+        )
+
     def comp_s(self, s):
         if isinstance(s, LoopIR.Pass):
             self.add_line("; // NO-OP")
@@ -1307,7 +1361,9 @@ class Compiler:
                 b.name == nm for b in s.barriers
             ), f"{s.srcinfo}: Should have caught inconsistent barrier names earlier"
             self.add_line(f"// {s.sync_type.format_stmt(s.barriers)}")
-            barrier_lines = self._lowered_barriers[nm].codegen_sync_stmt(s)
+            barrier_lines = self._lowered_barriers[nm].codegen_sync_stmt(
+                s, self.comp_sync_codegen_ctx(s.home_barrier_expr())
+            )
             assert not isinstance(barrier_lines, str), "expect List[str]"
             for line in barrier_lines:
                 self.add_line(line)
@@ -1484,12 +1540,14 @@ class Compiler:
                 assert self._used_cuda
                 assert not self._in_cuda_function
                 self._in_cuda_function = True
+                self._clusterDim = ctx.clusterDim
                 self._debug_log.log(
                     self.proc.name, f"Cuda{self._cuda_kernel_count}", lowered
                 )
                 self.comp_stmts([lowered])
                 self._cuda_kernel_count += 1
                 self._in_cuda_function = False
+                self._clusterDim = None
 
             else:
                 assert 0, f"Unknown with stmt context type {type(ctx)}"
@@ -1629,11 +1687,14 @@ class Compiler:
                         fnarg = fn.args[i]
                         args_dict[str(fnarg.name)] = self.comp_fnarg(e, fn, i)
                     if e := s.trailing_barrier_expr:
+                        sync_codegen_ctx = self.comp_sync_codegen_ctx(e)
                         lowered_barrier = self._lowered_barriers[e.name]
-                        mbarrier = lowered_barrier.codegen_barrier_arg(e)
+                        mbarrier = lowered_barrier.codegen_barrier_arg(
+                            e, sync_codegen_ctx
+                        )
                         assert isinstance(mbarrier, str)
                         args_dict["exo_barrier"] = mbarrier
-                        args_dict["exo_cta_mask"] = lowered_barrier.codegen_cta_mask(e)
+                        args_dict["exo_clusterDim"] = self._clusterDim
                     lines = fn.instr.codegen(InstrArgs(args_dict, self))
                     assert lines is not None, "codegen() forgot return?"
                     assert not isinstance(lines, str), "codegen() must give List[str]"

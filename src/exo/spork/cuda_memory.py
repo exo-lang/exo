@@ -31,6 +31,9 @@ from .coll_algebra import (
     cuda_warp,
     cuda_warpgroup,
     cuda_cta_in_cluster,
+    cuda_agnostic_intact_cta,
+    cuda_agnostic_sub_cta,
+    cuda_cluster,
 )
 
 
@@ -62,6 +65,7 @@ class CudaBasicDeviceVisible(Memory):
     @classmethod
     @abstractmethod
     def native_unit(cls) -> CollUnit:
+        """Collective unit that allocates distributed shards"""
         raise NotImplementedError()
 
     @classmethod
@@ -563,38 +567,44 @@ class CudaRmemPacked32(CudaBasicDeviceVisible):
     qual_tl_dict = timelines.cuda_rmem_qual_tl_dict
 
 
-# TODO implement this.
-class CudaEvent(BarrierMechanism):
-    @classmethod
-    def traits(cls) -> BarrierMechanismTraits:
-        return BarrierMechanismTraits(
-            requires_guarding=True, requires_arrive_first=True
-        )
-
-    @classmethod
-    def sync_exempt(cls) -> bool:
-        return True
-
-
-class CudaDeviceBarrier(BarrierMechanism):
+class CudaBasicDeviceBarrier(BarrierMechanism):
     @classmethod
     def device_permission(cls, device, instr_tl):
         return "rwc" if device == timelines.cuda_basic_device else ""
 
+    @classmethod
+    @abstractmethod
+    def native_unit(cls) -> CollUnit:
+        """Collective unit that allocates distributed shards"""
+        raise NotImplementedError()
+
+    @classmethod
+    def arrive_coll_unit(cls) -> CollUnit:
+        """Collective unit required for executing Arrive statements"""
+        return cls.native_unit()
+
+    @classmethod
+    @abstractmethod
+    def await_coll_unit(cls) -> CollUnit:
+        """Collective unit required for executing Await statements"""
+        return cls.native_unit()
+
     qual_tl_dict = timelines.cuda_ram_qual_tl_dict
 
 
-class CudaMbarrier(CudaDeviceBarrier):
+class CudaMbarrier(CudaBasicDeviceBarrier):
+    @classmethod
+    def get_pre_arrive(cls):
+        return 0
+
     @classmethod
     def traits(cls) -> BarrierMechanismTraits:
         return BarrierMechanismTraits(
-            negative_await_N=True,
-            uniform_await_N=True,
-            different_arrive_await_threads=True,
-            requires_guarding=True,
-            requires_arrive_first=False,
-            supports_guards=True,
+            zero_await_N=True,
             supports_arrive_multicast=True,
+            consistent_arrive_thread_count=True,
+            one_shot_arrive=True,
+            one_shot_await=False,
         )
 
     @classmethod
@@ -609,7 +619,19 @@ class CudaMbarrier(CudaDeviceBarrier):
     def is_cuda_smem(cls):
         return True
 
-    qual_tl_dict = timelines.cuda_ram_qual_tl_dict
+    qual_tl_dict = timelines.cuda_mbarrier_qual_tl_dict
+
+    @classmethod
+    def native_unit(cls) -> CollUnit:
+        return cuda_cta_in_cluster
+
+    @classmethod
+    def arrive_coll_unit(cls) -> CollUnit:
+        return cuda_agnostic_sub_cta
+
+    @classmethod
+    def await_coll_unit(cls) -> CollUnit:
+        return cuda_agnostic_sub_cta
 
     # Bespoke functions (not really externalizable) for mbarrier, which
     # is the only barrier type subject to synchronization checking.
@@ -617,31 +639,74 @@ class CudaMbarrier(CudaDeviceBarrier):
     # an arrive/await with the given Sync_tl parameter.
     @classmethod
     def arrive_qual_tl(cls, L1: timelines.Sync_tl):
-        if L1.get_full_timeline_set_bits() & timelines.Sm80_cp_async_qual.as_bit():
-            return timelines.Sm80_cp_async_qual
-        return timelines.cuda_in_order_ram_qual
+        # if L1.get_full_timeline_set_bits() & timelines.Sm80_cp_async_qual.as_bit():
+        #     return timelines.Sm80_cp_async_qual
+        return timelines.cuda_mbarrier_qual
 
     @classmethod
     def await_qual_tl(cls, L2: timelines.Sync_tl):
-        return timelines.cuda_in_order_ram_qual
+        return timelines.cuda_mbarrier_qual
 
 
-class CudaCommitGroup(CudaDeviceBarrier):
+@memwin_template
+def CudaMbarrierPreArrive(pre_arrive):
+    assert isinstance(pre_arrive, int)
+    assert pre_arrive >= 0
+
+    class CudaMbarrierRing(CudaMbarrier):
+        @classmethod
+        def get_pre_arrive(cls):
+            return pre_arrive
+
+    return CudaMbarrierRing
+
+
+class CudaBasicCommitGroup(CudaBasicDeviceBarrier):
     @classmethod
     def traits(cls) -> BarrierMechanismTraits:
-        return BarrierMechanismTraits(non_negative_await_N=True)
+        return BarrierMechanismTraits(zero_await_N=False)
+
+
+class Sm80_CommitGroup(CudaBasicCommitGroup):
+    @classmethod
+    def native_unit(cls) -> CollUnit:
+        return cuda_thread
 
     @classmethod
     def sync_exempt(cls) -> bool:
         return True
 
 
-class CudaClusterSync(CudaDeviceBarrier):
+class Sm90_TmaCommitGroup(CudaBasicCommitGroup):
+    @classmethod
+    def native_unit(cls) -> CollUnit:
+        return cuda_warp
+
+    @classmethod
+    def sync_exempt(cls) -> bool:
+        return True
+
+
+class Sm90_WgmmaCommitGroup(CudaBasicCommitGroup):
+    @classmethod
+    def native_unit(cls) -> CollUnit:
+        return cuda_warpgroup
+
+    @classmethod
+    def sync_exempt(cls) -> bool:
+        return True
+
+
+class CudaClusterSync(CudaBasicDeviceBarrier):
     @classmethod
     def traits(cls) -> BarrierMechanismTraits:
         return BarrierMechanismTraits(
-            requires_guarding=True, requires_arrive_first=True
+            zero_await_N=True, one_shot_arrive=True, one_shot_await=True
         )
+
+    @classmethod
+    def native_unit(cls) -> CollUnit:
+        return cuda_cluster
 
     @classmethod
     def sync_exempt(cls) -> bool:

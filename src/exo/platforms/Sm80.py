@@ -39,6 +39,10 @@ from ..spork.coll_algebra import cuda_warp
 
 from exo.scalars import ScalarInfo, f32, f16, bf16, i32
 
+
+__all__.append("Sm80_CommitGroup")
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # cp.async instruction

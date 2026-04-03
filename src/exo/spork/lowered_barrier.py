@@ -1,7 +1,12 @@
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Callable, List
+from typing import Callable, List, Dict, Optional
+from ..backend.compiler_fwd import SyncCodegenCtx
+from .barrier_usage import BarrierUsage
+from .cuda_device_setup_builder import CudaDeviceSetupBuilder
+from .distributed_memory import DistributedAllocState, ThreadIter
 from ..core.LoopIR import LoopIR
+from ..core.prelude import Sym
 
 
 class LoweredBarrierType(Enum):
@@ -26,13 +31,26 @@ class LoweredBarrier:
 
     # Lower SyncStmt, Alloc, Free to lines of C++ code (List[str])
     # (you may assume the statement uses this lowered barrier)
-    codegen_sync_stmt: Callable[[LoopIR.SyncStmt], List[str]] = None
+    codegen_sync_stmt: Callable[[LoopIR.SyncStmt, SyncCodegenCtx], List[str]] = None
     codegen_alloc: Callable[[LoopIR.Alloc], List[str]] = lambda a: [f"// {a}"]
     codegen_free: Callable[[LoopIR.Free], List[str]] = lambda a: [f"// {a}"]
 
     # Special case for TMA mbarriers
-    codegen_cta_mask: Callable[[LoopIR.BarrierExpr], str] = None
-    codegen_barrier_arg: Callable[[LoopIR.BarrierExpr], str] = None
+    codegen_barrier_arg: Callable[[LoopIR.BarrierExpr, SyncCodegenCtx], str] = None
 
     def __repr__(self):
         return f"LoweredBarrier({self.solitary}, {self.type_enum})"
+
+
+@dataclass(slots=True)
+class AddBarrierCtx:
+    name: Sym
+    get_usage: Callable[[Sym], BarrierUsage]
+    coll_tilings: DistributedAllocState
+    thread_iters: Dict[Sym, ThreadIter]
+    device_setup_builder: CudaDeviceSetupBuilder
+
+    # Shape of the non-distributed part of the allocation,
+    # and the index in that shape of the managed ring buffer dimension.
+    const_shape: List[int]
+    managed_ring_buffer_dim_idx: Optional[int]

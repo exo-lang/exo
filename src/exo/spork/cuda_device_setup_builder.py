@@ -5,6 +5,7 @@ from typing import List, Tuple, Dict, Set, Optional
 from ..core.memory import Memory, memwin_template
 from ..core.prelude import Sym, SrcInfo
 
+from .async_config import CudaDeviceFunction
 from .cuda_memory import CudaBasicSmem, SmemConfig
 from .excut import InlinePtxGen, simple_ptx_c_lines, excut_c_str_id
 
@@ -33,6 +34,9 @@ class CudaDeviceSetupInfo:
 
     # Paste into exo_deviceSetup.
     setup_lines: List[str]
+
+    # Paste into exo_deviceShutdown.
+    shutdown_lines: List[str]
 
     offset_names: Dict[Sym, str]
 
@@ -86,15 +90,27 @@ class Allocator:
 
 @dataclass(slots=True)
 class CudaDeviceSetupBuilder:
-    _records: Dict[Sym, SmemAllocRecord] = field(default_factory=dict)
-
+    _records: Dict[Sym, SmemAllocRecord]
     # Record order that SMEM allocations were created and destroyed.
     # (_, True) means alloc, (_, False) means free.
-    _smem_alloc_frees: List[Tuple[Sym, bool]] = field(default_factory=list)
+    _smem_alloc_frees: List[Tuple[Sym, bool]]
+    _have_proxy_fence: bool
+    _clusterDim: int
+    _unsafe_no_shutdown_cluster_sync: bool
 
-    _have_proxy_fence: bool = False
+    def __init__(self, f: CudaDeviceFunction):
+        self._records = {}
+        self._smem_alloc_frees = []
+        self._have_proxy_fence = False
+        self._clusterDim = f.clusterDim
+        self._unsafe_no_shutdown_cluster_sync = f.unsafe_no_shutdown_cluster_sync
 
-    def add_mbarriers(self, sym: Sym, num_per_cta: int, arrive_count: int) -> str:
+    def add_mbarriers(
+        self,
+        sym: Sym,
+        num_per_cta: int,
+        arrive_count: int,
+    ) -> str:
         offset_name = self.begin_smem_alloc(sym)
         self.make_persistent(sym)
         self.set_smem_alloc_size(sym, 8 * num_per_cta, 8, 8)
@@ -163,7 +179,8 @@ class CudaDeviceSetupBuilder:
     def require_proxy_fence(self):
         self._have_proxy_fence = True
 
-    def make_info(self, clusterDim) -> CudaDeviceSetupInfo:
+    def make_info(self) -> CudaDeviceSetupInfo:
+        clusterDim = self._clusterDim
         for sym, record in self._records.items():
             assert record.is_freed or record.persistent, sym
 
@@ -232,7 +249,6 @@ class CudaDeviceSetupBuilder:
             ptx.add_arg(record.arrive_count, constraint="n", log_as="bits")
             setup_lines.extend(ptx.as_c_lines(py_format=False, tab="      "))
             setup_lines.append(f"  }}")
-
         # Proxy fence
         if self._have_proxy_fence:
             lazy_begin_guard_thread_0()
@@ -250,7 +266,22 @@ class CudaDeviceSetupBuilder:
             setup_lines.extend(simple_ptx_c_lines("barrier.cluster.arrive.aligned"))
             setup_lines.extend(simple_ptx_c_lines("barrier.cluster.wait.aligned"))
 
+        # Optional cluster sync on shutdown.
+        shutdown_lines = []
+        if clusterDim == 1:
+            shutdown_lines.append("// clusterDim = 1")
+        elif self._unsafe_no_shutdown_cluster_sync:
+            shutdown_lines.append("// CudaDeviceFunction.unsafe_no_shutdown_cluster_sync = True")
+        else:
+            shutdown_lines.append("// CudaDeviceFunction.unsafe_no_shutdown_cluster_sync = False")
+            shutdown_lines.extend(simple_ptx_c_lines("barrier.cluster.arrive.aligned"))
+            shutdown_lines.extend(simple_ptx_c_lines("barrier.cluster.wait.aligned"))
+
         # fmt: on
         return CudaDeviceSetupInfo(
-            smem_allocator.mem_bytes, static_decls, setup_lines, offset_names
+            smem_allocator.mem_bytes,
+            static_decls,
+            setup_lines,
+            shutdown_lines,
+            offset_names,
         )

@@ -109,7 +109,7 @@ def test_mixed_syncs_baseline(compiler):
         first_sync_tl_a=cuda_in_order,
         first_sync_tl_b=wgmma_async,
         barrier_type_a=CudaClusterSync,
-        barrier_type_b=CudaCommitGroup,
+        barrier_type_b=Sm90_WgmmaCommitGroup,
         sm="90a",
     )
 
@@ -135,7 +135,7 @@ def test_mixed_syncs_solitary_cluster_sync(compiler):
 
 
 def test_mixed_syncs_solitary_wgmma_commit_group(compiler):
-    # Two wgmma CudaCommitGroup in scope not allowed
+    # Two Sm90_WgmmaCommitGroup in scope not allowed
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(
             mkproc_mixed_syncs,
@@ -145,13 +145,13 @@ def test_mixed_syncs_solitary_wgmma_commit_group(compiler):
             blockDim=128,
             first_sync_tl_a=wgmma_async,
             first_sync_tl_b=wgmma_async,
-            barrier_type_a=CudaCommitGroup,
-            barrier_type_b=CudaCommitGroup,
+            barrier_type_a=Sm90_WgmmaCommitGroup,
+            barrier_type_b=Sm90_WgmmaCommitGroup,
         )
     msg = str(exc.value)
     assert "barrier_a" in msg
     assert "barrier_b" in msg
-    assert "CudaCommitGroup" in msg
+    assert "Sm90_WgmmaCommitGroup" in msg
 
 
 def test_mixed_syncs_mixed_commit_group(compiler):
@@ -165,14 +165,14 @@ def test_mixed_syncs_mixed_commit_group(compiler):
         blockDim=128,
         first_sync_tl_a=wgmma_async,
         first_sync_tl_b=Sm80_cp_async,
-        barrier_type_a=CudaCommitGroup,
-        barrier_type_b=CudaCommitGroup,
+        barrier_type_a=Sm90_WgmmaCommitGroup,
+        barrier_type_b=Sm80_CommitGroup,
         sm="90a",
     )
 
 
 def test_mixed_syncs_solitary_Sm80_commit_group(compiler):
-    # Two cp.async CudaCommitGroup in scope not allowed
+    # Two cp.async Sm80_CommitGroup in scope not allowed
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(
             mkproc_mixed_syncs,
@@ -182,13 +182,13 @@ def test_mixed_syncs_solitary_Sm80_commit_group(compiler):
             blockDim=128,
             first_sync_tl_a=Sm80_cp_async,
             first_sync_tl_b=Sm80_cp_async,
-            barrier_type_a=CudaCommitGroup,
-            barrier_type_b=CudaCommitGroup,
+            barrier_type_a=Sm80_CommitGroup,
+            barrier_type_b=Sm80_CommitGroup,
         )
     msg = str(exc.value)
     assert "barrier_a" in msg
     assert "barrier_b" in msg
-    assert "CudaCommitGroup" in msg
+    assert "Sm80_CommitGroup" in msg
 
 
 def test_mixed_cluster_sync_fence_positive(compiler):
@@ -203,7 +203,7 @@ def test_mixed_cluster_sync_fence_positive(compiler):
         first_sync_tl_a=cuda_in_order,
         first_sync_tl_b=wgmma_async,
         barrier_type_a=CudaClusterSync,
-        barrier_type_b=CudaCommitGroup,
+        barrier_type_b=Sm90_WgmmaCommitGroup,
         sm="90a",
     )
 
@@ -222,7 +222,7 @@ def test_mixed_cluster_sync_fence_negative(compiler):
             first_sync_tl_a=cuda_in_order,
             first_sync_tl_b=wgmma_async,
             barrier_type_a=CudaClusterSync,
-            barrier_type_b=CudaCommitGroup,
+            barrier_type_b=Sm90_WgmmaCommitGroup,
         )
     msg = str(exc.value)
     assert "barrier_a" in msg
@@ -241,7 +241,7 @@ def test_mixed_syncs_wgmma_commit_group_unit(compiler):
             first_sync_tl_a=cuda_in_order,
             first_sync_tl_b=wgmma_async,
             barrier_type_a=CudaClusterSync,
-            barrier_type_b=CudaCommitGroup,
+            barrier_type_b=Sm90_WgmmaCommitGroup,
         )
     msg = str(exc.value)
     assert "warpgroup" in msg
@@ -260,7 +260,7 @@ def test_mixed_syncs_Sm80_commit_group_unit(compiler):
             first_sync_tl_a=cuda_in_order,
             first_sync_tl_b=Sm80_cp_async,
             barrier_type_a=CudaClusterSync,
-            barrier_type_b=CudaCommitGroup,
+            barrier_type_b=Sm80_CommitGroup,
         )
     msg = str(exc.value)
     assert "thread" in msg
@@ -278,7 +278,7 @@ def test_mixed_syncs_mismatch_first_sync_tl(compiler):
             first_sync_tl_a=cuda_in_order,
             first_sync_tl_b=wgmma_async,
             barrier_type_a=CudaClusterSync,
-            barrier_type_b=CudaCommitGroup,
+            barrier_type_b=Sm90_WgmmaCommitGroup,
             alt_first_sync_tl_a=cuda_temporal,
         )
     msg = str(exc.value)
@@ -299,7 +299,7 @@ def test_mixed_syncs_mismatch_second_sync_tl(compiler):
             first_sync_tl_a=cuda_in_order,
             first_sync_tl_b=wgmma_async,
             barrier_type_a=CudaClusterSync,
-            barrier_type_b=CudaCommitGroup,
+            barrier_type_b=Sm90_WgmmaCommitGroup,
             alt_second_sync_tl_a=wgmma_async,
         )
     msg = str(exc.value)
@@ -344,7 +344,7 @@ def test_cluster_sync_unit_cta(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_cluster_sync_unit, unit=cuda_cta_in_cluster)
     msg = str(exc.value)
-    assert "full cluster" in msg
+    assert "Missing threads to match cuda_cluster" in msg
 
 
 def test_cluster_sync_unit_warp(compiler):
@@ -354,7 +354,7 @@ def test_cluster_sync_unit_warp(compiler):
             mkproc_cluster_sync_unit, unit=cuda_warp, arrive_hi=1, await_hi=1
         )
     msg = str(exc.value)
-    assert "full cluster" in msg
+    assert "Missing threads to match cuda_cluster" in msg
 
 
 def test_cluster_sync_unit_await(compiler):
@@ -366,7 +366,12 @@ def test_cluster_sync_unit_await(compiler):
 
 
 def mkproc_commit_group(
-    first_sync_tl, second_sync_tl, unit, await_first=False, different_warps=False
+    first_sync_tl,
+    second_sync_tl,
+    unit,
+    barrier_mechanism,
+    await_first=False,
+    different_warps=False,
 ):
     warps_lo = 8 if different_warps else 4
     warps_hi = 16 if different_warps else 12
@@ -376,7 +381,7 @@ def mkproc_commit_group(
     def test_proc():
         with CudaDeviceFunction(blockDim=512):
             for task in cuda_tasks(0, 1):
-                cg: barrier[2] @ CudaCommitGroup
+                cg: barrier[2] @ barrier_mechanism
                 if arrive_first:
                     with CudaWarps(4, 12):
                         for t in cuda_threads(0, 2, unit=unit):
@@ -399,6 +404,7 @@ def test_wgmma_commit_group_async_proxy(compiler, golden):
         first_sync_tl=wgmma_async,
         second_sync_tl=cuda_generic_and_async_proxy,
         unit=cuda_warpgroup,
+        barrier_mechanism=Sm90_WgmmaCommitGroup,
         golden=golden,
     )
 
@@ -410,6 +416,7 @@ def test_Sm80_commit_group_async_proxy(compiler):
             mkproc_commit_group,
             first_sync_tl=Sm80_cp_async,
             second_sync_tl=cuda_generic_and_async_proxy,
+            barrier_mechanism=Sm80_CommitGroup,
             unit=cuda_thread,
         )
     msg = str(exc.value)
@@ -426,7 +433,8 @@ def test_bad_first_sync_tl_commit_group(compiler):
             mkproc_commit_group,
             first_sync_tl=tma_to_smem_async,
             second_sync_tl=cuda_in_order,
-            unit=cuda_thread,
+            unit=cuda_warp,
+            barrier_mechanism=Sm90_TmaCommitGroup,
         )
     msg = str(exc.value)
     assert "cg" in msg
@@ -440,6 +448,7 @@ def test_commit_group_await_first_positive(compiler, golden):
         first_sync_tl=Sm80_cp_async,
         second_sync_tl=cuda_in_order,
         unit=cuda_thread,
+        barrier_mechanism=Sm80_CommitGroup,
         await_first=True,
         different_warps=False,
         golden=golden,
@@ -453,6 +462,7 @@ def test_commit_group_await_first_negative(compiler):
             first_sync_tl=Sm80_cp_async,
             second_sync_tl=cuda_in_order,
             unit=cuda_thread,
+            barrier_mechanism=Sm80_CommitGroup,
             await_first=True,
             different_warps=True,
         )
@@ -466,6 +476,7 @@ def test_commit_group_arrive_first_positive(compiler, golden):
         first_sync_tl=Sm80_cp_async,
         second_sync_tl=cuda_in_order,
         unit=cuda_thread,
+        barrier_mechanism=Sm80_CommitGroup,
         await_first=False,
         different_warps=False,
         golden=golden,
@@ -478,6 +489,7 @@ def test_commit_group_arrive_first_negative(compiler):
             mkproc_commit_group,
             first_sync_tl=Sm80_cp_async,
             second_sync_tl=cuda_in_order,
+            barrier_mechanism=Sm80_CommitGroup,
             unit=cuda_thread,
             await_first=False,
             different_warps=True,
@@ -1208,7 +1220,7 @@ def mkproc_cp_async_commit_group(ring, ntid, scale, K_tile, M=0, K=0, sync_check
         # fmt: off
         with CudaDeviceFunction(blockDim=ntid):
             for m_task in cuda_tasks(0, M / ntid):
-                cg: barrier[ntid] @ CudaCommitGroup
+                cg: barrier[ntid] @ Sm80_CommitGroup
                 smem: f32[ring, ntid, K_tile] @ CudaSmemLinear
                 # Load K tiles 0, ..., ring - 2
                 for warmup in seq(0, ring - 2):
@@ -1671,7 +1683,7 @@ def mkproc_broken_barrier_exprs(bug):
                         else:
                             Await(mbar_a[m_cta, n_cta], cuda_in_order, ~0)
 
-                        cg: barrier[128] @ CudaCommitGroup
+                        cg: barrier[128] @ Sm80_CommitGroup
                         for tid in cuda_threads(0, 128):
                             if bug == multicast_commit_group_bug:
                                 Arrive(Sm80_cp_async) >> cg[tid] >> cg[:]
@@ -1728,7 +1740,7 @@ def test_forbid_multicast_commit_group(compiler):
         )
     msg = str(exc.value)
     assert "Unsupported multicast" in msg
-    assert "CudaCommitGroup" in msg
+    assert "CommitGroup" in msg
 
 
 def test_home_barrier_different_barriers(compiler):
@@ -1780,7 +1792,7 @@ def test_arrive_no_barriers(compiler):
 
 def mkproc_await_wrong_N(barrier_mechanism, N, N2):
     first_sync_tl = (
-        tma_to_gmem_async if barrier_mechanism == CudaCommitGroup else cuda_in_order
+        tma_to_gmem_async if barrier_mechanism == Sm90_TmaCommitGroup else cuda_in_order
     )
 
     @proc
@@ -1818,9 +1830,9 @@ def test_await_wrong_N(compiler):
     helper(CudaMbarrier, -1, -1, None)
     helper(CudaMbarrier, 0, 0, "N < 0 (e.g. N = ~0)")
     helper(CudaMbarrier, +1, +1, "N < 0 (e.g. N = ~0)")
-    helper(CudaCommitGroup, -1, -1, "N >= 0")
-    helper(CudaCommitGroup, 0, 0, None)
-    helper(CudaCommitGroup, +1, +1, None)
+    helper(Sm90_TmaCommitGroup, -1, -1, "N >= 0")
+    helper(Sm90_TmaCommitGroup, 0, 0, None)
+    helper(Sm90_TmaCommitGroup, +1, +1, None)
 
-    helper(CudaCommitGroup, +1, +2, None)
+    helper(Sm90_TmaCommitGroup, +1, +2, None)
     helper(CudaMbarrier, ~1, ~2, "uniform-N")

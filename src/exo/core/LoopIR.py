@@ -37,6 +37,8 @@ from .prelude import (
     ScalarInfo,
 )
 
+from .size_annotation import SizeAnnotation, ring_buffer_by
+
 from ..spork.timelines import Instr_tl, cpu_in_order_instr, Sync_tl
 from ..spork.base_with_context import BaseWithContext
 from ..spork.coll_algebra import CollUnit, standalone_thread
@@ -93,6 +95,8 @@ module LoopIR {
          | WindowExpr( sym name, w_access* idx )
          | StrideExpr( sym name, int dim )
          | ReadConfig( config config, string field )
+         -- Only used in GPU codegen hack: `(arg + c_consumption) % ring_depth`
+         | ManagedRingBufferIdx( expr arg, int ring_depth, string c_consumption )
          attributes( type type, srcinfo srcinfo )
 
     -- WindowExpr = (base : Sym, idx : [ Pt Expr | Interval Expr Expr ])
@@ -115,10 +119,12 @@ module LoopIR {
          | Bool()
          | Int()
          | Index()
-         | Size()
+         | Size(size_annotation? annotation)  -- annotation only used for allocated tensors
          | Stride()
          | Error()
-         | Tensor( expr* hi, bool is_window, type type )
+         -- ring_guarded_by: BarrierExpr (ignore idx) used to manage alloc/free
+         -- of ring buffer entries, if this alloc is a managed ring buffer.
+         | Tensor( expr* hi, bool is_window, type type, expr? ring_guarded_by )
          -- src_type  - type of the Tensor from which the window was created
          -- as_tensor - tensor type as if this window were simply a tensor
          --             itself
@@ -131,7 +137,7 @@ module LoopIR {
                        sym src_buf, w_access *idx )
          -- Spork (Exo-GPU) extensions
          | WithContext()
-         | Barrier( sym? guarded_by, expr* hi )
+         | Barrier( expr? ring_guarded_by, expr* hi )
 
     -- Dense tensor: Tensor(is_window = False)
     -- Window parameter (of proc): Tensor(is_window = True)
@@ -155,6 +161,7 @@ module LoopIR {
         "srcinfo": SrcInfo,
         "loop_mode": LoopMode,
         "sync_type": SyncType,
+        "size_annotation": SizeAnnotation,
     },
     memoize={
         "Num",
@@ -204,7 +211,8 @@ module UAST {
             | SyncStmt( sync_type sync_type, expr* barriers )
             | If      ( expr cond, stmt* body,  stmt* orelse )
             | For     ( sym iter,  expr cond,   stmt* body )
-            | Alloc   ( sym name, type type, allocable? mem )
+            -- zip_size_annotations[n] annotates the n-th allocated tensor dimension
+            | Alloc   ( sym name, type type, allocable? mem, size_annotation* zip_size_annotations )
             | Call    ( loopir_proc f, expr* args, expr? trailing_barrier_expr )
             attributes( srcinfo srcinfo )
 
@@ -241,9 +249,9 @@ module UAST {
             | Size  ()
             | Index ()
             | Stride()
-            | Tensor( expr *hi, bool is_window, type type )
+            | Tensor( expr *hi, bool is_window, type type, expr? ring_guarded_by )
             | WithContext()
-            | Barrier( sym? guarded_by, expr *hi )
+            | Barrier( expr? ring_guarded_by, expr *hi )
 } """,
     ext_types={
         "name": validators.instance_of(Identifier, convert=True),
@@ -258,6 +266,7 @@ module UAST {
         "srcinfo": SrcInfo,
         "loop_mode": LoopMode,
         "sync_type": SyncType,
+        "size_annotation": SizeAnnotation,
     },
     memoize={
         "Num",
@@ -369,7 +378,7 @@ class T:
     bool = Bool()  # note: accessed as T.bool outside this module
     int = Int()
     index = Index()
-    size = Size()
+    plain_size = Size(None)
     stride = Stride()
     err = Error()
     # Spork extensions
@@ -384,10 +393,10 @@ uast_prim_types = {
 
 
 # UAST to LoopIR non-parameterized types (see ScalarInfo, it adds to this)
+# 2026-04-05: UAST.Size now has to be handled specially due to size_annotation.
 loopir_from_uast_metatype_table = {
     UAST.Num: T.R,
     UAST.Int: T.int,
-    UAST.Size: T.size,
     UAST.Index: T.index,
     UAST.Stride: T.stride,
     UAST.Bool: T.bool,
@@ -675,6 +684,23 @@ del is_dense_tensor
 
 
 @extclass(LoopIR.type)
+@extclass(UAST.type)
+def get_ring_guarded_by(t):
+    return None
+
+
+@extclass(LoopIR.Tensor)
+@extclass(UAST.Tensor)
+@extclass(LoopIR.Barrier)
+@extclass(UAST.Barrier)
+def get_ring_guarded_by(t):
+    return t.ring_guarded_by
+
+
+del get_ring_guarded_by
+
+
+@extclass(LoopIR.type)
 def is_numeric(t):
     return t.is_real_scalar() or isinstance(t, (T.Tensor, T.Window))
 
@@ -688,6 +714,89 @@ def is_bool(t):
 
 
 del is_bool
+
+
+@extclass(LoopIR.expr)
+def get_size_annotation(t):
+    return t.type.get_size_annotation()
+
+
+@extclass(LoopIR.type)
+def get_size_annotation(t):
+    return None
+
+
+@extclass(LoopIR.Size)
+def get_size_annotation(t):
+    return t.annotation
+
+
+del get_size_annotation
+
+
+@extclass(LoopIR.Alloc)
+@extclass(LoopIR.Free)
+@extclass(LoopIR.type)
+def get_managed_ring_buffer_dimension_depth(node):
+    """(dimension index, ring buffer depth) of managed ring buffer dimension
+
+    None, None if no such dimension. Error if multiple such dimensions.
+    """
+
+    if isinstance(node, LoopIR.type):
+        srcinfo = "(no srcinfo for type)"
+        t = node
+    else:
+        srcinfo = node.srcinfo
+        t = node.type
+    if not isinstance(t, (LoopIR.Tensor, LoopIR.Barrier)):
+        return None, None
+    dims = [
+        i
+        for i, e in enumerate(t.hi)
+        if isinstance(e.get_size_annotation(), ring_buffer_by)
+    ]
+    if not dims:
+        return None, None
+    elif len(dims) > 1:
+        raise ValueError(
+            f"{srcinfo}: multiple managed ring buffer dimensions in {node}"
+        )
+    else:
+        dim = dims[0]
+        return dim, t.hi[dim].get_size_annotation().depth
+
+
+del get_managed_ring_buffer_dimension_depth
+
+
+@extclass(LoopIR.Alloc)
+@extclass(LoopIR.Free)
+def require_managed_ring_buffer_dimension_depth(s):
+    dim, depth = s.get_managed_ring_buffer_dimension_depth()
+    if dim is None:
+        raise ValueError(
+            f"{s.srcinfo}: missing managed ring buffer dimensions "
+            f"in the non-distributed dimensions of {s}"
+        )
+
+
+del require_managed_ring_buffer_dimension_depth
+
+
+@extclass(LoopIR.type)
+@extclass(UAST.type)
+def is_size(t):
+    return False
+
+
+@extclass(LoopIR.Size)
+@extclass(UAST.Size)
+def is_size(t):
+    return True
+
+
+del is_size
 
 
 @extclass(LoopIR.type)
@@ -799,14 +908,13 @@ def home_barrier_expr(s) -> LoopIR.BarrierExpr:
             this_idx = e.idx[dim_idx]
             if isinstance(this_idx, LoopIR.Point):
                 pt = this_idx.pt
-                if not isinstance(pt, LoopIR.Read):
-                    raise ValueError(
-                        f"{s.srcinfo}: expected a plain variable, not {this_idx}, in {e}"
-                    )
                 if old_idx := idx[dim_idx]:
-                    if old_idx.pt.name != pt.name:
+                    lcmp = LoopIR_Compare()
+                    if not lcmp.match_e(old_idx.pt, pt):
                         raise ValueError(
-                            f"{s.srcinfo}: {e} has idx[{dim_idx}] = {pt.name}; mismatches idx[{dim_idx}] in previous trailing barrier expressions of {s}"
+                            f"{s.srcinfo}: mismatch on idx[{dim_idx}]:\n"
+                            f"saw: {old_idx.pt} @ {old_idx.pt.srcinfo}\n"
+                            f"saw: {pt} @ {pt.srcinfo}\n"
                         )
                 else:
                     idx[dim_idx] = this_idx
@@ -951,7 +1059,7 @@ def create_window_type(in_name: Sym, in_typ: LoopIR.type, idx):
     """Construct a derived window type from any tensor or window type"""
     assert isinstance(in_name, Sym)
     window_shape = build_window_shape(idx)
-    as_tensor = T.Tensor(window_shape, True, in_typ.basetype())
+    as_tensor = T.Tensor(window_shape, True, in_typ.basetype(), None)
 
     if isinstance(in_typ, T.Tensor):
         # in_typ is dense tensor or window parameter
@@ -1330,7 +1438,7 @@ class LoopIR_Rewrite:
                     args=new_args or e.args,
                     type=new_type or e.type,
                 )
-        elif isinstance(e, LoopIR.USub):
+        elif isinstance(e, (LoopIR.USub, LoopIR.ManagedRingBufferIdx)):
             new_arg = self.map_e(e.arg)
             new_type = self.map_t(e.type)
             if any((new_arg, new_type)):
@@ -1373,8 +1481,16 @@ class LoopIR_Rewrite:
         if isinstance(t, T.Tensor):
             new_hi = self.map_exprs(t.hi)
             new_type = self.map_t(t.type)
-            if (new_hi is not None) or new_type:
-                return t.update(hi=new_hi or t.hi, type=new_type or t.type)
+            # TODO test this 2026-04-05
+            new_guarded_by = t.ring_guarded_by and self.map_e(t.ring_guarded_by)
+            if new_guarded_by is not None:
+                new_guarded_by = new_guarded_by.update(idx=[])
+            if (new_hi is not None) or new_type or new_guarded_by:
+                return t.update(
+                    hi=new_hi or t.hi,
+                    type=new_type or t.type,
+                    ring_guarded_by=new_guarded_by or t.ring_guarded_by,
+                )
         elif isinstance(t, T.Window):
             new_src_type = self.map_t(t.src_type)
             new_as_tensor = self.map_t(t.as_tensor)
@@ -1387,8 +1503,14 @@ class LoopIR_Rewrite:
                 )
         elif isinstance(t, T.Barrier):
             new_hi = self.map_exprs(t.hi)
-            if new_hi is not None:
-                return t.update(hi=new_hi)
+            # TODO test this 2026-04-05
+            new_guarded_by = t.ring_guarded_by and self.map_e(t.ring_guarded_by)
+            if new_guarded_by is not None:
+                new_guarded_by = new_guarded_by.update(idx=[])
+            if new_hi is not None or new_guarded_by:
+                return t.update(
+                    hi=new_hi, ring_guarded_by=new_guarded_by or t.ring_guarded_by
+                )
         return None
 
     @staticmethod
@@ -1473,7 +1595,7 @@ class LoopIR_Do:
         elif etyp is LoopIR.Extern:
             for a in e.args:
                 self.do_e(a)
-        elif etyp is LoopIR.USub:
+        elif etyp in (LoopIR.USub, LoopIR.ManagedRingBufferIdx):
             self.do_e(e.arg)
         elif etyp in (LoopIR.WindowExpr, LoopIR.BarrierExpr):
             for w in e.idx:
@@ -1496,6 +1618,8 @@ class LoopIR_Do:
         if isinstance(t, (T.Tensor, T.Barrier)):
             for i in t.hi:
                 self.do_e(i)
+            if e := t.ring_guarded_by:
+                self.do_e(e)
         elif isinstance(t, T.Window):
             self.do_t(t.src_type)
             self.do_t(t.as_tensor)
@@ -1605,6 +1729,12 @@ class LoopIR_Compare:
             return e1.val == e2.val
         elif isinstance(e1, LoopIR.USub):
             return self.match_e(e1.arg, e2.arg)
+        elif isinstance(e1, LoopIR.ManagedRingBufferIdx):
+            return (
+                self.match_e(e1.arg, e2.arg)
+                and e1.ring_depth == e2.ring_depth
+                and e1.c_consumption == e2.c_consumption
+            )
         elif isinstance(e1, LoopIR.BinOp):
             return (
                 e1.op == e2.op
