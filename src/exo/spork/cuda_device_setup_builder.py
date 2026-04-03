@@ -41,12 +41,56 @@ class CudaDeviceSetupInfo:
 
 
 @dataclass(slots=True)
+class Allocator:
+    # Not-so-smart allocator
+    # We greedily try to fit each allocation in the first gap that it fits in.
+    # TODO: write a better allocator that wisely uses "holes"
+    # and doesn't have blind spots from greedy allocation,
+    # e.g. alloc(A), alloc(B), free(A), alloc(C), free(B), free(C)
+    # where sizeof(C) > sizeof(A)
+    mem_bytes: int = 0
+    mem_begin_ends: List[Tuple[int, int]] = field(default_factory=list)
+    sym_begin_ends: Dict[Sym, Tuple[int, int]] = field(default_factory=dict)
+
+    def begin_suballoc(self, sym: Sym, record: SmemAllocRecord):
+        assert record.size > 0, sym
+        size = record.size
+        alignment = record.alignment
+        align_mask = alignment - 1
+
+        tmp_begin = 0
+        for i, other in enumerate(self.mem_begin_ends):
+            # See if the allocation will fit before self.mem_begin_ends[i]
+            begin = (tmp_begin + align_mask) & ~align_mask
+            if begin + size <= other[0]:
+                alloc_index = i
+                break
+            # Answer is no: update state for next iteration
+            tmp_begin = other[1]
+        else:
+            # Didn't fit in any gap, we will put at the end.
+            begin = (tmp_begin + align_mask) & ~align_mask
+            alloc_index = len(self.mem_begin_ends)
+
+        self.mem_begin_ends[alloc_index:alloc_index] = [(begin, begin + size)]
+        end = begin + size
+        self.mem_bytes = max(self.mem_bytes, end)
+        self.sym_begin_ends[sym] = (begin, end)
+
+    def end_suballoc(self, sym: Sym):
+        tup = self.sym_begin_ends[sym]
+        i = bisect_left(self.mem_begin_ends, tup)
+        assert self.mem_begin_ends[i] == tup
+        del self.mem_begin_ends[i]
+
+
+@dataclass(slots=True)
 class CudaDeviceSetupBuilder:
     _records: Dict[Sym, SmemAllocRecord] = field(default_factory=dict)
 
     # Record order that SMEM allocations were created and destroyed.
     # (_, True) means alloc, (_, False) means free.
-    _alloc_frees: List[Tuple[Sym, bool]] = field(default_factory=list)
+    _smem_alloc_frees: List[Tuple[Sym, bool]] = field(default_factory=list)
 
     _have_proxy_fence: bool = False
 
@@ -71,7 +115,7 @@ class CudaDeviceSetupBuilder:
         n = len(self._records)
         offset_name = f"exo_smemOffset{n}_{sym}"
         record = SmemAllocRecord(offset_name)
-        self._alloc_frees.append((sym, True))
+        self._smem_alloc_frees.append((sym, True))
         assert sym not in self._records
         self._records[sym] = record
         return offset_name
@@ -81,7 +125,7 @@ class CudaDeviceSetupBuilder:
         record = self._records[sym]
         assert not record.is_freed
         record.is_freed = True
-        self._alloc_frees.append((sym, False))
+        self._smem_alloc_frees.append((sym, False))
         return record.offset_name
 
     def make_persistent(self, sym: Sym):
@@ -123,62 +167,22 @@ class CudaDeviceSetupBuilder:
         for sym, record in self._records.items():
             assert record.is_freed or record.persistent, sym
 
-        # Not-so-smart allocator
-        # We greedily try to fit each allocation in the first gap that it fits in.
-        # TODO: write a better allocator that wisely uses "holes"
-        # and doesn't have blind spots from greedy allocation,
-        # e.g. alloc(A), alloc(B), free(A), alloc(C), free(B), free(C)
-        # where sizeof(C) > sizeof(A)
-        smem_bytes = 0
-        smem_begin_ends = []
-        sym_begin_ends = {}
-
-        def begin_suballoc(sym: Sym, record: SmemAllocRecord):
-            nonlocal smem_bytes
-            assert record.size > 0, sym
-            size = record.size
-            alignment = record.alignment
-            align_mask = alignment - 1
-
-            tmp_begin = 0
-            for i, other in enumerate(smem_begin_ends):
-                # See if the allocation will fit before smem_begin_ends[i]
-                begin = (tmp_begin + align_mask) & ~align_mask
-                if begin + size <= other[0]:
-                    alloc_index = i
-                    break
-                # Answer is no: update state for next iteration
-                tmp_begin = other[1]
-            else:
-                # Didn't fit in any gap, we will put at the end.
-                begin = (tmp_begin + align_mask) & ~align_mask
-                alloc_index = len(smem_begin_ends)
-
-            smem_begin_ends[alloc_index:alloc_index] = [(begin, begin + size)]
-            end = begin + size
-            smem_bytes = max(smem_bytes, end)
-            sym_begin_ends[sym] = (begin, end)
-
-        def end_suballoc(sym: Sym):
-            tup = sym_begin_ends[sym]
-            i = bisect_left(smem_begin_ends, tup)
-            assert smem_begin_ends[i] == tup
-            del smem_begin_ends[i]
+        smem_allocator = Allocator()
 
         # Allocate space for persistent allocations
-        for sym, is_alloc in self._alloc_frees:
+        for sym, is_alloc in self._smem_alloc_frees:
             record = self._records[sym]
             if is_alloc and record.persistent:
-                begin_suballoc(sym, record)
+                smem_allocator.begin_suballoc(sym, record)
 
         # Allocate space for transient allocations
-        for sym, is_alloc in self._alloc_frees:
+        for sym, is_alloc in self._smem_alloc_frees:
             record = self._records[sym]
             if not record.persistent:
                 if is_alloc:
-                    begin_suballoc(sym, record)
+                    smem_allocator.begin_suballoc(sym, record)
                 else:
-                    end_suballoc(sym)
+                    smem_allocator.end_suballoc(sym)
 
         # Now focus on generating CUDA C++ code.
         static_decls = []
@@ -201,10 +205,10 @@ class CudaDeviceSetupBuilder:
         # Generate static_decls (declarations of SMEM offset constants)
         # and get list of mbarriers to initialize.
         mbarrier_inits = []
-        for sym, is_alloc in self._alloc_frees:
+        for sym, is_alloc in self._smem_alloc_frees:
             if not is_alloc:
                 continue
-            begin, end = sym_begin_ends[sym]
+            begin, end = smem_allocator.sym_begin_ends[sym]
             record = self._records[sym]
             static_decls.append(
                 f"static constexpr unsigned {record.offset_name} = {begin};"
@@ -247,4 +251,6 @@ class CudaDeviceSetupBuilder:
             setup_lines.extend(simple_ptx_c_lines("barrier.cluster.wait.aligned"))
 
         # fmt: on
-        return CudaDeviceSetupInfo(smem_bytes, static_decls, setup_lines, offset_names)
+        return CudaDeviceSetupInfo(
+            smem_allocator.mem_bytes, static_decls, setup_lines, offset_names
+        )
