@@ -76,10 +76,99 @@ def loopir_lower_cuda(s, ctx: SporkLoweringCtx):
     with-statement node holding ExtWithContext, ready for final
     code lowering with the main LoopIR-to-C compiler.
     """
+
+    dim_rewrite = DimensionRewrite(ctx.coll_analysis().distributed_alloc_states)
+    if s_rewrite := dim_rewrite.map_s(s):
+        s = s_rewrite[0]
+
     scan = SubtreeScan(s, ctx)
     # Scanner validates correctness and passes advice from "global analysis"
     # to the subtree rewriter on how to substitute certain stmts/expressions.
     return SubtreeRewrite(s, scan, ctx).result()
+
+
+# =========== PHASE 0: distributed & managed ring buffer rewrites ===========
+# Erase distributed dimensions, and rewrite managed ring buffer dimensions (todo)
+
+
+class DimensionRewrite(LoopIR_Rewrite):
+    __slots__ = ["distributed_alloc_states"]
+
+    def __init__(self, distributed_alloc_states):
+        assert isinstance(distributed_alloc_states, dict)
+        self.distributed_alloc_states = distributed_alloc_states
+
+    def map_s(self, s):
+        s_rewrite = super().map_s(s)
+        if s_rewrite:
+            assert len(s_rewrite) == 1
+            s = s_rewrite[0]
+        else:
+            s_rewrite = None
+        if isinstance(s, idx_s_types):
+            if tmp := self.remove_distributed_idx(s):
+                s_rewrite = [tmp]
+        if isinstance(s, (LoopIR.Alloc, LoopIR.Free)):
+            s_rewrite = [
+                s.update(type=self.distributed_alloc_states[s.name].get_shard_type())
+            ]
+        return s_rewrite
+
+    def map_e(self, e):
+        # Remove distributed dimensions
+        # HACK: for instructions that take windows with distributed dimensions,
+        # the resulting program will no longer typecheck, since the
+        # dimensionality of the passed window won't match the fnarg anymore!
+        e = super().map_e(e) or e
+        e_rewrite = None
+        if isinstance(e, LoopIR.BarrierExpr):
+            e_rewrite = self.remove_distributed_idx(e)
+        if isinstance(e, idx_e_types):
+            e_rewrite = self.remove_distributed_idx(e)
+        return e_rewrite
+
+    def remove_distributed_idx(self, node):
+        alloc_state = self.distributed_alloc_states.get(node.name)
+        if alloc_state is not None:
+            assert isinstance(alloc_state, DistributedAllocState)
+            n = alloc_state.n_distributed_dims()
+            if n > 0:
+                old_idx = node.idx
+                new_idx = node.idx[n:]
+                if isinstance(node, LoopIR.WindowExpr):
+                    # Remove the first n coordinates of the idx expression.
+                    # If any removed coordinates were intervals, this reduces
+                    # the dimensionality of the resulting window type.
+                    n_intervals_removed = sum(
+                        isinstance(coord, LoopIR.Interval) for coord in old_idx[:n]
+                    )
+                    old_type = node.type
+                    old_src_type = old_type.src_type
+                    old_as_tensor = old_type.as_tensor
+                    assert (
+                        old_type.src_buf == node.name
+                    ), "See WindowStmt case for SubtreeScan.apply_s"
+                    assert isinstance(old_type, LoopIR.WindowType)
+                    new_hi = old_as_tensor.hi[n_intervals_removed:]
+                    if not new_hi:
+                        # Decayed to scalar
+                        return LoopIR.Read(
+                            node.name,
+                            [coord.pt for coord in new_idx],
+                            node.type.basetype(),
+                            node.srcinfo,
+                        )
+                    new_type = old_type.update(
+                        src_type=old_src_type.update(hi=old_src_type.hi[n:]),
+                        as_tensor=old_as_tensor.update(hi=new_hi),
+                        idx=new_idx,
+                    )
+                    return node.update(idx=new_idx, type=new_type)
+                else:
+                    # fmt: off
+                    assert isinstance(node, (LoopIR.Read, LoopIR.stmt, LoopIR.BarrierExpr)), node
+                    return node.update(idx=new_idx)
+        return None
 
 
 # ========================   PHASE 1: subtree scan   ========================
@@ -484,11 +573,6 @@ class SubtreeScan(LoopIR_Do):
                 # End SMEM lifetime.
                 offset_name = self.device_setup_builder.end_smem_alloc(s.name)
 
-                # Remove distributed dimensions (temporarily)
-                alloc_state = self.distributed_alloc_states[s.name]
-                assert isinstance(alloc_state, DistributedAllocState)
-                s = s.update(type=alloc_state.get_shard_type())
-
                 # Record required alloc size
                 inputs: SmemConfigInputs = smem_config_inputs(s)
                 config: SmemConfig = s.mem.smem_config(inputs)
@@ -839,10 +923,6 @@ class SubtreeRewrite(LoopIR_Rewrite):
             elif s.type.is_barrier():
                 self.on_barrier_free(s)
 
-        elif isinstance(s, idx_s_types):
-            # Remove distributed dimensions for tensor indexing expression
-            s = self.remove_distributed_idx(s)
-
         elif isinstance(s, LoopIR.SyncStmt):
             s = self.update_check_sync_stmt(s)
 
@@ -869,13 +949,6 @@ class SubtreeRewrite(LoopIR_Rewrite):
     def map_e(self, e):
         e_rewrite = None
 
-        # Remove distributed dimensions
-        # HACK: for instructions that take windows with distributed dimensions,
-        # the resulting program will no longer typecheck, since the
-        # dimensionality of the passed window won't match the fnarg anymore!
-        if isinstance(e, idx_e_types):
-            e_rewrite = self.remove_distributed_idx(e)
-
         # Use superclass to recurse and rewrite subtree
         # We have to have logic to handle None being used to indicate
         # "no change"; if the superclass makes no changes, we still have
@@ -889,55 +962,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
             else:
                 return super_rewritten
 
-    def remove_distributed_idx(self, node):
-        alloc_state = self.distributed_alloc_states.get(node.name)
-        if alloc_state is not None:
-            assert isinstance(alloc_state, DistributedAllocState)
-            n = alloc_state.n_distributed_dims()
-            if n > 0:
-                old_idx = node.idx
-                new_idx = node.idx[n:]
-                if isinstance(node, LoopIR.WindowExpr):
-                    # Remove the first n coordinates of the idx expression.
-                    # If any removed coordinates were intervals, this reduces
-                    # the dimensionality of the resulting window type.
-                    n_intervals_removed = sum(
-                        isinstance(coord, LoopIR.Interval) for coord in old_idx[:n]
-                    )
-                    old_type = node.type
-                    old_src_type = old_type.src_type
-                    old_as_tensor = old_type.as_tensor
-                    assert (
-                        old_type.src_buf == node.name
-                    ), "See WindowStmt case for SubtreeScan.apply_s"
-                    assert isinstance(old_type, LoopIR.WindowType)
-                    new_hi = old_as_tensor.hi[n_intervals_removed:]
-                    if not new_hi:
-                        # Decayed to scalar
-                        return LoopIR.Read(
-                            node.name,
-                            [coord.pt for coord in new_idx],
-                            node.type.basetype(),
-                            node.srcinfo,
-                        )
-                    new_type = old_type.update(
-                        src_type=old_src_type.update(hi=old_src_type.hi[n:]),
-                        as_tensor=old_as_tensor.update(hi=new_hi),
-                        idx=new_idx,
-                    )
-                    return node.update(idx=new_idx, type=new_type)
-                else:
-                    assert isinstance(node, (LoopIR.Read, LoopIR.stmt))
-                    return node.update(idx=new_idx)
-        return None
-
     def update_numeric_alloc_free(self, s):
-        alloc_state = self.distributed_alloc_states[s.name]
-        assert isinstance(alloc_state, DistributedAllocState)
-
-        # Remove distributed dimensions
-        s = s.update(type=alloc_state.get_shard_type())
-
         # SMEM offset lowering
         if issubclass(s.mem, CudaBasicSmem):
             mem = self.codegen_smem[s.name]
@@ -949,7 +974,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
         lowered = self.sync_state_builder.lowered[s.name]
         if lowered.solitary:
             alloc_state = self.distributed_alloc_states[s.name]
-            shard_type = alloc_state.get_shard_type()
+            shard_type = s.type
             assert isinstance(shard_type, LoopIR.Barrier)
             # TODO test this
             for extent in shard_type.hi:
