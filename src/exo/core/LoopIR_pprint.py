@@ -609,6 +609,10 @@ def _print_expr_impl(e, env: PrintEnv, prec: int) -> str:
     elif isinstance(e, LoopIR.USub):
         return f'-{_print_expr(e.arg, env, prec=op_prec["~"])}'
 
+    elif isinstance(e, LoopIR.ManagedRingBufferIdx):
+        arg = _print_expr(e.arg, env, prec=op_prec["+"])
+        return f"(({e.arg} + {e.c_consumption}) % {e.ring_depth})"
+
     elif isinstance(e, LoopIR.BinOp):
         local_prec = op_prec[e.op]
         # increment rhs by 1 to account for left-associativity

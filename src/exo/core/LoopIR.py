@@ -93,6 +93,8 @@ module LoopIR {
          | WindowExpr( sym name, w_access* idx )
          | StrideExpr( sym name, int dim )
          | ReadConfig( config config, string field )
+         -- Only used in GPU codegen hack: `(arg + c_consumption) % ring_depth`
+         | ManagedRingBufferIdx( expr arg, int ring_depth, string c_consumption )
          attributes( type type, srcinfo srcinfo )
 
     -- WindowExpr = (base : Sym, idx : [ Pt Expr | Interval Expr Expr ])
@@ -1321,7 +1323,7 @@ class LoopIR_Rewrite:
                     args=new_args or e.args,
                     type=new_type or e.type,
                 )
-        elif isinstance(e, LoopIR.USub):
+        elif isinstance(e, (LoopIR.USub, LoopIR.ManagedRingBufferIdx)):
             new_arg = self.map_e(e.arg)
             new_type = self.map_t(e.type)
             if any((new_arg, new_type)):
@@ -1464,7 +1466,7 @@ class LoopIR_Do:
         elif etyp is LoopIR.Extern:
             for a in e.args:
                 self.do_e(a)
-        elif etyp is LoopIR.USub:
+        elif etyp in (LoopIR.USub, LoopIR.ManagedRingBufferIdx):
             self.do_e(e.arg)
         elif etyp in (LoopIR.WindowExpr, LoopIR.BarrierExpr):
             for w in e.idx:
@@ -1596,6 +1598,12 @@ class LoopIR_Compare:
             return e1.val == e2.val
         elif isinstance(e1, LoopIR.USub):
             return self.match_e(e1.arg, e2.arg)
+        elif isinstance(e1, LoopIR.ManagedRingBufferIdx):
+            return (
+                self.match_e(e1.arg, e2.arg)
+                and e1.ring_depth == e2.ring_depth
+                and e1.c_consumption == e2.c_consumption
+            )
         elif isinstance(e1, LoopIR.BinOp):
             return (
                 e1.op == e2.op

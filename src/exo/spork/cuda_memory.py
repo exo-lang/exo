@@ -367,6 +367,19 @@ class CudaSmemLinear(CudaDeviceVisibleLinear, CudaSmemAtomicity16B):
     qual_tl_dict = timelines.cuda_ram_qual_tl_dict
 
 
+@memwin_template
+def CudaSmemLinearRing(ring_depth):
+    assert isinstance(ring_depth, int)
+    assert ring_depth >= 1
+
+    class Impl(CudaSmemLinear):
+        @classmethod
+        def managed_ring_buffer_depth(cls):
+            return ring_depth
+
+    return Impl
+
+
 class CudaRmemLinear(CudaDeviceVisibleLinear):
     """Per-thread registers
 
@@ -649,7 +662,7 @@ class CudaMbarrier(CudaBasicDeviceBarrier):
 def CudaMbarrierRing(ring_depth, pre_arrive=0):
     assert isinstance(ring_depth, int)
     assert isinstance(pre_arrive, int)
-    assert 0 <= ring_depth
+    assert 0 < ring_depth
     assert 0 <= pre_arrive
     assert pre_arrive <= ring_depth
 

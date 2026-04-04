@@ -618,8 +618,10 @@ class SyncStateBuilder:
         lowered.codegen_sync_stmt = codegen
         self.lowered[name] = lowered
 
-    def generate_SyncState_body(self):
+    def generate_SyncState_body(self, ring_buffer_consumption_varnames: List[str]):
         lines = []
+        for nm in ring_buffer_consumption_varnames:
+            lines.append(f"    int {nm} = 0;")
         for line in self.SyncState_lines:
             if line:
                 lines.append("    " + line)

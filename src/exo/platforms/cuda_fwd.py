@@ -40,6 +40,7 @@ from ..spork.cuda_memory import (
     CudaGmemLinear,
     CudaSmemAtomicity16B,
     CudaSmemLinear,
+    CudaSmemLinearRing,
     CudaRmem,
     CudaRmemLinear,
     CudaRmemUniform,

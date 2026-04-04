@@ -185,26 +185,6 @@ def run_backend_checks(
     return value
 
 
-def lift_to_cir(e, range_env):
-    assert e.type.is_indexable(), "why are you here?"
-
-    is_non_neg = lambda e: range_env.check_expr_bound(0, IndexRangeEnvironment.leq, e)
-
-    if isinstance(e, LoopIR.Read):
-        return CIR.Read(e.name, is_non_neg(e))
-    elif isinstance(e, LoopIR.Const):
-        return CIR.Const(e.val)
-    elif isinstance(e, LoopIR.BinOp):
-        lhs = lift_to_cir(e.lhs, range_env)
-        rhs = lift_to_cir(e.rhs, range_env)
-        return CIR.BinOp(e.op, lhs, rhs, is_non_neg(e))
-    elif isinstance(e, LoopIR.USub):
-        arg = lift_to_cir(e.arg, range_env)
-        return CIR.USub(arg, is_non_neg(e))
-    else:
-        assert False, "bad case!"
-
-
 class LoopIR_SubProcs(LoopIR_Do):
     def __init__(self, proc):
         self._subprocs = set()
@@ -981,9 +961,35 @@ class Compiler:
         self.names = self.names.parents
         self._tab = self._tab[:-2]
 
+    def lift_to_cir(self, e):
+        assert e.type.is_indexable(), "why are you here?"
+        range_env = self.range_env
+
+        is_non_neg = lambda e: range_env.check_expr_bound(
+            0, IndexRangeEnvironment.leq, e
+        )
+
+        if isinstance(e, LoopIR.Read):
+            return CIR.Read(e.name, is_non_neg(e))
+        elif isinstance(e, LoopIR.Const):
+            return CIR.Const(e.val)
+        elif isinstance(e, LoopIR.BinOp):
+            lhs = self.lift_to_cir(e.lhs)
+            rhs = self.lift_to_cir(e.rhs)
+            return CIR.BinOp(e.op, lhs, rhs, is_non_neg(e))
+        elif isinstance(e, LoopIR.USub):
+            arg = self.lift_to_cir(e.arg)
+            return CIR.USub(arg, is_non_neg(e))
+        elif isinstance(e, LoopIR.ManagedRingBufferIdx):
+            arg = self.lift_to_cir(e.arg)
+            numerator = self.wrap_cir(e.c_consumption, "managed ring buffer") + arg
+            return (numerator % e.ring_depth).exo_get_cir()
+        else:
+            assert False, "bad case!"
+
     def wrap_cir(self, e, origin_story, origin_index=None) -> CIR_Wrapper:
         if isinstance(e, LoopIR.expr):
-            e = lift_to_cir(e, self.range_env)
+            e = self.lift_to_cir(e)
         else:
             e = cast_to_cir(e)
         assert isinstance(e, CIR.expr)
@@ -1005,7 +1011,7 @@ class Compiler:
                 lo = w.lo
                 w_intervals.append(
                     self.wrap_cir(w.hi, f"{e.name} interval_sizes", i)
-                    - lift_to_cir(w.lo, self.range_env)
+                    - self.lift_to_cir(w.lo)
                 )
             else:
                 assert isinstance(e, LoopIR.Read)
@@ -1118,8 +1124,7 @@ class Compiler:
 
     def shape_strs(self, shape, prec=op_prec["."]) -> str:
         comp_res = [
-            self.comp_cir(simplify_cir(lift_to_cir(i, self.range_env)), prec)
-            for i in shape
+            self.comp_cir(simplify_cir(self.lift_to_cir(i)), prec) for i in shape
         ]
         return comp_res
 
@@ -1171,10 +1176,10 @@ class Compiler:
             return CIR_Wrapper(obj, self, f"{symbol} {attr}[{idx}]")
 
         cir_array_interval_sizes = [
-            simplify_cir(lift_to_cir(e, self.range_env)) for e in shape[:n_array_dims]
+            simplify_cir(self.lift_to_cir(e)) for e in shape[:n_array_dims]
         ]
         cir_packed_interval_sizes = [
-            simplify_cir(lift_to_cir(e, self.range_env)) for e in shape[n_array_dims:]
+            simplify_cir(self.lift_to_cir(e)) for e in shape[n_array_dims:]
         ]
 
         # Check requirement documented in MemWin.packed_tensor_shape

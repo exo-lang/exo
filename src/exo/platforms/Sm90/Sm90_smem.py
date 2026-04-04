@@ -12,6 +12,7 @@ from ..kittens_impl.tk_types import cuda_tk_type_suffix_table
 
 __all__ = [
     "Sm90_SmemSwizzled",
+    "Sm90_SmemSwizzledRing",
     "Sm90_get_mma_smem",
     "Sm90_SmemSwizzled_from_smem_box",
     "Sm90_codegen_smem_descriptor",
@@ -185,11 +186,30 @@ struct exo_Sm90_SW{swizzle}_tiled: public exo_Sm90_SW{swizzle}<T>
     return SwizzledImpl
 
 
-def Sm90_get_mma_smem(swizzle):
-    if swizzle == 0:
-        return CudaSmemLinear
+@memwin_template
+def Sm90_SmemSwizzledRing(swizzle, ring_depth):
+    assert isinstance(ring_depth, int)
+    assert ring_depth >= 1
+
+    class Impl(Sm90_SmemSwizzled(swizzle)):
+        @classmethod
+        def managed_ring_buffer_depth(cls):
+            return ring_depth
+
+    return Impl
+
+
+def Sm90_get_mma_smem(swizzle, ring_depth=None):
+    if ring_depth is None:
+        if swizzle == 0:
+            return CudaSmemLinear
+        else:
+            return Sm90_SmemSwizzled(swizzle)
     else:
-        return Sm90_SmemSwizzled(swizzle)
+        if swizzle == 0:
+            return CudaSmemLinearRing(ring_depth)
+        else:
+            return Sm90_SmemSwizzledRing(swizzle, ring_depth)
 
 
 def Sm90_SmemSwizzled_from_smem_box(scalar_info: ScalarInfo, smem_box: Tuple[int, ...]):
