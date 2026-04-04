@@ -643,6 +643,9 @@ class SubtreeScan(LoopIR_Do):
             elif issubclass(s.mem, CudaBasicSmem):
                 # End SMEM lifetime.
                 offset_name = self.device_setup_builder.end_smem_alloc(s.name)
+                if s.mem.managed_ring_buffer_depth() is not None:
+                    # Managed ring buffer allocations are persistent.
+                    self.device_setup_builder.make_persistent(s.name)
 
                 # Record required alloc size
                 inputs: SmemConfigInputs = smem_config_inputs(s)
