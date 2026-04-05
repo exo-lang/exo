@@ -81,18 +81,19 @@ def loopir_lower_cuda(s, ctx: SporkLoweringCtx):
         assert len(s_rewrite) == 1
         s = s_rewrite[0]
 
-    scan = SubtreeScan(s, ctx)
+    scan = SubtreeScan(s, dim_rewrite, ctx)
     # Scanner validates correctness and passes advice from "global analysis"
     # to the subtree rewriter on how to substitute certain stmts/expressions.
     return SubtreeRewrite(s, dim_rewrite, scan, ctx).result()
 
 
 # =========== PHASE 0: distributed & managed ring buffer rewrites ===========
-# Erase distributed dimensions, and rewrite managed ring buffer dimensions (todo)
+# Erase distributed dimensions, and rewrite managed ring buffer dimensions
 
 
 @dataclass(slots=True)
 class ManagedRingBufferEntry:
+    dim_idx: int
     ring_depth: int
     syncState_varname: str
 
@@ -137,24 +138,29 @@ class DimensionRewrite(LoopIR_Rewrite):
             e_rewrite = self.rewrite_idx(e)
         return e_rewrite
 
+    def is_managed_ring_buffer(self, nm: Sym):
+        assert isinstance(nm, Sym)
+        return nm in self.managed_ring_buffer_entries
+
     def map_alloc_free(self, s):
         s = s.update(type=self.distributed_alloc_states[s.name].get_shard_type())
 
         if isinstance(s, LoopIR.Alloc):
             entry = None
-            ring_depth = s.mem.managed_ring_buffer_depth()
+            ring_dim_idx, ring_depth = s.get_managed_ring_buffer_dimension_depth()
             if ring_depth is not None:
                 assert ring_depth > 0
                 assert isinstance(ring_depth, int)
                 count = self.varname_counter
                 varname = f"ring_consumption_{count}_{s.name}"
                 self.varname_counter += 1
-                entry = ManagedRingBufferEntry(ring_depth, varname)
+                entry = ManagedRingBufferEntry(ring_dim_idx, ring_depth, varname)
                 self.managed_ring_buffer_entries[s.name] = entry
                 self.ring_buffer_consumption_varnames.append(varname)
         else:
             entry = self.managed_ring_buffer_entries.get(s.name)
         if entry:
+            ring_dim_idx = entry.dim_idx
             ring_depth = entry.ring_depth
             typ = s.type
             if not typ.hi:
@@ -162,11 +168,12 @@ class DimensionRewrite(LoopIR_Rewrite):
                     f"{s.srcinfo}: After removing distributed dimensions, "
                     f"{s} had no dimensions left for ring buffering by {ring_depth}."
                 )
-            consumption_e = typ.hi[0]
-            # Replace 0th extent with constant ring buffer depth,
-            # but still increment the ring buffer consumption (after the Free)
-            # by the original 0th extent.
-            hi = [LoopIR.Const(ring_depth, T.plain_size, s.srcinfo)] + typ.hi[1:]
+            consumption_e = typ.hi[ring_dim_idx]
+            # Replace managed ring buffer dimension extent with
+            # constant ring buffer depth, but still increment the ring
+            # buffer consumption (after the Free) by the original extent.
+            hi = typ.hi[:]  # Don't mutate original list
+            hi[ring_dim_idx] = LoopIR.Const(ring_depth, T.plain_size, s.srcinfo)
             s = s.update(type=typ.update(hi=hi))
             if isinstance(s, LoopIR.Free):
                 from .codegen_instr import IncrementRingBuffer
@@ -180,13 +187,14 @@ class DimensionRewrite(LoopIR_Rewrite):
         node = self.remove_distributed_idx(node) or node
 
         if entry := self.managed_ring_buffer_entries.get(node.name):
-            # Rewrite the 0th non-distributed index (so [0], as distributed dimensions
-            # were removed) to be (idx[0] + consumption) % ring_depth.
+            # Rewrite the index expression on the managed ring buffer dimension
+            # to be (idx[ring_dim_idx] + consumption) % ring_depth.
+            ring_dim_idx = entry.dim_idx
             ring_depth = entry.ring_depth
             assert ring_depth > 0
             assert isinstance(ring_depth, int)
             assert len(node.idx) > 0
-            ring_idx = node.idx[0]
+            ring_idx = node.idx[ring_dim_idx]
             ring_idx = LoopIR.ManagedRingBufferIdx(
                 ring_idx,
                 ring_depth,
@@ -194,7 +202,9 @@ class DimensionRewrite(LoopIR_Rewrite):
                 ring_idx.type,
                 ring_idx.srcinfo,
             )
-            node = node.update(idx=[ring_idx] + node.idx[1:])
+            new_idxs = node.idx[:]  # Don't mutate original list
+            new_idxs[ring_dim_idx] = ring_idx
+            node = node.update(idx=new_idxs)
 
         return node
 
@@ -271,6 +281,7 @@ class SubtreeScan(LoopIR_Do):
         "_current_warp_name",
         "named_warps",
         "setmaxnreg_is_inc",
+        "_is_managed_ring_buffer",
     ]
 
     ctx: SporkLoweringCtx
@@ -303,7 +314,7 @@ class SubtreeScan(LoopIR_Do):
 
     # Edit __slots__ if you add more attributes
 
-    def __init__(self, s, ctx: SporkLoweringCtx):
+    def __init__(self, s, dim_rewrite: DimensionRewrite, ctx: SporkLoweringCtx):
         assert is_if_holding_with(s, LoopIR)
         cuda_device_function: CudaDeviceFunction = s.cond.val
         assert isinstance(cuda_device_function, CudaDeviceFunction)
@@ -311,6 +322,7 @@ class SubtreeScan(LoopIR_Do):
         blockDim = cuda_device_function.blockDim
         clusterDim = cuda_device_function.clusterDim
 
+        self._is_managed_ring_buffer = dim_rewrite.is_managed_ring_buffer
         self.ctx = ctx
         self.cuda_device_function = cuda_device_function
         self.sync_state_builder = SyncStateBuilder(cuda_device_function.coll_env())
@@ -643,7 +655,7 @@ class SubtreeScan(LoopIR_Do):
             elif issubclass(s.mem, CudaBasicSmem):
                 # End SMEM lifetime.
                 offset_name = self.device_setup_builder.end_smem_alloc(s.name)
-                if s.mem.managed_ring_buffer_depth() is not None:
+                if self._is_managed_ring_buffer(s.name):
                     # Managed ring buffer allocations are persistent.
                     self.device_setup_builder.make_persistent(s.name)
 

@@ -1123,6 +1123,14 @@ class Compiler:
         return code
 
     def shape_strs(self, shape, prec=op_prec["."]) -> str:
+        for e in shape:
+            # The cuda_backend is supposed to strip the size_annotation.
+            # If this isn't done, there could be a compiler bug,
+            # or the user put this outside the CUDA code.
+            if ann := e.type.get_size_annotation():
+                raise ValueError(
+                    f"{e.srcinfo}: Unexpected size annotation {ann} (outside of CUDA context)?"
+                )
         comp_res = [
             self.comp_cir(simplify_cir(self.lift_to_cir(i)), prec) for i in shape
         ]

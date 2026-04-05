@@ -37,7 +37,7 @@ from .prelude import (
     ScalarInfo,
 )
 
-from .size_annotation import SizeAnnotation
+from .size_annotation import SizeAnnotation, ring_buffer_by
 
 from ..spork.timelines import Instr_tl, cpu_in_order_instr, Sync_tl
 from ..spork.base_with_context import BaseWithContext
@@ -716,6 +716,11 @@ def is_bool(t):
 del is_bool
 
 
+@extclass(LoopIR.expr)
+def get_size_annotation(t):
+    return t.type.get_size_annotation()
+
+
 @extclass(LoopIR.type)
 def get_size_annotation(t):
     return None
@@ -727,6 +732,48 @@ def get_size_annotation(t):
 
 
 del get_size_annotation
+
+
+@extclass(LoopIR.Alloc)
+@extclass(LoopIR.Free)
+def get_managed_ring_buffer_dimension_depth(s):
+    """(dimension index, ring buffer depth) of managed ring buffer dimension
+
+    None, None if no such dimension. Error if multiple such dimensions.
+    """
+
+    t = s.type
+    if not isinstance(t, LoopIR.Tensor):
+        return None, None
+    dims = [
+        i
+        for i, e in enumerate(t.hi)
+        if isinstance(e.get_size_annotation(), ring_buffer_by)
+    ]
+    if not dims:
+        return None, None
+    elif len(dims) > 1:
+        raise ValueError(f"{s.srcinfo}: multiple managed ring buffer dimensions in {s}")
+    else:
+        dim = dims[0]
+        return dim, t.hi[dim].get_size_annotation().depth
+
+
+del get_managed_ring_buffer_dimension_depth
+
+
+@extclass(LoopIR.Alloc)
+@extclass(LoopIR.Free)
+def require_managed_ring_buffer_dimension_depth(s):
+    dim, depth = s.get_managed_ring_buffer_dimension_depth()
+    if dim is None:
+        raise ValueError(
+            f"{s.srcinfo}: missing managed ring buffer dimensions "
+            f"in the non-distributed dimensions of {s}"
+        )
+
+
+del require_managed_ring_buffer_dimension_depth
 
 
 @extclass(LoopIR.type)

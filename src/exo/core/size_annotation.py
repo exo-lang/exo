@@ -32,6 +32,7 @@ class ring_buffer_by(SizeAnnotation):
         return self
 
 
+# For potential future use...
 @dataclass(slots=True, frozen=True)
 class CollUnitAnnotation(SizeAnnotation):
     unit: CollUnit

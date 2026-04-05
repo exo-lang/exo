@@ -387,16 +387,6 @@ class MemWin(ABC):
         """Do not override; used in the compiler internally"""
         return cls
 
-    @classmethod
-    def managed_ring_buffer_depth(cls) -> Optional[int]:
-        """If non-None, this enables the managed ring buffer feature.
-
-        The left-most non-distributed dimension will be implicitly
-        ring-buffered (modulo) by this depth, in a way that sync_check
-        is aware of.
-        """
-        return None
-
 
 class AllocableMemWin(MemWin):
     @classmethod
