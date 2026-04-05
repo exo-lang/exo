@@ -130,9 +130,8 @@ class DimensionRewrite(LoopIR_Rewrite):
         # HACK: for instructions that take windows with distributed dimensions,
         # the resulting program will no longer typecheck, since the
         # dimensionality of the passed window won't match the fnarg anymore!
-        e_rewrite = super().map_e(e) or e
-        if e_rewrite is not None:
-            e = e_rewrite
+        e_rewrite = super().map_e(e)
+        e = e_rewrite or e
         if isinstance(e, LoopIR.BarrierExpr):
             e_rewrite = self.rewrite_idx(e)
         if isinstance(e, idx_e_types):
