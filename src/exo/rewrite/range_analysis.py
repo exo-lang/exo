@@ -345,7 +345,7 @@ def arg_range_analysis(proc, arg, fast=True):
         return Check_ExprBound(
             proc,
             [proc.body[0]],
-            LoopIR.Read(name=arg.name, idx=[], type=T.size, srcinfo=proc.srcinfo),
+            LoopIR.Read(name=arg.name, idx=[], type=T.plain_size, srcinfo=proc.srcinfo),
             ">=",
             value,
             exception=False,
@@ -355,7 +355,7 @@ def arg_range_analysis(proc, arg, fast=True):
         return Check_ExprBound(
             proc,
             [proc.body[0]],
-            LoopIR.Read(name=arg.name, idx=[], type=T.size, srcinfo=proc.srcinfo),
+            LoopIR.Read(name=arg.name, idx=[], type=T.plain_size, srcinfo=proc.srcinfo),
             "<=",
             value,
             exception=False,

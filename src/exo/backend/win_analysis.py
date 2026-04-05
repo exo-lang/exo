@@ -20,7 +20,9 @@ class WindowAnalysis(LoopIR_Rewrite):
                     LoopIR.Interval(LoopIR.Const(0, T.int, N.srcinfo), N, N.srcinfo)
                     for N in shape
                 ]
-                as_tens = T.Tensor(shape, True, a.type.basetype())
+                as_tens = T.Tensor(
+                    shape, True, a.type.basetype(), a.type.get_ring_guarded_by()
+                )
                 win_typ = T.Window(a.type, as_tens, a.name, idx)
                 return LoopIR.WindowExpr(a.name, idx, win_typ, a.srcinfo)
 

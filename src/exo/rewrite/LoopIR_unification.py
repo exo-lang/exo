@@ -582,7 +582,7 @@ class BufVar:
                     idx.append(LoopIR.Interval(lo, hi, srcinfo))
                     win_shape.append(subtract(hi, lo))
 
-            as_tensor = T.Tensor(win_shape, True, buf_typ.basetype())
+            as_tensor = T.Tensor(win_shape, True, buf_typ.basetype(), None)
             w_typ = T.Window(buf_typ, as_tensor, buf, idx)
             return LoopIR.WindowExpr(buf, idx, w_typ, srcinfo)
 
@@ -782,7 +782,7 @@ class Unification:
                 typ = lhs.type
             elif lhs.type == T.int:
                 typ = rhs.type
-            elif rhs.type == T.size:
+            elif isinstance(rhs.type, T.Size):
                 typ = lhs.type
             else:
                 typ = rhs.type

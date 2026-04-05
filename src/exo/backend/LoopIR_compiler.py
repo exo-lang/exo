@@ -796,7 +796,7 @@ class Compiler:
         """
         assert isinstance(a, LoopIR.fnarg)
         mem = a.mem if a.type.is_numeric() else None
-        if a.type in (T.size, T.index, T.bool, T.stride):
+        if not a.type.is_numeric():
             arg_strs.append(f"{a.type.ctype()} {name_arg}")
             typ_comments.append(f"{name_arg} : {a.type}")
         # setup, arguments

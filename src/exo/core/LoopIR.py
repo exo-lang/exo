@@ -37,6 +37,8 @@ from .prelude import (
     ScalarInfo,
 )
 
+from .size_annotation import SizeAnnotation
+
 from ..spork.timelines import Instr_tl, cpu_in_order_instr, Sync_tl
 from ..spork.base_with_context import BaseWithContext
 from ..spork.coll_algebra import CollUnit, standalone_thread
@@ -117,10 +119,12 @@ module LoopIR {
          | Bool()
          | Int()
          | Index()
-         | Size()
+         | Size(size_annotation? annotation)  -- annotation only used for allocated tensors
          | Stride()
          | Error()
-         | Tensor( expr* hi, bool is_window, type type )
+         -- ring_guarded_by: BarrierExpr (ignore idx) used to manage alloc/free
+         -- of ring buffer entries, if this alloc is a managed ring buffer.
+         | Tensor( expr* hi, bool is_window, type type, expr? ring_guarded_by )
          -- src_type  - type of the Tensor from which the window was created
          -- as_tensor - tensor type as if this window were simply a tensor
          --             itself
@@ -133,7 +137,7 @@ module LoopIR {
                        sym src_buf, w_access *idx )
          -- Spork (Exo-GPU) extensions
          | WithContext()
-         | Barrier( sym? guarded_by, expr* hi )
+         | Barrier( expr? ring_guarded_by, expr* hi )
 
     -- Dense tensor: Tensor(is_window = False)
     -- Window parameter (of proc): Tensor(is_window = True)
@@ -157,6 +161,7 @@ module LoopIR {
         "srcinfo": SrcInfo,
         "loop_mode": LoopMode,
         "sync_type": SyncType,
+        "size_annotation": SizeAnnotation,
     },
     memoize={
         "Num",
@@ -206,7 +211,8 @@ module UAST {
             | SyncStmt( sync_type sync_type, expr* barriers )
             | If      ( expr cond, stmt* body,  stmt* orelse )
             | For     ( sym iter,  expr cond,   stmt* body )
-            | Alloc   ( sym name, type type, allocable? mem )
+            -- zip_size_annotations[n] annotates the n-th allocated tensor dimension
+            | Alloc   ( sym name, type type, allocable? mem, size_annotation* zip_size_annotations )
             | Call    ( loopir_proc f, expr* args, expr? trailing_barrier_expr )
             attributes( srcinfo srcinfo )
 
@@ -243,9 +249,9 @@ module UAST {
             | Size  ()
             | Index ()
             | Stride()
-            | Tensor( expr *hi, bool is_window, type type )
+            | Tensor( expr *hi, bool is_window, type type, expr? ring_guarded_by )
             | WithContext()
-            | Barrier( sym? guarded_by, expr *hi )
+            | Barrier( expr? ring_guarded_by, expr *hi )
 } """,
     ext_types={
         "name": validators.instance_of(Identifier, convert=True),
@@ -260,6 +266,7 @@ module UAST {
         "srcinfo": SrcInfo,
         "loop_mode": LoopMode,
         "sync_type": SyncType,
+        "size_annotation": SizeAnnotation,
     },
     memoize={
         "Num",
@@ -371,7 +378,7 @@ class T:
     bool = Bool()  # note: accessed as T.bool outside this module
     int = Int()
     index = Index()
-    size = Size()
+    plain_size = Size(None)
     stride = Stride()
     err = Error()
     # Spork extensions
@@ -386,10 +393,10 @@ uast_prim_types = {
 
 
 # UAST to LoopIR non-parameterized types (see ScalarInfo, it adds to this)
+# 2026-04-05: UAST.Size now has to be handled specially due to size_annotation.
 loopir_from_uast_metatype_table = {
     UAST.Num: T.R,
     UAST.Int: T.int,
-    UAST.Size: T.size,
     UAST.Index: T.index,
     UAST.Stride: T.stride,
     UAST.Bool: T.bool,
@@ -677,6 +684,23 @@ del is_dense_tensor
 
 
 @extclass(LoopIR.type)
+@extclass(UAST.type)
+def get_ring_guarded_by(t):
+    return None
+
+
+@extclass(LoopIR.Tensor)
+@extclass(UAST.Tensor)
+@extclass(LoopIR.Barrier)
+@extclass(UAST.Barrier)
+def get_ring_guarded_by(t):
+    return t.ring_guarded_by
+
+
+del get_ring_guarded_by
+
+
+@extclass(LoopIR.type)
 def is_numeric(t):
     return t.is_real_scalar() or isinstance(t, (T.Tensor, T.Window))
 
@@ -690,6 +714,34 @@ def is_bool(t):
 
 
 del is_bool
+
+
+@extclass(LoopIR.type)
+def get_size_annotation(t):
+    return None
+
+
+@extclass(LoopIR.Size)
+def get_size_annotation(t):
+    return t.annotation
+
+
+del get_size_annotation
+
+
+@extclass(LoopIR.type)
+@extclass(UAST.type)
+def is_size(t):
+    return False
+
+
+@extclass(LoopIR.Size)
+@extclass(UAST.Size)
+def is_size(t):
+    return True
+
+
+del is_size
 
 
 @extclass(LoopIR.type)
@@ -944,7 +996,7 @@ def create_window_type(in_name: Sym, in_typ: LoopIR.type, idx):
     """Construct a derived window type from any tensor or window type"""
     assert isinstance(in_name, Sym)
     window_shape = build_window_shape(idx)
-    as_tensor = T.Tensor(window_shape, True, in_typ.basetype())
+    as_tensor = T.Tensor(window_shape, True, in_typ.basetype(), None)
 
     if isinstance(in_typ, T.Tensor):
         # in_typ is dense tensor or window parameter
@@ -1366,8 +1418,16 @@ class LoopIR_Rewrite:
         if isinstance(t, T.Tensor):
             new_hi = self.map_exprs(t.hi)
             new_type = self.map_t(t.type)
-            if (new_hi is not None) or new_type:
-                return t.update(hi=new_hi or t.hi, type=new_type or t.type)
+            # TODO test this 2026-04-05
+            new_guarded_by = t.ring_guarded_by and self.map_e(t.ring_guarded_by)
+            if new_guarded_by is not None:
+                new_guarded_by = new_guarded_by.update(idx=[])
+            if (new_hi is not None) or new_type or new_guarded_by:
+                return t.update(
+                    hi=new_hi or t.hi,
+                    type=new_type or t.type,
+                    ring_guarded_by=new_guarded_by or t.ring_guarded_by,
+                )
         elif isinstance(t, T.Window):
             new_src_type = self.map_t(t.src_type)
             new_as_tensor = self.map_t(t.as_tensor)
@@ -1380,8 +1440,14 @@ class LoopIR_Rewrite:
                 )
         elif isinstance(t, T.Barrier):
             new_hi = self.map_exprs(t.hi)
-            if new_hi is not None:
-                return t.update(hi=new_hi)
+            # TODO test this 2026-04-05
+            new_guarded_by = t.ring_guarded_by and self.map_e(t.ring_guarded_by)
+            if new_guarded_by is not None:
+                new_guarded_by = new_guarded_by.update(idx=[])
+            if new_hi is not None or new_guarded_by:
+                return t.update(
+                    hi=new_hi, ring_guarded_by=new_guarded_by or t.ring_guarded_by
+                )
         return None
 
     @staticmethod
@@ -1489,6 +1555,8 @@ class LoopIR_Do:
         if isinstance(t, (T.Tensor, T.Barrier)):
             for i in t.hi:
                 self.do_e(i)
+            if e := t.ring_guarded_by:
+                self.do_e(e)
         elif isinstance(t, T.Window):
             self.do_t(t.src_type)
             self.do_t(t.as_tensor)

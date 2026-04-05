@@ -166,7 +166,7 @@ class DimensionRewrite(LoopIR_Rewrite):
             # Replace 0th extent with constant ring buffer depth,
             # but still increment the ring buffer consumption (after the Free)
             # by the original 0th extent.
-            hi = [LoopIR.Const(ring_depth, T.size, s.srcinfo)] + typ.hi[1:]
+            hi = [LoopIR.Const(ring_depth, T.plain_size, s.srcinfo)] + typ.hi[1:]
             s = s.update(type=typ.update(hi=hi))
             if isinstance(s, LoopIR.Free):
                 from .codegen_instr import IncrementRingBuffer

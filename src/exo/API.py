@@ -23,6 +23,7 @@ from .core.instr_class import (
     InstrWindowArg,
     InstrNonWindowArg,
 )
+from .core.size_annotation import ring_buffer_by
 from .backend.LoopIR_compiler import (
     run_compile,
     compile_to_strings,

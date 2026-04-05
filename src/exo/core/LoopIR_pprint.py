@@ -59,6 +59,7 @@ op_prec = {
     "*": 50,
     "/": 50,
     "%": 50,
+    "@": 50,
     #
     # unary minus
     "~": 60,
@@ -224,6 +225,7 @@ class UAST_PPrinter:
                 rhs = self.pexpr(stmt.rhs)
                 self.addline(f"{self.new_name(stmt.name)} = {rhs}")
             elif isinstance(stmt, UAST.Alloc):
+                # TODO print size annotations if desired.
                 mem = f" @{stmt.mem.name()}" if stmt.mem else ""
                 self.addline(
                     f"{self.new_name(stmt.name)} : {self.ptype(stmt.type)}{mem}"
@@ -327,12 +329,14 @@ class UAST_PPrinter:
         elif isinstance(t, UAST.Size):
             return "size"
         elif isinstance(t, UAST.Barrier):
+            # TODO print ring_guarded_by if desired.
             rngs = ",".join([self.pexpr(r) for r in t.shape()])
             if rngs:
                 return f"barrier[{rngs}]"
             else:
                 return f"barrier"
         elif isinstance(t, UAST.Tensor):
+            # TODO print ring_guarded_by if desired.
             base = str(t.basetype())
             if t.is_window:
                 base = f"[{base}]"
@@ -579,7 +583,7 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
 
 
 def _print_fnarg(a, env: PrintEnv) -> str:
-    if a.type == T.size:
+    if isinstance(a.type, T.Size):
         return f"{env.get_name(a.name)} : size"
     elif a.type == T.index:
         return f"{env.get_name(a.name)} : index"
@@ -598,6 +602,15 @@ def _print_expr(e, env: PrintEnv, prec: int = 0) -> str:
 
 
 def _print_expr_impl(e, env: PrintEnv, prec: int) -> str:
+    if ann := e.type.get_size_annotation():
+        local_prec = op_prec["@"]
+        lhs = _print_expr(e.update(type=T.plain_size), env, prec=local_prec)
+        rhs = repr(ann.decay())
+        s = f"{lhs} @ ({rhs})"
+        # if we have a lower precedence than the environment...
+        if local_prec < prec:
+            s = f"({s})"
+        return s
     if isinstance(e, LoopIR.Read):
         name = env.get_name(e.name)
         idx = f"[{', '.join(_print_expr(i, env) for i in e.idx)}]" if e.idx else ""
@@ -651,6 +664,13 @@ def _print_expr_impl(e, env: PrintEnv, prec: int) -> str:
 
 
 def _print_type(t, env: PrintEnv) -> str:
+    ring_guarded_by = t.get_ring_guarded_by()
+    if ring_guarded_by is None:
+        ring_guarded_by_suffix = ""
+    else:
+        e_txt = _print_expr(ring_guarded_by, env)
+        ring_guarded_by_suffix = f".ring_guarded_by({e_txt})"
+
     if isinstance(t, T.Num):
         return "R"
     elif isinstance(t, T.Bool):
@@ -669,7 +689,7 @@ def _print_type(t, env: PrintEnv) -> str:
         if t.is_window:
             base = f"[{base}]"
         ranges = ", ".join([_print_expr(r, env) for r in t.shape()])
-        return f"{base}[{ranges}]"
+        return f"{base}[{ranges}]{ring_guarded_by_suffix}"
 
     elif isinstance(t, T.Window):
         # Below, we print idx='[x:y]' with single quotes because yapf can't
@@ -684,9 +704,9 @@ def _print_type(t, env: PrintEnv) -> str:
     elif isinstance(t, T.Barrier):
         ranges = ", ".join([_print_expr(r, env) for r in t.shape()])
         if ranges:
-            return f"barrier[{ranges}]"
+            return f"barrier[{ranges}]{ring_guarded_by_suffix}"
         else:
-            return f"barrier"
+            return f"barrier{ring_guarded_by_suffix}"
     else:
         scalar_info = ScalarInfo(t)
         return scalar_info.shorthand
