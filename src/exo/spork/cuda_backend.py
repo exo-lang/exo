@@ -93,7 +93,7 @@ def loopir_lower_cuda(s, ctx: SporkLoweringCtx):
 
 @dataclass(slots=True)
 class ManagedRingBufferEntry:
-    dim_idx: int
+    dim_idx: int  # This index should be after distributed dimension removal
     ring_depth: int
     syncState_varname: str
 
@@ -130,8 +130,9 @@ class DimensionRewrite(LoopIR_Rewrite):
         # HACK: for instructions that take windows with distributed dimensions,
         # the resulting program will no longer typecheck, since the
         # dimensionality of the passed window won't match the fnarg anymore!
-        e = super().map_e(e) or e
-        e_rewrite = None
+        e_rewrite = super().map_e(e) or e
+        if e_rewrite is not None:
+            e = e_rewrite
         if isinstance(e, LoopIR.BarrierExpr):
             e_rewrite = self.rewrite_idx(e)
         if isinstance(e, idx_e_types):
@@ -195,6 +196,17 @@ class DimensionRewrite(LoopIR_Rewrite):
             assert isinstance(ring_depth, int)
             assert len(node.idx) > 0
             ring_idx = node.idx[ring_dim_idx]
+            is_window = False
+
+            if isinstance(ring_idx, LoopIR.Interval):
+                raise ValueError(
+                    f"{ring_idx.srcinfo}: cannot have interval {ring_idx} "
+                    "on managed ring buffer dimension (in {node})"
+                )
+            if isinstance(ring_idx, LoopIR.Point):
+                is_window = True
+                ring_idx = ring_idx.pt
+
             ring_idx = LoopIR.ManagedRingBufferIdx(
                 ring_idx,
                 ring_depth,
@@ -202,8 +214,13 @@ class DimensionRewrite(LoopIR_Rewrite):
                 ring_idx.type,
                 ring_idx.srcinfo,
             )
+
+            # Update the index
             new_idxs = node.idx[:]  # Don't mutate original list
-            new_idxs[ring_dim_idx] = ring_idx
+            if is_window:
+                new_idxs[ring_dim_idx] = new_idxs[ring_dim_idx].update(pt=ring_idx)
+            else:
+                new_idxs[ring_dim_idx] = ring_idx
             node = node.update(idx=new_idxs)
 
         return node
