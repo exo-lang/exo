@@ -69,6 +69,7 @@ from ..spork.coll_analysis import CollAnalysis
 from .compiler_fwd import (
     BackendChecks,
     SporkLoweringCtx,
+    SyncCodegenCtx,
     dataptr_name,
     cuda_tasks_lo_cname,
     cuda_tasks_hi_cname,
@@ -1308,6 +1309,28 @@ class Compiler:
         self.add_line(f"indexer: {type(features._indexer).__name__}")
         self.add_line("*/")
 
+    def comp_sync_codegen_ctx(
+        self, home_barrier_expr: LoopIR.BarrierExpr
+    ) -> SyncCodegenCtx:
+        idxs = []
+        phase = None
+        for e in home_barrier_expr.idx:
+            if isinstance(e, LoopIR.Interval):
+                raise ValueError(
+                    f"{e.srcinfo}: Internal compiler error, unexpected interval in {home_barrier_expr}"
+                )
+            pt = e.pt
+            if isinstance(pt, LoopIR.ManagedRingBufferIdx):
+                if phase is not None:
+                    raise ValueError(
+                        f"{e.srcinfo}: Unexpected multiple managed ring buffer dimensions in {home_barrier_expr}"
+                    )
+                arg = self.lift_to_cir(pt.arg)
+                numerator = self.wrap_cir(pt.c_consumption, "managed ring buffer") + arg
+                phase = numerator / pt.ring_depth
+            idxs.append(self.wrap_cir(self.lift_to_cir(pt), "managed ring buffer"))
+        return SyncCodegenCtx(idxs, phase)
+
     def comp_s(self, s):
         if isinstance(s, LoopIR.Pass):
             self.add_line("; // NO-OP")
@@ -1320,7 +1343,9 @@ class Compiler:
                 b.name == nm for b in s.barriers
             ), f"{s.srcinfo}: Should have caught inconsistent barrier names earlier"
             self.add_line(f"// {s.sync_type.format_stmt(s.barriers)}")
-            barrier_lines = self._lowered_barriers[nm].codegen_sync_stmt(s)
+            barrier_lines = self._lowered_barriers[nm].codegen_sync_stmt(
+                s, self.comp_sync_codegen_ctx(s.home_barrier_expr())
+            )
             assert not isinstance(barrier_lines, str), "expect List[str]"
             for line in barrier_lines:
                 self.add_line(line)
@@ -1642,11 +1667,16 @@ class Compiler:
                         fnarg = fn.args[i]
                         args_dict[str(fnarg.name)] = self.comp_fnarg(e, fn, i)
                     if e := s.trailing_barrier_expr:
+                        sync_codegen_ctx = self.comp_sync_codegen_ctx(e)
                         lowered_barrier = self._lowered_barriers[e.name]
-                        mbarrier = lowered_barrier.codegen_barrier_arg(e)
+                        mbarrier = lowered_barrier.codegen_barrier_arg(
+                            e, sync_codegen_ctx
+                        )
                         assert isinstance(mbarrier, str)
                         args_dict["exo_barrier"] = mbarrier
-                        args_dict["exo_cta_mask"] = lowered_barrier.codegen_cta_mask(e)
+                        args_dict["exo_cta_mask"] = lowered_barrier.codegen_cta_mask(
+                            e, sync_codegen_ctx
+                        )
                     lines = fn.instr.codegen(InstrArgs(args_dict, self))
                     assert lines is not None, "codegen() forgot return?"
                     assert not isinstance(lines, str), "codegen() must give List[str]"

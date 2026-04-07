@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import List, Dict, Type, Optional
 
+from ..core.cir import CIR_Wrapper
 from ..core.memory import MemWin
 from ..core.prelude import Sym
 from ..core.LoopIR import LoopIR, T, BaseCompilerDebugLog
@@ -35,6 +36,16 @@ def dataptr_name(wname):
     fragments = wname.split(".")
     fragments[-1] = "exo_data_" + fragments[-1]
     return ".".join(fragments)
+
+
+@dataclass(slots=True)
+class SyncCodegenCtx:
+    # Indices of the home barrier expression, excluding distributed dimensions.
+    # Managed ring buffer index, if any, will be presented in final form.
+    cir_non_distributed_home_barrier_idx: List[CIR_Wrapper]
+    # If there is a non-distributed managed ring buffer index,
+    # we put (arg + c_consumption) / ring_depth here.
+    cir_ring_buffer_phase: Optional[CIR_Wrapper]
 
 
 @dataclass(slots=True)

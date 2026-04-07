@@ -32,6 +32,7 @@ from .coll_algebra import (
     cuda_warpgroup,
     cuda_cta_in_cluster,
     cuda_agnostic_intact_cta,
+    cuda_agnostic_sub_cta,
     cuda_cluster,
 )
 
@@ -646,56 +647,66 @@ class CudaMbarrier(CudaBasicDeviceBarrier):
 
 
 @memwin_template
-class CudaMbarrierRing(CudaBasicDeviceBarrier):
-    @classmethod
-    def traits(cls) -> BarrierMechanismTraits:
-        return BarrierMechanismTraits(
-            zero_await_N=True,
-            supports_arrive_multicast=True,
-            consistent_arrive_thread_count=True,
-            one_shot_arrive=True,
-            one_shot_await=False,
-        )
+def CudaMbarrierPreArrive(pre_arrive):
+    assert isinstance(pre_arrive, int)
+    assert pre_arrive >= 0
 
-    @classmethod
-    def sync_exempt(cls) -> bool:
-        return False
+    class CudaMbarrierRing(CudaMbarrier):
+        @classmethod
+        def get_pre_arrive(cls):
+            return pre_arrive
 
-    @classmethod
-    def free_pool_tag(cls):
-        return full_scope_free_pool_tag
+        @classmethod
+        def traits(cls) -> BarrierMechanismTraits:
+            return BarrierMechanismTraits(
+                zero_await_N=True,
+                supports_arrive_multicast=True,
+                consistent_arrive_thread_count=True,
+                one_shot_arrive=True,
+                one_shot_await=False,
+            )
 
-    @classmethod
-    def is_cuda_smem(cls):
-        return True
+        @classmethod
+        def sync_exempt(cls) -> bool:
+            return False
 
-    qual_tl_dict = timelines.cuda_ram_qual_tl_dict
+        @classmethod
+        def free_pool_tag(cls):
+            return full_scope_free_pool_tag
 
-    @classmethod
-    def native_unit(cls) -> CollUnit:
-        return cuda_cta_in_cluster
+        @classmethod
+        def is_cuda_smem(cls):
+            return True
 
-    @classmethod
-    def arrive_coll_unit(cls) -> CollUnit:
-        return cuda_agnostic_intact_cta
+        qual_tl_dict = timelines.cuda_ram_qual_tl_dict
 
-    @classmethod
-    def await_coll_unit(cls) -> CollUnit:
-        return cuda_agnostic_intact_cta
+        @classmethod
+        def native_unit(cls) -> CollUnit:
+            return cuda_cta_in_cluster
 
-    # Bespoke functions (not really externalizable) for mbarrier, which
-    # is the only barrier type subject to synchronization checking.
-    # We give the qual_tl used to model the access associated with
-    # an arrive/await with the given Sync_tl parameter.
-    @classmethod
-    def arrive_qual_tl(cls, L1: timelines.Sync_tl):
-        if L1.get_full_timeline_set_bits() & timelines.Sm80_cp_async_qual.as_bit():
-            return timelines.Sm80_cp_async_qual
-        return timelines.cuda_in_order_ram_qual
+        @classmethod
+        def arrive_coll_unit(cls) -> CollUnit:
+            return cuda_agnostic_sub_cta
 
-    @classmethod
-    def await_qual_tl(cls, L2: timelines.Sync_tl):
-        return timelines.cuda_in_order_ram_qual
+        @classmethod
+        def await_coll_unit(cls) -> CollUnit:
+            return cuda_agnostic_sub_cta
+
+        # Bespoke functions (not really externalizable) for mbarrier, which
+        # is the only barrier type subject to synchronization checking.
+        # We give the qual_tl used to model the access associated with
+        # an arrive/await with the given Sync_tl parameter.
+        @classmethod
+        def arrive_qual_tl(cls, L1: timelines.Sync_tl):
+            if L1.get_full_timeline_set_bits() & timelines.Sm80_cp_async_qual.as_bit():
+                return timelines.Sm80_cp_async_qual
+            return timelines.cuda_in_order_ram_qual
+
+        @classmethod
+        def await_qual_tl(cls, L2: timelines.Sync_tl):
+            return timelines.cuda_in_order_ram_qual
+
+    return CudaMbarrierRing
 
 
 class CudaBasicCommitGroup(CudaBasicDeviceBarrier):

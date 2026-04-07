@@ -11,7 +11,7 @@ class IncrementRingBuffer(InstrInfo):
     def behavior(sz: size):
         pass
 
-    def instance(self, *, syncState_varname: str):
+    def instance(self, *, syncState_varname: str, pre_arrive: int):
         # This stuff doesn't really matter since all the checks already happened.
         self.coll_unit = cuda_cta_in_cluster
         self.instr_tl = cuda_in_order_instr
@@ -19,7 +19,7 @@ class IncrementRingBuffer(InstrInfo):
     def codegen(self, args):
         return [
             f"exo_syncState.{args.syncState_varname} = __shfl_sync(UINT32_MAX,",
-            f"    exo_syncState.{args.syncState_varname} + {args.sz}, 0);",
+            f"    exo_syncState.{args.syncState_varname} + {args.sz} - {args.pre_arrive}, 0);",
         ]
 
 

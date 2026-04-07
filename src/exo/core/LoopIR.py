@@ -743,7 +743,7 @@ def get_managed_ring_buffer_dimension_depth(s):
     """
 
     t = s.type
-    if not isinstance(t, LoopIR.Tensor):
+    if not isinstance(t, (LoopIR.Tensor, LoopIR.Barrier)):
         return None, None
     dims = [
         i
@@ -900,12 +900,9 @@ def home_barrier_expr(s) -> LoopIR.BarrierExpr:
             this_idx = e.idx[dim_idx]
             if isinstance(this_idx, LoopIR.Point):
                 pt = this_idx.pt
-                if not isinstance(pt, LoopIR.Read):
-                    raise ValueError(
-                        f"{s.srcinfo}: expected a plain variable, not {this_idx}, in {e}"
-                    )
                 if old_idx := idx[dim_idx]:
-                    if old_idx.pt.name != pt.name:
+                    lcmp = LoopIR_Compare()
+                    if not lcmp.match_e(old_idx.pt, pt):
                         raise ValueError(
                             f"{s.srcinfo}: {e} has idx[{dim_idx}] = {pt.name}; mismatches idx[{dim_idx}] in previous trailing barrier expressions of {s}"
                         )

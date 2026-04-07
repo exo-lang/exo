@@ -1,10 +1,13 @@
 # Compiler: Generate exo_SyncState for CUDA C++ device functions, and
 # lowered Arrive/Await/Fence statements.
 
+import itertools
 from dataclasses import dataclass, field
 from enum import Enum, auto
+from math import prod
 from typing import Callable, Dict, Optional, Type, List, Tuple
 
+from ..backend.compiler_fwd import SyncCodegenCtx
 from ..core.prelude import Sym, SrcInfo
 from ..core.LoopIR import LoopIR
 
@@ -37,7 +40,7 @@ from .cuda_memory import (
 )
 from .distributed_memory import DistributedAllocState, ThreadIter
 from .excut import InlinePtxGen, simple_ptx_c_lines, excut_c_str_id
-from .lowered_barrier import LoweredBarrierType, LoweredBarrier
+from .lowered_barrier import LoweredBarrierType, LoweredBarrier, AddBarrierCtx
 from .sync_types import SyncType
 from . import timelines
 from .timelines import Instr_tl, Sync_tl
@@ -59,14 +62,13 @@ class SyncStateBuilder:
     # enough to be unique just within the barrier's scope in Exo object code.
     _sym_counters: Dict[Sym, int] = field(default_factory=dict)
 
-    def add_barrier(
-        self,
-        name: Sym,
-        get_usage: Callable[[Sym], BarrierUsage],
-        coll_tilings: DistributedAllocState,
-        thread_iters: Dict[Sym, ThreadIter],
-        device_setup_builder: CudaDeviceSetupBuilder,
-    ):
+    def add_barrier(self, ctx: AddBarrierCtx):
+        name = ctx.name
+        get_usage = ctx.get_usage
+        coll_tilings = ctx.coll_tilings
+        thread_iters = ctx.thread_iters
+        device_setup_builder = ctx.device_setup_builder
+
         usage = get_usage(name)
         for info in (usage.get_arrive(), usage.get_await()):
             if info is not None:
@@ -87,14 +89,7 @@ class SyncStateBuilder:
                     name, usage, coll_tilings, thread_iters, suffix, False
                 )
         elif issubclass(barrier_mechanism, CudaMbarrier):
-            self.add_mbarrier(
-                name,
-                get_usage,
-                coll_tilings,
-                thread_iters,
-                suffix,
-                device_setup_builder,
-            )
+            self.add_mbarrier_ring(ctx, suffix)
         elif issubclass(barrier_mechanism, CudaBasicCommitGroup):
             self.add_commit_group(name, usage, coll_tilings, thread_iters, suffix)
         elif issubclass(barrier_mechanism, CudaClusterSync):
@@ -134,7 +129,7 @@ class SyncStateBuilder:
             )
 
         lowered = LoweredBarrier(False, LoweredBarrierType.wgmma_fence)
-        lowered.codegen_sync_stmt = lambda _: simple_ptx_c_lines(
+        lowered.codegen_sync_stmt = lambda _, ctx: simple_ptx_c_lines(
             "wgmma.fence.sync.aligned"
         )
         self.lowered[name] = lowered
@@ -246,7 +241,7 @@ class SyncStateBuilder:
                 f"supported (at most cuda_generic_and_async_proxy)"
             )
 
-        def codegen(sync_stmt: LoopIR.SyncStmt):
+        def codegen(sync_stmt: LoopIR.SyncStmt, ctx: SyncCodegenCtx):
             sync_type = sync_stmt.sync_type
             if sync_type.is_arrive():
                 return arrive_lines
@@ -259,63 +254,75 @@ class SyncStateBuilder:
         lowered.codegen_sync_stmt = codegen
         self.lowered[name] = lowered
 
-    def add_mbarrier(
+    def add_mbarrier_ring(
         self,
-        name: Sym,
-        get_usage: Callable[[Sym], BarrierUsage],
-        coll_tilings: DistributedAllocState,
-        thread_iters: Dict[Sym, ThreadIter],
+        ctx: AddBarrierCtx,
         suffix: str,
-        device_setup_builder: CudaDeviceSetupBuilder,
     ):
-        usage = get_usage(name)
+        name = ctx.name
+        get_usage = ctx.get_usage
+        coll_tilings = ctx.coll_tilings
+        thread_iters = ctx.thread_iters
+        device_setup_builder = ctx.device_setup_builder
+        const_shape = ctx.const_shape
+        managed_ring_buffer_dim_idx = ctx.managed_ring_buffer_dim_idx
 
+        if managed_ring_buffer_dim_idx is None:
+            raise ValueError(
+                f"mbarrier {name} missing (non-distributed) managed ring buffer dimension"
+            )
+        assert 0 <= managed_ring_buffer_dim_idx < len(const_shape)
+        ring_depth = const_shape[managed_ring_buffer_dim_idx]
+
+        usage = get_usage(name)
+        barrier_mechanism = usage.barrier_mechanism
         lowered = LoweredBarrier(False, LoweredBarrierType.mbarrier)
         nm_suffix = f"{suffix}_{name}"
-
-        # Translate N to number of trivial Awaits (skip mbarrier wait)
-        def get_n_skips(info: SyncInfo):
-            assert info.min_N == info.max_N
-            return ~info.min_N
-
-        n_skips = get_n_skips(usage.get_await())
 
         # Calculate CTA indices to XOR with (cluster feature)
         cta_xor_list = coll_tilings.cta_xor_list(
             self._blockDim(), thread_iters, usage.get_arrive()
         )
-        ring = 16  # XXX
 
-        # Number of physical mbarriers is slice_count * ring, where
-        # slice_count is the number of logical Exo queue barrier objects per CTA
-        # (usually 1) and ring is the depth of the ring buffer.
-        slice_count = coll_tilings.codegen_slices_to_root(
-            self._blockDim(), thread_iters
-        )
-
-        # Need to be able to store values 0 through (ring-1)
-        ring_bits = (ring - 1).bit_length()
-        # Need to be able to count 0 to ring (inclusive) skips.
-        # This value will not be used if skipping is not actually enabled.
-        skip_bits = ring.bit_length()
+        def make_mbarrier_idx(idxs):
+            mbarrier_idx = 0
+            assert len(idxs) == len(const_shape)
+            for dim_i, idx in enumerate(idxs):
+                mbarrier_idx += idx * prod(const_shape[dim_i + 1 :])
+            return mbarrier_idx
 
         # mbarrier allocator: record mbarriers to initialize.
-        num_per_cta = ring * slice_count
+        num_per_cta = prod(const_shape)
+        assert num_per_cta >= 1
         lines = self.SyncState_lines
         arrive_count = coll_tilings.arrive_thread_count * len(cta_xor_list)
-        smem_offset_name = device_setup_builder.add_mbarriers(
-            name, num_per_cta, arrive_count
-        )
-        lines.append(
-            f"// {name}: barrier @ CudaMbarrier, ring={ring}, slice_count={slice_count}"
-        )
+        lines.append(f"// {name}: barrier @ {barrier_mechanism.name()}")
         lines.append(f"// num_per_cta={num_per_cta}; arrive_count={arrive_count}")
+
+        # Tricky extra thing to do before mbarrier init: record the indices of the
+        # mbarriers that need to be pre-arrived on.
+        # In the (possibly multidimensional) mbarrier array, these are all mbarriers
+        # whose index on the ring buffer dimension is < pre_arrive.
+        pre_arrive = barrier_mechanism.get_pre_arrive()
+        if pre_arrive > ring_depth:
+            raise ValueError(
+                f"{name}: cannot have pre_arrive={pre_arrive} exceed ring_depth={ring_depth}"
+            )
+        pre_arrive_ranges = [
+            range(0, pre_arrive if i == managed_ring_buffer_dim_idx else const_shape[i])
+            for i in range(len(const_shape))
+        ]
+        pre_arrive_linear_indices = []
+        for coords in itertools.product(*pre_arrive_ranges):
+            pre_arrive_linear_indices.append(make_mbarrier_idx(coords))
+        smem_offset_name = device_setup_builder.add_mbarriers(
+            name, num_per_cta, arrive_count, pre_arrive_linear_indices
+        )
 
         # black formatting will ruin the readability of the generated C++ code below
         # fmt: off
-        def mbarrier_to_u32(lines, ringidx):
-            idx = f"(slice * {ring} + {ringidx})"
-            lines.append(f"  const auto mbarrier_u32 = exo_smemU32(exo_smem + {smem_offset_name} + 8*{idx});")
+        def mbarrier_to_u32(lines):
+            lines.append(f"  const auto mbarrier_u32 = exo_smemU32(exo_smem + {smem_offset_name} + 8*mbarrier_idx);")
 
         def generate_arrive():
             info = usage.get_arrive()
@@ -337,13 +344,8 @@ class SyncStateBuilder:
                     f"not supported: need cuda_in_order, Sm80_cp_async, or tcgen05_commit")
 
             lines = self.SyncState_lines
-            idx = f"ArriveIdx{nm_suffix}"
-            if ring_bits > 0:
-                lines.append(f"unsigned {idx} : {ring_bits} = 0;")
-            else:
-                lines.append(f"static constexpr unsigned {idx} = 0;  // Trivial size-1 ring buffer")
-            lines.append(f"EXO_CUDA_INLINE uint32_t Arrive{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {{")
-            mbarrier_to_u32(lines, idx);
+            lines.append(f"EXO_CUDA_INLINE uint32_t Arrive{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int mbarrier_idx, bool enable) {{")
+            mbarrier_to_u32(lines);
             lines.append(f"  if (enable) {{")
 
             # Optional broadcast to other CTAs in cluster.
@@ -376,9 +378,6 @@ class SyncStateBuilder:
                 else:
                     ptx.add_arg("mbarrier_u32", constraint="r", log_as="bits", brackets=True)
                 lines.extend(ptx.as_c_lines(py_format=False, tab="    "))
-            if ring_bits > 0:
-                lines.append(f"    // Advance ring buffer state")
-                lines.append(f"    {idx} = {idx} == {ring - 1} ? 0 : {idx} + 1;")
             lines.append(f"  }}")
             lines.append(f"  return mbarrier_u32;")
             lines.append(f"}}")
@@ -411,32 +410,11 @@ class SyncStateBuilder:
                     f"not supported ({remark})")
 
             lines = self.SyncState_lines
-            idx = f"AwaitIdx{nm_suffix}"
-            skips = f"Skips{nm_suffix}"
-            parity_bits = f"Parity{nm_suffix}"
-            enable_skips = n_skips != 0
-
-            # Define (register) exo_SyncState member variables: ring buffer
-            # index, parity bitfield, and, if needed, counter for inital skips.
-            if ring_bits > 0:
-                lines.append(f"unsigned {idx} : {ring_bits} = 0;")
-            else:
-                lines.append(f"static constexpr unsigned {idx} = 0;  // Trivial size-1 ring buffer")
-            lines.append(f"unsigned {parity_bits} : {ring} = 0;")
-            if enable_skips:
-                lines.append(f"unsigned {skips} : {skip_bits} = 0;")
 
             # Define Await member function
-            # The initial_skips parameter is included iff skipping is enabled,
-            # as a last line of defense against future Exo compiler bugs.
-            if enable_skips:
-                lines.append(f"EXO_CUDA_INLINE void Await{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, int initial_skips = 0) {{")
-                mbarrier_to_u32(lines, idx)
-                lines.append(f"  const bool enable = {skips} >= initial_skips;")
-            else:
-                lines.append(f"EXO_CUDA_INLINE void Await{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice) {{")
-                mbarrier_to_u32(lines, idx)
-                lines.append(f"  const bool enable = true;")
+            lines.append(f"EXO_CUDA_INLINE void Await{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int mbarrier_idx, int parity) {{")
+            mbarrier_to_u32(lines)
+            lines.append(f"  const bool enable = true;")
             comment = f"// Await{nm_suffix}"
             lines.append(f"  if (enable) {{")
             # sm_90 needed for try_wait; condition on __CUDA_ARCH__
@@ -452,27 +430,17 @@ class SyncStateBuilder:
                     }""" % (comment, try_or_test)
                 ptx = InlinePtxGen(ptx_format, volatile=True)
                 ptx.add_arg("mbarrier_u32", constraint="r", log_as="bits", brackets=True)
-                ptx.add_arg(f"1u & {parity_bits} >> {idx}", constraint="r", log_as="bits")
+                ptx.add_arg(f"parity", constraint="r", log_as="bits")
                 lines.extend(ptx.as_c_lines(py_format=False, tab="    "))
             lines.append("#if __CUDA_ARCH__ < 900")
             add_inline_ptx("test")
             lines.append("#else")
             add_inline_ptx("try")
             lines.append("#endif")
-            lines.append(f"    // Flip parity")
-            lines.append(f"    {parity_bits} ^= 1u << {idx};")
-            if ring_bits > 0:
-                lines.append(f"    // Advance ring buffer state")
-                lines.append(f"    {idx} = {idx} == {ring - 1} ? 0 : {idx} + 1;")
             if proxy_fence:
                 lines.append(f'    // Needed for first sync-tl {L1}; second sync-tl {L2}')
                 lines.extend(simple_ptx_c_lines("fence.proxy.async", tab="    "))
             lines.append(f"  }}")
-            if enable_skips:
-                lines.append(f"  else {{")
-                lines.append(f"    // Await({name}) returns without waiting for mbarrier first <initial_skips> times")
-                lines.append(f"    {skips}++;")
-                lines.append(f"  }}")
             lines.append(f"}}")
 
         # Generate Arrive and Await syntax
@@ -483,7 +451,7 @@ class SyncStateBuilder:
 
         # Arrive/Await lowers to call to generated exo_syncState member function.
         Arrive_txt = f"Arrive{nm_suffix}(exo_smem, exo_excutLog"
-        def codegen(node: LoopIR.SyncStmt | LoopIR.BarrierExpr):
+        def codegen(node: LoopIR.SyncStmt | LoopIR.BarrierExpr, ctx: SyncCodegenCtx):
             # Unpack BarrierExpr from SyncStmt
             if isinstance(node, LoopIR.SyncStmt):
                 # Generating stateful Arrive/Await call.
@@ -496,36 +464,26 @@ class SyncStateBuilder:
                 is_arg = True
             assert isinstance(e, LoopIR.BarrierExpr)
 
-            # The purpose of this is to generate an expression of threadIdx.x
-            # to select between mbarriers in the same CTA
-            # (niche usage ... I hope we test this).
-            # DICEY: in the chosen BarrierExpr, intervals lo:hi become None (ignored).
-            # These are distributed dims, which correspond to CTA-in-cluster dimensions,
-            # which codegen_slices_to_root will ignore anyway due to
-            # hi_thread_pitch=blockDim.
-            iter_syms = [None if multicast else idx.pt.name for multicast, idx in zip(e.multicast_flags(), e.idx)]
-            slice = coll_tilings.codegen_slices_to_root(self._blockDim(), thread_iters, iter_syms)
+            mbarrier_idx = make_mbarrier_idx(ctx.cir_non_distributed_home_barrier_idx)
 
             if is_arg:
-                return f"exo_syncState.{Arrive_txt}, {slice}, 0)"
+                return f"exo_syncState.{Arrive_txt}, int({mbarrier_idx}), 0)"
             elif sync_type.is_arrive():
                 assert sync_type.N == 1
                 lines = []
                 for e in node.barriers:
                     cta_mask = coll_tilings.codegen_cta_mask(self._blockDim(), thread_iters, e)
                     lines.append(f"// cta_mask: {cta_mask}")
-                lines.append(f"exo_syncState.{Arrive_txt}, {slice}, 1);")
+                lines.append(f"exo_syncState.{Arrive_txt}, int({mbarrier_idx}), 1);")
                 return lines
             else:
                 assert sync_type.is_await()
-                skips_arg = ""
-                if skips := ~sync_type.N:
-                    assert skips > 0, "should have been caught by BarrierUsageAnalysis"
-                    skips_arg = f", {skips}"
-                return [f"exo_syncState.Await{nm_suffix}(exo_smem, exo_excutLog, {slice}{skips_arg});"]
+                assert ctx.cir_ring_buffer_phase is not None
+                parity = ctx.cir_ring_buffer_phase % 2
+                return [f"exo_syncState.Await{nm_suffix}(exo_smem, exo_excutLog, int({mbarrier_idx}), int({parity}));"]
         lowered.codegen_sync_stmt = codegen
         lowered.codegen_barrier_arg = codegen
-        lowered.codegen_cta_mask = lambda e: coll_tilings.codegen_cta_mask(self._blockDim(), thread_iters, e)
+        lowered.codegen_cta_mask = lambda e, _: coll_tilings.codegen_cta_mask(self._blockDim(), thread_iters, e)
         self.lowered[name] = lowered
         # fmt: on
 
@@ -600,7 +558,7 @@ class SyncStateBuilder:
                 f"does not support Arrive({L1}) (wrong first sync-tl)"
             )
 
-        def codegen(s: LoopIR.SyncStmt):
+        def codegen(s: LoopIR.SyncStmt, ctx: SyncCodegenCtx):
             sync_type = s.sync_type
             assert sync_type.is_split()
             if sync_type.is_arrive():

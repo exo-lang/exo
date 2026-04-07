@@ -387,6 +387,10 @@ class MemWin(ABC):
         """Do not override; used in the compiler internally"""
         return cls
 
+    @classmethod
+    def get_pre_arrive(cls):
+        return 0
+
 
 class AllocableMemWin(MemWin):
     @classmethod

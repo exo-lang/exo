@@ -3373,7 +3373,10 @@ class _DoNormalize(Cursor_Rewrite):
 
     def map_e(self, e):
         if e.type.is_indexable():
-            return self.index_start(e)
+            e_new = self.index_start(e)
+            if ann := e.get_size_annotation():
+                e_new = e_new.update(type=LoopIR.Size(ann))
+            return e_new
 
         return super().map_e(e)
 
@@ -3610,6 +3613,12 @@ class DoSimplify(Cursor_Rewrite):
         return LoopIR.BinOp(e.op, lhs, rhs, e.type, e.srcinfo)
 
     def map_e(self, e):
+        e_new = self.map_e_impl(e)
+        if e_new is not None and (ann := e.get_size_annotation()):
+            e_new = e_new.update(type=LoopIR.Size(ann))
+        return e_new
+
+    def map_e_impl(self, e):
         # If we get a match, then replace it with the known constant right away.
         # No need to run further simplify steps on this node.
         if const := self.is_known_constant(e):

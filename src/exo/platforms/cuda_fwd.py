@@ -45,6 +45,7 @@ from ..spork.cuda_memory import (
     CudaRmemUniform,
     CudaRmemPacked32,
     CudaMbarrier,
+    CudaMbarrierPreArrive,
     CudaClusterSync,
     DRAM,
 )

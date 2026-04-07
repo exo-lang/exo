@@ -53,7 +53,7 @@ from .cuda_memory import (
     CudaRmem,
     SmemConfig,
 )
-from .lowered_barrier import LoweredBarrierType, LoweredBarrier
+from .lowered_barrier import LoweredBarrierType, LoweredBarrier, AddBarrierCtx
 from .cuda_sync_state import SyncStateBuilder
 from .cuda_warp_config import WarpLayoutInfo
 from .loop_modes import CudaTasks, CudaThreads, Seq, seq, _CodegenPar, cuda_tasks
@@ -138,11 +138,13 @@ class DimensionRewrite(LoopIR_Rewrite):
             e_rewrite = self.rewrite_idx(e)
         return e_rewrite
 
-    def is_managed_ring_buffer(self, nm: Sym):
+    def get_managed_ring_buffer_dim_idx(self, nm: Sym) -> Optional[int]:
         assert isinstance(nm, Sym)
-        return nm in self.managed_ring_buffer_entries
+        entry = self.managed_ring_buffer_entries.get(nm)
+        return None if entry is None else entry.dim_idx
 
     def map_alloc_free(self, s):
+        orig_s = s
         s = s.update(type=self.distributed_alloc_states[s.name].get_shard_type())
 
         if isinstance(s, LoopIR.Alloc):
@@ -159,15 +161,11 @@ class DimensionRewrite(LoopIR_Rewrite):
                 self.ring_buffer_consumption_varnames.append(varname)
         else:
             entry = self.managed_ring_buffer_entries.get(s.name)
+
         if entry:
             ring_dim_idx = entry.dim_idx
             ring_depth = entry.ring_depth
             typ = s.type
-            if not typ.hi:
-                raise ValueError(
-                    f"{s.srcinfo}: After removing distributed dimensions, "
-                    f"{s} had no dimensions left for ring buffering by {ring_depth}."
-                )
             consumption_e = typ.hi[ring_dim_idx]
             # Replace managed ring buffer dimension extent with
             # constant ring buffer depth, but still increment the ring
@@ -178,7 +176,10 @@ class DimensionRewrite(LoopIR_Rewrite):
             if isinstance(s, LoopIR.Free):
                 from .codegen_instr import IncrementRingBuffer
 
-                incr = IncrementRingBuffer(syncState_varname=entry.syncState_varname)
+                incr = IncrementRingBuffer(
+                    syncState_varname=entry.syncState_varname,
+                    pre_arrive=s.mem.get_pre_arrive(),
+                )
                 return [s, incr.ProcCallGen_make_call([consumption_e], s.srcinfo)]
 
         return [s]
@@ -297,7 +298,7 @@ class SubtreeScan(LoopIR_Do):
         "_current_warp_name",
         "named_warps",
         "setmaxnreg_is_inc",
-        "_is_managed_ring_buffer",
+        "_get_managed_ring_buffer_dim_idx",
     ]
 
     ctx: SporkLoweringCtx
@@ -338,7 +339,9 @@ class SubtreeScan(LoopIR_Do):
         blockDim = cuda_device_function.blockDim
         clusterDim = cuda_device_function.clusterDim
 
-        self._is_managed_ring_buffer = dim_rewrite.is_managed_ring_buffer
+        self._get_managed_ring_buffer_dim_idx = (
+            dim_rewrite.get_managed_ring_buffer_dim_idx
+        )
         self.ctx = ctx
         self.cuda_device_function = cuda_device_function
         self.sync_state_builder = SyncStateBuilder(cuda_device_function.coll_env())
@@ -662,16 +665,20 @@ class SubtreeScan(LoopIR_Do):
         elif isinstance(s, LoopIR.Free):
             if s.type.is_barrier():
                 self.sync_state_builder.add_barrier(
-                    s.name,
-                    self.get_barrier_usage,  # Callable[[Sym], BarrierUsage]
-                    self.distributed_alloc_states[s.name],
-                    self.thread_iters,
-                    self.device_setup_builder,
+                    AddBarrierCtx(
+                        s.name,
+                        self.get_barrier_usage,  # Callable[[Sym], BarrierUsage]
+                        self.distributed_alloc_states[s.name],
+                        self.thread_iters,
+                        self.device_setup_builder,
+                        type_const_shape(s.type, "barrier", s.name, s.srcinfo),
+                        self._get_managed_ring_buffer_dim_idx(s.name),
+                    )
                 )
             elif issubclass(s.mem, CudaBasicSmem):
                 # End SMEM lifetime.
                 offset_name = self.device_setup_builder.end_smem_alloc(s.name)
-                if self._is_managed_ring_buffer(s.name):
+                if self._get_managed_ring_buffer_dim_idx(s.name) is not None:
                     # Managed ring buffer allocations are persistent.
                     self.device_setup_builder.make_persistent(s.name)
 
@@ -703,11 +710,15 @@ class SubtreeScan(LoopIR_Do):
                 assert isinstance(e, LoopIR.BarrierExpr)
                 state = DistributedAllocState.from_fence(s, self._coll_tiling)
                 self.sync_state_builder.add_barrier(
-                    e.name,
-                    self.get_barrier_usage,  # Callable[[Sym], BarrierUsage]
-                    state,
-                    self.thread_iters,
-                    self.device_setup_builder,
+                    AddBarrierCtx(
+                        e.name,
+                        self.get_barrier_usage,  # Callable[[Sym], BarrierUsage]
+                        state,
+                        self.thread_iters,
+                        self.device_setup_builder,
+                        (),
+                        None,
+                    )
                 )
 
     def mark_sym_used(self, name: Sym):

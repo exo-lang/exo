@@ -244,77 +244,6 @@ class DistributedAllocState(object):
         result.first_usage_stmt = s
         return result
 
-    def codegen_slices_to_root(
-        self,
-        hi_thread_pitch: int,
-        thread_iters: Dict[Sym, ThreadIter],
-        distributed_iters: Optional[List[Optional[Sym]]] = None,
-    ):
-        """Function needed to codegen mbarriers and mbarrier-like objects.
-
-        Ignoring clusters, we need to generate a unique index for each
-        logically-separate mbarrier object to put in shared memory.
-        This is based on the explicit distributed indices, plus thread
-        iterators between the point-of-allocation of the barrier and
-        the CollTiling root. e.g.
-
-        for i0 in cuda_threads(0, 2, unit=cuda_warpgroup):  # implicit
-            bar : barrier[4] @ CudaMbarrier
-            for i1 in cuda_threads(0, 4, unit=cuda_warp):  # explicit
-                Arrive(cuda_classic, 1) >> bar[i1]
-
-        We need a total of 8 mbarriers for all i0 x i1 combinations, i0
-        being the implicit to-root index and i1 the explicit distributed index.
-
-        This needs to ignore tiling in the CTA-in-cluster dimension, so we
-        ignore iterators that have a thread pitch >= hi_thread_pitch.
-        (intended usage hi_thread_pitch=blockDim, but I generalize this here)
-
-        If distributed_iters is given, return C++ index expr: str
-        Else, return the total number of slices: int.
-
-        """
-        count = 1
-        prods = []
-
-        def handle_idx(nm, ext):
-            nonlocal count
-            info = thread_iters[nm]
-            if 0 < info.thread_pitch < hi_thread_pitch:
-                assert ext >= 1
-                if ext > 1:
-                    cname = info.cname(nm.name())
-                    if count == 1:
-                        prods.append(cname)
-                    else:
-                        prods.append(f"{count}*{cname}")
-                    count *= ext
-
-        # Handle explicit indices (given in index expression)
-        tmp_iters = (
-            self.first_distributed_iters
-            if distributed_iters is None
-            else distributed_iters
-        )
-        distributed_extents = self.get_distributed_extents()
-        assert len(tmp_iters) == len(distributed_extents)
-        for nm, ext in zip(reversed(tmp_iters), reversed(distributed_extents)):
-            if nm is not None:
-                handle_idx(nm, ext)
-
-        # Handle implicit indices; relevant cuda_threads iterators
-        # from the allocation point up to the root of the CudaDeviceFunction.
-        for op in self.alloc_coll_tiling.get_dim_ops():
-            op: CollDimOp
-            if op.tile_count > 1:
-                handle_idx(op.iter, op.tile_count)
-
-        # Return either typed result, as specified by the docstring.
-        if distributed_iters is None:
-            return count
-        else:
-            return " + ".join(prods) if prods else "0"
-
     def cta_xor_list(
         self, blockDim: int, thread_iters: Dict[Sym, ThreadIter], sync_info: SyncInfo
     ) -> List[int]:
@@ -326,6 +255,8 @@ class DistributedAllocState(object):
         [(cluster_ctarank % clusterDim) ^ m for m in cta_xor_list(..)]
 
         """
+        assert not self.first_distributed_iters, "TODO cta_xor_list"
+        return [0]
         stmt = sync_info.stmts[0]
         multicasts = sync_info.multicasts
         mask_bits = 0
@@ -361,6 +292,8 @@ class DistributedAllocState(object):
     def codegen_cta_mask(
         self, blockDim: int, thread_iters: Dict[Sym, ThreadIter], e: LoopIR.BarrierExpr
     ) -> str:
+        return "0"  # TODO
+
         """Translate BarrierExpr to CTA mask"""
         assert isinstance(e, LoopIR.BarrierExpr)
         base_num = 1
