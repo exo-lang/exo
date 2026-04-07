@@ -284,13 +284,6 @@ class SyncStateBuilder:
             self._blockDim(), thread_iters, usage.get_arrive()
         )
 
-        def make_mbarrier_idx(idxs):
-            mbarrier_idx = 0
-            assert len(idxs) == len(const_shape)
-            for dim_i, idx in enumerate(idxs):
-                mbarrier_idx += idx * prod(const_shape[dim_i + 1 :])
-            return mbarrier_idx
-
         # mbarrier allocator: record mbarriers to initialize.
         num_per_cta = prod(const_shape)
         assert num_per_cta >= 1
@@ -299,29 +292,27 @@ class SyncStateBuilder:
         lines.append(f"// {name}: barrier @ {barrier_mechanism.name()}")
         lines.append(f"// num_per_cta={num_per_cta}; arrive_count={arrive_count}")
 
-        # Tricky extra thing to do before mbarrier init: record the indices of the
-        # mbarriers that need to be pre-arrived on.
-        # In the (possibly multidimensional) mbarrier array, these are all mbarriers
-        # whose index on the ring buffer dimension is < pre_arrive.
         pre_arrive = barrier_mechanism.get_pre_arrive()
         if pre_arrive > ring_depth:
             raise ValueError(
                 f"{name}: cannot have pre_arrive={pre_arrive} exceed ring_depth={ring_depth}"
             )
-        pre_arrive_ranges = [
-            range(0, pre_arrive if i == managed_ring_buffer_dim_idx else const_shape[i])
-            for i in range(len(const_shape))
-        ]
-        pre_arrive_linear_indices = []
-        for coords in itertools.product(*pre_arrive_ranges):
-            pre_arrive_linear_indices.append(make_mbarrier_idx(coords))
         smem_offset_name = device_setup_builder.add_mbarriers(
-            name, num_per_cta, arrive_count, pre_arrive_linear_indices
+            name, num_per_cta, arrive_count
         )
+        idx_decls = ", ".join(f"int i{n}" for n in range(len(const_shape)))
 
         # black formatting will ruin the readability of the generated C++ code below
         # fmt: off
         def mbarrier_to_u32(lines):
+            idxs = []
+            for dim_i in range(len(const_shape)):
+                stride = prod(const_shape[dim_i + 1 :])
+                if dim_i == managed_ring_buffer_dim_idx:
+                    idxs.append(f"{stride} * (int(unsigned(i{dim_i}) % {ring_depth}))")
+                else:
+                    idxs.append(f"{stride} * i{dim_i}")
+            lines.append(f"  const int mbarrier_idx = " + " + ".join(idxs) + ";")
             lines.append(f"  const auto mbarrier_u32 = exo_smemU32(exo_smem + {smem_offset_name} + 8*mbarrier_idx);")
 
         def generate_arrive():
@@ -344,7 +335,7 @@ class SyncStateBuilder:
                     f"not supported: need cuda_in_order, Sm80_cp_async, or tcgen05_commit")
 
             lines = self.SyncState_lines
-            lines.append(f"EXO_CUDA_INLINE uint32_t Arrive{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int mbarrier_idx, bool enable) {{")
+            lines.append(f"EXO_CUDA_INLINE uint32_t Arrive{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, {idx_decls}, bool enable) {{")
             mbarrier_to_u32(lines);
             lines.append(f"  if (enable) {{")
 
@@ -412,9 +403,14 @@ class SyncStateBuilder:
             lines = self.SyncState_lines
 
             # Define Await member function
-            lines.append(f"EXO_CUDA_INLINE void Await{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int mbarrier_idx, int parity) {{")
+            lines.append(f"EXO_CUDA_INLINE void Await{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, {idx_decls}) {{")
             mbarrier_to_u32(lines)
-            lines.append(f"  const bool enable = true;")
+            lines.append(f"  const unsigned parity = (unsigned(i{managed_ring_buffer_dim_idx}) / {ring_depth}) & 1;")
+            if pre_arrive == 0:
+                lines.append(f"  const bool enable = true;")
+            else:
+                assert pre_arrive > 0
+                lines.append(f"  const bool enable = i{managed_ring_buffer_dim_idx} >= 0;")
             comment = f"// Await{nm_suffix}"
             lines.append(f"  if (enable) {{")
             # sm_90 needed for try_wait; condition on __CUDA_ARCH__
@@ -485,25 +481,27 @@ class SyncStateBuilder:
                                 f"(i.e. cannot multicast across mbarriers in the same CTA "
                             )
 
-            # CIR expression for the index of the mbarrier to arrive/await,
-            # in the mbarrier array allocated for this Sym.
-            mbarrier_idx = make_mbarrier_idx(ctx.cir_non_distributed_home_barrier_idx)
+            # Translate CIR index expressions to values for i0, i1, ...
+            # The index on the managed ring buffer dimension will be offset,
+            # but not divide/modulo.
+            cir_idx = list(ctx.cir_raw_non_distributed_home_barrier_idx)
+            cir_idx[managed_ring_buffer_dim_idx] += ctx.ring_buffer_c_consumption
+            cir_idx[managed_ring_buffer_dim_idx] -= pre_arrive
+            idx_values = ", ".join(f"int({idx})" for idx in cir_idx)
 
             if is_arg:
-                return f"exo_syncState.{Arrive_txt}, int({mbarrier_idx}), 0)"
+                return f"exo_syncState.{Arrive_txt}, {idx_values}, 0)"
             elif sync_type.is_arrive():
                 assert sync_type.N == 1
                 lines = []
                 for multicast_flags in usage.get_arrive().multicasts:
                     cta_mask = coll_tilings.codegen_cta_mask(self._blockDim(), thread_iters, multicast_flags)
                     lines.append(f"// cta_mask: {cta_mask}")
-                lines.append(f"exo_syncState.{Arrive_txt}, int({mbarrier_idx}), 1);")
+                lines.append(f"exo_syncState.{Arrive_txt}, {idx_values}, 1);")
                 return lines
             else:
                 assert sync_type.is_await()
-                assert ctx.cir_ring_buffer_phase is not None
-                parity = ctx.cir_ring_buffer_phase % 2
-                return [f"exo_syncState.Await{nm_suffix}(exo_smem, exo_excutLog, int({mbarrier_idx}), int({parity}));"]
+                return [f"exo_syncState.Await{nm_suffix}(exo_smem, exo_excutLog, {idx_values});"]
         lowered.codegen_sync_stmt = codegen
         lowered.codegen_barrier_arg = codegen
         self.lowered[name] = lowered

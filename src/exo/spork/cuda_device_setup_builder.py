@@ -21,7 +21,6 @@ class SmemAllocRecord:
 
     # For mbarriers
     arrive_count: int = 0
-    pre_arrive_indices: Set[int] = ()
 
 
 @dataclass(slots=True)
@@ -100,14 +99,12 @@ class CudaDeviceSetupBuilder:
         sym: Sym,
         num_per_cta: int,
         arrive_count: int,
-        pre_arrive_indices: List[int],
     ) -> str:
         offset_name = self.begin_smem_alloc(sym)
         self.make_persistent(sym)
         self.set_smem_alloc_size(sym, 8 * num_per_cta, 8, 8)
         assert arrive_count > 0
         self._records[sym].arrive_count = arrive_count
-        self._records[sym].pre_arrive_indices = set(pre_arrive_indices)
         return offset_name
 
     def begin_smem_alloc(self, sym: Sym) -> str:
@@ -234,17 +231,12 @@ class CudaDeviceSetupBuilder:
             setup_lines.append("// No mbarriers used")
         for sym, record in mbarrier_inits:
             mbarrier_count = record.size // 8
-            for i in range(mbarrier_count):
-                ptx = InlinePtxGen("mbarrier.init.shared::cta.b64 #0#;", volatile=True)
-                ptx.add_arg(f"exo_smem + {record.offset_name} + {8*i}", constraint="smem", log_as="bits")
-                ptx.add_arg(record.arrive_count, constraint="n", log_as="bits")
-                setup_lines.extend(ptx.as_c_lines(py_format=False, tab="    "))
-                if i in record.pre_arrive_indices:
-                    ptx = InlinePtxGen("mbarrier.arrive.shared::cta.b64 _, #0#;", volatile=True)
-                    ptx.add_arg(f"exo_smem + {record.offset_name} + {8*i}", constraint="smem", log_as="bits")
-                    ptx.add_arg(record.arrive_count, constraint="n", log_as="bits")
-                    setup_lines.extend(ptx.as_c_lines(py_format=False, tab="    "))
-
+            setup_lines.append(f"  for (int i = 0; i < {mbarrier_count}; ++i) {{")
+            ptx = InlinePtxGen("mbarrier.init.shared::cta.b64 #0#;", volatile=True)
+            ptx.add_arg(f"exo_smem + {record.offset_name} + 8*i", constraint="smem", log_as="bits")
+            ptx.add_arg(record.arrive_count, constraint="n", log_as="bits")
+            setup_lines.extend(ptx.as_c_lines(py_format=False, tab="      "))
+            setup_lines.append(f"  }}")
         # Proxy fence
         if self._have_proxy_fence:
             lazy_begin_guard_thread_0()

@@ -1316,8 +1316,10 @@ class Compiler:
         self, home_barrier_expr: LoopIR.BarrierExpr
     ) -> SyncCodegenCtx:
         idxs = []
-        phase = None
-        for e in home_barrier_expr.idx:
+        ring_buffer_dim_idx = None
+        ring_buffer_c_consumption = None
+        ring_buffer_depth = None
+        for dim_i, e in enumerate(home_barrier_expr.idx):
             if isinstance(e, LoopIR.Interval):
                 # Expression should be free of intervals, except for the weird
                 # 0:1 special case resulting from distributed memory deduction
@@ -1329,15 +1331,23 @@ class Compiler:
             else:
                 pt = e.pt
             if isinstance(pt, LoopIR.ManagedRingBufferIdx):
-                if phase is not None:
+                if ring_buffer_dim_idx is not None:
                     raise ValueError(
                         f"{e.srcinfo}: Unexpected multiple managed ring buffer dimensions in {home_barrier_expr}"
                     )
                 arg = self.lift_to_cir(pt.arg)
-                numerator = self.wrap_cir(pt.c_consumption, "managed ring buffer") + arg
-                phase = numerator / pt.ring_depth
-            idxs.append(self.wrap_cir(self.lift_to_cir(pt), "managed ring buffer"))
-        return SyncCodegenCtx(idxs, phase)
+                ring_buffer_dim_idx = dim_i
+                ring_buffer_c_consumption = pt.c_consumption
+                ring_buffer_depth = pt.ring_depth
+            else:
+                arg = self.lift_to_cir(pt)
+            idxs.append(self.wrap_cir(arg, "barrier index expr"))
+        return SyncCodegenCtx(
+            tuple(idxs),
+            ring_buffer_dim_idx,
+            ring_buffer_c_consumption,
+            ring_buffer_depth,
+        )
 
     def comp_s(self, s):
         if isinstance(s, LoopIR.Pass):

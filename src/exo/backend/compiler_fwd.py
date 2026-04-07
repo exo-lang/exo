@@ -41,11 +41,14 @@ def dataptr_name(wname):
 @dataclass(slots=True)
 class SyncCodegenCtx:
     # Indices of the home barrier expression, excluding distributed dimensions.
-    # Managed ring buffer index, if any, will be presented in final form.
-    cir_non_distributed_home_barrier_idx: List[CIR_Wrapper]
-    # If there is a non-distributed managed ring buffer index,
-    # we put (arg + c_consumption) / ring_depth here.
-    cir_ring_buffer_phase: Optional[CIR_Wrapper]
+    # Managed ring buffer index, if any, will be presented as the original index,
+    # without the offset-by-consumption and modulo.
+    cir_raw_non_distributed_home_barrier_idx: List[CIR_Wrapper]
+
+    # Information on the index in the managed ring buffer dimension, if present.
+    ring_buffer_dim_idx: Optional[int]
+    ring_buffer_c_consumption: Optional[str]
+    ring_buffer_depth: Optional[int]
 
 
 @dataclass(slots=True)
