@@ -24,6 +24,16 @@ from .sync_types import SyncType
 from .base_with_context import is_if_holding_with
 
 
+@dataclass(slots=True)
+class CodegenCtaInfo:
+    # Each distributed dimension of the mbarrier BarrierExpr
+    # that is not of extent 1 gets converted to a CodegenCtaInfo.
+    # The BarrierExpr is encoded as multicast_flags: List[bool]
+    is_multicast: bool
+    cta_count: int
+    cta_pitch: int
+
+
 @dataclass(slots=True, init=False)
 class ThreadIter:
     """Information for an iter variable from a for-threads parallel loop (cuda_threads), or rewritten CudaWarps"""
@@ -244,6 +254,30 @@ class DistributedAllocState(object):
         result.first_usage_stmt = s
         return result
 
+    def _codegen_cta_info(
+        self, blockDim: int, thread_iters: Dict[Sym, ThreadIter], multicast_flags
+    ) -> List[CodegenCtaInfo]:
+        result = []
+        cta_iters: List[Sym] = self.first_distributed_iters
+        assert len(cta_iters) <= len(multicast_flags)
+        for iter_name, is_multicast in zip(cta_iters, multicast_flags):
+            # Unlike most zips, implicit truncation of multicast_flags is desired.
+            # We only care to inspect the indices on distributed dimensions.
+            iter_name: Sym
+            thread_iter = thread_iters.get(iter_name)
+            thread_iter: ThreadIter
+            assert isinstance(thread_iter, ThreadIter)
+            cta_count = thread_iter.tile_count
+
+            if cta_count == 1:
+                continue
+
+            cta_pitch = thread_iter.thread_pitch // blockDim
+            assert cta_pitch >= 1
+            assert cta_pitch * blockDim == thread_iter.thread_pitch
+            result.append(CodegenCtaInfo(is_multicast, cta_count, cta_pitch))
+        return result
+
     def cta_xor_list(
         self, blockDim: int, thread_iters: Dict[Sym, ThreadIter], sync_info: SyncInfo
     ) -> List[int]:
@@ -255,31 +289,22 @@ class DistributedAllocState(object):
         [(cluster_ctarank % clusterDim) ^ m for m in cta_xor_list(..)]
 
         """
-        assert not self.first_distributed_iters, "TODO cta_xor_list"
-        return [0]
         stmt = sync_info.stmts[0]
         multicasts = sync_info.multicasts
         mask_bits = 0
         iterators: List[Sym] = self.first_distributed_iters
+
         for multicast_flags in multicasts:
-            assert len(multicast_flags) == len(iterators)
+            info_list = self._codegen_cta_info(blockDim, thread_iters, multicast_flags)
             tmp_bits = 1
-            for flag, sym in zip(multicast_flags, iterators):
-                if flag:
-                    info = thread_iters[sym]
-                    thread_pitch = info.thread_pitch
-                    cta_count = info.tile_count
-                    if cta_count >= 2:
-                        if thread_pitch % blockDim != 0:
-                            raise ValueError(
-                                f"{stmt.srcinfo}: {sym} thread_pitch {thread_pitch} not divisible by blockDim ({blockDim}); cannot be multicast (in {stmt})"
-                            )
-                        cta_pitch = thread_pitch // blockDim
-                        new_bits = 0
-                        for n in range(cta_count):
-                            new_bits |= tmp_bits << (n * cta_pitch)
-                        tmp_bits = new_bits
+            for info in info_list:
+                if info.is_multicast:
+                    new_bits = 0
+                    for n in range(info.cta_count):
+                        new_bits |= tmp_bits << (n * info.cta_pitch)
+                    tmp_bits = new_bits
             mask_bits |= tmp_bits
+
         xor_list = [
             bit_index
             for bit_index in range(mask_bits.bit_length())
@@ -290,27 +315,24 @@ class DistributedAllocState(object):
         return xor_list
 
     def codegen_cta_mask(
-        self, blockDim: int, thread_iters: Dict[Sym, ThreadIter], e: LoopIR.BarrierExpr
+        self,
+        blockDim: int,
+        thread_iters: Dict[Sym, ThreadIter],
+        multicast_flags: List[bool],
     ) -> str:
-        return "0"  # TODO
+        """Translate BarrierExpr's multicast_flags to CTA mask
 
-        """Translate BarrierExpr to CTA mask"""
-        assert isinstance(e, LoopIR.BarrierExpr)
+        CAUTION: this must be sourced from before the cuda_backend strips
+        distributed dimensions. So ideally from sync_info.multicasts.
+
+        """
         base_num = 1
         shift_mask = 0
-        iterators: List[Sym] = self.first_distributed_iters
-        flags = e.multicast_flags()
-        assert len(iterators) == len(flags)
-        for multicast, sym in zip(flags, iterators):
-            info = thread_iters[sym]
-            thread_pitch = info.thread_pitch
-            if thread_pitch < blockDim:
-                # thread_pitch = 0: [0, 1] interval has no effect on CTA mask
-                # 0 < thread_pitch < blockDim: non-CTA index has no effect on CTA
-                continue
-            cta_count = info.tile_count
-            cta_pitch = thread_pitch // blockDim
-            assert cta_pitch * blockDim == thread_pitch
+        flags = multicast_flags
+
+        for info in self._codegen_cta_info(blockDim, thread_iters, flags):
+            cta_count = info.cta_count
+            cta_pitch = info.cta_pitch
             assert cta_count >= 2
 
             # CUDA model fundamentally assumes power-of-2 CTA counts
@@ -319,7 +341,7 @@ class DistributedAllocState(object):
             assert cta_count == 1 << cta_count_log2
             assert cta_pitch == 1 << cta_pitch_log2
 
-            if multicast:
+            if info.is_multicast:
                 tmp = 1
                 for i in range(1, cta_count):
                     tmp = (tmp << cta_pitch) | 1

@@ -880,7 +880,7 @@ class InstrArgs:
     def __getattr__(self, attr):
         if attr.startswith("exo_"):
             assert (
-                attr == "exo_barrier" or attr == "exo_cta_mask"
+                attr == "exo_barrier" or attr == "exo_clusterDim"
             ), "exo_ prefix not allowed for arg name"
         assert not attr.startswith("_exo_"), "_exo_ prefix not allowed for arg name"
         return self._exo_args_dict[attr]

@@ -455,15 +455,38 @@ class SyncStateBuilder:
             # Unpack BarrierExpr from SyncStmt
             if isinstance(node, LoopIR.SyncStmt):
                 # Generating stateful Arrive/Await call.
-                e = node.barriers[0]
+                barrier_exprs = node.barriers
                 sync_type = node.sync_type
                 is_arg = False
             else:
                 # Generating expression to pass as arg to TMA instr.
-                e = node
+                barrier_exprs = (node, )
                 is_arg = True
-            assert isinstance(e, LoopIR.BarrierExpr)
 
+            # We don't implement multicasting on non-distributed dimensions.
+            # (These are all that are visible to this callback).
+            # Except, we allow 0:1 on extent-1 dimensions.
+            # This is to smooth over issues with distributed memory deduction
+            # stopping earlier than the user expects, due to (M x N)-shaped
+            # clusters where N=1.
+            for barrier_expr in barrier_exprs:
+                for dim_i, w_idx in enumerate(barrier_expr.idx):
+                    if isinstance(w_idx, LoopIR.Interval):
+                        lo = w_idx.lo
+                        hi = w_idx.hi
+                        good = (
+                            (isinstance(lo, LoopIR.Const) and lo.val == 0) and
+                            (isinstance(hi, LoopIR.Const) and hi.val == 1) and
+                            const_shape[dim_i] == 1
+                        )
+                        if not good:
+                            raise ValueError(
+                                f"{w_idx.srcinfo}: Cannot multicast on non-distributed dimension "
+                                f"(i.e. cannot multicast across mbarriers in the same CTA "
+                            )
+
+            # CIR expression for the index of the mbarrier to arrive/await,
+            # in the mbarrier array allocated for this Sym.
             mbarrier_idx = make_mbarrier_idx(ctx.cir_non_distributed_home_barrier_idx)
 
             if is_arg:
@@ -471,8 +494,8 @@ class SyncStateBuilder:
             elif sync_type.is_arrive():
                 assert sync_type.N == 1
                 lines = []
-                for e in node.barriers:
-                    cta_mask = coll_tilings.codegen_cta_mask(self._blockDim(), thread_iters, e)
+                for multicast_flags in usage.get_arrive().multicasts:
+                    cta_mask = coll_tilings.codegen_cta_mask(self._blockDim(), thread_iters, multicast_flags)
                     lines.append(f"// cta_mask: {cta_mask}")
                 lines.append(f"exo_syncState.{Arrive_txt}, int({mbarrier_idx}), 1);")
                 return lines
@@ -483,7 +506,6 @@ class SyncStateBuilder:
                 return [f"exo_syncState.Await{nm_suffix}(exo_smem, exo_excutLog, int({mbarrier_idx}), int({parity}));"]
         lowered.codegen_sync_stmt = codegen
         lowered.codegen_barrier_arg = codegen
-        lowered.codegen_cta_mask = lambda e, _: coll_tilings.codegen_cta_mask(self._blockDim(), thread_iters, e)
         self.lowered[name] = lowered
         # fmt: on
 

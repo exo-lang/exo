@@ -685,6 +685,7 @@ class Compiler:
         self._used_cuda = used_cuda
         self._known_strides = {}
         self._in_cuda_function = False
+        self._clusterDim = None
         self._cuda_kernel_count = 0
         self._util_injector = util_injector
         self._mem_code_builder = mem_code_builder
@@ -1068,8 +1069,10 @@ class Compiler:
                 rhs = self.comp_cir(e.rhs, rhs_child_prec)
 
             if op == "/":
-                if (isinstance(e.lhs, (CIR.Read, CIR.BinOp)) and e.lhs.is_non_neg) or (
-                    isinstance(e.lhs, CIR.Const) and e.lhs.val > 0
+                if (
+                    self._in_cuda_function
+                    or (isinstance(e.lhs, (CIR.Read, CIR.BinOp)) and e.lhs.is_non_neg)
+                    or (isinstance(e.lhs, CIR.Const) and e.lhs.val > 0)
                 ):
                     return f"({lhs} / {rhs})"
                 else:
@@ -1316,10 +1319,15 @@ class Compiler:
         phase = None
         for e in home_barrier_expr.idx:
             if isinstance(e, LoopIR.Interval):
-                raise ValueError(
-                    f"{e.srcinfo}: Internal compiler error, unexpected interval in {home_barrier_expr}"
-                )
-            pt = e.pt
+                # Expression should be free of intervals, except for the weird
+                # 0:1 special case resulting from distributed memory deduction
+                # for clusters of shape M x N with N=1.
+                # fmt: off
+                assert str(e.lo) == "0", f"{e.srcinfo}: Internal compiler error, unexpected interval in {home_barrier_expr}"
+                assert str(e.hi) == "1", f"{e.srcinfo}: Internal compiler error, unexpected interval in {home_barrier_expr}"
+                pt = e.lo  # Convenient const 0
+            else:
+                pt = e.pt
             if isinstance(pt, LoopIR.ManagedRingBufferIdx):
                 if phase is not None:
                     raise ValueError(
@@ -1522,12 +1530,14 @@ class Compiler:
                 assert self._used_cuda
                 assert not self._in_cuda_function
                 self._in_cuda_function = True
+                self._clusterDim = ctx.clusterDim
                 self._debug_log.log(
                     self.proc.name, f"Cuda{self._cuda_kernel_count}", lowered
                 )
                 self.comp_stmts([lowered])
                 self._cuda_kernel_count += 1
                 self._in_cuda_function = False
+                self._clusterDim = None
 
             else:
                 assert 0, f"Unknown with stmt context type {type(ctx)}"
@@ -1674,9 +1684,7 @@ class Compiler:
                         )
                         assert isinstance(mbarrier, str)
                         args_dict["exo_barrier"] = mbarrier
-                        args_dict["exo_cta_mask"] = lowered_barrier.codegen_cta_mask(
-                            e, sync_codegen_ctx
-                        )
+                        args_dict["exo_clusterDim"] = self._clusterDim
                     lines = fn.instr.codegen(InstrArgs(args_dict, self))
                     assert lines is not None, "codegen() forgot return?"
                     assert not isinstance(lines, str), "codegen() must give List[str]"

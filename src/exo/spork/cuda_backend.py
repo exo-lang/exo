@@ -187,14 +187,13 @@ class DimensionRewrite(LoopIR_Rewrite):
     def rewrite_idx(self, node):
         node = self.remove_distributed_idx(node) or node
 
-        if entry := self.managed_ring_buffer_entries.get(node.name):
+        if node.idx and (entry := self.managed_ring_buffer_entries.get(node.name)):
             # Rewrite the index expression on the managed ring buffer dimension
             # to be (idx[ring_dim_idx] + consumption) % ring_depth.
             ring_dim_idx = entry.dim_idx
             ring_depth = entry.ring_depth
             assert ring_depth > 0
             assert isinstance(ring_depth, int)
-            assert len(node.idx) > 0
             ring_idx = node.idx[ring_dim_idx]
             is_window = False
 

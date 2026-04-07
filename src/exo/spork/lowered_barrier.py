@@ -36,7 +36,6 @@ class LoweredBarrier:
     codegen_free: Callable[[LoopIR.Free], List[str]] = lambda a: [f"// {a}"]
 
     # Special case for TMA mbarriers
-    codegen_cta_mask: Callable[[LoopIR.BarrierExpr, SyncCodegenCtx], str] = None
     codegen_barrier_arg: Callable[[LoopIR.BarrierExpr, SyncCodegenCtx], str] = None
 
     def __repr__(self):

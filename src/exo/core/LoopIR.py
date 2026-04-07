@@ -904,7 +904,9 @@ def home_barrier_expr(s) -> LoopIR.BarrierExpr:
                     lcmp = LoopIR_Compare()
                     if not lcmp.match_e(old_idx.pt, pt):
                         raise ValueError(
-                            f"{s.srcinfo}: {e} has idx[{dim_idx}] = {pt.name}; mismatches idx[{dim_idx}] in previous trailing barrier expressions of {s}"
+                            f"{s.srcinfo}: mismatch on idx[{dim_idx}]:\n"
+                            f"saw: {old_idx.pt} @ {old_idx.pt.srcinfo}\n"
+                            f"saw: {pt} @ {pt.srcinfo}\n"
                         )
                 else:
                     idx[dim_idx] = this_idx
