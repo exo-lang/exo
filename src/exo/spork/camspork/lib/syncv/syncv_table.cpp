@@ -40,19 +40,8 @@ namespace
 {
 
 using refcnt_t = uint32_t;
-
-// We attach a linked list of pending awaits to a non-forwarded VisRecord.
-// These used to be reference-counted, but are now uniquely owned (fix outdated comments if found).
-struct PendingAwaitNode
-{
-    nodepool::id<PendingAwaitNode> camspork_next_id;
-    pending_await_t await_id;
-
-    refcnt_t get_refcnt() const
-    {
-        return 1;
-    }
-};
+struct HamsterPendingAwaitSet;
+struct HamsterBarrierState;
 
 // We encode a visibility set as a list of sorted, minimal
 // tl-sig intervals. The intervals are sorted in that
@@ -77,8 +66,8 @@ struct VisRecord
     // Owning reference to singly-linked list.
     nodepool::id<TlSigIntervalListNode> visibility_set;
 
-    // Owning reference to tree node.
-    nodepool::id<PendingAwaitNode> pending_awaits;
+    // Owning reference to pending await set
+    nodepool::id<HamsterPendingAwaitSet> pending_awaits;
 
     static constexpr uint32_t num_memoize_hash_bits = 62;
 };
@@ -180,30 +169,6 @@ struct AssignmentRecord
     }
 };
 
-
-struct BarrierArriveState
-{
-    // Linked lists of owning references to VisRecord.
-    // A base-state VisRecord is in the list N-many times iff the VisRecord has
-    // (parent, arrive_count) N-many times in its pending_awaits.
-    // Forwarding-state VisRecords may be in the lists as well ... ignore them if found.
-    //
-    // Re-use of "assignment record" struct is just pragmatic (maybe confusing).
-    nodepool::id<DefaultAssignmentRecordVisNode> vis_records_head_id{0};
-};
-
-
-struct BarrierState
-{
-    int32_t arrive_count;
-    int32_t await_count;
-
-    // Sorted by arrive_count.
-    // Entries removed from the list upon matched await.
-    BinaryTree<int32_t, BarrierArriveState> arrive_states;
-};
-
-
 struct AssignmentRecordCensusEntry
 {
     uint32_t count = 0;
@@ -212,6 +177,51 @@ struct AssignmentRecordCensusEntry
 };
 
 using CensusMap = Map<nodepool::id<AssignmentRecord>, AssignmentRecordCensusEntry>;
+
+struct HamsterPendingAwaitSet
+{
+    nodepool::id<HamsterPendingAwaitSet> camspork_next_id;
+    refcnt_t refcnt;
+
+    // Encodes a map (barrier ID -> arrive count)
+    // Sorted by barrier ID.
+    // Each barrier ID exists at most once; missing barrier ID implies (barrier id -> inf).
+    //
+    // Each PendingAwait.hamster_barrier_id is an owning reference to HamsterBarrierState.
+    //
+    // NOTE, this sorted_map is immutable. We copy-on-write upon changes.
+    //
+    // TODO Hamster check this invariant
+    std::vector<PendingAwait> sorted_map;
+
+    // Weak references to VisRecord that refer to this HamsterPendingAwaitSet.
+    // When a VisRecord is deleted, it must remove itself from this list.
+    // Sorted by ID.
+    std::vector<nodepool::id<DefaultAssignmentRecordVisNode>> sorted_back_refs;
+
+    refcnt_t get_refcnt() const
+    {
+        return refcnt;
+    }
+};
+
+struct HamsterBarrierState
+{
+    nodepool::id<HamsterBarrierState> camspork_next_id;
+    refcnt_t refcnt = 1;
+    uint32_t arrive_count = 0;
+    uint32_t await_count = 0;
+
+    // Weak references to HamsterPendingAwaitSet that refer to this HamsterBarrierState.
+    // When a HamsterBarrierState is deleted, it must remove itself from this list.
+    // Sorted by ID.
+    std::vector<nodepool::id<HamsterPendingAwaitSet>> sorted_back_refs;
+
+    refcnt_t get_refcnt() const
+    {
+        return refcnt;
+    }
+};
 
 struct history_log_vis_record_id
 {
@@ -254,11 +264,11 @@ struct SyncvTrivialLogger
     {
     }
 
-    void history_set_sync_stmt_info(const SyncvArrive&, const BarrierState&, uint32_t)
+    void history_set_sync_stmt_info(const SyncvArrive&, const HamsterBarrierState&, uint32_t)
     {
     }
 
-    void history_set_sync_stmt_info(const SyncvAwait&, const BarrierState&, uint32_t, uint32_t)
+    void history_set_sync_stmt_info(const SyncvAwait&, const HamsterBarrierState&, uint32_t, uint32_t)
     {
     }
 
@@ -343,9 +353,10 @@ struct VisRecordEntropy
         }
     }
 
-    void operator() (pending_await_t await_id)
+    void operator() (PendingAwait pending_await)
     {
-        pcg3d_z(await_id);
+        pcg3d_z(uint32_t(pending_await.hamster_barrier_id.data));
+        pcg3d_z(uint32_t(pending_await.arrive_count));
     }
 
     uint32_t get() const
@@ -397,14 +408,10 @@ struct SyncvTable
     std::tuple<
         nodepool::Pool<AssignmentRecord>,
         nodepool::Pool<TlSigIntervalListNode>,
-        nodepool::Pool<PendingAwaitNode>,
+        nodepool::Pool<HamsterPendingAwaitSet>,
+        nodepool::Pool<HamsterBarrierState>,
         nodepool::Pool<DefaultVisRecordListNode>,
         nodepool::Pool<DefaultAssignmentRecordVisNode>> pool_tuple;
-
-    // Barrier state.
-    // The Nth bit is 1 if N is allocated as a barrier ID.
-    uint64_t live_barrier_bits[max_live_barriers / 64] = {0};
-    BarrierState barrier_states[max_live_barriers];
 
     // Memoization table state.
     //
@@ -570,13 +577,34 @@ struct SyncvTable
         }
     }
 
+    void incref(nodepool::id<HamsterPendingAwaitSet> id)
+    {
+        CAMSPORK_REQUIRE(id, "incref(0)");
+        HamsterPendingAwaitSet& node = get(id);
+        CAMSPORK_REQUIRE_CMP(node.refcnt, !=, 0, "should not have started with 0 refcnt");
+        node.refcnt++;
+        CAMSPORK_REQUIRE_CMP(node.refcnt, !=, 0, "reference count overflow");
+    }
+
+    void decref(nodepool::id<HamsterPendingAwaitSet> id)
+    {
+        CAMSPORK_REQUIRE(id, "decref(0)");
+        HamsterPendingAwaitSet& node = get(id);
+        CAMSPORK_REQUIRE_CMP(node.refcnt, !=, 0, "should not have started with 0 refcnt");
+        if (0 == --node.refcnt) {
+            CAMSPORK_REQUIRE(0, "TODO Hamster");
+        }
+    }
+
     void reset_vis_record_data(VisRecord* p_data)
     {
         static_assert(sizeof(*p_data) == 8, "update me");
         extend_free_list(p_data->visibility_set);
         p_data->visibility_set = {};
-        extend_free_list(p_data->pending_awaits);
-        p_data->pending_awaits = {};
+        if (p_data->pending_awaits) {
+            decref(p_data->pending_awaits);
+            p_data->pending_awaits = {};
+        }
     }
 
     template <VisRecordKind K>
@@ -652,18 +680,8 @@ struct SyncvTable
 
         // Add pending awaits
         for (uint32_t i = 0; i < access.barrier_count; ++i) {
-            const auto barrier_index = get_barrier_index(access.trailing_barriers[i]);
-            BarrierState& state = barrier_states[barrier_index];
-            const pending_await_t info = pack_pending_await(barrier_index, state.arrive_count);
-            nodepool::id<PendingAwaitNode> new_id;
-            PendingAwaitNode& node = alloc_default_node(&new_id);
-            node.await_id = info;
-            node.camspork_next_id = vis_record.base_data.pending_awaits;
-            vis_record.base_data.pending_awaits = new_id;
-            // This keeps a reference to the new VisRecord.
-            // Memoization may cause the reference to change to a
-            // forwarding-state VisRecord, which isn't a well-tested code path probably.
-            extend_barrier_arrive_state(vis_record_id, info);
+            // TODO Hamster
+            // Also TODO free_on_arrive.
         }
 
         // Add "atomic-only" visibility across all possible threads, if applicable,
@@ -844,25 +862,15 @@ struct SyncvTable
 
         // Check equal pending awaits.
         {
-            using node_id = nodepool::id<PendingAwaitNode>;
-            node_id id_a = a.pending_awaits;
-            node_id id_b = b.pending_awaits;
-
-            while (id_a && id_b) {
-                const PendingAwaitNode& current_a = get(id_a);
-                const PendingAwaitNode& current_b = get(id_b);
-                id_a = current_a.camspork_next_id;
-                id_b = current_b.camspork_next_id;
-
-                if (current_a.await_id != current_b.await_id) {
-                    return false;
-                }
-            }
-
-            if (id_a != id_b) {
-                return false;  // Lists have different lengths.
-            }
+            return equal(a.pending_awaits, b.pending_awaits);
         }
+        return true;
+    }
+
+    bool equal(nodepool::id<HamsterPendingAwaitSet> id_0, nodepool::id<HamsterPendingAwaitSet> id_1) const
+    {
+        CAMSPORK_REQUIRE(!id_0, "TODO Hamster");
+        CAMSPORK_REQUIRE(!id_1, "TODO Hamster");
         return true;
     }
 
@@ -995,87 +1003,19 @@ struct SyncvTable
         }
     }
 
-    // *** Barrier ID Allocation ***
-    // For now barrier_id::data only stores the barrier index number + 1, but this could change.
-
-
-
-    uint32_t get_barrier_index(barrier_id bar) const
-    {
-        CAMSPORK_REQUIRE_CMP(bar.data, !=, 0, "null barrier");
-        const auto index = (bar.data - 1);
-        CAMSPORK_REQUIRE_CMP(index, <, max_live_barriers, "max_live_barriers limit exceeded");
-        return uint32_t(index);
-    }
-
-    void set_barrier_index(barrier_id* bar, uint32_t index) const
-    {
-        CAMSPORK_REQUIRE_CMP(index, <, max_live_barriers, "max_live_barriers limit exceeded");
-        bar->data = index + 1;
-    }
-
     void alloc_barriers(size_t N, barrier_id* barriers)
     {
-        uint32_t barrier_index = ~0u;
-        size_t num_allocated = 0;
-
-        if (N == 0) {
-            return;
-        }
-
-        for (uint32_t word_index = 0; word_index < max_live_barriers / 64; ++word_index) {
-            uint64_t negated_bits;
-            while ((negated_bits = ~live_barrier_bits[word_index]) != 0) {
-                CAMSPORK_REQUIRE_CMP(barriers[num_allocated].data, ==, 0, "allocated barrier without free");
-                uint8_t bit_index = pop_low_bit_index(&negated_bits);
-                barrier_index = word_index * 64 + bit_index;
-                set_barrier_index(&barriers[num_allocated], barrier_index);
-                live_barrier_bits[word_index] = ~negated_bits;
-                barrier_states[barrier_index] = {};
-                if (++num_allocated >= N) {
-                    return;
-                }
-            }
-        }
-
-        CAMSPORK_REQUIRE(false, "Exceeded implementation limit (max number of barriers per program)");
+        CAMSPORK_REQUIRE(0, "TODO hamster");
     }
 
-    void free_barriers(size_t N, barrier_id* barriers, bool check_arrive_await)
+    void free_barriers(size_t N, barrier_id* barriers, bool one_shot_arrive, bool one_shot_await)
     {
         for (size_t i = 0; i < N; ++i) {
+            CAMSPORK_REQUIRE(!barriers[i], "TODO Hamster");
             if (!barriers[i]) {
                 continue;
             }
-            const auto barrier_index = get_barrier_index(barriers[i]);
-            BarrierState& state = barrier_states[barrier_index];
-            if (check_arrive_await) {
-                if (state.arrive_count != state.await_count) {
-                    std::string message =
-                        "Arrive count (" + std::to_string(state.arrive_count) + ") != Await count ("
-                        + std::to_string(state.await_count) + ")";
-                    throw SyncvCheckFail{std::move(message), i};
-                }
-            }
-
-            // Normally, retire_barrier_arrive augments VisRecords, but here we just pass no_op,
-            // so the only intended effect is for us to free memory.
-            for (auto& pair : state.arrive_states) {
-                const auto arrive_count = pair.first;
-                BarrierArriveState& arrive = pair.second;
-                auto no_op = [] (auto, auto) {};
-                const pending_await_t await_id = pack_pending_await(barrier_index, arrive_count);
-                retire_barrier_arrive(&arrive, await_id, no_op, SyncvTrivialLogger{});
-            }
-            state.arrive_states.clear();
-
-            uint64_t& word = live_barrier_bits[barrier_index / 64u];
-            const uint64_t bit = uint64_t(1) << (barrier_index & 63u);
-            CAMSPORK_REQUIRE_CMP((word & bit), !=, 0, "Barrier ID was not allocated");
-            word &= ~bit;
-            barriers[i].data = 0;
         }
-        memoize_modified(SyncvTrivialLogger{});
     }
 
 
@@ -1108,12 +1048,7 @@ struct SyncvTable
             entropy(tl_sigs);
         }
 
-        nodepool::id<PendingAwaitNode> await_node_id = vis_record.pending_awaits;
-        while (await_node_id) {
-            const PendingAwaitNode& node = get(await_node_id);
-            entropy(node.await_id);
-            await_node_id = node.camspork_next_id;
-        }
+        CAMSPORK_REQUIRE(!vis_record.pending_awaits, "TODO hamster");
 
         uint64_t hash = entropy.get() & ((1u << 30) - 1);
         hash |= uint64_t(non_atomic_max_tid) << 30;
@@ -1476,12 +1411,6 @@ struct SyncvTable
         // result_id gains added_refcnt-many references, while the originally created
         // VisRecord (which may be the same one, if not a duplicate) loses the 1 refcnt
         // that it was initially created with.
-        //
-        // In most cases, for a duplicate, the decref leads to the duplicate being deleted.
-        // However, this is not the case if alloc_vis_record caused the VisRecord to gain
-        // additional references (due to pending awaits).
-        // It would be more efficient (but riskier) to defer adding those pending await
-        // references until after we know this is not a duplicate, so we can free instantly.
         const auto result_id = memoize_or_forward(new_vis_id);
         incref(result_id, added_refcnt);
         decref(new_vis_id);
@@ -1626,26 +1555,6 @@ struct SyncvTable
         };
     };
 
-    BarrierArriveState& get_barrier_arrive_state(pending_await_t info)
-    {
-        const auto barrier_index = pending_await_barrier_index(info);
-        const auto arrive_count = pending_await_arrive_count(info);
-        return barrier_states[barrier_index].arrive_states[arrive_count];
-    }
-
-    const BarrierArriveState* get_const_barrier_arrive_state(pending_await_t info) const
-    {
-        const auto barrier_index = pending_await_barrier_index(info);
-        const auto arrive_count = pending_await_arrive_count(info);
-        const auto& map = barrier_states[barrier_index].arrive_states;
-        auto it = map.find(arrive_count);
-        if (it == map.end()) {
-            debug_print(stderr, info);
-            return nullptr;
-        }
-        return &it->second;
-    }
-
     template <typename Logger>
     struct ArriveUpdateCommand
     {
@@ -1653,7 +1562,7 @@ struct SyncvTable
 
         const ThreadCuboid* p_cuboid;
         qual_bits_t L1_qual_bits;
-        std::vector<pending_await_t> pending_awaits;
+        std::vector<PendingAwait> pending_awaits;
         Logger& logger;
 
         static constexpr bool enable_debug_printf = false;
@@ -1670,23 +1579,7 @@ struct SyncvTable
 
             const bool syncs = env.synchronizes_with(*p_record, *p_cuboid, L1_qual_bits);
             if (syncs) {
-                // Extend pending_awaits list of the VisRecord.
-                const nodepool::id<PendingAwaitNode> old_await_node = p_record->pending_awaits;
-                nodepool::id<PendingAwaitNode> new_await_node = old_await_node;
-                // Add nodes to the head of the list.
-                for (auto iter = pending_awaits.rbegin(); iter != pending_awaits.rend(); ++iter) {
-                    const auto tmp_id = new_await_node;
-                    PendingAwaitNode& node = env.alloc_default_node(&new_await_node);
-                    node.camspork_next_id = tmp_id;
-                    node.await_id = *iter;
-                    // fprintf(stderr, "ADDING await_id %u\n", node.await_id);
-                }
-                p_record->pending_awaits = new_await_node;
-
-                // Extend BarrierArriveState to hold the new VisRecord.
-                for (pending_await_t info : pending_awaits) {
-                    env.extend_barrier_arrive_state(vis_record_id, info);
-                }
+                CAMSPORK_REQUIRE(0, "TODO Hamster");
             }
             return syncs;
         }
@@ -1748,108 +1641,6 @@ struct SyncvTable
         };
     };
 
-    // Extend BarrierArriveState to hold the new VisRecord.
-    template <VisRecordKind K>
-    void extend_barrier_arrive_state(
-        nodepool::id<VisRecordListNode<K>> vis_record_id,
-        pending_await_t info)
-    {
-        BarrierArriveState& state = get_barrier_arrive_state(info);
-        nodepool::id<AssignmentRecordVisNode<K>> list_node_id{};
-        auto& list_node = alloc_default_node(&list_node_id);
-        list_node.vis_record_id = vis_record_id;
-        incref(vis_record_id);
-        list_node.camspork_next_id = state.vis_records_head_id;
-        state.vis_records_head_id = list_node_id;
-    }
-
-    template <VisRecordKind K, typename Callback, typename Logger>
-    struct RetireBarrierArriveCommand
-    {
-        static constexpr MemoizeAction memoize_action = MemoizeAction::EditOne;
-        nodepool::id<VisRecordListNode<K>> node_id;
-        pending_await_t await_info;
-        Callback&& callback;
-        Logger&& logger;
-
-        bool operator() (SyncvTable& env, nodepool::id<VisRecordListNode<K>> id)
-        {
-            env.retire_barrier_arrive_impl(id, await_info, callback, logger);
-            return true;
-        }
-    };
-
-    template <VisRecordKind K, typename Callback, typename Logger>
-    void retire_barrier_arrive_impl(
-            nodepool::id<VisRecordListNode<K>> vis_record_id,
-            pending_await_t await_info,
-            Callback&& callback,
-            Logger&&)
-    {
-        callback(*this, vis_record_id);
-
-        // Remove PendingAwaitNode.
-        nodepool::id<PendingAwaitNode>* p_await_node = &get(vis_record_id).base_data.pending_awaits;
-        bool found = false;
-        while (*p_await_node) {
-            PendingAwaitNode& node = get(*p_await_node);
-            if (node.await_id == await_info) {
-                remove_and_free_next_node(p_await_node);
-                if (false) {
-                    fprintf(stderr, "%u, remove ", vis_record_id.id_bits);
-                    debug_print(stderr, await_info);
-                }
-                found = true;
-                break;
-            }
-            else {
-                p_await_node = &node.camspork_next_id;
-            }
-        }
-        CAMSPORK_REQUIRE(found, "Remove PendingAwaitNode failed");
-    }
-
-    // Find all VisRecords referenced by the BarrierArriveState and remove corresponding pending awaits,
-    // then clear the BarrierArriveState.
-    // We run the supplied callback (likely AugmentVisRecordCallback) to modify each base-state VisRecord.
-    template <typename Callback, typename Logger>
-    void retire_barrier_arrive(
-            BarrierArriveState* p_state, pending_await_t await_info, Callback&& callback, Logger&& logger)
-    {
-        auto retire_list = [&] (auto record_id)
-        {
-            constexpr VisRecordKind K = decltype(record_id)::value_type::vis_record_kind;
-            while (record_id) {
-                AssignmentRecordVisNode<K>& record_node = get(record_id);
-                record_id = record_node.camspork_next_id;
-                const nodepool::id<VisRecordListNode<K>> vis_record_id = record_node.vis_record_id;
-                VisRecordListNode<K>& vis_node = get(vis_record_id);
-                nodepool::id<PendingAwaitNode>* p_await_node = &vis_node.base_data.pending_awaits;
-                if (vis_node.is_forwarded()) {
-                    CAMSPORK_REQUIRE(!*p_await_node, "pending_awaits should be empty for forwarded VisRecord");
-                }
-                else {
-                    const uint64_t hash = read_hash_helper(vis_record_id);
-                    RetireBarrierArriveCommand<K, Callback&, Logger&> command{
-                            vis_record_id,
-                            await_info,
-                            callback,
-                            logger};
-                    const auto modified_id = for_vis_record_hash_bounds({hash, hash}, command);
-                    CAMSPORK_REQUIRE_CMP(modified_id, ==, vis_record_id, "Internal error, EditOne failed");
-                    memoize_modified(logger);
-                }
-                decref(vis_record_id);
-                record_node.vis_record_id = {};  // to make things clearer in the debugger.
-            }
-        };
-
-        nodepool::id<DefaultAssignmentRecordVisNode>& head_id = p_state->vis_records_head_id;
-        retire_list(head_id);
-        extend_free_list(head_id);
-        head_id = {};
-    }
-
     // Big payoff for all this code: function that performs the effects of a synchronization statement with the given
     // sync type and given first/second visibility sets. This affects all visibility records whose visibility set
     // intersects with the first visibility set of the synchronization statement.
@@ -1905,18 +1696,7 @@ struct SyncvTable
         augment.p_cuboid = &cuboid;
         augment.q_by_vis = from_L2(L2_full_qual_bits, L2_temporal_qual_bits);
 
-        // Retire all BarrierArriveState with arrive_count <= max_arrive_count.
-        CAMSPORK_C_BOUNDSCHECK(barrier_index, max_live_barriers);
-        BinaryTree<int32_t, BarrierArriveState>& arrive_map = barrier_states[barrier_index].arrive_states;
-        for (auto iter = arrive_map.begin(); iter != arrive_map.end(); ) {
-            auto& pair = *iter;
-            const auto arrive_count = pair.first;
-            if (int32_t(arrive_count) > max_arrive_count) {
-                break;
-            }
-            retire_barrier_arrive(&pair.second, pack_pending_await(barrier_index, arrive_count), augment, logger);
-            arrive_map.erase(iter++);
-        }
+        CAMSPORK_REQUIRE(0, "TODO hamster");
     }
 
     template <typename Logger>
@@ -1948,21 +1728,10 @@ struct SyncvTable
     void on_arrive(const ThreadCuboid& cuboid, const SyncvArrive& arrive, Logger&& logger)
     {
         // NB augment_counter not changed, as Arrive does not augment any VisRecords.
-        const auto home_barrier_index = get_barrier_index(arrive.home_barrier);
-        BarrierState& state = barrier_states[home_barrier_index];
+        CAMSPORK_REQUIRE(0, "TODO Hamster");
 
-        const auto new_arrive_count = state.arrive_count + 1;
-        logger.history_set_sync_stmt_info(arrive, state, new_arrive_count);
+        // logger.history_set_sync_stmt_info(arrive, state, new_arrive_count);
 
-        const auto count = arrive.barrier_count;
-        std::vector<pending_await_t> pending_awaits(count);
-        for (uint32_t i = 0; i < count; ++i) {
-            pending_awaits[i] = pack_pending_await(get_barrier_index(arrive.all_barriers[i]), state.arrive_count);
-        }
-
-        state.arrive_count = new_arrive_count;
-        update_vis_records_for_arrive(
-                cuboid, arrive.L1_qual_bits, std::move(pending_awaits), logger);
         memoize_modified(logger);
     }
 
@@ -1972,35 +1741,9 @@ struct SyncvTable
         // fprintf(stderr, "\x1b[31mon_await\n\x1b[0m");
         augment_counter++;
 
-        const auto barrier_index = get_barrier_index(await.bar);
-        BarrierState& state = barrier_states[barrier_index];
+        CAMSPORK_REQUIRE(0, "TODO Hamster");
 
-        auto new_await_count = state.await_count;
-        const auto N = await.N;
-        int32_t max_arrive_count;
-        if (N >= 0) {
-            // Arrive-indexed barrier.
-            max_arrive_count = state.arrive_count - N - 1;
-            new_await_count = std::max(max_arrive_count + 1, state.await_count);
-        }
-        else {
-            // Await-indexed barrier.
-            int32_t lag = ~N;
-            max_arrive_count = state.await_count - lag;
-            new_await_count = state.await_count + 1;
-        }
-
-        logger.history_set_sync_stmt_info(await, state, new_await_count, max_arrive_count);
-        state.await_count = new_await_count;
-
-        update_vis_records_for_await(
-                barrier_index,
-                max_arrive_count,
-                cuboid,
-                await.L2_full_qual_bits,
-                await.L2_temporal_qual_bits,
-                logger);
-        // memoize_modified inside retire_barrier_arrive.
+        // logger.history_set_sync_stmt_info(await, state, new_await_count, max_arrive_count);
     }
 
     template <typename Logger>
@@ -2443,10 +2186,8 @@ struct SyncvTable
         }
 
         out->pending_await_list.clear();
-        for (nodepool::id<PendingAwaitNode> node_id = record.pending_awaits; node_id; ) {
-            const PendingAwaitNode& node = get(node_id);
-            out->pending_await_list.push_back(node.await_id);
-            node_id = node.camspork_next_id;
+        if (record.pending_awaits) {
+            out->pending_await_list = get(record.pending_awaits).sorted_map;
         }
     }
 
@@ -2488,6 +2229,7 @@ struct SyncvTable
     // which could cause heisenbugs.
     void debug_validate_state(size_t input_count, const SyncvDebugValidateInput* p_inputs) const
     {
+#if 0
         fprintf(stderr, "SyncvTable::debug_validate_state\n");
 
         CAMSPORK_REQUIRE_CMP(modified_vis_records.size(), ==, 0, "internal error, missing memoize_modified()");
@@ -2798,6 +2540,7 @@ struct SyncvTable
                 check_BarrierArriveState_VisRecords(head_id, info);
             }
         }
+#endif
     }
 
     void debug_print(FILE* f, const VisRecord& record, unsigned long long hash) const
@@ -2818,11 +2561,10 @@ struct SyncvTable
             );
         }
         static_assert(num_vis_flags == 4);
-        nodepool::id<PendingAwaitNode> await_id = record.pending_awaits;
-        while (await_id) {
-            const PendingAwaitNode& node = get(await_id);
-            await_id = node.camspork_next_id;
-            debug_print(f, node.await_id);
+        if (record.pending_awaits) {
+            for (PendingAwait pending_await : get(record.pending_awaits).sorted_map) {
+                debug_print(f, pending_await);
+            }
         }
     }
 
@@ -2994,15 +2736,20 @@ struct SyncvRealLogger
             p_excut_actions->push_back(std::move(p_excut_interval));
         }
 
-        nodepool::id<PendingAwaitNode> await_node_id = vis_record.pending_awaits;
-        while (await_node_id) {
-            const PendingAwaitNode& node = env.get(await_node_id);
-            await_node_id = node.camspork_next_id;
+        const PendingAwait* pending_awaits_iter = nullptr;
+        const PendingAwait* pending_awaits_end = nullptr;
+
+        if (vis_record.pending_awaits) {
+            const HamsterPendingAwaitSet& set = env.get(vis_record.pending_awaits);
+            pending_awaits_iter = &set.sorted_map.front();
+            pending_awaits_end = &set.sorted_map.back();
+        }
+
+        for (; pending_awaits_iter != pending_awaits_end; ++pending_awaits_iter) {
+            const PendingAwait& pending_await = *pending_awaits_iter;
             auto p_excut_await = std::make_unique<ExcutPendingAwait>();
-            barrier_id tmp_barrier_id;
-            env.set_barrier_index(&tmp_barrier_id, pending_await_barrier_index(node.await_id));
-            p_excut_await->barrier_id = tmp_barrier_id.data;
-            p_excut_await->arrive_count = pending_await_arrive_count(node.await_id);
+            p_excut_await->barrier_id = pending_await.hamster_barrier_id.data;
+            p_excut_await->arrive_count = pending_await.arrive_count;
             p_excut_await->mutate_tag = mutate_tag;
             p_excut_actions->push_back(std::move(p_excut_await));
         }
@@ -3021,7 +2768,7 @@ struct SyncvRealLogger
         }
     }
 
-    void history_set_sync_stmt_info(const SyncvArrive& arrive, const BarrierState& state, uint32_t new_arrive_count)
+    void history_set_sync_stmt_info(const SyncvArrive& arrive, const HamsterBarrierState& state, uint32_t new_arrive_count)
     {
         if (p_history_log) {
             LoggedSyncStmtValues values{};
@@ -3038,7 +2785,7 @@ struct SyncvRealLogger
     }
 
     void history_set_sync_stmt_info(
-            const SyncvAwait& await, const BarrierState& state, uint32_t new_await_count, uint32_t max_arrive_count)
+            const SyncvAwait& await, const HamsterBarrierState& state, uint32_t new_await_count, uint32_t max_arrive_count)
     {
         if (p_history_log) {
             LoggedSyncStmtValues values{};
@@ -3115,12 +2862,9 @@ struct SyncvRealLogger
         data.visibility_set = std::move(debug.visibility_set);
         const auto& pending_awaits = debug.pending_await_list;
         for (size_t i = 0; i < pending_awaits.size(); ++i) {
-            const pending_await_t await_id = pending_awaits[i];
-            barrier_id id;
-            env.set_barrier_index(&id, pending_await_barrier_index(await_id));
-            const auto arrive_count = pending_await_arrive_count(await_id);
+            const PendingAwait& await_id = pending_awaits[i];
             data.pending_await_list.push_back(
-                LoggedPendingAwait{p_history_log->get_barrier_name(id), arrive_count}
+                LoggedPendingAwait{p_history_log->get_barrier_name(await_id.hamster_barrier_id), await_id.arrive_count}
             );
         }
         return data;
@@ -3283,7 +3027,8 @@ void alloc_barriers(SyncvTable* table, size_t N, barrier_id* barriers)
 void free_barriers(SyncvTable* table, size_t N, barrier_id* barriers, bool check_arrive_await)
 {
     INTERFACE_PROLOGUE(table)
-    table->free_barriers(N, barriers, check_arrive_await);
+    CAMSPORK_REQUIRE(!check_arrive_await, "TODO");
+    table->free_barriers(N, barriers, false, false);
     INTERFACE_EPILOGUE(table)
 }
 

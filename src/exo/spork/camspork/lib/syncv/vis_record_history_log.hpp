@@ -49,7 +49,7 @@ struct LoggedSyncStmtValues
     uint32_t arrive_count_after;
     uint32_t await_count_before;
     uint32_t await_count_after;
-    int32_t await_max_arrive_count;
+    int32_t await_max_arrive_count;  // TODO hamster remove?
     std::string sync_stmt_name;
 };
 

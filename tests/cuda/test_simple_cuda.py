@@ -508,7 +508,7 @@ def test_cuda_simple_matmul(compiler_Sm80):
     gemm_test = mkproc_cuda_simple_matmul()
     cu = compiler_Sm80.cuda_test_context(gemm_test)
 
-    gemm_test.sync_check(M=128, N=128, K=128)
+    gemm_test.sync_check(M=256, N=256, K=96)
     for M in (512, 4096):
         for N in (512, 65536):
             for K in (512, 65536):

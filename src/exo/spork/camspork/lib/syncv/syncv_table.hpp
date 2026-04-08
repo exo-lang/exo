@@ -14,43 +14,34 @@ namespace camspork
 
 struct SyncvTable;
 
-// We record pending barrier awaits as (barrier index, counter) pairs.
-// barrier_index_bits many bits are used for the index,
-// where this is used for a lookup in an internal table.
-// (32 - barrier_index_bits) bits are used for the counter.
-//
-// This limits the number of live barriers and the number of times
-// a barrier can be used. The latter is capped in a real CUDA program
-// by the number of times an mbarrier can be used: pow(2, 20).
-constexpr uint32_t barrier_index_bits = 10;
-constexpr uint32_t max_live_barriers = 1u << barrier_index_bits;
-using pending_await_t = uint32_t;
-
-inline uint32_t pending_await_barrier_index(pending_await_t id)
+struct PendingAwait
 {
-    return id & ((1u << barrier_index_bits) - 1u);
+    barrier_id hamster_barrier_id;
+    int32_t arrive_count;
+};
+
+// Adapters for old code using pre-Hamster barriers.
+using pending_await_t = PendingAwait;
+
+inline uint32_t pending_await_barrier_index(PendingAwait id)
+{
+    return id.hamster_barrier_id.data;
 }
 
-inline int32_t pending_await_arrive_count(pending_await_t id)
+inline int32_t pending_await_arrive_count(PendingAwait id)
 {
-    return int32_t(id >> barrier_index_bits);
+    return id.arrive_count;
 }
 
-inline pending_await_t pack_pending_await(uint32_t barrier_index, int32_t arrive_count)
+inline PendingAwait pack_pending_await(uint32_t barrier_index, int32_t arrive_count)
 {
-    const uint32_t id = barrier_index | uint32_t(arrive_count) << barrier_index_bits;
-    CAMSPORK_REQUIRE_CMP(pending_await_barrier_index(id), ==, barrier_index, "implementation limit: barrier_index overflow");
-    CAMSPORK_REQUIRE_CMP(pending_await_arrive_count(id), ==, arrive_count, "implementation limit: arrive_count overflow");
-    return id;
+    return PendingAwait{barrier_id{barrier_index}, arrive_count};
 }
-
-// Use signed values for arrive_count.
-inline pending_await_t pack_pending_await(uint32_t barrier_index, uint32_t arrive_count) = delete;
 
 struct VisRecordDebugData
 {
     std::vector<TlSigInterval> visibility_set;
-    std::vector<pending_await_t> pending_await_list;
+    std::vector<PendingAwait> pending_await_list;
 };
 
 // Window into a multidimensional array of assignment records.

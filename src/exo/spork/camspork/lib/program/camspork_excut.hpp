@@ -77,6 +77,7 @@ struct ExcutPendingAwait : ExcutBaseAction
     virtual void write_args(FILE* file) const override;
 };
 
+// TODO this doesn't seem to be being used.
 struct ExcutBarrierAlloc : ExcutBaseAction
 {
     uint32_t id;
