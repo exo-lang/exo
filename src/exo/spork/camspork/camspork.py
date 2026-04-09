@@ -1114,11 +1114,11 @@ class ProgramEnv:
 
 
 # fmt: off
-if __name__ == "__main__":
-    b_validation = False
+def so_called_temporary_test():
+    b_validation = True
 
     @camspork.program
-    def foo_fence(b: camspork.ProgramBuilder):
+    def foo_fence(b: ProgramBuilder):
         with b.ParallelBlock(64):
             bar = b.add_variable("bar")
             buf = b.add_variable("buf")
@@ -1130,26 +1130,30 @@ if __name__ == "__main__":
                 b.SyncEnvAlloc(buf[64])
                 with b.ThreadsFor(tid, 0, 64, 0, 0, 1):
                     b.SyncEnvAccess(buf[tid], 2, 2, b.mutate_flag)
-                # b.Fence(2, 2, 2)
                 b.Arrive(2, bar, ())
                 b.Await(bar, 2, 2, N=0)
+                # b.Fence(2, 2, 2)
                 with b.ThreadsFor(tid, 0, 64, 0, 0, 1):
                     with b.SeqFor(i, 0, 64):
                         b.SyncEnvAccess(buf[i], 2, 2, 0)
+                b.BarrierFree(bar)
+
     if False:
         print(foo_fence)
         env = ProgramEnv(foo_fence)
         env.set_debug_validation_enable(b_validation)
+        env.exec(excut_filename="foo_fence_excut.json")
         env.exec()
         env.set_debug_validation_enable(True)
 
     @camspork.program
-    def foo_barrier(b: camspork.ProgramBuilder):
+    def foo_barrier(b: ProgramBuilder):
         bars = b.add_variable("bars")
         m = b.add_variable("m")
         n = b.add_variable("n")
         k = b.add_variable("k")
         buf = b.add_variable("buf")
+        enable_trailing_barrier = b.add_variable("enable_trailing_barrier")
         b.SyncEnvAlloc(buf[128])
         with b.ParallelBlock(64):
             task = b.add_variable("task")
@@ -1160,9 +1164,20 @@ if __name__ == "__main__":
                     b.BarrierEnvAlloc(bars[4, 2, 2])
                     tid = b.add_variable("tid")
                     with b.ThreadsFor(tid, 0, 24, 0, 0, 1):
-                        b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 2, 2, b.mutate_flag | b.ooo_flag, atomic_qual_bits=8192, barrier=bars[m, n, k], barrier_multicasts=((True, False, False),))
+                        with b.If(enable_trailing_barrier):
+                            b.SyncEnvAccess(
+                                buf[tid + 32*warp + 64*task], 2, 2, b.mutate_flag | b.ooo_flag,
+                                atomic_qual_bits=8192,
+                                barrier=bars[m, n, k],
+                                barrier_multicasts=((True, False, False),)
+                            )
+                            b.begin_orelse()
+                            b.SyncEnvAccess(
+                                buf[tid + 32*warp + 64*task], 2, 2, b.mutate_flag | b.ooo_flag,
+                                atomic_qual_bits=8192,
+                            )
                     with b.ThreadsFor(tid, 0, 1, 0, 0, 14):
-                        b.Arrive(3, bars[m, n, k], ((True, False, True), (True, True, False)))
+                        b.Arrive(0, bars[m, n, k], ((True, False, True), (True, True, False)))
                         b.Await(bars[m, n, k], 3, 3, N=0)
                     with b.ThreadsFor(tid, 0, 14, 0, 0, 1):
                         b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 1, 1, 0)
@@ -1172,6 +1187,7 @@ if __name__ == "__main__":
     env.alloc_scalar_value("m", 0)
     env.alloc_scalar_value("n", 1)
     env.alloc_scalar_value("k", 0)
+    env.alloc_scalar_value("enable_trailing_barrier", 1)
     env.exec(excut_filename="foo_barrier_excut.json")
     env.set_debug_validation_enable(True)  # defer to later
 
@@ -1205,7 +1221,7 @@ if __name__ == "__main__":
     env.set_debug_validation_enable(True)  # defer to later
 
     @camspork.program
-    def extent_test(b: camspork.ProgramBuilder):
+    def extent_test(b: ProgramBuilder):
         buf = b.add_variable("buf")
         b.SyncEnvAlloc(buf[10, 16])
         with b.ParallelBlock(4):
@@ -1234,7 +1250,7 @@ if __name__ == "__main__":
     env.set_debug_validation_enable(True)  # defer to later
 
     @camspork.program
-    def atomic_test(b: camspork.ProgramBuilder):
+    def atomic_test(b: ProgramBuilder):
         buf = b.add_variable("buf")
         use_atomics = b.add_variable("use_atomics")
         wrong_tl = b.add_variable("wrong_tl")
@@ -1272,7 +1288,7 @@ if __name__ == "__main__":
 
 
     @camspork.program
-    def fence_test(b: camspork.ProgramBuilder):
+    def fence_test(b: ProgramBuilder):
         num_tasks = b.add_variable("num_tasks")
         fence_enable = b.add_variable("fence_enable")
         buf = b.add_variable("buf")
@@ -1303,7 +1319,7 @@ if __name__ == "__main__":
 
 
     @camspork.program
-    def realloc_test(b: camspork.ProgramBuilder):
+    def realloc_test(b: ProgramBuilder):
         with b.ParallelBlock(2):
             task = b.add_variable("task")
             tid = b.add_variable("tid")

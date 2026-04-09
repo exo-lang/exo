@@ -126,8 +126,12 @@ struct SyncvAccessInfo
 
 struct SyncvDebugValidateInput
 {
+    // For memory leak checking, we need to know what are the root objects from outside the syncv_table.
+    // The type of array passed here is based on which pointer is not null.
+    // Sloppy, replace if we have 3 or more types.
     size_t size;
     const assignment_record_id* p_records;
+    const barrier_id* p_barriers;
 };
 
 struct SyncvLogRequest;

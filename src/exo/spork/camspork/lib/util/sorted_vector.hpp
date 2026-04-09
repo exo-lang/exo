@@ -6,6 +6,8 @@
 
 namespace camspork {
 
+// Sorted vector, useful for binary-search lookups.
+// Not an encapsulated class; just some convenient functions to help uphold (but not enforce) the invariant.
 template <typename T>
 struct SortedVector
 {
@@ -35,7 +37,7 @@ struct SortedVector
     T* find_ptr(const MatchMe& match_me)
     {
         const auto& self = *this;
-        return const_cast<T*>(self.find(match_me));
+        return const_cast<T*>(self.find_ptr(match_me));
     }
 
     // Returns did-remove flag.

@@ -1169,7 +1169,11 @@ void ProgramEnv::syncv_debug_validate()
     for (const VarSlotEnvs& slot : var_slots) {
         const VarSlotEntry<assignment_record_id>* p_sync_env = &slot.sync;
         if (const auto sz = p_sync_env->size()) {
-            inputs.push_back({sz, p_sync_env->data()});
+            inputs.push_back({sz, p_sync_env->data(), nullptr});
+        }
+        const VarSlotEntry<barrier_id>* p_barrier_env = &slot.barrier;
+        if (const auto sz = p_barrier_env->size()) {
+            inputs.push_back({sz, nullptr, p_barrier_env->data()});
         }
     }
     debug_validate_state(p_syncv_table.get(), inputs.size(), inputs.data());
