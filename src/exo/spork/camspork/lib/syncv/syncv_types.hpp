@@ -12,6 +12,9 @@
 namespace camspork
 {
 
+static constexpr uint32_t one_shot_arrive_flag = 1;
+static constexpr uint32_t one_shot_await_flag = 2;
+
 struct assignment_record_id
 {
     uint32_t node_id = 0;
@@ -67,6 +70,22 @@ struct SyncvCheckFail : std::runtime_error
     size_t linear_index_in_input() const
     {
         return _linear_index_in_input;
+    }
+};
+
+struct SyncvBarrierFail : std::runtime_error
+{
+    barrier_id _hamster_barrier_id;
+
+    SyncvBarrierFail(std::string msg, barrier_id _id)
+      : std::runtime_error(std::move(msg))
+      , _hamster_barrier_id(_id)
+    {
+    }
+
+    barrier_id hamster_barrier_id() const
+    {
+        return _hamster_barrier_id;
     }
 };
 

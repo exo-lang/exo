@@ -707,30 +707,33 @@ struct stmt<10>
     CAMSPORK_NODE_VLA_MEMBER(ExprRef)
 };
 
-// ValueEnvAlloc(Varname name, expr* extent)
+// ValueEnvAlloc(Varname name, uint32_t flags, expr* extent)
 using ValueEnvAlloc = stmt<11>;
 template<>
 struct stmt<11>
 {
     Varname name;
+    uint32_t flags;
     CAMSPORK_NODE_VLA_MEMBER(ExprRef)
 };
 
-// SyncEnvAlloc(Varname name, expr* extent)
+// SyncEnvAlloc(Varname name, uint32_t flags, expr* extent)
 using SyncEnvAlloc = stmt<12>;
 template<>
 struct stmt<12>
 {
     Varname name;
+    uint32_t flags;
     CAMSPORK_NODE_VLA_MEMBER(ExprRef)
 };
 
-// BarrierEnvAlloc(Varname name, expr* extent)
+// BarrierEnvAlloc(Varname name, uint32_t flags, expr* extent)
 using BarrierEnvAlloc = stmt<13>;
 template<>
 struct stmt<13>
 {
     Varname name;
+    uint32_t flags;
     CAMSPORK_NODE_VLA_MEMBER(ExprRef)
 };
 

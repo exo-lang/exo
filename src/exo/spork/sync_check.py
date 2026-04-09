@@ -1,13 +1,19 @@
 # Don't import this module until the camspork JIT is initialized.
 # exocc and the Exo pytest tests should handle this early during init.
 
+import itertools
 from dataclasses import dataclass, field
 from typing import Callable, Dict, Optional, Type, List, Set, Tuple
 from warnings import warn
 
 from ..backend.LoopIR_compiler import run_backend_checks, BackendChecks
 
-from ..core.memory import MemWin, BarrierMechanism, SpecialWindow
+from ..core.memory import (
+    MemWin,
+    BarrierMechanism,
+    SpecialWindow,
+    BarrierMechanismTraits,
+)
 from ..core.prelude import Sym
 from ..core.instr_info import AccessInfo, InstrInfo
 from ..core.LoopIR import (
@@ -336,14 +342,51 @@ class CamsporkDo(LoopIR_Do):
             want_value = s.name in self._value_syms
             if want_barrier and not want_sync and not want_value:
                 b.add_variable(s.name)
+
+            # Add alloc statement
             if want_barrier or want_sync or want_value:
                 am_array = self.comp_index_expr(s.name, s.type.shape(), instr_tl)
             if want_barrier:
-                b.BarrierEnvAlloc(am_array, srcinfo=s.srcinfo)
+                flags = 0
+                traits: BarrierMechanismTraits
+                traits = s.mem.traits()
+                if traits.one_shot_arrive:
+                    flags |= b.one_shot_arrive_flag
+                if traits.one_shot_await:
+                    flags |= b.one_shot_await_flag
+                b.BarrierEnvAlloc(am_array, flags=flags, srcinfo=s.srcinfo)
             if want_sync:
                 b.SyncEnvAlloc(am_array, srcinfo=s.srcinfo)
             if want_value:
                 b.ValueEnvAlloc(am_array, srcinfo=s.srcinfo)
+
+            # Add Arrives for barriers that specify a pre-arrive.
+            if want_barrier and (pre_arrive := s.mem.get_pre_arrive()):
+                ring_dim_idx, ring_depth = s.get_managed_ring_buffer_dimension_depth()
+                if ring_dim_idx is None:
+                    raise ValueError(
+                        f"{s.srcinfo}: {s} has pre_arrive={pre_arrive} but missing managed ring buffer dimension."
+                    )
+                if pre_arrive > ring_depth:
+                    raise ValueError(
+                        f"{s.srcinfo}: {s} has pre_arrive={pre_arrive} which exceeds ring_depth={ring_depth}."
+                    )
+
+                pre_arrive_shape = list(s.type.shape())
+                pre_arrive_shape[ring_dim_idx] = LoopIR.Const(
+                    ring_depth, T.plain_size, s.srcinfo
+                )
+                assert all(
+                    isinstance(extent, LoopIR.Const) for extent in pre_arrive_shape
+                )
+                ranges = [range(0, extent.val) for extent in pre_arrive_shape]
+
+                # Issue pre-Arrive
+                multicasts = [(False,) * len(pre_arrive_shape)]
+                barrier_name = b.get_varname(s.name)
+                for idx in itertools.product(*ranges):
+                    if idx[ring_dim_idx] < pre_arrive:
+                        b.Arrive(0, barrier_name[idx], multicasts, srcinfo=s.srcinfo)
 
         elif isinstance(s, LoopIR.Free):
             self._saw_free = True

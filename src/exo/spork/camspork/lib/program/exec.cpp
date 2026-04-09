@@ -94,6 +94,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
     std::vector<extent_t> tmp_extent;
     std::vector<extent_t> tmp_offset;
     std::vector<barrier_id> tmp_all_barriers;
+    Varname tmp_barrier_name;
     StmtRef current_stmt{};
     bool added_error_remark = false;
 
@@ -507,6 +508,10 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
                 added_error_remark = true;
                 throw;
             }
+            catch (const SyncvBarrierFail& exc) {
+                on_barrier_fail(exc, stmt_ref, tmp_barrier_name);
+                throw;
+            }
         }
         env.maybe_syncv_debug_validate();
     }
@@ -618,7 +623,13 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
 
         // Pass to SyncvTable.
         const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
-        on_arrive(env.p_syncv_table.get(), thread_cuboid, param, prepare_logger(node, thread_cuboid));
+        try {
+            on_arrive(env.p_syncv_table.get(), thread_cuboid, param, prepare_logger(node, thread_cuboid));
+        }
+        catch (const SyncvBarrierFail& exc) {
+            on_barrier_fail(exc, env.stmt_ref_from_ptr(node), node->name);
+            throw;
+        }
         env.maybe_syncv_debug_validate();
     }
 
@@ -661,6 +672,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
     {
         // Fill tmp_offset and tmp_all_barriers. Return home barrier.
         VarSlotEntry<barrier_id>& _slot = env.barrier_slot(node->name);
+        tmp_barrier_name = node->name;
 
         // Find all barriers matching at least one BarrierExpr.
         tmp_all_barriers.clear();
@@ -687,7 +699,13 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
 
         // Pass to SyncvTable.
         const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
-        on_await(env.p_syncv_table.get(), thread_cuboid, param, prepare_logger(node, thread_cuboid));
+        try {
+            on_await(env.p_syncv_table.get(), thread_cuboid, param, prepare_logger(node, thread_cuboid));
+        }
+        catch (const SyncvBarrierFail& exc) {
+            on_barrier_fail(exc, env.stmt_ref_from_ptr(node), node->name);
+            throw;
+        }
         env.maybe_syncv_debug_validate();
     }
 
@@ -740,7 +758,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         VarSlotEntry<barrier_id>& slot = env.barrier_slot(node->name);
 
         // This is needed to return memory to the syncv table.
-        // We don't enforce arrive/await equality on this path.
+        // We don't enforce one-shot-arrive/one-shot-await on this path.
         slot.clear_barrier_env(env.p_syncv_table.get(), false);
 
         // Resize if needed.
@@ -748,7 +766,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         slot.resize(tmp_extent);
 
         // Allocate new barrier IDs.
-        alloc_barriers(env.p_syncv_table.get(), slot.size(), slot.data());
+        alloc_barriers(env.p_syncv_table.get(), slot.size(), slot.data(), node->flags);
         log_barrier_helper(env.str_name(node->name), slot, {});
         env.maybe_syncv_debug_validate();
     }
@@ -802,7 +820,13 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
     void exec_impl(const BarrierFree* node)
     {
         VarSlotEntry<barrier_id>& slot = env.barrier_slot(node->name);
-        slot.clear_barrier_env(env.p_syncv_table.get(), true);
+        try {
+            slot.clear_barrier_env(env.p_syncv_table.get(), true);
+        }
+        catch (const SyncvBarrierFail& exc) {
+            on_barrier_fail(exc, env.stmt_ref_from_ptr(node), node->name);
+            throw;
+        }
         env.maybe_syncv_debug_validate();
 
         env.sync_slot(node->name).clear_sync_env(env.p_syncv_table.get());
@@ -976,6 +1000,26 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
                 actions.clear();
             }
         }
+    }
+
+    void on_barrier_fail(const SyncvBarrierFail& exc, StmtRef stmt_ref, Varname barrier_name)
+    {
+        VarSlotEntry<barrier_id>& slot = env.barrier_slot(barrier_name);
+        std::vector<extent_t> idx;
+        const bool found = slot.find_idx(exc.hamster_barrier_id(), idx);
+
+        env._syncv_fail_var = barrier_name;
+        env._syncv_fail_idx = idx;
+        std::stringstream s;
+        s << exc.what() << " @ " << env.str_name(barrier_name);
+        print_idx_helper(s, env._syncv_fail_idx);
+        env.add_remark(stmt_ref, s.str());
+        added_error_remark = true;
+
+        if (!found) {
+            env.add_remark(stmt_ref, "(also, oops, could not translate barrier_id to index)");
+        }
+        throw;
     }
 
     // ******************************************************************************************

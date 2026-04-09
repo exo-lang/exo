@@ -235,7 +235,7 @@ class ProgramPrinter
         print_tabs();
         *this << "b.ValueEnvAlloc(" << node->name;
         print_idx(node);
-        *this << ")\n";
+        *this << ", flags=" << node->flags << ")\n";
     }
 
     void operator() (const SyncEnvAlloc* node)
@@ -243,7 +243,7 @@ class ProgramPrinter
         print_tabs();
         *this << "b.SyncEnvAlloc(" << node->name;
         print_idx(node);
-        *this << ")\n";
+        *this << ", flags=" << node->flags << ")\n";
     }
 
     void operator() (const ExpectSyncEnvAlloc* node)
@@ -267,7 +267,7 @@ class ProgramPrinter
         print_tabs();
         *this << "b.BarrierEnvAlloc(" << node->name;
         print_idx(node);
-        *this << ")\n";
+        *this << ", flags=" << node->flags << ")\n";
     }
 
     void operator() (const DataFree* node)

@@ -277,11 +277,11 @@ _add_Await.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c_uint32, c_uin
 
 _add_ValueEnvAlloc = lib.camspork_add_ValueEnvAlloc
 _add_ValueEnvAlloc.restype = StmtRef
-_add_ValueEnvAlloc.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef)
+_add_ValueEnvAlloc.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c_uint32)
 
 _add_SyncEnvAlloc = lib.camspork_add_SyncEnvAlloc
 _add_SyncEnvAlloc.restype = StmtRef
-_add_SyncEnvAlloc.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef)
+_add_SyncEnvAlloc.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c_uint32)
 
 _add_ExpectSyncEnvAlloc = lib.camspork_add_ExpectSyncEnvAlloc
 _add_ExpectSyncEnvAlloc.restype = StmtRef
@@ -289,7 +289,7 @@ _add_ExpectSyncEnvAlloc.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef)
 
 _add_BarrierEnvAlloc = lib.camspork_add_BarrierEnvAlloc
 _add_BarrierEnvAlloc.restype = StmtRef
-_add_BarrierEnvAlloc.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef)
+_add_BarrierEnvAlloc.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c_uint32)
 
 _add_DataFree = lib.camspork_add_DataFree
 _add_DataFree.restype = StmtRef
@@ -593,6 +593,9 @@ class ProgramBuilder:
     mutate_flag = 4
     write_only_flag = 8
 
+    one_shot_arrive_flag = 1
+    one_shot_await_flag = 2
+
     def __init__(self):
         self._builder = check_return(_new_ProgramBuilder())
         self._varname_dict = {}
@@ -822,25 +825,31 @@ class ProgramBuilder:
             ),
         )
 
-    def ValueEnvAlloc(self, e: Varname | BuilderIndexExpr, *, srcinfo=None) -> StmtRef:
-        return self._add_alloc(_add_ValueEnvAlloc, e, srcinfo)
+    def ValueEnvAlloc(
+        self, e: Varname | BuilderIndexExpr, *, flags=0, srcinfo=None
+    ) -> StmtRef:
+        return self._add_alloc(_add_ValueEnvAlloc, e, flags, srcinfo)
 
-    def SyncEnvAlloc(self, e: Varname | BuilderIndexExpr, *, srcinfo=None) -> StmtRef:
-        return self._add_alloc(_add_SyncEnvAlloc, e, srcinfo)
+    def SyncEnvAlloc(
+        self, e: Varname | BuilderIndexExpr, *, flags=0, srcinfo=None
+    ) -> StmtRef:
+        return self._add_alloc(_add_SyncEnvAlloc, e, flags, srcinfo)
 
     def ExpectSyncEnvAlloc(
         self, e: Varname | BuilderIndexExpr, *, srcinfo=None
     ) -> StmtRef:
-        return self._add_alloc(_add_ExpectSyncEnvAlloc, e, srcinfo)
+        var, dim, idxs = e.c_var_dim_idxs(self._builder)
+        stmt_id = _add_ExpectSyncEnvAlloc(self._builder, var, dim, idxs, 0)
+        return self.check_stmt(srcinfo, stmt_id)
 
     def BarrierEnvAlloc(
-        self, e: Varname | BuilderIndexExpr, *, srcinfo=None
+        self, e: Varname | BuilderIndexExpr, *, flags=0, srcinfo=None
     ) -> StmtRef:
-        return self._add_alloc(_add_BarrierEnvAlloc, e, srcinfo)
+        return self._add_alloc(_add_BarrierEnvAlloc, e, flags, srcinfo)
 
-    def _add_alloc(self, c_adder, e, srcinfo) -> StmtRef:
+    def _add_alloc(self, c_adder, e, flags, srcinfo) -> StmtRef:
         var, dim, idxs = e.c_var_dim_idxs(self._builder)
-        return self.check_stmt(srcinfo, c_adder(self._builder, var, dim, idxs))
+        return self.check_stmt(srcinfo, c_adder(self._builder, var, dim, idxs, flags))
 
     def DataFree(self, name, *, srcinfo=None) -> StmtRef:
         return self.check_stmt(srcinfo, _add_DataFree(self._builder, self[name]))

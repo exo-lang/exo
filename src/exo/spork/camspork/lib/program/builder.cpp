@@ -196,14 +196,16 @@ StmtRef ProgramBuilder::add_Await(
     return append_impl(Await{name, L2_full_qual_bits, L2_temporal_qual_bits, N}, num_idx, idx);
 }
 
-StmtRef ProgramBuilder::add_ValueEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent)
+StmtRef ProgramBuilder::add_ValueEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent, uint32_t flags)
 {
-    return append_impl(ValueEnvAlloc{name}, num_dims, extent);
+    CAMSPORK_REQUIRE_CMP(flags, ==, 0, "Currently no ValueEnvAlloc flags defined");
+    return append_impl(ValueEnvAlloc{name, flags}, num_dims, extent);
 }
 
-StmtRef ProgramBuilder::add_SyncEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent)
+StmtRef ProgramBuilder::add_SyncEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent, uint32_t flags)
 {
-    return append_impl(SyncEnvAlloc{name}, num_dims, extent);
+    CAMSPORK_REQUIRE_CMP(flags, ==, 0, "Currently no SyncEnvAlloc flags defined");
+    return append_impl(SyncEnvAlloc{name, flags}, num_dims, extent);
 }
 
 StmtRef ProgramBuilder::add_ExpectSyncEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent)
@@ -211,9 +213,10 @@ StmtRef ProgramBuilder::add_ExpectSyncEnvAlloc(Varname name, size_t num_dims, co
     return append_impl(ExpectSyncEnvAlloc{name}, num_dims, extent);
 }
 
-StmtRef ProgramBuilder::add_BarrierEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent)
+StmtRef ProgramBuilder::add_BarrierEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent, uint32_t flags)
 {
-    return append_impl(BarrierEnvAlloc{name}, num_dims, extent);
+    CAMSPORK_REQUIRE_CMP(flags, <=, one_shot_arrive_flag | one_shot_await_flag, "Unknown BarrierEnvAlloc flag");
+    return append_impl(BarrierEnvAlloc{name, flags}, num_dims, extent);
 }
 
 StmtRef ProgramBuilder::add_DataFree(Varname name)
@@ -520,18 +523,18 @@ camspork_RawStmtRef camspork_add_Await(camspork::ProgramBuilder* p_builder,
 }
 
 camspork_RawStmtRef camspork_add_ValueEnvAlloc(camspork::ProgramBuilder* p_builder,
-    camspork_RawVarname name, uint32_t num_dims, const camspork::ExprRef* extent)
+    camspork_RawVarname name, uint32_t num_dims, const camspork::ExprRef* extent, uint32_t flags)
 {
     CAMSPORK_API_PROLOGUE
-    return p_builder->add_ValueEnvAlloc(name, num_dims, extent);
+    return p_builder->add_ValueEnvAlloc(name, num_dims, extent, flags);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
 camspork_RawStmtRef camspork_add_SyncEnvAlloc(camspork::ProgramBuilder* p_builder,
-    camspork_RawVarname name, uint32_t num_dims, const camspork::ExprRef* extent)
+    camspork_RawVarname name, uint32_t num_dims, const camspork::ExprRef* extent, uint32_t flags)
 {
     CAMSPORK_API_PROLOGUE
-    return p_builder->add_SyncEnvAlloc(name, num_dims, extent);
+    return p_builder->add_SyncEnvAlloc(name, num_dims, extent, flags);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
@@ -544,10 +547,10 @@ camspork_RawStmtRef camspork_add_ExpectSyncEnvAlloc(camspork::ProgramBuilder* p_
 }
 
 camspork_RawStmtRef camspork_add_BarrierEnvAlloc(camspork::ProgramBuilder* p_builder,
-    camspork_RawVarname name, uint32_t num_dims, const camspork::ExprRef* extent)
+    camspork_RawVarname name, uint32_t num_dims, const camspork::ExprRef* extent, uint32_t flags)
 {
     CAMSPORK_API_PROLOGUE
-    return p_builder->add_BarrierEnvAlloc(name, num_dims, extent);
+    return p_builder->add_BarrierEnvAlloc(name, num_dims, extent, flags);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 

@@ -177,7 +177,7 @@ void on_check_free(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, Syn
 void on_check_free(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, const SyncvLogRequest&);
 
 void clear_visibility(SyncvTable* table, size_t N, assignment_record_id* array);
-void alloc_barriers(SyncvTable* table, size_t N, barrier_id* barriers);
+void alloc_barriers(SyncvTable* table, size_t N, barrier_id* barriers, uint32_t flags);
 void free_barriers(SyncvTable* table, size_t N, barrier_id* barriers, bool check_arrive_await);
 void on_fence(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvFence& fence, const SyncvLogRequest&);
 void on_fence(SyncvTable* table, const ThreadCuboid& cuboid, const SyncvFence& fence, decltype(nullptr) = nullptr);

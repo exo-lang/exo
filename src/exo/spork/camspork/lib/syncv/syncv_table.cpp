@@ -757,6 +757,14 @@ struct SyncvTable
                 const HamsterBarrierState& state = get(state_id);
                 new_set.sorted_map.data.insert(insert_iter, PendingAwait{bar_id, state.arrive_count});
                 incref(state_id);
+
+                if ((state.flags & one_shot_arrive_flag) && state.arrive_count != 0) {
+                    throw SyncvBarrierFail{
+                        "Cannot use this barrier as trailing barrier after previous Arrive\n"
+                        "due to one-shot arrive requirement",
+                        bar_id
+                    };
+                }
             }
 
             init_back_refs(vis_record.base_data.pending_awaits);
@@ -1078,7 +1086,7 @@ struct SyncvTable
         }
     }
 
-    void alloc_barriers(size_t N, barrier_id* barriers)
+    void alloc_barriers(size_t N, barrier_id* barriers, uint32_t flags)
     {
         for (size_t i = 0; i < N; ++i) {
             CAMSPORK_REQUIRE_CMP(barriers[i].data, ==, 0, "allocated barrier without free");
@@ -1086,8 +1094,7 @@ struct SyncvTable
             HamsterBarrierState& state = alloc_default_node(&state_id);
             barriers[i].data = state_id.id_bits;
 
-            // TODO one-shot arrive, one-shot await
-            state.flags = 0;
+            state.flags = flags;
         }
     }
 
@@ -1098,10 +1105,27 @@ struct SyncvTable
                 continue;
             }
             nodepool::id<HamsterBarrierState> state_id{barriers[i].data};
+            const HamsterBarrierState& state = get(state_id);
+            if (enable_checks) {
+                if (state.arrive_count != 1 && (state.flags & one_shot_arrive_flag)) {
+                    std::string message = (
+                        "Arrive count ("
+                        + std::to_string(state.arrive_count)
+                        + ") needs to be 1 due to one-shot arrive requirement"
+                    );
+                    throw SyncvBarrierFail{std::move(message), barriers[i]};
+                }
+                if (state.await_count != 1 && (state.flags & one_shot_await_flag)) {
+                    std::string message = (
+                        "Await count ("
+                        + std::to_string(state.await_count)
+                        + ") needs to be 1 due to one-shot await requirement"
+                    );
+                    throw SyncvBarrierFail{std::move(message), barriers[i]};
+                }
+            }
             decref(state_id);
             barriers[i].data = 0;
-
-            // TODO one-shot arrive, one-shot await.
         }
     }
 
@@ -1909,7 +1933,12 @@ struct SyncvTable
                 cuboid, arrive.L1_qual_bits, std::move(pending_awaits), logger);
         memoize_modified(logger);
 
-        // TODO one-shot arrive requirements.
+        // One-shot arrive checks
+        if ((home_state.flags & one_shot_arrive_flag)) {
+            if (new_arrive_count != 1) {
+                throw SyncvBarrierFail{"Arrived twice on one-shot arrive barrier", arrive.home_barrier};
+            }
+        }
     }
 
     template <typename Logger>
@@ -1961,8 +1990,20 @@ struct SyncvTable
             }
         }
 
-        // TODO one-shot await requirements.
-        // TODO forward progress requirements [one-shot arrive, and arrive not yet occured].
+        if ((state.flags & one_shot_await_flag)) {
+            if (new_await_count != 1) {
+                throw SyncvBarrierFail{"Awaited twice on one-shot await barrier", await.bar};
+            }
+        }
+        if ((state.flags & one_shot_arrive_flag)) {
+            if (state.arrive_count == 0) {
+                throw SyncvBarrierFail{
+                    "No forward progress.\nThe underlying program may or may not be deadlock-free,\n"
+                    "but the given loop nest results in an Await before an Arrive.",
+                    await.bar
+                };
+            }
+        }
     }
 
     template <typename Logger>
@@ -3224,10 +3265,10 @@ void clear_visibility(SyncvTable* table, size_t N, assignment_record_id* array)
     INTERFACE_EPILOGUE(table)
 }
 
-void alloc_barriers(SyncvTable* table, size_t N, barrier_id* barriers)
+void alloc_barriers(SyncvTable* table, size_t N, barrier_id* barriers, uint32_t flags)
 {
     INTERFACE_PROLOGUE(table)
-    table->alloc_barriers(N, barriers);
+    table->alloc_barriers(N, barriers, flags);
     INTERFACE_EPILOGUE(table)
 }
 

@@ -144,10 +144,10 @@ class ProgramBuilder
     StmtRef add_Await(
         Varname name, uint32_t num_idx, const ExprRef* idx,
         uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits, int32_t N);
-    StmtRef add_ValueEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent);
-    StmtRef add_SyncEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent);
+    StmtRef add_ValueEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent, uint32_t flags);
+    StmtRef add_SyncEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent, uint32_t flags);
     StmtRef add_ExpectSyncEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent);
-    StmtRef add_BarrierEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent);
+    StmtRef add_BarrierEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent, uint32_t flags);
     StmtRef add_DataFree(Varname name);
     StmtRef add_BarrierFree(Varname name);
     StmtRef add_JoinThreads();
@@ -241,13 +241,13 @@ CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_Await(camspork::ProgramBuilder*
     camspork_RawVarname name, uint32_t num_idx, const camspork::ExprRef* idx,
     uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits, int32_t N);
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_ValueEnvAlloc(camspork::ProgramBuilder* p_builder,
-    camspork_RawVarname name, uint32_t num_dims, const camspork::ExprRef* extent);
+    camspork_RawVarname name, uint32_t num_dims, const camspork::ExprRef* extent, uint32_t flags);
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_SyncEnvAlloc(camspork::ProgramBuilder* p_builder,
-    camspork_RawVarname name, uint32_t num_dims, const camspork::ExprRef* extent);
+    camspork_RawVarname name, uint32_t num_dims, const camspork::ExprRef* extent, uint32_t flags);
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_ExpectSyncEnvAlloc(camspork::ProgramBuilder* p_builder,
     camspork_RawVarname name, uint32_t num_dims, const camspork::ExprRef* extent);
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_BarrierEnvAlloc(camspork::ProgramBuilder* p_builder,
-    camspork_RawVarname name, uint32_t num_dims, const camspork::ExprRef* extent);
+    camspork_RawVarname name, uint32_t num_dims, const camspork::ExprRef* extent, uint32_t flags);
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_DataFree(camspork::ProgramBuilder* p_builder,
     camspork_RawVarname name);
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_BarrierFree(camspork::ProgramBuilder* p_builder,
