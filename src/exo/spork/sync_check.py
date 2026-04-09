@@ -668,10 +668,11 @@ class CamsporkDo(LoopIR_Do):
         where we have different input shards accessed by different threads
         (hence must communicate this to the abstract machine with a ThreadsFor).
 
+        NB access_by_owner_only is disused.
+
         """
         b = self._builder
-        if not isinstance(e, LoopIR.WindowExpr):
-            return self.comp_e(e, True, instr_tl), None, ()
+        assert isinstance(e, (LoopIR.WindowExpr, LoopIR.Read))
         shape = fnarg_type.shape()
 
         if arg_info.access_by_owner_only:
@@ -729,8 +730,11 @@ class CamsporkDo(LoopIR_Do):
                     extent.append(self.comp_e(shape_coord, True, instr_tl))
                 shape_i += 1
             else:
-                assert isinstance(w, LoopIR.Point)
-                idx_lo.append(w.pt)
+                if isinstance(w, LoopIR.Point):
+                    pt = w.pt
+                else:
+                    pt = w
+                idx_lo.append(pt)
                 extent.append(1)
         assert shape_i == len(shape)
 
