@@ -31,9 +31,19 @@ struct barrier_id
         return data != 0;
     }
 
-    bool operator<(barrier_id other) const
+    bool operator< (barrier_id other) const
     {
         return data < other.data;
+    }
+
+    bool operator== (barrier_id other) const
+    {
+        return data == other.data;
+    }
+
+    bool operator!= (barrier_id other) const
+    {
+        return data != other.data;
     }
 };
 
