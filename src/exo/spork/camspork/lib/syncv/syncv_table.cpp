@@ -26,10 +26,8 @@
 #include "../util/sorted_vector.hpp"
 
 // Maybe replace later
-#include <map>
 #include <unordered_map>
 #include <unordered_set>
-template <typename K, typename V> using BinaryTree = std::map<K, V>;
 template <typename K, typename V> using Map = std::unordered_map<K, V>;
 template <typename V> using Set = std::unordered_set<V>;
 template <typename V> using MultiSet = std::unordered_multiset<V>;
@@ -1614,6 +1612,8 @@ struct SyncvTable
         std::vector<PendingAwait> pending_awaits;
         Logger& logger;
 
+        Map<nodepool::id<HamsterPendingAwaitSet>, nodepool::id<HamsterPendingAwaitSet>> cow_map;
+
         static constexpr bool enable_debug_printf = false;
 
         ArriveUpdateCommand(ArriveUpdateCommand&&) = delete;
@@ -1624,11 +1624,40 @@ struct SyncvTable
             CAMSPORK_REQUIRE_CMP(L1_qual_bits, !=, 0, "should be if'd out in this case");
             auto& node = env.get(vis_record_id);
             CAMSPORK_REQUIRE(!node.is_forwarded(), "unexpected forwarding state");
-            VisRecord* p_record = &node.base_data;
+            VisRecord& record = node.base_data;
 
-            const bool syncs = env.synchronizes_with(*p_record, *p_cuboid, L1_qual_bits);
+            const bool syncs = env.synchronizes_with(record, *p_cuboid, L1_qual_bits);
             if (syncs) {
-                CAMSPORK_REQUIRE(0, "TODO Hamster");
+                // Update HamsterPendingAwaitSet with new PendingAwaits. Copy on write.
+                nodepool::id<HamsterPendingAwaitSet>& new_set_id = cow_map[record.pending_awaits];
+                if (new_set_id) {
+                    env.incref(new_set_id);
+                }
+                else {
+                    HamsterPendingAwaitSet& set = env.alloc_default_node(&new_set_id);
+                    if (record.pending_awaits) {
+                        set = env.get(record.pending_awaits);
+                    }
+                    for (PendingAwait await_id: pending_awaits) {
+                        // Only insert PendingAwait if its barrier id is not already in the pending await set.
+                        // If already in, this is a no-op: the existing lower arrive count takes priority
+                        // over the new higher arrive count.
+                        auto [exists, insert_iter] = set.sorted_map.insertion_point(await_id.hamster_barrier_id);
+                        if (exists) {
+                            CAMSPORK_REQUIRE_CMP(
+                                insert_iter->arrive_count, <=, await_id.arrive_count,
+                                "Arrive count decreased?"
+                            );
+                        }
+                        else {
+                            set.sorted_map.data.insert(insert_iter, await_id);
+                        }
+                    }
+                }
+                if (record.pending_awaits) {
+                    env.decref(record.pending_awaits);
+                }
+                record.pending_awaits = new_set_id;
             }
             return syncs;
         }
@@ -1777,10 +1806,24 @@ struct SyncvTable
     void on_arrive(const ThreadCuboid& cuboid, const SyncvArrive& arrive, Logger&& logger)
     {
         // NB augment_counter not changed, as Arrive does not augment any VisRecords.
-        CAMSPORK_REQUIRE(0, "TODO Hamster");
+        HamsterBarrierState& home_state = get(arrive.home_barrier);
 
-        // logger.history_set_sync_stmt_info(arrive, state, new_arrive_count);
+        const auto old_arrive_count = home_state.arrive_count;
+        const auto new_arrive_count = home_state.arrive_count + 1;
+        logger.history_set_sync_stmt_info(arrive, home_state, new_arrive_count);
 
+        // TODO one-shot arrive requirements.
+
+        const auto count = arrive.barrier_count;
+        std::vector<PendingAwait> pending_awaits(count);
+        for (uint32_t i = 0; i < count; ++i) {
+            pending_awaits[i].hamster_barrier_id = arrive.all_barriers[i];
+            pending_awaits[i].arrive_count = old_arrive_count;
+        }
+
+        home_state.arrive_count = new_arrive_count;
+        update_vis_records_for_arrive(
+                cuboid, arrive.L1_qual_bits, std::move(pending_awaits), logger);
         memoize_modified(logger);
     }
 
