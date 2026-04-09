@@ -1980,16 +1980,16 @@ struct SyncvTable
             }
 
             // Need to make a COPY of this list due to risk of iterator invalidation.
-            const auto vis_id_list = set.sorted_back_refs;
+            const auto vis_record_id_list = set.sorted_back_refs;
 
-            for (nodepool::id<DefaultVisRecordListNode> vis_id : vis_id_list) {
+            for (nodepool::id<DefaultVisRecordListNode> vis_record_id : vis_record_id_list) {
                 AwaitUpdateCommand<Logger> command{
-                        vis_id, &cuboid, await.L2_full_qual_bits, await.L2_temporal_qual_bits, logger
+                        vis_record_id, &cuboid, await.L2_full_qual_bits, await.L2_temporal_qual_bits, logger
                 };
 
-                const uint64_t hash = read_hash_helper(vis_id);
+                const uint64_t hash = read_hash_helper(vis_record_id);
                 const auto modified_id = for_vis_record_hash_bounds({hash, hash}, command);
-                CAMSPORK_REQUIRE_CMP(modified_id, ==, vis_id, "Internal error, EditOne failed");
+                CAMSPORK_REQUIRE_CMP(modified_id, ==, vis_record_id, "Internal error, EditOne failed");
                 memoize_modified(logger);
             }
         }
@@ -2002,7 +2002,8 @@ struct SyncvTable
         if ((state.flags & one_shot_arrive_flag)) {
             if (state.arrive_count == 0) {
                 throw SyncvBarrierFail{
-                    "No forward progress.\nThe underlying program may or may not be deadlock-free,\n"
+                    "No forward progress.\n"
+                    "The underlying program may or may not be deadlock-free,\n"
                     "but the given loop nest results in an Await before an Arrive.",
                     await.bar
                 };
