@@ -704,6 +704,10 @@ struct SyncvTable
     {
         assignment_record_remove_vis_records(&p_record->mutate_vis_records_head_id);
         assignment_record_remove_vis_records(&p_record->read_vis_records_head_id);
+        if (nodepool::id<HamsterBarrierState> state_id = p_record->free_on_arrive) {
+            decref(state_id);
+            p_record->free_on_arrive = {};
+        }
         p_record->lazy_last_augment_counter_bits = 0;
     }
 
