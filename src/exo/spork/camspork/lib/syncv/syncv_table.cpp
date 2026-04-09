@@ -23,6 +23,7 @@
 #include "../util/cuboid_util.hpp"
 #include "../util/node_pool.hpp"
 #include "../util/require.hpp"
+#include "../util/sorted_vector.hpp"
 
 // Maybe replace later
 #include <map>
@@ -197,18 +198,17 @@ struct HamsterPendingAwaitSet
     // Encodes a map (barrier ID -> arrive count)
     // Sorted by barrier ID.
     // Each barrier ID exists at most once; missing barrier ID implies (barrier id -> inf).
+    // NB we play fast-and-loose interchanging PendingAwait and barrier_id.
     //
     // Each PendingAwait.hamster_barrier_id is an owning reference to HamsterBarrierState.
     //
-    // NOTE, this sorted_map is immutable. We copy-on-write upon changes.
-    //
-    // TODO Hamster check this invariant
-    std::vector<PendingAwait> sorted_map;
+    // NOTE, this sorted_map is immutable. We copy-on-write this HamsterPendingAwaitSet upon changes.
+    SortedVector<PendingAwait> sorted_map;
 
     // Weak references to VisRecord that refer to this HamsterPendingAwaitSet.
     // When a VisRecord is deleted, it must remove itself from this list.
     // Sorted by ID.
-    std::vector<nodepool::id<DefaultAssignmentRecordVisNode>> sorted_back_refs;
+    SortedVector<nodepool::id<DefaultVisRecordListNode>> sorted_back_refs;
 
     refcnt_t get_refcnt() const
     {
@@ -226,7 +226,7 @@ struct HamsterBarrierState
     // Weak references to HamsterPendingAwaitSet that refer to this HamsterBarrierState.
     // When a HamsterBarrierState is deleted, it must remove itself from this list.
     // Sorted by ID.
-    std::vector<nodepool::id<HamsterPendingAwaitSet>> sorted_back_refs;
+    SortedVector<nodepool::id<HamsterPendingAwaitSet>> sorted_back_refs;
 
     refcnt_t get_refcnt() const
     {
@@ -503,6 +503,16 @@ struct SyncvTable
     {
         using TypedPool = nodepool::Pool<ListNode>;
         return std::get<TypedPool>(pool_tuple).get(id);
+    }
+
+    HamsterBarrierState& get(barrier_id id)
+    {
+        return get(nodepool::id<HamsterBarrierState>{id.data});;
+    }
+
+    const HamsterBarrierState& get(barrier_id id) const
+    {
+        return get(nodepool::id<HamsterBarrierState>{id.data});;
     }
 
     template <typename ListNode>
@@ -901,8 +911,8 @@ struct SyncvTable
     bool equal(nodepool::id<HamsterPendingAwaitSet> id_0, nodepool::id<HamsterPendingAwaitSet> id_1) const
     {
         static const std::vector<PendingAwait> empty;
-        const auto& set_0 = id_0 ? get(id_0).sorted_map : empty;
-        const auto& set_1 = id_1 ? get(id_1).sorted_map : empty;
+        const auto& set_0 = id_0 ? get(id_0).sorted_map.data : empty;
+        const auto& set_1 = id_1 ? get(id_1).sorted_map.data : empty;
         return set_0 == set_1;
     }
 
@@ -2226,7 +2236,7 @@ struct SyncvTable
 
         out->pending_await_list.clear();
         if (record.pending_awaits) {
-            out->pending_await_list = get(record.pending_awaits).sorted_map;
+            out->pending_await_list = get(record.pending_awaits).sorted_map.data;
         }
     }
 
@@ -2355,11 +2365,11 @@ struct SyncvTable
 
         // Count ownership references from live VisRecordListNode objects to other objects:
         //   * TlSigIntervalListNode
-        //   * TODO HamsterPendingAwaitSet
+        //   * HamsterPendingAwaitSet
         //   * forwarded-to VisRecordListNodes
         // Furthermore we validate the following:
         //   * encoding for the visibility set is correct.
-        //   * TODO back reference check
+        //   * correct back references for HamsterPendingAwaitSet
         //   * stored hash is correct (could be wrong if we forgot to memoize on change).
         auto process_vis_record_impl = [&] (auto id, const auto& free_vis_ids)
         {
@@ -2367,18 +2377,32 @@ struct SyncvTable
                 return;  // Exit lambda: ignore non-allocated VisRecordListNode.
             }
             const auto& node = get(id);
-            using NodeType = std::remove_reference_t<decltype(node)>;
 
             if (node.is_forwarded()) {
+                // Count owning reference to forwarded-to VisRecord.
                 CAMSPORK_REQUIRE(node.camspork_next_id, "in forwarding state, but forwarded-to node is null");
                 record_owning(node.camspork_next_id);
                 CAMSPORK_REQUIRE(!node.base_data.visibility_set, "state should have been cleared upon forwarding");
                 CAMSPORK_REQUIRE(!node.base_data.pending_awaits, "state should have been cleared upon forwarding");
             }
             else {
+                // Check correct hash
                 const auto stored_hash = read_hash_helper(id);
                 CAMSPORK_REQUIRE_CMP(stored_hash, ==, hash_vis_record(node.base_data), "dirty hash");
 
+                // Count HamsterPendingAwaitSet owning reference and check for non-owning back reference.
+                if (nodepool::id<HamsterPendingAwaitSet> set_id = node.base_data.pending_awaits) {
+                    record_owning(set_id);
+                    const HamsterPendingAwaitSet& set = get(set_id);
+                    const decltype(id)* p_should_be_us = set.sorted_back_refs.find_ptr(id);
+                    CAMSPORK_REQUIRE(p_should_be_us, "Missing node in HamsterPendingAwaitSet::sorted_back_refs");
+                    CAMSPORK_REQUIRE_CMP(
+                        p_should_be_us->id_bits, ==, id.id_bits,
+                        "Missing node in HamsterPendingAwaitSet::sorted_back_refs"
+                    );
+                }
+
+                // Count TlSigIntervalListNode owning references and check for correct sorting.
                 uint32_t max_non_atomic_tid = 0;
                 for (nodepool::id<TlSigIntervalListNode> node_id = node.base_data.visibility_set; node_id; ) {
                     record_owning(node_id);
@@ -2419,6 +2443,48 @@ struct SyncvTable
         };
 
         process_all_vis_records(nodepool::id<DefaultVisRecordListNode>{});
+
+        // Count ownership references from HamsterPendingAwaitSet
+        // and check correct back references, SortedVector state.
+        for (nodepool::id<HamsterPendingAwaitSet> id : debug_get_pool<HamsterPendingAwaitSet>()) {
+            const auto& free_set_ids = std::get<RefcntDebug<HamsterPendingAwaitSet>>(debug_refcnts).free_node_ids;
+            const auto& free_vis_ids = std::get<RefcntDebug<DefaultVisRecordListNode>>(debug_refcnts).free_node_ids;
+            if (free_set_ids.count(id)) {
+                continue;
+            }
+
+            const HamsterPendingAwaitSet& set = get(id);
+
+            // Check back references to VisRecord.
+            const SortedVector<nodepool::id<DefaultVisRecordListNode>>& back_refs = set.sorted_back_refs;
+            for (size_t i = 0; i < back_refs.size(); ++i) {
+                if (i >= 1) {
+                    CAMSPORK_REQUIRE_CMP(back_refs[i - 1], <, back_refs[i], "SortedVector fail");
+                }
+                const auto vis_id = back_refs[i];
+                CAMSPORK_REQUIRE(!free_vis_ids.count(vis_id), "back-reference to dead VisRecord");
+                CAMSPORK_REQUIRE_CMP(get(vis_id).base_data.pending_awaits, ==, id, "Wrong back reference");
+            }
+
+            // Count strong references to HamsterBarrierState, and correct back reference.
+            const SortedVector<PendingAwait>& sorted_map = set.sorted_map;
+            for (size_t i = 0; i < sorted_map.size(); ++i) {
+                if (i >= 1) {
+                    CAMSPORK_REQUIRE_CMP(
+                        sorted_map[i - 1].hamster_barrier_id.data,
+                        <,
+                        sorted_map[i].hamster_barrier_id.data,
+                        "SortedVector fail"
+                    );
+                }
+                const PendingAwait await_id = sorted_map[i];
+                record_owning(nodepool::id<HamsterBarrierState>{await_id.hamster_barrier_id.data});
+                const HamsterBarrierState& state = get(await_id.hamster_barrier_id);
+                const nodepool::id<HamsterPendingAwaitSet>* p_should_be_us = state.sorted_back_refs.find_ptr(id);
+                CAMSPORK_REQUIRE(p_should_be_us, "Missing back reference");
+                CAMSPORK_REQUIRE_CMP(*p_should_be_us, ==, id, "Missing back reference");
+            }
+        }
 
         // Check that reference counts are correct.
         // For node types without refcnt, the refcnt should just be 0 or 1 (unique ownership).
@@ -2692,8 +2758,8 @@ struct SyncvRealLogger
 
         if (vis_record.pending_awaits) {
             const HamsterPendingAwaitSet& set = env.get(vis_record.pending_awaits);
-            pending_awaits_iter = &set.sorted_map.front();
-            pending_awaits_end = &set.sorted_map.back();
+            pending_awaits_iter = &set.sorted_map.data.front();
+            pending_awaits_end = &set.sorted_map.data.back();
         }
 
         for (; pending_awaits_iter != pending_awaits_end; ++pending_awaits_iter) {
