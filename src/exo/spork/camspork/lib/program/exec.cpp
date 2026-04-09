@@ -522,6 +522,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         SyncvAccessInfo access{};
         access.is_ooo = false;
         access.is_convergent = false;  // All threads must be prepared to free the memory.
+        access.is_write_only = true;  // Only require temporal sync.
         access.initial_qual_bit = 0;
         access.extended_qual_bits = node->extended_qual_bits;
         access.atomic_qual_bits = 0;
