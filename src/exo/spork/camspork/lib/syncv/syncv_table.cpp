@@ -220,8 +220,8 @@ struct HamsterBarrierState
 {
     nodepool::id<HamsterBarrierState> camspork_next_id;
     refcnt_t refcnt = 1;
-    uint32_t arrive_count = 0;
-    uint32_t await_count = 0;
+    int32_t arrive_count = 0;
+    int32_t await_count = 0;
     uint32_t flags = 0;
 
     // Weak references to HamsterPendingAwaitSet that refer to this HamsterBarrierState.
