@@ -1932,7 +1932,15 @@ struct SyncvTable
         for (nodepool::id<HamsterPendingAwaitSet> set_id : set_id_list) {
             HamsterPendingAwaitSet& set = get(set_id);
             const PendingAwait* p_pending_await = set.sorted_map.find_ptr(await.bar);
+            // for (PendingAwait await_id : set.sorted_map) {
+            //     printf(
+            //         "%i -> %i -> PendingAwait(%i, %i)\n",
+            //         int(await.bar.data), int(set_id.id_bits),
+            //         int(await_id.hamster_barrier_id.data), int(await_id.arrive_count)
+            //     );
+            // }
             CAMSPORK_REQUIRE(p_pending_await, "Wrong back reference");
+            CAMSPORK_REQUIRE_CMP(p_pending_await->hamster_barrier_id.data, ==, await.bar.data, "find_ptr failed");
 
             if (p_pending_await->arrive_count > max_arrive_count) {
                 continue;

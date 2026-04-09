@@ -19,12 +19,6 @@ struct PendingAwait
     barrier_id hamster_barrier_id;
     int32_t arrive_count;
 
-    PendingAwait(barrier_id arg_id = {0}, int32_t _arrive_count_arg = 0)
-    {
-        hamster_barrier_id = arg_id;
-        arrive_count = _arrive_count_arg;
-    }
-
     bool operator== (PendingAwait other) const
     {
         return hamster_barrier_id == other.hamster_barrier_id && arrive_count == other.arrive_count;
@@ -41,6 +35,8 @@ inline bool operator< (barrier_id lhs, PendingAwait rhs) { return lhs < rhs.hams
 inline bool operator< (PendingAwait lhs, PendingAwait rhs) { return lhs.hamster_barrier_id < rhs.hamster_barrier_id; }
 inline bool operator== (barrier_id lhs, PendingAwait rhs) { return lhs == rhs.hamster_barrier_id; }
 inline bool operator== (PendingAwait lhs, barrier_id rhs) { return lhs.hamster_barrier_id == rhs; }
+inline bool operator!= (barrier_id lhs, PendingAwait rhs) { return lhs != rhs.hamster_barrier_id; }
+inline bool operator!= (PendingAwait lhs, barrier_id rhs) { return lhs.hamster_barrier_id != rhs; }
 
 // Adapters for old code using pre-Hamster barriers.
 using pending_await_t = PendingAwait;

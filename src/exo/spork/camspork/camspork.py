@@ -1115,7 +1115,7 @@ class ProgramEnv:
 
 # fmt: off
 def so_called_temporary_test():
-    b_validation = True
+    b_validation = False
 
     @camspork.program
     def foo_fence(b: ProgramBuilder):
