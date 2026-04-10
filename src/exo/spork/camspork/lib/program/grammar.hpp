@@ -555,7 +555,7 @@ struct stmt
 {
 };
 
-static constexpr uint32_t NumStmtTypes = 25;
+static constexpr uint32_t NumStmtTypes = 26;
 
 using StmtRef = NodeRef<stmt, NumStmtTypes>;
 
@@ -847,8 +847,20 @@ struct stmt<24>
     CAMSPORK_NODE_NO_VLA()
 };
 
+// SyncEnvManageRingBuffer(Varname guard, Varname buffer, int buffer_depth, int managed_ring_buffer_dim_idx)
+using SyncEnvManageRingBuffer = stmt<25>;
+template<>
+struct stmt<25>
+{
+    Varname guard;
+    Varname buffer;
+    uint32_t buffer_depth;
+    uint32_t managed_ring_buffer_dim_idx;
+    CAMSPORK_NODE_NO_VLA()
+};
+
 // Update this if you add more stmt node types.
-static_assert(NumStmtTypes == 25);
+static_assert(NumStmtTypes == 26);
 
 
 // ******************************************************************************************

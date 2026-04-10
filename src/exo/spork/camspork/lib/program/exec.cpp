@@ -753,6 +753,11 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         }
     }
 
+    void exec_impl(const SyncEnvManageRingBuffer* node)
+    {
+        // CAMSPORK_REQUIRE(0, "TODO hamster");
+    }
+
     void exec_impl(const BarrierEnvAlloc* node)
     {
         VarSlotEntry<barrier_id>& slot = env.barrier_slot(node->name);

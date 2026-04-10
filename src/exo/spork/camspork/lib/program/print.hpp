@@ -288,6 +288,16 @@ class ProgramPrinter
         *this << "b.JoinThreads()\n";
     }
 
+    void operator() (const SyncEnvManageRingBuffer* node)
+    {
+        print_tabs();
+        *this << "b.SyncEnvManageRingBuffer(";
+        *this << node->guard;
+        *this << ", " << node->buffer;
+        *this << ", " << node->buffer_depth;
+        *this << ", " << node->managed_ring_buffer_dim_idx << ")\n";
+    }
+
     void operator() (const StmtBody* node)
     {
         for (uint32_t i = 0; i < node->camspork_vla_size; ++i) {

@@ -287,6 +287,10 @@ _add_ExpectSyncEnvAlloc = lib.camspork_add_ExpectSyncEnvAlloc
 _add_ExpectSyncEnvAlloc.restype = StmtRef
 _add_ExpectSyncEnvAlloc.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef)
 
+_add_SyncEnvManageRingBuffer = lib.camspork_add_SyncEnvManageRingBuffer
+_add_SyncEnvManageRingBuffer.restype = StmtRef
+_add_SyncEnvManageRingBuffer.argtypes = (c_void_p, Varname, Varname, c_uint32, c_uint32)
+
 _add_BarrierEnvAlloc = lib.camspork_add_BarrierEnvAlloc
 _add_BarrierEnvAlloc.restype = StmtRef
 _add_BarrierEnvAlloc.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c_uint32)
@@ -842,6 +846,28 @@ class ProgramBuilder:
         stmt_id = _add_ExpectSyncEnvAlloc(self._builder, var, dim, idxs, 0)
         return self.check_stmt(srcinfo, stmt_id)
 
+    def SyncEnvManageRingBuffer(
+        self,
+        guard: Varname,
+        buffer: Varname,
+        buffer_depth: int,
+        managed_ring_buffer_dim_idx: int,
+        *,
+        srcinfo=None,
+    ) -> StmtRef:
+        # fmt: off
+        guard, dim, _ = guard.c_var_dim_idxs(self._builder)
+        assert dim == 0, "Expected no indexing for SyncEnvManageRingBuffer"
+        buffer, dim, _ = buffer.c_var_dim_idxs(self._builder)
+        assert dim == 0, "Expected no indexing for SyncEnvManageRingBuffer"
+        assert isinstance(buffer_depth, int) and buffer_depth > 0
+        assert isinstance(managed_ring_buffer_dim_idx, int) and managed_ring_buffer_dim_idx >= 0
+        # fmt: on
+        stmt_id = _add_SyncEnvManageRingBuffer(
+            self._builder, guard, buffer, buffer_depth, managed_ring_buffer_dim_idx
+        )
+        return self.check_stmt(srcinfo, stmt_id)
+
     def BarrierEnvAlloc(
         self, e: Varname | BuilderIndexExpr, *, flags=0, srcinfo=None
     ) -> StmtRef:
@@ -1253,7 +1279,7 @@ def so_called_temporary_test():
     env.set_debug_validation_enable(b_validation)
     try:
         env.exec(excut_filename="extent_excut.json")
-    except:
+    except Exception:
         print(env.program_with_remarks())
         raise
     env.set_debug_validation_enable(True)  # defer to later
@@ -1290,7 +1316,78 @@ def so_called_temporary_test():
     env.alloc_scalar_value("fence_enable", 1)
     try:
         env.exec(excut_filename="atomic_excut.json")
-    except:
+    except Exception:
+        print(env.program_with_remarks())
+        raise
+    env.set_debug_validation_enable(True)  # defer to later
+
+
+    @camspork.program
+    def managed_ring_buffer_test(b: ProgramBuilder):
+        RING = 4
+        task_M = b.add_variable("task_M")
+        task_N = b.add_variable("task_N")
+        K_iters = b.add_variable("K_iters")
+        with b.ParallelBlock(384):
+            m_task = b.add_variable("m_task")
+            n_task = b.add_variable("n_task")
+            with b.TasksFor(m_task, 0, task_M):
+                with b.TasksFor(n_task, 0, task_N):
+                    raw = b.add_variable("raw")
+                    war = b.add_variable("war")
+                    A_smem = b.add_variable("A_smem")
+                    B_smem = b.add_variable("B_smem")
+                    b.BarrierEnvAlloc(war[K_iters + RING], flags=b.one_shot_arrive_flag)
+                    b.SyncEnvAlloc(war[K_iters + RING])
+                    b.SyncEnvManageRingBuffer(war, war, RING, 0)
+                    b.Arrive(0, war[0], ())
+                    b.Arrive(0, war[1], ())
+                    b.Arrive(0, war[2], ())
+                    b.Arrive(0, war[3], ())
+                    b.BarrierEnvAlloc(raw[K_iters], flags=b.one_shot_arrive_flag)
+                    b.SyncEnvAlloc(raw[K_iters])
+                    b.SyncEnvManageRingBuffer(war, raw, RING, 0)
+                    b.SyncEnvAlloc(A_smem[K_iters, 256, 32])
+                    b.SyncEnvManageRingBuffer(war, A_smem, RING, 0)
+                    b.SyncEnvAlloc(B_smem[K_iters, 256, 32])
+                    b.SyncEnvManageRingBuffer(war, B_smem, RING, 0)
+                    k_iter = b.add_variable("k_iter")
+                    CudaWarps_consumer = b.add_variable("CudaWarps_consumer")
+                    CudaWarps_producer = b.add_variable("CudaWarps_producer")
+                    with b.SeqFor(k_iter, 0, K_iters):
+                        with b.ThreadsFor(CudaWarps_producer, 0, 1, 0, 256, 128):
+                            b.Await(war[k_iter], 0, 1, N=0)
+                            b.SyncEnvAccess(
+                                A_smem[k_iter, 0, 0], 1, 1, b.mutate_flag | b.write_only_flag | b.ooo_flag,
+                                extent=[1, 256, 256], thread_access_granularity=128)
+                            b.SyncEnvAccess(
+                                B_smem[k_iter, 0, 0], 1, 1, b.mutate_flag | b.write_only_flag | b.ooo_flag,
+                                extent=[1, 256, 256], thread_access_granularity=128)
+                            b.Arrive(1, raw[k_iter], ())
+                        with b.ThreadsFor(CudaWarps_consumer, 0, 1, 0, 0, 256):
+                            b.Await(raw[k_iter], 1, 1, N=0)
+                            b.SyncEnvAccess(
+                                A_smem[k_iter, 0, 0], 1, 1, b.convergent_flag,
+                                extent=[1, 256, 256])
+                            b.SyncEnvAccess(
+                                B_smem[k_iter, 0, 0], 1, 1, b.convergent_flag,
+                                extent=[1, 256, 256])
+                            b.Arrive(1, war[k_iter + RING], ())
+                    b.DataFree(A_smem)
+                    b.DataFree(B_smem)
+                    b.BarrierFree(raw)
+                    b.BarrierFree(war)
+
+
+    print(managed_ring_buffer_test)
+    env = ProgramEnv(managed_ring_buffer_test)
+    env.set_debug_validation_enable(b_validation)
+    env.alloc_scalar_value("task_M", 2)
+    env.alloc_scalar_value("task_N", 3)
+    env.alloc_scalar_value("K_iters", 9)
+    try:
+        env.exec(excut_filename="managed_ring_buffer_excut.json")
+    except Exception:
         print(env.program_with_remarks())
         raise
     env.set_debug_validation_enable(True)  # defer to later
