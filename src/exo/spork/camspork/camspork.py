@@ -1337,7 +1337,7 @@ def so_called_temporary_test():
                     war = b.add_variable("war")
                     A_smem = b.add_variable("A_smem")
                     B_smem = b.add_variable("B_smem")
-                    b.BarrierEnvAlloc(war[K_iters], flags=b.one_shot_arrive_flag)
+                    b.BarrierEnvAlloc(war[K_iters + RING], flags=b.one_shot_arrive_flag)
                     b.SyncEnvAlloc(war[K_iters + RING])
                     b.SyncEnvManageRingBuffer(war, war, RING, 0)
                     b.Arrive(0, war[0], ())

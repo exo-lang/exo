@@ -258,6 +258,8 @@ struct history_log_vis_record_id
 
 struct SyncvTrivialLogger
 {
+    static constexpr bool is_trivial = true;
+
     template <typename Input, typename VisRecordList>
     void excut_log_assignment_records(
             const SyncvTable&, Input, const VisRecordList&, bool)
@@ -722,7 +724,10 @@ struct SyncvTable
     // This will later need to be added to the memoization table.
     template <VisRecordKind K, typename ThreadInit>
     VisRecordListNode<K>& alloc_vis_record(
-            const ThreadInit& thread_init, SyncvAccessInfo access, nodepool::id<VisRecordListNode<K>>* out)
+            const ThreadInit& thread_init,
+            SyncvAccessInfo access,
+            nodepool::id<HamsterBarrierState> free_on_arrive_id,
+            nodepool::id<VisRecordListNode<K>>* out)
     {
         nodepool::id<VisRecordListNode<K>> vis_record_id;
         VisRecordListNode<K>& vis_record = alloc_default_node(&vis_record_id);
@@ -730,6 +735,10 @@ struct SyncvTable
         vis_record.forwarded_flag = 0;
         vis_record.base_data.visibility_set = {};
         vis_record.base_data.pending_awaits = {};
+        if (free_on_arrive_id) {
+            vis_record.base_data.free_on_arrive = free_on_arrive_id;
+            incref(free_on_arrive_id);
+        }
 
         // Initialize visibility set = linked list of intervals generated from the initial thread / thread cuboid.
         const qual_bits_t q = access.initial_qual_bit;
@@ -1532,13 +1541,14 @@ struct SyncvTable
     // The returned ID is an owning reference (ownership count given by added_refcnt).
     template <VisRecordKind K, typename ThreadInit>
     [[nodiscard]] nodepool::id<VisRecordListNode<K>> memoize_new_vis_record(
-            const ThreadInit& thread_init, SyncvAccessInfo access, uint32_t added_refcnt)
+            const ThreadInit& thread_init,
+            SyncvAccessInfo access,
+            nodepool::id<HamsterBarrierState> free_on_arrive_id,
+            uint32_t added_refcnt)
     {
         nodepool::id<VisRecordListNode<K>> new_vis_id;
-        auto& new_vis = alloc_vis_record<K>(thread_init, access, &new_vis_id);
-        if (!new_vis.base_data.pending_awaits) {
-            CAMSPORK_REQUIRE_CMP(new_vis.refcnt, ==, 1, "expected 1 refcnt initially");
-        }
+        auto& new_vis = alloc_vis_record<K>(thread_init, access, free_on_arrive_id, &new_vis_id);
+        CAMSPORK_REQUIRE_CMP(new_vis.refcnt, ==, 1, "expected 1 refcnt initially");
 
         // Either insert into memoization, or forward to existing duplicate.
         // result_id gains added_refcnt-many references, while the originally created
@@ -2109,7 +2119,6 @@ struct SyncvTable
             census[0].second.count = 1;
         }
 
-        // We will memoize the new visibility record(s) once.
         // 0 new records if !UpdateRecords
         // 1 new record if SharedVisRecord
         // any # new records if !SharedVisRecord
@@ -2117,43 +2126,53 @@ struct SyncvTable
         using VisRecordList = std::conditional_t<
             !UpdateRecords, std::array<VisRecordID, 0>,
             std::conditional_t<SharedVisRecord, std::array<VisRecordID, 1>, std::vector<VisRecordID>>>;
-        VisRecordList new_vis_record_list{};
-        const uint32_t vis_record_refcnt = uint32_t(census.size());
 
-        if constexpr (!UpdateRecords) {
-        }
-        else if (census.empty()) {
-        }
-        else if constexpr (SharedVisRecord) {
-            const VisRecordID new_vis_record_id = memoize_new_vis_record<K>(cuboid, access, vis_record_refcnt);
-            logger.history_new_vis_record(*this, new_vis_record_id);
-            new_vis_record_list[0] = new_vis_record_id;
-        }
-        else {
-            cuboid.to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi) {
-                // We model the CPU as of 2025-10-01 as "[almost] all possible threads" [0, UINT32_MAX)
-                // and if we pass that here, we will create 4 billion VisRecords.
-                CAMSPORK_REQUIRE_CMP(tid_hi, <, UINT32_MAX, "Likely you meant to pass convergent_access_flag");
+        bool need_excut_logging = !Logger::is_trivial;
 
-                const uint32_t granularity = access.thread_access_granularity;
-                CAMSPORK_REQUIRE_CMP(granularity, >, 0, "Must be positive power of 2");
-                CAMSPORK_REQUIRE_CMP((granularity - 1) & granularity, ==, 0, "Must be positive power of 2");
-                CAMSPORK_REQUIRE(access.is_ooo || granularity == 1,
-                        "out-of-order non-convergent abstract machine optimization not applicable when !is_ooo");
+        auto make_vis_record_list = [&] (nodepool::id<HamsterBarrierState> free_on_arrive_id)
+        {
+            constexpr refcnt_t vis_record_refcnt = 1;
+            VisRecordList new_vis_record_list{};
+            if constexpr (!UpdateRecords) {
+            }
+            else if constexpr (SharedVisRecord) {
+                const VisRecordID new_vis_record_id = memoize_new_vis_record<K>(
+                        cuboid, access, free_on_arrive_id, vis_record_refcnt);
+                logger.history_new_vis_record(*this, new_vis_record_id);
+                new_vis_record_list[0] = new_vis_record_id;
+            }
+            else {
+                cuboid.to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi) {
+                    // We model the CPU as of 2025-10-01 as "[almost] all possible threads" [0, UINT32_MAX)
+                    // and if we pass that here, we will create 4 billion VisRecords.
+                    CAMSPORK_REQUIRE_CMP(tid_hi, <, UINT32_MAX, "Likely you meant to pass convergent_access_flag");
 
-                for (uint32_t tid = tid_lo & ~(granularity - 1); tid < tid_hi; tid += granularity) {
-                    const VisRecordID new_vis_record_id = memoize_new_vis_record<K>(
-                        SimpleThreadInit{tid, tid + granularity},
-                        access,
-                        vis_record_refcnt
-                    );
-                    logger.history_new_vis_record(*this, new_vis_record_id);
-                    new_vis_record_list.push_back(new_vis_record_id);
-                }
-            });
-        }
+                    const uint32_t granularity = access.thread_access_granularity;
+                    CAMSPORK_REQUIRE_CMP(granularity, >, 0, "Must be positive power of 2");
+                    CAMSPORK_REQUIRE_CMP((granularity - 1) & granularity, ==, 0, "Must be positive power of 2");
+                    CAMSPORK_REQUIRE(access.is_ooo || granularity == 1,
+                            "out-of-order non-convergent abstract machine optimization not applicable when !is_ooo");
 
-        logger.excut_log_assignment_records(*this, input, new_vis_record_list, IsMutate);
+                    for (uint32_t tid = tid_lo & ~(granularity - 1); tid < tid_hi; tid += granularity) {
+                        const VisRecordID new_vis_record_id = memoize_new_vis_record<K>(
+                            SimpleThreadInit{tid, tid + granularity},
+                            access,
+                            free_on_arrive_id,
+                            vis_record_refcnt
+                        );
+                        logger.history_new_vis_record(*this, new_vis_record_id);
+                        new_vis_record_list.push_back(new_vis_record_id);
+                    }
+                });
+            }
+
+            if (need_excut_logging) {
+                logger.excut_log_assignment_records(*this, input, new_vis_record_list, IsMutate);
+                need_excut_logging = false;
+            }
+
+            return new_vis_record_list;
+        };
 
         auto check = [&] (node_id id, size_t linear_index)
         {
@@ -2204,9 +2223,12 @@ struct SyncvTable
             }
         };
 
-        auto extend_vis_records = [&] (nodepool::id<AssignmentRecordVisNode<K>>* p_list_head)
+        auto extend_vis_records = [&] (
+            nodepool::id<AssignmentRecordVisNode<K>>* p_list_head,
+            nodepool::id<HamsterBarrierState> free_on_arrive_id
+        )
         {
-            for (const VisRecordID vis_record_id : new_vis_record_list) {
+            for (const VisRecordID vis_record_id : make_vis_record_list(free_on_arrive_id)) {
                 nodepool::id<DefaultAssignmentRecordVisNode> new_node_id;
                 DefaultAssignmentRecordVisNode& node = alloc_default_node(&new_node_id);
                 node.vis_record_id = vis_record_id;
@@ -2253,18 +2275,18 @@ struct SyncvTable
                 // Add the new mutate visibility records.
                 assignment_record_remove_vis_records(&assignment_record.read_vis_records_head_id);
                 if (access.atomic_qual_bits != 0) {
-                    extend_vis_records(&assignment_record.mutate_vis_records_head_id);
+                    extend_vis_records(&assignment_record.mutate_vis_records_head_id, assignment_record.free_on_arrive);
                     lazy_remove_duplicates(&assignment_record);  // << IMPORTANT for performance
                 }
                 else {
                     assignment_record_remove_vis_records(&assignment_record.mutate_vis_records_head_id);
-                    extend_vis_records(&assignment_record.mutate_vis_records_head_id);
+                    extend_vis_records(&assignment_record.mutate_vis_records_head_id, assignment_record.free_on_arrive);
                     assignment_record.lazy_last_augment_counter_bits = get_augment_counter_bits();
                 }
             }
             else {
                 // Add the new visibility records to the list of read visibility records.
-                extend_vis_records(&assignment_record.read_vis_records_head_id);
+                extend_vis_records(&assignment_record.read_vis_records_head_id, assignment_record.free_on_arrive);
                 lazy_remove_duplicates(&assignment_record);  // << IMPORTANT for performance
             }
         };
@@ -2279,8 +2301,7 @@ struct SyncvTable
 
         // Write out new assignment record IDs. Reference counting is already taken care of.
         if constexpr (!UpdateRecords) {
-            CAMSPORK_REQUIRE_CMP(new_vis_record_list.size(), ==, 0,
-                    "Fix !UpdateRecords code path to not leak vis_record_id");
+            // No change
         }
         else if constexpr (IsWindow) {
             cuboid_to_intervals<size_t>(
@@ -2855,6 +2876,8 @@ struct SyncvRealLogger
       , p_history_log(request.p_history_log)
     {
     }
+
+    static constexpr bool is_trivial = false;
 
     template <typename VisRecordList>
     void excut_log_assignment_records(
