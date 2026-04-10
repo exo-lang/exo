@@ -329,6 +329,22 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
             if (!added_error_remark) {
                 env.add_remark(env.stmt_ref_from_ptr(node), err.what());
                 added_error_remark = true;
+                if (const auto* p = dynamic_cast<const ExecBoundsFail*>(&err)) {
+                    for (const VarSlotEnvs& var_slot : env.var_slots) {
+                        if (var_slot.matches(*p)) {
+                            std::stringstream s;
+                            s << "Accessing " << var_slot.name;
+                            print_idx_helper(s, p->idx);
+                            s << " of allocation " << var_slot.name;
+                            print_idx_helper(s, p->extent);
+                            Varname varname;
+                            varname.slot_1_index = uint32_t(&var_slot - &env.var_slots[0]) + 1;
+                            env._syncv_fail_var = varname;
+                            env._syncv_fail_idx = p->idx;
+                            env.add_remark(env.stmt_ref_from_ptr(node), std::move(s).str());
+                        }
+                    }
+                }
             }
             Finally();
             throw;
