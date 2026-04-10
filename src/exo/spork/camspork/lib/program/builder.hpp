@@ -153,7 +153,8 @@ class ProgramBuilder
     StmtRef add_JoinThreads();
     StmtRef add_SyncEnvManageRingBuffer(
         Varname guard, Varname buffer,
-        uint32_t buffer_depth, uint32_t managed_ring_buffer_dim_idx);
+        uint32_t buffer_depth, uint32_t managed_ring_buffer_dim_idx,
+        uint32_t num_idx, const ArriveIdx* idx);
 
     // ******************************************************************************************
     // Add statements with a body to the program.
@@ -258,7 +259,8 @@ CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_BarrierFree(camspork::ProgramBu
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_JoinThreads(camspork::ProgramBuilder* p_builder);
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_SyncEnvManageRingBuffer(camspork::ProgramBuilder* p_builder,
     camspork_RawVarname guard, camspork_RawVarname buffer,
-    uint32_t buffer_depth, uint32_t managed_ring_buffer_idx);
+    uint32_t buffer_depth, uint32_t managed_ring_buffer_idx,
+    uint32_t num_idx, const camspork::ArriveIdx* idx);
 
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_push_If(camspork::ProgramBuilder* p_builder,
     camspork::ExprRef cond);

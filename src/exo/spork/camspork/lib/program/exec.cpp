@@ -280,7 +280,12 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         Logger logger{};
         if constexpr (AllowLog) {
             if constexpr (!std::is_same_v<Node, Fence> && !std::is_same_v<Node, JoinThreads>) {
-                logger.var_str_name = env.str_name(node->name);
+                if constexpr (std::is_same_v<Node, SyncEnvManageRingBuffer>) {
+                    logger.var_str_name = env.str_name(node->buffer);
+                }
+                else {
+                    logger.var_str_name = env.str_name(node->name);
+                }
             }
             logger.p_excut_actions = this->excut_file ? &this->excut_actions : nullptr;
             if (env.history_enable) {
@@ -656,12 +661,18 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         // Fill tmp_offset based on the index, and resolve multicasting.
         // callback(slot, linear_idx) is called for each (linearized, C order) position
         // covered by multicasting.
-        const std::vector<extent_t>& extent = slot.extent();
-        const uint32_t dim = node->camspork_vla_size;
-        CAMSPORK_REQUIRE_CMP(dim, ==, extent.size(), "dimension mismatch");
 
         // Evaluate concrete indices (for barriers this is the "home barrier" index).
         eval_tmp_offset(node);
+        eval_multicast(node, slot, callback, tmp_offset);
+    }
+
+    template <typename Node, typename Slot, typename Callback>
+    static void eval_multicast(const Node* node, Slot& slot, Callback&& callback, const std::vector<extent_t>& offset)
+    {
+        const std::vector<extent_t>& extent = slot.extent();
+        const uint32_t dim = node->camspork_vla_size;
+        CAMSPORK_REQUIRE_CMP(dim, ==, extent.size(), "dimension mismatch");
 
         auto recurse = [&] (
                 uint32_t dim_idx, uint32_t partial_idx, uint32_t equality_mask, auto recurse)
@@ -673,7 +684,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
                 return;
             }
             const extent_t extent_coord = extent[dim_idx];
-            const extent_t var_value = tmp_offset[dim_idx];
+            const extent_t var_value = offset[dim_idx];
             const ArriveIdx arrive_idx = node_vla_get(node, dim_idx);
             for (extent_t i = 0; i < extent_coord; ++i) {
                 const uint32_t tmp_mask = (i == var_value) ? ~uint32_t(0) : arrive_idx.multicast_per_expr;
@@ -771,7 +782,99 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
 
     void exec_impl(const SyncEnvManageRingBuffer* node)
     {
-        // CAMSPORK_REQUIRE(0, "TODO hamster");
+        const Varname guard_name = node->guard;
+        const Varname buffer_name = node->buffer;
+        const uint32_t buffer_depth = node->buffer_depth;
+        const uint32_t M = node->managed_ring_buffer_dim_idx;
+        const bool self_guarded = guard_name == buffer_name;
+
+        // We use the BarrierEnv state from the guard variable and
+        // the SyncEnv state from the buffer variable. For the purposes of filtering,
+        // we filter based on the SyncEnv state modified, i.e. the buffer variable.
+        if (!single_position_filter.accepts_name(buffer_name)) {
+            return;
+        }
+
+        eval_tmp_offset(node);
+        const std::vector<extent_t> this_idx = tmp_offset;
+        CAMSPORK_REQUIRE_CMP(
+                node->managed_ring_buffer_dim_idx, <, this_idx.size(),
+                "managed_ring_buffer_dim_idx out-of-range"
+        );
+
+        // Set up the to-be-modified window of the buffer's SyncEnv.
+        // This is [this_idx[0], this_idx[1], ..., this_idx[this_idx.size() - 1], :, :, :]
+        // So offset = this_idx, extent = 1 on point dimensions
+        // and offset = 0, extent = buffer_extent[...] on interval (:) dimensions.
+        VarSlotEntry<assignment_record_id>& buffer_slot = env.sync_slot(buffer_name);
+        const auto& buffer_extent = buffer_slot.extent();
+        const size_t buffer_dim = buffer_extent.size();
+        std::vector<extent_t> window_offset(this_idx);
+        std::vector<extent_t> window_extent(this_idx.size(), 1);
+
+        CAMSPORK_REQUIRE_CMP(buffer_extent.size(), >=, this_idx.size(), "Buffer dimensionality lower than guard barrier");
+        for (size_t dim_i = this_idx.size(); dim_i < buffer_extent.size(); ++dim_i) {
+            window_offset.push_back(0);
+            window_extent.push_back(buffer_extent[dim_i]);
+        }
+        AssignmentRecordWindow input;
+        input.base = buffer_slot.data();
+        input.begin_outer_extent = &buffer_extent[0];
+        input.end_outer_extent = &buffer_extent[buffer_dim];
+        input.begin_offset = &window_offset[0];
+        input.end_offset = &window_offset[buffer_dim];
+        input.begin_inner_extent = &window_extent[0];
+        input.end_inner_extent = &window_extent[buffer_dim];
+
+        buffer_slot.idx(window_offset.begin(), window_offset.end());  // Convenient bounds-check helper.
+
+        if (!filter_single_position_input(buffer_name, buffer_slot, &input)) {
+            return;
+        }
+
+        // Figure out the alloc_on_await and free_on_arrive barriers.
+        VarSlotEntry<barrier_id>& guard_slot = env.barrier_slot(guard_name);
+        std::vector<barrier_id> alloc_on_await_barriers;
+        std::vector<extent_t> alloc_on_await_idx = this_idx;
+
+        guard_slot.idx(this_idx.begin(), this_idx.end());  // Convenient bounds & dim check helper
+
+        auto append_barrier = [&alloc_on_await_barriers] (VarSlotEntry<barrier_id>& slot, uint32_t linear_idx)
+        {
+            alloc_on_await_barriers.push_back(slot.data()[linear_idx]);
+        };
+        if (self_guarded) {
+            if (alloc_on_await_idx[M] < buffer_depth) {
+                // Out of bounds, don't init any alloc_on_await_barriers.
+            }
+            else {
+                alloc_on_await_idx[M] -= buffer_depth;
+                eval_multicast(node, guard_slot, append_barrier, alloc_on_await_idx);
+            }
+        }
+        else {
+            eval_multicast(node, guard_slot, append_barrier, alloc_on_await_idx);
+        }
+
+        std::vector<extent_t> free_on_arrive_idx = this_idx;
+        free_on_arrive_idx[M] += buffer_depth;
+        barrier_id free_on_arrive_barrier{};
+        if (self_guarded && free_on_arrive_idx[M] >= guard_slot.extent()[M]) {
+            // Out of bounds, don't init free_on_arrive
+        }
+        else {
+            free_on_arrive_barrier = guard_slot.idx(free_on_arrive_idx.begin(), free_on_arrive_idx.end());
+        }
+
+        // Finally update the syncv_table state.
+        set_managed_ring_buffer_barriers(
+            env.p_syncv_table.get(),
+            input,
+            uint32_t(alloc_on_await_barriers.size()),
+            alloc_on_await_barriers.data(),
+            free_on_arrive_barrier,
+            prepare_logger(node, env.prepare_thread_cuboid())
+        );
     }
 
     void exec_impl(const BarrierEnvAlloc* node)

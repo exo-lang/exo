@@ -847,7 +847,34 @@ struct stmt<24>
     CAMSPORK_NODE_NO_VLA()
 };
 
-// SyncEnvManageRingBuffer(Varname guard, Varname buffer, int buffer_depth, int managed_ring_buffer_dim_idx)
+// SyncEnvManageRingBuffer(
+//     Varname guard,
+//     Varname buffer,
+//     int buffer_depth,
+//     int managed_ring_buffer_dim_idx,
+//     expr* idx,
+//     multicast_flag* multicasts)
+// multicasts[expr_idx][dim_idx] = ArriveIdx[dim_idx][expr_idx]
+//
+// Let V be the vector (0 ... 0, buffer_depth, 0 ... 0)
+// where buffer_depth is on the managed_ring_buffer_dim_idx-th dimension.
+//
+// Let multicast_group(guard[idx]) be the set of barriers referenced by
+// guard[idx] with multicasting on dimensions implied by multicasts.
+// (TODO should define this more clearly in spork_b.pdf)
+//
+// If guard == buffer (self-guarded), then
+//   * alloc_on_await_barriers = multicast_group(guard[idx - V]); empty if out-of-bounds
+//   * buffer_shard = guard[idx]
+//   * free_on_arrive = guard[idx + V]; null if out-of-bounds
+// If guard != buffer, then
+//   * alloc_on_await_barriers = multicast_group(guard[idx])
+//   * buffer_shard = buffer[idx, :...]
+//   * free_on_arrive = guard[idx + V]
+//
+// Each AssignmentRecord in the buffer_shard window is initialized to have the
+// specified free_on_arrive value, and a Mutate VisRecord with an empty visibility
+// set, and PendingAwaits with arrive_count = 0 for each barrier in alloc_on_await_barriers.
 using SyncEnvManageRingBuffer = stmt<25>;
 template<>
 struct stmt<25>
@@ -856,7 +883,7 @@ struct stmt<25>
     Varname buffer;
     uint32_t buffer_depth;
     uint32_t managed_ring_buffer_dim_idx;
-    CAMSPORK_NODE_NO_VLA()
+    CAMSPORK_NODE_VLA_MEMBER(ArriveIdx)
 };
 
 // Update this if you add more stmt node types.

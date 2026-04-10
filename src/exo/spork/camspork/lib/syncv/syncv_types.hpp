@@ -12,8 +12,10 @@
 namespace camspork
 {
 
-static constexpr uint32_t one_shot_arrive_flag = 1;
-static constexpr uint32_t one_shot_await_flag = 2;
+inline constexpr uint32_t one_shot_arrive_flag = 1;
+inline constexpr uint32_t one_shot_await_flag = 2;
+inline constexpr uint32_t vis_record_before_alloc_flag = 1;
+inline constexpr uint32_t vis_record_freed_flag = 2;  // For abstract machine use-after-free error, not free in C++.
 
 struct assignment_record_id
 {
@@ -98,14 +100,6 @@ struct SyncvTableDeleter
 
 using SyncvTable_unique_ptr = std::unique_ptr<SyncvTable, SyncvTableDeleter>;
 
-struct TlSigBucketKey
-{
-    // TODO rename.
-    uint32_t tid_lo;
-    uint32_t tid_hi;
-    // NOTE: qual-tl data isn't used for bucketing, but maybe it should be.
-};
-
 struct ThreadCuboid
 {
     uint32_t task_index = 0;
@@ -171,20 +165,6 @@ struct ThreadCuboid
         );
     }
 
-    TlSigBucketKey minimal_superset_interval() const
-    {
-        uint32_t tid_lo = task_index;
-        uint32_t tid_hi_inclusive = task_index;
-        for (uint32_t dim_idx = 0; dim_idx < dim(); ++dim_idx) {
-            const uint32_t domain_c = domain()[dim_idx];
-            const uint32_t offset_c = offset()[dim_idx];
-            const uint32_t box_c = box()[dim_idx];
-            tid_lo = tid_lo * domain_c + offset_c;
-            tid_hi_inclusive = tid_hi_inclusive * domain_c + (offset_c + box_c - 1u);
-        }
-        return {tid_lo, tid_hi_inclusive + 1u};
-    }
-
     void reshape(uint32_t new_dim, const uint32_t* new_domain)
     {
         CAMSPORK_REQUIRE_CMP(new_dim, <=, max_dim, "Implementation limit exceeded: maximum DomainReshape dimensions");
@@ -235,6 +215,16 @@ struct ThreadCuboid
 
         dim_data = new_dim;
     }
+
+    uint32_t get_tid_lo() const
+    {
+        uint32_t tid_lo = task_index;
+        for (uint32_t dim_i = 0; dim_i < dim(); ++dim_i) {
+            tid_lo *= domain()[dim_i];
+            tid_lo += offset()[dim_i];
+        }
+        return tid_lo;
+    }
 };
 
 // ThreadCuboid-like interface for holding a continuous thread range.
@@ -248,10 +238,13 @@ struct SimpleThreadInit
     {
         callback(tid_lo, tid_hi);
     }
+};
 
-    TlSigBucketKey minimal_superset_interval() const
+struct EmptyThreadInit
+{
+    template <typename Callback>
+    void to_intervals(Callback&&) const
     {
-        return {tid_lo, tid_hi};
     }
 };
 

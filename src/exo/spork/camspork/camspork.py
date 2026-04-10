@@ -289,7 +289,7 @@ _add_ExpectSyncEnvAlloc.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef)
 
 _add_SyncEnvManageRingBuffer = lib.camspork_add_SyncEnvManageRingBuffer
 _add_SyncEnvManageRingBuffer.restype = StmtRef
-_add_SyncEnvManageRingBuffer.argtypes = (c_void_p, Varname, Varname, c_uint32, c_uint32)
+_add_SyncEnvManageRingBuffer.argtypes = (c_void_p, Varname, Varname, c_uint32, c_uint32, c_uint32, ptr_ArriveIdx)
 
 _add_BarrierEnvAlloc = lib.camspork_add_BarrierEnvAlloc
 _add_BarrierEnvAlloc.restype = StmtRef
@@ -848,23 +848,34 @@ class ProgramBuilder:
 
     def SyncEnvManageRingBuffer(
         self,
-        guard: Varname,
+        guard: BuilderIndexExpr,
         buffer: Varname,
         buffer_depth: int,
         managed_ring_buffer_dim_idx: int,
+        barrier_multicasts: Tuple[Tuple[bool]],
         *,
         srcinfo=None,
     ) -> StmtRef:
+        guard_var, guard_dim, arrive_idx = self._unpack_multicast(
+            guard, barrier_multicasts
+        )
+        buffer_var, buffer_dim, _ = buffer.c_var_dim_idxs(self._builder)
+
         # fmt: off
-        guard, dim, _ = guard.c_var_dim_idxs(self._builder)
-        assert dim == 0, "Expected no indexing for SyncEnvManageRingBuffer"
-        buffer, dim, _ = buffer.c_var_dim_idxs(self._builder)
-        assert dim == 0, "Expected no indexing for SyncEnvManageRingBuffer"
+        assert buffer_dim == 0, "Expected no indexing for SyncEnvManageRingBuffer.buffer (implied indexing)"
         assert isinstance(buffer_depth, int) and buffer_depth > 0
         assert isinstance(managed_ring_buffer_dim_idx, int) and managed_ring_buffer_dim_idx >= 0
+        assert managed_ring_buffer_dim_idx < guard_dim, "Out-of-range managed_ring_buffer_dim_idx"
         # fmt: on
+
         stmt_id = _add_SyncEnvManageRingBuffer(
-            self._builder, guard, buffer, buffer_depth, managed_ring_buffer_dim_idx
+            self._builder,
+            guard_var,
+            buffer_var,
+            buffer_depth,
+            managed_ring_buffer_dim_idx,
+            guard_dim,
+            arrive_idx,
         )
         return self.check_stmt(srcinfo, stmt_id)
 
@@ -1339,24 +1350,31 @@ def so_called_temporary_test():
                     B_smem = b.add_variable("B_smem")
                     b.BarrierEnvAlloc(war[K_iters + RING], flags=b.one_shot_arrive_flag)
                     b.SyncEnvAlloc(war[K_iters + RING])
-                    b.SyncEnvManageRingBuffer(war, war, RING, 0)
                     b.Arrive(0, war[0], ())
                     b.Arrive(0, war[1], ())
                     b.Arrive(0, war[2], ())
                     b.Arrive(0, war[3], ())
                     b.BarrierEnvAlloc(raw[K_iters], flags=b.one_shot_arrive_flag)
                     b.SyncEnvAlloc(raw[K_iters])
-                    b.SyncEnvManageRingBuffer(war, raw, RING, 0)
                     b.SyncEnvAlloc(A_smem[K_iters, 256, 32])
-                    b.SyncEnvManageRingBuffer(war, A_smem, RING, 0)
                     b.SyncEnvAlloc(B_smem[K_iters, 256, 32])
-                    b.SyncEnvManageRingBuffer(war, B_smem, RING, 0)
+
+                    tmp = b.add_variable("tmp")
+                    with b.SeqFor(tmp, 0, K_iters):
+                        b.SyncEnvManageRingBuffer(war[tmp], war, RING, 0, ())
+                        b.SyncEnvManageRingBuffer(war[tmp], raw, RING, 0, ())
+                        b.SyncEnvManageRingBuffer(war[tmp], A_smem, RING, 0, ())
+                        b.SyncEnvManageRingBuffer(war[tmp], B_smem, RING, 0, ())
+
                     k_iter = b.add_variable("k_iter")
                     CudaWarps_consumer = b.add_variable("CudaWarps_consumer")
                     CudaWarps_producer = b.add_variable("CudaWarps_producer")
                     with b.SeqFor(k_iter, 0, K_iters):
                         with b.ThreadsFor(CudaWarps_producer, 0, 1, 0, 256, 128):
                             b.Await(war[k_iter], 0, 1, N=0)
+                            b.SyncEnvAccess(
+                                A_smem[k_iter, 0, 0], 1, 1, b.mutate_flag | b.write_only_flag | b.ooo_flag,
+                                extent=[1, 256, 256], thread_access_granularity=128)
                             b.SyncEnvAccess(
                                 A_smem[k_iter, 0, 0], 1, 1, b.mutate_flag | b.write_only_flag | b.ooo_flag,
                                 extent=[1, 256, 256], thread_access_granularity=128)
@@ -1386,7 +1404,11 @@ def so_called_temporary_test():
     env.alloc_scalar_value("task_N", 3)
     env.alloc_scalar_value("K_iters", 9)
     try:
-        env.exec(excut_filename="managed_ring_buffer_excut.json")
+        if False:
+            env.exec(excut_filename="managed_ring_buffer_excut.json")
+        else:
+            env.set_debug_validation_enable(True)
+            env.exec(excut_filename="managed_ring_buffer_excut.json", filter_name="A_smem", filter_idx=(5, 0, 0))
     except Exception:
         print(env.program_with_remarks())
         raise

@@ -175,6 +175,20 @@ void on_rw(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccess
 void on_rw(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, const SyncvLogRequest&);
 void on_check_free(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, decltype(nullptr) = nullptr);
 void on_check_free(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, const SyncvLogRequest&);
+void set_managed_ring_buffer_barriers(
+        SyncvTable*,
+        AssignmentRecordWindow,
+        uint32_t alloc_on_await_count,
+        const barrier_id* alloc_on_await_barriers,
+        barrier_id free_on_arrive,
+        decltype(nullptr) = nullptr);
+void set_managed_ring_buffer_barriers(
+        SyncvTable*,
+        AssignmentRecordWindow,
+        uint32_t alloc_on_await_count,
+        const barrier_id* alloc_on_await_barriers,
+        barrier_id free_on_arrive,
+        const SyncvLogRequest&);
 
 void clear_visibility(SyncvTable* table, size_t N, assignment_record_id* array);
 void alloc_barriers(SyncvTable* table, size_t N, barrier_id* barriers, uint32_t flags);

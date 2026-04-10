@@ -60,18 +60,20 @@ struct TlSigIntervalListNode
 
 static_assert(sizeof(TlSigIntervalListNode) == 28, "Check that you meant to change this perf-critical struct");
 
-const uint32_t vis_record_before_alloc_flag = 1;
-const uint32_t vis_record_freed_flag = 2;
-
 struct VisRecord
 {
     // Owning reference to singly-linked list.
     nodepool::id<TlSigIntervalListNode> visibility_set{0};
 
-    // Owning reference to pending await set
+    // Owning reference to pending await set.
+    // If 0, assume no pending awaits.
     nodepool::id<HamsterPendingAwaitSet> pending_awaits{0};
 
-    // Owning reference
+    // Owning reference, 0 to indicate no free_on_arrive barrier.
+    //
+    // If !(flags & vis_record_freed_flag), then this must be the same as the free_on_arrive of the
+    // AssignmentRecord(s) that own this VisRecord. We require it duplicated here though,
+    // because this interacts with memoization.
     nodepool::id<HamsterBarrierState> free_on_arrive{0};
 
     uint32_t flags = 0;
@@ -171,7 +173,7 @@ struct AssignmentRecord
 
     // See assignment_record_remove_duplicates.
     // This can become a bitfield if we need the space for something else, but I had issues with -Wconversion.
-    uint16_t lazy_last_augment_counter_bits;
+    uint16_t lazy_last_augment_counter_bits = 0;
 
     refcnt_t get_refcnt() const
     {
@@ -722,7 +724,7 @@ struct SyncvTable
 
     // Allocate a new visibility record.
     // This will later need to be added to the memoization table.
-    template <VisRecordKind K, typename ThreadInit>
+    template <bool ForceArriveCount0, VisRecordKind K, typename ThreadInit>
     VisRecordListNode<K>& alloc_vis_record(
             const ThreadInit& thread_init,
             SyncvAccessInfo access,
@@ -752,7 +754,6 @@ struct SyncvTable
             tl_sigs_node.data = TlSigInterval{tid_lo, tid_hi, qual_bits_by_vis};
             p_node_id = &tl_sigs_node.camspork_next_id;
         });
-        CAMSPORK_REQUIRE(vis_record.base_data.visibility_set, "buggy: empty visibility set");
 
         // Add pending awaits
         if (access.barrier_count != 0) {
@@ -767,17 +768,22 @@ struct SyncvTable
                 auto [exists, insert_iter] = new_set.sorted_map.insertion_point(bar_id);
                 CAMSPORK_REQUIRE(!exists, "Unexpected duplicate trailing barrier");
                 nodepool::id<HamsterBarrierState> state_id{bar_id.data};
-                const HamsterBarrierState& state = get(state_id);
-                new_set.sorted_map.data.insert(insert_iter, PendingAwait{bar_id, state.arrive_count});
-                incref(state_id);
 
-                if ((state.flags & one_shot_arrive_flag) && state.arrive_count != 0) {
-                    throw SyncvBarrierFail{
-                        "Cannot use this barrier as trailing barrier after previous Arrive\n"
-                        "due to one-shot arrive requirement",
-                        bar_id
-                    };
+                int32_t arrive_count = 0;
+                if (!ForceArriveCount0) {
+                    const HamsterBarrierState& state = get(state_id);
+                    arrive_count = state.arrive_count;
+                    if ((state.flags & one_shot_arrive_flag) && arrive_count != 0) {
+                        throw SyncvBarrierFail{
+                            "Cannot use this barrier as trailing barrier after previous Arrive\n"
+                            "due to one-shot arrive requirement",
+                            bar_id
+                        };
+                    }
                 }
+
+                new_set.sorted_map.data.insert(insert_iter, PendingAwait{bar_id, arrive_count});
+                incref(state_id);
             }
 
             init_back_refs(vis_record.base_data.pending_awaits);
@@ -1539,7 +1545,7 @@ struct SyncvTable
     // Add a new visibility record, or return existing memoized one, constructed from the given thread cuboid
     // + qual_bits_by_vis (in TlSigInterval format).
     // The returned ID is an owning reference (ownership count given by added_refcnt).
-    template <VisRecordKind K, typename ThreadInit>
+    template <bool ForceArriveCount0, VisRecordKind K, typename ThreadInit>
     [[nodiscard]] nodepool::id<VisRecordListNode<K>> memoize_new_vis_record(
             const ThreadInit& thread_init,
             SyncvAccessInfo access,
@@ -1547,7 +1553,7 @@ struct SyncvTable
             uint32_t added_refcnt)
     {
         nodepool::id<VisRecordListNode<K>> new_vis_id;
-        auto& new_vis = alloc_vis_record<K>(thread_init, access, free_on_arrive_id, &new_vis_id);
+        auto& new_vis = alloc_vis_record<ForceArriveCount0, K>(thread_init, access, free_on_arrive_id, &new_vis_id);
         CAMSPORK_REQUIRE_CMP(new_vis.refcnt, ==, 1, "expected 1 refcnt initially");
 
         // Either insert into memoization, or forward to existing duplicate.
@@ -1722,8 +1728,22 @@ struct SyncvTable
             CAMSPORK_REQUIRE(!node.is_forwarded(), "unexpected forwarding state");
             VisRecord& record = node.base_data;
 
+            auto matcher = [free_on_arrive_id=record.free_on_arrive] (PendingAwait pending_await) -> bool
+            {
+                return free_on_arrive_id.id_bits == pending_await.hamster_barrier_id.data;
+            };
+
             const bool syncs = env.synchronizes_with(record, *p_cuboid, L1_qual_bits);
-            if (syncs) {
+            if (!syncs) {
+                // Leave VisRecord alone.
+            }
+            else if (record.free_on_arrive && std::any_of(pending_awaits.begin(), pending_awaits.end(), matcher)) {
+                // Clear VisRecord and mark as free.
+                env.reset_vis_record_data(vis_record_id);
+                record.flags = vis_record_freed_flag;
+            }
+            else {
+                // VisRecord synchronizes-with Arrive, and has no match for free_on_arrive.
                 // Update HamsterPendingAwaitSet with new PendingAwaits. Copy on write.
                 nodepool::id<HamsterPendingAwaitSet>& new_set_id = cow_map[record.pending_awaits];
                 if (new_set_id) {
@@ -1867,7 +1887,7 @@ struct SyncvTable
     template <typename Command>
     void update_vis_records_for_sync_impl(Command&& command)
     {
-        const auto tid_lo = command.p_cuboid->minimal_superset_interval().tid_lo;
+        const auto tid_lo = command.p_cuboid->get_tid_lo();
         std::pair<uint64_t, uint64_t> hash_bounds = hash_bounds_for_arrive(tid_lo);
         for_vis_record_hash_bounds(hash_bounds, command);
     }
@@ -1962,7 +1982,7 @@ struct SyncvTable
         augment_counter++;
         HamsterBarrierState& state = get(await.bar);
         const auto old_await_count = state.await_count;
-        const auto new_await_count = state.await_count + 1;
+        const auto new_await_count = old_await_count + 1;
         const int32_t max_arrive_count = state.arrive_count - (1 + await.N);
 
         logger.history_set_sync_stmt_info(await, state, new_await_count, max_arrive_count);
@@ -2136,7 +2156,7 @@ struct SyncvTable
             if constexpr (!UpdateRecords) {
             }
             else if constexpr (SharedVisRecord) {
-                const VisRecordID new_vis_record_id = memoize_new_vis_record<K>(
+                const VisRecordID new_vis_record_id = memoize_new_vis_record<false, K>(
                         cuboid, access, free_on_arrive_id, vis_record_refcnt);
                 logger.history_new_vis_record(*this, new_vis_record_id);
                 new_vis_record_list[0] = new_vis_record_id;
@@ -2154,7 +2174,7 @@ struct SyncvTable
                             "out-of-order non-convergent abstract machine optimization not applicable when !is_ooo");
 
                     for (uint32_t tid = tid_lo & ~(granularity - 1); tid < tid_hi; tid += granularity) {
-                        const VisRecordID new_vis_record_id = memoize_new_vis_record<K>(
+                        const VisRecordID new_vis_record_id = memoize_new_vis_record<false, K>(
                             SimpleThreadInit{tid, tid + granularity},
                             access,
                             free_on_arrive_id,
@@ -2167,6 +2187,9 @@ struct SyncvTable
             }
 
             if (need_excut_logging) {
+                // HACK the new_vis_record_list won't have the correct free_on_arrive.
+                // The core difficulty is we want to log the entire assignment record window even if this
+                // checked_on_access_impl will throw an error partway through.
                 logger.excut_log_assignment_records(*this, input, new_vis_record_list, IsMutate);
                 need_excut_logging = false;
             }
@@ -2366,6 +2389,63 @@ struct SyncvTable
         }
     }
 
+    template <typename Logger>
+    void set_managed_ring_buffer_barriers(
+            AssignmentRecordWindow input,
+            uint32_t alloc_on_await_count,
+            const barrier_id* alloc_on_await_barriers,
+            barrier_id free_on_arrive,
+            Logger&& logger)
+    {
+        // This AssignmentRecord will later be broadcast to all positions in the input window.
+        nodepool::id<AssignmentRecord> new_record_id;
+        AssignmentRecord& record = alloc_default_node(&new_record_id);
+        record.refcnt = 1;
+
+        // Set free_on_arrive barrier.
+        // This will be propagated to free_on_arrive of all VisRecords referenced by the AssignmentRecord.
+        nodepool::id<HamsterBarrierState> free_on_arrive_id{free_on_arrive.data};
+        if (free_on_arrive) {
+            incref(free_on_arrive_id);
+            record.free_on_arrive = free_on_arrive_id;
+        }
+
+        if (alloc_on_await_count) {
+            // To AssignmentRecord, add VisRecord with an empty visibility set and specified PendingAwaits.
+            SyncvAccessInfo access{};
+            access.thread_access_granularity = 1;  // Paranoia; shouldn't matter.
+            access.barrier_count = alloc_on_await_count;
+            access.trailing_barriers = alloc_on_await_barriers;
+            DefaultAssignmentRecordVisNode& list_node = alloc_default_node(&record.mutate_vis_records_head_id);
+            list_node.vis_record_id = memoize_new_vis_record<true, VisRecordKind::Default>(
+                EmptyThreadInit{}, access, free_on_arrive_id, 1);
+            std::array<nodepool::id<DefaultVisRecordListNode>, 1> new_vis_record_list;
+            new_vis_record_list[0] = list_node.vis_record_id;
+            logger.excut_log_assignment_records(*this, input, new_vis_record_list, true);
+        }
+        else {
+            std::array<nodepool::id<DefaultVisRecordListNode>, 0> new_vis_record_list;
+            logger.excut_log_assignment_records(*this, input, new_vis_record_list, true);
+        }
+
+        // Write out new AssignmentRecord to window.
+        // Require that there was nothing there before.
+        cuboid_to_intervals<size_t>(
+            input.begin_outer_extent, input.end_outer_extent,
+            input.begin_offset, input.end_offset,
+            input.begin_inner_extent, input.end_inner_extent,
+            [&] (size_t lo, size_t hi) {
+                for (size_t i = lo; i < hi; ++i) {
+                    CAMSPORK_REQUIRE_CMP(input.base[i].node_id, ==, 0, "Can only use SyncEnvManageRingBuffer for fresh new allocations");
+                    input.base[i].node_id = new_record_id.id_bits;
+                    incref(new_record_id);
+                }
+            }
+        );
+
+        decref(new_record_id);
+    }
+
     void clear_visibility(size_t N, assignment_record_id* p_assignment_record_ids)
     {
         for (size_t i = 0; i < N; ++i) {
@@ -2561,7 +2641,7 @@ struct SyncvTable
             return false;
         };
 
-        auto process_assignment_record_list = [&] (auto id)
+        auto process_assignment_record_list = [&] (auto id, nodepool::id<HamsterBarrierState> expect_free_on_arrive)
         {
             while (id) {
                 auto& node = get(id);
@@ -2569,6 +2649,10 @@ struct SyncvTable
                 record_owning(id);
                 record_owning(node.vis_record_id);
                 id = node.camspork_next_id;
+                const VisRecord& record = const_resolve_forwarding(node.vis_record_id);
+                if (!(record.flags & vis_record_freed_flag)) {
+                    CAMSPORK_REQUIRE_CMP(record.free_on_arrive, ==, expect_free_on_arrive, "Incorrect free_on_arrive");
+                }
             }
         };
 
@@ -2581,9 +2665,11 @@ struct SyncvTable
             const AssignmentRecord& record = get(id);
 
             const nodepool::id<DefaultAssignmentRecordVisNode> mutate_id = record.mutate_vis_records_head_id;
-            process_assignment_record_list(mutate_id);
+            process_assignment_record_list(mutate_id, record.free_on_arrive);
             const nodepool::id<DefaultAssignmentRecordVisNode> read_id = record.read_vis_records_head_id;
-            process_assignment_record_list(read_id);
+            process_assignment_record_list(read_id, record.free_on_arrive);
+
+            record_owning(record.free_on_arrive);
 
             CAMSPORK_REQUIRE_CMP(record.camspork_next_id.id_bits, ==, 0, "Not sure why this exists");
             recurse(record.camspork_next_id, recurse);
@@ -2629,6 +2715,7 @@ struct SyncvTable
         // Count ownership references from live VisRecordListNode objects to other objects:
         //   * TlSigIntervalListNode
         //   * HamsterPendingAwaitSet
+        //   * HamsterBarrierState (free_on_arrive)
         //   * forwarded-to VisRecordListNodes
         // Furthermore we validate the following:
         //   * encoding for the visibility set is correct.
@@ -2647,11 +2734,14 @@ struct SyncvTable
                 record_owning(node.camspork_next_id);
                 CAMSPORK_REQUIRE(!node.base_data.visibility_set, "state should have been cleared upon forwarding");
                 CAMSPORK_REQUIRE(!node.base_data.pending_awaits, "state should have been cleared upon forwarding");
+                CAMSPORK_REQUIRE(!node.base_data.free_on_arrive, "state should have been cleared upon forwarding");
             }
             else {
                 // Check correct hash
                 const auto stored_hash = read_hash_helper(id);
                 CAMSPORK_REQUIRE_CMP(stored_hash, ==, hash_vis_record(node.base_data), "dirty hash");
+
+                record_owning(node.base_data.free_on_arrive);
 
                 // Count HamsterPendingAwaitSet owning reference and check for non-owning back reference.
                 if (nodepool::id<HamsterPendingAwaitSet> set_id = node.base_data.pending_awaits) {
@@ -3006,6 +3096,8 @@ struct SyncvRealLogger
 
     void _excut_log_vis_record_data(const SyncvTable& env, const VisRecord& vis_record, ExcutMutateTag mutate_tag)
     {
+        // Due to issues with propagating free_on_arrive in checked_on_access_impl,
+        // this won't work right if the logging includes the free_on_arrive barrier.
         nodepool::id<TlSigIntervalListNode> tl_id = vis_record.visibility_set;
         while (tl_id) {
             const TlSigIntervalListNode& node = env.get(tl_id);
@@ -3283,6 +3375,34 @@ void on_check_free(
 {
     INTERFACE_PROLOGUE(table)
     table->on_check_free(input, cuboid, access, SyncvRealLogger(log));
+    INTERFACE_EPILOGUE(table)
+}
+
+void set_managed_ring_buffer_barriers(
+        SyncvTable* table,
+        AssignmentRecordWindow input,
+        uint32_t alloc_on_await_count,
+        const barrier_id* alloc_on_await_barriers,
+        barrier_id free_on_arrive,
+        decltype(nullptr))
+{
+    INTERFACE_PROLOGUE(table)
+    table->set_managed_ring_buffer_barriers(input, alloc_on_await_count, alloc_on_await_barriers, free_on_arrive,
+            SyncvTrivialLogger{});
+    INTERFACE_EPILOGUE(table)
+}
+
+void set_managed_ring_buffer_barriers(
+        SyncvTable* table,
+        AssignmentRecordWindow input,
+        uint32_t alloc_on_await_count,
+        const barrier_id* alloc_on_await_barriers,
+        barrier_id free_on_arrive,
+        const SyncvLogRequest& log)
+{
+    INTERFACE_PROLOGUE(table)
+    table->set_managed_ring_buffer_barriers(input, alloc_on_await_count, alloc_on_await_barriers, free_on_arrive,
+            SyncvRealLogger(log));
     INTERFACE_EPILOGUE(table)
 }
 
