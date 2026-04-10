@@ -22,6 +22,25 @@ namespace camspork
 
 class ProgramBuilder;
 
+struct ExecBoundsFail : std::runtime_error
+{
+    // Janky out-of-bounds error.
+    // We are saying the user accessed var[idx] in an allocation var[extent],
+    // except you have to figure out which var by doing a reverse lookup of the raw address of the var's VarSlotEntry.
+    const void* p_VarSlotEntry;
+    std::vector<extent_t> idx;
+    std::vector<extent_t> extent;
+
+    ExecBoundsFail(const void* _p_VarSlotEntry, std::vector<extent_t> _idx, std::vector<extent_t> _extent)
+      : std::runtime_error("out-of-bounds access in abstract machine program")
+      , p_VarSlotEntry(_p_VarSlotEntry)
+      , idx(std::move(_idx))
+      , extent(std::move(_extent))
+    {
+    }
+};
+
+
 template <typename T>
 class VarSlotEntry
 {
@@ -88,7 +107,7 @@ class VarSlotEntry
     // C-style multidimensional array indexing.
     // Provide the indices as a [begin, end) iterator pair.
     template <typename IdxIterator>
-    T& idx(const IdxIterator begin, const IdxIterator end)
+    const T& idx(const IdxIterator begin, const IdxIterator end) const
     {
         const size_t alloc_dim = _extent.size();
         const size_t num_idx = size_t(end - begin);
@@ -97,16 +116,25 @@ class VarSlotEntry
         for (IdxIterator iter = begin ; iter != end; ++iter) {
             const auto dim = iter - begin;
             const size_t idx = size_t(*iter);
-            CAMSPORK_REQUIRE_CMP(idx, <, size_t(_extent[dim]), "out-of-bounds access in abstract machine program");
-            linear_idx = linear_idx * size_t(_extent[dim]) + idx;
+            if (idx < size_t(_extent[dim])) {
+                linear_idx = linear_idx * size_t(_extent[dim]) + idx;
+            }
+            else {
+                std::vector<extent_t> idx_vec;
+                for (IdxIterator _iter = begin; _iter != end; ++_iter) {
+                    idx_vec.push_back(*_iter);
+                }
+                throw ExecBoundsFail(this, idx_vec, _extent);
+            }
         }
         return p_data[linear_idx];
     }
 
     template <typename IdxIterator>
-    const T& idx(const IdxIterator begin, const IdxIterator end) const
+    T& idx(const IdxIterator begin, const IdxIterator end)
     {
-        return const_cast<VarSlotEntry*>(this)->idx(begin, end);
+        const auto& self = *this;
+        return const_cast<T&>(self.idx(begin, end));
     }
 
     T& scalar()
@@ -223,6 +251,12 @@ struct VarSlotEnvs
     VarSlotEntry<value_t> value;
     VarSlotEntry<assignment_record_id> sync;
     VarSlotEntry<barrier_id> barrier;
+
+    bool matches(const ExecBoundsFail& exc) const
+    {
+        const void* tmp = exc.p_VarSlotEntry;
+        return tmp == &value || tmp == &sync || tmp == &barrier;
+    }
 };
 
 class ProgramEnvSyncvTable

@@ -1272,7 +1272,7 @@ if __name__ == "__main__":
 
 
     @camspork.program
-    def fence_test(b: camspork.ProgramBuilder):
+    def fence_test(b: ProgramBuilder):
         num_tasks = b.add_variable("num_tasks")
         fence_enable = b.add_variable("fence_enable")
         buf = b.add_variable("buf")
