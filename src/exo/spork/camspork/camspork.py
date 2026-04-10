@@ -42,7 +42,7 @@ class BuilderExpr:
         return BuilderBinOp(binop_Mul, self, self.typecheck(other))
 
     def __rmul__(self, other):
-        return BuilderBinOp(binop_Mul, self, self.typecheck(other))
+        return BuilderBinOp(binop_Mul, self.typecheck(other), self)
 
     def __truediv__(self, other):
         return BuilderBinOp(binop_Div, self, self.typecheck(other))
