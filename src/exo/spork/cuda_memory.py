@@ -619,7 +619,7 @@ class CudaMbarrier(CudaBasicDeviceBarrier):
     def is_cuda_smem(cls):
         return True
 
-    qual_tl_dict = timelines.cuda_ram_qual_tl_dict
+    qual_tl_dict = timelines.cuda_mbarrier_qual_tl_dict
 
     @classmethod
     def native_unit(cls) -> CollUnit:

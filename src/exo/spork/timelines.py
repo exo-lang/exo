@@ -268,6 +268,12 @@ cuda_tmem_qual_tl_dict = {
     ],
 }
 
+cuda_mbarrier_qual_tl_dict = {
+    cuda_in_order_instr: cuda_mbarrier_qual,
+    Sm80_cp_async_instr: cuda_mbarrier_qual,
+    tma_to_smem_async_instr: cuda_mbarrier_qual,
+}
+
 
 _cuda_in_order_quals = [
     cuda_in_order_rmem_qual,
