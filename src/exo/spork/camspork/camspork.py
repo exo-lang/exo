@@ -1376,9 +1376,6 @@ def so_called_temporary_test():
                                 A_smem[k_iter, 0, 0], 1, 1, b.mutate_flag | b.write_only_flag | b.ooo_flag,
                                 extent=[1, 256, 256], thread_access_granularity=128)
                             b.SyncEnvAccess(
-                                A_smem[k_iter, 0, 0], 1, 1, b.mutate_flag | b.write_only_flag | b.ooo_flag,
-                                extent=[1, 256, 256], thread_access_granularity=128)
-                            b.SyncEnvAccess(
                                 B_smem[k_iter, 0, 0], 1, 1, b.mutate_flag | b.write_only_flag | b.ooo_flag,
                                 extent=[1, 256, 256], thread_access_granularity=128)
                             b.Arrive(1, raw[k_iter], ())
@@ -1408,8 +1405,11 @@ def so_called_temporary_test():
             env.exec(excut_filename="managed_ring_buffer_excut.json")
         else:
             env.set_debug_validation_enable(True)
+            env.set_history_enable(True)
             env.exec(excut_filename="managed_ring_buffer_excut.json", filter_name="A_smem", filter_idx=(5, 0, 0))
+            print(env.program_with_remarks())
     except Exception:
+        env.add_error_history_remarks()
         print(env.program_with_remarks())
         raise
     env.set_debug_validation_enable(True)  # defer to later

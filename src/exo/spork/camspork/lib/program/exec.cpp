@@ -896,7 +896,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
     }
 
     void log_barrier_helper(
-            const std::string& var_str_name, const VarSlotEntry<barrier_id>& slot, std::vector<extent_t> idx)
+            const std::string& var_str_name, const VarSlotEntry<barrier_id>& slot, const std::vector<extent_t>& idx)
     {
         // Recursively log newly allocated barriers' IDs.
         const std::vector<extent_t>& extent = slot.extent();
@@ -907,7 +907,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
                     auto p_info = std::make_unique<ExcutBarrierAlloc>();
                     p_info->id = id.data;
                     p_info->name = var_str_name;
-                    p_info->idx = std::move(idx);
+                    p_info->idx = idx;
                     this->excut_actions.emplace_back(std::move(p_info));
                 }
                 if (env.history_enable) {
@@ -926,10 +926,11 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
             }
             else {
                 const uint32_t c = extent[idx.size()];
+                std::vector<extent_t> new_idx = idx;
+                new_idx.push_back(0);
                 for (uint32_t i = 0; i < c; ++i) {
-                    std::vector<extent_t> new_idx = idx;
-                    new_idx.push_back(i);
-                    log_barrier_helper(var_str_name, slot, new_idx);
+                    new_idx.back() = i;
+                    log_barrier_helper(var_str_name, slot, std::move(new_idx));
                 }
             }
         }

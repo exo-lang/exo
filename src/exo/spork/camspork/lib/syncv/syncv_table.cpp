@@ -2147,8 +2147,6 @@ struct SyncvTable
             !UpdateRecords, std::array<VisRecordID, 0>,
             std::conditional_t<SharedVisRecord, std::array<VisRecordID, 1>, std::vector<VisRecordID>>>;
 
-        bool need_excut_logging = !Logger::is_trivial;
-
         auto make_vis_record_list = [&] (nodepool::id<HamsterBarrierState> free_on_arrive_id)
         {
             constexpr refcnt_t vis_record_refcnt = 1;
@@ -2186,16 +2184,19 @@ struct SyncvTable
                 });
             }
 
-            if (need_excut_logging) {
-                // HACK the new_vis_record_list won't have the correct free_on_arrive.
-                // The core difficulty is we want to log the entire assignment record window even if this
-                // checked_on_access_impl will throw an error partway through.
-                logger.excut_log_assignment_records(*this, input, new_vis_record_list, IsMutate);
-                need_excut_logging = false;
-            }
-
             return new_vis_record_list;
         };
+
+        if (!Logger::is_trivial) {
+            // HACK the new_vis_record_list won't have the correct free_on_arrive.
+            // The core difficulty is we want to log the entire assignment record window even if this
+            // checked_on_access_impl will throw an error partway through.
+            VisRecordList new_vis_record_list = make_vis_record_list({});
+            logger.excut_log_assignment_records(*this, input, new_vis_record_list, true);
+            for (auto node_id : new_vis_record_list) {
+                decref(node_id);
+            }
+        }
 
         auto check = [&] (node_id id, size_t linear_index)
         {
@@ -2419,6 +2420,7 @@ struct SyncvTable
             DefaultAssignmentRecordVisNode& list_node = alloc_default_node(&record.mutate_vis_records_head_id);
             list_node.vis_record_id = memoize_new_vis_record<true, VisRecordKind::Default>(
                 EmptyThreadInit{}, access, free_on_arrive_id, 1);
+            logger.history_new_vis_record(*this, list_node.vis_record_id);
             std::array<nodepool::id<DefaultVisRecordListNode>, 1> new_vis_record_list;
             new_vis_record_list[0] = list_node.vis_record_id;
             logger.excut_log_assignment_records(*this, input, new_vis_record_list, true);
@@ -2442,6 +2444,8 @@ struct SyncvTable
                 }
             }
         );
+
+        logger.excut_update_assignment_record_ids(new_record_id);
 
         decref(new_record_id);
     }
