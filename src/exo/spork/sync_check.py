@@ -425,16 +425,22 @@ class CamsporkDo(LoopIR_Do):
                     ].barrier_multicasts
                 # fmt: off
                 assert isinstance(guard_typ, LoopIR.Barrier), s.srcinfo
+                buffer_shape = s.type.shape()
+                buffer_num_dims = len(buffer_shape)
                 guard_shape = guard_typ.shape()
+                guard_num_dims = len(guard_shape)
                 guard_ring_dim_idx, _ = guard_typ.get_managed_ring_buffer_dimension_depth()
                 # fmt: on
+                if buffer_num_dims < guard_num_dims:
+                    raise ValueError(
+                        f"{s.srcinfo}: {guarded_by}: {guard_typ} has too many dimensions to match {s}"
+                    )
                 if guard_ring_dim_idx != ring_dim_idx:
                     raise ValueError(
-                        f"{s.srcinfo}: {guarded_by}: guard_typ has incorrect managed ring buffer dimension index to match {s}"
+                        f"{s.srcinfo}: {guarded_by}: {guard_typ} has incorrect managed ring buffer dimension index to match {s}"
                     )
                 tmp_vars = tuple(
-                    b.add_variable(f"_ring{i}_{s.name}")
-                    for i in range(len(guard_shape))
+                    b.add_variable(f"_ring{i}_{s.name}") for i in range(guard_num_dims)
                 )
                 loop_nest = [
                     b.SeqFor(
@@ -443,7 +449,7 @@ class CamsporkDo(LoopIR_Do):
                         self.comp_e(coord, True, instr_tl),
                         srcinfo=s.srcinfo,
                     )
-                    for i, coord in enumerate(guard_shape)
+                    for i, coord in enumerate(buffer_shape[:guard_num_dims])
                 ]
                 for for_node in loop_nest:
                     for_node.begin()
