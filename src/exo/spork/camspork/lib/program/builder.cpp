@@ -236,10 +236,10 @@ StmtRef ProgramBuilder::add_JoinThreads()
 
 StmtRef ProgramBuilder::add_SyncEnvManageRingBuffer(
         Varname guard, Varname buffer,
-        uint32_t buffer_depth, uint32_t managed_ring_buffer_dim_idx,
+        uint32_t managed_ring_buffer_dim_idx, uint32_t buffer_depth,
         uint32_t num_idx, const ArriveIdx* idx)
 {
-    return append_impl(SyncEnvManageRingBuffer{guard, buffer, buffer_depth, managed_ring_buffer_dim_idx}, num_idx, idx);
+    return append_impl(SyncEnvManageRingBuffer{guard, buffer, managed_ring_buffer_dim_idx, buffer_depth}, num_idx, idx);
 }
 
 StmtRef ProgramBuilder::push_If(ExprRef cond)
@@ -587,11 +587,11 @@ camspork_RawStmtRef camspork_add_JoinThreads(camspork::ProgramBuilder* p_builder
 
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_SyncEnvManageRingBuffer(camspork::ProgramBuilder* p_builder,
     camspork_RawVarname guard, camspork_RawVarname buffer,
-    uint32_t buffer_depth, uint32_t managed_ring_buffer_idx,
+    uint32_t managed_ring_buffer_idx, uint32_t buffer_depth,
     uint32_t num_idx, const camspork::ArriveIdx* idx)
 {
     CAMSPORK_API_PROLOGUE
-    return p_builder->add_SyncEnvManageRingBuffer(guard, buffer, buffer_depth, managed_ring_buffer_idx, num_idx, idx);
+    return p_builder->add_SyncEnvManageRingBuffer(guard, buffer, managed_ring_buffer_idx, buffer_depth, num_idx, idx);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 

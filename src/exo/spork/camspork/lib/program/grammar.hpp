@@ -850,8 +850,8 @@ struct stmt<24>
 // SyncEnvManageRingBuffer(
 //     Varname guard,
 //     Varname buffer,
-//     int buffer_depth,
 //     int managed_ring_buffer_dim_idx,
+//     int buffer_depth,
 //     expr* idx,
 //     multicast_flag* multicasts)
 // multicasts[expr_idx][dim_idx] = ArriveIdx[dim_idx][expr_idx]
@@ -881,8 +881,8 @@ struct stmt<25>
 {
     Varname guard;
     Varname buffer;
-    uint32_t buffer_depth;
     uint32_t managed_ring_buffer_dim_idx;
+    uint32_t buffer_depth;
     CAMSPORK_NODE_VLA_MEMBER(ArriveIdx)
 };
 

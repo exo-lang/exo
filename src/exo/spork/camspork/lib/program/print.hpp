@@ -295,8 +295,8 @@ class ProgramPrinter
         *this << node->guard;
         print_idx(node);
         *this << ", " << node->buffer;
-        *this << ", " << node->buffer_depth;
         *this << ", " << node->managed_ring_buffer_dim_idx;
+        *this << ", " << node->buffer_depth;
         // multicasts: transpose bits in multicast_per_expr to recover this.
         *this << ", barrier_multicasts=(";
         print_multicasts(node);

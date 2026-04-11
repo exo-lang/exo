@@ -441,8 +441,8 @@ class CamsporkDo(LoopIR_Do):
                     b.SyncEnvManageRingBuffer(
                         b.get_varname(guarded_by)[tmp_vars],
                         b.get_varname(s.name),
-                        ring_depth,
                         ring_dim_idx,
+                        ring_depth,
                         (),
                         srcinfo=s.srcinfo,
                     )
