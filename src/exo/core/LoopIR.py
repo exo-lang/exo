@@ -736,13 +736,19 @@ del get_size_annotation
 
 @extclass(LoopIR.Alloc)
 @extclass(LoopIR.Free)
-def get_managed_ring_buffer_dimension_depth(s):
+@extclass(LoopIR.type)
+def get_managed_ring_buffer_dimension_depth(node):
     """(dimension index, ring buffer depth) of managed ring buffer dimension
 
     None, None if no such dimension. Error if multiple such dimensions.
     """
 
-    t = s.type
+    if isinstance(node, LoopIR.type):
+        srcinfo = "(no srcinfo for type)"
+        t = node
+    else:
+        srcinfo = node.srcinfo
+        t = node.type
     if not isinstance(t, (LoopIR.Tensor, LoopIR.Barrier)):
         return None, None
     dims = [
@@ -753,7 +759,9 @@ def get_managed_ring_buffer_dimension_depth(s):
     if not dims:
         return None, None
     elif len(dims) > 1:
-        raise ValueError(f"{s.srcinfo}: multiple managed ring buffer dimensions in {s}")
+        raise ValueError(
+            f"{srcinfo}: multiple managed ring buffer dimensions in {node}"
+        )
     else:
         dim = dims[0]
         return dim, t.hi[dim].get_size_annotation().depth

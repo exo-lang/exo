@@ -208,6 +208,7 @@ cpu_in_order_qual = Qual_tl("cpu_in_order_qual", True)
 cpu_cuda_stream_qual = Qual_tl("cpu_cuda_stream_qual", True)
 cuda_in_order_rmem_qual = Qual_tl("cuda_in_order_rmem_qual", True)
 cuda_in_order_ram_qual = Qual_tl("cuda_in_order_ram_qual", False)
+cuda_mbarrier_qual = Qual_tl("cuda_mbarrier_qual", False)
 Sm80_cp_async_qual = Qual_tl("Sm80_cp_async_qual", False)
 tma_to_smem_async_qual = Qual_tl("tma_to_smem_async_qual", False)
 tma_to_gmem_async_qual = Qual_tl("tma_to_gmem_async_qual", False)
@@ -271,6 +272,7 @@ cuda_tmem_qual_tl_dict = {
 _cuda_in_order_quals = [
     cuda_in_order_rmem_qual,
     cuda_in_order_ram_qual,
+    cuda_mbarrier_qual,
 ]
 _Sm80_cp_async_quals = [Sm80_cp_async_qual]
 _tma_to_smem_async_quals = [tma_to_smem_async_qual]
@@ -316,6 +318,7 @@ _cuda_device_quals = (
 _cuda_temporal_quals = [
     cuda_in_order_rmem_qual,
     cuda_in_order_ram_qual,
+    cuda_mbarrier_qual,
     cuda_async_proxy_retired_qual,
     wgmma_zero_qual,
 ]
@@ -463,7 +466,7 @@ cuda_in_order = Sync_tl(
 )
 
 """Temporal-only CUDA device actions"""
-cuda_temporal = Sync_tl("cuda_temporal", [], _cuda_temporal_quals)
+cuda_temporal = Sync_tl("cuda_temporal", [cuda_mbarrier_qual], _cuda_temporal_quals)
 
 """Ampere cp.async instructions"""
 Sm80_cp_async = Sync_tl(
@@ -557,6 +560,7 @@ def generate_latex_table(out_file):
         (cpu_cuda_stream_qual, "strm", r"accessed by stream-ordered CUDA API call (e.g. \lighttt{cudaMemcpyAsync})"),
         (cuda_in_order_rmem_qual, "cuda1", r"register accessed by non-explicitly-async CUDA instruction"),
         (cuda_in_order_ram_qual, "cuda2", r"non-register accessed by non-explicitly-async CUDA instruction"),
+        (cuda_mbarrier_qual, "mbar", r"usage of mbarriers")
         (Sm80_cp_async_qual, "Sm80", r"accessed by \lighttt{cp.async} instruction (non-bulk, i.e. not TMA)"),
         (tma_to_smem_async_qual, "tmaS", r"accessed by \lighttt{cp.async.bulk} ``load'' instruction (GMEM$\to$SMEM)"),
         (tma_to_gmem_async_qual, "tmaG", r"accessed by \lighttt{cp.async.bulk} ``store instruction (SMEM$\to$GMEM)"),

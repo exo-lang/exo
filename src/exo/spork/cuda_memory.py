@@ -639,13 +639,13 @@ class CudaMbarrier(CudaBasicDeviceBarrier):
     # an arrive/await with the given Sync_tl parameter.
     @classmethod
     def arrive_qual_tl(cls, L1: timelines.Sync_tl):
-        if L1.get_full_timeline_set_bits() & timelines.Sm80_cp_async_qual.as_bit():
-            return timelines.Sm80_cp_async_qual
-        return timelines.cuda_in_order_ram_qual
+        # if L1.get_full_timeline_set_bits() & timelines.Sm80_cp_async_qual.as_bit():
+        #     return timelines.Sm80_cp_async_qual
+        return timelines.cuda_mbarrier_qual
 
     @classmethod
     def await_qual_tl(cls, L2: timelines.Sync_tl):
-        return timelines.cuda_in_order_ram_qual
+        return timelines.cuda_mbarrier_qual
 
 
 @memwin_template

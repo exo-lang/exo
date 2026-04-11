@@ -28,7 +28,14 @@ from ..core.LoopIR import (
 
 from .async_config import BaseAsyncConfig, CudaDeviceFunction
 from .base_with_context import is_if_holding_with
-from .coll_algebra import CollTiling, CollDim, CollDimOp, CollDimExpectation, CollParam
+from .coll_algebra import (
+    CollTiling,
+    CollDim,
+    CollDimOp,
+    CollDimExpectation,
+    CollParam,
+    clusterDim_param,
+)
 from .coll_analysis import CollAnalysis
 from .distributed_memory import ThreadIter
 from .loop_modes import Seq, CudaTasks, cuda_tasks, _CodegenPar, CudaThreads
@@ -360,9 +367,10 @@ class CamsporkDo(LoopIR_Do):
             if want_value:
                 b.ValueEnvAlloc(am_array, srcinfo=s.srcinfo)
 
+            ring_dim_idx, ring_depth = s.get_managed_ring_buffer_dimension_depth()
+
             # Add Arrives for barriers that specify a pre-arrive.
             if want_barrier and (pre_arrive := s.mem.get_pre_arrive()):
-                ring_dim_idx, ring_depth = s.get_managed_ring_buffer_dimension_depth()
                 if ring_dim_idx is None:
                     raise ValueError(
                         f"{s.srcinfo}: {s} has pre_arrive={pre_arrive} but missing managed ring buffer dimension."
@@ -387,6 +395,59 @@ class CamsporkDo(LoopIR_Do):
                 for idx in itertools.product(*ranges):
                     if idx[ring_dim_idx] < pre_arrive:
                         b.Arrive(0, barrier_name[idx], multicasts, srcinfo=s.srcinfo)
+
+            # Set up managed ring buffer, if applicable.
+            if ring_dim_idx is not None:
+                guarded_by = s.type.get_ring_guarded_by()
+                if want_barrier:
+                    if guarded_by is not None:
+                        raise ValueError(
+                            f"{s.srcinfo}: shouldn't have .ring_guarded by for barrier {s}"
+                        )
+                    guarded_by = s.name
+                    guard_typ = s.type
+                else:
+                    if guarded_by is None:
+                        raise ValueError(
+                            f"{s.srcinfo}: managed ring buffer missing .ring_guarded_by {s}"
+                        )
+                    guard_typ = self._envtyp.get(guarded_by)
+                # fmt: off
+                assert isinstance(guard_typ, LoopIR.Barrier), s.srcinfo
+                guard_shape = guard_typ.shape()
+                guard_ring_dim_idx, _ = guard_typ.get_managed_ring_buffer_dimension_depth()
+                # fmt: on
+                if guard_ring_dim_idx != ring_dim_idx:
+                    raise ValueError(
+                        f"{s.srcinfo}: {guarded_by}: guard_typ has incorrect managed ring buffer dimension index to match {s}"
+                    )
+                tmp_vars = tuple(
+                    b.add_variable(f"_ring{i}_{s.name}")
+                    for i in range(len(guard_shape))
+                )
+                loop_nest = [
+                    b.SeqFor(
+                        tmp_vars[i],
+                        0,
+                        self.comp_e(coord, True, instr_tl),
+                        srcinfo=s.srcinfo,
+                    )
+                    for i, coord in enumerate(guard_shape)
+                ]
+                for for_node in loop_nest:
+                    for_node.begin()
+                # TODO multicasts
+                if self._coll_env[clusterDim_param] == 1:
+                    b.SyncEnvManageRingBuffer(
+                        b.get_varname(guarded_by)[tmp_vars],
+                        b.get_varname(s.name),
+                        ring_depth,
+                        ring_dim_idx,
+                        (),
+                        srcinfo=s.srcinfo,
+                    )
+                for for_node in reversed(loop_nest):
+                    for_node.end()
 
         elif isinstance(s, LoopIR.Free):
             self._saw_free = True
