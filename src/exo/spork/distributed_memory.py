@@ -136,12 +136,16 @@ class DistributedAllocState(object):
     # Set if BarrierMechanismTraits.consistent_arrive_thread_count
     arrive_thread_count: Optional[int]
 
+    # For barrier types
+    barrier_multicasts: Tuple[Tuple[bool, ...], ...]
+
     def __init__(
         self,
         alloc_stmt: LoopIR.stmt,
         coll_tiling: CollTiling,
         native_unit: CollUnit,
         env: Dict[CollParam, int],
+        barrier_multicasts: Tuple[Tuple[bool, ...], ...],
     ):
         assert isinstance(coll_tiling, CollTiling)
         if native_unit is None:
@@ -176,6 +180,10 @@ class DistributedAllocState(object):
             self.alloc_type = T.barrier
         self.native_unit = native_unit
         self.arrive_thread_count = None
+        self.barrier_multicasts = barrier_multicasts
+        assert all(
+            all(isinstance(f, bool) for f in flags) for flags in barrier_multicasts
+        )
 
     def n_distributed_dims(self) -> int:
         return len(self.first_distributed_iters)
@@ -250,7 +258,7 @@ class DistributedAllocState(object):
     @staticmethod
     def from_fence(s: LoopIR.SyncStmt, coll_tiling: CollTiling):
         assert not s.sync_type.is_split()
-        result = DistributedAllocState(s, coll_tiling, None, None)
+        result = DistributedAllocState(s, coll_tiling, None, None, ())
         result.first_usage_stmt = s
         return result
 
@@ -722,6 +730,7 @@ class DistributedIdxFsm:
         assert sync_type.is_split()
 
         if sync_type.is_arrive():
+            assert sync.multicasts() == state.barrier_multicasts
             unit = barrier_mechanism.arrive_coll_unit()
             if msg := coll_tiling.unit_mismatch(unit, self.coll_env):
                 raise ValueError(

@@ -224,12 +224,18 @@ class CamsporkDo(LoopIR_Do):
                 if home.name in self._sync_syms:
                     # Model as "read" since concurrent access is allowed
                     mem = self._mem_env[home.name]
-                    q_bit = mem.arrive_qual_tl(L1).as_bit()
+                    qual_tl = mem.arrive_qual_tl(L1)
+                    q_bit = qual_tl.as_bit()
+                    flags = (
+                        b.convergent_flag
+                        if qual_tl.get_default_convergent_access()
+                        else 0
+                    )
                     b.SyncEnvAccess(
                         am_home_barrier,
                         q_bit,
                         q_bit,
-                        flags=b.convergent_flag,
+                        flags=flags,
                         access_multicasts=multicasts,
                         srcinfo=s.srcinfo,
                         # TODO wouldn't it make more sense to use barrier
@@ -406,12 +412,17 @@ class CamsporkDo(LoopIR_Do):
                         )
                     guarded_by = s.name
                     guard_typ = s.type
+                    barrier_multicasts = ()
                 else:
                     if guarded_by is None:
                         raise ValueError(
                             f"{s.srcinfo}: managed ring buffer missing .ring_guarded_by {s}"
                         )
+                    guarded_by = guarded_by.name
                     guard_typ = self._envtyp.get(guarded_by)
+                    barrier_multicasts = self._coll_analysis.distributed_alloc_states[
+                        guarded_by
+                    ].barrier_multicasts
                 # fmt: off
                 assert isinstance(guard_typ, LoopIR.Barrier), s.srcinfo
                 guard_shape = guard_typ.shape()
@@ -436,16 +447,18 @@ class CamsporkDo(LoopIR_Do):
                 ]
                 for for_node in loop_nest:
                     for_node.begin()
-                # TODO multicasts
-                if self._coll_env[clusterDim_param] == 1:
-                    b.SyncEnvManageRingBuffer(
-                        b.get_varname(guarded_by)[tmp_vars],
-                        b.get_varname(s.name),
-                        ring_dim_idx,
-                        ring_depth,
-                        (),
-                        srcinfo=s.srcinfo,
-                    )
+                assert all(
+                    all(isinstance(f, bool) for f in flags)
+                    for flags in barrier_multicasts
+                )
+                b.SyncEnvManageRingBuffer(
+                    b.get_varname(guarded_by)[tmp_vars],
+                    b.get_varname(s.name),
+                    ring_dim_idx,
+                    ring_depth,
+                    barrier_multicasts,
+                    srcinfo=s.srcinfo,
+                )
                 for for_node in reversed(loop_nest):
                     for_node.end()
 
@@ -453,94 +466,35 @@ class CamsporkDo(LoopIR_Do):
             self._saw_free = True
             want_barrier = issubclass(s.mem, BarrierMechanism)
             want_sync = s.name in self._sync_syms
-            want_free_shards = False
 
             if want_sync and s.mem.is_cuda_smem() and not self._no_smem_free_check:
                 # fmt: off
                 assert isinstance(self._coll_tiling, CollTiling), "SMEM outside CUDA scope?"
                 # fmt: on
-                box = self._coll_tiling.get_box()
-                domain = self._coll_tiling.get_domain()
-                if box != domain:
-                    # This over-approximation is because when we "free" SMEM in a CTA,
-                    # it goes into a free pool that could be used for future allocs,
-                    # and those could be the target of a multicast. So all threads
-                    # in the CLUSTER must have visibility to the SMEM, not just CTA.
-                    raise ValueError(
-                        f"{s.srcinfo}: Sorry, sync-check for {s.name} @ {s.mem.name()} "
-                        f"(SMEM) allocated outside cluster scope not implemented; "
-                        f"currently have box={box} of {domain} threads active in cluster."
-                    )
-                b.SyncEnvFreeShard(
-                    b[s.name],
-                    timelines.cuda_in_order_ram_qual.as_bit(),
-                    srcinfo=s.srcinfo,
-                )
+                ring_dim_idx, ring_depth = s.get_managed_ring_buffer_dimension_depth()
 
-            if want_free_shards:
-                # XXX dead code for now, but could be important later.
-                # Look up distributed memory information for the variable.
-                state = self._coll_analysis.distributed_alloc_states[s.name]
-                distributed_iters = state.first_distributed_iters
-                alloc_coll_tiling = state.alloc_coll_tiling
-                target_coll_tiling: CollTiling = state.first_usage_coll_tiling
-                target_domain = target_coll_tiling.get_domain()
-
-                # We will prepare a parallel-for loop nest for accessing
-                # each shard of the array. Also, possibly reshape domain.
-                loop_nest = []
-                if target_domain != self._domain:
-                    loop_nest.append(b.DomainReshape(*target_domain, srcinfo=s.srcinfo))
-                for dim_idx, dim in enumerate(target_coll_tiling.get_dims()):
-                    dim: CollDim
-                    # Generate minimal loops for this dimension needed
-                    # to recover the distributed_iters. Avoids inappropriately
-                    # specializing on dimensions not relevant to the sharding
-                    # (e.g. checking only subset of CTA threads for SMEM free).
-                    num_ops = 0
-                    for op_i, op in enumerate(dim.dim_ops):
-                        if op.iter in distributed_iters:
-                            num_ops = op_i + 1
-                    for op in dim.dim_ops[:num_ops]:
-                        # Only add loops for levels that correspond to code subtree
-                        # rooted under the scope that the alloc is done.
-                        if op.tree_depth <= alloc_coll_tiling.get_tree_depth():
-                            continue
-                        # KeyError hack: I'm unsure if the variable already exists
-                        # in the camspork program due to the horribly confusing
-                        # CALLEE_DISTRIBUTED "synthetic iterators" (I'm sorry).
-                        try:
-                            am_iter = b[op.iter]
-                        except KeyError:
-                            am_iter = b.add_variable(op.iter)
-                        loop_nest.append(
-                            b.ThreadsFor(
-                                am_iter,
-                                0,
-                                op.tile_count,
-                                dim_idx,
-                                op.offset,
-                                op.box,
-                                srcinfo=s.srcinfo,
-                            )
+                if ring_dim_idx is None:
+                    # Not a managed ring buffer.
+                    box = self._coll_tiling.get_box()
+                    domain = self._coll_tiling.get_domain()
+                    if box != domain:
+                        # This over-approximation is because when we "free" SMEM in a CTA,
+                        # it goes into a free pool that could be used for future allocs,
+                        # and those could be the target of a multicast. So all threads
+                        # in the CLUSTER must have visibility to the SMEM, not just CTA.
+                        raise ValueError(
+                            f"{s.srcinfo}: Sorry, sync-check for {s.name} @ {s.mem.name()} "
+                            f"(SMEM) allocated outside cluster scope not implemented; "
+                            f"currently have box={box} of {domain} threads active in cluster."
                         )
-                # Emit the generated loop nest (begin/end instead of with).
-                # Use 0 for iterators known to have tile_count=1, i.e. always 0.
-                # This is actually needed to avoid crashing for "trivial iterators"
-                # that won't appear in the CollTiling, and hence the loop nest.
-                for ctx in loop_nest:
-                    ctx.begin()
-                am_idx = tuple(
-                    0 if self._coll_analysis.thread_iters[it].tile_count == 1 else b[it]
-                    for it in distributed_iters
-                )
-                b.SyncEnvFreeShard(
-                    b[s.name][am_idx],
-                    Qual_tl.make_bits(free_qual_tl),
-                    srcinfo=s.srcinfo,
-                )
-                for ctx in reversed(loop_nest):
-                    ctx.end()
+                    _, _, ext_qual_bits = self.comp_qual_tl(s, self._default_instr_tl)
+                    b.SyncEnvFreeShard(
+                        b[s.name],
+                        ext_qual_bits,
+                        srcinfo=s.srcinfo,
+                    )
+                else:
+                    warn("TODO Hamster check free of managed ring buffer")
 
             # Must be after SyncEnvFreeShards,
             # since this deletes the SyncEnv data for the variable.
@@ -1006,37 +960,38 @@ def top_level_check(backend, args_dict: Dict[str, int], *, no_smem_free_check=Fa
     # If a syncv error is detected that is attributed to a specific var[idx],
     # we run checking again on that var[idx] only with history logging.
     # We debug log all remarks generated if an error occurs.
+
     error_remarks = ()
-    single_sync_var = None
-    single_sync_idx = ()
-    try:
-        for i in range(2):
-            if i > 0 and single_sync_var is None:
-                break
-            env = make_env(single_sync_var)
-            try:
-                if single_sync_var is not None:
-                    env.set_history_enable(True)
-                env.exec(filter_name=single_sync_var, filter_idx=single_sync_idx)
-                env.set_debug_validation_enable(debug_on_exit | debug_always)
-            except Exception:
-                if i == 0:
-                    # Insert remarks for the main debug log, prior to adding
-                    # more detailed remarks.
-                    for camspork_stmt, text in env.get_remarks():
-                        srcinfo = camspork_program.get_stmt_srcinfo(camspork_stmt)
-                        debug_log.remark(p.name, f"{srcinfo}:\n{text}")
-                env.add_error_history_remarks()
-                error_remarks = env.get_remarks()
+
+    def runner(single_sync_var, single_sync_idx):
+        nonlocal error_remarks
+        env = make_env(single_sync_var)
+        try:
+            if single_sync_var is not None:
+                env.set_history_enable(True)
+            env.exec(filter_name=single_sync_var, filter_idx=single_sync_idx)
+            env.set_debug_validation_enable(debug_on_exit | debug_always)
+        except Exception:
+            if single_sync_var is None:
+                # Insert remarks for the main debug log, prior to adding
+                # more detailed remarks.
+                for camspork_stmt, text in env.get_remarks():
+                    srcinfo = camspork_program.get_stmt_srcinfo(camspork_stmt)
+                    debug_log.remark(p.name, f"{srcinfo}:\n{text}")
+            env.add_error_history_remarks()
+            error_remarks = env.get_remarks()
+            if single_sync_var is None:
                 single_sync_var = env.get_syncv_fail_var()
-                if i == 0 and single_sync_var is not None:
-                    # Do the second round of sync checking
+                if single_sync_var is not None:
+                    # Do the second round of sync checking.
+                    # If this fails to raise, we still raise the original exception.
                     single_sync_idx = env.get_syncv_fail_idx()
-                else:
-                    debug_log.log(
-                        proc_name_with_sizes, "camspork", env.program_with_remarks()
-                    )
-                    raise
+                    runner(single_sync_var, single_sync_idx)
+            debug_log.log(proc_name_with_sizes, "camspork", env.program_with_remarks())
+            raise
+
+    try:
+        runner(None, ())
     except Exception:
         # We want to show something similar to the user's proc, but
         # after mem_analysis so that free is visible. Insert detailed

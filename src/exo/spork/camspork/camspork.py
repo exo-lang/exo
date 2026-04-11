@@ -1361,10 +1361,10 @@ def so_called_temporary_test():
 
                     tmp = b.add_variable("tmp")
                     with b.SeqFor(tmp, 0, K_iters):
-                        b.SyncEnvManageRingBuffer(war[tmp], war, RING, 0, ())
-                        b.SyncEnvManageRingBuffer(war[tmp], raw, RING, 0, ())
-                        b.SyncEnvManageRingBuffer(war[tmp], A_smem, RING, 0, ())
-                        b.SyncEnvManageRingBuffer(war[tmp], B_smem, RING, 0, ())
+                        b.SyncEnvManageRingBuffer(war[tmp], war, 0, RING, ())
+                        b.SyncEnvManageRingBuffer(war[tmp], raw, 0, RING, ())
+                        b.SyncEnvManageRingBuffer(war[tmp], A_smem, 0, RING, ())
+                        b.SyncEnvManageRingBuffer(war[tmp], B_smem, 0, RING, ())
 
                     k_iter = b.add_variable("k_iter")
                     CudaWarps_consumer = b.add_variable("CudaWarps_consumer")
@@ -1467,3 +1467,168 @@ def so_called_temporary_test():
     print(realloc_test)
     env = ProgramEnv(realloc_test)
     env.exec(excut_filename="realloc_excut.json")
+
+
+    @camspork.program
+    def cluster_test(b: camspork.ProgramBuilder):
+      (A_smem, B_smem, C, C_smem, D_rmem, raw, war, L, M, N, K_split, cluster_K, A, B, batch, task_k, task_n, task_m, cta_m, cta_n, CudaWarps_None_None_consumer, wg_m, ms, _ring0_war, _ring1_war, _ring2_war, _ring0_raw, _ring1_raw, _ring2_raw, cg, _ring0_A_smem, _ring1_A_smem, _ring2_A_smem, _ring0_B_smem, _ring1_B_smem, _ring2_B_smem, iter_k, CudaWarps_0_1_producer, cta_m_1, cta_n_1, cta_n_2, cta_m_2, CudaWarps_None_None_consumer_1, cta_m_3, cta_n_3, wg_m_1, ms_1, iter_k_1, CudaWarps_0_1_producer_1, cta_m_4, cta_n_4, cta_n_5, cta_m_5, CudaWarps_None_None_consumer_2, cta_m_6, cta_n_6, wg_m_2, ms_2, cta_m_7, cta_n_7, CudaWarps_None_None_consumer_3, wg_m_3, cta_m_8, cta_n_8, CudaWarps_None_None_consumer_4, wg_m_4, ms_3, w, CudaWarps_None_None_consumer_5, n, m, ) = b.add_variables(
+        ("A_smem", "B_smem", "C", "C_smem", "D_rmem", "raw", "war", "L", "M", "N", "K_split", "cluster_K", "A", "B", "batch", "task_k", "task_n", "task_m", "cta_m", "cta_n", "CudaWarps_None_None_consumer", "wg_m", "ms", "_ring0_war", "_ring1_war", "_ring2_war", "_ring0_raw", "_ring1_raw", "_ring2_raw", "cg", "_ring0_A_smem", "_ring1_A_smem", "_ring2_A_smem", "_ring0_B_smem", "_ring1_B_smem", "_ring2_B_smem", "iter_k", "CudaWarps_0_1_producer", "cta_m_1", "cta_n_1", "cta_n_2", "cta_m_2", "CudaWarps_None_None_consumer_1", "cta_m_3", "cta_n_3", "wg_m_1", "ms_1", "iter_k_1", "CudaWarps_0_1_producer_1", "cta_m_4", "cta_n_4", "cta_n_5", "cta_m_5", "CudaWarps_None_None_consumer_2", "cta_m_6", "cta_n_6", "wg_m_2", "ms_2", "cta_m_7", "cta_n_7", "CudaWarps_None_None_consumer_3", "wg_m_3", "cta_m_8", "cta_n_8", "CudaWarps_None_None_consumer_4", "wg_m_4", "ms_3", "w", "CudaWarps_None_None_consumer_5", "n", "m", ))
+      b.ExpectSyncEnvAlloc(C[L, M, N])
+      b.Fence(514047, 514046, 514046)
+      with b.ParallelBlock(4, 384, ):
+        with b.TasksFor(batch, 0, L):
+          with b.TasksFor(task_k, 0, K_split):
+            with b.TasksFor(task_n, 0, (511 + N) // 512):
+              with b.TasksFor(task_m, 0, (255 + M) // 256):
+                b.SyncEnvAlloc(D_rmem[2, 2, 2, 4, 1, 16, 256], flags=0)
+                with b.ThreadsFor(cta_m, 0, 2, 0, 0, 2):
+                  with b.ThreadsFor(cta_n, 0, 2, 0, 0, 1):
+                    with b.ThreadsFor(CudaWarps_None_None_consumer, 0, 1, 1, 128, 256):
+                      with b.ThreadsFor(wg_m, 0, 2, 1, 0, 128):
+                        with b.SeqFor(ms, 0, 1):
+                          b.SyncEnvAccess(D_rmem[cta_m, cta_n, wg_m, 0, ms, 0, 0], 2048, 2560, flags=b.mutate_flag | b.convergent_flag | b.write_only_flag, extent=[1, 1, 1, 4, 1, 16, 256])
+                b.BarrierEnvAlloc(war[2, 2, 3 + ((63 + cluster_K) // 64)], flags=1)
+                b.SyncEnvAlloc(war[2, 2, 3 + ((63 + cluster_K) // 64)], flags=0)
+                b.Arrive(0, war[0, 0, 0], barrier_multicasts=())
+                b.Arrive(0, war[0, 0, 1], barrier_multicasts=())
+                b.Arrive(0, war[0, 0, 2], barrier_multicasts=())
+                b.Arrive(0, war[0, 1, 0], barrier_multicasts=())
+                b.Arrive(0, war[0, 1, 1], barrier_multicasts=())
+                b.Arrive(0, war[0, 1, 2], barrier_multicasts=())
+                b.Arrive(0, war[1, 0, 0], barrier_multicasts=())
+                b.Arrive(0, war[1, 0, 1], barrier_multicasts=())
+                b.Arrive(0, war[1, 0, 2], barrier_multicasts=())
+                b.Arrive(0, war[1, 1, 0], barrier_multicasts=())
+                b.Arrive(0, war[1, 1, 1], barrier_multicasts=())
+                b.Arrive(0, war[1, 1, 2], barrier_multicasts=())
+                with b.SeqFor(_ring0_war, 0, 2):
+                  with b.SeqFor(_ring1_war, 0, 2):
+                    with b.SeqFor(_ring2_war, 0, 3 + ((63 + cluster_K) // 64)):
+                      b.SyncEnvManageRingBuffer(war[_ring0_war, _ring1_war, _ring2_war], war, 2, 4, barrier_multicasts=())
+                b.BarrierEnvAlloc(raw[2, 2, (63 + cluster_K) // 64], flags=1)
+                b.SyncEnvAlloc(raw[2, 2, (63 + cluster_K) // 64], flags=0)
+                with b.SeqFor(_ring0_raw, 0, 2):
+                  with b.SeqFor(_ring1_raw, 0, 2):
+                    with b.SeqFor(_ring2_raw, 0, (63 + cluster_K) // 64):
+                      b.SyncEnvManageRingBuffer(raw[_ring0_raw, _ring1_raw, _ring2_raw], raw, 2, 4, barrier_multicasts=())
+                b.BarrierEnvAlloc(cg[2, 2, 2], flags=0)
+                b.SyncEnvAlloc(A_smem[2, 2, 3 + ((63 + cluster_K) // 64), 128, 64], flags=0)
+                with b.SeqFor(_ring0_A_smem, 0, 2):
+                  with b.SeqFor(_ring1_A_smem, 0, 2):
+                    with b.SeqFor(_ring2_A_smem, 0, 3 + ((63 + cluster_K) // 64)):
+                      b.SyncEnvManageRingBuffer(war[_ring0_A_smem, _ring1_A_smem, _ring2_A_smem], A_smem, 2, 4, barrier_multicasts=())
+                b.SyncEnvAlloc(B_smem[2, 2, 3 + ((63 + cluster_K) // 64), 256, 64], flags=0)
+                with b.SeqFor(_ring0_B_smem, 0, 2):
+                  with b.SeqFor(_ring1_B_smem, 0, 2):
+                    with b.SeqFor(_ring2_B_smem, 0, 3 + ((63 + cluster_K) // 64)):
+                      b.SyncEnvManageRingBuffer(war[_ring0_B_smem, _ring1_B_smem, _ring2_B_smem], B_smem, 2, 4, barrier_multicasts=())
+                with b.SeqFor(iter_k, 0, 1):
+                  with b.ThreadsFor(CudaWarps_0_1_producer, 0, 1, 1, 0, 32):
+                    with b.ThreadsFor(cta_m_1, 0, 2, 0, 0, 2):
+                      with b.ThreadsFor(cta_n_1, 0, 2, 0, 0, 1):
+                        b.SyncEnvAccess(war[cta_m_1, cta_n_1, iter_k], 16, 16, flags=b.convergent_flag)
+                        b.Await(war[cta_m_1, cta_n_1, iter_k], 16, 6172, N=0)
+                      b.SyncEnvAccess(A_smem[cta_m_1, 0, iter_k, 0, 0], 64, 4160, flags=b.mutate_flag | b.ooo_flag | b.write_only_flag, extent=[1, 2, 1, 128, 64], thread_access_granularity=512, barrier=raw[cta_m_1, 0, iter_k], barrier_multicasts=((False, True, False, ), ))
+                      b.SyncEnvAccess(raw[cta_m_1, 0, iter_k], 16, 16, flags=b.convergent_flag, access_multicasts=((False, True, False, ), ), barrier=raw[cta_m_1, 0, iter_k], barrier_multicasts=((False, True, False, ), ))
+                    with b.DomainReshape(2, 2, 384, ):
+                      with b.ThreadsFor(cta_n_2, 0, 2, 1, 0, 1):
+                        b.SyncEnvAccess(B_smem[0, cta_n_2, iter_k, 0, 0], 64, 4160, flags=b.mutate_flag | b.ooo_flag | b.write_only_flag, extent=[2, 1, 1, 256, 64], thread_access_granularity=512, barrier=raw[0, cta_n_2, iter_k], barrier_multicasts=((True, False, False, ), ))
+                        b.SyncEnvAccess(raw[0, cta_n_2, iter_k], 16, 16, flags=b.convergent_flag, access_multicasts=((True, False, False, ), ), barrier=raw[0, cta_n_2, iter_k], barrier_multicasts=((True, False, False, ), ))
+                        with b.ThreadsFor(cta_m_2, 0, 2, 0, 0, 1):
+                          b.SyncEnvAccess(raw[cta_m_2, cta_n_2, iter_k], 16, 16, flags=0, access_multicasts=((False, True, False, ), (True, False, False, ), ))
+                          b.Arrive(16, raw[cta_m_2, cta_n_2, iter_k], barrier_multicasts=((False, True, False, ), (True, False, False, ), ))
+                  with b.ThreadsFor(CudaWarps_None_None_consumer_1, 0, 1, 1, 128, 256):
+                    with b.ThreadsFor(cta_m_3, 0, 2, 0, 0, 2):
+                      with b.ThreadsFor(cta_n_3, 0, 2, 0, 0, 1):
+                        b.SyncEnvAccess(raw[cta_m_3, cta_n_3, iter_k], 16, 16, flags=b.convergent_flag)
+                        b.Await(raw[cta_m_3, cta_n_3, iter_k], 4124, 6172, N=0)
+                        with b.ThreadsFor(wg_m_1, 0, 2, 1, 0, 128):
+                          b.Fence(772, 768, 768)
+                          with b.SeqFor(ms_1, 0, 1):
+                            b.SyncEnvAccess(D_rmem[cta_m_3, cta_n_3, wg_m_1, 0, ms_1, 0, 0], 512, 2560, flags=b.mutate_flag | b.convergent_flag, extent=[1, 1, 1, 4, 1, 16, 256])
+                            b.SyncEnvAccess(A_smem[cta_m_3, cta_n_3, iter_k, 64 * wg_m_1, 0], 1024, 5120, flags=b.ooo_flag, extent=[1, 1, 1, 64, 64], thread_access_granularity=128)
+                            b.SyncEnvAccess(B_smem[cta_m_3, cta_n_3, iter_k, 0, 0], 1024, 5120, flags=b.ooo_flag, extent=[1, 1, 1, 256, 64], thread_access_granularity=128)
+                          b.Arrive(1792, cg[cta_m_3, cta_n_3, wg_m_1], barrier_multicasts=())
+                          with b.If(iter_k >= 1):
+                            b.Await(cg[cta_m_3, cta_n_3, wg_m_1], 28, 6172, N=1)
+                        b.SyncEnvAccess(war[cta_m_3, cta_n_3, (iter_k + 4) - 1], 16, 16, flags=0, access_multicasts=((False, True, False, ), (True, False, False, ), ))
+                        b.Arrive(28, war[cta_m_3, cta_n_3, (iter_k + 4) - 1], barrier_multicasts=((False, True, False, ), (True, False, False, ), ))
+                with b.SeqFor(iter_k_1, 1, (63 + cluster_K) // 64):
+                  with b.ThreadsFor(CudaWarps_0_1_producer_1, 0, 1, 1, 0, 32):
+                    with b.ThreadsFor(cta_m_4, 0, 2, 0, 0, 2):
+                      with b.ThreadsFor(cta_n_4, 0, 2, 0, 0, 1):
+                        b.SyncEnvAccess(war[cta_m_4, cta_n_4, iter_k_1], 16, 16, flags=b.convergent_flag)
+                        b.Await(war[cta_m_4, cta_n_4, iter_k_1], 16, 6172, N=0)
+                      b.SyncEnvAccess(A_smem[cta_m_4, 0, iter_k_1, 0, 0], 64, 4160, flags=b.mutate_flag | b.ooo_flag | b.write_only_flag, extent=[1, 2, 1, 128, 64], thread_access_granularity=512, barrier=raw[cta_m_4, 0, iter_k_1], barrier_multicasts=((False, True, False, ), ))
+                      b.SyncEnvAccess(raw[cta_m_4, 0, iter_k_1], 16, 16, flags=b.convergent_flag, access_multicasts=((False, True, False, ), ), barrier=raw[cta_m_4, 0, iter_k_1], barrier_multicasts=((False, True, False, ), ))
+                    with b.DomainReshape(2, 2, 384, ):
+                      with b.ThreadsFor(cta_n_5, 0, 2, 1, 0, 1):
+                        b.SyncEnvAccess(B_smem[0, cta_n_5, iter_k_1, 0, 0], 64, 4160, flags=b.mutate_flag | b.ooo_flag | b.write_only_flag, extent=[2, 1, 1, 256, 64], thread_access_granularity=512, barrier=raw[0, cta_n_5, iter_k_1], barrier_multicasts=((True, False, False, ), ))
+                        b.SyncEnvAccess(raw[0, cta_n_5, iter_k_1], 16, 16, flags=b.convergent_flag, access_multicasts=((True, False, False, ), ), barrier=raw[0, cta_n_5, iter_k_1], barrier_multicasts=((True, False, False, ), ))
+                        with b.ThreadsFor(cta_m_5, 0, 2, 0, 0, 1):
+                          b.SyncEnvAccess(raw[cta_m_5, cta_n_5, iter_k_1], 16, 16, flags=0, access_multicasts=((False, True, False, ), (True, False, False, ), ))
+                          b.Arrive(16, raw[cta_m_5, cta_n_5, iter_k_1], barrier_multicasts=((False, True, False, ), (True, False, False, ), ))
+                  with b.ThreadsFor(CudaWarps_None_None_consumer_2, 0, 1, 1, 128, 256):
+                    with b.ThreadsFor(cta_m_6, 0, 2, 0, 0, 2):
+                      with b.ThreadsFor(cta_n_6, 0, 2, 0, 0, 1):
+                        b.SyncEnvAccess(raw[cta_m_6, cta_n_6, iter_k_1], 16, 16, flags=b.convergent_flag)
+                        b.Await(raw[cta_m_6, cta_n_6, iter_k_1], 4124, 6172, N=0)
+                        with b.ThreadsFor(wg_m_2, 0, 2, 1, 0, 128):
+                          b.Fence(772, 768, 768)
+                          with b.SeqFor(ms_2, 0, 1):
+                            b.SyncEnvAccess(D_rmem[cta_m_6, cta_n_6, wg_m_2, 0, ms_2, 0, 0], 512, 2560, flags=b.mutate_flag | b.convergent_flag, extent=[1, 1, 1, 4, 1, 16, 256])
+                            b.SyncEnvAccess(A_smem[cta_m_6, cta_n_6, iter_k_1, 64 * wg_m_2, 0], 1024, 5120, flags=b.ooo_flag, extent=[1, 1, 1, 64, 64], thread_access_granularity=128)
+                            b.SyncEnvAccess(B_smem[cta_m_6, cta_n_6, iter_k_1, 0, 0], 1024, 5120, flags=b.ooo_flag, extent=[1, 1, 1, 256, 64], thread_access_granularity=128)
+                          b.Arrive(1792, cg[cta_m_6, cta_n_6, wg_m_2], barrier_multicasts=())
+                          with b.If(iter_k_1 >= 1):
+                            b.Await(cg[cta_m_6, cta_n_6, wg_m_2], 28, 6172, N=1)
+                        b.SyncEnvAccess(war[cta_m_6, cta_n_6, (iter_k_1 + 4) - 1], 16, 16, flags=0, access_multicasts=((False, True, False, ), (True, False, False, ), ))
+                        b.Arrive(28, war[cta_m_6, cta_n_6, (iter_k_1 + 4) - 1], barrier_multicasts=((False, True, False, ), (True, False, False, ), ))
+                with b.ThreadsFor(cta_m_7, 0, 2, 0, 0, 2):
+                  with b.ThreadsFor(cta_n_7, 0, 2, 0, 0, 1):
+                    with b.ThreadsFor(CudaWarps_None_None_consumer_3, 0, 1, 1, 128, 256):
+                      with b.ThreadsFor(wg_m_3, 0, 2, 1, 0, 128):
+                        b.Await(cg[cta_m_7, cta_n_7, wg_m_3], 28, 6172, N=0)
+                b.BarrierFree(cg)
+                b.Fence(28, 28, 6172)
+                b.DataFree(B_smem)
+                b.DataFree(A_smem)
+                b.SyncEnvAlloc(C_smem[2, 2, 8, 128, 32], flags=0)
+                with b.ThreadsFor(cta_m_8, 0, 2, 0, 0, 2):
+                  with b.ThreadsFor(cta_n_8, 0, 2, 0, 0, 1):
+                    with b.ThreadsFor(CudaWarps_None_None_consumer_4, 0, 1, 1, 128, 256):
+                      with b.ThreadsFor(wg_m_4, 0, 2, 1, 0, 128):
+                        with b.SeqFor(ms_3, 0, 1):
+                          with b.ThreadsFor(w, 0, 4, 1, 0, 32):
+                            b.SyncEnvAccess(C_smem[cta_m_8, cta_n_8, 0, ((16 * w) + (64 * ms_3)) + (64 * wg_m_4), 0], 8, 8, flags=b.mutate_flag | b.write_only_flag, extent=[1, 1, 8, 16, 32])
+                            b.SyncEnvAccess(D_rmem[cta_m_8, cta_n_8, wg_m_4, w, ms_3, 0, 0], 4, 4, flags=b.convergent_flag, extent=[1, 1, 1, 1, 1, 16, 32 * 8])
+                    b.Fence(28, 28, 6172)
+                    with b.ThreadsFor(CudaWarps_None_None_consumer_5, 0, 1, 1, 128, 256):
+                      with b.SeqFor(n, 0, 8):
+                        with b.ThreadsFor(m, 0, 8, 1, 0, 32):
+                          b.SyncEnvAccess(C_smem[cta_m_8, cta_n_8, n, 16 * m, 0], 8, 8, flags=0, extent=[1, 1, 1, 16, 32])
+                b.DataFree(D_rmem)
+                b.Fence(28, 28, 6172)
+                b.SyncEnvFreeShard(C_smem, 8)
+                b.DataFree(C_smem)
+                b.BarrierFree(raw)
+                b.BarrierFree(war)
+                b.JoinThreads()
+      b.JoinThreads()
+      b.Fence(514046, 514046, 514046)
+
+    env = ProgramEnv(cluster_test)
+    L, M, N, K = 2, 600, 800, 400
+    env.alloc_scalar_value("L", L)
+    env.alloc_scalar_value("M", M)
+    env.alloc_scalar_value("N", N)
+    env.alloc_scalar_value("K_split", 1)
+    env.alloc_scalar_value("cluster_K", K)
+    env.alloc_sync("C", L, M, N)
+    # env.exec(excut_filename="cluster_excut.json", filter_name="A_smem", filter_idx=(0, 0, 0, 0, 0))
+    try:
+        env.exec()
+    except Exception:
+        env.add_error_history_remarks()
+        print(env.program_with_remarks())
+    env.set_debug_validation_enable(True)  # defer to later

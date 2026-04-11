@@ -88,8 +88,6 @@ class CollAnalysis(LoopIR_Rewrite):
     _get_sym_mem: Callable[[Sym], Type[MemWin]]
     # Update __slots__ above if you add more.
 
-    # TODO barrier_usage_analysis only needed to check barrier guarding.
-    # Consider making this an optional feature.
     def __init__(
         self,
         mem_analysis: MemoryAnalysis,
@@ -220,11 +218,15 @@ class CollAnalysis(LoopIR_Rewrite):
         elif isinstance(s, LoopIR.Alloc):
             assert issubclass(s.mem, (CudaBasicDeviceVisible, CudaBasicDeviceBarrier))
             native_unit = s.mem.native_unit()
+            barrier_multicasts = ()
+            if s.type.is_barrier():
+                barrier_multicasts = self._barrier_uses[s.name].Arrive.multicasts
             self.distributed_alloc_states[s.name] = DistributedAllocState(
                 s,
                 self._coll_tiling,
                 native_unit,
                 self._coll_env,
+                barrier_multicasts,
             )
         elif isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             mem = self._get_sym_mem(s.name)
