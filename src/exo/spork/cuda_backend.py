@@ -344,7 +344,7 @@ class SubtreeScan(LoopIR_Do):
         self.ctx = ctx
         self.cuda_device_function = cuda_device_function
         self.sync_state_builder = SyncStateBuilder(cuda_device_function.coll_env())
-        self.device_setup_builder = CudaDeviceSetupBuilder()
+        self.device_setup_builder = CudaDeviceSetupBuilder(cuda_device_function)
         self.distributed_alloc_states = ctx.coll_analysis().distributed_alloc_states
         self.codegen_smem = {}
         self.thread_iters = ctx.coll_analysis().thread_iters
@@ -919,9 +919,7 @@ class SubtreeRewrite(LoopIR_Rewrite):
     ):
         fmt_dict = scan.fmt_dict
         self.scan = scan
-        self.device_setup_info = scan.device_setup_builder.make_info(
-            scan.cuda_device_function.clusterDim
-        )
+        self.device_setup_info = scan.device_setup_builder.make_info()
         self.fmt_dict = fmt_dict
         self.distributed_alloc_states = scan.distributed_alloc_states
         self.thread_iters = scan.thread_iters
@@ -935,6 +933,9 @@ class SubtreeRewrite(LoopIR_Rewrite):
         setup = self.device_setup_info
         fmt_dict["smem_bytes"] = setup.smem_bytes
         fmt_dict["device_setup_body"] = "\n".join("  " + ln for ln in setup.setup_lines)
+        fmt_dict["device_shutdown_body"] = "\n".join(
+            "  " + ln for ln in setup.shutdown_lines
+        )
         fmt_dict["device_setup_decls"] = "\n".join(
             "  " + ln for ln in setup.static_decls
         )
@@ -1285,6 +1286,9 @@ struct exo_Cuda{N}_{proc}
   exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={{}});
 
   static __device__ __forceinline__ void
+  exo_deviceShutdown(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={{}});
+
+  static __device__ __forceinline__ void
   exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={{}});
 {deviceTask_decls}}};
 }}  // end inline namespace
@@ -1325,6 +1329,15 @@ exo_CudaInline_{lib_name}::exo_Cuda{N}_{proc}::exo_deviceSetup(
 {{
 {device_setup_body}
 }}
+
+__device__ __forceinline__ void
+exo_CudaInline_{lib_name}::exo_Cuda{N}_{proc}::exo_deviceShutdown(
+    char* exo_smem,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_ExcutThreadLog exo_excutLog)
+{{
+{device_shutdown_body}
+}}
 """
 
 cu_snippet_fmt = """\
@@ -1336,6 +1349,7 @@ exo_deviceFunction{N}_{proc}(__grid_constant__ const struct exo_CudaDeviceArgs{N
   exo_ExcutThreadLog exo_excutLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
   exo_Cuda{N}_{proc}::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
   exo_Cuda{N}_{proc}::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda{N}_{proc}::exo_deviceShutdown(exo_smem, exo_deviceArgs, exo_excutLog);
 }}
 
 void
