@@ -312,6 +312,11 @@ struct SyncvTrivialLogger
     void history_vis_record_error(nodepool::id<VisRecordListNode<K>>, LoggedMissingTlSig)
     {
     }
+
+    template <VisRecordKind K>
+    void history_missing_free_on_arrive(nodepool::id<VisRecordListNode<K>>, nodepool::id<HamsterBarrierState>)
+    {
+    }
 };
 
 struct VisRecordChunkMaxHash
@@ -2198,6 +2203,23 @@ struct SyncvTable
             }
         }
 
+        auto get_hazard_name = [&] (const VisRecord& vis_record, bool checking_previous_mutate)
+        {
+            if (!UpdateRecords) {
+                return "free_missing_sync HAZARD";
+            }
+            if ((vis_record.flags & vis_record_freed_flag)) {
+                return "use_after_free HAZARD";
+            }
+            if ((vis_record.flags & vis_record_before_alloc_flag)) {
+                return "use_before_alloc HAZARD";
+            }
+            if (IsMutate) {
+                return checking_previous_mutate ? "WAW HAZARD" : "WAR HAZARD";
+            }
+            return "RAW HAZARD";
+        };
+
         auto check = [&] (node_id id, size_t linear_index)
         {
             if (!id) {
@@ -2223,7 +2245,7 @@ struct SyncvTable
                         is_convergent, &fail_tl_sig);
                 if (!visible) {
                     logger.history_vis_record_error(node.vis_record_id, fail_tl_sig);
-                    throw SyncvCheckFail{IsMutate ? "WAW HAZARD" : "RAW HAZARD", linear_index};
+                    throw SyncvCheckFail{get_hazard_name(mutate_record, true), linear_index};
                 }
                 mutate_id = node.camspork_next_id;
             }
@@ -2240,7 +2262,7 @@ struct SyncvTable
                             is_convergent, &fail_tl_sig);
                     if (!visible) {
                         logger.history_vis_record_error(node.vis_record_id, fail_tl_sig);
-                        throw SyncvCheckFail{"WAR HAZARD", linear_index};
+                        throw SyncvCheckFail{get_hazard_name(read_record, false), linear_index};
                     }
                     read_id = node.camspork_next_id;
                 }
@@ -2448,6 +2470,44 @@ struct SyncvTable
         logger.excut_update_assignment_record_ids(new_record_id);
 
         decref(new_record_id);
+    }
+
+    template <typename Logger>
+    void on_check_free_on_arrive(AssignmentRecordWindow input, Logger&& logger)
+    {
+        Set<nodepool::id<AssignmentRecord>> seen_id_set;
+
+        auto check_vis_record_list = [&] (nodepool::id<DefaultAssignmentRecordVisNode> id, size_t linear_index)
+        {
+            while (id) {
+                DefaultAssignmentRecordVisNode& list_node = get(id);
+                id = list_node.camspork_next_id;
+                const VisRecord& vis_record = remove_forwarding(&list_node.vis_record_id);
+                if (vis_record.free_on_arrive && !(vis_record.flags & vis_record_freed_flag)) {
+                    // Logs memoized (base state) ID.
+                    logger.history_vis_record_checked(list_node.vis_record_id, true);
+                    logger.history_missing_free_on_arrive(list_node.vis_record_id, vis_record.free_on_arrive);
+                    throw SyncvCheckFail("free_missing_arrive HAZARD", linear_index);
+                }
+            }
+        };
+
+        cuboid_to_intervals<size_t>(
+            input.begin_outer_extent, input.end_outer_extent,
+            input.begin_offset, input.end_offset,
+            input.begin_inner_extent, input.end_inner_extent,
+            [&] (size_t lo, size_t hi) {
+                for (size_t i = lo; i < hi; ++i) {
+                    nodepool::id<AssignmentRecord> id{input.base[i].node_id};
+                    if (id && !seen_id_set.count(id)) {
+                        const AssignmentRecord& record = get(id);
+                        check_vis_record_list(record.mutate_vis_records_head_id, i);
+                        check_vis_record_list(record.read_vis_records_head_id, i);
+                    }
+                    seen_id_set.insert(id);
+                }
+            }
+        );
     }
 
     void clear_visibility(size_t N, assignment_record_id* p_assignment_record_ids)
@@ -3224,6 +3284,17 @@ struct SyncvRealLogger
             p_history_log->log_syncv_vis_record_error(history_log_vis_record_id(id), fail_tl_sig);
         }
     }
+
+    template <VisRecordKind K>
+    void history_missing_free_on_arrive(
+        nodepool::id<VisRecordListNode<K>> vis_record_id,
+        nodepool::id<HamsterBarrierState> free_on_arrive_id)
+    {
+        if (p_history_log) {
+            barrier_id free_on_arrive{free_on_arrive_id.id_bits};
+            p_history_log->log_syncv_missing_free_on_arrive(history_log_vis_record_id(vis_record_id), free_on_arrive);
+        }
+    }
   private:
     template <VisRecordKind K>
     LoggedVisRecordData _get_history_vis_record_data(SyncvTable& env, nodepool::id<VisRecordListNode<K>> node_id)
@@ -3407,6 +3478,20 @@ void set_managed_ring_buffer_barriers(
     INTERFACE_PROLOGUE(table)
     table->set_managed_ring_buffer_barriers(input, alloc_on_await_count, alloc_on_await_barriers, free_on_arrive,
             SyncvRealLogger(log));
+    INTERFACE_EPILOGUE(table)
+}
+
+void on_check_free_on_arrive(SyncvTable* table, AssignmentRecordWindow input, decltype(nullptr))
+{
+    INTERFACE_PROLOGUE(table)
+    table->on_check_free_on_arrive(input, SyncvTrivialLogger{});
+    INTERFACE_EPILOGUE(table)
+}
+
+void on_check_free_on_arrive(SyncvTable* table, AssignmentRecordWindow input, const SyncvLogRequest& log)
+{
+    INTERFACE_PROLOGUE(table)
+    table->on_check_free_on_arrive(input, SyncvRealLogger(log));
     INTERFACE_EPILOGUE(table)
 }
 

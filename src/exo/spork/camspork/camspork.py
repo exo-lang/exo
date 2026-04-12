@@ -291,6 +291,10 @@ _add_SyncEnvManageRingBuffer = lib.camspork_add_SyncEnvManageRingBuffer
 _add_SyncEnvManageRingBuffer.restype = StmtRef
 _add_SyncEnvManageRingBuffer.argtypes = (c_void_p, Varname, Varname, c_uint32, c_uint32, c_uint32, ptr_ArriveIdx)
 
+_add_SyncEnvFreeManagedRingBuffer = lib.camspork_add_SyncEnvFreeManagedRingBuffer
+_add_SyncEnvFreeManagedRingBuffer.restype = StmtRef
+_add_SyncEnvFreeManagedRingBuffer.argtypes = (c_void_p, Varname);
+
 _add_BarrierEnvAlloc = lib.camspork_add_BarrierEnvAlloc
 _add_BarrierEnvAlloc.restype = StmtRef
 _add_BarrierEnvAlloc.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c_uint32)
@@ -878,6 +882,11 @@ class ProgramBuilder:
             arrive_idx,
         )
         return self.check_stmt(srcinfo, stmt_id)
+
+    def SyncEnvFreeManagedRingBuffer(self, name: Varname, *, srcinfo=None):
+        return self.check_stmt(
+            srcinfo, _add_SyncEnvFreeManagedRingBuffer(self._builder, name)
+        )
 
     def BarrierEnvAlloc(
         self, e: Varname | BuilderIndexExpr, *, flags=0, srcinfo=None

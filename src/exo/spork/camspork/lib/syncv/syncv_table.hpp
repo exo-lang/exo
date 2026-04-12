@@ -189,6 +189,8 @@ void set_managed_ring_buffer_barriers(
         const barrier_id* alloc_on_await_barriers,
         barrier_id free_on_arrive,
         const SyncvLogRequest&);
+void on_check_free_on_arrive(SyncvTable*, AssignmentRecordWindow, decltype(nullptr) = nullptr);
+void on_check_free_on_arrive(SyncvTable*, AssignmentRecordWindow, const SyncvLogRequest&);
 
 void clear_visibility(SyncvTable* table, size_t N, assignment_record_id* array);
 void alloc_barriers(SyncvTable* table, size_t N, barrier_id* barriers, uint32_t flags);

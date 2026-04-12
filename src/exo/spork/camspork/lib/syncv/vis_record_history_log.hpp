@@ -98,6 +98,7 @@ class VisRecordHistoryLog
     stmt_id_bits_t error_stmt_id_bits = 0;
     vis_record_version_t error_vis_record_version{};
     LoggedMissingTlSig error_tl_sig{};
+    barrier_id error_missing_free_on_arrive{};
     ThreadCuboid error_thread_cuboid{};
 
     // Last read VisRecord and mutate VisRecord that was checked, i.e.,
@@ -134,6 +135,7 @@ class VisRecordHistoryLog
             vis_record_id_t old_id, vis_record_id_t new_id, LoggedVisRecordData new_data, bool debug_printf);
     void log_syncv_vis_record_checked(vis_record_id_t id, bool is_mutate);
     void log_syncv_vis_record_error(vis_record_id_t id, LoggedMissingTlSig fail_tl_sig);
+    void log_syncv_missing_free_on_arrive(vis_record_id_t id, barrier_id free_on_arrive);
 
     // ******************************************************************************************
     // Insert remarks tracking the history of a certain VisRecord.

@@ -500,7 +500,7 @@ class CamsporkDo(LoopIR_Do):
                         srcinfo=s.srcinfo,
                     )
                 else:
-                    warn("TODO Hamster check free of managed ring buffer")
+                    b.SyncEnvFreeManagedRingBuffer(b[s.name], srcinfo=s.srcinfo)
 
             # Must be after SyncEnvFreeShards,
             # since this deletes the SyncEnv data for the variable.

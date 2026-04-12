@@ -242,6 +242,11 @@ StmtRef ProgramBuilder::add_SyncEnvManageRingBuffer(
     return append_impl(SyncEnvManageRingBuffer{guard, buffer, managed_ring_buffer_dim_idx, buffer_depth}, num_idx, idx);
 }
 
+StmtRef ProgramBuilder::add_SyncEnvFreeManagedRingBuffer(Varname name)
+{
+    return append_impl(SyncEnvFreeManagedRingBuffer{name});
+}
+
 StmtRef ProgramBuilder::push_If(ExprRef cond)
 {
     return push_impl(If{cond, {}, {}});
@@ -592,6 +597,14 @@ CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_SyncEnvManageRingBuffer(camspor
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_SyncEnvManageRingBuffer(guard, buffer, managed_ring_buffer_idx, buffer_depth, num_idx, idx);
+    CAMSPORK_API_EPILOGUE(camspork::StmtRef())
+}
+
+CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_SyncEnvFreeManagedRingBuffer(camspork::ProgramBuilder* p_builder,
+    camspork_RawVarname name)
+{
+    CAMSPORK_API_PROLOGUE
+    return p_builder->add_SyncEnvFreeManagedRingBuffer(name);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 

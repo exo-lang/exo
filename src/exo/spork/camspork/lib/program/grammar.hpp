@@ -555,7 +555,7 @@ struct stmt
 {
 };
 
-static constexpr uint32_t NumStmtTypes = 26;
+static constexpr uint32_t NumStmtTypes = 27;
 
 using StmtRef = NodeRef<stmt, NumStmtTypes>;
 
@@ -886,8 +886,21 @@ struct stmt<25>
     CAMSPORK_NODE_VLA_MEMBER(ArriveIdx)
 };
 
+// SyncEnvFreeManagedRingBuffer(Varname name)
+//
+// Check that all VisRecord that had free_on_arrive set (by SyncEnvManageRingBuffer)
+// have correctly been freed. This won't occur for VisRecord(s) that failed to
+// sync-with the needed Arrive.
+using SyncEnvFreeManagedRingBuffer = stmt<26>;
+template<>
+struct stmt<26>
+{
+    Varname name;
+    CAMSPORK_NODE_NO_VLA()
+};
+
 // Update this if you add more stmt node types.
-static_assert(NumStmtTypes == 26);
+static_assert(NumStmtTypes == 27);
 
 
 // ******************************************************************************************

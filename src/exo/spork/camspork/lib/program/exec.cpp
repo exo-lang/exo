@@ -877,6 +877,60 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         );
     }
 
+    void exec_impl(const SyncEnvFreeManagedRingBuffer* node)
+    {
+        if (!single_position_filter.accepts_name(node->name)) {
+            return;
+        }
+
+        VarSlotEntry<assignment_record_id>& slot = env.sync_slot(node->name);
+        const auto& alloc_extent = slot.extent();
+        const size_t alloc_dim = alloc_extent.size();
+        std::unique_ptr<extent_t[]> p_data(new extent_t[2 * alloc_dim]);
+        extent_t* p_offset = &p_data[0];
+        extent_t* p_inner_extent = &p_data[alloc_dim];
+        for (size_t i = 0; i < alloc_dim; ++i) {
+            p_offset[i] = 0;
+            p_inner_extent[i] = alloc_extent[i];
+        }
+
+        // Prepare input window.
+        AssignmentRecordWindow input;
+        input.base = slot.data();
+        input.begin_outer_extent = &alloc_extent[0];
+        input.end_outer_extent = &alloc_extent[alloc_dim];
+        input.begin_offset = &p_offset[0];
+        input.end_offset = &p_offset[alloc_dim];
+        input.begin_inner_extent = &p_inner_extent[0];
+        input.end_inner_extent = &p_inner_extent[alloc_dim];
+
+        // Prepare debug logger if applicable.
+        const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
+        auto logger = prepare_logger(node, thread_cuboid);
+
+        try {
+            if (!filter_single_position_input(node->name, slot, &input)) {
+                // Skip if instructed to by SinglePositionFilter.
+            }
+            else {
+                on_check_free_on_arrive(env.p_syncv_table.get(), input, logger);
+            }
+        }
+        catch (const SyncvCheckFail& exc) {
+            // Unlike SyncEnvAccessNode, we wrap the error message with free(...)
+            env._syncv_fail_var = node->name;
+            env._syncv_fail_idx = slot.idx_from_linear(exc.linear_index_in_input());
+            std::stringstream s;
+            s << exc.what() << " @ free(" << env.str_name(node->name);
+            print_idx_helper(s, env._syncv_fail_idx);
+            s << ")";
+            env.add_remark(env.stmt_ref_from_ptr(node), s.str());
+            added_error_remark = true;
+            throw;
+        }
+        env.maybe_syncv_debug_validate();
+    }
+
     void exec_impl(const BarrierEnvAlloc* node)
     {
         VarSlotEntry<barrier_id>& slot = env.barrier_slot(node->name);
