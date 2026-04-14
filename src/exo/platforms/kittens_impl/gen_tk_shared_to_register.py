@@ -37,6 +37,7 @@ from .tk_shared_to_register_impl import (
     make_tk_load_rs_base,
     make_tk_store_rs_base,
     cuda_tk_rs_instr_advice_impl,
+    CudaTkRsInstrAdvice,
 )
 
 _load_rs_instr_dict = {}
@@ -50,7 +51,7 @@ def cuda_tk_load_rs_advice(
     dst: ScalarInfo,
     src: ScalarInfo,
     swizzle: int
-):
+) -> CudaTkRsInstrAdvice:
     return cuda_tk_rs_instr_advice_impl(
         size0,
         size1,
@@ -67,7 +68,7 @@ def cuda_tk_store_rs_advice(
     dst: ScalarInfo,
     src: ScalarInfo,
     swizzle: int
-):
+) -> CudaTkRsInstrAdvice:
     return cuda_tk_rs_instr_advice_impl(
         size0,
         size1,
@@ -80,6 +81,7 @@ def cuda_tk_store_rs_advice(
 
 __all__.append("cuda_tk_load_rs_advice")
 __all__.append("cuda_tk_store_rs_advice")
+__all__.append("CudaTkRsInstrAdvice")
 
 ''')
 
