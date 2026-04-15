@@ -405,9 +405,9 @@ def handwrite_coop_epilogue(config: GemmConfig):
 
     M_wg_tiles = perfect_div(cta_M, 128)
     smem_box_C = config.make_smem_box_C()
+    enable_split_k = bool(config.enable_split_k)
 
     assert config.C_major == "row", "not supported"
-    assert not config.enable_split_k
     assert not config.ping_pong
 
     # Helper for staging RMEM into SMEM.
@@ -451,17 +451,30 @@ def handwrite_coop_epilogue(config: GemmConfig):
                 Fence(cuda_in_order, cuda_generic_and_async_proxy)
                 with CudaWarps(3, 4, name="producer"):
                     for ns in seq(0, outer_N):
-                        Sm90_tma_store_2d(
-                            C_win[
-                                cta_M * cta_m :
-                                cta_M * cta_m + cta_M,
-                                cta_N * cta_n + ns * inner_N :
-                                cta_N * cta_n + ns * inner_N + inner_N,
-                            ],
-                            C_smem[cta_m, cta_n, ns, :, :],
-                            dst=C_type, src=D_type, size0=cta_M, size1=inner_N,
-                            smem_box=smem_box_C, swizzle=128,
-                        )
+                        if enable_split_k:
+                            Sm90_tma_reduce_add_2d(
+                                C_win[
+                                    cta_M * cta_m :
+                                    cta_M * cta_m + cta_M,
+                                    cta_N * cta_n + ns * inner_N :
+                                    cta_N * cta_n + ns * inner_N + inner_N,
+                                ],
+                                C_smem[cta_m, cta_n, ns, :, :],
+                                dst=C_type, src=D_type, size0=cta_M, size1=inner_N,
+                                smem_box=smem_box_C, swizzle=128,
+                            )
+                        else:
+                            Sm90_tma_store_2d(
+                                C_win[
+                                    cta_M * cta_m :
+                                    cta_M * cta_m + cta_M,
+                                    cta_N * cta_n + ns * inner_N :
+                                    cta_N * cta_n + ns * inner_N + inner_N,
+                                ],
+                                C_smem[cta_m, cta_n, ns, :, :],
+                                dst=C_type, src=D_type, size0=cta_M, size1=inner_N,
+                                smem_box=smem_box_C, swizzle=128,
+                            )
                         tma_cg: barrier @ Sm90_TmaCommitGroup
                         Arrive(tma_to_gmem_async) >> tma_cg
                         Await(tma_cg, cuda_in_order, 0)
@@ -487,6 +500,7 @@ def handwrite_gemm(config: GemmConfig, sporkbench_cases: Optional[list] = None):
     smem_box_A = config.make_smem_box_A()
     smem_box_B = config.make_smem_box_B()
     smem_box_C = config.make_smem_box_C()
+    enable_split_k = bool(config.enable_split_k)
 
     # Each warp stores (16 x cta_N) tiles.
     D_tile_mem = Sm90_TkRmemTileD(cta_N)
@@ -522,6 +536,9 @@ def handwrite_gemm(config: GemmConfig, sporkbench_cases: Optional[list] = None):
         A_tensorMap = A[:,:,:,:] @ Sm90_tensorMap(swizzle, *smem_box_A)
         B_tensorMap = B[:,:,:,:] @ Sm90_tensorMap(swizzle, *smem_box_B)
         C_tensorMap = C[:,:,:] @ Sm90_tensorMap(swizzle, *smem_box_C)
+
+        if enable_split_k:
+            cudaMemsetAsync0_3d(L, M, N, C[:, :, :], dst=C_type)
 
         with CudaDeviceFunction(
             clusterDim=ncta_M * ncta_N,
