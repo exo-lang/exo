@@ -1227,11 +1227,11 @@ struct SyncvTable
         // Inspect VisRecord objects.
         uint64_t debug_hash = hash_lo;
         for (; chunk_index < vis_record_table.size(); chunk_index++) {
-            VisRecordChunk<K>& chunk = vis_record_table[chunk_index];
+            VisRecordChunk<K>* p_chunk = &vis_record_table[chunk_index];
             nodepool::id<VisRecordListNode<K>> return_id{};
 
-            for (; intra_chunk_index < chunk.nodes.size(); intra_chunk_index++) {
-                nodepool::id<VisRecordListNode<K>> cur_id = chunk.nodes[intra_chunk_index];
+            for (; intra_chunk_index < p_chunk->nodes.size(); intra_chunk_index++) {
+                nodepool::id<VisRecordListNode<K>> cur_id = p_chunk->nodes[intra_chunk_index];
                 const VisRecordListNode<K>& cur_node = get(cur_id);
                 CAMSPORK_REQUIRE(!cur_node.is_forwarded(), "Forwarded VisRecord should not be memoized?");
 
@@ -1242,28 +1242,29 @@ struct SyncvTable
                 // If memoizing, insert the new VisRecord here.
                 if (cur_node.memoize_hash_bits > hash_hi) {
                     if constexpr (memoize_action == MemoizeAction::MemoizeOrForward) {
-                        chunk.nodes.insert(chunk.nodes.begin() + intra_chunk_index, command.node_id);
+                        p_chunk->nodes.insert(p_chunk->nodes.begin() + intra_chunk_index, command.node_id);
                         return_id = command.node_id;
-                        if (chunk.nodes.size() > max_chunk_size) {
+                        if (p_chunk->nodes.size() > max_chunk_size) {
                             // Split the chunk in half if it's too big.
-                            const size_t halfway = chunk.nodes.size() / 2;
+                            const size_t halfway = p_chunk->nodes.size() / 2;
 
                             if (false) {
                                 fprintf(stderr, "Split chunk %lu [0, %lu, %lu]\n",
-                                    chunk_index, halfway, chunk.nodes.size());
+                                    chunk_index, halfway, p_chunk->nodes.size());
                             }
 
                             VisRecordChunk<K> new_chunk;
                             new_chunk.nodes = std::vector<nodepool::id<VisRecordListNode<K> > >(
-                                    chunk.nodes.begin() + halfway, chunk.nodes.end());
-                            chunk.nodes.resize(halfway);
+                                    p_chunk->nodes.begin() + halfway, p_chunk->nodes.end());
+                            p_chunk->nodes.resize(halfway);
 
                             this->update_hash(new_chunk);
-                            this->update_hash(chunk);
+                            this->update_hash(*p_chunk);
 
                             // !!! Caution iterator invalidation !!!
-                            // chunk is not usable after this.
+                            // p_chunk is not usable after this.
                             vis_record_table.insert(vis_record_table.begin() + chunk_index + 1, std::move(new_chunk));
+                            p_chunk = nullptr;
 
                             // Splitting special case, don't go to finalize_chunk_edit.
                             return return_id;
@@ -1280,7 +1281,7 @@ struct SyncvTable
                 }
                 else if constexpr (memoize_action == MemoizeAction::Remove) {
                     if (equal(p_command_node->base_data, cur_node.base_data)) {
-                        chunk.nodes.erase(chunk.nodes.begin() + intra_chunk_index);
+                        p_chunk->nodes.erase(p_chunk->nodes.begin() + intra_chunk_index);
                         return_id = cur_id;
                         goto finalize_chunk_edit;
                     }
@@ -1322,7 +1323,7 @@ struct SyncvTable
                         if (changed) {
                             // Remove from memoization and add to modified_vis_records.
                             // This steals the incref from before.
-                            chunk.nodes.erase(chunk.nodes.begin() + intra_chunk_index);
+                            p_chunk->nodes.erase(p_chunk->nodes.begin() + intra_chunk_index);
                             modified_vis_records.push_back(cur_id);
                             intra_chunk_index--;
                         }
@@ -1351,7 +1352,7 @@ struct SyncvTable
             // Other code paths go here only just before returning the result.
           finalize_chunk_edit:
             // Remove empty chunks
-            if (memoize_action != MemoizeAction::Find && chunk.nodes.empty()) {
+            if (memoize_action != MemoizeAction::Find && p_chunk->nodes.empty()) {
                 // fprintf(stderr, "Removed empty chunk\n");
                 vis_record_table.erase(vis_record_table.begin() + chunk_index);
                 chunk_index--;
@@ -1359,7 +1360,7 @@ struct SyncvTable
             // Update hash of chunks
             else {
                 if (memoize_action != MemoizeAction::Find) {
-                    this->update_hash(chunk);
+                    this->update_hash(*p_chunk);
                 }
             }
             if constexpr (memoize_action != MemoizeAction::EditAll) {
