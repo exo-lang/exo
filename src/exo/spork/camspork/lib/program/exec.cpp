@@ -824,35 +824,11 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         env.sync_slot(node->name).clear_sync_env(env.p_syncv_table.get());
     }
 
-    struct BodyExecImpl
-    {
-        ProgramExec<AllowLog>& program_exec;
-        uint32_t stmts_left;
-        const StmtRef* p_stmts;
-
-        template <typename Stmt>
-        void operator() (const Stmt* node)
-        {
-            program_exec(node);
-            stmts_left--;
-            p_stmts++;
-            if (stmts_left <= 0) {
-                return;
-            }
-            // Tail call to execute next stmt.
-            // Since this is per-Stmt type, the branch predictor may learn correlations
-            // of what the next statement type is with respect to this statement type.
-            p_stmts->dispatch(*this, program_exec.buffer_size, program_exec.p_buffer);
-        }
-    };
-
     void exec_impl(const StmtBody* node)
     {
         uint32_t num_stmts = node->camspork_vla_size;
-        if (num_stmts > 0) {
-            const StmtRef* p_stmts = &node_vla_get(node, 0);
-            BodyExecImpl impl{*this, num_stmts, p_stmts};
-            p_stmts->dispatch(impl, buffer_size, p_buffer);
+        for (uint32_t i = 0; i < num_stmts; ++i) {
+            exec(node_vla_get(node, i));
         }
     }
 
