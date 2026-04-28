@@ -18,6 +18,8 @@ BinOpNames::BinOpNames()
     names[static_cast<uint32_t>(binop::Geq)] = ">=";
     names[static_cast<uint32_t>(binop::Eq)] = "==";
     names[static_cast<uint32_t>(binop::Neq)] = "!=";
+    names[static_cast<uint32_t>(binop::Or)] = "or";
+    names[static_cast<uint32_t>(binop::And)] = "and";
 }
 
 const BinOpNames binop_names;
@@ -37,12 +39,16 @@ BinOpTable::BinOpTable()
     entries_by_char['>'][1] = BinOpTableEntry{'=', binop::Geq};
     entries_by_char['='][1] = BinOpTableEntry{'=', binop::Eq};
     entries_by_char['!'][1] = BinOpTableEntry{'=', binop::Neq};
+    entries_by_char['|'][1] = BinOpTableEntry{'|', binop::Or};
+    entries_by_char['o'][1] = BinOpTableEntry{'r', binop::Or};
+    entries_by_char['&'][1] = BinOpTableEntry{'&', binop::And};
+    // "and" has to be treated special, since it's 3 characters.
 }
 
 binop BinOpTable::get(const char* p_str) const
 {
     uint8_t first_char = uint8_t(p_str[0]);
-    // String length must be 1 or 2 to match anything.
+    // String length must be 1 or 2 to match anything (or "and" special case).
     if (first_char != 0 && (p_str[1] == 0 || p_str[2] == 0)) {
         int second_char = int(uint8_t(p_str[1]));
         for (BinOpTableEntry entry : entries_by_char[first_char]) {
@@ -50,6 +56,9 @@ binop BinOpTable::get(const char* p_str) const
                 return entry.op;
             }
         }
+    }
+    if (0 == strcmp(p_str, "and")) {
+        return binop::And;
     }
     throw std::runtime_error(std::string("BinOpTable::get, unknown: \"") + p_str + "\"");
 }

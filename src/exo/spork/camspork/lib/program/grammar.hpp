@@ -61,11 +61,13 @@ enum class binop : uint32_t
     Geq,
     Eq,
     Neq,
+    And,
+    Or,
 };
 
 class BinOpNames
 {
-    static constexpr uint32_t _size = 13;
+    static constexpr uint32_t _size = 15;
     const char* names[_size];
   public:
     BinOpNames();

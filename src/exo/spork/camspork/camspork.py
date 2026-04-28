@@ -68,10 +68,10 @@ class BuilderExpr:
     def __neg__(self):
         return BuilderUSub(self)
 
-    # FOOTGUN: we don't overload == and !=
+    # FOOTGUN: we don't overload ==, !=, or, and
     # because it's too easy for that to mean something else
     # i.e. resolve to literal bool.
-    # See ProgramBuilder.Eq and ProgramBuilder.Neq
+    # See ProgramBuilder.Eq, ProgramBuilder.Neq, ProgramBuilder.And, ProgramBuilder.Or
 
 
 class CamsporkError(ValueError):
@@ -364,6 +364,8 @@ binop_Greater = check_return(_binop_from_str(b">"))
 binop_Geq = check_return(_binop_from_str(b">="))
 binop_Eq = check_return(_binop_from_str(b"=="))
 binop_Neq = check_return(_binop_from_str(b"!="))
+binop_Or = check_return(_binop_from_str(b"or"))
+binop_And = check_return(_binop_from_str(b"and"))
 
 
 _new_ProgramEnv = lib.camspork_new_ProgramEnv
@@ -678,6 +680,16 @@ class ProgramBuilder:
     def Neq(a, b):
         check = BuilderExpr.typecheck
         return BuilderBinOp(binop_Neq, check(a), check(b))
+
+    @staticmethod
+    def And(a, b):
+        check = BuilderExpr.typecheck
+        return BuilderBinOp(binop_And, check(a), check(b))
+
+    @staticmethod
+    def Or(a, b):
+        check = BuilderExpr.typecheck
+        return BuilderBinOp(binop_Or, check(a), check(b))
 
     def check_stmt(self, srcinfo, s: StmtRef):
         check_return(s)
@@ -1478,19 +1490,37 @@ def so_called_temporary_test():
     env.exec(excut_filename="realloc_excut.json")
 
 
+    @camspork.program
+    def logic_test(b: ProgramBuilder):
+        a0 = b.add_variable("a0")
+        a1 = b.add_variable("a1")
+        a2 = b.add_variable("a2")
+        a3 = b.add_variable("a3")
+        or_out = b.add_variable("or_out")
+        and_out = b.add_variable("and_out")
 
-    env = ProgramEnv(cluster_test)
-    L, M, N, K = 2, 600, 800, 400
-    env.alloc_scalar_value("L", L)
-    env.alloc_scalar_value("M", M)
-    env.alloc_scalar_value("N", N)
-    env.alloc_scalar_value("K_split", 1)
-    env.alloc_scalar_value("cluster_K", K)
-    env.alloc_sync("C", L, M, N)
-    # env.exec(excut_filename="cluster_excut.json", filter_name="A_smem", filter_idx=(0, 0, 0, 0, 0))
-    try:
+        b.MutateValue(or_out, "=", 0)
+        b.MutateValue(and_out, "=", 0)
+        with b.If(b.Or(a0 > a1, a2 >= a3)):
+            b.MutateValue(or_out, "=", 8)
+        with b.If(b.And(a0 < a1, a2 <= a3)):
+            b.MutateValue(and_out, "=", 1337)
+
+    print(logic_test)
+    for i in range(9):
+        env = ProgramEnv(logic_test)
+        a0 = 20
+        a2 = -10
+        a1 = a0 - 1 + i // 3
+        a3 = a2 - 1 + i % 3
+        env.alloc_scalar_value("or_out", 0xDEAD)
+        env.alloc_scalar_value("and_out", 0xDEAD)
+        env.alloc_scalar_value("a0", a0)
+        env.alloc_scalar_value("a1", a1)
+        env.alloc_scalar_value("a2", a2)
+        env.alloc_scalar_value("a3", a3)
         env.exec()
-    except Exception:
-        env.add_error_history_remarks()
-        print(env.program_with_remarks())
-    env.set_debug_validation_enable(True)  # defer to later
+        or_out = env.read_value("or_out")
+        and_out = env.read_value("and_out")
+        assert or_out == (8 if (a0 > a1 or a2 >= a3) else 0)
+        assert and_out == (1337 if (a0 < a1 and a2 <= a3) else 0)
