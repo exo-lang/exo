@@ -1045,8 +1045,13 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
             return lhs == rhs;
           case binop::Neq:
             return lhs != rhs;
+          case binop::Or:
+            return lhs || rhs;
+          case binop::And:
+            return lhs && rhs;
         }
-        return 0;  // XXX should do something
+        CAMSPORK_REQUIRE_CMP(static_cast<int>(op), != , static_cast<int>(op), "Unknown binop enum");
+        return 0;
     }
 
     // ******************************************************************************************
