@@ -151,12 +151,24 @@ class CamsporkDo(LoopIR_Do):
             self._envtyp[nm] = a.type
             if a.type.is_numeric():
                 assert self._mem_env[nm] == a.mem
-            if nm in sync_syms:
+            if self.want_sync(nm):
                 am_array = self.comp_index_expr(nm, a.type.shape(), instr_tl)
                 b.ExpectSyncEnvAlloc(am_array, srcinfo=a.srcinfo)
 
         self.do_stmts(self.proc.body)
         assert self._saw_free or not self._saw_alloc, "Need MemAnalysis before"
+
+    def want_value(self, nm: Sym):
+        assert isinstance(nm, Sym)
+        set = self._value_syms
+        typ = self._envtyp[nm]
+        return nm in set or (isinstance(typ, LoopIR.WindowType) and typ.src_buf in set)
+
+    def want_sync(self, nm: Sym):
+        assert isinstance(nm, Sym)
+        set = self._sync_syms
+        typ = self._envtyp[nm]
+        return nm in set or (isinstance(typ, LoopIR.WindowType) and typ.src_buf in set)
 
     def comp_qual_tl(self, node: LoopIR.expr | LoopIR.stmt, instr_tl: Instr_tl):
         """Get initial Qual_tl, initial Qual_tl as bit, ext Qual_tl as bits.
@@ -167,8 +179,14 @@ class CamsporkDo(LoopIR_Do):
 
         """
         nm = node.name
-        mem = self._mem_env[nm]
-        assert not issubclass(mem, SpecialWindow)
+        typ = self._envtyp[nm]
+        mem = self._mem_env[typ.src_buf if isinstance(typ, LoopIR.WindowType) else nm]
+        if issubclass(mem, SpecialWindow):
+            # Fallback.
+            # We normally use the underlying memory type (because we rewrite
+            # window indexing to index the underlying tensor) but this is
+            # not possible when the SpecialWindow was passed as a proc parameter.
+            mem = mem.source_memory_type()
         try:
             q = mem.qual_tl_dict[instr_tl]
         except KeyError:
@@ -188,8 +206,8 @@ class CamsporkDo(LoopIR_Do):
 
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             super().do_s(s)
-            want_value = s.name in self._value_syms
-            want_sync = s.name in self._sync_syms
+            want_value = self.want_value(s.name)
+            want_sync = self.want_sync(s.name)
             am_rhs = self.comp_e(s.rhs, want_value, instr_tl)
             if want_sync or want_value:
                 am_dst = self.comp_index_expr(s.name, s.idx, instr_tl)
@@ -221,7 +239,7 @@ class CamsporkDo(LoopIR_Do):
                 home = s.home_barrier_expr()
                 multicasts = s.multicasts()
                 am_home_barrier = self.comp_index_expr(home.name, home.idx, instr_tl)
-                if home.name in self._sync_syms:
+                if self.want_sync(home.name):
                     # Model as "read" since concurrent access is allowed
                     mem = self._mem_env[home.name]
                     qual_tl = mem.arrive_qual_tl(L1)
@@ -246,7 +264,7 @@ class CamsporkDo(LoopIR_Do):
             elif sync_type.is_await():
                 home = s.home_barrier_expr()
                 am_home_barrier = self.comp_index_expr(home.name, home.idx, instr_tl)
-                if home.name in self._sync_syms:
+                if self.want_sync(home.name):
                     mem = self._mem_env[home.name]
                     q_bit = mem.await_qual_tl(L2).as_bit()
                     # Model as "read" since concurrent access is allowed
@@ -315,7 +333,8 @@ class CamsporkDo(LoopIR_Do):
                     b.begin_orelse()
                     self.do_stmts(s.orelse)
         elif isinstance(s, LoopIR.For):
-            if s.iter not in self._value_syms:
+            self._envtyp[s.iter] = LoopIR.Index
+            if not self.want_value(s.iter):
                 b.add_variable(s.iter)
             am_iter = b[s.iter]
             am_lo = self.comp_e(s.lo, True, instr_tl)
@@ -344,15 +363,17 @@ class CamsporkDo(LoopIR_Do):
                 )
         elif isinstance(s, LoopIR.WindowStmt):
             self._envtyp[s.name] = s.rhs.type
-            self._mem_env[s.name] = s.special_window or self._mem_env[s.rhs.name]
+            assert self._mem_env[s.name] == (
+                s.special_window or self._mem_env[s.rhs.name]
+            )
 
         elif isinstance(s, LoopIR.Alloc):
             self._saw_alloc = True
             self._envtyp[s.name] = s.type
             assert self._mem_env[s.name] == s.mem
             want_barrier = issubclass(s.mem, BarrierMechanism)
-            want_sync = s.name in self._sync_syms
-            want_value = s.name in self._value_syms
+            want_sync = self.want_sync(s.name)
+            want_value = self.want_value(s.name)
             if want_barrier and not want_sync and not want_value:
                 b.add_variable(s.name)
 
@@ -471,7 +492,7 @@ class CamsporkDo(LoopIR_Do):
         elif isinstance(s, LoopIR.Free):
             self._saw_free = True
             want_barrier = issubclass(s.mem, BarrierMechanism)
-            want_sync = s.name in self._sync_syms
+            want_sync = self.want_sync(s.name)
 
             if want_sync and s.mem.is_cuda_smem() and not self._no_smem_free_check:
                 # fmt: off
@@ -525,13 +546,16 @@ class CamsporkDo(LoopIR_Do):
                 callee_a.name: caller_a
                 for caller_a, callee_a in zip(s.args, callee.args)
             }
+            for caller_a in callee.args:
+                self._envtyp[caller_a.name] = caller_a.type
+
             barrier, barrier_multicasts = self.comp_trailing_barrier_expr(s, instr_tl)
             for caller_a, callee_a in zip(s.args, callee.args):
                 fnarg_type = callee_a.type
                 if not fnarg_type.is_numeric():
                     # Avoids caller_a.name AttributeError for BinOp etc.
                     continue
-                if caller_a.name not in self._sync_syms:
+                if not self.want_sync(caller_a.name):
                     continue
                 arg_info: AccessInfo = instr.access_info[str(callee_a.name)]
                 # TODO value environment
@@ -581,7 +605,7 @@ class CamsporkDo(LoopIR_Do):
                 )
                 for ctx in loop_nest:
                     ctx.end()
-            if barrier and s.trailing_barrier_expr.name in self._sync_syms:
+            if barrier and self.want_sync(s.trailing_barrier_expr.name):
                 # Sync-check the trailing barrier itself.
                 _, initial_qual_bits, ext_qual_bits = self.comp_qual_tl(
                     s.trailing_barrier_expr, instr_tl
@@ -657,7 +681,7 @@ class CamsporkDo(LoopIR_Do):
             e = e.pt
         b = self._builder
         if isinstance(e, LoopIR.Read):
-            want_sync = e.name in self._sync_syms
+            want_sync = self.want_sync(e.name)
             if want_value or want_sync:
                 am_src = self.comp_index_expr(e.name, e.idx, instr_tl)
             if want_sync:
