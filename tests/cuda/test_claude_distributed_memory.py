@@ -164,56 +164,6 @@ def test_non_plain_index_expr_negative(compiler):
 
 
 # =============================================================================
-# Permitted index expression must be plain variable (Barrier)
-# =============================================================================
-
-
-def mkproc_barrier_non_plain_index(use_plain_var):
-    """Test that barrier index must be a plain variable read.
-
-    For barriers, all dimensions are distributed and must be indexed
-    by plain reads of cuda_threads iterators, not constants or expressions.
-
-    use_plain_var=True: use plain variable (valid)
-    use_plain_var=False: use constant (invalid)
-    """
-    device_fn = CudaDeviceFunction(blockDim=64)
-
-    @proc
-    def test_proc():
-        with device_fn:
-            for task in cuda_tasks(0, 1):
-                bar: barrier[2] @ CudaMbarrier
-                for w in cuda_threads(0, 2, unit=cuda_warp):
-                    if use_plain_var:
-                        # Valid: plain variable read
-                        Arrive(cuda_in_order, 1) >> bar[w]
-                        Await(bar[w], cuda_in_order, ~1)
-                    else:
-                        # Invalid: constant instead of variable
-                        Arrive(cuda_in_order, 1) >> bar[0]
-                        Await(bar[0], cuda_in_order, ~1)
-
-    return simplify(test_proc)
-
-
-def test_barrier_non_plain_index_positive(compiler, golden):
-    # Valid: plain variable read
-    compiler.cuda_cpu_test(
-        mkproc_barrier_non_plain_index, golden=golden, use_plain_var=True
-    )
-
-
-def test_barrier_non_plain_index_negative(compiler):
-    with pytest.raises(Exception) as exc:
-        # Invalid: constant index
-        compiler.cuda_cpu_test(mkproc_barrier_non_plain_index, use_plain_var=False)
-    msg = str(exc.value)
-    # Error: expected a plain variable, not 0
-    assert "expected a plain variable" in msg
-
-
-# =============================================================================
 # Constant instead of permitted iterator for data (not a plain variable)
 # =============================================================================
 

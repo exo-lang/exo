@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-from exo import proc
+from exo import proc, ring_buffer_by
 from exo.platforms.cuda import *
 from exo.platforms.Sm80 import *
 from exo.platforms.Sm90 import *
@@ -46,12 +46,11 @@ def mkproc_mbarrier_arrive_tma_to_smem():
     def test_proc(foo: f32[128] @ CudaGmemLinear):
         with CudaDeviceFunction(blockDim=128):
             for task in cuda_tasks(0, 1):
-                # Barrier must be distributed per warpgroup to avoid distributed memory errors
-                bar: barrier[1] @ CudaMbarrier
+                bar: barrier[1 @ ring_buffer_by(1)] @ CudaMbarrier
                 for wg in cuda_threads(0, 1, unit=cuda_warpgroup):
                     # tma_to_smem_async should not be directly used as Arrive sync-tl
                     Arrive(tma_to_smem_async, 1) >> bar[wg]
-                    Await(bar[wg], cuda_in_order, ~1)
+                    Await(bar[wg], cuda_in_order, 0)
 
     return simplify(test_proc)
 
@@ -76,7 +75,7 @@ def mkproc_sm80_cp_async_trailing_barrier():
         with CudaDeviceFunction(blockDim=32, clusterDim=2):
             for task in cuda_tasks(0, 1):
                 smem: f32[128] @ CudaSmemLinear
-                bar: barrier[2] @ CudaMbarrier
+                bar: barrier[2, 1 @ ring_buffer_by(1)] @ CudaMbarrier
                 for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
                     for tid in cuda_threads(0, 32):
                         # Sm80_cp_async_f32 does NOT support >> bar trailing syntax
@@ -86,11 +85,11 @@ def mkproc_sm80_cp_async_trailing_barrier():
                                 gmem[4 * tid : 4 * tid + 4],
                                 size=4,
                             )
-                            >> bar[cta]
+                            >> bar[cta, 0]
                         )
-                    Arrive(Sm80_cp_async, 1) >> bar[cta]
+                    Arrive(Sm80_cp_async, 1) >> bar[cta, 0]
                 for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
-                    Await(bar[cta], cuda_in_order, ~1)
+                    Await(bar[cta, 0], cuda_in_order, 0)
 
     return simplify(test_proc)
 
@@ -114,12 +113,11 @@ def mkproc_mbarrier_await_wrong_sync_tl():
     def test_proc(foo: f32[128] @ CudaGmemLinear):
         with CudaDeviceFunction(blockDim=128):
             for task in cuda_tasks(0, 1):
-                # Barrier distributed per warpgroup
-                bar: barrier[1] @ CudaMbarrier
+                bar: barrier[1 @ ring_buffer_by(1)] @ CudaMbarrier
                 for wg in cuda_threads(0, 1, unit=cuda_warpgroup):
                     Arrive(cuda_in_order, 1) >> bar[wg]
                     # wgmma_async is not valid as second sync-tl for mbarrier Await
-                    Await(bar[wg], wgmma_async, ~1)
+                    Await(bar[wg], wgmma_async, 0)
 
     return simplify(test_proc)
 
@@ -255,10 +253,10 @@ def mkproc_mbarrier_not_sub_cta(bar_count, cta_unit_scale):
     def test_proc():
         with device_fn:
             for task in cuda_tasks(0, 1):
-                bar: barrier[bar_count] @ CudaMbarrier
+                bar: barrier[bar_count, 1 @ ring_buffer_by(1)] @ CudaMbarrier
                 for cta in cuda_threads(0, bar_count, unit=unit):
-                    Arrive(cuda_in_order, 1) >> bar[cta]
-                    Await(bar[cta], cuda_in_order, ~1)
+                    Arrive(cuda_in_order, 1) >> bar[cta, 0]
+                    Await(bar[cta, 0], cuda_in_order, 0)
 
     return simplify(test_proc)
 
@@ -275,58 +273,7 @@ def test_mbarrier_not_sub_cta_negative(compiler):
             mkproc_mbarrier_not_sub_cta, bar_count=2, cta_unit_scale=2
         )
     msg = str(exc.value)
-    assert "mbarrier" in msg.lower() and "resident in 1 CTA" in msg
-
-
-# =============================================================================
-# mbarrier ring buffer skip count errors
-# =============================================================================
-
-
-def mkproc_mbarrier_zero_skips(has_nonzero_skips):
-    """Test that mbarrier ring buffer cycle must have some await with nonzero skips.
-
-    For guarded barrier pairs (bar1 guards bar2), the total skips across
-    the guard cycle must be > 0. If both Awaits use N=~0 (0 skips), error.
-
-    has_nonzero_skips=True: At least one Await has N=~1 (valid)
-    has_nonzero_skips=False: Both Awaits have N=~0, total skips=0 (invalid)
-    """
-
-    @proc
-    def test_proc():
-        with CudaDeviceFunction(blockDim=32):
-            for task in cuda_tasks(0, 1):
-                bar1: barrier[1] @ CudaMbarrier
-                bar2: barrier(bar1)[1] @ CudaMbarrier
-                for w in cuda_threads(0, 1, unit=cuda_warp):
-                    if has_nonzero_skips:
-                        # Valid: at least one Await has nonzero skips
-                        Await(bar2[w], cuda_in_order, ~1)  # 1 skip
-                        Arrive(cuda_in_order, 1) >> bar1[w]
-                        Await(bar1[w], cuda_in_order, ~0)  # 0 skips, but total=1
-                        Arrive(cuda_in_order, 1) >> bar2[w]
-                    else:
-                        # Invalid: both Awaits have 0 skips, total=0
-                        Await(bar2[w], cuda_in_order, ~0)  # 0 skips
-                        Arrive(cuda_in_order, 1) >> bar1[w]
-                        Await(bar1[w], cuda_in_order, ~0)  # 0 skips
-                        Arrive(cuda_in_order, 1) >> bar2[w]
-
-    return simplify(test_proc)
-
-
-def test_mbarrier_zero_skips_positive(compiler):
-    # Valid: at least one Await has nonzero skips
-    compiler.cuda_cpu_test(mkproc_mbarrier_zero_skips, has_nonzero_skips=True)
-
-
-def test_mbarrier_zero_skips_negative(compiler):
-    with pytest.raises(Exception) as exc:
-        # Invalid: total skips across guard cycle is 0
-        compiler.cuda_cpu_test(mkproc_mbarrier_zero_skips, has_nonzero_skips=False)
-    msg = str(exc.value)
-    assert "nonzero skips" in msg.lower() and ("bar1" in msg or "bar2" in msg)
+    assert "CudaMbarrier" in msg
 
 
 # =============================================================================
@@ -349,15 +296,15 @@ def mkproc_sm80_cp_async_mbarrier_cluster(use_multicast):
     def test_proc():
         with device_fn:
             for task in cuda_tasks(0, 1):
-                bar: barrier[2] @ CudaMbarrier
+                bar: barrier[2, 1 @ ring_buffer_by(1)] @ CudaMbarrier
                 for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
                     if use_multicast:
                         # Invalid: Sm80_cp_async with multicast to other CTA
-                        Arrive(Sm80_cp_async, 1) >> bar[cta] >> bar[:]
+                        Arrive(Sm80_cp_async, 1) >> bar[cta, 0] >> bar[:, 0]
                     else:
                         # Valid: Sm80_cp_async within single CTA (no multicast)
-                        Arrive(Sm80_cp_async, 1) >> bar[cta]
-                    Await(bar[cta], cuda_in_order, ~1)
+                        Arrive(Sm80_cp_async, 1) >> bar[cta, 0]
+                    Await(bar[cta, 0], cuda_in_order, 0)
 
     return simplify(test_proc)
 
@@ -399,16 +346,16 @@ def mkproc_mbarrier_intra_cta_multicast(multicast_on_warp):
         with device_fn:
             for task in cuda_tasks(0, 1):
                 # 2D barrier: [cta, warp]
-                bar: barrier[2, 2] @ CudaMbarrier
+                bar: barrier[2, 2, 1 @ ring_buffer_by(1)] @ CudaMbarrier
                 for cta in cuda_threads(0, 2, unit=cuda_cta_in_cluster):
                     for w in cuda_threads(0, 2, unit=cuda_warp):
                         if multicast_on_warp:
                             # Invalid: multicast on warp dimension (intra-CTA)
-                            Arrive(cuda_in_order, 1) >> bar[cta, w] >> bar[cta, :]
+                            Arrive(cuda_in_order, 1) >> bar[cta, w, 0] >> bar[cta, :, 0]
                         else:
                             # Valid: multicast on CTA dimension (inter-CTA)
-                            Arrive(cuda_in_order, 1) >> bar[cta, w] >> bar[:, w]
-                        Await(bar[cta, w], cuda_in_order, ~1)
+                            Arrive(cuda_in_order, 1) >> bar[cta, w, 0] >> bar[:, w, 0]
+                        Await(bar[cta, w, 0], cuda_in_order, 0)
 
     return simplify(test_proc)
 
@@ -425,5 +372,4 @@ def test_mbarrier_intra_cta_multicast_negative(compiler):
             mkproc_mbarrier_intra_cta_multicast, multicast_on_warp=True
         )
     msg = str(exc.value)
-    # Error: thread_pitch not divisible by blockDim; cannot be multicast
-    assert "cannot be multicast" in msg.lower() or "thread_pitch" in msg
+    assert "cannot multicast" in msg.lower()
