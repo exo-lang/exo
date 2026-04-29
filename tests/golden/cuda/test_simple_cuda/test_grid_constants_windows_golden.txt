@@ -752,7 +752,7 @@ __launch_bounds__(32, 1)
 __global__ void
 exo_deviceFunction0_weird_windows(__grid_constant__ const struct exo_CudaDeviceArgs0_weird_windows exo_deviceArgs)
 {
-  extern __shared__ char exo_smem[];
+  extern __shared__ __align__(128) char exo_smem[];
   exo_ExcutThreadLog exo_excutLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
   exo_Cuda0_weird_windows::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
   exo_Cuda0_weird_windows::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
@@ -768,7 +768,7 @@ __launch_bounds__(32, 1)
 __global__ void
 exo_deviceFunction1_weird_windows(__grid_constant__ const struct exo_CudaDeviceArgs1_weird_windows exo_deviceArgs)
 {
-  extern __shared__ char exo_smem[];
+  extern __shared__ __align__(128) char exo_smem[];
   exo_ExcutThreadLog exo_excutLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
   exo_Cuda1_weird_windows::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
   exo_Cuda1_weird_windows::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
