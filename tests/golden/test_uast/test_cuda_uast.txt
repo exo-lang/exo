@@ -12,28 +12,23 @@ def tma_tester_gpu_proc(
                 smem_x: f32[248, 32] @ Sm90_SmemSwizzled(128, )
                 smem_y: f32[248, 32] @ Sm90_SmemSwizzled(128, )
                 smem_sum: f32[248, 32] @ Sm90_SmemSwizzled(128, )
-                raw: barrier @ CudaMbarrier
-                war: barrier(raw) @ CudaMbarrier
+                raw: barrier[1 @ (ring_buffer_by(depth=2))] @ CudaMbarrier
+                war: barrier[2 @ (ring_buffer_by(
+                    depth=2))] @ CudaMbarrierPreArrive(1, )
                 with CudaWarps(0, 1):
-                    Await(war, cuda_temporal, ~1)
+                    Await(war[0], cuda_temporal, 0)
                     x_input = x_tensorMap_debug[task_m * 248:task_m * 248 +
                                                 248,
                                                 task_k * 32:task_k * 32 + 32]
-                    if 128 == 0:
-                        Sm90_copy_tensor_to_smem_linear_2f32(
-                            smem_x[:, :],
-                            x_input,
-                            size0=248,
-                            size1=32,
-                            smem_box=None) >> raw
-                    else:
-                        Sm90_copy_tensor_to_smem_swizzled_2f32(
-                            smem_x[:, :],
-                            x_input,
-                            size0=248,
-                            size1=32,
-                            smem_box=None) >> raw
-                    Arrive(cuda_temporal, 1) >> raw
+                    Sm90_tma_load_2d(smem_x[:, :],
+                                     x_input,
+                                     dst=f32,
+                                     src=f32,
+                                     size0=248,
+                                     size1=32,
+                                     smem_box=(248, 32),
+                                     swizzle=128) >> raw[0]
+                    Arrive(cuda_temporal, 1) >> raw[0]
                 for m in cuda_threads(0, 248, unit=cuda_thread):
                     for ko in seq(0, 32 / 4):
                         Sm80_cp_async_f32(smem_y[m, ko * 4:ko * 4 + 4],
@@ -41,31 +36,26 @@ def tma_tester_gpu_proc(
                                               ko * 4:task_k * 32 + ko * 4 + 4],
                                           size=4)
                 Fence(Sm80_cp_async, cuda_in_order)
-                Await(raw, cuda_in_order, ~0)
+                Await(raw[0], cuda_in_order, 0)
                 for m in cuda_threads(0, 248, unit=cuda_thread):
                     for k in seq(0, 32):
                         smem_sum[m, k] = smem_x[m, k] + smem_y[m, k]
-                Arrive(cuda_in_order, 1) >> war
+                Arrive(cuda_in_order, 1) >> war[1]
                 Fence(cuda_in_order, cuda_generic_and_async_proxy)
                 with CudaWarps(0, 1):
                     tma_window = sum_tensorMap_window[task_m *
                                                       248:task_m * 248 + 248,
                                                       task_k * 32:task_k * 32 +
                                                       32]
-                    if 128 == 0:
-                        Sm90_copy_tensor_to_gmem_linear_2f32(tma_window[:, :],
-                                                             smem_sum[:, :],
-                                                             size0=248,
-                                                             size1=32,
-                                                             smem_box=None)
-                    else:
-                        Sm90_copy_tensor_to_gmem_swizzled_2f32(
-                            tma_window[:, :],
-                            smem_sum[:, :],
-                            size0=248,
-                            size1=32,
-                            smem_box=None)
-                    cg: barrier @ CudaCommitGroup
+                    Sm90_tma_store_2d(tma_window[:, :],
+                                      smem_sum[:, :],
+                                      dst=f32,
+                                      src=f32,
+                                      size0=248,
+                                      size1=32,
+                                      smem_box=(248, 32),
+                                      swizzle=128)
+                    cg: barrier @ Sm90_TmaCommitGroup
                     Arrive(tma_to_gmem_async, 1) >> cg
                     Await(cg, cuda_in_order, 0)
                 Fence(cuda_in_order, cuda_in_order)

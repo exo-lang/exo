@@ -137,6 +137,7 @@ def test_call_not_a_proc():
 
 
 def test_cuda_uast(golden):
+    # Copied from test_tma.py
     swizzle = 128
     tma_tester_smem_M = 248
     tma_tester_smem_K_dict = {0: 32, 32: 8, 64: 16, 128: 32}
@@ -149,7 +150,15 @@ def test_cuda_uast(golden):
     K = smem_K * tma_tester_tasks_K
     smem_type = CudaSmemLinear if swizzle == 0 else Sm90_SmemSwizzled(swizzle)
 
-    # Copied from cuda/test_tma.py
+    # h_sum = h_x + h_y
+    # x is loaded to SMEM with TMA
+    # y is loaded to SMEM with Sm80 cp.async
+    # sum = x + y computed with cuda_in_order code (not using instrs)
+    # sum is stored using TMA
+    # This is testing that cp.async and cuda_in_order code is interacting with
+    # swizzled memory in the format that TMA defines.
+    # Futhermore the fact that we have smem_M = 248 (weird number) is testing
+    # that the non-aligned-to-1024B memory (smem_y, smem_sum) isn't causing problems.
     def tma_tester_gpu_proc(
         sum_tensorMap_window: [f32][M, K] @ Sm90_tensorMap(swizzle, smem_M, smem_K),
         d_x: [f32][M, K] @ CudaGmemLinear,
@@ -169,24 +178,22 @@ def test_cuda_uast(golden):
                     smem_x: f32[smem_M, smem_K] @ smem_type
                     smem_y: f32[smem_M, smem_K] @ smem_type
                     smem_sum: f32[smem_M, smem_K] @ smem_type
-                    raw: barrier @ CudaMbarrier
-                    war: barrier(raw) @ CudaMbarrier
+                    raw: barrier[1 @ ring_buffer_by(2)] @ CudaMbarrier
+                    war: barrier[2 @ ring_buffer_by(2)] @ CudaMbarrierPreArrive(1)
 
                     # Warp 0 copies x to SMEM using TMA.
                     with CudaWarps(0, 1):
-                        Await(war, cuda_temporal, ~1)
+                        Await(war[0], cuda_temporal, 0)
                         # Test for TMA WindowStmt on the GPU
                         x_input = x_tensorMap_debug[
                             task_m * smem_M : task_m * smem_M + smem_M,
                             task_k * smem_K : task_k * smem_K + smem_K,
                         ]
-                        if swizzle == 0:
-                            Sm90_copy_tensor_to_smem_linear_2f32(smem_x[:, :], x_input,
-                                size0=smem_M, size1=smem_K) >> raw
-                        else:
-                            Sm90_copy_tensor_to_smem_swizzled_2f32(smem_x[:, :], x_input,
-                                size0=smem_M, size1=smem_K) >> raw
-                        Arrive(cuda_temporal, 1) >> raw
+                        Sm90_tma_load_2d(smem_x[:, :], x_input,
+                            size0=smem_M, size1=smem_K, dst=f32, src=f32, swizzle=swizzle,
+                            smem_box=(smem_M, smem_K),
+                        ) >> raw[0]
+                        Arrive(cuda_temporal, 1) >> raw[0]
 
                     # All warps copy y to SMEM using cp.async (lazy threading)
                     for m in cuda_threads(0, smem_M):
@@ -199,11 +206,11 @@ def test_cuda_uast(golden):
                     Fence(Sm80_cp_async, cuda_in_order)
 
                     # Compute the sum (also lazy threading)
-                    Await(raw, cuda_in_order, ~0)
+                    Await(raw[0], cuda_in_order, 0)
                     for m in cuda_threads(0, smem_M):
                         for k in seq(0, smem_K):
                             smem_sum[m, k] = smem_x[m, k] + smem_y[m, k]
-                    Arrive(cuda_in_order, 1) >> war
+                    Arrive(cuda_in_order, 1) >> war[1]
 
                     # Warp 0 copies sum to GMEM using TMA.
                     Fence(cuda_in_order, cuda_generic_and_async_proxy)
@@ -212,17 +219,12 @@ def test_cuda_uast(golden):
                             task_m * smem_M : task_m * smem_M + smem_M,
                             task_k * smem_K : task_k * smem_K + smem_K,
                         ]
-                        if swizzle == 0:
-                            Sm90_copy_tensor_to_gmem_linear_2f32(
-                                tma_window[:, :], smem_sum[:, :],
-                                size0=smem_M, size1=smem_K
-                            )
-                        else:
-                            Sm90_copy_tensor_to_gmem_swizzled_2f32(
-                                tma_window[:, :], smem_sum[:, :],
-                                size0=smem_M, size1=smem_K
-                            )
-                        cg: barrier @ CudaCommitGroup
+                        Sm90_tma_store_2d(
+                            tma_window[:, :], smem_sum[:, :],
+                            size0=smem_M, size1=smem_K, dst=f32, src=f32, swizzle=swizzle,
+                            smem_box=(smem_M, smem_K),
+                        )
+                        cg: barrier @ Sm90_TmaCommitGroup
                         Arrive(tma_to_gmem_async, 1) >> cg
                         Await(cg, cuda_in_order, 0)
                     Fence(cuda_in_order, cuda_in_order)
@@ -235,12 +237,10 @@ def test_cuda_uast(golden):
     # fmt: off
     assert "with CudaWarps(0, 1):" in lines
     assert "with CudaDeviceFunction(blockDim=256):" in lines
-    assert "Await(war, cuda_temporal, ~1)" in lines
-    assert "raw: barrier @ CudaMbarrier" in lines
-    assert "war: barrier(raw) @ CudaMbarrier" in lines
+    assert "Await(war[0], cuda_temporal, 0)" in lines
     assert "Fence(cuda_in_order, cuda_generic_and_async_proxy)" in lines
     assert "Arrive(tma_to_gmem_async, 1) >> cg" in lines
-    assert "smem_box=None) >> raw" in lines  # Fragile check for trailing barrier expr of TMA instr
+    assert f"swizzle=128) >> raw[0]" in lines  # Fragile check for trailing barrier expr of TMA instr
 
     # Trickiest part, WindowStmt handled weirdly in UAST pretty-printer
     assert f"x_tensorMap_debug = d_x[:, :] @ Sm90_tensorMap(128, 248, 32)" in lines
