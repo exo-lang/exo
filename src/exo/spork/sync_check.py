@@ -737,7 +737,11 @@ class CamsporkDo(LoopIR_Do):
             raise TypeError(f"Unexpected case {e}")
 
     def comp_index_expr(
-        self, name: Sym, idx: List[LoopIR.expr | LoopIR.Point], instr_tl: Instr_tl
+        self,
+        name: Sym,
+        idx: List[LoopIR.expr | LoopIR.Point],
+        instr_tl: Instr_tl,
+        extent_to_modify=None,
     ) -> camspork.BuilderExpr:
         """Translate name + LoopIR indices to BuilderExpr
 
@@ -753,7 +757,7 @@ class CamsporkDo(LoopIR_Do):
             return self.comp_e(caller_a, True, instr_tl)
         if isinstance(typ := self._envtyp.get(name), LoopIR.WindowType):
             name = typ.src_buf
-            idx = chain_window_idx(typ.idx, idx)
+            idx = chain_window_idx(typ.idx, idx, extent_to_modify, 1)
         am_name = self._builder.get_varname(name)
         return am_name[tuple(self.comp_e(e, True, instr_tl) for e in idx)]
 
@@ -846,7 +850,8 @@ class CamsporkDo(LoopIR_Do):
 
         # If this is a read of a SpecialWindow, comp_index_expr takes
         # care of additional offset from the WindowStmt.
-        return (self.comp_index_expr(e.name, idx_lo, instr_tl), extent, loop_nest)
+        dst = self.comp_index_expr(e.name, idx_lo, instr_tl, extent)
+        return (dst, extent, loop_nest)
 
 
 def coll_analysis_to_camspork(
