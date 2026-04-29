@@ -94,7 +94,7 @@ def mktest_run(config: gemm_util.GemmConfig, ncta_M, ncta_N, scheduled, K_split)
     # More thorough runtime testing will remain in sporkbench.
     L = 1
     M = 2000
-    N = 2004
+    N = 800
     K = 1600
     K_cluster = K // K_split
 
@@ -125,6 +125,7 @@ def mktest_run(config: gemm_util.GemmConfig, ncta_M, ncta_N, scheduled, K_split)
 test_golden_Sm90a_gemm_m1n1_A = mktest_golden(config_A, 1, 1, False)
 test_golden_Sm90a_gemm_m1n1_B = mktest_golden(config_B, 1, 1, False)
 test_golden_Sm90a_gemm_m1n1_K = mktest_golden(config_K, 1, 1, False)
+test_run_Sm90a_gemm_m1n1_A = mktest_run(config_A, 1, 1, False, K_split=1)
 
 test_golden_Sm90a_gemm_m2n1_A = mktest_golden(config_A, 2, 1, False)
 test_golden_Sm90a_gemm_m1n2_B = mktest_golden(config_B, 1, 2, False)
