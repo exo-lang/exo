@@ -5,7 +5,7 @@ from __future__ import annotations
 import inspect
 import pytest
 
-from exo import proc
+from exo import proc, ring_buffer_by
 from exo.platforms.cuda import *
 from exo.platforms.Sm80 import *
 from exo.platforms.Sm90 import *
@@ -52,6 +52,8 @@ def mkproc_3cycle_mbarriers(
     else:
         test_0, test_1 = 0, 1
 
+    n_iters = 25
+    depth = A_delay + B_delay + C_delay
 
 
     # WARNING, the goldens for get_remarks_golden() are sensitive
@@ -60,38 +62,41 @@ def mkproc_3cycle_mbarriers(
     # In general, testing debug logging is super unpleasant.
     # However, this is critical for enhancing the UX for Exo,
     # so I want at least some minimal test coverage for it.
-    assert inspect.currentframe().f_lineno == 63
+    assert inspect.currentframe().f_lineno == 65
 
     @proc
     def proc_3cycle_mbarriers():
         with CudaDeviceFunction(warp_config=warp_config):
             for task in cuda_tasks(0, 1):
-                AtoB: barrier[2] @ CudaMbarrier
-                BtoC: barrier(AtoB)[2] @ CudaMbarrier
-                CtoA: barrier(BtoC)[2] @ CudaMbarrier
-                for n in seq(0, 25):
+                AtoB: barrier[2, (n_iters + B_delay) @ ring_buffer_by(depth)] @ CudaMbarrierPreArrive(B_delay)
+                BtoC: barrier[2, (n_iters + C_delay) @ ring_buffer_by(depth)] @ CudaMbarrierPreArrive(C_delay)
+                CtoA: barrier[2, (n_iters + A_delay) @ ring_buffer_by(depth)] @ CudaMbarrierPreArrive(A_delay)
+                for n in seq(0, n_iters):
                     with CudaWarps(name="B"):
                         for w in cuda_threads(0, 2, unit=cuda_warp):
-                            Await(AtoB[w], cuda_in_order, ~B_delay)
-                            Arrive(cuda_in_order) >> BtoC[w]
+                            Await(AtoB[w, n], cuda_in_order, 0)
+                            Arrive(cuda_in_order) >> BtoC[w, n + C_delay]
                     with CudaWarps(name="C"):
                         for wg in cuda_threads(0, 2, unit=test_warpgroup):
                             with CudaWarps(test_2, test_4):
-                                Await(BtoC[wg], cuda_in_order, ~C_delay)
+                                Await(BtoC[wg, n], cuda_in_order, 0)
                         for wg in cuda_threads(0, 2, unit=cuda_warpgroup):
                             with CudaWarps(2, 4):
-                                Arrive(cuda_in_order) >> CtoA[wg]
+                                Arrive(cuda_in_order) >> CtoA[wg, n + A_delay]
                     with CudaWarps(name="A"):
                         # Single thread is valid!
                         if n == 0:
                             for tid in cuda_threads(0, 2, unit=cuda_thread):
-                                Await(CtoA[tid], cuda_in_order, ~A_delay)
-                                Arrive(cuda_in_order) >> AtoB[tid]
+                                Await(CtoA[tid, n], cuda_in_order, 0)
+                                Arrive(cuda_in_order) >> AtoB[tid, n + B_delay]
                         else:
                             with CudaWarps(test_0, test_1):
                                 for tid in cuda_threads(0, 2, unit=cuda_thread):
-                                    Await(CtoA[tid], cuda_in_order, ~A_delay)
-                                    Arrive(cuda_in_order) >> AtoB[tid]
+                                    Await(CtoA[tid, n], cuda_in_order, 0)
+                                    Arrive(cuda_in_order) >> AtoB[tid, n + B_delay]
+
+
+    proc_3cycle_mbarriers.sync_check()
 
     return proc_3cycle_mbarriers
 
@@ -192,7 +197,7 @@ def test_3cycle_mbarriers_wrong_box(compiler, golden):
     assert golden == get_remarks_golden(compiler, "proc_3cycle_mbarriers")
 
     msg = str(exc.value)
-    assert "Incompatible box size" in msg
+    assert "HAZARD" in msg
 
 
 def test_3cycle_mbarriers_wrong_offset(compiler, golden):
@@ -204,7 +209,7 @@ def test_3cycle_mbarriers_wrong_offset(compiler, golden):
     assert golden == get_remarks_golden(compiler, "proc_3cycle_mbarriers")
 
     msg = str(exc.value)
-    assert "Incompatible offset" in msg
+    assert "HAZARD" in msg
 
 
 def test_3cycle_mbarriers_wrong_thread_pitch(compiler, golden):
@@ -220,7 +225,7 @@ def test_3cycle_mbarriers_wrong_thread_pitch(compiler, golden):
     assert golden == get_remarks_golden(compiler, "proc_3cycle_mbarriers")
 
     msg = str(exc.value)
-    assert "inconsistent thread pitch with previous Await(BtoC" in msg
+    assert "HAZARD" in msg
 
 
 def test_3cycle_mbarriers_wrong_duplicate_await(compiler, golden):
@@ -236,5 +241,4 @@ def test_3cycle_mbarriers_wrong_duplicate_await(compiler, golden):
     assert golden == get_remarks_golden(compiler, "proc_3cycle_mbarriers")
 
     msg = str(exc.value)
-    assert ": Await(CtoA[tid]" in msg
-    assert "has inconsistent collective tiling with previous Await(CtoA[tid]" in msg
+    assert "HAZARD" in msg

@@ -1,4 +1,42 @@
 def proc_3cycle_mbarriers():
+    # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:69:8:(s260):
+    # Last sync recorded:
+    #   thread cuboid: {"task_index": 0, "domain": [4294967295], "offset": [0], "box": [4294967295]}
+    #   First qual-tl set:
+    #                cpu_in_order_qual
+    #                cpu_cuda_stream_qual
+    #                cuda_in_order_rmem_qual
+    #                cuda_in_order_ram_qual
+    #                cuda_mbarrier_qual
+    #                Sm80_cp_async_qual
+    #                tma_to_smem_async_qual
+    #                tma_to_gmem_async_qual
+    #                wgmma_async_rmem_a_qual
+    #                wgmma_async_rmem_d_qual
+    #                wgmma_async_smem_qual
+    #                cuda_async_proxy_retired_qual
+    #                tcgen05_mma_tmem_qual
+    #                tcgen05_cp_tmem_qual
+    #                tcgen05_shift_qual
+    #                tcgen05_ld_qual
+    #                tcgen05_st_qual
+    #   Second qual-tl set:
+    #                cpu_cuda_stream_qual
+    #                cuda_in_order_rmem_qual
+    #                cuda_in_order_ram_qual
+    #                cuda_mbarrier_qual
+    #                Sm80_cp_async_qual
+    #                tma_to_smem_async_qual
+    #                tma_to_gmem_async_qual
+    #                wgmma_async_rmem_a_qual
+    #                wgmma_async_rmem_d_qual
+    #                wgmma_async_smem_qual
+    #                cuda_async_proxy_retired_qual
+    #                tcgen05_mma_tmem_qual
+    #                tcgen05_cp_tmem_qual
+    #                tcgen05_shift_qual
+    #                tcgen05_ld_qual
+    #                tcgen05_st_qual
     with CudaDeviceFunction(warp_config=[
             CudaWarpConfig(
                 name='A', count=2, setmaxnreg_dec=None, setmaxnreg_inc=None),
@@ -9,67 +47,288 @@ def proc_3cycle_mbarriers():
     ]):
         # Domain (ω.D) = [ 384]
         #    Box (ω.B) = [ 384]
-        #   pow2 align = 128 @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:68:12:(s250)
+        #   pow2 align = 128 @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:70:12:(s250)
+        #
+        # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:70:12:(s250):
+        # task = 0
+        #
+        # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:70:12:(s250):
+        # task = 0
         for task in cuda_tasks(0, 1):
-            # distributed dims: 1, thread pitch tuple (32,) from Await @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:69:16:(s10)
-            AtoB: barrier[2] @ CudaMbarrier
-            # distributed dims: 1, thread pitch tuple (32,) from Arrive @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:70:16:(s20)
+            # distributed dims: 0, thread pitch tuple () from Await @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:71:16:(s10)
             #
-            # distributed dims: 1, thread pitch tuple (64,) from Await @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:70:16:(s20)
-            BtoC: barrier(AtoB)[2] @ CudaMbarrier
-            # distributed dims: 1, thread pitch tuple (128,) from Arrive @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:71:16:(s30)
-            CtoA: barrier(BtoC)[2] @ CudaMbarrier
+            # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:71:16:(s10):
+            # Last sync recorded:
+            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            #
+            # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:71:16:(s10):
+            # Last sync recorded:
+            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            #
+            # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:71:16:(s10):
+            # Last sync recorded:
+            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            #
+            # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:71:16:(s10):
+            # Last sync recorded:
+            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            AtoB: barrier[2, (25 + 2) @ (ring_buffer_by(
+                depth=6))] @ CudaMbarrierPreArrive(2, )
+            # distributed dims: 0, thread pitch tuple () from Arrive @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:72:16:(s20)
+            #
+            # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:72:16:(s20):
+            # Last sync recorded:
+            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            #
+            # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:72:16:(s20):
+            # Last sync recorded:
+            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            #
+            # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:72:16:(s20):
+            # Last sync recorded:
+            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            #
+            # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:72:16:(s20):
+            # Last sync recorded:
+            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            #
+            # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:72:16:(s20):
+            # Last sync recorded:
+            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            #
+            # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:72:16:(s20):
+            # Last sync recorded:
+            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            #
+            # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:72:16:(s20):
+            # New VisRecord:
+            #   pending await: BtoC[0, 0] arrive_count=0
+            BtoC: barrier[2, (25 + 3) @ (ring_buffer_by(
+                depth=6))] @ CudaMbarrierPreArrive(3, )
+            # distributed dims: 0, thread pitch tuple () from Arrive @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:73:16:(s30)
+            #
+            # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:73:16:(s30):
+            # Last sync recorded:
+            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            #
+            # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:73:16:(s30):
+            # Last sync recorded:
+            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            CtoA: barrier[2, (25 + 1) @ (ring_buffer_by(
+                depth=6))] @ CudaMbarrierPreArrive(1, )
+            # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:74:16:(s240):
+            # n = 3
+            #
+            # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:74:16:(s240):
+            # n = 3
             for n in seq(0, 25):
+                # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:75:20:(s70):
+                # CudaWarps_None_None_B = 0
+                #
+                # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:75:20:(s70):
+                # CudaWarps_None_None_B = 0
                 with CudaWarps(name='B'):
                     # Domain (ω.D) = [ 384]
                     #    Box (ω.B) = [  64]
-                    #   pow2 align = 64 @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:74:24:(s60)
+                    #   pow2 align = 64 @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:76:24:(s60)
                     #
-                    # thread_pitch=32; exo_32thr_w = ((threadIdx.x - 64) / 32) @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:74:24:(s60)
+                    # thread_pitch=32; exo_32thr_w = ((threadIdx.x - 64) / 32) @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:76:24:(s60)
+                    #
+                    # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:76:24:(s60):
+                    # w = 0
+                    #
+                    # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:76:24:(s60):
+                    # w = 0
                     for w in cuda_threads(0, 2, unit=cuda_warp):
                         # Domain (ω.D) = [ 384]
                         #    Box (ω.B) = [  32]
-                        #   pow2 align = 32 @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:75:28:(s40)
-                        Await(AtoB[w], cuda_in_order, ~2)
-                        Arrive(cuda_in_order, 1) >> BtoC[w]
+                        #   pow2 align = 32 @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:77:28:(s40)
+                        #
+                        # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:77:28:(s40):
+                        # Last sync recorded:
+                        #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [64], "box": [32]}
+                        #   barrier: AtoB[0, 3]
+                        #   arrive_count: 1 -> 1
+                        #   await_count:  0 -> 1
+                        #   > Updates pending awaits with arrive_count <= 0
+                        #   Second qual-tl set:
+                        #                cuda_in_order_rmem_qual
+                        #                cuda_in_order_ram_qual
+                        #                cuda_mbarrier_qual
+                        #     (temporal) wgmma_zero_qual
+                        #     (temporal) cuda_async_proxy_retired_qual
+                        Await(AtoB[w, n], cuda_in_order, 0)
+                        # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:78:28:(s50):
+                        # RAW HAZARD @ BtoC[0, 6]
+                        #
+                        # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:78:28:(s50):
+                        # RAW HAZARD @ BtoC[0, 6]
+                        #
+                        # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:78:28:(s50):
+                        # Last sync recorded:
+                        #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [96], "box": [32]}
+                        #   barrier: BtoC[1, 5]
+                        #   arrive_count: 0 -> 1
+                        #   await_count:  0 -> 0
+                        #   First qual-tl set:
+                        #                cuda_in_order_rmem_qual
+                        #                cuda_in_order_ram_qual
+                        #                cuda_mbarrier_qual
+                        #
+                        # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:78:28:(s50):
+                        # VisRecord did not have vis flag "full" for
+                        #   thread:  task_index = 0 [64]; domain=[384]
+                        #   qual-tl: cuda_mbarrier_qual
+                        # VisRecord info:
+                        #   threads: [task_index = 0 [128],
+                        #             task_index = 0 [159]], inclusive, formatted w/ domain [384]
+                        #             cuda_mbarrier_qual -> atomic-only temporal full issue
+                        #   pending await: BtoC[0, 0] arrive_count=0
+                        Arrive(cuda_in_order, 1) >> BtoC[w, n + 3]
                 with CudaWarps(name='C'):
                     # Domain (ω.D) = [ 384]
                     #    Box (ω.B) = [ 256]
-                    #   pow2 align = 128 @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:78:24:(s100)
+                    #   pow2 align = 128 @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:80:24:(s100)
                     #
-                    # thread_pitch=64; exo_64thr_wg = ((threadIdx.x - 128) / 64) @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:78:24:(s100)
+                    # thread_pitch=64; exo_64thr_wg = ((threadIdx.x - 128) / 64) @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:80:24:(s100)
                     for wg in cuda_threads(0, 2, unit=2 * cuda_warp):
                         # Domain (ω.D) = [ 384]
                         #    Box (ω.B) = [  64]
-                        #   pow2 align = 64 @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:79:28:(s90)
+                        #   pow2 align = 64 @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:81:28:(s90)
                         with CudaWarps(0, 1):
                             # Domain (ω.D) = [ 384]
                             #    Box (ω.B) = [  32]
-                            #   pow2 align = 32 @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:80:32:(s80)
-                            Await(BtoC[wg], cuda_in_order, ~3)
-                    # thread_pitch=128; exo_128thr_wg = ((threadIdx.x - 128) / 128) @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:81:24:(s130)
+                            #   pow2 align = 32 @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:82:32:(s80)
+                            #
+                            # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:82:32:(s80):
+                            # Last sync recorded:
+                            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [192], "box": [32]}
+                            #   barrier: BtoC[1, 2]
+                            #   arrive_count: 1 -> 1
+                            #   await_count:  0 -> 1
+                            #   > Updates pending awaits with arrive_count <= 0
+                            #   Second qual-tl set:
+                            #                cuda_in_order_rmem_qual
+                            #                cuda_in_order_ram_qual
+                            #                cuda_mbarrier_qual
+                            #     (temporal) wgmma_zero_qual
+                            #     (temporal) cuda_async_proxy_retired_qual
+                            #
+                            # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:82:32:(s80):
+                            # Await recorded, which caused VisRecord change:
+                            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [128], "box": [32]}
+                            #   barrier: BtoC[0, 0]
+                            #   arrive_count: 1 -> 1
+                            #   await_count:  0 -> 1
+                            #   > Updates pending awaits with arrive_count <= 0
+                            #   Second qual-tl set:
+                            #                cuda_in_order_rmem_qual
+                            #                cuda_in_order_ram_qual
+                            #                cuda_mbarrier_qual
+                            #     (temporal) wgmma_zero_qual
+                            #     (temporal) cuda_async_proxy_retired_qual
+                            # BEFORE:
+                            #   pending await: BtoC[0, 0] arrive_count=0
+                            # AFTER:
+                            #   threads: [task_index = 0 [128],
+                            #             task_index = 0 [159]], inclusive, formatted w/ domain [384]
+                            #             cuda_mbarrier_qual -> atomic-only temporal full issue
+                            #   pending await: BtoC[0, 0] arrive_count=0
+                            Await(BtoC[wg, n], cuda_in_order, 0)
+                    # thread_pitch=128; exo_128thr_wg = ((threadIdx.x - 128) / 128) @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:83:24:(s130)
                     for wg in cuda_threads(0, 2, unit=cuda_warpgroup):
                         # Domain (ω.D) = [ 384]
                         #    Box (ω.B) = [ 128]
-                        #   pow2 align = 128 @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:82:28:(s120)
+                        #   pow2 align = 128 @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:84:28:(s120)
                         with CudaWarps(2, 4):
                             # Domain (ω.D) = [ 384]
                             #    Box (ω.B) = [  64]
-                            #   pow2 align = 64 @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:83:32:(s110)
+                            #   pow2 align = 64 @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:85:32:(s110)
                             #
-                            # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:83:32:(s110): Arrive(cuda_in_order, 1) >> CtoA[wg] has inconsistent thread pitch with previous Await(BtoC, ...) [guarded_by]:
-                            # wg.thread_pitch (64) != wg.thread_pitch (128)
-                            Arrive(cuda_in_order, 1) >> CtoA[wg]
+                            # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:85:32:(s110):
+                            # Last sync recorded:
+                            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [320], "box": [64]}
+                            #   barrier: CtoA[1, 3]
+                            #   arrive_count: 0 -> 1
+                            #   await_count:  0 -> 0
+                            #   First qual-tl set:
+                            #                cuda_in_order_rmem_qual
+                            #                cuda_in_order_ram_qual
+                            #                cuda_mbarrier_qual
+                            Arrive(cuda_in_order, 1) >> CtoA[wg, n + 1]
                 with CudaWarps(name='A'):
+                    # Domain (ω.D) = [ 384]
+                    #    Box (ω.B) = [  64]
+                    #   pow2 align = 64 @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:88:24:(s220)
                     if n == 0:
+                        # thread_pitch=1; exo_1thr_tid = threadIdx.x @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:89:28:(s170)
                         for tid in cuda_threads(0, 2, unit=cuda_thread):
-                            Await(CtoA[tid], cuda_in_order, ~1)
-                            Arrive(cuda_in_order, 1) >> AtoB[tid]
+                            # Domain (ω.D) = [ 384]
+                            #    Box (ω.B) = [   1]
+                            #   pow2 align = 1 @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:90:32:(s150)
+                            #
+                            # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:90:32:(s150):
+                            # Last sync recorded:
+                            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [1], "box": [1]}
+                            #   barrier: CtoA[1, 0]
+                            #   arrive_count: 1 -> 1
+                            #   await_count:  0 -> 1
+                            #   > Updates pending awaits with arrive_count <= 0
+                            #   Second qual-tl set:
+                            #                cuda_in_order_rmem_qual
+                            #                cuda_in_order_ram_qual
+                            #                cuda_mbarrier_qual
+                            #     (temporal) wgmma_zero_qual
+                            #     (temporal) cuda_async_proxy_retired_qual
+                            Await(CtoA[tid, n], cuda_in_order, 0)
+                            # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:91:32:(s160):
+                            # Last sync recorded:
+                            #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [1], "box": [1]}
+                            #   barrier: AtoB[1, 2]
+                            #   arrive_count: 0 -> 1
+                            #   await_count:  0 -> 0
+                            #   First qual-tl set:
+                            #                cuda_in_order_rmem_qual
+                            #                cuda_in_order_ram_qual
+                            #                cuda_mbarrier_qual
+                            Arrive(cuda_in_order, 1) >> AtoB[tid, n + 2]
                     else:
                         with CudaWarps(0, 1):
+                            # Domain (ω.D) = [ 384]
+                            #    Box (ω.B) = [  32]
+                            #   pow2 align = 32 @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:94:32:(s200)
+                            #
+                            # thread_pitch=1; exo_1thr_tid = threadIdx.x @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:94:32:(s200)
                             for tid in cuda_threads(0, 2, unit=cuda_thread):
-                                Await(CtoA[tid], cuda_in_order, ~1)
-                                Arrive(cuda_in_order, 1) >> AtoB[tid]
+                                # Domain (ω.D) = [ 384]
+                                #    Box (ω.B) = [   1]
+                                #   pow2 align = 1 @ /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:95:36:(s180)
+                                #
+                                # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:95:36:(s180):
+                                # Last sync recorded:
+                                #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [1], "box": [1]}
+                                #   barrier: CtoA[1, 2]
+                                #   arrive_count: 1 -> 1
+                                #   await_count:  0 -> 1
+                                #   > Updates pending awaits with arrive_count <= 0
+                                #   Second qual-tl set:
+                                #                cuda_in_order_rmem_qual
+                                #                cuda_in_order_ram_qual
+                                #                cuda_mbarrier_qual
+                                #     (temporal) wgmma_zero_qual
+                                #     (temporal) cuda_async_proxy_retired_qual
+                                Await(CtoA[tid, n], cuda_in_order, 0)
+                                # /home/mantissa/Documents/exo/tests/cuda/test_3cycle_mbarrier.py:96:36:(s190):
+                                # Last sync recorded:
+                                #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [1], "box": [1]}
+                                #   barrier: AtoB[1, 4]
+                                #   arrive_count: 0 -> 1
+                                #   await_count:  0 -> 0
+                                #   First qual-tl set:
+                                #                cuda_in_order_rmem_qual
+                                #                cuda_in_order_ram_qual
+                                #                cuda_mbarrier_qual
+                                Arrive(cuda_in_order, 1) >> AtoB[tid, n + 2]
             free(CtoA)
             free(BtoC)
             free(AtoB)
