@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from exo import DRAM
+from exo import DRAM, ring_buffer_by
 from exo.frontend.pyparser import (
     Parser,
     get_parent_scope,
@@ -257,27 +257,26 @@ def test_cuda_uast_multicast(golden):
 
     ncta_M = 4
     ncta_N = 2
-    RING = 3
 
     def that_cuda_proc():
         # fmt: off
         with CudaDeviceFunction(clusterDim=ncta_M * ncta_N, warp_config=my_warp_config):
             for task in cuda_tasks(0, 1):
-                raw : barrier[ncta_M, ncta_N] @ CudaMbarrier
-                war : barrier(raw)[ncta_M, ncta_N] @ CudaMbarrier
+                raw : barrier[ncta_M, ncta_N, 100 @ ring_buffer_by(4)] @ CudaMbarrier
+                war : barrier[ncta_M, ncta_N, 104 @ ring_buffer_by(4)] @ CudaMbarrierPreArrive(4)
                 for iter_k in seq(0, 100):
                     with CudaWarps(name="producer"):
                         for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
                             for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
-                                Await(war[cta_m,cta_n], cuda_temporal, ~(RING-1))
+                                Await(war[cta_m, cta_n, iter_k], cuda_temporal, 0)
                         for cta_n in cuda_threads(0, ncta_N, unit=ncta_M * cuda_cta_in_cluster_strided(ncta_N)):
                             for cta_m in cuda_threads(0, ncta_M, unit=cuda_cta_in_cluster):
-                                Arrive(cuda_temporal) >> raw[cta_m,:] >> raw[:,cta_n]
+                                Arrive(cuda_temporal) >> raw[cta_m, :, iter_k] >> raw[:, cta_n, iter_k]
                     with CudaWarps(name="consumer"):
                         for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
                             for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
-                                Await(raw[cta_m,cta_n], cuda_generic_and_async_proxy, ~0)
-                                Arrive(cuda_in_order) >> war[cta_m,:] >> war[:,cta_n]
+                                Await(raw[cta_m, cta_n, iter_k], cuda_generic_and_async_proxy, 0)
+                                Arrive(cuda_in_order) >> war[cta_m, :, iter_k + 4] >> war[:, cta_n, iter_k + 4]
 
     result = str(to_uast(that_cuda_proc))
     assert result == golden
@@ -294,9 +293,9 @@ def test_cuda_uast_multicast(golden):
     assert substr("for cta_n in cuda_threads(0, 2, unit=4 * cuda_cta_in_cluster_strided(2)):")
     assert substr("unit=2 * cuda_cta_in_cluster")
 
-    assert substr("raw: barrier[4, 2] @ CudaMbarrier")
-    assert substr("war: barrier(raw)[4, 2] @ CudaMbarrier")
-    assert substr("Await(war[cta_m, cta_n], cuda_temporal, ~2)")
-    assert substr("Arrive(cuda_temporal, 1) >> raw[cta_m, :] >> raw[:, cta_n]")
-    assert substr("Await(raw[cta_m, cta_n], cuda_generic_and_async_proxy, ~0)")
-    assert substr("Arrive(cuda_in_order, 1) >> war[cta_m, :] >> war[:, cta_n]")
+    assert substr("raw: barrier[4, 2, 100 @ (ring_buffer_by(depth=4))] @ CudaMbarrier")
+    assert substr("war: barrier[4, 2, 104 @ (ring_buffer_by")
+    assert substr("Await(war[cta_m, cta_n, iter_k], cuda_temporal, 0)")
+    assert substr("Arrive(cuda_temporal, 1) >> raw[cta_m, :, iter_k] >> raw[:, cta_n, iter_k]")
+    assert substr("Await(raw[cta_m, cta_n, iter_k], cuda_generic_and_async_proxy, 0)")
+    assert substr("Arrive(cuda_in_order, 1) >> war[cta_m, :, iter_k + 4] >> war[:, cta_n, iter_k + 4]")

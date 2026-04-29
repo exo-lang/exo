@@ -15,8 +15,9 @@ def that_cuda_proc():
                                                setmaxnreg_inc=232)
                             ]):
         for task in cuda_tasks(0, 1):
-            raw: barrier[4, 2] @ CudaMbarrier
-            war: barrier(raw)[4, 2] @ CudaMbarrier
+            raw: barrier[4, 2, 100 @ (ring_buffer_by(depth=4))] @ CudaMbarrier
+            war: barrier[4, 2, 104 @ (ring_buffer_by(
+                depth=4))] @ CudaMbarrierPreArrive(4, )
             for iter_k in seq(0, 100):
                 with CudaWarps(name='producer'):
                     for cta_m in cuda_threads(0,
@@ -25,7 +26,7 @@ def that_cuda_proc():
                         for cta_n in cuda_threads(0,
                                                   2,
                                                   unit=cuda_cta_in_cluster):
-                            Await(war[cta_m, cta_n], cuda_temporal, ~2)
+                            Await(war[cta_m, cta_n, iter_k], cuda_temporal, 0)
                     for cta_n in cuda_threads(0,
                                               2,
                                               unit=4 *
@@ -34,7 +35,8 @@ def that_cuda_proc():
                                                   4,
                                                   unit=cuda_cta_in_cluster):
                             Arrive(cuda_temporal,
-                                   1) >> raw[cta_m, :] >> raw[:, cta_n]
+                                   1) >> raw[cta_m, :, iter_k] >> raw[:, cta_n,
+                                                                      iter_k]
                 with CudaWarps(name='consumer'):
                     for cta_m in cuda_threads(0,
                                               4,
@@ -42,7 +44,8 @@ def that_cuda_proc():
                         for cta_n in cuda_threads(0,
                                                   2,
                                                   unit=cuda_cta_in_cluster):
-                            Await(raw[cta_m, cta_n],
-                                  cuda_generic_and_async_proxy, ~0)
+                            Await(raw[cta_m, cta_n, iter_k],
+                                  cuda_generic_and_async_proxy, 0)
                             Arrive(cuda_in_order,
-                                   1) >> war[cta_m, :] >> war[:, cta_n]
+                                   1) >> war[cta_m, :, iter_k +
+                                             4] >> war[:, cta_n, iter_k + 4]

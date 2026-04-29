@@ -225,10 +225,9 @@ class UAST_PPrinter:
                 rhs = self.pexpr(stmt.rhs)
                 self.addline(f"{self.new_name(stmt.name)} = {rhs}")
             elif isinstance(stmt, UAST.Alloc):
-                # TODO print size annotations if desired.
                 mem = f" @{stmt.mem.name()}" if stmt.mem else ""
                 self.addline(
-                    f"{self.new_name(stmt.name)} : {self.ptype(stmt.type)}{mem}"
+                    f"{self.new_name(stmt.name)} : {self.ptype(stmt.type, stmt.zip_size_annotations)}{mem}"
                 )
             elif isinstance(stmt, UAST.Call):
                 self.addline(pcall_impl(stmt, lambda e: self.pexpr(e)))
@@ -317,7 +316,7 @@ class UAST_PPrinter:
         else:
             assert False, "bad case"
 
-    def ptype(self, t):
+    def ptype(self, t, zip_size_annotations=()):
         if isinstance(t, UAST.Num):
             return "R"
         elif isinstance(t, UAST.Bool):
@@ -329,22 +328,29 @@ class UAST_PPrinter:
         elif isinstance(t, UAST.Size):
             return "size"
         elif isinstance(t, UAST.Barrier):
-            # TODO print ring_guarded_by if desired.
-            rngs = ",".join([self.pexpr(r) for r in t.shape()])
+            rngs = self.ptype_rngs(t, zip_size_annotations)
             if rngs:
                 return f"barrier[{rngs}]"
             else:
                 return f"barrier"
         elif isinstance(t, UAST.Tensor):
-            # TODO print ring_guarded_by if desired.
             base = str(t.basetype())
             if t.is_window:
                 base = f"[{base}]"
-            rngs = ",".join([self.pexpr(r) for r in t.shape()])
+            rngs = self.ptype_rngs(t, zip_size_annotations)
             return f"{base}[{rngs}]"
         else:
             scalar_info = ScalarInfo(t)
             return scalar_info.shorthand
+
+    def ptype_rngs(self, t, zip_size_annotations):
+        str_idxs = [self.pexpr(r) for r in t.shape()]
+        for i, annotation in enumerate(zip_size_annotations):
+            decayed = annotation.decay()
+            if decayed is not None:
+                pe = str_idxs[i]
+                str_idxs[i] = f"{pe} @ ({decayed})"
+        return ",".join(str_idxs)
 
 
 # --------------------------------------------------------------------------- #
