@@ -269,7 +269,7 @@ class SyncStateBuilder:
 
         if managed_ring_buffer_dim_idx is None:
             raise ValueError(
-                f"mbarrier {name} missing (non-distributed) managed ring buffer dimension"
+                f"mbarrier {name} missing (non-distributed) managed ring buffer dimension (@ ring_buffer_by)"
             )
         assert 0 <= managed_ring_buffer_dim_idx < len(const_shape)
         ring_depth = const_shape[managed_ring_buffer_dim_idx]

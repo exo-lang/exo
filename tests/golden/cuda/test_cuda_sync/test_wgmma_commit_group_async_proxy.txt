@@ -245,6 +245,9 @@ struct exo_Cuda0_test_proc
   exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
 
   static __device__ __forceinline__ void
+  exo_deviceShutdown(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
+
+  static __device__ __forceinline__ void
   exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
 
   static __device__ __forceinline__ void
@@ -301,6 +304,15 @@ exo_CudaInline_test_wgmma_commit_group_async_proxy::exo_Cuda0_test_proc::exo_dev
 }
 
 __device__ __forceinline__ void
+exo_CudaInline_test_wgmma_commit_group_async_proxy::exo_Cuda0_test_proc::exo_deviceShutdown(
+    char* exo_smem,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_ExcutThreadLog exo_excutLog)
+{
+  // clusterDim = 1
+}
+
+__device__ __forceinline__ void
 exo_CudaInline_test_wgmma_commit_group_async_proxy::exo_Cuda0_test_proc::exo_deviceTask(
     char* exo_smem,
     exo_SyncState& exo_syncState,
@@ -309,12 +321,12 @@ exo_CudaInline_test_wgmma_commit_group_async_proxy::exo_Cuda0_test_proc::exo_dev
     exo_ExcutThreadLog exo_excutLog)
 {
   namespace exo_CudaUtil = exo_CudaUtil_test_wgmma_commit_group_async_proxy;
-  // cg: barrier[2] @ CudaCommitGroup
+  // cg: barrier @ Sm90_WgmmaCommitGroup
   // CudaWarps(4, 12)
   if (int CudaWarps_4_12_ = threadIdx.x; CudaWarps_4_12_ >= 128 && CudaWarps_4_12_ < 384) {
     // cuda_threads(0, 2, unit=cuda_warpgroup)
     if ([[maybe_unused]] int exo_128thr_t = ((threadIdx.x - 128) / 128); 1) {
-      // Arrive(wgmma_async, 1) >> cg[t]
+      // Arrive(wgmma_async, 1) >> cg
       asm volatile(
         "wgmma.commit_group.sync.aligned;"
       );
@@ -325,7 +337,7 @@ exo_CudaInline_test_wgmma_commit_group_async_proxy::exo_Cuda0_test_proc::exo_dev
   if (int CudaWarps_4_12_ = threadIdx.x; CudaWarps_4_12_ >= 128 && CudaWarps_4_12_ < 384) {
     // cuda_threads(0, 2, unit=cuda_warpgroup)
     if ([[maybe_unused]] int exo_128thr_t = ((threadIdx.x - 128) / 128); 1) {
-      // Await(cg[t], cuda_generic_and_async_proxy, 1)
+      // Await(cg, cuda_generic_and_async_proxy, 1)
       asm volatile(
         "wgmma.wait_group.sync.aligned 1;"
       );
@@ -375,6 +387,7 @@ exo_deviceFunction0_test_proc(__grid_constant__ const struct exo_CudaDeviceArgs0
   exo_ExcutThreadLog exo_excutLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
   exo_Cuda0_test_proc::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
   exo_Cuda0_test_proc::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda0_test_proc::exo_deviceShutdown(exo_smem, exo_deviceArgs, exo_excutLog);
 }
 
 void

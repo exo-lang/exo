@@ -245,6 +245,9 @@ struct exo_Cuda0_test_proc
   exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
 
   static __device__ __forceinline__ void
+  exo_deviceShutdown(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
+
+  static __device__ __forceinline__ void
   exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
 
   static __device__ __forceinline__ void
@@ -295,6 +298,15 @@ exo_CudaInline_test_commit_group_await_first_positive::exo_Cuda0_test_proc::exo_
 }
 
 __device__ __forceinline__ void
+exo_CudaInline_test_commit_group_await_first_positive::exo_Cuda0_test_proc::exo_deviceShutdown(
+    char* exo_smem,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_ExcutThreadLog exo_excutLog)
+{
+  // clusterDim = 1
+}
+
+__device__ __forceinline__ void
 exo_CudaInline_test_commit_group_await_first_positive::exo_Cuda0_test_proc::exo_deviceTask(
     char* exo_smem,
     exo_SyncState& exo_syncState,
@@ -303,12 +315,12 @@ exo_CudaInline_test_commit_group_await_first_positive::exo_Cuda0_test_proc::exo_
     exo_ExcutThreadLog exo_excutLog)
 {
   namespace exo_CudaUtil = exo_CudaUtil_test_commit_group_await_first_positive;
-  // cg: barrier[2] @ CudaCommitGroup
+  // cg: barrier @ Sm80_CommitGroup
   // CudaWarps(4, 12)
   if (int CudaWarps_4_12_ = threadIdx.x; CudaWarps_4_12_ >= 128 && CudaWarps_4_12_ < 384) {
     // cuda_threads(0, 2, unit=cuda_thread)
     if (int exo_1thr_t = (threadIdx.x - 128); exo_1thr_t < 2) {
-      // Await(cg[t], cuda_in_order, 1)
+      // Await(cg, cuda_in_order, 1)
       asm volatile(
         "cp.async.wait_group 1;"
       );
@@ -320,7 +332,7 @@ exo_CudaInline_test_commit_group_await_first_positive::exo_Cuda0_test_proc::exo_
   if (int CudaWarps_4_12_ = threadIdx.x; CudaWarps_4_12_ >= 128 && CudaWarps_4_12_ < 384) {
     // cuda_threads(0, 2, unit=cuda_thread)
     if (int exo_1thr_t = (threadIdx.x - 128); exo_1thr_t < 2) {
-      // Arrive(Sm80_cp_async, 1) >> cg[t]
+      // Arrive(Sm80_cp_async, 1) >> cg
       asm volatile(
         "cp.async.commit_group;"
       );
@@ -369,6 +381,7 @@ exo_deviceFunction0_test_proc(__grid_constant__ const struct exo_CudaDeviceArgs0
   exo_ExcutThreadLog exo_excutLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
   exo_Cuda0_test_proc::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
   exo_Cuda0_test_proc::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda0_test_proc::exo_deviceShutdown(exo_smem, exo_deviceArgs, exo_excutLog);
 }
 
 void

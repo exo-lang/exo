@@ -442,6 +442,9 @@ struct exo_Cuda0__4_128_32_cp_async_commit_group
   exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
 
   static __device__ __forceinline__ void
+  exo_deviceShutdown(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
+
+  static __device__ __forceinline__ void
   exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
 
   static __device__ __forceinline__ void
@@ -492,6 +495,15 @@ exo_CudaInline_test_golden_A_cp_async_commit_group::exo_Cuda0__4_128_32_cp_async
 }
 
 __device__ __forceinline__ void
+exo_CudaInline_test_golden_A_cp_async_commit_group::exo_Cuda0__4_128_32_cp_async_commit_group::exo_deviceShutdown(
+    char* exo_smem,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_ExcutThreadLog exo_excutLog)
+{
+  // clusterDim = 1
+}
+
+__device__ __forceinline__ void
 exo_CudaInline_test_golden_A_cp_async_commit_group::exo_Cuda0__4_128_32_cp_async_commit_group::exo_deviceTask(
     char* exo_smem,
     exo_SyncState& exo_syncState,
@@ -500,7 +512,7 @@ exo_CudaInline_test_golden_A_cp_async_commit_group::exo_Cuda0__4_128_32_cp_async
     exo_ExcutThreadLog exo_excutLog)
 {
   namespace exo_CudaUtil = exo_CudaUtil_test_golden_A_cp_async_commit_group;
-  // cg: barrier[128] @ CudaCommitGroup
+  // cg: barrier @ Sm80_CommitGroup
   auto& smem = reinterpret_cast<float (&) [16384]>(exo_smem[exo_smemOffset0_smem]);
   for (int warmup = 0; warmup < 2; warmup++) {
     // cuda_threads(0, 128, unit=cuda_thread)
@@ -519,7 +531,7 @@ exo_CudaInline_test_golden_A_cp_async_commit_group::exo_Cuda0__4_128_32_cp_async
           exo_excutLog.log_u32_arg(static_cast<uint32_t>(16));
         }
       }
-      // Arrive(Sm80_cp_async, 1) >> cg[tid]
+      // Arrive(Sm80_cp_async, 1) >> cg
       asm volatile(
         "cp.async.commit_group;"
       );
@@ -543,12 +555,12 @@ exo_CudaInline_test_golden_A_cp_async_commit_group::exo_Cuda0__4_128_32_cp_async
           exo_excutLog.log_u32_arg(static_cast<uint32_t>(16));
         }
       }
-      // Arrive(Sm80_cp_async, 1) >> cg[tid]
+      // Arrive(Sm80_cp_async, 1) >> cg
       asm volatile(
         "cp.async.commit_group;"
       );
       exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_commit_group), 0, __LINE__);
-      // Await(cg[tid], cuda_in_order, 2)
+      // Await(cg, cuda_in_order, 2)
       asm volatile(
         "cp.async.wait_group 2;"
       );
@@ -573,7 +585,7 @@ exo_CudaInline_test_golden_A_cp_async_commit_group::exo_Cuda0__4_128_32_cp_async
   }
   // cuda_threads(0, 128, unit=cuda_thread)
   if ([[maybe_unused]] int exo_1thr_tid = threadIdx.x; 1) {
-    // Await(cg[tid], cuda_in_order, 0)
+    // Await(cg, cuda_in_order, 0)
     asm volatile(
       "cp.async.wait_group 0;"
     );
@@ -628,6 +640,7 @@ exo_deviceFunction0__4_128_32_cp_async_commit_group(__grid_constant__ const stru
   exo_ExcutThreadLog exo_excutLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
   exo_Cuda0__4_128_32_cp_async_commit_group::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
   exo_Cuda0__4_128_32_cp_async_commit_group::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda0__4_128_32_cp_async_commit_group::exo_deviceShutdown(exo_smem, exo_deviceArgs, exo_excutLog);
 }
 
 void
