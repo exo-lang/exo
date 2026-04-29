@@ -569,7 +569,7 @@ def generate_latex_table(out_file):
         (cpu_cuda_stream_qual, "strm", r"accessed by stream-ordered CUDA API call (e.g. \lighttt{cudaMemcpyAsync})"),
         (cuda_in_order_rmem_qual, "cuda1", r"register accessed by non-explicitly-async CUDA instruction"),
         (cuda_in_order_ram_qual, "cuda2", r"non-register accessed by non-explicitly-async CUDA instruction"),
-        (cuda_mbarrier_qual, "mbar", r"usage of mbarriers")
+        (cuda_mbarrier_qual, "mbar", r"usage of mbarriers"),
         (Sm80_cp_async_qual, "Sm80", r"accessed by \lighttt{cp.async} instruction (non-bulk, i.e. not TMA)"),
         (tma_to_smem_async_qual, "tmaS", r"accessed by \lighttt{cp.async.bulk} ``load'' instruction (GMEM$\to$SMEM)"),
         (tma_to_gmem_async_qual, "tmaG", r"accessed by \lighttt{cp.async.bulk} ``store instruction (SMEM$\to$GMEM)"),
