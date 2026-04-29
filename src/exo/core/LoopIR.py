@@ -888,13 +888,20 @@ def proc_name_with_args(p):
     return f"{p.name}({argstr})"
 
 
-def chain_window_idx(idx0, idx1):
+def chain_window_idx(idx0, idx1, extent_to_modify=None, one=None):
     """Given
 
     window_0 = tensor[idx0]
     window_1 = window_0[idx1]
 
     Return chained_idx such that window_1 = tensor[chained_idx]
+
+    Optionally, if extent_to_modify is a list, then modify it in-place
+    so that "one" values are inserted at each index where idx0
+    had a point expression (this is used in camspork, to convert
+    extents expressed in the coordinate space of the window to
+    coordinate space of the underlying tensor.
+
     """
 
     def add_e(scalar_0, scalar_1):
@@ -910,6 +917,8 @@ def chain_window_idx(idx0, idx1):
     for i0, e0 in enumerate(idx0):
         if isinstance(e0, LoopIR.Point):
             chained_idx[i0] = e0
+            if extent_to_modify is not None:
+                extent_to_modify.insert(i0, one)
         else:
             assert isinstance(e0, LoopIR.Interval)
             e1 = idx1[i1]

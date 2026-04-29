@@ -720,7 +720,7 @@ class ProgramBuilder:
         elif extent:
             # Window variant -- have to interleave offsets and extents (of window)
             var, dim, offsets = dst.c_var_dim_idxs(self._builder)
-            assert len(extent) == dim
+            assert len(extent) == dim, (extent, var, dim, offsets)
             c_func = _add_SyncEnvAccessWindow
             idxs = (OffsetExtentExpr * dim)()
             for i in range(dim):
