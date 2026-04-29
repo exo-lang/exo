@@ -342,7 +342,7 @@ class CamsporkDo(LoopIR_Do):
                     b.begin_orelse()
                     self.do_stmts(s.orelse)
         elif isinstance(s, LoopIR.For):
-            self._envtyp[s.iter] = LoopIR.Index
+            self._envtyp[s.iter] = T.index
             if not self.want_value(s.iter):
                 b.add_variable(s.iter)
             am_iter = b[s.iter]
@@ -809,6 +809,7 @@ class CamsporkDo(LoopIR_Do):
                     unit = coll_unit_stack.pop()
                     assert isinstance(shape_coord, LoopIR.Const)
                     tmp_iter = Sym(f"_{unit_i}_CALLEE_DISTRIBUTED")
+                    self._envtyp[tmp_iter] = T.index
                     tiling = tiling.tiled(
                         tmp_iter, unit, shape_coord.val, self._coll_env
                     )
