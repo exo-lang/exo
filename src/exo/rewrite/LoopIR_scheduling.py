@@ -3480,9 +3480,9 @@ class DoSimplify(Cursor_Rewrite):
         if op == "%":
             return lhs.val % rhs.val
         if op == "and":
-            return lhs.val and rhs.val
+            return bool(lhs.val and rhs.val)
         if op == "or":
-            return lhs.val or rhs.val
+            return bool(lhs.val or rhs.val)
         if op == "<":
             return lhs.val < rhs.val
         if op == ">":
@@ -3552,7 +3552,9 @@ class DoSimplify(Cursor_Rewrite):
         rhs = self.map_e(e.rhs) or e.rhs
 
         if isinstance(lhs, LoopIR.Const) and isinstance(rhs, LoopIR.Const):
-            return LoopIR.Const(self.cfold(e.op, lhs, rhs), lhs.type, lhs.srcinfo)
+            cfold_result = self.cfold(e.op, lhs, rhs)
+            cfold_type = T.bool if isinstance(cfold_result, bool) else lhs.type
+            return LoopIR.Const(cfold_result, cfold_type, lhs.srcinfo)
 
         def is_const_val(e, val):
             return isinstance(e, LoopIR.Const) and e.val == val
