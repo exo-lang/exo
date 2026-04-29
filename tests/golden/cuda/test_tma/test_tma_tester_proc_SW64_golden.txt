@@ -433,12 +433,12 @@ Sm80_cp_async_f32(dst,src,size=4)
 */
 
 /* relying on the following instruction..."
-Sm90_tma_load_2d(dst,src,dst=f32, src=f32, size0=248, size1=16, smem_box=None, swizzle=64)
+Sm90_tma_load_2d(dst,src,dst=f32, src=f32, size0=248, size1=16, smem_box=(248, 16), swizzle=64)
 
 */
 
 /* relying on the following instruction..."
-Sm90_tma_store_2d(dst,src,dst=f32, src=f32, size0=248, size1=16, smem_box=None, swizzle=64)
+Sm90_tma_store_2d(dst,src,dst=f32, src=f32, size0=248, size1=16, smem_box=(248, 16), swizzle=64)
 
 */
 
@@ -742,7 +742,7 @@ struct exo_Sm90_SW64_tiled: public exo_Sm90_SW64<T>
 
 namespace exo_CudaUtil_test_tma_tester_proc_SW64_golden {
 namespace exo_CudaUtil = ::exo_CudaUtil_test_tma_tester_proc_SW64_golden;
-/* Required by Sm90_tma_load_2d(dst,src,dst=f32, src=f32, size0=248, size1=16, smem_box=None, swizzle=64) */
+/* Required by Sm90_tma_load_2d(dst,src,dst=f32, src=f32, size0=248, size1=16, smem_box=(248, 16), swizzle=64) */
 template <typename WindowOffsets>
 EXO_CUDA_INLINE void
 exo_Sm90_tma_to_smem(
@@ -813,7 +813,7 @@ exo_Sm90_tma_to_smem(
         }
     }
 }
-/* Required by Sm90_tma_store_2d(dst,src,dst=f32, src=f32, size0=248, size1=16, smem_box=None, swizzle=64) */
+/* Required by Sm90_tma_store_2d(dst,src,dst=f32, src=f32, size0=248, size1=16, smem_box=(248, 16), swizzle=64) */
 template <typename WindowOffsets>
 EXO_CUDA_INLINE void
 exo_Sm90_tma_to_gmem(const CUtensorMap& tensorMap, WindowOffsets window, const void* src)

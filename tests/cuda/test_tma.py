@@ -67,6 +67,7 @@ def mkproc_tma_tester(swizzle: int, sync_check):
                         ]
                         Sm90_tma_load_2d(smem_x[:, :], x_input,
                             size0=smem_M, size1=smem_K, dst=f32, src=f32, swizzle=swizzle,
+                            smem_box=(smem_M, smem_K),
                         ) >> raw[0]
                         Arrive(cuda_temporal, 1) >> raw[0]
 
@@ -97,6 +98,7 @@ def mkproc_tma_tester(swizzle: int, sync_check):
                         Sm90_tma_store_2d(
                             tma_window[:, :], smem_sum[:, :],
                             size0=smem_M, size1=smem_K, dst=f32, src=f32, swizzle=swizzle,
+                            smem_box=(smem_M, smem_K),
                         )
                         cg: barrier @ Sm90_TmaCommitGroup
                         Arrive(tma_to_gmem_async, 1) >> cg
