@@ -408,7 +408,7 @@ __launch_bounds__(512, 1)
 __global__ void
 exo_deviceFunction0_proc_CudaWarps_in_wg(__grid_constant__ const struct exo_CudaDeviceArgs0_proc_CudaWarps_in_wg exo_deviceArgs)
 {
-  extern __shared__ char exo_smem[];
+  extern __shared__ __align__(128) char exo_smem[];
   exo_ExcutThreadLog exo_excutLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
   exo_Cuda0_proc_CudaWarps_in_wg::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
   exo_Cuda0_proc_CudaWarps_in_wg::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
