@@ -138,7 +138,7 @@ class ProgramPrinter
         print_tabs();
         *this << "b.SyncEnvAccess(" << node->name;
         print_idx(node, true);  // print offset
-        *this << ", " << node->initial_qual_bit << ", " << node->extended_qual_bits;
+        *this << ", " << node->initial_qual_bit << ", " << node->extended_qual_bits << ", " << node->qual_tl_mask;
         using NodeType = std::remove_reference_t<decltype(*node)>;
 
         static_assert(access_flag_all_bits == 15, "update me");
@@ -292,7 +292,8 @@ class ProgramPrinter
     {
         print_tabs();
         *this << "b.SyncEnvManageRingBuffer(";
-        *this << node->guard;
+        *this << node->qual_tl_mask;
+        *this << ", " << node->guard;
         print_idx(node);
         *this << ", " << node->buffer;
         *this << ", " << node->managed_ring_buffer_dim_idx;

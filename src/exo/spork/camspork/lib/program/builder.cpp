@@ -99,7 +99,7 @@ TrailingBarrierExprRef ProgramBuilder::add_TrailingBarrierExpr(Varname name, uin
 template <typename ReadNode, typename MutateNode, typename IdxType>
 StmtRef ProgramBuilder::add_SyncEnvAccess_impl(
     Varname name, size_t num_idx, const IdxType* idx,
-    qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, qual_bits_t atomic_qual_bits,
+    qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, qual_bits_t qual_tl_mask, qual_bits_t atomic_qual_bits,
     uint32_t thread_access_granularity, uint32_t access_flags, TrailingBarrierExprRef trailing_barrier_expr)
 {
     static_assert(access_flag_all_bits == 15, "update me");
@@ -110,6 +110,7 @@ StmtRef ProgramBuilder::add_SyncEnvAccess_impl(
         node.name = name;
         node.initial_qual_bit = initial_qual_bit;
         node.extended_qual_bits = extended_qual_bits;
+        node.qual_tl_mask = qual_tl_mask;
         node.access_flags = access_flags;
         node.trailing_barrier_expr = trailing_barrier_expr;
         node.thread_access_granularity = thread_access_granularity;
@@ -131,31 +132,31 @@ StmtRef ProgramBuilder::add_SyncEnvAccess_impl(
 
 StmtRef ProgramBuilder::add_SyncEnvAccess(
     Varname name, size_t num_idx, const ExprRef* idx,
-    qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, qual_bits_t atomic_qual_bits,
+    qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, qual_bits_t qual_tl_mask, qual_bits_t atomic_qual_bits,
     uint32_t thread_access_granularity, uint32_t access_flags, TrailingBarrierExprRef trailing_barrier_expr)
 {
     return add_SyncEnvAccess_impl<SyncEnvReadSingle, SyncEnvMutateSingle>(
-            name, num_idx, idx, initial_qual_bit, extended_qual_bits, atomic_qual_bits,
+            name, num_idx, idx, initial_qual_bit, extended_qual_bits, qual_tl_mask, atomic_qual_bits,
             thread_access_granularity, access_flags, trailing_barrier_expr);
 }
 
 StmtRef ProgramBuilder::add_SyncEnvAccess(
     Varname name, size_t num_idx, const OffsetExtentExpr* idx,
-    qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, qual_bits_t atomic_qual_bits,
+    qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, qual_bits_t qual_tl_mask, qual_bits_t atomic_qual_bits,
     uint32_t thread_access_granularity, uint32_t access_flags, TrailingBarrierExprRef trailing_barrier_expr)
 {
     return add_SyncEnvAccess_impl<SyncEnvReadWindow, SyncEnvMutateWindow>(
-            name, num_idx, idx, initial_qual_bit, extended_qual_bits, atomic_qual_bits,
+            name, num_idx, idx, initial_qual_bit, extended_qual_bits, qual_tl_mask, atomic_qual_bits,
             thread_access_granularity, access_flags, trailing_barrier_expr);
 }
 
 StmtRef ProgramBuilder::add_SyncEnvAccess(
     Varname name, size_t num_idx, const ArriveIdx* idx,
-    qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, qual_bits_t atomic_qual_bits,
+    qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, qual_bits_t qual_tl_mask, qual_bits_t atomic_qual_bits,
     uint32_t thread_access_granularity, uint32_t access_flags, TrailingBarrierExprRef trailing_barrier_expr)
 {
     return add_SyncEnvAccess_impl<SyncEnvReadMulticast, SyncEnvMutateMulticast>(
-            name, num_idx, idx, initial_qual_bit, extended_qual_bits, atomic_qual_bits,
+            name, num_idx, idx, initial_qual_bit, extended_qual_bits, qual_tl_mask, atomic_qual_bits,
             thread_access_granularity, access_flags, trailing_barrier_expr);
 }
 
@@ -235,11 +236,11 @@ StmtRef ProgramBuilder::add_JoinThreads()
 }
 
 StmtRef ProgramBuilder::add_SyncEnvManageRingBuffer(
-        Varname guard, Varname buffer,
+        qual_bits_t qual_tl_mask, Varname guard, Varname buffer,
         uint32_t managed_ring_buffer_dim_idx, uint32_t buffer_depth,
         uint32_t num_idx, const ArriveIdx* idx)
 {
-    return append_impl(SyncEnvManageRingBuffer{guard, buffer, managed_ring_buffer_dim_idx, buffer_depth}, num_idx, idx);
+    return append_impl(SyncEnvManageRingBuffer{qual_tl_mask, guard, buffer, managed_ring_buffer_dim_idx, buffer_depth}, num_idx, idx);
 }
 
 StmtRef ProgramBuilder::add_SyncEnvFreeManagedRingBuffer(Varname name)
@@ -456,12 +457,12 @@ static camspork::TrailingBarrierExprRef get_trailing_barrier_expr(
 camspork_RawStmtRef camspork_add_SyncEnvAccessSingle(camspork::ProgramBuilder* p_builder,
     camspork_RawVarname name, uint32_t num_idx, const camspork::ExprRef* idx,
     camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t extended_qual_bits,
-    camspork::qual_bits_t atomic_qual_bits, uint32_t thread_access_granularity,
+    camspork::qual_bits_t qual_tl_mask, camspork::qual_bits_t atomic_qual_bits, uint32_t thread_access_granularity,
     uint32_t access_flags, const camspork::TrailingBarrierExprRef* trailing_barrier_expr)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_SyncEnvAccess(
-            name, num_idx, idx, initial_qual_bit, extended_qual_bits, atomic_qual_bits,
+            name, num_idx, idx, initial_qual_bit, extended_qual_bits, qual_tl_mask, atomic_qual_bits,
             thread_access_granularity, access_flags, get_trailing_barrier_expr(trailing_barrier_expr));
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
@@ -469,12 +470,12 @@ camspork_RawStmtRef camspork_add_SyncEnvAccessSingle(camspork::ProgramBuilder* p
 camspork_RawStmtRef camspork_add_SyncEnvAccessWindow(camspork::ProgramBuilder* p_builder,
     camspork_RawVarname name, uint32_t num_idx, const camspork::OffsetExtentExpr* idx,
     camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t extended_qual_bits,
-    camspork::qual_bits_t atomic_qual_bits, uint32_t thread_access_granularity,
+    camspork::qual_bits_t qual_tl_mask, camspork::qual_bits_t atomic_qual_bits, uint32_t thread_access_granularity,
     uint32_t access_flags, const camspork::TrailingBarrierExprRef* trailing_barrier_expr)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_SyncEnvAccess(
-            name, num_idx, idx, initial_qual_bit, extended_qual_bits, atomic_qual_bits,
+            name, num_idx, idx, initial_qual_bit, extended_qual_bits, qual_tl_mask, atomic_qual_bits,
             thread_access_granularity, access_flags, get_trailing_barrier_expr(trailing_barrier_expr));
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
@@ -482,12 +483,12 @@ camspork_RawStmtRef camspork_add_SyncEnvAccessWindow(camspork::ProgramBuilder* p
 camspork_RawStmtRef camspork_add_SyncEnvAccessMulticast(camspork::ProgramBuilder* p_builder,
     camspork_RawVarname name, uint32_t num_idx, const camspork::ArriveIdx* idx,
     camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t extended_qual_bits,
-    camspork::qual_bits_t atomic_qual_bits, uint32_t thread_access_granularity,
+    camspork::qual_bits_t qual_tl_mask, camspork::qual_bits_t atomic_qual_bits, uint32_t thread_access_granularity,
     uint32_t access_flags, const camspork::TrailingBarrierExprRef* trailing_barrier_expr)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_SyncEnvAccess(
-            name, num_idx, idx, initial_qual_bit, extended_qual_bits, atomic_qual_bits,
+            name, num_idx, idx, initial_qual_bit, extended_qual_bits, qual_tl_mask, atomic_qual_bits,
             thread_access_granularity, access_flags, get_trailing_barrier_expr(trailing_barrier_expr));
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
@@ -591,12 +592,13 @@ camspork_RawStmtRef camspork_add_JoinThreads(camspork::ProgramBuilder* p_builder
 }
 
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_SyncEnvManageRingBuffer(camspork::ProgramBuilder* p_builder,
-    camspork_RawVarname guard, camspork_RawVarname buffer,
+    camspork::qual_bits_t qual_tl_mask, camspork_RawVarname guard, camspork_RawVarname buffer,
     uint32_t managed_ring_buffer_idx, uint32_t buffer_depth,
     uint32_t num_idx, const camspork::ArriveIdx* idx)
 {
     CAMSPORK_API_PROLOGUE
-    return p_builder->add_SyncEnvManageRingBuffer(guard, buffer, managed_ring_buffer_idx, buffer_depth, num_idx, idx);
+    return p_builder->add_SyncEnvManageRingBuffer(
+            qual_tl_mask, guard, buffer, managed_ring_buffer_idx, buffer_depth, num_idx, idx);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 

@@ -76,6 +76,8 @@ struct VisRecord
     // because this interacts with memoization.
     nodepool::id<HamsterBarrierState> free_on_arrive{0};
 
+    qual_bits_t qual_tl_mask = 0;
+
     uint32_t flags = 0;
 
     static constexpr uint32_t num_memoize_hash_bits = 62;
@@ -129,7 +131,7 @@ struct VisRecordListNode
 
 using DefaultVisRecordListNode = VisRecordListNode<VisRecordKind::Default>;
 
-static_assert(sizeof(DefaultVisRecordListNode) == 32, "Check that you meant to change this perf-critical struct");
+static_assert(sizeof(DefaultVisRecordListNode) == 40, "Check that you meant to change this perf-critical struct");
 
 template <VisRecordKind K>
 struct AssignmentRecordVisNode
@@ -662,7 +664,7 @@ struct SyncvTable
     void reset_vis_record_data(nodepool::id<VisRecordListNode<K>> id)
     {
         VisRecord* p_data = &get(id).base_data;
-        static_assert(sizeof(*p_data) == 16, "update me");
+        static_assert(sizeof(*p_data) == 20, "update me");
         extend_free_list(p_data->visibility_set);
         p_data->visibility_set = {};
         if (auto set_id = p_data->pending_awaits) {
@@ -676,6 +678,7 @@ struct SyncvTable
             decref(p_data->free_on_arrive);
             p_data->free_on_arrive = {};
         }
+        p_data->qual_tl_mask = 0;
         p_data->flags = 0;
     }
 
@@ -746,6 +749,11 @@ struct SyncvTable
             vis_record.base_data.free_on_arrive = free_on_arrive_id;
             incref(free_on_arrive_id);
         }
+        vis_record.base_data.qual_tl_mask = access.qual_tl_mask;
+        vis_record.base_data.flags = 0;
+
+        CAMSPORK_REQUIRE_CMP((access.qual_tl_mask & access.initial_qual_bit), ==, access.initial_qual_bit, "Missing qual_tl_mask bits");
+        CAMSPORK_REQUIRE_CMP((access.qual_tl_mask & access.extended_qual_bits), ==, access.extended_qual_bits, "Missing qual_tl_mask bits");
 
         // Initialize visibility set = linked list of intervals generated from the initial thread / thread cuboid.
         const qual_bits_t q = access.initial_qual_bit;
@@ -944,7 +952,7 @@ struct SyncvTable
     // Check if visibility records are equal.
     bool equal(const VisRecord& a, const VisRecord& b) const
     {
-        static_assert(sizeof(a) == 16, "Update me");
+        static_assert(sizeof(a) == 20, "Update me");
 
         // Check equal intervals. We rely on (and enforce) the non-redundant encoding requirement.
         {
@@ -970,7 +978,11 @@ struct SyncvTable
             }
         }
 
-        return equal(a.pending_awaits, b.pending_awaits) && a.free_on_arrive == b.free_on_arrive && a.flags == b.flags;
+        return
+            equal(a.pending_awaits, b.pending_awaits)
+            && a.free_on_arrive == b.free_on_arrive
+            && a.flags == b.flags
+            && a.qual_tl_mask == b.qual_tl_mask;
     }
 
     bool equal(nodepool::id<HamsterPendingAwaitSet> id_0, nodepool::id<HamsterPendingAwaitSet> id_1) const
@@ -1668,15 +1680,27 @@ struct SyncvTable
         QualBitsByVis q_by_vis;
 
         template <VisRecordKind K>
-        void operator() (SyncvTable& env, nodepool::id<VisRecordListNode<K>> vis_record_id)
+        void operator() (SyncvTable& env, nodepool::id<VisRecordListNode<K>> vis_record_id) const
         {
             auto& node = env.get(vis_record_id);
             CAMSPORK_REQUIRE(!node.is_forwarded(), "Unexpected modification of forwarding state VisRecord");
-            p_cuboid->to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi)
-                {
-                    env.union_tl_sig_interval(&node.base_data, TlSigInterval{tid_lo, tid_hi, q_by_vis});
-                }
-            );
+            const qual_bits_t qual_tl_mask = node.base_data.qual_tl_mask;
+
+            uint32_t any_qual_bits = 0;
+            QualBitsByVis eff_q_by_vis = q_by_vis;
+            for (qual_bits_t& q : eff_q_by_vis.array) {
+                const qual_bits_t masked = q & qual_tl_mask;
+                q = masked;
+                any_qual_bits |= masked;
+            }
+
+            if (any_qual_bits) {
+                p_cuboid->to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi)
+                    {
+                        env.union_tl_sig_interval(&node.base_data, TlSigInterval{tid_lo, tid_hi, eff_q_by_vis});
+                    }
+                );
+            }
         }
     };
 
@@ -2415,6 +2439,7 @@ struct SyncvTable
 
     template <typename Logger>
     void set_managed_ring_buffer_barriers(
+            qual_bits_t qual_tl_mask,
             AssignmentRecordWindow input,
             uint32_t alloc_on_await_count,
             const barrier_id* alloc_on_await_barriers,
@@ -2440,6 +2465,7 @@ struct SyncvTable
             access.thread_access_granularity = 1;  // Paranoia; shouldn't matter.
             access.barrier_count = alloc_on_await_count;
             access.trailing_barriers = alloc_on_await_barriers;
+            access.qual_tl_mask = qual_tl_mask;
             DefaultAssignmentRecordVisNode& list_node = alloc_default_node(&record.mutate_vis_records_head_id);
             list_node.vis_record_id = memoize_new_vis_record<true, VisRecordKind::Default>(
                 EmptyThreadInit{}, access, free_on_arrive_id, 1);
@@ -3456,6 +3482,7 @@ void on_check_free(
 
 void set_managed_ring_buffer_barriers(
         SyncvTable* table,
+        qual_bits_t qual_tl_mask,
         AssignmentRecordWindow input,
         uint32_t alloc_on_await_count,
         const barrier_id* alloc_on_await_barriers,
@@ -3463,13 +3490,14 @@ void set_managed_ring_buffer_barriers(
         decltype(nullptr))
 {
     INTERFACE_PROLOGUE(table)
-    table->set_managed_ring_buffer_barriers(input, alloc_on_await_count, alloc_on_await_barriers, free_on_arrive,
+    table->set_managed_ring_buffer_barriers(qual_tl_mask, input, alloc_on_await_count, alloc_on_await_barriers, free_on_arrive,
             SyncvTrivialLogger{});
     INTERFACE_EPILOGUE(table)
 }
 
 void set_managed_ring_buffer_barriers(
         SyncvTable* table,
+        qual_bits_t qual_tl_mask,
         AssignmentRecordWindow input,
         uint32_t alloc_on_await_count,
         const barrier_id* alloc_on_await_barriers,
@@ -3477,7 +3505,7 @@ void set_managed_ring_buffer_barriers(
         const SyncvLogRequest& log)
 {
     INTERFACE_PROLOGUE(table)
-    table->set_managed_ring_buffer_barriers(input, alloc_on_await_count, alloc_on_await_barriers, free_on_arrive,
+    table->set_managed_ring_buffer_barriers(qual_tl_mask, input, alloc_on_await_count, alloc_on_await_barriers, free_on_arrive,
             SyncvRealLogger(log));
     INTERFACE_EPILOGUE(table)
 }

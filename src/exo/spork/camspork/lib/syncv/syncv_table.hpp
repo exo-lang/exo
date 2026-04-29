@@ -90,6 +90,7 @@ struct SyncvAccessInfo
     qual_bits_t initial_qual_bit;
     qual_bits_t extended_qual_bits;
     qual_bits_t atomic_qual_bits;
+    qual_bits_t qual_tl_mask;
 
     // thread_access_granularity is for out-of-order non-convergent abstract machine optimization.
     //
@@ -177,6 +178,7 @@ void on_check_free(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, Syn
 void on_check_free(SyncvTable*, AssignmentRecordWindow, const ThreadCuboid&, SyncvAccessInfo, const SyncvLogRequest&);
 void set_managed_ring_buffer_barriers(
         SyncvTable*,
+        qual_bits_t,
         AssignmentRecordWindow,
         uint32_t alloc_on_await_count,
         const barrier_id* alloc_on_await_barriers,
@@ -184,6 +186,7 @@ void set_managed_ring_buffer_barriers(
         decltype(nullptr) = nullptr);
 void set_managed_ring_buffer_barriers(
         SyncvTable*,
+        qual_bits_t,
         AssignmentRecordWindow,
         uint32_t alloc_on_await_count,
         const barrier_id* alloc_on_await_barriers,

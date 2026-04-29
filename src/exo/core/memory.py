@@ -391,6 +391,13 @@ class MemWin(ABC):
     def get_pre_arrive(cls):
         return 0
 
+    @classmethod
+    def make_qual_tl_mask(cls):
+        bits = 0
+        for v in cls.qual_tl_dict.values():
+            bits |= Qual_tl.make_bits(v)
+        return bits
+
 
 class AllocableMemWin(MemWin):
     @classmethod
@@ -405,7 +412,7 @@ class AllocableMemWin(MemWin):
 
     @classmethod
     def is_cuda_smem(cls) -> bool:
-        """Somewhat "temporary", for special cases is sync_check and CollAnalysis"""
+        """Somewhat "temporary", for special cases in sync_check and CollAnalysis"""
         return False
 
     """Defines per-instr qual-tl used to access a parameter (value @ mem)
@@ -413,6 +420,9 @@ class AllocableMemWin(MemWin):
     with q = mem.qual_tl_dict[instr_tl] (instr_tl configured per-instr),
     q: List[Qual_tl] is interpreted as initial_qual_tl = q[0], ext_qual_tl = q
     Otherwise, initial_qual_tl = q; ext_qual_tl = [q]
+
+    The qual-tl mask is the union of all qual-tl that are used as a value
+    for any instr-tl key.
 
     NOTE: the qual-tl is evaluated based on the memory type of the
     caller's input (actual parameter), not the memory type declared in

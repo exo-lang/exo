@@ -414,6 +414,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         access.is_write_only = bool(node->access_flags & access_flag_write_only);
         access.initial_qual_bit = node->initial_qual_bit;
         access.extended_qual_bits = node->extended_qual_bits;
+        access.qual_tl_mask = node->qual_tl_mask;
         access.atomic_qual_bits = node->get_atomic_qual_bits();
         access.thread_access_granularity = node->thread_access_granularity;
         access.barrier_count = 0;
@@ -551,6 +552,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         access.is_write_only = true;  // Only require temporal sync.
         access.initial_qual_bit = 0;
         access.extended_qual_bits = node->extended_qual_bits;
+        access.qual_tl_mask = 0;
         access.atomic_qual_bits = 0;
         access.thread_access_granularity = 1;
         access.barrier_count = 0;
@@ -869,6 +871,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         // Finally update the syncv_table state.
         set_managed_ring_buffer_barriers(
             env.p_syncv_table.get(),
+            node->qual_tl_mask,
             input,
             uint32_t(alloc_on_await_barriers.size()),
             alloc_on_await_barriers.data(),

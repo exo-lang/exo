@@ -245,15 +245,15 @@ _add_TrailingBarrierExpr.argtypes = (c_void_p, Varname, c_uint32, ptr_ArriveIdx)
 
 _add_SyncEnvAccessSingle = lib.camspork_add_SyncEnvAccessSingle
 _add_SyncEnvAccessSingle.restype = StmtRef
-_add_SyncEnvAccessSingle.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, ptr_TrailingBarrierExprRef)
+_add_SyncEnvAccessSingle.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, ptr_TrailingBarrierExprRef)
 
 _add_SyncEnvAccessWindow = lib.camspork_add_SyncEnvAccessWindow
 _add_SyncEnvAccessWindow.restype = StmtRef
-_add_SyncEnvAccessWindow.argtypes = (c_void_p, Varname, c_uint32, ptr_OffsetExtentExpr, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, ptr_TrailingBarrierExprRef)
+_add_SyncEnvAccessWindow.argtypes = (c_void_p, Varname, c_uint32, ptr_OffsetExtentExpr, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, ptr_TrailingBarrierExprRef)
 
 _add_SyncEnvAccessMulticast = lib.camspork_add_SyncEnvAccessMulticast
 _add_SyncEnvAccessMulticast.restype = StmtRef
-_add_SyncEnvAccessMulticast.argtypes = (c_void_p, Varname, c_uint32, ptr_ArriveIdx, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, ptr_TrailingBarrierExprRef)
+_add_SyncEnvAccessMulticast.argtypes = (c_void_p, Varname, c_uint32, ptr_ArriveIdx, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, c_uint32, ptr_TrailingBarrierExprRef)
 
 _add_SyncEnvFreeShard = lib.camspork_add_SyncEnvFreeShard
 _add_SyncEnvFreeShard.restype = StmtRef
@@ -289,7 +289,7 @@ _add_ExpectSyncEnvAlloc.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef)
 
 _add_SyncEnvManageRingBuffer = lib.camspork_add_SyncEnvManageRingBuffer
 _add_SyncEnvManageRingBuffer.restype = StmtRef
-_add_SyncEnvManageRingBuffer.argtypes = (c_void_p, Varname, Varname, c_uint32, c_uint32, c_uint32, ptr_ArriveIdx)
+_add_SyncEnvManageRingBuffer.argtypes = (c_void_p, c_uint32, Varname, Varname, c_uint32, c_uint32, c_uint32, ptr_ArriveIdx)
 
 _add_SyncEnvFreeManagedRingBuffer = lib.camspork_add_SyncEnvFreeManagedRingBuffer
 _add_SyncEnvFreeManagedRingBuffer.restype = StmtRef
@@ -701,6 +701,7 @@ class ProgramBuilder:
         dst: BuilderIndexExpr | Varname,
         initial_qual_bit: int,
         extended_qual_bits: int,
+        qual_tl_mask: int,
         flags: int,
         *,
         extent: Optional[List[BuilderExpr]] = None,
@@ -751,6 +752,7 @@ class ProgramBuilder:
                 idxs,
                 initial_qual_bit,
                 extended_qual_bits,
+                qual_tl_mask,
                 atomic_qual_bits,
                 thread_access_granularity,
                 flags,
@@ -864,6 +866,7 @@ class ProgramBuilder:
 
     def SyncEnvManageRingBuffer(
         self,
+        qual_tl_mask: int,
         guard: BuilderIndexExpr,
         buffer: Varname,
         managed_ring_buffer_dim_idx: int,
@@ -886,6 +889,7 @@ class ProgramBuilder:
 
         stmt_id = _add_SyncEnvManageRingBuffer(
             self._builder,
+            qual_tl_mask,
             guard_var,
             buffer_var,
             managed_ring_buffer_dim_idx,
@@ -1196,13 +1200,13 @@ def so_called_temporary_test():
                 b.BarrierEnvAlloc(bar)
                 b.SyncEnvAlloc(buf[64])
                 with b.ThreadsFor(tid, 0, 64, 0, 0, 1):
-                    b.SyncEnvAccess(buf[tid], 2, 2, b.mutate_flag)
+                    b.SyncEnvAccess(buf[tid], 2, 2, 15, b.mutate_flag)
                 b.Arrive(2, bar, ())
                 b.Await(bar, 2, 2, N=0)
                 # b.Fence(2, 2, 2)
                 with b.ThreadsFor(tid, 0, 64, 0, 0, 1):
                     with b.SeqFor(i, 0, 64):
-                        b.SyncEnvAccess(buf[i], 2, 2, 0)
+                        b.SyncEnvAccess(buf[i], 2, 2, 15, 0)
                 b.BarrierFree(bar)
 
     if False:
@@ -1233,21 +1237,21 @@ def so_called_temporary_test():
                     with b.ThreadsFor(tid, 0, 24, 0, 0, 1):
                         with b.If(enable_trailing_barrier):
                             b.SyncEnvAccess(
-                                buf[tid + 32*warp + 64*task], 2, 2, b.mutate_flag | b.ooo_flag,
+                                buf[tid + 32*warp + 64*task], 2, 2, 15, b.mutate_flag | b.ooo_flag,
                                 atomic_qual_bits=8192,
                                 barrier=bars[m, n, k],
                                 barrier_multicasts=((True, False, False),)
                             )
                             b.begin_orelse()
                             b.SyncEnvAccess(
-                                buf[tid + 32*warp + 64*task], 2, 2, b.mutate_flag | b.ooo_flag,
+                                buf[tid + 32*warp + 64*task], 2, 2, 15, b.mutate_flag | b.ooo_flag,
                                 atomic_qual_bits=8192,
                             )
                     with b.ThreadsFor(tid, 0, 1, 0, 0, 14):
                         b.Arrive(0, bars[m, n, k], ((True, False, True), (True, True, False)))
                         b.Await(bars[m, n, k], 3, 3, N=0)
                     with b.ThreadsFor(tid, 0, 14, 0, 0, 1):
-                        b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 1, 1, 0)
+                        b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 1, 1, 15, 0)
     print(foo_barrier)
     env = ProgramEnv(foo_barrier)
     env.set_debug_validation_enable(b_validation)
@@ -1295,17 +1299,17 @@ def so_called_temporary_test():
             tid = b.add_variable("tid")
             with b.ThreadsFor(tid, 0, 4, 0, 0, 1):
                 with b.If(b.Eq(tid, 0)):
-                    b.SyncEnvAccess(buf[0, 1], 1, 1, 0)
-                    b.SyncEnvAccess(buf[0, 2], 1, 1, 0)
-                    b.SyncEnvAccess(buf[0, 3], 1, 1, 0)
-                    b.SyncEnvAccess(buf[0, 4], 1, 1, 0)
-                b.SyncEnvAccess(buf[tid, 2 * tid], 1, 1, 0, extent=[6, 5])
+                    b.SyncEnvAccess(buf[0, 1], 1, 1, 15, 0)
+                    b.SyncEnvAccess(buf[0, 2], 1, 1, 15, 0)
+                    b.SyncEnvAccess(buf[0, 3], 1, 1, 15, 0)
+                    b.SyncEnvAccess(buf[0, 4], 1, 1, 15, 0)
+                b.SyncEnvAccess(buf[tid, 2 * tid], 1, 1, 15, 0, extent=[6, 5])
             b.Fence(1, 1, 1)
             m = b.add_variable("m")
             n = b.add_variable("n")
             with b.SeqFor(m, 0, 10):
                 with b.SeqFor(n, 0, 16):
-                    b.SyncEnvAccess(buf[m, n], 1, 1, b.mutate_flag)
+                    b.SyncEnvAccess(buf[m, n], 1, 1, 15, b.mutate_flag)
     print(extent_test)
     env = ProgramEnv(extent_test)
     env.set_debug_validation_enable(b_validation)
@@ -1329,17 +1333,17 @@ def so_called_temporary_test():
                 s = b.add_variable("s")
                 with b.SeqFor(s, 0, 8):
                     with b.If(use_atomics):
-                        b.SyncEnvAccess(buf[s], 1, 1, b.mutate_flag, atomic_qual_bits=1)
+                        b.SyncEnvAccess(buf[s], 1, 1, 15, b.mutate_flag, atomic_qual_bits=1)
                         with b.If(wrong_tl):
-                            b.SyncEnvAccess(buf[s], 2, 2, b.mutate_flag, atomic_qual_bits=2)
+                            b.SyncEnvAccess(buf[s], 2, 2, 15, b.mutate_flag, atomic_qual_bits=2)
                             b.begin_orelse()
-                            b.SyncEnvAccess(buf[s], 1, 1, b.mutate_flag, atomic_qual_bits=1)
+                            b.SyncEnvAccess(buf[s], 1, 1, 15, b.mutate_flag, atomic_qual_bits=1)
                         b.begin_orelse()
-                        b.SyncEnvAccess(buf[s], 1, 1, b.mutate_flag, atomic_qual_bits=0)
+                        b.SyncEnvAccess(buf[s], 1, 1, 15, b.mutate_flag, atomic_qual_bits=0)
             with b.If(fence_enable):
                 b.Fence(1, 5, 5)
             with b.ThreadsFor(tid, 0, 8, 0, 0, 1):
-                b.SyncEnvAccess(buf[tid], 1, 1, 0)
+                b.SyncEnvAccess(buf[tid], 1, 1, 15, 0)
 
     env = ProgramEnv(atomic_test)
     env.set_debug_validation_enable(b_validation)
@@ -1382,10 +1386,10 @@ def so_called_temporary_test():
 
                     tmp = b.add_variable("tmp")
                     with b.SeqFor(tmp, 0, K_iters):
-                        b.SyncEnvManageRingBuffer(war[tmp], war, 0, RING, ())
-                        b.SyncEnvManageRingBuffer(war[tmp], raw, 0, RING, ())
-                        b.SyncEnvManageRingBuffer(war[tmp], A_smem, 0, RING, ())
-                        b.SyncEnvManageRingBuffer(war[tmp], B_smem, 0, RING, ())
+                        b.SyncEnvManageRingBuffer(15, war[tmp], war, 0, RING, ())
+                        b.SyncEnvManageRingBuffer(15, war[tmp], raw, 0, RING, ())
+                        b.SyncEnvManageRingBuffer(15, war[tmp], A_smem, 0, RING, ())
+                        b.SyncEnvManageRingBuffer(15, war[tmp], B_smem, 0, RING, ())
 
                     k_iter = b.add_variable("k_iter")
                     CudaWarps_consumer = b.add_variable("CudaWarps_consumer")
@@ -1394,19 +1398,19 @@ def so_called_temporary_test():
                         with b.ThreadsFor(CudaWarps_producer, 0, 1, 0, 256, 128):
                             b.Await(war[k_iter], 0, 1, N=0)
                             b.SyncEnvAccess(
-                                A_smem[k_iter, 0, 0], 1, 1, b.mutate_flag | b.write_only_flag | b.ooo_flag,
+                                A_smem[k_iter, 0, 0], 1, 1, 15, b.mutate_flag | b.write_only_flag | b.ooo_flag,
                                 extent=[1, 256, 256], thread_access_granularity=128)
                             b.SyncEnvAccess(
-                                B_smem[k_iter, 0, 0], 1, 1, b.mutate_flag | b.write_only_flag | b.ooo_flag,
+                                B_smem[k_iter, 0, 0], 1, 1, 15, b.mutate_flag | b.write_only_flag | b.ooo_flag,
                                 extent=[1, 256, 256], thread_access_granularity=128)
                             b.Arrive(1, raw[k_iter], ())
                         with b.ThreadsFor(CudaWarps_consumer, 0, 1, 0, 0, 256):
                             b.Await(raw[k_iter], 1, 1, N=0)
                             b.SyncEnvAccess(
-                                A_smem[k_iter, 0, 0], 1, 1, b.convergent_flag,
+                                A_smem[k_iter, 0, 0], 1, 1, 15, b.convergent_flag,
                                 extent=[1, 256, 256])
                             b.SyncEnvAccess(
-                                B_smem[k_iter, 0, 0], 1, 1, b.convergent_flag,
+                                B_smem[k_iter, 0, 0], 1, 1, 15, b.convergent_flag,
                                 extent=[1, 256, 256])
                             b.Arrive(1, war[k_iter + RING], ())
                     b.DataFree(A_smem)
@@ -1448,13 +1452,13 @@ def so_called_temporary_test():
             global tasks_for
             with b.TasksFor(task, 0, num_tasks) as tasks_for:
                 with b.ThreadsFor(tid, 0, 64, 0, 0, 1):
-                    b.SyncEnvAccess(buf[tid], 1, 1, b.mutate_flag)
+                    b.SyncEnvAccess(buf[tid], 1, 1, 15, b.mutate_flag)
                 with b.If(fence_enable):
                     b.Fence(1, 1, 511)
                 with b.ThreadsFor(tid, 0, 64, 0, 0, 1):
                     s = b.add_variable("s")
                     with b.SeqFor(s, 0, 64):
-                        b.SyncEnvAccess(buf[s], 1, 1, 0)
+                        b.SyncEnvAccess(buf[s], 1, 1, 15, 0)
     print(fence_test)
     print(tasks_for.node)
     print(tasks_for.body)
@@ -1478,13 +1482,13 @@ def so_called_temporary_test():
                 b.SyncEnvAlloc(buf[2])
                 b.SyncEnvAlloc(scalar)
                 with b.ThreadsFor(tid, 0, 2, 0, 0, 1):
-                    b.SyncEnvAccess(buf[tid], 1, 1, b.mutate_flag)
-                    b.SyncEnvAccess(buf[tid], 1, 1, b.mutate_flag)
+                    b.SyncEnvAccess(buf[tid], 1, 1, 15, b.mutate_flag)
+                    b.SyncEnvAccess(buf[tid], 1, 1, 15, b.mutate_flag)
                     with b.If(b.Eq(tid, 0)):
-                      b.SyncEnvAccess(scalar, 1, 1, b.mutate_flag)
+                      b.SyncEnvAccess(scalar, 1, 1, 15, b.mutate_flag)
                 # b.Fence(1, 1, 1)
                 with b.ThreadsFor(tid, 0, 2, 0, 0, 1):
-                    b.SyncEnvAccess(buf[tid], 1, 1, b.mutate_flag)
+                    b.SyncEnvAccess(buf[tid], 1, 1, 15, b.mutate_flag)
     print(realloc_test)
     env = ProgramEnv(realloc_test)
     env.exec(excut_filename="realloc_excut.json")

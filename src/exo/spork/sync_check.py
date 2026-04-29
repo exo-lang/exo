@@ -171,7 +171,7 @@ class CamsporkDo(LoopIR_Do):
         return nm in set or (isinstance(typ, LoopIR.WindowType) and typ.src_buf in set)
 
     def comp_qual_tl(self, node: LoopIR.expr | LoopIR.stmt, instr_tl: Instr_tl):
-        """Get initial Qual_tl, initial Qual_tl as bit, ext Qual_tl as bits.
+        """Get initial Qual_tl, initial Qual_tl as bit, ext Qual_tl as bits, qual_tl_mask bits
 
         Deduces the variable being accessed from node.name.
         Computes the Qual_tl info as a function of the variable's memory
@@ -198,7 +198,13 @@ class CamsporkDo(LoopIR_Do):
             initial_qual_tl = q
         else:
             initial_qual_tl = q[0]
-        return initial_qual_tl, Qual_tl.make_bits(initial_qual_tl), Qual_tl.make_bits(q)
+        qual_tl_mask = mem.make_qual_tl_mask()
+        return (
+            initial_qual_tl,
+            Qual_tl.make_bits(initial_qual_tl),
+            Qual_tl.make_bits(q),
+            qual_tl_mask,
+        )
 
     def do_s(self, s: LoopIR.stmt):
         b = self._builder
@@ -212,7 +218,7 @@ class CamsporkDo(LoopIR_Do):
             if want_sync or want_value:
                 am_dst = self.comp_index_expr(s.name, s.idx, instr_tl)
             if want_sync:
-                _, initial_q, ext_q = self.comp_qual_tl(s, instr_tl)
+                _, initial_q, ext_q, qual_tl_mask = self.comp_qual_tl(s, instr_tl)
                 flags = b.mutate_flag | b.convergent_flag
                 if isinstance(s, LoopIR.Reduce):
                     flags |= b.write_only_flag
@@ -220,6 +226,7 @@ class CamsporkDo(LoopIR_Do):
                     am_dst,
                     initial_q,
                     ext_q,
+                    qual_tl_mask,
                     flags=flags,
                     srcinfo=s.srcinfo,
                 )
@@ -253,6 +260,7 @@ class CamsporkDo(LoopIR_Do):
                         am_home_barrier,
                         q_bit,
                         q_bit,
+                        self._mem_env[home.name].make_qual_tl_mask(),
                         flags=flags,
                         access_multicasts=multicasts,
                         srcinfo=s.srcinfo,
@@ -272,6 +280,7 @@ class CamsporkDo(LoopIR_Do):
                         am_home_barrier,
                         q_bit,
                         q_bit,
+                        self._mem_env[home.name].make_qual_tl_mask(),
                         flags=b.convergent_flag,
                         srcinfo=s.srcinfo,
                     )
@@ -479,6 +488,7 @@ class CamsporkDo(LoopIR_Do):
                     for flags in barrier_multicasts
                 )
                 b.SyncEnvManageRingBuffer(
+                    s.mem.make_qual_tl_mask(),
                     b.get_varname(guarded_by)[tmp_vars],
                     b.get_varname(s.name),
                     ring_dim_idx,
@@ -514,7 +524,9 @@ class CamsporkDo(LoopIR_Do):
                             f"(SMEM) allocated outside cluster scope not implemented; "
                             f"currently have box={box} of {domain} threads active in cluster."
                         )
-                    _, _, ext_qual_bits = self.comp_qual_tl(s, self._default_instr_tl)
+                    _, _, ext_qual_bits, _ = self.comp_qual_tl(
+                        s, self._default_instr_tl
+                    )
                     b.SyncEnvFreeShard(
                         b[s.name],
                         ext_qual_bits,
@@ -564,8 +576,8 @@ class CamsporkDo(LoopIR_Do):
                 )
                 for ctx in loop_nest:
                     ctx.begin()
-                qual_tl, initial_qual_bits, ext_qual_bits = self.comp_qual_tl(
-                    caller_a, instr_tl
+                qual_tl, initial_qual_bits, ext_qual_bits, qual_tl_mask = (
+                    self.comp_qual_tl(caller_a, instr_tl)
                 )
                 flags = 0
                 thread_access_granularity = 1
@@ -595,6 +607,7 @@ class CamsporkDo(LoopIR_Do):
                     dst_lo,
                     initial_qual_bits,
                     ext_qual_bits,
+                    qual_tl_mask,
                     flags=flags,
                     extent=extent,
                     barrier=barrier,
@@ -607,13 +620,14 @@ class CamsporkDo(LoopIR_Do):
                     ctx.end()
             if barrier and self.want_sync(s.trailing_barrier_expr.name):
                 # Sync-check the trailing barrier itself.
-                _, initial_qual_bits, ext_qual_bits = self.comp_qual_tl(
+                _, initial_qual_bits, ext_qual_bits, qual_tl_mask = self.comp_qual_tl(
                     s.trailing_barrier_expr, instr_tl
                 )
                 b.SyncEnvAccess(
                     barrier,
                     initial_qual_bits,
                     ext_qual_bits,
+                    qual_tl_mask,
                     # model as in-order read since concurrent access is allowed
                     flags=b.convergent_flag,
                     access_multicasts=barrier_multicasts,
@@ -685,7 +699,7 @@ class CamsporkDo(LoopIR_Do):
             if want_value or want_sync:
                 am_src = self.comp_index_expr(e.name, e.idx, instr_tl)
             if want_sync:
-                _, initial_q, ext_q = self.comp_qual_tl(e, instr_tl)
+                _, initial_q, ext_q, qual_tl_mask = self.comp_qual_tl(e, instr_tl)
                 if self.is_single_threaded():
                     # convergent access makes no functional difference
                     # when the thread count is 1, but I suspect the
@@ -697,6 +711,7 @@ class CamsporkDo(LoopIR_Do):
                     am_src,
                     initial_q,
                     ext_q,
+                    qual_tl_mask,
                     flags=flags,
                     srcinfo=e.srcinfo,
                 )

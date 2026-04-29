@@ -280,7 +280,10 @@ _cuda_in_order_quals = [
     cuda_in_order_ram_qual,
     cuda_mbarrier_qual,
 ]
-_Sm80_cp_async_quals = [Sm80_cp_async_qual]
+_Sm80_cp_async_quals = [
+    Sm80_cp_async_qual,
+    cuda_mbarrier_qual,
+]
 _tma_to_smem_async_quals = [tma_to_smem_async_qual]
 _tma_to_gmem_async_quals = [tma_to_gmem_async_qual]
 _wgmma_async_quals = [
