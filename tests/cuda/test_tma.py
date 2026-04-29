@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 import random
 
-from exo import proc
+from exo import proc, ring_buffer_by
 from exo.platforms.cuda import *
 from exo.platforms.Sm80 import *
 from exo.platforms.Sm90 import *
@@ -54,12 +54,12 @@ def mkproc_tma_tester(swizzle: int, sync_check):
                     smem_x: f32[smem_M, smem_K] @ smem_type
                     smem_y: f32[smem_M, smem_K] @ smem_type
                     smem_sum: f32[smem_M, smem_K] @ smem_type
-                    raw: barrier @ CudaMbarrier
-                    war: barrier(raw) @ CudaMbarrier
+                    raw: barrier[1 @ ring_buffer_by(2)] @ CudaMbarrier
+                    war: barrier[2 @ ring_buffer_by(2)] @ CudaMbarrierPreArrive(1)
 
                     # Warp 0 copies x to SMEM using TMA.
                     with CudaWarps(0, 1):
-                        Await(war, cuda_temporal, ~1)
+                        Await(war[0], cuda_temporal, 0)
                         # Test for TMA WindowStmt on the GPU
                         x_input = x_tensorMap_debug[
                             task_m * smem_M : task_m * smem_M + smem_M,
@@ -67,8 +67,8 @@ def mkproc_tma_tester(swizzle: int, sync_check):
                         ]
                         Sm90_tma_load_2d(smem_x[:, :], x_input,
                             size0=smem_M, size1=smem_K, dst=f32, src=f32, swizzle=swizzle,
-                        ) >> raw
-                        Arrive(cuda_temporal, 1) >> raw
+                        ) >> raw[0]
+                        Arrive(cuda_temporal, 1) >> raw[0]
 
                     # All warps copy y to SMEM using cp.async (lazy threading)
                     for m in cuda_threads(0, smem_M):
@@ -81,11 +81,11 @@ def mkproc_tma_tester(swizzle: int, sync_check):
                     Fence(Sm80_cp_async, cuda_in_order)
 
                     # Compute the sum (also lazy threading)
-                    Await(raw, cuda_in_order, ~0)
+                    Await(raw[0], cuda_in_order, 0)
                     for m in cuda_threads(0, smem_M):
                         for k in seq(0, smem_K):
                             smem_sum[m, k] = smem_x[m, k] + smem_y[m, k]
-                    Arrive(cuda_in_order, 1) >> war
+                    Arrive(cuda_in_order, 1) >> war[1]
 
                     # Warp 0 copies sum to GMEM using TMA.
                     Fence(cuda_in_order, cuda_generic_and_async_proxy)
@@ -98,7 +98,7 @@ def mkproc_tma_tester(swizzle: int, sync_check):
                             tma_window[:, :], smem_sum[:, :],
                             size0=smem_M, size1=smem_K, dst=f32, src=f32, swizzle=swizzle,
                         )
-                        cg: barrier @ CudaCommitGroup
+                        cg: barrier @ Sm90_TmaCommitGroup
                         Arrive(tma_to_gmem_async, 1) >> cg
                         Await(cg, cuda_in_order, 0)
                     Fence(cuda_in_order, cuda_in_order)
