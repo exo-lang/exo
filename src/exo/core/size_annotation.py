@@ -26,7 +26,8 @@ class ring_buffer_by(SizeAnnotation):
     def __post_init__(self):
         depth = self.depth
         assert isinstance(depth, int)
-        assert depth > 0
+        if depth <= 0:
+            raise ValueError("Expected ring_buffer_by.depth > 0")
 
     def decay(self):
         return self

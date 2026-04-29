@@ -5,7 +5,7 @@ import random
 import numpy as np
 import pytest
 
-from exo import proc
+from exo import proc, ring_buffer_by
 from exo.platforms.cuda import *
 from exo.platforms.Sm80 import *
 from exo.platforms.Sm90 import *
@@ -551,47 +551,60 @@ mbarrier_wrong_tma_qc = MbarrierQualConfig(
 def mkproc_mbarriers(M_CTA: int, N_CTA: int, f_delay: int, b_delay: int, qc: MbarrierQualConfig):
     first_sync_tl = qc.first_sync_tl
     second_sync_tl = qc.second_sync_tl
+
+    n_iters = 5
+    single_depth = 1 + f_delay
+    dual_depth = f_delay + b_delay
+
     @proc
     def test_mbarriers():
         with CudaDeviceFunction(clusterDim=M_CTA * N_CTA, blockDim=64):
             for task in cuda_tasks(0, 2):
+                row_bars: barrier[M_CTA, N_CTA, 4, 2, (n_iters + f_delay) @ ring_buffer_by(single_depth)
+                    ] @ CudaMbarrierPreArrive(f_delay)
+                col_bars: barrier[M_CTA, N_CTA, 4, 2, (n_iters + f_delay) @ ring_buffer_by(single_depth)
+                    ] @ CudaMbarrierPreArrive(f_delay)
+                all_bars: barrier[M_CTA, N_CTA, 4, 2, (n_iters + f_delay) @ ring_buffer_by(single_depth)
+                    ] @ CudaMbarrierPreArrive(f_delay)
+                f_rc_bars: barrier[M_CTA, N_CTA, (n_iters + f_delay) @ ring_buffer_by(dual_depth), 4, 2
+                    ] @ CudaMbarrierPreArrive(f_delay)
+                b_rc_bars: barrier[M_CTA, N_CTA, (n_iters + b_delay) @ ring_buffer_by(dual_depth), 4, 2
+                    ] @ CudaMbarrierPreArrive(b_delay)
+                baseline: barrier[M_CTA, N_CTA, 4, 2, n_iters @ ring_buffer_by(1)
+                    ] @ CudaMbarrier
+
+                # f_rc_bars and b_rc_bars are guarding each other.
+
                 for t2 in cuda_threads(0, 4, unit=16 * cuda_thread):
-                    # Note: there are actually 4x as many queue barriers as there appear
-                    # to be, because of the t2(0, 4) loop above. This is one of
-                    # the tricky cases being tested by this test case. Essentially the
-                    # compiler "lifts" the array to [M_CTA, N_CTA, 4, 2].
-                    # 2025-09-18: handled with codegen_slices_to_root.
-                    row_bars: barrier[M_CTA, N_CTA, 2] @ CudaMbarrier
-                    col_bars: barrier[M_CTA, N_CTA, 2] @ CudaMbarrier
-                    all_bars: barrier[M_CTA, N_CTA, 2] @ CudaMbarrier
-                    f_rc_bars: barrier[M_CTA, N_CTA, 2] @ CudaMbarrier
-                    b_rc_bars: barrier(f_rc_bars)[M_CTA, N_CTA, 2] @ CudaMbarrier
-                    baseline: barrier[M_CTA, N_CTA, 2] @ CudaMbarrier
-                    for i in seq(0, 5):
+                    for i in seq(0, n_iters):
                         for t1 in cuda_threads(0, 2, unit=8 * cuda_thread):
                             for m_cta in cuda_threads(0, M_CTA, unit=N_CTA * cuda_cta_in_cluster):
                                 for n_cta in cuda_threads(0, N_CTA, unit=cuda_cta_in_cluster):
                                     # Note baseline mbarrier doesn't use delay or parameterized sync-tl
-                                    Arrive(cuda_in_order, 1) >> baseline[m_cta, n_cta, t1]
+                                    Arrive(cuda_in_order, 1) >> baseline[m_cta, n_cta, t2, t1, i]
 
-                                    # Only f_rc_bars and b_rc_bars are guarding each other.
-                                    # Its ring buffer depth is f_delay + b_delay, instead of 1 + f_delay
-                                    Await(b_rc_bars[m_cta, n_cta, t1], second_sync_tl, ~b_delay)
-                                    Arrive(first_sync_tl, 1) >> f_rc_bars[m_cta, n_cta, t1]
+                                    Await(b_rc_bars[m_cta, n_cta, i, t2, t1], second_sync_tl, 0)
+                                    Arrive(first_sync_tl, 1) >> f_rc_bars[m_cta, n_cta, i + f_delay, t2, t1]
 
-                                    Arrive(first_sync_tl, 1) >> row_bars[m_cta, n_cta, t1] >> row_bars[m_cta, :, t1]
-                                    Await(row_bars[m_cta, n_cta, t1], second_sync_tl, ~f_delay)
-                                    Arrive(first_sync_tl, 1) >> col_bars[m_cta, n_cta, t1] >> col_bars[:, n_cta, t1]
-                                    Await(col_bars[m_cta, n_cta, t1], second_sync_tl, ~f_delay)
-                                    Arrive(first_sync_tl, 1) >> all_bars[m_cta, n_cta, t1] >> all_bars[:, :, t1]
-                                    Await(all_bars[m_cta, n_cta, t1], second_sync_tl, ~f_delay)
+                                    Arrive(first_sync_tl, 1
+                                        ) >> row_bars[m_cta, n_cta, t2, t1, i + f_delay
+                                        ] >> row_bars[m_cta, :, t2, t1, i + f_delay]
+                                    Await(row_bars[m_cta, n_cta, t2, t1, i], second_sync_tl, 0)
+                                    Arrive(first_sync_tl, 1
+                                        ) >> col_bars[m_cta, n_cta, t2, t1, i + f_delay
+                                        ] >> col_bars[:, n_cta, t2, t1, i + f_delay]
+                                    Await(col_bars[m_cta, n_cta, t2, t1, i], second_sync_tl, 0)
+                                    Arrive(first_sync_tl, 1
+                                        ) >> all_bars[m_cta, n_cta, t2, t1, i + f_delay
+                                        ] >> all_bars[:, :, t2, t1, i + f_delay]
+                                    Await(all_bars[m_cta, n_cta, t2, t1, i], second_sync_tl, 0)
 
-                                    Await(f_rc_bars[m_cta, n_cta, t1], second_sync_tl, ~f_delay)
-                                    Arrive(first_sync_tl, 1) >> b_rc_bars[m_cta, :, t1] >> b_rc_bars[:, n_cta, t1]
+                                    Await(f_rc_bars[m_cta, n_cta, i, t2, t1], second_sync_tl, 0)
+                                    Arrive(first_sync_tl, 1
+                                        ) >> b_rc_bars[m_cta, :, i + b_delay, t2, t1
+                                        ] >> b_rc_bars[:, n_cta, i + b_delay, t2, t1]
 
-                                    Await(baseline[m_cta, n_cta, t1], cuda_in_order, ~0)
-                # Need for the test not to crash due to "Cluster target block not present"
-                Fence(cuda_temporal, cuda_temporal)
+                                    Await(baseline[m_cta, n_cta, t2, t1, i], cuda_in_order, 0)
     return test_mbarriers
 # fmt: on
 
@@ -723,9 +736,9 @@ def mkref_mbarriers(
             # baseline mbarrier await (no ring buffering)
             xrg(cta_await, baseline[m_cta, n_cta, t2, t1, 0], i % 2)
 
-        if clusterDim == 1:
-            xrg("barrier.cta.sync", 0)
-        else:
+        # Implied cluster sync at kernel shutdown
+        # since we did not pass unsafe_no_shutdown_cluster_sync=True
+        if clusterDim != 1:
             xrg("barrier.cluster.arrive.aligned")
             xrg("barrier.cluster.wait.aligned")
 
@@ -875,9 +888,7 @@ def test_mbarriers_Sm80_cp_async_1_CTA(compiler):
 def test_mbarriers_invalid_0_delay(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_mbarriers, **mb_m1n1d0d0_Sm80_cp_async)
-    assert "must have some await with nonzero skips" in str(exc.value)
-    assert "f_rc_bars" in str(exc.value)
-    assert "b_rc_bars" in str(exc.value)
+    assert "Expected ring_buffer_by.depth > 0" in str(exc.value)
 
 
 def mkproc_mbarrier_not_in_1_CTA():
