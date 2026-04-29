@@ -1,126 +1,133 @@
-def gpu_gemm(L: size, M: size, N: size, K_split: size, cluster_K: size,
-             A: f32[L, M, K_split, cluster_K] @ CudaGmemLinear,
-             B: f32[L, N, K_split, cluster_K] @ CudaGmemLinear,
-             C: f32[L, N, M] @ CudaGmemLinear):
-    assert L > 0
-    assert M > 0
-    assert N > 0
-    assert cluster_K > 0
-    assert cluster_K % 4 == 0
-    A_tensorMap = A[0:L, 0:M, 0:K_split, 0:cluster_K] @ Sm90_tensorMap(
+def gpu_gemm(L: size, M: size, N: size, K_split: size, K_cluster: size,
+             A: f32[L, M, K_split, K_cluster] @ CudaGmemLinear,
+             B: f32[L, N, K_split, K_cluster] @ CudaGmemLinear,
+             C: f32[L, M, N] @ CudaGmemLinear):
+    assert stride(A, 3) == 1
+    assert stride(B, 3) == 1
+    assert stride(C, 2) == 1
+    assert M % 16 == 0
+    assert N % 16 == 0
+    assert K_cluster > 0
+    assert K_cluster % 16 == 0
+    A_tensorMap = A[0:L, 0:M, 0:K_split, 0:K_cluster] @ Sm90_tensorMap(
         128, 1, 256, 1, 32)
-    B_tensorMap = B[0:L, 0:N, 0:K_split, 0:cluster_K] @ Sm90_tensorMap(
+    B_tensorMap = B[0:L, 0:N, 0:K_split, 0:K_cluster] @ Sm90_tensorMap(
         128, 1, 96, 1, 32)
-    C_tensorMap = C[0:L, 0:N, 0:M] @ Sm90_tensorMap(0, 1, 192, 256)
-    cudaMemsetAsync0_3d(L, N, M, C[0:L, 0:N, 0:M], dst=f32)
+    C_tensorMap = C[0:L, 0:M, 0:N] @ Sm90_tensorMap(128, 1, 256, 32)
+    cudaMemsetAsync0_3d(L, M, N, C[0:L, 0:M, 0:N], dst=f32)
     with CudaDeviceFunction(clusterDim=2,
                             warp_config=[
                                 CudaWarpConfig(name='producer',
-                                               count=1,
-                                               setmaxnreg_dec=40,
-                                               setmaxnreg_inc=None),
-                                CudaWarpConfig(name='unused',
-                                               count=3,
+                                               count=4,
                                                setmaxnreg_dec=40,
                                                setmaxnreg_inc=None),
                                 CudaWarpConfig(name='consumer',
                                                count=8,
                                                setmaxnreg_dec=None,
                                                setmaxnreg_inc=232)
-                            ]):
+                            ],
+                            unsafe_no_shutdown_cluster_sync=True):
         # Domain (ω.D) = [   2, 384]
         #    Box (ω.B) = [   2, 384]
-        #   pow2 align = 256 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:84:10:(s820)
+        #   pow2 align = 256 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:833:12:(s920)
         for batch in cuda_tasks(0, L):
             for task_k in cuda_tasks(0, K_split):
-                for task_n in cuda_tasks(0, (191 + N) / 192):
-                    for task_m in cuda_tasks(0, (511 + M) / 512):
-                        # distributed dims: 3, thread pitch tuple (384, 0, 128) @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:88:20:(s50)
-                        D_rmem: f32[2, 1, 2, 128, 192] @ Sm90_RmemMatrixD(
-                            128, 192)
-                        # thread_pitch=384; exo_384thr_cta_m = (blockIdx.x % 2) @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:90:20:(s100)
+                for task_m in cuda_tasks(0, (511 + M) / 512):
+                    for task_n in cuda_tasks(0, (191 + N) / 192):
+                        # distributed dims: 4, thread pitch tuple (384, 0, 128, 32) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:847:28:(s50)
+                        D_rmem: f32[2, 1, 2, 4, 2, 16, 192] @ Sm90_TkRmemTileD(
+                            192, )
+                        # thread_pitch=384; exo_384thr_cta_m = (blockIdx.x % 2) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:848:28:(s110)
                         for cta_m in cuda_threads(0,
                                                   2,
                                                   unit=cuda_cta_in_cluster):
                             # Domain (ω.D) = [   2, 384]
                             #    Box (ω.B) = [   1, 384]
-                            #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:91:24:(s90)
+                            #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:849:32:(s100)
                             #
-                            # thread_pitch=0; exo_0thr_cta_n = 0 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:91:24:(s90)
+                            # thread_pitch=0; exo_0thr_cta_n = 0 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:849:32:(s100)
                             for cta_n in cuda_threads(
                                     0, 1, unit=cuda_cta_in_cluster):
                                 # Domain (ω.D) = [   2, 384]
                                 #    Box (ω.B) = [   1, 384]
-                                #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:92:28:(s80)
+                                #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:850:36:(s90)
                                 with CudaWarps(name='consumer'):
                                     # Domain (ω.D) = [   2, 384]
                                     #    Box (ω.B) = [   1, 256]
-                                    #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:93:32:(s70)
+                                    #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:851:40:(s80)
                                     #
-                                    # thread_pitch=128; exo_128thr_wg_m = ((threadIdx.x - 128) / 128) @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:93:32:(s70)
+                                    # thread_pitch=128; exo_128thr_wg_m = ((threadIdx.x - 128) / 128) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:851:40:(s80)
                                     for wg_m in cuda_threads(
                                             0, 2, unit=cuda_warpgroup):
                                         # Domain (ω.D) = [   2, 384]
                                         #    Box (ω.B) = [   1, 128]
-                                        #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:94:36:(s60)
-                                        Sm90_zero_scale_d_f32(D_rmem[cta_m,
-                                                                     cta_n,
-                                                                     wg_m,
-                                                                     0:128,
-                                                                     0:192],
-                                                              M=128,
-                                                              N=192)
-                        # distributed dims: 2, thread pitch tuple (384, 0) @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:96:20:(s110)
-                        #
-                        # distributed dims: 2, thread pitch tuple (384, 0) from Await @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:96:20:(s110)
-                        raw: barrier[2, 1] @ CudaMbarrier
-                        # distributed dims: 2, thread pitch tuple (384, 0) from Await @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:97:20:(s120)
-                        #
-                        # distributed dims: 2, thread pitch tuple (384, 0) from Arrive @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:97:20:(s120)
-                        war: barrier(raw)[2, 1] @ CudaMbarrier
-                        # distributed dims: 3, thread pitch tuple (384, 0, 128) from Arrive @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:98:20:(s130)
-                        cg: barrier[2, 1, 2] @ CudaCommitGroup
-                        # distributed dims: 1, thread pitch tuple (384,) @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:100:20:(s140)
+                                        #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:852:44:(s70)
+                                        for ms in seq(0, 2, pragma_unroll=0):
+                                            Sm90_tk_zero_scale_d(
+                                                D_rmem[cta_m, cta_n, wg_m, 0:4,
+                                                       ms, 0:16, 0:192],
+                                                D=f32,
+                                                N=192)
+                        # distributed dims: 1, thread pitch tuple (384,) from Await @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:314:8:(s120)
+                        war: barrier[2, 1, (
+                            (31 + K_cluster) / 32 + 4) @ (ring_buffer_by(
+                                depth=4))] @ CudaMbarrierPreArrive(4, )
+                        # distributed dims: 1, thread pitch tuple (384,) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:320:8:(s130)
+                        raw: barrier[2, 1,
+                                     (31 + K_cluster) / 32 @ (ring_buffer_by(
+                                         depth=4))] @ CudaMbarrierPreArrive(
+                                             0, )
+                        # distributed dims: 1, thread pitch tuple (384,) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:326:8:(s140)
                         A_smem: f32[2, 1, 4, 256, 32] @ Sm90_SmemSwizzled(
                             128, )
-                        # distributed dims: 1, thread pitch tuple (384,) @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:101:20:(s150)
+                        # distributed dims: 1, thread pitch tuple (384,) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:327:8:(s150)
                         B_smem: f32[2, 1, 4, 192, 32] @ Sm90_SmemSwizzled(
                             128, )
+                        # distributed dims: 3, thread pitch tuple (384, 0, 128) from Arrive @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:328:8:(s160)
+                        wgmma_cg: barrier[2, 1, 2] @ Sm90_WgmmaCommitGroup
                         for iter_k in seq(0, 1):
-                            with CudaWarps(name='producer'):
+                            with CudaWarps(0, 1, name='producer'):
                                 # Domain (ω.D) = [   2, 384]
                                 #    Box (ω.B) = [   2,  32]
-                                #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:107:28:(s190)
+                                #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:333:16:(s190)
                                 #
-                                # thread_pitch=384; exo_384thr_cta_m = (blockIdx.x % 2) @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:107:28:(s190)
+                                # thread_pitch=384; exo_384thr_cta_m = (blockIdx.x % 2) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:333:16:(s190)
                                 for cta_m in cuda_threads(
                                         0, 2, unit=cuda_cta_in_cluster):
                                     # Domain (ω.D) = [   2, 384]
                                     #    Box (ω.B) = [   1,  32]
-                                    #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:108:32:(s170)
+                                    #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:334:20:(s180)
                                     #
-                                    # thread_pitch=0; exo_0thr_cta_n = 0 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:108:32:(s170)
+                                    # thread_pitch=0; exo_0thr_cta_n = 0 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:334:20:(s180)
                                     for cta_n in cuda_threads(
                                             0, 1, unit=cuda_cta_in_cluster):
                                         # Domain (ω.D) = [   2, 384]
                                         #    Box (ω.B) = [   1,  32]
-                                        #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:109:36:(s160)
-                                        Await(war[cta_m, cta_n], cuda_temporal,
-                                              ~3)
-                                    Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(
+                                        #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:335:24:(s170)
+                                        Await(war[cta_m, cta_n, iter_k],
+                                              cuda_temporal, 0)
+                                # thread_pitch=384; exo_384thr_cta_m = (blockIdx.x % 2) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:337:16:(s210)
+                                for cta_m in cuda_threads(
+                                        0, 2, unit=cuda_cta_in_cluster):
+                                    # Domain (ω.D) = [   2, 384]
+                                    #    Box (ω.B) = [   1,  32]
+                                    #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:338:20:(s200)
+                                    Sm90_tma_load_multicast_2d(
                                         A_smem[cta_m, 0:1, iter_k, 0:256,
                                                0:32],
                                         A_tensorMap[batch, 256 * cta_m + 512 *
                                                     task_m:256 + 256 * cta_m +
                                                     512 * task_m, task_k, 32 *
                                                     iter_k:32 + 32 * iter_k],
+                                        dst=f32,
+                                        src=f32,
+                                        ncta=1,
                                         size0=256,
                                         size1=32,
-                                        ncta=1,
                                         cta_stride=1,
-                                        smem_box=(1, 256, 1, 32)) >> raw[cta_m,
-                                                                         0:1]
-                                # thread_pitch=0; exo_0thr_cta_n = 0 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:121:28:(s230)
+                                        smem_box=(1, 256, 1, 32),
+                                        swizzle=128) >> raw[cta_m, 0:1, iter_k]
+                                # thread_pitch=0; exo_0thr_cta_n = 0 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:350:16:(s230)
                                 for cta_n in cuda_threads(
                                         0,
                                         1,
@@ -128,113 +135,132 @@ def gpu_gemm(L: size, M: size, N: size, K_split: size, cluster_K: size,
                                         cuda_cta_in_cluster_strided(1)):
                                     # Domain (ω.D) = [   2, 384]
                                     #    Box (ω.B) = [   2,  32]
-                                    #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:122:32:(s200)
-                                    Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(
+                                    #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:351:20:(s220)
+                                    Sm90_tma_load_multicast_2d(
                                         B_smem[0:2, cta_n, iter_k, 0:192,
                                                0:32],
                                         B_tensorMap[batch, 192 * cta_n + 192 *
                                                     task_n:192 + 192 * cta_n +
                                                     192 * task_n, task_k, 32 *
                                                     iter_k:32 + 32 * iter_k],
+                                        dst=f32,
+                                        src=f32,
+                                        ncta=2,
                                         size0=192,
                                         size1=32,
-                                        ncta=2,
                                         cta_stride=1,
-                                        smem_box=(1, 96, 1, 32)) >> raw[0:2,
-                                                                        cta_n]
-                                    # thread_pitch=384; exo_384thr_cta_m = (blockIdx.x % 2) @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:133:32:(s220)
-                                    for cta_m in cuda_threads(
-                                            0, 2, unit=cuda_cta_in_cluster):
-                                        # Domain (ω.D) = [   2, 384]
-                                        #    Box (ω.B) = [   1,  32]
-                                        #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:134:36:(s210)
-                                        Arrive(cuda_temporal, 1) >> raw[
-                                            cta_m, 0:1] >> raw[0:2, cta_n]
-                            with CudaWarps(name='consumer'):
-                                # Domain (ω.D) = [   2, 384]
-                                #    Box (ω.B) = [   2, 256]
-                                #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:137:28:(s350)
-                                #
-                                # thread_pitch=384; exo_384thr_cta_m = (blockIdx.x % 2) @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:137:28:(s350)
-                                for cta_m in cuda_threads(
-                                        0, 2, unit=cuda_cta_in_cluster):
-                                    # Domain (ω.D) = [   2, 384]
-                                    #    Box (ω.B) = [   1, 256]
-                                    #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:138:32:(s340)
-                                    #
-                                    # thread_pitch=0; exo_0thr_cta_n = 0 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:138:32:(s340)
-                                    for cta_n in cuda_threads(
-                                            0, 1, unit=cuda_cta_in_cluster):
-                                        # Domain (ω.D) = [   2, 384]
-                                        #    Box (ω.B) = [   1, 256]
-                                        #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:140:36:(s250)
-                                        Await(raw[cta_m, cta_n],
-                                              cuda_generic_and_async_proxy, ~0)
-                                        # thread_pitch=128; exo_128thr_wg_m = ((threadIdx.x - 128) / 128) @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:141:36:(s320)
-                                        for wg_m in cuda_threads(
-                                                0, 2, unit=cuda_warpgroup):
-                                            # Domain (ω.D) = [   2, 384]
-                                            #    Box (ω.B) = [   1, 128]
-                                            #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:142:40:(s260)
-                                            Fence(wgmma_fence_1, wgmma_fence_2)
-                                            for mma_k in seq(0, 4):
-                                                Sm90_mma_async_tf32(
-                                                    D_rmem[cta_m, cta_n, wg_m,
-                                                           0:128, 0:192],
-                                                    A_smem[cta_m, cta_n,
-                                                           iter_k,
-                                                           128 * wg_m:128 +
-                                                           128 * wg_m,
-                                                           8 * mma_k:8 +
-                                                           8 * mma_k],
-                                                    B_smem[cta_m, cta_n,
-                                                           iter_k, 0:192,
-                                                           8 * mma_k:8 +
-                                                           8 * mma_k],
-                                                    M=128,
-                                                    N=192)
-                                            Arrive(wgmma_async,
-                                                   1) >> cg[cta_m, cta_n, wg_m]
-                                            if iter_k >= 1:
-                                                Await(cg[cta_m, cta_n, wg_m],
-                                                      cuda_in_order, 1)
-                                        Arrive(cuda_in_order, 1) >> war[
-                                            cta_m, 0:1] >> war[0:2, cta_n]
-                        for iter_k in seq(1, (31 + cluster_K) / 32):
-                            with CudaWarps(name='producer'):
-                                # Domain (ω.D) = [   2, 384]
-                                #    Box (ω.B) = [   2,  32]
-                                #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:107:28:(s410)
-                                #
-                                # thread_pitch=384; exo_384thr_cta_m = (blockIdx.x % 2) @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:107:28:(s410)
+                                        smem_box=(1, 96, 1, 32),
+                                        swizzle=128) >> raw[0:2, cta_n, iter_k]
+                                # thread_pitch=384; exo_384thr_cta_m = (blockIdx.x % 2) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:364:16:(s260)
                                 for cta_m in cuda_threads(
                                         0, 2, unit=cuda_cta_in_cluster):
                                     # Domain (ω.D) = [   2, 384]
                                     #    Box (ω.B) = [   1,  32]
-                                    #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:108:32:(s390)
+                                    #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:365:20:(s250)
                                     #
-                                    # thread_pitch=0; exo_0thr_cta_n = 0 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:108:32:(s390)
+                                    # thread_pitch=0; exo_0thr_cta_n = 0 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:365:20:(s250)
                                     for cta_n in cuda_threads(
                                             0, 1, unit=cuda_cta_in_cluster):
                                         # Domain (ω.D) = [   2, 384]
                                         #    Box (ω.B) = [   1,  32]
-                                        #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:109:36:(s380)
-                                        Await(war[cta_m, cta_n], cuda_temporal,
-                                              ~3)
-                                    Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(
+                                        #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:366:24:(s240)
+                                        Arrive(cuda_temporal, 1) >> raw[
+                                            cta_m, 0:1,
+                                            iter_k] >> raw[0:2, cta_n, iter_k]
+                            with CudaWarps(name='consumer'):
+                                # Domain (ω.D) = [   2, 384]
+                                #    Box (ω.B) = [   2, 256]
+                                #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:368:16:(s350)
+                                #
+                                # thread_pitch=384; exo_384thr_cta_m = (blockIdx.x % 2) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:368:16:(s350)
+                                for cta_m in cuda_threads(
+                                        0, 2, unit=cuda_cta_in_cluster):
+                                    # Domain (ω.D) = [   2, 384]
+                                    #    Box (ω.B) = [   1, 256]
+                                    #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:369:20:(s340)
+                                    #
+                                    # thread_pitch=0; exo_0thr_cta_n = 0 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:369:20:(s340)
+                                    for cta_n in cuda_threads(
+                                            0, 1, unit=cuda_cta_in_cluster):
+                                        # Domain (ω.D) = [   2, 384]
+                                        #    Box (ω.B) = [   1, 256]
+                                        #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:371:24:(s280)
+                                        Await(raw[cta_m, cta_n, iter_k],
+                                              cuda_generic_and_async_proxy, 0)
+                                        # thread_pitch=128; exo_128thr_wg_m = ((threadIdx.x - 128) / 128) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:373:24:(s330)
+                                        for wg_m in cuda_threads(
+                                                0, 2, unit=cuda_warpgroup):
+                                            # Domain (ω.D) = [   2, 384]
+                                            #    Box (ω.B) = [   1, 128]
+                                            #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:374:28:(s290)
+                                            Fence(wgmma_fence_1, wgmma_fence_2)
+                                            for ms in seq(0,
+                                                          2,
+                                                          pragma_unroll=0):
+                                                Sm90_tk_mma_row_col(
+                                                    D_rmem[cta_m, cta_n, wg_m,
+                                                           0:4, ms, 0:16,
+                                                           0:192],
+                                                    A_smem[cta_m, cta_n,
+                                                           iter_k, 64 * ms +
+                                                           128 * wg_m:64 +
+                                                           64 * ms +
+                                                           128 * wg_m, 0:32],
+                                                    B_smem[cta_m, cta_n,
+                                                           iter_k, 0:192,
+                                                           0:32],
+                                                    D=f32,
+                                                    A=f32,
+                                                    B=f32,
+                                                    N=192,
+                                                    K=32,
+                                                    swizzle=128)
+                                            Arrive(wgmma_async,
+                                                   1) >> wgmma_cg[cta_m, cta_n,
+                                                                  wg_m]
+                        for iter_k in seq(1, (31 + K_cluster) / 32):
+                            with CudaWarps(0, 1, name='producer'):
+                                # Domain (ω.D) = [   2, 384]
+                                #    Box (ω.B) = [   2,  32]
+                                #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:333:16:(s400)
+                                #
+                                # thread_pitch=384; exo_384thr_cta_m = (blockIdx.x % 2) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:333:16:(s400)
+                                for cta_m in cuda_threads(
+                                        0, 2, unit=cuda_cta_in_cluster):
+                                    # Domain (ω.D) = [   2, 384]
+                                    #    Box (ω.B) = [   1,  32]
+                                    #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:334:20:(s390)
+                                    #
+                                    # thread_pitch=0; exo_0thr_cta_n = 0 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:334:20:(s390)
+                                    for cta_n in cuda_threads(
+                                            0, 1, unit=cuda_cta_in_cluster):
+                                        # Domain (ω.D) = [   2, 384]
+                                        #    Box (ω.B) = [   1,  32]
+                                        #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:335:24:(s380)
+                                        Await(war[cta_m, cta_n, iter_k],
+                                              cuda_temporal, 0)
+                                # thread_pitch=384; exo_384thr_cta_m = (blockIdx.x % 2) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:337:16:(s420)
+                                for cta_m in cuda_threads(
+                                        0, 2, unit=cuda_cta_in_cluster):
+                                    # Domain (ω.D) = [   2, 384]
+                                    #    Box (ω.B) = [   1,  32]
+                                    #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:338:20:(s410)
+                                    Sm90_tma_load_multicast_2d(
                                         A_smem[cta_m, 0:1, iter_k % 4, 0:256,
                                                0:32],
                                         A_tensorMap[batch, 256 * cta_m + 512 *
                                                     task_m:256 + 256 * cta_m +
                                                     512 * task_m, task_k, 32 *
                                                     iter_k:32 + 32 * iter_k],
+                                        dst=f32,
+                                        src=f32,
+                                        ncta=1,
                                         size0=256,
                                         size1=32,
-                                        ncta=1,
                                         cta_stride=1,
-                                        smem_box=(1, 256, 1, 32)) >> raw[cta_m,
-                                                                         0:1]
-                                # thread_pitch=0; exo_0thr_cta_n = 0 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:121:28:(s450)
+                                        smem_box=(1, 256, 1, 32),
+                                        swizzle=128) >> raw[cta_m, 0:1, iter_k]
+                                # thread_pitch=0; exo_0thr_cta_n = 0 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:350:16:(s440)
                                 for cta_n in cuda_threads(
                                         0,
                                         1,
@@ -242,170 +268,241 @@ def gpu_gemm(L: size, M: size, N: size, K_split: size, cluster_K: size,
                                         cuda_cta_in_cluster_strided(1)):
                                     # Domain (ω.D) = [   2, 384]
                                     #    Box (ω.B) = [   2,  32]
-                                    #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:122:32:(s420)
-                                    Sm90_multicast_copy_tensor_to_smem_swizzled_2f32(
+                                    #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:351:20:(s430)
+                                    Sm90_tma_load_multicast_2d(
                                         B_smem[0:2, cta_n, iter_k % 4, 0:192,
                                                0:32],
                                         B_tensorMap[batch, 192 * cta_n + 192 *
                                                     task_n:192 + 192 * cta_n +
                                                     192 * task_n, task_k, 32 *
                                                     iter_k:32 + 32 * iter_k],
+                                        dst=f32,
+                                        src=f32,
+                                        ncta=2,
                                         size0=192,
                                         size1=32,
-                                        ncta=2,
                                         cta_stride=1,
-                                        smem_box=(1, 96, 1, 32)) >> raw[0:2,
-                                                                        cta_n]
-                                    # thread_pitch=384; exo_384thr_cta_m = (blockIdx.x % 2) @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:133:32:(s440)
-                                    for cta_m in cuda_threads(
-                                            0, 2, unit=cuda_cta_in_cluster):
+                                        smem_box=(1, 96, 1, 32),
+                                        swizzle=128) >> raw[0:2, cta_n, iter_k]
+                                # thread_pitch=384; exo_384thr_cta_m = (blockIdx.x % 2) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:364:16:(s470)
+                                for cta_m in cuda_threads(
+                                        0, 2, unit=cuda_cta_in_cluster):
+                                    # Domain (ω.D) = [   2, 384]
+                                    #    Box (ω.B) = [   1,  32]
+                                    #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:365:20:(s460)
+                                    #
+                                    # thread_pitch=0; exo_0thr_cta_n = 0 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:365:20:(s460)
+                                    for cta_n in cuda_threads(
+                                            0, 1, unit=cuda_cta_in_cluster):
                                         # Domain (ω.D) = [   2, 384]
                                         #    Box (ω.B) = [   1,  32]
-                                        #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:134:36:(s430)
+                                        #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:366:24:(s450)
                                         Arrive(cuda_temporal, 1) >> raw[
-                                            cta_m, 0:1] >> raw[0:2, cta_n]
+                                            cta_m, 0:1,
+                                            iter_k] >> raw[0:2, cta_n, iter_k]
                             with CudaWarps(name='consumer'):
                                 # Domain (ω.D) = [   2, 384]
                                 #    Box (ω.B) = [   2, 256]
-                                #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:137:28:(s570)
+                                #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:368:16:(s560)
                                 #
-                                # thread_pitch=384; exo_384thr_cta_m = (blockIdx.x % 2) @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:137:28:(s570)
+                                # thread_pitch=384; exo_384thr_cta_m = (blockIdx.x % 2) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:368:16:(s560)
                                 for cta_m in cuda_threads(
                                         0, 2, unit=cuda_cta_in_cluster):
                                     # Domain (ω.D) = [   2, 384]
                                     #    Box (ω.B) = [   1, 256]
-                                    #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:138:32:(s560)
+                                    #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:369:20:(s550)
                                     #
-                                    # thread_pitch=0; exo_0thr_cta_n = 0 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:138:32:(s560)
+                                    # thread_pitch=0; exo_0thr_cta_n = 0 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:369:20:(s550)
                                     for cta_n in cuda_threads(
                                             0, 1, unit=cuda_cta_in_cluster):
                                         # Domain (ω.D) = [   2, 384]
                                         #    Box (ω.B) = [   1, 256]
-                                        #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:140:36:(s470)
-                                        Await(raw[cta_m, cta_n],
-                                              cuda_generic_and_async_proxy, ~0)
-                                        # thread_pitch=128; exo_128thr_wg_m = ((threadIdx.x - 128) / 128) @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:141:36:(s540)
+                                        #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:371:24:(s490)
+                                        Await(raw[cta_m, cta_n, iter_k],
+                                              cuda_generic_and_async_proxy, 0)
+                                        # thread_pitch=128; exo_128thr_wg_m = ((threadIdx.x - 128) / 128) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:373:24:(s540)
                                         for wg_m in cuda_threads(
                                                 0, 2, unit=cuda_warpgroup):
                                             # Domain (ω.D) = [   2, 384]
                                             #    Box (ω.B) = [   1, 128]
-                                            #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:142:40:(s480)
+                                            #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:374:28:(s500)
                                             Fence(wgmma_fence_1, wgmma_fence_2)
-                                            for mma_k in seq(0, 4):
-                                                Sm90_mma_async_tf32(
+                                            for ms in seq(0,
+                                                          2,
+                                                          pragma_unroll=0):
+                                                Sm90_tk_mma_row_col(
                                                     D_rmem[cta_m, cta_n, wg_m,
-                                                           0:128, 0:192],
+                                                           0:4, ms, 0:16,
+                                                           0:192],
                                                     A_smem[cta_m, cta_n,
                                                            iter_k % 4,
-                                                           128 * wg_m:128 +
-                                                           128 * wg_m,
-                                                           8 * mma_k:8 +
-                                                           8 * mma_k],
+                                                           64 * ms +
+                                                           128 * wg_m:64 +
+                                                           64 * ms +
+                                                           128 * wg_m, 0:32],
                                                     B_smem[cta_m, cta_n,
                                                            iter_k % 4, 0:192,
-                                                           8 * mma_k:8 +
-                                                           8 * mma_k],
-                                                    M=128,
-                                                    N=192)
+                                                           0:32],
+                                                    D=f32,
+                                                    A=f32,
+                                                    B=f32,
+                                                    N=192,
+                                                    K=32,
+                                                    swizzle=128)
                                             Arrive(wgmma_async,
-                                                   1) >> cg[cta_m, cta_n, wg_m]
-                                            if iter_k >= 1:
-                                                Await(cg[cta_m, cta_n, wg_m],
-                                                      cuda_in_order, 1)
-                                        Arrive(cuda_in_order, 1) >> war[
-                                            cta_m, 0:1] >> war[0:2, cta_n]
-                        # thread_pitch=384; exo_384thr_cta_m = (blockIdx.x % 2) @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:152:20:(s640)
-                        for cta_m in cuda_threads(0,
-                                                  2,
-                                                  unit=cuda_cta_in_cluster):
-                            # Domain (ω.D) = [   2, 384]
-                            #    Box (ω.B) = [   1, 384]
-                            #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:153:24:(s630)
-                            #
-                            # thread_pitch=0; exo_0thr_cta_n = 0 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:153:24:(s630)
-                            for cta_n in cuda_threads(
-                                    0, 1, unit=cuda_cta_in_cluster):
+                                                   1) >> wgmma_cg[cta_m, cta_n,
+                                                                  wg_m]
+                            with CudaWarps(name='consumer'):
                                 # Domain (ω.D) = [   2, 384]
-                                #    Box (ω.B) = [   1, 384]
-                                #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:154:28:(s620)
-                                with CudaWarps(name='consumer'):
+                                #    Box (ω.B) = [   2, 256]
+                                #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:330:8:(s630)
+                                #
+                                # thread_pitch=384; exo_384thr_cta_m = (blockIdx.x % 2) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:330:8:(s630)
+                                for cta_m in cuda_threads(
+                                        0, 2, unit=cuda_cta_in_cluster):
                                     # Domain (ω.D) = [   2, 384]
                                     #    Box (ω.B) = [   1, 256]
-                                    #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:155:32:(s610)
+                                    #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:330:8:(s620)
                                     #
-                                    # thread_pitch=128; exo_128thr_wg_m = ((threadIdx.x - 128) / 128) @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:155:32:(s610)
+                                    # thread_pitch=0; exo_0thr_cta_n = 0 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:330:8:(s620)
+                                    for cta_n in cuda_threads(
+                                            0, 1, unit=cuda_cta_in_cluster):
+                                        # Domain (ω.D) = [   2, 384]
+                                        #    Box (ω.B) = [   1, 256]
+                                        #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:330:8:(s600)
+                                        #
+                                        # thread_pitch=128; exo_128thr_wg_m = ((threadIdx.x - 128) / 128) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:330:8:(s600)
+                                        for wg_m in cuda_threads(
+                                                0, 2, unit=cuda_warpgroup):
+                                            # Domain (ω.D) = [   2, 384]
+                                            #    Box (ω.B) = [   1, 128]
+                                            #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:330:8:(s580)
+                                            pass
+                                            Await(wgmma_cg[cta_m, cta_n, wg_m],
+                                                  cuda_in_order, 1)
+                                        Arrive(cuda_in_order,
+                                               1) >> war[cta_m, 0:1, iter_k +
+                                                         3] >> war[0:2, cta_n,
+                                                                   iter_k + 3]
+                        with CudaWarps(name='consumer'):
+                            # Domain (ω.D) = [   2, 384]
+                            #    Box (ω.B) = [   2, 256]
+                            #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:401:12:(s700)
+                            #
+                            # thread_pitch=384; exo_384thr_cta_m = (blockIdx.x % 2) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:401:12:(s700)
+                            for cta_m in cuda_threads(
+                                    0, 2, unit=cuda_cta_in_cluster):
+                                # Domain (ω.D) = [   2, 384]
+                                #    Box (ω.B) = [   1, 256]
+                                #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:402:16:(s690)
+                                #
+                                # thread_pitch=0; exo_0thr_cta_n = 0 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:402:16:(s690)
+                                for cta_n in cuda_threads(
+                                        0, 1, unit=cuda_cta_in_cluster):
+                                    # Domain (ω.D) = [   2, 384]
+                                    #    Box (ω.B) = [   1, 256]
+                                    #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:403:20:(s670)
+                                    #
+                                    # thread_pitch=128; exo_128thr_wg_m = ((threadIdx.x - 128) / 128) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:403:20:(s670)
                                     for wg_m in cuda_threads(
                                             0, 2, unit=cuda_warpgroup):
                                         # Domain (ω.D) = [   2, 384]
                                         #    Box (ω.B) = [   1, 128]
-                                        #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:156:36:(s600)
-                                        Await(cg[cta_m, cta_n, wg_m],
+                                        #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:404:24:(s660)
+                                        Await(wgmma_cg[cta_m, cta_n, wg_m],
                                               cuda_in_order, 0)
-                        free(cg)
+                                    Arrive(cuda_in_order, 1) >> war[
+                                        cta_m, 0:1,
+                                        (K_cluster + 32 - 1) / 32 + 4 -
+                                        1] >> war[0:2, cta_n,
+                                                  (K_cluster + 32 - 1) / 32 +
+                                                  4 - 1]
+                        free(wgmma_cg)
                         Fence(cuda_in_order, cuda_in_order)
                         free(B_smem)
                         free(A_smem)
-                        # distributed dims: 1, thread pitch tuple (384,) @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:160:24:(s660)
-                        C_smem: f32[2, 1, 192, 256] @ CudaSmemLinear
-                        # thread_pitch=384; exo_384thr_cta_m = (blockIdx.x % 2) @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:161:24:(s770)
+                        # distributed dims: 1, thread pitch tuple (384,) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:600:8:(s730)
+                        C_smem: f32[2, 1, 6, 256, 32] @ Sm90_SmemSwizzled(
+                            128, )
+                        # thread_pitch=384; exo_384thr_cta_m = (blockIdx.x % 2) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:601:8:(s870)
                         for cta_m in cuda_threads(0,
                                                   2,
                                                   unit=cuda_cta_in_cluster):
                             # Domain (ω.D) = [   2, 384]
                             #    Box (ω.B) = [   1, 384]
-                            #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:162:28:(s760)
+                            #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:602:12:(s860)
                             #
-                            # thread_pitch=0; exo_0thr_cta_n = 0 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:162:28:(s760)
+                            # thread_pitch=0; exo_0thr_cta_n = 0 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:602:12:(s860)
                             for cta_n in cuda_threads(
                                     0, 1, unit=cuda_cta_in_cluster):
                                 # Domain (ω.D) = [   2, 384]
                                 #    Box (ω.B) = [   1, 384]
-                                #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:163:32:(s690)
+                                #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:603:16:(s780)
                                 with CudaWarps(name='consumer'):
                                     # Domain (ω.D) = [   2, 384]
                                     #    Box (ω.B) = [   1, 256]
-                                    #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:164:36:(s680)
+                                    #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:604:20:(s770)
                                     #
-                                    # thread_pitch=128; exo_128thr_wg_m = ((threadIdx.x - 128) / 128) @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:164:36:(s680)
+                                    # thread_pitch=128; exo_128thr_wg_m = ((threadIdx.x - 128) / 128) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:604:20:(s770)
                                     for wg_m in cuda_threads(
                                             0, 2, unit=cuda_warpgroup):
                                         # Domain (ω.D) = [   2, 384]
                                         #    Box (ω.B) = [   1, 128]
-                                        #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:165:40:(s670)
-                                        Sm90_mma_store_d_col_major_tf32(
-                                            128,
-                                            192,
-                                            C_smem[cta_m, cta_n, 0:192, 128 *
-                                                   wg_m:128 + 128 * wg_m],
-                                            D_rmem[cta_m, cta_n, wg_m, 0:128,
-                                                   0:192],
-                                            M=128,
-                                            N=192)
+                                        #   pow2 align = 128 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:605:24:(s760)
+                                        #
+                                        # thread_pitch=32; exo_32thr_w = (threadIdx.x % 128 / 32) @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:605:24:(s760)
+                                        for w in cuda_threads(0,
+                                                              4,
+                                                              unit=cuda_warp):
+                                            # Domain (ω.D) = [   2, 384]
+                                            #    Box (ω.B) = [   1,  32]
+                                            #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:608:28:(s750)
+                                            for ms in seq(0,
+                                                          2,
+                                                          pragma_unroll=0):
+                                                cuda_tk_store_rs_inner_cols_32(
+                                                    C_smem[cta_m, cta_n, 0:6,
+                                                           16 * w + 64 * ms +
+                                                           128 * wg_m:16 +
+                                                           16 * w + 64 * ms +
+                                                           128 * wg_m, 0:32],
+                                                    D_rmem[cta_m, cta_n, wg_m,
+                                                           w, ms, 0:16, 0:192],
+                                                    dst=f32,
+                                                    src=f32,
+                                                    rows=16,
+                                                    outer_cols=6)
                                 Fence(cuda_in_order,
                                       cuda_generic_and_async_proxy)
-                                with CudaWarps(name='producer'):
+                                with CudaWarps(3, 4, name='producer'):
                                     # Domain (ω.D) = [   2, 384]
                                     #    Box (ω.B) = [   1,  32]
-                                    #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:171:40:(s710)
-                                    Sm90_reduce_tensor_to_gmem_linear_2f32(
-                                        C_tensorMap[batch, 192 * cta_n +
-                                                    192 * task_n:192 +
-                                                    192 * cta_n + 192 * task_n,
-                                                    256 * cta_m +
-                                                    512 * task_m:256 +
-                                                    256 * cta_m +
-                                                    512 * task_m],
-                                        C_smem[cta_m, cta_n, 0:192, 0:256],
-                                        size0=192,
-                                        size1=256,
-                                        smem_box=(1, 192, 256))
-                                    # distributed dims: 0, thread pitch tuple () from Arrive @ /home/mantissa/Documents/exo/src/exo/platforms/gemm_Sm90a_test/make_Sm90a_gemm.py:188:36:(s720)
-                                    tma_cg: barrier @ CudaCommitGroup
-                                    Arrive(tma_to_gmem_async, 1) >> tma_cg
-                                    Await(tma_cg, cuda_in_order, 0)
-                                    free(tma_cg)
+                                    #   pow2 align = 32 @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:621:20:(s840)
+                                    for ns in seq(0, 6):
+                                        Sm90_tma_reduce_add_2d(
+                                            C_tensorMap[batch, 256 * cta_m +
+                                                        512 * task_m:256 +
+                                                        256 * cta_m +
+                                                        512 * task_m,
+                                                        32 * ns + 192 * cta_n +
+                                                        192 * task_n:32 +
+                                                        32 * ns + 192 * cta_n +
+                                                        192 * task_n],
+                                            C_smem[cta_m, cta_n, ns, 0:256,
+                                                   0:32],
+                                            dst=f32,
+                                            src=f32,
+                                            size0=256,
+                                            size1=32,
+                                            smem_box=(1, 256, 32),
+                                            swizzle=128)
+                                        # distributed dims: 0, thread pitch tuple () from Arrive @ /home/mantissa/Documents/exo/src/exo/platforms/Sm90/tk_gemm_util.py:646:24:(s810)
+                                        tma_cg: barrier @ Sm90_TmaCommitGroup
+                                        Arrive(tma_to_gmem_async, 1) >> tma_cg
+                                        Await(tma_cg, cuda_in_order, 0)
+                                        free(tma_cg)
                         free(D_rmem)
                         Fence(cuda_in_order, cuda_in_order)
                         free(C_smem)
-                        free(war)
                         free(raw)
+                        free(war)
