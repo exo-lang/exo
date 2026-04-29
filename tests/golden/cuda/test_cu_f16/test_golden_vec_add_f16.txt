@@ -513,6 +513,9 @@ struct exo_Cuda0_f16_test_vec_add_f16
   exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
 
   static __device__ __forceinline__ void
+  exo_deviceShutdown(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
+
+  static __device__ __forceinline__ void
   exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
 
   static __device__ __forceinline__ void
@@ -560,6 +563,15 @@ exo_CudaInline_test_golden_vec_add_f16::exo_Cuda0_f16_test_vec_add_f16::exo_devi
     exo_ExcutThreadLog exo_excutLog)
 {
   // No mbarriers used
+}
+
+__device__ __forceinline__ void
+exo_CudaInline_test_golden_vec_add_f16::exo_Cuda0_f16_test_vec_add_f16::exo_deviceShutdown(
+    char* exo_smem,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_ExcutThreadLog exo_excutLog)
+{
+  // clusterDim = 1
 }
 
 __device__ __forceinline__ void
@@ -622,6 +634,7 @@ exo_deviceFunction0_f16_test_vec_add_f16(__grid_constant__ const struct exo_Cuda
   exo_ExcutThreadLog exo_excutLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
   exo_Cuda0_f16_test_vec_add_f16::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
   exo_Cuda0_f16_test_vec_add_f16::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda0_f16_test_vec_add_f16::exo_deviceShutdown(exo_smem, exo_deviceArgs, exo_excutLog);
 }
 
 void

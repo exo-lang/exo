@@ -596,6 +596,9 @@ struct exo_Cuda0_xgemm_Sm80_fence
   exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
 
   static __device__ __forceinline__ void
+  exo_deviceShutdown(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
+
+  static __device__ __forceinline__ void
   exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
 
   static __device__ __forceinline__ void
@@ -643,6 +646,15 @@ exo_CudaInline_test_tmp_xgemm_Sm80_golden::exo_Cuda0_xgemm_Sm80_fence::exo_devic
     exo_ExcutThreadLog exo_excutLog)
 {
   // No mbarriers used
+}
+
+__device__ __forceinline__ void
+exo_CudaInline_test_tmp_xgemm_Sm80_golden::exo_Cuda0_xgemm_Sm80_fence::exo_deviceShutdown(
+    char* exo_smem,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_ExcutThreadLog exo_excutLog)
+{
+  // clusterDim = 1
 }
 
 __device__ __forceinline__ void
@@ -778,6 +790,9 @@ struct exo_Cuda1_xgemm_Sm80_fence
   exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
 
   static __device__ __forceinline__ void
+  exo_deviceShutdown(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
+
+  static __device__ __forceinline__ void
   exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
 
   static __device__ __forceinline__ void
@@ -825,6 +840,15 @@ exo_CudaInline_test_tmp_xgemm_Sm80_golden::exo_Cuda1_xgemm_Sm80_fence::exo_devic
     exo_ExcutThreadLog exo_excutLog)
 {
   // No mbarriers used
+}
+
+__device__ __forceinline__ void
+exo_CudaInline_test_tmp_xgemm_Sm80_golden::exo_Cuda1_xgemm_Sm80_fence::exo_deviceShutdown(
+    char* exo_smem,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_ExcutThreadLog exo_excutLog)
+{
+  // clusterDim = 1
 }
 
 __device__ __forceinline__ void
@@ -964,6 +988,9 @@ struct exo_Cuda2_xgemm_Sm80_fence
   exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
 
   static __device__ __forceinline__ void
+  exo_deviceShutdown(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
+
+  static __device__ __forceinline__ void
   exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
 
   static __device__ __forceinline__ void
@@ -1011,6 +1038,15 @@ exo_CudaInline_test_tmp_xgemm_Sm80_golden::exo_Cuda2_xgemm_Sm80_fence::exo_devic
     exo_ExcutThreadLog exo_excutLog)
 {
   // No mbarriers used
+}
+
+__device__ __forceinline__ void
+exo_CudaInline_test_tmp_xgemm_Sm80_golden::exo_Cuda2_xgemm_Sm80_fence::exo_deviceShutdown(
+    char* exo_smem,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_ExcutThreadLog exo_excutLog)
+{
+  // clusterDim = 1
 }
 
 __device__ __forceinline__ void
@@ -1208,6 +1244,7 @@ exo_deviceFunction0_xgemm_Sm80_fence(__grid_constant__ const struct exo_CudaDevi
   exo_ExcutThreadLog exo_excutLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
   exo_Cuda0_xgemm_Sm80_fence::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
   exo_Cuda0_xgemm_Sm80_fence::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda0_xgemm_Sm80_fence::exo_deviceShutdown(exo_smem, exo_deviceArgs, exo_excutLog);
 }
 
 void
@@ -1224,6 +1261,7 @@ exo_deviceFunction1_xgemm_Sm80_fence(__grid_constant__ const struct exo_CudaDevi
   exo_ExcutThreadLog exo_excutLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
   exo_Cuda1_xgemm_Sm80_fence::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
   exo_Cuda1_xgemm_Sm80_fence::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda1_xgemm_Sm80_fence::exo_deviceShutdown(exo_smem, exo_deviceArgs, exo_excutLog);
 }
 
 void
@@ -1240,6 +1278,7 @@ exo_deviceFunction2_xgemm_Sm80_fence(__grid_constant__ const struct exo_CudaDevi
   exo_ExcutThreadLog exo_excutLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
   exo_Cuda2_xgemm_Sm80_fence::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
   exo_Cuda2_xgemm_Sm80_fence::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda2_xgemm_Sm80_fence::exo_deviceShutdown(exo_smem, exo_deviceArgs, exo_excutLog);
 }
 
 void
