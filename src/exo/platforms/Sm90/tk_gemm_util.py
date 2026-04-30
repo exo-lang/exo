@@ -92,8 +92,11 @@ class GemmConfig:
         suffix += "_ping_pong" if self.ping_pong else "_coop"
         if self.enable_split_k:
             suffix += "_splitK"
+        A_type = self.A_type
+        B_type = self.B_type
+        C_type = self.C_type
         return (
-            f"Sm90_tk_gemm_r{self.ring_depth}"
+            f"Sm90_tk_gemm_{C_type}_{A_type}{B_type}_r{self.ring_depth}"
             f"_m{self.ncta_M}n{self.ncta_N}_m{self.cta_M}n{self.cta_N}{suffix}"
         )
 
@@ -152,7 +155,7 @@ class GemmConfig:
 
 def sched_inline_stuff(p):
     # task_n should be the inner-most task loop.
-    # Its body in the "device task"
+    # Its body is the "device task"
     loops = p.find_all("for task_n in _:_")
     assert len(loops) == 1
     loop_c = loops[0]
@@ -402,9 +405,9 @@ def handwrite_row_col_coop_main_loop(config: GemmConfig):
                 for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
                     for wg_m in cuda_threads(0, 2, unit=cuda_warpgroup):
                         Await(wgmma_cg[cta_m, cta_n, wg_m], cuda_in_order, 0)
-                    Arrive(cuda_in_order) >> war[
-                        cta_m, :, ((K_cluster + smem_K - 1) / smem_K + ring_depth - 1)] >> war[
-                        :, cta_n, ((K_cluster + smem_K - 1) / smem_K + ring_depth - 1)]
+                    Arrive(cuda_in_order
+                        ) >> war[cta_m, :, ((K_cluster + smem_K - 1) / smem_K + ring_depth - 1)
+                        ] >> war[:, cta_n, ((K_cluster + smem_K - 1) / smem_K + ring_depth - 1)]
 
     main_loop = sched_cut_sync_iter_k(main_loop, config)
     return simplify(main_loop)
@@ -551,9 +554,9 @@ def handwrite_row_col_ping_pong_main_loop(config: GemmConfig):
                 for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
                     for wg_m in cuda_threads(0, 2, unit=cuda_warpgroup):
                         Await(wgmma_cg[cta_m, cta_n, wg_m], cuda_in_order, 0)
-                        Arrive(cuda_in_order) >> war[
-                            cta_m, :, wg_m, ((K_cluster + smem_K - 1) / smem_K + ring_depth - 1)] >> war[
-                            :, cta_n, wg_m, ((K_cluster + smem_K - 1) / smem_K + ring_depth - 1)]
+                        Arrive(cuda_in_order
+                            ) >> war[cta_m, :, wg_m, ((K_cluster + smem_K - 1) / smem_K + ring_depth - 1)
+                            ] >> war[:, cta_n, wg_m, ((K_cluster + smem_K - 1) / smem_K + ring_depth - 1)]
 
     main_loop = sched_cut_sync_iter_k(main_loop, config)
     return simplify(main_loop)
