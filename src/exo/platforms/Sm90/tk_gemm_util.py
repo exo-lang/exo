@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum, auto
 from pathlib import Path
 import time
 from typing import Union
@@ -16,6 +17,7 @@ from exo.scalars import ScalarInfo, f16, bf16, f32
 
 __all__ = [
     "GemmConfig",
+    "GemmTestBug",
     "handwrite_gemm",
     "schedule_gemm",
 ]
@@ -41,6 +43,19 @@ N_divisor = 16
 K_cluster_divisor = 16
 
 
+class GemmTestBug(Enum):
+    none = auto()
+    wrong_wgmma_cg = auto()
+    coop_missing_cluster_sync_before_epilogue = auto()
+    coop_missing_cluster_sync_after_epilogue = auto()
+    missing_await_raw = auto()
+    # TODO
+    missing_arrive_threads = auto()
+    ping_pong_wrong_tma_to_gmem_timeline = auto()
+    ping_pong_reorder_await = auto()
+    ping_pong_reorder_arrive = auto()
+
+
 @dataclass(slots=True)
 class GemmConfig:
     # Number of CTAs per cluster in M and N dimensions
@@ -62,6 +77,8 @@ class GemmConfig:
     # Epilogue control
     enable_split_k: bool = False
     ping_pong: bool = False
+    # For sync_check testing, create wrong gemms
+    bug: GemmTestBug = GemmTestBug.none
 
     def __post_init__(self):
         assert self.swizzle == 128, f"{self.swizzle} not supported"
@@ -251,12 +268,28 @@ def sched_cut_sync_iter_k(p, config: GemmConfig):
                 f"war[:, cta_n, iter_k + {ring_depth - 1}]",
             ),
         )
+    should_be_1 = 2 if config.bug == GemmTestBug.wrong_wgmma_cg else 1
     p = insert_await(
-        p, pass_c.after(), "wgmma_cg[cta_m, cta_n, wg_m]", cuda_in_order, 1
+        p,
+        pass_c.after(),
+        "wgmma_cg[cta_m, cta_n, wg_m]",
+        cuda_in_order,
+        should_be_1,
     )
 
     # Only consumer executes this.
     p = wrap_with_context(p, cta_m_c, CudaWarps(name="consumer"))
+
+    # For testing, delete an Await in the iter_k >= 1 loop.
+    if config.bug == GemmTestBug.missing_await_raw:
+        loop_c = p.forward(loop_c)
+        print(loop_c)
+        await_c = loop_c.body()[1].body()[0].body()[0].body()[0]
+        assert isinstance(await_c, SyncCursor)
+        assert await_c.first_sync_tl() == None
+        assert await_c.second_sync_tl() == cuda_generic_and_async_proxy
+        assert await_c.name() == "raw"
+        p = add_if(p, await_c, "False", unsafe_disable_check=True)
 
     return p
 
@@ -267,7 +300,7 @@ def sched_final_changes(gemm: Procedure, config: GemmConfig):
     gemm = simplify(gemm)
     gemm = rename(gemm, name)
 
-    if True:
+    if config.bug == GemmTestBug.none:
         L = 2
         K_split = 2 if config.enable_split_k else 1
         M = 900
@@ -796,6 +829,13 @@ def handwrite_gemm(config: GemmConfig, sporkbench_cases: Optional[list] = None):
         main_loop = handwrite_row_col_ping_pong_main_loop(config)
         epilogue = handwrite_ping_pong_epilogue(config)
 
+    sync_before_epilogue = (
+        coop and config.bug != GemmTestBug.coop_missing_cluster_sync_before_epilogue
+    )
+    sync_after_epilogue = (
+        coop and config.bug != GemmTestBug.coop_missing_cluster_sync_after_epilogue
+    )
+
     # fmt: off
     @proc
     def gemm(
@@ -881,7 +921,7 @@ def handwrite_gemm(config: GemmConfig, sporkbench_cases: Optional[list] = None):
                             # This cluster-wide sync is required for the main_loop
                             # and the epilogue to safely alias SMEM.
                             # This aliasing only occurs if not using the ping-pong schedule.
-                            if coop:
+                            if sync_before_epilogue:
                                 Fence(cuda_in_order, cuda_in_order)
 
                             epilogue(
@@ -898,7 +938,7 @@ def handwrite_gemm(config: GemmConfig, sporkbench_cases: Optional[list] = None):
                             # This cluster-wide sync is required for the epilogue and
                             # the main_loop (of the next task mapped to the same
                             # SM/cluster) to safely alias SMEM.
-                            if coop:
+                            if sync_after_epilogue:
                                 Fence(cuda_in_order, cuda_in_order)
 
     gemm = sched_final_changes(gemm, config)
@@ -918,6 +958,7 @@ def find_parent_loop(p: Procedure, cursor, iter_name):
 def schedule_gemm(config: GemmConfig, cases=None):
     # fmt: off
     assert not config.ping_pong, "not supported"
+    assert config.bug == GemmTestBug.none, "not supported"
 
     A_type = ScalarInfo(config.A_type)
     B_type = ScalarInfo(config.B_type)
