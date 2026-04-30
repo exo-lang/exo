@@ -272,7 +272,7 @@ def sched_final_changes(gemm: Procedure, config: GemmConfig):
         K_split = 2 if config.enable_split_k else 1
         M = 900
         N = 700
-        K_cluster = 224
+        K_cluster = config.make_smem_K() * config.ring_depth * 2 + 16
         start = time.time()
         gemm.sync_check(L=L, M=M, N=N, K_split=K_split, K_cluster=K_cluster)
         dt = time.time() - start
@@ -1425,7 +1425,8 @@ def schedule_gemm(config: GemmConfig, cases=None):
     gemm = simplify(gemm)
     proc_name = config.make_proc_name() + "_sched"
     gemm = rename(gemm, proc_name)
-    gemm.sync_check(L=2, M=600, N=800, K_cluster=240, K_split=2 if enable_split_k else 1)
+    K_cluster = config.make_smem_K() * config.ring_depth * 2 + 16
+    gemm.sync_check(L=2, M=600, N=800, K_cluster=K_cluster, K_split=2 if enable_split_k else 1)
 
     # sporkbench cases
     if cases is not None:
