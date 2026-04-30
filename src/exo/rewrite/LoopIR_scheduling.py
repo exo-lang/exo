@@ -1896,6 +1896,39 @@ def DoMultiplyDim(alloc_cursor, hi_idx, lo_idx):
     return ir, fwd
 
 
+def DoSetDimSizeAnnotation(alloc_cursor, dim_idx, size_annotation):
+    def update_size_coord(sz):
+        assert sz.type.is_size()
+        return sz.update(type=LoopIR.Size(size_annotation))
+
+    old_typ = alloc_cursor._node.type
+    # Must craft a new list since it was not deep copied.
+    new_shape = [
+        update_size_coord(c) if i == dim_idx else c
+        for i, c in enumerate(old_typ.shape())
+    ]
+    new_typ = old_typ.update(hi=new_shape)
+
+    ir, fwd = alloc_cursor._child_node("type")._replace(new_typ)
+    return ir, fwd
+
+
+def DoSetRingGuardedBy(modify_cursor, guarded_by_cursor):
+    # ISSUE: should be checking that guarded_by is live/in-scope when
+    # the modify_cursor allocation is happening.
+    if guarded_by_cursor is None:
+        guarded_by_e = None
+    else:
+        guarded_by_node = guarded_by_cursor._node
+        guarded_by_sym = guarded_by_node.name
+        guarded_by_e = LoopIR.BarrierExpr(
+            guarded_by_sym, [], T.barrier, guarded_by_node.srcinfo
+        )
+    new_typ = modify_cursor._node.type.update(ring_guarded_by=guarded_by_e)
+    ir, fwd = modify_cursor._child_node("type")._replace(new_typ)
+    return ir, fwd
+
+
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
 # Lifting and sinking an allocation
@@ -4500,6 +4533,8 @@ __all__ = [
     "DoResizeDim",
     "DoMultiplyDim",
     "DoRearrangeDim",
+    "DoSetDimSizeAnnotation",
+    "DoSetRingGuardedBy",
     "DoInline",
     "DoCallSwap",
     "DoBindConfig",

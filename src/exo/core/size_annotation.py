@@ -49,7 +49,7 @@ class CollUnitAnnotation(SizeAnnotation):
 def to_size_annotation(obj):
     if obj is None:
         return NoSizeAnnotation()
-    if isinstance(obj, ring_buffer_by):
+    if isinstance(obj, SizeAnnotation):
         return obj
     if isinstance(obj, CollUnit):
         return CollUnitAnnotation(obj)

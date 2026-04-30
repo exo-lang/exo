@@ -59,6 +59,8 @@ from ..API_scheduling import (
     rearrange_dim,
     divide_dim,
     mult_dim,
+    set_dim_size_annotation,
+    set_ring_guarded_by,
     sink_alloc,
     lift_alloc,
     delete_buffer,

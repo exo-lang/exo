@@ -10,6 +10,7 @@ from typing import Any, List, Tuple, Optional
 from .API import Procedure
 import exo.API_cursors as PC
 from .core.LoopIR import LoopIR, T
+from .core.size_annotation import SizeAnnotation, to_size_annotation
 import exo.rewrite.LoopIR_scheduling as scheduling
 from .API_types import ExoType
 
@@ -230,6 +231,13 @@ class BoolA(ArgumentProcessor):
         if not isinstance(bval, bool):
             self.err("expected a bool")
         return bval
+
+
+class SizeAnnotationA(ArgumentProcessor):
+    def __call__(self, val, all_args):
+        if val is None:
+            return None
+        return to_size_annotation(val)
 
 
 class InternalSrcInfoA(ArgumentProcessor):
@@ -1664,6 +1672,49 @@ def mult_dim(proc, alloc_cursor, hi_dim_idx, lo_dim_idx):
         raise ValueError(f"Cannot multiply dimension {hi_dim_idx} by itself")
 
     ir, fwd = scheduling.DoMultiplyDim(stmt, hi_dim_idx, lo_dim_idx)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([AllocCursorA, IntA, SizeAnnotationA])
+def set_dim_size_annotation(proc, alloc_cursor, dim_idx, size_annotation):
+    """
+    Set the size annotation on the dim_idx-th dimension.
+
+    Usually, size_annotation is a ring_buffer_by.
+
+    """
+    stmt = alloc_cursor._impl
+    if 0 <= dim_idx < len(stmt._node.type.shape()):
+        ir, fwd = scheduling.DoSetDimSizeAnnotation(stmt, dim_idx, size_annotation)
+        return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+    else:
+        raise ValueError(f"Cannot annotate out-of-bounds dimension index {dim_idx}")
+
+
+@sched_op([AllocCursorA, OptionalA(AllocCursorA)])
+def set_ring_guarded_by(proc, modify_cursor, guarded_by_cursor):
+    """
+    Set the allocation pointed-to by modify_cursor to be guarded-by
+    the specified barrier pointed-to by guarded_by_cursor.
+
+    ISSUE: should be checking that guarded_by is live/in-scope when
+    the modify_cursor allocation is happening.
+
+    """
+    modify_stmt = modify_cursor._impl
+    modify_node = modify_stmt._node
+    if not hasattr(modify_node.type, "ring_guarded_by"):
+        raise TypeError(f"{modify_node}: type doesn't support ring_guarded_by")
+
+    if guarded_by_cursor is None:
+        guarded_by_stmt = None
+    else:
+        guarded_by_stmt = guarded_by_cursor._impl
+        guarded_by_node = guarded_by_stmt._node
+        if not guarded_by_node.type.is_barrier():
+            raise TypeError(f"{guarded_by_node}: not a barrier")
+
+    ir, fwd = scheduling.DoSetRingGuardedBy(modify_stmt, guarded_by_stmt)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 

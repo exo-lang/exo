@@ -210,7 +210,7 @@ class ArgCursor(Cursor):
 
         return self._impl._node.name.name()
 
-    def mem(self) -> MemWin:
+    def mem(self) -> Type[MemWin]:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.fnarg)
         assert not self._impl._node.type.is_indexable()
@@ -423,6 +423,12 @@ class ExprCursor(ExprCursorPrototype):
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.expr)
         return loopir_type_to_exotype(self._impl._node.type.basetype())
+
+    def size_annotation(self):
+        assert isinstance(self._impl, C.Node)
+        e = self._impl._node
+        assert isinstance(e, LoopIR.expr)
+        return e.type.get_size_annotation()
 
 
 class ExprListCursor(ListCursorPrototype):
@@ -654,13 +660,13 @@ class AllocCursor(StmtCursor):
 
         return self._impl._node.name.name()
 
-    def mem(self) -> Memory:
+    def mem(self) -> Type[MemWin]:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.Alloc)
         assert not self._impl._node.type.is_indexable()
 
         mem = self._impl._node.mem
-        assert issubclass(mem, Memory)
+        assert issubclass(mem, MemWin)
         return mem
 
     def is_tensor(self) -> bool:
@@ -672,8 +678,7 @@ class AllocCursor(StmtCursor):
     def shape(self) -> ExprListCursor:
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.Alloc)
-        assert isinstance(self._impl._node.type, LoopIR.Tensor)
-        assert self.is_tensor()
+        assert isinstance(self._impl._node.type, (LoopIR.Tensor, LoopIR.Barrier))
 
         return ExprListCursor(
             self._impl._child_node("type")._child_block("hi"), self._proc
@@ -684,6 +689,15 @@ class AllocCursor(StmtCursor):
         assert isinstance(self._impl._node, LoopIR.Alloc)
 
         return loopir_type_to_exotype(self._impl._node.type.basetype())
+
+    def ring_guarded_by(self) -> Optional[str]:
+        node = self._impl._node
+        assert isinstance(self._impl._node, LoopIR.Alloc)
+        e = node.type.get_ring_guarded_by()
+        if e is None:
+            return None
+        assert isinstance(e, LoopIR.BarrierExpr)
+        return e.name.name()
 
 
 class CallCursor(StmtCursor):
