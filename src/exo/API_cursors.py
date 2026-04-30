@@ -541,7 +541,8 @@ class SyncCursor(StmtCursor):
     def name(self):
         assert isinstance(self._impl, C.Node)
         assert isinstance(self._impl._node, LoopIR.SyncStmt)
-        return self._impl._node.name.name()
+        e = self._impl._node.home_barrier_expr()
+        return e.name.name()
 
     def idx(self):
         return ExprListCursor(self._impl._child_block("idx"), self._proc)
