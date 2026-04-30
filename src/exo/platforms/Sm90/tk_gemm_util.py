@@ -49,11 +49,11 @@ class GemmTestBug(Enum):
     coop_missing_cluster_sync_before_epilogue = auto()
     coop_missing_cluster_sync_after_epilogue = auto()
     missing_await_raw = auto()
-    # TODO
-    missing_arrive_threads = auto()
-    ping_pong_wrong_tma_to_gmem_timeline = auto()
-    ping_pong_reorder_await = auto()
-    ping_pong_reorder_arrive = auto()
+    coop_missing_arrive_war_threads = auto()
+    coop_missing_final_arrive_war = auto()
+    coop_wrong_tma_to_gmem_timeline = auto()
+    ping_pong_reorder_await_war = auto()
+    ping_pong_reorder_arrive_raw = auto()
 
 
 @dataclass(slots=True)
@@ -249,9 +249,10 @@ def sched_cut_sync_iter_k(p, config: GemmConfig):
 
     # Add the Arrive/Await at correct locations
     if config.ping_pong:
+        arrive_gap_c = pass_c.after()
         p = insert_arrive(
             p,
-            pass_c.after(),
+            arrive_gap_c,
             cuda_in_order,
             (
                 f"war[cta_m, :, wg_m, iter_k + {ring_depth - 1}]",
@@ -259,15 +260,17 @@ def sched_cut_sync_iter_k(p, config: GemmConfig):
             ),
         )
     else:
+        arrive_gap_c = wg_m_c.after()
         p = insert_arrive(
             p,
-            wg_m_c.after(),
+            arrive_gap_c,
             cuda_in_order,
             (
                 f"war[cta_m, :, iter_k + {ring_depth - 1}]",
                 f"war[:, cta_n, iter_k + {ring_depth - 1}]",
             ),
         )
+    arrive_c = p.forward(arrive_gap_c).anchor().next()
     should_be_1 = 2 if config.bug == GemmTestBug.wrong_wgmma_cg else 1
     p = insert_await(
         p,
@@ -280,7 +283,7 @@ def sched_cut_sync_iter_k(p, config: GemmConfig):
     # Only consumer executes this.
     p = wrap_with_context(p, cta_m_c, CudaWarps(name="consumer"))
 
-    # For testing, delete an Await in the iter_k >= 1 loop.
+    # (Ignore) For testing, if bug enabled, delete an Await in the iter_k >= 1 loop.
     if config.bug == GemmTestBug.missing_await_raw:
         loop_c = p.forward(loop_c)
         print(loop_c)
@@ -290,6 +293,10 @@ def sched_cut_sync_iter_k(p, config: GemmConfig):
         assert await_c.second_sync_tl() == cuda_generic_and_async_proxy
         assert await_c.name() == "raw"
         p = add_if(p, await_c, "False", unsafe_disable_check=True)
+
+    # (Ignore) For testing, if bug enabled, deactivate some Arrive threads
+    if config.bug == GemmTestBug.coop_missing_arrive_war_threads:
+        p = wrap_with_context(p, arrive_c, CudaWarps(0, 4))
 
     return p
 
@@ -443,8 +450,31 @@ def handwrite_row_col_coop_main_loop(config: GemmConfig):
                         ) >> war[cta_m, :, ((K_cluster + smem_K - 1) / smem_K + ring_depth - 1)
                         ] >> war[:, cta_n, ((K_cluster + smem_K - 1) / smem_K + ring_depth - 1)]
 
+    # Does nothing by default (this is just for the Exo test suite)
+    main_loop = inject_coop_main_loop_final_war_arrive_bug(main_loop, config)
+
     main_loop = sched_cut_sync_iter_k(main_loop, config)
     return simplify(main_loop)
+
+
+def inject_coop_main_loop_final_war_arrive_bug(main_loop, config):
+    # Really hard-wired cursor movement since PAST doesn't search for Exo-GPU features.
+    loops = main_loop.find_all("for iter_k in _:_")
+    assert len(loops) == 1
+    loop_c = loops[0]
+    sync_cta_n = loop_c.next().only_child(2)
+    assert sync_cta_n.name() == "cta_n"
+    arrive_cursor = sync_cta_n.body()[1]
+    assert isinstance(arrive_cursor, SyncCursor)
+    assert arrive_cursor.name() == "war"
+    if config.bug == GemmTestBug.coop_missing_arrive_war_threads:
+        # If only one consumer warpgroup arrives on the war mbarrier, there
+        # should be a WAR hazard detected due to potential overlap between
+        # the producer and the other consumer warpgroup.
+        main_loop = wrap_with_context(main_loop, arrive_cursor, CudaWarps(0, 4))
+    if config.bug == GemmTestBug.coop_missing_final_arrive_war:
+        main_loop = add_if(main_loop, arrive_cursor, "False", True)
+    return main_loop
 
 
 def handwrite_row_col_ping_pong_main_loop(config: GemmConfig):
@@ -592,8 +622,47 @@ def handwrite_row_col_ping_pong_main_loop(config: GemmConfig):
                             ) >> war[cta_m, :, wg_m, ((K_cluster + smem_K - 1) / smem_K + ring_depth - 1)
                             ] >> war[:, cta_n, wg_m, ((K_cluster + smem_K - 1) / smem_K + ring_depth - 1)]
 
+    # Does nothing by default (this is just for the Exo test suite)
+    main_loop = inject_ping_pong_main_loop_bug(main_loop, config)
+
     main_loop = sched_cut_sync_iter_k(main_loop, config)
     return simplify(main_loop)
+
+
+def inject_ping_pong_main_loop_bug(main_loop, config):
+    # Really hard-wired cursor movement since PAST doesn't search for Exo-GPU features.
+    loops = main_loop.find_all("for iter_k in _:_")
+    assert len(loops) == 1
+    loop_c = loops[0]
+    iter_k_body = loop_c.body()
+    assert len(iter_k_body) == 2, "expected producer and consumer block"
+    producer_ping_loop = iter_k_body[0].only_child()
+    assert producer_ping_loop.name() == "ping"
+    producer_body = producer_ping_loop.body()
+
+    # There should be an Await loop, 2 TMA, an Arrive.
+    assert len(producer_body) == 4
+    await_stmt_idx = 0
+    await_loops_c = producer_body[await_stmt_idx]
+    await_c = await_loops_c.only_child(2)
+    assert await_c.name() == "war"
+    assert await_c.first_sync_tl() == None
+    assert await_c.second_sync_tl() == cuda_temporal
+    arrive_stmt_idx = 3
+    arrive_loops_c = producer_body[arrive_stmt_idx]
+    arrive_c = arrive_loops_c.only_child(2)
+    assert arrive_c.name() == "raw"
+
+    if config.bug == GemmTestBug.ping_pong_reorder_await_war:
+        main_loop = reorder_stmts(
+            main_loop, producer_body[await_stmt_idx : await_stmt_idx + 2]
+        )
+    if config.bug == GemmTestBug.ping_pong_reorder_arrive_raw:
+        main_loop = reorder_stmts(
+            main_loop, producer_body[arrive_stmt_idx - 1 : arrive_stmt_idx + 1]
+        )
+
+    return main_loop
 
 
 def handwrite_coop_epilogue(config: GemmConfig):
@@ -627,6 +696,11 @@ def handwrite_coop_epilogue(config: GemmConfig):
     outer_N = advice.outer_cols
     inner_N = advice.inner_cols
 
+    # (Ignore me) artificial bug injection for sync_check testing.
+    _cuda_generic_and_async_proxy = cuda_generic_and_async_proxy
+    if config.bug == GemmTestBug.coop_wrong_tma_to_gmem_timeline:
+        _cuda_generic_and_async_proxy = cuda_in_order
+
     # fmt: off
     @proc
     def epilogue(
@@ -653,7 +727,7 @@ def handwrite_coop_epilogue(config: GemmConfig):
                 # Each CTA waits for its own RMEM->SMEM
                 # then does a proxy fence (cuda_generic_and_async_proxy)
                 # and issues the TMA.
-                Fence(cuda_in_order, cuda_generic_and_async_proxy)
+                Fence(cuda_in_order, _cuda_generic_and_async_proxy)
                 with CudaWarps(3, 4, name="producer"):
                     for ns in seq(0, outer_N):
                         if enable_split_k:

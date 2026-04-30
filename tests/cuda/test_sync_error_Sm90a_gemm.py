@@ -234,3 +234,82 @@ def test_coop_missing_await_raw(compiler):
         "iter_k = 1",
     ]
     sync_check_helper(compiler, gemm, exc, error_remarks, K_split=1)
+
+
+def test_coop_missing_arrive_war_threads(compiler):
+    ring_depth = 4
+    config = replace(
+        base_config,
+        bug=GemmTestBug.coop_missing_arrive_war_threads,
+        ring_depth=ring_depth,
+    )
+    gemm = handwrite_gemm(config)
+    exc = "WAR HAZARD"
+    error_remarks = [
+        f"WAR HAZARD @ A_smem[0, 0, 0, ",
+        f"cta_m = 0",
+        f"iter_k = {ring_depth}",
+    ]
+    sync_check_helper(compiler, gemm, exc, error_remarks, K_split=1)
+
+
+def test_coop_missing_final_arrive_war(compiler):
+    ring_depth = 4
+    config = replace(
+        base_config,
+        bug=GemmTestBug.coop_missing_final_arrive_war,
+        ring_depth=ring_depth,
+        A_type="bf16",
+        B_type="bf16",
+        swizzle=128,
+    )
+    K_stride = 64
+    war_ring_buffer_slots = 20
+    K_cluster = K_stride * (war_ring_buffer_slots - ring_depth)
+
+    gemm = handwrite_gemm(config)
+    exc = "free_missing_arrive"
+    error_remarks = [
+        f"war[0, 0, {war_ring_buffer_slots - ring_depth - 1}]",
+    ]
+    sync_check_helper(
+        compiler, gemm, exc, error_remarks, K_cluster=K_cluster, K_split=1
+    )
+
+
+def test_coop_wrong_tma_to_gmem_timeline(compiler):
+    config = replace(
+        base_config,
+        bug=GemmTestBug.coop_wrong_tma_to_gmem_timeline,
+    )
+    gemm = handwrite_gemm(config)
+    exc = "RAW HAZARD"
+    error_remarks = [
+        "RAW HAZARD @ C_smem[",
+    ]
+    sync_check_helper(compiler, gemm, exc, error_remarks, K_split=1)
+
+
+def test_ping_pong_reorder_await_war(compiler):
+    config = replace(
+        base_config, bug=GemmTestBug.ping_pong_reorder_await_war, ping_pong=True
+    )
+    gemm = handwrite_gemm(config)
+    exc = "use_before_alloc HAZARD"
+    error_remarks = [
+        "use_before_alloc HAZARD @ A_smem[",
+        "war[0, 0, 0, 0]",
+    ]
+    sync_check_helper(compiler, gemm, exc, error_remarks, K_split=1)
+
+
+def test_ping_pong_reorder_arrive_raw(compiler):
+    config = replace(
+        base_config, bug=GemmTestBug.ping_pong_reorder_arrive_raw, ping_pong=True
+    )
+    gemm = handwrite_gemm(config)
+    exc = "Cannot use this barrier as trailing barrier after previous Arrive"
+    error_remarks = [
+        "raw[0, 0, 0, 0]",
+    ]
+    sync_check_helper(compiler, gemm, exc, error_remarks, K_split=1)
