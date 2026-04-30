@@ -963,27 +963,37 @@ def insert_fence(proc, gap_cursor, first_sync_tl: Sync_tl, second_sync_tl: Sync_
 
 
 @sched_op(
-    [GapCursorA, NameA, OptionalA(AllocCursorA), ListA(PosIntA), BarrierMechanismA]
+    [
+        GapCursorA,  # gap_cursor
+        NameA,  # name
+        ListA(NewExprA("gap_cursor")),  # hi
+        BarrierMechanismA,  # barrier_mechanism
+        OptionalA(PosIntA),  # ring_dim_idx
+        OptionalA(PosIntA),  # ring_depth
+    ]
 )
-def insert_barrier_alloc(proc, gap_cursor, name, guarded_by, hi, barrier_mechanism):
+def insert_barrier_alloc(
+    proc, gap_cursor, name, hi, barrier_mechanism, ring_dim_idx, ring_depth=None
+):
     """
     Insert allocation of new barrier variable at the indicated position.
 
     args:
         gap_cursor        - where to insert the new barrier
         name              - name of the new barrier
-        guarded_by        - barrier(...) parameter (may be None)
         hi                - positive integer extents of barrier array.
         barrier_mechanism - "memory type" of the barrier, e.g. CudaMbarrier
+        ring_dim_idx      - If not None, dimension ring_dim_idx (0-indexed) is
+                            annotated with @ ring_buffer_by(ring_depth)
+                            [managed ring buffer feature]
 
     rewrite:
         `s1 ; s2` <--- gap_cursor pointed at the semi-colon
         -->
-        `s1 ; name: barrier(guarded_by)[*hi] @ barrier_mechanism ; s2`
+        `s1 ; name: barrier[*hi] @ barrier_mechanism ; s2`
     """
-    guarded_by_cursor = None if guarded_by is None else guarded_by._impl
     ir, fwd = scheduling.DoInsertBarrierAlloc(
-        gap_cursor._impl, name, guarded_by_cursor, hi, barrier_mechanism
+        gap_cursor._impl, name, hi, barrier_mechanism, ring_dim_idx, ring_depth
     )
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 

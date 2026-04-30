@@ -42,6 +42,7 @@ import exo.core.internal_cursors as ic
 import exo.API as api
 from ..frontend.pattern_match import match_pattern
 from ..core.memory import DRAM, SpecialWindow, AllocableMemWin, BarrierMechanism
+from ..core.size_annotation import ring_buffer_by
 from ..frontend.typecheck import check_call_types
 from ..spork.sync_types import arrive_type, await_type
 from ..spork.loop_modes import LoopMode, seq, par
@@ -2814,21 +2815,18 @@ def DoInsertFence(gap, L1, L2):
 def DoInsertBarrierAlloc(
     gap,
     name: str,
-    guarded_by: Optional[ic.Node],
-    hi: List[int],
+    hi: List[LoopIR.expr],
     barrier_mechanism: Type[BarrierMechanism],
+    ring_dim_idx: Optional[int],
+    ring_depth: Optional[int],
 ):
     srcinfo = gap.parent()._node.srcinfo
-    if guarded_by is not None:
-        guard_node = guarded_by._node
-        assert isinstance(guard_node, LoopIR.Alloc)
-        guarded_by = guarded_by._node.name
-        if not isinstance(guard_node.type, LoopIR.Barrier):
-            raise SchedulingError(
-                f"Cannot use non-barrier {guarded_by}: {guard_node.type} as guarded_by"
-            )
-    hi = [LoopIR.Const(n, T.plain_size, srcinfo) for n in hi]
-    typ = LoopIR.Barrier(guarded_by, hi)
+    if ring_dim_idx is not None:
+        assert 0 <= ring_dim_idx < len(hi)
+        assert ring_depth > 0
+        ann = ring_buffer_by(ring_depth)
+        hi[ring_dim_idx] = hi[ring_dim_idx].update(type=LoopIR.Size(ann))
+    typ = LoopIR.Barrier(None, hi)
     ir, fwd = gap._insert([LoopIR.Alloc(Sym(name), typ, barrier_mechanism, srcinfo)])
     return ir, fwd
 

@@ -5,5 +5,4 @@ from .Sm90_fwd import *
 from .Sm90_smem import *
 from .Sm90_tensorMap import *
 from .Sm90_tma import *
-from .Sm90_old_mma import *  # TODO eliminate this
 from .Sm90_tk_mma import *
