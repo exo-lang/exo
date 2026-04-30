@@ -4,6 +4,7 @@ import pytest
 
 from exo import proc
 from exo.platforms.cuda import *
+from exo.platforms.cuda_tk import *
 from exo.platforms.Sm80 import *
 from exo.platforms.Sm90 import *
 from exo.stdlib.scheduling import *
@@ -606,7 +607,7 @@ def mkproc_packed_dims(shape, mem, unit):
 
 def test_packed_dims_err(compiler):
     packed_t = CudaRmemPacked32
-    Sm90_t = Sm90_RmemMatrixD(64, 256)
+    tile_t = CudaTkWarpTile(64, 256)
 
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(
@@ -618,30 +619,30 @@ def test_packed_dims_err(compiler):
 
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(
-            mkproc_packed_dims, shape=[256], mem=Sm90_t, unit=cuda_warpgroup
+            mkproc_packed_dims, shape=[256], mem=tile_t, unit=cuda_warp
         )
     msg = str(exc.value)
     assert "must be at least 2-dimensional" in msg
-    assert f"test_rmem: f32[256] @ {Sm90_t.name()}" in msg
+    assert f"test_rmem: f32[256] @ {tile_t.name()}" in msg
 
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(
             mkproc_packed_dims,
             shape=["variable_size", 256],
-            mem=Sm90_t,
-            unit=cuda_warpgroup,
+            mem=tile_t,
+            unit=cuda_warp,
         )
     msg = str(exc.value)
     assert "Required constant packed tensor shape" in msg
-    assert f"test_rmem: f32[variable_size, 256] @ {Sm90_t.name()}" in msg
+    assert f"test_rmem: f32[variable_size, 256] @ {tile_t.name()}" in msg
 
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(
-            mkproc_packed_dims, shape=[137, 256], mem=Sm90_t, unit=cuda_warpgroup
+            mkproc_packed_dims, shape=[137, 256], mem=tile_t, unit=cuda_warp
         )
     msg = str(exc.value)
     assert "packed tensor shape not supported" in msg
-    assert f"test_rmem: f32[137, 256] @ {Sm90_t.name()}" in msg
+    assert f"test_rmem: f32[137, 256] @ {tile_t.name()}" in msg
 
 
 def mkproc_packed_dims_point_expr_err(wrong):
@@ -649,20 +650,21 @@ def mkproc_packed_dims_point_expr_err(wrong):
     def proc_foo():
         with CudaDeviceFunction(blockDim=128):
             for task in cuda_tasks(0, 1):
-                D_rmem: f32[64, 64, 256] @ Sm90_RmemMatrixD(64, 256)
-                for s in seq(0, 64):
-                    for m in seq(0, 64):
-                        for n in seq(0, 256):
-                            D_rmem[s, m, n] = 0
+                D_rmem: f32[4, 16, 16, 256] @ Sm90_TkRmemTileD(256)
+                for ms in seq(0, 16):
+                    for mw in cuda_threads(0, 4, unit=cuda_warp):
+                        for mi in seq(0, 16):
+                            for n in seq(0, 256):
+                                D_rmem[mw, ms, mi, n] = 0
 
     p = proc_foo
     if wrong:
-        p = rearrange_dim(p, "D_rmem", [1, 0, 2])
-    p = replace(p, p.find_loop("m"), Sm90_zero_scale_d_f32)
+        p = rearrange_dim(p, "D_rmem", [0, 2, 1, 3])
+    p = replace(p, p.find_loop("mw"), Sm90_tk_zero_scale_d)
     return p
 
     # If the dims are reordered, you get
-    # Sm90_zero_scale_d_f32(D_rmem[:, s, :])
+    # Sm90_tk_zero_scale_d(D_rmem[:, :, ms, :])
     # which is not valid.
 
 
@@ -694,7 +696,7 @@ def test_no_window_encoder_positive(compiler):
 def test_no_window_encoder_negative(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(
-            mkproc_test_no_window_encoder, mem=Sm90_RmemMatrixD(64, 256)
+            mkproc_test_no_window_encoder, mem=CudaTkWarpTile(64, 256)
         )
     msg = str(exc.value)
     assert "WindowEncoder" in msg
