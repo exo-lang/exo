@@ -957,6 +957,7 @@ def find_parent_loop(p: Procedure, cursor, iter_name):
 
 def schedule_gemm(config: GemmConfig, cases=None):
     # fmt: off
+    coop = not config.ping_pong
     assert not config.ping_pong, "not supported"
     assert config.bug == GemmTestBug.none, "not supported"
 
@@ -989,7 +990,9 @@ def schedule_gemm(config: GemmConfig, cases=None):
     ]
     cuda_device_function_ctx = CudaDeviceFunction(
         clusterDim=ncta_M * ncta_N,
-        warp_config=my_warp_config
+        warp_config=my_warp_config,
+        blocks_per_sm=1,
+        unsafe_no_shutdown_cluster_sync=coop,  # Co-op schedule already does cluster-wide sync
     )
 
     smem_box_A = config.make_smem_box_A()
