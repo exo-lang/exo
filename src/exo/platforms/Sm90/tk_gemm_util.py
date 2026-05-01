@@ -1473,7 +1473,7 @@ def schedule_gemm(config: GemmConfig, cases=None):
                         if enable_split_k:
                             C_tensorMap[batch, m, n] += D_rmem
                         else:
-                            C[batch, m, n] = D_rmem
+                            C_tensorMap[batch, m, n] = D_rmem
 
     gemm = simplify(gemm)  # Get rid of enable_split_k if stmts.
 
