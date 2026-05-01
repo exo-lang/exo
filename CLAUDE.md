@@ -320,16 +320,7 @@ Common mistakes when writing CUDA error tests:
    dst[0] = gc[0]
    ```
 
-4. **guarded_by syntax** - Use `barrier(guard_name)`, not subscript syntax:
-   ```python
-   # BAD: invalid Python syntax
-   bar2: barrier @ CudaMbarrier[guarded_by=bar1]
-
-   # GOOD: guarded_by in parentheses
-   bar2: barrier(bar1) @ CudaMbarrier
-   ```
-
-5. **Proc definitions in parameterized mkproc (last resort)** - If you must have different proc structures (not just different parameter values), define procs inside if/else branches to avoid both being created. **Prefer parameterizing values over branching structures** (see CUDA Error Testing Pattern above):
+4. **Proc definitions in parameterized mkproc (last resort)** - If you must have different proc structures (not just different parameter values), define procs inside if/else branches to avoid both being created. **Prefer parameterizing values over branching structures** (see CUDA Error Testing Pattern above):
    ```python
    # BAD: both procs created regardless of parameter
    def mkproc(use_valid=True):
@@ -357,9 +348,9 @@ Common mistakes when writing CUDA error tests:
        return simplify(test_proc)
    ```
 
-6. **Test the right error** - Ensure test structure is valid first; structural errors mask the error you're testing for. If you get unexpected errors about distributed memory or bounds, fix the test structure before asserting on error messages.
+5. **Test the right error** - Ensure test structure is valid first; structural errors mask the error you're testing for. If you get unexpected errors about distributed memory or bounds, fix the test structure before asserting on error messages.
 
-7. **Permitted index expressions** - Distributed memory indices must be plain variable reads of `cuda_threads` iterators:
+6. **Permitted index expressions** - Distributed memory indices must be plain variable reads of `cuda_threads` iterators:
    ```python
    # BAD: expression instead of plain variable
    smem[1 - cta, tid] = 1.0  # Error: "Expected single variable name, not 1 - cta"
@@ -377,7 +368,7 @@ Common mistakes when writing CUDA error tests:
            smem[cta, tid] = 1.0
    ```
 
-8. **tile_count must match array extent** - Iterator range must match distributed dimension:
+7. **tile_count must match array extent** - Iterator range must match distributed dimension:
    ```python
    # BAD: array has 4 elements but iterator only covers 2
    data: f32[4, 32, 2] @ CudaRmem
