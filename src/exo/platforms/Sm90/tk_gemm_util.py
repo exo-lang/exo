@@ -65,7 +65,7 @@ class GemmConfig:
     ncta_M: int = 1
     ncta_N: int = 1
     # Tile size for a single CTA
-    cta_M: int = 256
+    cta_M: int = 128
     cta_N: int = 256
     # SMEM ring depth & swizzling
     ring_depth: int = 4
