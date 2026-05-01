@@ -77,6 +77,7 @@ class GemmConfig:
     B_major: str = "row"
     C_type: gemm_type = f32
     C_major: str = "row"
+    D_type: Optional[gemm_type] = None
     # Mostly for debug; force A to be staged in RMEM
     A_in_rmem: bool = False
     # Epilogue control
@@ -89,6 +90,18 @@ class GemmConfig:
         assert self.swizzle == 128, f"{self.swizzle} not supported"
         assert self.A_major == "row", f"{self.A_major} not supported"
         assert self.C_major == "row", f"{self.C_major} not supported"
+
+    def get_A_ScalarInfo(self):
+        return ScalarInfo(self.A_type)
+
+    def get_B_ScalarInfo(self):
+        return ScalarInfo(self.B_type)
+
+    def get_C_ScalarInfo(self):
+        return ScalarInfo(self.C_type)
+
+    def get_D_ScalarInfo(self):
+        return ScalarInfo(self.D_type or self.C_type)
 
     def make_sporkbench_case(self) -> dict:
         return dict(
@@ -117,14 +130,17 @@ class GemmConfig:
             suffix += "_splitK"
         if self.A_in_rmem:
             suffix += "_Armem"
-        A_type = self.A_type
-        B_type = self.B_type
-        C_type = self.C_type
-
-        majors = f"C{self.C_major[0]}A{self.A_major[0]}B{self.B_major[0]}"
+        A_type = self.get_A_ScalarInfo()
+        B_type = self.get_B_ScalarInfo()
+        C_type = self.get_C_ScalarInfo()
+        D_type = self.get_D_ScalarInfo()
+        A = f"{self.A_major[0]}A{A_type}"
+        B = f"{self.B_major[0]}B{B_type}"
+        C = f"{self.C_major[0]}C{C_type}"
+        D = f"D{D_type}"
 
         return (
-            f"Sm90_tk_gemm_{majors}_{C_type}_{A_type}{B_type}_r{self.ring_depth}"
+            f"Sm90_tk_gemm_{A}_{B}_{C}_{D}_r{self.ring_depth}"
             f"_m{self.ncta_M}n{self.ncta_N}_m{self.cta_M}n{self.cta_N}{suffix}"
         )
 
@@ -334,9 +350,9 @@ def sched_final_changes(gemm: Procedure, config: GemmConfig):
 
 
 def handwrite_row_col_coop_main_loop(config: GemmConfig):
-    A_type = ScalarInfo(config.A_type)
-    B_type = ScalarInfo(config.B_type)
-    D_type = ScalarInfo(config.C_type)
+    A_type = config.get_A_ScalarInfo()
+    B_type = config.get_B_ScalarInfo()
+    D_type = config.get_D_ScalarInfo()
     ncta_M = config.ncta_M
     ncta_N = config.ncta_N
     cta_M = config.cta_M
@@ -489,9 +505,9 @@ def inject_coop_main_loop_final_war_arrive_bug(main_loop, config):
 
 
 def handwrite_row_row_coop_main_loop(config: GemmConfig):
-    A_type = ScalarInfo(config.A_type)
-    B_type = ScalarInfo(config.B_type)
-    D_type = ScalarInfo(config.C_type)
+    A_type = config.get_A_ScalarInfo()
+    B_type = config.get_B_ScalarInfo()
+    D_type = config.get_D_ScalarInfo()
     ncta_M = config.ncta_M
     ncta_N = config.ncta_N
     cta_M = config.cta_M
@@ -661,9 +677,9 @@ def handwrite_row_row_coop_main_loop(config: GemmConfig):
 
 
 def handwrite_row_col_ping_pong_main_loop(config: GemmConfig):
-    A_type = ScalarInfo(config.A_type)
-    B_type = ScalarInfo(config.B_type)
-    D_type = ScalarInfo(config.C_type)
+    A_type = config.get_A_ScalarInfo()
+    B_type = config.get_B_ScalarInfo()
+    D_type = config.get_D_ScalarInfo()
     ncta_M = config.ncta_M
     ncta_N = config.ncta_N
     cta_M = config.cta_M
@@ -849,8 +865,8 @@ def inject_ping_pong_main_loop_bug(main_loop, config):
 
 
 def handwrite_coop_epilogue(config: GemmConfig):
-    C_type = ScalarInfo(config.C_type)
-    D_type = C_type
+    C_type = config.get_C_ScalarInfo()
+    D_type = config.get_D_ScalarInfo()
     ncta_M = config.ncta_M
     ncta_N = config.ncta_N
     cta_M = config.cta_M
@@ -922,7 +938,7 @@ def handwrite_coop_epilogue(config: GemmConfig):
                                     cta_N * cta_n + ns * inner_N + inner_N,
                                 ],
                                 C_smem[cta_m, cta_n, ns, :, :],
-                                dst=C_type, src=D_type, size0=cta_M, size1=inner_N,
+                                dst=C_type, src=C_type, size0=cta_M, size1=inner_N,
                                 smem_box=smem_box_C, swizzle=128,
                             )
                         else:
@@ -934,7 +950,7 @@ def handwrite_coop_epilogue(config: GemmConfig):
                                     cta_N * cta_n + ns * inner_N + inner_N,
                                 ],
                                 C_smem[cta_m, cta_n, ns, :, :],
-                                dst=C_type, src=D_type, size0=cta_M, size1=inner_N,
+                                dst=C_type, src=C_type, size0=cta_M, size1=inner_N,
                                 smem_box=smem_box_C, swizzle=128,
                             )
                         tma_cg: barrier @ Sm90_TmaCommitGroup
@@ -945,8 +961,8 @@ def handwrite_coop_epilogue(config: GemmConfig):
 
 
 def handwrite_ping_pong_epilogue(config: GemmConfig):
-    C_type = ScalarInfo(config.C_type)
-    D_type = C_type
+    C_type = config.get_C_ScalarInfo()
+    D_type = config.get_D_ScalarInfo()
     ncta_M = config.ncta_M
     ncta_N = config.ncta_N
     cta_M = config.cta_M
@@ -1030,7 +1046,7 @@ def handwrite_ping_pong_epilogue(config: GemmConfig):
                                             cta_N * cta_n + ns * inner_N + inner_N,
                                         ],
                                         C_smem[cta_m, cta_n, wg_m, ns, :, :],
-                                        dst=C_type, src=D_type, size0=wg_M, size1=inner_N,
+                                        dst=C_type, src=C_type, size0=wg_M, size1=inner_N,
                                         smem_box=smem_box_C, swizzle=128,
                                     )
                                 else:
@@ -1042,7 +1058,7 @@ def handwrite_ping_pong_epilogue(config: GemmConfig):
                                             cta_N * cta_n + ns * inner_N + inner_N,
                                         ],
                                         C_smem[cta_m, cta_n, wg_m, ns, :, :],
-                                        dst=C_type, src=D_type, size0=wg_M, size1=inner_N,
+                                        dst=C_type, src=C_type, size0=wg_M, size1=inner_N,
                                         smem_box=smem_box_C, swizzle=128,
                                     )
                                 tma_cg: barrier @ Sm90_TmaCommitGroup
@@ -1056,10 +1072,10 @@ def handwrite_ping_pong_epilogue(config: GemmConfig):
 
 
 def handwrite_row_col_gemm(config: GemmConfig):
-    A_type = ScalarInfo(config.A_type)
-    B_type = ScalarInfo(config.B_type)
-    C_type = ScalarInfo(config.C_type)
-    D_type = ScalarInfo(config.C_type)
+    A_type = config.get_A_ScalarInfo()
+    B_type = config.get_B_ScalarInfo()
+    C_type = config.get_C_ScalarInfo()
+    D_type = config.get_D_ScalarInfo()
     ncta_M = config.ncta_M
     ncta_N = config.ncta_N
     cta_M = config.cta_M
@@ -1203,10 +1219,10 @@ def handwrite_row_col_gemm(config: GemmConfig):
 
 
 def handwrite_row_row_gemm(config: GemmConfig):
-    A_type = ScalarInfo(config.A_type)
-    B_type = ScalarInfo(config.B_type)
-    C_type = ScalarInfo(config.C_type)
-    D_type = ScalarInfo(config.C_type)
+    A_type = config.get_A_ScalarInfo()
+    B_type = config.get_B_ScalarInfo()
+    C_type = config.get_C_ScalarInfo()
+    D_type = config.get_D_ScalarInfo()
     ncta_M = config.ncta_M
     ncta_N = config.ncta_N
     cta_M = config.cta_M
@@ -1383,10 +1399,10 @@ def schedule_gemm(config: GemmConfig, cases=None):
 
     coop = not config.ping_pong
 
-    A_type = ScalarInfo(config.A_type)
-    B_type = ScalarInfo(config.B_type)
-    C_type = ScalarInfo(config.C_type)
-    D_type = ScalarInfo(config.C_type)
+    A_type = config.get_A_ScalarInfo()
+    B_type = config.get_B_ScalarInfo()
+    C_type = config.get_C_ScalarInfo()
+    D_type = config.get_D_ScalarInfo()
     swizzle = config.swizzle
     assert swizzle == 128, "not supported"
 
