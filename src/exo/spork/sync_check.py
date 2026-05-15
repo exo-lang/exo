@@ -620,8 +620,8 @@ class CamsporkDo(LoopIR_Do):
                     ctx.end()
             if barrier and self.want_sync(s.trailing_barrier_expr.name):
                 # Sync-check the trailing barrier itself.
-                _, initial_qual_bits, ext_qual_bits, qual_tl_mask = self.comp_qual_tl(
-                    s.trailing_barrier_expr, instr_tl
+                qual_tl, initial_qual_bits, ext_qual_bits, qual_tl_mask = (
+                    self.comp_qual_tl(s.trailing_barrier_expr, instr_tl)
                 )
                 b.SyncEnvAccess(
                     barrier,
@@ -629,7 +629,11 @@ class CamsporkDo(LoopIR_Do):
                     ext_qual_bits,
                     qual_tl_mask,
                     # model as in-order read since concurrent access is allowed
-                    flags=b.convergent_flag,
+                    flags=(
+                        b.convergent_flag
+                        if qual_tl.get_default_convergent_access()
+                        else 0
+                    ),
                     access_multicasts=barrier_multicasts,
                     barrier=barrier,
                     barrier_multicasts=barrier_multicasts,
