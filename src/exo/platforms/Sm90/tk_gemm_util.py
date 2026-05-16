@@ -103,10 +103,10 @@ class GemmConfig:
     def get_D_ScalarInfo(self):
         return ScalarInfo(self.D_type or self.C_type)
 
-    def make_sporkbench_case(self) -> dict:
+    def make_sporkbench_case(self, is_scheduled) -> dict:
         return dict(
             algorithm="gemm",
-            proc=self.make_proc_name(),
+            proc=self.make_proc_name(is_scheduled),
             args=["L", "M", "N", "K_split", "K_cluster", "A", "B", "C"],
             A_major=self.A_major,
             B_major=self.B_major,
@@ -121,7 +121,7 @@ class GemmConfig:
             C_type=str(self.C_type),
         )
 
-    def make_proc_name(self) -> str:
+    def make_proc_name(self, is_scheduled) -> str:
         suffix = ""
         if self.swizzle != 128:
             suffix += f"_SW{self.swizzle}"
@@ -138,6 +138,9 @@ class GemmConfig:
         B = f"{self.B_major[0]}B{B_type}"
         C = f"{self.C_major[0]}C{C_type}"
         D = f"D{D_type}"
+
+        if is_scheduled:
+            suffix += "_sched"
 
         return (
             f"Sm90_tk_gemm_{A}_{B}_{C}_{D}_r{self.ring_depth}"
@@ -327,8 +330,8 @@ def sched_cut_sync_iter_k(p, config: GemmConfig):
     return p
 
 
-def sched_final_changes(gemm: Procedure, config: GemmConfig):
-    name = config.make_proc_name()
+def handwrite_final_changes(gemm: Procedure, config: GemmConfig):
+    name = config.make_proc_name(False)
     gemm = sched_inline_stuff(gemm)
     gemm = simplify(gemm)
     gemm = rename(gemm, name)
@@ -584,10 +587,10 @@ def handwrite_row_row_coop_main_loop(config: GemmConfig):
                         Sm90_tma_load_multicast_2d(
                             B_smem[:, cta_n, iter_k % ring_depth, n_outer, :, :],
                             B_win[
-                                cta_n * cta_N + n_outer * 64:
-                                cta_n * cta_N + n_outer * 64 + 64,
                                 iter_k * smem_K :
                                 iter_k * smem_K + smem_K,
+                                cta_n * cta_N + n_outer * 64:
+                                cta_n * cta_N + n_outer * 64 + 64,
                             ],
                             ncta=ncta_M, cta_stride=ncta_N, size0=smem_K, size1=64,
                             smem_box=smem_box_B, dst=B_type, src=B_type,
@@ -1214,7 +1217,7 @@ def handwrite_row_col_gemm(config: GemmConfig):
                             if sync_after_epilogue:
                                 Fence(cuda_in_order, cuda_in_order)
 
-    gemm = sched_final_changes(gemm, config)
+    gemm = handwrite_final_changes(gemm, config)
     return gemm
 
 
@@ -1360,7 +1363,7 @@ def handwrite_row_row_gemm(config: GemmConfig):
                             if sync_after_epilogue:
                                 Fence(cuda_in_order, cuda_in_order)
 
-    gemm = sched_final_changes(gemm, config)
+    gemm = handwrite_final_changes(gemm, config)
     return gemm
 
 
@@ -1377,7 +1380,7 @@ def handwrite_gemm(config: GemmConfig, sporkbench_cases: Optional[list] = None):
         gemm = handwrite_row_row_gemm(config)
 
     if sporkbench_cases is not None:
-        sporkbench_cases.append(config.make_sporkbench_case())
+        sporkbench_cases.append(config.make_sporkbench_case(False))
     return gemm
 
 
@@ -1905,24 +1908,14 @@ def schedule_gemm(config: GemmConfig, cases=None):
         gemm = sched_cut_sync_iter_k(gemm, config)
 
     gemm = simplify(gemm)
-    proc_name = config.make_proc_name() + "_sched"
+    proc_name = config.make_proc_name(True)
     gemm = rename(gemm, proc_name)
     K_cluster = config.make_smem_K() * config.ring_depth * 2 + 16
     gemm.sync_check(L=2, M=600, N=800, K_cluster=K_cluster, K_split=2 if enable_split_k else 1)
 
     # sporkbench cases
     if cases is not None:
-        j_case = {
-            "algorithm": "gemm",
-            "A_type": str(A_type),
-            "B_type": str(B_type),
-            "C_type": str(C_type),
-            "proc": proc_name,
-            "args": ["L", "M", "N", "K_split", "K_cluster", "A", "B", "C"],
-            "A_major": config.A_major, "B_major": config.B_major, "C_major": config.C_major,
-        }
-        if not enable_split_k:
-            j_case["K_split_max"] = 1
+        j_case = config.make_sporkbench_case(True)
         cases.append(j_case)
 
     # TODO test cursors
