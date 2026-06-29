@@ -15,44 +15,6 @@ python -m build .
 pip install dist/*.whl
 ```
 
-### Running Tests
-```bash
-# Run all tests
-pytest
-
-# Run a single test file
-pytest tests/test_schedules.py
-
-# Run a specific test
-pytest tests/test_schedules.py::test_name
-
-# Skip slow tests
-pytest -m "not slow"
-
-# Run with coverage
-pytest --cov=./ --cov-report=html
-
-# Update golden test outputs
-pytest --update-golden
-```
-
-### CUDA Tests
-```bash
-# CPU-only compile tests (no device required)
-pytest --cuda-run-cpu
-
-# Tests requiring sm_80 GPU (e.g., A100)
-pytest --cuda-run-Sm80
-
-# Tests requiring sm_90a GPU (e.g., H100)
-pytest --cuda-run-Sm90a
-```
-
-Environment variables for CUDA:
-- `EXO_NVCC`: Path to nvcc compiler
-- `EXO_CCBIN`: Host compiler for nvcc
-- `SDE_PATH`: Path to Intel SDE for AVX-512/AMX emulation
-
 ### Compiling Exo Files
 ```bash
 exocc exo_file.py              # Generates exo_file/exo_file.c and .h

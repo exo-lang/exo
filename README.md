@@ -98,13 +98,37 @@ in the system `PATH`, and are skipped if it is not available.
 
 ## Running tests
 
-To run the tests, simply type
+The commands must be run in the root of the project.
 
-```
+```bash
+# Run all tests not requiring CUDA device
 pytest
+
+# Run a single test file
+pytest tests/test_schedules.py
+
+# Run a specific test
+pytest tests/test_schedules.py::test_name
+
+# Skip slow tests
+pytest -m "not slow"
+
+# Update golden test outputs
+pytest --update-golden
+
+# Tests requiring sm_80 GPU (e.g., A100)
+# Implicitly disables CPU-only tests within the tests/cuda/ directory; re-enable with --cuda-run-cpu
+pytest tests/cuda/ --cuda-run-Sm80
+
+# Tests requiring sm_90a GPU (e.g., H100)
+# Implicitly disables CPU-only tests within the tests/cuda/ directory; re-enable with --cuda-run-cpu
+pytest tests/cuda/ --cuda-run-Sm90a
 ```
 
-in the root of the project.
+Environment variables for CUDA:
+- `EXO_NVCC`: Path to nvcc compiler
+- `EXO_CXX`: Host compiler for nvcc
+- `EXO_KITTENS`: Path to `ThunderKittens` include directory, required for CUDA tests
 
 ## Running Coverage Testing
 
