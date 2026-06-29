@@ -6,7 +6,7 @@
 
 ## Install Exo
 
-We support Python versions 3.9 and above.
+We support Python versions 3.10 and above.
 If you're just using Exo, install it using `pip`:
 ```sh
 $ pip install exo-lang
@@ -32,7 +32,9 @@ You can use optional arguments to customize the output:
 
 # Build Exo from source
 
-We make active use of newer Python 3.x features. Please use Python 3.9 or 3.10 if you're getting errors about unsupported features.
+We make active use of newer Python 3.x features.
+Please use Python 3.10 if you're getting errors about unsupported features.
+(TODO update all docs that say 3.9)
 
 Setting up Exo for development is like any other Python project. We
 _strongly_ recommend you use a virtual environment.
