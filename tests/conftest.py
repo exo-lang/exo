@@ -340,6 +340,7 @@ class Compiler:
             self._generate_cml(test_files, include_dir, additional_file)
         )
 
+        # David Zhao Akeley 2026-06-29: EXO_CXX not piped through since this is for pure C.
         self._run_command(
             [
                 f"ctest",
@@ -420,7 +421,7 @@ class Compiler:
             "-lcuda",
         ]
         args.extend(compiler_flags)
-        if ccbin := os.getenv("EXO_CCBIN", default=None):
+        if ccbin := os.getenv("EXO_CXX", default=None):
             args.append("-ccbin")
             args.append(ccbin)
         args.append("--extended-lambda")  # ThunderKittens needs this.
