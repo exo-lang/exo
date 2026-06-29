@@ -132,12 +132,12 @@ void cpu_gemm_wrapper( void *ctxt, int_fast32_t L, int_fast32_t M, int_fast32_t 
 
 
 
-struct exo_CudaDeviceArgs0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop;
+struct exo_CudaDeviceArgs0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop;
 
 #ifdef __CUDACC__
-__global__ void exo_deviceFunction0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop(__grid_constant__ const struct exo_CudaDeviceArgs0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop exo_deviceArgs);
+__global__ void exo_deviceFunction0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop(__grid_constant__ const struct exo_CudaDeviceArgs0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop exo_deviceArgs);
 #endif
-void exo_cudaLaunch0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop* exo_deviceArgs);
+void exo_cudaLaunch0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop* exo_deviceArgs);
 
 
 
@@ -605,7 +605,7 @@ static inline CUtensorMap exo_win_3f32_Sm90_tensorMap_128_1_256_32_encode(
 }
 
 // CUDA device function args -- duplicated in .cuh file
-struct exo_CudaDeviceArgs0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop
+struct exo_CudaDeviceArgs0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop
 {
     int_fast32_t L;  // L : size
     int_fast32_t M;  // M : size
@@ -621,7 +621,7 @@ struct exo_CudaDeviceArgs0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop
     EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
 };
 
-// Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop(
+// Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop(
 //     L : size,
 //     M : size,
 //     N : size,
@@ -631,9 +631,9 @@ struct exo_CudaDeviceArgs0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop
 //     B : f32[L, N, K_split, K_cluster] @CudaGmemLinear,
 //     C : f32[L, M, N] @CudaGmemLinear
 // )
-static void Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop( void *ctxt, int_fast32_t L, int_fast32_t M, int_fast32_t N, int_fast32_t K_split, int_fast32_t K_cluster, const float* A, const float* B, float* C );
+static void Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop( void *ctxt, int_fast32_t L, int_fast32_t M, int_fast32_t N, int_fast32_t K_split, int_fast32_t K_cluster, const float* A, const float* B, float* C );
 
-// Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop(
+// Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop(
 //     L : size,
 //     M : size,
 //     N : size,
@@ -643,7 +643,7 @@ static void Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop( void *ctxt, int_fast3
 //     B : f32[L, N, K_split, K_cluster] @CudaGmemLinear,
 //     C : f32[L, M, N] @CudaGmemLinear
 // )
-static void Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop( void *ctxt, int_fast32_t L, int_fast32_t M, int_fast32_t N, int_fast32_t K_split, int_fast32_t K_cluster, const float* A, const float* B, float* C ) {
+static void Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop( void *ctxt, int_fast32_t L, int_fast32_t M, int_fast32_t N, int_fast32_t K_split, int_fast32_t K_cluster, const float* A, const float* B, float* C ) {
   // assert stride(A, 3) == 1
   // assert stride(B, 3) == 1
   // assert stride(C, 2) == 1
@@ -658,10 +658,10 @@ static void Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop( void *ctxt, int_fast3
   CUtensorMap exo_data_C_tensorMap = exo_win_3f32_Sm90_tensorMap_128_1_256_32_encode(&C[0], (exo_Sm90_CUtensorMap_3_strides){ {(M * N), N, 1} }, (exo_Sm90_CUtensorMap_3_dim){ {L, M, N} });
   struct exo_win_3f32_Sm90_tensorMap_128_1_256_32 C_tensorMap = (exo_win_3f32_Sm90_tensorMap_128_1_256_32) { {0, 0, 0} };
   {
-    struct exo_CudaDeviceArgs0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop exo_deviceArgs = {
+    struct exo_CudaDeviceArgs0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop exo_deviceArgs = {
       L, M, N, K_split, K_cluster, exo_data_A_tensorMap, (exo_win_4f32_Sm90_tensorMap_128_1_256_1_32) { {A_tensorMap.C_offsets[0], A_tensorMap.C_offsets[1], A_tensorMap.C_offsets[2], A_tensorMap.C_offsets[3]} }, exo_data_B_tensorMap, (exo_win_4f32_Sm90_tensorMap_128_1_192_1_32) { {B_tensorMap.C_offsets[0], B_tensorMap.C_offsets[1], B_tensorMap.C_offsets[2], B_tensorMap.C_offsets[3]} }, exo_data_C_tensorMap, (exo_win_3f32_Sm90_tensorMap_128_1_256_32) { {C_tensorMap.C_offsets[0], C_tensorMap.C_offsets[1], C_tensorMap.C_offsets[2]} }, exo_excut_get_device_log()
     };
-    exo_cudaLaunch0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop(exo_cudaStream, &exo_deviceArgs);
+    exo_cudaLaunch0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop(exo_cudaStream, &exo_deviceArgs);
   }
 }
 
@@ -720,7 +720,7 @@ void cpu_gemm_wrapper( void *ctxt, int_fast32_t L, int_fast32_t M, int_fast32_t 
     L * N * K_split * K_cluster * 4,
     cudaMemcpyHostToDevice,
     exo_cudaStream);
-  Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop(ctxt, L, M, N, K_split, K_cluster, d_A, d_B, d_C);
+  Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop(ctxt, L, M, N, K_split, K_cluster, d_A, d_B, d_C);
   exo_cudaFreeAsync(d_B, exo_cudaStream);
   exo_cudaFreeAsync(d_A, exo_cudaStream);
   cudaMemcpyAsync(
@@ -1225,7 +1225,7 @@ exo_Sm90_tma_to_gmem(const CUtensorMap& tensorMap, WindowOffsets window, const v
 }
 }  // end namespace exo_CudaUtil_test_golden_Sm90a_gemm_m1n1_B
 // CUDA device function args -- duplicated in .c file
-struct exo_CudaDeviceArgs0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop
+struct exo_CudaDeviceArgs0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop
 {
     int_fast32_t L;  // L : size
     int_fast32_t M;  // M : size
@@ -1243,9 +1243,9 @@ struct exo_CudaDeviceArgs0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop
 
 // We need this inline namespace to avoid ODR problems in pytest.
 inline namespace exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B {
-struct exo_Cuda0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop
+struct exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop
 {
-  using exo_DeviceArgs = exo_CudaDeviceArgs0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop;
+  using exo_DeviceArgs = exo_CudaDeviceArgs0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop;
 
   static constexpr uint32_t exo_blockDim = 384;
   static constexpr uint32_t exo_clusterDim = 1;
@@ -1490,12 +1490,12 @@ struct exo_Cuda0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop
 }  // end inline namespace
 
 inline void
-exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop::exo_cudaLaunch(
+exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop::exo_cudaLaunch(
     cudaStream_t exo_cudaStream,
     const exo_DeviceArgs& exo_deviceArgs)
 {
   namespace exo_CudaUtil = exo_CudaUtil_test_golden_Sm90a_gemm_m1n1_B;
-  cudaFuncSetAttribute(exo_deviceFunction0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop, cudaFuncAttributeMaxDynamicSharedMemorySize, exo_smemBytes);
+  cudaFuncSetAttribute(exo_deviceFunction0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop, cudaFuncAttributeMaxDynamicSharedMemorySize, exo_smemBytes);
   // TODO how expensive is it to query this every time?
   int exo_cudaDevice;
   cudaGetDevice(&exo_cudaDevice);
@@ -1509,7 +1509,7 @@ exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_f32_f32f32_
   exo_launchConfig.dynamicSmemBytes = exo_smemBytes;
   exo_launchConfig.stream = exo_cudaStream;
 
-  cudaLaunchKernelEx(&exo_launchConfig, exo_deviceFunction0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop, exo_deviceArgs);
+  cudaLaunchKernelEx(&exo_launchConfig, exo_deviceFunction0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop, exo_deviceArgs);
 
   exo_excut_flush_device_log(
       exo_cudaStream, exo_gridDim, exo_blockDim,
@@ -1518,7 +1518,7 @@ exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_f32_f32f32_
 }
 
 __device__ __forceinline__ void
-exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop::exo_deviceSetup(
+exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop::exo_deviceSetup(
     char* exo_smem,
     const exo_DeviceArgs& exo_deviceArgs,
     exo_ExcutThreadLog exo_excutLog)
@@ -1557,7 +1557,7 @@ exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_f32_f32f32_
 }
 
 __device__ __forceinline__ void
-exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop::exo_deviceShutdown(
+exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop::exo_deviceShutdown(
     char* exo_smem,
     const exo_DeviceArgs& exo_deviceArgs,
     exo_ExcutThreadLog exo_excutLog)
@@ -1566,7 +1566,7 @@ exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_f32_f32f32_
 }
 
 __device__ __forceinline__ void
-exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop::exo_deviceTask_producer(
+exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop::exo_deviceTask_producer(
     char* exo_smem,
     exo_SyncState& exo_syncState,
     const exo_DeviceArgs& exo_deviceArgs,
@@ -1744,7 +1744,7 @@ exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_f32_f32f32_
       exo_syncState.ring_consumption_0_war + (((31 + exo_deviceArgs.K_cluster) / (32)) + 4) - 4, 0);
 }
 __device__ __forceinline__ void
-exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop::exo_deviceTask_consumer(
+exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop::exo_deviceTask_consumer(
     char* exo_smem,
     exo_SyncState& exo_syncState,
     const exo_DeviceArgs& exo_deviceArgs,
@@ -2182,7 +2182,7 @@ exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_f32_f32f32_
       exo_syncState.ring_consumption_0_war + (((31 + exo_deviceArgs.K_cluster) / (32)) + 4) - 4, 0);
 }
 __device__ __forceinline__ void
-exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop::exo_deviceMainLoop(
+exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop::exo_deviceMainLoop(
     char* exo_smem,
     const exo_DeviceArgs& exo_deviceArgs,
     exo_ExcutThreadLog exo_excutLog)
@@ -2269,18 +2269,18 @@ exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_f32_f32f32_
 #include "test_golden_Sm90a_gemm_m1n1_B.cuh"
 __launch_bounds__(384, 1)
 __global__ void
-exo_deviceFunction0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop(__grid_constant__ const struct exo_CudaDeviceArgs0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop exo_deviceArgs)
+exo_deviceFunction0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop(__grid_constant__ const struct exo_CudaDeviceArgs0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop exo_deviceArgs)
 {
   extern __shared__ __align__(128) char exo_smem[];
   exo_ExcutThreadLog exo_excutLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
-  exo_Cuda0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
-  exo_Cuda0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
-  exo_Cuda0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop::exo_deviceShutdown(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop::exo_deviceShutdown(exo_smem, exo_deviceArgs, exo_excutLog);
 }
 
 void
-exo_cudaLaunch0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop* exo_deviceArgs)
+exo_cudaLaunch0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop* exo_deviceArgs)
 {
-  exo_Cuda0_Sm90_tk_gemm_f32_f32f32_r4_m1n1_m256n192_coop::exo_cudaLaunch(exo_cudaStream, *exo_deviceArgs);
+  exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m1n1_m256n192_coop::exo_cudaLaunch(exo_cudaStream, *exo_deviceArgs);
 }
 
