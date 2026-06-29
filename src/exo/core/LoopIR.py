@@ -70,19 +70,41 @@ module LoopIR {
                memwin? mem,
                srcinfo srcinfo )
 
+           -- name[*idx] = rhs
     stmt = Assign( sym name, type type, expr* idx, expr rhs )
+           -- name[*idx] += rhs  ("Reduce" is hard-wired in Exo to mean addition)
          | Reduce( sym name, type type, expr* idx, expr rhs )
+           -- CPU-only stmt for setting up accelerator e.g. vsetvli ; no GPU equivalent
          | WriteConfig( config config, string field, expr rhs )
+           -- No-op
          | Pass()
            -- Fence: barriers[0] is internal name of fence
            -- Arrive: barriers: List[BarrierExpr]
            -- Await: barriers = List[BarrierExpr] of length 1
          | SyncStmt( sync_type sync_type, expr* barriers )
+           -- Executes body if the cond evaluates to true, otherwise executes orelse
+           -- body must be non-empty; orelse may be empty
          | If( expr cond, stmt* body, stmt* orelse )
+           -- Executes the body with the value of iter ranging from lo to hi - 1.
+           -- loop_mode configures how iterations are assigned to threads;
+           -- Seq() assigns all iterations sequentially to current thread(s).
+           -- For the purpose of scheduling/rewrites, the semantics are sequential.
+           -- Parallelization safety checks may run on the final scheduled proc only.
          | For( sym iter, expr lo, expr hi, stmt* body, loop_mode loop_mode )
+           -- Allocate new variable in given memory type.
+           -- Scalar type and dimension extents given by the type parameter.
          | Alloc( sym name, type type, allocable mem )
+           -- Free is not part of public program syntax: auto-inserted for each Alloc.
          | Free( sym name, type type, allocable mem )
+           -- Call to function, or execution of instr
+           -- The sequential semantics of the callee are given by the original
+           -- proc that was scheduled into the callee
+           -- (which is just the callee itself for most instrs, which rarely are defined with scheduling)
+           -- The effect of each read or write through a WindowExpr parameter are as-if
+           -- through chain_window_idx.
          | Call( proc f, expr* args, expr? trailing_barrier_expr )
+           -- New variable that views subset of tensor passed as rhs:WindowExpr
+           -- See chain_window_idx
          | WindowStmt( sym name, expr rhs, special_window? special_window )
          attributes( srcinfo srcinfo )
 
