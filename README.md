@@ -125,6 +125,9 @@ pytest tests/cuda/ --cuda-run-Sm80
 pytest tests/cuda/ --cuda-run-Sm90a
 ```
 
+The output debug logs (commented Exo `proc` source code) can be invaluable here.
+On Linux, they seem to end up in `/tmp/pytest-of-$USER/pytest-current/.../debug/...`.
+
 Environment variables for CUDA:
 - `EXO_NVCC`: Path to nvcc compiler
 - `EXO_CXX`: Host compiler for nvcc
