@@ -2647,6 +2647,17 @@ struct SyncvTable
         if (record.pending_awaits) {
             out->pending_await_list = get(record.pending_awaits).sorted_map.data;
         }
+
+        out->free_on_arrive.data = record.free_on_arrive.id_bits;
+        out->qual_tl_mask = record.qual_tl_mask;
+
+        static_assert(sizeof(*out) ==
+            sizeof(out->visibility_set)
+            + sizeof(out->pending_await_list)
+            + sizeof(out->free_on_arrive)
+            + sizeof(out->qual_tl_mask),
+            "Update me to write out new VisRecord state"
+        );
     }
 
     template <typename ListNode>

@@ -60,6 +60,8 @@ struct VisRecordDebugData
 {
     std::vector<TlSigInterval> visibility_set;
     std::vector<PendingAwait> pending_await_list;
+    barrier_id free_on_arrive;
+    qual_bits_t qual_tl_mask;
 };
 
 // Window into a multidimensional array of assignment records.
