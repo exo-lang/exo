@@ -27,4 +27,4 @@ dependencies/chipyard
 
 .vscode
 .idea
-
+.ninja_log
