@@ -87,7 +87,7 @@ def pytest_runtest_setup(item: Node):
 
 
 @pytest.fixture
-def golden(request):
+def golden(request, tmp_path):
     """
     A fixture to load the golden output for the requesting test. Should be
     checked against some actual output in at least one assertion.
@@ -105,7 +105,7 @@ def golden(request):
     )
 
     text = p.read_text() if p.exists() else None
-    yield GoldenOutput(p, text, request.config)
+    yield GoldenOutput(p, text, request.config, tmp_path)
 
 
 @pytest.fixture
@@ -176,15 +176,21 @@ def sde64():
 class GoldenOutput(str):
     _missing = "\0"
 
-    def __new__(cls, path, text, config):
+    def __new__(cls, path, text, config, _):
         return str.__new__(cls, cls._missing if text is None else text)
 
-    def __init__(self, path, _, config):
+    def __init__(self, path, _, config, tmp_path):
         self.path = path
         self.update = config.getoption("--update-golden")
         self.verbose = config.getoption("verbose")
+        self.tmp_path = tmp_path
 
     def __eq__(self, actual):
+        actual_log_path = self.tmp_path / "actual_golden.txt"
+        expected_log_path = self.tmp_path / "expected_golden.txt"
+        actual_log_path.write_text(str(actual))
+        expected_log_path.write_text(str(self))
+
         if isinstance(actual, GoldenOutput) and self.path != actual.path:
             return False
 

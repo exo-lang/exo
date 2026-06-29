@@ -96,7 +96,7 @@ as an optional dependency. Tests which rely on this (namely for AMX) look
 for `sde64` either in the path defined by the `SDE_PATH` environment variable or
 in the system `PATH`, and are skipped if it is not available.
 
-## Running tests
+## Running Tests
 
 The commands must be run in the root of the project.
 
@@ -125,15 +125,18 @@ pytest tests/cuda/ --cuda-run-Sm80
 pytest tests/cuda/ --cuda-run-Sm90a
 ```
 
-The output debug logs (commented Exo `proc` source code) can be invaluable here.
-On Linux, they seem to end up in `/tmp/pytest-of-$USER/pytest-current/.../debug/...`.
-
 Environment variables for CUDA:
 - `EXO_NVCC`: Path to nvcc compiler
 - `EXO_CXX`: Host compiler for nvcc
 - `EXO_KITTENS`: Path to `ThunderKittens` include directory, required for CUDA tests
 
-## Running Coverage Testing
+### Test Debug Outputs
+
+The output debug logs (commented Exo `proc` source code) can be invaluable here.
+On Linux, they seem to end up in `/tmp/pytest-of-$USER/pytest-current/.../debug/`, where `...` is based on the file and name of the test.
+If applicable, `actual_golden.txt` and `expected_golden.txt` also show up in `/tmp/pytest-of-$USER/pytest-current/...`.
+
+### Running Coverage Testing
 
 To run pytest with coverage tests, execute
 
