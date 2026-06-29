@@ -22,7 +22,6 @@ class AtomicityInfo:
 class AccessInfo:
     mem: Type[MemWin] = DRAM
     out_of_order: bool = None
-    access_by_owner_only: Optional[bool] = False  # See distributed_coll_units
 
     # Set automatically, don't edit.
     const: bool = False
@@ -44,10 +43,7 @@ class AccessInfo:
     #             # ...
     #             param[i0, i1, ... ]
     #
-    # access_by_owner_only=True is poorly-maintained, may be removed.
-    # If false, each element is modelled as accessed by the calling thread collective Tc.
-    # If true, each element is modelled as-if it were accessed in the above loop
-    # literally, i.e. with To being the owner of the shard, the access is by Tc \cap To.
+    # Each element is modelled as accessed by the calling thread collective Tc.
     distributed_coll_units: List[CollUnit] = ()
 
     atomicity: Optional[AtomicityInfo] = None

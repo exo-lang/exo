@@ -574,9 +574,6 @@ class InstrTemplate(InstrTemplateBase):
                 assert isinstance(extent, LoopIR.Const) or extent_is_template_param
                 assert (instr_tl != cpu_in_order_instr
                     ), f"{clsname} can't have CPU distributed memory"
-            if arg_info.distributed_coll_units:
-                assert isinstance(arg_info.access_by_owner_only, bool
-                ), f"{clsname} must set access_by_owner_only for distributed memory args explicitly"
             # fmt: on
 
         info._tparam_dict = tparam_dict

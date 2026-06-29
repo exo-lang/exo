@@ -302,7 +302,6 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
                     # and each [size0, size1, ...] shard is owned by 1 CTA.
                     self.barrier_coll_units = (cuda_cta_in_cluster,)
                     smem.distributed_coll_units = (cuda_cta_in_cluster,)
-                    smem.access_by_owner_only = False
                 else:
                     # Same as 1 * cuda_warp_in_cluster_strided(1),
                     # but just use cuda_warp here to reduce user confusion.

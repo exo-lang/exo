@@ -23,7 +23,6 @@ class cuda_warp_broadcast_impl(InstrInfo):
         ]
         for access_info in (self.access_info["src"], self.access_info["dst"]):
             access_info.mem = CudaRmem
-            access_info.access_by_owner_only = True
             access_info.distributed_coll_units = distributed_coll_units
 
         if ntid == 32:
@@ -99,7 +98,6 @@ class cuda_shfl_xor_sync_impl(InstrInfo):
         distributed_coll_units = [cuda_thread]
         for access_info in self.access_info.values():
             access_info.mem = CudaRmem
-            access_info.access_by_owner_only = True
             access_info.distributed_coll_units = distributed_coll_units
         # Generate mask that includes just the two threads exchanging values.
         mask_base = 1 << laneMask | 1

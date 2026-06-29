@@ -53,8 +53,6 @@ SyncEnvFreeShard is not actually used to check-free shards, only the entire tens
 We keep this around because a more fine-grained approach will almost certainly
 be needed at some future time.
 
-access_by_owner_only = True is basically abandonware, and not documented much.
-
 The paper describes the abstract machine as an alternative to Exo value
 semantics, where we have a sync env instead of a value environment.
 In reality, I view this as an augmentation of value semantics.
@@ -571,11 +569,9 @@ class CamsporkDo(LoopIR_Do):
                     continue
                 arg_info: AccessInfo = instr.access_info[str(callee_a.name)]
                 # TODO value environment
-                dst_lo, extent, loop_nest = self.comp_fnarg(
+                dst_lo, extent = self.comp_fnarg(
                     fnarg_type, caller_a, arg_info, instr_tl
                 )
-                for ctx in loop_nest:
-                    ctx.begin()
                 qual_tl, initial_qual_bits, ext_qual_bits, qual_tl_mask = (
                     self.comp_qual_tl(caller_a, instr_tl)
                 )
@@ -616,8 +612,6 @@ class CamsporkDo(LoopIR_Do):
                     thread_access_granularity=thread_access_granularity,
                     srcinfo=s.srcinfo,
                 )
-                for ctx in loop_nest:
-                    ctx.end()
             if barrier and self.want_sync(s.trailing_barrier_expr.name):
                 # Sync-check the trailing barrier itself.
                 qual_tl, initial_qual_bits, ext_qual_bits, qual_tl_mask = (
@@ -775,25 +769,11 @@ class CamsporkDo(LoopIR_Do):
         """Compile Read or WindowExpr to BuilderExpr + optional extent + loop nest.
 
         Similar policy on SyncEnvRead effects as comp_index_expr.
-        The loop nest is needed for the access_by_owner_only=True case,
-        where we have different input shards accessed by different threads
-        (hence must communicate this to the abstract machine with a ThreadsFor).
-
-        NB access_by_owner_only is disused.
 
         """
         b = self._builder
         assert isinstance(e, (LoopIR.WindowExpr, LoopIR.Read))
         shape = fnarg_type.shape()
-
-        if arg_info.access_by_owner_only:
-            tiling = self._coll_tiling
-            assert isinstance(tiling, CollTiling)
-            loop_nest = []
-            coll_unit_stack = arg_info.distributed_coll_units[::-1]
-        else:
-            loop_nest = ()
-            coll_unit_stack = ()
 
         idx_lo = []
         extent = []
@@ -802,44 +782,9 @@ class CamsporkDo(LoopIR_Do):
         for w_idx, w in enumerate(e.idx):
             if isinstance(w, LoopIR.Interval):
                 shape_coord = shape[shape_i]
-                if coll_unit_stack:
-                    # Distributed dimension with access_by_owner_only.
-                    # We program a parallel loop over the collective unit specifed by
-                    # the instruction, with each iteration accessing one slice.
-                    #
-                    # This is a much simplified version of what
-                    # distributed_memory.py (in CollAnalysis) is doing,
-                    # since at this point we assume the code is correct.
-                    unit = coll_unit_stack.pop()
-                    assert isinstance(shape_coord, LoopIR.Const)
-                    tmp_iter = Sym(f"_{unit_i}_CALLEE_DISTRIBUTED")
-                    self._envtyp[tmp_iter] = T.index
-                    tiling = tiling.tiled(
-                        tmp_iter, unit, shape_coord.val, self._coll_env
-                    )
-                    am_iter = b.add_variable(tmp_iter)
-                    codegen = tiling.get_codegen()
-                    idx_lo.append(LoopIR.Read(tmp_iter, [], T.index, w.srcinfo))
-                    extent.append(1)
-                    # Possible optimization: redundant DomainReshape may be removed.
-                    loop_nest.append(b.DomainReshape(*tiling.get_domain()))
-                    loop_nest.append(
-                        b.ThreadsFor(
-                            am_iter,
-                            0,
-                            shape_coord.val,
-                            codegen.dim_idx,
-                            codegen.offset,
-                            codegen.box,
-                            srcinfo=w.srcinfo,
-                        )
-                    )
-                    unit_i += 1
-                else:
-                    # Non-distributed dimension, or !access_by_owner_only.
-                    # So we program the access to span the entire extent of the dimension.
-                    idx_lo.append(w.lo)
-                    extent.append(self.comp_e(shape_coord, True, instr_tl))
+                # Program the access to span the entire extent of the dimension.
+                idx_lo.append(w.lo)
+                extent.append(self.comp_e(shape_coord, True, instr_tl))
                 shape_i += 1
             else:
                 if isinstance(w, LoopIR.Point):
@@ -856,7 +801,7 @@ class CamsporkDo(LoopIR_Do):
         # If this is a read of a SpecialWindow, comp_index_expr takes
         # care of additional offset from the WindowStmt.
         dst = self.comp_index_expr(e.name, idx_lo, instr_tl, extent)
-        return (dst, extent, loop_nest)
+        return (dst, extent)
 
 
 def coll_analysis_to_camspork(
