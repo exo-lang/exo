@@ -1418,6 +1418,23 @@ EXO_CUDA_INLINE unsigned exo_mapa_shared_cluster(unsigned addr_u32, unsigned cta
 #endif
     return addr_u32;
 }
+EXO_CUDA_INLINE bool exo_elect_one_sync()
+{
+    // cute::elect_one_sync
+    uint32_t pred = 0;
+    uint32_t laneid = 0;
+    asm volatile(
+      "{\n"
+      ".reg .b32 %%rx;\n"
+      ".reg .pred %%px;\n"
+      "     elect.sync %%rx|%%px, %2;\n"
+      "@%%px mov.s32 %1, 1;\n"
+      "     mov.s32 %0, %%rx;\n"
+      "}\n"
+      : "+r"(laneid), "+r"(pred)
+      : "r"(0xFFFFFFFF));
+    return pred;
+}
 #endif  // __CUDACC__
 
 #ifndef EXO_EXCUT_bENABLE_LOG

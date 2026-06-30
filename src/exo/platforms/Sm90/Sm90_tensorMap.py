@@ -374,20 +374,6 @@ CUtensorMap_type_dict = {
     "u4": ("CU_TENSOR_MAP_DATA_TYPE_16U4_ALIGN8B", " / 2"),
 }
 
-_tma_elect_one_prefix = r"""// cute::elect_one_sync
-    uint32_t pred = 0;
-    uint32_t laneid = 0;
-    asm volatile(
-      "{\n"
-      ".reg .b32 %%rx;\n"
-      ".reg .pred %%px;\n"
-      "     elect.sync %%rx|%%px, %2;\n"
-      "@%%px mov.s32 %1, 1;\n"
-      "     mov.s32 %0, %%rx;\n"
-      "}\n"
-      : "+r"(laneid), "+r"(pred)
-      : "r"(0xFFFFFFFF));"""
-
 _tma_get_rank_prefix = """constexpr auto rank = sizeof(window.C_offsets) / sizeof(window.C_offsets[0]);
     static_assert(rank >= 1 && rank <= 5);"""
 
@@ -435,8 +421,7 @@ exo_Sm90_tma_to_smem_multicast(
         uint32_t exo_tma_mbarrier, uint32_t expect_tx, uint16_t cta_mask)
 {{
     {_tma_get_rank_prefix}
-    {_tma_elect_one_prefix}
-    if (pred) {{
+    if (exo_elect_one_sync()) {{
         {expect_tx}
         {rank_case(1)}
         {rank_case(2)}
@@ -452,9 +437,8 @@ exo_Sm90_tma_to_smem(
         void* dst, const CUtensorMap& tensorMap, WindowOffsets window,
         uint32_t exo_tma_mbarrier, uint32_t expect_tx)
 {{
-    {_tma_get_rank_prefix}
-    {_tma_elect_one_prefix}
-    if (pred) {{
+    {_ta_get_rank_prefix}
+    if (exo_elect_one_sync()) {{
         {expect_tx}
         {rank_case(1)}
         {rank_case(2)}
