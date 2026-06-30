@@ -139,7 +139,7 @@ struct exo_CudaDeviceArgs0_proc_matrix_in_CudaWarps_positive
 
 
 /* relying on the following instruction..."
-Sm80_mma_zero_d_tf32(rmem)
+Sm80_mma_m16n8_zero(D,D=f32)
 
 */
 // proc_matrix_in_CudaWarps_positive(

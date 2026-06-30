@@ -667,7 +667,7 @@ def xgemm_Sm80_fence(M: size, N: size, K: size, A_host: f32[M,K], B_host: f32[K,
                     for nw in cuda_threads(0, N1/Nw, unit=cuda_warp):
                         for m_seq in seq(0, Mw/16):
                             for n_seq in seq(0, Nw/8):
-                                Sm80_mma_zero_d_tf32(D_rmem[mw,nw,m_seq, n_seq,:,:])
+                                Sm80_mma_m16n8_zero(D_rmem[mw,nw,m_seq, n_seq,:,:], D=f32)
 
                 # K tiles loop, double buffered
                 # Don't accum tile in first iteration.
@@ -695,30 +695,48 @@ def xgemm_Sm80_fence(M: size, N: size, K: size, A_host: f32[M,K], B_host: f32[K,
                         for mw in cuda_threads(0, M1 / Mw, unit=(N1/Nw) * cuda_warp):
                             for nw in cuda_threads(0, N1 / Nw, unit=cuda_warp):
                                 # Load all B matrix tiles ahead of time
-                                B_rmem : f32[K0/MMA_K, Nw/8, MMA_K, 8] @ Sm80_RmemMatrixB(8, MMA_K)
+                                B_rmem : f32[8, 4, K0/MMA_K, Nw/8, 2, 1] @ CudaRmemPacked32
                                 for n_seq in seq(0, Nw / 8, pragma_unroll=0):
                                     for k_seq in seq(0, K0 / MMA_K, pragma_unroll=0):
-                                        Sm80_mma_load_b_row_major_tf32(
-                                                             B_rmem[k_seq,n_seq,:,:],
-                                                             B_smem[1 - k1 % 2,
-                                                             k_seq*MMA_K:(k_seq+1)*MMA_K,
-                                                             nw*Nw + n_seq*8 : nw*Nw + (n_seq+1)*8], K=MMA_K)
-
+                                        B_win = B_smem[
+                                            1 - k1 % 2,
+                                            k_seq*MMA_K:,
+                                            nw*Nw + n_seq*8:,
+                                        ]
+                                        for nt in cuda_threads(0, 8, unit=4 * cuda_thread):
+                                            for kt in cuda_threads(0, 4, unit=cuda_thread):
+                                                for ki in seq(0, 2, pragma_unroll=0):
+                                                    cuda_packed32_load(
+                                                        B_rmem[nt, kt, k_seq, n_seq, ki, :],
+                                                        B_win[kt + ki * 4, nt : nt + 1],
+                                                        dst=f32, src=f32, pack=1,
+                                                    )
                                 for m_seq in seq(0, Mw / 16, pragma_unroll=0):
                                     # Load A matrix tiles needed for m iteration
-                                    A_rmem : f32[K0/MMA_K, 16, MMA_K] @ Sm80_RmemMatrixA(16, MMA_K)
+                                    A_rmem : f32[8, 4, K0/MMA_K, 2, 2, 1] @ CudaRmemPacked32
                                     for k_seq in seq(0, K0 / MMA_K, pragma_unroll=0):
-                                        Sm80_mma_load_a_row_major_tf32(
-                                                             A_rmem[k_seq,:,:],
-                                                             A_smem[1 - k1 % 2,
-                                                             mw*Mw + m_seq*16 : mw*Mw + (m_seq+1)*16,
-                                                             k_seq*MMA_K:(k_seq+1)*MMA_K], K=MMA_K)
+                                        A_win = A_smem[1 - k1 % 2, mw*Mw + m_seq*16 :, k_seq*MMA_K:]
+                                        for mt in cuda_threads(0, 8, unit=4 * cuda_thread):
+                                            for kt in cuda_threads(0, 4, unit=cuda_thread):
+                                                for mi in seq(0, 2, pragma_unroll=0):
+                                                    for ki in seq(0, 2, pragma_unroll=0):
+                                                        cuda_packed32_load(
+                                                            A_rmem[mt, kt, k_seq, mi, ki, :],
+                                                            A_win[mt + mi * 8, kt + ki * 4 : kt + ki * 4 + 1,],
+                                                            dst=f32, src=f32, pack=1,
+                                                        )
                                     # Accumulate to tile of warp tiles owned by warp.
                                     for n_seq in seq(0, Nw / 8, pragma_unroll=0):
                                         for k_seq in seq(0, K0 / MMA_K, pragma_unroll=0):
-                                            Sm80_mma_tf32(D_rmem[mw,nw,m_seq,n_seq,:,:],
-                                                          A_rmem[k_seq,:,:],
-                                                          B_rmem[k_seq,n_seq,:,:], K=MMA_K)
+                                            Sm80_mma_m16n8(
+                                                D_rmem[mw,nw,m_seq,n_seq,:,:],
+                                                A_rmem[:,:,k_seq,:,:,:],
+                                                B_rmem[:,:,k_seq,n_seq,:,:],
+                                                K_pack=1,
+                                                D="f32",
+                                                A="f32",
+                                                B="f32",
+                                            )
 
                     # Sm80_generic sync-tl = (cuda_in_order | Sm80_cp_async)
                     Fence(Sm80_generic, cuda_in_order)
@@ -741,7 +759,12 @@ def xgemm_Sm80_fence(M: size, N: size, K: size, A_host: f32[M,K], B_host: f32[K,
 # fmt: on
 
 
+xgemm_Sm80_fence = inline_window(xgemm_Sm80_fence, "A_win = _")
+xgemm_Sm80_fence = inline_window(xgemm_Sm80_fence, "B_win = _")
 xgemm_Sm80_fence = simplify(xgemm_Sm80_fence)
+
+
+# "temporary"
 
 
 def test_tmp_xgemm_Sm80(compiler_Sm80):
