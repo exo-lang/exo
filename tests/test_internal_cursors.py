@@ -275,7 +275,7 @@ def test_cursor_gap(proc_foo):
 
 def test_cursor_replace_expr(proc_foo, golden):
     c = _find_cursors(proc_foo, "m")[0]
-    foo2, _ = c._replace(LoopIR.Const(42, T.size, c._node.srcinfo))
+    foo2, _ = c._replace(LoopIR.Const(42, T.plain_size, c._node.srcinfo))
     assert str(foo2) == golden
 
 

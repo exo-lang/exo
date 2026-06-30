@@ -359,7 +359,7 @@ def test_index_range_env():
     node = loop._impl._node
 
     N_read = LoopIR.Read(
-        foo._loopir_proc.args[0].name, [], T.size, foo._loopir_proc.srcinfo
+        foo._loopir_proc.args[0].name, [], T.plain_size, foo._loopir_proc.srcinfo
     )
 
     def run_N_asserts():

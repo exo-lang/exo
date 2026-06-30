@@ -422,6 +422,9 @@ loopir_from_uast_metatype_table = {
     UAST.Index: T.index,
     UAST.Stride: T.stride,
     UAST.Bool: T.bool,
+    # 2025-06-30: added back for practicality, but Size needs to be handled
+    # specially at least in UAST/LoopIR type check.
+    UAST.Size: T.plain_size,
 }
 
 # ScalarInfo.extclass adds to this
