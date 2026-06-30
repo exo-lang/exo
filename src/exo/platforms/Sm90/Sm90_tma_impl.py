@@ -218,7 +218,7 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
 
             lines = [
                 "{",
-                f"    auto exo_tmaWindow = {gmem_offsets};",
+                f"  auto exo_tmaWindow = {gmem_offsets};",
             ]
 
             # Offset vector: reversed from C order (least-significant first in PTX).
@@ -233,10 +233,10 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
 
                 # PTX: [tensorMap, {offsets...}], [smem_src]
                 ptx = InlinePtxGen(f"{ptx_instr} [#1#, #2#], #3#;", volatile=True, elect_one_sync=True)
-                ptx.add_arg(f"&({gmem_tensorMap})", constraint="l", log_as=None, N=1)
-                ptx.add_arg(offsets, constraint="r", log_as=None, N=2)
-                ptx.add_arg(smem_ptr, constraint="smem", log_as=None, N=3)
-                lines.extend(ptx.as_c_lines(tab="      "))
+                ptx.add_arg(f"&({gmem_tensorMap})", constraint="generic", log_as="ptr_data", N=1)
+                ptx.add_arg(offsets, constraint="r", log_as="bits", N=2)
+                ptx.add_arg(smem_ptr, constraint="smem", log_as="bits", N=3)
+                lines.extend(ptx.as_c_lines(tab="  "))
             else:
                 mbarrier = args.exo_barrier  # Magical
                 tx = self.ncta * prod(box) * smem.get_scalar_info().bits // 8
@@ -247,9 +247,9 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
                     volatile=False,
                     elect_one_sync=True,
                 )
-                expect_ptx.add_arg(str(mbarrier), constraint="r", log_as=None, N=1, brackets=True)
-                expect_ptx.add_arg(tx, constraint="n", log_as=None, N=2)
-                lines.extend(expect_ptx.as_c_lines(tab="        "))
+                expect_ptx.add_arg(str(mbarrier), constraint="r", log_as="bits", N=1, brackets=True)
+                expect_ptx.add_arg(tx, constraint="n", log_as="bits", N=2)
+                lines.extend(expect_ptx.as_c_lines(tab="  "))
 
                 # TMA to SMEM async copy.
                 if is_multicast:
@@ -260,21 +260,21 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
                     ptx_instr = f"cp.async.bulk.tensor.{rank}d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
                     ptx_fmt = f"{ptx_instr} #1#, [#2#, #3#], #4#, #5#;"
 
-                ptx = InlinePtxGen(ptx_fmt, volatile=True)
-                ptx.add_arg(smem_ptr, constraint="smem", log_as=None, N=1)
-                ptx.add_arg(f"&({gmem_tensorMap})", constraint="l", log_as=None, N=2)
-                ptx.add_arg(offsets, constraint="r", log_as=None, N=3)
-                ptx.add_arg(str(mbarrier), constraint="r", log_as=None, N=4, brackets=True)
+                ptx = InlinePtxGen(ptx_fmt, volatile=True, elect_one_sync=True)
+                ptx.add_arg(smem_ptr, constraint="smem", log_as="bits", N=1)
+                ptx.add_arg(f"&({gmem_tensorMap})", constraint="generic", log_as="ptr_data", N=2)
+                ptx.add_arg(offsets, constraint="r", log_as="bits", N=3)
+                ptx.add_arg(str(mbarrier), constraint="r", log_as="bits", N=4, brackets=True)
                 if is_multicast:
                     # Magical argument: LoopIR_compiler inserts clusterDim for us.
                     # ctaMask (#5#) must come before cacheHint (#6#) per PTX spec.
                     clusterDim = args.exo_clusterDim
                     cta_mask = self.codegen_cta_mask(clusterDim, self.ncta, self.cta_stride)
-                    ptx.add_arg(cta_mask, constraint="h", log_as=None, N=5)
+                    ptx.add_arg(cta_mask, constraint="h", log_as="bits", N=5)
                     ptx.add_arg(cache_hint, constraint="n", log_as=None, N=6)
                 else:
                     ptx.add_arg(cache_hint, constraint="n", log_as=None, N=5)
-                lines.extend(ptx.as_c_lines(tab="      "))
+                lines.extend(ptx.as_c_lines(tab="  "))
 
             lines.append("}")
             return lines
