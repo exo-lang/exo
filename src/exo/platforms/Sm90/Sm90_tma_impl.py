@@ -226,34 +226,28 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
             offsets = [f"exo_tmaWindow.C_offsets[{rank - 1 - i}]" for i in range(rank)]
 
             if to_gmem:
-                lines.append("    if (exo_elect_one_sync()) {")
-
                 if is_reduce:
                     ptx_instr = f"cp.reduce.async.bulk.tensor.{rank}d.global.shared::cta.add.tile.bulk_group"
                 else:
                     ptx_instr = f"cp.async.bulk.tensor.{rank}d.global.shared::cta.tile.bulk_group"
 
                 # PTX: [tensorMap, {offsets...}], [smem_src]
-                ptx = InlinePtxGen(f"{ptx_instr} [#1#, #2#], #3#;", volatile=True)
+                ptx = InlinePtxGen(f"{ptx_instr} [#1#, #2#], #3#;", volatile=True, elect_one_sync=True)
                 ptx.add_arg(f"&({gmem_tensorMap})", constraint="l", log_as=None, N=1)
                 ptx.add_arg(offsets, constraint="r", log_as=None, N=2)
                 ptx.add_arg(smem_ptr, constraint="smem", log_as=None, N=3)
-                lines.extend(ptx.as_c_lines(tab="        "))
-
-                lines.append("    }")
+                lines.extend(ptx.as_c_lines(tab="      "))
             else:
                 mbarrier = args.exo_barrier  # Magical
                 tx = self.ncta * prod(box) * smem.get_scalar_info().bits // 8
-
-                lines.append(f"    const uint32_t tma_mbarrier = {mbarrier};")
-                lines.append("    if (exo_elect_one_sync()) {")
 
                 # mbarrier.expect_tx informs the barrier how many bytes to expect.
                 expect_ptx = InlinePtxGen(
                     "mbarrier.expect_tx.shared::cta.b64 #1#, #2#;",
                     volatile=False,
+                    elect_one_sync=True,
                 )
-                expect_ptx.add_arg("tma_mbarrier", constraint="r", log_as=None, N=1, brackets=True)
+                expect_ptx.add_arg(str(mbarrier), constraint="r", log_as=None, N=1, brackets=True)
                 expect_ptx.add_arg(tx, constraint="n", log_as=None, N=2)
                 lines.extend(expect_ptx.as_c_lines(tab="        "))
 
@@ -270,7 +264,7 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
                 ptx.add_arg(smem_ptr, constraint="smem", log_as=None, N=1)
                 ptx.add_arg(f"&({gmem_tensorMap})", constraint="l", log_as=None, N=2)
                 ptx.add_arg(offsets, constraint="r", log_as=None, N=3)
-                ptx.add_arg("tma_mbarrier", constraint="r", log_as=None, N=4, brackets=True)
+                ptx.add_arg(str(mbarrier), constraint="r", log_as=None, N=4, brackets=True)
                 if is_multicast:
                     # Magical argument: LoopIR_compiler inserts clusterDim for us.
                     # ctaMask (#5#) must come before cacheHint (#6#) per PTX spec.
@@ -280,9 +274,7 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
                     ptx.add_arg(cache_hint, constraint="n", log_as=None, N=6)
                 else:
                     ptx.add_arg(cache_hint, constraint="n", log_as=None, N=5)
-                lines.extend(ptx.as_c_lines(tab="        "))
-
-                lines.append("    }")
+                lines.extend(ptx.as_c_lines(tab="      "))
 
             lines.append("}")
             return lines

@@ -915,6 +915,7 @@ class InlinePtxGen:
     * the string for the asm statement, including % placeholders
     * the arguments to the inline PTX (e.g. "+f"(my_arg) )
     * excut logging statements, using exo_excutLog: exo_ExcutThreadLog
+    * wrapping code with elect_one_sync, if elect_one_sync=True
 
     The ptx_format can contain multiple lines, which we mostly preserve in the
     generated PTX (auto-inserting \\n\\t as recommended by the PTX guide).
@@ -944,15 +945,17 @@ class InlinePtxGen:
     mutable_args: List[InlinePtxParsedArg]  # mutable and not true_const
     immutable_args: List[InlinePtxParsedArg]  # not mutable and not true_const
     volatile: bool
+    elect_one_sync: bool
 
     _placeholder_regex = re.compile("#[0-9]+#")
 
-    def __init__(self, ptx_format: str, *, volatile: bool):
+    def __init__(self, ptx_format: str, *, volatile: bool, elect_one_sync=False):
         self.parsed_lines = []
         self.placeholder_args = {}
         self.mutable_args = []
         self.immutable_args = []
         self.volatile = bool(volatile)
+        self.elect_one_sync = bool(elect_one_sync)
 
         # Parse ptx_format into List[InlinePtxParsedArg]
         # and take census of placeholder N values.
@@ -1269,6 +1272,13 @@ class InlinePtxGen:
         )
         if tab:
             lines = [tab + ln for ln in lines]
+
+        # Finally wrap with elect_one_sync if needed.
+        if self.elect_one_sync:
+            lines = ["  " + ln for ln in lines]
+            lines = [tab + "if (exo_elect_one_sync()) {"] + lines
+            lines.append(tab + "}")
+
         return lines
 
         # This code is really confusing, and that's why it exists.
