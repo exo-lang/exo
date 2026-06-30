@@ -88,135 +88,6 @@ static inline CUtensorMap {sname}_encode(
 """
 
 
-_tma_elect_one_prefix = r"""// cute::elect_one_sync
-    uint32_t pred = 0;
-    uint32_t laneid = 0;
-    asm volatile(
-      "{\n"
-      ".reg .b32 %%rx;\n"
-      ".reg .pred %%px;\n"
-      "     elect.sync %%rx|%%px, %2;\n"
-      "@%%px mov.s32 %1, 1;\n"
-      "     mov.s32 %0, %%rx;\n"
-      "}\n"
-      : "+r"(laneid), "+r"(pred)
-      : "r"(0xFFFFFFFF));"""
-
-_tma_get_rank_prefix = """constexpr auto rank = sizeof(window.C_offsets) / sizeof(window.C_offsets[0]);
-    static_assert(rank >= 1 && rank <= 5);"""
-
-
-def tma_to_smem_util(is_multicast: bool):
-    cache_hint = 1152921504606846976  # copied from cutlass PTX
-
-    # fmt: off
-    # Note: indentation of code-in-strings here is dictated by output C++ requirements.
-    expect_tx = f'asm("mbarrier.expect_tx.shared::cta.b64 [%0], %1;" :: "r"(exo_tma_mbarrier), "r"(expect_tx));'
-
-    def rank_case(rank: int):
-        vector_fmt = "{" + ", ".join(f"%{r+2}" for r in range(rank)) + "}"
-        ptx_fmt = f" [%0], [%1, {vector_fmt}], [%{rank+2}], %{rank+3}"
-        if is_multicast:
-            ptx_fmt += f", %{rank+4}"
-        vector_args = [f'"r"(window.C_offsets[{rank - 1 - r}])' for r in range(0, rank)]
-        vector_values = ", ".join(vector_args)
-        if is_multicast:
-            return f"""if constexpr (rank == {rank}) {{
-            asm volatile(
-                "cp.async.bulk.tensor.{rank}d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.multicast::cluster.L2::cache_hint"
-                "{ptx_fmt};"
-                :
-                : "r"(exo_smemU32(dst)), "l"(&tensorMap), {vector_values},
-                  "r"(exo_tma_mbarrier), "h"(cta_mask), "n"({cache_hint})
-                : "memory");
-        }}"""
-        else:
-            return f"""if constexpr (rank == {rank}) {{
-            asm volatile(
-            "cp.async.bulk.tensor.{rank}d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
-            "{ptx_fmt};"
-            :
-            : "r"(exo_smemU32(dst)), "l"(&tensorMap), {vector_values},
-              "r"(exo_tma_mbarrier), "n"({cache_hint})
-            : "memory");
-        }}"""
-
-    if is_multicast:
-        return f"""template <typename WindowOffsets>
-EXO_CUDA_INLINE void
-exo_Sm90_tma_to_smem_multicast(
-        void* dst, const CUtensorMap& tensorMap, WindowOffsets window,
-        uint32_t exo_tma_mbarrier, uint32_t expect_tx, uint16_t cta_mask)
-{{
-    {_tma_get_rank_prefix}
-    {_tma_elect_one_prefix}
-    if (pred) {{
-        {expect_tx}
-        {rank_case(1)}
-        {rank_case(2)}
-        {rank_case(3)}
-        {rank_case(4)}
-        {rank_case(5)}
-    }}
-}}"""
-    else:
-        return f"""template <typename WindowOffsets>
-EXO_CUDA_INLINE void
-exo_Sm90_tma_to_smem(
-        void* dst, const CUtensorMap& tensorMap, WindowOffsets window,
-        uint32_t exo_tma_mbarrier, uint32_t expect_tx)
-{{
-    {_tma_get_rank_prefix}
-    {_tma_elect_one_prefix}
-    if (pred) {{
-        {expect_tx}
-        {rank_case(1)}
-        {rank_case(2)}
-        {rank_case(3)}
-        {rank_case(4)}
-        {rank_case(5)}
-    }}
-}}"""
-    # fmt: on
-
-
-def tma_to_gmem_util(is_reduce: bool):
-    # fmt: off
-    def rank_case(rank: int):
-        vector_fmt = "{" + ", ".join(f"%{r+1}" for r in range(rank)) + "}"
-        ptx_fmt = f" [%0, {vector_fmt}], [%{rank+1}]"
-        vector_args = [f'"r"(window.C_offsets[{rank - 1 - r}])' for r in range(0, rank)]
-        vector_values = ", ".join(vector_args)
-        return f"""if constexpr (rank == {rank}) {{
-            asm volatile(
-                "cp.{reduce_dot}async.bulk.tensor.{rank}d.global.shared::cta.{add_dot}tile.bulk_group"
-                "{ptx_fmt};"
-                :
-                : "l"(&tensorMap),
-                  {vector_values},
-                  "r"(exo_smemU32(src))
-                : "memory");
-        }}"""
-    _reduce = "_reduce" if is_reduce else ""
-    reduce_dot = "reduce." if is_reduce else ""
-    add_dot = "add." if is_reduce else ""
-
-    return f"""template <typename WindowOffsets>
-EXO_CUDA_INLINE void
-exo_Sm90_tma_to_gmem{_reduce}(const CUtensorMap& tensorMap, WindowOffsets window, const void* src)
-{{
-    {_tma_get_rank_prefix}
-    {_tma_elect_one_prefix}
-    if (pred) {{
-        {rank_case(1)}
-        {rank_case(2)}
-        {rank_case(3)}
-        {rank_case(4)}
-        {rank_case(5)}
-    }}
-}}"""
-
-
 def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bool):
     assert not to_gmem or not is_multicast
     assert to_gmem or not is_reduce
@@ -291,7 +162,6 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
             if to_gmem:
                 self.instr_tl = tma_to_gmem_async_instr
                 self.coll_unit = cuda_warp
-                self.cu_utils.append(tma_to_gmem_util(is_reduce))
                 if is_reduce:
                     gmem.atomicity = AtomicityInfo([tma_to_gmem_async_qual])
             else:
@@ -306,22 +176,20 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
                     # Same as 1 * cuda_warp_in_cluster_strided(1),
                     # but just use cuda_warp here to reduce user confusion.
                     self.coll_unit = cuda_warp
-                self.cu_utils.append(tma_to_smem_util(is_multicast))
                 self.barrier_mechanism = CudaMbarrier
 
         def codegen(self: InstrInfo, args: InstrArgs):
             # fmt: off
             box = self.smem_box
+            rank = len(box)
+            cache_hint = 1152921504606846976  # copied from cutlass PTX
+
             gmem: InstrWindowArg
             smem: InstrWindowArg
             if to_gmem:
-                _reduce = "_reduce" if is_reduce else ""
-                fname = f"exo_Sm90_tma_to_gmem{_reduce}"
                 gmem = args.dst
                 smem = args.src
             else:
-                _multicast = "_multicast" if is_multicast else ""
-                fname = f"exo_Sm90_tma_to_smem{_multicast}"
                 gmem = args.src
                 smem = args.dst
 
@@ -346,26 +214,77 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
             if self.swizzle:
                 smem_ptr = smem.index_ptr(coop_dim0_offset, for_wgmma=True)
             else:
-                smem_ptr = smem.index_ptr(coop_dim0_offset, )
+                smem_ptr = smem.index_ptr(coop_dim0_offset)
+
+            lines = [
+                "{",
+                f"    auto exo_tmaWindow = {gmem_offsets};",
+            ]
+
+            # Offset vector: reversed from C order (least-significant first in PTX).
+            # C_offsets[0] is most-significant; TMA wants least-significant first.
+            offsets = [f"exo_tmaWindow.C_offsets[{rank - 1 - i}]" for i in range(rank)]
 
             if to_gmem:
-                c_args = [gmem_tensorMap, gmem_offsets, smem_ptr]
+                lines.append("    if (exo_elect_one_sync()) {")
+
+                if is_reduce:
+                    ptx_instr = f"cp.reduce.async.bulk.tensor.{rank}d.global.shared::cta.add.tile.bulk_group"
+                else:
+                    ptx_instr = f"cp.async.bulk.tensor.{rank}d.global.shared::cta.tile.bulk_group"
+
+                # PTX: [tensorMap, {offsets...}], [smem_src]
+                ptx = InlinePtxGen(f"{ptx_instr} [#1#, #2#], #3#;", volatile=True)
+                ptx.add_arg(f"&({gmem_tensorMap})", constraint="l", log_as=None, N=1)
+                ptx.add_arg(offsets, constraint="r", log_as=None, N=2)
+                ptx.add_arg(smem_ptr, constraint="smem", log_as=None, N=3)
+                lines.extend(ptx.as_c_lines(tab="        "))
+
+                lines.append("    }")
             else:
                 mbarrier = args.exo_barrier  # Magical
                 tx = self.ncta * prod(box) * smem.get_scalar_info().bits // 8
-                c_args = [smem_ptr, gmem_tensorMap, gmem_offsets, mbarrier, tx]
+
+                lines.append(f"    const uint32_t tma_mbarrier = {mbarrier};")
+                lines.append("    if (exo_elect_one_sync()) {")
+
+                # mbarrier.expect_tx informs the barrier how many bytes to expect.
+                expect_ptx = InlinePtxGen(
+                    "mbarrier.expect_tx.shared::cta.b64 #1#, #2#;",
+                    volatile=False,
+                )
+                expect_ptx.add_arg("tma_mbarrier", constraint="r", log_as=None, N=1, brackets=True)
+                expect_ptx.add_arg(tx, constraint="n", log_as=None, N=2)
+                lines.extend(expect_ptx.as_c_lines(tab="        "))
+
+                # TMA to SMEM async copy.
                 if is_multicast:
-                    # Also magical, poorly-documented argument that
-                    # LoopIR_compiler inserts just for us.
+                    ptx_instr = f"cp.async.bulk.tensor.{rank}d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.multicast::cluster.L2::cache_hint"
+                    # PTX arg order: [dst], [tensorMap, {offsets}], [mbar], ctaMask, cacheHint
+                    ptx_fmt = f"{ptx_instr} #1#, [#2#, #3#], #4#, #5#, #6#;"
+                else:
+                    ptx_instr = f"cp.async.bulk.tensor.{rank}d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
+                    ptx_fmt = f"{ptx_instr} #1#, [#2#, #3#], #4#, #5#;"
+
+                ptx = InlinePtxGen(ptx_fmt, volatile=True)
+                ptx.add_arg(smem_ptr, constraint="smem", log_as=None, N=1)
+                ptx.add_arg(f"&({gmem_tensorMap})", constraint="l", log_as=None, N=2)
+                ptx.add_arg(offsets, constraint="r", log_as=None, N=3)
+                ptx.add_arg("tma_mbarrier", constraint="r", log_as=None, N=4, brackets=True)
+                if is_multicast:
+                    # Magical argument: LoopIR_compiler inserts clusterDim for us.
+                    # ctaMask (#5#) must come before cacheHint (#6#) per PTX spec.
                     clusterDim = args.exo_clusterDim
                     cta_mask = self.codegen_cta_mask(clusterDim, self.ncta, self.cta_stride)
-                    c_args.append(cta_mask)
+                    ptx.add_arg(cta_mask, constraint="h", log_as=None, N=5)
+                    ptx.add_arg(cache_hint, constraint="n", log_as=None, N=6)
+                else:
+                    ptx.add_arg(cache_hint, constraint="n", log_as=None, N=5)
+                lines.extend(ptx.as_c_lines(tab="        "))
 
-            lines = [f"exo_CudaUtil::{fname}("]
-            for i, c_arg in enumerate(c_args):
-                prefix = "    " if i == 0 else "  , "
-                lines.append(f"{prefix}{c_arg}")
-            lines.append(");")
+                lines.append("    }")
+
+            lines.append("}")
             return lines
 
         def codegen_cta_mask(self, clusterDim, cta_count, cta_pitch):

@@ -549,150 +549,6 @@ typedef struct exo_win_2f32_Sm90_tensorMap_0_248_32 {
 
 namespace exo_CudaUtil_test_tma_tester_proc_SW0_golden {
 namespace exo_CudaUtil = ::exo_CudaUtil_test_tma_tester_proc_SW0_golden;
-/* Required by Sm90_tma_load_2d(dst,src,dst=f32, src=f32, size0=248, size1=32, smem_box=(248, 32), swizzle=0) */
-template <typename WindowOffsets>
-EXO_CUDA_INLINE void
-exo_Sm90_tma_to_smem(
-        void* dst, const CUtensorMap& tensorMap, WindowOffsets window,
-        uint32_t exo_tma_mbarrier, uint32_t expect_tx)
-{
-    constexpr auto rank = sizeof(window.C_offsets) / sizeof(window.C_offsets[0]);
-    static_assert(rank >= 1 && rank <= 5);
-    // cute::elect_one_sync
-    uint32_t pred = 0;
-    uint32_t laneid = 0;
-    asm volatile(
-      "{\n"
-      ".reg .b32 %%rx;\n"
-      ".reg .pred %%px;\n"
-      "     elect.sync %%rx|%%px, %2;\n"
-      "@%%px mov.s32 %1, 1;\n"
-      "     mov.s32 %0, %%rx;\n"
-      "}\n"
-      : "+r"(laneid), "+r"(pred)
-      : "r"(0xFFFFFFFF));
-    if (pred) {
-        asm("mbarrier.expect_tx.shared::cta.b64 [%0], %1;" :: "r"(exo_tma_mbarrier), "r"(expect_tx));
-        if constexpr (rank == 1) {
-            asm volatile(
-            "cp.async.bulk.tensor.1d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
-            " [%0], [%1, {%2}], [%3], %4;"
-            :
-            : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[0]),
-              "r"(exo_tma_mbarrier), "n"(1152921504606846976)
-            : "memory");
-        }
-        if constexpr (rank == 2) {
-            asm volatile(
-            "cp.async.bulk.tensor.2d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
-            " [%0], [%1, {%2, %3}], [%4], %5;"
-            :
-            : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
-              "r"(exo_tma_mbarrier), "n"(1152921504606846976)
-            : "memory");
-        }
-        if constexpr (rank == 3) {
-            asm volatile(
-            "cp.async.bulk.tensor.3d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
-            " [%0], [%1, {%2, %3, %4}], [%5], %6;"
-            :
-            : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
-              "r"(exo_tma_mbarrier), "n"(1152921504606846976)
-            : "memory");
-        }
-        if constexpr (rank == 4) {
-            asm volatile(
-            "cp.async.bulk.tensor.4d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
-            " [%0], [%1, {%2, %3, %4, %5}], [%6], %7;"
-            :
-            : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[3]), "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
-              "r"(exo_tma_mbarrier), "n"(1152921504606846976)
-            : "memory");
-        }
-        if constexpr (rank == 5) {
-            asm volatile(
-            "cp.async.bulk.tensor.5d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
-            " [%0], [%1, {%2, %3, %4, %5, %6}], [%7], %8;"
-            :
-            : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[4]), "r"(window.C_offsets[3]), "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
-              "r"(exo_tma_mbarrier), "n"(1152921504606846976)
-            : "memory");
-        }
-    }
-}
-/* Required by Sm90_tma_store_2d(dst,src,dst=f32, src=f32, size0=248, size1=32, smem_box=(248, 32), swizzle=0) */
-template <typename WindowOffsets>
-EXO_CUDA_INLINE void
-exo_Sm90_tma_to_gmem(const CUtensorMap& tensorMap, WindowOffsets window, const void* src)
-{
-    constexpr auto rank = sizeof(window.C_offsets) / sizeof(window.C_offsets[0]);
-    static_assert(rank >= 1 && rank <= 5);
-    // cute::elect_one_sync
-    uint32_t pred = 0;
-    uint32_t laneid = 0;
-    asm volatile(
-      "{\n"
-      ".reg .b32 %%rx;\n"
-      ".reg .pred %%px;\n"
-      "     elect.sync %%rx|%%px, %2;\n"
-      "@%%px mov.s32 %1, 1;\n"
-      "     mov.s32 %0, %%rx;\n"
-      "}\n"
-      : "+r"(laneid), "+r"(pred)
-      : "r"(0xFFFFFFFF));
-    if (pred) {
-        if constexpr (rank == 1) {
-            asm volatile(
-                "cp.async.bulk.tensor.1d.global.shared::cta.tile.bulk_group"
-                " [%0, {%1}], [%2];"
-                :
-                : "l"(&tensorMap),
-                  "r"(window.C_offsets[0]),
-                  "r"(exo_smemU32(src))
-                : "memory");
-        }
-        if constexpr (rank == 2) {
-            asm volatile(
-                "cp.async.bulk.tensor.2d.global.shared::cta.tile.bulk_group"
-                " [%0, {%1, %2}], [%3];"
-                :
-                : "l"(&tensorMap),
-                  "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
-                  "r"(exo_smemU32(src))
-                : "memory");
-        }
-        if constexpr (rank == 3) {
-            asm volatile(
-                "cp.async.bulk.tensor.3d.global.shared::cta.tile.bulk_group"
-                " [%0, {%1, %2, %3}], [%4];"
-                :
-                : "l"(&tensorMap),
-                  "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
-                  "r"(exo_smemU32(src))
-                : "memory");
-        }
-        if constexpr (rank == 4) {
-            asm volatile(
-                "cp.async.bulk.tensor.4d.global.shared::cta.tile.bulk_group"
-                " [%0, {%1, %2, %3, %4}], [%5];"
-                :
-                : "l"(&tensorMap),
-                  "r"(window.C_offsets[3]), "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
-                  "r"(exo_smemU32(src))
-                : "memory");
-        }
-        if constexpr (rank == 5) {
-            asm volatile(
-                "cp.async.bulk.tensor.5d.global.shared::cta.tile.bulk_group"
-                " [%0, {%1, %2, %3, %4, %5}], [%6];"
-                :
-                : "l"(&tensorMap),
-                  "r"(window.C_offsets[4]), "r"(window.C_offsets[3]), "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
-                  "r"(exo_smemU32(src))
-                : "memory");
-        }
-    }
-}
 }  // end namespace exo_CudaUtil_test_tma_tester_proc_SW0_golden
 // CUDA device function args -- duplicated in .c file
 struct exo_CudaDeviceArgs0_tma_tester_gpu_SW0
@@ -1023,13 +879,27 @@ exo_CudaInline_test_tma_tester_proc_SW0_golden::exo_Cuda0_tma_tester_gpu_SW0::ex
     exo_syncState.Await0_war(exo_smem, exo_excutLog, int(((exo_syncState.ring_consumption_1_war) - 1)));
     CUtensorMap const& exo_data_x_input = exo_deviceArgs.exo_data_x_tensorMap_debug;
     struct exo_win_2f32_Sm90_tensorMap_0_248_32 x_input = (exo_win_2f32_Sm90_tensorMap_0_248_32) { {(exo_deviceArgs.x_tensorMap_debug.C_offsets[0] + 248 * exo_task.task_m), (exo_deviceArgs.x_tensorMap_debug.C_offsets[1] + 32 * exo_task.task_k)} };
-    exo_CudaUtil::exo_Sm90_tma_to_smem(
-        (&smem_x[0])
-      , exo_data_x_input
-      , (exo_win_2f32_Sm90_tensorMap_0_248_32) { {x_input.C_offsets[0], x_input.C_offsets[1]} }
-      , exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int((exo_syncState.ring_consumption_0_raw)), 0)
-      , 31744
-    );
+    {
+        auto exo_tmaWindow = (exo_win_2f32_Sm90_tensorMap_0_248_32) { {x_input.C_offsets[0], x_input.C_offsets[1]} };
+        const uint32_t tma_mbarrier = exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int((exo_syncState.ring_consumption_0_raw)), 0);
+        if (exo_elect_one_sync()) {
+            asm(
+              "mbarrier.expect_tx.shared::cta.b64 [%0], 31744;"
+                :
+                :"r"(tma_mbarrier)
+            );
+            exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_expect_tx_shared_cta_b64), 0, __LINE__);
+            asm volatile(
+              "cp.async.bulk.tensor.2d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint [%0], [%1, {%2, %3}], [%4], 1152921504606846976;"
+                :
+                :"r"(exo_smemU32((&smem_x[0]))),
+                "l"(&(exo_data_x_input)),
+                "r"(exo_tmaWindow.C_offsets[1]), "r"(exo_tmaWindow.C_offsets[0]),
+                "r"(tma_mbarrier)
+            );
+            exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_bulk_tensor_2d_shared_cluster_global_tile_mbarrier_complete_tx_bytes_L2_cache_hint), 0, __LINE__);
+        }
+    }
     // Arrive(cuda_temporal, 1) >> raw[((0 + exo_syncState.ring_consumption_0_raw) % 2)]
     // cta_mask: uint16_t(0x1)
     exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int((exo_syncState.ring_consumption_0_raw)), 1);
@@ -1084,11 +954,19 @@ exo_CudaInline_test_tma_tester_proc_SW0_golden::exo_Cuda0_tma_tester_gpu_SW0::ex
   if (int CudaWarps_0_1_ = threadIdx.x; CudaWarps_0_1_ < 32) {
     CUtensorMap const& exo_data_tma_window = exo_deviceArgs.exo_data_sum_tensorMap_window;
     struct exo_win_2f32_Sm90_tensorMap_0_248_32 tma_window = (exo_win_2f32_Sm90_tensorMap_0_248_32) { {(exo_deviceArgs.sum_tensorMap_window.C_offsets[0] + 248 * exo_task.task_m), (exo_deviceArgs.sum_tensorMap_window.C_offsets[1] + 32 * exo_task.task_k)} };
-    exo_CudaUtil::exo_Sm90_tma_to_gmem(
-        exo_data_tma_window
-      , (exo_win_2f32_Sm90_tensorMap_0_248_32) { {tma_window.C_offsets[0], tma_window.C_offsets[1]} }
-      , (&smem_sum[0])
-    );
+    {
+        auto exo_tmaWindow = (exo_win_2f32_Sm90_tensorMap_0_248_32) { {tma_window.C_offsets[0], tma_window.C_offsets[1]} };
+        if (exo_elect_one_sync()) {
+            asm volatile(
+              "cp.async.bulk.tensor.2d.global.shared::cta.tile.bulk_group [%0, {%1, %2}], [%3];"
+                :
+                :"l"(&(exo_data_tma_window)),
+                "r"(exo_tmaWindow.C_offsets[1]), "r"(exo_tmaWindow.C_offsets[0]),
+                "r"(exo_smemU32((&smem_sum[0])))
+            );
+            exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_bulk_tensor_2d_global_shared_cta_tile_bulk_group), 0, __LINE__);
+        }
+    }
     // cg: barrier @ Sm90_TmaCommitGroup
     // Arrive(tma_to_gmem_async, 1) >> cg
     asm volatile(
