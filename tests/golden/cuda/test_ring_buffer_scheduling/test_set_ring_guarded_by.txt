@@ -147,6 +147,22 @@ void exo_cudaLaunch0_p(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceA
 // ########################################################################
 #include "test_set_ring_guarded_by.h"
 
+/* Required by CudaSmemLinear */
+#ifndef EXO_WIN_1F32
+#define EXO_WIN_1F32
+struct exo_win_1f32 {
+    float * const data;
+    const int_fast32_t strides[1];
+};
+#endif
+/* Required by CudaSmemLinear */
+#ifndef EXO_WIN_3F32
+#define EXO_WIN_3F32
+struct exo_win_3f32 {
+    float * const data;
+    const int_fast32_t strides[3];
+};
+#endif
 // CUDA device function args -- duplicated in .cuh file
 struct exo_CudaDeviceArgs0_p
 {
@@ -176,6 +192,22 @@ void p( void *ctxt, int_fast32_t K ) {
 #if EXO_EXCUT_bENABLE_LOG
 #include "test_set_ring_guarded_by.excut_str_table"
 #endif
+/* Required by CudaSmemLinear */
+#ifndef EXO_WIN_1F32
+#define EXO_WIN_1F32
+struct exo_win_1f32 {
+    float * const data;
+    const int_fast32_t strides[1];
+};
+#endif
+/* Required by CudaSmemLinear */
+#ifndef EXO_WIN_3F32
+#define EXO_WIN_3F32
+struct exo_win_3f32 {
+    float * const data;
+    const int_fast32_t strides[3];
+};
+#endif
 
 namespace exo_CudaUtil_test_set_ring_guarded_by {
 namespace exo_CudaUtil = ::exo_CudaUtil_test_set_ring_guarded_by;
@@ -196,10 +228,10 @@ struct exo_Cuda0_p
   static constexpr uint32_t exo_blockDim = 256;
   static constexpr uint32_t exo_clusterDim = 2;
 
-  static constexpr unsigned exo_smemBytes = 262336;
-  static constexpr unsigned exo_smemOffset0_dummy_smem = 262272;  // 64-byte allocation
-  static constexpr unsigned exo_smemOffset1_smem = 0;  // 262144-byte allocation
-  static constexpr unsigned exo_smemOffset2_my_barrier = 262144;  // 32-byte allocation
+  static constexpr unsigned exo_smemBytes = 131264;
+  static constexpr unsigned exo_smemOffset0_dummy_smem = 131200;  // 64-byte allocation
+  static constexpr unsigned exo_smemOffset1_smem = 0;  // 131072-byte allocation
+  static constexpr unsigned exo_smemOffset2_my_barrier = 131072;  // 32-byte allocation
 
   struct exo_Task
   {
@@ -428,22 +460,34 @@ exo_CudaInline_test_set_ring_guarded_by::exo_Cuda0_p::exo_deviceTask(
     exo_ExcutThreadLog exo_excutLog)
 {
   namespace exo_CudaUtil = exo_CudaUtil_test_set_ring_guarded_by;
-  ; // NO-OP
+  auto& dummy_smem = reinterpret_cast<float (&) [16]>(exo_smem[exo_smemOffset0_dummy_smem]);
   // my_barrier: barrier[4] @ CudaMbarrier
-  ; // NO-OP
-  ; // NO-OP
+  auto& smem = reinterpret_cast<float (&) [32768]>(exo_smem[exo_smemOffset1_smem]);
   // cuda_threads(0, 2, unit=cuda_cta_in_cluster)
   if ([[maybe_unused]] int exo_256thr_cta = (blockIdx.x % 2); 1) {
     for (int k = 0; k < exo_deviceArgs.K; k++) {
       // Await(my_barrier[((k + exo_syncState.ring_consumption_0_my_barrier) % 4)], cuda_in_order, 0)
       exo_syncState.Await0_my_barrier(exo_smem, exo_excutLog, int((k + (exo_syncState.ring_consumption_0_my_barrier))));
       ; // NO-OP
+      // cuda_threads(0, 16, unit=cuda_thread)
+      if (int exo_1thr_i = threadIdx.x; exo_1thr_i < 16) {
+        dummy_smem[exo_1thr_i] = 2.0f;
+        smem[(((exo_syncState.ring_consumption_1_smem) + k) & 3) * 8192 + exo_1thr_i * 128] = 3.0f;
+      }
       // Arrive(cuda_in_order, 1) >> my_barrier[((k + exo_syncState.ring_consumption_0_my_barrier) % 4)]
       // cta_mask: uint16_t(0x1 << (blockIdx.x & 0x1))
       exo_syncState.Arrive0_my_barrier(exo_smem, exo_excutLog, int((k + (exo_syncState.ring_consumption_0_my_barrier))), 1);
     }
   }
-  ; // NO-OP
+  // Fence(cuda_in_order, cuda_in_order)
+  asm volatile(
+    "barrier.cluster.arrive.aligned;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cluster_arrive_aligned), 0, __LINE__);
+  asm volatile(
+    "barrier.cluster.wait.aligned;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cluster_wait_aligned), 0, __LINE__);
   exo_syncState.ring_consumption_1_smem = __shfl_sync(UINT32_MAX,
       exo_syncState.ring_consumption_1_smem + exo_deviceArgs.K - 0, 0);
   // free(my_barrier)

@@ -68,7 +68,7 @@ def test_set_ring_guarded_by(compiler, golden):
     def p(K: size):
         with CudaDeviceFunction(clusterDim=2, blockDim=256):
             for task in cuda_tasks(0, 1):
-                dummy_smem: f32[16] @ CudaSmemLinear
+                dummy_smem: f32[2, 16] @ CudaSmemLinear
                 dummy_barrier: barrier[2, K @ ring_buffer_by(4)] @ CudaMbarrier
                 my_barrier: barrier[2, K] @ CudaMbarrier
                 smem: (
@@ -81,7 +81,11 @@ def test_set_ring_guarded_by(compiler, golden):
                     for k in seq(0, K):
                         Await(my_barrier[cta, k], cuda_in_order, 0)
                         pass
+                        for i in cuda_threads(0, 16):
+                            dummy_smem[cta, i] = 2
+                            smem[cta, k, i, 0] = 3
                         Arrive(cuda_in_order) >> my_barrier[cta, k]
+                Fence(cuda_in_order, cuda_in_order)
 
     my_barrier_cursor = p.find_alloc_or_arg("my_barrier")
     smem_cursor = p.find_alloc_or_arg("smem")
@@ -106,7 +110,7 @@ def test_set_ring_guarded_by(compiler, golden):
     with pytest.raises(TypeError) as exc:
         p = set_ring_guarded_by(p, smem_cursor, "dummy_smem")
     msg = str(exc.value)
-    assert "dummy_smem: f32[16]" in msg
+    assert "dummy_smem: f32[2, 16]" in msg
     assert "not a barrier" in msg
 
     compiler.cuda_cpu_test(lambda: p, golden=golden)
