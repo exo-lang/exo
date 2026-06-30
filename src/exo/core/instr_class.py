@@ -57,6 +57,9 @@ keyword arguments, yielding a concrete instr Procedure object.
             #
             # Return list of C lines
             # codegen() is optional if you define self.instr_format
+            #
+            # Note: the "exo_" prefix is reserved for your use for temporaries.
+            # These will never collide with compiler-assigned names for LoopIR variables.
 
         valid_num_types: Set[Tuple[ScalarInfo]], or object with __contains__
         # This is not needed if no generic Num parameters exist.
