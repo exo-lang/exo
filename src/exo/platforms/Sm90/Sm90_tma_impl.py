@@ -233,7 +233,7 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
 
                 # PTX: [tensorMap, {offsets...}], [smem_src]
                 ptx = InlinePtxGen(f"{ptx_instr} [#1#, #2#], #3#;", volatile=True, elect_one_sync=True)
-                ptx.add_arg(f"&({gmem_tensorMap})", constraint="generic", log_as="ptr_data", N=1)
+                ptx.add_arg(f"&({gmem_tensorMap})", constraint="l", log_as="ptr_data", N=1)
                 ptx.add_arg(offsets, constraint="r", log_as="bits", N=2)
                 ptx.add_arg(smem_ptr, constraint="smem", log_as="bits", N=3)
                 lines.extend(ptx.as_c_lines(tab="  "))
@@ -262,7 +262,7 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
 
                 ptx = InlinePtxGen(ptx_fmt, volatile=True, elect_one_sync=True)
                 ptx.add_arg(smem_ptr, constraint="smem", log_as="bits", N=1)
-                ptx.add_arg(f"&({gmem_tensorMap})", constraint="generic", log_as="ptr_data", N=2)
+                ptx.add_arg(f"&({gmem_tensorMap})", constraint="l", log_as="ptr_data", N=2)
                 ptx.add_arg(offsets, constraint="r", log_as="bits", N=3)
                 ptx.add_arg(str(mbarrier), constraint="r", log_as="bits", N=4, brackets=True)
                 if is_multicast:

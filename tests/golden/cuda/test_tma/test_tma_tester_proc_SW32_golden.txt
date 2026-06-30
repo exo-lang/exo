@@ -1103,7 +1103,7 @@ exo_CudaInline_test_tma_tester_proc_SW32_golden::exo_Cuda0_tma_tester_gpu_SW32::
       }
       if (exo_elect_one_sync()) {
         asm volatile(
-          "cp.async.bulk.tensor.2d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint [%0], [[%1], {%2, %3}], [%4], 1152921504606846976;"
+          "cp.async.bulk.tensor.2d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint [%0], [%1, {%2, %3}], [%4], 1152921504606846976;"
             :
             :"r"(exo_smemU32((&smem_x[0]))),
             "l"(&(exo_data_x_input)),
@@ -1176,7 +1176,7 @@ exo_CudaInline_test_tma_tester_proc_SW32_golden::exo_Cuda0_tma_tester_gpu_SW32::
       auto exo_tmaWindow = (exo_win_2f32_Sm90_tensorMap_32_248_8) { {tma_window.C_offsets[0], tma_window.C_offsets[1]} };
       if (exo_elect_one_sync()) {
         asm volatile(
-          "cp.async.bulk.tensor.2d.global.shared::cta.tile.bulk_group [[%0], {%1, %2}], [%3];"
+          "cp.async.bulk.tensor.2d.global.shared::cta.tile.bulk_group [%0, {%1, %2}], [%3];"
             :
             :"l"(&(exo_data_tma_window)),
             "r"(exo_tmaWindow.C_offsets[1]), "r"(exo_tmaWindow.C_offsets[0]),

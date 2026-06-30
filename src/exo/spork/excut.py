@@ -1114,9 +1114,6 @@ class InlinePtxGen:
                 log_fname = "log_u32_arg"
                 as_logged = lambda s: f"static_cast<uint32_t>({s})"
         elif log_as == "ptr_data":
-            assert (
-                is_ptr
-            ), 'Cannot log non-pointer as ptr_data (set constraint "smem" or "generic")'
             log_fname = "log_ptr_data_arg"
             as_logged = lambda s: s
 
