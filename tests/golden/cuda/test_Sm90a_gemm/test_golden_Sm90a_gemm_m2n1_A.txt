@@ -997,151 +997,6 @@ uint64_t exo_Sm90_smem_descriptor(SwizzledElement* ptr, uint32_t leading_stride_
   );
 }
 
-/* Required by Sm90_tma_load_multicast_2d(dst,src,dst=f32, src=f32, ncta=1, size0=128, size1=32, cta_stride=1, smem_box=(1, 128, 1, 32), swizzle=128) */
-/* Required by Sm90_tma_load_multicast_2d(dst,src,dst=f32, src=f32, ncta=2, size0=256, size1=32, cta_stride=1, smem_box=(1, 128, 1, 32), swizzle=128) */
-template <typename WindowOffsets>
-EXO_CUDA_INLINE void
-exo_Sm90_tma_to_smem_multicast(
-        void* dst, const CUtensorMap& tensorMap, WindowOffsets window,
-        uint32_t exo_tma_mbarrier, uint32_t expect_tx, uint16_t cta_mask)
-{
-    constexpr auto rank = sizeof(window.C_offsets) / sizeof(window.C_offsets[0]);
-    static_assert(rank >= 1 && rank <= 5);
-    // cute::elect_one_sync
-    uint32_t pred = 0;
-    uint32_t laneid = 0;
-    asm volatile(
-      "{\n"
-      ".reg .b32 %%rx;\n"
-      ".reg .pred %%px;\n"
-      "     elect.sync %%rx|%%px, %2;\n"
-      "@%%px mov.s32 %1, 1;\n"
-      "     mov.s32 %0, %%rx;\n"
-      "}\n"
-      : "+r"(laneid), "+r"(pred)
-      : "r"(0xFFFFFFFF));
-    if (pred) {
-        asm("mbarrier.expect_tx.shared::cta.b64 [%0], %1;" :: "r"(exo_tma_mbarrier), "r"(expect_tx));
-        if constexpr (rank == 1) {
-            asm volatile(
-                "cp.async.bulk.tensor.1d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.multicast::cluster.L2::cache_hint"
-                " [%0], [%1, {%2}], [%3], %4, %5;"
-                :
-                : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[0]),
-                  "r"(exo_tma_mbarrier), "h"(cta_mask), "n"(1152921504606846976)
-                : "memory");
-        }
-        if constexpr (rank == 2) {
-            asm volatile(
-                "cp.async.bulk.tensor.2d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.multicast::cluster.L2::cache_hint"
-                " [%0], [%1, {%2, %3}], [%4], %5, %6;"
-                :
-                : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
-                  "r"(exo_tma_mbarrier), "h"(cta_mask), "n"(1152921504606846976)
-                : "memory");
-        }
-        if constexpr (rank == 3) {
-            asm volatile(
-                "cp.async.bulk.tensor.3d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.multicast::cluster.L2::cache_hint"
-                " [%0], [%1, {%2, %3, %4}], [%5], %6, %7;"
-                :
-                : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
-                  "r"(exo_tma_mbarrier), "h"(cta_mask), "n"(1152921504606846976)
-                : "memory");
-        }
-        if constexpr (rank == 4) {
-            asm volatile(
-                "cp.async.bulk.tensor.4d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.multicast::cluster.L2::cache_hint"
-                " [%0], [%1, {%2, %3, %4, %5}], [%6], %7, %8;"
-                :
-                : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[3]), "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
-                  "r"(exo_tma_mbarrier), "h"(cta_mask), "n"(1152921504606846976)
-                : "memory");
-        }
-        if constexpr (rank == 5) {
-            asm volatile(
-                "cp.async.bulk.tensor.5d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.multicast::cluster.L2::cache_hint"
-                " [%0], [%1, {%2, %3, %4, %5, %6}], [%7], %8, %9;"
-                :
-                : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[4]), "r"(window.C_offsets[3]), "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
-                  "r"(exo_tma_mbarrier), "h"(cta_mask), "n"(1152921504606846976)
-                : "memory");
-        }
-    }
-}
-/* Required by Sm90_tma_store_2d(dst,src,dst=f32, src=f32, size0=128, size1=32, smem_box=(1, 128, 32), swizzle=128) */
-template <typename WindowOffsets>
-EXO_CUDA_INLINE void
-exo_Sm90_tma_to_gmem(const CUtensorMap& tensorMap, WindowOffsets window, const void* src)
-{
-    constexpr auto rank = sizeof(window.C_offsets) / sizeof(window.C_offsets[0]);
-    static_assert(rank >= 1 && rank <= 5);
-    // cute::elect_one_sync
-    uint32_t pred = 0;
-    uint32_t laneid = 0;
-    asm volatile(
-      "{\n"
-      ".reg .b32 %%rx;\n"
-      ".reg .pred %%px;\n"
-      "     elect.sync %%rx|%%px, %2;\n"
-      "@%%px mov.s32 %1, 1;\n"
-      "     mov.s32 %0, %%rx;\n"
-      "}\n"
-      : "+r"(laneid), "+r"(pred)
-      : "r"(0xFFFFFFFF));
-    if (pred) {
-        if constexpr (rank == 1) {
-            asm volatile(
-                "cp.async.bulk.tensor.1d.global.shared::cta.tile.bulk_group"
-                " [%0, {%1}], [%2];"
-                :
-                : "l"(&tensorMap),
-                  "r"(window.C_offsets[0]),
-                  "r"(exo_smemU32(src))
-                : "memory");
-        }
-        if constexpr (rank == 2) {
-            asm volatile(
-                "cp.async.bulk.tensor.2d.global.shared::cta.tile.bulk_group"
-                " [%0, {%1, %2}], [%3];"
-                :
-                : "l"(&tensorMap),
-                  "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
-                  "r"(exo_smemU32(src))
-                : "memory");
-        }
-        if constexpr (rank == 3) {
-            asm volatile(
-                "cp.async.bulk.tensor.3d.global.shared::cta.tile.bulk_group"
-                " [%0, {%1, %2, %3}], [%4];"
-                :
-                : "l"(&tensorMap),
-                  "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
-                  "r"(exo_smemU32(src))
-                : "memory");
-        }
-        if constexpr (rank == 4) {
-            asm volatile(
-                "cp.async.bulk.tensor.4d.global.shared::cta.tile.bulk_group"
-                " [%0, {%1, %2, %3, %4}], [%5];"
-                :
-                : "l"(&tensorMap),
-                  "r"(window.C_offsets[3]), "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
-                  "r"(exo_smemU32(src))
-                : "memory");
-        }
-        if constexpr (rank == 5) {
-            asm volatile(
-                "cp.async.bulk.tensor.5d.global.shared::cta.tile.bulk_group"
-                " [%0, {%1, %2, %3, %4, %5}], [%6];"
-                :
-                : "l"(&tensorMap),
-                  "r"(window.C_offsets[4]), "r"(window.C_offsets[3]), "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
-                  "r"(exo_smemU32(src))
-                : "memory");
-        }
-    }
-}
 }  // end namespace exo_CudaUtil_test_golden_Sm90a_gemm_m2n1_A
 // CUDA device function args -- duplicated in .c file
 struct exo_CudaDeviceArgs0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m2n1_m128n256_coop
@@ -1554,25 +1409,75 @@ exo_CudaInline_test_golden_Sm90a_gemm_m2n1_A::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32
       }
       // cuda_threads(0, 2, unit=cuda_cta_in_cluster)
       if ([[maybe_unused]] int exo_384thr_cta_m = (blockIdx.x % 2); 1) {
-        exo_CudaUtil::exo_Sm90_tma_to_smem_multicast(
-            (&A_smem[(iter_k * 4096)])
-          , exo_deviceArgs.exo_data_A_tensorMap
-          , (exo_win_2f32_Sm90_tensorMap_128_1_128_1_32) { {(exo_deviceArgs.A_tensorMap.C_offsets[0] + exo_task.batch), (exo_deviceArgs.A_tensorMap.C_offsets[1] + 128 * exo_384thr_cta_m + 256 * exo_task.task_m), (exo_deviceArgs.A_tensorMap.C_offsets[2] + exo_task.task_k), (exo_deviceArgs.A_tensorMap.C_offsets[3] + 32 * iter_k)} }
-          , exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int(0), int((iter_k + (exo_syncState.ring_consumption_1_raw))), 0)
-          , 16384
-          , uint16_t(0x1 << (blockIdx.x & 0x1))
-        );
+        {
+          auto exo_tmaWindow = (exo_win_2f32_Sm90_tensorMap_128_1_128_1_32) { {(exo_deviceArgs.A_tensorMap.C_offsets[0] + exo_task.batch), (exo_deviceArgs.A_tensorMap.C_offsets[1] + 128 * exo_384thr_cta_m + 256 * exo_task.task_m), (exo_deviceArgs.A_tensorMap.C_offsets[2] + exo_task.task_k), (exo_deviceArgs.A_tensorMap.C_offsets[3] + 32 * iter_k)} };
+          if (exo_elect_one_sync()) {
+            asm(
+              "mbarrier.expect_tx.shared::cta.b64 [%0], 16384;"
+                :
+                :"r"(exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int(0), int((iter_k + (exo_syncState.ring_consumption_1_raw))), 0))
+            );
+            exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_expect_tx_shared_cta_b64), 0, __LINE__);
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int(0), int((iter_k + (exo_syncState.ring_consumption_1_raw))), 0)));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(16384));
+          }
+          if (exo_elect_one_sync()) {
+            asm volatile(
+              "cp.async.bulk.tensor.4d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.multicast::cluster.L2::cache_hint [%0], [%1, {%2, %3, %4, %5}], [%6], %7, 1152921504606846976;"
+                :
+                :"r"(exo_smemU32((&A_smem[(iter_k * 4096)]))),
+                "l"(&(exo_deviceArgs.exo_data_A_tensorMap)),
+                "r"(exo_tmaWindow.C_offsets[3]), "r"(exo_tmaWindow.C_offsets[2]), "r"(exo_tmaWindow.C_offsets[1]), "r"(exo_tmaWindow.C_offsets[0]),
+                "r"(exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int(0), int((iter_k + (exo_syncState.ring_consumption_1_raw))), 0)),
+                "h"(uint16_t(0x1 << (blockIdx.x & 0x1)))
+            );
+            exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_bulk_tensor_4d_shared_cluster_global_tile_mbarrier_complete_tx_bytes_multicast_cluster_L2_cache_hint), 0, __LINE__);
+            exo_excutLog.log_u32_arg(exo_smemU32((&A_smem[(iter_k * 4096)])));
+            exo_excutLog.log_ptr_data_arg(&(exo_deviceArgs.exo_data_A_tensorMap));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_tmaWindow.C_offsets[3]));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_tmaWindow.C_offsets[2]));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_tmaWindow.C_offsets[1]));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_tmaWindow.C_offsets[0]));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int(0), int((iter_k + (exo_syncState.ring_consumption_1_raw))), 0)));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(uint16_t(0x1 << (blockIdx.x & 0x1))));
+          }
+        }
       }
       // cuda_threads(0, 1, unit=2 * cuda_cta_in_cluster_strided(1))
       if ([[maybe_unused]] int exo_0thr_cta_n = 0; 1) {
-        exo_CudaUtil::exo_Sm90_tma_to_smem_multicast(
-            (&B_smem[(exo_0thr_cta_n * 32768 + iter_k * 8192 + 128 * ((blockIdx.x) & 1) * 32)])
-          , exo_deviceArgs.exo_data_B_tensorMap
-          , (exo_win_2f32_Sm90_tensorMap_128_1_128_1_32) { {(exo_deviceArgs.B_tensorMap.C_offsets[0] + exo_task.batch), (exo_deviceArgs.B_tensorMap.C_offsets[1] + 256 * exo_0thr_cta_n + 256 * exo_task.task_n + 128 * ((blockIdx.x) & 1)), (exo_deviceArgs.B_tensorMap.C_offsets[2] + exo_task.task_k), (exo_deviceArgs.B_tensorMap.C_offsets[3] + 32 * iter_k)} }
-          , exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int(exo_0thr_cta_n), int((iter_k + (exo_syncState.ring_consumption_1_raw))), 0)
-          , 32768
-          , uint16_t(0x3)
-        );
+        {
+          auto exo_tmaWindow = (exo_win_2f32_Sm90_tensorMap_128_1_128_1_32) { {(exo_deviceArgs.B_tensorMap.C_offsets[0] + exo_task.batch), (exo_deviceArgs.B_tensorMap.C_offsets[1] + 256 * exo_0thr_cta_n + 256 * exo_task.task_n + 128 * ((blockIdx.x) & 1)), (exo_deviceArgs.B_tensorMap.C_offsets[2] + exo_task.task_k), (exo_deviceArgs.B_tensorMap.C_offsets[3] + 32 * iter_k)} };
+          if (exo_elect_one_sync()) {
+            asm(
+              "mbarrier.expect_tx.shared::cta.b64 [%0], 32768;"
+                :
+                :"r"(exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int(exo_0thr_cta_n), int((iter_k + (exo_syncState.ring_consumption_1_raw))), 0))
+            );
+            exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_expect_tx_shared_cta_b64), 0, __LINE__);
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int(exo_0thr_cta_n), int((iter_k + (exo_syncState.ring_consumption_1_raw))), 0)));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(32768));
+          }
+          if (exo_elect_one_sync()) {
+            asm volatile(
+              "cp.async.bulk.tensor.4d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.multicast::cluster.L2::cache_hint [%0], [%1, {%2, %3, %4, %5}], [%6], %7, 1152921504606846976;"
+                :
+                :"r"(exo_smemU32((&B_smem[(exo_0thr_cta_n * 32768 + iter_k * 8192 + 128 * ((blockIdx.x) & 1) * 32)]))),
+                "l"(&(exo_deviceArgs.exo_data_B_tensorMap)),
+                "r"(exo_tmaWindow.C_offsets[3]), "r"(exo_tmaWindow.C_offsets[2]), "r"(exo_tmaWindow.C_offsets[1]), "r"(exo_tmaWindow.C_offsets[0]),
+                "r"(exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int(exo_0thr_cta_n), int((iter_k + (exo_syncState.ring_consumption_1_raw))), 0)),
+                "h"(uint16_t(0x3))
+            );
+            exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_bulk_tensor_4d_shared_cluster_global_tile_mbarrier_complete_tx_bytes_multicast_cluster_L2_cache_hint), 0, __LINE__);
+            exo_excutLog.log_u32_arg(exo_smemU32((&B_smem[(exo_0thr_cta_n * 32768 + iter_k * 8192 + 128 * ((blockIdx.x) & 1) * 32)])));
+            exo_excutLog.log_ptr_data_arg(&(exo_deviceArgs.exo_data_B_tensorMap));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_tmaWindow.C_offsets[3]));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_tmaWindow.C_offsets[2]));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_tmaWindow.C_offsets[1]));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_tmaWindow.C_offsets[0]));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int(exo_0thr_cta_n), int((iter_k + (exo_syncState.ring_consumption_1_raw))), 0)));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(uint16_t(0x3)));
+          }
+        }
       }
       // cuda_threads(0, 2, unit=cuda_cta_in_cluster)
       if ([[maybe_unused]] int exo_384thr_cta_m = (blockIdx.x % 2); 1) {
@@ -1600,25 +1505,75 @@ exo_CudaInline_test_golden_Sm90a_gemm_m2n1_A::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32
       }
       // cuda_threads(0, 2, unit=cuda_cta_in_cluster)
       if ([[maybe_unused]] int exo_384thr_cta_m = (blockIdx.x % 2); 1) {
-        exo_CudaUtil::exo_Sm90_tma_to_smem_multicast(
-            (&A_smem[((iter_k & 3) * 4096)])
-          , exo_deviceArgs.exo_data_A_tensorMap
-          , (exo_win_2f32_Sm90_tensorMap_128_1_128_1_32) { {(exo_deviceArgs.A_tensorMap.C_offsets[0] + exo_task.batch), (exo_deviceArgs.A_tensorMap.C_offsets[1] + 128 * exo_384thr_cta_m + 256 * exo_task.task_m), (exo_deviceArgs.A_tensorMap.C_offsets[2] + exo_task.task_k), (exo_deviceArgs.A_tensorMap.C_offsets[3] + 32 * iter_k)} }
-          , exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int(0), int((iter_k + (exo_syncState.ring_consumption_1_raw))), 0)
-          , 16384
-          , uint16_t(0x1 << (blockIdx.x & 0x1))
-        );
+        {
+          auto exo_tmaWindow = (exo_win_2f32_Sm90_tensorMap_128_1_128_1_32) { {(exo_deviceArgs.A_tensorMap.C_offsets[0] + exo_task.batch), (exo_deviceArgs.A_tensorMap.C_offsets[1] + 128 * exo_384thr_cta_m + 256 * exo_task.task_m), (exo_deviceArgs.A_tensorMap.C_offsets[2] + exo_task.task_k), (exo_deviceArgs.A_tensorMap.C_offsets[3] + 32 * iter_k)} };
+          if (exo_elect_one_sync()) {
+            asm(
+              "mbarrier.expect_tx.shared::cta.b64 [%0], 16384;"
+                :
+                :"r"(exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int(0), int((iter_k + (exo_syncState.ring_consumption_1_raw))), 0))
+            );
+            exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_expect_tx_shared_cta_b64), 0, __LINE__);
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int(0), int((iter_k + (exo_syncState.ring_consumption_1_raw))), 0)));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(16384));
+          }
+          if (exo_elect_one_sync()) {
+            asm volatile(
+              "cp.async.bulk.tensor.4d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.multicast::cluster.L2::cache_hint [%0], [%1, {%2, %3, %4, %5}], [%6], %7, 1152921504606846976;"
+                :
+                :"r"(exo_smemU32((&A_smem[((iter_k & 3) * 4096)]))),
+                "l"(&(exo_deviceArgs.exo_data_A_tensorMap)),
+                "r"(exo_tmaWindow.C_offsets[3]), "r"(exo_tmaWindow.C_offsets[2]), "r"(exo_tmaWindow.C_offsets[1]), "r"(exo_tmaWindow.C_offsets[0]),
+                "r"(exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int(0), int((iter_k + (exo_syncState.ring_consumption_1_raw))), 0)),
+                "h"(uint16_t(0x1 << (blockIdx.x & 0x1)))
+            );
+            exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_bulk_tensor_4d_shared_cluster_global_tile_mbarrier_complete_tx_bytes_multicast_cluster_L2_cache_hint), 0, __LINE__);
+            exo_excutLog.log_u32_arg(exo_smemU32((&A_smem[((iter_k & 3) * 4096)])));
+            exo_excutLog.log_ptr_data_arg(&(exo_deviceArgs.exo_data_A_tensorMap));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_tmaWindow.C_offsets[3]));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_tmaWindow.C_offsets[2]));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_tmaWindow.C_offsets[1]));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_tmaWindow.C_offsets[0]));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int(0), int((iter_k + (exo_syncState.ring_consumption_1_raw))), 0)));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(uint16_t(0x1 << (blockIdx.x & 0x1))));
+          }
+        }
       }
       // cuda_threads(0, 1, unit=2 * cuda_cta_in_cluster_strided(1))
       if ([[maybe_unused]] int exo_0thr_cta_n = 0; 1) {
-        exo_CudaUtil::exo_Sm90_tma_to_smem_multicast(
-            (&B_smem[(exo_0thr_cta_n * 32768 + (iter_k & 3) * 8192 + 128 * ((blockIdx.x) & 1) * 32)])
-          , exo_deviceArgs.exo_data_B_tensorMap
-          , (exo_win_2f32_Sm90_tensorMap_128_1_128_1_32) { {(exo_deviceArgs.B_tensorMap.C_offsets[0] + exo_task.batch), (exo_deviceArgs.B_tensorMap.C_offsets[1] + 256 * exo_0thr_cta_n + 256 * exo_task.task_n + 128 * ((blockIdx.x) & 1)), (exo_deviceArgs.B_tensorMap.C_offsets[2] + exo_task.task_k), (exo_deviceArgs.B_tensorMap.C_offsets[3] + 32 * iter_k)} }
-          , exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int(exo_0thr_cta_n), int((iter_k + (exo_syncState.ring_consumption_1_raw))), 0)
-          , 32768
-          , uint16_t(0x3)
-        );
+        {
+          auto exo_tmaWindow = (exo_win_2f32_Sm90_tensorMap_128_1_128_1_32) { {(exo_deviceArgs.B_tensorMap.C_offsets[0] + exo_task.batch), (exo_deviceArgs.B_tensorMap.C_offsets[1] + 256 * exo_0thr_cta_n + 256 * exo_task.task_n + 128 * ((blockIdx.x) & 1)), (exo_deviceArgs.B_tensorMap.C_offsets[2] + exo_task.task_k), (exo_deviceArgs.B_tensorMap.C_offsets[3] + 32 * iter_k)} };
+          if (exo_elect_one_sync()) {
+            asm(
+              "mbarrier.expect_tx.shared::cta.b64 [%0], 32768;"
+                :
+                :"r"(exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int(exo_0thr_cta_n), int((iter_k + (exo_syncState.ring_consumption_1_raw))), 0))
+            );
+            exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_expect_tx_shared_cta_b64), 0, __LINE__);
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int(exo_0thr_cta_n), int((iter_k + (exo_syncState.ring_consumption_1_raw))), 0)));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(32768));
+          }
+          if (exo_elect_one_sync()) {
+            asm volatile(
+              "cp.async.bulk.tensor.4d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.multicast::cluster.L2::cache_hint [%0], [%1, {%2, %3, %4, %5}], [%6], %7, 1152921504606846976;"
+                :
+                :"r"(exo_smemU32((&B_smem[(exo_0thr_cta_n * 32768 + (iter_k & 3) * 8192 + 128 * ((blockIdx.x) & 1) * 32)]))),
+                "l"(&(exo_deviceArgs.exo_data_B_tensorMap)),
+                "r"(exo_tmaWindow.C_offsets[3]), "r"(exo_tmaWindow.C_offsets[2]), "r"(exo_tmaWindow.C_offsets[1]), "r"(exo_tmaWindow.C_offsets[0]),
+                "r"(exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int(exo_0thr_cta_n), int((iter_k + (exo_syncState.ring_consumption_1_raw))), 0)),
+                "h"(uint16_t(0x3))
+            );
+            exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_bulk_tensor_4d_shared_cluster_global_tile_mbarrier_complete_tx_bytes_multicast_cluster_L2_cache_hint), 0, __LINE__);
+            exo_excutLog.log_u32_arg(exo_smemU32((&B_smem[(exo_0thr_cta_n * 32768 + (iter_k & 3) * 8192 + 128 * ((blockIdx.x) & 1) * 32)])));
+            exo_excutLog.log_ptr_data_arg(&(exo_deviceArgs.exo_data_B_tensorMap));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_tmaWindow.C_offsets[3]));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_tmaWindow.C_offsets[2]));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_tmaWindow.C_offsets[1]));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_tmaWindow.C_offsets[0]));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int(exo_0thr_cta_n), int((iter_k + (exo_syncState.ring_consumption_1_raw))), 0)));
+            exo_excutLog.log_u32_arg(static_cast<uint32_t>(uint16_t(0x3)));
+          }
+        }
       }
       // cuda_threads(0, 2, unit=cuda_cta_in_cluster)
       if ([[maybe_unused]] int exo_384thr_cta_m = (blockIdx.x % 2); 1) {
@@ -1664,11 +1619,24 @@ exo_CudaInline_test_golden_Sm90a_gemm_m2n1_A::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32
       // CudaWarps(3, 4, name='producer')
       if (int CudaWarps_3_4_producer = threadIdx.x; CudaWarps_3_4_producer >= 96) {
         for (int ns = 0; ns < 8; ns++) {
-          exo_CudaUtil::exo_Sm90_tma_to_gmem(
-              exo_deviceArgs.exo_data_C_tensorMap
-            , (exo_win_2f32_Sm90_tensorMap_128_1_128_32) { {(exo_deviceArgs.C_tensorMap.C_offsets[0] + exo_task.batch), (exo_deviceArgs.C_tensorMap.C_offsets[1] + 128 * exo_384thr_cta_m + 256 * exo_task.task_m), (exo_deviceArgs.C_tensorMap.C_offsets[2] + 32 * ns + 256 * exo_0thr_cta_n + 256 * exo_task.task_n)} }
-            , (&C_smem[(exo_0thr_cta_n * 32768 + ns * 4096)])
-          );
+          {
+            auto exo_tmaWindow = (exo_win_2f32_Sm90_tensorMap_128_1_128_32) { {(exo_deviceArgs.C_tensorMap.C_offsets[0] + exo_task.batch), (exo_deviceArgs.C_tensorMap.C_offsets[1] + 128 * exo_384thr_cta_m + 256 * exo_task.task_m), (exo_deviceArgs.C_tensorMap.C_offsets[2] + 32 * ns + 256 * exo_0thr_cta_n + 256 * exo_task.task_n)} };
+            if (exo_elect_one_sync()) {
+              asm volatile(
+                "cp.async.bulk.tensor.3d.global.shared::cta.tile.bulk_group [%0, {%1, %2, %3}], [%4];"
+                  :
+                  :"l"(&(exo_deviceArgs.exo_data_C_tensorMap)),
+                  "r"(exo_tmaWindow.C_offsets[2]), "r"(exo_tmaWindow.C_offsets[1]), "r"(exo_tmaWindow.C_offsets[0]),
+                  "r"(exo_smemU32((&C_smem[(exo_0thr_cta_n * 32768 + ns * 4096)])))
+              );
+              exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_bulk_tensor_3d_global_shared_cta_tile_bulk_group), 0, __LINE__);
+              exo_excutLog.log_ptr_data_arg(&(exo_deviceArgs.exo_data_C_tensorMap));
+              exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_tmaWindow.C_offsets[2]));
+              exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_tmaWindow.C_offsets[1]));
+              exo_excutLog.log_u32_arg(static_cast<uint32_t>(exo_tmaWindow.C_offsets[0]));
+              exo_excutLog.log_u32_arg(exo_smemU32((&C_smem[(exo_0thr_cta_n * 32768 + ns * 4096)])));
+            }
+          }
           // tma_cg: barrier @ Sm90_TmaCommitGroup
           // Arrive(tma_to_gmem_async, 1) >> tma_cg
           asm volatile(
