@@ -86,6 +86,15 @@ def pytest_runtest_setup(item: Node):
 # ---------------------------------------------------------------------------- #
 
 
+_working_dir_substr = " " + os.getcwd() + "/"
+
+
+def _censor_working_directory(text):
+    text = text.replace(_working_dir_substr, " ")
+    assert "/home/mantissa" not in text, "David Zhao Akeley messed up"
+    return text
+
+
 @pytest.fixture
 def golden(request, tmp_path):
     """
@@ -186,13 +195,15 @@ class GoldenOutput(str):
         self.tmp_path = tmp_path
 
     def __eq__(self, actual):
+        if isinstance(actual, GoldenOutput) and self.path != actual.path:
+            return False
+
+        actual = _censor_working_directory(actual)
+
         actual_log_path = self.tmp_path / "actual_golden.txt"
         expected_log_path = self.tmp_path / "expected_golden.txt"
         actual_log_path.write_text(str(actual))
         expected_log_path.write_text(str(self))
-
-        if isinstance(actual, GoldenOutput) and self.path != actual.path:
-            return False
 
         if super().__eq__(self._missing) and not self.update:
             # Hides this stack frame in the PyTest traceback.
