@@ -54,6 +54,10 @@ class CudaBasicDeviceVisible(Memory):
     """
 
     @classmethod
+    def swizzle_period(cls) -> int:
+        return 1
+
+    @classmethod
     def sync_exempt(cls) -> bool:
         return False
 

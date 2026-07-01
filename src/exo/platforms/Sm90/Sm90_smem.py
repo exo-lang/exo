@@ -34,12 +34,18 @@ def Sm90_SmemSwizzled(swizzle):
 
     swizzle_bits = 1 if swizzle == 128 else 2 if swizzle == 64 else 3
     mask = 0x70 if swizzle == 128 else 0x30 if swizzle == 64 else 0x10
+    swizzle_period = 8 * swizzle
+    assert swizzle_period in (256, 512, 1024)
 
     @window_indexer(SwizzledIndexer)
     class SwizzledImpl(CudaSmemAtomicity16B):
         @classmethod
         def get_swizzle_bytes(cls):
             return swizzle
+
+        @classmethod
+        def swizzle_period(cls):
+            return swizzle_period
 
         @classmethod
         def global_(cls):
