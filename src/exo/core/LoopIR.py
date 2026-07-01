@@ -106,7 +106,7 @@ module LoopIR {
            -- New variable that views subset of tensor passed as rhs:WindowExpr
            -- See chain_window_idx
          | WindowStmt( sym name, expr rhs, special_window? special_window )
-         attributes( srcinfo srcinfo )
+         attributes( srcinfo srcinfo )  -- common to all stmt constructors
 
     expr = Read( sym name, expr* idx )
          | Const( object val )
@@ -119,7 +119,7 @@ module LoopIR {
          | ReadConfig( config config, string field )
          -- Only used in GPU codegen hack: `(arg + c_consumption) % ring_depth`
          | ManagedRingBufferIdx( expr arg, int ring_depth, string c_consumption )
-         attributes( type type, srcinfo srcinfo )
+         attributes( type type, srcinfo srcinfo )  -- common to all expr constructors
 
     -- WindowExpr = (base : Sym, idx : [ Pt Expr | Interval Expr Expr ])
     w_access = Interval( expr lo, expr hi )
