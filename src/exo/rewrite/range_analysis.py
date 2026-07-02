@@ -296,6 +296,10 @@ def index_range_analysis(
                 return lhs_range % rhs_range
             else:
                 assert False, "invalid binop in index expression"
+        elif isinstance(expr, LoopIR.ManagedRingBufferIdx):
+            # David Zhao Akeley 2026-07-02 TODO test coverage
+            assert expr.ring_depth >= 1
+            return IndexRange.create_constant_range(0, expr.ring_depth - 1)
         else:
             assert False, "invalid expr in index expression"
 
