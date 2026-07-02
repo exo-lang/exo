@@ -144,7 +144,14 @@ def run_backend_checks(
 
         barrier_uses = None
         proc_uses_cuda = timelines.cuda_basic_device in device_analysis.devices_seen
+        want_gpu_analysis = proc_uses_cuda or device_analysis.contains_sync
         coll_analysis = None
+
+        if want_gpu_analysis:
+            # Don't force non-CUDA Exo users to waste time here
+            barrier_usage_analysis = BarrierUsageAnalysis(p)
+            barrier_uses = barrier_usage_analysis.uses
+
         debug_log.log(p.name, "analysis", p, preferred=True)
     except AssertionError:
         raise
@@ -154,11 +161,9 @@ def run_backend_checks(
         debug_log.log(p.name, f"analysis", p, preferred=True)
         raise
 
-    if proc_uses_cuda or device_analysis.contains_sync:
+    if want_gpu_analysis:
         try:
             # Don't force non-CUDA Exo users to waste time here
-            barrier_usage_analysis = BarrierUsageAnalysis(p)
-            barrier_uses = barrier_usage_analysis.uses
             coll_analysis = CollAnalysis(
                 mem_analysis, barrier_usage_analysis, debug_log
             )
