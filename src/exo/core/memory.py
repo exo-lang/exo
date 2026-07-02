@@ -398,6 +398,10 @@ class MemWin(ABC):
             bits |= Qual_tl.make_bits(v)
         return bits
 
+    @classmethod
+    def swizzle_period(cls) -> int:
+        return 1
+
 
 class AllocableMemWin(MemWin):
     @classmethod

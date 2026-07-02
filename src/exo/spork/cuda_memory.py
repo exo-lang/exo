@@ -54,10 +54,6 @@ class CudaBasicDeviceVisible(Memory):
     """
 
     @classmethod
-    def swizzle_period(cls) -> int:
-        return 1
-
-    @classmethod
     def sync_exempt(cls) -> bool:
         return False
 
@@ -219,7 +215,9 @@ class CudaDeviceVisibleAtomicity16B(CudaBasicDeviceVisible):
 class CudaDeviceVisibleLinear(CudaDeviceVisibleAtomicity16B):
     """Any memory in C array order visible to CUDA device"""
 
-    pass
+    @classmethod
+    def swizzle_period(cls) -> int:
+        return 1
 
 
 # TODO grid constants require special compiler support. Consider additional
