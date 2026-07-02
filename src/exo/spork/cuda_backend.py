@@ -617,11 +617,11 @@ class SubtreeScan(LoopIR_Do):
         self._coll_tiling = old_coll_tiling
         self._current_warp_name = old_warp_name
 
-    def do_e(self, e, distributed_coll_units=()):
-        self.apply_e(e, distributed_coll_units)
+    def do_e(self, e):
+        self.apply_e(e)
         super().do_e(e)
 
-    def apply_e(self, e, distributed_coll_units):
+    def apply_e(self, e):
         if isinstance(e, idx_e_types):
             self.mark_sym_used(e.name)
         if isinstance(e, LoopIR.BarrierExpr):
