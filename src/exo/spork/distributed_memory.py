@@ -71,7 +71,7 @@ class ThreadIter:
             am_box = -1
 
         self.codegen_par = _CodegenPar(
-            codegen.codegen_expr.codegen(),
+            codegen.codegen_expr.c_codegen(),
             comment,
             (codegen.codegen_static_lo, codegen.codegen_static_hi),
             warp_name_filter,
@@ -682,7 +682,7 @@ class DistributedIdxFsm:
             for sym1 in first_distributed_iters:
                 info = thread_iters[sym1]
                 lines.append(
-                    f"  {sym1} = {info.coll_index_expr.codegen()}; thread_pitch={info.thread_pitch}"
+                    f"  {sym1} = {info.coll_index_expr.c_codegen()}; thread_pitch={info.thread_pitch}"
                 )
             lines.append(f"Second usage: {s2} @ {s2.srcinfo}")
             txt = ", ".join(str(sym2) for sym2 in second_distributed_iters)
@@ -690,7 +690,7 @@ class DistributedIdxFsm:
             for sym2 in second_distributed_iters:
                 info = thread_iters[sym2]
                 lines.append(
-                    f"  {sym2} = {info.coll_index_expr.codegen()}; thread_pitch={info.thread_pitch}"
+                    f"  {sym2} = {info.coll_index_expr.c_codegen()}; thread_pitch={info.thread_pitch}"
                 )
             raise ValueError("\n".join(lines))
         return None

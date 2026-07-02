@@ -323,7 +323,7 @@ class CollIndexExpr(object):
             break
         return CollIndexExpr(self.base_expr, self.base_hi, _range, ops + (("%", v),))
 
-    def codegen(self):
+    def c_codegen(self):
         """Assuming C for now. Should be usable downstream without further parenthesization"""
         simple = lambda s: all(c.isalnum() or c == "." for c in s)
         need_parens = isinstance(self.base_expr, str) and not simple(self.base_expr)
