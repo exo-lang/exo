@@ -53,6 +53,15 @@ def wrap_codegen_par(codegen_par, body, srcinfo, iter_sym=None):
 
 
 class CollAnalysis(LoopIR_Rewrite):
+    """
+    Collects
+        * DistributedAllocState per data allocation at CUDA scope
+        * ThreadIter per loop iterator variable at CUDA scope
+    And rewrites
+        * cuda_threads loops
+        * CudaWarps blocks
+    into _CodegenPar-mode loops
+    """
     __slots__ = [
         "distributed_alloc_states",
         "thread_iters",
