@@ -123,12 +123,9 @@ class FrameScope:
         not possible to add new local variables or modify the local variables by modifying
         the returned dictionary.
         """
+        f_locals = dict(self.frame.f_locals)
         return {
-            var: (
-                BoundLocal(self.frame.f_locals[var])
-                if var in self.frame.f_locals
-                else None
-            )
+            var: (BoundLocal(f_locals[var]) if var in f_locals else None)
             for var in self.frame.f_code.co_varnames
             + self.frame.f_code.co_cellvars
             + self.frame.f_code.co_freevars
