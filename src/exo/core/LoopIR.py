@@ -118,6 +118,8 @@ module LoopIR {
          | StrideExpr( sym name, int dim )
          | ReadConfig( config config, string field )
          -- Only used in GPU codegen hack: `(arg + c_consumption) % ring_depth`
+         -- omit `% ring_depth` if ring_depth == 0.
+         -- was hoping to use Optional[int] but that didn't work.
          | ManagedRingBufferIdx( expr arg, int ring_depth, string c_consumption )
          attributes( type type, srcinfo srcinfo )  -- common to all expr constructors
 

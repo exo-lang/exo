@@ -298,8 +298,17 @@ def index_range_analysis(
                 assert False, "invalid binop in index expression"
         elif isinstance(expr, LoopIR.ManagedRingBufferIdx):
             # David Zhao Akeley 2026-07-02 TODO test coverage
-            assert expr.ring_depth >= 1
-            return IndexRange.create_constant_range(0, expr.ring_depth - 1)
+            if expr.ring_depth:
+                assert expr.ring_depth >= 1
+                return IndexRange.create_constant_range(0, expr.ring_depth - 1)
+            else:
+                # c_consumption is non-negative.
+                # So lower bound is unchanged; upper bound is infinite.
+                _range = analyze_range(expr.arg)
+                if not isinstance(_range, IndexRange):
+                    _range = IndexRange.create_int(_range)
+                _range.hi = None
+                return _range
         else:
             assert False, "invalid expr in index expression"
 
