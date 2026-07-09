@@ -1,13 +1,17 @@
 #include "test.h"
 
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
 #include <stdio.h>
 #include <stdlib.h>
 
+#endif
 // foo(
 
 // )
 void foo( void *ctxt ) {
-uint8_t a;
-a = a + ((uint8_t) 3);
+  uint8_t a;
+  a = a + ((uint8_t) 3);
 }
 

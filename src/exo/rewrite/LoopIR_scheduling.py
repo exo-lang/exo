@@ -1,9 +1,10 @@
 import re
 from collections import ChainMap
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Type
 
 from ..core.LoopIR import (
     LoopIR,
+    LoopIR_Fence,
     LoopIR_Rewrite,
     Alpha_Rename,
     LoopIR_Do,
@@ -40,8 +41,12 @@ from ..core.proc_eqv import get_strictest_eqv_proc
 import exo.core.internal_cursors as ic
 import exo.API as api
 from ..frontend.pattern_match import match_pattern
-from ..core.memory import DRAM
+from ..core.memory import DRAM, SpecialWindow, AllocableMemWin, BarrierMechanism
 from ..frontend.typecheck import check_call_types
+from ..spork.sync_types import arrive_type, await_type
+from ..spork.loop_modes import LoopMode, seq, par
+from ..spork.base_with_context import is_if_holding_with, BaseWithContext
+from ..spork.timelines import Sync_tl
 
 from functools import partial
 
@@ -319,6 +324,10 @@ def extract_env(c: ic.Cursor) -> List[Tuple[Sym, ic.Cursor]]:
             syms_env.append((s.iter, T.index, None))
         elif isinstance(s, LoopIR.Alloc):
             syms_env.append((s.name, s.type, s.mem))
+        elif isinstance(s, LoopIR.WindowStmt):
+            # XXX David Akeley: not sure the consequences of this.
+            if s.special_window is not None:
+                syms_env.append((s.name, s.rhs.type, s.special_window))
         cur_c = move_back(cur_c)
 
     proc = c.get_root()
@@ -380,8 +389,9 @@ def DoReorderStmt(f_cursor, s_cursor):
     return ir, fwd
 
 
-def DoParallelizeLoop(loop_cursor):
-    return loop_cursor._child_node("loop_mode")._replace(LoopIR.Par())
+def DoParallelizeLoop(loop_cursor, loop_mode: LoopMode = par):
+    assert isinstance(loop_mode, LoopMode)
+    return loop_cursor._child_node("loop_mode")._replace(loop_mode)
 
 
 def DoJoinLoops(loop1_c, loop2_c):
@@ -715,7 +725,7 @@ def DoDivideWithRecompute(
             LoopIR.Const(0, T.index, srcinfo),
             hi_i,
             body,
-            LoopIR.Seq(),
+            seq,
             srcinfo,
         )
 
@@ -901,7 +911,7 @@ def DoInline(call):
 
     def map_bind(nm, a):
         if isinstance(a, LoopIR.WindowExpr):
-            stmt = LoopIR.WindowStmt(nm, a, a.srcinfo)
+            stmt = LoopIR.WindowStmt(nm, a, None, a.srcinfo)
             win_binds.append(stmt)
             return LoopIR.Read(nm, [], a.type, a.srcinfo)
         return a
@@ -989,16 +999,7 @@ def DoSetTypAndMem(cursor, basetyp=None, win=None, mem=None):
         def update_typ(c):
             s = c._node
             typ = s.type
-            if isinstance(typ, T.Tensor):
-                return {"type": typ.update(type=basetyp)}
-            elif isinstance(typ, T.Window):
-                new_src_type = typ.src_type.update(type=basetyp)
-                new_as_tensor = typ.as_tensor.update(type=basetyp)
-                return {
-                    "type": typ.update(src_type=new_src_type, as_tensor=new_as_tensor)
-                }
-            else:
-                return {"type": basetyp}
+            return {"type": typ.with_basetype(basetyp)}
 
         if s in cursor.get_root().args:
             scope = cursor.root().body()
@@ -1486,7 +1487,9 @@ def DoLiftConstant(assign_c, loop_c):
                 raise NotImplementedError(
                     f"unsupported stmt type in loop body: {type(s)}"
                 )
-            elif isinstance(s, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free)):
+            elif isinstance(
+                s, (LoopIR.Pass, LoopIR.Alloc, LoopIR.Free, LoopIR.SyncStmt)
+            ):
                 pass
             else:
                 raise NotImplementedError(f"unknown stmt type {type(s)}")
@@ -2333,6 +2336,29 @@ def DoRemoveLoop(loop, unsafe_disable_check):
     return ir, fwd
 
 
+def DoUnsafeRemoveIf(stmt_c, recursive):
+    s = stmt_c._node
+
+    ir, fwd = stmt_c.get_root(), lambda x: x
+    if recursive and hasattr(s, "body"):
+        for child in stmt_c.body():
+            ir, fwd_child = DoUnsafeRemoveIf(child, True)
+        fwd = _compose(fwd_child, fwd)
+
+    if isinstance(s, LoopIR.If):
+        if s.orelse:
+            raise SchedulingError("Cannot remove if with orelse statements")
+        ir, fwd_move = fwd(stmt_c).body()._move(fwd(stmt_c).after())
+        fwd = _compose(fwd_move, fwd)
+        ir, fwd_del = fwd(stmt_c)._delete()
+        fwd = _compose(fwd_del, fwd)
+    else:
+        if not recursive:
+            raise SchedulingError("Expected cursor to if statement")
+
+    return ir, fwd
+
+
 # This is same as original FissionAfter, except that
 # this does not remove loop. We have separate remove_loop
 # operator for that purpose.
@@ -2396,7 +2422,11 @@ def DoFissionAfterSimple(stmt_cursor, n_lifts, unsafe_disable_checks):
             # and the body is idempotent
 
             def wrapper(body):
-                return par_s.update(body=body)
+                # Rename the loop iter to a new Sym.
+                new_iter = Sym(str(par_s.iter))
+                bind = {par_s.iter: LoopIR.Read(new_iter, [], T.index, par_s.srcinfo)}
+                new_body = SubstArgs(body, bind).result()
+                return par_s.update(body=new_body, iter=new_iter)
 
             ir, fwd_wrap = post_c._wrap(wrapper, "body")
             fwd = _compose(fwd_wrap, fwd)
@@ -2711,11 +2741,47 @@ def DoAddLoop(stmt_cursor, var, hi, guard, unsafe_disable_check):
             LoopIR.Const(0, T.index, s.srcinfo),
             hi,
             body,
-            LoopIR.Seq(),
+            seq,
             s.srcinfo,
         )
 
     ir, fwd = stmt_cursor.as_block()._wrap(wrapper, "body")
+    return ir, fwd
+
+
+def DoWrapWithContext(
+    block_cursor: ic.Block, with_context: BaseWithContext, srcinfo: SrcInfo
+):
+    proc = block_cursor.get_root()
+
+    def wrapper(body):
+        with_stmt = LoopIR.If(
+            LoopIR.Const(with_context, T.with_context, srcinfo),
+            body,
+            [],
+            srcinfo,
+        )
+        assert is_if_holding_with(with_stmt, LoopIR)
+        return with_stmt
+
+    ir, fwd = block_cursor._wrap(wrapper, "body")
+    return ir, fwd
+
+
+def DoAddIf(
+    block_cursor: ic.Block,
+    cond: LoopIR.expr,
+    unsafe_disable_check: bool,
+    srcinfo: SrcInfo,
+):
+    proc = block_cursor.get_root()
+
+    assert unsafe_disable_check, "not implemented"
+
+    def wrapper(body):
+        return LoopIR.If(cond, body, [], srcinfo)
+
+    ir, fwd = block_cursor._wrap(wrapper, "body")
     return ir, fwd
 
 
@@ -2728,6 +2794,106 @@ def DoInsertPass(gap):
     srcinfo = gap.parent()._node.srcinfo
     ir, fwd = gap._insert([LoopIR.Pass(srcinfo=srcinfo)])
     return ir, fwd
+
+
+def DoInsertFence(gap, L1, L2):
+    srcinfo = gap.parent()._node.srcinfo
+    ir, fwd = gap._insert([LoopIR_Fence(L1, L2, srcinfo)])
+    return ir, fwd
+
+
+def DoInsertBarrierAlloc(
+    gap,
+    name: str,
+    guarded_by: Optional[ic.Node],
+    hi: List[int],
+    barrier_mechanism: Type[BarrierMechanism],
+):
+    srcinfo = gap.parent()._node.srcinfo
+    if guarded_by is not None:
+        guard_node = guarded_by._node
+        assert isinstance(guard_node, LoopIR.Alloc)
+        guarded_by = guarded_by._node.name
+        if not isinstance(guard_node.type, LoopIR.Barrier):
+            raise SchedulingError(
+                f"Cannot use non-barrier {guarded_by}: {guard_node.type} as guarded_by"
+            )
+    hi = [LoopIR.Const(n, T.size, srcinfo) for n in hi]
+    typ = LoopIR.Barrier(guarded_by, hi)
+    ir, fwd = gap._insert([LoopIR.Alloc(Sym(name), typ, barrier_mechanism, srcinfo)])
+    return ir, fwd
+
+
+def comp_barrier_exprs(
+    c: ic.Cursor, barrier_expr_tuples: List[Tuple[str, List[Optional[LoopIR.expr]]]]
+) -> List[LoopIR.BarrierExpr]:
+    srcinfo = c._node.srcinfo
+    syms_env = extract_env(c)
+
+    def get_typ_mem(barrier_name):
+        for name, typ, mem in syms_env:
+            if str(name) == barrier_name:
+                return name, typ, mem
+        assert False, f"Must find the symbol {barrier_name} in env"
+
+    E = []
+    for strnm, idxs in barrier_expr_tuples:
+        sym, typ, _ = get_typ_mem(strnm)
+        if not isinstance(typ, LoopIR.Barrier):
+            raise SchedulingError(f"{sym}: {typ} is not a barrier")
+        if len(typ.hi) != len(idxs):
+            raise SchedulingError(
+                f"{sym}: indexed with {len(idxs)} indices, expected {len(typ.hi)}"
+            )
+        comp_idx = []
+        for dim_idx, idx_e in enumerate(idxs):
+            if idx_e is None:
+                # Translate None (:) into 0:hi
+                _0 = LoopIR.Const(0, T.index, srcinfo)
+                _hi = typ.hi[dim_idx]
+                comp_idx.append(LoopIR.Interval(_0, _hi, srcinfo))
+            else:
+                assert isinstance(idx_e, LoopIR.expr)
+                comp_idx.append(LoopIR.Point(idx_e, srcinfo))
+        E.append(LoopIR.BarrierExpr(sym, comp_idx, T.barrier, srcinfo))
+    return E
+
+
+def DoInsertArrive(
+    gap,
+    first_sync_tl: Sync_tl,
+    barrier_expr_tuples: List[Tuple[str, List[Optional[LoopIR.expr]]]],
+):
+    srcinfo = gap.anchor()._node.srcinfo
+    sync_type = arrive_type(first_sync_tl, 1)
+    barriers = comp_barrier_exprs(gap.anchor(), barrier_expr_tuples)
+    ir, fwd = gap._insert([LoopIR.SyncStmt(sync_type, barriers, srcinfo)])
+    return ir, fwd
+
+
+def DoInsertAwait(
+    gap,
+    barrier_expr_tuple: Tuple[str, List[Optional[LoopIR.expr]]],
+    second_sync_tl: Sync_tl,
+    N: int,
+):
+    srcinfo = gap.anchor()._node.srcinfo
+    sync_type = await_type(second_sync_tl, N)
+    barriers = comp_barrier_exprs(gap.anchor(), (barrier_expr_tuple,))
+    ir, fwd = gap._insert([LoopIR.SyncStmt(sync_type, barriers, srcinfo)])
+    return ir, fwd
+
+
+def DoSetTrailingBarrierExpr(
+    call_cursor: ic.Node,
+    barrier_expr_tuple: Optional[Tuple[str, List[Optional[LoopIR.expr]]]],
+):
+    old_s = call_cursor._node
+    bar_e = None
+    if barrier_expr_tuple is not None:
+        barriers = comp_barrier_exprs(call_cursor, (barrier_expr_tuple,))
+        bar_e = barriers[0]
+    return call_cursor._child_node("trailing_barrier_expr")._replace(bar_e)
 
 
 def DoInsertNoopCall(gap, proc, args):
@@ -2767,7 +2933,7 @@ def DoInsertNoopCall(gap, proc, args):
         return LoopIR.WindowExpr(name, idxs, w_typ, srcinfo)
 
     args = [process_slice(arg) for arg in args]
-    call_stmt = LoopIR.Call(proc, args, srcinfo)
+    call_stmt = LoopIR.Call(proc, args, None, srcinfo)
     ir, fwd = gap._insert([call_stmt])
 
     def err_handler(_, msg):
@@ -2865,7 +3031,7 @@ def DoExtractSubproc(block, subproc_name, include_asserts):
             subproc_preds = []
 
         subproc_ir = LoopIR.proc(subproc_name, fnargs, subproc_preds, body, None, info)
-        call = LoopIR.Call(subproc_ir, args, info)
+        call = LoopIR.Call(subproc_ir, args, None, info)
         return subproc_ir, call
 
     subproc_ir, call = make_closure()
@@ -3269,7 +3435,7 @@ class _DoNormalize(Cursor_Rewrite):
             if new_type:
                 self.ir, fwd_repl = self.fwd(sc)._child_node("type")._replace(new_type)
                 self.fwd = _compose(fwd_repl, self.fwd)
-        elif isinstance(s, LoopIR.Pass):
+        elif isinstance(s, (LoopIR.Pass, LoopIR.SyncStmt)):
             pass
         else:
             raise NotImplementedError(f"bad case {type(s)}")
@@ -3488,7 +3654,11 @@ class DoSimplify(Cursor_Rewrite):
 
     def map_s(self, sc):
         s = sc._node
-        if isinstance(s, LoopIR.If):
+        if is_if_holding_with(s, LoopIR):  # must be before .If case
+            # Simplify the body
+            self.map_stmts(sc.body())
+
+        elif isinstance(s, LoopIR.If):
             cond = self.map_e(s.cond)
             safe_cond = cond or s.cond
 
@@ -3581,7 +3751,7 @@ class DoSimplify(Cursor_Rewrite):
             if new_type:
                 self.ir, fwd_repl = self.fwd(sc)._child_node("type")._replace(new_type)
                 self.fwd = _compose(fwd_repl, self.fwd)
-        elif isinstance(s, LoopIR.Pass):
+        elif isinstance(s, (LoopIR.Pass, LoopIR.SyncStmt)):
             return None
         else:
             raise NotImplementedError(f"bad case {type(s)}")
@@ -3872,7 +4042,14 @@ def DoFoldBuffer(alloc_cursor, dim_idx, new_size):
     return ir, fwd
 
 
-def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
+def DoStageMem(
+    block_cursor,
+    buf_name,
+    w_exprs,
+    new_name,
+    use_accum_zero=False,
+    input_memory_type=None,
+):
     new_name = Sym(new_name)
 
     def get_typ_mem():
@@ -3882,8 +4059,17 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
                 return name, typ, mem
         assert False, "Must find the symbol in env"
 
-    buf_name, buf_typ, mem = get_typ_mem()
+    buf_name, buf_typ, default_mem = get_typ_mem()
     buf_typ = buf_typ if not isinstance(buf_typ, T.Window) else buf_typ.as_tensor
+
+    if input_memory_type is None:
+        if not issubclass(default_mem, AllocableMemWin):
+            raise SchedulingError(
+                f"Need explicit memory_type for staging from SpecialWindow '{buf_name}'"
+            )
+        alloc_mem = default_mem
+    else:
+        alloc_mem = input_memory_type
 
     if len(w_exprs) != len(buf_typ.shape()):
         raise SchedulingError(
@@ -3942,7 +4128,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
     basetyp = new_typ.basetype() if isinstance(new_typ, T.Tensor) else new_typ
     srcinfo = block[0].srcinfo
 
-    new_alloc = [LoopIR.Alloc(new_name, new_typ, mem, srcinfo)]
+    new_alloc = [LoopIR.Alloc(new_name, new_typ, alloc_mem, srcinfo)]
     ir, fwd = block_cursor[0].before()._insert(new_alloc)
 
     def get_inner_stmt(loop_nest_c):
@@ -4080,7 +4266,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
                 LoopIR.Const(0, T.index, srcinfo),
                 n,
                 load_nest,
-                LoopIR.Seq(),
+                seq,
                 srcinfo,
             )
             load_nest = [loop]
@@ -4117,7 +4303,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
                 LoopIR.Const(0, T.index, srcinfo),
                 n,
                 store_nest,
-                LoopIR.Seq(),
+                seq,
                 srcinfo,
             )
             store_nest = [loop]
@@ -4255,6 +4441,11 @@ __all__ = [
     "DoSimplify",
     "DoSetTypAndMem",
     "DoInsertPass",
+    "DoInsertFence",
+    "DoInsertBarrierAlloc",
+    "DoInsertArrive",
+    "DoInsertAwait",
+    "DoSetTrailingBarrierExpr",
     "DoReorderStmt",
     "DoCommuteExpr",
     "DoLeftReassociateExpr",
@@ -4262,11 +4453,14 @@ __all__ = [
     "DoDivideLoop",
     "DoUnroll",
     "DoAddLoop",
+    "DoWrapWithContext",
+    "DoAddIf",
     "DoCutLoop",
     "DoJoinLoops",
     "DoShiftLoop",
     "DoProductLoop",
     "DoRemoveLoop",
+    "DoUnsafeRemoveIf",
     "DoSinkAlloc",
     "DoLiftAllocSimple",
     "DoLiftConstant",

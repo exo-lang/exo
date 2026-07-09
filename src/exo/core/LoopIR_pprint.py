@@ -1,16 +1,24 @@
+import os
 import re
 from collections import ChainMap
 from dataclasses import dataclass, field
+from warnings import warn
+from pathlib import Path
+from typing import Set
 
 # google python formatting project to save myself the trouble of being overly
 # clever run the function FormatCode to transform one string into a formatted
 # string
 from yapf.yapflib.yapf_api import FormatCode
 
-from .LoopIR import T
+from .LoopIR import T, InstrInfo, ProcDebugRemarks
 from .LoopIR import UAST, LoopIR
 from .internal_cursors import Node, Gap, Block, Cursor, InvalidCursorError, GapType
 from .prelude import *
+from ..spork.loop_modes import format_loop_cond
+from ..spork.base_with_context import is_if_holding_with
+
+enable_yapf = os.environ.get("EXO_YAPF", "1") != "0"
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -28,7 +36,6 @@ from .prelude import *
 
 # We expect pprint to install functions on the IR rather than
 # expose functions; therefore hide all variables as local
-__all__ = []
 
 # --------------------------------------------------------------------------- #
 # --------------------------------------------------------------------------- #
@@ -162,13 +169,7 @@ class UAST_PPrinter:
         self.addline(f"def {name}({','.join(args)}):")
 
         self.push()
-        if p.instr:
-            instr_lines = p.instr.c_instr.split("\n")
-            instr_lines = [f"# @instr {instr_lines[0]}"] + [
-                f"#        {l}" for l in instr_lines[1:]
-            ]
-            for l in instr_lines:
-                self.addline(l)
+        assert not hasattr(p, "instr"), "UAST.proc.instr was removed"
         for pred in p.preds:
             self.addline(f"assert {self.pexpr(pred)}")
         self.pstmts(p.body)
@@ -182,6 +183,8 @@ class UAST_PPrinter:
         for stmt in body:
             if isinstance(stmt, UAST.Pass):
                 self.addline("pass")
+            elif isinstance(stmt, UAST.SyncStmt):
+                self.addline(stmt.sync_type.format_stmt(stmt.barriers))
             elif isinstance(stmt, UAST.Assign) or isinstance(stmt, UAST.Reduce):
                 op = "=" if isinstance(stmt, UAST.Assign) else "+="
 
@@ -210,6 +213,12 @@ class UAST_PPrinter:
                 pname = stmt.f.name or "_anon_"
                 args = [self.pexpr(a) for a in stmt.args]
                 self.addline(f"{pname}({','.join(args)})")
+            elif is_if_holding_with(stmt, UAST):  # must be before .If case
+                ctx = self.pexpr(stmt.cond)
+                self.addline(f"with {ctx}:")
+                self.push()
+                self.pstmts(stmt.body)
+                self.pop()
             elif isinstance(stmt, UAST.If):
                 cond = self.pexpr(stmt.cond)
                 self.addline(f"if {cond}:")
@@ -252,11 +261,9 @@ class UAST_PPrinter:
             return s
         elif isinstance(e, UAST.USub):
             return f"-{self.pexpr(e.arg, prec=op_prec['~'])}"
-        elif isinstance(e, UAST.ParRange):
-            return f"par({self.pexpr(e.lo)},{self.pexpr(e.hi)})"
-        elif isinstance(e, UAST.SeqRange):
-            return f"seq({self.pexpr(e.lo)},{self.pexpr(e.hi)})"
-        elif isinstance(e, UAST.WindowExpr):
+        elif isinstance(e, UAST.LoopRange):
+            return format_loop_cond(self.pexpr(e.lo), self.pexpr(e.hi), e.loop_mode)
+        elif isinstance(e, (UAST.BarrierExpr, UAST.WindowExpr)):
 
             def pacc(w):
                 if isinstance(w, UAST.Point):
@@ -268,7 +275,11 @@ class UAST_PPrinter:
                 else:
                     assert False, "bad case"
 
-            return f"{self.get_name(e.name)}[{', '.join([pacc(w) for w in e.idx])}]"
+            s = f"{self.get_name(e.name)}[{', '.join([pacc(w) for w in e.idx])}]"
+
+            if memwin := e.special_window:
+                s += " @ " + memwin.name()
+            return s
         elif isinstance(e, UAST.StrideExpr):
             return f"stride({self.get_name(e.name)}, {e.dim})"
         elif isinstance(e, UAST.Extern):
@@ -284,20 +295,6 @@ class UAST_PPrinter:
     def ptype(self, t):
         if isinstance(t, UAST.Num):
             return "R"
-        elif isinstance(t, UAST.F16):
-            return "f16"
-        elif isinstance(t, UAST.F32):
-            return "f32"
-        elif isinstance(t, UAST.F64):
-            return "f64"
-        elif isinstance(t, UAST.INT8):
-            return "i8"
-        elif isinstance(t, UAST.UINT8):
-            return "ui8"
-        elif isinstance(t, UAST.UINT16):
-            return "ui16"
-        elif isinstance(t, UAST.INT32):
-            return "i32"
         elif isinstance(t, UAST.Bool):
             return "bool"
         elif isinstance(t, UAST.Int):
@@ -306,6 +303,13 @@ class UAST_PPrinter:
             return "index"
         elif isinstance(t, UAST.Size):
             return "size"
+        elif isinstance(t, UAST.Barrier):
+            guarded_by_s = "" if t.guarded_by is None else f"({t.guarded_by})"
+            rngs = ",".join([self.pexpr(r) for r in t.shape()])
+            if rngs:
+                return f"barrier{guarded_by_s}[{rngs}]"
+            else:
+                return f"barrier{guarded_by_s}"
         elif isinstance(t, UAST.Tensor):
             base = str(t.basetype())
             if t.is_window:
@@ -313,7 +317,8 @@ class UAST_PPrinter:
             rngs = ",".join([self.pexpr(r) for r in t.shape()])
             return f"{base}[{rngs}]"
         else:
-            assert False, "impossible type case"
+            scalar_info = ScalarInfo(t)
+            return scalar_info.shorthand
 
 
 # --------------------------------------------------------------------------- #
@@ -322,7 +327,27 @@ class UAST_PPrinter:
 
 
 def _format_code(code):
-    return FormatCode(code)[0].rstrip("\n")
+    """Format Python code snippet.
+
+    We obey the line length limit of the formatter unless the input is only
+    one line, in which case the output is only one line as well.
+    This is so that stringifying code in f"// {foo}" works as expected.
+
+    In previous versions of Exo, this was not done, and so there were
+    rare bugs where a long comment would get broken up into multiple
+    lines and the output C code wouldn't compile.
+
+    """
+    had_newline = "\n" in code
+    try:
+        if enable_yapf:
+            text = FormatCode(code)[0].rstrip("\n")
+            if not had_newline and "\n" in text:
+                text = " ".join(line.strip() for line in text.split("\n"))
+            return text
+    except Exception as e:
+        warn(f"YAPF FAILED: {e}")
+    return code
 
 
 @extclass(LoopIR.proc)
@@ -350,16 +375,63 @@ def __str__(self):
     return _format_code(_print_type(self, PrintEnv()))
 
 
+@extclass(LoopIR.w_access)
+def __str__(self):
+    return _format_code(_print_w_access(self, PrintEnv()))
+
+
 del __str__
+
+
+def str_with_remarks_impl(self, remarks: ProcDebugRemarks, to_lines):
+    env = PrintEnv(remarks=remarks, stmt_id_set=set())
+    code_lines = to_lines(self, env, "")  # Fills env.stmt_id_set
+    lines = []
+    # Add remarks that weren't formatted with some statement
+    for stmt_id, remark_lines in remarks.get_all_stmt_id_lines():
+        if stmt_id in env.stmt_id_set:
+            continue
+        if not lines:
+            lines.append("# Additional remarks:")
+        if remark_lines:
+            lines.append("#")
+        for line in remark_lines:
+            lines.append(f"# {line}")
+    lines.extend(code_lines)
+    return _format_code("\n".join(lines))
+
+
+@extclass(LoopIR.proc)
+def str_with_remarks(self, remarks: ProcDebugRemarks):
+    return str_with_remarks_impl(self, remarks, _print_proc)
+
+
+@extclass(LoopIR.stmt)
+def str_with_remarks(self, remarks: ProcDebugRemarks):
+    return str_with_remarks_impl(self, remarks, _print_stmt)
+
+
+class FakeStmtIdSet:
+    __slots__ = []
+
+    def add(self, _):
+        pass
 
 
 @dataclass
 class PrintEnv:
     env: ChainMap[Sym, str] = field(default_factory=ChainMap)
     names: ChainMap[str, int] = field(default_factory=ChainMap)
+    remarks: ProcDebugRemarks = ProcDebugRemarks.empty
+    stmt_id_set: Set[int] | FakeStmtIdSet = FakeStmtIdSet()
 
     def push(self) -> "PrintEnv":
-        return PrintEnv(self.env.new_child(), self.names.new_child())
+        return PrintEnv(
+            self.env.new_child(),
+            self.names.new_child(),
+            self.remarks,
+            self.stmt_id_set,
+        )
 
     def get_name(self, nm):
         if resolved := self.env.get(nm):
@@ -384,7 +456,7 @@ def _print_proc(p, env: PrintEnv, indent: str) -> list[str]:
     indent = indent + "  "
 
     if p.instr:
-        for i, line in enumerate(p.instr.c_instr.split("\n")):
+        for i, line in enumerate(p.instr.instr_format or ()):
             if i == 0:
                 lines.append(f"{indent}# @instr {line}")
             else:
@@ -401,6 +473,10 @@ def _print_proc(p, env: PrintEnv, indent: str) -> list[str]:
 def _print_block(blk, env: PrintEnv, indent: str) -> list[str]:
     lines = []
     for stmt in blk:
+        if (stmt_id := stmt.srcinfo.stmt_id) is not None:
+            for remark_line in env.remarks.get_stmt_id_lines(stmt_id):
+                lines.append(f"{indent}# {remark_line}")
+            env.stmt_id_set.add(stmt_id)
         lines.extend(_print_stmt(stmt, env, indent))
     return lines
 
@@ -408,6 +484,14 @@ def _print_block(blk, env: PrintEnv, indent: str) -> list[str]:
 def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
     if isinstance(stmt, LoopIR.Pass):
         return [f"{indent}pass"]
+
+    elif isinstance(stmt, LoopIR.SyncStmt):
+        s = f"{indent}{stmt.sync_type.format_stmt(stmt.barriers)}"
+        if not stmt.sync_type.is_split():
+            assert len(stmt.barriers) == 1
+            nm = stmt.barriers[0].name
+            s += f"  # {nm!r}"
+        return [s]
 
     elif isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
         op = "=" if isinstance(stmt, LoopIR.Assign) else "+="
@@ -428,6 +512,8 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
 
     elif isinstance(stmt, LoopIR.WindowStmt):
         rhs = _print_expr(stmt.rhs, env)
+        if stmt.special_window is not None:
+            rhs = f"{rhs} @ {stmt.special_window.name()}"
         return [f"{indent}{env.get_name(stmt.name)} = {rhs}"]
 
     elif isinstance(stmt, LoopIR.Alloc):
@@ -441,7 +527,20 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
 
     elif isinstance(stmt, LoopIR.Call):
         args = [_print_expr(a, env) for a in stmt.args]
-        return [f"{indent}{stmt.f.name}({', '.join(args)})"]
+        instr = stmt.f.instr
+        if instr:
+            if kwargs := instr._formatted_tparam_kwargs:
+                args.append(kwargs)
+        trailing_bar = ""
+        if e := stmt.trailing_barrier_expr:
+            trailing_bar = " >> " + _print_expr(e, env)
+        return [f"{indent}{stmt.f.name}({', '.join(args)}){trailing_bar}"]
+
+    elif is_if_holding_with(stmt, LoopIR):  # must be before .If case
+        ctx = _print_expr(stmt.cond, env)
+        lines = [f"{indent}with {ctx}:"]
+        lines.extend(_print_block(stmt.body, env.push(), indent + "  "))
+        return lines
 
     elif isinstance(stmt, LoopIR.If):
         cond = _print_expr(stmt.cond, env)
@@ -455,11 +554,9 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
     elif isinstance(stmt, LoopIR.For):
         lo = _print_expr(stmt.lo, env)
         hi = _print_expr(stmt.hi, env)
+        loop_cond = format_loop_cond(lo, hi, stmt.loop_mode)
         body_env = env.push()
-        loop_type = "par" if isinstance(stmt.loop_mode, LoopIR.Par) else "seq"
-        lines = [
-            f"{indent}for {body_env.get_name(stmt.iter)} in {loop_type}({lo}, {hi}):"
-        ]
+        lines = [f"{indent}for {body_env.get_name(stmt.iter)} in {loop_cond}:"]
         lines.extend(_print_block(stmt.body, body_env, indent + "  "))
         return lines
 
@@ -478,6 +575,14 @@ def _print_fnarg(a, env: PrintEnv) -> str:
 
 
 def _print_expr(e, env: PrintEnv, prec: int = 0) -> str:
+    e_str = _print_expr_impl(e, env, prec)
+    expr_id = e.srcinfo.expr_id
+    if env.remarks.is_expr_id_commented(expr_id):
+        e_str = f"({e_str}  # :(e{expr_id})\n)"
+    return e_str
+
+
+def _print_expr_impl(e, env: PrintEnv, prec: int) -> str:
     if isinstance(e, LoopIR.Read):
         name = env.get_name(e.name)
         idx = f"[{', '.join(_print_expr(i, env) for i in e.idx)}]" if e.idx else ""
@@ -498,6 +603,13 @@ def _print_expr(e, env: PrintEnv, prec: int = 0) -> str:
         # if we have a lower precedence than the environment...
         if local_prec < prec:
             s = f"({s})"
+        return s
+
+    elif isinstance(e, LoopIR.BarrierExpr):
+        name = env.get_name(e.name)
+        s = f"{name}"
+        if e.idx:
+            s += f"[{', '.join([_print_w_access(w, env) for w in e.idx])}]"
         return s
 
     elif isinstance(e, LoopIR.WindowExpr):
@@ -522,20 +634,6 @@ def _print_expr(e, env: PrintEnv, prec: int = 0) -> str:
 def _print_type(t, env: PrintEnv) -> str:
     if isinstance(t, T.Num):
         return "R"
-    elif isinstance(t, T.F16):
-        return "f16"
-    elif isinstance(t, T.F32):
-        return "f32"
-    elif isinstance(t, T.F64):
-        return "f64"
-    elif isinstance(t, T.INT8):
-        return "i8"
-    elif isinstance(t, T.UINT8):
-        return "ui8"
-    elif isinstance(t, T.UINT16):
-        return "ui16"
-    elif isinstance(t, T.INT32):
-        return "i32"
     elif isinstance(t, T.Bool):
         return "bool"
     elif isinstance(t, T.Int):
@@ -564,8 +662,16 @@ def _print_type(t, env: PrintEnv) -> str:
         )
     elif isinstance(t, T.Stride):
         return "stride"
-
-    assert False, f"impossible type {type(t)}"
+    elif isinstance(t, T.Barrier):
+        guarded_by_s = "" if t.guarded_by is None else f"({t.guarded_by})"
+        ranges = ", ".join([_print_expr(r, env) for r in t.shape()])
+        if ranges:
+            return f"barrier{guarded_by_s}[{ranges}]"
+        else:
+            return f"barrier{guarded_by_s}"
+    else:
+        scalar_info = ScalarInfo(t)
+        return scalar_info.shorthand
 
 
 def _print_w_access(node, env: PrintEnv) -> str:
@@ -612,7 +718,7 @@ def _print_cursor_proc(
 
     if cur == target:
         if p.instr:
-            for i, line in enumerate(p.instr.c_instr.split("\n")):
+            for i, line in enumerate(p.instr.instr_format or ()):
                 if i == 0:
                     lines.append(f"{indent}# @instr {line}")
                 else:
@@ -690,7 +796,12 @@ def _print_cursor_stmt(
 ) -> list[str]:
     stmt = cur._node
 
-    if isinstance(stmt, LoopIR.If):
+    if is_if_holding_with(stmt, LoopIR):  # must be before .If case
+        ctx = _print_expr(stmt.cond, env)
+        lines = [f"{indent}with {ctx}:"]
+        lines.extend(_print_cursor_block(cur.body(), target, env.push(), indent + "  "))
+
+    elif isinstance(stmt, LoopIR.If):
         cond = _print_expr(stmt.cond, env)
         lines = [f"{indent}if {cond}:"]
         lines.extend(_print_cursor_block(cur.body(), target, env.push(), indent + "  "))
@@ -703,10 +814,10 @@ def _print_cursor_stmt(
     elif isinstance(stmt, LoopIR.For):
         lo = _print_expr(stmt.lo, env)
         hi = _print_expr(stmt.hi, env)
+        loop_cond = format_loop_cond(lo, hi, stmt.loop_mode)
         body_env = env.push()
-        loop_type = "par" if isinstance(stmt.loop_mode, LoopIR.Par) else "seq"
         lines = [
-            f"{indent}for {body_env.get_name(stmt.iter)} in {loop_type}({lo}, {hi}):",
+            f"{indent}for {body_env.get_name(stmt.iter)} in {loop_cond}:",
             *_print_cursor_block(cur.body(), target, body_env, indent + "  "),
         ]
 

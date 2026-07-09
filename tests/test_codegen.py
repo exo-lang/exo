@@ -5,8 +5,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 from PIL import Image
+from random import Random
 
-from exo import proc, instr, Procedure, DRAM, compile_procs_to_strings
+from exo import proc, instr, Procedure, DRAM, compile_procs_to_strings, InstrInfo
 from exo.libs.memories import MDRAM, MemGenError, StaticMemory, DRAM_STACK
 from exo.libs.externs import *
 from exo.stdlib.scheduling import *
@@ -20,7 +21,7 @@ class MOCK(DRAM):
         assert len(shape) == 1 and int(shape[0]) == 16
         global mock_registers
         if mock_registers > 0:
-            raise MemGenError("Cannot allocate more than one mock register")
+            raise MemGenError(f"{srcinfo}: Cannot allocate more than one mock register")
         mock_registers += 1
 
         return f"static {prim_type} {new_name}[16];"
@@ -30,6 +31,108 @@ class MOCK(DRAM):
         global mock_registers
         mock_registers -= 1
         return ""
+
+
+# Tests for handling non-associativity of minus.
+
+
+@instr
+class NonAssocMinus(InstrInfo):
+    def behavior(x: f32 @ DRAM, y: f32 @ DRAM, z: f32 @ DRAM, c: f32 @ DRAM):
+        c = x - (y - z)
+
+    def instance(self):
+        pass
+
+    def codegen(self, args: InstrArgs):
+        cir_x = args.exo_wrap_cir(args.x.index())
+        cir_y = args.exo_wrap_cir(args.y.index())
+        cir_z = args.exo_wrap_cir(args.z.index())
+        cir_c = args.exo_wrap_cir(args.c.index())
+        return [str(cir_c) + " = " + str(cir_x - (cir_y - cir_z)) + ";"]
+
+
+def test_non_assoc_minus_instr_golden(golden):
+    @proc
+    def non_assoc_foo(x: f32 @ DRAM, y: f32 @ DRAM, z: f32 @ DRAM, c: f32 @ DRAM):
+        NonAssocMinus(x, y, z, c)
+
+    cc, hh = compile_procs_to_strings([non_assoc_foo], "non_assoc_foo.h")
+    assert f"{hh}{cc}" == golden
+
+
+def test_non_assoc_minus_instr_run(compiler):
+    @proc
+    def non_assoc_foo(x: f32 @ DRAM, y: f32 @ DRAM, z: f32 @ DRAM, c: f32 @ DRAM):
+        NonAssocMinus(x, y, z, c)
+
+    lib = compiler.compile(non_assoc_foo)
+    x = np.array([9], dtype=np.float32)
+    y = np.array([1], dtype=np.float32)
+    z = np.array([4], dtype=np.float32)
+    c = np.array([0], dtype=np.float32)
+    lib(None, x, y, z, c)
+    assert c[0] == x[0] - (y[0] - z[0])
+
+
+def test_non_assoc_minus_expr_run(compiler):
+    @proc
+    def non_assoc_bar(x: f32 @ DRAM, y: f32 @ DRAM, z: f32 @ DRAM, c: f32 @ DRAM):
+        c = x - (y - z)
+
+    lib = compiler.compile(non_assoc_bar)
+    x = np.array([9], dtype=np.float32)
+    y = np.array([1], dtype=np.float32)
+    z = np.array([4], dtype=np.float32)
+    c = np.array([0], dtype=np.float32)
+    lib(None, x, y, z, c)
+    assert c[0] == x[0] - (y[0] - z[0])
+
+
+def mkproc_mul_mod_parens(divisor):
+    @proc
+    def mul_mod_parens_proc(x: f32[1000], cw: index):
+        assert cw >= 0
+        assert cw < 10
+        x[64 * (cw % divisor)] = 1
+        x[64 * (cw / divisor) + 12] = 2
+
+    return mul_mod_parens_proc
+
+
+def run_mul_mod_parens_test(compiler, divisor):
+    p = mkproc_mul_mod_parens(divisor)
+    lib = compiler.compile([p])
+    x = np.zeros([1000], dtype=np.float32)
+    cw = 6
+    lib(None, x, cw)
+    assert x[64 * cw % divisor] == 0  # Should have been left as 0
+    assert x[64 * (cw % divisor)] == 1
+    assert x[64 * cw // divisor + 12] == 0
+    assert x[64 * (cw // divisor) + 12] == 2
+
+
+# Regression test from Jason Ng's bug
+def test_mul_mod_4_parens_golden(golden):
+    p = mkproc_mul_mod_parens(4)
+    cc, hh = compile_procs_to_strings([p], "non_assoc_foo.h")
+    assert f"{hh}{cc}" == golden
+
+
+def test_mul_mod_5_parens_golden(golden):
+    p = mkproc_mul_mod_parens(5)
+    cc, hh = compile_procs_to_strings([p], "non_assoc_foo.h")
+    assert f"{hh}{cc}" == golden
+    assert "64 * (cw % 5)" in golden
+    assert "64 * cw % 5" not in golden
+
+
+def test_mul_mod_4_parens_run(compiler):
+    run_mul_mod_parens_test(compiler, 4)
+
+
+def test_mul_mod_5_parens_run(compiler):
+    run_mul_mod_parens_test(compiler, 5)
 
 
 # Testing to make sure free is inserted correctly
@@ -107,6 +210,105 @@ def test_const_local_window(golden, compiler):
     assert f"{hh}{cc}" == golden
 
     compiler.compile(caller)
+
+
+# Const tests, regression test from ExoBLAS.
+# We (I mean I, it's David's fault) had bugs with chains
+# of procs calling procs "forgetting" something is const.
+# Test both LoopIR.Read and LoopIR.WindowExpr cases.
+
+
+@proc
+def exoblas_const_regress_leaf(
+    M: size, N: size, A: [f32][N, M], x: [f32][N], y: [f32][M]
+):
+    for j in seq(0, N):
+        for i in seq(0, M):
+            y[i] += A[j, i] * x[j]
+
+
+@proc
+def exoblas_const_regress_middle(
+    M: size, N: size, A: [f32][N, M], x: [f32][N], y: [f32][M]
+):
+    exoblas_const_regress_leaf(M, N, A, x, y)
+
+
+@proc
+def exoblas_const_regress_middle_w(
+    M: size, N: size, A: [f32][N, M], x: [f32][N], y: [f32][M]
+):
+    exoblas_const_regress_leaf(M, N, A[:, :], x[:], y[:])
+
+
+@proc
+def exoblas_const_regress_entry(M: size, N: size, A: f32[N, M], x: f32[N], y: f32[M]):
+    exoblas_const_regress_middle(M, N, A, x, y)
+
+
+@proc
+def exoblas_const_regress_entry_w(M: size, N: size, A: f32[N, M], x: f32[N], y: f32[M]):
+    exoblas_const_regress_middle_w(M, N, A[:, :], x[:], y[:])
+
+
+def impl_test_exoblas_const_regress(golden, compiler, use_window):
+    p = exoblas_const_regress_entry_w if use_window else exoblas_const_regress_entry
+    cc, hh = compile_procs_to_strings([p], "test.h")
+    assert f"{hh}{cc}" == golden
+
+    lib = compiler.compile(p)
+    M = 100
+    N = 50
+    A = np.ndarray(shape=(M, N), dtype=np.float32, order="F")
+    x = np.ndarray(shape=(N,), dtype=np.float32, order="F")
+    y = np.ndarray(shape=(M,), dtype=np.float32, order="F")
+    y_before = np.ndarray(shape=(M,), dtype=np.float32, order="F")
+    rand = Random(2700)
+    for j in range(N):
+        x[j] = rand.randrange(100)
+    for i in range(M):
+        y[i] = rand.randrange(100)
+        y_before[i] = y[i]
+    for j in range(N):
+        for i in range(M):
+            A[i, j] = rand.randrange(10)
+    lib(None, M, N, A, x, y)
+    assert np.array_equal(y, y_before + A @ x)
+
+
+def test_exoblas_const_regress(golden, compiler):
+    impl_test_exoblas_const_regress(golden, compiler, False)
+
+
+def test_exoblas_const_regress_w(golden, compiler):
+    impl_test_exoblas_const_regress(golden, compiler, True)
+
+
+# Another regression test.
+
+
+@proc
+def exoblas_2d_mod_regress_proc(M: size, N: size, i: index, j: index, C: f32[M, N]):
+    assert N >= 8
+    assert i >= 0
+    assert i < M
+    # i * N + (j & 7)
+    # Will fail if parens are droppend, yielding computation (i * N + j) & 7
+    C[i, j % 8] = 1
+
+
+def test_exoblas_2d_mod_regress(compiler):
+    p = exoblas_2d_mod_regress_proc
+    cc, hh = compile_procs_to_strings([p], "exoblas_2d_mod_regress.h")
+    lib = compiler.compile(p)
+    M, N = 80, 20
+    i, j = 9, 12
+    C = np.zeros(shape=(M, N), dtype=np.float32)
+    C_ref = np.zeros(shape=(M, N), dtype=np.float32)
+    C_ref[i, j % 8] = 1
+    lib(None, M, N, i, j, C)
+    assert np.array_equal(C, C_ref)
+    assert "C[i * N + (j & 7)]" in cc, "manually update this if needed"
 
 
 # --- Start Blur Test ---
@@ -685,7 +887,6 @@ def test_memcpy_instr(compiler, golden):
     optimized_bar = replace(bar, bar.body()[0], memcpy)
 
     bar_c, bar_h = compile_procs_to_strings([optimized_bar], "bar.h")
-
     assert f"{bar_c}\n{bar_h}" == golden
 
     fn = compiler.compile(optimized_bar)

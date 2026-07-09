@@ -1,0 +1,781 @@
+#pragma once
+
+#include <new>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <type_traits>
+#include <vector>
+
+#include "int_types.hpp"
+
+#include "../syncv/tl_sig.hpp"
+#include "../util/api_util.hpp"
+#include "../util/require.hpp"
+
+// Advice: make this the last item in the struct, so camspork_vla_size default =
+// 0 works for {}-init.
+#define CAMSPORK_NODE_VLA_MEMBER(T)                                            \
+  static constexpr bool camspork_vla_member = true;                            \
+  uint32_t camspork_vla_size = 0;                                              \
+  using camspork_vla_type = T;                                                 \
+  static_assert(alignof(T) <= 4);                                              \
+  /* Bytes needed for variable-length-array */                                 \
+  uint32_t camspork_vla_bytes() const {                                        \
+    return uint32_t(sizeof(T) * camspork_vla_size);                            \
+  }                                                                            \
+  /* Total bytes needed, rounded up to multiple of 4. */                       \
+  uint32_t camspork_total_bytes() const {                                      \
+    return uint32_t(sizeof(*this) + camspork_vla_bytes() + 3) & ~uint32_t(3);  \
+  }
+
+#define CAMSPORK_NODE_NO_VLA()                                                 \
+  static constexpr bool camspork_vla_member = false;                           \
+  uint32_t camspork_vla_bytes() const { return 0; }                            \
+  uint32_t camspork_total_bytes() const { return sizeof(*this); }
+
+struct camspork_RawVarname {
+  uint32_t slot_1_index;  // slot index + 1
+};
+
+struct camspork_RawNodeRef {
+  uint32_t raw_data;
+};
+
+typedef camspork_RawNodeRef camspork_RawExprRef;
+typedef camspork_RawNodeRef camspork_RawStmtRef;
+typedef camspork_RawNodeRef camspork_RawTrailingBarrierExprRef;
+
+namespace camspork {
+
+enum class binop : uint32_t {
+  // 0 reserved as error code
+  Assign = 1,
+  Add,
+  Sub,
+  Mul,
+  Div,
+  Mod,
+  Less,
+  Leq,
+  Greater,
+  Geq,
+  Eq,
+  Neq,
+};
+
+class BinOpNames {
+  static constexpr uint32_t _size = 13;
+  const char *names[_size];
+
+public:
+  BinOpNames();
+  const char *get(binop op) const {
+    const uint32_t op_enum = static_cast<uint32_t>(op);
+    CAMSPORK_REQUIRE_CMP(op_enum, >, 0, "binop(0) reserved as error code");
+    CAMSPORK_REQUIRE_CMP(op_enum, <, _size, "invalid binop");
+    return names[op_enum];
+  }
+};
+
+extern const BinOpNames binop_names;
+
+struct BinOpTableEntry {
+  int second_char = -1;
+  binop op = static_cast<binop>(0);
+};
+
+class BinOpTable {
+  BinOpTableEntry entries_by_char[256][2];
+
+public:
+  BinOpTable();
+  binop get(const char *p_str) const;
+};
+
+extern const BinOpTable binop_table;
+
+// ******************************************************************************************
+// Polymorphic node reference.
+// The program object will be delivered as a flat buffer of char (must be 32-bit
+// aligned) which is easy to serialize to disk, or move across Python/C ABI
+// boundaries. See ProgramHeader.
+//
+// Each node is a struct immediately followed by an optional variable-length
+// array. (use either the CAMSPORK_NODE_NO_VLA or CAMSPORK_NODE_VLA_MEMBER
+// macros). This VLA is often used for array indices or extents (sizes), of
+// length camspork_vla_size.
+//
+// The NodeRef identifies both the type of the node, and its position in the
+// buffer/file. Therefore, it is not possible to dereference a NodeRef without a
+// pointer to the buffer.
+// ******************************************************************************************
+// Note: definition duplicated as Python ctypes, see also std::hash
+// specialization.
+template <template <uint32_t> typename NodeType, uint32_t NumTypes>
+struct NodeRef {
+  uint32_t raw_data;
+
+  static_assert(NumTypes <= 32);
+
+  NodeRef() { raw_data = 0; }
+
+  explicit NodeRef(uint32_t i) { raw_data = i; }
+
+  NodeRef(camspork_RawNodeRef raw) { raw_data = raw.raw_data; }
+
+  operator camspork_RawNodeRef() const { return camspork_RawNodeRef{raw_data}; }
+
+  // Bottom 5 bits holds the ID of the node type.
+  uint32_t type_id() const { return raw_data & 31; }
+
+  // Top 27 bits holds the address of the node in the file, multiplied by 4
+  // bytes.
+  uint32_t byte_offset() const { return (raw_data >> 3) & ~uint32_t(3); }
+
+  void set_type_byte_offset(uint32_t type, uint32_t byte_offset) {
+    CAMSPORK_REQUIRE_CMP(
+        type, <, NumTypes, "internal error, invalid NodeRef type ID");
+    raw_data =
+        decltype(raw_data)(type | byte_offset << 3);  // overflow checked below
+    CAMSPORK_REQUIRE_CMP(
+        this->byte_offset(), ==, byte_offset, "NodeRef 32 bit overflow");
+  }
+
+  // 0 used as "null" value (this can't be valid as the ProgramHeader is at
+  // offset 0).
+  explicit operator bool() const { return raw_data != 0; }
+
+  void clear() { raw_data = 0; }
+
+  bool operator==(NodeRef other) const {
+    return this->raw_data == other.raw_data;
+  }
+
+  bool operator!=(NodeRef other) const {
+    return this->raw_data != other.raw_data;
+  }
+
+  // Callable must implement operator()(const NodeType<N>*) for N = 0, 1, ...,
+  // NumTypes - 1
+  template <typename Callable, typename Char>
+  __attribute__((always_inline)) auto dispatch(
+      Callable &&callable, size_t buffer_size, Char *buffer) const {
+    // Alignment check
+    uintptr_t buffer_address = reinterpret_cast<uintptr_t>(buffer);
+    CAMSPORK_C_BOUNDSCHECK(buffer_address % 4, 1);
+
+    char *mutable_buffer = const_cast<char *>(buffer);
+    const size_t byte_offset = this->byte_offset();
+
+    // NOTE: we pass nodes by pointer to make node_vla_get more safe.
+    // We bounds check in debug and release builds to avoid security flaws from
+    // evil input files.
+
+#define CAMSPORK_DISPATCH_CASE(N)                                              \
+  case N:                                                                      \
+    if constexpr (N < NumTypes) {                                              \
+      using Node = NodeType<N>;                                                \
+      CAMSPORK_C_BOUNDSCHECK(byte_offset + sizeof(Node), buffer_size + 1);     \
+      auto p_node = reinterpret_cast<Node *>(&mutable_buffer[byte_offset]);    \
+      CAMSPORK_C_BOUNDSCHECK(                                                  \
+          byte_offset + p_node->camspork_total_bytes(), buffer_size + 1);      \
+      if constexpr (std::is_const_v<Char>) {                                   \
+        return callable(const_cast<const Node *>(p_node));                     \
+      } else {                                                                 \
+        return callable(p_node);                                               \
+      }                                                                        \
+    } else {                                                                   \
+      CAMSPORK_C_BOUNDSCHECK(N, NumTypes);                                     \
+    }
+
+    switch (type_id()) {
+    default:
+      CAMSPORK_DISPATCH_CASE(0)
+      CAMSPORK_DISPATCH_CASE(1)
+      CAMSPORK_DISPATCH_CASE(2)
+      CAMSPORK_DISPATCH_CASE(3)
+      CAMSPORK_DISPATCH_CASE(4)
+      CAMSPORK_DISPATCH_CASE(5)
+      CAMSPORK_DISPATCH_CASE(6)
+      CAMSPORK_DISPATCH_CASE(7)
+      CAMSPORK_DISPATCH_CASE(8)
+      CAMSPORK_DISPATCH_CASE(9)
+      CAMSPORK_DISPATCH_CASE(10)
+      CAMSPORK_DISPATCH_CASE(11)
+      CAMSPORK_DISPATCH_CASE(12)
+      CAMSPORK_DISPATCH_CASE(13)
+      CAMSPORK_DISPATCH_CASE(14)
+      CAMSPORK_DISPATCH_CASE(15)
+      CAMSPORK_DISPATCH_CASE(16)
+      CAMSPORK_DISPATCH_CASE(17)
+      CAMSPORK_DISPATCH_CASE(18)
+      CAMSPORK_DISPATCH_CASE(19)
+      CAMSPORK_DISPATCH_CASE(20)
+      CAMSPORK_DISPATCH_CASE(21)
+      CAMSPORK_DISPATCH_CASE(22)
+      CAMSPORK_DISPATCH_CASE(23)
+      CAMSPORK_DISPATCH_CASE(24)
+      CAMSPORK_DISPATCH_CASE(25)
+      CAMSPORK_DISPATCH_CASE(26)
+      CAMSPORK_DISPATCH_CASE(27)
+      CAMSPORK_DISPATCH_CASE(28)
+      CAMSPORK_DISPATCH_CASE(29)
+      CAMSPORK_DISPATCH_CASE(30)
+      CAMSPORK_DISPATCH_CASE(31)
+    }
+  }
+};
+
+template <typename Node>
+const typename Node::camspork_vla_type &node_vla_get(
+    const Node *p_node, uint32_t i) {
+  static_assert(alignof(Node) == 4);
+  static_assert(Node::camspork_vla_member,
+      "Must have CAMSPORK_NODE_VLA_MEMBER in the struct body");
+  const char *p_vla = reinterpret_cast<const char *>(p_node) + sizeof(Node);
+  CAMSPORK_C_BOUNDSCHECK(i, p_node->camspork_vla_size);
+  return reinterpret_cast<const typename Node::camspork_vla_type *>(p_vla)[i];
+}
+
+template <typename Node>
+const typename Node::camspork_vla_type &node_vla_get_unsafe(
+    const Node *p_node, uint32_t i) {
+  static_assert(alignof(Node) == 4);
+  static_assert(Node::camspork_vla_member,
+      "Must have CAMSPORK_NODE_VLA_MEMBER in the struct body");
+  const char *p_vla = reinterpret_cast<const char *>(p_node) + sizeof(Node);
+  return reinterpret_cast<const typename Node::camspork_vla_type *>(p_vla)[i];
+}
+
+// ******************************************************************************************
+// Binary builder object.
+// Use add_node<NodeRefT>(...) to write a struct (plus the trailing VLA if it
+// exists) to the binary. Unfortunately, the NodeRefT type must be given
+// explicitly.
+//
+// XXX this is an incredibly dangerous regrettable design.
+// Because of the use of realloc(...), if the nursery is resized while we hold a
+// ptr to a Node, the Node pointer may become invalid, and this sort of bug is
+// very hard to see or reproduce. Ultimately the reason this exists is because I
+// originally wanted programs to be easy to serialize. If we drop this goal, we
+// can make stmt/expr just pointers instead of my ID-based system.
+// ******************************************************************************************
+class NodeNursery {
+  // p_nursery_data is an allocation of size nursery_capacity bytes.
+  // Of that, p_nursery_data[0:nursery_size] holds real data.
+  uint32_t nursery_size = 0;
+  uint32_t nursery_capacity = 0;
+  char *p_nursery_data = 0;
+
+public:
+  NodeNursery() = default;
+  NodeNursery(NodeNursery &&) = delete;
+  ~NodeNursery() { free(p_nursery_data); }
+
+  template <typename NodeRefT, template <uint32_t> typename NodeType,
+      uint32_t TypeID>
+  NodeRefT add_node(NodeType<TypeID> node, size_t vla_size,
+      const typename NodeType<TypeID>::camspork_vla_type *p_vla) {
+    node.camspork_vla_size = uint32_t(vla_size);
+    CAMSPORK_REQUIRE_CMP(
+        node.camspork_vla_size, ==, vla_size, "32-bit overflow in VLA");
+    const uint32_t offset = add_blob(sizeof(node), &node);
+    add_blob(node.camspork_vla_bytes(), p_vla);
+    NodeRefT node_ref;
+    node_ref.set_type_byte_offset(TypeID, offset);
+    return node_ref;
+  }
+
+  template <typename NodeRefT, template <uint32_t> typename NodeType,
+      uint32_t TypeID>
+  NodeRefT add_node(NodeType<TypeID> node,
+      const std::vector<typename NodeType<TypeID>::camspork_vla_type> &vla) {
+    return add_node<NodeRefT>(node, vla.size(), vla.data());
+  }
+
+  template <typename NodeRefT, template <uint32_t> typename NodeType,
+      uint32_t TypeID>
+  NodeRefT add_node(NodeType<TypeID> node) {
+    static_assert(!node.camspork_vla_member,
+        "Need CAMSPORK_NODE_NO_VLA in struct definition");
+    const uint32_t offset = add_blob(sizeof(node), &node);
+    NodeRefT node_ref;
+    node_ref.set_type_byte_offset(TypeID, offset);
+    return node_ref;
+  }
+
+  uint32_t add_blob(size_t bytes, const void *p_blob) {
+    const uint32_t offset = nursery_size;
+    CAMSPORK_REQUIRE_CMP(
+        offset % 4, ==, 0, "internal error, expected 32 bit alignment");
+    reserve_bytes(nursery_size + bytes);
+    memcpy(p_nursery_data + nursery_size, p_blob, bytes);
+    size_t new_size =
+        (nursery_size + bytes + 3) & ~size_t(3);  // Round to multiple of 4
+    CAMSPORK_REQUIRE_CMP(
+        new_size, <=, UINT32_MAX, "NodeNursery: 32-bit overflow");
+    nursery_size = uint32_t(new_size);
+    return offset;
+  }
+
+  size_t size() const { return nursery_size; }
+
+  char *data() { return p_nursery_data; }
+
+  const char *data() const { return p_nursery_data; }
+
+private:
+  void reserve_bytes(size_t bytes) {
+    const auto original_capacity = nursery_capacity;
+    if (bytes > nursery_capacity) {
+      // Note: realloc is potentially massively more efficient than C++ due to
+      // page remapping.
+      bytes = (bytes + 4095) & ~size_t(4095);
+      char *p_new = static_cast<char *>(realloc(p_nursery_data, bytes));
+      if (p_new == nullptr) {
+        throw std::bad_alloc();
+      }
+      p_nursery_data = p_new;
+      CAMSPORK_REQUIRE_CMP(
+          bytes, <=, UINT32_MAX, "NodeNursery: 32-bit overflow");
+      nursery_capacity = uint32_t(bytes);
+      memset(p_nursery_data + original_capacity, 0xDD,
+          nursery_capacity - original_capacity);
+    }
+  }
+};
+
+// ******************************************************************************************
+// Each program variable is identified by a unique index (slot) in a flat table.
+//
+// There is currently nothing polymorphic about the VarConfig/VarConfigTable
+// types, but for consistency we adapt NodeRef to work with it anyway. Currently
+// this information is just a string name for the variable, for debugging.
+// ******************************************************************************************
+
+// Note: definition duplicated as Python ctypes
+struct Varname {
+  uint32_t slot_1_index;  // slot index + 1
+
+  Varname() { slot_1_index = 0; }
+
+  explicit Varname(uint32_t i) { slot_1_index = i; }
+
+  Varname(camspork_RawVarname raw) { slot_1_index = raw.slot_1_index; }
+
+  explicit operator bool() const { return slot_1_index != 0; }
+
+  uint32_t slot() const { return slot_1_index - 1; }
+
+  bool operator==(Varname other) const { return slot() == other.slot(); }
+
+  bool operator!=(Varname other) const { return slot() != other.slot(); }
+
+  operator camspork_RawVarname() const {
+    return camspork_RawVarname{slot_1_index};
+  }
+};
+
+template <uint32_t IgnoredTypeID>
+struct VarConfigNode {
+  CAMSPORK_NODE_VLA_MEMBER(char);
+};
+
+using VarConfig = VarConfigNode<0>;
+using VarConfigRef = NodeRef<VarConfigNode, 1>;
+
+template <uint32_t IgnoredTypeID>
+struct VarConfigTableNode {
+  CAMSPORK_NODE_VLA_MEMBER(VarConfigRef);
+};
+
+using VarConfigTable = VarConfigTableNode<0>;
+using VarConfigTableRef = NodeRef<VarConfigTableNode, 1>;
+
+// ******************************************************************************************
+// Expression node types, all pointed to by polymorphic ExprRef object.
+// ******************************************************************************************
+
+template <uint32_t TypeID>
+struct expr {};
+
+static constexpr uint32_t NumExprTypes = 4;
+
+using ExprRef = NodeRef<expr, NumExprTypes>;
+
+// ReadValue(Varname name, expr* idx)
+using ReadValue = expr<0>;
+template <>
+struct expr<0> {
+  Varname name;
+  CAMSPORK_NODE_VLA_MEMBER(ExprRef)
+
+  uint32_t dim() const { return camspork_vla_size; }
+};
+
+// Const(int value)
+using Const = expr<1>;
+template <>
+struct expr<1> {
+  int32_t value;
+  CAMSPORK_NODE_NO_VLA()
+};
+
+// USub(expr arg)
+using USub = expr<2>;
+template <>
+struct expr<2> {
+  ExprRef arg;
+  CAMSPORK_NODE_NO_VLA()
+};
+
+// BinOp(binop op, expr lhs, expr rhs)
+using BinOp = expr<3>;
+template <>
+struct expr<3> {
+  binop op;
+  ExprRef lhs;
+  ExprRef rhs;
+  CAMSPORK_NODE_NO_VLA()
+};
+
+// Update this if you add more expr node types.
+static_assert(NumExprTypes == 4);
+
+// Note: definition duplicated as Python ctypes
+struct OffsetExtentExpr {
+  ExprRef offset_e;
+  ExprRef extent_e;
+};
+
+// ******************************************************************************************
+// Trailing barrier expr for read/mutate access (only 1 concrete type for now)
+// ******************************************************************************************
+
+// Note: definition duplicated as Python ctypes.
+struct ArriveIdx {
+  ExprRef idx;
+  uint32_t multicast_per_expr;  // bitfield
+
+  uint32_t operator[](uint32_t expr_idx) const {
+    return 1u & (multicast_per_expr >> expr_idx);
+  }
+};
+
+template <uint32_t TypeID>
+struct trailing_barrier_expr_impl {
+  Varname name;
+  CAMSPORK_NODE_VLA_MEMBER(ArriveIdx)
+};
+
+using TrailingBarrierExpr = trailing_barrier_expr_impl<0>;
+using TrailingBarrierExprRef = NodeRef<trailing_barrier_expr_impl, 1>;
+
+// ******************************************************************************************
+// Statement node types, all pointed to by polymorphic StmtRef object (which can
+// be null)
+// ******************************************************************************************
+
+template <uint32_t TypeID>
+struct stmt {};
+
+static constexpr uint32_t NumStmtTypes = 25;
+
+using StmtRef = NodeRef<stmt, NumStmtTypes>;
+
+constexpr uint32_t access_flag_ooo = 1;
+constexpr uint32_t access_flag_convergent = 2;
+constexpr uint32_t access_flag_mutate = 4;
+constexpr uint32_t access_flag_write_only = 8;
+constexpr uint32_t access_flag_all_bits = 15;
+
+template <bool IsWindow, bool IsMulticast>
+struct SyncEnvAccessNodeData {
+  static_assert(!IsWindow || !IsMulticast);
+
+  Varname name;
+  qual_bits_t initial_qual_bit;
+  qual_bits_t extended_qual_bits;
+  uint32_t thread_access_granularity;
+  uint32_t access_flags;  // access_flag_mutate must match with IsMutate
+                          // template parameter (in subclass)
+  TrailingBarrierExprRef trailing_barrier_expr;
+
+  static constexpr bool is_window = IsWindow;
+  static constexpr bool is_multicast = IsMulticast;
+  using IdxT = std::conditional_t<IsMulticast, ArriveIdx,
+      std::conditional_t<IsWindow, OffsetExtentExpr, ExprRef>>;
+  CAMSPORK_NODE_VLA_MEMBER(IdxT);
+};
+
+// Only is_mutate=True SyncEnvAccessNode have atomic_qual_bits.
+template <bool IsMutate>
+struct CondAtomicQualBits {
+  qual_bits_t get_atomic_qual_bits() const { return 0; }
+};
+
+template <>
+struct CondAtomicQualBits<true> {
+  qual_bits_t atomic_qual_bits;
+  qual_bits_t get_atomic_qual_bits() const { return atomic_qual_bits; }
+};
+
+template <bool IsMutate, bool IsWindow, bool IsMulticast>
+struct SyncEnvAccessNode : SyncEnvAccessNodeData<IsWindow, IsMulticast>,
+                           CondAtomicQualBits<IsMutate> {
+  static constexpr bool is_mutate = IsMutate;
+};
+
+// SyncEnvReadSingle(Varname name, qual_tl initial_qual_bit, qual_tl*
+// extended_qual_bits, int thread_access_granularity, bool is_ooo, expr* offset)
+using SyncEnvReadSingle = stmt<0>;
+template <>
+struct stmt<0> : SyncEnvAccessNode<false, false, false> {};
+
+// SyncEnvReadWindow(Varname name, qual_tl initial_qual_bit, qual_tl*
+// extended_qual_bits, int thread_access_granularity, bool is_ooo, expr* offset,
+// expr* extent)
+using SyncEnvReadWindow = stmt<1>;
+template <>
+struct stmt<1> : SyncEnvAccessNode<false, true, false> {};
+
+// SyncEnvReadMulticast(Varname name, qual_tl initial_qual_bit, qual_tl*
+// extended_qual_bits, int thread_access_granularity, bool is_ooo, expr* offset,
+// multicast_flag* multicasts)
+using SyncEnvReadMulticast = stmt<2>;
+template <>
+struct stmt<2> : SyncEnvAccessNode<false, false, true> {};
+
+// SyncEnvMutateSingle(Varname name, qual_tl initial_qual_bit, qual_tl*
+// extended_qual_bits, qual_tl* atomic_qual_bits, int thread_access_granularity,
+// bool is_ooo, expr* offset)
+using SyncEnvMutateSingle = stmt<3>;
+template <>
+struct stmt<3> : SyncEnvAccessNode<true, false, false> {};
+
+// SyncEnvMutateWindow(Varname name, qual_tl initial_qual_bit, qual_tl*
+// extended_qual_bits, qual_tl* atomic_qual_bits, int thread_access_granularity,
+// bool is_ooo, expr* offset, expr* extent)
+using SyncEnvMutateWindow = stmt<4>;
+template <>
+struct stmt<4> : SyncEnvAccessNode<true, true, false> {};
+
+// SyncEnvMutateMulticast(Varname name, qual_tl initial_qual_bit, qual_tl*
+// extended_qual_bits, qual_tl* atomic_qual_bits, int thread_access_granularity,
+// bool is_ooo, expr* offset, multicast_flag* multicasts)
+using SyncEnvMutateMulticast = stmt<5>;
+template <>
+struct stmt<5> : SyncEnvAccessNode<true, false, true> {};
+
+// SyncEnvFreeShard(Varname name, expr* idx, qual_tl* extended_qual_bits)
+//
+// Before-free checks for name[*idx, :, :...] where the number of : is equal to
+// the dimensionality of the named tensor minus the number of idx provided.
+//
+// This does not "free" data in the abstract machine implementation; see
+// DataFree.
+using SyncEnvFreeShard = stmt<6>;
+template <>
+struct stmt<6> {
+  Varname name;
+  qual_bits_t extended_qual_bits;
+  CAMSPORK_NODE_VLA_MEMBER(ExprRef)
+};
+
+// MutateValue(Varname name, expr* idx, binop op, expr rhs)
+using MutateValue = stmt<7>;
+template <>
+struct stmt<7> {
+  Varname name;
+  binop op;
+  ExprRef rhs;
+  CAMSPORK_NODE_VLA_MEMBER(ExprRef)
+};
+
+// Fence(qual_tl* L1_qual_bits, qual_tl* L2_full_qual_bits, qual_tl*
+// L2_temporal_qual_bits)
+using Fence = stmt<8>;
+template <>
+struct stmt<8> {
+  qual_bits_t L1_qual_bits;
+  qual_bits_t L2_full_qual_bits;
+  qual_bits_t L2_temporal_qual_bits;
+  CAMSPORK_NODE_NO_VLA()
+};
+
+// Arrive(Varname name, qual_tl* L1_qual_bits, ExprRef* idx, multicast_flag*
+// multicasts) multicasts[expr_idx][dim_idx] = ArriveIdx[dim_idx][expr_idx]
+using Arrive = stmt<9>;
+template <>
+struct stmt<9> {
+  Varname name;
+  qual_bits_t L1_qual_bits;
+  CAMSPORK_NODE_VLA_MEMBER(ArriveIdx)
+};
+
+// Await(Varname name, qual_tl* L2_full_qual_bits, qual_tl*
+// L2_temporal_qual_bits, int32_t N, ExprRef* idx)
+using Await = stmt<10>;
+template <>
+struct stmt<10> {
+  Varname name;
+  qual_bits_t L2_full_qual_bits;
+  qual_bits_t L2_temporal_qual_bits;
+  int32_t N;
+  CAMSPORK_NODE_VLA_MEMBER(ExprRef)
+};
+
+// ValueEnvAlloc(Varname name, expr* extent)
+using ValueEnvAlloc = stmt<11>;
+template <>
+struct stmt<11> {
+  Varname name;
+  CAMSPORK_NODE_VLA_MEMBER(ExprRef)
+};
+
+// SyncEnvAlloc(Varname name, expr* extent)
+using SyncEnvAlloc = stmt<12>;
+template <>
+struct stmt<12> {
+  Varname name;
+  CAMSPORK_NODE_VLA_MEMBER(ExprRef)
+};
+
+// BarrierEnvAlloc(Varname name, expr* extent)
+using BarrierEnvAlloc = stmt<13>;
+template <>
+struct stmt<13> {
+  Varname name;
+  CAMSPORK_NODE_VLA_MEMBER(ExprRef)
+};
+
+// BarrierFree(Varname name)
+using BarrierFree = stmt<14>;
+template <>
+struct stmt<14> {
+  Varname name;
+  CAMSPORK_NODE_NO_VLA()
+};
+
+// see also DataFree (added later).
+
+// StmtBody(stmt* body)
+// This is statement composition body[0] ; body[1] ; ...
+static constexpr uint32_t StmtBody_ID = 15;
+using StmtBody = stmt<15>;
+template <>
+struct stmt<15> {
+  CAMSPORK_NODE_VLA_MEMBER(StmtRef);
+};
+
+// If(expr cond, stmt body, stmt orelse)
+static constexpr uint32_t If_ID = 16;
+using If = stmt<16>;
+template <>
+struct stmt<16> {
+  ExprRef cond;
+  StmtRef body;
+  StmtRef orelse;  // reminder: can be null
+  CAMSPORK_NODE_NO_VLA()
+};
+
+struct BaseForStmt {
+  Varname iter;
+  ExprRef lo;
+  ExprRef hi;
+  StmtRef body;
+  CAMSPORK_NODE_NO_VLA()
+};
+
+// SeqFor(Varname iter, expr lo, expr hi, stmt body)
+using SeqFor = stmt<17>;
+template <>
+struct stmt<17> : BaseForStmt {};
+
+// TasksFor(Varname iter, expr lo, expr hi, stmt body)
+using TasksFor = stmt<18>;
+template <>
+struct stmt<18> : BaseForStmt {};
+
+// ThreadsFor(Varname iter, expr lo, expr hi, int dim_idx, int offset, int box,
+// stmt body)
+using ThreadsFor = stmt<19>;
+template <>
+struct stmt<19> : BaseForStmt {
+  uint32_t dim_idx;
+  uint32_t offset;
+  uint32_t box;
+};
+
+// ParallelBlock(stmt body, int* domain)
+using ParallelBlock = stmt<20>;
+template <>
+struct stmt<20> {
+  StmtRef body;
+  CAMSPORK_NODE_VLA_MEMBER(uint32_t)
+};
+
+// DomainReshape(stmt body, int* domain)
+using DomainReshape = stmt<21>;
+template <>
+struct stmt<21> {
+  StmtRef body;
+  CAMSPORK_NODE_VLA_MEMBER(uint32_t)
+};
+
+// ExpectSyncEnvAlloc(Varname name, expr* extent)
+using ExpectSyncEnvAlloc = stmt<22>;
+template <>
+struct stmt<22> {
+  Varname name;
+  CAMSPORK_NODE_VLA_MEMBER(ExprRef)
+};
+
+// DataFree(Varname name)
+using DataFree = stmt<23>;
+template <>
+struct stmt<23> {
+  Varname name;
+  CAMSPORK_NODE_NO_VLA()
+};
+
+// JoinThreads()
+using JoinThreads = stmt<24>;
+template <>
+struct stmt<24> {
+  CAMSPORK_NODE_NO_VLA()
+};
+
+// Update this if you add more stmt node types.
+static_assert(NumStmtTypes == 25);
+
+// ******************************************************************************************
+// This is stored at offset 0 in the program buffer.
+// ******************************************************************************************
+struct ProgramHeader {
+  static const uint32_t expected_magic_numbers[];
+
+  uint32_t magic_numbers[7 + 32 + 32 + 1];
+  StmtRef top_level_stmt;
+  VarConfigTableRef var_config_table;
+
+  static const ProgramHeader &validate(size_t buffer_size, const char *buffer);
+};
+
+static_assert(alignof(ProgramHeader) == 4);
+
+}  // end namespace camspork
+
+namespace std {
+template <template <uint32_t> typename NodeType, uint32_t NumTypes>
+struct hash<camspork::NodeRef<NodeType, NumTypes>> {
+  size_t operator()(const camspork::NodeRef<NodeType, NumTypes> &ref) const {
+    return ref.raw_data;
+  }
+};
+}  // end namespace std
+
+CAMSPORK_EXPORT int camspork_get_lib_version();
+CAMSPORK_EXPORT camspork::binop camspork_binop_from_str(const char *p_str);
+CAMSPORK_EXPORT const char *camspork_binop_to_str(camspork::binop op);

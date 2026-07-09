@@ -1,0 +1,453 @@
+#pragma once
+
+#include <memory>
+#include <new>
+#include <ostream>
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+#include "../syncv/syncv_table.hpp"
+#include "../syncv/syncv_types.hpp"
+#include "../syncv/vis_record_history_log.hpp"
+#include "../util/api_util.hpp"
+#include "../util/require.hpp"
+#include "grammar.hpp"
+
+namespace camspork {
+
+class ProgramBuilder;
+
+template <typename T>
+class VarSlotEntry {
+  T *p_data = nullptr;
+  size_t _capacity = 0;
+  std::vector<extent_t> _extent;
+
+public:
+  VarSlotEntry(std::vector<extent_t> extent_arg) {
+    resize(std::move(extent_arg));
+  };
+
+  VarSlotEntry(T scalar_init = T{}) {
+    allocate_at_least(1);
+    p_data[0] = scalar_init;
+  }
+
+  ~VarSlotEntry() { free_if_allocated(); }
+
+  VarSlotEntry(const VarSlotEntry &other) {
+    const size_t alloc_size = get_alloc_size(other._extent);
+    allocate_at_least(alloc_size);
+    static_assert(std::is_trivially_copyable_v<T>);
+    memcpy(p_data, other.p_data, alloc_size * sizeof(p_data[0]));
+    _extent = other._extent;
+  }
+
+  VarSlotEntry(VarSlotEntry &&other) {
+    move_from(std::move(other));  // can throw due to mark_empty()
+  };
+
+  VarSlotEntry &operator=(VarSlotEntry other) {
+    free_if_allocated();
+    move_from(std::move(other));
+    return *this;
+  }
+
+  void resize(std::vector<extent_t> extent_arg) {
+    const size_t alloc_size = get_alloc_size(extent_arg);
+    allocate_at_least(alloc_size);
+    _extent = std::move(extent_arg);
+  }
+
+  void reset() {
+    free_if_allocated();
+    _extent.clear();
+  }
+
+  const std::vector<extent_t> &extent() const { return _extent; }
+
+  // C-style multidimensional array indexing.
+  // Provide the indices as a [begin, end) iterator pair.
+  template <typename IdxIterator>
+  T &idx(const IdxIterator begin, const IdxIterator end) {
+    const size_t alloc_dim = _extent.size();
+    const size_t num_idx = size_t(end - begin);
+    CAMSPORK_REQUIRE_CMP(
+        alloc_dim, ==, num_idx, "wrong index count used to read VarSlotEntry");
+    size_t linear_idx = 0;
+    for (IdxIterator iter = begin; iter != end; ++iter) {
+      const auto dim = iter - begin;
+      const size_t idx = size_t(*iter);
+      CAMSPORK_REQUIRE_CMP(idx, <, size_t(_extent[dim]),
+          "out-of-bounds access in abstract machine program");
+      linear_idx = linear_idx * size_t(_extent[dim]) + idx;
+    }
+    return p_data[linear_idx];
+  }
+
+  template <typename IdxIterator>
+  const T &idx(const IdxIterator begin, const IdxIterator end) const {
+    return const_cast<VarSlotEntry *>(this)->idx(begin, end);
+  }
+
+  T &scalar() {
+    CAMSPORK_REQUIRE_CMP(
+        _extent.size(), ==, 0, "tried to read tensor VarSlotEntry as scalar");
+    return p_data[0];
+  }
+
+  const T &scalar() const {
+    CAMSPORK_REQUIRE_CMP(
+        _extent.size(), ==, 0, "tried to read tensor VarSlotEntry as scalar");
+    return p_data[0];
+  }
+
+  T *data() { return p_data; }
+
+  const T *data() const { return p_data; }
+
+  size_t size() const { return get_alloc_size(_extent); }
+
+  void mark_empty() {
+    _extent = std::vector<extent_t>{0};
+    CAMSPORK_REQUIRE_CMP(size(), ==, 0, "should be seen as empty now");
+  }
+
+  void clear_value_env() { mark_empty(); }
+
+  void clear_sync_env(SyncvTable *table) {
+    // Clear every entry.
+    // This is needed to return memory to the syncv table.
+    clear_visibility(table, size(), data());
+    mark_empty();
+  }
+
+  void clear_barrier_env(SyncvTable *table, bool check_arrive_await) {
+    free_barriers(table, size(), data(), check_arrive_await);
+    mark_empty();
+  }
+
+  std::vector<extent_t> idx_from_linear(size_t linear_index) const {
+    const size_t dim = _extent.size();
+    std::vector<extent_t> res(dim);
+    for (size_t i = 0; i < res.size(); ++i) {
+      const size_t dim_idx = dim - 1 - i;
+      const size_t dim_size = _extent[dim_idx];
+      const size_t r = linear_index % dim_size;
+      linear_index = linear_index / dim_size;
+      res[dim_idx] = extent_t(r);
+    }
+    CAMSPORK_REQUIRE_CMP(linear_index, ==, 0, "idx_from_linear, out-of-range");
+    return res;
+  }
+
+private:
+  static size_t get_alloc_size(const std::vector<extent_t> &extent_arg) {
+    size_t prod = 1;
+    for (size_t n : extent_arg) {
+      prod *= n;
+    }
+    return prod;
+  }
+
+  void allocate_at_least(size_t N) {
+    if (N > _capacity) {
+      free_if_allocated();
+      p_data = new T[N];
+      _capacity = N;
+    }
+  }
+
+  void free_if_allocated() noexcept {
+    if (p_data) {
+      delete[] p_data;
+      p_data = nullptr;
+      _capacity = 0;
+    }
+  }
+
+  void move_from(VarSlotEntry &&other) {
+    _extent = std::move(other._extent);
+    p_data = other.p_data;
+    _capacity = other._capacity;
+    other.p_data = nullptr;
+    other._capacity = 0;
+    other.mark_empty();  // can throw
+  }
+};
+
+struct VarSlotEnvs {
+  std::string name;
+  // For this variable name: Value env, Sync env, Barrier env.
+  // Conceptually, this is mapping from indices to data.
+  VarSlotEntry<value_t> value;
+  VarSlotEntry<assignment_record_id> sync;
+  VarSlotEntry<barrier_id> barrier;
+};
+
+class ProgramEnvSyncvTable {
+  SyncvTable *raw_ptr;
+
+public:
+  ProgramEnvSyncvTable(SyncvTable *arg = nullptr) : raw_ptr(arg) {}
+  ProgramEnvSyncvTable(const ProgramEnvSyncvTable &other) {
+    raw_ptr = other.raw_ptr ? copy_syncv_table(other.raw_ptr) : nullptr;
+  }
+  ProgramEnvSyncvTable &operator=(ProgramEnvSyncvTable other) {
+    std::swap(raw_ptr, other.raw_ptr);
+    return *this;
+  }
+  ~ProgramEnvSyncvTable() {
+    if (raw_ptr) {
+      delete_syncv_table(raw_ptr);
+    }
+  }
+
+  SyncvTable *get() const { return raw_ptr; }
+};
+
+struct ProgramExecRemark {
+  StmtRef stmt;
+  std::string text;
+};
+
+struct SinglePositionFilter {
+  // If passed to exec(...), specify that we discard the synchronization
+  // environment effects associated with reads/mutates for all positions except
+  // for name[idx]. This does NOT inhibit value and barrier env effects, or the
+  // effects of Fence, Arrive, Await.
+  Varname name;
+  std::vector<extent_t> idx;
+
+  explicit operator bool() const { return bool(name); }
+
+  bool accepts_name(Varname arg) const { return !name || name == arg; }
+};
+
+inline const SinglePositionFilter no_single_position_filter{Varname{0}, {}};
+
+class VisRecordHistoryLog;
+
+class ProgramEnv {
+  size_t program_buffer_size;
+  std::shared_ptr<const char[]> p_program_buffer;
+  const ProgramHeader &header;  // Validated from p_program_buffer
+  ProgramEnvSyncvTable p_syncv_table;
+  ThreadCuboid
+      raw_thread_cuboid;  // Lazy task_index. Read with prepare_thread_cuboid.
+  std::vector<VarSlotEnvs> var_slots;
+  bool dirty_task_index = false;
+  bool debug_validation_enable = false;
+  bool history_enable = false;
+
+  // This will grow forever, but the intention of remarks is just for small
+  // experiments or reporting errors. Reconsider if needed.
+  std::vector<ProgramExecRemark> _remarks;
+  Varname _syncv_fail_var = {};
+  std::vector<extent_t> _syncv_fail_idx;
+
+  // VisRecord history logging, toggle-able
+  VisRecordHistoryLog history_log;
+
+public:
+  template <bool EnableExcutLog>
+  friend class ProgramExec;
+
+  ProgramEnv(size_t buffer_size, const char *buffer);
+  ProgramEnv(size_t buffer_size, std::shared_ptr<const char[]> buffer);
+  explicit ProgramEnv(const ProgramBuilder &builder);
+
+  // Currently moves are the same as copies.
+  ProgramEnv(const ProgramEnv &) = default;
+  ProgramEnv &operator=(
+      const ProgramEnv &) = delete;  // Fix this if we have to.
+  ~ProgramEnv() = default;
+
+  void exec(const char *p_excut_filename = nullptr,
+      SinglePositionFilter single_position_filter = no_single_position_filter) {
+    exec(header.top_level_stmt, p_excut_filename,
+        std::move(single_position_filter));
+  }
+
+  void exec(StmtRef stmt, const char *p_excut_filename = nullptr,
+      SinglePositionFilter single_position_filter = no_single_position_filter);
+
+  void alloc_values(Varname name, std::vector<extent_t> extent) {
+    CAMSPORK_C_BOUNDSCHECK(name.slot(), var_slots.size());
+    var_slots[name.slot()].value = VarSlotEntry<value_t>(std::move(extent));
+  }
+
+  void alloc_scalar_value(Varname name, value_t value) {
+    CAMSPORK_C_BOUNDSCHECK(name.slot(), var_slots.size());
+    var_slots[name.slot()].value = VarSlotEntry<value_t>(value);
+  }
+
+  const std::string &str_name(Varname name) {
+    CAMSPORK_C_BOUNDSCHECK(name.slot(), var_slots.size());
+    return var_slots[name.slot()].name;
+  }
+
+  VarSlotEntry<value_t> &value_slot(Varname name) {
+    CAMSPORK_C_BOUNDSCHECK(name.slot(), var_slots.size());
+    return var_slots[name.slot()].value;
+  }
+
+  const VarSlotEntry<value_t> &value_slot(Varname name) const {
+    CAMSPORK_C_BOUNDSCHECK(name.slot(), var_slots.size());
+    return var_slots[name.slot()].value;
+  }
+
+  void alloc_sync(Varname name, std::vector<extent_t> extent) {
+    CAMSPORK_C_BOUNDSCHECK(name.slot(), var_slots.size());
+    var_slots[name.slot()].sync =
+        VarSlotEntry<assignment_record_id>(std::move(extent));
+  }
+
+  VarSlotEntry<assignment_record_id> &sync_slot(Varname name) {
+    CAMSPORK_C_BOUNDSCHECK(name.slot(), var_slots.size());
+    return var_slots[name.slot()].sync;
+  }
+
+  const VarSlotEntry<assignment_record_id> &sync_slot(Varname name) const {
+    CAMSPORK_C_BOUNDSCHECK(name.slot(), var_slots.size());
+    return var_slots[name.slot()].sync;
+  }
+
+  VarSlotEntry<barrier_id> &barrier_slot(Varname name) {
+    CAMSPORK_C_BOUNDSCHECK(name.slot(), var_slots.size());
+    return var_slots[name.slot()].barrier;
+  }
+
+  const VarSlotEntry<barrier_id> &barrier_slot(Varname name) const {
+    CAMSPORK_C_BOUNDSCHECK(name.slot(), var_slots.size());
+    return var_slots[name.slot()].barrier;
+  }
+
+  void set_debug_validation_enable(bool flag);
+  void set_history_enable(bool flag);
+  void set_qual_tl_name(uint32_t qual_tl, std::string name);
+  void add_error_history_remarks();
+  void add_last_checked_read_history_remarks();
+  void add_last_checked_mutate_history_remarks();
+  void add_debug_version_history_remarks(uint64_t version_id);
+
+  const std::vector<ProgramExecRemark> &get_remarks() const { return _remarks; }
+
+  __attribute__((always_inline)) void maybe_syncv_debug_validate() {
+    if (debug_validation_enable) {
+      syncv_debug_validate();
+    }
+  }
+
+  void syncv_debug_validate();
+
+  template <uint32_t TypeID>
+  StmtRef stmt_ref_from_ptr(const stmt<TypeID> *node) const {
+    StmtRef out;
+    const ptrdiff_t offset =
+        reinterpret_cast<const char *>(node) - p_program_buffer.get();
+    CAMSPORK_REQUIRE_CMP(offset, >=, 1, "node not from this program");
+    CAMSPORK_REQUIRE_CMP(offset, <, ptrdiff_t(program_buffer_size),
+        "node not from this program");
+    out.set_type_byte_offset(TypeID, uint32_t(offset));
+    return out;
+  }
+
+  void add_remark(StmtRef stmt, std::string remark) {
+    _remarks.push_back({stmt, std::move(remark)});
+  }
+
+  template <typename Stmt>
+  void add_remark(const Stmt *node, std::string remark) {
+    _remarks.push_back({stmt_ref_from_ptr(node), std::move(remark)});
+  }
+
+  void stream_program_remarks(std::ostream &stream);
+
+  camspork::Varname syncv_fail_var() const { return _syncv_fail_var; }
+
+  const std::vector<extent_t> &syncv_fail_idx() const {
+    return _syncv_fail_idx;
+  }
+
+private:
+  std::shared_ptr<char[]> make_shared_program_buffer(
+      size_t buffer_size, const char *buffer) {
+    std::shared_ptr<char[]> p_result(new char[buffer_size]);
+    memcpy(p_result.get(), buffer, buffer_size);
+    return p_result;
+  }
+
+  const ThreadCuboid &prepare_thread_cuboid() {
+    if (dirty_task_index) {
+      raw_thread_cuboid.task_index++;
+      dirty_task_index = false;
+    }
+    return raw_thread_cuboid;
+  }
+};
+
+}  // end namespace camspork
+
+// 0 or null returns signal an error, except for delete.
+
+CAMSPORK_EXPORT camspork::ProgramEnv *camspork_new_ProgramEnv(
+    const camspork::ProgramBuilder *p_builder);
+CAMSPORK_EXPORT camspork::ProgramEnv *camspork_copy_ProgramEnv(
+    const camspork::ProgramEnv *p_original);
+CAMSPORK_EXPORT void camspork_delete_ProgramEnv(camspork::ProgramEnv *p_victim);
+
+CAMSPORK_EXPORT int camspork_exec_top(camspork::ProgramEnv *p_env,
+    const char *p_excut_filename, camspork::Varname single_position_name,
+    uint32_t dims, const camspork::extent_t *idx);
+CAMSPORK_EXPORT int camspork_exec_stmt(camspork::ProgramEnv *p_env,
+    camspork::StmtRef stmt, const char *p_excut_filename,
+    camspork::Varname single_position_name, uint32_t dims,
+    const camspork::extent_t *idx);
+
+CAMSPORK_EXPORT int camspork_alloc_values(camspork::ProgramEnv *p_env,
+    camspork::Varname name, uint32_t dims, const camspork::extent_t *p_extent);
+CAMSPORK_EXPORT int camspork_alloc_scalar_value(camspork::ProgramEnv *p_env,
+    camspork::Varname name, camspork::value_t value);
+CAMSPORK_EXPORT int camspork_alloc_sync(camspork::ProgramEnv *p_env,
+    camspork::Varname name, uint32_t dims, const camspork::extent_t *p_extent);
+
+CAMSPORK_EXPORT int camspork_read_value(const camspork::ProgramEnv *p_env,
+    camspork::Varname name, uint32_t dims, const camspork::value_t *idxs,
+    camspork::value_t *out);
+CAMSPORK_EXPORT int camspork_set_value(camspork::ProgramEnv *p_env,
+    camspork::Varname name, uint32_t dims, const camspork::value_t *idxs,
+    camspork::value_t arg);
+
+CAMSPORK_EXPORT int camspork_set_debug_validation_enable(
+    camspork::ProgramEnv *p_env, uint32_t flag);
+CAMSPORK_EXPORT int camspork_set_history_enable(
+    camspork::ProgramEnv *p_env, uint32_t flag);
+CAMSPORK_EXPORT int camspork_set_qual_tl_name(
+    camspork::ProgramEnv *p_env, uint32_t qual_tl, const char *name);
+CAMSPORK_EXPORT int camspork_add_error_history_remarks(
+    camspork::ProgramEnv *p_env);
+CAMSPORK_EXPORT int camspork_add_last_checked_read_history_remarks(
+    camspork::ProgramEnv *p_env);
+CAMSPORK_EXPORT int camspork_add_last_checked_mutate_history_remarks(
+    camspork::ProgramEnv *p_env);
+CAMSPORK_EXPORT int camspork_add_debug_version_history_remarks(
+    camspork::ProgramEnv *p_env, uint64_t version_id);
+CAMSPORK_EXPORT const char *camspork_get_remark(
+    const camspork::ProgramEnv *p_env, uint32_t i, camspork::StmtRef *out_stmt);
+
+// These don't have error conditions; 0 signals "no syncv fail detected" or "0
+// dimensional".
+CAMSPORK_EXPORT int camspork_get_num_remarks(const camspork::ProgramEnv *p_env);
+CAMSPORK_EXPORT camspork_RawVarname camspork_syncv_fail_var(
+    const camspork::ProgramEnv *p_env);
+CAMSPORK_EXPORT int camspork_syncv_fail_idx_dim(
+    const camspork::ProgramEnv *p_env);
+CAMSPORK_EXPORT const camspork::extent_t *camspork_syncv_fail_idx_ptr(
+    const camspork::ProgramEnv *p_env);
+
+// Return 0

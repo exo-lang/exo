@@ -55,8 +55,10 @@ Finally, you can build and install Exo.
 
 ```
 (exo) $ python -m build .
-(exo) $ pip install dist/*.whl
+(exo) $ pip install dist/*.whl  # Delete older Exo builds in dist/ if needed
 ```
+
+If you are using Exo-GPU `sync_check` functionality, you need to have the `ninja` build tool and an up-to-date C++ compiler on your system.
 
 ## PySMT
 

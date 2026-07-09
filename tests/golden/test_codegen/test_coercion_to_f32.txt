@@ -1,13 +1,17 @@
 #include "test.h"
 
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
 #include <stdio.h>
 #include <stdlib.h>
 
+#endif
 // foo(
 
 // )
 void foo( void *ctxt ) {
-float a;
-a = a + 3.0f;
+  float a;
+  a = a + 3.0f;
 }
 

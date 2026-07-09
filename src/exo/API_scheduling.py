@@ -5,7 +5,7 @@ import re
 
 # import types
 from dataclasses import dataclass
-from typing import Any, List, Tuple
+from typing import Any, List, Tuple, Optional
 
 from .API import Procedure
 import exo.API_cursors as PC
@@ -15,10 +15,14 @@ from .API_types import ExoType
 
 from .rewrite.LoopIR_unification import DoReplace, UnificationError
 from .core.configs import Config
-from .core.memory import Memory
+from .core.instr_class import old_style_instr_info, InstrTemplate, ProcCallGen
+from .core.memory import Memory, SpecialWindow, AllocableMemWin, BarrierMechanism
 from .frontend.parse_fragment import parse_fragment
 from .core.prelude import *
 from .core import internal_cursors as ic
+from .spork.base_with_context import BaseWithContext
+from .spork.loop_modes import LoopMode
+from .spork.timelines import Sync_tl, Qual_tl, Instr_tl
 
 
 def is_subclass_obj(x, cls):
@@ -149,10 +153,31 @@ class ProcA(ArgumentProcessor):
         return proc
 
 
+class ProcCallGenA(ArgumentProcessor):
+    def __call__(self, proc, all_args):
+        if not isinstance(proc, ProcCallGen):
+            self.err("expected a Procedure or InstrTemplate object")
+        return proc
+
+
+class AllocableMemWinA(ArgumentProcessor):
+    def __call__(self, mem, all_args):
+        if not is_subclass_obj(mem, AllocableMemWin):
+            self.err("expected an AllocableMemWin subclass")
+        return mem
+
+
 class MemoryA(ArgumentProcessor):
     def __call__(self, mem, all_args):
         if not is_subclass_obj(mem, Memory):
             self.err("expected a Memory subclass")
+        return mem
+
+
+class BarrierMechanismA(ArgumentProcessor):
+    def __call__(self, mem, all_args):
+        if not is_subclass_obj(mem, BarrierMechanism):
+            self.err("expected a BarrierMechanism subclass")
         return mem
 
 
@@ -205,6 +230,39 @@ class BoolA(ArgumentProcessor):
         if not isinstance(bval, bool):
             self.err("expected a bool")
         return bval
+
+
+class InternalSrcInfoA(ArgumentProcessor):
+    def __call__(self, srcinfo, all_args):
+        assert isinstance(srcinfo, SrcInfo), "internal error"
+        return srcinfo
+
+
+class WithContextA(ArgumentProcessor):
+    def __call__(self, with_context, all_args):
+        if not isinstance(with_context, BaseWithContext):
+            self.err("expected a BaseWithContext")
+        return with_context
+
+
+class LoopModeA(ArgumentProcessor):
+    def __call__(self, loop_mode, all_args):
+        if isinstance(loop_mode, type):
+            loop_mode = loop_mode()
+        if not isinstance(loop_mode, LoopMode):
+            self.err("expected a LoopMode")
+        return loop_mode
+
+
+class Sync_tlA(ArgumentProcessor):
+    def __call__(self, sync_tl, all_args):
+        if isinstance(sync_tl, Sync_tl):
+            return sync_tl
+        if isinstance(sync_tl, Qual_tl):
+            self.err(f"expected a Sync_tl, not {sync_tl}: Qual_tl")
+        if isinstance(sync_tl, Instr_tl):
+            self.err(f"expected a Sync_tl, not {sync_tl}: Instr_tl")
+        self.err("expected a Sync_tl")
 
 
 class OptionalA(ArgumentProcessor):
@@ -310,40 +368,20 @@ class EnumA(ArgumentProcessor):
 
 
 class TypeAbbrevA(ArgumentProcessor):
-    _shorthand = {
-        "R": T.R,
-        ExoType.R: T.R,
-        "f16": T.f16,
-        ExoType.F16: T.f16,
-        "f32": T.f32,
-        ExoType.F32: T.f32,
-        "f64": T.f64,
-        ExoType.F64: T.f64,
-        "i8": T.int8,
-        ExoType.I8: T.i8,
-        "ui8": T.uint8,
-        ExoType.UI8: T.uint8,
-        "ui16": T.uint16,
-        ExoType.UI16: T.ui16,
-        "i32": T.int32,
-        ExoType.I32: T.i32,
-    }
-
     def __call__(self, typ, all_args):
-        if not isinstance(typ, (str, ExoType)):
+        if not isinstance(typ, (str, ExoType, ScalarInfo)):
             self.err(
-                f"expected an instance of {ExoType} or {str} specifying the precision",
+                f"expected an instance of ExoType, ScalarInfo, or str specifying the precision",
                 TypeError,
             )
-        assert not isinstance(typ, ExoType) or typ in TypeAbbrevA._shorthand
-        if typ in TypeAbbrevA._shorthand:
-            return TypeAbbrevA._shorthand[typ]
-        else:
-            precisions = ", ".join(
-                [t for t in TypeAbbrevA._shorthand if type(t) is str]
-            )
+        try:
+            return ScalarInfo(typ).loopir
+        except KeyError:
+            if typ == "R" or typ == ExoType.R:
+                return T.R
+            precisions = ", ".join(["R"] + ScalarInfo.get_scalar_names())
             self.err(
-                f"expected an instance of {ExoType} or one of the following strings specifying "
+                f"expected an instance of ExoType, ScalarInfo, or one of the following strings specifying "
                 f"precision: {precisions}",
                 ValueError,
             )
@@ -762,6 +800,49 @@ class CustomWindowExprA(NewExprA):
         return buf_name, args
 
 
+# Like CustomWindowExprA except we expect naked : instead of lo:hi.
+# These : are used to indicate multicasting, and are returned as None.
+# So we get a tuple of (barrier name, list of idxs)
+# where None indicates a :, and actual LoopIR.expr indicates a point expression.
+class CustomBarrierExprA(NewExprA):
+    def __call__(self, expr_str, all_args) -> Tuple[str, List[Optional[LoopIR.expr]]]:
+        proc = all_args["proc"]
+        ctxt_stmt = self._get_ctxt_stmt(all_args)
+
+        # degenerate case of a scalar value
+        if is_valid_name(expr_str):
+            return expr_str, []
+
+        # otherwise, we have multiple dimensions
+        match = re.match(r"(\w+)\[([^\]]+)\]", expr_str)
+        if not match:
+            raise ValueError(
+                f"expected windowing string of the form "
+                f"'name[args]', but got '{expr_str}'"
+            )
+        buf_name, args = match.groups()
+        if not is_valid_name(buf_name):
+            raise ValueError(f"'{buf_name}' is not a valid name")
+
+        loopir = proc._loopir_proc
+
+        def parse_arg(a):
+            # a.strip() to remove whitespace
+            a = a.strip()
+            if ":" in a:
+                if a != ":":
+                    raise ValueError(f"'{a}'; expected plain : for barrier expr")
+                return None
+            else:
+                e = parse_fragment(loopir, a, ctxt_stmt)
+                assert isinstance(e, LoopIR.expr)
+                return e
+
+        args = [parse_arg(a) for a in args.split(",")]
+
+        return buf_name, args
+
+
 class NewExprOrCustomWindowExprA(NewExprA):
     def __call__(self, expr_str, all_args):
         try:
@@ -822,7 +903,7 @@ def make_instr(proc, c_instr, c_global=""):
         c_global - string representing global C code necessary for this instruction e.g. includes
     """
     ir = proc._loopir_proc
-    instr = LoopIR.instr(c_instr=c_instr, c_global=c_global)
+    instr = old_style_instr_info(ir, c_instr, c_global)
     ir = ir.update(instr=instr)
     return Procedure(
         ir,
@@ -862,6 +943,112 @@ def insert_noop_call(proc, gap_cursor, instr, args):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
+@sched_op([GapCursorA, Sync_tlA, Sync_tlA])
+def insert_fence(proc, gap_cursor, first_sync_tl: Sync_tl, second_sync_tl: Sync_tl):
+    """
+    Insert `Fence(first_sync_tl, second_sync_tl)` at the indicated position.
+
+    args:
+        gap_cursor      - where to insert the new `Fence` statement
+        first_sync_tl   - first synchronization timeline
+        second_sync_tl  - second synchronization timeline
+
+    rewrite:
+        `s1 ; s2` <--- gap_cursor pointed at the semi-colon
+        -->
+        `s1 ; Fence(first_sync_tl, second_sync_tl) ; s2`
+    """
+    ir, fwd = scheduling.DoInsertFence(gap_cursor._impl, first_sync_tl, second_sync_tl)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op(
+    [GapCursorA, NameA, OptionalA(AllocCursorA), ListA(PosIntA), BarrierMechanismA]
+)
+def insert_barrier_alloc(proc, gap_cursor, name, guarded_by, hi, barrier_mechanism):
+    """
+    Insert allocation of new barrier variable at the indicated position.
+
+    args:
+        gap_cursor        - where to insert the new barrier
+        name              - name of the new barrier
+        guarded_by        - barrier(...) parameter (may be None)
+        hi                - positive integer extents of barrier array.
+        barrier_mechanism - "memory type" of the barrier, e.g. CudaMbarrier
+
+    rewrite:
+        `s1 ; s2` <--- gap_cursor pointed at the semi-colon
+        -->
+        `s1 ; name: barrier(guarded_by)[*hi] @ barrier_mechanism ; s2`
+    """
+    guarded_by_cursor = None if guarded_by is None else guarded_by._impl
+    ir, fwd = scheduling.DoInsertBarrierAlloc(
+        gap_cursor._impl, name, guarded_by_cursor, hi, barrier_mechanism
+    )
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([GapCursorA, Sync_tlA, ListOrElemA(CustomBarrierExprA("gap_cursor"))])
+def insert_arrive(proc, gap_cursor, first_sync_tl: Sync_tl, barrier_exprs):
+    """
+    Insert Arrive statement at the indicated position.
+
+    args:
+        gap_cursor      - where to insert the Arrive stmt
+        first_sync_tl   - Arrive SyncTL (filters interaction with async instrs)
+        barrier_exprs   - str or list of strs carrying barrier expressions
+
+    rewrite:
+        `s1 ; s2` <--- gap_cursor pointed at the semi-colon
+        -->
+        `s1 ; Arrive(first_sync_tl) >> barrier_exprs ; s2`
+    """
+    ir, fwd = scheduling.DoInsertArrive(gap_cursor._impl, first_sync_tl, barrier_exprs)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([GapCursorA, CustomBarrierExprA("gap_cursor"), Sync_tlA, IntA])
+def insert_await(proc, gap_cursor, barrier_expr, second_sync_tl: Sync_tl, N):
+    """
+    Insert Await statement at the indicated position.
+
+    args:
+        gap_cursor      - where to insert the Await stmt
+        barrier_expr    - str carrying barrier expression
+        second_sync_tl  - Await SyncTL (filters interaction with async instrs)
+        N               - integer, controls delay
+
+    rewrite:
+        `s1 ; s2` <--- gap_cursor pointed at the semi-colon
+        -->
+        `s1 ; Await(barrier_expr, second_sync_tl, N) ; s2`
+    """
+    ir, fwd = scheduling.DoInsertAwait(
+        gap_cursor._impl, barrier_expr, second_sync_tl, N
+    )
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([CallCursorA, OptionalA(CustomBarrierExprA("call_cursor"))])
+def set_trailing_barrier_expr(proc, call_cursor, barrier_expr):
+    """
+    Set the trailing barrier expr for a Call (intended for CUDA TMA).
+    Overwrites whatever trailing barrier expr was there before.
+
+    args:
+        call_cursor     - points to call
+        barrier_expr    - None or str carrying barrier expression
+
+    rewrite:
+        `foo(bar) <-- call_cursor
+        -->
+        `foo(bar) >> barrier_expr`
+        `
+    """
+    ir, fwd = scheduling.DoSetTrailingBarrierExpr(call_cursor._impl, barrier_expr)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
 @sched_op([])
 def delete_pass(proc):
     """
@@ -898,6 +1085,27 @@ def parallelize_loop(proc, loop_cursor):
     loop = loop_cursor._impl
 
     ir, fwd = scheduling.DoParallelizeLoop(loop)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+@sched_op([ForCursorA, LoopModeA])
+def set_loop_mode(proc, loop_cursor, loop_mode):
+    loop = loop_cursor._impl
+
+    ir, fwd = scheduling.DoParallelizeLoop(loop, loop_mode)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+def update_loop_mode(proc, loop_cursor, **kwargs):
+    return _update_loop_mode_impl(proc, loop_cursor, kwargs)
+
+
+@sched_op([ForCursorA, DictA])
+def _update_loop_mode_impl(proc, loop_cursor, user_kwargs):
+    loop = loop_cursor._impl
+    loop_mode = loop_cursor.loop_mode().update(**user_kwargs)
+
+    ir, fwd = scheduling.DoParallelizeLoop(loop, loop_mode)
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
@@ -1074,7 +1282,7 @@ def inline(proc, call_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([BlockCursorA, ProcA, BoolA])
+@sched_op([BlockCursorA, ProcCallGenA, BoolA])
 def replace(proc, block_cursor, subproc, quiet=False):
     """
     Attempt to match the supplied `subproc` against the supplied
@@ -1084,12 +1292,16 @@ def replace(proc, block_cursor, subproc, quiet=False):
     args:
         block_cursor    - Cursor or pattern pointing to block of statements
         subproc         - Procedure object to replace this block with a
-                          call to
+                          call to, or InstrTemplate (instr class).
         quiet           - (bool) control how much this operation prints
                           out debug info
+
+    If an InstrTemplate is given, Exo will try its best to deduce constant
+    values for all template parameters (this is experimental).
+    If it fails, pass InstrTemplate.partial(foo=bar) for failed values foo.
     """
     try:
-        ir, fwd = DoReplace(subproc._loopir_proc, block_cursor._impl)
+        ir, fwd = DoReplace(subproc, block_cursor._impl)
         return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
     except UnificationError:
         if quiet:
@@ -1161,7 +1373,8 @@ def set_window(proc, cursor, is_window=True):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([ArgOrAllocCursorA, MemoryA])
+# TODO support SpecialWindow for arg cursor (but not alloc)
+@sched_op([ArgOrAllocCursorA, AllocableMemWinA])
 def set_memory(proc, cursor, memory_type):
     """
     Set the memory annotation on a given buffer to the provided memory.
@@ -1603,8 +1816,18 @@ def inline_window(proc, winstmt_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
-@sched_op([BlockCursorA, CustomWindowExprA("block_cursor"), NameA, BoolA])
-def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
+@sched_op(
+    [
+        BlockCursorA,
+        CustomWindowExprA("block_cursor"),
+        NameA,
+        BoolA,
+        OptionalA(MemoryA),
+    ]
+)
+def stage_mem(
+    proc, block_cursor, win_expr, new_buf_name, accum=False, memory_type=None
+):
     """
     Stage the window of memory specified by `win_expr` into a new buffer
     before the indicated code block and move the memory back after the
@@ -1635,6 +1858,7 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
                           (32, i), (32, i+1), (32, i+2), or (32, i+3)
         new_buf_name    - the name of the newly created staging buffer
         accum           - (optional, bool) see above
+        memory_type     - (optional) memory type for new buffer.
 
     rewrite:
         stage_mem(..., 'x[0:n,j-1:j]', 'xtmp')
@@ -1653,7 +1877,12 @@ def stage_mem(proc, block_cursor, win_expr, new_buf_name, accum=False):
     """
     buf_name, w_exprs = win_expr
     ir, fwd = scheduling.DoStageMem(
-        block_cursor._impl, buf_name, w_exprs, new_buf_name, use_accum_zero=accum
+        block_cursor._impl,
+        buf_name,
+        w_exprs,
+        new_buf_name,
+        use_accum_zero=accum,
+        input_memory_type=memory_type,
     )
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
@@ -2172,6 +2401,28 @@ def remove_loop(proc, loop_cursor, unsafe_disable_check=False):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
+@sched_op([StmtCursorA, BoolA])
+def unsafe_remove_if(proc, if_cursor, recursive):
+    """
+    Remove the if around some block of statements.
+    This operation is not checked for correctness,
+    and may lead to out-of-bounds accesses.
+
+    If recursive, the if statements in the body are removed as well.
+
+    args:
+        if_cursor     - cursor pointing to the if to remove
+
+    rewrite:
+        `if _:`
+        `    s`
+            ->
+        `s`
+    """
+    ir, fwd = scheduling.DoUnsafeRemoveIf(if_cursor._impl, recursive)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
 @sched_op([BlockCursorA, NameA, NewExprA("block_cursor"), BoolA, BoolA])
 def add_loop(
     proc, block_cursor, iter_name, hi_expr, guard=False, unsafe_disable_check=False
@@ -2204,6 +2455,66 @@ def add_loop(
     stmt_c = block_cursor[0]._impl
     ir, fwd = scheduling.DoAddLoop(
         stmt_c, iter_name, hi_expr, guard, unsafe_disable_check
+    )
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+def wrap_with_context(proc, block_cursor, with_context):
+    """
+    Add a with statement around some block of statements.
+    This operation is always allowable (incorrect usage
+    of the with statement may get flagged when compiling to C).
+
+    args:
+        block_cursor    - cursor pointing to the block to wrap
+        with_context    - BaseWithContext object.
+
+    rewrite:
+        `s`  <--- block_cursor
+        ->
+        `with with_context:`
+        `    s`
+    """
+    return _wrap_with_context_impl(
+        proc, block_cursor, with_context, get_srcinfo(depth=2)
+    )
+
+
+@sched_op([BlockCursorA, WithContextA, InternalSrcInfoA])
+def _wrap_with_context_impl(proc, block_cursor, with_context, srcinfo):
+    ir, fwd = scheduling.DoWrapWithContext(block_cursor._impl, with_context, srcinfo)
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
+def add_if(proc, block_cursor, cond, unsafe_disable_check=False):
+    """
+    Add an if statement around some block of statements.
+    TODO: we could check the safety of this, by seeing
+    that there are no writes or write configs inside.
+
+    args:
+        block_cursor    - cursor pointing to the block to wrap
+        cond            - text, becomes if condition
+
+    rewrite:
+        `s`  <--- block_cursor
+        ->
+        `if cond:`
+        `    s`
+    """
+    return _add_if_impl(
+        proc,
+        block_cursor,
+        cond,
+        unsafe_disable_check,
+        get_srcinfo(depth=2),
+    )
+
+
+@sched_op([BlockCursorA, NewExprA("block_cursor"), BoolA, InternalSrcInfoA])
+def _add_if_impl(proc, block_cursor, cond, unsafe_disable_check, srcinfo):
+    ir, fwd = scheduling.DoAddIf(
+        block_cursor._impl, cond, unsafe_disable_check, srcinfo
     )
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 

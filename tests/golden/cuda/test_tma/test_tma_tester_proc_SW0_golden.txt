@@ -1,0 +1,1096 @@
+// ########################################################################
+// .h
+// ########################################################################
+#pragma once
+#ifndef TEST_TMA_TESTER_PROC_SW0_GOLDEN_H
+#define TEST_TMA_TESTER_PROC_SW0_GOLDEN_H
+
+
+#include <stdint.h>
+#include <stdbool.h>
+
+#ifndef EXO_CUDA_HEADER_COMMON
+#define EXO_CUDA_HEADER_COMMON
+#include <cuda_runtime.h>
+#include <cuda_fp16.h>
+#include <cuda_bf16.h>
+
+#ifdef __CUDACC__
+#define EXO_CUDA_INLINE __device__ __forceinline__
+EXO_CUDA_INLINE unsigned exo_smemU32(const void* smem_ptr)
+{
+    return (unsigned)__cvta_generic_to_shared(smem_ptr);
+}
+EXO_CUDA_INLINE unsigned exo_mapa_shared_cluster(unsigned addr_u32, unsigned cta_rank)
+{
+#if __CUDA_ARCH__ >= 900
+    asm("mapa.shared::cluster.u32 %0, %1, %2;": "=r"(addr_u32) : "r"(addr_u32), "r"(cta_rank));
+#endif
+    return addr_u32;
+}
+#endif  // __CUDACC__
+
+#ifndef EXO_EXCUT_bENABLE_LOG
+#define EXO_EXCUT_bENABLE_LOG 0
+#endif
+
+#if EXO_EXCUT_bENABLE_LOG
+#include "exo_excut.h"  // Used for exo excut tests (tracing)
+#else
+// Do-nothing replacements for exo_excut.h
+#define exo_excut_log_file_enabled() 0
+#define exo_excut_begin_log_action(action_name)
+#define exo_excut_log_str_arg(str)
+#define exo_excut_log_int_arg(bytes, binary)
+#define exo_excut_log_ptr_arg(ptr)
+#define exo_excut_end_log_action(device_name, _blockIdx, _threadIdx, file, line)
+#define exo_excut_get_device_log()
+#define exo_excut_flush_device_log(stream, _gridDim, _blockDim, string_id_count, string_table, file_id_count, file_table)
+#define EXO_EXCUT_DEVICE_LOG_MEMBER
+#define EXO_EXCUT_STR_ID(c) 0
+#ifdef __CUDACC__
+struct exo_ExcutThreadLog {
+    EXO_CUDA_INLINE void log_action(uint32_t, uint32_t, uint32_t) {}
+    EXO_CUDA_INLINE void log_str_id_arg(uint32_t) {}
+    EXO_CUDA_INLINE void log_u32_arg(uint32_t) {}
+    EXO_CUDA_INLINE void log_u64_arg(uint32_t) {}
+    EXO_CUDA_INLINE void log_ptr_arg(const void*) {}
+    template <typename T>
+    EXO_CUDA_INLINE void log_ptr_data_arg(const T*, uint32_t = 0) {}
+};
+#define exo_excut_begin_thread_log(log) {}
+#endif
+#endif // EXO_EXCUT_bENABLE_LOG
+
+#endif // EXO_CUDA_HEADER_COMMON
+
+#ifndef EXO_CUDA_STREAM_GUARD
+#define EXO_CUDA_STREAM_GUARD
+static const cudaStream_t exo_cudaStream = 0;
+#endif
+// Compiler feature macros adapted from Hedley (public domain)
+// https://github.com/nemequ/hedley
+
+#if defined(__has_builtin)
+#  define EXO_HAS_BUILTIN(builtin) __has_builtin(builtin)
+#else
+#  define EXO_HAS_BUILTIN(builtin) (0)
+#endif
+
+#if EXO_HAS_BUILTIN(__builtin_assume)
+#  define EXO_ASSUME(expr) __builtin_assume(expr)
+#elif EXO_HAS_BUILTIN(__builtin_unreachable)
+#  define EXO_ASSUME(expr) \
+      ((void)((expr) ? 1 : (__builtin_unreachable(), 1)))
+#else
+#  define EXO_ASSUME(expr) ((void)(expr))
+#endif
+
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
+#include <stdio.h>
+#include <stdlib.h>
+
+#endif
+/* Required by CudaGmemLinear */
+/* Required by CudaSmemLinear */
+/* Required by DRAM */
+#ifndef EXO_WIN_2F32
+#define EXO_WIN_2F32
+struct exo_win_2f32 {
+    float * const data;
+    const int_fast32_t strides[2];
+};
+#endif
+/* Required by CudaGmemLinear */
+/* Required by CudaSmemLinear */
+/* Required by DRAM */
+#ifndef EXO_WIN_2F32C
+#define EXO_WIN_2F32C
+struct exo_win_2f32c {
+    const float * const data;
+    const int_fast32_t strides[2];
+};
+#endif
+// tma_tester_SW0(
+//     h_sum : f32[744, 128] @DRAM,
+//     h_x : f32[744, 128] @DRAM,
+//     h_y : f32[744, 128] @DRAM
+// )
+void tma_tester_SW0( void *ctxt, float* h_sum, const float* h_x, const float* h_y );
+
+
+
+struct exo_CudaDeviceArgs0_tma_tester_SW0;
+
+#ifdef __CUDACC__
+__global__ void exo_deviceFunction0_tma_tester_SW0(__grid_constant__ const struct exo_CudaDeviceArgs0_tma_tester_SW0 exo_deviceArgs);
+#endif
+void exo_cudaLaunch0_tma_tester_SW0(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0_tma_tester_SW0* exo_deviceArgs);
+
+
+
+
+#ifdef __cplusplus
+}
+#endif
+
+
+#endif  // TEST_TMA_TESTER_PROC_SW0_GOLDEN_H
+
+
+// ########################################################################
+// .c
+// ########################################################################
+#include "test_tma_tester_proc_SW0_golden.h"
+
+/* Required by Sm90_tensorMap(0, 248, 32) */
+#include "cuda.h"
+/* Required by Sm90_tensorMap(0, 248, 32) */
+/* Required by Sm90_tensorMap(0, 248, 32) */
+#include <assert.h>
+/* Required by Sm90_tensorMap(0, 248, 32) */
+/* Required by Sm90_tensorMap(0, 248, 32) */
+#include <stdio.h>
+/* Required by CudaGmemLinear */
+#ifndef EXO_MEMORY_GLOBAL_CudaGmemLinear
+#define EXO_MEMORY_GLOBAL_CudaGmemLinear
+
+#ifndef exo_cudaMallocAsync
+#ifndef __cplusplus
+static
+#endif
+inline void* exo_cudaMallocAsync_default(size_t size, cudaStream_t exo_cudaStream,
+                                         const char* file __attribute__((unused)),
+                                         int line __attribute__((unused)) )
+{
+    void* out;
+    cudaMallocAsync(&out, size, exo_cudaStream);
+    if (exo_excut_log_file_enabled()) {
+        exo_excut_begin_log_action("cudaMallocAsync");
+        exo_excut_log_ptr_arg(out);
+        exo_excut_log_ptr_arg((void*)(size));
+        exo_excut_log_ptr_arg(exo_cudaStream);
+        exo_excut_end_log_action("cpu", 0, 0, file, line);
+    }
+    return out;
+}
+#define exo_cudaMallocAsync(size, stream) exo_cudaMallocAsync_default(size, stream, __FILE__, __LINE__)
+#endif
+
+#ifndef exo_cudaFreeAsync
+#ifndef __cplusplus
+static
+#endif
+inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
+                                      const char* file __attribute__((unused)),
+                                      int line __attribute__((unused)) )
+{
+    cudaFreeAsync(ptr, exo_cudaStream);
+    if (exo_excut_log_file_enabled()) {
+        exo_excut_begin_log_action("cudaFreeAsync");
+        exo_excut_log_ptr_arg(ptr);
+        exo_excut_log_ptr_arg(exo_cudaStream);
+        exo_excut_end_log_action("cpu", 0, 0, file, line);
+    }
+}
+#define exo_cudaFreeAsync(ptr, stream) exo_cudaFreeAsync_default(ptr, stream, __FILE__, __LINE__)
+#endif
+
+#endif
+/* Required by Sm90_tensorMap(0, 248, 32) */
+#ifndef EXO_MEMORY_GLOBAL_exo_Sm90_CUtensorMap_2_strides
+#define EXO_MEMORY_GLOBAL_exo_Sm90_CUtensorMap_2_strides
+typedef struct exo_Sm90_CUtensorMap_2_strides {
+    // Stored in reverse-order as the raw CUtensorMap,
+    // and in element count, not in bytes.
+    // Leftmost stride is most-significant.
+    unsigned C_strides[2];
+} exo_Sm90_CUtensorMap_2_strides;
+
+#endif
+/* Required by Sm90_tensorMap(0, 248, 32) */
+#ifndef EXO_MEMORY_GLOBAL_exo_Sm90_CUtensorMap_2_dim
+#define EXO_MEMORY_GLOBAL_exo_Sm90_CUtensorMap_2_dim
+typedef struct exo_Sm90_CUtensorMap_2_dim {
+    // Stored in the reverse-order as the raw CUtensorMap.
+    // Leftmost dimension is the most-significant.
+    unsigned C_dim[2];
+} exo_Sm90_CUtensorMap_2_dim;
+
+#endif
+/* Required by Sm90_tensorMap(0, 248, 32) */
+#ifndef EXO_MEMORY_GLOBAL_exo_win_2f32_Sm90_tensorMap_0_248_32
+#define EXO_MEMORY_GLOBAL_exo_win_2f32_Sm90_tensorMap_0_248_32
+typedef struct exo_win_2f32_Sm90_tensorMap_0_248_32 {
+    // Stored in reverse-order as the raw CUtensorMap.
+    // Leftmost offset is most-significant.
+    unsigned C_offsets[2];
+} exo_win_2f32_Sm90_tensorMap_0_248_32;
+
+#endif
+/* Required by CudaSmemAtomicity16B */
+#ifndef EXO_WIN_1F32
+#define EXO_WIN_1F32
+struct exo_win_1f32 {
+    float * const data;
+    const int_fast32_t strides[1];
+};
+#endif
+/* Required by CudaGmemAtomicity16B */
+#ifndef EXO_WIN_1F32C
+#define EXO_WIN_1F32C
+struct exo_win_1f32c {
+    const float * const data;
+    const int_fast32_t strides[1];
+};
+#endif
+/* Required by Sm90_tensorMap(0, 248, 32) */
+/* Required by Sm90_tensorMap(0, 248, 32) */
+static inline CUtensorMap exo_win_2f32_Sm90_tensorMap_0_248_32_encode(
+        // Window dataptr, strides
+        const void* globalAddress, exo_Sm90_CUtensorMap_2_strides gmem_stride,
+        // Tensor size
+        exo_Sm90_CUtensorMap_2_dim gmem_dim)
+{
+    assert(gmem_stride.C_strides[2 - 1] == 1);
+
+    CUtensorMap tensorMap;
+    const CUtensorMapSwizzle swizzle = CU_TENSOR_MAP_SWIZZLE_NONE;
+
+    cuuint64_t globalDim[2];
+    cuuint64_t allGlobalStrides[2];  // allGlobalStrides[0] unused by CUDA
+    cuuint32_t elementStrides[2];
+
+    // We translate from the Exo ordering (leftmost stride is most-significant)
+    // to the CUDA ordering (leftmost stride is least-significant).
+    for (uint32_t cu_idx = 0; cu_idx < 2; ++cu_idx) {
+        const uint32_t C_idx = 2 - 1 - cu_idx;
+        globalDim[cu_idx] = gmem_dim.C_dim[C_idx];
+        allGlobalStrides[cu_idx] = ((cuuint64_t)gmem_stride.C_strides[C_idx]) * 4;
+        elementStrides[cu_idx] = 1;
+    }
+
+    cuuint32_t boxDim[2] = { 32, 248 };
+    const CUtensorMapInterleave interleave = CU_TENSOR_MAP_INTERLEAVE_NONE;
+    const CUtensorMapL2promotion l2Promotion = CU_TENSOR_MAP_L2_PROMOTION_L2_128B;
+    const CUtensorMapFloatOOBfill oobFill = CU_TENSOR_MAP_FLOAT_OOB_FILL_NONE;
+
+    const CUresult result = cuTensorMapEncodeTiled(
+            &tensorMap,
+            CU_TENSOR_MAP_DATA_TYPE_FLOAT32,
+            2,
+            (void*)globalAddress,
+            globalDim,
+            &allGlobalStrides[1],  // Cuda presumes least-significant dim is tightly-packed
+            boxDim,
+            elementStrides,
+            interleave,
+            swizzle,
+            l2Promotion,
+            oobFill);
+    if (result != 0) {
+        fprintf(stderr, "exo_win_2f32_Sm90_tensorMap_0_248_32_encode: error %i\n", (int)result);
+        assert(0);
+    }
+    return tensorMap;
+}
+
+// CUDA device function args -- duplicated in .cuh file
+struct exo_CudaDeviceArgs0_tma_tester_SW0
+{
+    float* d_y;  // d_y : f32[744, 128] @CudaGmemLinear
+    CUtensorMap exo_data_x_tensorMap;  //     (Separate window data pointer)
+    struct exo_win_2f32_Sm90_tensorMap_0_248_32 x_tensorMap;  // x_tensorMap : Window(src_type=f32[744, 128], as_tensor=[f32][744, 128], src_buf=d_x, idx='[0:744, 0:128]') @Sm90_tensorMap(0, 248, 32)
+    CUtensorMap exo_data_sum_tensorMap;  //     (Separate window data pointer)
+    struct exo_win_2f32_Sm90_tensorMap_0_248_32 sum_tensorMap;  // sum_tensorMap : Window(src_type=f32[744, 128], as_tensor=[f32][744, 128], src_buf=d_sum, idx='[0:744, 0:128]') @Sm90_tensorMap(0, 248, 32)
+    EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
+};
+
+
+/* relying on the following instruction..."
+Sm80_cp_async_f32(smem,gmem,size=4)
+
+*/
+
+/* relying on the following instruction..."
+Sm90_copy_tensor_to_gmem_linear_2f32(dst,src,size0=248, size1=32, smem_box=None)
+
+*/
+
+/* relying on the following instruction..."
+Sm90_copy_tensor_to_smem_linear_2f32(dst,src,size0=248, size1=32, smem_box=None)
+
+*/
+
+/* relying on the following instruction..."
+cudaMemcpyAsync_dtoh_2d(size0,size1,dst,src,dst=f32, src=f32)
+
+*/
+
+/* relying on the following instruction..."
+cudaMemcpyAsync_htod_2d(size0,size1,dst,src,dst=f32, src=f32)
+
+*/
+// tma_tester_SW0(
+//     h_sum : f32[744, 128] @DRAM,
+//     h_x : f32[744, 128] @DRAM,
+//     h_y : f32[744, 128] @DRAM
+// )
+void tma_tester_SW0( void *ctxt, float* h_sum, const float* h_x, const float* h_y ) {
+  float *d_x = (float*) exo_cudaMallocAsync(744 * 128 * sizeof(*d_x), exo_cudaStream);
+  float *d_y = (float*) exo_cudaMallocAsync(744 * 128 * sizeof(*d_y), exo_cudaStream);
+  float *d_sum = (float*) exo_cudaMallocAsync(744 * 128 * sizeof(*d_sum), exo_cudaStream);
+  cudaMemcpyAsync(
+    (&d_x[0]),
+    (&h_x[0]),
+    744 * 128 * 4,
+    cudaMemcpyHostToDevice,
+    exo_cudaStream);
+  cudaMemcpyAsync(
+    (&d_y[0]),
+    (&h_y[0]),
+    744 * 128 * 4,
+    cudaMemcpyHostToDevice,
+    exo_cudaStream);
+  CUtensorMap exo_data_x_tensorMap = exo_win_2f32_Sm90_tensorMap_0_248_32_encode(&d_x[0], (exo_Sm90_CUtensorMap_2_strides){ {128, 1} }, (exo_Sm90_CUtensorMap_2_dim){ {744, 128} });
+  struct exo_win_2f32_Sm90_tensorMap_0_248_32 x_tensorMap = (exo_win_2f32_Sm90_tensorMap_0_248_32) { {0, 0} };
+  CUtensorMap exo_data_sum_tensorMap = exo_win_2f32_Sm90_tensorMap_0_248_32_encode(&d_sum[0], (exo_Sm90_CUtensorMap_2_strides){ {128, 1} }, (exo_Sm90_CUtensorMap_2_dim){ {744, 128} });
+  struct exo_win_2f32_Sm90_tensorMap_0_248_32 sum_tensorMap = (exo_win_2f32_Sm90_tensorMap_0_248_32) { {0, 0} };
+  {
+    struct exo_CudaDeviceArgs0_tma_tester_SW0 exo_deviceArgs = {
+      d_y, exo_data_x_tensorMap, (exo_win_2f32_Sm90_tensorMap_0_248_32) { {x_tensorMap.C_offsets[0], x_tensorMap.C_offsets[1]} }, exo_data_sum_tensorMap, (exo_win_2f32_Sm90_tensorMap_0_248_32) { {sum_tensorMap.C_offsets[0], sum_tensorMap.C_offsets[1]} }, exo_excut_get_device_log()
+    };
+    exo_cudaLaunch0_tma_tester_SW0(exo_cudaStream, &exo_deviceArgs);
+  }
+  exo_cudaFreeAsync(d_y, exo_cudaStream);
+  exo_cudaFreeAsync(d_x, exo_cudaStream);
+  cudaMemcpyAsync(
+    (&h_sum[0]),
+    (&d_sum[0]),
+    744 * 128 * 4,
+    cudaMemcpyDeviceToHost,
+    exo_cudaStream);
+  exo_cudaFreeAsync(d_sum, exo_cudaStream);
+}
+
+
+
+// ########################################################################
+// .cuh
+// ########################################################################
+#pragma once
+#include "test_tma_tester_proc_SW0_golden.h"
+#if EXO_EXCUT_bENABLE_LOG
+#include "test_tma_tester_proc_SW0_golden.excut_str_table"
+#endif
+/* Required by Sm90_tensorMap(0, 248, 32) */
+#include "cuda.h"
+/* Required by CudaGmemLinear */
+#ifndef EXO_MEMORY_GLOBAL_CudaGmemLinear
+#define EXO_MEMORY_GLOBAL_CudaGmemLinear
+
+#ifndef exo_cudaMallocAsync
+#ifndef __cplusplus
+static
+#endif
+inline void* exo_cudaMallocAsync_default(size_t size, cudaStream_t exo_cudaStream,
+                                         const char* file __attribute__((unused)),
+                                         int line __attribute__((unused)) )
+{
+    void* out;
+    cudaMallocAsync(&out, size, exo_cudaStream);
+    if (exo_excut_log_file_enabled()) {
+        exo_excut_begin_log_action("cudaMallocAsync");
+        exo_excut_log_ptr_arg(out);
+        exo_excut_log_ptr_arg((void*)(size));
+        exo_excut_log_ptr_arg(exo_cudaStream);
+        exo_excut_end_log_action("cpu", 0, 0, file, line);
+    }
+    return out;
+}
+#define exo_cudaMallocAsync(size, stream) exo_cudaMallocAsync_default(size, stream, __FILE__, __LINE__)
+#endif
+
+#ifndef exo_cudaFreeAsync
+#ifndef __cplusplus
+static
+#endif
+inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
+                                      const char* file __attribute__((unused)),
+                                      int line __attribute__((unused)) )
+{
+    cudaFreeAsync(ptr, exo_cudaStream);
+    if (exo_excut_log_file_enabled()) {
+        exo_excut_begin_log_action("cudaFreeAsync");
+        exo_excut_log_ptr_arg(ptr);
+        exo_excut_log_ptr_arg(exo_cudaStream);
+        exo_excut_end_log_action("cpu", 0, 0, file, line);
+    }
+}
+#define exo_cudaFreeAsync(ptr, stream) exo_cudaFreeAsync_default(ptr, stream, __FILE__, __LINE__)
+#endif
+
+#endif
+/* Required by Sm90_tensorMap(0, 248, 32) */
+#ifndef EXO_MEMORY_GLOBAL_exo_Sm90_CUtensorMap_2_strides
+#define EXO_MEMORY_GLOBAL_exo_Sm90_CUtensorMap_2_strides
+typedef struct exo_Sm90_CUtensorMap_2_strides {
+    // Stored in reverse-order as the raw CUtensorMap,
+    // and in element count, not in bytes.
+    // Leftmost stride is most-significant.
+    unsigned C_strides[2];
+} exo_Sm90_CUtensorMap_2_strides;
+
+#endif
+/* Required by Sm90_tensorMap(0, 248, 32) */
+#ifndef EXO_MEMORY_GLOBAL_exo_Sm90_CUtensorMap_2_dim
+#define EXO_MEMORY_GLOBAL_exo_Sm90_CUtensorMap_2_dim
+typedef struct exo_Sm90_CUtensorMap_2_dim {
+    // Stored in the reverse-order as the raw CUtensorMap.
+    // Leftmost dimension is the most-significant.
+    unsigned C_dim[2];
+} exo_Sm90_CUtensorMap_2_dim;
+
+#endif
+/* Required by Sm90_tensorMap(0, 248, 32) */
+#ifndef EXO_MEMORY_GLOBAL_exo_win_2f32_Sm90_tensorMap_0_248_32
+#define EXO_MEMORY_GLOBAL_exo_win_2f32_Sm90_tensorMap_0_248_32
+typedef struct exo_win_2f32_Sm90_tensorMap_0_248_32 {
+    // Stored in reverse-order as the raw CUtensorMap.
+    // Leftmost offset is most-significant.
+    unsigned C_offsets[2];
+} exo_win_2f32_Sm90_tensorMap_0_248_32;
+
+#endif
+/* Required by CudaSmemAtomicity16B */
+#ifndef EXO_WIN_1F32
+#define EXO_WIN_1F32
+struct exo_win_1f32 {
+    float * const data;
+    const int_fast32_t strides[1];
+};
+#endif
+/* Required by CudaGmemAtomicity16B */
+#ifndef EXO_WIN_1F32C
+#define EXO_WIN_1F32C
+struct exo_win_1f32c {
+    const float * const data;
+    const int_fast32_t strides[1];
+};
+#endif
+
+namespace exo_CudaUtil_test_tma_tester_proc_SW0_golden {
+namespace exo_CudaUtil = ::exo_CudaUtil_test_tma_tester_proc_SW0_golden;
+/* Required by Sm90_copy_tensor_to_gmem_linear_2f32(dst,src,size0=248, size1=32, smem_box=None) */
+template <typename WindowOffsets>
+EXO_CUDA_INLINE void
+exo_Sm90_tma_to_gmem(const CUtensorMap& tensorMap, WindowOffsets window, const void* src)
+{
+    constexpr auto rank = sizeof(window.C_offsets) / sizeof(window.C_offsets[0]);
+    static_assert(rank >= 1 && rank <= 5);
+    // cute::elect_one_sync
+    uint32_t pred = 0;
+    uint32_t laneid = 0;
+    asm volatile(
+      "{\n"
+      ".reg .b32 %%rx;\n"
+      ".reg .pred %%px;\n"
+      "     elect.sync %%rx|%%px, %2;\n"
+      "@%%px mov.s32 %1, 1;\n"
+      "     mov.s32 %0, %%rx;\n"
+      "}\n"
+      : "+r"(laneid), "+r"(pred)
+      : "r"(0xFFFFFFFF));
+    if (pred) {
+        if constexpr (rank == 1) {
+            asm volatile(
+                "cp.async.bulk.tensor.1d.global.shared::cta.tile.bulk_group"
+                " [%0, {%1}], [%2];"
+                :
+                : "l"(&tensorMap),
+                  "r"(window.C_offsets[0]),
+                  "r"(exo_smemU32(src))
+                : "memory");
+        }
+        if constexpr (rank == 2) {
+            asm volatile(
+                "cp.async.bulk.tensor.2d.global.shared::cta.tile.bulk_group"
+                " [%0, {%1, %2}], [%3];"
+                :
+                : "l"(&tensorMap),
+                  "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
+                  "r"(exo_smemU32(src))
+                : "memory");
+        }
+        if constexpr (rank == 3) {
+            asm volatile(
+                "cp.async.bulk.tensor.3d.global.shared::cta.tile.bulk_group"
+                " [%0, {%1, %2, %3}], [%4];"
+                :
+                : "l"(&tensorMap),
+                  "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
+                  "r"(exo_smemU32(src))
+                : "memory");
+        }
+        if constexpr (rank == 4) {
+            asm volatile(
+                "cp.async.bulk.tensor.4d.global.shared::cta.tile.bulk_group"
+                " [%0, {%1, %2, %3, %4}], [%5];"
+                :
+                : "l"(&tensorMap),
+                  "r"(window.C_offsets[3]), "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
+                  "r"(exo_smemU32(src))
+                : "memory");
+        }
+        if constexpr (rank == 5) {
+            asm volatile(
+                "cp.async.bulk.tensor.5d.global.shared::cta.tile.bulk_group"
+                " [%0, {%1, %2, %3, %4, %5}], [%6];"
+                :
+                : "l"(&tensorMap),
+                  "r"(window.C_offsets[4]), "r"(window.C_offsets[3]), "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
+                  "r"(exo_smemU32(src))
+                : "memory");
+        }
+    }
+}
+/* Required by Sm90_copy_tensor_to_smem_linear_2f32(dst,src,size0=248, size1=32, smem_box=None) */
+template <typename WindowOffsets>
+EXO_CUDA_INLINE void
+exo_Sm90_tma_to_smem(
+        void* dst, const CUtensorMap& tensorMap, WindowOffsets window,
+        uint32_t exo_tma_mbarrier, uint32_t expect_tx)
+{
+    constexpr auto rank = sizeof(window.C_offsets) / sizeof(window.C_offsets[0]);
+    static_assert(rank >= 1 && rank <= 5);
+    // cute::elect_one_sync
+    uint32_t pred = 0;
+    uint32_t laneid = 0;
+    asm volatile(
+      "{\n"
+      ".reg .b32 %%rx;\n"
+      ".reg .pred %%px;\n"
+      "     elect.sync %%rx|%%px, %2;\n"
+      "@%%px mov.s32 %1, 1;\n"
+      "     mov.s32 %0, %%rx;\n"
+      "}\n"
+      : "+r"(laneid), "+r"(pred)
+      : "r"(0xFFFFFFFF));
+    if (pred) {
+        asm("mbarrier.expect_tx.shared::cta.b64 [%0], %1;" :: "r"(exo_tma_mbarrier), "r"(expect_tx));
+        if constexpr (rank == 1) {
+            asm volatile(
+            "cp.async.bulk.tensor.1d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
+            " [%0], [%1, {%2}], [%3], %4;"
+            :
+            : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[0]),
+              "r"(exo_tma_mbarrier), "n"(1152921504606846976)
+            : "memory");
+        }
+        if constexpr (rank == 2) {
+            asm volatile(
+            "cp.async.bulk.tensor.2d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
+            " [%0], [%1, {%2, %3}], [%4], %5;"
+            :
+            : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
+              "r"(exo_tma_mbarrier), "n"(1152921504606846976)
+            : "memory");
+        }
+        if constexpr (rank == 3) {
+            asm volatile(
+            "cp.async.bulk.tensor.3d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
+            " [%0], [%1, {%2, %3, %4}], [%5], %6;"
+            :
+            : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
+              "r"(exo_tma_mbarrier), "n"(1152921504606846976)
+            : "memory");
+        }
+        if constexpr (rank == 4) {
+            asm volatile(
+            "cp.async.bulk.tensor.4d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
+            " [%0], [%1, {%2, %3, %4, %5}], [%6], %7;"
+            :
+            : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[3]), "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
+              "r"(exo_tma_mbarrier), "n"(1152921504606846976)
+            : "memory");
+        }
+        if constexpr (rank == 5) {
+            asm volatile(
+            "cp.async.bulk.tensor.5d.shared::cluster.global.tile.mbarrier::complete_tx::bytes.L2::cache_hint"
+            " [%0], [%1, {%2, %3, %4, %5, %6}], [%7], %8;"
+            :
+            : "r"(exo_smemU32(dst)), "l"(&tensorMap), "r"(window.C_offsets[4]), "r"(window.C_offsets[3]), "r"(window.C_offsets[2]), "r"(window.C_offsets[1]), "r"(window.C_offsets[0]),
+              "r"(exo_tma_mbarrier), "n"(1152921504606846976)
+            : "memory");
+        }
+    }
+}
+}  // end namespace exo_CudaUtil_test_tma_tester_proc_SW0_golden
+// CUDA device function args -- duplicated in .c file
+struct exo_CudaDeviceArgs0_tma_tester_SW0
+{
+    float* d_y;  // d_y : f32[744, 128] @CudaGmemLinear
+    CUtensorMap exo_data_x_tensorMap;  //     (Separate window data pointer)
+    struct exo_win_2f32_Sm90_tensorMap_0_248_32 x_tensorMap;  // x_tensorMap : Window(src_type=f32[744, 128], as_tensor=[f32][744, 128], src_buf=d_x, idx='[0:744, 0:128]') @Sm90_tensorMap(0, 248, 32)
+    CUtensorMap exo_data_sum_tensorMap;  //     (Separate window data pointer)
+    struct exo_win_2f32_Sm90_tensorMap_0_248_32 sum_tensorMap;  // sum_tensorMap : Window(src_type=f32[744, 128], as_tensor=[f32][744, 128], src_buf=d_sum, idx='[0:744, 0:128]') @Sm90_tensorMap(0, 248, 32)
+    EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
+};
+
+// We need this inline namespace to avoid ODR problems in pytest.
+inline namespace exo_CudaInline_test_tma_tester_proc_SW0_golden {
+struct exo_Cuda0_tma_tester_SW0
+{
+  using exo_DeviceArgs = exo_CudaDeviceArgs0_tma_tester_SW0;
+
+  static constexpr uint32_t exo_blockDim = 256;
+  static constexpr uint32_t exo_clusterDim = 1;
+
+  static constexpr unsigned exo_smemBytes = 95360;
+  static constexpr unsigned exo_smemOffset0_smem_x = 128;  // 31744-byte allocation
+  static constexpr unsigned exo_smemOffset1_smem_y = 31872;  // 31744-byte allocation
+  static constexpr unsigned exo_smemOffset2_smem_sum = 63616;  // 31744-byte allocation
+  static constexpr unsigned exo_smemOffset3_war = 0;  // 8-byte allocation
+  static constexpr unsigned exo_smemOffset4_raw = 8;  // 8-byte allocation
+
+  struct exo_Task
+  {
+    int_fast32_t task_m;
+    int_fast32_t task_k;
+  };
+
+  struct exo_TaskGenerator
+  {
+    uint32_t exo_taskIndex;
+    uint32_t exo_numClusters;
+    uint32_t exo_taskCount;
+    int_fast32_t exo_cudaTasksLo_task_m;
+    uint32_t exo_cudaTasksNum_task_m;
+    int_fast32_t exo_cudaTasksLo_task_k;
+    uint32_t exo_cudaTasksNum_task_k;
+    EXO_CUDA_INLINE exo_TaskGenerator(
+        uint32_t cluster_index, uint32_t num_clusters,
+        int_fast32_t _exo_cudaTasksLo_task_m, int_fast32_t _exo_cudaTasksHi_task_m,
+        int_fast32_t _exo_cudaTasksLo_task_k, int_fast32_t _exo_cudaTasksHi_task_k,
+        const exo_DeviceArgs&)
+    {
+      exo_taskIndex = cluster_index;
+      exo_numClusters = num_clusters;
+      exo_taskCount = 1;
+      exo_cudaTasksLo_task_m = _exo_cudaTasksLo_task_m;
+      exo_cudaTasksNum_task_m = static_cast<uint32_t>(_exo_cudaTasksHi_task_m - _exo_cudaTasksLo_task_m);
+      exo_taskCount *= exo_cudaTasksNum_task_m;
+      exo_cudaTasksLo_task_k = _exo_cudaTasksLo_task_k;
+      exo_cudaTasksNum_task_k = static_cast<uint32_t>(_exo_cudaTasksHi_task_k - _exo_cudaTasksLo_task_k);
+      exo_taskCount *= exo_cudaTasksNum_task_k;
+    }
+    [[nodiscard]] EXO_CUDA_INLINE bool prepare_next_task()
+    {
+      return exo_taskIndex < exo_taskCount;
+    }
+    EXO_CUDA_INLINE exo_Task get_next_task()
+    {
+      exo_Task exo_task;
+      uint32_t exo_tmp = exo_taskIndex;
+      exo_taskIndex += exo_numClusters;
+      exo_task.task_k = exo_cudaTasksLo_task_k + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_task_k);
+      exo_tmp /= exo_cudaTasksNum_task_k;
+      exo_task.task_m = exo_cudaTasksLo_task_m + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_task_m);
+      exo_tmp /= exo_cudaTasksNum_task_m;
+      return exo_task;
+    }
+  };
+
+  struct exo_SyncState
+  {
+    // war: barrier @ CudaMbarrier, ring=1, slice_count=1
+    // num_per_cta=1; arrive_count=256
+    static constexpr unsigned ArriveIdx0_war = 0;  // Trivial size-1 ring buffer
+    EXO_CUDA_INLINE uint32_t Arrive0_war(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + exo_smemOffset3_war + 8*(slice * 1 + ArriveIdx0_war));
+      if (enable) {
+        asm volatile(
+          "// Arrive0_war\n\t"
+          "mbarrier.arrive.shared::cta.b64 _, [%0];"
+            :
+            :"r"(mbarrier_u32)
+        );
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_arrive_shared_cta_b64), 0, __LINE__);
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(mbarrier_u32));
+      }
+      return mbarrier_u32;
+    }
+    static constexpr unsigned AwaitIdx0_war = 0;  // Trivial size-1 ring buffer
+    unsigned Parity0_war : 1 = 0;
+    unsigned Skips0_war : 1 = 0;
+    EXO_CUDA_INLINE void Await0_war(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, int initial_skips = 0) {
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + exo_smemOffset3_war + 8*(slice * 1 + AwaitIdx0_war));
+      const bool enable = Skips0_war >= initial_skips;
+      if (enable) {
+    #if __CUDA_ARCH__ < 900
+        asm volatile(
+          "{\n\t"
+          "// Await0_war\n\t"
+          ".reg.pred P1;\n\t"
+          "EXO_BEFORE_WAIT:\n\t"
+          "mbarrier.test_wait.parity.acquire.cta.shared::cta.b64 P1, [%0], %1;\n\t"
+          "@P1 bra.uni EXO_WAIT_DONE;\n\t"
+          "bra.uni EXO_BEFORE_WAIT;\n\t"
+          "EXO_WAIT_DONE:\n\t"
+          "}"
+            :
+            :"r"(mbarrier_u32),
+            "r"(1u & Parity0_war >> AwaitIdx0_war)
+        );
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_test_wait_parity_acquire_cta_shared_cta_b64), 0, __LINE__);
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(mbarrier_u32));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & Parity0_war >> AwaitIdx0_war));
+    #else
+        asm volatile(
+          "{\n\t"
+          "// Await0_war\n\t"
+          ".reg.pred P1;\n\t"
+          "EXO_BEFORE_WAIT:\n\t"
+          "mbarrier.try_wait.parity.acquire.cta.shared::cta.b64 P1, [%0], %1;\n\t"
+          "@P1 bra.uni EXO_WAIT_DONE;\n\t"
+          "bra.uni EXO_BEFORE_WAIT;\n\t"
+          "EXO_WAIT_DONE:\n\t"
+          "}"
+            :
+            :"r"(mbarrier_u32),
+            "r"(1u & Parity0_war >> AwaitIdx0_war)
+        );
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_try_wait_parity_acquire_cta_shared_cta_b64), 0, __LINE__);
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(mbarrier_u32));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & Parity0_war >> AwaitIdx0_war));
+    #endif
+        // Flip parity
+        Parity0_war ^= 1u << AwaitIdx0_war;
+      }
+      else {
+        // Await(war) returns without waiting for mbarrier first <initial_skips> times
+        Skips0_war++;
+      }
+    }
+    // raw: barrier @ CudaMbarrier, ring=1, slice_count=1
+    // num_per_cta=1; arrive_count=32
+    static constexpr unsigned ArriveIdx0_raw = 0;  // Trivial size-1 ring buffer
+    EXO_CUDA_INLINE uint32_t Arrive0_raw(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice, bool enable) {
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + exo_smemOffset4_raw + 8*(slice * 1 + ArriveIdx0_raw));
+      if (enable) {
+        asm volatile(
+          "// Arrive0_raw\n\t"
+          "mbarrier.arrive.shared::cta.b64 _, [%0];"
+            :
+            :"r"(mbarrier_u32)
+        );
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_arrive_shared_cta_b64), 0, __LINE__);
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(mbarrier_u32));
+      }
+      return mbarrier_u32;
+    }
+    static constexpr unsigned AwaitIdx0_raw = 0;  // Trivial size-1 ring buffer
+    unsigned Parity0_raw : 1 = 0;
+    EXO_CUDA_INLINE void Await0_raw(char* exo_smem, exo_ExcutThreadLog exo_excutLog, int slice) {
+      const auto mbarrier_u32 = exo_smemU32(exo_smem + exo_smemOffset4_raw + 8*(slice * 1 + AwaitIdx0_raw));
+      const bool enable = true;
+      if (enable) {
+    #if __CUDA_ARCH__ < 900
+        asm volatile(
+          "{\n\t"
+          "// Await0_raw\n\t"
+          ".reg.pred P1;\n\t"
+          "EXO_BEFORE_WAIT:\n\t"
+          "mbarrier.test_wait.parity.acquire.cta.shared::cta.b64 P1, [%0], %1;\n\t"
+          "@P1 bra.uni EXO_WAIT_DONE;\n\t"
+          "bra.uni EXO_BEFORE_WAIT;\n\t"
+          "EXO_WAIT_DONE:\n\t"
+          "}"
+            :
+            :"r"(mbarrier_u32),
+            "r"(1u & Parity0_raw >> AwaitIdx0_raw)
+        );
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_test_wait_parity_acquire_cta_shared_cta_b64), 0, __LINE__);
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(mbarrier_u32));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & Parity0_raw >> AwaitIdx0_raw));
+    #else
+        asm volatile(
+          "{\n\t"
+          "// Await0_raw\n\t"
+          ".reg.pred P1;\n\t"
+          "EXO_BEFORE_WAIT:\n\t"
+          "mbarrier.try_wait.parity.acquire.cta.shared::cta.b64 P1, [%0], %1;\n\t"
+          "@P1 bra.uni EXO_WAIT_DONE;\n\t"
+          "bra.uni EXO_BEFORE_WAIT;\n\t"
+          "EXO_WAIT_DONE:\n\t"
+          "}"
+            :
+            :"r"(mbarrier_u32),
+            "r"(1u & Parity0_raw >> AwaitIdx0_raw)
+        );
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_try_wait_parity_acquire_cta_shared_cta_b64), 0, __LINE__);
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(mbarrier_u32));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(1u & Parity0_raw >> AwaitIdx0_raw));
+    #endif
+        // Flip parity
+        Parity0_raw ^= 1u << AwaitIdx0_raw;
+      }
+    }
+  };
+
+  static inline const char*& exo_FILE()
+  {
+    static const char* name = __FILE__;
+    return name;
+  }
+
+  static void
+  exo_cudaLaunch(cudaStream_t exo_cudaStream, const exo_DeviceArgs& exo_deviceArgs);
+
+  static __device__ __forceinline__ void
+  exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
+
+  static __device__ __forceinline__ void
+  exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
+
+  static __device__ __forceinline__ void
+  exo_deviceTask(
+      char* exo_smem,
+      exo_SyncState& exo_syncState,
+      const exo_DeviceArgs& exo_deviceArgs,
+      exo_Task exo_task,
+      exo_ExcutThreadLog exo_excutLog={});
+};
+}  // end inline namespace
+
+inline void
+exo_CudaInline_test_tma_tester_proc_SW0_golden::exo_Cuda0_tma_tester_SW0::exo_cudaLaunch(
+    cudaStream_t exo_cudaStream,
+    const exo_DeviceArgs& exo_deviceArgs)
+{
+  namespace exo_CudaUtil = exo_CudaUtil_test_tma_tester_proc_SW0_golden;
+  cudaFuncSetAttribute(exo_deviceFunction0_tma_tester_SW0, cudaFuncAttributeMaxDynamicSharedMemorySize, exo_smemBytes);
+  // TODO how expensive is it to query this every time?
+  int exo_cudaDevice;
+  cudaGetDevice(&exo_cudaDevice);
+  int exo_SMs;
+  cudaDeviceGetAttribute(&exo_SMs, cudaDevAttrMultiProcessorCount, exo_cudaDevice);
+  const unsigned exo_gridDim = (unsigned(exo_SMs) & ~(exo_clusterDim - 1)) * 1u;
+
+  cudaLaunchConfig_t exo_launchConfig = {};
+  exo_launchConfig.gridDim = dim3(exo_gridDim, 1, 1);
+  exo_launchConfig.blockDim = dim3(exo_blockDim, 1, 1);
+  exo_launchConfig.dynamicSmemBytes = exo_smemBytes;
+  exo_launchConfig.stream = exo_cudaStream;
+
+  cudaLaunchKernelEx(&exo_launchConfig, exo_deviceFunction0_tma_tester_SW0, exo_deviceArgs);
+
+  exo_excut_flush_device_log(
+      exo_cudaStream, exo_gridDim, exo_blockDim,
+      exo_CudaUtil::exo_excut_str_id_count, exo_CudaUtil::exo_excut_str_table,
+      1, &exo_FILE());
+}
+
+__device__ __forceinline__ void
+exo_CudaInline_test_tma_tester_proc_SW0_golden::exo_Cuda0_tma_tester_SW0::exo_deviceSetup(
+    char* exo_smem,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_ExcutThreadLog exo_excutLog)
+{
+  if (threadIdx.x == 0) {
+    for (int i = 0; i < 1; ++i) {
+        asm volatile(
+          "mbarrier.init.shared::cta.b64 [%0], 256;"
+            :
+            :"r"(exo_smemU32(exo_smem + exo_smemOffset3_war + 8*i))
+        );
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_init_shared_cta_b64), 0, __LINE__);
+        exo_excutLog.log_u32_arg(exo_smemU32(exo_smem + exo_smemOffset3_war + 8*i));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(256));
+    }
+    for (int i = 0; i < 1; ++i) {
+        asm volatile(
+          "mbarrier.init.shared::cta.b64 [%0], 32;"
+            :
+            :"r"(exo_smemU32(exo_smem + exo_smemOffset4_raw + 8*i))
+        );
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(mbarrier_init_shared_cta_b64), 0, __LINE__);
+        exo_excutLog.log_u32_arg(exo_smemU32(exo_smem + exo_smemOffset4_raw + 8*i));
+        exo_excutLog.log_u32_arg(static_cast<uint32_t>(32));
+    }
+    asm volatile(
+      "fence.proxy.async;"
+    );
+    exo_excutLog.log_action(EXO_EXCUT_STR_ID(fence_proxy_async), 0, __LINE__);
+  }
+  asm volatile(
+    "barrier.cta.sync 0;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cta_sync), 0, __LINE__);
+  exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
+}
+
+__device__ __forceinline__ void
+exo_CudaInline_test_tma_tester_proc_SW0_golden::exo_Cuda0_tma_tester_SW0::exo_deviceTask(
+    char* exo_smem,
+    exo_SyncState& exo_syncState,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_Task exo_task,
+    exo_ExcutThreadLog exo_excutLog)
+{
+  namespace exo_CudaUtil = exo_CudaUtil_test_tma_tester_proc_SW0_golden;
+  auto& smem_x = reinterpret_cast<float (&) [7936]>(exo_smem[exo_smemOffset0_smem_x]);
+  auto& smem_y = reinterpret_cast<float (&) [7936]>(exo_smem[exo_smemOffset1_smem_y]);
+  auto& smem_sum = reinterpret_cast<float (&) [7936]>(exo_smem[exo_smemOffset2_smem_sum]);
+  // raw: barrier @ CudaMbarrier
+  // war: barrier(raw) @ CudaMbarrier
+  // CudaWarps(0, 1)
+  if (int CudaWarps_0_1_ = threadIdx.x; CudaWarps_0_1_ < 32) {
+    // Await(war, cuda_temporal, ~1)
+    exo_syncState.Await0_war(exo_smem, exo_excutLog, 0, 1);
+    exo_CudaUtil::exo_Sm90_tma_to_smem(
+      &smem_x[0],
+      exo_deviceArgs.exo_data_x_tensorMap,
+      (exo_win_2f32_Sm90_tensorMap_0_248_32) { {(exo_deviceArgs.x_tensorMap.C_offsets[0] + 248 * exo_task.task_m), (exo_deviceArgs.x_tensorMap.C_offsets[1] + 32 * exo_task.task_k)} },
+      exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, 0, 0),
+      31744
+    );
+    // Arrive(cuda_temporal, 1) >> raw
+    // cta_mask: uint16_t(0x1)
+    exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, 0, 1);
+  }
+  // cuda_threads(0, 248, unit=cuda_thread)
+  if (int exo_1thr_m = threadIdx.x; exo_1thr_m < 248) {
+    for (int ko = 0; ko < 8; ko++) {
+      asm volatile(
+        "cp.async.cg.shared.global [%0], [%1], 16;"
+          :
+          :"r"(exo_smemU32((&smem_y[exo_1thr_m * 32 + (4 * ko)]))),
+          "l"((&exo_deviceArgs.d_y[(exo_1thr_m + 248 * exo_task.task_m) * 128 + (4 * ko + 32 * exo_task.task_k)]))
+      );
+      exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_cg_shared_global), 0, __LINE__);
+      exo_excutLog.log_u32_arg(exo_smemU32((&smem_y[exo_1thr_m * 32 + (4 * ko)])));
+      exo_excutLog.log_ptr_arg((&exo_deviceArgs.d_y[(exo_1thr_m + 248 * exo_task.task_m) * 128 + (4 * ko + 32 * exo_task.task_k)]));
+      exo_excutLog.log_u32_arg(static_cast<uint32_t>(16));
+    }
+  }
+  // Fence(Sm80_cp_async, cuda_in_order)
+  asm volatile(
+    "cp.async.wait_all;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_wait_all), 0, __LINE__);
+  asm volatile(
+    "barrier.cta.sync 0;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cta_sync), 0, __LINE__);
+  exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
+  // Await(raw, cuda_in_order, ~0)
+  exo_syncState.Await0_raw(exo_smem, exo_excutLog, 0);
+  // cuda_threads(0, 248, unit=cuda_thread)
+  if (int exo_1thr_m = threadIdx.x; exo_1thr_m < 248) {
+    for (int k = 0; k < 32; k++) {
+      smem_sum[exo_1thr_m * 32 + k] = smem_x[exo_1thr_m * 32 + k] + smem_y[exo_1thr_m * 32 + k];
+    }
+  }
+  // Arrive(cuda_in_order, 1) >> war
+  // cta_mask: uint16_t(0x1)
+  exo_syncState.Arrive0_war(exo_smem, exo_excutLog, 0, 1);
+  // Fence(cuda_in_order, cuda_generic_and_async_proxy)
+  asm volatile(
+    "barrier.cta.sync 0;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cta_sync), 0, __LINE__);
+  exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
+  asm volatile(
+    "fence.proxy.async;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(fence_proxy_async), 0, __LINE__);
+  // CudaWarps(0, 1)
+  if (int CudaWarps_0_1_ = threadIdx.x; CudaWarps_0_1_ < 32) {
+    exo_CudaUtil::exo_Sm90_tma_to_gmem(
+      exo_deviceArgs.exo_data_sum_tensorMap,
+      (exo_win_2f32_Sm90_tensorMap_0_248_32) { {(exo_deviceArgs.sum_tensorMap.C_offsets[0] + 248 * exo_task.task_m), (exo_deviceArgs.sum_tensorMap.C_offsets[1] + 32 * exo_task.task_k)} },
+      &smem_sum[0]
+    );
+    // cg: barrier @ CudaCommitGroup
+    // Arrive(tma_to_gmem_async, 1) >> cg
+    asm volatile(
+      "cp.async.bulk.commit_group;"
+    );
+    exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_bulk_commit_group), 0, __LINE__);
+    // Await(cg, cuda_in_order, 0)
+    asm volatile(
+      "cp.async.bulk.wait_group 0;"
+    );
+    exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_bulk_wait_group), 0, __LINE__);
+    exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
+  }
+  // Fence(cuda_in_order, cuda_in_order)
+  asm volatile(
+    "barrier.cta.sync 0;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cta_sync), 0, __LINE__);
+  exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
+}
+__device__ __forceinline__ void
+exo_CudaInline_test_tma_tester_proc_SW0_golden::exo_Cuda0_tma_tester_SW0::exo_deviceMainLoop(
+    char* exo_smem,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_ExcutThreadLog exo_excutLog)
+{
+  namespace exo_CudaUtil = exo_CudaUtil_test_tma_tester_proc_SW0_golden;
+  exo_SyncState exo_syncState{};
+  int32_t nreg;
+  nreg = ((int32_t) 0);
+  if (nreg == ((int32_t) 0)) {
+    if (int tmp = threadIdx.x; tmp >= 0 && tmp < 256) {
+      {
+        int_fast32_t exo_cudaTasksLo_task_m = 0;
+        int_fast32_t exo_cudaTasksHi_task_m = 3;
+        {
+          int_fast32_t exo_cudaTasksLo_task_k = 0;
+          int_fast32_t exo_cudaTasksHi_task_k = 4;
+          exo_TaskGenerator exo_taskGenerator(
+              blockIdx.x / exo_clusterDim,
+              gridDim.x / exo_clusterDim,
+              exo_cudaTasksLo_task_m, exo_cudaTasksHi_task_m,
+              exo_cudaTasksLo_task_k, exo_cudaTasksHi_task_k,
+              exo_deviceArgs);
+          while (exo_taskGenerator.prepare_next_task()) {
+            exo_deviceTask(exo_smem, exo_syncState, exo_deviceArgs, exo_taskGenerator.get_next_task(), exo_excutLog);
+          }
+        }
+      }
+    }
+  }
+}
+
+// ########################################################################
+// .cu
+// ########################################################################
+#include "test_tma_tester_proc_SW0_golden.cuh"
+__launch_bounds__(256, 1)
+__global__ void
+exo_deviceFunction0_tma_tester_SW0(__grid_constant__ const struct exo_CudaDeviceArgs0_tma_tester_SW0 exo_deviceArgs)
+{
+  extern __shared__ char exo_smem[];
+  exo_ExcutThreadLog exo_excutLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
+  exo_Cuda0_tma_tester_SW0::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda0_tma_tester_SW0::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
+}
+
+void
+exo_cudaLaunch0_tma_tester_SW0(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0_tma_tester_SW0* exo_deviceArgs)
+{
+  exo_Cuda0_tma_tester_SW0::exo_cudaLaunch(exo_cudaStream, *exo_deviceArgs);
+}
+

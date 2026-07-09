@@ -4,11 +4,14 @@ import argparse
 import importlib
 import importlib.util
 import inspect
+import shlex
 import sys
 
 from pathlib import Path
 
 import exo
+import exo.spork.camspork.jit as camspork_jit
+from exo.core.LoopIR import set_global_debug_log_path
 
 from contextlib import contextmanager
 
@@ -81,17 +84,32 @@ def exocc(*args, name="exocc"):
             args.pythonpath = Path.cwd()
 
     with pythonpath(args.pythonpath):
+        # Before loading user's module,
+        #   * Configure output directory for all debug logs
+        #   * Prepare temporary directory for camspork.
+        #     We compile with 1 thread since exocc may itself be parallelized
+        #     across cores by the user's build command.
+        set_global_debug_log_path(outdir)
+        if camspork_jit.pytest_compiler_count:  # Hack, skip this in pytest
+            camspork_jit.set_jit_dir(outdir / "jit")
+        camspork_jit.set_single_threaded(True)
         library = [
             proc
             for mod in args.source
             for proc in get_procs_from_module(load_user_code(mod))
         ]
 
-    exo.compile_procs(library, outdir, f"{args.stem}.c", f"{args.stem}.h")
-    write_depfile(outdir, args.stem)
+    exts = exo.ext_compile_procs(library, outdir, args.stem)
+
+    # Exclude debug-only file from depfile
+    try:
+        exts.remove("excut_str_table")
+    except ValueError:
+        pass
+    write_depfile(outdir, args.stem, exts)
 
 
-def write_depfile(outdir, stem):
+def write_depfile(outdir, stem, exts):
     modules = set()
     for mod in sys.modules.values():
         try:
@@ -99,13 +117,14 @@ def write_depfile(outdir, stem):
         except TypeError:
             pass  # this is the case for built-in modules
 
-    c_file = outdir / f"{stem}.c"
-    h_file = outdir / f"{stem}.h"
+    encoded_outputs = []
+    for x in exts:
+        encoded_outputs.append(shlex.quote(f"{outdir}/{stem}.{x}"))
     depfile = outdir / f"{stem}.d"
 
     sep = " \\\n  "
     deps = sep.join(sorted(modules))
-    contents = f"{c_file} {h_file} : {deps}"
+    contents = f"{' '.join(encoded_outputs)} : {deps}"
 
     depfile.write_text(contents)
 

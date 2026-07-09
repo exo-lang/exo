@@ -1,7 +1,17 @@
-from collections import ChainMap
+from dataclasses import dataclass
+from typing import List, Set, Dict, Type, Tuple
+from ..core.prelude import Sym
 from ..core.LoopIR import LoopIR
 
-from ..core.memory import Memory
+from ..core.instr_info import InstrInfo
+from ..core.memory import (
+    MemWin,
+    AllocableMemWin,
+    Memory,
+    SpecialWindow,
+    FreePoolTag,
+    full_scope_free_pool_tag,
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -9,27 +19,31 @@ from ..core.memory import Memory
 # Memory Analysis Pass
 
 
+dataclass(slots=True, init=False)
+
+
 class MemoryAnalysis:
+    mem_env: Dict[Sym, Type[MemWin]]
+    window_alias: Dict[Sym, Sym]
+    memo: Dict[int, Set[Sym]]
+
     def __init__(self):
-        self.mem_env = ChainMap()
-        self.tofree = []
+        self.mem_env = {}
+        self.window_alias = {}
+        self.memo = {}
 
     def run(self, proc):
         assert isinstance(proc, LoopIR.proc)
 
-        self.mem_env = ChainMap()
-        self.tofree = []
+        self.mem_env = {}
 
         for a in proc.args:
             if a.type.is_numeric():
                 mem = a.mem
-                assert issubclass(mem, Memory)
+                assert issubclass(mem, MemWin)
                 self.mem_env[a.name] = mem
 
-        self.push()
         body = self.mem_stmts(proc.body)
-        self.pop()
-        assert len(self.tofree) == 0
 
         return LoopIR.proc(
             proc.name,
@@ -40,92 +54,159 @@ class MemoryAnalysis:
             proc.srcinfo,
         )
 
-    def push(self):
-        self.mem_env = self.mem_env.new_child()
-        self.tofree.append([])
-
-    def pop(self):
-        self.mem_env = self.mem_env.parents
-        assert len(self.tofree[-1]) == 0
-        self.tofree.pop()
-
-    def add_malloc(self, sym, typ, mem):
-        assert isinstance(self.tofree[-1], list)
-        assert isinstance((sym, typ, mem), tuple)
-        self.tofree[-1].append((sym, typ, mem))
-
-    def mem_stmts(self, stmts):
+    def mem_stmts(self, stmts: List[LoopIR.stmt]) -> List[LoopIR.stmt]:
+        """Return a copy of stmts with each stmt checked & modified, and with Free inserted."""
         if len(stmts) == 0:
             return stmts
 
-        def used_e(e):
-            res = []
+        def get_base_name(node):
+            nm = node.name
+            return self.window_alias.get(nm, nm)
+
+        def used_e(e: LoopIR.expr) -> Set[Sym]:
+            _id = id(e)
+            try:
+                return self.memo[_id]
+            except KeyError:
+                pass
+            res = set()
             if isinstance(e, LoopIR.Read):
-                res += [e.name]
+                res.add(get_base_name(e))
                 for ei in e.idx:
-                    res += used_e(ei)
+                    res |= used_e(ei)
             elif isinstance(e, LoopIR.USub):
-                res += used_e(e.arg)
+                res |= used_e(e.arg)
             elif isinstance(e, LoopIR.BinOp):
-                res += used_e(e.lhs)
-                res += used_e(e.rhs)
+                res |= used_e(e.lhs)
+                res |= used_e(e.rhs)
             elif isinstance(e, LoopIR.Extern):
                 for ei in e.args:
-                    res += used_e(ei)
+                    res |= used_e(ei)
             elif isinstance(e, (LoopIR.WindowExpr, LoopIR.StrideExpr)):
-                res += [e.name]
+                res.add(get_base_name(e))
+            self.memo[_id] = res
             return res
 
-        def used_s(s):
-            res = []
+        def used_s_tags(s: LoopIR.stmt) -> Tuple[Set[Sym], Set[FreePoolTag]]:
+            """Set of variables used, and set of FreePoolTags used in allocs"""
+            _id = id(s)
+            used = set()
+            tags = set()
+            try:
+                return self.memo[_id]
+            except KeyError:
+                pass
             if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
-                res += [s.name]
-                res += used_e(s.rhs)
+                used.add(get_base_name(s))
+                used |= used_e(s.rhs)
             elif isinstance(s, LoopIR.WriteConfig):
-                res += used_e(s.rhs)
+                used |= used_e(s.rhs)
+            elif isinstance(s, LoopIR.SyncStmt):
+                for e in s.barriers:
+                    used.add(get_base_name(e))
             elif isinstance(s, LoopIR.If):
-                res += used_e(s.cond)
+                used |= used_e(s.cond)
                 for b in s.body:
-                    res += used_s(b)
+                    tup = used_s_tags(b)
+                    used |= tup[0]
+                    tags |= tup[1]
                 for b in s.orelse:
-                    res += used_s(b)
+                    tup = used_s_tags(b)
+                    used |= tup[0]
+                    tags |= tup[1]
             elif isinstance(s, LoopIR.For):
                 for b in s.body:
-                    res += used_s(b)
+                    tup = used_s_tags(b)
+                    used |= tup[0]
+                    tags |= tup[1]
             elif isinstance(s, LoopIR.Alloc):
-                res += [s.name]
+                used.add(get_base_name(s))
+                if (tag := s.mem.free_pool_tag()) is not None:
+                    tags.add(tag)
             elif isinstance(s, LoopIR.Call):
                 for e in s.args:
-                    res += used_e(e)
+                    used |= used_e(e)
+                if e := s.trailing_barrier_expr:
+                    used.add(get_base_name(e))
             elif isinstance(s, LoopIR.WindowStmt):
-                res += used_e(s.rhs)
-            return res
+                # mem_s handles setting up the alias.
+                used |= used_e(s.rhs)
+            self.memo[_id] = (used, tags)
+            return used, tags
 
-        body = []
-        for b in reversed([self.mem_s(b) for b in stmts]):
-            used = used_s(b)
-            rm = []
-            for nm, typ, mem in self.tofree[-1]:
+        # We put Free statements that should go after the original stmt[n]
+        # at frees_after_nth[n].
+        frees_after_nth = [()] * len(stmts)
+
+        # Recurse child statements.
+        stmts = [self.mem_s(s) for s in stmts]
+
+        # Collect names of variables allocated at this level of the program.
+        # Store their corresponding free stmt and FreePoolTag, except we
+        # immediately schedule full_scope memory types to be freed at the end.
+        alloc_dict = {}
+        alloc_dict: Dict[Sym, Tuple[LoopIR.Free, Optional[FreePoolTag]]]
+        for s in stmts:
+            if isinstance(s, LoopIR.Alloc):
+                nm = s.name
+                free = LoopIR.Free(
+                    nm, s.type, s.mem, s.srcinfo.update(stmt_id=s.srcinfo.stmt_id + 1)
+                )
+                free_pool_tag = s.mem.free_pool_tag()
+                if free_pool_tag == full_scope_free_pool_tag:
+                    # This order is needed to match the goldens of the old
+                    # mem_analysis. I don't want to take a needless risk.
+                    frees_after_nth[-1] = (free,) + frees_after_nth[-1]
+                else:
+                    alloc_dict[nm] = (free, free_pool_tag)
+
+        # Go backwards and put free stmts at frees_after_nth[n].
+        # Delete from alloc_dict as we add the free statements.
+        free_pool_alloc_idx = {}
+        for n in range(len(stmts) - 1, -1, -1):
+            s = stmts[n]
+            used, tags = used_s_tags(s)
+            for nm in list(alloc_dict):  # list(...) needed to delete in iteration
                 if nm in used:
-                    rm += [(nm, typ, mem)]
-            for nm, typ, mem in rm:
-                body += [LoopIR.Free(nm, typ, mem, b.srcinfo)]
-                self.tofree[-1].remove((nm, typ, mem))
-            body += [b]
+                    free, free_pool_tag = alloc_dict[nm]
+                    if free_pool_tag is None:
+                        # Will insert immediately after last use
+                        free_idx = n
+                    else:
+                        # Insert just prior to the last allocation stmt using
+                        # the same free pool, or at end-of-stmts if no such alloc yet.
+                        # (i.e. not found in the dict; [0 - 1] = [-1])
+                        free_idx = free_pool_alloc_idx.get(free_pool_tag, 0) - 1
+                    # This order is needed to match the goldens of the old
+                    # mem_analysis. I don't want to take a needless risk.
+                    frees_after_nth[free_idx] = (free,) + frees_after_nth[free_idx]
+                    del alloc_dict[nm]
+            for free_pool_tag in tags:
+                free_pool_alloc_idx[free_pool_tag] = n
 
-        return list(reversed(body))
+        # Assemble stmts
+        assert not alloc_dict
+        new_body = []
+        for n, s in enumerate(stmts):
+            new_body.append(s)
+            new_body.extend(frees_after_nth[n])
+        return new_body
 
     def get_e_mem(self, e):
         if isinstance(e, (LoopIR.WindowExpr, LoopIR.Read)):
+            # e.name not translated by window_alias:
+            # we want SpecialWindow if applicable.
             return self.mem_env[e.name]
         else:
             assert False
 
-    def mem_s(self, s):
+    def mem_s(self, s: LoopIR.stmt):
+        """Check correctness of s and return modified s."""
         styp = type(s)
 
         if (
             styp is LoopIR.Pass
+            or styp is LoopIR.SyncStmt
             or styp is LoopIR.Assign
             or styp is LoopIR.Reduce
             or styp is LoopIR.WriteConfig
@@ -133,46 +214,99 @@ class MemoryAnalysis:
             return s
 
         elif styp is LoopIR.WindowStmt:
-            mem = self.get_e_mem(s.rhs)
-            self.mem_env[s.name] = mem
+            rhs_mem = self.get_e_mem(s.rhs)
+            self.check_window_expr(s.rhs, rhs_mem)
+            lhs_mem = s.special_window or rhs_mem
+            if lhs_mem != rhs_mem:
+                src_mem = lhs_mem.source_memory_type()
+                assert issubclass(src_mem, Memory)
+                if not issubclass(rhs_mem, src_mem):
+                    raise TypeError(
+                        f"{s.srcinfo}: {lhs_mem.name()} expects {s.rhs} "
+                        f"to be in memory {src_mem.name()} "
+                        f"but it's actually in {rhs_mem.name()}"
+                    )
+            self.mem_env[s.name] = lhs_mem
+            win_typ = s.rhs.type
+            assert isinstance(win_typ, LoopIR.WindowType)
+            src_name = win_typ.src_buf
+            assert src_name not in self.window_alias
+            self.window_alias[s.name] = src_name
             return s
 
         elif styp is LoopIR.Call:
-            # check memory consistency at call boundaries
+            # check memory & window consistency at call boundaries
             for ca, sa in zip(s.args, s.f.args):
                 if sa.type.is_numeric():
                     smem = sa.mem
-                    assert issubclass(smem, Memory)
+                    assert issubclass(smem, MemWin)
                     cmem = self.get_e_mem(ca)
                     if not issubclass(cmem, smem):
                         raise TypeError(
-                            f"{ca.srcinfo}: expected "
+                            f"{ca.srcinfo}: expected `{sa.name}` "
                             f"argument in {smem.name()} but got an "
                             f"argument in {cmem.name()}"
                         )
+                if sa.type.is_win():
+                    self.check_window_expr(ca, cmem)
+
+            # Check trailing barrier expression
+            bar: LoopIR.BarrierExpr = s.trailing_barrier_expr
+            instr_info: InstrInfo = s.f.instr
+            barrier_mechanism = None
+            if instr_info is not None:
+                barrier_mechanism = instr_info.barrier_mechanism
+            assert bar is None or isinstance(
+                bar, LoopIR.BarrierExpr
+            ), "typecheck should have caught this"
+            if barrier_mechanism is None:
+                if bar is not None:
+                    raise TypeError(
+                        f"{s.srcinfo}: {s.f.name} does not take trailing barrier expression >> {bar}"
+                    )
+            else:
+                wrong = None
+                if bar is None:
+                    wrong = "<missing BarrierExpr>"
+                elif not issubclass(
+                    actual_type := self.mem_env[bar.name], barrier_mechanism
+                ):
+                    wrong = f">> {bar} @ {actual_type.name()}"
+                if wrong:
+                    raise TypeError(
+                        f"{s.srcinfo}: {s.f.name} requires trailing barrier expression in {barrier_mechanism.name()}, not {wrong}"
+                    )
 
             return s
 
         elif styp is LoopIR.If:
-            self.push()
             body = self.mem_stmts(s.body)
-            self.pop()
-            self.push()
             ebody = self.mem_stmts(s.orelse)
-            self.pop()
             return LoopIR.If(s.cond, body, ebody, s.srcinfo)
         elif styp is LoopIR.For:
-            self.push()
             body = self.mem_stmts(s.body)
-            self.pop()
             return s.update(body=body)
         elif styp is LoopIR.Alloc:
             mem = s.mem
-            assert issubclass(mem, Memory)
+            assert issubclass(mem, AllocableMemWin)
             self.mem_env[s.name] = mem
-            self.add_malloc(s.name, s.type, s.mem)
             return s
         elif styp is LoopIR.Free:
             assert False, "There should not be frees inserted before mem " "analysis"
         else:
             assert False, f"bad case {styp}"
+
+    def check_window_expr(self, e, mem):
+        # Check points before intervals for packed dimensions
+        scalar_info = e.type.basetype().scalar_info()
+        shape = mem.packed_tensor_shape(scalar_info)
+        n_packed_dims = len(shape)
+        idxs = e.idx[-n_packed_dims:] if n_packed_dims else ()
+        saw_interval = False
+        for idx in idxs:
+            if isinstance(idx, LoopIR.Interval):
+                saw_interval = True
+            elif saw_interval:
+                raise ValueError(
+                    f"{e.srcinfo}: expected last {n_packed_dims} idx to have points before intervals to match {mem.name()}'s packed tensor shape {shape} (in {e})"
+                )
