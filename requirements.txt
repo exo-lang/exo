@@ -25,7 +25,7 @@ colorama==0.4.6
     #   click
     #   pytest
     #   tox
-coverage==7.10.7
+coverage==7.15.2
     # via pytest-cov
 distlib==0.4.0
     # via virtualenv
