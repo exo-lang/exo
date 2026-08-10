@@ -92,7 +92,7 @@ def infer_range(idx_expr: Cursor, scope: Cursor) -> IndexRange:
     bounds = index_range_analysis(idx_expr, env)
 
     if isinstance(bounds, int):
-        return IndexRange.create_int(bounds, bounds)
+        return IndexRange.create_int(bounds)
 
     return bounds
 

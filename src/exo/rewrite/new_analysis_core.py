@@ -190,7 +190,7 @@ def ADef(arg):
 
 @extclass(A.expr)
 def __neg__(arg):
-    return A.USub(arg, T.bool, arg.srcinfo)
+    return A.USub(arg, T.index, arg.srcinfo)
 
 
 # USub
