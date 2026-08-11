@@ -88,7 +88,7 @@ for (int_fast32_t ioo = 0; ioo < 1; ioo++) {
       for (int_fast32_t ji = 0; ji < 4; ji++) {
         for (int_fast32_t r = 0; r < 4; r++) {
           if (ji + r + 4 * jo < 16) {
-            y[ji * 4 + r] = data[c * 16 + ji + r + 4 * jo];
+            y[ji * 4 + r] = data[c * 16 + (ji + r + 4 * jo)];
           } else {
             y[ji * 4 + r] = ((int32_t) 0);
           }

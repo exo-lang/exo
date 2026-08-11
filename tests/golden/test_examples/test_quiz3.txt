@@ -73,12 +73,12 @@ for (int_fast32_t yo = 0; yo < ((H) / (32)); yo++) {
   for (int_fast32_t xo = 0; xo < ((W) / (256)); xo++) {
     for (int_fast32_t yi = 0; yi < 34; yi++) {
       for (int_fast32_t xi = 0; xi < 256; xi++) {
-        blur_x[(yi + 32 * yo) * W + xi + 256 * xo] = (inp[(yi + 32 * yo) * (W + 2) + xi + 256 * xo] + inp[(yi + 32 * yo) * (W + 2) + 1 + xi + 256 * xo] + inp[(yi + 32 * yo) * (W + 2) + 2 + xi + 256 * xo]) / ((uint16_t) 3.0);
+        blur_x[(yi + 32 * yo) * W + (xi + 256 * xo)] = (inp[(yi + 32 * yo) * (W + 2) + (xi + 256 * xo)] + inp[(yi + 32 * yo) * (W + 2) + (1 + xi + 256 * xo)] + inp[(yi + 32 * yo) * (W + 2) + (2 + xi + 256 * xo)]) / ((uint16_t) 3.0);
       }
     }
     for (int_fast32_t yi = 0; yi < 32; yi++) {
       for (int_fast32_t xi = 0; xi < 256; xi++) {
-        blur_y[(yi + 32 * yo) * W + xi + 256 * xo] = (blur_x[(yi + 32 * yo) * W + xi + 256 * xo] + blur_x[(1 + yi + 32 * yo) * W + xi + 256 * xo] + blur_x[(2 + yi + 32 * yo) * W + xi + 256 * xo]) / ((uint16_t) 3.0);
+        blur_y[(yi + 32 * yo) * W + (xi + 256 * xo)] = (blur_x[(yi + 32 * yo) * W + (xi + 256 * xo)] + blur_x[(1 + yi + 32 * yo) * W + (xi + 256 * xo)] + blur_x[(2 + yi + 32 * yo) * W + (xi + 256 * xo)]) / ((uint16_t) 3.0);
       }
     }
   }
@@ -100,12 +100,12 @@ for (int_fast32_t yo = 0; yo < ((H) / (32)); yo++) {
   for (int_fast32_t xo = 0; xo < ((W) / (256)); xo++) {
     for (int_fast32_t yi = 0; yi < 34; yi++) {
       for (int_fast32_t xi = 0; xi < 256; xi++) {
-        blur_x[(yi + 32 * yo - (32 * yo)) * W + xi + 256 * xo] = (inp[(yi + 32 * yo) * (W + 2) + xi + 256 * xo] + inp[(yi + 32 * yo) * (W + 2) + 1 + xi + 256 * xo] + inp[(yi + 32 * yo) * (W + 2) + 2 + xi + 256 * xo]) / ((uint16_t) 3.0);
+        blur_x[(yi + 32 * yo - 32 * yo) * W + (xi + 256 * xo)] = (inp[(yi + 32 * yo) * (W + 2) + (xi + 256 * xo)] + inp[(yi + 32 * yo) * (W + 2) + (1 + xi + 256 * xo)] + inp[(yi + 32 * yo) * (W + 2) + (2 + xi + 256 * xo)]) / ((uint16_t) 3.0);
       }
     }
     for (int_fast32_t yi = 0; yi < 32; yi++) {
       for (int_fast32_t xi = 0; xi < 256; xi++) {
-        blur_y[(yi + 32 * yo) * W + xi + 256 * xo] = (blur_x[(yi + 32 * yo - (32 * yo)) * W + xi + 256 * xo] + blur_x[(1 + yi + 32 * yo - (32 * yo)) * W + xi + 256 * xo] + blur_x[(2 + yi + 32 * yo - (32 * yo)) * W + xi + 256 * xo]) / ((uint16_t) 3.0);
+        blur_y[(yi + 32 * yo) * W + (xi + 256 * xo)] = (blur_x[(yi + 32 * yo - 32 * yo) * W + (xi + 256 * xo)] + blur_x[(1 + yi + 32 * yo - 32 * yo) * W + (xi + 256 * xo)] + blur_x[(2 + yi + 32 * yo - 32 * yo) * W + (xi + 256 * xo)]) / ((uint16_t) 3.0);
       }
     }
   }

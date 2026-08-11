@@ -169,13 +169,13 @@ for (int_fast32_t ko = 0; ko < ((K) / (64)); ko++) {
   for (int_fast32_t io = 0; io < ((M) / (64)); io++) {
     for (int_fast32_t i0 = 0; i0 < 64; i0++) {
       for (int_fast32_t i1 = 0; i1 < 64; i1++) {
-        Atile[i0 * 64 + i1] = A[(i0 + 64 * io) * K + i1 + 64 * ko];
+        Atile[i0 * 64 + i1] = A[(i0 + 64 * io) * K + (i1 + 64 * ko)];
       }
     }
     for (int_fast32_t jo = 0; jo < ((N) / (64)); jo++) {
       for (int_fast32_t i0 = 0; i0 < 64; i0++) {
         for (int_fast32_t i1 = 0; i1 < 64; i1++) {
-          Btile[i0 * 64 + i1] = B[(i0 + 64 * ko) * N + i1 + 64 * jo];
+          Btile[i0 * 64 + i1] = B[(i0 + 64 * ko) * N + (i1 + 64 * jo)];
         }
       }
       for (int_fast32_t im = 0; im < 16; im++) {
@@ -208,7 +208,7 @@ for (int_fast32_t io = 0; io < ((M) / (4)); io++) {
       for (int_fast32_t ji = 0; ji < 16; ji++) {
         if (K % 64 > 0) {
           for (int_fast32_t ki = 0; ki < K % 64; ki++) {
-            C[(ii + 4 * io) * N + ji + 16 * jo] += A[(ii + 4 * io) * K + ki + (K / 64) * 64] * B[(ki + (K / 64) * 64) * N + ji + 16 * jo];
+            C[(ii + 4 * io) * N + (ji + 16 * jo)] += A[(ii + 4 * io) * K + (ki + (K / 64) * 64)] * B[(ki + (K / 64) * 64) * N + (ji + 16 * jo)];
           }
         }
       }
@@ -220,7 +220,7 @@ for (int_fast32_t io = 0; io < ((M) / (4)); io++) {
     if (N % 16 > 0) {
       for (int_fast32_t ji = 0; ji < N % 16; ji++) {
         for (int_fast32_t k = 0; k < K; k++) {
-          C[(ii + 4 * io) * N + ji + (N / 16) * 16] += A[(ii + 4 * io) * K + k] * B[k * N + ji + (N / 16) * 16];
+          C[(ii + 4 * io) * N + (ji + (N / 16) * 16)] += A[(ii + 4 * io) * K + k] * B[k * N + (ji + (N / 16) * 16)];
         }
       }
     }
