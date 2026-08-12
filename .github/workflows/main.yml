@@ -36,6 +36,8 @@ jobs:
 
       - name: Install the latest version of uv
         uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.3'
 
       - name: Install Python dependencies
         run: uv sync --all-groups --no-install-project
