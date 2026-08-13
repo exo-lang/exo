@@ -98,7 +98,7 @@ EXO_ASSUME(W % 256 == 0);
 uint16_t *blur_x = (uint16_t*) malloc((H + 2) * W * sizeof(*blur_x));
 for (int_fast32_t y = 0; y < H + 2; y++) {
   for (int_fast32_t x = 0; x < W; x++) {
-    blur_x[y * W + x] = (inp[y * (W + 2) + x] + inp[y * (W + 2) + x + 1] + inp[y * (W + 2) + x + 2]) / ((uint16_t) 3.0);
+    blur_x[y * W + x] = (inp[y * (W + 2) + x] + inp[y * (W + 2) + (x + 1)] + inp[y * (W + 2) + (x + 2)]) / ((uint16_t) 3.0);
   }
 }
 for (int_fast32_t y = 0; y < H; y++) {

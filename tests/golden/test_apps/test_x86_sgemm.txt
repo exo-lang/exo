@@ -769,7 +769,7 @@ if (M % 6 > 0) {
     for (int_fast32_t k = 0; k < K; k++) {
       for (int_fast32_t ii = 0; ii < M % 6; ii++) {
         for (int_fast32_t ji = 0; ji < N % 64; ji++) {
-          C.data[(ii + (M / 6) * 6) * C.strides[0] + ji + (N / 64) * 64] += A.data[(ii + (M / 6) * 6) * A.strides[0] + k] * B.data[k * B.strides[0] + ji + (N / 64) * 64];
+          C.data[(ii + (M / 6) * 6) * C.strides[0] + (ji + (N / 64) * 64)] += A.data[(ii + (M / 6) * 6) * A.strides[0] + k] * B.data[k * B.strides[0] + (ji + (N / 64) * 64)];
         }
       }
     }
@@ -797,14 +797,14 @@ for (int_fast32_t ko = 0; ko < ((K) / (512)); ko++) {
     static float A_cache[264 * 512];
     for (int_fast32_t i0 = 0; i0 < 264; i0++) {
       for (int_fast32_t i1 = 0; i1 < 512; i1++) {
-        A_cache[i0 * 512 + i1] = A[(i0 + 264 * io) * K + i1 + 512 * ko];
+        A_cache[i0 * 512 + i1] = A[(i0 + 264 * io) * K + (i1 + 512 * ko)];
       }
     }
     for (int_fast32_t jo = 0; jo < ((N) / (64)); jo++) {
       static float B_cache[512 * 64];
       for (int_fast32_t i0 = 0; i0 < 512; i0++) {
         for (int_fast32_t i1 = 0; i1 < 64; i1++) {
-          B_cache[i0 * 64 + i1] = B[(i0 + 512 * ko) * N + i1 + 64 * jo];
+          B_cache[i0 * 64 + i1] = B[(i0 + 512 * ko) * N + (i1 + 64 * jo)];
         }
       }
       sgemm_above_kernel(ctxt,264,64,512,(struct exo_win_2f32c){ &A_cache[0], { 512, 1 } },(struct exo_win_2f32c){ &B_cache[0], { 64, 1 } },(struct exo_win_2f32){ &C[(264 * io) * N + 64 * jo], { N, 1 } });
@@ -817,7 +817,7 @@ for (int_fast32_t ko = 0; ko < ((K) / (512)); ko++) {
       static float B_cache[512 * 64];
       for (int_fast32_t i0 = 0; i0 < 512; i0++) {
         for (int_fast32_t i1 = 0; i1 < N - ((N) / (64)) * 64; i1++) {
-          B_cache[i0 * 64 + i1] = B[(i0 + 512 * ko) * N + i1 + (N / 64) * 64];
+          B_cache[i0 * 64 + i1] = B[(i0 + 512 * ko) * N + (i1 + (N / 64) * 64)];
         }
       }
       sgemm_above_kernel(ctxt,264,N % 64,512,(struct exo_win_2f32c){ &A[(264 * io) * K + 512 * ko], { K, 1 } },(struct exo_win_2f32c){ &B_cache[0], { 64, 1 } },(struct exo_win_2f32){ &C[(264 * io) * N + 64 * (N / 64)], { N, 1 } });
@@ -828,7 +828,7 @@ for (int_fast32_t ko = 0; ko < ((K) / (512)); ko++) {
       static float B_cache[512 * 64];
       for (int_fast32_t i0 = 0; i0 < 512; i0++) {
         for (int_fast32_t i1 = 0; i1 < 64; i1++) {
-          B_cache[i0 * 64 + i1] = B[(i0 + 512 * ko) * N + i1 + 64 * jo];
+          B_cache[i0 * 64 + i1] = B[(i0 + 512 * ko) * N + (i1 + 64 * jo)];
         }
       }
       sgemm_above_kernel(ctxt,M % 264,64,512,(struct exo_win_2f32c){ &A[(264 * (M / 264)) * K + 512 * ko], { K, 1 } },(struct exo_win_2f32c){ &B_cache[0], { 64, 1 } },(struct exo_win_2f32){ &C[(264 * (M / 264)) * N + 64 * jo], { N, 1 } });
@@ -837,7 +837,7 @@ for (int_fast32_t ko = 0; ko < ((K) / (512)); ko++) {
       static float B_cache[512 * 64];
       for (int_fast32_t i0 = 0; i0 < 512; i0++) {
         for (int_fast32_t i1 = 0; i1 < N - ((N) / (64)) * 64; i1++) {
-          B_cache[i0 * 64 + i1] = B[(i0 + 512 * ko) * N + i1 + (N / 64) * 64];
+          B_cache[i0 * 64 + i1] = B[(i0 + 512 * ko) * N + (i1 + (N / 64) * 64)];
         }
       }
       sgemm_above_kernel(ctxt,M % 264,N % 64,512,(struct exo_win_2f32c){ &A[(264 * (M / 264)) * K + 512 * ko], { K, 1 } },(struct exo_win_2f32c){ &B_cache[0], { 64, 1 } },(struct exo_win_2f32){ &C[(264 * (M / 264)) * N + 64 * (N / 64)], { N, 1 } });
@@ -850,7 +850,7 @@ if (K % 512 > 0) {
       static float B_cache[512 * 64];
       for (int_fast32_t i0 = 0; i0 < K - ((K) / (512)) * 512; i0++) {
         for (int_fast32_t i1 = 0; i1 < 64; i1++) {
-          B_cache[i0 * 64 + i1] = B[(i0 + (K / 512) * 512) * N + i1 + 64 * jo];
+          B_cache[i0 * 64 + i1] = B[(i0 + (K / 512) * 512) * N + (i1 + 64 * jo)];
         }
       }
       sgemm_above_kernel(ctxt,264,64,K % 512,(struct exo_win_2f32c){ &A[(264 * io) * K + 512 * (K / 512)], { K, 1 } },(struct exo_win_2f32c){ &B_cache[0], { 64, 1 } },(struct exo_win_2f32){ &C[(264 * io) * N + 64 * jo], { N, 1 } });
@@ -859,7 +859,7 @@ if (K % 512 > 0) {
       static float B_cache[512 * 64];
       for (int_fast32_t i0 = 0; i0 < K - ((K) / (512)) * 512; i0++) {
         for (int_fast32_t i1 = 0; i1 < N - ((N) / (64)) * 64; i1++) {
-          B_cache[i0 * 64 + i1] = B[(i0 + (K / 512) * 512) * N + i1 + (N / 64) * 64];
+          B_cache[i0 * 64 + i1] = B[(i0 + (K / 512) * 512) * N + (i1 + (N / 64) * 64)];
         }
       }
       sgemm_above_kernel(ctxt,264,N % 64,K % 512,(struct exo_win_2f32c){ &A[(264 * io) * K + 512 * (K / 512)], { K, 1 } },(struct exo_win_2f32c){ &B_cache[0], { 64, 1 } },(struct exo_win_2f32){ &C[(264 * io) * N + 64 * (N / 64)], { N, 1 } });
@@ -870,7 +870,7 @@ if (K % 512 > 0) {
       static float B_cache[512 * 64];
       for (int_fast32_t i0 = 0; i0 < K - ((K) / (512)) * 512; i0++) {
         for (int_fast32_t i1 = 0; i1 < 64; i1++) {
-          B_cache[i0 * 64 + i1] = B[(i0 + (K / 512) * 512) * N + i1 + 64 * jo];
+          B_cache[i0 * 64 + i1] = B[(i0 + (K / 512) * 512) * N + (i1 + 64 * jo)];
         }
       }
       sgemm_above_kernel(ctxt,M % 264,64,K % 512,(struct exo_win_2f32c){ &A[(264 * (M / 264)) * K + 512 * (K / 512)], { K, 1 } },(struct exo_win_2f32c){ &B_cache[0], { 64, 1 } },(struct exo_win_2f32){ &C[(264 * (M / 264)) * N + 64 * jo], { N, 1 } });
@@ -879,7 +879,7 @@ if (K % 512 > 0) {
       static float B_cache[512 * 64];
       for (int_fast32_t i0 = 0; i0 < K - ((K) / (512)) * 512; i0++) {
         for (int_fast32_t i1 = 0; i1 < N - ((N) / (64)) * 64; i1++) {
-          B_cache[i0 * 64 + i1] = B[(i0 + (K / 512) * 512) * N + i1 + (N / 64) * 64];
+          B_cache[i0 * 64 + i1] = B[(i0 + (K / 512) * 512) * N + (i1 + (N / 64) * 64)];
         }
       }
       sgemm_above_kernel(ctxt,M % 264,N % 64,K % 512,(struct exo_win_2f32c){ &A[(264 * (M / 264)) * K + 512 * (K / 512)], { K, 1 } },(struct exo_win_2f32c){ &B_cache[0], { 64, 1 } },(struct exo_win_2f32){ &C[(264 * (M / 264)) * N + 64 * (N / 64)], { N, 1 } });

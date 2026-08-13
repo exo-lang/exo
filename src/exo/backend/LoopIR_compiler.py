@@ -722,10 +722,7 @@ class Compiler:
             local_prec = op_prec[e.op]
 
             lhs = self.comp_cir(e.lhs, env, local_prec)
-            rhs = self.comp_cir(e.rhs, env, local_prec)
-
-            if isinstance(e.rhs, CIR.BinOp) and (e.op == "-" or e.op == "/"):
-                rhs = f"({rhs})"
+            rhs = self.comp_cir(e.rhs, env, local_prec + 1)
 
             if e.op == "/":
                 if (isinstance(e.lhs, (CIR.Read, CIR.BinOp)) and e.lhs.is_non_neg) or (

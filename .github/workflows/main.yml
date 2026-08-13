@@ -36,6 +36,8 @@ jobs:
 
       - name: Install the latest version of uv
         uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.3'
 
       - name: Install Python dependencies
         run: uv sync --all-groups --no-install-project
@@ -45,10 +47,10 @@ jobs:
 
       - name: Setup SDE binaries
         if: runner.os != 'macOS'
-        uses: petarpetrovt/setup-sde@v2.4
+        uses: petarpetrovt/setup-sde@v6.0
         with:
           environmentVariableName: 'SDE_PATH'
-          sdeVersion: '9.33.0'
+          sdeVersion: '9.58.0'
 
       - name: Install Clang 17 (Linux)
         if: runner.os == 'Linux'

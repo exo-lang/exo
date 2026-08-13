@@ -519,6 +519,18 @@ def test_CIR_USub(golden):
     assert code == golden
 
 
+def test_CIR_BinOp(golden):
+    @proc
+    def foo(x: f32[10]):
+        for i in seq(0, 10):
+            x[5 * (i % 2)] = 0.0
+
+    c_file, h_file = compile_procs_to_strings([foo], "test.h")
+    code = f"{h_file}\n{c_file}"
+
+    assert code == golden
+
+
 def test_pragma_parallel_loop(golden):
     @proc
     def foo(x: i8[10]):
