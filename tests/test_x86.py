@@ -169,6 +169,10 @@ def sgemm_6x16():
         A: [f32][6, K] @ DRAM,
         B: [f32][K, 16] @ DRAM,
     ):
+        assert stride(C, 1) == 1
+        assert stride(A, 1) == 1
+        assert stride(B, 1) == 1
+
         for i in seq(0, 6):
             for j in seq(0, 16):
                 for k in seq(0, K):
