@@ -10,5 +10,4 @@ def simple_math_avx2_sched(n: size, x: R[n] @ DRAM, y: R[n] @ DRAM):
         mm256_storeu_ps(x[8 * io:8 + 8 * io], xVec[0:8])
     if n % 8 > 0:
         for ii in seq(0, n % 8):
-            x[ii + n / 8 *
-              8] = x[ii + n / 8 * 8] * y[ii + n / 8 * 8] * y[ii + n / 8 * 8]
+            x[ii + n / 8 * 8] = x[ii + n / 8 * 8] * y[ii + n / 8 * 8] * y[ii + n / 8 * 8]

@@ -1,5 +1,4 @@
-def blur2d_tiled(n: size, consumer: i8[n, n] @ DRAM,
-                 sin: i8[n + 1, n + 1] @ DRAM):
+def blur2d_tiled(n: size, consumer: i8[n, n] @ DRAM, sin: i8[n + 1, n + 1] @ DRAM):
     assert n % 4 == 0
     producer: i8[n + 1, n + 1] @ DRAM
     for i in seq(0, n + 1):
@@ -9,15 +8,10 @@ def blur2d_tiled(n: size, consumer: i8[n, n] @ DRAM,
         for j in seq(0, n / 4):
             for ii in seq(0, 4):
                 for ji in seq(0, 4):
-                    consumer[
-                        4 * i + ii, 4 * j +
-                        ji] = (producer[4 * i + ii, 4 * j + ji] +
-                               producer[4 * i + ii, 4 * j + ji + 1] +
-                               producer[4 * i + ii + 1, 4 * j + ji] +
-                               producer[4 * i + ii + 1, 4 * j + ji + 1]) / 4.0
+                    consumer[4 * i + ii, 4 * j + ji] = (producer[4 * i + ii, 4 * j + ji] + producer[4 * i + ii, 4 * j + ji + 1] +
+                                                        producer[4 * i + ii + 1, 4 * j + ji] + producer[4 * i + ii + 1, 4 * j + ji + 1]) / 4.0
 
-def blur2d_tiled_compute_at_i(n: size, consumer: i8[n, n] @ DRAM,
-                              sin: i8[n + 1, n + 1] @ DRAM):
+def blur2d_tiled_compute_at_i(n: size, consumer: i8[n, n] @ DRAM, sin: i8[n + 1, n + 1] @ DRAM):
     assert n % 4 == 0
     producer: i8[1 + n, 1 + n] @ DRAM
     for i in seq(0, n / 4):
@@ -27,32 +21,23 @@ def blur2d_tiled_compute_at_i(n: size, consumer: i8[n, n] @ DRAM,
         for j in seq(0, n / 4):
             for ii in seq(0, 4):
                 for ji in seq(0, 4):
-                    consumer[ii + 4 * i, ji + 4 * j] = (
-                        producer[ii + 4 * i, ji + 4 * j] +
-                        producer[ii + 4 * i, 1 + ji + 4 * j] +
-                        producer[1 + ii + 4 * i, ji + 4 * j] +
-                        producer[1 + ii + 4 * i, 1 + ji + 4 * j]) / 4.0
+                    consumer[ii + 4 * i, ji + 4 * j] = (producer[ii + 4 * i, ji + 4 * j] + producer[ii + 4 * i, 1 + ji + 4 * j] +
+                                                        producer[1 + ii + 4 * i, ji + 4 * j] + producer[1 + ii + 4 * i, 1 + ji + 4 * j]) / 4.0
 
-def blur2d_tiled_compute_at_j(n: size, consumer: i8[n, n] @ DRAM,
-                              sin: i8[n + 1, n + 1] @ DRAM):
+def blur2d_tiled_compute_at_j(n: size, consumer: i8[n, n] @ DRAM, sin: i8[n + 1, n + 1] @ DRAM):
     assert n % 4 == 0
     producer: i8[1 + n, 1 + n] @ DRAM
     for i in seq(0, n / 4):
         for j in seq(0, n / 4):
             for ji in seq(0, 5):
                 for ii in seq(0, 5):
-                    producer[ii + 4 * i, ji + 4 * j] = sin[ii + 4 * i,
-                                                           ji + 4 * j]
+                    producer[ii + 4 * i, ji + 4 * j] = sin[ii + 4 * i, ji + 4 * j]
             for ii in seq(0, 4):
                 for ji in seq(0, 4):
-                    consumer[ii + 4 * i, ji + 4 * j] = (
-                        producer[ii + 4 * i, ji + 4 * j] +
-                        producer[ii + 4 * i, 1 + ji + 4 * j] +
-                        producer[1 + ii + 4 * i, ji + 4 * j] +
-                        producer[1 + ii + 4 * i, 1 + ji + 4 * j]) / 4.0
+                    consumer[ii + 4 * i, ji + 4 * j] = (producer[ii + 4 * i, ji + 4 * j] + producer[ii + 4 * i, 1 + ji + 4 * j] +
+                                                        producer[1 + ii + 4 * i, ji + 4 * j] + producer[1 + ii + 4 * i, 1 + ji + 4 * j]) / 4.0
 
-def blur2d_tiled_compute_at_ii(n: size, consumer: i8[n, n] @ DRAM,
-                               sin: i8[n + 1, n + 1] @ DRAM):
+def blur2d_tiled_compute_at_ii(n: size, consumer: i8[n, n] @ DRAM, sin: i8[n + 1, n + 1] @ DRAM):
     assert n % 4 == 0
     producer: i8[1 + n, 1 + n] @ DRAM
     for i in seq(0, n / 4):
@@ -60,18 +45,12 @@ def blur2d_tiled_compute_at_ii(n: size, consumer: i8[n, n] @ DRAM,
             for ii in seq(0, 4):
                 for iii in seq(0, 2):
                     for ji in seq(0, 5):
-                        producer[ii + iii + 4 * i,
-                                 ji + 4 * j] = sin[ii + iii + 4 * i,
-                                                   ji + 4 * j]
+                        producer[ii + iii + 4 * i, ji + 4 * j] = sin[ii + iii + 4 * i, ji + 4 * j]
                 for ji in seq(0, 4):
-                    consumer[ii + 4 * i, ji + 4 * j] = (
-                        producer[ii + 4 * i, ji + 4 * j] +
-                        producer[ii + 4 * i, 1 + ji + 4 * j] +
-                        producer[1 + ii + 4 * i, ji + 4 * j] +
-                        producer[1 + ii + 4 * i, 1 + ji + 4 * j]) / 4.0
+                    consumer[ii + 4 * i, ji + 4 * j] = (producer[ii + 4 * i, ji + 4 * j] + producer[ii + 4 * i, 1 + ji + 4 * j] +
+                                                        producer[1 + ii + 4 * i, ji + 4 * j] + producer[1 + ii + 4 * i, 1 + ji + 4 * j]) / 4.0
 
-def blur2d_tiled_compute_at_ji(n: size, consumer: i8[n, n] @ DRAM,
-                               sin: i8[n + 1, n + 1] @ DRAM):
+def blur2d_tiled_compute_at_ji(n: size, consumer: i8[n, n] @ DRAM, sin: i8[n + 1, n + 1] @ DRAM):
     assert n % 4 == 0
     producer: i8[1 + n, 1 + n] @ DRAM
     for i in seq(0, n / 4):
@@ -80,17 +59,11 @@ def blur2d_tiled_compute_at_ji(n: size, consumer: i8[n, n] @ DRAM,
                 for ji in seq(0, 4):
                     for jii in seq(0, 2):
                         for iii in seq(0, 2):
-                            producer[ii + iii + 4 * i,
-                                     ji + jii + 4 * j] = sin[ii + iii + 4 * i,
-                                                             ji + jii + 4 * j]
-                    consumer[ii + 4 * i, ji + 4 * j] = (
-                        producer[ii + 4 * i, ji + 4 * j] +
-                        producer[ii + 4 * i, 1 + ji + 4 * j] +
-                        producer[1 + ii + 4 * i, ji + 4 * j] +
-                        producer[1 + ii + 4 * i, 1 + ji + 4 * j]) / 4.0
+                            producer[ii + iii + 4 * i, ji + jii + 4 * j] = sin[ii + iii + 4 * i, ji + jii + 4 * j]
+                    consumer[ii + 4 * i, ji + 4 * j] = (producer[ii + 4 * i, ji + 4 * j] + producer[ii + 4 * i, 1 + ji + 4 * j] +
+                                                        producer[1 + ii + 4 * i, ji + 4 * j] + producer[1 + ii + 4 * i, 1 + ji + 4 * j]) / 4.0
 
-def blur2d_tiled_compute_at_and_store_at_ji(n: size, consumer: i8[n, n] @ DRAM,
-                                            sin: i8[n + 1, n + 1] @ DRAM):
+def blur2d_tiled_compute_at_and_store_at_ji(n: size, consumer: i8[n, n] @ DRAM, sin: i8[n + 1, n + 1] @ DRAM):
     assert n % 4 == 0
     for i in seq(0, n / 4):
         for j in seq(0, n / 4):
@@ -99,8 +72,5 @@ def blur2d_tiled_compute_at_and_store_at_ji(n: size, consumer: i8[n, n] @ DRAM,
                     producer: i8[2, 2] @ DRAM
                     for jii in seq(0, 2):
                         for iii in seq(0, 2):
-                            producer[iii, jii] = sin[ii + iii + 4 * i,
-                                                     ji + jii + 4 * j]
-                    consumer[ii + 4 * i, ji +
-                             4 * j] = (producer[0, 0] + producer[0, 1] +
-                                       producer[1, 0] + producer[1, 1]) / 4.0
+                            producer[iii, jii] = sin[ii + iii + 4 * i, ji + jii + 4 * j]
+                    consumer[ii + 4 * i, ji + 4 * j] = (producer[0, 0] + producer[0, 1] + producer[1, 0] + producer[1, 1]) / 4.0
