@@ -16,7 +16,7 @@ chardet==5.2.0
     # via tox
 click==8.1.8 ; python_full_version < '3.10'
     # via black
-click==8.3.0 ; python_full_version >= '3.10'
+click==8.4.2 ; python_full_version >= '3.10'
     # via black
 cmake==4.2.1
 colorama==0.4.6
