@@ -73,7 +73,7 @@ pluggy==1.6.0
     #   pytest-cov
     #   tox
 pre-commit==4.3.0
-pygments==2.19.2
+pygments==2.20.0
     # via pytest
 pyproject-api==1.9.1
     # via tox
