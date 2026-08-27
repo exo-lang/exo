@@ -13,6 +13,21 @@ print()
 print("Dev Tests for new_eff.py")
 
 
+def test_index_tensor_nested_read_effects():
+    @proc
+    def gather(n: size, m: size, dst: f32[n], src: f32[m], idx: index[n]):
+        for i in seq(0, n):
+            if 0 <= idx[i] and idx[i] < m:
+                dst[i] = src[idx[i]]
+
+    proc_ir = gather._loopir_proc
+    rhs = proc_ir.body[0].body[0].body[0].rhs
+    assert [e.name for e in expr_effs(rhs)] == [
+        proc_ir.args[4].name,
+        proc_ir.args[3].name,
+    ]
+
+
 def test_debug_let_and_mod():
     N = AInt(Sym("N"))
     j = AInt(Sym("j"))

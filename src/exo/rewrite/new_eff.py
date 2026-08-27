@@ -336,8 +336,11 @@ def lift_e(e):
     else:
         if e.type.is_indexable() or e.type.is_stridable() or e.type == T.bool:
             if isinstance(e, LoopIR.Read):
-                assert len(e.idx) == 0
-                return A.Var(e.name, e.type, e.srcinfo)
+                return (
+                    A.Unk(e.type, e.srcinfo)
+                    if e.idx
+                    else A.Var(e.name, e.type, e.srcinfo)
+                )
             elif isinstance(e, LoopIR.Const):
                 return A.Const(e.val, e.type, e.srcinfo)
             elif isinstance(e, LoopIR.BinOp):
@@ -1102,10 +1105,11 @@ def get_changing_globset(env):
 
 def expr_effs(e):
     if isinstance(e, LoopIR.Read):
-        if e.type.is_numeric():
-            return [E.Read(e.name, lift_es(e.idx))]
+        idx_effs = list_expr_effs(e.idx)
+        if e.type.is_numeric() or e.idx:
+            return idx_effs + [E.Read(e.name, lift_es(e.idx))]
         else:
-            return []
+            return idx_effs
     elif isinstance(e, LoopIR.Const):
         return []
     elif isinstance(e, LoopIR.USub):

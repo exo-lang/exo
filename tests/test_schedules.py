@@ -334,6 +334,16 @@ def test_simplify(golden):
     assert str(simplify(foo)) == golden
 
 
+def test_simplify_index_tensor_gather():
+    @proc
+    def gather(n: size, m: size, dst: f32[n], src: f32[m], idx: index[n]):
+        for i in seq(0, n):
+            if 0 <= idx[i] and idx[i] < m:
+                dst[i] = src[idx[i]]
+
+    assert "src[idx[i]]" in str(simplify(gather))
+
+
 def test_simplify2(golden):
     @proc
     def foo(

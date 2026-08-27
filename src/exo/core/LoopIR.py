@@ -303,7 +303,7 @@ CIR = ADT(
     """
 module CIR {
 
-    expr    = Read    ( sym name, bool is_non_neg )
+    expr    = Read    ( sym name, expr* idx, bool is_non_neg )
             | Stride  ( sym name, int dim )
             | Const   ( object val )
             | BinOp   ( op op, expr lhs, expr rhs, bool is_non_neg )

@@ -71,6 +71,16 @@ def check_call_types(err_handler, args, call_args):
                         f"but got type '{call_a.type}'",
                     )
 
+                elif (
+                    sig_a.type.basetype().is_indexable()
+                    or call_a.type.basetype().is_indexable()
+                ) and sig_a.type.basetype() != call_a.type.basetype():
+                    err_handler(
+                        call_a,
+                        f"expected argument of type '{sig_a.type}', "
+                        f"but got type '{call_a.type}'",
+                    )
+
                 # ensure scalars are simply variable names
                 elif (
                     call_a.type.is_real_scalar()
@@ -194,6 +204,14 @@ class TypeChecker:
                 assert len(idx) == len(typ.shape())
                 typ = typ.basetype()
             # else if len(idx) == 0 then just fall through
+
+            if lvalue and typ is not T.err and not typ.is_real_scalar():
+                self.err(
+                    node,
+                    f"cannot assign/reduce to '{nm}', "
+                    f"a non-numeric variable of type '{typ}'",
+                )
+                typ = T.err
 
         elif lvalue:
             self.err(

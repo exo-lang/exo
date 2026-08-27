@@ -961,6 +961,9 @@ class Parser:
             elif isinstance(node.value, pyast.Name) and node.value.id in _prim_types:
                 typ = _prim_types[node.value.id]
                 is_window = False
+            elif is_arg and _is_index(node.value):
+                typ = UAST.Index()
+                is_window = False
             else:
                 typ = self.parse_num_type(node.value)
                 is_window = False

@@ -3,6 +3,7 @@ from asdl_adt import ADT, validators
 
 import pysmt
 from pysmt import shortcuts as SMT
+from pysmt.typing import FunctionType
 
 from ..core.LoopIR import LoopIR, T, Operator, Config
 from ..core.prelude import *
@@ -35,6 +36,7 @@ module Effects {
                     srcinfo     srcinfo )
 
     expr        = Var( sym name )
+                | Read( sym name, expr* idx )
                 | Not( expr arg )
                 | Const( object val )
                 | BinOp( binop op, expr lhs, expr rhs )
@@ -61,8 +63,11 @@ module Effects {
 # convert from LoopIR.expr to E.expr
 def lift_expr(e):
     if isinstance(e, LoopIR.Read):
-        assert len(e.idx) == 0
-        return E.Var(e.name, e.type, e.srcinfo)
+        if e.idx:
+            assert e.type.is_indexable()
+            return E.Read(e.name, [lift_expr(i) for i in e.idx], e.type, e.srcinfo)
+        else:
+            return E.Var(e.name, e.type, e.srcinfo)
 
     elif isinstance(e, LoopIR.Const):
         return E.Const(e.val, e.type, e.srcinfo)
@@ -167,6 +172,9 @@ def eff_subst(env, eff):
         return E.config_eff(eff.config, eff.field, value, pred, eff.srcinfo)
     elif isinstance(eff, E.Var):
         return env[eff.name] if eff.name in env else eff
+    elif isinstance(eff, E.Read):
+        name = env[eff.name] if eff.name in env else eff.name
+        return E.Read(name, [eff_subst(env, i) for i in eff.idx], eff.type, eff.srcinfo)
     elif isinstance(eff, E.Not):
         return E.Not(eff_subst(env, eff.arg), eff.type, eff.srcinfo)
     elif isinstance(eff, E.Const):
@@ -230,6 +238,10 @@ def _subcfg(env, eff):
         return E.config_eff(eff.config, eff.field, value, pred, eff.srcinfo)
     elif isinstance(eff, (E.Var, E.Const)):
         return eff
+    elif isinstance(eff, E.Read):
+        return E.Read(
+            eff.name, [_subcfg(env, i) for i in eff.idx], eff.type, eff.srcinfo
+        )
     elif isinstance(eff, E.Not):
         return E.Not(_subcfg(env, eff.arg), eff.type, eff.srcinfo)
     elif isinstance(eff, E.BinOp):
@@ -488,6 +500,14 @@ def _get_smt_solver():
 
 def loopir_subst(e, subst):
     if isinstance(e, LoopIR.Read):
+        if e.idx:
+            name = subst[e.name].name if e.name in subst else e.name
+            return LoopIR.Read(
+                name,
+                [loopir_subst(i, subst) for i in e.idx],
+                e.type,
+                e.srcinfo,
+            )
         assert not e.type.is_numeric()
         return subst[e.name] if e.name in subst else e
     elif isinstance(e, (LoopIR.Const, LoopIR.ReadConfig)):
@@ -538,6 +558,7 @@ class CheckBounds:
         self.errors = []
 
         self.stride_sym = dict()
+        self.index_read_fn = dict()
 
         self.solver = _get_smt_solver()
 
@@ -564,7 +585,15 @@ class CheckBounds:
 
         self.preprocess_stmts(proc.body)
 
-        body_eff = self.map_stmts(proc.body, self.rec_proc_types(proc))
+        type_env = self.rec_proc_types(proc)
+        body_eff = self.map_stmts(proc.body, type_env)
+        signature_exprs = list(proc.preds) + [
+            e
+            for arg in proc.args
+            if arg.type.is_tensor_or_window()
+            for e in arg.type.shape()
+        ]
+        body_eff = eff_concat(self.eff_es(signature_exprs, type_env), body_eff)
 
         for arg in proc.args:
             if arg.type.is_numeric():
@@ -668,6 +697,16 @@ class CheckBounds:
                 assert False, f"unrecognized const type: {type(expr.val)}"
         elif isinstance(expr, E.Var):
             return self.sym_to_smt(expr.name, expr.type)
+        elif isinstance(expr, E.Read):
+            key = (expr.name, len(expr.idx))
+            if key not in self.index_read_fn:
+                self.index_read_fn[key] = SMT.Symbol(
+                    f"{repr(expr.name)}_read_{len(expr.idx)}",
+                    FunctionType(SMT.INT, [SMT.INT] * len(expr.idx)),
+                )
+            return SMT.Function(
+                self.index_read_fn[key], [self.expr_to_smt(i) for i in expr.idx]
+            )
         elif isinstance(expr, E.Not):
             arg = self.expr_to_smt(expr.arg)
             return SMT.Not(arg)
@@ -924,13 +963,14 @@ class CheckBounds:
         for stmt in reversed(body):
             if isinstance(stmt, (LoopIR.Assign, LoopIR.Reduce)):
                 loc = [lift_expr(idx) for idx in stmt.idx]
+                idx_eff = self.eff_es(stmt.idx, type_env)
                 rhs_eff = self.eff_e(stmt.rhs, type_env)
                 if isinstance(stmt, LoopIR.Assign):
                     effects = eff_write(stmt.name, loc, stmt.srcinfo)
                 else:  # Reduce
                     effects = eff_reduce(stmt.name, loc, stmt.srcinfo)
 
-                stmt_eff = eff_concat(rhs_eff, effects)
+                stmt_eff = eff_concat(idx_eff, eff_concat(rhs_eff, effects))
                 body_eff = eff_concat(stmt_eff, body_eff)
 
             elif isinstance(stmt, LoopIR.WriteConfig):
@@ -973,6 +1013,9 @@ class CheckBounds:
                 stmt_eff = eff_bind(
                     stmt.iter, child_eff, pred=pred, config_pred=config_pred
                 )
+                stmt_eff = eff_concat(
+                    self.eff_es([stmt.lo, stmt.hi], type_env), stmt_eff
+                )
 
                 body_eff = eff_concat(stmt_eff, body_eff)
 
@@ -997,7 +1040,10 @@ class CheckBounds:
                     orelse_effects = eff_filter(cond.negate(), orelse_effects)
                     self.pop()
 
-                stmt_eff = eff_union(body_effects, orelse_effects)
+                stmt_eff = eff_concat(
+                    self.eff_e(stmt.cond, type_env),
+                    eff_union(body_effects, orelse_effects),
+                )
                 body_eff = eff_concat(stmt_eff, body_eff)
 
             elif isinstance(stmt, LoopIR.Alloc):
@@ -1008,10 +1054,22 @@ class CheckBounds:
                 # check that all accesses are in bounds
                 self.check_bounds(stmt.name, shape, body_eff)
                 body_eff = eff_remove_buf(stmt.name, body_eff)
+                body_eff = eff_concat(
+                    self.eff_es(stmt.type.shape(), type_env), body_eff
+                )
 
             elif isinstance(stmt, LoopIR.Call):
 
                 self.push()
+
+                arg_eff = self.eff_es(
+                    [
+                        arg
+                        for arg in stmt.args
+                        if not (isinstance(arg, LoopIR.Read) and not arg.idx)
+                    ],
+                    type_env,
+                )
 
                 bind = dict()
                 subst = dict()
@@ -1078,9 +1136,12 @@ class CheckBounds:
 
                 self.pop()
 
-                body_eff = eff_concat(eff, body_eff)
+                body_eff = eff_concat(arg_eff, eff_concat(eff, body_eff))
 
-            elif isinstance(stmt, (LoopIR.Pass, LoopIR.WindowStmt)):
+            elif isinstance(stmt, LoopIR.WindowStmt):
+                body_eff = eff_concat(self.eff_e(stmt.rhs, type_env), body_eff)
+
+            elif isinstance(stmt, LoopIR.Pass):
                 pass
 
             else:
@@ -1089,11 +1150,18 @@ class CheckBounds:
         return body_eff  # Returns union of all effects
 
     # extract effects from this expression; return E.effect
+    def eff_es(self, exprs, type_env):
+        eff = eff_null()
+        for expr in exprs:
+            eff = eff_concat(eff, self.eff_e(expr, type_env))
+        return eff
+
     def eff_e(self, e, type_env):
         if isinstance(e, LoopIR.Read):
-            if e.type.is_numeric():
+            idx_eff = self.eff_es(e.idx, type_env)
+
+            if e.type.is_real_scalar() or (e.idx and e.type.is_indexable()):
                 # we may assume that we're not in a call-argument position
-                assert e.type.is_real_scalar()
                 loc = [lift_expr(idx) for idx in e.idx]
                 eff = eff_read(e.name, loc, e.srcinfo)
 
@@ -1102,23 +1170,28 @@ class CheckBounds:
                 if isinstance(buf_typ, T.Window):
                     eff = self.translate_eff(eff, e.name, buf_typ, type_env)
 
-                return eff
+                return eff_concat(idx_eff, eff)
             else:
-                return eff_null(e.srcinfo)
+                return idx_eff
         elif isinstance(e, LoopIR.BinOp):
-            return eff_concat(
-                self.eff_e(e.lhs, type_env),
-                self.eff_e(e.rhs, type_env),
-                srcinfo=e.srcinfo,
-            )
+            lhs_eff = self.eff_e(e.lhs, type_env)
+            rhs_eff = self.eff_e(e.rhs, type_env)
+            if e.op == "and":
+                rhs_eff = eff_filter(lift_expr(e.lhs), rhs_eff)
+            elif e.op == "or":
+                rhs_eff = eff_filter(lift_expr(e.lhs).negate(), rhs_eff)
+            return eff_concat(lhs_eff, rhs_eff, srcinfo=e.srcinfo)
         elif isinstance(e, LoopIR.USub):
             return self.eff_e(e.arg, type_env)
         elif isinstance(e, LoopIR.Const):
             return eff_null(e.srcinfo)
         elif isinstance(e, LoopIR.WindowExpr):
-            return eff_null(e.srcinfo)
+            exprs = []
+            for idx in e.idx:
+                exprs += [idx.pt] if isinstance(idx, LoopIR.Point) else [idx.lo, idx.hi]
+            return self.eff_es(exprs, type_env)
         elif isinstance(e, LoopIR.Extern):
-            return eff_null(e.srcinfo)
+            return self.eff_es(e.args, type_env)
         elif isinstance(e, LoopIR.StrideExpr):
             return eff_null(e.srcinfo)
         elif isinstance(e, LoopIR.ReadConfig):

@@ -2956,7 +2956,8 @@ class _DoNormalize(Cursor_Rewrite):
     @staticmethod
     def has_div_mod_config(e):
         if isinstance(e, LoopIR.Read):
-            return False
+            # Indexed reads are opaque values, so do not affine-normalize them.
+            return bool(e.idx)
         elif isinstance(e, LoopIR.Const):
             return False
         elif isinstance(e, LoopIR.USub):
@@ -2976,6 +2977,9 @@ class _DoNormalize(Cursor_Rewrite):
     # Call this when e is one indexing expression
     # e should be an indexing expression
     def index_start(self, e):
+        if isinstance(e, LoopIR.Read) and e.idx:
+            return e.update(idx=[self.index_start(i) for i in e.idx])
+
         def get_normalized_expr(e):
             # Make a map of symbols and coefficients
             n_map = self.normalize_e(e)

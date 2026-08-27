@@ -116,6 +116,118 @@ def test_index4():
                 a = 0.0
 
 
+def test_index_tensor_guarded_gather():
+    @proc
+    def gather(n: size, m: size, dst: f32[n], src: f32[m], idx: index[n]):
+        for i in seq(0, n):
+            if 0 <= idx[i] and idx[i] < m:
+                dst[i] = src[idx[i]]
+
+
+def test_index_tensor_unguarded_gather():
+    with pytest.raises(TypeError, match="src is read out-of-bounds"):
+
+        @proc
+        def gather(n: size, m: size, dst: f32[n], src: f32[m], idx: index[n]):
+            for i in seq(0, n):
+                dst[i] = src[idx[i]]
+
+
+def test_index_tensor_access_is_bounds_checked():
+    with pytest.raises(TypeError, match="idx is read out-of-bounds"):
+
+        @proc
+        def bad_access(n: size, idx: index[n]):
+            if idx[n] == 0:
+                pass
+
+
+def test_index_tensor_call():
+    @proc
+    def gather(n: size, m: size, dst: f32[n], src: f32[m], idx: index[n]):
+        for i in seq(0, n):
+            if 0 <= idx[i] and idx[i] < m:
+                dst[i] = src[idx[i]]
+
+    @proc
+    def caller(n: size, m: size, dst: f32[n], src: f32[m], idx: index[n]):
+        gather(n, m, dst, src, idx)
+
+
+def test_index_tensor_reads_are_always_bounds_checked():
+    with pytest.raises(TypeError, match="idx is read out-of-bounds"):
+
+        @proc
+        def scatter(n: size, dst: f32[n], idx: index[n]):
+            dst[idx[n]] = 0.0
+
+    with pytest.raises(TypeError, match="idx is read out-of-bounds"):
+
+        @proc
+        def loop_bound(n: size, idx: index[n]):
+            for i in seq(0, idx[n]):
+                pass
+
+    @proc
+    def consume(i: index):
+        pass
+
+    with pytest.raises(TypeError, match="idx is read out-of-bounds"):
+
+        @proc
+        def call_arg(n: size, idx: index[n]):
+            consume(idx[n])
+
+    with pytest.raises(TypeError, match="idx is read out-of-bounds"):
+
+        @proc
+        def alloc_extent(n: size, idx: index[n]):
+            tmp: f32[idx[n]]
+
+    with pytest.raises(TypeError, match="idx is read out-of-bounds"):
+
+        @proc
+        def predicate(n: size, idx: index[n]):
+            assert idx[n] >= 0
+            pass
+
+    with pytest.raises(TypeError, match="idx is read out-of-bounds"):
+
+        @proc
+        def signature_shape(n: size, idx: index[n], data: f32[idx[n]]):
+            pass
+
+
+def test_index_tensor_read_uses_short_circuit_guard():
+    @proc
+    def guarded(n: size, j: index, idx: index[n]):
+        if 0 <= j and j < n and 0 <= idx[j]:
+            pass
+
+
+def test_index_tensor_reads_have_buffer_identity():
+    with pytest.raises(TypeError, match="src is read out-of-bounds"):
+
+        @proc
+        def mismatched_guard(
+            n: size,
+            m: size,
+            dst: f32[n],
+            src: f32[m],
+            guarded: index[n],
+            used: index[n],
+        ):
+            for i in seq(0, n):
+                if 0 <= guarded[i] and guarded[i] < m:
+                    dst[i] = src[used[i]]
+
+    @proc
+    def equivalent_indices(n: size, m: size, dst: f32[n], src: f32[m], idx: index[n]):
+        for i in seq(0, n):
+            if 0 <= idx[i + 0] and idx[i + 0] < m:
+                dst[i] = src[idx[i]]
+
+
 # For-loop bound non-negative check tests
 def test_good_bound1():
     @proc

@@ -166,6 +166,32 @@ def test_badaccess3():
             n = x
 
 
+def test_index_tensor_is_read_only():
+    with pytest.raises(TypeError, match="cannot assign/reduce to 'idx'"):
+
+        @proc
+        def write_index(n: size, idx: index[n]):
+            idx[0] = 0
+
+    with pytest.raises(TypeError, match="cannot assign/reduce to 'idx'"):
+
+        @proc
+        def reduce_index(n: size, idx: index[n]):
+            idx[0] += 1
+
+
+def test_index_tensor_call_requires_index_tensor():
+    @proc
+    def consume(n: size, idx: index[n]):
+        pass
+
+    with pytest.raises(TypeError, match="expected argument of type"):
+
+        @proc
+        def caller(n: size, data: f32[n]):
+            consume(n, data)
+
+
 def test_badaccess4():
     with pytest.raises(TypeError, match="cannot assign/reduce a"):
 

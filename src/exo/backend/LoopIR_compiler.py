@@ -55,7 +55,9 @@ def lift_to_cir(e, range_env):
     is_non_neg = lambda e: range_env.check_expr_bound(0, IndexRangeEnvironment.leq, e)
 
     if isinstance(e, LoopIR.Read):
-        return CIR.Read(e.name, is_non_neg(e))
+        return CIR.Read(
+            e.name, [lift_to_cir(i, range_env) for i in e.idx], is_non_neg(e)
+        )
     elif isinstance(e, LoopIR.Const):
         return CIR.Const(e.val)
     elif isinstance(e, LoopIR.BinOp):
@@ -306,6 +308,7 @@ def window_struct(base_type, n_dims, is_const) -> WindowStruct:
         T.ui8: "ui8",
         T.ui16: "ui16",
         T.i32: "i32",
+        T.index: "index",
     }
 
     return _window_struct(
@@ -713,7 +716,18 @@ class Compiler:
 
     def comp_cir(self, e, env, prec) -> str:
         if isinstance(e, CIR.Read):
-            return env[e.name]
+            if not e.idx:
+                return env[e.name]
+            mem: Memory = self.mems[e.name]
+            if not mem.can_read():
+                raise MemGenError(
+                    f"cannot read from buffer '{e.name}' in memory '{mem.name()}'"
+                )
+            typ = self.envtyp[e.name]
+            idx = self.get_idx_offset(e.name, typ, e.idx)
+            idx = self.comp_cir(simplify_cir(idx), env, prec=0)
+            suffix = ".data" if typ.is_win() else ""
+            return f"{env[e.name]}{suffix}[{idx}]"
 
         elif isinstance(e, CIR.Const):
             return str(e.val)
@@ -950,7 +964,8 @@ class Compiler:
 
     def comp_fnarg(self, e, fn, i, *, prec=0):
         if isinstance(e, LoopIR.Read):
-            assert not e.idx
+            if e.idx:
+                return self.comp_e(e, prec)
             rtyp = self.envtyp[e.name]
             if rtyp.is_indexable():
                 return self.env[e.name]

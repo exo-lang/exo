@@ -7,7 +7,13 @@ import pytest
 from PIL import Image
 
 from exo import proc, instr, Procedure, DRAM, compile_procs_to_strings
-from exo.libs.memories import MDRAM, MemGenError, StaticMemory, DRAM_STACK
+from exo.libs.memories import (
+    MDRAM,
+    MemGenError,
+    StaticMemory,
+    DRAM_STACK,
+    GEMM_SCRATCH,
+)
 from exo.libs.externs import *
 from exo.stdlib.scheduling import *
 
@@ -107,6 +113,49 @@ def test_const_local_window(golden, compiler):
     assert f"{hh}{cc}" == golden
 
     compiler.compile(caller)
+
+
+def test_index_tensor_codegen(compiler):
+    @proc
+    def gather(n: size, m: size, dst: f32[n], src: f32[m], idx: index[n]):
+        for i in seq(0, n):
+            if 0 <= idx[i] and idx[i] < m:
+                dst[i] = src[idx[i]]
+
+    c_file, h_file = compile_procs_to_strings([gather], "test.h")
+    assert "const int_fast32_t* idx" in h_file
+    assert "src[idx[i]]" in c_file
+    compiler.compile(gather)
+
+
+def test_index_tensor_scalar_call_and_window_codegen(compiler):
+    @proc
+    def consume(i: index):
+        pass
+
+    @proc
+    def caller(n: size, idx: index[n]):
+        for i in seq(0, n):
+            consume(idx[i])
+        if n > 1:
+            tail = idx[1:]
+            if tail[0] == 0:
+                pass
+
+    c_file, _ = compile_procs_to_strings([caller], "test.h")
+    assert "consume(ctxt,idx[i])" in c_file
+    compiler.compile(caller)
+
+
+def test_nested_index_tensor_read_checks_memory():
+    @proc
+    def gather(src: f32[16], dst: f32[16], idx: index[16] @ GEMM_SCRATCH):
+        for i in seq(0, 16):
+            if 0 <= idx[i] and idx[i] < 16:
+                dst[i] = src[idx[i]]
+
+    with pytest.raises(MemGenError, match="cannot read from buffer"):
+        compile_procs_to_strings([gather], "test.h")
 
 
 # --- Start Blur Test ---
