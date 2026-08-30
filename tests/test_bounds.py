@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from exo import proc, DRAM
+from exo.libs.externs import sin
 from exo.libs.memories import GEMM_SCRATCH
 from exo.stdlib.scheduling import SchedulingError
 
@@ -84,6 +85,21 @@ def test_index1():
                     for k in seq(0, i - j):
                         a: i8
                         a = 0.0
+
+
+def test_extern_arg_read_out_of_bounds():
+    with pytest.raises(TypeError, match="src is read out-of-bounds"):
+
+        @proc
+        def foo(dst: f32[1], src: f32[4], n: size):
+            dst[0] = sin(src[n])
+
+
+def test_extern_arg_read_in_bounds():
+    @proc
+    def foo(dst: f32[1], src: f32[4], n: size):
+        assert n < 4
+        dst[0] = sin(src[n])
 
 
 def test_index2():

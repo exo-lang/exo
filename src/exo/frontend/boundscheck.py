@@ -1118,7 +1118,10 @@ class CheckBounds:
         elif isinstance(e, LoopIR.WindowExpr):
             return eff_null(e.srcinfo)
         elif isinstance(e, LoopIR.Extern):
-            return eff_null(e.srcinfo)
+            eff = eff_null(e.srcinfo)
+            for arg in e.args:
+                eff = eff_concat(eff, self.eff_e(arg, type_env))
+            return eff
         elif isinstance(e, LoopIR.StrideExpr):
             return eff_null(e.srcinfo)
         elif isinstance(e, LoopIR.ReadConfig):
