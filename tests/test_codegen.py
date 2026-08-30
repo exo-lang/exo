@@ -46,6 +46,19 @@ def test_free(compiler):
     compiler.compile(foo)
 
 
+def test_constant_index_division_is_integral(compiler):
+    @proc
+    def foo(dst: f32[8]):
+        dst[8 / 2] = 0.0
+        dst[7 / 2] = 1.0
+
+    cc, _ = compile_procs_to_strings([foo], "test.h")
+    assert "dst[4] = 0.0f;" in cc
+    assert "dst[3] = 1.0f;" in cc
+
+    compiler.compile(foo)
+
+
 def test_free2(compiler):
     @proc
     def foo():
