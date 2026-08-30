@@ -57,6 +57,24 @@ def test_constant_index_division_is_integral(compiler):
     assert "dst[4] = 0.0f;" in cc
     assert "dst[3] = 1.0f;" in cc
 
+
+def test_index_constant_out_of_range_is_rejected():
+    @proc
+    def foo(dst: f32[1]):
+        for i in seq(0, 2147483648):
+            dst[0] = 1.0
+
+    with pytest.raises(TypeError, match="does not fit in 32 bits"):
+        compile_procs_to_strings([foo], "test.h")
+
+
+def test_index_constant_extremes_are_accepted(compiler):
+    @proc
+    def foo(dst: f32[1], i: index):
+        assert i == 0
+        dst[i + (-2147483648) - (-2147483648)] = 1.0
+        dst[i + 2147483647 - 2147483647] = 1.0
+
     compiler.compile(foo)
 
 

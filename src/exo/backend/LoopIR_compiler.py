@@ -49,6 +49,13 @@ op_prec = {
 }
 
 
+def check_index_const(val, srcinfo):
+    # int_fast32_t is only guaranteed to hold 32 bits
+    if not -(2**31) <= val < 2**31:
+        raise TypeError(f"{srcinfo}: index constant {val} does not fit in 32 bits")
+    return int(val)
+
+
 def lift_to_cir(e, range_env):
     assert e.type.is_indexable(), "why are you here?"
 
@@ -57,7 +64,7 @@ def lift_to_cir(e, range_env):
     if isinstance(e, LoopIR.Read):
         return CIR.Read(e.name, is_non_neg(e))
     elif isinstance(e, LoopIR.Const):
-        return CIR.Const(e.val)
+        return CIR.Const(check_index_const(e.val, e.srcinfo))
     elif isinstance(e, LoopIR.BinOp):
         lhs = lift_to_cir(e.lhs, range_env)
         rhs = lift_to_cir(e.rhs, range_env)
@@ -1010,7 +1017,7 @@ class Compiler:
             if isinstance(e.val, bool):
                 return "true" if e.val else "false"
             elif e.type.is_indexable():
-                return f"{int(e.val)}"
+                return f"{check_index_const(e.val, e.srcinfo)}"
             elif e.type == T.f64:
                 return f"{float(e.val)}"
             elif e.type == T.f32:
