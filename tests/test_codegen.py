@@ -86,6 +86,33 @@ int main(void) {{
     assert "static int_fast32_t exo_floor_div(int_fast32_t num" in source
 
 
+def test_static_helper_does_not_collide_with_proc_name(compiler):
+    @proc
+    def exo_floor_div(dst: f32[1]):
+        dst[0] = 1.0
+
+    @proc
+    def user(dst: f32[1], i: index):
+        if i / 2 < 0:
+            dst[0] = 1.0
+
+    compiler.compile([exo_floor_div, user])
+
+
+def test_renamed_variable_does_not_collide_with_proc_name(compiler):
+    @proc
+    def exo_floor_div_1(dst: f32[1]):
+        dst[0] = 3.0
+
+    @proc
+    def user(dst: f32[1], exo_floor_div: index):
+        if exo_floor_div / 2 < 0:
+            dst[0] = 1.0
+        exo_floor_div_1(dst)
+
+    compiler.compile([exo_floor_div_1, user])
+
+
 def test_free2(compiler):
     @proc
     def foo():

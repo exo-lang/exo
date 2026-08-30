@@ -370,6 +370,19 @@ def compile_to_strings(lib_name, proc_list):
 
     proc_list = list(sorted(find_all_subprocs(proc_list), key=lambda x: x.name))
 
+    # static helpers share file scope with the procs, so rename any that collide
+    proc_names = {str(p.name) for p in proc_list}
+    used_names = set(proc_names)
+    helper_names = {}
+    for helper in sorted(_static_helpers):
+        name = helper
+        suffix = 0
+        while name in used_names:
+            suffix += 1
+            name = f"{helper}_{suffix}"
+        helper_names[helper] = name
+        used_names.add(name)
+
     # Header contents
     ctxt_name, ctxt_def = _compile_context_struct(find_all_configs(proc_list), lib_name)
     struct_defns = set()
@@ -413,7 +426,9 @@ def compile_to_strings(lib_name, proc_list):
             p = WindowAnalysis().apply_proc(p)
             p = MemoryAnalysis().run(p)
 
-            comp = Compiler(p, ctxt_name, is_public_decl=is_public_decl)
+            comp = Compiler(
+                p, ctxt_name, helper_names, proc_names, is_public_decl=is_public_decl
+            )
             d, b = comp.comp_top()
             struct_defns |= comp.struct_defns()
             needed_helpers |= comp.needed_helpers()
@@ -459,7 +474,10 @@ def compile_to_strings(lib_name, proc_list):
 
     extern_code = _compile_externs(find_all_externs(analyzed_proc_list))
 
-    helper_code = [_static_helpers[v] for v in needed_helpers]
+    helper_code = [
+        _static_helpers[v].replace(f"{v}(", f"{helper_names[v]}(")
+        for v in needed_helpers
+    ]
     body_contents = [
         helper_code,
         instrs_global,
@@ -523,14 +541,16 @@ def _compile_context_struct(configs, lib_name):
 
 
 class Compiler:
-    def __init__(self, proc, ctxt_name, *, is_public_decl):
+    def __init__(self, proc, ctxt_name, helper_names, proc_names, *, is_public_decl):
         assert isinstance(proc, LoopIR.proc)
 
         self.proc = proc
         self.ctxt_name = ctxt_name
         self.env = ChainMap()
         self.range_env = IndexRangeEnvironment(proc, fast=False)
-        self.names = ChainMap()
+        self.names = ChainMap({name: name for name in helper_names.values()})
+        self._helper_names = helper_names
+        self._proc_names = proc_names
         self.envtyp = dict()
         self.mems = dict()
         self._tab = ""
@@ -673,7 +693,7 @@ class Compiler:
             pass
         else:
             s = self.names[strnm]
-            while s in self.names:
+            while s in self.names or s in self._proc_names:
                 m = re.match(r"^(.*)_([0-9]*)$", s)
                 if not m:
                     s = s + "_1"
@@ -1067,7 +1087,7 @@ class Compiler:
 
     def _call_static_helper(self, helper, *args):
         self._needed_helpers.add(helper)
-        return f'{helper}({", ".join(map(str, args))})'
+        return f'{self._helper_names[helper]}({", ".join(map(str, args))})'
 
     def window_struct_fields(self, e):
         base = self.env[e.name]
