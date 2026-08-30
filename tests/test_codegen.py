@@ -86,6 +86,28 @@ int main(void) {{
     assert "static int_fast32_t exo_floor_div(int_fast32_t num" in source
 
 
+def test_int_mod_uses_floor_semantics(compiler):
+    @proc
+    def foo(dst: f32[5], i: index):
+        if i % 5 == 4:
+            dst[i % 5] = 1.0
+
+    test_source = f"""
+#include "{compiler.basename}.h"
+
+#include <stddef.h>
+
+int main(void) {{
+    float dst[5] = {{ 0.0f }};
+    foo(NULL, dst, -1);
+    return dst[4] == 1.0f ? 0 : 1;
+}}
+"""
+
+    executable = compiler.compile(foo, test_files={"main.c": test_source})
+    subprocess.run([executable], check=True)
+
+
 def test_free2(compiler):
     @proc
     def foo():

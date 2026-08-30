@@ -358,6 +358,14 @@ _static_helpers = {
         }
         """
     ),
+    "exo_floor_mod": textwrap.dedent(
+        """
+        static int_fast32_t exo_floor_mod(int_fast32_t num, int_fast32_t quot) {
+          int_fast32_t rem = num % quot;
+          return (rem < 0)? rem + quot : rem;
+        }
+        """
+    ),
 }
 
 
@@ -733,6 +741,12 @@ class Compiler:
                 else:
                     return self._call_static_helper("exo_floor_div", lhs, rhs)
 
+            if e.op == "%" and not (
+                (isinstance(e.lhs, (CIR.Read, CIR.BinOp)) and e.lhs.is_non_neg)
+                or (isinstance(e.lhs, CIR.Const) and e.lhs.val > 0)
+            ):
+                return self._call_static_helper("exo_floor_mod", lhs, rhs)
+
             s = f"{lhs} {e.op} {rhs}"
             if local_prec < prec:
                 s = f"({s})"
@@ -1021,6 +1035,7 @@ class Compiler:
         elif isinstance(e, LoopIR.BinOp):
             local_prec = op_prec[e.op]
             int_div = e.op == "/" and not e.type.is_numeric()
+            int_mod = e.op == "%" and not e.type.is_numeric()
             if int_div:
                 local_prec = 0
             op = e.op
@@ -1037,6 +1052,11 @@ class Compiler:
                     # TODO: too many parens?
                     return f"(({lhs}) / ({rhs}))"
                 return self._call_static_helper("exo_floor_div", lhs, rhs)
+
+            if int_mod and not self.range_env.check_expr_bound(
+                0, IndexRangeEnvironment.leq, e.lhs
+            ):
+                return self._call_static_helper("exo_floor_mod", lhs, rhs)
 
             s = f"{lhs} {op} {rhs}"
             if local_prec < prec:
