@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -57,6 +58,32 @@ def test_constant_index_division_is_integral(compiler):
     assert "dst[3] = 1.0f;" in cc
 
     compiler.compile(foo)
+
+
+def test_floor_div_is_exact_at_index_type_extremes(compiler):
+    @proc
+    def foo(dst: f32[1], i: index):
+        if i / 2 < 0:
+            dst[0] = 1.0
+
+    test_source = f"""
+#include "{compiler.basename}.h"
+
+#include <stddef.h>
+#include <stdint.h>
+
+int main(void) {{
+    float dst[1] = {{ 0.0f }};
+    foo(NULL, dst, INT_FAST32_MIN);
+    return dst[0] == 1.0f ? 0 : 1;
+}}
+"""
+
+    executable = compiler.compile(foo, test_files={"main.c": test_source})
+    subprocess.run([executable], check=True)
+
+    source = (compiler.workdir / f"{compiler.basename}.c").read_text()
+    assert "static int_fast32_t exo_floor_div(int_fast32_t num" in source
 
 
 def test_free2(compiler):

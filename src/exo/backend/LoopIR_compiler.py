@@ -351,9 +351,10 @@ extern "C" {{
 _static_helpers = {
     "exo_floor_div": textwrap.dedent(
         """
-        static int exo_floor_div(int num, int quot) {
-          int off = (num>=0)? 0 : quot-1;
-          return (num-off)/quot;
+        static int_fast32_t exo_floor_div(int_fast32_t num, int_fast32_t quot) {
+          int_fast32_t div = num / quot;
+          int_fast32_t rem = num % quot;
+          return div - (rem < 0);
         }
         """
     ),
