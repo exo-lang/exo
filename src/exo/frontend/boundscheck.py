@@ -569,9 +569,9 @@ class CheckBounds:
         for arg in proc.args:
             if arg.type.is_numeric():
                 shape = [lift_expr(s) for s in arg.type.shape()]
-                # check that all sizes/indices are positive
+                # check that all sizes/indices are non negative
                 for s in shape:
-                    self.check_pos_size(s)
+                    self.check_non_negative(s)
                 # check the bounds
                 self.check_bounds(arg.name, shape, body_eff)
 
@@ -848,16 +848,6 @@ class CheckBounds:
             for e in es:
                 self.check_in_bounds(sym, shape, e, y)
 
-    def check_pos_size(self, expr):
-        e_pos = SMT.LT(SMT.Int(0), self.expr_to_smt(expr))
-        if not self.solver.is_valid(e_pos):
-            eg = self.counter_example()
-            self.err(
-                expr,
-                f"expected expression {expr} to always be positive. "
-                f"It can be non positive when:\n  {eg}.",
-            )
-
     def check_non_negative(self, expr):
         e_nn = SMT.LE(SMT.Int(0), self.expr_to_smt(expr))
         if not self.solver.is_valid(e_nn):
@@ -1002,9 +992,9 @@ class CheckBounds:
 
             elif isinstance(stmt, LoopIR.Alloc):
                 shape = [lift_expr(s) for s in stmt.type.shape()]
-                # check that all sizes are positive
+                # check that all sizes are non-negative
                 for s in shape:
-                    self.check_pos_size(s)
+                    self.check_non_negative(s)
                 # check that all accesses are in bounds
                 self.check_bounds(stmt.name, shape, body_eff)
                 body_eff = eff_remove_buf(stmt.name, body_eff)
@@ -1022,9 +1012,9 @@ class CheckBounds:
                         pos_sz = SMT.LT(SMT.Int(0), self.sym_to_smt(sig.name))
                         self.solver.add_assertion(pos_sz)
 
-                        # check the caller argument always be positive for sizes
+                        # check the caller argument always be non-negative for sizes
                         e_arg = lift_expr(arg)
-                        self.check_pos_size(e_arg)
+                        self.check_non_negative(e_arg)
 
                     # Add type assertion from the caller types
                     if arg.type.is_tensor_or_window() and not arg.type.is_win():
@@ -1038,10 +1028,10 @@ class CheckBounds:
                             bind[sig.name] = arg.name
 
                         # need to check that the argument shape
-                        # has all positive dimensions
+                        # has all non-negative dimensions
                         arg_shape = [lift_expr(s) for s in arg.type.shape()]
                         for e in arg_shape:
-                            self.check_pos_size(e)
+                            self.check_non_negative(e)
                         # also, need to check that the argument shape
                         # is exactly the shape specified in the signature
                         sig_shape = [
@@ -1051,6 +1041,23 @@ class CheckBounds:
 
                     else:
                         bind[sig.name] = lift_expr(arg)
+
+                # Check that asserts are correct
+                for p in stmt.f.preds:
+                    p_subst = loopir_subst(p, subst)
+                    subst_pred = self.expr_to_smt(lift_expr(p_subst))
+                    if not self.solver.is_valid(subst_pred):
+                        eg = self.counter_example()
+                        self.err(
+                            stmt,
+                            f"Could not verify assertion {p} in "
+                            f"{stmt.f.name} at {p.srcinfo}."
+                            f" Assertion is false when:\n  {eg}",
+                        )
+
+                    # Add assertion to SMT when/if this assertions is satisfiable
+                    smt_p = self.expr_to_smt(lift_expr(p))
+                    self.solver.add_assertion(smt_p)
 
                 # map body of the subprocedure
                 self.preprocess_stmts(stmt.f.body)
@@ -1062,19 +1069,6 @@ class CheckBounds:
                     if sig.type.is_numeric():
                         if isinstance(arg.type, T.Window):
                             eff = self.translate_eff(eff, sig.name, arg.type, type_env)
-
-                # Check that asserts are correct
-                for p in stmt.f.preds:
-                    p_subst = loopir_subst(p, subst)
-                    smt_pred = self.expr_to_smt(lift_expr(p_subst))
-                    if not self.solver.is_valid(smt_pred):
-                        eg = self.counter_example()
-                        self.err(
-                            stmt,
-                            f"Could not verify assertion {p} in "
-                            f"{stmt.f.name} at {p.srcinfo}."
-                            f" Assertion is false when:\n  {eg}",
-                        )
 
                 self.pop()
 
