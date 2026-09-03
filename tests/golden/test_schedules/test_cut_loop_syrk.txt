@@ -1,5 +1,4 @@
-def SYRK(M: size, K: size, A: [f32][M, K] @ DRAM, A_t: [f32][M, K] @ DRAM,
-         C: [f32][M, M] @ DRAM):
+def SYRK(M: size, K: size, A: [f32][M, K] @ DRAM, A_t: [f32][M, K] @ DRAM, C: [f32][M, M] @ DRAM):
     assert M >= 1
     assert K >= 1
     assert stride(A, 1) == 1

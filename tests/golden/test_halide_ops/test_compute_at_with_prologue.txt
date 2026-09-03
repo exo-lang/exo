@@ -9,5 +9,4 @@ def foo():
             producer[1 + y, x] = 1.0
         for x in seq(0, 10):
             producer[1 + y, 1 + x] = 1.0
-            consumer[y, x] = producer[y, x] + producer[y, 1 + x] + producer[
-                1 + y, x] + producer[1 + y, 1 + x]
+            consumer[y, x] = producer[y, x] + producer[y, 1 + x] + producer[1 + y, x] + producer[1 + y, 1 + x]
