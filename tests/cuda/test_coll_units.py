@@ -1569,3 +1569,39 @@ def test_rmem_uniform_grid_constant_run(compiler_Sm80):
     )
     cu = compiler_Sm80.cuda_test_context(p)
     run_test_rmem_uniform(cu, blockDim=blockDim, uniform_threads=uniform_threads)
+
+
+def mkproc_rmem_at_warp_scope(wrong):
+    if wrong:
+        outer_warps, inner_warps = 1, 4
+    else:
+        outer_warps, inner_warps = 4, 1
+
+    @proc
+    def rmem_at_warp_scope():
+        with CudaDeviceFunction(blockDim=128):
+            for task in cuda_tasks(0, 1):
+                for outer in cuda_threads(0, outer_warps, unit=inner_warps * cuda_warp):
+                    rmem: f32[32] @ CudaRmemLinear
+                    for inner in cuda_threads(0, inner_warps, unit=cuda_warp):
+                        for lane in cuda_threads(0, 32, unit=cuda_thread):
+                            rmem[lane] = 999
+                            rmem[lane] = rmem[lane] + 1
+
+    return rmem_at_warp_scope
+
+
+def test_rmem_at_warp_scope_positive(compiler):
+    # The rmem: f32[32] is allocated once for each of the 4 outer warps.
+    # Each live rmem allocation is used consistently by threads [outer*32, outer*32-1]
+    # but the different live allocations used differently.
+    cu = compiler.cuda_cpu_test(mkproc_rmem_at_warp_scope, wrong=False)
+
+
+def test_rmem_at_warp_scope_negative(compiler):
+    # Since there's now multiple inner warp iterations,
+    # the live rmem allocation is not used consistently
+    # (warp 0 ... warp 3 each try to access).
+    with pytest.raises(Exception) as exc:
+        cu = compiler.cuda_cpu_test(mkproc_rmem_at_warp_scope, wrong=True)
+
