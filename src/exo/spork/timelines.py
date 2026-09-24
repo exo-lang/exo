@@ -263,8 +263,8 @@ cuda_tmem_qual_tl_dict = {
         tcgen05_cp_tmem_qual,  #  Falsely implies tcgen05.cp -> tcgen05.cp pipelining
     ],
     tcgen05_shift_instr: [
-        tcgen05_shift_instr,  #   Falsely implies tcgen05.shift -> tcgen05.shift
-        tcgen05_mma_instr,  #     tcgen05.mma -> tcgen05.shift
+        tcgen05_shift_qual,  #    Falsely implies tcgen05.shift -> tcgen05.shift
+        tcgen05_mma_tmem_qual,  # tcgen05.mma -> tcgen05.shift
     ],
 }
 
