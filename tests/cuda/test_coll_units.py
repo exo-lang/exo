@@ -1605,3 +1605,24 @@ def test_rmem_at_warp_scope_negative(compiler):
     with pytest.raises(Exception) as exc:
         cu = compiler.cuda_cpu_test(mkproc_rmem_at_warp_scope, wrong=True)
 
+
+def mkproc_weird_warp_uniform_in_cta(active_warps):
+    @proc
+    def weird_warp_uniform_in_cta():
+        with CudaDeviceFunction(blockDim=128):
+            for task in cuda_tasks(0, 1):
+                rmem: f32 @ CudaRmemUniform(32)
+                with CudaWarps(1, active_warps + 1):
+                    rmem = 3.0
+                    rmem += 1.0
+
+    return weird_warp_uniform_in_cta
+
+
+def test_weird_warp_uniform_in_cta_positive(compiler):
+    cu = compiler.cuda_cpu_test(mkproc_weird_warp_uniform_in_cta, active_warps=1)
+
+
+def test_weird_warp_uniform_in_cta_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        cu = compiler.cuda_cpu_test(mkproc_weird_warp_uniform_in_cta, active_warps=2)
