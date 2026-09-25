@@ -87,6 +87,16 @@ Python Source (@proc) → Parser (pyparser) → UAST → Type Checker → LoopIR
 - `amx/`: Intel AMX tests
 - `golden/`: Expected outputs for golden tests
 
+**Monkeypatching**
+
+David Zhao Akeley:
+Tests may use pytest's `monkeypatch` only for process state (`setenv`, `delenv`, `chdir`, `syspath_prepend`).
+Never use `monkeypatch.setattr`, `delattr`, or `setitem`/`delitem` on `sys.modules` or module/class dicts,
+and never use `unittest.mock.patch` to replace functions.
+Tests must exercise the real code paths, so that reading the codebase tells you what the tests actually run.
+Existing exception: `tests/test_exocc.py` wraps imports in `mock.patch.dict(sys.modules)`, which only undoes module imports and does not inject fake code.
+Future maintainers may change this rule.
+
 ### Key Patterns
 
 **Writing a Procedure:**
