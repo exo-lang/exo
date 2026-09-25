@@ -2,6 +2,8 @@
 # lowered Arrive/Await/Fence statements.
 
 import itertools
+import os
+import warnings
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from math import prod
@@ -44,6 +46,25 @@ from .lowered_barrier import LoweredBarrierType, LoweredBarrier, AddBarrierCtx
 from .sync_types import SyncType
 from . import timelines
 from .timelines import Instr_tl, Sync_tl
+
+
+strict_cluster_mbarrier_env_var = "EXO_STRICT_CLUSTER_MBARRIER"
+
+
+def strict_cluster_mbarrier_setting() -> Optional[bool]:
+    """Read $EXO_STRICT_CLUSTER_MBARRIER.
+
+    None if undefined; False if "0"; True otherwise.
+
+    If True, mbarriers that receive arrives from other CTAs of the cluster use
+    .release.cluster on the arrive and .acquire.cluster on the wait, as a
+    strict reading of the PTX memory model requires. Otherwise, we keep the
+    default .release.cta / .acquire.cta semantics, matching CUTLASS.
+    """
+    value = os.environ.get(strict_cluster_mbarrier_env_var)
+    if value is None:
+        return None
+    return value != "0"
 
 
 @dataclass(slots=True)
@@ -284,6 +305,25 @@ class SyncStateBuilder:
             self._blockDim(), thread_iters, usage.get_arrive()
         )
 
+        # Memory ordering scope for mbarriers that receive arrives from other
+        # CTAs. Strictly, .cta is insufficient to synchronize with a waiter in
+        # another CTA, but we default to .cta to match CUTLASS.
+        use_cluster_scope = False
+        if len(cta_xor_list) > 1:
+            strict = strict_cluster_mbarrier_setting()
+            if strict is None:
+                warnings.warn(
+                    f"{usage.decl_stmt.srcinfo}: mbarrier {name} receives "
+                    f"arrives from other CTAs; using .release.cta/.acquire.cta "
+                    f"(matching CUTLASS), which the PTX memory model does not "
+                    f"strictly guarantee to be sufficient. Set "
+                    f"{strict_cluster_mbarrier_env_var}=1 to use "
+                    f".release.cluster/.acquire.cluster, or "
+                    f"{strict_cluster_mbarrier_env_var}=0 to silence this warning."
+                )
+            else:
+                use_cluster_scope = strict
+
         # mbarrier allocator: record mbarriers to initialize.
         num_per_cta = prod(const_shape)
         assert num_per_cta >= 1
@@ -360,6 +400,8 @@ class SyncStateBuilder:
                         bad_stmt = usage.get_arrive().stmts[0]
                         raise ValueError(f"{bad_stmt.srcinfo}: Sm80_cp_async mbarrier must be within 1 CTA (in {bad_stmt})")
                     ptx_format += f"cp.async.mbarrier.arrive.noinc.shared::cta.b64 #0#;"
+                elif use_cluster_scope:
+                    ptx_format += f"mbarrier.arrive.release.cluster.shared::cluster.b64 _, #0#;"
                 else:
                     ptx_format += f"mbarrier.arrive.shared::{cta_or_cluster}.b64 _, #0#;"
                 ptx = InlinePtxGen(ptx_format, volatile=True)
@@ -414,24 +456,24 @@ class SyncStateBuilder:
             comment = f"// Await{nm_suffix}"
             lines.append(f"  if (enable) {{")
             # sm_90 needed for try_wait; condition on __CUDA_ARCH__
-            def add_inline_ptx(try_or_test):
+            def add_inline_ptx(try_or_test, scope):
                 ptx_format = """{
                     %s
                     .reg.pred P1;
                     EXO_BEFORE_WAIT:
-                    mbarrier.%s_wait.parity.acquire.cta.shared::cta.b64 P1, #0#;
+                    mbarrier.%s_wait.parity.acquire.%s.shared::cta.b64 P1, #0#;
                     @P1 bra.uni EXO_WAIT_DONE;
                     bra.uni EXO_BEFORE_WAIT;
                     EXO_WAIT_DONE:
-                    }""" % (comment, try_or_test)
+                    }""" % (comment, try_or_test, scope)
                 ptx = InlinePtxGen(ptx_format, volatile=True)
                 ptx.add_arg("mbarrier_u32", constraint="r", log_as="bits", brackets=True)
                 ptx.add_arg(f"parity", constraint="r", log_as="bits")
                 lines.extend(ptx.as_c_lines(py_format=False, tab="    "))
             lines.append("#if __CUDA_ARCH__ < 900")
-            add_inline_ptx("test")
+            add_inline_ptx("test", "cta")  # No clusters before sm_90
             lines.append("#else")
-            add_inline_ptx("try")
+            add_inline_ptx("try", "cluster" if use_cluster_scope else "cta")
             lines.append("#endif")
             if proxy_fence:
                 lines.append(f'    // Needed for first sync-tl {L1}; second sync-tl {L2}')
