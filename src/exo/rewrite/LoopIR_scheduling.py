@@ -2381,23 +2381,28 @@ def DoRemoveLoop(loop, unsafe_disable_check):
 
 def DoUnsafeRemoveIf(stmt_c, recursive):
     s = stmt_c._node
+    is_with = is_if_holding_with(s, LoopIR)
 
     ir, fwd = stmt_c.get_root(), lambda x: x
     if recursive and hasattr(s, "body"):
+        # Each child cursor must be forwarded through the edits made to
+        # its prior siblings; otherwise each recursive call rebuilds from
+        # the original root and only the last child's edits survive.
         for child in stmt_c.body():
-            ir, fwd_child = DoUnsafeRemoveIf(child, True)
-        fwd = _compose(fwd_child, fwd)
+            ir, fwd_child = DoUnsafeRemoveIf(fwd(child), True)
+            fwd = _compose(fwd_child, fwd)
 
-    if isinstance(s, LoopIR.If):
+    if isinstance(s, LoopIR.If) and not is_with:
         if s.orelse:
             raise SchedulingError("Cannot remove if with orelse statements")
         ir, fwd_move = fwd(stmt_c).body()._move(fwd(stmt_c).after())
         fwd = _compose(fwd_move, fwd)
         ir, fwd_del = fwd(stmt_c)._delete()
         fwd = _compose(fwd_del, fwd)
-    else:
-        if not recursive:
-            raise SchedulingError("Expected cursor to if statement")
+    elif not recursive:
+        if is_with:
+            raise SchedulingError("Cannot remove with statement (expected cursor to if statement)")
+        raise SchedulingError("Expected cursor to if statement")
 
     return ir, fwd
 

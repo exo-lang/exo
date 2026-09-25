@@ -4927,3 +4927,121 @@ def test_reorder_stmts_window1():
 
     with pytest.raises(SchedulingError, match="do not commute"):
         reorder_stmts(foo, foo.find("t[_] = 1.0").expand(0, 1))
+
+
+def _unsafe_remove_if_sibling_proc():
+    @proc
+    def foo(n: size, x: f32[n], y: f32[n], z: f32[n], a: bool, b: bool, c: bool):
+        for i in seq(0, n):
+            if a:
+                x[i] = 1.0
+            if b:
+                y[i] = 2.0
+            for j in seq(0, 4):
+                if c:
+                    z[i] = 3.0
+
+    return foo
+
+
+def test_unsafe_remove_if_recursive_sibling_ifs():
+    """Recursive unsafe_remove_if must remove every nested if, not just those in the last child.
+
+    DoUnsafeRemoveIf recurses on each child cursor of the *original* proc, so each
+    recursive result is rebuilt from the unedited root and only the last child's
+    edits survive.
+    """
+    foo = _unsafe_remove_if_sibling_proc()
+    p = unsafe_remove_if(foo, foo.find_loop("i"), True)
+    assert "if" not in str(p), str(p)
+    i_body = p.find_loop("i").body()
+    assert i_body[0] == p.find("x[_] = _")
+    assert i_body[1] == p.find("y[_] = _")
+    assert p.find_loop("j").body()[0] == p.find("z[_] = _")
+
+
+def test_unsafe_remove_if_recursive_forwarding():
+    """Cursors to statements in every child (not just the last) must forward correctly."""
+    foo = _unsafe_remove_if_sibling_proc()
+    x_assign = foo.find("x[_] = _")
+    y_assign = foo.find("y[_] = _")
+    z_assign = foo.find("z[_] = _")
+    p = unsafe_remove_if(foo, foo.find_loop("i"), True)
+    assert p.forward(x_assign) == p.find("x[_] = _")
+    assert p.forward(y_assign) == p.find("y[_] = _")
+    assert p.forward(z_assign) == p.find("z[_] = _")
+    assert p.forward(x_assign).parent() == p.find_loop("i")
+    assert p.forward(y_assign).parent() == p.find_loop("i")
+    assert p.forward(z_assign).parent() == p.find_loop("j")
+
+
+def test_unsafe_remove_if_recursive_single_child():
+    """Sanity check (passes today): single-child bodies at every level."""
+
+    @proc
+    def foo(n: size, x: f32[n], a: bool, b: bool):
+        for i in seq(0, n):
+            if a:
+                for j in seq(0, 4):
+                    if b:
+                        x[i] = 1.0
+
+    p = unsafe_remove_if(foo, foo.find_loop("i"), True)
+    assert "if" not in str(p), str(p)
+
+
+def test_unsafe_remove_if_orelse_error():
+    @proc
+    def foo(n: size, x: f32[n], a: bool):
+        for i in seq(0, n):
+            if a:
+                x[i] = 1.0
+            else:
+                x[i] = 2.0
+
+    with pytest.raises(SchedulingError, match="Cannot remove if with orelse statements"):
+        unsafe_remove_if(foo, foo.find("if _: _"), False)
+    with pytest.raises(SchedulingError, match="Cannot remove if with orelse statements"):
+        unsafe_remove_if(foo, foo.find_loop("i"), True)
+
+
+def test_unsafe_remove_if_non_if_error():
+    @proc
+    def foo(n: size, x: f32[n]):
+        for i in seq(0, n):
+            x[i] = 1.0
+
+    with pytest.raises(SchedulingError, match="Expected cursor to if statement"):
+        unsafe_remove_if(foo, foo.find_loop("i"), False)
+
+
+def _unsafe_remove_if_with_proc():
+    @proc
+    def foo(x: f32[128] @ CudaGmemLinear, a: bool):
+        with CudaDeviceFunction(blockDim=256):
+            for task in cuda_tasks(0, 1):
+                with CudaWarps(0, 4):
+                    for tid in cuda_threads(0, 128):
+                        if a:
+                            x[tid] = 1.0
+
+    return foo
+
+
+def test_unsafe_remove_if_with_error():
+    """A with statement (smuggled as an if in LoopIR) is not an if to remove."""
+    foo = _unsafe_remove_if_with_proc()
+    with_c = foo.find_loop("task").body()[0]
+    with pytest.raises(SchedulingError, match="Cannot remove with statement"):
+        unsafe_remove_if(foo, with_c, False)
+
+
+def test_unsafe_remove_if_recursive_keeps_with():
+    """Recursive removal descends into with statements but keeps them."""
+    foo = _unsafe_remove_if_with_proc()
+    p = unsafe_remove_if(foo, foo.find_loop("task"), True)
+    text = str(p)
+    assert "with CudaDeviceFunction" in text, text
+    assert "with CudaWarps" in text, text
+    assert "if a" not in text, text
+    assert p.find_loop("tid").body()[0] == p.find("x[_] = _")

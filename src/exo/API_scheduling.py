@@ -2468,6 +2468,7 @@ def unsafe_remove_if(proc, if_cursor, recursive):
     Remove the if around some block of statements.
     This operation is not checked for correctness,
     and may lead to out-of-bounds accesses.
+    `with` statements are NOT removed.
 
     If recursive, the if statements in the body are removed as well.
 
