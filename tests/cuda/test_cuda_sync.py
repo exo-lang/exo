@@ -506,45 +506,43 @@ class MbarrierQualConfig:
     try_or_test: str
     arrive_cp_async: bool
     have_await_proxy_fence: bool
-    have_init_proxy_fence: bool
 
 
 # Sm80_cp_async -> cuda_temporal
 # should use cp.async.mbarrier.arrive.noinc.shared::cta.b64
 mbarrier_Sm80_cp_async_qc = MbarrierQualConfig(
-    Sm80_cp_async, cuda_temporal, "test", True, False, False
+    Sm80_cp_async, cuda_temporal, "test", True, False
 )
 
 # Same as before, but when compiled for sm_90a, switch from test_wait to try_wait
 mbarrier_Sm90a_cp_async_qc = MbarrierQualConfig(
-    Sm80_cp_async, cuda_temporal, "try", True, False, False
+    Sm80_cp_async, cuda_temporal, "try", True, False
 )
 
 # cuda_in_order -> cuda_generic_and_async_proxy
 # requires generic -> async proxy fence
 mbarrier_in_order_to_wgmma_qc = MbarrierQualConfig(
-    cuda_in_order, cuda_generic_and_async_proxy, "try", False, True, True
+    cuda_in_order, cuda_generic_and_async_proxy, "try", False, True
 )
 
 # cuda_temporal -> cuda_generic_and_async_proxy
 # doesn't require the fence after the await
-# (cuda_temporal resolves only WAR hazards),
-# but we still need the proxy fence at startup.
+# (cuda_temporal resolves only WAR hazards).
 mbarrier_temporal_to_wgmma_qc = MbarrierQualConfig(
-    cuda_temporal, cuda_generic_and_async_proxy, "try", False, False, True
+    cuda_temporal, cuda_generic_and_async_proxy, "try", False, False
 )
 
 mbarrier_wrong_wgmma_qc = MbarrierQualConfig(
-    cuda_in_order, wgmma_async, "try", False, True, True
+    cuda_in_order, wgmma_async, "try", False, True
 )
 mbarrier_wrong_cpu1_qc = MbarrierQualConfig(
-    cuda_in_order, cpu_in_order, "try", False, True, True
+    cuda_in_order, cpu_in_order, "try", False, True
 )
 mbarrier_wrong_cpu2_qc = MbarrierQualConfig(
-    cpu_in_order, cuda_in_order, "try", False, True, True
+    cpu_in_order, cuda_in_order, "try", False, True
 )
 mbarrier_wrong_tma_qc = MbarrierQualConfig(
-    tma_to_smem_async, cuda_in_order, "try", False, True, True
+    tma_to_smem_async, cuda_in_order, "try", False, True
 )
 
 
@@ -675,8 +673,6 @@ def mkref_mbarriers(
                             baseline[m_cta, n_cta, t2, t1, ring],
                             8,
                         )
-        if qc.have_init_proxy_fence:
-            xrg("fence.proxy.async")
         # End 0th thread init
         # Cross-thread sync
         for threadIdx in xrg.stride_threadIdx(blockDim):

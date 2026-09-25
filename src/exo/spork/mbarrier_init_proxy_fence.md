@@ -89,7 +89,7 @@ Ordinary thread synchronization, at a scope that covers every thread or CTA that
 * **Existing init sequence is already sufficient.** `cuda_device_setup_builder.py` emits, after the `mbarrier.init` loop:
   * `barrier.cta.sync 0` if clusterDim == 1;
   * full `barrier.cluster.arrive.aligned` + `barrier.cluster.wait.aligned` otherwise.
-* **The post-init `fence.proxy.async` is unnecessary.** It is controlled by `require_proxy_fence()`.
+* **The post-init `fence.proxy.async` is unnecessary.** It was controlled by `require_proxy_fence()` (removed 2026-09-25; notes below describe the old code).
   * `add_barrier` in `cuda_sync_state.py` triggers it when any Arrive/Await sync-tl intersects `internal_cuda_async_proxy_detection`.
   * It is harmless and costs one instruction per CTA, so it can be deleted.
   * Deleting it also makes an earlier "bug" moot: kernels whose TMA-load mbarriers use only `cuda_temporal` / `cuda_in_order` never trigger the fence.

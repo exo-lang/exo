@@ -838,10 +838,6 @@ exo_CudaInline_test_tma_tester_proc_SW0_golden::exo_Cuda0_tma_tester_gpu_SW0::ex
         exo_excutLog.log_u32_arg(exo_smemU32(exo_smem + exo_smemOffset4_raw + 8*i));
         exo_excutLog.log_u32_arg(static_cast<uint32_t>(32));
     }
-    asm volatile(
-      "fence.proxy.async;"
-    );
-    exo_excutLog.log_action(EXO_EXCUT_STR_ID(fence_proxy_async), 0, __LINE__);
   }
   asm volatile(
     "barrier.cta.sync 0;"

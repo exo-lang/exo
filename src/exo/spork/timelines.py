@@ -305,14 +305,6 @@ _tcgen05_commit_quals = [
     tcgen05_shift_qual,
 ]
 
-_cuda_async_proxy_detection_quals = (
-    [cuda_async_proxy_retired_qual]
-    + _tma_to_smem_async_quals
-    + _tma_to_gmem_async_quals
-    + _wgmma_async_quals
-    + [tcgen05_smem_qual]
-)
-
 # Intentionally excludes wgmma_zero_qual
 _cuda_device_quals = (
     _cuda_in_order_quals
@@ -538,11 +530,6 @@ cuda_generic_and_async_proxy = Sync_tl(
     "cuda_generic_and_async_proxy",
     _cuda_in_order_quals + [cuda_async_proxy_retired_qual],
     _cuda_temporal_quals,  # Temporal-only
-)
-
-internal_cuda_async_proxy_detection = Sync_tl(
-    "internal_cuda_async_proxy_detection",
-    _cuda_async_proxy_detection_quals,
 )
 
 

@@ -1448,10 +1448,6 @@ exo_CudaInline_test_golden_Sm90a_gemm_m1n2_B::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32
         exo_excutLog.log_u32_arg(exo_smemU32(exo_smem + exo_smemOffset4_war + 8*i));
         exo_excutLog.log_u32_arg(static_cast<uint32_t>(512));
     }
-    asm volatile(
-      "fence.proxy.async;"
-    );
-    exo_excutLog.log_action(EXO_EXCUT_STR_ID(fence_proxy_async), 0, __LINE__);
   }
   asm volatile(
     "barrier.cluster.arrive.aligned;"

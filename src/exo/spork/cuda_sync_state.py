@@ -91,13 +91,6 @@ class SyncStateBuilder:
         device_setup_builder = ctx.device_setup_builder
 
         usage = get_usage(name)
-        for info in (usage.get_arrive(), usage.get_await()):
-            if info is not None:
-                if not timelines.internal_cuda_async_proxy_detection.disjoint_full_timeline_set(
-                    info.sync_tl
-                ):
-                    device_setup_builder.require_proxy_fence()
-
         srcinfo = usage.decl_stmt.srcinfo
         barrier_mechanism = usage.barrier_mechanism
         suffix = self._assign_suffix(name)

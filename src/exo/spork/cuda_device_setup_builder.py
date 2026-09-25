@@ -94,14 +94,12 @@ class CudaDeviceSetupBuilder:
     # Record order that SMEM allocations were created and destroyed.
     # (_, True) means alloc, (_, False) means free.
     _smem_alloc_frees: List[Tuple[Sym, bool]]
-    _have_proxy_fence: bool
     _clusterDim: int
     _unsafe_no_shutdown_cluster_sync: bool
 
     def __init__(self, f: CudaDeviceFunction):
         self._records = {}
         self._smem_alloc_frees = []
-        self._have_proxy_fence = False
         self._clusterDim = f.clusterDim
         self._unsafe_no_shutdown_cluster_sync = f.unsafe_no_shutdown_cluster_sync
 
@@ -176,9 +174,6 @@ class CudaDeviceSetupBuilder:
         record.size = size
         record.alignment = alignment
 
-    def require_proxy_fence(self):
-        self._have_proxy_fence = True
-
     def make_info(self) -> CudaDeviceSetupInfo:
         clusterDim = self._clusterDim
         for sym, record in self._records.items():
@@ -249,11 +244,6 @@ class CudaDeviceSetupBuilder:
             ptx.add_arg(record.arrive_count, constraint="n", log_as="bits")
             setup_lines.extend(ptx.as_c_lines(py_format=False, tab="      "))
             setup_lines.append(f"  }}")
-        # Proxy fence
-        if self._have_proxy_fence:
-            lazy_begin_guard_thread_0()
-            setup_lines.extend(simple_ptx_c_lines("fence.proxy.async", tab="  "))
-
         lazy_end_guard_thread_0()
 
         # CTA or cluster sync
