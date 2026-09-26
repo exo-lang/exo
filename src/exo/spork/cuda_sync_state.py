@@ -342,6 +342,10 @@ class SyncStateBuilder:
             for dim_i in range(len(const_shape)):
                 stride = prod(const_shape[dim_i + 1 :])
                 if dim_i == managed_ring_buffer_dim_idx:
+                    # Cast to unsigned temporarily to allow C++ compiler to use
+                    # masking for power-of-2 ring depth. Note, negative inputs
+                    # were either guarded-out by the pre-arrive functionality
+                    # or will fail sync-check.
                     idxs.append(f"{stride} * (int(unsigned(i{dim_i}) % {ring_depth}))")
                 else:
                     idxs.append(f"{stride} * i{dim_i}")
