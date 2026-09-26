@@ -38,6 +38,8 @@ Python Source (@proc) → Parser (pyparser) → UAST → Type Checker → LoopIR
 - `core/LoopIR.py`: The intermediate representation (IR) - procedures, statements, expressions, types.
    `ADT` compiles a grammar into a Python module of strongly-typed nodes, which enforce the types of node members.
    `@extclass(LoopIR.typename) def fname...` injects a member function `fname` into the `LoopIR.typename` class.
+   NOTE: ADT nodes (and loop modes) support a `node.update(foo=bar)` member function.
+   This returns a **copy** of `node` modified so its `foo` attribute has value `bar`.
 - `core/memory.py`: Memory abstraction framework (DRAM, GPU memory types, registers)
 - `core/instr_class.py`: Instruction template framework with `@instr` decorator
 - `core/configs.py`: Configuration objects for parameterizing generated code
