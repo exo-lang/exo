@@ -2,6 +2,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -29,15 +36,15 @@ extern "C" {
 typedef struct c_code_str_Context { 
 
     struct ConfigLoad {
-        int_fast32_t src_stride;
+        exo_control_t src_stride;
     } ConfigLoad;
 
     struct ConfigLoad_id1 {
-        int_fast32_t src_stride;
+        exo_control_t src_stride;
     } ConfigLoad_id1;
 
     struct ConfigLoad_id2 {
-        int_fast32_t src_stride;
+        exo_control_t src_stride;
     } ConfigLoad_id2;
 
     struct ConfigMatmul {
@@ -46,7 +53,7 @@ typedef struct c_code_str_Context {
 
     struct ConfigStore {
         float scale;
-        int_fast32_t dst_stride;
+        exo_control_t dst_stride;
         bool act;
     } ConfigStore;
 
@@ -64,7 +71,7 @@ typedef struct c_code_str_Context {
 #define EXO_WIN_2I8C
 struct exo_win_2i8c {
     const int8_t * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 /* Required by DRAM */
@@ -72,7 +79,7 @@ struct exo_win_2i8c {
 #define EXO_WIN_2I8
 struct exo_win_2i8 {
     int8_t * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 // matmul_on_cpu(
@@ -84,7 +91,7 @@ struct exo_win_2i8 {
 //     B : i8[512, M] @DRAM,
 //     C : i8[N, M] @DRAM
 // )
-void matmul_on_cpu( c_code_str_Context *ctxt, int_fast32_t N, int_fast32_t M, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
+void matmul_on_cpu( c_code_str_Context *ctxt, exo_control_t N, exo_control_t M, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C );
 
 
 
@@ -103,7 +110,7 @@ void matmul_on_cpu( c_code_str_Context *ctxt, int_fast32_t N, int_fast32_t M, co
 #define EXO_WIN_6I8
 struct exo_win_6i8 {
     int8_t * const data;
-    const int_fast32_t strides[6];
+    const exo_control_t strides[6];
 };
 #endif
 /* Required by GEMM_ACCUM */
@@ -117,7 +124,7 @@ struct exo_win_6i8 {
 #define EXO_WIN_4I32
 struct exo_win_4i32 {
     int32_t * const data;
-    const int_fast32_t strides[4];
+    const exo_control_t strides[4];
 };
 #endif
 /* Required by GEMM_ACCUM */
@@ -125,7 +132,7 @@ struct exo_win_4i32 {
 #define EXO_WIN_2I32
 struct exo_win_2i32 {
     int32_t * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 /* Required by GEMM_SCRATCH */
@@ -133,7 +140,7 @@ struct exo_win_2i32 {
 #define EXO_WIN_3I8
 struct exo_win_3i8 {
     int8_t * const data;
-    const int_fast32_t strides[3];
+    const exo_control_t strides[3];
 };
 #endif
 /* Required by GEMM_ACCUM */
@@ -141,7 +148,7 @@ struct exo_win_3i8 {
 #define EXO_WIN_2I32C
 struct exo_win_2i32c {
     const int32_t * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 
@@ -209,7 +216,7 @@ gemmini_extended_mvin( 0, ((uint64_t) &{dst_data}),{m}, {n} );
 //     B : i8[512, M] @DRAM,
 //     C : i8[N, M] @DRAM
 // )
-void matmul_on_cpu( c_code_str_Context *ctxt, int_fast32_t N, int_fast32_t M, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
+void matmul_on_cpu( c_code_str_Context *ctxt, exo_control_t N, exo_control_t M, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
   EXO_ASSUME(N % 256 == 0);
   EXO_ASSUME(M % 256 == 0);
   gemmini_extended_config_st(M, act, scale[0]);
@@ -220,16 +227,16 @@ void matmul_on_cpu( c_code_str_Context *ctxt, int_fast32_t N, int_fast32_t M, co
   int8_t *a = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 8 * 8 * 2 * sizeof(int8_t)));
   int8_t *b = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 8 * 4 * sizeof(int8_t)));
   int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * 4 * 4 * sizeof(int32_t)));
-  for (int_fast32_t ioo = 0; ioo < ((N) / (256)); ioo++) {
-    for (int_fast32_t jo = 0; jo < ((M) / (256)); jo++) {
-      for (int_fast32_t io = 0; io < 2; io++) {
-        for (int_fast32_t i = 0; i < 8; i++) {
-          for (int_fast32_t ji = 0; ji < 4; ji++) {
+  for (exo_control_t ioo = 0; ioo < ((N) / (256)); ioo++) {
+    for (exo_control_t jo = 0; jo < ((M) / (256)); jo++) {
+      for (exo_control_t io = 0; io < 2; io++) {
+        for (exo_control_t i = 0; i < 8; i++) {
+          for (exo_control_t ji = 0; ji < 4; ji++) {
             gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (ji * 1024)/16))),16, 16 );
             gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (ji * 1024 + 256)/16))),16, 16 );
             gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (ji * 1024 + 2 * 256)/16))),16, 16 );
             gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (ji * 1024 + 3 * 256)/16))),16, 16 );
-            for (int_fast32_t ko = 0; ko < 8; ko++) {
+            for (exo_control_t ko = 0; ko < 8; ko++) {
               if (jo == 0) {
                 if (ji == 0) {
                   gemmini_extended_mvin2( &A[(16 * i + 128 * io + 256 * ioo) * 512 + (64 * ko)], ((uint64_t) &*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + (io * 65536 + i * 8192 + ko * 1024)/16))), 16*4, 16 );

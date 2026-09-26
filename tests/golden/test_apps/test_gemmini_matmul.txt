@@ -6,6 +6,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -33,15 +40,15 @@ extern "C" {
 typedef struct test_case_Context { 
 
     struct ConfigLoad {
-        int_fast32_t src_stride;
+        exo_control_t src_stride;
     } ConfigLoad;
 
     struct ConfigLoad_id1 {
-        int_fast32_t src_stride;
+        exo_control_t src_stride;
     } ConfigLoad_id1;
 
     struct ConfigLoad_id2 {
-        int_fast32_t src_stride;
+        exo_control_t src_stride;
     } ConfigLoad_id2;
 
     struct ConfigMatmul {
@@ -50,7 +57,7 @@ typedef struct test_case_Context {
 
     struct ConfigStore {
         float scale;
-        int_fast32_t dst_stride;
+        exo_control_t dst_stride;
         bool act;
     } ConfigStore;
 
@@ -68,7 +75,7 @@ typedef struct test_case_Context {
 #define EXO_WIN_2I8C
 struct exo_win_2i8c {
     const int8_t * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 /* Required by DRAM */
@@ -76,7 +83,7 @@ struct exo_win_2i8c {
 #define EXO_WIN_2I8
 struct exo_win_2i8 {
     int8_t * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 // cpu_matmul_14(
@@ -209,7 +216,7 @@ void matmul_6( test_case_Context *ctxt, const float* scale, bool act, const int8
 #define EXO_WIN_4I32
 struct exo_win_4i32 {
     int32_t * const data;
-    const int_fast32_t strides[4];
+    const exo_control_t strides[4];
 };
 #endif
 /* Required by GEMM_SCRATCH */
@@ -223,7 +230,7 @@ struct exo_win_4i32 {
 #define EXO_WIN_5I8
 struct exo_win_5i8 {
     int8_t * const data;
-    const int_fast32_t strides[5];
+    const exo_control_t strides[5];
 };
 #endif
 /* Required by GEMM_SCRATCH */
@@ -231,7 +238,7 @@ struct exo_win_5i8 {
 #define EXO_WIN_6I8
 struct exo_win_6i8 {
     int8_t * const data;
-    const int_fast32_t strides[6];
+    const exo_control_t strides[6];
 };
 #endif
 /* Required by GEMM_ACCUM */
@@ -239,7 +246,7 @@ struct exo_win_6i8 {
 #define EXO_WIN_2I32
 struct exo_win_2i32 {
     int32_t * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 /* Required by GEMM_SCRATCH */
@@ -247,7 +254,7 @@ struct exo_win_2i32 {
 #define EXO_WIN_3I8
 struct exo_win_3i8 {
     int8_t * const data;
-    const int_fast32_t strides[3];
+    const exo_control_t strides[3];
 };
 #endif
 /* Required by GEMM_ACCUM */
@@ -255,7 +262,7 @@ struct exo_win_3i8 {
 #define EXO_WIN_2I32C
 struct exo_win_2i32c {
     const int32_t * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 int8_t _relu_int8_t(int8_t x) {
@@ -332,11 +339,11 @@ gemmini_extended3_config_ld(0, 1.0f, 0, 0);
 //     C : i8[3136, 512] @DRAM
 // )
 void cpu_matmul_14( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-  for (int_fast32_t i = 0; i < 3136; i++) {
-    for (int_fast32_t j = 0; j < 512; j++) {
+  for (exo_control_t i = 0; i < 3136; i++) {
+    for (exo_control_t j = 0; j < 512; j++) {
       int32_t res;
       res = ((int32_t) 0.0);
-      for (int_fast32_t k = 0; k < 128; k++) {
+      for (exo_control_t k = 0; k < 128; k++) {
         int8_t a;
         a = A[i * 128 + k];
         int8_t b;
@@ -369,11 +376,11 @@ void cpu_matmul_14( test_case_Context *ctxt, const float* scale, bool act, const
 //     C : i8[3136, 128] @DRAM
 // )
 void cpu_matmul_16( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-  for (int_fast32_t i = 0; i < 3136; i++) {
-    for (int_fast32_t j = 0; j < 128; j++) {
+  for (exo_control_t i = 0; i < 3136; i++) {
+    for (exo_control_t j = 0; j < 128; j++) {
       int32_t res;
       res = ((int32_t) 0.0);
-      for (int_fast32_t k = 0; k < 512; k++) {
+      for (exo_control_t k = 0; k < 512; k++) {
         int8_t a;
         a = A[i * 512 + k];
         int8_t b;
@@ -406,11 +413,11 @@ void cpu_matmul_16( test_case_Context *ctxt, const float* scale, bool act, const
 //     C : i8[784, 1024] @DRAM
 // )
 void cpu_matmul_27( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-  for (int_fast32_t i = 0; i < 784; i++) {
-    for (int_fast32_t j = 0; j < 1024; j++) {
+  for (exo_control_t i = 0; i < 784; i++) {
+    for (exo_control_t j = 0; j < 1024; j++) {
       int32_t res;
       res = ((int32_t) 0.0);
-      for (int_fast32_t k = 0; k < 256; k++) {
+      for (exo_control_t k = 0; k < 256; k++) {
         int8_t a;
         a = A[i * 256 + k];
         int8_t b;
@@ -443,11 +450,11 @@ void cpu_matmul_27( test_case_Context *ctxt, const float* scale, bool act, const
 //     C : i8[12544, 256] @DRAM
 // )
 void cpu_matmul_4( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-  for (int_fast32_t i = 0; i < 12544; i++) {
-    for (int_fast32_t j = 0; j < 256; j++) {
+  for (exo_control_t i = 0; i < 12544; i++) {
+    for (exo_control_t j = 0; j < 256; j++) {
       int32_t res;
       res = ((int32_t) 0.0);
-      for (int_fast32_t k = 0; k < 64; k++) {
+      for (exo_control_t k = 0; k < 64; k++) {
         int8_t a;
         a = A[i * 64 + k];
         int8_t b;
@@ -480,11 +487,11 @@ void cpu_matmul_4( test_case_Context *ctxt, const float* scale, bool act, const 
 //     C : i8[512, 512] @DRAM
 // )
 void cpu_matmul_512x512x512( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-  for (int_fast32_t i = 0; i < 512; i++) {
-    for (int_fast32_t j = 0; j < 512; j++) {
+  for (exo_control_t i = 0; i < 512; i++) {
+    for (exo_control_t j = 0; j < 512; j++) {
       int32_t res;
       res = ((int32_t) 0.0);
-      for (int_fast32_t k = 0; k < 512; k++) {
+      for (exo_control_t k = 0; k < 512; k++) {
         int8_t a;
         a = A[i * 512 + k];
         int8_t b;
@@ -517,11 +524,11 @@ void cpu_matmul_512x512x512( test_case_Context *ctxt, const float* scale, bool a
 //     C : i8[12544, 64] @DRAM
 // )
 void cpu_matmul_6( test_case_Context *ctxt, const float* scale, bool act, const int8_t* A, const int8_t* B, int8_t* C ) {
-  for (int_fast32_t i = 0; i < 12544; i++) {
-    for (int_fast32_t j = 0; j < 64; j++) {
+  for (exo_control_t i = 0; i < 12544; i++) {
+    for (exo_control_t j = 0; j < 64; j++) {
       int32_t res;
       res = ((int32_t) 0.0);
-      for (int_fast32_t k = 0; k < 256; k++) {
+      for (exo_control_t k = 0; k < 256; k++) {
         int8_t a;
         a = A[i * 256 + k];
         int8_t b;
@@ -588,14 +595,14 @@ void matmul_14( test_case_Context *ctxt, const float* scale, bool act, const int
   int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * 4 * 8 * sizeof(int32_t)));
   int8_t *a = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 2 * 49 * sizeof(int8_t)));
   int8_t *b = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 2 * 8 * sizeof(int8_t)));
-  for (int_fast32_t io = 0; io < 4; io++) {
-    for (int_fast32_t i = 0; i < 49; i++) {
-      for (int_fast32_t j = 0; j < 8; j++) {
+  for (exo_control_t io = 0; io < 4; io++) {
+    for (exo_control_t i = 0; i < 49; i++) {
+      for (exo_control_t j = 0; j < 8; j++) {
         gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (j * 1024)/16))),16, 16 );
         gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (j * 1024 + 256)/16))),16, 16 );
         gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (j * 1024 + 2 * 256)/16))),16, 16 );
         gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (j * 1024 + 3 * 256)/16))),16, 16 );
-        for (int_fast32_t ko = 0; ko < 2; ko++) {
+        for (exo_control_t ko = 0; ko < 2; ko++) {
           if (j == 0) {
             gemmini_extended_mvin2( &A[(16 * i + 784 * io) * 128 + (64 * ko)], ((uint64_t) &*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + (i * 2048 + ko * 1024)/16))), 16*4, 16 );
           }
@@ -680,14 +687,14 @@ void matmul_16( test_case_Context *ctxt, const float* scale, bool act, const int
   int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * 4 * 2 * sizeof(int32_t)));
   int8_t *a = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 8 * 14 * sizeof(int8_t)));
   int8_t *b = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 8 * 2 * sizeof(int8_t)));
-  for (int_fast32_t io = 0; io < 14; io++) {
-    for (int_fast32_t i = 0; i < 14; i++) {
-      for (int_fast32_t j = 0; j < 2; j++) {
+  for (exo_control_t io = 0; io < 14; io++) {
+    for (exo_control_t i = 0; i < 14; i++) {
+      for (exo_control_t j = 0; j < 2; j++) {
         gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (j * 1024)/16))),16, 16 );
         gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (j * 1024 + 256)/16))),16, 16 );
         gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (j * 1024 + 2 * 256)/16))),16, 16 );
         gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (j * 1024 + 3 * 256)/16))),16, 16 );
-        for (int_fast32_t ko = 0; ko < 8; ko++) {
+        for (exo_control_t ko = 0; ko < 8; ko++) {
           if (j == 0) {
             gemmini_extended_mvin2( &A[(16 * i + 224 * io) * 512 + (64 * ko)], ((uint64_t) &*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + (i * 8192 + ko * 1024)/16))), 16*4, 16 );
           }
@@ -772,15 +779,15 @@ void matmul_27( test_case_Context *ctxt, const float* scale, bool act, const int
   int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * 4 * 8 * sizeof(int32_t)));
   int8_t *a = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 7 * sizeof(int8_t)));
   int8_t *b = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 4 * 8 * sizeof(int8_t)));
-  for (int_fast32_t io = 0; io < 7; io++) {
-    for (int_fast32_t jo = 0; jo < 2; jo++) {
-      for (int_fast32_t i = 0; i < 7; i++) {
-        for (int_fast32_t j = 0; j < 8; j++) {
+  for (exo_control_t io = 0; io < 7; io++) {
+    for (exo_control_t jo = 0; jo < 2; jo++) {
+      for (exo_control_t i = 0; i < 7; i++) {
+        for (exo_control_t j = 0; j < 8; j++) {
           gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (j * 1024)/16))),16, 16 );
           gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (j * 1024 + 256)/16))),16, 16 );
           gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (j * 1024 + 2 * 256)/16))),16, 16 );
           gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (j * 1024 + 3 * 256)/16))),16, 16 );
-          for (int_fast32_t ko = 0; ko < 4; ko++) {
+          for (exo_control_t ko = 0; ko < 4; ko++) {
             if (jo == 0) {
               if (j == 0) {
                 gemmini_extended_mvin2( &A[(16 * i + 112 * io) * 256 + (64 * ko)], ((uint64_t) &*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + (i * 4096 + ko * 1024)/16))), 16*4, 16 );
@@ -860,9 +867,9 @@ void matmul_4( test_case_Context *ctxt, const float* scale, bool act, const int8
   int8_t *a = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 1 * 196 * sizeof(int8_t)));
   int8_t *b = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 1 * 4 * sizeof(int8_t)));
   int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * 4 * 4 * sizeof(int32_t)));
-  for (int_fast32_t io = 0; io < 4; io++) {
-    for (int_fast32_t i = 0; i < 196; i++) {
-      for (int_fast32_t j = 0; j < 4; j++) {
+  for (exo_control_t io = 0; io < 4; io++) {
+    for (exo_control_t i = 0; i < 196; i++) {
+      for (exo_control_t j = 0; j < 4; j++) {
         gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (j * 1024)/16))),16, 16 );
         gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (j * 1024 + 256)/16))),16, 16 );
         gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (j * 1024 + 2 * 256)/16))),16, 16 );
@@ -950,16 +957,16 @@ void matmul_512x512x512( test_case_Context *ctxt, const float* scale, bool act, 
   int8_t *a = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 8 * 8 * 2 * sizeof(int8_t)));
   int8_t *b = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 8 * 4 * sizeof(int8_t)));
   int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * 4 * 4 * sizeof(int32_t)));
-  for (int_fast32_t ioo = 0; ioo < 2; ioo++) {
-    for (int_fast32_t jo = 0; jo < 2; jo++) {
-      for (int_fast32_t io = 0; io < 2; io++) {
-        for (int_fast32_t i = 0; i < 8; i++) {
-          for (int_fast32_t ji = 0; ji < 4; ji++) {
+  for (exo_control_t ioo = 0; ioo < 2; ioo++) {
+    for (exo_control_t jo = 0; jo < 2; jo++) {
+      for (exo_control_t io = 0; io < 2; io++) {
+        for (exo_control_t i = 0; i < 8; i++) {
+          for (exo_control_t ji = 0; ji < 4; ji++) {
             gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (ji * 1024)/16))),16, 16 );
             gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (ji * 1024 + 256)/16))),16, 16 );
             gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (ji * 1024 + 2 * 256)/16))),16, 16 );
             gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (ji * 1024 + 3 * 256)/16))),16, 16 );
-            for (int_fast32_t ko = 0; ko < 8; ko++) {
+            for (exo_control_t ko = 0; ko < 8; ko++) {
               if (jo == 0) {
                 if (ji == 0) {
                   gemmini_extended_mvin2( &A[(16 * i + 128 * io + 256 * ioo) * 512 + (64 * ko)], ((uint64_t) &*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + (io * 65536 + i * 8192 + ko * 1024)/16))), 16*4, 16 );
@@ -1048,13 +1055,13 @@ void matmul_6( test_case_Context *ctxt, const float* scale, bool act, const int8
   int32_t *res = (int32_t*) ((uint32_t)gemm_acc_malloc (16 * 16 * 4 * 8 * sizeof(int32_t)));
   int8_t *a = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 8 * sizeof(int8_t)));
   int8_t *b = (int8_t*) ((uint64_t)gemm_malloc (16 * 16 * 4 * 4 * 4 * sizeof(int8_t)));
-  for (int_fast32_t io = 0; io < 98; io++) {
-    for (int_fast32_t i = 0; i < 8; i++) {
+  for (exo_control_t io = 0; io < 98; io++) {
+    for (exo_control_t i = 0; i < 8; i++) {
       gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (i * 1024)/16))),16, 16 );
       gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (i * 1024 + 256)/16))),16, 16 );
       gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (i * 1024 + 2 * 256)/16))),16, 16 );
       gemmini_extended_mvin( 0, ((uint64_t) &*(int32_t*)((uint64_t)( ((uint32_t)((uint64_t)res)) + (i * 1024 + 3 * 256)/16))),16, 16 );
-      for (int_fast32_t ko = 0; ko < 4; ko++) {
+      for (exo_control_t ko = 0; ko < 4; ko++) {
         gemmini_extended_mvin2( &A[(16 * i + 128 * io) * 256 + (64 * ko)], ((uint64_t) &*(int8_t*)((uint64_t)( ((uint32_t)((uint64_t)a)) + (i * 4096 + ko * 1024)/16))), 16*4, 16 );
         if (io == 0) {
           if (i == 0) {

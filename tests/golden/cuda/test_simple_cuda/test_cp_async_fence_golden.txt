@@ -85,6 +85,13 @@ struct exo_ExcutThreadLog {
 #define EXO_CUDA_STREAM_GUARD
 static const cudaStream_t exo_cudaStream = 0;
 #endif
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -124,7 +131,7 @@ extern "C" {
 #define EXO_WIN_1F32C
 struct exo_win_1f32c {
     const float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 /* Required by CudaGmemLinear */
@@ -134,7 +141,7 @@ struct exo_win_1f32c {
 #define EXO_WIN_1F32
 struct exo_win_1f32 {
     float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 // saxpy_cp_async(
@@ -143,7 +150,7 @@ struct exo_win_1f32 {
 //     y : f32[n] @DRAM,
 //     x : f32[n] @DRAM
 // )
-void saxpy_cp_async( void *ctxt, int_fast32_t n, const float* a, float* y, const float* x );
+void saxpy_cp_async( void *ctxt, exo_control_t n, const float* a, float* y, const float* x );
 
 
 
@@ -228,13 +235,13 @@ inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
 #define EXO_WIN_2F32
 struct exo_win_2f32 {
     float * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 // CUDA device function args -- duplicated in .cuh file
 struct exo_CudaDeviceArgs0_saxpy_cp_async
 {
-    int_fast32_t n;  // n : size
+    exo_control_t n;  // n : size
     float* device_x;  // device_x : f32[n] @CudaGmemLinear
     float* device_y;  // device_y : f32[n] @CudaGmemLinear
     float device_a;  // device_a: f32 @CudaGridConstant
@@ -262,7 +269,7 @@ cudaMemcpyAsync_htod_1d(size0,dst,src,dst=f32, src=f32)
 //     y : f32[n] @DRAM,
 //     x : f32[n] @DRAM
 // )
-void saxpy_cp_async( void *ctxt, int_fast32_t n, const float* a, float* y, const float* x ) {
+void saxpy_cp_async( void *ctxt, exo_control_t n, const float* a, float* y, const float* x ) {
   EXO_ASSUME(n % 1024 == 20);
   float *device_x = (float*) exo_cudaMallocAsync(n * sizeof(*device_x), exo_cudaStream);
   float *device_y = (float*) exo_cudaMallocAsync(n * sizeof(*device_y), exo_cudaStream);
@@ -364,7 +371,7 @@ inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
 #define EXO_WIN_2F32
 struct exo_win_2f32 {
     float * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 
@@ -374,7 +381,7 @@ namespace exo_CudaUtil = ::exo_CudaUtil_test_cp_async_fence_golden;
 // CUDA device function args -- duplicated in .c file
 struct exo_CudaDeviceArgs0_saxpy_cp_async
 {
-    int_fast32_t n;  // n : size
+    exo_control_t n;  // n : size
     float* device_x;  // device_x : f32[n] @CudaGmemLinear
     float* device_y;  // device_y : f32[n] @CudaGmemLinear
     float device_a;  // device_a: f32 @CudaGridConstant
@@ -396,7 +403,7 @@ struct exo_Cuda0_saxpy_cp_async
 
   struct exo_Task
   {
-    int_fast32_t task;
+    exo_control_t task;
   };
 
   struct exo_TaskGenerator
@@ -404,11 +411,11 @@ struct exo_Cuda0_saxpy_cp_async
     uint32_t exo_taskIndex;
     uint32_t exo_numClusters;
     uint32_t exo_taskCount;
-    int_fast32_t exo_cudaTasksLo_task;
+    exo_control_t exo_cudaTasksLo_task;
     uint32_t exo_cudaTasksNum_task;
     EXO_CUDA_INLINE exo_TaskGenerator(
         uint32_t cluster_index, uint32_t num_clusters,
-        int_fast32_t _exo_cudaTasksLo_task, int_fast32_t _exo_cudaTasksHi_task,
+        exo_control_t _exo_cudaTasksLo_task, exo_control_t _exo_cudaTasksHi_task,
         const exo_DeviceArgs&)
     {
       exo_taskIndex = cluster_index;
@@ -427,7 +434,7 @@ struct exo_Cuda0_saxpy_cp_async
       exo_Task exo_task;
       uint32_t exo_tmp = exo_taskIndex;
       exo_taskIndex += exo_numClusters;
-      exo_task.task = exo_cudaTasksLo_task + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_task);
+      exo_task.task = exo_cudaTasksLo_task + static_cast<exo_control_t>(exo_tmp % exo_cudaTasksNum_task);
       exo_tmp /= exo_cudaTasksNum_task;
       return exo_task;
     }
@@ -523,7 +530,7 @@ exo_CudaInline_test_cp_async_fence_golden::exo_Cuda0_saxpy_cp_async::exo_deviceT
   namespace exo_CudaUtil = exo_CudaUtil_test_cp_async_fence_golden;
   auto& scratch_x = reinterpret_cast<float (&) [512]>(exo_smem[exo_smemOffset0_scratch_x]);
   auto& scratch_y = reinterpret_cast<float (&) [512]>(exo_smem[exo_smemOffset1_scratch_y]);
-  for (int i = 0; i < ((1024) / (256)) + 1; i++) {
+  for (exo_control_t i = 0; i < ((1024) / (256)) + 1; i++) {
     if (i < ((1024) / (256))) {
       // CudaWarps(0, 2)
       if (int CudaWarps_0_2_ = threadIdx.x; CudaWarps_0_2_ < 64) {
@@ -559,7 +566,7 @@ exo_CudaInline_test_cp_async_fence_golden::exo_Cuda0_saxpy_cp_async::exo_deviceT
       }
     }
     if (i >= 1) {
-      for (int j = 0; j < ((256) / (128)); j++) {
+      for (exo_control_t j = 0; j < ((256) / (128)); j++) {
         // cuda_threads(0, 128, unit=cuda_thread)
         if ([[maybe_unused]] int exo_1thr_tid = threadIdx.x; 1) {
           exo_deviceArgs.device_y[(exo_task.task * 1024 + (i - 1) * 256 + j * 128 + exo_1thr_tid)] = scratch_y[((i - 1) & 1) * 256 + (j * 128 + exo_1thr_tid)] * exo_deviceArgs.device_a + scratch_x[((i - 1) & 1) * 256 + (j * 128 + exo_1thr_tid)];
@@ -591,8 +598,8 @@ exo_CudaInline_test_cp_async_fence_golden::exo_Cuda0_saxpy_cp_async::exo_deviceM
   if (nreg == ((int32_t) 0)) {
     if (int tmp = threadIdx.x; tmp >= 0 && tmp < 128) {
       {
-        int_fast32_t exo_cudaTasksLo_task = 0;
-        int_fast32_t exo_cudaTasksHi_task = ((exo_deviceArgs.n) / (1024));
+        exo_control_t exo_cudaTasksLo_task = 0;
+        exo_control_t exo_cudaTasksHi_task = ((exo_deviceArgs.n) / (1024));
         exo_TaskGenerator exo_taskGenerator(
             blockIdx.x / exo_clusterDim,
             gridDim.x / exo_clusterDim,

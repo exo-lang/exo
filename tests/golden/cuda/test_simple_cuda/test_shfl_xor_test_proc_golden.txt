@@ -85,6 +85,13 @@ struct exo_ExcutThreadLog {
 #define EXO_CUDA_STREAM_GUARD
 static const cudaStream_t exo_cudaStream = 0;
 #endif
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -124,7 +131,7 @@ extern "C" {
 #define EXO_WIN_1F32
 struct exo_win_1f32 {
     float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 /* Required by CudaGmemLinear */
@@ -133,7 +140,7 @@ struct exo_win_1f32 {
 #define EXO_WIN_1F32C
 struct exo_win_1f32c {
     const float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 // shfl_xor_test_proc(
@@ -217,7 +224,7 @@ inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
 #define EXO_WIN_0F32
 struct exo_win_0f32 {
     float * const data;
-    const int_fast32_t strides[0];
+    const exo_control_t strides[0];
 };
 #endif
 /* Required by CudaRmemLinear */
@@ -225,7 +232,7 @@ struct exo_win_0f32 {
 #define EXO_WIN_0F32C
 struct exo_win_0f32c {
     const float * const data;
-    const int_fast32_t strides[0];
+    const exo_control_t strides[0];
 };
 #endif
 // CUDA device function args -- duplicated in .cuh file
@@ -342,7 +349,7 @@ inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
 #define EXO_WIN_0F32
 struct exo_win_0f32 {
     float * const data;
-    const int_fast32_t strides[0];
+    const exo_control_t strides[0];
 };
 #endif
 /* Required by CudaRmemLinear */
@@ -350,7 +357,7 @@ struct exo_win_0f32 {
 #define EXO_WIN_0F32C
 struct exo_win_0f32c {
     const float * const data;
-    const int_fast32_t strides[0];
+    const exo_control_t strides[0];
 };
 #endif
 
@@ -378,7 +385,7 @@ struct exo_Cuda0_shfl_xor_test_proc
 
   struct exo_Task
   {
-    int_fast32_t task;
+    exo_control_t task;
   };
 
   struct exo_TaskGenerator
@@ -386,11 +393,11 @@ struct exo_Cuda0_shfl_xor_test_proc
     uint32_t exo_taskIndex;
     uint32_t exo_numClusters;
     uint32_t exo_taskCount;
-    int_fast32_t exo_cudaTasksLo_task;
+    exo_control_t exo_cudaTasksLo_task;
     uint32_t exo_cudaTasksNum_task;
     EXO_CUDA_INLINE exo_TaskGenerator(
         uint32_t cluster_index, uint32_t num_clusters,
-        int_fast32_t _exo_cudaTasksLo_task, int_fast32_t _exo_cudaTasksHi_task,
+        exo_control_t _exo_cudaTasksLo_task, exo_control_t _exo_cudaTasksHi_task,
         const exo_DeviceArgs&)
     {
       exo_taskIndex = cluster_index;
@@ -409,7 +416,7 @@ struct exo_Cuda0_shfl_xor_test_proc
       exo_Task exo_task;
       uint32_t exo_tmp = exo_taskIndex;
       exo_taskIndex += exo_numClusters;
-      exo_task.task = exo_cudaTasksLo_task + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_task);
+      exo_task.task = exo_cudaTasksLo_task + static_cast<exo_control_t>(exo_tmp % exo_cudaTasksNum_task);
       exo_tmp /= exo_cudaTasksNum_task;
       return exo_task;
     }
@@ -505,7 +512,7 @@ exo_CudaInline_test_shfl_xor_test_proc_golden::exo_Cuda0_shfl_xor_test_proc::exo
   namespace exo_CudaUtil = exo_CudaUtil_test_shfl_xor_test_proc_golden;
   float rmemA[4];
   float tmp_1[4];
-  for (int s = 0; s < 4; s++) {
+  for (exo_control_t s = 0; s < 4; s++) {
     // cuda_threads(0, 16, unit=4 * cuda_thread)
     if ([[maybe_unused]] int exo_4thr_t4 = (threadIdx.x / 4); 1) {
       // cuda_threads(0, 2, unit=2 * cuda_thread)
@@ -517,7 +524,7 @@ exo_CudaInline_test_shfl_xor_test_proc_golden::exo_Cuda0_shfl_xor_test_proc::exo
       }
     }
   }
-  for (int s = 0; s < 4; s++) {
+  for (exo_control_t s = 0; s < 4; s++) {
     // cuda_threads(0, 16, unit=4 * cuda_thread)
     if ([[maybe_unused]] int exo_4thr_t4 = (threadIdx.x / 4); 1) {
       // cuda_threads(0, 2, unit=2 * cuda_thread)
@@ -530,7 +537,7 @@ exo_CudaInline_test_shfl_xor_test_proc_golden::exo_Cuda0_shfl_xor_test_proc::exo
       }
     }
   }
-  for (int s = 0; s < 4; s++) {
+  for (exo_control_t s = 0; s < 4; s++) {
     // cuda_threads(0, 16, unit=4 * cuda_thread)
     if ([[maybe_unused]] int exo_4thr_t4 = (threadIdx.x / 4); 1) {
       // cuda_threads(0, 2, unit=2 * cuda_thread)
@@ -556,8 +563,8 @@ exo_CudaInline_test_shfl_xor_test_proc_golden::exo_Cuda0_shfl_xor_test_proc::exo
   if (nreg == ((int32_t) 0)) {
     if (int tmp = threadIdx.x; tmp >= 0 && tmp < 64) {
       {
-        int_fast32_t exo_cudaTasksLo_task = 0;
-        int_fast32_t exo_cudaTasksHi_task = 1;
+        exo_control_t exo_cudaTasksLo_task = 0;
+        exo_control_t exo_cudaTasksHi_task = 1;
         exo_TaskGenerator exo_taskGenerator(
             blockIdx.x / exo_clusterDim,
             gridDim.x / exo_clusterDim,

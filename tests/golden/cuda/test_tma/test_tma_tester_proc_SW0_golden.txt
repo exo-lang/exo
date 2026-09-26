@@ -85,6 +85,13 @@ struct exo_ExcutThreadLog {
 #define EXO_CUDA_STREAM_GUARD
 static const cudaStream_t exo_cudaStream = 0;
 #endif
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -124,7 +131,7 @@ extern "C" {
 #define EXO_WIN_2F32
 struct exo_win_2f32 {
     float * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 /* Required by CudaGmemLinear */
@@ -134,7 +141,7 @@ struct exo_win_2f32 {
 #define EXO_WIN_2F32C
 struct exo_win_2f32c {
     const float * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 /* Required by CudaGmemAtomicity16B */
@@ -143,7 +150,7 @@ struct exo_win_2f32c {
 #define EXO_WIN_1F32C
 struct exo_win_1f32c {
     const float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 // tma_tester_SW0(
@@ -236,7 +243,7 @@ inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
 #define EXO_WIN_1F32
 struct exo_win_1f32 {
     float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 /* Required by Sm90_tensorMap(0, 248, 32) */
@@ -378,7 +385,7 @@ void tma_tester_SW0( void *ctxt, float* h_sum, const float* h_x, const float* h_
   float *d_x = (float*) exo_cudaMallocAsync(744 * 192 * sizeof(*d_x), exo_cudaStream);
   float *d_y = (float*) exo_cudaMallocAsync(744 * 128 * sizeof(*d_y), exo_cudaStream);
   float *d_sum = (float*) exo_cudaMallocAsync(745 * 128 * sizeof(*d_sum), exo_cudaStream);
-  for (int_fast32_t m = 0; m < 744; m++) {
+  for (exo_control_t m = 0; m < 744; m++) {
     cudaMemcpyAsync(
       (&d_x[m * 192]),
       (&h_x[m * 128]),
@@ -512,7 +519,7 @@ inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
 #define EXO_WIN_1F32
 struct exo_win_1f32 {
     float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 /* Required by Sm90_tensorMap(0, 248, 32) */
@@ -579,8 +586,8 @@ struct exo_Cuda0_tma_tester_gpu_SW0
 
   struct exo_Task
   {
-    int_fast32_t task_m;
-    int_fast32_t task_k;
+    exo_control_t task_m;
+    exo_control_t task_k;
   };
 
   struct exo_TaskGenerator
@@ -588,14 +595,14 @@ struct exo_Cuda0_tma_tester_gpu_SW0
     uint32_t exo_taskIndex;
     uint32_t exo_numClusters;
     uint32_t exo_taskCount;
-    int_fast32_t exo_cudaTasksLo_task_m;
+    exo_control_t exo_cudaTasksLo_task_m;
     uint32_t exo_cudaTasksNum_task_m;
-    int_fast32_t exo_cudaTasksLo_task_k;
+    exo_control_t exo_cudaTasksLo_task_k;
     uint32_t exo_cudaTasksNum_task_k;
     EXO_CUDA_INLINE exo_TaskGenerator(
         uint32_t cluster_index, uint32_t num_clusters,
-        int_fast32_t _exo_cudaTasksLo_task_m, int_fast32_t _exo_cudaTasksHi_task_m,
-        int_fast32_t _exo_cudaTasksLo_task_k, int_fast32_t _exo_cudaTasksHi_task_k,
+        exo_control_t _exo_cudaTasksLo_task_m, exo_control_t _exo_cudaTasksHi_task_m,
+        exo_control_t _exo_cudaTasksLo_task_k, exo_control_t _exo_cudaTasksHi_task_k,
         const exo_DeviceArgs&)
     {
       exo_taskIndex = cluster_index;
@@ -617,9 +624,9 @@ struct exo_Cuda0_tma_tester_gpu_SW0
       exo_Task exo_task;
       uint32_t exo_tmp = exo_taskIndex;
       exo_taskIndex += exo_numClusters;
-      exo_task.task_k = exo_cudaTasksLo_task_k + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_task_k);
+      exo_task.task_k = exo_cudaTasksLo_task_k + static_cast<exo_control_t>(exo_tmp % exo_cudaTasksNum_task_k);
       exo_tmp /= exo_cudaTasksNum_task_k;
-      exo_task.task_m = exo_cudaTasksLo_task_m + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_task_m);
+      exo_task.task_m = exo_cudaTasksLo_task_m + static_cast<exo_control_t>(exo_tmp % exo_cudaTasksNum_task_m);
       exo_tmp /= exo_cudaTasksNum_task_m;
       return exo_task;
     }
@@ -910,7 +917,7 @@ exo_CudaInline_test_tma_tester_proc_SW0_golden::exo_Cuda0_tma_tester_gpu_SW0::ex
   }
   // cuda_threads(0, 248, unit=cuda_thread)
   if (int exo_1thr_m = threadIdx.x; exo_1thr_m < 248) {
-    for (int ko = 0; ko < 8; ko++) {
+    for (exo_control_t ko = 0; ko < 8; ko++) {
       asm volatile(
         "cp.async.cg.shared.global [%0], [%1], 16;"
           :
@@ -937,7 +944,7 @@ exo_CudaInline_test_tma_tester_proc_SW0_golden::exo_Cuda0_tma_tester_gpu_SW0::ex
   exo_syncState.Await0_raw(exo_smem, exo_excutLog, int((exo_syncState.ring_consumption_0_raw)));
   // cuda_threads(0, 248, unit=cuda_thread)
   if (int exo_1thr_m = threadIdx.x; exo_1thr_m < 248) {
-    for (int k = 0; k < 32; k++) {
+    for (exo_control_t k = 0; k < 32; k++) {
       smem_sum[exo_1thr_m * 32 + k] = smem_x[exo_1thr_m * 32 + k] + smem_y[exo_1thr_m * 32 + k];
     }
   }
@@ -1015,11 +1022,11 @@ exo_CudaInline_test_tma_tester_proc_SW0_golden::exo_Cuda0_tma_tester_gpu_SW0::ex
   if (nreg == ((int32_t) 0)) {
     if (int tmp = threadIdx.x; tmp >= 0 && tmp < 256) {
       {
-        int_fast32_t exo_cudaTasksLo_task_m = 0;
-        int_fast32_t exo_cudaTasksHi_task_m = 3;
+        exo_control_t exo_cudaTasksLo_task_m = 0;
+        exo_control_t exo_cudaTasksHi_task_m = 3;
         {
-          int_fast32_t exo_cudaTasksLo_task_k = 0;
-          int_fast32_t exo_cudaTasksHi_task_k = 4;
+          exo_control_t exo_cudaTasksLo_task_k = 0;
+          exo_control_t exo_cudaTasksHi_task_k = 4;
           exo_TaskGenerator exo_taskGenerator(
               blockIdx.x / exo_clusterDim,
               gridDim.x / exo_clusterDim,

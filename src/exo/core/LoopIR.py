@@ -660,7 +660,7 @@ def ctype(t):
 @extclass(T.Size)
 @extclass(T.Stride)
 def ctype(t):
-    return "int_fast32_t"
+    return "exo_control_t"
 
 
 del ctype

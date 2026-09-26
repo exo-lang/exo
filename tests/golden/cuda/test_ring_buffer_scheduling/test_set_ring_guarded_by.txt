@@ -85,6 +85,13 @@ struct exo_ExcutThreadLog {
 #define EXO_CUDA_STREAM_GUARD
 static const cudaStream_t exo_cudaStream = 0;
 #endif
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -120,7 +127,7 @@ extern "C" {
 // p(
 //     K : size
 // )
-void p( void *ctxt, int_fast32_t K );
+void p( void *ctxt, exo_control_t K );
 
 
 
@@ -152,7 +159,7 @@ void exo_cudaLaunch0_p(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceA
 #define EXO_WIN_1F32
 struct exo_win_1f32 {
     float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 /* Required by CudaSmemLinear */
@@ -160,20 +167,20 @@ struct exo_win_1f32 {
 #define EXO_WIN_3F32
 struct exo_win_3f32 {
     float * const data;
-    const int_fast32_t strides[3];
+    const exo_control_t strides[3];
 };
 #endif
 // CUDA device function args -- duplicated in .cuh file
 struct exo_CudaDeviceArgs0_p
 {
-    int_fast32_t K;  // K : size
+    exo_control_t K;  // K : size
     EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
 };
 
 // p(
 //     K : size
 // )
-void p( void *ctxt, int_fast32_t K ) {
+void p( void *ctxt, exo_control_t K ) {
   {
     struct exo_CudaDeviceArgs0_p exo_deviceArgs = {
       K, exo_excut_get_device_log()
@@ -197,7 +204,7 @@ void p( void *ctxt, int_fast32_t K ) {
 #define EXO_WIN_1F32
 struct exo_win_1f32 {
     float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 /* Required by CudaSmemLinear */
@@ -205,7 +212,7 @@ struct exo_win_1f32 {
 #define EXO_WIN_3F32
 struct exo_win_3f32 {
     float * const data;
-    const int_fast32_t strides[3];
+    const exo_control_t strides[3];
 };
 #endif
 
@@ -215,7 +222,7 @@ namespace exo_CudaUtil = ::exo_CudaUtil_test_set_ring_guarded_by;
 // CUDA device function args -- duplicated in .c file
 struct exo_CudaDeviceArgs0_p
 {
-    int_fast32_t K;  // K : size
+    exo_control_t K;  // K : size
     EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
 };
 
@@ -235,7 +242,7 @@ struct exo_Cuda0_p
 
   struct exo_Task
   {
-    int_fast32_t task;
+    exo_control_t task;
   };
 
   struct exo_TaskGenerator
@@ -243,11 +250,11 @@ struct exo_Cuda0_p
     uint32_t exo_taskIndex;
     uint32_t exo_numClusters;
     uint32_t exo_taskCount;
-    int_fast32_t exo_cudaTasksLo_task;
+    exo_control_t exo_cudaTasksLo_task;
     uint32_t exo_cudaTasksNum_task;
     EXO_CUDA_INLINE exo_TaskGenerator(
         uint32_t cluster_index, uint32_t num_clusters,
-        int_fast32_t _exo_cudaTasksLo_task, int_fast32_t _exo_cudaTasksHi_task,
+        exo_control_t _exo_cudaTasksLo_task, exo_control_t _exo_cudaTasksHi_task,
         const exo_DeviceArgs&)
     {
       exo_taskIndex = cluster_index;
@@ -266,7 +273,7 @@ struct exo_Cuda0_p
       exo_Task exo_task;
       uint32_t exo_tmp = exo_taskIndex;
       exo_taskIndex += exo_numClusters;
-      exo_task.task = exo_cudaTasksLo_task + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_task);
+      exo_task.task = exo_cudaTasksLo_task + static_cast<exo_control_t>(exo_tmp % exo_cudaTasksNum_task);
       exo_tmp /= exo_cudaTasksNum_task;
       return exo_task;
     }
@@ -465,7 +472,7 @@ exo_CudaInline_test_set_ring_guarded_by::exo_Cuda0_p::exo_deviceTask(
   auto& smem = reinterpret_cast<float (&) [32768]>(exo_smem[exo_smemOffset1_smem]);
   // cuda_threads(0, 2, unit=cuda_cta_in_cluster)
   if ([[maybe_unused]] int exo_256thr_cta = (blockIdx.x % 2); 1) {
-    for (int k = 0; k < exo_deviceArgs.K; k++) {
+    for (exo_control_t k = 0; k < exo_deviceArgs.K; k++) {
       // Await(my_barrier[((k + exo_syncState.ring_consumption_0_my_barrier) % 4)], cuda_in_order, 0)
       exo_syncState.Await0_my_barrier(exo_smem, exo_excutLog, int((k + (exo_syncState.ring_consumption_0_my_barrier))));
       ; // NO-OP
@@ -507,8 +514,8 @@ exo_CudaInline_test_set_ring_guarded_by::exo_Cuda0_p::exo_deviceMainLoop(
   if (nreg == ((int32_t) 0)) {
     if (int tmp = threadIdx.x; tmp >= 0 && tmp < 256) {
       {
-        int_fast32_t exo_cudaTasksLo_task = 0;
-        int_fast32_t exo_cudaTasksHi_task = 1;
+        exo_control_t exo_cudaTasksLo_task = 0;
+        exo_control_t exo_cudaTasksHi_task = 1;
         exo_TaskGenerator exo_taskGenerator(
             blockIdx.x / exo_clusterDim,
             gridDim.x / exo_clusterDim,

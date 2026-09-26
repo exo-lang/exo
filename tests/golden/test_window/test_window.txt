@@ -2,6 +2,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -39,7 +46,7 @@ extern "C" {
 #define EXO_WIN_2I8C
 struct exo_win_2i8c {
     const int8_t * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 /* Required by DRAM */
@@ -47,7 +54,7 @@ struct exo_win_2i8c {
 #define EXO_WIN_2I8
 struct exo_win_2i8 {
     int8_t * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 // window(
@@ -56,7 +63,7 @@ struct exo_win_2i8 {
 //     src : [i8][n, m] @DRAM,
 //     dst : [i8][n, 16] @DRAM
 // )
-void window( void *ctxt, int_fast32_t n, int_fast32_t m, struct exo_win_2i8c src, struct exo_win_2i8 dst );
+void window( void *ctxt, exo_control_t n, exo_control_t m, struct exo_win_2i8c src, struct exo_win_2i8 dst );
 
 
 
@@ -70,11 +77,11 @@ void window( void *ctxt, int_fast32_t n, int_fast32_t m, struct exo_win_2i8c src
 //     src : [i8][n, m] @DRAM,
 //     dst : [i8][n, 16] @DRAM
 // )
-void window( void *ctxt, int_fast32_t n, int_fast32_t m, struct exo_win_2i8c src, struct exo_win_2i8 dst ) {
+void window( void *ctxt, exo_control_t n, exo_control_t m, struct exo_win_2i8c src, struct exo_win_2i8 dst ) {
   EXO_ASSUME(n <= 16);
   EXO_ASSUME(m <= 16);
-  for (int_fast32_t i = 0; i < n; i++) {
-    for (int_fast32_t j = 0; j < m; j++) {
+  for (exo_control_t i = 0; i < n; i++) {
+    for (exo_control_t j = 0; j < m; j++) {
       dst.data[i * dst.strides[0] + j * dst.strides[1]] = src.data[i * src.strides[0] + j * src.strides[1]];
     }
   }

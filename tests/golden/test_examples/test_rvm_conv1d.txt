@@ -6,6 +6,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -44,7 +51,7 @@ extern "C" {
 #define EXO_WIN_2I32C
 struct exo_win_2i32c {
     const int32_t * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 /* Required by DRAM */
@@ -52,7 +59,7 @@ struct exo_win_2i32c {
 #define EXO_WIN_3I32C
 struct exo_win_3i32c {
     const int32_t * const data;
-    const int_fast32_t strides[3];
+    const exo_control_t strides[3];
 };
 #endif
 /* Required by DRAM */
@@ -62,7 +69,7 @@ struct exo_win_3i32c {
 #define EXO_WIN_2I32
 struct exo_win_2i32 {
     int32_t * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 // exo_conv1d_tile_lt_kw(
@@ -96,8 +103,8 @@ void exo_conv1d_tile_lt_kw( void *ctxt, const int32_t* data, const int32_t* kern
 //     out : i32[16, 16] @DRAM
 // )
 void exo_conv1d_tile_lt_kw( void *ctxt, const int32_t* data, const int32_t* kernels, int32_t* out ) {
-  for (int_fast32_t ioo = 0; ioo < 1; ioo++) {
-    for (int_fast32_t jo = 0; jo < 4; jo++) {
+  for (exo_control_t ioo = 0; ioo < 1; ioo++) {
+    for (exo_control_t jo = 0; jo < 4; jo++) {
       #define out_tile_0 "m7"
       #define out_tile_1 "m6"
       #define out_tile_2 "m5"
@@ -106,10 +113,10 @@ void exo_conv1d_tile_lt_kw( void *ctxt, const int32_t* data, const int32_t* kern
       asm volatile("mzero "out_tile_1);
       asm volatile("mzero "out_tile_2);
       asm volatile("mzero "out_tile_3);
-      for (int_fast32_t c = 0; c < 4; c++) {
+      for (exo_control_t c = 0; c < 4; c++) {
         static int32_t y[4 * 4];
-        for (int_fast32_t ji = 0; ji < 4; ji++) {
-          for (int_fast32_t r = 0; r < 4; r++) {
+        for (exo_control_t ji = 0; ji < 4; ji++) {
+          for (exo_control_t r = 0; r < 4; r++) {
             if (ji + r + 4 * jo < 16) {
               y[ji * 4 + r] = data[c * 16 + (ji + r + 4 * jo)];
             } else {

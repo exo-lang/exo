@@ -6,6 +6,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -43,7 +50,7 @@ extern "C" {
 #define EXO_WIN_2F32C
 struct exo_win_2f32c {
     const float * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 /* Required by DRAM */
@@ -51,7 +58,7 @@ struct exo_win_2f32c {
 #define EXO_WIN_1F32C
 struct exo_win_1f32c {
     const float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 /* Required by DRAM */
@@ -59,7 +66,7 @@ struct exo_win_1f32c {
 #define EXO_WIN_1F32
 struct exo_win_1f32 {
     float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 // exoblas_const_regress_entry(
@@ -69,7 +76,7 @@ struct exo_win_1f32 {
 //     x : f32[N] @DRAM,
 //     y : f32[M] @DRAM
 // )
-void exoblas_const_regress_entry( void *ctxt, int_fast32_t M, int_fast32_t N, const float* A, const float* x, float* y );
+void exoblas_const_regress_entry( void *ctxt, exo_control_t M, exo_control_t N, const float* A, const float* x, float* y );
 
 
 
@@ -88,7 +95,7 @@ void exoblas_const_regress_entry( void *ctxt, int_fast32_t M, int_fast32_t N, co
 //     x : [f32][N] @DRAM,
 //     y : [f32][M] @DRAM
 // )
-static void exoblas_const_regress_leaf( void *ctxt, int_fast32_t M, int_fast32_t N, struct exo_win_2f32c A, struct exo_win_1f32c x, struct exo_win_1f32 y );
+static void exoblas_const_regress_leaf( void *ctxt, exo_control_t M, exo_control_t N, struct exo_win_2f32c A, struct exo_win_1f32c x, struct exo_win_1f32 y );
 
 // exoblas_const_regress_middle(
 //     M : size,
@@ -97,7 +104,7 @@ static void exoblas_const_regress_leaf( void *ctxt, int_fast32_t M, int_fast32_t
 //     x : [f32][N] @DRAM,
 //     y : [f32][M] @DRAM
 // )
-static void exoblas_const_regress_middle( void *ctxt, int_fast32_t M, int_fast32_t N, struct exo_win_2f32c A, struct exo_win_1f32c x, struct exo_win_1f32 y );
+static void exoblas_const_regress_middle( void *ctxt, exo_control_t M, exo_control_t N, struct exo_win_2f32c A, struct exo_win_1f32c x, struct exo_win_1f32 y );
 
 // exoblas_const_regress_entry(
 //     M : size,
@@ -106,7 +113,7 @@ static void exoblas_const_regress_middle( void *ctxt, int_fast32_t M, int_fast32
 //     x : f32[N] @DRAM,
 //     y : f32[M] @DRAM
 // )
-void exoblas_const_regress_entry( void *ctxt, int_fast32_t M, int_fast32_t N, const float* A, const float* x, float* y ) {
+void exoblas_const_regress_entry( void *ctxt, exo_control_t M, exo_control_t N, const float* A, const float* x, float* y ) {
   exoblas_const_regress_middle(ctxt, M, N, (struct exo_win_2f32c) { &A[0], {M, 1} }, (struct exo_win_1f32c) { &x[0], {1} }, (struct exo_win_1f32) { &y[0], {1} });
 }
 
@@ -117,9 +124,9 @@ void exoblas_const_regress_entry( void *ctxt, int_fast32_t M, int_fast32_t N, co
 //     x : [f32][N] @DRAM,
 //     y : [f32][M] @DRAM
 // )
-static void exoblas_const_regress_leaf( void *ctxt, int_fast32_t M, int_fast32_t N, struct exo_win_2f32c A, struct exo_win_1f32c x, struct exo_win_1f32 y ) {
-  for (int_fast32_t j = 0; j < N; j++) {
-    for (int_fast32_t i = 0; i < M; i++) {
+static void exoblas_const_regress_leaf( void *ctxt, exo_control_t M, exo_control_t N, struct exo_win_2f32c A, struct exo_win_1f32c x, struct exo_win_1f32 y ) {
+  for (exo_control_t j = 0; j < N; j++) {
+    for (exo_control_t i = 0; i < M; i++) {
       y.data[i * y.strides[0]] += A.data[j * A.strides[0] + i * A.strides[1]] * x.data[j * x.strides[0]];
     }
   }
@@ -132,7 +139,7 @@ static void exoblas_const_regress_leaf( void *ctxt, int_fast32_t M, int_fast32_t
 //     x : [f32][N] @DRAM,
 //     y : [f32][M] @DRAM
 // )
-static void exoblas_const_regress_middle( void *ctxt, int_fast32_t M, int_fast32_t N, struct exo_win_2f32c A, struct exo_win_1f32c x, struct exo_win_1f32 y ) {
+static void exoblas_const_regress_middle( void *ctxt, exo_control_t M, exo_control_t N, struct exo_win_2f32c A, struct exo_win_1f32c x, struct exo_win_1f32 y ) {
   exoblas_const_regress_leaf(ctxt, M, N, (struct exo_win_2f32c) { &A.data[0], {A.strides[0], A.strides[1]} }, (struct exo_win_1f32c) { &x.data[0], {x.strides[0]} }, (struct exo_win_1f32) { &y.data[0], {y.strides[0]} });
 }
 

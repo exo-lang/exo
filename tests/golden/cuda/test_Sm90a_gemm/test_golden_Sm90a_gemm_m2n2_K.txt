@@ -85,6 +85,13 @@ struct exo_ExcutThreadLog {
 #define EXO_CUDA_STREAM_GUARD
 static const cudaStream_t exo_cudaStream = 0;
 #endif
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -123,7 +130,7 @@ extern "C" {
 #define EXO_WIN_4F32C
 struct exo_win_4f32c {
     const float * const data;
-    const int_fast32_t strides[4];
+    const exo_control_t strides[4];
 };
 #endif
 /* Required by CudaGmemLinear */
@@ -132,7 +139,7 @@ struct exo_win_4f32c {
 #define EXO_WIN_3F32
 struct exo_win_3f32 {
     float * const data;
-    const int_fast32_t strides[3];
+    const exo_control_t strides[3];
 };
 #endif
 // cpu_gemm_wrapper(
@@ -145,7 +152,7 @@ struct exo_win_3f32 {
 //     B : f32[L, N, K_split, K_cluster] @DRAM,
 //     C : f32[L, M, N] @DRAM
 // )
-void cpu_gemm_wrapper( void *ctxt, int_fast32_t L, int_fast32_t M, int_fast32_t N, int_fast32_t K_split, int_fast32_t K_cluster, const float* A, const float* B, float* C );
+void cpu_gemm_wrapper( void *ctxt, exo_control_t L, exo_control_t M, exo_control_t N, exo_control_t K_split, exo_control_t K_cluster, const float* A, const float* B, float* C );
 
 
 
@@ -445,7 +452,7 @@ typedef struct exo_win_2f32_Sm90_tensorMap_128_1_256_32 {
 #define EXO_WIN_4F32
 struct exo_win_4f32 {
     float * const data;
-    const int_fast32_t strides[4];
+    const exo_control_t strides[4];
 };
 #endif
 /* Required by CudaGmemLinear */
@@ -453,7 +460,7 @@ struct exo_win_4f32 {
 #define EXO_WIN_3F32C
 struct exo_win_3f32c {
     const float * const data;
-    const int_fast32_t strides[3];
+    const exo_control_t strides[3];
 };
 #endif
 /* Required by Sm90_tensorMap(128, 1, 128, 1, 32) */
@@ -609,11 +616,11 @@ static inline CUtensorMap exo_win_3f32_Sm90_tensorMap_128_1_256_32_encode(
 // CUDA device function args -- duplicated in .cuh file
 struct exo_CudaDeviceArgs0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m2n2_m256n192_coop_splitK
 {
-    int_fast32_t L;  // L : size
-    int_fast32_t M;  // M : size
-    int_fast32_t N;  // N : size
-    int_fast32_t K_split;  // K_split : size
-    int_fast32_t K_cluster;  // K_cluster : size
+    exo_control_t L;  // L : size
+    exo_control_t M;  // M : size
+    exo_control_t N;  // N : size
+    exo_control_t K_split;  // K_split : size
+    exo_control_t K_cluster;  // K_cluster : size
     CUtensorMap exo_data_A_tensorMap;  //     (Separate window data pointer)
     struct exo_win_4f32_Sm90_tensorMap_128_1_128_1_32 A_tensorMap;  // A_tensorMap : Window(src_type=f32[L, M, K_split, K_cluster], as_tensor=[f32][L, M, K_split, K_cluster], src_buf=A, idx='[0:L, 0:M, 0:K_split, 0:K_cluster]') @Sm90_tensorMap(128, 1, 128, 1, 32)
     CUtensorMap exo_data_B_tensorMap;  //     (Separate window data pointer)
@@ -633,7 +640,7 @@ struct exo_CudaDeviceArgs0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m2n2_m256n192_
 //     B : f32[L, N, K_split, K_cluster] @CudaGmemLinear,
 //     C : f32[L, M, N] @CudaGmemLinear
 // )
-static void Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m2n2_m256n192_coop_splitK( void *ctxt, int_fast32_t L, int_fast32_t M, int_fast32_t N, int_fast32_t K_split, int_fast32_t K_cluster, const float* A, const float* B, float* C );
+static void Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m2n2_m256n192_coop_splitK( void *ctxt, exo_control_t L, exo_control_t M, exo_control_t N, exo_control_t K_split, exo_control_t K_cluster, const float* A, const float* B, float* C );
 
 // Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m2n2_m256n192_coop_splitK(
 //     L : size,
@@ -645,7 +652,7 @@ static void Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m2n2_m256n192_coop_splitK( vo
 //     B : f32[L, N, K_split, K_cluster] @CudaGmemLinear,
 //     C : f32[L, M, N] @CudaGmemLinear
 // )
-static void Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m2n2_m256n192_coop_splitK( void *ctxt, int_fast32_t L, int_fast32_t M, int_fast32_t N, int_fast32_t K_split, int_fast32_t K_cluster, const float* A, const float* B, float* C ) {
+static void Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m2n2_m256n192_coop_splitK( void *ctxt, exo_control_t L, exo_control_t M, exo_control_t N, exo_control_t K_split, exo_control_t K_cluster, const float* A, const float* B, float* C ) {
   // assert stride(A, 3) == 1
   // assert stride(B, 3) == 1
   // assert stride(C, 2) == 1
@@ -702,7 +709,7 @@ Sm90_tma_reduce_add_2d(dst,src,dst=f32, src=f32, size0=256, size1=32, smem_box=(
 //     B : f32[L, N, K_split, K_cluster] @DRAM,
 //     C : f32[L, M, N] @DRAM
 // )
-void cpu_gemm_wrapper( void *ctxt, int_fast32_t L, int_fast32_t M, int_fast32_t N, int_fast32_t K_split, int_fast32_t K_cluster, const float* A, const float* B, float* C ) {
+void cpu_gemm_wrapper( void *ctxt, exo_control_t L, exo_control_t M, exo_control_t N, exo_control_t K_split, exo_control_t K_cluster, const float* A, const float* B, float* C ) {
   EXO_ASSUME(L % 1 == 0);
   EXO_ASSUME(M % 16 == 0);
   EXO_ASSUME(N % 16 == 0);
@@ -1033,7 +1040,7 @@ typedef struct exo_win_2f32_Sm90_tensorMap_128_1_256_32 {
 #define EXO_WIN_4F32
 struct exo_win_4f32 {
     float * const data;
-    const int_fast32_t strides[4];
+    const exo_control_t strides[4];
 };
 #endif
 /* Required by CudaGmemLinear */
@@ -1041,7 +1048,7 @@ struct exo_win_4f32 {
 #define EXO_WIN_3F32C
 struct exo_win_3f32c {
     const float * const data;
-    const int_fast32_t strides[3];
+    const exo_control_t strides[3];
 };
 #endif
 
@@ -1074,11 +1081,11 @@ uint64_t exo_Sm90_smem_descriptor(SwizzledElement* ptr, uint32_t leading_stride_
 // CUDA device function args -- duplicated in .c file
 struct exo_CudaDeviceArgs0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m2n2_m256n192_coop_splitK
 {
-    int_fast32_t L;  // L : size
-    int_fast32_t M;  // M : size
-    int_fast32_t N;  // N : size
-    int_fast32_t K_split;  // K_split : size
-    int_fast32_t K_cluster;  // K_cluster : size
+    exo_control_t L;  // L : size
+    exo_control_t M;  // M : size
+    exo_control_t N;  // N : size
+    exo_control_t K_split;  // K_split : size
+    exo_control_t K_cluster;  // K_cluster : size
     CUtensorMap exo_data_A_tensorMap;  //     (Separate window data pointer)
     struct exo_win_4f32_Sm90_tensorMap_128_1_128_1_32 A_tensorMap;  // A_tensorMap : Window(src_type=f32[L, M, K_split, K_cluster], as_tensor=[f32][L, M, K_split, K_cluster], src_buf=A, idx='[0:L, 0:M, 0:K_split, 0:K_cluster]') @Sm90_tensorMap(128, 1, 128, 1, 32)
     CUtensorMap exo_data_B_tensorMap;  //     (Separate window data pointer)
@@ -1106,10 +1113,10 @@ struct exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m2n2_m256n192_coop_split
 
   struct exo_Task
   {
-    int_fast32_t batch;
-    int_fast32_t task_k;
-    int_fast32_t task_m;
-    int_fast32_t task_n;
+    exo_control_t batch;
+    exo_control_t task_k;
+    exo_control_t task_m;
+    exo_control_t task_n;
   };
 
   struct exo_TaskGenerator
@@ -1117,20 +1124,20 @@ struct exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m2n2_m256n192_coop_split
     uint32_t exo_taskIndex;
     uint32_t exo_numClusters;
     uint32_t exo_taskCount;
-    int_fast32_t exo_cudaTasksLo_batch;
+    exo_control_t exo_cudaTasksLo_batch;
     uint32_t exo_cudaTasksNum_batch;
-    int_fast32_t exo_cudaTasksLo_task_k;
+    exo_control_t exo_cudaTasksLo_task_k;
     uint32_t exo_cudaTasksNum_task_k;
-    int_fast32_t exo_cudaTasksLo_task_m;
+    exo_control_t exo_cudaTasksLo_task_m;
     uint32_t exo_cudaTasksNum_task_m;
-    int_fast32_t exo_cudaTasksLo_task_n;
+    exo_control_t exo_cudaTasksLo_task_n;
     uint32_t exo_cudaTasksNum_task_n;
     EXO_CUDA_INLINE exo_TaskGenerator(
         uint32_t cluster_index, uint32_t num_clusters,
-        int_fast32_t _exo_cudaTasksLo_batch, int_fast32_t _exo_cudaTasksHi_batch,
-        int_fast32_t _exo_cudaTasksLo_task_k, int_fast32_t _exo_cudaTasksHi_task_k,
-        int_fast32_t _exo_cudaTasksLo_task_m, int_fast32_t _exo_cudaTasksHi_task_m,
-        int_fast32_t _exo_cudaTasksLo_task_n, int_fast32_t _exo_cudaTasksHi_task_n,
+        exo_control_t _exo_cudaTasksLo_batch, exo_control_t _exo_cudaTasksHi_batch,
+        exo_control_t _exo_cudaTasksLo_task_k, exo_control_t _exo_cudaTasksHi_task_k,
+        exo_control_t _exo_cudaTasksLo_task_m, exo_control_t _exo_cudaTasksHi_task_m,
+        exo_control_t _exo_cudaTasksLo_task_n, exo_control_t _exo_cudaTasksHi_task_n,
         const exo_DeviceArgs&)
     {
       exo_taskIndex = cluster_index;
@@ -1158,13 +1165,13 @@ struct exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32_rCf32_Df32_r4_m2n2_m256n192_coop_split
       exo_Task exo_task;
       uint32_t exo_tmp = exo_taskIndex;
       exo_taskIndex += exo_numClusters;
-      exo_task.task_n = exo_cudaTasksLo_task_n + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_task_n);
+      exo_task.task_n = exo_cudaTasksLo_task_n + static_cast<exo_control_t>(exo_tmp % exo_cudaTasksNum_task_n);
       exo_tmp /= exo_cudaTasksNum_task_n;
-      exo_task.task_m = exo_cudaTasksLo_task_m + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_task_m);
+      exo_task.task_m = exo_cudaTasksLo_task_m + static_cast<exo_control_t>(exo_tmp % exo_cudaTasksNum_task_m);
       exo_tmp /= exo_cudaTasksNum_task_m;
-      exo_task.task_k = exo_cudaTasksLo_task_k + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_task_k);
+      exo_task.task_k = exo_cudaTasksLo_task_k + static_cast<exo_control_t>(exo_tmp % exo_cudaTasksNum_task_k);
       exo_tmp /= exo_cudaTasksNum_task_k;
-      exo_task.batch = exo_cudaTasksLo_batch + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_batch);
+      exo_task.batch = exo_cudaTasksLo_batch + static_cast<exo_control_t>(exo_tmp % exo_cudaTasksNum_batch);
       exo_tmp /= exo_cudaTasksNum_batch;
       return exo_task;
     }
@@ -1476,7 +1483,7 @@ exo_CudaInline_test_golden_Sm90a_gemm_m2n2_K::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32
   auto& A_smem = reinterpret_cast<exo_Sm90_SW128_tiled<float, 4, 256, 32> (&)[]>(exo_smem[exo_smemOffset0_A_smem]);
   auto& B_smem = reinterpret_cast<exo_Sm90_SW128_tiled<float, 4, 192, 32> (&)[]>(exo_smem[exo_smemOffset1_B_smem]);
   ; // NO-OP
-  for (int iter_k = 0; iter_k < 1; iter_k++) {
+  for (exo_control_t iter_k = 0; iter_k < 1; iter_k++) {
     // CudaWarps(0, 1, name='producer')
     if (int CudaWarps_0_1_producer = threadIdx.x; CudaWarps_0_1_producer < 32) {
       // cuda_threads(0, 2, unit=2 * cuda_cta_in_cluster)
@@ -1572,7 +1579,7 @@ exo_CudaInline_test_golden_Sm90a_gemm_m2n2_K::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32
     }
     ; // NO-OP
   }
-  for (int iter_k = 1; iter_k < ((31 + exo_deviceArgs.K_cluster) / (32)); iter_k++) {
+  for (exo_control_t iter_k = 1; iter_k < ((31 + exo_deviceArgs.K_cluster) / (32)); iter_k++) {
     // CudaWarps(0, 1, name='producer')
     if (int CudaWarps_0_1_producer = threadIdx.x; CudaWarps_0_1_producer < 32) {
       // cuda_threads(0, 2, unit=2 * cuda_cta_in_cluster)
@@ -1698,7 +1705,7 @@ exo_CudaInline_test_golden_Sm90a_gemm_m2n2_K::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32
       exo_excutLog.log_action(EXO_EXCUT_STR_ID(fence_proxy_async), 0, __LINE__);
       // CudaWarps(3, 4, name='producer')
       if (int CudaWarps_3_4_producer = threadIdx.x; CudaWarps_3_4_producer >= 96) {
-        for (int ns = 0; ns < 6; ns++) {
+        for (exo_control_t ns = 0; ns < 6; ns++) {
           {
             auto exo_tmaWindow = (exo_win_2f32_Sm90_tensorMap_128_1_256_32) { {(exo_deviceArgs.C_tensorMap.C_offsets[0] + exo_task.batch), (exo_deviceArgs.C_tensorMap.C_offsets[1] + 256 * exo_768thr_cta_m + 512 * exo_task.task_m), (exo_deviceArgs.C_tensorMap.C_offsets[2] + 32 * ns + 192 * exo_384thr_cta_n + 384 * exo_task.task_n)} };
             if (exo_elect_one_sync()) {
@@ -1766,7 +1773,7 @@ exo_CudaInline_test_golden_Sm90a_gemm_m2n2_K::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32
   auto& A_smem = reinterpret_cast<exo_Sm90_SW128_tiled<float, 4, 256, 32> (&)[]>(exo_smem[exo_smemOffset0_A_smem]);
   auto& B_smem = reinterpret_cast<exo_Sm90_SW128_tiled<float, 4, 192, 32> (&)[]>(exo_smem[exo_smemOffset1_B_smem]);
   // wgmma_cg: barrier @ Sm90_WgmmaCommitGroup
-  for (int iter_k = 0; iter_k < 1; iter_k++) {
+  for (exo_control_t iter_k = 0; iter_k < 1; iter_k++) {
     ; // NO-OP
     // CudaWarps(name='consumer')
     if ([[maybe_unused]] int CudaWarps_None_None_consumer = (threadIdx.x - 128); 1) {
@@ -1784,7 +1791,7 @@ exo_CudaInline_test_golden_Sm90a_gemm_m2n2_K::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32
             );
             exo_excutLog.log_action(EXO_EXCUT_STR_ID(wgmma_fence_sync_aligned), 0, __LINE__);
             #pragma unroll
-            for (int ms = 0; ms < 2; ms++) {
+            for (exo_control_t ms = 0; ms < 2; ms++) {
               {
                 // K = 0 out of 32
                 const uint64_t exo_descA = exo_CudaUtil::exo_Sm90_smem_descriptor((&A_smem[(iter_k * 8192 + (64 * ms + 128 * exo_128thr_wg_m) * 32)]), 1, 256);
@@ -1913,7 +1920,7 @@ exo_CudaInline_test_golden_Sm90a_gemm_m2n2_K::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32
       }
     }
   }
-  for (int iter_k = 1; iter_k < ((31 + exo_deviceArgs.K_cluster) / (32)); iter_k++) {
+  for (exo_control_t iter_k = 1; iter_k < ((31 + exo_deviceArgs.K_cluster) / (32)); iter_k++) {
     ; // NO-OP
     // CudaWarps(name='consumer')
     if ([[maybe_unused]] int CudaWarps_None_None_consumer = (threadIdx.x - 128); 1) {
@@ -1931,7 +1938,7 @@ exo_CudaInline_test_golden_Sm90a_gemm_m2n2_K::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32
             );
             exo_excutLog.log_action(EXO_EXCUT_STR_ID(wgmma_fence_sync_aligned), 0, __LINE__);
             #pragma unroll
-            for (int ms = 0; ms < 2; ms++) {
+            for (exo_control_t ms = 0; ms < 2; ms++) {
               {
                 // K = 0 out of 32
                 const uint64_t exo_descA = exo_CudaUtil::exo_Sm90_smem_descriptor((&A_smem[((iter_k & 3) * 8192 + (64 * ms + 128 * exo_128thr_wg_m) * 32)]), 1, 256);
@@ -2127,7 +2134,7 @@ exo_CudaInline_test_golden_Sm90a_gemm_m2n2_K::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32
           // cuda_threads(0, 4, unit=cuda_warp)
           if ([[maybe_unused]] int exo_32thr_w = (threadIdx.x % 128 / 32); 1) {
             #pragma unroll
-            for (int ms = 0; ms < 2; ms++) {
+            for (exo_control_t ms = 0; ms < 2; ms++) {
               {  // Place SMEM handle in named temporary, because ThunderKittens is not const-correct.
                 auto exo_tk_subtile = C_smem[0].template as_tk_subtile<6, 16, 32, ::kittens::st_fl>(0, (16 * exo_32thr_w + 64 * ms + 128 * exo_128thr_wg_m), 0);
                 ::kittens::warp::store(exo_tk_subtile, D_rmem[ms]);
@@ -2185,17 +2192,17 @@ exo_CudaInline_test_golden_Sm90a_gemm_m2n2_K::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32
     asm("setmaxnreg.dec.sync.aligned.u32 40;");
     if (int tmp = threadIdx.x; tmp >= 0 && tmp < 128) {
       {
-        int_fast32_t exo_cudaTasksLo_batch = 0;
-        int_fast32_t exo_cudaTasksHi_batch = exo_deviceArgs.L;
+        exo_control_t exo_cudaTasksLo_batch = 0;
+        exo_control_t exo_cudaTasksHi_batch = exo_deviceArgs.L;
         {
-          int_fast32_t exo_cudaTasksLo_task_k = 0;
-          int_fast32_t exo_cudaTasksHi_task_k = exo_deviceArgs.K_split;
+          exo_control_t exo_cudaTasksLo_task_k = 0;
+          exo_control_t exo_cudaTasksHi_task_k = exo_deviceArgs.K_split;
           {
-            int_fast32_t exo_cudaTasksLo_task_m = 0;
-            int_fast32_t exo_cudaTasksHi_task_m = ((511 + exo_deviceArgs.M) / (512));
+            exo_control_t exo_cudaTasksLo_task_m = 0;
+            exo_control_t exo_cudaTasksHi_task_m = ((511 + exo_deviceArgs.M) / (512));
             {
-              int_fast32_t exo_cudaTasksLo_task_n = 0;
-              int_fast32_t exo_cudaTasksHi_task_n = ((383 + exo_deviceArgs.N) / (384));
+              exo_control_t exo_cudaTasksLo_task_n = 0;
+              exo_control_t exo_cudaTasksHi_task_n = ((383 + exo_deviceArgs.N) / (384));
               exo_TaskGenerator exo_taskGenerator(
                   blockIdx.x / exo_clusterDim,
                   gridDim.x / exo_clusterDim,
@@ -2217,17 +2224,17 @@ exo_CudaInline_test_golden_Sm90a_gemm_m2n2_K::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32
     asm("setmaxnreg.inc.sync.aligned.u32 232;");
     if (int tmp = threadIdx.x; tmp >= 128 && tmp < 384) {
       {
-        int_fast32_t exo_cudaTasksLo_batch = 0;
-        int_fast32_t exo_cudaTasksHi_batch = exo_deviceArgs.L;
+        exo_control_t exo_cudaTasksLo_batch = 0;
+        exo_control_t exo_cudaTasksHi_batch = exo_deviceArgs.L;
         {
-          int_fast32_t exo_cudaTasksLo_task_k = 0;
-          int_fast32_t exo_cudaTasksHi_task_k = exo_deviceArgs.K_split;
+          exo_control_t exo_cudaTasksLo_task_k = 0;
+          exo_control_t exo_cudaTasksHi_task_k = exo_deviceArgs.K_split;
           {
-            int_fast32_t exo_cudaTasksLo_task_m = 0;
-            int_fast32_t exo_cudaTasksHi_task_m = ((511 + exo_deviceArgs.M) / (512));
+            exo_control_t exo_cudaTasksLo_task_m = 0;
+            exo_control_t exo_cudaTasksHi_task_m = ((511 + exo_deviceArgs.M) / (512));
             {
-              int_fast32_t exo_cudaTasksLo_task_n = 0;
-              int_fast32_t exo_cudaTasksHi_task_n = ((383 + exo_deviceArgs.N) / (384));
+              exo_control_t exo_cudaTasksLo_task_n = 0;
+              exo_control_t exo_cudaTasksHi_task_n = ((383 + exo_deviceArgs.N) / (384));
               exo_TaskGenerator exo_taskGenerator(
                   blockIdx.x / exo_clusterDim,
                   gridDim.x / exo_clusterDim,

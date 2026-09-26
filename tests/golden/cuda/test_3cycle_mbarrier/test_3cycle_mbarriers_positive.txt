@@ -85,6 +85,13 @@ struct exo_ExcutThreadLog {
 #define EXO_CUDA_STREAM_GUARD
 static const cudaStream_t exo_cudaStream = 0;
 #endif
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -209,7 +216,7 @@ struct exo_Cuda0_proc_3cycle_mbarriers
 
   struct exo_Task
   {
-    int_fast32_t task;
+    exo_control_t task;
   };
 
   struct exo_TaskGenerator
@@ -217,11 +224,11 @@ struct exo_Cuda0_proc_3cycle_mbarriers
     uint32_t exo_taskIndex;
     uint32_t exo_numClusters;
     uint32_t exo_taskCount;
-    int_fast32_t exo_cudaTasksLo_task;
+    exo_control_t exo_cudaTasksLo_task;
     uint32_t exo_cudaTasksNum_task;
     EXO_CUDA_INLINE exo_TaskGenerator(
         uint32_t cluster_index, uint32_t num_clusters,
-        int_fast32_t _exo_cudaTasksLo_task, int_fast32_t _exo_cudaTasksHi_task,
+        exo_control_t _exo_cudaTasksLo_task, exo_control_t _exo_cudaTasksHi_task,
         const exo_DeviceArgs&)
     {
       exo_taskIndex = cluster_index;
@@ -240,7 +247,7 @@ struct exo_Cuda0_proc_3cycle_mbarriers
       exo_Task exo_task;
       uint32_t exo_tmp = exo_taskIndex;
       exo_taskIndex += exo_numClusters;
-      exo_task.task = exo_cudaTasksLo_task + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_task);
+      exo_task.task = exo_cudaTasksLo_task + static_cast<exo_control_t>(exo_tmp % exo_cudaTasksNum_task);
       exo_tmp /= exo_cudaTasksNum_task;
       return exo_task;
     }
@@ -577,7 +584,7 @@ exo_CudaInline_test_3cycle_mbarriers_positive::exo_Cuda0_proc_3cycle_mbarriers::
   // AtoB: barrier[2, 6] @ CudaMbarrierPreArrive(2, )
   ; // NO-OP
   // CtoA: barrier[2, 6] @ CudaMbarrierPreArrive(1, )
-  for (int n = 0; n < 25; n++) {
+  for (exo_control_t n = 0; n < 25; n++) {
     ; // NO-OP
     ; // NO-OP
     // CudaWarps(name='A')
@@ -628,7 +635,7 @@ exo_CudaInline_test_3cycle_mbarriers_positive::exo_Cuda0_proc_3cycle_mbarriers::
   // AtoB: barrier[2, 6] @ CudaMbarrierPreArrive(2, )
   // BtoC: barrier[2, 6] @ CudaMbarrierPreArrive(3, )
   ; // NO-OP
-  for (int n = 0; n < 25; n++) {
+  for (exo_control_t n = 0; n < 25; n++) {
     // CudaWarps(name='B')
     if ([[maybe_unused]] int CudaWarps_None_None_B = (threadIdx.x - 64); 1) {
       // cuda_threads(0, 2, unit=cuda_warp)
@@ -665,7 +672,7 @@ exo_CudaInline_test_3cycle_mbarriers_positive::exo_Cuda0_proc_3cycle_mbarriers::
   ; // NO-OP
   // BtoC: barrier[2, 6] @ CudaMbarrierPreArrive(3, )
   // CtoA: barrier[2, 6] @ CudaMbarrierPreArrive(1, )
-  for (int n = 0; n < 25; n++) {
+  for (exo_control_t n = 0; n < 25; n++) {
     ; // NO-OP
     // CudaWarps(name='C')
     if ([[maybe_unused]] int CudaWarps_None_None_C = (threadIdx.x - 128); 1) {
@@ -712,8 +719,8 @@ exo_CudaInline_test_3cycle_mbarriers_positive::exo_Cuda0_proc_3cycle_mbarriers::
   if (nreg == ((int32_t) 0)) {
     if (int tmp = threadIdx.x; tmp >= 0 && tmp < 64) {
       {
-        int_fast32_t exo_cudaTasksLo_task = 0;
-        int_fast32_t exo_cudaTasksHi_task = 1;
+        exo_control_t exo_cudaTasksLo_task = 0;
+        exo_control_t exo_cudaTasksHi_task = 1;
         exo_TaskGenerator exo_taskGenerator(
             blockIdx.x / exo_clusterDim,
             gridDim.x / exo_clusterDim,
@@ -726,8 +733,8 @@ exo_CudaInline_test_3cycle_mbarriers_positive::exo_Cuda0_proc_3cycle_mbarriers::
     }
     if (int tmp = threadIdx.x; tmp >= 64 && tmp < 128) {
       {
-        int_fast32_t exo_cudaTasksLo_task = 0;
-        int_fast32_t exo_cudaTasksHi_task = 1;
+        exo_control_t exo_cudaTasksLo_task = 0;
+        exo_control_t exo_cudaTasksHi_task = 1;
         exo_TaskGenerator exo_taskGenerator(
             blockIdx.x / exo_clusterDim,
             gridDim.x / exo_clusterDim,
@@ -740,8 +747,8 @@ exo_CudaInline_test_3cycle_mbarriers_positive::exo_Cuda0_proc_3cycle_mbarriers::
     }
     if (int tmp = threadIdx.x; tmp >= 128 && tmp < 384) {
       {
-        int_fast32_t exo_cudaTasksLo_task = 0;
-        int_fast32_t exo_cudaTasksHi_task = 1;
+        exo_control_t exo_cudaTasksLo_task = 0;
+        exo_control_t exo_cudaTasksHi_task = 1;
         exo_TaskGenerator exo_taskGenerator(
             blockIdx.x / exo_clusterDim,
             gridDim.x / exo_clusterDim,

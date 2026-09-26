@@ -15,13 +15,13 @@ C:
 //     a : i8[10, 10] @DRAM
 // )
 void bar( void *ctxt, int8_t* a ) {
-  for (int_fast32_t i = 0; i < 10; i++) {
+  for (exo_control_t i = 0; i < 10; i++) {
     foo(ctxt, (struct exo_win_1i8) { &a[i * 10 + 1], {1} });
   }
-  for (int_fast32_t i = 0; i < 10; i++) {
+  for (exo_control_t i = 0; i < 10; i++) {
     foo(ctxt, (struct exo_win_1i8) { &a[i * 10 + 5], {1} });
   }
-  for (int_fast32_t i = 0; i < 10; i++) {
+  for (exo_control_t i = 0; i < 10; i++) {
     foo(ctxt, (struct exo_win_1i8) { &a[i * 10 + 2], {1} });
   }
 }

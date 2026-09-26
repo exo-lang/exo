@@ -11,7 +11,7 @@ int8_t _select_int8_t(int8_t x,int8_t v,int8_t y,int8_t z) {
 //     z : i8[16] @DRAM
 // )
 void foo( void *ctxt, const int8_t* x, const int8_t* y, int8_t* z ) {
-  for (int_fast32_t i = 0; i < 16; i++) {
+  for (exo_control_t i = 0; i < 16; i++) {
     z[i] = _select_int8_t((int8_t)x[i] * ((int8_t) 2), (int8_t)y[i], (int8_t)z[i] + y[i], (int8_t)-x[i]);
   }
 }
@@ -23,6 +23,13 @@ void foo( void *ctxt, const int8_t* x, const int8_t* y, int8_t* z ) {
 
 #include <stdint.h>
 #include <stdbool.h>
+
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
 
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
@@ -61,7 +68,7 @@ extern "C" {
 #define EXO_WIN_1I8C
 struct exo_win_1i8c {
     const int8_t * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 /* Required by DRAM */
@@ -69,7 +76,7 @@ struct exo_win_1i8c {
 #define EXO_WIN_1I8
 struct exo_win_1i8 {
     int8_t * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 // foo(

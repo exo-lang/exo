@@ -85,6 +85,13 @@ struct exo_ExcutThreadLog {
 #define EXO_CUDA_STREAM_GUARD
 static const cudaStream_t exo_cudaStream = 0;
 #endif
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -125,7 +132,7 @@ extern "C" {
 #define EXO_WIN_2F32
 struct exo_win_2f32 {
     float * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 // gemm_test(
@@ -136,7 +143,7 @@ struct exo_win_2f32 {
 //     B_cpu : f32[N, K] @DRAM,
 //     C_cpu : f32[N, M] @DRAM
 // )
-void gemm_test( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, float* A_cpu, float* B_cpu, float* C_cpu );
+void gemm_test( void *ctxt, exo_control_t M, exo_control_t N, exo_control_t K, float* A_cpu, float* B_cpu, float* C_cpu );
 
 
 
@@ -228,7 +235,7 @@ inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
 #define EXO_WIN_1F32
 struct exo_win_1f32 {
     float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 /* Required by CudaGmemLinear */
@@ -236,14 +243,14 @@ struct exo_win_1f32 {
 #define EXO_WIN_2F32C
 struct exo_win_2f32c {
     const float * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 // CUDA device function args -- duplicated in .cuh file
 struct exo_CudaDeviceArgs0_gemm_test
 {
-    int_fast32_t M;  // M : size
-    int_fast32_t K;  // K : size
+    exo_control_t M;  // M : size
+    exo_control_t K;  // K : size
     float* A;  // A : f32[M, K] @CudaGmemLinear
     EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
 };
@@ -251,8 +258,8 @@ struct exo_CudaDeviceArgs0_gemm_test
 // CUDA device function args -- duplicated in .cuh file
 struct exo_CudaDeviceArgs1_gemm_test
 {
-    int_fast32_t N;  // N : size
-    int_fast32_t K;  // K : size
+    exo_control_t N;  // N : size
+    exo_control_t K;  // K : size
     float* B;  // B : f32[N, K] @CudaGmemLinear
     EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
 };
@@ -260,9 +267,9 @@ struct exo_CudaDeviceArgs1_gemm_test
 // CUDA device function args -- duplicated in .cuh file
 struct exo_CudaDeviceArgs2_gemm_test
 {
-    int_fast32_t M;  // M : size
-    int_fast32_t N;  // N : size
-    int_fast32_t K;  // K : size
+    exo_control_t M;  // M : size
+    exo_control_t N;  // N : size
+    exo_control_t K;  // K : size
     float* A;  // A : f32[M, K] @CudaGmemLinear
     float* B;  // B : f32[N, K] @CudaGmemLinear
     float* C;  // C : f32[N, M] @CudaGmemLinear
@@ -292,7 +299,7 @@ exo_CudaUtil::gemm_init_pcg3d_mod({K}, &{A_data}, {m}, {k}, 42, 14);
 //     B_cpu : f32[N, K] @DRAM,
 //     C_cpu : f32[N, M] @DRAM
 // )
-void gemm_test( void *ctxt, int_fast32_t M, int_fast32_t N, int_fast32_t K, float* A_cpu, float* B_cpu, float* C_cpu ) {
+void gemm_test( void *ctxt, exo_control_t M, exo_control_t N, exo_control_t K, float* A_cpu, float* B_cpu, float* C_cpu ) {
   float *A = (float*) exo_cudaMallocAsync(M * K * sizeof(*A), exo_cudaStream);
   float *B = (float*) exo_cudaMallocAsync(N * K * sizeof(*B), exo_cudaStream);
   float *C = (float*) exo_cudaMallocAsync(N * M * sizeof(*C), exo_cudaStream);
@@ -398,7 +405,7 @@ inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
 #define EXO_WIN_1F32
 struct exo_win_1f32 {
     float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 /* Required by CudaGmemLinear */
@@ -406,7 +413,7 @@ struct exo_win_1f32 {
 #define EXO_WIN_2F32C
 struct exo_win_2f32c {
     const float * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 
@@ -450,8 +457,8 @@ __device__ void gemm_init_pcg3d_mod(
 // CUDA device function args -- duplicated in .c file
 struct exo_CudaDeviceArgs0_gemm_test
 {
-    int_fast32_t M;  // M : size
-    int_fast32_t K;  // K : size
+    exo_control_t M;  // M : size
+    exo_control_t K;  // K : size
     float* A;  // A : f32[M, K] @CudaGmemLinear
     EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
 };
@@ -470,8 +477,8 @@ struct exo_Cuda0_gemm_test
 
   struct exo_Task
   {
-    int_fast32_t m;
-    int_fast32_t k_task;
+    exo_control_t m;
+    exo_control_t k_task;
   };
 
   struct exo_TaskGenerator
@@ -479,14 +486,14 @@ struct exo_Cuda0_gemm_test
     uint32_t exo_taskIndex;
     uint32_t exo_numClusters;
     uint32_t exo_taskCount;
-    int_fast32_t exo_cudaTasksLo_m;
+    exo_control_t exo_cudaTasksLo_m;
     uint32_t exo_cudaTasksNum_m;
-    int_fast32_t exo_cudaTasksLo_k_task;
+    exo_control_t exo_cudaTasksLo_k_task;
     uint32_t exo_cudaTasksNum_k_task;
     EXO_CUDA_INLINE exo_TaskGenerator(
         uint32_t cluster_index, uint32_t num_clusters,
-        int_fast32_t _exo_cudaTasksLo_m, int_fast32_t _exo_cudaTasksHi_m,
-        int_fast32_t _exo_cudaTasksLo_k_task, int_fast32_t _exo_cudaTasksHi_k_task,
+        exo_control_t _exo_cudaTasksLo_m, exo_control_t _exo_cudaTasksHi_m,
+        exo_control_t _exo_cudaTasksLo_k_task, exo_control_t _exo_cudaTasksHi_k_task,
         const exo_DeviceArgs&)
     {
       exo_taskIndex = cluster_index;
@@ -508,9 +515,9 @@ struct exo_Cuda0_gemm_test
       exo_Task exo_task;
       uint32_t exo_tmp = exo_taskIndex;
       exo_taskIndex += exo_numClusters;
-      exo_task.k_task = exo_cudaTasksLo_k_task + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_k_task);
+      exo_task.k_task = exo_cudaTasksLo_k_task + static_cast<exo_control_t>(exo_tmp % exo_cudaTasksNum_k_task);
       exo_tmp /= exo_cudaTasksNum_k_task;
-      exo_task.m = exo_cudaTasksLo_m + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_m);
+      exo_task.m = exo_cudaTasksLo_m + static_cast<exo_control_t>(exo_tmp % exo_cudaTasksNum_m);
       exo_tmp /= exo_cudaTasksNum_m;
       return exo_task;
     }
@@ -622,11 +629,11 @@ exo_CudaInline_test_cuda_simple_matmul_golden::exo_Cuda0_gemm_test::exo_deviceMa
   if (nreg == ((int32_t) 0)) {
     if (int tmp = threadIdx.x; tmp >= 0 && tmp < 32) {
       {
-        int_fast32_t exo_cudaTasksLo_m = 0;
-        int_fast32_t exo_cudaTasksHi_m = exo_deviceArgs.M;
+        exo_control_t exo_cudaTasksLo_m = 0;
+        exo_control_t exo_cudaTasksHi_m = exo_deviceArgs.M;
         {
-          int_fast32_t exo_cudaTasksLo_k_task = 0;
-          int_fast32_t exo_cudaTasksHi_k_task = ((exo_deviceArgs.K) / (32));
+          exo_control_t exo_cudaTasksLo_k_task = 0;
+          exo_control_t exo_cudaTasksHi_k_task = ((exo_deviceArgs.K) / (32));
           exo_TaskGenerator exo_taskGenerator(
               blockIdx.x / exo_clusterDim,
               gridDim.x / exo_clusterDim,
@@ -644,8 +651,8 @@ exo_CudaInline_test_cuda_simple_matmul_golden::exo_Cuda0_gemm_test::exo_deviceMa
 // CUDA device function args -- duplicated in .c file
 struct exo_CudaDeviceArgs1_gemm_test
 {
-    int_fast32_t N;  // N : size
-    int_fast32_t K;  // K : size
+    exo_control_t N;  // N : size
+    exo_control_t K;  // K : size
     float* B;  // B : f32[N, K] @CudaGmemLinear
     EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
 };
@@ -664,8 +671,8 @@ struct exo_Cuda1_gemm_test
 
   struct exo_Task
   {
-    int_fast32_t n;
-    int_fast32_t k_task;
+    exo_control_t n;
+    exo_control_t k_task;
   };
 
   struct exo_TaskGenerator
@@ -673,14 +680,14 @@ struct exo_Cuda1_gemm_test
     uint32_t exo_taskIndex;
     uint32_t exo_numClusters;
     uint32_t exo_taskCount;
-    int_fast32_t exo_cudaTasksLo_n;
+    exo_control_t exo_cudaTasksLo_n;
     uint32_t exo_cudaTasksNum_n;
-    int_fast32_t exo_cudaTasksLo_k_task;
+    exo_control_t exo_cudaTasksLo_k_task;
     uint32_t exo_cudaTasksNum_k_task;
     EXO_CUDA_INLINE exo_TaskGenerator(
         uint32_t cluster_index, uint32_t num_clusters,
-        int_fast32_t _exo_cudaTasksLo_n, int_fast32_t _exo_cudaTasksHi_n,
-        int_fast32_t _exo_cudaTasksLo_k_task, int_fast32_t _exo_cudaTasksHi_k_task,
+        exo_control_t _exo_cudaTasksLo_n, exo_control_t _exo_cudaTasksHi_n,
+        exo_control_t _exo_cudaTasksLo_k_task, exo_control_t _exo_cudaTasksHi_k_task,
         const exo_DeviceArgs&)
     {
       exo_taskIndex = cluster_index;
@@ -702,9 +709,9 @@ struct exo_Cuda1_gemm_test
       exo_Task exo_task;
       uint32_t exo_tmp = exo_taskIndex;
       exo_taskIndex += exo_numClusters;
-      exo_task.k_task = exo_cudaTasksLo_k_task + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_k_task);
+      exo_task.k_task = exo_cudaTasksLo_k_task + static_cast<exo_control_t>(exo_tmp % exo_cudaTasksNum_k_task);
       exo_tmp /= exo_cudaTasksNum_k_task;
-      exo_task.n = exo_cudaTasksLo_n + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_n);
+      exo_task.n = exo_cudaTasksLo_n + static_cast<exo_control_t>(exo_tmp % exo_cudaTasksNum_n);
       exo_tmp /= exo_cudaTasksNum_n;
       return exo_task;
     }
@@ -816,11 +823,11 @@ exo_CudaInline_test_cuda_simple_matmul_golden::exo_Cuda1_gemm_test::exo_deviceMa
   if (nreg == ((int32_t) 0)) {
     if (int tmp = threadIdx.x; tmp >= 0 && tmp < 32) {
       {
-        int_fast32_t exo_cudaTasksLo_n = 0;
-        int_fast32_t exo_cudaTasksHi_n = exo_deviceArgs.N;
+        exo_control_t exo_cudaTasksLo_n = 0;
+        exo_control_t exo_cudaTasksHi_n = exo_deviceArgs.N;
         {
-          int_fast32_t exo_cudaTasksLo_k_task = 0;
-          int_fast32_t exo_cudaTasksHi_k_task = ((exo_deviceArgs.K) / (32));
+          exo_control_t exo_cudaTasksLo_k_task = 0;
+          exo_control_t exo_cudaTasksHi_k_task = ((exo_deviceArgs.K) / (32));
           exo_TaskGenerator exo_taskGenerator(
               blockIdx.x / exo_clusterDim,
               gridDim.x / exo_clusterDim,
@@ -838,9 +845,9 @@ exo_CudaInline_test_cuda_simple_matmul_golden::exo_Cuda1_gemm_test::exo_deviceMa
 // CUDA device function args -- duplicated in .c file
 struct exo_CudaDeviceArgs2_gemm_test
 {
-    int_fast32_t M;  // M : size
-    int_fast32_t N;  // N : size
-    int_fast32_t K;  // K : size
+    exo_control_t M;  // M : size
+    exo_control_t N;  // N : size
+    exo_control_t K;  // K : size
     float* A;  // A : f32[M, K] @CudaGmemLinear
     float* B;  // B : f32[N, K] @CudaGmemLinear
     float* C;  // C : f32[N, M] @CudaGmemLinear
@@ -862,8 +869,8 @@ struct exo_Cuda2_gemm_test
 
   struct exo_Task
   {
-    int_fast32_t m2;
-    int_fast32_t n2;
+    exo_control_t m2;
+    exo_control_t n2;
   };
 
   struct exo_TaskGenerator
@@ -871,14 +878,14 @@ struct exo_Cuda2_gemm_test
     uint32_t exo_taskIndex;
     uint32_t exo_numClusters;
     uint32_t exo_taskCount;
-    int_fast32_t exo_cudaTasksLo_m2;
+    exo_control_t exo_cudaTasksLo_m2;
     uint32_t exo_cudaTasksNum_m2;
-    int_fast32_t exo_cudaTasksLo_n2;
+    exo_control_t exo_cudaTasksLo_n2;
     uint32_t exo_cudaTasksNum_n2;
     EXO_CUDA_INLINE exo_TaskGenerator(
         uint32_t cluster_index, uint32_t num_clusters,
-        int_fast32_t _exo_cudaTasksLo_m2, int_fast32_t _exo_cudaTasksHi_m2,
-        int_fast32_t _exo_cudaTasksLo_n2, int_fast32_t _exo_cudaTasksHi_n2,
+        exo_control_t _exo_cudaTasksLo_m2, exo_control_t _exo_cudaTasksHi_m2,
+        exo_control_t _exo_cudaTasksLo_n2, exo_control_t _exo_cudaTasksHi_n2,
         const exo_DeviceArgs&)
     {
       exo_taskIndex = cluster_index;
@@ -900,9 +907,9 @@ struct exo_Cuda2_gemm_test
       exo_Task exo_task;
       uint32_t exo_tmp = exo_taskIndex;
       exo_taskIndex += exo_numClusters;
-      exo_task.n2 = exo_cudaTasksLo_n2 + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_n2);
+      exo_task.n2 = exo_cudaTasksLo_n2 + static_cast<exo_control_t>(exo_tmp % exo_cudaTasksNum_n2);
       exo_tmp /= exo_cudaTasksNum_n2;
-      exo_task.m2 = exo_cudaTasksLo_m2 + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_m2);
+      exo_task.m2 = exo_cudaTasksLo_m2 + static_cast<exo_control_t>(exo_tmp % exo_cudaTasksNum_m2);
       exo_tmp /= exo_cudaTasksNum_m2;
       return exo_task;
     }
@@ -1003,15 +1010,15 @@ exo_CudaInline_test_cuda_simple_matmul_golden::exo_Cuda2_gemm_test::exo_deviceTa
   if ([[maybe_unused]] int exo_16thr_m1 = (threadIdx.x / 16); 1) {
     // cuda_threads(0, 16, unit=cuda_thread)
     if ([[maybe_unused]] int exo_1thr_n1 = (threadIdx.x % 16); 1) {
-      for (int m0 = 0; m0 < 8; m0++) {
-        for (int n0 = 0; n0 < 16; n0++) {
+      for (exo_control_t m0 = 0; m0 < 8; m0++) {
+        for (exo_control_t n0 = 0; n0 < 16; n0++) {
           accum[m0 * 16 + n0] = 0.0f;
         }
       }
     }
   }
-  for (int k1 = 0; k1 < ((exo_deviceArgs.K) / (32)); k1++) {
-    for (int m1 = 0; m1 < 16; m1++) {
+  for (exo_control_t k1 = 0; k1 < ((exo_deviceArgs.K) / (32)); k1++) {
+    for (exo_control_t m1 = 0; m1 < 16; m1++) {
       // cuda_threads(0, 8, unit=32 * cuda_thread)
       if ([[maybe_unused]] int exo_32thr_m0 = (threadIdx.x / 32); 1) {
         // cuda_threads(0, 32, unit=cuda_thread)
@@ -1020,7 +1027,7 @@ exo_CudaInline_test_cuda_simple_matmul_golden::exo_Cuda2_gemm_test::exo_deviceTa
         }
       }
     }
-    for (int n1 = 0; n1 < 32; n1++) {
+    for (exo_control_t n1 = 0; n1 < 32; n1++) {
       // cuda_threads(0, 8, unit=32 * cuda_thread)
       if ([[maybe_unused]] int exo_32thr_n0 = (threadIdx.x / 32); 1) {
         // cuda_threads(0, 32, unit=cuda_thread)
@@ -1039,9 +1046,9 @@ exo_CudaInline_test_cuda_simple_matmul_golden::exo_Cuda2_gemm_test::exo_deviceTa
     if ([[maybe_unused]] int exo_16thr_m1 = (threadIdx.x / 16); 1) {
       // cuda_threads(0, 16, unit=cuda_thread)
       if ([[maybe_unused]] int exo_1thr_n1 = (threadIdx.x % 16); 1) {
-        for (int k0 = 0; k0 < 32; k0++) {
-          for (int m0 = 0; m0 < 8; m0++) {
-            for (int n0 = 0; n0 < 16; n0++) {
+        for (exo_control_t k0 = 0; k0 < 32; k0++) {
+          for (exo_control_t m0 = 0; m0 < 8; m0++) {
+            for (exo_control_t n0 = 0; n0 < 16; n0++) {
               accum[m0 * 16 + n0] += A_smem[(exo_16thr_m1 * 8 + m0) * 32 + k0] * B_smem[(exo_1thr_n1 * 16 + n0) * 32 + k0];
             }
           }
@@ -1059,8 +1066,8 @@ exo_CudaInline_test_cuda_simple_matmul_golden::exo_Cuda2_gemm_test::exo_deviceTa
   if ([[maybe_unused]] int exo_16thr_m1 = (threadIdx.x / 16); 1) {
     // cuda_threads(0, 16, unit=cuda_thread)
     if ([[maybe_unused]] int exo_1thr_n1 = (threadIdx.x % 16); 1) {
-      for (int m0 = 0; m0 < 8; m0++) {
-        for (int n0 = 0; n0 < 16; n0++) {
+      for (exo_control_t m0 = 0; m0 < 8; m0++) {
+        for (exo_control_t n0 = 0; n0 < 16; n0++) {
           exo_deviceArgs.C[(exo_task.n2 * 256 + exo_1thr_n1 * 16 + n0) * exo_deviceArgs.M + (exo_task.m2 * 128 + exo_16thr_m1 * 8 + m0)] = accum[m0 * 16 + n0];
         }
       }
@@ -1080,11 +1087,11 @@ exo_CudaInline_test_cuda_simple_matmul_golden::exo_Cuda2_gemm_test::exo_deviceMa
   if (nreg == ((int32_t) 0)) {
     if (int tmp = threadIdx.x; tmp >= 0 && tmp < 256) {
       {
-        int_fast32_t exo_cudaTasksLo_m2 = 0;
-        int_fast32_t exo_cudaTasksHi_m2 = ((exo_deviceArgs.M) / (128));
+        exo_control_t exo_cudaTasksLo_m2 = 0;
+        exo_control_t exo_cudaTasksHi_m2 = ((exo_deviceArgs.M) / (128));
         {
-          int_fast32_t exo_cudaTasksLo_n2 = 0;
-          int_fast32_t exo_cudaTasksHi_n2 = ((exo_deviceArgs.N) / (256));
+          exo_control_t exo_cudaTasksLo_n2 = 0;
+          exo_control_t exo_cudaTasksHi_n2 = ((exo_deviceArgs.N) / (256));
           exo_TaskGenerator exo_taskGenerator(
               blockIdx.x / exo_clusterDim,
               gridDim.x / exo_clusterDim,

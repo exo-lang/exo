@@ -12,7 +12,7 @@
 #define EXO_WIN_1I8C
 struct exo_win_1i8c {
     const int8_t * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 // foo(
@@ -20,7 +20,7 @@ struct exo_win_1i8c {
 // )
 void foo( void *ctxt, int8_t* x ) {
   #pragma omp parallel for
-  for (int_fast32_t i = 0; i < 10; i++) {
+  for (exo_control_t i = 0; i < 10; i++) {
     int8_t y[10];
     x[i] = y[i];
   }

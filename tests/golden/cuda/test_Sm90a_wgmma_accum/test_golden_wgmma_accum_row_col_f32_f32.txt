@@ -85,6 +85,13 @@ struct exo_ExcutThreadLog {
 #define EXO_CUDA_STREAM_GUARD
 static const cudaStream_t exo_cudaStream = 0;
 #endif
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -123,7 +130,7 @@ extern "C" {
 #define EXO_WIN_2F32C
 struct exo_win_2f32c {
     const float * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 /* Required by CudaGmemLinear */
@@ -132,7 +139,7 @@ struct exo_win_2f32c {
 #define EXO_WIN_2F32
 struct exo_win_2f32 {
     float * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 // wgmma_accum_row_col_f32_f32(
@@ -673,7 +680,7 @@ struct exo_Cuda0_wgmma_accum_row_col_f32_f32
 
   struct exo_Task
   {
-    int_fast32_t task;
+    exo_control_t task;
   };
 
   struct exo_TaskGenerator
@@ -681,11 +688,11 @@ struct exo_Cuda0_wgmma_accum_row_col_f32_f32
     uint32_t exo_taskIndex;
     uint32_t exo_numClusters;
     uint32_t exo_taskCount;
-    int_fast32_t exo_cudaTasksLo_task;
+    exo_control_t exo_cudaTasksLo_task;
     uint32_t exo_cudaTasksNum_task;
     EXO_CUDA_INLINE exo_TaskGenerator(
         uint32_t cluster_index, uint32_t num_clusters,
-        int_fast32_t _exo_cudaTasksLo_task, int_fast32_t _exo_cudaTasksHi_task,
+        exo_control_t _exo_cudaTasksLo_task, exo_control_t _exo_cudaTasksHi_task,
         const exo_DeviceArgs&)
     {
       exo_taskIndex = cluster_index;
@@ -704,7 +711,7 @@ struct exo_Cuda0_wgmma_accum_row_col_f32_f32
       exo_Task exo_task;
       uint32_t exo_tmp = exo_taskIndex;
       exo_taskIndex += exo_numClusters;
-      exo_task.task = exo_cudaTasksLo_task + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_task);
+      exo_task.task = exo_cudaTasksLo_task + static_cast<exo_control_t>(exo_tmp % exo_cudaTasksNum_task);
       exo_tmp /= exo_cudaTasksNum_task;
       return exo_task;
     }
@@ -802,14 +809,14 @@ exo_CudaInline_test_golden_wgmma_accum_row_col_f32_f32::exo_Cuda0_wgmma_accum_ro
   auto& B_s = reinterpret_cast<exo_Sm90_SW128_tiled<float, 1, 96, 32> (&)[]>(exo_smem[exo_smemOffset1_B_s]);
   ::kittens::rt_fl<16, 96, ::kittens::ducks::rt_layout::row> D;
   // cg: barrier @ Sm90_WgmmaCommitGroup
-  for (int kt = 0; kt < 2; kt++) {
-    for (int m = 0; m < 64; m++) {
+  for (exo_control_t kt = 0; kt < 2; kt++) {
+    for (exo_control_t m = 0; m < 64; m++) {
       // cuda_threads(0, 32, unit=cuda_thread)
       if (int exo_1thr_k = threadIdx.x; exo_1thr_k < 32) {
         A_s[(kt * 2048 + m * 32 + exo_1thr_k)].swizzle_get() = exo_deviceArgs.A[m * 64 + (exo_1thr_k + 32 * kt)];
       }
     }
-    for (int n = 0; n < 96; n++) {
+    for (exo_control_t n = 0; n < 96; n++) {
       // cuda_threads(0, 32, unit=cuda_thread)
       if (int exo_1thr_k = threadIdx.x; exo_1thr_k < 32) {
         B_s[(kt * 3072 + n * 32 + exo_1thr_k)].swizzle_get() = exo_deviceArgs.B[n * 64 + (exo_1thr_k + 32 * kt)];
@@ -843,7 +850,7 @@ exo_CudaInline_test_golden_wgmma_accum_row_col_f32_f32::exo_Cuda0_wgmma_accum_ro
       "wgmma.fence.sync.aligned;"
     );
     exo_excutLog.log_action(EXO_EXCUT_STR_ID(wgmma_fence_sync_aligned), 0, __LINE__);
-    for (int kt = 0; kt < 2; kt++) {
+    for (exo_control_t kt = 0; kt < 2; kt++) {
       {
         // K = 0 out of 32
         const uint64_t exo_descA = exo_CudaUtil::exo_Sm90_smem_descriptor((&A_s[(kt * 2048)]), 1, 256);
@@ -971,8 +978,8 @@ exo_CudaInline_test_golden_wgmma_accum_row_col_f32_f32::exo_Cuda0_wgmma_accum_ro
   if (nreg == ((int32_t) 0)) {
     if (int tmp = threadIdx.x; tmp >= 0 && tmp < 128) {
       {
-        int_fast32_t exo_cudaTasksLo_task = 0;
-        int_fast32_t exo_cudaTasksHi_task = 1;
+        exo_control_t exo_cudaTasksLo_task = 0;
+        exo_control_t exo_cudaTasksHi_task = 1;
         exo_TaskGenerator exo_taskGenerator(
             blockIdx.x / exo_clusterDim,
             gridDim.x / exo_clusterDim,

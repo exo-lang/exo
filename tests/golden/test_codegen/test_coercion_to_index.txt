@@ -11,7 +11,7 @@
 
 // )
 void foo( void *ctxt ) {
-  for (int_fast32_t x = 0; x < 6; x++) {
+  for (exo_control_t x = 0; x < 6; x++) {
     ; // NO-OP
   }
 }

@@ -6,6 +6,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -44,7 +51,7 @@ extern "C" {
 #define EXO_WIN_2UI16
 struct exo_win_2ui16 {
     uint16_t * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 /* Required by DRAM */
@@ -52,7 +59,7 @@ struct exo_win_2ui16 {
 #define EXO_WIN_2UI16C
 struct exo_win_2ui16c {
     const uint16_t * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 /* Required by AVX2 */
@@ -61,7 +68,7 @@ struct exo_win_2ui16c {
 #define EXO_WIN_1UI16
 struct exo_win_1ui16 {
     uint16_t * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 /* Required by AVX2 */
@@ -70,7 +77,7 @@ struct exo_win_1ui16 {
 #define EXO_WIN_1UI16C
 struct exo_win_1ui16c {
     const uint16_t * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 // exo_base_blur(
@@ -79,7 +86,7 @@ struct exo_win_1ui16c {
 //     blur_y : ui16[H, W] @DRAM,
 //     inp : ui16[H + 2, W + 2] @DRAM
 // )
-void exo_base_blur( void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t* blur_y, const uint16_t* inp );
+void exo_base_blur( void *ctxt, exo_control_t W, exo_control_t H, uint16_t* blur_y, const uint16_t* inp );
 
 // exo_blur_halide(
 //     W : size,
@@ -87,7 +94,7 @@ void exo_base_blur( void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t* blur_y
 //     blur_y : ui16[H, W] @DRAM,
 //     inp : ui16[H + 2, W + 2] @DRAM
 // )
-void exo_blur_halide( void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t* blur_y, const uint16_t* inp );
+void exo_blur_halide( void *ctxt, exo_control_t W, exo_control_t H, uint16_t* blur_y, const uint16_t* inp );
 
 
 
@@ -128,17 +135,17 @@ avx2_ui16_divide_by_3(out,x)
 //     blur_y : ui16[H, W] @DRAM,
 //     inp : ui16[H + 2, W + 2] @DRAM
 // )
-void exo_base_blur( void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t* blur_y, const uint16_t* inp ) {
+void exo_base_blur( void *ctxt, exo_control_t W, exo_control_t H, uint16_t* blur_y, const uint16_t* inp ) {
   EXO_ASSUME(H % 32 == 0);
   EXO_ASSUME(W % 256 == 0);
   uint16_t *blur_x = (uint16_t*) malloc((H + 2) * W * sizeof(*blur_x));
-  for (int_fast32_t y = 0; y < H + 2; y++) {
-    for (int_fast32_t x = 0; x < W; x++) {
+  for (exo_control_t y = 0; y < H + 2; y++) {
+    for (exo_control_t x = 0; x < W; x++) {
       blur_x[y * W + x] = (inp[y * (W + 2) + x] + inp[y * (W + 2) + (x + 1)] + inp[y * (W + 2) + (x + 2)]) / ((uint16_t) 3.0);
     }
   }
-  for (int_fast32_t y = 0; y < H; y++) {
-    for (int_fast32_t x = 0; x < W; x++) {
+  for (exo_control_t y = 0; y < H; y++) {
+    for (exo_control_t x = 0; x < W; x++) {
       blur_y[y * W + x] = (blur_x[y * W + x] + blur_x[(y + 1) * W + x] + blur_x[(y + 2) * W + x]) / ((uint16_t) 3.0);
     }
   }
@@ -151,15 +158,15 @@ void exo_base_blur( void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t* blur_y
 //     blur_y : ui16[H, W] @DRAM,
 //     inp : ui16[H + 2, W + 2] @DRAM
 // )
-void exo_blur_halide( void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t* blur_y, const uint16_t* inp ) {
+void exo_blur_halide( void *ctxt, exo_control_t W, exo_control_t H, uint16_t* blur_y, const uint16_t* inp ) {
   EXO_ASSUME(H % 32 == 0);
   EXO_ASSUME(W % 256 == 0);
   #pragma omp parallel for
-  for (int_fast32_t y = 0; y < ((H) / (32)); y++) {
-    for (int_fast32_t x = 0; x < ((W) / (256)); x++) {
+  for (exo_control_t y = 0; y < ((H) / (32)); y++) {
+    for (exo_control_t x = 0; x < ((W) / (256)); x++) {
       uint16_t blur_x[34 * 256];
-      for (int_fast32_t yi = 0; yi < 34; yi++) {
-        for (int_fast32_t xio = 0; xio < 16; xio++) {
+      for (exo_control_t yi = 0; yi < 34; yi++) {
+        for (exo_control_t xio = 0; xio < 16; xio++) {
           __m256i var0;
           __m256i var1;
           __m256i var2;
@@ -179,8 +186,8 @@ void exo_blur_halide( void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t* blur
           _mm256_storeu_si256((__m256i *) &blur_x[yi * 256 + (16 * xio)], var0);
         }
       }
-      for (int_fast32_t yi = 0; yi < 32; yi++) {
-        for (int_fast32_t xio = 0; xio < 16; xio++) {
+      for (exo_control_t yi = 0; yi < 32; yi++) {
+        for (exo_control_t xio = 0; xio < 16; xio++) {
           __m256i var6;
           __m256i var7;
           __m256i var8;

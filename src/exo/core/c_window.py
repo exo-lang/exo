@@ -1,4 +1,5 @@
 """Codegen utilites for windows"""
+
 from dataclasses import dataclass
 from enum import Enum, auto
 from math import prod
@@ -539,8 +540,8 @@ class WindowIndexer:
 
 _default_struct_template = """\
 struct {sname} {{
-    {const_keyword}{ctype} * const data;
-    const int_fast32_t strides[{n_dims}];
+    {const_keyword}{data_ctype} * const data;
+    const {control_ctype} strides[{n_dims}];
 }};"""
 
 
@@ -552,7 +553,8 @@ class FallbackWindowEncoder(WindowEncoder):
         const_keyword = "const " if self.const else ""
         return _default_struct_template.format(
             sname=sname,
-            ctype=self.ctype(),
+            data_ctype=self.ctype(),
+            control_ctype=LoopIR.T.stride.ctype(),
             n_dims=self.n_dims,
             const_keyword=const_keyword,
         )

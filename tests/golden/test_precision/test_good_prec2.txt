@@ -2,6 +2,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -39,7 +46,7 @@ extern "C" {
 #define EXO_WIN_1F32C
 struct exo_win_1f32c {
     const float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 // hoge(
@@ -47,7 +54,7 @@ struct exo_win_1f32c {
 //     x : f32[n] @DRAM,
 //     y : f32[n] @DRAM
 // )
-void hoge( void *ctxt, int_fast32_t n, const float* x, const float* y );
+void hoge( void *ctxt, exo_control_t n, const float* x, const float* y );
 
 
 
@@ -61,7 +68,7 @@ void hoge( void *ctxt, int_fast32_t n, const float* x, const float* y );
 //     y : f32[m] @DRAM,
 //     r : f32 @DRAM
 // )
-static void dot( void *ctxt, int_fast32_t m, const float* x, const float* y, float* r );
+static void dot( void *ctxt, exo_control_t m, const float* x, const float* y, float* r );
 
 // dot(
 //     m : size,
@@ -69,9 +76,9 @@ static void dot( void *ctxt, int_fast32_t m, const float* x, const float* y, flo
 //     y : f32[m] @DRAM,
 //     r : f32 @DRAM
 // )
-static void dot( void *ctxt, int_fast32_t m, const float* x, const float* y, float* r ) {
+static void dot( void *ctxt, exo_control_t m, const float* x, const float* y, float* r ) {
   *r = 0.0f;
-  for (int_fast32_t i = 0; i < m; i++) {
+  for (exo_control_t i = 0; i < m; i++) {
     *r += x[i] * y[i];
   }
 }
@@ -81,7 +88,7 @@ static void dot( void *ctxt, int_fast32_t m, const float* x, const float* y, flo
 //     x : f32[n] @DRAM,
 //     y : f32[n] @DRAM
 // )
-void hoge( void *ctxt, int_fast32_t n, const float* x, const float* y ) {
+void hoge( void *ctxt, exo_control_t n, const float* x, const float* y ) {
   float xy;
   dot(ctxt, n, x, y, (&xy));
 }

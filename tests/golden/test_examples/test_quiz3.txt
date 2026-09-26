@@ -6,6 +6,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -43,7 +50,7 @@ extern "C" {
 #define EXO_WIN_2UI16
 struct exo_win_2ui16 {
     uint16_t * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 /* Required by DRAM */
@@ -51,7 +58,7 @@ struct exo_win_2ui16 {
 #define EXO_WIN_2UI16C
 struct exo_win_2ui16c {
     const uint16_t * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 // tile_and_fused_blur(
@@ -60,7 +67,7 @@ struct exo_win_2ui16c {
 //     blur_y : ui16[H, W] @DRAM,
 //     inp : ui16[H + 2, W + 2] @DRAM
 // )
-void tile_and_fused_blur( void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t* blur_y, const uint16_t* inp );
+void tile_and_fused_blur( void *ctxt, exo_control_t W, exo_control_t H, uint16_t* blur_y, const uint16_t* inp );
 
 // tile_and_fused_blur_scheduled(
 //     W : size,
@@ -68,7 +75,7 @@ void tile_and_fused_blur( void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t* 
 //     blur_y : ui16[H, W] @DRAM,
 //     inp : ui16[H + 2, W + 2] @DRAM
 // )
-void tile_and_fused_blur_scheduled( void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t* blur_y, const uint16_t* inp );
+void tile_and_fused_blur_scheduled( void *ctxt, exo_control_t W, exo_control_t H, uint16_t* blur_y, const uint16_t* inp );
 
 
 
@@ -87,19 +94,19 @@ void tile_and_fused_blur_scheduled( void *ctxt, int_fast32_t W, int_fast32_t H, 
 //     blur_y : ui16[H, W] @DRAM,
 //     inp : ui16[H + 2, W + 2] @DRAM
 // )
-void tile_and_fused_blur( void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t* blur_y, const uint16_t* inp ) {
+void tile_and_fused_blur( void *ctxt, exo_control_t W, exo_control_t H, uint16_t* blur_y, const uint16_t* inp ) {
   EXO_ASSUME(H % 32 == 0);
   EXO_ASSUME(W % 256 == 0);
   uint16_t *blur_x = (uint16_t*) malloc((2 + H) * W * sizeof(*blur_x));
-  for (int_fast32_t yo = 0; yo < ((H) / (32)); yo++) {
-    for (int_fast32_t xo = 0; xo < ((W) / (256)); xo++) {
-      for (int_fast32_t yi = 0; yi < 34; yi++) {
-        for (int_fast32_t xi = 0; xi < 256; xi++) {
+  for (exo_control_t yo = 0; yo < ((H) / (32)); yo++) {
+    for (exo_control_t xo = 0; xo < ((W) / (256)); xo++) {
+      for (exo_control_t yi = 0; yi < 34; yi++) {
+        for (exo_control_t xi = 0; xi < 256; xi++) {
           blur_x[(yi + 32 * yo) * W + (xi + 256 * xo)] = (inp[(yi + 32 * yo) * (W + 2) + (xi + 256 * xo)] + inp[(yi + 32 * yo) * (W + 2) + (1 + xi + 256 * xo)] + inp[(yi + 32 * yo) * (W + 2) + (2 + xi + 256 * xo)]) / ((uint16_t) 3.0);
         }
       }
-      for (int_fast32_t yi = 0; yi < 32; yi++) {
-        for (int_fast32_t xi = 0; xi < 256; xi++) {
+      for (exo_control_t yi = 0; yi < 32; yi++) {
+        for (exo_control_t xi = 0; xi < 256; xi++) {
           blur_y[(yi + 32 * yo) * W + (xi + 256 * xo)] = (blur_x[(yi + 32 * yo) * W + (xi + 256 * xo)] + blur_x[(1 + yi + 32 * yo) * W + (xi + 256 * xo)] + blur_x[(2 + yi + 32 * yo) * W + (xi + 256 * xo)]) / ((uint16_t) 3.0);
         }
       }
@@ -114,19 +121,19 @@ void tile_and_fused_blur( void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t* 
 //     blur_y : ui16[H, W] @DRAM,
 //     inp : ui16[H + 2, W + 2] @DRAM
 // )
-void tile_and_fused_blur_scheduled( void *ctxt, int_fast32_t W, int_fast32_t H, uint16_t* blur_y, const uint16_t* inp ) {
+void tile_and_fused_blur_scheduled( void *ctxt, exo_control_t W, exo_control_t H, uint16_t* blur_y, const uint16_t* inp ) {
   EXO_ASSUME(H % 32 == 0);
   EXO_ASSUME(W % 256 == 0);
   uint16_t *blur_x = (uint16_t*) malloc(34 * W * sizeof(*blur_x));
-  for (int_fast32_t yo = 0; yo < ((H) / (32)); yo++) {
-    for (int_fast32_t xo = 0; xo < ((W) / (256)); xo++) {
-      for (int_fast32_t yi = 0; yi < 34; yi++) {
-        for (int_fast32_t xi = 0; xi < 256; xi++) {
+  for (exo_control_t yo = 0; yo < ((H) / (32)); yo++) {
+    for (exo_control_t xo = 0; xo < ((W) / (256)); xo++) {
+      for (exo_control_t yi = 0; yi < 34; yi++) {
+        for (exo_control_t xi = 0; xi < 256; xi++) {
           blur_x[(yi + 32 * yo - 32 * yo) * W + (xi + 256 * xo)] = (inp[(yi + 32 * yo) * (W + 2) + (xi + 256 * xo)] + inp[(yi + 32 * yo) * (W + 2) + (1 + xi + 256 * xo)] + inp[(yi + 32 * yo) * (W + 2) + (2 + xi + 256 * xo)]) / ((uint16_t) 3.0);
         }
       }
-      for (int_fast32_t yi = 0; yi < 32; yi++) {
-        for (int_fast32_t xi = 0; xi < 256; xi++) {
+      for (exo_control_t yi = 0; yi < 32; yi++) {
+        for (exo_control_t xi = 0; xi < 256; xi++) {
           blur_y[(yi + 32 * yo) * W + (xi + 256 * xo)] = (blur_x[(yi + 32 * yo - 32 * yo) * W + (xi + 256 * xo)] + blur_x[(1 + yi + 32 * yo - 32 * yo) * W + (xi + 256 * xo)] + blur_x[(2 + yi + 32 * yo - 32 * yo) * W + (xi + 256 * xo)]) / ((uint16_t) 3.0);
         }
       }

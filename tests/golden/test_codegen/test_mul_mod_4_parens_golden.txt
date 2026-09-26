@@ -6,6 +6,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -43,14 +50,14 @@ extern "C" {
 #define EXO_WIN_1F32
 struct exo_win_1f32 {
     float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 // mul_mod_parens_proc(
 //     x : f32[1000] @DRAM,
 //     cw : index
 // )
-void mul_mod_parens_proc( void *ctxt, float* x, int_fast32_t cw );
+void mul_mod_parens_proc( void *ctxt, float* x, exo_control_t cw );
 
 
 
@@ -66,7 +73,7 @@ void mul_mod_parens_proc( void *ctxt, float* x, int_fast32_t cw );
 //     x : f32[1000] @DRAM,
 //     cw : index
 // )
-void mul_mod_parens_proc( void *ctxt, float* x, int_fast32_t cw ) {
+void mul_mod_parens_proc( void *ctxt, float* x, exo_control_t cw ) {
   EXO_ASSUME(cw >= 0);
   EXO_ASSUME(cw < 10);
   x[(64 * (cw & 3))] = 1.0f;

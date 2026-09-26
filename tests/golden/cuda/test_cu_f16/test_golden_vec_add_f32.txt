@@ -85,6 +85,13 @@ struct exo_ExcutThreadLog {
 #define EXO_CUDA_STREAM_GUARD
 static const cudaStream_t exo_cudaStream = 0;
 #endif
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -124,7 +131,7 @@ extern "C" {
 #define EXO_WIN_1F32C
 struct exo_win_1f32c {
     const float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 /* Required by CudaGmemLinear */
@@ -133,7 +140,7 @@ struct exo_win_1f32c {
 #define EXO_WIN_1F32
 struct exo_win_1f32 {
     float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 // f16_test_vec_add_f32(
@@ -142,7 +149,7 @@ struct exo_win_1f32 {
 //     h_y : f32[N] @DRAM,
 //     h_out : f32[N] @DRAM
 // )
-void f16_test_vec_add_f32( void *ctxt, int_fast32_t N, const float* h_x, const float* h_y, float* h_out );
+void f16_test_vec_add_f32( void *ctxt, exo_control_t N, const float* h_x, const float* h_y, float* h_out );
 
 
 
@@ -250,7 +257,7 @@ using exo_CudaRmemPacked32_bf16 = exo_CudaRmemPacked32<int32_t, __nv_bfloat16, _
 // CUDA device function args -- duplicated in .cuh file
 struct exo_CudaDeviceArgs0_f16_test_vec_add_f32
 {
-    int_fast32_t N;  // N : size
+    exo_control_t N;  // N : size
     float* d_x;  // d_x : f32[N] @CudaGmemLinear
     float* d_y;  // d_y : f32[N] @CudaGmemLinear
     float* d_out;  // d_out : f32[N] @CudaGmemLinear
@@ -278,7 +285,7 @@ cuda_packed32_load(dst,src,dst=f32, src=f32, pack=1)
 //     h_y : f32[N] @DRAM,
 //     h_out : f32[N] @DRAM
 // )
-void f16_test_vec_add_f32( void *ctxt, int_fast32_t N, const float* h_x, const float* h_y, float* h_out ) {
+void f16_test_vec_add_f32( void *ctxt, exo_control_t N, const float* h_x, const float* h_y, float* h_out ) {
   EXO_ASSUME(N % 256 == 0);
   float *d_x = (float*) exo_cudaMallocAsync(N * sizeof(*d_x), exo_cudaStream);
   float *d_y = (float*) exo_cudaMallocAsync(N * sizeof(*d_y), exo_cudaStream);
@@ -407,7 +414,7 @@ namespace exo_CudaUtil = ::exo_CudaUtil_test_golden_vec_add_f32;
 // CUDA device function args -- duplicated in .c file
 struct exo_CudaDeviceArgs0_f16_test_vec_add_f32
 {
-    int_fast32_t N;  // N : size
+    exo_control_t N;  // N : size
     float* d_x;  // d_x : f32[N] @CudaGmemLinear
     float* d_y;  // d_y : f32[N] @CudaGmemLinear
     float* d_out;  // d_out : f32[N] @CudaGmemLinear
@@ -428,7 +435,7 @@ struct exo_Cuda0_f16_test_vec_add_f32
 
   struct exo_Task
   {
-    int_fast32_t task;
+    exo_control_t task;
   };
 
   struct exo_TaskGenerator
@@ -436,11 +443,11 @@ struct exo_Cuda0_f16_test_vec_add_f32
     uint32_t exo_taskIndex;
     uint32_t exo_numClusters;
     uint32_t exo_taskCount;
-    int_fast32_t exo_cudaTasksLo_task;
+    exo_control_t exo_cudaTasksLo_task;
     uint32_t exo_cudaTasksNum_task;
     EXO_CUDA_INLINE exo_TaskGenerator(
         uint32_t cluster_index, uint32_t num_clusters,
-        int_fast32_t _exo_cudaTasksLo_task, int_fast32_t _exo_cudaTasksHi_task,
+        exo_control_t _exo_cudaTasksLo_task, exo_control_t _exo_cudaTasksHi_task,
         const exo_DeviceArgs&)
     {
       exo_taskIndex = cluster_index;
@@ -459,7 +466,7 @@ struct exo_Cuda0_f16_test_vec_add_f32
       exo_Task exo_task;
       uint32_t exo_tmp = exo_taskIndex;
       exo_taskIndex += exo_numClusters;
-      exo_task.task = exo_cudaTasksLo_task + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_task);
+      exo_task.task = exo_cudaTasksLo_task + static_cast<exo_control_t>(exo_tmp % exo_cudaTasksNum_task);
       exo_tmp /= exo_cudaTasksNum_task;
       return exo_task;
     }
@@ -559,7 +566,7 @@ exo_CudaInline_test_golden_vec_add_f32::exo_Cuda0_f16_test_vec_add_f32::exo_devi
     rmem_x.ptx_data = *reinterpret_cast<const decltype(rmem_x.ptx_data)*>((&exo_deviceArgs.d_x[(exo_1thr_tid + 256 * exo_task.task)]));
     exo_CudaRmemPacked32_f32 rmem_y;
     rmem_y.ptx_data = *reinterpret_cast<const decltype(rmem_y.ptx_data)*>((&exo_deviceArgs.d_y[(exo_1thr_tid + 256 * exo_task.task)]));
-    for (int pack_st_out = 0; pack_st_out < 1; pack_st_out++) {
+    for (exo_control_t pack_st_out = 0; pack_st_out < 1; pack_st_out++) {
       exo_deviceArgs.d_out[(pack_st_out + exo_1thr_tid + 256 * exo_task.task)] = rmem_x[pack_st_out] + rmem_y[pack_st_out];
     }
   }
@@ -577,8 +584,8 @@ exo_CudaInline_test_golden_vec_add_f32::exo_Cuda0_f16_test_vec_add_f32::exo_devi
   if (nreg == ((int32_t) 0)) {
     if (int tmp = threadIdx.x; tmp >= 0 && tmp < 256) {
       {
-        int_fast32_t exo_cudaTasksLo_task = 0;
-        int_fast32_t exo_cudaTasksHi_task = ((exo_deviceArgs.N) / (256));
+        exo_control_t exo_cudaTasksLo_task = 0;
+        exo_control_t exo_cudaTasksHi_task = ((exo_deviceArgs.N) / (256));
         exo_TaskGenerator exo_taskGenerator(
             blockIdx.x / exo_clusterDim,
             gridDim.x / exo_clusterDim,

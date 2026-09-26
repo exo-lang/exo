@@ -6,6 +6,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -43,7 +50,7 @@ extern "C" {
 #define EXO_WIN_1F32C
 struct exo_win_1f32c {
     const float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 /* Required by DRAM */
@@ -51,7 +58,7 @@ struct exo_win_1f32c {
 #define EXO_WIN_1F32
 struct exo_win_1f32 {
     float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 // vec_double(
@@ -59,14 +66,14 @@ struct exo_win_1f32 {
 //     inp : f32[N] @DRAM,
 //     out : f32[N] @DRAM
 // )
-void vec_double( void *ctxt, int_fast32_t N, const float* inp, float* out );
+void vec_double( void *ctxt, exo_control_t N, const float* inp, float* out );
 
 // vec_double_optimized(
 //     N : size,
 //     inp : f32[N] @DRAM,
 //     out : f32[N] @DRAM
 // )
-void vec_double_optimized( void *ctxt, int_fast32_t N, const float* inp, float* out );
+void vec_double_optimized( void *ctxt, exo_control_t N, const float* inp, float* out );
 
 
 
@@ -84,9 +91,9 @@ void vec_double_optimized( void *ctxt, int_fast32_t N, const float* inp, float* 
 //     inp : f32[N] @DRAM,
 //     out : f32[N] @DRAM
 // )
-void vec_double( void *ctxt, int_fast32_t N, const float* inp, float* out ) {
+void vec_double( void *ctxt, exo_control_t N, const float* inp, float* out ) {
   EXO_ASSUME(N % 8 == 0);
-  for (int_fast32_t i = 0; i < N; i++) {
+  for (exo_control_t i = 0; i < N; i++) {
     out[i] = 2.0f * inp[i];
   }
 }
@@ -96,23 +103,23 @@ void vec_double( void *ctxt, int_fast32_t N, const float* inp, float* out ) {
 //     inp : f32[N] @DRAM,
 //     out : f32[N] @DRAM
 // )
-void vec_double_optimized( void *ctxt, int_fast32_t N, const float* inp, float* out ) {
+void vec_double_optimized( void *ctxt, exo_control_t N, const float* inp, float* out ) {
   EXO_ASSUME(N % 8 == 0);
   float *two_vec = (float*) malloc(8 * sizeof(*two_vec));
-  for (int_fast32_t ii = 0; ii < 8; ii++) {
+  for (exo_control_t ii = 0; ii < 8; ii++) {
     two_vec[ii] = 2.0f;
   }
-  for (int_fast32_t io = 0; io < ((N) / (8)); io++) {
+  for (exo_control_t io = 0; io < ((N) / (8)); io++) {
     float *out_vec = (float*) malloc(8 * sizeof(*out_vec));
     float *inp_vec = (float*) malloc(8 * sizeof(*inp_vec));
-    for (int_fast32_t i0 = 0; i0 < 8; i0++) {
+    for (exo_control_t i0 = 0; i0 < 8; i0++) {
       inp_vec[i0] = inp[(i0 + 8 * io)];
     }
-    for (int_fast32_t ii = 0; ii < 8; ii++) {
+    for (exo_control_t ii = 0; ii < 8; ii++) {
       out_vec[ii] = two_vec[ii] * inp_vec[ii];
     }
     free(inp_vec);
-    for (int_fast32_t i0 = 0; i0 < 8; i0++) {
+    for (exo_control_t i0 = 0; i0 < 8; i0++) {
       out[(i0 + 8 * io)] = out_vec[i0];
     }
     free(out_vec);

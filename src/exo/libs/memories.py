@@ -319,6 +319,9 @@ class AMX_TILE(StaticMemory):
             "double": 8,
             "int8_t": 1,
             "int32_t": 4,
+            # David Zhao Akeley 2026-09-25: unclear why this int_fast32_t path exists.
+            # This used to be the hard-wired Exo control type,
+            # but AMX stores data types...?
             "int_fast32_t": 4,
         }
 

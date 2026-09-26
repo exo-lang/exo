@@ -2,6 +2,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -39,7 +46,7 @@ extern "C" {
 #define EXO_WIN_1I8C
 struct exo_win_1i8c {
     const int8_t * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 // foo(
@@ -47,7 +54,7 @@ struct exo_win_1i8c {
 //     m : size,
 //     x : i8 @DRAM
 // )
-void foo( void *ctxt, int_fast32_t n, int_fast32_t m, int8_t* x );
+void foo( void *ctxt, exo_control_t n, exo_control_t m, int8_t* x );
 
 
 
@@ -60,21 +67,21 @@ void foo( void *ctxt, int_fast32_t n, int_fast32_t m, int8_t* x );
 //     m : size,
 //     x : i8 @DRAM
 // )
-void foo( void *ctxt, int_fast32_t n, int_fast32_t m, int8_t* x ) {
-  for (int_fast32_t i = 0; i < n; i++) {
-    for (int_fast32_t j = 0; j < m; j++) {
+void foo( void *ctxt, exo_control_t n, exo_control_t m, int8_t* x ) {
+  for (exo_control_t i = 0; i < n; i++) {
+    for (exo_control_t j = 0; j < m; j++) {
       ; // NO-OP
     }
   }
-  for (int_fast32_t i = 0; i < n; i++) {
+  for (exo_control_t i = 0; i < n; i++) {
     int8_t *a = (int8_t*) malloc(n * sizeof(*a));
-    for (int_fast32_t j = 0; j < m; j++) {
+    for (exo_control_t j = 0; j < m; j++) {
       *x = a[i];
     }
     free(a);
   }
-  for (int_fast32_t i = 0; i < n; i++) {
-    for (int_fast32_t j = 0; j < m; j++) {
+  for (exo_control_t i = 0; i < n; i++) {
+    for (exo_control_t j = 0; j < m; j++) {
       ; // NO-OP
     }
   }

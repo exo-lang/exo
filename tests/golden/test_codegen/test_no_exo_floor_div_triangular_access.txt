@@ -6,6 +6,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -43,14 +50,14 @@ extern "C" {
 #define EXO_WIN_2F32
 struct exo_win_2f32 {
     float * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 // foo(
 //     N : size,
 //     x : f32[N, N] @DRAM
 // )
-void foo( void *ctxt, int_fast32_t N, float* x );
+void foo( void *ctxt, exo_control_t N, float* x );
 
 
 
@@ -67,9 +74,9 @@ void foo( void *ctxt, int_fast32_t N, float* x );
 //     N : size,
 //     x : f32[N, N] @DRAM
 // )
-void foo( void *ctxt, int_fast32_t N, float* x ) {
-  for (int_fast32_t ii = 0; ii < N % 4; ii++) {
-    for (int_fast32_t joo = 0; joo < ((ii + ((N) / (4)) * 4) / (16)); joo++) {
+void foo( void *ctxt, exo_control_t N, float* x ) {
+  for (exo_control_t ii = 0; ii < N % 4; ii++) {
+    for (exo_control_t joo = 0; joo < ((ii + ((N) / (4)) * 4) / (16)); joo++) {
       x[ii * N + joo] = 0.0f;
     }
   }

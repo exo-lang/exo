@@ -538,6 +538,13 @@ def ext_compile_to_strings(
 #include <stdbool.h>
 {h_snippet_for_cuda if used_cuda else ""}\
 
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -1626,8 +1633,7 @@ class Compiler:
                 )
 
             if emit_loop:
-                # TODO fix this.
-                ctype = "int" if self._in_cuda_function else "int_fast32_t"
+                ctype = T.index.ctype()
                 self.add_line(f"for ({ctype} {itr} = {lo}; {itr} < {hi}; {itr}++) {{")
 
             self.push(only="tab")

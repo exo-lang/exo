@@ -6,6 +6,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -43,7 +50,7 @@ extern "C" {
 #define EXO_WIN_3F32
 struct exo_win_3f32 {
     float * const data;
-    const int_fast32_t strides[3];
+    const exo_control_t strides[3];
 };
 #endif
 /* Required by DRAM */
@@ -51,7 +58,7 @@ struct exo_win_3f32 {
 #define EXO_WIN_3F32C
 struct exo_win_3f32c {
     const float * const data;
-    const int_fast32_t strides[3];
+    const exo_control_t strides[3];
 };
 #endif
 /* Required by AVX2 */
@@ -61,7 +68,7 @@ struct exo_win_3f32c {
 #define EXO_WIN_1F32
 struct exo_win_1f32 {
     float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 /* Required by DRAM */
@@ -69,7 +76,7 @@ struct exo_win_1f32 {
 #define EXO_WIN_2F32
 struct exo_win_2f32 {
     float * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 /* Required by AVX2 */
@@ -78,7 +85,7 @@ struct exo_win_2f32 {
 #define EXO_WIN_1F32C
 struct exo_win_1f32c {
     const float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 // exo_unsharp(
@@ -87,7 +94,7 @@ struct exo_win_1f32c {
 //     output : f32[3, H, W] @DRAM,
 //     input : f32[3, H + 6, W + 6] @DRAM
 // )
-void exo_unsharp( void *ctxt, int_fast32_t W, int_fast32_t H, float* output, const float* input );
+void exo_unsharp( void *ctxt, exo_control_t W, exo_control_t H, float* output, const float* input );
 
 // exo_unsharp_base(
 //     W : size,
@@ -95,7 +102,7 @@ void exo_unsharp( void *ctxt, int_fast32_t W, int_fast32_t H, float* output, con
 //     output : f32[3, H, W] @DRAM,
 //     input : f32[3, H + 6, W + 6] @DRAM
 // )
-void exo_unsharp_base( void *ctxt, int_fast32_t W, int_fast32_t H, float* output, const float* input );
+void exo_unsharp_base( void *ctxt, exo_control_t W, exo_control_t H, float* output, const float* input );
 
 // exo_unsharp_vectorized(
 //     W : size,
@@ -103,7 +110,7 @@ void exo_unsharp_base( void *ctxt, int_fast32_t W, int_fast32_t H, float* output
 //     output : f32[3, H, W] @DRAM,
 //     input : f32[3, H + 6, W + 6] @DRAM
 // )
-void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* output, const float* input );
+void exo_unsharp_vectorized( void *ctxt, exo_control_t W, exo_control_t H, float* output, const float* input );
 
 
 
@@ -134,7 +141,7 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
 //     output : f32[3, H, W] @DRAM,
 //     input : f32[3, H + 6, W + 6] @DRAM
 // )
-void exo_unsharp( void *ctxt, int_fast32_t W, int_fast32_t H, float* output, const float* input ) {
+void exo_unsharp( void *ctxt, exo_control_t W, exo_control_t H, float* output, const float* input ) {
   EXO_ASSUME(H % 32 == 0);
   float r_to_gray[1];
   r_to_gray[0] = 0.299f;
@@ -153,27 +160,27 @@ void exo_unsharp( void *ctxt, int_fast32_t W, int_fast32_t H, float* output, con
   float two[1];
   two[0] = 2.0f;
   #pragma omp parallel for
-  for (int_fast32_t y = 0; y < ((H) / (32)); y++) {
+  for (exo_control_t y = 0; y < ((H) / (32)); y++) {
     float *gray = (float*) malloc(8 * (6 + W) * sizeof(*gray));
     float *blur_y = (float*) malloc(1 * (6 + W) * sizeof(*blur_y));
     float *ratio = (float*) malloc(1 * W * sizeof(*ratio));
-    for (int_fast32_t yi = 0; yi < 6; yi++) {
-      for (int_fast32_t x = 0; x < 6 + W; x++) {
+    for (exo_control_t yi = 0; yi < 6; yi++) {
+      for (exo_control_t x = 0; x < 6 + W; x++) {
         gray[yi * (6 + W) + x] = r_to_gray[0] * input[(yi + 32 * y) * (W + 6) + x] + g_to_gray[0] * input[((H + 6) * (W + 6)) + (yi + 32 * y) * (W + 6) + x] + b_to_gray[0] * input[2 * ((H + 6) * (W + 6)) + (yi + 32 * y) * (W + 6) + x];
       }
     }
-    for (int_fast32_t yi = 0; yi < 32; yi++) {
-      for (int_fast32_t x = 0; x < 6 + W; x++) {
+    for (exo_control_t yi = 0; yi < 32; yi++) {
+      for (exo_control_t x = 0; x < 6 + W; x++) {
         gray[((6 + yi) & 7) * (6 + W) + x] = r_to_gray[0] * input[(6 + yi + 32 * y) * (W + 6) + x] + g_to_gray[0] * input[((H + 6) * (W + 6)) + (6 + yi + 32 * y) * (W + 6) + x] + b_to_gray[0] * input[2 * ((H + 6) * (W + 6)) + (6 + yi + 32 * y) * (W + 6) + x];
       }
-      for (int_fast32_t x = 0; x < 6 + W; x++) {
+      for (exo_control_t x = 0; x < 6 + W; x++) {
         blur_y[x] = k0[0] * gray[((3 + yi) & 7) * (6 + W) + x] + k1[0] * (gray[((2 + yi) & 7) * (6 + W) + x] + gray[((4 + yi) & 7) * (6 + W) + x]) + k2[0] * (gray[((1 + yi) & 7) * (6 + W) + x] + gray[((5 + yi) & 7) * (6 + W) + x]) + k3[0] * (gray[(yi & 7) * (6 + W) + x] + gray[((6 + yi) & 7) * (6 + W) + x]);
       }
-      for (int_fast32_t x = 0; x < W; x++) {
+      for (exo_control_t x = 0; x < W; x++) {
         ratio[x] = (two[0] * gray[((3 + yi) & 7) * (6 + W) + (3 + x)] - (k0[0] * blur_y[(3 + x)] + k1[0] * (blur_y[(2 + x)] + blur_y[(4 + x)]) + k2[0] * (blur_y[(1 + x)] + blur_y[(5 + x)]) + k3[0] * (blur_y[x] + blur_y[(6 + x)]))) / gray[((3 + yi) & 7) * (6 + W) + (3 + x)];
       }
-      for (int_fast32_t c = 0; c < 3; c++) {
-        for (int_fast32_t x = 0; x < W; x++) {
+      for (exo_control_t c = 0; c < 3; c++) {
+        for (exo_control_t x = 0; x < W; x++) {
           output[c * (H * W) + (yi + 32 * y) * W + x] = ratio[x] * input[c * ((H + 6) * (W + 6)) + (3 + yi + 32 * y) * (W + 6) + (3 + x)];
         }
       }
@@ -190,45 +197,45 @@ void exo_unsharp( void *ctxt, int_fast32_t W, int_fast32_t H, float* output, con
 //     output : f32[3, H, W] @DRAM,
 //     input : f32[3, H + 6, W + 6] @DRAM
 // )
-void exo_unsharp_base( void *ctxt, int_fast32_t W, int_fast32_t H, float* output, const float* input ) {
+void exo_unsharp_base( void *ctxt, exo_control_t W, exo_control_t H, float* output, const float* input ) {
   EXO_ASSUME(H % 32 == 0);
   float *gray = (float*) malloc((H + 6) * (W + 6) * sizeof(*gray));
-  for (int_fast32_t y = 0; y < H + 6; y++) {
-    for (int_fast32_t x = 0; x < W + 6; x++) {
+  for (exo_control_t y = 0; y < H + 6; y++) {
+    for (exo_control_t x = 0; x < W + 6; x++) {
       gray[y * (W + 6) + x] = 0.299f * input[y * (W + 6) + x] + 0.587f * input[((H + 6) * (W + 6)) + y * (W + 6) + x] + 0.114f * input[2 * ((H + 6) * (W + 6)) + y * (W + 6) + x];
     }
   }
   float *blur_y = (float*) malloc(H * (W + 6) * sizeof(*blur_y));
-  for (int_fast32_t y = 0; y < H; y++) {
-    for (int_fast32_t x = 0; x < W + 6; x++) {
+  for (exo_control_t y = 0; y < H; y++) {
+    for (exo_control_t x = 0; x < W + 6; x++) {
       blur_y[y * (W + 6) + x] = 0.2659615202676218f * gray[(y + 3) * (W + 6) + x] + 0.2129653370149015f * (gray[(y + 2) * (W + 6) + x] + gray[(y + 4) * (W + 6) + x]) + 0.10934004978399575f * (gray[(y + 1) * (W + 6) + x] + gray[(y + 5) * (W + 6) + x]) + 0.035993977675458706f * (gray[y * (W + 6) + x] + gray[(y + 6) * (W + 6) + x]);
     }
   }
   float *blur_x = (float*) malloc(H * W * sizeof(*blur_x));
-  for (int_fast32_t y = 0; y < H; y++) {
-    for (int_fast32_t x = 0; x < W; x++) {
+  for (exo_control_t y = 0; y < H; y++) {
+    for (exo_control_t x = 0; x < W; x++) {
       blur_x[y * W + x] = 0.2659615202676218f * blur_y[y * (W + 6) + (x + 3)] + 0.2129653370149015f * (blur_y[y * (W + 6) + (x + 2)] + blur_y[y * (W + 6) + (x + 4)]) + 0.10934004978399575f * (blur_y[y * (W + 6) + (x + 1)] + blur_y[y * (W + 6) + (x + 5)]) + 0.035993977675458706f * (blur_y[y * (W + 6) + x] + blur_y[y * (W + 6) + (x + 6)]);
     }
   }
   free(blur_y);
   float *sharpen = (float*) malloc(H * W * sizeof(*sharpen));
-  for (int_fast32_t y = 0; y < H; y++) {
-    for (int_fast32_t x = 0; x < W; x++) {
+  for (exo_control_t y = 0; y < H; y++) {
+    for (exo_control_t x = 0; x < W; x++) {
       sharpen[y * W + x] = 2.0f * gray[(y + 3) * (W + 6) + (x + 3)] - blur_x[y * W + x];
     }
   }
   free(blur_x);
   float *ratio = (float*) malloc(H * W * sizeof(*ratio));
-  for (int_fast32_t y = 0; y < H; y++) {
-    for (int_fast32_t x = 0; x < W; x++) {
+  for (exo_control_t y = 0; y < H; y++) {
+    for (exo_control_t x = 0; x < W; x++) {
       ratio[y * W + x] = sharpen[y * W + x] / gray[(y + 3) * (W + 6) + (x + 3)];
     }
   }
   free(sharpen);
   free(gray);
-  for (int_fast32_t y = 0; y < H; y++) {
-    for (int_fast32_t c = 0; c < 3; c++) {
-      for (int_fast32_t x = 0; x < W; x++) {
+  for (exo_control_t y = 0; y < H; y++) {
+    for (exo_control_t c = 0; c < 3; c++) {
+      for (exo_control_t x = 0; x < W; x++) {
         output[c * (H * W) + y * W + x] = ratio[y * W + x] * input[c * ((H + 6) * (W + 6)) + (y + 3) * (W + 6) + (x + 3)];
       }
     }
@@ -242,7 +249,7 @@ void exo_unsharp_base( void *ctxt, int_fast32_t W, int_fast32_t H, float* output
 //     output : f32[3, H, W] @DRAM,
 //     input : f32[3, H + 6, W + 6] @DRAM
 // )
-void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* output, const float* input ) {
+void exo_unsharp_vectorized( void *ctxt, exo_control_t W, exo_control_t H, float* output, const float* input ) {
   EXO_ASSUME(H % 32 == 0);
   float r_to_gray[1];
   r_to_gray[0] = 0.299f;
@@ -261,12 +268,12 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
   float two[1];
   two[0] = 2.0f;
   #pragma omp parallel for
-  for (int_fast32_t y = 0; y < ((H) / (32)); y++) {
+  for (exo_control_t y = 0; y < ((H) / (32)); y++) {
     float *gray = (float*) malloc(8 * (6 + W) * sizeof(*gray));
     float *blur_y = (float*) malloc(1 * (6 + W) * sizeof(*blur_y));
     float *ratio = (float*) malloc(1 * W * sizeof(*ratio));
-    for (int_fast32_t yi = 0; yi < 6; yi++) {
-      for (int_fast32_t xo = 0; xo < ((13 + W) / (8)) - 1; xo++) {
+    for (exo_control_t yi = 0; yi < 6; yi++) {
+      for (exo_control_t xo = 0; xo < ((13 + W) / (8)) - 1; xo++) {
         __m256 var0;
         __m256 var1;
         __m256 var2;
@@ -291,7 +298,7 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
         var0 = _mm256_add_ps(var1, var8);
         _mm256_storeu_ps(&gray[yi * (6 + W) + (8 * xo)], var0);
       }
-      for (int_fast32_t xo = ((13 + W) / (8)) - 1; xo < ((13 + W) / (8)); xo++) {
+      for (exo_control_t xo = ((13 + W) / (8)) - 1; xo < ((13 + W) / (8)); xo++) {
         __m256 var0;
         __m256 var1;
         __m256 var2;
@@ -385,8 +392,8 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
         }
       }
     }
-    for (int_fast32_t yi = 0; yi < 32; yi++) {
-      for (int_fast32_t xo = 0; xo < ((13 + W) / (8)) - 1; xo++) {
+    for (exo_control_t yi = 0; yi < 32; yi++) {
+      for (exo_control_t xo = 0; xo < ((13 + W) / (8)) - 1; xo++) {
         __m256 var11;
         __m256 var12;
         __m256 var13;
@@ -411,7 +418,7 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
         var11 = _mm256_add_ps(var12, var19);
         _mm256_storeu_ps(&gray[((6 + yi) & 7) * (6 + W) + (8 * xo)], var11);
       }
-      for (int_fast32_t xo = ((13 + W) / (8)) - 1; xo < ((13 + W) / (8)); xo++) {
+      for (exo_control_t xo = ((13 + W) / (8)) - 1; xo < ((13 + W) / (8)); xo++) {
         __m256 var11;
         __m256 var12;
         __m256 var13;
@@ -504,7 +511,7 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
         _mm256_maskstore_ps(&gray[((6 + yi) & 7) * (6 + W) + (8 * xo)], cmp, var11);
         }
       }
-      for (int_fast32_t xo = 0; xo < ((13 + W) / (8)) - 1; xo++) {
+      for (exo_control_t xo = 0; xo < ((13 + W) / (8)) - 1; xo++) {
         __m256 var22;
         __m256 var23;
         __m256 var24;
@@ -549,7 +556,7 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
         var22 = _mm256_add_ps(var23, var38);
         _mm256_storeu_ps(&blur_y[(8 * xo)], var22);
       }
-      for (int_fast32_t xo = ((13 + W) / (8)) - 1; xo < ((13 + W) / (8)); xo++) {
+      for (exo_control_t xo = ((13 + W) / (8)) - 1; xo < ((13 + W) / (8)); xo++) {
         __m256 var22;
         __m256 var23;
         __m256 var24;
@@ -718,7 +725,7 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
         _mm256_maskstore_ps(&blur_y[(8 * xo)], cmp, var22);
         }
       }
-      for (int_fast32_t xo = 0; xo < ((7 + W) / (8)) - 1; xo++) {
+      for (exo_control_t xo = 0; xo < ((7 + W) / (8)) - 1; xo++) {
         __m256 var43;
         __m256 var44;
         __m256 var45;
@@ -775,7 +782,7 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
         var43 = _mm256_div_ps(var44, var69);
         _mm256_storeu_ps(&ratio[(8 * xo)], var43);
       }
-      for (int_fast32_t xo = ((7 + W) / (8)) - 1; xo < ((7 + W) / (8)); xo++) {
+      for (exo_control_t xo = ((7 + W) / (8)) - 1; xo < ((7 + W) / (8)); xo++) {
         __m256 var43;
         __m256 var44;
         __m256 var45;
@@ -990,8 +997,8 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
         _mm256_maskstore_ps(&ratio[(8 * xo)], cmp, var43);
         }
       }
-      for (int_fast32_t c = 0; c < 3; c++) {
-        for (int_fast32_t xo = 0; xo < ((7 + W) / (8)) - 1; xo++) {
+      for (exo_control_t c = 0; c < 3; c++) {
+        for (exo_control_t xo = 0; xo < ((7 + W) / (8)) - 1; xo++) {
           __m256 var70;
           __m256 var71;
           __m256 var72;
@@ -1000,7 +1007,7 @@ void exo_unsharp_vectorized( void *ctxt, int_fast32_t W, int_fast32_t H, float* 
           var70 = _mm256_mul_ps(var71, var72);
           _mm256_storeu_ps(&output[c * (H * W) + (yi + 32 * y) * W + (8 * xo)], var70);
         }
-        for (int_fast32_t xo = ((7 + W) / (8)) - 1; xo < ((7 + W) / (8)); xo++) {
+        for (exo_control_t xo = ((7 + W) / (8)) - 1; xo < ((7 + W) / (8)); xo++) {
           __m256 var70;
           __m256 var71;
           __m256 var72;

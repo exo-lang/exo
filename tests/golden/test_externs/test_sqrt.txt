@@ -6,7 +6,7 @@
 //     y : f32[16] @DRAM
 // )
 void foo( void *ctxt, const float* x, float* y ) {
-  for (int_fast32_t i = 0; i < 16; i++) {
+  for (exo_control_t i = 0; i < 16; i++) {
     y[i] = sqrt((float)(x[i] + y[i]));
   }
 }
@@ -18,6 +18,13 @@ void foo( void *ctxt, const float* x, float* y ) {
 
 #include <stdint.h>
 #include <stdbool.h>
+
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
 
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
@@ -56,7 +63,7 @@ extern "C" {
 #define EXO_WIN_1F32C
 struct exo_win_1f32c {
     const float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 /* Required by DRAM */
@@ -64,7 +71,7 @@ struct exo_win_1f32c {
 #define EXO_WIN_1F32
 struct exo_win_1f32 {
     float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 // foo(

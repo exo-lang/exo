@@ -2,6 +2,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -39,7 +46,7 @@ extern "C" {
 #define EXO_WIN_1UI8
 struct exo_win_1ui8 {
     uint8_t * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 // hoge(
@@ -47,7 +54,7 @@ struct exo_win_1ui8 {
 //     x : ui8[n] @DRAM,
 //     y : ui8 @DRAM
 // )
-void hoge( void *ctxt, int_fast32_t n, uint8_t* x, const uint8_t* y );
+void hoge( void *ctxt, exo_control_t n, uint8_t* x, const uint8_t* y );
 
 
 
@@ -60,8 +67,8 @@ void hoge( void *ctxt, int_fast32_t n, uint8_t* x, const uint8_t* y );
 //     x : ui8[n] @DRAM,
 //     y : ui8 @DRAM
 // )
-void hoge( void *ctxt, int_fast32_t n, uint8_t* x, const uint8_t* y ) {
-  for (int_fast32_t i = 0; i < n; i++) {
+void hoge( void *ctxt, exo_control_t n, uint8_t* x, const uint8_t* y ) {
+  for (exo_control_t i = 0; i < n; i++) {
     x[i] = *y;
   }
 }

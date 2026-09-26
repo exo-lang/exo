@@ -6,6 +6,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -43,7 +50,7 @@ extern "C" {
 #define EXO_WIN_2F32C
 struct exo_win_2f32c {
     const float * const data;
-    const int_fast32_t strides[2];
+    const exo_control_t strides[2];
 };
 #endif
 /* Required by DRAM */
@@ -51,7 +58,7 @@ struct exo_win_2f32c {
 #define EXO_WIN_1F32C
 struct exo_win_1f32c {
     const float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 /* Required by DRAM */
@@ -59,7 +66,7 @@ struct exo_win_1f32c {
 #define EXO_WIN_1F32
 struct exo_win_1f32 {
     float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 // gemv(
@@ -69,7 +76,7 @@ struct exo_win_1f32 {
 //     x : f32[N] @DRAM,
 //     y : f32[M] @DRAM
 // )
-void gemv( void *ctxt, int_fast32_t M, int_fast32_t N, const float* A, const float* x, float* y );
+void gemv( void *ctxt, exo_control_t M, exo_control_t N, const float* A, const float* x, float* y );
 
 
 
@@ -89,13 +96,13 @@ void gemv( void *ctxt, int_fast32_t M, int_fast32_t N, const float* A, const flo
 //     x : f32[N] @DRAM,
 //     y : f32[M] @DRAM
 // )
-void gemv( void *ctxt, int_fast32_t M, int_fast32_t N, const float* A, const float* x, float* y ) {
+void gemv( void *ctxt, exo_control_t M, exo_control_t N, const float* A, const float* x, float* y ) {
   EXO_ASSUME(M % 8 == 0);
   EXO_ASSUME(N % 8 == 0);
-  for (int_fast32_t io = 0; io < ((M) / (8)); io++) {
-    for (int_fast32_t jo = 0; jo < ((N) / (8)); jo++) {
-      for (int_fast32_t ii = 0; ii < 8; ii++) {
-        for (int_fast32_t ji = 0; ji < 8; ji++) {
+  for (exo_control_t io = 0; io < ((M) / (8)); io++) {
+    for (exo_control_t jo = 0; jo < ((N) / (8)); jo++) {
+      for (exo_control_t ii = 0; ii < 8; ii++) {
+        for (exo_control_t ji = 0; ji < 8; ji++) {
           y[(8 * io + ii)] += A[(8 * io + ii) * N + (8 * jo + ji)] * x[(8 * jo + ji)];
         }
       }

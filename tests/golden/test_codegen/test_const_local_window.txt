@@ -6,6 +6,13 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -59,21 +66,21 @@ void caller( void *ctxt );
 #define EXO_WIN_1F32
 struct exo_win_1f32 {
     float * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 // callee(
 //     N : size,
 //     A : [f32][N] @DRAM
 // )
-static void callee( void *ctxt, int_fast32_t N, struct exo_win_1f32 A );
+static void callee( void *ctxt, exo_control_t N, struct exo_win_1f32 A );
 
 // callee(
 //     N : size,
 //     A : [f32][N] @DRAM
 // )
-static void callee( void *ctxt, int_fast32_t N, struct exo_win_1f32 A ) {
-  for (int_fast32_t i = 0; i < N; i++) {
+static void callee( void *ctxt, exo_control_t N, struct exo_win_1f32 A ) {
+  for (exo_control_t i = 0; i < N; i++) {
     A.data[i * A.strides[0]] = 0.0f;
   }
 }

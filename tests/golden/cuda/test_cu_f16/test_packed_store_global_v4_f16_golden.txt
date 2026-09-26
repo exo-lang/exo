@@ -85,6 +85,13 @@ struct exo_ExcutThreadLog {
 #define EXO_CUDA_STREAM_GUARD
 static const cudaStream_t exo_cudaStream = 0;
 #endif
+#ifndef exo_control_t
+#define exo_control_t int_fast32_t
+#endif
+#if defined(__cplusplus)
+static_assert(~exo_control_t(0) < 0, "exo_control_t must be signed");
+#endif
+
 // Compiler feature macros adapted from Hedley (public domain)
 // https://github.com/nemequ/hedley
 
@@ -140,7 +147,7 @@ typedef struct { short bits; } exo_f16;
 #define EXO_WIN_1F16
 struct exo_win_1f16 {
     exo_f16 * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 /* Required by CudaDeviceVisibleAtomicity16B */
@@ -150,7 +157,7 @@ struct exo_win_1f16 {
 #define EXO_WIN_1F16C
 struct exo_win_1f16c {
     const exo_f16 * const data;
-    const int_fast32_t strides[1];
+    const exo_control_t strides[1];
 };
 #endif
 // foo(
@@ -433,7 +440,7 @@ struct exo_Cuda0_foo
 
   struct exo_Task
   {
-    int_fast32_t task;
+    exo_control_t task;
   };
 
   struct exo_TaskGenerator
@@ -441,11 +448,11 @@ struct exo_Cuda0_foo
     uint32_t exo_taskIndex;
     uint32_t exo_numClusters;
     uint32_t exo_taskCount;
-    int_fast32_t exo_cudaTasksLo_task;
+    exo_control_t exo_cudaTasksLo_task;
     uint32_t exo_cudaTasksNum_task;
     EXO_CUDA_INLINE exo_TaskGenerator(
         uint32_t cluster_index, uint32_t num_clusters,
-        int_fast32_t _exo_cudaTasksLo_task, int_fast32_t _exo_cudaTasksHi_task,
+        exo_control_t _exo_cudaTasksLo_task, exo_control_t _exo_cudaTasksHi_task,
         const exo_DeviceArgs&)
     {
       exo_taskIndex = cluster_index;
@@ -464,7 +471,7 @@ struct exo_Cuda0_foo
       exo_Task exo_task;
       uint32_t exo_tmp = exo_taskIndex;
       exo_taskIndex += exo_numClusters;
-      exo_task.task = exo_cudaTasksLo_task + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_task);
+      exo_task.task = exo_cudaTasksLo_task + static_cast<exo_control_t>(exo_tmp % exo_cudaTasksNum_task);
       exo_tmp /= exo_cudaTasksNum_task;
       return exo_task;
     }
@@ -561,7 +568,7 @@ exo_CudaInline_test_packed_store_global_v4_f16_golden::exo_Cuda0_foo::exo_device
   exo_CudaRmemPacked32_f16 rmem[4];
   // cuda_threads(0, 8, unit=cuda_thread)
   if (int exo_1thr_tid = threadIdx.x; exo_1thr_tid < 8) {
-    for (int i = 0; i < 4; i++) {
+    for (exo_control_t i = 0; i < 4; i++) {
       rmem[i].ptx_data = *reinterpret_cast<const decltype(rmem[i].ptx_data)*>((&exo_deviceArgs.d_src[(2 * i + 8 * exo_1thr_tid)]));
     }
     asm volatile(
@@ -587,8 +594,8 @@ exo_CudaInline_test_packed_store_global_v4_f16_golden::exo_Cuda0_foo::exo_device
   if (nreg == ((int32_t) 0)) {
     if (int tmp = threadIdx.x; tmp >= 0 && tmp < 32) {
       {
-        int_fast32_t exo_cudaTasksLo_task = 0;
-        int_fast32_t exo_cudaTasksHi_task = 1;
+        exo_control_t exo_cudaTasksLo_task = 0;
+        exo_control_t exo_cudaTasksHi_task = 1;
         exo_TaskGenerator exo_taskGenerator(
             blockIdx.x / exo_clusterDim,
             gridDim.x / exo_clusterDim,
