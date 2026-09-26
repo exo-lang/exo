@@ -36,6 +36,20 @@ python3 -m pytest -q -rfE tests/ --junitxml=$OUT/junit.xml > $OUT/pytest_full.lo
 * `pytest-xdist` is not installed, so don't use `-n`.
 * Use `--update-golden` to regenerate goldens, then review the golden diff.
 
+### Formatting (black)
+
+`.pre-commit-config.yaml` runs `black` 25.1.0 through `pre-commit` (system package `/usr/bin/pre-commit`, 2.17.0).
+`pre-commit` installs black into its own cached virtualenv under `~/.cache/pre-commit/`; `black` itself is not on `PATH`.
+The hook is installed (`.git/hooks/pre-commit`, via `pre-commit install`), so `git commit` runs black on staged Python files.
+If black reformats anything, the commit **fails**; re-stage the reformatted files and commit again.
+To format before staging (e.g. before regenerating goldens):
+```bash
+pre-commit run black --files path/to/changed_file.py ...
+```
+Code inside `# fmt: off` / `# fmt: on` (e.g. long `@proc` bodies) is left alone.
+Reformatting can shift source line numbers that appear in goldens, so regenerate goldens after reformatting and check the diff
+(`test_3cycle_mbarrier` goldens are known to be line-number sensitive).
+
 ## Architecture
 
 ### Compiler Pipeline

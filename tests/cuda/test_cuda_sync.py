@@ -636,7 +636,9 @@ def mkref_mbarriers(
     cta_async_arrive = f"cp.async.mbarrier.arrive.noinc.shared::cta.b64"
     cluster_async_arrive = f"cp.async.mbarrier.arrive.noinc.shared::cluster.b64"
     cta_await = f"mbarrier.{qc.try_or_test}_wait.parity.acquire.cta.shared::cta.b64"
-    cluster_await = f"mbarrier.{qc.try_or_test}_wait.parity.acquire.cluster.shared::cta.b64"
+    cluster_await = (
+        f"mbarrier.{qc.try_or_test}_wait.parity.acquire.cluster.shared::cta.b64"
+    )
 
     # Waits on mbarriers that receive arrives from other CTAs.
     # These only differ from cta_await if strict_cluster.
@@ -727,20 +729,37 @@ def mkref_mbarriers(
             match_any = lambda m, n: True
             match_rc = lambda m, n: m == m_cta or n == n_cta
 
-            await_impl(m_cta, n_cta, t2, t1, i, b_rc_bars, b_delay + f_delay, b_delay,
-                       M_CTA + N_CTA > 2)
+            await_impl(
+                m_cta,
+                n_cta,
+                t2,
+                t1,
+                i,
+                b_rc_bars,
+                b_delay + f_delay,
+                b_delay,
+                M_CTA + N_CTA > 2,
+            )
             arrive_impl(
                 m_cta, n_cta, t2, t1, i, match_one, f_rc_bars, b_delay + f_delay
             )
 
             arrive_impl(m_cta, n_cta, t2, t1, i, match_row, row_bars, 1 + f_delay)
-            await_impl(m_cta, n_cta, t2, t1, i, row_bars, 1 + f_delay, f_delay, N_CTA > 1)
+            await_impl(
+                m_cta, n_cta, t2, t1, i, row_bars, 1 + f_delay, f_delay, N_CTA > 1
+            )
             arrive_impl(m_cta, n_cta, t2, t1, i, match_col, col_bars, 1 + f_delay)
-            await_impl(m_cta, n_cta, t2, t1, i, col_bars, 1 + f_delay, f_delay, M_CTA > 1)
+            await_impl(
+                m_cta, n_cta, t2, t1, i, col_bars, 1 + f_delay, f_delay, M_CTA > 1
+            )
             arrive_impl(m_cta, n_cta, t2, t1, i, match_any, all_bars, 1 + f_delay)
-            await_impl(m_cta, n_cta, t2, t1, i, all_bars, 1 + f_delay, f_delay, clusterDim > 1)
+            await_impl(
+                m_cta, n_cta, t2, t1, i, all_bars, 1 + f_delay, f_delay, clusterDim > 1
+            )
 
-            await_impl(m_cta, n_cta, t2, t1, i, f_rc_bars, b_delay + f_delay, f_delay, False)
+            await_impl(
+                m_cta, n_cta, t2, t1, i, f_rc_bars, b_delay + f_delay, f_delay, False
+            )
             arrive_impl(m_cta, n_cta, t2, t1, i, match_rc, b_rc_bars, b_delay + f_delay)
 
             # baseline mbarrier await (no ring buffering)
@@ -877,12 +896,16 @@ def test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden(compiler, golden, monkeypat
 def test_mbarriers_m4n2d1d2_in_order_to_wgmma_strict_excut(compiler_Sm90a, monkeypatch):
     monkeypatch.setenv("EXO_STRICT_CLUSTER_MBARRIER", "1")
     compiler_Sm90a.excut_test(
-        mkproc_mbarriers, mkref_mbarriers, **mb_m4n2d1d2_in_order_to_wgmma,
+        mkproc_mbarriers,
+        mkref_mbarriers,
+        **mb_m4n2d1d2_in_order_to_wgmma,
         strict_cluster=True,
     )
 
 
-def test_mbarriers_m4n2d1d2_in_order_to_wgmma_strict_golden(compiler, golden, monkeypatch):
+def test_mbarriers_m4n2d1d2_in_order_to_wgmma_strict_golden(
+    compiler, golden, monkeypatch
+):
     monkeypatch.setenv("EXO_STRICT_CLUSTER_MBARRIER", "1")
     # sm="90a": check that ptxas accepts the .cluster-scoped mbarrier PTX.
     compiler.cuda_cpu_test(
@@ -893,7 +916,9 @@ def test_mbarriers_m4n2d1d2_in_order_to_wgmma_strict_golden(compiler, golden, mo
 def test_mbarriers_m1n4d2d2_temporal_to_wgmma_strict_excut(compiler_Sm90a, monkeypatch):
     monkeypatch.setenv("EXO_STRICT_CLUSTER_MBARRIER", "1")
     compiler_Sm90a.excut_test(
-        mkproc_mbarriers, mkref_mbarriers, **mb_m1n4d2d2_temporal_to_wgmma,
+        mkproc_mbarriers,
+        mkref_mbarriers,
+        **mb_m1n4d2d2_temporal_to_wgmma,
         strict_cluster=True,
     )
 
@@ -911,10 +936,18 @@ def test_mbarriers_strict_cluster_warning(compiler, monkeypatch):
         monkeypatch.setenv("EXO_STRICT_CLUSTER_MBARRIER", value)
         with warnings.catch_warnings(record=True) as record:
             warnings.simplefilter("always")
-            src = compiler.cuda_cpu_test(mkproc_mbarriers, **mb_m4n2d1d2_in_order_to_wgmma)
-        assert not [w for w in record if "EXO_STRICT_CLUSTER_MBARRIER" in str(w.message)]
-        assert ("mbarrier.arrive.release.cluster.shared::cluster.b64" in src.cuh_src) == strict
-        assert ("try_wait.parity.acquire.cluster.shared::cta.b64" in src.cuh_src) == strict
+            src = compiler.cuda_cpu_test(
+                mkproc_mbarriers, **mb_m4n2d1d2_in_order_to_wgmma
+            )
+        assert not [
+            w for w in record if "EXO_STRICT_CLUSTER_MBARRIER" in str(w.message)
+        ]
+        assert (
+            "mbarrier.arrive.release.cluster.shared::cluster.b64" in src.cuh_src
+        ) == strict
+        assert (
+            "try_wait.parity.acquire.cluster.shared::cta.b64" in src.cuh_src
+        ) == strict
 
 
 def test_mbarriers_strict_cluster_no_warning_1_cta(compiler, monkeypatch):

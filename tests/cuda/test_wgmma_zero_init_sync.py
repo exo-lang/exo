@@ -40,7 +40,15 @@ def mkproc_cuda_write_then_wgmma(fence):
                     if cuda_fence:
                         Fence(cuda_in_order, cuda_in_order)
                     Sm90_tk_mma_row_col_zi(
-                        D[:, :, :], A[:, :], B[:, :], True, D=f32, A=bf16, B=bf16, N=N, K=K
+                        D[:, :, :],
+                        A[:, :],
+                        B[:, :],
+                        True,
+                        D=f32,
+                        A=bf16,
+                        B=bf16,
+                        N=N,
+                        K=K,
                     )
                     Arrive(wgmma_async) >> cg
                     Await(cg, cuda_in_order, 0)
@@ -83,7 +91,11 @@ def mkproc_handwritten_zero_init_loop():
                                 A[hdim64, :, :],
                                 B[hdim64, :, :],
                                 hdim64 == 0,
-                                D=f32, A=bf16, B=bf16, N=N, K=K,
+                                D=f32,
+                                A=bf16,
+                                B=bf16,
+                                N=N,
+                                K=K,
                             )
                         Arrive(wgmma_async) >> cg
                         Await(cg, cuda_in_order, 0)
@@ -97,4 +109,3 @@ def test_handwritten_zero_init_loop_positive(compiler):
     p = mkproc_handwritten_zero_init_loop()
     p.sync_check()
     compiler.cuda_cpu_test(lambda: p)
-

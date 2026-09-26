@@ -1387,7 +1387,11 @@ def remove_tail_guards_keep_zero(p: Procedure, cursor):
     def visit(c):
         if isinstance(c, IfCursor):
             body = c.body()
-            if not (len(body) == 1 and isinstance(body[0], AssignCursor) and body[0].name() == "D_rmem"):
+            if not (
+                len(body) == 1
+                and isinstance(body[0], AssignCursor)
+                and body[0].name() == "D_rmem"
+            ):
                 guards.append(c)
         if isinstance(c, (IfCursor, ForCursor)):
             for child in c.body():

@@ -4999,9 +4999,13 @@ def test_unsafe_remove_if_orelse_error():
             else:
                 x[i] = 2.0
 
-    with pytest.raises(SchedulingError, match="Cannot remove if with orelse statements"):
+    with pytest.raises(
+        SchedulingError, match="Cannot remove if with orelse statements"
+    ):
         unsafe_remove_if(foo, foo.find("if _: _"), False)
-    with pytest.raises(SchedulingError, match="Cannot remove if with orelse statements"):
+    with pytest.raises(
+        SchedulingError, match="Cannot remove if with orelse statements"
+    ):
         unsafe_remove_if(foo, foo.find_loop("i"), True)
 
 

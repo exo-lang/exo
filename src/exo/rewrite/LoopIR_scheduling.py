@@ -2401,7 +2401,9 @@ def DoUnsafeRemoveIf(stmt_c, recursive):
         fwd = _compose(fwd_del, fwd)
     elif not recursive:
         if is_with:
-            raise SchedulingError("Cannot remove with statement (expected cursor to if statement)")
+            raise SchedulingError(
+                "Cannot remove with statement (expected cursor to if statement)"
+            )
         raise SchedulingError("Expected cursor to if statement")
 
     return ir, fwd
