@@ -144,7 +144,6 @@ def proc_3cycle_mbarriers():
                         #                cuda_in_order_rmem_qual
                         #                cuda_in_order_ram_qual
                         #                cuda_mbarrier_qual
-                        #     (temporal) wgmma_zero_qual
                         #     (temporal) cuda_async_proxy_retired_qual
                         #
                         # tests/cuda/test_3cycle_mbarrier.py:77:28:(s40):
@@ -158,7 +157,6 @@ def proc_3cycle_mbarriers():
                         #                cuda_in_order_rmem_qual
                         #                cuda_in_order_ram_qual
                         #                cuda_mbarrier_qual
-                        #     (temporal) wgmma_zero_qual
                         #     (temporal) cuda_async_proxy_retired_qual
                         # BEFORE:
                         #   threads: [task_index = 0 [0],
@@ -391,7 +389,6 @@ def proc_3cycle_mbarriers():
                             #                cuda_in_order_rmem_qual
                             #                cuda_in_order_ram_qual
                             #                cuda_mbarrier_qual
-                            #     (temporal) wgmma_zero_qual
                             #     (temporal) cuda_async_proxy_retired_qual
                             #
                             # tests/cuda/test_3cycle_mbarrier.py:82:32:(s80):
@@ -405,7 +402,6 @@ def proc_3cycle_mbarriers():
                             #                cuda_in_order_rmem_qual
                             #                cuda_in_order_ram_qual
                             #                cuda_mbarrier_qual
-                            #     (temporal) wgmma_zero_qual
                             #     (temporal) cuda_async_proxy_retired_qual
                             # BEFORE:
                             #   threads: [task_index = 0 [0],
@@ -448,7 +444,6 @@ def proc_3cycle_mbarriers():
                             #                cuda_in_order_rmem_qual
                             #                cuda_in_order_ram_qual
                             #                cuda_mbarrier_qual
-                            #     (temporal) wgmma_zero_qual
                             #     (temporal) cuda_async_proxy_retired_qual
                             # BEFORE:
                             #   threads: [task_index = 0 [0],
@@ -633,7 +628,6 @@ def proc_3cycle_mbarriers():
                             #                cuda_in_order_rmem_qual
                             #                cuda_in_order_ram_qual
                             #                cuda_mbarrier_qual
-                            #     (temporal) wgmma_zero_qual
                             #     (temporal) cuda_async_proxy_retired_qual
                             #
                             # tests/cuda/test_3cycle_mbarrier.py:90:32:(s150):
@@ -647,7 +641,6 @@ def proc_3cycle_mbarriers():
                             #                cuda_in_order_rmem_qual
                             #                cuda_in_order_ram_qual
                             #                cuda_mbarrier_qual
-                            #     (temporal) wgmma_zero_qual
                             #     (temporal) cuda_async_proxy_retired_qual
                             # BEFORE:
                             #   pending await: CtoA[0, 0] arrive_count=0
@@ -730,7 +723,6 @@ def proc_3cycle_mbarriers():
                                 #                cuda_in_order_rmem_qual
                                 #                cuda_in_order_ram_qual
                                 #                cuda_mbarrier_qual
-                                #     (temporal) wgmma_zero_qual
                                 #     (temporal) cuda_async_proxy_retired_qual
                                 #
                                 # tests/cuda/test_3cycle_mbarrier.py:95:36:(s180):

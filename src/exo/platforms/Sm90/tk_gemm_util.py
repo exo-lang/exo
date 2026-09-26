@@ -447,12 +447,13 @@ def handwrite_row_col_coop_main_loop(config: GemmConfig):
                         for wg_m in cuda_threads(0, 2, unit=cuda_warpgroup):
                             Fence(wgmma_fence_1, wgmma_fence_2)
                             for ms in seq(0, M_wg_tiles, pragma_unroll=0):
-                                Sm90_tk_mma_row_col(
+                                Sm90_tk_mma_row_col_zi(
                                     D_rmem[cta_m, cta_n, wg_m, :, ms, :, :],
                                     A_smem[cta_m, cta_n, iter_k % ring_depth,
                                            (wg_m * M_wg_tiles + ms) * 64 :
                                            (wg_m * M_wg_tiles + ms) * 64 + 64, :],
                                     B_smem[cta_m, cta_n, iter_k % ring_depth, :, :],
+                                    iter_k == 0,
                                     D=D_type, A=A_type, B=B_type, N=cta_N, K=smem_K,
                                 )
                             Arrive(wgmma_async) >> wgmma_cg[cta_m, cta_n, wg_m]
@@ -627,10 +628,11 @@ def handwrite_row_row_coop_main_loop(config: GemmConfig):
                                         )
                                 Fence(wgmma_fence_1, wgmma_fence_2)
                                 for ms in seq(0, M_wg_tiles, pragma_unroll=0):
-                                    Sm90_tk_mma_rmem_row(
+                                    Sm90_tk_mma_rmem_row_zi(
                                         D_rmem[cta_m, cta_n, wg_m, :, ms, :, :],
                                         A_rmem[:, ms, :, :],
                                         B_smem[cta_m, cta_n, iter_k % ring_depth, :, :, :],
+                                        iter_k == 0,
                                         D=D_type, A=A_type, B=B_type, N64=cta_N // 64, K=smem_K,
                                     )
                                 Arrive(wgmma_async) >> wgmma_cg[cta_m, cta_n, wg_m]
@@ -639,12 +641,13 @@ def handwrite_row_row_coop_main_loop(config: GemmConfig):
                                 # Normal path. Load A and B from SMEM.
                                 Fence(wgmma_fence_1, wgmma_fence_2)
                                 for ms in seq(0, M_wg_tiles, pragma_unroll=0):
-                                    Sm90_tk_mma_row_row(
+                                    Sm90_tk_mma_row_row_zi(
                                         D_rmem[cta_m, cta_n, wg_m, :, ms, :, :],
                                         A_smem[cta_m, cta_n, iter_k % ring_depth,
                                                (wg_m * M_wg_tiles + ms) * 64 :
                                                (wg_m * M_wg_tiles + ms) * 64 + 64, :],
                                         B_smem[cta_m, cta_n, iter_k % ring_depth, :, :, :],
+                                        iter_k == 0,
                                         D=D_type, A=A_type, B=B_type, N64=cta_N // 64, K=smem_K,
                                     )
                                 Arrive(wgmma_async) >> wgmma_cg[cta_m, cta_n, wg_m]
@@ -791,12 +794,13 @@ def handwrite_row_col_ping_pong_main_loop(config: GemmConfig):
                             # Each warpgroup does its own WGMMAs, then arrives on its own commit group.
                             Fence(wgmma_fence_1, wgmma_fence_2)
                             for ms in seq(0, M_wg_tiles, pragma_unroll=0):
-                                Sm90_tk_mma_row_col(
+                                Sm90_tk_mma_row_col_zi(
                                     D_rmem[cta_m, cta_n, ping, :, ms, :, :],
                                     A_smem[cta_m, cta_n, ping, iter_k,
                                            ms * 64 :
                                            ms * 64 + 64, :],
                                     B_smem[cta_m, cta_n, ping, iter_k, :, :],
+                                    iter_k == 0,
                                     D=D_type, A=A_type, B=B_type, N=cta_N, K=smem_K,
                                 )
                             Arrive(wgmma_async) >> wgmma_cg[cta_m, cta_n, ping]
@@ -1165,16 +1169,6 @@ def handwrite_row_col_gemm(config: GemmConfig):
                             #
                             # m = wg_m * (M_wg_tiles * 64) + ms * 64 + w * 16 + mt
                             D_rmem: D_type[ncta_M, ncta_N, 2, 4, M_wg_tiles, 16, cta_N] @ D_tile_mem
-                            for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
-                                for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
-                                    with CudaWarps(name="consumer"):
-                                        for wg_m in cuda_threads(0, 2, unit=cuda_warpgroup):
-                                            for ms in seq(0, M_wg_tiles, pragma_unroll=0):
-                                                Sm90_tk_zero_scale_d(
-                                                    D_rmem[cta_m, cta_n, wg_m, :, ms, :, :],
-                                                    D=D_type, N=cta_N,
-                                                )
-
                             main_loop(
                                 K_cluster,
                                 D_rmem[:, :, :, :, :, :, :],
@@ -1311,16 +1305,6 @@ def handwrite_row_row_gemm(config: GemmConfig):
                             #
                             # m = wg_m * (M_wg_tiles * 64) + ms * 64 + w * 16 + mt
                             D_rmem: D_type[ncta_M, ncta_N, 2, 4, M_wg_tiles, 16, cta_N] @ D_tile_mem
-                            for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
-                                for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
-                                    with CudaWarps(name="consumer"):
-                                        for wg_m in cuda_threads(0, 2, unit=cuda_warpgroup):
-                                            for ms in seq(0, M_wg_tiles, pragma_unroll=0):
-                                                Sm90_tk_zero_scale_d(
-                                                    D_rmem[cta_m, cta_n, wg_m, :, ms, :, :],
-                                                    D=D_type, N=cta_N,
-                                                )
-
                             main_loop(
                                 K_cluster,
                                 D_rmem[:, :, :, :, :, :, :],
@@ -1389,6 +1373,30 @@ def find_parent_loop(p: Procedure, cursor, iter_name):
     while not (isinstance(cursor, ForCursor) and cursor.name() == iter_name):
         cursor = cursor.parent()
     return cursor
+
+
+def remove_tail_guards_keep_zero(p: Procedure, cursor):
+    """unsafe_remove_if all if statements in the subtree of cursor,
+    except the zero-init guard (`if iter_k == 0: D_rmem[...] = 0`).
+
+    The zero-init guard is identified structurally: the if statement
+    whose body is solely the assignment to D_rmem.
+    Remaining if statements should just be M/N/K tail guards."""
+    guards = []
+
+    def visit(c):
+        if isinstance(c, IfCursor):
+            body = c.body()
+            if not (len(body) == 1 and isinstance(body[0], AssignCursor) and body[0].name() == "D_rmem"):
+                guards.append(c)
+        if isinstance(c, (IfCursor, ForCursor)):
+            for child in c.body():
+                visit(child)
+
+    visit(p.forward(cursor))
+    for c in guards:
+        p = unsafe_remove_if(p, c, False)
+    return p
 
 
 def schedule_gemm(config: GemmConfig, cases=None):
@@ -1492,7 +1500,6 @@ def schedule_gemm(config: GemmConfig, cases=None):
         C_assign = gemm.find("_ += D_rmem")
     else:
         C_assign = gemm.find("_ = D_rmem")
-    gap_before_main = k_loop.before()
     gap_after_main = k_loop.after()
 
     # Set up cuda_tasks loops and CudaDeviceFunction.
@@ -1568,9 +1575,10 @@ def schedule_gemm(config: GemmConfig, cases=None):
     D_rmem = gemm.forward(D_rmem)
 
     # Set up the main loop.
-    # First we have to lift D_rmem out, then fission out the
-    # zero prologue and GMEM-write epilogue.
-    # Divide K loop to yield main loop (iter_k)
+    # Divide K loop to yield main loop (iter_k).
+    # Sink the zero-init into the main loop (if iter_k == 0: D_rmem = 0),
+    # so it is later absorbed into the zero-init wgmma instr.
+    # Then we have to lift D_rmem out, then fission out the GMEM-write epilogue.
     # Move iter_k loop to be just under the tasks loops.
     #
     # Non-perfect K loop:
@@ -1578,7 +1586,16 @@ def schedule_gemm(config: GemmConfig, cases=None):
     # zero padding makes the extra K loads safe (D += 0 is no-op).
     gemm = divide_loop(gemm, k_loop, smem_K, ("iter_k", "sub_iter_k"), tail="guard")
     iter_k_loop = gemm.forward(k_loop)
-    sub_iter_k_loop = iter_k_loop.only_child()
+    # D_rmem = 0; for iter_k: ...
+    # -> for iter_k: (if iter_k == 0: D_rmem = 0); ...
+    # add_loop's guard requires proving the iter_k trip count is positive,
+    # which relies on `assert K_cluster > 0`.
+    D_zero = gemm.forward(D_zero)
+    gemm = add_loop(gemm, D_zero, "iter_k", f"(K_cluster + {smem_K - 1}) / {smem_K}", guard=True)
+    iter_k_loop = gemm.forward(iter_k_loop)
+    gemm = fuse(gemm, iter_k_loop.prev(), iter_k_loop)
+    iter_k_loop = gemm.forward(iter_k_loop.prev())  # fuse deletes the 2nd loop
+    gap_after_main = iter_k_loop.after()
     k_lifts = 0
     parent = iter_k_loop.parent()
     while True:
@@ -1588,11 +1605,9 @@ def schedule_gemm(config: GemmConfig, cases=None):
         k_lifts += 1
         parent = parent.parent()
     gemm = lift_alloc(gemm, D_rmem, n_lifts=k_lifts)
-    gemm = fission(gemm, gap_before_main, n_lifts=k_lifts, unsafe_disable_checks=unsafe)
     gemm = fission(gemm, gap_after_main, n_lifts=k_lifts, unsafe_disable_checks=unsafe)
     for i in range(k_lifts):
         gemm = lift_scope(gemm, iter_k_loop)
-    gap_before_main = gemm.forward(gap_before_main)
     gap_after_main = gemm.forward(gap_after_main)
     D_rmem = gemm.forward(D_rmem)
     iter_k_loop = gemm.forward(iter_k_loop)
@@ -1717,16 +1732,21 @@ def schedule_gemm(config: GemmConfig, cases=None):
     # for wg_m in cuda_threads(0, 2, unit=cuda_warpgroup):
     #   Fence(wgmma_fence_1, wgmma_fence_2)
     #   for ms:
-    #     for mw:  <-- replace with wgmma
+    #     for mw:  <-- replace with wgmma (zero_init = iter_k == 0)
     #       ...
+    #         if iter_k == 0:
+    #           D_rmem[...] = 0
     #         for sub_iter_k:
     # Arrive(...) >> ...
+    #
+    # We have to unsafely remove the M/N/K tail guards (but not the
+    # zero-init guard) to substitute the wgmma.
     wgmma_ms_cursor = gemm.forward(wg_m_main_loop).only_child(1)
     assert wgmma_ms_cursor.name() == "ms"
     wgmma_mw_cursor = wgmma_ms_cursor.only_child(1)
     assert wgmma_mw_cursor.name() == "mw"
-    gemm = unsafe_remove_if(gemm, wgmma_ms_cursor, True)
-    gemm = replace(gemm, wgmma_mw_cursor, Sm90_tk_mma_row_col)
+    gemm = remove_tail_guards_keep_zero(gemm, wgmma_ms_cursor)
+    gemm = replace(gemm, wgmma_mw_cursor, Sm90_tk_mma_row_col_zi)
     gemm = insert_fence(gemm, wgmma_ms_cursor.before(), wgmma_fence_1, wgmma_fence_2)
     # Arrive(wgmma_async, 1) >> wgmma_cg[cta_m, cta_n, wg_m]
     gemm = insert_arrive(gemm, wgmma_ms_cursor.after(), wgmma_async, "wgmma_cg[cta_m, cta_n, wg_m]")
@@ -1738,15 +1758,6 @@ def schedule_gemm(config: GemmConfig, cases=None):
     assert len(iter_k_loop.body()) == 3
     gemm = wrap_with_context(gemm, iter_k_loop.body()[:2], CudaWarps(0, 1, name="producer"))
     gemm = wrap_with_context(gemm, iter_k_loop.body()[2], CudaWarps(name="consumer"))
-
-    # Finalize zero prologue.
-    # We have to unsafely remove the if-guards to substitute the zero instr.
-    D_zero = gemm.forward(D_zero)
-    zero_m_loop = find_parent_loop(gemm, D_zero, "wg_m")
-    gemm = unsafe_remove_if(gemm, zero_m_loop, True)
-    gemm = wrap_with_context(gemm, zero_m_loop, CudaWarps(name="consumer"))
-    zero_m_loop = gemm.forward(zero_m_loop)
-    gemm = replace(gemm, zero_m_loop.find("for mw in _:_"), Sm90_tk_zero_scale_d)
 
     # Finalize write-to-C epilogue.
     # Need to wait for wgmma beforehand, and do a final arrive to war barrier.

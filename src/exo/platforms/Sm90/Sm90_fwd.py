@@ -18,7 +18,5 @@ from exo.spork.timelines import (
     wgmma_async_rmem_d_qual,
     cuda_rmem_qual_tl_dict,
     cuda_ram_qual_tl_dict,
-    wgmma_zero_instr,
-    wgmma_zero_qual,
 )
 from exo.spork.cuda_memory import Sm90_TmaCommitGroup, Sm90_WgmmaCommitGroup

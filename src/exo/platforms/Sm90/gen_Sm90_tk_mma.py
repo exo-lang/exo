@@ -41,38 +41,14 @@ from .Sm90_tk_mma_impl import Sm90_TkRmemTileA, Sm90_TkRmemTileD, make_basic_mma
 
 
 
-_all = ["CudaTkWarpTile", "Sm90_TkRmemTileA", "Sm90_TkRmemTileD", "Sm90_tk_zero_scale_d"]
+_all = ["CudaTkWarpTile", "Sm90_TkRmemTileA", "Sm90_TkRmemTileD"]
 _instr_defs = []
 
 
-write_chunk('''
-@instr
-class Sm90_tk_zero_scale_d(InstrInfo):
-    """Triggers the tile to be zeroed in the next mma instruction.
-
-    """
-    valid_num_types = {(f16, ), (f32, )}
-
-    def behavior(N: size, D: [R][4, 16, N]):
-        for m_warp in seq(0, 4):
-            for mi in seq(0, 16):
-                for n in seq(0, N):
-                    D[m_warp, mi, n] = 0
-
-    def instance(self, N):
-        self.instr_tl = wgmma_zero_instr
-        self.coll_unit = cuda_warpgroup
-        self.access_info["D"].mem = Sm90_TkRmemTileD(N)
-        self.access_info["D"].out_of_order = False
-        self.access_info["D"].distributed_coll_units = (cuda_warp, )
-
-    def codegen(self, args):
-        return [f"{args.D.index(get_scale_d=True)} = 0;"]
-''')
-
-
-def append_instr(a_mode: str, b_mode: str):
-    instr_name = f"Sm90_tk_mma_{a_mode}_{b_mode}"
+def append_instr(a_mode: str, b_mode: str, zero_init_form: bool):
+    # Zero-init form (_zi): runtime zero_init arg; scale-d = !zero_init.
+    # Accumulate-only form: hardwired scale-d = 1.
+    instr_name = f"Sm90_tk_mma_{a_mode}_{b_mode}{'_zi' if zero_init_form else ''}"
 
     M = "64"
     if a_mode == "rmem":
@@ -90,8 +66,11 @@ def append_instr(a_mode: str, b_mode: str):
 
     lines = []
     lines.append("@instr")
-    lines.append(f"class {instr_name}(make_basic_mma({a_mode!r}, {b_mode!r})):")
+    lines.append(f"class {instr_name}(make_basic_mma({a_mode!r}, {b_mode!r}, {zero_init_form!r})):")
     lines.append(f'    """"m({M}) x n({N}) x k(K) matrix multiply-accumulate')
+    if zero_init_form:
+        lines.append("")
+        lines.append("    D = AB if zero_init (scale-d = 0), else D += AB (scale-d = 1)")
     lines.append("")
     lines.append(f'    A in {A_comment}, B in {B_comment}"""')
     lines.append("    def behavior(")
@@ -130,6 +109,11 @@ def append_instr(a_mode: str, b_mode: str):
         lines.append(indent + "# B @ Sm90_SmemSwizzled(swizzle), indexed as [n, k]")
         lines.append(indent + f"B: [R][{N}, K],")
 
+    # zero_init parameter (runtime arg; not a template parameter)
+    if zero_init_form:
+        lines.append(indent + "# scale-d = !zero_init")
+        lines.append(indent + "zero_init: bool,")
+
     lines.append("    ):")
 
     # Add SMEM info.
@@ -154,6 +138,9 @@ def append_instr(a_mode: str, b_mode: str):
         lines.append(indent + "for n in seq(0, N):")
         indent += "    "
         n = "n"
+    if zero_init_form:
+        lines.append(indent + "if zero_init:")
+        lines.append(indent + f"    D[m_warp, mi, {n}] = 0.0")
     lines.append(indent + "for k in seq(0, K):")
     indent += "    "
 
@@ -177,9 +164,10 @@ def append_instr(a_mode: str, b_mode: str):
     _instr_defs.append("\n".join(lines))
 
 
-for b_mode in ("col", "row"):
-    for a_mode in ("row", "rmem", "col"):
-        append_instr(a_mode, b_mode)
+for zero_init_form in (False, True):
+    for b_mode in ("col", "row"):
+        for a_mode in ("row", "rmem", "col"):
+            append_instr(a_mode, b_mode, zero_init_form)
 
 
 write_chunk(

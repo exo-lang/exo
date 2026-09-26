@@ -27,13 +27,15 @@ def Sm90_TkRmemTileD(N: int):
 
     class Tile(CudaTkWarpTile(16, N, "row")):
         qual_tl_dict = cuda_rmem_qual_tl_dict | {
-            wgmma_async_instr: [wgmma_async_rmem_d_qual, wgmma_zero_qual],
+            wgmma_async_instr: wgmma_async_rmem_d_qual,
         }
 
     return Tile
 
 
-def make_basic_mma(a_mode, b_mode):
+def make_basic_mma(a_mode, b_mode, zero_init_form: bool):
+    """zero_init_form: scale-d = !zero_init (runtime bool arg) for the
+    first native k-step; otherwise, hardwired scale-d = 1 (accumulate-only)"""
     assert a_mode in ("row", "col", "rmem")
     assert b_mode in ("row", "col")
 
@@ -175,11 +177,18 @@ def make_basic_mma(a_mode, b_mode):
                 if K_iters != 1:
                     lines.append(f"  // K = {k * K_native} out of {self.K}")
                 d_arg = args.D.index()
-                scale_d_arg = args.D.index(get_scale_d=True)
                 ptx = InlinePtxGen(instr_fmt, volatile=True)
 
-                # p=scale_d arg to wgmma
-                ptx.add_arg(scale_d_arg, constraint="r", log_as=None, N=1)
+                # p=scale_d arg to wgmma.
+                # Runtime !zero_init for the first native k-step of the
+                # zero-init form; otherwise the constant 1 (int is pasted
+                # into the PTX as a true constant).
+                # int(...) required as C++ bool fails the "r" constraint.
+                if zero_init_form and k == 0:
+                    scale_d_arg = f"int(!({args.zero_init.index()}))"
+                    ptx.add_arg(scale_d_arg, constraint="r", log_as=None, N=1)
+                else:
+                    ptx.add_arg(1, constraint="n", log_as=None, N=1)
 
                 # Add vector of registers (D argument)
                 if self.d_type == f32:
@@ -229,9 +238,7 @@ def make_basic_mma(a_mode, b_mode):
                 ptx.add_arg("exo_descB", constraint="l", log_as=None)
 
                 # Write out the code for this K iteration.
-                # Implicitly reset scale_d flag after wgmma.
                 lines.extend(ptx.as_c_lines(tab="  "))
-                lines.append(f"  {scale_d_arg} = 1;")
                 lines.append("}")
             # End for k in range(K_iters)
             return lines

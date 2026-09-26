@@ -660,11 +660,12 @@ def mkproc_packed_dims_point_expr_err(wrong):
     p = proc_foo
     if wrong:
         p = rearrange_dim(p, "D_rmem", [0, 2, 1, 3])
-    p = replace(p, p.find_loop("mw"), Sm90_tk_zero_scale_d)
+    p = replace(p, p.find_loop("mi"), cuda_tk_tile_zero)
+    p = simplify(p)
     return p
 
     # If the dims are reordered, you get
-    # Sm90_tk_zero_scale_d(D_rmem[:, :, ms, :])
+    # cuda_tk_tile_zero(D_rmem[mw, :, ms, :])
     # which is not valid.
 
 

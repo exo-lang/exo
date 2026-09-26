@@ -64,9 +64,6 @@ tma_to_gmem_async_instr = Instr_tl("tma_to_gmem_async_instr")
 """wgmma.mma_async instructions"""
 wgmma_async_instr = Instr_tl("wgmma_async_instr")
 
-"""Sets scale-d = 0 for the next wgmma.mma_async instr"""
-wgmma_zero_instr = Instr_tl("wgmma_zero_instr")
-
 """tcgen05.mma instructions"""
 tcgen05_mma_instr = Instr_tl("tcgen05_mma_instr")
 
@@ -94,7 +91,7 @@ cuda_async_instr_tl = [
     tcgen05_st_instr,
 ]
 
-cuda_basic_instr_tl = [cuda_in_order_instr, wgmma_zero_instr] + cuda_async_instr_tl
+cuda_basic_instr_tl = [cuda_in_order_instr] + cuda_async_instr_tl
 
 
 class DeviceScope(object):
@@ -215,7 +212,6 @@ tma_to_gmem_async_qual = Qual_tl("tma_to_gmem_async_qual", False)
 wgmma_async_rmem_a_qual = Qual_tl("wgmma_async_rmem_a_qual", True)
 wgmma_async_rmem_d_qual = Qual_tl("wgmma_async_rmem_d_qual", True)
 wgmma_async_smem_qual = Qual_tl("wgmma_async_smem_qual", False)
-wgmma_zero_qual = Qual_tl("wgmma_zero_qual", True)
 cuda_async_proxy_retired_qual = Qual_tl("cuda_async_proxy_retired_qual", False)
 tcgen05_smem_qual = Qual_tl("tcgen05_smem_qual", False)
 tcgen05_mma_tmem_qual = Qual_tl("tcgen05_mma_tmem_qual", True)
@@ -230,7 +226,6 @@ cuda_rmem_qual_tl_dict = {
     Sm80_cp_async_instr: cuda_in_order_rmem_qual,
     tma_to_smem_async_instr: cuda_in_order_rmem_qual,
     tma_to_gmem_async_instr: cuda_in_order_rmem_qual,
-    wgmma_zero_instr: [wgmma_zero_qual, wgmma_async_rmem_d_qual],
     # wgmma a/d has to be handled specially.
     #
     # cuda_in_order_rmem_qual is in the extended timeline set for tcgen05 access
@@ -305,7 +300,6 @@ _tcgen05_commit_quals = [
     tcgen05_shift_qual,
 ]
 
-# Intentionally excludes wgmma_zero_qual
 _cuda_device_quals = (
     _cuda_in_order_quals
     + [cpu_cuda_stream_qual, cuda_async_proxy_retired_qual]
@@ -321,7 +315,6 @@ _cuda_temporal_quals = [
     cuda_in_order_ram_qual,
     cuda_mbarrier_qual,
     cuda_async_proxy_retired_qual,
-    wgmma_zero_qual,
 ]
 
 _wgmma_rmem_quals = [
@@ -563,7 +556,6 @@ def generate_latex_table(out_file):
         (wgmma_async_rmem_a_qual, "wgA", r"$A$ parameter in registers accessed by \lighttt{wgmma.mma\_async}"),
         (wgmma_async_rmem_d_qual, "wgD", r"$D$ parameter in registers accessed by \lighttt{wgmma.mma\_async}"),
         (wgmma_async_smem_qual, "wgS", r"$A$ or $B$ parameter in SMEM accessed by \lighttt{wgmma.mma\_async}"),
-        (wgmma_zero_qual, "wg0", r"Special case for modeling \textsf{scale-d = 0}"),
         (cuda_async_proxy_retired_qual, "async", r"retired memory access made visible to the async proxy"),
     ]
     # fmt: on
@@ -574,9 +566,9 @@ def generate_latex_table(out_file):
         out_file.write("\n")
 
     out_file.write(
-        r"""\begin{tabular}{|r|l l|l l l|l l l| l l l l|l|}
+        r"""\begin{tabular}{|r|l l|l l l|l l l| l l l|l|}
 \hline
-$\tau_s$ & cpu & strm & cuda1 & cuda2 & mbar & Sm80 & g2s & s2g & wgA & wgD & wgS & wg0 & async \\
+$\tau_s$ & cpu & strm & cuda1 & cuda2 & mbar & Sm80 & g2s & s2g & wgA & wgD & wgS & async \\
 \hline
 """
     )
