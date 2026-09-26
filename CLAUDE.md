@@ -47,7 +47,8 @@ To format before staging (e.g. before regenerating goldens):
 pre-commit run black --files path/to/changed_file.py ...
 ```
 Code inside `# fmt: off` / `# fmt: on` (e.g. long `@proc` bodies) is left alone.
-Reformatting can shift source line numbers that appear in goldens, so regenerate goldens after reformatting and check the diff
+Reformatting can shift source line numbers that appear in goldens,
+so the few tests that have this issue disable the auto-formatter.
 (`test_3cycle_mbarrier` goldens are known to be line-number sensitive).
 
 ## Architecture
