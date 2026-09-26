@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from exo.stdlib.scheduling import *
 from exo import proc
 from exo.rewrite.range_analysis import (
@@ -429,7 +431,7 @@ def test_index_range_env():
     node = loop._impl._node
     env.add_loop_iter(node.iter, node.lo, node.hi)
     N_read = LoopIR.Read(
-        foo._loopir_proc.args[0].name, [], T.size, foo._loopir_proc.srcinfo
+        foo._loopir_proc.args[0].name, [], T.plain_size, foo._loopir_proc.srcinfo
     )
     j_read = LoopIR.Read(node.iter, [], T.index, foo._loopir_proc.srcinfo)
     assert env.check_expr_bounds(
@@ -516,3 +518,10 @@ def test_bounds_inference_fail():
     loop = foo.find_loop("j")
     bound = bounds_inference(loop, "x", 0, include=["W"])
     assert str(bound) == "(0, -inf, inf)"
+
+
+def test_index_range_floordiv_by_zero_raises():
+    from exo.rewrite.range_analysis import IndexRange
+
+    with pytest.raises(ValueError, match="Cannot divide by 0"):
+        IndexRange.create_constant_range(0, 10) // 0

@@ -1069,3 +1069,26 @@ def test_infinity(compiler):
     assert b[0] == 1337
     assert isinf(b[1])
     assert b[1] < 0
+
+
+def test_const_index_floor_div():
+    """Constant-folded index division must be integer floor division (was a Python float)."""
+
+    @proc
+    def const_div(x: f32[8], y: f32[8]):
+        y[0] = x[7 / 2]
+        y[1] = x[4 + (-7) / 2]
+
+    cc, hh = compile_procs_to_strings([const_div], "const_div.h")
+    assert "x[3]" in cc, cc
+    assert "x[0]" in cc, cc
+    assert "3.5" not in cc, cc
+
+
+def test_cir_simplify_zero_mod():
+    from exo.core.cir import CIR, simplify_cir
+    from exo.core.prelude import Sym
+
+    x = CIR.Read(Sym("x"), True)
+    for op in ("*", "/", "%"):
+        assert simplify_cir(CIR.BinOp(op, CIR.Const(0), x, True)) == CIR.Const(0)

@@ -59,10 +59,8 @@ def cast_to_cir(n):
 
 
 def cir_div(num, denom):
-    quot = num // denom
-    if denom * quot == num:
-        return quot
-    return num / denom
+    # Exo integer division is floor division (same as Python //).
+    return num // denom
 
 
 _operations = {
@@ -88,7 +86,7 @@ def simplify_cir(e):
         if isinstance(lhs, CIR.Const) and lhs.val == 0:
             if e.op == "+":
                 return rhs
-            elif e.op == "*" or e.op == "/":
+            elif e.op == "*" or e.op == "/" or e.op == "%":
                 return CIR.Const(0)
             elif e.op == "-":
                 pass  # cannot simplify

@@ -1077,7 +1077,7 @@ class Compiler:
                 if (
                     self._in_cuda_function
                     or (isinstance(e.lhs, (CIR.Read, CIR.BinOp)) and e.lhs.is_non_neg)
-                    or (isinstance(e.lhs, CIR.Const) and e.lhs.val > 0)
+                    or (isinstance(e.lhs, CIR.Const) and e.lhs.val >= 0)
                 ):
                     return f"({lhs} / {rhs})"
                 else:

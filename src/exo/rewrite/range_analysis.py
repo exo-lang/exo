@@ -192,7 +192,7 @@ class IndexRange:
     def __floordiv__(self, c: int) -> IndexRange:
         assert isinstance(c, int)
         if c == 0:
-            return ValueError("Cannot divide by 0.")
+            raise ValueError("Cannot divide by 0.")
         elif c < 0:
             return IndexRange.create_unbounded()
 
