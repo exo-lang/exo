@@ -1,0 +1,1009 @@
+// ########################################################################
+// .h
+// ########################################################################
+#pragma once
+#ifndef TEST_GOLDEN_WGMMA_ACCUM_ROW_COL_F32_F32_H
+#define TEST_GOLDEN_WGMMA_ACCUM_ROW_COL_F32_F32_H
+
+
+#include <stdint.h>
+#include <stdbool.h>
+
+#ifndef EXO_CUDA_HEADER_COMMON
+#define EXO_CUDA_HEADER_COMMON
+#include <cuda_runtime.h>
+#include <cuda_fp16.h>
+#include <cuda_bf16.h>
+
+#ifdef __CUDACC__
+#define EXO_CUDA_INLINE __device__ __forceinline__
+EXO_CUDA_INLINE unsigned exo_smemU32(const void* smem_ptr)
+{
+    return (unsigned)__cvta_generic_to_shared(smem_ptr);
+}
+EXO_CUDA_INLINE unsigned exo_mapa_shared_cluster(unsigned addr_u32, unsigned cta_rank)
+{
+#if __CUDA_ARCH__ >= 900
+    asm("mapa.shared::cluster.u32 %0, %1, %2;": "=r"(addr_u32) : "r"(addr_u32), "r"(cta_rank));
+#endif
+    return addr_u32;
+}
+EXO_CUDA_INLINE bool exo_elect_one_sync()
+{
+    // cute::elect_one_sync
+    uint32_t pred = 0;
+    uint32_t laneid = 0;
+    asm volatile(
+      "{\n"
+      ".reg .b32 %%rx;\n"
+      ".reg .pred %%px;\n"
+      "     elect.sync %%rx|%%px, %2;\n"
+      "@%%px mov.s32 %1, 1;\n"
+      "     mov.s32 %0, %%rx;\n"
+      "}\n"
+      : "+r"(laneid), "+r"(pred)
+      : "r"(0xFFFFFFFF));
+    return pred;
+}
+#endif  // __CUDACC__
+
+#ifndef EXO_EXCUT_bENABLE_LOG
+#define EXO_EXCUT_bENABLE_LOG 0
+#endif
+
+#if EXO_EXCUT_bENABLE_LOG
+#include "exo_excut.h"  // Used for exo excut tests (tracing)
+#else
+// Do-nothing replacements for exo_excut.h
+#define exo_excut_log_file_enabled() 0
+#define exo_excut_begin_log_action(action_name)
+#define exo_excut_log_str_arg(str)
+#define exo_excut_log_int_arg(bytes, binary)
+#define exo_excut_log_ptr_arg(ptr)
+#define exo_excut_end_log_action(device_name, _blockIdx, _threadIdx, file, line)
+#define exo_excut_get_device_log()
+#define exo_excut_flush_device_log(stream, _gridDim, _blockDim, string_id_count, string_table, file_id_count, file_table)
+#define EXO_EXCUT_DEVICE_LOG_MEMBER
+#define EXO_EXCUT_STR_ID(c) 0
+#ifdef __CUDACC__
+struct exo_ExcutThreadLog {
+    EXO_CUDA_INLINE void log_action(uint32_t, uint32_t, uint32_t) {}
+    EXO_CUDA_INLINE void log_str_id_arg(uint32_t) {}
+    EXO_CUDA_INLINE void log_u32_arg(uint32_t) {}
+    EXO_CUDA_INLINE void log_u64_arg(uint32_t) {}
+    EXO_CUDA_INLINE void log_ptr_arg(const void*) {}
+    template <typename T>
+    EXO_CUDA_INLINE void log_ptr_data_arg(const T*, uint32_t = 0) {}
+};
+#define exo_excut_begin_thread_log(log) {}
+#endif
+#endif // EXO_EXCUT_bENABLE_LOG
+
+#endif // EXO_CUDA_HEADER_COMMON
+
+#ifndef EXO_CUDA_STREAM_GUARD
+#define EXO_CUDA_STREAM_GUARD
+static const cudaStream_t exo_cudaStream = 0;
+#endif
+// Compiler feature macros adapted from Hedley (public domain)
+// https://github.com/nemequ/hedley
+
+#if defined(__has_builtin)
+#  define EXO_HAS_BUILTIN(builtin) __has_builtin(builtin)
+#else
+#  define EXO_HAS_BUILTIN(builtin) (0)
+#endif
+
+#if EXO_HAS_BUILTIN(__builtin_assume)
+#  define EXO_ASSUME(expr) __builtin_assume(expr)
+#elif EXO_HAS_BUILTIN(__builtin_unreachable)
+#  define EXO_ASSUME(expr) \
+      ((void)((expr) ? 1 : (__builtin_unreachable(), 1)))
+#else
+#  define EXO_ASSUME(expr) ((void)(expr))
+#endif
+
+
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+
+/* Required by DRAM */
+#ifndef EXO_MEMORY_GLOBAL_DRAM
+#define EXO_MEMORY_GLOBAL_DRAM
+#include <stdio.h>
+#include <stdlib.h>
+
+#endif
+/* Required by CudaGmemLinear */
+/* Required by DRAM */
+#ifndef EXO_WIN_2F32C
+#define EXO_WIN_2F32C
+struct exo_win_2f32c {
+    const float * const data;
+    const int_fast32_t strides[2];
+};
+#endif
+/* Required by CudaGmemLinear */
+/* Required by DRAM */
+#ifndef EXO_WIN_2F32
+#define EXO_WIN_2F32
+struct exo_win_2f32 {
+    float * const data;
+    const int_fast32_t strides[2];
+};
+#endif
+// wgmma_accum_row_col_f32_f32(
+//     h_A : f32[64, 64] @DRAM,
+//     h_B : f32[96, 64] @DRAM,
+//     h_C : f32[64, 96] @DRAM
+// )
+void wgmma_accum_row_col_f32_f32( void *ctxt, const float* h_A, const float* h_B, float* h_C );
+
+
+
+struct exo_CudaDeviceArgs0_wgmma_accum_row_col_f32_f32;
+
+#ifdef __CUDACC__
+__global__ void exo_deviceFunction0_wgmma_accum_row_col_f32_f32(__grid_constant__ const struct exo_CudaDeviceArgs0_wgmma_accum_row_col_f32_f32 exo_deviceArgs);
+#endif
+void exo_cudaLaunch0_wgmma_accum_row_col_f32_f32(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0_wgmma_accum_row_col_f32_f32* exo_deviceArgs);
+
+
+
+
+#ifdef __cplusplus
+}
+#endif
+
+
+#endif  // TEST_GOLDEN_WGMMA_ACCUM_ROW_COL_F32_F32_H
+
+
+// ########################################################################
+// .c
+// ########################################################################
+#include "test_golden_wgmma_accum_row_col_f32_f32.h"
+
+/* Required by CudaGmemLinear */
+#ifndef EXO_MEMORY_GLOBAL_CudaGmemLinear
+#define EXO_MEMORY_GLOBAL_CudaGmemLinear
+
+#ifndef exo_cudaMallocAsync
+#ifndef __cplusplus
+static
+#endif
+inline void* exo_cudaMallocAsync_default(size_t size, cudaStream_t exo_cudaStream,
+                                         const char* file __attribute__((unused)),
+                                         int line __attribute__((unused)) )
+{
+    void* out;
+    cudaMallocAsync(&out, size, exo_cudaStream);
+    if (exo_excut_log_file_enabled()) {
+        exo_excut_begin_log_action("cudaMallocAsync");
+        exo_excut_log_ptr_arg(out);
+        exo_excut_log_ptr_arg((void*)(size));
+        exo_excut_log_ptr_arg(exo_cudaStream);
+        exo_excut_end_log_action("cpu", 0, 0, file, line);
+    }
+    return out;
+}
+#define exo_cudaMallocAsync(size, stream) exo_cudaMallocAsync_default(size, stream, __FILE__, __LINE__)
+#endif
+
+#ifndef exo_cudaFreeAsync
+#ifndef __cplusplus
+static
+#endif
+inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
+                                      const char* file __attribute__((unused)),
+                                      int line __attribute__((unused)) )
+{
+    cudaFreeAsync(ptr, exo_cudaStream);
+    if (exo_excut_log_file_enabled()) {
+        exo_excut_begin_log_action("cudaFreeAsync");
+        exo_excut_log_ptr_arg(ptr);
+        exo_excut_log_ptr_arg(exo_cudaStream);
+        exo_excut_end_log_action("cpu", 0, 0, file, line);
+    }
+}
+#define exo_cudaFreeAsync(ptr, stream) exo_cudaFreeAsync_default(ptr, stream, __FILE__, __LINE__)
+#endif
+
+#endif
+/* Required by Sm90_SmemSwizzled(128,) */
+#ifndef EXO_MEMORY_GLOBAL_Sm90_SmemSwizzled_128
+#define EXO_MEMORY_GLOBAL_Sm90_SmemSwizzled_128
+
+#ifdef __CUDACC__
+template <typename T>
+struct exo_Sm90_SW128 {
+    T data;
+
+    static EXO_CUDA_INLINE exo_Sm90_SW128<T>* swizzle_pointer(uintptr_t addr)
+    {
+        // Adapted from ThunderKittens appendix which actually documents CUDA correctly.
+        uint32_t shr = uint32_t(addr) >> 3;
+        const uint32_t mask = 112;
+        addr = addr ^ (shr & mask);
+        return reinterpret_cast<exo_Sm90_SW128*>(addr);
+    }
+
+    static __host__ __device__ constexpr uint64_t get_swizzle_bits()
+    {
+        return 1;
+    }
+
+    static __host__ __device__ constexpr int get_swizzle_bytes()
+    {
+        return 128;
+    }
+
+    EXO_CUDA_INLINE const T& swizzle_get() const
+    {
+        return swizzle_pointer(reinterpret_cast<uintptr_t>(&data))->data;
+    }
+
+    EXO_CUDA_INLINE T& swizzle_get()
+    {
+        return swizzle_pointer(reinterpret_cast<uintptr_t>(&data))->data;
+    }
+};
+
+// Element type for Sm90_SmemSwizzled(128) allocations where the
+// last 3 array extents are [TileOuterCols, TileRows, TileInnerCols]
+// (left-padded with 1 for 0D, 1D, 2D allocations).
+template <typename T, int TileOuterCols, int TileRows, int TileInnerCols>
+struct exo_Sm90_SW128_tiled: public exo_Sm90_SW128<T>
+{
+    // Reinterpret-cast to kittens::st_subtile view of this shared memory.
+    //
+    // For better or worse, kittens 2D tile is expressed as a 3D tile in Exo-GPU.
+    // `this` is assumed to point-to the NON-SWIZZLED base address of a complete
+    // 3D tile. This returns a subtile view whose
+    //
+    // * size/extents are given by the Subtile template parameters
+    //
+    // * base offset from the `this` tile is given by runtime int offsets
+    //
+    // Assume for this discussion that the tile is row-major. Then,
+    //
+    // * Let swizzle_elements = 128 / sizeof(T)
+    //
+    // * The 3D Exo-GPU tile is of size [TileOuterCols, TileRows, TileInnerCols],
+    //   where TileInnerCols == swizzle_elements. If not, then this tile
+    //   is incompatible with ThunderKittens, TMA, and wgmma.
+    //
+    // * The value at coordinates (r, c) in the 2D [Rows, Cols] tile is stored at
+    //   address swizzle_pointer(
+    //          tile_base_addr
+    //          + sizeof(T) * (c / TileInnerCols) * TileRows * TileInnerCols
+    //          + sizeof(T) * (r) * TileInnerCols
+    //          + sizeof(T) * (c % TileInnerCols))
+    //   Basically, the column is simultaneously the fastest (%) and slowest (/) dimension
+    //
+    // TMA: If TileOuterCols != 1, then ThunderKittens is capable of doing a single TMA
+    // copy to load/store the tile, but Exo-GPU may have to issue multiple.
+    template <
+        int SubtileOuterCols,
+        int SubtileRows,
+        int SubtileInnerCols,
+        template <int, int, bool, int> class st_typed>
+    EXO_CUDA_INLINE auto as_tk_subtile(int col_outer_offset, int row_offset, int col_inner_offset) const
+    {
+        static_assert(
+            TileInnerCols * sizeof(T) == 128,
+            "Exo-GPU instr didn't assert strides properly."
+            " This is needed to match kittens swizzle automation"
+        );
+        static_assert(
+            SubtileInnerCols == TileInnerCols || SubtileOuterCols == 1,
+            "Exo-GPU instr used wrong SubtileInnerCols (window size last dimension)."
+            " This is needed for Exo-GPU and kittens to agree on column tiling"
+        );
+        using st_t = st_typed<TileRows, TileOuterCols * TileInnerCols, true, 0>;
+        st_t* p_tile = const_cast<st_t*>(reinterpret_cast<const st_t*>(this));
+        // Note, subtile implicitly multiplies (r, c) by the subtile size.
+        // We have to work around this!
+        // Also, can't mention ::kittens here, because it may not be included.
+        // Also also, explicit kittens swizzle is broken in this function.
+        auto subtile = p_tile->template subtile<SubtileRows, SubtileOuterCols * SubtileInnerCols>(int2(0, 0));
+        subtile.row_offset = static_cast<int>(row_offset);
+        subtile.col_offset = static_cast<int>(col_outer_offset) * TileInnerCols + static_cast<int>(col_inner_offset);
+        return subtile;
+    }
+};
+
+#endif
+
+#endif
+// CUDA device function args -- duplicated in .cuh file
+struct exo_CudaDeviceArgs0_wgmma_accum_row_col_f32_f32
+{
+    float* A;  // A : f32[64, 64] @CudaGmemLinear
+    float* B;  // B : f32[96, 64] @CudaGmemLinear
+    float* C;  // C : f32[64, 96] @CudaGmemLinear
+    EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
+};
+
+
+/* relying on the following instruction..."
+Sm90_tk_mma_row_col(D,A,B,D=f32, A=f32, B=f32, N=96, K=32, swizzle=128)
+
+*/
+
+/* relying on the following instruction..."
+cudaMemcpyAsync_dtoh_2d(size0,size1,dst,src,dst=f32, src=f32)
+
+*/
+
+/* relying on the following instruction..."
+cudaMemcpyAsync_htod_2d(size0,size1,dst,src,dst=f32, src=f32)
+
+*/
+
+/* relying on the following instruction..."
+cuda_tk_load_rg(dst,src,dst=f32, src=f32, size0=16, size1=96, layout='row')
+
+*/
+
+/* relying on the following instruction..."
+cuda_tk_store_rg(dst,src,dst=f32, src=f32, size0=16, size1=96, layout='row')
+
+*/
+// wgmma_accum_row_col_f32_f32(
+//     h_A : f32[64, 64] @DRAM,
+//     h_B : f32[96, 64] @DRAM,
+//     h_C : f32[64, 96] @DRAM
+// )
+void wgmma_accum_row_col_f32_f32( void *ctxt, const float* h_A, const float* h_B, float* h_C ) {
+  float *A = (float*) exo_cudaMallocAsync(64 * 64 * sizeof(*A), exo_cudaStream);
+  float *B = (float*) exo_cudaMallocAsync(96 * 64 * sizeof(*B), exo_cudaStream);
+  float *C = (float*) exo_cudaMallocAsync(64 * 96 * sizeof(*C), exo_cudaStream);
+  cudaMemcpyAsync(
+    (&A[0]),
+    (&h_A[0]),
+    64 * 64 * 4,
+    cudaMemcpyHostToDevice,
+    exo_cudaStream);
+  cudaMemcpyAsync(
+    (&B[0]),
+    (&h_B[0]),
+    96 * 64 * 4,
+    cudaMemcpyHostToDevice,
+    exo_cudaStream);
+  cudaMemcpyAsync(
+    (&C[0]),
+    (&h_C[0]),
+    64 * 96 * 4,
+    cudaMemcpyHostToDevice,
+    exo_cudaStream);
+  {
+    struct exo_CudaDeviceArgs0_wgmma_accum_row_col_f32_f32 exo_deviceArgs = {
+      A, B, C, exo_excut_get_device_log()
+    };
+    exo_cudaLaunch0_wgmma_accum_row_col_f32_f32(exo_cudaStream, &exo_deviceArgs);
+  }
+  exo_cudaFreeAsync(B, exo_cudaStream);
+  exo_cudaFreeAsync(A, exo_cudaStream);
+  cudaMemcpyAsync(
+    (&h_C[0]),
+    (&C[0]),
+    64 * 96 * 4,
+    cudaMemcpyDeviceToHost,
+    exo_cudaStream);
+  exo_cudaFreeAsync(C, exo_cudaStream);
+}
+
+
+
+// ########################################################################
+// .cuh
+// ########################################################################
+#pragma once
+#include "test_golden_wgmma_accum_row_col_f32_f32.h"
+#if EXO_EXCUT_bENABLE_LOG
+#include "test_golden_wgmma_accum_row_col_f32_f32.excut_str_table"
+#endif
+/* Required by Sm90_TkRmemTileD(96,) */
+/* Required by Sm90_tk_mma_row_col(D,A,B,D=f32, A=f32, B=f32, N=96, K=32, swizzle=128) */
+/* Required by cuda_tk_load_rg(dst,src,dst=f32, src=f32, size0=16, size1=96, layout='row') */
+/* Required by cuda_tk_store_rg(dst,src,dst=f32, src=f32, size0=16, size1=96, layout='row') */
+#include <kittens.cuh>
+/* Required by CudaGmemLinear */
+#ifndef EXO_MEMORY_GLOBAL_CudaGmemLinear
+#define EXO_MEMORY_GLOBAL_CudaGmemLinear
+
+#ifndef exo_cudaMallocAsync
+#ifndef __cplusplus
+static
+#endif
+inline void* exo_cudaMallocAsync_default(size_t size, cudaStream_t exo_cudaStream,
+                                         const char* file __attribute__((unused)),
+                                         int line __attribute__((unused)) )
+{
+    void* out;
+    cudaMallocAsync(&out, size, exo_cudaStream);
+    if (exo_excut_log_file_enabled()) {
+        exo_excut_begin_log_action("cudaMallocAsync");
+        exo_excut_log_ptr_arg(out);
+        exo_excut_log_ptr_arg((void*)(size));
+        exo_excut_log_ptr_arg(exo_cudaStream);
+        exo_excut_end_log_action("cpu", 0, 0, file, line);
+    }
+    return out;
+}
+#define exo_cudaMallocAsync(size, stream) exo_cudaMallocAsync_default(size, stream, __FILE__, __LINE__)
+#endif
+
+#ifndef exo_cudaFreeAsync
+#ifndef __cplusplus
+static
+#endif
+inline void exo_cudaFreeAsync_default(void* ptr, cudaStream_t exo_cudaStream,
+                                      const char* file __attribute__((unused)),
+                                      int line __attribute__((unused)) )
+{
+    cudaFreeAsync(ptr, exo_cudaStream);
+    if (exo_excut_log_file_enabled()) {
+        exo_excut_begin_log_action("cudaFreeAsync");
+        exo_excut_log_ptr_arg(ptr);
+        exo_excut_log_ptr_arg(exo_cudaStream);
+        exo_excut_end_log_action("cpu", 0, 0, file, line);
+    }
+}
+#define exo_cudaFreeAsync(ptr, stream) exo_cudaFreeAsync_default(ptr, stream, __FILE__, __LINE__)
+#endif
+
+#endif
+/* Required by Sm90_SmemSwizzled(128,) */
+#ifndef EXO_MEMORY_GLOBAL_Sm90_SmemSwizzled_128
+#define EXO_MEMORY_GLOBAL_Sm90_SmemSwizzled_128
+
+#ifdef __CUDACC__
+template <typename T>
+struct exo_Sm90_SW128 {
+    T data;
+
+    static EXO_CUDA_INLINE exo_Sm90_SW128<T>* swizzle_pointer(uintptr_t addr)
+    {
+        // Adapted from ThunderKittens appendix which actually documents CUDA correctly.
+        uint32_t shr = uint32_t(addr) >> 3;
+        const uint32_t mask = 112;
+        addr = addr ^ (shr & mask);
+        return reinterpret_cast<exo_Sm90_SW128*>(addr);
+    }
+
+    static __host__ __device__ constexpr uint64_t get_swizzle_bits()
+    {
+        return 1;
+    }
+
+    static __host__ __device__ constexpr int get_swizzle_bytes()
+    {
+        return 128;
+    }
+
+    EXO_CUDA_INLINE const T& swizzle_get() const
+    {
+        return swizzle_pointer(reinterpret_cast<uintptr_t>(&data))->data;
+    }
+
+    EXO_CUDA_INLINE T& swizzle_get()
+    {
+        return swizzle_pointer(reinterpret_cast<uintptr_t>(&data))->data;
+    }
+};
+
+// Element type for Sm90_SmemSwizzled(128) allocations where the
+// last 3 array extents are [TileOuterCols, TileRows, TileInnerCols]
+// (left-padded with 1 for 0D, 1D, 2D allocations).
+template <typename T, int TileOuterCols, int TileRows, int TileInnerCols>
+struct exo_Sm90_SW128_tiled: public exo_Sm90_SW128<T>
+{
+    // Reinterpret-cast to kittens::st_subtile view of this shared memory.
+    //
+    // For better or worse, kittens 2D tile is expressed as a 3D tile in Exo-GPU.
+    // `this` is assumed to point-to the NON-SWIZZLED base address of a complete
+    // 3D tile. This returns a subtile view whose
+    //
+    // * size/extents are given by the Subtile template parameters
+    //
+    // * base offset from the `this` tile is given by runtime int offsets
+    //
+    // Assume for this discussion that the tile is row-major. Then,
+    //
+    // * Let swizzle_elements = 128 / sizeof(T)
+    //
+    // * The 3D Exo-GPU tile is of size [TileOuterCols, TileRows, TileInnerCols],
+    //   where TileInnerCols == swizzle_elements. If not, then this tile
+    //   is incompatible with ThunderKittens, TMA, and wgmma.
+    //
+    // * The value at coordinates (r, c) in the 2D [Rows, Cols] tile is stored at
+    //   address swizzle_pointer(
+    //          tile_base_addr
+    //          + sizeof(T) * (c / TileInnerCols) * TileRows * TileInnerCols
+    //          + sizeof(T) * (r) * TileInnerCols
+    //          + sizeof(T) * (c % TileInnerCols))
+    //   Basically, the column is simultaneously the fastest (%) and slowest (/) dimension
+    //
+    // TMA: If TileOuterCols != 1, then ThunderKittens is capable of doing a single TMA
+    // copy to load/store the tile, but Exo-GPU may have to issue multiple.
+    template <
+        int SubtileOuterCols,
+        int SubtileRows,
+        int SubtileInnerCols,
+        template <int, int, bool, int> class st_typed>
+    EXO_CUDA_INLINE auto as_tk_subtile(int col_outer_offset, int row_offset, int col_inner_offset) const
+    {
+        static_assert(
+            TileInnerCols * sizeof(T) == 128,
+            "Exo-GPU instr didn't assert strides properly."
+            " This is needed to match kittens swizzle automation"
+        );
+        static_assert(
+            SubtileInnerCols == TileInnerCols || SubtileOuterCols == 1,
+            "Exo-GPU instr used wrong SubtileInnerCols (window size last dimension)."
+            " This is needed for Exo-GPU and kittens to agree on column tiling"
+        );
+        using st_t = st_typed<TileRows, TileOuterCols * TileInnerCols, true, 0>;
+        st_t* p_tile = const_cast<st_t*>(reinterpret_cast<const st_t*>(this));
+        // Note, subtile implicitly multiplies (r, c) by the subtile size.
+        // We have to work around this!
+        // Also, can't mention ::kittens here, because it may not be included.
+        // Also also, explicit kittens swizzle is broken in this function.
+        auto subtile = p_tile->template subtile<SubtileRows, SubtileOuterCols * SubtileInnerCols>(int2(0, 0));
+        subtile.row_offset = static_cast<int>(row_offset);
+        subtile.col_offset = static_cast<int>(col_outer_offset) * TileInnerCols + static_cast<int>(col_inner_offset);
+        return subtile;
+    }
+};
+
+#endif
+
+#endif
+
+namespace exo_CudaUtil_test_golden_wgmma_accum_row_col_f32_f32 {
+namespace exo_CudaUtil = ::exo_CudaUtil_test_golden_wgmma_accum_row_col_f32_f32;
+/* Required by Sm90_tk_mma_row_col(D,A,B,D=f32, A=f32, B=f32, N=96, K=32, swizzle=128) */
+
+EXO_CUDA_INLINE uint64_t exo_Sm90_matrix_descriptor_encode(uint32_t val)
+{
+    return (val & 0x3FFFF) >> 4;
+}
+
+template <typename SwizzledElement>
+EXO_CUDA_INLINE
+uint64_t exo_Sm90_smem_descriptor(SwizzledElement* ptr, uint32_t leading_stride_elements, uint32_t stride_stride_elements)
+{
+    uint32_t element_size = sizeof(SwizzledElement);
+    return (
+        exo_Sm90_matrix_descriptor_encode(exo_smemU32(ptr))
+      | exo_Sm90_matrix_descriptor_encode(leading_stride_elements * element_size) << 16u
+      | exo_Sm90_matrix_descriptor_encode(stride_stride_elements * element_size) << 32u
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ >= 100
+      | uint64_t(1) << 46  // Bit-field 46-48, Fixed constant value of 0b001 on Blackwell (?!!?)
+#endif
+      | uint64_t(SwizzledElement::get_swizzle_bits()) << 62
+  );
+}
+
+/* Required by cuda_tk_load_rg(dst,src,dst=f32, src=f32, size0=16, size1=96, layout='row') */
+/* Required by cuda_tk_store_rg(dst,src,dst=f32, src=f32, size0=16, size1=96, layout='row') */
+// Adapted code from ThunderKittens
+// https://github.com/HazyResearch/ThunderKittens
+//
+// Convert Exo 2D window type to something that quacks like
+// ::kittens::gl (GMEM handle), but we don't have TMA handles.
+// We have to do this to bridge between Exo C and ThunderKittens C++20.
+// Assumes the last dimension is tightly packed.
+// Can be used with {0, 0, 0, 0} as the COORD idx.
+template <typename _T, int Rows>
+struct exo_tk_gl2_window
+{
+    using identifier = ::kittens::ducks::gl::identifier;
+
+    using T     = ::kittens::base_types::packing<_T>::unpacked_type;
+    using T2    = ::kittens::base_types::packing<_T>::packed_type;
+    using dtype = T;
+
+    T* raw_ptr;
+    int cols_internal;
+
+    template <typename Window>
+    EXO_CUDA_INLINE
+    exo_tk_gl2_window(Window window)
+    {
+        static_assert(sizeof(Window::strides) == 2 * sizeof(Window::strides[0]));
+        raw_ptr = const_cast<T*>(reinterpret_cast<const T*>(window.data));
+        cols_internal = static_cast<int>(window.strides[0]);
+    }
+
+    static constexpr int batch() { return 1; }
+    static constexpr int depth() { return 1; }
+    static constexpr int rows() { return Rows; }
+    __device__ __host__ inline int cols() const { return cols_internal; }
+    __device__ __host__ inline size_t numel() const { return size_t(rows()) * cols(); }
+
+    EXO_CUDA_INLINE T& operator[](const ::kittens::coord<::kittens::ducks::default_type>& idx) const
+    {
+        return raw_ptr[idx.r * cols() + idx.c];
+    }
+
+    template<int axis> __device__ inline size_t shape() const {
+        static_assert(axis==0 || axis==1 || axis==2 || axis==3, "Axis must be 0, 1, 2, or 3.");
+        if constexpr (axis==0) { return size_t(batch()); }
+        else if constexpr (axis==1) { return size_t(depth()); }
+        else if constexpr (axis==2) { return size_t(rows()); }
+        else if constexpr (axis==3) { return size_t(cols()); }
+    }
+    template<int axis> __device__ inline size_t stride() const {
+        static_assert(axis==0 || axis==1 || axis==2 || axis==3, "Axis must be 0, 1, 2, or 3.");
+        if      constexpr (axis==0) { return (size_t)depth()*rows()*cols(); }
+        else if constexpr (axis==1) { return (size_t)rows()*cols(); }
+        else if constexpr (axis==2) { return (size_t)cols(); }
+        else if constexpr (axis==3) { return 1; }
+    }
+};
+
+}  // end namespace exo_CudaUtil_test_golden_wgmma_accum_row_col_f32_f32
+// CUDA device function args -- duplicated in .c file
+struct exo_CudaDeviceArgs0_wgmma_accum_row_col_f32_f32
+{
+    float* A;  // A : f32[64, 64] @CudaGmemLinear
+    float* B;  // B : f32[96, 64] @CudaGmemLinear
+    float* C;  // C : f32[64, 96] @CudaGmemLinear
+    EXO_EXCUT_DEVICE_LOG_MEMBER  // for Exo pytest (exo_excut.h)
+};
+
+// We need this inline namespace to avoid ODR problems in pytest.
+inline namespace exo_CudaInline_test_golden_wgmma_accum_row_col_f32_f32 {
+struct exo_Cuda0_wgmma_accum_row_col_f32_f32
+{
+  using exo_DeviceArgs = exo_CudaDeviceArgs0_wgmma_accum_row_col_f32_f32;
+
+  static constexpr uint32_t exo_blockDim = 128;
+  static constexpr uint32_t exo_clusterDim = 1;
+
+  static constexpr unsigned exo_smemBytes = 40960;
+  static constexpr unsigned exo_smemOffset0_A_s = 0;  // 16384-byte allocation
+  static constexpr unsigned exo_smemOffset1_B_s = 16384;  // 24576-byte allocation
+
+  struct exo_Task
+  {
+    int_fast32_t task;
+  };
+
+  struct exo_TaskGenerator
+  {
+    uint32_t exo_taskIndex;
+    uint32_t exo_numClusters;
+    uint32_t exo_taskCount;
+    int_fast32_t exo_cudaTasksLo_task;
+    uint32_t exo_cudaTasksNum_task;
+    EXO_CUDA_INLINE exo_TaskGenerator(
+        uint32_t cluster_index, uint32_t num_clusters,
+        int_fast32_t _exo_cudaTasksLo_task, int_fast32_t _exo_cudaTasksHi_task,
+        const exo_DeviceArgs&)
+    {
+      exo_taskIndex = cluster_index;
+      exo_numClusters = num_clusters;
+      exo_taskCount = 1;
+      exo_cudaTasksLo_task = _exo_cudaTasksLo_task;
+      exo_cudaTasksNum_task = static_cast<uint32_t>(_exo_cudaTasksHi_task - _exo_cudaTasksLo_task);
+      exo_taskCount *= exo_cudaTasksNum_task;
+    }
+    [[nodiscard]] EXO_CUDA_INLINE bool prepare_next_task()
+    {
+      return exo_taskIndex < exo_taskCount;
+    }
+    EXO_CUDA_INLINE exo_Task get_next_task()
+    {
+      exo_Task exo_task;
+      uint32_t exo_tmp = exo_taskIndex;
+      exo_taskIndex += exo_numClusters;
+      exo_task.task = exo_cudaTasksLo_task + static_cast<int_fast32_t>(exo_tmp % exo_cudaTasksNum_task);
+      exo_tmp /= exo_cudaTasksNum_task;
+      return exo_task;
+    }
+  };
+
+  struct exo_SyncState
+  {
+
+  };
+
+  static inline const char*& exo_FILE()
+  {
+    static const char* name = __FILE__;
+    return name;
+  }
+
+  static void
+  exo_cudaLaunch(cudaStream_t exo_cudaStream, const exo_DeviceArgs& exo_deviceArgs);
+
+  static __device__ __forceinline__ void
+  exo_deviceSetup(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
+
+  static __device__ __forceinline__ void
+  exo_deviceShutdown(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
+
+  static __device__ __forceinline__ void
+  exo_deviceMainLoop(char* exo_smem, const exo_DeviceArgs& exo_deviceArgs, exo_ExcutThreadLog exo_excutLog={});
+
+  static __device__ __forceinline__ void
+  exo_deviceTask(
+      char* exo_smem,
+      exo_SyncState& exo_syncState,
+      const exo_DeviceArgs& exo_deviceArgs,
+      exo_Task exo_task,
+      exo_ExcutThreadLog exo_excutLog={});
+};
+}  // end inline namespace
+
+inline void
+exo_CudaInline_test_golden_wgmma_accum_row_col_f32_f32::exo_Cuda0_wgmma_accum_row_col_f32_f32::exo_cudaLaunch(
+    cudaStream_t exo_cudaStream,
+    const exo_DeviceArgs& exo_deviceArgs)
+{
+  namespace exo_CudaUtil = exo_CudaUtil_test_golden_wgmma_accum_row_col_f32_f32;
+  cudaFuncSetAttribute(exo_deviceFunction0_wgmma_accum_row_col_f32_f32, cudaFuncAttributeMaxDynamicSharedMemorySize, exo_smemBytes);
+  // TODO how expensive is it to query this every time?
+  int exo_cudaDevice;
+  cudaGetDevice(&exo_cudaDevice);
+  int exo_SMs;
+  cudaDeviceGetAttribute(&exo_SMs, cudaDevAttrMultiProcessorCount, exo_cudaDevice);
+  const unsigned exo_gridDim = (unsigned(exo_SMs) & ~(exo_clusterDim - 1)) * 1u;
+
+  cudaLaunchConfig_t exo_launchConfig = {};
+  exo_launchConfig.gridDim = dim3(exo_gridDim, 1, 1);
+  exo_launchConfig.blockDim = dim3(exo_blockDim, 1, 1);
+  exo_launchConfig.dynamicSmemBytes = exo_smemBytes;
+  exo_launchConfig.stream = exo_cudaStream;
+
+  cudaLaunchKernelEx(&exo_launchConfig, exo_deviceFunction0_wgmma_accum_row_col_f32_f32, exo_deviceArgs);
+
+  exo_excut_flush_device_log(
+      exo_cudaStream, exo_gridDim, exo_blockDim,
+      exo_CudaUtil::exo_excut_str_id_count, exo_CudaUtil::exo_excut_str_table,
+      1, &exo_FILE());
+}
+
+__device__ __forceinline__ void
+exo_CudaInline_test_golden_wgmma_accum_row_col_f32_f32::exo_Cuda0_wgmma_accum_row_col_f32_f32::exo_deviceSetup(
+    char* exo_smem,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_ExcutThreadLog exo_excutLog)
+{
+  // No mbarriers used
+}
+
+__device__ __forceinline__ void
+exo_CudaInline_test_golden_wgmma_accum_row_col_f32_f32::exo_Cuda0_wgmma_accum_row_col_f32_f32::exo_deviceShutdown(
+    char* exo_smem,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_ExcutThreadLog exo_excutLog)
+{
+  // clusterDim = 1
+}
+
+__device__ __forceinline__ void
+exo_CudaInline_test_golden_wgmma_accum_row_col_f32_f32::exo_Cuda0_wgmma_accum_row_col_f32_f32::exo_deviceTask(
+    char* exo_smem,
+    exo_SyncState& exo_syncState,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_Task exo_task,
+    exo_ExcutThreadLog exo_excutLog)
+{
+  namespace exo_CudaUtil = exo_CudaUtil_test_golden_wgmma_accum_row_col_f32_f32;
+  auto& A_s = reinterpret_cast<exo_Sm90_SW128_tiled<float, 1, 64, 32> (&)[]>(exo_smem[exo_smemOffset0_A_s]);
+  auto& B_s = reinterpret_cast<exo_Sm90_SW128_tiled<float, 1, 96, 32> (&)[]>(exo_smem[exo_smemOffset1_B_s]);
+  ::kittens::rt_fl<16, 96, ::kittens::ducks::rt_layout::row> D;
+  // cg: barrier @ Sm90_WgmmaCommitGroup
+  for (int kt = 0; kt < 2; kt++) {
+    for (int m = 0; m < 64; m++) {
+      // cuda_threads(0, 32, unit=cuda_thread)
+      if (int exo_1thr_k = threadIdx.x; exo_1thr_k < 32) {
+        A_s[(kt * 2048 + m * 32 + exo_1thr_k)].swizzle_get() = exo_deviceArgs.A[m * 64 + (exo_1thr_k + 32 * kt)];
+      }
+    }
+    for (int n = 0; n < 96; n++) {
+      // cuda_threads(0, 32, unit=cuda_thread)
+      if (int exo_1thr_k = threadIdx.x; exo_1thr_k < 32) {
+        B_s[(kt * 3072 + n * 32 + exo_1thr_k)].swizzle_get() = exo_deviceArgs.B[n * 64 + (exo_1thr_k + 32 * kt)];
+      }
+    }
+  }
+  // cuda_threads(0, 1, unit=cuda_warpgroup)
+  if ([[maybe_unused]] int exo_0thr_wg = 0; 1) {
+    // cuda_threads(0, 4, unit=cuda_warp)
+    if ([[maybe_unused]] int exo_32thr_w = (threadIdx.x / 32); 1) {
+      {  // Place GMEM handle in named temporary, because ThunderKittens is not const-correct.
+        auto exo_tk_src = exo_CudaUtil::exo_tk_gl2_window<float, 16>((struct exo_win_2f32c) { &exo_deviceArgs.C[(16 * exo_32thr_w) * 96], {96, 1} });
+        ::kittens::warp::load(D, exo_tk_src, ::kittens::coord(0, 0, 0, 0));
+      }
+    }
+  }
+  // Fence(cuda_in_order, cuda_generic_and_async_proxy)
+  asm volatile(
+    "barrier.cta.sync 0;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cta_sync), 0, __LINE__);
+  exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
+  asm volatile(
+    "fence.proxy.async;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(fence_proxy_async), 0, __LINE__);
+  // cuda_threads(0, 1, unit=cuda_warpgroup)
+  if ([[maybe_unused]] int exo_0thr_wg = 0; 1) {
+    // Fence(wgmma_fence_1, wgmma_fence_2)
+    asm volatile(
+      "wgmma.fence.sync.aligned;"
+    );
+    exo_excutLog.log_action(EXO_EXCUT_STR_ID(wgmma_fence_sync_aligned), 0, __LINE__);
+    for (int kt = 0; kt < 2; kt++) {
+      {
+        // K = 0 out of 32
+        const uint64_t exo_descA = exo_CudaUtil::exo_Sm90_smem_descriptor((&A_s[(kt * 2048)]), 1, 256);
+        const uint64_t exo_descB = exo_CudaUtil::exo_Sm90_smem_descriptor((&B_s[(kt * 3072)]), 1, 256);
+        asm volatile(
+          "{\n\t"
+          ".reg .pred p;\n\t"
+          "setp.ne.b32 p, 1, 0;\n\t"
+          "wgmma.mma_async.sync.aligned.m64n96k8.f32.tf32.tf32 {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31, %32, %33, %34, %35, %36, %37, %38, %39, %40, %41, %42, %43, %44, %45, %46, %47}, %48, %49,\n\t"
+          "p, 1, 1;\n\t"
+          "}"
+            :"+f"(D.tiles[0][0].data[0].x), "+f"(D.tiles[0][0].data[0].y), "+f"(D.tiles[0][0].data[1].x), "+f"(D.tiles[0][0].data[1].y), "+f"(D.tiles[0][0].data[2].x), "+f"(D.tiles[0][0].data[2].y), "+f"(D.tiles[0][0].data[3].x), "+f"(D.tiles[0][0].data[3].y),
+            "+f"(D.tiles[0][1].data[0].x), "+f"(D.tiles[0][1].data[0].y), "+f"(D.tiles[0][1].data[1].x), "+f"(D.tiles[0][1].data[1].y), "+f"(D.tiles[0][1].data[2].x), "+f"(D.tiles[0][1].data[2].y), "+f"(D.tiles[0][1].data[3].x), "+f"(D.tiles[0][1].data[3].y),
+            "+f"(D.tiles[0][2].data[0].x), "+f"(D.tiles[0][2].data[0].y), "+f"(D.tiles[0][2].data[1].x), "+f"(D.tiles[0][2].data[1].y), "+f"(D.tiles[0][2].data[2].x), "+f"(D.tiles[0][2].data[2].y), "+f"(D.tiles[0][2].data[3].x), "+f"(D.tiles[0][2].data[3].y),
+            "+f"(D.tiles[0][3].data[0].x), "+f"(D.tiles[0][3].data[0].y), "+f"(D.tiles[0][3].data[1].x), "+f"(D.tiles[0][3].data[1].y), "+f"(D.tiles[0][3].data[2].x), "+f"(D.tiles[0][3].data[2].y), "+f"(D.tiles[0][3].data[3].x), "+f"(D.tiles[0][3].data[3].y),
+            "+f"(D.tiles[0][4].data[0].x), "+f"(D.tiles[0][4].data[0].y), "+f"(D.tiles[0][4].data[1].x), "+f"(D.tiles[0][4].data[1].y), "+f"(D.tiles[0][4].data[2].x), "+f"(D.tiles[0][4].data[2].y), "+f"(D.tiles[0][4].data[3].x), "+f"(D.tiles[0][4].data[3].y),
+            "+f"(D.tiles[0][5].data[0].x), "+f"(D.tiles[0][5].data[0].y), "+f"(D.tiles[0][5].data[1].x), "+f"(D.tiles[0][5].data[1].y), "+f"(D.tiles[0][5].data[2].x), "+f"(D.tiles[0][5].data[2].y), "+f"(D.tiles[0][5].data[3].x), "+f"(D.tiles[0][5].data[3].y)
+            :"l"(exo_descA),
+            "l"(exo_descB)
+        );
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(setp_ne_b32), 0, __LINE__);
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(wgmma_mma_async_sync_aligned_m64n96k8_f32_tf32_tf32), 0, __LINE__);
+      }
+      {
+        // K = 8 out of 32
+        const uint64_t exo_descA = exo_CudaUtil::exo_Sm90_smem_descriptor((&A_s[(kt * 2048 + 8)]), 1, 256);
+        const uint64_t exo_descB = exo_CudaUtil::exo_Sm90_smem_descriptor((&B_s[(kt * 3072 + 8)]), 1, 256);
+        asm volatile(
+          "{\n\t"
+          ".reg .pred p;\n\t"
+          "setp.ne.b32 p, 1, 0;\n\t"
+          "wgmma.mma_async.sync.aligned.m64n96k8.f32.tf32.tf32 {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31, %32, %33, %34, %35, %36, %37, %38, %39, %40, %41, %42, %43, %44, %45, %46, %47}, %48, %49,\n\t"
+          "p, 1, 1;\n\t"
+          "}"
+            :"+f"(D.tiles[0][0].data[0].x), "+f"(D.tiles[0][0].data[0].y), "+f"(D.tiles[0][0].data[1].x), "+f"(D.tiles[0][0].data[1].y), "+f"(D.tiles[0][0].data[2].x), "+f"(D.tiles[0][0].data[2].y), "+f"(D.tiles[0][0].data[3].x), "+f"(D.tiles[0][0].data[3].y),
+            "+f"(D.tiles[0][1].data[0].x), "+f"(D.tiles[0][1].data[0].y), "+f"(D.tiles[0][1].data[1].x), "+f"(D.tiles[0][1].data[1].y), "+f"(D.tiles[0][1].data[2].x), "+f"(D.tiles[0][1].data[2].y), "+f"(D.tiles[0][1].data[3].x), "+f"(D.tiles[0][1].data[3].y),
+            "+f"(D.tiles[0][2].data[0].x), "+f"(D.tiles[0][2].data[0].y), "+f"(D.tiles[0][2].data[1].x), "+f"(D.tiles[0][2].data[1].y), "+f"(D.tiles[0][2].data[2].x), "+f"(D.tiles[0][2].data[2].y), "+f"(D.tiles[0][2].data[3].x), "+f"(D.tiles[0][2].data[3].y),
+            "+f"(D.tiles[0][3].data[0].x), "+f"(D.tiles[0][3].data[0].y), "+f"(D.tiles[0][3].data[1].x), "+f"(D.tiles[0][3].data[1].y), "+f"(D.tiles[0][3].data[2].x), "+f"(D.tiles[0][3].data[2].y), "+f"(D.tiles[0][3].data[3].x), "+f"(D.tiles[0][3].data[3].y),
+            "+f"(D.tiles[0][4].data[0].x), "+f"(D.tiles[0][4].data[0].y), "+f"(D.tiles[0][4].data[1].x), "+f"(D.tiles[0][4].data[1].y), "+f"(D.tiles[0][4].data[2].x), "+f"(D.tiles[0][4].data[2].y), "+f"(D.tiles[0][4].data[3].x), "+f"(D.tiles[0][4].data[3].y),
+            "+f"(D.tiles[0][5].data[0].x), "+f"(D.tiles[0][5].data[0].y), "+f"(D.tiles[0][5].data[1].x), "+f"(D.tiles[0][5].data[1].y), "+f"(D.tiles[0][5].data[2].x), "+f"(D.tiles[0][5].data[2].y), "+f"(D.tiles[0][5].data[3].x), "+f"(D.tiles[0][5].data[3].y)
+            :"l"(exo_descA),
+            "l"(exo_descB)
+        );
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(setp_ne_b32), 0, __LINE__);
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(wgmma_mma_async_sync_aligned_m64n96k8_f32_tf32_tf32), 0, __LINE__);
+      }
+      {
+        // K = 16 out of 32
+        const uint64_t exo_descA = exo_CudaUtil::exo_Sm90_smem_descriptor((&A_s[(kt * 2048 + 16)]), 1, 256);
+        const uint64_t exo_descB = exo_CudaUtil::exo_Sm90_smem_descriptor((&B_s[(kt * 3072 + 16)]), 1, 256);
+        asm volatile(
+          "{\n\t"
+          ".reg .pred p;\n\t"
+          "setp.ne.b32 p, 1, 0;\n\t"
+          "wgmma.mma_async.sync.aligned.m64n96k8.f32.tf32.tf32 {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31, %32, %33, %34, %35, %36, %37, %38, %39, %40, %41, %42, %43, %44, %45, %46, %47}, %48, %49,\n\t"
+          "p, 1, 1;\n\t"
+          "}"
+            :"+f"(D.tiles[0][0].data[0].x), "+f"(D.tiles[0][0].data[0].y), "+f"(D.tiles[0][0].data[1].x), "+f"(D.tiles[0][0].data[1].y), "+f"(D.tiles[0][0].data[2].x), "+f"(D.tiles[0][0].data[2].y), "+f"(D.tiles[0][0].data[3].x), "+f"(D.tiles[0][0].data[3].y),
+            "+f"(D.tiles[0][1].data[0].x), "+f"(D.tiles[0][1].data[0].y), "+f"(D.tiles[0][1].data[1].x), "+f"(D.tiles[0][1].data[1].y), "+f"(D.tiles[0][1].data[2].x), "+f"(D.tiles[0][1].data[2].y), "+f"(D.tiles[0][1].data[3].x), "+f"(D.tiles[0][1].data[3].y),
+            "+f"(D.tiles[0][2].data[0].x), "+f"(D.tiles[0][2].data[0].y), "+f"(D.tiles[0][2].data[1].x), "+f"(D.tiles[0][2].data[1].y), "+f"(D.tiles[0][2].data[2].x), "+f"(D.tiles[0][2].data[2].y), "+f"(D.tiles[0][2].data[3].x), "+f"(D.tiles[0][2].data[3].y),
+            "+f"(D.tiles[0][3].data[0].x), "+f"(D.tiles[0][3].data[0].y), "+f"(D.tiles[0][3].data[1].x), "+f"(D.tiles[0][3].data[1].y), "+f"(D.tiles[0][3].data[2].x), "+f"(D.tiles[0][3].data[2].y), "+f"(D.tiles[0][3].data[3].x), "+f"(D.tiles[0][3].data[3].y),
+            "+f"(D.tiles[0][4].data[0].x), "+f"(D.tiles[0][4].data[0].y), "+f"(D.tiles[0][4].data[1].x), "+f"(D.tiles[0][4].data[1].y), "+f"(D.tiles[0][4].data[2].x), "+f"(D.tiles[0][4].data[2].y), "+f"(D.tiles[0][4].data[3].x), "+f"(D.tiles[0][4].data[3].y),
+            "+f"(D.tiles[0][5].data[0].x), "+f"(D.tiles[0][5].data[0].y), "+f"(D.tiles[0][5].data[1].x), "+f"(D.tiles[0][5].data[1].y), "+f"(D.tiles[0][5].data[2].x), "+f"(D.tiles[0][5].data[2].y), "+f"(D.tiles[0][5].data[3].x), "+f"(D.tiles[0][5].data[3].y)
+            :"l"(exo_descA),
+            "l"(exo_descB)
+        );
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(setp_ne_b32), 0, __LINE__);
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(wgmma_mma_async_sync_aligned_m64n96k8_f32_tf32_tf32), 0, __LINE__);
+      }
+      {
+        // K = 24 out of 32
+        const uint64_t exo_descA = exo_CudaUtil::exo_Sm90_smem_descriptor((&A_s[(kt * 2048 + 24)]), 1, 256);
+        const uint64_t exo_descB = exo_CudaUtil::exo_Sm90_smem_descriptor((&B_s[(kt * 3072 + 24)]), 1, 256);
+        asm volatile(
+          "{\n\t"
+          ".reg .pred p;\n\t"
+          "setp.ne.b32 p, 1, 0;\n\t"
+          "wgmma.mma_async.sync.aligned.m64n96k8.f32.tf32.tf32 {%0, %1, %2, %3, %4, %5, %6, %7, %8, %9, %10, %11, %12, %13, %14, %15, %16, %17, %18, %19, %20, %21, %22, %23, %24, %25, %26, %27, %28, %29, %30, %31, %32, %33, %34, %35, %36, %37, %38, %39, %40, %41, %42, %43, %44, %45, %46, %47}, %48, %49,\n\t"
+          "p, 1, 1;\n\t"
+          "}"
+            :"+f"(D.tiles[0][0].data[0].x), "+f"(D.tiles[0][0].data[0].y), "+f"(D.tiles[0][0].data[1].x), "+f"(D.tiles[0][0].data[1].y), "+f"(D.tiles[0][0].data[2].x), "+f"(D.tiles[0][0].data[2].y), "+f"(D.tiles[0][0].data[3].x), "+f"(D.tiles[0][0].data[3].y),
+            "+f"(D.tiles[0][1].data[0].x), "+f"(D.tiles[0][1].data[0].y), "+f"(D.tiles[0][1].data[1].x), "+f"(D.tiles[0][1].data[1].y), "+f"(D.tiles[0][1].data[2].x), "+f"(D.tiles[0][1].data[2].y), "+f"(D.tiles[0][1].data[3].x), "+f"(D.tiles[0][1].data[3].y),
+            "+f"(D.tiles[0][2].data[0].x), "+f"(D.tiles[0][2].data[0].y), "+f"(D.tiles[0][2].data[1].x), "+f"(D.tiles[0][2].data[1].y), "+f"(D.tiles[0][2].data[2].x), "+f"(D.tiles[0][2].data[2].y), "+f"(D.tiles[0][2].data[3].x), "+f"(D.tiles[0][2].data[3].y),
+            "+f"(D.tiles[0][3].data[0].x), "+f"(D.tiles[0][3].data[0].y), "+f"(D.tiles[0][3].data[1].x), "+f"(D.tiles[0][3].data[1].y), "+f"(D.tiles[0][3].data[2].x), "+f"(D.tiles[0][3].data[2].y), "+f"(D.tiles[0][3].data[3].x), "+f"(D.tiles[0][3].data[3].y),
+            "+f"(D.tiles[0][4].data[0].x), "+f"(D.tiles[0][4].data[0].y), "+f"(D.tiles[0][4].data[1].x), "+f"(D.tiles[0][4].data[1].y), "+f"(D.tiles[0][4].data[2].x), "+f"(D.tiles[0][4].data[2].y), "+f"(D.tiles[0][4].data[3].x), "+f"(D.tiles[0][4].data[3].y),
+            "+f"(D.tiles[0][5].data[0].x), "+f"(D.tiles[0][5].data[0].y), "+f"(D.tiles[0][5].data[1].x), "+f"(D.tiles[0][5].data[1].y), "+f"(D.tiles[0][5].data[2].x), "+f"(D.tiles[0][5].data[2].y), "+f"(D.tiles[0][5].data[3].x), "+f"(D.tiles[0][5].data[3].y)
+            :"l"(exo_descA),
+            "l"(exo_descB)
+        );
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(setp_ne_b32), 0, __LINE__);
+        exo_excutLog.log_action(EXO_EXCUT_STR_ID(wgmma_mma_async_sync_aligned_m64n96k8_f32_tf32_tf32), 0, __LINE__);
+      }
+    }
+    // Arrive(wgmma_async, 1) >> cg
+    asm volatile(
+      "wgmma.commit_group.sync.aligned;"
+    );
+    exo_excutLog.log_action(EXO_EXCUT_STR_ID(wgmma_commit_group_sync_aligned), 0, __LINE__);
+    // Await(cg, cuda_in_order, 0)
+    asm volatile(
+      "wgmma.wait_group.sync.aligned 0;"
+    );
+    exo_excutLog.log_action(EXO_EXCUT_STR_ID(wgmma_wait_group_sync_aligned), 0, __LINE__);
+    exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
+    // cuda_threads(0, 4, unit=cuda_warp)
+    if ([[maybe_unused]] int exo_32thr_w = (threadIdx.x / 32); 1) {
+      {  // Place GMEM handle in named temporary, because ThunderKittens is not const-correct.
+        auto exo_tk_dst = exo_CudaUtil::exo_tk_gl2_window<float, 16>((struct exo_win_2f32) { &exo_deviceArgs.C[(16 * exo_32thr_w) * 96], {96, 1} });
+        ::kittens::warp::store(exo_tk_dst, D, ::kittens::coord(0, 0, 0, 0));
+      }
+    }
+  }
+  // free(cg)
+}
+__device__ __forceinline__ void
+exo_CudaInline_test_golden_wgmma_accum_row_col_f32_f32::exo_Cuda0_wgmma_accum_row_col_f32_f32::exo_deviceMainLoop(
+    char* exo_smem,
+    const exo_DeviceArgs& exo_deviceArgs,
+    exo_ExcutThreadLog exo_excutLog)
+{
+  namespace exo_CudaUtil = exo_CudaUtil_test_golden_wgmma_accum_row_col_f32_f32;
+  exo_SyncState exo_syncState{};
+  int32_t nreg;
+  nreg = ((int32_t) 0);
+  if (nreg == ((int32_t) 0)) {
+    if (int tmp = threadIdx.x; tmp >= 0 && tmp < 128) {
+      {
+        int_fast32_t exo_cudaTasksLo_task = 0;
+        int_fast32_t exo_cudaTasksHi_task = 1;
+        exo_TaskGenerator exo_taskGenerator(
+            blockIdx.x / exo_clusterDim,
+            gridDim.x / exo_clusterDim,
+            exo_cudaTasksLo_task, exo_cudaTasksHi_task,
+            exo_deviceArgs);
+        while (exo_taskGenerator.prepare_next_task()) {
+          exo_deviceTask(exo_smem, exo_syncState, exo_deviceArgs, exo_taskGenerator.get_next_task(), exo_excutLog);
+        }
+      }
+    }
+  }
+}
+
+// ########################################################################
+// .cu
+// ########################################################################
+#include "test_golden_wgmma_accum_row_col_f32_f32.cuh"
+__launch_bounds__(128, 1)
+__global__ void
+exo_deviceFunction0_wgmma_accum_row_col_f32_f32(__grid_constant__ const struct exo_CudaDeviceArgs0_wgmma_accum_row_col_f32_f32 exo_deviceArgs)
+{
+  extern __shared__ __align__(128) char exo_smem[];
+  exo_ExcutThreadLog exo_excutLog = exo_excut_begin_thread_log(exo_deviceArgs.exo_excutDeviceLog);
+  exo_Cuda0_wgmma_accum_row_col_f32_f32::exo_deviceSetup(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda0_wgmma_accum_row_col_f32_f32::exo_deviceMainLoop(exo_smem, exo_deviceArgs, exo_excutLog);
+  exo_Cuda0_wgmma_accum_row_col_f32_f32::exo_deviceShutdown(exo_smem, exo_deviceArgs, exo_excutLog);
+}
+
+void
+exo_cudaLaunch0_wgmma_accum_row_col_f32_f32(cudaStream_t exo_cudaStream, const struct exo_CudaDeviceArgs0_wgmma_accum_row_col_f32_f32* exo_deviceArgs)
+{
+  exo_Cuda0_wgmma_accum_row_col_f32_f32::exo_cudaLaunch(exo_cudaStream, *exo_deviceArgs);
+}
+
