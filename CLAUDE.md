@@ -24,6 +24,18 @@ exocc -o outdir exo_file.py    # Custom output directory
 exocc --stem name exo_file.py  # Custom output file names
 ```
 
+### Running Tests
+
+The full suite takes a long time, so **never** run it in a way that can lose the results.
+Save the whole log to a file plus a junit report, then read the report:
+```bash
+python3 -m pytest -q -rfE tests/ --junitxml=$OUT/junit.xml > $OUT/pytest_full.log 2>&1
+```
+* Don't pipe pytest into `tail`/`head`. The CUDA tests print lots of "Debug output:" lines, and pytest's summary line gets interleaved and lost, so the run has to be repeated.
+  Piping into `tail` also hides pytest's exit code.
+* `pytest-xdist` is not installed, so don't use `-n`.
+* Use `--update-golden` to regenerate goldens, then review the golden diff.
+
 ## Architecture
 
 ### Compiler Pipeline
