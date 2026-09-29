@@ -2,8 +2,8 @@
 // .h
 // ########################################################################
 #pragma once
-#ifndef TEST_GARDEN_SM80_GOLDEN_H
-#define TEST_GARDEN_SM80_GOLDEN_H
+#ifndef TEST_GARDEN_SM90_GOLDEN_H
+#define TEST_GARDEN_SM90_GOLDEN_H
 
 
 #include <stdint.h>
@@ -140,13 +140,13 @@ void exo_cudaLaunch0_test_proc(cudaStream_t exo_cudaStream, const struct exo_Cud
 #endif
 
 
-#endif  // TEST_GARDEN_SM80_GOLDEN_H
+#endif  // TEST_GARDEN_SM90_GOLDEN_H
 
 
 // ########################################################################
 // .c
 // ########################################################################
-#include "test_garden_Sm80_golden.h"
+#include "test_garden_Sm90_golden.h"
 
 /* Required by DRAM */
 #ifndef EXO_MEMORY_GLOBAL_DRAM
@@ -179,9 +179,9 @@ void test_proc( void *ctxt ) {
 // .cuh
 // ########################################################################
 #pragma once
-#include "test_garden_Sm80_golden.h"
+#include "test_garden_Sm90_golden.h"
 #if EXO_EXCUT_bENABLE_LOG
-#include "test_garden_Sm80_golden.excut_str_table"
+#include "test_garden_Sm90_golden.excut_str_table"
 #endif
 /* Required by DRAM */
 #ifndef EXO_MEMORY_GLOBAL_DRAM
@@ -191,9 +191,9 @@ void test_proc( void *ctxt ) {
 
 #endif
 
-namespace exo_CudaUtil_test_garden_Sm80_golden {
-namespace exo_CudaUtil = ::exo_CudaUtil_test_garden_Sm80_golden;
-}  // end namespace exo_CudaUtil_test_garden_Sm80_golden
+namespace exo_CudaUtil_test_garden_Sm90_golden {
+namespace exo_CudaUtil = ::exo_CudaUtil_test_garden_Sm90_golden;
+}  // end namespace exo_CudaUtil_test_garden_Sm90_golden
 // CUDA device function args -- duplicated in .c file
 struct exo_CudaDeviceArgs0_test_proc
 {
@@ -201,13 +201,13 @@ struct exo_CudaDeviceArgs0_test_proc
 };
 
 // We need this inline namespace to avoid ODR problems in pytest.
-inline namespace exo_CudaInline_test_garden_Sm80_golden {
+inline namespace exo_CudaInline_test_garden_Sm90_golden {
 struct exo_Cuda0_test_proc
 {
   using exo_DeviceArgs = exo_CudaDeviceArgs0_test_proc;
 
   static constexpr uint32_t exo_blockDim = 256;
-  static constexpr uint32_t exo_clusterDim = 1;
+  static constexpr uint32_t exo_clusterDim = 4;
 
   static constexpr unsigned exo_smemBytes = 0;
 
@@ -285,11 +285,11 @@ struct exo_Cuda0_test_proc
 }  // end inline namespace
 
 inline void
-exo_CudaInline_test_garden_Sm80_golden::exo_Cuda0_test_proc::exo_cudaLaunch(
+exo_CudaInline_test_garden_Sm90_golden::exo_Cuda0_test_proc::exo_cudaLaunch(
     cudaStream_t exo_cudaStream,
     const exo_DeviceArgs& exo_deviceArgs)
 {
-  namespace exo_CudaUtil = exo_CudaUtil_test_garden_Sm80_golden;
+  namespace exo_CudaUtil = exo_CudaUtil_test_garden_Sm90_golden;
   cudaFuncSetAttribute(exo_deviceFunction0_test_proc, cudaFuncAttributeMaxDynamicSharedMemorySize, exo_smemBytes);
   // TODO how expensive is it to query this every time?
   int exo_cudaDevice;
@@ -304,6 +304,16 @@ exo_CudaInline_test_garden_Sm80_golden::exo_Cuda0_test_proc::exo_cudaLaunch(
   exo_launchConfig.dynamicSmemBytes = exo_smemBytes;
   exo_launchConfig.stream = exo_cudaStream;
 
+  cudaLaunchAttribute exo_clusterDim_attr{};
+  exo_clusterDim_attr.id = cudaLaunchAttributeClusterDimension;
+  // For some reason setting a cluster size of (1, 1, 1) tanks performance even though it should do nothing!
+  static_assert(exo_clusterDim >= 2, "exo codegen should have elided explicit clusterDim = 1");
+  exo_clusterDim_attr.val.clusterDim.x = exo_clusterDim;
+  exo_clusterDim_attr.val.clusterDim.y = 1;
+  exo_clusterDim_attr.val.clusterDim.z = 1;
+  exo_launchConfig.attrs = &exo_clusterDim_attr;
+  exo_launchConfig.numAttrs = 1;
+
   cudaLaunchKernelEx(&exo_launchConfig, exo_deviceFunction0_test_proc, exo_deviceArgs);
 
   exo_excut_flush_device_log(
@@ -313,73 +323,176 @@ exo_CudaInline_test_garden_Sm80_golden::exo_Cuda0_test_proc::exo_cudaLaunch(
 }
 
 __device__ __forceinline__ void
-exo_CudaInline_test_garden_Sm80_golden::exo_Cuda0_test_proc::exo_deviceSetup(
+exo_CudaInline_test_garden_Sm90_golden::exo_Cuda0_test_proc::exo_deviceSetup(
     char* exo_smem,
     const exo_DeviceArgs& exo_deviceArgs,
     exo_ExcutThreadLog exo_excutLog)
 {
   // No mbarriers used
+  asm volatile(
+    "barrier.cluster.arrive.aligned;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cluster_arrive_aligned), 0, __LINE__);
+  asm volatile(
+    "barrier.cluster.wait.aligned;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cluster_wait_aligned), 0, __LINE__);
 }
 
 __device__ __forceinline__ void
-exo_CudaInline_test_garden_Sm80_golden::exo_Cuda0_test_proc::exo_deviceShutdown(
+exo_CudaInline_test_garden_Sm90_golden::exo_Cuda0_test_proc::exo_deviceShutdown(
     char* exo_smem,
     const exo_DeviceArgs& exo_deviceArgs,
     exo_ExcutThreadLog exo_excutLog)
 {
-  // clusterDim = 1
+  // CudaDeviceFunction.unsafe_no_shutdown_cluster_sync = False
+  asm volatile(
+    "barrier.cluster.arrive.aligned;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cluster_arrive_aligned), 0, __LINE__);
+  asm volatile(
+    "barrier.cluster.wait.aligned;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cluster_wait_aligned), 0, __LINE__);
 }
 
 __device__ __forceinline__ void
-exo_CudaInline_test_garden_Sm80_golden::exo_Cuda0_test_proc::exo_deviceTask(
+exo_CudaInline_test_garden_Sm90_golden::exo_Cuda0_test_proc::exo_deviceTask(
     char* exo_smem,
     exo_SyncState& exo_syncState,
     const exo_DeviceArgs& exo_deviceArgs,
     exo_Task exo_task,
     exo_ExcutThreadLog exo_excutLog)
 {
-  namespace exo_CudaUtil = exo_CudaUtil_test_garden_Sm80_golden;
-  // Fence(Sm80_cp_async, cuda_in_order)
+  namespace exo_CudaUtil = exo_CudaUtil_test_garden_Sm90_golden;
+  // cuda_threads(0, 1, unit=cuda_cluster)
+  if ([[maybe_unused]] int exo_0thr_i = 0; 1) {
+    // Fence(cuda_in_order, cuda_generic_and_async_proxy)
+    asm volatile(
+      "barrier.cluster.arrive.aligned;"
+    );
+    exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cluster_arrive_aligned), 0, __LINE__);
+    asm volatile(
+      "barrier.cluster.wait.aligned;"
+    );
+    exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cluster_wait_aligned), 0, __LINE__);
+    asm volatile(
+      "fence.proxy.async;"
+    );
+    exo_excutLog.log_action(EXO_EXCUT_STR_ID(fence_proxy_async), 0, __LINE__);
+  }
+  // cuda_threads(0, 4, unit=cuda_cta_in_cluster)
+  if ([[maybe_unused]] int exo_256thr_cta = (blockIdx.x % 4); 1) {
+    // Fence(cuda_mbarrier_only, cuda_generic_and_async_proxy)
+    asm volatile(
+      "barrier.cta.sync 0;"
+    );
+    exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cta_sync), 0, __LINE__);
+    exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
+    // cuda_threads(0, 8, unit=cuda_warp)
+    if ([[maybe_unused]] int exo_32thr_w = (threadIdx.x / 32); 1) {
+      // Fence(cuda_in_order, cuda_in_order)
+      __syncwarp();
+      exo_excutLog.log_action(EXO_EXCUT_STR_ID(syncwarp), 0, __LINE__);
+    }
+    // CudaWarps(0, 8)
+    if ([[maybe_unused]] int CudaWarps_0_8_ = threadIdx.x; 1) {
+      // Fence(cuda_in_order, cuda_in_order)
+      asm volatile(
+        "barrier.cta.sync 0;"
+      );
+      exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cta_sync), 0, __LINE__);
+      exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
+    }
+    // cuda_threads(0, 8, unit=cuda_warp)
+    if ([[maybe_unused]] int exo_32thr_w = (threadIdx.x / 32); 1) {
+      // Fence(cuda_in_order, cuda_in_order)
+      __syncwarp();
+      exo_excutLog.log_action(EXO_EXCUT_STR_ID(syncwarp), 0, __LINE__);
+    }
+  }
+  // plain_cluster_sync: barrier @ CudaClusterSync
+  // Arrive(cuda_in_order, 1) >> plain_cluster_sync
+  asm volatile(
+    "barrier.cluster.arrive.aligned;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cluster_arrive_aligned), 0, __LINE__);
+  // Await(plain_cluster_sync, cuda_in_order, 0)
+  asm volatile(
+    "barrier.cluster.wait.aligned;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cluster_wait_aligned), 0, __LINE__);
+  // free(plain_cluster_sync)
+  // cuda_threads(0, 4, unit=cuda_cta_in_cluster)
+  if ([[maybe_unused]] int exo_256thr_cta = (blockIdx.x % 4); 1) {
+    // Fence(Sm80_cp_async, cuda_in_order)
+    asm volatile(
+      "cp.async.wait_all;"
+    );
+    exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_wait_all), 0, __LINE__);
+    asm volatile(
+      "barrier.cta.sync 0;"
+    );
+    exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cta_sync), 0, __LINE__);
+    exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
+    // cuda_threads(0, 8, unit=cuda_warp)
+    if ([[maybe_unused]] int exo_32thr_w = (threadIdx.x / 32); 1) {
+      // Fence(cuda_in_order, cuda_in_order)
+      __syncwarp();
+      exo_excutLog.log_action(EXO_EXCUT_STR_ID(syncwarp), 0, __LINE__);
+    }
+    // Fence(cuda_in_order, cuda_generic_and_async_proxy)
+    asm volatile(
+      "barrier.cta.sync 0;"
+    );
+    exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cta_sync), 0, __LINE__);
+    exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
+    asm volatile(
+      "fence.proxy.async;"
+    );
+    exo_excutLog.log_action(EXO_EXCUT_STR_ID(fence_proxy_async), 0, __LINE__);
+    // cuda_threads(0, 8, unit=cuda_warp)
+    if ([[maybe_unused]] int exo_32thr_w = (threadIdx.x / 32); 1) {
+      // Fence(cuda_in_order, cuda_in_order)
+      __syncwarp();
+      exo_excutLog.log_action(EXO_EXCUT_STR_ID(syncwarp), 0, __LINE__);
+    }
+  }
+  // cluster_sync: barrier @ CudaClusterSync
+  // Arrive(Sm80_generic, 1) >> cluster_sync
   asm volatile(
     "cp.async.wait_all;"
   );
   exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_wait_all), 0, __LINE__);
   asm volatile(
-    "barrier.cta.sync 0;"
+    "barrier.cluster.arrive.aligned;"
   );
-  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cta_sync), 0, __LINE__);
-  exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
-  // cuda_threads(0, 8, unit=cuda_warp)
-  if ([[maybe_unused]] int exo_32thr_w = (threadIdx.x / 32); 1) {
-    // Fence(Sm80_generic, cuda_in_order)
-    asm volatile(
-      "cp.async.wait_all;"
-    );
-    exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_wait_all), 0, __LINE__);
-    __syncwarp();
-    exo_excutLog.log_action(EXO_EXCUT_STR_ID(syncwarp), 0, __LINE__);
-    // Fence(Sm80_generic, cuda_mbarrier_only)
-    asm volatile(
-      "cp.async.wait_all;"
-    );
-    exo_excutLog.log_action(EXO_EXCUT_STR_ID(cp_async_wait_all), 0, __LINE__);
-    __syncwarp();
-    exo_excutLog.log_action(EXO_EXCUT_STR_ID(syncwarp), 0, __LINE__);
-  }
-  // Fence(cuda_in_order, cuda_in_order)
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cluster_arrive_aligned), 0, __LINE__);
+  // Await(cluster_sync, cuda_generic_and_async_proxy, 0)
   asm volatile(
-    "barrier.cta.sync 0;"
+    "barrier.cluster.wait.aligned;"
   );
-  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cta_sync), 0, __LINE__);
-  exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(barrier_cluster_wait_aligned), 0, __LINE__);
+  asm volatile(
+    "fence.proxy.async;"
+  );
+  exo_excutLog.log_action(EXO_EXCUT_STR_ID(fence_proxy_async), 0, __LINE__);
+  // free(cluster_sync)
+  // cuda_threads(0, 4, unit=cuda_cta_in_cluster)
+  if ([[maybe_unused]] int exo_256thr_cta = (blockIdx.x % 4); 1) {
+    // cuda_threads(0, 256, unit=cuda_thread)
+    if ([[maybe_unused]] int exo_1thr_tid = threadIdx.x; 1) {
+      // Fence(cuda_in_order, cuda_in_order)
+    }
+  }
 }
 __device__ __forceinline__ void
-exo_CudaInline_test_garden_Sm80_golden::exo_Cuda0_test_proc::exo_deviceMainLoop(
+exo_CudaInline_test_garden_Sm90_golden::exo_Cuda0_test_proc::exo_deviceMainLoop(
     char* exo_smem,
     const exo_DeviceArgs& exo_deviceArgs,
     exo_ExcutThreadLog exo_excutLog)
 {
-  namespace exo_CudaUtil = exo_CudaUtil_test_garden_Sm80_golden;
+  namespace exo_CudaUtil = exo_CudaUtil_test_garden_Sm90_golden;
   exo_SyncState exo_syncState{};
   int32_t nreg;
   nreg = ((int32_t) 0);
@@ -404,7 +517,7 @@ exo_CudaInline_test_garden_Sm80_golden::exo_Cuda0_test_proc::exo_deviceMainLoop(
 // ########################################################################
 // .cu
 // ########################################################################
-#include "test_garden_Sm80_golden.cuh"
+#include "test_garden_Sm90_golden.cuh"
 __launch_bounds__(256, 1)
 __global__ void
 exo_deviceFunction0_test_proc(__grid_constant__ const struct exo_CudaDeviceArgs0_test_proc exo_deviceArgs)

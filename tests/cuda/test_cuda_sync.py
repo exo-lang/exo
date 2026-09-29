@@ -1063,6 +1063,9 @@ def mkproc_garden_Sm80():
 
                 for w in cuda_threads(0, 8, unit=cuda_warp):
                     # cp.async.wait_all + __syncwarp()
+                    Fence(Sm80_generic, cuda_in_order)
+
+                    # Legal but weird
                     Fence(Sm80_generic, cuda_mbarrier_only)
 
                 # barrier.cta.sync only
@@ -1076,6 +1079,8 @@ def mkref_garden_Sm80(xrg: excut.ExcutReferenceGenerator):
     for threadIdx in xrg.stride_threadIdx(256):
         xrg("cp.async.wait_all")
         xrg("barrier.cta.sync", 0)
+        xrg("cp.async.wait_all")
+        xrg("__syncwarp")
         xrg("cp.async.wait_all")
         xrg("__syncwarp")
         xrg("barrier.cta.sync", 0)
@@ -1120,19 +1125,23 @@ def test_garden_warps_threads_golden(compiler, golden):
 
 
 def mkproc_garden_Sm90(
-    special_lo,
-    special_hi,
     test_first_sync_tl=cuda_in_order,
     test_second_sync_tl=cuda_in_order,
     special_first_sync_tl=cuda_in_order,
     special_second_sync_tl=wgmma_async_smem,
+    wrong_cluster=False,
+    wrong_cta=False,
 ):
+    should_be_cluster = 2 * cuda_cta_in_cluster if wrong_cluster else cuda_cluster
+    should_be_0, should_be_8 = (5, 8) if wrong_cta else (0, 8)
+
     @proc
     def test_proc():
         with CudaDeviceFunction(clusterDim=4, blockDim=256):
             for task in cuda_tasks(0, 1):
                 # cluster: generic->async proxy
-                Fence(cuda_in_order, cuda_generic_and_async_proxy)
+                for i in cuda_threads(0, 1, unit=should_be_cluster):
+                    Fence(cuda_in_order, cuda_generic_and_async_proxy)
 
                 # We use the __syncwarp to separate blocks of code in mkref
                 # and also for the (non-CUDA-device) invalid sync-tl tests.
@@ -1143,12 +1152,19 @@ def mkproc_garden_Sm90(
                         Fence(test_first_sync_tl, test_second_sync_tl)
 
                     # No proxy fence or cp.async.wait_all
-                    Fence(cuda_in_order, cuda_in_order)
+                    with CudaWarps(should_be_0, should_be_8):
+                        Fence(cuda_in_order, cuda_in_order)
                     for w in cuda_threads(0, 8, unit=cuda_warp):
                         Fence(test_first_sync_tl, test_second_sync_tl)
 
+                # Plain cluster sync
+                plain_cluster_sync: barrier @ CudaClusterSync
+                Arrive(cuda_in_order) >> plain_cluster_sync
+                Await(plain_cluster_sync, cuda_in_order, 0)
+
+                for cta in cuda_threads(0, 4, unit=cuda_cta_in_cluster):
                     # cp.async.wait_all
-                    Fence(Sm80_cp_async, cuda_mbarrier_only)
+                    Fence(Sm80_cp_async, cuda_in_order)
                     for w in cuda_threads(0, 8, unit=cuda_warp):
                         Fence(test_first_sync_tl, test_second_sync_tl)
 
@@ -1157,15 +1173,10 @@ def mkproc_garden_Sm90(
                     for w in cuda_threads(0, 8, unit=cuda_warp):
                         Fence(test_first_sync_tl, test_second_sync_tl)
 
-                    with CudaWarps(special_lo, special_hi):
-                        # Testing special case; warpgroup
-                        # cuda_in_order->wgmma_async_smem
-                        Fence(special_first_sync_tl, special_second_sync_tl)
-
-                # cluster: cp.async.wait_all
+                # Bizarre mega barrier: combines cluster, cp.async.wait_all, fence.proxy.async
                 cluster_sync: barrier @ CudaClusterSync
                 Arrive(Sm80_generic, 1) >> cluster_sync
-                Await(cluster_sync, cuda_in_order, 0)
+                Await(cluster_sync, cuda_generic_and_async_proxy, 0)
 
                 # Literally should do nothing
                 for cta in cuda_threads(0, 4, unit=cuda_cta_in_cluster):
@@ -1177,8 +1188,6 @@ def mkproc_garden_Sm90(
 
 def mkref_garden_Sm90(
     xrg: excut.ExcutReferenceGenerator,
-    special_lo,
-    special_hi,
     # Ignored args to match mkproc_garden_Sm90
     cluster_first_sync_tl=None,
     cluster_second_sync_tl=None,
@@ -1201,6 +1210,10 @@ def mkref_garden_Sm90(
             xrg("barrier.cta.sync", 0)
             xrg("__syncwarp")
 
+            # plain_cluster_sync
+            xrg("barrier.cluster.arrive.aligned")
+            xrg("barrier.cluster.wait.aligned")
+
             # cp.async.wait_all
             xrg("cp.async.wait_all")
             xrg("barrier.cta.sync", 0)
@@ -1211,40 +1224,26 @@ def mkref_garden_Sm90(
             xrg("fence.proxy.async")
             xrg("__syncwarp")
 
-            if 32 * special_lo <= threadIdx < 32 * special_hi:
-                # NB currently this is disabled
-                # Testing special case; warpgroup
-                # cuda_in_order->wgmma_async_smem
-                xrg("fence.proxy.async")
-
-            # cluster: cp.async.wait_all
+            # cluster: cp.async.wait_all -> fence.proxy.async
             xrg("cp.async.wait_all")
             xrg("barrier.cluster.arrive.aligned")
             xrg("barrier.cluster.wait.aligned")
+            xrg("fence.proxy.async")
     xrg.end_cuda()
 
 
-# Adapt and re-enable these tests if we wish to support the special case
-# for a warpgroup generating stuff in the generic proxy, then using
-# that data in future wgmma instrs with ONLY a proxy fence, no cross-thread sync.
-# I'm not sure if this is valid CUDA usage.
-if False:
+def test_garden_Sm90_excut(compiler_Sm90a):
+    compiler_Sm90a.excut_test(mkproc_garden_Sm90, mkref_garden_Sm90)
 
-    def test_garden_Sm90_excut(compiler_Sm90a):
-        compiler_Sm90a.excut_test(
-            mkproc_garden_Sm90, mkref_garden_Sm90, special_lo=4, special_hi=8
-        )
 
-    def test_garden_Sm90_golden(compiler, golden):
-        compiler.cuda_cpu_test(mkproc_garden_Sm90, golden, special_lo=4, special_hi=8)
+def test_garden_Sm90_golden(compiler, golden):
+    compiler.cuda_cpu_test(mkproc_garden_Sm90, golden)
 
 
 def test_garden_wrong_L1(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(
             mkproc_garden_Sm90,
-            special_lo=4,
-            special_hi=8,
             test_first_sync_tl=tma_to_smem_async,
         )
     msg = str(exc.value)
@@ -1256,8 +1255,6 @@ def test_garden_wrong_L2(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(
             mkproc_garden_Sm90,
-            special_lo=4,
-            special_hi=8,
             test_second_sync_tl=cpu_in_order,
         )
     msg = str(exc.value)
@@ -1265,19 +1262,18 @@ def test_garden_wrong_L2(compiler):
     assert "cpu_in_order" in msg
 
 
-def test_garden_wrong_coll_unit(compiler):
+def test_garden_wrong_cluster(compiler):
     with pytest.raises(Exception) as exc:
-        compiler.cuda_cpu_test(mkproc_garden_Sm90, special_lo=2, special_hi=6)
+        compiler.cuda_cpu_test(mkproc_garden_Sm90, wrong_cluster=True)
     assert "collective unit matched no known case" in str(exc.value)
 
 
-def test_garden_wrong_special_case_L2(compiler):
+def test_garden_wrong_cta(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(
             mkproc_garden_Sm90,
-            special_lo=4,
-            special_hi=8,
             special_second_sync_tl=cuda_in_order,
+            wrong_cta=True,
         )
     assert "collective unit matched no known case" in str(exc.value)
 
