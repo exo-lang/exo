@@ -98,6 +98,11 @@ class GemmConfig:
         so no proxy fence is needed before the producer's TMA overwrites.
         With A_in_rmem, the consumer reads A_smem with generic proxy loads,
         so we must witness those too, and a proxy fence gets generated.
+
+        NOTE: the A_in_rmem path is not typical; it's to get some
+        coverage of the A_rmem case rather than do anything useful
+        compared to reading A_smem directly.
+
         """
         return (
             cuda_generic_and_async_proxy if self.A_in_rmem else cuda_async_proxy_retired

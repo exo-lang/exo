@@ -1,6 +1,10 @@
 """Sanity checks on qual-tl implementation classes and proxy classes
 
-See plan_remove_vis_flags.md and plan_proxy_fence_rules.md (endgame_plan).
+This is mostly claude-generated test cases for some internals that could
+reasonably change, although test_mbarrier_qual_not_in_data_ram and
+test_needs_proxy_fence test some important points not thoroughly
+covered by Exo test_cuda_sync tests.
+
 """
 
 from __future__ import annotations
