@@ -753,7 +753,10 @@ struct SyncvTable
         vis_record.base_data.flags = free_on_arrive_id ? vis_record_before_alloc_flag : 0;
 
         CAMSPORK_REQUIRE_CMP((access.qual_tl_mask & access.initial_qual_bit), ==, access.initial_qual_bit, "Missing qual_tl_mask bits");
-        CAMSPORK_REQUIRE_CMP((access.qual_tl_mask & access.extended_qual_bits), ==, access.extended_qual_bits, "Missing qual_tl_mask bits");
+        CAMSPORK_REQUIRE_CMP((access.qual_tl_mask & access.extended_qual_bits & ~access.atomic_qual_bits),
+            ==,
+            access.extended_qual_bits & ~access.atomic_qual_bits,
+            "Missing qual_tl_mask bits");
 
         // Initialize visibility set = linked list of intervals generated from the initial thread / thread cuboid.
         const qual_bits_t q = access.initial_qual_bit;

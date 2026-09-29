@@ -562,6 +562,7 @@ class InstrTemplate(InstrTemplateBase):
                 # fmt: off
                 assert isinstance(atomicity, AtomicityInfo), f"{clsname}, {nm}"
                 assert all(isinstance(q, Qual_tl) for q in atomicity.qual_tl_list), f"{clsname}, {nm}"
+                assert all(q.is_atomic() for q in atomicity.qual_tl_list), f"{clsname}, {nm}"
                 # fmt: on
 
             # Distributed memory configuration checks

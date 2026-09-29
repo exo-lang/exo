@@ -28,6 +28,7 @@ from ..spork.timelines import (
     cpu_in_order_instr,
     cpu_cuda_stream_instr,
     DeviceScope,
+    InstrQuals,
     cpu_basic_device,
     Qual_tl,
     cpu_in_order_qual,
@@ -422,8 +423,8 @@ class AllocableMemWin(MemWin):
     """Defines per-instr qual-tl used to access a parameter (value @ mem)
 
     with q = mem.qual_tl_dict[instr_tl] (instr_tl configured per-instr),
-    q: List[Qual_tl] is interpreted as initial_qual_tl = q[0], ext_qual_tl = q
-    Otherwise, initial_qual_tl = q; ext_qual_tl = [q]
+    q: InstrQuals gives the initial qual-tl and precondition qual-tls.
+    NB atomic qual-tls are defined per-instruction instead.
 
     The qual-tl mask is the union of all qual-tl that are used as a value
     for any instr-tl key.
@@ -435,7 +436,7 @@ class AllocableMemWin(MemWin):
     This is needed to handle MemWin inheritance correctly.
 
     """
-    qual_tl_dict: Dict[Instr_tl, Qual_tl | List[Qual_tl]]
+    qual_tl_dict: Dict[Instr_tl, InstrQuals]
     qual_tl_dict = {
         cpu_in_order_instr: cpu_in_order_qual,
         cpu_cuda_stream_instr: cpu_cuda_stream_qual,

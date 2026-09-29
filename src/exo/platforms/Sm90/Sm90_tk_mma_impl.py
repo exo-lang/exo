@@ -15,7 +15,13 @@ def Sm90_TkRmemTileA(K: int):
 
     class Tile(CudaTkWarpTile(16, K, "row")):
         qual_tl_dict = cuda_rmem_qual_tl_dict | {
-            wgmma_async_instr: wgmma_async_rmem_a_qual
+            wgmma_async_instr: InstrQuals(
+                wgmma_async_rmem_a_qual,
+                precondition=[
+                    wgmma_rmem_fenced_qual,  # wgmma.fence -> wgmma A
+                    # Note absence of wgmma A -> wgmma A
+                ],
+            ),
         }
 
     return Tile
@@ -27,7 +33,13 @@ def Sm90_TkRmemTileD(N: int):
 
     class Tile(CudaTkWarpTile(16, N, "row")):
         qual_tl_dict = cuda_rmem_qual_tl_dict | {
-            wgmma_async_instr: wgmma_async_rmem_d_qual,
+            wgmma_async_instr: InstrQuals(
+                wgmma_async_rmem_d_qual,
+                precondition=[
+                    wgmma_async_rmem_d_qual,  # wgmma D -> wgmma D
+                    wgmma_rmem_fenced_qual,  #  wgmma.fence -> wgmma D
+                ],
+            )
         }
 
     return Tile

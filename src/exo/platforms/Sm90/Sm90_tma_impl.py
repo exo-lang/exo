@@ -163,7 +163,7 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
                 self.instr_tl = tma_to_gmem_async_instr
                 self.coll_unit = cuda_warp
                 if is_reduce:
-                    gmem.atomicity = AtomicityInfo([tma_to_gmem_async_qual])
+                    gmem.atomicity = AtomicityInfo([tma_to_gmem_atomic_qual])
             else:
                 self.instr_tl = tma_to_smem_async_instr
                 if is_multicast:

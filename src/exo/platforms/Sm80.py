@@ -12,6 +12,7 @@ from ..spork.timelines import (
     Sm80_generic,
     cuda_rmem_qual_tl_dict,
     cuda_in_order_ram_qual,
+    cuda_generic_atomic_qual,
 )
 
 __all__ = [
@@ -612,7 +613,7 @@ class Sm80_mma_atomic_reduce_d_row_major_tf32:
     def instance(self):
         self.instr_tl = cuda_in_order_instr
         self.coll_unit = cuda_warp
-        self.access_info["dst"].atomicity = AtomicityInfo([cuda_in_order_ram_qual])
+        self.access_info["dst"].atomicity = AtomicityInfo([cuda_generic_atomic_qual])
 
     def codegen(self, args: InstrArgs):
         return _codegen_Sm80_d_tf32(
@@ -683,7 +684,7 @@ class Sm80_mma_atomic_reduce_d_col_major_tf32:
     def instance(self):
         self.instr_tl = cuda_in_order_instr
         self.coll_unit = cuda_warp
-        self.access_info["dst"].atomicity = AtomicityInfo([cuda_in_order_ram_qual])
+        self.access_info["dst"].atomicity = AtomicityInfo([cuda_generic_atomic_qual])
 
     def codegen(self, args: InstrArgs):
         return _codegen_Sm80_d_tf32(

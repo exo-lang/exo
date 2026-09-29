@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from enum import Enum
+from dataclasses import dataclass
 from typing import Optional, Dict, List, Set
+from functools import reduce
+import operator
 
 
 class Instr_tl(object):
@@ -154,15 +156,19 @@ class Qual_tl(object):
         "_bit",
         "_name",
         "_default_convergent_access",
+        "_out_of_order",
+        "_is_atomic",
     ]
     _bit_index: int
     _bit: int
     _name: str
     _default_convergent_access: bool
+    _out_of_order: bool
+    _is_atomic: bool
 
     _from_bit_index = []
 
-    def __init__(self, name, default_convergent_access):
+    def __init__(self, name, default_convergent_access, character):
         assert name.endswith("_qual"), "naming convention"
         self._bit_index = len(self._from_bit_index)
         assert self._bit_index <= 31, "camspork::qual_bits_t would overflow"
@@ -170,6 +176,14 @@ class Qual_tl(object):
         self._from_bit_index.append(self)
         self._name = name
         self._default_convergent_access = default_convergent_access
+        if character == "in_order":
+            self._out_of_order, self._is_atomic = False, False
+        elif character == "out_of_order":
+            self._out_of_order, self._is_atomic = True, False
+        elif character == "atomic":
+            self._out_of_order, self._is_atomic = False, True
+        else:
+            assert 0, "Unknown character"
         assert isinstance(default_convergent_access, bool)
 
     def __repr__(self):
@@ -183,6 +197,12 @@ class Qual_tl(object):
 
     def as_bit_index(self):
         return self._bit_index
+
+    def out_of_order(self) -> bool:
+        return self._out_of_order
+
+    def is_atomic(self) -> bool:
+        return self._is_atomic
 
     @staticmethod
     def make_bits(q) -> int:
@@ -198,75 +218,148 @@ class Qual_tl(object):
     def get_all(cls) -> List[Qual_tl]:
         return cls._from_bit_index
 
+    @classmethod
+    def get_all_out_of_order_bits(cls) -> int:
+        return reduce(
+            operator.or_, (q for q in cls._from_bit_index if q.out_of_order())
+        )
+
+    @classmethod
+    def get_all_atomic_bits(cls) -> int:
+        return reduce(operator.or_, (q for q in cls._from_bit_index if q.atomic()))
+
     # Use default hash and equality (id-equality) from object.
 
 
-cpu_in_order_qual = Qual_tl("cpu_in_order_qual", True)
-cpu_cuda_stream_qual = Qual_tl("cpu_cuda_stream_qual", True)
-cuda_in_order_rmem_qual = Qual_tl("cuda_in_order_rmem_qual", True)
-cuda_in_order_ram_qual = Qual_tl("cuda_in_order_ram_qual", False)
-cuda_mbarrier_qual = Qual_tl("cuda_mbarrier_qual", False)
-Sm80_cp_async_qual = Qual_tl("Sm80_cp_async_qual", False)
-tma_to_smem_async_qual = Qual_tl("tma_to_smem_async_qual", False)
-tma_to_gmem_async_qual = Qual_tl("tma_to_gmem_async_qual", False)
-wgmma_async_rmem_a_qual = Qual_tl("wgmma_async_rmem_a_qual", True)
-wgmma_async_rmem_d_qual = Qual_tl("wgmma_async_rmem_d_qual", True)
-wgmma_async_smem_qual = Qual_tl("wgmma_async_smem_qual", False)
-cuda_async_proxy_retired_qual = Qual_tl("cuda_async_proxy_retired_qual", False)
-tcgen05_smem_qual = Qual_tl("tcgen05_smem_qual", False)
-tcgen05_mma_tmem_qual = Qual_tl("tcgen05_mma_tmem_qual", True)
-tcgen05_cp_tmem_qual = Qual_tl("tcgen05_cp_tmem_qual", True)
-tcgen05_shift_qual = Qual_tl("tcgen05_shift_qual", True)
-tcgen05_ld_qual = Qual_tl("tcgen05_ld_qual", True)
-tcgen05_st_qual = Qual_tl("tcgen05_st_qual", True)
+if True:
+    # fmt: off
+    cpu_in_order_qual = Qual_tl("cpu_in_order_qual", True, "in_order")
+    cpu_cuda_stream_qual = Qual_tl("cpu_cuda_stream_qual", True, "in_order")
+    cuda_in_order_rmem_qual = Qual_tl("cuda_in_order_rmem_qual", True, "in_order")
+    cuda_in_order_ram_qual = Qual_tl("cuda_in_order_ram_qual", False, "in_order")
+    cuda_generic_atomic_qual = Qual_tl("cuda_generic_atomic_qual", False, "atomic")
+    cuda_mbarrier_qual = Qual_tl("cuda_mbarrier_qual", False, "in_order")
+    Sm80_cp_async_qual = Qual_tl("Sm80_cp_async_qual", False, "out_of_order")
+    tma_to_smem_async_qual = Qual_tl("tma_to_smem_async_qual", False, "out_of_order")
+    tma_to_gmem_async_qual = Qual_tl("tma_to_gmem_async_qual", False, "out_of_order")
+    tma_to_gmem_atomic_qual = Qual_tl("tma_to_gmem_atomic_qual", False, "atomic")
+    wgmma_async_rmem_a_qual = Qual_tl("wgmma_async_rmem_a_qual", True, "out_of_order")
+    wgmma_async_rmem_d_qual = Qual_tl("wgmma_async_rmem_d_qual", True, "in_order")  # yes!
+    wgmma_rmem_fenced_qual = Qual_tl("wgmma_rmem_fenced_qual", True, "in_order")
+    wgmma_async_smem_qual = Qual_tl("wgmma_async_smem_qual", False, "out_of_order")
+    cuda_async_proxy_retired_qual = Qual_tl("cuda_async_proxy_retired_qual", False, "in_order")
+    tcgen05_smem_qual = Qual_tl("tcgen05_smem_qual", False, "out_of_order")
+    tcgen05_mma_tmem_qual = Qual_tl("tcgen05_mma_tmem_qual", True, "in_order")
+    tcgen05_cp_tmem_qual = Qual_tl("tcgen05_cp_tmem_qual", True, "in_order")
+    tcgen05_shift_qual = Qual_tl("tcgen05_shift_qual", True, "in_order")
+    tcgen05_ld_qual = Qual_tl("tcgen05_ld_qual", True, "in_order")
+    tcgen05_st_qual = Qual_tl("tcgen05_st_qual", True, "in_order")
+
+
+@dataclass(slots=True)
+class InstrQuals:
+    """Value type of MemWin.qual_tl_dict"""
+
+    initial: Qual_tl
+    initial_bit: int
+    precondition: Set[Qual_tl]  # really frozenset
+    precondition_bits: int
+    _all: Set[Qual_tl]
+
+    def __init__(
+        self, initial: Qual_tl, *, precondition: Qual_tl | List[Qual_tl] = None
+    ):
+        assert isinstance(initial, Qual_tl)
+        assert not initial.is_atomic(), initial
+        if precondition is None:
+            precondition = frozenset((initial,))
+        elif isinstance(precondition, Qual_tl):
+            precondition = frozenset((precondition,))
+        else:
+            precondition = frozenset(precondition)
+
+        assert precondition, "Empty precondition"
+        for q in precondition:
+            assert isinstance(q, Qual_tl), q
+            assert not q.out_of_order(), q
+
+        self.initial = initial
+        self.initial_bit = initial.as_bit()
+        self.precondition = precondition = frozenset(precondition)
+        self.precondition_bits = Qual_tl.make_bits(precondition)
+        self._all = precondition | {initial}
+
+    def __iter__(self):
+        # Feeds into Qual_tl.make_bits() for autogenerating qual_tl_mask.
+        return iter(self._all)
 
 
 cuda_rmem_qual_tl_dict = {
-    cuda_in_order_instr: cuda_in_order_rmem_qual,
-    Sm80_cp_async_instr: cuda_in_order_rmem_qual,
-    tma_to_smem_async_instr: cuda_in_order_rmem_qual,
-    tma_to_gmem_async_instr: cuda_in_order_rmem_qual,
+    cuda_in_order_instr: InstrQuals(cuda_in_order_rmem_qual),
+    Sm80_cp_async_instr: InstrQuals(cuda_in_order_rmem_qual),
+    tma_to_smem_async_instr: InstrQuals(cuda_in_order_rmem_qual),
+    tma_to_gmem_async_instr: InstrQuals(cuda_in_order_rmem_qual),
     # wgmma a/d has to be handled specially.
     #
-    # cuda_in_order_rmem_qual is in the extended timeline set for tcgen05 access
+    # cuda_in_order_rmem_qual is the precondition timeline set for tcgen05 access
     # so that we can wait for a prior read/write to a register to finish normally.
-    tcgen05_ld_instr: [tcgen05_ld_qual, cuda_in_order_rmem_qual],
-    tcgen05_st_instr: [tcgen05_st_qual, cuda_in_order_rmem_qual],
+    tcgen05_ld_instr: InstrQuals(tcgen05_ld_qual, precondition=cuda_in_order_rmem_qual),
+    tcgen05_st_instr: InstrQuals(tcgen05_st_qual, precondition=cuda_in_order_rmem_qual),
 }
 
 cuda_ram_qual_tl_dict = {
-    cpu_in_order_instr: cpu_in_order_qual,
-    cpu_cuda_stream_instr: cpu_cuda_stream_qual,
-    cuda_in_order_instr: cuda_in_order_ram_qual,
-    Sm80_cp_async_instr: [Sm80_cp_async_qual, cuda_in_order_ram_qual],
-    tma_to_smem_async_instr: [tma_to_smem_async_qual, cuda_async_proxy_retired_qual],
-    tma_to_gmem_async_instr: [tma_to_gmem_async_qual, cuda_async_proxy_retired_qual],
-    wgmma_async_instr: [wgmma_async_smem_qual, cuda_async_proxy_retired_qual],
-    tcgen05_mma_instr: [tcgen05_smem_qual, cuda_async_proxy_retired_qual],
-    tcgen05_cp_instr: [tcgen05_smem_qual, cuda_async_proxy_retired_qual],
+    cpu_in_order_instr: InstrQuals(cpu_in_order_qual),
+    cpu_cuda_stream_instr: InstrQuals(cpu_cuda_stream_qual),
+    cuda_in_order_instr: InstrQuals(cuda_in_order_ram_qual),
+    Sm80_cp_async_instr: InstrQuals(
+        Sm80_cp_async_qual, precondition=cuda_in_order_ram_qual
+    ),
+    tma_to_smem_async_instr: InstrQuals(
+        tma_to_smem_async_qual, precondition=cuda_async_proxy_retired_qual
+    ),
+    tma_to_gmem_async_instr: InstrQuals(
+        tma_to_gmem_async_qual, precondition=cuda_async_proxy_retired_qual
+    ),
+    wgmma_async_instr: InstrQuals(
+        wgmma_async_smem_qual, precondition=cuda_async_proxy_retired_qual
+    ),
+    tcgen05_mma_instr: InstrQuals(
+        tcgen05_smem_qual, precondition=cuda_async_proxy_retired_qual
+    ),
+    tcgen05_cp_instr: InstrQuals(
+        tcgen05_smem_qual, precondition=cuda_async_proxy_retired_qual
+    ),
 }
 
 # Somewhat broken qual-tl dict for tcgen05 TMEM (tensor memory).
-# We use the extended timeline set to model implicit pipelining.
+# We use the precondition timeline set to model implicit pipelining.
 cuda_tmem_qual_tl_dict = {
-    tcgen05_mma_instr: [
-        tcgen05_mma_tmem_qual,  # tcgen05.mma -> tcgen05.mma
-        tcgen05_cp_tmem_qual,  #  tcgen05.mma -> tcgen05.cp
-        tcgen05_shift_qual,  #    tcgen05.mma -> tcgen05.shift
-    ],
-    tcgen05_cp_instr: [
-        tcgen05_cp_tmem_qual,  #  Falsely implies tcgen05.cp -> tcgen05.cp pipelining
-    ],
-    tcgen05_shift_instr: [
-        tcgen05_shift_qual,  #    Falsely implies tcgen05.shift -> tcgen05.shift
-        tcgen05_mma_tmem_qual,  # tcgen05.mma -> tcgen05.shift
-    ],
+    tcgen05_mma_instr: InstrQuals(
+        tcgen05_mma_tmem_qual,
+        precondition=[
+            tcgen05_mma_tmem_qual,  # tcgen05.mma -> tcgen05.mma
+            tcgen05_cp_tmem_qual,  #  tcgen05.mma -> tcgen05.cp
+            tcgen05_shift_qual,  #    tcgen05.mma -> tcgen05.shift
+        ],
+    ),
+    tcgen05_cp_instr: InstrQuals(
+        tcgen05_cp_tmem_qual,
+        precondition=[
+            tcgen05_mma_tmem_qual,  # tcgen05.mma -> tcgen05.cp
+        ],
+    ),
+    tcgen05_shift_instr: InstrQuals(
+        tcgen05_shift_qual,
+        precondition=[
+            tcgen05_mma_tmem_qual,  # tcgen05.mma -> tcgen05.shift
+        ],
+    ),
 }
 
 cuda_mbarrier_qual_tl_dict = {
-    cuda_in_order_instr: cuda_mbarrier_qual,
-    Sm80_cp_async_instr: cuda_mbarrier_qual,
-    tma_to_smem_async_instr: cuda_mbarrier_qual,
+    cuda_in_order_instr: InstrQuals(cuda_mbarrier_qual),
+    Sm80_cp_async_instr: InstrQuals(cuda_mbarrier_qual),
+    tma_to_smem_async_instr: InstrQuals(cuda_mbarrier_qual),
 }
 
 
@@ -317,11 +410,6 @@ _cuda_temporal_quals = [
     cuda_async_proxy_retired_qual,
 ]
 
-_wgmma_rmem_quals = [
-    wgmma_async_rmem_a_qual,
-    wgmma_async_rmem_d_qual,
-]
-
 _cuda_stream_quals = [
     cpu_cuda_stream_qual,
     cuda_in_order_ram_qual,
@@ -360,6 +448,7 @@ class Sync_tl(object):
         tmp_bits = 0
         for tl in full_timeline_set:
             tmp_bits |= tl.as_bit()
+            assert not tl.is_atomic(), tl
         self._full_timeline_set_bits = tmp_bits
         for tl in additional_temporal_timeline_set:
             tmp_bits |= tl.as_bit()
@@ -498,12 +587,17 @@ instructions or by ordinary cuda synchronous instructions;
 this is the first sync-tl of wgmma.fence"""
 wgmma_fence_1 = Sync_tl(
     "wgmma_fence_1",
-    [cuda_in_order_rmem_qual] + _wgmma_rmem_quals,
+    [
+        cuda_in_order_rmem_qual,
+        wgmma_async_rmem_a_qual,
+        wgmma_async_rmem_d_qual,
+        wgmma_rmem_fenced_qual,
+    ],
 )
 
 """wgmma instructions' actions on registers;
 this is the second sync-tl of wgmma.fence"""
-wgmma_fence_2 = Sync_tl("wgmma_fence_2", _wgmma_rmem_quals)
+wgmma_fence_2 = Sync_tl("wgmma_fence_2", [wgmma_rmem_fenced_qual])
 
 """wgmma instructions"""
 wgmma_async = Sync_tl("wgmma_async", _wgmma_async_quals, for_instr_tl=wgmma_async_instr)
@@ -517,6 +611,17 @@ tcgen05_ld = Sync_tl("tcgen05_ld", [tcgen05_ld_qual], for_instr_tl=tcgen05_ld_in
 """tcgen05.wait::st"""
 tcgen05_st = Sync_tl("tcgen05_st", [tcgen05_st_qual], for_instr_tl=tcgen05_st_instr)
 
+cuda_mbarrier_only = Sync_tl(
+    "cuda_mbarrier_only",
+    [cuda_mbarrier_qual],
+    _cuda_temporal_quals,  # Temporal-only
+)
+
+cuda_async_proxy_retired = Sync_tl(
+    "cuda_async_proxy_retired",
+    [cuda_mbarrier_qual, cuda_async_proxy_retired_qual],
+    _cuda_temporal_quals,  # Temporal-only
+)
 
 """CUDA generic proxy + async proxy; temporal dependencies carried"""
 cuda_generic_and_async_proxy = Sync_tl(
