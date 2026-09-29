@@ -124,16 +124,13 @@ def make_basic_mma(a_mode, b_mode, zero_init_form: bool):
 
             d_access.distributed_coll_units = (cuda_warp,)
             d_access.mem = Sm90_TkRmemTileD(N)
-            d_access.out_of_order = False
 
             if a_mode == "rmem":
                 a_access.distributed_coll_units = (cuda_warp,)
                 a_access.mem = Sm90_TkRmemTileA(K)
             else:
                 a_access.mem = Sm90_SmemSwizzled(swizzle)
-            a_access.out_of_order = True
 
-            b_access.out_of_order = True
             b_access.mem = Sm90_SmemSwizzled(swizzle)
 
         if b_mode == "col":

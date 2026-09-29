@@ -26,7 +26,8 @@ def that_cuda_proc():
                         for cta_n in cuda_threads(0,
                                                   2,
                                                   unit=cuda_cta_in_cluster):
-                            Await(war[cta_m, cta_n, iter_k], cuda_temporal, 0)
+                            Await(war[cta_m, cta_n, iter_k],
+                                  cuda_async_proxy_retired, 0)
                     for cta_n in cuda_threads(0,
                                               2,
                                               unit=4 *
@@ -34,7 +35,7 @@ def that_cuda_proc():
                         for cta_m in cuda_threads(0,
                                                   4,
                                                   unit=cuda_cta_in_cluster):
-                            Arrive(cuda_temporal,
+                            Arrive(cuda_mbarrier_only,
                                    1) >> raw[cta_m, :, iter_k] >> raw[:, cta_n,
                                                                       iter_k]
                 with CudaWarps(name='consumer'):

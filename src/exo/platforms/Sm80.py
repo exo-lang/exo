@@ -65,8 +65,6 @@ class Sm80_cp_async_base(InstrInfo):
             )
         self.instr_tl = Sm80_cp_async_instr
         self.n_bytes = n_bytes
-        self.access_info["dst"].out_of_order = True
-        self.access_info["src"].out_of_order = True
 
     def codegen(self, args):
         cg_ca = "cg" if self.n_bytes == 16 else "ca"

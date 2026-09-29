@@ -21,11 +21,9 @@ class AtomicityInfo:
 @dataclass(slots=True)
 class AccessInfo:
     mem: Type[MemWin] = DRAM
-    out_of_order: bool = None
 
     # Set automatically, don't edit.
     const: bool = False
-    write_only: bool = False
     scalar_info: ScalarInfo = None
 
     # UNSTABLE: for experiments on figuring out how to model TMA's

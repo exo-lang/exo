@@ -6,7 +6,7 @@ from ..spork.timelines import (
     cpu_in_order,
     cpu_in_order_instr,
     cpu_cuda_stream_instr,
-    cuda_temporal,
+    cuda_async_proxy_retired,
     cuda_in_order,
     cuda_in_order_instr,
     cuda_mbarrier_only,

@@ -1427,7 +1427,7 @@ exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32
       if ([[maybe_unused]] int exo_0thr_cta_m = 0; 1) {
         // cuda_threads(0, 1, unit=cuda_cta_in_cluster)
         if ([[maybe_unused]] int exo_0thr_cta_n = 0; 1) {
-          // Await(war[cta_m, cta_n, ((iter_k + exo_syncState.ring_consumption_0_war) % 4)], cuda_temporal, 0)
+          // Await(war[cta_m, cta_n, ((iter_k + exo_syncState.ring_consumption_0_war) % 4)], cuda_async_proxy_retired, 0)
           exo_syncState.Await0_war(exo_smem, exo_excutLog, int(exo_0thr_cta_m), int(exo_0thr_cta_n), int((iter_k + (exo_syncState.ring_consumption_0_war) - 4)));
         }
       }
@@ -1507,7 +1507,7 @@ exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32
       if ([[maybe_unused]] int exo_0thr_cta_m = 0; 1) {
         // cuda_threads(0, 1, unit=cuda_cta_in_cluster)
         if ([[maybe_unused]] int exo_0thr_cta_n = 0; 1) {
-          // Arrive(cuda_temporal, 1) >> raw[cta_m, 0:1, ((iter_k + exo_syncState.ring_consumption_1_raw) % 4)] >> raw[0:1, cta_n, ((iter_k + exo_syncState.ring_consumption_1_raw) % 4)]
+          // Arrive(cuda_mbarrier_only, 1) >> raw[cta_m, 0:1, ((iter_k + exo_syncState.ring_consumption_1_raw) % 4)] >> raw[0:1, cta_n, ((iter_k + exo_syncState.ring_consumption_1_raw) % 4)]
           // cta_mask: uint16_t(0x1)
           // cta_mask: uint16_t(0x1)
           exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int(exo_0thr_cta_m), int(exo_0thr_cta_n), int((iter_k + (exo_syncState.ring_consumption_1_raw))), 1);
@@ -1523,7 +1523,7 @@ exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32
       if ([[maybe_unused]] int exo_0thr_cta_m = 0; 1) {
         // cuda_threads(0, 1, unit=cuda_cta_in_cluster)
         if ([[maybe_unused]] int exo_0thr_cta_n = 0; 1) {
-          // Await(war[cta_m, cta_n, ((iter_k + exo_syncState.ring_consumption_0_war) % 4)], cuda_temporal, 0)
+          // Await(war[cta_m, cta_n, ((iter_k + exo_syncState.ring_consumption_0_war) % 4)], cuda_async_proxy_retired, 0)
           exo_syncState.Await0_war(exo_smem, exo_excutLog, int(exo_0thr_cta_m), int(exo_0thr_cta_n), int((iter_k + (exo_syncState.ring_consumption_0_war) - 4)));
         }
       }
@@ -1603,7 +1603,7 @@ exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32
       if ([[maybe_unused]] int exo_0thr_cta_m = 0; 1) {
         // cuda_threads(0, 1, unit=cuda_cta_in_cluster)
         if ([[maybe_unused]] int exo_0thr_cta_n = 0; 1) {
-          // Arrive(cuda_temporal, 1) >> raw[cta_m, 0:1, ((iter_k + exo_syncState.ring_consumption_1_raw) % 4)] >> raw[0:1, cta_n, ((iter_k + exo_syncState.ring_consumption_1_raw) % 4)]
+          // Arrive(cuda_mbarrier_only, 1) >> raw[cta_m, 0:1, ((iter_k + exo_syncState.ring_consumption_1_raw) % 4)] >> raw[0:1, cta_n, ((iter_k + exo_syncState.ring_consumption_1_raw) % 4)]
           // cta_mask: uint16_t(0x1)
           // cta_mask: uint16_t(0x1)
           exo_syncState.Arrive0_raw(exo_smem, exo_excutLog, int(exo_0thr_cta_m), int(exo_0thr_cta_n), int((iter_k + (exo_syncState.ring_consumption_1_raw))), 1);
@@ -2006,14 +2006,14 @@ exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32
           // cuda_threads(0, 2, unit=cuda_warpgroup)
           if ([[maybe_unused]] int exo_128thr_wg_m = ((threadIdx.x - 128) / 128); 1) {
             ; // NO-OP
-            // Await(wgmma_cg, cuda_in_order, 1)
+            // Await(wgmma_cg, cuda_generic_and_async_proxy, 1)
             asm volatile(
               "wgmma.wait_group.sync.aligned 1;"
             );
             exo_excutLog.log_action(EXO_EXCUT_STR_ID(wgmma_wait_group_sync_aligned), 0, __LINE__);
             exo_excutLog.log_u32_arg(static_cast<uint32_t>(1));
           }
-          // Arrive(cuda_in_order, 1) >> war[cta_m, 0:1, ((iter_k + 3 + exo_syncState.ring_consumption_0_war) % 4)] >> war[0:1, cta_n, ((iter_k + 3 + exo_syncState.ring_consumption_0_war) % 4)]
+          // Arrive(cuda_async_proxy_retired, 1) >> war[cta_m, 0:1, ((iter_k + 3 + exo_syncState.ring_consumption_0_war) % 4)] >> war[0:1, cta_n, ((iter_k + 3 + exo_syncState.ring_consumption_0_war) % 4)]
           // cta_mask: uint16_t(0x1)
           // cta_mask: uint16_t(0x1)
           exo_syncState.Arrive0_war(exo_smem, exo_excutLog, int(exo_0thr_cta_m), int(exo_0thr_cta_n), int((iter_k + 3 + (exo_syncState.ring_consumption_0_war) - 4)), 1);
@@ -2029,14 +2029,14 @@ exo_CudaInline_test_golden_Sm90a_gemm_m1n1_B::exo_Cuda0_Sm90_tk_gemm_rAf32_cBf32
       if ([[maybe_unused]] int exo_0thr_cta_n = 0; 1) {
         // cuda_threads(0, 2, unit=cuda_warpgroup)
         if ([[maybe_unused]] int exo_128thr_wg_m = ((threadIdx.x - 128) / 128); 1) {
-          // Await(wgmma_cg, cuda_in_order, 0)
+          // Await(wgmma_cg, cuda_generic_and_async_proxy, 0)
           asm volatile(
             "wgmma.wait_group.sync.aligned 0;"
           );
           exo_excutLog.log_action(EXO_EXCUT_STR_ID(wgmma_wait_group_sync_aligned), 0, __LINE__);
           exo_excutLog.log_u32_arg(static_cast<uint32_t>(0));
         }
-        // Arrive(cuda_in_order, 1) >> war[cta_m, 0:1, (( (K_cluster + 32 - 1) / 32 + 4 - 1 + exo_syncState.ring_consumption_0_war) % 4)] >> war[0:1, cta_n, (( (K_cluster + 32 - 1) / 32 + 4 - 1 + exo_syncState.ring_consumption_0_war) % 4)]
+        // Arrive(cuda_async_proxy_retired, 1) >> war[cta_m, 0:1, (( (K_cluster + 32 - 1) / 32 + 4 - 1 + exo_syncState.ring_consumption_0_war) % 4)] >> war[0:1, cta_n, (( (K_cluster + 32 - 1) / 32 + 4 - 1 + exo_syncState.ring_consumption_0_war) % 4)]
         // cta_mask: uint16_t(0x1)
         // cta_mask: uint16_t(0x1)
         exo_syncState.Arrive0_war(exo_smem, exo_excutLog, int(exo_0thr_cta_m), int(exo_0thr_cta_n), int((((exo_deviceArgs.K_cluster + 32 - 1) >> 5) + 4 - 1 + (exo_syncState.ring_consumption_0_war) - 4)), 1);

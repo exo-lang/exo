@@ -82,7 +82,7 @@ def test_arrive_incompatible_sync_tl_negative(compiler):
     with pytest.raises(Exception) as exc:
         # Different sync-tl is invalid
         compiler.cuda_cpu_test(
-            mkproc_arrive_incompatible_sync_tl, second_sync_tl=cuda_temporal
+            mkproc_arrive_incompatible_sync_tl, second_sync_tl=cuda_mbarrier_only
         )
     msg = str(exc.value)
     assert (
@@ -125,7 +125,7 @@ def test_await_incompatible_sync_tl_negative(compiler):
     with pytest.raises(Exception) as exc:
         # Different sync-tl is invalid
         compiler.cuda_cpu_test(
-            mkproc_await_incompatible_sync_tl, second_sync_tl=cuda_temporal
+            mkproc_await_incompatible_sync_tl, second_sync_tl=cuda_mbarrier_only
         )
     msg = str(exc.value)
     assert "incompatible" in msg.lower() and "sync-tl" in msg.lower() and "Await" in msg

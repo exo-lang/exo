@@ -59,7 +59,7 @@ def mkproc_tma_tester(swizzle: int, sync_check):
 
                     # Warp 0 copies x to SMEM using TMA.
                     with CudaWarps(0, 1):
-                        Await(war[0], cuda_temporal, 0)
+                        Await(war[0], cuda_async_proxy_retired, 0)
                         # Test for TMA WindowStmt on the GPU
                         x_input = x_tensorMap_debug[
                             task_m * smem_M : task_m * smem_M + smem_M,
@@ -69,7 +69,7 @@ def mkproc_tma_tester(swizzle: int, sync_check):
                             size0=smem_M, size1=smem_K, dst=f32, src=f32, swizzle=swizzle,
                             smem_box=(smem_M, smem_K),
                         ) >> raw[0]
-                        Arrive(cuda_temporal, 1) >> raw[0]
+                        Arrive(cuda_mbarrier_only, 1) >> raw[0]
 
                     # All warps copy y to SMEM using cp.async (lazy threading)
                     for m in cuda_threads(0, smem_M):
@@ -188,3 +188,73 @@ def test_tma_Sm90a(compiler_Sm90a):
         for m in range(0, M):
             for k in range(0, K):
                 assert h_sum[m, k] == h_sum_expected[m, k]
+
+
+def mkproc_tma_waw(sync_between: bool):
+    """Two TMA loads to the same SMEM by the same thread.
+
+    Out-of-order soundness: TMA writes are out-of-order (not ordered even
+    with respect to later TMA writes by the same thread), so without
+    synchronization in between, the second TMA write must be rejected.
+    """
+    smem_M = 64
+    smem_K = 32
+    device_fn = CudaDeviceFunction(blockDim=32)
+
+    # fmt: off
+    if sync_between:
+        @proc
+        def tma_waw(x: [f32][smem_M, smem_K] @ Sm90_tensorMap(0, smem_M, smem_K)):
+            assert stride(x, 1) == 1
+            with device_fn:
+                for task in cuda_tasks(0, 1):
+                    smem: f32[smem_M, smem_K] @ CudaSmemLinear
+                    bar_a: barrier[1 @ ring_buffer_by(1)] @ CudaMbarrier
+                    bar_b: barrier[1 @ ring_buffer_by(1)] @ CudaMbarrier
+                    Sm90_tma_load_2d(smem[:, :], x[:, :],
+                        size0=smem_M, size1=smem_K, dst=f32, src=f32, swizzle=0,
+                        smem_box=(smem_M, smem_K),
+                    ) >> bar_a[0]
+                    Arrive(cuda_mbarrier_only, 1) >> bar_a[0]
+                    Await(bar_a[0], cuda_generic_and_async_proxy, 0)
+                    Sm90_tma_load_2d(smem[:, :], x[:, :],
+                        size0=smem_M, size1=smem_K, dst=f32, src=f32, swizzle=0,
+                        smem_box=(smem_M, smem_K),
+                    ) >> bar_b[0]
+                    Arrive(cuda_mbarrier_only, 1) >> bar_b[0]
+                    Await(bar_b[0], cuda_generic_and_async_proxy, 0)
+    else:
+        @proc
+        def tma_waw(x: [f32][smem_M, smem_K] @ Sm90_tensorMap(0, smem_M, smem_K)):
+            assert stride(x, 1) == 1
+            with device_fn:
+                for task in cuda_tasks(0, 1):
+                    smem: f32[smem_M, smem_K] @ CudaSmemLinear
+                    bar_a: barrier[1 @ ring_buffer_by(1)] @ CudaMbarrier
+                    bar_b: barrier[1 @ ring_buffer_by(1)] @ CudaMbarrier
+                    Sm90_tma_load_2d(smem[:, :], x[:, :],
+                        size0=smem_M, size1=smem_K, dst=f32, src=f32, swizzle=0,
+                        smem_box=(smem_M, smem_K),
+                    ) >> bar_a[0]
+                    Sm90_tma_load_2d(smem[:, :], x[:, :],
+                        size0=smem_M, size1=smem_K, dst=f32, src=f32, swizzle=0,
+                        smem_box=(smem_M, smem_K),
+                    ) >> bar_b[0]
+                    Arrive(cuda_mbarrier_only, 1) >> bar_a[0]
+                    Await(bar_a[0], cuda_generic_and_async_proxy, 0)
+                    Arrive(cuda_mbarrier_only, 1) >> bar_b[0]
+                    Await(bar_b[0], cuda_generic_and_async_proxy, 0)
+    # fmt: on
+    tma_waw = simplify(tma_waw)
+    tma_waw.sync_check()
+    return tma_waw
+
+
+def test_tma_waw_positive(compiler):
+    compiler.cuda_cpu_test(mkproc_tma_waw, sync_between=True)
+
+
+def test_tma_waw_negative(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(mkproc_tma_waw, sync_between=False)
+    assert "WAW HAZARD" in str(exc.value)

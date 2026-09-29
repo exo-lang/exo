@@ -153,10 +153,8 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
             assert len(sizes) <= len(smem_box)
 
             smem.mem = Sm90_get_mma_smem(swizzle)
-            smem.out_of_order = True
 
             gmem.mem = Sm90_tensorMap(swizzle, *smem_box)
-            gmem.out_of_order = True
             gmem.allow_out_of_bounds = True  # GMEM special case
 
             if to_gmem:

@@ -438,8 +438,8 @@ class AllocableMemWin(MemWin):
     """
     qual_tl_dict: Dict[Instr_tl, InstrQuals]
     qual_tl_dict = {
-        cpu_in_order_instr: cpu_in_order_qual,
-        cpu_cuda_stream_instr: cpu_cuda_stream_qual,
+        cpu_in_order_instr: InstrQuals(cpu_in_order_qual),
+        cpu_cuda_stream_instr: InstrQuals(cpu_cuda_stream_qual),
     }
 
 

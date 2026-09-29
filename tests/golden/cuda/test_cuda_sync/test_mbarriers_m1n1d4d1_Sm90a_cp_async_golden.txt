@@ -805,7 +805,7 @@ exo_CudaInline_test_mbarriers_m1n1d4d1_Sm90a_cp_async_golden::exo_Cuda0_test_mba
             // Arrive(cuda_in_order, 1) >> baseline[m_cta, n_cta, t2, t1, ((i + exo_syncState.ring_consumption_5_baseline) % 1)]
             // cta_mask: uint16_t(0x1)
             exo_syncState.Arrive0_baseline(exo_smem, exo_excutLog, int(exo_0thr_m_cta), int(exo_0thr_n_cta), int(exo_16thr_t2), int(exo_8thr_t1), int((i + (exo_syncState.ring_consumption_5_baseline))), 1);
-            // Await(b_rc_bars[m_cta, n_cta, ((i + exo_syncState.ring_consumption_4_b_rc_bars) % 5), t2, t1], cuda_temporal, 0)
+            // Await(b_rc_bars[m_cta, n_cta, ((i + exo_syncState.ring_consumption_4_b_rc_bars) % 5), t2, t1], cuda_mbarrier_only, 0)
             exo_syncState.Await0_b_rc_bars(exo_smem, exo_excutLog, int(exo_0thr_m_cta), int(exo_0thr_n_cta), int((i + (exo_syncState.ring_consumption_4_b_rc_bars) - 1)), int(exo_16thr_t2), int(exo_8thr_t1));
             // Arrive(Sm80_cp_async, 1) >> f_rc_bars[m_cta, n_cta, ((i + 4 + exo_syncState.ring_consumption_3_f_rc_bars) % 5), t2, t1]
             // cta_mask: uint16_t(0x1)
@@ -814,21 +814,21 @@ exo_CudaInline_test_mbarriers_m1n1d4d1_Sm90a_cp_async_golden::exo_Cuda0_test_mba
             // cta_mask: uint16_t(0x1)
             // cta_mask: uint16_t(0x1)
             exo_syncState.Arrive0_row_bars(exo_smem, exo_excutLog, int(exo_0thr_m_cta), int(exo_0thr_n_cta), int(exo_16thr_t2), int(exo_8thr_t1), int((i + 4 + (exo_syncState.ring_consumption_0_row_bars) - 4)), 1);
-            // Await(row_bars[m_cta, n_cta, t2, t1, ((i + exo_syncState.ring_consumption_0_row_bars) % 5)], cuda_temporal, 0)
+            // Await(row_bars[m_cta, n_cta, t2, t1, ((i + exo_syncState.ring_consumption_0_row_bars) % 5)], cuda_mbarrier_only, 0)
             exo_syncState.Await0_row_bars(exo_smem, exo_excutLog, int(exo_0thr_m_cta), int(exo_0thr_n_cta), int(exo_16thr_t2), int(exo_8thr_t1), int((i + (exo_syncState.ring_consumption_0_row_bars) - 4)));
             // Arrive(Sm80_cp_async, 1) >> col_bars[m_cta, n_cta, t2, t1, ((i + 4 + exo_syncState.ring_consumption_1_col_bars) % 5)] >> col_bars[0:1, n_cta, t2, t1, ((i + 4 + exo_syncState.ring_consumption_1_col_bars) % 5)]
             // cta_mask: uint16_t(0x1)
             // cta_mask: uint16_t(0x1)
             exo_syncState.Arrive0_col_bars(exo_smem, exo_excutLog, int(exo_0thr_m_cta), int(exo_0thr_n_cta), int(exo_16thr_t2), int(exo_8thr_t1), int((i + 4 + (exo_syncState.ring_consumption_1_col_bars) - 4)), 1);
-            // Await(col_bars[m_cta, n_cta, t2, t1, ((i + exo_syncState.ring_consumption_1_col_bars) % 5)], cuda_temporal, 0)
+            // Await(col_bars[m_cta, n_cta, t2, t1, ((i + exo_syncState.ring_consumption_1_col_bars) % 5)], cuda_mbarrier_only, 0)
             exo_syncState.Await0_col_bars(exo_smem, exo_excutLog, int(exo_0thr_m_cta), int(exo_0thr_n_cta), int(exo_16thr_t2), int(exo_8thr_t1), int((i + (exo_syncState.ring_consumption_1_col_bars) - 4)));
             // Arrive(Sm80_cp_async, 1) >> all_bars[m_cta, n_cta, t2, t1, ((i + 4 + exo_syncState.ring_consumption_2_all_bars) % 5)] >> all_bars[0:1, 0:1, t2, t1, ((i + 4 + exo_syncState.ring_consumption_2_all_bars) % 5)]
             // cta_mask: uint16_t(0x1)
             // cta_mask: uint16_t(0x1)
             exo_syncState.Arrive0_all_bars(exo_smem, exo_excutLog, int(exo_0thr_m_cta), int(exo_0thr_n_cta), int(exo_16thr_t2), int(exo_8thr_t1), int((i + 4 + (exo_syncState.ring_consumption_2_all_bars) - 4)), 1);
-            // Await(all_bars[m_cta, n_cta, t2, t1, ((i + exo_syncState.ring_consumption_2_all_bars) % 5)], cuda_temporal, 0)
+            // Await(all_bars[m_cta, n_cta, t2, t1, ((i + exo_syncState.ring_consumption_2_all_bars) % 5)], cuda_mbarrier_only, 0)
             exo_syncState.Await0_all_bars(exo_smem, exo_excutLog, int(exo_0thr_m_cta), int(exo_0thr_n_cta), int(exo_16thr_t2), int(exo_8thr_t1), int((i + (exo_syncState.ring_consumption_2_all_bars) - 4)));
-            // Await(f_rc_bars[m_cta, n_cta, ((i + exo_syncState.ring_consumption_3_f_rc_bars) % 5), t2, t1], cuda_temporal, 0)
+            // Await(f_rc_bars[m_cta, n_cta, ((i + exo_syncState.ring_consumption_3_f_rc_bars) % 5), t2, t1], cuda_mbarrier_only, 0)
             exo_syncState.Await0_f_rc_bars(exo_smem, exo_excutLog, int(exo_0thr_m_cta), int(exo_0thr_n_cta), int((i + (exo_syncState.ring_consumption_3_f_rc_bars) - 4)), int(exo_16thr_t2), int(exo_8thr_t1));
             // Arrive(Sm80_cp_async, 1) >> b_rc_bars[m_cta, 0:1, ((i + 1 + exo_syncState.ring_consumption_4_b_rc_bars) % 5), t2, t1] >> b_rc_bars[0:1, n_cta, ((i + 1 + exo_syncState.ring_consumption_4_b_rc_bars) % 5), t2, t1]
             // cta_mask: uint16_t(0x1)

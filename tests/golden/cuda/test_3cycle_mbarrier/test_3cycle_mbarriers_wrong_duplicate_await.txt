@@ -144,7 +144,6 @@ def proc_3cycle_mbarriers():
                         #                cuda_in_order_rmem_qual
                         #                cuda_in_order_ram_qual
                         #                cuda_mbarrier_qual
-                        #     (temporal) cuda_async_proxy_retired_qual
                         #
                         # tests/cuda/test_3cycle_mbarrier.py:77:28:(s40):
                         # Await recorded, which caused VisRecord change:
@@ -157,7 +156,6 @@ def proc_3cycle_mbarriers():
                         #                cuda_in_order_rmem_qual
                         #                cuda_in_order_ram_qual
                         #                cuda_mbarrier_qual
-                        #     (temporal) cuda_async_proxy_retired_qual
                         # BEFORE:
                         #   threads: [task_index = 0 [0],
                         #             task_index = 0 [0]], inclusive, formatted w/ domain [384]
@@ -389,7 +387,6 @@ def proc_3cycle_mbarriers():
                             #                cuda_in_order_rmem_qual
                             #                cuda_in_order_ram_qual
                             #                cuda_mbarrier_qual
-                            #     (temporal) cuda_async_proxy_retired_qual
                             #
                             # tests/cuda/test_3cycle_mbarrier.py:82:32:(s80):
                             # Await recorded, which caused VisRecord change:
@@ -402,7 +399,6 @@ def proc_3cycle_mbarriers():
                             #                cuda_in_order_rmem_qual
                             #                cuda_in_order_ram_qual
                             #                cuda_mbarrier_qual
-                            #     (temporal) cuda_async_proxy_retired_qual
                             # BEFORE:
                             #   threads: [task_index = 0 [0],
                             #             task_index = 0 [0]], inclusive, formatted w/ domain [384]
@@ -444,7 +440,6 @@ def proc_3cycle_mbarriers():
                             #                cuda_in_order_rmem_qual
                             #                cuda_in_order_ram_qual
                             #                cuda_mbarrier_qual
-                            #     (temporal) cuda_async_proxy_retired_qual
                             # BEFORE:
                             #   threads: [task_index = 0 [0],
                             #             task_index = 0 [0]], inclusive, formatted w/ domain [384]
@@ -628,7 +623,6 @@ def proc_3cycle_mbarriers():
                             #                cuda_in_order_rmem_qual
                             #                cuda_in_order_ram_qual
                             #                cuda_mbarrier_qual
-                            #     (temporal) cuda_async_proxy_retired_qual
                             #
                             # tests/cuda/test_3cycle_mbarrier.py:90:32:(s150):
                             # Await recorded, which caused VisRecord change:
@@ -641,7 +635,6 @@ def proc_3cycle_mbarriers():
                             #                cuda_in_order_rmem_qual
                             #                cuda_in_order_ram_qual
                             #                cuda_mbarrier_qual
-                            #     (temporal) cuda_async_proxy_retired_qual
                             # BEFORE:
                             #   pending await: CtoA[0, 0] arrive_count=0
                             # AFTER:
@@ -723,7 +716,6 @@ def proc_3cycle_mbarriers():
                                 #                cuda_in_order_rmem_qual
                                 #                cuda_in_order_ram_qual
                                 #                cuda_mbarrier_qual
-                                #     (temporal) cuda_async_proxy_retired_qual
                                 #
                                 # tests/cuda/test_3cycle_mbarrier.py:95:36:(s180):
                                 # VisRecord did not have vis flag "full" for

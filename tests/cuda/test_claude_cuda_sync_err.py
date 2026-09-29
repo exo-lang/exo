@@ -39,7 +39,7 @@ def test_unsupported_barrier_mechanism():
 
 def mkproc_mbarrier_arrive_tma_to_smem():
     """Try to use tma_to_smem_async as Arrive sync-tl for mbarrier.
-    The error message suggests using cuda_temporal and adding trailing barriers.
+    The error message suggests using cuda_mbarrier_only and adding trailing barriers.
     """
 
     @proc

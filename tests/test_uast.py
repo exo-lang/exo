@@ -183,7 +183,7 @@ def test_cuda_uast(golden):
 
                     # Warp 0 copies x to SMEM using TMA.
                     with CudaWarps(0, 1):
-                        Await(war[0], cuda_temporal, 0)
+                        Await(war[0], cuda_async_proxy_retired, 0)
                         # Test for TMA WindowStmt on the GPU
                         x_input = x_tensorMap_debug[
                             task_m * smem_M : task_m * smem_M + smem_M,
@@ -193,7 +193,7 @@ def test_cuda_uast(golden):
                             size0=smem_M, size1=smem_K, dst=f32, src=f32, swizzle=swizzle,
                             smem_box=(smem_M, smem_K),
                         ) >> raw[0]
-                        Arrive(cuda_temporal, 1) >> raw[0]
+                        Arrive(cuda_mbarrier_only, 1) >> raw[0]
 
                     # All warps copy y to SMEM using cp.async (lazy threading)
                     for m in cuda_threads(0, smem_M):
@@ -237,7 +237,7 @@ def test_cuda_uast(golden):
     # fmt: off
     assert "with CudaWarps(0, 1):" in lines
     assert "with CudaDeviceFunction(blockDim=256):" in lines
-    assert "Await(war[0], cuda_temporal, 0)" in lines
+    assert "Await(war[0], cuda_async_proxy_retired, 0)" in lines
     assert "Fence(cuda_in_order, cuda_generic_and_async_proxy)" in lines
     assert "Arrive(tma_to_gmem_async, 1) >> cg" in lines
     assert f"swizzle=128) >> raw[0]" in lines  # Fragile check for trailing barrier expr of TMA instr
@@ -268,10 +268,10 @@ def test_cuda_uast_multicast(golden):
                     with CudaWarps(name="producer"):
                         for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
                             for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
-                                Await(war[cta_m, cta_n, iter_k], cuda_temporal, 0)
+                                Await(war[cta_m, cta_n, iter_k], cuda_async_proxy_retired, 0)
                         for cta_n in cuda_threads(0, ncta_N, unit=ncta_M * cuda_cta_in_cluster_strided(ncta_N)):
                             for cta_m in cuda_threads(0, ncta_M, unit=cuda_cta_in_cluster):
-                                Arrive(cuda_temporal) >> raw[cta_m, :, iter_k] >> raw[:, cta_n, iter_k]
+                                Arrive(cuda_mbarrier_only) >> raw[cta_m, :, iter_k] >> raw[:, cta_n, iter_k]
                     with CudaWarps(name="consumer"):
                         for cta_m in cuda_threads(0, ncta_M, unit=ncta_N * cuda_cta_in_cluster):
                             for cta_n in cuda_threads(0, ncta_N, unit=cuda_cta_in_cluster):
@@ -295,7 +295,7 @@ def test_cuda_uast_multicast(golden):
 
     assert substr("raw: barrier[4, 2, 100 @ (ring_buffer_by(depth=4))] @ CudaMbarrier")
     assert substr("war: barrier[4, 2, 104 @ (ring_buffer_by")
-    assert substr("Await(war[cta_m, cta_n, iter_k], cuda_temporal, 0)")
-    assert substr("Arrive(cuda_temporal, 1) >> raw[cta_m, :, iter_k] >> raw[:, cta_n, iter_k]")
+    assert substr("Await(war[cta_m, cta_n, iter_k], cuda_async_proxy_retired, 0)")
+    assert substr("Arrive(cuda_mbarrier_only, 1) >> raw[cta_m, :, iter_k] >> raw[:, cta_n, iter_k]")
     assert substr("Await(raw[cta_m, cta_n, iter_k], cuda_generic_and_async_proxy, 0)")
     assert substr("Arrive(cuda_in_order, 1) >> war[cta_m, :, iter_k + 4] >> war[:, cta_n, iter_k + 4]")

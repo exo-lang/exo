@@ -62,6 +62,7 @@ class CollAnalysis(LoopIR_Rewrite):
         * CudaWarps blocks
     into _CodegenPar-mode loops
     """
+
     __slots__ = [
         "distributed_alloc_states",
         "thread_iters",
@@ -251,7 +252,7 @@ class CollAnalysis(LoopIR_Rewrite):
             # out-of-order non-convergent abstract machine optimization
             if (L1 := s.sync_type.first_sync_tl) is not None:
                 align = self._coll_tiling.get_pow2_thread_alignment()
-                for qual_tl in L1.get_full_timeline_set():
+                for qual_tl in L1.get_timeline_set():
                     _dict = self._qual_tl_thread_alignments
                     _dict[qual_tl] = min(align, _dict.get(qual_tl, 1 << 31))
 

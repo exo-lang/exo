@@ -53,7 +53,7 @@ def test_wgmma_fence_wrong_coll_unit_align(compiler):
 
 def test_wgmma_fence_wrong_second_sync_tl(compiler):
     with pytest.raises(Exception) as exc:
-        compiler.cuda_cpu_test(mkproc_wgmma_fence, second_sync_tl=cuda_temporal)
+        compiler.cuda_cpu_test(mkproc_wgmma_fence, second_sync_tl=cuda_mbarrier_only)
     assert "wgmma_fence_2" in str(exc.value)
 
 
@@ -280,13 +280,13 @@ def test_mixed_syncs_mismatch_first_sync_tl(compiler):
             first_sync_tl_b=wgmma_async,
             barrier_type_a=CudaClusterSync,
             barrier_type_b=Sm90_WgmmaCommitGroup,
-            alt_first_sync_tl_a=cuda_temporal,
+            alt_first_sync_tl_a=cuda_mbarrier_only,
         )
     msg = str(exc.value)
     assert "barrier_a" in msg
     assert "Arrive" in msg
     assert "cuda_in_order" in msg
-    assert "cuda_temporal" in msg
+    assert "cuda_mbarrier_only" in msg
 
 
 def test_mixed_syncs_mismatch_second_sync_tl(compiler):
@@ -508,15 +508,15 @@ class MbarrierQualConfig:
     have_await_proxy_fence: bool
 
 
-# Sm80_cp_async -> cuda_temporal
+# Sm80_cp_async -> cuda_mbarrier_only
 # should use cp.async.mbarrier.arrive.noinc.shared::cta.b64
 mbarrier_Sm80_cp_async_qc = MbarrierQualConfig(
-    Sm80_cp_async, cuda_temporal, "test", True, False
+    Sm80_cp_async, cuda_mbarrier_only, "test", True, False
 )
 
 # Same as before, but when compiled for sm_90a, switch from test_wait to try_wait
 mbarrier_Sm90a_cp_async_qc = MbarrierQualConfig(
-    Sm80_cp_async, cuda_temporal, "try", True, False
+    Sm80_cp_async, cuda_mbarrier_only, "try", True, False
 )
 
 # cuda_in_order -> cuda_generic_and_async_proxy
@@ -525,11 +525,24 @@ mbarrier_in_order_to_wgmma_qc = MbarrierQualConfig(
     cuda_in_order, cuda_generic_and_async_proxy, "try", False, True
 )
 
-# cuda_temporal -> cuda_generic_and_async_proxy
+# cuda_mbarrier_only -> cuda_generic_and_async_proxy
 # doesn't require the fence after the await
-# (cuda_temporal resolves only WAR hazards).
-mbarrier_temporal_to_wgmma_qc = MbarrierQualConfig(
-    cuda_temporal, cuda_generic_and_async_proxy, "try", False, False
+# (first sync-tl has no generic proxy RAM qual-tl).
+mbarrier_mbarrier_only_to_wgmma_qc = MbarrierQualConfig(
+    cuda_mbarrier_only, cuda_generic_and_async_proxy, "try", False, False
+)
+
+# cuda_async_proxy_retired -> cuda_async_proxy_retired
+# doesn't require the fence after the await
+# (async proxy -> async proxy).
+mbarrier_async_to_async_qc = MbarrierQualConfig(
+    cuda_async_proxy_retired, cuda_async_proxy_retired, "try", False, False
+)
+
+# cuda_in_order -> cuda_async_proxy_retired
+# requires generic -> async proxy fence (e.g. generic read, then TMA write)
+mbarrier_in_order_to_async_qc = MbarrierQualConfig(
+    cuda_in_order, cuda_async_proxy_retired, "try", False, True
 )
 
 mbarrier_wrong_wgmma_qc = MbarrierQualConfig(
@@ -798,11 +811,17 @@ mb_m1n1d4d1_Sm90a_cp_async = dict(
 mb_m4n2d1d2_in_order_to_wgmma = dict(
     M_CTA=4, N_CTA=2, f_delay=1, b_delay=2, qc=mbarrier_in_order_to_wgmma_qc
 )
-mb_m4n1d0d2_temporal_to_wgmma = dict(
-    M_CTA=4, N_CTA=1, f_delay=0, b_delay=2, qc=mbarrier_temporal_to_wgmma_qc
+mb_m4n1d0d2_mbarrier_only_to_wgmma = dict(
+    M_CTA=4, N_CTA=1, f_delay=0, b_delay=2, qc=mbarrier_mbarrier_only_to_wgmma_qc
 )
-mb_m1n4d2d2_temporal_to_wgmma = dict(
-    M_CTA=1, N_CTA=4, f_delay=2, b_delay=2, qc=mbarrier_temporal_to_wgmma_qc
+mb_m1n4d2d2_mbarrier_only_to_wgmma = dict(
+    M_CTA=1, N_CTA=4, f_delay=2, b_delay=2, qc=mbarrier_mbarrier_only_to_wgmma_qc
+)
+mb_m1n4d2d2_async_to_async = dict(
+    M_CTA=1, N_CTA=4, f_delay=2, b_delay=2, qc=mbarrier_async_to_async_qc
+)
+mb_m4n1d0d2_in_order_to_async = dict(
+    M_CTA=4, N_CTA=1, f_delay=0, b_delay=2, qc=mbarrier_in_order_to_async_qc
 )
 
 mb_m1n4d2d2_wrong_wgmma = dict(
@@ -867,28 +886,60 @@ def test_mbarriers_m4n2d1d2_in_order_to_wgmma_golden(compiler, golden, monkeypat
     compiler.cuda_cpu_test(mkproc_mbarriers, golden, **mb_m4n2d1d2_in_order_to_wgmma)
 
 
-def test_mbarriers_m4n1d0d2_temporal_to_wgmma_excut(compiler_Sm90a, monkeypatch):
+def test_mbarriers_m4n1d0d2_mbarrier_only_to_wgmma_excut(compiler_Sm90a, monkeypatch):
     monkeypatch.setenv("EXO_STRICT_CLUSTER_MBARRIER", "0")
     compiler_Sm90a.excut_test(
-        mkproc_mbarriers, mkref_mbarriers, **mb_m4n1d0d2_temporal_to_wgmma
+        mkproc_mbarriers, mkref_mbarriers, **mb_m4n1d0d2_mbarrier_only_to_wgmma
     )
 
 
-def test_mbarriers_m4n1d0d2_temporal_to_wgmma_golden(compiler, golden, monkeypatch):
+def test_mbarriers_m4n1d0d2_mbarrier_only_to_wgmma_golden(
+    compiler, golden, monkeypatch
+):
     monkeypatch.setenv("EXO_STRICT_CLUSTER_MBARRIER", "0")
-    compiler.cuda_cpu_test(mkproc_mbarriers, golden, **mb_m4n1d0d2_temporal_to_wgmma)
-
-
-def test_mbarriers_m1n4d2d2_temporal_to_wgmma_excut(compiler_Sm90a, monkeypatch):
-    monkeypatch.setenv("EXO_STRICT_CLUSTER_MBARRIER", "0")
-    compiler_Sm90a.excut_test(
-        mkproc_mbarriers, mkref_mbarriers, **mb_m1n4d2d2_temporal_to_wgmma
+    compiler.cuda_cpu_test(
+        mkproc_mbarriers, golden, **mb_m4n1d0d2_mbarrier_only_to_wgmma
     )
 
 
-def test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden(compiler, golden, monkeypatch):
+def test_mbarriers_m1n4d2d2_mbarrier_only_to_wgmma_excut(compiler_Sm90a, monkeypatch):
     monkeypatch.setenv("EXO_STRICT_CLUSTER_MBARRIER", "0")
-    compiler.cuda_cpu_test(mkproc_mbarriers, golden, **mb_m1n4d2d2_temporal_to_wgmma)
+    compiler_Sm90a.excut_test(
+        mkproc_mbarriers, mkref_mbarriers, **mb_m1n4d2d2_mbarrier_only_to_wgmma
+    )
+
+
+def test_mbarriers_m1n4d2d2_mbarrier_only_to_wgmma_golden(
+    compiler, golden, monkeypatch
+):
+    monkeypatch.setenv("EXO_STRICT_CLUSTER_MBARRIER", "0")
+    compiler.cuda_cpu_test(
+        mkproc_mbarriers, golden, **mb_m1n4d2d2_mbarrier_only_to_wgmma
+    )
+
+
+def test_mbarriers_m1n4d2d2_async_to_async_excut(compiler_Sm90a, monkeypatch):
+    monkeypatch.setenv("EXO_STRICT_CLUSTER_MBARRIER", "0")
+    compiler_Sm90a.excut_test(
+        mkproc_mbarriers, mkref_mbarriers, **mb_m1n4d2d2_async_to_async
+    )
+
+
+def test_mbarriers_m1n4d2d2_async_to_async_golden(compiler, golden, monkeypatch):
+    monkeypatch.setenv("EXO_STRICT_CLUSTER_MBARRIER", "0")
+    compiler.cuda_cpu_test(mkproc_mbarriers, golden, **mb_m1n4d2d2_async_to_async)
+
+
+def test_mbarriers_m4n1d0d2_in_order_to_async_excut(compiler_Sm90a, monkeypatch):
+    monkeypatch.setenv("EXO_STRICT_CLUSTER_MBARRIER", "0")
+    compiler_Sm90a.excut_test(
+        mkproc_mbarriers, mkref_mbarriers, **mb_m4n1d0d2_in_order_to_async
+    )
+
+
+def test_mbarriers_m4n1d0d2_in_order_to_async_golden(compiler, golden, monkeypatch):
+    monkeypatch.setenv("EXO_STRICT_CLUSTER_MBARRIER", "0")
+    compiler.cuda_cpu_test(mkproc_mbarriers, golden, **mb_m4n1d0d2_in_order_to_async)
 
 
 # Strict cluster mbarrier codegen: .release.cluster arrive, .acquire.cluster wait
@@ -913,12 +964,14 @@ def test_mbarriers_m4n2d1d2_in_order_to_wgmma_strict_golden(
     )
 
 
-def test_mbarriers_m1n4d2d2_temporal_to_wgmma_strict_excut(compiler_Sm90a, monkeypatch):
+def test_mbarriers_m1n4d2d2_mbarrier_only_to_wgmma_strict_excut(
+    compiler_Sm90a, monkeypatch
+):
     monkeypatch.setenv("EXO_STRICT_CLUSTER_MBARRIER", "1")
     compiler_Sm90a.excut_test(
         mkproc_mbarriers,
         mkref_mbarriers,
-        **mb_m1n4d2d2_temporal_to_wgmma,
+        **mb_m1n4d2d2_mbarrier_only_to_wgmma,
         strict_cluster=True,
     )
 
@@ -981,7 +1034,7 @@ def test_mbarriers_wrong_tma(compiler):
     with pytest.raises(Exception) as exc:
         compiler.cuda_cpu_test(mkproc_mbarriers, **mb_m1n4d2d2_wrong_tma)
     assert "tma_to_smem_async" in str(exc.value)
-    assert "use cuda_temporal" in str(exc.value)
+    assert "use cuda_mbarrier_only" in str(exc.value)
 
 
 def test_mbarriers_Sm80_cp_async_1_CTA(compiler):
@@ -1010,7 +1063,7 @@ def mkproc_garden_Sm80():
 
                 for w in cuda_threads(0, 8, unit=cuda_warp):
                     # cp.async.wait_all + __syncwarp()
-                    Fence(Sm80_generic, cuda_temporal)
+                    Fence(Sm80_generic, cuda_mbarrier_only)
 
                 # barrier.cta.sync only
                 Fence(cuda_in_order, cuda_in_order)
@@ -1084,8 +1137,8 @@ def mkproc_garden_Sm90(
                 # We use the __syncwarp to separate blocks of code in mkref
                 # and also for the (non-CUDA-device) invalid sync-tl tests.
                 for cta in cuda_threads(0, 4, unit=cuda_cta_in_cluster):
-                    # No proxy fence, as first-sync-tl is temporal-only
-                    Fence(cuda_temporal, cuda_generic_and_async_proxy)
+                    # No proxy fence, as first-sync-tl has no generic proxy RAM
+                    Fence(cuda_mbarrier_only, cuda_generic_and_async_proxy)
                     for w in cuda_threads(0, 8, unit=cuda_warp):
                         Fence(test_first_sync_tl, test_second_sync_tl)
 
@@ -1095,7 +1148,7 @@ def mkproc_garden_Sm90(
                         Fence(test_first_sync_tl, test_second_sync_tl)
 
                     # cp.async.wait_all
-                    Fence(Sm80_cp_async, cuda_temporal)
+                    Fence(Sm80_cp_async, cuda_mbarrier_only)
                     for w in cuda_threads(0, 8, unit=cuda_warp):
                         Fence(test_first_sync_tl, test_second_sync_tl)
 
@@ -1140,7 +1193,7 @@ def mkref_garden_Sm90(
             xrg("barrier.cluster.wait.aligned")
             xrg("fence.proxy.async")
 
-            # No proxy fence, as first-sync-tl is temporal-only
+            # No proxy fence, as first-sync-tl has no generic proxy RAM
             xrg("barrier.cta.sync", 0)
             xrg("__syncwarp")
 

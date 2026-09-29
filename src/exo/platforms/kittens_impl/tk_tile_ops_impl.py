@@ -23,7 +23,6 @@ class basic_map_tile_op(InstrInfo):
 
         for access_info in self.access_info.values():
             access_info.mem = CudaTkWarpTile(rows, cols, layout)
-            access_info.out_of_order = False
 
 
 class basic_0ary_tile_op(basic_map_tile_op):
@@ -116,12 +115,10 @@ class basic_binary_tile_scalar_op(InstrInfo):
 
         dst = self.access_info["dst"]
         dst.mem = CudaTkWarpTile(rows, cols, layout)
-        dst.out_of_order = False
 
         if "lhs" in self.access_info:
             lhs = self.access_info["lhs"]
             lhs.mem = CudaTkWarpTile(rows, cols, layout)
-            lhs.out_of_order = False
 
 
 class basic_binary_3op_tile_scalar_op(basic_binary_tile_scalar_op):
@@ -161,9 +158,7 @@ class basic_row_reduce_op(InstrInfo):
         dst = self.access_info["dst"]
         src = self.access_info["src"]
         src.mem = tile_mem
-        src.out_of_order = False
         dst.mem = vec_mem
-        dst.out_of_order = False
 
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
@@ -189,9 +184,7 @@ class basic_col_reduce_op(InstrInfo):
         dst = self.access_info["dst"]
         src = self.access_info["src"]
         src.mem = tile_mem
-        src.out_of_order = False
         dst.mem = vec_mem
-        dst.out_of_order = False
 
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
@@ -217,9 +210,7 @@ class basic_broadcast_row_op(InstrInfo):
         dst = self.access_info["dst"]
         src = self.access_info["src"]
         src.mem = vec_mem
-        src.out_of_order = False
         dst.mem = tile_mem
-        dst.out_of_order = False
 
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()
@@ -250,9 +241,7 @@ class basic_broadcast_col_op(InstrInfo):
         dst = self.access_info["dst"]
         src = self.access_info["src"]
         src.mem = vec_mem
-        src.out_of_order = False
         dst.mem = tile_mem
-        dst.out_of_order = False
 
     def codegen(self: InstrInfo, args: InstrArgs):
         dst_c = args.dst.index()

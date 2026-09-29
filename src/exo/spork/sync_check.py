@@ -215,8 +215,6 @@ class CamsporkDo(LoopIR_Do):
             if want_sync:
                 _, initial_q, pre_q, qual_tl_mask = self.comp_qual_tl(s, instr_tl)
                 flags = b.mutate_flag | b.convergent_flag
-                if isinstance(s, LoopIR.Reduce):
-                    flags |= b.write_only_flag
                 b.SyncEnvAccess(
                     am_dst,
                     initial_q,
@@ -233,10 +231,9 @@ class CamsporkDo(LoopIR_Do):
             L1 = sync_type.first_sync_tl
             L2 = sync_type.second_sync_tl
             if L1 is not None:
-                L1_bits = L1.get_full_timeline_set_bits()
+                L1_bits = L1.get_timeline_set_bits()
             if L2 is not None:
-                L2_full_bits = L2.get_full_timeline_set_bits()
-                L2_temporal_bits = L2.get_temporal_timeline_set_bits()
+                L2_bits = L2.get_timeline_set_bits()
             if sync_type.is_arrive():
                 home = s.home_barrier_expr()
                 multicasts = s.multicasts()
@@ -279,18 +276,20 @@ class CamsporkDo(LoopIR_Do):
                         flags=b.convergent_flag,
                         srcinfo=s.srcinfo,
                     )
+                # SHIM: camspork still distinguishes full and temporal
+                # second sync-tl bits; the no-VF model has one set.
                 b.Await(
                     am_home_barrier,
-                    L2_full_bits,
-                    L2_temporal_bits,
+                    L2_bits,
+                    L2_bits,
                     N=sync_type.N,
                     srcinfo=s.srcinfo,
                 )
             else:
                 b.Fence(
                     L1_bits,
-                    L2_full_bits,
-                    L2_temporal_bits,
+                    L2_bits,
+                    L2_bits,  # SHIM, see Await
                     srcinfo=s.srcinfo,
                 )
 
@@ -305,7 +304,7 @@ class CamsporkDo(LoopIR_Do):
             if isinstance(ctx, CudaDeviceFunction):
                 self._coll_tiling = ctx.top_level_coll_tiling()
                 self._coll_env = ctx.coll_env()
-                cuda_bits = timelines.cuda_stream_sync.get_full_timeline_set_bits()
+                cuda_bits = timelines.cuda_stream_sync.get_timeline_set_bits()
                 cpu_bit = timelines.cpu_in_order_qual.as_bit()
                 clusterDim = ctx.clusterDim
                 blockDim = ctx.blockDim
@@ -576,9 +575,7 @@ class CamsporkDo(LoopIR_Do):
                 thread_access_granularity = 1
                 if not arg_info.const:
                     flags |= b.mutate_flag
-                    if arg_info.write_only:
-                        flags |= b.write_only_flag
-                if arg_info.out_of_order:
+                if qual_tl.out_of_order():
                     flags |= b.ooo_flag
                     # out-of-order non-convergent abstract machine optimization
                     thread_access_granularity = (

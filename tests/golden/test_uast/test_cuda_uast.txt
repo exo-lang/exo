@@ -16,7 +16,7 @@ def tma_tester_gpu_proc(
                 war: barrier[2 @ (ring_buffer_by(
                     depth=2))] @ CudaMbarrierPreArrive(1, )
                 with CudaWarps(0, 1):
-                    Await(war[0], cuda_temporal, 0)
+                    Await(war[0], cuda_async_proxy_retired, 0)
                     x_input = x_tensorMap_debug[task_m * 248:task_m * 248 +
                                                 248,
                                                 task_k * 32:task_k * 32 + 32]
@@ -28,7 +28,7 @@ def tma_tester_gpu_proc(
                                      size1=32,
                                      smem_box=(248, 32),
                                      swizzle=128) >> raw[0]
-                    Arrive(cuda_temporal, 1) >> raw[0]
+                    Arrive(cuda_mbarrier_only, 1) >> raw[0]
                 for m in cuda_threads(0, 248, unit=cuda_thread):
                     for ko in seq(0, 32 / 4):
                         Sm80_cp_async_f32(smem_y[m, ko * 4:ko * 4 + 4],

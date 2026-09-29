@@ -107,7 +107,6 @@ from .LoopIR import (
     ReplacePrecision,
     Identifier,
     get_writes_of_stmts,
-    get_reads_of_stmts,
 )
 from .memory import MemWin, DRAM, BarrierMechanism
 from ..frontend.pyparser import get_ast_from_python, Parser
@@ -121,9 +120,7 @@ from ..spork.timelines import (
 from .c_window import WindowFeatures, UtilInjector, WindowIndexerResult
 
 
-def proc_default_access_info(
-    proc: LoopIR.proc, write_syms: Set[Sym], read_syms: Set[Sym]
-):
+def proc_default_access_info(proc: LoopIR.proc, write_syms: Set[Sym]):
     access_info = {}
     for arg in proc.args:
         if not arg.type.is_numeric():
@@ -133,7 +130,6 @@ def proc_default_access_info(
         access = AccessInfo()
         access.mem = mem
         access.const = arg.name not in write_syms
-        access.write_only = arg.name not in read_syms
         basetype = arg.type.basetype()
         if not isinstance(basetype, LoopIR.Num):
             access.scalar_info = ScalarInfo(basetype)
@@ -215,7 +211,6 @@ def tparams_from_signature(clsname: str, tproc: LoopIR.proc, signature):
 def prefill_instr_info(info: InstrInfo, proc: LoopIR.proc):
     const_dict = proc.get_cached_const_param_dict()
     write_syms = set(x for x, const in const_dict.items() if not const)
-    read_syms = set(x for x, _ in get_reads_of_stmts(proc.body, include_reduce=True))
     info.instr_format = None
     info.c_utils = []
     info.c_includes = []
@@ -223,7 +218,7 @@ def prefill_instr_info(info: InstrInfo, proc: LoopIR.proc):
     info.cu_includes = []
     info.coll_unit = standalone_thread
     info.instr_tl = cpu_in_order_instr
-    info.access_info = proc_default_access_info(proc, write_syms, read_syms)
+    info.access_info = proc_default_access_info(proc, write_syms)
     info.barrier_mechanism = None
     info.barrier_coll_units = ()
     info._tparam_dict = {}
@@ -548,14 +543,6 @@ class InstrTemplate(InstrTemplateBase):
             else:
                 mem = arg_info.mem
             assert issubclass(mem, MemWin)
-
-            # Non-in-order instructions must set the OOO flag explicitly
-            if arg_info.out_of_order is None:
-                # fmt: off
-                assert ("_in_order" in str(instr_tl)), \
-                    f"{clsname}: need out_of_order flag for {nm} @ {mem.name()}"
-                # fmt: on
-                arg_info.out_of_order = False
 
             if arg_info.atomicity is not None:
                 atomicity = arg_info.atomicity

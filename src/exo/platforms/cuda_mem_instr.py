@@ -17,8 +17,6 @@ def _new_cudaMemcpyAsync_base(dims: int, *, htod: bool):
     class cudaMemcpyAsync_custom_base(InstrInfo):
         def instance(self):
             self.instr_tl = cpu_cuda_stream_instr
-            self.access_info["dst"].out_of_order = False
-            self.access_info["src"].out_of_order = False
 
         def codegen(self, args):
             dst_ptr = args.dst.index_ptr()
@@ -44,7 +42,6 @@ def _new_cudaMemsetAsync0_base(dims: int):
     class cudaMemsetAsync0_custom_base(InstrInfo):
         def instance(self):
             self.instr_tl = cpu_cuda_stream_instr
-            self.access_info["dst"].out_of_order = False
 
         def codegen(self, args):
             dst_ptr = args.dst.index_ptr()

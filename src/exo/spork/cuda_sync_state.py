@@ -161,7 +161,9 @@ class SyncStateBuilder:
 
         - wait_all if first sync-tl includes Sm80_cp_async
         - barrier arrive/await if more than 1 thread
-        - fence.proxy.async if second sync-tl includes any async proxy
+        - fence.proxy.async if first sync-tl includes any generic proxy RAM
+          qual-tl and second sync-tl includes any async proxy RAM qual-tl
+          (see timelines.needs_proxy_fence)
 
         Q: should we have a special case for generic->wgmma fence in a warpgroup?
         i.e. if 128 threads generate input data for the wgmma, then issue the wgmma,
@@ -235,25 +237,22 @@ class SyncStateBuilder:
                 )
             )
 
-        # Insert fence.proxy.async if needed
-        if timelines.cuda_temporal.implements_first(L1):
-            # No values from the first full visibility set are being made
-            # visible so no proxy fence regardless of second sync timeline.
-            proxy_fence = False
-        elif timelines.cuda_in_order.implements_second(L2):
-            # Second sync-tl is purely in generic proxy.
+        # Validate second sync-tl
+        if timelines.cuda_generic_and_async_proxy.implements_second(L2):
             pass
         elif timelines.Sm80_generic.implements_second(L2):
             raise ValueError(
                 "Sm80_cp_async not supported as second sync-tl; use cuda_in_order"
             )
-        elif timelines.cuda_generic_and_async_proxy.implements_second(L2):
-            await_lines.extend(simple_ptx_c_lines("fence.proxy.async"))
         else:
             raise ValueError(
                 f"{srcinfo}: Fence second sync-tl {L2} not "
                 f"supported (at most cuda_generic_and_async_proxy)"
             )
+
+        # Insert fence.proxy.async if needed
+        if timelines.needs_proxy_fence(L1, L2):
+            await_lines.extend(simple_ptx_c_lines("fence.proxy.async"))
 
         def codegen(sync_stmt: LoopIR.SyncStmt, ctx: SyncCodegenCtx):
             sync_type = sync_stmt.sync_type
@@ -356,20 +355,22 @@ class SyncStateBuilder:
             info = usage.get_arrive()
             sync_tl = info.sync_tl
 
-            if timelines.Sm80_cp_async.implements_first(sync_tl):
-                is_Sm80_cp_async = True
-            elif timelines.cuda_in_order.implements_first(sync_tl):
+            # NB check plain mbarrier.arrive first; e.g. cuda_mbarrier_only
+            # is also a subset of Sm80_cp_async.
+            if timelines.cuda_generic_and_async_proxy.implements_first(sync_tl):
                 is_Sm80_cp_async = False
+            elif timelines.Sm80_cp_async.implements_first(sync_tl):
+                is_Sm80_cp_async = True
             elif timelines.tcgen05_commit.implements_first(sync_tl):
                 assert 0, "Luca needs to implement this"
             elif timelines.tma_to_smem_async.implements_first(sync_tl):
                 raise ValueError(
                     f"{info.get_srcinfo()}: mbarrier Arrive sync-tl {sync_tl} "
-                    f"not supported: use cuda_temporal, and add trailing barriers to TMA instrs")
+                    f"not supported: use cuda_mbarrier_only, and add trailing barriers to TMA instrs")
             else:
                 raise ValueError(
                     f"{info.get_srcinfo()}: mbarrier Arrive sync-tl {sync_tl} "
-                    f"not supported: need cuda_in_order, Sm80_cp_async, or tcgen05_commit")
+                    f"not supported: need at most cuda_generic_and_async_proxy, Sm80_cp_async, or tcgen05_commit")
 
             lines = self.SyncState_lines
             lines.append(f"EXO_CUDA_INLINE uint32_t Arrive{nm_suffix}(char* exo_smem, exo_ExcutThreadLog exo_excutLog, {idx_decls}, bool enable) {{")
@@ -416,18 +417,8 @@ class SyncStateBuilder:
             info = usage.get_await()
             L2 = info.sync_tl
 
-            if timelines.cuda_in_order.implements_second(L2):
-                proxy_fence = False
-            elif timelines.cuda_generic_and_async_proxy.implements_second(L2):
-                proxy_fence = True
-                if timelines.cuda_temporal.implements_first(L1):
-                    # No values from the first full visibility set are being made
-                    # visible so no proxy fence regardless of second sync timeline.
-                    # This is done afterwards, to check invalid L2 above first.
-                    proxy_fence = False
-                if timelines.tcgen05_commit.implements_first(L1):
-                    # tcgen05 actions are already in the async proxy, so no proxy fence.
-                    proxy_fence = False
+            if timelines.cuda_generic_and_async_proxy.implements_second(L2):
+                proxy_fence = timelines.needs_proxy_fence(L1, L2)
             else:
                 if L2 == timelines.wgmma_async:
                     remark = "consider cuda_generic_and_async_proxy"
@@ -616,6 +607,11 @@ class SyncStateBuilder:
                 f"{usage.get_srcinfo()}: {name} @ CudaCommitGroup "
                 f"does not support Arrive({L1}) (wrong first sync-tl)"
             )
+
+        # wgmma and TMA first sync-tls contain no generic RAM qual-tl
+        # (implicit generic-async proxy fence upon completion), and
+        # Sm80_cp_async requires the second sync-tl to be cuda_in_order.
+        assert not timelines.needs_proxy_fence(L1, L2), "commit group proxy fence"
 
         def codegen(s: LoopIR.SyncStmt, ctx: SyncCodegenCtx):
             sync_type = s.sync_type

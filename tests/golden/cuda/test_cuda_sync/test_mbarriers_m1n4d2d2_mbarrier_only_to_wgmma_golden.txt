@@ -2,8 +2,8 @@
 // .h
 // ########################################################################
 #pragma once
-#ifndef TEST_MBARRIERS_M1N4D2D2_TEMPORAL_TO_WGMMA_GOLDEN_H
-#define TEST_MBARRIERS_M1N4D2D2_TEMPORAL_TO_WGMMA_GOLDEN_H
+#ifndef TEST_MBARRIERS_M1N4D2D2_MBARRIER_ONLY_TO_WGMMA_GOLDEN_H
+#define TEST_MBARRIERS_M1N4D2D2_MBARRIER_ONLY_TO_WGMMA_GOLDEN_H
 
 
 #include <stdint.h>
@@ -140,13 +140,13 @@ void exo_cudaLaunch0_test_mbarriers(cudaStream_t exo_cudaStream, const struct ex
 #endif
 
 
-#endif  // TEST_MBARRIERS_M1N4D2D2_TEMPORAL_TO_WGMMA_GOLDEN_H
+#endif  // TEST_MBARRIERS_M1N4D2D2_MBARRIER_ONLY_TO_WGMMA_GOLDEN_H
 
 
 // ########################################################################
 // .c
 // ########################################################################
-#include "test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden.h"
+#include "test_mbarriers_m1n4d2d2_mbarrier_only_to_wgmma_golden.h"
 
 /* Required by DRAM */
 #ifndef EXO_MEMORY_GLOBAL_DRAM
@@ -179,9 +179,9 @@ void test_mbarriers( void *ctxt ) {
 // .cuh
 // ########################################################################
 #pragma once
-#include "test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden.h"
+#include "test_mbarriers_m1n4d2d2_mbarrier_only_to_wgmma_golden.h"
 #if EXO_EXCUT_bENABLE_LOG
-#include "test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden.excut_str_table"
+#include "test_mbarriers_m1n4d2d2_mbarrier_only_to_wgmma_golden.excut_str_table"
 #endif
 /* Required by DRAM */
 #ifndef EXO_MEMORY_GLOBAL_DRAM
@@ -191,9 +191,9 @@ void test_mbarriers( void *ctxt ) {
 
 #endif
 
-namespace exo_CudaUtil_test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden {
-namespace exo_CudaUtil = ::exo_CudaUtil_test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden;
-}  // end namespace exo_CudaUtil_test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden
+namespace exo_CudaUtil_test_mbarriers_m1n4d2d2_mbarrier_only_to_wgmma_golden {
+namespace exo_CudaUtil = ::exo_CudaUtil_test_mbarriers_m1n4d2d2_mbarrier_only_to_wgmma_golden;
+}  // end namespace exo_CudaUtil_test_mbarriers_m1n4d2d2_mbarrier_only_to_wgmma_golden
 // CUDA device function args -- duplicated in .c file
 struct exo_CudaDeviceArgs0_test_mbarriers
 {
@@ -201,7 +201,7 @@ struct exo_CudaDeviceArgs0_test_mbarriers
 };
 
 // We need this inline namespace to avoid ODR problems in pytest.
-inline namespace exo_CudaInline_test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden {
+inline namespace exo_CudaInline_test_mbarriers_m1n4d2d2_mbarrier_only_to_wgmma_golden {
 struct exo_Cuda0_test_mbarriers
 {
   using exo_DeviceArgs = exo_CudaDeviceArgs0_test_mbarriers;
@@ -754,11 +754,11 @@ struct exo_Cuda0_test_mbarriers
 }  // end inline namespace
 
 inline void
-exo_CudaInline_test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden::exo_Cuda0_test_mbarriers::exo_cudaLaunch(
+exo_CudaInline_test_mbarriers_m1n4d2d2_mbarrier_only_to_wgmma_golden::exo_Cuda0_test_mbarriers::exo_cudaLaunch(
     cudaStream_t exo_cudaStream,
     const exo_DeviceArgs& exo_deviceArgs)
 {
-  namespace exo_CudaUtil = exo_CudaUtil_test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden;
+  namespace exo_CudaUtil = exo_CudaUtil_test_mbarriers_m1n4d2d2_mbarrier_only_to_wgmma_golden;
   cudaFuncSetAttribute(exo_deviceFunction0_test_mbarriers, cudaFuncAttributeMaxDynamicSharedMemorySize, exo_smemBytes);
   // TODO how expensive is it to query this every time?
   int exo_cudaDevice;
@@ -792,7 +792,7 @@ exo_CudaInline_test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden::exo_Cuda0_test_
 }
 
 __device__ __forceinline__ void
-exo_CudaInline_test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden::exo_Cuda0_test_mbarriers::exo_deviceSetup(
+exo_CudaInline_test_mbarriers_m1n4d2d2_mbarrier_only_to_wgmma_golden::exo_Cuda0_test_mbarriers::exo_deviceSetup(
     char* exo_smem,
     const exo_DeviceArgs& exo_deviceArgs,
     exo_ExcutThreadLog exo_excutLog)
@@ -870,7 +870,7 @@ exo_CudaInline_test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden::exo_Cuda0_test_
 }
 
 __device__ __forceinline__ void
-exo_CudaInline_test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden::exo_Cuda0_test_mbarriers::exo_deviceShutdown(
+exo_CudaInline_test_mbarriers_m1n4d2d2_mbarrier_only_to_wgmma_golden::exo_Cuda0_test_mbarriers::exo_deviceShutdown(
     char* exo_smem,
     const exo_DeviceArgs& exo_deviceArgs,
     exo_ExcutThreadLog exo_excutLog)
@@ -887,14 +887,14 @@ exo_CudaInline_test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden::exo_Cuda0_test_
 }
 
 __device__ __forceinline__ void
-exo_CudaInline_test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden::exo_Cuda0_test_mbarriers::exo_deviceTask(
+exo_CudaInline_test_mbarriers_m1n4d2d2_mbarrier_only_to_wgmma_golden::exo_Cuda0_test_mbarriers::exo_deviceTask(
     char* exo_smem,
     exo_SyncState& exo_syncState,
     const exo_DeviceArgs& exo_deviceArgs,
     exo_Task exo_task,
     exo_ExcutThreadLog exo_excutLog)
 {
-  namespace exo_CudaUtil = exo_CudaUtil_test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden;
+  namespace exo_CudaUtil = exo_CudaUtil_test_mbarriers_m1n4d2d2_mbarrier_only_to_wgmma_golden;
   // row_bars: barrier[4, 2, 3] @ CudaMbarrierPreArrive(2, )
   // col_bars: barrier[4, 2, 3] @ CudaMbarrierPreArrive(2, )
   // all_bars: barrier[4, 2, 3] @ CudaMbarrierPreArrive(2, )
@@ -915,22 +915,22 @@ exo_CudaInline_test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden::exo_Cuda0_test_
             exo_syncState.Arrive0_baseline(exo_smem, exo_excutLog, int(exo_16thr_t2), int(exo_8thr_t1), int((i + (exo_syncState.ring_consumption_5_baseline))), 1);
             // Await(b_rc_bars[((i + exo_syncState.ring_consumption_4_b_rc_bars) % 4), t2, t1], cuda_generic_and_async_proxy, 0)
             exo_syncState.Await0_b_rc_bars(exo_smem, exo_excutLog, int((i + (exo_syncState.ring_consumption_4_b_rc_bars) - 2)), int(exo_16thr_t2), int(exo_8thr_t1));
-            // Arrive(cuda_temporal, 1) >> f_rc_bars[((i + 2 + exo_syncState.ring_consumption_3_f_rc_bars) % 4), t2, t1]
+            // Arrive(cuda_mbarrier_only, 1) >> f_rc_bars[((i + 2 + exo_syncState.ring_consumption_3_f_rc_bars) % 4), t2, t1]
             // cta_mask: uint16_t(0x1 << (blockIdx.x & 0x3))
             exo_syncState.Arrive0_f_rc_bars(exo_smem, exo_excutLog, int((i + 2 + (exo_syncState.ring_consumption_3_f_rc_bars) - 2)), int(exo_16thr_t2), int(exo_8thr_t1), 1);
-            // Arrive(cuda_temporal, 1) >> row_bars[t2, t1, ((i + 2 + exo_syncState.ring_consumption_0_row_bars) % 3)] >> row_bars[t2, t1, ((i + 2 + exo_syncState.ring_consumption_0_row_bars) % 3)]
+            // Arrive(cuda_mbarrier_only, 1) >> row_bars[t2, t1, ((i + 2 + exo_syncState.ring_consumption_0_row_bars) % 3)] >> row_bars[t2, t1, ((i + 2 + exo_syncState.ring_consumption_0_row_bars) % 3)]
             // cta_mask: uint16_t(0x1 << (blockIdx.x & 0x3))
             // cta_mask: uint16_t(0xf)
             exo_syncState.Arrive0_row_bars(exo_smem, exo_excutLog, int(exo_16thr_t2), int(exo_8thr_t1), int((i + 2 + (exo_syncState.ring_consumption_0_row_bars) - 2)), 1);
             // Await(row_bars[t2, t1, ((i + exo_syncState.ring_consumption_0_row_bars) % 3)], cuda_generic_and_async_proxy, 0)
             exo_syncState.Await0_row_bars(exo_smem, exo_excutLog, int(exo_16thr_t2), int(exo_8thr_t1), int((i + (exo_syncState.ring_consumption_0_row_bars) - 2)));
-            // Arrive(cuda_temporal, 1) >> col_bars[t2, t1, ((i + 2 + exo_syncState.ring_consumption_1_col_bars) % 3)] >> col_bars[t2, t1, ((i + 2 + exo_syncState.ring_consumption_1_col_bars) % 3)]
+            // Arrive(cuda_mbarrier_only, 1) >> col_bars[t2, t1, ((i + 2 + exo_syncState.ring_consumption_1_col_bars) % 3)] >> col_bars[t2, t1, ((i + 2 + exo_syncState.ring_consumption_1_col_bars) % 3)]
             // cta_mask: uint16_t(0x1 << (blockIdx.x & 0x3))
             // cta_mask: uint16_t(0x1 << (blockIdx.x & 0x3))
             exo_syncState.Arrive0_col_bars(exo_smem, exo_excutLog, int(exo_16thr_t2), int(exo_8thr_t1), int((i + 2 + (exo_syncState.ring_consumption_1_col_bars) - 2)), 1);
             // Await(col_bars[t2, t1, ((i + exo_syncState.ring_consumption_1_col_bars) % 3)], cuda_generic_and_async_proxy, 0)
             exo_syncState.Await0_col_bars(exo_smem, exo_excutLog, int(exo_16thr_t2), int(exo_8thr_t1), int((i + (exo_syncState.ring_consumption_1_col_bars) - 2)));
-            // Arrive(cuda_temporal, 1) >> all_bars[t2, t1, ((i + 2 + exo_syncState.ring_consumption_2_all_bars) % 3)] >> all_bars[t2, t1, ((i + 2 + exo_syncState.ring_consumption_2_all_bars) % 3)]
+            // Arrive(cuda_mbarrier_only, 1) >> all_bars[t2, t1, ((i + 2 + exo_syncState.ring_consumption_2_all_bars) % 3)] >> all_bars[t2, t1, ((i + 2 + exo_syncState.ring_consumption_2_all_bars) % 3)]
             // cta_mask: uint16_t(0x1 << (blockIdx.x & 0x3))
             // cta_mask: uint16_t(0xf)
             exo_syncState.Arrive0_all_bars(exo_smem, exo_excutLog, int(exo_16thr_t2), int(exo_8thr_t1), int((i + 2 + (exo_syncState.ring_consumption_2_all_bars) - 2)), 1);
@@ -938,7 +938,7 @@ exo_CudaInline_test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden::exo_Cuda0_test_
             exo_syncState.Await0_all_bars(exo_smem, exo_excutLog, int(exo_16thr_t2), int(exo_8thr_t1), int((i + (exo_syncState.ring_consumption_2_all_bars) - 2)));
             // Await(f_rc_bars[((i + exo_syncState.ring_consumption_3_f_rc_bars) % 4), t2, t1], cuda_generic_and_async_proxy, 0)
             exo_syncState.Await0_f_rc_bars(exo_smem, exo_excutLog, int((i + (exo_syncState.ring_consumption_3_f_rc_bars) - 2)), int(exo_16thr_t2), int(exo_8thr_t1));
-            // Arrive(cuda_temporal, 1) >> b_rc_bars[((i + 2 + exo_syncState.ring_consumption_4_b_rc_bars) % 4), t2, t1] >> b_rc_bars[((i + 2 + exo_syncState.ring_consumption_4_b_rc_bars) % 4), t2, t1]
+            // Arrive(cuda_mbarrier_only, 1) >> b_rc_bars[((i + 2 + exo_syncState.ring_consumption_4_b_rc_bars) % 4), t2, t1] >> b_rc_bars[((i + 2 + exo_syncState.ring_consumption_4_b_rc_bars) % 4), t2, t1]
             // cta_mask: uint16_t(0xf)
             // cta_mask: uint16_t(0x1 << (blockIdx.x & 0x3))
             exo_syncState.Arrive0_b_rc_bars(exo_smem, exo_excutLog, int((i + 2 + (exo_syncState.ring_consumption_4_b_rc_bars) - 2)), int(exo_16thr_t2), int(exo_8thr_t1), 1);
@@ -969,12 +969,12 @@ exo_CudaInline_test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden::exo_Cuda0_test_
       exo_syncState.ring_consumption_0_row_bars + (5 + 2) - 2, 0);
 }
 __device__ __forceinline__ void
-exo_CudaInline_test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden::exo_Cuda0_test_mbarriers::exo_deviceMainLoop(
+exo_CudaInline_test_mbarriers_m1n4d2d2_mbarrier_only_to_wgmma_golden::exo_Cuda0_test_mbarriers::exo_deviceMainLoop(
     char* exo_smem,
     const exo_DeviceArgs& exo_deviceArgs,
     exo_ExcutThreadLog exo_excutLog)
 {
-  namespace exo_CudaUtil = exo_CudaUtil_test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden;
+  namespace exo_CudaUtil = exo_CudaUtil_test_mbarriers_m1n4d2d2_mbarrier_only_to_wgmma_golden;
   exo_SyncState exo_syncState{};
   int32_t nreg;
   nreg = ((int32_t) 0);
@@ -999,7 +999,7 @@ exo_CudaInline_test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden::exo_Cuda0_test_
 // ########################################################################
 // .cu
 // ########################################################################
-#include "test_mbarriers_m1n4d2d2_temporal_to_wgmma_golden.cuh"
+#include "test_mbarriers_m1n4d2d2_mbarrier_only_to_wgmma_golden.cuh"
 __launch_bounds__(64, 1)
 __global__ void
 exo_deviceFunction0_test_mbarriers(__grid_constant__ const struct exo_CudaDeviceArgs0_test_mbarriers exo_deviceArgs)
