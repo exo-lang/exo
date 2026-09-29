@@ -1197,6 +1197,10 @@ def mkref_garden_Sm90(
     xrg.begin_cuda()
     for blockIdx in xrg.stride_blockIdx(4):
         for threadIdx in xrg.stride_threadIdx(256):
+            # Inserted implicitly for mbarrier initialization.
+            xrg("barrier.cluster.arrive.aligned")
+            xrg("barrier.cluster.wait.aligned")
+
             # cluster: generic->async proxy
             xrg("barrier.cluster.arrive.aligned")
             xrg("barrier.cluster.wait.aligned")
