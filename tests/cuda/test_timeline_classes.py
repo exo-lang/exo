@@ -15,6 +15,7 @@ from exo.spork import timelines
 from exo.spork.timelines import (
     InstrQuals,
     Qual_tl,
+    QualProxyClass,
     Sync_tl,
     needs_proxy_fence,
 )
@@ -68,7 +69,7 @@ def test_mbarrier_qual_not_in_data_ram():
     # cuda_mbarrier_qual has no proxy class; it must not be in data RAM masks,
     # otherwise sync-check could carry generic -> async ordering transitively
     # without a codegen'd proxy fence.
-    assert timelines.cuda_mbarrier_qual.proxy_class() == "neither"
+    assert timelines.cuda_mbarrier_qual.proxy_class() == QualProxyClass.neither
     mbar_bit = timelines.cuda_mbarrier_qual.as_bit()
     for q in timelines.cuda_ram_qual_tl_dict.values():
         assert not (Qual_tl.make_bits(q) & mbar_bit), q

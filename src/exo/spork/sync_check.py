@@ -40,7 +40,14 @@ from .coll_analysis import CollAnalysis
 from .distributed_memory import ThreadIter
 from .loop_modes import Seq, CudaTasks, cuda_tasks, _CodegenPar, CudaThreads
 from .sync_types import SyncType
-from .timelines import DeviceScope, Instr_tl, Qual_tl, Sync_tl, InstrQuals
+from .timelines import (
+    DeviceScope,
+    Instr_tl,
+    Qual_tl,
+    QualImplClass,
+    Sync_tl,
+    InstrQuals,
+)
 from . import timelines
 
 from .camspork import camspork
@@ -934,8 +941,8 @@ def top_level_check(backend, args_dict: Dict[str, int], *, no_smem_free_check=Fa
     def make_env(single_sync_var):
         env = camspork.ProgramEnv(
             camspork_program,
-            ooo_qual_mask=Qual_tl.get_impl_class_bits("out_of_order"),
-            atomic_qual_mask=Qual_tl.get_impl_class_bits("atomic"),
+            ooo_qual_mask=Qual_tl.get_impl_class_bits(QualImplClass.out_of_order),
+            atomic_qual_mask=Qual_tl.get_impl_class_bits(QualImplClass.atomic),
         )
         for i, loopir_arg in enumerate(p.args):
             nm = loopir_arg.name
