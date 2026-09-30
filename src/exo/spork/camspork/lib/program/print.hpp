@@ -138,10 +138,10 @@ class ProgramPrinter
         print_tabs();
         *this << "b.SyncEnvAccess(" << node->name;
         print_idx(node, true);  // print offset
-        *this << ", " << node->initial_qual_bit << ", " << node->extended_qual_bits << ", " << node->qual_tl_mask;
+        *this << ", " << node->initial_qual_bit << ", " << node->precondition_qual_bits << ", " << node->qual_tl_mask;
         using NodeType = std::remove_reference_t<decltype(*node)>;
 
-        static_assert(access_flag_all_bits == 15, "update me");
+        static_assert(access_flag_all_bits == 6, "update me");
         if (node->access_flags == 0) {
             *this << ", flags=0";
         }
@@ -152,16 +152,8 @@ class ProgramPrinter
                 *this << op << "b.mutate_flag";
                 op = or_op;
             }
-            if (node->access_flags & access_flag_ooo) {
-                *this << op << "b.ooo_flag";
-                op = or_op;
-            }
             if (node->access_flags & access_flag_convergent) {
                 *this << op << "b.convergent_flag";
-                op = or_op;
-            }
-            if (node->access_flags & access_flag_write_only) {
-                *this << op << "b.write_only_flag";
                 op = or_op;
             }
         }
@@ -200,7 +192,7 @@ class ProgramPrinter
     {
         print_tabs();
         *this << "b.Fence(" << node->L1_qual_bits;
-        *this << ", " << node->L2_full_qual_bits << ", " << node->L2_temporal_qual_bits << ")\n";
+        *this << ", " << node->L2_qual_bits << ")\n";
     }
 
     void operator() (const Arrive* node)
@@ -221,7 +213,7 @@ class ProgramPrinter
         *this << "b.Await(" << node->name;
         print_idx(node);
         const auto N = node->N;
-        *this << ", " << node->L2_full_qual_bits << ", " << node->L2_temporal_qual_bits << ", N=";
+        *this << ", " << node->L2_qual_bits << ", N=";
         if (N >= 0) {
             *this << N << ")\n";
         }
@@ -259,7 +251,7 @@ class ProgramPrinter
         print_tabs();
         *this << "b.SyncEnvFreeShard(" << node->name;
         print_idx(node);
-        *this << ", " << node->extended_qual_bits << ")\n";
+        *this << ", " << node->precondition_qual_bits << ")\n";
     }
 
     void operator() (const BarrierEnvAlloc* node)

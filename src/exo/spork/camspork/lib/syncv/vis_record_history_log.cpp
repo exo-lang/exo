@@ -19,10 +19,11 @@ template <typename Stream>
 void stream_sync_stmt_event(Stream& s, VisRecordHistoryLog& log, const LoggedSyncStmtEvent& event)
 {
     const LoggedSyncStmtValues v = event.values;
-    const bool is_await = v.L1_qual_bits == 0;
-    const bool is_arrive = v.L2_temporal_qual_bits == 0;
+    const bool is_fence = v.sync_stmt_name == "Fence";
+    const bool is_arrive = v.sync_stmt_name == "Arrive";
+    const bool is_await = v.sync_stmt_name == "Await";
     s << "  thread cuboid: " << event.thread_cuboid << '\n';
-    if (is_arrive ^ is_await) {
+    if (is_arrive || is_await) {
         s << "  barrier: " << event.barrier_name << '\n';
         s << "  arrive_count: " << v.arrive_count_before << " -> " << v.arrive_count_after << '\n';
         s << "  await_count:  " << v.await_count_before << " -> " << v.await_count_after << '\n';
@@ -30,22 +31,19 @@ void stream_sync_stmt_event(Stream& s, VisRecordHistoryLog& log, const LoggedSyn
             s << "  > Updates pending awaits with arrive_count <= " << v.await_max_arrive_count << '\n';
         }
     }
-    if (!is_await) {
-        s << "  First qual-tl set:\n";
+    if (is_fence || is_arrive) {
+        s << "  First sync-tl (set of qual-tl):\n";
         for (uint32_t bit_index = 0; bit_index < num_qual_tl; ++bit_index) {
             if (1 & (v.L1_qual_bits >> bit_index)) {
                 s << "               " << log.lazy_get_qual_tl_name(bit_index) << '\n';
             }
         }
     }
-    if (!is_arrive) {
-        s << "  Second qual-tl set:\n";
+    if (is_fence || is_await) {
+        s << "  Second sync-tl (set of qual-tl):\n";
         for (uint32_t bit_index = 0; bit_index < num_qual_tl; ++bit_index) {
-            if (1 & (v.L2_full_qual_bits >> bit_index)) {
+            if (1 & (v.L2_qual_bits >> bit_index)) {
                 s << "               " << log.lazy_get_qual_tl_name(bit_index) << '\n';
-            }
-            else if (1 & (v.L2_temporal_qual_bits >> bit_index)) {
-                s << "    (temporal) " << log.lazy_get_qual_tl_name(bit_index) << '\n';
             }
         }
     }
@@ -107,30 +105,12 @@ void stream_vis_record(
         stream_domain(s, cuboid_for_domain);
         s << '\n';
         for (uint32_t q_bit_index = 0; q_bit_index < num_qual_tl; ++q_bit_index) {
-            int32_t vis_flags = 0;
-            for (int32_t i = 0; i < num_vis_flags; ++i) {
-                if ((t.qual_bits_by_vis.array[i] >> q_bit_index) & 1) {
-                    vis_flags |= 1 << i;
-                }
-            }
-            if (vis_flags != 0) {
-                // Print the vis flags for the qual-tl (don't print if empty)
+            if ((t.qual_bits >> q_bit_index) & 1) {
                 const std::string& name = log.lazy_get_qual_tl_name(q_bit_index);
                 for (size_t i = name.size(); i < 30; ++i) {
                     s << ' ';
                 }
-                s << name;
-                s << " ->";
-                for (int i = 0; i < num_vis_flags; ++i) {
-                    int32_t vis_flag = 1 << i;
-                    const char* v_name = vis_flag_name(vis_flag);
-                    bool v_true = 0 != (vis_flag & vis_flags);
-                    s << ' ';
-                    while (char c = *v_name++) {
-                        s << (v_true ? c : '.');
-                    }
-                }
-                s << '\n';
+                s << name << '\n';
             }
         }
     }
@@ -278,7 +258,7 @@ void VisRecordHistoryLog::add_error_remarks(ProgramEnv* p_env)
             s << barrier_name_map[error_missing_free_on_arrive];
         }
         else {
-            s << "VisRecord did not have vis flag \"" << vis_flag_index_name(error_tl_sig.vis_flag_index) << "\" for\n";
+            s << "VisRecord did not have tl-sig for\n";
             s << "  thread:  ";
             stream_tid(s, error_tl_sig.tid, error_thread_cuboid);
             s << "; domain=";

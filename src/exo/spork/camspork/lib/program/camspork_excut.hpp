@@ -70,7 +70,7 @@ struct ExcutTlSigInterval : ExcutBaseAction
 {
     uint32_t tid_lo;
     uint32_t tid_hi;
-    QualBitsByVis qual_bits_by_vis;
+    qual_bits_t qual_bits;
     ExcutMutateTag mutate_tag;
 
     virtual const char* action_name() const override;

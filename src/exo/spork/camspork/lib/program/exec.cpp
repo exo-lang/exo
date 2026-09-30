@@ -409,11 +409,9 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
                 "implementation didn't set static IsMutate type to match requested mutate flag");
 
         SyncvAccessInfo access{};
-        access.is_ooo = bool(node->access_flags & access_flag_ooo);
         access.is_convergent = bool(node->access_flags & access_flag_convergent);
-        access.is_write_only = bool(node->access_flags & access_flag_write_only);
         access.initial_qual_bit = node->initial_qual_bit;
-        access.extended_qual_bits = node->extended_qual_bits;
+        access.precondition_qual_bits = node->precondition_qual_bits;
         access.qual_tl_mask = node->qual_tl_mask;
         access.atomic_qual_bits = node->get_atomic_qual_bits();
         access.thread_access_granularity = node->thread_access_granularity;
@@ -547,11 +545,9 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         }
 
         SyncvAccessInfo access{};
-        access.is_ooo = false;
         access.is_convergent = false;  // All threads must be prepared to free the memory.
-        access.is_write_only = true;  // Only require temporal sync.
         access.initial_qual_bit = 0;
-        access.extended_qual_bits = node->extended_qual_bits;
+        access.precondition_qual_bits = node->precondition_qual_bits;
         access.qual_tl_mask = 0;
         access.atomic_qual_bits = 0;
         access.thread_access_granularity = 1;
@@ -628,8 +624,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
     {
         SyncvFence param{};
         param.L1_qual_bits = node->L1_qual_bits;
-        param.L2_full_qual_bits = node->L2_full_qual_bits;
-        param.L2_temporal_qual_bits = node->L2_temporal_qual_bits;
+        param.L2_qual_bits = node->L2_qual_bits;
         const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
         on_fence(env.p_syncv_table.get(), thread_cuboid, param, prepare_logger(node, thread_cuboid));
         env.maybe_syncv_debug_validate();
@@ -723,8 +718,7 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         eval_tmp_offset(node);
         param.bar = slot.idx(tmp_offset.begin(), tmp_offset.end());
         param.N = node->N;
-        param.L2_full_qual_bits = node->L2_full_qual_bits;
-        param.L2_temporal_qual_bits = node->L2_temporal_qual_bits;
+        param.L2_qual_bits = node->L2_qual_bits;
 
         // Pass to SyncvTable.
         const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
@@ -1292,31 +1286,38 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
 };
 // End ProgramExec
 
-static const syncv_init_t default_table_init
+static syncv_init_t make_table_init(qual_bits_t ooo_qual_mask, qual_bits_t atomic_qual_mask)
 {
-    "PLACEHOLDER_FILENAME.txt",
-    UINT32_MAX,
-};
+    syncv_init_t init{};
+    init.filename = "PLACEHOLDER_FILENAME.txt";
+    init.memory_budget = UINT32_MAX;
+    init.ooo_qual_mask = ooo_qual_mask;
+    init.atomic_qual_mask = atomic_qual_mask;
+    return init;
+}
 
 static const uint32_t static_uint32_max = UINT32_MAX;
 
-ProgramEnv::ProgramEnv(size_t buffer_size, const char* buffer)
-  : ProgramEnv(buffer_size, make_shared_program_buffer(buffer_size, buffer))
+ProgramEnv::ProgramEnv(
+        size_t buffer_size, const char* buffer, qual_bits_t ooo_qual_mask, qual_bits_t atomic_qual_mask)
+  : ProgramEnv(buffer_size, make_shared_program_buffer(buffer_size, buffer), ooo_qual_mask, atomic_qual_mask)
 {
 }
 
-ProgramEnv::ProgramEnv(size_t buffer_size, std::shared_ptr<const char[]> buffer)
+ProgramEnv::ProgramEnv(
+        size_t buffer_size, std::shared_ptr<const char[]> buffer,
+        qual_bits_t ooo_qual_mask, qual_bits_t atomic_qual_mask)
   : program_buffer_size(buffer_size)
   , p_program_buffer(buffer)
   , header(ProgramHeader::validate(buffer_size, buffer.get()))
-  , p_syncv_table(new_syncv_table(default_table_init))
+  , p_syncv_table(new_syncv_table(make_table_init(ooo_qual_mask, atomic_qual_mask)))
   , raw_thread_cuboid(ThreadCuboid::full(&static_uint32_max, 1 + &static_uint32_max))
 {
     ProgramExec<false>(this, no_single_position_filter).init_vars(header.var_config_table);
 };
 
-ProgramEnv::ProgramEnv(const ProgramBuilder& builder)
-  : ProgramEnv(builder.size(), builder.shared_data())
+ProgramEnv::ProgramEnv(const ProgramBuilder& builder, qual_bits_t ooo_qual_mask, qual_bits_t atomic_qual_mask)
+  : ProgramEnv(builder.size(), builder.shared_data(), ooo_qual_mask, atomic_qual_mask)
 {
 }
 
@@ -1410,10 +1411,11 @@ void ProgramEnv::stream_program_remarks(std::ostream& stream)
 
 }  // end namespace camspork
 
-camspork::ProgramEnv* camspork_new_ProgramEnv(const camspork::ProgramBuilder* p_builder)
+camspork::ProgramEnv* camspork_new_ProgramEnv(
+    const camspork::ProgramBuilder* p_builder, camspork::qual_bits_t ooo_qual_mask, camspork::qual_bits_t atomic_qual_mask)
 {
     CAMSPORK_API_PROLOGUE
-    return new camspork::ProgramEnv(*p_builder);
+    return new camspork::ProgramEnv(*p_builder, ooo_qual_mask, atomic_qual_mask);
     CAMSPORK_API_EPILOGUE(nullptr)
 }
 

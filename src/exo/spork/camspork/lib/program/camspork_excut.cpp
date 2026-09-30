@@ -57,14 +57,8 @@ const char* ExcutTlSigInterval::action_name() const
 
 void ExcutTlSigInterval::write_args(FILE* file) const
 {
-    static_assert(num_vis_flags == 4);
-    static_assert(sizeof(qual_bits_by_vis.array[0]) == 4);
-    fprintf(file, "[\"int:%u\", \"int:%u\", \"int:%u\", \"int:%u\", \"int:%u\", \"int:%u\"]",
-            tid_lo, tid_hi,
-            qual_bits_by_vis.array[0],
-            qual_bits_by_vis.array[1],
-            qual_bits_by_vis.array[2],
-            qual_bits_by_vis.array[3]);
+    static_assert(sizeof(qual_bits) == 4);
+    fprintf(file, "[\"int:%u\", \"int:%u\", \"int:%u\"]", tid_lo, tid_hi, qual_bits);
 }
 
 const char* ExcutPendingAwait::action_name() const

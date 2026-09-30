@@ -122,31 +122,31 @@ class ProgramBuilder
     // ******************************************************************************************
     StmtRef add_SyncEnvAccess(  // single
         Varname name, size_t num_idx, const ExprRef* idx,
-        qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits,
+        qual_bits_t initial_qual_bit, qual_bits_t precondition_qual_bits,
         qual_bits_t qual_tl_mask, qual_bits_t atomic_qual_bits,
         uint32_t thread_access_granularity, uint32_t access_flags, TrailingBarrierExprRef trailing_barrier_expr);
     StmtRef add_SyncEnvAccess(  // window
         Varname name, size_t num_idx, const OffsetExtentExpr* idx,
-        qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits,
+        qual_bits_t initial_qual_bit, qual_bits_t precondition_qual_bits,
         qual_bits_t qual_tl_mask, qual_bits_t atomic_qual_bits,
         uint32_t thread_access_granularity, uint32_t access_flags, TrailingBarrierExprRef trailing_barrier_expr);
     StmtRef add_SyncEnvAccess(  // multicast
         Varname name, size_t num_idx, const ArriveIdx* idx,
-        qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits,
+        qual_bits_t initial_qual_bit, qual_bits_t precondition_qual_bits,
         qual_bits_t qual_tl_mask, qual_bits_t atomic_qual_bits,
         uint32_t thread_access_granularity, uint32_t access_flags, TrailingBarrierExprRef trailing_barrier_expr);
     StmtRef add_SyncEnvFreeShard(
-        Varname name, size_t num_idx, const ExprRef* idx, qual_bits_t extended_qual_bits);
+        Varname name, size_t num_idx, const ExprRef* idx, qual_bits_t precondition_qual_bits);
     StmtRef add_MutateValue(Varname name, size_t num_idx, const ExprRef* idx, binop op, ExprRef rhs);
     StmtRef add_Fence(
         qual_bits_t L1_qual_bits,
-        qual_bits_t L2_full_qual_bits, qual_bits_t L2_temporal_qual_bits);
+        qual_bits_t L2_qual_bits);
     StmtRef add_Arrive(
         qual_bits_t L1_qual_bits,
         Varname name, uint32_t num_idx, const ArriveIdx* idx);
     StmtRef add_Await(
         Varname name, uint32_t num_idx, const ExprRef* idx,
-        uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits, int32_t N);
+        uint32_t L2_qual_bits, int32_t N);
     StmtRef add_ValueEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent, uint32_t flags);
     StmtRef add_SyncEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent, uint32_t flags);
     StmtRef add_ExpectSyncEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent);
@@ -185,7 +185,7 @@ class ProgramBuilder
     template <typename ReadNode, typename MutateNode, typename IdxType>
     StmtRef add_SyncEnvAccess_impl(
         Varname name, size_t num_idx, const IdxType* idx,
-        qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits,
+        qual_bits_t initial_qual_bit, qual_bits_t precondition_qual_bits,
         qual_bits_t qual_tl_mask, qual_bits_t atomic_qual_bits,
         uint32_t thread_access_granularity, uint32_t access_flags, TrailingBarrierExprRef trailing_barrier_expr);
   public:
@@ -223,32 +223,32 @@ CAMSPORK_EXPORT camspork_RawTrailingBarrierExprRef camspork_add_TrailingBarrierE
 // MacOS ctypes mystery bug: can't pass camspork::TrailingBarrierExprRef by value.
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_SyncEnvAccessSingle(camspork::ProgramBuilder* p_builder,
     camspork_RawVarname name, uint32_t num_idx, const camspork::ExprRef* idx,
-    camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t extended_qual_bits,
+    camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t precondition_qual_bits,
     camspork::qual_bits_t qual_tl_mask, camspork::qual_bits_t atomic_qual_bits, uint32_t thread_access_granularity,
     uint32_t access_flags, const camspork::TrailingBarrierExprRef* trailing_barrier_expr);
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_SyncEnvAccessWindow(camspork::ProgramBuilder* p_builder,
     camspork_RawVarname name, uint32_t num_idx, const camspork::OffsetExtentExpr* idx,
-    camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t extended_qual_bits,
+    camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t precondition_qual_bits,
     camspork::qual_bits_t qual_tl_mask, camspork::qual_bits_t atomic_qual_bits, uint32_t thread_access_granularity,
     uint32_t access_flags, const camspork::TrailingBarrierExprRef* trailing_barrier_expr);
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_SyncEnvAccessMulticast(camspork::ProgramBuilder* p_builder,
     camspork_RawVarname name, uint32_t num_idx, const camspork::ArriveIdx* idx,
-    camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t extended_qual_bits,
+    camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t precondition_qual_bits,
     camspork::qual_bits_t qual_tl_mask, camspork::qual_bits_t atomic_qual_bits, uint32_t thread_access_granularity,
     uint32_t access_flags, const camspork::TrailingBarrierExprRef* trailing_barrier_expr);
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_SyncEnvFreeShard(camspork::ProgramBuilder* p_builder,
-    camspork_RawVarname name, uint32_t num_idx, const camspork::ExprRef* idx, camspork::qual_bits_t extended_qual_bits);
+    camspork_RawVarname name, uint32_t num_idx, const camspork::ExprRef* idx, camspork::qual_bits_t precondition_qual_bits);
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_MutateValue(camspork::ProgramBuilder* p_builder,
     camspork_RawVarname name, uint32_t num_idx, const camspork::ExprRef* idx, camspork::binop op, camspork::ExprRef rhs);
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_Fence(camspork::ProgramBuilder* p_builder,
     camspork::qual_bits_t L1_qual_bits,
-    camspork::qual_bits_t L2_full_qual_bits, camspork::qual_bits_t L2_temporal_qual_bits);
+    camspork::qual_bits_t L2_qual_bits);
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_Arrive(camspork::ProgramBuilder* p_builder,
     camspork::qual_bits_t L1_qual_bits,
     camspork_RawVarname name, uint32_t num_idx, const camspork::ArriveIdx* idx);
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_Await(camspork::ProgramBuilder* p_builder,
     camspork_RawVarname name, uint32_t num_idx, const camspork::ExprRef* idx,
-    uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits, int32_t N);
+    uint32_t L2_qual_bits, int32_t N);
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_ValueEnvAlloc(camspork::ProgramBuilder* p_builder,
     camspork_RawVarname name, uint32_t num_dims, const camspork::ExprRef* extent, uint32_t flags);
 CAMSPORK_EXPORT camspork_RawStmtRef camspork_add_SyncEnvAlloc(camspork::ProgramBuilder* p_builder,

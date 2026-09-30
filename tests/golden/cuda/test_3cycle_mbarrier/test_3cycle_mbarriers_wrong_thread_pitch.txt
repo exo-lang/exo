@@ -2,7 +2,7 @@ def proc_3cycle_mbarriers():
     # tests/cuda/test_3cycle_mbarrier.py:69:8:(s260):
     # Last sync recorded:
     #   thread cuboid: {"task_index": 0, "domain": [4294967295], "offset": [0], "box": [4294967295]}
-    #   First qual-tl set:
+    #   First sync-tl (set of qual-tl):
     #                cpu_in_order_qual
     #                cpu_cuda_stream_qual
     #                cuda_in_order_rmem_qual
@@ -20,7 +20,7 @@ def proc_3cycle_mbarriers():
     #                tcgen05_shift_qual
     #                tcgen05_ld_qual
     #                tcgen05_st_qual
-    #   Second qual-tl set:
+    #   Second sync-tl (set of qual-tl):
     #                cpu_cuda_stream_qual
     #                cuda_in_order_rmem_qual
     #                cuda_in_order_ram_qual
@@ -60,18 +60,34 @@ def proc_3cycle_mbarriers():
             # tests/cuda/test_3cycle_mbarrier.py:71:16:(s10):
             # Last sync recorded:
             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            #   barrier: AtoB[0, 0]
+            #   arrive_count: 0 -> 1
+            #   await_count:  0 -> 0
+            #   First sync-tl (set of qual-tl):
             #
             # tests/cuda/test_3cycle_mbarrier.py:71:16:(s10):
             # Last sync recorded:
             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            #   barrier: AtoB[0, 1]
+            #   arrive_count: 0 -> 1
+            #   await_count:  0 -> 0
+            #   First sync-tl (set of qual-tl):
             #
             # tests/cuda/test_3cycle_mbarrier.py:71:16:(s10):
             # Last sync recorded:
             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            #   barrier: AtoB[1, 0]
+            #   arrive_count: 0 -> 1
+            #   await_count:  0 -> 0
+            #   First sync-tl (set of qual-tl):
             #
             # tests/cuda/test_3cycle_mbarrier.py:71:16:(s10):
             # Last sync recorded:
             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            #   barrier: AtoB[1, 1]
+            #   arrive_count: 0 -> 1
+            #   await_count:  0 -> 0
+            #   First sync-tl (set of qual-tl):
             AtoB: barrier[2, (25 + 2) @ (ring_buffer_by(
                 depth=6))] @ CudaMbarrierPreArrive(2, )
             # distributed dims: 0, thread pitch tuple () from Arrive @ tests/cuda/test_3cycle_mbarrier.py:72:16:(s20)
@@ -79,26 +95,50 @@ def proc_3cycle_mbarriers():
             # tests/cuda/test_3cycle_mbarrier.py:72:16:(s20):
             # Last sync recorded:
             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            #   barrier: BtoC[0, 0]
+            #   arrive_count: 0 -> 1
+            #   await_count:  0 -> 0
+            #   First sync-tl (set of qual-tl):
             #
             # tests/cuda/test_3cycle_mbarrier.py:72:16:(s20):
             # Last sync recorded:
             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            #   barrier: BtoC[0, 1]
+            #   arrive_count: 0 -> 1
+            #   await_count:  0 -> 0
+            #   First sync-tl (set of qual-tl):
             #
             # tests/cuda/test_3cycle_mbarrier.py:72:16:(s20):
             # Last sync recorded:
             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            #   barrier: BtoC[0, 2]
+            #   arrive_count: 0 -> 1
+            #   await_count:  0 -> 0
+            #   First sync-tl (set of qual-tl):
             #
             # tests/cuda/test_3cycle_mbarrier.py:72:16:(s20):
             # Last sync recorded:
             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            #   barrier: BtoC[1, 0]
+            #   arrive_count: 0 -> 1
+            #   await_count:  0 -> 0
+            #   First sync-tl (set of qual-tl):
             #
             # tests/cuda/test_3cycle_mbarrier.py:72:16:(s20):
             # Last sync recorded:
             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            #   barrier: BtoC[1, 1]
+            #   arrive_count: 0 -> 1
+            #   await_count:  0 -> 0
+            #   First sync-tl (set of qual-tl):
             #
             # tests/cuda/test_3cycle_mbarrier.py:72:16:(s20):
             # Last sync recorded:
             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            #   barrier: BtoC[1, 2]
+            #   arrive_count: 0 -> 1
+            #   await_count:  0 -> 0
+            #   First sync-tl (set of qual-tl):
             #
             # tests/cuda/test_3cycle_mbarrier.py:72:16:(s20):
             # New VisRecord:
@@ -110,10 +150,18 @@ def proc_3cycle_mbarriers():
             # tests/cuda/test_3cycle_mbarrier.py:73:16:(s30):
             # Last sync recorded:
             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            #   barrier: CtoA[0, 0]
+            #   arrive_count: 0 -> 1
+            #   await_count:  0 -> 0
+            #   First sync-tl (set of qual-tl):
             #
             # tests/cuda/test_3cycle_mbarrier.py:73:16:(s30):
             # Last sync recorded:
             #   thread cuboid: {"task_index": 0, "domain": [384], "offset": [0], "box": [384]}
+            #   barrier: CtoA[1, 0]
+            #   arrive_count: 0 -> 1
+            #   await_count:  0 -> 0
+            #   First sync-tl (set of qual-tl):
             CtoA: barrier[2, (25 + 1) @ (ring_buffer_by(
                 depth=6))] @ CudaMbarrierPreArrive(1, )
             # tests/cuda/test_3cycle_mbarrier.py:74:16:(s240):
@@ -151,7 +199,7 @@ def proc_3cycle_mbarriers():
                         #   arrive_count: 1 -> 1
                         #   await_count:  0 -> 1
                         #   > Updates pending awaits with arrive_count <= 0
-                        #   Second qual-tl set:
+                        #   Second sync-tl (set of qual-tl):
                         #                cuda_in_order_rmem_qual
                         #                cuda_in_order_ram_qual
                         #                cuda_mbarrier_qual
@@ -168,19 +216,19 @@ def proc_3cycle_mbarriers():
                         #   barrier: BtoC[1, 5]
                         #   arrive_count: 0 -> 1
                         #   await_count:  0 -> 0
-                        #   First qual-tl set:
+                        #   First sync-tl (set of qual-tl):
                         #                cuda_in_order_rmem_qual
                         #                cuda_in_order_ram_qual
                         #                cuda_mbarrier_qual
                         #
                         # tests/cuda/test_3cycle_mbarrier.py:78:28:(s50):
-                        # VisRecord did not have vis flag "full" for
+                        # VisRecord did not have tl-sig for
                         #   thread:  task_index = 0 [64]; domain=[384]
                         #   qual-tl: cuda_mbarrier_qual
                         # VisRecord info:
                         #   threads: [task_index = 0 [128],
                         #             task_index = 0 [159]], inclusive, formatted w/ domain [384]
-                        #             cuda_mbarrier_qual -> atomic-only temporal full issue
+                        #             cuda_mbarrier_qual
                         #   pending await: BtoC[0, 0] arrive_count=0
                         Arrive(cuda_in_order, 1) >> BtoC[w, n + 3]
                 with CudaWarps(name='C'):
@@ -205,7 +253,7 @@ def proc_3cycle_mbarriers():
                             #   arrive_count: 1 -> 1
                             #   await_count:  0 -> 1
                             #   > Updates pending awaits with arrive_count <= 0
-                            #   Second qual-tl set:
+                            #   Second sync-tl (set of qual-tl):
                             #                cuda_in_order_rmem_qual
                             #                cuda_in_order_ram_qual
                             #                cuda_mbarrier_qual
@@ -217,7 +265,7 @@ def proc_3cycle_mbarriers():
                             #   arrive_count: 1 -> 1
                             #   await_count:  0 -> 1
                             #   > Updates pending awaits with arrive_count <= 0
-                            #   Second qual-tl set:
+                            #   Second sync-tl (set of qual-tl):
                             #                cuda_in_order_rmem_qual
                             #                cuda_in_order_ram_qual
                             #                cuda_mbarrier_qual
@@ -226,7 +274,7 @@ def proc_3cycle_mbarriers():
                             # AFTER:
                             #   threads: [task_index = 0 [128],
                             #             task_index = 0 [159]], inclusive, formatted w/ domain [384]
-                            #             cuda_mbarrier_qual -> atomic-only temporal full issue
+                            #             cuda_mbarrier_qual
                             #   pending await: BtoC[0, 0] arrive_count=0
                             Await(BtoC[wg, n], cuda_in_order, 0)
                     # thread_pitch=128; exo_128thr_wg = ((threadIdx.x - 128) / 128) @ tests/cuda/test_3cycle_mbarrier.py:83:24:(s130)
@@ -245,7 +293,7 @@ def proc_3cycle_mbarriers():
                             #   barrier: CtoA[1, 3]
                             #   arrive_count: 0 -> 1
                             #   await_count:  0 -> 0
-                            #   First qual-tl set:
+                            #   First sync-tl (set of qual-tl):
                             #                cuda_in_order_rmem_qual
                             #                cuda_in_order_ram_qual
                             #                cuda_mbarrier_qual
@@ -268,7 +316,7 @@ def proc_3cycle_mbarriers():
                             #   arrive_count: 1 -> 1
                             #   await_count:  0 -> 1
                             #   > Updates pending awaits with arrive_count <= 0
-                            #   Second qual-tl set:
+                            #   Second sync-tl (set of qual-tl):
                             #                cuda_in_order_rmem_qual
                             #                cuda_in_order_ram_qual
                             #                cuda_mbarrier_qual
@@ -279,7 +327,7 @@ def proc_3cycle_mbarriers():
                             #   barrier: AtoB[1, 2]
                             #   arrive_count: 0 -> 1
                             #   await_count:  0 -> 0
-                            #   First qual-tl set:
+                            #   First sync-tl (set of qual-tl):
                             #                cuda_in_order_rmem_qual
                             #                cuda_in_order_ram_qual
                             #                cuda_mbarrier_qual
@@ -303,7 +351,7 @@ def proc_3cycle_mbarriers():
                                 #   arrive_count: 1 -> 1
                                 #   await_count:  0 -> 1
                                 #   > Updates pending awaits with arrive_count <= 0
-                                #   Second qual-tl set:
+                                #   Second sync-tl (set of qual-tl):
                                 #                cuda_in_order_rmem_qual
                                 #                cuda_in_order_ram_qual
                                 #                cuda_mbarrier_qual
@@ -314,7 +362,7 @@ def proc_3cycle_mbarriers():
                                 #   barrier: AtoB[1, 4]
                                 #   arrive_count: 0 -> 1
                                 #   await_count:  0 -> 0
-                                #   First qual-tl set:
+                                #   First sync-tl (set of qual-tl):
                                 #                cuda_in_order_rmem_qual
                                 #                cuda_in_order_ram_qual
                                 #                cuda_mbarrier_qual

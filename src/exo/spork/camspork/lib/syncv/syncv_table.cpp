@@ -46,7 +46,7 @@ struct HamsterBarrierState;
 // tl-sig intervals. The intervals are sorted in that
 // a.tid_hi <= b.tid_lo for a before b in the list, and the list
 // is minimal in that no more intervals are used than needed
-// (mostly by merging adjacent intervals with the same qual_bits_by_vis).
+// (mostly by merging adjacent intervals with the same qual_bits).
 struct TlSigIntervalListNode
 {
     TlSigInterval data;
@@ -58,7 +58,7 @@ struct TlSigIntervalListNode
     }
 };
 
-static_assert(sizeof(TlSigIntervalListNode) == 28, "Check that you meant to change this perf-critical struct");
+static_assert(sizeof(TlSigIntervalListNode) == 16, "Check that you meant to change this perf-critical struct");
 
 struct VisRecord
 {
@@ -90,7 +90,10 @@ enum class VisRecordKind
 
 // Note, VisRecordKind currently serves no purpose.
 // It used to separately encode VisRecord for Reads and Mutates,
-// but these cases were unified due to the advent of vis_flag_temporal.
+// but distinguishing WAR hazards from others was not useful for modelling CUDA.
+// This is unlike Vulkan's rule: "Write-after-read hazards can be solved with
+// just an execution dependency, but read-after-write and write-after-write
+// hazards need appropriate memory dependencies."
 template <VisRecordKind K>
 struct VisRecordListNode
 {
@@ -371,9 +374,7 @@ struct VisRecordEntropy
     {
         pcg3d_z(interval.tid_lo);
         pcg3d_z(interval.tid_hi);
-        for (qual_bits_t q : interval.qual_bits_by_vis.array) {
-            pcg3d_z(q);
-        }
+        pcg3d_z(interval.qual_bits);
     }
 
     void operator() (PendingAwait pending_await)
@@ -416,6 +417,10 @@ struct SyncvTable
 
     // Number of times begin_no_checking was called minus end_no_checking. (TODO remove???)
     uint32_t no_checking_counter = 0;
+
+    // Qual-tl class bitmasks; see syncv_init_t.
+    qual_bits_t ooo_qual_mask = 0;
+    qual_bits_t atomic_qual_mask = 0;
 
     // Counters for operations
     uint64_t augment_counter = 0;     // Number of Fence+Await+ThreadJoin
@@ -753,21 +758,18 @@ struct SyncvTable
         vis_record.base_data.flags = free_on_arrive_id ? vis_record_before_alloc_flag : 0;
 
         CAMSPORK_REQUIRE_CMP((access.qual_tl_mask & access.initial_qual_bit), ==, access.initial_qual_bit, "Missing qual_tl_mask bits");
-        CAMSPORK_REQUIRE_CMP((access.qual_tl_mask & access.extended_qual_bits & ~access.atomic_qual_bits),
+        CAMSPORK_REQUIRE_CMP((access.qual_tl_mask & access.precondition_qual_bits & ~atomic_qual_mask),
             ==,
-            access.extended_qual_bits & ~access.atomic_qual_bits,
+            access.precondition_qual_bits & ~atomic_qual_mask,
             "Missing qual_tl_mask bits");
 
         // Initialize visibility set = linked list of intervals generated from the initial thread / thread cuboid.
         const qual_bits_t q = access.initial_qual_bit;
-        static_assert(vis_flags_all == 15, "review if this needs changing");
-        const auto vis_flags = access.is_ooo ? vis_flag_issue : vis_flags_all;
-        const QualBitsByVis qual_bits_by_vis = qual_vis_product(q, vis_flags);
         nodepool::id<TlSigIntervalListNode>* p_node_id = &vis_record.base_data.visibility_set;
         thread_init.to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi)
         {
             TlSigIntervalListNode& tl_sigs_node = alloc_default_node(p_node_id);
-            tl_sigs_node.data = TlSigInterval{tid_lo, tid_hi, qual_bits_by_vis};
+            tl_sigs_node.data = TlSigInterval{tid_lo, tid_hi, q};
             p_node_id = &tl_sigs_node.camspork_next_id;
         });
 
@@ -805,12 +807,11 @@ struct SyncvTable
             init_back_refs(vis_record.base_data.pending_awaits);
         }
 
-        // Add "atomic-only" visibility across all possible threads, if applicable,
+        // Add atomic qual-tl across all possible threads, if applicable,
         // All this must be done before trying to memoize.
         if (access.atomic_qual_bits) {
             static_assert(sizeof(TlSigInterval::tid_hi) == 4);
-            const QualBitsByVis qual_bits_by_vis = qual_vis_product(access.atomic_qual_bits, vis_flag_atomic_only);
-            const TlSigInterval atomic_interval{0, UINT32_MAX, qual_bits_by_vis};
+            const TlSigInterval atomic_interval{0, UINT32_MAX, access.atomic_qual_bits};
             union_tl_sig_interval(&vis_record.base_data, atomic_interval);
         }
 
@@ -824,13 +825,7 @@ struct SyncvTable
     {
         // Non-empty input check (cartesian product of non-empty thread interval and non-empty qual-tl set).
         CAMSPORK_REQUIRE_CMP(input.tid_hi, >, input.tid_lo, "non-empty input check");
-        {
-            qual_bits_t q_bits_all = 0;
-            for (qual_bits_t q_bits: input.qual_bits_by_vis.array) {
-                q_bits_all |= q_bits;
-            }
-            CAMSPORK_REQUIRE_CMP(0, !=, q_bits_all, "non-empty input check");
-        }
+        CAMSPORK_REQUIRE_CMP(0, !=, input.qual_bits, "non-empty input check");
         using node_id = nodepool::id<TlSigIntervalListNode>;
 
         // Modify and/or add intervals.
@@ -855,7 +850,7 @@ struct SyncvTable
             TlSigInterval new_interval{};
             new_interval.tid_lo = std::max(gap_tid_lo, input.tid_lo);
             new_interval.tid_hi = std::min(gap_tid_hi, input.tid_hi);
-            new_interval.qual_bits_by_vis = input.qual_bits_by_vis;
+            new_interval.qual_bits = input.qual_bits;
             if (new_interval.tid_hi > new_interval.tid_lo) {
                 node_id new_node_id{};
                 TlSigIntervalListNode& new_node = alloc_default_node(&new_node_id);
@@ -871,18 +866,18 @@ struct SyncvTable
             // We will modify each original interval, which is the "next node" of the gap just processed.
             //
             // The interval may be subdivided into up to 3 intervals depending on overlap with input interval,
-            // since only the overlapped portion should have its qual_bits_by_vis modified.
+            // since only the overlapped portion should have its qual_bits modified.
             //
             // 1st interval: keeps original bits, left of intersection.
-            // 2nd interval: qual_bits_by_vis augmented, footprint of intersection.
+            // 2nd interval: qual_bits augmented, footprint of intersection.
             // 3rd interval: keeps original bits, right of intersection.
             TlSigIntervalListNode& next_node = get(original_next_node_id);
             const TlSigInterval original_data = next_node.data;
             const uint32_t intersect_tid_lo = std::max(original_data.tid_lo, input.tid_lo);
             const uint32_t intersect_tid_hi = std::min(original_data.tid_hi, input.tid_hi);
-            const QualBitsByVis union_bits = input.qual_bits_by_vis | original_data.qual_bits_by_vis;
+            const qual_bits_t union_bits = input.qual_bits | original_data.qual_bits;
             const bool change_needed =
-                    (union_bits != original_data.qual_bits_by_vis) && (intersect_tid_lo < intersect_tid_hi);
+                    (union_bits != original_data.qual_bits) && (intersect_tid_lo < intersect_tid_hi);
 
             // Possibly add 1st interval.
             if (change_needed && original_data.tid_lo < intersect_tid_lo) {
@@ -890,7 +885,7 @@ struct SyncvTable
                 TlSigIntervalListNode& new_node = alloc_default_node(&new_node_id);
                 new_node.data.tid_lo = original_data.tid_lo;
                 new_node.data.tid_hi = intersect_tid_lo;
-                new_node.data.qual_bits_by_vis = original_data.qual_bits_by_vis;
+                new_node.data.qual_bits = original_data.qual_bits;
                 CAMSPORK_REQUIRE_CMP(*p_id, ==, original_next_node_id, "linked list corrupt");
                 insert_next_node(p_id, new_node_id);
             }
@@ -903,7 +898,7 @@ struct SyncvTable
                 // 2nd interval; we recycle the existing node since the 2nd interval is guaranteed non-empty
                 next_node.data.tid_lo = intersect_tid_lo;
                 next_node.data.tid_hi = intersect_tid_hi;
-                next_node.data.qual_bits_by_vis = union_bits;
+                next_node.data.qual_bits = union_bits;
 
                 // Possibly add 3rd interval, insert after 2nd interval.
                 if (intersect_tid_hi < original_data.tid_hi) {
@@ -911,7 +906,7 @@ struct SyncvTable
                     TlSigIntervalListNode& new_node = alloc_default_node(&new_node_id);
                     new_node.data.tid_lo = intersect_tid_hi;
                     new_node.data.tid_hi = original_data.tid_hi;
-                    new_node.data.qual_bits_by_vis = original_data.qual_bits_by_vis;
+                    new_node.data.qual_bits = original_data.qual_bits;
                     insert_next_node(p_id, new_node_id);
                     p_id = &new_node.camspork_next_id;  // Need to point to the real gap (after original_data.tid_hi)
                 }
@@ -931,7 +926,7 @@ struct SyncvTable
             CAMSPORK_REQUIRE_CMP(current.tid_hi, <=, next.tid_lo, "invalid interval overlap");
             CAMSPORK_REQUIRE_CMP(next.tid_lo, <, next.tid_hi, "invalid interval");
 
-            if (current.tid_hi == next.tid_lo && current.qual_bits_by_vis == next.qual_bits_by_vis) {
+            if (current.tid_hi == next.tid_lo && current.qual_bits == next.qual_bits) {
                 // Merge next node into current node, and remove next node from list.
                 current.tid_hi = next.tid_hi;
                 CAMSPORK_REQUIRE_CMP(p_current_node->camspork_next_id, ==, next_id, "corrupt linked list");
@@ -949,7 +944,7 @@ struct SyncvTable
     {
         // Check that the two tl_sig intervals can be adjacent in a valid visibility set encoding.
         return first.tid_lo < first.tid_hi && first.tid_hi <= second.tid_lo && second.tid_lo < second.tid_hi
-          && (first.tid_hi < second.tid_lo || first.qual_bits_by_vis != second.qual_bits_by_vis);
+          && (first.tid_hi < second.tid_lo || first.qual_bits != second.qual_bits);
     }
 
     // Check if visibility records are equal.
@@ -999,11 +994,10 @@ struct SyncvTable
     bool synchronizes_with(
             const VisRecord& vis_record, const ThreadCuboid& cuboid, qual_bits_t qual_bits)
     {
-        // Check for any intersections between TlSigIntervals generated by ThreadCuboid + qual_bits + flags, and
-        // those stored in the VisRecord, with flags vis_flag_issue or vis_flag_full.
+        // Check for any intersections between TlSigIntervals generated by ThreadCuboid + qual_bits, and
+        // those stored in the VisRecord.
         bool intersects = false;
         nodepool::id<TlSigIntervalListNode> node_id = vis_record.visibility_set;
-        const QualBitsByVis qv = qual_vis_product(qual_bits, vis_flag_issue | vis_flag_full);
         cuboid.to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi)
         {
             while (true) {
@@ -1012,7 +1006,7 @@ struct SyncvTable
                 }
                 const TlSigIntervalListNode& node = get(node_id);
                 TlSigInterval vis_set_interval = node.data;
-                TlSigInterval gen_interval{tid_lo, tid_hi, qv};
+                TlSigInterval gen_interval{tid_lo, tid_hi, qual_bits};
                 intersects |= vis_set_interval.intersects(gen_interval);
                 if (vis_set_interval.tid_hi > tid_hi) {
                     // Keep checking new vis_set_interval against gen_interval until the visibility set interval
@@ -1029,14 +1023,11 @@ struct SyncvTable
 
     bool all_visible_to(
             const VisRecord& vis_record, const ThreadCuboid& cuboid,
-            qual_bits_t want_qual_bits, int32_t vis_flag, LoggedMissingTlSig* out_fail_tl_sig)
+            qual_bits_t want_qual_bits, LoggedMissingTlSig* out_fail_tl_sig)
     {
         // IsConvergent = false case
         // Check that all threads generated by the ThreadCuboid have at least one qual-tl in common with
         // an overlapping interval in the ordered visibility set of the vis_record.
-        const int vis_flag_index = get_low_bit_index(vis_flag);
-        CAMSPORK_REQUIRE_CMP(vis_flag, ==, (1 << vis_flag_index), "not a vis flag");
-        CAMSPORK_REQUIRE_CMP(vis_flag_index, <, num_vis_flags, "not a vis flag");
         bool all_visible = true;
         cuboid.to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi)
         {
@@ -1047,11 +1038,11 @@ struct SyncvTable
 
             while (node_id) {
                 // Search TlSigIntervals in the VisRecord, skipping any that don't have
-                // a qual-tl in common with one of the required visibility flags.
+                // a qual-tl in common with want_qual_bits.
                 const TlSigIntervalListNode& node = get(node_id);
                 node_id = node.camspork_next_id;
                 const TlSigInterval data = node.data;
-                if (!(want_qual_bits & data.qual_bits_by_vis.array[vis_flag_index])) {
+                if (!(want_qual_bits & data.qual_bits)) {
                     continue;
                 }
                 // If the interval is after the interval of missing threads, we have found a gap
@@ -1067,7 +1058,6 @@ struct SyncvTable
                 // Record missing tl-sig the first time a missing one is found.
                 out_fail_tl_sig->tid = missing_threads_lo;
                 out_fail_tl_sig->qual_bits = want_qual_bits;
-                out_fail_tl_sig->vis_flag_index = vis_flag_index;
             }
         });
         return all_visible;
@@ -1075,14 +1065,11 @@ struct SyncvTable
 
     bool any_visible_to(
             const VisRecord& vis_record, const ThreadCuboid& cuboid,
-            qual_bits_t want_qual_bits, int32_t vis_flag, LoggedMissingTlSig* out_fail_tl_sig)
+            qual_bits_t want_qual_bits, LoggedMissingTlSig* out_fail_tl_sig)
     {
         // IsConvergent = true case
         // Check that at least one thread generated by the ThreadCuboid has at least one one qual-tl in common with
         // an overlapping interval in the ordered visibility set of the vis_record.
-        const int vis_flag_index = get_low_bit_index(vis_flag);
-        CAMSPORK_REQUIRE_CMP(vis_flag, ==, (1 << vis_flag_index), "not a vis flag");
-        CAMSPORK_REQUIRE_CMP(vis_flag_index, <, num_vis_flags, "not a vis flag");
         uint32_t fail_tid = UINT32_MAX;
         bool any_visible = false;
         cuboid.to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi)
@@ -1091,11 +1078,11 @@ struct SyncvTable
 
             while (node_id) {
                 // Search TlSigIntervals in the VisRecord, skipping any that don't have
-                // a qual-tl in common in with one of the required visibility flags.
+                // a qual-tl in common with want_qual_bits.
                 const TlSigIntervalListNode& node = get(node_id);
                 node_id = node.camspork_next_id;
                 const TlSigInterval data = node.data;
-                if (!(want_qual_bits & data.qual_bits_by_vis.array[vis_flag_index])) {
+                if (!(want_qual_bits & data.qual_bits)) {
                     continue;
                 }
                 // tid overlap check (non-empty intersection).
@@ -1108,20 +1095,19 @@ struct SyncvTable
         if (!any_visible) {
             out_fail_tl_sig->tid = fail_tid;
             out_fail_tl_sig->qual_bits = want_qual_bits;
-            out_fail_tl_sig->vis_flag_index = vis_flag_index;
         }
         return any_visible;
     }
 
     bool visible_to(
             const VisRecord& vis_record, const ThreadCuboid& cuboid,
-            qual_bits_t want_qual_bits, int32_t vis_flag, bool is_convergent, LoggedMissingTlSig* out_fail_tl_sig)
+            qual_bits_t want_qual_bits, bool is_convergent, LoggedMissingTlSig* out_fail_tl_sig)
     {
         if (is_convergent) {
-            return any_visible_to(vis_record, cuboid, want_qual_bits, vis_flag, out_fail_tl_sig);
+            return any_visible_to(vis_record, cuboid, want_qual_bits, out_fail_tl_sig);
         }
         else {
-            return all_visible_to(vis_record, cuboid, want_qual_bits, vis_flag, out_fail_tl_sig);
+            return all_visible_to(vis_record, cuboid, want_qual_bits, out_fail_tl_sig);
         }
     }
 
@@ -1187,7 +1173,8 @@ struct SyncvTable
     {
         // 62-bit hash
         // (hi)
-        // 32 bits: max tid of timeline signatures (tid, q, v) with v != atomic-only; 0 if no such tid.
+        // 32 bits: max tid of timeline signatures (tid, q) with q not atomic; 0 if no such tid.
+        //         This is sound only because atomic qual-tl never appear in a first sync-tl (L1).
         // 30 bits: entropy
         // (lo)
         //
@@ -1202,7 +1189,7 @@ struct SyncvTable
             const TlSigInterval tl_sigs = node.data;
             p_id = &node.camspork_next_id;
 
-            const bool tl_sigs_atomic_only = tl_sigs.is_atomic_only();
+            const bool tl_sigs_atomic_only = tl_sigs.is_atomic_only(atomic_qual_mask);
             // Convert exclusive tid_hi to inclusive non_atomic_max_tid.
             non_atomic_max_tid = std::max(non_atomic_max_tid, tl_sigs_atomic_only ? uint32_t(0) : tl_sigs.tid_hi - 1u);
 
@@ -1564,7 +1551,7 @@ struct SyncvTable
 
 
     // Add a new visibility record, or return existing memoized one, constructed from the given thread cuboid
-    // + qual_bits_by_vis (in TlSigInterval format).
+    // + qual_bits (in TlSigInterval format).
     // The returned ID is an owning reference (ownership count given by added_refcnt).
     template <bool ForceArriveCount0, VisRecordKind K, typename ThreadInit>
     [[nodiscard]] nodepool::id<VisRecordListNode<K>> memoize_new_vis_record(
@@ -1666,41 +1653,22 @@ struct SyncvTable
         modified_vis_records.clear();
     }
 
-    static QualBitsByVis from_L2(qual_bits_t L2_full_qual_bits, qual_bits_t L2_temporal_qual_bits)
-    {
-        QualBitsByVis q_by_vis{};
-        const auto q_temporal = L2_temporal_qual_bits;
-        q_by_vis.array[vis_flag_index_atomic_only] = L2_full_qual_bits;
-        q_by_vis.array[vis_flag_index_temporal] = q_temporal;
-        q_by_vis.array[vis_flag_index_full] = L2_full_qual_bits;
-        q_by_vis.array[vis_flag_index_issue] = L2_full_qual_bits;
-        return q_by_vis;
-    }
-
     struct AugmentVisRecordCallback
     {
         const ThreadCuboid* p_cuboid;
-        QualBitsByVis q_by_vis;
+        qual_bits_t qual_bits;
 
         template <VisRecordKind K>
         void operator() (SyncvTable& env, nodepool::id<VisRecordListNode<K>> vis_record_id) const
         {
             auto& node = env.get(vis_record_id);
             CAMSPORK_REQUIRE(!node.is_forwarded(), "Unexpected modification of forwarding state VisRecord");
-            const qual_bits_t qual_tl_mask = node.base_data.qual_tl_mask;
+            const qual_bits_t eff_qual_bits = qual_bits & node.base_data.qual_tl_mask;
 
-            uint32_t any_qual_bits = 0;
-            QualBitsByVis eff_q_by_vis = q_by_vis;
-            for (qual_bits_t& q : eff_q_by_vis.array) {
-                const qual_bits_t masked = q & qual_tl_mask;
-                q = masked;
-                any_qual_bits |= masked;
-            }
-
-            if (any_qual_bits) {
+            if (eff_qual_bits) {
                 p_cuboid->to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi)
                     {
-                        env.union_tl_sig_interval(&node.base_data, TlSigInterval{tid_lo, tid_hi, eff_q_by_vis});
+                        env.union_tl_sig_interval(&node.base_data, TlSigInterval{tid_lo, tid_hi, eff_qual_bits});
                     }
                 );
                 node.base_data.flags &= ~vis_record_before_alloc_flag;
@@ -1714,7 +1682,7 @@ struct SyncvTable
         static constexpr MemoizeAction memoize_action = MemoizeAction::EditAll;
 
         const ThreadCuboid* p_cuboid;
-        qual_bits_t L1_qual_bits, L2_full_qual_bits, L2_temporal_qual_bits;
+        qual_bits_t L1_qual_bits, L2_qual_bits;
         Logger& logger;
 
         static constexpr bool enable_debug_printf = false;
@@ -1728,7 +1696,7 @@ struct SyncvTable
 
             AugmentVisRecordCallback augment{};
             augment.p_cuboid = p_cuboid;
-            augment.q_by_vis = from_L2(L2_full_qual_bits, L2_temporal_qual_bits);
+            augment.qual_bits = L2_qual_bits;
 
             const bool syncs = env.synchronizes_with(*p_record, *p_cuboid, L1_qual_bits);
             if (syncs) {
@@ -1835,7 +1803,7 @@ struct SyncvTable
 
         nodepool::id<DefaultVisRecordListNode> node_id;
         const ThreadCuboid* p_cuboid;
-        qual_bits_t L2_full_qual_bits, L2_temporal_qual_bits;
+        qual_bits_t L2_qual_bits;
         Logger& logger;
 
         static constexpr bool enable_debug_printf = false;
@@ -1849,7 +1817,7 @@ struct SyncvTable
 
             AugmentVisRecordCallback augment{};
             augment.p_cuboid = p_cuboid;
-            augment.q_by_vis = from_L2(L2_full_qual_bits, L2_temporal_qual_bits);
+            augment.qual_bits = L2_qual_bits;
 
             augment(env, vis_record_id);
             return true;  // Modified flag.
@@ -1873,11 +1841,11 @@ struct SyncvTable
             auto& node = env.get(vis_record_id);
             CAMSPORK_REQUIRE(!node.is_forwarded(), "unexpected forwarding state");
             VisRecord* p_record = &node.base_data;
-            QualBitsByVis q_by_vis{};
+            qual_bits_t qual_bits = 0;
             bool any_change = false;
 
             // Check for any intersections between threads generated by ThreadCuboid and those
-            // those stored in the VisRecord; union QualBitsByVis of such VisRecord intervals.
+            // those stored in the VisRecord; union qual_bits of such VisRecord intervals.
             nodepool::id<TlSigIntervalListNode> node_id = p_record->visibility_set;
             p_cuboid->to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi)
             {
@@ -1889,7 +1857,7 @@ struct SyncvTable
                     TlSigInterval vis_set_interval = node.data;
                     if (vis_set_interval.intersects_threads(tid_lo, tid_hi)) {
                         any_change = true;
-                        q_by_vis |= vis_set_interval.qual_bits_by_vis;
+                        qual_bits |= vis_set_interval.qual_bits;
                     }
                     if (vis_set_interval.tid_hi > tid_hi) {
                         // Keep checking new vis_set_interval against gen_interval until the visibility set interval
@@ -1905,7 +1873,7 @@ struct SyncvTable
             if (any_change) {
                 AugmentVisRecordCallback augment{};
                 augment.p_cuboid = p_cuboid;
-                augment.q_by_vis = q_by_vis;
+                augment.qual_bits = qual_bits;
                 augment(env, vis_record_id);
             }
             return any_change;
@@ -1931,8 +1899,7 @@ struct SyncvTable
     void update_vis_records_for_fence(const ThreadCuboid& cuboid, const SyncvFence& fence, Logger& logger)
     {
         FenceUpdateCommand<Logger> command{
-                &cuboid, fence.L1_qual_bits,
-                fence.L2_full_qual_bits, fence.L2_temporal_qual_bits, logger};
+                &cuboid, fence.L1_qual_bits, fence.L2_qual_bits, logger};
         update_vis_records_for_sync_impl(command);
     }
 
@@ -1973,6 +1940,8 @@ struct SyncvTable
     template <typename Logger>
     void on_fence(const ThreadCuboid& cuboid, const SyncvFence& fence, Logger&& logger)
     {
+        CAMSPORK_REQUIRE_CMP(fence.L1_qual_bits & atomic_qual_mask, ==, 0, "atomic qual-tl in first sync-tl");
+        CAMSPORK_REQUIRE_CMP(fence.L2_qual_bits & atomic_qual_mask, ==, 0, "atomic qual-tl in second sync-tl");
         augment_counter++;
         logger.history_set_sync_stmt_info(fence);
         update_vis_records_for_fence(cuboid, fence, logger);
@@ -1983,6 +1952,7 @@ struct SyncvTable
     void on_arrive(const ThreadCuboid& cuboid, const SyncvArrive& arrive, Logger&& logger)
     {
         // NB augment_counter not changed, as Arrive does not augment any VisRecords.
+        CAMSPORK_REQUIRE_CMP(arrive.L1_qual_bits & atomic_qual_mask, ==, 0, "atomic qual-tl in first sync-tl");
         HamsterBarrierState& home_state = get(arrive.home_barrier);
 
         const auto old_arrive_count = home_state.arrive_count;
@@ -2013,6 +1983,7 @@ struct SyncvTable
     void on_await(const ThreadCuboid& cuboid, const SyncvAwait& await, Logger&& logger)
     {
         // fprintf(stderr, "\x1b[31mon_await\n\x1b[0m");
+        CAMSPORK_REQUIRE_CMP(await.L2_qual_bits & atomic_qual_mask, ==, 0, "atomic qual-tl in second sync-tl");
         augment_counter++;
         HamsterBarrierState& state = get(await.bar);
         const auto old_await_count = state.await_count;
@@ -2048,7 +2019,7 @@ struct SyncvTable
 
             for (nodepool::id<DefaultVisRecordListNode> vis_record_id : vis_record_id_list) {
                 AwaitUpdateCommand<Logger> command{
-                        vis_record_id, &cuboid, await.L2_full_qual_bits, await.L2_temporal_qual_bits, logger
+                        vis_record_id, &cuboid, await.L2_qual_bits, logger
                 };
 
                 const uint64_t hash = read_hash_helper(vis_record_id);
@@ -2148,6 +2119,16 @@ struct SyncvTable
         using node_id = nodepool::id<AssignmentRecord>;
         static constexpr VisRecordKind K = VisRecordKind::Default;
 
+        // Qual-tl class sanity checks.
+        CAMSPORK_REQUIRE_CMP(access.precondition_qual_bits & ooo_qual_mask, ==, 0,
+                             "out-of-order qual-tl in precondition set");
+        CAMSPORK_REQUIRE_CMP(access.atomic_qual_bits, ==, access.precondition_qual_bits & atomic_qual_mask,
+                             "atomic_qual_bits must be exactly the atomic qual-tl in the precondition set");
+        CAMSPORK_REQUIRE(IsMutate || access.atomic_qual_bits == 0, "atomic access must be a mutate");
+        if constexpr (UpdateRecords) {
+            CAMSPORK_REQUIRE_CMP(access.initial_qual_bit & atomic_qual_mask, ==, 0, "atomic qual-tl as initial qual-tl");
+        }
+
         // If the input is a window, take a census of all assignment record IDs in the input window.
         static constexpr bool IsWindow = std::is_same_v<decltype(input), AssignmentRecordWindow>;
         using TrivialCensus = std::array<std::pair<node_id, AssignmentRecordCensusEntry>, 1>;
@@ -2202,8 +2183,9 @@ struct SyncvTable
                     const uint32_t granularity = access.thread_access_granularity;
                     CAMSPORK_REQUIRE_CMP(granularity, >, 0, "Must be positive power of 2");
                     CAMSPORK_REQUIRE_CMP((granularity - 1) & granularity, ==, 0, "Must be positive power of 2");
-                    CAMSPORK_REQUIRE(access.is_ooo || granularity == 1,
-                            "out-of-order non-convergent abstract machine optimization not applicable when !is_ooo");
+                    CAMSPORK_REQUIRE((access.initial_qual_bit & ooo_qual_mask) || granularity == 1,
+                            "out-of-order non-convergent abstract machine optimization not applicable "
+                            "when initial qual-tl is not out-of-order");
 
                     for (uint32_t tid = tid_lo & ~(granularity - 1); tid < tid_hi; tid += granularity) {
                         const VisRecordID new_vis_record_id = memoize_new_vis_record<false, K>(
@@ -2255,12 +2237,9 @@ struct SyncvTable
                 return;
             }
 
-            // If the mutate is a reduction (read+write), we require vis_flag_full.
+            // All checks (RAW, WAW, WAR) are the same: some tl-sig in the VisRecord must have
+            // a qual-tl in the precondition set of the access.
             const AssignmentRecord& assignment_record = get(id);
-            const auto mut_vis_flag_needed = (
-                access.atomic_qual_bits != 0 ? vis_flag_atomic_only :
-                access.is_write_only ? vis_flag_temporal : vis_flag_full
-            );
 
             // Check against previous mutate visibility records
             LoggedMissingTlSig fail_tl_sig{};
@@ -2270,7 +2249,7 @@ struct SyncvTable
                 const VisRecord& mutate_record = remove_forwarding(&node.vis_record_id);
                 logger.history_vis_record_checked(node.vis_record_id, IsMutate);  // Logs memoized (base state) ID.
                 const bool visible = visible_to(
-                        mutate_record, cuboid, access.extended_qual_bits, mut_vis_flag_needed,
+                        mutate_record, cuboid, access.precondition_qual_bits,
                         is_convergent, &fail_tl_sig);
                 if (!visible) {
                     logger.history_vis_record_error(node.vis_record_id, fail_tl_sig);
@@ -2287,7 +2266,7 @@ struct SyncvTable
                     const VisRecord& read_record = remove_forwarding(&node.vis_record_id);
                     logger.history_vis_record_checked(node.vis_record_id, IsMutate);  // Logs memoized (base state) ID.
                     const bool visible = visible_to(
-                            read_record, cuboid, access.extended_qual_bits, vis_flag_temporal,
+                            read_record, cuboid, access.precondition_qual_bits,
                             is_convergent, &fail_tl_sig);
                     if (!visible) {
                         logger.history_vis_record_error(node.vis_record_id, fail_tl_sig);
@@ -2869,12 +2848,8 @@ struct SyncvTable
                     this_node.data.assert_valid();
 
                     CAMSPORK_REQUIRE_CMP(this_node.data.tid_hi, >, 0, "Invalid tid_hi");
-                    const auto q = this_node.data.qual_bits_by_vis;
-                    for (uint32_t vis_flag_index = 0; vis_flag_index < num_vis_flags; ++vis_flag_index) {
-                        const auto q_bits = q.array[vis_flag_index];
-                        if (vis_flag_index != vis_flag_index_atomic_only && q_bits != 0) {
-                            max_non_atomic_tid = std::max(max_non_atomic_tid, this_node.data.tid_hi - 1u);
-                        }
+                    if (!this_node.data.is_atomic_only(atomic_qual_mask)) {
+                        max_non_atomic_tid = std::max(max_non_atomic_tid, this_node.data.tid_hi - 1u);
                     }
 
                     auto next_id = this_node.camspork_next_id;
@@ -3027,16 +3002,12 @@ struct SyncvTable
             const TlSigIntervalListNode& node = get(interval_id);
             interval_id = node.camspork_next_id;
             const TlSigInterval data = node.data;
-            fprintf(f, "[%u, %u, %u, %u, %u, %u]\n",
+            fprintf(f, "[%u, %u, %u]\n",
                     data.tid_lo,
                     data.tid_hi,
-                    data.qual_bits_by_vis.array[0],
-                    data.qual_bits_by_vis.array[1],
-                    data.qual_bits_by_vis.array[2],
-                    data.qual_bits_by_vis.array[3]
+                    data.qual_bits
             );
         }
-        static_assert(num_vis_flags == 4);
         if (record.pending_awaits) {
             for (PendingAwait pending_await : get(record.pending_awaits).sorted_map) {
                 debug_print(f, pending_await);
@@ -3211,7 +3182,7 @@ struct SyncvRealLogger
             auto p_excut_interval = std::make_unique<ExcutTlSigInterval>();
             p_excut_interval->tid_lo = node.data.tid_lo;
             p_excut_interval->tid_hi = node.data.tid_hi;
-            p_excut_interval->qual_bits_by_vis = node.data.qual_bits_by_vis;
+            p_excut_interval->qual_bits = node.data.qual_bits;
             p_excut_interval->mutate_tag = mutate_tag;
             p_excut_actions->push_back(std::move(p_excut_interval));
         }
@@ -3235,8 +3206,7 @@ struct SyncvRealLogger
         if (p_history_log) {
             LoggedSyncStmtValues values{};
             values.L1_qual_bits = fence.L1_qual_bits;
-            values.L2_full_qual_bits = fence.L2_full_qual_bits;
-            values.L2_temporal_qual_bits = fence.L2_temporal_qual_bits;
+            values.L2_qual_bits = fence.L2_qual_bits;
             values.sync_stmt_name = "Fence";
             p_history_log->set_syncv_sync_stmt_info({}, std::move(values));
         }
@@ -3247,8 +3217,7 @@ struct SyncvRealLogger
         if (p_history_log) {
             LoggedSyncStmtValues values{};
             values.L1_qual_bits = arrive.L1_qual_bits;
-            values.L2_full_qual_bits = 0;
-            values.L2_temporal_qual_bits = 0;
+            values.L2_qual_bits = 0;
             values.arrive_count_before = state.arrive_count;
             values.arrive_count_after = new_arrive_count;
             values.await_count_before = state.await_count;
@@ -3264,8 +3233,7 @@ struct SyncvRealLogger
         if (p_history_log) {
             LoggedSyncStmtValues values{};
             values.L1_qual_bits = 0;
-            values.L2_full_qual_bits = await.L2_full_qual_bits;
-            values.L2_temporal_qual_bits = await.L2_temporal_qual_bits;
+            values.L2_qual_bits = await.L2_qual_bits;
             values.arrive_count_before = state.arrive_count;
             values.arrive_count_after = state.arrive_count;
             values.await_count_before = state.await_count;
@@ -3381,6 +3349,9 @@ SyncvTable* new_syncv_table(const syncv_init_t& init)
     SyncvTable* table = new SyncvTable;
     table->original_memory_budget = init.memory_budget;
     table->current_memory_budget = init.memory_budget;
+    CAMSPORK_REQUIRE_CMP(init.ooo_qual_mask & init.atomic_qual_mask, ==, 0, "qual-tl can't be both out-of-order and atomic");
+    table->ooo_qual_mask = init.ooo_qual_mask;
+    table->atomic_qual_mask = init.atomic_qual_mask;
     return table;
 }
 
@@ -3439,7 +3410,7 @@ void on_r(
     INTERFACE_EPILOGUE(table)
 }
 
-// on_rw is a bit of a misnomer now that is_write_only is a thing.
+// on_rw is a bit of a misnomer since the mutate need not read.
 
 void on_rw(
         SyncvTable* table, assignment_record_id* input,

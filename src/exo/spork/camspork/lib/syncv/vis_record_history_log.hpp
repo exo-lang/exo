@@ -25,7 +25,6 @@ struct LoggedMissingTlSig
 {
     uint32_t tid;
     qual_bits_t qual_bits;
-    int32_t vis_flag_index;
 };
 
 struct LoggedPendingAwait
@@ -43,8 +42,7 @@ struct LoggedVisRecordData
 struct LoggedSyncStmtValues
 {
     uint32_t L1_qual_bits;
-    uint32_t L2_full_qual_bits;
-    uint32_t L2_temporal_qual_bits;
+    uint32_t L2_qual_bits;
     uint32_t arrive_count_before;
     uint32_t arrive_count_after;
     uint32_t await_count_before;

@@ -57,6 +57,15 @@ struct syncv_init_t
     // TODO remove unused stuff (or use it).
     const char* filename;
     uint64_t memory_budget;
+
+    // Qual-tl class bitmasks.
+    //
+    // Out-of-order qual-tl: initial qual-tl of out-of-order accesses.
+    //   Never in a precondition set; eligible for the out-of-order non-convergent optimization.
+    // Atomic qual-tl: never an initial qual-tl; never in any first or second sync-tl.
+    //   Only in the precondition set of atomic accesses; added to atomic accesses' VisRecords for all threads.
+    qual_bits_t ooo_qual_mask;
+    qual_bits_t atomic_qual_mask;
 };
 
 struct SyncvCheckFail : std::runtime_error

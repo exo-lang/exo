@@ -265,7 +265,7 @@ _add_MutateValue.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, binop, Ex
 
 _add_Fence = lib.camspork_add_Fence
 _add_Fence.restype = StmtRef
-_add_Fence.argtypes = (c_void_p, c_uint32, c_uint32, c_uint32)
+_add_Fence.argtypes = (c_void_p, c_uint32, c_uint32)
 
 _add_Arrive = lib.camspork_add_Arrive
 _add_Arrive.restype = StmtRef
@@ -273,7 +273,7 @@ _add_Arrive.argtypes = (c_void_p, c_uint32, Varname, c_uint32, ptr_ArriveIdx)
 
 _add_Await = lib.camspork_add_Await
 _add_Await.restype = StmtRef
-_add_Await.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c_uint32, c_uint32, c_int32)
+_add_Await.argtypes = (c_void_p, Varname, c_uint32, ptr_ExprRef, c_uint32, c_int32)
 
 _add_ValueEnvAlloc = lib.camspork_add_ValueEnvAlloc
 _add_ValueEnvAlloc.restype = StmtRef
@@ -370,7 +370,7 @@ binop_And = check_return(_binop_from_str(b"and"))
 
 _new_ProgramEnv = lib.camspork_new_ProgramEnv
 _new_ProgramEnv.restype = VoidPtr
-_new_ProgramEnv.argtypes = (c_void_p,)
+_new_ProgramEnv.argtypes = (c_void_p, c_uint32, c_uint32)
 
 _copy_ProgramEnv = lib.camspork_copy_ProgramEnv
 _copy_ProgramEnv.restype = VoidPtr
@@ -598,10 +598,9 @@ class ProgramBuilder:
     _reverse_varname_dict: Dict[Varname, object]
     _stmt_srcinfo: Dict[StmtRef, object]
 
-    ooo_flag = 1
+    # Flag bits 1 and 8 are retired (formerly ooo_flag, write_only_flag).
     convergent_flag = 2
     mutate_flag = 4
-    write_only_flag = 8
 
     one_shot_arrive_flag = 1
     one_shot_await_flag = 2
@@ -700,7 +699,7 @@ class ProgramBuilder:
         self,
         dst: BuilderIndexExpr | Varname,
         initial_qual_bit: int,
-        extended_qual_bits: int,
+        precondition_qual_bits: int,
         qual_tl_mask: int,
         flags: int,
         *,
@@ -751,7 +750,7 @@ class ProgramBuilder:
                 dim,
                 idxs,
                 initial_qual_bit,
-                extended_qual_bits,
+                precondition_qual_bits,
                 qual_tl_mask,
                 atomic_qual_bits,
                 thread_access_granularity,
@@ -761,7 +760,11 @@ class ProgramBuilder:
         )
 
     def SyncEnvFreeShard(
-        self, dst: BuilderIndexExpr | Varname, extended_qual_bits: int, *, srcinfo=None
+        self,
+        dst: BuilderIndexExpr | Varname,
+        precondition_qual_bits: int,
+        *,
+        srcinfo=None,
     ):
         var, dim, offsets = dst.c_var_dim_idxs(self._builder)
         return self.check_stmt(
@@ -771,7 +774,7 @@ class ProgramBuilder:
                 var,
                 dim,
                 offsets,
-                extended_qual_bits,
+                precondition_qual_bits,
             ),
         )
 
@@ -789,8 +792,7 @@ class ProgramBuilder:
     def Fence(
         self,
         L1_qual_bits: int,
-        L2_full_qual_bits: int,
-        L2_temporal_qual_bits: int,
+        L2_qual_bits: int,
         *,
         srcinfo=None,
     ) -> StmtRef:
@@ -799,8 +801,7 @@ class ProgramBuilder:
             _add_Fence(
                 self._builder,
                 L1_qual_bits,
-                L2_full_qual_bits,
-                L2_temporal_qual_bits,
+                L2_qual_bits,
             ),
         )
 
@@ -827,8 +828,7 @@ class ProgramBuilder:
     def Await(
         self,
         dst: BuilderIndexExpr,
-        L2_full_qual_bits: int,
-        L2_temporal_qual_bits: int,
+        L2_qual_bits: int,
         N: int,
         *,
         srcinfo=None,
@@ -841,8 +841,7 @@ class ProgramBuilder:
                 var,
                 dim,
                 idxs,
-                L2_full_qual_bits,
-                L2_temporal_qual_bits,
+                L2_qual_bits,
                 N,
             ),
         )
@@ -1050,16 +1049,28 @@ class ProgramEnv:
     get_stmt_srcinfo: Callable[[StmtRef], object]
     translate_from_varname: Callable[[Varname], object]
 
-    def __init__(self, arg):
+    def __init__(self, arg, *, ooo_qual_mask=None, atomic_qual_mask=None):
+        """Construct from ProgramBuilder, or copy another ProgramEnv.
+
+        When constructing from ProgramBuilder, qual-tl class bitmasks must be given
+        (which qual-tl are out-of-order; which are atomic).
+        Copies inherit the bitmasks of the original.
+
+        """
         if isinstance(arg, ProgramEnv):
+            assert ooo_qual_mask is None and atomic_qual_mask is None
             self._program = arg._program
             self._env = check_return(_copy_ProgramEnv(arg._env))
         else:
             assert isinstance(
                 arg, ProgramBuilder
             ), "Expect ProgramBuilder or ProgramEnv"
+            assert isinstance(ooo_qual_mask, int)
+            assert isinstance(atomic_qual_mask, int)
             self._program = arg
-            self._env = check_return(_new_ProgramEnv(arg._builder))
+            self._env = check_return(
+                _new_ProgramEnv(arg._builder, ooo_qual_mask, atomic_qual_mask)
+            )
         self.get_varname = arg.get_varname
         self.get_stmt_srcinfo = arg.get_stmt_srcinfo
         self.translate_from_varname = arg.translate_from_varname
@@ -1182,349 +1193,3 @@ class ProgramEnv:
         idx = []
         ptr = _syncv_fail_idx_ptr(self._env)
         return [ptr[i] for i in range(dim)]
-
-
-# fmt: off
-def so_called_temporary_test():
-    b_validation = False
-
-    @camspork.program
-    def foo_fence(b: ProgramBuilder):
-        with b.ParallelBlock(64):
-            bar = b.add_variable("bar")
-            buf = b.add_variable("buf")
-            task = b.add_variable("task")
-            tid = b.add_variable("tid")
-            i = b.add_variable("i")
-            with b.TasksFor(task, 0, 4):
-                b.BarrierEnvAlloc(bar)
-                b.SyncEnvAlloc(buf[64])
-                with b.ThreadsFor(tid, 0, 64, 0, 0, 1):
-                    b.SyncEnvAccess(buf[tid], 2, 2, 15, b.mutate_flag)
-                b.Arrive(2, bar, ())
-                b.Await(bar, 2, 2, N=0)
-                # b.Fence(2, 2, 2)
-                with b.ThreadsFor(tid, 0, 64, 0, 0, 1):
-                    with b.SeqFor(i, 0, 64):
-                        b.SyncEnvAccess(buf[i], 2, 2, 15, 0)
-                b.BarrierFree(bar)
-
-    if False:
-        print(foo_fence)
-        env = ProgramEnv(foo_fence)
-        env.set_debug_validation_enable(b_validation)
-        env.exec(excut_filename="foo_fence_excut.json")
-        env.exec()
-        env.set_debug_validation_enable(True)
-
-    @camspork.program
-    def foo_barrier(b: ProgramBuilder):
-        bars = b.add_variable("bars")
-        m = b.add_variable("m")
-        n = b.add_variable("n")
-        k = b.add_variable("k")
-        buf = b.add_variable("buf")
-        enable_trailing_barrier = b.add_variable("enable_trailing_barrier")
-        b.SyncEnvAlloc(buf[128])
-        with b.ParallelBlock(64):
-            task = b.add_variable("task")
-            warp = b.add_variable("warp")
-            with b.TasksFor(task, 0, 2):
-                with b.ThreadsFor(warp, 0, 2, 0, 0, 32):
-                    # This program is BS
-                    b.BarrierEnvAlloc(bars[4, 2, 2])
-                    tid = b.add_variable("tid")
-                    with b.ThreadsFor(tid, 0, 24, 0, 0, 1):
-                        with b.If(enable_trailing_barrier):
-                            b.SyncEnvAccess(
-                                buf[tid + 32*warp + 64*task], 2, 2, 15, b.mutate_flag | b.ooo_flag,
-                                atomic_qual_bits=8192,
-                                barrier=bars[m, n, k],
-                                barrier_multicasts=((True, False, False),)
-                            )
-                            b.begin_orelse()
-                            b.SyncEnvAccess(
-                                buf[tid + 32*warp + 64*task], 2, 2, 15, b.mutate_flag | b.ooo_flag,
-                                atomic_qual_bits=8192,
-                            )
-                    with b.ThreadsFor(tid, 0, 1, 0, 0, 14):
-                        b.Arrive(0, bars[m, n, k], ((True, False, True), (True, True, False)))
-                        b.Await(bars[m, n, k], 3, 3, N=0)
-                    with b.ThreadsFor(tid, 0, 14, 0, 0, 1):
-                        b.SyncEnvAccess(buf[tid + 32*warp + 64*task], 1, 1, 15, 0)
-    print(foo_barrier)
-    env = ProgramEnv(foo_barrier)
-    env.set_debug_validation_enable(b_validation)
-    env.alloc_scalar_value("m", 0)
-    env.alloc_scalar_value("n", 1)
-    env.alloc_scalar_value("k", 0)
-    env.alloc_scalar_value("enable_trailing_barrier", 1)
-    env.exec(excut_filename="foo_barrier_excut.json")
-    env.set_debug_validation_enable(True)  # defer to later
-
-    @camspork.program
-    def fib(b):
-        fib_size = b.add_variable("fib_size")
-        _fib = b.add_variable("fib")
-        _iter = b.add_variable("iter")
-        b.ValueEnvAlloc(_fib[fib_size,])
-        b.MutateValue(_fib[0,], "=", 0)
-        b.MutateValue(_fib[1,], "=", 1)
-        with b.SeqFor(_iter, 2, fib_size):
-            b.MutateValue(_fib[_iter,], "=", _fib[_iter-1,] + _fib[_iter-2,])
-
-        _dst = b.add_variable("dst")
-        b.ValueEnvAlloc(_dst[fib_size,])
-        with b.SeqFor(_iter, 0, fib_size):
-          with b.If(_iter % 5):
-            b.MutateValue(_fib[_iter,], "=", -_fib[_iter,])
-            b.MutateValue(_fib[_iter,], "*", 10000)
-            b.begin_orelse()
-            b.MutateValue(_fib[_iter,], "/", 5)
-
-    env = ProgramEnv(fib)
-    env.set_debug_validation_enable(b_validation)
-    print(fib)
-    env.alloc_scalar_value("fib_size", 22)
-    env.exec()
-    for i in range(0, env.read_value("fib_size")):
-        print("%2i %i" % (i, env.read_value("fib", i)))
-    env.set_debug_validation_enable(True)  # defer to later
-
-    @camspork.program
-    def extent_test(b: ProgramBuilder):
-        buf = b.add_variable("buf")
-        b.SyncEnvAlloc(buf[10, 16])
-        with b.ParallelBlock(4):
-            tid = b.add_variable("tid")
-            with b.ThreadsFor(tid, 0, 4, 0, 0, 1):
-                with b.If(b.Eq(tid, 0)):
-                    b.SyncEnvAccess(buf[0, 1], 1, 1, 15, 0)
-                    b.SyncEnvAccess(buf[0, 2], 1, 1, 15, 0)
-                    b.SyncEnvAccess(buf[0, 3], 1, 1, 15, 0)
-                    b.SyncEnvAccess(buf[0, 4], 1, 1, 15, 0)
-                b.SyncEnvAccess(buf[tid, 2 * tid], 1, 1, 15, 0, extent=[6, 5])
-            b.Fence(1, 1, 1)
-            m = b.add_variable("m")
-            n = b.add_variable("n")
-            with b.SeqFor(m, 0, 10):
-                with b.SeqFor(n, 0, 16):
-                    b.SyncEnvAccess(buf[m, n], 1, 1, 15, b.mutate_flag)
-    print(extent_test)
-    env = ProgramEnv(extent_test)
-    env.set_debug_validation_enable(b_validation)
-    try:
-        env.exec(excut_filename="extent_excut.json")
-    except Exception:
-        print(env.program_with_remarks())
-        raise
-    env.set_debug_validation_enable(True)  # defer to later
-
-    @camspork.program
-    def atomic_test(b: ProgramBuilder):
-        buf = b.add_variable("buf")
-        use_atomics = b.add_variable("use_atomics")
-        wrong_tl = b.add_variable("wrong_tl")
-        fence_enable = b.add_variable("fence_enable")
-        b.SyncEnvAlloc(buf[8])
-        with b.ParallelBlock(8):
-            tid = b.add_variable("tid")
-            with b.ThreadsFor(tid, 0, 8, 0, 0, 1):
-                s = b.add_variable("s")
-                with b.SeqFor(s, 0, 8):
-                    with b.If(use_atomics):
-                        b.SyncEnvAccess(buf[s], 1, 1, 15, b.mutate_flag, atomic_qual_bits=1)
-                        with b.If(wrong_tl):
-                            b.SyncEnvAccess(buf[s], 2, 2, 15, b.mutate_flag, atomic_qual_bits=2)
-                            b.begin_orelse()
-                            b.SyncEnvAccess(buf[s], 1, 1, 15, b.mutate_flag, atomic_qual_bits=1)
-                        b.begin_orelse()
-                        b.SyncEnvAccess(buf[s], 1, 1, 15, b.mutate_flag, atomic_qual_bits=0)
-            with b.If(fence_enable):
-                b.Fence(1, 5, 5)
-            with b.ThreadsFor(tid, 0, 8, 0, 0, 1):
-                b.SyncEnvAccess(buf[tid], 1, 1, 15, 0)
-
-    env = ProgramEnv(atomic_test)
-    env.set_debug_validation_enable(b_validation)
-    env.alloc_scalar_value("use_atomics", 1)
-    env.alloc_scalar_value("wrong_tl", 0)
-    env.alloc_scalar_value("fence_enable", 1)
-    try:
-        env.exec(excut_filename="atomic_excut.json")
-    except Exception:
-        print(env.program_with_remarks())
-        raise
-    env.set_debug_validation_enable(True)  # defer to later
-
-
-    @camspork.program
-    def managed_ring_buffer_test(b: ProgramBuilder):
-        RING = 4
-        task_M = b.add_variable("task_M")
-        task_N = b.add_variable("task_N")
-        K_iters = b.add_variable("K_iters")
-        with b.ParallelBlock(384):
-            m_task = b.add_variable("m_task")
-            n_task = b.add_variable("n_task")
-            with b.TasksFor(m_task, 0, task_M):
-                with b.TasksFor(n_task, 0, task_N):
-                    raw = b.add_variable("raw")
-                    war = b.add_variable("war")
-                    A_smem = b.add_variable("A_smem")
-                    B_smem = b.add_variable("B_smem")
-                    b.BarrierEnvAlloc(war[K_iters + RING], flags=b.one_shot_arrive_flag)
-                    b.SyncEnvAlloc(war[K_iters + RING])
-                    b.Arrive(0, war[0], ())
-                    b.Arrive(0, war[1], ())
-                    b.Arrive(0, war[2], ())
-                    b.Arrive(0, war[3], ())
-                    b.BarrierEnvAlloc(raw[K_iters], flags=b.one_shot_arrive_flag)
-                    b.SyncEnvAlloc(raw[K_iters])
-                    b.SyncEnvAlloc(A_smem[K_iters, 256, 32])
-                    b.SyncEnvAlloc(B_smem[K_iters, 256, 32])
-
-                    tmp = b.add_variable("tmp")
-                    with b.SeqFor(tmp, 0, K_iters):
-                        b.SyncEnvManageRingBuffer(15, war[tmp], war, 0, RING, ())
-                        b.SyncEnvManageRingBuffer(15, war[tmp], raw, 0, RING, ())
-                        b.SyncEnvManageRingBuffer(15, war[tmp], A_smem, 0, RING, ())
-                        b.SyncEnvManageRingBuffer(15, war[tmp], B_smem, 0, RING, ())
-
-                    k_iter = b.add_variable("k_iter")
-                    CudaWarps_consumer = b.add_variable("CudaWarps_consumer")
-                    CudaWarps_producer = b.add_variable("CudaWarps_producer")
-                    with b.SeqFor(k_iter, 0, K_iters):
-                        with b.ThreadsFor(CudaWarps_producer, 0, 1, 0, 256, 128):
-                            b.Await(war[k_iter], 0, 1, N=0)
-                            b.SyncEnvAccess(
-                                A_smem[k_iter, 0, 0], 1, 1, 15, b.mutate_flag | b.write_only_flag | b.ooo_flag,
-                                extent=[1, 256, 256], thread_access_granularity=128)
-                            b.SyncEnvAccess(
-                                B_smem[k_iter, 0, 0], 1, 1, 15, b.mutate_flag | b.write_only_flag | b.ooo_flag,
-                                extent=[1, 256, 256], thread_access_granularity=128)
-                            b.Arrive(1, raw[k_iter], ())
-                        with b.ThreadsFor(CudaWarps_consumer, 0, 1, 0, 0, 256):
-                            b.Await(raw[k_iter], 1, 1, N=0)
-                            b.SyncEnvAccess(
-                                A_smem[k_iter, 0, 0], 1, 1, 15, b.convergent_flag,
-                                extent=[1, 256, 256])
-                            b.SyncEnvAccess(
-                                B_smem[k_iter, 0, 0], 1, 1, 15, b.convergent_flag,
-                                extent=[1, 256, 256])
-                            b.Arrive(1, war[k_iter + RING], ())
-                    b.DataFree(A_smem)
-                    b.DataFree(B_smem)
-                    b.BarrierFree(raw)
-                    b.BarrierFree(war)
-
-
-    print(managed_ring_buffer_test)
-    env = ProgramEnv(managed_ring_buffer_test)
-    env.set_debug_validation_enable(b_validation)
-    env.alloc_scalar_value("task_M", 2)
-    env.alloc_scalar_value("task_N", 3)
-    env.alloc_scalar_value("K_iters", 9)
-    try:
-        if False:
-            env.exec(excut_filename="managed_ring_buffer_excut.json")
-        else:
-            env.set_debug_validation_enable(True)
-            env.set_history_enable(True)
-            env.exec(excut_filename="managed_ring_buffer_excut.json", filter_name="A_smem", filter_idx=(5, 0, 0))
-            print(env.program_with_remarks())
-    except Exception:
-        env.add_error_history_remarks()
-        print(env.program_with_remarks())
-        raise
-    env.set_debug_validation_enable(True)  # defer to later
-
-
-    @camspork.program
-    def fence_test(b: ProgramBuilder):
-        num_tasks = b.add_variable("num_tasks")
-        fence_enable = b.add_variable("fence_enable")
-        buf = b.add_variable("buf")
-        b.SyncEnvAlloc(buf[64])
-        with b.ParallelBlock(64):
-            task = b.add_variable("task")
-            tid = b.add_variable("tid")
-            global tasks_for
-            with b.TasksFor(task, 0, num_tasks) as tasks_for:
-                with b.ThreadsFor(tid, 0, 64, 0, 0, 1):
-                    b.SyncEnvAccess(buf[tid], 1, 1, 15, b.mutate_flag)
-                with b.If(fence_enable):
-                    b.Fence(1, 1, 511)
-                with b.ThreadsFor(tid, 0, 64, 0, 0, 1):
-                    s = b.add_variable("s")
-                    with b.SeqFor(s, 0, 64):
-                        b.SyncEnvAccess(buf[s], 1, 1, 15, 0)
-    print(fence_test)
-    print(tasks_for.node)
-    print(tasks_for.body)
-    print(tasks_for.orelse)
-    env = ProgramEnv(fence_test)
-    env.set_debug_validation_enable(b_validation)
-    env.alloc_scalar_value("num_tasks", 1)
-    env.alloc_scalar_value("fence_enable", 1)
-    env.exec(excut_filename="fence_excut.json")
-    env.set_debug_validation_enable(True)  # defer to later
-
-
-    @camspork.program
-    def realloc_test(b: ProgramBuilder):
-        with b.ParallelBlock(2):
-            task = b.add_variable("task")
-            tid = b.add_variable("tid")
-            with b.TasksFor(task, 0, 3):
-                buf = b.add_variable("buf")
-                scalar = b.add_variable("scalar")
-                b.SyncEnvAlloc(buf[2])
-                b.SyncEnvAlloc(scalar)
-                with b.ThreadsFor(tid, 0, 2, 0, 0, 1):
-                    b.SyncEnvAccess(buf[tid], 1, 1, 15, b.mutate_flag)
-                    b.SyncEnvAccess(buf[tid], 1, 1, 15, b.mutate_flag)
-                    with b.If(b.Eq(tid, 0)):
-                      b.SyncEnvAccess(scalar, 1, 1, 15, b.mutate_flag)
-                # b.Fence(1, 1, 1)
-                with b.ThreadsFor(tid, 0, 2, 0, 0, 1):
-                    b.SyncEnvAccess(buf[tid], 1, 1, 15, b.mutate_flag)
-    print(realloc_test)
-    env = ProgramEnv(realloc_test)
-    env.exec(excut_filename="realloc_excut.json")
-
-
-    @camspork.program
-    def logic_test(b: ProgramBuilder):
-        a0 = b.add_variable("a0")
-        a1 = b.add_variable("a1")
-        a2 = b.add_variable("a2")
-        a3 = b.add_variable("a3")
-        or_out = b.add_variable("or_out")
-        and_out = b.add_variable("and_out")
-
-        b.MutateValue(or_out, "=", 0)
-        b.MutateValue(and_out, "=", 0)
-        with b.If(b.Or(a0 > a1, a2 >= a3)):
-            b.MutateValue(or_out, "=", 8)
-        with b.If(b.And(a0 < a1, a2 <= a3)):
-            b.MutateValue(and_out, "=", 1337)
-
-    print(logic_test)
-    for i in range(9):
-        env = ProgramEnv(logic_test)
-        a0 = 20
-        a2 = -10
-        a1 = a0 - 1 + i // 3
-        a3 = a2 - 1 + i % 3
-        env.alloc_scalar_value("or_out", 0xDEAD)
-        env.alloc_scalar_value("and_out", 0xDEAD)
-        env.alloc_scalar_value("a0", a0)
-        env.alloc_scalar_value("a1", a1)
-        env.alloc_scalar_value("a2", a2)
-        env.alloc_scalar_value("a3", a3)
-        env.exec()
-        or_out = env.read_value("or_out")
-        and_out = env.read_value("and_out")
-        assert or_out == (8 if (a0 > a1 or a2 >= a3) else 0)
-        assert and_out == (1337 if (a0 < a1 and a2 <= a3) else 0)

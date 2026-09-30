@@ -355,9 +355,12 @@ class ProgramEnv
     template <bool EnableExcutLog>
     friend class ProgramExec;
 
-    ProgramEnv(size_t buffer_size, const char* buffer);
-    ProgramEnv(size_t buffer_size, std::shared_ptr<const char[]> buffer);
-    explicit ProgramEnv(const ProgramBuilder& builder);
+    // ooo_qual_mask, atomic_qual_mask: qual-tl class bitmasks, see syncv_init_t.
+    ProgramEnv(size_t buffer_size, const char* buffer, qual_bits_t ooo_qual_mask, qual_bits_t atomic_qual_mask);
+    ProgramEnv(
+            size_t buffer_size, std::shared_ptr<const char[]> buffer,
+            qual_bits_t ooo_qual_mask, qual_bits_t atomic_qual_mask);
+    ProgramEnv(const ProgramBuilder& builder, qual_bits_t ooo_qual_mask, qual_bits_t atomic_qual_mask);
 
     // Currently moves are the same as copies.
     ProgramEnv(const ProgramEnv&) = default;
@@ -515,7 +518,8 @@ class ProgramEnv
 
 // 0 or null returns signal an error, except for delete.
 
-CAMSPORK_EXPORT camspork::ProgramEnv* camspork_new_ProgramEnv(const camspork::ProgramBuilder* p_builder);
+CAMSPORK_EXPORT camspork::ProgramEnv* camspork_new_ProgramEnv(
+    const camspork::ProgramBuilder* p_builder, camspork::qual_bits_t ooo_qual_mask, camspork::qual_bits_t atomic_qual_mask);
 CAMSPORK_EXPORT camspork::ProgramEnv* camspork_copy_ProgramEnv(const camspork::ProgramEnv* p_original);
 CAMSPORK_EXPORT void camspork_delete_ProgramEnv(camspork::ProgramEnv* p_victim);
 

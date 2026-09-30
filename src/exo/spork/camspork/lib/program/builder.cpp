@@ -99,17 +99,17 @@ TrailingBarrierExprRef ProgramBuilder::add_TrailingBarrierExpr(Varname name, uin
 template <typename ReadNode, typename MutateNode, typename IdxType>
 StmtRef ProgramBuilder::add_SyncEnvAccess_impl(
     Varname name, size_t num_idx, const IdxType* idx,
-    qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, qual_bits_t qual_tl_mask, qual_bits_t atomic_qual_bits,
+    qual_bits_t initial_qual_bit, qual_bits_t precondition_qual_bits, qual_bits_t qual_tl_mask, qual_bits_t atomic_qual_bits,
     uint32_t thread_access_granularity, uint32_t access_flags, TrailingBarrierExprRef trailing_barrier_expr)
 {
-    static_assert(access_flag_all_bits == 15, "update me");
+    static_assert(access_flag_all_bits == 6, "update me");
     CAMSPORK_REQUIRE_CMP(access_flags, <=, access_flag_all_bits, "unknown access_flags bit set");
     const bool is_mutate = 0 != (access_flags & access_flag_mutate);
     auto impl = [&] (auto node)
     {
         node.name = name;
         node.initial_qual_bit = initial_qual_bit;
-        node.extended_qual_bits = extended_qual_bits;
+        node.precondition_qual_bits = precondition_qual_bits;
         node.qual_tl_mask = qual_tl_mask;
         node.access_flags = access_flags;
         node.trailing_barrier_expr = trailing_barrier_expr;
@@ -132,38 +132,38 @@ StmtRef ProgramBuilder::add_SyncEnvAccess_impl(
 
 StmtRef ProgramBuilder::add_SyncEnvAccess(
     Varname name, size_t num_idx, const ExprRef* idx,
-    qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, qual_bits_t qual_tl_mask, qual_bits_t atomic_qual_bits,
+    qual_bits_t initial_qual_bit, qual_bits_t precondition_qual_bits, qual_bits_t qual_tl_mask, qual_bits_t atomic_qual_bits,
     uint32_t thread_access_granularity, uint32_t access_flags, TrailingBarrierExprRef trailing_barrier_expr)
 {
     return add_SyncEnvAccess_impl<SyncEnvReadSingle, SyncEnvMutateSingle>(
-            name, num_idx, idx, initial_qual_bit, extended_qual_bits, qual_tl_mask, atomic_qual_bits,
+            name, num_idx, idx, initial_qual_bit, precondition_qual_bits, qual_tl_mask, atomic_qual_bits,
             thread_access_granularity, access_flags, trailing_barrier_expr);
 }
 
 StmtRef ProgramBuilder::add_SyncEnvAccess(
     Varname name, size_t num_idx, const OffsetExtentExpr* idx,
-    qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, qual_bits_t qual_tl_mask, qual_bits_t atomic_qual_bits,
+    qual_bits_t initial_qual_bit, qual_bits_t precondition_qual_bits, qual_bits_t qual_tl_mask, qual_bits_t atomic_qual_bits,
     uint32_t thread_access_granularity, uint32_t access_flags, TrailingBarrierExprRef trailing_barrier_expr)
 {
     return add_SyncEnvAccess_impl<SyncEnvReadWindow, SyncEnvMutateWindow>(
-            name, num_idx, idx, initial_qual_bit, extended_qual_bits, qual_tl_mask, atomic_qual_bits,
+            name, num_idx, idx, initial_qual_bit, precondition_qual_bits, qual_tl_mask, atomic_qual_bits,
             thread_access_granularity, access_flags, trailing_barrier_expr);
 }
 
 StmtRef ProgramBuilder::add_SyncEnvAccess(
     Varname name, size_t num_idx, const ArriveIdx* idx,
-    qual_bits_t initial_qual_bit, qual_bits_t extended_qual_bits, qual_bits_t qual_tl_mask, qual_bits_t atomic_qual_bits,
+    qual_bits_t initial_qual_bit, qual_bits_t precondition_qual_bits, qual_bits_t qual_tl_mask, qual_bits_t atomic_qual_bits,
     uint32_t thread_access_granularity, uint32_t access_flags, TrailingBarrierExprRef trailing_barrier_expr)
 {
     return add_SyncEnvAccess_impl<SyncEnvReadMulticast, SyncEnvMutateMulticast>(
-            name, num_idx, idx, initial_qual_bit, extended_qual_bits, qual_tl_mask, atomic_qual_bits,
+            name, num_idx, idx, initial_qual_bit, precondition_qual_bits, qual_tl_mask, atomic_qual_bits,
             thread_access_granularity, access_flags, trailing_barrier_expr);
 }
 
 StmtRef ProgramBuilder::add_SyncEnvFreeShard(
-        Varname name, size_t num_idx, const ExprRef* idx, qual_bits_t extended_qual_bits)
+        Varname name, size_t num_idx, const ExprRef* idx, qual_bits_t precondition_qual_bits)
 {
-    return append_impl(SyncEnvFreeShard{name, extended_qual_bits}, num_idx, idx);
+    return append_impl(SyncEnvFreeShard{name, precondition_qual_bits}, num_idx, idx);
 }
 
 
@@ -174,11 +174,9 @@ StmtRef ProgramBuilder::add_MutateValue(Varname name, size_t num_idx, const Expr
 
 StmtRef ProgramBuilder::add_Fence(
     qual_bits_t L1_qual_bits,
-    qual_bits_t L2_full_qual_bits, qual_bits_t L2_temporal_qual_bits)
+    qual_bits_t L2_qual_bits)
 {
-    CAMSPORK_REQUIRE_CMP(L2_full_qual_bits, ==, L2_full_qual_bits & L2_temporal_qual_bits,
-                         "L2_full_qual_bits must be a subset of L2_temporal_qual_bits");
-    return append_impl(Fence{L1_qual_bits, L2_full_qual_bits, L2_temporal_qual_bits});
+    return append_impl(Fence{L1_qual_bits, L2_qual_bits});
 }
 
 StmtRef ProgramBuilder::add_Arrive(
@@ -190,11 +188,9 @@ StmtRef ProgramBuilder::add_Arrive(
 
 StmtRef ProgramBuilder::add_Await(
         Varname name, uint32_t num_idx, const ExprRef* idx,
-        uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits, int32_t N)
+        uint32_t L2_qual_bits, int32_t N)
 {
-    CAMSPORK_REQUIRE_CMP(L2_full_qual_bits, ==, L2_full_qual_bits & L2_temporal_qual_bits,
-                         "L2_full_qual_bits must be a subset of L2_temporal_qual_bits");
-    return append_impl(Await{name, L2_full_qual_bits, L2_temporal_qual_bits, N}, num_idx, idx);
+    return append_impl(Await{name, L2_qual_bits, N}, num_idx, idx);
 }
 
 StmtRef ProgramBuilder::add_ValueEnvAlloc(Varname name, size_t num_dims, const ExprRef* extent, uint32_t flags)
@@ -456,48 +452,48 @@ static camspork::TrailingBarrierExprRef get_trailing_barrier_expr(
 
 camspork_RawStmtRef camspork_add_SyncEnvAccessSingle(camspork::ProgramBuilder* p_builder,
     camspork_RawVarname name, uint32_t num_idx, const camspork::ExprRef* idx,
-    camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t extended_qual_bits,
+    camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t precondition_qual_bits,
     camspork::qual_bits_t qual_tl_mask, camspork::qual_bits_t atomic_qual_bits, uint32_t thread_access_granularity,
     uint32_t access_flags, const camspork::TrailingBarrierExprRef* trailing_barrier_expr)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_SyncEnvAccess(
-            name, num_idx, idx, initial_qual_bit, extended_qual_bits, qual_tl_mask, atomic_qual_bits,
+            name, num_idx, idx, initial_qual_bit, precondition_qual_bits, qual_tl_mask, atomic_qual_bits,
             thread_access_granularity, access_flags, get_trailing_barrier_expr(trailing_barrier_expr));
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
 camspork_RawStmtRef camspork_add_SyncEnvAccessWindow(camspork::ProgramBuilder* p_builder,
     camspork_RawVarname name, uint32_t num_idx, const camspork::OffsetExtentExpr* idx,
-    camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t extended_qual_bits,
+    camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t precondition_qual_bits,
     camspork::qual_bits_t qual_tl_mask, camspork::qual_bits_t atomic_qual_bits, uint32_t thread_access_granularity,
     uint32_t access_flags, const camspork::TrailingBarrierExprRef* trailing_barrier_expr)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_SyncEnvAccess(
-            name, num_idx, idx, initial_qual_bit, extended_qual_bits, qual_tl_mask, atomic_qual_bits,
+            name, num_idx, idx, initial_qual_bit, precondition_qual_bits, qual_tl_mask, atomic_qual_bits,
             thread_access_granularity, access_flags, get_trailing_barrier_expr(trailing_barrier_expr));
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
 camspork_RawStmtRef camspork_add_SyncEnvAccessMulticast(camspork::ProgramBuilder* p_builder,
     camspork_RawVarname name, uint32_t num_idx, const camspork::ArriveIdx* idx,
-    camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t extended_qual_bits,
+    camspork::qual_bits_t initial_qual_bit, camspork::qual_bits_t precondition_qual_bits,
     camspork::qual_bits_t qual_tl_mask, camspork::qual_bits_t atomic_qual_bits, uint32_t thread_access_granularity,
     uint32_t access_flags, const camspork::TrailingBarrierExprRef* trailing_barrier_expr)
 {
     CAMSPORK_API_PROLOGUE
     return p_builder->add_SyncEnvAccess(
-            name, num_idx, idx, initial_qual_bit, extended_qual_bits, qual_tl_mask, atomic_qual_bits,
+            name, num_idx, idx, initial_qual_bit, precondition_qual_bits, qual_tl_mask, atomic_qual_bits,
             thread_access_granularity, access_flags, get_trailing_barrier_expr(trailing_barrier_expr));
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
 camspork_RawStmtRef camspork_add_SyncEnvFreeShard(camspork::ProgramBuilder* p_builder,
-    camspork_RawVarname name, uint32_t num_idx, const camspork::ExprRef* idx, camspork::qual_bits_t extended_qual_bits)
+    camspork_RawVarname name, uint32_t num_idx, const camspork::ExprRef* idx, camspork::qual_bits_t precondition_qual_bits)
 {
     CAMSPORK_API_PROLOGUE
-    return p_builder->add_SyncEnvFreeShard(name, num_idx, idx, extended_qual_bits);
+    return p_builder->add_SyncEnvFreeShard(name, num_idx, idx, precondition_qual_bits);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef());
 }
 
@@ -511,10 +507,10 @@ camspork_RawStmtRef camspork_add_MutateValue(camspork::ProgramBuilder* p_builder
 
 camspork_RawStmtRef camspork_add_Fence(camspork::ProgramBuilder* p_builder,
     camspork::qual_bits_t L1_qual_bits,
-    camspork::qual_bits_t L2_full_qual_bits, camspork::qual_bits_t L2_temporal_qual_bits)
+    camspork::qual_bits_t L2_qual_bits)
 {
     CAMSPORK_API_PROLOGUE
-    return p_builder->add_Fence(L1_qual_bits, L2_full_qual_bits, L2_temporal_qual_bits);
+    return p_builder->add_Fence(L1_qual_bits, L2_qual_bits);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 
@@ -529,10 +525,10 @@ camspork_RawStmtRef camspork_add_Arrive(camspork::ProgramBuilder* p_builder,
 
 camspork_RawStmtRef camspork_add_Await(camspork::ProgramBuilder* p_builder,
     camspork_RawVarname name, uint32_t num_idx, const camspork::ExprRef* idx,
-    uint32_t L2_full_qual_bits, uint32_t L2_temporal_qual_bits, int32_t N)
+    uint32_t L2_qual_bits, int32_t N)
 {
     CAMSPORK_API_PROLOGUE
-    return p_builder->add_Await(name, num_idx, idx, L2_full_qual_bits, L2_temporal_qual_bits, N);
+    return p_builder->add_Await(name, num_idx, idx, L2_qual_bits, N);
     CAMSPORK_API_EPILOGUE(camspork::StmtRef())
 }
 

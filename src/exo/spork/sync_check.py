@@ -276,11 +276,8 @@ class CamsporkDo(LoopIR_Do):
                         flags=b.convergent_flag,
                         srcinfo=s.srcinfo,
                     )
-                # SHIM: camspork still distinguishes full and temporal
-                # second sync-tl bits; the no-VF model has one set.
                 b.Await(
                     am_home_barrier,
-                    L2_bits,
                     L2_bits,
                     N=sync_type.N,
                     srcinfo=s.srcinfo,
@@ -289,7 +286,6 @@ class CamsporkDo(LoopIR_Do):
                 b.Fence(
                     L1_bits,
                     L2_bits,
-                    L2_bits,  # SHIM, see Await
                     srcinfo=s.srcinfo,
                 )
 
@@ -312,7 +308,7 @@ class CamsporkDo(LoopIR_Do):
                 # Implicit (cpu, cuda_stream) -> cuda_stream sync before;
                 # End CudaDeviceFunction with JoinThreads.
                 # implicit cuda_stream -> cuda_stream sync after.
-                b.Fence(cpu_bit | cuda_bits, cuda_bits, cuda_bits, srcinfo=s.srcinfo)
+                b.Fence(cpu_bit | cuda_bits, cuda_bits, srcinfo=s.srcinfo)
                 with b.ParallelBlock(*domain, srcinfo=s.srcinfo):
                     old_domain = self._domain
                     self._domain = domain
@@ -322,7 +318,7 @@ class CamsporkDo(LoopIR_Do):
                 # CudaDeviceFunction, which is misleading as it's after
                 # the device function launch.
                 b.JoinThreads(srcinfo=s.srcinfo)
-                b.Fence(cuda_bits, cuda_bits, cuda_bits, srcinfo=s.srcinfo)
+                b.Fence(cuda_bits, cuda_bits, srcinfo=s.srcinfo)
             else:
                 self.do_stmts(s.body)
             self._device = old_device
@@ -576,7 +572,6 @@ class CamsporkDo(LoopIR_Do):
                 if not arg_info.const:
                     flags |= b.mutate_flag
                 if qual_tl.out_of_order():
-                    flags |= b.ooo_flag
                     # out-of-order non-convergent abstract machine optimization
                     thread_access_granularity = (
                         self._coll_analysis.get_qual_tl_thread_alignment(qual_tl)
@@ -596,6 +591,8 @@ class CamsporkDo(LoopIR_Do):
                 b.SyncEnvAccess(
                     dst_lo,
                     initial_qual_bits,
+                    # camspork's precondition set includes the atomic qual-tl
+                    # (InstrQuals.precondition_bits never does)
                     precondition_qual_bits | atomic_qual_bits,
                     qual_tl_mask,
                     flags=flags,
@@ -935,7 +932,11 @@ def top_level_check(backend, args_dict: Dict[str, int], *, no_smem_free_check=Fa
     # Create environment with sync-env buffers initialized to expected sizes
     # and value environment initialized.
     def make_env(single_sync_var):
-        env = camspork.ProgramEnv(camspork_program)
+        env = camspork.ProgramEnv(
+            camspork_program,
+            ooo_qual_mask=Qual_tl.get_impl_class_bits("out_of_order"),
+            atomic_qual_mask=Qual_tl.get_impl_class_bits("atomic"),
+        )
         for i, loopir_arg in enumerate(p.args):
             nm = loopir_arg.name
             if single_sync_var is None or single_sync_var == nm:

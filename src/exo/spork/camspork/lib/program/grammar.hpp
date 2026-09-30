@@ -561,11 +561,11 @@ static constexpr uint32_t NumStmtTypes = 27;
 
 using StmtRef = NodeRef<stmt, NumStmtTypes>;
 
-constexpr uint32_t access_flag_ooo = 1;
+// Bits 1 (formerly access_flag_ooo) and 8 (formerly access_flag_write_only) are retired.
+// Out-of-order is now a property of the initial qual-tl (syncv_init_t::ooo_qual_mask).
 constexpr uint32_t access_flag_convergent = 2;
 constexpr uint32_t access_flag_mutate = 4;
-constexpr uint32_t access_flag_write_only = 8;
-constexpr uint32_t access_flag_all_bits = 15;
+constexpr uint32_t access_flag_all_bits = 6;
 
 template <bool IsWindow, bool IsMulticast>
 struct SyncEnvAccessNodeData
@@ -574,7 +574,7 @@ struct SyncEnvAccessNodeData
 
     Varname name;
     qual_bits_t initial_qual_bit;
-    qual_bits_t extended_qual_bits;
+    qual_bits_t precondition_qual_bits;
     qual_bits_t qual_tl_mask;
     uint32_t thread_access_granularity;
     uint32_t access_flags;  // access_flag_mutate must match with IsMutate template parameter (in subclass)
@@ -606,42 +606,42 @@ struct SyncEnvAccessNode : SyncEnvAccessNodeData<IsWindow, IsMulticast>, CondAto
     static constexpr bool is_mutate = IsMutate;
 };
 
-// SyncEnvReadSingle(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, qual_tl* qual_tl_mask, int thread_access_granularity, bool is_ooo, expr* offset)
+// SyncEnvReadSingle(Varname name, qual_tl initial_qual_bit, qual_tl* precondition_qual_bits, qual_tl* qual_tl_mask, int thread_access_granularity, expr* offset)
 using SyncEnvReadSingle = stmt<0>;
 template <>
 struct stmt<0> : SyncEnvAccessNode<false, false, false>
 {
 };
 
-// SyncEnvReadWindow(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, qual_tl* qual_tl_mask, int thread_access_granularity, bool is_ooo, expr* offset, expr* extent)
+// SyncEnvReadWindow(Varname name, qual_tl initial_qual_bit, qual_tl* precondition_qual_bits, qual_tl* qual_tl_mask, int thread_access_granularity, expr* offset, expr* extent)
 using SyncEnvReadWindow = stmt<1>;
 template <>
 struct stmt<1> : SyncEnvAccessNode<false, true, false>
 {
 };
 
-// SyncEnvReadMulticast(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, qual_tl* qual_tl_mask, int thread_access_granularity, bool is_ooo, expr* offset, multicast_flag* multicasts)
+// SyncEnvReadMulticast(Varname name, qual_tl initial_qual_bit, qual_tl* precondition_qual_bits, qual_tl* qual_tl_mask, int thread_access_granularity, expr* offset, multicast_flag* multicasts)
 using SyncEnvReadMulticast = stmt<2>;
 template <>
 struct stmt<2> : SyncEnvAccessNode<false, false, true>
 {
 };
 
-// SyncEnvMutateSingle(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, qual_tl* qual_tl_mask, qual_tl* atomic_qual_bits, int thread_access_granularity, bool is_ooo, expr* offset)
+// SyncEnvMutateSingle(Varname name, qual_tl initial_qual_bit, qual_tl* precondition_qual_bits, qual_tl* qual_tl_mask, qual_tl* atomic_qual_bits, int thread_access_granularity, expr* offset)
 using SyncEnvMutateSingle = stmt<3>;
 template <>
 struct stmt<3> : SyncEnvAccessNode<true, false, false>
 {
 };
 
-// SyncEnvMutateWindow(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, qual_tl* qual_tl_mask, qual_tl* atomic_qual_bits, int thread_access_granularity, bool is_ooo, expr* offset, expr* extent)
+// SyncEnvMutateWindow(Varname name, qual_tl initial_qual_bit, qual_tl* precondition_qual_bits, qual_tl* qual_tl_mask, qual_tl* atomic_qual_bits, int thread_access_granularity, expr* offset, expr* extent)
 using SyncEnvMutateWindow = stmt<4>;
 template <>
 struct stmt<4> : SyncEnvAccessNode<true, true, false>
 {
 };
 
-// SyncEnvMutateMulticast(Varname name, qual_tl initial_qual_bit, qual_tl* extended_qual_bits, qual_tl* qual_tl_mask, qual_tl* atomic_qual_bits, int thread_access_granularity, bool is_ooo, expr* offset, multicast_flag* multicasts)
+// SyncEnvMutateMulticast(Varname name, qual_tl initial_qual_bit, qual_tl* precondition_qual_bits, qual_tl* qual_tl_mask, qual_tl* atomic_qual_bits, int thread_access_granularity, expr* offset, multicast_flag* multicasts)
 using SyncEnvMutateMulticast = stmt<5>;
 template <>
 struct stmt<5> : SyncEnvAccessNode<true, false, true>
@@ -649,7 +649,7 @@ struct stmt<5> : SyncEnvAccessNode<true, false, true>
 };
 
 
-// SyncEnvFreeShard(Varname name, expr* idx, qual_tl* extended_qual_bits)
+// SyncEnvFreeShard(Varname name, expr* idx, qual_tl* precondition_qual_bits)
 //
 // Before-free checks for name[*idx, :, :...] where the number of : is equal to the
 // dimensionality of the named tensor minus the number of idx provided.
@@ -660,7 +660,7 @@ template<>
 struct stmt<6>
 {
     Varname name;
-    qual_bits_t extended_qual_bits;
+    qual_bits_t precondition_qual_bits;
     CAMSPORK_NODE_VLA_MEMBER(ExprRef)
 };
 
@@ -676,14 +676,13 @@ struct stmt<7>
     CAMSPORK_NODE_VLA_MEMBER(ExprRef)
 };
 
-// Fence(qual_tl* L1_qual_bits, qual_tl* L2_full_qual_bits, qual_tl* L2_temporal_qual_bits)
+// Fence(qual_tl* L1_qual_bits, qual_tl* L2_qual_bits)
 using Fence = stmt<8>;
 template<>
 struct stmt<8>
 {
     qual_bits_t L1_qual_bits;
-    qual_bits_t L2_full_qual_bits;
-    qual_bits_t L2_temporal_qual_bits;
+    qual_bits_t L2_qual_bits;
     CAMSPORK_NODE_NO_VLA()
 };
 
@@ -698,14 +697,13 @@ struct stmt<9>
     CAMSPORK_NODE_VLA_MEMBER(ArriveIdx)
 };
 
-// Await(Varname name, qual_tl* L2_full_qual_bits, qual_tl* L2_temporal_qual_bits, int32_t N, ExprRef* idx)
+// Await(Varname name, qual_tl* L2_qual_bits, int32_t N, ExprRef* idx)
 using Await = stmt<10>;
 template<>
 struct stmt<10>
 {
     Varname name;
-    qual_bits_t L2_full_qual_bits;
-    qual_bits_t L2_temporal_qual_bits;
+    qual_bits_t L2_qual_bits;
     int32_t N;
     CAMSPORK_NODE_VLA_MEMBER(ExprRef)
 };
