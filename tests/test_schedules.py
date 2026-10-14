@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 from exo import ParseFragmentError, proc, DRAM, Procedure, config
@@ -3166,6 +3167,58 @@ def test_stage_mem_out_of_bound_point(golden):
 
     foo = stage_mem(foo, foo.find_loop("i").body(), "x[i]", "tmp")
     assert str(foo) == golden
+
+
+def test_stage_mem_partial_overwrite(golden):
+    # The block only writes x[0:8], so the window x[0:9] must be loaded first,
+    # otherwise the store copies an uninitialized value back into x[8]
+    @proc
+    def foo(x: i8[10]):
+        for i in seq(0, 8):
+            x[i] = 0.0
+
+    foo = stage_mem(foo, foo.body(), "x[0:9]", "xtmp")
+    assert str(foo) == golden
+
+
+def test_stage_mem_full_overwrite(golden):
+    # The block writes the whole window, so no load is needed
+    @proc
+    def foo(x: i8[10]):
+        for i in seq(0, 8):
+            x[i] = 0.0
+
+    foo = stage_mem(foo, foo.body(), "x[0:8]", "xtmp")
+    assert str(foo) == golden
+
+
+def test_stage_mem_conditional_overwrite(golden):
+    # A write under a condition does not always overwrite the window
+    @proc
+    def foo(n: size, x: i8[n]):
+        assert n > 0
+        if n > 4:
+            x[0] = 0.0
+
+    foo = stage_mem(foo, foo.body(), "x[0]", "xtmp")
+    assert str(foo) == golden
+
+
+def test_stage_mem_partial_overwrite_runs(compiler):
+    @proc
+    def foo(x: i8[10]):
+        for i in seq(0, 8):
+            x[i] = 0.0
+
+    foo_staged = rename(stage_mem(foo, foo.body(), "x[0:9]", "xtmp"), "foo_staged")
+    lib = compiler.compile([foo, foo_staged])
+
+    expected = np.arange(1, 11, dtype=np.int8)
+    actual = expected.copy()
+    lib.foo(None, expected)
+    lib.foo_staged(None, actual)
+
+    np.testing.assert_array_equal(actual, expected)
 
 
 def test_new_expr_multi_vars(golden):

@@ -1,0 +1,8 @@
+def foo(x: i8[10] @ DRAM):
+    xtmp: i8[9 - 0] @ DRAM
+    for i0 in seq(0, 9 - 0):
+        xtmp[i0] = x[i0 + 0]
+    for i in seq(0, 8):
+        xtmp[i - 0] = 0.0
+    for i0 in seq(0, 9 - 0):
+        x[i0 + 0] = xtmp[i0]
