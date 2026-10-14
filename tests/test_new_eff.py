@@ -37,6 +37,26 @@ def test_debug_let_and_mod():
     slv.verify(F)
 
 
+def test_window_overwritten_unknown_is_not_proven(monkeypatch):
+    @proc
+    def foo(x: i8[10]):
+        x[0] = 0.0
+        x[1] = 0.0
+
+    ir = foo._loopir_proc
+    x = ir.args[0]
+    srcinfo = ir.body[0].srcinfo
+    window = [(LoopIR.Const(0, T.index, srcinfo), LoopIR.Const(2, T.index, srcinfo))]
+    assert Check_Window_Overwritten(ir, ir.body, x.name, window, x.type.shape())
+
+    # if the solver cannot decide, the window does not count as overwritten
+    def unknown(self, e):
+        raise TypeError("unknown result from z3")
+
+    monkeypatch.setattr(SMTSolver, "verify", unknown)
+    assert not Check_Window_Overwritten(ir, ir.body, x.name, window, x.type.shape())
+
+
 def test_reorder_stmts_fail():
     @proc
     def foo(N: size, x: R[N]):

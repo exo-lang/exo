@@ -3204,6 +3204,30 @@ def test_stage_mem_conditional_overwrite(golden):
     assert str(foo) == golden
 
 
+def test_stage_mem_guarded_overwrite(golden):
+    # Guards that only skip out-of-bounds elements still overwrite the window
+    @proc
+    def foo(n: size, x: i8[n]):
+        for io in seq(0, (n + 3) / 4):
+            for ii in seq(0, 4):
+                if n > ii + 4 * io and 0 <= ii + 4 * io:
+                    x[ii + 4 * io] = 0.0
+
+    foo = stage_mem(foo, foo.find_loop("ii"), "x[4 * io:4 * io + 4]", "xtmp")
+    assert str(foo) == golden
+
+
+def test_stage_mem_reversed_partial_overwrite(golden):
+    # The block only writes x[8:16], so the window x[0:16] must be loaded first
+    @proc
+    def foo(x: i8[16]):
+        for i in seq(0, 8):
+            x[-i + 15] = 0.0
+
+    foo = stage_mem(foo, foo.body(), "x[0:16]", "xtmp")
+    assert str(foo) == golden
+
+
 def test_stage_mem_partial_overwrite_runs(compiler):
     @proc
     def foo(x: i8[10]):
