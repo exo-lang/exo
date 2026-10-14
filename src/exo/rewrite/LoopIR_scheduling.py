@@ -27,6 +27,7 @@ from .new_eff import (
     Check_BufferReduceOnly,
     Check_Bounds,
     Check_Access_In_Window,
+    Check_Window_Overwritten,
     Check_IsDeadAfter,
     Check_IsIdempotent,
     Check_ExprBound,
@@ -4055,7 +4056,15 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
             ir, fwd, c, buf_name, partial(mk_write, block_cursor=fwd(block_cursor))
         )
 
-    if actualR and not WShadow:
+    load_needed = actualR and not WShadow
+    if actualW and not load_needed:
+        # Without a load, the store below copies the whole staging buffer back,
+        # so the block must overwrite every (in-bounds) element of the window.
+        load_needed = not Check_Window_Overwritten(
+            block_cursor.get_root(), block, buf_name, w_exprs, buf_typ.shape()
+        )
+
+    if load_needed:
         load_iter = [Sym(f"i{i}") for i, _ in enumerate(shape)]
         load_widx = [LoopIR.Read(s, [], T.index, srcinfo) for s in load_iter]
         if use_accum_zero:
@@ -4133,7 +4142,7 @@ def DoStageMem(block_cursor, buf_name, w_exprs, new_name, use_accum_zero=False):
 
     # new alloc, load_nest + new_body + store_nest
     new_block_c = fwd(block_cursor[0]).as_block().expand(0, len(block_cursor) - 1)
-    if actualR and not WShadow:
+    if load_needed:
         new_block_c = new_block_c.expand(1, 0)
     if actualW:
         new_block_c = new_block_c.expand(0, 1)

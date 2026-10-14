@@ -1,0 +1,7 @@
+def foo(n: size, x: i8[n] @ DRAM):
+    assert n > 0
+    xtmp: i8 @ DRAM
+    xtmp = x[0]
+    if n > 4:
+        xtmp = 0.0
+    x[0] = xtmp

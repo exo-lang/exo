@@ -1,0 +1,9 @@
+def foo(n: size, x: i8[n] @ DRAM):
+    for io in seq(0, (n + 3) / 4):
+        xtmp: i8[4 * io + 4 - 4 * io] @ DRAM
+        for ii in seq(0, 4):
+            if n > ii + 4 * io and 0 <= ii + 4 * io:
+                xtmp[ii + 4 * io - 4 * io] = 0.0
+        for i0 in seq(0, 4 * io + 4 - 4 * io):
+            if i0 + 4 * io < n:
+                x[i0 + 4 * io] = xtmp[i0]

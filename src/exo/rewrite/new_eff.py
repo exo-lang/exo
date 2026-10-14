@@ -2065,6 +2065,178 @@ def Check_Access_In_Window(proc, access_cursor, w_exprs, block_cursor):
     )
 
 
+def _affine_index(e):
+    """
+    Returns the affine form of an index expression as a dictionary from
+    variables to coefficients (None maps to the constant term),
+    or None if the expression is not affine
+    """
+    if isinstance(e, LoopIR.Const):
+        return {None: e.val}
+    elif isinstance(e, LoopIR.Read) and len(e.idx) == 0:
+        return {e.name: 1}
+    elif isinstance(e, LoopIR.USub):
+        arg = _affine_index(e.arg)
+        return None if arg is None else {x: -c for x, c in arg.items()}
+    elif isinstance(e, LoopIR.BinOp) and e.op in ("+", "-", "*"):
+        lhs = _affine_index(e.lhs)
+        rhs = _affine_index(e.rhs)
+        if lhs is None or rhs is None:
+            return None
+        if e.op == "*":
+            if set(lhs) <= {None}:
+                lhs, rhs = rhs, lhs
+            if not set(rhs) <= {None}:
+                return None
+            return {x: c * rhs.get(None, 0) for x, c in lhs.items()}
+        sign = 1 if e.op == "+" else -1
+        res = dict(lhs)
+        for x, c in rhs.items():
+            res[x] = res.get(x, 0) + sign * c
+        return res
+    else:
+        return None
+
+
+def _affine_eq(a, b):
+    return all(a.get(x, 0) == b.get(x, 0) for x in set(a) | set(b))
+
+
+def _is_bounds_guard(cond, idx, shape):
+    """
+    Returns True if cond only excludes locations outside of the buffer,
+    i.e. it is a conjunction of idx[d] < shape[d] and 0 <= idx[d],
+    where idx and shape are affine forms
+    """
+    if isinstance(cond, LoopIR.BinOp) and cond.op == "and":
+        return _is_bounds_guard(cond.lhs, idx, shape) and _is_bounds_guard(
+            cond.rhs, idx, shape
+        )
+    if not isinstance(cond, LoopIR.BinOp) or cond.op not in ("<", ">", "<=", ">="):
+        return False
+    lhs, rhs = _affine_index(cond.lhs), _affine_index(cond.rhs)
+    if lhs is None or rhs is None:
+        return False
+    op = cond.op
+    if op in (">", ">="):
+        lhs, rhs, op = rhs, lhs, op.replace(">", "<")
+    for i, n in zip(idx, shape):
+        if op == "<" and n is not None and _affine_eq(lhs, i) and _affine_eq(rhs, n):
+            return True
+        if op == "<=" and _affine_eq(lhs, {None: 0}) and _affine_eq(rhs, i):
+            return True
+    return False
+
+
+def _writes_whole_window(s, buf, w_exprs, shape, loops, guards):
+    """
+    Returns True if executing s writes every in-bounds location of the window
+    w_exprs of buf with a single assignment, where each dimension of the window
+    is either a point or swept with unit stride by exactly one loop, and the
+    assignment is only guarded by checks against the buffer bounds.
+    loops and guards are the loops and conditions around s inside the block.
+    """
+    if isinstance(s, LoopIR.For):
+        loop = (s.iter, _affine_index(s.lo), _affine_index(s.hi))
+        return any(
+            _writes_whole_window(b, buf, w_exprs, shape, loops + [loop], guards)
+            for b in s.body
+        )
+    if isinstance(s, LoopIR.If) and len(s.orelse) == 0:
+        return any(
+            _writes_whole_window(b, buf, w_exprs, shape, loops, guards + [s.cond])
+            for b in s.body
+        )
+    if not isinstance(s, LoopIR.Assign) or s.name != buf:
+        return False
+
+    idxs = [_affine_index(i) for i in s.idx]
+    if any(idx is None for idx in idxs):
+        return False
+    shape = [_affine_index(n) for n in shape]
+    if not all(_is_bounds_guard(g, idxs, shape) for g in guards):
+        return False
+
+    used = set()
+    for w, idx in zip(w_exprs, idxs):
+        swept = [l for l in loops if idx.get(l[0], 0) != 0]
+        if not isinstance(w, tuple):
+            # a point of the window must be written exactly
+            pt = _affine_index(w)
+            if swept or pt is None or not _affine_eq(idx, pt):
+                return False
+            continue
+
+        w_lo, w_hi = _affine_index(w[0]), _affine_index(w[1])
+        if w_lo is None or w_hi is None or len(swept) != 1:
+            return False
+        it, lo, hi = swept[0]
+        if idx[it] != 1 or it in used or lo is None or hi is None:
+            return False
+        used.add(it)
+        # idx = it + off, and it sweeps [lo, hi), so [lo + off, hi + off) is written
+        off = {x: c for x, c in idx.items() if x != it}
+        lo_off = {x: lo.get(x, 0) + off.get(x, 0) for x in set(lo) | set(off)}
+        hi_off = {x: hi.get(x, 0) + off.get(x, 0) for x in set(hi) | set(off)}
+        if not _affine_eq(lo_off, w_lo) or not _affine_eq(hi_off, w_hi):
+            return False
+
+    # a loop that sweeps no dimension might run zero times
+    return len(used) == len(loops)
+
+
+def Check_Window_Overwritten(proc, block, buf, w_exprs, shape):
+    """
+    Returns True if the block always writes every in-bounds location of
+    the window w_exprs of buf (whose dimensions are given by shape)
+    Returns False otherwise, including when this cannot be proven
+    """
+    assert len(block) > 0
+    assert len(w_exprs) == len(shape)
+
+    # fast path for the common shape: a loop nest that assigns to the window
+    if any(_writes_whole_window(s, buf, w_exprs, shape, [], []) for s in block):
+        return True
+
+    ctxt = ContextExtraction(proc, block)
+
+    p = ctxt.get_control_predicate()
+    G = ctxt.get_pre_globenv()
+
+    slv = SMTSolver(verbose=False)
+    slv.push()
+    slv.assume(AMay(p))
+
+    # build a location set describing the window,
+    # restricted to the allocated region of the buffer
+    coords = [Sym(f"i{i}") for i, _ in enumerate(w_exprs)]
+    bounds = []
+    for i, w, n in zip(coords, w_exprs, shape):
+        if isinstance(w, tuple):
+            w_lo, w_hi = w
+            bounds.append(AAnd(lift_e(w_lo) <= AInt(i), AInt(i) < lift_e(w_hi)))
+        else:
+            bounds.append(AEq(AInt(i), lift_e(w)))
+        bounds.append(AAnd(AInt(0) <= AInt(i), AInt(i) < lift_e(n)))
+    pt = LS.Point(buf, [AInt(i) for i in coords], T.index)
+    window_set = LFilter(AAnd(*bounds), pt)
+    for i in reversed(coords):
+        window_set = LBigUnion(i, window_set)
+
+    a = G(stmts_effs(block))
+    Wr = getsets([ES.WRITE_ALL], a)[0]
+    try:
+        is_overwritten = slv.verify(ADef(is_empty(LDiff(window_set, Wr))))
+    except TypeError as e:
+        # the query quantifies over the window and the writes, so z3 may
+        # answer "unknown"; treat it as not proven
+        if "unknown result from z3" not in str(e):
+            raise
+        is_overwritten = False
+    slv.pop()
+    return is_overwritten
+
+
 def Check_Bounds(proc, alloc_stmt, block):
     if len(block) == 0:
         return
