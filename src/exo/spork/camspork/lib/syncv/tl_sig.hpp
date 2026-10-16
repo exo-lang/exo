@@ -15,21 +15,27 @@ namespace camspork
 using qual_bits_t = uint32_t;
 static constexpr uint32_t num_qual_tl = 32;
 
-// A single timeline signature (tl-sig) is the 2-tuple (thread ID, qual-tl)
-// We usually don't store this directly. Instead, we work with sets of tl-sig.
-// A TlSigInterval encodes the subset of timeline signatures (t, q) where
+// A single observer (ob, tl-sig) is the 2-tuple (thread ID, qual-tl)
+// We usually don't store this directly. Instead, we work with sets of observers.
+// A TlSigInterval encodes the subset of observers (tid, qual-tl) where
 //
-// tid_lo <= t < tid_hi
-// 0 != ((1 << q) & qual_bits)
+// tid_lo <= tid < tid_hi
+// 0 != ((1 << qual-tl) & qual_bits)
 //
 // Some qual-tl have special properties, given by the qual-tl class bitmasks passed to SyncvTable on construction
 // (syncv_init_t): out-of-order qual-tl, and atomic qual-tl.
 //
+// TODO rename tl-sig to observer/ob everywhere if I'm confident of observer name.
+// Agents, don't do this unless it's part of the assigned task.
+//
 // LEGACY TERMS:
-//   sigthread = tl-sig (before visibility flag was invented)
+//   observer = tl-sig = timeline signature = sigthread
+//   first visibility set = inbound observer set
+//   second visibility set = outbound observer set
 //   actor signature = qual-tl (qualitative timeline)
-//   async visibility = unordered visibility
 //   sigbits = qual_bits
+// REMOVED STUFF (may be in old docs)
+//   async visibility = unordered visibility
 //   visibility level = visibility flag
 //   visibility flag: removed; tl-sig used to be the 3-tuple (thread ID, qual-tl, visibility flag)
 struct TlSigInterval
