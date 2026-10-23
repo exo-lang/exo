@@ -207,6 +207,60 @@ def test_cp_async_fence_golden(compiler, golden):
     compiler.cuda_cpu_test(mkproc_cp_async_fence_saxpy, golden=golden)
 
 
+def mkproc_cp_async_2d(S0, S1):
+    """
+    Copy GMEM -> SMEM with one Sm80_cp_async_2d [S0, S1] box per thread,
+    then write back to GMEM with threads reversed (reads data copied by other threads).
+    """
+
+    # fmt: off
+    @proc
+    def cp_async_2d_copy(n: size, x: f32[n, S0, S1], y: f32[n, S0, S1]):
+        assert n % 128 == 0
+        device_x: f32[n, S0, S1] @ CudaGmemLinear
+        device_y: f32[n, S0, S1] @ CudaGmemLinear
+        cudaMemcpyAsync_htod_3f32(n, S0, S1, device_x[:, :, :], x[:, :, :])
+        with CudaDeviceFunction(blockDim=128):
+            for task in cuda_tasks(0, n / 128):
+                smem: f32[128, S0, S1] @ CudaSmemLinear
+                for tid in cuda_threads(0, 128, unit=cuda_thread):
+                    Sm80_cp_async_2d(
+                        smem[tid, :, :],
+                        device_x[task * 128 + tid, :, :],
+                        size0=S0, size1=S1, dst=f32, src=f32,
+                    )
+                Fence(Sm80_cp_async, cuda_in_order)
+                for tid in cuda_threads(0, 128, unit=cuda_thread):
+                    for i0 in seq(0, S0):
+                        for i1 in seq(0, S1):
+                            device_y[task * 128 + tid, i0, i1] = smem[127 - tid, i0, i1]
+                # Cross-thread SMEM reads must finish before smem is freed (reused by the next task).
+                Fence(cuda_in_order, cuda_in_order)
+        cudaMemcpyAsync_dtoh_3f32(n, S0, S1, y[:, :, :], device_y[:, :, :])
+
+    return cp_async_2d_copy
+    # fmt: on
+
+
+# 4-, 8-, and 16-byte boxes (cp.async.ca for 4/8 bytes, cp.async.cg for 16 bytes).
+@pytest.mark.parametrize("S0, S1", [(1, 1), (2, 1), (1, 2), (2, 2), (4, 1), (1, 4)])
+def test_cp_async_2d(compiler_Sm80, S0, S1):
+    p = mkproc_cp_async_2d(S0, S1)
+    cu = compiler_Sm80.cuda_test_context(p)
+    p.sync_check(n=256)
+    for n in (128, 128 * 7):
+        x = np.arange(n * S0 * S1, dtype=np.float32).reshape(n, S0, S1) + 0.5
+        y = np.zeros_like(x)
+        cu(None, n, x, y)
+        tid = np.arange(n) % 128
+        src_row = np.arange(n) - tid + (127 - tid)
+        assert np.array_equal(y, x[src_row])
+
+
+def test_cp_async_2d_golden(compiler, golden):
+    compiler.cuda_cpu_test(lambda: mkproc_cp_async_2d(2, 2), golden=golden)
+
+
 def mkproc_grid_constants_windows():
     """
     Test tricky parts of CUDA code lowering

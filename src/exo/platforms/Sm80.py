@@ -93,14 +93,13 @@ class Sm80_cp_async_1d(Sm80_cp_async_base):
         self.instance_impl(size0)
 
 
-# TODO test
 @instr
 class Sm80_cp_async_2d(Sm80_cp_async_base):
     def behavior(
         size0: size,
         size1: size,
         dst: [R][size0, size1] @ CudaSmemAtomicity16B,
-        src: [R][size0, size1] @ CudaSmemAtomicity16B,
+        src: [R][size0, size1] @ CudaGmemAtomicity16B,
     ):
         assert stride(dst, 0) == size1
         assert stride(src, 0) == size1
