@@ -150,7 +150,7 @@ def mkproc_cp_async_fence_saxpy():
 
     @proc
     def saxpy_cp_async(n: size, a: f32[1], y: f32[n], x: f32[n]):
-        assert n % elements_per_task == 20
+        assert n % elements_per_task == 0
         device_x: f32[n] @ CudaGmemLinear
         device_y: f32[n] @ CudaGmemLinear
         device_a: f32 @ CudaGridConstant

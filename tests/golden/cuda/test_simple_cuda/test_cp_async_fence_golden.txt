@@ -270,7 +270,7 @@ cudaMemcpyAsync_htod_1d(size0,dst,src,dst=f32, src=f32)
 //     x : f32[n] @DRAM
 // )
 void saxpy_cp_async( void *ctxt, exo_control_t n, const float* a, float* y, const float* x ) {
-  EXO_ASSUME(n % 1024 == 20);
+  EXO_ASSUME(n % 1024 == 0);
   float *device_x = (float*) exo_cudaMallocAsync(n * sizeof(*device_x), exo_cudaStream);
   float *device_y = (float*) exo_cudaMallocAsync(n * sizeof(*device_y), exo_cudaStream);
   float device_a;
