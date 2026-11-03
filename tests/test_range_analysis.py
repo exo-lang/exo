@@ -361,7 +361,7 @@ def test_index_range_env():
     node = loop._impl._node
 
     N_read = LoopIR.Read(
-        foo._loopir_proc.args[0].name, [], T.plain_size, foo._loopir_proc.srcinfo
+        foo._loopir_proc.args[0].name, [], None, T.plain_size, foo._loopir_proc.srcinfo
     )
 
     def run_N_asserts():
@@ -405,7 +405,7 @@ def test_index_range_env():
     run_N_asserts()
 
     env.add_loop_iter(node.iter, node.lo, node.hi)
-    i_read = LoopIR.Read(node.iter, [], T.index, foo._loopir_proc.srcinfo)
+    i_read = LoopIR.Read(node.iter, [], None, T.index, foo._loopir_proc.srcinfo)
 
     run_N_asserts()
 
@@ -431,9 +431,9 @@ def test_index_range_env():
     node = loop._impl._node
     env.add_loop_iter(node.iter, node.lo, node.hi)
     N_read = LoopIR.Read(
-        foo._loopir_proc.args[0].name, [], T.plain_size, foo._loopir_proc.srcinfo
+        foo._loopir_proc.args[0].name, [], None, T.plain_size, foo._loopir_proc.srcinfo
     )
-    j_read = LoopIR.Read(node.iter, [], T.index, foo._loopir_proc.srcinfo)
+    j_read = LoopIR.Read(node.iter, [], None, T.index, foo._loopir_proc.srcinfo)
     assert env.check_expr_bounds(
         M_value, IndexRangeEnvironment.eq, j_read, IndexRangeEnvironment.eq, M_value
     )

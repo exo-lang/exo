@@ -1065,6 +1065,7 @@ class CheckBounds:
                             self.check_call_shape_eqv(arg_shape, sig_shape, arg)
 
                         # Prep for allow_out_of_bounds exception.
+                        # UNSOUND HACK: see AccessInfo.allow_out_of_bounds.
                         if access_info:
                             nm = sig.name  # Sym type, use str for dict lookup.
                             if access_info[str(nm)].allow_out_of_bounds:

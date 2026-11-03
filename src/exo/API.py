@@ -10,6 +10,7 @@ from exo.rewrite.LoopIR_scheduling import SchedulingError
 
 from .API_types import ProcedureBase, ExoType
 from .core import LoopIR as LoopIR
+from .core.derived_window import desugar_derived_windows
 from .core.cir import CIR_Wrapper
 from .core.instr_class import (
     AtomicityInfo,
@@ -258,6 +259,7 @@ class Procedure(ProcedureBase, ProcCallGen):
 
         if isinstance(proc, LoopIR.UAST.proc):
             proc = TypeChecker(proc).get_loopir()
+            proc = desugar_derived_windows(proc)
             CheckBounds(proc)
             Check_Aliasing(proc)
 

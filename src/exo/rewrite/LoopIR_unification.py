@@ -7,7 +7,9 @@ import pysmt
 from asdl_adt import ADT
 from pysmt import shortcuts as SMT
 
+from ..core.memory import SpecialWindow
 from ..core.LoopIR import (
+    LoopIR_Rewrite,
     LoopIR,
     T,
     LoopIR_Do,
@@ -100,10 +102,73 @@ def DoReplace(call_gen: ProcCallGen, block_cursor: ic.Block):
     # don't use a different LoopIR.proc for the callsite itself
     new_call = call_gen.ProcCallGen_make_call(new_args, stmts[0].srcinfo)
     assert isinstance(new_call, LoopIR.Call)
+    new_call = _auto_derive_special_windows(new_call, block_cursor[0], stmts)
 
     ir, fwd = block_cursor._replace([new_call])
     Check_Aliasing(ir)
     return ir, fwd
+
+
+def _auto_derive_special_windows(call: LoopIR.Call, stmt_cursor, stmts):
+    """PROTOTYPE (plan_derived_window.md): set WindowExpr.derived for args
+    passed to SpecialWindow params, if exactly one in-scope WindowStmt
+    of the same tensor has a matching SpecialWindow."""
+    window_stmts = []
+    c = stmt_cursor
+    while True:
+        try:
+            c = c.prev()
+        except ic.InvalidCursorError:
+            c = c.parent()
+            if c == c.root():
+                break
+        if isinstance(c._node, LoopIR.WindowStmt):
+            window_stmts.append(c._node)
+
+    matched = {}  # buffer Sym -> set of derived values of matched accesses
+
+    class _Collect(LoopIR_Rewrite):
+        def map_s(self, s):
+            if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
+                matched.setdefault(s.name, set()).add(s.derived)
+            return super().map_s(s)
+
+        def map_e(self, e):
+            if isinstance(e, (LoopIR.Read, LoopIR.WindowExpr)):
+                matched.setdefault(e.name, set()).add(e.derived)
+            return super().map_e(e)
+
+    _Collect().apply_stmts(stmts)
+
+    new_args = []
+    for a, fa in zip(call.args, call.f.args):
+        if isinstance(a, LoopIR.WindowExpr) and a.derived is None:
+            ds = matched.get(a.name, set())
+            if len(ds) == 1 and None not in ds:
+                a = a.update(derived=next(iter(ds)))
+        mem = getattr(fa, "mem", None)
+        if (
+            isinstance(a, LoopIR.WindowExpr)
+            and a.derived is None
+            and mem is not None
+            and issubclass(mem, SpecialWindow)
+        ):
+            candidates = [
+                s
+                for s in window_stmts
+                if s.special_window is not None
+                and issubclass(s.special_window, mem)
+                and s.rhs.type.src_buf == a.name
+            ]
+            if len(candidates) > 1:
+                raise SchedulingError(
+                    f"ambiguous derived window for {fa.name}: "
+                    f"{[str(s.name) for s in candidates]}"
+                )
+            if candidates:
+                a = a.update(derived=candidates[0].name)
+        new_args.append(a)
+    return call.update(args=new_args)
 
 
 # --------------------------------------------------------------------------- #
@@ -559,7 +624,7 @@ class BufVar:
         buf = self.solution_buf
         buf_typ = UObj.FV[buf]
         if not self.case_var:
-            return LoopIR.Read(buf, [], buf_typ, srcinfo)
+            return LoopIR.Read(buf, [], None, buf_typ, srcinfo)
         else:
             which_case = ueq_solutions[self.case_var]
             case = self.cases[which_case]
@@ -584,7 +649,7 @@ class BufVar:
 
             as_tensor = T.Tensor(win_shape, True, buf_typ.basetype(), None)
             w_typ = T.Window(buf_typ, as_tensor, buf, idx)
-            return LoopIR.WindowExpr(buf, idx, w_typ, srcinfo)
+            return LoopIR.WindowExpr(buf, idx, None, w_typ, srcinfo)
 
 
 class Unification:
@@ -771,7 +836,7 @@ class Unification:
                 return self.sym_nodes[e.name]
             else:
                 typ = self.FV[e.name]
-                return LoopIR.Read(e.name, [], typ, srcinfo)
+                return LoopIR.Read(e.name, [], None, typ, srcinfo)
 
         elif isinstance(e, UEq.Const):
             return LoopIR.Const(e.val, T.int, srcinfo)

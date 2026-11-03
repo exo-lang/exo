@@ -71,9 +71,9 @@ module LoopIR {
                srcinfo srcinfo )
 
            -- name[*idx] = rhs
-    stmt = Assign( sym name, type type, expr* idx, expr rhs )
+    stmt = Assign( sym name, type type, expr* idx, expr rhs, sym? derived )
            -- name[*idx] += rhs  ("Reduce" is hard-wired in Exo to mean addition)
-         | Reduce( sym name, type type, expr* idx, expr rhs )
+         | Reduce( sym name, type type, expr* idx, expr rhs, sym? derived )
            -- CPU-only stmt for setting up accelerator e.g. vsetvli ; no GPU equivalent
          | WriteConfig( config config, string field, expr rhs )
            -- No-op
@@ -108,13 +108,16 @@ module LoopIR {
          | WindowStmt( sym name, expr rhs, special_window? special_window )
          attributes( srcinfo srcinfo )  -- common to all stmt constructors
 
-    expr = Read( sym name, expr* idx )
+    expr = Read( sym name, expr* idx, sym? derived )
          | Const( object val )
          | USub( expr arg )  -- i.e.  -(...)
          | BinOp( binop op, expr lhs, expr rhs )
          | Extern( extern f, expr* args )
          | BarrierExpr( sym name, w_access* idx ) -- Should we replace with WindowExpr alone?
-         | WindowExpr( sym name, w_access* idx )
+         -- derived: optional WindowStmt name; codegen unifies this
+         -- window expression of the underlying tensor `name` against
+         -- the WindowStmt (see unify_derived.py). Rewrites pass it through.
+         | WindowExpr( sym name, w_access* idx, sym? derived )
          | StrideExpr( sym name, int dim )
          | ReadConfig( config config, string field )
          -- Only used in GPU codegen hack: `(arg + c_consumption) % ring_depth`
@@ -2061,6 +2064,8 @@ class Alpha_Rename(LoopIR_Rewrite):
     def map_s(self, s):
         if isinstance(s, (LoopIR.Assign, LoopIR.Reduce)):
             s2 = super().map_s(s)
+            if s.derived is not None and (new_derived := self.env.get(s.derived)):
+                s2 = [((s2 and s2[0]) or s).update(derived=new_derived)]
             if new_name := self.env.get(s.name):
                 return [((s2 and s2[0]) or s).update(name=new_name)]
             else:
@@ -2112,6 +2117,12 @@ class Alpha_Rename(LoopIR_Rewrite):
             e, (LoopIR.Read, LoopIR.BarrierExpr, LoopIR.WindowExpr, LoopIR.StrideExpr)
         ):
             e2 = super().map_e(e)
+            if (
+                isinstance(e, (LoopIR.WindowExpr, LoopIR.Read))
+                and e.derived is not None
+            ):
+                if new_derived := self.env.get(e.derived):
+                    e2 = (e2 or e).update(derived=new_derived)
             if new_name := self.env.get(e.name):
                 return (e2 or e).update(name=new_name)
             else:

@@ -66,6 +66,7 @@ from ..API_scheduling import (
     delete_buffer,
     reuse_buffer,
     inline_window,
+    insert_window_stmt,
     stage_mem,
     unroll_buffer,
     #

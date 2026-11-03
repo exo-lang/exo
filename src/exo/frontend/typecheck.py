@@ -5,6 +5,7 @@ from ..core.prelude import Sym
 from ..core.size_annotation import NoSizeAnnotation
 from ..spork.base_with_context import BaseWithContext
 
+from ..core.derived_window import check_no_config_reads
 from ..core.LoopIR import (
     T,
     UAST,
@@ -231,6 +232,7 @@ class TypeChecker:
                 return []
             elif isinstance(rhs.type, T.Window):
                 assert isinstance(rhs, LoopIR.WindowExpr)
+                check_no_config_reads(rhs, lambda msg: self.err(stmt, msg))
                 self.env[stmt.name] = rhs.type
                 return [
                     LoopIR.WindowStmt(
@@ -255,7 +257,7 @@ class TypeChecker:
             assert typ.is_real_scalar() or typ is T.err
 
             IRnode = LoopIR.Assign if isinstance(stmt, UAST.Assign) else LoopIR.Reduce
-            return [IRnode(stmt.name, typ, idx, rhs, stmt.srcinfo)]
+            return [IRnode(stmt.name, typ, idx, rhs, None, stmt.srcinfo)]
 
         elif isinstance(stmt, UAST.WriteConfig):
             # Check that field is in config
@@ -460,7 +462,7 @@ class TypeChecker:
             # otherwise, we have a normal access
             else:
                 idx, typ = self.check_access(e, e.name, e.idx, lvalue=False)
-                return LoopIR.Read(e.name, idx, typ, e.srcinfo)
+                return LoopIR.Read(e.name, idx, None, typ, e.srcinfo)
 
         elif isinstance(e, UAST.BarrierExpr):
             in_typ = self.env[e.name]
@@ -489,7 +491,7 @@ class TypeChecker:
                     f"cannot perform windowing on non-tensor, "
                     f"non-window type {in_typ} defined by {e}",
                 )
-                return LoopIR.WindowExpr(e.name, [], T.err, e.srcinfo)
+                return LoopIR.WindowExpr(e.name, [], None, T.err, e.srcinfo)
 
             if e.special_window is not None:
                 # UAST has the optional special window as part of WindowExpr as
@@ -502,7 +504,7 @@ class TypeChecker:
                         f"Can only create SpecialWindow as part of "
                         f"WindowStmt (W = t[idx...] @ SpecialWindow)",
                     )
-                    return LoopIR.WindowExpr(e.name, [], T.err, e.srcinfo)
+                    return LoopIR.WindowExpr(e.name, [], None, T.err, e.srcinfo)
 
             in_shape = in_typ.shape()
             if len(in_shape) != len(e.idx):
@@ -511,11 +513,11 @@ class TypeChecker:
                     f"expected {len(in_shape)} indices for window "
                     f"but got {len(e.idx)}",
                 )
-                return LoopIR.WindowExpr(e.name, [], T.err, e.srcinfo)
+                return LoopIR.WindowExpr(e.name, [], None, T.err, e.srcinfo)
 
             idx = [self.check_w_access(w, t) for w, t in zip(e.idx, in_shape)]
             w_typ = create_window_type(e.name, in_typ, idx)
-            return LoopIR.WindowExpr(e.name, idx, w_typ, e.srcinfo)
+            return LoopIR.WindowExpr(e.name, idx, None, w_typ, e.srcinfo)
 
         elif isinstance(e, UAST.Const):
             if isinstance(e.val, BaseWithContext):

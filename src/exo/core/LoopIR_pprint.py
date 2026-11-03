@@ -535,6 +535,8 @@ def _print_stmt(stmt, env: PrintEnv, indent: str) -> list[str]:
         idx = f"[{', '.join(idx)}]" if idx else ""
 
         rhs = _print_expr(stmt.rhs, env)
+        if stmt.derived is not None:
+            idx += f" @ derived({env.get_name(stmt.derived)})"
 
         return [f"{indent}{lhs}{idx} {op} {rhs}"]
 
@@ -620,6 +622,8 @@ def _print_expr_impl(e, env: PrintEnv, prec: int) -> str:
     if isinstance(e, LoopIR.Read):
         name = env.get_name(e.name)
         idx = f"[{', '.join(_print_expr(i, env) for i in e.idx)}]" if e.idx else ""
+        if e.derived is not None:
+            return f"({name}{idx} @ derived({env.get_name(e.derived)}))"
         return f"{name}{idx}"
 
     elif isinstance(e, LoopIR.Const):
@@ -655,7 +659,10 @@ def _print_expr_impl(e, env: PrintEnv, prec: int) -> str:
 
     elif isinstance(e, LoopIR.WindowExpr):
         name = env.get_name(e.name)
-        return f"{name}[{', '.join([_print_w_access(w, env) for w in e.idx])}]"
+        text = f"{name}[{', '.join([_print_w_access(w, env) for w in e.idx])}]"
+        if e.derived is not None:
+            text += f" @ derived({env.get_name(e.derived)})"
+        return text
 
     elif isinstance(e, LoopIR.StrideExpr):
         return f"stride({env.get_name(e.name)}, {e.dim})"

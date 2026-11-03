@@ -246,6 +246,7 @@ struct exo_win_3f32 {
     const exo_control_t strides[3];
 };
 #endif
+/* Required by CudaDeviceVisibleAtomicity16B */
 /* Required by CudaGmemAtomicity16B */
 #ifndef EXO_WIN_1F32C
 #define EXO_WIN_1F32C
@@ -286,7 +287,6 @@ using exo_CudaRmemPacked32_bf16 = exo_CudaRmemPacked32<int32_t, __nv_bfloat16, _
 #endif
 
 #endif
-/* Required by CudaDeviceVisibleAtomicity16B */
 /* Required by CudaGmemLinear */
 #ifndef EXO_WIN_2F32C
 #define EXO_WIN_2F32C
@@ -498,6 +498,7 @@ struct exo_win_3f32 {
     const exo_control_t strides[3];
 };
 #endif
+/* Required by CudaDeviceVisibleAtomicity16B */
 /* Required by CudaGmemAtomicity16B */
 #ifndef EXO_WIN_1F32C
 #define EXO_WIN_1F32C
@@ -538,7 +539,6 @@ using exo_CudaRmemPacked32_bf16 = exo_CudaRmemPacked32<int32_t, __nv_bfloat16, _
 #endif
 
 #endif
-/* Required by CudaDeviceVisibleAtomicity16B */
 /* Required by CudaGmemLinear */
 #ifndef EXO_WIN_2F32C
 #define EXO_WIN_2F32C

@@ -29,6 +29,17 @@ class AccessInfo:
     # UNSTABLE: for experiments on figuring out how to model TMA's
     # zero-pad behavior (reading GMEM) and implied predication (writing GMEM)
     # when out-of-bounds coordinates are given.
+    #
+    # UNSOUND HACK: boundscheck simply discards all effects on this parameter
+    # (see exempt_names in frontend/boundscheck.py), so out-of-bounds accesses
+    # through it are never diagnosed. The instr's sequential semantics (its
+    # body) still describe ordinary reads/writes at those coordinates, which
+    # are undefined behavior in Exo; the zero-fill (loads) and dropped writes
+    # (stores) the hardware actually performs are not modeled anywhere.
+    # Schedules rely on this together with unsafe_remove_if to drop tail
+    # guards around TMA (e.g. tk_gemm_util), so analyses (effects, sync_check)
+    # reason about an approximation of what the hardware does for tail tiles.
+    # TODO: model the out-of-bounds behavior soundly.
     allow_out_of_bounds: bool = False
 
     # For warp shuffles and TMA: identifies that the first

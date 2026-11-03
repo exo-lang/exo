@@ -155,7 +155,9 @@ def make_basic_tma(n_dims: int, to_gmem: bool, is_multicast: bool, is_reduce: bo
             smem.mem = Sm90_get_mma_smem(swizzle)
 
             gmem.mem = Sm90_tensorMap(swizzle, *smem_box)
-            gmem.allow_out_of_bounds = True  # GMEM special case
+            # GMEM special case. UNSOUND HACK: out-of-bounds TMA coordinates
+            # are not bounds checked; see AccessInfo.allow_out_of_bounds.
+            gmem.allow_out_of_bounds = True
 
             if to_gmem:
                 self.instr_tl = tma_to_gmem_async_instr

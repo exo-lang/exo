@@ -206,6 +206,8 @@ class MemoryAnalysis:
         if isinstance(e, (LoopIR.WindowExpr, LoopIR.Read)):
             # e.name not translated by window_alias:
             # we want SpecialWindow if applicable.
+            if isinstance(e, LoopIR.WindowExpr) and e.derived is not None:
+                return self.mem_env[e.derived]
             return self.mem_env[e.name]
         else:
             assert False

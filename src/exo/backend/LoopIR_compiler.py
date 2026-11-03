@@ -63,6 +63,7 @@ from ..spork.loop_modes import LoopMode, Seq, Par, _CodegenPar, CudaTasks
 from ..spork.barrier_usage import BarrierUsage, BarrierUsageAnalysis, SyncInfo
 from ..spork import timelines
 from ..spork.cuda_backend import loopir_lower_cuda, h_snippet_for_cuda
+from ..core.derived_window import unify_derived_windows
 from ..spork import excut
 from ..spork.coll_analysis import CollAnalysis
 
@@ -493,7 +494,7 @@ def ext_compile_to_strings(
 
             # This is outside the try/catch since this does its own debug logging.
             backend = run_backend_checks(p, debug_log)
-            p = backend.analyzed
+            p = unify_derived_windows(backend.analyzed)
 
             try:
                 comp = Compiler(

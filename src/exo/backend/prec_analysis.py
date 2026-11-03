@@ -151,12 +151,12 @@ class PrecisionAnalysis(LoopIR_Rewrite):
             if typ.is_numeric():
                 btyp = self.get_type(e.name).basetype()
                 typ = self.splice_type(e.type, btyp)
-            return LoopIR.Read(e.name, e.idx, typ, e.srcinfo)
+            return LoopIR.Read(e.name, e.idx, e.derived, typ, e.srcinfo)
 
         elif isinstance(e, LoopIR.WindowExpr):
             btyp = self.get_type(e.name).basetype()
             wtyp = self.splice_type(e.type, btyp)
-            return LoopIR.WindowExpr(e.name, e.idx, wtyp, e.srcinfo)
+            return LoopIR.WindowExpr(e.name, e.idx, e.derived, wtyp, e.srcinfo)
 
         elif isinstance(e, LoopIR.USub):
             arg = self.apply_e(e.arg)

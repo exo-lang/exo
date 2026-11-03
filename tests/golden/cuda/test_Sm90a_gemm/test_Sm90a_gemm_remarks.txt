@@ -84,10 +84,11 @@ def gpu_gemm(L: size, M: size, N: size, K_split: size, K_cluster: size,
                                     Sm90_tma_load_multicast_2d(
                                         A_smem[cta_m, 0:1, iter_k, 0:256,
                                                0:32],
-                                        A_tensorMap[batch, 256 * cta_m + 512 *
-                                                    task_m:256 + 256 * cta_m +
-                                                    512 * task_m, task_k, 32 *
-                                                    iter_k:32 + 32 * iter_k],
+                                        A[batch,
+                                          256 * cta_m + 512 * task_m:256 +
+                                          256 * cta_m + 512 * task_m, task_k,
+                                          32 * iter_k:32 + 32 * iter_k]
+                                        @ derived(A_tensorMap),
                                         dst=f32,
                                         src=f32,
                                         ncta=1,
@@ -108,10 +109,11 @@ def gpu_gemm(L: size, M: size, N: size, K_split: size, K_cluster: size,
                                     Sm90_tma_load_multicast_2d(
                                         B_smem[0:2, cta_n, iter_k, 0:192,
                                                0:32],
-                                        B_tensorMap[batch, 192 * cta_n + 192 *
-                                                    task_n:192 + 192 * cta_n +
-                                                    192 * task_n, task_k, 32 *
-                                                    iter_k:32 + 32 * iter_k],
+                                        B[batch,
+                                          192 * cta_n + 192 * task_n:192 +
+                                          192 * cta_n + 192 * task_n, task_k,
+                                          32 * iter_k:32 + 32 * iter_k]
+                                        @ derived(B_tensorMap),
                                         dst=f32,
                                         src=f32,
                                         ncta=2,
@@ -218,10 +220,11 @@ def gpu_gemm(L: size, M: size, N: size, K_split: size, K_cluster: size,
                                     Sm90_tma_load_multicast_2d(
                                         A_smem[cta_m, 0:1, iter_k % 4, 0:256,
                                                0:32],
-                                        A_tensorMap[batch, 256 * cta_m + 512 *
-                                                    task_m:256 + 256 * cta_m +
-                                                    512 * task_m, task_k, 32 *
-                                                    iter_k:32 + 32 * iter_k],
+                                        A[batch,
+                                          256 * cta_m + 512 * task_m:256 +
+                                          256 * cta_m + 512 * task_m, task_k,
+                                          32 * iter_k:32 + 32 * iter_k]
+                                        @ derived(A_tensorMap),
                                         dst=f32,
                                         src=f32,
                                         ncta=1,
@@ -242,10 +245,11 @@ def gpu_gemm(L: size, M: size, N: size, K_split: size, K_cluster: size,
                                     Sm90_tma_load_multicast_2d(
                                         B_smem[0:2, cta_n, iter_k % 4, 0:192,
                                                0:32],
-                                        B_tensorMap[batch, 192 * cta_n + 192 *
-                                                    task_n:192 + 192 * cta_n +
-                                                    192 * task_n, task_k, 32 *
-                                                    iter_k:32 + 32 * iter_k],
+                                        B[batch,
+                                          192 * cta_n + 192 * task_n:192 +
+                                          192 * cta_n + 192 * task_n, task_k,
+                                          32 * iter_k:32 + 32 * iter_k]
+                                        @ derived(B_tensorMap),
                                         dst=f32,
                                         src=f32,
                                         ncta=2,
@@ -453,14 +457,13 @@ def gpu_gemm(L: size, M: size, N: size, K_split: size, K_cluster: size,
                                     #   pow2 align = 32 @ src/exo/platforms/Sm90/tk_gemm_util.py:955:20:(s780)
                                     for ns in seq(0, 6):
                                         Sm90_tma_reduce_add_2d(
-                                            C_tensorMap[batch, 256 * cta_m +
-                                                        512 * task_m:256 +
-                                                        256 * cta_m +
-                                                        512 * task_m,
-                                                        32 * ns + 192 * cta_n +
-                                                        192 * task_n:32 +
-                                                        32 * ns + 192 * cta_n +
-                                                        192 * task_n],
+                                            C[batch,
+                                              256 * cta_m + 512 * task_m:256 +
+                                              256 * cta_m + 512 * task_m,
+                                              32 * ns + 192 * cta_n +
+                                              192 * task_n:32 + 32 * ns +
+                                              192 * cta_n + 192 * task_n]
+                                            @ derived(C_tensorMap),
                                             C_smem[cta_m, cta_n, ns, 0:256,
                                                    0:32],
                                             dst=f32,

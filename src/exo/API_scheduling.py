@@ -1877,6 +1877,27 @@ def inline_window(proc, winstmt_cursor):
     return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
 
 
+class OptSpecialWindowA(ArgumentProcessor):
+    def __call__(self, sw, all_args):
+        if sw is not None and not is_subclass_obj(sw, SpecialWindow):
+            self.err("expected a SpecialWindow subclass or None")
+        return sw
+
+
+@sched_op([GapCursorA, NameA, CustomWindowExprA("gap_cursor"), OptSpecialWindowA])
+def insert_window_stmt(proc, gap_cursor, new_name, win_expr, special_window=None):
+    """
+    PROTOTYPE (plan_derived_window.md): insert a window statement
+    `new_name = buf[win_expr] @ special_window` at the gap, with no other
+    changes. Accesses opt in to the window via their `derived` attribute.
+    """
+    buf_name, w_exprs = win_expr
+    ir, fwd = scheduling.DoInsertWindowStmt(
+        gap_cursor._impl, buf_name, w_exprs, new_name, special_window
+    )
+    return Procedure(ir, _provenance_eq_Procedure=proc, _forward=fwd)
+
+
 @sched_op(
     [
         BlockCursorA,

@@ -1395,7 +1395,7 @@ class ContextExtraction:
                 G = self.loop_preenv(s)
 
                 guard_body = LoopIR.If(
-                    LoopIR.Read(bds_sym, [], T.bool, s.srcinfo),
+                    LoopIR.Read(bds_sym, [], None, T.bool, s.srcinfo),
                     s.body,
                     [],
                     s.srcinfo,
@@ -1406,14 +1406,16 @@ class ContextExtraction:
                     E.BindEnv(G),
                     E.Guard(ABool(bds_sym), body),
                     E.BindEnv(G_body),
-                ] + self.loop_posteff(s, LoopIR.Read(hi_sym, [], T.index, s.srcinfo))
+                ] + self.loop_posteff(
+                    s, LoopIR.Read(hi_sym, [], None, T.index, s.srcinfo)
+                )
         else:
             return None
 
     def loop_preenv(self, s):
         assert isinstance(s, LoopIR.For)
-        old_i = LoopIR.Read(s.iter, [], T.index, s.srcinfo)
-        new_i = LoopIR.Read(s.iter.copy(), [], T.index, s.srcinfo)
+        old_i = LoopIR.Read(s.iter, [], None, T.index, s.srcinfo)
+        new_i = LoopIR.Read(s.iter.copy(), [], None, T.index, s.srcinfo)
         pre_body = SubstArgs(s.body, {s.iter: new_i}).result()
         pre_loop = LoopIR.For(new_i.name, s.lo, old_i, pre_body, s.loop_mode, s.srcinfo)
         return globenv([pre_loop])
@@ -1424,8 +1426,8 @@ class ContextExtraction:
         # but instead generate
         #   for x' in seq(0, hi-(x+1)): [x' -> x' + (x+1)]s
         assert isinstance(s, LoopIR.For)
-        old_i = LoopIR.Read(s.iter, [], T.index, s.srcinfo)
-        new_i = LoopIR.Read(s.iter.copy(), [], T.index, s.srcinfo)
+        old_i = LoopIR.Read(s.iter, [], None, T.index, s.srcinfo)
+        new_i = LoopIR.Read(s.iter.copy(), [], None, T.index, s.srcinfo)
         old_plus1 = LoopIR.BinOp(
             "+", old_i, LoopIR.Const(1, T.int, s.srcinfo), T.index, s.srcinfo
         )
@@ -1637,8 +1639,8 @@ def Check_ReorderLoops(proc, s):
     x2 = x.copy()
     y2 = y.copy()
     subenv = {
-        x: LoopIR.Read(x2, [], T.index, null_srcinfo()),
-        y: LoopIR.Read(y2, [], T.index, null_srcinfo()),
+        x: LoopIR.Read(x2, [], None, T.index, null_srcinfo()),
+        y: LoopIR.Read(y2, [], None, T.index, null_srcinfo()),
     }
     body2 = SubstArgs(body, subenv).result()
     a_bd = (
@@ -1709,7 +1711,7 @@ def Check_ParallelizeLoop(proc, s):
     i = s.iter
 
     i2 = i.copy()
-    subenv = {i: LoopIR.Read(i2, [], T.index, null_srcinfo())}
+    subenv = {i: LoopIR.Read(i2, [], None, T.index, null_srcinfo())}
     body2 = SubstArgs(body, subenv).result()
 
     a_bd = expr_effs(s.lo) + expr_effs(s.hi)
@@ -1763,13 +1765,13 @@ def Check_FissionLoop(proc, loop, stmts1, stmts2, no_loop_var_1=False):
     j = i.copy()
     lo = loop.lo
     hi = loop.hi
-    subenv = {i: LoopIR.Read(j, [], T.index, null_srcinfo())}
+    subenv = {i: LoopIR.Read(j, [], None, T.index, null_srcinfo())}
     stmts1_j = SubstArgs(stmts1, subenv).result()
 
     Gloop = loop_globenv(
         i,
         LoopIR.Const(0, T.index, null_srcinfo()),
-        LoopIR.Read(j, [], T.index, null_srcinfo()),
+        LoopIR.Read(j, [], None, T.index, null_srcinfo()),
         stmts1,
     )
     # print("GLOOP")

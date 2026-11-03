@@ -227,7 +227,7 @@ class ParseFragment:
                     f"{pat.name} not found in the " + "current environment"
                 )
             idx = [self.parse_e(i) for i in pat.idx]
-            return LoopIR.Read(nm, idx, self.env[nm], self.srcinfo)
+            return LoopIR.Read(nm, idx, None, self.env[nm], self.srcinfo)
         elif isinstance(pat, PAST.BinOp):
             lhs = self.parse_e(pat.lhs)
             rhs = self.parse_e(pat.rhs)

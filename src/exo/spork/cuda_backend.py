@@ -252,6 +252,7 @@ class DimensionRewrite(LoopIR_Rewrite):
                         return LoopIR.Read(
                             node.name,
                             [coord.pt for coord in new_idx],
+                            node.derived,
                             node.type.basetype(),
                             node.srcinfo,
                         )
@@ -552,7 +553,7 @@ class SubtreeScan(LoopIR_Do):
                 ctx.append_fnarg_decl(
                     fnarg, c_name, device_args_decls, device_args_comments
                 )
-                e = LoopIR.Read(sym, [], self.sym_type(sym), s.srcinfo)
+                e = LoopIR.Read(sym, [], None, self.sym_type(sym), s.srcinfo)
                 device_args_values.extend(ctx.fnarg_values(e, ctx.is_const(sym), False))
             else:
                 # Grid constants are passed as array or scalar by-value
@@ -817,11 +818,13 @@ class MainLoopRewrite(LoopIR_Rewrite):
         # nreg = 0
         stmts.append(LoopIR.Alloc(nreg_nm, i32, CudaRmem, srcinfo))
         stmts.append(
-            LoopIR.Assign(nreg_nm, i32, [], LoopIR.Const(0, i32, srcinfo), srcinfo)
+            LoopIR.Assign(
+                nreg_nm, i32, [], LoopIR.Const(0, i32, srcinfo), None, srcinfo
+            )
         )
 
         def wrap_if_nreg(imm, body):
-            var = LoopIR.Read(nreg_nm, [], i32, srcinfo)
+            var = LoopIR.Read(nreg_nm, [], None, i32, srcinfo)
             const = LoopIR.Const(imm, i32, srcinfo)
             cond = LoopIR.BinOp("==", var, const, T.bool, srcinfo)
             return LoopIR.If(cond, body, [], srcinfo)
@@ -843,7 +846,7 @@ class MainLoopRewrite(LoopIR_Rewrite):
             nreg = info.setmaxnreg
 
             asn = LoopIR.Assign(
-                nreg_nm, i32, [], LoopIR.Const(nreg, i32, srcinfo), srcinfo
+                nreg_nm, i32, [], LoopIR.Const(nreg, i32, srcinfo), None, srcinfo
             )
             stmts.append(wrap_if_threadIdx(lo, hi, [asn]))
 

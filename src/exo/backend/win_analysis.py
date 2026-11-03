@@ -24,7 +24,7 @@ class WindowAnalysis(LoopIR_Rewrite):
                     shape, True, a.type.basetype(), a.type.get_ring_guarded_by()
                 )
                 win_typ = T.Window(a.type, as_tens, a.name, idx)
-                return LoopIR.WindowExpr(a.name, idx, win_typ, a.srcinfo)
+                return LoopIR.WindowExpr(a.name, idx, None, win_typ, a.srcinfo)
 
             def promote_arg(a, sa):
                 if sa.type.is_win() and not a.type.is_win():
