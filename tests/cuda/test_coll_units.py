@@ -1626,3 +1626,59 @@ def test_weird_warp_uniform_in_cta_positive(compiler):
 def test_weird_warp_uniform_in_cta_negative(compiler):
     with pytest.raises(Exception) as exc:
         cu = compiler.cuda_cpu_test(mkproc_weird_warp_uniform_in_cta, active_warps=2)
+
+
+@instr
+class warp_convergent_test_instr:
+    def behavior():
+        pass
+
+    def instance(self):
+        self.coll_unit = cuda_agnostic_warp_convergent
+        self.instr_tl = cuda_in_order_instr
+
+    def codegen(self, args):
+        return ["// warp_convergent_test_instr"]
+
+
+def mkproc_warp_convergent_tester(outer_unit, inner_unit):
+    @proc
+    def warp_convergent_test_proc():
+        with CudaDeviceFunction(clusterDim=4, blockDim=1024):
+            for tx in cuda_tasks(0, 1):
+                for io in cuda_threads(0, 2, unit=outer_unit):
+                    for ii in cuda_threads(0, 2, unit=inner_unit):
+                        warp_convergent_test_instr()
+
+    return warp_convergent_test_proc
+
+
+def test_agnostic_warp_convergent_positive(compiler):
+    CTA = cuda_cta_in_cluster
+    mk = mkproc_warp_convergent_tester
+    compiler.cuda_cpu_test(mk, outer_unit=CTA, inner_unit=cuda_warp)
+    compiler.cuda_cpu_test(mk, outer_unit=2 * CTA, inner_unit=CTA)
+    compiler.cuda_cpu_test(mk, outer_unit=cuda_warpgroup, inner_unit=cuda_warp)
+    # The warpgroup is misaligned, but this should not affect warp convergence detection.
+    compiler.cuda_cpu_test(mk, outer_unit=10 * cuda_warp, inner_unit=cuda_warpgroup)
+    compiler.cuda_cpu_test(mk, outer_unit=CTA, inner_unit=2 * cuda_warp)
+
+
+def test_agnostic_warp_convergent_alignment_negative(compiler):
+    mk = mkproc_warp_convergent_tester
+    with pytest.raises(TypeError) as exc:
+        compiler.cuda_cpu_test(mk, outer_unit=99 * cuda_thread, inner_unit=cuda_warp)
+    msg = str(exc.value)
+    assert "ALIGNMENT" in msg.upper().split()
+    assert "warp_convergent_test_instr" in msg
+
+
+def test_agnostic_warp_convergent_alignment_box(compiler):
+    mk = mkproc_warp_convergent_tester
+    with pytest.raises(TypeError) as exc:
+        compiler.cuda_cpu_test(
+            mk, outer_unit=cuda_warpgroup, inner_unit=5 * cuda_thread
+        )
+    msg = str(exc.value)
+    assert "expected box" in msg
+    assert "warp_convergent_test_instr" in msg

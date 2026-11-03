@@ -1144,6 +1144,14 @@ cuda_agnostic_intact_cta = CollUnit(
     (clusterDim, blockDim), (None, blockDim), "cuda_agnostic_intact_cta", None
 )
 
+# Matches collective units that consist of any number of non-subdivided (convergent) warps
+cuda_agnostic_warp_convergent = CollUnit(
+    (clusterDim, blockDim / 32, 32),
+    (None, None, 32),
+    "cuda_agnostic_warp_convergent",
+    None,
+)
+
 # Questionable, these may change later
 cuda_warp_in_cluster = CollUnit(
     (clusterDim, blockDim), (1, 32), "cuda_warp_in_cluster", 0
