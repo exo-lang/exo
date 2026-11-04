@@ -200,9 +200,7 @@ struct HamsterPendingAwaitSet
     nodepool::id<HamsterPendingAwaitSet> camspork_next_id;
     refcnt_t refcnt = 1;
 
-    // Encodes a map (barrier ID -> arrive count)
-    // Sorted by barrier ID.
-    // Each barrier ID exists at most once; missing barrier ID implies (barrier id -> inf).
+    // Sorted by barrier ID. Each barrier ID exists at most once.
     // NB we play fast-and-loose interchanging PendingAwait and barrier_id, and we implement polymorphic <, == for this.
     //
     // Each PendingAwait.hamster_barrier_id is an owning reference to HamsterBarrierState.

@@ -14,6 +14,13 @@ namespace camspork
 
 struct SyncvTable;
 
+// NOTE: pending awaits don't seem to be represented here the same way as in the thesis.
+// The thesis describes TrArrive events as having infinite outbound PendingAwaits "up to infinity"
+// i.e. {PendingAwait(x, z^*, z_{await} \mid z_{await} \ge arrive_count)}
+// meanwhile TrAwait has a single inbound PendingAwait.
+// The actual software's PendingAwait object (here) seems to represent that entire infinite range.
+// Hence, the await implementation is responsible for matching any software PendingAwait with
+// sufficiently low arrive_count, not just an exact arrive_count.
 struct PendingAwait
 {
     barrier_id hamster_barrier_id;
