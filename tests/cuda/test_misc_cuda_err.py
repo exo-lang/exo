@@ -233,9 +233,9 @@ def test_CUtensorMap_wrong_mem(compiler):
     assert "CudaGmemLinear" in str(exc.value)
 
 
-def mkproc_wrong_CudaDeviceFunction():
+def mkproc_wrong_CudaDeviceFunction_in_threads():
     @proc
-    def proc_wrong_CudaDeviceFunction():
+    def proc_wrong_CudaDeviceFunction_in_threads():
         with CudaDeviceFunction(blockDim=128):
             for task in cuda_tasks(0, 1):
                 for tid in cuda_threads(0, 128):
@@ -244,12 +244,12 @@ def mkproc_wrong_CudaDeviceFunction():
                             for tid in cuda_threads(0, 256):
                                 pass
 
-    return proc_wrong_CudaDeviceFunction
+    return proc_wrong_CudaDeviceFunction_in_threads
 
 
-def test_wrong_CudaDeviceFunction(compiler):
+def test_wrong_CudaDeviceFunction_in_threads(compiler):
     with pytest.raises(Exception) as exc:
-        compiler.cuda_cpu_test(mkproc_wrong_CudaDeviceFunction)
+        compiler.cuda_cpu_test(mkproc_wrong_CudaDeviceFunction_in_threads)
     assert "CudaDeviceFunction(blockDim=256) requires cpu_basic_device" in str(
         exc.value
     )

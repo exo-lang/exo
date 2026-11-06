@@ -1801,7 +1801,7 @@ def test_merge_writes_different_lhs_arrays_error():
         bar = merge_writes(bar, "x[0] = y; x[1] += y")
 
 
-def test_merge_writes_different_lhs_arrays_error():
+def test_merge_writes_different_lhs_arrays_window_error():
     @proc
     def bar(x: R[3, 3], y: R):
         z = x[0:2, 0:2]
@@ -1889,7 +1889,7 @@ def test_fold_into_reduce_fail_1():
         bar = fold_into_reduce(bar, bar.find("a[_] = _"))
 
 
-def test_fold_into_reduce_fail_1():
+def test_fold_into_reduce_fail_2():
     @proc
     def bar(m: size, n: size, a: f32[m, n], x: f32):
         for i in seq(0, m):
