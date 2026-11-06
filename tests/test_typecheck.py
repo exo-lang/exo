@@ -185,7 +185,7 @@ def test_pass():
         pass
 
     @proc
-    def p():
+    def p():  # noqa: F811
         pass
 
 

@@ -17,7 +17,7 @@ def repeat(p, func, stmt, fwd=lambda p, c: p.forward(c)):
     return p
 
 
-def lift_config(p, config):
+def lift_config(p, config):  # noqa: F811
     def lift_config_helper(p, config):
         p = repeat(p, reorder_stmts, config, lambda p, c: p.forward(c).expand(1, 0))
         p = fission(p, config.after(), unsafe_disable_checks=True)
@@ -380,7 +380,7 @@ def recurse_add(idx):
         return []
 
 
-def reorder_loops_from_idx(proc, cursor):
+def reorder_loops_from_idx(proc, cursor):  # noqa: F811
     """
     for k in seq(0, 10):
         for j in seq(0, 10):

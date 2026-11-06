@@ -70,7 +70,7 @@ def test_relu5():
     ):
 
         @proc
-        def foo(x: i8[16]):
+        def foo(x: i8[16]):  # noqa: F811
             for i in seq(0, 16):
                 x[i] = relu(i)
 
@@ -100,7 +100,7 @@ def test_sin2(golden, compiler):
     ):
 
         @proc
-        def foo(x: i8[16]):
+        def foo(x: i8[16]):  # noqa: F811
             for i in seq(0, 16):
                 x[i] = sin(i)
 
@@ -141,7 +141,7 @@ def test_expf2():
     ):
 
         @proc
-        def foo(x: i8[16], y: i8[16]):
+        def foo(x: i8[16], y: i8[16]):  # noqa: F811
             y[0] = expf(True)
 
 
@@ -198,7 +198,7 @@ def test_fmaxf2():
     ):
 
         @proc
-        def foo(x: f32[16], y: f32[16]):
+        def foo(x: f32[16], y: f32[16]):  # noqa: F811
             for i in seq(0, 16):
                 y[i] = fmaxf(i, x[i])
 
@@ -207,7 +207,7 @@ def test_fmaxf2():
     ):
 
         @proc
-        def foo(x: f32[16], y: f32[16]):
+        def foo(x: f32[16], y: f32[16]):  # noqa: F811
             for i in seq(0, 16):
                 y[i] = fmaxf(x[i], i)
 
@@ -236,7 +236,7 @@ def test_sigmoid2():
     ):
 
         @proc
-        def foo(x: i8[16], y: i8[16]):
+        def foo(x: i8[16], y: i8[16]):  # noqa: F811
             y[0] = sigmoid(True)
 
 
@@ -264,7 +264,7 @@ def test_sqrt2():
     ):
 
         @proc
-        def foo(x: i8[16], y: i8[16]):
+        def foo(x: i8[16], y: i8[16]):  # noqa: F811
             y[0] = sqrt(True)
 
 
@@ -289,7 +289,7 @@ def test_type_error():
     with pytest.raises(TypeError, match="expected 4 arguments, got 3"):
 
         @proc
-        def foo(x: i8[16], y: f32[16], z: f64[16]):
+        def foo(x: i8[16], y: f32[16], z: f64[16]):  # noqa: F811
             for i in seq(0, 16):
                 z[i] = select(i * 2, y[i], z[i])
 

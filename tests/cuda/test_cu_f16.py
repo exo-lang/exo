@@ -12,7 +12,7 @@ from exo.platforms.Sm90 import *
 from exo.stdlib.scheduling import *
 from exo.scalars import *
 
-import random
+import random  # noqa: F811
 
 
 f16_table = (
