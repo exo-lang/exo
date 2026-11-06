@@ -36,24 +36,9 @@ python3 -m pytest -q -rfE tests/ --junitxml=$OUT/junit.xml > $OUT/pytest_full.lo
 * `pytest-xdist` is not installed, so don't use `-n`.
 * Use `--update-golden` to regenerate goldens, then review the golden diff.
 
-### TODO: remind the human (duplicate test names, 2026-11-02)
+### Derived Window Prototype
 
-David Zhao Akeley 2026-11-02: section text written by Claude but added
-by my authority. Remind me of these tasks. Also remind me to remove
-this ASAP when obsolete.
-
-Python silently lets a later `def` shadow an earlier one with the same name, and pytest only collects the last.
-These exo tests are shadowed (found by AST scan of `tests/`; all hidden copies pass or are identical):
-
-* `tests/test_schedules.py`: `test_merge_writes_different_lhs_arrays_error` ×2 (plain-tensor version never runs),
-  `test_fold_into_reduce_fail_1` ×2.
-* `tests/cuda/test_misc_cuda_err.py`: `test_wrong_CudaDeviceFunction` ×2 and its helper `mkproc_wrong_CudaDeviceFunction` ×2
-  (two different programs; the first never runs).
-* `tests/test_neon.py`: fixture `test_neon_vfmla_f16` ×3 and `test_gen_neon_vfmla_f16` ×3 (identical copies; delete two).
-
-Proposed fix: give the shadowed tests (and helpers) unique names, delete the identical NEON copies,
-and add a pre-commit hook that rejects redefinitions (pyflakes/flake8 `--select=F811`, at least on `tests/`).
-Note: on the `akeley98/derived_window` prototype, the window version of `test_merge_writes_different_lhs_arrays_error`
+On the `akeley98/derived_window` prototype, the window version of `test_merge_writes_different_lhs_arrays_error`
 must use pattern `x[i, 1] = y; x[i + 1, 1] += y` (patterns can't name a derived window anymore).
 
 ### Formatting (black)
