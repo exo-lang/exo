@@ -581,7 +581,8 @@ class CollTiling:
         new_unit_box: Optional[Tuple[int, ...]] = None,
     ):
         def fmt_tup(t):
-            return "[" + ",".join("%4i" % n for n in t) + "]"
+            # unit boxes may have None entries (dimension unconstrained by unit)
+            return "[" + ",".join("None" if n is None else "%4i" % n for n in t) + "]"
 
         suffix = ""
         if new_domain is not None:

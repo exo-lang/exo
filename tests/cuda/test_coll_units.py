@@ -1682,3 +1682,28 @@ def test_agnostic_warp_convergent_alignment_box(compiler):
     msg = str(exc.value)
     assert "expected box" in msg
     assert "warp_convergent_test_instr" in msg
+
+
+def mkproc_too_many_threads_in_cluster():
+    # Regression: the clusterDim dimension of the unit box is None,
+    # which used to crash CollTiling.err while formatting the error message.
+    warp_config = [CudaWarpConfig("whatever", 4)]
+
+    @proc
+    def proc_too_many_threads_in_cluster(X: size, Y: size):
+        with CudaDeviceFunction(clusterDim=2, warp_config=warp_config):
+            for tx in cuda_tasks(0, X):
+                for ty in cuda_tasks(0, Y):
+                    for t in cuda_threads(0, 256):
+                        pass
+                    for w in cuda_threads(0, 8, unit=cuda_warp):
+                        pass
+
+    return proc_too_many_threads_in_cluster
+
+
+def test_too_many_threads_in_cluster(compiler):
+    with pytest.raises(Exception) as exc:
+        compiler.cuda_cpu_test(mkproc_too_many_threads_in_cluster, sm="90a")
+    assert "not enough threads available; max_tile_count=128" in str(exc.value)
+    assert "for t in cuda_threads(0, 256" in str(exc.value)
