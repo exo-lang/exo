@@ -103,6 +103,8 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         void operator() (FILE* f) const { fclose(f); }
     };
     std::unique_ptr<FILE, FileCloser> trace_file;
+    // barrier_id -> "name[idx]", recorded at BarrierEnvAlloc; PendingAwaits outlive the barrier's var slot.
+    std::unordered_map<uint32_t, std::string> trace_barrier_names;
 
   public:
     ProgramExec(ProgramEnv* p_self, SinglePositionFilter _single_position_filter)
@@ -133,9 +135,12 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         }
         SyncvTable* table = env.p_syncv_table.get();
 
-        // Reverse lookup barrier_id -> "name[idx]" (fine for small test programs).
+        // barrier_id -> "name[idx]": names recorded at allocation, else reverse lookup.
         auto barrier_str = [&] (barrier_id id) -> std::string
         {
+            if (auto it = trace_barrier_names.find(id.data); it != trace_barrier_names.end()) {
+                return it->second;
+            }
             for (VarSlotEnvs& var_slot : env.var_slots) {
                 std::vector<extent_t> idx;
                 if (var_slot.barrier.data() && var_slot.barrier.find_idx(id, idx)) {
@@ -206,8 +211,9 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
                 return true;
             };
             // Not allocated / out-of-range: null.
+            // Scalar slots always look allocated; for scalars, no AssignmentRecord prints as null.
             const auto& sync_slot = env.sync_slot(name);
-            if (in_bounds(sync_slot)) {
+            if (in_bounds(sync_slot) && (!idx.empty() || sync_slot.idx(idx.begin(), idx.end()))) {
                 AssignmentRecordDebugData asn;
                 debug_get_assignment_record_data(table, sync_slot.idx(idx.begin(), idx.end()), &asn);
                 s << ", \"mutate\": ";
@@ -219,7 +225,8 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
                 s << ", \"mutate\": null, \"read\": null";
             }
             const auto& barrier_slot = env.barrier_slot(name);
-            if (in_bounds(barrier_slot)) {
+            // Scalar slots always look allocated; barrier id 0 means no live barrier.
+            if (in_bounds(barrier_slot) && barrier_slot.idx(idx.begin(), idx.end())) {
                 BarrierDebugData bar;
                 debug_get_barrier_data(table, barrier_slot.idx(idx.begin(), idx.end()), &bar);
                 s << ", \"arrive_count\": " << bar.arrive_count << ", \"await_count\": " << bar.await_count;
@@ -1070,6 +1077,14 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
 
         // Allocate new barrier IDs.
         alloc_barriers(env.p_syncv_table.get(), slot.size(), slot.data(), node->flags);
+        if (trace_file) {
+            for (size_t i = 0; i < slot.size(); ++i) {
+                std::stringstream s;
+                s << env.str_name(node->name);
+                print_idx_helper(s, slot.idx_from_linear(i));
+                trace_barrier_names[slot.data()[i].data] = s.str();
+            }
+        }
         log_barrier_helper(env.str_name(node->name), slot, {});
         env.maybe_syncv_debug_validate();
     }
