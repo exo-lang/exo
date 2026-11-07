@@ -342,6 +342,12 @@ class ProgramEnv
     bool debug_validation_enable = false;
     bool history_enable = false;
 
+    // Sync env trace for testing: if trace_filename is non-empty, each Fence/Arrive/Await/JoinThreads
+    // writes a JSON line with the state before and after, for each probed var[idx].
+    // Independent of AllowLog: the SyncvTable is still called with the no-log path.
+    std::string trace_filename;
+    std::vector<std::pair<Varname, std::vector<extent_t>>> trace_probes;
+
     // This will grow forever, but the intention of remarks is just for small experiments or reporting errors.
     // Reconsider if needed.
     std::vector<ProgramExecRemark> _remarks;
@@ -441,6 +447,8 @@ class ProgramEnv
 
     void set_debug_validation_enable(bool flag);
     void set_history_enable(bool flag);
+    void set_trace_filename(std::string filename) { trace_filename = std::move(filename); }
+    void add_trace_probe(Varname name, std::vector<extent_t> idx) { trace_probes.emplace_back(name, std::move(idx)); }
     void set_qual_tl_name(uint32_t qual_tl, std::string name);
     void add_error_history_remarks();
     void add_last_checked_read_history_remarks();
@@ -546,6 +554,9 @@ CAMSPORK_EXPORT int camspork_set_value(
 
 CAMSPORK_EXPORT int camspork_set_debug_validation_enable(camspork::ProgramEnv* p_env, uint32_t flag);
 CAMSPORK_EXPORT int camspork_set_history_enable(camspork::ProgramEnv* p_env, uint32_t flag);
+CAMSPORK_EXPORT int camspork_set_trace_filename(camspork::ProgramEnv* p_env, const char* filename);
+CAMSPORK_EXPORT int camspork_add_trace_probe(
+        camspork::ProgramEnv* p_env, camspork::Varname name, uint32_t dims, const camspork::extent_t* idx);
 CAMSPORK_EXPORT int camspork_set_qual_tl_name(camspork::ProgramEnv* p_env, uint32_t qual_tl, const char* name);
 CAMSPORK_EXPORT int camspork_add_error_history_remarks(camspork::ProgramEnv* p_env);
 CAMSPORK_EXPORT int camspork_add_last_checked_read_history_remarks(camspork::ProgramEnv* p_env);

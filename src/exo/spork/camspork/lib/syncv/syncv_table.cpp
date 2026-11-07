@@ -755,9 +755,9 @@ struct SyncvTable
         vis_record.base_data.flags = free_on_arrive_id ? vis_record_before_alloc_flag : 0;
 
         CAMSPORK_REQUIRE_CMP((access.qual_tl_mask & access.initial_qual_bit), ==, access.initial_qual_bit, "Missing qual_tl_mask bits");
-        CAMSPORK_REQUIRE_CMP((access.qual_tl_mask & access.precondition_qual_bits & ~atomic_qual_mask),
+        CAMSPORK_REQUIRE_CMP((access.qual_tl_mask & access.precondition_qual_bits),
             ==,
-            access.precondition_qual_bits & ~atomic_qual_mask,
+            access.precondition_qual_bits,
             "Missing qual_tl_mask bits");
 
         // Initialize visibility set = linked list of intervals generated from the initial thread / thread cuboid.
@@ -2321,10 +2321,9 @@ struct SyncvTable
 
             // Add new visibility record (either as new mutate visibility record, or appended read visibility record).
             if constexpr (IsMutate) {
-                // Clear out read visibility records upon write.
-                // Prior mutate visibility records are kept (atomic or not), and
-                // the new mutate visibility records are added.
-                assignment_record_remove_vis_records(&assignment_record.read_vis_records_head_id);
+                // Prior read and mutate visibility records are kept, and the new mutate
+                // visibility records are added. (Discarding prior reads upon a mutate is
+                // unsound across tasks; see test_read_then_reduce_* in test_camspork_trace.py.)
                 extend_vis_records(&assignment_record.mutate_vis_records_head_id, assignment_record.free_on_arrive);
                 lazy_remove_duplicates(&assignment_record);  // << IMPORTANT for performance
             }
@@ -2589,6 +2588,29 @@ struct SyncvTable
 
 
 
+    void debug_get_assignment_record_data(assignment_record_id id, AssignmentRecordDebugData* out) const
+    {
+        out->mutate_vis_record_ids.clear();
+        out->read_vis_record_ids.clear();
+        if (id) {
+            const AssignmentRecord& record = get(nodepool::id<AssignmentRecord>{id.node_id});
+            for (auto node_id = record.mutate_vis_records_head_id; node_id; ) {
+                const DefaultAssignmentRecordVisNode& node = get(node_id);
+                out->mutate_vis_record_ids.push_back(node.vis_record_id.id_bits);
+                node_id = node.camspork_next_id;
+            }
+            debug_get_read_vis_record_ids(record, &out->read_vis_record_ids);
+        }
+    }
+
+    void debug_get_barrier_data(barrier_id id, BarrierDebugData* out) const
+    {
+        const HamsterBarrierState& state = get(nodepool::id<HamsterBarrierState>{id.data});
+        out->arrive_count = state.arrive_count;
+        out->await_count = state.await_count;
+        out->flags = state.flags;
+    }
+
     // Get IDs of read visibility records of assignment record.
     void debug_get_read_vis_record_ids(const AssignmentRecord& record, std::vector<uint32_t>* out) const
     {
@@ -2622,12 +2644,14 @@ struct SyncvTable
 
         out->free_on_arrive.data = record.free_on_arrive.id_bits;
         out->qual_tl_mask = record.qual_tl_mask;
+        out->flags = record.flags;
 
         static_assert(sizeof(*out) ==
             sizeof(out->visibility_set)
             + sizeof(out->pending_await_list)
             + sizeof(out->free_on_arrive)
-            + sizeof(out->qual_tl_mask),
+            + sizeof(out->qual_tl_mask)
+            + sizeof(out->flags),
             "Update me to write out new VisRecord state"
         );
     }
@@ -3597,6 +3621,16 @@ void end_no_checking(SyncvTable* table)
 void debug_get_vis_record_data(const SyncvTable* table, uint32_t id, VisRecordDebugData* out)
 {
     table->debug_get_vis_record_data(nodepool::id<VisRecordListNode<VisRecordKind::Default>>{id}, out);
+}
+
+void debug_get_assignment_record_data(const SyncvTable* table, assignment_record_id id, AssignmentRecordDebugData* out)
+{
+    table->debug_get_assignment_record_data(id, out);
+}
+
+void debug_get_barrier_data(const SyncvTable* table, barrier_id id, BarrierDebugData* out)
+{
+    table->debug_get_barrier_data(id, out);
 }
 
 void debug_validate_state(SyncvTable* table, size_t input_count, const SyncvDebugValidateInput* p_inputs)

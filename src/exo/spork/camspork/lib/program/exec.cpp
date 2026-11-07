@@ -98,6 +98,14 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
     StmtRef current_stmt{};
     bool added_error_remark = false;
 
+    struct FileCloser
+    {
+        void operator() (FILE* f) const { fclose(f); }
+    };
+    std::unique_ptr<FILE, FileCloser> trace_file;
+    // barrier_id -> "name[idx]", recorded at BarrierEnvAlloc; PendingAwaits outlive the barrier's var slot.
+    std::unordered_map<uint32_t, std::string> trace_barrier_names;
+
   public:
     ProgramExec(ProgramEnv* p_self, SinglePositionFilter _single_position_filter)
       : buffer_size(p_self->program_buffer_size)
@@ -108,6 +116,118 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         if (single_position_filter) {
             single_position_all_ones = std::vector<extent_t>(single_position_filter.idx.size(), 1);
         }
+        if (!env.trace_filename.empty()) {
+            trace_file.reset(fopen(env.trace_filename.c_str(), "w"));
+            if (!trace_file) {
+                throw std::runtime_error(env.trace_filename + ": " + strerror(errno));
+            }
+        }
+    }
+
+    // ******************************************************************************************
+    // Sync env trace (testing). Reads SyncvTable state with the debug inspection interface only.
+    // ******************************************************************************************
+    template <typename Node>
+    void trace_sync(const Node* node, const char* phase, const char* stmt_name, const ThreadCuboid& cuboid)
+    {
+        if (!trace_file) {
+            return;
+        }
+        SyncvTable* table = env.p_syncv_table.get();
+
+        // barrier_id -> "name[idx]", using names recorded at BarrierEnvAlloc.
+        auto barrier_str = [&] (barrier_id id) -> std::string
+        {
+            if (auto it = trace_barrier_names.find(id.data); it != trace_barrier_names.end()) {
+                return it->second;
+            }
+            // Only for barriers allocated before this traced exec began (e.g. by an earlier exec
+            // on the same or a copied ProgramEnv), i.e. tracing not enabled from the beginning.
+            return "?" + std::to_string(id.data);
+        };
+        auto print_idx = [] (std::ostream& s, const std::vector<extent_t>& idx)
+        {
+            s << "[";
+            for (size_t i = 0; i < idx.size(); ++i) {
+                s << (i ? ", " : "") << idx[i];
+            }
+            s << "]";
+        };
+        auto print_vis_records = [&] (std::ostream& s, const std::vector<uint32_t>& ids)
+        {
+            s << "[";
+            VisRecordDebugData data;
+            for (size_t i = 0; i < ids.size(); ++i) {
+                debug_get_vis_record_data(table, ids[i], &data);
+                s << (i ? ", " : "") << "{\"ob\": [";
+                for (size_t j = 0; j < data.visibility_set.size(); ++j) {
+                    const TlSigInterval& iv = data.visibility_set[j];
+                    s << (j ? ", " : "") << "[" << iv.tid_lo << ", " << iv.tid_hi << ", " << iv.qual_bits << "]";
+                }
+                s << "], \"aw\": [";
+                for (size_t j = 0; j < data.pending_await_list.size(); ++j) {
+                    const PendingAwait& aw = data.pending_await_list[j];
+                    s << (j ? ", " : "") << "[\"" << barrier_str(aw.hamster_barrier_id) << "\", " << aw.arrive_count << "]";
+                }
+                s << "], \"mask\": " << data.qual_tl_mask << ", \"flags\": " << data.flags << "}";
+            }
+            s << "]";
+        };
+
+        // Schema shared with the Python reference writer (camspork_ref.py); "src" is filled in
+        // from stmt_id by the Python parser, since only Python knows the Exo source location.
+        std::stringstream s;
+        s << "{\"phase\": \"" << phase << "\", \"stmt\": \"" << stmt_name << "\""
+          << ", \"stmt_id\": " << env.stmt_ref_from_ptr(node).raw_data
+          << ", \"src\": null, \"threads\": [";
+        bool first_interval = true;
+        cuboid.to_intervals([&] (uint32_t tid_lo, uint32_t tid_hi)
+        {
+            s << (first_interval ? "" : ", ") << "[" << tid_lo << ", " << tid_hi << "]";
+            first_interval = false;
+        });
+        s << "], \"cuboid\": " << cuboid << ", \"probes\": [";
+        for (size_t i = 0; i < env.trace_probes.size(); ++i) {
+            const auto& [name, idx] = env.trace_probes[i];
+            s << (i ? ", " : "") << "{\"var\": \"" << env.str_name(name) << "\", \"idx\": ";
+            print_idx(s, idx);
+            auto in_bounds = [&idx] (const auto& slot) -> bool
+            {
+                if (!slot.data() || slot.extent().size() != idx.size()) {
+                    return false;
+                }
+                for (size_t d = 0; d < idx.size(); ++d) {
+                    if (idx[d] >= slot.extent()[d]) {
+                        return false;
+                    }
+                }
+                return true;
+            };
+            // Not allocated / out-of-range: null.
+            // Scalar slots always look allocated; for scalars, no AssignmentRecord prints as null.
+            const auto& sync_slot = env.sync_slot(name);
+            if (in_bounds(sync_slot) && (!idx.empty() || sync_slot.idx(idx.begin(), idx.end()))) {
+                AssignmentRecordDebugData asn;
+                debug_get_assignment_record_data(table, sync_slot.idx(idx.begin(), idx.end()), &asn);
+                s << ", \"mutate\": ";
+                print_vis_records(s, asn.mutate_vis_record_ids);
+                s << ", \"read\": ";
+                print_vis_records(s, asn.read_vis_record_ids);
+            }
+            else {
+                s << ", \"mutate\": null, \"read\": null";
+            }
+            const auto& barrier_slot = env.barrier_slot(name);
+            // Scalar slots always look allocated; barrier id 0 means no live barrier.
+            if (in_bounds(barrier_slot) && barrier_slot.idx(idx.begin(), idx.end())) {
+                BarrierDebugData bar;
+                debug_get_barrier_data(table, barrier_slot.idx(idx.begin(), idx.end()), &bar);
+                s << ", \"arrive_count\": " << bar.arrive_count << ", \"await_count\": " << bar.await_count;
+            }
+            s << "}";
+        }
+        s << "]}\n";
+        fputs(s.str().c_str(), trace_file.get());
     }
 
     ProgramExec(ProgramEnv* p_self, const char* p_excut_filename, SinglePositionFilter _single_position_filter)
@@ -626,7 +746,9 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         param.L1_qual_bits = node->L1_qual_bits;
         param.L2_qual_bits = node->L2_qual_bits;
         const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
+        trace_sync(node, "before", "Fence", thread_cuboid);
         on_fence(env.p_syncv_table.get(), thread_cuboid, param, prepare_logger(node, thread_cuboid));
+        trace_sync(node, "after", "Fence", thread_cuboid);
         env.maybe_syncv_debug_validate();
     }
 
@@ -642,7 +764,9 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         // Pass to SyncvTable.
         const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
         try {
+            trace_sync(node, "before", "Arrive", thread_cuboid);
             on_arrive(env.p_syncv_table.get(), thread_cuboid, param, prepare_logger(node, thread_cuboid));
+            trace_sync(node, "after", "Arrive", thread_cuboid);
         }
         catch (const SyncvBarrierFail& exc) {
             on_barrier_fail(exc, env.stmt_ref_from_ptr(node), node->name);
@@ -723,7 +847,9 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         // Pass to SyncvTable.
         const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
         try {
+            trace_sync(node, "before", "Await", thread_cuboid);
             on_await(env.p_syncv_table.get(), thread_cuboid, param, prepare_logger(node, thread_cuboid));
+            trace_sync(node, "after", "Await", thread_cuboid);
         }
         catch (const SyncvBarrierFail& exc) {
             on_barrier_fail(exc, env.stmt_ref_from_ptr(node), node->name);
@@ -736,7 +862,9 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
     {
         SyncvJoinThreads param{};
         const ThreadCuboid& thread_cuboid = env.prepare_thread_cuboid();
+        trace_sync(node, "before", "JoinThreads", thread_cuboid);
         on_join_threads(env.p_syncv_table.get(), thread_cuboid, param, prepare_logger(node, thread_cuboid));
+        trace_sync(node, "after", "JoinThreads", thread_cuboid);
     }
 
     void exec_impl(const ValueEnvAlloc* node)
@@ -942,6 +1070,14 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
 
         // Allocate new barrier IDs.
         alloc_barriers(env.p_syncv_table.get(), slot.size(), slot.data(), node->flags);
+        if (trace_file) {
+            for (size_t i = 0; i < slot.size(); ++i) {
+                std::stringstream s;
+                s << env.str_name(node->name);
+                print_idx_helper(s, slot.idx_from_linear(i));
+                trace_barrier_names[slot.data()[i].data] = s.str();
+            }
+        }
         log_barrier_helper(env.str_name(node->name), slot, {});
         env.maybe_syncv_debug_validate();
     }
@@ -1510,6 +1646,23 @@ int camspork_set_history_enable(camspork::ProgramEnv* p_env, uint32_t flag)
 {
     CAMSPORK_API_PROLOGUE
     p_env->set_history_enable(flag);
+    return 1;
+    CAMSPORK_API_EPILOGUE(0)
+}
+
+int camspork_set_trace_filename(camspork::ProgramEnv* p_env, const char* filename)
+{
+    CAMSPORK_API_PROLOGUE
+    p_env->set_trace_filename(filename ? filename : "");
+    return 1;
+    CAMSPORK_API_EPILOGUE(0)
+}
+
+int camspork_add_trace_probe(
+        camspork::ProgramEnv* p_env, camspork::Varname name, uint32_t dims, const camspork::extent_t* idx)
+{
+    CAMSPORK_API_PROLOGUE
+    p_env->add_trace_probe(name, std::vector<camspork::extent_t>(idx, idx + dims));
     return 1;
     CAMSPORK_API_EPILOGUE(0)
 }
