@@ -11,6 +11,7 @@ from exo.API import (
     memwin_template,
     MemIncludeC,
 )
+from exo.spork.timelines import QualMaskClass
 from exo.scalars import ScalarInfo, e4m3, e5m2, e8m0, f16, bf16, f32
 
 # Don't import from Sm90 here to avoid circular imports
@@ -150,6 +151,10 @@ def CudaTkWarpTile(r, c, layout="row"):
 
         qual_tl_dict = cuda_rmem_qual_tl_dict
 
+        @classmethod
+        def qual_mask_class(cls):
+            return QualMaskClass.cuda_rmem
+
         # Convenience attributes for the user
         rows = r
         cols = c
@@ -232,6 +237,10 @@ def CudaTkWarpVec(length, layout):
             return cuda_warp
 
         qual_tl_dict = cuda_rmem_qual_tl_dict
+
+        @classmethod
+        def qual_mask_class(cls):
+            return QualMaskClass.cuda_rmem
 
         # Convenience attributes for the user
         length = _length

@@ -31,6 +31,7 @@ from ..spork.timelines import (
     InstrQuals,
     cpu_basic_device,
     Qual_tl,
+    QualMaskClass,
     cpu_in_order_qual,
     cpu_cuda_stream_qual,
 )
@@ -393,10 +394,23 @@ class MemWin(ABC):
         return 0
 
     @classmethod
+    def qual_mask_class(cls) -> QualMaskClass:
+        """Mask class of all qual-tl applicable to this memory type.
+
+        Must be implemented by memory types that are not sync_exempt().
+        See Qual_tl docstring."""
+        raise NotImplementedError(f"{cls.name()}.qual_mask_class()")
+
+    @classmethod
     def make_qual_tl_mask(cls):
-        bits = 0
+        """Do not override; all qual-tl with mask class qual_mask_class()"""
+        mask_class = cls.qual_mask_class()
+        bits = Qual_tl.get_mask_class_bits(mask_class)
         for v in cls.qual_tl_dict.values():
-            bits |= Qual_tl.make_bits(v)
+            assert (Qual_tl.make_bits(v) & ~bits) == 0, (
+                f"{cls.name()}: qual_tl_dict has qual-tl {list(v)} "
+                f"outside mask class {mask_class}"
+            )
         return bits
 
     @classmethod
@@ -526,6 +540,10 @@ class SpecialWindow(MemWin):
         # what happens if this disagrees with the underlying Memory
         # (due e.g. to inheritance)
         return cls.source_memory_type().sync_exempt()
+
+    @classmethod
+    def qual_mask_class(cls) -> QualMaskClass:
+        return cls.source_memory_type().qual_mask_class()
 
     # Remember to implement everything in base class MemWin as well
 

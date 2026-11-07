@@ -47,6 +47,7 @@ class CudaBasicDeviceVisible(Memory):
     * device_permission, using one of the _impl functions
     * qual_tl_dict (usually timelines.cuda_ram_qual_tl_dict
       or timelines.cuda_rmem_qual_tl_dict)
+    * qual_mask_class (usually QualMaskClass.data_ram or cuda_rmem)
     * native_unit, if allocable on the CUDA device.
 
     NB SpecialWindow, BarrierMechanism are not Memory.
@@ -193,6 +194,10 @@ class CudaBasicSmem(CudaBasicDeviceVisible):
 
     qual_tl_dict = timelines.cuda_ram_qual_tl_dict
 
+    @classmethod
+    def qual_mask_class(cls):
+        return timelines.QualMaskClass.data_ram
+
 
 class CudaDeviceVisibleAtomicity16B(CudaBasicDeviceVisible):
     """Any memory in swizzled C array order visible to the CUDA device,
@@ -260,6 +265,10 @@ class CudaGridConstant(CudaDeviceVisibleLinear, DRAM):
         return cls.grid_constant_impl(device, instr_tl)
 
     qual_tl_dict = timelines.cuda_ram_qual_tl_dict
+
+    @classmethod
+    def qual_mask_class(cls):
+        return timelines.QualMaskClass.data_ram
 
 
 gmem_code = """
@@ -349,6 +358,10 @@ class CudaGmemLinear(CudaDeviceVisibleLinear, CudaGmemAtomicity16B):
 
     qual_tl_dict = timelines.cuda_ram_qual_tl_dict
 
+    @classmethod
+    def qual_mask_class(cls):
+        return timelines.QualMaskClass.data_ram
+
 
 class CudaSmemAtomicity16B(CudaDeviceVisibleAtomicity16B, CudaBasicSmem):
     """Any shared memory with CudaDeviceVisibleAtomicity16B requirements met.
@@ -368,6 +381,10 @@ class CudaSmemLinear(CudaDeviceVisibleLinear, CudaSmemAtomicity16B):
         return SmemConfig(inputs.make_reftype())
 
     qual_tl_dict = timelines.cuda_ram_qual_tl_dict
+
+    @classmethod
+    def qual_mask_class(cls):
+        return timelines.QualMaskClass.data_ram
 
 
 class CudaRmemLinear(CudaDeviceVisibleLinear):
@@ -406,6 +423,10 @@ class CudaRmemLinear(CudaDeviceVisibleLinear):
         return cuda_thread
 
     qual_tl_dict = timelines.cuda_rmem_qual_tl_dict
+
+    @classmethod
+    def qual_mask_class(cls):
+        return timelines.QualMaskClass.cuda_rmem
 
 
 CudaRmem = CudaRmemLinear  # TODO consider removing alias
@@ -459,6 +480,10 @@ def CudaRmemUniform(n_threads):
             return coll_unit
 
         qual_tl_dict = timelines.cuda_rmem_qual_tl_dict
+
+        @classmethod
+        def qual_mask_class(cls):
+            return timelines.QualMaskClass.cuda_rmem
 
     return Impl
 
@@ -568,6 +593,10 @@ class CudaRmemPacked32(CudaBasicDeviceVisible):
 
     qual_tl_dict = timelines.cuda_rmem_qual_tl_dict
 
+    @classmethod
+    def qual_mask_class(cls):
+        return timelines.QualMaskClass.cuda_rmem
+
 
 class CudaBasicDeviceBarrier(BarrierMechanism):
     @classmethod
@@ -622,6 +651,10 @@ class CudaMbarrier(CudaBasicDeviceBarrier):
         return True
 
     qual_tl_dict = timelines.cuda_mbarrier_qual_tl_dict
+
+    @classmethod
+    def qual_mask_class(cls):
+        return timelines.QualMaskClass.mbarrier
 
     @classmethod
     def native_unit(cls) -> CollUnit:

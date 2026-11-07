@@ -153,6 +153,15 @@ class QualProxyClass(Enum):
     neither = auto()
 
 
+class QualMaskClass(Enum):
+    """Qual-tl mask class of a Qual_tl; see Qual_tl docstring"""
+
+    data_ram = auto()
+    cuda_rmem = auto()
+    mbarrier = auto()
+    tcgen05 = auto()
+
+
 class Qual_tl(object):
     """Property a specific access (read/mutate) on a memory location.
 
@@ -174,11 +183,28 @@ class Qual_tl(object):
     and a proxy class (proxy_class: QualProxyClass), used for proxy fence codegen
 
       * generic_ram: non-register memory accessed through the generic proxy.
+        Also CPU and stream-ordered accesses, so that all data RAM qual-tls
+        are either generic or async (see mask class below). Such accesses
+        are only ordered with CUDA by stream syncs, which include generic
+        qual-tls in their first sync-tl anyway, so no extra proxy fences result.
       * async_ram: non-register memory accessed through the async proxy.
-      * neither: registers, mbarriers, CPU, and stream-ordered accesses.
+      * neither: registers, mbarriers, and tcgen05 tensor memory.
         NB cuda_mbarrier_qual must be neither, and must never be in the
         qual-tl mask of data RAM, so that sync-check can't transitively
         carry generic -> async ordering without a codegen'd proxy fence.
+
+    and a mask class (mask_class: QualMaskClass). The qual-tl mask
+    (MemWin.make_qual_tl_mask) of a memory type is the set of all
+    qual-tl with the memory type's mask class (MemWin.qual_mask_class).
+
+      * data_ram: CPU and random-addressable (GMEM/SMEM) memory.
+      * cuda_rmem: CUDA registers.
+      * mbarrier: mbarriers.
+      * tcgen05: tcgen05 tensor memory.
+
+    The mask class is data_ram iff the proxy class is not neither.
+    This lets analysis of data accesses cleanly separate observers
+    as generic or async, to identify where proxy fences are needed.
 
     """
 
@@ -189,6 +215,7 @@ class Qual_tl(object):
         "_default_convergent_access",
         "_impl_class",
         "_proxy_class",
+        "_mask_class",
     ]
     _bit_index: int
     _bit: int
@@ -196,14 +223,21 @@ class Qual_tl(object):
     _default_convergent_access: bool
     _impl_class: QualImplClass
     _proxy_class: QualProxyClass
+    _mask_class: QualMaskClass
 
     _from_bit_index = []
 
-    def __init__(self, name, default_convergent_access, impl_class, proxy_class):
+    def __init__(
+        self, name, default_convergent_access, impl_class, proxy_class, mask_class
+    ):
         assert name.endswith("_qual"), "naming convention"
         assert isinstance(default_convergent_access, bool)
         assert isinstance(impl_class, QualImplClass), impl_class
         assert isinstance(proxy_class, QualProxyClass), proxy_class
+        assert isinstance(mask_class, QualMaskClass), mask_class
+        assert (mask_class == QualMaskClass.data_ram) == (
+            proxy_class != QualProxyClass.neither
+        ), f"{name}: mask class data_ram iff proxy class is not neither"
         self._bit_index = len(self._from_bit_index)
         assert self._bit_index <= 31, "camspork::qual_bits_t would overflow"
         self._bit = 1 << self._bit_index
@@ -212,6 +246,7 @@ class Qual_tl(object):
         self._default_convergent_access = default_convergent_access
         self._impl_class = impl_class
         self._proxy_class = proxy_class
+        self._mask_class = mask_class
 
     def __repr__(self):
         return self._name
@@ -230,6 +265,9 @@ class Qual_tl(object):
 
     def proxy_class(self) -> QualProxyClass:
         return self._proxy_class
+
+    def mask_class(self) -> QualMaskClass:
+        return self._mask_class
 
     def out_of_order(self) -> bool:
         return self._impl_class == QualImplClass.out_of_order
@@ -266,6 +304,13 @@ class Qual_tl(object):
         )
 
     @classmethod
+    def get_mask_class_bits(cls, mask_class: QualMaskClass) -> int:
+        assert isinstance(mask_class, QualMaskClass), mask_class
+        return cls.make_bits(
+            q for q in cls._from_bit_index if q._mask_class == mask_class
+        )
+
+    @classmethod
     def get_all_out_of_order_bits(cls) -> int:
         return cls.get_impl_class_bits(QualImplClass.out_of_order)
 
@@ -278,29 +323,50 @@ class Qual_tl(object):
 
 if True:
     # fmt: off
-    cpu_in_order_qual = Qual_tl("cpu_in_order_qual", True, QualImplClass.in_order, QualProxyClass.neither)
-    cpu_cuda_stream_qual = Qual_tl("cpu_cuda_stream_qual", True, QualImplClass.in_order, QualProxyClass.neither)
-    cuda_in_order_rmem_qual = Qual_tl("cuda_in_order_rmem_qual", True, QualImplClass.in_order, QualProxyClass.neither)
-    cuda_in_order_ram_qual = Qual_tl("cuda_in_order_ram_qual", False, QualImplClass.in_order, QualProxyClass.generic_ram)
-    cuda_generic_atomic_qual = Qual_tl("cuda_generic_atomic_qual", False, QualImplClass.atomic, QualProxyClass.generic_ram)
-    cuda_mbarrier_qual = Qual_tl("cuda_mbarrier_qual", False, QualImplClass.in_order, QualProxyClass.neither)
+    cpu_in_order_qual = Qual_tl("cpu_in_order_qual", True,
+        QualImplClass.in_order, QualProxyClass.generic_ram, QualMaskClass.data_ram)
+    cpu_cuda_stream_qual = Qual_tl("cpu_cuda_stream_qual", True,
+        QualImplClass.in_order, QualProxyClass.generic_ram, QualMaskClass.data_ram)
+    cuda_in_order_rmem_qual = Qual_tl("cuda_in_order_rmem_qual", True,
+        QualImplClass.in_order, QualProxyClass.neither, QualMaskClass.cuda_rmem)
+    cuda_in_order_ram_qual = Qual_tl("cuda_in_order_ram_qual", False,
+        QualImplClass.in_order, QualProxyClass.generic_ram, QualMaskClass.data_ram)
+    cuda_generic_atomic_qual = Qual_tl("cuda_generic_atomic_qual", False,
+        QualImplClass.atomic, QualProxyClass.generic_ram, QualMaskClass.data_ram)
+    cuda_mbarrier_qual = Qual_tl("cuda_mbarrier_qual", False,
+        QualImplClass.in_order, QualProxyClass.neither, QualMaskClass.mbarrier)
     # Non-bulk cp.async is generic proxy in sm_90+ terminology
-    Sm80_cp_async_qual = Qual_tl("Sm80_cp_async_qual", False, QualImplClass.out_of_order, QualProxyClass.generic_ram)
-    tma_to_smem_async_qual = Qual_tl("tma_to_smem_async_qual", False, QualImplClass.out_of_order, QualProxyClass.async_ram)
-    tma_to_gmem_async_qual = Qual_tl("tma_to_gmem_async_qual", False, QualImplClass.out_of_order, QualProxyClass.async_ram)
-    tma_to_gmem_atomic_qual = Qual_tl("tma_to_gmem_atomic_qual", False, QualImplClass.atomic, QualProxyClass.async_ram)
-    wgmma_async_rmem_a_qual = Qual_tl("wgmma_async_rmem_a_qual", True, QualImplClass.out_of_order, QualProxyClass.neither)
+    Sm80_cp_async_qual = Qual_tl("Sm80_cp_async_qual", False,
+        QualImplClass.out_of_order, QualProxyClass.generic_ram, QualMaskClass.data_ram)
+    tma_to_smem_async_qual = Qual_tl("tma_to_smem_async_qual", False,
+        QualImplClass.out_of_order, QualProxyClass.async_ram, QualMaskClass.data_ram)
+    tma_to_gmem_async_qual = Qual_tl("tma_to_gmem_async_qual", False,
+        QualImplClass.out_of_order, QualProxyClass.async_ram, QualMaskClass.data_ram)
+    tma_to_gmem_atomic_qual = Qual_tl("tma_to_gmem_atomic_qual", False,
+        QualImplClass.atomic, QualProxyClass.async_ram, QualMaskClass.data_ram)
+    wgmma_async_rmem_a_qual = Qual_tl("wgmma_async_rmem_a_qual", True,
+        QualImplClass.out_of_order, QualProxyClass.neither, QualMaskClass.cuda_rmem)
     # in-order relative to other wgmma, not to the thread's other instructions
-    wgmma_async_rmem_d_qual = Qual_tl("wgmma_async_rmem_d_qual", True, QualImplClass.in_order, QualProxyClass.neither)
-    wgmma_rmem_fenced_qual = Qual_tl("wgmma_rmem_fenced_qual", True, QualImplClass.in_order, QualProxyClass.neither)
-    wgmma_async_smem_qual = Qual_tl("wgmma_async_smem_qual", False, QualImplClass.out_of_order, QualProxyClass.async_ram)
-    cuda_async_proxy_retired_qual = Qual_tl("cuda_async_proxy_retired_qual", False, QualImplClass.in_order, QualProxyClass.async_ram)
-    tcgen05_smem_qual = Qual_tl("tcgen05_smem_qual", False, QualImplClass.out_of_order, QualProxyClass.async_ram)
-    tcgen05_mma_tmem_qual = Qual_tl("tcgen05_mma_tmem_qual", True, QualImplClass.in_order, QualProxyClass.neither)
-    tcgen05_cp_tmem_qual = Qual_tl("tcgen05_cp_tmem_qual", True, QualImplClass.in_order, QualProxyClass.neither)
-    tcgen05_shift_qual = Qual_tl("tcgen05_shift_qual", True, QualImplClass.in_order, QualProxyClass.neither)
-    tcgen05_ld_qual = Qual_tl("tcgen05_ld_qual", True, QualImplClass.in_order, QualProxyClass.neither)
-    tcgen05_st_qual = Qual_tl("tcgen05_st_qual", True, QualImplClass.in_order, QualProxyClass.neither)
+    wgmma_async_rmem_d_qual = Qual_tl("wgmma_async_rmem_d_qual", True,
+        QualImplClass.in_order, QualProxyClass.neither, QualMaskClass.cuda_rmem)
+    wgmma_rmem_fenced_qual = Qual_tl("wgmma_rmem_fenced_qual", True,
+        QualImplClass.in_order, QualProxyClass.neither, QualMaskClass.cuda_rmem)
+    wgmma_async_smem_qual = Qual_tl("wgmma_async_smem_qual", False,
+        QualImplClass.out_of_order, QualProxyClass.async_ram, QualMaskClass.data_ram)
+    cuda_async_proxy_retired_qual = Qual_tl("cuda_async_proxy_retired_qual", False,
+        QualImplClass.in_order, QualProxyClass.async_ram, QualMaskClass.data_ram)
+    tcgen05_smem_qual = Qual_tl("tcgen05_smem_qual", False,
+        QualImplClass.out_of_order, QualProxyClass.async_ram, QualMaskClass.data_ram)
+    tcgen05_mma_tmem_qual = Qual_tl("tcgen05_mma_tmem_qual", True,
+        QualImplClass.in_order, QualProxyClass.neither, QualMaskClass.tcgen05)
+    tcgen05_cp_tmem_qual = Qual_tl("tcgen05_cp_tmem_qual", True,
+        QualImplClass.in_order, QualProxyClass.neither, QualMaskClass.tcgen05)
+    tcgen05_shift_qual = Qual_tl("tcgen05_shift_qual", True,
+        QualImplClass.in_order, QualProxyClass.neither, QualMaskClass.tcgen05)
+    tcgen05_ld_qual = Qual_tl("tcgen05_ld_qual", True,
+        QualImplClass.in_order, QualProxyClass.neither, QualMaskClass.cuda_rmem)
+    tcgen05_st_qual = Qual_tl("tcgen05_st_qual", True,
+        QualImplClass.in_order, QualProxyClass.neither, QualMaskClass.cuda_rmem)
     # fmt: on
 
 

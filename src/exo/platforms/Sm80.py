@@ -11,6 +11,7 @@ from ..spork.timelines import (
     Sm80_cp_async_instr,
     Sm80_generic,
     cuda_rmem_qual_tl_dict,
+    QualMaskClass,
     cuda_in_order_ram_qual,
     cuda_generic_atomic_qual,
 )
@@ -323,6 +324,10 @@ class Sm80_BasicRmemMatrix(CudaBasicDeviceVisible):
         return cls.device_allocated_impl(device, instr_tl)
 
     qual_tl_dict = cuda_rmem_qual_tl_dict
+
+    @classmethod
+    def qual_mask_class(cls):
+        return QualMaskClass.cuda_rmem
 
     @classmethod
     def native_unit(cls):
