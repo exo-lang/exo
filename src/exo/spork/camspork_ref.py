@@ -7,7 +7,8 @@ marked DEVIATION or OPT. Thread IDs are hand-computed by the test author (like e
 reference generators), so the Exo -> camspork lowering of parallel loops is checked
 independently.
 
-Current scope: no mbarriers, managed ring buffers, atomics, or multi-dimensional tasks.
+Current scope: no mbarriers, managed ring buffers, or multi-dimensional tasks.
+Atomics follow the spec (Tid x Q_atom, masked; needs exo 7c82d4a0's QtlMask).
 The trace only samples sync statements, so a test must never leave an access without
 a later sync (otherwise the access is invisible).
 
@@ -280,9 +281,10 @@ class SyncEnvRef:
 
     all_threads: Tids = ((0, CPU_HI),)  # amspork3 Tid; camspork's "CPU" cuboid
 
-    def __init__(self, probes, threads_per_task: int):
+    def __init__(self, probes, threads_per_task: int, *, discard_reads_on_mutate=True):
         self.probes = [(var, tuple(idx)) for var, idx in probes]
         self.threads_per_task = threads_per_task
+        self.discard_reads_on_mutate = discard_reads_on_mutate
         # (var, idx) -> {"mutate": [VisRecord], "read": [VisRecord]}
         self.env: Dict[Tuple[str, tuple], Dict[str, List[VisRecord]]] = {}
         self.shapes: Dict[str, tuple] = {}
@@ -373,10 +375,6 @@ class SyncEnvRef:
                     aw_post=aw_post,
                 )
             return
-        if atomic_bits:
-            # Spec (envConcatPost) masks Tid x Q_atom; camspork wrongly doesn't, and
-            # Exo's QtlMask lacks atomic qual-tls (plan_camspork_test.md, deviation 2).
-            raise NotImplementedError("atomics: blocked on QtlMask fix")
         tids = as_tids(tids)
         state = self.env[(var, tuple(idx))]
         # Pre: one TrPreAccess for all threads (convergent) or one per thread.
@@ -385,9 +383,10 @@ class SyncEnvRef:
             var,
             idx,
             [tids] if convergent else tids_split(tids),
-            precondition_bits,
+            precondition_bits
+            | atomic_bits,  # atomic accesses also accept atomic observers
         )
-        # Post: ObOut = Tid_post x {q_init}, masked (envConcatPost).
+        # Post: ObOut = Tid_post x {q_init} U Tid x Q_atom, masked (envConcatPost).
         if convergent:
             post_groups = [tids]
         else:
@@ -399,10 +398,14 @@ class SyncEnvRef:
         new = []
         for g in post_groups:
             rec = VisRecord(frozenset(), aw_post, mask)
-            new.append(replace(rec, ob=rec.mask_ob(obs(g, initial_bit))))
-        # OPT (SyncEnvImpl.tex): a mutate discards prior reads. Prior mutates are kept.
+            ob_out = ob_union(obs(g, initial_bit), obs(self.all_threads, atomic_bits))
+            new.append(replace(rec, ob=rec.mask_ob(ob_out)))
+        # OPT (camspork): a mutate discards prior reads. UNSOUND across tasks
+        # (test_read_then_reduce_*); discard_reads_on_mutate=False gives spec semantics.
+        # Prior mutates are kept.
         if is_mutate:
-            state["read"] = []
+            if self.discard_reads_on_mutate:
+                state["read"] = []
             state["mutate"] = state["mutate"] + new
         else:
             state["read"] = state["read"] + new

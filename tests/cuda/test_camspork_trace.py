@@ -8,11 +8,19 @@ Tests never leave an access without a later sync (the trace only samples sync ev
 
 from __future__ import annotations
 
+import pytest
+
 from exo import proc, instr
 from exo.platforms.cuda import *
 from exo.platforms.Sm80 import *
+from exo.platforms.Sm90 import *
+from exo.stdlib.scheduling import simplify
 from exo.spork import timelines
-from exo.spork.timelines import cuda_in_order_instr, Sm80_cp_async_instr
+from exo.spork.timelines import (
+    cuda_in_order_instr,
+    Sm80_cp_async_instr,
+    tma_to_gmem_async_instr,
+)
 from exo.spork.camspork_ref import (
     SyncEnvRef,
     check_both_fail,
@@ -505,3 +513,116 @@ def test_missing_fence_negative(compiler):
         ref.cuda_device_function(lambda: ref.device_task(0, task_body))
 
     check_both_fail(mkproc_missing_fence(), mkref)
+
+
+# =============================================================================
+# Cross-task WAR hidden by "a mutate discards prior reads" (camspork OPT)
+#
+# Each task: generic read of g[0, 0], Fence(generic -> async), TMA reduce (atomic)
+# into g. No hazard within a task. With 2 tasks, task 1's TMA reduce races task 0's
+# read (WAR), but camspork discarded task 0's read record at task 0's own reduce.
+# If every task reads, task 1's read already fails (RAW vs task 0's reduce), which
+# masks the WAR; so the unsound case has only task 0 read.
+# =============================================================================
+
+
+def mkproc_read_then_reduce(n_tasks, only_task0_reads):
+    rd_hi = 1 if only_task0_reads else n_tasks
+
+    # fmt: off
+    @proc
+    def read_then_reduce(g: f32[8, 8] @ CudaGmemLinear):
+        g_tmap = g[:, :] @ Sm90_tensorMap(0, 8, 8)
+        with CudaDeviceFunction(blockDim=32):
+            for task in cuda_tasks(0, n_tasks):
+                smem: f32[8, 8] @ CudaSmemLinear
+                for m in cuda_threads(0, 8):
+                    for k in seq(0, 8):
+                        smem[m, k] = 0
+                if task < rd_hi:
+                    for t in cuda_threads(0, 1):
+                        r: f32 @ CudaRmem
+                        r = g[0, 0]
+                Fence(cuda_in_order, cuda_generic_and_async_proxy)
+                with CudaWarps(0, 1):
+                    Sm90_tma_reduce_add_2d(
+                        g_tmap[0:8, 0:8], smem[:, :],
+                        dst=f32, src=f32, size0=8, size1=8, smem_box=(8, 8), swizzle=0,
+                    )
+                    cg: barrier @ Sm90_TmaCommitGroup
+                    Arrive(tma_to_gmem_async, 1) >> cg
+                    Await(cg, cuda_in_order, 0)
+    # fmt: on
+    return simplify(read_then_reduce)
+
+
+def mkref_read_then_reduce(n_tasks, only_task0_reads, discard_reads_on_mutate=True):
+    rd_hi = 1 if only_task0_reads else n_tasks
+    ref = SyncEnvRef(
+        [("g", (0, 0)), ("g", (7, 7)), ("smem", (0, 0)), ("cg", ())],
+        threads_per_task=32,
+        discard_reads_on_mutate=discard_reads_on_mutate,
+    )
+    generic_and_async = timelines.cuda_generic_and_async_proxy.get_timeline_set_bits()
+    tma_L1 = timelines.tma_to_gmem_async.get_timeline_set_bits()
+    # TMA operands: out-of-order, non-convergent; TAG 32 since the commit-group
+    # Arrive witnessing them is executed by one warp. dst is an atomic reduce.
+    tma_dst = qual_info(CudaGmemLinear, tma_to_gmem_async_instr)
+    tma_src = qual_info(CudaSmemLinear, tma_to_gmem_async_instr)
+    atomic = timelines.tma_to_gmem_atomic_qual.as_bit()
+    ref.alloc("g", (8, 8))
+
+    def task_body(task):
+        base = task * 32
+        tt = ref.task_threads(task)
+        ref.alloc("smem", (8, 8))
+        for m in range(8):
+            for k in range(8):
+                ref.mutate("smem", (m, k), [base + m], **smem(convergent=True))
+        if task < rd_hi:
+            # r = g[0, 0] (r is CudaRmem, not probed: not modeled)
+            ref.read("g", (0, 0), [base], **gmem(convergent=True))
+        ref.fence(tt, IN_ORDER, generic_and_async)
+        ref.mutate(
+            "g", (0, 0), tt, extent=(8, 8), tag=32, atomic_bits=atomic, **tma_dst
+        )
+        ref.read("smem", (0, 0), tt, extent=(8, 8), tag=32, **tma_src)
+        ref.alloc_barrier("cg", ())
+        ref.arrive(tt, tma_L1, "cg")
+        ref.await_(tt, IN_ORDER, "cg", 0)
+        ref.free_barrier("cg")
+        free_smem(ref, "smem", task)
+
+    def device_body():
+        for task in range(n_tasks):
+            ref.device_task(task, lambda: task_body(task), depth=1)
+
+    ref.cuda_device_function(device_body)
+    return ref
+
+
+def test_read_then_reduce_1_task(compiler, tmp_path):
+    errors = check_trace(
+        mkproc_read_then_reduce(1, False), mkref_read_then_reduce(1, False), tmp_path
+    )
+    assert_no_errors(errors)
+
+
+def test_read_then_reduce_2_tasks_all_read_negative(compiler):
+    """Both reject, but via task 1's read (RAW vs task 0's reduce), masking the WAR."""
+    check_both_fail(
+        mkproc_read_then_reduce(2, False), lambda: mkref_read_then_reduce(2, False)
+    )
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="camspork's 'mutate discards prior reads' hides the cross-task WAR",
+)
+def test_read_then_reduce_2_tasks_negative(compiler):
+    """Only task 0 reads: task 1's TMA reduce must be rejected (WAR vs task 0's read).
+    The reference uses spec semantics (reads kept); camspork accepts today."""
+    check_both_fail(
+        mkproc_read_then_reduce(2, True),
+        lambda: mkref_read_then_reduce(2, True, discard_reads_on_mutate=False),
+    )
