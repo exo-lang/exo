@@ -135,21 +135,14 @@ class ProgramExec : public ProgramExecLogBase<AllowLog>
         }
         SyncvTable* table = env.p_syncv_table.get();
 
-        // barrier_id -> "name[idx]": names recorded at allocation, else reverse lookup.
+        // barrier_id -> "name[idx]", using names recorded at BarrierEnvAlloc.
         auto barrier_str = [&] (barrier_id id) -> std::string
         {
             if (auto it = trace_barrier_names.find(id.data); it != trace_barrier_names.end()) {
                 return it->second;
             }
-            for (VarSlotEnvs& var_slot : env.var_slots) {
-                std::vector<extent_t> idx;
-                if (var_slot.barrier.data() && var_slot.barrier.find_idx(id, idx)) {
-                    std::stringstream s;
-                    s << var_slot.name;
-                    print_idx_helper(s, idx);
-                    return s.str();
-                }
-            }
+            // Only for barriers allocated before this traced exec began (e.g. by an earlier exec
+            // on the same or a copied ProgramEnv), i.e. tracing not enabled from the beginning.
             return "?" + std::to_string(id.data);
         };
         auto print_idx = [] (std::ostream& s, const std::vector<extent_t>& idx)
