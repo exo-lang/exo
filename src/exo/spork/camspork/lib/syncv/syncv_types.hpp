@@ -17,6 +17,10 @@ inline constexpr uint32_t one_shot_await_flag = 2;
 inline constexpr uint32_t vis_record_before_alloc_flag = 1;
 inline constexpr uint32_t vis_record_freed_flag = 2;  // For abstract machine use-after-free error, not free in C++.
 
+// Assignment record: this is a concept that exists only in this old syncv code
+// and has long vanished from the theory. This is the storing, for a specific x[z^*],
+// all the "read visibility records" matching env(read, x, z^*)
+// and all the "mutate visibility records" matching env(mutate, x, z^*).
 struct assignment_record_id
 {
     uint32_t node_id = 0;
