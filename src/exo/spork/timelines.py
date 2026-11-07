@@ -663,7 +663,7 @@ cuda_mbarrier_only = Sync_tl(
 Typical usage: first and second sync-tl for the "buffer free"
 Arrive/Await before TMA overwrites SMEM previously read by the async
 proxy (e.g. by wgmma), and can also reasonably be the first sync-tl of
-the "data read" Arrive after TMA GMEM-to-SMEM load.
+the "data ready" Arrive after TMA GMEM-to-SMEM load.
 """
 cuda_async_proxy_retired = Sync_tl(
     "cuda_async_proxy_retired",
